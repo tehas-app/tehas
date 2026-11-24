@@ -243,15 +243,16 @@ nothing of 120. Nothing is removed while a cycle holds that issue's lock, and a
 cycle that still holds it after the stop is left whole and said.
 
 Its last step is the issue's own. When it stopped or removed something on this
-host, and nothing of that failed, it reads the labels of issue 12
-(`gh issue view 12 --repo <repo> --json labels --jq '.labels[].name'`) and takes
-`tehas:running` off when it is there and no cycle of issue 12 holds its lock
-again (`gh issue edit 12 --repo <repo> --remove-label tehas:running`), said as
-`removed tehas:running from #12`. It adds no other label and writes no comment.
+host, and nothing of that failed, it reads issue 12 through the tickets port
+(`several`, see [the forge](forge.md)) and takes `tehas:running` off when it is
+there and no cycle of issue 12 holds its lock again (`unmark`), said as
+`removed tehas:running from #12`. Both go through the `gh` on `PATH`. It adds
+no other label and writes no comment.
 A run that found nothing to do here makes no GitHub call, and a stop whose host
 part failed leaves the label where it is: while a container still works on with
 the bot's token, `tehas:running` is what the poll needs to park the issue. Each
-call gets 10 seconds. A label it cannot read is said as `WARN: the labels of #12
+call gets 10 seconds, and one that has not ended 5 seconds after it is asked
+to stop is killed. A label it cannot read is said as `WARN: the labels of #12
 could not be read, so tehas:running stays on the issue`, one it cannot take off
 as `WARN: tehas:running could not be taken off #12`, and a cycle that took this
 issue's lock again while the host was cleared as `WARN: a cycle for #12 holds
@@ -261,13 +262,16 @@ GitHub for nothing: the label then goes by hand, or the poll parks the issue.
 For the third there is a cycle of issue 12 on this host, and that cycle owns
 `tehas:running`: it takes the label off when it ends, and taking it off by hand
 while it runs takes the label out from under it. Running this again ends that
-cycle too, as stopping any other cycle does.
+cycle too, as stopping any other cycle does. A number that is not an issue
+of this project, a pull request's number or no item at all, is said on stderr
+as `#12 is not an issue; tehas stops only issues`, exit 1, and nothing is
+taken off: no read failed, so no warning about the labels is said.
 
 Exit 0 when the leftovers are gone or there was nothing to do, 1 when the cycle
 still holds its lock after the stop, something could not be removed,
 `tehas:running` could not be read or taken off the issue, or a cycle of that
-issue took its lock again before the label was read, or the cycle's record
-could not be read or ended, 64 with no issue number, an issue that is not a
+issue took its lock again before the label was read, the number is not an
+issue, or the cycle's record could not be read or ended, 64 with no issue number, an issue that is not a
 positive number, or an argument it does not know, 78 when the instance
 settings are missing or malformed or the state store is not installed or
 cannot be used, which changes nothing.
@@ -305,7 +309,13 @@ the base images.
 Exit 0; 1 the fetch or the read failed; 3 refused, with why; 64; 78.
 
 `run` asks for a refresh now and `hook` for the plugin's hook on an open pull
-request of the bot's, at its current head. Each writes a request under
+request of the bot's, at its current head. The bot's means its author is the
+factory's account by the id `~/tehas/state/account-ids` records for the
+login in `~/tehas/state/github/login`, not by the login alone, and its head
+is in the repository itself. With no id recorded, `hook` stops with 78 and
+says so, before it asks GitHub anything: `console ids record` records the
+pair when the bot is the millwright login (`TEHAS_MILLWRIGHT_LOGIN`). Each
+writes a request under
 `~/tehas/plugins/<name>/` and starts a unit with `systemctl --user start
 --no-block`, and waits for nothing: `tehas-plugin@<name>.service` for a
 refresh, `tehas-plugin-hook@<name>-<pr>.service` for a hook. Exit 0 asked; 3
@@ -319,7 +329,7 @@ Exit 0; 3 none; 64; 78.
 
 A run is one container of the plugin's image, started by `tehas-plugin`:
 the arguments of [the security part of the
-spec](https://github.com/tehas-app/tehas/blob/main/docs/specs/2026-11-21-plugins-security.md),
+spec](https://github.com/tehas-app/tehas-factory/blob/main/docs/specs/2026-11-21-plugins-security.md),
 a row in `plugin_runs`, a clone of the product's mirror at the run's head
 when `product` is granted, the model socket when `model` is (a refresh only:
 a hook gets no model in v1), `docker kill` at

@@ -112,6 +112,30 @@ pub struct GitHub {
     pub(crate) now: fn() -> i64,
     /// Mark names the site gave that no mark can have, not yet taken.
     pub(crate) left_out: Vec<String>,
+    /// The factory's own account, given by the site that made this handle:
+    /// None for a handle made with [`GitHub::new`], which answers no account
+    /// `Ours`.
+    pub(crate) bot: Option<crate::tickets::Bot>,
+    /// The node id and the issue of each comment a read of comments found
+    /// edited, by its REST id: an edit history is asked by node id.
+    pub(crate) comment_nodes: std::collections::HashMap<u64, (String, tehas_ports::BlueprintNo)>,
+    /// The client a person signs in through, given by the site: None for a
+    /// handle made with [`GitHub::new`], which signs nobody in.
+    pub(crate) people: Option<std::sync::Arc<crate::port::People>>,
+    /// The database id of this project's repository, learned from the first
+    /// GraphQL answer that names it: what tells this project from another,
+    /// since a rename changes the name and not the id (`GitHub::is_here`).
+    here: Here,
+}
+
+/// What a handle learned of its repository's database id.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Here {
+    #[default]
+    Unknown,
+    Id(u64),
+    /// Two answers named two ids: none is trusted.
+    Torn,
 }
 
 impl GitHub {
@@ -128,6 +152,10 @@ impl GitHub {
             runner,
             now: tehas_core::time::now,
             left_out: Vec::new(),
+            bot: None,
+            comment_nodes: std::collections::HashMap::new(),
+            people: None,
+            here: Here::Unknown,
         }
     }
 
@@ -137,7 +165,7 @@ impl GitHub {
         GitHub { now, ..self }
     }
 
-    /// The names the site gave that no mark can have, each once, since the
+    /// The names the site gave that no mark or kind can have, each once, since the
     /// last take: for the caller to report (Decided 61).
     pub fn take_left_out(&mut self) -> Vec<String> {
         std::mem::take(&mut self.left_out)
@@ -147,8 +175,84 @@ impl GitHub {
     /// after gh; `call` is what a [`ForgeError`] names.
     pub(crate) fn call(&mut self, call: &str, args: &[&str]) -> Result<String, ForgeError> {
         match self.runner.run(args) {
-            Ok(out) => Ok(out),
+            Ok(out) => {
+                self.learn(args, &out);
+                Ok(out)
+            }
             Err(why) => Err(ForgeError::new(call, why)),
+        }
+    }
+
+    /// Learn this project's database id from a GraphQL answer about its
+    /// repository, `data.repository.databaseId`, where the question asked
+    /// it. A second id unlike the first tears what was learned.
+    fn learn(&mut self, args: &[&str], out: &str) {
+        if args.get(1) != Some(&"graphql") || !out.contains("\"databaseId\"") {
+            return;
+        }
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(out.trim()) else {
+            return;
+        };
+        let Some(id) = v
+            .pointer("/data/repository/databaseId")
+            .and_then(serde_json::Value::as_u64)
+        else {
+            return;
+        };
+        self.here = match self.here {
+            Here::Unknown => Here::Id(id),
+            Here::Id(was) if was == id => Here::Id(id),
+            _ => Here::Torn,
+        };
+    }
+
+    /// Whether a repository an answer names is this project's, by its
+    /// database id against the one this handle learned: never by its name,
+    /// which a rename leaves stale in the settings. A repository named with
+    /// no id is `Unread(Malformed)`; a handle that learned no id, or two, is
+    /// `Unread(Inconsistent)`.
+    pub(crate) fn is_here_id(&self, id: Option<u64>) -> tehas_ports::Got<bool> {
+        let id = id.ok_or(tehas_ports::Outcome::Unread(tehas_ports::Unread::Malformed))?;
+        match self.here {
+            Here::Id(here) => Ok(here == id),
+            _ => Err(tehas_ports::Outcome::Unread(
+                tehas_ports::Unread::Inconsistent,
+            )),
+        }
+    }
+
+    /// [`GitHub::call`] with `input` on gh's standard input, the way a write
+    /// sends its text: never in an argument.
+    pub(crate) fn call_input(
+        &mut self,
+        call: &str,
+        args: &[&str],
+        input: &str,
+    ) -> Result<String, ForgeError> {
+        self.runner
+            .run_input(args, input)
+            .map_err(|why| ForgeError::new(call, why))
+    }
+
+    /// [`GitHub::call`], and on a failure what gh answered beside its
+    /// reason: gh exits 1 on any GraphQL error and prints the answer, which
+    /// a question of several items reads item by item.
+    pub(crate) fn call_answer(
+        &mut self,
+        call: &str,
+        args: &[&str],
+    ) -> Result<String, (ForgeError, Option<String>)> {
+        match self.runner.run_answer(args) {
+            Ok(out) => {
+                self.learn(args, &out);
+                Ok(out)
+            }
+            Err(f) => {
+                if let Some(out) = &f.answer {
+                    self.learn(args, out);
+                }
+                Err((ForgeError::new(call, f.why), f.answer))
+            }
         }
     }
 
@@ -159,7 +263,7 @@ impl GitHub {
     }
 
     /// The `-F` fields of a GraphQL question of the repository.
-    fn owner_name(&self) -> (String, String) {
+    pub(crate) fn owner_name(&self) -> (String, String) {
         let (o, n) = self.repo.split_once('/').unwrap_or((&self.repo, ""));
         (format!("owner={o}"), format!("name={n}"))
     }

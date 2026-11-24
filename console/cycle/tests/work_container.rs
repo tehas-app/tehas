@@ -328,12 +328,23 @@ fn the_console_is_the_program_beside_this_one_given_the_cycles_log_the_transcrip
 
 #[test]
 fn a_console_that_fails_is_named_with_its_exit_status_and_where_it_wrote_why() {
-    let (w, r) = ran("console-fails");
+    let w = World::new("console-fails");
+    // The container ends only once the console stands ready for the end's TERM.
+    w.docker_runs_until(&w.path("console.up"));
+    let r = w.work7();
+    ok2(&r);
     lacks(&r.out, "the console ended");
+    // The console ends with 1 on its own: TERM is caught first, and the
+    // container ends only once the console has said why.
+    let said = w.path("console.said");
     w.fs(
         "tree/libexec/console",
-        "#!/usr/bin/env bash\necho \"cannot write\" >&2\nexit 1\n",
+        format!(
+            "#!/usr/bin/env bash\ntrap 'exit 1' TERM\necho \"cannot write\" >&2\n: >'{}'\nexit 1\n",
+            said.display()
+        ),
     );
+    w.docker_runs_until(&said);
     let r = w.work7();
     ok2(&r);
     has(
@@ -537,6 +548,29 @@ fn the_product_checkout_is_not_mounted_anywhere() {
 fn exactly_the_documented_paths_are_mounted() {
     let (w, _) = ran("mounts");
     assert_eq!(mounts(&w), sorted(lines(&w.mounts_off())));
+}
+
+// The eleventh mount of host/docs/contract.md: a cycle given files gets the
+// issue's directory, read-only, and its variable, and nothing more.
+#[test]
+fn with_files_given_exactly_the_documented_paths_and_the_issues_directory_are_mounted() {
+    let w = World::new("mounts-files");
+    w.stub_github();
+    w.images_on(&[]);
+    w.issue_is("Words only.", "", "");
+    ok2(&w.work7());
+    let mut want = lines(&w.mounts_off());
+    want.push(format!(
+        "{}:{}.images:ro",
+        w.imgs.display(),
+        w.inside.display()
+    ));
+    assert_eq!(mounts(&w), sorted(want));
+    assert_eq!(env_names(&w), want_and(&["PI_ENSEMBLE_EXTRA_IMAGE_DIRS"]));
+    assert_eq!(
+        given_value(&w, "PI_ENSEMBLE_EXTRA_IMAGE_DIRS"),
+        format!("{}.images", w.inside.display())
+    );
 }
 
 #[test]
@@ -1049,11 +1083,11 @@ fn with_a_github_app_the_container_is_given_the_apps_narrowed_cycle_token_never_
     has(
         &run_args,
         &format!(
-            "{}/state/github-cycle:/run/tehas/github:ro",
-            w.home.display()
+            "{}:/run/tehas/github:ro",
+            Home::new(&w.home).token_dir(TokenDir::Cycle).display()
         ),
     );
-    lacks(&run_args, "state/github:");
+    lacks(&run_args, &format!("{}:", TokenDir::App.relative()));
     lacks(&run_args, "ghs_app");
     lacks(&run_args, "user-token");
     lacks(&run_args, "github-app.pem");
@@ -1250,7 +1284,7 @@ fn a_thaw_unpauses_the_container_moves_its_start_and_its_clocks_count_again() {
     // The container thaws itself a second in, as tehas thaw would, and is
     // then stopped as stalled: the clock's answer counts once it is thawed.
     w.container(&format!(
-        r#""$nap" 1; rm -f "$T/home/tehas/state/cycles/7.freeze"; {HOLD}; {GONE}"#
+        r#""$nap" 1; rm -f "$T_CYCLES/7.freeze"; {HOLD}; {GONE}"#
     ));
     let r = w.work7();
     ok2(&r);
@@ -1477,6 +1511,9 @@ fn the_cycle_starts_the_token_renewer_and_one_that_cannot_start_refuses_the_cycl
     w.minimal(&[]);
     w.clear_calls();
     w.rm("renew.calls");
+    // The cycle ends only once the renewer has said how it was started: the
+    // end stops it, and a slow start would otherwise say nothing.
+    w.docker_runs_until(&w.path("renew.calls"));
     let r = w.work7();
     ok2(&r);
     has(

@@ -25,7 +25,7 @@
 //! The parts: [`cmd`] is the git and gh of one run and its scratch, [`plan`] is
 //! what a run is given and the rules of those words, and [`run`] is the decision:
 //! what is checked, in what order, and what is pushed and opened. The cases of
-//! all three are in [`tests`], which drives a real repository and a stub `gh`.
+//! all three are in [`tests`], which drives a real repository and the ports' fake.
 
 pub mod cmd;
 pub mod plan;
@@ -34,11 +34,24 @@ pub mod run;
 mod tests;
 
 pub use cmd::{Done, Host, Live};
+
+/// What a finish asks of the code host through the ports: its open changes,
+/// the change it opens and the remote it pushes to, and whose changes count.
+/// The program's wiring makes them.
+pub struct Ports {
+    pub code_host: Box<dyn tehas_ports::CodeHost>,
+    pub writes: Box<dyn tehas_ports::CodeHostWrites>,
+    /// The allowed accounts with their recorded ids (`state/account-ids`).
+    pub accounts: tehas_core::accounts::Accounts,
+    /// The bot account's recorded user id. With none, no change is the
+    /// factory's own and the finish refuses.
+    pub bot_id: Option<u64>,
+}
 pub use plan::{body, title, Finished, Plan};
 
 /// What one ask for one issue did: the pull request it opened, or the one line
 /// of why it refused and changed nothing.
-pub fn finish(plan: &Plan, h: &mut dyn Host) -> Finished {
+pub fn finish(plan: &Plan, h: &mut dyn Host, ports: &mut Ports) -> Finished {
     if let Err(why) = plan.check() {
         return Finished::refused(why);
     }
@@ -52,7 +65,7 @@ pub fn finish(plan: &Plan, h: &mut dyn Host) -> Finished {
             "TEHAS_READ_ONLY=1: nothing is pushed and no pull request is opened".to_string(),
         );
     }
-    run::run(plan, h)
+    run::run(plan, h, ports)
 }
 
 /// The lead of the line before a refusal that holds what the command which

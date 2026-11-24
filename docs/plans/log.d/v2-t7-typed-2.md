@@ -1,0 +1,1 @@
+| 2026-11-24 | T7: core's own files are typed: a plugin's state.json, a hook's request and verdict file, a run's context.json, the end-failed record and the read of starts.json; untyped-signatures 1212 to 1201 | v2/t7-typed-2 |

@@ -5,6 +5,10 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+/// `state/cycles` relative to the home, for a message that names the
+/// directory.
+pub const CYCLES: &str = "state/cycles";
+
 /// A tehas home, the directory that `TEHAS_HOME` names.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Home {
@@ -22,6 +26,8 @@ pub enum State {
     Backups,
     /// The login of the app the factory acts as.
     BotLogin,
+    /// What the last poll logged of the branch check.
+    BranchCheck,
     /// When the word list was last read.
     Buzzwords,
     /// The last result of `tehas check-product`.
@@ -34,12 +40,18 @@ pub enum State {
     CodeIndexFailed,
     /// Held while the indexer runs.
     CodeIndexLock,
+    /// The exit status the last run of the indexer left.
+    CodeIndexRc,
     /// The commit and indexer image the code index was made from.
     CodeIndexState,
     /// The ask a poll is started on.
     DispatchAgain,
     /// Held while a poll reads.
     DispatchLock,
+    /// The start of the lock's hold a hanging poll was last said for.
+    DispatchStuck,
+    /// When the poll that holds the lock took it.
+    DispatchTaken,
     /// Held while one start makes the egress proxy.
     EgressLock,
     /// The mark of a host's first install.
@@ -73,12 +85,18 @@ pub enum State {
     PublishLock,
     /// The record of a sandbox that cannot push.
     PushFault,
+    /// Where the push probe copies the checkout for its one check.
+    PushProbe,
     /// The local records of starts a read-only host made.
     ReadOnly,
     /// The writes a read-only host did not make.
     ReadOnlyLog,
     /// The ledger of the refinements of issues.
     Refined,
+    /// Why the refreshes are held, as the last poll told it.
+    RefreshHeld,
+    /// The requests for a refresh of a branch, `<issue>.json` each.
+    Refreshes,
     /// The releases the host has run.
     ReleaseHistory,
     /// The pi-rukas commit of the sandbox image, as last read.
@@ -109,15 +127,19 @@ impl State {
             State::AnalyticsDb => "state/analytics.db",
             State::Backups => "state/backup",
             State::BotLogin => "state/github/login",
+            State::BranchCheck => "state/branch-check",
             State::Buzzwords => "state/buzzwords.at",
             State::CheckProduct => "state/check-product.json",
             State::CleanLock => "state/clean.lock",
             State::CodeIndex => "state/index",
             State::CodeIndexFailed => "state/index.failed",
             State::CodeIndexLock => "state/index.lock",
+            State::CodeIndexRc => "state/index.rc",
             State::CodeIndexState => "state/index.json",
             State::DispatchAgain => "state/dispatch.again",
             State::DispatchLock => "state/dispatch.lock",
+            State::DispatchStuck => "state/dispatch.stuck",
+            State::DispatchTaken => "state/dispatch.taken",
             State::EgressLock => "state/egress.lock",
             State::FirstInstall => "state/first-install",
             State::GithubFailures => "state/github-failures",
@@ -134,9 +156,12 @@ impl State {
             State::PlatformNewest => "state/platform-newest",
             State::PublishLock => "state/publish.lock",
             State::PushFault => "state/push-fault.json",
+            State::PushProbe => "state/push-probe",
             State::ReadOnly => "state/read-only",
             State::ReadOnlyLog => "state/read-only.log",
             State::Refined => "state/refined.jsonl",
+            State::RefreshHeld => "state/refresh/.held",
+            State::Refreshes => "state/refresh",
             State::ReleaseHistory => "state/release-history",
             State::RukasImage => "state/rukas-image",
             State::RukasTarget => "state/rukas-target",
@@ -282,7 +307,7 @@ impl Home {
 
     /// `state/cycles`, where a cycle's notes are.
     pub fn cycles_dir(&self) -> PathBuf {
-        self.root.join("state/cycles")
+        self.root.join(CYCLES)
     }
 
     /// `state/cycles/<issue>.<note>`.
@@ -294,6 +319,24 @@ impl Home {
     /// `state/plan-<issue>.json<end>`, with `end` such as `""` or `".out"`.
     pub fn plan_file(&self, issue: u64, end: &str) -> PathBuf {
         self.state_dir().join(format!("plan-{issue}.json{end}"))
+    }
+
+    /// `state/plan-start/<issue>.json`, the record of a plan's start.
+    pub fn plan_start(&self, issue: u64) -> PathBuf {
+        self.state_dir()
+            .join("plan-start")
+            .join(format!("{issue}.json"))
+    }
+
+    /// `state/refresh/<issue>.json`, the request for a refresh of an issue's
+    /// branch.
+    pub fn refresh_request(&self, issue: u64) -> PathBuf {
+        self.state(State::Refreshes).join(format!("{issue}.json"))
+    }
+
+    /// `state/refresh/<issue>.said`, what says an issue's hold was told.
+    pub fn refresh_said(&self, issue: u64) -> PathBuf {
+        self.state(State::Refreshes).join(format!("{issue}.said"))
     }
 
     /// `state/dev/<name>.lock`, what `tehas dev` holds for a clone's session.
@@ -394,15 +437,19 @@ mod tests {
             (State::AnalyticsDb, "/h/state/analytics.db"),
             (State::Backups, "/h/state/backup"),
             (State::BotLogin, "/h/state/github/login"),
+            (State::BranchCheck, "/h/state/branch-check"),
             (State::Buzzwords, "/h/state/buzzwords.at"),
             (State::CheckProduct, "/h/state/check-product.json"),
             (State::CleanLock, "/h/state/clean.lock"),
             (State::CodeIndex, "/h/state/index"),
             (State::CodeIndexFailed, "/h/state/index.failed"),
             (State::CodeIndexLock, "/h/state/index.lock"),
+            (State::CodeIndexRc, "/h/state/index.rc"),
             (State::CodeIndexState, "/h/state/index.json"),
             (State::DispatchAgain, "/h/state/dispatch.again"),
             (State::DispatchLock, "/h/state/dispatch.lock"),
+            (State::DispatchStuck, "/h/state/dispatch.stuck"),
+            (State::DispatchTaken, "/h/state/dispatch.taken"),
             (State::EgressLock, "/h/state/egress.lock"),
             (State::FirstInstall, "/h/state/first-install"),
             (State::GithubFailures, "/h/state/github-failures"),
@@ -419,9 +466,12 @@ mod tests {
             (State::PlatformNewest, "/h/state/platform-newest"),
             (State::PublishLock, "/h/state/publish.lock"),
             (State::PushFault, "/h/state/push-fault.json"),
+            (State::PushProbe, "/h/state/push-probe"),
             (State::ReadOnly, "/h/state/read-only"),
             (State::ReadOnlyLog, "/h/state/read-only.log"),
             (State::Refined, "/h/state/refined.jsonl"),
+            (State::RefreshHeld, "/h/state/refresh/.held"),
+            (State::Refreshes, "/h/state/refresh"),
             (State::ReleaseHistory, "/h/state/release-history"),
             (State::RukasImage, "/h/state/rukas-image"),
             (State::RukasTarget, "/h/state/rukas-target"),
@@ -456,6 +506,9 @@ mod tests {
     fn a_plan_file_is_named_for_its_issue() {
         assert_eq!(at(h().plan_file(7, "")), "/h/state/plan-7.json");
         assert_eq!(at(h().plan_file(7, ".out")), "/h/state/plan-7.json.out");
+        assert_eq!(at(h().plan_start(7)), "/h/state/plan-start/7.json");
+        assert_eq!(at(h().refresh_request(7)), "/h/state/refresh/7.json");
+        assert_eq!(at(h().refresh_said(7)), "/h/state/refresh/7.said");
     }
 
     #[test]

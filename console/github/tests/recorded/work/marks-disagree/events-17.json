@@ -1,0 +1,1 @@
+[{"event":"labeled","label":{"name":"bug"},"actor":{"login":"alice","id":101,"type":"User"},"created_at":"2026-01-11T01:00:00Z"},{"event":"unlabeled","label":{"name":"bug"},"actor":{"login":"alice","id":101,"type":"User"},"created_at":"2026-01-11T02:00:00Z"}]

@@ -3,7 +3,20 @@
 //! why it was refused, the commit it is of, the local image id, the
 //! manifest's sha256 and the base images by digest.
 
-use serde_json::{json, Value};
+use serde::Serialize;
+use serde_json::Value;
+
+/// `state.json` as it is written.
+#[derive(Serialize)]
+struct StateFile<'a> {
+    api: u8,
+    state: &'a str,
+    refusal: Option<&'a str>,
+    commit: &'a str,
+    image: Option<&'a str>,
+    manifest_sha256: Option<&'a str>,
+    bases: &'a [String],
+}
 
 /// The states of a plugin. `unbuilt` has no file.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -62,16 +75,18 @@ impl State {
         }
     }
 
-    pub fn json(&self) -> Value {
-        json!({
-            "api": 1,
-            "state": self.state.word(),
-            "refusal": self.refusal,
-            "commit": self.commit,
-            "image": self.image,
-            "manifest_sha256": self.manifest_sha256,
-            "bases": self.bases,
-        })
+    /// The file's text.
+    pub fn json(&self) -> String {
+        let file = StateFile {
+            api: 1,
+            state: self.state.word(),
+            refusal: self.refusal.as_deref(),
+            commit: &self.commit,
+            image: self.image.as_deref(),
+            manifest_sha256: self.manifest_sha256.as_deref(),
+            bases: &self.bases,
+        };
+        serde_json::to_string(&file).unwrap_or_default()
     }
 
     /// The file's text. None: not a state this writes, which a reader takes
@@ -121,9 +136,9 @@ mod tests {
         s.image = Some(format!("sha256:{}", "a".repeat(64)));
         s.manifest_sha256 = Some("b".repeat(64));
         s.bases = vec![format!("node@sha256:{}", "c".repeat(64))];
-        assert_eq!(State::read(&s.json().to_string()), Some(s));
+        assert_eq!(State::read(&s.json()), Some(s));
         let r = State::refused(C, "the fetch failed");
-        assert_eq!(State::read(&r.json().to_string()), Some(r));
+        assert_eq!(State::read(&r.json()), Some(r));
     }
 
     #[test]

@@ -174,6 +174,12 @@ Releases are read from the repository built into tehas, the
 An instance may name another, owner/name on GitHub, with `TEHAS_RELEASE_REPO`
 in `instance.env`. The `versions.env` on the host is not read for it: a
 release writes that file, so it cannot choose where the next one comes from.
+The repository was `tehas-app/tehas` before 2.0. An instance that still
+names it updates from it while GitHub redirects the old name, and each
+update, `--check` included, says `release: the repository tehas-app/tehas
+is now tehas-app/tehas-factory`: remove the line or name the new one. An
+update from the checkout says the same of its `origin`, as "From the
+checkout" says.
 The list and the download use `gh` when it is signed in, which
 reaches a private repository with the bot's token, and `curl` from the public
 address otherwise.
@@ -256,8 +262,11 @@ A GitHub login can be renamed, and a login that was freed can be registered by
 someone else. So a login alone does not say who applied a label. Before
 anything moves, `tehas update` asks GitHub for the user id of each login of
 `TEHAS_ALLOWED_LABELERS` and the millwright (`GET /users/<login>`)
-and records the pairs in `~/tehas/state/account-ids`, one `<login> <id>` a
-line. `install.sh` does the same before its first copy. The pair of a login
+and records the pairs in `~/tehas/state/account-ids`, one
+`<realm> <login> <id>` a line, the realm `code-host` for these logins
+(`tickets` is a split setup's tracker). A line of 1.x, `<login> <id>`, is
+read as the code host's, and the update writes the file once in the new
+form. `install.sh` does the same before its first copy. The pair of a login
 taken off the list stays, so the login, listed again, must still be the same
 account.
 
@@ -269,23 +278,44 @@ reads it as `<login>#<id>`, which no list matches, and says why on standard
 error. With no id recorded for a login, nothing of it counts until
 `tehas update` records one. GitHub logins are one account in any case, so
 the check ignores ASCII case: `Alice` is checked against the id recorded for
-`alice`, and does not count with another id. Two pairs of one login in two
-cases with different ids record no id for it. `tehas update` records ignoring
-case too: a pair of the login in another case is its pair, so a change of
+`alice`, and does not count with another id. A file that gives one login
+two different ids in two cases cannot be read, as below. `tehas update`
+records ignoring case too: a pair of the login in another case is its pair, so a change of
 case in the settings meets the check below, and the recorded pair is kept
 under the login as the settings write it, in place of every other case.
 
-Which logins are allowed is matched ignoring ASCII case by `tehas resume`,
-`tehas plan`, `tehas dev` and a cycle started by hand. The dispatcher still
-matches `TEHAS_ALLOWED_LABELERS` in exact case, so write each login there as
-GitHub spells it.
+Which logins are allowed is matched ignoring ASCII case, by the dispatcher
+as by `tehas resume`, `tehas plan`, `tehas dev` and a cycle started by hand.
 
 - A login that does not resolve stops `install.sh` and `tehas update` with 78
   and names it. Take it out of the settings or correct it.
 - A login whose id is not the recorded one stops them with 78 and names both
-  ids. If the account was renamed and is still the person the settings mean,
+  ids: the login may have changed hands. If it is the same person,
   `tehas update --accept-id <login>` records the new id. If not, take the login
   out of the settings.
+- A file whose lines only end in spaces, tabs or carriage returns is read as
+  the pairs it holds. The ids are checked against those pairs as above, and
+  only when the check passes is the file written back in its plain form.
+- A file that cannot be read with certainty stops them with 78 before GitHub
+  is asked, and nothing is written. The message names the file, the line if
+  there is one, what is wrong and how to repair it:
+  - A line that is not `<realm> <login> <id>` (or 1.x's `<login> <id>`)
+    with one space between, a realm that is not `code-host` or `tickets`, a login that
+    is not a GitHub login, an id that is not a number, a login given two ids
+    in one case or two, or text that is not UTF-8: fix or remove that line,
+    then run `tehas update`.
+  - A link or other file that is not a regular one, a file over 64 KiB, or
+    a file that is there but holds no pairs: make it a regular file of
+    `<realm> <login> <id>` lines, or remove it, then run `tehas update`. A removed
+    file is recorded afresh, as on a first install, with no recorded id to
+    check against.
+  - A file the factory's user cannot read: give it back read and write for
+    that user, then run `tehas update`. Do not remove it; its pairs are what
+    the ids are checked against.
+- Until the file is repaired no listed login counts: the dispatcher and the
+  cycles say on standard error that the file cannot be read. The dispatcher
+  still knows its own questions by the bot's login, as it does before the
+  first record.
 - GitHub that cannot be asked stops them with 78 as well, before anything is
   installed.
 - The ids are asked with the app's token, made from its key as
@@ -316,6 +346,13 @@ is updated, because nothing reaches it without a person: a checkout on another
 branch, or one whose `origin/HEAD` is not set, changes nothing and exits 1. To
 install another branch, run `./install.sh` in the checkout by hand.
 `git remote set-head origin --auto` sets `origin/HEAD`.
+
+When the URL of the checkout's `origin` names `tehas-app/tehas` on GitHub,
+the name the repository had before 2.0, the update still fetches from it
+while GitHub redirects the old name, and each run, `--check` included, says
+`checkout: the repository tehas-app/tehas is now tehas-app/tehas-factory`,
+naming the checkout whose origin still names the old one: set its URL to the
+new one. The URL is read as written, and the update never rewrites it.
 
 While `~/tehas/state/update-hold` exists it changes nothing and exits 1, naming
 the file; `--check` says the hold is there and reports as usual. The file is

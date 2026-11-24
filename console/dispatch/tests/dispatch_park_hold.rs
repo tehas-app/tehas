@@ -4,7 +4,7 @@
 
 mod common;
 
-use common::{count_lines, has, lacks, park_body, Run, World};
+use common::{has, lacks, park_body, Run, World};
 use serde_json::{json, Value};
 use std::fs;
 use std::process::{Command, Stdio};
@@ -90,6 +90,7 @@ fn holds(w: &World) -> Run {
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(started(w), "");
     lacks(&w.gh(), "issue edit 7");
+    assert_eq!(w.marks(Some(7)), 0);
     assert_eq!(park_of(w, "[.attempt, .retries, .question]"), "[1,0,4001]");
     r
 }
@@ -117,9 +118,9 @@ fn a_relabelled_start_on_the_body_its_last_cycle_parked_on_is_held_said_once_on_
     parked_words(&w);
     let r = holds(&w);
     has(&r.out, HOLD);
-    has(&w.gh(), "issue comment 7 --repo acme/widget --body Not started: the last cycle parked on `intent-park` and the issue text has not changed since. Edit the body, or reply to the park comment with the word of one of its retries.");
+    assert!(w.said_on(7, "Not started: the last cycle parked on `intent-park` and the issue text has not changed since. Edit the body, or reply to the park comment with the word of one of its retries."), "{:?}", w.said(7));
     assert_eq!(park_of(&w, ".told_at != null"), "true");
-    assert_eq!(count_lines(&w.gh(), "issue comment 7"), 1);
+    assert_eq!(w.notes(7), 1);
     assert_eq!(
         w.dispatch_state()["held"],
         json!([{"clear": "edit the body, or reply to the park comment with the word of one of its retries", "issue": 7,
@@ -135,7 +136,7 @@ fn and_the_next_poll_of_the_same_park_only_logs_with_no_comment() {
     holds(&w);
     let r = holds(&w);
     has(&r.out, HOLD);
-    lacks(&w.gh(), "issue comment 7");
+    assert_eq!(w.notes(7), 0);
 }
 
 /// The park's question taken off #7, as leaving it parked does.
@@ -164,7 +165,8 @@ fn a_dry_run_of_the_hold_says_it_and_changes_nothing_not_its_park() {
     has(&r.out, HOLD);
     assert_eq!(started(&w), "");
     lacks(&w.gh(), "issue edit 7");
-    lacks(&w.gh(), "issue comment 7");
+    assert_eq!(w.marks(Some(7)), 0);
+    assert_eq!(w.notes(7), 0);
     lacks(&w.gh(), "api -X");
     assert_eq!(park_of(&w, ".told_at"), "null");
 }
@@ -180,7 +182,7 @@ fn a_hold_whose_tell_the_store_would_not_take_tells_it_again_on_the_next_poll_an
         "WARN: could not record the hold on the park of #7 (busy)",
     );
     holds(&w);
-    assert_eq!(count_lines(&w.gh(), "issue comment 7"), 1);
+    assert_eq!(w.notes(7), 1);
     assert_eq!(park_of(&w, ".told_at"), "null");
 }
 
@@ -405,6 +407,7 @@ fn a_busy_store_keeps_the_retry_after_an_outage_for_the_next_poll_nothing_starts
     );
     assert_eq!(park_of(&w, "[.retries, .automatic]"), "[0,true]");
     lacks(&w.gh(), "issue edit 7");
+    assert_eq!(w.marks(Some(7)), 0);
 }
 
 #[test]
@@ -486,7 +489,7 @@ fn a_park_that_offered_no_retry_holds_a_new_tehas_ready_until_the_body_changes()
     assert_eq!(started(&w), "");
     has(&r.out, "hold #7: its last cycle parked on child-timeout:develop twice on the same text, and the body has not changed since");
     let edit = tehas_core::hold::HELD_PARKED_EDIT;
-    has(&w.gh(), &format!("issue comment 7 --repo acme/widget --body Not started: the last cycle ran out of time in develop twice on this text, so it offers no retry: {edit}."));
+    assert!(w.said_on(7, &format!("Not started: the last cycle ran out of time in develop twice on this text, so it offers no retry: {edit}.")), "{:?}", w.said(7));
     assert_eq!(
         w.dispatch_state()["held"],
         json!([{"clear": edit, "issue": 7,
@@ -495,7 +498,7 @@ fn a_park_that_offered_no_retry_holds_a_new_tehas_ready_until_the_body_changes()
     );
     w.clear_calls();
     w.poll();
-    assert_eq!(count_lines(&w.gh(), "issue comment 7"), 0);
+    assert_eq!(w.notes(7), 0);
     assert_eq!(started(&w), "");
     parked_body_changed(&w);
 }

@@ -1,0 +1,1 @@
+Get "https://api.github.com/repos/acme/widget/pulls/9": net/http: request canceled (Client.Timeout exceeded while awaiting headers) timeout

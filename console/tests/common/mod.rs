@@ -883,6 +883,144 @@ impl World {
             .and_then(|s| s.trim().parse().ok())
             .unwrap_or(0)
     }
+
+    /// One end of a cycle of issue `n` at epoch `e` on the store, as tehasbot
+    /// cycle records it (t_history_end). `fields` is a JSON object: `started`
+    /// [e - 60], `by` and `how` [approved] for an approved start, else by
+    /// hand, and the end's `status` [unknown], `rc`, `step`, `cap`,
+    /// `park_reason`, `failure_kind`, `failure_cause`, `provider`, `parked`
+    /// and `pr`, a pull request's address. Any other field is not recorded.
+    pub fn history_end(&self, n: u64, e: i64, fields: &str) {
+        let x: Value = serde_json::from_str(fields).unwrap();
+        let text = |k: &str| x[k].as_str().map(str::to_string);
+        let started = x["started"].as_i64().unwrap_or(e - 60);
+        let a = self.attempt(n);
+        let n_s = n.to_string();
+        match text("by").filter(|b| !b.is_empty()) {
+            Some(by) => {
+                let how = text("how").unwrap_or_else(|| "approved".into());
+                let at = (started - 1 - a as i64).to_string();
+                let mut args = vec![
+                    "approval-record".to_string(),
+                    n_s.clone(),
+                    "--at".into(),
+                    at,
+                    "--by".into(),
+                    by,
+                    "--how".into(),
+                    how.clone(),
+                    "--body-sha".into(),
+                    WORDS_SUM.into(),
+                ];
+                if how == "approved" || how == "millwright" {
+                    args.extend(["--label".into(), label_of("Act::Approve")]);
+                }
+                let args: Vec<&str> = args.iter().map(String::as_str).collect();
+                self.store_must(&args, None, None);
+                self.store_must(&["cycle-start", &n_s], Some(started), Some(n));
+            }
+            None => self.store_must(&["cycle-start", &n_s, "--by-hand"], Some(started), Some(n)),
+        }
+        let attempt = (a + 1).to_string();
+        let mut end = vec![
+            "cycle-end".to_string(),
+            n_s,
+            "--attempt".into(),
+            attempt,
+            "--status".into(),
+            text("status").unwrap_or_else(|| "unknown".into()),
+        ];
+        if let Some(rc) = x["rc"].as_i64() {
+            end.extend(["--rc".into(), rc.to_string()]);
+        }
+        for (k, flag) in [
+            ("step", "--step"),
+            ("cap", "--cap"),
+            ("park_reason", "--park-reason"),
+            ("failure_kind", "--failure-kind"),
+            ("failure_cause", "--failure-cause"),
+        ] {
+            if let Some(v) = text(k) {
+                end.extend([flag.into(), v]);
+            }
+        }
+        for (k, flag) in [("provider", "--provider"), ("parked", "--parked")] {
+            if x[k] == Value::Bool(true) {
+                end.push(flag.into());
+            }
+        }
+        if let Some(pr) = text("pr") {
+            end.extend(["--pr".into(), pr.rsplit('/').next().unwrap().into()]);
+        }
+        let end: Vec<&str> = end.iter().map(String::as_str).collect();
+        self.store_must(&end, Some(e), Some(n));
+    }
+
+    /// The end at epoch `e` of the first planning turn of issue `n` on the
+    /// store, as the dispatcher records it (t_plan_end). `fields` is a JSON
+    /// object: `started` [e - 60], `by` [alice], `label` [the plan's],
+    /// `auto`, `status` [finished], `rc` of a failed turn [2] and `filed`.
+    /// A finished turn has the session abc-123; any other field is not
+    /// recorded.
+    pub fn plan_end(&self, n: u64, e: i64, fields: &str) {
+        let x: Value = serde_json::from_str(fields).unwrap();
+        let text = |k: &str| x[k].as_str().map(str::to_string);
+        let started = x["started"].as_i64().unwrap_or(e - 60);
+        let brief = self.t.join("plan-brief.md");
+        fs::write(&brief, "# Faster search\n").unwrap();
+        let n_s = n.to_string();
+        let mut begin = vec![
+            "plan-begin".to_string(),
+            n_s.clone(),
+            "--by".into(),
+            text("by").unwrap_or_else(|| "alice".into()),
+            "--label".into(),
+            text("label").unwrap_or_else(|| label_of("Act::Plan")),
+            "--brief-file".into(),
+            brief.to_string_lossy().into_owned(),
+        ];
+        if x["auto"] == Value::Bool(true) {
+            begin.push("--auto".into());
+        }
+        let begin: Vec<&str> = begin.iter().map(String::as_str).collect();
+        self.store_must(&begin, Some(started), None);
+        let outcome = text("status").unwrap_or_else(|| "finished".into());
+        let mut end = vec![
+            "plan-end".to_string(),
+            n_s,
+            "--turn".into(),
+            "1".into(),
+            "--outcome".into(),
+            outcome.clone(),
+        ];
+        match outcome.as_str() {
+            "finished" => end.extend(["--rc", "0", "--session", "abc-123"].map(String::from)),
+            "failed" => end.extend(["--rc".into(), x["rc"].as_i64().unwrap_or(2).to_string()]),
+            _ => {}
+        }
+        for f in x["filed"].as_array().into_iter().flatten() {
+            end.extend(["--filed".into(), f.as_str().unwrap().into()]);
+        }
+        let end: Vec<&str> = end.iter().map(String::as_str).collect();
+        self.store_must(&end, Some(e), None);
+    }
+}
+
+/// The sha256 of the body "Words.", which an approval records (T_WSUM).
+const WORDS_SUM: &str = "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f";
+
+#[allow(dead_code)] // each test file uses a part of this module
+/// The label of one of tehas's words (`Act::Plan`), as host/labels.tsv, the
+/// table's one owner, names it.
+pub fn label_of(word: &str) -> String {
+    let table = fs::read_to_string(root().join("host/labels.tsv")).unwrap();
+    table
+        .lines()
+        .find_map(|l| {
+            let cols: Vec<&str> = l.split('\t').collect();
+            (cols.get(3) == Some(&word)).then(|| cols[0].to_string())
+        })
+        .unwrap_or_else(|| panic!("no label for {word} in host/labels.tsv"))
 }
 
 impl Drop for World {
@@ -1081,6 +1219,26 @@ pub fn run(mut c: Command) -> Run {
         rc: status.code().unwrap_or(-1),
         out: out.trim_end_matches('\n').to_string(),
     }
+}
+
+#[allow(dead_code)] // each test file uses a part of this module
+/// The JSON text at `pointer` in the JSON `text`, "null" where there is none.
+#[track_caller]
+pub fn json_at(text: &str, pointer: &str) -> String {
+    let doc: Value = serde_json::from_str(text).unwrap_or_else(|e| panic!("{e}: {text}"));
+    doc.pointer(pointer).unwrap_or(&Value::Null).to_string()
+}
+
+#[allow(dead_code)] // each test file uses a part of this module
+/// The JSON `text` without the key at `pointer`, its keys in order.
+#[track_caller]
+pub fn json_without(text: &str, pointer: &str) -> String {
+    let mut doc: Value = serde_json::from_str(text).unwrap_or_else(|e| panic!("{e}: {text}"));
+    let (parent, key) = pointer.rsplit_once('/').unwrap();
+    if let Some(Value::Object(m)) = doc.pointer_mut(parent) {
+        m.remove(key);
+    }
+    doc.to_string()
 }
 
 #[allow(dead_code)] // each test file uses a part of this module

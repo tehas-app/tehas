@@ -8,7 +8,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::ids::checked;
 use crate::mark::unknown_tag;
-use crate::{unknown, BlueprintNo, Did, MarkName, Outcome, Ref, Refusal, TicketKey};
+use crate::{unknown, BlueprintNo, CommentId, Did, MarkName, Outcome, Ref, Refusal, TicketKey};
 
 /// The most tickets one `Blocked` marker names.
 pub const BLOCKED_MAX: usize = 20;
@@ -16,6 +16,9 @@ pub const BLOCKED_MAX: usize = 20;
 /// The largest number the vendored table writes: `number(9)` and
 /// `blueprint` are at most 9 digits.
 const NUMBER_MAX: u64 = 999_999_999;
+
+/// The most digits of a question id the vendored table writes: `number(19)`.
+const QUESTION_DIGITS: usize = 19;
 
 /// The kinds of tehas's markers: machine-read notes inside a comment or a
 /// body. One kind per marker tehas writes or reads today, and the two that
@@ -42,6 +45,8 @@ pub enum MarkerKind {
     TicketOf,
     /// An allowed account's ask to link a ticket and a blueprint. New in 2.0.
     Link,
+    /// The factory's note that it declined a reply's choice to a question.
+    Declined,
     /// A consumer's own marker kind, carried through by name.
     Project(MarkName),
     /// A kind this copy does not know. It holds what it sits on.
@@ -79,6 +84,13 @@ checked!(
     "marker word",
     marker_word_ok
 );
+
+/// The empty word, which a marker writes when none was recorded.
+impl Default for MarkerWord {
+    fn default() -> Self {
+        Self(String::new())
+    }
+}
 
 fn marker_word_ok(s: &str) -> bool {
     s.len() <= 40
@@ -149,6 +161,13 @@ pub enum Marker {
         blueprint: BlueprintNo,
         /// Take the link off instead.
         remove: bool,
+    },
+    /// The factory's note that it declined a reply's choice to the
+    /// question `question`: a reply the note follows is read no more. 1.x
+    /// writes it.
+    Declined {
+        /// The id of the question's comment.
+        question: CommentId,
     },
     /// A consumer's own marker, carried through by name, its fields as
     /// written. Only a project's own markers are untyped.
@@ -230,6 +249,7 @@ fn tag_kind(tag: &str) -> Option<MarkerKind> {
         "Millwright" => MarkerKind::Millwright,
         "TicketOf" => MarkerKind::TicketOf,
         "Link" => MarkerKind::Link,
+        "Declined" => MarkerKind::Declined,
         _ if MARKER_TAGS.contains(&tag) => MarkerKind::Unknown,
         _ => return None,
     })
@@ -246,6 +266,7 @@ const MARKER_TAGS: &[&str] = &[
     "Millwright",
     "TicketOf",
     "Link",
+    "Declined",
     "Project",
     "Unreadable",
     "Bare",
@@ -270,6 +291,7 @@ pub enum QuestionKind {
 
 /// A stopped cycle's park, for the millwright to decide on.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ParkMarker {
     /// The blueprint that parked. A park of another blueprint than the item
     /// it is read from does not read.
@@ -285,8 +307,19 @@ pub struct ParkMarker {
     pub sig: Sha256,
 }
 
+new!(
+    ParkMarker {
+        blueprint: BlueprintNo,
+        sig: Sha256
+    },
+    step,
+    kind,
+    provider
+);
+
 /// A millwright's decision on a blueprint.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct MillwrightMarker {
     /// The blueprint it decides on. One of another blueprint than the item
     /// it is read from does not read.
@@ -294,6 +327,11 @@ pub struct MillwrightMarker {
     /// What the millwright decides.
     pub action: MillwrightAction,
 }
+
+new!(MillwrightMarker {
+    blueprint: BlueprintNo,
+    action: MillwrightAction
+});
 
 /// What the millwright decides. A word outside this set does not read: it
 /// is `Unreadable { kind: Millwright }`, a millwright's marker and no
@@ -319,6 +357,7 @@ pub enum MillwrightAction {
 
 /// What a finish of a stopped cycle did.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct FinishMarker {
     /// The blueprint it finished. One of another blueprint than the item it
     /// is read from does not read.
@@ -328,6 +367,14 @@ pub struct FinishMarker {
     /// The poll finished it on its own, with no one's ask.
     pub by_poll: bool,
 }
+
+new!(
+    FinishMarker {
+        blueprint: BlueprintNo,
+        result: FinishResult
+    },
+    by_poll
+);
 
 /// What came of a finish. A word outside this set does not read, as for
 /// `MillwrightAction`.
@@ -344,6 +391,7 @@ pub enum FinishResult {
 /// What a cycle stopped for time learned, for the next cycle on the same
 /// text. A block: what it encloses is its payload, never the body's.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct LastAttemptMarker {
     /// The sha-256 of the text it sits in, without this block. The same
     /// text with the same `base` is a repeat.
@@ -351,6 +399,8 @@ pub struct LastAttemptMarker {
     /// The enclosed text, kept out of the body a person or a caller reads.
     pub note: String,
 }
+
+new!(LastAttemptMarker { base: Sha256 }, note);
 
 impl Marker {
     /// The marker's kind. `Unreadable` and `Bare` answer the kind they name.
@@ -365,6 +415,7 @@ impl Marker {
             Marker::Millwright(_) => MarkerKind::Millwright,
             Marker::TicketOf(_) => MarkerKind::TicketOf,
             Marker::Link { .. } => MarkerKind::Link,
+            Marker::Declined { .. } => MarkerKind::Declined,
             Marker::Project { name, .. } => MarkerKind::Project(name.clone()),
             Marker::Unreadable { kind } | Marker::Bare { kind, .. } => kind.clone(),
             Marker::Unknown => MarkerKind::Unknown,
@@ -372,7 +423,8 @@ impl Marker {
     }
 
     /// What the marker is found by, from its payload: a question's
-    /// blueprint and turn, a park's blueprint, a project marker's own key.
+    /// blueprint and turn, a park's blueprint, a declined note's question,
+    /// a project marker's own key.
     /// None for a kind found by kind alone, and for `Unreadable` and `Bare`.
     pub fn key(&self) -> Option<MarkerKey> {
         let key = match self {
@@ -380,6 +432,7 @@ impl Marker {
                 blueprint, turn, ..
             } => format!("blueprint={}.turn={turn}", blueprint.get()),
             Marker::Park(park) => format!("blueprint={}", park.blueprint.get()),
+            Marker::Declined { question } => format!("question={}", question.as_str()),
             Marker::Project { key, .. } => return key.clone(),
             _ => return None,
         };
@@ -400,8 +453,9 @@ impl Marker {
     /// True for a marker a write may set: one that keeps the port's limits,
     /// that the vendored table can write, and that is not `Unreadable`,
     /// `Bare` or `Unknown`. A `Question` of `QuestionKind::Unknown` is not
-    /// written. The table writes a number of at most 9 digits,
-    /// and a `TicketOf` or `Blocked` names only a ticket of this realm and
+    /// written. The table writes a number of at most 9 digits, and a
+    /// `Declined` question id of 1 to 19 ASCII digits with no leading zero.
+    /// A `TicketOf` or `Blocked` names only a ticket of this realm and
     /// project: a ticket `Elsewhere` is not written as a marker. A
     /// `Blocked` names ticket numbers alone.
     pub fn writable(&self) -> bool {
@@ -432,6 +486,12 @@ impl Marker {
             Marker::Millwright(m) => fits(m.blueprint.get()),
             Marker::TicketOf(ticket) => matches!(ticket, Ref::Here(_)),
             Marker::Link { blueprint, .. } => fits(blueprint.get()),
+            Marker::Declined { question } => {
+                let id = question.as_str();
+                (1..=QUESTION_DIGITS).contains(&id.len())
+                    && id.bytes().all(|b| b.is_ascii_digit())
+                    && (id == "0" || !id.starts_with('0'))
+            }
             _ => true,
         }
     }
@@ -676,6 +736,29 @@ mod tests {
         }
         let big = Marker::TicketOf(ticket(MAX + 1));
         assert!(big.writable());
+    }
+
+    #[test]
+    fn a_declined_note_is_found_by_its_question_of_at_most_nineteen_digits() {
+        let declined = |question: &str| Marker::Declined {
+            question: CommentId::new(question),
+        };
+        assert_eq!(declined("4001").kind(), MarkerKind::Declined);
+        assert_eq!(
+            declined("4001").key(),
+            Some(MarkerKey::new("question=4001").unwrap())
+        );
+        for ok in [declined("0"), declined(&"9".repeat(19))] {
+            assert!(ok.writable(), "{ok:?}");
+            assert_eq!(check_one(ok), Ok(()));
+        }
+        let twenty = "1".repeat(20);
+        for bad in ["", "0123", "IC_kwDO", "12a", "-1", twenty.as_str()] {
+            let bad = declined(bad);
+            assert!(!bad.writable(), "{bad:?}");
+            assert_eq!(check_one(bad.clone()), REFUSED);
+            assert_eq!(bad.clone().checked(), bad);
+        }
     }
 
     #[test]

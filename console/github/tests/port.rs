@@ -3,18 +3,18 @@
 //! off, and what it does not answer yet. Each case runs the adapter against
 //! a runner that answers from fixtures and writes down every call.
 
-use std::cell::RefCell;
 use std::num::NonZeroU64;
-use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::Mutex;
 use tehas_core::forge::GhRunner;
 use tehas_github::{table, GitHub};
 use tehas_ports::{
-    Account, AccountId, AccountKind, Act, At, Cite, Cites, CloseReason, Colour, Depth, Kind, Login,
-    Mark, MarkName, MarkSpec, Outcome, Passing, Realm, Ref, Refusal, Sent, TicketKey, TicketState,
+    Account, AccountId, AccountKind, Act, At, Cite, Cites, CloseReason, Colour, Kind, Login, Mark,
+    MarkName, MarkSpec, Outcome, Passing, Realm, Ref, Refusal, Sent, TicketKey, TicketState,
     TicketWrites, Tickets, Unprepared, Unread,
 };
 
-type Asked = Rc<RefCell<Vec<String>>>;
+type Asked = Arc<Mutex<Vec<String>>>;
 
 /// Answers each call from the list in turn; a call past it fails.
 struct Stub {
@@ -24,7 +24,7 @@ struct Stub {
 
 impl GhRunner for Stub {
     fn run(&mut self, args: &[&str]) -> Result<String, String> {
-        let mut asked = self.asked.borrow_mut();
+        let mut asked = self.asked.lock().unwrap();
         asked.push(args.join(" "));
         self.answers
             .get(asked.len() - 1)
@@ -34,15 +34,19 @@ impl GhRunner for Stub {
 }
 
 fn adapter(answers: Vec<Result<&str, &str>>) -> (GitHub, Asked) {
+    adapter_in("acme/widget", answers)
+}
+
+fn adapter_in(repo: &str, answers: Vec<Result<&str, &str>>) -> (GitHub, Asked) {
     let asked = Asked::default();
     let stub = Stub {
         answers: answers
             .into_iter()
             .map(|a| a.map(str::to_string).map_err(str::to_string))
             .collect(),
-        asked: Rc::clone(&asked),
+        asked: Arc::clone(&asked),
     };
-    (GitHub::new("acme/widget", Box::new(stub)), asked)
+    (GitHub::new(repo, Box::new(stub)), asked)
 }
 
 fn key(n: u64) -> TicketKey {
@@ -59,11 +63,26 @@ const ISSUE: &str = r#"{"number":7,"title":"Make it so","state":"open","state_re
 "created_at":"2026-01-02T03:04:05Z","updated_at":"2026-01-03T00:00:00Z",
 "html_url":"https://github.com/acme/widget/issues/7"}"#;
 
+/// The answer of the question of the ticket #7 is a part of: #3.
+const PARENT: &str = r#"{"data":{"repository":{"databaseId":7001,"issue":{"number":7,"parent":{"number":3,"repository":{"databaseId":7001,"nameWithOwner":"acme/widget"}}}}}}"#;
+
+/// The same, of a ticket that is a part of none.
+const NO_PARENT: &str =
+    r#"{"data":{"repository":{"databaseId":7001,"issue":{"number":7,"parent":null}}}}"#;
+
 #[test]
-fn a_tickets_digest_is_the_issues_rest_read() {
-    let (mut gh, asked) = adapter(vec![Ok(ISSUE)]);
+fn a_tickets_digest_is_the_issues_rest_read_and_its_parent() {
+    let (mut gh, asked) = adapter(vec![Ok(ISSUE), Ok(PARENT)]);
     let got = gh.several(&[key(7)]);
-    assert_eq!(*asked.borrow(), ["api repos/acme/widget/issues/7"]);
+    let asked = asked.lock().unwrap();
+    assert_eq!(asked[0], "api repos/acme/widget/issues/7");
+    assert!(asked[1].contains("-F number=7"), "{}", asked[1]);
+    assert!(
+        asked[1].contains("parent { number repository { databaseId nameWithOwner } }"),
+        "{}",
+        asked[1]
+    );
+    assert_eq!(asked.len(), 2);
     let (k, d) = &got[0];
     assert_eq!(*k, key(7));
     let d = d.as_ref().unwrap();
@@ -80,16 +99,148 @@ fn a_tickets_digest_is_the_issues_rest_read() {
     assert_eq!(d.target.as_ref().unwrap().title, "v2");
     assert_eq!(
         d.author,
-        Some(Account {
-            realm: Realm::CodeHost,
-            login: Login::new("alice"),
-            id: Some(AccountId::new("5")),
-            kind: AccountKind::Person,
+        Some({
+            let mut a = Account::new(Realm::CodeHost, Login::new("alice"), AccountKind::Person);
+            a.id = Some(AccountId::new("5"));
+            a
         })
     );
     assert_eq!(d.created, at("2026-01-02T03:04:05Z"));
     assert_eq!(d.updated, at("2026-01-03T00:00:00Z"));
     assert_eq!(d.link.as_str(), "https://github.com/acme/widget/issues/7");
+    assert_eq!(d.parent, Some(Ref::Here(key(3))));
+}
+
+#[test]
+fn a_parent_is_named_where_it_is_and_one_that_cannot_be_read_fails_the_digest() {
+    let (mut gh, _) = adapter(vec![Ok(ISSUE), Ok(NO_PARENT)]);
+    assert_eq!(gh.several(&[key(7)]).remove(0).1.unwrap().parent, None);
+    let elsewhere = PARENT.replace(
+        r#""databaseId":7001,"nameWithOwner":"acme/widget""#,
+        r#""databaseId":7100,"nameWithOwner":"other/lib""#,
+    );
+    let (mut gh, _) = adapter(vec![Ok(ISSUE), Ok(&elsewhere)]);
+    assert_eq!(
+        gh.several(&[key(7)]).remove(0).1.unwrap().parent,
+        Some(Ref::Elsewhere {
+            project: tehas_ports::ProjectName::new("other/lib"),
+            item: tehas_ports::ItemName::new("3"),
+        })
+    );
+    // An answer that leaves the parent out does not say there is none.
+    let left_out = r#"{"data":{"repository":{"databaseId":7001,"issue":{"number":7}}}}"#;
+    let (mut gh, _) = adapter(vec![Ok(ISSUE), Ok(left_out)]);
+    assert_eq!(
+        gh.several(&[key(7)]).remove(0).1,
+        Err(Outcome::Unread(Unread::Malformed))
+    );
+    let (mut gh, _) = adapter(vec![Ok(ISSUE), Err("HTTP 502")]);
+    assert_eq!(
+        gh.several(&[key(7)]).remove(0).1,
+        Err(Outcome::Unavailable {
+            why: Passing::Server,
+            sent: Sent::Maybe
+        })
+    );
+}
+
+fn live(name: &str) -> String {
+    let at = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/recorded/live-parent")
+        .join(name);
+    std::fs::read_to_string(at).unwrap()
+}
+
+/// Read live from a public repository, 2026-11-24: GitHub's REST read of an
+/// issue leaves `parent_issue_url` out where the issue is a part of none
+/// (the recordings `rest-*.json` keep the fields that say so), so the
+/// adapter cannot tell none from an answer cut short there, and asks
+/// GraphQL, whose `parent` is null for none. The `parent-*.json` are
+/// GraphQL's answers to the adapter's own question.
+#[test]
+fn the_parent_is_graphqls_since_rest_leaves_out_the_field_of_none() {
+    let rest = |n: u32| -> serde_json::Value {
+        serde_json::from_str(&live(&format!("rest-{n}.json"))).unwrap()
+    };
+    assert_eq!(rest(2597)["has_parent_issue_url"], false);
+    assert_eq!(rest(2824)["has_parent_issue_url"], true);
+    let issue = |n: u32| {
+        ISSUE
+            .replace(r#""number":7"#, &format!(r#""number":{n}"#))
+            .replace(
+                "acme/widget/issues/7",
+                &format!("tehas-app/tehas-factory/issues/{n}"),
+            )
+    };
+    for (n, want) in [(2824, Some(Ref::Here(key(2597)))), (2597, None)] {
+        let (out, answer) = (issue(n), live(&format!("parent-{n}.json")));
+        let (mut gh, _) = adapter_in("tehas-app/tehas-factory", vec![Ok(&out), Ok(&answer)]);
+        assert_eq!(
+            gh.several(&[key(n.into())]).remove(0).1.unwrap().parent,
+            want,
+            "#{n}"
+        );
+    }
+}
+
+/// The project is told by its repository's database id, never by its
+/// name. The live recordings were read from a repository renamed before:
+/// a handle set to a name it no longer bears reads #2824's parent as this
+/// project's, as one set to its name does.
+#[test]
+fn a_renamed_project_is_still_here_by_its_repository_id() {
+    let issue = ISSUE.replace(r#""number":7"#, r#""number":2824"#).replace(
+        "acme/widget/issues/7",
+        "tehas-app/tehas-factory/issues/2824",
+    );
+    let answer = live("parent-2824.json");
+    for configured in [
+        "tehas-app/factory-before",
+        "tehas-app/tehas-factory",
+        "someone/else",
+    ] {
+        let (mut gh, _) = adapter_in(configured, vec![Ok(&issue), Ok(&answer)]);
+        assert_eq!(
+            gh.several(&[key(2824)]).remove(0).1.unwrap().parent,
+            Some(Ref::Here(key(2597))),
+            "{configured}"
+        );
+    }
+}
+
+/// A repository that bears this project's configured name and another id
+/// is another project, and one named with no id is unread.
+#[test]
+fn another_repositorys_id_is_elsewhere_whatever_its_name() {
+    let impostor = PARENT.replace(
+        r#""databaseId":7001,"nameWithOwner""#,
+        r#""databaseId":7999,"nameWithOwner""#,
+    );
+    let (mut gh, _) = adapter(vec![Ok(ISSUE), Ok(&impostor)]);
+    assert_eq!(
+        gh.several(&[key(7)]).remove(0).1.unwrap().parent,
+        Some(Ref::Elsewhere {
+            project: tehas_ports::ProjectName::new("acme/widget"),
+            item: tehas_ports::ItemName::new("3"),
+        })
+    );
+    let no_id = PARENT.replace(r#""databaseId":7001,"nameWithOwner""#, r#""nameWithOwner""#);
+    let (mut gh, _) = adapter(vec![Ok(ISSUE), Ok(&no_id)]);
+    assert_eq!(
+        gh.several(&[key(7)]).remove(0).1,
+        Err(Outcome::Unread(Unread::Malformed))
+    );
+    // An answer that names no id of this project's repository leaves the
+    // handle nothing to tell here from elsewhere by.
+    let unlearned = PARENT.replace(
+        r#"{"repository":{"databaseId":7001,"issue""#,
+        r#"{"repository":{"issue""#,
+    );
+    let (mut gh, _) = adapter(vec![Ok(ISSUE), Ok(&unlearned)]);
+    assert_eq!(
+        gh.several(&[key(7)]).remove(0).1,
+        Err(Outcome::Unread(Unread::Inconsistent))
+    );
 }
 
 #[test]
@@ -105,7 +256,7 @@ fn a_closed_issue_says_why() {
                 r#""state_reason":null"#,
                 &format!(r#""state_reason":{reason}"#),
             );
-        let (mut gh, _) = adapter(vec![Ok(&closed)]);
+        let (mut gh, _) = adapter(vec![Ok(&closed), Ok(NO_PARENT)]);
         let d = gh.several(&[key(7)]).remove(0).1.unwrap();
         assert_eq!(d.state, TicketState::Closed(want), "{reason}");
     }
@@ -142,15 +293,16 @@ fn prepare_makes_every_label_of_the_table_and_one_that_fails_stops_none() {
     let (mut gh, asked) = adapter(answers);
     assert_eq!(
         gh.prepare(),
-        Err(Unprepared {
-            mark: Some(specs[2].name.clone()),
-            why: Outcome::Unavailable {
+        Err({
+            let mut u = Unprepared::new(Outcome::Unavailable {
                 why: Passing::Server,
-                sent: Sent::Maybe
-            }
+                sent: Sent::Maybe,
+            });
+            u.mark = Some(specs[2].name.clone());
+            u
         })
     );
-    let asked = asked.borrow();
+    let asked = asked.lock().unwrap();
     assert_eq!(asked.len(), specs.len());
     assert_eq!(
         asked[0],
@@ -186,7 +338,7 @@ fn ensure_mark_makes_a_projects_label_with_what_its_spec_gives() {
     };
     assert_eq!(gh.ensure_mark(&full), Ok(()));
     assert_eq!(
-        *asked.borrow(),
+        *asked.lock().unwrap(),
         [
             "label create area-ui --repo acme/widget --force",
             "label create area-ui --repo acme/widget --color 00ff00 --description The UI --force"
@@ -203,7 +355,7 @@ fn ensure_mark_makes_a_projects_label_with_what_its_spec_gives() {
         gh.ensure_mark(&spaced),
         Err(Outcome::Refused(Refusal::Invalid))
     );
-    assert!(asked.borrow().is_empty());
+    assert!(asked.lock().unwrap().is_empty());
 }
 
 #[test]
@@ -215,7 +367,7 @@ fn a_mark_goes_on_and_comes_off_as_its_label() {
     assert_eq!(gh.unmark(&key(7), &pause), Ok(()));
     assert!(gh.unmark(&key(7), &pause).is_err());
     assert_eq!(
-        *asked.borrow(),
+        *asked.lock().unwrap(),
         [
             "api -X POST repos/acme/widget/issues/7/labels -f labels[]=tehas:pause",
             "api -X DELETE repos/acme/widget/issues/7/labels/tehas%3Apause",
@@ -227,21 +379,17 @@ fn a_mark_goes_on_and_comes_off_as_its_label() {
         gh.mark(&key(7), &Mark::Unknown),
         Err(Outcome::Refused(Refusal::Invalid))
     );
-    assert!(asked.borrow().is_empty());
+    assert!(asked.lock().unwrap().is_empty());
 }
 
 #[test]
 fn what_no_caller_asks_yet_is_unsupported_before_any_request() {
     let (mut gh, asked) = adapter(vec![]);
     assert_eq!(
-        gh.ticket(&key(7), Depth::Cut { notes: 0 }, None),
+        gh.count(&tehas_ports::Filter::default()),
         Err(Outcome::Refused(Refusal::Unsupported))
     );
-    assert_eq!(
-        gh.close(&key(7), &CloseReason::Done),
-        Err(Outcome::Refused(Refusal::Unsupported))
-    );
-    assert!(asked.borrow().is_empty());
+    assert!(asked.lock().unwrap().is_empty());
 }
 
 #[test]
@@ -250,10 +398,30 @@ fn a_cite_is_githubs_reference_and_a_new_ticket_link_its_page() {
     assert_eq!(gh.cite(&Cite::Ticket(Ref::Here(key(7)))), "#7");
     assert_eq!(gh.cite(&Cite::Account(Login::new("alice"))), "@alice");
     assert_eq!(
+        gh.cite(&Cite::Mark(Mark::Act(Act::Approve))),
+        format!("`{}`", table::APPROVAL_LABEL)
+    );
+    assert_eq!(gh.cite(&Cite::Mark(Mark::Unknown)), "");
+    let finish = tehas_ports::Marker::Millwright(tehas_ports::MillwrightMarker::new(
+        tehas_ports::BlueprintNo::new(12).unwrap(),
+        tehas_ports::MillwrightAction::Finish,
+    ));
+    assert_eq!(
+        gh.cite(&Cite::Marker(finish.clone())),
+        table::cite_marker(&finish)
+    );
+    assert_eq!(
+        gh.cite(&Cite::Marker(finish)),
+        "`<!-- tehas:millwright issue=12 action=finish -->`"
+    );
+    assert_eq!(gh.cite(&Cite::Marker(tehas_ports::Marker::Unknown)), "");
+    assert_eq!(
         gh.new_ticket_link("A b", "c&d").as_str(),
         "https://github.com/acme/widget/issues/new?title=A%20b&body=c%26d"
     );
-    let long = "x".repeat(3000);
+    let fits = "x".repeat(3000);
+    assert!(gh.new_ticket_link("A", &fits).as_str().ends_with(&fits));
+    let long = "x".repeat(9000);
     assert_eq!(
         gh.new_ticket_link("A", &long).as_str(),
         "https://github.com/acme/widget/issues/new?title=A"

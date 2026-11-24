@@ -707,7 +707,7 @@ two forms:
   sheets (`host/fun/*.css`), and in one cycle scripts as well. Tests and
   manual pages are what the repository's rules require a change to touch, so
   the plan's fence and the rules disagree
-  (tehas-app/tehas#159, trail-openers/pi-rukas#1250). Name in the issue every file
+  (tehas-app/tehas-factory#159, trail-openers/pi-rukas#1250). Name in the issue every file
   the change will touch, the test file and the manual page included, as
   step 1 of [Operating](/operating) says.
 - `verify command ... failed on the CONSOLIDATED tree`, or `exceeded its
@@ -769,7 +769,7 @@ with `holding: main is red at <sha>` while that check failed on the head
 commit (see [Limits that hold work back](/operating#limits-that-hold-work-back)).
 Fix the branch, then retry.
 
-What only pi-rukas can change (tehas-app/tehas#751): the base run should
+What only pi-rukas can change (tehas-app/tehas-factory#751): the base run should
 write a `verify-started` and a `verify-completed` event with `status:
 "failed"`, the failing suite, the assertion and the path of the output it
 kept. When it extracts no assertion it should say so and name that path.
@@ -907,7 +907,7 @@ named `developer-timeout`.
 
 The adversarial review could not run: its dispatch failed twice. It says
 nothing about the code. All three times it was seen here, on 14 October, the
-model endpoint was timing out (tehas-app/tehas#147,
+model endpoint was timing out (tehas-app/tehas-factory#147,
 trail-openers/pi-rukas#1243). The work is committed on a local branch in the
 workspace and was not pushed. There is no pull request. Check the endpoint,
 as in "The model endpoint does not answer" below, and retry once it answers.
@@ -1196,7 +1196,7 @@ so the update says so first:
 ```
 Cycle token:  CANNOT PUSH (tehas-app-bot[bot] was refused a dry-run push to origin)
     remote: Write access to repository not granted.
-    fatal: unable to access 'https://github.com/tehas-app/tehas.git/': The requested URL returned error: 403
+    fatal: unable to access 'https://github.com/tehas-app/tehas-factory.git/': The requested URL returned error: 403
 ```
 
 The update exits 1. What it installed stays installed. A drained factory stays
@@ -1517,8 +1517,9 @@ pull request than the one on record, so a notice a person removed comes back at
 the next run. The rules are in
 [tehasbot preview](/tools). The log line says which case it is:
 
-- `#<pr>: the description could not be read (no such pull request (HTTP 404)),
-  tried again at the next run`, or with `GitHub refused the call (HTTP 403)`.
+- `#<pr>: the description could not be read (not found, or not visible to
+  this actor), tried again at the next run`, or with `this actor may not do
+  this`.
   Check `gh auth status` as the tehas user: a token that lost access, or one
   that cannot write pull requests, answers that way for every pull request.
 - `#<pr>: the description has a preview notice that is not this one, left

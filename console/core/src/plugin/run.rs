@@ -9,7 +9,7 @@
 use super::manifest::Manifest;
 use super::{compare, is_name, Cap, Grants, Limits};
 use crate::grammar::{commit_id, is_image};
-use serde_json::{json, Value};
+use serde::Serialize;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use tehas_ports::events::Envelope;
@@ -69,7 +69,7 @@ impl Trigger {
 
 /// The pull request of a hook: its number and the commits of its base and
 /// head.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Pr {
     pub number: u64,
     pub base: String,
@@ -237,36 +237,54 @@ fn cid_of(text: &str) -> Option<&str> {
 
 /// `/run/context.json` of a run, api/plugin-context.schema.json. Nothing of
 /// a person, and nothing of a capability the run is not given.
-pub fn context(run: &Run) -> Result<Value, String> {
+#[derive(Debug, Serialize)]
+pub struct Context<'a> {
+    pub kind: &'static str,
+    pub trigger: &'static str,
+    pub commit: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub head: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<ContextModel<'a>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pr: Option<&'a Pr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event: Option<&'a Envelope>,
+}
+
+/// The model a run is given: its id at the run's socket and its tokens.
+#[derive(Debug, Serialize)]
+pub struct ContextModel<'a> {
+    pub id: &'a str,
+    pub tokens: u64,
+}
+
+/// The context of `run`, or why the run may not have one.
+pub fn context<'a>(run: &'a Run<'a>) -> Result<Context<'a>, String> {
     let given = run.given()?;
-    let mut c = json!({
-        "kind": run.kind.word(),
-        "trigger": run.trigger.word(),
-        "commit": run.commit,
-    });
-    if given.product {
-        c["head"] = json!(run.head);
-    }
-    if let Some(tokens) = given.tokens {
-        c["model"] = json!({"id": run.model, "tokens": tokens});
-    }
-    if let Some(pr) = &run.pr {
-        c["pr"] = json!({"number": pr.number, "base": pr.base, "head": pr.head});
-    }
-    if let Some(tool) = run.tool {
-        c["tool"] = json!(tool);
-    }
-    match (run.event, run.kind) {
-        (None, _) => {}
-        (Some(e), Kind::Hook) if super::hook::asks(e) => {
-            c["event"] = serde_json::to_value(e).map_err(|e| e.to_string())?;
-        }
+    let event = match (run.event, run.kind) {
+        (None, _) => None,
+        (Some(e), Kind::Hook) if super::hook::asks(e) => Some(e),
         (Some(e), Kind::Hook) => {
             return Err(format!("a hook is not asked on {}", e.name().as_str()))
         }
         (Some(_), _) => return Err(format!("a {} with an event", run.kind.word())),
-    }
-    Ok(c)
+    };
+    Ok(Context {
+        kind: run.kind.word(),
+        trigger: run.trigger.word(),
+        commit: run.commit,
+        head: given.product.then_some(run.head),
+        model: given.tokens.map(|tokens| ContextModel {
+            id: run.model,
+            tokens,
+        }),
+        pr: run.pr.as_ref(),
+        tool: run.tool,
+        event,
+    })
 }
 
 #[cfg(test)]
@@ -274,6 +292,7 @@ pub(crate) mod tests {
     use super::*;
     use crate::plugin::grants;
     use crate::plugin::manifest::Tool;
+    use serde_json::json;
     use tehas_ports::events::{samples, Name};
 
     pub const C: &str = "0123456789abcdef0123456789abcdef01234567";
@@ -437,7 +456,7 @@ pub(crate) mod tests {
         let m = manifest(&[]);
         let g = granted("");
         assert_eq!(
-            context(&run(&m, &g, Kind::Refresh)).unwrap(),
+            serde_json::to_value(context(&run(&m, &g, Kind::Refresh)).unwrap()).unwrap(),
             json!({"kind": "refresh", "trigger": "timer", "commit": C})
         );
         let m = manifest(&[
@@ -449,7 +468,7 @@ pub(crate) mod tests {
         ]);
         let g = granted("view product model:2000000 action:refresh hook:after:change.offered");
         assert_eq!(
-            context(&run(&m, &g, Kind::Hook)).unwrap(),
+            serde_json::to_value(context(&run(&m, &g, Kind::Hook)).unwrap()).unwrap(),
             json!({
                 "kind": "hook",
                 "trigger": "cycle",
@@ -459,7 +478,7 @@ pub(crate) mod tests {
             })
         );
         assert_eq!(
-            context(&run(&m, &g, Kind::Refresh)).unwrap()["model"],
+            serde_json::to_value(context(&run(&m, &g, Kind::Refresh)).unwrap()).unwrap()["model"],
             json!({"id": "plugin", "tokens": 2000000})
         );
         let sample = |name: Name| samples().into_iter().find(|s| s.name == name).unwrap().full;
@@ -469,7 +488,7 @@ pub(crate) mod tests {
             ..run(&m, &g, Kind::Hook)
         };
         assert_eq!(
-            context(&asked).unwrap()["event"],
+            serde_json::to_value(context(&asked).unwrap()).unwrap()["event"],
             serde_json::to_value(&offered).unwrap()
         );
         let ended = sample(Name::CycleEnded);
@@ -570,7 +589,7 @@ pub(crate) mod tests {
             })
         );
         assert_eq!(
-            context(&run(&m, &g, Kind::Call)).unwrap(),
+            serde_json::to_value(context(&run(&m, &g, Kind::Call)).unwrap()).unwrap(),
             json!({"kind": "call", "trigger": "chat", "commit": C, "tool": "find-doc"})
         );
     }
@@ -581,7 +600,7 @@ pub(crate) mod tests {
         let s = api("plugin-context.schema.json");
         assert_eq!(
             s["$id"],
-            "https://github.com/tehas-app/tehas/api/plugin-context.schema.json"
+            "https://github.com/tehas-app/tehas-factory/api/plugin-context.schema.json"
         );
         closed(&s);
         for name in ["refresh", "hook", "call"] {
@@ -608,6 +627,7 @@ pub(crate) mod tests {
             let g = granted(words);
             for kind in [Kind::Refresh, Kind::Hook, Kind::Call] {
                 if let Ok(c) = context(&run(&m, &g, kind)) {
+                    let c = serde_json::to_value(c).unwrap();
                     assert!(fits(&c, &s), "{c}");
                 }
             }

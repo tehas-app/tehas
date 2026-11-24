@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{BlueprintNo, ChangeNo, Login, Ref, Sha256, TicketKey};
+use crate::{BlueprintNo, ChangeNo, Login, Mark, Marker, Ref, Sha256, TicketKey, WebLink};
 
 /// A body or a file named by its sum: sha-256 in hex, and its length.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -33,8 +33,11 @@ impl Blobs for NoBlobs {
     }
 }
 
-/// What a body names: an item here or elsewhere, or an account.
+/// What a body names: an item here or elsewhere, or an account. It may
+/// grow. It has no `Unknown`: it is what a caller asks `Cites::cite` for,
+/// never a record read back.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum Cite {
     /// A ticket.
     Ticket(Ref<TicketKey>),
@@ -44,14 +47,32 @@ pub enum Cite {
     Change(Ref<ChangeNo>),
     /// An account.
     Account(Login),
+    /// The text a person types to make this marker, quoted as the site
+    /// shows code: what a reply tells a person to write. The port's reader
+    /// skips quotes and code, so reads no marker in it; a reader that does
+    /// not skip them still finds one, so no body cites a marker until T2
+    /// moves those readers. A marker that is not [`Marker::writable`]
+    /// cites as `""`.
+    Marker(Marker),
+    /// A mark as the site spells it in a body, the word `Site::mark_name`
+    /// gives, shown so a reader knows it for a mark. `Mark::Unknown` cites
+    /// as `""`.
+    Mark(Mark),
 }
 
 /// `Tickets`, `Blueprints` and `CodeHost` have it. The text that names
 /// `what` in a body written through this handle, as its site links or
-/// mentions it. No request.
+/// mentions it. No request. A body that holds a cited marker holds no
+/// marker to the port's reader
+/// (`laws::markers::a_cited_marker_is_no_marker`).
 pub trait Cites {
     /// The text that names `what` in a body written through this handle.
     fn cite(&self, what: &Cite) -> String;
+    /// Where a person opens what `what` names, the same link the item's
+    /// own read gives, with no request: an item of this project or an
+    /// account. None for a marker, a mark and an item of another project,
+    /// even where the site could build its link.
+    fn link(&self, what: &Cite) -> Option<WebLink>;
 }
 
 /// A body as a write takes it, and as its journal row keeps it: the text

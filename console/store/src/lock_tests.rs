@@ -4,7 +4,7 @@ use crate::lock::{self, Lock};
 use crate::verbs_tests::{hold, modes_bind, scratch};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
-use tehas_core::home::Home;
+use tehas_core::home::{Home, CYCLES};
 
 fn rc(l: &Lock) -> (u8, bool) {
     (l.rc, l.file)
@@ -67,7 +67,10 @@ fn a_lock_that_is_a_link_a_directory_or_not_in_a_directory_is_probe_rc_2() {
     fs::write(lock::dir(&other), b"").unwrap();
     let l = lock::probe(&other, 1, false);
     assert_eq!(l.rc, 2);
-    assert_eq!(l.why.as_deref(), Some("state/cycles is not a directory"));
+    assert_eq!(
+        l.why.as_deref(),
+        Some(format!("{CYCLES} is not a directory").as_str())
+    );
     fs::remove_file(lock::dir(&other)).unwrap();
     let real = other.join("real");
     fs::create_dir(&real).unwrap();

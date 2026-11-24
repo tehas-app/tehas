@@ -19,7 +19,7 @@ so a test that moves does not lower a count it did not fix.
 | GitHub's REST paths, GraphQL, the API host | `github-rest` | the forge's GitHub adapter, for labels only (`console/github/`; its runner in `console/core/src/forge.rs` until T4.11) | 846, with GitHub's JSON fields and `--json`/`--jq`: the console 240, dispatch 225, ops 98, cycle 93, the front pages 69, mcp 38, store 37, core 21, analytics 8, xtask 6 | the GitHub adapter of the three ports (T4) |
 | Running `gh` | `gh-argv` | the forge's `GhRunner` | 408: dispatch 207, cycle 67, the console 62, ops 34, core 13, store 11, mcp, xtask 4 each | the GitHub adapter; the security shims a written floor if they stay |
 | State labels and markers (`tehas:...`) | `label-words` | none; `host/labels.tsv` is the list | 1878, with `needs-human-attention` and `epic`: dispatch 1010, cycle 228, core 189, the console 184, ops 137, store 70, the front pages 34, mcp 21 | one module in core, checked against `host/labels.tsv` (T2) |
-| The `$TEHAS_HOME` layout: `state/`, `live/`, `run/` | `home-layout` | none | 1356: dispatch 341, cycle 278, ops 238, store 145, the console 124, analytics 98, proxy 31, contractor, core 25 each, `install.sh` 21, mcp 16, the units 5 | `Home` (T5); bash asks it (T8) |
+| The `$TEHAS_HOME` layout: `state/`, `live/`, `run/` | `home-layout` | none | 1356: dispatch 341, cycle 278, ops 238, store 145, the console 124, analytics 98, proxy 31, contractor, core 25 each, `install.sh` 21, mcp 16, the units 5 | `Home` (T5); the bash and the units at a written floor (T8) |
 | The store's verbs and answers | review | the store (`console/store/src/verbs.rs`) | callers pass verb strings to `call` and read `Value` | a typed store client (T5) |
 | `serde_json::Value` in signatures | `untyped-signatures` | none | 1421: dispatch 369, mcp 251, cycle 181, the console 162, core 128, ops 89, store 77, analytics 45, attach 42, plugin 33, proxy 28, contractor 16 | parsed at the edge (T3, T4, T5, T7) |
 | `Value` in public fields, enum variants, tuple fields | `untyped-fields` | none | 66: dispatch 38, cycle 7, ops 5, attach, contractor, core, the console 3 each | types of ours (T3, T7) |
@@ -119,6 +119,12 @@ count was the callers of `GitHub::new` that had not moved behind the
 ports yet. T4.3 moved the last of them, so it is 0: the console's wiring
 is a module of `console/src/main.rs`, and its commands take their handles
 from there.
+
+`adapter-link-rule` (R1, T4.8) counts the adapter's `attach` line in
+`console/github/Cargo.toml`: the link rule of GitHub's store is written
+once, in `console/attach/src/link.rs`, and the adapter takes it from there
+for `Blueprints::attachments` and `attachments_in`. It is 1, a written
+floor (above): core, dispatch, items and cycle read the rule as well.
 
 ## Write guards
 
@@ -231,12 +237,115 @@ its reason, as a floor; a departure from a should rule (R5) likewise.
 | --- | --- | --- | --- |
 | gh-argv, tests-stub-gh | 1 each | `console/tests/top_snapshot.rs` | the short name "gh" of a process in a fixture of /proc (`"name":"gh"`, #2859), which tehas top shows. Nothing runs gh. A pattern that skipped it would be fragile and allowing the file would hide a later gh call there, so it stays counted as a floor |
 | gh-argv, tests-stub-gh | 3 and 2 | gh-argv: `console/ops/src/pins/tools.rs` 1 and `console/ops/src/pins/tests.rs` 2; tests-stub-gh: `console/ops/src/pins/tests.rs` 2 | the pinned tool named "gh" in the release's list of pinned tools (`host/versions.env`) and its tests (ports spec, Decided 71). Nothing runs gh there; the name is the tool's |
+| adapter-link-rule | 1 | `console/github/Cargo.toml`, its `attach` line | the link rule of GitHub's store stays in `console/attach/src/link.rs`, written once, and the adapter takes it from there for `Blueprints::attachments` and `attachments_in` (the tehas lead's ruling for the alpha, 2026-11-24; ports spec, T4.8). core, dispatch, items and cycle read the rule as well and may not name the adapter; moving them onto the ports is not in the plan |
+| home-layout | 16, in the bash and the units | `install.sh` 12, `host/systemd/` 4 | T8's freeze, below |
+| T5's typed store client (no check counts it) | every caller of the store's verbs | the console and ops through `ops::store::call` and `line` (about 37 calls in 15 files), dispatch's `read/run.rs` `store()`, cycle's `host.rs` `store()` | a written floor for alpha.1 (tehas-84, 2026-11-24): the callers still pass a verb string and read `Value`. Many of them are in files other T4 lanes are changing, so typing them now would collide; the typed client is the series right after the alpha, and this row goes when it lands |
+| gh-argv | 3, in the bash | `lib/github-app.sh` 1, `host/sandbox/gh-shim` 1, `scripts/tag-release.sh` 1 | T8's freeze, below |
+| github-rest | 4, in the bash | `host/sandbox/gh-shim` 4 | T8's freeze, below |
+| tests-stub-gh | 83, in the shell tests that stay shell | 18 files of `test/` | T8's freeze, below |
+| untyped-signatures, untyped-fields | 147 and 2 | four causes, file by file | T7's floors, below |
+
+### The bash that stays (T8)
+
+The owner, 2026-11-23: T8 does not rewrite the bash that is left. It is
+frozen at its count of that day, as a written floor. A count here may
+only fall. A pull request that adds a match in bash takes out as many,
+and the one that takes a match out lowers the number here and the
+check's `max`. The numbers are ceilings measured on 9a6e173df, which
+holds #2981, by `scripts/architecture.py`'s count over the files named.
+#2981 was the one small change that could lower a count: `install.sh`
+now writes each path under `state/` once.
+
+What is still bash, and why it stays bash in 2.0:
+
+| Piece | What it still owns | Why it stays bash |
+| --- | --- | --- |
+| `install.sh` | the copies into the home, the build of the programs, the update lock and the dispatcher's lock, the first `state/` | it is what builds and installs the programs, so it runs where none is installed yet; it builds a console first and asks it for the settings, the waits and the steps, but no console verb prints a path of the home |
+| `bootstrap.sh` | the tools of a fresh host at the versions of `host/versions.env` | a fresh host has no Rust toolchain and no program of ours until it has run |
+| the units, `host/systemd/` | when and as whom the programs run | systemd reads them; a unit is given a path, it cannot ask a program for one |
+| `lib/config.sh`, `lib/paths.sh`, `host/env.sh` | loading the instance's settings and the tool PATH into a login shell and a unit | a shell's environment is set by sourcing; the settings' names and rules are core's, which `lib/config.sh` asks through the console |
+| `lib/github-app.sh`, `host/shim/gh` | a login shell acting as the GitHub App | environment and PATH of the shell, and a `gh` on PATH; the token is made in Rust |
+| `bin/`, `libexec/` | finding the console and running it | 24 and 55 lines that exec the console; `libexec/setup` builds one where a new host has none |
+| `host/sandbox/gh-shim`, `host/sandbox/build.sh` | the `gh` of a cycle's container, the image build | the shim is the sandbox's security shim and runs in an image with no program of ours; one of the write guards above |
+| `scripts/` | the gate and the release | they run in a checkout and in CI, before anything is built |
+
+The lines of `bin/`, `lib/` and `libexec/` have their own ceiling,
+`scripts/bash-lines.max`: 186, and 186 measured. The shell of `test/` has
+`scripts/test-lines.max`: 34408, and 34408 measured. The gate checks
+both.
+
+The checks that read bash, and what each still counts there:
+
+| Check | Frozen | Fork value of the whole check | What the matches are |
+| --- | --- | --- | --- |
+| label-words | 0 | 1878 | none in bash or the units |
+| home-layout | 16 | 1356 | `install.sh` 12: ten paths under the home it writes once each (the state directory, `state/tehas.db`, `state/backup`, `state/dispatch.lock`, `state/update.lock`, `state/sandbox.Dockerfile.sha256`, `state/first-install`, `state/cycles` in a note, `state/index.json`, and `live` on the line that makes the home's directories) and two comments (lines 97 and 140). The units 4: `tehas-dispatch.path` and `tehas-dispatch.service` name `state/dispatch.again`, `tehas-mcp-fetch.socket` names `run/mcp-fetch/fetch.sock`, and `tehas-cycle@.service` line 9 is a comment |
+| gh-argv | 3 | 408 | `lib/github-app.sh` line 19, the credential helper string git is given, which names the console's shim. Two comments: `host/sandbox/gh-shim` line 33 and `scripts/tag-release.sh` line 68 |
+| github-rest | 4 | 846 | `host/sandbox/gh-shim`: lines 43, 50 and 57 read whether a `gh api graphql` call is a mutation, to refuse a write on a read-only host. Line 33 is a comment |
+| tests-stub-gh | 83 | 419 | the shell tests that ports spec T4.12 and the tests-stub-gh row of its Done keep as written floors: `github_app_test.sh` 22, `gh_fail_test.sh` 21 (the test of `t_gh_fail` in `test/lib.sh`), the six `shim_writes_*` files 16, `init_product_test.sh` 7, `tag_release_test.sh` 6, `install_first_test.sh` 4, and 1 each in `sandbox_argv_test.sh` (rule 4), `gh_shim_test.sh`, `bootstrap_lib.sh`, `bootstrap_test.sh`, `install_lib.sh`, `setup_test.sh` and `config_defaults_test.sh`. The spec names `install_fresh_test.sh` and `config_test.sh`; their cases are in `install_first_test.sh` and `config_defaults_test.sh` now, and `bootstrap_test.sh`'s 2 are split with `bootstrap_lib.sh` |
+
+Six of the 23 matches outside the tests are comments, on five lines
+(`host/sandbox/gh-shim` line 33 counts in two checks). They count
+because those checks skip lines that start `//`, the Rust comment, and
+not `#`. They are left as they are: rewording a comment to miss a pattern
+fixes nothing.
+
+Why the rest stays. `install.sh` has a console by the time it writes to
+the home, and could ask `Home` for these ten paths if a console verb
+printed them. None does. Adding one is new Rust and a new command in the
+contract (`api/commands.txt`), not a small change to the bash, and the
+owner's freeze leaves it out of 2.0. The units need real paths: systemd
+cannot ask. The credential helper is a string git reads from the environment of a
+login shell. The gh shim of the sandbox must read `gh`'s arguments to
+decide whether a call writes. The 83 shell tests are those whose point
+is the bash, as the ports spec keeps them: the shims, the container's
+argument lists (rule 4), the App's shell side, the harness's own gh
+failure, install, bootstrap, init-product and setup, the settings library
+and the release script.
+
+Not in this floor. The other 27 matches of tests-stub-gh in 21 files of
+`test/`, `update_test.sh` among them, stub `gh` for a behaviour of Rust
+code: ports spec T4.12 moves them into Rust over the fake, with the
+crate they test, and the plan's T15 ports the shell tests to Rust. Its 36
+matches in data files of Rust tests are not bash. Dispatch's JSON
+fixtures 21 give way to builders at T4.6. The store's 1.x SQL fixtures
+10, core's text samples 4 and mcp's log sample 1 are written floors of T4
+(ports spec T4.4, T4.8 and T4.11, and its Done). home-layout's matches in
+the Rust test files of cycle (70) and of the console (8, and 1 in
+`console/src/wake.rs`) are T5's, whose Done is home-layout at 0 outside
+`Home`: cycle's are 64 shell stubs of the runner writing its notes under
+`state/cycles`, 3 expected values and 3 files a test checks are not made;
+the console's are 5 shell stubs in its update tests (`tests/update.rs` 2,
+`update/mod.rs` 2, `update_checkout.rs` 1) and 4 paths a test holds to
+check against, `wake.rs` line 89 an expected path.
+
+### Typed seams that stay untyped (T7)
+
+The lead, 2026-11-24 (tehas-84): what is untyped by nature stays, as a
+written floor; everything else is typed in T7's series. A count here may
+only fall: a pull request that adds a match to one of these files says
+which cause it is of, or types it. Measured on bc3bf1fe3 by
+`scripts/architecture.py`'s count, function by function.
+
+| Cause | untyped-signatures | untyped-fields | Where |
+| --- | --- | --- | --- |
+| A JSON Schema is a JSON document, and a check of any JSON against one walks the JSON | 91 | 1 | the MCP tools' input and output schemas: `console/mcp/src/tools.rs` 23 (`prop` to `stats_schema`, `build_entries`, `list_scoped`, `entries`, `spec_of`, `spec_of_keys`), `sessions.rs` 16 (the schema builders, `tools`, `spec`, `spec_of`, `issue_spec`), `outcomes_schema.rs` 9, `logs.rs` 4 (`described`, `tool`, `arr`, `search_tool`), `disk.rs` 2 (`tool`, `spec`), `decisions.rs`, `events.rs`, `park.rs` 1 each (`tool`); the checkers: `console/mcp/src/conform.rs` 5, `console/core/src/plugin/params.rs` 9 (a tool's parameters against its schema, and its tests' samples), `schema.rs` 3 (the api/ schemas the tests hold the files to); a plugin's manifest, read field by field with a refusal that names the field: `console/core/src/plugin/manifest.rs` 17 and its field `Tool::params`, the tool's own schema |
+| A body passed through whole, checked against its shape, not read | 26 | 0 | the model endpoint of a plugin run, which checks a chat request and its answer and forwards them unchanged: `console/plugin/src/model.rs` 12 and its tests 11; the arguments and the answer of a plugin's tool, which are the plugin's JSON, checked against its schema: `console/mcp/src/plugins.rs` 3 (`call`, `answered`, `exchange`) |
+| pi's `models.json`, which tehas edits in place and must keep every key it does not own | 16 | 1 | `console/core/src/models.rs` 4 and `ModelFile::json`, `console/ops/src/update/pi.rs` 6, `console/ops/src/setup.rs` 3, `console/ops/src/update/findings.rs` 1, `console/src/product.rs` 2 |
+| A contract test that walks any answer against its schema or lists its keys | 14 | 0 | `console/mcp/tests/tools.rs` 6 (`paths`, `key_paths`, `schema_paths`, `spec_paths`, `schema_of`, `described`), `sessions.rs` 5, `park.rs` 1 (`schema_paths`), `common.rs` 1 (`conforms`), `console/analytics/tests/sessions_contract.rs` 1 (`json_type`) |
+
+Not in this floor: the rest of these files. The MCP tools' answers
+(`status`, `issues`, `console`, `stats`, the sessions' `list`, `one`,
+`failures` and `issue`, `park`, `events`, `logs`), the listing of a
+plugin's tools and the JSON-RPC request's id and params are typeable and
+are typed in T7's series; so are the dispatcher's, the cycle's, the
+console's, ops' and the store client's, as T3 to T5 leave them.
 
 ### Temporary rises
 
 Empty since #2890. A T15 pull request that raises a count narrows the check in the same pull request: a test file whose every match is the check's data or tehas's own words goes in the check's `allowed`, by name and with what it covers, or a list copied in many tests gets one owner. A real finding goes to the step that fixes it in the plan.
 
-#2890 cleared the rows of #2859, #2860, #2866 and #2879 that way. Allowed by name: console/tests/store_paths.rs for label-words and home-layout (the store lint's patterns and sample lines), console/tests/host_bridge.rs for raw-statuses (the docs server's 404), and console/cycle/tests/headless_caps.rs, top_snapshot.rs, top_view.rs and top_frame.rs for github-rest (the runner's and tehas top's --json, tehas's running.json). The list of tools every test stubs to fail has one owner, console/core/src/testing.rs, allowed in gh-argv, in place of eight copies of the deny list and three lists of tools stubbed to fail; that took out 10 in gh-argv and tests-stub-gh, 5 of them older than T15. Its findings moved: two github-rest lines to T4's Done, one untyped-signatures line to T7's, and the /proc fixture to the floor above. Counts at #2890: github-rest 819, gh-argv 386, tests-stub-gh 401, home-layout 491, label-words 1855, raw-statuses 259.
+#2890 cleared the rows of #2859, #2860, #2866 and #2879 that way. Allowed by name: console/tests/store_paths.rs for label-words and home-layout (the store lint's patterns and sample lines), console/tests/host_bridge.rs for raw-statuses (the docs server's 404), and console/cycle/tests/headless_caps.rs, top_snapshot.rs, top_view.rs, top_frame.rs, drain.rs, host_message.rs, limit.rs, export.rs and history.rs for github-rest (the runner's --json and that of tehas top, drain, host-message, limit, export and history, tehas's running.json). The list of tools every test stubs to fail has one owner, console/core/src/testing.rs, allowed in gh-argv, in place of eight copies of the deny list and three lists of tools stubbed to fail; that took out 10 in gh-argv and tests-stub-gh, 5 of them older than T15. Its findings moved: two github-rest lines to T4's Done, one untyped-signatures line to T7's, and the /proc fixture to the floor above. Counts at #2890: github-rest 819, gh-argv 386, tests-stub-gh 401, home-layout 491, label-words 1855, raw-statuses 259.
 
 ### Fork values
 

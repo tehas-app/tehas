@@ -18,7 +18,7 @@ use crate::forge::GhRunner;
 use serde_json::Value;
 use std::path::Path;
 
-/// Whole logins, split by spaces, exact case. An empty name is nobody.
+/// Whole logins, split by spaces, in any ASCII case. An empty name is nobody.
 pub fn allowed(who: &str, list: &str) -> bool {
     crate::events::allowed_in(list, who)
 }
@@ -73,7 +73,8 @@ pub fn refusal(label: &str, stage: &str, pin: Option<&str>, id: &str) -> Option<
 }
 
 /// The label's refusal as [`refusal`] says it, read from GitHub and the pins
-/// of `home`. Err with the line when the label could not be read.
+/// of `home`, and a refusal when the pins cannot be read. Err with the line
+/// when the label could not be read.
 pub fn pin_refusal(
     gh: &mut dyn GhRunner,
     home: &Path,
@@ -87,7 +88,10 @@ pub fn pin_refusal(
             "the label {label} could not be read, nothing built or removed"
         ));
     };
-    let pins = crate::label_pins::load(home);
+    let pins = match crate::label_pins::load(home) {
+        Ok(r) => r.pins(),
+        Err(u) => return Ok(Some(format!("refused: {u}"))),
+    };
     Ok(refusal(
         label,
         stage,
@@ -530,11 +534,11 @@ mod tests {
     }
 
     #[test]
-    fn the_allowed_list_is_whole_logins_in_exact_case() {
+    fn the_allowed_list_is_whole_logins_in_any_ascii_case() {
         assert!(allowed("alice", "alice bob"));
         assert!(allowed("bob", "alice bob"));
         assert!(!allowed("ali", "alice bob"));
-        assert!(!allowed("Alice", "alice bob"));
+        assert!(allowed("Alice", "alice bob"));
     }
 
     #[test]

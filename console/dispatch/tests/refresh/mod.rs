@@ -13,7 +13,14 @@ pub const RHEAD: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 pub const RBASE: &str = "cccccccccccccccccccccccccccccccccccccccc";
 
 /// The REST call of rule 4b that takes the mark off a pull request.
-pub const UNMARK_CALL: &str = "api -X DELETE repos/acme/widget/issues/50/labels/tehas:refreshing";
+/// Whether the poll took the refresh mark off pull request `n`, as a write
+/// of the code host.
+pub fn unmarked_change(w: &World, n: u64) -> bool {
+    w.writes_of(n).contains(&tehas_ports::Write::UnmarkChange {
+        no: tehas_ports::ChangeNo::new(n).unwrap(),
+        mark: tehas_ports::Mark::State(tehas_ports::State::Refreshing),
+    })
+}
 
 pub fn refresh_dir(w: &World) -> PathBuf {
     w.home.join("state/refresh")
@@ -176,11 +183,8 @@ pub fn marked_refreshing(w: &World) {
 
 /// The comments on #7 that say tehas does not refresh it.
 pub fn said_no_refresh(w: &World) -> usize {
-    w.gh()
-        .lines()
-        .filter(|l| {
-            l.split_once("issue comment 7 ")
-                .is_some_and(|(_, r)| r.contains("does not refresh"))
-        })
+    w.said(7)
+        .iter()
+        .filter(|b| b.contains("does not refresh"))
         .count()
 }

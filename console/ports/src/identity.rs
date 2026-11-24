@@ -7,17 +7,27 @@ use serde::{Deserialize, Serialize};
 use crate::ids::opaque;
 use crate::{Account, AccountId, Got, Login, ProjectName, Reports, Scope, Secret, Token, WebLink};
 
-/// What an account may do on a project.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// What an account may do on a project, least first, so a caller compares
+/// levels: `None < Read < Triage < Write < Maintain < Admin`. A site
+/// without the triage or the maintain level folds triage into `Read` and
+/// maintain into `Write`, so a level never reads higher than the site
+/// grants. On the wire each is its name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Standing {
-    /// Everything, settings included.
-    Admin,
-    /// Write.
-    Write,
-    /// Read only.
-    Read,
     /// Nothing.
     None,
+    /// Read only.
+    Read,
+    /// Read, and sort tickets and changes: marks, assignees, closing. No
+    /// write to the code.
+    Triage,
+    /// Write.
+    Write,
+    /// Write, and manage the project short of its settings that matter
+    /// most.
+    Maintain,
+    /// Everything, settings included.
+    Admin,
 }
 
 opaque!(
@@ -57,9 +67,31 @@ pub trait Identity: Reports {
     /// covers no project outside the set. A project the grant does not
     /// cover is `Forbidden` before any mint, never a wider set or scope.
     fn token_over(&mut self, scope: Scope, projects: &[ProjectName]) -> Got<Token>;
-    /// The link a person opens to sign in, carrying `state`.
-    fn sign_in_link(&self, state: &SignInState) -> WebLink;
+    /// The link a person opens to sign in, carrying `state`. No request.
+    /// `Refused(Unsupported)` from a site set up with no way for a person
+    /// to sign in, such as an adapter without its client for people.
+    fn sign_in_link(&self, state: &SignInState) -> Got<WebLink>;
     /// The person behind a finished sign-in, and their credential, for the
     /// caller's keyring.
     fn signed_in(&mut self, code: &SignInCode) -> Got<(Account, Secret)>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_standing_is_ordered_least_first() {
+        let all = [
+            Standing::None,
+            Standing::Read,
+            Standing::Triage,
+            Standing::Write,
+            Standing::Maintain,
+            Standing::Admin,
+        ];
+        assert!(all.windows(2).all(|w| w[0] < w[1]));
+        assert!(Standing::Triage < Standing::Write);
+        assert!(Standing::Maintain >= Standing::Write);
+    }
 }

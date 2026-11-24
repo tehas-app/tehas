@@ -7,8 +7,8 @@ use std::sync::Arc;
 use serde::Serialize;
 
 use crate::{
-    Actor, BlueprintWrites, Blueprints, Board, Caller, CodeHost, CodeHostWrites, Got, Identity,
-    Join, Links, Outcome, Pool, PortName, Realm, Refusal, TicketWrites, Tickets,
+    Actor, At, BlueprintWrites, Blueprints, Board, Caller, CodeHost, CodeHostWrites, Got, Identity,
+    Join, Links, Mark, Marker, Outcome, Pool, PortName, Realm, Refusal, TicketWrites, Tickets,
 };
 
 /// One realm's supplier for one project. A port it does not serve answers
@@ -40,10 +40,81 @@ pub trait Site: Send + Sync {
     fn board(&self, by: &Actor, caller: Caller) -> Got<Box<dyn Board + Send>>;
     /// Calls and points by caller, port and pool, since the site was made.
     fn meter(&self) -> Vec<MeterRow>;
+    /// A mark as this site spells it, for terminal, log and MCP text: no
+    /// handle and no request, so a caller never writes the site's word
+    /// itself. Every mark names a word but `Mark::Unknown`, and any word
+    /// this copy does not know, which name as `""`: they are never written.
+    /// In a body, `Cite::Mark` names it as the site shows it there.
+    fn mark_name(&self, mark: &Mark) -> String;
+    /// The text a person types to make a marker on this site, for
+    /// terminal, log and MCP text: no handle and no request, so a caller
+    /// never writes the marker's syntax itself. Not quoted, unlike
+    /// `Cite::Marker` in a body. A marker that is not `Marker::writable`
+    /// names as `""`. The default names every marker `""`: an implementer
+    /// that writes no marker leaves it.
+    fn marker_text(&self, marker: &Marker) -> String {
+        let _ = marker;
+        String::new()
+    }
+    /// The same site, with the same meter, kept reads, tokens and
+    /// sign-in, whose handles have a deadline: at or past `until`, every
+    /// call answers `Unavailable { why: Timeout, sent: No }` without
+    /// sending, and no retry, wait or page runs past it. A handle made
+    /// before keeps its own deadline. A view of a view keeps the earlier
+    /// of the two deadlines. Every call means every one: a token kept or
+    /// given is not answered either. A caller that must stop by a time
+    /// makes its handles from this view.
+    fn until(&self, until: At) -> Arc<dyn Site>;
+}
+
+/// Forwards every method. A method added to `Site` after the freeze, with
+/// its default body, is forwarded here too, or an `Arc` of a site that
+/// answers it would answer the default.
+impl<T: Site + ?Sized> Site for Arc<T> {
+    fn realms(&self) -> &[Realm] {
+        (**self).realms()
+    }
+    fn tickets(&self, by: &Actor, caller: Caller) -> Got<Box<dyn Tickets + Send>> {
+        (**self).tickets(by, caller)
+    }
+    fn ticket_writes(&self, by: &Actor, caller: Caller) -> Got<Box<dyn TicketWrites + Send>> {
+        (**self).ticket_writes(by, caller)
+    }
+    fn blueprints(&self, by: &Actor, caller: Caller) -> Got<Box<dyn Blueprints + Send>> {
+        (**self).blueprints(by, caller)
+    }
+    fn blueprint_writes(&self, by: &Actor, caller: Caller) -> Got<Box<dyn BlueprintWrites + Send>> {
+        (**self).blueprint_writes(by, caller)
+    }
+    fn code_host(&self, by: &Actor, caller: Caller) -> Got<Box<dyn CodeHost + Send>> {
+        (**self).code_host(by, caller)
+    }
+    fn code_host_writes(&self, by: &Actor, caller: Caller) -> Got<Box<dyn CodeHostWrites + Send>> {
+        (**self).code_host_writes(by, caller)
+    }
+    fn identity(&self, by: &Actor, caller: Caller) -> Got<Box<dyn Identity + Send>> {
+        (**self).identity(by, caller)
+    }
+    fn board(&self, by: &Actor, caller: Caller) -> Got<Box<dyn Board + Send>> {
+        (**self).board(by, caller)
+    }
+    fn meter(&self) -> Vec<MeterRow> {
+        (**self).meter()
+    }
+    fn mark_name(&self, mark: &Mark) -> String {
+        (**self).mark_name(mark)
+    }
+    fn marker_text(&self, marker: &Marker) -> String {
+        (**self).marker_text(marker)
+    }
+    fn until(&self, until: At) -> Arc<dyn Site> {
+        (**self).until(until)
+    }
 }
 
 /// One line of the meter. `Serialize` only: `Caller` is a `&'static str`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+#[non_exhaustive]
 pub struct MeterRow {
     /// Who made the calls.
     pub caller: Caller,
@@ -56,6 +127,16 @@ pub struct MeterRow {
     /// How many points the site counted for them.
     pub points: u32,
 }
+
+new!(
+    MeterRow {
+        caller: Caller,
+        port: PortName,
+        pool: Pool
+    },
+    calls,
+    points
+);
 
 /// A setup: one site, or a code host's site and a tickets site. The one
 /// thing a program's wiring hands its callers.
@@ -136,6 +217,31 @@ impl Setup {
             return Err(Outcome::Refused(Refusal::Unsupported));
         }
         site.identity(by, caller)
+    }
+
+    /// A mark as the site of `realm` spells it: a ticket's marks are the
+    /// ticket realm's words, a change's the code host's.
+    pub fn mark_name(&self, realm: Realm, mark: &Mark) -> String {
+        self.site_of(realm).mark_name(mark)
+    }
+
+    /// A marker as the site of `realm` writes it, by `Site::marker_text`.
+    pub fn marker_text(&self, realm: Realm, marker: &Marker) -> String {
+        self.site_of(realm).marker_text(marker)
+    }
+
+    /// The same setup, every site of it seen through `Site::until`: each
+    /// handle it makes answers `Unavailable { why: Timeout, sent: No }` at
+    /// or past `until`, without sending.
+    pub fn until(&self, until: At) -> Setup {
+        match self {
+            Setup::One(site) => Setup::One(site.until(until)),
+            Setup::Split(split) => Setup::Split(Split {
+                code_host: split.code_host.until(until),
+                tickets: split.tickets.until(until),
+                links: Arc::clone(&split.links),
+            }),
+        }
     }
 
     /// `One`: the site's own board. `Split`: a `Join` over handles of both.

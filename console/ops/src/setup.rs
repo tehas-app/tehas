@@ -531,10 +531,8 @@ fn make_app(
     let started = std::time::Instant::now();
     loop {
         match app.installations() {
-            Ok(n) if n > 0 => break,
+            Ok(Some(n)) if n > 0 => break,
             Ok(_) => {}
-            // A new app may not be known everywhere at once.
-            Err(why) if why == "HTTP 404" => {}
             Err(why) => {
                 return Err(Die(format!(
                     "GitHub did not list the installations of {slug} ({why}); a refused app token often means the host's clock is off. Check it, install the app at {install} and run tehas setup again: it finds app {id} and checks it"

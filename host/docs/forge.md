@@ -35,12 +35,17 @@ method no command asks yet answers `Refused(Unsupported)` before any call.
 
 | Method | Asked by | GitHub mapping |
 | --- | --- | --- |
-| `several(keys)` | `tehas resume`, for the marks on the control issue | `GET repos/<owner>/<name>/issues/<n>` per key: the title, state and its reason, type, labels, milestone, author, times and link. An answer without one of the fields every issue has is `Unread(Malformed)`. |
+| `several(keys)` | `tehas resume`, for the marks on the control issue, and `tehas stop`, for the running mark | `GET repos/<owner>/<name>/issues/<n>` per key: the title, state and its reason, type, labels, milestone, author, times and link. An answer without one of the fields every issue has is `Unread(Malformed)`. |
 | `history(key, window, kinds)` | `tehas resume` and `console label allowed` | The paginated events call below, marks going on and off alone. A login is folded to lower case by `accounts::folded`, the fold the user id check uses too, so it matches the allowed list in any case. |
 | `prepare()` | `tehas labels` | `gh label create <name> --repo <owner>/<name> --color <c> --description <d> --force` for each row of `host/labels.tsv`, compiled into the adapter. A label that cannot be made stops none of the others; the first that failed is the answer, with its name (`Unprepared`). |
 | `ensure_mark(spec)` | nothing yet | The same call for one label, with the colour and text the spec gives. |
-| `mark(key, mark)` | `tehasbot status`, for `tehas:shipped` on each closed issue a merged pull request closed that does not carry it yet | `add_label` below, of the mark's label. |
-| `unmark(key, mark)` | nothing yet | `remove_label` below, of the mark's label. |
+| `mark(key, mark)`, `unmark(key, mark)` | `mark`: `tehasbot status`, for `tehas:shipped` on each closed issue a merged pull request closed that does not carry it yet. `unmark`: `tehas stop`, the running mark | `add_label` and `remove_label` below, of the mark's label. |
+| `close(key, reason)` | nothing yet (T4.7) | The issue read, then `PATCH repos/<owner>/<name>/issues/<n>` of `state` and `state_reason` (`completed`, `not_planned`, `duplicate`). A closed issue is done with nothing sent. |
+| `assign(key, who)` | nothing yet (T4.7) | `GET user/<id>` for the account's login, then `POST repos/<owner>/<name>/issues/<n>/assignees`. GitHub answers 201 and drops a login it cannot assign, so the answer's assignees are read: the account missing is `Refused(Invalid)`. A bot or an organisation is `Refused(Invalid)` with nothing sent. |
+| `add_part(parent, child)` | nothing yet (T4.7) | `GET repos/<owner>/<name>/issues/<child>/parent`: already this parent's part is done, another parent's is `Refused(Invalid)` and never moved. Else the child's issue read for its id, then `POST repos/<owner>/<name>/issues/<parent>/sub_issues`. |
+
+A write GitHub refuses with 422 made nothing: it answers `Refused(Invalid)`,
+never a write that may have been sent.
 
 ## The adapter's terms
 
@@ -104,7 +109,7 @@ site's whole answer, which may name a host or carry a token. Its line is
 ## Who made a change
 
 Authorisation is the account that applied a label, and only an allowed account
-counts ([AGENTS.md](https://github.com/tehas-app/tehas/blob/main/AGENTS.md)
+counts ([AGENTS.md](https://github.com/tehas-app/tehas-factory/blob/main/AGENTS.md)
 rule 5). The adapter answers who; it never answers whether that account may
 start anything. The caller compares the account with `TEHAS_ALLOWED_LABELERS`.
 
@@ -166,6 +171,12 @@ one call and returns its output or the reason it failed. Both stay in
 and, after 5 seconds of grace, KILL to the whole process group, as
 `timeout -k` does. The bound matters: a poll holds its lock for the whole of
 its read.
+
+A write sends its text with `run_input`, on gh's standard input, never as an
+argument: a body may be 1 MiB, past the 128 KiB one argument may hold, and an
+argument list is seen by every process on the host. The input is written
+within the same bound, and a failed call's reason never holds it. A runner
+that takes no input answers so and runs nothing.
 
 ## Testing the adapter
 

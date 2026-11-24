@@ -33,98 +33,74 @@ fn unsupported() -> Outcome {
 }
 
 fn digest(key: TicketKey, open: bool) -> TicketDigest {
-    TicketDigest {
-        key,
-        title: "t".into(),
-        state: if open {
-            TicketState::Open
-        } else {
-            TicketState::Closed(CloseReason::Done)
-        },
-        kind: None,
-        priority: Priority::Normal,
-        marks: vec![],
-        target: None,
-        author: None,
-        created: At::new(0),
-        updated: At::new(0),
-        revision: Revision::new("r"),
-        link: link(),
+    {
+        let mut ticket_digest = TicketDigest::new(
+            key,
+            if open {
+                TicketState::Open
+            } else {
+                TicketState::Closed(CloseReason::Done)
+            },
+            At::new(0),
+            At::new(0),
+            Revision::new("r"),
+            link(),
+        );
+        ticket_digest.title = "t".into();
+        ticket_digest.priority = Priority::Normal;
+        ticket_digest
     }
 }
 
 fn ticket(key: TicketKey, open: bool) -> Ticket {
-    Ticket {
-        digest: digest(key, open),
-        text: "text".into(),
-        closed: None,
-        closer: None,
-        parts: vec![],
-        blockers: vec![],
-        assignees: vec![],
-        markers: vec![],
-        mentioned_by: vec![],
-        history: Took {
-            items: vec![],
-            more: false,
-        },
+    {
+        let mut ticket = Ticket::new(digest(key, open));
+        ticket.text = "text".into();
+        ticket.history = Took::default();
+        ticket
     }
 }
 
 fn comment(id: &str) -> Comment {
-    Comment {
-        id: CommentId::new(id),
-        author: None,
-        editor: None,
-        created: At::new(0),
-        edited: None,
-        body: id.into(),
-        markers: vec![],
-        revision: Revision::new("r"),
-        link: link(),
+    {
+        let mut comment = Comment::new(CommentId::new(id), At::new(0), Revision::new("r"), link());
+        comment.body = id.into();
+        comment
     }
 }
 
 fn blueprint(no: u64, comments: Vec<Comment>) -> Blueprint {
-    Blueprint {
-        no: bp(no),
-        title: "b".into(),
-        body: "body".into(),
-        open: true,
-        author: None,
-        editor: None,
-        created: At::new(0),
-        edited: None,
-        revision: Revision::new("r"),
-        markers: vec![],
-        comments: Took {
-            items: comments,
-            more: false,
-        },
-        link: link(),
+    {
+        let mut blueprint = Blueprint::new(bp(no), At::new(0), Revision::new("r"), link());
+        blueprint.title = "b".into();
+        blueprint.body = "body".into();
+        blueprint.open = true;
+        blueprint.comments = {
+            let mut took = Took::default();
+            took.items = comments;
+            took
+        };
+        blueprint
     }
 }
 
 fn change(no: u64, state: ChangeState, closes: Vec<Ref<BlueprintNo>>) -> ChangeDigest {
-    ChangeDigest {
-        no: cn(no),
-        title: "c".into(),
-        state,
-        head: Branch::new("work").unwrap(),
-        head_commit: CommitId::new("abc1234").unwrap(),
-        base: Branch::new("main").unwrap(),
-        author: None,
-        from_fork: false,
-        draft: false,
-        merge_state: Mergeable::Unknown,
-        marks: vec![],
-        closes,
-        size: None,
-        body: None,
-        created: At::new(0),
-        edited: None,
-        editor: None,
-        link: link(),
+    {
+        let mut change_digest = ChangeDigest::new(
+            cn(no),
+            state,
+            Branch::new("work").unwrap(),
+            CommitId::new("abc1234").unwrap(),
+            Branch::new("main").unwrap(),
+            CommitId::new("abc1230").unwrap(),
+            At::new(0),
+            At::new(0),
+            link(),
+        );
+        change_digest.title = "c".into();
+        change_digest.merge_state = Mergeable::Unknown;
+        change_digest.closes = closes;
+        change_digest
     }
 }
 
@@ -132,7 +108,7 @@ fn merged() -> ChangeState {
     ChangeState::Merged {
         at: At::new(1),
         by: None,
-        commit: CommitId::new("def5678").unwrap(),
+        commit: Some(CommitId::new("def5678").unwrap()),
     }
 }
 
@@ -159,11 +135,7 @@ struct StubTickets {
 }
 
 fn reopened() -> TicketEvent {
-    TicketEvent {
-        what: Happened::Reopened,
-        by: None,
-        at: None,
-    }
+    TicketEvent::new(Happened::Reopened)
 }
 
 impl StubTickets {
@@ -178,10 +150,10 @@ impl StubTickets {
 
 impl Reports for StubTickets {
     fn take_reports(&mut self) -> Vec<Report> {
-        vec![Report {
-            port: PortName::Tickets,
-            outcome: Outcome::NotFound,
-            calls: 2,
+        vec![{
+            let mut report = Report::new(PortName::Tickets, Outcome::NotFound);
+            report.calls = 2;
+            report
         }]
     }
 }
@@ -189,6 +161,9 @@ impl Reports for StubTickets {
 impl Cites for StubTickets {
     fn cite(&self, _: &Cite) -> String {
         String::new()
+    }
+    fn link(&self, _: &Cite) -> Option<WebLink> {
+        None
     }
 }
 
@@ -198,14 +173,17 @@ impl Tickets for StubTickets {
         self.asked.lock().unwrap().windows.push(window);
         let mut ticket = self.find(key)?;
         ticket.history = match window {
-            None => Took {
-                items: vec![],
-                more: true,
-            },
-            Some(w) => Took {
-                items: vec![reopened()],
-                more: matches!(w, Window::Last(_)),
-            },
+            None => {
+                let mut took = Took::default();
+                took.more = true;
+                took
+            }
+            Some(w) => {
+                let mut took = Took::default();
+                took.items = vec![reopened()];
+                took.more = matches!(w, Window::Last(_));
+                took
+            }
         };
         Ok(ticket)
     }
@@ -230,9 +208,30 @@ impl Tickets for StubTickets {
         listed.extend(self.unread.iter().map(|k| digest(k.clone(), true)));
         Ok(Whole::new(listed))
     }
+    fn recent(&mut self, _: &Filter, _: NonZeroU32) -> Got<Took<TicketDigest>> {
+        unreachable!()
+    }
+    fn recently_closed(&mut self, _: NonZeroU32) -> Got<Took<ClosedTicket>> {
+        unreachable!()
+    }
+    fn count(&mut self, _: &Filter) -> Got<u64> {
+        unreachable!()
+    }
     fn several(&mut self, keys: &[TicketKey]) -> Vec<(TicketKey, Got<TicketDigest>)> {
         keys.iter()
             .map(|k| (k.clone(), self.find(k).map(|t| t.digest)))
+            .collect()
+    }
+    fn several_with_closers(&mut self, keys: &[TicketKey]) -> Vec<(TicketKey, Got<WithCloser>)> {
+        keys.iter()
+            .map(|k| {
+                let with = self.find(k).map(|t| {
+                    let mut with = WithCloser::new(t.digest);
+                    with.closer = t.closer;
+                    with
+                });
+                (k.clone(), with)
+            })
             .collect()
     }
     fn history(
@@ -242,9 +241,11 @@ impl Tickets for StubTickets {
         _: Option<&[HappenedKind]>,
     ) -> Got<Took<TicketEvent>> {
         self.asked.lock().unwrap().history += 1;
-        Ok(Took {
-            items: vec![reopened()],
-            more: matches!(window, Window::Last(_)),
+        Ok({
+            let mut took = Took::default();
+            took.items = vec![reopened()];
+            took.more = matches!(window, Window::Last(_));
+            took
         })
     }
     fn notes(&mut self, key: &TicketKey, window: Window) -> Got<Took<Comment>> {
@@ -264,7 +265,12 @@ impl Tickets for StubTickets {
         };
         let more = mine.len() > n;
         let items = mine.split_off(mine.len().saturating_sub(n));
-        Ok(Took { items, more })
+        Ok({
+            let mut took = Took::default();
+            took.items = items;
+            took.more = more;
+            took
+        })
     }
     fn note_edits(&mut self, _: &CommentId, _: Bound) -> Got<Whole<Edit>> {
         Err(unsupported())
@@ -282,12 +288,10 @@ impl Tickets for StubTickets {
             .filter(|t| t.digest.state != TicketState::Open);
         Ok(Whole::new(
             closed
-                .map(|t| ClosedTicket {
-                    digest: t.digest.clone(),
-                    closed: At::new(1),
-                    closer: None,
-                    part_count: 0,
-                    merged: vec![],
+                .map(|t| {
+                    let mut closed_ticket = ClosedTicket::new(t.digest.clone(), At::new(1));
+                    closed_ticket.part_count = 0;
+                    closed_ticket
                 })
                 .collect(),
         ))
@@ -314,6 +318,9 @@ impl Tickets for StubTickets {
         Err(unsupported())
     }
     fn kinds(&mut self) -> Got<Whole<Kind>> {
+        Err(unsupported())
+    }
+    fn marks(&mut self, _: Bound) -> Got<Whole<MarkHeld>> {
         Err(unsupported())
     }
     fn targets(&mut self, _: Bound) -> Got<Whole<Target>> {
@@ -344,10 +351,10 @@ struct StubBlueprints {
 
 impl Reports for StubBlueprints {
     fn take_reports(&mut self) -> Vec<Report> {
-        vec![Report {
-            port: PortName::Blueprints,
-            outcome: Outcome::Unread(Unread::Cut),
-            calls: 1,
+        vec![{
+            let mut report = Report::new(PortName::Blueprints, Outcome::Unread(Unread::Cut));
+            report.calls = 1;
+            report
         }]
     }
 }
@@ -355,6 +362,9 @@ impl Reports for StubBlueprints {
 impl Cites for StubBlueprints {
     fn cite(&self, _: &Cite) -> String {
         String::new()
+    }
+    fn link(&self, _: &Cite) -> Option<WebLink> {
+        None
     }
 }
 
@@ -391,6 +401,9 @@ impl Blueprints for StubBlueprints {
     fn attachments(&mut self, _: BlueprintNo) -> Got<Whole<Attachment>> {
         Err(unsupported())
     }
+    fn attachments_in(&self, _: &str) -> Vec<Attachment> {
+        Vec::new()
+    }
     fn fetch(&mut self, _: &AttachmentId, _: u64, _: &mut dyn std::io::Write) -> Did {
         Err(unsupported())
     }
@@ -412,10 +425,10 @@ struct StubCodeHost {
 
 impl Reports for StubCodeHost {
     fn take_reports(&mut self) -> Vec<Report> {
-        vec![Report {
-            port: PortName::Tickets,
-            outcome: Outcome::NotFound,
-            calls: 1,
+        vec![{
+            let mut report = Report::new(PortName::Tickets, Outcome::NotFound);
+            report.calls = 1;
+            report
         }]
     }
 }
@@ -423,6 +436,9 @@ impl Reports for StubCodeHost {
 impl Cites for StubCodeHost {
     fn cite(&self, _: &Cite) -> String {
         String::new()
+    }
+    fn link(&self, _: &Cite) -> Option<WebLink> {
+        None
     }
 }
 
@@ -473,10 +489,11 @@ impl CodeHost for StubCodeHost {
     fn changed_files(&mut self, _: ChangeNo, bound: Bound) -> Got<Whole<ChangedFile>> {
         let files: Vec<ChangedFile> = ["src/lib.rs", "src/main.rs"]
             .into_iter()
-            .map(|p| ChangedFile {
-                path: RepoPath::new(p).unwrap(),
-                added: 1,
-                deleted: 0,
+            .map(|p| {
+                let mut changed_file = ChangedFile::new(RepoPath::new(p).unwrap());
+                changed_file.added = 1;
+                changed_file.deleted = 0;
+                changed_file
             })
             .collect();
         if files.len() > bound.get() as usize {
@@ -485,9 +502,10 @@ impl CodeHost for StubCodeHost {
         Ok(Whole::new(files))
     }
     fn activity(&mut self, _: ChangeNo, _: Window) -> Got<Took<ChangeEvent>> {
-        Ok(Took {
-            items: vec![],
-            more: true,
+        Ok({
+            let mut took = Took::default();
+            took.more = true;
+            took
         })
     }
     fn checks(&mut self, _: &CommitId, _: Option<&str>) -> Got<Checks> {
@@ -497,6 +515,12 @@ impl CodeHost for StubCodeHost {
         Err(unsupported())
     }
     fn resolve_tag(&mut self, _: &TagName) -> Got<CommitId> {
+        Err(unsupported())
+    }
+    fn recent_tags(&mut self, _: NonZeroU32) -> Got<Took<Tag>> {
+        Err(unsupported())
+    }
+    fn recent_releases(&mut self, _: NonZeroU32) -> Got<Took<Release>> {
         Err(unsupported())
     }
     fn releases(&mut self, _: Bound) -> Got<Whole<Release>> {
@@ -608,15 +632,13 @@ fn join() -> Join {
 }
 
 fn ask() -> BoardAsk {
-    BoardAsk {
-        depth: Depth::Last {
-            notes: NonZeroU32::new(2).unwrap(),
-        },
-        history: Some(Window::Last(NonZeroU32::new(100).unwrap())),
-        changes: Some((ChangeStates::All, Window::Whole(bound()))),
-        filter: Filter::default(),
-        control: Some(key("CTRL-1")),
-    }
+    let mut ask = BoardAsk::new(Depth::Last {
+        notes: NonZeroU32::new(2).unwrap(),
+    });
+    ask.history = Some(Window::Last(NonZeroU32::new(100).unwrap()));
+    ask.changes = Some((ChangeStates::All, Window::Whole(bound())));
+    ask.control = Some(key("CTRL-1"));
+    ask
 }
 
 fn nos(items: &[ChangeDigest]) -> Vec<u64> {
@@ -697,13 +719,7 @@ fn a_whole_list_that_fails_fails_the_read_and_the_control_ticket_fails_alone() {
 
 #[test]
 fn a_cheap_ask_reads_no_changes_notes_or_history() {
-    let cheap = BoardAsk {
-        depth: Depth::Cut { notes: 0 },
-        history: None,
-        changes: None,
-        filter: Filter::default(),
-        control: None,
-    };
+    let cheap = BoardAsk::new(Depth::Cut { notes: 0 });
     let item = join().work_item(&key("PROJ-1"), &cheap).unwrap();
     assert!(item.changes.items.is_empty() && item.changes.more);
     assert!(item.notes.items.is_empty() && item.notes.more);
@@ -717,10 +733,11 @@ fn a_ticket_and_its_history_are_one_read_as_the_ask_or_its_depth_names() {
     let mut board = join_of(t, b, c, l);
     let item = board.work_item(&key("PROJ-1"), &ask()).unwrap();
     assert!(item.ticket.history.more, "the ask's window, Last");
-    let by_depth = BoardAsk {
-        depth: Depth::All,
-        history: None,
-        ..ask()
+    let by_depth = {
+        let mut ask = ask();
+        ask.depth = Depth::All;
+        ask.history = None;
+        ask
     };
     let item = board.work_item(&key("PROJ-1"), &by_depth).unwrap();
     assert!(!item.ticket.history.more, "the depth's window, Whole");
@@ -737,15 +754,17 @@ fn notes_are_read_as_deep_as_asked_and_not_at_all_for_none() {
     let (t, b, c, l) = handles();
     let asked = t.asked.clone();
     let mut board = join_of(t, b, c, l);
-    let none = BoardAsk {
-        depth: Depth::Cut { notes: 0 },
-        ..ask()
+    let none = {
+        let mut ask = ask();
+        ask.depth = Depth::Cut { notes: 0 };
+        ask
     };
     board.work_item(&key("PROJ-1"), &none).unwrap();
     assert_eq!(asked.lock().unwrap().notes, 0);
-    let one = BoardAsk {
-        depth: Depth::Cut { notes: 1 },
-        ..ask()
+    let one = {
+        let mut ask = ask();
+        ask.depth = Depth::Cut { notes: 1 };
+        ask
     };
     let item = board.work_item(&key("PROJ-1"), &one).unwrap();
     assert_eq!(asked.lock().unwrap().notes, 1);
@@ -759,7 +778,7 @@ fn ended_at(no: u64, at: i64, was_merged: bool) -> ChangeDigest {
         ChangeState::Merged {
             at: At::new(at),
             by: None,
-            commit: CommitId::new("def5678").unwrap(),
+            commit: Some(CommitId::new("def5678").unwrap()),
         }
     } else {
         ChangeState::Closed { at: At::new(at) }
@@ -784,9 +803,10 @@ fn busy() -> Vec<ChangeDigest> {
 fn item_changes(states: ChangeStates, window: Window) -> Got<Took<ChangeDigest>> {
     let (t, b, _, l) = handles();
     let mut board = join_of(t, b, StubCodeHost { changes: busy() }, l);
-    let asked = BoardAsk {
-        changes: Some((states, window)),
-        ..ask()
+    let asked = {
+        let mut ask = ask();
+        ask.changes = Some((states, window));
+        ask
     };
     board.work_item(&key("PROJ-1"), &asked).map(|i| i.changes)
 }
@@ -925,15 +945,15 @@ fn the_join_reports_what_its_handles_met_each_kind_once() {
     assert_eq!(
         reports,
         [
-            Report {
-                port: PortName::Tickets,
-                outcome: Outcome::NotFound,
-                calls: 3,
+            {
+                let mut report = Report::new(PortName::Tickets, Outcome::NotFound);
+                report.calls = 3;
+                report
             },
-            Report {
-                port: PortName::Blueprints,
-                outcome: Outcome::Unread(Unread::Cut),
-                calls: 1,
+            {
+                let mut report = Report::new(PortName::Blueprints, Outcome::Unread(Unread::Cut));
+                report.calls = 1;
+                report
             },
         ]
     );
@@ -942,17 +962,12 @@ fn the_join_reports_what_its_handles_met_each_kind_once() {
 #[test]
 fn one_item_reads_its_markers_from_the_blueprints_comments() {
     let n = NonZeroU64::new(7).unwrap();
-    let item = WorkItem {
-        ticket: ticket(TicketKey::Number(n), true),
-        notes: Took {
-            items: vec![],
-            more: false,
-        },
-        blueprints: vec![blueprint(7, vec![comment("on the item")])],
-        changes: Took {
-            items: vec![],
-            more: false,
-        },
+    let item = {
+        let mut work_item = WorkItem::new(ticket(TicketKey::Number(n), true));
+        work_item.notes = Took::default();
+        work_item.blueprints = vec![blueprint(7, vec![comment("on the item")])];
+        work_item.changes = Took::default();
+        work_item
     };
     assert_eq!(item.ticket_comments().items[0].id.as_str(), "on the item");
 }
@@ -981,6 +996,9 @@ impl StubSite {
 impl Site for StubSite {
     fn realms(&self) -> &[Realm] {
         &self.realms
+    }
+    fn mark_name(&self, _: &Mark) -> String {
+        String::new()
     }
     fn tickets(&self, _: &Actor, _: Caller) -> Got<Box<dyn Tickets + Send>> {
         match &self.tickets {
@@ -1017,6 +1035,20 @@ impl Site for StubSite {
     }
     fn meter(&self) -> Vec<MeterRow> {
         vec![]
+    }
+    /// The stub has no clock: every deadline has passed, so each handle
+    /// asked answers the timeout.
+    fn until(&self, _: At) -> Arc<dyn Site> {
+        Arc::new(StubSite {
+            realms: self.realms.clone(),
+            fail: Outcome::Unavailable {
+                why: Passing::Timeout,
+                sent: Sent::No,
+            },
+            tickets: None,
+            blueprints: None,
+            code_host: None,
+        })
     }
 }
 

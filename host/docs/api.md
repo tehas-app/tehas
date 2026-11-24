@@ -125,7 +125,7 @@ tehas api [--json]
   "api": 1,
   "tehas": "v0.8.0",
   "commit": "cb6912a",
-  "repo": "tehas-app/tehas",
+  "repo": "tehas-app/tehas-factory",
   "features": ["status", "limit", "drain", "history", "export", "analytics", "state-move", "mcp-dashboard-keys", "clean", "disk", "state-check", "finish", "status-versions", "state-copy", "state-load", "freeze", "host-bridge", "cycle-writes", "settings-rules", "start-order", "host-message", "refresh-pr", "host-start", "flags", "status-previews", "wake", "start-reasons", "blockers", "answer", "question", "cycle-ids", "questions", "events"],
   "flags": {"lean": false, "plugins": false},
   "millwright": null,
@@ -164,7 +164,7 @@ tehas api [--json]
 | --- | --- |
 | `last.at` | The second the poll ended, Unix seconds. Its age is `ageMin`, so a program never subtracts two times |
 | `last.wallMs`, `last.cpuMs` | The wall time of the poll, and its CPU time with that of the commands it waited for, both in milliseconds |
-| `last.gh` | The `gh` calls the poll itself made; those of the commands it runs are not in it |
+| `last.gh` | The poll's own calls to the site, whichever way it makes them (through `gh` or the adapter); those of the commands it runs are not in it. The name stays through 2.x |
 | `last.writes` | The writes the host's `gh` shim logged while the poll ran, or `null` on a host with no write log, which is a host with no GitHub App. `null` is not 0 |
 | `last.kinds` | Those writes by kind: `label`, `comment`, `edit`, `other`. `null` with no write log, as `writes` is |
 | `last.starts` | The cycles that poll started, 0 when it started none; `null` when the row keeps no answer, which is a poll of an older tehas and is not 0 |
@@ -1638,7 +1638,7 @@ The names are `api/events.txt`, one per line, in this order:
 | `cycle.parked` | A cycle's history line says it parked | the cycle id | a work line with `parked` true |
 | `question.asked` | A question is recorded | the store's number of the question, `5` | the question in `tehas question --json --after <id>` |
 | `cycle.ended` | A cycle's history line is written | the cycle id | the work line in `tehas history --json` |
-| `change.offered` | A cycle left a change for review | the cycle id | a work line with a change, no `signalled`, and an end other than `refused` or `merged` |
+| `change.offered` | A cycle left a change, draft or not | the cycle id | a work line with a change, no `signalled`, and an end other than `refused` or `merged` |
 | `factory.limit-changed` | A write changed the limit | the limit's `set`, or `observed` when it has none | `tehas limit --json` |
 | `ticket.acted` | An allowed account's act is recorded | `<ticket>@<act>@<at>`, `12@Approve@2026-11-22T11:10:00Z` | the act in the ticket's history |
 | `ticket.closed` | A ticket the factory follows is recorded closed | `<ticket>@<at>` | the close in the ticket's history |
@@ -1722,7 +1722,10 @@ A gate's listener answers with `api/gate-answer.schema.json`:
 ```
 
 `answer` is `allow` or `refuse`. `why` is at most 140 characters with no
-control character; a refusal has it, an allow may.
+control character; a refusal has it, an allow may. The answer may gain
+values and fields in 2.x; a reader that meets one it does not know holds
+the act ([the rules for 2.x](/contract#the-rules-for-2x)). Where a
+listener writes its answer is defined by 2.1 with its plugins.
 
 ### On a page
 

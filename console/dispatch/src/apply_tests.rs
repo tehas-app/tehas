@@ -119,6 +119,130 @@ case "$name $1" in
 esac
 "#;
 
+/// The ports' writes of a world: each said in calls.log beside the stubs'
+/// calls, as `send <the write in JSON>`, so a case reads their order with
+/// the rest, and answered done, a note with the next id from 4001 on. A
+/// line of fail-send names a part of that line and what the site answers:
+/// `maybe` an answer that may have been sent, anything else a refusal.
+struct Logged {
+    dir: PathBuf,
+    next: u64,
+}
+
+impl tehas_ports::Writes for Logged {
+    fn send(
+        &mut self,
+        w: &tehas_ports::Write,
+        _: &dyn tehas_ports::Blobs,
+    ) -> tehas_ports::Got<tehas_ports::Receipt> {
+        use tehas_ports::{Outcome, Passing, Posted, Receipt, Refusal, Sent, WebLink, Write};
+        let line = sent(w);
+        let log = self.dir.join("calls.log");
+        let mut all = fs::read_to_string(&log).unwrap_or_default();
+        all.push_str(&line);
+        all.push('\n');
+        fs::write(&log, all).unwrap();
+        let fails = fs::read_to_string(self.dir.join("fail-send")).unwrap_or_default();
+        for f in fails.lines() {
+            let (pattern, word) = f.split_once('|').unwrap_or((f, ""));
+            if line.contains(pattern) {
+                return Err(match word {
+                    "maybe" => Outcome::Unavailable {
+                        why: Passing::Server,
+                        sent: Sent::Maybe,
+                    },
+                    _ => Outcome::Refused(Refusal::Invalid),
+                });
+            }
+        }
+        if !matches!(w, Write::TicketNote { .. }) {
+            return Ok(Receipt::Done);
+        }
+        self.next += 1;
+        let link = WebLink::new(format!("https://example.invalid/c/{}", self.next)).unwrap();
+        Ok(Receipt::Comment(Posted::new(
+            tehas_ports::CommentId::new(self.next.to_string()),
+            link,
+        )))
+    }
+
+    fn read_only(&self) -> bool {
+        false
+    }
+}
+
+/// A write as `Logged` says it in calls.log.
+fn sent(w: &tehas_ports::Write) -> String {
+    format!("send {}", serde_json::to_string(w).unwrap())
+}
+
+/// The tests' word of a label as a mark: a mark of the project by that
+/// name. The program's own table is the adapter's, which no test names;
+/// the wiring test through the binary reads it.
+fn mark_of_word(label: &str) -> Option<tehas_ports::Mark> {
+    tehas_ports::MarkName::new(label)
+        .ok()
+        .map(tehas_ports::Mark::Project)
+}
+
+fn mark(label: &str) -> tehas_ports::Mark {
+    mark_of_word(label).unwrap()
+}
+
+fn key(n: u64) -> tehas_ports::TicketKey {
+    tehas_ports::TicketKey::Number(std::num::NonZeroU64::new(n).unwrap())
+}
+
+/// The line of a note on issue `n`.
+fn note(n: u64, body: &str) -> String {
+    note_marked(n, body, Vec::new())
+}
+
+fn note_marked(n: u64, body: &str, markers: Vec<tehas_ports::Marker>) -> String {
+    sent(&tehas_ports::Write::TicketNote {
+        ticket: key(n),
+        body: tehas_ports::Body::Text(body.into()),
+        markers,
+    })
+}
+
+/// The text of a note's line, "" for any other line.
+fn note_text(line: &str) -> String {
+    line.strip_prefix("send ")
+        .and_then(|w| serde_json::from_str::<Value>(w).ok())
+        .and_then(|w| w.pointer("/value/body/Text")?.as_str().map(str::to_string))
+        .unwrap_or_default()
+}
+
+/// Whether a line of calls.log is a note on issue `n`, or on any with None.
+fn noted(line: &str, n: Option<u64>) -> bool {
+    line.starts_with(r#"send {"type":"TicketNote""#)
+        && n.is_none_or(|n| line.contains(&format!(r#""ticket":{{"Number":{n}}}"#)))
+}
+
+/// The running mark of a claim on issue 7, as fail-send names it.
+const MARK7: &str = r#""type":"Mark","value":{"ticket":{"Number":7}"#;
+
+/// The world's reads of the ports, from a fake holding `world`; its writes
+/// stay the recording ones.
+fn reads_from(t: &mut World, world: &tehas_ports::fake::World) {
+    let writes = t.w.ports.take().unwrap().writes;
+    t.w.ports = Some(Handles {
+        writes,
+        ..handles(world)
+    });
+}
+
+/// The line of a mark put on (`on`) or taken off issue `n`.
+fn marked(n: u64, label: &str, on: bool) -> String {
+    let (ticket, mark) = (key(n), mark(label));
+    sent(&if on {
+        tehas_ports::Write::Mark { ticket, mark }
+    } else {
+        tehas_ports::Write::Unmark { ticket, mark }
+    })
+}
+
 struct World {
     dir: TestDir,
     _stub: Arc<TestDir>,
@@ -231,6 +355,8 @@ fn world() -> World {
         status_due: false,
         changed: false,
         gh_writes: 0,
+        port_calls: Default::default(),
+        unposted: 0,
         starts: 0,
         fetched: false,
         looked: Default::default(),
@@ -238,6 +364,15 @@ fn world() -> World {
         plans_ended: Vec::new(),
         asked_again: false,
         events: tehas_core::raise::logged(move |l| h.lock().unwrap().push(l.to_string())).build(),
+        ports: Some(Handles {
+            writes: Box::new(Logged {
+                dir: dir.path().to_path_buf(),
+                next: 4000,
+            }),
+            ..handles(&tehas_ports::fake::World::new())
+        }),
+        mark_of: mark_of_word,
+        assignee: None,
     };
     World {
         dir,
@@ -248,14 +383,6 @@ fn world() -> World {
 }
 
 impl World {
-    /// The stub's answer for a `slow` pattern comes after `secs` instead of
-    /// its own 5 s, so a test that waits out its bound waits for the bound
-    /// and not for the stub. Bash's sleep has no fractional form, so 1 is as
-    /// short as the answer can be.
-    fn slow_after(&self, secs: u64) {
-        fs::write(self.dir.join("slow"), secs.to_string()).unwrap();
-    }
-
     fn fail(&self, name: &str, pattern: &str) {
         let p = self.dir.join(format!("fail-{name}"));
         let mut s = fs::read_to_string(&p).unwrap_or_default();
@@ -707,36 +834,56 @@ fn a_label_change_that_worked_is_followed_by_its_line_and_comment() {
     let a = t.apply(json!([label()]));
     assert_eq!(a.log, vec!["clear #7: done"]);
     assert!(a.left.is_empty());
+    // What comes off, then what goes on, one write each, then the note.
     assert_eq!(
         t.writes(),
         vec![
-            "gh issue edit 7 --repo example-owner/example-product --remove-label tehas:ready --add-label needs-human-attention",
-            "gh issue comment 7 --repo example-owner/example-product --body-file - <<< Tehas took it off.",
+            marked(7, "tehas:ready", false),
+            marked(7, "needs-human-attention", true),
+            note(7, "Tehas took it off."),
         ]
     );
 }
 
 #[test]
-fn a_refused_label_change_logs_gh_reason() {
+fn a_refused_label_change_logs_the_sites_reason() {
     let mut t = world();
-    t.fail("gh", "issue edit|HTTP 403");
+    t.fail("send", r#""Unmark""#);
     let a = t.apply(json!([label()]));
     assert_eq!(
         a.log,
-        vec!["WARN: label change on #7 failed: --remove-label tehas:ready --add-label needs-human-attention: HTTP 403"]
+        vec!["WARN: label change on #7 failed: --remove-label tehas:ready --add-label needs-human-attention: refused: an input is not valid"]
     );
 }
 
+/// A part that fails stops the change there: what would follow it is not
+/// sent, and nothing is said.
 #[test]
 fn a_failed_label_change_logs_its_line_and_says_nothing() {
     let mut t = world();
-    t.fail("gh", "issue edit");
+    t.fail("send", r#""Unmark""#);
+    let a = t.apply(json!([label()]));
+    assert_eq!(a.log.len(), 1);
+    assert!(
+        a.log[0].starts_with("WARN: label change on #7 failed: "),
+        "{:?}",
+        a.log
+    );
+    assert_eq!(t.writes(), vec![marked(7, "tehas:ready", false)]);
+}
+
+/// A label word no mark has is refused at the send, never sent as a raw
+/// label.
+#[test]
+fn a_label_no_mark_has_is_not_sent() {
+    let mut t = world();
+    t.w.mark_of = |_| None;
     let a = t.apply(json!([label()]));
     assert_eq!(
         a.log,
-        vec!["WARN: label change on #7 failed: --remove-label tehas:ready --add-label needs-human-attention"]
+        vec!["WARN: label change on #7 failed: --remove-label tehas:ready --add-label needs-human-attention: tehas:ready is no mark this poll knows"]
     );
-    assert!(!t.calls().iter().any(|c| c.contains("issue comment")));
+    assert!(t.writes().is_empty());
 }
 
 /// The token both token tests give the poll, and the file their stubs say
@@ -878,7 +1025,7 @@ fn a_start_whose_status_failed_logs_it() {
 #[test]
 fn every_write_is_journaled_before_and_settled_after() {
     let mut t = world();
-    t.fail("gh", "issue comment");
+    t.fail("send", "TicketNote");
     let a = t.apply(json!([label()]));
     assert_eq!(a.log, vec!["clear #7: done", "WARN: comment on #7 failed"]);
     let c = t.calls();
@@ -889,19 +1036,23 @@ fn every_write_is_journaled_before_and_settled_after() {
             "store journal-record" => "record",
             "store journal-attempt" => "attempt",
             "store journal-settle" => "settle",
-            "gh issue" => "gh",
+            s if s.starts_with("send ") => "send",
             _ => "other",
         })
         .collect();
-    assert_eq!(
-        steps,
-        vec!["record", "attempt", "gh", "settle", "record", "attempt", "gh", "settle"]
+    // Each part of the change, then the note: one row each.
+    let row = ["record", "attempt", "send", "settle"];
+    assert_eq!(steps, row.repeat(3));
+    assert!(
+        c[0].contains(r#"--poll 1000 --write {"type":"Unmark""#),
+        "{}",
+        c[0]
     );
-    assert!(c[0].contains("--poll 1000 --kind label-add --issue 7"));
     assert!(c[0].contains("--before 990"));
     assert!(c[3].ends_with("--action 1 --result ok"));
-    assert!(c[4].contains("--kind comment-post"));
-    assert!(c[7].ends_with("--action 2 --result read-failed"));
+    assert!(c[4].contains(r#"--write {"type":"Mark""#));
+    assert!(c[8].contains(r#"--write {"type":"TicketNote""#));
+    assert!(c[11].ends_with("--action 3 --result read-failed"));
 }
 
 #[test]
@@ -943,32 +1094,100 @@ fn an_answered_question_is_recorded_after_its_label_and_retried_when_busy() {
     );
 }
 
+/// The refreshing mark off a pull request, as a write of the code host: a
+/// change already without it is the adapter's done.
 #[test]
-fn a_pull_request_without_the_mark_is_unmarked_already() {
+fn a_pull_request_is_unmarked_through_the_code_host() {
     let act = json!([{"pr": 12, "remove": ["tehas:refreshing"], "log": "unmark #12"}]);
     let mut t = world();
     assert_eq!(t.apply(act.clone()).log, vec!["unmark #12"]);
-    assert!(t.calls()[0].contains("--kind change-unmark --issue 12"));
-    // GitHub's Not Found: the mark is not there, which is what was wanted.
+    let unmark = tehas_ports::Write::UnmarkChange {
+        no: tehas_ports::ChangeNo::new(12).unwrap(),
+        mark: mark("tehas:refreshing"),
+    };
+    assert_eq!(t.writes(), vec![sent(&unmark)]);
     let mut t = world();
-    t.fail("gh", "DELETE");
-    assert_eq!(t.apply(act.clone()).log, vec!["unmark #12"]);
-    assert!(t.calls().last().unwrap().ends_with("--result empty"));
+    t.fail("send", "UnmarkChange");
+    assert_eq!(
+        t.apply(act).log,
+        vec!["WARN: label change on pull request #12 failed: --remove-label tehas:refreshing"]
+    );
+}
+
+/// A comment's markers go beside its text, typed, never inside it: the
+/// hold cleared, and a declined reply's question (T4.7).
+#[test]
+fn a_comment_carries_its_markers_beside_its_text() {
+    use tehas_ports::{CommentId, Marker};
+    let mut t = world();
+    let declined = Marker::Declined {
+        question: CommentId::new("4001"),
+    };
+    t.apply(json!([
+        {"issue": 7, "say": "Cleared.", "markers": [Marker::HoldCleared]},
+        {"issue": 8, "say": "Declined.", "markers": [declined.clone()]},
+    ]));
+    assert_eq!(
+        t.writes(),
+        vec![
+            note_marked(7, "Cleared.", vec![Marker::HoldCleared]),
+            note_marked(8, "Declined.", vec![declined]),
+        ]
+    );
+}
+
+/// With no handles no comment is posted, and the poll says so once, not
+/// once a comment.
+#[test]
+fn with_no_handles_the_comments_not_posted_are_said_once() {
+    let mut t = world();
+    t.w.ports = None;
+    let a = t.apply(json!([{"issue": 7, "say": "One."}, {"issue": 8, "say": "Two."}]));
+    assert_eq!(
+        a.log,
+        vec!["WARN: the poll has no handles of the code host: 2 comments not posted"]
+    );
+    assert!(t.writes().is_empty(), "{:?}", t.writes());
+}
+
+/// Markers that cannot be read are not dropped: the comment is not posted,
+/// and the next poll decides it again. Only no key at all is none.
+#[test]
+fn a_comment_whose_markers_cannot_be_read_is_not_posted() {
+    let mut t = world();
+    let a = t.apply(json!([{"issue": 7, "say": "Declined.", "markers": [{"type": 5}]}]));
+    assert_eq!(
+        a.log,
+        vec!["WARN: the markers of a comment on #7 could not be read, so it was not posted"]
+    );
+    assert!(t.writes().is_empty(), "{:?}", t.writes());
+}
+
+/// A text that still holds our marker inside it is posted as 1.x posted it,
+/// through gh, until its site gives the marker typed: a write of the ports
+/// refuses it.
+#[test]
+fn a_comment_whose_text_holds_a_marker_goes_through_gh() {
+    let mut t = world();
+    let body = format!("Finished.\n\n{}", crate::finish::marker(7));
+    t.apply(json!([{"issue": 7, "say": body}]));
+    let w = t.writes();
+    assert_eq!(
+        w[0],
+        "gh issue comment 7 --repo example-owner/example-product --body-file - <<< Finished."
+    );
+    assert!(!w.iter().any(|c| c.starts_with("send ")), "{w:?}");
 }
 
 #[test]
-fn a_call_that_does_not_answer_in_its_bound_is_unknown() {
+fn a_write_the_site_may_have_taken_is_unknown() {
     let mut t = world();
-    t.fail("gh", "slow");
-    // Past it is the timeout the test asks for. The stub answers after the
-    // bound either way, so the bound is what the test scales with.
-    t.w.bound = Duration::from_millis(200);
-    t.slow_after(1);
+    t.fail("send", "slow words|maybe");
     let a = t.apply(json!([{"issue": 7, "say": "slow words"}]));
     // #1754: GitHub may have taken it, so it is read before it is sent again.
     assert_eq!(
         a.log,
-        vec!["WARN: the comment on #7 may have been posted; the next poll reads it before it is sent again"]
+        vec!["WARN: the comment on #7 may have been posted: the site failed; it may have been sent; the next poll reads it before it is sent again"]
     );
     assert!(t.calls().last().unwrap().ends_with("--result unknown"));
 }
@@ -990,8 +1209,9 @@ fn the_journal_holds_a_body_by_its_sum_and_length_only() {
     let mut t = world();
     t.apply(json!([{"issue": 7, "say": "a secret-free but long body"}]));
     let record = &t.calls()[0];
+    assert!(record.starts_with("store journal-record"), "{record}");
     assert!(!record.contains("long body"));
-    assert!(record.contains(r#""bytes":27"#));
+    assert!(record.contains(r#""len":27"#), "{record}");
     assert!(record.contains(r#""sha256":""#));
 }
 
@@ -1007,7 +1227,7 @@ fn the_said_and_told_records_follow_a_comment_that_worked() {
 #[test]
 fn a_failed_comment_leaves_the_said_and_told_records_unwritten() {
     let mut t = world();
-    t.fail("gh", "issue comment");
+    t.fail("send", "TicketNote");
     let a = t.apply(said_and_told());
     assert_eq!(
         a.log,
@@ -1088,14 +1308,19 @@ fn a_plan_note_says_its_words_only_the_first_time() {
     assert!(t
         .calls()
         .contains(&"store plan-note 5 --kind held --id 77".to_string()));
-    assert!(t
-        .calls()
-        .iter()
-        .any(|c| c.starts_with("gh issue comment 5")));
+    assert!(t.calls().iter().any(|c| noted(c, Some(5))));
     let mut t = world();
     fs::write(t.dir.join("said"), "false").unwrap();
     t.apply(act);
-    assert!(!t.calls().iter().any(|c| c.starts_with("gh issue comment")));
+    assert!(!t.calls().iter().any(|c| noted(c, None)));
+}
+
+#[test]
+fn the_said_file_of_an_issue_is_beside_its_request() {
+    assert_eq!(
+        crate::apply::said_file(Path::new("/h"), 3),
+        Path::new("/h/state/refresh/3.said")
+    );
 }
 
 #[test]
@@ -1253,7 +1478,10 @@ fn start_of(n: u64, given: &str) -> Value {
 fn steps(t: &World) -> Vec<String> {
     t.writes()
         .iter()
-        .map(|c| c.split(' ').take(2).collect::<Vec<_>>().join(" "))
+        .map(|c| match c.strip_prefix("send ") {
+            Some(w) => format!("send {}", serde_json::from_str::<Value>(w).unwrap()["type"]),
+            None => c.split(' ').take(2).collect::<Vec<_>>().join(" "),
+        })
         .collect()
 }
 
@@ -1272,9 +1500,9 @@ fn a_start_on_an_epics_approval_is_recorded_as_the_persons_label() {
     let c = t.writes();
     assert!(c[0].contains("approval-record 7 --at 1793008800 --by alice --how approved"));
     assert!(c[0].contains("--label tehas:ready"));
-    assert!(c[4].contains(
+    assert!(c.iter().any(|l| note_text(l).contains(
         "(authorized by @alice's `tehas:ready` label on epic #5 at 2026-10-25T09:00:00Z, which the millwright carried to this sub-issue)."
-    ));
+    )));
 }
 
 #[test]
@@ -1287,7 +1515,7 @@ fn a_read_only_start_that_worked_is_kept_on_record_and_one_that_failed_is_not() 
     assert_eq!(tehas_core::read_only::recorded(&home), vec![7]);
     let r = tehas_core::read_only::read_records(&home);
     assert_eq!(r[0]["how"], "cycle");
-    t.fail("gh", "--add-label tehas:running");
+    t.fail("send", r#""type":"Mark","value":{"ticket":{"Number":8}"#);
     t.apply(json!([start_of(8, "approved")]));
     assert_eq!(tehas_core::read_only::recorded(&home), vec![7]);
 }
@@ -1351,8 +1579,9 @@ fn a_start_records_marks_says_and_starts_in_that_order() {
             "store approval-record",
             "store cycle-show",
             "store park-show",
-            "gh issue",
-            "gh issue",
+            "send \"Mark\"",
+            "send \"Unmark\"",
+            "send \"TicketNote\"",
             "start 7",
             "store cycle-show",
             "status ",
@@ -1363,9 +1592,12 @@ fn a_start_records_marks_says_and_starts_in_that_order() {
     assert!(c[0].contains(&format!("--body-sha {} ", "a".repeat(64))));
     assert!(c[0].contains("--label tehas:ready"));
     assert!(c[0].contains(&format!("--title-sha {}", "b".repeat(64))));
-    assert_eq!(c[3], "gh issue edit 7 --repo example-owner/example-product --add-label tehas:running --remove-label tehas:ready");
-    assert!(c[4].contains("Tehas cycle started on `tehas-tehas` at "));
-    assert!(c[4].contains("(authorized by @alice's `tehas:ready` label)"));
+    // The claim in parts: the running mark, then the word it takes the
+    // place of off, then the comment.
+    assert_eq!(c[3], marked(7, "tehas:running", true));
+    assert_eq!(c[4], marked(7, "tehas:ready", false));
+    assert!(note_text(&c[5]).contains("Tehas cycle started on `tehas-tehas` at "));
+    assert!(note_text(&c[5]).contains("(authorized by @alice's `tehas:ready` label)"));
     let input: Value =
         serde_json::from_str(&fs::read_to_string(t.dir.join("input.json")).unwrap()).unwrap();
     assert_eq!(
@@ -1400,9 +1632,9 @@ fn an_approval_the_store_refuses_starts_nothing() {
             "ERROR: could not write the approval record of #7 (busy), not starting a cycle"
         ]
     );
-    assert!(!t.writes().iter().any(|c| c.contains("issue edit 7")));
+    assert!(!t.writes().contains(&marked(7, "tehas:running", true)));
     // The issue after it still starts: the bash goes on to the next one.
-    assert!(t.writes().iter().any(|c| c.contains("issue edit 8")));
+    assert!(t.writes().contains(&marked(8, "tehas:running", true)));
 }
 
 #[test]
@@ -1433,10 +1665,40 @@ fn a_store_that_cannot_be_used_ends_the_poll_with_78_before_any_mark() {
     assert!(!t.w.home.join("state/branch-check").exists());
 }
 
+/// B5: the claim's parts in order, the owner assigned last; an assign the
+/// site refuses is said, and the claim stands.
+#[test]
+fn a_claim_assigns_its_owner_last_and_stands_when_the_site_refuses() {
+    let who = tehas_ports::AccountId::new("904");
+    let assign = sent(&tehas_ports::Write::Assign {
+        ticket: key(7),
+        who: who.clone(),
+    });
+    let mut t = world();
+    t.w.host.owner = "carol".into();
+    t.w.assignee = Some(who.clone());
+    let a = t.apply(json!([start_of(7, "approved")]));
+    assert_eq!(a.exit, None);
+    let w = t.writes();
+    let at = |line: &str| w.iter().position(|c| c == line);
+    assert!(at(&marked(7, "tehas:running", true)) < at(&marked(7, "tehas:ready", false)));
+    assert!(at(&marked(7, "tehas:ready", false)) < at(&assign), "{w:?}");
+    let mut t = world();
+    t.w.host.owner = "carol".into();
+    t.w.assignee = Some(who);
+    t.fail("send", r#""type":"Assign""#);
+    let a = t.apply(json!([start_of(7, "approved")]));
+    assert_eq!(a.exit, None);
+    assert!(a.log.contains(
+        &"WARN: could not assign #7 to carol, marking it running without an assignee".to_string()
+    ));
+    assert!(t.calls().iter().any(|c| c == "start 7"));
+}
+
 #[test]
 fn a_mark_that_fails_takes_the_approval_back_and_starts_nothing() {
     let mut t = world();
-    t.fail("gh", "--add-label tehas:running");
+    t.fail("send", MARK7);
     let a = t.apply(json!([start_of(7, "approved")]));
     assert_eq!(a.exit, Some(1));
     assert_eq!(
@@ -1464,7 +1726,14 @@ fn a_unit_that_never_says_it_started_is_put_back_and_said() {
     assert!(w
         .iter()
         .any(|c| c.starts_with("store approval-record 7 --undo")));
-    assert!(w.iter().any(|c| c == "gh issue edit 7 --repo example-owner/example-product --remove-label tehas:running --add-label needs-human-attention"));
+    // The person's mark goes on before the running one comes off.
+    let on = w
+        .iter()
+        .position(|c| *c == marked(7, "needs-human-attention", true));
+    let off = w
+        .iter()
+        .position(|c| *c == marked(7, "tehas:running", false));
+    assert!(on.is_some() && on < off, "{w:?}");
     assert!(w.last().unwrap().starts_with("status"));
     assert!(w
         .iter()
@@ -1483,10 +1752,7 @@ fn host_start_of(n: u64) -> Value {
 fn a_host_start_that_gives_up_before_its_cycle_keeps_the_hosts_approval() {
     // The host's approval is the only record that asks for the start: a
     // failure that may pass leaves it for the next poll.
-    for (program, pattern) in [
-        ("gh", "--add-label tehas:running"),
-        ("store", "cycle-show|busy"),
-    ] {
+    for (program, pattern) in [("send", MARK7), ("store", "cycle-show|busy")] {
         let mut t = world();
         t.fail(program, pattern);
         let a = t.apply(json!([host_start_of(7)]));
@@ -1532,12 +1798,10 @@ fn a_host_start_whose_unit_does_not_come_up_says_to_run_tehas_start_again() {
 #[test]
 fn a_mark_answered_unknown_that_landed_starts_the_cycle() {
     let mut t = world();
-    t.fail("gh", "--add-label tehas:running|HTTP 502");
-    fs::write(
-        t.dir.join("issue-7"),
-        r#"{"labels":[{"name":"tehas:running"},{"name":"bug"}]}"#,
-    )
-    .unwrap();
+    t.fail("send", &format!("{MARK7}|maybe"));
+    // The read of the ports finds the mark on: it landed.
+    let landed = tehas_ports::fake::World::new().ticket(7, |i| i.mark(mark("tehas:running")));
+    reads_from(&mut t, &landed);
     let a = t.apply(json!([start_of(7, "approved")]));
     assert_eq!(a.exit, None, "{:?}", a.log);
     assert!(
@@ -1557,21 +1821,19 @@ fn a_mark_answered_unknown_that_landed_starts_the_cycle() {
 
 #[test]
 fn a_mark_answered_unknown_that_did_not_land_starts_nothing() {
-    for issue in [
-        // Its label is still on: the mark was not made whole.
-        Some(r#"{"labels":[{"name":"tehas:running"},{"name":"tehas:ready"}]}"#),
-        Some(r#"{"labels":[{"name":"tehas:ready"}]}"#),
-        // A read that fails cannot say it was made.
+    // The claim is its running mark alone (B5): a read that finds it off,
+    // or no read that can tell, has the claim not made.
+    for reads in [
+        Some(tehas_ports::fake::World::new().ticket(7, |i| i.mark(mark("tehas:ready")))),
         None,
     ] {
         let mut t = world();
-        t.fail("gh", "--add-label tehas:running|HTTP 502");
-        match issue {
-            Some(body) => fs::write(t.dir.join("issue-7"), body).unwrap(),
-            None => t.fail("gh", "api repos/example-owner/example-product/issues/7"),
+        t.fail("send", &format!("{MARK7}|maybe"));
+        if let Some(world) = &reads {
+            reads_from(&mut t, world);
         }
         let a = t.apply(json!([start_of(7, "approved")]));
-        assert_eq!(a.exit, Some(1), "{issue:?}");
+        assert_eq!(a.exit, Some(1), "{:?}", a.log);
         assert_eq!(
             a.log.last().unwrap(),
             "ERROR: could not mark #7 as running, not starting a cycle"
@@ -1659,14 +1921,14 @@ fn a_start_takes_its_park_question_off_and_spends_the_retry_after_the_mark() {
         .unwrap();
     let mark = w
         .iter()
-        .position(|c| c.contains("--add-label tehas:running"))
+        .position(|c| *c == marked(7, "tehas:running", true))
         .unwrap();
     let spend = s.iter().position(|c| c == "store park-retry").unwrap();
     assert!(withdraw < mark && mark < spend);
     // A mark that fails puts the question back.
     let mut t = world();
     fs::write(t.dir.join("park"), r#"{"question": 41}"#).unwrap();
-    t.fail("gh", "--add-label tehas:running");
+    t.fail("send", MARK7);
     t.apply(json!([start_of(7, "approved")]));
     assert!(t
         .writes()
@@ -1716,12 +1978,11 @@ fn a_refresh_marks_its_pull_request_first_and_its_approval_names_what_it_refresh
         json!({"pr": 12, "head_sha": "c".repeat(40), "base_sha": "d".repeat(40), "branch": "main"});
     t.apply(json!([a.clone()]));
     let w = t.writes();
-    assert!(w[0].starts_with("gh api -X POST repos/example-owner/example-product/issues/12/labels -f labels[]=tehas:refreshing"));
-    assert!(t
-        .calls()
-        .iter()
-        .any(|c| c.starts_with("store journal-record")
-            && c.contains("--kind change-mark --issue 12")));
+    let refreshing = tehas_ports::Write::MarkChange {
+        no: tehas_ports::ChangeNo::new(12).unwrap(),
+        mark: mark("tehas:refreshing"),
+    };
+    assert_eq!(w[0], sent(&refreshing));
     // A refresh is on record at the time the poll decided it.
     assert!(!w[1].contains("--at 1793008800"));
     assert!(!w[1].contains("--label"));
@@ -1732,6 +1993,7 @@ fn a_refresh_marks_its_pull_request_first_and_its_approval_names_what_it_refresh
     assert!(!h.join("state/refresh/7.json").exists());
     assert!(w
         .iter()
+        .map(|c| note_text(c))
         .any(|c| c.contains("Tehas refresh started on `tehas-tehas`")
             && c.contains("pull/12 conflicts with `main`")
             && c.contains("rests on @alice's approval")));
@@ -1745,11 +2007,11 @@ fn a_refresh_marks_its_pull_request_first_and_its_approval_names_what_it_refresh
         .starts_with("This pull request conflicts with `main`."));
     // A mark that fails records nothing and starts nothing.
     let mut t = world();
-    t.fail("gh", "POST");
+    t.fail("send", "MarkChange");
     let r = t.apply(json!([a]));
     assert_eq!(
         r.log[1],
-        "ERROR: could not mark pull request #12 as refreshing, not starting a cycle"
+        "ERROR: could not mark pull request #12 as refreshing, not starting a cycle: refused: an input is not valid"
     );
     assert!(!t
         .calls()
@@ -1758,16 +2020,16 @@ fn a_refresh_marks_its_pull_request_first_and_its_approval_names_what_it_refresh
 }
 
 #[test]
-fn a_refused_refresh_mark_logs_gh_reason() {
+fn a_refused_refresh_mark_logs_the_sites_reason() {
     let mut t = world();
-    t.fail("gh", "POST|HTTP 404");
+    t.fail("send", "MarkChange");
     let mut a = start_of(7, "refresh");
     a["how"] = json!("approval");
     a["refresh_pr"] = json!(12);
     let r = t.apply(json!([a]));
     assert_eq!(
         r.log[1],
-        "ERROR: could not mark pull request #12 as refreshing, not starting a cycle: HTTP 404"
+        "ERROR: could not mark pull request #12 as refreshing, not starting a cycle: refused: an input is not valid"
     );
 }
 
@@ -2089,8 +2351,8 @@ fn a_permission_that_cannot_be_read_leaves_that_author_out_and_says_so() {
         r.log
     );
     assert!(
-        t.calls().iter().any(|c| c.starts_with("gh issue comment 7")
-            && c.ends_with("The comments of `carol` are left out: their permission on the repository could not be read.")),
+        t.calls().iter().any(|c| noted(c, Some(7))
+            && note_text(c).ends_with("The comments of `carol` are left out: their permission on the repository could not be read.")),
         "{:?}",
         t.calls()
     );
@@ -2797,6 +3059,7 @@ fn the_reason_of_a_failed_turn_is_scrubbed_before_the_comment() {
     let said = t
         .writes()
         .into_iter()
+        .map(|c| note_text(&c))
         .find(|c| c.contains("This planning turn did not finish"))
         .expect("the comment of the failed turn");
     assert!(said.contains("the provider refused"));
@@ -2826,6 +3089,7 @@ fn a_secret_across_the_bound_of_the_reason_is_scrubbed_not_cut() {
     let said = t
         .writes()
         .into_iter()
+        .map(|c| note_text(&c))
         .find(|c| c.contains("This planning turn did not finish"))
         .expect("the comment of the failed turn");
     assert!(said.contains(&pad));
@@ -2845,7 +3109,7 @@ fn a_failed_turn_whose_comment_did_not_land_is_posted_by_the_next_poll() {
         "1",
         json!({"session": "s-1", "why": "the runner exited 40"}),
     );
-    t.fail("gh", "issue comment 7");
+    t.fail("send", r#""ticket":{"Number":7},"body""#);
     let a = t.apply(json!([{"plan_collect": 7}]));
     assert!(a.log.contains(
         &"WARN: the planning turn of #7 could not be posted; the next poll tries again".to_string()
@@ -2859,7 +3123,7 @@ fn a_failed_turn_whose_comment_did_not_land_is_posted_by_the_next_poll() {
         .unwrap()
         .contains("it exited with status 1: the runner exited 40."));
     assert!(kept.get("session").is_none());
-    fs::remove_file(t.dir.join("fail-gh")).unwrap();
+    fs::remove_file(t.dir.join("fail-send")).unwrap();
     t.apply(json!([{"plan_post": 7}]));
     assert!(t
         .writes()
@@ -3043,7 +3307,7 @@ fn a_refine_that_filed_replaces_its_issue() {
     assert!(w.contains(&"gh issue edit 7 --repo example-owner/example-product --remove-label tehas:question --remove-label tehas:planning --remove-label tehas:refined --add-label tehas:replaced".to_string()));
     assert!(w
         .iter()
-        .any(|c| c.starts_with("gh issue comment 7") && c.contains("Replaced by #9.")));
+        .any(|c| noted(c, Some(7)) && c.contains("Replaced by #9.")));
     assert!(w.contains(
         &"gh issue close 7 --repo example-owner/example-product --reason not planned".to_string()
     ));
@@ -3089,9 +3353,9 @@ fn a_plan_chosen_for_its_issue_is_written_onto_it_and_ends_the_session() {
     assert!(w.contains(&PLAN_LINE.to_string()), "{w:?}");
     assert!(w.contains(&PLAN_LINE_2.to_string()), "{w:?}");
     assert!(w.contains(&"gh issue edit 7 --repo example-owner/example-product --remove-label tehas:question --remove-label tehas:planning --remove-label tehas:plan --remove-label needs-human-attention".to_string()));
-    assert!(w.iter().any(
-        |c| c.starts_with("gh issue comment 7") && c.contains("This issue now holds the plan.")
-    ));
+    assert!(w
+        .iter()
+        .any(|c| noted(c, Some(7)) && c.contains("This issue now holds the plan.")));
     assert!(!w.iter().any(|c| c.contains("issues/7/comments")));
     assert!(!t.w.home.join("state/plan-7.json.out").exists());
 }
@@ -3211,7 +3475,7 @@ fn a_plan_with_no_open_points_from_an_allowed_account_updates_and_starts() {
     assert!(w.contains(&LABEL_OFF.to_string()), "{w:?}");
     assert!(w.contains(&"store plan-end 7 --close".to_string()), "{w:?}");
     assert!(
-        w.iter().any(|c| c.starts_with("gh issue comment 7")
+        w.iter().any(|c| noted(c, Some(7))
             && c.contains("no open points")
             && c.contains("@alice's `tehas:plan`")),
         "{w:?}"
@@ -3325,7 +3589,7 @@ fn a_ticked_plan_is_written_masked_with_its_title_cut_to_what_github_holds() {
     assert!(written.starts_with("feat: ghp_***"), "{written}");
     assert!(w
         .iter()
-        .any(|c| c.starts_with("gh issue comment 7") && c.contains("API_KEY=***")));
+        .any(|c| noted(c, Some(7)) && c.contains("API_KEY=***")));
 }
 
 #[test]
@@ -3637,10 +3901,7 @@ fn a_draft_that_is_gone_asks() {
 /// poll to post them.
 fn posts_nothing_of_itself(t: &World) {
     let w = t.writes();
-    assert!(
-        !w.iter().any(|c| c.starts_with("gh issue comment 7")),
-        "{w:?}"
-    );
+    assert!(!w.iter().any(|c| noted(c, Some(7))), "{w:?}");
     assert!(
         !w.iter()
             .any(|c| c.starts_with("gh api -X POST") && c.contains("issues/7/comments")),
@@ -3817,10 +4078,7 @@ fn asks_without_the_tick(t: &World) {
 /// question.
 fn asks_nothing(t: &World) {
     let w = t.writes();
-    assert!(
-        !w.iter().any(|c| c.starts_with("gh issue comment 7")),
-        "{w:?}"
-    );
+    assert!(!w.iter().any(|c| noted(c, Some(7))), "{w:?}");
     assert!(
         !w.iter()
             .any(|c| c.starts_with("gh api -X POST") && c.contains("issues/7/comments")),
@@ -3893,7 +4151,7 @@ fn a_clear_plan_that_fails_the_check_asks_and_starts_nothing() {
         let w = t.writes();
         let refusal = w
             .iter()
-            .position(|c| c.starts_with("gh issue comment 7") && c.contains(REFUSED));
+            .position(|c| noted(c, Some(7)) && c.contains(REFUSED));
         assert!(refusal.is_some(), "{what}: {w:?}");
         assert!(
             refusal.unwrap() < w
@@ -3943,7 +4201,7 @@ fn a_chosen_draft_that_fails_the_check_writes_nothing_and_ends_nothing() {
     );
     assert!(
         w.iter()
-            .any(|c| c.starts_with("gh issue comment 7") && c.contains("nothing but prefixes")),
+            .any(|c| noted(c, Some(7)) && c.contains("nothing but prefixes")),
         "{w:?}"
     );
     // The question of the turn holds none of it again: the person has just
@@ -3979,7 +4237,7 @@ fn a_refused_draft_is_refused_once_however_often_the_poll_comes_back() {
     let said = t.writes();
     let once = said
         .iter()
-        .filter(|c| c.starts_with("gh issue comment 7") && c.contains(REFUSED))
+        .filter(|c| noted(c, Some(7)) && c.contains(REFUSED))
         .count();
     assert_eq!(once, 1, "{said:?}");
     // The question is on record, so the next poll posts nothing of the plan
@@ -3999,10 +4257,7 @@ fn a_refused_draft_is_refused_once_however_often_the_poll_comes_back() {
         .rposition(|c| c.contains("--remove-label tehas:planning"))
         .unwrap();
     let second = &w[second..];
-    assert!(
-        !second.iter().any(|c| c.starts_with("gh issue comment 7")),
-        "{w:?}"
-    );
+    assert!(!second.iter().any(|c| noted(c, Some(7))), "{w:?}");
     assert!(
         !second.iter().any(|c| c.starts_with("gh api -X POST")),
         "{w:?}"
@@ -4057,7 +4312,7 @@ fn a_clear_refusal_whose_outcome_cannot_be_kept_posts_it_once() {
     let said = |t: &World| {
         t.writes()
             .iter()
-            .filter(|c| c.starts_with("gh issue comment 7") && c.contains(REFUSED))
+            .filter(|c| noted(c, Some(7)) && c.contains(REFUSED))
             .count()
     };
     let once = said(&t);
@@ -4149,7 +4404,7 @@ fn a_refusal_whose_outcome_cannot_be_kept_ends_the_poll_and_says_it() {
     let w = t.writes();
     assert_eq!(
         w.iter()
-            .filter(|c| c.starts_with("gh issue comment 7") && c.contains(REFUSED))
+            .filter(|c| noted(c, Some(7)) && c.contains(REFUSED))
             .count(),
         1,
         "{w:?}"
@@ -4343,7 +4598,7 @@ fn a_session_ended_by_a_person_is_closed_and_said() {
     let w = t.writes();
     assert_eq!(w[0], "gh issue edit 7 --repo example-owner/example-product --remove-label tehas:question --remove-label tehas:planning --remove-label tehas:plan --remove-label needs-human-attention");
     assert_eq!(w[1], "store plan-end 7 --close");
-    assert!(w[2].ends_with("<<< Planning session ended by alice."));
+    assert_eq!(w[2], note(7, "Planning session ended by alice."));
     // What the session held is free now: the poll after this one comes at
     // once, and the demand counts the issue (#2708).
     assert!(t.w.home.join("state/dispatch.again").exists());
@@ -4555,12 +4810,7 @@ fn a_plan_is_said_before_its_boxes_and_once() {
         a.log,
         vec!["WARN: the planning turn of #7 could not be posted; the next poll tries again"]
     );
-    let said = |t: &World| {
-        t.writes()
-            .iter()
-            .filter(|c| c.starts_with("gh issue comment 7"))
-            .count()
-    };
+    let said = |t: &World| t.writes().iter().filter(|c| noted(c, Some(7))).count();
     assert_eq!(said(&t), 1);
     let kept: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
     assert_eq!(kept["text"], "");
@@ -4570,7 +4820,7 @@ fn a_plan_is_said_before_its_boxes_and_once() {
     assert!(t.apply(json!([{"plan_post": 7}])).log.is_empty());
     let w = t.writes();
     assert_eq!(said(&t), 1);
-    let plan = w.iter().position(|c| c.starts_with("gh issue comment 7"));
+    let plan = w.iter().position(|c| noted(c, Some(7)));
     let boxes = w.iter().rposition(|c| c.contains("/issues/7/comments"));
     assert!(plan < boxes);
 }
@@ -4584,7 +4834,7 @@ fn a_plan_not_said_stops_its_boxes_too() {
         json!({"text": "The plan."}).to_string(),
     )
     .unwrap();
-    t.fail("gh", "issue comment 7");
+    t.fail("send", r#""ticket":{"Number":7},"body""#);
     let a = t.apply(json!([{"plan_post": 7}]));
     assert_eq!(
         a.log,
@@ -4647,7 +4897,7 @@ fn a_refine_that_filed_elsewhere_or_again_is_refined_once() {
     let w = t.writes();
     assert!(!w
         .iter()
-        .any(|c| c.starts_with("gh issue edit 9") || c.contains("issue comment")));
+        .any(|c| c.starts_with("gh issue edit 9") || noted(c, None)));
     assert!(w.iter().any(|c| c.starts_with("gh issue close 7")));
 }
 
@@ -4969,7 +5219,7 @@ fn a_next_turn_is_given_the_answer_on_record_with_what_was_filed() {
         keep.display()
     )));
     // No comment on a next turn.
-    assert!(!w.iter().any(|c| c.starts_with("gh issue comment")));
+    assert!(!w.iter().any(|c| noted(c, None)));
     assert!(!unit.contains("--kind refine"));
 }
 
@@ -5209,7 +5459,7 @@ fn a_unit_systemd_cannot_load_ends_the_poll_before_any_mark() {
     assert!(!t
         .calls()
         .iter()
-        .any(|c| c.contains("--add-label tehas:running")));
+        .any(|c| *c == marked(7, "tehas:running", true)));
     // With a start command of its own, systemd is not asked.
     let mut t = world();
     fs::write(t.dir.join("loadstate"), "not-found\n").unwrap();
@@ -5302,7 +5552,7 @@ fn a_busy_index_holds_the_starts_with_0() {
     assert!(!t
         .calls()
         .iter()
-        .any(|c| c.contains("--add-label tehas:running")));
+        .any(|c| *c == marked(7, "tehas:running", true)));
 }
 
 #[test]
@@ -5339,7 +5589,7 @@ fn a_due_index_is_launched_and_holds_and_one_that_ran_lets_the_starts_go() {
     assert!(t
         .calls()
         .iter()
-        .any(|c| c.contains("--add-label tehas:running")));
+        .any(|c| *c == marked(7, "tehas:running", true)));
     // A session this poll ended asked for the next poll too, and keeps it.
     let mut t = world();
     t.w.host.systemctl = t.dir.join("systemctl").to_string_lossy().into_owned();
@@ -5373,7 +5623,7 @@ fn a_current_index_lets_the_starts_go() {
     assert!(t
         .calls()
         .iter()
-        .any(|c| c.contains("--add-label tehas:running")));
+        .any(|c| *c == marked(7, "tehas:running", true)));
     // The start does not fetch a second time.
     assert_eq!(
         t.calls()
@@ -5414,7 +5664,7 @@ fn an_index_that_failed_at_the_tip_is_not_launched_again() {
     assert!(t
         .calls()
         .iter()
-        .any(|c| c.contains("--add-label tehas:running")));
+        .any(|c| *c == marked(7, "tehas:running", true)));
 }
 
 #[test]
@@ -5642,12 +5892,13 @@ fn the_first_write_begins_the_poll_row_once_and_records_under_it() {
         1
     );
     assert_eq!(t.w.poll_at, 2000);
-    // Both writes of the label: one row, named twice, never 0.
+    // The two parts of the label change and the note: one row, named each
+    // time, never 0.
     let polls: Vec<&String> = c
         .iter()
         .filter(|l| l.starts_with("store journal-record"))
         .collect();
-    assert_eq!(polls.len(), 2);
+    assert_eq!(polls.len(), 3);
     assert!(polls.iter().all(|l| l.contains("--poll 2000")));
 }
 
@@ -5732,7 +5983,7 @@ fn a_comment_is_found_by_its_sum_and_one_not_there_is_not_posted_again() {
     let mut log = Vec::new();
     t.w.settle(1792000010, &mut log);
     assert!(log[0].contains("did not happen (no comment of the bot with its text is there)"));
-    assert!(!t.calls().iter().any(|c| c.starts_with("gh issue comment")));
+    assert!(!t.calls().iter().any(|c| noted(c, None)));
 }
 
 /// #2200: the settle folds logins as the poll does, one `[bot]` off.
@@ -5801,16 +6052,13 @@ fn unknown_tell(id: u64) -> Value {
 }
 
 fn gh_comments(t: &World) -> usize {
-    t.calls()
-        .iter()
-        .filter(|c| c.starts_with("gh issue comment"))
-        .count()
+    t.calls().iter().filter(|c| noted(c, None)).count()
 }
 
 #[test]
 fn a_write_github_took_but_answered_with_a_5xx_is_not_sent_again() {
     let mut t = world();
-    t.fail("gh", "issue comment|HTTP 502");
+    t.fail("send", "TicketNote|maybe");
     let a = t.apply(park_tell());
     assert_eq!(gh_comments(&t), 1);
     assert!(
@@ -5827,7 +6075,7 @@ fn a_write_github_took_but_answered_with_a_5xx_is_not_sent_again() {
     );
     // The next poll: GitHub had taken it. The read settles it done, and the
     // poll that decides the tell again records it and sends nothing.
-    fs::remove_file(t.dir.join("fail-gh")).unwrap();
+    fs::remove_file(t.dir.join("fail-send")).unwrap();
     left_open(&t, json!([unknown_tell(1)]));
     fs::write(
         t.dir.join("comments"),
@@ -6051,9 +6299,10 @@ fn an_intended_action_is_asked_for_no_time() {
 }
 
 /// T4.4: a row `Journal::send` recorded keeps its write, not argv. Under a
-/// 1.x word it would read as done with nothing checked, so an attempted one
-/// stays open, neither settled nor read; one never attempted made no call
-/// and is abandoned as any other.
+/// 1.x word it would read as done with nothing checked, so it is read by its
+/// write and never by gh: one whose write cannot be read stays open, neither
+/// settled nor read; one never attempted made no call and is abandoned as
+/// any other.
 #[test]
 fn a_write_row_of_the_ports_is_never_settled_by_a_1x_read() {
     let words = [
@@ -6067,6 +6316,7 @@ fn a_write_row_of_the_ports_is_never_settled_by_a_1x_read() {
     ];
     for (i, kind) in words.iter().enumerate() {
         let mut t = world();
+        t.w.ports = Some(handles(&ports_world()));
         fs::write(
             t.dir.join("issue-7"),
             r#"{"number": 7, "state": "closed", "labels": [], "body": "Replaces #1"}"#,
@@ -6086,14 +6336,146 @@ fn a_write_row_of_the_ports_is_never_settled_by_a_1x_read() {
         t.w.settle(1000, &mut log);
         assert_eq!(
             log[0],
-            format!("WARN: the journal's action {id} ({kind} on #7, 10s old) could not be settled: it is a write of the ports, which no read settles yet; the next poll tries again"),
+            format!("WARN: the journal's action {id} ({kind} on #7, 10s old) could not be settled: its write is of no kind this poll knows; the next poll tries again"),
         );
         assert_eq!(
             settled(&t),
             ["store journal-settle --action 99 --abandoned"],
             "{kind}"
         );
+        assert!(!t.calls().iter().any(|c| c.starts_with("gh ")), "{kind}");
     }
+}
+
+/// Issue 7 of the ports' fake, running.
+fn ports_world() -> tehas_ports::fake::World {
+    tehas_ports::fake::World::new().ticket(7, |t| t.mark(running()))
+}
+
+fn running() -> tehas_ports::Mark {
+    tehas_ports::Mark::State(tehas_ports::State::Running)
+}
+
+/// The factory's handles of a fake site holding `world`, as the wiring makes
+/// them of GitHub's.
+fn handles(world: &tehas_ports::fake::World) -> Handles {
+    use tehas_ports::{fake::FakeSite, Actor, Caller, Scope, Site};
+    let site = FakeSite::new(world);
+    let (by, c) = (Actor::Ours(Scope::Full), Caller::new("poll"));
+    Handles {
+        writes: Box::new(tehas_ports::Writer {
+            tickets: site.ticket_writes(&by, c).unwrap(),
+            blueprints: site.blueprint_writes(&by, c).unwrap(),
+            code_host: site.code_host_writes(&by, c).unwrap(),
+        }),
+        tickets: site.tickets(&by, c).unwrap(),
+        blueprints: site.blueprints(&by, c).unwrap(),
+        code_host: site.code_host(&by, c).unwrap(),
+    }
+}
+
+/// An open row of the ports on issue 7, left `unknown` by a send, keeping
+/// its write as the journal keeps it.
+macro_rules! open_write {
+    ($id:expr, $kind:expr, $write:expr) => {
+        json!({"id": $id, "kind": $kind, "issue": 7, "state": "unknown", "intended_at": 990,
+               "attempted_at": 991, "args": {"repo": "r", "write": $write}})
+    };
+}
+
+fn ticket_7() -> tehas_ports::TicketKey {
+    tehas_ports::TicketKey::Number(std::num::NonZeroU64::new(7).unwrap())
+}
+
+/// A row of the ports is read by its write through the ports, by the rule
+/// of its kind: a mark that is on was put on, and the row is done; one that
+/// is not is not sent, and the poll decides it again. Neither reads gh.
+#[test]
+fn a_write_row_of_the_ports_is_settled_by_the_read_its_kind_names() {
+    use tehas_ports::Write;
+    let on = Write::Mark {
+        ticket: ticket_7(),
+        mark: running(),
+    };
+    let off = Write::Unmark {
+        ticket: ticket_7(),
+        mark: running(),
+    };
+    let mut t = world();
+    t.w.ports = Some(handles(&ports_world()));
+    left_open(
+        &t,
+        json!([
+            open_write!(3, "label-add", on),
+            open_write!(4, "label-remove", off)
+        ]),
+    );
+    let mut log = Vec::new();
+    t.w.settle(1000, &mut log);
+    assert_eq!(log, vec![
+        "journal: action 3 (label-add on #7, 10s old) was done",
+        "journal: action 4 (label-remove on #7, 10s old) did not happen (it is not there); this poll decides it again",
+    ]);
+    assert_eq!(
+        settled(&t),
+        [
+            r#"store journal-settle --action 3 --result ok --evidence {"landed":true}"#,
+            "store journal-settle --action 4 --abandoned",
+        ]
+    );
+    assert!(!t.calls().iter().any(|c| c.starts_with("gh ")));
+    // The write found there is not sent again this poll.
+    let key = looked_key(7, "", &json!(on), &Value::Null);
+    assert!(matches!(t.w.looked.get(&key), Some(Looked::Done(_))));
+}
+
+/// A row no read can tell of stays open, and is not sent this poll: a kind
+/// no rule reads yet, and any row while the poll has no handles.
+#[test]
+fn a_write_row_no_read_can_tell_of_stays_open() {
+    use tehas_ports::{CloseReason, Write};
+    let close = Write::Close {
+        ticket: ticket_7(),
+        reason: CloseReason::Done,
+    };
+    let mut t = world();
+    t.w.ports = Some(handles(&ports_world()));
+    left_open(&t, json!([open_write!(3, "issue-close", close)]));
+    let mut log = Vec::new();
+    t.w.settle(1000, &mut log);
+    assert_eq!(log, vec![
+        "WARN: the journal's action 3 (issue-close on #7, 10s old) could not be settled: no read could tell whether it landed; the next poll tries again",
+    ]);
+    assert!(settled(&t).is_empty());
+    let key = looked_key(7, "", &json!(close), &Value::Null);
+    assert!(matches!(t.w.looked.get(&key), Some(Looked::Unread(_))));
+
+    let mark = Write::Mark {
+        ticket: ticket_7(),
+        mark: running(),
+    };
+    let mut t = world();
+    t.w.ports = None;
+    left_open(&t, json!([open_write!(3, "label-add", mark)]));
+    let mut log = Vec::new();
+    t.w.settle(1000, &mut log);
+    assert_eq!(log, vec![
+        "WARN: the journal's action 3 (label-add on #7, 10s old) could not be settled: the poll has no handles of the code host; the next poll tries again",
+    ]);
+    assert!(settled(&t).is_empty());
+
+    // A write that is no write at all.
+    let mut t = world();
+    t.w.ports = Some(handles(&ports_world()));
+    let mut row = open_write!(3, "label-add", mark);
+    row["args"]["write"] = json!(5);
+    left_open(&t, json!([row]));
+    let mut log = Vec::new();
+    t.w.settle(1000, &mut log);
+    assert_eq!(log, vec![
+        "WARN: the journal's action 3 (label-add on #7, 10s old) could not be settled: its write could not be read; the next poll tries again",
+    ]);
+    assert!(settled(&t).is_empty());
 }
 
 #[test]
@@ -6433,7 +6815,7 @@ fn a_leftover_sibling_is_replaced_and_the_new_document_is_read() {
     let w = t.writes();
     assert_eq!(
         w.iter()
-            .filter(|c| c.starts_with("gh issue comment 7") && c.contains(REFUSED))
+            .filter(|c| noted(c, Some(7)) && c.contains(REFUSED))
             .count(),
         1,
         "{w:?}"
@@ -6516,7 +6898,7 @@ fn a_link_at_the_outcome_reads_as_no_outcome() {
     let w = t.writes();
     assert!(
         w.iter()
-            .any(|c| c.starts_with("gh issue comment 7") && c.contains("The plan of another issue")),
+            .any(|c| noted(c, Some(7)) && c.contains("The plan of another issue")),
         "{w:?}"
     );
     let boxes = w
@@ -6555,11 +6937,7 @@ fn a_link_at_the_outcome_reads_as_no_outcome() {
     let w = t.writes();
     // The words and the tick of the file behind the link are nowhere in a
     // write: no comment of the plan, and no boxes of its tick.
-    assert!(
-        !w.iter().any(|c| c.starts_with("gh issue comment 7")),
-        "{:?}",
-        t.calls()
-    );
+    assert!(!w.iter().any(|c| noted(c, Some(7))), "{:?}", t.calls());
     assert!(
         !w.iter()
             .any(|c| c.starts_with("gh api -X POST") && c.contains("issues/7/comments")),
@@ -6614,8 +6992,8 @@ fn an_outcome_over_the_read_bound_reads_as_no_outcome() {
     // document reached a write: the document it holds asks the tick the poll
     // of the case below is left with, and no comment of a plan was posted.
     assert!(
-        w.iter().any(|c| c.starts_with("gh issue comment 7")
-            && c.contains("This planning turn did not finish")),
+        w.iter()
+            .any(|c| noted(c, Some(7)) && c.contains("This planning turn did not finish")),
         "{w:?}"
     );
     assert!(!w.iter().any(|c| c.contains("Which?")), "{w:?}");
@@ -6642,13 +7020,12 @@ fn an_outcome_over_the_read_bound_reads_as_no_outcome() {
     assert_eq!(a.log, vec!["done planning #7 turn=2 rc=0"], "{:?}", a.log);
     let w = t.writes();
     assert!(
-        w.iter()
-            .any(|c| c.starts_with("gh issue comment 7") && c.contains(REFUSED)),
+        w.iter().any(|c| noted(c, Some(7)) && c.contains(REFUSED)),
         "{w:?}"
     );
     assert!(
-        !w.iter().any(|c| c.starts_with("gh issue comment 7")
-            && c.contains("This planning turn did not finish")),
+        !w.iter()
+            .any(|c| noted(c, Some(7)) && c.contains("This planning turn did not finish")),
         "{w:?}"
     );
     let boxes = w

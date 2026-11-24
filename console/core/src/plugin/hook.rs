@@ -11,9 +11,10 @@ use super::Cap;
 use crate::accounts::factorys;
 use crate::file::{write_atomic, Temp};
 use crate::grammar::commit_id;
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::path::{Path, PathBuf};
 use tehas_ports::events::{Envelope, Name, When};
+use tehas_ports::{AccountKind, ChangeDigest, ChangeState};
 
 /// `~/tehas/plugins/<name>/hooks`.
 pub fn dir(home: &Path, name: &str) -> PathBuf {
@@ -44,20 +45,32 @@ pub struct HookAsk {
     pub event: Option<Envelope>,
 }
 
+/// The request file as it is written.
+#[derive(serde::Serialize)]
+struct AskFile<'a> {
+    api: u8,
+    pr: u64,
+    head: &'a str,
+    base: &'a str,
+    issue: Option<u64>,
+    trigger: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    event: Option<&'a Envelope>,
+}
+
 impl HookAsk {
-    pub fn json(&self) -> Value {
-        let mut v = json!({
-            "api": 1,
-            "pr": self.pr,
-            "head": self.head,
-            "base": self.base,
-            "issue": self.issue,
-            "trigger": self.trigger.word(),
-        });
-        if let Some(Ok(event)) = self.event.as_ref().map(serde_json::to_value) {
-            v["event"] = event;
-        }
-        v
+    /// The request file's text.
+    pub fn json(&self) -> String {
+        let file = AskFile {
+            api: 1,
+            pr: self.pr,
+            head: &self.head,
+            base: &self.base,
+            issue: self.issue,
+            trigger: self.trigger.word(),
+            event: self.event.as_ref(),
+        };
+        serde_json::to_string(&file).unwrap_or_default()
     }
 
     pub fn read(text: &[u8]) -> Option<HookAsk> {
@@ -144,6 +157,24 @@ pub fn open_bot_pull(pull: &Value, repo: &str, bot: &str) -> Option<(String, Str
     ok.then(|| (s("/head/sha").to_string(), s("/base/sha").to_string()))
 }
 
+/// The change's head and base commits, when it is open, the factory's own
+/// and of the project itself: `open_bot_pull`'s rule over the code host
+/// port. Its author is the factory's only when the adapter answers it `Ours`,
+/// by the bot's recorded id and not by its login; a change whose head is in
+/// another project is not.
+pub fn open_ours(c: &ChangeDigest) -> Option<(String, String)> {
+    let ours = c
+        .author
+        .as_ref()
+        .is_some_and(|a| a.kind == AccountKind::Ours);
+    (matches!(c.state, ChangeState::Open) && ours && !c.from_fork).then(|| {
+        (
+            c.head_commit.as_str().to_string(),
+            c.base_commit.as_str().to_string(),
+        )
+    })
+}
+
 /// The plugins asked for a hook, in the order of TEHAS_PLUGINS: none while
 /// plugins are off. A plugin is asked when it is granted `hook:after:change.offered`
 /// at its pin and ready there. `state` reads a plugin's state.json.
@@ -198,11 +229,56 @@ pub fn requests(
 mod tests {
     use super::*;
     use crate::testdir::TestDir;
+    use serde_json::json;
     use std::collections::BTreeMap;
 
     const C: &str = "0123456789abcdef0123456789abcdef01234567";
     const H: &str = "89abcdef0123456789abcdef0123456789abcdef";
     const B: &str = "fedcba9876543210fedcba9876543210fedcba98";
+
+    fn change(kind: AccountKind) -> ChangeDigest {
+        use tehas_ports::{Account, At, Branch, ChangeNo, CommitId, Login, Realm, WebLink};
+        let mut c = ChangeDigest::new(
+            ChangeNo::new(42).unwrap(),
+            ChangeState::Open,
+            Branch::new("feature/issue-7").unwrap(),
+            CommitId::new(H).unwrap(),
+            Branch::new("main").unwrap(),
+            CommitId::new(B).unwrap(),
+            At::new(1),
+            At::new(2),
+            WebLink::new("https://example.test/42").unwrap(),
+        );
+        c.author = Some(Account::new(Realm::CodeHost, Login::new("acme-bot"), kind));
+        c
+    }
+
+    #[test]
+    fn only_an_open_change_of_ours_in_this_project_is_hooked() {
+        let ours = change(AccountKind::Ours);
+        assert_eq!(open_ours(&ours), Some((H.to_string(), B.to_string())));
+        // A bot that carries the factory's login is not ours without its id.
+        assert_eq!(open_ours(&change(AccountKind::Bot)), None);
+        assert_eq!(open_ours(&change(AccountKind::Person)), None);
+        let mut nobody = ours.clone();
+        nobody.author = None;
+        assert_eq!(open_ours(&nobody), None);
+        let mut fork = ours.clone();
+        fork.from_fork = true;
+        assert_eq!(open_ours(&fork), None);
+        let mut closed = ours.clone();
+        closed.state = ChangeState::Closed {
+            at: tehas_ports::At::new(3),
+        };
+        assert_eq!(open_ours(&closed), None);
+        let mut merged = ours;
+        merged.state = ChangeState::Merged {
+            at: tehas_ports::At::new(3),
+            by: None,
+            commit: None,
+        };
+        assert_eq!(open_ours(&merged), None);
+    }
 
     fn vars(more: &[(&str, &str)]) -> impl Fn(&str) -> String {
         let mut map: BTreeMap<String, String> = BTreeMap::new();
@@ -345,23 +421,20 @@ mod tests {
             trigger: Trigger::Host,
             ..ask.clone()
         };
-        assert_eq!(by_hand.json().get("event"), None);
+        assert!(!by_hand.json().contains("\"event\""));
         // An event other than the offer, or no envelope, refuses the request.
         for event in [
             serde_json::to_value(sample(Name::CycleEnded)).unwrap(),
             json!({"api": 1, "key": "7-1"}),
         ] {
-            let mut other = ask.json();
+            let mut other: Value = serde_json::from_str(&ask.json()).unwrap();
             other["event"] = event;
             assert_eq!(HookAsk::read(other.to_string().as_bytes()), None);
         }
-        assert_eq!(
-            HookAsk::read(by_hand.json().to_string().as_bytes()),
-            Some(by_hand)
-        );
+        assert_eq!(HookAsk::read(by_hand.json().as_bytes()), Some(by_hand));
         assert_eq!(read_request(&home, "demo", 43), None);
         assert_eq!(unit("demo", 42), "tehas-plugin-hook@demo-42.service");
-        let mut timer = ask.json();
+        let mut timer: Value = serde_json::from_str(&ask.json()).unwrap();
         timer["trigger"] = json!("timer");
         assert_eq!(HookAsk::read(timer.to_string().as_bytes()), None);
     }

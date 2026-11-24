@@ -170,9 +170,10 @@ pub fn store_try(home: &Path, tries: u32, args: &[&str]) -> Result<Value, Refuse
     call::store_try(tries, Duration::from_secs(1), || store_value(home, args)).map_err(refused)
 }
 
-/// The facts of the cycle `s`, read from the host under `home`.
-pub fn facts(home: &Path, s: &Start) -> Value {
-    let env = |k: &str| std::env::var(k).unwrap_or_default();
+/// The facts of the cycle `s`, read from the host under `home`, with the
+/// settings it reads given by `env`: this process's environment, or a test's
+/// own, so a test reads a home's facts in process, beside others.
+pub fn facts_with(home: &Path, s: &Start, env: &dyn Fn(&str) -> String) -> Value {
     let cycles = Home::new(home).cycles_dir();
     let issue = s.issue;
     let mut files = Map::new();
@@ -181,7 +182,7 @@ pub fn facts(home: &Path, s: &Start) -> Value {
             files.insert(name.to_string(), v);
         }
     }
-    let workdir = workdir(s);
+    let workdir = workdir_with(s, env);
     let parent = Path::new(&workdir)
         .parent()
         .map(Path::to_path_buf)
@@ -223,11 +224,12 @@ pub fn facts(home: &Path, s: &Start) -> Value {
 
 /// The cycle's workspace, $TEHAS_WORK_DIR-<issue>.
 pub fn workdir(s: &Start) -> String {
-    format!(
-        "{}-{}",
-        std::env::var("TEHAS_WORK_DIR").unwrap_or_default(),
-        s.issue
-    )
+    workdir_with(s, &|k: &str| std::env::var(k).unwrap_or_default())
+}
+
+/// [`workdir`] with the settings it reads given by `env`.
+pub fn workdir_with(s: &Start, env: &dyn Fn(&str) -> String) -> String {
+    format!("{}-{}", env("TEHAS_WORK_DIR"), s.issue)
 }
 
 /// The work state of the issue in the workspace `workdir`, read only when it
@@ -238,7 +240,7 @@ fn work_state(workdir: &str, issue: u64) -> Option<Value> {
     if !w.is_absolute() {
         return None;
     }
-    crate::last_attempt::state(w, issue)
+    crate::last_attempt::state::<Value>(w, issue)
 }
 
 /// The newest run log as the facts hold it: its name and its text, of a log

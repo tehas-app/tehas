@@ -10,9 +10,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     Account, AccountId, AccountKind, Actor, At, BlueprintNo, Branch, ChangeEvent, ChangeNo,
-    ChangeState, Check, CommentId, CommitId, DeployCredential, Got, Keyring, Kind, Links,
+    ChangeState, Check, CommentId, CommitId, DeployCredential, Got, Keyring, Kind, Links, Mark,
     Mergeable, PersonKey, ProjectName, Realm, Release, RepoPath, Scope, Secret, SignInCode,
-    Standing, Tag, TagName, Target, TargetId, TicketKey, Token, Write,
+    Standing, Status, Tag, TagName, Target, TargetId, TicketKey, Token, Write,
 };
 
 /// The login of the factory's own account in a `World`.
@@ -204,6 +204,12 @@ impl World {
         self.edit_account(login, |a| a.assignable = yes)
     }
 
+    /// How an account stands to the project, as the items it writes record
+    /// it.
+    pub fn relation(self, login: &str, relation: crate::Relation) -> Self {
+        self.edit_account(login, |a| a.relation = relation)
+    }
+
     /// Make a name an organisation.
     pub fn organisation(self, login: &str) -> Self {
         self.lock()
@@ -340,6 +346,27 @@ impl World {
         self
     }
 
+    /// A site with no way for a person to sign in: `sign_in_link` is
+    /// `Refused(Unsupported)`.
+    pub fn without_sign_in(self) -> Self {
+        self.lock().sign_in_on = false;
+        self
+    }
+
+    /// A site whose count cannot express `Filter::carrying_any`: a count
+    /// of a filter that names one is `Refused(Unsupported)`.
+    pub fn count_without_carrying_any(self) -> Self {
+        self.lock().count_any_on = false;
+        self
+    }
+
+    /// A site whose checks keep only the newest run of each name across
+    /// Apps, against Decided 115: a broken site for the laws to catch.
+    pub fn checks_collapsing_apps(self) -> Self {
+        self.lock().checks_collapse_apps = true;
+        self
+    }
+
     /// The projects the factory's grant covers, this world's among them.
     pub fn grant(self, projects: &[&str]) -> Self {
         {
@@ -461,6 +488,7 @@ impl World {
             };
             let author =
                 Some(s.account(spec.author.as_deref().unwrap_or(FACTORY), Realm::CodeHost));
+            let base_commit = s.branch_at(&base).unwrap_or_else(|| head_commit.clone());
             let seq = s.bump();
             let no = ChangeNo::from(nz(n));
             s.changes.push(ChangeRec {
@@ -472,6 +500,7 @@ impl World {
                 head,
                 head_commit,
                 base,
+                base_commit,
                 author,
                 draft: false,
                 merge_state: Mergeable::Yes,
@@ -559,9 +588,36 @@ impl World {
         c
     }
 
-    /// A check on a commit.
+    /// A check run on a commit, by the world's one App.
     pub fn check(self, at: &CommitId, check: Check) -> Self {
-        self.lock().checks.push((at.clone(), check));
+        self.check_by("ci", at, check)
+    }
+
+    /// A check run on a commit, by this App. Runs of different Apps are
+    /// kept apart.
+    pub fn check_by(self, app: &str, at: &CommitId, check: Check) -> Self {
+        self.lock().checks.push((at.clone(), app.into(), check));
+        self
+    }
+
+    /// A check run on a commit, by this App in this suite (for example, a
+    /// workflow). Runs of one App in different suites are kept apart, as
+    /// runs of different Apps are (Decided 129).
+    pub fn check_in(self, app: &str, suite: &str, at: &CommitId, check: Check) -> Self {
+        self.lock()
+            .checks
+            .push((at.clone(), format!("{app}\u{0}{suite}"), check));
+        self
+    }
+
+    /// A status on a commit, as some other poster sets one. The newest of a
+    /// context wins.
+    pub fn status(self, at: &CommitId, status: Status) -> Self {
+        let mut s = self.lock();
+        s.statuses
+            .retain(|(c, x)| !(c == at && x.name == status.name));
+        s.statuses.push((at.clone(), status));
+        drop(s);
         self
     }
 
@@ -592,6 +648,7 @@ impl World {
                 draft: false,
                 prerelease: false,
                 published: Some(now),
+                notes: String::new(),
                 files: Vec::new(),
                 link,
             };
@@ -614,6 +671,12 @@ impl World {
         if let Some(at) = s.comment_at(id) {
             s.comments[at].gone = true;
         }
+    }
+
+    /// Rename a mark as a person with the site's settings does: it keeps
+    /// its id, and every ticket and event that named it names `to`.
+    pub fn rename_mark(&self, from: &Mark, to: &Mark) {
+        self.lock().rename_mark(from, to);
     }
 
     /// Edit an item's text as another account does, between a caller's

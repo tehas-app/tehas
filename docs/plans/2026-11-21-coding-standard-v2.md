@@ -393,6 +393,11 @@ Done when `github-rest` is 0 and `gh-argv` is at 0 or at its written
 floor, and a fake code host that times out or rate-limits leaves the
 dispatcher and a cycle running, with one report.
 
+T4's Done also needs, before T4 is done, one live read-only recording
+per GraphQL question of the adapter, made with a real token: among them
+an issue with an edited comment, a repository rename's 301, and the list
+reads whose recordings were hand-edited to add `body`.
+
 T4's Done, and so the tag, also needs T4.7 to make `allowed_in` and
 `allowed_folded` one rule. Since #2962 the console matches the allowed
 labellers ignoring ASCII case, and the dispatcher still in exact case,
@@ -415,7 +420,7 @@ adds elsewhere. #2890 moved two of its findings here, to fix:
   that also stubs gh, so the file is not allowed.
 
 The branch owner's rulings on T4 of 2026-11-23 are in the ports spec,
-Decided 69 to 80. Two bear on this Done. `github-rest` keeps tehas's own
+Decided 69 to 81. Two bear on this Done. `github-rest` keeps tehas's own
 `--json` flag, 165 lines in 46 files, until the end of T4: once the nine
 real `gh --json` reads have moved, the pattern drops `"--json"` and keeps
 `--jq`, if the owner asks (Decided 72). And the adapter's operations are
@@ -424,6 +429,16 @@ consumer that needs them (Decided 80).
 
 Findings:
 
+- A question goes on record by its comment's id as a number
+  (`store question-asked --id`, the contract's `comment` in
+  api/question.schema.json and questions.schema.json, the store's
+  INTEGER `comment_id`), and `tehas_ports::CommentId` is opaque. 2.0 runs
+  on GitHub, whose ids are numbers, so the cycle records the number and a
+  question whose id is no number under 2^53 is not recorded, with one
+  WARN and nothing more posted (T4.5 (b), the owner's ruling of
+  2026-11-23). Another site's opaque ids are a 2.x expand: a new store
+  column and a new contract field beside the integer, such as a string
+  `commentRef`.
 - The planner's confirm files an issue with the session token, which is
   issues read-only, so the site refuses it (`console/src/plan/turn.rs`
   ~485). It must file with the factory's token or not at all. T4.7 fixes
@@ -446,6 +461,27 @@ Findings:
   per host, holder and pool and never drops one, so each anonymous
   holder adds a row for good. The step whose caller first writes budgets
   bounds them, for one by dropping rows whose `resets` is long past.
+- Eleven unit tests make their scratch directory by hand, as
+  `temp_dir()/tehas-<name>-<pid>`, beside `TestDir`, which owns that
+  (core `accounts`, `journal`, `read_only`, `sandbox`, `starts`;
+  `mesh-feed`; the console's `wake`; github's `vouch` and
+  `identity_vouch` tests; ops `ids`). None can be shared between runs, but
+  one whose test panics stays behind, and verify's "nothing left in the
+  TMPDIR of cargo test" then fails beside the real failure. They move to
+  `TestDir` once T4.7 and T4.10 have left those files (#3045 moved the
+  ones a second run could share).
+- The GitHub adapter reads a pull request into a `ChangeDigest` twice:
+  `CodeHost::changes` (#2993) and `Board::open_changes` (#2990), each
+  with its own GraphQL fields, editor and limits, so the two ports can
+  answer one pull request differently. The editor (the body's last edit,
+  or the newer of it and a retitle), the overflow (`Cut` against
+  `TooLarge`, 10 pages against 50) and how a closed issue is told to be
+  this project's (database id against name) differ. One reader of a
+  pull request node owns them all; the mergeable map is already one
+  function in those pull requests.
+- A GraphQL error makes gh exit 1. #2993 settles it with a second REST
+  read and #2990 with the plain outcome. Both read the error's type from
+  `GhRunner::run_answer` (#3018) instead.
 
 ### T5. Deep homes for files
 
@@ -488,6 +524,13 @@ for names it needs, rather than writing them again. `scripts/bash-lines.max`
 holds the ceiling as before.
 
 Done when the checks that read bash hold at 0 or at written floors.
+
+Closed by a freeze (the owner, 2026-11-23): T8 does not rewrite the bash
+that is left. #2981 made `install.sh` write each path under `state/`
+once; the rest is frozen at its count as a written floor, which may only
+fall, in `docs/architecture.md`, "The bash that stays (T8)": label-words
+0, home-layout 16, gh-argv 3, github-rest 4, and tests-stub-gh 83 in the
+shell tests that ports spec T4.12 keeps as shell.
 
 ### T11. Events
 
@@ -881,8 +924,10 @@ v2.0.0.
 
 Append a line per event: the fork, each step's pull requests, each port
 of main, each grade. From #2905 on, each pull request adds its own row
-as a one-line file, `docs/plans/log.d/<pull request>.md`, in the same form
-as the table's rows, so two open pull requests never conflict here. The
+as a one-line file, `docs/plans/log.d/<pull request>.md`, or
+`docs/plans/log.d/<branch>.md` with the branch's slashes as dashes, so the
+row needs no number before the first push, in the same form as the table's
+rows, so two open pull requests never conflict here. The
 log is this table and the files in `log.d/` together, and they are folded
 into the table now and then.
 

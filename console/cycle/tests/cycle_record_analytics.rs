@@ -67,7 +67,7 @@ fn the_cycle_records_its_run_and_its_end_in_analytics_after_the_history_line_wit
     let id = image_id();
     w.work(&format!(
         r#""$T/store-bin" cycle-image 7 --attempt "$TEHAS_CYCLE_ATTEMPT" --image {id} --rukas {RUKAS} >/dev/null
-echo 3 >"$TEHAS_HOME/state/cycles/7.oom"; echo 2 >"$TEHAS_HOME/state/cycles/7.forks"; exit 2"#
+echo 3 >"$T_CYCLES/7.oom"; echo 2 >"$T_CYCLES/7.forks"; exit 2"#
     ));
     let r = w.run7();
     assert_eq!(r.rc, 0);

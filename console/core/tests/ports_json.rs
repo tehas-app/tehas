@@ -81,30 +81,31 @@ fn every_marker() -> Vec<Marker> {
             by: vec![here(3), elsewhere()],
         },
         Marker::HoldCleared,
-        Marker::Park(ParkMarker {
-            blueprint: bp(7),
-            step: MarkerWord::new("").unwrap(),
-            kind: MarkerWord::new("timeout").unwrap(),
-            provider: true,
-            sig: sha('a'),
+        Marker::Park({
+            let mut park_marker = ParkMarker::new(bp(7), sha('a'));
+            park_marker.step = MarkerWord::new("").unwrap();
+            park_marker.kind = MarkerWord::new("timeout").unwrap();
+            park_marker.provider = true;
+            park_marker
         }),
-        Marker::Finish(FinishMarker {
-            blueprint: bp(7),
-            result: FinishResult::Stopped,
-            by_poll: true,
+        Marker::Finish({
+            let mut finish_marker = FinishMarker::new(bp(7), FinishResult::Stopped);
+            finish_marker.by_poll = true;
+            finish_marker
         }),
-        Marker::LastAttempt(LastAttemptMarker {
-            base: sha('c'),
-            note: "ran out of time".into(),
+        Marker::LastAttempt({
+            let mut last_attempt_marker = LastAttemptMarker::new(sha('c'));
+            last_attempt_marker.note = "ran out of time".into();
+            last_attempt_marker
         }),
-        Marker::Millwright(MillwrightMarker {
-            blueprint: bp(7),
-            action: MillwrightAction::Ask,
-        }),
+        Marker::Millwright(MillwrightMarker::new(bp(7), MillwrightAction::Ask)),
         Marker::TicketOf(Ref::Here(TicketKey::Key(KeyText::new("ABC-1").unwrap()))),
         Marker::Link {
             blueprint: bp(9),
             remove: true,
+        },
+        Marker::Declined {
+            question: CommentId::new("4001"),
         },
         Marker::Project {
             name: name("hold"),
@@ -150,6 +151,7 @@ fn the_ports_values_read_back_from_json() {
         MarkerKind::Millwright,
         MarkerKind::TicketOf,
         MarkerKind::Link,
+        MarkerKind::Declined,
         MarkerKind::Project(name("hold")),
         MarkerKind::Unknown,
     ] {
@@ -191,11 +193,10 @@ fn the_ports_values_read_back_from_json() {
     round!(TicketKey::Key(KeyText::new("ABC-12").unwrap()));
     round!(Item::Change(ChangeNo::new(2).unwrap()));
     round!(Rev::Branch(Branch::new("fix/typo").unwrap()));
-    round!(Account {
-        realm: Realm::Tickets,
-        login: Login::new("someone"),
-        id: Some(AccountId::new("42")),
-        kind: AccountKind::Person,
+    round!({
+        let mut account = Account::new(Realm::Tickets, Login::new("someone"), AccountKind::Person);
+        account.id = Some(AccountId::new("42"));
+        account
     });
     round!(Covers::Site(SiteId::new("s")));
     round!(Covers::projects(
@@ -211,52 +212,47 @@ fn the_ports_values_read_back_from_json() {
         why: Passing::Timeout,
         sent: Sent::Maybe,
     });
-    round!(Applied {
-        done: vec![bp(1)],
-        stopped: Some((bp(2), Outcome::Refused(Refusal::Unknown))),
+    round!({
+        let mut applied = Applied::default();
+        applied.done = vec![bp(1)];
+        applied.stopped = Some((bp(2), Outcome::Refused(Refusal::Unknown)));
+        applied
     });
     round!(MarkName::read_list(["area: docs", "a#b"]));
     round!(HappenedKind::BlockerAdded);
     round!(HappenedKind::Unknown);
     let link = WebLink::new("https://example.test/c").unwrap();
     round!((
-        Applied {
-            done: vec![StepPart::Note],
-            stopped: Some((StepPart::Close, Outcome::Forbidden)),
+        {
+            let mut applied = Applied::default();
+            applied.done = vec![StepPart::Note];
+            applied.stopped = Some((StepPart::Close, Outcome::Forbidden));
+            applied
         },
-        Some(Posted {
-            id: CommentId::new("c1"),
-            link: link.clone(),
-        }),
+        Some(Posted::new(CommentId::new("c1"), link.clone())),
     ));
-    round!(ChangeDelta {
-        changes: vec![],
-        comments: vec![(
-            ChangeNo::new(4).unwrap(),
-            Comment {
-                id: CommentId::new("c2"),
-                author: None,
-                editor: None,
-                created: At::new(1),
-                edited: None,
-                body: "seen".into(),
-                markers: vec![],
-                revision: Revision::new("r"),
-                link,
-            },
-        )],
-        next: Cursor::new("next"),
+    round!({
+        let mut change_delta = ChangeDelta::new(Cursor::new("next"));
+        change_delta.comments = vec![(ChangeNo::new(4).unwrap(), {
+            let mut comment =
+                Comment::new(CommentId::new("c2"), At::new(1), Revision::new("r"), link);
+            comment.body = "seen".into();
+            comment
+        })];
+        change_delta
     });
-    round!(BoardAsk {
-        depth: Depth::Cut { notes: 0 },
-        history: Some(Window::Whole(Bound::new(500).unwrap())),
-        changes: Some((ChangeStates::Open, Window::Last(nz32(5)))),
-        filter: Filter::default(),
-        control: Some(TicketKey::Number(nz(1))),
+    round!({
+        let mut ask = BoardAsk::new(Depth::Cut { notes: 0 });
+        ask.history = Some(Window::Whole(Bound::new(500).unwrap()));
+        ask.changes = Some((ChangeStates::Open, Window::Last(nz32(5))));
+        ask.control = Some(TicketKey::Number(nz(1)));
+        ask
     });
-    round!(OpenWork {
-        items: Whole::new(vec![]),
-        control: Some(Err(Outcome::Unread(Unread::Cut))),
+    round!({
+        let mut open_work = OpenWork::default();
+        open_work.items = Whole::new(vec![]);
+        open_work.control = Some(Err(Outcome::Unread(Unread::Cut)));
+        open_work
     });
     round!(ChangeAsk {
         filter: ChangeFilter::default(),
@@ -265,6 +261,213 @@ fn the_ports_values_read_back_from_json() {
         siblings: Some(Bound::new(20).unwrap()),
         activity: None,
     });
+}
+
+#[test]
+fn a_delta_stored_without_more_reads_as_not_more() {
+    let ticket = read!(TicketDelta, r#"{"tickets":[],"notes":[],"next":"c1"}"#);
+    assert_eq!(ticket, TicketDelta::new(Cursor::new("c1")));
+    assert!(!ticket.more);
+    let blueprint = read!(
+        BlueprintDelta,
+        r#"{"blueprints":[],"comments":[],"next":"c2"}"#
+    );
+    assert_eq!(blueprint, BlueprintDelta::new(Cursor::new("c2")));
+    assert!(!blueprint.more);
+    let change = read!(ChangeDelta, r#"{"changes":[],"comments":[],"next":"c3"}"#);
+    assert_eq!(change, ChangeDelta::new(Cursor::new("c3")));
+    assert!(!change.more);
+}
+
+#[test]
+fn a_filter_stored_without_carrying_any_reads_as_narrowing_nothing() {
+    let filter = read!(
+        Filter,
+        r#"{"open":true,"carrying":[],"kind":null,"target":null}"#
+    );
+    assert!(filter.carrying_any.is_empty());
+    let any = Filter {
+        carrying_any: vec![Mark::State(State::Running), Mark::Epic],
+        ..Filter::default()
+    };
+    round!(any);
+}
+
+#[test]
+fn a_change_digest_carries_its_base_commit_update_and_what_its_text_closes() {
+    let commit = |c: char| CommitId::new(c.to_string().repeat(40)).unwrap();
+    let mut d = ChangeDigest::new(
+        ChangeNo::new(5).unwrap(),
+        ChangeState::Open,
+        Branch::new("work").unwrap(),
+        commit('a'),
+        Branch::new("main").unwrap(),
+        commit('b'),
+        At::new(10),
+        At::new(20),
+        WebLink::new("https://example.test/c/5").unwrap(),
+    );
+    d.says_closes = vec![Ref::Here(bp(7))];
+    let json = serde_json::to_value(&d).unwrap();
+    assert_eq!(json["base_commit"], "b".repeat(40));
+    assert_eq!(json["updated"], 20);
+    assert_eq!(json["says_closes"], serde_json::json!([{"Here": 7}]));
+    round!(d);
+}
+
+#[test]
+fn a_ticket_event_stored_without_a_mark_id_reads_as_none() {
+    let e = read!(
+        TicketEvent,
+        r#"{"what":{"type":"Reopened"},"by":null,"at":null}"#
+    );
+    assert_eq!(e, TicketEvent::new(Happened::Reopened));
+    let mut marked = TicketEvent::new(Happened::Marked(Mark::Epic));
+    marked.mark_id = Some(MarkId::new("LA_kwDO"));
+    assert_eq!(serde_json::to_value(&marked).unwrap()["mark_id"], "LA_kwDO");
+    round!(marked);
+}
+
+#[test]
+fn a_ticket_digest_stored_without_a_parent_reads_as_none() {
+    let mut d = TicketDigest::new(
+        TicketKey::Number(nz(3)),
+        TicketState::Open,
+        At::new(1),
+        At::new(2),
+        Revision::new("r"),
+        WebLink::new("https://example.test/t/3").unwrap(),
+    );
+    let mut json = serde_json::to_value(&d).unwrap();
+    json.as_object_mut().unwrap().remove("parent");
+    let back: TicketDigest = serde_json::from_value(json).unwrap();
+    assert_eq!(back, d);
+    d.parent = Some(here(1));
+    round!(d);
+}
+
+#[test]
+fn a_target_stored_without_open_or_due_reads_as_none() {
+    let t = read!(TargetName, r#"{"id":"3","title":"v2"}"#);
+    assert_eq!(t, TargetName::new(TargetId::new("3"), "v2".into()));
+    assert_eq!((t.open, t.due), (None, None));
+    let mut full = t;
+    full.open = Some(false);
+    full.due = Some(At::new(5));
+    round!(full);
+}
+
+#[test]
+fn a_closer_of_another_project_reads_back_and_one_not_known_is_unknown() {
+    round!(Closer::change_elsewhere(
+        ProjectName::new("other/project"),
+        ItemName::new("other/project 12"),
+        WebLink::new("https://example.test/other/project/12").unwrap(),
+    ));
+    round!(Closer::Commit(CommitId::new("abc1234").unwrap()));
+    // The older shapes read as they did.
+    let change = read!(Closer, r#"{"Change":{"no":4,"merged":true}}"#);
+    assert_eq!(
+        change,
+        Closer::Change {
+            no: ChangeNo::new(4).unwrap(),
+            merged: true
+        }
+    );
+    for json in [
+        r#"{"Later":{"x":1}}"#,
+        r#"{"Commit":5}"#,
+        r#""Later""#,
+        r#""Unknown""#,
+    ] {
+        assert_eq!(read!(Closer, json), Closer::Unknown, "{json}");
+    }
+    assert_eq!(
+        serde_json::to_string(&Closer::Unknown).unwrap(),
+        r#""Unknown""#
+    );
+    for bad in ["3", "[]", "{}", r#"{"a":1,"b":2}"#] {
+        assert!(serde_json::from_str::<Closer>(bad).is_err(), "{bad}");
+    }
+}
+
+#[test]
+fn a_relation_is_its_name_and_an_author_without_one_reads_as_none() {
+    for r in [
+        Relation::Owner,
+        Relation::Member,
+        Relation::Collaborator,
+        Relation::Outside,
+    ] {
+        round!(r);
+    }
+    assert_eq!(
+        serde_json::to_string(&Relation::Collaborator).unwrap(),
+        r#""Collaborator""#
+    );
+    assert_eq!(read!(Relation, r#""Contributor""#), Relation::Unknown);
+    let link = WebLink::new("https://example.test/b/7").unwrap();
+    let mut b = Blueprint::new(bp(7), At::new(1), Revision::new("r"), link);
+    let mut json = serde_json::to_value(&b).unwrap();
+    json.as_object_mut().unwrap().remove("author_relation");
+    assert_eq!(serde_json::from_value::<Blueprint>(json).unwrap(), b);
+    b.author_relation = Some(Relation::Member);
+    round!(b);
+}
+
+#[test]
+fn a_release_without_notes_and_a_merge_way_not_known_read() {
+    let mut r = Release::new(
+        ReleaseId::new("r1"),
+        TagName::new("v2.0.0").unwrap(),
+        WebLink::new("https://example.test/r/v2.0.0").unwrap(),
+    );
+    let mut json = serde_json::to_value(&r).unwrap();
+    json.as_object_mut().unwrap().remove("notes");
+    assert_eq!(serde_json::from_value::<Release>(json).unwrap(), r);
+    r.notes = "What changed.".into();
+    round!(r);
+    round!(MergeHow::Site);
+    assert_eq!(serde_json::to_string(&MergeHow::Site).unwrap(), r#""Site""#);
+    assert_eq!(read!(MergeHow, r#""FastForward""#), MergeHow::Unknown);
+    let delta = read!(ChangeDelta, r#"{"changes":[],"next":"c3"}"#);
+    assert!(delta.comments.is_empty());
+}
+
+#[test]
+fn a_board_ask_stored_without_windows_per_kind_reads_as_none() {
+    let ask = read!(
+        BoardAsk,
+        r#"{"depth":"All","history":null,"changes":null,"filter":{"open":null,"carrying":[],"kind":null,"target":null},"control":null}"#
+    );
+    assert!(ask.history_by_kind.is_empty());
+    round!({
+        let mut ask = ask;
+        ask.history_by_kind = vec![
+            (
+                HappenedKind::Marked,
+                Window::Whole(Bound::new(500).unwrap()),
+            ),
+            (HappenedKind::Retitled, Window::Last(nz32(5))),
+        ];
+        ask
+    });
+}
+
+#[test]
+fn a_change_filter_stored_without_carrying_and_an_unknown_overall_read() {
+    let f = read!(
+        ChangeFilter,
+        r#"{"states":"Open","author":null,"head":null,"closing":[],"merged_since":null,"updated_since":null,"numbers":[],"bodies":false}"#
+    );
+    assert_eq!(f, ChangeFilter::default());
+    let carrying = ChangeFilter {
+        carrying: vec![Mark::State(State::Refreshing)],
+        ..ChangeFilter::default()
+    };
+    round!(carrying);
+    assert_eq!(read!(Overall, r#""Unknown""#), Overall::Unknown);
+    round!(Overall::Unknown);
 }
 
 #[test]
@@ -469,10 +672,7 @@ fn the_ledger_and_health_read_back_from_json() {
         r#"{"Pool":[{"Ours":"grant-1"},"Writes"]}"#
     );
     round!(Holder::Anonymous(HolderId::new("addr-sum")));
-    round!(Budget {
-        left: 0,
-        resets: At::new(3600),
-    });
+    round!(Budget::new(0, At::new(3600)));
     round!(HealthState::Failing {
         since: At::new(5),
         why: Passing::Broken,
@@ -482,14 +682,14 @@ fn the_ledger_and_health_read_back_from_json() {
         until: At::new(9),
     });
     round!(HealthState::SignedOut { since: At::new(7) });
-    round!(Failure {
-        at: At::new(1),
-        site: SiteId::new("project"),
-        outcome: Outcome::Spent {
+    round!(Failure::new(
+        At::new(1),
+        SiteId::new("project"),
+        Outcome::Spent {
             pool: Pool::Writes,
             until: At::new(60),
-        },
-    });
+        }
+    ));
     round!(LedgerDown);
     for what in [
         Health::Unavailable(Passing::Timeout),
@@ -505,13 +705,13 @@ fn the_ledger_and_health_read_back_from_json() {
         Health::Unknown(Word::Unknown),
     ] {
         round!(what);
-        round!(Notice {
-            host: HostId::new("code-host"),
-            whose: Whose::Holder(ours.clone()),
-            realm: Realm::CodeHost,
+        round!(Notice::new(
+            HostId::new("code-host"),
+            Whose::Holder(ours.clone()),
+            Realm::CodeHost,
             what,
-            at: At::new(2),
-        });
+            At::new(2)
+        ));
     }
     for word in [
         Word::HappenedKind,
@@ -574,11 +774,10 @@ fn a_health_or_word_the_reader_cannot_read_is_unknown_in_json() {
 #[test]
 fn the_fakes_and_the_laws_values_read_back_from_json() {
     use tehas_ports::fake::{Asked, BoardOp, Fault, Op, TicketsOp, Wrote};
-    let factory = Account {
-        realm: Realm::CodeHost,
-        login: Login::new("factory"),
-        id: Some(AccountId::new("id-factory")),
-        kind: AccountKind::Ours,
+    let factory = {
+        let mut account = Account::new(Realm::CodeHost, Login::new("factory"), AccountKind::Ours);
+        account.id = Some(AccountId::new("id-factory"));
+        account
     };
     round!(Wrote {
         by: factory,
@@ -600,4 +799,20 @@ fn the_fakes_and_the_laws_values_read_back_from_json() {
         law: "lists::more_is_exact".into(),
         what: "more".into(),
     });
+}
+
+#[test]
+fn a_standing_is_its_name_and_the_old_words_still_read() {
+    for (s, word) in [
+        (Standing::None, "None"),
+        (Standing::Read, "Read"),
+        (Standing::Triage, "Triage"),
+        (Standing::Write, "Write"),
+        (Standing::Maintain, "Maintain"),
+        (Standing::Admin, "Admin"),
+    ] {
+        let json = format!("\"{word}\"");
+        assert_eq!(serde_json::to_string(&s).unwrap(), json);
+        assert_eq!(serde_json::from_str::<Standing>(&json).unwrap(), s);
+    }
 }

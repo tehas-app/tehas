@@ -245,6 +245,7 @@ use tehas_core::home::{Home, State};
 use tehas_cycle::after::{self, After};
 use tehas_cycle::host::Start;
 use tehas_cycle::last_attempt::{self, Action};
+use tehas_cycle::loose::Node;
 use tehas_cycle::report::{last_attempts, to_json, Given};
 use tehas_cycle::{apply, finish, lock, pin, progress, renew, report};
 use tehas_cycle::{caps, clock, events, index, runner, sandbox, supervise, work, Facts};
@@ -315,7 +316,7 @@ fn main() {
             if start.console.is_empty() || start.status_cmd.is_empty() {
                 wrong(&args);
             }
-            std::process::exit(apply::run(&home, &start));
+            std::process::exit(apply::run(&home, &start, handles));
         }
         ["clock", "now"] => {
             if clock::print_now(clock::boot_seconds).is_none() {
@@ -452,6 +453,7 @@ fn cycle_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
         status_cmd: String::new(),
         status_args: Vec::new(),
         console: String::new(),
+        handles,
     };
     let mut it = rest.iter();
     while let Some(flag) = it.next() {
@@ -491,15 +493,84 @@ fn cycle_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
     std::process::exit(supervise::run(home, &g, &raised));
 }
 
-/// The relay's read of an issue's title and body, from the GitHub adapter.
-fn read_text(
+/// The relay's blueprints write handle, from the GitHub adapter's site,
+/// acting as the factory's account. The gh it runs is the relay's own, with
+/// the token the relay asked for this request: the site is handed that
+/// runner and holds no token of its own.
+fn writes(
+    home: &Path,
     repo: &str,
     gh: Box<dyn tehas_core::forge::GhRunner>,
-    issue: u64,
-) -> Result<String, String> {
-    tehas_github::GitHub::new(repo, gh)
-        .text_revision(issue)
-        .map_err(|e| e.why)
+) -> tehas_ports::Got<Box<dyn tehas_ports::BlueprintWrites>> {
+    use tehas_ports::Site;
+    let (login, id) = tehas_core::accounts::bot(home);
+    let runner = std::sync::Mutex::new(Some(gh));
+    let make: tehas_github::MakeRunner = Arc::new(move |_| {
+        runner
+            .lock()
+            .ok()
+            .and_then(|mut r| r.take())
+            .ok_or(tehas_ports::Outcome::Refused(
+                tehas_ports::Refusal::Unsupported,
+            ))
+    });
+    let site = tehas_github::GitHubSite::new(repo, &login, id, make);
+    let writes = site.blueprint_writes(
+        &tehas_ports::Actor::Ours(tehas_ports::Scope::Full),
+        tehas_ports::Caller::new("relay"),
+    )?;
+    Ok(writes)
+}
+
+/// What a finish asks of the code host, from the GitHub adapter's site acting
+/// as the factory's account, its gh the host's own under the finish's bound.
+fn finish_ports(home: &Path, repo: &str) -> tehas_ports::Got<finish::Ports> {
+    use tehas_ports::{Actor, Caller, Scope, Site};
+    let (login, id) = tehas_core::accounts::bot(home);
+    let make: tehas_github::MakeRunner = Arc::new(move |_| {
+        let mut b = tehas_core::forge::Bounded::new("gh", finish::cmd::BOUND);
+        b.grace = finish::cmd::GRACE;
+        Ok(Box::new(b) as Box<dyn tehas_core::forge::GhRunner>)
+    });
+    let site = tehas_github::GitHubSite::new(repo, &login, id, make);
+    let (by, c) = (Actor::Ours(Scope::Full), Caller::new("finish"));
+    Ok(finish::Ports {
+        code_host: site.code_host(&by, c)?,
+        writes: site.code_host_writes(&by, c)?,
+        accounts: tehas_core::accounts::Accounts::from_env(),
+        bot_id: id,
+    })
+}
+
+/// The handles a cycle's report writes through, from the GitHub adapter, its
+/// gh the host's own under the report's bound.
+fn handles(
+    home: &Path,
+    repo: &str,
+    bound: Duration,
+    grace: Duration,
+) -> tehas_ports::Got<tehas_cycle::apply::Handles> {
+    use tehas_ports::{Actor, Caller, Scope, Site};
+    let (login, id) = tehas_core::accounts::bot(home);
+    // The host's own gh, which takes the factory's token itself: the site is
+    // handed a runner and holds none.
+    let make: tehas_github::MakeRunner = Arc::new(move |_| {
+        let mut b = tehas_core::forge::Bounded::new("gh", bound);
+        b.grace = grace;
+        Ok(Box::new(b) as Box<dyn tehas_core::forge::GhRunner>)
+    });
+    let site = tehas_github::GitHubSite::new(repo, &login, id, make);
+    let (by, c) = (Actor::Ours(Scope::Full), Caller::new("report"));
+    Ok(tehas_cycle::apply::Handles {
+        writes: Box::new(tehas_ports::Writer {
+            tickets: site.ticket_writes(&by, c)?,
+            blueprints: site.blueprint_writes(&by, c)?,
+            code_host: site.code_host_writes(&by, c)?,
+        }),
+        tickets: site.tickets(&by, c)?,
+        blueprints: site.blueprints(&by, c)?,
+        code_host: site.code_host(&by, c)?,
+    })
 }
 
 /// The words of tehas work.
@@ -509,7 +580,7 @@ fn work_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
         restart: false,
         driver: None,
         console: String::new(),
-        read_text,
+        writes,
     };
     let mut it = rest.iter();
     while let Some(flag) = it.next() {
@@ -687,7 +758,7 @@ fn outcome_verb(result: &str, n: &str) {
         std::process::exit(2)
     };
     match runner::outcome(&String::from_utf8_lossy(&bytes), n) {
-        Some(o) => tehas_core::outln!("{o}"),
+        Some(o) => tehas_core::outln!("{}", json!(o)),
         None => std::process::exit(4),
     }
 }
@@ -751,7 +822,11 @@ fn finish_verb(n: u64, args: &[String], rest: &[&str]) -> ! {
         Ok(host) => host,
         Err(e) => fail(e),
     };
-    let done = finish::finish(&plan, &mut host);
+    let mut ports = match finish_ports(&plan.home, &plan.repo) {
+        Ok(p) => p,
+        Err(e) => fail(format!("the code host gives no handle: {}", e.line())),
+    };
+    let done = finish::finish(&plan, &mut host, &mut ports);
     if done.url.is_empty() {
         if !done.said.is_empty() {
             finish::say(n, &format!("{}{}", finish::SAID, done.said));
@@ -833,11 +908,13 @@ fn last_attempt(n: u64, result: &str, workspace: &Path) {
     let mut stdin = String::new();
     std::io::Read::read_to_string(&mut std::io::stdin(), &mut stdin)
         .unwrap_or_else(|e| fail(format!("the issue cannot be read: {e}")));
-    let issue: Value = serde_json::from_str(&stdin)
-        .unwrap_or_else(|e| fail(format!("the issue cannot be read: {e}")));
+    let issue = serde_json::from_str::<Node<last_attempt::IssueBody>>(&stdin)
+        .unwrap_or_else(|e| fail(format!("the issue cannot be read: {e}")))
+        .into_object()
+        .unwrap_or_default();
     let text = std::fs::read_to_string(result)
         .unwrap_or_else(|e| fail(format!("the result in {result} cannot be read: {e}")));
-    let state = last_attempt::state(workspace, n);
+    let state = last_attempt::WorkState::read(workspace, n);
     let action =
         last_attempt::of_issue(n, &issue, Some(&text), state.as_ref()).unwrap_or_else(|| {
             fail(format!(

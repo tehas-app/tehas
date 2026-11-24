@@ -360,7 +360,7 @@ fn every_schema_is_2020_12_and_names_this_test() {
         assert_eq!(s["$schema"], "https://json-schema.org/draft/2020-12/schema");
         assert_eq!(
             s["$id"],
-            format!("https://github.com/tehas-app/tehas/api/{name}")
+            format!("https://github.com/tehas-app/tehas-factory/api/{name}")
         );
         let d = s["description"].as_str().unwrap_or_default();
         assert!(d.contains("console/tests/events_contract.rs"), "{name}");
@@ -416,7 +416,7 @@ fn the_names_are_one_list_that_every_side_reads() {
     assert_eq!(rules(), want);
     let last = env["allOf"].as_array().unwrap().last().unwrap().clone();
     assert_eq!(last["then"]["properties"]["event"]["enum"], json!(gates));
-    for n in Name::ALL {
+    for &n in Name::ALL {
         for f in ["schema", "full", "bare"] {
             assert!(
                 api(&format!("event-{}.{f}.json", slug(n))).is_file(),

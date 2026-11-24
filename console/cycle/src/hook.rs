@@ -24,7 +24,7 @@ const START_BOUND: Duration = Duration::from_secs(30);
 
 /// Each request written and its unit started by `start`. A failure is logged
 /// and the next is asked all the same.
-pub fn ask_each(
+fn ask_each(
     home: &Path,
     issue: u64,
     asked: &[(String, HookAsk)],
@@ -155,13 +155,13 @@ mod tests {
     #[test]
     fn an_offer_no_plugin_is_granted_asks_github_nothing() {
         let home = TestDir::new("cycle-hook-none");
-        let offer = ChangeOffered {
-            change: tehas_ports::ChangeNo::new(42).unwrap(),
-            blueprint: tehas_ports::BlueprintNo::new(7).unwrap(),
-            cycle: tehas_ports::events::CycleId::read("7-1").unwrap(),
-            end: tehas_ports::events::End::Offered,
-            at: tehas_ports::At::new(1_763_820_000),
-        };
+        let offer = ChangeOffered::new(
+            tehas_ports::ChangeNo::new(42).unwrap(),
+            tehas_ports::BlueprintNo::new(7).unwrap(),
+            tehas_ports::events::CycleId::read("7-1").unwrap(),
+            tehas_ports::events::End::Offered,
+            tehas_ports::At::new(1_763_820_000),
+        );
         // No plugin is granted, and plugins are off: nothing is read or
         // written, so no gh runs.
         let listen = bridge(

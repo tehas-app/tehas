@@ -3,20 +3,23 @@
 //! `WorkItem`, `OpenWork` and `ChangeItem`, and `Join`, the default join
 //! over three owned handles and `Links`.
 
-use std::num::NonZeroU32;
+use std::num::{NonZeroU32, NonZeroU64};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    At, Blueprint, BlueprintNo, Blueprints, Bound, ChangeDigest, ChangeEvent, ChangeFilter,
-    ChangeState, ChangeStates, ChangedFile, CodeHost, Comment, Depth, Filter, Got, Links, Outcome,
-    Ref, Report, Reports, TargetId, Ticket, TicketDigest, TicketKey, Tickets, Took, Unread, Whole,
-    Window,
+    At, Blocker, BlockerState, Blueprint, BlueprintNo, Blueprints, Bound, ChangeDigest,
+    ChangeEvent, ChangeFilter, ChangeNo, ChangeState, ChangeStates, ChangedFile, CodeHost, Comment,
+    Depth, Filter, Got, HappenedKind, Item, Links, Outcome, Ref, Report, Reports, TargetId, Ticket,
+    TicketDigest, TicketEvent, TicketKey, TicketState, Tickets, Took, Unread, Whole, Window,
 };
 
-/// What a joined read asks for, so a cheap poll asks less.
+/// What a joined read asks for, so a cheap poll asks less. A caller builds
+/// it with `new` and sets the rest by name, so a field added later breaks
+/// no caller.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct BoardAsk {
     /// How much of each ticket, its notes and its blueprints to read. It
     /// gives each ticket's history too (`Depth::history`).
@@ -26,18 +29,39 @@ pub struct BoardAsk {
     /// `Window::Whole`; a queue read may ask `Window::Last` with
     /// `Depth::Last`, and reads a `more` as possibly cut.
     pub history: Option<Window>,
+    /// A window of each ticket's history for each kind named, so a busy
+    /// kind cannot cut another out: a poll asks its marks whole beside the
+    /// newest few of every other kind. Each kind once: a kind named again
+    /// is read by its first window alone. Not empty, the history is each
+    /// kind's own window, merged oldest first; a kind not named is not
+    /// read, and `history` and the depth's window give no history. `more`
+    /// is set when any window held more. Empty, the history is as
+    /// `history` says. Missing, it reads as empty.
+    #[serde(default)]
+    pub history_by_kind: Vec<(HappenedKind, Window)>,
     /// The changes that close each item's blueprints: the states taken and
     /// how many, in the order `Board` gives. None reads none.
     pub changes: Option<(ChangeStates, Window)>,
     /// Which tickets.
     pub filter: Filter,
-    /// The control ticket, read whole with its history beside the rest.
+    /// The control ticket, read whole with its history beside the rest,
+    /// whatever the ask's depth and history say.
     pub control: Option<TicketKey>,
 }
+
+new!(
+    BoardAsk { depth: Depth },
+    history,
+    history_by_kind,
+    changes,
+    filter,
+    control
+);
 
 /// One ticket with its notes, its blueprints and their changes. A list the
 /// ask did not read is empty, with `more`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct WorkItem {
     /// The ticket.
     pub ticket: Ticket,
@@ -50,6 +74,8 @@ pub struct WorkItem {
     /// with `more`.
     pub changes: Took<ChangeDigest>,
 }
+
+new!(WorkItem { ticket: Ticket }, notes, blueprints, changes);
 
 impl WorkItem {
     /// The comments a ticket marker is read from: the notes, or, where
@@ -68,7 +94,8 @@ impl WorkItem {
 /// The list of open tickets is whole; each item has its own answer, so one
 /// ticket past a bound, or unread, is `Unread` for that item alone and
 /// fails closed alone. The others are still answered.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct OpenWork {
     /// Each open ticket, with its own answer, in list order.
     pub items: Whole<(TicketKey, Got<WorkItem>)>,
@@ -89,7 +116,10 @@ pub struct ChangeAsk {
     /// tickets.
     pub closing: bool,
     /// The open changes that close the same blueprints, whole up to this
-    /// bound per change, the change itself counted where it is open.
+    /// bound per change, the change itself counted where it is open. One
+    /// the site shows that a `ChangeDigest` cannot carry, of another
+    /// project or with no base, refuses the read `Refused(Unsupported)`:
+    /// never left out (Decided 125).
     pub siblings: Option<Bound>,
     /// Each change's events: a stale read asks `Window::Last(50)`.
     pub activity: Option<Window>,
@@ -97,6 +127,7 @@ pub struct ChangeAsk {
 
 /// One change with what the ask named.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ChangeItem {
     /// The change.
     pub change: ChangeDigest,
@@ -112,6 +143,16 @@ pub struct ChangeItem {
     pub activity: Option<Took<ChangeEvent>>,
 }
 
+new!(
+    ChangeItem {
+        change: ChangeDigest
+    },
+    files,
+    closing,
+    siblings,
+    activity
+);
+
 /// The joined reads. A site that serves all three ports answers them with
 /// one question and owns its cost.
 ///
@@ -124,9 +165,12 @@ pub struct ChangeItem {
 pub trait Board: Reports {
     /// The open tickets the filter takes, each with its own answer, and the
     /// control ticket with its own. Open tickets alone, whatever the
-    /// filter's `open` says.
+    /// filter's `open` says. Each ticket's parts and blockers are whole at
+    /// every `Depth`, as `Ticket.parts` says: past a bound that item is
+    /// `Unread(Cut)`, never a short list.
     fn open_work(&mut self, ask: &BoardAsk, bound: Bound) -> Got<OpenWork>;
-    /// One ticket whole, as the ask names.
+    /// One ticket whole, as the ask names: its parts and blockers whole at
+    /// every `Depth`, or the item `Unread(Cut)`.
     fn work_item(&mut self, key: &TicketKey, ask: &BoardAsk) -> Got<WorkItem>;
     /// The tickets closed since a time. Per item, as `OpenWork.items`. The
     /// ask's filter is not applied: every ticket closed since then.
@@ -148,6 +192,17 @@ pub trait Board: Reports {
     /// the refresh's read, a review read, the stale and overlap reads, and
     /// the loop that counts open work every two minutes.
     fn open_changes(&mut self, ask: &ChangeAsk, bound: Bound) -> Got<Whole<ChangeItem>>;
+    /// The items these numbers name, each as a blocker: a ticket or a
+    /// change with its state, one answer per number in the order asked.
+    /// A number that names neither is `NotFound`, alone. What a person's
+    /// own hold names, where the site's links are not it (Decided 122).
+    /// Provided: each `Refused(Unsupported)`; a board that can ask both
+    /// tickets and changes answers it, in one question where the site
+    /// allows.
+    fn as_blockers(&mut self, numbers: &[NonZeroU64]) -> Vec<(NonZeroU64, Got<Blocker>)> {
+        let no = Outcome::Refused(crate::Refusal::Unsupported);
+        numbers.iter().map(|&n| (n, Err(no.clone()))).collect()
+    }
 }
 
 /// The join over three read handles and the links, for a split setup.
@@ -185,6 +240,23 @@ fn ended(change: &ChangeDigest) -> Option<At> {
         ChangeState::Open => None,
         ChangeState::Merged { at, .. } | ChangeState::Closed { at } => Some(at),
     }
+}
+
+/// Histories read apart, as one, oldest first: of two events in one
+/// second an addition sorts before a removal, and events of one list keep
+/// their order; one with no time sorts first. `more` when any list held
+/// more.
+fn merged(each: Vec<Took<TicketEvent>>) -> Took<TicketEvent> {
+    let more = each.iter().any(|t| t.more);
+    let mut items: Vec<TicketEvent> = each.into_iter().flat_map(|t| t.items).collect();
+    let removal = |e: &TicketEvent| {
+        matches!(
+            e.what.kind(),
+            HappenedKind::Unmarked | HappenedKind::BlockerRemoved | HappenedKind::Unassigned
+        )
+    };
+    items.sort_by_key(|e| (e.at, removal(e)));
+    Took { items, more }
 }
 
 /// The changes in the board's order, as much as `window` takes.
@@ -258,6 +330,33 @@ impl Join {
         ordered(self.code_host.changes(&filter, bound)?.into_items(), window)
     }
 
+    /// The changes' states as blockers', in one read: whether each is open,
+    /// merged or closed unmerged.
+    fn change_states(&mut self, mut nos: Vec<ChangeNo>) -> Got<Vec<(ChangeNo, BlockerState)>> {
+        nos.sort();
+        nos.dedup();
+        let Some(bound) = u32::try_from(nos.len()).ok().and_then(Bound::new) else {
+            return Ok(Vec::new());
+        };
+        let filter = ChangeFilter {
+            states: ChangeStates::All,
+            numbers: nos,
+            ..ChangeFilter::default()
+        };
+        let all = self.code_host.changes(&filter, bound)?.into_items();
+        Ok(all
+            .into_iter()
+            .map(|d| {
+                let state = match d.state {
+                    ChangeState::Open => BlockerState::Open,
+                    ChangeState::Merged { .. } => BlockerState::Merged,
+                    ChangeState::Closed { .. } => BlockerState::Closed,
+                };
+                (d.no, state)
+            })
+            .collect())
+    }
+
     fn digest(&mut self, key: &TicketKey) -> Got<TicketDigest> {
         self.tickets
             .several(std::slice::from_ref(key))
@@ -289,7 +388,74 @@ impl Reports for Join {
     }
 }
 
+/// Each kind once, by its first window: a second read of a kind would
+/// hold its events twice.
+pub(crate) fn first_of_each_kind(
+    asked: &[(HappenedKind, Window)],
+) -> impl Iterator<Item = &(HappenedKind, Window)> {
+    asked
+        .iter()
+        .enumerate()
+        .filter(|(i, (kind, _))| !asked[..*i].iter().any(|(k, _)| k == kind))
+        .map(|(_, pair)| pair)
+}
+
 impl Board for Join {
+    /// What the numbers are, then the tickets' states in one read and each
+    /// change's own.
+    fn as_blockers(&mut self, numbers: &[NonZeroU64]) -> Vec<(NonZeroU64, Got<Blocker>)> {
+        let items = self.tickets.what_are(numbers);
+        let keys: Vec<TicketKey> = items
+            .iter()
+            .filter_map(|(_, i)| match i {
+                Ok(Item::Ticket(k)) => Some(k.clone()),
+                _ => None,
+            })
+            .collect();
+        let digests = match keys.is_empty() {
+            true => Vec::new(),
+            false => self.tickets.several(&keys),
+        };
+        let nos: Vec<ChangeNo> = items
+            .iter()
+            .filter_map(|(_, i)| match i {
+                Ok(Item::Change(no)) => Some(*no),
+                _ => None,
+            })
+            .collect();
+        let changes = self.change_states(nos);
+        numbers
+            .iter()
+            .map(|&n| {
+                let item = items
+                    .iter()
+                    .find(|(m, _)| *m == n)
+                    .map_or(Err(MISMATCH), |(_, i)| i.clone());
+                let answer = item.and_then(|item| {
+                    let state = match &item {
+                        Item::Ticket(key) => {
+                            let at = digests.iter().position(|(k, _)| k == key);
+                            let digest = at.map_or(Err(MISMATCH), |at| digests[at].1.clone())?;
+                            match digest.state {
+                                TicketState::Open => BlockerState::Open,
+                                TicketState::Closed(_) => BlockerState::Closed,
+                            }
+                        }
+                        Item::Change(no) => match &changes {
+                            Err(o) => return Err(o.clone()),
+                            Ok(all) => all
+                                .iter()
+                                .find(|(n, _)| n == no)
+                                .map_or(Err(MISMATCH), |(_, s)| Ok(*s))?,
+                        },
+                    };
+                    Ok(Blocker::new(Ref::Here(item), state))
+                });
+                (n, answer)
+            })
+            .collect()
+    }
+
     /// The filter's open tickets alone, whatever its `open` says, in list
     /// order. The control ticket is read with `Depth::All`.
     fn open_work(&mut self, ask: &BoardAsk, bound: Bound) -> Got<OpenWork> {
@@ -315,7 +481,23 @@ impl Board for Join {
     /// `Depth::Cut`'s cut of each note's text is the site's own read's;
     /// this join does not apply it.
     fn work_item(&mut self, key: &TicketKey, ask: &BoardAsk) -> Got<WorkItem> {
-        let ticket = self.tickets.ticket(key, ask.depth, ask.history)?;
+        // Each kind's own window replaces the history, so the ticket's read
+        // takes the least: a whole one could fail on a busy kind's volume.
+        let history = match ask.history_by_kind.is_empty() {
+            true => ask.history,
+            false => Some(Window::Last(NonZeroU32::MIN)),
+        };
+        let mut ticket = self.tickets.ticket(key, ask.depth, history)?;
+        if !ask.history_by_kind.is_empty() {
+            let mut each = Vec::with_capacity(ask.history_by_kind.len());
+            for (kind, window) in first_of_each_kind(&ask.history_by_kind) {
+                each.push(
+                    self.tickets
+                        .history(key, *window, Some(std::slice::from_ref(kind)))?,
+                );
+            }
+            ticket.history = merged(each);
+        }
         let notes = match ask.depth.notes() {
             Some(window) => self.tickets.notes(key, window)?,
             None => not_read(),
@@ -433,15 +615,19 @@ mod tests {
             head: crate::Branch::new("work").unwrap(),
             head_commit: crate::CommitId::new("abc1234").unwrap(),
             base: crate::Branch::new("main").unwrap(),
+            base_commit: crate::CommitId::new("abc1230").unwrap(),
             author: None,
+            author_relation: None,
             from_fork: false,
             draft: false,
             merge_state: crate::Mergeable::Unknown,
             marks: vec![],
             closes: vec![],
+            says_closes: vec![],
             size: None,
             body: None,
             created: At::new(0),
+            updated: At::new(0),
             edited: None,
             editor: None,
             link: crate::WebLink::new("https://example.test/c").unwrap(),

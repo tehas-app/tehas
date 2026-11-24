@@ -5,6 +5,7 @@
 use regex::{Captures, Regex};
 use serde_json::Value;
 use std::sync::OnceLock;
+use tehas_ports::{BlueprintNo, Marker, ParkMarker, QuestionKind};
 
 /// The options a question lists and its record keeps.
 pub const MAX_OPTIONS: usize = 20;
@@ -314,6 +315,15 @@ pub fn box_line(label: &str, ticked: bool) -> String {
     format!("- [{}] {}", if ticked { "x" } else { " " }, label)
 }
 
+/// The most characters of a planning turn's text its comment shows.
+pub const TURN_TEXT_MAX: usize = 40_000;
+
+/// A planning turn's text as its comment shows it: the one rendering, so the
+/// plan a person ticks to file is the text the factory files.
+pub fn turn_text(text: &str) -> String {
+    q_clean(text, TURN_TEXT_MAX)
+}
+
 /// q_clean: an agent's words, safe to post on a public issue, cut at `max`
 /// characters. The secrets, private addresses and names are what
 /// `mask::mask` takes out, the one rule set the console uses too; the rules
@@ -387,6 +397,9 @@ pub fn is_handoff_marker(line: &str, issue: u64) -> bool {
 /// park marker (`park`); `line` is the host's own, put between the question
 /// and the boxes. A planning turn's text is left out: the caller says it in
 /// a comment before this one, so nothing of a long plan can move a box.
+///
+/// Our markers are written into the text here, until T4.7 moves the
+/// dispatcher onto [`q_parts`], whose markers travel beside the body.
 pub fn q_render(kind: Kind, issue: u64, turn: u64, out: &Value, line: &str) -> String {
     let mut b = String::new();
     if kind == Kind::Park {
@@ -463,6 +476,43 @@ pub fn q_render(kind: Kind, issue: u64, turn: u64, out: &Value, line: &str) -> S
     b += &format!("{}\n", question_marker(name, issue, turn));
     // As $(q_render) has it: without its last line ends.
     b.trim_end_matches('\n').to_string()
+}
+
+/// A question's body and our markers apart, as a write of the ports takes
+/// them. `rendered` is q_render's body of a question with no `park` in its
+/// `out`: its text, without our markers, and the park's marker, when there is
+/// one, then the question's. pi-rukas's handoff marker is not ours and stays
+/// in the text. None when `rendered` does not end with the question's marker
+/// of `kind`, `issue` and `turn`.
+pub fn q_parts(
+    rendered: &str,
+    kind: Kind,
+    issue: u64,
+    turn: u64,
+    park: Option<ParkMarker>,
+) -> Option<(String, Vec<Marker>)> {
+    let word = match kind {
+        Kind::Park => "park",
+        Kind::Plan => "plan",
+    };
+    let text = rendered
+        .strip_suffix(&question_marker(word, issue, turn))?
+        .trim_end_matches('\n')
+        .to_string();
+    let question = Marker::Question {
+        kind: match kind {
+            Kind::Park => QuestionKind::Park,
+            Kind::Plan => QuestionKind::Plan,
+        },
+        blueprint: BlueprintNo::new(issue)?,
+        turn: std::num::NonZeroU32::new(u32::try_from(turn).ok()?)?,
+    };
+    let markers = park
+        .map(Marker::Park)
+        .into_iter()
+        .chain([question])
+        .collect();
+    Some((text, markers))
 }
 
 /// Whether `line` is the host's park marker of `issue`.
@@ -1236,5 +1286,60 @@ mod tests {
             assert!(!task.is_match(b), "a task-list line in:\n{b}");
             assert!(listed(b).is_some(), "no choices listed in:\n{b}");
         }
+    }
+
+    /// q_parts gives q_render's body without our markers, and the markers
+    /// it would have written beside it, until T4.7 moves the dispatcher onto
+    /// it.
+    #[test]
+    fn q_parts_is_q_render_with_our_markers_beside_the_text() {
+        use tehas_ports::{MarkerWord, Sha256};
+        let handoff = "<!-- pi-rukas:handoff issue=7 cap=verify-failed:develop -->";
+        let park_out = json!({
+            "text": "It stopped.", "marker": handoff, "retry": true,
+            "question": {"question": "What now?"},
+        });
+        let plan_out = json!({"question": {"question": "Which way?", "options": [
+            {"label": "One", "description": "the first"}, {"label": "Two"}]}});
+        let mut park = ParkMarker::new(
+            BlueprintNo::new(7).unwrap(),
+            Sha256::new("a".repeat(64)).unwrap(),
+        );
+        park.step = MarkerWord::new("develop").unwrap();
+        park.kind = MarkerWord::new("tooling").unwrap();
+        park.provider = true;
+        for (kind, word, out, typed, line) in [
+            (
+                Kind::Park,
+                "park",
+                &park_out,
+                Some(park.clone()),
+                "The host's line.",
+            ),
+            (Kind::Plan, "plan", &plan_out, None, ""),
+        ] {
+            let rendered = q_render(kind, 7, 2, out, line);
+            let (text, markers) = q_parts(&rendered, kind, 7, 2, typed.clone()).unwrap();
+            let question = question_marker(word, 7, 2);
+            assert_eq!(rendered, format!("{text}\n\n{question}"), "{kind:?}");
+            assert!(!crate::text::has_marker(&text), "{kind:?}: {text}");
+            let q = Marker::Question {
+                kind: match kind {
+                    Kind::Park => QuestionKind::Park,
+                    Kind::Plan => QuestionKind::Plan,
+                },
+                blueprint: BlueprintNo::new(7).unwrap(),
+                turn: std::num::NonZeroU32::new(2).unwrap(),
+            };
+            let want: Vec<Marker> = typed.map(Marker::Park).into_iter().chain([q]).collect();
+            assert_eq!(markers, want, "{kind:?}");
+        }
+        // pi-rukas's handoff marker is not ours: it stays first in the text.
+        let rendered = q_render(Kind::Park, 7, 2, &park_out, "");
+        let (text, _) = q_parts(&rendered, Kind::Park, 7, 2, None).unwrap();
+        assert!(text.starts_with(&format!("{handoff}\n")), "{text}");
+        // A body that is not this question's says so.
+        assert_eq!(q_parts(&rendered, Kind::Park, 7, 3, None), None);
+        assert_eq!(q_parts(&rendered, Kind::Plan, 7, 2, None), None);
     }
 }

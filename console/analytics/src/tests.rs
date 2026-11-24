@@ -2867,7 +2867,8 @@ fn the_refine_figures_follow_the_refined_issues_and_compare_them_with_the_rest()
     .unwrap();
     let refined = crate::report::read_refined(&home);
     assert_eq!(refined.len(), 2);
-    let got = crate::report::refine(&conn, &refined, to).unwrap();
+    let got_typed = crate::report::refine(&conn, &refined, to).unwrap();
+    let got = serde_json::to_value(&got_typed).unwrap();
     assert_eq!(
         got,
         json!({"sessions": 2, "n": 2, "started": 1, "shipped": 1, "shippedShare": 0.5,
@@ -2875,7 +2876,7 @@ fn the_refine_figures_follow_the_refined_issues_and_compare_them_with_the_rest()
                "others": {"n": 2, "started": 2, "shipped": 1, "shippedShare": 0.5}})
     );
     let mut report = crate::report::build(&conn, to).unwrap();
-    report["refine"] = got;
+    report.refine = Some(got_typed);
     let text = crate::report::text(&report);
     assert!(
         text.contains("Refine             2 sessions, 2 issues filed: 1 started, 1 shipped (50%), lead median 2h00m; other issues 50% shipped (n=2)"),
@@ -2990,7 +2991,8 @@ fn the_size_figures_follow_the_measured_starts_of_the_window() {
     );
     let empty = json!({"n": 0, "shipped": 0, "leadTime": {"n": 0}});
     assert_eq!(empty_buckets()["3-4"], empty);
-    let got = crate::report::sizes(&conn, &ledger, to).unwrap();
+    let got_typed = crate::report::sizes(&conn, &ledger, to).unwrap();
+    let got = serde_json::to_value(&got_typed).unwrap();
     assert_eq!(
         got,
         json!({
@@ -3013,13 +3015,19 @@ fn the_size_figures_follow_the_measured_starts_of_the_window() {
     assert_eq!(got["3-4"]["n"], json!(3));
     assert_eq!(got["5+"]["n"], json!(1));
     // The same ledger with no work in the window: no bucket but "none".
-    assert_eq!(crate::report::sizes(&conn, &[], to).unwrap()["3-4"], empty);
+    assert_eq!(
+        serde_json::to_value(crate::report::sizes(&conn, &[], to).unwrap()).unwrap()["3-4"],
+        empty
+    );
     // No ledger at all: empty buckets, not a missing key.
     assert_eq!(
-        crate::report::sizes(
-            &conn,
-            &crate::report::read_sizes(&scratch("report-sizes-none")),
-            to
+        serde_json::to_value(
+            crate::report::sizes(
+                &conn,
+                &crate::report::read_sizes(&scratch("report-sizes-none")),
+                to
+            )
+            .unwrap()
         )
         .unwrap(),
         empty_buckets()
@@ -3050,7 +3058,8 @@ fn the_report_command_adds_the_refine_and_size_figures() {
         h(&home).state(State::Sizes),
         &ledger(&[json!({"at": iso(day0 + 1000), "issue": 1, "files": 2})]),
     );
-    let got = crate::report::complete(&conn, &home, to).unwrap();
+    let got_typed = crate::report::complete(&conn, &home, to).unwrap();
+    let got = serde_json::to_value(&got_typed).unwrap();
     assert_eq!(
         got["sizes"]["1-2"],
         json!({"n": 1, "shipped": 1,
@@ -3062,7 +3071,8 @@ fn the_report_command_adds_the_refine_and_size_figures() {
     );
     assert!(got["refine"].is_object());
     // build() alone holds neither: the keys belong to the command.
-    let bare = crate::report::build(&conn, to).unwrap();
+    let bare_typed = crate::report::build(&conn, to).unwrap();
+    let bare = serde_json::to_value(&bare_typed).unwrap();
     assert!(bare.get("sizes").is_none() && bare.get("refine").is_none());
     // A ledger that is a link is read no more than a ledger that is no file:
     // the figures are four buckets of nothing.
@@ -3070,11 +3080,12 @@ fn the_report_command_adds_the_refine_and_size_figures() {
     fs::rename(h(&home).state(State::Sizes), &moved).unwrap();
     std::os::unix::fs::symlink(&moved, h(&home).state(State::Sizes)).unwrap();
     assert!(crate::report::read_sizes(&home).is_empty());
-    let got = crate::report::complete(&conn, &home, to).unwrap();
+    let got_typed = crate::report::complete(&conn, &home, to).unwrap();
+    let got = serde_json::to_value(&got_typed).unwrap();
     assert_eq!(got["sizes"], empty_buckets());
     // The Size line says the buckets by name.
     assert!(
-        crate::report::text(&got).contains("none: 0 shipped 0, lead - | 1-2: 0 shipped 0, lead - | 3-4: 0 shipped 0, lead - | 5+: 0 shipped 0, lead -"),
+        crate::report::text(&got_typed).contains("none: 0 shipped 0, lead - | 1-2: 0 shipped 0, lead - | 3-4: 0 shipped 0, lead - | 5+: 0 shipped 0, lead -"),
     );
 }
 
@@ -3102,11 +3113,40 @@ fn a_ship_whose_merge_precedes_its_ready_contributes_no_lead() {
         h(&home).state(State::Sizes),
         &ledger(&[json!({"at": iso(day0 + 900), "issue": 1, "files": 2})]),
     );
-    let got = crate::report::sizes(&conn, &crate::report::read_sizes(&home), to).unwrap();
+    let got_typed = crate::report::sizes(&conn, &crate::report::read_sizes(&home), to).unwrap();
+    let got = serde_json::to_value(&got_typed).unwrap();
     assert_eq!(
         got["1-2"],
         json!({"n": 1, "shipped": 1, "leadTime": {"n": 0}})
     );
+}
+
+// A ledger line is an object of the fields the reader names, each once: the
+// same fields as an array, or a field given twice, are no line.
+#[test]
+fn a_ledger_line_of_another_shape_is_skipped() {
+    let home = scratch("report-ledger-shape");
+    let day0 = 1_792_022_400;
+    std::fs::create_dir_all(h(&home).state_dir()).unwrap();
+    let at = iso(day0 + 1000);
+    put_at(
+        h(&home).state(State::Sizes),
+        &format!(
+            "[\"{at}\",1,2]\n{{\"at\":\"{at}\",\"issue\":2,\"issue\":3,\"files\":2}}\n{}\n",
+            json!({"at": at, "issue": 4, "files": 2})
+        ),
+    );
+    let got = crate::report::read_sizes(&home);
+    assert_eq!(got.iter().map(|s| s.issue).collect::<Vec<_>>(), [4]);
+    put_at(
+        h(&home).state(State::Refined),
+        &format!(
+            "[\"{at}\",10]\n{{\"at\":\"{at}\",\"filed\":11,\"filed\":12}}\n{}\n",
+            json!({"at": at, "filed": 13})
+        ),
+    );
+    let got = crate::report::read_refined(&home);
+    assert_eq!(got.iter().map(|r| r.filed).collect::<Vec<_>>(), [13]);
 }
 
 // The published privacy claim of the size figures, held where it is made:
@@ -3126,7 +3166,8 @@ fn the_size_figures_hold_no_keys_but_their_own() {
                    "deliverables": 3, "done_when": 4, "title": "what the issue asked for"}),
         ]),
     );
-    let got = crate::report::sizes(&conn, &crate::report::read_sizes(&home), to).unwrap();
+    let got_typed = crate::report::sizes(&conn, &crate::report::read_sizes(&home), to).unwrap();
+    let got = serde_json::to_value(&got_typed).unwrap();
     assert_eq!(
         got.as_object().unwrap().keys().collect::<Vec<_>>(),
         ["1-2", "3-4", "5+", "none"]
@@ -3206,7 +3247,10 @@ fn a_ledger_past_the_whole_file_bound_is_no_ledger_at_all() {
     put_at(h(&home).state(State::Sizes), &big);
     assert!(crate::report::read_sizes(&home).is_empty());
     assert_eq!(
-        crate::report::sizes(&conn, &crate::report::read_sizes(&home), to).unwrap(),
+        serde_json::to_value(
+            crate::report::sizes(&conn, &crate::report::read_sizes(&home), to).unwrap()
+        )
+        .unwrap(),
         empty_buckets()
     );
     // The last byte within the bound is read: the same file one byte shorter
@@ -3259,8 +3303,10 @@ fn the_text_report_prints_one_row_for_every_section_of_the_report() {
     let to = day0 + 9 * DAY + 43_200;
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
     report_data(&conn, day0, to);
-    let built = crate::report::build(&conn, to).unwrap();
-    let full = crate::report::complete(&conn, &home, to).unwrap();
+    let built_typed = crate::report::build(&conn, to).unwrap();
+    let built = serde_json::to_value(&built_typed).unwrap();
+    let full_typed = crate::report::complete(&conn, &home, to).unwrap();
+    let full = serde_json::to_value(&full_typed).unwrap();
     let keys = |v: &Value| {
         v.as_object()
             .unwrap()
@@ -3272,8 +3318,8 @@ fn the_text_report_prints_one_row_for_every_section_of_the_report() {
     // prints the row `SECTIONS` names, so a section without a row and a row
     // without a section both fail here. The two of the ledgers come with
     // `complete`, the two of the database with `build`.
-    let full_text = crate::report::text(&full);
-    let built_text = crate::report::text(&built);
+    let full_text = crate::report::text(&full_typed);
+    let built_text = crate::report::text(&built_typed);
     let added = keys(&full)
         .into_iter()
         .filter(|k| !keys(&built).contains(k))
@@ -3767,7 +3813,8 @@ fn the_report_gives_the_figures_of_a_known_data_set() {
     let to = day0 + 9 * DAY + 43_200;
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
     report_data(&conn, day0, to);
-    let got = crate::report::build(&conn, to).unwrap();
+    let got_typed = crate::report::build(&conn, to).unwrap();
+    let got = serde_json::to_value(&got_typed).unwrap();
     let day = |d: &str, shipped: i64, runs: i64, failed: i64, minutes: i64| json!({"day": d, "shipped": shipped, "runs": runs, "failed": failed, "minutes": minutes});
     let mut trend: Vec<Value> = (15..=24)
         .map(|d| json!({"day": format!("2026-10-{d}")}))
@@ -3874,7 +3921,8 @@ fn the_gate_line_of_the_report_gives_its_figures_in_text_and_json() {
     let to = day0 + 9 * DAY + 43_200;
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
     report_data(&conn, day0, to);
-    let report = crate::report::build(&conn, to).unwrap();
+    let report_typed = crate::report::build(&conn, to).unwrap();
+    let report = serde_json::to_value(&report_typed).unwrap();
     // The four gate rows of the window, read back as the report worked them
     // out: 300 s and 300 s in c, 540 s in e and 60 s in f.
     assert_eq!(
@@ -3884,7 +3932,7 @@ fn the_gate_line_of_the_report_gives_its_figures_in_text_and_json() {
     );
     // The text line holds the same four figures, with the seconds of the two
     // other durations of the report as minutes.
-    let text = crate::report::text(&report);
+    let text = crate::report::text(&report_typed);
     assert!(
         text.contains(
             "\nGate               median 5m, p90 9m, 1.333 runs per run, 46.7% of run time  (n=3, 20m)\n"
@@ -3892,7 +3940,8 @@ fn the_gate_line_of_the_report_gives_its_figures_in_text_and_json() {
         "{text}"
     );
     // The JSON the report command prints holds the same key as `build`'s.
-    let json = crate::report::complete(&conn, &home, to).unwrap();
+    let json_typed = crate::report::complete(&conn, &home, to).unwrap();
+    let json = serde_json::to_value(&json_typed).unwrap();
     assert_eq!(json["gate"], report["gate"]);
     // A second row of e's that carries no milliseconds of its own, and no
     // tier: the count of the gate's runs of it rises to two, and its 540 s are
@@ -3906,7 +3955,8 @@ fn the_gate_line_of_the_report_gives_its_figures_in_text_and_json() {
     .unwrap();
     conn.execute("UPDATE runs SET gate_runs = 2 WHERE id = 'e'", [])
         .unwrap();
-    let again = crate::report::build(&conn, to).unwrap();
+    let again_typed = crate::report::build(&conn, to).unwrap();
+    let again = serde_json::to_value(&again_typed).unwrap();
     assert_eq!(again["gate"]["n"], json!(3));
     assert_eq!(again["gate"]["median"], json!(270));
     assert_eq!(again["gate"]["p90"], json!(300));
@@ -3916,7 +3966,7 @@ fn the_gate_line_of_the_report_gives_its_figures_in_text_and_json() {
     // seconds, whatever the count of them is.
     assert_eq!(again["gate"]["perRun"], json!(1.667));
     assert_eq!(again["gate"]["share"], json!(0.467));
-    let text = crate::report::text(&again);
+    let text = crate::report::text(&again_typed);
     assert!(
         text.contains("median 4m30s, p90 5m, 1.667 runs per run, 46.7% of run time  (n=3, 20m)"),
         "{text}"
@@ -3958,7 +4008,8 @@ fn the_report_splits_by_driver_and_counts_a_null_row_as_classic() {
     driver_run(&conn, "f", 6, day0, "offered", None, Some("lean"));
     driver_run(&conn, "g", 7, day0, "parked", None, Some("lean"));
     db::event(&conn, 5, "merged", day0 + 3600).unwrap();
-    let got = crate::report::build(&conn, to).unwrap();
+    let got_typed = crate::report::build(&conn, to).unwrap();
+    let got = serde_json::to_value(&got_typed).unwrap();
     assert_eq!(
         got["drivers"],
         json!({
@@ -3972,7 +4023,7 @@ fn the_report_splits_by_driver_and_counts_a_null_row_as_classic() {
                               "pullRequests": {"n": 2, "merged": 1}}},
         })
     );
-    let text = crate::report::text(&got);
+    let text = crate::report::text(&got_typed);
     let row = |name: &str| {
         text.lines()
             .find(|l| l.trim_start().starts_with(name))
@@ -3999,7 +4050,8 @@ fn a_merge_is_credited_to_the_version_of_the_run_that_reached_the_pull_request()
     for (id, issue, outcome) in [("c", 6, "offered"), ("d", 7, "failed"), ("e", 8, "offered")] {
         lean_run(&conn, id, issue, day0, outcome, "0.14.50");
     }
-    let got = crate::report::build(&conn, day0 + DAY).unwrap();
+    let got_typed = crate::report::build(&conn, day0 + DAY).unwrap();
+    let got = serde_json::to_value(&got_typed).unwrap();
     let lean = &got["drivers"]["lean"];
     assert_eq!(
         lean["0.14.49"]["pullRequests"],
@@ -4010,7 +4062,7 @@ fn a_merge_is_credited_to_the_version_of_the_run_that_reached_the_pull_request()
         json!({"n": 3, "merged": 1, "share": 0.333})
     );
     // The terminal prints the same split: no merged count on the older line.
-    let rows = crate::report::text(&got)
+    let rows = crate::report::text(&got_typed)
         .lines()
         .map(|l| l.split_whitespace().collect::<Vec<_>>().join(" "))
         .filter(|l| l.starts_with("lean "))
@@ -4034,7 +4086,8 @@ fn a_drivers_shares_are_of_its_runs_that_ran() {
     driver_run(&conn, "c", 3, day0, "refused", None, Some("lean"));
     driver_run(&conn, "d", 4, day0, "stopped", None, Some("lean"));
     driver_run(&conn, "e", 5, day0, "offered", None, Some("lean"));
-    let got = crate::report::build(&conn, day0 + DAY).unwrap();
+    let got_typed = crate::report::build(&conn, day0 + DAY).unwrap();
+    let got = serde_json::to_value(&got_typed).unwrap();
     let lean = &got["drivers"]["lean"]["none"];
     assert_eq!(lean["n"], 5);
     assert_eq!(lean["ran"], 3);
@@ -4048,7 +4101,8 @@ fn a_driver_with_only_refused_runs_has_no_shares() {
     let day0 = 1_792_022_400;
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
     driver_run(&conn, "a", 1, day0, "refused", None, Some("lean"));
-    let got = crate::report::build(&conn, day0 + DAY).unwrap();
+    let got_typed = crate::report::build(&conn, day0 + DAY).unwrap();
+    let got = serde_json::to_value(&got_typed).unwrap();
     let lean = &got["drivers"]["lean"]["none"];
     assert_eq!((&lean["n"], &lean["ran"]), (&json!(1), &json!(0)));
     assert_eq!(lean.get("changeShare"), None);
@@ -4064,7 +4118,8 @@ fn a_run_handed_off_to_a_person_counts_as_parked_for_its_driver() {
     driver_run(&conn, "b", 2, day0, "parked", None, Some("lean"));
     driver_run(&conn, "c", 3, day0, "offered", None, Some("lean"));
     driver_run(&conn, "d", 4, day0, "offered", None, Some("lean"));
-    let got = crate::report::build(&conn, day0 + DAY).unwrap();
+    let got_typed = crate::report::build(&conn, day0 + DAY).unwrap();
+    let got = serde_json::to_value(&got_typed).unwrap();
     assert_eq!(got["drivers"]["lean"]["none"]["parkedShare"], 0.5);
     assert_eq!(got["handoffRate"]["share"], 0.5);
 }
@@ -4074,8 +4129,9 @@ fn a_shipped_issue_whose_runs_reported_no_usage_is_no_zero_in_tokens_per_shipped
     let home = scratch("report-per-shipped");
     let day0 = 1_792_022_400;
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    let tokens =
-        |conn: &Connection| crate::report::build(conn, day0 + DAY).unwrap()["tokens"].clone();
+    let tokens = |conn: &Connection| {
+        serde_json::to_value(crate::report::build(conn, day0 + DAY).unwrap().tokens).unwrap()
+    };
     driver_run(&conn, "a", 1, day0, "merged", Some(1_000_000), None);
     driver_run(&conn, "b", 2, day0, "offered", None, Some("lean"));
     db::event(&conn, 2, "merged", day0 + 3600).unwrap();
@@ -4098,7 +4154,7 @@ fn a_driver_of_no_runs_has_counts_and_no_figures() {
     // A driver with no run has no entry: the versions are those of the runs, and
     // it has none. `text` prints no line for it.
     assert_eq!(
-        crate::report::build(&conn, to).unwrap()["drivers"],
+        serde_json::to_value(crate::report::build(&conn, to).unwrap().drivers).unwrap(),
         json!({"classic": {}, "lean": {}})
     );
 }
@@ -4111,13 +4167,14 @@ fn empty_tokens_are_left_out_of_a_drivers_sum_and_not_counted() {
     driver_run(&conn, "a", 1, day0, "offered", Some(0), Some("lean"));
     driver_run(&conn, "b", 2, day0, "offered", Some(400), Some("lean"));
     driver_run(&conn, "c", 3, day0, "offered", None, Some("lean"));
-    let got = crate::report::build(&conn, day0 + DAY).unwrap();
+    let got_typed = crate::report::build(&conn, day0 + DAY).unwrap();
+    let got = serde_json::to_value(&got_typed).unwrap();
     // A reported 0 is a figure; an empty run is not in the median either.
     assert_eq!(
         got["drivers"]["lean"]["none"]["tokens"],
         json!({"n": 2, "total": 400, "median": 200})
     );
-    assert!(crate::report::text(&got).contains("400 (n=2)"));
+    assert!(crate::report::text(&got_typed).contains("400 (n=2)"));
 }
 
 #[test]
@@ -4140,7 +4197,8 @@ fn a_pull_request_counts_once_and_only_a_merge_after_it_was_reached() {
     driver_run(&conn, "e", 4, day0, "failed", None, Some("lean"));
     db::event(&conn, 4, "merged", day0 + 2000).unwrap();
     assert_eq!(
-        crate::report::build(&conn, to).unwrap()["drivers"]["lean"]["none"]["pullRequests"],
+        serde_json::to_value(crate::report::build(&conn, to).unwrap().drivers).unwrap()["lean"]
+            ["none"]["pullRequests"],
         json!({"n": 3, "merged": 1, "share": 0.333})
     );
 }
@@ -4160,7 +4218,8 @@ fn a_merge_is_of_the_driver_that_last_reached_a_pull_request_before_it() {
     driver_run(&conn, "d", 2, day0 + 1000, "offered", None, Some("lean"));
     db::event(&conn, 2, "merged", day0 + 2000).unwrap();
     driver_run(&conn, "e", 2, day0 + 3000, "offered", None, None);
-    let report = crate::report::build(&conn, to).unwrap();
+    let report_typed = crate::report::build(&conn, to).unwrap();
+    let report = serde_json::to_value(&report_typed).unwrap();
     // Two pull requests are under VERSION_FLOOR: the counts, and no share.
     assert_eq!(
         report["drivers"]["lean"]["none"]["pullRequests"],
@@ -4180,7 +4239,8 @@ fn a_refused_run_is_in_no_minutes_of_its_driver() {
     driver_run(&conn, "a", 1, day0, "offered", None, Some("lean"));
     driver_run(&conn, "b", 2, day0, "refused", None, Some("lean"));
     driver_run(&conn, "c", 3, day0, "stopped", None, Some("lean"));
-    let report = crate::report::build(&conn, day0 + DAY).unwrap();
+    let report_typed = crate::report::build(&conn, day0 + DAY).unwrap();
+    let report = serde_json::to_value(&report_typed).unwrap();
     assert_eq!(report["drivers"]["lean"]["none"]["n"], json!(3));
     assert_eq!(
         report["drivers"]["lean"]["none"]["minutes"],
@@ -4226,7 +4286,8 @@ fn each_drivers_entry_carries_the_keys_the_terminal_prints() {
     run_step(&conn, "a", "verify");
     conn.execute("UPDATE runs SET attempt = 1 WHERE id = 'a'", [])
         .unwrap();
-    let got = crate::report::build(&conn, day0 + DAY).unwrap();
+    let got_typed = crate::report::build(&conn, day0 + DAY).unwrap();
+    let got = serde_json::to_value(&got_typed).unwrap();
     for driver in crate::run::DRIVERS {
         let entries = got["drivers"][driver]
             .as_object()
@@ -4282,7 +4343,8 @@ fn the_drivers_section_never_pools_two_pi_rukas_versions() {
     // The next release, one run: it stands on its own with its own count, and
     // one run is too few for a share, as in `versions`.
     lean_run(&conn, "d", 4, day0, "offered", "0.14.50");
-    let got = crate::report::build(&conn, day0 + DAY).unwrap();
+    let got_typed = crate::report::build(&conn, day0 + DAY).unwrap();
+    let got = serde_json::to_value(&got_typed).unwrap();
     let lean = &got["drivers"]["lean"];
     assert_eq!(lean["0.14.49"]["n"], json!(3));
     assert_eq!(lean["0.14.49"]["changeShare"], json!(0.667));
@@ -4290,7 +4352,7 @@ fn the_drivers_section_never_pools_two_pi_rukas_versions() {
     assert_eq!(lean["0.14.50"].get("changeShare"), None);
     assert_eq!(lean["0.14.50"].get("parkedShare"), None);
     // The terminal prints one line per pair, the version in its own column.
-    let text = crate::report::text(&got);
+    let text = crate::report::text(&got_typed);
     assert!(text.contains("0.14.49"), "{text}");
     assert!(text.contains("0.14.50"), "{text}");
 }
@@ -4307,7 +4369,8 @@ fn two_versions_the_report_cannot_name_are_one_other_entry_whose_runs_are_summed
     // carries: both are rejected, and both are the same entry.
     lean_run(&conn, "a", 1, day0, "offered", &"0".repeat(41));
     lean_run(&conn, "b", 2, day0, "parked", "v0.14.50$");
-    let got = crate::report::build(&conn, day0 + DAY).unwrap();
+    let got_typed = crate::report::build(&conn, day0 + DAY).unwrap();
+    let got = serde_json::to_value(&got_typed).unwrap();
     let lean = got["drivers"]["lean"].clone();
     let other = lean["other"].clone();
     // Both runs, not the last one alone.
@@ -4345,7 +4408,8 @@ fn a_drivers_entry_gives_the_one_attempt_success_and_the_hand_back_by_step() {
         run_step(&conn, id, "verify");
     }
     run_step(&conn, "b", "fix");
-    let got = crate::report::build(&conn, day0 + DAY).unwrap();
+    let got_typed = crate::report::build(&conn, day0 + DAY).unwrap();
+    let got = serde_json::to_value(&got_typed).unwrap();
     let e = &got["drivers"]["lean"]["0.14.50"];
     // Three first attempts ran (the refused one did not), two reached a PR.
     assert_eq!(
@@ -4370,7 +4434,7 @@ fn a_drivers_entry_gives_the_one_attempt_success_and_the_hand_back_by_step() {
     assert_eq!(steps["fix"], (1, 1));
     // The classic side of the window holds none of these runs.
     assert_eq!(got["drivers"]["classic"], json!({}));
-    let text = crate::report::text(&got);
+    let text = crate::report::text(&got_typed);
     assert!(text.contains("verify"), "{text}");
 }
 
@@ -4380,7 +4444,8 @@ fn a_run_with_no_usage_is_no_zero_in_a_version_pairs_median() {
     let day0 = 1_792_022_400;
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
     let pair = |conn: &Connection| {
-        let got = crate::report::build(conn, day0 + DAY).unwrap();
+        let got_typed = crate::report::build(conn, day0 + DAY).unwrap();
+        let got = serde_json::to_value(&got_typed).unwrap();
         let row = &got["versions"][0];
         (row["medianTokens"].clone(), row["tokensN"].clone())
     };
@@ -4420,8 +4485,9 @@ fn a_version_pair_reaches_its_figures_at_three_runs() {
     let home = scratch("report-floor");
     let day0 = 1_792_022_400;
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    let pair =
-        |conn: &Connection| crate::report::build(conn, day0 + DAY).unwrap()["versions"][0].clone();
+    let pair = |conn: &Connection| {
+        serde_json::to_value(&crate::report::build(conn, day0 + DAY).unwrap().versions[0]).unwrap()
+    };
     for (i, outcome) in ["offered", "failed", "offered"].iter().enumerate() {
         conn.execute(
             "INSERT INTO runs (id, kind, issue, started, ended, seconds, outcome, input,
@@ -4450,7 +4516,8 @@ fn an_empty_database_reports_counts_of_nothing_and_leaves_out_what_has_no_value(
     let home = scratch("report-empty");
     let to = 1_792_022_400 + 3600;
     let (conn, _) = db::open(&db::path(&home), to).unwrap();
-    let got = crate::report::build(&conn, to).unwrap();
+    let got_typed = crate::report::build(&conn, to).unwrap();
+    let got = serde_json::to_value(&got_typed).unwrap();
     let keys: Vec<&str> = got
         .as_object()
         .unwrap()
@@ -4485,7 +4552,8 @@ fn an_empty_database_reports_counts_of_nothing_and_leaves_out_what_has_no_value(
     assert!(got.get("refine").is_none());
     assert!(got.get("sizes").is_none());
     // The command's own report carries both keys, as `text` needs them.
-    let full = crate::report::complete(&conn, &home, to).unwrap();
+    let full_typed = crate::report::complete(&conn, &home, to).unwrap();
+    let full = serde_json::to_value(&full_typed).unwrap();
     assert!(full["sizes"].is_object() && full["refine"].is_object());
     assert_eq!(full["sizes"]["none"]["n"], json!(0));
     assert_eq!(execute(&home, &Cmd::Report, to), Ok(()));
@@ -4550,7 +4618,8 @@ fn ten_days_of_data_report_well_inside_the_time_limit() {
     let got = execute(&home, &Cmd::Report, to);
     let took = t.elapsed();
     assert_eq!(got, Ok(()));
-    let report = crate::report::build(&conn, to).unwrap();
+    let report_typed = crate::report::build(&conn, to).unwrap();
+    let report = serde_json::to_value(&report_typed).unwrap();
     assert!(report["runs"]["n"].as_i64().unwrap() > 800);
     assert!(report["shipped"]["n"].as_i64().unwrap() > 400);
     // The limit is 5 s; an unoptimised build on a busy machine is well inside
@@ -4683,7 +4752,8 @@ fn a_factory_whose_cycles_run_is_available_whatever_holds_the_next_start() {
         )
         .unwrap();
     }
-    let report = crate::report::build(&conn, to).unwrap();
+    let report_typed = crate::report::build(&conn, to).unwrap();
+    let report = serde_json::to_value(&report_typed).unwrap();
     assert_eq!(
         report["availability"],
         json!({"n": 5, "seconds": 3000, "share": 0.4})
@@ -4722,7 +4792,8 @@ fn a_wrong_typed_samples_cell_leaves_its_figure_out() {
     .unwrap();
     // The first and third rows are available: 600 of the 900 seconds since the
     // first sample. The middle one is not, since its pause is unknown.
-    let report = crate::report::build(&conn, to).unwrap();
+    let report_typed = crate::report::build(&conn, to).unwrap();
+    let report = serde_json::to_value(&report_typed).unwrap();
     assert_eq!(
         report["availability"],
         json!({"n": 3, "seconds": 900, "share": 0.667})
@@ -4749,7 +4820,8 @@ fn a_word_in_a_counted_column_leaves_the_line_out_and_the_report_up() {
         params![to - 300],
     )
     .unwrap();
-    let report = crate::report::build(&conn, to).unwrap();
+    let report_typed = crate::report::build(&conn, to).unwrap();
+    let report = serde_json::to_value(&report_typed).unwrap();
     let planned = report["planned"].as_object().unwrap();
     assert_eq!(planned["n"], json!(3));
     assert_eq!(planned["inLine"], json!(2));
@@ -4780,7 +4852,8 @@ fn a_cell_that_is_not_text_names_no_hold() {
         params![to - 300],
     )
     .unwrap();
-    let report = crate::report::build(&conn, to).unwrap();
+    let report_typed = crate::report::build(&conn, to).unwrap();
+    let report = serde_json::to_value(&report_typed).unwrap();
     assert_eq!(
         report["availability"],
         json!({"n": 1, "seconds": 300, "share": 1.0})
@@ -4800,13 +4873,14 @@ fn a_wrong_typed_samples_cell_no_longer_ends_the_published_report() {
         params![to - 300],
     )
     .unwrap();
-    let report = crate::report::complete(&conn, &home, to).unwrap();
+    let report_typed = crate::report::complete(&conn, &home, to).unwrap();
+    let report = serde_json::to_value(&report_typed).unwrap();
     // The row is there and not available, since its pause is unknown.
     assert_eq!(
         report["availability"],
         json!({"n": 1, "seconds": 300, "share": 0.0})
     );
-    assert!(crate::report::text(&report).contains("Availability"));
+    assert!(crate::report::text(&report_typed).contains("Availability"));
 
     // The same row read the old way, which is what the command used to print.
     let mut q = conn

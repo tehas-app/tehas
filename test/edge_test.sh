@@ -45,7 +45,7 @@ t_lacks "$(cat "$docs_compose")" "docker.sock"
 
 t_case "the router keeps its protections"
 t_contains "$(cat "$caddyfile")" 'respond @kept 404'
-t_contains "$(cat "$caddyfile")" '@odd header_regexp odd Host ^(uat|item)-'
+for want in '@odd header_regexp odd Host ^(uat|item)-' 'respond "No such address." 404'; do t_contains "$(cat "$caddyfile")" "$want"; done
 t_contains "$(cat "$caddyfile")" 'header Content-Security-Policy "sandbox allow-scripts allow-forms allow-modals allow-pointer-lock"'
 t_contains "$(cat "$caddyfile")" "header Content-Security-Policy \"default-src 'none'; style-src 'self'"
 

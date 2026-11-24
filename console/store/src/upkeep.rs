@@ -39,7 +39,7 @@ use std::fs::{self, File, TryLockError};
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
-use tehas_core::home::{Home, State};
+use tehas_core::home::{Home, State, CYCLES};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Call {
@@ -485,7 +485,7 @@ fn remove_held(file: &Path) -> Result<bool, String> {
 
 fn sweep_locks(home: &Path, days: i64, max: i64, dry_run: bool, now: i64) -> Result<String, Fail> {
     let before = now - days * DAY;
-    let issues = lock::listed(home).map_err(|e| (1, format!("unreadable state/cycles: {e}")))?;
+    let issues = lock::listed(home).map_err(|e| (1, format!("unreadable {CYCLES}: {e}")))?;
     let mut picked = Vec::new();
     verbs::look(home, |c| {
         for issue in issues {
@@ -512,7 +512,7 @@ fn sweep_locks(home: &Path, days: i64, max: i64, dry_run: bool, now: i64) -> Res
         match remove_held(file) {
             Ok(true) => removed.push(*issue),
             Ok(false) => kept.push(*issue),
-            Err(e) => return Err((1, format!("write state/cycles/{issue}.lock: {e}"))),
+            Err(e) => return Err((1, format!("write {CYCLES}/{issue}.lock: {e}"))),
         }
     }
     if !dry_run && !removed.is_empty() {
@@ -541,7 +541,7 @@ fn sweep_locks(home: &Path, days: i64, max: i64, dry_run: bool, now: i64) -> Res
 
 /// A lock that cannot be probed counts as held, as a failed `flock -n` did.
 fn locks_held(home: &Path) -> Result<String, Fail> {
-    let issues = lock::listed(home).map_err(|e| (1, format!("unreadable state/cycles: {e}")))?;
+    let issues = lock::listed(home).map_err(|e| (1, format!("unreadable {CYCLES}: {e}")))?;
     let held: Vec<String> = issues
         .into_iter()
         .filter(|n| lock::probe_file(&lock::path(home, *n)).is_some_and(|l| l.held_or_unknown()))

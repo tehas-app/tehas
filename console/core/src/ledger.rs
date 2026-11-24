@@ -12,6 +12,7 @@
 
 use crate::file::{write_atomic, Temp};
 use crate::home::{Home, State};
+use crate::lock::Held;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File, TryLockError};
 use std::io::ErrorKind;
@@ -143,17 +144,18 @@ impl FileLedger {
         Ok(answer)
     }
 
-    /// The lock, held until the file is dropped; `LedgerDown` past the wait.
-    fn locked(&self) -> Result<File, LedgerDown> {
+    /// The lock, held until the value drops; `LedgerDown` past the wait.
+    fn locked(&self) -> Result<Held, LedgerDown> {
         if !self.lock.parent().is_some_and(|d| d.is_dir()) {
             return Err(LedgerDown);
         }
-        let f = File::create(&self.lock).map_err(|_| LedgerDown)?;
+        let mut f = File::create(&self.lock).map_err(|_| LedgerDown)?;
         let started = Instant::now();
         loop {
-            match f.try_lock() {
-                Ok(()) => return Ok(f),
-                Err(TryLockError::WouldBlock) if started.elapsed() < self.wait => {
+            match Held::try_take(f) {
+                Ok(held) => return Ok(held),
+                Err((TryLockError::WouldBlock, back)) if started.elapsed() < self.wait => {
+                    f = back;
                     std::thread::sleep(STEP);
                 }
                 Err(_) => return Err(LedgerDown),
@@ -327,10 +329,7 @@ mod tests {
         assert_eq!(l.failures(&host(), At::new(0)), Ok(vec![]));
         assert!(!h.state(State::Ledger).exists(), "a read makes no file");
         assert_eq!(l.why_down(), None);
-        let b = Budget {
-            left: 1,
-            resets: At::new(9),
-        };
+        let b = Budget::new(1, At::new(9));
         let ours = Holder::Ours(tehas_ports::HolderId::new("1"));
         assert_eq!(l.put_budget(&host(), &ours, Pool::Calls, b), Ok(()));
         assert!(h.state(State::Ledger).exists());
@@ -395,11 +394,11 @@ mod tests {
             let l = FileLedger::new(&h);
             assert_eq!(l.health(&host(), &Whose::Host), Err(LedgerDown), "{text}");
             assert_eq!(l.failures(&host(), At::new(0)), Err(LedgerDown), "{text}");
-            let f = Failure {
-                at: At::new(1),
-                site: tehas_ports::SiteId::new("s"),
-                outcome: tehas_ports::Outcome::NotFound,
-            };
+            let f = Failure::new(
+                At::new(1),
+                tehas_ports::SiteId::new("s"),
+                tehas_ports::Outcome::NotFound,
+            );
             assert_eq!(l.failed(&host(), f, 60), Err(LedgerDown), "{text}");
             assert_eq!(fs::read_to_string(h.state(State::Ledger)).unwrap(), text);
             let file = h.state(State::Ledger).display().to_string();
@@ -421,10 +420,7 @@ mod tests {
         held.lock().unwrap();
         let l = FileLedger::new(&h).with_wait(Duration::ZERO);
         let ours = Holder::Ours(tehas_ports::HolderId::new("1"));
-        let b = Budget {
-            left: 1,
-            resets: At::new(9),
-        };
+        let b = Budget::new(1, At::new(9));
         assert_eq!(
             l.put_budget(&host(), &ours, Pool::Calls, b),
             Err(LedgerDown)
@@ -433,6 +429,12 @@ mod tests {
         held.unlock().unwrap();
         assert_eq!(l.put_budget(&host(), &ours, Pool::Calls, b), Ok(()));
     }
+
+    /// The lock's wait in a race: sixteen writes, each with two fsyncs, can
+    /// take longer than the 5 s of `WAIT` on a slow disk, and a write past it
+    /// is down by contract. A race tests what the lock keeps; the wait has a
+    /// test of its own.
+    const RACE_WAIT: Duration = Duration::from_secs(120);
 
     /// `n` threads, each with a ledger of its own over one home, as `n`
     /// processes are, started together; each answers what `call` did.
@@ -447,7 +449,7 @@ mod tests {
             .map(|i| {
                 let (root, call, start) = (h.root().to_path_buf(), call.clone(), start.clone());
                 std::thread::spawn(move || {
-                    let l = FileLedger::new(&Home::new(root));
+                    let l = FileLedger::new(&Home::new(root)).with_wait(RACE_WAIT);
                     start.wait();
                     call(&l, i)
                 })
@@ -477,11 +479,11 @@ mod tests {
             );
             assert!(won.iter().all(|w| w.is_ok()), "round {round}: {won:?}");
             let kept = race(&h, 16, |l, i| {
-                let f = Failure {
-                    at: At::new(1000 + i as i64),
-                    site: tehas_ports::SiteId::new("s"),
-                    outcome: tehas_ports::Outcome::NotFound,
-                };
+                let f = Failure::new(
+                    At::new(1000 + i as i64),
+                    tehas_ports::SiteId::new("s"),
+                    tehas_ports::Outcome::NotFound,
+                );
                 l.failed(&host(), f, 3600)
             });
             assert!(kept.iter().all(|k| k.is_ok()), "round {round}: {kept:?}");

@@ -4,9 +4,8 @@
 use super::state::{nz, Layout, State};
 use super::world::OPERATOR;
 use crate::{
-    Act, At, Attachment, AttachmentId, BlueprintNo, ChangeState, ChangedFile, CloseReason, Closer,
-    Happened, Item, Kind, Mark, Marker, Mergeable, Priority, Realm, RepoPath, TargetId,
-    TicketEvent, TicketKey,
+    Act, At, BlueprintNo, ChangeState, ChangedFile, CloseReason, Closer, Happened, Item, Kind,
+    Mark, Marker, Mergeable, Priority, Realm, RepoPath, TargetId, TicketEvent, TicketKey,
 };
 
 /// A ticket as a test builds it.
@@ -26,7 +25,7 @@ pub struct TicketSpec {
     pub(crate) parts: Vec<TicketKey>,
     pub(crate) blockers: Vec<Item>,
     pub(crate) events: Vec<(Happened, Option<String>, Option<At>)>,
-    pub(crate) attachments: Vec<(String, Vec<u8>)>,
+    pub(crate) attachments: Vec<(Option<String>, Vec<u8>)>,
 }
 
 impl TicketSpec {
@@ -157,7 +156,14 @@ impl TicketSpec {
 
     /// A file its text links to on the site's store.
     pub fn attachment(mut self, name: &str, bytes: &[u8]) -> Self {
-        self.attachments.push((name.to_string(), bytes.to_vec()));
+        self.attachments
+            .push((Some(name.to_string()), bytes.to_vec()));
+        self
+    }
+
+    /// A file pasted into its text, stored as an image with no name.
+    pub fn pasted(mut self, bytes: &[u8]) -> Self {
+        self.attachments.push((None, bytes.to_vec()));
         self
     }
 
@@ -188,11 +194,11 @@ impl TicketSpec {
         for (mark, by) in self.marks {
             if let Some(login) = by {
                 let by = Some(s.account(&login, realm));
-                s.items[at].history.push(TicketEvent {
-                    what: Happened::Marked(mark.clone()),
-                    by,
-                    at: Some(now),
-                });
+                let mut e = TicketEvent::new(Happened::Marked(mark.clone()));
+                e.by = by;
+                e.at = Some(now);
+                e.mark_id = s.mark_id(&mark);
+                s.items[at].history.push(e);
             }
             if !s.items[at].marks.contains(&mark) {
                 s.items[at].marks.push(mark);
@@ -200,7 +206,10 @@ impl TicketSpec {
         }
         for (what, by, when) in self.events {
             let by = by.map(|l| s.account(&l, realm));
-            s.items[at].history.push(TicketEvent { what, by, at: when });
+            let mut e = TicketEvent::new(what);
+            e.by = by;
+            e.at = when;
+            s.items[at].history.push(e);
         }
         for login in self.assignees {
             let a = s.account(&login, realm);
@@ -217,11 +226,7 @@ impl TicketSpec {
             s.items[at].comments.push(id);
         }
         for (name, bytes) in self.attachments {
-            let id = AttachmentId::new(s.fresh_id("file"));
-            let size = Some(bytes.len() as u64);
-            s.items[at]
-                .attachments
-                .push((Attachment { id, name, size }, bytes));
+            s.attach(at, name, bytes);
         }
         if let Some(reason) = self.closed {
             let closer = Some(Closer::Account(s.account(OPERATOR, realm)));
@@ -230,11 +235,9 @@ impl TicketSpec {
             item.reason = Some(reason.clone());
             item.closed = Some(now);
             item.closer = closer.clone();
-            item.history.push(TicketEvent {
-                what: Happened::Closed { reason, closer },
-                by: None,
-                at: Some(now),
-            });
+            let mut e = TicketEvent::new(Happened::Closed { reason, closer });
+            e.at = Some(now);
+            item.history.push(e);
         }
         s.touch(at, now);
     }
@@ -249,7 +252,7 @@ pub struct BlueprintSpec {
     pub(crate) comments: Vec<(String, String, Vec<Marker>)>,
     pub(crate) closed: bool,
     pub(crate) author: Option<String>,
-    pub(crate) attachments: Vec<(String, Vec<u8>)>,
+    pub(crate) attachments: Vec<(Option<String>, Vec<u8>)>,
 }
 
 impl BlueprintSpec {
@@ -299,7 +302,14 @@ impl BlueprintSpec {
 
     /// A file its body links to on the site's store.
     pub fn attachment(mut self, name: &str, bytes: &[u8]) -> Self {
-        self.attachments.push((name.to_string(), bytes.to_vec()));
+        self.attachments
+            .push((Some(name.to_string()), bytes.to_vec()));
+        self
+    }
+
+    /// A file pasted into its body, stored as an image with no name.
+    pub fn pasted(mut self, bytes: &[u8]) -> Self {
+        self.attachments.push((None, bytes.to_vec()));
         self
     }
 
@@ -321,11 +331,7 @@ impl BlueprintSpec {
             s.items[at].comments.push(id);
         }
         for (name, bytes) in self.attachments {
-            let id = AttachmentId::new(s.fresh_id("file"));
-            let size = Some(bytes.len() as u64);
-            s.items[at]
-                .attachments
-                .push((Attachment { id, name, size }, bytes));
+            s.attach(at, name, bytes);
         }
         if self.closed {
             let item = &mut s.items[at];

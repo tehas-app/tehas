@@ -3,14 +3,15 @@
 
 mod common;
 
-use common::{has, lacks, World};
+use common::{count_lines, has, lacks, said, site_of, through, twin, twins, Tried, World};
 use regex::Regex;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::fs;
-use std::io::Write;
-use std::process::{Command, Stdio};
 use tehas_core::home::{Home, Live};
+use tehas_cycle::end_failed::Failure;
+use tehas_ports::fake::{BlueprintsOp, FakeSite, Fault, Faulty, Op, TicketsOp};
+use tehas_ports::{LastAttemptMarker, Marker, Outcome, Refusal};
 
 const OUTAGE: &str = r#"{"kind":"dispatch-failed-provider","step":"adversarial","at":2,"providerMessage":"Connection error."}"#;
 const LOG: &str = r#"echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl""#;
@@ -77,15 +78,6 @@ fn starts(text: &str, prefix: &str) -> usize {
     text.lines().filter(|l| l.starts_with(prefix)).count()
 }
 
-/// The edits of the issue.
-fn edits(w: &World) -> String {
-    w.gh()
-        .lines()
-        .filter(|l| l.starts_with("issue edit"))
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
 /// A handoff no pull request carries.
 fn handed_off(w: &World, cap: &str, failure: &str) {
     capped(w, cap, failure);
@@ -114,24 +106,92 @@ fn park_failed(w: &World, cap: &str, reason: &str) {
     );
 }
 
-fn park_markers_in(text: &str) -> Vec<String> {
-    text.lines()
-        .filter(|l| l.starts_with("<!-- tehas:park "))
-        .map(str::to_string)
+/// The park markers beside the notes `said` says, each with its fields.
+fn park_markers(said: &str) -> Vec<String> {
+    let re = Regex::new(r"Park\([^)]*\)").unwrap();
+    said.lines()
+        .filter(|l| l.starts_with("markers: "))
+        .flat_map(|l| {
+            re.find_iter(l)
+                .map(|m| m.as_str().to_string())
+                .collect::<Vec<_>>()
+        })
         .collect()
 }
 
-fn park_markers(w: &World) -> Vec<String> {
-    park_markers_in(&w.gh())
-}
-
-fn park_sig(w: &World) -> String {
-    let re = Regex::new(r" sig=([0-9a-f]+) -->$").unwrap();
-    park_markers(w)
+/// The sig of each park marker, one a line.
+fn park_sig(said: &str) -> String {
+    let re = Regex::new(r" sig=([0-9a-f]{64})\)$").unwrap();
+    park_markers(said)
         .iter()
         .filter_map(|m| re.captures(m).map(|c| c[1].to_string()))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// The kinds of our markers beside each note that has any, one entry a note.
+fn marker_kinds(said: &str) -> Vec<String> {
+    let re = Regex::new(r"(?:^|, )([A-Za-z]+)\(").unwrap();
+    said.lines()
+        .filter_map(|l| l.strip_prefix("markers: "))
+        .map(|l| {
+            re.captures_iter(l)
+                .map(|c| c[1].to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .collect()
+}
+
+/// Only the factory's own markers are posted: these beside the notes, and
+/// none in any text, whole or broken.
+#[track_caller]
+fn own_markers_only(said: &str, kinds: &[&str]) {
+    assert_eq!(marker_kinds(said), kinds, "{said}");
+    let texts: Vec<&str> = said
+        .lines()
+        .filter(|l| !l.starts_with("markers: ") && l.contains("<!--"))
+        .collect();
+    assert!(texts.is_empty(), "{texts:?}");
+}
+
+/// #7's report in process on a site of its own, its end on record.
+fn report(w: &World) -> Tried {
+    let site = site_of(w);
+    let t = w.report_through(&site, &FakeSite::new(&site));
+    w.record_end(&t);
+    t
+}
+
+/// The site, the first note it is sent refused: the park's question.
+fn question_refused(f: FakeSite) -> Faulty<FakeSite> {
+    Faulty::new(f)
+        .on(
+            Op::Tickets(TicketsOp::Note),
+            Fault::Refused(Refusal::Invalid),
+        )
+        .times(1)
+}
+
+/// The note of the last attempt a write sets beside #7's text.
+fn last_attempt(writes: &[tehas_ports::Write]) -> Option<LastAttemptMarker> {
+    writes.iter().find_map(|w| match w {
+        tehas_ports::Write::EditTicket { markers, .. } => {
+            markers.set.iter().find_map(|m| match m {
+                Marker::LastAttempt(l) => Some(l.clone()),
+                _ => None,
+            })
+        }
+        _ => None,
+    })
+}
+
+/// The note the first develop timeout on `body` leaves beside the text, as
+/// the issue carries it after that cycle.
+fn first_note(name: &str, body: &str) -> Marker {
+    let w = World::new(name);
+    develop_timeout(&w, body);
+    Marker::LastAttempt(last_attempt(&report(&w).applied).expect("the first note"))
 }
 
 fn sha(text: &str) -> String {
@@ -181,25 +241,11 @@ fn parked_end(w: &World, step: &str, cap: &str, kind: &str, cause: &str) {
     );
 }
 
-/// The comment markers posted, less a park's own marker in its exact form.
-fn markers(w: &World) -> usize {
-    let own = Regex::new(
-        r"^<!-- tehas:park issue=7 step=[a-z0-9-]{0,40} kind=[a-z0-9-]{0,40} provider=[01] sig=[0-9a-f]{64} -->$",
-    )
-    .unwrap();
-    w.gh()
-        .lines()
-        .filter(|l| !own.is_match(l))
-        .filter(|l| l.contains("<!--"))
-        .count()
-}
-
 /// The factory's own choices posted, one line each, and never a task-list
 /// line: what an agent writes cannot add one.
-fn boxes(w: &World) -> usize {
-    let gh = w.gh();
-    assert_eq!(starts(&gh, "- ["), 0, "{gh}");
-    starts(&gh, "- retry") + starts(&gh, "- park: ")
+fn boxes_in(gh: &str) -> usize {
+    assert_eq!(starts(gh, "- ["), 0, "{gh}");
+    starts(gh, "- retry") + starts(gh, "- park: ")
 }
 
 /// The usage numbers come from files too: a string there must not reach a
@@ -226,7 +272,7 @@ fn never_ran(w: &mut World, approved: bool) {
 /// tehas work refused a lean start (78).
 fn lean_refused(w: &mut World) {
     w.fx("rc", "78\n");
-    w.work(r#": >"$TEHAS_HOME/state/cycles/7.lean-refused""#);
+    w.work(r#": >"$T_CYCLES/7.lean-refused""#);
     let input = w.t().join("lean-input.json");
     fs::write(&input, r#"{"links":[],"driver":"lean"}"#).unwrap();
     let input = input.to_string_lossy().to_string();
@@ -251,48 +297,32 @@ fn approval(w: &World) -> Value {
 
 #[test]
 fn a_step_that_failed_on_a_provider_error_is_parked_by_a_provider_outage_and_waits_for_a_person() {
-    let mut w = World::new("park-outage");
-    capped(&w, "step-failed:adversarial", OUTAGE);
-    w.work(LOG);
-    from_unit(&mut w, "approved", 1_760_000_000, &[]);
-    let r = w.run7();
+    let (w, r, asked, said) = twins("park-outage", |w| {
+        capped(w, "step-failed:adversarial", OUTAGE);
+        w.work(LOG);
+        from_unit(w, "approved", 1_760_000_000, &[]);
+    });
     assert_eq!(r.rc, 0);
-    let gh = w.gh();
     has(
-        &gh,
+        &said,
         "Tehas cycle parked by a provider outage: status `handoff`",
     );
-    has(&gh, "cap `step-failed:adversarial`: Connection error.");
-    has(&gh, "Only the cycle's own result names the outage, so tehas does not start it again on its own: it waits for a person.");
-    lacks(&gh, "starts it again once");
-    lacks(&gh, "stopped without a pull request");
-    has(
-        &gh,
-        "--remove-label tehas:running --add-label needs-human-attention",
-    );
+    has(&said, "cap `step-failed:adversarial`: Connection error.");
+    has(&said, "Only the cycle's own result names the outage, so tehas does not start it again on its own: it waits for a person.");
+    lacks(&said, "starts it again once");
+    lacks(&said, "stopped without a pull request");
+    has(&said, "unmark State(Running)\nmark State(NeedsPerson)");
     let p = w.park();
     assert_eq!(
         park_of(
             &w,
-            &[
-                "reason",
-                "step",
-                "automatic",
-                "retries",
-                "started_by",
-                "question"
-            ]
+            &["reason", "step", "automatic", "retries", "started_by"]
         ),
-        json!([
-            "step-failed:adversarial",
-            "handoff",
-            false,
-            0,
-            "alice",
-            4002
-        ])
+        json!(["step-failed:adversarial", "handoff", false, 0, "alice"])
     );
     assert!(p["started_at"].is_number());
+    // The question the report asked is the question of the park.
+    assert_eq!(park_q(&asked), "4002");
     let h = history_last(&w);
     assert_eq!(
         json!([h["cap"], h["provider"], h["parked"]]),
@@ -315,13 +345,12 @@ fn a_failed_dispatch_is_no_outage_whatever_its_words_say() {
 
 #[test]
 fn an_outage_of_a_cycle_started_by_hand_owes_no_retry_and_says_it_waits_for_a_person() {
-    let w = World::new("park-hand");
-    capped(&w, "step-failed:adversarial", OUTAGE);
-    w.run7();
-    let gh = w.gh();
-    has(&gh, "Tehas cycle parked by a provider outage");
-    has(&gh, "it waits for a person.");
-    lacks(&gh, "starts it again once");
+    let (w, _, said) = twin("park-hand", |w| {
+        capped(w, "step-failed:adversarial", OUTAGE)
+    });
+    has(&said, "Tehas cycle parked by a provider outage");
+    has(&said, "it waits for a person.");
+    lacks(&said, "starts it again once");
     assert_eq!(
         park_of(&w, &["reason", "automatic", "started_by"]),
         json!(["step-failed:adversarial", false, null])
@@ -330,14 +359,13 @@ fn an_outage_of_a_cycle_started_by_hand_owes_no_retry_and_says_it_waits_for_a_pe
 
 #[test]
 fn the_retry_tehas_made_on_its_own_parked_by_an_outage_again_waits_for_a_person() {
-    let mut w = World::new("park-retry");
-    capped(&w, "step-failed:adversarial", OUTAGE);
-    from_unit(&mut w, "outage-retry", 1_760_000_000, &[]);
-    w.run7();
-    let gh = w.gh();
-    has(&gh, "Tehas cycle parked by a provider outage");
-    has(&gh, "it waits for a person.");
-    lacks(&gh, "starts it again once");
+    let (w, _, said) = twin("park-retry", |w| {
+        capped(w, "step-failed:adversarial", OUTAGE);
+        from_unit(w, "outage-retry", 1_760_000_000, &[]);
+    });
+    has(&said, "Tehas cycle parked by a provider outage");
+    has(&said, "it waits for a person.");
+    lacks(&said, "starts it again once");
     assert_eq!(
         park_of(&w, &["reason", "automatic"]),
         json!(["step-failed:adversarial", false])
@@ -347,38 +375,45 @@ fn the_retry_tehas_made_on_its_own_parked_by_an_outage_again_waits_for_a_person(
 
 #[test]
 fn a_step_that_failed_for_another_reason_is_parked_as_before_and_no_retry() {
-    let w = World::new("park-other");
-    capped(
-        &w,
-        "step-failed:develop",
-        r#"{"kind":"dispatch-failed","at":2,"errorTail":"3 assertions failed in test/x"}"#,
-    );
-    w.work(LOG);
-    w.run7();
-    let gh = w.gh();
-    has(&gh, "Tehas cycle stopped without a pull request");
-    lacks(&gh, "provider outage");
+    let (w, _, said) = twin("park-other", |w| {
+        capped(
+            w,
+            "step-failed:develop",
+            r#"{"kind":"dispatch-failed","at":2,"errorTail":"3 assertions failed in test/x"}"#,
+        );
+        w.work(LOG);
+    });
+    has(&said, "Tehas cycle stopped without a pull request");
+    lacks(&said, "provider outage");
     assert_eq!(
         park_of(&w, &["reason", "automatic"]),
         json!(["step-failed:develop", false])
     );
-    has(&gh, "3 assertions failed in test/x");
+    has(&said, "3 assertions failed in test/x");
 }
 
 #[test]
 fn a_handoff_no_pull_request_carries_is_posted_once_by_the_host() {
     let long_cause = "verify-timeout verify command bash scripts/verify.sh exceeded its 30-min timeout on the CONSOLIDATED tree at /w/tehas (PI_ENSEMBLE_VERIFY_SUITE_TIMEOUT_MS=1800000), so the run was killed at the bound; the gate was still in test/cycle_test.sh";
-    let w = World::new("park-handoff");
     let f = json!({"kind": "dispatch-failed", "at": 2, "errorTail": long_cause}).to_string();
-    handed_off(&w, "verify-timeout:develop", &f);
-    w.work(LOG);
-    let r = w.run7();
+    let setup = |w: &mut World| {
+        handed_off(w, "verify-timeout:develop", &f);
+        w.work(LOG);
+    };
+    let (w, r, _) = twin("park-handoff", setup);
     assert_eq!(r.rc, 0);
-    let gh = w.gh();
-    assert_eq!(count(&gh, "pi-rukas:handoff issue=7 cap="), 1);
-    has(&gh, "The branch is consolidated locally, not pushed.");
-    lacks(&r.out, "reached no comment");
     assert_eq!(history_last(&w)["cap"], "verify-timeout:develop");
+    // The report posts the handoff once, in its question, and it reached the
+    // issue.
+    let mut w = World::new("park-handoff-posted");
+    setup(&mut w);
+    let t = report(&w);
+    let said = said(&t.applied);
+    assert_eq!(count(&said, "pi-rukas:handoff issue=7 cap="), 1);
+    has(&said, "The branch is consolidated locally, not pushed.");
+    has(&said, "Question(kind=Park blueprint=7 turn=1)");
+    assert!(t.written.handed_off);
+    assert!(t.written.handoff_failed.is_none());
 }
 
 #[test]
@@ -390,13 +425,27 @@ fn a_handoff_that_reached_no_comment_is_said_in_the_log() {
         r#"{"kind":"dispatch-failed","at":2,"errorTail":"exit 1"}"#,
     );
     w.work(LOG);
-    w.touch("post-fails");
-    w.touch("comment-fails");
-    let r = w.run7();
+    // The question and the comment in its place: the site takes neither.
+    let site = site_of(&w);
+    let t = w.report_through(
+        &site,
+        &Faulty::new(FakeSite::new(&site)).on(
+            Op::Tickets(TicketsOp::Note),
+            Fault::Refused(Refusal::Invalid),
+        ),
+    );
+    has(&said(&t.sent), "pi-rukas:handoff issue=7 cap=");
+    assert_eq!(said(&t.applied).matches("note: ").count(), 0);
     has(
-        &r.out,
+        &w.report_log(),
         "WARN: the handoff of #7 reached no comment: it is only in the run log",
     );
+    assert!(!t.written.handed_off);
+    assert_eq!(
+        t.written.handoff_failed,
+        Some(Failure::Answered(Outcome::Refused(Refusal::Invalid)))
+    );
+    assert!(!t.written.handoff_maybe);
 }
 
 #[test]
@@ -435,12 +484,11 @@ fn a_cap_whose_progress_names_no_failure_is_no_outage_and_asks_no_reason() {
 
 #[test]
 fn a_failure_of_kind_provider_is_said_as_an_outage_whatever_the_cap_and_owes_no_retry() {
-    let w = World::new("park-provider");
-    failed(&w, "spawn-backstop", "provider", "rate limited");
-    w.run7();
-    let gh = w.gh();
-    has(&gh, "Tehas cycle parked by a provider outage");
-    has(&gh, "cap `spawn-backstop`: rate limited");
+    let (w, _, said) = twin("park-provider", |w| {
+        failed(w, "spawn-backstop", "provider", "rate limited")
+    });
+    has(&said, "Tehas cycle parked by a provider outage");
+    has(&said, "cap `spawn-backstop`: rate limited");
     assert_eq!(
         park_of(&w, &["reason", "automatic"]),
         json!(["spawn-backstop", false])
@@ -455,31 +503,33 @@ fn a_failure_of_kind_provider_is_said_as_an_outage_whatever_the_cap_and_owes_no_
 #[test]
 fn a_failure_of_another_kind_is_no_outage_even_when_its_words_look_like_one() {
     for k in ["process", "timeout", "verify", "cap", "something-new"] {
-        let w = World::new("park-kind");
-        failed(
-            &w,
-            "step-failed:develop",
-            k,
-            "502 Bad Gateway, connection timed out",
-        );
-        let r = w.run7();
+        let (w, r, said) = twin("park-kind", |w| {
+            failed(
+                w,
+                "step-failed:develop",
+                k,
+                "502 Bad Gateway, connection timed out",
+            )
+        });
         assert_eq!(w.park()["reason"], "step-failed:develop", "{k}");
-        lacks(&w.gh(), "provider outage");
+        has(&said, "Tehas cycle stopped without a pull request");
+        lacks(&said, "provider outage");
         lacks(&r.out, "no reason was found");
     }
 }
 
 #[test]
 fn a_cap_the_result_names_provider_outage_is_no_outage_park_that_word_is_tehass_own() {
-    let mut w = World::new("park-word");
-    from_unit(&mut w, "approved", 1_760_000_000, &[]);
-    failed(&w, "provider-outage", "process", "it said so");
-    w.run7();
+    let (w, _, said) = twin("park-word", |w| {
+        from_unit(w, "approved", 1_760_000_000, &[]);
+        failed(w, "provider-outage", "process", "it said so");
+    });
     assert_eq!(
         park_of(&w, &["reason", "automatic"]),
         json!(["cap:provider-outage", false])
     );
-    lacks(&w.gh(), "starts it again once");
+    has(&said, "Tehas cycle");
+    lacks(&said, "starts it again once");
     let mut w = World::new("park-word2");
     from_unit(&mut w, "approved", 1_760_000_000, &[]);
     w.ended("provider-outage", "develop", "feature/issue-7-x", "-");
@@ -492,16 +542,16 @@ fn a_cap_the_result_names_provider_outage_is_no_outage_park_that_word_is_tehass_
 fn the_park_comment_names_the_results_failure_and_not_for_a_caps_own_rule() {
     let w = World::new("park-names");
     failed(&w, "step-failed:develop", "process", "child exited 1");
-    w.run7();
     has(
-        &w.gh(),
+        &w.report_said(),
         "It failed: kind `process`, role `developer`: child exited 1.",
     );
     for reason in ["round-cap", "the driver stopped"] {
         let w = World::new("park-names-cap");
         failed(&w, "round-cap", "cap", reason);
-        w.run7();
-        lacks(&w.gh(), "It failed:");
+        let said = w.report_said();
+        has(&said, "Tehas cycle");
+        lacks(&said, "It failed:");
     }
 }
 
@@ -521,15 +571,15 @@ fn a_result_that_says_it_has_no_failure_is_no_outage_and_no_warning() {
 
 #[test]
 fn the_cap_and_its_reason_are_reduced_before_they_are_posted_or_recorded() {
-    let w = World::new("park-reduced");
-    capped(
-        &w,
-        "step-failed:adversarial`@x",
-        r#"{"kind":"dispatch-failed-provider","at":2,"providerMessage":"provider error `@alice` <!-- #5\nnext line"}"#,
-    );
-    w.run7();
+    let (w, _, said) = twin("park-reduced", |w| {
+        capped(
+            w,
+            "step-failed:adversarial`@x",
+            r#"{"kind":"dispatch-failed-provider","at":2,"providerMessage":"provider error `@alice` <!-- #5\nnext line"}"#,
+        )
+    });
     has(
-        &w.gh(),
+        &said,
         "cap `step-failed:adversarialx`: provider error alice -- 5 next line",
     );
     assert_eq!(history_last(&w)["cap"], "step-failed:adversarialx");
@@ -542,32 +592,34 @@ fn develop_sig() -> String {
 
 #[test]
 fn a_park_comment_carries_a_marker_with_the_parks_facts_the_sig_of_the_history_lines_fields() {
-    let w = World::new("park-marker");
-    park_failed(&w, "step-failed:develop", "");
-    w.run7();
+    let (w, _, said) = twin("park-marker", |w| park_failed(w, "step-failed:develop", ""));
     let sig = develop_sig();
     assert_eq!(
-        park_markers(&w),
+        park_markers(&said),
         [format!(
-            "<!-- tehas:park issue=7 step=develop kind=verify-failed provider=0 sig={sig} -->"
+            "Park(blueprint=7 step=develop kind=verify-failed provider=false sig={sig})"
         )]
     );
-    has(&w.gh(), "issues/7/comments -f body=");
+    // It goes with the question.
+    assert_eq!(marker_kinds(&said), ["Park, Question"]);
     assert_eq!(history_sig(&w), sig);
 }
 
 #[test]
 fn the_plain_comment_when_the_boxes_cannot_be_posted_carries_the_same_marker() {
-    let w = World::new("park-plain-marker");
-    park_failed(&w, "step-failed:develop", "");
-    w.touch("post-fails");
-    w.run7();
-    let gh = w.gh();
-    let at = gh.find("\nissue comment 7 ").expect("no comment") + 1;
+    let (_, applied, _) = through(
+        "park-plain-marker",
+        |w| park_failed(w, "step-failed:develop", ""),
+        question_refused,
+    );
+    // The question is not on the issue; the plain comment is, with the
+    // park's marker alone.
+    assert_eq!(marker_kinds(&applied), ["Park"]);
+    has(&applied, "To retry, apply");
     assert_eq!(
-        park_markers_in(&gh[at..]),
+        park_markers(&applied),
         [format!(
-            "<!-- tehas:park issue=7 step=develop kind=verify-failed provider=0 sig={} -->",
+            "Park(blueprint=7 step=develop kind=verify-failed provider=false sig={})",
             develop_sig()
         )]
     );
@@ -577,39 +629,39 @@ fn the_plain_comment_when_the_boxes_cannot_be_posted_carries_the_same_marker() {
 fn a_park_that_repeats_the_issues_previous_end_says_so_with_the_step_and_the_cap() {
     let w = World::new("park-repeats");
     park_failed(&w, "step-failed:develop", "");
-    w.run7();
-    assert_eq!(count(&w.gh(), "repeats the one before it"), 0);
+    assert_eq!(count(&w.report_said(), "repeats the one before it"), 0);
     // The park before this one, left on the same store by the cycle above.
-    w.run7();
-    let gh = w.gh();
-    assert_eq!(count(&gh, "repeats the one before it"), 1);
-    has(&gh, "number 1 of the parks in a row that stopped at step `develop` on the cap `step-failed:develop`");
-    has(&gh, "change the issue first");
+    let said = w.report_said();
+    assert_eq!(count(&said, "repeats the one before it"), 1);
+    has(&said, "number 1 of the parks in a row that stopped at step `develop` on the cap `step-failed:develop`");
+    has(&said, "change the issue first");
 }
 
 #[test]
 fn a_park_that_does_not_repeat_the_end_before_it_says_nothing_of_a_run() {
     let w = World::new("park-norun");
     park_failed(&w, "verify-failed:develop", "");
-    w.run7();
+    w.report_said();
     park_failed(&w, "step-failed:develop", "");
-    w.run7();
     // Another cap before: no run, and the count starts again.
-    assert_eq!(count(&w.gh(), "repeats the one before it"), 0);
+    assert_eq!(count(&w.report_said(), "repeats the one before it"), 0);
     park_failed(&w, "step-failed:develop", "");
-    w.run7();
-    assert_eq!(count(&w.gh(), "repeats the one before it"), 1);
+    assert_eq!(count(&w.report_said(), "repeats the one before it"), 1);
     // A merge between two parks alike breaks the run.
     let w = World::new("park-norun-merge");
     park_failed(&w, "step-failed:develop", "");
-    w.run7();
+    w.report_said();
     w.ended("merged", "review", "feature/x", "");
     w.merged_pr();
     w.fx("rc", "0\n");
-    w.run7();
+    w.report_said();
+    // The merged pull request is gone from the branch's answer: the next
+    // cycle is a park again.
+    fs::remove_file(w.fx.join("pr.txt")).unwrap();
     park_failed(&w, "step-failed:develop", "");
-    w.run7();
-    assert_eq!(count(&w.gh(), "repeats the one before it"), 0);
+    let said = w.report_said();
+    has(&said, "Tehas cycle stopped");
+    assert_eq!(count(&said, "repeats the one before it"), 0);
 }
 
 #[test]
@@ -617,24 +669,26 @@ fn a_park_of_a_provider_outage_never_says_it_repeats_a_run() {
     let w = World::new("park-outage-run");
     capped(&w, "step-failed:adversarial", OUTAGE);
     parked_end(&w, "handoff", "step-failed:adversarial", "", "");
-    w.run7();
-    assert_eq!(count(&w.gh(), "repeats the one before it"), 0);
+    let said = w.report_said();
+    has(&said, "Tehas cycle parked by a provider outage");
+    assert_eq!(count(&said, "repeats the one before it"), 0);
 }
 
 #[test]
 fn a_history_that_cannot_be_read_says_nothing_of_a_run_and_the_park_goes_on() {
-    let w = World::new("park-nohistory");
-    park_failed(&w, "step-failed:develop", "");
-    parked_end(
-        &w,
-        "develop",
-        "step-failed:develop",
-        "verify-failed",
-        "exit-1",
-    );
-    w.store_answers("history-show", 1, "refused", 999);
-    w.run7();
-    assert_eq!(count(&w.gh(), "repeats the one before it"), 0);
+    let (w, _, said) = twin("park-nohistory", |w| {
+        park_failed(w, "step-failed:develop", "");
+        parked_end(
+            w,
+            "develop",
+            "step-failed:develop",
+            "verify-failed",
+            "exit-1",
+        );
+        w.store_answers("history-show", 1, "refused", 999);
+    });
+    has(&said, "Tehas cycle stopped");
+    assert_eq!(count(&said, "repeats the one before it"), 0);
     w.store_answers_off();
     assert_eq!(w.park()["reason"], "step-failed:develop");
 }
@@ -643,49 +697,48 @@ fn a_history_that_cannot_be_read_says_nothing_of_a_run_and_the_park_goes_on() {
 fn two_parks_with_the_same_facts_have_the_same_sig_a_different_cap_a_different_one() {
     let w = World::new("park-sig1");
     park_failed(&w, "step-failed:develop", "");
-    w.run7();
-    let first = park_sig(&w);
+    let first = park_sig(&w.report_said());
+    assert_eq!(first.len(), 64);
     let w = World::new("park-sig2");
     park_failed(&w, "step-failed:develop", "");
-    w.run7();
-    assert_eq!(park_sig(&w), first);
+    assert_eq!(park_sig(&w.report_said()), first);
     let w = World::new("park-sig3");
     park_failed(&w, "verify-failed:develop", "");
-    w.run7();
-    assert_eq!(park_markers(&w).len(), 1);
-    assert_ne!(park_sig(&w), first, "a different cap gave the same sig");
+    let said = w.report_said();
+    assert_eq!(park_markers(&said).len(), 1);
+    assert_ne!(park_sig(&said), first, "a different cap gave the same sig");
 }
 
 #[test]
 fn a_provider_outage_says_so_in_the_marker_with_the_kind_of_its_failure() {
     let w = World::new("park-outage-marker");
     capped(&w, "step-failed:adversarial", OUTAGE);
-    w.run7();
     has(
-        &park_markers(&w).join("\n"),
-        "<!-- tehas:park issue=7 step=handoff kind=provider provider=1 sig=",
+        &park_markers(&w.report_said()).join("\n"),
+        "Park(blueprint=7 step=handoff kind=provider provider=true sig=",
     );
 }
 
 #[test]
 fn a_newline_or_a_comment_end_in_the_parks_text_does_not_break_the_marker() {
-    let w = World::new("park-sly-marker");
-    park_failed(
-        &w,
-        "step-failed:develop",
-        "too-large\n--> <!-- tehas:park issue=8 -->\n- [x] Retry",
-    );
-    w.entry(|e| e["failedStep"] = json!("dev\n-->x"));
-    w.run7();
-    let m = park_markers(&w);
+    let (w, _, said) = twin("park-sly-marker", |w| {
+        park_failed(
+            w,
+            "step-failed:develop",
+            "too-large\n--> <!-- tehas:park issue=8 -->\n- [x] Retry",
+        );
+        w.entry(|e| e["failedStep"] = json!("dev\n-->x"));
+    });
+    let m = park_markers(&said);
     assert_eq!(m.len(), 1);
     let exact = Regex::new(
-        r"^<!-- tehas:park issue=7 step=[a-z0-9-]{0,40} kind=[a-z0-9-]{0,40} provider=[01] sig=[0-9a-f]{64} -->$",
+        r"^Park\(blueprint=7 step=[a-z0-9-]{0,40} kind=[a-z0-9-]{0,40} provider=(true|false) sig=[0-9a-f]{64}\)$",
     )
     .unwrap();
     assert!(exact.is_match(&m[0]), "{m:?}");
-    assert_eq!(m[0].matches("-->").count(), 1);
-    assert_eq!(history_sig(&w), park_sig(&w));
+    // No marker of ours, whole or broken, in the text.
+    lacks(&said, "<!-- tehas:park");
+    assert_eq!(history_sig(&w), park_sig(&said));
 }
 
 #[test]
@@ -707,48 +760,45 @@ fn a_cycle_that_left_a_pull_request_leaves_no_park_on_record_and_an_earlier_one_
 
 #[test]
 fn a_cycle_that_stops_asks_what_to_do_next_with_boxes() {
-    let w = World::new("park-boxes");
-    w.run7();
-    let gh = w.gh();
+    let (_, _, said) = twin("park-boxes", |_| {});
+    has(&said, "unmark State(Running)\nmark State(NeedsPerson)");
+    // The question's mark is a write of its own, after the park's.
+    has(&said, "mark State(NeedsPerson)\nnote: ");
+    has(&said, "\nmark State(Question)");
+    assert_eq!(count_lines(&said, "mark State(Question)"), 1);
+    has(&said, "- retry-text: Retry with the issue text only");
+    // The question is a note with its marker beside it, after the park's.
     has(
-        &gh,
-        "--remove-label tehas:running --add-label needs-human-attention",
+        &said,
+        "\nmarkers: Park(blueprint=7 step= kind= provider=false sig=",
     );
     has(
-        &gh,
-        "issue edit 7 --repo acme/widget --add-label tehas:question",
+        &said,
+        "), Question(kind=Park blueprint=7 turn=1)\nmark State(Question)",
     );
-    let both = edits(&w)
-        .lines()
-        .filter(|l| l.contains("needs-human-attention") && l.contains("tehas:question"))
-        .count();
-    assert_eq!(both, 0);
-    has(&gh, "api repos/acme/widget/issues/7/comments");
-    has(&gh, "- retry-text: Retry with the issue text only");
-    has(&gh, "<!-- tehas:question kind=park issue=7 turn=1 -->");
 }
 
 #[test]
 fn a_cycle_on_an_image_that_gives_a_retry_the_comments_offers_the_comments_retry() {
     let w = World::new("park-comments");
-    w.work(r#"echo native >"$TEHAS_HOME/state/cycles/7.comments""#);
-    w.run7();
-    let gh = w.gh();
-    has(&gh, "- retry: Retry with the issue and all its comments");
-    has(&gh, "- retry-text: Retry with the issue text only");
+    w.work(r#"echo native >"$T_CYCLES/7.comments""#);
+    let said = w.report_said();
+    has(&said, "- retry: Retry with the issue and all its comments");
+    has(&said, "- retry-text: Retry with the issue text only");
     has(
-        &gh,
+        &said,
         "given what allowed accounts wrote on this issue and on its pull requests",
     );
     let w = World::new("park-comments2");
-    w.run7();
-    lacks(&w.gh(), "Retry with the issue and all its comments");
+    let said = w.report_said();
+    has(&said, "- retry-text: Retry with the issue text only");
+    lacks(&said, "Retry with the issue and all its comments");
 }
 
 #[test]
 fn the_host_keeps_the_id_of_the_park_question_it_posted_as_the_question_of_this_park() {
     let w = World::new("park-keeps-id");
-    w.run7();
+    report(&w);
     assert_eq!(park_q(&w), "4002");
     let q = w.row(&["question-known", "7", "--id", "4002"]);
     assert_eq!(
@@ -756,6 +806,24 @@ fn the_host_keeps_the_id_of_the_park_question_it_posted_as_the_question_of_this_
         json!([true, "park", false])
     );
     assert_eq!(park_of(&w, &["attempt", "reason"]), json!([1, "unknown"]));
+}
+
+/// A comment id that is no number, as no id GitHub gives is: the store
+/// cannot keep it, so the question is not on record and nothing more is said.
+#[test]
+fn a_question_whose_id_is_no_number_is_not_on_record_and_nothing_more_is_said() {
+    let (w, applied, _) = through("park-unnumbered", |w| w.unnumbered(), |f| f);
+    assert_eq!(marker_kinds(&applied), ["Park, Question"]);
+    assert_eq!(applied.matches("note: ").count(), 1);
+    lacks(&applied, "State(Question)");
+    let log = w.report_log();
+    has(
+        &log,
+        "WARN: the park question of #7 got a comment id the store cannot keep, so it is not on record and no reply to it counts",
+    );
+    assert_eq!(count(&log, "WARN"), 1, "{log}");
+    assert_eq!(park_q(&w), "none");
+    assert_eq!(w.park()["reason"], "unknown");
 }
 
 #[test]
@@ -772,14 +840,12 @@ fn the_body_of_the_question_goes_when_it_is_posted() {
 
 #[test]
 fn when_the_question_cannot_be_posted_the_old_comment_is_used_and_no_question_label_is_added() {
-    let w = World::new("park-nopost");
-    w.touch("post-fails");
-    w.run7();
-    let gh = w.gh();
-    has(&gh, "issue comment 7");
-    has(&gh, "Tehas cycle stopped without a pull request");
-    has(&gh, "To retry, apply");
-    lacks(&edits(&w), "tehas:question");
+    let (w, applied, sent) = through("park-nopost", |_| {}, question_refused);
+    assert_eq!(marker_kinds(&sent), ["Park, Question", "Park"]);
+    assert_eq!(applied.matches("note: ").count(), 1);
+    has(&applied, "note: Tehas cycle stopped without a pull request");
+    has(&applied, "To retry, apply");
+    lacks(&applied, "State(Question)");
     assert_eq!(park_q(&w), "none");
     // The park is on record all the same: it asks nothing.
     assert_eq!(w.park()["reason"], "unknown");
@@ -787,44 +853,65 @@ fn when_the_question_cannot_be_posted_the_old_comment_is_used_and_no_question_la
 
 #[test]
 fn a_question_github_answered_with_a_5xx_and_took_is_read_back_and_asked() {
-    let w = World::new("park-5xx-took");
-    w.fx("post-fails", "HTTP 502: Bad Gateway\n");
-    w.touch("post-taken");
-    let r = w.run7();
-    assert_eq!(r.rc, 0);
-    let gh = w.gh();
-    assert_eq!(starts(&gh, "api repos/acme/widget/issues/7/comments "), 1);
-    lacks(&gh, "issue comment 7");
-    lacks(&r.out, "may have been posted");
+    let (w, applied, sent) = through(
+        "park-5xx-took",
+        |_| {},
+        |f| {
+            Faulty::new(f)
+                .on(
+                    Op::Tickets(TicketsOp::Note),
+                    Fault::Server { applied: true },
+                )
+                .times(1)
+        },
+    );
+    // Sent once, read back, and asked: no plain comment after it.
+    assert_eq!(sent.matches("note: ").count(), 1);
+    assert_eq!(marker_kinds(&applied), ["Park, Question"]);
+    lacks(&w.report_log(), "may have been posted");
     assert_eq!(park_q(&w), "4002");
-    has(&edits(&w), "tehas:question");
+    has(&applied, "mark State(Question)");
 }
 
 #[test]
 fn a_question_github_answered_with_a_5xx_and_did_not_take_gets_the_plain_comment() {
-    let w = World::new("park-5xx-not");
-    w.fx("post-fails", "HTTP 502: Bad Gateway\n");
-    w.fx("comments.json", "[]\n");
-    let r = w.run7();
-    assert_eq!(r.rc, 0);
-    let gh = w.gh();
-    assert_eq!(starts(&gh, "api repos/acme/widget/issues/7/comments "), 1);
-    assert_eq!(starts(&gh, "issue comment 7 "), 1);
-    lacks(&r.out, "may have been posted");
+    let (w, applied, sent) = through(
+        "park-5xx-not",
+        |_| {},
+        |f| {
+            Faulty::new(f)
+                .on(
+                    Op::Tickets(TicketsOp::Note),
+                    Fault::Server { applied: false },
+                )
+                .times(1)
+        },
+    );
+    // The question once, then the plain comment once.
+    assert_eq!(marker_kinds(&sent), ["Park, Question", "Park"]);
+    assert_eq!(marker_kinds(&applied), ["Park"]);
+    lacks(&w.report_log(), "may have been posted");
     assert_eq!(park_q(&w), "none");
 }
 
 #[test]
 fn a_question_github_answered_with_a_5xx_that_no_read_settles_is_not_posted_again_nor_followed_by_the_plain_comment(
 ) {
-    let w = World::new("park-5xx-unknown");
-    w.fx("post-fails", "HTTP 502: Bad Gateway\n");
-    let r = w.run7();
-    assert_eq!(r.rc, 0);
-    let gh = w.gh();
-    assert_eq!(starts(&gh, "api repos/acme/widget/issues/7/comments "), 1);
-    lacks(&gh, "issue comment 7");
-    has(&r.out, "may have been posted");
+    let (w, _, sent) = through(
+        "park-5xx-unknown",
+        |_| {},
+        |f| {
+            Faulty::new(f)
+                .on(
+                    Op::Tickets(TicketsOp::Note),
+                    Fault::Server { applied: true },
+                )
+                .times(1)
+                .on(Op::Blueprints(BlueprintsOp::Comments), Fault::Unreachable)
+        },
+    );
+    assert_eq!(marker_kinds(&sent), ["Park, Question"]);
+    has(&w.report_log(), "may have been posted");
     // The row stays open for the poll's read to settle.
     let open = w.store_ok(&["journal-open"]);
     let rows: Vec<Value> = open["actions"]
@@ -838,23 +925,19 @@ fn a_question_github_answered_with_a_5xx_that_no_read_settles_is_not_posted_agai
 
 #[test]
 fn a_park_the_store_would_not_take_asks_no_question_the_plain_comment_and_no_tehasquestion() {
-    let w = World::new("park-busy");
-    w.store_answers("park", 1, "store: busy #7: the database is locked", 0);
-    let r = w.run7();
+    let (w, r, said) = twin("park-busy", |w| {
+        w.store_answers("park", 1, "store: busy #7: the database is locked", 0)
+    });
     assert_eq!(r.rc, 0);
     has(&r.out, "WARN: could not record the park of #7 (busy: store: busy #7: the database is locked), so it asks no question");
     assert_eq!(w.store_answered(), 3);
-    let gh = w.gh();
-    lacks(&gh, "api repos/acme/widget/issues/7/comments");
-    has(&gh, "issue comment 7 --repo acme/widget --body");
-    has(&gh, "Tehas cycle stopped without a pull request");
-    has(&gh, "To retry, apply `tehas:ready`.");
-    lacks(&gh, "- retry-text: Retry with the issue text only");
-    lacks(&edits(&w), "tehas:question");
-    has(
-        &gh,
-        "--remove-label tehas:running --add-label needs-human-attention",
-    );
+    // One note, no question: the plain comment with the park's marker.
+    assert_eq!(marker_kinds(&said), ["Park"]);
+    has(&said, "note: Tehas cycle stopped without a pull request");
+    has(&said, "To retry, apply `tehas:ready`.");
+    lacks(&said, "- retry-text: Retry with the issue text only");
+    lacks(&said, "State(Question)");
+    has(&said, "unmark State(Running)\nmark State(NeedsPerson)");
     w.store_answers_off();
     assert_eq!(w.park(), Value::Null);
     assert_eq!(history_last(&w)["parked"], true);
@@ -862,28 +945,26 @@ fn a_park_the_store_would_not_take_asks_no_question_the_plain_comment_and_no_teh
 
 #[test]
 fn and_so_does_a_store_that_cannot_be_used() {
-    let w = World::new("park-corrupt");
-    w.store_answers("park", 78, "store: corrupt: the file is not a database", 0);
-    let r = w.run7();
+    let (_, r, said) = twin("park-corrupt", |w| {
+        w.store_answers("park", 78, "store: corrupt: the file is not a database", 0)
+    });
     has(&r.out, "WARN: could not record the park of #7 (corrupt");
-    let gh = w.gh();
-    lacks(&gh, "api repos/acme/widget/issues/7/comments");
-    has(&gh, "To retry, apply `tehas:ready`.");
-    lacks(&edits(&w), "tehas:question");
+    assert_eq!(marker_kinds(&said), ["Park"]);
+    has(&said, "To retry, apply `tehas:ready`.");
+    lacks(&said, "State(Question)");
 }
 
 #[test]
 fn an_outage_park_the_store_would_not_take_does_not_say_tehas_starts_it_again() {
-    let mut w = World::new("park-outage-busy");
-    capped(&w, "step-failed:adversarial", OUTAGE);
-    from_unit(&mut w, "approved", 1_760_000_000, &[]);
-    w.store_answers("park", 1, "store: busy #7: the database is locked", 0);
-    w.run7();
-    let gh = w.gh();
-    has(&gh, "Tehas cycle parked by a provider outage");
-    lacks(&gh, "starts it again once");
+    let (w, _, said) = twin("park-outage-busy", |w| {
+        capped(w, "step-failed:adversarial", OUTAGE);
+        from_unit(w, "approved", 1_760_000_000, &[]);
+        w.store_answers("park", 1, "store: busy #7: the database is locked", 0);
+    });
+    has(&said, "Tehas cycle parked by a provider outage");
+    lacks(&said, "starts it again once");
     has(
-        &gh,
+        &said,
         "so tehas does not start it again on its own: it waits for a person.",
     );
     w.store_answers_off();
@@ -892,17 +973,22 @@ fn an_outage_park_the_store_would_not_take_does_not_say_tehas_starts_it_again() 
 
 #[test]
 fn a_question_the_store_would_not_take_is_posted_and_the_log_says_its_boxes_will_not_work() {
-    let w = World::new("park-q-busy");
-    w.store_answers(
-        "question-asked",
-        1,
-        "store: busy #7: the database is locked",
-        0,
+    let (w, applied, _) = through(
+        "park-q-busy",
+        |w| {
+            w.store_answers(
+                "question-asked",
+                1,
+                "store: busy #7: the database is locked",
+                0,
+            )
+        },
+        |f| f,
     );
-    let r = w.run7();
-    has(&w.gh(), "- retry-text: Retry with the issue text only");
+    has(&applied, "- retry-text: Retry with the issue text only");
+    assert_eq!(marker_kinds(&applied), ["Park, Question"]);
     has(
-        &r.out,
+        &w.report_log(),
         "WARN: could not record the park question of #7, a reply to it will not count (busy)",
     );
     w.store_answers_off();
@@ -911,21 +997,25 @@ fn a_question_the_store_would_not_take_is_posted_and_the_log_says_its_boxes_will
 
 #[test]
 fn when_the_question_label_cannot_be_added_the_person_is_told_the_boxes_do_not_work() {
-    let w = World::new("park-nolabel");
-    w.fx("edit-fails-on", "--add-label tehas:question");
-    let r = w.run7();
-    let gh = w.gh();
-    has(&gh, "- retry-text: Retry with the issue text only");
-    has(
-        &gh,
-        &format!(
-            "issue comment 7 --repo acme/widget --body {}",
-            tehas_cycle::apply::BOXES
-        ),
+    // The park's own mark goes on; the question's does not.
+    let (w, applied, _) = through(
+        "park-nolabel",
+        |_| {},
+        |f| {
+            Faulty::new(f)
+                .on(
+                    Op::Tickets(TicketsOp::Mark),
+                    Fault::Refused(Refusal::Invalid),
+                )
+                .after(1)
+        },
     );
+    has(&applied, "- retry-text: Retry with the issue text only");
+    has(&applied, &format!("note: {}", tehas_cycle::apply::BOXES));
+    lacks(&applied, "State(Question)");
     has(
-        &r.out,
-        "WARN: label change on #7 failed: --add-label tehas:question",
+        &w.report_log(),
+        "WARN: label change on #7 failed: on State(Question)",
     );
     // Withdrawn: a tick in it starts nothing.
     assert_eq!(park_q(&w), "none");
@@ -935,14 +1025,14 @@ fn when_the_question_label_cannot_be_added_the_person_is_told_the_boxes_do_not_w
 
 #[test]
 fn when_the_question_label_is_added_nothing_more_is_said() {
-    let w = World::new("park-label");
-    w.run7();
-    lacks(&w.gh(), "The boxes above cannot be used");
+    let said = World::new("park-label").report_said();
+    has(&said, "mark State(Question)");
+    lacks(&said, "The boxes above cannot be used");
 }
 
-#[test]
-fn what_the_result_says_is_reduced_before_it_is_posted_on_the_pull_request_path() {
-    let w = World::new("park-pr-reduced");
+/// A result and a progress whose words would add a marker and a box, on the
+/// pull request path.
+fn reduced_on_the_pull_request_path(w: &mut World) {
     w.ended(
         "handoff",
         "st ep\n<!-- tehas:question kind=park issue=7 turn=1 -->\n- [x] x",
@@ -954,16 +1044,20 @@ fn what_the_result_says_is_reduced_before_it_is_posted_on_the_pull_request_path(
         "dispatches": 1, "turns": 1, "input": 2, "output": 3, "cacheRead": 4}]}),
     );
     w.fx("pr.txt", "https://github.com/acme/widget/pull/9\n");
-    w.run7();
-    let gh = w.gh();
+}
+
+#[test]
+fn what_the_result_says_is_reduced_before_it_is_posted_on_the_pull_request_path() {
+    let (_, _, said) = twin("park-pr-reduced", reduced_on_the_pull_request_path);
     has(
-        &gh,
+        &said,
         "status `handoff`, last step `step--tehasquestionkindparkissue7turn1---xx`",
     );
-    has(&gh, "--add-label tehas:awaiting-merge");
-    lacks(&gh, "<!--");
-    assert_eq!(boxes(&w), 0);
-    has(&gh, "| evil-xRetryfromacleanstart | 1 |");
+    has(&said, "mark State(AwaitingMerge)");
+    lacks(&said, "<!--");
+    lacks(&said, "markers: ");
+    assert_eq!(boxes_in(&said), 0);
+    has(&said, "| evil-xRetryfromacleanstart | 1 |");
 }
 
 #[test]
@@ -977,15 +1071,14 @@ fn a_status_that_only_contains_handoff_does_not_reach_the_pull_request_path() {
     );
     w.fx("rc", "10\n");
     w.fx("pr.txt", "https://github.com/acme/widget/pull/9\n");
-    w.run7();
-    let gh = w.gh();
-    lacks(&gh, "tehas:awaiting-merge");
+    let said = w.report_said();
+    lacks(&said, "State(AwaitingMerge)");
     has(
-        &gh,
+        &said,
         "status `handoff--tehasquestionkindparkissue7turn1---xRetryfromacleanstart`",
     );
-    assert_eq!(markers(&w), 1);
-    assert_eq!(boxes(&w), 2);
+    own_markers_only(&said, &["Park, Question"]);
+    assert_eq!(boxes_in(&said), 2);
 }
 
 #[test]
@@ -994,59 +1087,58 @@ fn a_handoff_that_the_runner_did_not_exit_as_one_does_not_reach_the_pull_request
     w.ended("handoff", "commit-pr", "feature/x", "");
     w.fx("rc", "30\n");
     w.fx("pr.txt", "https://github.com/acme/widget/pull/9\n");
-    w.run7();
-    lacks(&w.gh(), "tehas:awaiting-merge");
-    has(&w.gh(), "runner exit 30");
+    let said = w.report_said();
+    lacks(&said, "State(AwaitingMerge)");
+    has(&said, "runner exit 30");
 }
 
 #[test]
 fn a_clarification_handoff_with_a_pull_request_is_waiting_for_a_merge_as_any_handoff_is() {
-    let w = World::new("park-rc11");
-    w.ended("handoff", "explore", "feature/x", "");
-    w.fx("rc", "11\n");
-    w.fx("pr.txt", "https://github.com/acme/widget/pull/9\n");
-    w.run7();
-    has(&w.gh(), "--add-label tehas:awaiting-merge");
+    let (_, _, said) = twin("park-rc11", |w| {
+        w.ended("handoff", "explore", "feature/x", "");
+        w.fx("rc", "11\n");
+        w.fx("pr.txt", "https://github.com/acme/widget/pull/9\n");
+    });
+    has(&said, "mark State(AwaitingMerge)");
 }
 
 #[test]
 fn a_string_in_place_of_every_usage_number_is_not_posted_on_either_path() {
-    let w = World::new("park-sly-all");
-    sly_usage(&w);
-    let sly = "1\n- [x] Retry\n<!-- x -->";
-    w.entry(|e| {
-        e["usage"] =
-            json!({"dispatches": sly, "turns": sly, "input": sly, "output": sly, "cacheRead": sly})
+    let sly = |w: &mut World| {
+        sly_usage(w);
+        let sly = "1\n- [x] Retry\n<!-- x -->";
+        w.entry(|e| {
+            e["usage"] = json!({"dispatches": sly, "turns": sly, "input": sly, "output": sly, "cacheRead": sly})
+        });
+    };
+    let (_, _, said) = twin("park-sly-all", |w| {
+        sly(w);
+        w.fx("pr.txt", "https://github.com/acme/widget/pull/9\n");
     });
-    w.fx("pr.txt", "https://github.com/acme/widget/pull/9\n");
-    w.run7();
-    let gh = w.gh();
-    lacks(&gh, "<!--");
-    assert_eq!(boxes(&w), 0);
-    has(&gh, "| planner | 2 | 0 | 7 | 0 | 0 |");
-    has(&gh, "| **total, all dispatches** | 0 | 0 | 0 | 0 | 0 |");
-    w.clear_calls();
-    fs::remove_file(w.fx.join("pr.txt")).unwrap();
-    w.touch("post-fails");
-    w.run7();
-    has(&w.gh(), "To retry, apply");
-    assert_eq!(boxes(&w), 2);
-    assert_eq!(markers(&w), 1);
+    lacks(&said, "<!--");
+    assert_eq!(boxes_in(&said), 0);
+    has(&said, "| planner | 2 | 0 | 7 | 0 | 0 |");
+    has(&said, "| **total, all dispatches** | 0 | 0 | 0 | 0 | 0 |");
+    // With no pull request: the question, which the site refuses, and the
+    // plain comment in its place.
+    let (_, applied, sent) = through("park-sly-all-plain", sly, question_refused);
+    has(&applied, "To retry, apply");
+    assert_eq!(boxes_in(&sent), 2);
+    own_markers_only(&sent, &["Park, Question", "Park"]);
 }
 
 #[test]
 fn a_usage_number_that_is_not_a_number_counts_as_nothing_on_the_pull_request_path() {
-    let w = World::new("park-sly-pr");
-    sly_usage(&w);
-    w.fx("pr.txt", "https://github.com/acme/widget/pull/9\n");
-    w.run7();
-    let gh = w.gh();
-    has(&gh, "pr comment https://github.com/acme/widget/pull/9");
-    lacks(&gh, "<!--");
-    assert_eq!(boxes(&w), 0);
-    has(&gh, "| planner | 2 | 0 | 7 | 0 | 0 |");
-    has(&gh, "| coder | 1 | 2 | 3 | 4 | 5 |");
-    has(&gh, "| **total, all dispatches** | 3 | 7 | 10 | 4 | 5 |");
+    let (_, _, said) = twin("park-sly-pr", |w| {
+        sly_usage(w);
+        w.fx("pr.txt", "https://github.com/acme/widget/pull/9\n");
+    });
+    has(&said, "change 9 comment: ");
+    lacks(&said, "<!--");
+    assert_eq!(boxes_in(&said), 0);
+    has(&said, "| planner | 2 | 0 | 7 | 0 | 0 |");
+    has(&said, "| coder | 1 | 2 | 3 | 4 | 5 |");
+    has(&said, "| **total, all dispatches** | 3 | 7 | 10 | 4 | 5 |");
 }
 
 #[test]
@@ -1054,47 +1146,40 @@ fn and_in_the_park_question_where_only_the_factorys_own_boxes_and_marker_are_pos
     let w = World::new("park-sly-q");
     sly_usage(&w);
     w.fx("rc", "30\n");
-    w.run7();
-    has(
-        &w.gh(),
-        "| **total, all dispatches** | 3 | 7 | 10 | 4 | 5 |",
-    );
-    assert_eq!(boxes(&w), 2);
-    assert_eq!(markers(&w), 1);
+    let said = w.report_said();
+    has(&said, "| **total, all dispatches** | 3 | 7 | 10 | 4 | 5 |");
+    assert_eq!(boxes_in(&said), 2);
+    own_markers_only(&said, &["Park, Question"]);
 }
 
 #[test]
 fn and_in_the_comment_that_is_used_when_the_question_cannot_be_posted() {
-    let w = World::new("park-sly-plain");
-    sly_usage(&w);
-    w.fx("rc", "30\n");
-    w.touch("post-fails");
-    w.run7();
-    let gh = w.gh();
-    has(&gh, "To retry, apply");
+    let (_, applied, sent) = through(
+        "park-sly-plain",
+        |w| {
+            sly_usage(w);
+            w.fx("rc", "30\n");
+        },
+        question_refused,
+    );
+    has(&applied, "To retry, apply");
     assert_eq!(
-        count(&gh, "| **total, all dispatches** | 3 | 7 | 10 | 4 | 5 |"),
+        count(&sent, "| **total, all dispatches** | 3 | 7 | 10 | 4 | 5 |"),
         2
     );
-    // The question that could not be posted is in the record of calls too.
-    assert_eq!(boxes(&w), 2);
-    assert_eq!(markers(&w), 1);
+    // The question that could not be posted was sent all the same.
+    assert_eq!(boxes_in(&sent), 2);
+    own_markers_only(&sent, &["Park, Question", "Park"]);
 }
 
 #[test]
 fn a_lean_start_tehas_work_refused_is_parked_with_what_to_do_and_its_approval_goes() {
-    let mut w = World::new("park-lean");
-    lean_refused(&mut w);
-    let r = w.run7();
+    let (w, r, said) = twin("park-lean", lean_refused);
     assert_eq!(r.rc, 0);
-    let gh = w.gh();
-    has(&gh, "Tehas started no cycle: this start's driver is `lean`, and the sandbox image cannot run it as this start asks (runner exit 78). It does not run classic in its place, and nothing of it ran. The log names what the image lacks. To keep it on lean, rebuild the sandbox image on a pi-rukas that supports this, then apply `tehas:ready` again. To run it on classic instead, which changes its driver, take `tehas:lean` off, then retry;");
+    has(&said, "Tehas started no cycle: this start's driver is `lean`, and the sandbox image cannot run it as this start asks (runner exit 78). It does not run classic in its place, and nothing of it ran. The log names what the image lacks. To keep it on lean, rebuild the sandbox image on a pi-rukas that supports this, then apply `tehas:ready` again. To run it on classic instead, which changes its driver, take `tehas:lean` off, then retry;");
+    has(&said, "unmark State(Running)\nmark State(NeedsPerson)");
     has(
-        &gh,
-        "--remove-label tehas:running --add-label needs-human-attention",
-    );
-    has(
-        &gh,
+        &said,
         "To run it on classic instead, take `tehas:lean` off this issue, then reply with one of the choices.",
     );
     // One line names the refusal, and no warning of a missing result.
@@ -1110,9 +1195,9 @@ fn a_lean_start_tehas_work_refused_is_parked_with_what_to_do_and_its_approval_go
         live["last"]["statusText"],
         "the sandbox image cannot run lean as this start asks"
     );
-    has(&gh, "- retry-text: Retry with the issue text only");
-    lacks(&gh, "stopped without a pull request");
-    lacks(&gh, "--add-label tehas:ready");
+    has(&said, "- retry-text: Retry with the issue text only");
+    lacks(&said, "stopped without a pull request");
+    lacks(&said, "mark Act(Approve)");
     assert_eq!(w.park()["reason"], "lean-refused");
     let a = approval(&w);
     assert_eq!(
@@ -1129,24 +1214,24 @@ fn a_lean_start_tehas_work_refused_is_parked_with_what_to_do_and_its_approval_go
 
 #[test]
 fn a_78_on_a_classic_start_stays_a_stopped_cycle_with_its_approval_on_record() {
-    let mut w = World::new("park-78-classic");
-    w.fx("rc", "78\n");
-    from_unit(&mut w, "approved", NEW_YEAR, &[]);
-    w.run7();
-    has(&w.gh(), "stopped without a pull request");
-    lacks(&w.gh(), "tehas:lean");
+    let (w, _, said) = twin("park-78-classic", |w| {
+        w.fx("rc", "78\n");
+        from_unit(w, "approved", NEW_YEAR, &[]);
+    });
+    has(&said, "stopped without a pull request");
+    lacks(&said, "tehas:lean");
     assert_eq!(approval(&w)["current"]["by"], "alice");
 }
 
 #[test]
 fn a_78_on_a_lean_start_that_tehas_work_did_not_say_was_leans_is_a_stopped_cycle_with_its_approval_on_record(
 ) {
-    let mut w = World::new("park-78-lean");
-    lean_refused(&mut w);
-    fs::remove_file(w.fx.join("work.sh")).unwrap();
-    w.run7();
-    has(&w.gh(), "stopped without a pull request");
-    lacks(&w.gh(), "tehas:lean");
+    let (w, _, said) = twin("park-78-lean", |w| {
+        lean_refused(w);
+        fs::remove_file(w.fx.join("work.sh")).unwrap();
+    });
+    has(&said, "stopped without a pull request");
+    lacks(&said, "tehas:lean");
     assert_eq!(approval(&w)["current"]["by"], "alice");
 }
 
@@ -1157,22 +1242,20 @@ fn a_refused_lean_start_of_an_earlier_cycle_says_nothing_of_this_one() {
     fs::remove_file(w.fx.join("work.sh")).unwrap();
     fs::create_dir_all(w.state()).unwrap();
     fs::write(w.state().join("7.lean-refused"), "").unwrap();
-    w.run7();
-    has(&w.gh(), "stopped without a pull request");
+    let said = w.report_said();
+    has(&said, "stopped without a pull request");
+    lacks(&said, "tehas:lean");
 }
 
 #[test]
 fn a_start_that_never_ran_is_parked_as_one_that_never_ran_named_from_the_record() {
-    let mut w = World::new("park-never");
-    never_ran(&mut w, true);
-    w.run7();
-    let gh = w.gh();
-    has(&gh, "Tehas started no cycle: tehas work refused the start before its runner ran (runner exit 4). It refuses one, for example, when the issue changed after its approval, when the approval or the issue cannot be read, or when an image or file the issue links cannot be given to the cycle.");
-    has(&gh, "alice approved this start at 2026-01-01T00:00:00Z");
-    has(&gh, "- retry-text: Retry with the issue text only");
-    lacks(&gh, "stopped without a pull request");
-    lacks(&gh, "status `unknown`");
-    lacks(&gh, "last step");
+    let (w, _, said) = twin("park-never", |w| never_ran(w, true));
+    has(&said, "Tehas started no cycle: tehas work refused the start before its runner ran (runner exit 4). It refuses one, for example, when the issue changed after its approval, when the approval or the issue cannot be read, or when an image or file the issue links cannot be given to the cycle.");
+    has(&said, "alice approved this start at 2026-01-01T00:00:00Z");
+    has(&said, "- retry-text: Retry with the issue text only");
+    lacks(&said, "stopped without a pull request");
+    lacks(&said, "status `unknown`");
+    lacks(&said, "last step");
     assert_eq!(
         park_of(&w, &["reason", "automatic", "body_sha256"]),
         json!(["unknown", false, null])
@@ -1192,9 +1275,9 @@ fn a_refresh_that_never_ran_names_the_persons_approval_it_rests_on_not_the_time_
         DECIDED,
         &["--refresh-pr", "50", "--refresh-head", &head],
     );
-    w.run7();
-    has(&w.gh(), "alice approved this start at 2023-11-14T22:13:20Z");
-    lacks(&w.gh(), "2026-10-24T12:00:00Z");
+    let said = w.report_said();
+    has(&said, "alice approved this start at 2023-11-14T22:13:20Z");
+    lacks(&said, "2026-10-24T12:00:00Z");
 }
 
 #[test]
@@ -1202,9 +1285,9 @@ fn the_retry_after_an_outage_that_never_ran_names_no_time_of_approval_the_poll_d
     let mut w = World::new("park-never-outage");
     never_ran(&mut w, false);
     from_unit(&mut w, "outage-retry", DECIDED, &[]);
-    w.run7();
-    has(&w.gh(), "alice approved this start;");
-    lacks(&w.gh(), "2026-10-24T12:00:00Z");
+    let said = w.report_said();
+    has(&said, "alice approved this start;");
+    lacks(&said, "2026-10-24T12:00:00Z");
 }
 
 #[test]
@@ -1238,15 +1321,14 @@ fn a_cycle_that_ran_keeps_its_approval_record() {
 
 #[test]
 fn a_start_that_never_ran_with_no_record_on_this_host_says_so_and_still_asks_for_the_label() {
-    let mut w = World::new("park-never-norecord");
-    never_ran(&mut w, false);
-    w.run7();
+    let (w, _, asked, said) = twins("park-never-norecord", |w| never_ran(w, false));
     has(
-        &w.gh(),
+        &said,
         "No approval of this start is recorded on this host: a fresh `tehas:ready` is needed.",
     );
-    has(&w.gh(), "--add-label needs-human-attention");
-    assert_eq!(park_of(&w, &["attempt", "question"]), json!([1, 4002]));
+    has(&said, "mark State(NeedsPerson)");
+    assert_eq!(park_of(&w, &["attempt"]), json!([1]));
+    assert_eq!(park_of(&asked, &["attempt", "question"]), json!([1, 4002]));
 }
 
 #[test]
@@ -1296,42 +1378,32 @@ fn develop_timeout(w: &World, body: &str) {
     );
 }
 
-/// The body the first timeout writes on `body`.
-fn noted(w: &World, body: &str) -> String {
-    develop_timeout(w, body);
-    let mut child = Command::new(env!("CARGO_BIN_EXE_tehas-cycle"))
-        .arg("last-attempt")
-        .arg("7")
-        .arg(w.fx.join("result.json"))
-        .arg(w.workdir())
-        .env("TEHAS_HOME", &w.home)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()
-        .unwrap();
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(json!({"body": body}).to_string().as_bytes())
-        .unwrap();
-    let out = child.wait_with_output().unwrap();
-    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
-    v["body"].as_str().unwrap().to_string()
-}
-
 #[test]
 fn a_develop_timeout_leaves_a_note_of_the_attempt_in_the_issues_body_and_still_offers_a_retry() {
-    let w = World::new("park-timeout");
-    develop_timeout(&w, "Fix the drain.");
-    let r = w.run7();
+    let (w, r, _) = twin("park-timeout", |w| develop_timeout(w, "Fix the drain."));
     assert_eq!(r.rc, 0);
-    let gh = w.gh();
-    has(&gh, "api -X PATCH repos/acme/widget/issues/7 -f body=Fix the drain.\n\n<!-- tehas:last-attempt base=");
-    has(&gh, "the developer ran past its time bound of 90 minutes");
-    has(&gh, "  - `libexec/drain`");
-    has(&gh, "- retry-text: Retry with the issue text only");
     assert_eq!(w.park()["reason"], "child-timeout:develop");
+    // In process: the note goes beside the text, which is not touched, its
+    // base the sum of the text.
+    let w = World::new("park-timeout-note");
+    develop_timeout(&w, "Fix the drain.");
+    let t = report(&w);
+    let said = said(&t.applied);
+    has(
+        &said,
+        &format!(
+            "edit: set LastAttempt(base={} note=### The last attempt ran out of time",
+            sha("Fix the drain.")
+        ),
+    );
+    lacks(&said, "edit: text:");
+    let note = last_attempt(&t.applied).expect("the note");
+    has(
+        &note.note,
+        "the developer ran past its time bound of 90 minutes",
+    );
+    has(&note.note, "  - `libexec/drain`");
+    has(&said, "- retry-text: Retry with the issue text only");
 }
 
 /// A stop with nothing to decide asks nothing (#2782): the park offers no
@@ -1340,22 +1412,22 @@ fn a_develop_timeout_leaves_a_note_of_the_attempt_in_the_issues_body_and_still_o
 #[test]
 fn a_second_develop_timeout_on_the_same_text_writes_nothing_asks_nothing_and_names_tehasplan() {
     let w = World::new("park-timeout-twice");
-    let body = noted(&w, "Fix the drain.");
-    develop_timeout(&w, &body);
-    w.run7();
-    let gh = w.gh();
-    lacks(&gh, "api -X PATCH");
-    lacks(&gh, "Retry with the issue text only");
-    lacks(&gh, "- park: Leave it parked");
-    lacks(&gh, "Reply in a comment");
-    // Neither the question's marker nor its label.
-    lacks(&gh, ":question");
-    lacks(&gh, "To retry, apply");
+    develop_timeout(&w, "Fix the drain.");
+    w.ticket_marker(first_note("park-timeout-twice-first", "Fix the drain."));
+    let said = w.report_said();
+    lacks(&said, "edit: ");
+    lacks(&said, "Retry with the issue text only");
+    lacks(&said, "- park: Leave it parked");
+    lacks(&said, "Reply in a comment");
+    // Neither the question's marker nor its mark.
+    assert_eq!(marker_kinds(&said), ["Park"]);
+    lacks(&said, "State(Question)");
+    lacks(&said, "To retry, apply");
     has(
-        &gh,
+        &said,
         "ran out of time in develop twice on the same text: split it with `tehas:plan`",
     );
-    has(&gh, "park issue=7 step=develop");
+    has(&said, "markers: Park(blueprint=7 step=develop");
     assert_eq!(park_q(&w), "none");
     assert_eq!(w.park()["reason"], "child-timeout:develop");
 }
@@ -1363,30 +1435,37 @@ fn a_second_develop_timeout_on_the_same_text_writes_nothing_asks_nothing_and_nam
 #[test]
 fn a_timeout_after_the_text_changed_outside_the_note_writes_a_fresh_note_and_offers_a_retry() {
     let w = World::new("park-timeout-changed");
-    let body = noted(&w, "Fix the drain.");
-    develop_timeout(
-        &w,
-        &body.replacen("Fix the drain.", "Fix only the drain's check.", 1),
-    );
-    w.run7();
+    develop_timeout(&w, "Fix only the drain's check.");
+    w.ticket_marker(first_note("park-timeout-changed-first", "Fix the drain."));
+    let said = w.report_said();
     has(
-        &w.gh(),
-        "api -X PATCH repos/acme/widget/issues/7 -f body=Fix only the drain's check.",
+        &said,
+        &format!(
+            "edit: set LastAttempt(base={} ",
+            sha("Fix only the drain's check.")
+        ),
     );
-    has(&w.gh(), "- retry-text: Retry with the issue text only");
+    has(&said, "- retry-text: Retry with the issue text only");
 }
 
 #[test]
 fn a_note_github_will_not_take_is_a_warning_and_the_park_is_posted_as_before() {
-    let w = World::new("park-timeout-patch");
-    develop_timeout(&w, "Fix the drain.");
-    w.touch("patch-fails");
-    let r = w.run7();
+    let (w, applied, _) = through(
+        "park-timeout-patch",
+        |w| develop_timeout(w, "Fix the drain."),
+        |f| {
+            Faulty::new(f).on(
+                Op::Tickets(TicketsOp::Edit),
+                Fault::Refused(Refusal::Invalid),
+            )
+        },
+    );
     has(
-        &r.out,
+        &w.report_log(),
         "WARN: could not leave the last attempt's note in the body of #7",
     );
-    has(&w.gh(), "- retry-text: Retry with the issue text only");
+    lacks(&applied, "edit: ");
+    has(&applied, "- retry-text: Retry with the issue text only");
     assert_eq!(park_q(&w), "4002");
 }
 
@@ -1395,7 +1474,7 @@ fn another_cap_leaves_the_body_alone() {
     let w = World::new("park-timeout-cap");
     develop_timeout(&w, "Fix the drain.");
     w.entry(|e| e["cap"] = json!("child-timeout:explore"));
-    w.run7();
-    lacks(&w.gh(), "api -X PATCH");
-    has(&w.gh(), "- retry-text: Retry with the issue text only");
+    let said = w.report_said();
+    lacks(&said, "edit: ");
+    has(&said, "- retry-text: Retry with the issue text only");
 }

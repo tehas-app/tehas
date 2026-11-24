@@ -1,7 +1,9 @@
 //! The reads of a snapshot: run (the bounded calls), github, store, host and
 //! models (the endpoints and the sandbox image), retry (which read is tried
-//! again), put together by build.
+//! again), put together by build; board, the board port's answer in the
+//! shapes build reads.
 
+pub mod board;
 pub mod build;
 pub mod github;
 pub mod host;

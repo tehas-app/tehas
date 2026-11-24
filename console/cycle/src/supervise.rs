@@ -29,7 +29,6 @@
 use crate::after::log;
 use crate::apply;
 use crate::host::{self, Refused, Start};
-use crate::runner;
 use crate::start::attempt_shaped;
 use serde_json::Value;
 use std::fs::{self, OpenOptions};
@@ -54,6 +53,8 @@ pub struct Given {
     pub status_cmd: String,
     pub status_args: Vec<String>,
     pub console: String,
+    /// The handles the report's writes go through.
+    pub handles: crate::apply::HandlesOf,
 }
 
 /// What a number is, as GitHub answers for it. The factory works on open issues
@@ -68,7 +69,7 @@ pub enum Number {
 }
 
 pub fn number(answer: &str) -> Number {
-    let values = runner::values(answer).unwrap_or_default();
+    let values = crate::loose::values::<Value>(answer).unwrap_or_default();
     let [one] = values.as_slice() else {
         return Number::Unreadable;
     };
@@ -93,8 +94,8 @@ pub fn number(answer: &str) -> Number {
 /// An issue a handoff left with needs-human-attention starts again only on a
 /// person's answer: --restart tells the runner so, and the cycle takes the
 /// label off before the runner starts.
-pub fn wants_restart(answer: &str) -> bool {
-    let Some(v) = runner::first_value(answer) else {
+fn wants_restart(answer: &str) -> bool {
+    let Some(v) = crate::loose::first_value::<Value>(answer) else {
         return false;
     };
     let is_it = |l: &Value| l.get("name").and_then(Value::as_str) == Some("needs-human-attention");
@@ -107,7 +108,7 @@ pub fn wants_restart(answer: &str) -> bool {
 
 /// The attempt of a start the store took after it timed out: one on record since
 /// this one began, under this lock, is its own.
-pub fn took_late(shown: &Value, began: i64) -> Option<String> {
+fn took_late(shown: &Value, began: i64) -> Option<String> {
     let c = shown.get("cycle").filter(|c| c.is_object())?;
     let open = matches!(c.get("ended_at"), None | Some(Value::Null));
     let since = c.get("started_at").and_then(Value::as_f64)? >= began as f64;
@@ -537,7 +538,7 @@ pub fn run(home: &Path, g: &Given, events: &Dispatcher) -> i32 {
         status_cmd: g.status_cmd.clone(),
         status_args: g.status_args.clone(),
     };
-    let reported = apply::reported(home, &start);
+    let reported = apply::reported(home, &start, g.handles);
     let attempt = u32::try_from(start.attempt).unwrap_or(0);
     crate::events::raise_ended(events, home, g.issue, attempt, Writer::Report);
     reported.rc

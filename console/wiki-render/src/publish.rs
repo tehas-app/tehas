@@ -5,7 +5,7 @@
 
 use crate::check::{self, Pages};
 use crate::{build_of, is_id, render, Head};
-use serde_json::{json, Value};
+use serde::Serialize;
 use std::collections::BTreeSet;
 use std::fs;
 use std::io;
@@ -116,18 +116,38 @@ pub fn seed(dir: &Path, pages: &Pages) -> io::Result<()> {
     Ok(())
 }
 
+/// A build's own record, `build.json`, as it is written. [`build_of`] reads
+/// back what a kept build needs of it.
+///
+/// The fields are in the order of their names, the order build.json has
+/// always had its keys in.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Record {
+    pub built_at: String,
+    /// The pages the build changed against the build before.
+    pub changed: usize,
+    pub commit: String,
+    pub commit_date: String,
+    pub describe: String,
+    pub id: String,
+    pub pages: usize,
+    /// Where the build is served: `/wiki/<id>/`.
+    pub url: String,
+}
+
 /// The build's own record, `build.json`.
-pub fn record(id: &str, head: &Head, built_at: &str, pages: usize, changed: usize) -> Value {
-    json!({
-        "id": id,
-        "commit": head.commit,
-        "commitDate": head.date,
-        "describe": head.describe,
-        "builtAt": built_at,
-        "pages": pages,
-        "changed": changed,
-        "url": format!("/wiki/{id}/"),
-    })
+pub fn record(id: &str, head: &Head, built_at: &str, pages: usize, changed: usize) -> Record {
+    Record {
+        built_at: built_at.to_string(),
+        changed,
+        commit: head.commit.clone(),
+        commit_date: head.date.clone(),
+        describe: head.describe.clone(),
+        id: id.to_string(),
+        pages,
+        url: format!("/wiki/{id}/"),
+    }
 }
 
 /// The pages a build changed against the build before.
@@ -232,6 +252,32 @@ pub fn put(wiki: &Path, stage: &Path, id: &str) -> io::Result<()> {
 mod tests {
     use super::*;
     use tehas_core::testdir::TestDir;
+
+    #[test]
+    fn a_record_is_written_with_its_keys_in_order_and_reads_back() {
+        let head = Head {
+            commit: "68ffab1d0123456789abcdef0123456789abcdef".into(),
+            date: "2026-11-21T03:00:00Z".into(),
+            describe: "v1.2.0-5-g68ffab1d".into(),
+        };
+        let id = "2026-11-21-68ffab1d";
+        let text =
+            serde_json::to_string(&record(id, &head, "2026-11-21T03:04:10Z", 12, 3)).unwrap();
+        assert_eq!(
+            text,
+            concat!(
+                r#"{"builtAt":"2026-11-21T03:04:10Z","changed":3,"#,
+                r#""commit":"68ffab1d0123456789abcdef0123456789abcdef","#,
+                r#""commitDate":"2026-11-21T03:00:00Z","describe":"v1.2.0-5-g68ffab1d","#,
+                r#""id":"2026-11-21-68ffab1d","pages":12,"url":"/wiki/2026-11-21-68ffab1d/"}"#
+            )
+        );
+        let b = build_of(&text).unwrap();
+        assert_eq!(
+            (b.id.as_str(), b.built_at.as_str()),
+            (id, "2026-11-21T03:04:10Z")
+        );
+    }
 
     #[test]
     fn a_stage_with_a_link_or_a_stray_file_is_refused() {

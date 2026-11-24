@@ -7,16 +7,16 @@
 use std::sync::{Arc, Mutex};
 
 use super::faulty::{IdentityOp, Op};
-use super::state::{lock, CommentRec, ItemRec, State};
+use super::state::{lock, AccountRec, CommentRec, ItemRec, State};
 use super::world::{World, FACTORY, OPERATOR};
 use super::MemoryTokens;
 use crate::{
-    Account, Actor, At, Blueprint, BlueprintNo, BlueprintWrites, Blueprints, Board, Bound, Caller,
-    Cite, Cites, CodeHost, CodeHostWrites, Comment, CommentId, Covers, Depth, Got, Identity, Join,
-    Login, Marker, MarkerEdit, MeterRow, Outcome, Pool, PortName, ProjectName, Realm, Ref, Refusal,
-    Report, Reports, Revision, Scope, Secret, SignInCode, SignInState, Site, SiteId, Standing,
-    TicketDigest, TicketKey, TicketWrites, Tickets, Token, TokenStore, Took, Unread, WebLink,
-    Whole, Window, Write, ALL_MAX,
+    Account, AccountKind, Actor, At, Blueprint, BlueprintNo, BlueprintWrites, Blueprints, Board,
+    Bound, Caller, Cite, Cites, CodeHost, CodeHostWrites, Comment, CommentId, Covers, Depth, Got,
+    Identity, Join, Login, Marker, MarkerEdit, MeterRow, Outcome, Pool, PortName, ProjectName,
+    Realm, Ref, Refusal, Report, Reports, Revision, Scope, Secret, SignInCode, SignInState, Site,
+    SiteId, Standing, TicketDigest, TicketKey, TicketWrites, Tickets, Token, TokenStore, Took,
+    Unread, WebLink, Whole, Window, Write, ALL_MAX,
 };
 
 /// How long a token the fake mints is good for, in seconds.
@@ -36,6 +36,7 @@ pub struct FakeSite {
     meter: Arc<Mutex<Vec<MeterRow>>>,
     tokens: Arc<dyn TokenStore>,
     keyless: bool,
+    deadline: Option<At>,
 }
 
 impl FakeSite {
@@ -57,6 +58,7 @@ impl FakeSite {
             meter: Arc::new(Mutex::new(Vec::new())),
             tokens: Arc::new(MemoryTokens::new(world.clock())),
             keyless: false,
+            deadline: None,
         }
     }
 
@@ -123,6 +125,7 @@ impl FakeSite {
             keyless: self.keyless,
             scope,
             told_signed_out: false,
+            deadline: self.deadline,
         })
     }
 
@@ -265,6 +268,22 @@ impl Site for FakeSite {
         &self.realms
     }
 
+    fn mark_name(&self, mark: &crate::Mark) -> String {
+        mark_name(mark)
+    }
+
+    fn marker_text(&self, marker: &crate::Marker) -> String {
+        marker_text(marker)
+    }
+
+    /// A clone that shares the meter, the tokens and the world. A view of
+    /// a view keeps the earlier deadline.
+    fn until(&self, until: At) -> Arc<dyn Site> {
+        let mut site = self.clone();
+        site.deadline = Some(self.deadline.map_or(until, |d| d.min(until)));
+        Arc::new(site)
+    }
+
     fn tickets(&self, by: &Actor, caller: Caller) -> Got<Box<dyn Tickets + Send>> {
         Ok(Box::new(self.handle(
             by,
@@ -363,6 +382,8 @@ pub(crate) struct Handle {
     /// The scope it acts with: its own for `Ours`, its token's for `Given`.
     pub scope: Option<Scope>,
     told_signed_out: bool,
+    /// At or past it, a call answers a timeout with no request.
+    deadline: Option<At>,
 }
 
 /// What a call of a handle knows besides the world's state.
@@ -414,7 +435,11 @@ impl Handle {
     /// Count one call in the meter, run it over the world, and keep its
     /// outcome for the reports.
     pub fn run<T>(&mut self, pool: Pool, f: impl FnOnce(&mut State, &Ctx) -> Got<T>) -> Got<T> {
-        self.count(pool);
+        if let Some(o) = self.past_deadline() {
+            self.report(o.clone());
+            return Err(o);
+        }
+        self.meter_call(pool);
         let answer = {
             let mut s = self.world.lock();
             s.sent.push(self.actor.clone());
@@ -454,7 +479,7 @@ impl Handle {
                 s.accounts
                     .iter()
                     .find(|a| a.login == login)
-                    .is_none_or(|a| matches!(a.standing, Standing::Read | Standing::None))
+                    .is_none_or(|a| a.standing < Standing::Write)
             });
         Ctx {
             now: self.world.now(),
@@ -512,7 +537,11 @@ impl Handle {
         keys: &[K],
         mut f: impl FnMut(&mut State, &Ctx, &K) -> Got<T>,
     ) -> Vec<(K, Got<T>)> {
-        self.count(Pool::Calls);
+        if let Some(o) = self.past_deadline() {
+            self.report(o.clone());
+            return keys.iter().map(|k| (k.clone(), Err(o.clone()))).collect();
+        }
+        self.meter_call(Pool::Calls);
         let answers: Vec<(K, Got<T>)> = {
             let mut s = self.world.lock();
             s.sent.push(self.actor.clone());
@@ -533,7 +562,18 @@ impl Handle {
         answers
     }
 
-    fn count(&self, pool: Pool) {
+    /// The timeout a call past the handle's deadline answers, with no
+    /// request and nothing metered.
+    fn past_deadline(&self) -> Option<Outcome> {
+        self.deadline
+            .is_some_and(|d| self.world.now() >= d)
+            .then_some(Outcome::Unavailable {
+                why: crate::Passing::Timeout,
+                sent: crate::Sent::No,
+            })
+    }
+
+    fn meter_call(&self, pool: Pool) {
         let mut meter = lock(&self.meter);
         match meter
             .iter_mut()
@@ -582,7 +622,7 @@ impl Handle {
         if self.keyless {
             return Err(Outcome::SignedOut);
         }
-        self.count(Pool::Calls);
+        self.meter_call(Pool::Calls);
         let n = {
             let mut s = self.world.lock();
             s.sent.push(self.actor.clone());
@@ -605,6 +645,20 @@ impl Handle {
             _ => false,
         }
     }
+}
+
+/// Whether `spelling` names the account, folded as the fake's site folds
+/// a login: case, and for an app `x[bot]` and `app/x` as well as `x`.
+fn same_login(a: &AccountRec, spelling: &str) -> bool {
+    let lower = spelling.to_ascii_lowercase();
+    let name = match a.kind {
+        AccountKind::Bot | AccountKind::Ours => {
+            let bare = lower.strip_suffix("[bot]").unwrap_or(&lower);
+            bare.strip_prefix("app/").unwrap_or(bare).to_string()
+        }
+        _ => lower,
+    };
+    a.login.eq_ignore_ascii_case(&name)
 }
 
 /// Whether a token of scope `own` may answer for `asked`: a full token for
@@ -637,7 +691,64 @@ impl Cites for Handle {
             Cite::Blueprint(r) => named("blueprint", r, |n| n.get().to_string()),
             Cite::Change(r) => named("change", r, |n| n.get().to_string()),
             Cite::Account(login) => format!("account {}", login.as_str()),
+            Cite::Marker(m) => match marker_text(m) {
+                text if text.is_empty() => text,
+                text => format!("`{text}`"),
+            },
+            Cite::Mark(m) => match mark_name(m) {
+                name if name.is_empty() => name,
+                name => format!("`{name}`"),
+            },
         }
+    }
+
+    fn link(&self, what: &Cite) -> Option<WebLink> {
+        self.link_of(what)
+    }
+}
+
+impl Handle {
+    /// Where a person opens what a cite names: an item of this project
+    /// whether or not the world holds it, as its own read gives it.
+    pub(crate) fn link_of(&self, what: &Cite) -> Option<WebLink> {
+        let s = self.world.lock();
+        match what {
+            Cite::Ticket(Ref::Here(k)) => Some(s.ticket_link(k)),
+            Cite::Blueprint(Ref::Here(no)) => Some(s.blueprint_link(*no)),
+            Cite::Change(Ref::Here(no)) => Some(s.change_link(*no)),
+            Cite::Account(login) => Some(web(&format!("u/{}", escaped(login.as_str())))),
+            _ => None,
+        }
+    }
+}
+
+/// The text a person types to make a marker on the fake: the marker as
+/// Rust writes it for debugging, such as `HoldCleared`; `""` for one that is
+/// not writable. The fake reads no marker from text, so it is never live.
+pub fn marker_text(marker: &crate::Marker) -> String {
+    if marker.writable() {
+        format!("{marker:?}")
+    } else {
+        String::new()
+    }
+}
+
+/// The fake's word for a mark: its group and its name, lower case, such as
+/// `act:approve` or `mark:epic`; a project's own mark by its name; `""` for a word this
+/// copy does not know.
+pub(crate) fn mark_name(mark: &crate::Mark) -> String {
+    use crate::{Act, Choice, Mark, State};
+    let word = |group: &str, w: String| format!("{group}:{}", w.to_ascii_lowercase());
+    match mark {
+        Mark::Act(Act::Unknown)
+        | Mark::State(State::Unknown)
+        | Mark::Choice(Choice::Unknown)
+        | Mark::Unknown => String::new(),
+        Mark::Act(a) => word("act", format!("{a:?}")),
+        Mark::State(s) => word("state", format!("{s:?}")),
+        Mark::Choice(c) => word("choice", format!("{c:?}")),
+        Mark::Epic => word("mark", "Epic".into()),
+        Mark::Project(name) => name.as_str().into(),
     }
 }
 
@@ -675,7 +786,7 @@ impl Identity for Handle {
             let found = s
                 .accounts
                 .iter()
-                .find(|a| a.login.eq_ignore_ascii_case(login.as_str()) && !a.organisation)
+                .find(|a| same_login(a, login.as_str()) && !a.organisation)
                 .map(|a| a.login.clone())
                 .ok_or(Outcome::NotFound)?;
             Ok(s.account(&found, ctx.realm))
@@ -705,6 +816,10 @@ impl Identity for Handle {
     /// given token is answered as it was handed in, never minted. Only a
     /// mint is a request; every other answer is made with no request.
     fn token(&mut self, scope: Scope) -> Got<Token> {
+        if let Some(o) = self.past_deadline() {
+            self.report(o.clone());
+            return Err(o);
+        }
         let now = self.world.now();
         let answer = match self.actor.clone() {
             Actor::Given(key) => match crate::Keyring::given(&self.world, &key) {
@@ -737,6 +852,10 @@ impl Identity for Handle {
     /// project among them. A project outside the grant, or a set without
     /// this project, is `Forbidden` before any mint.
     fn token_over(&mut self, scope: Scope, projects: &[ProjectName]) -> Got<Token> {
+        if let Some(o) = self.past_deadline() {
+            self.report(o.clone());
+            return Err(o);
+        }
         let now = self.world.now();
         let (grant, covered) = {
             let s = self.world.lock();
@@ -761,8 +880,13 @@ impl Identity for Handle {
         answer
     }
 
-    fn sign_in_link(&self, state: &SignInState) -> WebLink {
-        web(&format!("sign-in?state={}", escaped(state.as_str())))
+    /// A world with no sign-in refuses it, as a site without a client
+    /// for people does.
+    fn sign_in_link(&self, state: &SignInState) -> Got<WebLink> {
+        if !self.world.lock().sign_in_on {
+            return Err(Outcome::Refused(Refusal::Unsupported));
+        }
+        Ok(web(&format!("sign-in?state={}", escaped(state.as_str()))))
     }
 
     /// A code good once: used again, or never handed out, is
@@ -833,6 +957,12 @@ pub(crate) fn whole<T>(items: Vec<T>, bound: Bound) -> Got<Whole<T>> {
     } else {
         Ok(Whole::new(items))
     }
+}
+
+/// A list a port gives whole with no bound of the caller's: whole up to
+/// `ALL_MAX`, as an adapter pages it, or `Unread(Cut)` past it.
+pub(crate) fn whole_kept<T>(items: Vec<T>) -> Got<Whole<T>> {
+    whole(items, ALL_MAX)
 }
 
 /// As much of a list, oldest first, as a window takes.
@@ -925,6 +1055,7 @@ pub(crate) fn blueprint(s: &State, item: &ItemRec, depth: Depth) -> Got<Blueprin
         body: item.text.clone(),
         open: item.open,
         author: item.author.clone(),
+        author_relation: s.relation_of(item.author.as_ref()),
         editor: item.editor.clone(),
         created: item.created,
         edited: item.edited,
@@ -944,17 +1075,24 @@ pub(crate) fn digest(s: &State, item: &ItemRec) -> Option<TicketDigest> {
             crate::TicketState::Closed(reason.clone().unwrap_or(crate::CloseReason::Done))
         }
     };
-    let target = item.target.as_ref().map(|id| crate::TargetName {
-        id: id.clone(),
-        title: s
-            .targets
-            .iter()
-            .find(|t| t.id == *id)
-            .map(|t| t.title.clone())
-            .unwrap_or_default(),
+    let target = item.target.as_ref().map(|id| {
+        let held = s.targets.iter().find(|t| t.id == *id);
+        crate::TargetName {
+            id: id.clone(),
+            title: held.map(|t| t.title.clone()).unwrap_or_default(),
+            open: held.map(|t| t.open),
+            due: held.and_then(|t| t.due),
+        }
     });
+    let parent = s
+        .items
+        .iter()
+        .find(|i| i.parts.contains(&key))
+        .and_then(|i| i.ticket.clone())
+        .map(Ref::Here);
     Some(TicketDigest {
         link: s.ticket_link(&key),
+        parent,
         key,
         title: item.title.clone(),
         state,

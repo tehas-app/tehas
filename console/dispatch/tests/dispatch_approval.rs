@@ -7,6 +7,7 @@ use common::*;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::fs;
+use tehas_ports::{Act, Mark};
 
 const A: &str = "https://github.com/user-attachments/assets";
 const IMAGES: &[&str] = &["TEHAS_MAX_CYCLES=1", "TEHAS_WORK_IMAGES=1"];
@@ -61,7 +62,7 @@ fn while_the_label_cannot_be_taken_off_nothing_is_said_on_the_issue_and_it_is_sa
     w.touch("edit-fails");
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
-    assert_eq!(count_lines(&w.gh(), "issue comment "), 0);
+    assert_eq!(w.notes_any(), 0);
     has(
         &r.out,
         "WARN: label change on #7 failed: --remove-label tehas:ready",
@@ -69,7 +70,7 @@ fn while_the_label_cannot_be_taken_off_nothing_is_said_on_the_issue_and_it_is_sa
     w.rm_fx("edit-fails");
     let _ = fs::remove_file(w.t().join("calls/gh"));
     w.poll();
-    assert_eq!(count_lines(&w.gh(), "issue comment "), 1);
+    assert_eq!(w.notes_any(), 1);
 }
 
 #[test]
@@ -102,17 +103,17 @@ fn a_label_from_a_listed_login_with_another_user_id_does_not_count_and_is_warned
     lacks(&r.out, "would run a cycle");
 }
 
-/// Until T4.7 makes the two one rule, the dispatcher matches the allowed
-/// list in exact case, stricter than `console label allowed`: a case
-/// variant of a listed login with the recorded id gets no here.
+/// The dispatcher matches the allowed list in any ASCII case, as
+/// `console label allowed` does: a case variant of a listed login with the
+/// recorded id counts, and names the login as GitHub gave it.
 #[test]
-fn until_t4_7_a_case_variant_of_a_listed_login_gets_no_from_the_dispatcher() {
+fn a_case_variant_of_a_listed_login_with_the_recorded_user_id_counts() {
     let w = World::new("ap-uid-case");
     ready_by(&w, json!({"login": "Alice", "id": uid("alice")}));
     let r = w.dispatch(&["--dry-run"]);
     lacks(&r.out, "does not count");
-    has(&r.out, "was applied by 'Alice', not an allowed account");
-    lacks(&r.out, "would run a cycle");
+    lacks(&r.out, "not an allowed account");
+    has(&r.out, "would run a cycle for #7 (labelled by Alice)");
 }
 
 /// The vouch folds case: a case variant with another id is doubted.
@@ -564,6 +565,7 @@ fn pull_requests_that_cannot_be_listed_start_no_retry_and_change_no_label_exit_1
         "ERROR: the comments on the pull request of #7 could not be read",
     );
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     assert_eq!(w.started(), "");
 }
 
@@ -580,11 +582,13 @@ fn comments_that_cannot_be_read_start_nothing_and_change_no_label_exit_1() {
         "ERROR: could not write the approval record of #7, not starting a cycle",
     );
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     assert_eq!(w.started(), "");
     w.fx("icomments-7.json", r#"{"not": "a list"}"#);
     let r = w.poll();
     assert_eq!(r.rc, 1, "{}", r.out);
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
 }
 
 #[test]
@@ -620,6 +624,7 @@ fn an_approval_the_store_does_not_take_starts_nothing_and_changes_no_label_exit_
         "ERROR: could not write the approval record of #7 (busy), not starting a cycle",
     );
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     assert_eq!(w.started(), "");
 }
 
@@ -638,6 +643,7 @@ fn a_store_that_cannot_be_used_stops_the_poll_at_78_before_the_first_start_chang
         "ERROR: the state store cannot be used, not starting a cycle for #7",
     );
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     assert_eq!(w.started(), "");
 }
 
@@ -659,6 +665,7 @@ fn after_a_start_a_store_that_cannot_be_used_ends_the_poll_with_exit_1_and_start
         "ERROR: the state store cannot be used, not starting a cycle for #8",
     );
     lacks(&w.gh(), "issue edit 8");
+    assert_eq!(w.marks(Some(8)), 0);
 }
 
 // The seam between the two commands. A cycle the poll started can find its
@@ -867,10 +874,6 @@ fn the_account_unknown_on_the_list_grants_with_the_pinned_label() {
     lacks(&r.out, "refused");
 }
 
-fn count_exact(text: &str, line: &str) -> usize {
-    text.lines().filter(|l| *l == line).count()
-}
-
 #[test]
 fn a_tehas_ready_applied_by_mallory_is_taken_off_the_issue_and_said_once() {
     let w = World::new("ap-outsider");
@@ -887,20 +890,13 @@ fn a_tehas_ready_applied_by_mallory_is_taken_off_the_issue_and_said_once() {
         "clear #7: tehas:ready off, applied by 'mallory' who may not authorise work here",
     );
     let gh = w.gh();
-    assert_eq!(
-        count_exact(
-            &gh,
-            "issue edit 7 --repo acme/widget --remove-label tehas:ready"
-        ),
-        1,
-        "{gh}"
-    );
-    has(&gh, "issue comment 7 --repo acme/widget --body Tehas took");
+    assert_eq!(w.offs(7, Mark::Act(Act::Approve)), 1, "{gh}");
+    assert!(w.said_on(7, "Tehas took"), "{:?}", w.said(7));
     has(
         &gh,
         "It was applied by `mallory`, an account that may not authorise work in this factory",
     );
-    assert_eq!(count_lines(&gh, "issue comment "), 1, "{gh}");
+    assert_eq!(w.notes_any(), 1, "{gh}");
 }
 
 #[test]
@@ -913,7 +909,8 @@ fn a_dry_run_says_the_label_would_come_off_and_changes_nothing() {
         "would take tehas:ready off #7: it was applied by 'mallory'",
     );
     lacks(&w.gh(), "issue edit");
-    lacks(&w.gh(), "issue comment");
+    assert_eq!(w.marks(None), 0);
+    assert_eq!(w.notes_any(), 0);
 }
 
 #[test]
@@ -937,5 +934,6 @@ fn an_approval_taken_off_after_it_was_given_starts_nothing_while_the_labels_stil
     );
     lacks(&r.out, "not an allowed account");
     lacks(&w.gh(), "issue edit 7");
-    lacks(&w.gh(), "issue comment 7");
+    assert_eq!(w.marks(Some(7)), 0);
+    assert_eq!(w.notes(7), 0);
 }

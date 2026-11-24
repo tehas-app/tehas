@@ -318,6 +318,17 @@ GraphQL carry the id of their label:
   pinned label when the labels could not be read, grants nothing that poll:
   label events read from REST carry no label id, so they could not be told
   from another label renamed to the name.
+- A file that is there and cannot be read refuses every granting label:
+  a symbolic link, something other than a regular file, a file tehas may not
+  read, one over 64 KiB, or one with a line that is not `<name><tab><id>` or
+  a name on two lines. Each poll then logs one line, `WARN: the label pins in
+  state/labels cannot be read (<why>)`, no application of a granting label
+  counts, and the poll writes nothing to the file. `tehas labels` stops with
+  exit 78 and the same line, before it asks GitHub anything, and leaves the
+  file as it is. Only a file that is not there at all is pinned at first
+  sight. Blank lines, CRLF line ends and spaces or tabs after an id are
+  read past: the pins count as written, the poll leaves the file as it is,
+  and the next `tehas labels` writes it plain.
 - A refused `tehas:blocked` starts nothing, but it still holds: an issue
   that carries it waits as it would for an allowed account's, on the marked
   comment or on the label alone. A refused pin never lets an issue start
@@ -335,6 +346,12 @@ checking on GitHub that it is the label it should be, add its line
 `tehas labels` never changes a pin that is there. Until a label is pinned its
 applications count for nothing.
 
+To repair a file that cannot be read, make `~/tehas/state/labels` a regular
+file owned by and readable by the tehas user, of `<name><tab><id>` lines, one
+per label. If it cannot be repaired, check on GitHub that each granting
+`tehas:` label is the one it should be, remove the file and run
+`tehas labels`: with no file it pins every granting label it finds.
+
 ## The relay is a security channel
 
 The relay is the one way a cycle's container reaches GitHub's issues with
@@ -343,7 +360,9 @@ nothing may widen what a container is given (the mounts and variables of
 `tehas work` are pinned by `console/cycle/tests/work_container.rs`). The container gets a
 directory to leave requests in. It gets no token for it and no way to ask for
 anything but the three commands. The host reads each request, checks it and
-runs it. It refuses, with the reason written back to the cycle:
+makes the write itself through the GitHub adapter, with no word of the
+request given to gh as an argument. It refuses, with the reason written back
+to the cycle:
 
 - a command other than `gh issue create`, `gh issue edit` and `gh issue comment`;
 - a label, an assignee, a milestone, a project, a state change and another
@@ -352,6 +371,8 @@ runs it. It refuses, with the reason written back to the cycle:
 - an edit of an issue the cycle did not create during that cycle;
 - a body over 1 MiB, a link in place of a file, and any text containing
   `<!-- tehas:`, in any letter case and with any white space after `<!--`;
+- a create without a title and a body, a comment without a body or with a
+  title, and an edit with neither;
 - the 51st write of a cycle.
 
 Before an edit the host reads the issue twice, and it edits only if the
@@ -359,6 +380,10 @@ title and body are the same in both reads. If another account changed them
 in between, the cycle's `gh` fails with one line that says so, and the agent
 reads the issue again. GitHub cannot make the write itself conditional, so
 this covers the moment of the edit only, not an edit made before it.
+
+A write that is made answers the cycle's `gh` with its link, as gh prints
+one. A write GitHub refuses or that cannot reach it answers with one line in
+tehas's words, never GitHub's own error text.
 
 A title and a body that pass are posted masked as the console masks a log:
 tokens, keys, passwords, private addresses and the host's names are taken

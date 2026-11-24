@@ -486,5 +486,5 @@ fn the_record_of_a_session_whose_issue_no_longer_asks_is_removed() {
     w.fx("asking.json", "[]");
     w.poll();
     assert_eq!(w.rec_open(), "none");
-    lacks(&w.gh(), "issue comment");
+    assert_eq!(w.notes_any(), 0);
 }

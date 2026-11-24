@@ -9,8 +9,42 @@
 //! No supplier is named here. The crate has std and serde alone and no
 //! effects: no file, network, process, environment or clock. It is vendored
 //! at a tehas tag, which `VERSION` names.
+//!
+//! An implementer builds a port's answer one of two ways, then sets the
+//! rest by name: a struct whose every field has an honest empty value
+//! derives `Default` (`let mut s = Size::default(); s.files = 3;`); any
+//! other has `new`, which takes the fields an answer always has and leaves
+//! the rest empty, false or None. Every answer is `#[non_exhaustive]`, so
+//! outside this crate a struct literal, `..Default::default()` among them,
+//! does not compile, and a pattern on one ends in `..`. So a field added
+//! later breaks no adapter. A field added after the freeze carries
+//! `#[serde(default)]`, with the same empty value `new` gives it, so a
+//! value stored before it still reads. An enum that may grow is `#[non_exhaustive]`: a match on one
+//! outside this crate has an arm for the rest, and that arm fails closed.
+//! A trait method added after the freeze has a default body that fails
+//! closed (`Refused(Unsupported)` for a call, `""` or empty for a name),
+//! so it breaks no implementer either.
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
+
+/// `new` for a port's answer: the fields named, every other field its
+/// default. Each struct lists its other fields, so one added later must be
+/// named here, with its default, or the crate does not build.
+macro_rules! new {
+    ($ty:ident { $($req:ident: $rt:ty),* $(,)? } $(, $rest:ident)* $(,)?) => {
+        impl $ty {
+            #[doc = concat!(
+                "A `", stringify!($ty), "` of the fields given, every other ",
+                "field empty, false or None, for an implementer to set by name."
+            )]
+            // The arguments are the fields every answer has: no fewer.
+            #[allow(clippy::too_many_arguments)]
+            pub fn new($($req: $rt),*) -> Self {
+                Self { $($req,)* $($rest: Default::default(),)* }
+            }
+        }
+    };
+}
 
 mod account;
 mod blueprints;
@@ -130,6 +164,39 @@ mod unknown {
             }
         }
         d.deserialize_map(Tagged(tag))
+    }
+
+    /// `Unknown` from a value of an externally tagged enum that may grow:
+    /// a name alone, or a map of one name to its content, whatever the
+    /// name. Anything else is no record of the enum, and stays an error.
+    pub(crate) fn read_external<'de, D: Deserializer<'de>>(d: D) -> Result<(), D::Error> {
+        struct External;
+        impl<'de> Visitor<'de> for External {
+            type Value = ();
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("a name, or a map of one name")
+            }
+            fn visit_str<E: serde::de::Error>(self, _: &str) -> Result<(), E> {
+                Ok(())
+            }
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<(), A::Error> {
+                if map.next_key::<String>()?.is_none() {
+                    return Err(A::Error::invalid_length(0, &self));
+                }
+                map.next_value::<IgnoredAny>()?;
+                if map.next_key::<String>()?.is_some() {
+                    return Err(A::Error::invalid_length(2, &self));
+                }
+                Ok(())
+            }
+        }
+        d.deserialize_any(External)
+    }
+
+    /// `Unknown` of an externally tagged enum, as its name alone, so it
+    /// reads back as `Unknown`.
+    pub(crate) fn write_external<S: Serializer>(s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str("Unknown")
     }
 
     /// `Unknown` as its tag alone, so it reads back as `Unknown`.

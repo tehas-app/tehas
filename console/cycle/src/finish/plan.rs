@@ -28,8 +28,8 @@ pub struct Plan {
     pub default: String,
     /// Why the failure is outside the change, in the asker's words.
     pub reason: String,
-    /// Where the work is pushed. `None` is GitHub's URL of `repo`, as a host's
-    /// workspaces are cloned; a case names a repository of its own.
+    /// Where the work is pushed. `None` is the code host's remote for a push
+    /// (`CodeHost::remote`); a case names a repository of its own.
     pub remote: Option<String>,
     /// `TEHAS_BOT_LOGIN` and `TEHAS_ALLOWED_LABELERS`: whose open pull requests
     /// on a branch of `repo` stop a run (`tehas_core::accounts::own_pull`).
@@ -98,14 +98,6 @@ impl Plan {
             .parent()
             .map(Path::to_path_buf)
             .unwrap_or_else(|| self.home.join("tmp"))
-    }
-
-    /// The URL the run fetches the default branch from and pushes to: never one
-    /// the workspace names.
-    pub fn remote(&self) -> String {
-        self.remote
-            .clone()
-            .unwrap_or_else(|| format!("https://github.com/{}.git", self.repo))
     }
 
     /// The branch the finished work is pushed to.

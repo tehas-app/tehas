@@ -99,17 +99,12 @@ impl Events {
     }
 }
 
-/// Whether `login` is on the allowed list, logins with one space between them
-/// as lib/config.sh checks it. An empty name is nobody and is never allowed.
+/// Whether `login` is on the allowed list: a whole login of it, logins with
+/// one space between them as lib/config.sh checks it, in any ASCII case, as
+/// `accounts::folded` compares logins. The vouch already checked every case
+/// variant of a listed login against its recorded id. An empty name is
+/// nobody and is never allowed.
 pub fn allowed_in(list: &str, login: &str) -> bool {
-    !login.is_empty() && list.split(' ').any(|l| l == login)
-}
-
-/// [`allowed_in`] ignoring ASCII case, as `accounts::folded` compares
-/// logins: the vouch already checked every case variant of a listed login
-/// against its recorded id. Until T4.7 makes the two one rule, the
-/// dispatcher reads [`allowed_in`], exact case.
-pub fn allowed_folded(list: &str, login: &str) -> bool {
     let login = crate::accounts::folded(login);
     !login.is_empty() && list.split(' ').any(|l| crate::accounts::folded(l) == login)
 }
@@ -119,33 +114,54 @@ pub fn allowed_folded(list: &str, login: &str) -> bool {
 /// Empty strings when no event applied it. A label taken off since still names
 /// its applier here, so an approval reads `standing_actor` instead.
 pub fn label_actor(events: &[Event], label: &str) -> (String, String) {
-    let mut v: Vec<&Event> = events
+    named(&ordered(events, label), grant::last_application)
+}
+
+/// The applications and removals among `items`, oldest first, as the grant
+/// decision reads them: `change` says which an item is, None for one of
+/// another label or mark. Of two sharing a stamp the removal comes last, and
+/// one with no stamp is older than any. The labels' events and the marks'
+/// history are both read here, so the two give one answer.
+fn changes<T, K: Ord>(
+    items: &[T],
+    change: impl Fn(&T) -> Option<Change>,
+    at: impl Fn(&T) -> K,
+) -> Vec<(&T, Change)> {
+    let mut v: Vec<(&T, Change)> = items
         .iter()
-        .filter(|e| e.event == "labeled" && e.label == label)
+        .filter_map(|e| change(e).map(|c| (e, c)))
         .collect();
-    v.sort_by(|a, b| a.at.cmp(&b.at));
-    match grant::last_application(&timeline(&v), &label).map(|i| v[i]) {
+    v.sort_by_key(|(e, c)| (at(e), *c == Change::Removed));
+    v
+}
+
+/// A rule of the grant decision over one label's timeline: `grant::standing`,
+/// `last_application` or `latest`.
+type Rule = fn(&[LabelEvent<(), ()>], &()) -> Option<usize>;
+
+/// Which of `v` a rule of the grant decision answers. Its accounts are
+/// vouched for and its applications judged by the pins already, when the
+/// read was made, so the rule reads the order and the changes alone.
+fn decided<T>(v: &[(&T, Change)], rule: Rule) -> Option<usize> {
+    let timeline: Vec<LabelEvent<(), ()>> = v
+        .iter()
+        .map(|&(_, change)| LabelEvent {
+            actor: Actor::vouched(()),
+            label: (),
+            pinned: true,
+            change,
+        })
+        .collect();
+    rule(&timeline, &())
+}
+
+/// The account and time of the event of `v` a rule answers, or empty
+/// strings.
+fn named(v: &[(&Event, Change)], rule: Rule) -> (String, String) {
+    match decided(v, rule).map(|i| v[i].0) {
         Some(e) => (e.actor.clone(), e.at.clone().unwrap_or_default()),
         None => (String::new(), String::new()),
     }
-}
-
-/// Labeled and unlabeled events in their order, as the grant decision reads
-/// them. Their accounts are vouched for and their applications judged by the
-/// pins already, when the snapshot was read.
-fn timeline<'a>(v: &[&'a Event]) -> Vec<LabelEvent<&'a str, &'a str>> {
-    v.iter()
-        .map(|e| LabelEvent {
-            actor: Actor::vouched(e.actor.as_str()),
-            label: e.label.as_str(),
-            pinned: true,
-            change: if e.event == "labeled" {
-                Change::Applied
-            } else {
-                Change::Removed
-            },
-        })
-        .collect()
 }
 
 /// The time of the `tehas:plan` a plan's start is credited to: `by` applied it
@@ -222,7 +238,7 @@ impl LabelState {
 /// unstamped events.
 pub fn label_state(events: &[Event], label: &str) -> LabelState {
     let v = ordered(events, label);
-    let Some(e) = grant::latest(&timeline(&v), &label).map(|i| v[i]) else {
+    let Some(e) = decided(&v, grant::latest).map(|i| v[i].0) else {
         return LabelState::Absent;
     };
     let at = e.at.clone().unwrap_or_default();
@@ -245,11 +261,7 @@ pub fn label_state(events: &[Event], label: &str) -> LabelState {
 /// off since or never applied, so a removal the issue's labels do not show yet
 /// grants nothing.
 pub fn standing_actor(events: &[Event], label: &str) -> (String, String) {
-    let v = ordered(events, label);
-    match grant::standing(&timeline(&v), &label).map(|i| v[i]) {
-        Some(e) => (e.actor.clone(), e.at.clone().unwrap_or_default()),
-        None => (String::new(), String::new()),
-    }
+    named(&ordered(events, label), grant::standing)
 }
 
 /// `standing_actor`, but a removal by the factory's own account `bot`
@@ -257,25 +269,25 @@ pub fn standing_actor(events: &[Event], label: &str) -> (String, String) {
 /// `tehas:ready` off an epic and the person's application still approves its
 /// sub-issues; a removal by anyone else ends it.
 pub fn standing_past_bot(events: &[Event], label: &str, bot: &str) -> (String, String) {
-    let v: Vec<&Event> = ordered(events, label)
+    let v: Vec<(&Event, Change)> = ordered(events, label)
         .into_iter()
-        .filter(|e| !(e.event == "unlabeled" && crate::accounts::factorys(&e.actor, bot)))
+        .filter(|(e, c)| !(*c == Change::Removed && crate::accounts::factorys(&e.actor, bot)))
         .collect();
-    match grant::standing(&timeline(&v), &label).map(|i| v[i]) {
-        Some(e) => (e.actor.clone(), e.at.clone().unwrap_or_default()),
-        None => (String::new(), String::new()),
-    }
+    named(&v, grant::standing)
 }
 
-/// The labeled and unlabeled events of `label`, oldest first: of two sharing
-/// a stamp the removal comes last, and one with no stamp is older than any.
-fn ordered<'a>(events: &'a [Event], label: &str) -> Vec<&'a Event> {
-    let mut v: Vec<&Event> = events
-        .iter()
-        .filter(|e| (e.event == "labeled" || e.event == "unlabeled") && e.label == label)
-        .collect();
-    v.sort_by_key(|e| (e.at.clone().unwrap_or_default(), e.event == "unlabeled"));
-    v
+/// The labeled and unlabeled events of `label`, in [`changes`]'s order.
+fn ordered<'a>(events: &'a [Event], label: &str) -> Vec<(&'a Event, Change)> {
+    changes(
+        events,
+        |e| match e.event.as_str() {
+            _ if e.label != label => None,
+            "labeled" => Some(Change::Applied),
+            "unlabeled" => Some(Change::Removed),
+            _ => None,
+        },
+        |e| e.at.clone().unwrap_or_default(),
+    )
 }
 
 /// tehas_pause_holds: the event that holds the host paused, `(event, by)`,
@@ -320,30 +332,22 @@ pub fn pause_holds_marks(
     Some((*off, by.to_string()))
 }
 
-/// Who put `mark` on most recently, over the tickets port's history: the
-/// rule of [`label_actor`]. A removal never answers; an event with no time
-/// is older than any. None when no event put it on, or that one names
-/// nobody.
+/// Who put `mark` on, over the tickets port's history, when that is the
+/// mark's newest event: the rule of [`standing_actor`]. A mark taken off since
+/// names nobody, so a check of who applied it never answers for a mark that
+/// is no longer on. An event with no time is older than any. None when no
+/// application stands, or that one names nobody.
 pub fn mark_actor<'a>(events: &'a [TicketEvent], mark: &Mark) -> Option<&'a str> {
-    let mut v: Vec<(&TicketEvent, Change)> = events
-        .iter()
-        .filter_map(|e| match &e.what {
-            Happened::Marked(m) if m == mark => Some((e, Change::Applied)),
-            Happened::Unmarked(m) if m == mark => Some((e, Change::Removed)),
+    let v = changes(
+        events,
+        |e| match &e.what {
+            Happened::Marked(m) if m == mark => Some(Change::Applied),
+            Happened::Unmarked(m) if m == mark => Some(Change::Removed),
             _ => None,
-        })
-        .collect();
-    v.sort_by_key(|(e, _)| e.at);
-    let timeline: Vec<LabelEvent<(), &Mark>> = v
-        .iter()
-        .map(|&(_, change)| LabelEvent {
-            actor: Actor::vouched(()),
-            label: mark,
-            pinned: true,
-            change,
-        })
-        .collect();
-    let i = grant::last_application(&timeline, &mark)?;
+        },
+        |e| e.at,
+    );
+    let i = decided(&v, grant::standing)?;
     v[i].0.by.as_ref().map(|a| a.login.as_str())
 }
 
@@ -615,20 +619,14 @@ mod mark_actor_tests {
     use tehas_ports::{Account, AccountKind, Act, At, Happened, Login, Mark, Realm, TicketEvent};
 
     fn ev(what: Happened, by: Option<&str>, at: Option<i64>) -> TicketEvent {
-        TicketEvent {
-            what,
-            by: by.map(|l| Account {
-                realm: Realm::CodeHost,
-                login: Login::new(l),
-                id: None,
-                kind: AccountKind::Person,
-            }),
-            at: at.map(At::new),
-        }
+        let mut e = TicketEvent::new(what);
+        e.by = by.map(|l| Account::new(Realm::CodeHost, Login::new(l), AccountKind::Person));
+        e.at = at.map(At::new);
+        e
     }
 
     #[test]
-    fn the_newest_application_answers_and_a_removal_never_does() {
+    fn the_standing_application_answers_and_a_removal_ends_it() {
         let ready = Mark::Act(Act::Approve);
         let plan = Mark::Act(Act::Plan);
         let on = |by, at| ev(Happened::Marked(ready.clone()), by, at);
@@ -636,8 +634,18 @@ mod mark_actor_tests {
         assert_eq!(mark_actor(&[], &ready), None);
         let v = [on(Some("bob"), Some(2)), on(Some("alice"), Some(1))];
         assert_eq!(mark_actor(&v, &ready), Some("bob"));
-        let v = [on(Some("mallory"), Some(1)), off(Some("alice"), Some(2))];
-        assert_eq!(mark_actor(&v, &ready), Some("mallory"));
+        // Taken off since: nobody's application stands, the remover's least.
+        let v = [on(Some("alice"), Some(1)), off(Some("mallory"), Some(2))];
+        assert_eq!(mark_actor(&v, &ready), None);
+        let v = [
+            on(Some("alice"), Some(1)),
+            off(Some("mallory"), Some(2)),
+            on(Some("bob"), Some(3)),
+        ];
+        assert_eq!(mark_actor(&v, &ready), Some("bob"));
+        // In one second the removal is read last, as the labels' rule reads it.
+        let v = [off(Some("mallory"), Some(1)), on(Some("alice"), Some(1))];
+        assert_eq!(mark_actor(&v, &ready), None);
         let v = [on(Some("alice"), Some(1)), on(Some("mallory"), None)];
         assert_eq!(mark_actor(&v, &ready), Some("alice"), "no time is older");
         let v = [on(Some("alice"), Some(1)), on(None, Some(2))];
@@ -660,14 +668,13 @@ mod allowed_tests {
         assert!(!allowed_in("", ""));
     }
 
-    /// The console's rule: whole logins of the list, in any ASCII case.
+    /// Whole logins of the list, in any ASCII case.
     #[test]
-    fn the_folded_rule_ignores_ascii_case_and_nothing_else() {
-        use super::allowed_folded;
-        assert!(allowed_folded("alice", "Alice"));
-        assert!(allowed_folded("Alice", "alice"));
-        assert!(allowed_folded("alice", "ALICE"));
-        assert!(allowed_folded("alice bob", "BOB"));
+    fn the_rule_ignores_ascii_case_and_nothing_else() {
+        assert!(allowed_in("alice", "Alice"));
+        assert!(allowed_in("Alice", "alice"));
+        assert!(allowed_in("alice", "ALICE"));
+        assert!(allowed_in("alice bob", "BOB"));
         for login in [
             "",
             "alice bob",
@@ -678,25 +685,25 @@ mod allowed_tests {
             "alice#5",
             "Alice#",
         ] {
-            assert!(!allowed_folded("alice bob", login), "{login:?}");
+            assert!(!allowed_in("alice bob", login), "{login:?}");
         }
         // A list entry that is not a login is no wildcard.
         for list in ["", " ", "alice  bob", "*", "alice *"] {
             for login in ["mallory", "Mallory", "*x"] {
-                assert!(!allowed_folded(list, login), "{list:?} {login:?}");
+                assert!(!allowed_in(list, login), "{list:?} {login:?}");
             }
         }
-        assert!(!allowed_folded("alice  bob", ""));
+        assert!(!allowed_in("alice  bob", ""));
     }
 
     /// The list is what lib/config.sh checks: whole logins with one space
-    /// between them, exact case. The rule reads no other spelling as a login
-    /// of it.
+    /// between them. The rule reads no other spelling as a login of it but
+    /// another ASCII case.
     #[test]
     fn the_rule_reads_the_list_as_lib_config_sh_writes_it() {
-        // A login of the list, and one of no other case.
+        // A login of the list, in its own case or another.
         assert!(allowed_in("alice", "alice"));
-        assert!(!allowed_in("alice", "Alice"));
+        assert!(allowed_in("alice", "Alice"));
         // Two spaces stand for no login: the empty word between them names
         // nobody. The logins on either side of it are still whole logins.
         assert!(!allowed_in("alice  bob", ""));

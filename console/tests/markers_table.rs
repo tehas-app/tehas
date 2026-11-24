@@ -6,7 +6,7 @@
 const TABLE: &str = include_str!("../../host/markers.tsv");
 
 /// The kinds of the ports' MarkerKind, `Project` aside, in the table's order.
-const KINDS: [&str; 9] = [
+const KINDS: [&str; 10] = [
     "Question",
     "Blocked",
     "HoldCleared",
@@ -16,6 +16,7 @@ const KINDS: [&str; 9] = [
     "Millwright",
     "TicketOf",
     "Link",
+    "Declined",
 ];
 
 /// The kinds that are a block: an open line, a payload, a close line.

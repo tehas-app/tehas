@@ -1012,7 +1012,7 @@
     "actions": [
      {
       "issue": 7,
-      "say": "Retry was asked for and nothing was started: https://github.com/acme/widget/pull/90 is open and closes this issue. Merge or close that pull request, then answer retry again.\n\n<!-- tehas:declined question=4001 -->"
+      "say": "Retry was asked for and nothing was started: https://github.com/acme/widget/pull/90 is open and closes this issue. Merge or close that pull request, then answer retry again.", "markers": [{"type": "Declined", "value": {"question": "4001"}}]
      }
     ],
     "no_actions": [
@@ -1127,7 +1127,7 @@
     "actions": [
      {
       "issue": 7,
-      "say": "Retry was asked for and nothing was started: https://github.com/acme/widget/pull/90 is open and closes this issue. Merge or close that pull request, then answer retry again.\n\n<!-- tehas:declined question=4001 -->"
+      "say": "Retry was asked for and nothing was started: https://github.com/acme/widget/pull/90 is open and closes this issue. Merge or close that pull request, then answer retry again.", "markers": [{"type": "Declined", "value": {"question": "4001"}}]
      }
     ],
     "no_actions": [
@@ -1827,7 +1827,7 @@
     "actions": [
      {
       "issue": 7,
-      "say": "Retry was asked for, but this issue is not parked, so nothing was started.\n\n<!-- tehas:declined question=4001 -->"
+      "say": "Retry was asked for, but this issue is not parked, so nothing was started.", "markers": [{"type": "Declined", "value": {"question": "4001"}}]
      }
     ],
     "no_actions": [
@@ -1873,7 +1873,7 @@
     "actions": [
      {
       "issue": 7,
-      "say": "Retry was asked for, but this issue is not parked, so nothing was started.\n\n<!-- tehas:declined question=4001 -->"
+      "say": "Retry was asked for, but this issue is not parked, so nothing was started.", "markers": [{"type": "Declined", "value": {"question": "4001"}}]
      }
     ],
     "no_actions": [
@@ -1919,7 +1919,7 @@
     "actions": [
      {
       "issue": 7,
-      "say": "Retry was asked for, but this issue is not parked, so nothing was started.\n\n<!-- tehas:declined question=4001 -->"
+      "say": "Retry was asked for, but this issue is not parked, so nothing was started.", "markers": [{"type": "Declined", "value": {"question": "4001"}}]
      }
     ],
     "no_actions": [
@@ -2086,7 +2086,7 @@
     "actions": [
      {
       "issue": 9,
-      "say": "This question is not one the factory is waiting on. To retry, apply `tehas:ready`.\n\n<!-- tehas:declined question=4001 -->"
+      "say": "This question is not one the factory is waiting on. To retry, apply `tehas:ready`.", "markers": [{"type": "Declined", "value": {"question": "4001"}}]
      }
     ],
     "no_actions": [
@@ -2202,7 +2202,7 @@
     "actions": [
      {
       "issue": 7,
-      "say": "This question is not one the factory is waiting on. To retry, apply `tehas:ready`.\n\n<!-- tehas:declined question=4001 -->"
+      "say": "This question is not one the factory is waiting on. To retry, apply `tehas:ready`.", "markers": [{"type": "Declined", "value": {"question": "4001"}}]
      }
     ],
     "exit": 0
@@ -3651,6 +3651,60 @@
      "hold #7: its last cycle parked on unknown and the body has not changed since, and its park question could not be read"
     ],
     "nothing": true
+   }
+  },
+  {
+   "case": "an answer whose how is plugin is no person's: the question still waits, nothing starts, and the answer is taken away",
+   "world": "parked",
+   "park_q": [
+    " ",
+    " ",
+    " ",
+    ""
+   ],
+   "after": {
+    "issues": {
+     "7": {
+      "park": {
+       "answer": {
+        "question": 1,
+        "comment": 4001,
+        "issue": 7,
+        "kind": "park",
+        "choice": "retry",
+        "option": null,
+        "by": "tehas-bot",
+        "at": 1767229200,
+        "text": null,
+        "how": "plugin"
+       }
+      }
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "skip #7: the answer of tehas-bot is a plugin's, and no plugin answers a question in this release"
+    ],
+    "no_actions": [
+     {
+      "start": 7
+     },
+     {
+      "remove": [
+       "tehas:question"
+      ]
+     }
+    ],
+    "actions": [
+     {
+      "answer_drop": 7,
+      "id": 4001,
+      "say": "The answer given for this question was not taken: the answer of tehas-bot is a plugin's, and no plugin answers a question in this release."
+     }
+    ]
    }
   }
  ]

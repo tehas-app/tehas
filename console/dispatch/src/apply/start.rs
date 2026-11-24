@@ -19,7 +19,13 @@ use std::io::Write as _;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use tehas_core::home::{Home, State};
 use tehas_core::issue_pull::names_issue;
+use tehas_ports::{TicketKey, Write};
+
+/// What a claim answers when a poll before T4.7 made it whole: its parts
+/// after the mark are done already.
+const CLAIMED_1X: &str = "claimed whole";
 
 /// The name the status reads to know the poll ran it, and the value that means
 /// so. It is one of the names the load of the settings keeps.
@@ -330,9 +336,6 @@ fn bounded(items: Vec<Value>) -> (Vec<Value>, usize) {
     (items.into_iter().skip(dropped).collect(), dropped)
 }
 
-/// Where the probe copies the checkout for its one check, under the home.
-const PROBE_TREE: &str = "state/push-probe";
-
 impl Writer {
     /// Ask the sandbox whether it can push, when the fault of
     /// `state/push-fault.json` has aged out: the dry-run container a cycle's
@@ -353,7 +356,7 @@ impl Writer {
         if dry {
             return (Vec::new(), true);
         }
-        let tree = self.home.join(PROBE_TREE);
+        let tree = Home::new(&self.home).state(State::PushProbe);
         let said = self.push_probe_in(&tree);
         let _ = std::fs::remove_dir_all(&tree);
         said
@@ -598,15 +601,22 @@ impl Writer {
         });
         let refresh_pr = a.get("refresh_pr").and_then(Value::as_u64);
         if let Some(pr) = refresh_pr {
+            let word = "tehas:refreshing";
             let args = vec![
                 "api".into(),
                 "-X".into(),
                 "POST".into(),
                 format!("repos/{}/issues/{pr}/labels", self.repo),
                 "-f".into(),
-                "labels[]=tehas:refreshing".into(),
+                format!("labels[]={word}"),
             ];
-            let why = match self.write(pr, "change-mark", args, None, None) {
+            let mark = tehas_ports::ChangeNo::new(pr).zip((self.mark_of)(word));
+            let wrote = match (self.looked_1x(pr, "change-mark", &args, None), mark) {
+                (Some(wrote), _) => wrote,
+                (None, Some((no, mark))) => self.send(pr, &Write::MarkChange { no, mark }),
+                (None, None) => Wrote::Failed(format!(": {word} is no mark this poll knows")),
+            };
+            let why = match wrote {
                 Wrote::Done(_) => None,
                 Wrote::Failed(why) | Wrote::Unknown(why) => Some(why),
                 Wrote::Unrecorded => {
@@ -694,46 +704,15 @@ impl Writer {
         }
         self.analytics(&event, log);
         // A1: the issue is marked as taken before anything starts; a mark
-        // that fails leaves it in its queue for the next poll. A mark GitHub
-        // did not answer is read back: one that was made is not undone.
-        let mut args: Vec<String> = vec![
-            "issue".into(),
-            "edit".into(),
-            n.to_string(),
-            "--repo".into(),
-            self.repo.clone(),
-            "--add-label".into(),
-            "tehas:running".into(),
-        ];
+        // that fails leaves it in its queue for the next poll. The claim is
+        // parts, one write each (B5): the running mark first, then each word
+        // it takes the place of off, then the owner assigned. A stop between
+        // two parts leaves the issue held, never startable twice, and the
+        // next poll's settle reads what landed.
         let removed = super::strings(a, "remove");
-        for l in &removed {
-            args.extend(["--remove-label".into(), l.clone()]);
-        }
-        // #806: the owner is assigned in the same call, so GitHub shows the
-        // issue as taken. A refresh's issue was assigned when it was first
-        // claimed. An assign GitHub refuses fails the whole edit, so the mark
-        // is made again without it: the claim never fails on the assign.
         let owner = self.host.owner.clone();
         let assign = !owner.is_empty() && refresh_pr.is_none();
-        let mut wrote = if assign {
-            let mut with = args.clone();
-            with.extend(["--add-assignee".into(), owner.clone()]);
-            self.write(n, "label-add", with, None, None)
-        } else {
-            self.write(n, "label-add", args.clone(), None, None)
-        };
-        if assign && matches!(wrote, Wrote::Failed(_)) {
-            log.push(format!(
-                "WARN: could not assign #{n} to {owner}, marking it running without an assignee"
-            ));
-            wrote = self.write(n, "label-add", args, None, None);
-        }
-        if matches!(wrote, Wrote::Unknown(_)) && self.marked_now(n, &removed) {
-            log.push(format!(
-                "#{n} is marked tehas:running: the mark GitHub did not answer was made"
-            ));
-            wrote = Wrote::Done(String::new());
-        }
+        let wrote = self.claim_mark(n, &removed, assign.then_some(owner.as_str()), log);
         match wrote {
             Wrote::Done(_) => {}
             other => {
@@ -750,6 +729,12 @@ impl Writer {
         }
         *marked = true;
         self.starts += 1;
+        if let (Wrote::Done(ref out), Some(key)) = (&wrote, super::ticket(n)) {
+            // A claim a poll before T4.7 made whole is done whole.
+            if out != CLAIMED_1X {
+                self.claim_rest(n, &key, &removed, assign, log);
+            }
+        }
         // A record starts one cycle, and any start of the issue spends it.
         self.plan_start_drop(n);
         if park_now {
@@ -778,7 +763,7 @@ impl Writer {
             .and_then(Value::as_str)
             .unwrap_or("");
         if refresh_pr.is_some() {
-            let _ = std::fs::remove_file(self.home.join(format!("state/refresh/{n}.json")));
+            let _ = std::fs::remove_file(Home::new(&self.home).refresh_request(n));
             let url = text(a, "refresh_url");
             let said = format!("Tehas refresh started on `{host}` at {when} UTC: {url} conflicts with `{branch}`. This cycle merges that branch into it, resolves the conflicts and pushes to the same pull request. It rests on {whose} {how}. This issue is owned by the cycle until `tehas:running` is removed.");
             self.say(n, &said, log);
@@ -812,19 +797,15 @@ impl Writer {
             ));
         }
         log.push(format!("ERROR: the cycle for #{n} did not start: {why}"));
-        let args = vec![
-            "issue".into(),
-            "edit".into(),
-            n.to_string(),
-            "--repo".into(),
-            self.repo.clone(),
-            "--remove-label".into(),
-            "tehas:running".into(),
-            "--add-label".into(),
-            "needs-human-attention".into(),
-        ];
-        if !matches!(self.write(n, "label-add", args, None, None), Wrote::Done(_)) {
-            log.push(format!("WARN: label change on #{n} failed"));
+        // The person's mark goes on before the running one comes off, so a
+        // stop between leaves the issue held.
+        let fail = format!("WARN: label change on #{n} failed");
+        let relabelled = super::ticket(n).is_some_and(|key| {
+            self.mark_part(n, &key, "needs-human-attention", true, &fail, log)
+                && self.mark_part(n, &key, "tehas:running", false, &fail, log)
+        });
+        if !relabelled && super::ticket(n).is_none() {
+            log.push(fail);
         }
         // The restore above took the host's approval too, and no label asked.
         let retry = if given == crate::decide::HOST {
@@ -1237,21 +1218,98 @@ impl Writer {
         self.restore(n, recorded, log);
     }
 
-    /// Whether GitHub says issue `n` carries `tehas:running` and none of
-    /// `removed` now. A read that fails says no.
-    fn marked_now(&mut self, n: u64, removed: &[String]) -> bool {
-        let path = format!("repos/{}/issues/{n}", self.repo);
-        let Ok(v) = self.calls.gh(&["api", &path]) else {
+    /// The claim's running mark, as a write of the tickets port. A 1.x
+    /// claim this poll's settle read gates it: one done is the whole claim
+    /// done (`CLAIMED_1X`). A mark the site did not answer is read back by
+    /// its settle rule: one that landed is not undone.
+    fn claim_mark(
+        &mut self,
+        n: u64,
+        removed: &[String],
+        owner: Option<&str>,
+        log: &mut Vec<String>,
+    ) -> Wrote {
+        let mut args: Vec<String> = ["issue", "edit", &n.to_string(), "--repo", &self.repo]
+            .map(str::to_string)
+            .to_vec();
+        args.extend(["--add-label".into(), "tehas:running".into()]);
+        for l in removed {
+            args.extend(["--remove-label".into(), l.clone()]);
+        }
+        let mut with = args.clone();
+        if let Some(owner) = owner {
+            with.extend(["--add-assignee".into(), owner.to_string()]);
+        }
+        for args in [with, args] {
+            match self.looked_1x(n, "label-add", &args, None) {
+                Some(Wrote::Done(_)) => return Wrote::Done(CLAIMED_1X.into()),
+                Some(wrote) => return wrote,
+                None => {}
+            }
+        }
+        let (Some(key), Some(mark)) = (super::ticket(n), (self.mark_of)("tehas:running")) else {
+            return Wrote::Failed(String::new());
+        };
+        let write = Write::Mark { ticket: key, mark };
+        match self.send(n, &write) {
+            Wrote::Unknown(_) if self.landed(&write) => {
+                log.push(format!(
+                    "#{n} is marked tehas:running: the mark GitHub did not answer was made"
+                ));
+                Wrote::Done(String::new())
+            }
+            wrote => wrote,
+        }
+    }
+
+    /// The claim after its running mark: each word it takes the place of
+    /// off, then the owner assigned. Neither undoes the claim: a part that
+    /// fails is said, and the next poll's settle and rules see to it.
+    fn claim_rest(
+        &mut self,
+        n: u64,
+        key: &TicketKey,
+        removed: &[String],
+        assign: bool,
+        log: &mut Vec<String>,
+    ) {
+        for word in removed {
+            let fail = format!("WARN: label change on #{n} failed: --remove-label {word}");
+            if !self.mark_part(n, key, word, false, &fail, log) {
+                break;
+            }
+        }
+        let who = match (assign, self.assignee.clone()) {
+            (true, Some(who)) => who,
+            _ => return,
+        };
+        let owner = self.host.owner.clone();
+        match self.send(
+            n,
+            &Write::Assign {
+                ticket: key.clone(),
+                who,
+            },
+        ) {
+            Wrote::Done(_) => {}
+            Wrote::Failed(_) => log.push(format!(
+                "WARN: could not assign #{n} to {owner}, marking it running without an assignee"
+            )),
+            Wrote::Unknown(why) => log.push(Writer::unknown(n, "assignee", &why)),
+            Wrote::Unrecorded => log.push(Writer::unrecorded(n)),
+        }
+    }
+
+    /// Whether a write the site did not answer is there, by the settle rule
+    /// of its kind read through the ports now. False when no read can tell.
+    fn landed(&mut self, write: &Write) -> bool {
+        use tehas_core::journal::{settle, Found};
+        let Some(h) = self.ports.as_mut() else {
             return false;
         };
-        let have: Vec<&str> = v
-            .get("labels")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(|l| l.get("name").and_then(Value::as_str))
-            .collect();
-        have.contains(&"tehas:running") && !removed.iter().any(|l| have.contains(&l.as_str()))
+        let since = tehas_ports::At::new(tehas_core::time::now() - 60);
+        let bound = tehas_ports::Bound::new(100).expect("100 is a bound");
+        settle::read(write, h, since, bound) == Some(Found::Landed)
     }
 
     /// restore_record: the approval this poll recorded, off the record again.
@@ -1333,7 +1391,7 @@ impl Writer {
             }
             std::thread::sleep(Duration::from_millis(500));
         }
-        if held(&self.home.join(format!("state/cycles/{n}.lock"))) {
+        if held(&Home::new(&self.home).cycle_note(n, "lock")) {
             log.push(format!(
                 "WARN: the cycle for #{n} holds its lock but did not say so in {wait}s; taking it as started"
             ));

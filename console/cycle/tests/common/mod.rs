@@ -23,6 +23,17 @@ case " $* " in
   *" --input - "*) body=$(cat); body=$(jq -r '.body // empty' <<<"$body" 2>/dev/null); call=${call/--input -/-f body=$body} ;;
 esac
 printf '%s\n' "$call" >>"$T/calls/gh"
+# answers/: call <n> is answered by the file <n>-*.json, and a call with no
+# file fails. A body can be many lines, so the calls are counted apart.
+if [ -d "$T/answers" ]; then
+  echo >>"$T/calls/gh.n"
+  n=$(wc -l <"$T/calls/gh.n")
+  for f in "$T/answers/$n-"*.json; do
+    [ -e "$f" ] || exit 1
+    cat "$f"
+  done
+  exit 0
+fi
 nap=$(command -pv sleep)
 # gh-hangs: a GitHub that does not answer.
 [ ! -e "$T/fx/gh-hangs" ] || exec "$nap" 30
@@ -69,8 +80,10 @@ api_rest() {
 case "$1 $2" in
   # A label of an issue or a pull request through the REST endpoint, and the
   # body of the issue. label-missing answers 404; mark-fails, unmark-fails and
-  # patch-fails fail at once, the -times ones count down.
+  # patch-fails fail at once, the -times ones count down. With edit-slow the
+  # call takes a second and says when it starts.
   "api -X")
+    [ ! -e "$T/fx/edit-slow" ] || { : >"$T/calls/edit.started"; sleep 1; }
     if api_rest POST "*/labels"; then
       [ ! -e "$T/fx/label-missing" ] || not_found
       fails mark-fails mark-fails-times
@@ -99,7 +112,6 @@ case "$1 $2" in
         "[{url: \$url, state: \$state, body: \$body, headRefName: \$head, isDraft: \$draft, createdAt: \$created}]"
     else echo "[]"; fi ;;
   "issue edit")
-    [ ! -e "$T/fx/edit-slow" ] || { : >"$T/calls/edit.started"; sleep 1; }
     countdown edit-fails-times
     # An edit whose arguments hold the text of edit-fails-on fails.
     if [ -s "$T/fx/edit-fails-on" ]; then
@@ -136,26 +148,27 @@ esac
 /// The stub tehas work. A result and a progress the case wrote are put where
 /// tehas work leaves them, and so is the note of a container that never
 /// started. Without a progress of its own a case gets an empty one. work.sh is
-/// what the runner does; rc is the exit of tehas work.
+/// what the runner does; rc is the exit of tehas work. `$T_CYCLES` is the
+/// cycles directory Home gives, so no snippet writes the home's layout.
 const WORK: &str = r#"#!/usr/bin/env bash
 printf '%s\n' "$*" >>"$T/calls/fake-work"
 for f in result progress; do
-  [ ! -e "$T/fx/$f.json" ] || cp "$T/fx/$f.json" "$TEHAS_HOME/state/cycles/7.$f.json"
+  [ ! -e "$T/fx/$f.json" ] || cp "$T/fx/$f.json" "$T_CYCLES/7.$f.json"
 done
 [ -e "$T/fx/progress.json" ] || [ -e "$T/fx/no-progress" ] ||
-  echo "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}" >"$TEHAS_HOME/state/cycles/7.progress.json"
-[ -e "$T/fx/nostart" ] && cat "$T/fx/nostart" >"$TEHAS_HOME/state/cycles/7.nostart"
+  echo "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}" >"$T_CYCLES/7.progress.json"
+[ -e "$T/fx/nostart" ] && cat "$T/fx/nostart" >"$T_CYCLES/7.nostart"
 [ ! -e "$T/fx/work.sh" ] || . "$T/fx/work.sh"
 exit "$(cat "$T/fx/rc" 2>/dev/null || echo 0)"
 "#;
 
 /// What tehas work leaves for a runner that died: an empty result, a progress,
 /// the runner's status and exit, and a run log of the steps it reached.
-const DIED: &str = r#"mkdir -p "$TEHAS_HOME/state/cycles" "$TEHAS_HOME/logs"
-: >"$TEHAS_HOME/state/cycles/7.result.json"
-echo '{"roles":[],"reason":"","reviewHeld":false}' >"$TEHAS_HOME/state/cycles/7.progress.json"
-[ -s "$T/fx/status" ] && cat "$T/fx/status" >"$TEHAS_HOME/state/cycles/7.status"
-cat "$T/fx/runner_exit" >"$TEHAS_HOME/state/cycles/7.runner_exit"
+const DIED: &str = r#"mkdir -p "$T_CYCLES" "$TEHAS_HOME/logs"
+: >"$T_CYCLES/7.result.json"
+echo '{"roles":[],"reason":"","reviewHeld":false}' >"$T_CYCLES/7.progress.json"
+[ -s "$T/fx/status" ] && cat "$T/fx/status" >"$T_CYCLES/7.status"
+cat "$T/fx/runner_exit" >"$T_CYCLES/7.runner_exit"
 log=$TEHAS_HOME/logs/work-7-$(date -u +%y%m%d-%H%M%S).jsonl
 : >"$log"
 while IFS= read -r step; do
@@ -299,6 +312,13 @@ pub struct World {
     pub home: PathBuf,
     pub fx: PathBuf,
     env: Vec<(String, String)>,
+    /// What the last in-process report logged.
+    logged: std::cell::RefCell<String>,
+    /// The comments the in-process report posts keep the fake's own ids,
+    /// which are no numbers.
+    unnumbered: std::cell::Cell<bool>,
+    /// Our markers beside #7's text on the in-process site.
+    ticket_markers: std::cell::RefCell<Vec<tehas_ports::Marker>>,
 }
 
 #[allow(dead_code)] // each test file uses a part of this module
@@ -320,6 +340,9 @@ impl World {
             home,
             fx,
             env: vec![],
+            logged: std::cell::RefCell::new(String::new()),
+            unnumbered: std::cell::Cell::new(false),
+            ticket_markers: std::cell::RefCell::new(vec![]),
         };
         w.stub("gh", GH);
         w.stub("fake-work", WORK);
@@ -575,6 +598,7 @@ impl World {
             .env("PATH", path)
             .env("HOME", self.t.join("home"))
             .env("TEHAS_HOME", &self.home)
+            .env("T_CYCLES", Home::new(&self.home).cycles_dir())
             .env("T", self.t.path())
             .env("TMPDIR", self.t.join("tmp"))
             .env("TEHAS_TEST_STORE_ANSWERS", self.t.join("store-answers"))
@@ -606,6 +630,250 @@ impl World {
             "fake-console",
         ]);
         self.exec(&all)
+    }
+
+    /// A setting as a run of this world is given it: its own, the settings
+    /// every run has, then the ones `command` sets.
+    pub fn setting(&self, k: &str) -> String {
+        if let Some((_, v)) = self.env.iter().rev().find(|(n, _)| n == k) {
+            return v.clone();
+        }
+        if let Some((_, v)) = SETTINGS.iter().find(|(n, _)| *n == k) {
+            return v.to_string();
+        }
+        match k {
+            "HOME" => self.t.join("home").display().to_string(),
+            "TEHAS_HOME" => self.home.display().to_string(),
+            "TEHAS_WORK_DIR" => self.home.join("work/widget").display().to_string(),
+            _ => String::new(),
+        }
+    }
+
+    /// The writes of #7's report, decided and made in process on the ports'
+    /// fake `site`: the start on record, the stub tehas work this world sets
+    /// up, the facts the report reads from this home, and its writes through
+    /// the fake's handles. `run7` proves the binary reaches the adapter; this
+    /// is what its report decides to write, in tehas's terms.
+    /// What the last in-process report logged: the lines an operator reads in
+    /// the cycle's journal.
+    pub fn report_log(&self) -> String {
+        self.logged.borrow().clone()
+    }
+
+    /// The comments the in-process report posts keep the fake's ids, which
+    /// GitHub's never are: no number from 4002 on.
+    pub fn unnumbered(&self) {
+        self.unnumbered.set(true);
+    }
+
+    /// One of our markers beside #7's text on the in-process site, as the
+    /// adapter reads it out of the issue's body.
+    pub fn ticket_marker(&self, m: tehas_ports::Marker) {
+        self.ticket_markers.borrow_mut().push(m);
+    }
+
+    /// #7's report run in process on a site of its own, `site_of` this
+    /// world, as `said` says its writes, and its end on record as
+    /// tehas-cycle records it. Run again, the store goes on from there.
+    pub fn report_said(&self) -> String {
+        let site = site_of(self);
+        let t = self.report_through(&site, &tehas_ports::fake::FakeSite::new(&site));
+        self.record_end(&t);
+        said(&t.applied)
+    }
+
+    /// The end of the report `t` on record, under the issue's lock, as
+    /// tehas-cycle records it after the writes. A store that will not take
+    /// it is the case's own: nothing is asserted here.
+    pub fn record_end(&self, t: &Tried) {
+        let _ = Command::new("flock")
+            .args(["-w", "5"])
+            .arg(self.state().join("7.lock"))
+            .arg(self.t.join("store-bin"))
+            .args(&t.end)
+            .env("TEHAS_HOME", &self.home)
+            .env("TEHAS_TEST_STORE_ANSWERS", self.t.join("store-answers"))
+            .output();
+    }
+
+    pub fn report_writes(&self, site: &tehas_ports::fake::World) -> Vec<tehas_ports::Write> {
+        let fake = tehas_ports::fake::FakeSite::new(site);
+        self.report_through(site, &fake).applied
+    }
+
+    /// The same, through `through`, a site over `site` such as a `Faulty`
+    /// one: the writes `site` took, and each write the report sent.
+    pub fn report_through(
+        &self,
+        site: &tehas_ports::fake::World,
+        through: &impl tehas_ports::Site,
+    ) -> Tried {
+        use tehas_ports::{Actor, Caller, Scope};
+        // The cycle's lock, held as tehas-cycle holds it while a cycle runs:
+        // the store starts no cycle and takes no park without it.
+        let cycles = Home::new(&self.home).cycles_dir();
+        fs::create_dir_all(&cycles).unwrap();
+        let _held =
+            tehas_cycle::lock::take(&cycles.join("7.lock"), std::time::Duration::from_secs(5))
+                .expect("the lock")
+                .expect("the lock is free");
+        // As tehas-cycle starts it: by hand unless the unit runs it.
+        let mut start = vec!["cycle-start", "7"];
+        if self.setting("TEHAS_CYCLE_FROM") != "unit" {
+            start.push("--by-hand");
+        }
+        let started = Command::new(self.t.join("store-bin"))
+            .args(&start)
+            .env("TEHAS_HOME", &self.home)
+            .output()
+            .unwrap();
+        assert!(started.status.success(), "cycle-start: {started:?}");
+        let answer: Value = serde_json::from_slice(&started.stdout).unwrap_or(Value::Null);
+        let text = |k: &str| {
+            answer
+                .get(k)
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string()
+        };
+        let attempt = answer.get("attempt").and_then(Value::as_u64).unwrap_or(0);
+        // As tehas-cycle clears them before tehas work: an earlier cycle's notes.
+        for note in tehas_core::cycle_notes::started() {
+            let _ = fs::remove_file(cycles.join(format!("7.{note}")));
+        }
+        let mut work = self.command(&self.t.join("bin/fake-work"));
+        work.arg("7");
+        let rc = run(work).rc;
+        let start = tehas_cycle::host::Start {
+            issue: 7,
+            attempt,
+            rc: i64::from(rc),
+            started: tehas_core::time::now(),
+            signalled: false,
+            by: text("started_by"),
+            how: text("how"),
+            approval_at: match answer.get("approval_at") {
+                Some(Value::Number(x)) => x.to_string(),
+                _ => String::new(),
+            },
+            requeued: answer.get("requeued") == Some(&Value::Bool(true)),
+            now: None,
+            console: "fake-console".to_string(),
+            status_cmd: "fake-status".to_string(),
+            status_args: vec![],
+        };
+        // The store the report reads and calls answers as a run's store
+        // does, unless the case took it away.
+        let store = self.home.join("libexec/store");
+        if store.exists() {
+            self.as_run(&store, &self.t.join("store-bin"));
+        }
+        let env = |k: &str| self.setting(k);
+        let facts_json = tehas_cycle::host::facts_with(&self.home, &start, &env);
+        let facts = tehas_cycle::Facts::from_json(&facts_json).expect("the facts read");
+        let mut ask = self.fx_answers();
+        let mut r = tehas_cycle::report::report(&facts, &mut ask);
+        let fake = through;
+        let (by, c) = (Actor::Ours(Scope::Full), Caller::new("report"));
+        let sent = std::rc::Rc::new(std::cell::RefCell::new(vec![]));
+        let ids = std::rc::Rc::new(std::cell::RefCell::new(Ids {
+            numbered: !self.unnumbered.get(),
+            next: 4002,
+            given: vec![],
+        }));
+        let handles = tehas_cycle::apply::Handles {
+            writes: Box::new(Counted {
+                inner: Box::new(tehas_ports::Writer {
+                    tickets: fake.ticket_writes(&by, c).unwrap(),
+                    blueprints: fake.blueprint_writes(&by, c).unwrap(),
+                    code_host: fake.code_host_writes(&by, c).unwrap(),
+                }),
+                sent: sent.clone(),
+                ids: ids.clone(),
+            }),
+            tickets: fake.tickets(&by, c).unwrap(),
+            blueprints: Box::new(Numbered {
+                inner: fake.blueprints(&by, c).unwrap(),
+                ids,
+            }),
+            code_host: fake.code_host(&by, c).unwrap(),
+        };
+        let how = tehas_cycle::apply::How {
+            repo: facts.repo.clone(),
+            issue: 7,
+            attempt,
+            now: tehas_core::time::now(),
+            tries: 3,
+            retry_wait: std::time::Duration::ZERO,
+            bound: std::time::Duration::from_secs(10),
+            grace: std::time::Duration::ZERO,
+            workdir: tehas_cycle::host::workdir_with(&start, &env),
+        };
+        let (written, logged) = tehas_cycle::after::holding(|| {
+            tehas_cycle::apply::write(&self.home, &how, &mut r, &facts, handles)
+        });
+        *self.logged.borrow_mut() = logged;
+        let sent = sent.borrow().clone();
+        // The end as tehas-cycle records it after the writes: the report's
+        // words, the files it keeps named at their place.
+        let mut end = vec!["cycle-end".to_string()];
+        end.extend_from_slice(&r.end[..r.files_at]);
+        for k in &r.files {
+            end.push(format!("--{k}"));
+            end.push(cycles.join(format!("7.{k}.json")).display().to_string());
+        }
+        end.extend_from_slice(&r.end[r.files_at..]);
+        Tried {
+            applied: site.wrote().into_iter().map(|w| w.what).collect(),
+            sent,
+            written,
+            end,
+        }
+    }
+
+    /// `path`, a program that runs `program` with what a run of this world
+    /// gives the stubs and the store: `$T` and the store's answers.
+    fn as_run(&self, path: &Path, program: &Path) -> String {
+        let text = format!(
+            "#!/usr/bin/env bash\nexport T='{}' TEHAS_TEST_STORE_ANSWERS='{}'\nexec '{}' \"$@\"\n",
+            self.t.display(),
+            self.t.join("store-answers").display(),
+            program.display()
+        );
+        write_exe(path, text).unwrap();
+        path.display().to_string()
+    }
+
+    /// The report's questions of GitHub answered from the fixtures the stub
+    /// gh answers them from: the bot's pull request of `pr.txt` (or the whole
+    /// of `pr.json`), none at all while `pr-fails-times` outlasts the report's
+    /// three asks, and the issue of `issue-7.json`.
+    pub fn fx_answers(&self) -> tehas_cycle::report::Given {
+        let fx = |n: &str| fs::read_to_string(self.fx.join(n)).ok();
+        let or = |n: &str, d: &str| fx(n).map_or(d.to_string(), |t| t.trim().to_string());
+        let refused = fx("pr-fails-times")
+            .and_then(|t| t.trim().parse::<u32>().ok())
+            .is_some_and(|n| n >= 3);
+        let prs = if refused {
+            Value::Null
+        } else if let Some(all) = fx("pr.json") {
+            serde_json::from_str(&all).unwrap_or(Value::Null)
+        } else if let Some(url) = fx("pr.txt") {
+            json!([{"url": url.trim(), "state": or("pr-state", "OPEN"),
+                "body": or("pr-body", "Fixes #7"), "isDraft": self.fx.join("pr-draft").exists(),
+                "createdAt": tehas_core::time::iso(tehas_core::time::now())}])
+        } else {
+            json!([])
+        };
+        let issue = fx("issue-7.json")
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_else(|| json!({"number": 7, "state": "open"}));
+        let attention = issue["labels"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|l| l.get("name").and_then(Value::as_str) == Some("needs-human-attention"));
+        tehas_cycle::report::Given(json!({"prs": prs, "attention": attention, "issue": issue}))
     }
 
     /// A cycle of #7.
@@ -856,4 +1124,366 @@ pub fn lacks(got: &str, want: &str) {
 /// The lines of `text` that start with `prefix`.
 pub fn count_lines(text: &str, prefix: &str) -> usize {
     text.lines().filter(|l| l.starts_with(prefix)).count()
+}
+
+/// The writes of a report: those the site took, and each one sent, a write
+/// tried again once for each try.
+#[allow(dead_code)] // each test file uses a part of this module
+pub struct Tried {
+    pub applied: Vec<tehas_ports::Write>,
+    pub sent: Vec<tehas_ports::Write>,
+    /// What the writes left for the end: the handoff posted or not, and why.
+    pub written: tehas_cycle::apply::Written,
+    /// The store's words that record the end, as tehas-cycle gives them
+    /// after the writes; not recorded here.
+    pub end: Vec<String>,
+}
+
+/// The numbers the in-process report's comments get, as GitHub's ids are
+/// numbers: each id of the fake gets the next one from 4002 the first time
+/// it is seen, in a receipt or in a read, and keeps it.
+struct Ids {
+    numbered: bool,
+    next: u64,
+    given: Vec<(tehas_ports::CommentId, tehas_ports::CommentId)>,
+}
+
+impl Ids {
+    fn number(&mut self, id: &mut tehas_ports::CommentId) {
+        if !self.numbered {
+            return;
+        }
+        if let Some((_, n)) = self.given.iter().find(|(f, _)| f == id) {
+            *id = n.clone();
+            return;
+        }
+        let n = tehas_ports::CommentId::new(self.next.to_string());
+        self.next += 1;
+        self.given.push((id.clone(), n.clone()));
+        *id = n;
+    }
+}
+
+/// A writer that keeps each write it is given before it sends it on, and
+/// numbers the comments it posts.
+struct Counted {
+    inner: Box<dyn tehas_ports::Writes>,
+    sent: std::rc::Rc<std::cell::RefCell<Vec<tehas_ports::Write>>>,
+    ids: std::rc::Rc<std::cell::RefCell<Ids>>,
+}
+
+impl tehas_ports::Writes for Counted {
+    fn send(
+        &mut self,
+        w: &tehas_ports::Write,
+        files: &dyn tehas_ports::Blobs,
+    ) -> tehas_ports::Got<tehas_ports::Receipt> {
+        self.sent.borrow_mut().push(w.clone());
+        let mut got = self.inner.send(w, files);
+        if let Ok(tehas_ports::Receipt::Comment(p)) = &mut got {
+            self.ids.borrow_mut().number(&mut p.id);
+        }
+        got
+    }
+    fn read_only(&self) -> bool {
+        self.inner.read_only()
+    }
+}
+
+/// The fake's blueprint reads, the comments they give numbered as the
+/// writer numbers them: a comment read back has the id it was posted with.
+struct Numbered {
+    inner: Box<dyn tehas_ports::Blueprints>,
+    ids: std::rc::Rc<std::cell::RefCell<Ids>>,
+}
+
+impl Numbered {
+    fn comment(&self, mut c: tehas_ports::Comment) -> tehas_ports::Comment {
+        self.ids.borrow_mut().number(&mut c.id);
+        c
+    }
+}
+
+impl tehas_ports::Cites for Numbered {
+    fn cite(&self, what: &tehas_ports::Cite) -> String {
+        self.inner.cite(what)
+    }
+    fn link(&self, what: &tehas_ports::Cite) -> Option<tehas_ports::WebLink> {
+        self.inner.link(what)
+    }
+}
+
+impl tehas_ports::Reports for Numbered {
+    fn take_reports(&mut self) -> Vec<tehas_ports::Report> {
+        self.inner.take_reports()
+    }
+}
+
+impl tehas_ports::Blueprints for Numbered {
+    fn blueprint(
+        &mut self,
+        no: tehas_ports::BlueprintNo,
+        depth: tehas_ports::Depth,
+    ) -> tehas_ports::Got<tehas_ports::Blueprint> {
+        self.inner.blueprint(no, depth)
+    }
+    fn several(
+        &mut self,
+        nos: &[tehas_ports::BlueprintNo],
+        depth: tehas_ports::Depth,
+    ) -> Vec<(
+        tehas_ports::BlueprintNo,
+        tehas_ports::Got<tehas_ports::Blueprint>,
+    )> {
+        self.inner.several(nos, depth)
+    }
+    fn comments(
+        &mut self,
+        no: tehas_ports::BlueprintNo,
+        bound: tehas_ports::Bound,
+    ) -> tehas_ports::Got<tehas_ports::Whole<tehas_ports::Comment>> {
+        let all = self.inner.comments(no, bound)?.into_items();
+        Ok(tehas_ports::Whole::new(
+            all.into_iter().map(|c| self.comment(c)).collect(),
+        ))
+    }
+    fn comments_by_id(
+        &mut self,
+        ids: &[tehas_ports::CommentId],
+    ) -> Vec<(
+        tehas_ports::CommentId,
+        tehas_ports::Got<tehas_ports::Comment>,
+    )> {
+        self.inner.comments_by_id(ids)
+    }
+    fn body_edits(
+        &mut self,
+        no: tehas_ports::BlueprintNo,
+        bound: tehas_ports::Bound,
+    ) -> tehas_ports::Got<tehas_ports::Whole<tehas_ports::Edit>> {
+        self.inner.body_edits(no, bound)
+    }
+    fn comment_edits(
+        &mut self,
+        id: &tehas_ports::CommentId,
+        bound: tehas_ports::Bound,
+    ) -> tehas_ports::Got<tehas_ports::Whole<tehas_ports::Edit>> {
+        self.inner.comment_edits(id, bound)
+    }
+    fn search(
+        &mut self,
+        words: &str,
+        within: tehas_ports::Within,
+        open: Option<bool>,
+        first: std::num::NonZeroU32,
+    ) -> tehas_ports::Got<tehas_ports::Took<tehas_ports::BlueprintHit>> {
+        self.inner.search(words, within, open, first)
+    }
+    fn attachments(
+        &mut self,
+        no: tehas_ports::BlueprintNo,
+    ) -> tehas_ports::Got<tehas_ports::Whole<tehas_ports::Attachment>> {
+        self.inner.attachments(no)
+    }
+    fn attachments_in(&self, text: &str) -> Vec<tehas_ports::Attachment> {
+        self.inner.attachments_in(text)
+    }
+    fn fetch(
+        &mut self,
+        a: &tehas_ports::AttachmentId,
+        limit: u64,
+        into: &mut dyn std::io::Write,
+    ) -> tehas_ports::Did {
+        self.inner.fetch(a, limit, into)
+    }
+    fn changed(
+        &mut self,
+        since: Option<&tehas_ports::ChangeToken>,
+    ) -> tehas_ports::Got<(bool, tehas_ports::ChangeToken)> {
+        self.inner.changed(since)
+    }
+    fn delta(
+        &mut self,
+        from: Option<&tehas_ports::Cursor>,
+        bound: tehas_ports::Bound,
+    ) -> tehas_ports::Got<tehas_ports::BlueprintDelta> {
+        self.inner.delta(from, bound)
+    }
+}
+
+/// The same case run twice: the binary on one world, for what it owns (its
+/// exit, the store, its reads of GitHub), and its report decided and written
+/// in process on the ports' fake on another, for what the report writes.
+#[allow(dead_code)] // each test file uses a part of this module
+pub fn twin(name: &str, setup: impl Fn(&mut World)) -> (World, Run, String) {
+    let mut w = World::new(name);
+    setup(&mut w);
+    let r = w.run7();
+    let mut twin = World::new(&format!("{name}-writes"));
+    setup(&mut twin);
+    let said = twin.report_said();
+    (w, r, said)
+}
+
+/// A case's report alone, in process, through the site `wrap` makes of the
+/// fake: its world, and the writes the site took and each write sent, as
+/// `said` says them.
+#[allow(dead_code)] // each test file uses a part of this module
+pub fn through<S: tehas_ports::Site>(
+    name: &str,
+    setup: impl Fn(&mut World),
+    wrap: impl FnOnce(tehas_ports::fake::FakeSite) -> S,
+) -> (World, String, String) {
+    let mut w = World::new(name);
+    setup(&mut w);
+    let world = site_of(&w);
+    let t = w.report_through(&world, &wrap(tehas_ports::fake::FakeSite::new(&world)));
+    w.record_end(&t);
+    (w, said(&t.applied), said(&t.sent))
+}
+
+/// [`twin`], and the world the report ran on in process, for what it left on
+/// record: its park's question, the questions known.
+#[allow(dead_code)] // each test file uses a part of this module
+pub fn twins(name: &str, setup: impl Fn(&mut World)) -> (World, Run, World, String) {
+    let mut w = World::new(name);
+    setup(&mut w);
+    let r = w.run7();
+    let mut twin = World::new(&format!("{name}-writes"));
+    setup(&mut twin);
+    let said = twin.report_said();
+    (w, r, twin, said)
+}
+
+/// The site the report writes to in process: issue 7, running, and the bot's
+/// pull requests #9 and #347 of the cases.
+#[allow(dead_code)] // each test file uses a part of this module
+pub fn site() -> tehas_ports::fake::World {
+    use tehas_ports::{Mark, State};
+    // The site's clock reads the host's, as a journal row's time is the host's.
+    let now = tehas_ports::At::new(tehas_core::time::now());
+    tehas_ports::fake::World::new()
+        .on_clock(tehas_ports::fake::Clock::new(now))
+        .ticket(7, |t| {
+            t.title("Install.sh checks the instance env")
+                .mark(Mark::State(State::Running))
+        })
+        .change(9, "feature/issue-7-a", |c| c)
+        .change(347, "feature/issue-7-b", |c| c)
+}
+
+/// `site`, with #7's text the body of the case's `issue-7.json` and the
+/// markers `World::ticket_marker` put beside it: the issue as the adapter
+/// reads it.
+#[allow(dead_code)] // each test file uses a part of this module
+pub fn site_of(w: &World) -> tehas_ports::fake::World {
+    use tehas_ports::{Mark, State};
+    let body = fs::read_to_string(w.fx.join("issue-7.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+        .and_then(|v| v["body"].as_str().map(str::to_string));
+    let markers = w.ticket_markers.borrow().clone();
+    let now = tehas_ports::At::new(tehas_core::time::now());
+    tehas_ports::fake::World::new()
+        .on_clock(tehas_ports::fake::Clock::new(now))
+        .ticket(7, |t| {
+            let mut t = t
+                .title("Install.sh checks the instance env")
+                .mark(Mark::State(State::Running));
+            if let Some(b) = &body {
+                t = t.text(b);
+            }
+            markers.into_iter().fold(t, |t, m| t.marker(m))
+        })
+        .change(9, "feature/issue-7-a", |c| c)
+        .change(347, "feature/issue-7-b", |c| c)
+}
+
+/// A marker with its fields, as `said` says it.
+#[allow(dead_code)] // each test file uses a part of this module
+pub fn marker(m: &tehas_ports::Marker) -> String {
+    use tehas_ports::Marker;
+    match m {
+        Marker::Park(p) => format!(
+            "Park(blueprint={} step={} kind={} provider={} sig={})",
+            p.blueprint.get(),
+            p.step.as_str(),
+            p.kind.as_str(),
+            p.provider,
+            p.sig.as_str()
+        ),
+        Marker::Question {
+            kind,
+            blueprint,
+            turn,
+        } => format!(
+            "Question(kind={kind:?} blueprint={} turn={turn})",
+            blueprint.get()
+        ),
+        Marker::LastAttempt(l) => format!(
+            "LastAttempt(base={} note={})",
+            l.base.as_str(),
+            l.note.lines().next().unwrap_or("")
+        ),
+        other => format!("{other:?}"),
+    }
+}
+
+/// The report's writes as lines a test reads: each mark taken off or put on,
+/// each note or comment with its text, and the line `markers: ` with our
+/// markers beside a note, in their order. An edit of the issue says the
+/// markers it sets.
+#[allow(dead_code)] // each test file uses a part of this module
+pub fn said(writes: &[tehas_ports::Write]) -> String {
+    use tehas_ports::{Body, Write};
+    let text = |b: &Body| match b {
+        Body::Text(t) => t.clone(),
+        Body::Summed(_) => String::new(),
+    };
+    let all = |ms: &[tehas_ports::Marker]| ms.iter().map(marker).collect::<Vec<_>>().join(", ");
+    writes
+        .iter()
+        .map(|w| match w {
+            Write::Unmark { mark, .. } => format!("unmark {mark:?}"),
+            Write::Mark { mark, .. } => format!("mark {mark:?}"),
+            Write::TicketNote { body, markers, .. } if markers.is_empty() => {
+                format!("note: {}", text(body))
+            }
+            Write::TicketNote { body, markers, .. } => {
+                format!("note: {}\nmarkers: {}", text(body), all(markers))
+            }
+            Write::EditTicket {
+                text: t, markers, ..
+            } => {
+                let mut said = String::new();
+                if let Some(t) = t {
+                    said.push_str(&format!("edit: text: {}\n", text(t)));
+                }
+                said.push_str(&format!("edit: set {}", all(&markers.set)));
+                if !markers.drop.is_empty() {
+                    said.push_str(&format!(" drop {:?}", markers.drop));
+                }
+                said
+            }
+            Write::CommentChange { no, body, .. } => {
+                format!("change {} comment: {}", no.get(), text(body))
+            }
+            Write::UnmarkChange { no, mark } => format!("change {} unmark {mark:?}", no.get()),
+            other => format!("{:?}", other.kind()),
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The writes the stub saw the adapter send, by their method alone: the
+/// binary's report reaches the code host through the adapter at all. No path
+/// or field is read, so no GitHub word is written here.
+#[allow(dead_code)] // each test file uses a part of this module
+pub fn write_methods(w: &World) -> Vec<String> {
+    w.gh()
+        .lines()
+        .filter_map(|l| l.strip_prefix("api -X "))
+        .filter_map(|rest| rest.split_whitespace().next())
+        .map(str::to_string)
+        .collect()
 }

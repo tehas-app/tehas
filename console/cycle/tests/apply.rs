@@ -113,17 +113,6 @@ impl Host {
             .unwrap()
     }
 
-    /// The store answers that this attempt's start was a refresh of pull
-    /// request #9.
-    fn approve_refresh(&self) {
-        let store = self.dir.join("libexec/store");
-        let body = fs::read_to_string(&store).unwrap().replace(
-            r#"  approval-current) echo '{"api":1,"verb":"approval-current","ok":true,"current":null}' ;;"#,
-            r#"  approval-current) echo '{"api":1,"verb":"approval-current","ok":true,"current":{"at":"900","how":"refresh","used_by":1,"refresh_pr":9}}' ;;"#,
-        );
-        exe(&store, &body);
-    }
-
     /// The store answers that the approval of the start bound the lean driver.
     fn approve_lean(&self) {
         let store = self.dir.join("libexec/store");
@@ -243,101 +232,6 @@ fn the_status_command_of_the_end_of_a_cycle_gets_its_arguments() {
 }
 
 #[test]
-fn a_park_goes_label_record_question_asked_label_end() {
-    let h = Host::new("park");
-    h.result("aborted", "develop", "", "");
-    let o = h.report(20, false);
-    assert!(o.status.success(), "{}", out(&o));
-    let order = [
-        "gh issue edit 7 --repo a/b --remove-label tehas:running --add-label needs-human-attention",
-        "store park 7 --attempt 1 --reason aborted --step develop",
-        "gh api repos/a/b/issues/7/comments --input - --jq .id",
-        "store question-asked 7 --id 4002 --kind park --body-sha",
-        "gh issue edit 7 --repo a/b --add-label tehas:question",
-        "store cycle-end 7 --attempt 1 --status aborted",
-        "store publish",
-    ];
-    let at: Vec<usize> = order.iter().map(|c| h.at(c)).collect();
-    assert!(at.windows(2).all(|w| w[0] < w[1]), "{:#?}", h.calls());
-}
-
-#[test]
-fn each_try_of_a_write_is_a_row_of_its_own_named_by_its_cycle() {
-    let h = Host::new("tries");
-    h.result("aborted", "develop", "", "");
-    fs::write(h.dir.join("gh-fail"), "--add-label needs-human-attention\n").unwrap();
-    let o = h.report(20, false);
-    assert!(o.status.success(), "{}", out(&o));
-    assert_eq!(h.count("gh issue edit 7 --repo a/b --remove-label"), 3);
-    let rows: Vec<String> = h
-        .calls()
-        .into_iter()
-        .filter(|c| c.starts_with("store journal-record") && c.contains("label-add"))
-        .collect();
-    assert!(rows.len() >= 3, "{rows:#?}");
-    assert!(
-        rows[0].contains(r#""cycle":{"attempt":1,"issue":7}"#),
-        "{}",
-        rows[0]
-    );
-    assert!(h.count("store journal-settle") >= 3);
-    let said = out(&o);
-    assert!(said.contains("WARN: label change on #7 failed: --remove-label tehas:running --add-label needs-human-attention"), "{said}");
-    // The label stayed, and the question says so.
-    let q = h.at("gh api repos/a/b/issues/7/comments");
-    assert!(h.calls()[q].contains("The label of this issue could not be changed"));
-}
-
-#[test]
-fn a_body_goes_to_gh_on_standard_input() {
-    let h = Host::new("stdin");
-    h.result("aborted", "develop", "", "");
-    h.report(20, false);
-    let q = h.at("gh api repos/a/b/issues/7/comments");
-    assert!(h.calls()[q].contains(r#"<<< {"body":"Tehas cycle stopped"#));
-    let record = h.at("store journal-record --poll 100 --kind comment-post");
-    assert!(!h.calls()[record].contains("Tehas cycle stopped"));
-    assert!(h.calls()[record].contains("sha256"));
-}
-
-#[test]
-fn a_question_whose_label_fails_is_taken_off_the_record_and_says_so() {
-    let h = Host::new("withdraw");
-    h.result("aborted", "develop", "", "");
-    fs::write(h.dir.join("gh-fail"), "--add-label tehas:question\n").unwrap();
-    h.report(20, false);
-    assert!(h.at("store question-asked") < h.at("store question-answered 7 --id 4002 --withdraw"));
-    let last = h.at("gh issue comment 7");
-    assert!(h.calls()[last].contains("A reply to the choices above does nothing"));
-}
-
-#[test]
-fn a_park_the_store_will_not_take_asks_no_question() {
-    let h = Host::new("unrecorded");
-    h.result("aborted", "develop", "", "");
-    fs::write(h.dir.join("store-fail"), "park 7").unwrap();
-    let o = h.report(20, false);
-    assert!(out(&o).contains("WARN: could not record the park of #7 (refused: store: refused #7: not now), so it asks no question"));
-    assert_eq!(h.count("gh api repos/a/b/issues/7/comments"), 0);
-    let c = h.at("gh issue comment 7");
-    assert!(h.calls()[c].contains("To retry, apply `tehas:ready`."));
-}
-
-#[test]
-fn after_a_stop_each_call_is_one_bounded_try() {
-    let h = Host::new("stop");
-    h.result("aborted", "develop", "", "");
-    fs::write(h.dir.join("gh-hangs"), "").unwrap();
-    let t0 = std::time::Instant::now();
-    let o = h.report(20, true);
-    assert!(o.status.success(), "{}", out(&o));
-    assert_eq!(h.count("gh issue edit 7 --repo a/b --remove-label"), 1);
-    assert!(t0.elapsed().as_secs() < 25, "{:?}", t0.elapsed());
-    // The report still ended the cycle's record.
-    assert_eq!(h.count("store cycle-end"), 1);
-}
-
-#[test]
 fn an_end_the_store_will_not_take_is_exit_70_and_what_follows_still_runs() {
     let h = Host::new("end");
     h.result("aborted", "develop", "", "");
@@ -410,137 +304,6 @@ fn a_clean_end_with_no_record_to_remove_is_exit_0() {
 }
 
 #[test]
-fn a_write_the_journal_cannot_record_is_made_with_no_row() {
-    for verb in ["poll-begin", "journal-record", "journal-attempt"] {
-        let h = Host::new(&format!("journal-{verb}"));
-        h.result("aborted", "develop", "", "");
-        fs::write(h.dir.join("store-fail"), verb).unwrap();
-        let o = h.report(20, false);
-        assert!(o.status.success(), "{}", out(&o));
-        let order = [
-            "gh issue edit 7 --repo a/b --remove-label tehas:running --add-label needs-human-attention",
-            "store park 7",
-            "gh api repos/a/b/issues/7/comments --input - --jq .id",
-            "store question-asked 7 --id 4002",
-            "gh issue edit 7 --repo a/b --add-label tehas:question",
-            "store cycle-end 7",
-        ];
-        let at: Vec<usize> = order.iter().map(|c| h.at(c)).collect();
-        assert!(at.windows(2).all(|w| w[0] < w[1]), "{:#?}", h.calls());
-        let said = out(&o);
-        assert_eq!(
-            said.matches("WARN: the journal will not record").count(),
-            1,
-            "{said}"
-        );
-        assert!(!said.contains("WARN: label change"), "{said}");
-        // Once it failed, the report asks it no more: a hung store would
-        // spend what a stop leaves.
-        assert_eq!(h.count(&format!("store {verb}")), 1, "{:#?}", h.calls());
-    }
-}
-
-/// #1754: a write GitHub answered with a 5xx may be there. The report reads
-/// it back before it sends it again: there, it is done.
-#[test]
-fn a_write_github_answered_with_a_5xx_and_took_is_not_sent_again() {
-    let h = Host::new("tries-5xx-took");
-    h.result("aborted", "develop", "", "");
-    fs::write(h.dir.join("gh-fail"), "--add-label needs-human-attention\n").unwrap();
-    fs::write(h.dir.join("gh-says"), "gh: HTTP 502\n").unwrap();
-    fs::write(
-        h.dir.join("issue.json"),
-        r#"{"number":7,"labels":[{"name":"needs-human-attention"}]}"#,
-    )
-    .unwrap();
-    let o = h.report(20, false);
-    assert!(o.status.success(), "{}", out(&o));
-    assert_eq!(h.count("gh issue edit 7 --repo a/b --remove-label"), 1);
-    assert!(!out(&o).contains("may have been posted"), "{}", out(&o));
-    assert!(
-        !out(&o).contains("label change on #7 failed"),
-        "{}",
-        out(&o)
-    );
-    assert!(
-        h.count("gh api repos/a/b/issues/7") >= 1,
-        "{:#?}",
-        h.calls()
-    );
-}
-
-/// A 5xx GitHub did not take is sent again after the read finds it missing.
-#[test]
-fn a_write_github_answered_with_a_5xx_and_did_not_take_is_sent_again() {
-    let h = Host::new("tries-5xx-lost");
-    h.result("aborted", "develop", "", "");
-    fs::write(h.dir.join("gh-fail"), "--add-label needs-human-attention\n").unwrap();
-    fs::write(h.dir.join("gh-fail-once"), "").unwrap();
-    fs::write(h.dir.join("gh-says"), "gh: HTTP 502\n").unwrap();
-    let o = h.report(20, false);
-    assert!(o.status.success(), "{}", out(&o));
-    assert_eq!(h.count("gh issue edit 7 --repo a/b --remove-label"), 2);
-    let results: Vec<String> = h
-        .calls()
-        .into_iter()
-        .filter(|c| c.starts_with("store journal-settle"))
-        .collect();
-    assert!(results[0].contains("--result unknown"), "{results:#?}");
-    assert!(results[1].contains("--result ok"), "{results:#?}");
-}
-
-/// A 5xx whose read fails too is not sent again; its row stays open as
-/// unknown for the poll's read.
-#[test]
-fn a_write_github_answered_with_a_5xx_that_no_read_settles_is_left_unknown() {
-    let h = Host::new("tries-5xx-unread");
-    h.result("aborted", "develop", "", "");
-    fs::write(
-        h.dir.join("gh-fail"),
-        "--add-label needs-human-attention\napi repos/a/b/issues/7\n",
-    )
-    .unwrap();
-    fs::write(h.dir.join("gh-says"), "gh: HTTP 502\n").unwrap();
-    let o = h.report(20, false);
-    assert!(o.status.success(), "{}", out(&o));
-    assert_eq!(h.count("gh issue edit 7 --repo a/b --remove-label"), 1);
-    assert!(out(&o).contains("may have been posted"), "{}", out(&o));
-    let settles: Vec<String> = h
-        .calls()
-        .into_iter()
-        .filter(|c| c.starts_with("store journal-settle") && c.contains("--result unknown"))
-        .collect();
-    // The label and the park question, whose read fails as well.
-    assert_eq!(settles.len(), 2, "{:#?}", h.calls());
-    assert_eq!(h.count("gh api repos/a/b/issues/7/comments --input"), 1);
-}
-
-#[test]
-fn a_write_with_no_row_keeps_its_tries() {
-    let h = Host::new("journal-tries");
-    h.result("aborted", "develop", "", "");
-    fs::write(h.dir.join("store-fail"), "journal-record").unwrap();
-    fs::write(h.dir.join("gh-fail"), "--add-label needs-human-attention\n").unwrap();
-    let o = h.report(20, false);
-    assert!(o.status.success());
-    assert_eq!(h.count("gh issue edit 7 --repo a/b --remove-label"), 3);
-    assert!(out(&o).contains("WARN: label change on #7 failed"));
-    let q = h.at("gh api repos/a/b/issues/7/comments");
-    assert!(h.calls()[q].contains("The label of this issue could not be changed"));
-}
-
-#[test]
-fn after_a_stop_a_write_with_no_row_is_one_try() {
-    let h = Host::new("journal-stop");
-    h.result("aborted", "develop", "", "");
-    fs::write(h.dir.join("store-fail"), "poll-begin").unwrap();
-    fs::write(h.dir.join("gh-fail"), "--add-label needs-human-attention\n").unwrap();
-    let o = h.report(20, true);
-    assert!(o.status.success());
-    assert_eq!(h.count("gh issue edit 7 --repo a/b --remove-label"), 1);
-}
-
-#[test]
 fn a_merged_cycle_removes_its_workspace_and_its_notes() {
     let h = Host::new("merged");
     h.result("merged", "done", "feature/issue-7-x", "");
@@ -562,10 +325,6 @@ fn a_merged_cycle_removes_its_workspace_and_its_notes() {
     assert!(Home::new(h.dir.path())
         .cycle_note(7, "result.json")
         .exists());
-    assert!(
-        h.at("gh issue comment 7")
-            > h.at("gh issue edit 7 --repo a/b --remove-label tehas:running")
-    );
     let end = h.at("store cycle-end");
     assert!(h.calls()[end].contains("--oom 2"), "{}", h.calls()[end]);
     assert!(h.calls()[end].contains("--pr 9"));
@@ -695,20 +454,10 @@ fn a_handoff_on_awaiting_human_merge_waits_for_a_merge() {
     .unwrap();
     let o = h.report(10, false);
     assert!(o.status.success(), "{}", out(&o));
-    let order = [
-        "gh issue edit 7 --repo a/b --remove-label tehas:running --add-label tehas:awaiting-merge",
-        "gh pr comment https://github.com/a/b/pull/9",
-        "store cycle-end 7 --attempt 1 --status handoff",
-    ];
-    let at: Vec<usize> = order.iter().map(|c| h.at(c)).collect();
-    assert!(at.windows(2).all(|w| w[0] < w[1]), "{:#?}", h.calls());
+    // Its writes, the marks and the comment on the pull request, are
+    // apply.rs's ports_tests. The record says what it waits for.
+    h.at("store cycle-end 7 --attempt 1 --status handoff");
     assert_eq!(h.count("store park"), 0, "{:#?}", h.calls());
-    assert_eq!(
-        h.count("gh issue edit 7 --repo a/b --add-label tehas:question"),
-        0
-    );
-    let calls = h.calls().join("\n");
-    assert!(!calls.contains("needs-human-attention"), "{calls}");
     assert!(!work.join("widget-7").exists());
     let end = h.at("store cycle-end");
     assert!(h.calls()[end].contains("--pr 9"), "{}", h.calls()[end]);
@@ -742,9 +491,7 @@ fn a_handoff_on_lens_fix_reposition_waits_for_a_merge() {
     .unwrap();
     let o = h.report(10, false);
     assert!(o.status.success(), "{}", out(&o));
-    h.at(
-        "gh issue edit 7 --repo a/b --remove-label tehas:running --add-label tehas:awaiting-merge",
-    );
+    h.at("store cycle-end 7 --attempt 1 --status handoff");
     assert_eq!(h.count("store park"), 0, "{:#?}", h.calls());
 }
 
@@ -812,19 +559,4 @@ done
         serde_json::from_str(&fs::read_to_string(h.dir.join("facts.json")).unwrap()).unwrap();
     assert_eq!(facts["line"]["step"].as_str(), Some(step.as_str()));
     assert!(Home::new(h.dir.path()).state(State::DispatchAgain).exists());
-}
-
-#[test]
-fn the_refreshing_mark_off_its_pull_request_is_journaled_as_change_unmark() {
-    let h = Host::new("refresh-off");
-    h.approve_refresh();
-    h.result("aborted", "develop", "", "");
-    h.report(20, false);
-    let off = h
-        .calls()
-        .iter()
-        .position(|c| c.contains("-X DELETE repos/a/b/issues/9/labels/"))
-        .expect("the mark is taken off");
-    let record = h.at("store journal-record --poll 100 --kind change-unmark --issue 9");
-    assert!(record < off, "{:#?}", h.calls());
 }

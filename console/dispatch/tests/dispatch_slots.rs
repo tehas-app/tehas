@@ -5,6 +5,7 @@
 mod common;
 
 use common::*;
+use tehas_ports::{Mark, State};
 
 #[test]
 fn the_index_is_refreshed_once_before_the_first_start() {
@@ -137,9 +138,10 @@ flock -w 5 "$TEHAS_HOME/state/cycles/$1.lock" "$T/store-bin" cycle-start "$1" >/
     );
     assert_eq!(w.poll().rc, 1);
     let gh = w.gh();
-    has(
-        &gh,
-        "issue edit 7 --repo acme/widget --remove-label tehas:running --add-label needs-human-attention",
+    assert!(
+        w.off(7, Mark::State(State::Running)) && w.on(7, Mark::State(State::NeedsPerson)),
+        "{:?}",
+        w.writes_of(7)
     );
     lacks(&gh, "issue edit 8 --repo acme/widget --remove-label");
     assert_eq!(w.started(), "7 8 ");

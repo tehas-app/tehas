@@ -18,8 +18,9 @@
 //! here; its writer raised it. The event's line goes to the factory's log.
 //!
 //! Every path is the settings and the number, as a string, never a glob. The
-//! calls of systemctl, docker and gh keep the bounds of `timeout` they had in
-//! bash, and gh is the one on PATH.
+//! calls of systemctl and docker keep the bounds of `timeout` they had in
+//! bash. The issue's running mark is read and taken off through the tickets
+//! port, each call in [`BOUND`]; the console's wiring makes the handle.
 //!
 //! Exit: see console/src/usage/stop.txt.
 
@@ -27,17 +28,24 @@ use crate::{account, store};
 use std::env;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, ErrorKind, Write as _};
+use std::num::NonZeroU64;
 use std::os::unix::fs::OpenOptionsExt as _;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::time::Duration;
 use tehas_core::cycle_notes;
 use tehas_core::home::Home;
-use tehas_core::lock::{probe, Probe};
+use tehas_core::lock::{probe, Held, Probe};
 use tehas_core::raise::{self, Writer};
 use tehas_core::settings::rules::is_repo;
 use tehas_ports::events::Dispatcher;
+use tehas_ports::{Mark, Outcome, State, TicketKey, TicketWrites};
 
 pub const USAGE: &str = include_str!("../../src/usage/stop.txt");
+
+/// How long each call of the tickets port may take, the bound of `timeout`
+/// the label's calls had in bash.
+const BOUND: Duration = Duration::from_secs(10);
 
 /// What the words of a run asked for.
 #[derive(Debug, PartialEq, Eq)]
@@ -313,55 +321,55 @@ impl Names {
         }
     }
 
-    /// The last step, the issue's half: 0, or 1 when the label could not be
-    /// read or taken off, or a cycle holds the lock again and owns the label.
-    fn take_label(&self) -> u8 {
+    /// The last step, the issue's half: what to say, on standard output when
+    /// it went well, or on standard error, with exit 1, when the number is
+    /// not an issue, the running mark could not be read or taken off, or a
+    /// cycle holds the lock again and owns the mark.
+    fn take_label(&self, tickets: &mut dyn TicketWrites) -> Result<Option<String>, String> {
         let n = &self.n;
-        let view = [
-            "issue",
-            "view",
-            n,
-            "--repo",
-            &self.repo,
-            "--json",
-            "labels",
-            "--jq",
-            ".labels[].name",
-        ];
-        let Some(labels) = read("10", "gh", &view) else {
-            eprintln!(
-                "WARN: the labels of #{n} could not be read, so tehas:running stays on the issue"
-            );
-            return 1;
+        let running = Mark::State(State::Running);
+        let key = self
+            .n
+            .parse()
+            .ok()
+            .and_then(NonZeroU64::new)
+            .map(TicketKey::Number);
+        let answer = key
+            .as_ref()
+            .and_then(|k| tickets.several(std::slice::from_ref(k)).pop())
+            .map(|(_, d)| d);
+        let (key, digest) = match (key, answer) {
+            (Some(key), Some(Ok(digest))) => (key, digest),
+            // A pull request's number, or no item at all: no read failed.
+            (_, Some(Err(Outcome::NotFound))) => {
+                return Err(format!("#{n} is not an issue; tehas stops only issues"));
+            }
+            _ => {
+                return Err(format!(
+                    "WARN: the labels of #{n} could not be read, so tehas:running stays on the issue"
+                ));
+            }
         };
-        if !labels.split('\n').any(|l| l == "tehas:running") {
-            return 0;
+        if !digest.marks.contains(&running) {
+            return Ok(None);
         }
         if self.running() {
-            eprintln!(
+            return Err(format!(
                 "WARN: a cycle for #{n} holds its lock again, so tehas:running stays on the issue"
-            );
-            return 1;
+            ));
         }
-        let edit = [
-            "issue",
-            "edit",
-            n,
-            "--repo",
-            &self.repo,
-            "--remove-label",
-            "tehas:running",
-        ];
-        if quiet("10", "gh", &edit) {
-            say(&format!("removed tehas:running from #{n}\n"));
-            0
-        } else {
-            eprintln!("WARN: tehas:running could not be taken off #{n}");
-            1
+        match tickets.unmark(&key, &running) {
+            Ok(()) => Ok(Some(format!("removed tehas:running from #{n}"))),
+            Err(_) => Err(format!("WARN: tehas:running could not be taken off #{n}")),
         }
     }
 
-    fn run(&self, keep: bool, events: &Dispatcher) -> Result<u8, u8> {
+    fn run(
+        &self,
+        keep: bool,
+        events: &Dispatcher,
+        tickets: &mut dyn TicketWrites,
+    ) -> Result<u8, u8> {
         let n = &self.n;
         let home = Path::new(&self.home);
         let unit = self.unit();
@@ -509,10 +517,10 @@ impl Names {
             say(&ended_line(n, already, reason));
             raise_stopped(home, n, &open_at, &answer.to_string(), events);
         }
-        if !held.as_ref().is_ok_and(|f| f.try_lock().is_ok()) {
+        let Some(Ok(held)) = held.ok().map(Held::try_take) else {
             eprintln!("tehas stop: a cycle for #{n} holds its lock, so nothing was removed.");
             return Ok(1);
-        }
+        };
 
         // Read again: a cycle that stopped just now may have parked as it
         // reported.
@@ -571,12 +579,29 @@ impl Names {
         }
         drop(held);
 
-        // Only when nothing failed: tehas:running comes off an issue whose
-        // cycle really ended.
+        // Only when nothing failed: the running mark comes off an issue
+        // whose cycle really ended.
         if rc == 0 {
-            rc = self.take_label();
+            rc = said(self.take_label(tickets));
         }
         Ok(rc)
+    }
+}
+
+/// The issue's half said, and its exit status: 0, or 1 for a line of
+/// standard error.
+fn said(half: Result<Option<String>, String>) -> u8 {
+    match half {
+        Ok(line) => {
+            if let Some(line) = line {
+                say(&format!("{line}\n"));
+            }
+            0
+        }
+        Err(line) => {
+            eprintln!("{line}");
+            1
+        }
     }
 }
 
@@ -596,7 +621,9 @@ fn setting(name: &str) -> String {
     env::var(name).unwrap_or_default()
 }
 
-pub fn main(given: &[String]) -> u8 {
+/// `tickets` makes the handle of the repository it is given, each call in
+/// the bound it is given; it is asked once the settings are known good.
+pub fn main(given: &[String], tickets: impl FnOnce(&str, Duration) -> Box<dyn TicketWrites>) -> u8 {
     let asked = match parse(given) {
         Ok(Some(asked)) => asked,
         Ok(None) => return 0,
@@ -624,7 +651,10 @@ pub fn main(given: &[String]) -> u8 {
         return 78;
     }
     let events = wiring(Path::new(&names.home));
-    names.run(asked.keep, &events).unwrap_or_else(|rc| rc)
+    let mut tickets = tickets(&names.repo, BOUND);
+    names
+        .run(asked.keep, &events, &mut *tickets)
+        .unwrap_or_else(|rc| rc)
 }
 
 /// The dispatcher of `tehas stop`: the log listener alone, which writes to
@@ -723,11 +753,14 @@ mod tests {
         home
     }
 
-    // A start of #5 by hand, under the lock a cycle holds.
+    // A start of #5 by hand, under the lock a cycle holds. Unlocked by name:
+    // a child another case forks this instant shares the descriptor until it
+    // execs, so a drop alone may not free it before the next start takes it.
     fn started(home: &Path) {
         let lock = File::create(Home::new(home).cycle_note(5, "lock")).unwrap();
         lock.try_lock().unwrap();
         store::call(home, &["cycle-start", "5", "--by-hand"]).unwrap();
+        lock.unlock().unwrap();
     }
 
     #[test]
@@ -773,7 +806,7 @@ mod tests {
             "65",
         ];
         store::call(&home, &refused).unwrap();
-        drop(lock);
+        lock.unlock().unwrap();
         let rows = store::call(&home, &["history-show", "5"]).unwrap()["rows"].clone();
         assert_eq!(rows[2]["reported"], false);
         let answer = stop("3");
@@ -787,6 +820,16 @@ mod tests {
 
     fn words(given: &[&str]) -> Vec<String> {
         given.iter().map(|w| w.to_string()).collect()
+    }
+
+    fn text(p: std::path::PathBuf) -> String {
+        p.display().to_string()
+    }
+
+    /// The path of five's note that ends in `end`, `.lock` say.
+    fn note(end: &str) -> String {
+        let end = end.strip_prefix('.').unwrap();
+        text(Home::new("/h/tehas").cycle_note(5, end))
     }
 
     fn names(n: &str) -> Names {
@@ -854,8 +897,9 @@ mod tests {
             assert!(!path.contains('*'), "{path}");
             assert!(!fifty_one.candidates(false).contains(path), "{path}");
         }
-        assert!(all.contains(&"/h/tehas/state/cycles/5.lock".to_string()));
-        assert!(all.contains(&"/h/tehas/live/console-5.txt".to_string()));
+        let home = Home::new("/h/tehas");
+        assert!(all.contains(&text(home.cycle_note(5, "lock"))));
+        assert!(all.contains(&text(home.live_console(5))));
         assert!(all.contains(&"/h/.pi/agent/ensemble-runs/issue-5".to_string()));
         assert!(all.contains(&"/h/tehas/work/widget-5".to_string()));
         assert!(all.contains(&"/h/tehas/work/widget-5.before-retry".to_string()));
@@ -874,10 +918,7 @@ mod tests {
             ".frozen",
             ".status.new",
         ] {
-            assert!(
-                all.contains(&format!("/h/tehas/state/cycles/5{end}")),
-                "{end}"
-            );
+            assert!(all.contains(&note(end)), "{end}");
         }
     }
 
@@ -892,7 +933,7 @@ mod tests {
     fn the_candidates_keep_the_cycles_record() {
         let all = names("5").candidates(false);
         for end in [".json", ".manifest.json", ".runner_exit", ".status"] {
-            assert!(!all.contains(&format!("/h/tehas/state/cycles/5{end}")));
+            assert!(!all.contains(&note(end)));
         }
     }
 
@@ -900,8 +941,8 @@ mod tests {
     fn a_path_is_said_the_way_a_person_types_it() {
         let five = names("5");
         assert_eq!(
-            five.short("/h/tehas/state/cycles/5.lock"),
-            "state/cycles/5.lock"
+            five.short(&text(Home::new("/h/tehas").cycle_note(5, "lock"))),
+            text(Home::new("").cycle_note(5, "lock"))
         );
         assert_eq!(five.short("/h/.pi/x"), "~/.pi/x");
         assert_eq!(five.short("/other/x"), "/other/x");
@@ -980,6 +1021,182 @@ mod tests {
         assert!(remove(&inside));
         assert!(!Path::new(&inside).exists());
         assert!(remove(&inside), "a name not there is gone already");
+    }
+
+    mod label {
+        //! The issue's half, on the ports' fake: the running mark comes off
+        //! when it is on and no cycle holds the lock again, and what could
+        //! not be done is said in stop's own words.
+
+        use super::*;
+        use tehas_ports::fake::{FakeSite, Fault, Faulty, Op, TicketsOp, World};
+        use tehas_ports::{Act, Actor, Caller, Site, Write};
+
+        /// The running mark's label, as stop's lines name it.
+        const LABEL: &str = "tehas:running";
+
+        fn running() -> Mark {
+            Mark::State(State::Running)
+        }
+
+        /// #5 of a home of its own, so its lock is a file this test holds.
+        fn five(dir: &TestDir) -> Names {
+            Names {
+                home: dir.to_string_lossy().into_owned(),
+                ..names("5")
+            }
+        }
+
+        fn take(names: &Names, site: &impl Site) -> Result<Option<String>, String> {
+            let mut t = site
+                .ticket_writes(&Actor::Operator, Caller::new("stop"))
+                .unwrap();
+            names.take_label(&mut *t)
+        }
+
+        fn unmarked(n: u64) -> Write {
+            Write::Unmark {
+                ticket: TicketKey::Number(NonZeroU64::new(n).unwrap()),
+                mark: running(),
+            }
+        }
+
+        /// The lock of #5, held until the value drops: a cycle that started
+        /// while the host was cleared.
+        fn hold(names: &Names) -> File {
+            fs::create_dir_all(names.state()).unwrap();
+            let f = File::create(names.lock()).unwrap();
+            f.try_lock().unwrap();
+            f
+        }
+
+        #[test]
+        fn the_mark_on_the_issue_comes_off_with_one_read_and_one_write() {
+            let dir = TestDir::new("stop-label-on");
+            let w = World::new().ticket(5, |t| {
+                t.mark(Mark::Project(tehas_ports::MarkName::new("bug").unwrap()))
+                    .mark(running())
+                    .mark(Mark::Act(Act::Pause))
+            });
+            assert_eq!(
+                take(&five(&dir), &FakeSite::new(&w)),
+                Ok(Some(format!("removed {LABEL} from #5")))
+            );
+            let wrote: Vec<Write> = w.wrote().into_iter().map(|x| x.what).collect();
+            assert_eq!(wrote, vec![unmarked(5)]);
+            assert_eq!(w.sent(), 2);
+        }
+
+        #[test]
+        fn a_mark_not_on_the_issue_is_read_and_nothing_is_written_or_said() {
+            let dir = TestDir::new("stop-label-off");
+            let w = World::new().ticket(5, |t| t.mark(Mark::Act(Act::Pause)));
+            assert_eq!(take(&five(&dir), &FakeSite::new(&w)), Ok(None));
+            assert_eq!(w.wrote(), vec![]);
+            assert_eq!(w.sent(), 1);
+        }
+
+        #[test]
+        fn of_five_and_fifty_one_only_five_is_asked_about_and_unmarked() {
+            let dir = TestDir::new("stop-label-51");
+            let w = World::new()
+                .ticket(5, |t| t.mark(running()))
+                .ticket(51, |t| t.mark(running()));
+            let site = FakeSite::new(&w);
+            assert_eq!(
+                take(&five(&dir), &site),
+                Ok(Some(format!("removed {LABEL} from #5")))
+            );
+            let wrote: Vec<Write> = w.wrote().into_iter().map(|x| x.what).collect();
+            assert_eq!(wrote, vec![unmarked(5)]);
+            assert_eq!(w.sent(), 2);
+            let mut t = site.tickets(&Actor::Operator, Caller::new("stop")).unwrap();
+            let key = TicketKey::Number(NonZeroU64::new(51).unwrap());
+            let (_, of_51) = t.several(&[key]).pop().unwrap();
+            assert!(of_51.unwrap().marks.contains(&running()));
+        }
+
+        #[test]
+        fn marks_that_cannot_be_read_are_a_warning_and_no_write() {
+            let dir = TestDir::new("stop-label-unread");
+            let w = World::new().ticket(5, |t| t.mark(running()));
+            let slow =
+                Faulty::new(FakeSite::new(&w)).on(Op::Tickets(TicketsOp::Several), Fault::Timeout);
+            let warn =
+                format!("WARN: the labels of #5 could not be read, so {LABEL} stays on the issue");
+            assert_eq!(take(&five(&dir), &slow), Err(warn.clone()));
+            for fault in [Fault::Unreachable, Fault::Forbidden, Fault::Malformed] {
+                let failed =
+                    Faulty::new(FakeSite::new(&w)).on(Op::Tickets(TicketsOp::Several), fault);
+                assert_eq!(take(&five(&dir), &failed), Err(warn.clone()));
+            }
+            assert_eq!(w.wrote(), vec![]);
+        }
+
+        /// The line of a number that is not an issue of this project.
+        fn not_an_issue(n: u64) -> Result<Option<String>, String> {
+            Err(format!("#{n} is not an issue; tehas stops only issues"))
+        }
+
+        #[test]
+        fn a_changes_number_is_not_an_issue_and_nothing_is_written() {
+            let dir = TestDir::new("stop-label-change");
+            let w = World::new().change(5, "work/5", |c| c);
+            let answer = take(&five(&dir), &FakeSite::new(&w));
+            assert_eq!(answer, not_an_issue(5));
+            assert!(!answer.unwrap_err().contains(LABEL));
+            assert_eq!(w.wrote(), vec![]);
+            assert_eq!(w.sent(), 1);
+        }
+
+        #[test]
+        fn a_number_with_no_item_is_not_an_issue_and_nothing_is_written() {
+            let dir = TestDir::new("stop-label-none");
+            let w = World::new().ticket(51, |t| t.mark(running()));
+            assert_eq!(take(&five(&dir), &FakeSite::new(&w)), not_an_issue(5));
+            assert_eq!(w.wrote(), vec![]);
+            assert_eq!(w.sent(), 1);
+        }
+
+        #[test]
+        fn a_mark_that_cannot_be_taken_off_is_a_warning() {
+            let dir = TestDir::new("stop-label-refused");
+            let w = World::new().ticket(5, |t| t.mark(running()));
+            let refused =
+                Faulty::new(FakeSite::new(&w)).on(Op::Tickets(TicketsOp::Unmark), Fault::Timeout);
+            assert_eq!(
+                take(&five(&dir), &refused),
+                Err(format!("WARN: {LABEL} could not be taken off #5"))
+            );
+            assert_eq!(w.wrote(), vec![]);
+        }
+
+        #[test]
+        fn a_cycle_that_holds_the_lock_again_keeps_its_mark_and_is_asked_after_the_read() {
+            let dir = TestDir::new("stop-label-again");
+            let names = five(&dir);
+            let _lock = hold(&names);
+            let on = World::new().ticket(5, |t| t.mark(running()));
+            assert_eq!(
+                take(&names, &FakeSite::new(&on)),
+                Err(format!(
+                    "WARN: a cycle for #5 holds its lock again, so {LABEL} stays on the issue"
+                ))
+            );
+            assert_eq!(on.wrote(), vec![]);
+            assert_eq!(on.sent(), 1);
+            // The lock is asked about only for a mark that is on: a read that
+            // finds none says nothing of a cycle.
+            let off = World::new().ticket(5, |t| t);
+            assert_eq!(take(&names, &FakeSite::new(&off)), Ok(None));
+        }
+
+        #[test]
+        fn a_warning_is_exit_1_and_the_rest_is_0() {
+            assert_eq!(said(Ok(None)), 0);
+            assert_eq!(said(Ok(Some("removed".to_string()))), 0);
+            assert_eq!(said(Err("WARN".to_string())), 1);
+        }
     }
 
     #[test]

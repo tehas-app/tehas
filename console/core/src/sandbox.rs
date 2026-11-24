@@ -1788,9 +1788,12 @@ mod tests {
 
     #[test]
     fn a_container_reads_a_narrowed_token_never_the_apps() {
-        assert_eq!(Kind::Cycle.app_dir(), Some("state/github-cycle"));
-        assert_eq!(Kind::Turn.app_dir(), Some("state/github-session"));
-        assert_eq!(Kind::Session.app_dir(), Some("state/github-session"));
+        assert_eq!(Kind::Cycle.app_dir(), Some(TokenDir::Cycle.relative()));
+        assert_eq!(Kind::Turn.app_dir(), Some(TokenDir::Session.relative()));
+        assert_eq!(Kind::Session.app_dir(), Some(TokenDir::Session.relative()));
+        for kind in [Kind::Cycle, Kind::Turn, Kind::Session] {
+            assert_ne!(kind.app_dir(), Some(TokenDir::App.relative()), "{kind:?}");
+        }
     }
 
     #[test]
@@ -1823,7 +1826,7 @@ mod tests {
         for f in ["widget.db", "widget.db.stage.1", "other.tmp", "_config.db"] {
             fs::write(index.join(f), "x").unwrap();
         }
-        let state = at.join("state").display().to_string();
+        let state = at.join("container").display().to_string();
         assert!(seed(&state, &index.display().to_string()));
         let mut got: Vec<String> = fs::read_dir(format!("{state}/cache"))
             .unwrap()

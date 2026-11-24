@@ -3,11 +3,15 @@
 //! A login can be renamed, and a freed login registered by someone else, so a
 //! login alone does not say who acted. `tehas update` and install.sh resolve
 //! each login of TEHAS_ALLOWED_LABELERS and TEHAS_MILLWRIGHT_LOGIN to its user
-//! id and record the pairs in `state/account-ids`, one `<login> <id>` a line
-//! (console/src/accounts.rs). Every answer of GitHub a program reads goes
+//! id and record the pairs in `state/account-ids`, one `<realm> <login> <id>`
+//! a line, the realm `code-host` or `tickets` (console/ops/src/ids.rs). A
+//! 1.x line, `<login> <id>`, is read as the code host's: the update rewrites
+//! the file once in the new form, and every write is in it (ports spec,
+//! "Identity across suppliers"; R9, expand then contract). Every answer of GitHub a program reads goes
 //! through `vouch` first: a listed login whose object does not carry the
 //! recorded id is renamed `<login>#<id>`, or `<login>#` when it carries none,
 //! which no check of the list matches. A login of no list is left as it is.
+//! While the file cannot be read with certainty no listed login counts.
 //!
 //! The key of a pair is the login as GraphQL gives it: REST names a GitHub
 //! App `<slug>[bot]` and GraphQL `<slug>`, one account. GitHub logins are
@@ -20,6 +24,7 @@ use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::Mutex;
+use tehas_ports::{AccountKind, ChangeDigest};
 
 /// Where the pairs are, under the instance's home.
 pub const FILE: &str = crate::home::State::AccountIds.relative();
@@ -70,20 +75,196 @@ pub fn own_pull(p: &Value, repo: &str, bot: &str, allowed: impl Fn(&str) -> bool
         && (factorys(author, bot) || allowed(account(author)))
 }
 
-/// The pairs of a file's text. None when a line is not `<login> <id>`.
-pub fn parse(text: &str) -> Option<BTreeMap<String, u64>> {
-    let mut ids = BTreeMap::new();
-    for line in text.lines().filter(|l| !l.is_empty()) {
-        let (login, id) = line.split_once(' ')?;
-        let id = id.parse::<u64>().ok().filter(|_| !login.is_empty())?;
-        ids.insert(account(login).to_string(), id);
-    }
-    Some(ids)
+/// Why the file cannot be read with certainty: the line it is on, if one,
+/// what is wrong and how it is repaired.
+#[derive(Debug, PartialEq)]
+pub struct Unreadable {
+    pub line: Option<usize>,
+    pub what: String,
+    repair: Repair,
 }
 
-/// The file's text for these pairs.
-pub fn text(ids: &BTreeMap<String, u64>) -> String {
-    ids.iter().map(|(l, i)| format!("{l} {i}\n")).collect()
+/// How an unreadable file is repaired.
+#[derive(Debug, PartialEq)]
+enum Repair {
+    /// Fix or remove the line.
+    Line,
+    /// Make it a regular file of pairs, or remove it.
+    File,
+    /// Its pairs may be sound: give the factory's user access to it.
+    Access,
+    /// Read it again.
+    Again,
+}
+
+impl Unreadable {
+    fn at(line: usize, what: impl Into<String>) -> Unreadable {
+        Unreadable {
+            line: Some(line),
+            what: what.into(),
+            repair: Repair::Line,
+        }
+    }
+
+    fn whole(what: impl Into<String>, repair: Repair) -> Unreadable {
+        Unreadable {
+            line: None,
+            what: what.into(),
+            repair,
+        }
+    }
+
+    /// The line that names `file`, what is wrong and how to repair it.
+    pub fn says(&self, file: &str) -> String {
+        let what = &self.what;
+        match (self.line, &self.repair) {
+            (Some(n), _) => format!(
+                "tehas: {file} cannot be read: line {n} {what}. Fix or remove that line, then run tehas update"
+            ),
+            (None, Repair::Access) => format!(
+                "tehas: {file} cannot be read: {what}. Give it back read and write for the factory's user, then run tehas update"
+            ),
+            (None, Repair::Again) => format!(
+                "tehas: {file} cannot be read: {what}. Run tehas update again"
+            ),
+            (None, _) => format!(
+                "tehas: {file} cannot be read: {what}. Make it a regular file of `<realm> <login> <id>` lines, or remove it, then run tehas update"
+            ),
+        }
+    }
+}
+
+/// The pairs a file holds, the code host's and the tickets realm's, and
+/// whether the file is in its written form: no line had its end trimmed and
+/// none was in the 1.x form.
+#[derive(Debug, PartialEq)]
+pub struct Pairs {
+    /// The code host's pairs: every check of 2.0 reads these.
+    pub ids: BTreeMap<String, u64>,
+    /// The tickets realm's pairs, kept as they are: a split setup's.
+    pub tickets: BTreeMap<String, u64>,
+    pub tidy: bool,
+}
+
+/// The realm of a line, as the file spells it.
+pub const CODE_HOST: &str = "code-host";
+/// The tickets realm, as the file spells it.
+pub const TICKETS: &str = "tickets";
+
+/// The pairs of a file's bytes. A line is `<realm> <login> <id>`, or a 1.x
+/// line `<login> <id>`, read as the code host's. A line may end in spaces,
+/// tabs or a carriage return; anything else is unreadable, and so is a login
+/// given two ids in one realm, in one case or two.
+pub fn parse_bytes(bytes: &[u8]) -> Result<Pairs, Unreadable> {
+    let text = std::str::from_utf8(bytes).map_err(|e| {
+        let n = bytes[..e.valid_up_to()]
+            .iter()
+            .filter(|b| **b == b'\n')
+            .count();
+        Unreadable::at(n + 1, "is not UTF-8")
+    })?;
+    let mut ids = BTreeMap::new();
+    let mut tickets = BTreeMap::new();
+    let mut seen: BTreeMap<(bool, String), (usize, u64)> = BTreeMap::new();
+    let mut tidy = true;
+    for (i, raw) in text.split('\n').enumerate() {
+        let n = i + 1;
+        let line = raw.trim_end_matches([' ', '\t', '\r']);
+        tidy &= line.len() == raw.len();
+        if line.is_empty() {
+            continue;
+        }
+        let (realm, login, id) = entry(line).map_err(|what| Unreadable::at(n, what))?;
+        tidy &= realm.is_some();
+        let ticket_realm = realm == Some(TICKETS);
+        let key = account(login).to_string();
+        if !crate::settings::rules::is_login(&key) {
+            return Err(Unreadable::at(
+                n,
+                "is not `<realm> <login> <id>`: the login is not a GitHub login",
+            ));
+        }
+        match seen.get(&(ticket_realm, folded(&key))) {
+            Some(&(first, was)) if was != id => {
+                return Err(Unreadable::at(
+                    n,
+                    format!("gives {key} another id than line {first}"),
+                ))
+            }
+            Some(_) => {}
+            None => {
+                seen.insert((ticket_realm, folded(&key)), (n, id));
+            }
+        }
+        if ticket_realm {
+            tickets.insert(key, id);
+        } else {
+            ids.insert(key, id);
+        }
+    }
+    Ok(Pairs { ids, tickets, tidy })
+}
+
+/// The realm, login and id of a line with its end trimmed, or what is
+/// wrong. A line of one space is the 1.x form, `<login> <id>`, with no
+/// realm: the code host's. A line of more is `<realm> <login> <id>`, its
+/// realm `code-host` or `tickets`.
+fn entry(line: &str) -> Result<(Option<&'static str>, &str, u64), &'static str> {
+    if line.starts_with(' ') {
+        return Err("is not `<realm> <login> <id>`: it starts with a space");
+    }
+    if line.contains("  ") {
+        return Err("is not `<realm> <login> <id>`: more than one space");
+    }
+    if line.matches(' ').count() <= 1 {
+        return pair(line).map(|(login, id)| (None, login, id));
+    }
+    let (word, rest) = line.split_once(' ').expect("the line holds a space");
+    let realm = match word {
+        CODE_HOST => CODE_HOST,
+        TICKETS => TICKETS,
+        _ => return Err("is not `<realm> <login> <id>`: the realm is not code-host or tickets"),
+    };
+    pair(rest).map(|(login, id)| (Some(realm), login, id))
+}
+
+/// The login and id of a line with its end trimmed, or what is wrong.
+fn pair(line: &str) -> Result<(&str, u64), &'static str> {
+    let Some((login, id)) = line.split_once(' ') else {
+        return Err("is not `<realm> <login> <id>`: it has no space");
+    };
+    if login.is_empty() {
+        return Err("is not `<realm> <login> <id>`: it starts with a space");
+    }
+    if id.starts_with(' ') {
+        return Err("is not `<realm> <login> <id>`: more than one space");
+    }
+    if login.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return Err("is not `<realm> <login> <id>`: the login holds a tab or control character");
+    }
+    if id.is_empty() || !id.bytes().all(|b| b.is_ascii_digit()) {
+        return Err("is not `<realm> <login> <id>`: the id is not a number");
+    }
+    id.parse::<u64>()
+        .map(|id| (login, id))
+        .map_err(|_| "is not `<realm> <login> <id>`: the id is too large")
+}
+
+/// The pairs of a file's text, as `parse_bytes` reads them.
+pub fn parse(text: &str) -> Result<BTreeMap<String, u64>, Unreadable> {
+    parse_bytes(text.as_bytes()).map(|p| p.ids)
+}
+
+/// The file's text for these pairs, the code host's then the tickets
+/// realm's, each `<realm> <login> <id>`: the one form tehas writes.
+pub fn text(ids: &BTreeMap<String, u64>, tickets: &BTreeMap<String, u64>) -> String {
+    let lines = |realm: &str, pairs: &BTreeMap<String, u64>| -> String {
+        pairs
+            .iter()
+            .map(|(l, i)| format!("{realm} {l} {i}\n"))
+            .collect()
+    };
+    lines(CODE_HOST, ids) + &lines(TICKETS, tickets)
 }
 
 /// The pairs with `new` given the user id of `old`, for an account whose
@@ -102,13 +283,82 @@ pub fn carried(ids: &BTreeMap<String, u64>, old: &str, new: &str) -> Option<BTre
     Some(out)
 }
 
-/// The pairs recorded in `home`. An absent or unreadable file is no pairs, so
-/// every listed login fails to count until one is recorded.
-pub fn read(home: &Path) -> BTreeMap<String, u64> {
-    crate::file::read_regular(&home.join(FILE), BOUND)
-        .ok()
-        .and_then(|(b, _)| parse(&String::from_utf8_lossy(&b)))
+/// The factory's account as the adapter knows it: the bot's login and the
+/// user id `state/account-ids` records for it, the bot account's and not the
+/// App's. An ids file that cannot be read, or no id for the login, gives no
+/// id: then no account is the factory's own, and a write the site may have
+/// taken is settled as unknown, never sent again.
+pub fn bot(home: &Path) -> (String, Option<u64>) {
+    use crate::home::{Home, State};
+    let login = std::fs::read_to_string(Home::new(home).state(State::BotLogin))
         .unwrap_or_default()
+        .trim()
+        .to_string();
+    let key = folded(account(&login));
+    let id = load(home).ok().and_then(|pairs| {
+        pairs
+            .ids
+            .iter()
+            .find(|(l, _)| folded(account(l)) == key)
+            .map(|(_, id)| *id)
+    });
+    (login, id)
+}
+
+/// The pairs recorded in `home`. An absent file is no pairs, as before the
+/// first record. A file that is there with no pairs is unreadable: it is
+/// written whole or not at all, so it is never empty while it holds pairs.
+pub fn load(home: &Path) -> Result<Pairs, Unreadable> {
+    match crate::file::read_regular(&home.join(FILE), BOUND) {
+        Ok((bytes, _)) => match parse_bytes(&bytes)? {
+            p if p.ids.is_empty() => Err(Unreadable::whole("it holds no pairs", Repair::File)),
+            p => Ok(p),
+        },
+        Err(e) => match unreadable(e) {
+            Some(u) => Err(u),
+            None => Ok(Pairs {
+                ids: BTreeMap::new(),
+                tickets: BTreeMap::new(),
+                tidy: true,
+            }),
+        },
+    }
+}
+
+/// What a failed read of the file says, or None when it is absent.
+fn unreadable(e: crate::file::ReadError) -> Option<Unreadable> {
+    use crate::file::ReadError;
+    use std::io::ErrorKind;
+    Some(match e {
+        ReadError::Io(e) if e.kind() == ErrorKind::NotFound => return None,
+        ReadError::Io(e) if e.kind() == ErrorKind::PermissionDenied => {
+            Unreadable::whole("it cannot be read by this user", Repair::Access)
+        }
+        ReadError::Io(_) => Unreadable::whole("it could not be read", Repair::Access),
+        ReadError::NotRegular => Unreadable::whole("it is not a regular file", Repair::File),
+        ReadError::Replaced => {
+            Unreadable::whole("it was replaced while it was read", Repair::Again)
+        }
+        ReadError::TooLarge => Unreadable::whole(
+            format!("it is larger than {} KiB", BOUND / 1024),
+            Repair::File,
+        ),
+    })
+}
+
+/// The line a reader says of a file it cannot read.
+fn unread(u: &Unreadable) -> String {
+    format!("{}. Until then no listed login counts", u.says(FILE))
+}
+
+/// The pairs recorded in `home`, for a reader that vouches. A file that
+/// cannot be read is said on standard error and gives no pairs, so no listed
+/// login counts until it is repaired.
+pub fn read(home: &Path) -> BTreeMap<String, u64> {
+    load(home).map(|p| p.ids).unwrap_or_else(|u| {
+        say_once(unread(&u));
+        BTreeMap::new()
+    })
 }
 
 /// The logins of the two settings, as `account` gives them.
@@ -141,6 +391,8 @@ pub enum Doubt {
 pub struct Accounts {
     listed: Vec<String>,
     ids: BTreeMap<String, u64>,
+    /// The file could not be read: what a doubt says instead of its own line.
+    unread: Option<String>,
 }
 
 impl Accounts {
@@ -160,11 +412,25 @@ impl Accounts {
             .into_iter()
             .filter_map(|(l, id)| Some((l, id?)))
             .collect();
-        Accounts { listed, ids }
+        Accounts {
+            listed,
+            ids,
+            unread: None,
+        }
+    }
+
+    /// The listed logins of a home whose file cannot be read: none counts.
+    pub fn unreadable(listed: Vec<String>, u: &Unreadable) -> Accounts {
+        Accounts {
+            listed: listed.iter().map(|l| folded(l)).collect(),
+            ids: BTreeMap::new(),
+            unread: Some(unread(u)),
+        }
     }
 
     /// The settings and the pairs this process was given: TEHAS_ALLOWED_LABELERS,
-    /// TEHAS_MILLWRIGHT_LOGIN and the file under TEHAS_HOME.
+    /// TEHAS_MILLWRIGHT_LOGIN and the file under TEHAS_HOME. A file that
+    /// cannot be read counts no listed login and says so.
     pub fn from_env() -> Accounts {
         let var = |k: &str| std::env::var(k).unwrap_or_default();
         let listed = listed(
@@ -175,12 +441,19 @@ impl Accounts {
             return Accounts::default();
         }
         let home = var("TEHAS_HOME");
-        let ids = if home.is_empty() {
-            BTreeMap::new()
-        } else {
-            read(Path::new(&home))
-        };
-        Accounts::new(listed, ids)
+        if home.is_empty() {
+            return Accounts::new(listed, BTreeMap::new());
+        }
+        match load(Path::new(&home)) {
+            Ok(p) => Accounts::new(listed, p.ids),
+            Err(u) => Accounts::unreadable(listed, &u),
+        }
+    }
+
+    /// Why the recorded ids could not be read, when they could not: then no
+    /// listed login counts.
+    pub fn unread(&self) -> Option<&str> {
+        self.unread.as_deref()
     }
 
     /// Whether `login` with `id` counts as the listed account it names. A
@@ -188,6 +461,42 @@ impl Accounts {
     pub fn doubt(&self, login: &str, id: Option<u64>) -> Option<Doubt> {
         let a = self.actor(login, id);
         grant::doubt(self.is_listed(login), a.recorded, a.carried)
+    }
+
+    /// Whether a change counts as the factory's own, the ports' form of
+    /// [`own_pull`]: anyone can open a change from a fork with any branch name
+    /// and any body, so no other one stands for an issue. `from_fork` is the
+    /// site's word that the head is in another project, GitHub's
+    /// `isCrossRepository`; the port gives no head project beside it, so it
+    /// stands for both of own_pull's checks of the head's repository.
+    ///
+    /// The author is the factory's own (`AccountKind::Ours`, which the
+    /// adapter answers only for a bot whose id is the bot's recorded one), or
+    /// a login `allowed` takes, compared as `folded` gives it, whose id is the
+    /// one recorded for it. No recorded id, no id on the account, or a file
+    /// that could not be read: not own.
+    pub fn own_change(&self, c: &ChangeDigest, allowed: impl Fn(&str) -> bool) -> bool {
+        let Some(author) = c.author.as_ref().filter(|_| !c.from_fork) else {
+            return false;
+        };
+        if self.unread.is_some() {
+            return false;
+        }
+        if author.kind == AccountKind::Ours {
+            return true;
+        }
+        let login = account(author.login.as_str());
+        if login.is_empty() || !allowed(login) {
+            return false;
+        }
+        let carried = author
+            .id
+            .as_ref()
+            .and_then(|i| i.as_str().parse::<u64>().ok());
+        match (self.ids.get(&folded(login)), carried) {
+            (Some(recorded), Some(id)) => *recorded == id,
+            _ => false,
+        }
     }
 
     fn is_listed(&self, login: &str) -> bool {
@@ -220,7 +529,10 @@ impl Accounts {
                         .and_then(Value::as_u64)
                         .or_else(|| o.get("id").and_then(Value::as_u64));
                     if let Some(doubt) = self.doubt(&login, id) {
-                        warn(&login, id, &doubt);
+                        match &self.unread {
+                            Some(line) => say_once(line.clone()),
+                            None => say_once(says(&login, id, &doubt)),
+                        }
                         let name = grant::counted(&self.actor(&login, id), true)
                             .text()
                             .into_owned();
@@ -247,15 +559,15 @@ pub fn says(login: &str, id: Option<u64>, doubt: &Doubt) -> String {
             "tehas: no user id is recorded for {login} in {FILE}, so its actions do not count; run tehas update"
         ),
         Doubt::Other { recorded } => format!(
-            "tehas: {login} acted with the user id {}, not the recorded {recorded}, so it does not count; if the account was renamed, run tehas update --accept-id {login}",
+            "tehas: {login} acted with the user id {}, not the recorded {recorded}, so it does not count: the login may have changed hands. If it is the same person, run tehas update --accept-id {login}",
             id.unwrap_or_default()
         ),
     }
 }
 
-fn warn(login: &str, id: Option<u64>, doubt: &Doubt) {
+/// Says `line` on standard error, once a process.
+fn say_once(line: String) {
     static SAID: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
-    let line = says(login, id, doubt);
     if SAID
         .lock()
         .map(|mut s| s.insert(line.clone()))
@@ -389,9 +701,11 @@ mod tests {
             parse("alice 5\nAlice 5\n").unwrap(),
         );
         assert_eq!(same.doubt("ALICE", Some(5)), None);
+        // The file reader refuses such a file; a map given otherwise still
+        // vouches for neither.
         let split = Accounts::new(
             listed("alice Alice", ""),
-            parse("alice 5\nAlice 99\n").unwrap(),
+            BTreeMap::from([("alice".into(), 5), ("Alice".into(), 99)]),
         );
         for id in [5, 99] {
             assert_eq!(
@@ -456,18 +770,265 @@ mod tests {
     #[test]
     fn the_file_is_one_pair_a_line() {
         let ids = parse("alice 1001\nmill[bot] 3001\n").unwrap();
-        assert_eq!(text(&ids), "alice 1001\nmill 3001\n");
-        assert_eq!(parse("alice\n"), None);
-        assert_eq!(parse("alice x\n"), None);
-        assert_eq!(parse(" 5\n"), None);
-        assert_eq!(parse(""), Some(BTreeMap::new()));
+        let none = BTreeMap::new();
+        assert_eq!(
+            text(&ids, &none),
+            "code-host alice 1001\ncode-host mill 3001\n"
+        );
+        assert!(parse("alice\n").is_err());
+        assert!(parse("alice x\n").is_err());
+        assert!(parse(" 5\n").is_err());
+        assert_eq!(parse(""), Ok(BTreeMap::new()));
+        assert!(
+            parse_bytes(b"code-host alice 1001\ncode-host mill 3001\n")
+                .unwrap()
+                .tidy
+        );
+        // Another order or spelling is no damage.
+        assert!(
+            parse_bytes(b"code-host mill[bot] 3001\ncode-host alice 1001")
+                .unwrap()
+                .tidy
+        );
+    }
+
+    /// Expand then contract (R9): a 1.x line, `<login> <id>`, reads as the
+    /// code host's pair, beside a line of the new form; the file is then not
+    /// in its written form, so the update writes it once, every line with
+    /// its realm. A tickets realm's pair is kept apart and written back.
+    #[test]
+    fn a_1x_line_reads_as_the_code_hosts_and_is_written_with_its_realm() {
+        let old = parse_bytes(b"alice 1001\nmill 3001\n").unwrap();
+        let new = parse_bytes(b"code-host alice 1001\ncode-host mill 3001\n").unwrap();
+        assert_eq!(old.ids, new.ids);
+        assert!(old.tickets.is_empty());
+        assert!(!old.tidy && new.tidy);
+        let mixed = parse_bytes(b"alice 1001\ncode-host bob 1002\ntickets alice 77\n").unwrap();
+        assert!(!mixed.tidy);
+        assert_eq!(mixed.ids.get("alice"), Some(&1001));
+        assert_eq!(mixed.ids.get("bob"), Some(&1002));
+        assert_eq!(mixed.tickets.get("alice"), Some(&77));
+        let written = text(&mixed.ids, &mixed.tickets);
+        assert_eq!(
+            written,
+            "code-host alice 1001\ncode-host bob 1002\ntickets alice 77\n"
+        );
+        let again = parse_bytes(written.as_bytes()).unwrap();
+        assert!(again.tidy);
+        assert_eq!((again.ids, again.tickets), (mixed.ids, mixed.tickets));
+        // One login, one id a realm: in two realms it may differ, in one it
+        // may not, whichever form names it.
+        let u = parse_bytes(b"alice 1001\ncode-host Alice 7\n").unwrap_err();
+        assert_eq!(u.line, Some(2));
+        assert!(u.what.contains("another id than line 1"), "{}", u.what);
+    }
+
+    /// Any shape but the two forms is unreadable: no listed login counts
+    /// until the line is fixed, and the line says how.
+    #[test]
+    fn a_line_of_another_shape_is_unreadable() {
+        for (text, what) in [
+            ("jira alice 1001\n", "the realm is not code-host or tickets"),
+            (
+                "Code-Host alice 1001\n",
+                "the realm is not code-host or tickets",
+            ),
+            ("code-host alice 1001 extra\n", "not a number"),
+            ("code-host alice\n", "not a number"),
+            ("tickets alice x\n", "not a number"),
+        ] {
+            let u = parse_bytes(text.as_bytes()).unwrap_err();
+            assert_eq!(u.line, Some(1), "{text:?}");
+            assert!(u.what.contains(what), "{text:?}: {}", u.what);
+            assert!(u
+                .says(FILE)
+                .contains("Fix or remove that line, then run tehas update"));
+        }
+    }
+
+    #[test]
+    fn trailing_spaces_and_crlf_read_as_the_same_pairs_not_tidy() {
+        let clean = parse("alice 1001\nbob 1002\n").unwrap();
+        for text in [
+            "alice 1001\r\nbob 1002\r\n",
+            "alice 1001  \nbob 1002\t\n",
+            "alice 1001 \r\n\r\nbob 1002",
+            "alice 1001\n  \nbob 1002\n",
+        ] {
+            let p = parse_bytes(text.as_bytes()).unwrap();
+            assert_eq!(p.ids, clean, "{text:?}");
+            assert!(!p.tidy, "{text:?}");
+        }
+    }
+
+    #[test]
+    fn a_line_that_cannot_be_read_with_certainty_is_named() {
+        for (text, line, what) in [
+            ("alice 1001\nbob\n", 2, "no space"),
+            ("alice 1001\nbob  1002\n", 2, "more than one space"),
+            ("alice 1001\nbob x1\n", 2, "not a number"),
+            ("alice 1001\nbob +1\n", 2, "not a number"),
+            ("alice 1001\n\n bob 1\n", 3, "starts with a space"),
+            ("alice 1001\nb\tob 1\n", 2, "tab or control"),
+            (
+                "alice 1001\nbob 1002\nalice 7\n",
+                3,
+                "another id than line 1",
+            ),
+        ] {
+            let u = parse_bytes(text.as_bytes()).unwrap_err();
+            assert_eq!(u.line, Some(line), "{text:?}");
+            assert!(u.what.contains(what), "{text:?}: {}", u.what);
+        }
+        let u = parse_bytes(b"alice 1001\nbob 10\xff2\n").unwrap_err();
+        assert_eq!(u.line, Some(2));
+        assert!(u.what.contains("UTF-8"));
+        // The same pair twice says nothing new, in any case.
+        assert!(parse("alice 1001\nalice 1001\n").is_ok());
+        assert!(parse("alice 1001\nAlice 1001\n").is_ok());
+        let said = Unreadable::at(2, "is not `<realm> <login> <id>`").says(FILE);
+        assert!(said.contains(FILE) && said.contains("line 2"));
+        assert!(said.contains("Fix or remove that line, then run tehas update"));
+    }
+
+    #[test]
+    fn a_login_given_another_id_in_another_case_is_unreadable() {
+        let u = parse_bytes(b"alice 5\nbob 7\nAlice 99\n").unwrap_err();
+        assert_eq!(u.line, Some(3));
+        assert!(
+            u.what.contains("gives Alice another id than line 1"),
+            "{}",
+            u.what
+        );
+        assert!(u.says(FILE).contains("Fix or remove that line"));
+        let u = parse_bytes(b"app/Acme 5\nacme[bot] 6\n").unwrap_err();
+        assert_eq!(u.line, Some(2));
+    }
+
+    #[test]
+    fn a_login_github_would_not_give_is_named() {
+        for text in [
+            "\u{feff}alice 1001\nbob 1002\n",
+            "al\u{200b}ice 1001\nbob 1002\n",
+            "[bot] 1001\n",
+            "-alice 1001\n",
+        ] {
+            let u = parse_bytes(text.as_bytes()).unwrap_err();
+            assert_eq!(u.line, Some(1), "{text:?}");
+            assert!(
+                u.what.contains("not a GitHub login"),
+                "{text:?}: {}",
+                u.what
+            );
+        }
+        assert!(parse("app/acme 1\nacme-2[bot] 2\n").is_ok());
+    }
+
+    #[test]
+    fn what_cannot_be_read_says_its_own_repair() {
+        use crate::file::ReadError;
+        use std::io::{Error, ErrorKind};
+        assert!(unreadable(ReadError::Io(Error::from(ErrorKind::NotFound))).is_none());
+        let denied = unreadable(ReadError::Io(Error::from(ErrorKind::PermissionDenied)))
+            .unwrap()
+            .says(FILE);
+        assert!(denied.contains("cannot be read by this user"), "{denied}");
+        assert!(
+            denied.contains("read and write for the factory's user"),
+            "{denied}"
+        );
+        assert!(
+            !denied.contains("remove") && !denied.contains("os error"),
+            "{denied}"
+        );
+        let other = unreadable(ReadError::Io(Error::other("disk")))
+            .unwrap()
+            .says(FILE);
+        assert!(
+            !other.contains("remove") && !other.contains("disk"),
+            "{other}"
+        );
+        for e in [ReadError::NotRegular, ReadError::TooLarge] {
+            let said = unreadable(e).unwrap().says(FILE);
+            assert!(
+                said.contains("or remove it, then run tehas update"),
+                "{said}"
+            );
+        }
+        let again = unreadable(ReadError::Replaced).unwrap().says(FILE);
+        assert!(again.contains("Run tehas update again"), "{again}");
+    }
+
+    #[test]
+    fn a_file_that_is_there_with_no_pairs_is_unreadable() {
+        let h = home("empty");
+        for text in ["", "  \n", "\n\r\n"] {
+            std::fs::write(h.join(FILE), text).unwrap();
+            let u = load(&h).unwrap_err();
+            assert_eq!(u.line, None, "{text:?}");
+            assert!(u.what.contains("holds no pairs"), "{text:?}");
+            assert!(u.says(FILE).contains("remove it, then run tehas update"));
+        }
+        std::fs::remove_dir_all(&h).unwrap();
+    }
+
+    fn home(name: &str) -> std::path::PathBuf {
+        let h = std::env::temp_dir().join(format!("tehas-accounts-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&h);
+        std::fs::create_dir_all(h.join(FILE).parent().unwrap()).unwrap();
+        h
+    }
+
+    #[test]
+    fn an_absent_file_is_no_pairs_and_a_damaged_one_is_unreadable() {
+        let h = home("load");
+        assert_eq!(
+            load(&h),
+            Ok(Pairs {
+                ids: BTreeMap::new(),
+                tickets: BTreeMap::new(),
+                tidy: true
+            })
+        );
+        let file = h.join(FILE);
+        std::fs::write(&file, vec![b'a'; BOUND as usize + 1]).unwrap();
+        assert!(load(&h).unwrap_err().what.contains("larger than"));
+        std::fs::remove_file(&file).unwrap();
+        std::fs::write(h.join("other"), "alice 1001\n").unwrap();
+        std::os::unix::fs::symlink(h.join("other"), &file).unwrap();
+        let u = load(&h).unwrap_err();
+        assert_eq!(u.line, None);
+        assert!(u.what.contains("not a regular file"));
+        assert!(u.says(FILE).contains("or remove it, then run tehas update"));
+        std::fs::remove_dir_all(&h).unwrap();
+    }
+
+    #[test]
+    fn nothing_counts_while_the_file_cannot_be_read() {
+        let h = home("vouch");
+        std::fs::write(h.join(FILE), "alice 1001\nbob  1002\n").unwrap();
+        let u = load(&h).unwrap_err();
+        assert!(read(&h).is_empty());
+        let a = Accounts::unreadable(listed("alice bob", ""), &u);
+        assert_eq!(a.doubt("alice", Some(1001)), Some(Doubt::Unrecorded));
+        let mut v = json!({"actor": {"login": "alice", "id": 1001}});
+        a.vouch(&mut v);
+        assert_eq!(v["actor"]["login"], "alice#1001");
+        assert!(unread(&u).contains("no listed login counts"));
+        // A file with only trailing damage vouches as its pairs say.
+        std::fs::write(h.join(FILE), "alice 1001 \r\n").unwrap();
+        assert_eq!(read(&h).get("alice"), Some(&1001));
+        std::fs::remove_dir_all(&h).unwrap();
     }
 
     #[test]
     fn a_renamed_bot_keeps_its_id_under_the_new_login() {
         let had = parse("alice 1001\nacme-old 4242\n").unwrap();
         let ids = carried(&had, "acme-old[bot]", "acme-new[bot]").unwrap();
-        assert_eq!(text(&ids), "acme-new 4242\nacme-old 4242\nalice 1001\n");
+        assert_eq!(
+            text(&ids, &BTreeMap::new()),
+            "code-host acme-new 4242\ncode-host acme-old 4242\ncode-host alice 1001\n"
+        );
         let bot = |ids| Accounts::new(listed("alice", "acme-new[bot]"), ids);
         let mut v = json!({"author": {"login": "acme-new", "databaseId": 4242}});
         bot(had.clone()).vouch(&mut v);
@@ -486,6 +1047,133 @@ mod tests {
     fn a_doubt_names_the_login_and_both_ids() {
         let line = says("alice", Some(66), &Doubt::Other { recorded: 1001 });
         assert!(line.contains("alice") && line.contains("66") && line.contains("1001"));
-        assert!(line.contains("tehas update --accept-id alice"));
+        assert!(line.contains("may have changed hands"));
+        assert!(line.contains("If it is the same person, run tehas update --accept-id alice"));
+    }
+
+    /// A change of this project by `login` of `kind` carrying `id`.
+    fn change(login: &str, kind: tehas_ports::AccountKind, id: Option<&str>) -> ChangeDigest {
+        use tehas_ports::{
+            Account, AccountId, At, Branch, ChangeNo, ChangeState, CommitId, Login, Realm, WebLink,
+        };
+        let mut c = ChangeDigest::new(
+            ChangeNo::new(9).unwrap(),
+            ChangeState::Open,
+            Branch::new("feature/issue-7-a").unwrap(),
+            CommitId::new("a".repeat(40)).unwrap(),
+            Branch::new("main").unwrap(),
+            CommitId::new("b".repeat(40)).unwrap(),
+            At::new(1),
+            At::new(1),
+            WebLink::new("https://site.example/c/9").unwrap(),
+        );
+        let mut a = Account::new(Realm::CodeHost, Login::new(login), kind);
+        a.id = id.map(AccountId::new);
+        c.author = Some(a);
+        c
+    }
+
+    fn with_ids(pairs: &[(&str, u64)]) -> Accounts {
+        let ids = pairs.iter().map(|(l, i)| (l.to_string(), *i)).collect();
+        Accounts::new(vec!["alice".into()], ids)
+    }
+
+    #[test]
+    fn a_change_is_own_by_the_factorys_account_or_an_allowed_login_with_its_recorded_id() {
+        use tehas_ports::AccountKind::{Bot, Ours, Person};
+        let accounts = with_ids(&[("alice", 42), ("tehas-bot", 7)]);
+        let allowed = |l: &str| folded(l) == "alice";
+        let own = |c: &ChangeDigest| accounts.own_change(c, allowed);
+        // The factory's own account, as the adapter vouches for it.
+        assert!(own(&change("tehas-bot", Ours, Some("7"))));
+        // An allowed login with its recorded id, in any case.
+        assert!(own(&change("alice", Person, Some("42"))));
+        assert!(own(&change("Alice", Person, Some("42"))));
+        // A fork's change, whoever opened it: its head is in another project.
+        let mut fork = change("alice", Person, Some("42"));
+        fork.from_fork = true;
+        assert!(!own(&fork));
+        let mut ours_fork = change("tehas-bot", Ours, Some("7"));
+        ours_fork.from_fork = true;
+        assert!(!own(&ours_fork));
+        // Another login, allowed or not.
+        assert!(!own(&change("mallory", Person, Some("42"))));
+        // An allowed login with another id, or with none.
+        assert!(!own(&change("alice", Person, Some("43"))));
+        assert!(!own(&change("alice", Person, None)));
+        assert!(!own(&change("alice", Person, Some("not-a-number"))));
+        // The bot's login without the adapter's word that it is the bot's
+        // account: a bot of that name is not the factory.
+        assert!(!own(&change("tehas-bot", Bot, Some("7"))));
+        // No author.
+        let mut nobody = change("alice", Person, Some("42"));
+        nobody.author = None;
+        assert!(!own(&nobody));
+    }
+
+    #[test]
+    fn an_allowed_login_with_no_recorded_id_is_not_own() {
+        let accounts = with_ids(&[("bob", 5)]);
+        let c = change("alice", tehas_ports::AccountKind::Person, Some("42"));
+        assert!(!accounts.own_change(&c, |l| folded(l) == "alice"));
+    }
+
+    #[test]
+    fn while_the_ids_cannot_be_read_no_change_is_own() {
+        let u = Unreadable::whole("is not a regular file", Repair::File);
+        let accounts = Accounts::unreadable(vec!["alice".into()], &u);
+        let allowed = |l: &str| folded(l) == "alice";
+        for c in [
+            change("alice", tehas_ports::AccountKind::Person, Some("42")),
+            change("tehas-bot", tehas_ports::AccountKind::Ours, Some("7")),
+        ] {
+            assert!(!accounts.own_change(&c, allowed), "{c:?}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod bot_tests {
+    use super::bot;
+    use crate::home::{Home, State};
+    use crate::testdir::TestDir;
+    use std::fs;
+
+    fn home_with(login: Option<&str>, ids: Option<&str>) -> TestDir {
+        let d = TestDir::new("accounts-bot");
+        let home = Home::new(d.path());
+        if let Some(l) = login {
+            let p = home.state(State::BotLogin);
+            fs::create_dir_all(p.parent().unwrap()).unwrap();
+            fs::write(p, l).unwrap();
+        }
+        if let Some(i) = ids {
+            let p = home.state(State::AccountIds);
+            fs::create_dir_all(p.parent().unwrap()).unwrap();
+            fs::write(p, i).unwrap();
+        }
+        d
+    }
+
+    /// The adapter knows the factory's account by the bot account's id the
+    /// factory recorded, its key the login GraphQL gives, any case.
+    #[test]
+    fn the_factorys_account_is_the_bots_login_and_its_recorded_id() {
+        let d = home_with(Some("tehas-bot[bot]\n"), Some("alice 42\nTehas-Bot 7\n"));
+        assert_eq!(bot(d.path()), ("tehas-bot[bot]".to_string(), Some(7)));
+    }
+
+    /// No id the factory can stand on: no account is its own, and a write
+    /// the site may have taken settles as unknown.
+    #[test]
+    fn without_a_recorded_id_the_factory_has_no_account_of_its_own() {
+        let none = home_with(Some("tehas-bot[bot]"), Some("alice 42\n"));
+        assert_eq!(bot(none.path()).1, None);
+        let missing = home_with(Some("tehas-bot[bot]"), None);
+        assert_eq!(bot(missing.path()).1, None);
+        let unreadable = home_with(Some("tehas-bot[bot]"), Some("tehas-bot not-a-number\n"));
+        assert_eq!(bot(unreadable.path()).1, None);
+        let no_login = home_with(None, Some("tehas-bot 7\n"));
+        assert_eq!(bot(no_login.path()), (String::new(), None));
     }
 }

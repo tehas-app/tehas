@@ -25,6 +25,7 @@ fn dirs() -> Dirs {
         live: Home::new(&f).live_dir(),
         sessions: f.join("sessions"),
         logs: f.join("logs"),
+        links: mcp::tools::no_links,
     }
 }
 
@@ -93,6 +94,23 @@ fn a_full_key_is_listed_the_plugin_tool_after_the_servers_own() {
     assert_eq!(with.len(), without.len() + 1);
     assert_eq!(with[..without.len()], without[..]);
     assert_eq!(with.last().unwrap(), "plugin_docs_find_doc");
+}
+
+// host/docs/contract.md reserves `plugin_` for plugins: the server's own
+// tools are `factory_*`.
+#[test]
+fn every_tool_of_the_servers_own_is_factory_and_none_takes_the_plugins_prefix() {
+    let listed = names(&ask(FULL, "tools/list", json!({}), None));
+    assert!(!listed.is_empty());
+    let own = listed
+        .iter()
+        .map(String::as_str)
+        .chain(mcp::git::NAMES)
+        .chain(mcp::tickets::NAMES);
+    for name in own {
+        assert!(name.starts_with("factory_"), "{name}");
+        assert!(!name.starts_with(mcp::plugins::PREFIX), "{name}");
+    }
 }
 
 #[test]

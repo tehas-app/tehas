@@ -18,12 +18,12 @@ use super::ready::{ready, Ready};
 use super::runs;
 use serde::de::{self, Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde_json::{json, Value};
-use std::fs::{self, File};
+use std::fs;
 use std::path::Path;
 use std::time::Duration;
 use tehas_core::access::{GitHub, Level};
 use tehas_core::file::{write_atomic, Temp};
-use tehas_core::lock::try_lock;
+use tehas_core::lock::{try_lock, Held};
 use tehas_core::plugin::manifest::Tool;
 use tehas_core::plugin::run::{context, Kind, Run, Trigger};
 use tehas_core::plugin::{self, params, Cap};
@@ -180,7 +180,7 @@ pub fn call(
 }
 
 /// A slot of two and the caller's lock, taken now, or busy.
-fn locks(home: &Path, name: &str, by: &str) -> Result<[File; 2], Failed> {
+fn locks(home: &Path, name: &str, by: &str) -> Result<[Held; 2], Failed> {
     let dir = runs::calls(home, name);
     let no = |e: String| Failed::Refused(e);
     fs::create_dir_all(&dir).map_err(|e| no(format!("{}: {e}", dir.display())))?;
@@ -238,7 +238,8 @@ fn run_in(
     args: &Value,
 ) -> (Result<Value, Failed>, &'static str, Option<usize>) {
     let failed = |why: String| (Err(Failed::Tool(why)), "failed", None);
-    let (ctx, argv) = match (context(run), sandbox::plugin_run(run)) {
+    let ctx = context(run).and_then(|c| serde_json::to_string(&c).map_err(|e| e.to_string()));
+    let (ctx, argv) = match (ctx, sandbox::plugin_run(run)) {
         (Ok(c), Ok(a)) => (c, a),
         (Err(why), _) | (_, Err(why)) => return (Err(Failed::Refused(why)), "failed", None),
     };
@@ -247,7 +248,7 @@ fn run_in(
     }
     let files = [
         ("context.json", ctx),
-        ("call.json", json!({"tool": t.id, "args": args})),
+        ("call.json", json!({"tool": t.id, "args": args}).to_string()),
     ];
     for (file, v) in files {
         let wrote = write_atomic(

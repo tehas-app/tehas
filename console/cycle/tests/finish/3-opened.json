@@ -1,0 +1,19 @@
+{
+ "number": 12,
+ "html_url": "https://github.com/acme/widget/pull/12",
+ "title": "Finish issue #7 from a stopped cycle",
+ "head": {
+  "ref": "finish/issue-7",
+  "repo": {
+   "full_name": "acme/widget"
+  }
+ },
+ "base": {
+  "ref": "main"
+ },
+ "draft": true,
+ "user": {
+  "id": 903,
+  "type": "Bot"
+ }
+}
