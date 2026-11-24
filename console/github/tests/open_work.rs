@@ -531,7 +531,7 @@ fn the_queue_reads_each_open_issue_with_what_its_work_item_holds() {
     for words in [
         "issues(states: [OPEN], first: 25, after: $cursor, orderBy: {field: CREATED_AT, direction: ASC})",
         "itemTypes: [LABELED_EVENT, UNLABELED_EVENT, RENAMED_TITLE_EVENT], last: 100)",
-        "closedByPullRequestsReferences(first: 20)",
+        "closedByPullRequestsReferences(first: 10)",
         "blockedBy(first: 100)",
         "subIssues(first: 100)",
         "parent { number repository { nameWithOwner } }",
@@ -819,6 +819,16 @@ fn a_control_ticket_off_the_page_is_read_whole_on_its_own() {
         .map(|a| recording(&strs(a)))
         .collect();
     assert_eq!(&names[names.len() - 2..], ["issue-1", "issue-1-ticket"]);
+}
+
+#[test]
+fn more_closing_changes_than_the_page_asks_cut_their_item() {
+    let mut ask = queue_ask();
+    ask.control = None;
+    let (mut b, _) = board("closing-many");
+    let work = b.open_work(&ask, bound(50)).unwrap();
+    assert_eq!(item(&work, 7), &Err(Outcome::Unread(Unread::Cut)));
+    assert!(item(&work, 3).is_ok());
 }
 
 #[test]

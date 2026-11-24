@@ -16,7 +16,7 @@
 //!
 //! The changes are those GitHub links as closing the issue, from this
 //! project, open ones alone, each a whole change's digest read as
-//! `open_changes` reads it: the twenty a page asks for, past them, or past
+//! `open_changes` reads it: the ten a page asks for, past them, or past
 //! a change's bound of marks or of what it closes, the item is
 //! `Unread(Cut)`.
 //!
@@ -50,9 +50,12 @@ use tehas_ports::{
 /// short and no error, so the size is load-bearing.
 const ISSUE_PAGE: usize = 25;
 
-/// The changes that close an issue a page asks for, as dispatch's queue
-/// page asks. An issue with more is `Unread(Cut)`.
-const CLOSING_MAX: usize = 20;
+/// The changes that close an issue a page asks for. Each is a whole
+/// change's digest, its marks, what it closes and its retitle counted per
+/// change, so this bound is most of the page's cost: ten is about 9 points
+/// a page of 25, twenty about 17 (measured 2026-11-24). An issue with more
+/// is `Unread(Cut)`.
+const CLOSING_MAX: usize = 10;
 
 /// The accounts an issue is assigned a page asks for, the most GitHub
 /// allows.
@@ -664,7 +667,7 @@ mod tests {
                 assert_eq!(q.matches("$cursor").count(), 2, "{q}");
                 assert!(q.contains("first: 25, after: $cursor"), "{q}");
                 assert_eq!(
-                    q.contains("closedByPullRequestsReferences(first: 20)"),
+                    q.contains("closedByPullRequestsReferences(first: 10)"),
                     changes
                 );
                 assert_eq!(q.contains("events: timelineItems"), !kinds.is_empty());
