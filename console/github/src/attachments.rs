@@ -5,8 +5,10 @@
 //! module names what each link is: its id, and its name where the link
 //! carries one, and refuses a link the rule cut short. Pure: no request.
 //!
-//! The text is read as it is given. A link in a code span, a fenced block
-//! or a quote is read like any other, as tehas 1.x read them.
+//! A link in a code span, a fenced block or a quote counts as an
+//! attachment, read as the text gives it, as attach, the dispatcher and the
+//! issue feed read the raw text today; the marker reader's dead regions are
+//! for markers, not files.
 
 use tehas_ports::{Attachment, AttachmentId, WebLink};
 

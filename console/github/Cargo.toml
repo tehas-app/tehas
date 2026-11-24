@@ -19,7 +19,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # approval's text sums, for the relay's read before an edit.
 tehas-core = { path = "../core", features = ["mask"] }
-# tehas's one link rule of GitHub's store, for the attachments of a text.
+# tehas's one link rule of GitHub's store, for the attachments of a text,
+# until T4.8 moves the rule here.
 attach = { path = "../attach" }
 tehas-ports = { path = "../ports" }
 

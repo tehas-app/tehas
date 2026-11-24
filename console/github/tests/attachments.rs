@@ -152,8 +152,8 @@ fn a_link_longer_than_a_web_link_holds_is_no_attachment() {
 
 #[test]
 fn a_link_in_code_or_a_quote_is_read_as_the_text_gives_it() {
-    // The ports' doc says nothing of code or quotes: the text is read as it
-    // stands, as tehas 1.x read links.
+    // A link in code or a quote counts, read as the text gives it, as
+    // attach, the dispatcher and the issue feed read the raw text.
     for text in [
         format!("`{FILE}`"),
         format!("```\n{FILE}\n```"),
