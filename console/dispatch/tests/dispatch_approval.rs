@@ -61,7 +61,7 @@ fn while_the_label_cannot_be_taken_off_nothing_is_said_on_the_issue_and_it_is_sa
     w.touch("edit-fails");
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
-    assert_eq!(count_lines(&w.gh(), "issue comment "), 0);
+    assert_eq!(w.notes_any(), 0);
     has(
         &r.out,
         "WARN: label change on #7 failed: --remove-label tehas:ready",
@@ -69,7 +69,7 @@ fn while_the_label_cannot_be_taken_off_nothing_is_said_on_the_issue_and_it_is_sa
     w.rm_fx("edit-fails");
     let _ = fs::remove_file(w.t().join("calls/gh"));
     w.poll();
-    assert_eq!(count_lines(&w.gh(), "issue comment "), 1);
+    assert_eq!(w.notes_any(), 1);
 }
 
 #[test]
@@ -895,12 +895,12 @@ fn a_tehas_ready_applied_by_mallory_is_taken_off_the_issue_and_said_once() {
         1,
         "{gh}"
     );
-    has(&gh, "issue comment 7 --repo acme/widget --body Tehas took");
+    assert!(w.said_on(7, "Tehas took"), "{:?}", w.said(7));
     has(
         &gh,
         "It was applied by `mallory`, an account that may not authorise work in this factory",
     );
-    assert_eq!(count_lines(&gh, "issue comment "), 1, "{gh}");
+    assert_eq!(w.notes_any(), 1, "{gh}");
 }
 
 #[test]
@@ -913,7 +913,7 @@ fn a_dry_run_says_the_label_would_come_off_and_changes_nothing() {
         "would take tehas:ready off #7: it was applied by 'mallory'",
     );
     lacks(&w.gh(), "issue edit");
-    lacks(&w.gh(), "issue comment");
+    assert_eq!(w.notes_any(), 0);
 }
 
 #[test]
@@ -937,5 +937,5 @@ fn an_approval_taken_off_after_it_was_given_starts_nothing_while_the_labels_stil
     );
     lacks(&r.out, "not an allowed account");
     lacks(&w.gh(), "issue edit 7");
-    lacks(&w.gh(), "issue comment 7");
+    assert_eq!(w.notes(7), 0);
 }
