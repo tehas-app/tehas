@@ -426,8 +426,18 @@ pub struct ChangeDelta {
 
 new!(ChangeDelta { next: Cursor }, changes, comments, more);
 
-/// The checks on a commit, and what they add up to: the newest run of
-/// each name, and `Overall::of` them.
+/// The checks on a commit, and what they add up to: its check runs and
+/// its status contexts, and `Overall::of` every one of them.
+///
+/// The runs are the newest of each App and name, as a site's "latest"
+/// filter gives them: runs of different Apps are never collapsed,
+/// so two Apps' runs of one name are both held. A `Check` names no App, so
+/// a name may stand more than once here.
+///
+/// A status context is held as one run named by its context, from its
+/// newest state: success is `Done(Passed)`, failure and error are
+/// `Done(Failed)`, and pending is not done (`Running`). It is never
+/// collapsed with a check run of the same name.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct Checks {
@@ -437,11 +447,13 @@ pub struct Checks {
     pub overall: Overall,
 }
 
-/// One check on a commit.
+/// One check on a commit: a check run, or a status context held as a
+/// run named by its context (see `Checks`).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct Check {
-    /// Its name.
+    /// Its name: a run's name, or a status's context. Runs of different
+    /// Apps may share it.
     pub name: String,
     /// How far it is.
     pub status: CheckStatus,
@@ -504,7 +516,8 @@ pub enum Overall {
 }
 
 impl Overall {
-    /// What the runs add up to, the newest run of each name alone: none is
+    /// What the runs add up to, over every one given: the newest run of
+    /// each App and name and each status context's newest state. None is
     /// `None`; a `Failed` one is `Fail`; every one `Passed` or `Skipped` is
     /// `Pass`; every one done otherwise is `Unknown`; else `Pending`.
     pub fn of(runs: &[Check]) -> Overall {
@@ -837,9 +850,13 @@ pub trait CodeHost: Reports + Cites {
     fn changed_files(&mut self, no: ChangeNo, bound: Bound) -> Got<Whole<ChangedFile>>;
     /// A change's events, oldest first.
     fn activity(&mut self, no: ChangeNo, window: Window) -> Got<Took<ChangeEvent>>;
-    /// The checks on a commit, or the one of this name: the newest run of
-    /// each name alone, so an old failure beside a passing re-run is not
-    /// read. `overall` is `Overall::of` those runs.
+    /// The checks on a commit, or those of this name: its check runs, the
+    /// newest of each App and name, so an old failure beside a passing
+    /// re-run is not read, and its status contexts, each one's newest state
+    /// held as a run named by its context. Runs of different Apps are never
+    /// collapsed: two Apps' runs of one name are both given. `overall` is
+    /// `Overall::of` all of them, so a failed status beside a passing run
+    /// is `Fail`. `Checks` gives the fold of a status.
     fn checks(&mut self, at: &CommitId, name: Option<&str>) -> Got<Checks>;
     /// The project's tags, whole, in the site's order: no order is
     /// promised, so a caller that wants the newest asks `recent_tags`.
