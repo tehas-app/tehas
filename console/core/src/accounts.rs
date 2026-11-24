@@ -376,6 +376,12 @@ impl Accounts {
         }
     }
 
+    /// Why the recorded ids could not be read, when they could not: then no
+    /// listed login counts.
+    pub fn unread(&self) -> Option<&str> {
+        self.unread.as_deref()
+    }
+
     /// Whether `login` with `id` counts as the listed account it names. A
     /// login of no list is no claim to doubt.
     pub fn doubt(&self, login: &str, id: Option<u64>) -> Option<Doubt> {

@@ -8,16 +8,19 @@ use serde_json::Value;
 /// `feature/issue-<n>` or `feature/issue-<n>-<slug>`, or its body closes the
 /// issue. The head is GitHub's answer and is only compared, never handed to git.
 pub fn names_issue(pr: &Value, issue: u64) -> bool {
+    names_change(
+        pr.get("headRefName").and_then(Value::as_str).unwrap_or(""),
+        pr.get("body").and_then(Value::as_str),
+        issue,
+    )
+}
+
+/// [`names_issue`] of a change as the ports give it: its head branch, and its
+/// body when it was read.
+pub fn names_change(head: &str, body: Option<&str>, issue: u64) -> bool {
     let branch = format!("feature/issue-{issue}");
-    let named = pr
-        .get("headRefName")
-        .and_then(Value::as_str)
-        .is_some_and(|h| h == branch || h.starts_with(&format!("{branch}-")));
-    named
-        || pr
-            .get("body")
-            .and_then(Value::as_str)
-            .is_some_and(|b| closes_issue(b, issue))
+    let named = head == branch || head.starts_with(&format!("{branch}-"));
+    named || body.is_some_and(|b| closes_issue(b, issue))
 }
 
 /// Whether a pull request's body closes the issue: a word of closing, the
@@ -171,5 +174,65 @@ mod tests {
         assert!(!names_issue(&json!({"body": "does not fix #7"}), 7));
         assert!(!names_issue(&json!({"headRefName": null, "body": null}), 7));
         assert!(!names_issue(&json!({}), 7));
+    }
+
+    #[test]
+    fn a_change_is_the_issues_by_its_head_or_its_body() {
+        // (head, body, the issue's)
+        let cases = [
+            ("feature/issue-7", None, true),
+            ("feature/issue-7-abc", None, true),
+            ("feature/issue-7-a+b", None, true),
+            ("anything", Some("Fixes #7."), true),
+            ("anything", Some("Resolved #7"), true),
+            ("anything", Some("fixes:#7"), true),
+            ("anything", Some(""), false),
+            ("anything", None, false),
+            ("anything", Some("see #7"), false),
+            ("anything", Some("Fixes #70."), false),
+            ("feature/issue-70", None, false),
+            (
+                "feature/issue-70-x",
+                Some("see issue #70 and fix #7x"),
+                false,
+            ),
+            ("anything", Some("some textfixes #7"), false),
+            ("anything", Some("This does not fix #7."), false),
+            ("anything", Some("Fixes #7x"), false),
+            ("", None, false),
+        ];
+        for (head, body, yes) in cases {
+            assert_eq!(names_change(head, body, 7), yes, "{head:?} {body:?}");
+        }
+    }
+
+    #[test]
+    fn the_runner_and_a_change_of_the_ports_read_an_issue_the_same() {
+        // The runner reads GitHub's JSON with `names_issue`, finish reads the
+        // ports' change with `names_change`: one answer for one pull request.
+        for (head, body) in [
+            ("feature/issue-7", ""),
+            ("feature/issue-7-abc", ""),
+            ("feature/issue-7-a+b", ""),
+            ("feature/issue-70", ""),
+            ("x", "Fixes #7."),
+            ("x", "Fixes #7"),
+            ("x", "Resolved #7"),
+            ("x", "fixes:#7"),
+            ("x", "some textfixes #7"),
+            ("x", "This does not fix #7."),
+            ("x", "Fixes #7x"),
+            ("x", "see issue #70"),
+            ("x", ""),
+        ] {
+            let json = json!({"headRefName": head, "body": body});
+            assert_eq!(
+                names_issue(&json, 7),
+                names_change(head, Some(body), 7),
+                "{head:?} {body:?}"
+            );
+        }
+        // A pull request with no head and no body names nothing either way.
+        assert_eq!(names_issue(&json!({}), 7), names_change("", None, 7));
     }
 }

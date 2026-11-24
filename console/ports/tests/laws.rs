@@ -847,6 +847,24 @@ fn anonymous_reads_public_releases_and_writes_nothing() {
 }
 
 #[test]
+fn tickets_kinds_hold_no_unknown() {
+    for w in both() {
+        let w = w
+            .kind(Kind::Unknown)
+            .kind(Kind::Other(MarkName::new("Chore").unwrap()));
+        let site = FakeSite::new(&w);
+        let mut h = site.tickets(&full(), C).unwrap();
+        ok(laws::tickets::kinds_hold_no_unknown(h.as_mut()));
+        let kinds = h.kinds().unwrap().into_items();
+        assert!(kinds.contains(&Kind::Feature), "{kinds:?}");
+        assert!(
+            kinds.contains(&Kind::Other(MarkName::new("Chore").unwrap())),
+            "{kinds:?}"
+        );
+    }
+}
+
+#[test]
 fn blueprints_a_changes_number_is_no_blueprint() {
     let w = World::same_item();
     let n = first_change(&w);
@@ -1341,6 +1359,62 @@ fn blueprints_an_edit_moves_the_revision() {
             h.as_mut(),
             bp(no),
         ));
+    }
+}
+
+#[test]
+fn blueprints_several_edits_are_each_ones() {
+    for w in both() {
+        let no = first_blueprint(&w);
+        let w = w
+            .blueprint(no, |b| b.title("a plan").body("Do it."))
+            .blueprint(no + 1, |b| b.title("another").body("As is."));
+        let site = FakeSite::new(&w);
+        let mut h = site.blueprint_writes(&full(), C).unwrap();
+        for body in ["Do it now.", "Do it today."] {
+            let rev = h.blueprint(bp(no), Depth::All).unwrap().revision;
+            h.edit(bp(no), None, Some(body), &MarkerEdit::default(), &rev)
+                .unwrap();
+        }
+        let edited = h.comment(bp(no), "first", &[]).unwrap().id;
+        let plain = h.comment(bp(no), "second", &[]).unwrap().id;
+        for body in ["first, edited", "first, edited again"] {
+            let rev = h.comments_by_id(std::slice::from_ref(&edited))[0]
+                .1
+                .clone()
+                .unwrap()
+                .revision;
+            h.edit_comment(&edited, body, &MarkerEdit::default(), &rev)
+                .unwrap();
+        }
+        let one = Bound::new(1).unwrap();
+        assert_eq!(
+            h.body_edits(bp(no), ALL_MAX).map(|e| e.into_items().len()),
+            Ok(2)
+        );
+        assert_eq!(
+            h.body_edits(bp(no), one).map(drop),
+            Err(Outcome::Unread(Unread::Cut))
+        );
+        assert_eq!(
+            h.comment_edits(&edited, one).map(drop),
+            Err(Outcome::Unread(Unread::Cut))
+        );
+        let nos = [bp(no), bp(no + 1), bp(9999), bp(no)];
+        let ids = [
+            edited.clone(),
+            plain,
+            CommentId::new("no-such-comment"),
+            edited,
+        ];
+        for bound in [ALL_MAX, one] {
+            ok(laws::blueprints::several_edits_are_each_ones(
+                h.as_mut(),
+                &nos,
+                &ids,
+                bound,
+            ));
+        }
     }
 }
 
