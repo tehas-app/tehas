@@ -391,9 +391,10 @@ read, writes nothing and says nothing. A record with no time on it is looked at
 again too.
 
 A call that
-failed is tried at the next run: `#<pr>: the description could not be read (no
-such pull request (HTTP 404)), tried again at the next run`, with
-`GitHub refused the call (HTTP 403)` when GitHub refuses the token, and
+failed is tried at the next run: `#<pr>: the description could not be read (not
+found, or not visible to this actor), tried again at the next run`, with
+`this actor may not do this` when GitHub refuses the token, `the budget is
+spent until later` for a rate limit, and
 `#<pr>: the answer about this pull request was not understood ...` when it
 answered with something that is not that pull request's description. Three
 writes GitHub did not take are said once, with the third of them, as

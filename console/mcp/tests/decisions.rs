@@ -23,6 +23,7 @@ fn call_in(logs: &Path, args: &Value) -> Result<Value, ToolError> {
         live: Home::new(fixtures()).live_dir(),
         sessions: fixtures().join("sessions"),
         logs: logs.to_path_buf(),
+        links: mcp::tools::no_links,
     };
     match mcp::tools::call(&dirs, "factory_decisions", &args.clone().into())? {
         Output::Json(v) => Ok(common::conforms("factory_decisions", v)),

@@ -27,7 +27,8 @@ type Asked = Arc<Mutex<Vec<String>>>;
 
 /// Answers from `tests/recorded/identity/`: the viewer question from
 /// `me-<case>`, an account read from `user-<id>`, a permission read from
-/// `permission-<login>`; `.json` is gh's answer, `.fail` the runner's
+/// `permission-<login>`, a login's account from `login-<login>` (in lower
+/// case, a bot's `[bot]` as written), an assignee check from `assignee-<login>`; `.json` is gh's answer, `.fail` the runner's
 /// reason. The second ask of a name is answered from `<name>.2` where that
 /// recording exists. A call with no recording fails the test.
 struct Replay {
@@ -43,6 +44,14 @@ impl GhRunner for Replay {
             ["api", path] => {
                 if let Some(id) = path.strip_prefix("user/") {
                     format!("user-{id}")
+                } else if let Some(login) = path.strip_prefix("users/") {
+                    // GitHub answers a login in any case.
+                    let login = login.replace("%5B", "[").replace("%5D", "]");
+                    format!("login-{}", login.to_ascii_lowercase())
+                } else if let Some(login) =
+                    path.strip_prefix(&format!("repos/{PROJECT}/assignees/"))
+                {
+                    format!("assignee-{login}")
                 } else {
                     let login = path
                         .strip_prefix(&format!("repos/{PROJECT}/collaborators/"))
@@ -737,11 +746,7 @@ fn what_no_caller_asks_yet_is_unsupported_before_any_request() {
     let mut gh = GitHub::new(PROJECT, Box::new(Unasked));
     let no = Outcome::Refused(Refusal::Unsupported);
     let id = AccountId::new("101");
-    let login = Login::new("alice");
-    assert_eq!(gh.account(&id), Err(no.clone()));
-    assert_eq!(gh.account_by_login(&login), Err(no.clone()));
-    assert_eq!(gh.is_organisation(&login), Err(no.clone()));
-    assert_eq!(gh.assignable(&id), Err(no));
+    assert_eq!(gh.account(&id), Err(no));
     assert!(matches!(
         gh.token(Scope::Full),
         Err(Outcome::Refused(Refusal::Unsupported))
@@ -766,4 +771,179 @@ fn what_no_caller_asks_yet_is_unsupported_before_any_request() {
 
 fn standing_of_unasked(id: &str) -> Got<Standing> {
     GitHub::new(PROJECT, Box::new(Unasked)).standing(&AccountId::new(id))
+}
+
+fn by_login(login: &str) -> (Got<Account>, Vec<String>) {
+    let (mut gh, asked) = adapter("none");
+    let got = gh.account_by_login(&Login::new(login));
+    let asked = asked.lock().unwrap().clone();
+    (got, asked)
+}
+
+fn account(login: &str, id: u64, kind: AccountKind) -> Got<Account> {
+    let mut a = Account::new(tehas_ports::Realm::CodeHost, Login::new(login), kind);
+    a.id = Some(AccountId::new(id.to_string()));
+    Ok(a)
+}
+
+// The App's bot and the organisation of the same name are two accounts
+// (GitHub's own shape: the organisation tehas-app is 344514095, the bot
+// tehas-app[bot] 347290281). A bot is asked by its whole login and known by
+// its id; its bare slug is never asked for it.
+#[test]
+fn a_bot_is_asked_by_its_whole_login_and_never_by_the_bare_slug() {
+    let (bot, asked) = by_login("tehas-app[bot]");
+    assert_eq!(bot, account("tehas-app", 347290281, AccountKind::Bot));
+    assert_eq!(asked, ["api users/tehas-app%5Bbot%5D"]);
+    let (org, asked) = by_login("tehas-app");
+    assert_eq!(org, Err(Outcome::NotFound), "an organisation is no account");
+    assert_eq!(asked, ["api users/tehas-app"]);
+    let (gh_form, asked) = by_login("app/tehas-app");
+    assert_eq!(gh_form, bot);
+    assert_eq!(asked, ["api users/tehas-app%5Bbot%5D"]);
+    // A person and an App that share a name are each themselves.
+    assert_eq!(
+        by_login("acme-factory").0,
+        account("acme-factory", 131, AccountKind::Person)
+    );
+    assert_eq!(
+        by_login("acme-factory[bot]").0,
+        account("acme-factory", 932, AccountKind::Bot)
+    );
+    let (mut gh, _) = adapter("none");
+    assert_eq!(gh.is_organisation(&Login::new("tehas-app")), Ok(true));
+    assert_eq!(gh.is_organisation(&Login::new("tehas-app[bot]")), Ok(false));
+    assert_eq!(gh.is_organisation(&Login::new("acme-factory")), Ok(false));
+    assert_eq!(
+        gh.is_organisation(&Login::new("acme-factory[bot]")),
+        Ok(false)
+    );
+}
+
+#[test]
+fn the_factorys_bot_by_login_is_ours_by_its_id() {
+    use tehas_github::GitHubSite;
+    use tehas_ports::{Caller, Site};
+    let site = |bot_id: Option<u64>| {
+        let make: tehas_github::MakeRunner = Arc::new(|_| {
+            Ok(Box::new(Replay {
+                case: "none".into(),
+                asked: Asked::default(),
+            }) as Box<dyn GhRunner>)
+        });
+        GitHubSite::new(PROJECT, "tehas-app[bot]", bot_id, make).on_clock(replay_now)
+    };
+    let ask = |bot_id, login: &str| {
+        site(bot_id)
+            .identity(&Actor::Ours(Scope::Full), Caller::new("test"))
+            .unwrap()
+            .account_by_login(&Login::new(login))
+            .map(|a| a.kind)
+    };
+    assert_eq!(
+        ask(Some(347290281), "tehas-app[bot]"),
+        Ok(AccountKind::Ours)
+    );
+    // The bot's login alone, with no id recorded, is not ours.
+    assert_eq!(ask(None, "tehas-app[bot]"), Ok(AccountKind::Bot));
+    // The organisation of the bare slug is never the bot.
+    assert_eq!(ask(Some(347290281), "tehas-app"), Err(Outcome::NotFound));
+    assert_eq!(ask(Some(344514095), "tehas-app[bot]"), Ok(AccountKind::Bot));
+}
+
+#[test]
+fn a_login_is_held_to_the_answer_and_a_bad_one_asks_nothing() {
+    assert_eq!(
+        by_login("Alice").0,
+        account("alice", 101, AccountKind::Person),
+        "a login's case is the site's"
+    );
+    let (mirror, _) = by_login("mirror");
+    assert_eq!(mirror, Err(Outcome::Unread(Unread::Inconsistent)));
+    assert_eq!(by_login("ghost").0, Err(Outcome::NotFound));
+    assert_eq!(
+        by_login("down").0,
+        Err(Outcome::Unavailable {
+            why: Passing::Server,
+            sent: Sent::Maybe
+        })
+    );
+    for bad in [
+        "",
+        "[bot]",
+        "app/",
+        "-x",
+        "a b",
+        "a/b",
+        "x[bot][bot]",
+        "../users",
+    ] {
+        let (got, asked) = by_login(bad);
+        assert_eq!(got, Err(Outcome::Refused(Refusal::Invalid)), "{bad}");
+        assert!(asked.is_empty(), "{bad}");
+    }
+}
+
+fn assignable(id: &str) -> (Got<bool>, Vec<String>) {
+    let (mut gh, asked) = adapter("none");
+    let got = gh.assignable(&AccountId::new(id));
+    let asked = asked.lock().unwrap().clone();
+    (got, asked)
+}
+
+#[test]
+fn assignable_reads_the_account_by_id_then_githubs_check_of_its_login() {
+    let (got, asked) = assignable("101");
+    assert_eq!(got, Ok(true));
+    assert_eq!(
+        asked,
+        ["api user/101", "api repos/acme/widget/assignees/alice"]
+    );
+    // Not an assignee: the check finds nothing twice under the same login.
+    let (got, asked) = assignable("102");
+    assert_eq!(got, Ok(false));
+    assert_eq!(
+        asked,
+        [
+            "api user/102",
+            "api repos/acme/widget/assignees/Bob",
+            "api user/102"
+        ]
+    );
+    // Renamed between the reads: asked again under the new login.
+    let (got, asked) = assignable("122");
+    assert_eq!(got, Ok(true));
+    assert_eq!(
+        asked,
+        [
+            "api user/122",
+            "api repos/acme/widget/assignees/olivia",
+            "api user/122",
+            "api repos/acme/widget/assignees/olivia2"
+        ]
+    );
+    assert_eq!(assignable("103").0, Err(Outcome::Forbidden));
+    // A bot and an organisation are never assignees.
+    assert_eq!(
+        assignable("900"),
+        (Ok(false), vec!["api user/900".to_string()])
+    );
+    assert_eq!(
+        assignable("108"),
+        (Ok(false), vec!["api user/108".to_string()])
+    );
+    assert_eq!(assignable("107").0, Err(Outcome::NotFound));
+    assert_eq!(assignable("0").0, Err(Outcome::Refused(Refusal::Invalid)));
+}
+
+#[test]
+fn the_spellings_of_a_bot_name_one_account() {
+    let (mut gh, _) = adapter("none");
+    let spellings = [
+        Login::new("tehas-app[bot]"),
+        Login::new("app/tehas-app"),
+        Login::new("TEHAS-APP[bot]"),
+    ];
+    tehas_ports::laws::identity::an_accounts_spellings_fold_to_one_login(&mut gh, &spellings)
+        .unwrap();
 }

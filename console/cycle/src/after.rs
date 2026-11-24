@@ -197,7 +197,7 @@ fn analytics(home: &Path, args: &[&str]) {
 }
 
 /// `{at, how, driver}` of the store's approval-view, null when it has none.
-pub fn approval_of(answer: &Value) -> J {
+fn approval_of(answer: &Value) -> J {
     let view = answer.get("view").filter(|v| v.is_object());
     let Some(view) = view else {
         return J::Null;
@@ -260,7 +260,7 @@ pub fn history_line(a: &After, at: &str) -> J {
 /// The facts of a run: {line, attempt, approval, settings, rukas}. The
 /// settings and the commit are the store's settings-view of this attempt,
 /// null when it has none or could not answer.
-pub fn run_facts(line: &J, attempt: Option<u64>, approved: &str, view: Option<&Value>) -> J {
+fn run_facts(line: &J, attempt: Option<u64>, approved: &str, view: Option<&Value>) -> J {
     let view = view.filter(|_| attempt.is_some());
     let settings = view.and_then(|v| v.get("view")).filter(|v| v.is_object());
     let rukas = view.and_then(|v| v.get("rukas_commit"));

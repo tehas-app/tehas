@@ -143,7 +143,7 @@
      "blocked_by": {"7": "alice"}, "hold": [9],
      "notes": {"7": [[10, "alice", "<!-- tehas:blocked by=12 -->"]]}, "states": {"7": {"12": "CLOSED"}},
      "expect": {"exit": 0, "picked": [], "actions": [{"issue": 7,
-       "say": "Every issue the `tehas:blocked` marker names is closed, so the hold has cleared. Tehas takes `tehas:blocked` off when the cycle starts. Leave it on until then: it is what asks for the start when `tehas:ready` is not on.\n\n<!-- tehas:hold-cleared -->"}]}},
+       "say": "Every issue the `tehas:blocked` marker names is closed, so the hold has cleared. Tehas takes `tehas:blocked` off when the cycle starts. Leave it on until then: it is what asks for the start when `tehas:ready` is not on.", "markers": [{"type": "HoldCleared"}]}]}},
     {"case": "a cleared hold already said is not said again",
      "snapshot": {"ready": [], "blocked": [{"number": 7, "labels": [{"name": "tehas:blocked"}]}]},
      "blocked_by": {"7": "alice"}, "hold": [9],

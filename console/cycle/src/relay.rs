@@ -79,7 +79,7 @@ use tehas_ports::{
 pub const MAX_BODY: u64 = 1 << 20;
 
 /// The most writes one cycle has run.
-pub const MAX_WRITES: usize = 50;
+const MAX_WRITES: usize = 50;
 
 pub const MARKER: &str = "gh-shim: the relay refuses text with a tehas marker (<!-- tehas:)";
 
@@ -90,7 +90,7 @@ const POLL: Duration = Duration::from_millis(500);
 const GH_WAIT: u64 = 100;
 
 /// How long the token command may take.
-pub const TOKEN_WAIT: u64 = 60;
+const TOKEN_WAIT: u64 = 60;
 
 /// How old an answer is when no one will read it: longer than the gh-shim
 /// waits, 120 s. It is removed then.
@@ -285,7 +285,7 @@ impl Scope {
     }
 
     /// Whether `ask` may be made now, or why not.
-    pub fn permits(&self, ask: &Ask) -> Result<(), String> {
+    fn permits(&self, ask: &Ask) -> Result<(), String> {
         if self.run >= MAX_WRITES {
             return Err(no(&format!(
                 "has run {MAX_WRITES} issue writes for this cycle, its limit"

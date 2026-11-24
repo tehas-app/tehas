@@ -105,6 +105,38 @@ impl Bounded {
     }
 }
 
+/// A runner that counts each call it makes into `count`, shared with the
+/// one who made it: a poll counts the calls of gh its writes made through
+/// the adapter as it counts its own.
+pub struct Counted {
+    pub inner: Box<dyn GhRunner>,
+    pub count: std::sync::Arc<std::sync::atomic::AtomicU64>,
+}
+
+impl Counted {
+    fn one(&self) {
+        self.count
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+impl GhRunner for Counted {
+    fn run(&mut self, args: &[&str]) -> Result<String, String> {
+        self.one();
+        self.inner.run(args)
+    }
+
+    fn run_input(&mut self, args: &[&str], input: &str) -> Result<String, String> {
+        self.one();
+        self.inner.run_input(args, input)
+    }
+
+    fn run_answer(&mut self, args: &[&str]) -> Result<String, Failed> {
+        self.one();
+        self.inner.run_answer(args)
+    }
+}
+
 impl GhRunner for Bounded {
     fn run(&mut self, args: &[&str]) -> Result<String, String> {
         self.call(args, None).map_err(|f| f.why)
@@ -350,7 +382,7 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&kept).unwrap(), "0\n");
     }
 
-    use super::{Bounded, Failed, GhRunner};
+    use super::{Bounded, Counted, Failed, GhRunner};
     use std::time::{Duration, Instant};
 
     /// A runner whose program writes each argument on a line of `args` and
@@ -380,6 +412,21 @@ mod tests {
         assert_eq!(runner.run(&["api", "x"]).unwrap(), "t0ken");
         let args = std::fs::read_to_string(d.join("args")).unwrap();
         assert!(!args.contains("t0ken"), "{args}");
+    }
+
+    /// Each call through a counted runner adds one to the shared count.
+    #[test]
+    fn a_counted_runner_counts_each_call() {
+        let d = crate::testdir::TestDir::new("forge-counted");
+        let count = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let mut runner = Counted {
+            inner: Box::new(recording(&d, "true")),
+            count: count.clone(),
+        };
+        runner.run(&["api", "x"]).unwrap();
+        runner.run_input(&["api", "y"], "body").unwrap();
+        let _ = runner.run_answer(&["api", "z"]);
+        assert_eq!(count.load(std::sync::atomic::Ordering::Relaxed), 3);
     }
 
     #[test]
