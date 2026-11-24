@@ -147,9 +147,13 @@ impl Site for GitHubSite {
         )?))
     }
 
-    /// Not built in this adapter yet.
-    fn code_host_writes(&self, _: &Actor, _: Caller) -> Got<Box<dyn CodeHostWrites + Send>> {
-        unsupported()
+    fn code_host_writes(&self, by: &Actor, caller: Caller) -> Got<Box<dyn CodeHostWrites + Send>> {
+        Ok(Box::new(self.handle(
+            by,
+            caller,
+            PortName::CodeHost,
+            true,
+        )?))
     }
 
     fn identity(&self, by: &Actor, caller: Caller) -> Got<Box<dyn Identity + Send>> {
