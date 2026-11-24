@@ -98,3 +98,50 @@ fn a_first_line_marker_before_an_indented_text_reads_back() {
     assert_eq!(back.markers, [finish()]);
     assert_eq!(back.text, "    indented first line\nmore");
 }
+
+#[test]
+fn a_table_whose_head_is_a_paragraph_s_last_line_makes_an_indented_line_after_it_code() {
+    // GFM: a delimiter row makes the paragraph's last line a table's head,
+    // the lines before it stay a paragraph, and an indented line after the
+    // table is code.
+    assert!(markers(&format!("p\na | b\n-|-\n    {M}")).is_empty());
+    assert!(markers(&format!("p\nx\n:-\n    {M}")).is_empty());
+    assert!(markers(&format!("p\n<\n:-\n    {M}")).is_empty());
+    assert!(markers(&format!("p\nq\n| a | b |\n|---|---|\n    {M}")).is_empty());
+    // Cells that do not match make no table: the line continues the
+    // paragraph, and so does the indented one.
+    assert_eq!(markers(&format!("p\na | b\n-|-|-\n    {M}")), [finish()]);
+}
+
+#[test]
+fn an_escaped_opener_is_words_and_no_marker() {
+    assert!(markers(&format!("\\{M}")).is_empty());
+    assert!(markers(&format!("x \\\\\\{M}")).is_empty());
+    // An escaped backslash escapes nothing after it.
+    assert_eq!(markers(&format!("x \\\\{M}")), [finish()]);
+    // In an HTML block the text is raw: no escape.
+    assert_eq!(markers(&format!("<div>\n\\{M}")), [finish()]);
+}
+
+#[test]
+fn a_marker_in_a_link_s_destination_or_title_is_words_and_no_marker() {
+    assert!(markers(&format!("[a]({M})")).is_empty());
+    assert!(markers(&format!("![i]({M})")).is_empty());
+    assert!(markers(&format!("[a](/u \"{M}\")")).is_empty());
+    assert!(markers(&format!("[a](/u ({M}))")).is_empty());
+    assert!(markers(&format!("[a]: /u \"{M}\"")).is_empty());
+    // No link closes there: the marker is inline HTML and reads.
+    assert_eq!(markers(&format!("[a]({M} title)")), [finish()]);
+    assert_eq!(markers(&format!("[{M}](/u)")), [finish()]);
+}
+
+#[test]
+fn past_the_nesting_cap_the_rest_of_the_line_and_its_containers_are_dead() {
+    // markers.rs MAX_NESTING: 100 containers open at once.
+    assert_eq!(markers(&format!("{}{M}", "- ".repeat(100))), [finish()]);
+    assert!(markers(&format!("{}{M}", "- ".repeat(101))).is_empty());
+    let deep = "- ".repeat(101);
+    assert!(markers(&format!("{deep}x\n\n{}{M}", " ".repeat(202))).is_empty());
+    // A line that closes them reads again.
+    assert_eq!(markers(&format!("{deep}x\n\n{M}")), [finish()]);
+}

@@ -7,11 +7,17 @@
 //!   level or in a list item, which GitHub keeps as hidden HTML;
 //! - `code`: inside a code block or a code span;
 //! - `quote`: inside a block quote, at any depth;
-//! - `text`: shown as words (comrak read no HTML there).
+//! - `text`: shown as words (comrak read no HTML there): an escaped
+//!   `<!--`, a link's or an image's destination or title;
+//! - `none`: nowhere in the tree (a table dropped it with its row's extra
+//!   cells, a link reference definition took it).
 //!
-//! The reader must never read a marker that is not `live` (the unsafe
-//! way: no difference allowed). It must read every `live` marker, except
-//! in the known safe departures, listed by body in [`SAFE`].
+//! Each marker is asked about alone: its body with every other marker made
+//! no marker of the same shape, so one marker's answer never hides
+//! another's. The reader must never read a marker that is `code`, `quote`
+//! or `text` (the unsafe way: no difference allowed); a `none` marker is
+//! skipped. It must read every `live` marker, except in the known safe
+//! departures, listed by body in [`SAFE`].
 //!
 //! The corpus is recorded in `tests/samples/markers-oracle.tsv`, each
 //! body with the classes comrak gave, so a comrak upgrade that moves a
@@ -46,6 +52,10 @@ const SAFE: &[(&str, &str)] = &[
         "| a | b |\\n|---|---|\\n| `x | M` |",
         "a table's cells split the row before its code spans pair: the reader reads the row as one line",
     ),
+    (
+        "- [a]: http://x\\n  x\\n\\n\\n    M",
+        "an item's paragraph that opens as a link reference definition is taken for definitions alone, so the second blank line closes the item, and the indented line is taken for code",
+    ),
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -54,6 +64,7 @@ enum Class {
     Code,
     Quote,
     Text,
+    None,
 }
 
 impl Class {
@@ -63,6 +74,7 @@ impl Class {
             Class::Code => "code",
             Class::Quote => "quote",
             Class::Text => "text",
+            Class::None => "none",
         }
     }
 
@@ -72,6 +84,7 @@ impl Class {
             "code" => Class::Code,
             "quote" => Class::Quote,
             "text" => Class::Text,
+            "none" => Class::None,
             other => panic!("no class {other}"),
         }
     }
@@ -119,15 +132,37 @@ fn walk<'a>(n: &'a AstNode<'a>, quoted: bool, out: &mut Vec<Class>) {
     }
 }
 
-/// Whether the reader reads each marker of `body`, in their order: each
-/// read alone, the others made no marker of the same shape.
-fn reader(body: &str) -> Vec<bool> {
-    let at: Vec<usize> = body.match_indices(WORDS).map(|(i, _)| i).collect();
-    at.iter()
-        .map(|i| {
+/// One body per marker of `body`, in their order: the marker, and every
+/// other made no marker of the same shape, which keeps the blocks.
+fn alone(body: &str) -> Vec<String> {
+    body.match_indices(WORDS)
+        .map(|(i, _)| {
             let mut one = body.replace(WORDS, OTHER);
-            one.replace_range(*i..i + WORDS.len(), WORDS);
-            read(&one, BlueprintNo::new(7))
+            one.replace_range(i..i + WORDS.len(), WORDS);
+            one
+        })
+        .collect()
+}
+
+/// The class comrak gives each marker of `body`, each asked alone.
+fn classes(body: &str) -> Vec<Class> {
+    alone(body)
+        .iter()
+        .map(|one| match oracle(one).as_slice() {
+            [] => Class::None,
+            // A link reference definition's destination is copied into
+            // each link that uses it: the least hidden copy counts.
+            more => *more.iter().find(|c| **c != Class::Live).unwrap_or(&more[0]),
+        })
+        .collect()
+}
+
+/// Whether the reader reads each marker of `body`, each read alone.
+fn reader(body: &str) -> Vec<bool> {
+    alone(body)
+        .iter()
+        .map(|one| {
+            read(one, BlueprintNo::new(7))
                 .markers
                 .iter()
                 .any(|m| m.kind() == MarkerKind::Finish && matches!(m, Marker::Finish(_)))
@@ -135,19 +170,49 @@ fn reader(body: &str) -> Vec<bool> {
         .collect()
 }
 
-/// A body as the corpus file writes it: `M` the marker, and `\n`, `\r`,
-/// `\t` and ` ` escaped.
+/// A marker the reader reads where GitHub shows no hidden HTML.
+fn unsafe_read(live: bool, class: Class) -> bool {
+    live && !matches!(class, Class::Live | Class::None)
+}
+
+/// A body as the corpus file writes it: `M` the marker, and `\\`, `\n`,
+/// `\r`, `\t`, `\u00a0` and `\ufeff` escaped. A backslash before any other
+/// character stands for itself.
 fn unescape(s: &str) -> String {
-    s.replace("\\u00a0", "\u{a0}")
-        .replace("\\ufeff", "\u{feff}")
-        .replace("\\r", "\r")
-        .replace("\\n", "\n")
-        .replace("\\t", "\t")
-        .replace('M', M)
+    let mut out = String::new();
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c == 'M' {
+            out.push_str(M);
+            continue;
+        }
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.clone().next() {
+            Some('\\') => out.push('\\'),
+            Some('n') => out.push('\n'),
+            Some('r') => out.push('\r'),
+            Some('t') => out.push('\t'),
+            Some('u') => {
+                let hex: String = chars.clone().skip(1).take(4).collect();
+                out.push(char::from_u32(u32::from_str_radix(&hex, 16).unwrap()).unwrap());
+                chars.nth(3);
+            }
+            _ => {
+                out.push('\\');
+                continue;
+            }
+        }
+        chars.next();
+    }
+    out
 }
 
 fn escape(s: &str) -> String {
-    s.replace(M, "M")
+    s.replace('\\', "\\\\")
+        .replace(M, "M")
         .replace('\n', "\\n")
         .replace('\r', "\\r")
         .replace('\t', "\\t")
@@ -238,7 +303,7 @@ const CHOSEN: &[&str] = &[
     "- item\\n\\npara\\n\\n    M",
     "a `x\\nb M `",
     "See `M` here.",
-    "\\\\`M\\\\`",
+    "\\\\\\\\`M\\\\\\\\`",
     // The second read's causes: partly used tabs, empty items, the first
     // kind of HTML block's close tags, backticks GitHub reads as something
     // else first, and a byte order mark.
@@ -284,6 +349,47 @@ const CHOSEN: &[&str] = &[
     "   </pre>> \\n> |---|---|> ---</pre>\\tM",
     "</pre>---```  -->-->\\n> </div>M",
     "</pre>  -->\\n```\\n\\n# > M",
+    // The lead's read: a table whose head is a paragraph's last line (more
+    // in [`tables`]), an escaped opener and a marker in a link's
+    // destination or title, which GitHub shows as words, and nested
+    // containers on one line.
+    "p\\na | b\\n-|-\\n    M",
+    "p\\nx\\n:-\\n    M",
+    "p\\n<\\n:-\\n    M",
+    "\\\\M",
+    "x \\\\M",
+    "x \\\\\\\\M",
+    "x \\\\\\\\\\\\M",
+    "# \\\\M",
+    "| a |\\n|---|\\n| \\\\M |",
+    "<div>\\n\\\\M",
+    "[a](M)",
+    "[a](</u> \"M\")",
+    "[a](/u 'M')",
+    "[a](/u (M))",
+    "![i](M)",
+    "x [a](\\nM\\n)",
+    "[a](M title)",
+    "[a](M",
+    "[M](/u)",
+    "[a]: M",
+    "[a]: /u \"M\"",
+    "[a]: /u\\n\"M\"",
+    "[a]:\\nM",
+    "- - - M",
+    "> - > - M",
+    "1. - > 2) M",
+    // Found unsafe by the seeds of the lead's read: an item whose first
+    // line opens another item has content, and an item whose content is a
+    // link reference definition alone is empty again after it.
+    "- \\n     10) \\r\\n\\r\\n\\t>\\t?><http://a> \"t\"--!> 't'\\t\\t<!-- x</table>\\r|:-:| \"t\" 't'> - <table>| a | b |* M",
+    "2) [a]: http://x\\n\\t\\n\\n    :-</style><!--  M",
+    "2) [a]: http://x\\n\\n\\n    M",
+    "- x\\n  [a]: http://x\\n\\n\\n    M",
+    "- [a]: http://x\\n  x\\n\\n\\n    M",
+    "- [a]: http://x\\n\\n  x\\n\\n    M",
+    "<http://a>\\t<b>> > [x](&lt;\\\\</style><p>````\\t\\t[a]: http://x\\t`</a></pre>\\r\\ufeff]]>\\n* [a]:M",
+    "[a]\\n* [a]:M",
 ];
 
 /// The block a marker line may follow.
@@ -377,10 +483,41 @@ fn corpus_file() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/samples/markers-oracle.tsv")
 }
 
+/// A GFM table whose head is the last line of a paragraph, under 0 to 3
+/// lines of prose, its delimiter row indented 0, 3 or 4, then a marker
+/// line: indented, at the margin, after a blank line or after a row; each
+/// at the text's level, in a quote and in a list item, with LF and CRLF.
+fn tables() -> Vec<String> {
+    let mut out = Vec::new();
+    let heads = [
+        ("a | b", "-|-"),
+        ("| a | b |", "|---|---|"),
+        ("x", ":-"),
+        ("<", ":-"),
+        ("a | b", "-|-|-"),
+    ];
+    for prose in ["", "p\n", "p\nq\n", "p\nq\nr\n"] {
+        for (head, row) in heads {
+            for indent in ["", "   ", "    "] {
+                for tail in ["    M", "M", "\n    M", "1 | 2\n    M", "| 1 | 2 |\nM"] {
+                    let plain = format!("{prose}{head}\n{indent}{row}\n{tail}").replace('M', M);
+                    for wrap in ["", "> ", "- ", "1. "] {
+                        let body = contain(&plain, wrap);
+                        out.push(body.clone());
+                        out.push(body.replace('\n', "\r\n"));
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Every body of the corpus: the chosen and the generated.
 fn bodies() -> Vec<String> {
     let mut all: Vec<String> = CHOSEN.iter().map(|b| unescape(b)).collect();
     all.extend(generated());
+    all.extend(tables());
     all
 }
 
@@ -406,10 +543,10 @@ fn recorded() -> Vec<(String, Vec<Class>)> {
 fn the_recorded_corpus_is_the_oracle_s_answer() {
     if std::env::var_os("TEHAS_RECORD_ORACLE").is_some() {
         let mut file = format!(
-            "# Each body's markers as GitHub shows them, by {ORACLE}: live, code,\n# quote or text, in order, a tab, then the body with M for\n# {M} and \\n, \\r, \\t and \\u00a0 escaped.\n# Written by TEHAS_RECORD_ORACLE=1 cargo test -p tehas-github --test markers_oracle.\n"
+            "# Each body's markers as GitHub shows them, by {ORACLE}: live, code,\n# quote, text or none, in order, each asked alone, a tab, then the body\n# with M for {M} and \\\\, \\n, \\r, \\t, \\u00a0 and \\ufeff escaped.\n# Written by TEHAS_RECORD_ORACLE=1 cargo test -p tehas-github --test markers_oracle.\n"
         );
         for body in bodies() {
-            let classes: Vec<&str> = oracle(&body).iter().map(|c| c.word()).collect();
+            let classes: Vec<&str> = classes(&body).iter().map(|c| c.word()).collect();
             file.push_str(&format!("{}\t{}\n", classes.join(","), escape(&body)));
         }
         std::fs::write(corpus_file(), file).unwrap();
@@ -421,27 +558,27 @@ fn the_recorded_corpus_is_the_oracle_s_answer() {
         all.len(),
         "the corpus file is not the corpus"
     );
-    for ((body, classes), want) in recorded.iter().zip(&all) {
+    for ((body, recorded), want) in recorded.iter().zip(&all) {
         assert_eq!(body, want);
-        assert_eq!(&oracle(body), classes, "{:?}", escape(body));
+        assert_eq!(&classes(body), recorded, "{:?}", escape(body));
     }
 }
 
 #[test]
-fn the_reader_never_reads_a_marker_github_shows_in_code_or_a_quote() {
+fn the_reader_never_reads_a_marker_github_shows_as_code_a_quote_or_words() {
     let mut unsafe_ = Vec::new();
     for (body, classes) in recorded() {
         let read = reader(&body);
         assert_eq!(read.len(), classes.len(), "{:?}", escape(&body));
         for (i, (live, class)) in read.iter().zip(&classes).enumerate() {
-            if *live && *class != Class::Live {
+            if unsafe_read(*live, *class) {
                 unsafe_.push(format!("{:?} marker {i}: {class:?}", escape(&body)));
             }
         }
     }
     assert!(
         unsafe_.is_empty(),
-        "{} read where GitHub shows no marker:\n{}",
+        "{} read where GitHub shows no hidden marker:\n{}",
         unsafe_.len(),
         unsafe_.join("\n")
     );
@@ -471,7 +608,7 @@ fn the_reader_reads_every_marker_github_hides_but_the_known_safe_departures() {
         assert!(
             reader(&body)
                 .iter()
-                .zip(oracle(&body))
+                .zip(classes(&body))
                 .any(|(l, c)| !l && c == Class::Live),
             "{b:?} ({why}) is no departure now"
         );
@@ -482,75 +619,157 @@ fn the_reader_reads_every_marker_github_hides_but_the_known_safe_departures() {
 fn every_factory_shape_reads() {
     for b in &CHOSEN[..17] {
         let body = unescape(b);
-        let want: Vec<bool> = oracle(&body).iter().map(|c| *c == Class::Live).collect();
+        let want: Vec<bool> = classes(&body).iter().map(|c| *c == Class::Live).collect();
         assert!(want.iter().all(|l| *l), "{b:?} is no factory shape");
         assert_eq!(reader(&body), want, "{b:?}");
     }
 }
 
 /// The fragments the random bodies are built from: markers, containers,
-/// tabs and spaces, fences, HTML, table rows, backticks and line ends.
+/// tabs and spaces, fences, HTML of each kind, table rows, backticks,
+/// backslashes, links and their destinations, headings, breaks and line
+/// ends.
 const FRAGMENTS: &[&str] = &[
+    "M",
     "M",
     "M",
     "> ",
     ">",
+    ">>",
+    "> > ",
     "- ",
+    "* ",
+    "+ ",
     "-",
     "1. ",
     "1.",
+    "2) ",
     "10) ",
+    "99999. ",
+    "- - ",
+    "> - ",
     "\t",
     "\t",
+    "\t\t",
     " ",
     "  ",
     "   ",
     "    ",
+    "     ",
     "        ",
+    "\u{feff}",
     "```",
+    "````",
     "~~~",
+    "~~~~",
+    "``` x",
+    "```rust",
+    "~~~ `x`",
     "<div>",
     "</div>",
     "<pre>",
     "</pre>",
+    "<script>",
+    "</script>",
+    "<style>",
+    "</style>",
+    "<textarea>",
+    "</textarea>",
+    "<?",
+    "?>",
+    "<!X",
+    "<![CDATA[",
+    "]]>",
+    "<!-- x",
+    "<!--",
+    "-->",
+    "--!>",
+    "<a href=\"x\">",
+    "</a>",
+    "<b>",
+    "<x-y>",
+    "</x-y>",
+    "<table>",
+    "</table>",
+    "<p>",
     "| a | b |",
     "|---|---|",
+    "| c |",
+    "|:-:|",
+    "a | b",
+    "-|-",
+    ":-",
+    "p\n",
     "`",
     "``",
     "\\`",
+    "\\\\`",
+    "\\",
+    "\\\\",
+    "\\<",
+    "&lt;",
+    "&#60;",
     "x",
     "text",
+    "word ",
     "# ",
+    "## ",
     "===",
     "---",
-    "<!--",
-    "-->",
+    "***",
+    "___",
+    "[a]: http://x",
+    "[a]:",
+    "[x](",
+    "](http://x)",
+    "](",
+    ")",
+    " \"t\"",
+    " 't'",
+    "<http://a>",
+    "![i](",
     "\n",
     "\n",
     "\n",
     "\n\n",
     "\r",
+    "\r",
     "\r\n",
+    "\r\n\r\n",
+    "\n\t",
+    "\n    ",
+    "\n>",
 ];
 
-/// The random section's seed and size: the bodies are made anew at each
-/// run, the same each time, and not recorded.
-const SEED: u64 = 0x7e4a_5c0d_e2b1_9f37;
-const RANDOM: usize = 20_000;
+/// The random section's seeds, and how many bodies each makes: the same
+/// bodies at each run, compared live with comrak and not recorded. A run
+/// may ask for other seeds with `TEHAS_ORACLE_SEEDS` (comma separated) and
+/// `TEHAS_ORACLE_COUNT`; the gate sets neither.
+const SEEDS: &[u64] = &[
+    0x7e4a_5c0d_e2b1_9f37,
+    1,
+    2,
+    3,
+    0x51ed_2701,
+    0x9e37_79b9_7f4a_7c15,
+    0xc0ff_ee00_d15e_a5e5,
+    0x0123_4567_89ab_cdef,
+];
+const PER_SEED: usize = 2_500;
 
-/// A body of 2 to 13 fragments drawn by a linear congruential generator,
-/// with a marker in it.
-fn random_bodies() -> Vec<String> {
-    let mut state = SEED;
+/// Bodies of 2 to 25 fragments drawn by a linear congruential generator
+/// from `seed`, each with a marker in it.
+fn random_bodies(seed: u64, count: usize) -> Vec<String> {
+    let mut state = seed;
     let mut next = move || {
         state = state
             .wrapping_mul(6_364_136_223_846_793_005)
             .wrapping_add(1_442_695_040_888_963_407);
         (state >> 33) as usize
     };
-    (0..RANDOM)
+    (0..count)
         .map(|_| {
-            let n = 2 + next() % 12;
+            let n = 2 + next() % 24;
             let mut body: String = (0..n)
                 .map(|_| FRAGMENTS[next() % FRAGMENTS.len()])
                 .collect::<String>()
@@ -564,35 +783,33 @@ fn random_bodies() -> Vec<String> {
 }
 
 #[test]
-fn the_reader_never_reads_a_marker_github_shows_in_code_or_a_quote_in_random_bodies() {
+fn the_reader_never_reads_a_marker_github_shows_as_code_a_quote_or_words_in_random_bodies() {
+    let seeds: Vec<u64> = match std::env::var("TEHAS_ORACLE_SEEDS") {
+        Ok(s) => s.split(',').map(|s| s.trim().parse().unwrap()).collect(),
+        Err(_) => SEEDS.to_vec(),
+    };
+    let count = std::env::var("TEHAS_ORACLE_COUNT").map_or(PER_SEED, |s| s.parse().unwrap());
     let mut unsafe_ = Vec::new();
-    for body in random_bodies() {
-        let classes = oracle(&body);
-        let read = reader(&body);
-        if read.len() != classes.len() {
-            // A table drops a row's cells past its head's, a marker in them
-            // with them: GitHub shows it nowhere. The places are then
-            // unknown, so the body is skipped; any other difference fails.
-            let dropped = read.len() > classes.len() && body.contains("|-");
-            if !dropped {
-                unsafe_.push(format!(
-                    "{:?}: {} markers, comrak {}",
-                    escape(&body),
-                    read.len(),
-                    classes.len()
-                ));
-            }
-            continue;
-        }
-        for (i, (live, class)) in read.iter().zip(&classes).enumerate() {
-            if *live && *class != Class::Live {
-                unsafe_.push(format!("{:?} marker {i}: {class:?}", escape(&body)));
+    let (mut asked, mut dropped) = (0, 0);
+    for seed in &seeds {
+        for body in random_bodies(*seed, count) {
+            for (one, (live, class)) in alone(&body)
+                .iter()
+                .zip(reader(&body).into_iter().zip(classes(&body)))
+            {
+                asked += 1;
+                dropped += usize::from(class == Class::None);
+                if unsafe_read(live, class) {
+                    unsafe_.push(format!("seed {seed}: {:?}: {class:?}", escape(one)));
+                }
             }
         }
     }
+    unsafe_.sort();
+    unsafe_.dedup();
     assert!(
         unsafe_.is_empty(),
-        "{} of {RANDOM} random bodies (seed {SEED:#x}) read where GitHub shows no marker:\n{}",
+        "{} of {asked} markers ({dropped} nowhere) in {count} random bodies from each of the seeds {seeds:?} read where GitHub shows no hidden marker:\n{}",
         unsafe_.len(),
         unsafe_.join("\n")
     );
@@ -601,6 +818,24 @@ fn the_reader_never_reads_a_marker_github_shows_in_code_or_a_quote_in_random_bod
 #[test]
 fn a_marker_inside_a_larger_comment_is_hidden_html_to_both() {
     let body = unescape("<!--\\nM\\n-->");
-    assert_eq!(oracle(&body), [Class::Live]);
+    assert_eq!(classes(&body), [Class::Live]);
     assert_eq!(reader(&body), [true]);
+}
+
+/// A probe for a local run: `TEHAS_ORACLE_PROBE` holds bodies written as
+/// the corpus writes them, each on its own line; each marker's reading
+/// and class are printed. The gate sets nothing, and it does nothing.
+#[test]
+fn probe() {
+    let Ok(bodies) = std::env::var("TEHAS_ORACLE_PROBE") else {
+        return;
+    };
+    for b in bodies.lines() {
+        let body = unescape(b);
+        eprintln!(
+            "{b:?}\treader {:?}\tcomrak {:?}",
+            reader(&body),
+            classes(&body)
+        );
+    }
 }

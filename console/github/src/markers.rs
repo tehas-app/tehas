@@ -27,15 +27,23 @@
 //! partly used by a container keeps its other columns, and a byte order
 //! mark at the text's start is no part of it.
 //!
+//! A marker reads only where GitHub keeps it as hidden HTML. So it is no
+//! marker either where GitHub shows its words: after a backslash that
+//! escapes its `<` (an odd run of them), or in a link's or an image's
+//! destination or title, or in a paragraph that opens as a link reference
+//! definition.
+//!
 //! Code spans are not paired: what GitHub reads first (inline HTML, an
 //! autolink, a link's destination or title) may hold a backtick that pairs
 //! nothing, so the reader takes every marker between two runs of one
-//! length for code. That is the one way it departs from GitHub, the safe
-//! way: such a marker GitHub may hide, the reader does not read.
+//! length for code. Where the reader departs from GitHub it is the safe
+//! way: such a marker GitHub may hide, the reader does not read. So too a
+//! link is taken without its `[`, a definition without its rest, and past
+//! [`MAX_NESTING`] open containers all is dead.
 //!
 //! `tests/markers_oracle.rs` holds the reader to a CommonMark and GFM
 //! parser, comrak, over a recorded corpus and seeded random bodies: no
-//! marker read where GitHub shows code or a quote, and the known
+//! marker read where GitHub shows code, a quote or words, and the known
 //! departures, each the safe way, named there.
 
 //! [`write`] is the reading's inverse: a text and its markers made into
@@ -557,9 +565,11 @@ fn dead(body: &str, lines: &[Line]) -> Vec<(usize, usize)> {
     // The paragraph being read, from its first line's text to its last's
     // end: its code spans may cross line ends.
     let mut para_at: Option<(usize, usize)> = None;
+    // Which list item the paragraph is the first content of, if any.
+    let mut para_first: Option<usize> = None;
     let flush = |para_at: &mut Option<(usize, usize)>, out: &mut Vec<(usize, usize)>| {
         if let Some((s, e)) = para_at.take() {
-            spans(&body[s..e], s, out);
+            inline(&body[s..e], s, true, out);
         }
     };
     for l in lines {
@@ -601,11 +611,14 @@ fn dead(body: &str, lines: &[Line]) -> Vec<(usize, usize)> {
         }
         let rest = &line[at.byte..];
         if matched < open.len() {
-            let lazy = para(leaf) && !blank(rest) && !interrupts(at, line);
+            let lazy = (para(leaf) || leaf == Leaf::Deep) && !blank(rest) && !interrupts(at, line);
             if lazy {
-                if open.contains(&Container::Quote) {
+                if leaf == Leaf::Deep || open.contains(&Container::Quote) {
                     out.push((l.start, l.next));
                 } else {
+                    // The lazy line is now the paragraph's last, which a
+                    // delimiter row may make a table's head.
+                    leaf = Leaf::Para(cells(&line[at.indent(line).1.byte..]).len());
                     let s = para_at.map_or(l.start + at.byte, |(s, _)| s);
                     para_at = Some((s, l.end));
                 }
@@ -648,15 +661,44 @@ fn dead(body: &str, lines: &[Line]) -> Vec<(usize, usize)> {
                 }
                 continue;
             }
+            Leaf::Deep => {
+                out.push((l.start, l.next));
+                continue;
+            }
             _ => {}
         }
-        // New containers, as many as the line opens.
+        // New containers, as many as the line opens, up to the cap.
+        let mut deep = false;
+        let before = open.len();
+        // A thematic break runs to the line's end: only a start in the
+        // line's tail of one mark can be one, so each item tried costs
+        // nothing more.
+        let tail = rule_tail(line);
+        let is_rule = |from: usize| from >= tail && rule(&line[from..]);
         loop {
             let (ind, after) = at.indent(line);
             if ind >= 4 {
                 break;
             }
             let t = &line[after.byte..];
+            let opens_one = t.starts_with('>')
+                || item(t).is_some_and(|width| {
+                    let empty = blank(&t[width..]);
+                    (!para(leaf)
+                        || (!empty
+                            && (matches!(t.as_bytes()[0], b'-' | b'*' | b'+')
+                                || t.starts_with("1.")
+                                || t.starts_with("1)"))))
+                        && !is_rule(after.byte)
+                });
+            if opens_one && open.len() >= MAX_NESTING {
+                deep = true;
+                break;
+            }
+            // A container that opens in an item gives it content.
+            if let Some(Container::Item { empty, .. }) = open.last_mut().filter(|_| opens_one) {
+                *empty = false;
+            }
             if t.starts_with('>') {
                 open.push(Container::Quote);
                 at = Cursor::at(after.byte + 1, after.col + 1).skip_one_space(line);
@@ -670,7 +712,7 @@ fn dead(body: &str, lines: &[Line]) -> Vec<(usize, usize)> {
                         && (matches!(t.as_bytes()[0], b'-' | b'*' | b'+')
                             || t.starts_with("1.")
                             || t.starts_with("1)")));
-                if may && !rule(t) {
+                if may && !is_rule(after.byte) {
                     let marker = Cursor::at(after.byte + width, after.col + width);
                     let (spaces, content) = marker.indent(line);
                     let indent = if empty || spaces > 4 {
@@ -690,8 +732,23 @@ fn dead(body: &str, lines: &[Line]) -> Vec<(usize, usize)> {
             }
             break;
         }
+        if deep {
+            // Past the cap, the rest of the line and all inside it is dead.
+            flush(&mut para_at, &mut out);
+            leaf = Leaf::Deep;
+            out.push((l.start, l.next));
+            continue;
+        }
+        if open.len() > before {
+            // A new container ends the paragraph before it.
+            flush(&mut para_at, &mut out);
+        }
         let rest = &line[at.byte..];
         let quoted = open.contains(&Container::Quote);
+        let first = match open.last() {
+            Some(Container::Item { empty, .. }) => *empty || open.len() > before,
+            _ => false,
+        };
         if !blank(rest) {
             for c in open.iter_mut() {
                 if let Container::Item { empty, .. } = c {
@@ -700,14 +757,25 @@ fn dead(body: &str, lines: &[Line]) -> Vec<(usize, usize)> {
             }
         }
         if blank(rest) {
+            // A paragraph of link reference definitions alone leaves no
+            // block: an item that held nothing else is empty again, and the
+            // next blank line closes it.
+            let defs = para_at.is_some_and(|(s, e)| definition(&body[s..e]));
+            if let Some(Container::Item { empty, .. }) =
+                para_first.filter(|_| defs).and_then(|i| open.get_mut(i))
+            {
+                *empty = true;
+            }
             leaf = Leaf::None;
             flush(&mut para_at, &mut out);
             continue;
         }
         let (ind, after) = at.indent(line);
         let t = &line[after.byte..];
+        let mut html_line = false;
         let dead_line = if ind >= 4 {
             if para(leaf) {
+                leaf = Leaf::Para(cells(t).len());
                 false
             } else {
                 leaf = Leaf::Indented;
@@ -717,6 +785,7 @@ fn dead(body: &str, lines: &[Line]) -> Vec<(usize, usize)> {
             leaf = Leaf::Fence(c, n);
             true
         } else if let Some(end) = html_start(t, para(leaf)) {
+            html_line = true;
             leaf = if html_ends(end, t) {
                 Leaf::None
             } else {
@@ -726,20 +795,21 @@ fn dead(body: &str, lines: &[Line]) -> Vec<(usize, usize)> {
         } else if heading(t) || (para(leaf) && setext(t)) || rule(t) {
             leaf = Leaf::None;
             false
-        } else if matches!(leaf, Leaf::Para1(n) if delimiter_row(t) == Some(n)) {
+        } else if matches!(leaf, Leaf::Para(n) if delimiter_row(t) == Some(n)) {
+            // As GFM's tables have it: the paragraph's last line becomes the
+            // table's head, the lines before it stay a paragraph.
             leaf = Leaf::Table;
             false
         } else if leaf == Leaf::Table {
             false
         } else {
-            leaf = if para(leaf) {
-                Leaf::Para
-            } else {
-                Leaf::Para1(cells(t).len())
-            };
+            leaf = Leaf::Para(cells(t).len());
             false
         };
         if para(leaf) && !quoted {
+            if para_at.is_none() {
+                para_first = first.then(|| open.len() - 1);
+            }
             let s = para_at.map_or(l.start + at.byte, |(s, _)| s);
             para_at = Some((s, l.end));
             continue;
@@ -748,7 +818,7 @@ fn dead(body: &str, lines: &[Line]) -> Vec<(usize, usize)> {
         if dead_line || quoted {
             out.push((l.start, l.next));
         } else {
-            spans(rest, l.start + at.byte, &mut out);
+            inline(rest, l.start + at.byte, !html_line, &mut out);
         }
     }
     flush(&mut para_at, &mut out);
@@ -764,15 +834,23 @@ enum Container {
     Item { indent: usize, empty: bool },
 }
 
-/// The block a line is in, past its containers. `Para1` is a paragraph of
-/// one line so far, with its count of cells, which a table's delimiter
-/// row of as many cells can make a table's head.
+/// How many containers, quotes and list items, may be open at once. A
+/// container that would go past it makes the rest of its line, and every
+/// line after it while the open ones go on, dead: the safe way. It keeps
+/// each line's work bounded, so a body of nested markers reads in linear
+/// time.
+const MAX_NESTING: usize = 100;
+
+/// The block a line is in, past its containers. `Para` is a paragraph with
+/// the count of cells of its last line, which a table's delimiter row of
+/// as many cells makes a table's head. `Deep` is what is past
+/// [`MAX_NESTING`].
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Leaf {
     None,
-    Para1(usize),
-    Para,
+    Para(usize),
     Table,
+    Deep,
     Fence(u8, usize),
     Indented,
     Html(HtmlEnd),
@@ -780,7 +858,7 @@ enum Leaf {
 
 /// A paragraph, of one line or more.
 fn para(leaf: Leaf) -> bool {
-    matches!(leaf, Leaf::Para | Leaf::Para1(_))
+    matches!(leaf, Leaf::Para(_))
 }
 
 /// How an HTML block ends: at a line holding these words, or at a blank
@@ -941,6 +1019,29 @@ fn rule(t: &str) -> bool {
     marks.len() >= 3
         && matches!(marks[0], b'-' | b'*' | b'_')
         && marks.iter().all(|b| *b == marks[0])
+}
+
+/// Where the line's tail of white space and one of `-`, `*` and `_` starts.
+fn rule_tail(line: &str) -> usize {
+    let b = line.as_bytes();
+    let mut mark = None;
+    let mut i = b.len();
+    while i > 0 {
+        let c = b[i - 1];
+        let fits = match mark {
+            _ if c == b' ' || c == b'\t' => true,
+            None if matches!(c, b'-' | b'*' | b'_') => {
+                mark = Some(c);
+                true
+            }
+            m => m == Some(c),
+        };
+        if !fits {
+            break;
+        }
+        i -= 1;
+    }
+    i
 }
 
 /// A list item's marker: `-`, `*` or `+`, or 1 to 9 digits and `.` or `)`,
@@ -1203,6 +1304,134 @@ fn html_ends(end: HtmlEnd, line: &str) -> bool {
         }
         HtmlEnd::Blank => false,
     }
+}
+
+/// What of a run of inline text holds no marker: the code spans of
+/// [`spans`]; and where `prose` (a paragraph, a heading or a table row; not
+/// an HTML block, whose text is raw), what GitHub shows as words: a `<!--`
+/// after an odd run of backslashes, which escape its `<`; a link's or an
+/// image's destination and title; and the whole of a paragraph that opens
+/// as a link reference definition.
+fn inline(text: &str, at: usize, prose: bool, out: &mut Vec<(usize, usize)>) {
+    spans(text, at, out);
+    if !prose {
+        return;
+    }
+    if definition(text) {
+        out.push((at, at + text.len()));
+        return;
+    }
+    let b = text.as_bytes();
+    for (i, _) in text.match_indices("<!--") {
+        if escaped(b, i) {
+            // Its words are shown, and are no bare marker either.
+            let end = text[i..].find("-->").map_or(text.len(), |e| i + e + 3);
+            out.push((at + i, at + end));
+        }
+    }
+    for (i, _) in text.match_indices("](") {
+        if let Some(end) = destination(b, i + 2).filter(|_| !escaped(b, i)) {
+            out.push((at + i + 2, at + end));
+            if end == b.len() {
+                break;
+            }
+        }
+    }
+}
+
+/// Whether the byte at `i` follows an odd run of backslashes.
+fn escaped(b: &[u8], i: usize) -> bool {
+    b[..i].iter().rev().take_while(|c| **c == b'\\').count() % 2 == 1
+}
+
+/// Whether a paragraph opens as a link reference definition: `[`, a label
+/// with no unescaped `]`, then `]:`. More than CommonMark takes, the safe
+/// way: the rest of the definition is not checked.
+fn definition(text: &str) -> bool {
+    let t = text.trim_start_matches([' ', '\t']).as_bytes();
+    if t.first() != Some(&b'[') {
+        return false;
+    }
+    let close = (1..t.len()).find(|i| t[*i] == b']' && !escaped(t, *i));
+    close.is_some_and(|i| i > 1 && t.get(i + 1) == Some(&b':'))
+}
+
+/// Where an inline link's destination and title, from the byte after
+/// `](`, end with their `)`: a destination in `<` and `>` or one of no
+/// white space with balanced parentheses, then a title in quotes or
+/// parentheses. None when no link closes there. The `[` that opens the
+/// link is not looked for, the safe way. Parentheses nested deeper than
+/// cmark takes (32) make the rest of the text a destination, the safe way
+/// too, which also keeps the scans linear.
+fn destination(b: &[u8], from: usize) -> Option<usize> {
+    let space = |i: &mut usize| {
+        while b
+            .get(*i)
+            .is_some_and(|c| matches!(c, b' ' | b'\t' | b'\n' | b'\r'))
+        {
+            *i += 1;
+        }
+    };
+    let mut i = from;
+    space(&mut i);
+    if b.get(i) == Some(&b'<') {
+        i += 1;
+        loop {
+            match b.get(i)? {
+                b'\n' | b'\r' | b'<' => return None,
+                b'\\' => i += 2,
+                b'>' => {
+                    i += 1;
+                    break;
+                }
+                _ => i += 1,
+            }
+        }
+    } else {
+        let mut depth = 0usize;
+        while let Some(&c) = b.get(i) {
+            match c {
+                b'\\' => i += 2,
+                b'(' if depth == 32 => return Some(b.len()),
+                b'(' => {
+                    depth += 1;
+                    i += 1;
+                }
+                b')' if depth == 0 => break,
+                b')' => {
+                    depth -= 1;
+                    i += 1;
+                }
+                c if c <= b' ' => break,
+                _ => i += 1,
+            }
+        }
+        if depth > 0 {
+            return None;
+        }
+    }
+    space(&mut i);
+    let close = match b.get(i)? {
+        b')' => return Some(i + 1),
+        b'"' => b'"',
+        b'\'' => b'\'',
+        b'(' => b')',
+        _ => return None,
+    };
+    i += 1;
+    loop {
+        match b.get(i)? {
+            b'\\' => i += 2,
+            c if *c == close => {
+                i += 1;
+                break;
+            }
+            b'(' if close == b')' => return None,
+            _ => i += 1,
+        }
+    }
+    space(&mut i);
+    (b.get(i)? == &b')').then_some(i + 1)
 }
 
 /// What of a paragraph's text, or of one line, may be inside a code span:
