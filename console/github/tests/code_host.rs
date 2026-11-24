@@ -17,7 +17,7 @@ use tehas_ports::laws;
 use tehas_ports::{
     Actor, At, Author, Bound, ChangeDigest, ChangeFilter, ChangeNo, ChangeStates, CheckStatus,
     Checks, CodeHost, CommitId, Conclusion, Facts, Got, Mark, MarkName, Outcome, Overall, Refusal,
-    State, Unread, Whole, Window,
+    State, Unread, Whole, Window, ALL_MAX,
 };
 
 fn here() -> PathBuf {
@@ -40,7 +40,7 @@ struct Replay {
 
 /// The recording a call reads, named by the project and the read: `repo`,
 /// `pulls` (the REST list that settles a failed question),
-/// `checks-<commit>-<page>[-name=<name>]`, or
+/// `checks-<commit>-<page>[-name=<name>]`, `statuses-<commit>-<page>`, or
 /// `changes-<states>[-me][-head=<branch>][-after=<cursor>][-updated]`
 /// (`-updated` for the question newest updated first), each byte
 /// outside `[A-Za-z0-9=-]` written `_`.
@@ -75,13 +75,17 @@ fn recording(args: &[&str]) -> Option<(String, String)> {
             }
             Some((project, rest)) => {
                 let rest = rest.strip_prefix("commits/")?;
-                let (commit, query) =
-                    rest.split_once("/check-runs?filter=latest&per_page=100&page=")?;
-                let (page, name) = match query.split_once("&check_name=") {
-                    Some((page, name)) => (page, format!("-name={name}")),
-                    None => (query, String::new()),
-                };
-                (project.to_string(), format!("checks-{commit}-{page}{name}"))
+                if let Some((commit, page)) = rest.split_once("/status?per_page=100&page=") {
+                    (project.to_string(), format!("statuses-{commit}-{page}"))
+                } else {
+                    let (commit, query) =
+                        rest.split_once("/check-runs?filter=latest&per_page=100&page=")?;
+                    let (page, name) = match query.split_once("&check_name=") {
+                        Some((page, name)) => (page, format!("-name={name}")),
+                        None => (query, String::new()),
+                    };
+                    (project.to_string(), format!("checks-{commit}-{page}{name}"))
+                }
             }
         }
     };
@@ -573,15 +577,85 @@ fn answering(project: &str, answer: &str) -> (GitHub, Asked) {
     (GitHub::new(project, Box::new(runner)), asked)
 }
 
+/// A runner that answers each call in turn from `answers`, writing each
+/// down; a call past them fails.
+struct Script {
+    answers: Vec<Result<String, String>>,
+    asked: Asked,
+}
+
+impl GhRunner for Script {
+    fn run(&mut self, args: &[&str]) -> Result<String, String> {
+        let mut asked = self.asked.lock().unwrap();
+        asked.push(args.join(" "));
+        self.answers
+            .get(asked.len() - 1)
+            .cloned()
+            .unwrap_or_else(|| Err("no answer".to_string()))
+    }
+}
+
+fn scripted(answers: &[Result<String, String>]) -> (GitHub, Asked) {
+    let asked = Asked::default();
+    let runner = Script {
+        answers: answers.to_vec(),
+        asked: Arc::clone(&asked),
+    };
+    (GitHub::new("acme/widget", Box::new(runner)), asked)
+}
+
+/// A site's check runs page: each run as `(id, App id, name, status,
+/// conclusion)`, and the count it says it holds.
+fn runs_page(total: usize, runs: &[(u64, u64, &str, &str, Option<&str>)]) -> String {
+    let runs: Vec<serde_json::Value> = runs
+        .iter()
+        .map(|(id, app, name, status, conclusion)| {
+            serde_json::json!({"id": id, "app": {"id": app}, "name": name, "status": status, "conclusion": conclusion})
+        })
+        .collect();
+    serde_json::json!({"total_count": total, "check_runs": runs}).to_string()
+}
+
+/// A site's combined status page: each context and its newest state, and
+/// the count it says it holds.
+fn statuses_page(total: usize, statuses: &[(&str, &str)]) -> String {
+    let statuses: Vec<serde_json::Value> = statuses
+        .iter()
+        .map(|(context, state)| serde_json::json!({"context": context, "state": state}))
+        .collect();
+    serde_json::json!({"state": "pending", "total_count": total, "statuses": statuses}).to_string()
+}
+
+fn at() -> CommitId {
+    CommitId::new("e".repeat(40)).unwrap()
+}
+
+/// The checks of a commit whose runs and statuses each fit one page.
+fn checks_of(runs: &[(u64, u64, &str, &str, Option<&str>)], statuses: &[(&str, &str)]) -> Checks {
+    let (mut gh, asked) = scripted(&[
+        Ok(runs_page(runs.len(), runs)),
+        Ok(statuses_page(statuses.len(), statuses)),
+    ]);
+    let got = gh.checks(&at(), None).unwrap();
+    assert_eq!(asked.lock().unwrap().len(), 2);
+    got
+}
+
 fn runs(json: &str) -> Checks {
-    let (mut gh, _) = answering("acme/widget", json);
-    gh.checks(&CommitId::new("e".repeat(40)).unwrap(), None)
-        .unwrap()
+    let (mut gh, _) = scripted(&[Ok(json.to_string()), Ok(statuses_page(0, &[]))]);
+    gh.checks(&at(), None).unwrap()
 }
 
 fn statuses(c: &Checks) -> Vec<CheckStatus> {
     c.runs.iter().map(|r| r.status).collect()
 }
+
+fn names(c: &Checks) -> Vec<&str> {
+    c.runs.iter().map(|r| r.name.as_str()).collect()
+}
+
+const PASS: (u64, u64, &str, &str, Option<&str>) =
+    (1, 15368, "build", "completed", Some("success"));
 
 #[test]
 fn a_cancelled_run_beside_one_running_is_pending() {
@@ -618,16 +692,228 @@ fn a_neutral_run_passes() {
 }
 
 #[test]
-fn the_checks_ask_the_newest_run_of_each_name_alone() {
-    let (mut gh, asked) = answering("acme/widget", r#"{"total_count":0,"check_runs":[]}"#);
-    let at = CommitId::new("e".repeat(40)).unwrap();
-    gh.checks(&at, Some("test")).unwrap();
+fn the_cheapest_checks_read_is_two_requests_the_newest_runs_and_the_combined_status() {
+    let (mut gh, asked) = scripted(&[Ok(runs_page(0, &[])), Ok(statuses_page(0, &[]))]);
+    gh.checks(&at(), Some("test")).unwrap();
     assert_eq!(
         *asked.lock().unwrap(),
-        [format!(
-            "api repos/acme/widget/commits/{}/check-runs?filter=latest&per_page=100&page=1&check_name=test",
-            at.as_str()
-        )]
+        [
+            format!(
+                "api repos/acme/widget/commits/{}/check-runs?filter=latest&per_page=100&page=1&check_name=test",
+                at().as_str()
+            ),
+            format!(
+                "api repos/acme/widget/commits/{}/status?per_page=100&page=1",
+                at().as_str()
+            ),
+        ]
+    );
+}
+
+#[test]
+fn a_failing_status_beside_a_passing_run_fails_the_checks() {
+    for state in ["failure", "error"] {
+        let c = checks_of(&[PASS], &[("ci/legacy", state)]);
+        assert_eq!(names(&c), ["build", "ci/legacy"]);
+        assert_eq!(
+            statuses(&c),
+            [
+                CheckStatus::Done(Conclusion::Passed),
+                CheckStatus::Done(Conclusion::Failed)
+            ]
+        );
+        assert_eq!(c.overall, Overall::Fail, "{state}");
+    }
+}
+
+#[test]
+fn a_pending_status_keeps_the_checks_pending() {
+    let c = checks_of(&[PASS], &[("deploy/preview", "pending")]);
+    assert_eq!(
+        statuses(&c),
+        [CheckStatus::Done(Conclusion::Passed), CheckStatus::Running]
+    );
+    assert_eq!(c.overall, Overall::Pending);
+}
+
+#[test]
+fn statuses_alone_are_the_checks() {
+    let c = checks_of(&[], &[("ci/legacy", "success"), ("lint", "success")]);
+    assert_eq!(names(&c), ["ci/legacy", "lint"]);
+    assert_eq!(c.overall, Overall::Pass);
+}
+
+#[test]
+fn runs_alone_are_the_checks() {
+    let c = checks_of(&[PASS], &[]);
+    assert_eq!(names(&c), ["build"]);
+    assert_eq!(c.overall, Overall::Pass);
+}
+
+#[test]
+fn no_runs_and_no_statuses_are_none() {
+    let c = checks_of(&[], &[]);
+    assert!(c.runs.is_empty());
+    assert_eq!(c.overall, Overall::None);
+}
+
+#[test]
+fn a_failed_statuses_request_fails_the_read_never_an_answer_from_runs_alone() {
+    let failed = "HTTP 403: Resource not accessible by integration".to_string();
+    let (mut gh, asked) = scripted(&[Ok(runs_page(1, &[PASS])), Err(failed.clone())]);
+    let got = gh.checks(&at(), None);
+    assert_eq!(asked.lock().unwrap().len(), 2);
+    let (mut alone, _) = scripted(&[Err(failed)]);
+    let want = alone.checks(&at(), None);
+    assert!(want.is_err());
+    assert_eq!(got, want);
+}
+
+/// The contexts `ctx-1` to `ctx-<n>`, each passed.
+fn contexts(from: usize, to: usize) -> Vec<String> {
+    (from..=to).map(|i| format!("ctx-{i}")).collect()
+}
+
+fn passed(names: &[String]) -> Vec<(&str, &str)> {
+    names.iter().map(|n| (n.as_str(), "success")).collect()
+}
+
+#[test]
+fn statuses_over_two_pages_are_read_whole() {
+    let (first, second) = (contexts(1, 100), contexts(101, 101));
+    let (mut gh, asked) = scripted(&[
+        Ok(runs_page(0, &[])),
+        Ok(statuses_page(101, &passed(&first))),
+        Ok(statuses_page(101, &passed(&second))),
+    ]);
+    let c = gh.checks(&at(), None).unwrap();
+    assert_eq!(c.runs.len(), 101);
+    assert_eq!(c.overall, Overall::Pass);
+    let asked = asked.lock().unwrap();
+    assert_eq!(asked.len(), 3);
+    assert!(
+        asked[2].ends_with("/status?per_page=100&page=2"),
+        "{}",
+        asked[2]
+    );
+}
+
+#[test]
+fn statuses_that_move_between_pages_are_inconsistent() {
+    let (first, second) = (contexts(1, 100), contexts(100, 101));
+    for page2 in [
+        statuses_page(102, &passed(&contexts(101, 101))),
+        statuses_page(101, &passed(&second)),
+        statuses_page(101, &[]),
+    ] {
+        let (mut gh, _) = scripted(&[
+            Ok(runs_page(0, &[])),
+            Ok(statuses_page(101, &passed(&first))),
+            Ok(page2),
+        ]);
+        assert_eq!(
+            gh.checks(&at(), None),
+            Err(Outcome::Unread(Unread::Inconsistent))
+        );
+    }
+}
+
+#[test]
+fn one_apps_failure_is_never_hidden_by_another_apps_pass() {
+    let c = checks_of(
+        &[
+            (1, 15368, "test", "completed", Some("failure")),
+            (2, 99001, "test", "completed", Some("success")),
+        ],
+        &[],
+    );
+    assert_eq!(names(&c), ["test", "test"]);
+    assert_eq!(c.overall, Overall::Fail);
+}
+
+#[test]
+fn a_status_named_like_a_run_stays_beside_it() {
+    let c = checks_of(&[PASS], &[("build", "failure")]);
+    assert_eq!(names(&c), ["build", "build"]);
+    assert_eq!(c.overall, Overall::Fail);
+}
+
+#[test]
+fn asked_by_name_the_status_of_that_context_alone_is_held_beside_the_runs_of_that_name() {
+    let (mut gh, _) = scripted(&[
+        Ok(runs_page(1, &[PASS])),
+        Ok(statuses_page(
+            2,
+            &[("build", "pending"), ("lint", "failure")],
+        )),
+    ]);
+    let c = gh.checks(&at(), Some("build")).unwrap();
+    assert_eq!(names(&c), ["build", "build"]);
+    assert_eq!(c.overall, Overall::Pending);
+}
+
+/// A site that answers each read of the check runs and the combined status
+/// of one commit from its runs and statuses, the runs asked by name filtered
+/// as `check_name` does.
+struct Site {
+    runs: Vec<(u64, u64, &'static str, &'static str, Option<&'static str>)>,
+    statuses: Vec<(&'static str, &'static str)>,
+}
+
+impl GhRunner for Site {
+    fn run(&mut self, args: &[&str]) -> Result<String, String> {
+        let path = args[1];
+        if path.contains("/status?") {
+            return Ok(statuses_page(self.statuses.len(), &self.statuses));
+        }
+        let runs: Vec<_> = match path.split_once("&check_name=") {
+            Some((_, name)) => self.runs.iter().filter(|r| r.2 == name).copied().collect(),
+            None => self.runs.clone(),
+        };
+        Ok(runs_page(runs.len(), &runs))
+    }
+}
+
+#[test]
+fn the_checks_keep_the_three_laws_of_runs_statuses_and_apps() {
+    let site = |runs, statuses| GitHub::new("acme/widget", Box::new(Site { runs, statuses }));
+    // filter=latest: GitHub gives the newest run of each App and name.
+    let mut gh = site(
+        vec![
+            (3, 15368, "test", "completed", Some("success")),
+            (4, 15368, "lint", "in_progress", None),
+        ],
+        vec![("deploy", "pending")],
+    );
+    assert_eq!(
+        laws::code_host::checks_hold_the_newest_run_of_each_app_and_name(
+            &mut gh,
+            &at(),
+            "test",
+            &CheckStatus::Done(Conclusion::Passed)
+        ),
+        Ok(())
+    );
+    let mut gh = site(
+        vec![
+            (1, 15368, "test", "completed", Some("failure")),
+            (2, 99001, "test", "completed", Some("success")),
+        ],
+        vec![],
+    );
+    assert_eq!(
+        laws::code_host::two_apps_runs_of_one_name_are_both_held(&mut gh, &at(), "test"),
+        Ok(())
+    );
+    let mut gh = site(vec![PASS], vec![("ci/legacy", "error")]);
+    assert_eq!(
+        laws::code_host::a_failed_status_beside_a_passing_run_fails(
+            &mut gh,
+            &at(),
+            "build",
+            "ci/legacy"
+        ),
+        Ok(())
     );
 }
 
@@ -685,4 +971,99 @@ fn a_filter_carrying_a_mark_no_label_can_be_is_invalid_before_any_request() {
         gh.changes(&filter, Bound::new(10).unwrap()).map(|_| ()),
         Err(Outcome::Refused(Refusal::Invalid))
     );
+}
+
+#[test]
+fn an_unknown_status_state_alone_is_unknown_never_a_pass() {
+    let c = checks_of(&[], &[("ci/legacy", "queued_new")]);
+    assert_eq!(statuses(&c), [CheckStatus::Done(Conclusion::Unknown)]);
+    assert_ne!(c.overall, Overall::Pass);
+    assert_eq!(c.overall, Overall::Unknown);
+}
+
+#[test]
+fn an_unknown_status_word_beside_passing_runs_is_not_a_pass() {
+    let c = checks_of(
+        &[PASS, (2, 15368, "test", "completed", Some("success"))],
+        &[("ci/legacy", "queued_new")],
+    );
+    assert_eq!(
+        statuses(&c),
+        [
+            CheckStatus::Done(Conclusion::Passed),
+            CheckStatus::Done(Conclusion::Passed),
+            CheckStatus::Done(Conclusion::Unknown)
+        ]
+    );
+    assert_ne!(c.overall, Overall::Pass);
+    assert_eq!(c.overall, Overall::Unknown);
+}
+
+/// The runs `first..=last`, each a passing run of its own name.
+fn passing_runs(first: u64, last: u64) -> Vec<(u64, u64, String)> {
+    (first..=last)
+        .map(|i| (i, 15368, format!("shard-{i}")))
+        .collect()
+}
+
+fn runs_page_of(total: usize, runs: &[(u64, u64, String)]) -> String {
+    let runs: Vec<_> = runs
+        .iter()
+        .map(|(id, app, name)| (*id, *app, name.as_str(), "completed", Some("success")))
+        .collect();
+    runs_page(total, &runs)
+}
+
+#[test]
+fn runs_alone_at_all_max_are_read_whole() {
+    let all = ALL_MAX.get() as u64;
+    let mut answers = vec![
+        Ok(runs_page_of(all as usize, &passing_runs(1, 100))),
+        Ok(statuses_page(0, &[])),
+    ];
+    for page in 1..all / 100 {
+        answers.push(Ok(runs_page_of(
+            all as usize,
+            &passing_runs(page * 100 + 1, page * 100 + 100),
+        )));
+    }
+    let (mut gh, asked) = scripted(&answers);
+    let c = gh.checks(&at(), None).unwrap();
+    assert_eq!(c.runs.len() as u64, all);
+    assert_eq!(c.overall, Overall::Pass);
+    assert_eq!(asked.lock().unwrap().len(), answers.len());
+}
+
+#[test]
+fn runs_and_contexts_together_one_past_all_max_are_cut() {
+    let all = ALL_MAX.get() as usize;
+    for (runs, contexts) in [(all, 1), (all - 100, 101), (1, all)] {
+        let (mut gh, _) = scripted(&[
+            Ok(runs_page_of(runs, &passing_runs(1, runs.min(100) as u64))),
+            Ok(statuses_page(
+                contexts,
+                &passed(&contexts_named(contexts.min(100))),
+            )),
+        ]);
+        assert_eq!(
+            gh.checks(&at(), None),
+            Err(Outcome::Unread(Unread::Cut)),
+            "{runs} runs and {contexts} contexts"
+        );
+    }
+}
+
+#[test]
+fn a_cut_shown_by_the_first_pages_counts_reads_no_further_page() {
+    let all = ALL_MAX.get() as usize;
+    let (mut gh, asked) = scripted(&[
+        Ok(runs_page_of(all, &passing_runs(1, 100))),
+        Ok(statuses_page(1, &[("ci/legacy", "success")])),
+    ]);
+    assert_eq!(gh.checks(&at(), None), Err(Outcome::Unread(Unread::Cut)));
+    assert_eq!(asked.lock().unwrap().len(), 2);
+}
+
+fn contexts_named(n: usize) -> Vec<String> {
+    contexts(1, n)
 }
