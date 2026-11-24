@@ -39,7 +39,7 @@ use tehas_core::lock::{probe, Held, Probe};
 use tehas_core::raise::{self, Writer};
 use tehas_core::settings::rules::is_repo;
 use tehas_ports::events::Dispatcher;
-use tehas_ports::{Mark, State, TicketKey, TicketWrites};
+use tehas_ports::{Mark, Outcome, State, TicketKey, TicketWrites};
 
 pub const USAGE: &str = include_str!("../../src/usage/stop.txt");
 
@@ -322,9 +322,9 @@ impl Names {
     }
 
     /// The last step, the issue's half: what to say, on standard output when
-    /// it went well, or on standard error, with exit 1, when the running
-    /// mark could not be read or taken off, or a cycle holds the lock again
-    /// and owns the mark.
+    /// it went well, or on standard error, with exit 1, when the number is
+    /// not an issue, the running mark could not be read or taken off, or a
+    /// cycle holds the lock again and owns the mark.
     fn take_label(&self, tickets: &mut dyn TicketWrites) -> Result<Option<String>, String> {
         let n = &self.n;
         let running = Mark::State(State::Running);
@@ -334,14 +334,21 @@ impl Names {
             .ok()
             .and_then(NonZeroU64::new)
             .map(TicketKey::Number);
-        let digest = key
+        let answer = key
             .as_ref()
             .and_then(|k| tickets.several(std::slice::from_ref(k)).pop())
-            .and_then(|(_, d)| d.ok());
-        let (Some(key), Some(digest)) = (key, digest) else {
-            return Err(format!(
-                "WARN: the labels of #{n} could not be read, so tehas:running stays on the issue"
-            ));
+            .map(|(_, d)| d);
+        let (key, digest) = match (key, answer) {
+            (Some(key), Some(Ok(digest))) => (key, digest),
+            // A pull request's number, or no item at all: no read failed.
+            (_, Some(Err(Outcome::NotFound))) => {
+                return Err(format!("#{n} is not an issue; tehas stops only issues"));
+            }
+            _ => {
+                return Err(format!(
+                    "WARN: the labels of #{n} could not be read, so tehas:running stays on the issue"
+                ));
+            }
         };
         if !digest.marks.contains(&running) {
             return Ok(None);
@@ -1110,9 +1117,37 @@ mod tests {
             let warn =
                 format!("WARN: the labels of #5 could not be read, so {LABEL} stays on the issue");
             assert_eq!(take(&five(&dir), &slow), Err(warn.clone()));
-            // An issue the site does not know is marks it could not read.
-            assert_eq!(take(&five(&dir), &FakeSite::new(&World::new())), Err(warn));
+            for fault in [Fault::Unreachable, Fault::Forbidden, Fault::Malformed] {
+                let failed =
+                    Faulty::new(FakeSite::new(&w)).on(Op::Tickets(TicketsOp::Several), fault);
+                assert_eq!(take(&five(&dir), &failed), Err(warn.clone()));
+            }
             assert_eq!(w.wrote(), vec![]);
+        }
+
+        /// The line of a number that is not an issue of this project.
+        fn not_an_issue(n: u64) -> Result<Option<String>, String> {
+            Err(format!("#{n} is not an issue; tehas stops only issues"))
+        }
+
+        #[test]
+        fn a_changes_number_is_not_an_issue_and_nothing_is_written() {
+            let dir = TestDir::new("stop-label-change");
+            let w = World::new().change(5, "work/5", |c| c);
+            let answer = take(&five(&dir), &FakeSite::new(&w));
+            assert_eq!(answer, not_an_issue(5));
+            assert!(!answer.unwrap_err().contains(LABEL));
+            assert_eq!(w.wrote(), vec![]);
+            assert_eq!(w.sent(), 1);
+        }
+
+        #[test]
+        fn a_number_with_no_item_is_not_an_issue_and_nothing_is_written() {
+            let dir = TestDir::new("stop-label-none");
+            let w = World::new().ticket(51, |t| t.mark(running()));
+            assert_eq!(take(&five(&dir), &FakeSite::new(&w)), not_an_issue(5));
+            assert_eq!(w.wrote(), vec![]);
+            assert_eq!(w.sent(), 1);
         }
 
         #[test]
