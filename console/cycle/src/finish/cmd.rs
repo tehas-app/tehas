@@ -17,10 +17,10 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 /// How long one call may take before its process group is signalled.
-const BOUND: Duration = Duration::from_secs(600);
+pub const BOUND: Duration = Duration::from_secs(600);
 
 /// How long a call that outlived [`BOUND`] gets to leave after TERM.
-const GRACE: Duration = Duration::from_secs(10);
+pub const GRACE: Duration = Duration::from_secs(10);
 
 /// How much of one stream a call may say: what a run reads is a name, a count
 /// and a URL. A stream past this is read to its end and dropped.

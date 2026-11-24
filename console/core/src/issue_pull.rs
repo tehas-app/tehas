@@ -8,16 +8,19 @@ use serde_json::Value;
 /// `feature/issue-<n>` or `feature/issue-<n>-<slug>`, or its body closes the
 /// issue. The head is GitHub's answer and is only compared, never handed to git.
 pub fn names_issue(pr: &Value, issue: u64) -> bool {
+    names_change(
+        pr.get("headRefName").and_then(Value::as_str).unwrap_or(""),
+        pr.get("body").and_then(Value::as_str),
+        issue,
+    )
+}
+
+/// [`names_issue`] of a change as the ports give it: its head branch, and its
+/// body when it was read.
+pub fn names_change(head: &str, body: Option<&str>, issue: u64) -> bool {
     let branch = format!("feature/issue-{issue}");
-    let named = pr
-        .get("headRefName")
-        .and_then(Value::as_str)
-        .is_some_and(|h| h == branch || h.starts_with(&format!("{branch}-")));
-    named
-        || pr
-            .get("body")
-            .and_then(Value::as_str)
-            .is_some_and(|b| closes_issue(b, issue))
+    let named = head == branch || head.starts_with(&format!("{branch}-"));
+    named || body.is_some_and(|b| closes_issue(b, issue))
 }
 
 /// Whether a pull request's body closes the issue: a word of closing, the
