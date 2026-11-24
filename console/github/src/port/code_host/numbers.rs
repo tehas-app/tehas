@@ -1,10 +1,11 @@
 //! `CodeHost::changes` of a filter that names numbers: those pull requests
 //! alone, asked by number, an alias each, 100 a question, so a repository
 //! with many pull requests is not paged to find a few. Each is read as a
-//! page of the list reads it (`PullNode::read`), and the rest of the filter is
-//! applied to what the numbers answer: the states, the author, the branch,
-//! the marks carried, the blueprints closed and the times. A number that
-//! names no pull request is left out (Decided 121), as `items.rs` reads an aliased question.
+//! page of the list reads it (`PullNode::read`), and the rest of the filter
+//! is applied to what the numbers answer: the states, the author, the
+//! branch, the marks carried, the blueprints closed and the times. The
+//! question is read as `items.rs` reads an aliased one; a number that
+//! names no pull request is left out (Decided 121).
 
 use serde_json::Value;
 
