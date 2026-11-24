@@ -1,7 +1,8 @@
 //! The blueprints port's reads, `Blueprints`. Answered: one blueprint to
-//! a depth (`blueprint`, `several`), its comments whole (`comments`), and a
-//! search of the project's issues (`search`), the relay's way to settle an
-//! open.
+//! a depth (`blueprint`, `several`), its comments whole (`comments`), the
+//! edit histories of bodies and comments (`body_edits`, `comment_edits` and
+//! their plurals, in `edits`), and a search of the project's issues
+//! (`search`), the relay's way to settle an open.
 //!
 //! A blueprint is the issue's REST read, the same read `edit` makes, and
 //! its comments' REST pages as far as the depth asks: none at
@@ -20,6 +21,8 @@
 
 use std::collections::HashSet;
 use std::num::{NonZeroU32, NonZeroU64};
+
+mod edits;
 
 use super::blueprint_writes::{ends_with_folded, read_issue, revision};
 use super::unsupported;
@@ -108,12 +111,35 @@ impl Blueprints for GitHub {
         ids.iter().map(|i| (i.clone(), unsupported())).collect()
     }
 
-    fn body_edits(&mut self, _: BlueprintNo, _: Bound) -> Got<Whole<Edit>> {
-        unsupported()
+    /// `body_edits_of` of the one number.
+    fn body_edits(&mut self, no: BlueprintNo, bound: Bound) -> Got<Whole<Edit>> {
+        one(self.body_edits_of(&[no], bound))
     }
 
-    fn comment_edits(&mut self, _: &CommentId, _: Bound) -> Got<Whole<Edit>> {
-        unsupported()
+    /// `comment_edits_of` of the one id.
+    fn comment_edits(&mut self, id: &CommentId, bound: Bound) -> Got<Whole<Edit>> {
+        one(self.comment_edits_of(std::slice::from_ref(id), bound))
+    }
+
+    /// One GraphQL question for each `edits::CHUNK` numbers, each number
+    /// asked once (`edits`).
+    fn body_edits_of(
+        &mut self,
+        nos: &[BlueprintNo],
+        bound: Bound,
+    ) -> Vec<(BlueprintNo, Got<Whole<Edit>>)> {
+        self.bodies_edits(nos, bound)
+    }
+
+    /// One GraphQL question for each `edits::CHUNK` comments, each asked
+    /// once, after a REST read of each comment whose node id no read of
+    /// comments on this handle found (`edits`).
+    fn comment_edits_of(
+        &mut self,
+        ids: &[CommentId],
+        bound: Bound,
+    ) -> Vec<(CommentId, Got<Whole<Edit>>)> {
+        self.comments_edits(ids, bound)
     }
 
     /// The files `text` links to on GitHub's store, by tehas's one link
@@ -357,7 +383,12 @@ impl GitHub {
             if comments.len() != held {
                 return Err(inconsistent);
             }
-            self.comment_edits_of(&mut comments, &touched)?;
+            for (at, node) in &touched {
+                if let Ok(id) = comments[*at].id.as_str().parse() {
+                    self.comment_nodes.insert(id, (node.clone(), no));
+                }
+            }
+            self.fill_editors(&mut comments, &touched)?;
             for c in comments {
                 let id: u64 = c.id.as_str().parse().map_err(|_| inconsistent.clone())?;
                 if before.is_some_and(|(i, at)| id <= i || c.created < at) {
@@ -387,7 +418,7 @@ impl GitHub {
     /// `touched` their indexes and node ids: one GraphQL question for the
     /// page, none when none moved. Every one asked must be answered as an
     /// issue comment, or the read is `Unread(Inconsistent)`.
-    fn comment_edits_of(&mut self, comments: &mut [Comment], touched: &[Touched]) -> Did {
+    fn fill_editors(&mut self, comments: &mut [Comment], touched: &[Touched]) -> Did {
         if touched.is_empty() {
             return Ok(());
         }
@@ -505,26 +536,37 @@ impl Edited {
             return Ok((None, None));
         };
         let at = time(Some(&at))?;
-        // A deleted account is GitHub's `ghost`, with no type and no id.
-        let (login, facts) = match self.editor {
-            None => (
-                "ghost".to_string(),
-                gh::Facts {
-                    id: None,
-                    kind: None,
-                },
-            ),
-            Some(a) => (
-                a.login.ok_or(Outcome::Unread(Unread::Malformed))?,
-                gh::Facts {
-                    id: a.id,
-                    kind: a.kind,
-                },
-            ),
-        };
-        let editor = Some(account(&login, &facts, bot).ok_or(Outcome::Unread(Unread::Malformed))?);
-        Ok((Some(at), editor))
+        Ok((Some(at), Some(editor(self.editor, bot)?)))
     }
+}
+
+/// The account GraphQL names as an editor. A deleted account is GitHub's
+/// `ghost`, with no type and no id.
+fn editor(actor: Option<Actor>, bot: Option<&Bot>) -> Got<tehas_ports::Account> {
+    let (login, facts) = match actor {
+        None => (
+            "ghost".to_string(),
+            gh::Facts {
+                id: None,
+                kind: None,
+            },
+        ),
+        Some(a) => (
+            a.login.ok_or(Outcome::Unread(Unread::Malformed))?,
+            gh::Facts {
+                id: a.id,
+                kind: a.kind,
+            },
+        ),
+    };
+    account(&login, &facts, bot).ok_or(Outcome::Unread(Unread::Malformed))
+}
+
+/// The one answer of a read of one item.
+fn one<K>(mut several: Vec<(K, Got<Whole<Edit>>)>) -> Got<Whole<Edit>> {
+    several
+        .pop()
+        .map_or(Err(Outcome::Unread(Unread::Inconsistent)), |(_, got)| got)
 }
 
 /// The part of a GraphQL answer at `at`, its logins vouched. An answer
