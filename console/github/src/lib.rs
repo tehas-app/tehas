@@ -24,4 +24,4 @@ mod tickets;
 mod vocabulary;
 
 pub use forge::{read_events, Approval, ForgeError, GitHub, LabelEvent};
-pub use port::{GitHubSite, MakeRunner, PeopleClient};
+pub use port::{project_of, GitHubSite, MakeRunner, PeopleClient};

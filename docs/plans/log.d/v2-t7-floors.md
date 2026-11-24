@@ -1,0 +1,1 @@
+| 2026-11-24 | T7: the written floors of the typed seams (tehas-84): untyped-signatures 147 and untyped-fields 2, of four causes, in docs/architecture.md; log rows may be named by branch | v2/t7-floors |

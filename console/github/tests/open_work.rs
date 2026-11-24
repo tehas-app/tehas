@@ -534,7 +534,7 @@ fn the_queue_reads_each_open_issue_with_what_its_work_item_holds() {
         "closedByPullRequestsReferences(first: 10)",
         "blockedBy(first: 100)",
         "subIssues(first: 100)",
-        "parent { number repository { nameWithOwner } }",
+        "parent { number repository { databaseId nameWithOwner } }",
     ] {
         assert!(query.contains(words), "{words}: {query}");
     }
