@@ -14,10 +14,13 @@ mod code_host;
 mod code_host_writes;
 mod identity;
 mod mergeable;
+mod people;
 mod site;
 mod tickets;
 mod writes;
 
+pub(crate) use people::People;
+pub use people::PeopleClient;
 pub use site::{GitHubSite, MakeRunner};
 
 use crate::{table, GitHub};
