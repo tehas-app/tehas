@@ -33,6 +33,7 @@ flate2 = "1"
 # The shared checkout (src/git.rs): read only, no process, no network.
 gix = { version = "0.90", default-features = false, features = ["blame", "revision", "sha1"] }
 regex = "1"
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 tehas-core = { path = "../core", features = ["mask"] }
