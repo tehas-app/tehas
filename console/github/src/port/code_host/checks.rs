@@ -1,9 +1,9 @@
-//! `CodeHost::checks`: a commit's check runs, the newest of each App and
-//! name, then its status contexts, each one's newest state held as a run
+//! `CodeHost::checks`: a commit's check runs, the newest of each App,
+//! check suite and name (Decided 129), then its status contexts, each one's newest state held as a run
 //! named by its context, and `Overall::of` all of them. A failure of either
 //! read fails the whole: the runs alone are never an answer.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::forge::uri;
 use crate::{ForgeError, GitHub};
@@ -16,9 +16,20 @@ use tehas_ports::{
 /// key that names it once in the list.
 type Counted<K> = (u64, Vec<(K, Check)>);
 
+/// What names a check run: its id, the App that made it and its check
+/// suite (for GitHub Actions, one workflow run).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct Run {
+    id: u64,
+    app: u64,
+    suite: u64,
+}
+
 impl GitHub {
-    /// The runs, REST, `filter=latest`, which gives the newest run of each
-    /// App and name and keeps two Apps' runs of one name apart; then the
+    /// The runs, REST, `filter=all`, every run on the commit, folded to the
+    /// newest (the highest id) of each App, check suite and name: two Apps'
+    /// runs of one name, or two workflows' jobs of one name, stay apart
+    /// whatever GitHub's own `latest` would keep (Decided 129). Then the
     /// combined status, the newest state of each context. Each is read whole,
     /// a page of 100 at a time, and the answer is whole up to `ALL_MAX` runs
     /// and contexts together: past it, `Unread(Cut)`, known from the two
@@ -30,7 +41,7 @@ impl GitHub {
         let repo = self.repo.clone();
         let runs_at = |page: u32| {
             format!(
-                "repos/{repo}/commits/{}/check-runs?filter=latest&per_page=100&page={page}{}",
+                "repos/{repo}/commits/{}/check-runs?filter=all&per_page=100&page={page}{}",
                 at.as_str(),
                 named.as_deref().unwrap_or("")
             )
@@ -46,12 +57,14 @@ impl GitHub {
         if first_runs.0.saturating_add(first_statuses.0) > u64::from(ALL_MAX.get()) {
             return Err(Outcome::Unread(Unread::Cut));
         }
-        let mut runs = self.checks_whole("the check runs", runs_at, read_runs, first_runs)?;
+        let runs = self.checks_whole("the check runs", runs_at, read_runs, first_runs)?;
+        let mut runs = newest_of_each(runs);
         let statuses =
             self.checks_whole("the statuses", statuses_at, read_statuses, first_statuses)?;
         runs.extend(
             statuses
                 .into_iter()
+                .map(|(_, s)| s)
                 .filter(|s| name.is_none_or(|n| s.name == n)),
         );
         let mut checks = Checks::default();
@@ -81,13 +94,13 @@ impl GitHub {
     /// page: the same count on every page, no key twice, and the items adding
     /// up to the count. A page that moves under the read, or a short page
     /// with more to come, is `Unread(Inconsistent)`.
-    fn checks_whole<K: Ord>(
+    fn checks_whole<K: Ord + Clone>(
         &mut self,
         what: &str,
         path: impl Fn(u32) -> String,
         read: fn(&str) -> Option<Counted<K>>,
         first: Counted<K>,
-    ) -> Got<Vec<Check>> {
+    ) -> Got<Vec<(K, Check)>> {
         let total = first.0;
         let mut items = Vec::new();
         let mut keys = BTreeSet::new();
@@ -98,10 +111,10 @@ impl GitHub {
             }
             let empty = page.1.is_empty();
             for (key, item) in page.1 {
-                if !keys.insert(key) {
+                if !keys.insert(key.clone()) {
                     return Err(Outcome::Unread(Unread::Inconsistent));
                 }
-                items.push(item);
+                items.push((key, item));
             }
             let held = items.len() as u64;
             if held == total {
@@ -125,14 +138,32 @@ impl GitHub {
     }
 }
 
+/// The newest run, the highest id, of each App, check suite and name, in
+/// the order the site listed the first of each.
+fn newest_of_each(runs: Vec<(Run, Check)>) -> Vec<Check> {
+    let mut at: BTreeMap<(u64, u64, String), usize> = BTreeMap::new();
+    let mut kept: Vec<(u64, Check)> = Vec::new();
+    for (run, check) in runs {
+        match at.get(&(run.app, run.suite, check.name.clone())) {
+            Some(&i) if kept[i].0 < run.id => kept[i] = (run.id, check),
+            Some(_) => {}
+            None => {
+                at.insert((run.app, run.suite, check.name.clone()), kept.len());
+                kept.push((run.id, check));
+            }
+        }
+    }
+    kept.into_iter().map(|(_, c)| c).collect()
+}
+
 /// A page of the check runs read: the count the site says it holds, and
-/// each run with its id. None for an answer that lacks a field every run
-/// has. A conclusion is folded into the port's words: `success` and
+/// each run with its id, App and check suite. None for an answer that
+/// lacks a field every run has. A conclusion is folded into the port's words: `success` and
 /// `neutral` pass, `skipped` is a skip, `failure`, `timed_out` and
 /// `startup_failure` fail, `cancelled` is cancelled, and any other word, or
 /// a finished run that names none, `Unknown`. A status that is not
 /// `in_progress` or `completed` is queued.
-fn read_runs(out: &str) -> Option<Counted<u64>> {
+fn read_runs(out: &str) -> Option<Counted<Run>> {
     let v: Value = serde_json::from_str(out.trim()).ok()?;
     let count = v.get("total_count")?.as_u64()?;
     let mut runs = Vec::new();
@@ -150,7 +181,12 @@ fn read_runs(out: &str) -> Option<Counted<u64>> {
             _ => CheckStatus::Queued,
         };
         let check = Check::new(text("name")?.to_string(), status);
-        runs.push((r.get("id")?.as_u64()?, check));
+        let run = Run {
+            id: r.get("id")?.as_u64()?,
+            app: r.pointer("/app/id")?.as_u64()?,
+            suite: r.pointer("/check_suite/id")?.as_u64()?,
+        };
+        runs.push((run, check));
     }
     Some((count, runs))
 }

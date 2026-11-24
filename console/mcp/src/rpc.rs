@@ -163,6 +163,8 @@ struct ServerInfo<'a> {
 }
 
 /// A result, with the server named in its `_meta` when the request is modern.
+/// `result` must serialise to an object: flattened, anything else fails and
+/// the request is answered an empty 500. Every result `answer_in` builds is one.
 #[derive(Serialize)]
 struct Stamped<'a, R> {
     #[serde(flatten)]
@@ -379,8 +381,10 @@ pub fn answer_in(
             }
             if let Some(n) = name.and_then(|n| git::NAMES.into_iter().find(|g| *g == n)) {
                 if git::serves(key.scope(), n) {
-                    let args = params.get("arguments").cloned().unwrap_or(json!({}));
-                    let result = match git::call(n, &args) {
+                    let args = Args::from(params.get("arguments").cloned().unwrap_or(json!({})));
+                    let result = match git::call(n, &args)
+                        .and_then(|a| serde_json::to_value(a).map_err(|e| e.to_string()))
+                    {
                         Ok(v) => json!({
                             "resultType": "complete",
                             "content": [{"type": "text", "text": v.to_string()}],
