@@ -394,6 +394,36 @@ fn the_cheapest_read_is_three_requests_and_gives_the_whole_digest() {
 }
 
 #[test]
+fn a_merged_change_with_no_merge_commit_reads_as_merged_with_none() {
+    let mut site = Site::default();
+    site.pull["state"] = "closed".into();
+    site.pull["merged"] = true.into();
+    site.pull["merged_at"] = "2026-11-21T09:00:00Z".into();
+    site.pull["closed_at"] = "2026-11-21T09:00:00Z".into();
+    site.pull["merge_commit_sha"] = Value::Null;
+    let (mut gh, _, _) = adapter(site);
+    match gh.change(nine(), bound(100)).unwrap().digest.state {
+        ChangeState::Merged { commit, .. } => assert_eq!(commit, None),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn a_change_with_its_merge_commit_left_out_is_malformed() {
+    let mut site = Site::default();
+    site.pull
+        .as_object_mut()
+        .unwrap()
+        .remove("merge_commit_sha")
+        .unwrap();
+    let (mut gh, _, _) = adapter(site);
+    assert_eq!(
+        gh.change(nine(), bound(100)).map(|_| ()),
+        Err(Outcome::Unread(Unread::Malformed))
+    );
+}
+
+#[test]
 fn a_merged_change_reads_its_merge_and_a_closed_one_its_close() {
     let mut site = Site::default();
     site.pull["state"] = "closed".into();
@@ -410,7 +440,10 @@ fn a_merged_change_reads_its_merge_and_a_closed_one_its_close() {
         } => {
             assert_eq!(when, at("2026-11-21T09:00:00Z"));
             assert_eq!(by.unwrap().login.as_str(), "octo-person");
-            assert_eq!(commit.as_str(), "5f1c2d3e4f5061728394a5b6c7d8e9f001122334");
+            assert_eq!(
+                commit.as_ref().map(|c| c.as_str()),
+                Some("5f1c2d3e4f5061728394a5b6c7d8e9f001122334")
+            );
         }
         other => panic!("{other:?}"),
     }

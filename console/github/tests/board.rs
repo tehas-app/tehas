@@ -592,3 +592,22 @@ fn a_filter_carrying_marks_is_unsupported_before_any_request() {
     );
     assert_eq!(*asked.lock().unwrap(), 0);
 }
+
+#[test]
+fn a_change_with_its_merge_commit_left_out_is_malformed() {
+    let mut node: serde_json::Value = serde_json::from_str(&change_30()).unwrap();
+    node.as_object_mut().unwrap().remove("mergeCommit").unwrap();
+    let body = serde_json::json!({
+        "data": {"repository": {"pullRequests": {
+            "totalCount": 1,
+            "pageInfo": {"hasNextPage": false, "endCursor": "Y3Vyc29yOnYyOpHOAAAAAQ=="},
+            "nodes": [node],
+        }}},
+    })
+    .to_string();
+    let (mut gh, _) = scripted(move |_| Ok(body.clone()));
+    assert_eq!(
+        gh.open_changes(&open_changes(None, None), bound(5)),
+        Err(Outcome::Unread(Unread::Malformed))
+    );
+}
