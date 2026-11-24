@@ -1,6 +1,8 @@
 //! The decisions of the tag over text, and the task itself over a scratch
-//! remote with --no-verify. test/tag_release_test.sh runs the script with the
-//! gate, the polyfills and the pins, gh and docker stubbed.
+//! remote, its code host the ports' fake: the polyfills, the pinned tools
+//! and the changelog fragments, each case as test/tag_release_test.sh ran it
+//! through the script. That file keeps the script's glue and the release
+//! gate's runs.
 
 use super::*;
 use std::fs;
@@ -1260,4 +1262,386 @@ fn no_pins_tags_without_moving_the_pinned_tools() {
     assert_eq!(status, 0, "{heard}");
     assert_eq!(r.tags(), "v0.1.0 v0.1.1");
     assert_eq!(r.calls("pins"), "");
+}
+
+// --- The changelog fragments and a release's section, on the ports' fake ----
+// (from test/tag_release_test.sh)
+
+/// CHANGELOG.md once the fragments are collected into Unreleased.
+const COLLECTED: &str = "# Changelog\n\n## Unreleased\n\n### Changes\n\n- in the file\n- from three\n- from twelve\n\n### Adopter action\n\nSet TEHAS_TWELVE.\n\n## v0.1.0 (2026-01-01)\n\n### Adopter action\n\nNone.\n";
+
+impl Remote {
+    /// The shell's `fragmented`: a head whose Unreleased section has no
+    /// Adopter action of its own, and two fragments that bring one. The
+    /// head's scripts/collect-changelog.sh records its arguments and collects
+    /// them; the operator's checkout has one that fails, which must not run.
+    fn fragmented(&self) {
+        self.released();
+        let d = self.dir.display();
+        self.write(
+            "up/CHANGELOG.md",
+            "# Changelog\n\n## Unreleased\n\n### Changes\n\n- in the file\n\n## v0.1.0 (2026-01-01)\n\n### Adopter action\n\nNone.\n",
+        );
+        self.write(
+            "up/changelog.d/12.md",
+            "### Changes\n\n- from twelve\n\n### Adopter action\n\nSet TEHAS_TWELVE.\n",
+        );
+        self.write("up/changelog.d/3.md", "### Changes\n\n- from three\n");
+        // `xtask collect-changelog` (src/changelog.rs) is the real one; this
+        // stand-in gives its answer for these two fragments: the file with
+        // them collected into the section, the fragments gone, and their
+        // paths said.
+        let collected = COLLECTED.replace('\n', "\\n");
+        self.exe(
+            "up/scripts/collect-changelog.sh",
+            &format!(
+                "#!/usr/bin/env bash\necho \"head $*\" >>\"{d}/calls/collect\"\nfile=$3 dir=$(dirname \"$3\")\nprintf '{collected}' >\"$file\"\nrm \"$dir/changelog.d/3.md\" \"$dir/changelog.d/12.md\"\nprintf '%s\\n' \"$dir/changelog.d/3.md\" \"$dir/changelog.d/12.md\"\n"
+            ),
+        );
+        self.commit("carry fragments");
+        self.exe(
+            "work/scripts/collect-changelog.sh",
+            &format!("#!/usr/bin/env bash\necho \"operator $*\" >>\"{d}/calls/collect\"\nexit 1\n"),
+        );
+    }
+
+    /// The shell's `named`: changes under Unreleased only, no fragments.
+    fn named(&self) {
+        self.released();
+        self.changelog("# Changelog\n\n## Unreleased\n\n### Changes\n\n- one\n\n### Adopter action\n\nNone.\n\n## v0.1.0 (2026-01-01)\n\n### Adopter action\n\nNone.\n");
+    }
+
+    /// The pull request the task opened, merged on the code host and into
+    /// the remote's main, as a person would.
+    fn merge(&self, branch: &str) {
+        let site = FakeSite::new(&self.code);
+        let mut host = site.code_host(&BY, CALLER).unwrap();
+        let open = host
+            .changes(
+                &ChangeFilter {
+                    states: ChangeStates::Open,
+                    ..Default::default()
+                },
+                ALL_MAX,
+            )
+            .unwrap();
+        let d = open
+            .items()
+            .iter()
+            .find(|d| d.head.as_str() == branch)
+            .unwrap()
+            .clone();
+        let mut writes = site.code_host_writes(&BY, CALLER).unwrap();
+        writes
+            .merge(d.no, &d.head_commit, tehas_ports::MergeHow::Merge)
+            .unwrap();
+        self.git(&["-C", "up", "fetch", "--quiet", "origin", branch]);
+        self.git(&["-C", "up", "merge", "--quiet", "--ff-only", "FETCH_HEAD"]);
+        self.git(&["-C", "up", "push", "--quiet", "origin", "main"]);
+    }
+
+    /// The release notes of `tag`, as release-notes.sh gives them, from
+    /// up/CHANGELOG.md.
+    fn notes(&self, tag: &str) -> String {
+        self.git(&["-C", "up", "fetch", "--quiet", "--tags", "origin"]);
+        let file = self.at("up/CHANGELOG.md").display().to_string();
+        let a = crate::notes::Args {
+            name: tag.into(),
+            file: Some(file.clone()),
+        };
+        crate::notes::notes(&a, Path::new(&file))
+            .ok()
+            .unwrap()
+            .trim_end()
+            .to_string()
+    }
+}
+
+/// The date a section was named with, from its heading: today, or the
+/// day before when the run spanned midnight.
+fn named_on(text: &str, version: &str) -> String {
+    let head = format!("## {version} (");
+    let line = text.lines().find(|l| l.starts_with(&head)).unwrap();
+    let day = line[head.len()..line.len() - 1].to_string();
+    let today = tehas_core::time::iso(tehas_core::time::now())[..10].to_string();
+    let yesterday = tehas_core::time::iso(tehas_core::time::now() - 86_400)[..10].to_string();
+    assert!(day == today || day == yesterday, "{line}");
+    day
+}
+
+#[test]
+fn dry_run_counts_the_fragments_adopter_action_and_shows_the_collected_section() {
+    let r = Remote::new();
+    r.fragmented();
+    let (status, heard) = r.tag(&["--dry-run"]);
+    assert_eq!(status, 0, "{heard}");
+    says(
+        &heard,
+        "would collect 2 changelog fragments into the Unreleased section of CHANGELOG.md:",
+    );
+    says(
+        &heard,
+        "    ### Changes\n    \n    - in the file\n    - from three\n    - from twelve\n    \n    ### Adopter action\n    \n    Set TEHAS_TWELVE.",
+    );
+    let line = heard
+        .lines()
+        .find(|l| l.contains("would name the Unreleased section of CHANGELOG.md v0.1.1 ("))
+        .unwrap_or_else(|| panic!("no naming said:\n{heard}"));
+    let said = line
+        .split_once("CHANGELOG.md ")
+        .and_then(|(_, rest)| rest.split_once(" in a pull request"))
+        .map(|(named, _)| named)
+        .unwrap_or_else(|| panic!("{line}"));
+    named_on(&format!("## {said}"), "v0.1.1");
+    assert_eq!(
+        r.origin(&["show", "HEAD:changelog.d/3.md"]).lines().next(),
+        Some("### Changes")
+    );
+    assert_eq!(r.calls("collect"), "");
+}
+
+#[test]
+fn fragments_without_an_adopter_action_and_none_in_the_file_make_no_tag() {
+    let r = Remote::new();
+    r.fragmented();
+    r.git(&["-C", "up", "rm", "--quiet", "changelog.d/12.md"]);
+    r.commit("one fragment");
+    let (status, heard) = r.tag(&["--no-verify"]);
+    assert_eq!(status, 1, "{heard}");
+    says(&heard, "needs an \"### Adopter action\"");
+    assert_eq!(r.tags(), "v0.1.0");
+}
+
+#[test]
+fn a_fragment_with_text_outside_its_headings_makes_no_tag_and_says_why() {
+    let r = Remote::new();
+    r.fragmented();
+    r.write("up/changelog.d/5.md", "Stray text.\n");
+    r.commit("a bad fragment");
+    let (status, heard) = r.tag(&["--dry-run"]);
+    assert_eq!(status, 1, "{heard}");
+    says(&heard, "changelog.d/5.md line 1: text outside");
+}
+
+#[test]
+fn fragments_are_collected_by_the_heads_own_script_in_a_pull_request_and_then_tagged() {
+    let r = Remote::new();
+    r.fragmented();
+    // The branch the task pushes, as the code host then has it.
+    r.code.push("changelog-v0.1.1", "pushed", "t");
+    let (status, heard) = r.tag(&[]);
+    assert_eq!(status, 2, "{heard}");
+    let link = &r.opened_links()[0];
+    says(
+        &heard,
+        &format!("{link} readies CHANGELOG.md for v0.1.1; merge it, then tag. Nothing was tagged"),
+    );
+    assert_eq!(r.tags(), "v0.1.0");
+    assert_eq!(r.calls("verify"), "ran\n");
+    let collect = r.calls("collect");
+    assert!(collect.contains("head --section Unreleased "), "{collect}");
+    assert!(!collect.contains("operator"), "{collect}");
+    let opened = r.opened();
+    assert_eq!(
+        (opened[0].head.as_str(), opened[0].title.as_str()),
+        (
+            "changelog-v0.1.1",
+            "Name the v0.1.1 section of CHANGELOG.md"
+        )
+    );
+    let Body::Text(body) = &opened[0].body else {
+        panic!("a body as text")
+    };
+    assert!(
+        body.contains("- changelog.d/3.md\n- changelog.d/12.md"),
+        "{body}"
+    );
+    // A release: the section the fragments went into is named for it, and
+    // a new empty Unreleased goes above it.
+    let file = r.origin(&["show", "changelog-v0.1.1:CHANGELOG.md"]);
+    let day = named_on(&file, "v0.1.1");
+    assert_eq!(
+        file,
+        format!("# Changelog\n\n## Unreleased\n\n## v0.1.1 ({day})\n\n### Changes\n\n- in the file\n- from three\n- from twelve\n\n### Adopter action\n\nSet TEHAS_TWELVE.\n\n## v0.1.0 (2026-01-01)\n\n### Adopter action\n\nNone.")
+    );
+    assert_eq!(
+        r.origin(&["ls-tree", "--name-only", "changelog-v0.1.1", "changelog.d/"]),
+        ""
+    );
+    assert_eq!(
+        r.origin(&["rev-parse", "changelog-v0.1.1^"]),
+        r.origin(&["rev-parse", "main"])
+    );
+    assert_eq!(
+        r.git(&["-C", "work", "worktree", "list"]).lines().count(),
+        1
+    );
+
+    // The head with the fragments collected is tagged, and the release's
+    // notes are its own section.
+    r.merge("changelog-v0.1.1");
+    let (status, heard) = r.tag(&[]);
+    assert_eq!(status, 0, "{heard}");
+    assert_eq!(r.tags(), "v0.1.0 v0.1.1");
+    assert_eq!(
+        r.notes("v0.1.1"),
+        "### Changes\n\n- in the file\n- from three\n- from twelve\n\n### Adopter action\n\nSet TEHAS_TWELVE."
+    );
+}
+
+#[test]
+fn an_open_pull_request_that_collects_the_fragments_holds_the_tag() {
+    let r = Remote::new();
+    r.fragmented();
+    let _ = r.code.clone().change(14, "changelog-v0.1.1", |c| c);
+    let (status, heard) = r.tag(&[]);
+    assert_eq!(status, 2, "{heard}");
+    says(
+        &heard,
+        &format!("https://fake.test/{PROJECT}/c/14 readies CHANGELOG.md for the release; merge it, then tag"),
+    );
+    assert!(r.opened().is_empty());
+    assert_eq!(r.calls("collect"), "");
+    assert_eq!(r.tags(), "v0.1.0");
+}
+
+#[test]
+fn a_prereleases_fragments_go_into_unreleased_which_keeps_its_name() {
+    let r = Remote::new();
+    r.fragmented();
+    r.code.push("changelog-v0.1.1-rc.1", "pushed", "t");
+    let (status, heard) = r.tag(&["--pre", "rc"]);
+    assert_eq!(status, 2, "{heard}");
+    says(
+        &heard,
+        "readies CHANGELOG.md for v0.1.1-rc.1; merge it, then tag. Nothing was tagged",
+    );
+    let opened = r.opened();
+    assert_eq!(
+        (opened[0].head.as_str(), opened[0].title.as_str()),
+        (
+            "changelog-v0.1.1-rc.1",
+            "Collect the changelog fragments into CHANGELOG.md"
+        )
+    );
+    assert_eq!(
+        r.origin(&["show", "changelog-v0.1.1-rc.1:CHANGELOG.md"]),
+        COLLECTED.trim_end()
+    );
+}
+
+#[test]
+fn a_gate_that_fails_with_the_fragments_collected_pushes_nothing() {
+    let r = Remote::new();
+    r.fragmented();
+    r.write("verify_rc", "1");
+    let (status, heard) = r.tag(&[]);
+    assert_eq!(status, 1, "{heard}");
+    says(
+        &heard,
+        "the gate failed with CHANGELOG.md readied for the release",
+    );
+    assert_eq!(r.origin(&["branch", "--list", "changelog-*"]), "");
+    assert!(r.opened().is_empty());
+}
+
+#[test]
+fn a_head_with_fragments_and_no_collect_script_of_its_own_makes_no_tag() {
+    let r = Remote::new();
+    r.fragmented();
+    r.git(&["-C", "up", "rm", "--quiet", "scripts/collect-changelog.sh"]);
+    r.commit("no collector");
+    let (status, heard) = r.tag(&[]);
+    assert_eq!(status, 1, "{heard}");
+    says(
+        &heard,
+        "has changelog fragments but no scripts/collect-changelog.sh",
+    );
+    assert_eq!(r.calls("collect"), "");
+    assert_eq!(r.tags(), "v0.1.0");
+}
+
+#[test]
+fn a_release_without_a_section_gets_one_in_a_pull_request_then_a_prerelease_publishes_only_what_is_new(
+) {
+    let r = Remote::new();
+    r.named();
+    r.code.push("changelog-v0.1.1", "pushed", "t");
+    let (status, heard) = r.tag(&[]);
+    assert_eq!(status, 2, "{heard}");
+    says(
+        &heard,
+        "readies CHANGELOG.md for v0.1.1; merge it, then tag. Nothing was tagged",
+    );
+    assert_eq!(r.tags(), "v0.1.0");
+    assert_eq!(r.calls("verify"), "ran\n");
+    let opened = r.opened();
+    assert_eq!(
+        (opened[0].head.as_str(), opened[0].title.as_str()),
+        (
+            "changelog-v0.1.1",
+            "Name the v0.1.1 section of CHANGELOG.md"
+        )
+    );
+    let Body::Text(body) = &opened[0].body else {
+        panic!("a body as text")
+    };
+    assert!(!body.contains("changelog.d/"), "{body}");
+    let file = r.origin(&["show", "changelog-v0.1.1:CHANGELOG.md"]);
+    let day = named_on(&file, "v0.1.1");
+    assert_eq!(
+        file,
+        format!("# Changelog\n\n## Unreleased\n\n## v0.1.1 ({day})\n\n### Changes\n\n- one\n\n### Adopter action\n\nNone.\n\n## v0.1.0 (2026-01-01)\n\n### Adopter action\n\nNone.")
+    );
+
+    // The named head is tagged; the new Unreleased is empty, so there is
+    // nothing to tag a prerelease of yet.
+    r.merge("changelog-v0.1.1");
+    let (status, heard) = r.tag(&[]);
+    assert_eq!(status, 0, "{heard}");
+    assert_eq!(r.tags(), "v0.1.0 v0.1.1");
+    let (status, heard) = r.tag(&["--pre", "rc"]);
+    assert_eq!(status, 1, "{heard}");
+    says(&heard, "no section for v0.1.2-rc.1 or Unreleased");
+    let text = fs::read_to_string(r.at("up/CHANGELOG.md"))
+        .unwrap()
+        .replace(
+            "## Unreleased\n",
+            "## Unreleased\n\n### Changes\n\n- two\n\n### Adopter action\n\nRun two.\n",
+        );
+    r.changelog(&text);
+    let (status, heard) = r.tag(&["--pre", "rc"]);
+    assert_eq!(status, 0, "{heard}");
+    assert_eq!(r.tags(), "v0.1.0 v0.1.1 v0.1.2-rc.1");
+    assert!(r
+        .opened()
+        .iter()
+        .all(|o| !o.head.as_str().starts_with("changelog-v0.1.2")));
+    assert_eq!(
+        r.notes("v0.1.2-rc.1"),
+        "New since v0.1.1.\n\n### Changes\n\n- two\n\n### Adopter action\n\nRun two."
+    );
+    assert_eq!(
+        r.notes("v0.1.1"),
+        "### Changes\n\n- one\n\n### Adopter action\n\nNone."
+    );
+}
+
+#[test]
+fn a_prerelease_whose_tag_before_has_no_unreleased_section_is_not_tagged() {
+    let r = Remote::new();
+    r.named();
+    r.changelog("# Changelog\n\n## v0.1.0 (2026-01-01)\n\n### Adopter action\n\nNone.\n");
+    r.git(&["-C", "up", "tag", "--force", "v0.1.0"]);
+    r.git(&["-C", "up", "push", "--quiet", "--force", "origin", "v0.1.0"]);
+    r.changelog(
+        "# Changelog\n\n## Unreleased\n\n### Changes\n\n- one\n\n### Adopter action\n\nNone.\n",
+    );
+    let (status, heard) = r.tag(&["--pre", "beta"]);
+    assert_eq!(status, 1, "{heard}");
+    says(
+        &heard,
+        "the release notes of v0.1.1-beta.1 cannot be made: CHANGELOG.md at v0.1.0, the tag before it, has no Unreleased section",
+    );
+    assert_eq!(r.tags(), "v0.1.0");
 }
