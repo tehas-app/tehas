@@ -658,6 +658,9 @@ impl Writer<'_> {
         };
         let notes = self.notes_of(ticket)?;
         let at = At::new(since);
+        // The rule decides; this finds which note it found. A match it cannot
+        // vouch for as ours leaves the question unknown, never sent again.
+        rules::by_comments(note, &notes, at)?;
         Some(
             notes
                 .iter()
