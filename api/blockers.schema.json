@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/tehas-app/tehas/api/blockers.schema.json",
+  "$id": "https://github.com/tehas-app/tehas-factory/api/blockers.schema.json",
   "title": "tehas blockers --json",
   "description": "What tehas blockers --json prints, version 1: the holds between issues the dispatcher's last poll read, the cycles among them and the ends of each chain. host/docs/api.md says what each field means. Objects are closed, so a field tehas adds must be added here too; a program that reads the object still accepts fields it does not know. A reason's code is an open list: a program accepts a code it does not know. console/src/blockers.rs checks that the command prints the sample beside this file.",
   "type": "object",

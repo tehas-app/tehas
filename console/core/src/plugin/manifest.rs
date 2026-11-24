@@ -1672,7 +1672,7 @@ mod tests {
         assert_eq!(s["$schema"], "https://json-schema.org/draft/2020-12/schema");
         assert_eq!(
             s["$id"],
-            "https://github.com/tehas-app/tehas/api/plugin-manifest.schema.json"
+            "https://github.com/tehas-app/tehas-factory/api/plugin-manifest.schema.json"
         );
         closed(&s);
     }
