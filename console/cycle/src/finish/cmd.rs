@@ -17,10 +17,10 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 /// How long one call may take before its process group is signalled.
-const BOUND: Duration = Duration::from_secs(600);
+pub const BOUND: Duration = Duration::from_secs(600);
 
 /// How long a call that outlived [`BOUND`] gets to leave after TERM.
-const GRACE: Duration = Duration::from_secs(10);
+pub const GRACE: Duration = Duration::from_secs(10);
 
 /// How much of one stream a call may say: what a run reads is a name, a count
 /// and a URL. A stream past this is read to its end and dropped.
@@ -204,9 +204,8 @@ pub struct Scratch {
 
 impl Scratch {
     /// `<parent>/<name>` is the work directory and `<name>` the issue's own
-    /// prefix: `<name>.finish.<pid>` is the run's tree and `<name>.finish.body`
-    /// the draft's body. The process number keeps two runs of one issue out of
-    /// one another's tree.
+    /// prefix: `<name>.finish.<pid>` is the run's tree. The process number
+    /// keeps two runs of one issue out of one another's tree.
     pub fn new(parent: PathBuf, name: String) -> Scratch {
         Scratch { parent, name }
     }
@@ -221,32 +220,6 @@ impl Scratch {
             .join(format!("{}.finish.{}", self.name, std::process::id()));
         std::fs::create_dir(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         Ok(dir)
-    }
-
-    /// The body of the draft, written for the call and readable by nobody but
-    /// the run: the reason is the asker's own sentence, and a sentence of theirs
-    /// goes into a file and never into a word of a command line.
-    pub fn write_body(&self, text: &str) -> Result<PathBuf, String> {
-        use std::io::Write;
-        use std::os::unix::fs::OpenOptionsExt;
-        std::fs::create_dir_all(&self.parent)
-            .map_err(|e| format!("{}: {e}", self.parent.display()))?;
-        let file = self.parent.join(format!("{}.finish.body", self.name));
-        let mut f = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&file)
-            .map_err(|e| format!("{}: {e}", file.display()))?;
-        f.write_all(text.as_bytes())
-            .map_err(|e| format!("{}: {e}", file.display()))?;
-        Ok(file)
-    }
-
-    /// The body is the run's own to take back, whether or not the call it was
-    /// given answered.
-    pub fn drop_body(&self) {
-        let _ = std::fs::remove_file(self.parent.join(format!("{}.finish.body", self.name)));
     }
 }
 

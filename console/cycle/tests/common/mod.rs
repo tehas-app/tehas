@@ -23,6 +23,17 @@ case " $* " in
   *" --input - "*) body=$(cat); body=$(jq -r '.body // empty' <<<"$body" 2>/dev/null); call=${call/--input -/-f body=$body} ;;
 esac
 printf '%s\n' "$call" >>"$T/calls/gh"
+# answers/: call <n> is answered by the file <n>-*.json, and a call with no
+# file fails. A body can be many lines, so the calls are counted apart.
+if [ -d "$T/answers" ]; then
+  echo >>"$T/calls/gh.n"
+  n=$(wc -l <"$T/calls/gh.n")
+  for f in "$T/answers/$n-"*.json; do
+    [ -e "$f" ] || exit 1
+    cat "$f"
+  done
+  exit 0
+fi
 nap=$(command -pv sleep)
 # gh-hangs: a GitHub that does not answer.
 [ ! -e "$T/fx/gh-hangs" ] || exec "$nap" 30
