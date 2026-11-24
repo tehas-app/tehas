@@ -1638,7 +1638,7 @@ The names are `api/events.txt`, one per line, in this order:
 | `cycle.parked` | A cycle's history line says it parked | the cycle id | a work line with `parked` true |
 | `question.asked` | A question is recorded | the store's number of the question, `5` | the question in `tehas question --json --after <id>` |
 | `cycle.ended` | A cycle's history line is written | the cycle id | the work line in `tehas history --json` |
-| `change.offered` | A cycle left a change for review | the cycle id | a work line with a change, no `signalled`, and an end other than `refused` or `merged` |
+| `change.offered` | A cycle left a change, draft or not | the cycle id | a work line with a change, no `signalled`, and an end other than `refused` or `merged` |
 | `factory.limit-changed` | A write changed the limit | the limit's `set`, or `observed` when it has none | `tehas limit --json` |
 | `ticket.acted` | An allowed account's act is recorded | `<ticket>@<act>@<at>`, `12@Approve@2026-11-22T11:10:00Z` | the act in the ticket's history |
 | `ticket.closed` | A ticket the factory follows is recorded closed | `<ticket>@<at>` | the close in the ticket's history |
@@ -1722,7 +1722,10 @@ A gate's listener answers with `api/gate-answer.schema.json`:
 ```
 
 `answer` is `allow` or `refuse`. `why` is at most 140 characters with no
-control character; a refusal has it, an allow may.
+control character; a refusal has it, an allow may. The answer may gain
+values and fields in 2.x; a reader that meets one it does not know holds
+the act ([the rules for 2.x](/contract#the-rules-for-2x)). Where a
+listener writes its answer is defined by 2.1 with its plugins.
 
 ### On a page
 
