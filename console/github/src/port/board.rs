@@ -586,6 +586,7 @@ struct Pull {
     author: Option<Actor>,
     editor: Option<Actor>,
     merged_by: Option<Actor>,
+    #[serde(deserialize_with = "crate::ticket::present")]
     merge_commit: Option<Oid>,
     renames: Nodes<Renamed>,
     labels: Counted<Label>,

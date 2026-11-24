@@ -410,6 +410,7 @@ struct PullFields {
     closed_at: Option<String>,
     created_at: Option<String>,
     updated_at: Option<String>,
+    #[serde(deserialize_with = "crate::ticket::present")]
     merge_commit_sha: Option<String>,
     merged_by: Option<User>,
     user: Option<User>,

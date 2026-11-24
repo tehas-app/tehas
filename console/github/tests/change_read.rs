@@ -409,6 +409,21 @@ fn a_merged_change_with_no_merge_commit_reads_as_merged_with_none() {
 }
 
 #[test]
+fn a_change_with_its_merge_commit_left_out_is_malformed() {
+    let mut site = Site::default();
+    site.pull
+        .as_object_mut()
+        .unwrap()
+        .remove("merge_commit_sha")
+        .unwrap();
+    let (mut gh, _, _) = adapter(site);
+    assert_eq!(
+        gh.change(nine(), bound(100)).map(|_| ()),
+        Err(Outcome::Unread(Unread::Malformed))
+    );
+}
+
+#[test]
 fn a_merged_change_reads_its_merge_and_a_closed_one_its_close() {
     let mut site = Site::default();
     site.pull["state"] = "closed".into();
