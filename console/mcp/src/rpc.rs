@@ -163,12 +163,10 @@ struct ServerInfo<'a> {
 }
 
 /// A result, with the server named in its `_meta` when the request is modern.
-/// `result` must serialise to an object: flattened, anything else fails and
-/// the request is answered an empty 500. Every result `answer_in` builds is one.
 #[derive(Serialize)]
-struct Stamped<'a, R> {
+struct Stamped<'a> {
     #[serde(flatten)]
-    result: R,
+    result: Outcome,
     #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
     meta: Option<Meta<'a>>,
 }
@@ -179,20 +177,80 @@ struct Meta<'a> {
     server_info: &'a ServerInfo<'a>,
 }
 
-/// A tool's answer that names its problem, as text.
+/// What a request that `finish` answers gets as its result. Every kind is an
+/// object, so `Stamped` can flatten it and put `_meta` beside its keys.
+#[derive(Serialize)]
+#[serde(untagged)]
+enum Outcome {
+    Discovered(Discovered),
+    Listed(Listed),
+    Pong(Empty),
+    Complete(Complete),
+    Failed(ToolFailure),
+}
+
+/// The answer to `server/discover`.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ToolFailure<'a> {
+struct Discovered {
     result_type: &'static str,
-    content: [Text<'a>; 1],
-    is_error: bool,
+    supported_versions: [&'static str; 2],
+    capabilities: Capabilities,
+    instructions: &'static str,
+    ttl_ms: u64,
+    cache_scope: &'static str,
+}
+
+/// The answer to `tools/list`: the tools' entries, with their JSON Schemas.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Listed {
+    result_type: &'static str,
+    tools: Value,
+    ttl_ms: u64,
+    cache_scope: &'static str,
 }
 
 #[derive(Serialize)]
-struct Text<'a> {
-    #[serde(rename = "type")]
-    kind: &'static str,
-    text: &'a str,
+struct Capabilities {
+    tools: Empty,
+}
+
+/// An object with no keys.
+#[derive(Serialize)]
+struct Empty {}
+
+/// A tool's answer: its JSON as text, and as structured content.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Complete {
+    result_type: &'static str,
+    content: Vec<Content>,
+    structured_content: Value,
+}
+
+#[derive(Serialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+enum Content {
+    Text { text: String },
+    Resource { resource: Resource },
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Resource {
+    uri: String,
+    mime_type: &'static str,
+    blob: String,
+}
+
+/// A tool's answer that names its problem, as text.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ToolFailure {
+    result_type: &'static str,
+    content: [Content; 1],
+    is_error: bool,
 }
 
 fn reply(status: u16, id: &Id, result: impl Serialize) -> Response {
@@ -327,18 +385,28 @@ pub fn answer_in(
         name: "tehas",
         version: server_version,
     };
+    // A tool's JSON, answered as text and as structured content.
+    let complete = |v: Value| {
+        Outcome::Complete(Complete {
+            result_type: "complete",
+            content: vec![Content::Text {
+                text: v.to_string(),
+            }],
+            structured_content: v,
+        })
+    };
     let mut hold = None;
     let mut tool = None;
     let result = match (method, modern) {
         ("server/discover", _) => {
             git::ask_fetch();
-            json!({
-            "resultType": "complete",
-            "supportedVersions": [MODERN, LEGACY],
-            "capabilities": {"tools": {}},
-            "instructions": INSTRUCTIONS,
-            "ttlMs": LIST_TTL_MS,
-            "cacheScope": "private",
+            Outcome::Discovered(Discovered {
+                result_type: "complete",
+                supported_versions: [MODERN, LEGACY],
+                capabilities: Capabilities { tools: Empty {} },
+                instructions: INSTRUCTIONS,
+                ttl_ms: LIST_TTL_MS,
+                cache_scope: "private",
             })
         }
         ("initialize", false) => {
@@ -354,12 +422,12 @@ pub fn answer_in(
                 }),
             );
         }
-        ("ping", false) => json!({}),
-        ("tools/list", _) => json!({
-            "resultType": "complete",
-            "tools": with_plugins(tools::list_scoped(key.scope()), key.scope(), broker),
-            "ttlMs": LIST_TTL_MS,
-            "cacheScope": "private",
+        ("ping", false) => Outcome::Pong(Empty {}),
+        ("tools/list", _) => Outcome::Listed(Listed {
+            result_type: "complete",
+            tools: with_plugins(tools::list_scoped(key.scope()), key.scope(), broker),
+            ttl_ms: LIST_TTL_MS,
+            cache_scope: "private",
         }),
         ("tools/call", _) => {
             // One read of the body's name, shared by the dispatch and the log
@@ -370,12 +438,8 @@ pub fn answer_in(
             if let Some((t, socket)) = plugin_tool(name, key.scope(), broker) {
                 let args = params.get("arguments").cloned().unwrap_or(json!({}));
                 let result = match plugins::call(socket, &t, &args, key.fingerprint()) {
-                    Ok(v) => json!({
-                        "resultType": "complete",
-                        "content": [{"type": "text", "text": v.to_string()}],
-                        "structuredContent": v,
-                    }),
-                    Err(why) => json!(tool_error(&why)),
+                    Ok(v) => complete(v),
+                    Err(why) => Outcome::Failed(tool_error(&why)),
                 };
                 return finish(&id, result, modern, &info, None, Some(t.name));
             }
@@ -385,12 +449,8 @@ pub fn answer_in(
                     let result = match git::call(n, &args)
                         .and_then(|a| serde_json::to_value(a).map_err(|e| e.to_string()))
                     {
-                        Ok(v) => json!({
-                            "resultType": "complete",
-                            "content": [{"type": "text", "text": v.to_string()}],
-                            "structuredContent": v,
-                        }),
-                        Err(why) => json!(tool_error(&why)),
+                        Ok(v) => complete(v),
+                        Err(why) => Outcome::Failed(tool_error(&why)),
                     };
                     return finish(&id, result, modern, &info, None, Some(n.to_string()));
                 }
@@ -401,12 +461,8 @@ pub fn answer_in(
                     let result = match tickets::Call::read(n, &args)
                         .and_then(|call| tickets::run(&dirs.sessions, &call))
                     {
-                        Ok(v) => json!({
-                            "resultType": "complete",
-                            "content": [{"type": "text", "text": v.to_string()}],
-                            "structuredContent": v,
-                        }),
-                        Err(why) => json!(tool_error(&why)),
+                        Ok(v) => complete(v),
+                        Err(why) => Outcome::Failed(tool_error(&why)),
                     };
                     return finish(&id, result, modern, &info, None, Some(n.to_string()));
                 }
@@ -437,23 +493,27 @@ pub fn answer_in(
                 hold = place;
                 out
             }) {
-                Ok(Output::Json(v)) => json!({
-                    "resultType": "complete",
-                    "content": [{"type": "text", "text": v.to_string()}],
-                    "structuredContent": v,
-                }),
+                Ok(Output::Json(v)) => complete(v),
                 Ok(Output::Blob {
                     meta,
                     uri,
                     mime,
                     blob,
-                }) => json!({
-                    "resultType": "complete",
-                    "content": [
-                        {"type": "text", "text": meta.to_string()},
-                        {"type": "resource", "resource": {"uri": uri, "mimeType": mime, "blob": blob}},
+                }) => Outcome::Complete(Complete {
+                    result_type: "complete",
+                    content: vec![
+                        Content::Text {
+                            text: meta.to_string(),
+                        },
+                        Content::Resource {
+                            resource: Resource {
+                                uri,
+                                mime_type: mime,
+                                blob,
+                            },
+                        },
                     ],
-                    "structuredContent": meta,
+                    structured_content: meta,
                 }),
                 Err(ToolError::Unknown(_)) => {
                     // The name the client sent is not echoed: the answer is
@@ -464,8 +524,10 @@ pub fn answer_in(
                     r.tool = tool.take();
                     return r;
                 }
-                Err(ToolError::BadArgs(why)) => json!(tool_error(&why)),
-                Err(ToolError::File { file, why }) => json!(tool_error(&format!("{file} {why}"))),
+                Err(ToolError::BadArgs(why)) => Outcome::Failed(tool_error(&why)),
+                Err(ToolError::File { file, why }) => {
+                    Outcome::Failed(tool_error(&format!("{file} {why}")))
+                }
             }
         }
         _ => return error(404, &id, -32601, "Method not found", None),
@@ -475,7 +537,7 @@ pub fn answer_in(
 
 fn finish(
     id: &Id,
-    result: impl Serialize,
+    result: Outcome,
     modern: bool,
     info: &ServerInfo,
     hold: Option<LogGuard>,
@@ -520,10 +582,12 @@ fn plugin_tool<'a>(
     Some((tool, broker?))
 }
 
-fn tool_error(text: &str) -> ToolFailure<'_> {
+fn tool_error(text: &str) -> ToolFailure {
     ToolFailure {
         result_type: "complete",
-        content: [Text { kind: "text", text }],
+        content: [Content::Text {
+            text: text.to_string(),
+        }],
         is_error: true,
     }
 }
