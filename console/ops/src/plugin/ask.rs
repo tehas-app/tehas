@@ -142,7 +142,7 @@ pub fn hook(
             bot.as_str()
         };
         eprintln!(
-            "{what}: the account id of {login} is not recorded in {}, so no pull request is known as the bot's; tehas update records it",
+            "{what}: the account id of {login} is not recorded in {}, so no pull request is known as the bot's; `console ids record` records it with TEHAS_MILLWRIGHT_LOGIN set to the bot's login",
             home.join(tehas_core::accounts::FILE).display()
         );
         return exit::SETTINGS;
@@ -279,12 +279,19 @@ mod tests {
         }
     }
 
+    /// The bot's login, `acme-bot[bot]`, and the pairs `ids` recorded.
+    fn bot_files(home: &Path, ids: &str) {
+        use tehas_core::home::{Home, State};
+        let login = Home::new(home).state(State::BotLogin);
+        std::fs::create_dir_all(login.parent().unwrap()).unwrap();
+        std::fs::write(login, "acme-bot[bot]\n").unwrap();
+        std::fs::write(home.join(tehas_core::accounts::FILE), ids).unwrap();
+    }
+
     /// The bot's login and its recorded id, as install and update leave
     /// them.
     fn record_bot(home: &Path) {
-        std::fs::create_dir_all(home.join("state/github")).unwrap();
-        std::fs::write(home.join("state/github/login"), "acme-bot[bot]\n").unwrap();
-        std::fs::write(home.join("state/account-ids"), "acme-bot[bot] 900\n").unwrap();
+        bot_files(home, "acme-bot[bot] 900\n");
     }
 
     /// The head and base commits of change 42 in `w`.
@@ -400,9 +407,7 @@ mod tests {
             hook(&mut x, &unasked, &home, &vars(&[]), "floorplan", 42),
             78
         );
-        std::fs::create_dir_all(home.join("state/github")).unwrap();
-        std::fs::write(home.join("state/github/login"), "acme-bot[bot]\n").unwrap();
-        std::fs::write(home.join("state/account-ids"), "alice 101\n").unwrap();
+        bot_files(&home, "alice 101\n");
         assert_eq!(
             hook(&mut x, &unasked, &home, &vars(&[]), "floorplan", 42),
             78
