@@ -160,6 +160,7 @@ fn step_sql(to: i64) -> &'static str {
         30 => db::STEP_30,
         31 => db::STEP_31,
         32 => db::STEP_32,
+        33 => db::STEP_33,
         _ => unreachable!("no step to {to}"),
     }
 }
@@ -301,13 +302,18 @@ fn columns(c: &Connection, table: &str) -> Vec<String> {
 }
 
 #[test]
-fn init_writes_schema_32() {
-    assert_eq!(db::SCHEMA_VERSION, 32);
-    let home = home("schema-32");
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 32);
+fn init_writes_schema_33() {
+    assert_eq!(db::SCHEMA_VERSION, 33);
+    let home = home("schema-33");
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 33);
     assert_eq!(
         one::<String>(&home, "SELECT value FROM meta WHERE key = 'schema'"),
-        "32"
+        "33"
+    );
+    // Schema 33: what a question's sum sums.
+    assert_eq!(
+        columns(&conn(&home), "questions").last().map(String::as_str),
+        Some("body_form")
     );
     // Schema 32: the links of a ticket to its blueprints, empty.
     assert_eq!(
@@ -1377,7 +1383,7 @@ fn the_step_to_32_adds_the_links_empty_and_keeps_every_row() {
     assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 31);
     let rows = host_rows(&conn(&home));
     migrate(&home).unwrap();
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 32);
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), db::SCHEMA_VERSION);
     assert_eq!(host_rows(&conn(&home)), rows);
     assert_eq!(count(&home, "links"), 0);
     let c = conn(&home);
@@ -1402,6 +1408,56 @@ fn the_step_to_32_adds_the_links_empty_and_keeps_every_row() {
     drop(c);
     let made = crate::verbs_tests::home("step-32-shape");
     same_shape_as_init(&home, &conn(&made), "31");
+}
+
+/// The step to 33 from a store at 32 (T4.7, the lead's ruling on the
+/// question's sum): every question with a sum is marked `rendered`, 1.x's
+/// form, of the comment as it was posted; one with none stays without a
+/// form; no row is added or lost; the column takes the two forms alone; and
+/// the store has the shape init lays.
+#[test]
+fn the_step_to_33_marks_every_sum_of_before_as_rendered() {
+    let home = at_29("step-33");
+    let mut c = conn(&home);
+    for (to, run) in db::STEPS {
+        if (30..=32).contains(to) {
+            run(&mut c).unwrap();
+        }
+    }
+    c.execute_batch(&format!(
+        "INSERT INTO issues (issue, kind, kind_at) VALUES (91, 'issue', 1790000000)
+           ON CONFLICT DO NOTHING;
+         INSERT INTO questions (comment_id, issue, attempt, kind, posted_at, body_sha256)
+           VALUES (9101, 91, 1, 'park', 1790000000, '{}'),
+                  (9102, 91, 1, 'plan', 1790000001, NULL);",
+        "c".repeat(64)
+    ))
+    .unwrap();
+    drop(c);
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 32);
+    let rows = host_rows(&conn(&home));
+    let summed = count(&home, "questions WHERE body_sha256 IS NOT NULL");
+    migrate(&home).unwrap();
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 33);
+    assert_eq!(host_rows(&conn(&home)), rows);
+    assert_eq!(count(&home, "questions WHERE body_form = 'rendered'"), summed);
+    assert_eq!(
+        count(&home, "questions WHERE body_form IS NULL"),
+        count(&home, "questions WHERE body_sha256 IS NULL")
+    );
+    let form = |id: i64| {
+        one::<Option<String>>(
+            &home,
+            &format!("SELECT body_form FROM questions WHERE comment_id = {id}"),
+        )
+    };
+    assert_eq!(form(9101).as_deref(), Some("rendered"));
+    assert_eq!(form(9102), None);
+    assert!(conn(&home)
+        .execute("UPDATE questions SET body_form = 'raw'", [])
+        .is_err());
+    let made = crate::verbs_tests::home("step-33-shape");
+    same_shape_as_init(&home, &conn(&made), "32");
 }
 
 /// Two stores laid apart have two ids, and a migrate run again keeps the id.

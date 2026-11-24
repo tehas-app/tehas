@@ -324,6 +324,8 @@ impl Writer {
             };
             let say = a.get("say").and_then(Value::as_str);
             self.answer_drop(n, &id, say, text(a, "fail"), log);
+        } else if let Some(n) = a.get("adopt").and_then(Value::as_u64) {
+            self.adopt(n, text(a, "id"), text(a, "sum"), log);
         } else if let Some(n) = a.get("reask").and_then(Value::as_u64) {
             let r = Reask {
                 kind: text(a, "kind"),
@@ -879,6 +881,28 @@ impl Writer {
             ".id".into(),
         ];
         (args, json!({"body": body}).to_string())
+    }
+
+    /// The question `id` on record of `n` takes `sum`, the sum of its
+    /// visible text, in place of its sum of before T4.7 (`question-adopt`,
+    /// the lead's ruling): one line, nothing written to the code host, no
+    /// edit, no label change, and nothing asked again. A store that cannot
+    /// say leaves the row as it was, and the next poll tries again.
+    fn adopt(&mut self, n: u64, id: &str, sum: &str, log: &mut Vec<String>) {
+        let issue = n.to_string();
+        match self.store_try(
+            3,
+            &["question-adopt", &issue, "--id", id, "--body-sha", sum],
+        ) {
+            Ok(v) if v.get("adopted") == Some(&Value::Bool(true)) => log.push(format!(
+                "INFO: the question of #{n} (comment {id}) had its sum of before 2.0, of the comment with its markers; it is kept, summed now by its visible text, and not asked again"
+            )),
+            Ok(_) => {}
+            Err(f) => log.push(format!(
+                "WARN: the sum of the question of #{n} could not be adopted ({}); the next poll tries again",
+                word(&f)
+            )),
+        }
     }
 
     /// A question of before 2.0 asked again in 2.0's words (#2782): the new

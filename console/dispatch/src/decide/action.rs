@@ -53,6 +53,14 @@ pub enum Action {
         body: Option<String>,
         offers: String,
     },
+    /// The question `id` on record of `issue`, whose sum is of before T4.7,
+    /// takes `sum`, the sum of its visible text (`question-adopt`). Nothing
+    /// is written to the code host.
+    Adopt {
+        issue: u64,
+        id: String,
+        sum: String,
+    },
     /// tehas:refreshing comes off a pull request.
     Unmark {
         pr: u64,
@@ -394,6 +402,11 @@ impl From<&Action> for Value {
                 put("body", json!(body));
                 put("offers", json!(offers));
                 put("unlabel", json!(unlabel));
+            }
+            Action::Adopt { issue, id, sum } => {
+                put("adopt", json!(issue));
+                put("id", json!(id));
+                put("sum", json!(sum));
             }
             Action::Unmark { pr, log } => {
                 put("pr", json!(pr));

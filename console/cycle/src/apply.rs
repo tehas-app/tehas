@@ -449,7 +449,7 @@ impl Writer<'_> {
         // A park with nothing for a person to decide (no retry to offer)
         // says so in a comment, and asks nothing.
         if on_record && p.asks() {
-            if let Some((full, text, markers)) = p.question_parts(n, self.stuck) {
+            if let Some((_, text, markers)) = p.question_parts(n, self.stuck) {
                 match self.post_question(&text, markers) {
                     Posted::Id(id) => {
                         let offers = tehas_core::question::park_offers(!p.no_retry, p.comments)
@@ -457,7 +457,7 @@ impl Writer<'_> {
                             .map(|c| c.word())
                             .collect::<Vec<_>>()
                             .join(",");
-                        self.asked(&id, &full, &offers);
+                        self.asked(&id, &text, &offers);
                         return;
                     }
                     // Posted, but the store keeps no question of an id that is
@@ -640,10 +640,12 @@ impl Writer<'_> {
 
     /// On record before the label shows it: a tick counts only in the
     /// question on record. The poll reads questions only on issues with the
-    /// label, so without it the boxes do nothing: say so.
-    fn asked(&mut self, id: &str, body: &str, offers: &str) {
+    /// label, so without it the boxes do nothing: say so. Its sum is of
+    /// `text`, the question's visible text, without the markers the ports
+    /// write beside it (T4.7).
+    fn asked(&mut self, id: &str, text: &str, offers: &str) {
         let (home, n) = (self.home, self.issue.to_string());
-        let sum = crate::last_attempt::sha(body);
+        let sum = tehas_core::question::question_sum(text);
         let asked = [
             "question-asked",
             &n,
@@ -1794,7 +1796,14 @@ esac
             .find(|c| c.starts_with("store question-asked"))
             .unwrap();
         assert!(asked.contains("--id 4001"), "{asked}");
-        assert!(asked.contains("--body-sha "), "{asked}");
+        // The sum on record is of the text posted, without its markers.
+        let text: String = q
+            .strip_prefix("note Text(")
+            .and_then(|t| t.strip_suffix(") markers [Park, Question]"))
+            .and_then(|t| serde_json::from_str(t).ok())
+            .unwrap_or_else(|| panic!("{q}"));
+        let sum = tehas_core::question::question_sum(&text);
+        assert!(asked.contains(&format!("--body-sha {sum}")), "{asked}");
     }
 
     #[test]

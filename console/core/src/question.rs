@@ -718,10 +718,41 @@ pub fn superseded(id: Option<u64>) -> String {
     }
 }
 
+/// The sum the store keeps of a question (`question-asked --body-sha`): the
+/// sum of its visible text alone, the text a person reads, without our
+/// markers and without the white space at its end (T4.7, the lead's ruling).
+/// A question posted through the ports, whose markers the adapter writes
+/// beside its text, and one of before 2.0, read back through [`q_text`],
+/// sum alike.
+pub fn question_sum(text: &str) -> String {
+    crate::approval::body_sum(text.trim_end())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// A question's sum is its visible text's: the text a park posts through
+    /// the ports and the comment 1.x posted with its markers in it, read back
+    /// through q_text, sum alike; a tick changes it.
+    #[test]
+    fn a_questions_sum_is_its_visible_texts() {
+        let text = "Stopped.\n\n- [ ] Retry\n- [ ] Leave it parked";
+        let q = question_marker("park", 21, 1);
+        let park = park_marker_7().replace("issue=7", "issue=21");
+        let posted = format!("{text}\n\n{park}\n{q}\n");
+        assert_eq!(
+            question_sum(&q_text(&posted, 21).unwrap()),
+            question_sum(text)
+        );
+        assert_eq!(question_sum(&format!("{text}\n\n")), question_sum(text));
+        assert_ne!(question_sum(text), crate::approval::body_sum(&posted));
+        assert_ne!(
+            question_sum(&text.replace("- [ ] Retry", "- [x] Retry")),
+            question_sum(text)
+        );
+    }
 
     #[test]
     fn q_text_is_a_question_of_before_2_0_without_our_markers() {

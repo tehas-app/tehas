@@ -1,5 +1,5 @@
 //! The park and question verbs: park, park-show, park-retry, park-told,
-//! question-asked, question-known and question-answered.
+//! question-asked, question-known, question-adopt and question-answered.
 //!
 //! The current park of an issue is its `parks` row of the cycle's attempt. The
 //! question on record is the one comment a tick may count in: for a park the
@@ -56,6 +56,13 @@ pub enum Call {
     Known {
         issue: i64,
         id: i64,
+    },
+    /// A question whose sum is 1.x's, of the comment as it was posted, takes
+    /// `body_sha`, the sum of its visible text (T4.7).
+    Adopt {
+        issue: i64,
+        id: i64,
+        body_sha: String,
     },
     /// `by` None is a withdrawal.
     Answered {
@@ -133,6 +140,19 @@ pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
                     id: a.strict_need("--id", "a comment id", verbs::comment_id)?,
                 })
             }),
+        "question-adopt" => Args::parse(
+            "question-adopt",
+            rest,
+            &[("--id", Kind::Value), ("--body-sha", Kind::Value)],
+            true,
+        )
+        .and_then(|a| {
+            Ok(Call::Adopt {
+                issue: a.issue()?,
+                id: a.strict_need("--id", "a comment id", verbs::comment_id)?,
+                body_sha: a.strict_need("--body-sha", "a sha256", verbs::sha256)?,
+            })
+        }),
         "question-answered" => answered_args(rest),
         _ => return None,
     })
@@ -265,6 +285,11 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
             now,
         ),
         Call::Known { issue, id } => verbs::look(home, |c| known(c, *issue, *id)),
+        Call::Adopt {
+            issue,
+            id,
+            body_sha,
+        } => adopt(home, *issue, *id, body_sha),
         Call::Answered { issue, id, by } => answered(home, *issue, *id, by.as_deref(), now),
     }
 }
@@ -410,8 +435,9 @@ fn park_question(
     match had {
         None => {
             c.execute(
-                "INSERT INTO questions (comment_id, issue, attempt, kind, posted_at, body_sha256)
-                 VALUES (?1, ?2, ?3, 'park', ?4, ?5)",
+                "INSERT INTO questions (comment_id, issue, attempt, kind, posted_at, body_sha256,
+                   body_form)
+                 VALUES (?1, ?2, ?3, 'park', ?4, ?5, 'rendered')",
                 params![id, issue, attempt, now, sha],
             )
             .q()?;
@@ -637,11 +663,13 @@ fn asked(
             }
             Some(true) => {}
             Some(false) => {
+                // The sum given is of the question's visible text (T4.7).
+                let form = body_sha.map(|_| "visible");
                 c.execute(
                     "INSERT INTO questions (comment_id, issue, attempt, kind, posted_at,
-                       body_sha256, offers)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                    params![id, issue, derived, kind, now, body_sha, offers],
+                       body_sha256, offers, body_form)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    params![id, issue, derived, kind, now, body_sha, offers, form],
                 )
                 .q()?;
                 if kind == "plan" {
@@ -688,12 +716,12 @@ pub fn on_record(c: &Connection, issue: i64, id: i64) -> Result<bool, Fail> {
 /// its row is kept, and it asks nothing. The single call reads it through
 /// `verbs::look`; `verbs::look_many` hands it the connection of the batch.
 pub(crate) fn known(c: &Connection, issue: i64, id: i64) -> Result<String, Fail> {
-    let row: Option<(String, Option<i64>, bool, i64)> = c
+    let row: Option<(String, Option<i64>, bool, i64, Option<String>)> = c
         .query_row(
-            "SELECT kind, answered_at, reask, id FROM questions
+            "SELECT kind, answered_at, reask, id, body_form FROM questions
              WHERE comment_id = ?1 AND issue = ?2 AND withdrawn_at IS NULL",
             params![id, issue],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
         )
         .optional()
         .q()?;
@@ -708,6 +736,9 @@ pub(crate) fn known(c: &Connection, issue: i64, id: i64) -> Result<String, Fail>
             // Asked before 2.0, open at the upgrade: the poll asks it again
             // in 2.0's words, once.
             ("reask", j(row.as_ref().is_some_and(|r| r.2))),
+            // What its sum sums: `rendered` is 1.x's, which the poll adopts
+            // on its first read (`question-adopt`); null with no sum.
+            ("sum_form", j(row.as_ref().and_then(|r| r.4.clone()))),
             (
                 "answer",
                 match row.as_ref().filter(|_| known) {
@@ -717,6 +748,30 @@ pub(crate) fn known(c: &Connection, issue: i64, id: i64) -> Result<String, Fail>
             ),
         ],
     ))
+}
+
+/// `question-adopt <issue> --id <id> --body-sha <sha256>`: the question
+/// comment `id` asked on `issue`, whose sum is 1.x's (`rendered`, the comment
+/// as it was posted, its markers in), takes the sum of its visible text, as
+/// 2.0 sums a question (T4.7, the lead's ruling). Done once, in place: a
+/// question of another form, a withdrawn one, or none is left as it is, and
+/// `adopted` says false. Nothing else of the row changes.
+fn adopt(home: &Path, issue: i64, id: i64, body_sha: &str) -> Result<String, Fail> {
+    verbs::write(home, |c| {
+        let adopted = c
+            .execute(
+                "UPDATE questions SET body_sha256 = ?3, body_form = 'visible'
+                 WHERE comment_id = ?2 AND issue = ?1 AND withdrawn_at IS NULL
+                   AND body_form = 'rendered'",
+                params![issue, id, body_sha],
+            )
+            .q()?
+            > 0;
+        Ok(line(
+            "question-adopt",
+            &[("issue", j(issue)), ("adopted", j(adopted))],
+        ))
+    })
 }
 
 /// `question-answered`: the question comment `id` asked, answered by `by`, or

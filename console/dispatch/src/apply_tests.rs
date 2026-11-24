@@ -71,6 +71,7 @@ case "$name $1" in
   "store cycle-end") cat "$d/end" 2>/dev/null || echo '{"api":1,"verb":"cycle-end","ok":true}' ;;
   "store history-show") cat "$d/history" 2>/dev/null || echo '{"api":1,"verb":"history-show","ok":true,"rows":[]}' ;;
   "store question-asked") cat "$d/asked" 2>/dev/null || echo '{"api":1,"verb":"question-asked","ok":true}' ;;
+  "store question-adopt") cat "$d/adopted" 2>/dev/null || echo '{"api":1,"verb":"question-adopt","ok":true,"issue":7,"adopted":true}' ;;
   "store question-list") cat "$d/questions" 2>/dev/null || echo '{"api":1,"verb":"question-list","ok":true,"questions":[]}' ;;
   "store cycle-note") cat "$d/note" 2>/dev/null || echo '{"api":1,"verb":"cycle-note","ok":true,"times":0,"stop_asked_at":0}' ;;
   "store plan-note") echo "{\"api\":1,\"verb\":\"plan-note\",\"ok\":true,\"said\":$(cat "$d/said" 2>/dev/null || echo true)}" ;;
@@ -6191,6 +6192,49 @@ fn a_reask_posts_a_typed_question_and_takes_its_label_off_as_a_mark() {
         a.log
             .iter()
             .any(|l| l.starts_with("WARN: the question's label could not be taken off #7")),
+        "{:?}",
+        a.log
+    );
+}
+
+/// A question's sum of before T4.7 adopted (the lead's ruling): one store
+/// call with the sum of its visible text, one INFO line, and nothing
+/// written to the code host. A row the store left as it was says nothing; a
+/// store that cannot say is a WARN, and the next poll tries again.
+#[test]
+fn an_old_sum_is_adopted_in_the_store_alone() {
+    let sum = "d".repeat(64);
+    let adopt = json!([{"adopt": 7, "id": "2101", "sum": sum}]);
+    let mut t = world();
+    let a = t.apply(adopt.clone());
+    let w = t.writes();
+    assert_eq!(
+        w,
+        [format!("store question-adopt 7 --id 2101 --body-sha {sum}")],
+        "{w:?}"
+    );
+    assert!(
+        a.log.iter().any(|l| l.starts_with(
+            "INFO: the question of #7 (comment 2101) had its sum of before 2.0"
+        )),
+        "{:?}",
+        a.log
+    );
+    let mut t = world();
+    fs::write(
+        t.dir.join("adopted"),
+        r#"{"api":1,"verb":"question-adopt","ok":true,"issue":7,"adopted":false}"#,
+    )
+    .unwrap();
+    let a = t.apply(adopt.clone());
+    assert!(a.log.is_empty(), "{:?}", a.log);
+    let mut t = world();
+    t.fail("store", "question-adopt");
+    let a = t.apply(adopt);
+    assert!(
+        a.log.iter().any(|l| l.starts_with(
+            "WARN: the sum of the question of #7 could not be adopted (busy)"
+        )),
         "{:?}",
         a.log
     );

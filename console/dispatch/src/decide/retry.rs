@@ -188,6 +188,31 @@ impl Poll<'_> {
         }
     }
 
+    /// The question `id` on record of `n`, its sum of before T4.7 (the
+    /// comment as posted, its markers in), takes the sum of its visible
+    /// text as `ans` reads it (the lead's ruling). A comment that does not
+    /// end with its question's marker keeps its sum, and the poll says why.
+    fn adopt(&mut self, n: u64, id: &str, ans: &Asked) {
+        use tehas_core::question::{q_text, question_sum};
+        let Some(text) = q_text(&ans.body, n) else {
+            self.log(format!(
+                "INFO: the question of #{n} keeps its sum of before 2.0: its comment does not end with its question's marker"
+            ));
+            return;
+        };
+        if self.dry {
+            self.log(format!(
+                "would adopt the sum of #{n}'s question as its visible text's"
+            ));
+            return;
+        }
+        self.act(Action::Adopt {
+            issue: n,
+            id: id.to_string(),
+            sum: question_sum(&text),
+        });
+    }
+
     /// The question of before 2.0 in `ans` asked again in 2.0's words.
     fn reask(&mut self, n: u64, ans: &Asked) {
         use tehas_core::question::{reasked, Kind};
@@ -365,6 +390,13 @@ impl Poll<'_> {
             if q.reask && !qid.is_empty() && ans.kind == qkind && ans.issue_number() == Some(n) {
                 self.reask(n, &ans);
                 continue;
+            }
+            // A sum on record of the comment as posted (before T4.7) is
+            // adopted as its visible text's, in place, on this first read:
+            // nothing is written to the code host and nothing asked again,
+            // and the answer is read as it is.
+            if q.old_sum && !qid.is_empty() && ans.kind == qkind && ans.issue_number() == Some(n) {
+                self.adopt(n, &qid, &ans);
             }
             // An answer `tehas answer` gave reads as the box it stands for.
             // One the question does not offer is taken away, and said.
