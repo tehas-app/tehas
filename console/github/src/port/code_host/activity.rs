@@ -159,8 +159,11 @@ impl GitHub {
     /// pushes, at the push and committed when the new head was. A review
     /// still pending is no review given and is left out; so is a label no
     /// mark can have, which is kept for [`GitHub::take_left_out`]. Any other
-    /// item is `Unknown`, at the time of the next item after it that has
-    /// one, or of the one before it when none follows.
+    /// item is `Unknown`. GitHub's question gives it no time, so it takes
+    /// the time of the next item after it that has one, or of the one
+    /// before it when none follows, never the time of the read. Its
+    /// borrowed time is then never later than a real event after it, and
+    /// the events stay oldest first.
     ///
     /// A whole read past its bound, or past `PAGES_MAX` pages, is
     /// `Unread(Cut)`. The newest n are read backward, a page for each
@@ -432,8 +435,9 @@ fn time(iso: Option<String>) -> Got<At> {
 }
 
 /// The items as events, each without a time of its own placed at the next
-/// time after it, or the last before it when none follows. A read with no
-/// time at all to place one by is `Unread(Inconsistent)`.
+/// time after it, or the last before it when none follows, so no borrowed
+/// time is later than a real event after it. A read with no time at all to
+/// place one by is `Unread(Inconsistent)`.
 fn placed(items: Vec<Item>) -> Got<Vec<ChangeEvent>> {
     let mut next: Option<At> = None;
     let mut times = vec![None; items.len()];

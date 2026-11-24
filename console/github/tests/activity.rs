@@ -655,3 +655,20 @@ fn a_branch_failure_is_read_from_gh_s_answer_and_settled_by_rest_without_one() {
     assert_eq!(asked[1], ["api", "repos/acme/widget"]);
     assert_eq!(branch("branch-settled", "null").0, Err(Outcome::NotFound));
 }
+
+#[test]
+fn unknown_items_at_the_end_take_the_time_before_them_never_the_reads() {
+    for w in [whole(10), last(2)] {
+        let took = activity("unknown-last", w).unwrap();
+        let rows: Vec<_> = took.items.iter().map(|e| (e.what.clone(), e.at)).collect();
+        let merged = at("2026-11-20T10:08:00Z");
+        let tail = [
+            (ChangeHappened::Unknown, merged),
+            (ChangeHappened::Unknown, merged),
+        ];
+        assert_eq!(rows[rows.len() - 2..], tail, "{w:?}");
+        assert!(took.items.iter().all(|e| e.at != At::new(replay_now())));
+        // Oldest first: no time falls down the list.
+        assert!(took.items.windows(2).all(|p| p[0].at <= p[1].at), "{w:?}");
+    }
+}
