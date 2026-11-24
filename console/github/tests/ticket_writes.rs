@@ -480,9 +480,35 @@ fn what_the_guards_refuse_is_refused_before_any_request() {
     assert!(taken(&calls).is_empty());
 }
 
+/// A note's text with our wrapper in a code span: no body carries a cited
+/// marker (the spec's Decided 83), since 1.x's readers find one in code.
+const CITED: &str = "See `<!-- tehas:millwright issue=7 action=finish -->` here";
+/// A note's text with our wrapper in a quote, which 1.x's readers find too.
+const QUOTED: &str = "> <!-- tehas:blocked by=3 -->";
+
 #[test]
-fn a_cited_or_quoted_marker_is_text_and_is_posted() {
-    let text = "Write `<!-- tehas:millwright issue=7 action=finish -->` first.\n> <!-- tehas:hold-cleared -->";
+fn a_note_with_a_cited_marker_is_refused_and_posts_nothing() {
+    let (mut gh, calls) = adapter(Vec::new());
+    assert_eq!(
+        gh.note(&key(7), CITED, &[]).map(|_| ()),
+        Err(Outcome::Refused(Refusal::Invalid))
+    );
+    assert!(taken(&calls).is_empty());
+}
+
+#[test]
+fn a_note_with_a_quoted_marker_is_refused_and_posts_nothing() {
+    let (mut gh, calls) = adapter(Vec::new());
+    assert_eq!(
+        gh.note(&key(7), QUOTED, &[question(1)]).map(|_| ()),
+        Err(Outcome::Refused(Refusal::Invalid))
+    );
+    assert!(taken(&calls).is_empty());
+}
+
+#[test]
+fn another_tools_marker_line_is_text_and_is_posted() {
+    let text = "<!-- pi-rukas:handoff issue=7 cap=budget -->\nTehas cycle stopped.";
     let (mut gh, calls) = adapter(vec![
         Ok(sample("issue-7.json")),
         Ok(sample("comment-posted.json")),
@@ -512,14 +538,7 @@ fn a_repository_that_is_no_owner_and_name_gets_no_note() {
     }
 }
 
-/// The revision of the issue's sample, the time GitHub last saw it change:
-/// what a read of it gives as `TicketDigest.revision`.
-fn since() -> Revision {
-    Revision::new("2026-11-22T14:30:00Z")
-}
-
-/// The issue's sample with its title and body set, and its revision
-/// `updated`.
+/// The issue's sample with its title and body set, and its time `updated`.
 fn issue_7(title: &str, body: &str, updated: &str) -> String {
     let mut v: Value = serde_json::from_str(&sample("issue-7.json")).unwrap();
     v["title"] = title.into();
@@ -528,8 +547,22 @@ fn issue_7(title: &str, body: &str, updated: &str) -> String {
     v.to_string()
 }
 
+/// An issue's revision as the blueprints port's writes read it
+/// (`GitHub::text_revision`, the sum of its title and body): the one rule of
+/// both ports.
+fn rev_of(answer: &str) -> Revision {
+    let (mut gh, _) = adapter(vec![Ok(answer.to_string())]);
+    Revision::new(gh.text_revision(7).unwrap())
+}
+
+/// The revision of the issue's sample.
+fn since() -> Revision {
+    rev_of(&sample("issue-7.json"))
+}
+
 const TITLE: &str = "Plan: the title only standard input carries";
 const EDITED: &str = "2026-11-23T10:20:00Z";
+const BASE: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
 /// What an edit sent on standard input: nothing but these fields.
 #[derive(Debug, PartialEq, Deserialize)]
@@ -561,18 +594,30 @@ fn blocked(n: u64) -> Marker {
 }
 
 fn last_attempt(note: &str) -> Marker {
-    let mut l = LastAttemptMarker::new(Sha256::new("0".repeat(64)).unwrap());
+    let mut l = LastAttemptMarker::new(Sha256::new(BASE).unwrap());
     l.note = note.to_string();
     Marker::LastAttempt(l)
 }
 
-/// A ticket's body as 1.x left it: the text, a hold, and a last attempt's
-/// note.
-fn marked_body() -> String {
-    format!(
-        "One page for every setting.\r\n\r\n<!-- tehas:blocked by=3 -->\n<!-- tehas:last-attempt base={} -->\nIt ran out of time.\n<!-- /tehas:last-attempt -->",
-        "0".repeat(64)
-    )
+fn set(m: Marker) -> MarkerEdit {
+    MarkerEdit {
+        set: vec![m],
+        drop: Vec::new(),
+    }
+}
+
+/// The body an edit of #7, whose body is `body`, sends for `text` and
+/// `markers`; None when it sends no PATCH. The read is the only other call.
+fn edit_of(body: &str, text: Option<&str>, markers: &MarkerEdit) -> Got<Option<String>> {
+    let read = issue_7("Plan", body, "2026-11-22T14:30:00Z");
+    let at = rev_of(&read);
+    let (mut gh, calls) = adapter(vec![Ok(read), Ok(issue_7("Plan", "x", EDITED))]);
+    gh.edit(&key(7), None, text, markers, &at)?;
+    let calls = taken(&calls);
+    Ok(match calls.len() {
+        1 => None,
+        _ => Some(edited(&calls[1]).body.unwrap()),
+    })
 }
 
 #[test]
@@ -627,15 +672,58 @@ fn the_revision_a_read_gives_is_the_one_an_edit_is_held_to() {
 }
 
 #[test]
-fn an_edit_of_an_issue_changed_since_its_revision_is_a_conflict_and_sends_nothing() {
-    let changed = issue_7("Plan: the widget's settings page", "Same.", EDITED);
-    let (mut gh, calls) = adapter(vec![Ok(changed)]);
+fn a_tickets_revision_is_the_blueprint_writes_revision_of_the_same_answer() {
+    // Blueprints::blueprint is not answered yet: blueprint_writes' revision
+    // is the same function, which GitHub::text_revision gives.
+    for body in [
+        "",
+        "Plain.",
+        "With <!-- tehas:blocked by=3 --> a marker.\r\n",
+    ] {
+        let answer = issue_7("A title", body, "2026-11-22T14:30:00Z");
+        let (mut gh, _) = adapter(vec![Ok(answer.clone())]);
+        let digest = gh.several(&[key(7)]).pop().unwrap().1.unwrap();
+        assert_eq!(digest.revision, rev_of(&answer), "{body:?}");
+        assert_eq!(digest.updated, At::new(1_795_357_800));
+    }
+}
+
+#[test]
+fn a_label_a_comment_or_a_new_time_between_the_read_and_the_edit_is_no_conflict() {
+    let read = sample("issue-7.json");
+    let mut v: Value = serde_json::from_str(&read).unwrap();
+    v["labels"] = serde_json::json!([]);
+    v["comments"] = 3.into();
+    v["updated_at"] = "2026-11-23T11:00:00Z".into();
+    let (mut gh, calls) = adapter(vec![Ok(v.to_string()), Ok(read)]);
     let got = gh.edit(&key(7), Some("x"), None, &MarkerEdit::default(), &since());
-    assert_eq!(got, Err(Outcome::Conflict(Lost::Changed)));
-    assert_eq!(taken(&calls).len(), 1, "only the read");
-    // An answer with no revision is unread, not a conflict.
-    let mut v: Value = serde_json::from_str(&sample("issue-7.json")).unwrap();
-    v.as_object_mut().unwrap().remove("updated_at");
+    assert!(got.is_ok(), "{got:?}");
+    assert_eq!(taken(&calls).len(), 2);
+}
+
+#[test]
+fn a_title_body_or_marker_change_since_the_read_is_a_conflict_and_sends_nothing() {
+    let v: Value = serde_json::from_str(&sample("issue-7.json")).unwrap();
+    let title = v["title"].as_str().unwrap();
+    let body = v["body"].as_str().unwrap();
+    for changed in [
+        issue_7("Retitled", body, "2026-11-22T14:30:00Z"),
+        issue_7(title, "Another account's body.", "2026-11-22T14:30:00Z"),
+        // A marker alone added to the body moves it too.
+        issue_7(
+            title,
+            &format!("{body}\n\n<!-- tehas:hold-cleared -->"),
+            "2026-11-22T14:30:00Z",
+        ),
+    ] {
+        let (mut gh, calls) = adapter(vec![Ok(changed)]);
+        let got = gh.edit(&key(7), Some("x"), None, &MarkerEdit::default(), &since());
+        assert_eq!(got, Err(Outcome::Conflict(Lost::Changed)));
+        assert_eq!(taken(&calls).len(), 1, "only the read");
+    }
+    // An answer with no title has no revision: unread, not a conflict.
+    let mut v = v;
+    v.as_object_mut().unwrap().remove("title");
     let (mut gh, calls) = adapter(vec![Ok(v.to_string())]);
     let got = gh.edit(&key(7), Some("x"), None, &MarkerEdit::default(), &since());
     assert_eq!(got, Err(Outcome::Unread(Unread::Malformed)));
@@ -643,106 +731,147 @@ fn an_edit_of_an_issue_changed_since_its_revision_is_a_conflict_and_sends_nothin
 }
 
 #[test]
-fn an_edit_keeps_every_marker_it_is_not_told_to_change_in_its_order() {
-    let read = issue_7("Plan", &marked_body(), "2026-11-22T14:30:00Z");
-    let (mut gh, calls) = adapter(vec![Ok(read), Ok(issue_7("Plan", "x", EDITED))]);
-    gh.edit(
-        &key(7),
-        None,
-        Some("New text."),
-        &MarkerEdit::default(),
-        &since(),
-    )
-    .unwrap();
-    let body = edited(&taken(&calls)[1]).body.unwrap();
+fn an_edit_keeps_every_other_byte_and_every_marker_it_is_not_told_to_change_where_it_was() {
+    // A new text in place of the old, its CRs and the markers around it
+    // kept.
+    let body =
+        "<!-- tehas:finish issue=7 result=opened -->\nOld text.\r\n\r\n<!-- tehas:blocked by=3 -->";
     assert_eq!(
-        body,
-        format!(
-            "New text.\n\n<!-- tehas:blocked by=3 -->\n<!-- tehas:last-attempt base={} -->\nIt ran out of time.\n<!-- /tehas:last-attempt -->",
-            "0".repeat(64)
-        )
+        edit_of(body, Some("New text."), &MarkerEdit::default()).unwrap(),
+        Some("<!-- tehas:finish issue=7 result=opened -->\nNew text.\r\n\r\n<!-- tehas:blocked by=3 -->".into())
     );
-    let back = markers::read(&body, BlueprintNo::new(7));
-    assert_eq!(back.text, "New text.");
+    // A marker set in place of one of its kind, where it stood.
+    let body = "Do it.\n\n<!-- tehas:blocked by=3 -->\nMore text.\r\n";
     assert_eq!(
-        back.markers,
-        [blocked(3), last_attempt("It ran out of time.")]
+        edit_of(body, None, &set(blocked(5))).unwrap(),
+        Some("Do it.\n\n<!-- tehas:blocked by=5 -->\nMore text.\r\n".into())
+    );
+    // A marker added after the text, the markers there kept in place.
+    let body = "Do it.\n\n<!-- tehas:blocked by=3 -->\nMore.\n\n<!-- tehas:hold-cleared -->\n";
+    assert_eq!(
+        edit_of(body, None, &set(last_attempt("Note."))).unwrap(),
+        Some(format!("Do it.\n\n<!-- tehas:blocked by=3 -->\nMore.\n\n<!-- tehas:hold-cleared -->\n<!-- tehas:last-attempt base={BASE} -->\nNote.\n<!-- /tehas:last-attempt -->"))
     );
 }
 
 #[test]
-fn an_edit_sets_and_drops_markers_and_keeps_the_text_when_given_none() {
-    let read = issue_7("Plan", &marked_body(), "2026-11-22T14:30:00Z");
-    let (mut gh, calls) = adapter(vec![Ok(read), Ok(issue_7("Plan", "x", EDITED))]);
-    let edit = MarkerEdit {
-        set: vec![last_attempt("Learned more."), Marker::HoldCleared],
-        drop: vec![(MarkerKind::Blocked, None)],
+fn a_marker_dropped_takes_its_line_or_its_words_and_one_space() {
+    let drop = |kind| MarkerEdit {
+        set: Vec::new(),
+        drop: vec![(kind, None)],
     };
-    gh.edit(&key(7), None, None, &edit, &since()).unwrap();
-    let sent = edited(&taken(&calls)[1]);
-    assert_eq!(sent.title, None);
-    let back = markers::read(&sent.body.unwrap(), BlueprintNo::new(7));
-    assert_eq!(back.text, "One page for every setting.");
     assert_eq!(
-        back.markers,
-        [last_attempt("Learned more."), Marker::HoldCleared]
+        edit_of(
+            "A.\n<!-- tehas:blocked by=3 -->\nB.",
+            None,
+            &drop(MarkerKind::Blocked)
+        )
+        .unwrap(),
+        Some("A.\nB.".into())
+    );
+    assert_eq!(
+        edit_of(
+            "A. <!-- tehas:blocked by=3 --> B.",
+            None,
+            &drop(MarkerKind::Blocked)
+        )
+        .unwrap(),
+        Some("A. B.".into())
+    );
+    assert_eq!(
+        edit_of(
+            "A.\r\n\r\n<!-- tehas:hold-cleared -->",
+            None,
+            &drop(MarkerKind::HoldCleared)
+        )
+        .unwrap(),
+        Some("A.\r\n".into())
     );
 }
 
 #[test]
 fn a_last_attempts_edit_writes_the_bytes_1x_wrote() {
-    // last_attempt.rs's decide: the body, a blank line, the open line, the
-    // note, the close line.
+    // console/cycle/src/last_attempt.rs line 96 (decide) and line 214
+    // (note): the body without white space at its end, a blank line, the
+    // open line, the note, the close line.
     let note = "### The last attempt ran out of time\n\nThe last cycle on this text was stopped in develop: the developer ran past its time bound. Its work was not pushed, and the next cycle starts from a clean checkout.\n\nPlan a smaller change: finish one part well, or say in this issue what to leave out. This section is the factory's; edit or delete it as you like.";
     let written_1x = format!(
-        "Fix it.\n\n<!-- tehas:last-attempt base={} -->\n{note}\n<!-- /tehas:last-attempt -->",
-        "0".repeat(64)
+        "Fix it.\n\n<!-- tehas:last-attempt base={BASE} -->\n{note}\n<!-- /tehas:last-attempt -->"
     );
-    let read = issue_7("Fix", "Fix it.\r\n\r\n", "2026-11-22T14:30:00Z");
-    let (mut gh, calls) = adapter(vec![Ok(read), Ok(issue_7("Fix", "x", EDITED))]);
-    let edit = MarkerEdit {
-        set: vec![last_attempt(note)],
-        drop: Vec::new(),
-    };
-    gh.edit(&key(7), None, None, &edit, &since()).unwrap();
-    assert_eq!(edited(&taken(&calls)[1]).body.unwrap(), written_1x);
+    assert_eq!(
+        edit_of("Fix it.\r\n\r\n", None, &set(last_attempt(note))).unwrap(),
+        Some(written_1x)
+    );
 }
 
 #[test]
-fn a_body_with_a_marker_that_does_not_read_is_not_rewritten_but_its_title_is() {
-    for body in [
-        "Text.\n\n<!-- tehas:blocked by=03 -->",
-        "Text.\n\ntehas:blocked by=3",
-        "Text.\n\n<!-- tehas:nonsense -->",
+fn a_last_attempt_set_goes_at_the_end_in_place_of_an_older_one_and_keeps_the_text() {
+    let body = format!(
+        "Fix it.\r\n\r\n- one\r\n- two\n\n<!-- tehas:last-attempt base={BASE} -->\nOld note.\n<!-- /tehas:last-attempt -->\n<!-- tehas:blocked by=3 -->"
+    );
+    assert_eq!(
+        edit_of(&body, None, &set(last_attempt("New note."))).unwrap(),
+        Some(format!(
+            "Fix it.\r\n\r\n- one\r\n- two\n\n<!-- tehas:blocked by=3 -->\n<!-- tehas:last-attempt base={BASE} -->\nNew note.\n<!-- /tehas:last-attempt -->"
+        ))
+    );
+}
+
+#[test]
+fn markers_that_do_not_read_and_another_items_markers_stay_as_they_are() {
+    let la = set(last_attempt("Note."));
+    let block =
+        format!("<!-- tehas:last-attempt base={BASE} -->\nNote.\n<!-- /tehas:last-attempt -->");
+    // After a line that reads as a marker of ours, the block follows on the
+    // next line; after text, a blank line comes between.
+    for (body, between) in [
+        ("Text.\n\n<!-- tehas:blocked by=03 -->", "\n"),
+        ("Text.\n\n<!-- tehas:nonsense -->", "\n"),
+        ("Text.\n\ntehas:blocked by=3", "\n\n"),
+        (
+            "Split from #8.\n\n<!-- tehas:millwright issue=8 action=retry -->",
+            "\n\n",
+        ),
+        ("See `<!-- tehas:hold-cleared -->` in a code span.", "\n\n"),
     ] {
-        let read = issue_7("Plan", body, "2026-11-22T14:30:00Z");
-        let (mut gh, calls) = adapter(vec![Ok(read.clone())]);
-        let got = gh.edit(
-            &key(7),
-            None,
-            Some("New."),
-            &MarkerEdit::default(),
-            &since(),
-        );
-        assert_eq!(got, Err(Outcome::Refused(Refusal::Unsupported)), "{body}");
-        assert_eq!(taken(&calls).len(), 1, "only the read");
-        let (mut gh, calls) = adapter(vec![Ok(read.clone()), Ok(read)]);
-        let got = gh.edit(
-            &key(7),
-            Some("Retitled"),
-            None,
-            &MarkerEdit::default(),
-            &since(),
-        );
-        assert!(got.is_ok(), "{got:?}");
-        assert_eq!(
-            edited(&taken(&calls)[1]),
-            Edited {
-                title: Some("Retitled".into()),
-                body: None
-            }
-        );
+        let got = edit_of(body, None, &la).unwrap();
+        assert_eq!(got, Some(format!("{body}{between}{block}")), "{body}");
     }
+}
+
+#[test]
+fn an_edit_that_changes_nothing_sends_no_patch() {
+    let drop = MarkerEdit {
+        set: Vec::new(),
+        drop: vec![(MarkerKind::HoldCleared, None)],
+    };
+    assert_eq!(
+        edit_of("<!-- tehas:blocked by=3 -->\nText\n", None, &drop),
+        Ok(None)
+    );
+    assert_eq!(
+        edit_of(
+            "Text.\n\n<!-- tehas:blocked by=3 -->",
+            None,
+            &set(blocked(3))
+        ),
+        Ok(None)
+    );
+    // A title equal to the one there, alone: the read and nothing else.
+    let v: Value = serde_json::from_str(&sample("issue-7.json")).unwrap();
+    let (mut gh, calls) = adapter(vec![Ok(sample("issue-7.json"))]);
+    let got = gh.edit(
+        &key(7),
+        v["title"].as_str(),
+        None,
+        &MarkerEdit::default(),
+        &since(),
+    );
+    assert_eq!(
+        got.unwrap().as_str(),
+        "https://github.com/acme/widget/issues/7"
+    );
+    assert_eq!(taken(&calls).len(), 1);
 }
 
 #[test]
@@ -757,21 +886,63 @@ fn an_edit_with_nothing_to_change_reads_and_writes_nothing() {
 }
 
 #[test]
+fn a_marker_to_change_whose_words_stand_twice_is_unsupported() {
+    let body = "Do `<!-- tehas:blocked by=3 -->` this.\n\n<!-- tehas:blocked by=3 -->";
+    assert_eq!(
+        edit_of(body, None, &set(blocked(5))),
+        Err(Outcome::Refused(Refusal::Unsupported))
+    );
+}
+
+#[test]
 fn an_edit_of_a_pull_request_is_not_found_and_sends_nothing() {
-    let (mut gh, calls) = adapter(vec![Ok(sample("pull-8.json"))]);
-    let got = gh.edit(&key(8), Some("x"), None, &MarkerEdit::default(), &since());
+    let read = sample("pull-8.json");
+    let (mut gh, calls) = adapter(vec![Ok(read.clone())]);
+    let got = gh.edit(
+        &key(8),
+        Some("x"),
+        None,
+        &MarkerEdit::default(),
+        &rev_of(&read),
+    );
     assert_eq!(got, Err(Outcome::NotFound));
     assert_eq!(taken(&calls).len(), 1);
+}
+
+#[test]
+fn an_edit_with_a_cited_marker_is_refused_before_any_request() {
+    let (mut gh, calls) = adapter(Vec::new());
+    let none = MarkerEdit::default();
+    let invalid = Err(Outcome::Refused(Refusal::Invalid));
+    assert_eq!(
+        gh.edit(&key(7), None, Some(CITED), &none, &since()),
+        invalid
+    );
+    assert_eq!(
+        gh.edit(&key(7), Some(CITED), None, &none, &since()),
+        invalid
+    );
+    assert!(taken(&calls).is_empty());
+}
+
+#[test]
+fn an_edit_with_a_quoted_marker_is_refused_before_any_request() {
+    let (mut gh, calls) = adapter(Vec::new());
+    let got = gh.edit(
+        &key(7),
+        None,
+        Some(QUOTED),
+        &MarkerEdit::default(),
+        &since(),
+    );
+    assert_eq!(got, Err(Outcome::Refused(Refusal::Invalid)));
+    assert!(taken(&calls).is_empty());
 }
 
 #[test]
 fn what_an_edits_guards_refuse_is_refused_before_any_request() {
     let invalid = Err(Outcome::Refused(Refusal::Invalid));
     let (mut gh, calls) = adapter(Vec::new());
-    let set = |m: Marker| MarkerEdit {
-        set: vec![m],
-        drop: Vec::new(),
-    };
     let none = MarkerEdit::default();
     let s = since();
     assert_eq!(
@@ -783,19 +954,24 @@ fn what_an_edits_guards_refuse_is_refused_before_any_request() {
     let marked = "Text <!-- tehas:hold-cleared --> here";
     assert_eq!(gh.edit(&key(7), None, Some(marked), &none, &s), invalid);
     assert_eq!(gh.edit(&key(7), Some(marked), None, &none, &s), invalid);
+    assert_eq!(
+        gh.edit(&key(7), None, Some("tehas:blocked by=3"), &none, &s),
+        invalid
+    );
     let k = TicketKey::Key(KeyText::new("PROJ-1").unwrap());
     assert_eq!(gh.edit(&k, Some("t"), None, &none, &s), invalid);
     assert!(taken(&calls).is_empty());
     // A marker of another item reads nowhere: refused after the read, with
     // nothing sent.
-    let (mut gh, calls) = adapter(vec![Ok(sample("issue-7.json"))]);
     let other = Marker::Question {
         kind: QuestionKind::Park,
         blueprint: BlueprintNo::new(8).unwrap(),
         turn: NonZeroU32::new(1).unwrap(),
     };
-    assert_eq!(gh.edit(&key(7), None, None, &set(other), &s), invalid);
-    assert_eq!(taken(&calls).len(), 1);
+    assert_eq!(
+        edit_of("Text.", None, &set(other)),
+        Err(Outcome::Refused(Refusal::Unsupported))
+    );
 }
 
 #[test]
@@ -1043,28 +1219,6 @@ fn a_notes_id_is_github_s_numeric_rest_id_never_its_node_id() {
     );
 }
 
-#[test]
-fn a_last_attempt_set_goes_at_the_end_in_place_of_an_older_one_and_keeps_the_text() {
-    let base = "0".repeat(64);
-    // An older block before a hold: the new one goes last, the hold stays.
-    let body = format!(
-        "Fix it.\r\n\r\n- one\r\n- two\n\n<!-- tehas:last-attempt base={base} -->\nOld note.\n<!-- /tehas:last-attempt -->\n<!-- tehas:blocked by=3 -->"
-    );
-    let read = issue_7("Fix", &body, "2026-11-22T14:30:00Z");
-    let (mut gh, calls) = adapter(vec![Ok(read), Ok(issue_7("Fix", "x", EDITED))]);
-    let edit = MarkerEdit {
-        set: vec![last_attempt("New note.")],
-        drop: Vec::new(),
-    };
-    gh.edit(&key(7), None, None, &edit, &since()).unwrap();
-    assert_eq!(
-        edited(&taken(&calls)[1]).body.unwrap(),
-        format!(
-            "Fix it.\r\n\r\n- one\r\n- two\n\n<!-- tehas:blocked by=3 -->\n<!-- tehas:last-attempt base={base} -->\nNew note.\n<!-- /tehas:last-attempt -->"
-        )
-    );
-}
-
 /// gh's answers for issue 21 of the recordings, its REST read with `body`
 /// and `updated` in place of its own.
 fn recorded_21(body: Option<&str>, updated: Option<&str>) -> String {
@@ -1132,5 +1286,12 @@ fn a_ticket_read_after_a_last_attempts_edit_gives_the_text_and_the_block_back() 
     assert_eq!(after.text, text.trim_end());
     assert_eq!(after.text.trim(), before.text.trim());
     assert_eq!(after.markers, [la]);
-    assert_eq!(after.digest.revision, Revision::new(EDITED));
+    assert_eq!(
+        after.digest.revision,
+        rev_of(
+            &recorded_21(Some(&stored), Some(EDITED))
+                .replace("/issues/21", "/issues/7")
+                .replace("\"number\":21", "\"number\":7")
+        )
+    );
 }

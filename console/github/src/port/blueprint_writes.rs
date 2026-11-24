@@ -225,7 +225,7 @@ pub(super) fn revision(out: &str) -> Option<Revision> {
 
 /// The revision an issue of this title and body reads at, as [`revision`]
 /// reads it.
-fn text_revision(title: &str, body: &str) -> Option<Revision> {
+pub(super) fn text_revision(title: &str, body: &str) -> Option<Revision> {
     revision(&serde_json::json!({ "title": title, "body": body }).to_string())
 }
 

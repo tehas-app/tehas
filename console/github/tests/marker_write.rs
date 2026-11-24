@@ -5,7 +5,7 @@
 //! are the bytes tehas 1.x writes for the same markers.
 
 use std::num::{NonZeroU32, NonZeroU64};
-use tehas_github::markers::{read, write};
+use tehas_github::markers::{self, read, write};
 use tehas_github::table;
 use tehas_ports::{
     BlueprintNo, FinishMarker, FinishResult, KeyText, LastAttemptMarker, MarkName, Marker,
@@ -121,9 +121,9 @@ fn texts() -> Vec<&'static str> {
         "Done.",
         "Two\r\nlines.",
         "A list:\n\n- one\n  - two\n\n1. three",
-        "> <!-- tehas:blocked by=3 -->\n> quoted",
-        "Type `<!-- tehas:millwright issue=7 action=retry -->` to retry.",
-        "```\n<!-- tehas:hold-cleared -->\ntehas:park issue=7\n```\nAfter the fence.",
+        "> quoted\n> twice",
+        "Type `tehas:park issue=7` to see the words.",
+        "```\ntehas:park issue=7\n```\nAfter the fence.",
         "~~~text\nfenced\n~~~",
         "<!-- a person's own note -->\nand words",
         "<!-- pi-rukas:handoff issue=7 cap=x -->\nTehas cycle stopped.",
@@ -137,7 +137,7 @@ fn round_trip(text: &str, markers: &[Marker]) {
     let body = write(text, markers, item())
         .unwrap_or_else(|o| panic!("{o:?} for {text:?} with {markers:?}"));
     let back = read(&body, item());
-    assert_eq!(back.markers, markers, "{body:?}");
+    assert_eq!(back.markers, markers::laid_out(markers), "{body:?}");
     assert_eq!(back.text, text, "{body:?}");
     assert!(
         !back
@@ -169,24 +169,47 @@ fn every_marker_of_every_kind_round_trips_through_write_then_read() {
 #[test]
 fn several_markers_round_trip_in_the_order_given() {
     let all = every_marker();
+    let leads = |m: &Marker| matches!(m.kind(), MarkerKind::Millwright | MarkerKind::Finish);
     let one_block: Vec<Marker> = all
         .iter()
-        .filter(|m| m.kind() != MarkerKind::LastAttempt)
+        .filter(|m| m.kind() != MarkerKind::LastAttempt && !leads(m))
         .cloned()
         .chain([last_attempt("The note.")])
         .collect();
     let mut reversed = one_block.clone();
     reversed.reverse();
+    let lead = Marker::Millwright(MillwrightMarker::new(no(ITEM), MillwrightAction::Answer));
     for text in texts() {
         round_trip(text, &one_block);
         round_trip(text, &reversed);
-        // Each pair, in both orders.
-        for (i, a) in one_block.iter().enumerate() {
-            for b in &one_block[i + 1..] {
+        // With one leading marker, given anywhere: it goes first.
+        let mut with_lead = one_block.clone();
+        with_lead.insert(3, lead.clone());
+        round_trip(text, &with_lead);
+        // Each pair, in both orders, but two leading markers.
+        for (i, a) in all.iter().enumerate() {
+            for b in &all[i + 1..] {
+                if leads(a) && leads(b)
+                    || a.kind() == MarkerKind::LastAttempt && b.kind() == MarkerKind::LastAttempt
+                {
+                    continue;
+                }
                 round_trip(text, &[a.clone(), b.clone()]);
                 round_trip(text, &[b.clone(), a.clone()]);
             }
         }
+    }
+}
+
+#[test]
+fn two_markers_that_would_each_be_the_first_line_are_unsupported() {
+    let finish = finish(FinishResult::Opened, false);
+    let answer = Marker::Millwright(MillwrightMarker::new(no(ITEM), MillwrightAction::Answer));
+    for two in [[finish.clone(), answer.clone()], [answer.clone(), answer]] {
+        assert_eq!(
+            write("Text.", &two, item()),
+            Err(Outcome::Refused(Refusal::Unsupported))
+        );
     }
 }
 
@@ -372,7 +395,7 @@ fn a_park_question_and_a_handoff_are_the_bytes_1x_wrote() {
 }
 
 #[test]
-fn a_planning_question_and_a_last_attempt_are_the_bytes_1x_wrote() {
+fn a_last_attempt_is_where_1x_put_it_and_a_planning_question_too() {
     // From question.rs's test a_planning_question_holds_no_text_of_the_plan.
     let text = format!("Which?\n\n{ASK_PLAN}\n\n1. Update this issue\n2. End this planning session: the session ends, and nothing more is planned.\n\n{ONLY_ALLOWED}");
     let plan = format!("{text}\n\n<!-- tehas:question kind=plan issue=7 turn=2 -->");
@@ -399,4 +422,162 @@ fn each_markers_line_is_the_table_s_words() {
         let body = write("", std::slice::from_ref(&m), item()).unwrap();
         assert_eq!(Some(body), table::marker_text(&m), "{m:?}");
     }
+}
+
+// Each kind where 1.x put it, against the bytes 1.x wrote: core's own
+// writer where this crate can call it, else the 1.x source's text, named by
+// file and line.
+
+/// `text` and `markers` through the writer, on #7.
+fn written(text: &str, markers: &[Marker]) -> String {
+    write(text, markers, item()).unwrap_or_else(|o| panic!("{o:?}: {text:?} {markers:?}"))
+}
+
+#[test]
+fn a_question_is_where_core_s_q_render_puts_it() {
+    use tehas_core::question::{q_parts, q_render, Kind};
+    let out = serde_json::json!({"question": {"question": "Adopt?", "options": [{"label": "Adopt all"}]}});
+    let rendered = q_render(Kind::Plan, 7, 3, &out, "");
+    let (text, markers) = q_parts(&rendered, Kind::Plan, 7, 3, None).unwrap();
+    assert_eq!(written(&text, &markers), rendered);
+}
+
+#[test]
+fn a_park_is_where_core_s_q_render_and_the_park_s_comment_put_it() {
+    use tehas_core::question::{q_parts, q_render, Kind};
+    let Marker::Park(p) = park("develop", "child-timeout", true) else {
+        unreachable!()
+    };
+    let line = table::marker_text(&Marker::Park(p.clone())).unwrap();
+    let out = |park: &str| serde_json::json!({"text": "Tehas cycle stopped.", "question": null, "park": park, "retry": false});
+    let rendered = q_render(Kind::Park, 7, 1, &out(&line), "");
+    let without = q_render(Kind::Park, 7, 1, &out(""), "");
+    let (text, markers) = q_parts(&without, Kind::Park, 7, 1, Some(p.clone())).unwrap();
+    assert_eq!(written(&text, &markers), rendered);
+    // console/cycle/src/report.rs line 255 (Park::comment): the words, a
+    // blank line, the park's marker.
+    assert_eq!(
+        written("Tehas cycle stopped. To retry, apply `tehas:ready`.", &[Marker::Park(p)]),
+        format!("Tehas cycle stopped. To retry, apply `tehas:ready`.\n\n<!-- tehas:park issue=7 step=develop kind=child-timeout provider=1 sig={} -->", "a".repeat(64))
+    );
+}
+
+#[test]
+fn a_finish_is_the_first_line_as_1x_s_replies_have_it() {
+    // console/dispatch/src/finish.rs line 302 (opened).
+    let text = "Tehas took `tehas:finish` off this issue and opened a draft pull request from what its stopped cycle left, as alice asked: https://github.com/acme/widget/pull/9\n\nIts gate did not pass. The checks and the review decide on it as on any other pull request.";
+    assert_eq!(
+        written(text, &[finish(FinishResult::Opened, false)]),
+        format!("<!-- tehas:finish issue=7 result=opened -->\n{text}")
+    );
+    // console/dispatch/src/auto_finish.rs line 90 (opened by=poll).
+    let text = "The last cycle of this issue stopped because its push failed. Tehas finished it from the kept workspace on its own and opened a draft pull request: https://github.com/acme/widget/pull/90\n\nIts gate did not pass. The checks and the review decide on it as on any other pull request.";
+    assert_eq!(
+        written(text, &[finish(FinishResult::Opened, true)]),
+        format!("<!-- tehas:finish issue=7 result=opened by=poll -->\n{text}")
+    );
+    // finish.rs line 311 (refused) and auto_finish.rs line 100 (stopped)
+    // cite the millwright's marker in their text: no body carries a cited
+    // marker, so they are refused.
+    let refused = "Tehas took `tehas:finish` off this issue and finished nothing: no reason. To ask again, write a new comment that starts with `<!-- tehas:millwright issue=7 action=finish -->` and apply `tehas:finish`.";
+    assert_eq!(
+        write(refused, &[finish(FinishResult::Refused, false)], item()),
+        Err(Outcome::Refused(Refusal::Invalid))
+    );
+}
+
+#[test]
+fn a_millwright_marker_is_the_first_line_its_text_on_the_next() {
+    // The millwright runs outside tehas: 1.x writes none. Its readers take
+    // the marker as the first line (console/dispatch/src/questions.rs line
+    // 326, finish.rs line 166), and their cases write it so
+    // (questions.rs line 717: "{MARK}\nAdopt all, as in #12.").
+    for (action, word) in [
+        (MillwrightAction::Retry, "retry"),
+        (MillwrightAction::Change, "change"),
+        (MillwrightAction::Answer, "answer"),
+        (MillwrightAction::Finish, "finish"),
+        (MillwrightAction::Person, "person"),
+        (MillwrightAction::Ask, "ask"),
+    ] {
+        let m = Marker::Millwright(MillwrightMarker::new(no(7), action));
+        assert_eq!(
+            written("Adopt all, as in #12.", &[m]),
+            format!("<!-- tehas:millwright issue=7 action={word} -->\nAdopt all, as in #12.")
+        );
+    }
+}
+
+#[test]
+fn a_hold_is_where_1x_s_manual_writes_it() {
+    // 1.x writes no hold: a person does, as host/docs/operating.md line 249
+    // shows.
+    assert_eq!(
+        written(
+            "Blocked by #12 and #34.",
+            &[Marker::Blocked {
+                by: vec![ticket(12), ticket(34)]
+            }]
+        ),
+        "Blocked by #12 and #34.\n\n<!-- tehas:blocked by=12,34 -->"
+    );
+}
+
+#[test]
+fn a_hold_cleared_is_where_1x_s_poll_wrote_it() {
+    // console/dispatch/src/decide.rs line 958.
+    let text = "Every issue the `tehas:blocked` marker names is closed, so the hold has cleared. Tehas takes `tehas:blocked` off when the cycle starts. Leave it on until then: it is what asks for the start when `tehas:ready` is not on.";
+    assert_eq!(
+        written(text, &[Marker::HoldCleared]),
+        format!("{text}\n\n<!-- tehas:hold-cleared -->")
+    );
+}
+
+#[test]
+fn a_ticket_of_and_a_link_go_after_the_text_as_their_new_rows_say() {
+    // New in 2.0: no 1.x writer. The words are host/markers.tsv's rows,
+    // spelled here by hand.
+    assert_eq!(
+        written("For people.", &[Marker::TicketOf(ticket(42))]),
+        "For people.\n\n<!-- tehas:ticket-of ticket=42 -->"
+    );
+    assert_eq!(
+        written(
+            "Link these.",
+            &[Marker::Link {
+                blueprint: no(12),
+                remove: true
+            }]
+        ),
+        "Link these.\n\n<!-- tehas:link blueprint=12 remove=1 -->"
+    );
+}
+
+#[test]
+fn a_fence_closed_by_a_shorter_run_stays_open_and_is_refused() {
+    // CommonMark, as GitHub renders: a closing fence is at least as long
+    // as the one that opened it.
+    assert_eq!(
+        write("````\nx\n```", &[Marker::HoldCleared], item()),
+        Err(Outcome::Refused(Refusal::Invalid))
+    );
+    assert!(read("````\nx\n```\n<!-- tehas:hold-cleared -->", item())
+        .markers
+        .is_empty());
+    assert_eq!(
+        read("````\nx\n````\n<!-- tehas:hold-cleared -->", item()).markers,
+        [Marker::HoldCleared]
+    );
+}
+
+#[test]
+fn a_fence_closed_by_a_line_with_words_stays_open_and_is_refused() {
+    // A closing fence has nothing after its run.
+    assert_eq!(
+        write("```\nx\n```rust", &[Marker::HoldCleared], item()),
+        Err(Outcome::Refused(Refusal::Invalid))
+    );
+    assert!(read("```\nx\n```rust\n<!-- tehas:hold-cleared -->", item())
+        .markers
+        .is_empty());
 }

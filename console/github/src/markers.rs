@@ -28,9 +28,9 @@ use std::num::{NonZeroU32, NonZeroU64};
 
 use crate::table::{self, MarkerRow, Rule};
 use tehas_ports::{
-    BlueprintNo, FinishMarker, FinishResult, Got, KeyText, LastAttemptMarker, Marker, MarkerKind,
-    MarkerWord, MillwrightAction, MillwrightMarker, Outcome, ParkMarker, QuestionKind, Ref,
-    Refusal, Sha256, TicketKey,
+    BlueprintNo, FinishMarker, FinishResult, Got, KeyText, LastAttemptMarker, Marker, MarkerEdit,
+    MarkerKind, MarkerWord, MillwrightAction, MillwrightMarker, Outcome, ParkMarker, QuestionKind,
+    Ref, Refusal, Sha256, TicketKey,
 };
 
 /// A text as the ports carry it: without our markers, and the markers.
@@ -74,56 +74,259 @@ pub fn read(body: &str, item: Option<BlueprintNo>) -> Read {
     }
 }
 
+/// Whether 1.x put a marker of this kind on a comment's first line, its
+/// text after it on the next: the millwright's (its readers take it there,
+/// `console/dispatch/src/questions.rs` line 326 and
+/// `console/dispatch/src/finish.rs` line 166) and a finish's reply
+/// (`console/dispatch/src/finish.rs` line 302, `auto_finish.rs` line 90).
+/// Every other kind goes after the text, a blank line between, as
+/// `q_render`, the park's comment, the hold's clearing and the last
+/// attempt's note put them.
+fn leads(kind: &MarkerKind) -> bool {
+    matches!(kind, MarkerKind::Millwright | MarkerKind::Finish)
+}
+
 /// The text GitHub keeps for `text` and `markers`, written on the item
-/// `item`: the text, a blank line, then each marker alone on its line in
-/// the order given, a block as its open line, its note and its close line.
-/// That is where 1.x put them: `q_render` ends a question with the park's
-/// marker and its own (`console/core/src/question.rs` line 461), and the
-/// last attempt's note follows the body after a blank line
-/// (`console/cycle/src/last_attempt.rs` line 96). Each marker's words are
-/// its row's, as `table::marker_text` writes them. A text with no marker is
-/// kept as it is.
+/// `item`, each marker where 1.x put one of its kind ([`leads`]): a leading
+/// marker alone on the first line, the text on the next; the rest after
+/// the text and a blank line, each alone on its line in the order given, a
+/// block as its open line, its note and its close line. Each marker's
+/// words are its row's, as `table::marker_text` writes them. A text with
+/// no marker is kept as it is.
 ///
 /// `read(&write(text, markers, item)?, item)` answers that text and
-/// `markers`, or it is refused, so a write that uses it sends nothing:
-/// `Refused(Invalid)` for a marker that is not writable, for a text or a
-/// block's note that holds anything [`read`] reports as a marker (wrapped,
-/// badly wrapped or bare, of this item or another), and for a whole that
-/// would not read back as given: a text beside a marker that is not as
-/// [`kept`] gives it (the reader takes the blank lines at its start and the
-/// white space at its end, and a settle compares the sum of the text read
-/// back with the sum of the text sent), a fence the text leaves open, two
-/// blocks of one kind, a marker of another item, a note that holds its
-/// close line. Nothing is escaped or trimmed. `Refused(Unsupported)` for a project's own marker,
-/// whose words the table does not hold.
+/// `markers` in the order [`laid_out`] gives, or it is refused, so a write that uses it sends nothing.
+/// `Refused(Invalid)`: a marker that is not writable; a text or a block's
+/// note that holds our wrapper anywhere, in a quote or code too
+/// (`tehas_core::text::has_marker`, as 1.x's readers find one: no body
+/// carries a cited marker), or a bare marker; a text beside a marker that
+/// is not as [`kept`] gives it (the reader takes the blank lines at its
+/// start and the white space at its end, and a settle compares the sum of
+/// the text read back with the sum of the text sent); and a whole that
+/// would not read back as given: a fence the text leaves open, two blocks
+/// of one kind, a marker of another item, a note that holds its close
+/// line. Nothing is escaped or trimmed. `Refused(Unsupported)`: a
+/// project's own marker, whose words the table does not hold, and two
+/// markers that would each have to be the first line.
 pub fn write(text: &str, markers: &[Marker], item: Option<BlueprintNo>) -> Got<String> {
     let invalid = Outcome::Refused(Refusal::Invalid);
-    let marked_note = |m: &Marker| matches!(m, Marker::LastAttempt(l) if holds_marker(&l.note));
-    if holds_marker(text) || markers.iter().any(|m| !m.writable() || marked_note(m)) {
+    let marked_note = |m: &Marker| matches!(m, Marker::LastAttempt(l) if foreign_text(&l.note));
+    if foreign_text(text) || markers.iter().any(|m| !m.writable() || marked_note(m)) {
         return Err(invalid);
     }
     if markers.is_empty() {
         return Ok(text.to_string());
     }
-    let lines = markers
-        .iter()
-        .map(|m| table::marker_text(m).ok_or(Outcome::Refused(Refusal::Unsupported)))
-        .collect::<Got<Vec<String>>>()?;
     if kept(text) != text {
         return Err(invalid);
     }
-    let mut body =
-        String::with_capacity(text.len() + 2 + lines.iter().map(String::len).sum::<usize>());
-    if !text.is_empty() {
-        body.push_str(text);
-        body.push_str("\n\n");
-    }
-    body.push_str(&lines.join("\n"));
+    let body = compose(text, markers)?;
     let back = read(&body, item);
-    if back.text != text || back.markers != markers {
+    if back.text != text || back.markers != laid_out(markers) {
         return Err(invalid);
     }
     Ok(body)
+}
+
+/// Whether a text a caller gives may not go into a body: it holds our
+/// wrapper anywhere, as `tehas_core::text::has_marker` and 1.x's readers
+/// find it, or anything [`read`] reports as a marker.
+pub fn foreign_text(text: &str) -> bool {
+    tehas_core::text::has_marker(text) || holds_marker(text)
+}
+
+/// `markers` in the order [`write`] lays them out, and [`read`] gives them
+/// back: a leading one first, the rest in the order given.
+pub fn laid_out(markers: &[Marker]) -> Vec<Marker> {
+    let (mut lead, rest): (Vec<Marker>, Vec<Marker>) =
+        markers.iter().cloned().partition(|m| leads(&m.kind()));
+    lead.extend(rest);
+    lead
+}
+
+/// `text` and `markers` laid out as [`write`] says, unchecked.
+fn compose(text: &str, markers: &[Marker]) -> Got<String> {
+    let line = |m: &Marker| table::marker_text(m).ok_or(Outcome::Refused(Refusal::Unsupported));
+    let (lead, rest): (Vec<&Marker>, Vec<&Marker>) = markers.iter().partition(|m| leads(&m.kind()));
+    if lead.len() > 1 {
+        return Err(Outcome::Refused(Refusal::Unsupported));
+    }
+    let rest = rest.into_iter().map(line).collect::<Got<Vec<String>>>()?;
+    let mut body = String::new();
+    if let Some(m) = lead.first() {
+        body.push_str(&line(m)?);
+        if !text.is_empty() || !rest.is_empty() {
+            body.push('\n');
+        }
+    }
+    body.push_str(text);
+    if !rest.is_empty() {
+        if !text.is_empty() {
+            body.push_str("\n\n");
+        }
+        body.push_str(&rest.join("\n"));
+    }
+    Ok(body)
+}
+
+/// The body an edit leaves: `body` with its text replaced by `text` when
+/// given, and its markers changed as `edit` says, every other byte where it
+/// was. A marker set replaces the one of its kind and key in its place, or
+/// is added where [`write`] puts its kind; a last attempt's block set goes
+/// last, in place of an older one, as 1.x's `last_attempt::decide` put it.
+/// One named in `drop` is taken out: its own line, or its words alone where
+/// it stands among others, with one space beside it. A marker that does
+/// not read, and another item's marker, stay as they are. Adding a marker
+/// after the text takes the white space off the body's end, as 1.x did.
+/// None when the body would not change.
+///
+/// `Refused(Invalid)` for a marker set that is not writable, or a text
+/// beside a marker that is not as [`kept`] gives it. `Refused(Unsupported)`
+/// when the change cannot be made with every other byte kept: a marker to
+/// change whose words stand in the body more than once or not as written,
+/// a text to replace that does not stand in the body in one piece, or a
+/// result that does not read back as asked.
+pub fn edit(
+    body: &str,
+    text: Option<&str>,
+    edit: &MarkerEdit,
+    item: Option<BlueprintNo>,
+) -> Got<Option<String>> {
+    let invalid = Outcome::Refused(Refusal::Invalid);
+    let unsupported = Outcome::Refused(Refusal::Unsupported);
+    if !edit.set.iter().all(Marker::writable) {
+        return Err(invalid);
+    }
+    let before = read(body, item);
+    let reads = |m: &Marker| {
+        !matches!(
+            m,
+            Marker::Unreadable { .. } | Marker::Bare { .. } | Marker::Unknown
+        )
+    };
+    let mut out = body.to_string();
+    let mut want = before.markers.clone();
+    // The text first: the one piece of the body that is the text as read.
+    if let Some(t) = text {
+        if before.text.is_empty() {
+            if !before.markers.iter().all(reads) {
+                return Err(unsupported);
+            }
+            out = compose(t, &before.markers)?;
+        } else {
+            let at = once(&out, &before.text).ok_or(unsupported.clone())?;
+            out.replace_range(at..at + before.text.len(), t);
+        }
+    }
+    for (kind, key) in &edit.drop {
+        let gone: Vec<Marker> = want
+            .iter()
+            .filter(|m| reads(m) && m.kind() == *kind && m.key() == *key)
+            .cloned()
+            .collect();
+        for m in gone {
+            take_out(&mut out, &m)?;
+            want.retain(|w| *w != m);
+        }
+    }
+    for set in &edit.set {
+        let old = want
+            .iter()
+            .position(|m| reads(m) && m.kind() == set.kind() && m.key() == set.key());
+        let words = table::marker_text(set).ok_or(unsupported.clone())?;
+        match old {
+            Some(at) if set.kind() != MarkerKind::LastAttempt => {
+                let from = table::marker_text(&want[at]).ok_or(unsupported.clone())?;
+                let i = once(&out, &from).ok_or(unsupported.clone())?;
+                out.replace_range(i..i + from.len(), &words);
+                want[at] = set.clone();
+            }
+            old => {
+                if let Some(at) = old {
+                    take_out(&mut out, &want[at].clone())?;
+                    want.remove(at);
+                }
+                if leads(&set.kind()) {
+                    if want.iter().any(|m| leads(&m.kind())) {
+                        return Err(unsupported);
+                    }
+                    out = format!("{words}\n{out}");
+                    want.insert(0, set.clone());
+                } else {
+                    let end = out.trim_end().len();
+                    out.truncate(end);
+                    let last = out.rsplit('\n').next().unwrap_or_default();
+                    let tail = !last.is_empty() && read(last, item).text.trim().is_empty()
+                        || table::marker_rows()
+                            .iter()
+                            .any(|r| r.close.as_deref() == Some(last.trim_end_matches('\r')));
+                    out.push_str(match (out.is_empty(), tail) {
+                        (true, _) => "",
+                        (false, true) => "\n",
+                        (false, false) => "\n\n",
+                    });
+                    out.push_str(&words);
+                    want.push(set.clone());
+                }
+            }
+        }
+    }
+    if out == body {
+        return Ok(None);
+    }
+    let after = read(&out, item);
+    let wanted = match text {
+        Some(t) if !after.markers.is_empty() && kept(t) != t => return Err(invalid),
+        Some(t) => t.to_string(),
+        None => before.text.clone(),
+    };
+    let one = |s: &str| {
+        kept(s)
+            .split(' ')
+            .filter(|w| !w.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    if after.markers != want || one(&after.text) != one(&wanted) {
+        return Err(unsupported);
+    }
+    Ok(Some(out))
+}
+
+/// Where `what` stands in `body`, when it stands there exactly once.
+fn once(body: &str, what: &str) -> Option<usize> {
+    let mut at = body.match_indices(what).map(|(i, _)| i);
+    let first = at.next()?;
+    at.next().is_none().then_some(first)
+}
+
+/// Take marker `m`'s words out of `body`: its line with its line end when
+/// it stands alone on it, else its words and one space beside them.
+fn take_out(body: &mut String, m: &Marker) -> Got<()> {
+    let unsupported = Outcome::Refused(Refusal::Unsupported);
+    let words = table::marker_text(m).ok_or(unsupported.clone())?;
+    let s = once(body, &words).ok_or(unsupported)?;
+    let e = s + words.len();
+    let start = body[..s].rfind('\n').map_or(0, |i| i + 1);
+    let end = body[e..].find('\n').map_or(body.len(), |i| e + i);
+    let alone = body[start..s].trim().is_empty() && body[e..end].trim().is_empty();
+    if !alone {
+        let (s, e) = match (body[..s].ends_with(' '), body[e..].starts_with(' ')) {
+            (true, true) => (s, e + 1),
+            _ => (s, e),
+        };
+        body.replace_range(s..e, "");
+    } else if end < body.len() {
+        body.replace_range(start..end + 1, "");
+    } else {
+        // The last line: its line end before it goes with it.
+        let from = body[..start]
+            .strip_suffix('\n')
+            .map(|b| b.strip_suffix('\r').unwrap_or(b).len())
+            .unwrap_or(start);
+        body.truncate(from);
+    }
+    Ok(())
 }
 
 /// Whether [`read`] finds any marker in `text`, of any item.
@@ -176,26 +379,41 @@ fn lines(body: &str) -> Vec<Line> {
 /// with its fences, and the code spans of a line.
 fn dead(body: &str, lines: &[Line]) -> Vec<(usize, usize)> {
     let mut out = Vec::new();
-    let mut fence: Option<&str> = None;
+    let mut fence: Option<(u8, usize)> = None;
     for l in lines {
         let text = body[l.start..l.end].trim_start();
-        let opens = ["```", "~~~"].into_iter().find(|f| text.starts_with(f));
+        let run = |c: u8| text.bytes().take_while(|b| *b == c).count();
         match fence {
-            Some(f) => {
+            Some((c, n)) => {
                 out.push((l.start, l.next));
-                if text.starts_with(f) {
+                if run(c) >= n && text[run(c)..].trim().is_empty() {
                     fence = None;
                 }
             }
-            None if opens.is_some() => {
-                out.push((l.start, l.next));
-                fence = opens;
-            }
-            None if text.starts_with('>') => out.push((l.start, l.next)),
-            None => spans(&body[l.start..l.end], l.start, &mut out),
+            None => match opens(text) {
+                Some(open) => {
+                    out.push((l.start, l.next));
+                    fence = Some(open);
+                }
+                None if text.starts_with('>') => out.push((l.start, l.next)),
+                None => spans(&body[l.start..l.end], l.start, &mut out),
+            },
         }
     }
     out
+}
+
+/// The fence a line opens, as CommonMark and GitHub read it: three or more
+/// backticks or tildes, and a backtick fence's words after it hold no
+/// backtick. It closes at a line of the same character, at least as many,
+/// with nothing after them.
+fn opens(text: &str) -> Option<(u8, usize)> {
+    let c = *text
+        .as_bytes()
+        .first()
+        .filter(|c| **c == b'`' || **c == b'~')?;
+    let n = text.bytes().take_while(|b| *b == c).count();
+    (n >= 3 && (c == b'~' || !text[n..].contains('`'))).then_some((c, n))
 }
 
 /// The code spans of one line: a run of backticks to the next run of the

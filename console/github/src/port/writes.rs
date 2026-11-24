@@ -9,14 +9,14 @@
 //! It reads the issue first, so a pull request's number is `NotFound` with
 //! nothing sent.
 
-use super::blueprint_writes::{ends_with_folded, read_comment, unsent};
+use super::blueprint_writes::{ends_with_folded, read_comment, revision, text_revision, unsent};
 use super::{label_of, number, unsupported};
 use crate::{markers, table, GitHub};
 use serde_json::Value;
 use tehas_ports::{
     Applied, At, CloseReason, CommentId, Did, Got, Item, Kind, Lost, Mark, MarkSpec, Marker,
-    MarkerEdit, MarkerKind, NewTicket, Outcome, Posted, Priority, Refusal, Revision, Sent, Step,
-    StepPart, TargetEdit, TargetId, TicketKey, TicketWrites, Unprepared, Unread, WebLink,
+    MarkerEdit, NewTicket, Outcome, Posted, Priority, Refusal, Revision, Sent, Step, StepPart,
+    TargetEdit, TargetId, TicketKey, TicketWrites, Unprepared, Unread, WebLink,
 };
 
 impl TicketWrites for GitHub {
@@ -114,25 +114,22 @@ impl TicketWrites for GitHub {
     }
 
     /// The issue read, its revision compared with `since`, then one
-    /// `PATCH` of what is given. The revision is the read's own
-    /// (`TicketDigest.revision`): the time GitHub last saw the issue change,
-    /// from the same REST answer, so a revision a read gave is the one an
-    /// edit is held to. GitHub has no conditional update of an issue, so
-    /// the moment between the read and the write stays open: another
-    /// account's edit in it is overwritten.
+    /// `PATCH` of what changes. The revision is the sum of the issue's title
+    /// and body as GitHub holds them, markers in (`blueprint_writes::revision`),
+    /// the one rule of both ports: a label or a comment moves nothing, a
+    /// change of the title or of any byte of the body does. GitHub has no
+    /// conditional update of an issue, so the moment between the read and
+    /// the write stays open: another account's edit in it is overwritten.
     ///
-    /// The body is the text given, or the text as it reads now, with the
-    /// markers `markers` leaves, as [`markers::write`] makes it: every
-    /// marker it does not name is kept, in its order, after the text; a
-    /// last attempt's block set goes last, in place of an older one. A
-    /// body with a marker that does not read (unreadable, bare or of no
-    /// kind) is `Refused(Unsupported)` when the body would be written: the
-    /// writer writes no such marker, and dropping it is no one's ask. A
-    /// title alone leaves the body as it is.
+    /// The body changes as [`markers::edit`] says, every other byte where it
+    /// was. A text or title given that holds our wrapper anywhere, or a bare
+    /// marker, is `Refused(Invalid)` before any request. A title equal to
+    /// the one there, and a body that would not change, are not sent; with
+    /// nothing to send the answer is the issue's link.
     ///
     /// A `PATCH` that may have landed is settled by one read, never sent
-    /// again: the title and body sent there is done, the issue still at
-    /// `since` was not sent, else it stays `sent: Maybe`.
+    /// again: at the revision of what was sent it is done, still at `since`
+    /// it was not sent, else it stays `sent: Maybe`.
     fn edit(
         &mut self,
         key: &TicketKey,
@@ -143,31 +140,22 @@ impl TicketWrites for GitHub {
     ) -> Got<WebLink> {
         let issue = number(key)?;
         markers.check()?;
-        if title.into_iter().chain(text).any(markers::holds_marker) {
+        if title.into_iter().chain(text).any(markers::foreign_text) {
             return Err(Outcome::Refused(Refusal::Invalid));
         }
         let path = format!("{}/issues/{issue}", self.issues()?);
         let now = read_first(self, issue)?;
-        if now.revision()? != *since {
-            return Err(Outcome::Conflict(Lost::Changed));
+        if now.revision.as_ref() != Some(since) {
+            return match now.revision {
+                Some(_) => Err(Outcome::Conflict(Lost::Changed)),
+                None => Err(Outcome::Unread(Unread::Malformed)),
+            };
         }
-        let body = if text.is_some() || *markers != MarkerEdit::default() {
-            let read = markers::read(&now.body, key.same_item());
-            if !read.markers.iter().all(Marker::writable) {
-                return unsupported();
-            }
-            let mut kept = read.markers;
-            edit_markers(&mut kept, markers);
-            // The text as it reads now is the issue's, trimmed as 1.x's
-            // last attempt trimmed it; a text given is the caller's, whole.
-            Some(markers::write(
-                text.unwrap_or(markers::kept(&read.text)),
-                &kept,
-                key.same_item(),
-            )?)
-        } else {
-            None
+        let body = match text.is_some() || *markers != MarkerEdit::default() {
+            true => markers::edit(&now.body, text, markers, key.same_item())?,
+            false => None,
         };
+        let title = title.filter(|t| *t != now.title);
         let mut fields = serde_json::Map::new();
         if let Some(t) = title {
             fields.insert("title".into(), t.into());
@@ -195,11 +183,13 @@ impl TicketWrites for GitHub {
         else {
             return Err(failed);
         };
-        let title = title.unwrap_or(&now.title);
-        let body = body.as_deref().unwrap_or(&now.body);
+        let sent = text_revision(
+            title.unwrap_or(&now.title),
+            body.as_deref().unwrap_or(&now.body),
+        );
         match read_first(self, issue) {
-            Ok(again) if again.title == title && again.body == body => Ok(again.link),
-            Ok(again) if again.revision().as_ref() == Ok(since) => Err(Outcome::Unavailable {
+            Ok(again) if again.revision.is_some() && again.revision == sent => Ok(again.link),
+            Ok(again) if again.revision.as_ref() == Some(since) => Err(Outcome::Unavailable {
                 why,
                 sent: Sent::No,
             }),
@@ -270,45 +260,8 @@ struct Issue {
     title: String,
     body: String,
     link: WebLink,
-    updated: Option<String>,
-}
-
-impl Issue {
-    /// The revision a read of the issue gives, `TicketDigest.revision`:
-    /// the time GitHub last saw it change. `Unread(Malformed)` without it.
-    fn revision(&self) -> Got<Revision> {
-        self.updated
-            .as_deref()
-            .map(Revision::new)
-            .ok_or(Outcome::Unread(Unread::Malformed))
-    }
-}
-
-/// Apply a `MarkerEdit` as the ports' fake does: a marker set replaces one
-/// of its kind and key, or is added at the end; one named in `drop` is
-/// taken off; the rest keep their order. Every marker here reads. A last
-/// attempt's block set goes last, in place of an older one, as 1.x's
-/// `last_attempt::decide` put the note at the end of the body.
-fn edit_markers(markers: &mut Vec<Marker>, edit: &MarkerEdit) {
-    markers.retain(|m| {
-        !edit
-            .drop
-            .iter()
-            .any(|(k, key)| m.kind() == *k && m.key() == *key)
-    });
-    for set in &edit.set {
-        let at = markers
-            .iter()
-            .position(|m| m.kind() == set.kind() && m.key() == set.key());
-        match at {
-            Some(at) if set.kind() != MarkerKind::LastAttempt => markers[at] = set.clone(),
-            Some(at) => {
-                markers.remove(at);
-                markers.push(set.clone());
-            }
-            None => markers.push(set.clone()),
-        }
-    }
+    /// Its revision, None for an answer with no title.
+    revision: Option<Revision>,
 }
 
 /// The issue in gh's answer. An answer that does not parse or lacks a
@@ -344,6 +297,6 @@ fn issue_of(out: &str, repo: &str) -> Got<Issue> {
         title: text("title").unwrap_or_default(),
         body,
         link: WebLink::new(url).map_err(|_| malformed)?,
-        updated: text("updated_at"),
+        revision: revision(out),
     })
 }
