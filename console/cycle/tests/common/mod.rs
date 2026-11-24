@@ -302,6 +302,11 @@ pub struct World {
     env: Vec<(String, String)>,
     /// What the last in-process report logged.
     logged: std::cell::RefCell<String>,
+    /// The comments the in-process report posts keep the fake's own ids,
+    /// which are no numbers.
+    unnumbered: std::cell::Cell<bool>,
+    /// Our markers beside #7's text on the in-process site.
+    ticket_markers: std::cell::RefCell<Vec<tehas_ports::Marker>>,
 }
 
 #[allow(dead_code)] // each test file uses a part of this module
@@ -324,6 +329,8 @@ impl World {
             fx,
             env: vec![],
             logged: std::cell::RefCell::new(String::new()),
+            unnumbered: std::cell::Cell::new(false),
+            ticket_markers: std::cell::RefCell::new(vec![]),
         };
         w.stub("gh", GH);
         w.stub("fake-work", WORK);
@@ -640,6 +647,24 @@ impl World {
         self.logged.borrow().clone()
     }
 
+    /// The comments the in-process report posts keep the fake's ids, which
+    /// GitHub's never are: no number from 4002 on.
+    pub fn unnumbered(&self) {
+        self.unnumbered.set(true);
+    }
+
+    /// One of our markers beside #7's text on the in-process site, as the
+    /// adapter reads it out of the issue's body.
+    pub fn ticket_marker(&self, m: tehas_ports::Marker) {
+        self.ticket_markers.borrow_mut().push(m);
+    }
+
+    /// #7's report run in process on a site of its own, `site_of` this
+    /// world, as `said` says its writes. Run again, the same store goes on.
+    pub fn report_said(&self) -> String {
+        said(&self.report_writes(&site_of(self)))
+    }
+
     pub fn report_writes(&self, site: &tehas_ports::fake::World) -> Vec<tehas_ports::Write> {
         let fake = tehas_ports::fake::FakeSite::new(site);
         self.report_through(site, &fake).applied
@@ -714,6 +739,11 @@ impl World {
         let fake = through;
         let (by, c) = (Actor::Ours(Scope::Full), Caller::new("report"));
         let sent = std::rc::Rc::new(std::cell::RefCell::new(vec![]));
+        let ids = std::rc::Rc::new(std::cell::RefCell::new(Ids {
+            numbered: !self.unnumbered.get(),
+            next: 4002,
+            given: vec![],
+        }));
         let handles = tehas_cycle::apply::Handles {
             writes: Box::new(Counted {
                 inner: Box::new(tehas_ports::Writer {
@@ -722,9 +752,13 @@ impl World {
                     code_host: fake.code_host_writes(&by, c).unwrap(),
                 }),
                 sent: sent.clone(),
+                ids: ids.clone(),
             }),
             tickets: fake.tickets(&by, c).unwrap(),
-            blueprints: fake.blueprints(&by, c).unwrap(),
+            blueprints: Box::new(Numbered {
+                inner: fake.blueprints(&by, c).unwrap(),
+                ids,
+            }),
             code_host: fake.code_host(&by, c).unwrap(),
         };
         let how = tehas_cycle::apply::How {
@@ -1057,10 +1091,37 @@ pub struct Tried {
     pub sent: Vec<tehas_ports::Write>,
 }
 
-/// A writer that keeps each write it is given before it sends it on.
+/// The numbers the in-process report's comments get, as GitHub's ids are
+/// numbers: each id of the fake gets the next one from 4002 the first time
+/// it is seen, in a receipt or in a read, and keeps it.
+struct Ids {
+    numbered: bool,
+    next: u64,
+    given: Vec<(tehas_ports::CommentId, tehas_ports::CommentId)>,
+}
+
+impl Ids {
+    fn number(&mut self, id: &mut tehas_ports::CommentId) {
+        if !self.numbered {
+            return;
+        }
+        if let Some((_, n)) = self.given.iter().find(|(f, _)| f == id) {
+            *id = n.clone();
+            return;
+        }
+        let n = tehas_ports::CommentId::new(self.next.to_string());
+        self.next += 1;
+        self.given.push((id.clone(), n.clone()));
+        *id = n;
+    }
+}
+
+/// A writer that keeps each write it is given before it sends it on, and
+/// numbers the comments it posts.
 struct Counted {
     inner: Box<dyn tehas_ports::Writes>,
     sent: std::rc::Rc<std::cell::RefCell<Vec<tehas_ports::Write>>>,
+    ids: std::rc::Rc<std::cell::RefCell<Ids>>,
 }
 
 impl tehas_ports::Writes for Counted {
@@ -1070,10 +1131,135 @@ impl tehas_ports::Writes for Counted {
         files: &dyn tehas_ports::Blobs,
     ) -> tehas_ports::Got<tehas_ports::Receipt> {
         self.sent.borrow_mut().push(w.clone());
-        self.inner.send(w, files)
+        let mut got = self.inner.send(w, files);
+        if let Ok(tehas_ports::Receipt::Comment(p)) = &mut got {
+            self.ids.borrow_mut().number(&mut p.id);
+        }
+        got
     }
     fn read_only(&self) -> bool {
         self.inner.read_only()
+    }
+}
+
+/// The fake's blueprint reads, the comments they give numbered as the
+/// writer numbers them: a comment read back has the id it was posted with.
+struct Numbered {
+    inner: Box<dyn tehas_ports::Blueprints>,
+    ids: std::rc::Rc<std::cell::RefCell<Ids>>,
+}
+
+impl Numbered {
+    fn comment(&self, mut c: tehas_ports::Comment) -> tehas_ports::Comment {
+        self.ids.borrow_mut().number(&mut c.id);
+        c
+    }
+}
+
+impl tehas_ports::Cites for Numbered {
+    fn cite(&self, what: &tehas_ports::Cite) -> String {
+        self.inner.cite(what)
+    }
+    fn link(&self, what: &tehas_ports::Cite) -> Option<tehas_ports::WebLink> {
+        self.inner.link(what)
+    }
+}
+
+impl tehas_ports::Reports for Numbered {
+    fn take_reports(&mut self) -> Vec<tehas_ports::Report> {
+        self.inner.take_reports()
+    }
+}
+
+impl tehas_ports::Blueprints for Numbered {
+    fn blueprint(
+        &mut self,
+        no: tehas_ports::BlueprintNo,
+        depth: tehas_ports::Depth,
+    ) -> tehas_ports::Got<tehas_ports::Blueprint> {
+        self.inner.blueprint(no, depth)
+    }
+    fn several(
+        &mut self,
+        nos: &[tehas_ports::BlueprintNo],
+        depth: tehas_ports::Depth,
+    ) -> Vec<(
+        tehas_ports::BlueprintNo,
+        tehas_ports::Got<tehas_ports::Blueprint>,
+    )> {
+        self.inner.several(nos, depth)
+    }
+    fn comments(
+        &mut self,
+        no: tehas_ports::BlueprintNo,
+        bound: tehas_ports::Bound,
+    ) -> tehas_ports::Got<tehas_ports::Whole<tehas_ports::Comment>> {
+        let all = self.inner.comments(no, bound)?.into_items();
+        Ok(tehas_ports::Whole::new(
+            all.into_iter().map(|c| self.comment(c)).collect(),
+        ))
+    }
+    fn comments_by_id(
+        &mut self,
+        ids: &[tehas_ports::CommentId],
+    ) -> Vec<(
+        tehas_ports::CommentId,
+        tehas_ports::Got<tehas_ports::Comment>,
+    )> {
+        self.inner.comments_by_id(ids)
+    }
+    fn body_edits(
+        &mut self,
+        no: tehas_ports::BlueprintNo,
+        bound: tehas_ports::Bound,
+    ) -> tehas_ports::Got<tehas_ports::Whole<tehas_ports::Edit>> {
+        self.inner.body_edits(no, bound)
+    }
+    fn comment_edits(
+        &mut self,
+        id: &tehas_ports::CommentId,
+        bound: tehas_ports::Bound,
+    ) -> tehas_ports::Got<tehas_ports::Whole<tehas_ports::Edit>> {
+        self.inner.comment_edits(id, bound)
+    }
+    fn search(
+        &mut self,
+        words: &str,
+        within: tehas_ports::Within,
+        open: Option<bool>,
+        first: std::num::NonZeroU32,
+    ) -> tehas_ports::Got<tehas_ports::Took<tehas_ports::BlueprintHit>> {
+        self.inner.search(words, within, open, first)
+    }
+    fn attachments(
+        &mut self,
+        no: tehas_ports::BlueprintNo,
+    ) -> tehas_ports::Got<tehas_ports::Whole<tehas_ports::Attachment>> {
+        self.inner.attachments(no)
+    }
+    fn attachments_in(&self, text: &str) -> Vec<tehas_ports::Attachment> {
+        self.inner.attachments_in(text)
+    }
+    fn fetch(
+        &mut self,
+        a: &tehas_ports::AttachmentId,
+        limit: u64,
+        into: &mut dyn std::io::Write,
+    ) -> tehas_ports::Did {
+        self.inner.fetch(a, limit, into)
+    }
+    fn changed(
+        &mut self,
+        since: Option<&tehas_ports::ChangeToken>,
+    ) -> tehas_ports::Got<(bool, tehas_ports::ChangeToken)> {
+        self.inner.changed(since)
+    }
+    fn delta(
+        &mut self,
+        from: Option<&tehas_ports::Cursor>,
+        bound: tehas_ports::Bound,
+    ) -> tehas_ports::Got<tehas_ports::BlueprintDelta> {
+        self.inner.delta(from, bound)
     }
 }
 
@@ -1087,7 +1273,7 @@ pub fn twin(name: &str, setup: impl Fn(&mut World)) -> (World, Run, String) {
     let r = w.run7();
     let mut twin = World::new(&format!("{name}-writes"));
     setup(&mut twin);
-    let said = said(&twin.report_writes(&site()));
+    let said = twin.report_said();
     (w, r, said)
 }
 
@@ -1102,7 +1288,7 @@ pub fn through<S: tehas_ports::Site>(
 ) -> (World, String, String) {
     let mut w = World::new(name);
     setup(&mut w);
-    let world = site();
+    let world = site_of(&w);
     let t = w.report_through(&world, &wrap(tehas_ports::fake::FakeSite::new(&world)));
     (w, said(&t.applied), said(&t.sent))
 }
@@ -1124,8 +1310,67 @@ pub fn site() -> tehas_ports::fake::World {
         .change(347, "feature/issue-7-b", |c| c)
 }
 
+/// `site`, with #7's text the body of the case's `issue-7.json` and the
+/// markers `World::ticket_marker` put beside it: the issue as the adapter
+/// reads it.
+#[allow(dead_code)] // each test file uses a part of this module
+pub fn site_of(w: &World) -> tehas_ports::fake::World {
+    use tehas_ports::{Mark, State};
+    let body = fs::read_to_string(w.fx.join("issue-7.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+        .and_then(|v| v["body"].as_str().map(str::to_string));
+    let markers = w.ticket_markers.borrow().clone();
+    let now = tehas_ports::At::new(tehas_core::time::now());
+    tehas_ports::fake::World::new()
+        .on_clock(tehas_ports::fake::Clock::new(now))
+        .ticket(7, |t| {
+            let mut t = t
+                .title("Install.sh checks the instance env")
+                .mark(Mark::State(State::Running));
+            if let Some(b) = &body {
+                t = t.text(b);
+            }
+            markers.into_iter().fold(t, |t, m| t.marker(m))
+        })
+        .change(9, "feature/issue-7-a", |c| c)
+        .change(347, "feature/issue-7-b", |c| c)
+}
+
+/// A marker with its fields, as `said` says it.
+#[allow(dead_code)] // each test file uses a part of this module
+pub fn marker(m: &tehas_ports::Marker) -> String {
+    use tehas_ports::Marker;
+    match m {
+        Marker::Park(p) => format!(
+            "Park(blueprint={} step={} kind={} provider={} sig={})",
+            p.blueprint.get(),
+            p.step.as_str(),
+            p.kind.as_str(),
+            p.provider,
+            p.sig.as_str()
+        ),
+        Marker::Question {
+            kind,
+            blueprint,
+            turn,
+        } => format!(
+            "Question(kind={kind:?} blueprint={} turn={turn})",
+            blueprint.get()
+        ),
+        Marker::LastAttempt(l) => format!(
+            "LastAttempt(base={} note={})",
+            l.base.as_str(),
+            l.note.lines().next().unwrap_or("")
+        ),
+        other => format!("{other:?}"),
+    }
+}
+
 /// The report's writes as lines a test reads: each mark taken off or put on,
-/// and each note or comment with its text, in their order.
+/// each note or comment with its text, and the line `markers: ` with our
+/// markers beside a note, in their order. An edit of the issue says the
+/// markers it sets.
 #[allow(dead_code)] // each test file uses a part of this module
 pub fn said(writes: &[tehas_ports::Write]) -> String {
     use tehas_ports::{Body, Write};
@@ -1133,12 +1378,31 @@ pub fn said(writes: &[tehas_ports::Write]) -> String {
         Body::Text(t) => t.clone(),
         Body::Summed(_) => String::new(),
     };
+    let all = |ms: &[tehas_ports::Marker]| ms.iter().map(marker).collect::<Vec<_>>().join(", ");
     writes
         .iter()
         .map(|w| match w {
             Write::Unmark { mark, .. } => format!("unmark {mark:?}"),
             Write::Mark { mark, .. } => format!("mark {mark:?}"),
-            Write::TicketNote { body, .. } => format!("note: {}", text(body)),
+            Write::TicketNote { body, markers, .. } if markers.is_empty() => {
+                format!("note: {}", text(body))
+            }
+            Write::TicketNote { body, markers, .. } => {
+                format!("note: {}\nmarkers: {}", text(body), all(markers))
+            }
+            Write::EditTicket {
+                text: t, markers, ..
+            } => {
+                let mut said = String::new();
+                if let Some(t) = t {
+                    said.push_str(&format!("edit: text: {}\n", text(t)));
+                }
+                said.push_str(&format!("edit: set {}", all(&markers.set)));
+                if !markers.drop.is_empty() {
+                    said.push_str(&format!(" drop {:?}", markers.drop));
+                }
+                said
+            }
             Write::CommentChange { no, body, .. } => {
                 format!("change {} comment: {}", no.get(), text(body))
             }
