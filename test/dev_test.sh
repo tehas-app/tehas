@@ -763,18 +763,18 @@ lock=$T/home/tehas/state/dev/erin.lock
 # The session's container says whether the lock is held while it runs.
 t_stub docker "$docker_stub
 flock -n '$lock' true || echo held >\"\$T/calls/docker.lock\""
-# What the session meets is a lock that comes free while it waits.
+# What the session meets is a lock that comes free while it waits: freed once
+# the command says it is waiting, not after a guess at how long that takes.
 t_hold "$lock"
-("$(command -pv sleep)" 2; kill "$t_holder") &
+(n=0
+  until grep -qs "waiting" "$T/dev.err" || [ $((n += 1)) -gt 1200 ]; do "$(command -pv sleep)" 0.05; done
+  kill "$t_holder") &
 freed=$!
-start=$(date +%s)
 T_ENV=(GH_TOKEN=test-token "$root")
-t_run "$dev_cmd erin"
+t_run "$dev_cmd erin 2>\"\$T/dev.err\""
 wait "$freed"
 t_eq "$t_rc" 0
-t_contains "$t_out" "is held"
-# At least: a loaded host adds to the wait, and whole seconds round it.
-t_eq "$(($(date +%s) - start >= 1))" 1
+t_contains "$(cat "$T/dev.err")" "is held"
 t_eq "$(containers)" 1
 t_contains "$(session_args)" "$devs/erin.state/target:$target_container"
 t_eq "$(find "$devs/erin.state/target" -mindepth 1 | wc -l)" 0

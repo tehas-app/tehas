@@ -68,7 +68,7 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tehas_core::call::gh_why;
-use tehas_core::forge::GhRunner;
+use tehas_core::forge::{GhRunner, GH_NO_RETRY};
 use tehas_core::text::has_marker;
 
 /// The most a body file, or the arguments, may hold.
@@ -683,10 +683,13 @@ fn run_gh(
     argv: &[String],
     input: Option<&str>,
 ) -> (String, String, i32) {
-    // The host's shim takes TEHAS_GH_TOKEN over asking for one of its own.
+    // The host's shim takes TEHAS_GH_TOKEN over asking for one of its own,
+    // and sends a rate-limited write once: the relay's bound is not spent in
+    // the shim's minute of waiting (#2946).
     let child = bounded(wait, gh, argv)
         .env("GH_TOKEN", token)
         .env("TEHAS_GH_TOKEN", token)
+        .env(GH_NO_RETRY.0, GH_NO_RETRY.1)
         .env("GH_PROMPT_DISABLED", "1")
         .current_dir("/")
         .stdin(if input.is_some() {
@@ -1293,6 +1296,16 @@ mod tests {
 
     fn read(p: PathBuf) -> String {
         fs::read_to_string(p).unwrap_or_default()
+    }
+
+    #[test]
+    fn the_relays_gh_turns_the_shims_write_retry_off() {
+        let d = TestDir::new("relay-no-retry");
+        let gh = d.join("shim");
+        tehas_core::testing::write_exe(&gh, "#!/bin/sh\necho \"${TEHAS_GH_RETRY-unset}\"\n")
+            .unwrap();
+        let (out, _, rc) = run_gh(&gh, "ghs_full", 10, &[], Some("body"));
+        assert_eq!((out.as_str(), rc), ("0\n", 0));
     }
 
     #[test]
