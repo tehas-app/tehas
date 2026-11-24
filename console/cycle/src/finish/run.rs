@@ -26,8 +26,8 @@
 //! never written, so the branch the cycle left stands where the cycle left it.
 
 use super::cmd::{asked, dir_exists, Done, Host, Scratch};
-use super::Ports;
 use super::plan::{body, branch_shaped, title, Finished, Plan};
+use super::Ports;
 use std::path::{Path, PathBuf};
 use tehas_core::accounts::folded;
 use tehas_core::issue_pull::names_change;
@@ -118,7 +118,6 @@ fn git(h: &mut dyn Host, repo: &Path, args: &[&str]) -> Done {
     h.run("git", &asked(all), repo)
 }
 
-
 /// The run: everything the rules of this file decide, and the scratch it takes
 /// back with it.
 pub fn run(plan: &Plan, h: &mut dyn Host, ports: &mut Ports) -> Finished {
@@ -134,7 +133,7 @@ pub fn run(plan: &Plan, h: &mut dyn Host, ports: &mut Ports) -> Finished {
         Ok(d) => d,
         Err(e) => return Finished::refused(e),
     };
-    let outcome = in_scratch(plan, h, ports, &workspace, &dir, &scratch);
+    let outcome = in_scratch(plan, h, ports, &workspace, &dir);
     // Whatever the run did, its repository goes with it: a tree the rebase left
     // mid flight is the run's own and belongs to no one else.
     h.clean(&dir);
@@ -158,7 +157,6 @@ fn in_scratch(
     ports: &mut Ports,
     workspace: &Path,
     dir: &Path,
-    scratch: &Scratch,
 ) -> Result<String, Why> {
     let repo = taken(h, workspace, dir)?;
     let branch = issue_branch_of(
@@ -179,7 +177,7 @@ fn in_scratch(
     })?;
     let pushed = plan.branch();
     preflight(plan, h, ports, workspace, &repo, &branch, &pushed)?;
-    rebase_push_open(plan, h, ports, &repo, &branch, &pushed, scratch)
+    rebase_push_open(plan, h, ports, &repo, &branch, &pushed)
 }
 
 /// The run's repository, `<dir>/repo`, holding the workspace's branches and
@@ -284,8 +282,7 @@ fn preflight(
         ));
     }
     let remote = remote_of(plan, ports)?;
-    git(h, repo, &["remote", "add", "origin", &remote])
-        .let_say("the remote could not be named")?;
+    git(h, repo, &["remote", "add", "origin", &remote]).let_say("the remote could not be named")?;
     // The fetch is before the count: the rebase decides against what the remote
     // holds now.
     let fetched = git(h, repo, &["fetch", "--quiet", "origin", &plan.default]);
@@ -408,9 +405,7 @@ fn open_pull(plan: &Plan, ports: &mut Ports, pushed: &str) -> Result<Option<Stri
         own.iter()
             .find(|c| names_change(c.head.as_str(), c.body.as_deref(), plan.issue))
     };
-    Ok(named
-        .or_else(of_issue)
-        .map(|c| c.link.as_str().to_string()))
+    Ok(named.or_else(of_issue).map(|c| c.link.as_str().to_string()))
 }
 
 /// Where the work is pushed: the plan's own remote, or the code host's for a
@@ -434,11 +429,6 @@ const UNREAD: &str = "the open pull requests could not be read";
 /// The most pages of open pull requests one run reads, 100 to a page.
 pub const PAGES_MAX: usize = 10;
 
-
-
-
-
-
 /// Rules 5 and 6: the rebase, the count of what it left, the push, the draft.
 fn rebase_push_open(
     plan: &Plan,
@@ -447,7 +437,6 @@ fn rebase_push_open(
     repo: &Path,
     branch: &str,
     pushed: &str,
-    scratch: &Scratch,
 ) -> Result<String, Why> {
     let kept = format!("{KEPT_HEADS}{branch}");
     // `--force`: the index the status made is the workspace's, not this tree's.
@@ -485,7 +474,6 @@ fn rebase_push_open(
     if !push.ok() {
         return Err(Why::new(format!("{pushed} could not be pushed")).said(&push));
     }
-    let _ = scratch;
     draft(plan, ports, pushed).map_err(|w| w.stands(pushed))
 }
 

@@ -100,7 +100,6 @@ impl Plan {
             .unwrap_or_else(|| self.home.join("tmp"))
     }
 
-
     /// The branch the finished work is pushed to.
     pub fn branch(&self) -> String {
         format!("{BRANCH_PREFIX}{}", self.issue)

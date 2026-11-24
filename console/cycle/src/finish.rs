@@ -25,7 +25,7 @@
 //! The parts: [`cmd`] is the git and gh of one run and its scratch, [`plan`] is
 //! what a run is given and the rules of those words, and [`run`] is the decision:
 //! what is checked, in what order, and what is pushed and opened. The cases of
-//! all three are in [`tests`], which drives a real repository and a stub `gh`.
+//! all three are in [`tests`], which drives a real repository and the ports' fake.
 
 pub mod cmd;
 pub mod plan;
