@@ -167,7 +167,7 @@ token, no cycle starts. `GH_CYCLE_TOKEN` and `TEHAS_CYCLE_LOGIN` are refused
 with exit 78.
 
 The cycle's token cannot write issues. A cycle's `gh issue create`,
-`gh issue edit` and `gh issue comment` are run by the host instead, with the
+`gh issue edit` and `gh issue comment` are made by the host instead, with the
 app's token, through the relay directory of the cycle (`/run/tehas/relay` in
 the container). A comment goes only on the cycle's own issue or one the cycle
 created, an edit only on an issue the cycle created during that cycle, and a
