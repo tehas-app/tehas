@@ -75,6 +75,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant, SystemTime};
 use tehas_core::home::{Home, State};
+use tehas_core::lock::Held;
 use tehas_core::{rukas, time};
 
 /// Sandbox builds a host keeps: the current one and the one before it, for a
@@ -428,7 +429,7 @@ fn scratch_made(given: &[String]) -> u8 {
 /// go to standard error, and name who else holds the lock. `wait` is in
 /// seconds.
 #[allow(clippy::result_unit_err)]
-pub fn open_session(home: &str, name: &str, wait: u64) -> Result<File, ()> {
+pub fn open_session(home: &str, name: &str, wait: u64) -> Result<Held, ()> {
     let devs = Path::new(home).join("dev");
     let state = devs.join(format!("{name}.state"));
     let target = state.join("target");
@@ -488,7 +489,7 @@ pub fn open_session(home: &str, name: &str, wait: u64) -> Result<File, ()> {
 /// beside `is held`. A link, a directory or a file that cannot be opened is
 /// never taken, since a lock is held by descriptor and a lock of a name that is
 /// no file proves nothing either way.
-fn take_clone_lock(path: &Path) -> Result<File, String> {
+fn take_clone_lock(path: &Path) -> Result<Held, String> {
     let f = OpenOptions::new()
         .append(true)
         .create(true)
@@ -497,8 +498,7 @@ fn take_clone_lock(path: &Path) -> Result<File, String> {
     if !fs::symlink_metadata(path).is_ok_and(|m| m.is_file()) {
         return Err(": its name is no regular file".to_string());
     }
-    f.try_lock().map_err(|_| lock_holders(path))?;
-    Ok(f)
+    Held::try_take(f).map_err(|_| lock_holders(path))
 }
 
 /// Who holds a clone's lock, as the process table can say it: the login and the
@@ -1266,9 +1266,9 @@ impl Run {
         let Ok(f) = File::open(&lock) else {
             return false;
         };
-        if f.try_lock().is_err() {
+        let Ok(_held) = Held::try_take(f) else {
             return false;
-        }
+        };
         remove(p)
     }
 
@@ -1932,7 +1932,7 @@ impl Run {
 
     /// The clone's lock, held while the file lives. A lock not there yet is made:
     /// a session that starts during the removal must find it taken.
-    fn hold_clone(&self, name: &str) -> Option<File> {
+    fn hold_clone(&self, name: &str) -> Option<Held> {
         let lock = self.clone_lock(name)?;
         fs::create_dir_all(lock.parent()?).ok()?;
         take_clone_lock(&lock).ok()
@@ -2629,9 +2629,9 @@ mod tests {
         let hold = run.hold_clone("eve").unwrap();
         assert_eq!(tehas_core::lock::probe(&eve), tehas_core::lock::Probe::Held);
         assert!(run.hold_clone("eve").is_none());
-        // Unlocked by name: a child another case forks this instant shares the
-        // descriptor until it execs, so a drop alone may not free it yet.
-        hold.unlock().unwrap();
+        // Given back by its drop, which unlocks by name: a child another case
+        // forks this instant shares the descriptor until it execs.
+        drop(hold);
         assert_eq!(tehas_core::lock::probe(&eve), tehas_core::lock::Probe::Free);
         // A link is not taken, and a name of no plain word has no lock to hold.
         assert!(run.hold_clone("dave").is_none());

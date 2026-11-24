@@ -8,9 +8,9 @@ use std::num::{NonZeroU32, NonZeroU64};
 use tehas_github::markers::{self, read, write};
 use tehas_github::table;
 use tehas_ports::{
-    BlueprintNo, FinishMarker, FinishResult, KeyText, LastAttemptMarker, MarkName, Marker,
-    MarkerKind, MarkerWord, MillwrightAction, MillwrightMarker, Outcome, ParkMarker, QuestionKind,
-    Ref, Refusal, Sha256, TicketKey,
+    BlueprintNo, CommentId, FinishMarker, FinishResult, KeyText, LastAttemptMarker, MarkName,
+    Marker, MarkerKind, MarkerWord, MillwrightAction, MillwrightMarker, Outcome, ParkMarker,
+    QuestionKind, Ref, Refusal, Sha256, TicketKey,
 };
 
 const ITEM: u64 = 7;
@@ -89,6 +89,9 @@ fn every_marker() -> Vec<Marker> {
         Marker::Link {
             blueprint: no(999_999_999),
             remove: true,
+        },
+        Marker::Declined {
+            question: CommentId::new("2501234567"),
         },
     ];
     for result in [
@@ -681,4 +684,19 @@ fn a_backslash_escaped_backtick_opens_no_code_span() {
     assert!(read("\\\\`<!-- tehas:blocked by=3 -->`", item())
         .markers
         .is_empty());
+}
+
+#[test]
+fn a_declined_note_is_where_1x_s_poll_wrote_it() {
+    // console/dispatch/src/decide/retry.rs line 182: the note, a blank line,
+    // the marker; the words of questions.rs line 1039.
+    assert_eq!(
+        written(
+            "Retry was asked for on another question.",
+            &[Marker::Declined {
+                question: CommentId::new("4")
+            }]
+        ),
+        "Retry was asked for on another question.\n\n<!-- tehas:declined question=4 -->"
+    );
 }

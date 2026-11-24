@@ -67,8 +67,10 @@ pub trait Identity: Reports {
     /// covers no project outside the set. A project the grant does not
     /// cover is `Forbidden` before any mint, never a wider set or scope.
     fn token_over(&mut self, scope: Scope, projects: &[ProjectName]) -> Got<Token>;
-    /// The link a person opens to sign in, carrying `state`.
-    fn sign_in_link(&self, state: &SignInState) -> WebLink;
+    /// The link a person opens to sign in, carrying `state`. No request.
+    /// `Refused(Unsupported)` from a site set up with no way for a person
+    /// to sign in, such as an adapter without its client for people.
+    fn sign_in_link(&self, state: &SignInState) -> Got<WebLink>;
     /// The person behind a finished sign-in, and their credential, for the
     /// caller's keyring.
     fn signed_in(&mut self, code: &SignInCode) -> Got<(Account, Secret)>;

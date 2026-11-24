@@ -784,6 +784,10 @@ impl Cites for WithRead {
     fn cite(&self, what: &Cite) -> String {
         self.gh.cite(what)
     }
+
+    fn link(&self, what: &Cite) -> Option<WebLink> {
+        self.gh.link(what)
+    }
 }
 
 impl Blueprints for WithRead {
@@ -845,6 +849,10 @@ impl Blueprints for WithRead {
 
     fn attachments(&mut self, n: BlueprintNo) -> Got<Whole<Attachment>> {
         self.gh.attachments(n)
+    }
+
+    fn attachments_in(&self, text: &str) -> Vec<Attachment> {
+        self.gh.attachments_in(text)
     }
 
     fn fetch(&mut self, a: &AttachmentId, limit: u64, into: &mut dyn std::io::Write) -> Did {

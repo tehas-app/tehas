@@ -109,10 +109,10 @@ impl Identity for GitHub {
         unsupported()
     }
 
-    /// GitHub's sign-in page, without `state`: the adapter holds no OAuth
-    /// client, so no link it makes finishes a sign-in. No caller asks it.
-    fn sign_in_link(&self, _: &SignInState) -> WebLink {
-        WebLink::new("https://github.com/login").expect("a web link")
+    /// `Refused(Unsupported)`: the adapter holds no OAuth client, so no
+    /// link it made would finish a sign-in.
+    fn sign_in_link(&self, _: &SignInState) -> Got<WebLink> {
+        unsupported()
     }
 
     fn signed_in(&mut self, _: &SignInCode) -> Got<(Account, Secret)> {
