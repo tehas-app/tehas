@@ -112,8 +112,16 @@ fn main() {
         &settings,
         dry,
         tehas_dispatch::events::wiring(),
-        handles,
+        tehas_dispatch::apply::Wiring { handles, mark_of },
     ));
+}
+
+/// A label word of an action as a mark: one of tehas's words by the
+/// adapter's table, None for any other, which is refused at the send.
+/// Temporary: the T4.6 pull request that types decide's actions onto `Mark`
+/// removes it.
+fn mark_of(label: &str) -> Option<tehas_ports::Mark> {
+    tehas_github::table::word(label)
 }
 
 /// The handles a poll writes and settles through, from the GitHub adapter's

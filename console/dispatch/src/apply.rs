@@ -99,7 +99,24 @@ pub struct Writer {
     /// with, from the program's wiring. None when the wiring could not make
     /// them: a row of the ports then stays open for the next poll.
     pub ports: Option<Handles>,
+    /// A label word of an action as a mark, from the program's wiring.
+    /// Temporary (T4.7, Decided by the branch owner): the T4.6 pull request
+    /// that types decide's actions onto `Mark` removes it.
+    pub mark_of: MarkOf,
 }
+
+/// What the program's wiring gives a poll: its handles, and the word of a
+/// label as a mark. The library names no adapter (R8).
+#[derive(Clone, Copy)]
+pub struct Wiring {
+    pub handles: HandlesOf,
+    pub mark_of: MarkOf,
+}
+
+/// The wiring's word for a label as a mark: tehas's words, None for any
+/// other. A word it does not know is refused at the send, never sent as a
+/// raw label.
+pub type MarkOf = fn(&str) -> Option<tehas_ports::Mark>;
 
 pub use tehas_core::journal::Handles;
 
@@ -645,40 +662,45 @@ impl Writer {
         if let Some(line) = a.get("first").and_then(Value::as_str) {
             log.push(line.to_string());
         }
-        let remove = strings(a, "remove");
-        let add = strings(a, "add");
-        let mut args: Vec<String> = vec![
-            "issue".into(),
-            "edit".into(),
-            n.to_string(),
-            "--repo".into(),
-            self.repo.clone(),
-        ];
-        // As the bash sites give them: what comes off, then what goes on.
-        for l in &remove {
+        // As the bash sites give them: what comes off, then what goes on,
+        // one write each; a part that does not go stops the change there.
+        let Some(key) = ticket(n) else {
+            log.push(format!("{}: #{n} is no ticket", text(a, "fail")));
+            return;
+        };
+        let (off, on) = (strings(a, "remove"), strings(a, "add"));
+        let mut args: Vec<String> = ["issue", "edit", &n.to_string(), "--repo", &self.repo]
+            .map(str::to_string)
+            .to_vec();
+        for l in &off {
             args.extend(["--remove-label".into(), l.clone()]);
         }
-        for l in &add {
+        for l in &on {
             args.extend(["--add-label".into(), l.clone()]);
         }
-        let kind = if add.is_empty() {
+        let kind = if on.is_empty() {
             "label-remove"
         } else {
             "label-add"
         };
-        match self.write(n, kind, args, None, None) {
-            Wrote::Done(_) => {}
-            Wrote::Failed(why) => {
-                log.push(format!("{}{why}", text(a, "fail")));
-                return;
-            }
-            Wrote::Unknown(why) => {
+        match self.looked_1x(n, kind, &args, None) {
+            // Done by a poll before T4.7: what follows it is owed.
+            Some(Wrote::Done(_)) => {}
+            Some(Wrote::Unknown(why)) => {
                 log.push(Self::unknown(n, "label change", &why));
                 return;
             }
-            Wrote::Unrecorded => {
-                log.push(Self::unrecorded(n));
-                return;
+            Some(_) => return,
+            None => {
+                let parts = off
+                    .iter()
+                    .map(|l| (l, false))
+                    .chain(on.iter().map(|l| (l, true)));
+                for (label, on) in parts {
+                    if !self.mark_part(n, &key, label, on, text(a, "fail"), log) {
+                        return;
+                    }
+                }
             }
         }
         if let Some(line) = a.get("log").and_then(Value::as_str) {
@@ -709,6 +731,44 @@ impl Writer {
                     "WARN: could not record the answer to the question of #{n} ({})",
                     word(&f)
                 ));
+            }
+        }
+    }
+
+    /// One part of a label change: `label` put on (`on`) or taken off. False,
+    /// with its line said, when it did not go: the change stops there.
+    fn mark_part(
+        &mut self,
+        n: u64,
+        key: &TicketKey,
+        label: &str,
+        on: bool,
+        fail: &str,
+        log: &mut Vec<String>,
+    ) -> bool {
+        let Some(mark) = (self.mark_of)(label) else {
+            log.push(format!("{}: {label} is no mark this poll knows", fail));
+            return false;
+        };
+        let ticket = key.clone();
+        let write = if on {
+            Write::Mark { ticket, mark }
+        } else {
+            Write::Unmark { ticket, mark }
+        };
+        match self.send(n, &write) {
+            Wrote::Done(_) => true,
+            Wrote::Failed(why) => {
+                log.push(format!("{}{why}", fail));
+                false
+            }
+            Wrote::Unknown(why) => {
+                log.push(Self::unknown(n, "label change", &why));
+                false
+            }
+            Wrote::Unrecorded => {
+                log.push(Self::unrecorded(n));
+                false
             }
         }
     }

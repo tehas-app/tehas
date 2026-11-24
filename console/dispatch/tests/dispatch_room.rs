@@ -51,6 +51,7 @@ fn no_room_nothing_starts_no_label_is_edited_the_tick_stays_exit_0_the_dry_run_n
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(w.started(), "");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     lacks(&w.gh(), "api -X PATCH");
     assert_eq!(w.notes_any(), 0);
     assert_eq!(w.park_q(7), "4001");
@@ -72,6 +73,7 @@ fn an_unreadable_probe_holds_and_names_the_file() {
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(w.started(), "");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     has(&r.out, &hold);
     assert_eq!(w.dispatch_state()["hold"], json!(hold));
 
@@ -100,6 +102,7 @@ fn an_unreadable_probe_holds_and_names_the_file() {
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(w.plan_calls(), "");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     assert_eq!(w.notes_any(), 0);
     has(&r.out, "holding: the slice's use could not be read");
     assert_eq!(w.dispatch_state()["why"], json!("unreadable"));
@@ -157,6 +160,7 @@ fn no_slice_a_plan_label_starts_no_session_and_keeps_its_label() {
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(w.plan_calls(), "");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     assert_eq!(w.notes_any(), 0);
     assert_eq!(w.rec(), Value::Null);
     assert_eq!(found(&w.home.join("tmp"), "plan-7.brief."), 0);

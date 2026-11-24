@@ -9,6 +9,7 @@ use serde_json::{json, Value};
 use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use tehas_ports::{Mark, State};
 
 fn world() -> World {
     let w = World::new("finish");
@@ -200,6 +201,7 @@ esac"#,
     assert_eq!(r.rc, 1, "{}", r.out);
     has(&r.out, "ERROR: systemd cannot load tehas-cycle@.service (LoadState: not-found): run install.sh and its units step, and run tehas dispatch as the tehas user's own session");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     assert_eq!(w.notes_any(), 0);
     lacks(&w.calls("systemctl"), "start");
     assert_eq!(w.calls("fake-index"), "");
@@ -223,6 +225,7 @@ esac"#,
         "ERROR: systemd cannot load tehas-cycle@.service (LoadState: no answer): run install.sh",
     );
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     assert_eq!(w.notes_any(), 0);
     lacks(&w.calls("systemctl"), "start");
 }
@@ -302,9 +305,10 @@ fn an_open_issue_marked_tehas_planning_with_no_session_goes_to_a_person() {
         &r.out,
         "park #9: it is marked tehas:planning and no planning session is open on it",
     );
-    has(
-        &w.gh(),
-        "issue edit 9 --repo acme/widget --remove-label tehas:planning --add-label needs-human-attention",
+    assert!(
+        w.off(9, Mark::State(State::Planning)) && w.on(9, Mark::State(State::NeedsPerson)),
+        "{:?}",
+        w.writes_of(9)
     );
     assert!(w.notes(9) > 0);
 }
@@ -461,6 +465,7 @@ fn an_outage_park_of_a_cycle_started_by_hand_asks_for_no_retry_nothing_starts_no
     let r = w.poll();
     assert_eq!(w.calls("fake-start"), "");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     lacks(&r.out, "provider outage");
     assert_eq!(park_is(&w, "[.automatic, .retries]"), "[false,0]");
 }
