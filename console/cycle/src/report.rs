@@ -154,7 +154,7 @@ pub fn comments_said(f: &Facts) -> String {
 }
 
 /// The caps tehas sets for a stop of its own, and no other command does.
-pub const OWN_CAPS: [&str; 5] = [
+const OWN_CAPS: [&str; 5] = [
     "wall-clock",
     "stall",
     "disk",
@@ -353,7 +353,7 @@ pub fn last_attempts(r: &mut Report, f: &Facts, ask: &mut dyn Ask) {
 /// cycle's record, its log and the pull requests found, so a tehas marker in
 /// it is broken: the host's own markers are in the park and the question
 /// comments, which are not built here.
-pub(crate) fn comment_of(body: &dyn Fn(&str) -> String) -> Action {
+fn comment_of(body: &dyn Fn(&str) -> String) -> Action {
     Action::Comment {
         ok: disarm(&body("")).into_owned(),
         stuck: disarm(&body(STUCK)).into_owned(),
@@ -362,7 +362,7 @@ pub(crate) fn comment_of(body: &dyn Fn(&str) -> String) -> Action {
 
 /// How pi-rukas's handoff marker begins: a comment with it carries the
 /// handoff.
-pub const HANDOFF_MARK: &str = "<!-- pi-rukas:handoff ";
+const HANDOFF_MARK: &str = "<!-- pi-rukas:handoff ";
 
 /// One write of the report, in its order.
 #[derive(Clone, Debug, PartialEq)]
@@ -553,7 +553,7 @@ pub fn park_marker(
 
 /// The park's marker as a write of the ports carries it beside the body:
 /// the same fields as [`park_marker`]'s text.
-pub fn park_typed(
+fn park_typed(
     issue: u64,
     step: &str,
     cap: &str,
@@ -2135,7 +2135,7 @@ fn waits_only_for_a_merge(cap: &str) -> bool {
 /// here instead: change a protected path themselves, then reply with the word
 /// of a retry the park offers: `retry` when the image gives a cycle the
 /// comments (`comments`), else `retry-text`.
-pub fn for_host(body: &str, comments: bool) -> String {
+fn for_host(body: &str, comments: bool) -> String {
     let word = if comments { "retry" } else { "retry-text" };
     let cmd = regex::Regex::new(
         r"(?i:(re-?run|run)\s+)?`/work \d+ --restart(?: --allow-protected ([^`]*))?[^`]*`",

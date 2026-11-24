@@ -146,7 +146,7 @@ pub fn cut(s: &str, n: usize) -> String {
 
 /// The most characters of the reason a cycle ended with that its end keeps,
 /// as many as the condensed stream keeps of a text (#718).
-pub const REASON_MOST: usize = 2000;
+const REASON_MOST: usize = 2000;
 const REASON_CUT: &str = " (cut)";
 
 /// A reason of at most REASON_MOST characters, ending ` (cut)` when it was
@@ -159,7 +159,7 @@ pub fn cut_reason(s: &str) -> String {
 }
 
 /// What a cycle's record says of a cap the driver gave no words for.
-pub const NO_EVIDENCE: &str = "no evidence from the driver";
+const NO_EVIDENCE: &str = "no evidence from the driver";
 
 /// The reason a record gives for its cap. A reason that is empty or only
 /// repeats the cap word is no evidence, and says so. Memory kills in the
@@ -549,14 +549,14 @@ fn branch_said_after_push(text: &str, issue: u64) -> String {
 pub struct Progress {
     pub review_held: Loose<bool>,
     pub reason: Loose<String>,
-    pub from: Node<ProgressFrom>,
+    from: Node<ProgressFrom>,
     pub failure: Node<ProgressFailure>,
     pub roles: Many<Node<Row>>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(default)]
-pub struct ProgressFrom {
+struct ProgressFrom {
     pub failure: Loose<String>,
 }
 

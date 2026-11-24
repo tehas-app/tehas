@@ -313,7 +313,7 @@ pub fn event(text: &str, key: &str) -> Option<u32> {
 }
 
 /// The number of a cgroup's pids.max. None for `max`, no limit.
-pub fn pids_max(text: &str) -> Option<u32> {
+fn pids_max(text: &str) -> Option<u32> {
     let v = text.trim();
     (!v.is_empty() && v.len() < 10 && v.bytes().all(|b| b.is_ascii_digit()))
         .then(|| v.parse().ok())
@@ -322,7 +322,7 @@ pub fn pids_max(text: &str) -> Option<u32> {
 }
 
 /// The kills of the kernel log named for this container.
-pub fn kills_in(log: &str, id: &str) -> u32 {
+fn kills_in(log: &str, id: &str) -> u32 {
     let scope = format!("task_memcg=/tehas.slice/docker-{id}.scope,");
     let lines = log.lines();
     lines
@@ -332,7 +332,7 @@ pub fn kills_in(log: &str, id: &str) -> u32 {
 
 /// The names of the processes the kernel log says were killed for memory in
 /// this container, each once, in the order they were killed.
-pub fn killed_names(log: &str, id: &str) -> Vec<String> {
+fn killed_names(log: &str, id: &str) -> Vec<String> {
     let scope = format!("task_memcg=/tehas.slice/docker-{id}.scope,");
     let mut names: Vec<String> = vec![];
     for l in log.lines() {
@@ -355,7 +355,7 @@ pub fn killed_names(log: &str, id: &str) -> Vec<String> {
 /// the warning, kill, failure and cancellation lines. The last 20, each cut to
 /// 1000 bytes, for a line of a stream can carry an error tail of any size and
 /// this goes into the cycle's $log.err. Empty when there is none.
-pub fn diag(stream: &[u8]) -> Vec<u8> {
+fn diag(stream: &[u8]) -> Vec<u8> {
     let has = |l: &[u8], w: &[u8]| l.windows(w.len()).any(|x| x == w);
     let lines: Vec<&[u8]> = stream
         .split(|b| *b == b'\n')
@@ -404,7 +404,7 @@ struct GateEvent {
 
 /// The runs of the gate the stream started and did not end, oldest first: the
 /// step and the command of each.
-pub fn open_gates(stream: &[u8], issue: u64) -> Vec<(String, String)> {
+fn open_gates(stream: &[u8], issue: u64) -> Vec<(String, String)> {
     let mut open: Vec<(String, String)> = vec![];
     for line in stream.split(|b| *b == b'\n') {
         if !line.windows(7).any(|w| w == b"verify-") {
@@ -435,7 +435,7 @@ pub fn open_gates(stream: &[u8], issue: u64) -> Vec<(String, String)> {
 
 /// The line that closes a run of the gate a signal cut short. tehas writes it,
 /// not the driver: `by` says so.
-pub fn aborted_line(issue: u64, step: &str, command: &str, sig: &str, at_ms: i64) -> String {
+fn aborted_line(issue: u64, step: &str, command: &str, sig: &str, at_ms: i64) -> String {
     let line = serde_json::json!({
         "v": 1, "kind": "verify-aborted", "issue": issue, "by": "tehas",
         "event": {
@@ -470,7 +470,7 @@ pub struct Seen<'a> {
 
 /// Whether the stream at `log` holds nothing. A failure to look is an error,
 /// not an empty stream: tehas work created the file before the container ran.
-pub fn stream_empty(log: &Path) -> std::io::Result<bool> {
+fn stream_empty(log: &Path) -> std::io::Result<bool> {
     fs::metadata(log).map(|m| m.len() == 0)
 }
 
@@ -566,7 +566,7 @@ pub fn decide(s: &Seen) -> Decided {
 
 /// The command's exit status. The kill is what this command saw of the
 /// container; a runner that wrote its result says how the cycle ended.
-pub fn exit_of(s: &Seen, d: &Decided) -> i32 {
+fn exit_of(s: &Seen, d: &Decided) -> i32 {
     if d.killed {
         return i32::from(work::KILLED);
     }

@@ -195,17 +195,6 @@ pub fn polyfill_inputs(text: &str, labels: &str) -> Vec<(String, String)> {
     out
 }
 
-/// The names in `names` that are no input a host may set, families matched as
-/// `unsupported` matches them. Every name when the answer cannot be read.
-pub fn not_inputs<'a>(text: &str, names: &[&'a str]) -> Vec<&'a str> {
-    let ok = answer(text).map(|caps| inputs(&caps)).unwrap_or_default();
-    names
-        .iter()
-        .filter(|n| !ok.iter().any(|re| re.is_match(n)))
-        .copied()
-        .collect()
-}
-
 /// What a contract's version says when it is not `want`, of the version a
 /// path came to (None where it ran through a value of another type).
 fn version(got: Option<&Field>, want: u64, what: &str) -> Option<Option<String>> {

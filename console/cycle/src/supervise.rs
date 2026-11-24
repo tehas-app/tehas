@@ -94,7 +94,7 @@ pub fn number(answer: &str) -> Number {
 /// An issue a handoff left with needs-human-attention starts again only on a
 /// person's answer: --restart tells the runner so, and the cycle takes the
 /// label off before the runner starts.
-pub fn wants_restart(answer: &str) -> bool {
+fn wants_restart(answer: &str) -> bool {
     let Some(v) = crate::loose::first_value::<Value>(answer) else {
         return false;
     };
@@ -108,7 +108,7 @@ pub fn wants_restart(answer: &str) -> bool {
 
 /// The attempt of a start the store took after it timed out: one on record since
 /// this one began, under this lock, is its own.
-pub fn took_late(shown: &Value, began: i64) -> Option<String> {
+fn took_late(shown: &Value, began: i64) -> Option<String> {
     let c = shown.get("cycle").filter(|c| c.is_object())?;
     let open = matches!(c.get("ended_at"), None | Some(Value::Null));
     let since = c.get("started_at").and_then(Value::as_f64)? >= began as f64;

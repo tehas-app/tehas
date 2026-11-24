@@ -631,7 +631,7 @@ pub fn allowed(login: &str) -> bool {
 }
 
 /// Whether <login> is the millwright's account, with or without [bot].
-pub fn millwright_is(login: &str) -> bool {
+fn millwright_is(login: &str) -> bool {
     same_account(&env("TEHAS_MILLWRIGHT_LOGIN"), login)
 }
 
@@ -652,7 +652,7 @@ fn shaped(v: &Value, key: &str, ok: impl Fn(&str) -> bool) -> bool {
 /// refresh did. None for a missing record, a link, a shape it does not know, or
 /// an account that is not allowed now. The host's approval (#1967) names no
 /// account to allow: its kind is what makes it a base.
-pub fn millwright_base(record: &str) -> Option<Value> {
+fn millwright_base(record: &str) -> Option<Value> {
     if !is_record(record) {
         return None;
     }

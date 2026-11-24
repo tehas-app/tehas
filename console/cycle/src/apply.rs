@@ -739,7 +739,7 @@ fn driver_of(a: &Value) -> Option<&str> {
 /// a reader of the published approval holds instead. An answer that is none of
 /// these - null, or one that holds the store's error - is classic: the cycle
 /// keeps no record rather than guessing at one.
-pub fn approved_lean(facts: &Value) -> bool {
+fn approved_lean(facts: &Value) -> bool {
     let approval = facts.get("approval");
     [
         approval,

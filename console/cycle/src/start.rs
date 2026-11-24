@@ -316,7 +316,7 @@ fn measure(home: &Path, t: &Text, issue: &Value) {
 
 /// The words of that comment. `why` can quote an issue, a comment or a
 /// record, so a marker in it is broken (tehas_core::text::disarm).
-pub fn no_cycle_body(why: &str) -> String {
+fn no_cycle_body(why: &str) -> String {
     format!(
         "Tehas started no cycle: {}. To retry, apply `tehas:ready`.",
         disarm(why)
