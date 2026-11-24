@@ -716,10 +716,10 @@ fn an_id_that_changed_stops_the_update_with_78_before_anything_moves_and_accept_
     let line: Vec<String> = fs::read_to_string(&ids)
         .unwrap()
         .lines()
-        .filter(|l| l.starts_with("alice "))
+        .filter(|l| l.starts_with("code-host alice "))
         .map(str::to_string)
         .collect();
-    assert_eq!(line, [format!("alice {alice}")]);
+    assert_eq!(line, [format!("code-host alice {alice}")]);
     assert_eq!(h.calls("install"), "install ");
 }
 
