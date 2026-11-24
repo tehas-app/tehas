@@ -311,10 +311,10 @@ mod tests {
         );
         assert_eq!(read_hook(&home, "demo", 42), Some(ask.clone()));
         assert_eq!(read_hook(&home, "demo", 43), None);
-        let mut timer = ask.json();
+        let mut timer: serde_json::Value = serde_json::from_str(&ask.json()).unwrap();
         timer["trigger"] = json!("timer");
         assert_eq!(HookAsk::read(timer.to_string().as_bytes()), None);
-        let mut short = ask.json();
+        let mut short: serde_json::Value = serde_json::from_str(&ask.json()).unwrap();
         short["head"] = json!("89abcdef");
         assert_eq!(HookAsk::read(short.to_string().as_bytes()), None);
     }
