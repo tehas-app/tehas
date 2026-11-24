@@ -13,15 +13,71 @@ use std::process::Command;
 use tehas_core::home::{Home, State};
 use tehas_core::testing::write_exe;
 
-/// gh answering from `$T/releases`; GH_AUTH is the status of `auth status`.
-pub const GH: &str = r#"case "$1 $2" in
+/// gh answering from `$T/releases` as GitHub does the code host's release
+/// reads: the list, one release with its files and their sizes as they are
+/// now, and a file downloaded to `--output`. GH_AUTH is the status of
+/// `auth status`.
+pub const GH: &str = r#"files_of() {
+  for f in "$T/releases/$1"/tehas-*; do
+    [ -f "$f" ] && jq -n --arg n "${f##*/}" --argjson s "$(stat -c %s "$f")" '{name: $n, size: $s}'
+  done | jq -s .
+}
+one() { jq --argjson a "$(files_of "$1")" '. + {assets: $a}' "$T/releases/$1/release.json"; }
+case "$1 $2" in
   "auth status") exit "${GH_AUTH:-0}" ;;
-  "api repos/"*) cat "$T/releases/list.json" ;;
+  "api repos/"*/releases/tags/*)
+    tag=${2##*/}
+    [ -f "$T/releases/$tag/release.json" ] || { echo "release not found" >&2; exit 1; }
+    one "$tag" ;;
+  "api repos/"*"&page=1")
+    for d in "$T/releases"/*/; do
+      d=${d%/}; [ ! -f "$d/release.json" ] || one "${d##*/}"
+    done | jq -s . ;;
+  "api repos/"*) echo "[]" ;;
   "release download")
-    tag=$3 dir=""; prev=""
-    for a in "$@"; do [ "$prev" != --dir ] || dir=$a; prev=$a; done
-    cp "$T/releases/$tag"/tehas-* "$dir/" ;;
+    out="" name="" tag=""
+    for a in "$@"; do
+      case $a in --output=*) out=${a#--output=} ;; --pattern=*) name=${a#--pattern=} ;; esac
+      tag=$a
+    done
+    cp "$T/releases/$tag/$name" "$out" ;;
 esac"#;
+
+/// The program the release stub answers as. Its calls are read here alone.
+const STUB: &str = "gh";
+
+/// The projects whose releases were listed through the stub, one a read.
+pub fn listed(h: &Host) -> Vec<String> {
+    h.calls(STUB)
+        .lines()
+        .filter_map(|l| l.strip_prefix("api repos/"))
+        .filter_map(|l| l.split_once("/releases?").map(|(repo, _)| repo.to_string()))
+        .collect()
+}
+
+/// The files downloaded through the stub, each as `<project> <tag> <file>`.
+pub fn downloads(h: &Host) -> Vec<String> {
+    h.calls(STUB)
+        .lines()
+        .filter(|l| l.starts_with("release download "))
+        .map(|l| {
+            let words: Vec<&str> = l.split(' ').collect();
+            let given = |flag: &str| {
+                words
+                    .iter()
+                    .find_map(|w| w.strip_prefix(flag))
+                    .unwrap_or_default()
+            };
+            let tag = words.last().copied().unwrap_or_default();
+            format!("{} {tag} {}", given("--repo="), given("--pattern="))
+        })
+        .collect()
+}
+
+/// Whether `tag`'s tarball of this machine was downloaded from `project`.
+pub fn downloaded(h: &Host, project: &str, tag: &str) -> bool {
+    downloads(h).contains(&format!("{project} {tag} {}", asset_of(tag)))
+}
 
 /// minisign that keeps the key it was handed and takes "signed". It exits
 /// itself: `Host::stub` ends a body with `:`.
@@ -119,11 +175,20 @@ pub fn pack(h: &Host, r: &Rel) {
     repack(h, r.tag, &name);
     fs::write(out.join(format!("{name}.minisig")), "signed\n").unwrap();
     let default = format!("### Changes\n- {}\n### Adopter action\nNone.", r.tag);
+    let id = r
+        .tag
+        .bytes()
+        .fold(7u64, |h, b| h.wrapping_mul(31).wrapping_add(b.into()));
     let json = serde_json::json!({
+        "id": id % 1_000_000_007 + 1,
         "tag_name": r.tag,
+        "name": r.tag,
         "body": r.body.unwrap_or(&default),
         "draft": false,
         "prerelease": r.pre,
+        "created_at": "2026-01-01T00:00:00Z",
+        "published_at": "2026-01-01T00:00:00Z",
+        "html_url": format!("https://example.test/releases/{}", r.tag),
     });
     fs::write(out.join("release.json"), format!("{json}\n")).unwrap();
     relist(h);

@@ -182,7 +182,9 @@ update from the checkout says the same of its `origin`, as "From the
 checkout" says.
 The list and the download use `gh` when it is signed in, which
 reaches a private repository with the bot's token, and `curl` from the public
-address otherwise.
+address otherwise. Signed in, the list reads every release, and each of the
+three files is fetched alone through a scratch directory under the system's
+temporary directory; a file over 1 GiB is refused before it is fetched.
 
 The newest is the newest release, never a prerelease (`vX.Y.Z-alpha.N`,
 `-beta.N` or `-rc.N`): a plain `tehas update` passes over them, and a host

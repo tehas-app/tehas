@@ -457,6 +457,25 @@ mod wiring {
         Ok((site.blueprints(&by, c)?, site.blueprint_writes(&by, c)?))
     }
 
+    /// The code host handle of `tehas update` on tehas's own release
+    /// project `repo`, a site of its own (Decided 23), asking through
+    /// `program` as the operator's gh is signed in, each call in `bound`.
+    /// No account of that project is the factory's.
+    pub(crate) fn releases(
+        program: &str,
+        repo: &str,
+        bound: Duration,
+    ) -> tehas_ports::Got<Box<dyn tehas_ports::CodeHost + Send>> {
+        use tehas_ports::{Actor, Caller, Site};
+        let program = program.to_string();
+        let make: tehas_github::MakeRunner = std::sync::Arc::new(move |_| {
+            Ok(Box::new(Bounded::new(program.clone(), bound))
+                as Box<dyn tehas_core::forge::GhRunner>)
+        });
+        let site = tehas_github::GitHubSite::new(repo, "", None, make);
+        site.code_host(&Actor::Operator, Caller::new("update"))
+    }
+
     /// The mark a label name given on a command line is: one of tehas's
     /// words, or a project's own mark. None for a name no mark can have.
     pub(crate) fn mark_of(label: &str) -> Option<Mark> {
@@ -522,7 +541,7 @@ fn main() -> ExitCode {
             Some("tehas") => return ExitCode::from(commands::tehas(&given[1..])),
             Some("tehasbot") => return ExitCode::from(commands::tehasbot(&given[1..])),
             Some("top") => return ExitCode::from(top::main(&given[1..])),
-            Some("update") => return ExitCode::from(update::main(&given[1..])),
+            Some("update") => return ExitCode::from(update::main(&given[1..], &wiring::releases)),
             Some("usage") => return ExitCode::from(commands::usage(&given[1..])),
             _ => {}
         }
