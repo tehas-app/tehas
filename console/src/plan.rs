@@ -32,6 +32,7 @@ use tehas_core::plan::{
 };
 use tehas_core::settings::rules::is_repo;
 
+mod file;
 mod start;
 mod turn;
 
@@ -199,7 +200,13 @@ pub fn outcome(
                 t => text_of(t),
             };
             let (block, spec) = runner_block(&text_of(d.get("spec")));
-            let mut draft = json!({"title": text_of(d.get("title")), "spec": spec});
+            // `shown`: the spec as the runner gave it, which a tick to file
+            // files byte for byte (plan/file.rs).
+            let mut draft = json!({
+                "title": text_of(d.get("title")),
+                "spec": spec,
+                "shown": text_of(d.get("spec")),
+            });
             if let Some(block) = block {
                 draft["block"] = json!(block);
             }
@@ -522,7 +529,7 @@ mod tests {
         );
         assert_eq!(
             std::fs::read_to_string(k.join("draft.json")).unwrap(),
-            "{\"spec\":\"Do it.\",\"title\":\"Fast\"}\n"
+            "{\"shown\":\"Do it.\",\"spec\":\"Do it.\",\"title\":\"Fast\"}\n"
         );
         assert!(out.starts_with("{\"session\":\"abc\",\"text\":"));
     }
@@ -538,7 +545,7 @@ mod tests {
         assert_eq!(v["question"]["question"], DRAFTED);
         assert_eq!(
             std::fs::read_to_string(k.join("draft.json")).unwrap(),
-            "{\"spec\":\"Do it.\",\"title\":\"Fast\"}\n"
+            "{\"shown\":\"Do it.\",\"spec\":\"Do it.\",\"title\":\"Fast\"}\n"
         );
     }
 
@@ -1160,6 +1167,27 @@ mod tests {
             .to_string()
     }
 
+    /// An address with a line end in it names no issue filed (was
+    /// test/plan_turns_test.sh).
+    #[test]
+    fn a_filed_address_with_a_line_end_in_it_is_not_filed() {
+        let k = keep();
+        for url in [
+            "https://github.com/acme\nwidget/issues/41",
+            "https://github.com/acme/widget/issues/41\n",
+        ] {
+            let ran = json!({"title": "Faster search", "url": url}).to_string();
+            let doc = parsed(&outcome(0, "abc-123", &k, &ran, false).unwrap());
+            assert!(doc.get("filed").is_none(), "{doc}");
+        }
+        let ran = json!({"title": "T", "url": "https://github.com/acme/widget/issues/41"});
+        let doc = parsed(&outcome(0, "abc-123", &k, &ran.to_string(), false).unwrap());
+        assert_eq!(
+            doc["filed"],
+            json!(["https://github.com/acme/widget/issues/41"])
+        );
+    }
+
     const RUNNER_BLOCK: &str = "```pi-spec v1\n{\n  \"problem\": \"fast\"\n}\n```";
 
     /// The block the runner assembled is kept with the draft, and the update
@@ -1172,6 +1200,8 @@ mod tests {
         let kept = parsed(&std::fs::read_to_string(k.join("draft.json")).unwrap());
         assert_eq!(kept["block"], RUNNER_BLOCK);
         assert_eq!(kept["spec"], spec.as_str());
+        // What a tick to file files: the spec as the runner gave it.
+        assert_eq!(kept["shown"], spec.as_str());
         let was = json!({"title": "search",
                          "body": "```pi-spec v1\n{\"intent\":\"old\"}\n```\n\nWhat the person wrote."});
         let v = parsed(&update("s", &k, &was.to_string()).unwrap());

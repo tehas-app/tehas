@@ -32,8 +32,15 @@ operator's answer. Each turn is one run of pi-rukas's headless runner,
 `pi-rukas-headless plan`, as the container's command. It exits when the
 planner has questions (11), has drafted a plan to confirm (12), or thinks the
 plan duplicates open work (10). After a drafted plan in a refine session, an
-answer that chose **File as a new issue** runs `plan --resume <id> --confirm`, which files the
-plan as it was shown and nothing else. One that chose **Update this issue**
+answer that chose **File as a new issue** runs no container: the host files
+the plan as it was shown, title and spec byte for byte, as the factory's
+account. The
+planner's container holds a token that reads issues alone, so it files
+nothing itself. A try that may have filed it leaves `filing` in the `--keep`
+directory, and the next try looks for that filing (a search of titles, each
+hit read whole: the factory's, with the session's line in its text)
+before it files again; while the look cannot tell, nothing is filed. One
+that chose **Update this issue**
 runs no container: the turn reads the issue's title and body and hands the
 drafted plan, kept in the `--keep` directory as `draft.json`, to the
 dispatcher, which writes it onto the issue and ends the session. A plan with no

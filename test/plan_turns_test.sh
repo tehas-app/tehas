@@ -42,7 +42,7 @@ t_eq "$(jq -r .question.question "$T/out.json")" "Open points, with the planner'
 Reply \`1\` (Update this issue) to make the plan, proposals included, this issue's text, or reply in your own words to change it."
 t_eq "$(jq -c '[.question.options[].label]' "$T/out.json")" '["Update this issue"]'
 t_eq "$(cat "$T/keep/exit")" 12
-t_eq "$(jq -c . "$T/keep/draft.json")" '{"spec":"## Context\n\nSearch is slow.\n\n## Acceptance criteria\n\n- p95 under 100 ms","title":"Faster search"}'
+t_eq "$(jq -c . "$T/keep/draft.json")" '{"shown":"## Context\n\nSearch is slow.\n\n## Acceptance criteria\n\n- p95 under 100 ms","spec":"## Context\n\nSearch is slow.\n\n## Acceptance criteria\n\n- p95 under 100 ms","title":"Faster search"}'
 
 t_case "a refine session's drafted plan also offers File as a new issue"
 reset
@@ -136,36 +136,30 @@ t_contains "$(jq -r .text "$T/out.json")" "(cut: the plan is longer than a comme
 t_eq "$([ "$(jq -r '.text | length' "$T/out.json")" -lt 41000 ] && echo cut)" cut
 t_eq "$(jq -r .question.question "$T/out.json")" "Reply \`1\` (Update this issue) to make the plan, proposals included, this issue's text, or reply in your own words to change it."
 
-t_case "after a drafted plan, a tick on File as a new issue runs the confirm, and the issue it filed is named"
+t_case "after a drafted plan, a tick on File as a new issue runs no container: the host files the plan, and the issue it filed is named"
 reset
 shown
 runner_keeps '{"turn":2}'
 t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 rm -f "$T"/calls/*
-turn_doc 0 '{"subcommand":"plan","mode":"turn","exitCode":0,"status":"filed","filed":true,"session":{"id":"abc-123","turn":2},
-  "title":"Faster search","url":"https://github.com/acme/widget/issues/41","issueUrl":"https://github.com/acme/widget/issues/41","issueNumber":41}'
+# What GitHub answers the host's POST of the issue.
+printf '%s\n' '{"number":41,"html_url":"https://github.com/acme/widget/issues/41","title":"Faster search","body":""}' >"$fx/view.json"
 printf 'alice chose: File as a new issue\n' >"$T/answer.md"
 t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md"
 t_eq "$t_rc" 0
-t_eq "$(tail_of)" "$image $runner plan --resume abc-123 --confirm "
-t_eq "$(cat "$T/calls/answer.seen" 2>/dev/null)" ""
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
 t_eq "$(jq -c . "$T/out.json")" '{"session":"abc-123","text":"Filed https://github.com/acme/widget/issues/41: Faster search.","question":null,"filed":["https://github.com/acme/widget/issues/41"]}'
-t_eq "$(cat "$T/keep/exit")" 0
+t_eq "$([ -e "$T/keep/filing" ] && echo left)" ""
+t_eq "$(cat "$T/keep/exit")" 12
 
-t_case "a filed address with a line end in it is not filed"
-for url in 'https://github.com/acme\nwidget/issues/41' 'https://github.com/acme/widget/issues/41\n'; do
-  rm -f "$T"/calls/*
-  turn_doc 0 "{\"session\":{\"id\":\"abc-123\",\"turn\":2},\"title\":\"Faster search\",\"url\":\"$url\"}"
-  t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md"
-  t_eq "$(jq -c '.filed // []' "$T/out.json")" '[]'
-done
-
-t_case "File this plan, the box of a question posted before Update this issue, still confirms, after the line of what the session already filed"
+t_case "File this plan, the box of a question posted before Update this issue, still files on the host, after the line of what the session already filed"
 printf 'Already filed in this session: https://github.com/acme/widget/issues/40\n\nalice chose: File this plan\n' >"$T/answer.md"
 printf '12\n' >"$T/keep/exit"
 rm -f "$T"/calls/*
 t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md"
-t_eq "$(tail_of)" "$image $runner plan --resume abc-123 --confirm "
+t_eq "$t_rc" 0
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+t_eq "$(jq -c .filed "$T/out.json")" '["https://github.com/acme/widget/issues/41"]'
 
 t_case "any other answer after a drafted plan changes it, and File this plan after questions is only an answer"
 for case in "12|alice replied on the issue: make it two issues" "11|alice chose: File this plan" "|alice chose: File this plan" "11|alice chose: Update this issue"; do
