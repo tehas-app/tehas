@@ -10,6 +10,7 @@ use std::fs::OpenOptions;
 use std::path::Path;
 use std::process::Command;
 use std::time::Instant;
+use tehas_core::home::{Home, State};
 
 fn git(dir: &Path, args: &[&str]) -> String {
     let out = Command::new("git")
@@ -152,9 +153,15 @@ fn the_poll_after_the_index_run_says_how_it_ended_and_starts_the_cycles() {
     let w = World::new("co-index-after");
     index_unit(&w);
     let base = git(&w.checkout(), &["rev-parse", "origin/main"]);
-    w.home_file("state/index/widget.db", "");
-    w.home_file("state/index.json", &json!({"commit": base}).to_string());
-    w.home_file("state/index.rc", "1\n");
+    w.home_file(
+        Home::new(&w.home).state(State::CodeIndex).join("widget.db"),
+        "",
+    );
+    w.home_file(
+        Home::new(&w.home).state(State::CodeIndexState),
+        &json!({"commit": base}).to_string(),
+    );
+    w.home_file(Home::new(&w.home).state(State::CodeIndexRc), "1\n");
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
     has(
@@ -166,13 +173,13 @@ fn the_poll_after_the_index_run_says_how_it_ended_and_starts_the_cycles() {
     );
     assert_eq!(w.calls("fake-index"), "");
     assert_eq!(w.started(), "7 ");
-    assert!(!w.home.join("state/index.rc").exists());
+    assert!(!Home::new(&w.home).state(State::CodeIndexRc).exists());
 }
 
 #[test]
 fn an_index_run_that_left_its_exit_status_has_ended_though_systemd_still_shows_its_unit() {
     let w = World::new("co-index-rc");
-    w.home_file("state/index.rc", "0\n");
+    w.home_file(Home::new(&w.home).state(State::CodeIndexRc), "0\n");
     w.stub(
         "systemctl",
         r#"case "$1 $2" in
@@ -190,7 +197,10 @@ esac"#,
 fn an_index_the_indexer_failed_at_this_tip_is_not_run_again_by_a_poll() {
     let w = World::new("co-index-failed");
     let tip = git(&w.checkout(), &["rev-parse", "origin/main"]);
-    w.home_file("state/index.failed", &format!("{tip}\n"));
+    w.home_file(
+        Home::new(&w.home).state(State::CodeIndexFailed),
+        &format!("{tip}\n"),
+    );
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(w.calls("fake-index"), "");
@@ -203,7 +213,7 @@ fn while_an_index_run_holds_its_lock_no_cycle_starts_and_the_poll_says_why() {
     let lock = OpenOptions::new()
         .create(true)
         .append(true)
-        .open(w.home.join("state/index.lock"))
+        .open(Home::new(&w.home).state(State::CodeIndexLock))
         .unwrap();
     lock.try_lock().unwrap();
     let r = w.poll();

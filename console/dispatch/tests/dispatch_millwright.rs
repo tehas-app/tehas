@@ -7,6 +7,7 @@ mod common;
 use common::*;
 use serde_json::{json, Value};
 use std::fs;
+use tehas_core::home::{Home, State};
 
 // --- The millwright ---------------------------------------------------------------
 
@@ -61,7 +62,7 @@ fn body_of(w: &World, n: u64, body: &str) {
 
 /// The millwright is the app unknown[bot], whose id the host knows.
 fn app_unknown(w: &World) {
-    let ids = w.home.join("state/account-ids");
+    let ids = Home::new(&w.home).state(State::AccountIds);
     let mut text = fs::read_to_string(&ids).unwrap();
     text.push_str(&format!("unknown {}\n", uid("unknown")));
     fs::write(&ids, text).unwrap();

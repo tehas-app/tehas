@@ -10,6 +10,7 @@ mod common;
 use common::{has, jq, lacks, World, GIB, MINIMAL};
 use serde_json::json;
 use std::fs;
+use tehas_core::home::{Home, Live};
 
 /// The endpoint of the host a case builds, offering `answer`.
 fn asked(w: &World, answer: &str) {
@@ -35,7 +36,7 @@ fn status_calls(w: &World) -> usize {
 }
 
 fn state_text(w: &World) -> String {
-    w.read_home("live/dispatch.json")
+    w.read_home(Home::new(&w.home).live(Live::Dispatch))
 }
 
 #[test]
@@ -141,7 +142,7 @@ fn a_real_poll_logs_a_hold_once_then_released_once_and_writes_live_dispatch_json
         jq(".time | fromdateiso8601 | (now - .) < 60", &state_text(&w)),
         "true"
     );
-    let live = w.files(&w.home.join("live"));
+    let live = w.files(&Home::new(&w.home).live_dir());
     assert!(
         !live.iter().any(|f| f.starts_with("dispatch.json.")),
         "{live:?}"

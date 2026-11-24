@@ -8,6 +8,7 @@ mod common;
 use common::{has, lacks, root, Run, World};
 use std::fs::{self, File, OpenOptions};
 use std::process::Command;
+use tehas_core::home::{Home, Live, State, TokenDir};
 
 /// The world, with the health a host runs built beside it; `$dispatch` runs
 /// keep the fake one.
@@ -49,18 +50,18 @@ fn untimed(out: &str) -> String {
 
 /// The dispatcher's lock, held by the test until the file is dropped.
 fn hold_dispatch(w: &World) -> File {
-    fs::create_dir_all(w.home.join("state")).unwrap();
+    fs::create_dir_all(Home::new(&w.home).state_dir()).unwrap();
     let f = OpenOptions::new()
         .append(true)
         .create(true)
-        .open(w.home.join("state/dispatch.lock"))
+        .open(Home::new(&w.home).state(State::DispatchLock))
         .unwrap();
     f.try_lock().unwrap();
     f
 }
 
-fn exists(w: &World, rel: &str) -> bool {
-    w.home.join(rel).exists()
+fn exists(w: &World, s: State) -> bool {
+    Home::new(&w.home).state(s).exists()
 }
 
 fn now() -> i64 {
@@ -71,9 +72,10 @@ fn now() -> i64 {
 /// writes a line to `runs` each time when one is named.
 fn token_program(w: &World, runs: Option<&str>) {
     fs::create_dir_all(w.home.join("bin")).unwrap();
-    fs::create_dir_all(w.home.join("state/github")).unwrap();
-    w.home_file("state/github/token", "ghs_poll\n");
-    w.home_file("state/github/token.expires", &format!("{}\n", now() + 3000));
+    fs::create_dir_all(Home::new(&w.home).token_dir(TokenDir::App)).unwrap();
+    let app = Home::new(&w.home).token_dir(TokenDir::App);
+    w.home_file(app.join("token"), "ghs_poll\n");
+    w.home_file(app.join("token.expires"), &format!("{}\n", now() + 3000));
     let count = runs
         .map(|r| format!("echo run >>'{r}'\n"))
         .unwrap_or_default();
@@ -99,13 +101,16 @@ fn a_poll_that_finds_the_lock_held_changes_nothing() {
     drop(lock);
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(w.gh(), "");
-    assert!(!exists(&w, "state/dispatch.taken"));
+    assert!(!exists(&w, State::DispatchTaken));
 }
 
 #[test]
 fn a_lock_held_for_longer_than_half_an_hour_is_said_once() {
     let w = world();
-    w.home_file("state/dispatch.taken", &format!("{}\n", now() - 4000));
+    w.home_file(
+        Home::new(&w.home).state(State::DispatchTaken),
+        &format!("{}\n", now() - 4000),
+    );
     let lock = hold_dispatch(&w);
     let r = rpoll(&w, "");
     has(&r.out, "WARN: the dispatcher's lock has been held since");
@@ -125,11 +130,11 @@ fn a_store_that_is_not_installed_or_records_of_an_older_tehas_end_the_poll_with_
         "ERROR: the state store is not installed (run install.sh)",
     );
     w.reset();
-    w.home_file("state/cycles/7.approved.json", "");
+    w.home_file(Home::new(&w.home).cycle_note(7, "approved.json"), "");
     let r = rpoll(&w, "");
     assert_eq!(r.rc, 78, "{}", r.out);
     has(&r.out, &format!("ERROR: records of an older tehas at {}/state/cycles/7.approved.json; this release does not import them: move them out of state/", w.home.display()));
-    fs::remove_file(w.home.join("state/cycles/7.approved.json")).unwrap();
+    fs::remove_file(Home::new(&w.home).cycle_note(7, "approved.json")).unwrap();
 }
 
 #[test]
@@ -137,7 +142,7 @@ fn a_planning_bound_the_poll_cannot_read_ends_it_with_78_before_the_lock_and_any
     // A poll started with no load reads both bounds itself; the load refuses
     // the same words first (test/config_test.sh).
     let w = world();
-    let _ = fs::remove_file(w.home.join("state/dispatch.taken"));
+    let _ = fs::remove_file(Home::new(&w.home).state(State::DispatchTaken));
     let loaded = |var: &str| {
         w.sh(&format!(
             ". \"{}/lib/config.sh\" && tehas_load >/dev/null 2>&1; TEHAS_HEALTH_CMD=\"{}\" {var} \"{}\" poll",
@@ -153,7 +158,7 @@ fn a_planning_bound_the_poll_cannot_read_ends_it_with_78_before_the_lock_and_any
         "ERROR: TEHAS_PLAN_MAX_TURNS is not valid: expected a positive whole number",
     );
     assert_eq!(w.gh(), "");
-    assert!(!exists(&w, "state/dispatch.taken"));
+    assert!(!exists(&w, State::DispatchTaken));
     let r = loaded("TEHAS_PLAN_TIMEOUT=7201");
     assert_eq!(r.rc, 78, "{}", r.out);
     has(&r.out, "ERROR: TEHAS_PLAN_TIMEOUT (7201) is more than 7200");
@@ -249,11 +254,11 @@ fn a_poll_that_starts_a_cycle_logs_its_lines_line_for_line() {
 fn a_poll_takes_the_ask_for_it_and_a_dry_run_leaves_it() {
     let w = world();
     w.fx("ready.json", "[]");
-    w.home_file("state/dispatch.again", "");
+    w.home_file(Home::new(&w.home).state(State::DispatchAgain), "");
     rpoll(&w, "--dry-run");
-    assert!(exists(&w, "state/dispatch.again"));
+    assert!(exists(&w, State::DispatchAgain));
     rpoll(&w, "");
-    assert!(!exists(&w, "state/dispatch.again"));
+    assert!(!exists(&w, State::DispatchAgain));
 }
 
 #[test]
@@ -261,7 +266,7 @@ fn a_lock_nothing_used_for_30_days_is_swept_and_said() {
     let w = world();
     w.fx("ready.json", "[]");
     let lock = w.cycles_dir().join("5.lock");
-    w.home_file("state/cycles/5.lock", "");
+    w.home_file(Home::new(&w.home).cycle_note(5, "lock"), "");
     let st = Command::new("touch")
         .args(["-d", "40 days ago"])
         .arg(&lock)
@@ -280,7 +285,7 @@ fn a_lock_nothing_used_for_30_days_is_swept_and_said() {
 fn a_real_poll_writes_its_demand_with_its_time_and_its_cost_counts_its_start() {
     let w = world();
     rpoll(&w, "");
-    let d = w.json_home("live/demand.json");
+    let d = w.json_home(Home::new(&w.home).live(Live::Demand));
     assert!(d["time"].is_string(), "{d}");
     assert_eq!(d["waiting"], 1);
     assert_eq!(w.row(&["poll-show"])["last"]["starts"], 1);
@@ -317,7 +322,7 @@ fn a_read_the_poll_cannot_make_ends_the_poll_with_ghs_own_words() {
     lacks(&r.out, "TEHAS_GH_TOKEN");
     // The failed read is on the host's record that health counts, once, in
     // our words and not gh's.
-    let failures = w.read_home("state/github-failures");
+    let failures = w.read_home(Home::new(&w.home).state(State::GithubFailures));
     let fields: Vec<&str> = failures
         .lines()
         .map(|l| l.split('\t').nth(1).unwrap_or(""))
@@ -359,7 +364,10 @@ fn the_polls_token_reaches_the_real_tidy_status_and_health_the_token_program_run
     chmod_x(&tidy);
     chmod_x(&status);
     w.slots(1, &["TEHAS_GITHUB_APP_ID=5452597"]);
-    w.home_file("state/github/login", "tehas-app-bot[bot]\n");
+    w.home_file(
+        Home::new(&w.home).state(State::BotLogin),
+        "tehas-app-bot[bot]\n",
+    );
     w.env("TEHAS_TIDY_CMD", &tidy.to_string_lossy());
     w.env("TEHAS_STATUS_CMD", &status.to_string_lossy());
     // The shim first on PATH, as host/env.sh puts it.

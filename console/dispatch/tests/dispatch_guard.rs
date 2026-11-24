@@ -10,6 +10,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use tehas_core::home::{Home, State};
 use tehas_core::testing::{copy_exe, write_exe};
 
 fn tehasbot(w: &World) -> String {
@@ -45,7 +46,10 @@ fn set_origin(w: &World, url: &str) {
 /// Neither state/ nor logs/ is in the home.
 #[track_caller]
 fn no_state_or_logs(w: &World) {
-    assert!(!w.home.join("state").exists(), "state/ was made");
+    assert!(
+        !Home::new(&w.home).state_dir().exists(),
+        "the state dir was made"
+    );
     assert!(!w.home.join("logs").exists(), "logs/ was made");
 }
 
@@ -562,13 +566,13 @@ fn an_empty_argument_is_an_argument_not_a_poll() {
 }
 
 fn again(w: &World) -> PathBuf {
-    w.home.join("state/dispatch.again")
+    Home::new(&w.home).state(State::DispatchAgain)
 }
 
 #[test]
 fn soon_writes_the_file_the_path_unit_starts_a_poll_on_and_polls_nothing_itself() {
     let w = World::new("guard");
-    fs::create_dir_all(w.home.join("state")).unwrap();
+    fs::create_dir_all(Home::new(&w.home).state_dir()).unwrap();
     let _ = fs::remove_file(again(&w));
     let r = w.dispatch(&["--soon"]);
     assert_eq!(r.rc, 0, "{}", r.out);
@@ -590,7 +594,7 @@ fn soon_writes_the_file_the_path_unit_starts_a_poll_on_and_polls_nothing_itself(
 #[test]
 fn soon_with_no_state_directory_says_it_could_not_write_the_file() {
     let w = World::new("guard");
-    let _ = fs::remove_dir_all(w.home.join("state"));
+    let _ = fs::remove_dir_all(Home::new(&w.home).state_dir());
     let r = w.dispatch(&["--soon"]);
     assert_eq!(r.rc, 1, "{}", r.out);
     has(
@@ -603,7 +607,7 @@ fn soon_with_no_state_directory_says_it_could_not_write_the_file() {
 #[test]
 fn tehas_wake_asks_for_a_poll_as_soon_does_and_polls_nothing_itself() {
     let w = World::new("guard");
-    fs::create_dir_all(w.home.join("state")).unwrap();
+    fs::create_dir_all(Home::new(&w.home).state_dir()).unwrap();
     let _ = fs::remove_file(again(&w));
     let r = wake(&w, "");
     assert_eq!(r.rc, 0, "{}", r.out);
@@ -634,7 +638,7 @@ fn tehas_wake_is_taken_while_the_factory_is_paused_the_poll_it_asks_for_starts_n
 #[test]
 fn tehas_wake_with_no_state_directory_says_so_and_json_says_asked_false() {
     let w = World::new("guard");
-    let _ = fs::remove_dir_all(w.home.join("state"));
+    let _ = fs::remove_dir_all(Home::new(&w.home).state_dir());
     let r = wake(&w, "--json");
     assert_eq!(r.rc, 1, "{}", r.out);
     has(&r.out, r#"{"api":1,"asked":false}"#);
@@ -647,7 +651,7 @@ fn tehas_wake_with_no_state_directory_says_so_and_json_says_asked_false() {
 #[test]
 fn tehas_wake_refuses_an_argument_it_does_not_know_and_writes_nothing() {
     let w = World::new("guard");
-    fs::create_dir_all(w.home.join("state")).unwrap();
+    fs::create_dir_all(Home::new(&w.home).state_dir()).unwrap();
     let _ = fs::remove_file(again(&w));
     let r = wake(&w, "--soon");
     assert_eq!(r.rc, 64, "{}", r.out);
@@ -658,7 +662,7 @@ fn tehas_wake_refuses_an_argument_it_does_not_know_and_writes_nothing() {
 #[test]
 fn tehas_wake_stops_with_78_on_settings_it_cannot_load_and_writes_nothing() {
     let w = World::new("guard");
-    fs::create_dir_all(w.home.join("state")).unwrap();
+    fs::create_dir_all(Home::new(&w.home).state_dir()).unwrap();
     let _ = fs::remove_file(again(&w));
     w.instance(&["TEHAS_REPO=acme/widget"]);
     let r = wake(&w, "");
@@ -802,33 +806,50 @@ fn when_the_labels_cannot_be_changed_nothing_is_said_on_the_issue_and_the_poll_g
 // on disk is an import that failed or a cycle that ran old code across the
 // update: the poll would read no record for it and act on that, so it stops
 // before GitHub (D2).
-const OLD_RECORDS: &[&str] = &[
-    "state/cycles/5.approved.json",
-    "state/cycles/5.park",
-    "state/cycles/5.by",
-    "state/cycles/5.requeued",
-    "state/cycles/5.taken",
-    "state/cycles/5.rukas",
-    "state/cycles/5.quiet",
-    "state/cycles/5.image",
-    "state/cycles/5.settings",
-    "state/cycles/5.branch",
-    "state/cycles/5.history.jsonl",
-    "state/park-5.id",
-    "state/park-5.json",
-    "state/plan-5.json",
-    "state/plan-5.json.brief",
-    "state/plan-5.json.answer",
-    "state/plan-5.json.turn",
-    "state/plan-5.json.keep/",
-    "state/cycles/plan-5.history.jsonl",
-    "state/plan-5.history.jsonl",
+// A name that ends in a slash is a directory.
+const OLD_IN_CYCLES: &[&str] = &[
+    "5.approved.json",
+    "5.park",
+    "5.by",
+    "5.requeued",
+    "5.taken",
+    "5.rukas",
+    "5.quiet",
+    "5.image",
+    "5.settings",
+    "5.branch",
+    "5.history.jsonl",
+    "plan-5.history.jsonl",
+];
+const OLD_IN_STATE: &[&str] = &[
+    "park-5.id",
+    "park-5.json",
+    "plan-5.json",
+    "plan-5.json.brief",
+    "plan-5.json.answer",
+    "plan-5.json.turn",
+    "plan-5.json.keep/",
+    "plan-5.history.jsonl",
 ];
 
+/// Each old record's path, and whether it is a directory.
+fn old_records(w: &World) -> Vec<(PathBuf, bool)> {
+    let home = Home::new(&w.home);
+    let under = |dir: PathBuf, names: &[&str]| -> Vec<(PathBuf, bool)> {
+        names
+            .iter()
+            .map(|n| (dir.join(n.trim_end_matches('/')), n.ends_with('/')))
+            .collect()
+    };
+    let mut all = under(home.cycles_dir(), OLD_IN_CYCLES);
+    all.extend(under(home.state_dir(), OLD_IN_STATE));
+    all
+}
+
 fn rm_park_files(w: &World) {
-    for f in w.files(&w.home.join("state")) {
+    for f in w.files(&Home::new(&w.home).state_dir()) {
         if f.starts_with("park-") {
-            let _ = fs::remove_file(w.home.join("state").join(f));
+            let _ = fs::remove_file(Home::new(&w.home).state_dir().join(f));
         }
     }
 }
@@ -836,15 +857,15 @@ fn rm_park_files(w: &World) {
 #[test]
 fn an_old_record_file_stops_the_poll_and_a_dry_run_at_78_before_any_call_to_github() {
     let w = World::new("guard");
-    for old in OLD_RECORDS {
+    for (path, dir) in old_records(&w) {
+        let old = path.display();
         w.reset();
         rm_park_files(&w);
         fs::create_dir_all(w.cycles_dir()).unwrap();
-        let path = w.home.join(old.trim_end_matches('/'));
-        if old.ends_with('/') {
+        if dir {
             fs::create_dir_all(&path).unwrap();
         } else {
-            w.home_file(old, "{}\n");
+            w.home_file(&path, "{}\n");
         }
         let r = w.poll();
         assert_eq!(r.rc, 78, "{old}: {}", r.out);
@@ -900,13 +921,13 @@ fn the_polls_own_files_the_carriers_and_the_imported_records_do_not_stop_it() {
         "imported-20261024/park-5.id",
         "imported-20261024/plan-5.json",
     ] {
-        w.home_file(&format!("state/{f}"), "");
+        w.home_file(Home::new(&w.home).state_dir().join(f), "");
     }
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
     lacks(&r.out, "older tehas");
     assert_eq!(w.calls("fake-start"), "7\n");
-    let state = w.home.join("state");
+    let state = Home::new(&w.home).state_dir();
     fs::remove_dir_all(state.join("imported-20261024")).unwrap();
     let _ = fs::remove_file(state.join("refined.jsonl"));
     for f in w.files(&state) {

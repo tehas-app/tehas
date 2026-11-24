@@ -133,7 +133,7 @@ fn a_cycle_that_does_not_start_does_not_stop_the_next_one_and_the_poll_ends_with
     w.stub(
         "fake-start",
         r#"[ "$1" != 7 ] || exit 1
-flock -w 5 "$TEHAS_HOME/state/cycles/$1.lock" "$T/store-bin" cycle-start "$1" >/dev/null"#,
+flock -w 5 "$T_CYCLES/$1.lock" "$T/store-bin" cycle-start "$1" >/dev/null"#,
     );
     assert_eq!(w.poll().rc, 1);
     let gh = w.gh();

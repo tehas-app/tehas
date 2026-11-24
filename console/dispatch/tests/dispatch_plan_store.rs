@@ -9,6 +9,7 @@ use common::*;
 use serde_json::{json, Value};
 use std::fs::{self, OpenOptions};
 use std::path::Path;
+use tehas_core::home::Home;
 
 fn v(text: &str) -> Value {
     serde_json::from_str(text).unwrap_or_else(|e| panic!("{e}: {text}"))
@@ -291,7 +292,10 @@ fn the_keep_directory_a_turn_is_given_is_beside_the_workspace_not_in_the_state_d
         &format!("--keep {}/work/widget-plan-7.keep ", w.home.display()),
     );
     lacks(&w.plan_calls(), "/state/plan-7.json.keep");
-    assert_eq!(found(&w.home.join("state"), &|f| f.ends_with(".keep")), 0);
+    assert_eq!(
+        found(&Home::new(&w.home).state_dir(), &|f| f.ends_with(".keep")),
+        0
+    );
 }
 
 #[test]

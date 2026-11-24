@@ -8,6 +8,7 @@ use serde_json::{json, Value};
 use std::fs::{self, OpenOptions};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
+use tehas_core::home::{Home, State};
 
 fn v(text: &str) -> Value {
     serde_json::from_str(text).unwrap_or_else(|e| panic!("{e}: {text}"))
@@ -278,7 +279,7 @@ fn turn_that_waits(w: &World) {
 
 /// The turn of turn_that_waits() ends.
 fn turn_ends(w: &World) {
-    let again = w.home.join("state/dispatch.again");
+    let again = Home::new(&w.home).state(State::DispatchAgain);
     let _ = fs::remove_file(&again);
     w.touch("plan-done");
     wait_for(|| beside(w, ".rc").exists() && again.exists());
@@ -303,7 +304,7 @@ fn a_turn_that_ends_writes_its_status_and_asks_for_a_poll_which_posts_its_outcom
             .trim_end(),
         "0"
     );
-    assert!(w.home.join("state/dispatch.again").exists());
+    assert!(Home::new(&w.home).state(State::DispatchAgain).exists());
     assert_eq!(w.calls("plan.fd9"), "");
     w.fx("plans.json", "[]");
     w.clear_calls();
@@ -409,7 +410,7 @@ fn the_bot_is_refused_as_an_allowed_labeller_even_with_no_question_open() {
 fn a_bot_login_that_is_not_kept_ends_the_poll_before_anything_is_written() {
     let w = World::new("turns");
     w.fx("marked.json", r#"[{"number":9}]"#);
-    fs::remove_file(w.home.join("state/github/login")).unwrap();
+    fs::remove_file(Home::new(&w.home).state(State::BotLogin)).unwrap();
     let r = w.poll();
     assert_eq!(r.rc, 1, "{}", r.out);
     has(&r.out, "ERROR: the bot's own login could not be read");

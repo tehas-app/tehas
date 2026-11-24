@@ -8,6 +8,7 @@ use common::*;
 use serde_json::json;
 use std::fs::{self, File, OpenOptions};
 use std::time::{SystemTime, UNIX_EPOCH};
+use tehas_core::home::{Home, State};
 
 fn now() -> u64 {
     SystemTime::now()
@@ -102,7 +103,7 @@ fn for_one_issue_the_running_label_then_the_start_comment_then_the_start() {
         "fake-order",
         r#"grep -q -e "--add-label tehas:running" "$T/calls/gh" && : >"$T/calls/order.label"
 grep -q "^issue comment $1 " "$T/calls/gh" && : >"$T/calls/order.comment"
-flock -w 5 "$TEHAS_HOME/state/cycles/$1.lock" "$T/store-bin" cycle-start "$1" >/dev/null"#,
+flock -w 5 "$T_CYCLES/$1.lock" "$T/store-bin" cycle-start "$1" >/dev/null"#,
     );
     w.env("TEHAS_CYCLE_START_CMD", "fake-order");
     let r = w.poll();
@@ -122,7 +123,7 @@ fn the_poll_does_not_wait_for_the_cycle_it_returns_while_the_cycle_lives_with_it
     // The cycle outlives the poll and holds its own lock, not the poll's.
     w.stub(
         "fake-live",
-        r#"( exec 9>"$TEHAS_HOME/state/cycles/$1.lock"; flock -n 9; "$T/store-bin" cycle-start "$1"; exec sleep 8 ) >/dev/null 2>&1 &
+        r#"( exec 9>"$T_CYCLES/$1.lock"; flock -n 9; "$T/store-bin" cycle-start "$1"; exec sleep 8 ) >/dev/null 2>&1 &
 echo $! >"$T/live.pid""#,
     );
     w.env("TEHAS_CYCLE_START_CMD", "fake-live");
@@ -130,7 +131,7 @@ echo $! >"$T/live.pid""#,
     let pid = fs::read_to_string(w.t().join("live.pid")).unwrap();
     let pid = pid.trim();
     let alive = std::path::Path::new(&format!("/proc/{pid}")).exists();
-    let lock = File::open(w.home.join("state/dispatch.lock")).unwrap();
+    let lock = File::open(Home::new(&w.home).state(State::DispatchLock)).unwrap();
     let free = lock.try_lock().is_ok();
     drop(lock);
     let _ = std::process::Command::new("kill").arg(pid).status();
@@ -151,18 +152,25 @@ fn the_polls_lock_is_not_handed_to_the_index() {
 fn a_real_poll_records_when_it_took_the_lock() {
     let w = World::new("st-taken");
     w.poll();
-    let taken: u64 = w.read_home("state/dispatch.taken").trim().parse().unwrap();
+    let taken: u64 = w
+        .read_home(Home::new(&w.home).state(State::DispatchTaken))
+        .trim()
+        .parse()
+        .unwrap();
     assert!(now() - taken < 60);
 }
 
 /// The dispatcher's lock, held by the test, as taken `ago` seconds since.
 fn lock_held(w: &World, ago: u64) -> File {
-    let _ = fs::remove_file(w.home.join("state/dispatch.stuck"));
-    w.home_file("state/dispatch.taken", &format!("{}\n", now() - ago));
+    let _ = fs::remove_file(Home::new(&w.home).state(State::DispatchStuck));
+    w.home_file(
+        Home::new(&w.home).state(State::DispatchTaken),
+        &format!("{}\n", now() - ago),
+    );
     let f = OpenOptions::new()
         .create(true)
         .append(true)
-        .open(w.home.join("state/dispatch.lock"))
+        .open(Home::new(&w.home).state(State::DispatchLock))
         .unwrap();
     f.try_lock().unwrap();
     f
@@ -181,8 +189,8 @@ fn a_poll_that_finds_the_lock_held_for_longer_than_a_turn_may_take_says_so_once_
     );
     assert_eq!(w.gh(), "");
     assert_eq!(
-        w.read_home("state/dispatch.stuck"),
-        w.read_home("state/dispatch.taken")
+        w.read_home(Home::new(&w.home).state(State::DispatchStuck)),
+        w.read_home(Home::new(&w.home).state(State::DispatchTaken))
     );
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
@@ -205,10 +213,13 @@ fn a_poll_that_finds_the_lock_held_for_a_short_while_says_nothing() {
 fn a_poll_that_finds_the_lock_held_does_not_change_when_it_was_taken() {
     let w = World::new("st-held-taken");
     let _lock = lock_held(&w, 60);
-    let stamp = w.read_home("state/dispatch.taken");
+    let stamp = w.read_home(Home::new(&w.home).state(State::DispatchTaken));
     w.poll();
     w.dispatch(&["--dry-run"]);
-    assert_eq!(w.read_home("state/dispatch.taken"), stamp);
+    assert_eq!(
+        w.read_home(Home::new(&w.home).state(State::DispatchTaken)),
+        stamp
+    );
 }
 
 #[test]
@@ -216,17 +227,17 @@ fn a_poll_that_finds_the_lock_held_leaves_the_ended_cycles_request_so_the_path_u
 ) {
     let w = World::new("st-held-again");
     let _lock = lock_held(&w, 60);
-    w.home_file("state/dispatch.again", "");
+    w.home_file(Home::new(&w.home).state(State::DispatchAgain), "");
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
-    assert!(w.home.join("state/dispatch.again").exists());
+    assert!(Home::new(&w.home).state(State::DispatchAgain).exists());
 }
 
 #[test]
 fn a_poll_takes_the_request_an_ended_cycle_left_and_a_dry_run_leaves_it() {
     let w = World::new("st-again");
-    let again = w.home.join("state/dispatch.again");
-    w.home_file("state/dispatch.again", "");
+    let again = Home::new(&w.home).state(State::DispatchAgain);
+    w.home_file(Home::new(&w.home).state(State::DispatchAgain), "");
     w.dispatch(&["--dry-run"]);
     assert!(again.exists());
     let r = w.poll();
@@ -342,7 +353,7 @@ fn a_closed_issue_marked_as_running_with_no_cycle_loses_the_mark_and_is_not_park
 fn a_lock_file_nobody_holds_does_not_make_it_a_running_cycle() {
     let w = World::new("st-lock-file");
     w.fx("marked.json", r#"[{"number":9}]"#);
-    w.home_file("state/cycles/9.lock", "");
+    w.home_file(Home::new(&w.home).cycle_note(9, "lock"), "");
     w.poll();
     has(
         &w.gh(),
@@ -424,7 +435,7 @@ fn a_store_that_is_busy_during_the_wait_still_finds_the_start() {
     w.stub(
         "fake-start",
         r#"echo 2 >"$T/busy-left"
-flock -w 5 "$TEHAS_HOME/state/cycles/$1.lock" "$T/store-bin" cycle-start "$1" >/dev/null"#,
+flock -w 5 "$T_CYCLES/$1.lock" "$T/store-bin" cycle-start "$1" >/dev/null"#,
     );
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);

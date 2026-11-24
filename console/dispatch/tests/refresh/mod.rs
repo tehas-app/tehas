@@ -8,6 +8,7 @@ use serde_json::{json, Value};
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
+use tehas_core::home::{Home, State};
 
 pub const RHEAD: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 pub const RBASE: &str = "cccccccccccccccccccccccccccccccccccccccc";
@@ -16,7 +17,7 @@ pub const RBASE: &str = "cccccccccccccccccccccccccccccccccccccccc";
 pub const UNMARK_CALL: &str = "api -X DELETE repos/acme/widget/issues/50/labels/tehas:refreshing";
 
 pub fn refresh_dir(w: &World) -> PathBuf {
-    w.home.join("state/refresh")
+    Home::new(&w.home).state(State::Refreshes)
 }
 
 /// Pull request 50 as GitHub answers for it now, after `change`.
@@ -55,7 +56,7 @@ fn work7(w: &World, first: &str, labels: &[&str]) {
 /// The request of #7 as tehasbot refresh writes it, asked at `at`.
 pub fn request(w: &World, at: &str) {
     w.home_file(
-        "state/refresh/7.json",
+        Home::new(&w.home).refresh_request(7),
         &json!({"at": at, "pr": 50, "head_sha": RHEAD, "base_sha": RBASE}).to_string(),
     );
 }
