@@ -232,7 +232,7 @@ fn the_reaper_clears_a_mark_its_cycle_could_not_take_off() {
     w.touch("refreshing.json");
     w.rm_fx("unmark-fails");
     w.poll();
-    has(&w.gh(), UNMARK_CALL);
+    assert!(unmarked_change(&w, 50), "{:?}", w.writes_of(50));
 }
 
 #[test]
@@ -411,10 +411,14 @@ fn a_stale_tehas_refreshing_is_cleared_while_a_pr_request_waits() {
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
     has(&w.gh(), "--label tehas:refreshing");
-    has(
-        &w.gh(),
-        "api -X DELETE repos/acme/widget/issues/60/labels/tehas:refreshing",
-    );
+    assert!(unmarked_change(&w, 60), "{:?}", w.writes_of(60));
+    // The wiring: one DELETE of the label on the change, through the adapter.
+    let deletes = w
+        .gh()
+        .lines()
+        .filter(|l| l.starts_with("api -X DELETE") && l.contains("/issues/60/labels/"))
+        .count();
+    assert_eq!(deletes, 1, "{}", w.gh());
     has(
         &r.out,
         "clear pull request #60: tehas:refreshing off, no refresh on this host names it",

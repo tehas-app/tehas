@@ -1080,17 +1080,24 @@ fn an_answered_question_is_recorded_after_its_label_and_retried_when_busy() {
     );
 }
 
+/// The refreshing mark off a pull request, as a write of the code host: a
+/// change already without it is the adapter's done.
 #[test]
-fn a_pull_request_without_the_mark_is_unmarked_already() {
+fn a_pull_request_is_unmarked_through_the_code_host() {
     let act = json!([{"pr": 12, "remove": ["tehas:refreshing"], "log": "unmark #12"}]);
     let mut t = world();
     assert_eq!(t.apply(act.clone()).log, vec!["unmark #12"]);
-    assert!(t.calls()[0].contains("--kind change-unmark --issue 12"));
-    // GitHub's Not Found: the mark is not there, which is what was wanted.
+    let unmark = tehas_ports::Write::UnmarkChange {
+        no: tehas_ports::ChangeNo::new(12).unwrap(),
+        mark: mark("tehas:refreshing"),
+    };
+    assert_eq!(t.writes(), vec![sent(&unmark)]);
     let mut t = world();
-    t.fail("gh", "DELETE");
-    assert_eq!(t.apply(act.clone()).log, vec!["unmark #12"]);
-    assert!(t.calls().last().unwrap().ends_with("--result empty"));
+    t.fail("send", "UnmarkChange");
+    assert_eq!(
+        t.apply(act).log,
+        vec!["WARN: label change on pull request #12 failed: --remove-label tehas:refreshing"]
+    );
 }
 
 /// A comment's markers go beside its text, typed, never inside it: the
