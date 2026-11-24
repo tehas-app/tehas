@@ -11,7 +11,7 @@
 //! before any request, and an edit that would drop one is refused too.
 
 use super::unsupported;
-use crate::{gh, GitHub};
+use crate::{gh, markers, GitHub};
 use serde_json::Value;
 use tehas_core::text::has_marker;
 use tehas_ports::{
@@ -241,9 +241,10 @@ pub(super) fn unsent(o: Outcome) -> Outcome {
 }
 
 /// `Refused(Invalid)` when a text holds one of our markers: a body never
-/// does, they travel beside it.
+/// does, they travel beside it. As [`markers::foreign_text`] finds one: our
+/// wrapper, opening or closing, or a marker the reader reads, bare too.
 fn unmarked(texts: &[&str]) -> Did {
-    if texts.iter().any(|t| has_marker(t)) {
+    if texts.iter().any(|t| markers::foreign_text(t)) {
         Err(Outcome::Refused(Refusal::Invalid))
     } else {
         Ok(())
