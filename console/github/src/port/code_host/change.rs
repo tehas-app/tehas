@@ -817,10 +817,15 @@ impl Edited {
 /// The blueprints of this project the text names with GitHub's closing
 /// syntax: each `#<n>` the core's reading of a closing line takes, in the
 /// order they first stand in the text. `text` is the body without this
-/// item's markers. A link (`closes https://github.com/<o>/<r>/issues/5`)
-/// and `<o>/<r>#5`, which GitHub counts too, are not read: this reads
-/// fewer, never more.
-fn says_closes(text: &str) -> Vec<Ref<BlueprintNo>> {
+/// item's markers. Only what GitHub renders as text is read, as
+/// `markers::live_text` leaves it: a closing line in code, a quote or an
+/// HTML comment closes nothing. A link
+/// (`closes https://github.com/<o>/<r>/issues/5`) and `<o>/<r>#5`, which
+/// GitHub counts too, are not read: this reads fewer, never more. The list
+/// (`changes` with bodies) reads it the same.
+pub(super) fn says_closes(text: &str) -> Vec<Ref<BlueprintNo>> {
+    let text = markers::live_text(text);
+    let text = text.as_str();
     let mut said: Vec<Ref<BlueprintNo>> = Vec::new();
     for (i, _) in text.match_indices('#') {
         let digits: String = text[i + 1..]

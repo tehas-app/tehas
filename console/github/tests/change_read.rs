@@ -1111,8 +1111,8 @@ fn law_past_the_bound_is_unread_for_comments_files_and_reviews() {
 #[test]
 fn updated_is_at_or_after_every_time_of_the_change() {
     // The law `code_host::updated_is_at_or_after_every_time` reads through
-    // `changes` with bodies, which this adapter does not answer yet; its
-    // rule is checked here on the one change's read.
+    // `changes` with bodies (run in tests/changes_bodies.rs); its rule is
+    // checked here on the one change's read.
     let mut site = Site::default().edited("pull", None, "2026-11-20T10:20:00Z");
     site.pull["state"] = "closed".into();
     site.pull["closed_at"] = "2026-11-20T10:25:00Z".into();
