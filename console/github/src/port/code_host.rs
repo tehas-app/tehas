@@ -85,7 +85,7 @@ impl CodeHost for GitHub {
                 Ok(out) => out,
                 Err(e) => return Err(self.query_outcome(&e)),
             };
-            let page = read_page(&out, me, filter)?;
+            let page = read_page(&out, me, filter, self.bot.as_ref())?;
             for no in page.numbers {
                 if !numbers.insert(no) {
                     return Err(Outcome::Unread(Unread::Inconsistent));
@@ -410,7 +410,12 @@ fn takes(f: &ChangeFilter, me: Option<&AccountId>, l: &Lead) -> bool {
 /// errors, or a page that says more follows and holds none, is
 /// `Unread(Inconsistent)`. A bot's login is written as GraphQL writes it,
 /// `name`, so one account has one login whichever read named it.
-fn read_page(out: &str, me: bool, f: &ChangeFilter) -> Got<Page> {
+fn read_page(
+    out: &str,
+    me: bool,
+    f: &ChangeFilter,
+    bot: Option<&crate::tickets::Bot>,
+) -> Got<Page> {
     let malformed = Outcome::Unread(Unread::Malformed);
     let mut v: Value = serde_json::from_str(out.trim()).map_err(|_| malformed.clone())?;
     tehas_core::accounts::vouch(&mut v);
@@ -445,7 +450,12 @@ fn read_page(out: &str, me: bool, f: &ChangeFilter) -> Got<Page> {
         let login = Login::new(tehas_core::accounts::folded(tehas_core::accounts::account(
             login,
         )));
+        let facts = crate::gh::Facts {
+            id,
+            kind: kind.map(str::to_string),
+        };
         let kind = match kind {
+            _ if bot.is_some_and(|b| b.is(&facts)) => AccountKind::Ours,
             Some("User") => AccountKind::Person,
             Some("Bot") => AccountKind::Bot,
             _ => AccountKind::Unknown,

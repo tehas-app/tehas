@@ -323,7 +323,10 @@ impl GitHub {
             "OPEN" => ChangeState::Open,
             "MERGED" => ChangeState::Merged {
                 at: time(p.merged_at.as_deref())?,
-                by: p.merged_by.as_ref().and_then(Actor::account),
+                by: p
+                    .merged_by
+                    .as_ref()
+                    .and_then(|a| a.account(self.bot.as_ref())),
                 commit: commit(p.merge_commit.map(|c| c.oid))?,
             },
             "CLOSED" => ChangeState::Closed {
@@ -369,6 +372,7 @@ impl GitHub {
             p.last_edited_at.as_deref(),
             p.editor.as_ref(),
             p.renames.nodes.into_iter().flatten().last(),
+            self.bot.as_ref(),
         )?;
         let head = Branch::new(p.head_ref_name).map_err(|_| malformed())?;
         let head_commit = commit(Some(p.head_ref_oid))?;
@@ -394,7 +398,7 @@ impl GitHub {
             link,
         );
         digest.title = p.title;
-        digest.author = p.author.as_ref().and_then(Actor::account);
+        digest.author = p.author.as_ref().and_then(|a| a.account(self.bot.as_ref()));
         digest.from_fork = p.is_cross_repository;
         digest.draft = p.is_draft;
         digest.merge_state = mergeable(&p.mergeable, &p.merge_state_status);
@@ -455,15 +459,16 @@ fn edited(
     body_at: Option<&str>,
     body_by: Option<&Actor>,
     renamed: Option<Renamed>,
+    bot: Option<&crate::tickets::Bot>,
 ) -> Got<(Option<At>, Option<Account>)> {
     let body = match body_at {
-        Some(t) => Some((time(Some(t))?, body_by.and_then(Actor::account))),
+        Some(t) => Some((time(Some(t))?, body_by.and_then(|a| a.account(bot)))),
         None => None,
     };
     let title = match renamed {
         Some(r) => Some((
             time(r.created_at.as_deref())?,
-            r.actor.as_ref().and_then(Actor::account),
+            r.actor.as_ref().and_then(|a| a.account(bot)),
         )),
         None => None,
     };
@@ -638,11 +643,11 @@ struct Actor {
 }
 
 impl Actor {
-    fn account(&self) -> Option<Account> {
+    fn account(&self, bot: Option<&crate::tickets::Bot>) -> Option<Account> {
         let facts = gh::Facts {
             id: self.database_id,
             kind: self.typename.clone(),
         };
-        crate::tickets::account(&self.login, &facts)
+        crate::tickets::account(&self.login, &facts, bot)
     }
 }
