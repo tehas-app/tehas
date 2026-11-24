@@ -12,7 +12,6 @@
 
 #![forbid(unsafe_code)]
 
-mod aliases;
 mod attachments;
 mod forge;
 pub mod gh;
@@ -25,4 +24,4 @@ mod tickets;
 mod vocabulary;
 
 pub use forge::{read_events, Approval, ForgeError, GitHub, LabelEvent};
-pub use port::{GitHubSite, MakeRunner};
+pub use port::{GitHubSite, MakeRunner, PeopleClient};

@@ -4,12 +4,12 @@
 //! page of the list reads it (`PullNode::read`), and the rest of the filter is
 //! applied to what the numbers answer: the states, the author, the branch,
 //! the marks carried, the blueprints closed and the times. A number that
-//! names no pull request is left out (Decided 121).
+//! names no pull request is left out (Decided 121), as `items.rs` reads an aliased question.
 
 use serde_json::Value;
 
 use super::{pull_fields, PullNode};
-use crate::aliases::alias;
+use crate::items::alias;
 use crate::GitHub;
 use tehas_ports::{
     AccountId, Author, Bound, ChangeDigest, ChangeFilter, Got, Outcome, Pool, Unread, Whole,
@@ -75,35 +75,33 @@ impl GitHub {
         me: bool,
         filter: &ChangeFilter,
     ) -> Got<Vec<ChangeDigest>> {
-        let malformed = Outcome::Unread(Unread::Malformed);
-        let (owner, name) = self.owner_name();
-        let query = format!("query={}", question(numbers, me, filter.bodies));
-        let args = ["api", "graphql", "-f", &owner, "-f", &name, "-f", &query];
+        let question = question(numbers, me, filter.bodies);
         let aliases: Vec<String> = numbers.iter().map(|n| alias(*n)).collect();
-        let asked = self
-            .ask_aliased::<Value>("the pull requests", &args, &aliases)
-            .map_err(|o| match o {
-                Outcome::Spent { until, .. } => Outcome::Spent {
-                    pool: Pool::Priced,
-                    until,
-                },
-                o => o,
-            })?;
-        let here = match asked.repository.get("databaseId") {
-            Some(Some(id)) => Some(id.as_u64().ok_or(malformed.clone())?),
-            _ => None,
-        };
-        let viewer = match (me, asked.viewer.and_then(|v| v.database_id)) {
+        let asked = self.ask_aliased_beside::<Value>("the pull requests", &question, &aliases);
+        // A failure of the question, or of a number, fails the list before
+        // anything else is read of it.
+        for node in &asked.nodes {
+            match node {
+                Ok(_) | Err(Outcome::NotFound) => {}
+                Err(Outcome::Spent { until, .. }) => {
+                    return Err(Outcome::Spent {
+                        pool: Pool::Priced,
+                        until: *until,
+                    })
+                }
+                Err(o) => return Err(o.clone()),
+            }
+        }
+        let here = asked.repository_id;
+        let viewer = match (me, asked.viewer_id) {
             (false, _) => None,
             (true, Some(id)) => Some(AccountId::new(id.to_string())),
-            (true, None) => return Err(malformed),
+            (true, None) => return Err(Outcome::Unread(Unread::Malformed)),
         };
         let mut taken = Vec::new();
         for (n, node) in numbers.iter().zip(asked.nodes) {
-            let node = match node {
-                Ok(node) => node,
-                Err(Outcome::NotFound) => continue,
-                Err(o) => return Err(o),
+            let Ok(node) = node else {
+                continue;
             };
             let read =
                 PullNode { node: &node }.read(here, viewer.as_ref(), filter, self.bot.as_ref())?;
