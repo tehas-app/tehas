@@ -1,0 +1,44 @@
+[
+  {
+    "op": "Tickets::several",
+    "part": "digest.labels",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "Ticket 20, closed, carries the project's mark bug, the shipped state and a name no mark can have, in that order: each is in labels by the site's own name, the last too, though marks leave it out.",
+    "ticket": {
+      "Number": 20
+    },
+    "answer": {
+      "Ok": ["bug", "tehas:shipped", "not a label?"]
+    }
+  },
+  {
+    "op": "Tickets::several",
+    "part": "digest.labels",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "Ticket 21 carries the approval alone.",
+    "ticket": {
+      "Number": 21
+    },
+    "answer": {
+      "Ok": ["tehas:ready"]
+    }
+  },
+  {
+    "op": "Tickets::several",
+    "part": "digest.labels",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "Ticket 25 carries the pause alone.",
+    "ticket": {
+      "Number": 25
+    },
+    "answer": {
+      "Ok": ["tehas:pause"]
+    }
+  }
+]

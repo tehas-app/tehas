@@ -232,6 +232,22 @@ comment = "//"
 max = 0
 why = "New at T4.1. The ports are data and pure functions; the fake that comes with them keeps a clock of its own. Tightened at T4.1a's review: besides a path through std or a module, the pattern counts a grouped or aliased import of an effect module (use std::{fs, ...}, use std::{env as e}, a module alone on a line of a group spread over lines, std itself aliased), the standard streams (stdin, stdout, stderr, through io:: or not) and the print macros (print!, println!, eprint!, eprintln!, dbg!). Tightened at T4.1d: thread_local! counts too, since state kept per thread is hidden global state that a nested or cross-thread call reads wrong; the fake keeps what it counts in its World."
 
+[[check]]
+id = "digest-labels"
+rule = "R1"
+what = "a ticket digest's label names (TicketDigest.labels) are read only where they are shown, never as a decision input: outside the ports and the adapter that fills them, no module reads them"
+pattern = '\b(digest|d)\.labels\b'
+files = ["console/**/*.rs"]
+allowed = [
+  # the field, its fake and its laws
+  "console/ports/**",
+  # the adapter fills it from the read it makes for the marks
+  "console/github/**",
+]
+comment = "//"
+max = 2
+why = "New with ports Decided 130: TicketDigest.labels is for display alone, and a caller decides on marks. A module that shows the names joins `allowed` in the pull request that adds it, with a comment saying what it shows. The 2 are the dispatcher's own test that pins the rule, console/dispatch/src/read/board.rs's the_label_names_of_a_digest_are_never_read: it writes names into a digest and finds the page decide reads unchanged. A read anywhere else is a rise."
+
 # The events (T11.1): each name is written once, in the events module.
 
 [[check]]
