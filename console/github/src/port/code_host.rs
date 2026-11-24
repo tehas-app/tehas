@@ -50,8 +50,8 @@ impl CodeHost for GitHub {
     /// page and none moves past the cursor. With a since, newest updated
     /// first, to the first pull request updated before the latest since (a
     /// merge updates its pull request); the times must not rise down the
-    /// list, and past one page the first is asked again and must not have
-    /// moved. The states, the branch and the
+    /// list, the total must hold, and past one page the first is asked
+    /// again and must hold no pull request the read has not seen. The states, the branch and the
     /// labels of the marks carried narrow the question; the author (by
     /// account id), the blueprints closed, the numbers, the times and every
     /// mark carried narrow what it answers. A mark no label can be is
@@ -92,11 +92,11 @@ impl CodeHost for GitHub {
         let mut numbers = BTreeSet::new();
         let mut cursors = BTreeSet::new();
         let mut after: Option<String> = None;
-        let mut first = None;
+        let mut total = None;
         let mut last: Option<At> = None;
         for pages in 1.. {
             let page = ask(self, after.as_ref())?;
-            if since.is_some() && first.get_or_insert(page.top()).0 != page.total {
+            if since.is_some() && *total.get_or_insert(page.total) != page.total {
                 return Err(Outcome::Unread(Unread::Inconsistent));
             }
             for at in &page.updated {
@@ -126,7 +126,9 @@ impl CodeHost for GitHub {
                 None if numbers.len() as u64 == page.total => break,
                 None => return Err(Outcome::Unread(Unread::Inconsistent)),
                 Some(_) if past && pages == 1 => break,
-                Some(_) if past && first == Some(ask(self, None)?.top()) => break,
+                Some(_) if past && ask(self, None)?.numbers.iter().all(|n| numbers.contains(n)) => {
+                    break
+                }
                 Some(_) if past => return Err(Outcome::Unread(Unread::Inconsistent)),
                 Some(c) if !cursors.insert(c.clone()) => {
                     return Err(Outcome::Unread(Unread::Inconsistent));
@@ -379,17 +381,6 @@ struct Page {
     updated: Vec<At>,
     /// The pull requests the filter takes, each read whole.
     pulls: Vec<Pull>,
-}
-
-impl Page {
-    /// The total and the first pull request with its updated time.
-    fn top(&self) -> (u64, Option<ChangeNo>, Option<At>) {
-        (
-            self.total,
-            self.numbers.first().copied(),
-            self.updated.first().copied(),
-        )
-    }
 }
 
 /// One pull request, read: its digest with no marks yet, and its labels to

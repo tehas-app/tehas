@@ -359,10 +359,17 @@ fn a_custom_role_is_never_write_whatever_its_permission_word() {
                 r#"{{{user},"role_name":"{role}","permission":"{word}"}}"#
             ))
         };
-        for word in ["admin", "maintain", "write", "triage", "read"] {
+        for word in ["admin", "write", "read"] {
             assert_eq!(of(word), Ok(Standing::Read), "{role:?} {word}");
         }
         assert_eq!(of("none"), Ok(Standing::None), "{role:?}");
+        for word in ["maintain", "triage"] {
+            assert_eq!(
+                of(word),
+                Err(Outcome::Unread(Unread::Malformed)),
+                "{role:?} {word}"
+            );
+        }
         assert_eq!(
             of("superuser"),
             Err(Outcome::Unread(Unread::Malformed)),
@@ -450,6 +457,31 @@ fn role_triage_with_word_write_is_triage_the_role_caps_it() {
 }
 
 #[test]
+fn a_base_role_beside_a_word_this_copy_does_not_know_is_malformed() {
+    let malformed = Err(Outcome::Unread(Unread::Malformed));
+    assert_eq!(role_with_word("write", "owner"), malformed);
+    assert_eq!(role_with_word("admin", "maintain"), malformed);
+    assert_eq!(standing_of_pair(Some("\"read\""), Some("7")), malformed);
+}
+
+#[test]
+fn a_custom_or_empty_role_with_a_missing_or_null_word_is_malformed() {
+    let malformed = Err(Outcome::Unread(Unread::Malformed));
+    for (role, word) in [
+        ("\"deployer\"", None),
+        ("\"deployer\"", Some("null")),
+        ("\"\"", None),
+        ("\"\"", Some("null")),
+    ] {
+        assert_eq!(
+            standing_of_pair(Some(role), word),
+            malformed,
+            "{role} {word:?}"
+        );
+    }
+}
+
+#[test]
 fn every_agreeing_pair_is_the_role() {
     for (role, word, standing) in [
         ("admin", "admin", Standing::Admin),
@@ -523,7 +555,8 @@ fn before(role: Option<&str>, word: Option<&str>) -> Got<Standing> {
 
 #[test]
 fn no_role_and_word_answer_a_higher_standing_than_before() {
-    let quoted = [
+    let quote = |w: &str| format!("\"{w}\"");
+    let roles = [
         "admin",
         "maintain",
         "write",
@@ -536,25 +569,33 @@ fn no_role_and_word_answer_a_higher_standing_than_before() {
         "ADMIN",
         "superuser",
     ]
-    .map(|w| format!("\"{w}\""));
-    let mut values: Vec<Option<&str>> = vec![None, Some("null"), Some("7")];
-    values.extend(quoted.iter().map(|q| Some(q.as_str())));
-    let mut lowered = 0;
-    for role in &values {
-        for word in &values {
+    .map(quote);
+    let words = [
+        "admin", "write", "read", "none", "maintain", "triage", "owner",
+    ]
+    .map(quote);
+    let mut role_axis: Vec<Option<&str>> = vec![None, Some("null"), Some("7")];
+    role_axis.extend(roles.iter().map(|q| Some(q.as_str())));
+    let mut word_axis: Vec<Option<&str>> = vec![None, Some("null")];
+    word_axis.extend(words.iter().map(|q| Some(q.as_str())));
+    let (mut lowered, mut refused) = (0, 0);
+    for role in &role_axis {
+        for word in &word_axis {
             let old = before(*role, *word);
             let new = standing_of_pair(*role, *word);
             match (&old, &new) {
-                (Ok(o), Ok(n)) => assert!(n <= o, "{role:?} {word:?}: {old:?} -> {new:?}"),
+                (Ok(o), Ok(n)) if n < o => lowered += 1,
+                (Ok(o), Ok(n)) => assert_eq!(n, o, "{role:?} {word:?}"),
+                (Ok(_), Err(Outcome::Unread(Unread::Malformed))) => refused += 1,
                 _ => assert_eq!(new, old, "{role:?} {word:?}"),
-            }
-            if new != old {
-                lowered += 1;
             }
         }
     }
-    // The nine pairs whose word is below the role.
-    assert_eq!(lowered, 9);
+    // Lowered: the nine pairs whose word is below the base role. Refused:
+    // each of the six base roles beside maintain, triage or an unknown
+    // word (18), and each of the five custom or empty roles beside
+    // maintain or triage (10).
+    assert_eq!((lowered, refused), (9, 28));
 }
 
 #[test]

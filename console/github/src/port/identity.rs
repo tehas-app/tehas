@@ -276,13 +276,14 @@ fn read_user(out: &str, id: u64) -> Got<Holder> {
 /// only when `role_name` is missing or null.
 ///
 /// A base role is its own rank, held to what the legacy word allows: when
-/// the two disagree the lower reading wins (see `word_cap`). The legacy word
+/// the two disagree the lower reading wins, and a word not of the four is
+/// no answer (see `word_cap`). The legacy word
 /// is one of GitHub's four, which folds maintain into `write` and triage
 /// into `read`, so read alone it never answers `Maintain` or `Triage`. Any
 /// other `role_name`, a custom role or an empty one, is never
 /// above `Read`, since the dispatcher lets no such account write: it is
 /// `Read` when the word shows any access, `None` when it says none, and no
-/// answer to read without a word.
+/// answer without a word or with a word not of the four.
 fn read_permission(out: &str, id: u64) -> Got<Standing> {
     let v: Value = serde_json::from_str(out.trim()).map_err(|_| MALFORMED)?;
     let said = v
@@ -315,25 +316,30 @@ fn read_permission(out: &str, id: u64) -> Got<Standing> {
         "none" => Standing::None,
         _ => {
             return match word {
-                Some("admin" | "maintain" | "write" | "triage" | "read") => Ok(Standing::Read),
+                Some("admin" | "write" | "read") => Ok(Standing::Read),
                 Some("none") => Ok(Standing::None),
                 _ => Err(MALFORMED),
             }
         }
     };
-    Ok(role.min(word_cap(word)))
+    Ok(role.min(word_cap(v.get("permission"))?))
 }
 
 /// The highest base role a legacy word agrees with. GitHub's own answers
 /// fold the role into the word, so a role above this cap disagrees with
 /// its word and is read at the cap: the lower of the two readings. A
-/// missing word, or one not of the four, caps nothing.
-fn word_cap(word: Option<&str>) -> Standing {
+/// missing or null word caps nothing; any other word than the four is no
+/// answer, since the role must not stand beside a word not understood.
+fn word_cap(word: Option<&Value>) -> Got<Standing> {
     match word {
-        Some("write") => Standing::Maintain,
-        Some("read") => Standing::Triage,
-        Some("none") => Standing::None,
-        _ => Standing::Admin,
+        None | Some(Value::Null) => Ok(Standing::Admin),
+        Some(w) => match w.as_str() {
+            Some("admin") => Ok(Standing::Admin),
+            Some("write") => Ok(Standing::Maintain),
+            Some("read") => Ok(Standing::Triage),
+            Some("none") => Ok(Standing::None),
+            _ => Err(MALFORMED),
+        },
     }
 }
 

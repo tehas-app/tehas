@@ -389,11 +389,11 @@ fn a_list_longer_than_ten_pages_is_cut_with_no_eleventh_request() {
 /// A runner for `acme/huge`, 1500 pull requests, #n updated `n` minutes
 /// into 2026, answered newest updated first, 100 a page, the cursor the
 /// offset. Those in `merged` are merged at their updated time, the rest
-/// open. With `moved`, #7 is updated after the second call and leads the
-/// list from then on.
+/// open. With `moved` (#n, place, minutes), #n is updated after the second
+/// call to that time and stands at that place from then on.
 struct Huge {
     merged: Vec<u64>,
-    moved: bool,
+    moved: Option<(u64, usize, u64)>,
     asked: Asked,
 }
 
@@ -414,9 +414,9 @@ impl GhRunner for Huge {
             asked.len()
         };
         let mut list: Vec<(u64, u64)> = (1..=1500).rev().map(|n| (n, n)).collect();
-        if self.moved && calls > 2 {
-            list.retain(|(n, _)| *n != 7);
-            list.insert(0, (7, 2000));
+        if let Some((no, place, at)) = self.moved.filter(|_| calls > 2) {
+            list.retain(|(n, _)| *n != no);
+            list.insert(place, (no, at));
         }
         let from: usize = args
             .iter()
@@ -447,7 +447,11 @@ impl GhRunner for Huge {
 
 /// The merged changes of `acme/huge` since `minutes` into 2026, the
 /// numbers answered and the calls made.
-fn merged_since(merged: &[u64], minutes: i64, moved: bool) -> (Got<Vec<u64>>, Vec<String>) {
+fn merged_since(
+    merged: &[u64],
+    minutes: i64,
+    moved: Option<(u64, usize, u64)>,
+) -> (Got<Vec<u64>>, Vec<String>) {
     let asked = Asked::default();
     let runner = Huge {
         merged: merged.to_vec(),
@@ -469,7 +473,7 @@ fn merged_since(merged: &[u64], minutes: i64, moved: bool) -> (Got<Vec<u64>>, Ve
 
 #[test]
 fn a_recent_window_of_a_long_list_is_answered_whole_from_the_first_page() {
-    let (got, asked) = merged_since(&[1498, 1490, 1495, 3], 1489, false);
+    let (got, asked) = merged_since(&[1498, 1490, 1495, 3], 1489, None);
     // Read newest first, answered in the order of their numbers.
     assert_eq!(got, Ok(vec![1490, 1495, 1498]));
     assert_eq!(asked.len(), 1);
@@ -478,7 +482,7 @@ fn a_recent_window_of_a_long_list_is_answered_whole_from_the_first_page() {
 
 #[test]
 fn a_window_that_ends_at_a_page_boundary_reads_the_next_page_and_the_first_again() {
-    let (got, asked) = merged_since(&[1500, 1450, 1401, 1400], 1401, false);
+    let (got, asked) = merged_since(&[1500, 1450, 1401, 1400], 1401, None);
     assert_eq!(got, Ok(vec![1401, 1450, 1500]));
     assert_eq!(asked.len(), 3);
     assert!(asked[1].contains("-f after=100"));
@@ -487,8 +491,22 @@ fn a_window_that_ends_at_a_page_boundary_reads_the_next_page_and_the_first_again
 
 #[test]
 fn a_change_updated_while_the_pages_are_read_is_inconsistent() {
-    let (got, _) = merged_since(&[1500, 7], 1401, true);
+    let (got, _) = merged_since(&[1500, 7], 1401, Some((7, 0, 2000)));
     assert_eq!(got, Err(Outcome::Unread(Unread::Inconsistent)));
+}
+
+#[test]
+fn a_change_that_ties_the_top_and_lands_second_while_the_pages_are_read_is_inconsistent() {
+    // #7 is updated in the same minute as #1500 and GitHub keeps #1500 first.
+    let (got, _) = merged_since(&[1500, 7], 1401, Some((7, 1, 1500)));
+    assert_eq!(got, Err(Outcome::Unread(Unread::Inconsistent)));
+}
+
+#[test]
+fn a_change_already_read_that_moves_up_while_the_pages_are_read_is_not_inconsistent() {
+    let (got, asked) = merged_since(&[1500, 1450, 1401], 1401, Some((1450, 0, 2000)));
+    assert_eq!(got, Ok(vec![1401, 1450, 1500]));
+    assert_eq!(asked.len(), 3);
 }
 
 #[test]
