@@ -94,6 +94,29 @@ fn a_poll_that_starts_nothing_runs_no_status_the_queue_did_not_change() {
     assert_eq!(w.calls("fake-status").trim_end(), "");
 }
 
+/// The wiring of a comment: the start's comment goes through the adapter,
+/// one POST of the issue's comments, and the journal holds it as a note of
+/// the ports, done. Methods and counts only: what it says is apply's tests'.
+#[test]
+fn a_starts_comment_is_one_note_through_the_adapter() {
+    let w = World::new("st-note");
+    let r = w.poll();
+    assert_eq!(r.rc, 0, "{}", r.out);
+    let posts = w
+        .gh()
+        .lines()
+        .filter(|l| l.starts_with("api -X POST") && l.contains("/issues/7/comments"))
+        .count();
+    assert_eq!(posts, 1, "{}", w.gh());
+    let sent = w.sent(7);
+    let notes: Vec<_> = sent
+        .iter()
+        .filter(|(write, _)| matches!(write, tehas_ports::Write::TicketNote { .. }))
+        .collect();
+    assert_eq!(notes.len(), 1, "{sent:?}");
+    assert_eq!(notes[0].1, "done");
+}
+
 #[test]
 fn for_one_issue_the_running_label_then_the_start_comment_then_the_start() {
     let w = World::new("st-order");
@@ -101,7 +124,7 @@ fn for_one_issue_the_running_label_then_the_start_comment_then_the_start() {
     w.stub(
         "fake-order",
         r#"grep -q -e "--add-label tehas:running" "$T/calls/gh" && : >"$T/calls/order.label"
-grep -q "^issue comment $1 " "$T/calls/gh" && : >"$T/calls/order.comment"
+[ -s "$T/calls/said-$1" ] && : >"$T/calls/order.comment"
 flock -w 5 "$TEHAS_HOME/state/cycles/$1.lock" "$T/store-bin" cycle-start "$1" >/dev/null"#,
     );
     w.env("TEHAS_CYCLE_START_CMD", "fake-order");
@@ -112,7 +135,7 @@ flock -w 5 "$TEHAS_HOME/state/cycles/$1.lock" "$T/store-bin" cycle-start "$1" >/
     let gh = w.gh();
     let at = |p: &dyn Fn(&str) -> bool| gh.lines().position(p).unwrap();
     let label = at(&|l| l.contains("--add-label tehas:running"));
-    let comment = at(&|l| l.starts_with("issue comment 7 "));
+    let comment = at(&|l| l.contains("issues/7/comments -f body="));
     assert!(label < comment, "{gh}");
 }
 
@@ -255,7 +278,7 @@ fn when_its_label_cannot_be_changed_nothing_is_said_on_it_and_the_poll_goes_on_t
         &r.out,
         "WARN: label change on #7 failed: --remove-label tehas:ready",
     );
-    lacks(&w.gh(), "issue comment 7");
+    assert_eq!(w.notes(7), 0);
     assert_eq!(w.started(), "");
 }
 
@@ -276,15 +299,16 @@ fn an_issue_with_open_sub_issues_is_not_started_its_tehas_ready_comes_off_and_th
         &gh,
         "issue edit 7 --repo acme/widget --remove-label tehas:ready",
     );
-    has(
-        &gh,
-        "issue comment 7 --repo acme/widget --body Tehas took `tehas:ready` off this issue and started nothing. It has 13 sub-issues open",
+    assert!(
+        w.said_on(7, "Tehas took `tehas:ready` off this issue and started nothing. It has 13 sub-issues open"),
+        "{:?}",
+        w.said(7)
     );
     has(
         &gh,
         "An epic is never started. Apply `tehas:ready` to one of its sub-issues instead.",
     );
-    assert_eq!(count_lines(&gh, "issue comment 7 "), 1, "{gh}");
+    assert_eq!(w.notes(7), 1, "{gh}");
 }
 
 #[test]
@@ -331,7 +355,7 @@ fn a_closed_issue_marked_as_running_with_no_cycle_loses_the_mark_and_is_not_park
     let gh = w.gh();
     let edit = "issue edit 9 --repo acme/widget --remove-label tehas:running";
     assert_eq!(gh.lines().filter(|l| *l == edit).count(), 1, "{gh}");
-    lacks(&gh, "issue comment 9");
+    assert_eq!(w.notes(9), 0);
     has(
         &r.out,
         "clear #9: it is closed, marked tehas:running, and no cycle holds its lock",
@@ -358,7 +382,7 @@ fn when_its_label_cannot_be_changed_nothing_is_said_on_it_and_the_poll_goes_on_t
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
     has(&r.out, "WARN: label change on #9 failed");
-    lacks(&w.gh(), "issue comment 9");
+    assert_eq!(w.notes(9), 0);
     assert_eq!(w.started(), "7 ");
 }
 

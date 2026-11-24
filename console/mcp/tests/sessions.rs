@@ -2,7 +2,8 @@
 
 use crate::common;
 
-use mcp::sessions::{find, links};
+use common::fake_links;
+use mcp::sessions::{find, Linker};
 use mcp::snapshot::Snapshot;
 use mcp::tools::{list_scoped, Dirs, Output, Scope, ToolError};
 use serde_json::{json, Map, Value};
@@ -61,6 +62,7 @@ impl Env {
             live,
             sessions: snap.clone(),
             logs: root.join("no-logs"),
+            links: fake_links,
         };
         Env { _root: root, dirs }
     }
@@ -372,6 +374,7 @@ fn bad_ids() {
         live: "/nonexistent/live".into(),
         sessions: "/nonexistent/mcp".into(),
         logs: "/nonexistent/logs".into(),
+        links: fake_links,
     };
     for id in ["work-1-1/../x", "work-01-123456789", "plan-1-12", ""] {
         match mcp::tools::call(&dirs, "factory_session", &json!({"id": id}).into()) {
@@ -385,25 +388,27 @@ fn bad_ids() {
 }
 
 #[test]
-fn links_and_odd_repos() {
+fn links_are_the_code_hosts_and_none_without_a_repo_or_an_item() {
+    let links = Linker::of(fake_links, Some("tehas-app/tehas-factory"));
     assert_eq!(
-        links(Some("tehas-app/tehas-factory"), 12, Some(34)),
+        (links.issue(12), links.pr(34)),
         (
-            Some("https://github.com/tehas-app/tehas-factory/issues/12".into()),
-            Some("https://github.com/tehas-app/tehas-factory/pull/34".into())
+            Some("https://fake.test/tehas-app/tehas-factory/b/12".into()),
+            Some("https://fake.test/tehas-app/tehas-factory/c/34".into())
         )
     );
-    assert_eq!(links(Some("tehas-app/tehas-factory"), 12, None).1, None);
-    for r in ["a/b/c", "../x", "a b/c", "a/..", "a/b..c", "", "/b"] {
-        assert_eq!(links(Some(r), 1, Some(2)), (None, None), "{r:?}");
+    for n in [0, -1] {
+        assert_eq!((links.issue(n), links.pr(n)), (None, None), "{n}");
     }
-    assert_eq!(links(None, 1, Some(2)), (None, None));
+    let none = Linker::of(fake_links, None);
+    assert_eq!((none.issue(1), none.pr(2)), (None, None));
+    let nothing = Linker::of(mcp::tools::no_links, Some("a/b"));
+    assert_eq!((nothing.issue(1), nothing.pr(2)), (None, None));
 
     let s = sess("work", 7, 60, json!({"pr": 8}));
     let bare = sess("work", 9, 120, json!({}));
     for (name, repo, linked) in [
         ("good", Some("tehas-app/tehas-factory"), true),
-        ("odd", Some("a/b/c"), false),
         ("none", None, false),
     ] {
         let env = Env::new(name, repo, &[s.clone(), bare.clone()]);
@@ -776,8 +781,8 @@ fn failures_per_version_pair() {
     assert_eq!(
         v[0]["causes"][0]["issues"],
         json!([
-            "https://github.com/tehas-app/tehas-factory/issues/1",
-            "https://github.com/tehas-app/tehas-factory/issues/3"
+            "https://fake.test/tehas-app/tehas-factory/b/1",
+            "https://fake.test/tehas-app/tehas-factory/b/3"
         ])
     );
     assert_eq!(v[1]["tehasVersion"], "v0.7.30");
@@ -821,7 +826,7 @@ fn top_causes_bounded() {
     assert_eq!(causes[0]["n"], 13);
     let issues = causes[0]["issues"].as_array().unwrap();
     assert_eq!(issues.len(), 10);
-    assert_eq!(issues[0], "https://github.com/a/b/issues/100");
+    assert_eq!(issues[0], "https://fake.test/a/b/b/100");
     let unique: BTreeSet<&str> = issues.iter().map(|i| i.as_str().unwrap()).collect();
     assert_eq!(unique.len(), 10);
 }
@@ -837,7 +842,8 @@ fn failures_without_repo() {
         ),
         sess("work", 2, 20, json!({"outcome": "merged"})),
     ];
-    for repo in [None, Some("a/b/c")] {
+    {
+        let repo: Option<&str> = None;
         let env = Env::new("norepo", repo, &rows);
         let out = env.call("factory_failures", json!({})).unwrap();
         let v = &out["versions"][0];
@@ -911,7 +917,7 @@ fn an_issue_with_several_attempts() {
     assert_eq!(out["api"], 1);
     assert_eq!(out["issue"], 7);
     assert_eq!(
-        out["issueUrl"], "https://github.com/a/b/issues/7",
+        out["issueUrl"], "https://fake.test/a/b/b/7",
         "{:?}",
         out["issueUrl"]
     );
@@ -972,7 +978,7 @@ fn an_issue_with_several_attempts() {
     );
     assert_eq!(keys(&attempts[1]), named(&["prUrl"]));
     assert_eq!(keys(&attempts[2]), named(&["parkReason"]));
-    assert_eq!(attempts[1]["prUrl"], "https://github.com/a/b/pull/21");
+    assert_eq!(attempts[1]["prUrl"], "https://fake.test/a/b/c/21");
     assert_eq!(out["firstSeen"], attempts[0]["started"]);
     assert_eq!(out["lastSeen"], attempts[2]["started"]);
     assert_eq!(out["outcome"], "handoff");
@@ -1071,6 +1077,7 @@ fn an_issue_being_planned() {
         live,
         sessions: snap,
         logs: root.join("no-logs"),
+        links: fake_links,
     };
     let out = match mcp::tools::call(&dirs, "factory_issue", &json!({"issue": 6}).into()) {
         Ok(Output::Json(v)) => common::conforms("factory_issue", v),
@@ -1140,6 +1147,7 @@ fn the_issue_argument_is_checked() {
         live: "/nonexistent/live".into(),
         sessions: "/nonexistent/mcp".into(),
         logs: "/nonexistent/logs".into(),
+        links: fake_links,
     };
     assert!(matches!(
         mcp::tools::call(&dirs, "factory_delete", &json!({}).into()),
@@ -1165,12 +1173,13 @@ fn no_snapshot_is_a_tool_error_for_the_story() {
     }
 }
 
-// A repository the dashboard does not publish well leaves the answer with no
-// links, and a run of an issue whose pull request is none has no prUrl.
+// A dashboard that publishes no repository leaves the answer with no links,
+// and a run of an issue whose pull request is none has no prUrl.
 #[test]
 fn without_a_valid_repo_the_story_has_no_links() {
     let rows = [sess("work", 7, 60, json!({"pr": 21}))];
-    for repo in [None, Some("a/b/c")] {
+    {
+        let repo: Option<&str> = None;
         let env = Env::built(
             "nolinks",
             repo,

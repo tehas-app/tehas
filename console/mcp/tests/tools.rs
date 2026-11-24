@@ -27,6 +27,7 @@ fn call(live: &Path, name: &str, args: &Value) -> Result<Value, ToolError> {
         live: live.to_path_buf(),
         sessions: empty_snapshot(),
         logs: live.join("no-logs"),
+        links: crate::common::fake_links,
     };
     match mcp::tools::call(&dirs, name, &args.clone().into())? {
         Output::Json(v) => Ok(common::conforms(name, v)),
