@@ -131,12 +131,6 @@ struct RestComment {
     html_url: Option<String>,
 }
 
-/// What a question of several items answered: each item's part by its
-/// place, or the outcome GitHub gave that item alone.
-struct Several {
-    parts: Vec<Got<Value>>,
-}
-
 impl Text {
     /// The edits, oldest first, of a text of blueprint `no`, its markers
     /// read as that item's.
@@ -211,20 +205,16 @@ impl GitHub {
                 .iter()
                 .map(|no| vec!["repository".to_string(), format!("i{}", no.get())])
                 .collect();
-            let answer = self.ask_several(
+            let answer = self.ask_several::<IssueNode>(
                 "the issues' edits",
                 &bodies_question(chunk, bound),
                 &paths,
-                |v| {
-                    v.pointer("/data/repository")
-                        .map(|r| r.is_object())
-                        .unwrap_or(false)
-                },
+                "/data/repository",
             );
             match answer {
                 Err(o) => got.extend(chunk.iter().map(|&no| (no, Err(o.clone())))),
-                Ok(several) => {
-                    for (&no, part) in chunk.iter().zip(several.parts) {
+                Ok(parts) => {
+                    for (&no, part) in chunk.iter().zip(parts) {
                         let read = part.and_then(|v| self.body_edits_from(v, no, bound));
                         got.insert(no, read);
                     }
@@ -243,9 +233,7 @@ impl GitHub {
             .collect()
     }
 
-    fn body_edits_from(&self, v: Value, no: BlueprintNo, bound: Bound) -> Got<Whole<Edit>> {
-        let issue: IssueNode =
-            serde_json::from_value(v).map_err(|_| Outcome::Unread(Unread::Malformed))?;
+    fn body_edits_from(&self, issue: IssueNode, no: BlueprintNo, bound: Bound) -> Got<Whole<Edit>> {
         if issue.number != Some(no.get()) {
             return Err(Outcome::Unread(Unread::Inconsistent));
         }
@@ -274,20 +262,16 @@ impl GitHub {
             let paths: Vec<Vec<String>> = (0..chunk.len())
                 .map(|i| vec!["nodes".to_string(), i.to_string()])
                 .collect();
-            let answer = self.ask_several(
+            let answer = self.ask_several::<CommentNode>(
                 "the comments' edits",
                 &comments_question(&nodes, bound),
                 &paths,
-                |v| {
-                    v.pointer("/data/nodes")
-                        .map(Value::is_array)
-                        .unwrap_or(false)
-                },
+                "/data/nodes",
             );
             match answer {
                 Err(o) => got.extend(chunk.iter().map(|(id, _, _)| (id.clone(), Err(o.clone())))),
-                Ok(several) => {
-                    for ((id, n, kept), part) in chunk.iter().zip(several.parts) {
+                Ok(parts) => {
+                    for ((id, n, kept), part) in chunk.iter().zip(parts) {
                         let read = part.and_then(|v| self.comment_edits_from(v, *n, kept, bound));
                         got.insert(id.clone(), read);
                     }
@@ -342,13 +326,11 @@ impl GitHub {
     /// kept, on the issue kept.
     fn comment_edits_from(
         &self,
-        v: Value,
+        c: CommentNode,
         n: u64,
         (node, no): &Kept,
         bound: Bound,
     ) -> Got<Whole<Edit>> {
-        let c: CommentNode =
-            serde_json::from_value(v).map_err(|_| Outcome::Unread(Unread::Malformed))?;
         if c.kind.as_deref() != Some("IssueComment")
             || c.id.as_deref() != Some(node.as_str())
             || c.database_id != Some(n)
@@ -362,21 +344,22 @@ impl GitHub {
         c.text.edits(*no, bound, self.bot.as_ref())
     }
 
-    /// One question of several items, `paths` the place GitHub's errors
-    /// name each by, `whole` whether the data holds the items' list. A
+    /// One question of several items, each item's part read as a `T`:
+    /// `paths` the place GitHub's errors name each by, `list` where the
+    /// data holds the items. A part that is no `T` is `Unread(Malformed)`. A
     /// failed call, an answer that does not parse or lacks the list, and an
     /// error that names no item fail every item: a spent budget when GitHub
     /// says the rate is limited, else `Unread(Inconsistent)`. An error that
     /// names an item fails that item alone: `NotFound` when GitHub cannot
     /// find it and its part is null, else `Unread(Inconsistent)`. An item
     /// with no error and no part is `Unread(Inconsistent)`.
-    fn ask_several(
+    fn ask_several<T: serde::de::DeserializeOwned>(
         &mut self,
         call: &str,
         question: &str,
         paths: &[Vec<String>],
-        whole: impl Fn(&Value) -> bool,
-    ) -> Got<Several> {
+        list: &str,
+    ) -> Got<Vec<Got<T>>> {
         let (owner, name) = self.owner_name();
         let query = format!("query={question}");
         let args = ["api", "graphql", "-F", &owner, "-F", &name, "-f", &query];
@@ -421,7 +404,10 @@ impl GitHub {
                 None => return Err(Outcome::Unread(Unread::Inconsistent)),
             }
         }
-        if !whole(&v) {
+        if !v
+            .pointer(list)
+            .is_some_and(|l| l.is_object() || l.is_array())
+        {
             return Err(Outcome::Unread(Unread::Malformed));
         }
         tehas_core::accounts::vouch(&mut v);
@@ -443,11 +429,13 @@ impl GitHub {
                     (Some(_), _) | (None, Value::Null) => {
                         Err(Outcome::Unread(Unread::Inconsistent))
                     }
-                    (None, part) => Ok(part),
+                    (None, part) => {
+                        serde_json::from_value(part).map_err(|_| Outcome::Unread(Unread::Malformed))
+                    }
                 }
             })
             .collect();
-        Ok(Several { parts })
+        Ok(parts)
     }
 }
 
@@ -456,16 +444,23 @@ impl GitHub {
 struct GraphError {
     #[serde(rename = "type")]
     kind: Option<String>,
-    path: Option<Vec<Value>>,
+    path: Option<Vec<Step>>,
+}
+
+/// A step of an error's path: a field or an alias, or a place in a list.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum Step {
+    Name(String),
+    At(u64),
 }
 
 /// GitHub's path of an error is in the item at `item`.
-fn path_is(path: &[Value], item: &[String]) -> bool {
+fn path_is(path: &[Step], item: &[String]) -> bool {
     path.len() >= item.len()
         && path.iter().zip(item).all(|(p, q)| match p {
-            Value::String(s) => s == q,
-            Value::Number(n) => n.to_string() == *q,
-            _ => false,
+            Step::Name(s) => s == q,
+            Step::At(n) => n.to_string() == *q,
         })
 }
 

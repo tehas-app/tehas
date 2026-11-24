@@ -62,10 +62,12 @@ struct Replay {
 impl Replay {
     /// An answer composed of the items' parts, with GitHub's error for
     /// each it does not give.
-    fn compose(&self, items: Vec<(Vec<Value>, String)>, first: usize, data: Value) -> Value {
-        let mut data = data;
+    /// `items` are each part's path, as a JSON list, and its recording.
+    fn compose(&self, items: Vec<(String, String)>, first: usize, data: &str) -> String {
+        let mut data: Value = serde_json::from_str(data).unwrap();
         let mut errors = Vec::new();
         for (path, name) in items {
+            let path: Vec<Value> = serde_json::from_str(&path).unwrap();
             let part = match recording(&self.state, &name) {
                 Some((ext, text)) if ext == "json" => {
                     let mut v: Value = serde_json::from_str(&text).unwrap();
@@ -100,7 +102,7 @@ impl Replay {
         if !errors.is_empty() {
             answer["errors"] = Value::Array(errors);
         }
-        answer
+        answer.to_string()
     }
 
     fn graphql(&self, query: &str) -> Result<String, Failed> {
@@ -116,10 +118,11 @@ impl Replay {
             let items = ids
                 .iter()
                 .enumerate()
-                .map(|(i, id)| (vec![json!("nodes"), json!(i)], format!("node-{id}")))
+                .map(|(i, id)| (json!(["nodes", i]).to_string(), format!("node-{id}")))
                 .collect();
             let data = json!({"repository": {"id": "R_kgDOAbCdEf"}, "nodes": vec![Value::Null; ids.len()]});
-            let mut answer = self.compose(items, first, data);
+            let mut answer: Value =
+                serde_json::from_str(&self.compose(items, first, &data.to_string())).unwrap();
             if !query.contains("userContentEdits") {
                 // The editors' question of a read of comments.
                 for n in answer["data"]["nodes"].as_array_mut().unwrap() {
@@ -128,20 +131,20 @@ impl Replay {
                     *n = kept;
                 }
             }
-            ("nodes", answer)
+            ("nodes", answer.to_string())
         } else {
             let items = all_between(query, ": issue(number: ", ")")
                 .into_iter()
                 .map(|n| {
                     (
-                        vec![json!("repository"), json!(format!("i{n}"))],
+                        json!(["repository", format!("i{n}")]).to_string(),
                         format!("issue-{n}"),
                     )
                 })
                 .collect();
             (
                 "bodies",
-                self.compose(items, first, json!({"repository": {}})),
+                self.compose(items, first, r#"{"repository": {}}"#),
             )
         };
         let at = here().join(&self.state);
@@ -154,7 +157,7 @@ impl Replay {
                 answer: None,
             });
         }
-        self.exit(answer.to_string())
+        self.exit(answer)
     }
 
     /// gh's exit: 1 on any GraphQL `errors`, with the answer kept.
