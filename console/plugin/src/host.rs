@@ -1,14 +1,16 @@
 //! What a run asks of the host, behind one seam so the tests answer for
-//! docker, git, systemd, GitHub and the store: [`Real`] runs them. The one-shot
-//! commands go through the fetch's own seam, `tehas_ops::plugin::exec`.
+//! docker, git, systemd, the code host and the store: [`Real`] runs them. The
+//! code host is a site of the ports the program's wiring gives, so the tests
+//! answer with the ports' fake. The one-shot commands go through the fetch's
+//! own seam, `tehas_ops::plugin::exec`.
 
 use serde_json::Value;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tehas_core::forge::{Bounded, GhRunner};
 use tehas_core::plugin::out;
 use tehas_core::plugin::run::kill_by_cidfile;
 use tehas_ops::plugin::exec::{self, Exec};
@@ -42,14 +44,16 @@ pub trait Host {
     /// The container's log, both streams, at most the last `max` bytes, into
     /// `to`.
     fn logs(&mut self, container: &str, to: &Path, max: u64) -> Result<(), String>;
-    /// One call of gh with these words, as the bot: its answer, or why not.
-    fn github(&mut self, args: &[&str]) -> Result<String, String>;
+    /// The code host: its pull requests and their statuses, read and
+    /// written as the factory.
+    fn site(&self) -> Arc<dyn tehas_ports::Site>;
 }
 
-/// The host's own programs and store.
+/// The host's own programs and store, and the code host the wiring gives.
 pub struct Real {
     pub home: std::path::PathBuf,
     pub exec: exec::Host,
+    pub site: Arc<dyn tehas_ports::Site>,
 }
 
 /// The most of docker's own error kept.
@@ -192,12 +196,8 @@ impl Host for Real {
         }
     }
 
-    fn github(&mut self, args: &[&str]) -> Result<String, String> {
-        let home = self.home.display().to_string();
-        let path = std::env::var("PATH").unwrap_or_default();
-        let program = tehas_ops::forge::gh_program(Some(&home), &path)
-            .ok_or_else(|| "no gh to ask GitHub with".to_string())?;
-        Bounded::new(program, tehas_ops::forge::CALL_BOUND).run(args)
+    fn site(&self) -> Arc<dyn tehas_ports::Site> {
+        Arc::clone(&self.site)
     }
 }
 
@@ -243,9 +243,11 @@ mod tests {
     #[test]
     fn a_container_that_outlives_its_time_is_killed() {
         let d = TestDir::new("plugin-container");
+        let world = tehas_ports::fake::World::new();
         let mut h = Real {
             home: d.to_path_buf(),
             exec: exec::Host,
+            site: Arc::new(tehas_ports::fake::FakeSite::new(&world)),
         };
         let cid = d.join("cid");
         let sleep = ["sleep".to_string(), "2".to_string()];

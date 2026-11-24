@@ -17,7 +17,7 @@
 //! every other outside call of this command is. Nothing here writes anything.
 
 use super::run;
-use serde_json::{Map, Value};
+use serde::Serialize;
 use std::time::Duration;
 
 /// The most cycles one answer holds. A host runs a handful; a listing over it
@@ -48,13 +48,13 @@ pub struct CycleRead {
     pub issues: Vec<u64>,
     /// `SizeRw` of each container, by issue. Absent when `inspect --size`
     /// could not be run at all, which is a reason of its own.
-    pub writable: Option<Vec<Value>>,
+    pub writable: Option<Vec<Option<u64>>>,
     /// Why the writable bytes of one issue are `null`, by issue: the reason
     /// the word was no size, or the words the call gave when it made none.
     pub writable_why: Vec<(u64, String)>,
     /// The written half of `BlockIO` of each container, by issue. Absent when
     /// `stats --no-stream` could not be run at all.
-    pub written: Option<Vec<Value>>,
+    pub written: Option<Vec<Option<u64>>>,
     pub written_why: Vec<(u64, String)>,
 }
 
@@ -263,16 +263,16 @@ pub fn read(wait: Duration) -> Result<CycleRead, String> {
             for (i, issue) in issues.iter().enumerate() {
                 match said.get(i) {
                     Some(word) => match docker_said(word.trim()) {
-                        (Some(bytes), _) => per_container.push(Value::from(bytes)),
+                        (Some(bytes), _) => per_container.push(Some(bytes)),
                         (None, why) => {
-                            per_container.push(Value::Null);
+                            per_container.push(None);
                             writable_why.push((*issue, why.unwrap_or(NO_SIZE).to_string()));
                         }
                     },
                     // Fewer lines than containers: the daemon said nothing of
                     // this one at all.
                     None => {
-                        per_container.push(Value::Null);
+                        per_container.push(None);
                         writable_why.push((*issue, NO_SIZE.to_string()));
                     }
                 }
@@ -315,16 +315,16 @@ pub fn read(wait: Duration) -> Result<CycleRead, String> {
             for issue in &issues {
                 let name = container_name(*issue);
                 match of.iter().find(|(n, _, _)| *n == name) {
-                    Some((_, Some(bytes), _)) => per_container.push(Value::from(*bytes)),
+                    Some((_, Some(bytes), _)) => per_container.push(Some(*bytes)),
                     // A line whose figure was no figure keeps the reason the
                     // word gave; a container with no line at all is the daemon
                     // having said nothing of it.
                     Some((_, None, why)) => {
-                        per_container.push(Value::Null);
+                        per_container.push(None);
                         written_why.push((*issue, why.unwrap_or(NO_BLOCK).to_string()));
                     }
                     None => {
-                        per_container.push(Value::Null);
+                        per_container.push(None);
                         written_why.push((*issue, "docker stats answered nothing for it".into()));
                     }
                 }
@@ -342,129 +342,115 @@ pub fn read(wait: Duration) -> Result<CycleRead, String> {
     })
 }
 
-/// The answer's `cycles`: `{state, list}` with one entry per cycle, or
-/// `{state, why}` when the daemon would not list them. The two figures of a
-/// cycle are paired by issue with the reasons the reading collected: every
-/// word of `why` is one the reading said where the figure was read, or one the
-/// call itself gave, and none is written here.
-pub fn value(read: Result<CycleRead, String>) -> Value {
-    let Ok(read) = read else {
-        let why = match read {
-            Err(why) => why,
-            Ok(_) => String::new(),
-        };
-        return Map::from_iter([
-            ("state".to_string(), Value::from("unreadable")),
-            ("why".to_string(), Value::from(why)),
-        ])
-        .into();
+/// The answer's `cycles`: one entry per cycle, or why the daemon would not
+/// list them.
+#[derive(Debug, Serialize)]
+#[serde(tag = "state", rename_all = "lowercase")]
+pub enum Cycles {
+    Read { list: Vec<CycleEntry> },
+    Unreadable { why: String },
+}
+
+/// One cycle's figures. A figure that is not there is null, with `why`.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CycleEntry {
+    pub issue: u64,
+    pub container: String,
+    pub writable_bytes: Option<u64>,
+    pub block_written_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub why: Option<String>,
+}
+
+/// The two figures of a cycle are paired by issue with the reasons the
+/// reading collected: every word of `why` is one the reading said where the
+/// figure was read, or one the call itself gave, and none is written here.
+pub fn value(read: Result<CycleRead, String>) -> Cycles {
+    let read = match read {
+        Ok(read) => read,
+        Err(why) => return Cycles::Unreadable { why },
     };
-    let mut why_w: Map<String, Value> = Map::new();
-    for (issue, why) in read.writable_why {
-        why_w.insert(issue.to_string(), Value::from(why));
-    }
-    let mut why_b: Map<String, Value> = Map::new();
-    for (issue, why) in read.written_why {
-        why_b.insert(issue.to_string(), Value::from(why));
-    }
-    let list = Value::Array(
-        read.issues
-            .iter()
-            .enumerate()
-            .map(|(i, issue)| {
-                let mut entry = Map::new();
-                entry.insert("issue".into(), Value::from(*issue));
-                entry.insert("container".into(), Value::from(container_name(*issue)));
-                let writable = read
-                    .writable
-                    .as_ref()
-                    .and_then(|v| v.get(i))
-                    .cloned()
-                    .unwrap_or(Value::Null);
-                let written = read
-                    .written
-                    .as_ref()
-                    .and_then(|v| v.get(i))
-                    .cloned()
-                    .unwrap_or(Value::Null);
-                entry.insert("writableBytes".into(), writable.clone());
-                entry.insert("blockWrittenBytes".into(), written.clone());
-                // `why` names which figure is missing and why, and is there
-                // only when one of them is.
-                if writable.is_null() || written.is_null() {
-                    let said = match (writable.is_null(), written.is_null()) {
-                        (true, true) => "writableBytes and blockWrittenBytes: ",
-                        (true, false) => "writableBytes: ",
-                        (false, true) => "blockWrittenBytes: ",
-                        _ => "",
-                    };
-                    let key = issue.to_string();
-                    let of = |whys: &Map<String, Value>| {
-                        whys.get(&key)
-                            .and_then(Value::as_str)
-                            .unwrap_or(NO_BLOCK)
-                            .to_string()
-                    };
-                    let reason = match (writable.is_null(), written.is_null()) {
-                        (true, true) => format!("{} / {}", of(&why_w), of(&why_b)),
-                        _ if writable.is_null() => of(&why_w),
-                        _ => of(&why_b),
-                    };
-                    entry.insert("why".into(), Value::from(format!("{said}{reason}")));
-                }
-                Value::Object(entry)
-            })
-            .collect(),
-    );
-    let mut out = Map::new();
-    out.insert("state".into(), Value::from("read"));
-    out.insert("list".into(), list);
-    Value::Object(out)
+    let of = |whys: &[(u64, String)], issue: u64| {
+        whys.iter()
+            .find(|(n, _)| *n == issue)
+            .map_or(NO_BLOCK, |(_, w)| w.as_str())
+            .to_string()
+    };
+    let list = read
+        .issues
+        .iter()
+        .enumerate()
+        .map(|(i, issue)| {
+            let writable = read
+                .writable
+                .as_ref()
+                .and_then(|v| v.get(i))
+                .copied()
+                .flatten();
+            let written = read
+                .written
+                .as_ref()
+                .and_then(|v| v.get(i))
+                .copied()
+                .flatten();
+            // `why` names which figure is missing and why, and is there only
+            // when one of them is.
+            let why = match (writable.is_none(), written.is_none()) {
+                (true, true) => Some(format!(
+                    "writableBytes and blockWrittenBytes: {} / {}",
+                    of(&read.writable_why, *issue),
+                    of(&read.written_why, *issue)
+                )),
+                (true, false) => Some(format!("writableBytes: {}", of(&read.writable_why, *issue))),
+                (false, true) => Some(format!(
+                    "blockWrittenBytes: {}",
+                    of(&read.written_why, *issue)
+                )),
+                (false, false) => None,
+            };
+            CycleEntry {
+                issue: *issue,
+                container: container_name(*issue),
+                writable_bytes: writable,
+                block_written_bytes: written,
+                why,
+            }
+        })
+        .collect();
+    Cycles::Read { list }
 }
 
 /// The lines for a person: one per cycle, or the one line that says the
 /// reading is not there. A figure that is not there is named as such beside
 /// the reason.
-pub fn lines(answer: &Value) -> Vec<String> {
-    if answer["state"].as_str() == Some("unreadable") {
-        return vec![format!(
-            "cycles  no reading: {}",
-            answer["why"]
-                .as_str()
-                .unwrap_or("the daemon answered nothing")
-        )];
-    }
-    let list = match answer["list"].as_array() {
-        Some(list) => list,
-        None => return vec!["cycles  no reading".to_string()],
+pub fn lines(answer: &Cycles) -> Vec<String> {
+    let list = match answer {
+        Cycles::Unreadable { why } => return vec![format!("cycles  no reading: {why}")],
+        Cycles::Read { list } => list,
     };
     if list.is_empty() {
         return vec!["cycles  no cycle is running".to_string()];
     }
-    let mut out = Vec::new();
-    for cycle in list {
-        let issue = cycle["issue"].as_u64().unwrap_or(0);
-        let container = cycle["container"].as_str().unwrap_or("?");
-        let figure = |key: &str| match cycle[key].as_u64() {
-            Some(bytes) => format!("{bytes}"),
-            None => "no figure".to_string(),
-        };
-        let said = match cycle["why"].as_str() {
-            Some(why) => format!(" ({why})"),
-            None => String::new(),
-        };
-        out.push(format!(
-            "cycles  #{issue} {container}: {} writable, {} written{said}",
-            figure("writableBytes"),
-            figure("blockWrittenBytes")
-        ));
-    }
-    out
+    let figure = |f: Option<u64>| f.map_or("no figure".to_string(), |b| b.to_string());
+    list.iter()
+        .map(|c| {
+            let said = c.why.as_ref().map_or(String::new(), |w| format!(" ({w})"));
+            format!(
+                "cycles  #{} {}: {} writable, {} written{said}",
+                c.issue,
+                c.container,
+                figure(c.writable_bytes),
+                figure(c.block_written_bytes)
+            )
+        })
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
 
     /// The reading a case says the daemon gave: the listing, the sizes and the
     /// stats lines, each as Docker prints them. No case of this module asks
@@ -472,24 +458,24 @@ mod tests {
     fn reading(names: &str, sizes: &str, stats: &str) -> CycleRead {
         let issues = listed(names);
         let sizes: Vec<&str> = sizes.lines().collect();
-        let mut writable: Vec<Value> = Vec::new();
+        let mut writable: Vec<Option<u64>> = Vec::new();
         let mut writable_why = Vec::new();
         for (i, issue) in issues.iter().enumerate() {
             match sizes.get(i) {
                 Some(word) => match docker_said(word.trim()) {
-                    (Some(b), _) => writable.push(Value::from(b)),
+                    (Some(b), _) => writable.push(Some(b)),
                     (None, why) => {
-                        writable.push(Value::Null);
+                        writable.push(None);
                         writable_why.push((*issue, why.unwrap_or(NO_SIZE).to_string()));
                     }
                 },
                 None => {
-                    writable.push(Value::Null);
+                    writable.push(None);
                     writable_why.push((*issue, NO_SIZE.to_string()));
                 }
             }
         }
-        let mut written: Vec<Value> = Vec::new();
+        let mut written: Vec<Option<u64>> = Vec::new();
         let mut written_why = Vec::new();
         for issue in &issues {
             let name = container_name(*issue);
@@ -498,13 +484,13 @@ mod tests {
                 (cols.next()? == name).then(|| block_said(cols.next().unwrap_or("")))
             });
             match hit {
-                Some((Some(b), _)) => written.push(Value::from(b)),
+                Some((Some(b), _)) => written.push(Some(b)),
                 Some((None, why)) => {
-                    written.push(Value::Null);
+                    written.push(None);
                     written_why.push((*issue, why.unwrap_or(NO_BLOCK).to_string()));
                 }
                 None => {
-                    written.push(Value::Null);
+                    written.push(None);
                     written_why.push((*issue, "docker stats answered nothing for it".into()));
                 }
             }
@@ -602,7 +588,8 @@ mod tests {
             "1GB\n2GB\n",
             "tehas-work-5\t1.2GB / 0B\n",
         );
-        let answer = value(Ok(read));
+        let answer_typed = value(Ok(read));
+        let answer = serde_json::to_value(&answer_typed).unwrap();
         assert_eq!(answer["state"], "read");
         assert_eq!(answer["list"].as_array().map(Vec::len), Some(2));
         assert_eq!(answer["list"][0]["issue"], 5);
@@ -621,33 +608,35 @@ mod tests {
 
     #[test]
     fn the_listing_of_no_cycle_is_an_empty_list_and_not_an_absence() {
-        let answer = value(Ok(reading("", "", "")));
+        let answer_typed = value(Ok(reading("", "", "")));
+        let answer = serde_json::to_value(&answer_typed).unwrap();
         assert_eq!(answer["state"], "read");
         assert_eq!(answer["list"], Value::Array(Vec::new()));
-        assert_eq!(lines(&answer), ["cycles  no cycle is running"]);
+        assert_eq!(lines(&answer_typed), ["cycles  no cycle is running"]);
     }
 
     #[test]
     fn a_listing_that_failed_is_unreadable_with_a_reason_and_no_list() {
-        let answer = value(Err("docker did not answer in 10 s".to_string()));
+        let answer_typed = value(Err("docker did not answer in 10 s".to_string()));
+        let answer = serde_json::to_value(&answer_typed).unwrap();
         assert_eq!(answer["state"], "unreadable");
         assert_eq!(answer["why"], "docker did not answer in 10 s");
         assert!(answer.get("list").is_none());
         assert_eq!(
-            lines(&answer),
+            lines(&answer_typed),
             ["cycles  no reading: docker did not answer in 10 s"]
         );
     }
 
     #[test]
     fn the_lines_name_each_cycle_once_with_both_figures() {
-        let answer = value(Ok(reading(
+        let answer_typed = value(Ok(reading(
             "tehas-work-5\ntehas-work-51\n",
             "1GB\n2GB\n",
             "tehas-work-5\t1.2GB / 0B\ntehas-work-51\t0B / 0B\n",
         )));
         assert_eq!(
-            lines(&answer),
+            lines(&answer_typed),
             [
                 "cycles  #5 tehas-work-5: 1000000000 writable, 1200000000 written",
                 "cycles  #51 tehas-work-51: 2000000000 writable, 0 written"
@@ -664,7 +653,8 @@ mod tests {
             "-\n1GB\n",
             "tehas-work-6\t1MB / 1MB\n",
         );
-        let answer = value(Ok(read));
+        let answer_typed = value(Ok(read));
+        let answer = serde_json::to_value(&answer_typed).unwrap();
         assert!(answer["list"][0]["writableBytes"].is_null());
         assert!(answer["list"][0]["blockWrittenBytes"].is_null());
         assert_eq!(
@@ -679,20 +669,22 @@ mod tests {
         // A daemon that printed a unit it does not print and one that printed
         // `-` are two problems; the words of `why` come of the parse that
         // refused the word, so they differ, and each names its own column.
-        let size = value(Ok(reading(
+        let size_typed = value(Ok(reading(
             "tehas-work-5\n",
             "1.2GiB\n",
             "tehas-work-5\t5MB / 1MB\n",
         )));
+        let size = serde_json::to_value(&size_typed).unwrap();
         assert_eq!(
             size["list"][0]["why"].as_str().unwrap_or_default(),
             "writableBytes: docker inspect --size gave no size"
         );
-        let block = value(Ok(reading(
+        let block_typed = value(Ok(reading(
             "tehas-work-5\n",
             "5GB\n",
             "tehas-work-5\t5MiB / 1MB\n",
         )));
+        let block = serde_json::to_value(&block_typed).unwrap();
         // The line is there and the column of it is no figure, which is a
         // different answer from the daemon not naming the container at all:
         // the first says the word was wrong, the second that it was missing.
@@ -700,11 +692,12 @@ mod tests {
             block["list"][0]["why"].as_str().unwrap_or_default(),
             "blockWrittenBytes: docker stats gave no block figure"
         );
-        let absent = value(Ok(reading(
+        let absent_typed = value(Ok(reading(
             "tehas-work-5\n",
             "5GB\n",
             "tehas-dev-a\t5MB / 1MB\n",
         )));
+        let absent = serde_json::to_value(&absent_typed).unwrap();
         assert_eq!(
             absent["list"][0]["why"].as_str().unwrap_or_default(),
             "blockWrittenBytes: docker stats answered nothing for it"
@@ -718,7 +711,8 @@ mod tests {
         let mut read = reading("tehas-work-7\n", "", "");
         read.writable = None;
         read.writable_why = vec![(7, "docker answered nothing".to_string())];
-        let answer = value(Ok(read));
+        let answer_typed = value(Ok(read));
+        let answer = serde_json::to_value(&answer_typed).unwrap();
         assert!(answer["list"][0]["writableBytes"].is_null());
         assert!(answer["list"][0]["blockWrittenBytes"].is_null());
         assert_eq!(

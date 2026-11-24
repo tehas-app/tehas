@@ -66,7 +66,7 @@ fn a_retry_tick_on_an_issue_whose_cycle_was_an_epic_starts_nothing_and_the_tick_
     // No label of tehas's on it is theirs to take, and the tick stays for a
     // person to deal with.
     lacks(&w.gh(), "issue edit 7");
-    lacks(&w.gh(), "issue comment 7");
+    assert_eq!(w.notes(7), 0);
     lacks(&w.gh(), "api -X PATCH");
     assert_eq!(w.park_q(7), "4001");
 }
@@ -207,7 +207,14 @@ fn a_retry_ticked_on_an_issue_that_is_not_parked_starts_nothing() {
         lacks(&gh, "issue edit");
         // The note answers the reply, so a later poll reads it no more.
         lacks(&gh, "api -X PATCH");
-        has(&gh, "issue comment 7 --repo acme/widget --body Retry was asked for, but this issue is not parked, so nothing was started.");
+        assert!(
+            w.said_on(
+                7,
+                "Retry was asked for, but this issue is not parked, so nothing was started."
+            ),
+            "{:?}",
+            w.said(7)
+        );
         has(
             &r.out,
             "skip #7: a retry was answered but the issue is not parked",
@@ -259,7 +266,14 @@ fn a_bot_comment_with_a_park_marker_that_the_host_has_no_record_of_starts_nothin
     let gh = w.gh();
     lacks(&gh, "issue edit");
     lacks(&gh, "api -X PATCH");
-    has(&gh, "issue comment 9 --repo acme/widget --body This question is not one the factory is waiting on. To retry, apply `tehas:ready`.");
+    assert!(
+        w.said_on(
+            9,
+            "This question is not one the factory is waiting on. To retry, apply `tehas:ready`."
+        ),
+        "{:?}",
+        w.said(9)
+    );
     assert_eq!(w.park_q(9), "none");
 }
 
@@ -336,7 +350,7 @@ fn a_question_on_record_that_could_not_be_read_skips_the_issue_no_tick_counts_an
             "skip #7: its question on record could not be read (busy)",
         );
         lacks(&w.gh(), "api -X PATCH");
-        lacks(&w.gh(), "issue comment");
+        assert_eq!(w.notes_any(), 0);
     }
 }
 

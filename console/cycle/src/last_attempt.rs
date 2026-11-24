@@ -11,8 +11,11 @@
 //!
 //! Pure: it reads the two files and the body it is given, and changes nothing.
 
+use crate::loose::{present, Field, Loose, Node};
+use crate::runner::Entry;
 use regex::Regex;
-use serde_json::Value;
+use serde::de::{DeserializeOwned, IgnoredAny};
+use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -26,6 +29,66 @@ const MAX_PATHS: usize = 15;
 /// What a repeat's park says, after its own words.
 pub const REPEAT: &str = "It ran out of time in develop twice on the same text: split it with `tehas:plan`, or make the body smaller, then apply `tehas:ready`.";
 const MAX_STATE: u64 = 4 << 20;
+
+/// What a develop timeout reads of the issue as GitHub answers for it: its
+/// body, which is a string or null.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct IssueBody {
+    pub body: Field,
+}
+
+/// What the note reads of the driver's work-state file: its events, the
+/// snapshot of what was left behind and the plan's deliverables.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct WorkState {
+    event_log: Loose<Vec<Node<StateEvent>>>,
+    pipeline_state: Node<Pipeline>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+struct StateEvent {
+    kind: Loose<String>,
+    ms: Loose<u64>,
+    step: Loose<String>,
+    ok: Loose<bool>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+struct Pipeline {
+    /// There whenever the file names it, null included.
+    #[serde(deserialize_with = "present")]
+    handoff_snapshot: Option<Node<Snapshot>>,
+    normalised_spec: Node<Spec>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+struct Snapshot {
+    committed_work: Loose<Vec<Node<Committed>>>,
+    modified_files: Loose<Vec<IgnoredAny>>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+struct Committed {
+    ahead: Loose<u64>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+struct Spec {
+    deliverables: Loose<Vec<Node<Deliverable>>>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+struct Deliverable {
+    paths: Loose<Vec<Loose<String>>>,
+}
 
 /// What tehas-cycle does with the issue's body.
 #[derive(Debug, PartialEq)]
@@ -65,17 +128,17 @@ pub fn strip(body: &str) -> (String, Option<String>) {
 /// the result, and the run's state. None when either cannot be read.
 pub fn of_issue(
     n: u64,
-    issue: &Value,
+    issue: &IssueBody,
     result: Option<&str>,
-    state: Option<&Value>,
+    state: Option<&WorkState>,
 ) -> Option<Action> {
-    let all = crate::runner::values(result?).filter(|a| !a.is_empty())?;
+    let all = crate::runner::results(result?).filter(|a| !a.is_empty())?;
     let entry = crate::runner::last_issue_entry(&all, n)
         .cloned()
-        .unwrap_or(Value::Null);
-    let body = match issue.get("body") {
-        Some(Value::String(b)) => b.as_str(),
-        Some(Value::Null) => "",
+        .unwrap_or_default();
+    let body = match &issue.body {
+        Field::Str(b) => b.as_str(),
+        Field::Null => "",
         _ => return None,
     };
     Some(decide(body, &entry, state))
@@ -100,13 +163,13 @@ pub fn of_ticket(
     text: &str,
     markers: &[Marker],
     result: Option<&str>,
-    state: Option<&Value>,
+    state: Option<&WorkState>,
 ) -> Option<Parts> {
-    let all = crate::runner::values(result?).filter(|a| !a.is_empty())?;
+    let all = crate::runner::results(result?).filter(|a| !a.is_empty())?;
     let entry = crate::runner::last_issue_entry(&all, n)
         .cloned()
-        .unwrap_or(Value::Null);
-    if entry.get("cap").and_then(Value::as_str) != Some(CAP) {
+        .unwrap_or_default();
+    if entry.cap.get().map(String::as_str) != Some(CAP) {
         return Some(Parts::Nothing);
     }
     let sum = sha(text.replace('\r', "").trim());
@@ -125,8 +188,8 @@ pub fn sha(text: &str) -> String {
     format!("{:x}", Sha256::digest(text.as_bytes()))
 }
 
-pub fn decide(body: &str, result: &Value, state: Option<&Value>) -> Action {
-    if result.get("cap").and_then(Value::as_str) != Some(CAP) {
+pub fn decide(body: &str, result: &Entry, state: Option<&WorkState>) -> Action {
+    if result.cap.get().map(String::as_str) != Some(CAP) {
         return Action::Nothing;
     }
     let (rest, base) = strip(body);
@@ -150,15 +213,16 @@ fn clean_path(p: &str) -> Option<&str> {
     (RE.is_match(p) && !p.contains("..")).then_some(p)
 }
 
-fn note(base: &str, result: &Value, state: Option<&Value>) -> String {
+fn note(base: &str, result: &Entry, state: Option<&WorkState>) -> String {
     format!("{OPEN}{base} -->\n{}{CLOSE}", inner(result, state))
 }
 
 /// The note's text between its open and close lines.
-fn inner(result: &Value, state: Option<&Value>) -> String {
+fn inner(result: &Entry, state: Option<&WorkState>) -> String {
     let bound = result
-        .pointer("/failure/errorTail")
-        .and_then(Value::as_str)
+        .failure
+        .object()
+        .and_then(|f| f.error_tail.get())
         .and_then(|t| {
             static RE: LazyLock<Regex> =
                 LazyLock::new(|| Regex::new(r"killed after ([0-9]{1,10})ms").unwrap());
@@ -173,15 +237,15 @@ fn inner(result: &Value, state: Option<&Value>) -> String {
          Its work was not pushed, and the next cycle starts from a clean checkout.\n"
     );
     let mut lines = Vec::new();
-    let events = state
-        .and_then(|s| s.get("eventLog"))
-        .and_then(Value::as_array);
+    let events = state.and_then(|s| s.event_log.get());
     let mut steps: Vec<(String, u64)> = Vec::new();
     let mut verify = None;
+    let none = StateEvent::default();
     for e in events.into_iter().flatten() {
-        let kind = e.get("kind").and_then(Value::as_str).unwrap_or("");
-        let ms = e.get("ms").and_then(Value::as_u64);
-        let step = e.get("step").and_then(Value::as_str).unwrap_or("");
+        let e = e.object().unwrap_or(&none);
+        let kind = e.kind.str();
+        let ms = e.ms.get().copied();
+        let step = e.step.str();
         match kind {
             "dispatch-completed" | "dispatch-failed" if !step.is_empty() => {
                 let ms = ms.unwrap_or(0);
@@ -190,7 +254,7 @@ fn inner(result: &Value, state: Option<&Value>) -> String {
                     None => steps.push((step.to_string(), ms)),
                 }
             }
-            "verify-completed" => verify = e.get("ok").and_then(Value::as_bool),
+            "verify-completed" => verify = e.ok.get().copied(),
             _ => {}
         }
     }
@@ -208,35 +272,32 @@ fn inner(result: &Value, state: Option<&Value>) -> String {
             if ok { "passed" } else { "failed" }
         ));
     }
-    if let Some(snap) = state.and_then(|s| s.pointer("/pipelineState/handoffSnapshot")) {
+    let pipeline = state.and_then(|s| s.pipeline_state.object());
+    if let Some(snap) = pipeline.and_then(|p| p.handoff_snapshot.as_ref()) {
+        let snap = snap.object().cloned().unwrap_or_default();
         let ahead: u64 = snap
-            .get("committedWork")
-            .and_then(Value::as_array)
+            .committed_work
+            .get()
             .into_iter()
             .flatten()
-            .filter_map(|w| w.get("ahead").and_then(Value::as_u64))
+            .filter_map(|w| w.object().and_then(|w| w.ahead.get()))
             .sum();
-        let open = snap
-            .get("modifiedFiles")
-            .and_then(Value::as_array)
-            .map_or(0, Vec::len);
+        let open = snap.modified_files.get().map_or(0, Vec::len);
         lines.push(format!(
             "- Left behind: {ahead} commit(s) ahead of the base, {open} file(s) changed and not committed"
         ));
     }
     let mut paths: Vec<&str> = Vec::new();
-    let deliverables = state
-        .and_then(|s| s.pointer("/pipelineState/normalisedSpec/deliverables"))
-        .and_then(Value::as_array);
+    let deliverables = pipeline
+        .and_then(|p| p.normalised_spec.object())
+        .and_then(|s| s.deliverables.get());
     let count = deliverables.map_or(0, Vec::len);
     for d in deliverables.into_iter().flatten() {
-        for p in d
-            .get("paths")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-        {
-            if let Some(p) = p.as_str().and_then(clean_path) {
+        let Some(d) = d.object() else {
+            continue;
+        };
+        for p in d.paths.get().into_iter().flatten() {
+            if let Some(p) = p.get().map(String::as_str).and_then(clean_path) {
                 if !paths.contains(&p) {
                     paths.push(p);
                 }
@@ -267,16 +328,24 @@ fn inner(result: &Value, state: Option<&Value>) -> String {
     out
 }
 
-/// The driver's work-state file of the issue in the workspace, when it is a
-/// plain file under it of a sane size. The workspace was written in the
-/// container, so a link anywhere on the way is not followed.
-pub fn state(workspace: &Path, issue: u64) -> Option<Value> {
+/// The driver's work-state file of the issue in the workspace, read as `T`,
+/// when it is a plain file under it of a sane size. The workspace was written
+/// in the container, so a link anywhere on the way is not followed.
+pub fn state<T: DeserializeOwned>(workspace: &Path, issue: u64) -> Option<T> {
     plain_under(workspace, &format!(".pi/work-state/{issue}.json")).and_then(|p| read_state(&p))
+}
+
+impl WorkState {
+    /// The work-state file as the note reads it: a file that is no object
+    /// says nothing.
+    pub fn read(workspace: &Path, issue: u64) -> Option<WorkState> {
+        state::<Node<WorkState>>(workspace, issue).map(|s| s.into_object().unwrap_or_default())
+    }
 }
 
 /// The driver's lean-state file of the issue in the workspace, read by the same
 /// rule as its work-state file, and kept by the cycle for the analytics.
-pub fn lean(workspace: &Path, issue: u64) -> Option<Value> {
+pub fn lean<T: DeserializeOwned>(workspace: &Path, issue: u64) -> Option<T> {
     plain_under(workspace, &format!(".pi/lean-state/{issue}.json")).and_then(|p| read_state(&p))
 }
 
@@ -289,7 +358,7 @@ fn plain_under(workspace: &Path, under: &str) -> Option<PathBuf> {
     (real == root.join(under)).then_some(real)
 }
 
-fn read_state(p: &Path) -> Option<Value> {
+fn read_state<T: DeserializeOwned>(p: &Path) -> Option<T> {
     let m = fs::symlink_metadata(p).ok()?;
     if !m.is_file() || m.len() > MAX_STATE {
         return None;
@@ -302,12 +371,19 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn timeout() -> Value {
-        json!({"cap": CAP, "failure": {"errorTail": "[pi-rukas] killed after 5400000ms child-bound"}})
+    /// A result's entry or a work state, from its JSON.
+    fn read<T: DeserializeOwned>(json: impl serde::Serialize) -> T {
+        serde_json::from_value(serde_json::to_value(json).unwrap()).unwrap()
     }
 
-    fn work_state() -> Value {
-        json!({
+    fn timeout() -> Entry {
+        read(
+            json!({"cap": CAP, "failure": {"errorTail": "[pi-rukas] killed after 5400000ms child-bound"}}),
+        )
+    }
+
+    fn work_state() -> WorkState {
+        read(json!({
             "eventLog": [
                 {"kind": "dispatch-completed", "step": "explore", "ms": 169000},
                 {"kind": "dispatch-completed", "step": "plan", "ms": 264000},
@@ -322,14 +398,14 @@ mod tests {
                     {"id": "d2", "paths": ["libexec/drain", "../etc/passwd", "host/docs/tools.md", "a b"]}
                 ]}
             }
-        })
+        }))
     }
 
     #[test]
     fn another_cap_writes_nothing() {
-        let r = json!({"cap": "child-timeout:explore"});
+        let r = read(json!({"cap": "child-timeout:explore"}));
         assert_eq!(decide("Text.", &r, None), Action::Nothing);
-        assert_eq!(decide("Text.", &json!({}), None), Action::Nothing);
+        assert_eq!(decide("Text.", &Entry::default(), None), Action::Nothing);
     }
 
     #[test]
@@ -363,7 +439,7 @@ mod tests {
 
     #[test]
     fn a_result_a_rerun_appended_to_is_read_for_its_last_run() {
-        let issue = json!({"body": "Fix it."});
+        let issue: IssueBody = read(json!({"body": "Fix it."}));
         let first = json!({"issues": [{"issue": 7, "cap": "child-timeout:explore"}]});
         let last = json!({"issues": {"7": {"issue": 7, "cap": CAP}}});
         let text = format!("{first}\n{last}");
@@ -382,7 +458,7 @@ mod tests {
 
     #[test]
     fn without_a_work_state_the_note_is_short() {
-        let Action::Edit(body) = decide("Fix it.", &json!({"cap": CAP}), None) else {
+        let Action::Edit(body) = decide("Fix it.", &read(json!({"cap": CAP})), None) else {
             panic!("no edit");
         };
         assert!(body.contains("ran past its time bound."), "{body}");
@@ -431,7 +507,9 @@ mod tests {
     #[test]
     fn many_paths_are_cut() {
         let paths: Vec<String> = (0..20).map(|i| format!("lib/f{i}.sh")).collect();
-        let s = json!({"pipelineState": {"normalisedSpec": {"deliverables": [{"paths": paths}]}}});
+        let s: WorkState = read(
+            json!({"pipelineState": {"normalisedSpec": {"deliverables": [{"paths": paths}]}}}),
+        );
         let Action::Edit(body) = decide("X", &timeout(), Some(&s)) else {
             panic!("no edit");
         };
@@ -444,12 +522,12 @@ mod tests {
         let d = tehas_core::testdir::TestDir::new("last-attempt");
         fs::create_dir_all(d.join("ws/.pi/work-state")).unwrap();
         fs::write(d.join("ws/.pi/work-state/7.json"), r#"{"eventLog":[]}"#).unwrap();
-        assert!(state(&d.join("ws"), 7).is_some());
+        assert!(state::<serde_json::Value>(&d.join("ws"), 7).is_some());
         fs::create_dir_all(d.join("other/.pi/work-state")).unwrap();
         fs::write(d.join("other/.pi/work-state/8.json"), "{}").unwrap();
         fs::create_dir_all(d.join("ws2")).unwrap();
         std::os::unix::fs::symlink(d.join("other/.pi"), d.join("ws2/.pi")).unwrap();
-        assert!(state(&d.join("ws2"), 8).is_none());
-        assert!(state(&d.join("ws"), 9).is_none());
+        assert!(state::<serde_json::Value>(&d.join("ws2"), 8).is_none());
+        assert!(state::<serde_json::Value>(&d.join("ws"), 9).is_none());
     }
 }
