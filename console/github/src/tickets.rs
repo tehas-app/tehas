@@ -206,14 +206,15 @@ impl Bot {
     /// The bot of `login`, as the caller read it, and its account's user
     /// id. The login is trimmed, so a line read from a file names it; a
     /// login that is then empty, holds whitespace, or is only the App's
-    /// marks names nobody, and the bot matches no account.
+    /// marks names nobody, and the bot matches no account. GitHub gives no
+    /// account the id 0: given it, the bot has no id and matches none.
     pub(crate) fn new(login: &str, user_id: Option<u64>) -> Bot {
         let login = login.trim();
         let named = !login.is_empty()
             && !login.contains(char::is_whitespace)
             && !matches!(tehas_core::accounts::account(login), "" | "[bot]" | "app/");
         Bot {
-            user_id: user_id.filter(|_| named),
+            user_id: user_id.filter(|id| named && *id > 0),
         }
     }
 

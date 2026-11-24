@@ -264,3 +264,95 @@ impl GhRunner for Metered {
         self.inner.run_answer(args)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// Counts what reached gh, by any of the three ways.
+    struct Sends(Arc<AtomicUsize>);
+
+    impl GhRunner for Sends {
+        fn run(&mut self, _: &[&str]) -> Result<String, String> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok("{}".into())
+        }
+        fn run_input(&mut self, _: &[&str], _: &str) -> Result<String, String> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok("{}".into())
+        }
+        fn run_answer(&mut self, _: &[&str]) -> Result<String, Failed> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok("{}".into())
+        }
+    }
+
+    fn metered(write: bool, until: i64) -> (Metered, Arc<AtomicUsize>, Arc<Mutex<Vec<MeterRow>>>) {
+        let sent = Arc::new(AtomicUsize::new(0));
+        let meter = Arc::new(Mutex::new(Vec::new()));
+        let m = Metered {
+            inner: Box::new(Sends(Arc::clone(&sent))),
+            meter: Arc::clone(&meter),
+            caller: Caller::new("test.deadline"),
+            port: PortName::Blueprints,
+            write,
+            deadline: Some(At::new(until)),
+            now: || 1_000,
+        };
+        (m, sent, meter)
+    }
+
+    const ARGS: [&str; 2] = ["api", "repos/acme/widget/issues/7/comments"];
+
+    #[test]
+    fn a_write_with_input_past_the_deadline_is_not_sent_nor_counted() {
+        for until in [1_000, 999] {
+            let (mut m, sent, meter) = metered(true, until);
+            let why = m.run_input(&ARGS, "{\"body\":\"x\"}").unwrap_err();
+            assert_eq!(why, NOT_STARTED);
+            assert_eq!(sent.load(Ordering::SeqCst), 0);
+            assert!(lock(&meter).is_empty());
+            let mut gh = GitHub::new("acme/widget", Box::new(m));
+            let e = gh.call_input("the write", &ARGS, "{}").unwrap_err();
+            assert_eq!(
+                gh.outcome(&e),
+                Outcome::Unavailable {
+                    why: tehas_ports::Passing::Timeout,
+                    sent: tehas_ports::Sent::No,
+                }
+            );
+            assert_eq!(sent.load(Ordering::SeqCst), 0);
+        }
+    }
+
+    #[test]
+    fn a_call_keeping_gh_s_answer_past_the_deadline_is_not_sent_nor_counted() {
+        for until in [1_000, 999] {
+            let (mut m, sent, meter) = metered(false, until);
+            let failed = m.run_answer(&ARGS).unwrap_err();
+            assert_eq!((failed.why.as_str(), failed.answer), (NOT_STARTED, None));
+            assert_eq!(sent.load(Ordering::SeqCst), 0);
+            assert!(lock(&meter).is_empty());
+            let e = crate::ForgeError::new("the read", failed.why);
+            let gh = GitHub::new("acme/widget", Box::new(m));
+            assert_eq!(
+                gh.outcome(&e),
+                Outcome::Unavailable {
+                    why: tehas_ports::Passing::Timeout,
+                    sent: tehas_ports::Sent::No,
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn before_the_deadline_each_way_sends_and_counts() {
+        let (mut m, sent, meter) = metered(true, 1_001);
+        assert!(m.run_input(&ARGS, "{}").is_ok());
+        assert!(m.run_answer(&ARGS).is_ok());
+        assert!(m.run(&ARGS).is_ok());
+        assert_eq!(sent.load(Ordering::SeqCst), 3);
+        assert_eq!(lock(&meter)[0].calls, 3);
+    }
+}

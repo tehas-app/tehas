@@ -263,6 +263,12 @@ fn with_no_bot_id_given_to_the_site_nothing_is_ours() {
 }
 
 #[test]
+fn with_a_bot_id_of_zero_nothing_is_ours() {
+    never_ours(Some(0), who(Some("Bot"), "x", Some(0)));
+    never_ours(Some(0), who(Some("Bot"), "tehas-bot[bot]", Some(0)));
+}
+
+#[test]
 fn a_bot_login_is_trimmed_and_one_holding_whitespace_names_nobody() {
     let bot = who(Some("Bot"), "tehas-bot[bot]", Some(BOT_ID)).rest();
     let author = |login: &str| {
