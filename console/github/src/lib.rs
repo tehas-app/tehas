@@ -21,6 +21,7 @@ mod port;
 pub mod table;
 mod ticket;
 mod tickets;
+mod vocabulary;
 
 pub use forge::{read_events, Approval, ForgeError, GitHub, LabelEvent};
 pub use port::{GitHubSite, MakeRunner};
