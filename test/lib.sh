@@ -395,7 +395,7 @@ if [ "$t_rc" = 0 ] && [ ! -s "$t_got" ]; then
     "api users/"*" --jq .id") jq -rn --arg l "${2#users/}" '$l | sub("\\[bot\\]$"; "") | explode | add' >"$t_got" ;;
     # A label's node id (src/labels.rs) is LA_ and its name after tehas:; the labels read before they are made are none.
     "api repos/"*/labels/*" --jq .node_id") t_l=${2##*/}; echo "LA_${t_l#tehas:}" >"$t_got" ;;
-    "api graphql -F owner="*) case "$*" in *"nodes { name color description }"*) echo '{"data":{"repository":{"labels":{"pageInfo":{"hasNextPage":false},"nodes":[]}}}}' >"$t_got" ;; esac ;;
+    "api "*) case "$*" in *"nodes { name color description }"*) cat "$T_ROOT/test/fixtures/labels-none.json" >"$t_got" ;; esac ;;
   esac
 fi
 if command -p grep -q '"login"' "$t_got" &&

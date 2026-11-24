@@ -94,7 +94,7 @@ if [ "$t_rc" = 0 ] && [ ! -s "$t_got" ]; then
   case "$1 $2 $3 $4" in
     "api users/"*" --jq .id") jq -rn --arg l "${2#users/}" '$l | sub("\\[bot\\]$"; "") | explode | add' >"$t_got" ;;
     "api repos/"*/labels/*" --jq .node_id") t_l=${2##*/}; echo "LA_${t_l#tehas:}" >"$t_got" ;;
-    "api graphql -F owner="*) case "$*" in *"nodes { name color description }"*) echo '{"data":{"repository":{"labels":{"pageInfo":{"hasNextPage":false},"nodes":[]}}}}' >"$t_got" ;; esac ;;
+    "api "*) case "$*" in *"nodes { name color description }"*) cat "$T_ROOT/test/fixtures/labels-none.json" >"$t_got" ;; esac ;;
   esac
 fi
 if command -p grep -q '"login"' "$t_got" &&
