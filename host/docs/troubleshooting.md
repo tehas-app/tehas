@@ -1517,8 +1517,9 @@ pull request than the one on record, so a notice a person removed comes back at
 the next run. The rules are in
 [tehasbot preview](/tools). The log line says which case it is:
 
-- `#<pr>: the description could not be read (no such pull request (HTTP 404)),
-  tried again at the next run`, or with `GitHub refused the call (HTTP 403)`.
+- `#<pr>: the description could not be read (not found, or not visible to
+  this actor), tried again at the next run`, or with `this actor may not do
+  this`.
   Check `gh auth status` as the tehas user: a token that lost access, or one
   that cannot write pull requests, answers that way for every pull request.
 - `#<pr>: the description has a preview notice that is not this one, left
