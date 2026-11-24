@@ -7,7 +7,8 @@
 //! names as left to `review` and `tehas update`.
 
 use super::prepare::{self, Reading};
-use serde_json::{json, Value};
+use serde::Serialize;
+use serde_json::Value;
 use std::fs;
 use std::io::Read;
 use std::os::unix::fs::OpenOptionsExt;
@@ -29,18 +30,24 @@ impl Checked {
         &self.reading.refusals
     }
 
-    pub fn json(&self) -> Value {
+    /// The answer of `--json`. It is written through a JSON value, so its
+    /// keys print sorted as they always have.
+    pub fn json(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_value(self.answer()).map(|v| v.to_string())
+    }
+
+    fn answer(&self) -> Answer<'_> {
         let m = self.reading.manifest.as_ref();
-        json!({
-            "api": 1,
-            "dir": self.dir,
-            "name": m.map(|m| m.name.clone()),
-            "asks": m.map(|m| m.asks.clone()).unwrap_or_default(),
-            "bases": self.reading.bases,
-            "manifest_sha256": self.reading.sha256,
-            "refusals": self.reading.refusals,
-            "left": [LEFT],
-        })
+        Answer {
+            api: 1,
+            dir: &self.dir,
+            name: m.map(|m| m.name.as_str()),
+            asks: m.map_or(&[], |m| m.asks.as_slice()),
+            bases: &self.reading.bases,
+            manifest_sha256: &self.reading.sha256,
+            refusals: &self.reading.refusals,
+            left: [LEFT],
+        }
     }
 
     pub fn text(&self) -> Vec<String> {
@@ -71,6 +78,19 @@ impl Checked {
         out.push(format!("not checked here: {LEFT}"));
         out
     }
+}
+
+/// What `tehas plugin check --json` answers.
+#[derive(Debug, PartialEq, Serialize)]
+struct Answer<'a> {
+    api: u8,
+    dir: &'a str,
+    name: Option<&'a str>,
+    asks: &'a [String],
+    bases: &'a [String],
+    manifest_sha256: &'a str,
+    refusals: &'a [String],
+    left: [&'static str; 1],
 }
 
 /// A file of the folder by its path in the repository: a regular file,
@@ -172,6 +192,7 @@ pub fn check(dir: &Path) -> Result<Checked, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
     use std::os::unix::fs::symlink;
     use tehas_core::testdir::TestDir;
 
@@ -208,10 +229,19 @@ mod tests {
         );
         let c = check(&d).unwrap();
         assert!(c.refusals().is_empty(), "{:?}", c.refusals());
-        let j = c.json();
+        let typed = c.answer();
+        assert_eq!(typed.name, Some("demo"));
+        assert_eq!(typed.asks, ["product"]);
+        assert_eq!(typed.bases.len(), 1);
+        let text = c.json().unwrap();
+        let j: serde_json::Value = serde_json::from_str(&text).unwrap();
+        // The keys are sorted, as the value of the answer writes them.
+        assert_eq!(text, j.to_string());
+        assert!(
+            text.starts_with(r#"{"api":1,"asks":["product"],"bases":["#),
+            "{text}"
+        );
         assert_eq!(j["name"], "demo");
-        assert_eq!(j["asks"], json!(["product"]));
-        assert_eq!(j["bases"].as_array().unwrap().len(), 1);
         assert_eq!(j["left"], json!([LEFT]));
         let text = c.text();
         assert!(text.iter().any(|l| l.starts_with("ok:")), "{text:?}");
