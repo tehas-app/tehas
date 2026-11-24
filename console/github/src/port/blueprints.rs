@@ -24,7 +24,7 @@ use std::num::NonZeroU32;
 use super::blueprint_writes::{ends_with_folded, read_issue, revision};
 use super::unsupported;
 use crate::ticket::CUT_TEXT;
-use crate::tickets::account;
+use crate::tickets::{account, Bot};
 use crate::{gh, markers, GitHub};
 use serde::Deserialize;
 use serde_json::Value;
@@ -247,7 +247,7 @@ impl GitHub {
         blueprint.title = issue.title;
         blueprint.body = read.text;
         blueprint.open = open;
-        blueprint.author = author(f.user.as_ref());
+        blueprint.author = author(f.user.as_ref(), self.bot.as_ref());
         blueprint.markers = read.markers;
         blueprint.comments.more = count > 0;
         Ok((
@@ -320,7 +320,7 @@ impl GitHub {
         for page in first..=last {
             let out = self.comments_page(no, page)?;
             let held = (count - (page - 1) * COMMENTS_PER_PAGE).min(COMMENTS_PER_PAGE);
-            let (mut comments, touched) = read_comments(&out, &self.repo, no)?;
+            let (mut comments, touched) = read_comments(&out, &self.repo, no, self.bot.as_ref())?;
             if comments.len() != held {
                 return Err(inconsistent);
             }
@@ -347,7 +347,7 @@ impl GitHub {
             .ask("the issue's editor", BODY_EDIT, Some(no.get()), None)
             .map_err(|e| priced(self.outcome(&e)))?;
         let edit: Edited = answer(&out, "/data/repository/issue", (self.now)())?;
-        edit.read()
+        edit.read(self.bot.as_ref())
     }
 
     /// The last edit of each comment of a page whose `updated_at` moved,
@@ -371,7 +371,7 @@ impl GitHub {
             let node = node
                 .filter(|n| n.id.as_deref() == Some(id.as_str()))
                 .ok_or(Outcome::Unread(Unread::Inconsistent))?;
-            let (edited, editor) = node.read()?;
+            let (edited, editor) = node.read(self.bot.as_ref())?;
             comments[*at].edited = edited;
             comments[*at].editor = editor;
         }
@@ -467,26 +467,29 @@ impl Edited {
     /// never edited. An edit by an account GitHub no longer names (deleted:
     /// its `ghost`) is answered as the account `ghost` of an unknown kind,
     /// so an edited text never reads as unedited.
-    fn read(self) -> Got<(Option<At>, Option<tehas_ports::Account>)> {
+    fn read(self, bot: Option<&Bot>) -> Got<(Option<At>, Option<tehas_ports::Account>)> {
         let Some(at) = self.last_edited_at else {
             return Ok((None, None));
         };
         let at = time(Some(&at))?;
-        let editor = match self.editor {
-            None => Some(tehas_ports::Account::new(
-                tehas_ports::Realm::CodeHost,
-                tehas_ports::Login::new("ghost"),
-                tehas_ports::AccountKind::Unknown,
-            )),
-            Some(a) => {
-                let facts = gh::Facts {
+        // A deleted account is GitHub's `ghost`, with no type and no id.
+        let (login, facts) = match self.editor {
+            None => (
+                "ghost".to_string(),
+                gh::Facts {
+                    id: None,
+                    kind: None,
+                },
+            ),
+            Some(a) => (
+                a.login.ok_or(Outcome::Unread(Unread::Malformed))?,
+                gh::Facts {
                     id: a.id,
                     kind: a.kind,
-                };
-                let login = a.login.ok_or(Outcome::Unread(Unread::Malformed))?;
-                Some(account(&login, &facts).ok_or(Outcome::Unread(Unread::Malformed))?)
-            }
+                },
+            ),
         };
+        let editor = Some(account(&login, &facts, bot).ok_or(Outcome::Unread(Unread::Malformed))?);
         Ok((Some(at), editor))
     }
 }
@@ -573,13 +576,13 @@ fn time(iso: Option<&str>) -> Got<At> {
 
 /// The account of an issue's or a comment's `user`, None where it names
 /// nobody: a deleted account's is `null`.
-fn author(user: Option<&User>) -> Option<tehas_ports::Account> {
+fn author(user: Option<&User>, bot: Option<&Bot>) -> Option<tehas_ports::Account> {
     let u = user?;
     let facts = gh::Facts {
         id: u.id,
         kind: u.kind.clone(),
     };
-    account(u.login.as_deref()?, &facts)
+    account(u.login.as_deref()?, &facts, bot)
 }
 
 /// One page of an issue's comments, each read: its text through
@@ -588,7 +591,12 @@ fn author(user: Option<&User>) -> Option<tehas_ports::Account> {
 /// lacks a field every comment has, is `Unread(Malformed)`; a comment whose
 /// link is not one on issue `no` of this project is
 /// `Unread(Inconsistent)`.
-fn read_comments(out: &str, repo: &str, no: BlueprintNo) -> Got<(Vec<Comment>, Vec<Touched>)> {
+fn read_comments(
+    out: &str,
+    repo: &str,
+    no: BlueprintNo,
+    bot: Option<&Bot>,
+) -> Got<(Vec<Comment>, Vec<Touched>)> {
     let malformed = Outcome::Unread(Unread::Malformed);
     let mut v: Value = serde_json::from_str(out.trim()).map_err(|_| malformed.clone())?;
     tehas_core::accounts::vouch(&mut v);
@@ -611,7 +619,7 @@ fn read_comments(out: &str, repo: &str, no: BlueprintNo) -> Got<(Vec<Comment>, V
         let read = markers::read(raw, Some(no));
         let sum = Revision::new(tehas_core::approval::body_sum(raw));
         let mut comment = Comment::new(CommentId::new(id.to_string()), created, sum, link);
-        comment.author = author(c.user.as_ref());
+        comment.author = author(c.user.as_ref(), bot);
         if updated != created {
             let node = c
                 .node_id

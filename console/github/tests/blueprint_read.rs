@@ -530,19 +530,16 @@ fn the_comments_answer_what_the_settle_of_a_maybe_sent_note_compares() {
     // The core's rule (`journal::settle::by_comments`) takes a comment of
     // the factory's own account made since the row, with the row's body to
     // the byte and its markers. The adapter answers the body as GitHub
-    // keeps it and `created` as GitHub's; it cannot tell its own account
-    // yet, so its author is a Bot and the rule finds nothing until the
-    // site's wiring names the factory's account `Ours`.
+    // keeps it and `created` as GitHub's. Whether the author is `Ours` is
+    // the site's bot rule: a handle with no bot id answers the bot as a
+    // `Bot`, and the rule cannot tell (None); a site given the bot's id
+    // answers it `Ours`, and the note is there (Landed).
     let sent = "The plan is ready.\n\nSee the steps below.";
     let mut site = Site::default().seven();
     let first = &mut site.comments.get_mut(&7).unwrap()[0];
     first["user"] = serde_json::json!({"login": "tehas-bot[bot]", "id": 100001, "type": "Bot"});
     first["body"] = sent.into();
-    let (mut gh, _, _) = adapter(site);
-    let mut read = gh
-        .comments(no(7), Bound::new(100).unwrap())
-        .unwrap()
-        .into_items();
+    let kept = Arc::new(Mutex::new(site));
     let row = tehas_ports::Write::TicketNote {
         ticket: tehas_ports::TicketKey::Number(std::num::NonZeroU64::new(7).unwrap()),
         body: tehas_ports::Body::Text(sent.into()),
@@ -550,21 +547,35 @@ fn the_comments_answer_what_the_settle_of_a_maybe_sent_note_compares() {
     };
     let at = At::new(tehas_core::time::from_iso("2026-11-20T09:59:30Z").unwrap());
     use tehas_core::journal::{settle::by_comments, Found};
-    assert_eq!(read[0].body, sent);
-    assert_eq!(by_comments(&row, &read, at), Some(Found::NotSent));
-    for c in &mut read {
-        if let Some(a) = c
-            .author
-            .as_mut()
-            .filter(|a| a.id.as_ref().is_some_and(|i| i.as_str() == "100001"))
-        {
-            a.kind = AccountKind::Ours;
-        }
-    }
-    assert_eq!(by_comments(&row, &read, at), Some(Found::Landed));
+    let read_by = |bot_id: Option<u64>| {
+        let kept = Arc::clone(&kept);
+        let make: tehas_github::MakeRunner = Arc::new(move |_: &tehas_ports::Actor| {
+            Ok(Box::new(Runner {
+                site: Arc::clone(&kept),
+                calls: Calls::default(),
+            }) as Box<dyn GhRunner>)
+        });
+        let site = tehas_github::GitHubSite::new(PROJECT, "tehas-bot[bot]", bot_id, make);
+        let mut h = tehas_ports::Site::blueprints(
+            &site,
+            &tehas_ports::Actor::Ours(tehas_ports::Scope::Full),
+            tehas_ports::Caller::new("test.settle"),
+        )
+        .unwrap();
+        h.comments(no(7), Bound::new(100).unwrap())
+            .unwrap()
+            .into_items()
+    };
+    let unknown = read_by(None);
+    assert_eq!(unknown[0].body, sent);
+    assert_eq!(unknown[0].author.as_ref().unwrap().kind, AccountKind::Bot);
+    assert_eq!(by_comments(&row, &unknown, at), None);
+    let ours = read_by(Some(100001));
+    assert_eq!(ours[0].author.as_ref().unwrap().kind, AccountKind::Ours);
+    assert_eq!(by_comments(&row, &ours, at), Some(Found::Landed));
     // A row sent after the comment was made is not it.
     let later = At::new(tehas_core::time::from_iso("2026-11-20T10:05:00Z").unwrap());
-    assert_eq!(by_comments(&row, &read, later), Some(Found::NotSent));
+    assert_eq!(by_comments(&row, &ours, later), Some(Found::NotSent));
 }
 
 #[test]
