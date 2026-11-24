@@ -22,9 +22,12 @@ pub enum Action {
         issue: u64,
         say: String,
     },
+    /// A comment, and our markers beside its text, typed: the text holds
+    /// none (T4.7).
     Say {
         issue: u64,
         say: String,
+        markers: Vec<tehas_ports::Marker>,
     },
     /// The answer `tehas answer` gave to the question `id` is taken away.
     AnswerDrop {
@@ -347,9 +350,16 @@ impl From<&Action> for Value {
                 put("park_told", json!(true));
                 put("say", json!(say));
             }
-            Action::Say { issue, say } => {
+            Action::Say {
+                issue,
+                say,
+                markers,
+            } => {
                 put("issue", json!(issue));
                 put("say", json!(say));
+                if !markers.is_empty() {
+                    put("markers", json!(markers));
+                }
             }
             Action::AnswerDrop {
                 issue,

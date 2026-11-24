@@ -19,9 +19,9 @@ use tehas_ports::{
     Took, Unread, WebLink, Whole, Window, ALL_MAX,
 };
 
-const MALFORMED: Outcome = Outcome::Unread(Unread::Malformed);
-const INCONSISTENT: Outcome = Outcome::Unread(Unread::Inconsistent);
-const CUT: Outcome = Outcome::Unread(Unread::Cut);
+pub(crate) const MALFORMED: Outcome = Outcome::Unread(Unread::Malformed);
+pub(crate) const INCONSISTENT: Outcome = Outcome::Unread(Unread::Inconsistent);
+pub(crate) const CUT: Outcome = Outcome::Unread(Unread::Cut);
 
 /// How many characters of a ticket's text `Depth::Cut` keeps, as the ports'
 /// fake cuts it.
@@ -32,7 +32,8 @@ pub const CUT_TEXT: usize = 200;
 const PAGES_MAX: usize = 100;
 
 /// An account, with the user id the vouch reads beside every login.
-const ACTOR: &str = "__typename login ...on User { databaseId } ...on Bot { databaseId }";
+pub(crate) const ACTOR: &str =
+    "__typename login ...on User { databaseId } ...on Bot { databaseId }";
 
 const ASSIGNEE: &str =
     "assignee { __typename ...on User { login databaseId } ...on Bot { login databaseId } }";
@@ -42,7 +43,7 @@ const CLOSER: &str = "stateReason closer { __typename ...on PullRequest { number
 const BLOCKING: &str = "blockingIssue { number repository { nameWithOwner } }";
 
 /// An issue another names: a part, a blocker.
-const NAMED: &str = "number state repository { nameWithOwner }";
+pub(crate) const NAMED: &str = "number state repository { nameWithOwner }";
 
 /// Each kind of event the history reads: the ports' kind, GitHub's item
 /// type, its node, and the fields asked of it beside its time and actor.
@@ -152,6 +153,21 @@ fn of_issue(asks: &str) -> String {
 /// milestone is asked beside it; one this read cannot name is `Unknown`.
 /// `Unknown` asks every event that can read as it.
 fn events(kinds: Option<&[HappenedKind]>, window: Window) -> String {
+    match timeline(kinds, window, true) {
+        Some(timeline) => format!("milestone {{ number title }} {timeline}"),
+        None => String::new(),
+    }
+}
+
+/// The page of events [`events`] asks, without the milestone: from
+/// `$cursor` when `paged`, else the first page alone, for a question whose
+/// `$cursor` pages something else. None when GitHub has no event of those
+/// kinds.
+pub(crate) fn timeline(
+    kinds: Option<&[HappenedKind]>,
+    window: Window,
+    paged: bool,
+) -> Option<String> {
     let asked = |(k, _, node, _): &&(HappenedKind, &str, &str, &str)| {
         kinds.is_none_or(|ks| {
             ks.contains(k) || (ks.contains(&HappenedKind::Unknown) && MAY_BE_UNKNOWN.contains(node))
@@ -159,7 +175,7 @@ fn events(kinds: Option<&[HappenedKind]>, window: Window) -> String {
     };
     let rows: Vec<_> = EVENTS.iter().filter(asked).collect();
     if rows.is_empty() {
-        return String::new();
+        return None;
     }
     let types: Vec<&str> = rows.iter().map(|r| r.1).collect();
     let nodes: Vec<String> = rows
@@ -168,25 +184,33 @@ fn events(kinds: Option<&[HappenedKind]>, window: Window) -> String {
             format!("... on {node} {{ createdAt actor {{ {ACTOR} }} {fields} }}")
         })
         .collect();
-    let (page, info) = match window {
-        Window::Whole(_) => ("first: 100, after: $cursor", "hasNextPage endCursor"),
-        Window::Last(_) => ("last: 100, before: $cursor", "hasPreviousPage startCursor"),
+    // A first page alone says how many there are, so a page cut short
+    // without a word is seen.
+    let count = if paged { "" } else { "totalCount " };
+    let (page, info) = match (window, paged) {
+        (Window::Whole(_), true) => ("first: 100, after: $cursor", "hasNextPage endCursor"),
+        (Window::Whole(_), false) => ("first: 100", "hasNextPage endCursor"),
+        (Window::Last(_), true) => ("last: 100, before: $cursor", "hasPreviousPage startCursor"),
+        (Window::Last(_), false) => ("last: 100", "hasPreviousPage startCursor"),
     };
-    format!(
-        "milestone {{ number title }} events: timelineItems(itemTypes: [{}], {page}) {{ pageInfo {{ {info} }} nodes {{ __typename {} }} }}",
+    Some(format!(
+        "events: timelineItems(itemTypes: [{}], {page}) {{ {count}pageInfo {{ {info} }} nodes {{ __typename {} }} }}",
         types.join(", "),
         nodes.join(" ")
-    )
+    ))
 }
 
-/// The changes that name the issue, a page of them.
-fn mentions() -> String {
-    "mentions: timelineItems(itemTypes: [CROSS_REFERENCED_EVENT], first: 100, after: $cursor) { pageInfo { hasNextPage endCursor } nodes { __typename ... on CrossReferencedEvent { source { __typename ...on PullRequest { number repository { nameWithOwner } } } } } }".to_string()
+/// The changes that name the issue, a page of them, from `$cursor` when
+/// `paged`.
+pub(crate) fn mentions(paged: bool) -> String {
+    let after = if paged { ", after: $cursor" } else { "" };
+    format!("mentions: timelineItems(itemTypes: [CROSS_REFERENCED_EVENT], first: 100{after}) {{ totalCount pageInfo {{ hasNextPage endCursor }} nodes {{ __typename ... on CrossReferencedEvent {{ source {{ __typename ...on PullRequest {{ number repository {{ nameWithOwner }} }} }} }} }} }}")
 }
 
-/// The issue's parts, a page of them.
-fn parts() -> String {
-    format!("subIssues(first: 100, after: $cursor) {{ totalCount pageInfo {{ hasNextPage endCursor }} nodes {{ {NAMED} }} }}")
+/// The issue's parts, a page of them, from `$cursor` when `paged`.
+pub(crate) fn parts(paged: bool) -> String {
+    let after = if paged { ", after: $cursor" } else { "" };
+    format!("subIssues(first: 100{after}) {{ totalCount pageInfo {{ hasNextPage endCursor }} nodes {{ {NAMED} }} }}")
 }
 
 /// The issue's newest close, what `Ticket.closer` is read from.
@@ -195,20 +219,25 @@ pub(crate) fn closes() -> String {
 }
 
 /// What the issue waits on, whole up to a hundred: past that the ticket is
-/// `Unread(Cut)`. GitHub holds no more than fifty.
-fn blocked_by() -> String {
-    format!("blockedBy(first: 100, after: $cursor) {{ totalCount nodes {{ {NAMED} }} }}")
+/// `Unread(Cut)`. GitHub holds no more than fifty. From `$cursor` when
+/// `paged`, which a question of one issue declares and must use.
+pub(crate) fn blocked_by(paged: bool) -> String {
+    let after = if paged { ", after: $cursor" } else { "" };
+    format!("blockedBy(first: 100{after}) {{ totalCount nodes {{ {NAMED} }} }}")
 }
 
-/// What a ticket holds beside its digest and its history: its newest
-/// close, what it waits on, its parts and the changes that name it.
+/// What a ticket holds beside its REST digest and its history: its newest
+/// close, what it waits on, its parts, the changes that name it and the
+/// ticket it is a part of, which the REST read leaves out where there is
+/// none.
 fn beside() -> String {
-    format!("{} {} {} {}", closes(), blocked_by(), parts(), mentions())
-}
-
-/// What an issue's digest is read from, a [`Node`].
-pub(crate) fn digest_fields() -> String {
-    format!("number title body state stateReason url createdAt updatedAt author {{ {ACTOR} }} issueType {{ name }} milestone {{ number title }} labels(first: 100) {{ totalCount nodes {{ name }} }}")
+    format!(
+        "{} {} {} {} {PARENT}",
+        closes(),
+        blocked_by(true),
+        parts(true),
+        mentions(true)
+    )
 }
 
 /// The list question: the repository's issues, oldest filed first, a page
@@ -218,8 +247,17 @@ fn listed(narrow: &str) -> String {
     format!("query($owner: String!, $name: String!, $cursor: String) {{ repository(owner: $owner, name: $name) {{ issues(first: 100, after: $cursor, orderBy: {{field: CREATED_AT, direction: ASC}}{narrow}) {{ pageInfo {{ hasNextPage endCursor }} nodes {{ {} }} }} }} }}", digest_fields())
 }
 
+/// What an issue's digest is read from, as [`GitHub::digest_from`] reads
+/// a [`Node`].
+pub(crate) fn digest_fields() -> String {
+    format!("number title body state stateReason url createdAt updatedAt author {{ {ACTOR} }} issueType {{ name }} milestone {{ number title }} labels(first: 100) {{ totalCount nodes {{ name }} }} {PARENT}")
+}
+
+/// The ticket an issue is a part of, if any.
+const PARENT: &str = "parent { number repository { nameWithOwner } }";
+
 #[derive(Deserialize)]
-struct Who {
+pub(crate) struct Who {
     #[serde(rename = "__typename")]
     is: Option<String>,
     login: Option<String>,
@@ -228,7 +266,7 @@ struct Who {
 }
 
 impl Who {
-    fn account(&self, bot: Option<&Bot>) -> Option<Account> {
+    pub(crate) fn account(&self, bot: Option<&Bot>) -> Option<Account> {
         let facts = gh::Facts {
             id: self.id,
             kind: self.is.clone(),
@@ -238,12 +276,12 @@ impl Who {
 }
 
 #[derive(Deserialize)]
-struct Name {
-    name: String,
+pub(crate) struct Name {
+    pub(crate) name: String,
 }
 
 #[derive(Deserialize)]
-struct Milestone {
+pub(crate) struct Milestone {
     number: u64,
     title: String,
 }
@@ -256,7 +294,7 @@ struct Repo {
 
 /// An issue or a pull request another item names.
 #[derive(Deserialize)]
-struct Named {
+pub(crate) struct Named {
     #[serde(rename = "__typename")]
     is: Option<String>,
     number: Option<u64>,
@@ -272,14 +310,14 @@ struct Named {
 pub(crate) struct Info {
     has_next_page: Option<bool>,
     end_cursor: Option<String>,
-    has_previous_page: Option<bool>,
+    pub(crate) has_previous_page: Option<bool>,
     start_cursor: Option<String>,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Page<T> {
-    total_count: Option<u64>,
+    pub(crate) total_count: Option<u64>,
     pub(crate) page_info: Option<Info>,
     pub(crate) nodes: Vec<Option<T>>,
 }
@@ -288,10 +326,10 @@ pub(crate) struct Page<T> {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Event {
     #[serde(rename = "__typename")]
-    is: String,
-    created_at: Option<String>,
-    actor: Option<Who>,
-    label: Option<Name>,
+    pub(crate) is: String,
+    pub(crate) created_at: Option<String>,
+    pub(crate) actor: Option<Who>,
+    pub(crate) label: Option<Name>,
     assignee: Option<Who>,
     milestone_title: Option<String>,
     previous_title: Option<String>,
@@ -316,24 +354,30 @@ struct Answer {
     mentions: Option<Page<Event>>,
     sub_issues: Option<Page<Named>>,
     blocked_by: Option<Page<Named>>,
+    /// None where the question did not ask it; `Some(None)` for a ticket
+    /// that is a part of none.
+    #[serde(default, deserialize_with = "given")]
+    parent: Option<Option<Named>>,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Node {
     pub(crate) number: Option<u64>,
-    title: String,
-    /// Asked for the revision alone, which sums the title and the body.
-    body: String,
+    pub(crate) title: String,
+    /// The text, markers in; the revision sums it with the title.
+    pub(crate) body: String,
     state: String,
     state_reason: Option<String>,
-    url: String,
+    pub(crate) url: String,
     created_at: String,
     updated_at: String,
-    author: Option<Who>,
+    pub(crate) author: Option<Who>,
     issue_type: Option<Name>,
-    milestone: Option<Milestone>,
-    labels: Page<Name>,
+    pub(crate) milestone: Option<Milestone>,
+    pub(crate) labels: Page<Name>,
+    #[serde(deserialize_with = "present")]
+    parent: Option<Named>,
 }
 
 /// What the issue's REST read holds beside its digest. Each is there in
@@ -418,7 +462,7 @@ impl Pages {
 
 /// Oldest first; of two events in one second an addition before a removal,
 /// and of two of one kind the order of the site's answer.
-fn order(events: &mut [TicketEvent]) {
+pub(crate) fn order(events: &mut [TicketEvent]) {
     let removal = |e: &TicketEvent| {
         matches!(
             e.what,
@@ -449,7 +493,7 @@ impl GitHub {
     ) -> Got<Ticket> {
         let issue = number(key)?;
         let out = self.issue_answer(issue).map_err(|e| self.outcome(&e))?;
-        let digest = self.digest_of(key, &out)?;
+        let mut digest = self.digest_of(key, &out)?;
         let rest: Rest = part(&out, "")?;
         let window = history.or(depth.history());
         let asks = format!(
@@ -459,6 +503,7 @@ impl GitHub {
         );
         let mut first: Answer = self.ask_issue(issue, &of_issue(&asks), None, false)?;
 
+        digest.parent = self.parent_of(first.parent.take())?;
         let closer = self.newest_closer(&digest.state, first.closes.take())?;
         let blockers = self.blockers_from(first.blocked_by.take().ok_or(MALFORMED)?)?;
         let subs = first.sub_issues.take().ok_or(MALFORMED)?;
@@ -525,10 +570,26 @@ impl GitHub {
         self.pages(issue, only, window, None, true)
     }
 
+    /// The ticket an issue is a part of, from an answer that asked it: one
+    /// that left it out is `Unread(Malformed)`.
+    fn parent_of(&self, asked: Option<Option<Named>>) -> Got<Option<Ref<TicketKey>>> {
+        asked.ok_or(MALFORMED)?.map(|p| self.named(&p)).transpose()
+    }
+
+    /// The ticket an issue is a part of: one question, for a digest read
+    /// over REST, which leaves `parent_issue_url` out of an issue that is a
+    /// part of none, so its absence cannot be told from an answer cut short.
+    pub(crate) fn parent(&mut self, key: &TicketKey) -> Got<Option<Ref<TicketKey>>> {
+        let issue = number(key)?;
+        let question = format!("query($owner: String!, $name: String!, $number: Int!) {{ repository(owner: $owner, name: $name) {{ issue(number: $number) {{ number {PARENT} }} }} }}");
+        let first = self.ask_issue(issue, &question, None, false)?;
+        self.parent_of(first.parent)
+    }
+
     /// A ticket's parts, whole: `Tickets::parts`.
     pub(crate) fn parts(&mut self, key: &TicketKey) -> Got<Whole<Part>> {
         let issue = number(key)?;
-        let first: Answer = self.ask_issue(issue, &of_issue(&parts()), None, true)?;
+        let first: Answer = self.ask_issue(issue, &of_issue(&parts(true)), None, true)?;
         let subs = first.sub_issues.ok_or(MALFORMED)?;
         Ok(Whole::new(self.parts_from(issue, subs)?))
     }
@@ -537,7 +598,7 @@ impl GitHub {
     /// and rule as `Ticket.blockers`.
     pub(crate) fn blockers(&mut self, key: &TicketKey) -> Got<Whole<Blocker>> {
         let issue = number(key)?;
-        let first: Answer = self.ask_issue(issue, &of_issue(&blocked_by()), None, true)?;
+        let first: Answer = self.ask_issue(issue, &of_issue(&blocked_by(true)), None, true)?;
         let blocked = first.blocked_by.ok_or(MALFORMED)?;
         Ok(Whole::new(self.blockers_from(blocked)?))
     }
@@ -633,6 +694,30 @@ impl GitHub {
         issue: Option<u64>,
         cursor: Option<&str>,
     ) -> Result<String, ForgeError> {
+        let args = self.question_args(question, issue, cursor);
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        self.call(call, &args)
+    }
+
+    /// [`GitHub::ask`] of the repository, and on a failure what gh answered,
+    /// if the runner kept it.
+    pub(crate) fn ask_answer(
+        &mut self,
+        call: &str,
+        question: &str,
+        cursor: Option<&str>,
+    ) -> Result<String, (ForgeError, Option<String>)> {
+        let args = self.question_args(question, None, cursor);
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        self.call_answer(call, &args)
+    }
+
+    fn question_args(
+        &self,
+        question: &str,
+        issue: Option<u64>,
+        cursor: Option<&str>,
+    ) -> Vec<String> {
         let (owner, name) = self.owner_name();
         let mut args = vec!["api".to_string(), "graphql".to_string()];
         args.extend(["-F".to_string(), owner, "-F".to_string(), name]);
@@ -643,8 +728,7 @@ impl GitHub {
         if let Some(c) = cursor {
             args.extend(["-f".to_string(), format!("cursor={c}")]);
         }
-        let args: Vec<&str> = args.iter().map(String::as_str).collect();
-        self.call(call, &args)
+        args
     }
 
     /// One issue's answer to a question. With `settle`, a failure gh gives
@@ -747,7 +831,11 @@ impl GitHub {
 
     /// What one event of GitHub's is in the ports' words. None for a label
     /// event whose name no mark can have, which is kept to report.
-    fn happened(&mut self, e: &Event, target: Option<&Milestone>) -> Got<Option<Happened>> {
+    pub(crate) fn happened(
+        &mut self,
+        e: &Event,
+        target: Option<&Milestone>,
+    ) -> Got<Option<Happened>> {
         let mark = |gh: &mut GitHub| -> Got<Option<tehas_ports::Mark>> {
             let label = e.label.as_ref().ok_or(MALFORMED)?.name.clone();
             Ok(gh.read_marks(&[label]).pop().flatten())
@@ -871,7 +959,7 @@ impl GitHub {
     /// The ticket an issue of GitHub's names: of this project by its
     /// number, of another by its name. One with no number or no repository
     /// is `Unread(Inconsistent)`.
-    fn named(&self, n: &Named) -> Got<Ref<TicketKey>> {
+    pub(crate) fn named(&self, n: &Named) -> Got<Ref<TicketKey>> {
         let no = n.number.ok_or(INCONSISTENT)?;
         let repo = n.repository.as_ref().ok_or(INCONSISTENT)?;
         if self.is_here(repo) {
@@ -886,7 +974,7 @@ impl GitHub {
 
     /// What a ticket waits on from the first page of its links: one page
     /// is all GitHub holds, so a count past it is `Unread(Cut)`.
-    fn blockers_from(&self, page: Page<Named>) -> Got<Vec<Blocker>> {
+    pub(crate) fn blockers_from(&self, page: Page<Named>) -> Got<Vec<Blocker>> {
         if page.total_count.ok_or(INCONSISTENT)? != page.nodes.len() as u64 {
             return Err(CUT);
         }
@@ -907,9 +995,9 @@ impl GitHub {
 
     /// A ticket's parts from their first page on, whole: every page, and a
     /// count that agrees with GitHub's.
-    fn parts_from(&mut self, issue: u64, first: Page<Named>) -> Got<Vec<Part>> {
+    pub(crate) fn parts_from(&mut self, issue: u64, first: Page<Named>) -> Got<Vec<Part>> {
         let total = first.total_count.ok_or(INCONSISTENT)?;
-        let question = of_issue(&parts());
+        let question = of_issue(&parts(true));
         let mut out = Vec::new();
         let mut pages = Pages::default();
         let mut page = first;
@@ -936,12 +1024,19 @@ impl GitHub {
 
     /// The changes that name a ticket, from their first page on, each once,
     /// in the order GitHub recorded them.
-    fn mentions_from(&mut self, issue: u64, first: Page<Event>) -> Got<Vec<Ref<ChangeNo>>> {
-        let question = of_issue(&mentions());
+    pub(crate) fn mentions_from(
+        &mut self,
+        issue: u64,
+        first: Page<Event>,
+    ) -> Got<Vec<Ref<ChangeNo>>> {
+        let question = of_issue(&mentions(true));
+        let total = first.total_count;
         let mut out: Vec<Ref<ChangeNo>> = Vec::new();
         let mut pages = Pages::default();
         let mut page = first;
+        let mut nodes = 0u64;
         loop {
+            nodes += page.nodes.len() as u64;
             for e in page.nodes.into_iter().flatten() {
                 let Some(pull) = e
                     .source
@@ -967,7 +1062,13 @@ impl GitHub {
             let more = self.ask_issue(issue, &question, Some(&cursor), false)?;
             page = more.mentions.ok_or(MALFORMED)?;
         }
-        Ok(out)
+        // GitHub's count of them, where the question asked it: fewer read
+        // is a list cut short.
+        match total {
+            Some(t) if nodes < t => Err(CUT),
+            Some(t) if nodes > t => Err(INCONSISTENT),
+            _ => Ok(out),
+        }
     }
 
     /// A ticket's digest from a node of a question (the list's, the
@@ -1014,6 +1115,7 @@ impl GitHub {
             .milestone
             .map(|m| TargetName::new(TargetId::new(m.number.to_string()), m.title));
         digest.author = author;
+        digest.parent = n.parent.as_ref().map(|p| self.named(p)).transpose()?;
         Ok(digest)
     }
 }
@@ -1048,8 +1150,8 @@ mod tests {
         let all = [
             of_issue(&format!("{} {}", beside(), events(None, whole))),
             of_issue(&format!("{} {}", beside(), events(None, last))),
-            of_issue(&mentions()),
-            of_issue(&parts()),
+            of_issue(&mentions(true)),
+            of_issue(&parts(true)),
             listed(""),
         ];
         for q in all {
@@ -1071,8 +1173,8 @@ mod tests {
             of_issue(&format!("{} {}", beside(), events(None, whole))),
             of_issue(&format!("{} {}", beside(), events(None, last))),
             of_issue(&beside()),
-            of_issue(&mentions()),
-            of_issue(&parts()),
+            of_issue(&mentions(true)),
+            of_issue(&parts(true)),
             listed(""),
         ];
         for k in [

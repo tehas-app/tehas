@@ -236,6 +236,7 @@ its reason, as a floor; a departure from a should rule (R5) likewise.
 | gh-argv | 3, in the bash | `lib/github-app.sh` 1, `host/sandbox/gh-shim` 1, `scripts/tag-release.sh` 1 | T8's freeze, below |
 | github-rest | 4, in the bash | `host/sandbox/gh-shim` 4 | T8's freeze, below |
 | tests-stub-gh | 83, in the shell tests that stay shell | 18 files of `test/` | T8's freeze, below |
+| untyped-signatures, untyped-fields | 147 and 2 | four causes, file by file | T7's floors, below |
 
 ### The bash that stays (T8)
 
@@ -310,6 +311,28 @@ the Rust test files of cycle (70) and of the console (8, and 1 in
 the console's are 5 shell stubs in its update tests (`tests/update.rs` 2,
 `update/mod.rs` 2, `update_checkout.rs` 1) and 4 paths a test holds to
 check against, `wake.rs` line 89 an expected path.
+
+### Typed seams that stay untyped (T7)
+
+The lead, 2026-11-24 (tehas-84): what is untyped by nature stays, as a
+written floor; everything else is typed in T7's series. A count here may
+only fall: a pull request that adds a match to one of these files says
+which cause it is of, or types it. Measured on bc3bf1fe3 by
+`scripts/architecture.py`'s count, function by function.
+
+| Cause | untyped-signatures | untyped-fields | Where |
+| --- | --- | --- | --- |
+| A JSON Schema is a JSON document, and a check of any JSON against one walks the JSON | 91 | 1 | the MCP tools' input and output schemas: `console/mcp/src/tools.rs` 23 (`prop` to `stats_schema`, `build_entries`, `list_scoped`, `entries`, `spec_of`, `spec_of_keys`), `sessions.rs` 16 (the schema builders, `tools`, `spec`, `spec_of`, `issue_spec`), `outcomes_schema.rs` 9, `logs.rs` 4 (`described`, `tool`, `arr`, `search_tool`), `disk.rs` 2 (`tool`, `spec`), `decisions.rs`, `events.rs`, `park.rs` 1 each (`tool`); the checkers: `console/mcp/src/conform.rs` 5, `console/core/src/plugin/params.rs` 9 (a tool's parameters against its schema, and its tests' samples), `schema.rs` 3 (the api/ schemas the tests hold the files to); a plugin's manifest, read field by field with a refusal that names the field: `console/core/src/plugin/manifest.rs` 17 and its field `Tool::params`, the tool's own schema |
+| A body passed through whole, checked against its shape, not read | 26 | 0 | the model endpoint of a plugin run, which checks a chat request and its answer and forwards them unchanged: `console/plugin/src/model.rs` 12 and its tests 11; the arguments and the answer of a plugin's tool, which are the plugin's JSON, checked against its schema: `console/mcp/src/plugins.rs` 3 (`call`, `answered`, `exchange`) |
+| pi's `models.json`, which tehas edits in place and must keep every key it does not own | 16 | 1 | `console/core/src/models.rs` 4 and `ModelFile::json`, `console/ops/src/update/pi.rs` 6, `console/ops/src/setup.rs` 3, `console/ops/src/update/findings.rs` 1, `console/src/product.rs` 2 |
+| A contract test that walks any answer against its schema or lists its keys | 14 | 0 | `console/mcp/tests/tools.rs` 6 (`paths`, `key_paths`, `schema_paths`, `spec_paths`, `schema_of`, `described`), `sessions.rs` 5, `park.rs` 1 (`schema_paths`), `common.rs` 1 (`conforms`), `console/analytics/tests/sessions_contract.rs` 1 (`json_type`) |
+
+Not in this floor: the rest of these files. The MCP tools' answers
+(`status`, `issues`, `console`, `stats`, the sessions' `list`, `one`,
+`failures` and `issue`, `park`, `events`, `logs`), the listing of a
+plugin's tools and the JSON-RPC request's id and params are typeable and
+are typed in T7's series; so are the dispatcher's, the cycle's, the
+console's, ops' and the store client's, as T3 to T5 leave them.
 
 ### Temporary rises
 

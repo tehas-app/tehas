@@ -1,5 +1,6 @@
 //! The tickets port's writes, `TicketWrites`. Answered: the factory's
-//! labels made (`prepare`), a project's own label (`ensure_mark`), a mark
+//! labels made (`prepare`), or one of them (`prepare_one`), a project's own
+//! label (`ensure_mark`), a mark
 //! put on or taken off, a note with its markers (`note`), and the
 //! ticket's own title and text edited at a revision (`edit`).
 //!
@@ -11,6 +12,7 @@
 
 use super::blueprint_writes::{ends_with_folded, read_comment, revision, text_revision, unsent};
 use super::{label_of, number, unsupported};
+use crate::forge::uri;
 use crate::{markers, table, GitHub};
 use serde_json::Value;
 use tehas_ports::{
@@ -54,6 +56,28 @@ impl TicketWrites for GitHub {
             }
         }
         first
+    }
+
+    /// The label of one factory mark read, then made or brought to the
+    /// table's colour and text as `prepare` makes each, only where it is
+    /// not so already: a label that is right is not written. A label whose
+    /// name is the table's in another case is renamed to it in the same
+    /// write ([`GitHub::rename_label`]). A project's own mark, and a mark
+    /// no label is, are `Refused(Invalid)` with no request.
+    fn prepare_one(&mut self, mark: &Mark) -> Did {
+        if matches!(mark, Mark::Project(_)) {
+            return Err(Outcome::Refused(Refusal::Invalid));
+        }
+        let label = label_of(mark)?;
+        let spec = table::specs()
+            .into_iter()
+            .find(|s| s.name.as_str() == label)
+            .ok_or(Outcome::Refused(Refusal::Invalid))?;
+        match self.label_held(&label)? {
+            Some(held) if held.is(&spec) => Ok(()),
+            Some(held) if held.name() != label => self.rename_label(held.name(), &spec),
+            _ => self.ensure_mark(&spec),
+        }
     }
 
     /// `gh label create --force`: made, or its colour and text put back.
@@ -300,4 +324,22 @@ fn issue_of(out: &str, repo: &str) -> Got<Issue> {
         link: WebLink::new(url).map_err(|_| malformed)?,
         revision: revision(out),
     })
+}
+
+impl GitHub {
+    /// One `PATCH` of the label GitHub holds as `held` to the spec's name,
+    /// colour and text. `gh label create --force` keeps the case of the
+    /// name there, so a name in another case is renamed here; GitHub keeps
+    /// the label's id across a rename (Decided 92).
+    fn rename_label(&mut self, held: &str, spec: &MarkSpec) -> Did {
+        let path = format!("{}/labels/{}", self.issues()?, uri(held));
+        let mut input = serde_json::json!({ "new_name": spec.name.as_str() });
+        if let Some(c) = &spec.colour {
+            input["color"] = c.as_str().into();
+        }
+        if let Some(about) = &spec.about {
+            input["description"] = about.as_str().into();
+        }
+        self.send("PATCH", &path, &input.to_string()).map(|_| ())
+    }
 }
