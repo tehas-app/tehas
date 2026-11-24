@@ -1,0 +1,1204 @@
+{
+ "data": {
+  "repository": {
+   "issues": {
+    "pageInfo": {
+     "hasNextPage": false,
+     "endCursor": null
+    },
+    "nodes": [
+     {
+      "number": 60,
+      "title": "Ticket 60",
+      "body": "The work of 60.",
+      "state": "CLOSED",
+      "stateReason": "COMPLETED",
+      "url": "https://github.com/acme/widget/issues/60",
+      "createdAt": "2026-02-20T00:00:00Z",
+      "updatedAt": "2026-03-01T00:00:00Z",
+      "author": {
+       "__typename": "User",
+       "login": "carol",
+       "databaseId": 103
+      },
+      "issueType": null,
+      "milestone": null,
+      "labels": {
+       "totalCount": 1,
+       "nodes": [
+        {
+         "name": "tehas:done"
+        }
+       ]
+      },
+      "closedAt": "2026-03-01T00:00:00Z",
+      "closes": {
+       "nodes": [
+        {
+         "__typename": "ClosedEvent",
+         "createdAt": "2026-03-01T00:00:00Z",
+         "actor": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "stateReason": "COMPLETED",
+         "closer": null
+        }
+       ]
+      },
+      "subIssues": {
+       "totalCount": 0
+      },
+      "closedByPullRequestsReferences": {
+       "totalCount": 21,
+       "nodes": [
+        {
+         "baseRepository": {
+          "nameWithOwner": "acme/widget"
+         },
+         "number": 50,
+         "title": "Change 50",
+         "url": "https://github.com/acme/widget/pull/50",
+         "state": "MERGED",
+         "isDraft": false,
+         "isCrossRepository": false,
+         "headRefName": "feature/issue-50",
+         "headRefOid": "0000000000000000000000000000000000abc032",
+         "baseRefName": "main",
+         "baseRefOid": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+         "mergeable": "UNKNOWN",
+         "mergeStateStatus": "UNKNOWN",
+         "createdAt": "2026-02-01T09:30:00Z",
+         "updatedAt": "2026-03-01T00:00:00Z",
+         "lastEditedAt": null,
+         "mergedAt": "2026-03-01T00:00:00Z",
+         "closedAt": "2026-03-01T00:00:00Z",
+         "additions": 12,
+         "deletions": 3,
+         "changedFiles": 2,
+         "author": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "editor": null,
+         "mergedBy": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "mergeCommit": {
+          "oid": "0000000000000000000000000000000000def032"
+         },
+         "renames": {
+          "nodes": []
+         },
+         "labels": {
+          "totalCount": 0,
+          "nodes": []
+         },
+         "closingIssuesReferences": {
+          "totalCount": 1,
+          "nodes": [
+           {
+            "number": 20,
+            "repository": {
+             "nameWithOwner": "acme/widget"
+            }
+           }
+          ]
+         }
+        },
+        {
+         "baseRepository": {
+          "nameWithOwner": "acme/widget"
+         },
+         "number": 51,
+         "title": "Change 51",
+         "url": "https://github.com/acme/widget/pull/51",
+         "state": "MERGED",
+         "isDraft": false,
+         "isCrossRepository": false,
+         "headRefName": "feature/issue-51",
+         "headRefOid": "0000000000000000000000000000000000abc033",
+         "baseRefName": "main",
+         "baseRefOid": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+         "mergeable": "UNKNOWN",
+         "mergeStateStatus": "UNKNOWN",
+         "createdAt": "2026-02-01T09:30:00Z",
+         "updatedAt": "2026-03-01T00:00:00Z",
+         "lastEditedAt": null,
+         "mergedAt": "2026-03-01T00:00:00Z",
+         "closedAt": "2026-03-01T00:00:00Z",
+         "additions": 12,
+         "deletions": 3,
+         "changedFiles": 2,
+         "author": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "editor": null,
+         "mergedBy": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "mergeCommit": {
+          "oid": "0000000000000000000000000000000000def033"
+         },
+         "renames": {
+          "nodes": []
+         },
+         "labels": {
+          "totalCount": 0,
+          "nodes": []
+         },
+         "closingIssuesReferences": {
+          "totalCount": 1,
+          "nodes": [
+           {
+            "number": 20,
+            "repository": {
+             "nameWithOwner": "acme/widget"
+            }
+           }
+          ]
+         }
+        },
+        {
+         "baseRepository": {
+          "nameWithOwner": "acme/widget"
+         },
+         "number": 52,
+         "title": "Change 52",
+         "url": "https://github.com/acme/widget/pull/52",
+         "state": "MERGED",
+         "isDraft": false,
+         "isCrossRepository": false,
+         "headRefName": "feature/issue-52",
+         "headRefOid": "0000000000000000000000000000000000abc034",
+         "baseRefName": "main",
+         "baseRefOid": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+         "mergeable": "UNKNOWN",
+         "mergeStateStatus": "UNKNOWN",
+         "createdAt": "2026-02-01T09:30:00Z",
+         "updatedAt": "2026-03-01T00:00:00Z",
+         "lastEditedAt": null,
+         "mergedAt": "2026-03-01T00:00:00Z",
+         "closedAt": "2026-03-01T00:00:00Z",
+         "additions": 12,
+         "deletions": 3,
+         "changedFiles": 2,
+         "author": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "editor": null,
+         "mergedBy": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "mergeCommit": {
+          "oid": "0000000000000000000000000000000000def034"
+         },
+         "renames": {
+          "nodes": []
+         },
+         "labels": {
+          "totalCount": 0,
+          "nodes": []
+         },
+         "closingIssuesReferences": {
+          "totalCount": 1,
+          "nodes": [
+           {
+            "number": 20,
+            "repository": {
+             "nameWithOwner": "acme/widget"
+            }
+           }
+          ]
+         }
+        },
+        {
+         "baseRepository": {
+          "nameWithOwner": "acme/widget"
+         },
+         "number": 53,
+         "title": "Change 53",
+         "url": "https://github.com/acme/widget/pull/53",
+         "state": "MERGED",
+         "isDraft": false,
+         "isCrossRepository": false,
+         "headRefName": "feature/issue-53",
+         "headRefOid": "0000000000000000000000000000000000abc035",
+         "baseRefName": "main",
+         "baseRefOid": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+         "mergeable": "UNKNOWN",
+         "mergeStateStatus": "UNKNOWN",
+         "createdAt": "2026-02-01T09:30:00Z",
+         "updatedAt": "2026-03-01T00:00:00Z",
+         "lastEditedAt": null,
+         "mergedAt": "2026-03-01T00:00:00Z",
+         "closedAt": "2026-03-01T00:00:00Z",
+         "additions": 12,
+         "deletions": 3,
+         "changedFiles": 2,
+         "author": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "editor": null,
+         "mergedBy": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "mergeCommit": {
+          "oid": "0000000000000000000000000000000000def035"
+         },
+         "renames": {
+          "nodes": []
+         },
+         "labels": {
+          "totalCount": 0,
+          "nodes": []
+         },
+         "closingIssuesReferences": {
+          "totalCount": 1,
+          "nodes": [
+           {
+            "number": 20,
+            "repository": {
+             "nameWithOwner": "acme/widget"
+            }
+           }
+          ]
+         }
+        },
+        {
+         "baseRepository": {
+          "nameWithOwner": "acme/widget"
+         },
+         "number": 54,
+         "title": "Change 54",
+         "url": "https://github.com/acme/widget/pull/54",
+         "state": "MERGED",
+         "isDraft": false,
+         "isCrossRepository": false,
+         "headRefName": "feature/issue-54",
+         "headRefOid": "0000000000000000000000000000000000abc036",
+         "baseRefName": "main",
+         "baseRefOid": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+         "mergeable": "UNKNOWN",
+         "mergeStateStatus": "UNKNOWN",
+         "createdAt": "2026-02-01T09:30:00Z",
+         "updatedAt": "2026-03-01T00:00:00Z",
+         "lastEditedAt": null,
+         "mergedAt": "2026-03-01T00:00:00Z",
+         "closedAt": "2026-03-01T00:00:00Z",
+         "additions": 12,
+         "deletions": 3,
+         "changedFiles": 2,
+         "author": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "editor": null,
+         "mergedBy": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "mergeCommit": {
+          "oid": "0000000000000000000000000000000000def036"
+         },
+         "renames": {
+          "nodes": []
+         },
+         "labels": {
+          "totalCount": 0,
+          "nodes": []
+         },
+         "closingIssuesReferences": {
+          "totalCount": 1,
+          "nodes": [
+           {
+            "number": 20,
+            "repository": {
+             "nameWithOwner": "acme/widget"
+            }
+           }
+          ]
+         }
+        },
+        {
+         "baseRepository": {
+          "nameWithOwner": "acme/widget"
+         },
+         "number": 55,
+         "title": "Change 55",
+         "url": "https://github.com/acme/widget/pull/55",
+         "state": "MERGED",
+         "isDraft": false,
+         "isCrossRepository": false,
+         "headRefName": "feature/issue-55",
+         "headRefOid": "0000000000000000000000000000000000abc037",
+         "baseRefName": "main",
+         "baseRefOid": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+         "mergeable": "UNKNOWN",
+         "mergeStateStatus": "UNKNOWN",
+         "createdAt": "2026-02-01T09:30:00Z",
+         "updatedAt": "2026-03-01T00:00:00Z",
+         "lastEditedAt": null,
+         "mergedAt": "2026-03-01T00:00:00Z",
+         "closedAt": "2026-03-01T00:00:00Z",
+         "additions": 12,
+         "deletions": 3,
+         "changedFiles": 2,
+         "author": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "editor": null,
+         "mergedBy": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "mergeCommit": {
+          "oid": "0000000000000000000000000000000000def037"
+         },
+         "renames": {
+          "nodes": []
+         },
+         "labels": {
+          "totalCount": 0,
+          "nodes": []
+         },
+         "closingIssuesReferences": {
+          "totalCount": 1,
+          "nodes": [
+           {
+            "number": 20,
+            "repository": {
+             "nameWithOwner": "acme/widget"
+            }
+           }
+          ]
+         }
+        },
+        {
+         "baseRepository": {
+          "nameWithOwner": "acme/widget"
+         },
+         "number": 56,
+         "title": "Change 56",
+         "url": "https://github.com/acme/widget/pull/56",
+         "state": "MERGED",
+         "isDraft": false,
+         "isCrossRepository": false,
+         "headRefName": "feature/issue-56",
+         "headRefOid": "0000000000000000000000000000000000abc038",
+         "baseRefName": "main",
+         "baseRefOid": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+         "mergeable": "UNKNOWN",
+         "mergeStateStatus": "UNKNOWN",
+         "createdAt": "2026-02-01T09:30:00Z",
+         "updatedAt": "2026-03-01T00:00:00Z",
+         "lastEditedAt": null,
+         "mergedAt": "2026-03-01T00:00:00Z",
+         "closedAt": "2026-03-01T00:00:00Z",
+         "additions": 12,
+         "deletions": 3,
+         "changedFiles": 2,
+         "author": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "editor": null,
+         "mergedBy": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "mergeCommit": {
+          "oid": "0000000000000000000000000000000000def038"
+         },
+         "renames": {
+          "nodes": []
+         },
+         "labels": {
+          "totalCount": 0,
+          "nodes": []
+         },
+         "closingIssuesReferences": {
+          "totalCount": 1,
+          "nodes": [
+           {
+            "number": 20,
+            "repository": {
+             "nameWithOwner": "acme/widget"
+            }
+           }
+          ]
+         }
+        },
+        {
+         "baseRepository": {
+          "nameWithOwner": "acme/widget"
+         },
+         "number": 57,
+         "title": "Change 57",
+         "url": "https://github.com/acme/widget/pull/57",
+         "state": "MERGED",
+         "isDraft": false,
+         "isCrossRepository": false,
+         "headRefName": "feature/issue-57",
+         "headRefOid": "0000000000000000000000000000000000abc039",
+         "baseRefName": "main",
+         "baseRefOid": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+         "mergeable": "UNKNOWN",
+         "mergeStateStatus": "UNKNOWN",
+         "createdAt": "2026-02-01T09:30:00Z",
+         "updatedAt": "2026-03-01T00:00:00Z",
+         "lastEditedAt": null,
+         "mergedAt": "2026-03-01T00:00:00Z",
+         "closedAt": "2026-03-01T00:00:00Z",
+         "additions": 12,
+         "deletions": 3,
+         "changedFiles": 2,
+         "author": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "editor": null,
+         "mergedBy": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "mergeCommit": {
+          "oid": "0000000000000000000000000000000000def039"
+         },
+         "renames": {
+          "nodes": []
+         },
+         "labels": {
+          "totalCount": 0,
+          "nodes": []
+         },
+         "closingIssuesReferences": {
+          "totalCount": 1,
+          "nodes": [
+           {
+            "number": 20,
+            "repository": {
+             "nameWithOwner": "acme/widget"
+            }
+           }
+          ]
+         }
+        },
+        {
+         "baseRepository": {
+          "nameWithOwner": "acme/widget"
+         },
+         "number": 58,
+         "title": "Change 58",
+         "url": "https://github.com/acme/widget/pull/58",
+         "state": "MERGED",
+         "isDraft": false,
+         "isCrossRepository": false,
+         "headRefName": "feature/issue-58",
+         "headRefOid": "0000000000000000000000000000000000abc03a",
+         "baseRefName": "main",
+         "baseRefOid": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+         "mergeable": "UNKNOWN",
+         "mergeStateStatus": "UNKNOWN",
+         "createdAt": "2026-02-01T09:30:00Z",
+         "updatedAt": "2026-03-01T00:00:00Z",
+         "lastEditedAt": null,
+         "mergedAt": "2026-03-01T00:00:00Z",
+         "closedAt": "2026-03-01T00:00:00Z",
+         "additions": 12,
+         "deletions": 3,
+         "changedFiles": 2,
+         "author": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "editor": null,
+         "mergedBy": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "mergeCommit": {
+          "oid": "0000000000000000000000000000000000def03a"
+         },
+         "renames": {
+          "nodes": []
+         },
+         "labels": {
+          "totalCount": 0,
+          "nodes": []
+         },
+         "closingIssuesReferences": {
+          "totalCount": 1,
+          "nodes": [
+           {
+            "number": 20,
+            "repository": {
+             "nameWithOwner": "acme/widget"
+            }
+           }
+          ]
+         }
+        },
+        {
+         "baseRepository": {
+          "nameWithOwner": "acme/widget"
+         },
+         "number": 59,
+         "title": "Change 59",
+         "url": "https://github.com/acme/widget/pull/59",
+         "state": "MERGED",
+         "isDraft": false,
+         "isCrossRepository": false,
+         "headRefName": "feature/issue-59",
+         "headRefOid": "0000000000000000000000000000000000abc03b",
+         "baseRefName": "main",
+         "baseRefOid": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+         "mergeable": "UNKNOWN",
+         "mergeStateStatus": "UNKNOWN",
+         "createdAt": "2026-02-01T09:30:00Z",
+         "updatedAt": "2026-03-01T00:00:00Z",
+         "lastEditedAt": null,
+         "mergedAt": "2026-03-01T00:00:00Z",
+         "closedAt": "2026-03-01T00:00:00Z",
+         "additions": 12,
+         "deletions": 3,
+         "changedFiles": 2,
+         "author": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "editor": null,
+         "mergedBy": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "mergeCommit": {
+          "oid": "0000000000000000000000000000000000def03b"
+         },
+         "renames": {
+          "nodes": []
+         },
+         "labels": {
+          "totalCount": 0,
+          "nodes": []
+         },
+         "closingIssuesReferences": {
+          "totalCount": 1,
+          "nodes": [
+           {
+            "number": 20,
+            "repository": {
+             "nameWithOwner": "acme/widget"
+            }
+           }
+          ]
+         }
+        },
+        {
+         "baseRepository": {
+          "nameWithOwner": "acme/widget"
+         },
+         "number": 60,
+         "title": "Change 60",
+         "url": "https://github.com/acme/widget/pull/60",
+         "state": "MERGED",
+         "isDraft": false,
+         "isCrossRepository": false,
+         "headRefName": "feature/issue-60",
+         "headRefOid": "0000000000000000000000000000000000abc03c",
+         "baseRefName": "main",
+         "baseRefOid": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+         "mergeable": "UNKNOWN",
+         "mergeStateStatus": "UNKNOWN",
+         "createdAt": "2026-02-01T09:30:00Z",
+         "updatedAt": "2026-03-01T00:00:00Z",
+         "lastEditedAt": null,
+         "mergedAt": "2026-03-01T00:00:00Z",
+         "closedAt": "2026-03-01T00:00:00Z",
+         "additions": 12,
+         "deletions": 3,
+         "changedFiles": 2,
+         "author": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "editor": null,
+         "mergedBy": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "mergeCommit": {
+          "oid": "0000000000000000000000000000000000def03c"
+         },
+         "renames": {
+          "nodes": []
+         },
+         "labels": {
+          "totalCount": 0,
+          "nodes": []
+         },
+         "closingIssuesReferences": {
+          "totalCount": 1,
+          "nodes": [
+           {
+            "number": 20,
+            "repository": {
+             "nameWithOwner": "acme/widget"
+            }
+           }
+          ]
+         }
+        },
+        {
+         "baseRepository": {
+          "nameWithOwner": "acme/widget"
+         },
+         "number": 61,
+         "title": "Change 61",
+         "url": "https://github.com/acme/widget/pull/61",
+         "state": "MERGED",
+         "isDraft": false,
+         "isCrossRepository": false,
+         "headRefName": "feature/issue-61",
+         "headRefOid": "0000000000000000000000000000000000abc03d",
+         "baseRefName": "main",
+         "baseRefOid": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+         "mergeable": "UNKNOWN",
+         "mergeStateStatus": "UNKNOWN",
+         "createdAt": "2026-02-01T09:30:00Z",
+         "updatedAt": "2026-03-01T00:00:00Z",
+         "lastEditedAt": null,
+         "mergedAt": "2026-03-01T00:00:00Z",
+         "closedAt": "2026-03-01T00:00:00Z",
+         "additions": 12,
+         "deletions": 3,
+         "changedFiles": 2,
+         "author": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "editor": null,
+         "mergedBy": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "mergeCommit": {
+          "oid": "0000000000000000000000000000000000def03d"
+         },
+         "renames": {
+          "nodes": []
+         },
+         "labels": {
+          "totalCount": 0,
+          "nodes": []
+         },
+         "closingIssuesReferences": {
+          "totalCount": 1,
+          "nodes": [
+           {
+            "number": 20,
+            "repository": {
+             "nameWithOwner": "acme/widget"
+            }
+           }
+          ]
+         }
+        },
+        {
+         "baseRepository": {
+          "nameWithOwner": "acme/widget"
+         },
+         "number": 62,
+         "title": "Change 62",
+         "url": "https://github.com/acme/widget/pull/62",
+         "state": "MERGED",
+         "isDraft": false,
+         "isCrossRepository": false,
+         "headRefName": "feature/issue-62",
+         "headRefOid": "0000000000000000000000000000000000abc03e",
+         "baseRefName": "main",
+         "baseRefOid": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+         "mergeable": "UNKNOWN",
+         "mergeStateStatus": "UNKNOWN",
+         "createdAt": "2026-02-01T09:30:00Z",
+         "updatedAt": "2026-03-01T00:00:00Z",
+         "lastEditedAt": null,
+         "mergedAt": "2026-03-01T00:00:00Z",
+         "closedAt": "2026-03-01T00:00:00Z",
+         "additions": 12,
+         "deletions": 3,
+         "changedFiles": 2,
+         "author": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "editor": null,
+         "mergedBy": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "mergeCommit": {
+          "oid": "0000000000000000000000000000000000def03e"
+         },
+         "renames": {
+          "nodes": []
+         },
+         "labels": {
+          "totalCount": 0,
+          "nodes": []
+         },
+         "closingIssuesReferences": {
+          "totalCount": 1,
+          "nodes": [
+           {
+            "number": 20,
+            "repository": {
+             "nameWithOwner": "acme/widget"
+            }
+           }
+          ]
+         }
+        },
+        {
+         "baseRepository": {
+          "nameWithOwner": "acme/widget"
+         },
+         "number": 63,
+         "title": "Change 63",
+         "url": "https://github.com/acme/widget/pull/63",
+         "state": "MERGED",
+         "isDraft": false,
+         "isCrossRepository": false,
+         "headRefName": "feature/issue-63",
+         "headRefOid": "0000000000000000000000000000000000abc03f",
+         "baseRefName": "main",
+         "baseRefOid": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+         "mergeable": "UNKNOWN",
+         "mergeStateStatus": "UNKNOWN",
+         "createdAt": "2026-02-01T09:30:00Z",
+         "updatedAt": "2026-03-01T00:00:00Z",
+         "lastEditedAt": null,
+         "mergedAt": "2026-03-01T00:00:00Z",
+         "closedAt": "2026-03-01T00:00:00Z",
+         "additions": 12,
+         "deletions": 3,
+         "changedFiles": 2,
+         "author": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "editor": null,
+         "mergedBy": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "mergeCommit": {
+          "oid": "0000000000000000000000000000000000def03f"
+         },
+         "renames": {
+          "nodes": []
+         },
+         "labels": {
+          "totalCount": 0,
+          "nodes": []
+         },
+         "closingIssuesReferences": {
+          "totalCount": 1,
+          "nodes": [
+           {
+            "number": 20,
+            "repository": {
+             "nameWithOwner": "acme/widget"
+            }
+           }
+          ]
+         }
+        },
+        {
+         "baseRepository": {
+          "nameWithOwner": "acme/widget"
+         },
+         "number": 64,
+         "title": "Change 64",
+         "url": "https://github.com/acme/widget/pull/64",
+         "state": "MERGED",
+         "isDraft": false,
+         "isCrossRepository": false,
+         "headRefName": "feature/issue-64",
+         "headRefOid": "0000000000000000000000000000000000abc040",
+         "baseRefName": "main",
+         "baseRefOid": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+         "mergeable": "UNKNOWN",
+         "mergeStateStatus": "UNKNOWN",
+         "createdAt": "2026-02-01T09:30:00Z",
+         "updatedAt": "2026-03-01T00:00:00Z",
+         "lastEditedAt": null,
+         "mergedAt": "2026-03-01T00:00:00Z",
+         "closedAt": "2026-03-01T00:00:00Z",
+         "additions": 12,
+         "deletions": 3,
+         "changedFiles": 2,
+         "author": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "editor": null,
+         "mergedBy": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "mergeCommit": {
+          "oid": "0000000000000000000000000000000000def040"
+         },
+         "renames": {
+          "nodes": []
+         },
+         "labels": {
+          "totalCount": 0,
+          "nodes": []
+         },
+         "closingIssuesReferences": {
+          "totalCount": 1,
+          "nodes": [
+           {
+            "number": 20,
+            "repository": {
+             "nameWithOwner": "acme/widget"
+            }
+           }
+          ]
+         }
+        },
+        {
+         "baseRepository": {
+          "nameWithOwner": "acme/widget"
+         },
+         "number": 65,
+         "title": "Change 65",
+         "url": "https://github.com/acme/widget/pull/65",
+         "state": "MERGED",
+         "isDraft": false,
+         "isCrossRepository": false,
+         "headRefName": "feature/issue-65",
+         "headRefOid": "0000000000000000000000000000000000abc041",
+         "baseRefName": "main",
+         "baseRefOid": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+         "mergeable": "UNKNOWN",
+         "mergeStateStatus": "UNKNOWN",
+         "createdAt": "2026-02-01T09:30:00Z",
+         "updatedAt": "2026-03-01T00:00:00Z",
+         "lastEditedAt": null,
+         "mergedAt": "2026-03-01T00:00:00Z",
+         "closedAt": "2026-03-01T00:00:00Z",
+         "additions": 12,
+         "deletions": 3,
+         "changedFiles": 2,
+         "author": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "editor": null,
+         "mergedBy": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "mergeCommit": {
+          "oid": "0000000000000000000000000000000000def041"
+         },
+         "renames": {
+          "nodes": []
+         },
+         "labels": {
+          "totalCount": 0,
+          "nodes": []
+         },
+         "closingIssuesReferences": {
+          "totalCount": 1,
+          "nodes": [
+           {
+            "number": 20,
+            "repository": {
+             "nameWithOwner": "acme/widget"
+            }
+           }
+          ]
+         }
+        },
+        {
+         "baseRepository": {
+          "nameWithOwner": "acme/widget"
+         },
+         "number": 66,
+         "title": "Change 66",
+         "url": "https://github.com/acme/widget/pull/66",
+         "state": "MERGED",
+         "isDraft": false,
+         "isCrossRepository": false,
+         "headRefName": "feature/issue-66",
+         "headRefOid": "0000000000000000000000000000000000abc042",
+         "baseRefName": "main",
+         "baseRefOid": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+         "mergeable": "UNKNOWN",
+         "mergeStateStatus": "UNKNOWN",
+         "createdAt": "2026-02-01T09:30:00Z",
+         "updatedAt": "2026-03-01T00:00:00Z",
+         "lastEditedAt": null,
+         "mergedAt": "2026-03-01T00:00:00Z",
+         "closedAt": "2026-03-01T00:00:00Z",
+         "additions": 12,
+         "deletions": 3,
+         "changedFiles": 2,
+         "author": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "editor": null,
+         "mergedBy": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "mergeCommit": {
+          "oid": "0000000000000000000000000000000000def042"
+         },
+         "renames": {
+          "nodes": []
+         },
+         "labels": {
+          "totalCount": 0,
+          "nodes": []
+         },
+         "closingIssuesReferences": {
+          "totalCount": 1,
+          "nodes": [
+           {
+            "number": 20,
+            "repository": {
+             "nameWithOwner": "acme/widget"
+            }
+           }
+          ]
+         }
+        },
+        {
+         "baseRepository": {
+          "nameWithOwner": "acme/widget"
+         },
+         "number": 67,
+         "title": "Change 67",
+         "url": "https://github.com/acme/widget/pull/67",
+         "state": "MERGED",
+         "isDraft": false,
+         "isCrossRepository": false,
+         "headRefName": "feature/issue-67",
+         "headRefOid": "0000000000000000000000000000000000abc043",
+         "baseRefName": "main",
+         "baseRefOid": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+         "mergeable": "UNKNOWN",
+         "mergeStateStatus": "UNKNOWN",
+         "createdAt": "2026-02-01T09:30:00Z",
+         "updatedAt": "2026-03-01T00:00:00Z",
+         "lastEditedAt": null,
+         "mergedAt": "2026-03-01T00:00:00Z",
+         "closedAt": "2026-03-01T00:00:00Z",
+         "additions": 12,
+         "deletions": 3,
+         "changedFiles": 2,
+         "author": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "editor": null,
+         "mergedBy": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "mergeCommit": {
+          "oid": "0000000000000000000000000000000000def043"
+         },
+         "renames": {
+          "nodes": []
+         },
+         "labels": {
+          "totalCount": 0,
+          "nodes": []
+         },
+         "closingIssuesReferences": {
+          "totalCount": 1,
+          "nodes": [
+           {
+            "number": 20,
+            "repository": {
+             "nameWithOwner": "acme/widget"
+            }
+           }
+          ]
+         }
+        },
+        {
+         "baseRepository": {
+          "nameWithOwner": "acme/widget"
+         },
+         "number": 68,
+         "title": "Change 68",
+         "url": "https://github.com/acme/widget/pull/68",
+         "state": "MERGED",
+         "isDraft": false,
+         "isCrossRepository": false,
+         "headRefName": "feature/issue-68",
+         "headRefOid": "0000000000000000000000000000000000abc044",
+         "baseRefName": "main",
+         "baseRefOid": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+         "mergeable": "UNKNOWN",
+         "mergeStateStatus": "UNKNOWN",
+         "createdAt": "2026-02-01T09:30:00Z",
+         "updatedAt": "2026-03-01T00:00:00Z",
+         "lastEditedAt": null,
+         "mergedAt": "2026-03-01T00:00:00Z",
+         "closedAt": "2026-03-01T00:00:00Z",
+         "additions": 12,
+         "deletions": 3,
+         "changedFiles": 2,
+         "author": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "editor": null,
+         "mergedBy": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "mergeCommit": {
+          "oid": "0000000000000000000000000000000000def044"
+         },
+         "renames": {
+          "nodes": []
+         },
+         "labels": {
+          "totalCount": 0,
+          "nodes": []
+         },
+         "closingIssuesReferences": {
+          "totalCount": 1,
+          "nodes": [
+           {
+            "number": 20,
+            "repository": {
+             "nameWithOwner": "acme/widget"
+            }
+           }
+          ]
+         }
+        },
+        {
+         "baseRepository": {
+          "nameWithOwner": "acme/widget"
+         },
+         "number": 69,
+         "title": "Change 69",
+         "url": "https://github.com/acme/widget/pull/69",
+         "state": "MERGED",
+         "isDraft": false,
+         "isCrossRepository": false,
+         "headRefName": "feature/issue-69",
+         "headRefOid": "0000000000000000000000000000000000abc045",
+         "baseRefName": "main",
+         "baseRefOid": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+         "mergeable": "UNKNOWN",
+         "mergeStateStatus": "UNKNOWN",
+         "createdAt": "2026-02-01T09:30:00Z",
+         "updatedAt": "2026-03-01T00:00:00Z",
+         "lastEditedAt": null,
+         "mergedAt": "2026-03-01T00:00:00Z",
+         "closedAt": "2026-03-01T00:00:00Z",
+         "additions": 12,
+         "deletions": 3,
+         "changedFiles": 2,
+         "author": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "editor": null,
+         "mergedBy": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "mergeCommit": {
+          "oid": "0000000000000000000000000000000000def045"
+         },
+         "renames": {
+          "nodes": []
+         },
+         "labels": {
+          "totalCount": 0,
+          "nodes": []
+         },
+         "closingIssuesReferences": {
+          "totalCount": 1,
+          "nodes": [
+           {
+            "number": 20,
+            "repository": {
+             "nameWithOwner": "acme/widget"
+            }
+           }
+          ]
+         }
+        }
+       ]
+      },
+      "parent": null
+     }
+    ]
+   }
+  }
+ }
+}

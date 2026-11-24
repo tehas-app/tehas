@@ -1,0 +1,65 @@
+{
+ "data": {
+  "repository": {
+   "i6": {
+    "number": 20,
+    "title": "Ship the importer",
+    "body": "Import the old data.\r\n\r\n> <!-- tehas:blocked by=99 -->\r\n\r\ntehas:blocked by=23\r\n\r\n<!-- tehas:blocked by=23 -->\r\n",
+    "state": "CLOSED",
+    "stateReason": "COMPLETED",
+    "url": "https://github.com/acme/widget/issues/20",
+    "createdAt": "2026-02-01T09:00:00Z",
+    "updatedAt": "2026-02-03T12:00:00Z",
+    "author": {
+     "__typename": "User",
+     "login": "alice",
+     "databaseId": 101
+    },
+    "issueType": {
+     "name": "Feature"
+    },
+    "milestone": {
+     "number": 3,
+     "title": "v2"
+    },
+    "labels": {
+     "totalCount": 3,
+     "nodes": [
+      {
+       "name": "bug"
+      },
+      {
+       "name": "tehas:shipped"
+      },
+      {
+       "name": "not a label?"
+      }
+     ]
+    },
+    "closes": {
+     "nodes": [
+      {
+       "__typename": "ClosedEvent",
+       "createdAt": "2026-02-03T11:00:00Z",
+       "actor": {
+        "__typename": "Bot",
+        "login": "tehas-bot",
+        "databaseId": 900
+       },
+       "stateReason": "COMPLETED",
+       "closer": {
+        "__typename": "PullRequest",
+        "number": 31,
+        "merged": true,
+        "repository": {
+         "nameWithOwner": "acme/widget"
+        }
+       }
+      }
+     ]
+    },
+    "parent": null
+   }
+  }
+ }
+}

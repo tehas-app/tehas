@@ -498,6 +498,8 @@ fn an_answer_that_is_no_history_is_malformed() {
         // A close by a change with no number, and by a commit that is none.
         events(end, &[r#"{"__typename":"ClosedEvent","closer":{"__typename":"PullRequest","repository":{"nameWithOwner":"acme/widget"},"merged":true}}"#.to_string()]),
         events(end, &[r#"{"__typename":"ClosedEvent","closer":{"__typename":"Commit","oid":"zz"}}"#.to_string()]),
+        // A change of another project with no link to name it by.
+        events(end, &[r#"{"__typename":"ClosedEvent","closer":{"__typename":"PullRequest","number":4,"merged":true,"repository":{"nameWithOwner":"octo/tools"}}}"#.to_string()]),
     ] {
         let shown = format!("{answer:?}");
         assert_eq!(whole_history(vec![answer]), (Err(MALFORMED), 1), "{shown}");
@@ -513,7 +515,7 @@ fn an_event_is_read_in_the_ports_words() {
         r#"{"__typename":"ClosedEvent","createdAt":"2026-01-01T00:00:03Z","actor":{"__typename":"User","login":"Alice","databaseId":101},"stateReason":"NOT_PLANNED","closer":null}"#.to_string(),
         r#"{"__typename":"ClosedEvent","createdAt":"2026-01-01T00:00:04Z","actor":null,"stateReason":"COMPLETED","closer":{"__typename":"Commit","oid":"0123456789abcdef0123456789abcdef01234567"}}"#.to_string(),
         r#"{"__typename":"ClosedEvent","createdAt":"2026-01-01T00:00:05Z","actor":null,"stateReason":"COMPLETED","closer":{"__typename":"PullRequest","number":4,"merged":false,"repository":{"nameWithOwner":"Acme/Widget"}}}"#.to_string(),
-        r#"{"__typename":"ClosedEvent","createdAt":"2026-01-01T00:00:06Z","actor":null,"stateReason":"DUPLICATE","closer":{"__typename":"PullRequest","number":4,"merged":true,"repository":{"nameWithOwner":"octo/tools"}}}"#.to_string(),
+        r#"{"__typename":"ClosedEvent","createdAt":"2026-01-01T00:00:06Z","actor":null,"stateReason":"DUPLICATE","closer":{"__typename":"PullRequest","number":4,"merged":true,"url":"https://github.com/octo/tools/pull/4","repository":{"nameWithOwner":"octo/tools"}}}"#.to_string(),
         r#"{"__typename":"IssueTypeRemovedEvent","createdAt":"2026-01-01T00:00:07Z","actor":null}"#.to_string(),
         r#"{"__typename":"UnassignedEvent","createdAt":"2026-01-01T00:00:08Z","actor":null,"assignee":null}"#.to_string(),
         r#"{"__typename":"BlockedByRemovedEvent","createdAt":"2026-01-01T00:00:09Z","actor":null,"blockingIssue":{"number":3,"repository":{"nameWithOwner":"octo/tools"}}}"#.to_string(),
@@ -533,8 +535,8 @@ fn an_event_is_read_in_the_ports_words() {
             r#"{"type":"Closed","value":{"reason":"Done","closer":{"Commit":"0123456789abcdef0123456789abcdef01234567"}}}"#,
             r#"{"type":"Closed","value":{"reason":"Done","closer":{"Change":{"no":4,"merged":false}}}}"#,
             // A duplicate's original is not asked, and a change of another
-            // project has no number here.
-            r#"{"type":"Closed","value":{"reason":"NotPlanned","closer":null}}"#,
+            // project is named as GitHub names it there, with its link.
+            r#"{"type":"Closed","value":{"reason":"NotPlanned","closer":{"ChangeElsewhere":{"project":"octo/tools","item":"4","link":"https://github.com/octo/tools/pull/4"}}}}"#,
             r#"{"type":"Kind","value":null}"#,
             // An account that is gone cannot be named.
             r#"{"type":"Unknown"}"#,

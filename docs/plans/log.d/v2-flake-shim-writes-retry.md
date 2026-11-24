@@ -1,0 +1,1 @@
+| 2026-11-24 | The shim retry test ends only its own waiting call: the waiter's words carry the run's pid, so a run of the file beside it on one host no longer kills the waiter before its first attempt | v2/flake-shim-writes-retry |

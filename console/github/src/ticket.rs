@@ -38,7 +38,7 @@ pub(crate) const ACTOR: &str =
 const ASSIGNEE: &str =
     "assignee { __typename ...on User { login databaseId } ...on Bot { login databaseId } }";
 
-const CLOSER: &str = "stateReason closer { __typename ...on PullRequest { number merged repository { nameWithOwner } } ...on Commit { oid } }";
+const CLOSER: &str = "stateReason closer { __typename ...on PullRequest { number merged url repository { nameWithOwner } } ...on Commit { oid } }";
 
 const BLOCKING: &str = "blockingIssue { number repository { nameWithOwner } }";
 
@@ -213,6 +213,11 @@ pub(crate) fn parts(paged: bool) -> String {
     format!("subIssues(first: 100{after}) {{ totalCount pageInfo {{ hasNextPage endCursor }} nodes {{ {NAMED} }} }}")
 }
 
+/// The issue's newest close, what `Ticket.closer` is read from.
+pub(crate) fn closes() -> String {
+    format!("closes: timelineItems(itemTypes: [CLOSED_EVENT], last: 1) {{ nodes {{ __typename ... on ClosedEvent {{ createdAt actor {{ {ACTOR} }} {CLOSER} }} }} }}")
+}
+
 /// What the issue waits on, whole up to a hundred: past that the ticket is
 /// `Unread(Cut)`. GitHub holds no more than fifty. From `$cursor` when
 /// `paged`, which a question of one issue declares and must use.
@@ -227,7 +232,8 @@ pub(crate) fn blocked_by(paged: bool) -> String {
 /// none.
 fn beside() -> String {
     format!(
-        "closes: timelineItems(itemTypes: [CLOSED_EVENT], last: 1) {{ nodes {{ __typename ... on ClosedEvent {{ createdAt actor {{ {ACTOR} }} {CLOSER} }} }} }} {} {} {} {PARENT}",
+        "{} {} {} {} {PARENT}",
+        closes(),
         blocked_by(true),
         parts(true),
         mentions(true)
@@ -294,6 +300,7 @@ pub(crate) struct Named {
     number: Option<u64>,
     state: Option<String>,
     merged: Option<bool>,
+    url: Option<String>,
     oid: Option<String>,
     repository: Option<Repo>,
 }
@@ -497,14 +504,7 @@ impl GitHub {
         let mut first: Answer = self.ask_issue(issue, &of_issue(&asks), None, false)?;
 
         digest.parent = self.parent_of(first.parent.take())?;
-        let closer = match (&digest.state, first.closes.take()) {
-            (TicketState::Open, _) => None,
-            (_, None) => return Err(MALFORMED),
-            (_, Some(closes)) => match closes.nodes.into_iter().flatten().next_back() {
-                Some(e) => self.closer(&e)?,
-                None => None,
-            },
-        };
+        let closer = self.newest_closer(&digest.state, first.closes.take())?;
         let blockers = self.blockers_from(first.blocked_by.take().ok_or(MALFORMED)?)?;
         let subs = first.sub_issues.take().ok_or(MALFORMED)?;
         let parts = self.parts_from(issue, subs)?;
@@ -892,9 +892,27 @@ impl GitHub {
         }))
     }
 
+    /// What closed a ticket in `state`, from its newest close: None while
+    /// it is open, or where its history holds no close.
+    pub(crate) fn newest_closer(
+        &self,
+        state: &TicketState,
+        closes: Option<Page<Event>>,
+    ) -> Got<Option<Closer>> {
+        match (state, closes) {
+            (TicketState::Open, _) => Ok(None),
+            (_, None) => Err(MALFORMED),
+            (_, Some(closes)) => match closes.nodes.into_iter().flatten().next_back() {
+                Some(e) => self.closer(&e),
+                None => Ok(None),
+            },
+        }
+    }
+
     /// What closed the ticket at this close: the change or the commit it
     /// names, else the account that closed it by hand. A change of another
-    /// repository has no number here, and is not named.
+    /// repository has no number here: it is named as GitHub names it
+    /// there, with its link (Decided 100, 109).
     fn closer(&self, e: &Event) -> Got<Option<Closer>> {
         let by = match &e.closer {
             None => return Err(MALFORMED),
@@ -911,7 +929,13 @@ impl GitHub {
             Some("PullRequest") => {
                 let repo = by.repository.as_ref().ok_or(MALFORMED)?;
                 if !self.is_here(repo) {
-                    return Ok(None);
+                    let no = by.number.filter(|n| *n > 0).ok_or(MALFORMED)?;
+                    let link = by.url.clone().ok_or(MALFORMED)?;
+                    return Ok(Some(Closer::change_elsewhere(
+                        ProjectName::new(repo.name_with_owner.clone()),
+                        ItemName::new(no.to_string()),
+                        WebLink::new(link).map_err(|_| MALFORMED)?,
+                    )));
                 }
                 Ok(Some(Closer::Change {
                     no: by.number.and_then(ChangeNo::new).ok_or(MALFORMED)?,
@@ -1047,8 +1071,9 @@ impl GitHub {
         }
     }
 
-    /// A ticket's digest from the list's node, as the issue's REST read
-    /// gives it for `Tickets::several`.
+    /// A ticket's digest from a node of a question (the list's, the
+    /// closed reads'), as the issue's REST read gives it for
+    /// `Tickets::several`.
     pub(crate) fn digest_from(&mut self, n: Node) -> Got<TicketDigest> {
         let no = n
             .number
