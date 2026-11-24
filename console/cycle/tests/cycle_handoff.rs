@@ -519,7 +519,7 @@ fn a_cycle_that_is_no_refresh_leaves_the_labels_of_pull_requests_alone() {
 fn a_mark_that_cannot_be_taken_off_is_said_after_the_three_tries_not_taken_as_gone() {
     // A site that will not take the mark off is asked three times, and the
     // mark is not taken for gone.
-    let (_, applied, sent) = through("ho-unmark-fails-writes", refresh_started, |f| {
+    let (w, applied, sent) = through("ho-unmark-fails-writes", refresh_started, |f| {
         Faulty::new(f).on(
             Op::CodeHost(CodeHostOp::UnmarkChange),
             Fault::Refused(Refusal::Invalid),
@@ -527,6 +527,10 @@ fn a_mark_that_cannot_be_taken_off_is_said_after_the_three_tries_not_taken_as_go
     });
     assert_eq!(count_lines(&sent, REFRESH_UNMARK), 3);
     lacks(&applied, REFRESH_UNMARK);
+    has(
+        &w.report_log(),
+        "WARN: label change on pull request #9 failed",
+    );
 }
 
 #[test]

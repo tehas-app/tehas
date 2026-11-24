@@ -300,6 +300,8 @@ pub struct World {
     pub home: PathBuf,
     pub fx: PathBuf,
     env: Vec<(String, String)>,
+    /// What the last in-process report logged.
+    logged: std::cell::RefCell<String>,
 }
 
 #[allow(dead_code)] // each test file uses a part of this module
@@ -321,6 +323,7 @@ impl World {
             home,
             fx,
             env: vec![],
+            logged: std::cell::RefCell::new(String::new()),
         };
         w.stub("gh", GH);
         w.stub("fake-work", WORK);
@@ -631,6 +634,12 @@ impl World {
     /// up, the facts the report reads from this home, and its writes through
     /// the fake's handles. `run7` proves the binary reaches the adapter; this
     /// is what its report decides to write, in tehas's terms.
+    /// What the last in-process report logged: the lines an operator reads in
+    /// the cycle's journal.
+    pub fn report_log(&self) -> String {
+        self.logged.borrow().clone()
+    }
+
     pub fn report_writes(&self, site: &tehas_ports::fake::World) -> Vec<tehas_ports::Write> {
         let fake = tehas_ports::fake::FakeSite::new(site);
         self.report_through(site, &fake).applied
@@ -735,7 +744,10 @@ impl World {
         if store.exists() {
             self.as_run(&store, &self.t.join("store-bin"));
         }
-        let _ = tehas_cycle::apply::write(&self.home, &how, &mut r, &facts, handles);
+        let (_, logged) = tehas_cycle::after::holding(|| {
+            tehas_cycle::apply::write(&self.home, &how, &mut r, &facts, handles)
+        });
+        *self.logged.borrow_mut() = logged;
         let sent = sent.borrow().clone();
         Tried {
             applied: site.wrote().into_iter().map(|w| w.what).collect(),

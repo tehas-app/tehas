@@ -919,6 +919,10 @@ fn when_the_question_label_cannot_be_added_the_person_is_told_the_boxes_do_not_w
     has(&w.gh(), "- retry-text: Retry with the issue text only");
     has(&applied, &format!("note: {}", tehas_cycle::apply::BOXES));
     lacks(&applied, "State(Question)");
+    has(
+        &w.report_log(),
+        "WARN: label change on #7 failed: on State(Question)",
+    );
     // Withdrawn: a tick in it starts nothing.
     assert_eq!(park_q(&w), "none");
     let q = w.row(&["question-known", "7", "--id", "4002"]);
