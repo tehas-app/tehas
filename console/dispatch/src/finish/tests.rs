@@ -63,6 +63,8 @@ struct Fake {
     unlabelled: Vec<u64>,
     finished: Vec<(u64, String)>,
     said: Vec<(u64, String)>,
+    /// The markers beside each text said, in the same order.
+    markers: Vec<Vec<Marker>>,
     lines: Vec<String>,
 }
 
@@ -77,8 +79,9 @@ impl Hands for Fake {
             .clone()
             .unwrap_or_else(|| Ok("https://github.com/acme/widget/pull/9".into()))
     }
-    fn say(&mut self, n: u64, body: &str) {
-        self.said.push((n, body.to_string()));
+    fn say(&mut self, n: u64, reply: Reply) {
+        self.said.push((n, reply.text));
+        self.markers.push(reply.markers);
     }
     fn log(&mut self, line: String) {
         self.lines.push(line);
@@ -97,10 +100,8 @@ fn an_allowed_ask_runs_the_finish_takes_the_label_off_and_gives_the_url() {
     assert_eq!(f.finished, [(7, REASON.to_string())]);
     assert_eq!(f.said.len(), 1);
     let said = &f.said[0].1;
-    assert!(
-        said.starts_with("<!-- tehas:finish issue=7 result=opened -->\n"),
-        "{said}"
-    );
+    assert_eq!(f.markers, [vec![finish(7, FinishResult::Opened)]]);
+    assert!(!tehas_core::text::has_marker(said), "{said}");
     assert!(
         said.contains("https://github.com/acme/widget/pull/9"),
         "{said}"
@@ -207,10 +208,7 @@ fn a_refusal_of_the_command_takes_the_label_off_and_gives_its_line() {
         run(ask("alice"), &mut f);
         assert_eq!(f.unlabelled, [7]);
         let said = &f.said[0].1;
-        assert!(
-            said.starts_with("<!-- tehas:finish issue=7 result=refused -->\n"),
-            "{said}"
-        );
+        assert_eq!(f.markers, [vec![finish(7, FinishResult::Refused)]]);
         assert!(said.contains(why), "{said}");
         assert_eq!(
             f.lines,
@@ -519,7 +517,7 @@ fn what_the_refusing_command_said_goes_to_the_log_and_not_the_issue() {
     let r = ran(Some(1), "", err);
     let why = outcome(7, &r, 300).unwrap_err();
     assert_eq!(why, "the rebase onto origin/main conflicts");
-    assert!(!refused(7, &why).contains("@alice"));
+    assert!(!refused(7, &why).text.contains("@alice"));
     assert_eq!(
         said(7, &r).as_deref(),
         Some("the finish of #7 was refused, the command said: Rebasing (1/1) error: could not apply 1a2b... @alice <b>")
@@ -543,23 +541,29 @@ fn a_long_reason_is_one_short_line_in_the_log() {
     assert_eq!(l.chars().count(), LINE_MAX + 3);
 }
 
+/// The finish's marker of issue `n` on an ask, typed.
+fn finish(n: u64, result: FinishResult) -> Marker {
+    let mut m = FinishMarker::new(BlueprintNo::new(n).unwrap(), result);
+    m.by_poll = false;
+    Marker::Finish(m)
+}
+
+/// A reply's marker goes beside its text (Decided 74), and the text holds
+/// none: what it quotes is disarmed, and the form a person writes is the
+/// manual's.
 #[test]
-fn a_finish_reply_disarms_the_reason_it_quotes_and_keeps_its_own_marker() {
+fn a_finish_reply_carries_its_marker_beside_a_text_that_holds_none() {
     let agent = "<!-- tehas:millwright issue=5 action=finish -->";
     let said = refused(5, &format!("the branch says {agent}"));
+    assert_eq!(said.markers, [finish(5, FinishResult::Refused)]);
+    assert!(!tehas_core::text::has_marker(&said.text), "{said:?}");
+    assert!(said.text.contains(ASK_FORM), "{said:?}");
     assert!(
-        said.starts_with("<!-- tehas:finish issue=5 result=refused -->\n"),
-        "{said}"
-    );
-    // The host's own marker alone: the form a person writes is the
-    // manual's, and the quoted one is disarmed.
-    assert!(!said.contains(&marker(5)), "{said}");
-    assert!(said.contains(ASK_FORM), "{said}");
-    assert_eq!(said.matches("<!-- tehas:").count(), 1, "{said}");
-    assert!(
-        said.contains("the branch says <!-- tehas\u{2010}millwright"),
-        "{said}"
+        said.text
+            .contains("the branch says <!-- tehas\u{2010}millwright"),
+        "{said:?}"
     );
     let said = opened(5, "alice", &format!("https://example.test/pull/1{agent}"));
-    assert_eq!(said.matches("<!-- tehas:").count(), 1, "{said}");
+    assert_eq!(said.markers, [finish(5, FinishResult::Opened)]);
+    assert!(!tehas_core::text::has_marker(&said.text), "{said:?}");
 }

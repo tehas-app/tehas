@@ -17,9 +17,11 @@
 //! issue waits. An issue that is closed, or no longer parked, has its record
 //! removed: a person took it on.
 
+use crate::finish::Reply;
 use serde_json::Value;
 use tehas_core::end_fault::{Due, EndFault, TRIES};
 use tehas_core::text::disarm;
+use tehas_ports::FinishResult;
 
 /// The most records one poll reads the issue of and finishes. The rest wait
 /// for the next poll.
@@ -44,7 +46,7 @@ pub struct Case {
 pub trait Hands {
     /// The draft's URL, or the one line of why not.
     fn finish(&mut self, n: u64, reason: &str) -> Result<String, String>;
-    fn say(&mut self, n: u64, body: &str);
+    fn say(&mut self, n: u64, reply: Reply);
     fn log(&mut self, line: String);
     /// Write the record; false when it was not written.
     fn keep(&mut self, r: &EndFault) -> bool;
@@ -85,25 +87,25 @@ fn moot(issue: &Value) -> Option<String> {
 }
 
 /// The reply of a try that opened the draft.
-pub fn opened(r: &EndFault, url: &str) -> String {
-    format!(
-        "<!-- tehas:finish issue={} result=opened by=poll -->\nThe last cycle of this issue stopped because {}. Tehas finished it from the kept workspace on its own and opened a draft pull request: {}\n\nIts gate did not pass. The checks and the review decide on it as on any other pull request.",
-        r.issue,
+pub fn opened(r: &EndFault, url: &str) -> Reply {
+    let text = format!(
+        "The last cycle of this issue stopped because {}. Tehas finished it from the kept workspace on its own and opened a draft pull request: {}\n\nIts gate did not pass. The checks and the review decide on it as on any other pull request.",
         r.failure(),
         disarm(url)
-    )
+    );
+    Reply::new(r.issue, FinishResult::Opened, true, text)
 }
 
 /// The reply once the poll stops trying.
-pub fn stopped(r: &EndFault) -> String {
-    format!(
-        "<!-- tehas:finish issue={} result=stopped by=poll -->\nThe last cycle of this issue stopped because {}. Tehas tried to finish it on its own and stopped: {}. It waits for `{}`: write a comment that starts with the millwright's finish marker for this issue, the reason after it, and apply the label: {}.",
-        r.issue,
+pub fn stopped(r: &EndFault) -> Reply {
+    let text = format!(
+        "The last cycle of this issue stopped because {}. Tehas tried to finish it on its own and stopped: {}. It waits for `{}`: write a comment that starts with the millwright's finish marker for this issue, the reason after it, and apply the label: {}.",
         r.failure(),
         disarm(&r.stopped),
         crate::finish::LABEL,
         crate::finish::ASK_FORM
-    )
+    );
+    Reply::new(r.issue, FinishResult::Stopped, true, text)
 }
 
 fn stop(r: &mut EndFault, why: String, hands: &mut dyn Hands) {
@@ -112,7 +114,7 @@ fn stop(r: &mut EndFault, why: String, hands: &mut dyn Hands) {
     let n = r.issue;
     hands.log(format!("auto-finish #{n}: stopped: {}", r.stopped));
     if hands.keep(r) {
-        hands.say(n, &stopped(r));
+        hands.say(n, stopped(r));
     }
 }
 
@@ -166,7 +168,7 @@ pub fn step(cases: Vec<Case>, now: i64, hands: &mut dyn Hands) {
                     r.failure()
                 ));
                 hands.drop(n);
-                hands.say(n, &opened(&r, &url));
+                hands.say(n, opened(&r, &url));
             }
             Err(why) if githubs(&why) => {
                 r.tries.push(now);
@@ -202,7 +204,7 @@ mod tests {
         /// The answers of `finish`, in order; the URL once they run out.
         answers: Vec<Result<String, String>>,
         finished: Vec<(u64, String)>,
-        said: Vec<(u64, String)>,
+        said: Vec<(u64, Reply)>,
         log: Vec<String>,
         kept: Vec<EndFault>,
         dropped: Vec<u64>,
@@ -217,8 +219,8 @@ mod tests {
                 self.answers.remove(0)
             }
         }
-        fn say(&mut self, n: u64, body: &str) {
-            self.said.push((n, body.to_string()));
+        fn say(&mut self, n: u64, reply: Reply) {
+            self.said.push((n, reply));
         }
         fn log(&mut self, line: String) {
             self.log.push(line);
@@ -295,9 +297,10 @@ mod tests {
             .contains("its push failed on GitHub's side (HTTP 502)"));
         assert!(f.finished[0].1.contains("try 1 of 3"));
         assert_eq!(f.dropped, vec![7]);
-        assert!(f.said[0].1.contains("result=opened by=poll"));
+        assert_eq!(f.said[0].1.markers, [finish(7, FinishResult::Opened)]);
         assert!(f.said[0]
             .1
+            .text
             .contains("https://github.com/acme/widget/pull/90"));
         assert_eq!(
             f.log,
@@ -325,8 +328,8 @@ mod tests {
         assert!(rec.said);
         assert!(rec.stopped.starts_with("3 tries failed, the last: "));
         assert_eq!(f.said.len(), 1);
-        assert!(f.said[0].1.contains("result=stopped by=poll"));
-        assert!(f.said[0].1.contains("tehas:finish"));
+        assert_eq!(f.said[0].1.markers, [finish(7, FinishResult::Stopped)]);
+        assert!(f.said[0].1.text.contains("tehas:finish"));
         // Said once: the polls after it run and say nothing.
         let (f, _) = poll(rec, AT + 1900, again());
         assert!(f.finished.is_empty() && f.said.is_empty() && f.kept.is_empty());
@@ -415,20 +418,31 @@ mod tests {
         assert_eq!(f.finished.len(), PER_POLL);
     }
 
+    /// The poll's finish marker of issue `n`, typed.
+    fn finish(n: u64, result: FinishResult) -> tehas_ports::Marker {
+        Reply::new(n, result, true, String::new()).markers.remove(0)
+    }
+
+    /// The replies' marker goes beside their text, the poll's own, and the
+    /// text holds none: what it quotes is disarmed, and the form a person
+    /// writes is the manual's.
     #[test]
-    fn the_replies_of_the_poll_disarm_what_they_quote() {
+    fn the_replies_of_the_poll_carry_their_marker_beside_a_text_that_holds_none() {
         let agent = "<!-- tehas:millwright issue=7 action=retry -->";
         let mut r = seen(7, "push", "HTTP 502", 1000);
         r.stopped = format!("the push said {agent}");
         let said = stopped(&r);
-        assert!(
-            said.starts_with("<!-- tehas:finish issue=7 result=stopped by=poll -->"),
-            "{said}"
+        let tehas_ports::Marker::Finish(m) = &said.markers[0] else {
+            panic!("{said:?}");
+        };
+        assert_eq!(
+            (m.blueprint.get(), m.result, m.by_poll),
+            (7, FinishResult::Stopped, true)
         );
-        // Its own marker alone: the form a person writes is the manual's.
-        assert_eq!(said.matches("<!-- tehas:").count(), 1, "{said}");
-        assert!(said.contains(crate::finish::ASK_FORM), "{said}");
+        assert!(!tehas_core::text::has_marker(&said.text), "{said:?}");
+        assert!(said.text.contains(crate::finish::ASK_FORM), "{said:?}");
         let said = opened(&r, &format!("https://example.test/pull/1{agent}"));
-        assert_eq!(said.matches("<!-- tehas:").count(), 1, "{said}");
+        assert_eq!(said.markers, [finish(7, FinishResult::Opened)]);
+        assert!(!tehas_core::text::has_marker(&said.text), "{said:?}");
     }
 }

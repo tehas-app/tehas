@@ -995,8 +995,8 @@ impl crate::finish::Hands for FinishHands<'_> {
         self.run(n, reason)
     }
 
-    fn say(&mut self, n: u64, body: &str) {
-        self.post(n, body);
+    fn say(&mut self, n: u64, reply: crate::finish::Reply) {
+        self.post(n, reply);
     }
 
     fn log(&mut self, line: String) {
@@ -1009,8 +1009,8 @@ impl crate::auto_finish::Hands for FinishHands<'_> {
         self.run(n, reason)
     }
 
-    fn say(&mut self, n: u64, body: &str) {
-        self.post(n, body);
+    fn say(&mut self, n: u64, reply: crate::finish::Reply) {
+        self.post(n, reply);
     }
 
     fn log(&mut self, line: String) {
@@ -1069,11 +1069,12 @@ impl FinishHands<'_> {
         crate::finish::outcome(n, &ran, FINISH_BOUND)
     }
 
-    fn post(&mut self, n: u64, body: &str) {
+    /// A finish's reply, its marker typed beside its text.
+    fn post(&mut self, n: u64, reply: crate::finish::Reply) {
         let post = Action::Say {
             issue: n,
-            say: body.to_string(),
-            markers: Vec::new(),
+            say: reply.text,
+            markers: reply.markers,
         };
         let done = self.w.apply(&[Value::from(&post)]);
         for l in &done.log {

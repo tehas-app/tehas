@@ -28,6 +28,7 @@ use tehas_core::events::{
     Events, LabelState,
 };
 use tehas_core::text::disarm;
+use tehas_ports::{BlueprintNo, FinishMarker, FinishResult, Marker};
 
 /// The label of the ask.
 pub const LABEL: &str = "tehas:finish";
@@ -279,8 +280,32 @@ pub trait Hands {
     fn unlabel(&mut self, n: u64) -> bool;
     /// The draft's URL, or the one line of why not.
     fn finish(&mut self, n: u64, reason: &str) -> Result<String, String>;
-    fn say(&mut self, n: u64, body: &str);
+    fn say(&mut self, n: u64, reply: Reply);
     fn log(&mut self, line: String);
+}
+
+/// A reply of the finish: its text, and its marker typed beside it, never
+/// in the text (Decided 74).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Reply {
+    pub text: String,
+    pub markers: Vec<Marker>,
+}
+
+impl Reply {
+    /// `text` with the finish's marker of issue `n`: what came of it, and
+    /// whether the poll finished it with no one's ask.
+    pub fn new(n: u64, result: FinishResult, by_poll: bool, text: String) -> Reply {
+        let markers = BlueprintNo::new(n)
+            .map(|no| {
+                let mut m = FinishMarker::new(no, result);
+                m.by_poll = by_poll;
+                Marker::Finish(m)
+            })
+            .into_iter()
+            .collect();
+        Reply { text, markers }
+    }
 }
 
 /// Where the manual gives the ask's marked comment. A reply points there and
@@ -302,20 +327,22 @@ fn one_line(t: &str) -> String {
 }
 
 /// The reply of a finish that opened its pull request.
-pub fn opened(n: u64, by: &str, url: &str) -> String {
-    format!(
-        "<!-- tehas:finish issue={n} result=opened -->\nTehas took `{LABEL}` off this issue and opened a draft pull request from what its stopped cycle left, as {} asked: {}\n\nIts gate did not pass. The checks and the review decide on it as on any other pull request.",
+pub fn opened(n: u64, by: &str, url: &str) -> Reply {
+    let text = format!(
+        "Tehas took `{LABEL}` off this issue and opened a draft pull request from what its stopped cycle left, as {} asked: {}\n\nIts gate did not pass. The checks and the review decide on it as on any other pull request.",
         disarm(by),
         disarm(url)
-    )
+    );
+    Reply::new(n, FinishResult::Opened, false, text)
 }
 
 /// The reply of a finish refused.
-pub fn refused(n: u64, why: &str) -> String {
-    format!(
-        "<!-- tehas:finish issue={n} result=refused -->\nTehas took `{LABEL}` off this issue and finished nothing: {}. To ask again, write a new comment that starts with the millwright's finish marker for this issue, the reason after it, and apply `{LABEL}`: {ASK_FORM}.",
+pub fn refused(n: u64, why: &str) -> Reply {
+    let text = format!(
+        "Tehas took `{LABEL}` off this issue and finished nothing: {}. To ask again, write a new comment that starts with the millwright's finish marker for this issue, the reason after it, and apply `{LABEL}`: {ASK_FORM}.",
         disarm(why)
-    )
+    );
+    Reply::new(n, FinishResult::Refused, false, text)
 }
 
 /// The step over the asks, in order.
@@ -330,7 +357,7 @@ pub fn step(c: &Settings, asks: &[Ask], hands: &mut dyn Hands) {
                         "finish #{n}: refused, asked by {by}: {}",
                         one_line(&why)
                     ));
-                    hands.say(n, &refused(n, &why));
+                    hands.say(n, refused(n, &why));
                 }
             }
             Verdict::Finish { by, how, reason } => {
@@ -343,14 +370,14 @@ pub fn step(c: &Settings, asks: &[Ask], hands: &mut dyn Hands) {
                             "finish #{n}: opened {url}, asked by {by} ({how}): {}",
                             one_line(&reason)
                         ));
-                        hands.say(n, &opened(n, &by, &url));
+                        hands.say(n, opened(n, &by, &url));
                     }
                     Err(why) => {
                         hands.log(format!(
                             "finish #{n}: refused, asked by {by} ({how}): {}",
                             one_line(&why)
                         ));
-                        hands.say(n, &refused(n, &why));
+                        hands.say(n, refused(n, &why));
                     }
                 }
             }
