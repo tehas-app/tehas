@@ -17,10 +17,28 @@
 //! it: the pull request is open or there is no change to deliver.
 
 use crate::home::Home;
-use serde_json::{json, Value};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use tehas_ports::{Outcome, Passing};
+
+/// A field of the type it is, or its default for one of another type.
+fn or_default<'de, D, T>(d: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de> + Default,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Or<T> {
+        It(T),
+        Other(serde::de::IgnoredAny),
+    }
+    Ok(match Or::<T>::deserialize(d)? {
+        Or::It(t) => t,
+        Or::Other(_) => T::default(),
+    })
+}
 
 /// The most tries the poll makes.
 pub const TRIES: usize = 3;
@@ -34,8 +52,8 @@ const WHY_MAX: usize = 200;
 /// The steps of a cycle's end that talk to GitHub.
 pub const STEPS: [&str; 3] = ["push", "pr", "handoff"];
 
-/// The record of one cycle's failed end.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// The record of one cycle's failed end, as its file holds it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EndFault {
     pub issue: u64,
     pub attempt: u64,
@@ -45,14 +63,17 @@ pub struct EndFault {
     pub github: bool,
     /// Whether the host saw the step fail, by a call of its own, rather than
     /// only the cycle's result saying so.
+    #[serde(default, deserialize_with = "or_default")]
     pub host: bool,
     /// What gh or git said, in the words of a fixed list: never the agent's.
+    #[serde(default, deserialize_with = "or_default")]
     pub why: String,
     /// When the cycle's end failed, in unix seconds.
     pub at: i64,
     /// When the poll tried to finish it.
     pub tries: Vec<i64>,
     /// Why the poll stopped trying; empty while it may still try.
+    #[serde(default, deserialize_with = "or_default")]
     pub stopped: String,
     /// Whether the issue was told that the poll stopped trying.
     pub said: bool,
@@ -147,32 +168,20 @@ impl EndFault {
         }
     }
 
-    pub fn to_json(&self) -> Value {
-        json!({
-            "issue": self.issue, "attempt": self.attempt, "step": self.step,
-            "github": self.github, "host": self.host, "why": self.why, "at": self.at,
-            "tries": self.tries, "stopped": self.stopped, "said": self.said,
-        })
+    /// The file's text.
+    pub fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
     }
 
-    /// A record as the file holds it; None for anything else.
-    pub fn from_json(v: &Value) -> Option<EndFault> {
-        let step = v["step"].as_str().filter(|s| STEPS.contains(s))?;
-        Some(EndFault {
-            issue: v["issue"].as_u64().filter(|n| *n > 0)?,
-            attempt: v["attempt"].as_u64().filter(|n| *n > 0)?,
-            step: step.to_string(),
-            github: v["github"].as_bool()?,
-            host: v["host"].as_bool().unwrap_or(false),
-            why: one_line(v["why"].as_str().unwrap_or("")),
-            at: v["at"].as_i64()?,
-            tries: v["tries"]
-                .as_array()?
-                .iter()
-                .map(Value::as_i64)
-                .collect::<Option<_>>()?,
-            stopped: one_line(v["stopped"].as_str().unwrap_or("")),
-            said: v["said"].as_bool()?,
+    /// A record from the file's text; None for anything else. `host`, `why`
+    /// and `stopped` of another type, or missing, read as false and empty, as
+    /// a record written before them does.
+    pub fn from_json(text: &str) -> Option<EndFault> {
+        let r: EndFault = serde_json::from_str(text).ok()?;
+        (STEPS.contains(&r.step.as_str()) && r.issue > 0 && r.attempt > 0).then(|| EndFault {
+            why: one_line(&r.why),
+            stopped: one_line(&r.stopped),
+            ..r
         })
     }
 
@@ -241,8 +250,7 @@ pub fn read(home: &Path, issue: u64) -> Option<EndFault> {
     if fs::symlink_metadata(&p).ok()?.file_type().is_symlink() {
         return None;
     }
-    let v: Value = serde_json::from_str(&fs::read_to_string(p).ok()?).ok()?;
-    EndFault::from_json(&v).filter(|r| r.issue == issue)
+    EndFault::from_json(&fs::read_to_string(p).ok()?).filter(|r| r.issue == issue)
 }
 
 /// Every record that reads, by issue.
@@ -297,6 +305,7 @@ pub fn remove(home: &Path, issue: u64) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::{json, Value};
 
     fn rec(step: &str, err: &str) -> EndFault {
         EndFault::new(7, 2, step, err, 1000)
@@ -363,9 +372,9 @@ mod tests {
     #[test]
     fn the_failure_in_words_disarms_a_record_read_from_its_file() {
         let mut r = rec("push", "HTTP 502");
-        let mut v = r.to_json();
+        let mut v: Value = serde_json::from_str(&r.to_json()).unwrap();
         v["why"] = serde_json::json!("<!-- tehas:millwright issue=7 action=retry -->");
-        r = EndFault::from_json(&v).unwrap();
+        r = EndFault::from_json(&v.to_string()).unwrap();
         let said = r.failure();
         assert!(!crate::text::has_marker(&said), "{said}");
     }
@@ -415,13 +424,25 @@ mod tests {
     fn a_record_reads_back_as_it_was_written() {
         let mut r = seen("pr", "HTTP 429");
         r.tries = vec![1000, 1700];
-        assert_eq!(EndFault::from_json(&r.to_json()), Some(r));
-        assert_eq!(EndFault::from_json(&json!({"step": "deploy"})), None);
+        assert_eq!(EndFault::from_json(&r.to_json()), Some(r.clone()));
+        assert_eq!(
+            EndFault::from_json(&json!({"step": "deploy"}).to_string()),
+            None
+        );
+        // A field named twice is no record, rather than the last one winning.
+        let twice = r.to_json().replacen("{", "{\"step\":\"handoff\",", 1);
+        assert_eq!(EndFault::from_json(&twice), None);
+        // Of `host`, `why` and `stopped`, another type reads as none.
+        let mut v: Value = serde_json::from_str(&r.to_json()).unwrap();
+        v["why"] = json!(5);
+        v["host"] = json!("yes");
+        let odd = EndFault::from_json(&v.to_string()).unwrap();
+        assert_eq!((odd.why.as_str(), odd.host), ("", false));
     }
 
     #[test]
     fn a_record_with_a_damaged_attempt_tries_or_said_does_not_read() {
-        let good = seen("push", "HTTP 502").to_json();
+        let good: Value = serde_json::from_str(&seen("push", "HTTP 502").to_json()).unwrap();
         for (field, bad) in [
             ("attempt", json!(0)),
             ("attempt", json!("1")),
@@ -435,9 +456,9 @@ mod tests {
         ] {
             let mut v = good.clone();
             v[field] = bad.clone();
-            assert_eq!(EndFault::from_json(&v), None, "{field}: {bad}");
+            assert_eq!(EndFault::from_json(&v.to_string()), None, "{field}: {bad}");
             v.as_object_mut().unwrap().remove(field);
-            assert_eq!(EndFault::from_json(&v), None, "{field} missing");
+            assert_eq!(EndFault::from_json(&v.to_string()), None, "{field} missing");
         }
     }
 
@@ -472,9 +493,9 @@ mod tests {
         );
         assert!(matches!(rec("pr", "HTTP 503").due(1001), Due::Never(_)));
         // A record written before the field reads as one the host did not see.
-        let mut v = seen("push", "HTTP 502").to_json();
+        let mut v: Value = serde_json::from_str(&seen("push", "HTTP 502").to_json()).unwrap();
         v.as_object_mut().unwrap().remove("host");
-        assert!(!EndFault::from_json(&v).unwrap().host);
+        assert!(!EndFault::from_json(&v.to_string()).unwrap().host);
     }
 
     #[test]

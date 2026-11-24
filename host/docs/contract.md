@@ -878,6 +878,17 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Adopter action: a program that read gh's words in `last` reads the fixed
   lines. A line written before the update shows until it leaves the
   ten-minute window.
+- **`tehas start`, the preview's notice and `tehas init-product` name a
+  failed GitHub call in tehas's words.** #3149. Each error line names what
+  failed in its own words, then the kind of failure as one fixed line of the
+  ports' outcomes: `not found, or not visible to this actor`, `this actor
+  may not do this`, `the budget is spent until later`, `the site failed`,
+  and the like. They no longer pass on gh's words or `HTTP <status>`. The
+  notice's log lines change from `no such pull request (HTTP 404)` and
+  `GitHub refused the call (HTTP 403)` to these.
+  Readers: adopters, the end-to-end suite.
+  Adopter action: a script that matched gh's words or `HTTP <status>` in
+  those lines matches the fixed lines.
 - **`tehas setup`, `tehasbot github-token` and `console pins` name a failed
   call in tehas's words.** #3140. An error line of each names what failed
   in its own words, then the kind of failure as one fixed line of the

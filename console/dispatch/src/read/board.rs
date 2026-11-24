@@ -232,12 +232,12 @@ fn kind_name(k: &Kind) -> Option<String> {
 /// `host/labels.tsv` names it, as GitHub's site spells it.
 #[cfg(test)]
 pub(crate) mod fake {
-    use super::{queue, Open, Words};
+    use super::{queue, Mapped, Open, Words};
     use std::num::NonZeroU32;
     use tehas_ports::fake::{FakeSite, World};
     use tehas_ports::{
-        Actor, BoardAsk, Bound, Caller, ChangeStates, Depth, HappenedKind, Mark, Scope, Site,
-        Window, ALL_MAX,
+        Actor, BoardAsk, Bound, Caller, ChangeDigest, ChangeFilter, ChangeStates, Depth,
+        HappenedKind, Mark, OpenWork, Scope, Site, Window, ALL_MAX,
     };
 
     /// The table every label of tehas is made from.
@@ -265,9 +265,8 @@ pub(crate) mod fake {
             .unwrap_or_default()
     }
 
-    /// The open issues of `world` in the board's order, as the queue's page
-    /// gives them. Every item maps: a test world holds none the seam refuses.
-    pub(crate) fn page(world: &World) -> Vec<Open> {
+    /// The open work of `world` as the queue asks the board for it.
+    pub(crate) fn work(world: &World) -> OpenWork {
         let site = FakeSite::new(world);
         let mut board = site
             .board(&Actor::Ours(Scope::Full), Caller::new("test"))
@@ -282,18 +281,46 @@ pub(crate) mod fake {
             ChangeStates::All,
             Window::Last(NonZeroU32::new(20).unwrap()),
         ));
-        let work = board.open_work(&ask, Bound::new(100).unwrap()).unwrap();
-        let m = queue(
-            &work,
-            None,
-            None,
-            &Words {
-                repo: REPO,
-                mark: &label,
-            },
-        );
+        board.open_work(&ask, Bound::new(100).unwrap()).unwrap()
+    }
+
+    /// The open changes of `world` with their bodies, as rule 6 asks them.
+    pub(crate) fn pulls(world: &World) -> Vec<ChangeDigest> {
+        let site = FakeSite::new(world);
+        let mut host = site
+            .code_host(&Actor::Ours(Scope::Full), Caller::new("test"))
+            .unwrap();
+        let filter = ChangeFilter {
+            bodies: true,
+            ..Default::default()
+        };
+        host.changes(&filter, Bound::new(100).unwrap())
+            .unwrap()
+            .into_items()
+    }
+
+    /// The board's answer and the open changes mapped, each mark spelt by the
+    /// table.
+    pub(crate) fn mapped(work: &OpenWork, pulls: Option<&[ChangeDigest]>) -> Mapped {
+        let words = Words {
+            repo: REPO,
+            mark: &label,
+        };
+        queue(work, pulls, None, &words)
+    }
+
+    /// The open issues of the work, as the queue's page gives them. Every
+    /// item maps: a test world holds none the seam refuses.
+    pub(crate) fn page_of(work: &OpenWork) -> Vec<Open> {
+        let m = mapped(work, None);
         assert!(m.unread.is_empty(), "{:?}", m.unread);
         m.queue.open
+    }
+
+    /// The open issues of `world` in the board's order, as the queue's page
+    /// gives them.
+    pub(crate) fn page(world: &World) -> Vec<Open> {
+        page_of(&work(world))
     }
 }
 

@@ -87,6 +87,7 @@ impl Env {
                 live,
                 sessions: snap.clone(),
                 logs: dir,
+                links: mcp::tools::no_links,
             },
         }
     }
@@ -168,6 +169,7 @@ impl Search {
                 live,
                 sessions: snap,
                 logs: dir,
+                links: mcp::tools::no_links,
             },
         }
     }
@@ -793,6 +795,7 @@ fn the_id_is_checked_before_a_place_and_the_snapshot() {
         live: "/nonexistent/live".into(),
         sessions: "/nonexistent/mcp".into(),
         logs: "/nonexistent/logs".into(),
+        links: mcp::tools::no_links,
     };
     let a = acquire().unwrap();
     let b = acquire().unwrap();

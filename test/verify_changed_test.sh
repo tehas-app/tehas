@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Tests for the shell step of scripts/verify.sh --changed: a change whose paths
-# hold no test file and nothing to lint is a skip line, never an "ok". Each
-# case runs the gate in a scratch repository whose steps are stubs.
+# hold no test file and nothing to lint is a skip line, never an "ok", and the
+# change is measured from the branch the work targets. Each case runs the gate
+# in a scratch repository whose steps are stubs.
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
@@ -55,6 +56,16 @@ echo note >"$tree/notes.md"
 t_run "$gate"
 t_eq "$t_rc" 1
 t_contains "$t_out" "FAIL  shellcheck and the shell tests of the change"
+
+t_case "a branch off a second base measures from that base, or from TEHAS_VERIFY_BASE"
+fresh 0
+echo a >"$tree/a.md" && g add -A && g commit -q -m second && g update-ref refs/remotes/origin/release/x HEAD
+echo b >"$tree/b.md" && g add -A && g commit -q -m work
+t_run "$gate"
+t_eq "$(cat "$T/test-args")" "b.md"
+t_contains "$t_out" "on origin/release/x"
+t_run "export TEHAS_VERIFY_BASE=origin/main; $gate"
+t_eq "$(cat "$T/test-args")" "a.md b.md"
 
 t_case "nothing to check in a run that is no --changed one still fails"
 fresh 3
