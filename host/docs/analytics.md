@@ -407,7 +407,7 @@ and the lead time of those that shipped, from their `ready` event. Beside them
 are the other issues made ready in the window, how many started and shipped,
 to compare. The issues a refining session filed are listed in
 `~/tehas/state/refined.jsonl`, one line each, `{at, source, filed, url}`,
-written when the confirm files them. The file keeps its last 500 lines, as
+written when the host files them. The file keeps its last 500 lines, as
 `sizes.jsonl` does. Like the rest of the report it holds counts only.
 
 ### Size

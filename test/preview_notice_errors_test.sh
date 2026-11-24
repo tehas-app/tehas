@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Tests for libexec/preview: the notice when GitHub does not answer or take
-# it, when there is no preview, and the list a stopped run still writes.
+# it, and when there is no preview. A run that stops before it reaches GitHub,
+# and a host with no console, are in console/tests/preview_early.rs.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
@@ -36,7 +37,7 @@ t_eq "$t_rc" 0
 t_eq "$(state_of 12)" "serving"
 t_eq "$(writes)" ""
 t_eq "$(count "$root/12" .notice)" 0
-t_contains "$t_out" "#12: the description could not be read (GitHub refused the call (HTTP 403)), tried again at the next run"
+t_contains "$t_out" "#12: the description could not be read (the budget is spent until later), tried again at the next run"
 rm -f "$fx/pull-12.rc"
 t_run "$preview"
 t_eq "$(writes | wc -l)" 1
@@ -51,7 +52,7 @@ t_eq "$t_rc" 0
 t_eq "$(state_of 12)" "serving"
 t_eq "$(writes)" ""
 t_eq "$(count "$root/12" .notice)" 0
-t_contains "$t_out" "#12: the description could not be read (no such pull request (HTTP 404)), tried again at the next run"
+t_contains "$t_out" "#12: the description could not be read (not found, or not visible to this actor), tried again at the next run"
 
 t_case "unable to create, for a full disk: said once, with the figures"
 reset
@@ -203,53 +204,6 @@ t_eq "$(writes)" ""
 t_contains "$t_out" "#12: the pull request is no longer open, nothing was written"
 t_eq "$(count "$root/12" .notice)" 1
 
-# stopped <fixture>: a serving preview, a list written long ago, and a run that
-# stops at that fixture.
-stopped() {
-  reset
-  a=$(commit feature)
-  pulls "$(pull 12 "$a")"
-  t_run "$preview"
-  jq '.generatedAt = "2026-01-01T00:00:00Z" | .disk.freeBytes = 1' "$live/previews.json" >"$fx/x" && mv "$fx/x" "$live/previews.json"
-  : >"$fx/$1"
-  echo 2097152 >"$fx/free" # 2 GB
-  t_run "$preview"
-  t_eq "$t_rc" 0
-  t_eq "$(jq -r '.generatedAt | test("^2026-01-01") | not' "$live/previews.json")" "true"
-  t_eq "$(jq -r '(now - (.generatedAt | fromdateiso8601)) < 120' "$live/previews.json")" "true"
-  t_eq "$(jq -r '.previews[0] | "\(.number) \(.state) \(.address)"' "$live/previews.json")" "12 serving https://uat-12.example.org/"
-  t_eq "$(cat "$fx/docker/container-12")" "$a"
-}
-
-t_case "a run that stops at a network that is not safe still writes the list, with the free space"
-stopped net-internal
-echo false >"$fx/net-internal"
-t_run "$preview"
-t_contains "$t_out" "(it is not internal); nothing was built"
-t_eq "$(jq -cS '.disk' "$live/previews.json")" '{"freeBytes":2147483648,"low":true,"minFreeBytes":5368709120}'
-t_eq "$(t_calls gh | grep -c 'pulls?state')" 1
-
-t_case "a run that stops because Docker does not answer still writes the list, with no figure and not as healthy"
-stopped docker-down
-t_contains "$t_out" "Docker does not answer; nothing was built or removed"
-t_eq "$(jq -cS '.disk' "$live/previews.json")" '{"freeBytes":null,"low":true,"minFreeBytes":5368709120}'
-
-t_case "one empty state stops no list: the run that stops early still writes it"
-reset
-a=$(commit feature)
-pulls "$(pull 12 "$a")"
-t_run "$preview"
-t_eq "$(state_of 12)" serving
-mkdir -p "$root/13"
-: >"$root/13/state.json"
-jq '.generatedAt = "then"' "$live/previews.json" >"$live/previews.json.new" && mv "$live/previews.json.new" "$live/previews.json"
-: >"$fx/docker-down"
-t_run "$preview"
-t_eq "$t_rc" 0
-t_contains "$t_out" "Docker does not answer; nothing was built or removed"
-t_eq "$(jq -r .generatedAt "$live/previews.json" | grep -c '^then$')" 0
-t_eq "$(jq -c '[.previews[].number]' "$live/previews.json")" "[12]"
-
 t_case "a container that never starts is said once, not at every retry"
 reset
 a=$(commit feature)
@@ -260,19 +214,5 @@ t_run "$preview"
 t_run "$preview"
 t_eq "$(writes | wc -l)" 1
 t_contains "$(writes)" "Unable to create a preview"
-
-# The notice is written by the console beside the command. A host without one
-# is a host install.sh did not finish: nothing is built that it could not tell.
-t_case "a host with no console beside the command builds nothing and says to install"
-reset
-a=$(commit feature)
-pulls "$(pull 12 "$a")"
-rm -f "$T/tree/libexec/console"
-t_run "$preview"
-t_eq "$t_rc" 78
-t_contains "$t_out" "tehasbot: no console at $T/tree/libexec/console: run install.sh"
-t_eq "$(writes)" ""
-t_eq "$(find "$root" -name state.json 2>/dev/null | wc -l)" 0
-cp "$T_CONSOLE" "$T/tree/libexec/console"
 
 t_done

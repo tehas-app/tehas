@@ -11,7 +11,7 @@
 //! it names is on record as one the host did not see fail, and the poll
 //! finishes nothing on it.
 
-use serde_json::Value;
+use crate::runner::{Entry, Progress};
 use tehas_core::end_fault::EndFault;
 use tehas_ports::{Outcome, Passing};
 
@@ -39,16 +39,10 @@ fn sites_fault(o: &Outcome) -> bool {
 /// The step pi-rukas pushes and opens its pull request in.
 const COMMIT_PR: &str = "commit-pr";
 
-fn s<'a>(v: &'a Value, p: &str) -> &'a str {
-    v.pointer(p).and_then(Value::as_str).unwrap_or("")
-}
-
 /// The issue's entry of a result, as the runner wrote it.
-pub(crate) fn entry(result: &str, issue: u64) -> Value {
-    let all = crate::runner::values(result).unwrap_or_default();
-    crate::runner::last_issue_entry(&all, issue)
-        .cloned()
-        .unwrap_or(Value::Null)
+pub(crate) fn entry(result: &str, issue: u64) -> Option<Entry> {
+    let all = crate::runner::results(result).unwrap_or_default();
+    crate::runner::last_issue_entry(&all, issue).cloned()
 }
 
 /// What a cycle left: its result, its progress summary and whether it has a
@@ -88,24 +82,23 @@ pub fn of(l: &Left, now: i64) -> Option<EndFault> {
 
 /// The push or the pull request of `commit-pr`, and what it said.
 fn commit_pr(l: &Left) -> Option<(&'static str, String)> {
-    let e = l.result.map_or(Value::Null, |r| entry(r, l.issue));
-    let p: Value = l
-        .progress
-        .and_then(|t| serde_json::from_str(t).ok())
-        .unwrap_or(Value::Null);
-    let there = s(&e, "/failedStep") == COMMIT_PR
-        || s(&e, "/failure/step") == COMMIT_PR
-        || s(&e, "/cap") == format!("step-failed:{COMMIT_PR}")
-        || s(&p, "/failure/step") == COMMIT_PR;
+    let e = l.result.and_then(|r| entry(r, l.issue)).unwrap_or_default();
+    let p = l.progress.and_then(Progress::of).unwrap_or_default();
+    let ef = e.failure.object().cloned().unwrap_or_default();
+    let pf = p.failure.object().cloned().unwrap_or_default();
+    let there = e.failed_step.str() == COMMIT_PR
+        || ef.step.str() == COMMIT_PR
+        || e.cap.str() == format!("step-failed:{COMMIT_PR}")
+        || pf.step.str() == COMMIT_PR;
     if !there {
         return None;
     }
     let said: String = [
-        s(&e, "/failure/message"),
-        s(&e, "/failure/providerMessage"),
-        s(&e, "/failure/cause"),
-        s(&p, "/reason"),
-        s(&p, "/failure/cause"),
+        ef.message.str(),
+        ef.provider_message.str(),
+        ef.cause.str(),
+        p.reason.str(),
+        pf.cause.str(),
     ]
     .iter()
     .filter(|t| !t.is_empty())

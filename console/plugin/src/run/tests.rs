@@ -725,7 +725,7 @@ fn a_newer_request_that_came_during_a_hook_runs_after_it() {
                 event: None,
             };
             let path = runs::hook_request(&home, "demo", 42);
-            fs::write(path, ask.json().to_string()).unwrap();
+            fs::write(path, ask.json()).unwrap();
         }
     }));
     assert_eq!(go(&mut h, &w, &hook_ask()), 0);

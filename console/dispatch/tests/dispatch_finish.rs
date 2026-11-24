@@ -200,7 +200,7 @@ esac"#,
     assert_eq!(r.rc, 1, "{}", r.out);
     has(&r.out, "ERROR: systemd cannot load tehas-cycle@.service (LoadState: not-found): run install.sh and its units step, and run tehas dispatch as the tehas user's own session");
     lacks(&w.gh(), "issue edit");
-    lacks(&w.gh(), "issue comment");
+    assert_eq!(w.notes_any(), 0);
     lacks(&w.calls("systemctl"), "start");
     assert_eq!(w.calls("fake-index"), "");
 }
@@ -223,7 +223,7 @@ esac"#,
         "ERROR: systemd cannot load tehas-cycle@.service (LoadState: no answer): run install.sh",
     );
     lacks(&w.gh(), "issue edit");
-    lacks(&w.gh(), "issue comment");
+    assert_eq!(w.notes_any(), 0);
     lacks(&w.calls("systemctl"), "start");
 }
 
@@ -306,7 +306,7 @@ fn an_open_issue_marked_tehas_planning_with_no_session_goes_to_a_person() {
         &w.gh(),
         "issue edit 9 --repo acme/widget --remove-label tehas:planning --add-label needs-human-attention",
     );
-    has(&w.gh(), "issue comment 9");
+    assert!(w.notes(9) > 0);
 }
 
 #[test]

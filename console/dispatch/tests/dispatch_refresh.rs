@@ -20,7 +20,9 @@ const MARK_CALL: &str =
 fn label_pair(w: &World) -> String {
     w.gh()
         .lines()
-        .filter(|l| l.starts_with("api -X POST") || l.starts_with("issue edit 7"))
+        .filter(|l| {
+            (l.starts_with("api -X POST") && l.contains("/labels")) || l.starts_with("issue edit 7")
+        })
         .map(|l| format!("{l}\n"))
         .collect::<String>()
         .trim_end()
@@ -203,7 +205,13 @@ fn the_first_two_marks_fail_and_the_third_starts_the_refresh_the_failures_counte
     assert_eq!(w.started(), "7 ");
     assert_eq!(record_refreshes(&w), "1");
     // Three marks were asked for: the two that failed and the one that worked.
-    assert_eq!(count_lines(&w.gh(), "api -X POST"), 3);
+    assert_eq!(
+        w.gh()
+            .lines()
+            .filter(|l| l.starts_with("api -X POST") && l.contains("/labels"))
+            .count(),
+        3
+    );
     assert_eq!(requests(&w), 0);
 }
 

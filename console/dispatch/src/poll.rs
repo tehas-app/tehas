@@ -430,6 +430,8 @@ fn writer(
         status_due: false,
         changed: false,
         gh_writes: 0,
+        port_calls: Default::default(),
+        unposted: 0,
         starts: 0,
         fetched: false,
         looked: HashMap::new(),
@@ -737,7 +739,15 @@ pub fn run_poll(
     // The ports' handles carry the same token, so the adapter's gh asks for
     // none either. A wiring that cannot make them leaves the rows of the
     // ports open: the settle says so of each.
-    w.ports = handles(home, &w.repo, &w.gh, w.calls.gh_token.as_deref(), w.bound).ok();
+    w.ports = handles(
+        home,
+        &w.repo,
+        &w.gh,
+        w.calls.gh_token.as_deref(),
+        w.bound,
+        w.port_calls.clone(),
+    )
+    .ok();
     let mut end = End {
         home,
         dry,
@@ -756,7 +766,9 @@ pub fn run_poll(
     for n in w.calls.retry.taken() {
         failed_read(home, dry, &n);
     }
-    end.gh += w.calls.gh_count + w.gh_writes;
+    end.gh += w.calls.gh_count
+        + w.gh_writes
+        + w.port_calls.load(std::sync::atomic::Ordering::Relaxed) as u32;
     end.starts = w.starts;
     end.changed.queue = w.changed;
     end.run(&mut w);
@@ -1058,6 +1070,7 @@ impl FinishHands<'_> {
         let post = Action::Say {
             issue: n,
             say: body.to_string(),
+            markers: Vec::new(),
         };
         let done = self.w.apply(&[Value::from(&post)]);
         for l in &done.log {
@@ -1584,6 +1597,7 @@ mod tests {
         _: &str,
         _: Option<&str>,
         _: Duration,
+        _: std::sync::Arc<std::sync::atomic::AtomicU64>,
     ) -> tehas_ports::Got<crate::apply::Handles> {
         Err(tehas_ports::Outcome::Refused(
             tehas_ports::Refusal::Unsupported,
