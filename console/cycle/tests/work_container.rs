@@ -550,6 +550,29 @@ fn exactly_the_documented_paths_are_mounted() {
     assert_eq!(mounts(&w), sorted(lines(&w.mounts_off())));
 }
 
+// The eleventh mount of host/docs/contract.md: a cycle given files gets the
+// issue's directory, read-only, and its variable, and nothing more.
+#[test]
+fn with_files_given_exactly_the_documented_paths_and_the_issues_directory_are_mounted() {
+    let w = World::new("mounts-files");
+    w.stub_github();
+    w.images_on(&[]);
+    w.issue_is("Words only.", "", "");
+    ok2(&w.work7());
+    let mut want = lines(&w.mounts_off());
+    want.push(format!(
+        "{}:{}.images:ro",
+        w.imgs.display(),
+        w.inside.display()
+    ));
+    assert_eq!(mounts(&w), sorted(want));
+    assert_eq!(env_names(&w), want_and(&["PI_ENSEMBLE_EXTRA_IMAGE_DIRS"]));
+    assert_eq!(
+        given_value(&w, "PI_ENSEMBLE_EXTRA_IMAGE_DIRS"),
+        format!("{}.images", w.inside.display())
+    );
+}
+
 #[test]
 fn the_agents_are_told_the_path_inside_the_container_not_the_hosts() {
     let (w, _) = ran("inside");

@@ -179,7 +179,6 @@ t_contains "$t_out" "    remote: Write access to repository not granted."
 t_contains "$t_out" "The requested URL returned error: 403"
 rm -rf "$product" "$T/push-refused" "$T/push-token" "$T/bin/git" "$th/state"/github*
 
-
 t_case "a second install makes no labels and enables nothing"
 rm -f "$T"/calls/*
 t_run "$install"

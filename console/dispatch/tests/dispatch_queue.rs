@@ -486,7 +486,9 @@ fn a_push_fault_older_than_ten_minutes_and_a_probe_that_is_refused_holds_and_ren
         "probe-bad",
         &format!("printf '%s\\n' '{DENIED}' >&2\nexit 1"),
     );
+    let before = epoch("now");
     let r = w.poll();
+    let after = epoch("now");
     assert_eq!(r.rc, 0);
     assert_eq!(w.calls("fake-start"), "");
     has(
@@ -510,10 +512,13 @@ fn a_push_fault_older_than_ten_minutes_and_a_probe_that_is_refused_holds_and_ren
     );
     assert_eq!(why(&w), json!("lane"));
     assert_eq!(w.calls("probe-bad").lines().count(), 1);
-    // The time is the probe's own: the next poll waits the wait out.
-    let now = epoch("now");
+    // The time is the probe's own, taken during the poll: the next poll
+    // waits the wait out.
     let at = epoch(f["at"].as_str().unwrap());
-    assert!((at - now).abs() <= 2, "stale: {}", at - now);
+    assert!(
+        (before..=after).contains(&at),
+        "the renewed time {at} lies outside the poll, {before}..={after}"
+    );
 }
 
 #[test]

@@ -2487,7 +2487,7 @@ mod tests {
         // The verbs of the pause flag, as the operator of a stale host or a
         // carried-over script is told them before the 64: the two which are
         // there, and neither of the two which are not. The limit's line keeps
-        // its own verbs, `read` among them, which test/limit_test.sh runs.
+        // its own verbs, `read` among them, which console/tests/limit.rs runs.
         assert_eq!(
             PAUSE_USAGE,
             "       console flags pause set [--reason TEXT] | clear"

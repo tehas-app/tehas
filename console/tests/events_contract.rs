@@ -416,7 +416,7 @@ fn the_names_are_one_list_that_every_side_reads() {
     assert_eq!(rules(), want);
     let last = env["allOf"].as_array().unwrap().last().unwrap().clone();
     assert_eq!(last["then"]["properties"]["event"]["enum"], json!(gates));
-    for n in Name::ALL {
+    for &n in Name::ALL {
         for f in ["schema", "full", "bare"] {
             assert!(
                 api(&format!("event-{}.{f}.json", slug(n))).is_file(),

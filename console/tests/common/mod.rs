@@ -1084,6 +1084,26 @@ pub fn run(mut c: Command) -> Run {
 }
 
 #[allow(dead_code)] // each test file uses a part of this module
+/// The JSON text at `pointer` in the JSON `text`, "null" where there is none.
+#[track_caller]
+pub fn json_at(text: &str, pointer: &str) -> String {
+    let doc: Value = serde_json::from_str(text).unwrap_or_else(|e| panic!("{e}: {text}"));
+    doc.pointer(pointer).unwrap_or(&Value::Null).to_string()
+}
+
+#[allow(dead_code)] // each test file uses a part of this module
+/// The JSON `text` without the key at `pointer`, its keys in order.
+#[track_caller]
+pub fn json_without(text: &str, pointer: &str) -> String {
+    let mut doc: Value = serde_json::from_str(text).unwrap_or_else(|e| panic!("{e}: {text}"));
+    let (parent, key) = pointer.rsplit_once('/').unwrap();
+    if let Some(Value::Object(m)) = doc.pointer_mut(parent) {
+        m.remove(key);
+    }
+    doc.to_string()
+}
+
+#[allow(dead_code)] // each test file uses a part of this module
 /// `want` is in `got`.
 #[track_caller]
 pub fn has(got: &str, want: &str) {

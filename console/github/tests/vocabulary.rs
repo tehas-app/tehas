@@ -276,6 +276,12 @@ fn a_type_no_kind_can_name_is_left_out_and_reported() {
 }
 
 #[test]
+fn kinds_hold_no_unknown_on_a_type_no_kind_can_name() {
+    let (mut gh, _) = adapter("unreadable");
+    assert_eq!(laws::tickets::kinds_hold_no_unknown(&mut gh), Ok(()));
+}
+
+#[test]
 fn an_answer_that_cannot_be_trusted_is_unread() {
     let malformed = Outcome::Unread(Unread::Malformed);
     let inconsistent = Outcome::Unread(Unread::Inconsistent);
