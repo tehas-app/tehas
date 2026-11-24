@@ -524,32 +524,131 @@ fn code_host_updated_is_at_or_after_every_time() {
 }
 
 #[test]
-fn code_host_checks_hold_the_newest_run_of_each_name() {
+fn code_host_checks_hold_the_newest_run_of_each_app_and_name() {
     let run = |name: &str, status: CheckStatus| Check::new(name.into(), status);
     for w in both() {
         let at = w.head("main").unwrap();
         let w = w
             .check(&at, run("gate", CheckStatus::Done(Conclusion::Failed)))
             .check(&at, run("lint", CheckStatus::Done(Conclusion::Passed)))
-            .check(&at, run("gate", CheckStatus::Done(Conclusion::Passed)));
+            .check(&at, run("gate", CheckStatus::Done(Conclusion::Passed)))
+            .check_by("other", &at, run("lint", CheckStatus::Running))
+            .check_by(
+                "other",
+                &at,
+                run("lint", CheckStatus::Done(Conclusion::Passed)),
+            );
         let site = FakeSite::new(&w);
         let mut h = site.code_host(&full(), C).unwrap();
-        ok(laws::code_host::checks_hold_the_newest_run_of_each_name(
-            h.as_mut(),
-            &at,
-            "gate",
-            &CheckStatus::Done(Conclusion::Passed),
-        ));
+        ok(
+            laws::code_host::checks_hold_the_newest_run_of_each_app_and_name(
+                h.as_mut(),
+                &at,
+                "gate",
+                &CheckStatus::Done(Conclusion::Passed),
+            ),
+        );
         // A site that keeps the oldest run fails the law.
-        assert!(laws::code_host::checks_hold_the_newest_run_of_each_name(
+        assert!(
+            laws::code_host::checks_hold_the_newest_run_of_each_app_and_name(
+                h.as_mut(),
+                &at,
+                "gate",
+                &CheckStatus::Done(Conclusion::Failed),
+            )
+            .is_err()
+        );
+        let all = h.checks(&at, None).unwrap();
+        // The old failure beside its passing re-run is not read.
+        assert_eq!(all.overall, Overall::Pass);
+        // Two Apps' runs of one name are both held, the newest of each.
+        let lint: Vec<_> = all.runs.iter().filter(|r| r.name == "lint").collect();
+        assert_eq!(lint.len(), 2, "{:?}", all.runs);
+        assert_eq!(h.checks(&at, Some("lint")).unwrap().runs.len(), 2);
+    }
+}
+
+#[test]
+fn code_host_two_apps_runs_of_one_name_are_both_held() {
+    let run = |status: CheckStatus| Check::new("gate".into(), status);
+    for collapse in [false, true] {
+        for w in both() {
+            let at = w.head("main").unwrap();
+            let w = w
+                .check_by("a", &at, run(CheckStatus::Done(Conclusion::Failed)))
+                .check_by("b", &at, run(CheckStatus::Done(Conclusion::Passed)));
+            let w = if collapse {
+                w.checks_collapsing_apps()
+            } else {
+                w
+            };
+            let site = FakeSite::new(&w);
+            let mut h = site.code_host(&full(), C).unwrap();
+            let law =
+                laws::code_host::two_apps_runs_of_one_name_are_both_held(h.as_mut(), &at, "gate");
+            if collapse {
+                // A site that keeps only the newest run of a name across
+                // Apps fails the law.
+                assert!(law.is_err(), "{law:?}");
+            } else {
+                ok(law);
+            }
+        }
+    }
+}
+
+#[test]
+fn code_host_a_failed_status_beside_a_passing_run_fails() {
+    let status = |name: &str, state: StatusState| Status {
+        name: name.into(),
+        state,
+        about: String::new(),
+        link: None,
+    };
+    for errs in [StatusState::Failed, StatusState::Errored] {
+        for w in both() {
+            let at = w.head("main").unwrap();
+            let w = w
+                .check(
+                    &at,
+                    Check::new("gate".into(), CheckStatus::Done(Conclusion::Passed)),
+                )
+                .status(&at, status("deploy", StatusState::Passed))
+                .status(&at, status("deploy", errs));
+            let site = FakeSite::new(&w);
+            let mut h = site.code_host(&full(), C).unwrap();
+            ok(laws::code_host::a_failed_status_beside_a_passing_run_fails(
+                h.as_mut(),
+                &at,
+                "gate",
+                "deploy",
+            ));
+            assert_eq!(h.checks(&at, Some("deploy")).unwrap().runs.len(), 1);
+        }
+    }
+    // A pending status is not done, and a passed one is a pass.
+    for (state, want) in [
+        (StatusState::Pending, Overall::Pending),
+        (StatusState::Passed, Overall::Pass),
+    ] {
+        let w = both().into_iter().next().unwrap();
+        let at = w.head("main").unwrap();
+        let w = w
+            .check(
+                &at,
+                Check::new("gate".into(), CheckStatus::Done(Conclusion::Passed)),
+            )
+            .status(&at, status("deploy", state));
+        let site = FakeSite::new(&w);
+        let mut h = site.code_host(&full(), C).unwrap();
+        assert_eq!(h.checks(&at, None).unwrap().overall, want);
+        assert!(laws::code_host::a_failed_status_beside_a_passing_run_fails(
             h.as_mut(),
             &at,
             "gate",
-            &CheckStatus::Done(Conclusion::Failed),
+            "deploy",
         )
         .is_err());
-        // The old failure beside its passing re-run is not read.
-        assert_eq!(h.checks(&at, None).unwrap().overall, Overall::Pass);
     }
 }
 
