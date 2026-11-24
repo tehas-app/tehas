@@ -870,7 +870,7 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   lines. A line written before the update shows until it leaves the
   ten-minute window.
 - **`tehas setup`, `tehasbot github-token` and `console pins` name a failed
-  call in tehas's words.** #PRNUM. An error line of each names what failed
+  call in tehas's words.** #3140. An error line of each names what failed
   in its own words, then the kind of failure as one fixed line of the
   ports' outcomes: `not found, or not visible to this actor`, `the
   credential is no longer good`, `this actor may not do this`, `the site
