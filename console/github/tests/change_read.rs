@@ -106,11 +106,13 @@ struct Site {
     node: Value,
     fail: BTreeMap<String, String>,
     graphql: Option<String>,
-    /// Run after the page of a list is answered: (list, page).
+    /// Run after the page of a list is answered: (list, page); ("pull",
+    /// n) after the pull request's nth REST read.
     after: Vec<((&'static str, usize), Hook)>,
     /// Run after every first page of comments, for a site that never
     /// holds still.
     restless: bool,
+    pull_reads: usize,
 }
 
 impl Default for Site {
@@ -132,6 +134,7 @@ impl Default for Site {
             graphql: None,
             after: Vec::new(),
             restless: false,
+            pull_reads: 0,
         }
     }
 }
@@ -198,6 +201,8 @@ impl Site {
             let edit = edit_of("pull");
             node["lastEditedAt"] = edit["lastEditedAt"].clone();
             node["editor"] = edit["editor"].clone();
+            node["headRefOid"] = self.pull["head"]["sha"].clone();
+            node["updatedAt"] = self.pull["updated_at"].clone();
             data["repository"]["pullRequest"] = node;
         }
         if let Some(ids) = q.split("nodes(ids: [").nth(1) {
@@ -217,6 +222,18 @@ impl Site {
         Ok(json!({ "data": data }).to_string())
     }
 
+    fn run_hooks(&mut self, at: (&str, usize)) {
+        let mut i = 0;
+        while i < self.after.len() {
+            if self.after[i].0 == at {
+                let (_, hook) = self.after.remove(i);
+                hook(self);
+            } else {
+                i += 1;
+            }
+        }
+    }
+
     fn answer(&mut self, args: &[&str]) -> Result<String, String> {
         if args.starts_with(&["api", "graphql"]) {
             return self.graphql_answer(args);
@@ -231,7 +248,10 @@ impl Site {
             return Err(why.clone());
         }
         if *path == "repos/acme/widget/pulls/9" {
-            return Ok(self.pull.to_string());
+            self.pull_reads += 1;
+            let answer = self.pull.to_string();
+            self.run_hooks(("pull", self.pull_reads));
+            return Ok(answer);
         }
         if path.starts_with("repos/acme/widget/pulls/") && !path.contains('?') {
             return Err(failed("read-not-found.stderr"));
@@ -258,15 +278,7 @@ impl Site {
         let from = ((page - 1) * 100).min(all.len());
         let to = (page * 100).min(all.len());
         let answer = Value::Array(all[from..to].to_vec()).to_string();
-        let mut i = 0;
-        while i < self.after.len() {
-            if self.after[i].0 == (list, page) {
-                let (_, hook) = self.after.remove(i);
-                hook(self);
-            } else {
-                i += 1;
-            }
-        }
+        self.run_hooks((list, page));
         if self.restless && list == "comments" && page == 1 {
             shift(self);
         }
@@ -344,7 +356,7 @@ fn the_cheapest_read_is_three_requests_and_gives_the_whole_digest() {
     let c = gh.change(nine(), bound(100)).unwrap();
     assert_eq!(
         asked(&calls),
-        [PULL.to_string(), "graphql".into(), page("reviews", 1)]
+        [PULL.to_string(), page("reviews", 1), "graphql".into()]
     );
     let d = &c.digest;
     assert_eq!(d.no, nine());
@@ -481,8 +493,8 @@ fn one_comment_is_one_page_and_one_question() {
         [
             PULL.to_string(),
             page("comments", 1),
-            "graphql".into(),
-            page("reviews", 1)
+            page("reviews", 1),
+            "graphql".into()
         ]
     );
 }
@@ -507,10 +519,10 @@ fn a_hundred_and_one_comments_are_two_pages_and_a_read_again() {
         [
             PULL.to_string(),
             page("comments", 1),
-            "graphql".into(),
             page("comments", 2),
             page("reviews", 1),
-            PULL.to_string()
+            PULL.to_string(),
+            "graphql".into()
         ]
     );
 }
@@ -683,7 +695,7 @@ fn an_edited_comment_by_another_account_carries_that_editor() {
     );
     // Still one question: the pull request's and the page's edits together.
     assert_eq!(asked(&calls).iter().filter(|c| *c == "graphql").count(), 1);
-    let q = calls.lock().unwrap()[2].clone();
+    let q = calls.lock().unwrap().last().unwrap().clone();
     assert!(
         q.contains("\"IC_kwDOAbCdEf6Vt0000\", \"IC_kwDOAbCdEf6Vt0001\""),
         "{q}"
@@ -743,8 +755,11 @@ fn files_are_read_by_their_count_and_past_the_bound_cut() {
     assert_eq!((c.files[0].added, c.files[0].deleted), (4, 1));
     let calls = asked(&calls);
     assert!(calls.contains(&page("files", 2)));
-    // More than one page: read again at the end.
-    assert_eq!(calls.last().unwrap(), PULL);
+    // More than one page: read again, before the last question.
+    assert_eq!(
+        calls[calls.len() - 2..],
+        [PULL.to_string(), "graphql".into()]
+    );
     let (mut gh, _, calls) = adapter(Site::default().with("files", 101));
     assert_eq!(
         gh.change(nine(), bound(100)).map(|_| ()),
@@ -800,9 +815,9 @@ fn reviews_carry_their_text_and_their_notes_and_a_pending_one_is_left_out() {
         asked(&calls),
         [
             PULL.to_string(),
-            "graphql".into(),
             page("reviews", 1),
-            page("notes", 1)
+            page("notes", 1),
+            "graphql".into()
         ]
     );
 }
@@ -972,13 +987,16 @@ fn a_malformed_answer_first_or_later_is_malformed() {
 // The consumer's settle, and the laws.
 
 #[test]
-fn the_comments_answer_what_the_settle_of_a_maybe_sent_comment_compares() {
+fn gap_until_ours_is_wired_the_settle_finds_our_landed_comment_not_sent() {
     // The core's rule (`journal::settle::by_comments`) takes a comment of
     // the factory's own account made since the row, with the row's body to
     // the byte and its markers. The adapter answers the body as GitHub
-    // keeps it and `created` as GitHub's; it cannot tell its own account
-    // yet, so its author is a Bot and the rule finds nothing until the
-    // site's wiring names the factory's account `Ours`.
+    // keeps it and `created` as GitHub's. It cannot tell its own account,
+    // so its author is a Bot and the rule answers NotSent for a comment
+    // that landed. That NotSent is the gap, not the wanted answer: no
+    // consumer may settle comments through this read until the site's
+    // wiring names the factory's account `Ours`, which the second half
+    // shows is then enough.
     let sent = "The refresh is done.\n\nSee the new head.";
     let mut site = Site::default().with("comments", 2);
     comments!(site)[1]["user"] = json!({"login": "tehas-bot[bot]", "id": 100001, "type": "Bot"});
@@ -1098,4 +1116,148 @@ fn page_arithmetic_at_the_boundaries() {
             1 + usize::from(pages > 1)
         );
     }
+}
+
+// One moment: the last question checks the first read's head and time.
+
+#[test]
+fn a_body_edited_before_the_question_is_read_once_more() {
+    // (A) The body edited between the REST read and the question: the
+    // first read would pair the old body with the new editor.
+    let mut site = Site::default();
+    site.after.push((
+        ("pull", 1),
+        Box::new(|s: &mut Site| {
+            s.edits.insert(
+                "pull".into(),
+                json!({"lastEditedAt": "2026-11-20T10:31:00Z", "editor": {"__typename": "User", "login": "octo-person", "databaseId": 200002}}),
+            );
+            s.pull["body"] = "Counts each part twice.".into();
+            s.pull["updated_at"] = "2026-11-20T10:31:00Z".into();
+        }),
+    ));
+    let (mut gh, _, calls) = adapter(site);
+    let c = gh.change(nine(), bound(100)).unwrap();
+    assert_eq!(c.body, "Counts each part twice.");
+    assert_eq!(c.digest.edited, Some(at("2026-11-20T10:31:00Z")));
+    assert!(Some(c.digest.updated) >= c.digest.edited);
+    assert_eq!(
+        asked(&calls),
+        [
+            PULL.to_string(),
+            page("reviews", 1),
+            "graphql".into(),
+            PULL.to_string(),
+            page("reviews", 1),
+            "graphql".into()
+        ]
+    );
+}
+
+fn push(s: &mut Site) {
+    s.pull["head"]["sha"] = "b2c3d4e5f60718293a4b5c6d7e8f901234567890".into();
+}
+
+#[test]
+fn a_push_before_the_files_page_that_keeps_their_count_is_read_once_more() {
+    // (B) The head moved before the files were read, their count the
+    // same: GitHub's time held still here, and the head alone tells.
+    let mut site = Site::default().with("files", 2);
+    site.after.push((("pull", 1), Box::new(push)));
+    let (mut gh, _, calls) = adapter(site);
+    let c = gh.change(nine(), bound(100)).unwrap();
+    assert_eq!(
+        c.digest.head_commit.as_str(),
+        "b2c3d4e5f60718293a4b5c6d7e8f901234567890"
+    );
+    assert_eq!(asked(&calls).iter().filter(|c| *c == PULL).count(), 2);
+}
+
+#[test]
+fn a_push_before_the_question_is_read_once_more_and_twice_is_inconsistent() {
+    // (C) The head moved after the lists and before the question: its
+    // merge state would describe a head the digest does not name.
+    let mut site = Site::default();
+    site.after.push((
+        ("reviews", 1),
+        Box::new(|s: &mut Site| {
+            push(s);
+            s.touch();
+        }),
+    ));
+    let (mut gh, _, _) = adapter(site);
+    let c = gh.change(nine(), bound(100)).unwrap();
+    assert_eq!(
+        c.digest.head_commit.as_str(),
+        "b2c3d4e5f60718293a4b5c6d7e8f901234567890"
+    );
+    // Moving under both reads: answered Inconsistent.
+    let mut site = Site::default();
+    site.after
+        .push((("reviews", 1), Box::new(|s: &mut Site| s.touch())));
+    site.after
+        .push((("pull", 2), Box::new(|s: &mut Site| s.touch())));
+    let (mut gh, _, calls) = adapter(site);
+    assert_eq!(
+        gh.change(nine(), bound(100)).map(|_| ()),
+        Err(Outcome::Unread(Unread::Inconsistent))
+    );
+    assert_eq!(asked(&calls).iter().filter(|c| *c == "graphql").count(), 2);
+}
+
+#[test]
+fn more_files_than_github_lists_are_cut_with_no_page_read() {
+    let mut site = Site::default();
+    site.pull["changed_files"] = 3001.into();
+    let (mut gh, _, calls) = adapter(site);
+    assert_eq!(
+        gh.change(nine(), bound(1000)).map(|_| ()),
+        Err(Outcome::Unread(Unread::Cut))
+    );
+    assert_eq!(asked(&calls), [PULL]);
+}
+
+#[test]
+fn a_comment_edited_after_its_page_was_read_is_read_once_more() {
+    // The page holds the body of updated_at 10:05; GraphQL answers an edit
+    // at 10:06, so body and editor are of two edits.
+    let mut site = Site::default().with("comments", 1);
+    comments!(site)[0]["updated_at"] = "2026-11-20T10:05:00Z".into();
+    site.after.push((
+        ("comments", 1),
+        Box::new(|s: &mut Site| {
+            s.edits.insert(
+                "IC_kwDOAbCdEf6Vt0000".into(),
+                json!({"lastEditedAt": "2026-11-20T10:06:00Z", "editor": {"__typename": "User", "login": "octo-person", "databaseId": 200002}}),
+            );
+        }),
+    ));
+    let (mut gh, _, calls) = adapter(site);
+    assert_eq!(
+        gh.change(nine(), bound(100)).map(|_| ()),
+        Err(Outcome::Unread(Unread::Inconsistent))
+    );
+    // Read twice: the page still says 10:05 the second time.
+    assert_eq!(asked(&calls).iter().filter(|c| *c == "graphql").count(), 2);
+}
+
+#[test]
+fn what_the_text_closes_is_read_without_our_markers() {
+    let mut site = Site::default();
+    site.pull["body"] =
+        "Counts parts.\n<!-- tehas:question kind=plan issue=9 turn=1 -->\nCloses #7".into();
+    let (mut gh, _, _) = adapter(site);
+    let d = gh.change(nine(), bound(100)).unwrap().digest;
+    assert_eq!(d.says_closes, [Ref::Here(BlueprintNo::new(7).unwrap())]);
+    // A marker's words are no closing line, and a link is not read.
+    let mut site = Site::default();
+    site.pull["body"] =
+        "<!-- tehas:question kind=plan issue=9 turn=1 closes #5 -->\ncloses https://github.com/acme/widget/issues/6".into();
+    let (mut gh, _, _) = adapter(site);
+    assert!(gh
+        .change(nine(), bound(100))
+        .unwrap()
+        .digest
+        .says_closes
+        .is_empty());
 }

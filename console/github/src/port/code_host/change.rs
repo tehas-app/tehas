@@ -4,17 +4,25 @@
 //! caller's bound or `Unread(Cut)`.
 //!
 //! The requests, in order: the pull request's REST read; the pages of its
-//! issue comments, 100 a page, as many as its count of them says; one
-//! GraphQL question beside the first page (or alone, with no comment) for
-//! what REST does not give: what it closes, whether its head is a fork,
-//! whether it can merge, and the last edit of its body and of each comment
-//! of that page whose `updated_at` moved; one more question a later page
-//! with a moved comment; the pages of its files, as many as its count says;
-//! the pages of its reviews, to the first short page; and the pages of its
-//! review comments, as many as its count says. With no comment, no file
-//! and no review comment that is three requests. Over more than one page of
-//! any list the pull request is read again at the end and must be as it
-//! was; a read that comes out `Unread(Inconsistent)` is made once more.
+//! issue comments, 100 a page, as many as its count of them says, with one
+//! GraphQL question for a page after the first that holds a comment whose
+//! `updated_at` moved; the pages of its files, as many as its count says
+//! (past GitHub's 3000, `Unread(Cut)` with no page read); the pages of its
+//! reviews, to the first short page; the pages of its review comments, as
+//! many as its count says; and last one GraphQL question for what REST
+//! does not give: what it closes, whether its head is a fork, whether it
+//! can merge, the last edit of its body and of each comment of the first
+//! page whose `updated_at` moved, and its head and `updatedAt` again. With
+//! no comment, no file and no review comment that is three requests.
+//!
+//! One moment: the last question's head and `updatedAt` must be the first
+//! read's. GitHub moves a pull request's `updatedAt` on a comment, a
+//! review, an edit and a push, so equal at both ends means nothing moved
+//! between. Over more than one page of any list the pull request is also
+//! read again and its counts must be as they were. A comment's edit later
+//! than the `updated_at` its page gave is of a body the page did not hold.
+//! Each of these is `Unread(Inconsistent)`, and such a read is made once
+//! more.
 //!
 //! A change's comments are its issue comments, the conversation's. A
 //! review's own text is its note with no path; its comments on the diff
@@ -36,6 +44,10 @@ use tehas_ports::{
 
 /// What one page of a REST list asks for, the most GitHub gives.
 const PER_PAGE: usize = 100;
+
+/// The most files GitHub lists of a pull request: past them the list is
+/// not whole, `Unread(Cut)`, with no page read.
+const FILES_MAX: usize = 3000;
 
 /// The most pages of review comments one read takes: they have no bound of
 /// the caller's, and past these the read is `Unread(Cut)`.
@@ -59,14 +71,26 @@ impl GitHub {
         if stamp.comments > bound || stamp.files > bound {
             return Err(Outcome::Unread(Unread::Cut));
         }
+        if stamp.files > FILES_MAX {
+            return Err(Outcome::Unread(Unread::Cut));
+        }
         let mut spread = false;
-        let (comments, node) = self.change_comments(no, item, &stamp, &mut spread)?;
+        let (mut comments, first) = self.change_comments(no, item, &stamp, &mut spread)?;
         let files = self.change_files(no, &stamp, &mut spread)?;
         let mut reviews = self.reviews(no, item, bound, &mut spread)?;
         self.notes(no, item, &stamp, &mut reviews, &mut spread)?;
         if spread && self.pull(no)?.1 != stamp {
             return Err(Outcome::Unread(Unread::Inconsistent));
         }
+        // Asked last: its head and time must still be the first read's, so
+        // every part of the answer is of one moment.
+        let ids: Vec<String> = first.iter().map(|(_, id, _)| id.clone()).collect();
+        let (node, edits) = self.ask_change(no, &ids, true)?;
+        let node = node.ok_or(MALFORMED)?;
+        if node.head != stamp.head || Some(node.updated) != time(Some(&stamp.updated)).ok() {
+            return Err(Outcome::Unread(Unread::Inconsistent));
+        }
+        edited(&mut comments, &first, edits)?;
         let mut digest = pull.digest;
         digest.marks = self.marks_of(&pull.labels);
         digest.from_fork = node.fork;
@@ -74,8 +98,8 @@ impl GitHub {
         digest.closes = node.closes;
         digest.edited = node.edited;
         digest.editor = node.editor;
-        digest.says_closes = says_closes(&pull.raw);
         let read = markers::read(&pull.raw, Some(item));
+        digest.says_closes = says_closes(&read.text);
         digest.body = Some(read.text.clone());
         let mut change = Change::new(digest);
         change.body = read.text;
@@ -99,8 +123,10 @@ impl GitHub {
         read_pull(&out, &self.repo, no)
     }
 
-    /// Every issue comment of the pull request, oldest first, and the
-    /// GraphQL answer asked beside the first page. Each page holds exactly
+    /// Every issue comment of the pull request, oldest first, and those of
+    /// the first page whose `updated_at` moved: their edits are asked in the
+    /// read's last question. A later page with a moved comment asks its own
+    /// question at once. Each page holds exactly
     /// what the count says, each comment once, on this pull request, its id
     /// rising and its time never falling from the one before; else
     /// `Unread(Inconsistent)`.
@@ -110,14 +136,10 @@ impl GitHub {
         item: BlueprintNo,
         stamp: &Stamp,
         spread: &mut bool,
-    ) -> Got<(Vec<Comment>, Node)> {
+    ) -> Got<(Vec<Comment>, Vec<Touched>)> {
         let count = stamp.comments;
-        if count == 0 {
-            let (node, _) = self.ask_change(no, &[], true)?;
-            return Ok((Vec::new(), node.ok_or(Outcome::Unread(Unread::Malformed))?));
-        }
         let mut all: Vec<Comment> = Vec::with_capacity(count);
-        let mut node = None;
+        let mut first = Vec::new();
         let mut before: Option<(u64, At)> = None;
         for page in 1..=count.div_ceil(PER_PAGE) {
             *spread |= page > 1;
@@ -134,16 +156,12 @@ impl GitHub {
             if comments.len() != held {
                 return Err(Outcome::Unread(Unread::Inconsistent));
             }
-            if page == 1 || !touched.is_empty() {
-                let ids: Vec<String> = touched.iter().map(|(_, id)| id.clone()).collect();
-                let (asked, edits) = self.ask_change(no, &ids, page == 1)?;
-                if page == 1 {
-                    node = asked;
-                }
-                for ((at, _), (edited, editor)) in touched.iter().zip(edits) {
-                    comments[*at].edited = edited;
-                    comments[*at].editor = editor;
-                }
+            if page == 1 {
+                first = touched;
+            } else if !touched.is_empty() {
+                let ids: Vec<String> = touched.iter().map(|(_, id, _)| id.clone()).collect();
+                let (_, edits) = self.ask_change(no, &ids, false)?;
+                edited(&mut comments, &touched, edits)?;
             }
             for c in comments {
                 let id: u64 =
@@ -157,7 +175,7 @@ impl GitHub {
                 all.push(c);
             }
         }
-        Ok((all, node.ok_or(Outcome::Unread(Unread::Malformed))?))
+        Ok((all, first))
     }
 
     /// One GraphQL question: with `pull`, what the pull request's REST read
@@ -565,7 +583,7 @@ fn read_comments(
         comment.author = author(c.user.as_ref());
         if updated != created {
             let node = c.node_id.filter(|n| is_node_id(n)).ok_or(MALFORMED)?;
-            touched.push((comments.len(), node));
+            touched.push((comments.len(), node, updated));
         }
         comment.body = read.text;
         comment.markers = read.markers;
@@ -575,8 +593,22 @@ fn read_comments(
 }
 
 /// A comment of a page whose `updated_at` moved: its place in the page,
-/// and its node id.
-type Touched = (usize, String);
+/// its node id, and its `updated_at`.
+type Touched = (usize, String, At);
+
+/// The edits GraphQL answered set on the comments of a page that moved. An
+/// edit later than the comment's `updated_at` is one its body, read before
+/// it, does not hold: `Unread(Inconsistent)`.
+fn edited(comments: &mut [Comment], touched: &[Touched], edits: Vec<Edit>) -> Got<()> {
+    for ((at, _, updated), (when, editor)) in touched.iter().zip(edits) {
+        if when.is_some_and(|w| w > *updated) {
+            return Err(Outcome::Unread(Unread::Inconsistent));
+        }
+        comments[*at].edited = when;
+        comments[*at].editor = editor;
+    }
+    Ok(())
+}
 
 /// The GraphQL question of [`GitHub::ask_change`]. It always names the
 /// repository, since the adapter's one way to ask gives its owner and name.
@@ -585,7 +617,7 @@ fn change_question(ids: &[String], pull: bool) -> String {
     let (vars, pull) = match pull {
         true => (
             ", $number: Int!",
-            format!(" pullRequest(number: $number) {{ number isCrossRepository mergeable mergeStateStatus lastEditedAt editor {WHO} closingIssuesReferences(first: 100) {{ totalCount nodes {{ number repository {{ databaseId nameWithOwner }} }} }} }}"),
+            format!(" pullRequest(number: $number) {{ number headRefOid updatedAt isCrossRepository mergeable mergeStateStatus lastEditedAt editor {WHO} closingIssuesReferences(first: 100) {{ totalCount nodes {{ number repository {{ databaseId nameWithOwner }} }} }} }}"),
         ),
         false => ("", String::new()),
     };
@@ -620,6 +652,10 @@ struct RepoNode {
 #[derive(Deserialize)]
 struct PullNode {
     number: Option<u64>,
+    #[serde(rename = "headRefOid")]
+    head: Option<String>,
+    #[serde(rename = "updatedAt")]
+    updated: Option<String>,
     #[serde(rename = "isCrossRepository")]
     fork: Option<bool>,
     mergeable: Option<String>,
@@ -684,6 +720,10 @@ type Edit = (Option<At>, Option<Account>);
 
 /// What GraphQL gives of the pull request, read.
 struct Node {
+    /// The head and the time GitHub last saw the pull request change, as
+    /// this answer gives them.
+    head: String,
+    updated: At,
     fork: bool,
     merge_state: Mergeable,
     closes: Vec<Ref<BlueprintNo>>,
@@ -722,6 +762,8 @@ impl RepoNode {
         }
         let (edited, editor) = pull.edit.read()?;
         Ok(Node {
+            head: pull.head.ok_or(MALFORMED)?,
+            updated: time(pull.updated.as_deref())?,
             fork: pull.fork.ok_or(MALFORMED)?,
             merge_state: super::mergeable(
                 pull.mergeable.as_deref().ok_or(MALFORMED)?,
@@ -760,7 +802,10 @@ impl Edited {
 
 /// The blueprints of this project the text names with GitHub's closing
 /// syntax: each `#<n>` the core's reading of a closing line takes, in the
-/// order they first stand in the text.
+/// order they first stand in the text. `text` is the body without this
+/// item's markers. A link (`closes https://github.com/<o>/<r>/issues/5`)
+/// and `<o>/<r>#5`, which GitHub counts too, are not read: this reads
+/// fewer, never more.
 fn says_closes(text: &str) -> Vec<Ref<BlueprintNo>> {
     let mut said: Vec<Ref<BlueprintNo>> = Vec::new();
     for (i, _) in text.match_indices('#') {
