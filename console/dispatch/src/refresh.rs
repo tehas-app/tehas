@@ -261,7 +261,7 @@ pub fn main(args: &[&str]) -> i32 {
     };
     let home = PathBuf::from(home);
     let run = Run {
-        dir: home.join("state/refresh"),
+        dir: tehas_core::home::Home::new(&home).state(tehas_core::home::State::Refreshes),
         log: PathBuf::from(log),
         repo,
         control,
