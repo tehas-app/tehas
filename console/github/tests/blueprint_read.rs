@@ -1318,6 +1318,52 @@ fn the_law_an_edit_moves_the_revision_holds_over_the_adapters_read_and_edit() {
 }
 
 #[test]
+fn the_law_attachments_in_a_text_are_the_blueprints_holds_over_the_adapters_read() {
+    let mut site = Site::default();
+    site.issues.insert(12, json::<Value>("issue-12-files.json"));
+    let (mut gh, _, calls) = adapter(site);
+    laws::blueprints::attachments_in_a_text_are_the_blueprints(&mut gh, no(12)).unwrap();
+    calls.lock().unwrap().clear();
+    let held = gh.attachments(no(12)).unwrap().into_items();
+    // The body's one file with its name and its pasted image with none;
+    // the marker is no part of the text.
+    let named: Vec<(&str, Option<&str>)> = held
+        .iter()
+        .map(|a| (a.link.as_str(), a.name.as_deref()))
+        .collect();
+    assert_eq!(
+        named,
+        [
+            (
+                "https://github.com/user-attachments/files/31/plan.pdf",
+                Some("plan.pdf")
+            ),
+            (
+                "https://github.com/user-attachments/assets/11111111-2222-3333-4444-555555555555",
+                None
+            ),
+        ]
+    );
+    // One read of the issue, and no read of its comments or its edits.
+    assert_eq!(*calls.lock().unwrap(), ["api repos/acme/widget/issues/12"]);
+}
+
+#[test]
+fn the_attachments_of_a_pull_request_or_a_failed_read_are_the_reads_outcome() {
+    let (mut gh, calls) = answering(Ok(sample("pull-request-8.json")));
+    assert_eq!(gh.attachments(no(8)), Err(Outcome::NotFound));
+    assert_eq!(calls.lock().unwrap().len(), 1);
+    for (why, want) in [
+        ("read-not-found.stderr", Outcome::NotFound),
+        ("read-forbidden.stderr", Outcome::Forbidden),
+        ("read-signed-out.stderr", Outcome::SignedOut),
+    ] {
+        let (mut gh, _) = answering(Err(failed(why)));
+        assert_eq!(gh.attachments(no(7)), Err(want), "{why}");
+    }
+}
+
+#[test]
 fn the_law_an_unreadable_marker_is_kept_meets_the_edits_refusal_and_writes_nothing() {
     // With no marker writer, an edit of a body that holds markers is
     // refused, nothing is written, and the markers stay.

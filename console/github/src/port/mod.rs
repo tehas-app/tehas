@@ -23,6 +23,7 @@ mod site;
 mod tickets;
 mod writes;
 
+pub use code_host::project_of;
 pub(crate) use people::People;
 pub use people::PeopleClient;
 pub use site::{GitHubSite, MakeRunner};
