@@ -8,4 +8,4 @@
 
 ### Adopter action
 
-Upgrade a host's factories and the programs that run them together, from 1.4.x. Before the update, check `instance.env` against "What 2.0 does with a setting" in the contract, fix every line 2.0 refuses, then run `tehas update`, which migrates the state store to schema 29 and analytics to schema 6. A program that reads the factory reads "Changed in 2.0" for each change it is named a reader of. A program that starts work for a person runs `tehas start` for that person, and a script that called `tehasbot refresh --pr N` calls `tehas refresh --pr N`.
+Upgrade a host's factories and the programs that run them together, from 1.4.x. Before the update, check `instance.env` against "What 2.0 does with a setting" in the contract, fix every line 2.0 refuses, then run `tehas update`, which migrates the state store to schema 32 and analytics to schema 7. A program that reads the factory reads "Changed in 2.0" for each change it is named a reader of. A program that starts work for a person runs `tehas start` for that person, and a script that called `tehasbot refresh --pr N` calls `tehas refresh --pr N`.
