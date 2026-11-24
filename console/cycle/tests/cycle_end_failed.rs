@@ -4,9 +4,11 @@
 
 mod common;
 
-use common::{has, World};
+use common::{has, said as said_of, site_of, World};
 use serde_json::{json, Value};
 use std::fs;
+use tehas_cycle::end_failed::{self, Failure, Left};
+use tehas_ports::fake::{BlueprintsOp, FakeSite, Fault, Faulty, Op, TicketsOp};
 
 /// A cycle that stopped in commit-pr with no pull request, on `message`.
 fn in_commit_pr(w: &World, message: &str) {
@@ -93,27 +95,80 @@ fn a_step_that_failed_for_anything_but_github_is_no_record_and_the_record_an_ear
 fn a_handoff_comment_that_failed_503_is_on_record_as_githubs() {
     let w = World::new("ef-503");
     handoff(&w);
-    // The park's question and the comment in its place both fail, and the
-    // read after each 503 finds no comment.
-    w.touch("post-fails");
-    w.fx("comment-fails", "HTTP 503: Service Unavailable\n");
-    w.fx("comments.json", "[]\n");
-    let r = w.run7();
-    has(&r.out, "WARN: the handoff of #7 reached no comment");
-    assert_eq!(said(&w), json!(["handoff", true, "HTTP 503", [], ""]));
+    // The park's question and the comment in its place both fail 503, and
+    // the read after each finds no comment.
+    let site = site_of(&w);
+    let t = w.report_through(
+        &site,
+        &Faulty::new(FakeSite::new(&site)).on(
+            Op::Tickets(TicketsOp::Note),
+            Fault::Server { applied: false },
+        ),
+    );
+    // The question once, then the plain comment with the handoff, three
+    // tries; none of them is on the issue.
+    let notes = |ws: &[tehas_ports::Write]| {
+        ws.iter()
+            .filter(|w| matches!(w, tehas_ports::Write::TicketNote { .. }))
+            .count()
+    };
+    assert_eq!(notes(&t.sent), 4);
+    assert_eq!(notes(&t.applied), 0);
+    has(
+        &said_of(&t.sent),
+        "note: <!-- pi-rukas:handoff issue=7 cap=verify-timeout:develop -->",
+    );
+    assert!(!t.written.handed_off);
+    let failed = t.written.handoff_failed.expect("the handoff failed");
+    // What tehas-cycle keeps of it: a failure of GitHub's at the handoff,
+    // in the words of the site's answer.
+    let Failure::Answered(answer) = &failed else {
+        panic!("{failed:?}")
+    };
+    let result = fs::read_to_string(w.state().join("7.result.json")).unwrap();
+    let left = Left {
+        issue: 7,
+        attempt: 1,
+        result: Some(&result),
+        progress: None,
+        pr: false,
+        handoff_failed: Some(&failed),
+    };
+    let r = end_failed::of(&left, 1).expect("on record");
+    assert_eq!(
+        json!([r.step, r.github, r.host, r.why, r.tries, r.stopped]),
+        json!(["handoff", true, true, answer.line(), [], ""])
+    );
 }
 
 #[test]
 fn a_handoff_comment_that_may_have_been_posted_is_no_failed_end() {
     let w = World::new("ef-maybe");
     handoff(&w);
-    // The comment fails 503 and no read tells whether GitHub took it.
-    w.touch("post-fails");
-    w.fx("comment-fails", "HTTP 503: Service Unavailable\n");
-    let r = w.run7();
-    has(
-        &r.out,
-        "WARN: the handoff of #7 may not have reached a comment",
+    // The question with the handoff fails 503 and no read tells whether
+    // GitHub took it: it is not sent again, nor followed by the comment.
+    let site = site_of(&w);
+    let t = w.report_through(
+        &site,
+        &Faulty::new(FakeSite::new(&site))
+            .on(
+                Op::Tickets(TicketsOp::Note),
+                Fault::Server { applied: false },
+            )
+            .on(Op::Blueprints(BlueprintsOp::Comments), Fault::Unreachable),
     );
-    assert!(record(&w).is_none());
+    has(&w.report_log(), "WARN: a write on #7 may have been posted");
+    assert!(!t.written.handed_off);
+    assert!(t.written.handoff_maybe);
+    assert!(t.written.handoff_failed.is_none());
+    let result = fs::read_to_string(w.state().join("7.result.json")).unwrap();
+    let left = Left {
+        issue: 7,
+        attempt: 1,
+        result: Some(&result),
+        progress: None,
+        pr: false,
+        handoff_failed: t.written.handoff_failed.as_ref(),
+    };
+    assert!(end_failed::of(&left, 1).is_none());
 }

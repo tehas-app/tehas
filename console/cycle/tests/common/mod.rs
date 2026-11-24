@@ -778,14 +778,25 @@ impl World {
         if store.exists() {
             self.as_run(&store, &self.t.join("store-bin"));
         }
-        let (_, logged) = tehas_cycle::after::holding(|| {
+        let (written, logged) = tehas_cycle::after::holding(|| {
             tehas_cycle::apply::write(&self.home, &how, &mut r, &facts, handles)
         });
         *self.logged.borrow_mut() = logged;
         let sent = sent.borrow().clone();
+        // The end as tehas-cycle records it after the writes: the report's
+        // words, the files it keeps named at their place.
+        let mut end = vec!["cycle-end".to_string()];
+        end.extend_from_slice(&r.end[..r.files_at]);
+        for k in &r.files {
+            end.push(format!("--{k}"));
+            end.push(cycles.join(format!("7.{k}.json")).display().to_string());
+        }
+        end.extend_from_slice(&r.end[r.files_at..]);
         Tried {
             applied: site.wrote().into_iter().map(|w| w.what).collect(),
             sent,
+            written,
+            end,
         }
     }
 
@@ -1086,9 +1097,15 @@ pub fn count_lines(text: &str, prefix: &str) -> usize {
 
 /// The writes of a report: those the site took, and each one sent, a write
 /// tried again once for each try.
+#[allow(dead_code)] // each test file uses a part of this module
 pub struct Tried {
     pub applied: Vec<tehas_ports::Write>,
     pub sent: Vec<tehas_ports::Write>,
+    /// What the writes left for the end: the handoff posted or not, and why.
+    pub written: tehas_cycle::apply::Written,
+    /// The store's words that record the end, as tehas-cycle gives them
+    /// after the writes; not recorded here.
+    pub end: Vec<String>,
 }
 
 /// The numbers the in-process report's comments get, as GitHub's ids are
