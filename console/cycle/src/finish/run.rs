@@ -27,9 +27,14 @@
 
 use super::cmd::{asked, dir_exists, Done, Host, Scratch};
 use super::plan::{body, branch_shaped, title, Finished, Plan};
-use serde_json::Value;
+use super::Ports;
 use std::path::{Path, PathBuf};
-use tehas_core::issue_pull::names_issue;
+use tehas_core::accounts::folded;
+use tehas_core::issue_pull::names_change;
+use tehas_ports::{
+    Access, BlueprintNo, Body, Bound, Branch, ChangeDigest, ChangeFilter, ChangeStates, NewChange,
+    Outcome, Sent, Unread,
+};
 
 /// Where the run's repository keeps the workspace's refs: its branches under
 /// `refs/kept/heads/` and its `HEAD` as `refs/kept/HEAD`.
@@ -113,15 +118,12 @@ fn git(h: &mut dyn Host, repo: &Path, args: &[&str]) -> Done {
     h.run("git", &asked(all), repo)
 }
 
-/// `gh` with these arguments, asked of the home the run was given.
-fn gh(h: &mut dyn Host, home: &Path, args: &[&str]) -> Done {
-    let all: Vec<String> = args.iter().map(|s| s.to_string()).collect();
-    h.run("gh", &all, home)
-}
-
 /// The run: everything the rules of this file decide, and the scratch it takes
 /// back with it.
-pub fn run(plan: &Plan, h: &mut dyn Host) -> Finished {
+pub fn run(plan: &Plan, h: &mut dyn Host, ports: &mut Ports) -> Finished {
+    if let Some(why) = cannot_tell_own(ports) {
+        return Finished::refused(why);
+    }
     let workspace = plan.workspace();
     if !dir_exists(&workspace) {
         return Finished::refused(format!("{} is not a directory", workspace.display()));
@@ -134,7 +136,7 @@ pub fn run(plan: &Plan, h: &mut dyn Host) -> Finished {
         Ok(d) => d,
         Err(e) => return Finished::refused(e),
     };
-    let outcome = in_scratch(plan, h, &workspace, &dir, &scratch);
+    let outcome = in_scratch(plan, h, ports, &workspace, &dir);
     // Whatever the run did, its repository goes with it: a tree the rebase left
     // mid flight is the run's own and belongs to no one else.
     h.clean(&dir);
@@ -151,13 +153,29 @@ pub fn run(plan: &Plan, h: &mut dyn Host) -> Finished {
     }
 }
 
+/// Why the factory's own changes cannot be told apart, if they cannot. A
+/// run that cannot tell them counts none as its own and could open a second
+/// draft, so it refuses before anything is read.
+fn cannot_tell_own(ports: &Ports) -> Option<String> {
+    let lead = "the factory's own pull requests cannot be told";
+    if ports.bot_id.is_none() {
+        return Some(format!(
+            "{lead}: no user id is recorded for the bot's account in state/account-ids"
+        ));
+    }
+    ports
+        .accounts
+        .unread()
+        .map(|line| format!("{lead}: {line}"))
+}
+
 /// Rules 1 to 6, asked of the run's repository under `dir`.
 fn in_scratch(
     plan: &Plan,
     h: &mut dyn Host,
+    ports: &mut Ports,
     workspace: &Path,
     dir: &Path,
-    scratch: &Scratch,
 ) -> Result<String, Why> {
     let repo = taken(h, workspace, dir)?;
     let branch = issue_branch_of(
@@ -177,8 +195,8 @@ fn in_scratch(
         ))
     })?;
     let pushed = plan.branch();
-    preflight(plan, h, workspace, &repo, &branch, &pushed)?;
-    rebase_push_open(plan, h, &repo, &branch, &pushed, scratch)
+    preflight(plan, h, ports, workspace, &repo, &branch, &pushed)?;
+    rebase_push_open(plan, h, ports, &repo, &branch, &pushed)
 }
 
 /// The run's repository, `<dir>/repo`, holding the workspace's branches and
@@ -250,6 +268,7 @@ pub fn issue_branch_of(names: &str, n: u64) -> Option<String> {
 fn preflight(
     plan: &Plan,
     h: &mut dyn Host,
+    ports: &mut Ports,
     workspace: &Path,
     repo: &Path,
     branch: &str,
@@ -281,8 +300,8 @@ fn preflight(
             "its working tree holds work that was never committed",
         ));
     }
-    git(h, repo, &["remote", "add", "origin", &plan.remote()])
-        .let_say("the remote could not be named")?;
+    let remote = remote_of(plan, ports)?;
+    git(h, repo, &["remote", "add", "origin", &remote]).let_say("the remote could not be named")?;
     // The fetch is before the count: the rebase decides against what the remote
     // holds now.
     let fetched = git(h, repo, &["fetch", "--quiet", "origin", &plan.default]);
@@ -343,7 +362,7 @@ fn preflight(
     if there.status != Some(2) {
         return Err(Why::new(format!("{pushed} could not be asked of the remote")).said(&there));
     }
-    if let Some(url) = open_pull(plan, h, pushed)? {
+    if let Some(url) = open_pull(plan, ports, pushed)? {
         return Err(Why::only(format!(
             "the issue already has an open pull request, {url}"
         )));
@@ -373,38 +392,58 @@ pub fn has_commits(count: &str) -> bool {
 /// The list is read to its last page. A page that says more follow but names
 /// no cursor, or more pages than [`PAGES_MAX`], refuses the run: a pull request
 /// beyond the first page names the issue just the same.
-fn open_pull(plan: &Plan, h: &mut dyn Host, pushed: &str) -> Result<Option<String>, Why> {
-    let (owner, name) = plan.repo.split_once('/').unwrap_or_default();
-    let mut own = Vec::new();
-    let mut cursor: Option<String> = None;
-    for _ in 0..PAGES_MAX {
-        let mut args = vec![
-            "api".to_string(),
-            "graphql".to_string(),
-            "-f".to_string(),
-            format!("query={OPEN_PULLS}"),
-            "-f".to_string(),
-            format!("owner={owner}"),
-            "-f".to_string(),
-            format!("name={name}"),
-        ];
-        if let Some(c) = &cursor {
-            args.extend(["-f".to_string(), format!("cursor={c}")]);
+fn open_pull(plan: &Plan, ports: &mut Ports, pushed: &str) -> Result<Option<String>, Why> {
+    let filter = ChangeFilter {
+        states: ChangeStates::Open,
+        bodies: true,
+        ..Default::default()
+    };
+    let bound = Bound::new(100 * PAGES_MAX as u32).expect("a bound");
+    let all = match ports.code_host.changes(&filter, bound) {
+        Ok(all) => all,
+        Err(Outcome::Unread(Unread::Cut)) => {
+            return Err(Why::only(format!(
+                "{UNREAD}: more than {PAGES_MAX} pages of them"
+            )))
         }
-        let args: Vec<&str> = args.iter().map(String::as_str).collect();
-        let out = gh(h, &plan.home, &args).let_say(UNREAD)?;
-        let (mut some, next) = own_pulls(&out, plan).ok_or_else(|| Why::only(UNREAD))?;
-        own.append(&mut some);
-        match next {
-            None => {
-                return Ok(pull_named(&own, pushed).or_else(|| pull_for_issue(&own, plan.issue)))
-            }
-            Some(c) => cursor = Some(c),
+        Err(e) => {
+            return Err(Why {
+                why: UNREAD.to_string(),
+                said: e.line().to_string(),
+            })
         }
+    };
+    let allowed = |l: &str| plan.allowed.iter().any(|a| folded(a) == folded(l));
+    let own: Vec<&ChangeDigest> = all
+        .items()
+        .iter()
+        .filter(|c| ports.accounts.own_change(c, allowed))
+        .collect();
+    let named = own.iter().find(|c| c.head.as_str() == pushed);
+    let of_issue = || {
+        own.iter()
+            .find(|c| names_change(c.head.as_str(), c.body.as_deref(), plan.issue))
+    };
+    Ok(named.or_else(of_issue).map(|c| c.link.as_str().to_string()))
+}
+
+/// Where the work is pushed: the plan's own remote, or the code host's for a
+/// push. A remote the code host cannot give stops the run before anything is
+/// pushed: no URL is made up in its place.
+fn remote_of(plan: &Plan, ports: &mut Ports) -> Result<String, Why> {
+    if let Some(r) = &plan.remote {
+        return Ok(r.clone());
     }
-    Err(Why::only(format!(
-        "{UNREAD}: more than {PAGES_MAX} pages of them"
-    )))
+    match ports.code_host.remote(Access::Push) {
+        // A credential the code host gives is not used: git authenticates the
+        // push on the host as before. Wiring one in is a change of what the
+        // push is given, a stop-and-ask (Decided 80).
+        Ok(r) => Ok(r.url.as_str().to_string()),
+        Err(e) => Err(Why {
+            why: "the remote could not be named".to_string(),
+            said: e.line().to_string(),
+        }),
+    }
 }
 
 const UNREAD: &str = "the open pull requests could not be read";
@@ -412,76 +451,14 @@ const UNREAD: &str = "the open pull requests could not be read";
 /// The most pages of open pull requests one run reads, 100 to a page.
 pub const PAGES_MAX: usize = 10;
 
-/// The open pull requests, with what `tehas_core::accounts::own_pull` reads.
-const OPEN_PULLS: &str = "query($owner: String!, $name: String!, $cursor: String) { \
-repository(owner: $owner, name: $name) { \
-pullRequests(states: OPEN, first: 100, after: $cursor, \
-orderBy: {field: CREATED_AT, direction: DESC}) { \
-pageInfo { hasNextPage endCursor } \
-nodes { url headRefName body isCrossRepository \
-author { login ...on User { databaseId } ...on Bot { databaseId } } \
-headRepository { nameWithOwner } } } } }";
-
-/// The factory's own pull requests of one page of a GraphQL answer, each
-/// account vouched for as the poll vouches, and the cursor of the next page
-/// when there is one. None is a page that cannot be read: no list of nodes, no
-/// word on whether more follow, or more said to follow with no cursor.
-pub fn own_pulls(out: &str, plan: &Plan) -> Option<(Vec<Value>, Option<String>)> {
-    let mut v = serde_json::from_str::<Value>(out.trim()).ok()?;
-    tehas_core::accounts::vouch(&mut v);
-    let list = v.pointer("/data/repository/pullRequests")?;
-    let allowed = |a: &str| plan.allowed.iter().any(|l| l == a);
-    let own = list
-        .get("nodes")?
-        .as_array()?
-        .iter()
-        .filter(|p| tehas_core::accounts::own_pull(p, &plan.repo, &plan.bot, allowed))
-        .cloned()
-        .collect();
-    let next = match list.pointer("/pageInfo/hasNextPage")?.as_bool()? {
-        true => Some(
-            list.pointer("/pageInfo/endCursor")
-                .and_then(Value::as_str)
-                .filter(|c| !c.is_empty())?
-                .to_string(),
-        ),
-        false => None,
-    };
-    Some((own, next))
-}
-
-/// The URL of one pull request of an answer, when it is an https one.
-fn url_of(pull: &Value) -> Option<String> {
-    pull.get("url")
-        .and_then(Value::as_str)
-        .filter(|u| u.starts_with("https://"))
-        .map(str::to_string)
-}
-
-/// The URL of the open pull request whose head is exactly `branch`.
-pub fn pull_named(pulls: &[Value], branch: &str) -> Option<String> {
-    pulls.iter().find_map(|p| {
-        (p.get("headRefName").and_then(Value::as_str) == Some(branch)).then(|| url_of(p))?
-    })
-}
-
-/// The URL of the open pull request of issue `n`, by the one rule of
-/// `tehas_core::issue_pull::names_issue`. None is no such pull request in the
-/// answer.
-pub fn pull_for_issue(pulls: &[Value], n: u64) -> Option<String> {
-    pulls
-        .iter()
-        .find_map(|p| names_issue(p, n).then(|| url_of(p)).flatten())
-}
-
 /// Rules 5 and 6: the rebase, the count of what it left, the push, the draft.
 fn rebase_push_open(
     plan: &Plan,
     h: &mut dyn Host,
+    ports: &mut Ports,
     repo: &Path,
     branch: &str,
     pushed: &str,
-    scratch: &Scratch,
 ) -> Result<String, Why> {
     let kept = format!("{KEPT_HEADS}{branch}");
     // `--force`: the index the status made is the workspace's, not this tree's.
@@ -519,39 +496,66 @@ fn rebase_push_open(
     if !push.ok() {
         return Err(Why::new(format!("{pushed} could not be pushed")).said(&push));
     }
-    draft(plan, h, pushed, scratch).map_err(|w| w.stands(pushed))
+    draft(plan, ports, pushed).map_err(|w| w.stands(pushed))
 }
 
-/// The draft pull request, and the URL gh prints for it.
-fn draft(plan: &Plan, h: &mut dyn Host, pushed: &str, scratch: &Scratch) -> Result<String, Why> {
-    let words = body(plan.issue, &plan.reason, &plan.default);
-    let file = scratch.write_body(&words).map_err(Why::only)?;
-    let made = gh(
-        h,
-        &plan.home,
-        &[
-            "pr",
-            "create",
-            "--repo",
-            &plan.repo,
-            "--base",
-            &plan.default,
-            "--head",
-            pushed,
-            "--draft",
-            "--title",
-            &title(plan.issue),
-            "--body-file",
-            &file.display().to_string(),
-        ],
-    );
-    scratch.drop_body();
-    let said = made.let_say("the pull request could not be opened")?;
-    // gh prints the URL alone on its last line; a wrapper of it may say more.
-    said.lines()
-        .rev()
-        .map(str::trim)
-        .find(|l| l.starts_with("https://"))
-        .map(str::to_string)
-        .ok_or_else(|| Why::only("the pull request said no url"))
+/// The draft change, and where a person opens it.
+fn draft(plan: &Plan, ports: &mut Ports, pushed: &str) -> Result<String, Why> {
+    let not_opened = |said: &str| Why {
+        why: "the pull request could not be opened".to_string(),
+        said: said.to_string(),
+    };
+    let (Ok(head), Ok(base)) = (Branch::new(pushed), Branch::new(plan.default.as_str())) else {
+        return Err(not_opened("its branches are no branch names"));
+    };
+    let new = NewChange {
+        head,
+        base,
+        title: title(plan.issue),
+        body: Body::Text(body(plan.issue, &plan.reason, &plan.default)),
+        draft: true,
+        closes: BlueprintNo::new(plan.issue).into_iter().collect(),
+    };
+    match ports.writes.open_change(&new) {
+        Ok(p) => Ok(p.link.as_str().to_string()),
+        Err(e) if may_have_landed(&e) => match opened_from(plan, ports, &new.head) {
+            Some(link) => Ok(link),
+            None => Err(Why {
+                why: "the pull request may have been opened".to_string(),
+                said: e.line().to_string(),
+            }),
+        },
+        Err(e) => Err(not_opened(e.line())),
+    }
+}
+
+/// An answer that leaves open whether the change was opened.
+fn may_have_landed(e: &Outcome) -> bool {
+    matches!(
+        e,
+        Outcome::Unread(_)
+            | Outcome::Unavailable {
+                sent: Sent::Maybe,
+                ..
+            }
+    )
+}
+
+/// The link of the factory's own open change from `head`, asked once after an
+/// open whose answer was lost. A list that cannot be read finds none.
+fn opened_from(plan: &Plan, ports: &mut Ports, head: &Branch) -> Option<String> {
+    let filter = ChangeFilter {
+        states: ChangeStates::Open,
+        head: Some(head.clone()),
+        ..Default::default()
+    };
+    let all = ports
+        .code_host
+        .changes(&filter, Bound::new(100).expect("a bound"))
+        .ok()?;
+    let allowed = |l: &str| plan.allowed.iter().any(|a| folded(a) == folded(l));
+    all.items()
+        .iter()
+        .find(|c| c.head == *head && ports.accounts.own_change(c, allowed))
+        .map(|c| c.link.as_str().to_string())
 }
