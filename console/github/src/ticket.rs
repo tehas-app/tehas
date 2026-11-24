@@ -219,12 +219,11 @@ pub(crate) fn blocked_by() -> String {
     format!("blockedBy(first: 100) {{ totalCount nodes {{ {NAMED} }} }}")
 }
 
-/// What a ticket holds beside its REST digest and its history: its newest
-/// close, what it waits on, its parts, the changes that name it and the
-/// ticket it is a part of.
+/// What a ticket holds beside its digest and its history: its newest
+/// close, what it waits on, its parts and the changes that name it.
 fn beside() -> String {
     format!(
-        "closes: timelineItems(itemTypes: [CLOSED_EVENT], last: 1) {{ nodes {{ __typename ... on ClosedEvent {{ createdAt actor {{ {ACTOR} }} {CLOSER} }} }} }} {} {} {} {PARENT}",
+        "closes: timelineItems(itemTypes: [CLOSED_EVENT], last: 1) {{ nodes {{ __typename ... on ClosedEvent {{ createdAt actor {{ {ACTOR} }} {CLOSER} }} }} }} {} {} {}",
         blocked_by(),
         parts(true),
         mentions(true)
@@ -245,7 +244,7 @@ pub(crate) fn digest_fields() -> String {
 }
 
 /// The ticket an issue is a part of, if any.
-pub(crate) const PARENT: &str = "parent { number repository { nameWithOwner } }";
+const PARENT: &str = "parent { number repository { nameWithOwner } }";
 
 #[derive(Deserialize)]
 pub(crate) struct Who {
@@ -344,10 +343,6 @@ struct Answer {
     mentions: Option<Page<Event>>,
     sub_issues: Option<Page<Named>>,
     blocked_by: Option<Page<Named>>,
-    /// None where the question did not ask it; `Some(None)` for a ticket
-    /// that is a part of none.
-    #[serde(default, deserialize_with = "given")]
-    parent: Option<Option<Named>>,
 }
 
 #[derive(Deserialize)]
@@ -483,7 +478,7 @@ impl GitHub {
     ) -> Got<Ticket> {
         let issue = number(key)?;
         let out = self.issue_answer(issue).map_err(|e| self.outcome(&e))?;
-        let mut digest = self.digest_of(key, &out)?;
+        let digest = self.digest_of(key, &out)?;
         let rest: Rest = part(&out, "")?;
         let window = history.or(depth.history());
         let asks = format!(
@@ -493,7 +488,6 @@ impl GitHub {
         );
         let mut first: Answer = self.ask_issue(issue, &of_issue(&asks), None, false)?;
 
-        digest.parent = self.parent_of(first.parent.take())?;
         let closer = match (&digest.state, first.closes.take()) {
             (TicketState::Open, _) => None,
             (_, None) => return Err(MALFORMED),
@@ -573,20 +567,6 @@ impl GitHub {
             return take(Vec::new(), window);
         }
         self.pages(issue, only, window, None, true)
-    }
-
-    /// The ticket an issue is a part of, from an answer that asked it.
-    fn parent_of(&self, asked: Option<Option<Named>>) -> Got<Option<Ref<TicketKey>>> {
-        asked.ok_or(MALFORMED)?.map(|p| self.named(&p)).transpose()
-    }
-
-    /// The ticket an issue is a part of: one question, for a digest read
-    /// over REST, which names no parent.
-    pub(crate) fn parent(&mut self, key: &TicketKey) -> Got<Option<Ref<TicketKey>>> {
-        let issue = number(key)?;
-        let question = format!("query($owner: String!, $name: String!, $number: Int!) {{ repository(owner: $owner, name: $name) {{ issue(number: $number) {{ number {PARENT} }} }} }}");
-        let first = self.ask_issue(issue, &question, None, false)?;
-        self.parent_of(first.parent)
     }
 
     /// A ticket's parts, whole: `Tickets::parts`.

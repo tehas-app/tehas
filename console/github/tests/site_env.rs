@@ -37,13 +37,9 @@ fn author_kind(site: &GitHubSite) -> AccountKind {
     d.unwrap().author.unwrap().kind
 }
 
-/// The answer of the question of the ticket #7 is a part of: none.
-const NO_PARENT: &str = r#"{"data":{"repository":{"issue":{"number":7,"parent":null}}}}"#;
-
 fn site(answer: String) -> GitHubSite {
-    let make: MakeRunner = Arc::new(move |_: &Actor| {
-        Ok(Box::new(Stub(vec![answer.clone(), NO_PARENT.to_string()])) as Box<dyn GhRunner>)
-    });
+    let make: MakeRunner =
+        Arc::new(move |_: &Actor| Ok(Box::new(Stub(vec![answer.clone()])) as Box<dyn GhRunner>));
     GitHubSite::new("acme/widget", "tehas-bot[bot]", Some(42), make)
 }
 

@@ -85,8 +85,6 @@ fn question(repo: &str, args: &[&str]) -> (String, String) {
             "mentions".to_string()
         } else if query.contains("subIssues") {
             "parts".to_string()
-        } else if query.contains("parent {") {
-            "parent".to_string()
         } else {
             "exists".to_string()
         };
