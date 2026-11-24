@@ -309,13 +309,9 @@ fn a_name_this_copy_does_not_know_is_read_as_unknown_and_reaches_no_typed_listen
 fn a_source_is_kept_through_a_read_and_a_write_and_changes_nothing_else() {
     let plain = sample(Name::CycleStarted).full;
     let relayed = plain.clone().from(Source::new("tehas-tehas").unwrap());
-    assert_eq!(
-        Envelope {
-            source: None,
-            ..relayed.clone()
-        },
-        plain
-    );
+    let mut unrelayed = relayed.clone();
+    unrelayed.source = None;
+    assert_eq!(unrelayed, plain);
     let node = to_node(&relayed).unwrap();
     assert_eq!(field(&node, "source"), Some(&text("tehas-tehas")));
     assert_eq!(field(&to_node(&plain).unwrap(), "source"), None);
@@ -329,7 +325,7 @@ fn a_source_is_kept_through_a_read_and_a_write_and_changes_nothing_else() {
 
 #[test]
 fn each_name_is_written_once_and_its_serde_name_is_its_text() {
-    for n in Name::ALL {
+    for &n in Name::ALL {
         assert_eq!(to_node(&n).unwrap(), text(n.as_str()));
         assert_eq!(from_node::<Name>(text(n.as_str())).unwrap(), n);
         assert!(!n.gate(), "no gate is raised in 2.0");
@@ -498,6 +494,17 @@ fn the_start_ask_is_keyed_on_its_blueprint_and_approval_and_waits_before() {
 }
 
 #[test]
+fn a_start_ask_is_built_with_new_and_the_rest_set_by_name() {
+    let at = At::new(1_000_000);
+    let bp = BlueprintNo::new(7).unwrap();
+    let mut ask = StartAsk::new(bp, How::Approved, at);
+    assert_eq!((ask.ticket.clone(), ask.by.clone()), (None, None));
+    ask.ticket = Some(TicketKey::Number(std::num::NonZeroU64::new(3).unwrap()));
+    let node = to_node(&ask).unwrap();
+    assert_eq!(from_node::<StartAsk>(node).unwrap(), ask);
+}
+
+#[test]
 fn a_gate_answer_allows_or_refuses_with_a_short_why() {
     let allow = GateAnswer::allow();
     let node = to_node(&allow).unwrap();
@@ -522,8 +529,16 @@ fn a_gate_answer_allows_or_refuses_with_a_short_why() {
     // A refusal says why.
     let bare = map(vec![("api", Node::Uint(1)), ("answer", text("refuse"))]);
     assert!(from_node::<GateAnswer>(bare).is_err());
-    let other = map(vec![("api", Node::Uint(1)), ("answer", text("maybe"))]);
-    assert!(from_node::<GateAnswer>(other).is_err());
+    // A word this copy does not know does not read, and so holds.
+    for word in ["maybe", "wait"] {
+        let other = map(vec![("api", Node::Uint(1)), ("answer", text(word))]);
+        assert!(from_node::<GateAnswer>(other).is_err(), "{word}");
+    }
+    let because = GateAnswer::allow_because(Why::new("on time").unwrap());
+    assert_eq!(because.answer, Verdict::Allow);
+    let node = to_node(&because).unwrap();
+    assert_eq!(field(&node, "why"), Some(&text("on time")));
+    assert_eq!(from_node::<GateAnswer>(node).unwrap(), because);
     let later = map(vec![("api", Node::Uint(2)), ("answer", text("allow"))]);
     assert!(from_node::<GateAnswer>(later).is_err());
     assert!(
@@ -601,10 +616,8 @@ fn an_envelope_no_raise_makes_is_refused_and_reaches_no_listener() {
     let d = heard_all(&heard);
     let mut unknown = Envelope::new(ended());
     unknown.event = Event::Unknown;
-    let before = Envelope {
-        when: When::Before,
-        ..Envelope::new(ended())
-    };
+    let mut before = Envelope::new(ended());
+    before.when = When::Before;
     assert!(!Name::CycleEnded.gate());
     assert_eq!(d.raise_envelope(&unknown).refused, Some(Refused::Unknown));
     assert_eq!(d.raise_envelope(&before).refused, Some(Refused::Before));
