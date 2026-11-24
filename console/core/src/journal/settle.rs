@@ -1,16 +1,18 @@
 //! The settle rules of a row left unknown (the ports spec, "How a row left
 //! unknown is settled", Decided 28): whether a write the site may have taken
-//! is there, from the read its kind names. Pure: the caller reads the row's
-//! item and a rule decides, so the poll's settle and the cycle's give the
-//! same answer. None: the rule cannot tell from this read, because the row is
-//! of another kind or its body's sum cannot be had. A read that failed is
-//! never given to a rule: the row stays unknown.
+//! is there, from the read its kind names. [`read`] makes that read through
+//! the ports and hands it to the kind's rule; the rules themselves are pure,
+//! so the poll's settle and the cycle's give the same answer. None: the rule
+//! cannot tell from this read, because the row is of another kind or its
+//! body's sum cannot be had. A read that failed is never given to a rule:
+//! the row stays unknown.
 //!
 //! The kinds a cycle's report sends are here. The poll's other kinds join
 //! them at T4.7.
 
-use super::{sha256, Found};
+use super::{sha256, Found, Handles};
 use tehas_ports::{AccountKind, At, Body, Comment, Write};
+use tehas_ports::{Bound, Window};
 
 /// A comment made this long before the row still counts: the host's clock
 /// and the site's may be this far apart, and a write the site took is not
@@ -75,6 +77,46 @@ pub fn by_comments(row: &Write, comments: &[Comment], at: At) -> Option<Found> {
         return None;
     }
     Some(Found::NotSent)
+}
+
+/// Whether `write` is there, read through `h` by the rule of its kind,
+/// counting what was made at or after `since` (less the rule's slack).
+/// `bound`: how many comments a read of a blueprint or change takes.
+pub fn read(write: &Write, h: &mut Handles, since: At, bound: Bound) -> Option<Found> {
+    match write {
+        Write::Mark { ticket, .. } | Write::Unmark { ticket, .. } => {
+            let (_, digest) = h.tickets.several(std::slice::from_ref(ticket)).pop()?;
+            by_marks(write, &digest.ok()?.marks)
+        }
+        Write::TicketNote { ticket, .. } => {
+            let notes = match ticket.same_item() {
+                Some(no) => h.blueprints.comments(no, bound).ok()?.items().to_vec(),
+                None => {
+                    let last = std::num::NonZeroU32::new(100).expect("100 is no zero");
+                    h.tickets.notes(ticket, Window::Last(last)).ok()?.items
+                }
+            };
+            by_comments(write, &notes, since)
+        }
+        Write::MarkChange { no, .. } | Write::UnmarkChange { no, .. } => {
+            // Its digest alone: the whole change answers Cut past its
+            // bound of files or comments, and its marks would never
+            // settle.
+            let filter = tehas_ports::ChangeFilter {
+                states: tehas_ports::ChangeStates::All,
+                numbers: vec![*no],
+                ..Default::default()
+            };
+            let changes = h.code_host.changes(&filter, bound).ok()?;
+            let digest = changes.items().iter().find(|d| d.no == *no)?;
+            by_marks(write, &digest.marks)
+        }
+        Write::CommentChange { no, .. } => {
+            let change = h.code_host.change(*no, bound).ok()?;
+            by_comments(write, &change.comments, since)
+        }
+        _ => None,
+    }
 }
 
 /// The sum of a row's body, as sent or as the store keeps it.
@@ -279,5 +321,74 @@ mod tests {
         assert_eq!(by_comments(&summed, &read, at), Some(Found::Landed));
         let (short, at) = noted(FACTORY, "Hello", 0);
         assert_eq!(by_comments(&summed, &short, at), Some(Found::NotSent));
+    }
+
+    /// The factory's handles of a fake site holding `world`.
+    fn handles(world: &World) -> Handles {
+        use tehas_ports::{Scope, Writer};
+        let site = FakeSite::new(world);
+        let (by, c) = (Actor::Ours(Scope::Full), Caller::new("test"));
+        Handles {
+            writes: Box::new(Writer {
+                tickets: site.ticket_writes(&by, c).unwrap(),
+                blueprints: site.blueprint_writes(&by, c).unwrap(),
+                code_host: site.code_host_writes(&by, c).unwrap(),
+            }),
+            tickets: site.tickets(&by, c).unwrap(),
+            blueprints: site.blueprints(&by, c).unwrap(),
+            code_host: site.code_host(&by, c).unwrap(),
+        }
+    }
+
+    /// `read` asks the read a row's kind names and hands it to the kind's
+    /// rule: a mark by the ticket's marks, a note by its notes, the row as
+    /// the journal keeps it with its body summed.
+    #[test]
+    fn a_row_is_read_by_the_read_its_kind_names() {
+        use tehas_ports::{Body, CloseReason, NoBlobs};
+        let world = World::new().ticket(7, |t| t.mark(running()));
+        let mut h = handles(&world);
+        let since = world.now();
+        let bound = Bound::new(50).unwrap();
+        let mark = |m: Mark| Write::Mark {
+            ticket: ticket(),
+            mark: m,
+        };
+        let unmark = Write::Unmark {
+            ticket: ticket(),
+            mark: running(),
+        };
+        let attention = Mark::State(State::NeedsPerson);
+        assert_eq!(
+            read(&mark(running()), &mut h, since, bound),
+            Some(Found::Landed)
+        );
+        assert_eq!(read(&unmark, &mut h, since, bound), Some(Found::NotSent));
+        assert_eq!(
+            read(&mark(attention), &mut h, since, bound),
+            Some(Found::NotSent)
+        );
+
+        let note = |text: &str| Write::TicketNote {
+            ticket: ticket(),
+            body: Body::Text(text.into()),
+            markers: Vec::new(),
+        };
+        let sent = note("Started.");
+        assert_eq!(read(&sent, &mut h, since, bound), Some(Found::NotSent));
+        h.writes.send(&sent, &NoBlobs).unwrap();
+        let kept = sent.summed(|t| Sha256::new(sha256(t)).ok()).unwrap();
+        assert_eq!(read(&kept, &mut h, since, bound), Some(Found::Landed));
+        assert_eq!(
+            read(&note("Stopped."), &mut h, since, bound),
+            Some(Found::NotSent)
+        );
+
+        // A kind no rule reads yet stays unknown.
+        let close = Write::Close {
+            ticket: ticket(),
+            reason: CloseReason::Done,
+        };
+        assert_eq!(read(&close, &mut h, since, bound), None);
     }
 }

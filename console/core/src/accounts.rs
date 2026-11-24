@@ -232,6 +232,28 @@ pub fn carried(ids: &BTreeMap<String, u64>, old: &str, new: &str) -> Option<BTre
     Some(out)
 }
 
+/// The factory's account as the adapter knows it: the bot's login and the
+/// user id `state/account-ids` records for it, the bot account's and not the
+/// App's. An ids file that cannot be read, or no id for the login, gives no
+/// id: then no account is the factory's own, and a write the site may have
+/// taken is settled as unknown, never sent again.
+pub fn bot(home: &Path) -> (String, Option<u64>) {
+    use crate::home::{Home, State};
+    let login = std::fs::read_to_string(Home::new(home).state(State::BotLogin))
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    let key = folded(account(&login));
+    let id = load(home).ok().and_then(|pairs| {
+        pairs
+            .ids
+            .iter()
+            .find(|(l, _)| folded(account(l)) == key)
+            .map(|(_, id)| *id)
+    });
+    (login, id)
+}
+
 /// The pairs recorded in `home`. An absent file is no pairs, as before the
 /// first record. A file that is there with no pairs is unreadable: it is
 /// written whole or not at all, so it is never empty while it holds pairs.
@@ -985,5 +1007,51 @@ mod tests {
         ] {
             assert!(!accounts.own_change(&c, allowed), "{c:?}");
         }
+    }
+}
+
+#[cfg(test)]
+mod bot_tests {
+    use super::bot;
+    use crate::home::{Home, State};
+    use crate::testdir::TestDir;
+    use std::fs;
+
+    fn home_with(login: Option<&str>, ids: Option<&str>) -> TestDir {
+        let d = TestDir::new("accounts-bot");
+        let home = Home::new(d.path());
+        if let Some(l) = login {
+            let p = home.state(State::BotLogin);
+            fs::create_dir_all(p.parent().unwrap()).unwrap();
+            fs::write(p, l).unwrap();
+        }
+        if let Some(i) = ids {
+            let p = home.state(State::AccountIds);
+            fs::create_dir_all(p.parent().unwrap()).unwrap();
+            fs::write(p, i).unwrap();
+        }
+        d
+    }
+
+    /// The adapter knows the factory's account by the bot account's id the
+    /// factory recorded, its key the login GraphQL gives, any case.
+    #[test]
+    fn the_factorys_account_is_the_bots_login_and_its_recorded_id() {
+        let d = home_with(Some("tehas-bot[bot]\n"), Some("alice 42\nTehas-Bot 7\n"));
+        assert_eq!(bot(d.path()), ("tehas-bot[bot]".to_string(), Some(7)));
+    }
+
+    /// No id the factory can stand on: no account is its own, and a write
+    /// the site may have taken settles as unknown.
+    #[test]
+    fn without_a_recorded_id_the_factory_has_no_account_of_its_own() {
+        let none = home_with(Some("tehas-bot[bot]"), Some("alice 42\n"));
+        assert_eq!(bot(none.path()).1, None);
+        let missing = home_with(Some("tehas-bot[bot]"), None);
+        assert_eq!(bot(missing.path()).1, None);
+        let unreadable = home_with(Some("tehas-bot[bot]"), Some("tehas-bot not-a-number\n"));
+        assert_eq!(bot(unreadable.path()).1, None);
+        let no_login = home_with(None, Some("tehas-bot 7\n"));
+        assert_eq!(bot(no_login.path()), (String::new(), None));
     }
 }
