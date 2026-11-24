@@ -359,9 +359,7 @@ pub(crate) struct Parsed<'a> {
 
 pub(crate) fn parse_address(address: &str) -> Option<Parsed<'_>> {
     let rest = address.strip_prefix("https://")?;
-    let end = rest
-        .find(|c| matches!(c, '/' | '?' | '#' | '\\'))
-        .unwrap_or(rest.len());
+    let end = rest.find(['/', '?', '#', '\\']).unwrap_or(rest.len());
     let (host, rest) = rest.split_at(end);
     if host.is_empty() || host.contains(['@', ':']) {
         return None;
@@ -387,7 +385,7 @@ pub(crate) fn address_ok(address: &str) -> bool {
         b.is_ascii_alphanumeric() || b"-._~%+:,;".contains(&b) || more.contains(&b)
     };
     let lower = parsed.path.to_ascii_lowercase();
-    HOSTS.iter().any(|h| *h == parsed.host)
+    HOSTS.contains(&parsed.host)
         && parsed.path.starts_with('/')
         && !parsed.path.contains("//")
         && !parsed.path.contains("..")
