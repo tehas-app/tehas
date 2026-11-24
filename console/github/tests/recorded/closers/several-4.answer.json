@@ -1,6 +1,7 @@
 {
  "data": {
   "repository": {
+   "databaseId": 7001,
    "i4": null,
    "i20": {
     "number": 20,
@@ -53,6 +54,7 @@
         "number": 31,
         "merged": true,
         "repository": {
+         "databaseId": 7001,
          "nameWithOwner": "acme/widget"
         }
        }

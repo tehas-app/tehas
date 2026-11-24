@@ -1,8 +1,9 @@
 //! The blueprints port's reads, `Blueprints`. Answered: one blueprint to
 //! a depth (`blueprint`, `several`), its comments whole (`comments`), the
 //! edit histories of bodies and comments (`body_edits`, `comment_edits` and
-//! their plurals, in `edits`), and a search of the project's issues
-//! (`search`), the relay's way to settle an open.
+//! their plurals, in `edits`), a search of the project's issues (`search`),
+//! the relay's way to settle an open, and the files a blueprint's body or
+//! any text links to (`attachments`, `attachments_in`).
 //!
 //! A blueprint is the issue's REST read, the same read `edit` makes, and
 //! its comments' REST pages as far as the depth asks: none at
@@ -143,9 +144,9 @@ impl Blueprints for GitHub {
     }
 
     /// The files `text` links to on GitHub's store, by tehas's one link
-    /// rule (`crate::attachments::read`), with no request. `attachments`,
-    /// when it is built, reads a blueprint's body without its markers
-    /// through the same function.
+    /// rule (`crate::attachments::read`), with no request. `attachments`
+    /// reads a blueprint's body without its markers through the same
+    /// function.
     fn attachments_in(&self, text: &str) -> Vec<Attachment> {
         crate::attachments::read(text)
     }
@@ -223,9 +224,14 @@ impl Blueprints for GitHub {
         Ok(took)
     }
 
-    /// Not built yet: answered `Refused(Unsupported)` before any request.
-    fn attachments(&mut self, _: BlueprintNo) -> Got<Whole<Attachment>> {
-        unsupported()
+    /// The issue's REST read, the one read `blueprint` makes at
+    /// `Depth::Cut { notes: 0 }`, and its body without its markers through
+    /// [`Blueprints::attachments_in`]'s function, so the ids are the same
+    /// for the same text. No comment and no edit is read: only the body
+    /// is the blueprint's text. A pull request's number is `NotFound`.
+    fn attachments(&mut self, no: BlueprintNo) -> Got<Whole<Attachment>> {
+        let (blueprint, _) = self.issue(no)?;
+        Ok(Whole::new(crate::attachments::read(&blueprint.body)))
     }
 
     fn fetch(&mut self, _: &AttachmentId, _: u64, _: &mut dyn std::io::Write) -> Did {

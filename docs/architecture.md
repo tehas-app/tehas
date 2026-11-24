@@ -120,6 +120,12 @@ ports yet. T4.3 moved the last of them, so it is 0: the console's wiring
 is a module of `console/src/main.rs`, and its commands take their handles
 from there.
 
+`adapter-link-rule` (R1, T4.8) counts the adapter's `attach` line in
+`console/github/Cargo.toml`: the link rule of GitHub's store is written
+once, in `console/attach/src/link.rs`, and the adapter takes it from there
+for `Blueprints::attachments` and `attachments_in`. It is 1, a written
+floor (above): core, dispatch, items and cycle read the rule as well.
+
 ## Write guards
 
 Each of these decides whether a GitHub call writes. They are kept
@@ -231,11 +237,13 @@ its reason, as a floor; a departure from a should rule (R5) likewise.
 | --- | --- | --- | --- |
 | gh-argv, tests-stub-gh | 1 each | `console/tests/top_snapshot.rs` | the short name "gh" of a process in a fixture of /proc (`"name":"gh"`, #2859), which tehas top shows. Nothing runs gh. A pattern that skipped it would be fragile and allowing the file would hide a later gh call there, so it stays counted as a floor |
 | gh-argv, tests-stub-gh | 3 and 2 | gh-argv: `console/ops/src/pins/tools.rs` 1 and `console/ops/src/pins/tests.rs` 2; tests-stub-gh: `console/ops/src/pins/tests.rs` 2 | the pinned tool named "gh" in the release's list of pinned tools (`host/versions.env`) and its tests (ports spec, Decided 71). Nothing runs gh there; the name is the tool's |
+| adapter-link-rule | 1 | `console/github/Cargo.toml`, its `attach` line | the link rule of GitHub's store stays in `console/attach/src/link.rs`, written once, and the adapter takes it from there for `Blueprints::attachments` and `attachments_in` (the tehas lead's ruling for the alpha, 2026-11-24; ports spec, T4.8). core, dispatch, items and cycle read the rule as well and may not name the adapter; moving them onto the ports is not in the plan |
 | home-layout | 16, in the bash and the units | `install.sh` 12, `host/systemd/` 4 | T8's freeze, below |
 | T5's typed store client (no check counts it) | every caller of the store's verbs | the console and ops through `ops::store::call` and `line` (about 37 calls in 15 files), dispatch's `read/run.rs` `store()`, cycle's `host.rs` `store()` | a written floor for alpha.1 (tehas-84, 2026-11-24): the callers still pass a verb string and read `Value`. Many of them are in files other T4 lanes are changing, so typing them now would collide; the typed client is the series right after the alpha, and this row goes when it lands |
 | gh-argv | 3, in the bash | `lib/github-app.sh` 1, `host/sandbox/gh-shim` 1, `scripts/tag-release.sh` 1 | T8's freeze, below |
 | github-rest | 4, in the bash | `host/sandbox/gh-shim` 4 | T8's freeze, below |
 | tests-stub-gh | 83, in the shell tests that stay shell | 18 files of `test/` | T8's freeze, below |
+| untyped-signatures, untyped-fields | 147 and 2 | four causes, file by file | T7's floors, below |
 
 ### The bash that stays (T8)
 
@@ -310,6 +318,28 @@ the Rust test files of cycle (70) and of the console (8, and 1 in
 the console's are 5 shell stubs in its update tests (`tests/update.rs` 2,
 `update/mod.rs` 2, `update_checkout.rs` 1) and 4 paths a test holds to
 check against, `wake.rs` line 89 an expected path.
+
+### Typed seams that stay untyped (T7)
+
+The lead, 2026-11-24 (tehas-84): what is untyped by nature stays, as a
+written floor; everything else is typed in T7's series. A count here may
+only fall: a pull request that adds a match to one of these files says
+which cause it is of, or types it. Measured on bc3bf1fe3 by
+`scripts/architecture.py`'s count, function by function.
+
+| Cause | untyped-signatures | untyped-fields | Where |
+| --- | --- | --- | --- |
+| A JSON Schema is a JSON document, and a check of any JSON against one walks the JSON | 91 | 1 | the MCP tools' input and output schemas: `console/mcp/src/tools.rs` 23 (`prop` to `stats_schema`, `build_entries`, `list_scoped`, `entries`, `spec_of`, `spec_of_keys`), `sessions.rs` 16 (the schema builders, `tools`, `spec`, `spec_of`, `issue_spec`), `outcomes_schema.rs` 9, `logs.rs` 4 (`described`, `tool`, `arr`, `search_tool`), `disk.rs` 2 (`tool`, `spec`), `decisions.rs`, `events.rs`, `park.rs` 1 each (`tool`); the checkers: `console/mcp/src/conform.rs` 5, `console/core/src/plugin/params.rs` 9 (a tool's parameters against its schema, and its tests' samples), `schema.rs` 3 (the api/ schemas the tests hold the files to); a plugin's manifest, read field by field with a refusal that names the field: `console/core/src/plugin/manifest.rs` 17 and its field `Tool::params`, the tool's own schema |
+| A body passed through whole, checked against its shape, not read | 26 | 0 | the model endpoint of a plugin run, which checks a chat request and its answer and forwards them unchanged: `console/plugin/src/model.rs` 12 and its tests 11; the arguments and the answer of a plugin's tool, which are the plugin's JSON, checked against its schema: `console/mcp/src/plugins.rs` 3 (`call`, `answered`, `exchange`) |
+| pi's `models.json`, which tehas edits in place and must keep every key it does not own | 16 | 1 | `console/core/src/models.rs` 4 and `ModelFile::json`, `console/ops/src/update/pi.rs` 6, `console/ops/src/setup.rs` 3, `console/ops/src/update/findings.rs` 1, `console/src/product.rs` 2 |
+| A contract test that walks any answer against its schema or lists its keys | 14 | 0 | `console/mcp/tests/tools.rs` 6 (`paths`, `key_paths`, `schema_paths`, `spec_paths`, `schema_of`, `described`), `sessions.rs` 5, `park.rs` 1 (`schema_paths`), `common.rs` 1 (`conforms`), `console/analytics/tests/sessions_contract.rs` 1 (`json_type`) |
+
+Not in this floor: the rest of these files. The MCP tools' answers
+(`status`, `issues`, `console`, `stats`, the sessions' `list`, `one`,
+`failures` and `issue`, `park`, `events`, `logs`), the listing of a
+plugin's tools and the JSON-RPC request's id and params are typeable and
+are typed in T7's series; so are the dispatcher's, the cycle's, the
+console's, ops' and the store client's, as T3 to T5 leave them.
 
 ### Temporary rises
 

@@ -11,6 +11,7 @@
 use crate::after::{After, Ended};
 use crate::facts::{first_bytes, line, two_lines, words, Facts, File};
 use crate::last_attempt;
+use crate::loose::Node;
 use crate::runner::{self, cut, kept, names_issue};
 use serde_json::{json, Map, Value};
 use tehas_core::driver::Driver;
@@ -114,33 +115,34 @@ pub fn comments_said(f: &Facts) -> String {
     let read = f
         .file("result.json")
         .text()
-        .and_then(runner::values)
+        .and_then(runner::results)
         .and_then(|all| {
             all.iter().rev().find_map(|r| {
-                let per_issue = runner::issue_entry(r, f.issue).and_then(|e| e.get("comments"));
+                let per_issue = runner::issue_entry(r, f.issue)
+                    .map(|e| &e.comments)
+                    .filter(|c| !matches!(c, Node::Absent));
                 per_issue
-                    .or_else(|| r.get("comments"))
-                    .filter(|c| c.is_object())
+                    .or_else(|| r.object().map(|r| &r.comments))
+                    .and_then(Node::object)
                     .cloned()
             })
         });
     let Some(c) = read else {
         return " The cycle's runner did not say whether it read the comments it was given.".into();
     };
-    let n = |k: &str| c.get(k).and_then(Value::as_u64).unwrap_or(0);
-    if c.get("read") == Some(&Value::Bool(true)) {
-        let dropped = match n("dropped") {
+    if c.read.get() == Some(&true) {
+        let dropped = match c.dropped.get().copied().unwrap_or(0) {
             0 => String::new(),
             d => format!(", {d} older ones left out for room"),
         };
         return format!(
             " The cycle was given {} comments of the issue and its pull requests{dropped}.",
-            n("count")
+            c.count.get().copied().unwrap_or(0)
         );
     }
     let reason = c
-        .get("reason")
-        .and_then(Value::as_str)
+        .reason
+        .get()
         .map(|r| {
             kept(&first_bytes(r, 200), |ch| {
                 ch.is_ascii_alphanumeric() || " _.,:-".contains(ch)
@@ -152,7 +154,7 @@ pub fn comments_said(f: &Facts) -> String {
 }
 
 /// The caps tehas sets for a stop of its own, and no other command does.
-pub const OWN_CAPS: [&str; 5] = [
+const OWN_CAPS: [&str; 5] = [
     "wall-clock",
     "stall",
     "disk",
@@ -323,6 +325,10 @@ impl Park {
             return;
         };
         let result = f.file("result.json").text();
+        let issue = serde_json::from_value::<Node<last_attempt::IssueBody>>(issue)
+            .ok()
+            .and_then(Node::into_object)
+            .unwrap_or_default();
         match last_attempt::of_issue(f.issue, &issue, result, f.work_state.as_ref()) {
             Some(last_attempt::Action::Repeat) => {
                 self.no_retry = true;
@@ -347,7 +353,7 @@ pub fn last_attempts(r: &mut Report, f: &Facts, ask: &mut dyn Ask) {
 /// cycle's record, its log and the pull requests found, so a tehas marker in
 /// it is broken: the host's own markers are in the park and the question
 /// comments, which are not built here.
-pub(crate) fn comment_of(body: &dyn Fn(&str) -> String) -> Action {
+fn comment_of(body: &dyn Fn(&str) -> String) -> Action {
     Action::Comment {
         ok: disarm(&body("")).into_owned(),
         stuck: disarm(&body(STUCK)).into_owned(),
@@ -356,7 +362,7 @@ pub(crate) fn comment_of(body: &dyn Fn(&str) -> String) -> Action {
 
 /// How pi-rukas's handoff marker begins: a comment with it carries the
 /// handoff.
-pub const HANDOFF_MARK: &str = "<!-- pi-rukas:handoff ";
+const HANDOFF_MARK: &str = "<!-- pi-rukas:handoff ";
 
 /// One write of the report, in its order.
 #[derive(Clone, Debug, PartialEq)]
@@ -547,7 +553,7 @@ pub fn park_marker(
 
 /// The park's marker as a write of the ports carries it beside the body:
 /// the same fields as [`park_marker`]'s text.
-pub fn park_typed(
+fn park_typed(
     issue: u64,
     step: &str,
     cap: &str,
@@ -712,31 +718,22 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             format!("the result of #{issue} holds nothing, so its step is read from its run log"),
         );
     }
-    let outcome = result
-        .text()
-        .and_then(|t| runner::outcome(t, issue))
-        .unwrap_or_else(|| json!({}));
+    let outcome = result.text().and_then(|t| runner::outcome(t, issue));
+    let said = outcome.clone().unwrap_or_default();
     let w = |s: &str| kept(s, |c| c.is_ascii_alphanumeric() || "_.-".contains(c));
-    let mut status = {
-        let s = match outcome.get("status") {
-            None | Some(Value::Null) | Some(Value::Bool(false)) => "unknown".to_string(),
-            Some(x) => text(&json!({"x": x}), "x"),
-        };
-        v(&w(&s))
-    };
-    let mut step = v(&w([outcome.get("failedStep"), outcome.get("lastStep")]
-        .iter()
-        .filter_map(|x| x.and_then(Value::as_str))
+    let mut status = v(&w(outcome.as_ref().map_or("unknown", |o| &o.status)));
+    let mut step = v(&w([&said.failed_step, &said.last_step]
+        .into_iter()
         .find(|s| !s.is_empty())
-        .unwrap_or("-")));
-    let result_branch = v(&text(&outcome, "branch"));
+        .map_or("-", String::as_str)));
+    let result_branch = v(&said.branch);
     let (handoff, lean_posted, repo_setting) = {
-        let b = text(&outcome, "handoffBody");
+        let b = said.handoff_body.clone();
         let marker = regex::Regex::new(r"\A<!-- pi-rukas:handoff [^\n]*-->\n*").unwrap();
         let b = for_host(&v(&marker.replace(&b, "")), comments_box(f));
         let repo_setting = lean_repo_setting(&b);
         // Lean on the forge channel posted this itself: one comment, not two.
-        let posted = lean && !b.is_empty() && text(&outcome, "handoffChannel") == "forge";
+        let posted = lean && !b.is_empty() && said.handoff_channel == "forge";
         if posted {
             (
                 "Lean posted its report on this issue itself, so it is not repeated here.".into(),
@@ -747,15 +744,13 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             (b, false, repo_setting)
         }
     };
-    let pr_state = text(&outcome, "prState");
+    let pr_state = said.pr_state.clone();
     let mut park_reason = v(&cut(
-        &kept(&text(&outcome, "parkReason"), |c| {
-            c.is_ascii_lowercase() || c == '-'
-        }),
+        &kept(&said.park_reason, |c| c.is_ascii_lowercase() || c == '-'),
         40,
     ));
     let mut cap = v(&cut(
-        &kept(&text(&outcome, "cap"), |c| {
+        &kept(&said.cap, |c| {
             c.is_ascii_alphanumeric() || "_.:-".contains(c)
         }),
         80,
@@ -1238,7 +1233,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             format!("{bad} of {of} lines of the stream of #{issue} could not be parsed, so what the report says of the run leaves them out"),
         );
     }
-    let (usage, unreadable) = runner::usage(&outcome, progress);
+    let (usage, unreadable) = runner::usage(outcome.as_ref(), progress);
     if unreadable && !before_runner {
         warn(
             &mut r,
@@ -2140,7 +2135,7 @@ fn waits_only_for_a_merge(cap: &str) -> bool {
 /// here instead: change a protected path themselves, then reply with the word
 /// of a retry the park offers: `retry` when the image gives a cycle the
 /// comments (`comments`), else `retry-text`.
-pub fn for_host(body: &str, comments: bool) -> String {
+fn for_host(body: &str, comments: bool) -> String {
     let word = if comments { "retry" } else { "retry-text" };
     let cmd = regex::Regex::new(
         r"(?i:(re-?run|run)\s+)?`/work \d+ --restart(?: --allow-protected ([^`]*))?[^`]*`",

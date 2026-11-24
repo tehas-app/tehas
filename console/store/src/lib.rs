@@ -13,6 +13,7 @@ mod db;
 mod exercise;
 mod history;
 mod journal;
+mod link;
 mod live;
 mod load;
 mod lock;
@@ -38,6 +39,8 @@ mod cycle_tests;
 mod history_tests;
 #[cfg(test)]
 mod journal_tests;
+#[cfg(test)]
+mod link_tests;
 #[cfg(test)]
 mod live_tests;
 #[cfg(test)]
@@ -88,7 +91,7 @@ use std::collections::BTreeMap;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
-const USAGE: &str = "usage: store init [--force] [--version <v> --commit <sha> --instance <name> --repo <owner/name>] [--json|--say] | migrate --backup <dir> [--json|--say] | migrate --dry-run [--backup <dir>] [--json] | check [--json] | batch | cycle-start | cycle-image | cycle-end | cycle-show | settings-view | cycle-note | cycle-stop-asked | cycle-heartbeat | publish | park | park-show | park-retry | park-told | question-asked | question-known | question-answered | answer-record | answer-drop | question-show | question-list | approval-record | approval-current | approval-view | plan-begin | plan-answer | plan-end | plan-note | plan-show | plan-view | history-show | backup | copy | prune | sweep-locks | locks-held | upkeep | poll-record | poll-show | poll-idle | poll-begin";
+const USAGE: &str = "usage: store init [--force] [--version <v> --commit <sha> --instance <name> --repo <owner/name>] [--json|--say] | migrate --backup <dir> [--json|--say] | migrate --dry-run [--backup <dir>] [--json] | check [--json] | batch | cycle-start | cycle-image | cycle-end | cycle-show | settings-view | cycle-note | cycle-stop-asked | cycle-heartbeat | publish | park | park-show | park-retry | park-told | question-asked | question-known | question-answered | answer-record | answer-drop | question-show | question-list | approval-record | approval-current | approval-view | plan-begin | plan-answer | plan-end | plan-note | plan-show | plan-view | history-show | backup | copy | prune | sweep-locks | locks-held | upkeep | poll-record | poll-show | poll-idle | poll-begin | link-record";
 
 /// The longest a value the caller passes may be. The four come from an
 /// instance's settings and a checkout's git, not from a container.
