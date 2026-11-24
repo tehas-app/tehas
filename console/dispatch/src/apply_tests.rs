@@ -4631,10 +4631,8 @@ fn a_refine_with_later_parts_is_refined_and_stays_open() {
 #[test]
 fn a_label_part_that_may_have_been_posted_leaves_its_line() {
     let mut t = world();
-    t.fail(
-        "send",
-        &format!("{}|maybe", marked(7, "tehas:question", false)),
-    );
+    // The first part that comes off.
+    t.fail("send", r#"{"type":"Unmark"|maybe"#);
     let a = t.apply(json!([{"plan_end": 7, "say": "Planning session ended by alice."}]));
     assert!(
         a.log
@@ -4643,14 +4641,19 @@ fn a_label_part_that_may_have_been_posted_leaves_its_line() {
         "{:?}",
         a.log
     );
-    // The change stopped at that part: the session is not ended.
-    assert!(!t.writes().contains(&marked(7, "tehas:planning", false)));
+    // The change stopped at that part: nothing more came off.
+    let offs = t
+        .writes()
+        .iter()
+        .filter(|c| c.starts_with(r#"send {"type":"Unmark""#))
+        .count();
+    assert_eq!(offs, 1);
 }
 
 #[test]
 fn a_label_part_that_failed_leaves_its_line() {
     let mut t = world();
-    t.fail("send", &marked(7, "tehas:question", false));
+    t.fail("send", r#"{"type":"Unmark""#);
     let a = t.apply(json!([{"plan_end": 7, "say": "Planning session ended by alice."}]));
     assert!(
         a.log
