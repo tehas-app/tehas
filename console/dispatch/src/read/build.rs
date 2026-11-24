@@ -1167,8 +1167,8 @@ mod tests {
     fn host(world: &Value, broken: &[u64]) -> tehas_core::testdir::TestDir {
         let dir = tehas_core::testdir::TestDir::new("build-poll");
         std::fs::create_dir_all(dir.join("bin")).unwrap();
-        std::fs::create_dir_all(dir.join("state/cycles")).unwrap();
-        std::fs::create_dir_all(dir.join("state/refresh")).unwrap();
+        std::fs::create_dir_all(Home::new(&*dir).cycles_dir()).unwrap();
+        std::fs::create_dir_all(Home::new(&*dir).state(State::Refreshes)).unwrap();
         std::fs::create_dir_all(dir.join("logs")).unwrap();
 
         // The stub's own list of words is held in w-10.. and asked of the table
@@ -1938,7 +1938,7 @@ esac"#,
         // request is what has the list read.
         let _clock = crate::read::run::no_case_clock();
         let dir = host(&w, &[]);
-        std::fs::write(dir.join("state/refresh/40.json"), r#"{"asked":"pr"}"#).unwrap();
+        std::fs::write(Home::new(&*dir).refresh_request(40), r#"{"asked":"pr"}"#).unwrap();
         let mut src = sources(&dir);
         let snap = match snapshot(&mut src, &settings()) {
             Ok(s) => s,
@@ -1983,7 +1983,7 @@ esac"#,
             w["refreshing"] = json!([]);
             let dir = host(&w, &[]);
             if let Some(body) = body {
-                std::fs::write(dir.join("state/refresh/40.json"), body).unwrap();
+                std::fs::write(Home::new(&*dir).refresh_request(40), body).unwrap();
             }
             let mut src = sources(&dir);
             let s = settings();
@@ -2013,7 +2013,7 @@ esac"#,
     fn the_said_record_is_read_where_and_as_far_as_its_writer_keeps_it() {
         let _clock = crate::read::run::no_case_clock();
         let dir = host(&world(), &[]);
-        std::fs::write(dir.join("state/refresh/40.json"), r#"{"at":"x"}"#).unwrap();
+        std::fs::write(Home::new(&*dir).refresh_request(40), r#"{"at":"x"}"#).unwrap();
         let key = "k".repeat(SAID_MAX + 50);
         std::fs::write(said_file(&dir, 40), &key).unwrap();
         let mut src = sources(&dir);
@@ -2035,7 +2035,7 @@ esac"#,
         // every poll of these cases.
         let _clock = crate::read::run::no_case_clock();
         let dir = host(&world(), &[]);
-        std::fs::create_dir_all(dir.join("state/plan-start")).unwrap();
+        std::fs::create_dir_all(Home::new(&*dir).plan_starts()).unwrap();
         for n in [21, 99] {
             let body = format!(r#"{{"by":"alice","sum":"{n}"}}"#);
             std::fs::write(host::plan_start_file(&dir, n), body).unwrap();
@@ -2062,8 +2062,12 @@ esac"#,
     fn the_notes_of_the_last_poll_are_read_from_their_files() {
         let _clock = crate::read::run::no_case_clock();
         let dir = host(&world(), &[]);
-        std::fs::write(dir.join("state/branch-check"), "main is gone\n\n").unwrap();
-        std::fs::write(dir.join("state/refresh/.held"), "no continue-pr").unwrap();
+        std::fs::write(
+            Home::new(&*dir).state(State::BranchCheck),
+            "main is gone\n\n",
+        )
+        .unwrap();
+        std::fs::write(Home::new(&*dir).state(State::RefreshHeld), "no continue-pr").unwrap();
         let mut src = sources(&dir);
         let snap = match snapshot(&mut src, &settings()) {
             Ok(s) => s,
@@ -2709,8 +2713,8 @@ esac"#,
             Err(f) => panic!("the stubs answer: {}", f.line),
         };
         assert_eq!(snap.get("running_unlisted"), None, "a listed directory");
-        std::fs::remove_dir_all(dir.join("state/cycles")).unwrap();
-        std::fs::write(dir.join("state/cycles"), "not a directory").unwrap();
+        std::fs::remove_dir_all(Home::new(&*dir).cycles_dir()).unwrap();
+        std::fs::write(Home::new(&*dir).cycles_dir(), "not a directory").unwrap();
         let mut src = sources(&dir);
         let snap = match snapshot(&mut src, &settings()) {
             Ok(s) => s,

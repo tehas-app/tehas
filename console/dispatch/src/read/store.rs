@@ -609,6 +609,7 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::sync::Once;
     use std::time::Duration;
+    use tehas_core::home::Home;
     use tehas_core::testdir::TestDir;
 
     /// The store of a case: the real store program of this build, so the four
@@ -616,7 +617,7 @@ mod tests {
     /// asks. A home of the test's own, as the store's tests have theirs.
     fn scratch(name: &str) -> TestDir {
         let dir = TestDir::new(&format!("dispatch-store-{name}"));
-        fs::create_dir_all(dir.join("state/cycles")).unwrap();
+        fs::create_dir_all(Home::new(&*dir).cycles_dir()).unwrap();
         dir
     }
 
@@ -696,7 +697,7 @@ mod tests {
         let home = scratch(name);
         // The store's own home: its file, and the mark of a home the store asks
         // for before it opens anything.
-        fs::write(home.join("state/.tehas-home"), "{}\n").unwrap();
+        fs::write(Home::new(&*home).state_dir().join(".tehas-home"), "{}\n").unwrap();
         let bin = store_binary().display().to_string();
 
         let store = home.join("store");
@@ -806,7 +807,7 @@ printf 'store %s %s\\n' \"$*\" \"$(cat \"$0.request\")\" >>\"$0.calls\"\nexec {b
             .create(true)
             .truncate(false)
             .write(true)
-            .open(h.home.join("state/cycles").join(format!("{n}.lock")))
+            .open(Home::new(&*h.home).cycle_note(n, "lock"))
             .unwrap();
         lock.try_lock().unwrap();
         let run = |args: &[&str]| {
