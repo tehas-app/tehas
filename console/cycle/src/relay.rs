@@ -643,11 +643,12 @@ fn maybe_sent(e: &Outcome) -> bool {
     )
 }
 
-/// Whether an open the site may have taken is there: an open issue of the
-/// factory's own account with `title` and `body`, made since `since` and not
-/// one this cycle has already (the ports spec, "How a row left unknown is
-/// settled", `OpenBlueprint`). Some(Some) is the one, with its link; Some(None)
-/// is none, so it was not made; None is a read that cannot tell.
+/// Whether an open the site may have taken is there: an open issue with
+/// `title` and `body`, made since `since` and not one this cycle has already
+/// (the ports spec, "How a row left unknown is settled", `OpenBlueprint`).
+/// Some(Some) is the factory's own, with its link; Some(None) is none, or only
+/// a person's copy, so it was not made; None is a read that cannot tell: a
+/// match by an account that could be ours but is not vouched for among them.
 fn opened(
     writes: &mut dyn BlueprintWrites,
     title: &str,
@@ -666,13 +667,17 @@ fn opened(
         // Its whole body: a cut one would match nothing.
         let one = std::num::NonZeroU32::new(1).expect("1 is no zero");
         let b = writes.blueprint(hit.no, Depth::Last { notes: one }).ok()?;
-        let ours = b
-            .author
-            .as_ref()
-            .is_some_and(|a| a.kind == AccountKind::Ours);
         let fresh = b.created.secs() >= since.secs().saturating_sub(60);
-        if ours && fresh && b.body.trim_end() == body.trim_end() {
-            return Some(Some((hit.no.get(), b.link)));
+        if !(fresh && b.body.trim_end() == body.trim_end()) {
+            continue;
+        }
+        match b.author.as_ref().map(|a| a.kind) {
+            Some(AccountKind::Ours) => return Some(Some((hit.no.get(), b.link))),
+            // A person's copy is not the relay's.
+            Some(AccountKind::Person) => continue,
+            // One that could be ours, which the site does not vouch for: no
+            // read can tell, and it is not made again.
+            _ => return None,
         }
     }
     (!hits.more).then_some(None)
@@ -1910,6 +1915,33 @@ mod tests {
             err.starts_with("gh-shim: the relay could not create the issue: "),
             "{err}"
         );
+        assert!(scope.created.is_empty());
+    }
+
+    #[test]
+    fn an_open_whose_match_the_site_does_not_vouch_for_as_ours_is_not_made_again() {
+        use tehas_ports::fake::{BlueprintsOp, Clock, Fault, Op};
+        // A bot of another name opened the same text since the ask: as a
+        // site answers the factory's own while it is not told its id.
+        let w = world()
+            .on_clock(Clock::new(At::new(tehas_core::time::now())))
+            .with_account(
+                "other-bot",
+                tehas_ports::AccountKind::Bot,
+                tehas_ports::Standing::Read,
+            )
+            .blueprint(60, |b| {
+                b.title("A new issue").body("Its text.").author("other-bot")
+            });
+        let mut scope = Scope::new(3);
+        let mut writes = faulty_handle(
+            &w,
+            Op::Blueprints(BlueprintsOp::Open),
+            Fault::TimeoutMaybe { applied: false },
+        );
+        let (_, err, rc) = make(&mut *writes, &open_ask(), &mut scope);
+        assert_eq!(rc, 1);
+        assert!(err.contains("may have created the issue"), "{err}");
         assert!(scope.created.is_empty());
     }
 
