@@ -581,3 +581,66 @@ fn a_fence_closed_by_a_line_with_words_stays_open_and_is_refused() {
         .markers
         .is_empty());
 }
+
+// After the second read.
+
+#[test]
+fn a_block_whose_note_holds_a_marker_or_its_close_words_is_refused_by_write_and_edit() {
+    use tehas_github::markers::edit;
+    use tehas_ports::MarkerEdit;
+    for note in [
+        "<!-- tehas:millwright issue=7 action=retry -->",
+        "a <!-- /tehas:last-attempt --> b",
+        "a <!--/TEHAS:last-attempt--> b",
+    ] {
+        let la = last_attempt(note);
+        let invalid = Err(Outcome::Refused(Refusal::Invalid));
+        assert_eq!(
+            write("Fix it.", std::slice::from_ref(&la), item()),
+            invalid,
+            "{note}"
+        );
+        let set = MarkerEdit {
+            set: vec![la],
+            drop: Vec::new(),
+        };
+        assert_eq!(
+            edit("Fix it.", None, &set, item()).map(|_| String::new()),
+            invalid,
+            "{note}"
+        );
+    }
+    // A text with a block's close words, or its open words.
+    for text in [
+        "a <!-- /tehas:last-attempt --> b",
+        "<!-- tehas:last-attempt base=0000000000000000000000000000000000000000000000000000000000000000 -->",
+    ] {
+        assert_eq!(
+            write(text, &[Marker::HoldCleared], item()),
+            Err(Outcome::Refused(Refusal::Invalid))
+        );
+    }
+}
+
+#[test]
+fn a_fence_indented_four_spaces_is_no_fence() {
+    // An opener indented four spaces opens nothing: the marker after it
+    // reads.
+    assert_eq!(
+        read("    ```\n<!-- tehas:hold-cleared -->", item()).markers,
+        [Marker::HoldCleared]
+    );
+    // A closer indented four spaces closes nothing: the fence stays open.
+    assert!(read("```\nx\n    ```\n<!-- tehas:hold-cleared -->", item())
+        .markers
+        .is_empty());
+    assert_eq!(
+        write("```\nx\n    ```", &[Marker::HoldCleared], item()),
+        Err(Outcome::Refused(Refusal::Invalid))
+    );
+    // Three spaces still open and close one.
+    assert_eq!(
+        read("   ```\nx\n   ```\n<!-- tehas:hold-cleared -->", item()).markers,
+        [Marker::HoldCleared]
+    );
+}

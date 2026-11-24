@@ -886,11 +886,14 @@ fn an_edit_with_nothing_to_change_reads_and_writes_nothing() {
 }
 
 #[test]
-fn a_marker_to_change_whose_words_stand_twice_is_unsupported() {
+fn a_marker_to_change_is_found_where_the_reader_finds_it_not_by_its_words() {
+    // A copy of its words in a code span is text, and stays.
     let body = "Do `<!-- tehas:blocked by=3 -->` this.\n\n<!-- tehas:blocked by=3 -->";
     assert_eq!(
         edit_of(body, None, &set(blocked(5))),
-        Err(Outcome::Refused(Refusal::Unsupported))
+        Ok(Some(
+            "Do `<!-- tehas:blocked by=3 -->` this.\n\n<!-- tehas:blocked by=5 -->".into()
+        ))
     );
 }
 
@@ -1294,4 +1297,131 @@ fn a_ticket_read_after_a_last_attempts_edit_gives_the_text_and_the_block_back() 
                 .replace("\"number\":21", "\"number\":7")
         )
     );
+}
+
+// After the second read.
+
+const MARKED_NOTE: &str = "<!-- tehas:millwright issue=7 action=retry -->";
+
+#[test]
+fn an_edit_setting_a_block_whose_note_holds_a_marker_is_refused_and_sends_nothing() {
+    let read = issue_7("Plan", "Fix it.", "2026-11-22T14:30:00Z");
+    let at = rev_of(&read);
+    let (mut gh, calls) = adapter(vec![Ok(read), Ok(issue_7("Plan", "x", EDITED))]);
+    let got = gh.edit(&key(7), None, None, &set(last_attempt(MARKED_NOTE)), &at);
+    assert_eq!(got, Err(Outcome::Refused(Refusal::Invalid)));
+    assert!(taken(&calls).iter().all(|c| c.input.is_none()), "no PATCH");
+}
+
+#[test]
+fn a_block_s_close_words_in_a_note_or_a_text_are_refused() {
+    let close = "a <!-- /tehas:last-attempt --> b";
+    assert_eq!(
+        edit_of("Fix it.", None, &set(last_attempt(close))),
+        Err(Outcome::Refused(Refusal::Invalid))
+    );
+    let (mut gh, calls) = adapter(Vec::new());
+    let got = gh.edit(&key(7), None, Some(close), &MarkerEdit::default(), &since());
+    assert_eq!(got, Err(Outcome::Refused(Refusal::Invalid)));
+    assert_eq!(
+        gh.note(&key(7), close, &[]).map(|_| ()),
+        Err(Outcome::Refused(Refusal::Invalid))
+    );
+    assert!(taken(&calls).is_empty());
+}
+
+/// A body as GitHub's web editor saves it, CRLF, with a last attempt's
+/// block.
+fn crlf_body() -> String {
+    format!("Line one.\r\nLine two.\r\n\r\n<!-- tehas:last-attempt base={BASE} -->\r\nOld note.\r\n<!-- /tehas:last-attempt -->")
+}
+
+#[test]
+fn a_crlf_block_is_replaced_and_the_body_s_other_bytes_stay_as_found() {
+    assert_eq!(
+        edit_of(&crlf_body(), None, &set(last_attempt("New note."))),
+        Ok(Some(format!(
+            "Line one.\r\nLine two.\n\n<!-- tehas:last-attempt base={BASE} -->\nNew note.\n<!-- /tehas:last-attempt -->"
+        )))
+    );
+}
+
+#[test]
+fn setting_the_crlf_block_that_is_there_sends_nothing() {
+    assert_eq!(
+        edit_of(&crlf_body(), None, &set(last_attempt("Old note."))),
+        Ok(None)
+    );
+}
+
+#[test]
+fn an_edit_leaves_no_stray_space_no_leading_blank_lines_and_no_third_line_end() {
+    let drop = MarkerEdit {
+        set: Vec::new(),
+        drop: vec![(MarkerKind::Blocked, None)],
+    };
+    assert_eq!(
+        edit_of("A. <!-- tehas:blocked by=3 -->\nB.", None, &drop),
+        Ok(Some("A.\nB.".into()))
+    );
+    assert_eq!(
+        edit_of("A.\n<!-- tehas:blocked by=3 --> B.", None, &drop),
+        Ok(Some("A.\nB.".into()))
+    );
+    // An empty text leaves the markers alone.
+    assert_eq!(
+        edit_of(
+            "Old.\n\n<!-- tehas:blocked by=3 -->",
+            Some(""),
+            &MarkerEdit::default()
+        ),
+        Ok(Some("<!-- tehas:blocked by=3 -->".into()))
+    );
+    // A body of markers alone keeps its CRs when a text comes before them.
+    assert_eq!(
+        edit_of(
+            "<!-- tehas:blocked by=3 -->\r\n<!-- tehas:hold-cleared -->",
+            Some("New."),
+            &MarkerEdit::default()
+        ),
+        Ok(Some(
+            "New.\n\n<!-- tehas:blocked by=3 -->\r\n<!-- tehas:hold-cleared -->".into()
+        ))
+    );
+    // A block moved to the end leaves one blank line where it was, not two.
+    let body = format!("Text.\n\n<!-- tehas:last-attempt base={BASE} -->\nOld.\n<!-- /tehas:last-attempt -->\n\n<!-- tehas:blocked by=3 -->");
+    assert_eq!(
+        edit_of(&body, None, &set(last_attempt("New."))),
+        Ok(Some(format!("Text.\n\n<!-- tehas:blocked by=3 -->\n<!-- tehas:last-attempt base={BASE} -->\nNew.\n<!-- /tehas:last-attempt -->")))
+    );
+}
+
+#[test]
+fn a_revision_from_the_list_read_is_held_by_an_edit_of_the_unchanged_issue() {
+    use tehas_ports::{Bound, Filter};
+    for body in ["One page.", "One page.\r\n\r\n- read them\r\n- save them"] {
+        let node = serde_json::json!({"number": 7, "title": "Plan", "body": body, "state": "OPEN",
+            "stateReason": null, "url": "https://github.com/acme/widget/issues/7",
+            "createdAt": "2026-11-20T09:00:00Z", "updatedAt": "2026-11-22T14:30:00Z",
+            "author": null, "issueType": null, "milestone": null,
+            "labels": {"totalCount": 0, "nodes": []}});
+        let page = serde_json::json!({"data": {"repository": {"issues": {
+            "pageInfo": {"hasNextPage": false, "endCursor": null}, "nodes": [node]}}}});
+        let (mut gh, calls) = adapter(vec![
+            Ok(page.to_string()),
+            Ok(issue_7("Plan", body, "2026-11-23T09:00:00Z")),
+            Ok(issue_7("Plan", "New.", EDITED)),
+        ]);
+        let listed = gh.list(&Filter::default(), Bound::new(5).unwrap()).unwrap();
+        let revision = listed.items()[0].revision.clone();
+        let got = gh.edit(
+            &key(7),
+            None,
+            Some("New."),
+            &MarkerEdit::default(),
+            &revision,
+        );
+        assert!(got.is_ok(), "{body:?}: {got:?}");
+        assert_eq!(taken(&calls).len(), 3);
+    }
 }
