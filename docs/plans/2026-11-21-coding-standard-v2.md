@@ -393,6 +393,11 @@ Done when `github-rest` is 0 and `gh-argv` is at 0 or at its written
 floor, and a fake code host that times out or rate-limits leaves the
 dispatcher and a cycle running, with one report.
 
+T4's Done also needs, before T4 is done, one live read-only recording
+per GraphQL question of the adapter, made with a real token: among them
+an issue with an edited comment, a repository rename's 301, and the list
+reads whose recordings were hand-edited to add `body`.
+
 T4's Done, and so the tag, also needs T4.7 to make `allowed_in` and
 `allowed_folded` one rule. Since #2962 the console matches the allowed
 labellers ignoring ASCII case, and the dispatcher still in exact case,
