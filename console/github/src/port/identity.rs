@@ -29,7 +29,9 @@ impl Identity for GitHub {
     /// GraphQL's `viewer`, one priced call, then the account read of the id
     /// it names for the kind. GraphQL types every viewer a user and spells
     /// an App's login more than one way, so the kind is the account read's
-    /// type: `Bot` or `Person`, `Unknown` for any other.
+    /// type: `Bot` or `Person`, `Unknown` for any other. A handle made by
+    /// the site answers `Ours` where the account is the site's factory
+    /// account.
     fn me(&mut self) -> Got<Account> {
         let query = format!("query={VIEWER}");
         let out = self
@@ -40,11 +42,17 @@ impl Identity for GitHub {
         let out = self
             .call("the account", &["api", &user])
             .map_err(|e| self.outcome(&e))?;
-        let kind = match read_user(&out, id)? {
-            Holder::User(_) => AccountKind::Person,
-            Holder::Bot => AccountKind::Bot,
-            Holder::Organisation => AccountKind::Unknown,
+        let (kind, said) = match read_user(&out, id)? {
+            Holder::User(_) => (AccountKind::Person, "User"),
+            Holder::Bot => (AccountKind::Bot, "Bot"),
+            Holder::Organisation => (AccountKind::Unknown, "Organization"),
         };
+        let facts = crate::gh::Facts {
+            id: Some(id),
+            kind: Some(said.to_string()),
+        };
+        let ours = self.bot.as_ref().is_some_and(|b| b.is(&facts));
+        let kind = if ours { AccountKind::Ours } else { kind };
         let mut account = Account::new(Realm::CodeHost, login, kind);
         account.id = Some(AccountId::new(id.to_string()));
         Ok(account)
@@ -62,9 +70,9 @@ impl Identity for GitHub {
     /// An App's bot account answers `Standing::None` from the account read
     /// alone: an App is no collaborator, so it holds no collaborator
     /// permission, and its access is its installation's. The factory's own
-    /// App cannot be told apart yet, since `GitHub::new` carries no actor, so
-    /// until the handle factory gives the adapter its actor every bot
-    /// answers `None`; the factory's own App will then answer from `Ours`.
+    /// App answers `None` too, through a handle the site made as much as
+    /// one made with `GitHub::new`: whether it should answer otherwise is
+    /// the tehas lead's to rule.
     fn standing(&mut self, who: &AccountId) -> Got<Standing> {
         let id = id_of(who)?;
         match self.standing_once(id) {
@@ -140,8 +148,8 @@ impl GitHub {
             Ok(Holder::User(login)) => login,
             // An organisation holds no standing of its own on a repository.
             Ok(Holder::Organisation) => return Pass::Answer(Ok(Standing::None)),
-            // Another App holds no collaborator permission. The factory's
-            // own is not told apart until the adapter carries its actor.
+            // An App holds no collaborator permission, the factory's own
+            // included (see `standing`).
             Ok(Holder::Bot) => return Pass::Answer(Ok(Standing::None)),
             Err(o) => return Pass::Answer(Err(o)),
         };
