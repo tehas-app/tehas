@@ -179,10 +179,11 @@ impl Poll<'_> {
             return;
         }
         if let (Some(note), false) = (note, self.dry) {
-            let mark = crate::questions::declined_marker(&Given::said(ans.comment.as_ref()));
+            let question = tehas_ports::CommentId::new(Given::said(ans.comment.as_ref()));
             self.act(Action::Say {
                 issue: n,
-                say: format!("{note}\n\n{mark}"),
+                say: note.to_string(),
+                markers: vec![tehas_ports::Marker::Declined { question }],
             });
         }
     }
@@ -682,7 +683,11 @@ impl Poll<'_> {
                     });
                     if let Choice::Stranger(s) = &driver {
                         let say = format!("Tehas did not start this issue again after the provider outage: {}, then applies `tehas:ready`.", s.said());
-                        self.act(Action::Say { issue: n, say });
+                        self.act(Action::Say {
+                            issue: n,
+                            say,
+                            markers: Vec::new(),
+                        });
                     }
                 }
                 continue;
@@ -699,7 +704,11 @@ impl Poll<'_> {
                 Vec::new()
             };
             self.act_gates(n);
-            self.act(Action::Say { issue: n, say: "Tehas starts this issue again on its own: its last cycle was parked by a provider outage, and the model endpoint answers again. It does this once. If the new cycle is parked the same way, it waits for a person.".into() });
+            self.act(Action::Say {
+                issue: n,
+                say: "Tehas starts this issue again on its own: its last cycle was parked by a provider outage, and the model endpoint answers again. It does this once. If the new cycle is parked the same way, it waits for a person.".into(),
+                markers: Vec::new(),
+            });
             self.d.picked.push(n);
             let mut extra = StartExtra::default();
             driver.bind(&mut extra, &mut remove, &have);

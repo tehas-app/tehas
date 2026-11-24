@@ -225,7 +225,7 @@ fn a_box_ticked_on_an_old_comment_does_nothing() {
         assert_eq!(r.rc, 0, "{}", r.out);
         assert_eq!(started(&w), "", "{boxes:?}");
         let gh = w.gh();
-        lacks(&gh, "issue comment");
+        assert_eq!(w.notes_any(), 0);
         lacks(&gh, "issue edit");
         lacks(&gh, "api -X PATCH");
         assert_eq!(w.park_q(7), "4001");
@@ -277,7 +277,7 @@ fn both_retry_boxes_ticked_answer_nothing() {
     ticked(&w, &["x", "x"], "alice");
     w.poll();
     assert_eq!(started(&w), "");
-    lacks(&w.gh(), "issue comment");
+    assert_eq!(w.notes_any(), 0);
     lacks(&w.gh(), "api -X PATCH");
 }
 
@@ -447,6 +447,6 @@ fn a_reply_naming_a_choice_the_stop_does_not_offer_is_declined_and_nothing_start
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(started(&w), "");
-    lacks(&w.gh(), "issue comment 7");
+    assert_eq!(w.notes(7), 0);
     lacks(&r.out, "does not offer");
 }
