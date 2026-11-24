@@ -1,10 +1,10 @@
 //! The code host port's writes, `CodeHostWrites`. Answered: a change opened
 //! (`open_change`, in `open.rs`), a comment on a change (`comment_change`),
-//! and a mark put on a change or taken off it (`mark_change`,
-//! `unmark_change`). Every other write answers
+//! a mark put on a change or taken off it (`mark_change`,
+//! `unmark_change`), and a status on a commit (`set_status`). Every other write answers
 //! `Refused(Unsupported)` before any request.
 //!
-//! Each write reads the pull request first, `repos/<repo>/pulls/<n>`, which
+//! Each write to a change reads the pull request first, `repos/<repo>/pulls/<n>`, which
 //! answers 404 for an issue's number: an issue, or a number that is
 //! nothing, is `NotFound` with nothing sent. Each write is then one request
 //! to this adapter's own repository, sent once, never again. A comment's
@@ -30,11 +30,14 @@ use tehas_core::text::has_marker;
 use tehas_ports::{
     Applied, Blobs, ChangeNo, CodeHostWrites, CommentId, CommitId, Did, FileName, Got, Mark,
     Marker, MarkerEdit, MergeHow, NewChange, NewRelease, Outcome, Pool, Posted, Proposal,
-    ProposalPart, Proposed, Refusal, ReleaseId, Sent, Status, Sum, TagName, Unread, WebLink,
+    ProposalPart, Proposed, Refusal, ReleaseId, Sent, Status, StatusState, Sum, TagName, Unread,
+    WebLink,
 };
 
 /// What `GhRunner::run_input`'s default answers: the runner sends nothing.
 const NO_INPUT: &str = "this runner takes no input";
+/// The most characters of a status's description GitHub keeps.
+const STATUS_ABOUT_MAX: usize = 140;
 
 impl CodeHostWrites for GitHub {
     /// See [`open`]: a pull request opened from a branch of this
@@ -133,8 +136,35 @@ impl CodeHostWrites for GitHub {
         unsupported()
     }
 
-    fn set_status(&mut self, _: &CommitId, _: &Status) -> Did {
-        unsupported()
+    /// One status on commit `at` of this repository, sent once: GitHub
+    /// keeps the newest of a name, so the same status sent again is the
+    /// same answer, and a row left unknown is settled by sending it again.
+    /// Its about is cut to the characters GitHub keeps. A name that is
+    /// empty or more than one line, or an about that holds a marker, is
+    /// `Refused(Invalid)` with nothing sent.
+    fn set_status(&mut self, at: &CommitId, status: &Status) -> Did {
+        let path = format!("{}/statuses/{}", project(&self.repo)?, at.as_str());
+        if status.name.trim().is_empty() || status.name.contains(['\n', '\r']) {
+            return Err(Outcome::Refused(Refusal::Invalid));
+        }
+        if has_marker(&status.about) {
+            return Err(Outcome::Refused(Refusal::Invalid));
+        }
+        let state = status_state(status.state);
+        let about: String = status.about.chars().take(STATUS_ABOUT_MAX).collect();
+        let mut body = serde_json::json!({
+            "state": state,
+            "context": status.name,
+            "description": about,
+        });
+        if let Some(link) = &status.link {
+            body["target_url"] = link.as_str().into();
+        }
+        let args = ["api", "-X", "POST", &path, "--input", "-"];
+        let out = self
+            .call_input("the commit's status", &args, &body.to_string())
+            .map_err(|e| self.written(&e))?;
+        read_status(&out, &status.name, state)
     }
 
     fn new_release(&mut self, _: &NewRelease) -> Got<Posted<ReleaseId>> {
@@ -301,6 +331,30 @@ fn read_comment(out: &str, repo: &str, no: ChangeNo, pull: &WebLink) -> Got<Post
     let link =
         WebLink::new(format!("{}#issuecomment-{id}", pull.as_str())).map_err(|_| malformed)?;
     Ok(Posted::new(CommentId::new(id.to_string()), link))
+}
+
+/// GitHub's word for a status's state.
+fn status_state(state: StatusState) -> &'static str {
+    match state {
+        StatusState::Pending => "pending",
+        StatusState::Passed => "success",
+        StatusState::Failed => "failure",
+        StatusState::Errored => "error",
+    }
+}
+
+/// The status in gh's answer, which must be the one sent: its name and its
+/// state. An answer that does not parse is `Unread(Malformed)`; one of
+/// another name or state is `Unread(Inconsistent)`.
+fn read_status(out: &str, name: &str, state: &str) -> Did {
+    let v: Value =
+        serde_json::from_str(out.trim()).map_err(|_| Outcome::Unread(Unread::Malformed))?;
+    let field = |k: &str| v.get(k).and_then(Value::as_str);
+    match (field("context"), field("state")) {
+        (Some(c), Some(s)) if c == name && s == state => Ok(()),
+        (Some(_), Some(_)) => Err(Outcome::Unread(Unread::Inconsistent)),
+        _ => Err(Outcome::Unread(Unread::Malformed)),
+    }
 }
 
 /// `text` ends with `tail`, ASCII case folded: GitHub names a project in
