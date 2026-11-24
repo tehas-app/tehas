@@ -200,10 +200,7 @@ pub fn asked(q: &QuestionRow) -> Option<QuestionAsked> {
             q.options.as_deref().unwrap_or_default(),
         )
         .iter()
-        .map(|o| QuestionChoice {
-            choice: o.answer_word(),
-            label: o.label.clone(),
-        })
+        .map(|o| QuestionChoice::new(o.answer_word(), o.label.clone()))
         .collect()
     } else {
         Vec::new()
