@@ -161,16 +161,6 @@ impl GitHub {
         }
     }
 
-    /// [`GitHub::call`], keeping what gh answered when it failed: gh exits
-    /// 1 on any GraphQL `errors`, so a question of several items reads
-    /// which of them failed from the answer.
-    pub(crate) fn call_answer(
-        &mut self,
-        args: &[&str],
-    ) -> Result<String, tehas_core::forge::Failed> {
-        self.runner.run_answer(args)
-    }
-
     /// [`GitHub::call`] with `input` on gh's standard input, the way a write
     /// sends its text: never in an argument.
     pub(crate) fn call_input(

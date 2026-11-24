@@ -19,7 +19,7 @@ use std::collections::HashMap;
 
 use super::{editor, ends_with_folded, is_node_id, priced, time, Actor};
 use crate::tickets::Bot;
-use crate::{markers, ForgeError, GitHub};
+use crate::{markers, GitHub};
 use serde::Deserialize;
 use serde_json::Value;
 use tehas_ports::{At, BlueprintNo, Bound, CommentId, Edit, Got, Outcome, Pool, Unread, Whole};
@@ -363,13 +363,13 @@ impl GitHub {
         let (owner, name) = self.owner_name();
         let query = format!("query={question}");
         let args = ["api", "graphql", "-F", &owner, "-F", &name, "-f", &query];
-        let out = match self.call_answer(&args) {
+        let out = match self.call_answer(call, &args) {
             Ok(out) => out,
-            Err(f) => match f.answer.filter(|a| answered(a)) {
+            Err((e, answer)) => match answer.filter(|a| answered(a)) {
                 Some(out) => out,
                 // Not one item's: GitHub names which in its answer.
                 None => {
-                    return Err(match self.outcome(&ForgeError::new(call, f.why)) {
+                    return Err(match self.outcome(&e) {
                         Outcome::NotFound => Outcome::Unread(Unread::Inconsistent),
                         o => priced(o),
                     })
