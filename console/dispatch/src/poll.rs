@@ -318,7 +318,6 @@ fn writer(
     before: i64,
     retry: &RetryPolicy,
     events: tehas_ports::events::Dispatcher,
-    mark_of: crate::apply::MarkOf,
 ) -> Writer {
     // run_poll refused a bound that does not read before it built this.
     let plan = plan_bounds_of_env().unwrap_or(PLAN_DEFAULTS);
@@ -442,7 +441,8 @@ fn writer(
         events,
         // Made once the poll has its token: run_poll.
         ports: None,
-        mark_of,
+        // The wiring's, set with the handles: run_poll.
+        mark_of: |_| None,
     }
 }
 
@@ -726,8 +726,8 @@ pub fn run_poll(
         tehas_core::time::now(),
         &retry,
         events,
-        wiring.mark_of,
     );
+    w.mark_of = wiring.mark_of;
     // The poll's GitHub token, kept in memory from before its first call: the
     // first gh of the poll asks the host's token program once, and every gh
     // process after it is given the token as TEHAS_GH_TOKEN, so the shim of a
