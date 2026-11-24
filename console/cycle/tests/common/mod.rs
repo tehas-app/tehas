@@ -674,7 +674,18 @@ impl World {
     /// the fake's handles. `run7` proves the binary reaches the adapter; this
     /// is what its report decides to write, in tehas's terms.
     pub fn report_writes(&self, site: &tehas_ports::fake::World) -> Vec<tehas_ports::Write> {
-        use tehas_ports::{Actor, Caller, Scope, Site};
+        let fake = tehas_ports::fake::FakeSite::new(site);
+        self.report_through(site, &fake).applied
+    }
+
+    /// The same, through `through`, a site over `site` such as a `Faulty`
+    /// one: the writes `site` took, and each write the report sent.
+    pub fn report_through(
+        &self,
+        site: &tehas_ports::fake::World,
+        through: &impl tehas_ports::Site,
+    ) -> Tried {
+        use tehas_ports::{Actor, Caller, Scope};
         // The cycle's lock, held as tehas-cycle holds it while a cycle runs:
         // the store starts no cycle and takes no park without it.
         let cycles = Home::new(&self.home).cycles_dir();
@@ -729,13 +740,17 @@ impl World {
         let facts = tehas_cycle::Facts::from_json(&facts_json).expect("the facts read");
         let mut ask = FxAsk { w: self };
         let mut r = tehas_cycle::report::report(&facts, &mut ask);
-        let fake = tehas_ports::fake::FakeSite::new(site);
+        let fake = through;
         let (by, c) = (Actor::Ours(Scope::Full), Caller::new("report"));
+        let sent = std::rc::Rc::new(std::cell::RefCell::new(vec![]));
         let handles = tehas_cycle::apply::Handles {
-            writes: Box::new(tehas_ports::Writer {
-                tickets: fake.ticket_writes(&by, c).unwrap(),
-                blueprints: fake.blueprint_writes(&by, c).unwrap(),
-                code_host: fake.code_host_writes(&by, c).unwrap(),
+            writes: Box::new(Counted {
+                inner: Box::new(tehas_ports::Writer {
+                    tickets: fake.ticket_writes(&by, c).unwrap(),
+                    blueprints: fake.blueprint_writes(&by, c).unwrap(),
+                    code_host: fake.code_host_writes(&by, c).unwrap(),
+                }),
+                sent: sent.clone(),
             }),
             tickets: fake.tickets(&by, c).unwrap(),
             blueprints: fake.blueprints(&by, c).unwrap(),
@@ -754,7 +769,11 @@ impl World {
             workdir: tehas_cycle::host::workdir_with(&start, &env),
         };
         let _ = tehas_cycle::apply::write(&self.home, &how, &mut r, &facts, &mut ask, handles);
-        site.wrote().into_iter().map(|w| w.what).collect()
+        let sent = sent.borrow().clone();
+        Tried {
+            applied: site.wrote().into_iter().map(|w| w.what).collect(),
+            sent,
+        }
     }
 
     /// A cycle of #7.
@@ -1005,6 +1024,62 @@ pub fn lacks(got: &str, want: &str) {
 /// The lines of `text` that start with `prefix`.
 pub fn count_lines(text: &str, prefix: &str) -> usize {
     text.lines().filter(|l| l.starts_with(prefix)).count()
+}
+
+/// The writes of a report: those the site took, and each one sent, a write
+/// tried again once for each try.
+pub struct Tried {
+    pub applied: Vec<tehas_ports::Write>,
+    pub sent: Vec<tehas_ports::Write>,
+}
+
+/// A writer that keeps each write it is given before it sends it on.
+struct Counted {
+    inner: Box<dyn tehas_ports::Writes>,
+    sent: std::rc::Rc<std::cell::RefCell<Vec<tehas_ports::Write>>>,
+}
+
+impl tehas_ports::Writes for Counted {
+    fn send(
+        &mut self,
+        w: &tehas_ports::Write,
+        files: &dyn tehas_ports::Blobs,
+    ) -> tehas_ports::Got<tehas_ports::Receipt> {
+        self.sent.borrow_mut().push(w.clone());
+        self.inner.send(w, files)
+    }
+    fn read_only(&self) -> bool {
+        self.inner.read_only()
+    }
+}
+
+/// The same case run twice: the binary on one world, for what it owns (its
+/// exit, the store, its reads of GitHub), and its report decided and written
+/// in process on the ports' fake on another, for what the report writes.
+#[allow(dead_code)] // each test file uses a part of this module
+pub fn twin(name: &str, setup: impl Fn(&mut World)) -> (World, Run, String) {
+    let mut w = World::new(name);
+    setup(&mut w);
+    let r = w.run7();
+    let mut twin = World::new(&format!("{name}-writes"));
+    setup(&mut twin);
+    let said = said(&twin.report_writes(&site()));
+    (w, r, said)
+}
+
+/// A case's report alone, in process, through the site `wrap` makes of the
+/// fake: the writes it took and each write sent, as `said` says them.
+#[allow(dead_code)] // each test file uses a part of this module
+pub fn through<S: tehas_ports::Site>(
+    name: &str,
+    setup: impl Fn(&mut World),
+    wrap: impl FnOnce(tehas_ports::fake::FakeSite) -> S,
+) -> (String, String) {
+    let mut w = World::new(name);
+    setup(&mut w);
+    let world = site();
+    let t = w.report_through(&world, &wrap(tehas_ports::fake::FakeSite::new(&world)));
+    (said(&t.applied), said(&t.sent))
 }
 
 /// The site the report writes to in process: issue 7, running, and the bot's

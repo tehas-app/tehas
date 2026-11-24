@@ -5,7 +5,7 @@
 
 mod common;
 
-use common::{has, lacks, said, site, Run, World};
+use common::{has, lacks, twin, World};
 use serde_json::{json, Value};
 use std::fs;
 use std::time::{Duration, SystemTime};
@@ -19,19 +19,6 @@ fn died_pushed(w: &World, more: &[&str]) {
     let mut words = vec!["explore", "plan", "develop", "commit-pr", BRANCH];
     words.extend_from_slice(more);
     w.died(&words);
-}
-
-/// The same case run twice: the binary on one world, for what it owns (its
-/// exit, the store, its reads of GitHub), and its report decided and written
-/// in process on the ports' fake on another, for what the report writes.
-fn twin(name: &str, setup: impl Fn(&World)) -> (World, Run, String) {
-    let w = World::new(name);
-    setup(&w);
-    let r = w.run7();
-    let twin = World::new(&format!("{name}-writes"));
-    setup(&twin);
-    let said = said(&twin.report_writes(&site()));
-    (w, r, said)
 }
 
 fn pr_list() -> String {
