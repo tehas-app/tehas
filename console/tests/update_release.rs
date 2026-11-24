@@ -247,7 +247,7 @@ fn an_update_downloads_the_newest_checks_it_switches_current_and_installs_from_i
     assert_eq!(h.calls("install"), "install v1.2.0 ");
     has(
         &h.calls("gh"),
-        "release download v1.2.0 --repo tehas-app/tehas",
+        "release download v1.2.0 --repo tehas-app/tehas-factory",
     );
     has(
         &h.calls("docker"),
@@ -656,12 +656,12 @@ fn gh_not_signed_in_the_list_and_the_download_come_from_the_public_address() {
     assert_eq!(r.rc, 0, "{}", r.out);
     has(
         &h.calls("curl"),
-        "https://api.github.com/repos/tehas-app/tehas/releases?per_page=100",
+        "https://api.github.com/repos/tehas-app/tehas-factory/releases?per_page=100",
     );
     has(
         &h.calls("curl"),
         &format!(
-            "https://github.com/tehas-app/tehas/releases/download/v1.2.0/{}.minisig",
+            "https://github.com/tehas-app/tehas-factory/releases/download/v1.2.0/{}.minisig",
             asset_of("v1.2.0")
         ),
     );
@@ -675,6 +675,30 @@ fn tehas_release_repo_in_the_instance_names_where_releases_come_from() {
     host_at(&h, "v1.0.0");
     h.update(&["--check"]);
     has(&h.calls("gh"), "api repos/someone/fork/releases");
+}
+
+#[test]
+fn an_instance_naming_the_former_repository_still_loads_and_update_says_it_moved() {
+    let mut h = host();
+    instance_rel(&mut h, &["TEHAS_RELEASE_REPO=tehas-app/tehas"]);
+    host_at(&h, "v1.0.0");
+    let r = update_with(&h, "GH_AUTH=1", "--check");
+    assert_eq!(r.rc, 3, "{}", r.out);
+    has(
+        &r.out,
+        "release: the repository tehas-app/tehas is now tehas-app/tehas-factory; TEHAS_RELEASE_REPO still names the old one, which works only while GitHub redirects it: remove the line or name the new one",
+    );
+    has(&h.calls("curl"), "/tehas-app/tehas/releases?per_page=100");
+    lacks(&h.calls("curl"), "tehas-factory");
+    has(&r.out, "release: would switch to v1.2.0");
+}
+
+#[test]
+fn an_update_from_the_built_in_repository_says_nothing_of_a_move() {
+    let h = at_v1();
+    let r = h.update(&["--check"]);
+    assert_eq!(r.rc, 3, "{}", r.out);
+    lacks(&r.out, "is now");
 }
 
 #[test]
@@ -902,7 +926,7 @@ fn supported(machine: &str) {
     assert_eq!(r.rc, 0, "{}", r.out);
     has(
         &h.calls("gh"),
-        "release download v1.2.0 --repo tehas-app/tehas",
+        "release download v1.2.0 --repo tehas-app/tehas-factory",
     );
     has(
         &h.calls("gh"),

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/tehas-app/tehas/api/question.schema.json",
+  "$id": "https://github.com/tehas-app/tehas-factory/api/question.schema.json",
   "title": "tehas question --json",
   "description": "What tehas question <issue> --json prints, version 1: the question the issue waits on and the choices it offers, each in the words tehas answer takes. host/docs/api.md says what each field means. Every object is closed, so a field tehas adds must be added here too; a program that reads the object still accepts fields it does not know. console/tests/answer.rs checks that the command prints the samples beside this file, and test/json_contract_test.sh that they fit it.",
   "type": "object",
