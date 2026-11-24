@@ -48,6 +48,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use tehas_core::outln;
+use tehas_ports::Sent;
 use text::{Held, Moved, Ver};
 use tools::{World, CADDY_FILES, TOOLS};
 
@@ -331,8 +332,9 @@ impl World for Curl {
         }
         let out = child.wait_with_output().map_err(|e| format!("curl: {e}"))?;
         if !out.status.success() {
-            let why = String::from_utf8_lossy(&out.stderr);
-            return Err(format!("cannot get {url}: {}", why.trim()));
+            let said = String::from_utf8_lossy(&out.stderr);
+            let why = crate::curl::failed(out.status.code(), &said, Sent::No);
+            return Err(format!("cannot get {url}: {}", why.line()));
         }
         Ok(out.stdout)
     }
