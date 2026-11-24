@@ -739,7 +739,7 @@ fn driver_of(a: &Value) -> Option<&str> {
 /// a reader of the published approval holds instead. An answer that is none of
 /// these - null, or one that holds the store's error - is classic: the cycle
 /// keeps no record rather than guessing at one.
-pub fn approved_lean(facts: &Value) -> bool {
+fn approved_lean(facts: &Value) -> bool {
     let approval = facts.get("approval");
     [
         approval,
@@ -775,7 +775,8 @@ fn keep_lean_state(home: &Path, workdir: &str, issue: u64, lean: bool) {
     let _ = fs::remove_file(&to);
     // The read of the workspace's own file, which refuses a link anywhere on the
     // way and a file of no sane size; the copy is of what that read answered.
-    let Some(kept) = crate::last_attempt::lean(Path::new(workdir), issue) else {
+    let Some(kept) = crate::last_attempt::lean::<serde_json::Value>(Path::new(workdir), issue)
+    else {
         return;
     };
     if !write_private(&to, &kept.to_string()) {

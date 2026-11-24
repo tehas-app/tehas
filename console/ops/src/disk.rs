@@ -59,7 +59,7 @@
 //! nothing of the host.
 
 use crate::store::bounded;
-use serde_json::{json, Map, Value};
+use serde::Serialize;
 use std::fs;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
@@ -233,7 +233,13 @@ pub fn main(given: &[String]) -> u8 {
     }
     let answer = read(&host, &opts);
     if opts.json {
-        tehas_core::outln!("{answer}");
+        match sorted(&answer) {
+            Ok(text) => tehas_core::outln!("{text}"),
+            Err(e) => {
+                eprintln!("console disk: the answer could not be written: {e}");
+                return 1;
+            }
+        }
     } else {
         for line in lines(&answer) {
             tehas_core::outln!("{line}");
@@ -368,63 +374,86 @@ impl Default for Options {
     }
 }
 
-/// One file system, named by every path of the host that stands on it.
-#[derive(Debug)]
+/// One file system, named by every path of the host that stands on it. A
+/// key with no value is left out, as the other commands of the API leave one
+/// out; `why` is the only way a missing figure says anything.
+#[derive(Debug, Serialize)]
 pub struct Fs {
     pub paths: Vec<String>,
     /// What `df` names as the file system's own, as `/` or `/dev/sda1`; None
     /// when the figure cannot be read at all, which is the shape of a read
     /// that answered nothing.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub mount: Option<String>,
+    #[serde(rename = "freeBytes", skip_serializing_if = "Option::is_none")]
     pub free: Option<u64>,
+    #[serde(rename = "totalBytes", skip_serializing_if = "Option::is_none")]
     pub total: Option<u64>,
     /// Why a figure is not there: `df` gave no second line, its word was no
     /// number, or the call did not answer.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub why: Option<String>,
-}
-
-impl Fs {
-    fn value(&self) -> Value {
-        let mut out = Map::new();
-        out.insert("paths".into(), json!(self.paths));
-        insert(&mut out, "mount", self.mount.as_deref().map(Value::from));
-        insert(&mut out, "freeBytes", self.free.map(Value::from));
-        insert(&mut out, "totalBytes", self.total.map(Value::from));
-        insert(&mut out, "why", self.why.as_deref().map(Value::from));
-        Value::Object(out)
-    }
-}
-
-/// A key with no value is left out, as the other commands of the API leave one
-/// out; `why` is the only way a null says anything, so it goes in with the
-/// nulls it explains and never on its own.
-fn insert(out: &mut Map<String, Value>, key: &str, v: Option<Value>) {
-    if let Some(v) = v {
-        out.insert(key.to_string(), v);
-    }
 }
 
 /// What one place of the host holds, and what stopped the walk from saying
 /// more of it.
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct Place {
     pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub bytes: Option<u64>,
     /// `whole`, `entries`, `depth`, `time` or `unreadable`: the bound the walk
-    /// ran out of, or the reason it has no figure.
+    /// ran out of, or the reason it has no figure. `whole` is left out.
+    #[serde(skip_serializing_if = "is_whole")]
     pub cut: &'static str,
 }
 
-impl Place {
-    fn value(&self) -> Value {
-        let mut out = Map::new();
-        out.insert("path".into(), json!(self.path));
-        insert(&mut out, "bytes", self.bytes.map(Value::from));
-        if self.cut != "whole" {
-            out.insert("cut".into(), json!(self.cut));
-        }
-        Value::Object(out)
-    }
+fn is_whole(cut: &&'static str) -> bool {
+    *cut == "whole"
+}
+
+/// What `tehas disk` answers: the file systems, with `--full` what fills
+/// them, and with `--cycles` the running cycles.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Answer {
+    pub api: u8,
+    pub time: String,
+    pub docker_root: String,
+    pub filesystems: Vec<Fs>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub full: Option<Full>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cycles: Option<cycles::Cycles>,
+}
+
+/// What `--full` adds.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Full {
+    pub places: Vec<Place>,
+    pub docker: DockerDf,
+    pub stopped_containers: u64,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub containers: Vec<Container>,
+}
+
+/// `docker system df`, in Docker's own words.
+#[derive(Debug, Serialize)]
+#[serde(tag = "state", rename_all = "lowercase")]
+pub enum DockerDf {
+    Read { lines: Vec<String> },
+    None,
+    Unreadable,
+}
+
+/// A container Docker left stopped.
+#[derive(Debug, Serialize)]
+pub struct Container {
+    pub id: String,
+    pub image: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
 }
 
 /// Where the factory's things are, which is what the answer is read from. The
@@ -844,7 +873,7 @@ fn du_place(path: &Path, opts: &Options) -> Place {
 
 /// `docker system df`, in Docker's own words: its four lines, each cut to one
 /// line of at most 200 characters, and a word for why it has none.
-fn docker_df(wait: Duration) -> Value {
+fn docker_df(wait: Duration) -> DockerDf {
     match run("docker", &["system", "df"], wait) {
         Ok(said) => {
             let lines: Vec<String> = said
@@ -854,18 +883,18 @@ fn docker_df(wait: Duration) -> Value {
                 .map(|l| l.chars().take(COMMAND_MAX).collect())
                 .collect();
             if lines.is_empty() {
-                return json!({"state": "none"});
+                return DockerDf::None;
             }
-            json!({"state": "read", "lines": lines})
+            DockerDf::Read { lines }
         }
-        Err(_) => json!({"state": "unreadable"}),
+        Err(_) => DockerDf::Unreadable,
     }
 }
 
 /// The containers left stopped: Docker's own id, image and command - the last
 /// only when the listing had a command to name - and how many of them the list
 /// holds.
-fn stopped_containers(wait: Duration) -> (u64, Vec<Value>) {
+fn stopped_containers(wait: Duration) -> (u64, Vec<Container>) {
     let Ok(said) = run(
         "docker",
         &[
@@ -892,24 +921,14 @@ fn stopped_containers(wait: Duration) -> (u64, Vec<Value>) {
         // Docker prints the empty word for a command it does not hold; an empty
         // word is no command, and a field this command has nothing of is left
         // out rather than printed as null, as every other one of them is.
-        let mut one = Map::new();
-        one.insert(
-            "id".into(),
-            Value::from(cols[0].chars().take(64).collect::<String>()),
-        );
-        one.insert(
-            "image".into(),
-            Value::from(cols[1].chars().take(COMMAND_MAX).collect::<String>()),
-        );
-        insert(
-            &mut one,
-            "command",
-            cols.get(2)
+        out.push(Container {
+            id: cols[0].chars().take(64).collect(),
+            image: cols[1].chars().take(COMMAND_MAX).collect(),
+            command: cols
+                .get(2)
                 .map(|c| c.chars().take(COMMAND_MAX).collect::<String>())
-                .filter(|c| !c.is_empty())
-                .map(Value::from),
-        );
-        out.push(Value::Object(one));
+                .filter(|c| !c.is_empty()),
+        });
     }
     let n = out.len() as u64;
     (n, out)
@@ -922,62 +941,53 @@ fn stopped_containers(wait: Duration) -> (u64, Vec<Value>) {
 /// same question twice for one answer would be two calls where one does.
 /// `--cycles` adds the figures of the running cycles, which neither of the
 /// other two forms asks for.
-fn answer(host: &Host, opts: &Options) -> Value {
-    let docker_dir = docker_root_dir(Duration::from_secs(opts.bounds.wait));
+fn answer(host: &Host, opts: &Options) -> Answer {
+    let wait = Duration::from_secs(opts.bounds.wait);
+    let docker_dir = docker_root_dir(wait);
     let paths = watched(host, opts, &docker_dir);
-    let mut out = Map::new();
-    out.insert("api".into(), json!(1));
-    out.insert("time".into(), json!(time::iso(time::now())));
-    insert(&mut out, "dockerRoot", Some(Value::from(docker_dir)));
-    out.insert(
-        "filesystems".into(),
-        Value::Array(file_systems(&paths, opts).iter().map(Fs::value).collect()),
-    );
-    if opts.full {
-        let mut full = Map::new();
-        full.insert(
-            "places".into(),
-            Value::Array(places(host, opts).iter().map(Place::value).collect()),
-        );
-        full.insert(
-            "docker".into(),
-            docker_df(Duration::from_secs(opts.bounds.wait)),
-        );
+    let filesystems = file_systems(&paths, opts);
+    let full = opts.full.then(|| {
         // The containers the daemon still holds back are part of `--full`
         // itself: a reader that must not write the host asks for them with the
         // flag and gets them, and `--publish` is no longer the only form that
         // names them. The daemon is still asked the one question once for the
         // whole answer, so a run that prints and a run that publishes are one
         // reading and not two.
-        let (stopped, containers) = stopped_containers(Duration::from_secs(opts.bounds.wait));
-        full.insert("stoppedContainers".into(), json!(stopped));
-        if !containers.is_empty() {
-            full.insert("containers".into(), Value::Array(containers));
+        let places = places(host, opts);
+        let docker = docker_df(wait);
+        let (stopped, containers) = stopped_containers(wait);
+        Full {
+            places,
+            docker,
+            stopped_containers: stopped,
+            containers,
         }
-        out.insert("full".into(), Value::Object(full));
+    });
+    Answer {
+        api: 1,
+        time: time::iso(time::now()),
+        filesystems,
+        docker_root: docker_dir,
+        full,
+        // The cycles are asked for only when they were asked for: the
+        // published file and `--full` stay the object they were, and a run
+        // without the flag makes no new call of the daemon.
+        cycles: opts.cycles.then(|| cycles::value(cycles::read(wait))),
     }
-    // The cycles are asked for only when they were asked for: the published
-    // file and `--full` stay the object they were, and a run without the flag
-    // makes no new call of the daemon.
-    if opts.cycles {
-        let wait = Duration::from_secs(opts.bounds.wait);
-        out.insert("cycles".into(), cycles::value(cycles::read(wait)));
-    }
-    Value::Object(out)
 }
 
 /// The answer `tehas disk` prints: the file systems and, with `--full`, what
 /// fills them and the containers Docker left stopped. Both figures of the
 /// daemon come of the one call `--full` makes for them, whether or not the run
 /// also publishes.
-pub fn read(host: &Host, opts: &Options) -> Value {
+pub fn read(host: &Host, opts: &Options) -> Answer {
     answer(host, opts)
 }
 
 /// The answer `--publish` writes, which is the same reading of one run: the
 /// file systems, what fills them and the containers Docker left stopped, the
 /// daemon being asked the one question once for the whole of it.
-pub fn published(host: &Host, opts: &Options) -> Value {
+pub fn published(host: &Host, opts: &Options) -> Answer {
     answer(
         host,
         &Options {
@@ -993,11 +1003,18 @@ pub fn published(host: &Host, opts: &Options) -> Value {
     )
 }
 
+/// The answer as text, its keys sorted as they have always been printed.
+fn sorted(answer: &impl Serialize) -> std::io::Result<String> {
+    serde_json::to_value(answer)
+        .map(|v| v.to_string())
+        .map_err(std::io::Error::other)
+}
+
 /// The file is put whole: written beside itself and renamed, as the poll's
 /// report and live/epics.json are. A reader sees a whole file or the one
 /// before it, and a run that could not write leaves the last answer there.
-fn put(out: &Path, answer: &Value) -> std::io::Result<()> {
-    let text = format!("{answer}\n");
+fn put(out: &Path, answer: &impl Serialize) -> std::io::Result<()> {
+    let text = format!("{}\n", sorted(answer)?);
     if text.len() as u64 > PUBLISH_BOUND {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
@@ -1012,18 +1029,12 @@ fn put(out: &Path, answer: &Value) -> std::io::Result<()> {
 }
 
 /// The lines a person is given: one per file system, then what fills them.
-pub fn lines(answer: &Value) -> Vec<String> {
+pub fn lines(answer: &Answer) -> Vec<String> {
     let mut out = Vec::new();
-    for fs in answer["filesystems"].as_array().into_iter().flatten() {
-        let paths: Vec<&str> = fs["paths"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-            .collect();
-        let name = paths.first().copied().unwrap_or("?");
-        let mount = fs["mount"].as_str().unwrap_or("unknown");
-        match (fs["freeBytes"].as_u64(), fs["totalBytes"].as_u64()) {
+    for fs in &answer.filesystems {
+        let name = fs.paths.first().map_or("?", String::as_str);
+        let mount = fs.mount.as_deref().unwrap_or("unknown");
+        match (fs.free, fs.total) {
             (Some(free), Some(total)) => out.push(format!(
                 "disk      {}: {mount}, {} of {} free ({})",
                 name,
@@ -1034,43 +1045,38 @@ pub fn lines(answer: &Value) -> Vec<String> {
             _ => out.push(format!(
                 "disk      {}: {}",
                 name,
-                fs["why"].as_str().unwrap_or("no figure")
+                fs.why.as_deref().unwrap_or("no figure")
             )),
         }
-        if paths.len() > 1 {
+        if fs.paths.len() > 1 {
             out.push(format!(
                 "          one file system also holds {}",
-                paths[1..].join(", ")
+                fs.paths[1..].join(", ")
             ));
         }
     }
-    if answer["full"]["places"].is_array() {
-        for place in answer["full"]["places"].as_array().into_iter().flatten() {
-            let path = place["path"].as_str().unwrap_or("?");
-            let said = match place["bytes"].as_u64() {
-                Some(b) => format!("{}{}", gib(b), cut_word(place["cut"].as_str())),
+    if let Some(full) = &answer.full {
+        for place in &full.places {
+            let said = match place.bytes {
+                Some(b) => format!("{}{}", gib(b), cut_word(Some(place.cut))),
                 None => "could not be measured".to_string(),
             };
-            out.push(format!("fills     {path}: {said}"));
+            out.push(format!("fills     {}: {said}", place.path));
         }
-        if let Some(n) = answer["full"]["stoppedContainers"].as_u64() {
-            out.push(format!("fills     containers left stopped: {n}"));
-        }
-        match answer["full"]["docker"]["state"].as_str() {
-            Some("read") => out.push("fills     docker system df:".to_string()),
+        out.push(format!(
+            "fills     containers left stopped: {}",
+            full.stopped_containers
+        ));
+        match &full.docker {
+            DockerDf::Read { lines } => {
+                out.push("fills     docker system df:".to_string());
+                out.extend(lines.iter().map(|l| format!("          {l}")));
+            }
             _ => out.push("fills     docker system df: no answer".to_string()),
         }
-        for line in answer["full"]["docker"]["lines"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-        {
-            out.push(format!("          {line}"));
-        }
     }
-    if answer["cycles"].is_object() {
-        out.extend(cycles::lines(&answer["cycles"]));
+    if let Some(c) = &answer.cycles {
+        out.extend(cycles::lines(c));
     }
     out
 }
@@ -1110,8 +1116,8 @@ fn used(free: u64, total: u64) -> String {
 mod tests {
     use super::free;
     use super::{
-        cut_word, du, file_systems, gib, lines, one, places, published, put, read, used, Bounds,
-        Host, Options, Place, PUBLISH_BOUND,
+        cut_word, du, file_systems, gib, lines, one, places, published, put, read, used, Answer,
+        Bounds, Fs, Host, Options, Place, PUBLISH_BOUND,
     };
     use serde_json::{json, Value};
     use std::fs;
@@ -1368,7 +1374,8 @@ mod tests {
         let home = d.join("tehas");
         fs::create_dir_all(&home).unwrap();
         let opts = opts();
-        let answer = read(&host(&home), &opts);
+        let answer_typed = read(&host(&home), &opts);
+        let answer = serde_json::to_value(&answer_typed).unwrap();
         assert_eq!(answer["api"], 1);
         assert!(answer["time"].as_str().unwrap().ends_with('Z'));
         assert!(answer.get("generatedAt").is_none());
@@ -1412,14 +1419,16 @@ mod tests {
         let d = dir("cycles");
         let home = d.join("tehas");
         fs::create_dir_all(&home).unwrap();
-        let plain = read(&host(&home), &opts());
-        let with_cycles = read(
+        let plain_typed = read(&host(&home), &opts());
+        let plain = serde_json::to_value(&plain_typed).unwrap();
+        let with_cycles_typed = read(
             &host(&home),
             &Options {
                 cycles: true,
                 ..opts()
             },
         );
+        let with_cycles = serde_json::to_value(&with_cycles_typed).unwrap();
         assert!(plain.get("cycles").is_none());
         let mut added: Vec<&str> = with_cycles
             .as_object()
@@ -1442,10 +1451,12 @@ mod tests {
         let reason = cycles["state"] == "unreadable" && cycles["why"].is_string();
         assert!(listed ^ reason, "{cycles}");
         // The lines name the reading, or say there is none of it.
-        assert!(lines(&with_cycles)
+        assert!(lines(&with_cycles_typed)
             .iter()
             .any(|l| l.starts_with("cycles  ")));
-        assert!(!lines(&plain).iter().any(|l| l.starts_with("cycles  ")));
+        assert!(!lines(&plain_typed)
+            .iter()
+            .any(|l| l.starts_with("cycles  ")));
     }
 
     // A home that cannot be looked at answers with the reason, not a figure:
@@ -1454,7 +1465,8 @@ mod tests {
     fn a_home_that_is_not_there_has_no_figure_and_a_reason() {
         let d = dir("no-home");
         let gone = d.join("no-home-at-all");
-        let answer = read(&host(&gone), &opts());
+        let answer_typed = read(&host(&gone), &opts());
+        let answer = serde_json::to_value(&answer_typed).unwrap();
         let entries = answer["filesystems"].as_array().unwrap();
         let home = &entries[0];
         assert_eq!(
@@ -1470,14 +1482,29 @@ mod tests {
     // named on the line after, and the reason where a figure is not there.
     #[test]
     fn the_lines_name_each_file_system_once() {
-        let answer = json!({
-            "api": 1,
-            "filesystems": [
-                {"paths": ["/home/boss/tehas", "/tmp"], "mount": "overlay",
-                 "freeBytes": 32_212_254_720u64, "totalBytes": 64_424_509_440u64},
-                {"paths": ["/mnt/scratch"], "why": "/mnt/scratch: df gave no figure"},
+        let answer = Answer {
+            api: 1,
+            time: String::new(),
+            docker_root: String::new(),
+            filesystems: vec![
+                Fs {
+                    paths: vec!["/home/boss/tehas".into(), "/tmp".into()],
+                    mount: Some("overlay".into()),
+                    free: Some(32_212_254_720),
+                    total: Some(64_424_509_440),
+                    why: None,
+                },
+                Fs {
+                    paths: vec!["/mnt/scratch".into()],
+                    mount: None,
+                    free: None,
+                    total: None,
+                    why: Some("/mnt/scratch: df gave no figure".into()),
+                },
             ],
-        });
+            full: None,
+            cycles: None,
+        };
         let lines = lines(&answer);
         assert_eq!(lines.len(), 3, "{lines:?}");
         assert!(
@@ -1561,7 +1588,8 @@ mod tests {
         let home = d.join("tehas");
         file(&home.join("logs/one.log"), 900);
         file(&home.join("dev/alpha.state/target/x"), 100);
-        let published = published(&host(&home), &opts());
+        let published_typed = published(&host(&home), &opts());
+        let published = serde_json::to_value(&published_typed).unwrap();
         assert_eq!(published["api"], 1);
         assert!(published["full"]["places"].is_array(), "{published}");
         // The count is there whether or not the host has Docker: no answer is
@@ -1572,17 +1600,19 @@ mod tests {
         // Without the flag the daemon is asked nothing of what it holds back.
         // With it, and with no `--publish`, the printed answer names the
         // stopped containers as the published file does.
-        let printed = read(&host(&home), &opts());
+        let printed_typed = read(&host(&home), &opts());
+        let printed = serde_json::to_value(&printed_typed).unwrap();
         assert!(printed["full"].is_null(), "no --full, no places: {printed}");
         // With the flag, and with no `--publish`, the printed answer names what
         // the daemon holds back, as the published file does.
-        let full = read(
+        let full_typed = read(
             &host(&home),
             &Options {
                 full: true,
                 ..opts()
             },
         );
+        let full = serde_json::to_value(&full_typed).unwrap();
         assert!(full["full"]["places"].is_array());
         assert!(
             full["full"]["stoppedContainers"].is_number(),
@@ -1622,10 +1652,11 @@ mod tests {
             scratch: Some(scratch.clone()),
             ..opts()
         };
-        let entries = read(&host(&home), &named)["filesystems".to_string()]
-            .as_array()
-            .unwrap()
-            .clone();
+        let entries = serde_json::to_value(read(&host(&home), &named)).unwrap()
+            ["filesystems".to_string()]
+        .as_array()
+        .unwrap()
+        .clone();
         let asked: Vec<String> = entries
             .iter()
             .flat_map(|e| e["paths"].as_array().unwrap().iter())
@@ -1642,10 +1673,11 @@ mod tests {
             scratch: Some(d.join("mnt/never-mounted")),
             ..opts()
         };
-        let entries = read(&host(&home), &missing)["filesystems".to_string()]
-            .as_array()
-            .unwrap()
-            .clone();
+        let entries = serde_json::to_value(read(&host(&home), &missing)).unwrap()
+            ["filesystems".to_string()]
+        .as_array()
+        .unwrap()
+        .clone();
         let named = d.join("mnt/never-mounted");
         let gone = entries
             .iter()

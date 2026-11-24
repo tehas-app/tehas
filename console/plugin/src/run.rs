@@ -986,7 +986,7 @@ fn hook_at(h: &mut dyn Host, s: &Setup, p: &Plugin, ask: &Ask, req: &HookAsk) ->
                     req.pr
                 ));
                 // The base of the new head, which the request does not know.
-                let why = match status::pull(h, s, req.pr) {
+                let why = match status::pull(h, req.pr) {
                     Ok(Some((at, b))) if at == c => {
                         base = b;
                         None
