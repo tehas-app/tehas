@@ -220,6 +220,54 @@ fn noted(line: &str, n: Option<u64>) -> bool {
         && n.is_none_or(|n| line.contains(&format!(r#""ticket":{{"Number":{n}}}"#)))
 }
 
+/// The fake site a world reads through: open issues 1 to 30, so a write
+/// that reads its issue first (an edit at its revision) finds it.
+fn open_issues() -> tehas_ports::fake::World {
+    (1..=30).fold(tehas_ports::fake::World::new(), |w, n| {
+        w.ticket(n, |t| t.title("an issue"))
+    })
+}
+
+/// Whether the writes hold the label change gh's words `flags` give on
+/// issue `n` (`--add-label a --remove-label b`), as one write of the ports
+/// a part.
+fn changed(w: &[String], n: u64, flags: &str) -> bool {
+    let words: Vec<&str> = flags.split_whitespace().collect();
+    words.chunks(2).all(|pair| match pair {
+        ["--add-label", l] => w.contains(&marked(n, l, true)),
+        ["--remove-label", l] => w.contains(&marked(n, l, false)),
+        _ => false,
+    })
+}
+
+/// The title and text of the edit of issue `n`'s own text among the writes.
+fn edit_of(w: &[String], n: u64) -> Option<(Option<String>, String)> {
+    w.iter().find_map(|c| {
+        let v: Value = serde_json::from_str(c.strip_prefix("send ")?).ok()?;
+        (v["type"] == "EditTicket" && v.pointer("/value/ticket/Number") == Some(&json!(n))).then(
+            || {
+                (
+                    v.pointer("/value/title")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    v.pointer("/value/text/Text")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string(),
+                )
+            },
+        )
+    })
+}
+
+/// Whether the writes hold an edit of issue `n`'s own text.
+fn edited(w: &[String], n: u64) -> bool {
+    w.iter().any(|c| {
+        c.starts_with(r#"send {"type":"EditTicket""#)
+            && c.contains(&format!(r#""ticket":{{"Number":{n}}}"#))
+    })
+}
+
 /// The running mark of a claim on issue 7, as fail-send names it.
 const MARK7: &str = r#""type":"Mark","value":{"ticket":{"Number":7}"#;
 
@@ -369,7 +417,7 @@ fn world() -> World {
                 dir: dir.path().to_path_buf(),
                 next: 4000,
             }),
-            ..handles(&tehas_ports::fake::World::new())
+            ..handles(&open_issues())
         }),
         mark_of: mark_of_word,
         assignee: None,
@@ -2956,7 +3004,11 @@ fn a_turn_that_ended_is_recorded_and_its_question_posted() {
         "Filed in this turn: https://github.com/example-owner/example-product/issues/9"
     )));
     assert!(w.contains(&"store question-asked 7 --id 99 --kind plan".to_string()));
-    assert!(w.contains(&"gh issue edit 7 --repo example-owner/example-product --remove-label tehas:planning --add-label tehas:question".to_string()));
+    assert!(changed(
+        &w,
+        7,
+        "--remove-label tehas:planning --add-label tehas:question"
+    ));
     assert!(w.contains(&"store plan-end 7 --posted".to_string()));
     assert!(!t.w.home.join("state/plan-7.json.rc").exists());
     assert!(!t.w.home.join("state/plan-7.json.out").exists());
@@ -2970,7 +3022,11 @@ fn a_turn_that_left_no_session_goes_to_a_person() {
     let a = t.apply(json!([{"plan_collect": 7}]));
     assert_eq!(a.log, vec!["done planning #7 turn=1 rc=3, no session"]);
     let w = t.writes();
-    assert!(w.contains(&"gh issue edit 7 --repo example-owner/example-product --remove-label tehas:plan --remove-label tehas:planning --add-label needs-human-attention".to_string()));
+    assert!(changed(
+        &w,
+        7,
+        "--remove-label tehas:plan --remove-label tehas:planning --add-label needs-human-attention"
+    ));
     assert!(w.contains(&"store plan-end 7 --turn 1 --outcome failed --rc 3".to_string()));
     assert!(w
         .iter()
@@ -3001,7 +3057,7 @@ fn a_failed_turn_of_a_session_can_be_run_again() {
     assert!(w
         .iter()
         .any(|c| c.contains("This planning turn did not finish: it exited with status 1: the runner exited 40 (draft-invalid).")));
-    assert!(w.contains(&"gh issue edit 7 --repo example-owner/example-product --remove-label tehas:planning --add-label tehas:question --add-label needs-human-attention".to_string()));
+    assert!(changed(&w, 7, "--remove-label tehas:planning --add-label tehas:question --add-label needs-human-attention"));
 }
 
 #[test]
@@ -3262,7 +3318,7 @@ fn a_session_pi_lost_is_ended_and_said_once() {
     );
     let w = t.writes();
     assert!(w.contains(&"store plan-end 7 --turn 2 --outcome lost --rc 1".to_string()));
-    assert!(w.contains(&"gh issue edit 7 --repo example-owner/example-product --remove-label tehas:question --remove-label tehas:planning --remove-label tehas:plan --add-label needs-human-attention".to_string()));
+    assert!(changed(&w, 7, "--remove-label tehas:question --remove-label tehas:planning --remove-label tehas:plan --add-label needs-human-attention"));
     assert!(w.contains(&"store plan-end 7 --close".to_string()));
     // A close the store refuses says nothing yet: the next poll ends it.
     let mut t = world();
@@ -3300,17 +3356,19 @@ fn a_refine_that_filed_replaces_its_issue() {
     let a = t.apply(json!([{"plan_collect": 7}]));
     assert_eq!(a.log, vec!["planning #7 ended: tehas:replaced by https://github.com/example-owner/example-product/issues/9", "done planning #7 turn=2 rc=0"]);
     let w = t.writes();
-    assert!(w.iter().any(|c| c.starts_with(
-        "gh issue edit 9 --repo example-owner/example-product --body-file - <<< Replaces #7"
-    )));
-    assert!(w.contains(&"gh api -X POST repos/example-owner/example-product/issues/7/sub_issues -F sub_issue_id=555".to_string()));
-    assert!(w.contains(&"gh issue edit 7 --repo example-owner/example-product --remove-label tehas:question --remove-label tehas:planning --remove-label tehas:refined --add-label tehas:replaced".to_string()));
+    assert!(edit_of(&w, 9).is_some_and(|(_, b)| b.starts_with("Replaces #7")));
+    assert!(w.contains(&sent(&tehas_ports::Write::AddPart {
+        parent: key(7),
+        child: key(9)
+    })));
+    assert!(changed(&w, 7, "--remove-label tehas:question --remove-label tehas:planning --remove-label tehas:refined --add-label tehas:replaced"));
     assert!(w
         .iter()
         .any(|c| noted(c, Some(7)) && c.contains("Replaced by #9.")));
-    assert!(w.contains(
-        &"gh issue close 7 --repo example-owner/example-product --reason not planned".to_string()
-    ));
+    assert!(w.contains(&sent(&tehas_ports::Write::Close {
+        ticket: key(7),
+        reason: tehas_ports::CloseReason::NotPlanned,
+    })));
     let ledger = fs::read_to_string(t.w.home.join("state/refined.jsonl")).unwrap();
     assert!(ledger.contains(
         r#""source":7,"filed":9,"url":"https://github.com/example-owner/example-product/issues/9"}"#
@@ -3347,12 +3405,21 @@ fn a_plan_chosen_for_its_issue_is_written_onto_it_and_ends_the_session() {
         vec!["planning #7 ended", "done planning #7 turn=3 rc=0"]
     );
     let w = t.writes();
-    assert!(w.iter().any(|c| c.starts_with(
-        "gh issue edit 7 --repo example-owner/example-product --title feat: search is fast --body-file - <<< ## Outcome"
-    )), "{w:?}");
-    assert!(w.contains(&PLAN_LINE.to_string()), "{w:?}");
-    assert!(w.contains(&PLAN_LINE_2.to_string()), "{w:?}");
-    assert!(w.contains(&"gh issue edit 7 --repo example-owner/example-product --remove-label tehas:question --remove-label tehas:planning --remove-label tehas:plan --remove-label needs-human-attention".to_string()));
+    assert!(
+        edit_of(&w, 7)
+            .is_some_and(|(t, b)| t.as_deref() == Some("feat: search is fast")
+                && b.starts_with("## Outcome")),
+        "{w:?}"
+    );
+    assert!(
+        edit_of(&w, 7).is_some_and(|(_, b)| b.contains(PLAN_LINE)),
+        "{w:?}"
+    );
+    assert!(
+        edit_of(&w, 7).is_some_and(|(_, b)| b.contains(PLAN_LINE_2)),
+        "{w:?}"
+    );
+    assert!(changed(&w, 7, "--remove-label tehas:question --remove-label tehas:planning --remove-label tehas:plan --remove-label needs-human-attention"));
     assert!(w
         .iter()
         .any(|c| noted(c, Some(7)) && c.contains("This issue now holds the plan.")));
@@ -3386,7 +3453,7 @@ const TICK: &str = "Update this issue";
 fn plan_draft() -> String {
     json!({"title": PLAN_TITLE, "spec": PLAN_BODY}).to_string()
 }
-const LABEL_OFF: &str = "gh issue edit 7 --repo example-owner/example-product --remove-label tehas:question --remove-label tehas:planning --remove-label tehas:plan --remove-label needs-human-attention --add-label tehas:ready";
+const LABEL_OFF: &str = "--remove-label tehas:question --remove-label tehas:planning --remove-label tehas:plan --remove-label needs-human-attention --add-label tehas:ready";
 
 /// The poll a drafted plan with no open points ends in, up to the store's
 /// `clear`: a session of `by`, its `tehas:plan` by `labeller`, the issue open
@@ -3450,7 +3517,14 @@ fn asks(t: &World) {
             .any(|c| c.starts_with("gh api -X POST") && c.contains("issues/7/comments")),
         "{w:?}"
     );
-    assert!(w.contains(&"gh issue edit 7 --repo example-owner/example-product --remove-label tehas:planning --add-label tehas:question".to_string()), "{w:?}");
+    // The question's mark on first, then the planning one off.
+    let on = w
+        .iter()
+        .position(|c| *c == marked(7, "tehas:question", true));
+    let off = w
+        .iter()
+        .position(|c| *c == marked(7, "tehas:planning", false));
+    assert!(on.is_some() && on < off, "{w:?}");
     assert!(!w.iter().any(|c| c.contains("--title")), "{w:?}");
     assert!(
         !w.iter().any(|c| c.contains("--add-label tehas:ready")),
@@ -3465,14 +3539,14 @@ fn a_plan_with_no_open_points_from_an_allowed_account_updates_and_starts() {
     clear_plan(&t, alices_session(), "alice");
     let a = t.apply(json!([{"plan_collect": 7}]));
     let w = t.writes();
-    assert!(w.iter().any(|c| {
-        c.starts_with(
-            "gh issue edit 7 --repo example-owner/example-product --title feat: search is fast --body-file - <<< ## Outcome",
-        )
-    }) && w.contains(&PLAN_LINE.to_string()),
+    assert!(
+        edit_of(&w, 7)
+            .is_some_and(|(t, b)| t.as_deref() == Some("feat: search is fast")
+                && b.starts_with("## Outcome"))
+            && edit_of(&w, 7).is_some_and(|(_, b)| b.contains(PLAN_LINE)),
         "{w:?}"
     );
-    assert!(w.contains(&LABEL_OFF.to_string()), "{w:?}");
+    assert!(changed(&w, 7, LABEL_OFF), "{w:?}");
     assert!(w.contains(&"store plan-end 7 --close".to_string()), "{w:?}");
     assert!(
         w.iter().any(|c| noted(c, Some(7))
@@ -3526,9 +3600,9 @@ fn a_plan_with_no_open_points_goes_on_masked_and_its_sum_binds_the_masked_text()
     }
     let w = t.writes();
     assert!(
-        w.iter().any(|c| c.starts_with(
-            "gh issue edit 7 --repo example-owner/example-product --title feat: search is fast at [private address] --body-file -"
-        )),
+        edit_of(&w, 7).is_some_and(|(t, b)| t.as_deref()
+            == Some("feat: search is fast at [private address]")
+            && b.starts_with("")),
         "{w:?}"
     );
     // The record binds the text GitHub holds, so the bot's tehas:ready
@@ -3576,15 +3650,8 @@ fn a_ticked_plan_is_written_masked_with_its_title_cut_to_what_github_holds() {
         assert!(!all.contains(secret), "{secret} in {all}");
     }
     let w = t.writes();
-    let edit = w
-        .iter()
-        .find(|c| c.starts_with("gh issue edit 7 --repo example-owner/example-product --title "))
-        .unwrap_or_else(|| panic!("{w:?}"));
-    let written = edit
-        .trim_start_matches("gh issue edit 7 --repo example-owner/example-product --title ")
-        .split(" --body-file -")
-        .next()
-        .unwrap();
+    let (title, _) = edit_of(&w, 7).unwrap_or_else(|| panic!("{w:?}"));
+    let written = title.unwrap();
     assert_eq!(written.chars().count(), 256, "{written}");
     assert!(written.starts_with("feat: ghp_***"), "{written}");
     assert!(w
@@ -3629,14 +3696,15 @@ fn an_issue_s_spec_block_survives_the_plan_and_is_in_the_sum_the_ready_must_matc
     let w = t.writes();
     // The write holds the block above the plan's own text.
     assert!(
-        w.iter().any(|c| {
-            c.starts_with(
-                "gh issue edit 7 --repo example-owner/example-product --title feat: search is fast --body-file - <<< ```pi-spec v1",
-            )
-        }),
+        edit_of(&w, 7)
+            .is_some_and(|(t, b)| t.as_deref() == Some("feat: search is fast")
+                && b.starts_with("```pi-spec v1")),
         "{w:?}"
     );
-    assert!(w.contains(&PLAN_LINE.to_string()), "{w:?}");
+    assert!(
+        edit_of(&w, 7).is_some_and(|(_, b)| b.contains(PLAN_LINE)),
+        "{w:?}"
+    );
     // The sum the bot's `tehas:ready` is matched against is the sum of that
     // body: the record binds what GitHub holds, block included.
     let record: Value = serde_json::from_str(&fs::read_to_string(the_record(&t)).unwrap()).unwrap();
@@ -3679,12 +3747,7 @@ fn a_plan_that_links_a_new_attachment_is_refused_whether_or_not_the_block_links_
     t.apply(json!([{"plan_collect": 7}]));
     let w = t.writes();
     // Nothing was written over the issue: the plan named a link of its own.
-    assert!(
-        !w.iter().any(|c| {
-            c.starts_with("gh issue edit 7 --repo example-owner/example-product --title")
-        }),
-        "{w:?}"
-    );
+    assert!(!edited(&w, 7), "{w:?}");
     assert!(!the_record(&t).exists());
 }
 
@@ -3692,18 +3755,18 @@ fn a_plan_that_links_a_new_attachment_is_refused_whether_or_not_the_block_links_
 fn a_plan_that_could_not_be_written_is_written_by_the_next_poll_on_the_same_terms() {
     let mut t = world();
     clear_plan(&t, alices_session(), "alice");
-    t.fail("gh", "--title");
+    t.fail("send", "EditTicket");
     let a = t.apply(json!([{"plan_collect": 7}]));
     assert!(a.log.iter().any(|l| l.contains("could not be written")));
-    assert!(!t.writes().contains(&LABEL_OFF.to_string()));
+    assert!(!changed(&t.writes(), 7, LABEL_OFF));
     assert!(!t.writes().iter().any(|c| c.contains("plan-end 7 --close")));
     // The record goes first, so no label is ever on with none behind it.
     assert!(the_record(&t).exists());
-    fs::remove_file(t.dir.join("fail-gh")).unwrap();
+    fs::remove_file(t.dir.join("fail-send")).unwrap();
     // The issue moved on: what was decided is what is written.
     fs::remove_file(t.dir.join("view-7")).unwrap();
     t.apply(json!([{"plan_post": 7}]));
-    assert!(t.writes().contains(&LABEL_OFF.to_string()));
+    assert!(changed(&t.writes(), 7, LABEL_OFF));
     assert!(the_record(&t).exists());
 }
 
@@ -3726,16 +3789,12 @@ fn a_masked_or_cut_plan_that_could_not_be_written_is_written_by_the_next_poll() 
             "alice",
             &json!({"title": title, "spec": spec}),
         );
-        t.fail("gh", "--title");
+        t.fail("send", "EditTicket");
         let a = t.apply(json!([{"plan_collect": 7}]));
         assert!(a.log.iter().any(|l| l.contains("could not be written")));
-        fs::remove_file(t.dir.join("fail-gh")).unwrap();
+        fs::remove_file(t.dir.join("fail-send")).unwrap();
         let a = t.apply(json!([{"plan_post": 7}]));
-        assert!(
-            t.writes().contains(&LABEL_OFF.to_string()),
-            "{title}: {:?}",
-            a.log
-        );
+        assert!(changed(&t.writes(), 7, LABEL_OFF), "{title}: {:?}", a.log);
         let all = fs::read_to_string(t.dir.join("calls.log")).unwrap();
         assert!(!all.contains(PLAN_SECRET), "{all}");
         assert!(the_record(&t).exists());
@@ -3907,7 +3966,13 @@ fn posts_nothing_of_itself(t: &World) {
             .any(|c| c.starts_with("gh api -X POST") && c.contains("issues/7/comments")),
         "{w:?}"
     );
-    assert!(!w.iter().any(|c| c.starts_with("gh issue edit 7")), "{w:?}");
+    assert!(
+        !edited(&w, 7)
+            && !w
+                .iter()
+                .any(|c| c.contains(r#""ticket":{"Number":7}"#) && !noted(c, Some(7))),
+        "{w:?}"
+    );
     assert!(
         !w.iter().any(|c| c.contains("--add-label tehas:question")),
         "{w:?}"
@@ -4084,11 +4149,7 @@ fn asks_nothing(t: &World) {
             .any(|c| c.starts_with("gh api -X POST") && c.contains("issues/7/comments")),
         "{w:?}"
     );
-    assert!(
-        !w.iter()
-            .any(|c| c.starts_with("gh issue edit 7 --repo example-owner/example-product --title")),
-        "{w:?}"
-    );
+    assert!(!edited(&w, 7), "{w:?}");
     assert!(
         !w.iter()
             .any(|c| c.contains("--remove-label tehas:planning")),
@@ -4129,8 +4190,8 @@ fn a_clear_plan_that_fails_the_check_asks_and_starts_nothing() {
         // does, or close the session. The poll asks instead, so no case
         // reaches any of them, and a line that says they were tried is a
         // WARN the poll would log.
-        t.fail("gh", "--title");
-        t.fail("gh", "--remove-label tehas:plan ");
+        t.fail("send", "EditTicket");
+        t.fail("send", &marked(7, "tehas:plan", false));
         t.fail("store", "plan-end 7 --close");
         let a = t.apply(json!([{"plan_collect": 7}]));
         eprintln!("{what}");
@@ -4178,19 +4239,17 @@ fn a_chosen_draft_that_fails_the_check_writes_nothing_and_ends_nothing() {
     chosen_draft(&t, REFUSED_TITLE, PLAN_BODY);
     let a = t.apply(json!([{"plan_collect": 7}]));
     let w = t.writes();
-    assert!(
-        !w.iter()
-            .any(|c| c.starts_with("gh issue edit 7 --repo example-owner/example-product --title")),
-        "{w:?}"
-    );
-    assert!(
-        !w.iter()
-            .any(|c| c
-                .starts_with("gh issue edit 7 --repo example-owner/example-product --body-file")),
-        "{w:?}"
-    );
+    assert!(!edited(&w, 7), "{w:?}");
+    assert!(!edited(&w, 7), "{w:?}");
     // Asked, not ended: no planning label comes off and no session closes.
-    assert!(w.contains(&"gh issue edit 7 --repo example-owner/example-product --remove-label tehas:planning --add-label tehas:question".to_string()), "{w:?}");
+    // The question's mark on first, then the planning one off.
+    let on = w
+        .iter()
+        .position(|c| *c == marked(7, "tehas:question", true));
+    let off = w
+        .iter()
+        .position(|c| *c == marked(7, "tehas:planning", false));
+    assert!(on.is_some() && on < off, "{w:?}");
     assert!(
         !w.iter().any(|c| c.contains("--remove-label tehas:plan ")),
         "{w:?}"
@@ -4254,7 +4313,7 @@ fn a_refused_draft_is_refused_once_however_often_the_poll_comes_back() {
     // Only the second poll's own writes, counted from its label change on.
     let second = w
         .iter()
-        .rposition(|c| c.contains("--remove-label tehas:planning"))
+        .rposition(|c| *c == marked(7, "tehas:planning", false))
         .unwrap();
     let second = &w[second..];
     assert!(!second.iter().any(|c| noted(c, Some(7))), "{w:?}");
@@ -4263,11 +4322,7 @@ fn a_refused_draft_is_refused_once_however_often_the_poll_comes_back() {
         "{w:?}"
     );
     assert!(!a.log.iter().any(|l| l.contains(REFUSED)), "{:?}", a.log);
-    assert!(
-        !w.iter()
-            .any(|c| c.starts_with("gh issue edit 7 --repo example-owner/example-product --title")),
-        "{w:?}"
-    );
+    assert!(!edited(&w, 7), "{w:?}");
 }
 
 #[test]
@@ -4410,16 +4465,14 @@ fn a_refusal_whose_outcome_cannot_be_kept_ends_the_poll_and_says_it() {
         "{w:?}"
     );
     asks_without_the_tick(&t);
-    assert!(
-        !w.iter()
-            .any(|c| c.starts_with("gh issue edit 7 --repo example-owner/example-product --title")),
-        "{w:?}"
-    );
+    assert!(!edited(&w, 7), "{w:?}");
     // The turn's own writes followed the keep: the question, the labels and
     // the record of an asked question.
     assert!(
-        w.contains(
-            &"gh issue edit 7 --repo example-owner/example-product --remove-label tehas:planning --add-label tehas:question".to_string()
+        changed(
+            &w,
+            7,
+            "--remove-label tehas:planning --add-label tehas:question"
         ),
         "{w:?}"
     );
@@ -4435,40 +4488,23 @@ fn a_chosen_draft_that_passes_the_check_is_written_as_it_was() {
     chosen_draft(&t, PLAN_TITLE, PLAN_BODY);
     let a = t.apply(json!([{"plan_collect": 7}]));
     let w = t.writes();
-    // One call of `gh issue edit` carries the plan: its title in the
-    // arguments and its body on standard input, which the stub logs as the
-    // text it was given and then as one row per line of that text. A plan of
-    // two lines of words is two rows of the log after the call's own row,
-    // which is the shape of a plan the check lets through and the shape a
-    // refused draft never reaches.
-    let written: Vec<&String> = w
+    // One edit of the issue's own text carries the plan, as it was drafted:
+    // the shape of a plan the check lets through, which a refused draft
+    // never reaches.
+    let edits = w
         .iter()
-        .filter(|c| {
-            c.starts_with(
-                "gh issue edit 7 --repo example-owner/example-product --title feat: search is fast --body-file - <<< ## Outcome",
-            )
-        })
-        .collect();
-    assert_eq!(written.len(), 1, "{w:?}");
-    let after = w.iter().position(|c| c == written[0]).unwrap();
-    // The blank lines between the headings and their text are rows too, so
-    // the two lines of words of the plan sit at after+2 and after+4.
+        .filter(|c| c.starts_with(r#"send {"type":"EditTicket""#))
+        .count();
+    assert_eq!(edits, 1, "{w:?}");
     assert_eq!(
-        w.get(after + 2).map(String::as_str),
-        Some("The p95 is under 100 ms."),
-        "{w:?}"
-    );
-    assert_eq!(
-        w.get(after + 4).map(String::as_str),
-        Some("The gate is green."),
+        edit_of(&w, 7),
+        Some((Some(PLAN_TITLE.to_string()), PLAN_BODY.to_string())),
         "{w:?}"
     );
     // A tick writes the plan; it does not approve a cycle, so the labels of
     // planning come off and no `tehas:ready` is added.
     assert!(
-        w.contains(
-            &"gh issue edit 7 --repo example-owner/example-product --remove-label tehas:question --remove-label tehas:planning --remove-label tehas:plan --remove-label needs-human-attention".to_string()
-        ),
+        changed(&w, 7, "--remove-label tehas:question --remove-label tehas:planning --remove-label tehas:plan --remove-label needs-human-attention"),
         "{w:?}"
     );
     assert!(
@@ -4584,10 +4620,12 @@ fn a_refine_with_later_parts_is_refined_and_stays_open() {
     );
     t.apply(json!([{"plan_collect": 7}]));
     let w = t.writes();
-    assert!(w
-        .iter()
-        .any(|c| c.ends_with("--remove-label tehas:replaced --add-label tehas:refined")));
-    assert!(!w.iter().any(|c| c.starts_with("gh issue close")));
+    assert!(changed(
+        &w,
+        7,
+        "--remove-label tehas:replaced --add-label tehas:refined"
+    ));
+    assert!(!w.iter().any(|c| c.starts_with(r#"send {"type":"Close""#)));
 }
 
 #[test]
@@ -4596,9 +4634,12 @@ fn a_session_ended_by_a_person_is_closed_and_said() {
     let a = t.apply(json!([{"plan_end": 7, "say": "Planning session ended by alice."}]));
     assert_eq!(a.log, vec!["planning #7 ended"]);
     let w = t.writes();
-    assert_eq!(w[0], "gh issue edit 7 --repo example-owner/example-product --remove-label tehas:question --remove-label tehas:planning --remove-label tehas:plan --remove-label needs-human-attention");
-    assert_eq!(w[1], "store plan-end 7 --close");
-    assert_eq!(w[2], note(7, "Planning session ended by alice."));
+    assert!(changed(&w, 7, "--remove-label tehas:question --remove-label tehas:planning --remove-label tehas:plan --remove-label needs-human-attention"), "{:?}", w);
+    let end = w.iter().position(|c| c == "store plan-end 7 --close");
+    let said = w
+        .iter()
+        .position(|c| *c == note(7, "Planning session ended by alice."));
+    assert!(end.is_some() && end < said, "{w:?}");
     // What the session held is free now: the poll after this one comes at
     // once, and the demand counts the issue (#2708).
     assert!(t.w.home.join("state/dispatch.again").exists());
@@ -4862,11 +4903,11 @@ fn a_refine_that_filed_elsewhere_or_again_is_refined_once() {
     );
     t.apply(json!([{"plan_collect": 7}]));
     let w = t.writes();
-    assert!(w.iter().any(|c| c.ends_with("--add-label tehas:refined")));
+    assert!(changed(&w, 7, "--add-label tehas:refined"));
     assert!(w
         .iter()
         .any(|c| c.contains("Replaced by https://github.com/other/place/issues/3.")));
-    assert!(!w.iter().any(|c| c.starts_with("gh issue edit 3")));
+    assert!(!edited(&w, 3));
     // A second poll after a body that says Replaces already, and the mark on:
     // nothing is edited or said again.
     let mut t = world();
@@ -4895,10 +4936,11 @@ fn a_refine_that_filed_elsewhere_or_again_is_refined_once() {
     );
     t.apply(json!([{"plan_post": 7}]));
     let w = t.writes();
-    assert!(!w
-        .iter()
-        .any(|c| c.starts_with("gh issue edit 9") || noted(c, None)));
-    assert!(w.iter().any(|c| c.starts_with("gh issue close 7")));
+    assert!(!w.iter().any(|c| noted(c, None)));
+    assert!(w.contains(&sent(&tehas_ports::Write::Close {
+        ticket: key(7),
+        reason: tehas_ports::CloseReason::NotPlanned
+    })));
 }
 
 #[test]
@@ -4913,10 +4955,7 @@ fn a_repository_named_issues_is_its_own() {
     )
     .unwrap();
     t.apply(json!([{"plan_post": 7}]));
-    assert!(t
-        .writes()
-        .iter()
-        .any(|c| c.starts_with("gh issue edit 5 --repo owner/issues --body-file -")));
+    assert!(edited(&t.writes(), 5));
 }
 
 #[test]
@@ -4995,10 +5034,10 @@ fn a_first_turn_writes_its_brief_begins_marks_says_and_starts_its_unit() {
     );
     let w = t.writes();
     assert!(w[0].starts_with("store plan-begin 7 --by alice --label tehas:plan --brief-file "));
-    assert_eq!(w[1], "gh issue edit 7 --repo example-owner/example-product --add-label tehas:planning --remove-label tehas:plan --remove-label tehas:question --remove-label needs-human-attention");
-    assert!(w[2].contains(
+    assert!(changed(&w, 7, "--add-label tehas:planning --remove-label tehas:plan --remove-label tehas:question --remove-label needs-human-attention"), "{:?}", w);
+    assert!(w.iter().any(|c| note_text(c).contains(
         "(authorized by @alice's `tehas:plan` label). Each turn ends in a comment here."
-    ));
+    )));
     // The unit's script has line ends of its own: the whole log is read.
     let unit = fs::read_to_string(t.dir.join("calls.log")).unwrap();
     assert!(unit.contains("start 7 /bin/bash -c "));
@@ -5019,9 +5058,9 @@ fn a_first_turn_on_an_epics_approval_says_whose_epic_authorized_it() {
     assert_eq!(a.exit, None);
     let w = t.writes();
     assert!(w[0].starts_with("store plan-begin 7 --by alice --label tehas:plan --brief-file "));
-    assert!(w[2].contains(
+    assert!(w.iter().any(|c| note_text(c).contains(
         "(authorized by @alice's `tehas:ready` label on epic #5, which the millwright carried to this sub-issue with `tehas:plan`)."
-    ));
+    )));
 }
 
 #[test]
@@ -5153,7 +5192,7 @@ fn a_turn_the_store_will_not_begin_waits_or_ends_the_poll() {
 #[test]
 fn a_turn_whose_mark_fails_puts_its_record_back() {
     let mut t = world();
-    t.fail("gh", "--add-label tehas:planning");
+    t.fail("send", &marked(7, "tehas:planning", true));
     let a = t.apply(json!([first_turn(7)]));
     assert_eq!(a.exit, Some(1));
     assert_eq!(
@@ -5209,7 +5248,7 @@ fn a_next_turn_is_given_the_answer_on_record_with_what_was_filed() {
     assert!(w.iter().any(|c| c
         .starts_with("store plan-answer 7 --turn 3 --by mill-bot --text-file ")
         && c.ends_with(" --millwright")));
-    assert!(w.contains(&"gh issue edit 7 --repo example-owner/example-product --add-label tehas:planning --remove-label tehas:plan --remove-label tehas:question --remove-label needs-human-attention".to_string()));
+    assert!(changed(&w, 7, "--add-label tehas:planning --remove-label tehas:plan --remove-label tehas:question --remove-label needs-human-attention"));
     let keep = t.dir.join("works/tehas-work-plan-7.keep");
     assert_eq!(fs::read_to_string(keep.join("answer.md")).unwrap(),
         "Already filed in this session: https://github.com/example-owner/example-product/issues/9\n\nDo A.\n");
@@ -6794,7 +6833,7 @@ fn a_leftover_sibling_is_replaced_and_the_new_document_is_read() {
     assert!(before.get("update").is_some(), "{before}");
     let leftover = json!({"text": "half a document of a turn that died"});
     fs::write(&new, format!("{leftover}\n")).unwrap();
-    t.fail("gh", "--add-label");
+    t.fail("send", r#"{"type":"Mark""#);
     let a = t.apply(json!([{"plan_post": 7}]));
     // The document the keep wrote, read back: no `update` of the refused plan
     // is left in it, and none of the leftover's text is either.
@@ -6841,7 +6880,7 @@ fn a_leftover_sibling_is_replaced_and_the_new_document_is_read() {
     let target = t.w.home.join("state/victim.json");
     fs::write(&target, "not the outcome\n").unwrap();
     std::os::unix::fs::symlink(&target, &new).unwrap();
-    t.fail("gh", "--add-label");
+    t.fail("send", r#"{"type":"Mark""#);
     let a = t.apply(json!([{"plan_post": 7}]));
     assert!(
         a.log.iter().any(|l| {
@@ -6945,11 +6984,7 @@ fn a_link_at_the_outcome_reads_as_no_outcome() {
         t.calls()
     );
     // No plan of the linked document was written onto the issue.
-    assert!(
-        !w.iter()
-            .any(|c| c.starts_with("gh issue edit 7 --repo example-owner/example-product --title")),
-        "{w:?}"
-    );
+    assert!(!edited(&w, 7), "{w:?}");
     // The link stands and its target is untouched: reading is not writing.
     assert!(file
         .symlink_metadata()
@@ -6997,11 +7032,7 @@ fn an_outcome_over_the_read_bound_reads_as_no_outcome() {
         "{w:?}"
     );
     assert!(!w.iter().any(|c| c.contains("Which?")), "{w:?}");
-    assert!(
-        !w.iter()
-            .any(|c| c.starts_with("gh issue edit 7 --repo example-owner/example-product --title")),
-        "{w:?}"
-    );
+    assert!(!edited(&w, 7), "{w:?}");
     let boxes = w
         .iter()
         .find(|c| c.starts_with("gh api -X POST") && c.contains("issues/7/comments"))

@@ -97,9 +97,10 @@ fn a_stop_that_offered_no_retry_is_closed_and_not_asked_again() {
     assert_eq!(k["recorded"], json!(false), "{k}");
     assert_eq!(w.row(&["question-show", "21"])["question"], json!(null));
     // It waits on no question any more.
-    has(
-        &gh,
-        "issue edit 21 --repo acme/widget --remove-label tehas:question",
+    assert!(
+        w.changed(21, "--remove-label tehas:question"),
+        "{:?}",
+        w.writes_of(21)
     );
     // The next poll, with the old comment as it now reads, does nothing.
     let closed = format!("{park}\n\n{}", tehas_core::question::superseded(None));
@@ -110,7 +111,7 @@ fn a_stop_that_offered_no_retry_is_closed_and_not_asked_again() {
     let gh = w.gh();
     assert_eq!(count_lines(&gh, "api -X POST"), 0, "{gh}");
     assert_eq!(count_lines(&gh, "api -X PATCH"), 0, "{gh}");
-    assert_eq!(count_lines(&gh, "issue edit 21"), 0, "{gh}");
+    assert_eq!(w.marks(Some(21)), 0, "{gh}");
 }
 
 /// The old question goes off the record before its comment is edited: a

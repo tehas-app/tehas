@@ -134,10 +134,7 @@ fn b8_a_session_pi_rukas_lost_ends_with_outcome_lost_and_stays_open_until_its_la
     w.planning();
     w.comments(7, &plan_body("x", " ", " ", 1, ""), "alice", json!([]));
     w.fx("plan-fails", "{\"session\":\"abc-123\",\"lost\":true}\n");
-    w.fx(
-        "edit-fails-on",
-        "--remove-label tehas:question --remove-label tehas:planning\n",
-    );
+    w.fx("edit-fails-on", "--remove-label tehas:planning\n");
     w.poll();
     let history = ["history-show", "7", "--kind", "plan"];
     assert_eq!(
@@ -240,7 +237,11 @@ fn a13_a_turn_running_on_record_is_not_begun_again_by_a_new_tehas_plan_and_the_p
         "skip #7: its planning session could not begin: store: running",
     );
     assert_eq!(w.plan_calls(), "");
-    lacks(&w.gh(), "--add-label tehas:planning");
+    assert!(
+        !w.changed(7, "--add-label tehas:planning"),
+        "{:?}",
+        w.writes_of(7)
+    );
     assert_eq!(w.calls("fake-start"), "");
     assert_eq!(w.rec()["running"], json!(true));
     assert_eq!(
@@ -266,7 +267,7 @@ fn a13_open_sessions_that_cannot_be_read_hold_every_start_busy_is_exit_1_a_store
             "ERROR: the state store could not list the open planning sessions",
         );
         assert_eq!(w.calls("fake-start"), "");
-        lacks(&w.gh(), "issue edit");
+        assert!(w.untouched(), "{:?}", w.writes_of(7));
         assert_eq!(w.marks(None), 0);
     }
 }
@@ -442,7 +443,11 @@ fn d2_an_answer_whose_turn_the_store_will_not_begin_marks_nothing_and_leaves_the
         "ERROR: could not write the record of #7, not starting a turn (busy)",
     );
     assert_eq!(w.plan_calls(), "");
-    lacks(&w.gh(), "--add-label tehas:planning");
+    assert!(
+        !w.changed(7, "--add-label tehas:planning"),
+        "{:?}",
+        w.writes_of(7)
+    );
     assert_eq!(
         found(&w.home.join("tmp"), &|f| f.starts_with("plan-answer.")),
         0

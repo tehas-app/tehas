@@ -229,9 +229,13 @@ fn with_tehas_analytics_off_a_planning_turn_is_not_recorded() {
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(w.calls("analytics"), "");
-    has(
-        &w.gh(),
-        "--remove-label tehas:planning --add-label tehas:question",
+    assert!(
+        w.changed(
+            7,
+            "--remove-label tehas:planning --add-label tehas:question"
+        ),
+        "{:?}",
+        w.writes_of(7)
     );
 }
 
@@ -272,7 +276,7 @@ fn tehas_ready_on_an_issue_with_an_open_planning_session_starts_no_cycle() {
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(w.calls("fake-start"), "");
-    lacks(&w.gh(), "issue edit");
+    assert!(w.untouched(), "{:?}", w.writes_of(7));
     assert_eq!(w.marks(None), 0);
     has(
         &r.out,

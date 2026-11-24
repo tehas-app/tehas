@@ -112,7 +112,7 @@ fn a_session_does_not_start_when_its_record_cannot_be_written_and_the_issue_is_n
             );
         }
         assert_eq!(w.plan_calls(), "");
-        lacks(&w.gh(), "issue edit");
+        assert!(w.untouched(), "{:?}", w.writes_of(7));
         assert_eq!(w.marks(None), 0);
         assert_eq!(w.notes_any(), 0);
     }
@@ -211,10 +211,7 @@ fn a_turn_cut_off_before_the_issue_was_marked_is_reported_like_any_cut_off_turn(
     w.comments(7, &plan_body(" ", "x", " ", 1, ""), "alice", json!([]));
     w.poll();
     has(&w.gh(), "This planning turn did not finish: it was cut off");
-    has(
-        &w.gh(),
-        "--remove-label tehas:planning --add-label tehas:question --add-label needs-human-attention",
-    );
+    assert!(w.changed(7, "--remove-label tehas:planning --add-label tehas:question --add-label needs-human-attention"), "{:?}", w.writes_of(7));
     assert_eq!(
         rec_jq(
             &w,
@@ -233,10 +230,7 @@ fn a_first_turn_cut_off_before_the_issue_was_marked_ends_visibly_and_takes_the_p
     // What GitHub answers once the label is off.
     w.fx("plans.json", "[]");
     w.poll();
-    has(
-        &w.gh(),
-        "issue edit 7 --repo acme/widget --remove-label tehas:plan --remove-label tehas:planning --add-label needs-human-attention",
-    );
+    assert!(w.changed(7, "--remove-label tehas:plan --remove-label tehas:planning --add-label needs-human-attention"), "{:?}", w.writes_of(7));
     has(&w.gh(), "could not start");
     assert_eq!(w.rec_open(), "none");
     assert_eq!(w.plan_calls(), "");
@@ -248,9 +242,13 @@ fn a_first_turn_that_fails_parks_the_issue_and_leaves_no_session_open() {
     w.to_plan();
     w.touch("plan-fails");
     w.poll();
-    has(
-        &w.gh(),
-        "--remove-label tehas:planning --add-label needs-human-attention",
+    assert!(
+        w.changed(
+            7,
+            "--remove-label tehas:planning --add-label needs-human-attention"
+        ),
+        "{:?}",
+        w.writes_of(7)
     );
     has(&w.gh(), "could not start");
     assert_eq!(w.rec_open(), "none");
@@ -310,10 +308,7 @@ fn a_first_turn_that_fails_after_its_session_came_into_being_keeps_the_session()
     );
     has(&w.gh(), "Reply in a comment to run the turn again");
     lacks(&w.gh(), "could not start");
-    has(
-        &w.gh(),
-        "--remove-label tehas:planning --add-label tehas:question --add-label needs-human-attention",
-    );
+    assert!(w.changed(7, "--remove-label tehas:planning --add-label tehas:question --add-label needs-human-attention"), "{:?}", w.writes_of(7));
     assert_eq!(
         rec_jq(&w, "del(.startedAt)"),
         json!({"session": "abc-123", "turns": 1, "options": [], "pending": false, "failed": true,
