@@ -3,8 +3,9 @@
 //! Every case reads the account on each path the adapter builds accounts
 //! on: REST's issue author, label event actor and assignee, GraphQL's
 //! timeline actor, close, assigned event's assignee and list author, the
-//! code host's change author, the board's change author, and
-//! `Identity::me`.
+//! code host's change author, the board's change author, one change's
+//! author, merger, body editor, comment author and editor, review author
+//! and review note author, and `Identity::me`.
 
 use std::num::NonZeroU64;
 use std::sync::Arc;
@@ -12,9 +13,9 @@ use std::sync::Arc;
 use tehas_core::forge::GhRunner;
 use tehas_github::{GitHub, GitHubSite, MakeRunner};
 use tehas_ports::{
-    Account, AccountKind, Actor, Bound, Caller, ChangeAsk, ChangeFilter, ChangeStates, Closer,
-    Depth, Filter, Happened, HappenedKind, Identity, Scope, Site, TicketKey, Tickets, Window,
-    ALL_MAX,
+    Account, AccountKind, Actor, Bound, Caller, ChangeAsk, ChangeFilter, ChangeNo, ChangeState,
+    ChangeStates, Closer, Depth, Filter, Happened, HappenedKind, Identity, Scope, Site, TicketKey,
+    Tickets, Window, ALL_MAX,
 };
 
 const CALLER: Caller = Caller::new("test.ours");
@@ -137,6 +138,43 @@ fn always_site(bot_id: Option<u64>, answer: String) -> GitHubSite {
     GitHubSite::new("acme/widget", LOGIN, bot_id, make)
 }
 
+/// The answers `CodeHost::change` of pull request 9 reads, in its order,
+/// every account in them `rest` or `gql`: the pull request, merged; one
+/// comment, edited; one review; one review note; and the last question.
+fn change_answers(rest: &str, gql: &str) -> Vec<String> {
+    let sha = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678";
+    let api = "https://api.github.com/repos/acme/widget/pulls/9";
+    vec![
+        format!(
+            r#"{{"number":9,"html_url":"https://github.com/acme/widget/pull/9","title":"t","body":"",
+"state":"closed","merged":true,"merged_at":"2026-01-03T00:00:00Z","closed_at":"2026-01-03T00:00:00Z",
+"merge_commit_sha":"{sha}","merged_by":{rest},"user":{rest},
+"head":{{"ref":"feature/x","sha":"{sha}"}},"base":{{"ref":"main","sha":"{sha}"}},
+"labels":[],"draft":false,"comments":1,"review_comments":1,"additions":0,"deletions":0,
+"changed_files":0,"created_at":"2026-01-02T00:00:00Z","updated_at":"2026-01-04T00:00:00Z"}}"#
+        ),
+        format!(
+            r#"[{{"id":1,"html_url":"https://github.com/acme/widget/pull/9#issuecomment-1","body":"c",
+"created_at":"2026-01-02T01:00:00Z","updated_at":"2026-01-02T02:00:00Z","node_id":"IC_1","user":{rest}}}]"#
+        ),
+        format!(
+            r#"[{{"id":5,"state":"APPROVED","body":"","submitted_at":"2026-01-02T03:00:00Z",
+"pull_request_url":"{api}","user":{rest}}}]"#
+        ),
+        format!(
+            r#"[{{"id":6,"pull_request_review_id":5,"pull_request_url":"{api}","path":"a.rs",
+"body":"n","user":{rest}}}]"#
+        ),
+        format!(
+            r#"{{"data":{{"repository":{{"databaseId":1,"pullRequest":{{"number":9,"headRefOid":"{sha}",
+"updatedAt":"2026-01-04T00:00:00Z","isCrossRepository":false,"mergeable":"MERGEABLE",
+"mergeStateStatus":"CLEAN","lastEditedAt":"2026-01-02T00:30:00Z","editor":{gql},
+"closingIssuesReferences":{{"totalCount":0,"nodes":[]}}}}}},
+"nodes":[{{"__typename":"IssueComment","id":"IC_1","lastEditedAt":"2026-01-02T02:00:00Z","editor":{gql}}}]}}}}"#
+        ),
+    ]
+}
+
 /// A recorded page of pull requests, every account in it `actor`.
 fn pulls(file: &str, actor: &str) -> String {
     let at = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -222,6 +260,33 @@ fn kinds(bot_id: Option<u64>, w: Who) -> Vec<(&'static str, Option<AccountKind>)
     out.push((
         "code host change author",
         kind(all.items()[0].author.as_ref()),
+    ));
+
+    let mut h = site_of(LOGIN, bot_id, change_answers(&rest, &gql))
+        .code_host(&Actor::Ours(Scope::Full), CALLER)
+        .unwrap();
+    let c = h
+        .change(ChangeNo::new(9).unwrap(), Bound::new(10).unwrap())
+        .unwrap();
+    out.push(("one change's author", kind(c.digest.author.as_ref())));
+    let merger = match &c.digest.state {
+        ChangeState::Merged { by, .. } => kind(by.as_ref()),
+        _ => None,
+    };
+    out.push(("one change's merger", merger));
+    out.push(("one change's body editor", kind(c.digest.editor.as_ref())));
+    out.push((
+        "one change's comment author",
+        kind(c.comments[0].author.as_ref()),
+    ));
+    out.push((
+        "one change's comment editor",
+        kind(c.comments[0].editor.as_ref()),
+    ));
+    out.push(("one change's review author", kind(c.reviews[0].by.as_ref())));
+    out.push((
+        "one change's review note author",
+        kind(c.reviews[0].notes[0].by.as_ref()),
     ));
 
     let page = pulls("board/three-open-bare/pulls-first.json", &gql);

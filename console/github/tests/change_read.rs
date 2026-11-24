@@ -10,12 +10,12 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tehas_core::forge::GhRunner;
-use tehas_github::GitHub;
+use tehas_github::{GitHub, GitHubSite, MakeRunner};
 use tehas_ports::laws;
 use tehas_ports::{
-    AccountKind, At, BlueprintNo, Bound, Branch, ChangeNo, ChangeState, CodeHost, CommitId, Mark,
-    Marker, MarkerKind, Mergeable, NotMergeable, Outcome, Passing, Pool, Ref, Relation, Sent,
-    State, Unread, Verdict, Whole,
+    AccountKind, Actor, At, BlueprintNo, Bound, Branch, Caller, ChangeNo, ChangeState, CodeHost,
+    CommitId, Mark, Marker, MarkerKind, Mergeable, NotMergeable, Outcome, Passing, Pool, Ref,
+    Relation, Scope, Sent, Site as _, State, Unread, Verdict, Whole,
 };
 
 const PROJECT: &str = "acme/widget";
@@ -1284,5 +1284,46 @@ fn the_authors_relation_is_read_from_its_association() {
         let (mut gh, _, _) = adapter(site);
         let d = gh.change(nine(), bound(100)).unwrap().digest;
         assert_eq!(d.author_relation, want, "{word:?}");
+    }
+}
+
+/// A code host handle of a site given the bot's user id, or none, over
+/// `site`.
+fn site_handle(site: Site, bot_id: Option<u64>) -> Box<dyn CodeHost + Send> {
+    let kept = Arc::new(Mutex::new(site));
+    let make: MakeRunner = Arc::new(move |_: &Actor| {
+        Ok(Box::new(Runner {
+            site: Arc::clone(&kept),
+            calls: Calls::default(),
+        }) as Box<dyn GhRunner>)
+    });
+    GitHubSite::new(PROJECT, "tehas-bot[bot]\n", bot_id, make)
+        .on_clock(now)
+        .code_host(&Actor::Ours(Scope::Full), Caller::new("test.change"))
+        .unwrap()
+}
+
+#[test]
+fn with_the_bots_id_our_landed_comment_settles_as_landed_and_without_it_as_unknown() {
+    let sent = "The refresh is done.";
+    let row = tehas_ports::Write::CommentChange {
+        no: nine(),
+        body: tehas_ports::Body::Text(sent.into()),
+        markers: Vec::new(),
+    };
+    let since = at("2026-11-20T10:00:00Z");
+    use tehas_core::journal::{settle::by_comments, Found};
+    for (bot_id, kind, found) in [
+        (Some(100001), AccountKind::Ours, Some(Found::Landed)),
+        (None, AccountKind::Bot, None),
+    ] {
+        let mut site = Site::default().with("comments", 1);
+        comments!(site)[0]["user"] =
+            json!({"login": "tehas-bot[bot]", "id": 100001, "type": "Bot"});
+        comments!(site)[0]["body"] = sent.into();
+        let mut h = site_handle(site, bot_id);
+        let read = h.change(nine(), bound(100)).unwrap().comments;
+        assert_eq!(read[0].author.as_ref().unwrap().kind, kind, "{bot_id:?}");
+        assert_eq!(by_comments(&row, &read, since), found, "{bot_id:?}");
     }
 }

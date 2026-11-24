@@ -31,7 +31,7 @@
 
 use std::collections::BTreeSet;
 
-use crate::tickets::account;
+use crate::tickets::{account, Bot};
 use crate::{gh, markers, GitHub};
 use serde::Deserialize;
 use serde_json::Value;
@@ -120,7 +120,7 @@ impl GitHub {
         let out = self
             .call("the pull request", &["api", &path])
             .map_err(|e| self.outcome(&e))?;
-        read_pull(&out, &self.repo, no)
+        read_pull(&out, &self.repo, no, self.bot.as_ref())
     }
 
     /// Every issue comment of the pull request, oldest first, and those of
@@ -152,7 +152,8 @@ impl GitHub {
                 .call("the pull request's comments", &["api", &path])
                 .map_err(|e| self.outcome(&e))?;
             let held = (count - (page - 1) * PER_PAGE).min(PER_PAGE);
-            let (mut comments, touched) = read_comments(&out, &self.repo, no, item)?;
+            let (mut comments, touched) =
+                read_comments(&out, &self.repo, no, item, self.bot.as_ref())?;
             if comments.len() != held {
                 return Err(Outcome::Unread(Unread::Inconsistent));
             }
@@ -198,7 +199,12 @@ impl GitHub {
         let answer: Answer = answer(&out, (self.now)())?;
         let node = match pull {
             false => None,
-            true => Some(answer.repository.ok_or(MALFORMED)?.read(no)?),
+            true => Some(
+                answer
+                    .repository
+                    .ok_or(MALFORMED)?
+                    .read(no, self.bot.as_ref())?,
+            ),
         };
         let nodes = answer.nodes.unwrap_or_default();
         if nodes.len() != ids.len() {
@@ -210,7 +216,7 @@ impl GitHub {
                 .filter(|n| n.id.as_deref() == Some(id.as_str()))
                 .filter(|n| n.kind.as_deref() == Some("IssueComment"))
                 .ok_or(Outcome::Unread(Unread::Inconsistent))?;
-            edits.push(n.edit.read()?);
+            edits.push(n.edit.read(self.bot.as_ref())?);
         }
         Ok((node, edits))
     }
@@ -283,7 +289,7 @@ impl GitHub {
                     _ => Verdict::Unknown,
                 };
                 let mut review = Review::new(verdict, time(r.submitted_at.as_deref())?);
-                review.by = author(r.user.as_ref());
+                review.by = author(r.user.as_ref(), self.bot.as_ref());
                 let text = markers::read(r.body.as_deref().unwrap_or_default(), Some(item)).text;
                 if !text.is_empty() {
                     let mut note = ReviewNote::default();
@@ -343,7 +349,7 @@ impl GitHub {
                     continue;
                 };
                 let mut note = ReviewNote::default();
-                note.by = author(n.user.as_ref());
+                note.by = author(n.user.as_ref(), self.bot.as_ref());
                 note.path = match n.path {
                     Some(p) => Some(RepoPath::new(p).map_err(|_| MALFORMED)?),
                     None => None,
@@ -478,7 +484,7 @@ struct NoteFields {
 }
 
 /// The pull request's REST answer read. See [`GitHub::pull`].
-fn read_pull(out: &str, repo: &str, no: ChangeNo) -> Got<(Pull, Stamp)> {
+fn read_pull(out: &str, repo: &str, no: ChangeNo, bot: Option<&Bot>) -> Got<(Pull, Stamp)> {
     let f: PullFields = parse(out)?;
     if f.number != Some(no.get()) {
         return Err(Outcome::Unread(Unread::Inconsistent));
@@ -500,7 +506,7 @@ fn read_pull(out: &str, repo: &str, no: ChangeNo) -> Got<(Pull, Stamp)> {
         (Some("open"), _) => ChangeState::Open,
         (Some("closed"), Some(true)) => ChangeState::Merged {
             at: time(f.merged_at.as_deref())?,
-            by: author(f.merged_by.as_ref()),
+            by: author(f.merged_by.as_ref(), bot),
             commit: CommitId::new(f.merge_commit_sha.as_deref().ok_or(MALFORMED)?)
                 .map_err(|_| MALFORMED)?,
         },
@@ -522,7 +528,7 @@ fn read_pull(out: &str, repo: &str, no: ChangeNo) -> Got<(Pull, Stamp)> {
         WebLink::new(url).map_err(|_| MALFORMED)?,
     );
     digest.title = f.title.ok_or(MALFORMED)?;
-    digest.author = author(f.user.as_ref());
+    digest.author = author(f.user.as_ref(), bot);
     digest.author_relation = f.author_association.as_deref().map(relation);
     digest.draft = f.draft.ok_or(MALFORMED)?;
     let mut size = Size::default();
@@ -562,6 +568,7 @@ fn read_comments(
     repo: &str,
     no: ChangeNo,
     item: BlueprintNo,
+    bot: Option<&Bot>,
 ) -> Got<(Vec<Comment>, Vec<Touched>)> {
     let items: Vec<CommentFields> = parse(out)?;
     let mut comments = Vec::with_capacity(items.len());
@@ -582,7 +589,7 @@ fn read_comments(
         let sum = Revision::new(tehas_core::approval::body_sum(raw));
         let link = WebLink::new(url).map_err(|_| MALFORMED)?;
         let mut comment = Comment::new(CommentId::new(id.to_string()), created, sum, link);
-        comment.author = author(c.user.as_ref());
+        comment.author = author(c.user.as_ref(), bot);
         if updated != created {
             let node = c.node_id.filter(|n| is_node_id(n)).ok_or(MALFORMED)?;
             touched.push((comments.len(), node, updated));
@@ -737,7 +744,7 @@ impl RepoNode {
     /// The pull request's part, which must be of `no`, else
     /// `Unread(Inconsistent)`. Closing references past one page are
     /// `Unread(Cut)`.
-    fn read(self, no: ChangeNo) -> Got<Node> {
+    fn read(self, no: ChangeNo, bot: Option<&Bot>) -> Got<Node> {
         let here = self.id.ok_or(MALFORMED)?;
         let pull = self.pull.ok_or(Outcome::Unread(Unread::Inconsistent))?;
         if pull.number != Some(no.get()) {
@@ -762,7 +769,7 @@ impl RepoNode {
                 },
             });
         }
-        let (edited, editor) = pull.edit.read()?;
+        let (edited, editor) = pull.edit.read(bot)?;
         Ok(Node {
             head: pull.head.ok_or(MALFORMED)?,
             updated: time(pull.updated.as_deref())?,
@@ -783,7 +790,7 @@ impl Edited {
     /// never edited. An edit by an account GitHub no longer names is the
     /// account `ghost` of an unknown kind, so an edited text never reads as
     /// unedited.
-    fn read(self) -> Got<Edit> {
+    fn read(self, bot: Option<&Bot>) -> Got<Edit> {
         let Some(at) = self.last_edited_at else {
             return Ok((None, None));
         };
@@ -795,7 +802,7 @@ impl Edited {
                     id: a.id,
                     kind: a.kind,
                 };
-                account(&a.login.ok_or(MALFORMED)?, &facts).ok_or(MALFORMED)?
+                account(&a.login.ok_or(MALFORMED)?, &facts, bot).ok_or(MALFORMED)?
             }
         };
         Ok((Some(at), Some(editor)))
@@ -912,13 +919,13 @@ fn small(n: Option<u64>) -> Got<u32> {
 
 /// The account of a `user`, None where it names nobody: a deleted
 /// account's is `null`.
-fn author(user: Option<&User>) -> Option<Account> {
+fn author(user: Option<&User>, bot: Option<&Bot>) -> Option<Account> {
     let u = user?;
     let facts = gh::Facts {
         id: u.id,
         kind: u.kind.clone(),
     };
-    account(u.login.as_deref()?, &facts)
+    account(u.login.as_deref()?, &facts, bot)
 }
 
 /// Whether `text` ends with `tail`, ASCII case folded: GitHub's links
