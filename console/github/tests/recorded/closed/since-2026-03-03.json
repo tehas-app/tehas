@@ -53,7 +53,8 @@
       "closedByPullRequestsReferences": {
        "totalCount": 0,
        "nodes": []
-      }
+      },
+      "parent": null
      }
     ]
    }
