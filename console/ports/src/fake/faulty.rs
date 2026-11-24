@@ -141,6 +141,10 @@ pub enum BlueprintsOp {
     BodyEdits,
     /// `Blueprints::comment_edits`.
     CommentEdits,
+    /// `Blueprints::body_edits_of`.
+    BodyEditsOf,
+    /// `Blueprints::comment_edits_of`.
+    CommentEditsOf,
     /// `Blueprints::search`.
     Search,
     /// `Blueprints::attachments`.
@@ -1338,6 +1342,28 @@ impl<H: Blueprints + ?Sized> Blueprints for Wrap<H> {
     fn comment_edits(&mut self, id: &CommentId, bound: Bound) -> Got<Whole<Edit>> {
         self.call(Op::Blueprints(B::CommentEdits), Err, |h| {
             h.comment_edits(id, bound)
+        })
+    }
+    /// The whole call goes to the inner handle, so an adapter's batch is
+    /// kept; a fault fails each item.
+    fn body_edits_of(
+        &mut self,
+        nos: &[BlueprintNo],
+        bound: Bound,
+    ) -> Vec<(BlueprintNo, Got<Whole<Edit>>)> {
+        let fail = |o: Outcome| nos.iter().map(|&n| (n, Err(o.clone()))).collect();
+        self.call(Op::Blueprints(B::BodyEditsOf), fail, |h| {
+            h.body_edits_of(nos, bound)
+        })
+    }
+    fn comment_edits_of(
+        &mut self,
+        ids: &[CommentId],
+        bound: Bound,
+    ) -> Vec<(CommentId, Got<Whole<Edit>>)> {
+        let fail = |o: Outcome| ids.iter().map(|i| (i.clone(), Err(o.clone()))).collect();
+        self.call(Op::Blueprints(B::CommentEditsOf), fail, |h| {
+            h.comment_edits_of(ids, bound)
         })
     }
     fn search(

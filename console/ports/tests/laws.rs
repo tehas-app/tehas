@@ -1212,6 +1212,35 @@ fn a_sign_in_link_may_be_refused_and_a_marker_names_its_text() {
 }
 
 #[test]
+fn faulty_passes_the_plural_edit_reads_whole_and_fails_each_item() {
+    let w = World::same_item()
+        .blueprint(1, |b| b.title("a").body("x"))
+        .blueprint(2, |b| b.title("b").body("y"));
+    let nos = [bp(1), bp(2)];
+    let plain = FakeSite::new(&w);
+    let want = plain
+        .blueprints(&full(), C)
+        .unwrap()
+        .body_edits_of(&nos, ALL_MAX);
+    let site = Faulty::new(FakeSite::new(&w));
+    let mut h = site.blueprints(&full(), C).unwrap();
+    assert_eq!(h.body_edits_of(&nos, ALL_MAX), want);
+    let site = Faulty::new(FakeSite::new(&w))
+        .on(Op::Blueprints(BlueprintsOp::BodyEditsOf), Fault::Timeout);
+    let mut h = site.blueprints(&full(), C).unwrap();
+    let got = h.body_edits_of(&nos, ALL_MAX);
+    assert_eq!(got.len(), 2);
+    assert!(got.iter().all(|(_, a)| a.is_err()), "{got:?}");
+    let ids = [CommentId::new("c1"), CommentId::new("c2")];
+    let site = Faulty::new(FakeSite::new(&w))
+        .on(Op::Blueprints(BlueprintsOp::CommentEditsOf), Fault::Timeout);
+    let mut h = site.blueprints(&full(), C).unwrap();
+    let got = h.comment_edits_of(&ids, ALL_MAX);
+    assert_eq!(got.iter().map(|(i, _)| i.clone()).collect::<Vec<_>>(), ids);
+    assert!(got.iter().all(|(_, a)| a.is_err()), "{got:?}");
+}
+
+#[test]
 fn marks_prepare_one_makes_the_mark_held() {
     for w in both() {
         let site = FakeSite::new(&w);
