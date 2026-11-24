@@ -4,7 +4,7 @@
 //! and the `NoticeLog` sink, on the fake's clock.
 
 use std::io::Read;
-use std::num::NonZeroU32;
+use std::num::{NonZeroU32, NonZeroU64};
 use std::sync::Arc;
 
 use tehas_ports::fake::{
@@ -390,6 +390,76 @@ fn tickets_a_ticket_names_its_target_as_targets_does() {
         let named = h.several(&[w.key(1)])[0].1.clone().unwrap().target.unwrap();
         assert_eq!((named.open, named.due), (Some(true), Some(due)));
     }
+}
+
+#[test]
+fn board_as_blockers_name_each_number() {
+    let at = At::new(5);
+    let w = World::same_item()
+        .ticket(1, |t| t.title("open"))
+        .ticket(2, |t| t.title("closed").closed(CloseReason::Done))
+        .change(50, "a", |c| c.title("open change"))
+        .change(51, "b", |c| {
+            c.title("merged").state(ChangeState::Merged {
+                at,
+                by: None,
+                commit: None,
+            })
+        })
+        .change(52, "c", |c| {
+            c.title("closed change").state(ChangeState::Closed { at })
+        });
+    let site = FakeSite::new(&w);
+    let mut board = site.board(&full(), C).unwrap();
+    let n = |x: u64| NonZeroU64::new(x).unwrap();
+    let ticket = |x: u64, s| {
+        Ok(Blocker::new(
+            Ref::Here(Item::Ticket(TicketKey::Number(n(x)))),
+            s,
+        ))
+    };
+    let change = |x: u64, s| Ok(Blocker::new(Ref::Here(Item::Change(cn(x))), s));
+    ok(laws::board::as_blockers_name_each_number(
+        board.as_mut(),
+        &[
+            (n(2), ticket(2, BlockerState::Closed)),
+            (n(50), change(50, BlockerState::Open)),
+            (n(1), ticket(1, BlockerState::Open)),
+            (n(51), change(51, BlockerState::Merged)),
+            (n(999), Err(Outcome::NotFound)),
+            (n(52), change(52, BlockerState::Closed)),
+            (n(1), ticket(1, BlockerState::Open)),
+        ],
+    ));
+    let wrong = laws::board::as_blockers_name_each_number(
+        board.as_mut(),
+        &[(n(1), ticket(1, BlockerState::Closed))],
+    );
+    assert!(wrong.is_err(), "a wrong state passed");
+}
+
+#[test]
+fn board_as_blockers_is_unsupported_where_numbers_name_no_ticket() {
+    let w = World::split().ticket(1, |t| t.title("open"));
+    let site = FakeSite::new(&w);
+    let mut board = site.board(&full(), C).unwrap();
+    let one = NonZeroU64::new(1).unwrap();
+    assert_eq!(
+        board.as_blockers(&[one]),
+        vec![(one, Err(Outcome::Refused(Refusal::Unsupported)))]
+    );
+}
+
+#[test]
+fn board_as_blockers_faults_each_number() {
+    let w = World::same_item().ticket(1, |t| t.title("open"));
+    let site = Faulty::new(FakeSite::new(&w)).on(Op::Board(BoardOp::AsBlockers), Fault::Timeout);
+    let mut board = site.board(&full(), C).unwrap();
+    let one = NonZeroU64::new(1).unwrap();
+    let two = NonZeroU64::new(2).unwrap();
+    let got = board.as_blockers(&[one, two]);
+    assert_eq!(got.len(), 2);
+    assert!(got.iter().all(|(_, a)| a.is_err()), "{got:?}");
 }
 
 #[test]
@@ -847,6 +917,24 @@ fn anonymous_reads_public_releases_and_writes_nothing() {
 }
 
 #[test]
+fn tickets_kinds_hold_no_unknown() {
+    for w in both() {
+        let w = w
+            .kind(Kind::Unknown)
+            .kind(Kind::Other(MarkName::new("Chore").unwrap()));
+        let site = FakeSite::new(&w);
+        let mut h = site.tickets(&full(), C).unwrap();
+        ok(laws::tickets::kinds_hold_no_unknown(h.as_mut()));
+        let kinds = h.kinds().unwrap().into_items();
+        assert!(kinds.contains(&Kind::Feature), "{kinds:?}");
+        assert!(
+            kinds.contains(&Kind::Other(MarkName::new("Chore").unwrap())),
+            "{kinds:?}"
+        );
+    }
+}
+
+#[test]
 fn blueprints_a_changes_number_is_no_blueprint() {
     let w = World::same_item();
     let n = first_change(&w);
@@ -1191,6 +1279,49 @@ fn a_sign_in_link_may_be_refused_and_a_marker_names_its_text() {
         Setup::One(Arc::new(site)).marker_text(Realm::CodeHost, &cleared),
         text
     );
+}
+
+#[test]
+fn faulty_passes_the_plural_edit_reads_whole_and_fails_each_item() {
+    let w = World::same_item()
+        .blueprint(1, |b| b.title("a").body("x"))
+        .blueprint(2, |b| b.title("b").body("y"));
+    let nos = [bp(1), bp(2)];
+    let plain = FakeSite::new(&w);
+    let want = plain
+        .blueprints(&full(), C)
+        .unwrap()
+        .body_edits_of(&nos, ALL_MAX);
+    let site = Faulty::new(FakeSite::new(&w));
+    let mut h = site.blueprints(&full(), C).unwrap();
+    assert_eq!(h.body_edits_of(&nos, ALL_MAX), want);
+    let site = Faulty::new(FakeSite::new(&w))
+        .on(Op::Blueprints(BlueprintsOp::BodyEditsOf), Fault::Timeout);
+    let mut h = site.blueprints(&full(), C).unwrap();
+    let got = h.body_edits_of(&nos, ALL_MAX);
+    assert_eq!(got.len(), 2);
+    assert!(got.iter().all(|(_, a)| a.is_err()), "{got:?}");
+    let ids = [CommentId::new("c1"), CommentId::new("c2")];
+    let site = Faulty::new(FakeSite::new(&w))
+        .on(Op::Blueprints(BlueprintsOp::CommentEditsOf), Fault::Timeout);
+    let mut h = site.blueprints(&full(), C).unwrap();
+    let got = h.comment_edits_of(&ids, ALL_MAX);
+    assert_eq!(got.iter().map(|(i, _)| i.clone()).collect::<Vec<_>>(), ids);
+    assert!(got.iter().all(|(_, a)| a.is_err()), "{got:?}");
+}
+
+#[test]
+fn marks_prepare_one_makes_the_mark_held() {
+    for w in both() {
+        let site = FakeSite::new(&w);
+        let mut h = site.ticket_writes(&full(), C).unwrap();
+        ok(laws::marks::prepare_one_makes_the_mark_held(
+            h.as_mut(),
+            &Mark::State(State::Escalated),
+        ));
+        let others = h.marks(ALL_MAX).unwrap().into_items();
+        assert_eq!(others.len(), 1, "one mark made, not every one: {others:?}");
+    }
 }
 
 #[test]

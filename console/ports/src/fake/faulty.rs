@@ -86,6 +86,8 @@ pub enum TicketsOp {
     Apply,
     /// `TicketWrites::prepare`.
     Prepare,
+    /// `TicketWrites::prepare_one`.
+    PrepareOne,
     /// `TicketWrites::ensure_mark`.
     EnsureMark,
     /// `TicketWrites::mark`.
@@ -139,6 +141,10 @@ pub enum BlueprintsOp {
     BodyEdits,
     /// `Blueprints::comment_edits`.
     CommentEdits,
+    /// `Blueprints::body_edits_of`.
+    BodyEditsOf,
+    /// `Blueprints::comment_edits_of`.
+    CommentEditsOf,
     /// `Blueprints::search`.
     Search,
     /// `Blueprints::attachments`.
@@ -270,6 +276,8 @@ pub enum BoardOp {
     TargetWork,
     /// `Board::open_changes`.
     OpenChanges,
+    /// `Board::as_blockers`.
+    AsBlockers,
 }
 
 /// Every method of every port that answers an outcome. A method that
@@ -308,6 +316,7 @@ impl Op {
             Op::Tickets(
                 T::Apply
                     | T::Prepare
+                    | T::PrepareOne
                     | T::EnsureMark
                     | T::Mark
                     | T::Unmark
@@ -1234,6 +1243,9 @@ impl<H: TicketWrites + ?Sized> TicketWrites for Wrap<H> {
     fn prepare(&mut self) -> Result<(), Unprepared> {
         self.call(Op::Tickets(T::Prepare), |o| Err(o.into()), |h| h.prepare())
     }
+    fn prepare_one(&mut self, mark: &Mark) -> Did {
+        self.call(Op::Tickets(T::PrepareOne), Err, |h| h.prepare_one(mark))
+    }
     fn ensure_mark(&mut self, spec: &MarkSpec) -> Did {
         self.call(Op::Tickets(T::EnsureMark), Err, |h| h.ensure_mark(spec))
     }
@@ -1332,6 +1344,28 @@ impl<H: Blueprints + ?Sized> Blueprints for Wrap<H> {
     fn comment_edits(&mut self, id: &CommentId, bound: Bound) -> Got<Whole<Edit>> {
         self.call(Op::Blueprints(B::CommentEdits), Err, |h| {
             h.comment_edits(id, bound)
+        })
+    }
+    /// The whole call goes to the inner handle, so an adapter's batch is
+    /// kept; a fault fails each item.
+    fn body_edits_of(
+        &mut self,
+        nos: &[BlueprintNo],
+        bound: Bound,
+    ) -> Vec<(BlueprintNo, Got<Whole<Edit>>)> {
+        let fail = |o: Outcome| nos.iter().map(|&n| (n, Err(o.clone()))).collect();
+        self.call(Op::Blueprints(B::BodyEditsOf), fail, |h| {
+            h.body_edits_of(nos, bound)
+        })
+    }
+    fn comment_edits_of(
+        &mut self,
+        ids: &[CommentId],
+        bound: Bound,
+    ) -> Vec<(CommentId, Got<Whole<Edit>>)> {
+        let fail = |o: Outcome| ids.iter().map(|i| (i.clone(), Err(o.clone()))).collect();
+        self.call(Op::Blueprints(B::CommentEditsOf), fail, |h| {
+            h.comment_edits_of(ids, bound)
         })
     }
     fn search(
@@ -1643,6 +1677,12 @@ impl<H: Board + ?Sized> Board for Wrap<H> {
     fn open_changes(&mut self, ask: &ChangeAsk, bound: Bound) -> Got<Whole<ChangeItem>> {
         self.call(Op::Board(BoardOp::OpenChanges), Err, |h| {
             h.open_changes(ask, bound)
+        })
+    }
+    fn as_blockers(&mut self, numbers: &[NonZeroU64]) -> Vec<(NonZeroU64, Got<Blocker>)> {
+        let fail = |o: Outcome| numbers.iter().map(|&n| (n, Err(o.clone()))).collect();
+        self.call(Op::Board(BoardOp::AsBlockers), fail, |h| {
+            h.as_blockers(numbers)
         })
     }
 }

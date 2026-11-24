@@ -531,7 +531,7 @@ fn the_core_files_are_kept_only_when_the_setting_names_them() {
 #[test]
 fn a_task_that_cannot_start_stops_the_run_even_over_a_clean_record() {
     let d = TestDir::new("run-spawn");
-    let out = d.join("run");
+    let out = d.join("records");
     let key = out.join("test/a_test.sh");
     fs::create_dir_all(key.parent().unwrap()).unwrap();
     // A record that reads as a pass is already there: the run must not take it

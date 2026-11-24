@@ -83,6 +83,8 @@ fn question(repo: &str, args: &[&str]) -> (String, String) {
             name
         } else if query.contains("mentions:") {
             "mentions".to_string()
+        } else if query.contains("blockedBy(") {
+            "blockers".to_string()
         } else if query.contains("subIssues") {
             "parts".to_string()
         } else if query.contains("parent {") {

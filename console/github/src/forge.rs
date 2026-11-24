@@ -116,6 +116,9 @@ pub struct GitHub {
     /// None for a handle made with [`GitHub::new`], which answers no account
     /// `Ours`.
     pub(crate) bot: Option<crate::tickets::Bot>,
+    /// The node id and the issue of each comment a read of comments found
+    /// edited, by its REST id: an edit history is asked by node id.
+    pub(crate) comment_nodes: std::collections::HashMap<u64, (String, tehas_ports::BlueprintNo)>,
 }
 
 impl GitHub {
@@ -133,6 +136,7 @@ impl GitHub {
             now: tehas_core::time::now,
             left_out: Vec::new(),
             bot: None,
+            comment_nodes: std::collections::HashMap::new(),
         }
     }
 
@@ -157,19 +161,6 @@ impl GitHub {
         }
     }
 
-    /// [`GitHub::call`], and on a failure what gh answered on its standard
-    /// output, if the runner kept it: gh exits 1 on a GraphQL answer that
-    /// carries any error, and the answer says which.
-    pub(crate) fn call_answer(
-        &mut self,
-        call: &str,
-        args: &[&str],
-    ) -> Result<String, (ForgeError, Option<String>)> {
-        self.runner
-            .run_answer(args)
-            .map_err(|f| (ForgeError::new(call, f.why), f.answer))
-    }
-
     /// [`GitHub::call`] with `input` on gh's standard input, the way a write
     /// sends its text: never in an argument.
     pub(crate) fn call_input(
@@ -181,6 +172,19 @@ impl GitHub {
         self.runner
             .run_input(args, input)
             .map_err(|why| ForgeError::new(call, why))
+    }
+
+    /// [`GitHub::call`], and on a failure what gh answered beside its
+    /// reason: gh exits 1 on any GraphQL error and prints the answer, which
+    /// a question of several items reads item by item.
+    pub(crate) fn call_answer(
+        &mut self,
+        call: &str,
+        args: &[&str],
+    ) -> Result<String, (ForgeError, Option<String>)> {
+        self.runner
+            .run_answer(args)
+            .map_err(|f| (ForgeError::new(call, f.why), f.answer))
     }
 
     /// The reason of a read that is no answer, named after the read the

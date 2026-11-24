@@ -708,7 +708,8 @@ pub trait Tickets: Reports + Cites {
         key: &MarkerKey,
         open: Option<bool>,
     ) -> Got<Whole<TicketKey>>;
-    /// The site's types of ticket.
+    /// The site's types of ticket. Never `Kind::Unknown`: a type this copy
+    /// cannot name is left out and reported (Decided 120).
     fn kinds(&mut self) -> Got<Whole<Kind>>;
     /// The marks the site holds for the project, each with its id, as the
     /// site names them now: what a caller pins, so a mark renamed to one
@@ -768,6 +769,15 @@ pub trait TicketWrites: Tickets {
     /// cannot be made stops none of the others; the first that failed is
     /// the answer.
     fn prepare(&mut self) -> Result<(), Unprepared>;
+    /// Make sure the site can carry this one mark of the factory, as
+    /// `prepare` does for each: made, or brought to the colour and text the
+    /// adapter's table gives it, whatever the state of the others. A
+    /// project's own mark is `ensure_mark`'s: `Refused(Invalid)` here.
+    /// Provided: `Refused(Unsupported)` (Decided 127).
+    fn prepare_one(&mut self, mark: &Mark) -> Did {
+        let _ = mark;
+        Err(Outcome::Refused(crate::Refusal::Unsupported))
+    }
     /// Make sure a project's own mark exists. Already there is done. Its
     /// colour and text are made to match where the site has them and the
     /// spec gives them; a site without them ignores both, and that is done

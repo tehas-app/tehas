@@ -1,10 +1,12 @@
 //! The joined reads, `Board`. Answered: `open_changes` for an ask that
 //! needs no blueprint and no body, so no marker: the changes a filter of
 //! states and branch takes, each with its files and the other open changes
-//! that close the same blueprints, in one GraphQL question a page; and
+//! that close the same blueprints, in one GraphQL question a page; for an
+//! ask of numbers, with the blueprints each closes, in `numbers.rs`; and
 //! `open_work` for the queue's ask, in `work.rs`. The rest is
 //! `Refused(Unsupported)` before any request.
 
+mod numbers;
 mod work;
 
 use std::collections::HashSet;
@@ -136,8 +138,13 @@ impl Board for GitHub {
     /// alone. Answered for a filter of states and branch, with no bodies,
     /// and an ask of files and siblings; siblings only beside every open
     /// change, which they are read from. Any other ask, a blueprint's or a
-    /// body's, is `Refused(Unsupported)` before any request.
+    /// body's, is `Refused(Unsupported)` before any request. An ask of
+    /// numbers and states, with no files and no events, is answered as
+    /// `numbers.rs` says, with what each change closes and its siblings.
     fn open_changes(&mut self, ask: &ChangeAsk, bound: Bound) -> Got<Whole<ChangeItem>> {
+        if numbers::asked(ask) {
+            return self.numbered_changes(ask, bound);
+        }
         if !answered(ask) {
             return unsupported();
         }

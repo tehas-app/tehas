@@ -1195,7 +1195,7 @@ mod tests {
             if path.ends_with("instance-dir") {
                 return self.pointer.clone();
             }
-            if path.ends_with("/env") || path.ends_with("/state/github/login") {
+            if path.ends_with("/env") || path.ends_with(State::BotLogin.relative()) {
                 return self.files.get(path).cloned();
             }
             self.text.clone()
@@ -2120,7 +2120,9 @@ mod tests {
     }
 
     const REFUSAL: &str = "is no longer used: the factory acts as a GitHub App. Run tehas setup --new-app or give --app-id and --app-key-file.";
-    const LOGIN: &str = "/h/tehas/state/github/login";
+    fn login() -> String {
+        format!("/h/tehas/{}", State::BotLogin.relative())
+    }
 
     #[test]
     fn every_setting_row_of_the_renames_file_is_refused() {
@@ -2198,7 +2200,7 @@ mod tests {
 
     #[test]
     fn the_app_names_the_bot_and_the_millwright() {
-        let mut host = Fake::with(&[]).file(LOGIN, "new[bot]\n");
+        let mut host = Fake::with(&[]).file(&login(), "new[bot]\n");
         let (vars, got) = run(&mut host);
         assert_eq!(got, Ok(()));
         assert!(host.warned.is_empty(), "{:?}", host.warned);
@@ -2208,7 +2210,8 @@ mod tests {
 
     #[test]
     fn an_empty_home_from_the_instance_reads_the_login_from_the_root() {
-        let mut host = Fake::with(&["TEHAS_HOME="]).file("/state/github/login", "new[bot]\n");
+        let mut host = Fake::with(&["TEHAS_HOME="])
+            .file(&format!("/{}", State::BotLogin.relative()), "new[bot]\n");
         let (vars, got) = run(&mut host);
         assert_eq!(got, Ok(()));
         assert_eq!(vars.text("TEHAS_BOT_LOGIN"), "new[bot]");
@@ -2217,7 +2220,7 @@ mod tests {
     #[test]
     fn a_second_app_is_the_millwright_and_the_bot_stays_the_factorys() {
         let mut host =
-            Fake::with(&["TEHAS_MILLWRIGHT_APP=acme-mill[bot]"]).file(LOGIN, "acme-app[bot]\n");
+            Fake::with(&["TEHAS_MILLWRIGHT_APP=acme-mill[bot]"]).file(&login(), "acme-app[bot]\n");
         let (vars, got) = run(&mut host);
         assert_eq!(got, Ok(()));
         assert!(host.warned.is_empty(), "{:?}", host.warned);
@@ -2251,7 +2254,7 @@ mod tests {
         assert!(!vars.is_set("TEHAS_BOT_LOGIN"));
         assert!(!vars.is_set("TEHAS_MILLWRIGHT_LOGIN"));
         assert!(host.warned.is_empty());
-        let mut host = Fake::with(&[]).file(LOGIN, "\n");
+        let mut host = Fake::with(&[]).file(&login(), "\n");
         let (vars, _) = run(&mut host);
         assert!(!vars.is_set("TEHAS_BOT_LOGIN"));
     }
@@ -2301,7 +2304,7 @@ mod tests {
 
     #[test]
     fn millwright_may_be_the_bot() {
-        let vars = Fake::with(&["TEHAS_ALLOWED_LABELERS=alice"]).file(LOGIN, "acme-app[bot]\n");
+        let vars = Fake::with(&["TEHAS_ALLOWED_LABELERS=alice"]).file(&login(), "acme-app[bot]\n");
         let (vars, got) = run(&mut { vars });
         assert_eq!(got, Ok(()));
         assert_eq!(

@@ -102,8 +102,9 @@ other issue the poll takes it off, as it does an outsider's.
 | Cycle inputs | [The rule below](#cycle-inputs), with the names as pi-rukas has them while it is 0.x; a renamed name is taken under both names through 2.x | `console/cycle/tests/work_container.rs` |
 | Events | The envelope's `api` 1, the names in `api/events.txt`, and the fields of the envelope and of each payload in `api/event*.schema.json`: names and fields only added in 2.x | `console/tests/events_contract.rs`, which writes the samples from the code and holds them to the schemas, and `test/kit_events_test.mjs`, which holds the kit's names to `api/events.txt` |
 | Host namespace | `/host/` on the factory's origin belongs to the host that fronts the factory's domain: tehas never serves a path under it, and its docs server answers 404 there, which the dashboard reads as no host. The host bridge, `/host/bridge.json`, is `bridge: 1`, by `api/host-bridge.schema.json` and [its rules](/api#the-host-bridge) | `console/tests/host_bridge.rs` (the 404 under `/host/`, the schema and its samples), `test/json_contract_test.sh`, `test/host_bridge_test.mjs` (what the dashboard keeps of an answer) and `test/dock_test.mjs` (a menu item opens in the dock, and a page item in a new tab with no dock) |
-| Plugin pages namespace | `/pages` and every path under `/pages/` on the factory's origin are reserved for plugins from 2.1. tehas 2.0 serves nothing there and answers 404, and tehas adds no manual page, route or file there in 2.x | `console/tests/host_bridge.rs` (the 404 under `/host/`, extended to `/pages` and `/pages/`) |
-| Plugin names | Under the factory's domain, a host name that starts (case-insensitive) with `plugins`, or with `plugin-`, a letter and up to 11 more letters or digits, and then a `.` or `-`, belongs to tehas's plugins in every 2.x release: the edge router sends it to the plugins' gate, which answers 503 when it is not running. Any other host name starting `plugin` (case-insensitive) answers 404, as no plugin can have it. tehas gives no other name there in 2.x, and a host that fronts the factory's domain claims none of these names | `test/edge_test.sh` (the plugins' names go to the gate before anything else, and a name with no plugin and the gate down say so) |
+| Plugin pages namespace | `/pages` and every path under `/pages/` on the factory's origin are reserved for plugins from 2.1. tehas 2.0 serves nothing there and answers 404, and tehas adds no manual page, route or file there in 2.x, and a host that fronts the factory's domain claims none of it | `console/tests/host_bridge.rs` (the 404 under `/host/`, extended to `/pages` and `/pages/`) |
+| Plugin names | Under the factory's domain, a host name that starts (case-insensitive) with `plugins`, or with `plugin-`, a letter and up to 11 more letters or digits, and then a `.` or `-`, belongs to tehas's plugins in every 2.x release: the edge router sends it to the plugins' gate, which answers 503 when it is not running. Any other host name starting `plugin` (case-insensitive) answers 404, as no plugin can have it. tehas gives no other name there in 2.x, and a host that fronts the factory's domain claims none of these names. A plugin's name is a letter and up to 11 more letters or digits, `a` to `z` and `0` to `9`, through 2.x | `test/edge_test.sh` (the plugins' names go to the gate before anything else, and a name with no plugin and the gate down say so), and the tests of `console/core/src/plugin/manifest.rs` (the name a manifest may give) |
+| Item and preview names | Under the factory's domain, through 2.x: a host name that starts with `item-`, a number of one to nine digits with no leading zero, and then a `.`, is that item's page and its files, as the item store wrote them under `~/tehas/items/<number>`; one that starts `uat-` and such a number and a `.` is the preview of that pull request, the container `tehas-preview-<number>`; and one that starts `uat-main.` is the preview of the default branch, the container `tehas-preview-main`. Any other host name starting `item-` or `uat-` answers 404. tehas gives these names no other meaning in 2.x, and a host that fronts the factory's domain claims none of these names | `test/edge_test.sh` (the router's file names no domain and takes numbers only; the router keeps its protections) |
 
 The surface list in `api/` names the frozen surface in one place: each
 public command, subcommand and flag, setting, role, label and `--json`
@@ -148,6 +149,9 @@ a key. `rows` itself is public.
   them: the tidy and `tehas labels` leave them as they are. The prefix
   matches the `p-` that named a plugin's panel
   ([Panels leave core](#changed-in-20)).
+- **Plugin tool names.** An MCP tool whose name starts `plugin_` is a
+  plugin's. The server's own tools are named `factory_*`, and in 2.x core
+  adds no tool whose name starts `plugin_`.
 - **The merge is a person's.** The merge is a gate whose only policy in 2.x
   is a person. The grant word `merge` is reserved and refused with 78 as not
   in this release; a later release may open it behind an explicit owner
@@ -158,7 +162,10 @@ a key. `rows` itself is public.
   answer always wins. Its answer has `how` `plugin`, `by` the bot account,
   and `plugin` naming the plugin and its commit. A reader never takes a
   plugin's answer for a person's act. 2.0 refuses `answer:<kind>` as
-  reserved, and nothing in it writes `how` `plugin`.
+  reserved, and nothing in it writes `how` `plugin`. A question waits until
+  a person answers it: an answer whose `how` is `plugin` never stops it
+  waiting, [tehas question](/api#tehas-question) still prints it, and exit 3
+  keeps meaning that no question waits for a person.
 - **Building features.** A feature still being built is outside the contract:
   its rows in `api/settings-rules.json` (each marked `"building": true`), its
   key in the `flags` object of `tehas api --json`, its `--json` fields, its
@@ -342,8 +349,9 @@ What a cycle's container is given, as `tehas work` gives it:
 - **Capabilities.** An input the image does not list in its `--capabilities`
   answer refuses the cycle with exit 78 and says why in
   `state/cycles/<issue>.refused`.
-- **Mounts.** Exactly these ten, and no Docker socket, no SSH key and nothing
-  of `~/.config/tehas`:
+- **Mounts.** Exactly these ten, and the eleventh of the table only when the
+  cycle is given files. No Docker socket, no SSH key and nothing of
+  `~/.config/tehas`:
 
 | Host | In the container |
 | --- | --- |
@@ -357,6 +365,7 @@ What a cycle's container is given, as `tehas work` gives it:
 | `~/.pi/agent/settings.json` | `/home/vscode/.pi/agent/settings.json`, read-only |
 | `~/tehas/state/github-cycle` | `/run/tehas/github`, read-only |
 | `<workspace>.state/relay` | `/run/tehas/relay` |
+| `<workspace>.images`, only when the cycle is given files: with `TEHAS_WORK_IMAGES=1` always, holding the issue's images, a retry's comments and the files a plugin filed for the issue, and with `TEHAS_WORK_IMAGES=0` only for a retry's comments. Each time with its `manifest.json` | The workspace's path inside with `.images` added, read-only, named in `PI_ENSEMBLE_EXTRA_IMAGE_DIRS` |
 
 The `PI_ENSEMBLE_*` names, and what each means, follow pi-rukas while pi-rukas
 is 0.x: a name pi-rukas renames is taken under the new name in the release
@@ -869,6 +878,16 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Adopter action: a program that read gh's words in `last` reads the fixed
   lines. A line written before the update shows until it leaves the
   ten-minute window.
+- **`tehas setup`, `tehasbot github-token` and `console pins` name a failed
+  call in tehas's words.** #3140. An error line of each names what failed
+  in its own words, then the kind of failure as one fixed line of the
+  ports' outcomes: `not found, or not visible to this actor`, `the
+  credential is no longer good`, `this actor may not do this`, `the site
+  could not be reached`, `the site failed`, `timed out before sending`, and
+  the like. They no longer pass on curl's words or `HTTP <status>`.
+  Readers: adopters, the end-to-end suite.
+  Adopter action: a script that matched curl's words or `HTTP <status>` in
+  those lines matches the fixed lines.
 - **The repository is tehas-app/tehas-factory.** #2980. Only the
   repository's name changes: the commands, the crates, the paths, the event
   names and the kit keep theirs. The release repository built into tehas
@@ -894,15 +913,14 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Readers: adopters, the consumer that runs many factories.
   Adopter action: update a host on an older release to the newest 1.4.x
   first.
-- **The allowed labellers are matched ignoring ASCII case.** #2962.
+- **The allowed labellers are matched ignoring ASCII case.** #2962, T4.7.
   1.4.x matched a login of `TEHAS_ALLOWED_LABELERS` in exact case. In 2.0
-  the checks of `tehas resume`, `tehas plan`, `tehas dev` and a cycle started
-  by hand match it ignoring ASCII case, as GitHub logins are one account in
-  any case, and print the login in lower case. The user id check folds case
-  too: every case variant of a listed login must carry the id recorded in
-  `state/account-ids`, or it does not count. The dispatcher still matches
-  in exact case until the two are one rule (see
-  [Pending for 2.0](#pending-for-20)).
+  the dispatcher and the checks of `tehas resume`, `tehas plan`, `tehas dev`
+  and a cycle started by hand match it ignoring ASCII case, as GitHub
+  logins are one account in any case, and the checks print the login in
+  lower case. The user id check folds case too: every case variant of a
+  listed login must carry the id recorded in `state/account-ids`, or it
+  does not count.
   Readers: adopters, the end-to-end suite.
   Adopter action: none.
 - **`tehas labels` reads no installed table, and its output text is not
@@ -925,10 +943,6 @@ Planned or in review, not merged. Each moves to
 [Changed in 2.0](#changed-in-20) when it lands, with its readers and
 adopter action as the pull request states them.
 
-- **One rule for the allowed labellers.** T4.7. The dispatcher matches
-  `TEHAS_ALLOWED_LABELERS` ignoring ASCII case, as the console's checks do
-  since #2962. Until then a case variant of a listed login gets no from the
-  dispatcher.
 - **Events.** T11, spec `docs/specs/2026-11-22-events.md`
   (#2878, merged); the build
   is under way. Notify events, each with a schema in `api/` and a witness in

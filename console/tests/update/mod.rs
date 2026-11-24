@@ -182,8 +182,8 @@ const STORE_STAND_IN: &str = r##"#!/usr/bin/env bash
 printf '%s\n' "$*" >>"$T/calls/store"
 if [ "${STORE_RC:-0}" != 0 ]; then echo "store: corrupt the database: a stand-in" >&2; exit "$STORE_RC"; fi
 case $1 in
-  init) echo "store: made $TEHAS_HOME/state/tehas.db" ;;
-  migrate) echo "store: $TEHAS_HOME/state/tehas.db at schema 1, backup $3/tehas-1-0.db" ;;
+  init) echo "store: made $TEHAS_HOME/@DB@" ;;
+  migrate) echo "store: $TEHAS_HOME/@DB@ at schema 1, backup $3/tehas-1-0.db" ;;
 esac
 "##;
 
@@ -261,7 +261,7 @@ impl Host {
         let home = t.join("home/tehas");
         let h = Host {
             checkout: home.join("platform"),
-            owed: home.join("state/update-pending"),
+            owed: Home::new(&home).state(State::UpdatePending),
             dev_etc: t.join("etc"),
             dev_bin: t.join("usr-local-bin"),
             home,
@@ -767,7 +767,8 @@ exec '{}' "$@""#,
     /// cargo as install.sh runs it, and the store stand-in it builds.
     pub fn stub_cargo(&self) {
         self.stub("cargo", CARGO);
-        fs::write(self.t.join("store-stand-in"), STORE_STAND_IN).unwrap();
+        let text = STORE_STAND_IN.replace("@DB@", State::StoreDb.relative());
+        fs::write(self.t.join("store-stand-in"), text).unwrap();
     }
 
     /// The workspace's source in `dir/console`, without its build, and the

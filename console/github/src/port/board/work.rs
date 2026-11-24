@@ -40,9 +40,9 @@ use crate::ticket::{
 use crate::tickets::take;
 use crate::{markers, GitHub};
 use tehas_ports::{
-    Blocker, Blueprint, BoardAsk, Bound, ChangeDigest, ChangeNo, ChangeStates, Depth, Filter, Got,
-    Happened, HappenedKind, Mark, OpenWork, Outcome, Ticket, TicketEvent, TicketKey, Took, Unread,
-    Whole, Window, WorkItem,
+    Blueprint, BoardAsk, Bound, ChangeDigest, ChangeNo, ChangeStates, Depth, Filter, Got, Happened,
+    HappenedKind, Mark, OpenWork, Outcome, Ticket, TicketEvent, TicketKey, Took, Unread, Whole,
+    Window, WorkItem,
 };
 
 /// The open issues one page asks for, dispatch's `ISSUE_PAGE`. A page over
@@ -77,7 +77,7 @@ fn work_query(kinds: &[HappenedKind], changes: bool) -> String {
     let mut node = format!(
         "{} lastEditedAt editor {{ {ACTOR} }} comments {{ totalCount }} assignees(first: {ASSIGNEES_MAX}) {{ totalCount nodes {{ __typename login databaseId }} }} {} {} {}",
         ticket::digest_fields(),
-        ticket::blocked_by(),
+        ticket::blocked_by(false),
         ticket::parts(false),
         ticket::mentions(false),
     );
@@ -456,14 +456,7 @@ impl GitHub {
         let body = node.body.clone();
         let digest = self.digest_from(node)?;
 
-        if blocked_by.total_count.ok_or(INCONSISTENT)? != blocked_by.nodes.len() as u64 {
-            return Err(CUT);
-        }
-        let blockers = blocked_by
-            .nodes
-            .into_iter()
-            .map(|n| self.blocker(&n.ok_or(INCONSISTENT)?))
-            .collect::<Got<Vec<Blocker>>>()?;
+        let blockers = self.blockers_from(blocked_by)?;
         if assignees.total_count.ok_or(INCONSISTENT)? != assignees.nodes.len() as u64 {
             return Err(CUT);
         }

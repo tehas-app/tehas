@@ -416,6 +416,17 @@ pub mod tickets {
         Ok(())
     }
 
+    /// `kinds` never holds `Kind::Unknown`: a type this copy cannot name
+    /// is left out (Decided 120). The fixture's site has a type of a name
+    /// no kind can be.
+    pub fn kinds_hold_no_unknown(h: &mut dyn Tickets) -> Law {
+        const LAW: &str = "tickets::kinds_hold_no_unknown";
+        let kinds = got(LAW, "the kinds", h.kinds())?.into_items();
+        hold(!kinds.contains(&crate::Kind::Unknown), LAW, || {
+            format!("kinds gave {kinds:?}")
+        })
+    }
+
     /// `several_with_closers` answers each ticket's digest as `several`
     /// does, with the closer its `Ticket.closer` gives, None while it is
     /// open. The fixture holds `keys`, closed and open.
@@ -1224,7 +1235,25 @@ pub mod lists {
 /// Laws of the joined reads.
 pub mod board {
     use super::{got, hold, Law};
-    use crate::{Board, BoardAsk, Bound, Outcome, TicketKey, Tickets};
+    use crate::{Blocker, Board, BoardAsk, Bound, Got, Outcome, TicketKey, Tickets};
+    use std::num::NonZeroU64;
+
+    /// `as_blockers` answers each number in the order asked, a repeated
+    /// one each time, as the fixture says: what it names with its state,
+    /// or the number's own outcome. The fixture's `want` holds an open
+    /// and a closed ticket, an open, a merged and a closed change, and a
+    /// number that names nothing (Decided 122).
+    pub fn as_blockers_name_each_number(
+        b: &mut dyn Board,
+        want: &[(NonZeroU64, Got<Blocker>)],
+    ) -> Law {
+        const LAW: &str = "board::as_blockers_name_each_number";
+        let numbers: Vec<NonZeroU64> = want.iter().map(|(n, _)| *n).collect();
+        let got = b.as_blockers(&numbers);
+        hold(got == want, LAW, || {
+            format!("as_blockers gave {got:?}, not {want:?}")
+        })
+    }
 
     /// One ticket past a bound is `Unread` for that item, and the rest are
     /// answered. The fixture's open tickets include `big`, past the ask's
@@ -1597,7 +1626,33 @@ pub mod cites {
 /// Laws of naming a mark: on a terminal, in a log and in a body.
 pub mod marks {
     use super::{got, hold, Law};
-    use crate::{Act, BlueprintNo, BlueprintWrites, Choice, Cite, Mark, Site, State};
+    use crate::{
+        Act, BlueprintNo, BlueprintWrites, Choice, Cite, Mark, MarkName, Outcome, Refusal, Site,
+        State, TicketWrites,
+    };
+
+    /// `prepare_one` makes the one factory mark held: `marks` then names
+    /// it, whatever the others; a second call is done too; a project's own
+    /// mark is `Refused(Invalid)` (Decided 127). The fixture's site holds
+    /// none of the factory's marks yet.
+    pub fn prepare_one_makes_the_mark_held(h: &mut dyn TicketWrites, mark: &Mark) -> Law {
+        const LAW: &str = "marks::prepare_one_makes_the_mark_held";
+        let held = |h: &mut dyn TicketWrites| -> Result<bool, super::Broken> {
+            let all = got(LAW, "the marks", h.marks(crate::ALL_MAX))?.into_items();
+            Ok(all.iter().any(|m| m.mark == *mark))
+        };
+        hold(!held(h)?, LAW, || format!("{mark:?} was held before"))?;
+        got(LAW, "prepare_one", h.prepare_one(mark))?;
+        hold(held(h)?, LAW, || format!("{mark:?} is not held after"))?;
+        got(LAW, "prepare_one again", h.prepare_one(mark))?;
+        let own = Mark::Project(MarkName::new("ours").unwrap());
+        let answer = h.prepare_one(&own);
+        hold(
+            answer == Err(Outcome::Refused(Refusal::Invalid)),
+            LAW,
+            || format!("a project's own mark answered {answer:?}"),
+        )
+    }
 
     /// The variants listed, every one of the enum but `Unknown`. The match
     /// has no arm for the rest, so a variant added to the enum stops the

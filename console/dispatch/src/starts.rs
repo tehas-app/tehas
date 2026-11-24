@@ -33,6 +33,7 @@ pub fn code_of(text: &str) -> &'static str {
             code::QUESTION,
         ),
         ("is no answer", code::QUESTION),
+        ("no plugin answers a question", code::QUESTION),
         ("matches no option on record", code::QUESTION),
         ("its question is not among", code::QUESTION),
         ("its question was written by", code::QUESTION),
@@ -87,6 +88,7 @@ mod tests {
         for (line, want) in [
             ("wait #8: not in the start order (--only)", code::NOT_IN_ORDER),
             ("wait #8: its cycle is still running", code::RUNNING),
+            ("skip #8: the answer of tehas-bot is a plugin's, and no plugin answers a question in this release", code::QUESTION),
             ("skip #8: a planning session is open on it; end it first", code::PLANNING),
             ("skip #8: it is closed, and a closed issue is never taken", code::CLOSED),
             ("wait #8: a blocked-by link holds it: 2 blockers are open", code::BLOCKED_LINK),
