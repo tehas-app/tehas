@@ -252,7 +252,6 @@ fn what_no_caller_asks_yet_is_unsupported_before_any_request() {
     );
     assert_eq!(gh.body_edits(no, bound), Err(unsupported.clone()));
     assert_eq!(gh.comment_edits(&id, bound), Err(unsupported.clone()));
-    assert_eq!(gh.attachments(no), Err(unsupported.clone()));
     assert_eq!(gh.changed(None).map(|_| ()), Err(unsupported.clone()));
     assert_eq!(gh.delta(None, bound).map(|_| ()), Err(unsupported));
 }

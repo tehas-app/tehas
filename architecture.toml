@@ -244,6 +244,16 @@ why = "New at T11.1, as docs/specs/2026-11-22-events.md says in \"Why it cannot 
 # docs/specs/2026-11-22-ports.md says in "Who depends on whom".
 
 [[check]]
+id = "adapter-link-rule"
+rule = "R1"
+what = "the GitHub adapter takes the link rule from console/attach, its one written place, and from no other crate"
+pattern = '^\s*attach\s*='
+files = ["console/github/Cargo.toml"]
+comment = "#"
+max = 1
+why = "New at T4.8, a written floor in docs/architecture.md. The ports spec moved the link rule of GitHub's store into the adapter; the tehas lead ruled for the alpha (2026-11-24) that LINK_RULE stays in console/attach/src/link.rs, written once (attach's the_rule_is_written_once), and the adapter keeps its edge to attach for Blueprints::attachments and attachments_in. The cause: core (issue_feed's links), dispatch (text::links), items (store.rs: is_link, is_external, sends_token) and cycle (gives.rs: may_link) read the rule too, and none may name the adapter (adapter-wiring); moving those readers onto the ports is not in the plan. The count may only fall: a copy of the rule in the adapter, or a second edge, is a rise."
+
+[[check]]
 id = "adapter-wiring"
 rule = "R8"
 what = "only a program's wiring (its main.rs) names the GitHub adapter, tehas-github: no library module, test or other module of a program"

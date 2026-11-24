@@ -5,7 +5,7 @@
 
 use tehas_core::forge::GhRunner;
 use tehas_github::GitHub;
-use tehas_ports::{Attachment, BlueprintNo, Blueprints, Outcome, Refusal, WEB_LINK_MAX};
+use tehas_ports::{Attachment, Blueprints, WEB_LINK_MAX};
 
 /// A runner that answers no call: the reading makes none.
 struct NoCall;
@@ -197,13 +197,4 @@ fn a_link_then_a_space_then_a_word_that_is_not_ascii_is_an_attachment() {
 fn a_name_is_as_the_link_spells_it() {
     let link = "https://github.com/user-attachments/files/2/my%20file.pdf";
     assert_eq!(read(link)[0].2.as_deref(), Some("my%20file.pdf"));
-}
-
-#[test]
-fn the_blueprints_attachments_are_not_built_and_say_so_before_any_request() {
-    let no = BlueprintNo::new(7).unwrap();
-    assert_eq!(
-        gh().attachments(no).map(|_| ()),
-        Err(Outcome::Refused(Refusal::Unsupported))
-    );
 }
