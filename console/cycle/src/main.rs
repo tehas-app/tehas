@@ -559,6 +559,7 @@ fn finish_ports(home: &Path, repo: &str) -> tehas_ports::Got<finish::Ports> {
         code_host: site.code_host(&by, c)?,
         writes: site.code_host_writes(&by, c)?,
         accounts: tehas_core::accounts::Accounts::from_env(),
+        bot_id: id,
     })
 }
 

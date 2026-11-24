@@ -33,7 +33,7 @@ use tehas_core::accounts::folded;
 use tehas_core::issue_pull::names_change;
 use tehas_ports::{
     Access, BlueprintNo, Body, Bound, Branch, ChangeDigest, ChangeFilter, ChangeStates, NewChange,
-    Outcome, Unread,
+    Outcome, Sent, Unread,
 };
 
 /// Where the run's repository keeps the workspace's refs: its branches under
@@ -121,6 +121,9 @@ fn git(h: &mut dyn Host, repo: &Path, args: &[&str]) -> Done {
 /// The run: everything the rules of this file decide, and the scratch it takes
 /// back with it.
 pub fn run(plan: &Plan, h: &mut dyn Host, ports: &mut Ports) -> Finished {
+    if let Some(why) = cannot_tell_own(ports) {
+        return Finished::refused(why);
+    }
     let workspace = plan.workspace();
     if !dir_exists(&workspace) {
         return Finished::refused(format!("{} is not a directory", workspace.display()));
@@ -148,6 +151,22 @@ pub fn run(plan: &Plan, h: &mut dyn Host, ports: &mut Ports) -> Finished {
             ..Finished::refused(why.why)
         },
     }
+}
+
+/// Why the factory's own changes cannot be told apart, if they cannot. A
+/// run that cannot tell them counts none as its own and could open a second
+/// draft, so it refuses before anything is read.
+fn cannot_tell_own(ports: &Ports) -> Option<String> {
+    let lead = "the factory's own pull requests cannot be told";
+    if ports.bot_id.is_none() {
+        return Some(format!(
+            "{lead}: no user id is recorded for the bot's account in state/account-ids"
+        ));
+    }
+    ports
+        .accounts
+        .unread()
+        .map(|line| format!("{lead}: {line}"))
 }
 
 /// Rules 1 to 6, asked of the run's repository under `dir`.
@@ -499,6 +518,44 @@ fn draft(plan: &Plan, ports: &mut Ports, pushed: &str) -> Result<String, Why> {
     };
     match ports.writes.open_change(&new) {
         Ok(p) => Ok(p.link.as_str().to_string()),
+        Err(e) if may_have_landed(&e) => match opened_from(plan, ports, &new.head) {
+            Some(link) => Ok(link),
+            None => Err(Why {
+                why: "the pull request may have been opened".to_string(),
+                said: e.line().to_string(),
+            }),
+        },
         Err(e) => Err(not_opened(e.line())),
     }
+}
+
+/// An answer that leaves open whether the change was opened.
+fn may_have_landed(e: &Outcome) -> bool {
+    matches!(
+        e,
+        Outcome::Unread(_)
+            | Outcome::Unavailable {
+                sent: Sent::Maybe,
+                ..
+            }
+    )
+}
+
+/// The link of the factory's own open change from `head`, asked once after an
+/// open whose answer was lost. A list that cannot be read finds none.
+fn opened_from(plan: &Plan, ports: &mut Ports, head: &Branch) -> Option<String> {
+    let filter = ChangeFilter {
+        states: ChangeStates::Open,
+        head: Some(head.clone()),
+        ..Default::default()
+    };
+    let all = ports
+        .code_host
+        .changes(&filter, Bound::new(100).expect("a bound"))
+        .ok()?;
+    let allowed = |l: &str| plan.allowed.iter().any(|a| folded(a) == folded(l));
+    all.items()
+        .iter()
+        .find(|c| c.head == *head && ports.accounts.own_change(c, allowed))
+        .map(|c| c.link.as_str().to_string())
 }

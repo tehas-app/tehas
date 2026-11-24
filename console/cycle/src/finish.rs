@@ -43,6 +43,9 @@ pub struct Ports {
     pub writes: Box<dyn tehas_ports::CodeHostWrites>,
     /// The allowed accounts with their recorded ids (`state/account-ids`).
     pub accounts: tehas_core::accounts::Accounts,
+    /// The bot account's recorded user id. With none, no change is the
+    /// factory's own and the finish refuses.
+    pub bot_id: Option<u64>,
 }
 pub use plan::{body, title, Finished, Plan};
 

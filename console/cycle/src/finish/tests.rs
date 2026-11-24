@@ -439,6 +439,7 @@ fn ports_of(site: &dyn Site) -> Ports {
         code_host: site.code_host(&by, c).unwrap(),
         writes: site.code_host_writes(&by, c).unwrap(),
         accounts: Accounts::new(vec!["alice".into(), "bob".into()], BTreeMap::new()),
+        bot_id: Some(1),
     }
 }
 
@@ -1013,29 +1014,42 @@ fn a_draft_that_cannot_be_opened_keeps_its_branch_for_the_next_ask() {
 }
 
 #[test]
-fn a_draft_whose_answer_was_lost_is_a_refusal() {
-    // The code host may have opened it: the answer was lost after the ask went
-    // out. The branch stands either way, and the refusal names it, since the
-    // next ask is refused while it is there.
-    let w = World::new("answer-lost");
+fn a_draft_whose_answer_was_lost_but_was_opened_is_found_on_its_head() {
+    // The answer was lost after the ask went out and the code host opened it:
+    // one list of the pushed head finds it, and the run reports its link.
+    let w = World::new("answer-lost-opened");
     w.kept("feature/issue-7-default", &[("a.txt", "x\n")]);
     let mut h = w.host();
     let fault = Fault::TimeoutMaybe { applied: true };
     let mut ports = w.faulty(Op::CodeHost(CodeHostOp::OpenChange), fault);
     let got = finish(&w.plan(), &mut h, &mut ports);
-    assert!(
-        got.why.contains("pull request could not be opened"),
-        "{}",
-        got.why
-    );
-    assert_eq!(got.url, "");
+    assert_eq!(got.why, "");
+    assert_eq!(w.drafts().len(), 1);
+    assert!(got.url.ends_with("/1"), "{}", got.url);
     assert!(w.remote_has("finish/issue-7"));
+    assert_eq!(w.left(), Vec::<String>::new());
+}
+
+#[test]
+fn a_draft_whose_answer_was_lost_and_is_not_there_may_have_been_opened() {
+    // The list of the head finds none: the run cannot say the open failed,
+    // only that it may have been opened, and the branch stands.
+    let w = World::new("answer-lost");
+    w.kept("feature/issue-7-default", &[("a.txt", "x\n")]);
+    let mut h = w.host();
+    let fault = Fault::TimeoutMaybe { applied: false };
+    let mut ports = w.faulty(Op::CodeHost(CodeHostOp::OpenChange), fault);
+    let got = finish(&w.plan(), &mut h, &mut ports);
     assert!(
         got.why
-            .contains("finish/issue-7 was pushed and stands on the remote"),
+            .starts_with("the pull request may have been opened; finish/issue-7 was pushed and stands on the remote"),
         "{}",
         got.why
     );
+    assert_eq!(got.said, fault.outcome().line());
+    assert_eq!(got.url, "");
+    assert!(w.drafts().is_empty());
+    assert!(w.remote_has("finish/issue-7"));
     let mut h = w.host();
     let again = finish(&w.plan(), &mut h, &mut w.ports());
     assert!(
@@ -1043,6 +1057,50 @@ fn a_draft_whose_answer_was_lost_is_a_refusal() {
         "{}",
         again.why
     );
+}
+
+#[test]
+fn a_finish_with_no_bot_id_refuses_before_it_reads_anything() {
+    // With no recorded id, no change counts as the factory's own: an open
+    // draft of the issue would go unseen and a second one opened.
+    let w = World::new("no-bot-id");
+    w.kept("feature/issue-7-default", &[("a.txt", "x\n")]);
+    let mut h = w.host();
+    let mut ports = Ports {
+        bot_id: None,
+        ..w.ports()
+    };
+    let got = finish(&w.plan(), &mut h, &mut ports);
+    assert_eq!(
+        got.why,
+        "the factory's own pull requests cannot be told: \
+         no user id is recorded for the bot's account in state/account-ids"
+    );
+    assert!(h.calls.is_empty(), "{:?}", h.calls);
+    assert!(!w.remote_has("finish/issue-7"));
+    assert!(w.drafts().is_empty());
+}
+
+#[test]
+fn a_finish_whose_account_ids_cannot_be_read_refuses_before_it_reads_anything() {
+    let w = World::new("ids-unread");
+    w.kept("feature/issue-7-default", &[("a.txt", "x\n")]);
+    let u = tehas_core::accounts::parse_bytes(b"alice 5\nAlice 99\n").unwrap_err();
+    let accounts = Accounts::unreadable(vec!["alice".into()], &u);
+    let line = accounts.unread().unwrap().to_string();
+    let mut h = w.host();
+    let mut ports = Ports {
+        accounts,
+        ..w.ports()
+    };
+    let got = finish(&w.plan(), &mut h, &mut ports);
+    assert_eq!(
+        got.why,
+        format!("the factory's own pull requests cannot be told: {line}")
+    );
+    assert!(h.calls.is_empty(), "{:?}", h.calls);
+    assert!(!w.remote_has("finish/issue-7"));
+    assert!(w.drafts().is_empty());
 }
 
 #[test]
