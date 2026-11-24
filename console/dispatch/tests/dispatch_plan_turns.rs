@@ -57,7 +57,7 @@ fn a_session_does_not_start_when_the_issue_cannot_be_marked_as_planning() {
     let r = w.poll();
     assert_eq!(r.rc, 1, "{}", r.out);
     assert_eq!(w.plan_calls(), "");
-    lacks(&w.gh(), "issue comment");
+    assert_eq!(w.notes_any(), 0);
     has(
         &r.out,
         "ERROR: could not mark #7 as planning, not starting a turn",
@@ -113,7 +113,7 @@ fn a_session_does_not_start_when_its_record_cannot_be_written_and_the_issue_is_n
         }
         assert_eq!(w.plan_calls(), "");
         lacks(&w.gh(), "issue edit");
-        lacks(&w.gh(), "issue comment");
+        assert_eq!(w.notes_any(), 0);
     }
 }
 

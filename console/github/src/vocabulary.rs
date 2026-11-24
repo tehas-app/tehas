@@ -1,13 +1,14 @@
 //! The words the site holds: the repository's labels, each with its node
 //! id, as `Tickets::marks` answers them, and the owner's issue types, as
 //! `Tickets::kinds` answers them. Each is a GraphQL question paged here to
-//! its end, or one past the bound.
+//! its end, or one past the bound. One label is read with its colour and
+//! text too, for `TicketWrites::prepare_one`.
 
 use serde::Deserialize;
 
 use crate::ticket::{part, Page, Pages};
 use crate::GitHub;
-use tehas_ports::{Bound, Got, Kind, MarkHeld, MarkId, Outcome, Unread, Whole};
+use tehas_ports::{Bound, Got, Kind, MarkHeld, MarkId, MarkSpec, Outcome, Unread, Whole};
 
 const MALFORMED: Outcome = Outcome::Unread(Unread::Malformed);
 const INCONSISTENT: Outcome = Outcome::Unread(Unread::Inconsistent);
@@ -17,6 +18,9 @@ const CUT: Outcome = Outcome::Unread(Unread::Cut);
 /// pins, a page of them in name order.
 const LABELS: &str = "query($owner: String!, $name: String!, $cursor: String) { repository(owner: $owner, name: $name) { labels(first: 100, after: $cursor, orderBy: {field: NAME, direction: ASC}) { pageInfo { hasNextPage endCursor } nodes { id name } } } }";
 
+/// One label of the repository by its name, with its colour and text.
+const LABEL: &str = "query($owner: String!, $name: String!, $label: String!) { repository(owner: $owner, name: $name) { label(name: $label) { name color description } } }";
+
 /// The issue types of the repository's owner, a page of them.
 const ISSUE_TYPES: &str = "query($owner: String!, $name: String!, $cursor: String) { repository(owner: $owner, name: $name) { issueTypes(first: 100, after: $cursor) { pageInfo { hasNextPage endCursor } nodes { name } } } }";
 
@@ -24,6 +28,55 @@ const ISSUE_TYPES: &str = "query($owner: String!, $name: String!, $cursor: Strin
 struct Label {
     id: String,
     name: String,
+}
+
+/// A label as the repository holds it.
+#[derive(Deserialize)]
+pub(crate) struct LabelHeld {
+    name: String,
+    color: String,
+    description: Option<String>,
+}
+
+impl LabelHeld {
+    /// The label's name as GitHub holds it.
+    pub(crate) fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Whether the label is what `spec` makes: its name exactly, and the
+    /// colour and the text the spec gives. A colour is read in any case.
+    pub(crate) fn is(&self, spec: &MarkSpec) -> bool {
+        self.name == spec.name.as_str()
+            && spec
+                .colour
+                .as_ref()
+                .is_none_or(|c| c.as_str().eq_ignore_ascii_case(&self.color))
+            && spec
+                .about
+                .as_ref()
+                .is_none_or(|a| self.description.as_deref().unwrap_or_default() == a)
+    }
+}
+
+#[derive(Deserialize)]
+struct LabelRepo {
+    #[serde(deserialize_with = "crate::ticket::present")]
+    label: Option<LabelHeld>,
+}
+
+#[derive(Deserialize)]
+struct LabelAnswer {
+    #[serde(deserialize_with = "crate::ticket::present")]
+    data: Option<LabelData>,
+    #[serde(default)]
+    errors: Option<Vec<serde::de::IgnoredAny>>,
+}
+
+#[derive(Deserialize)]
+struct LabelData {
+    #[serde(deserialize_with = "crate::ticket::present")]
+    repository: Option<LabelRepo>,
 }
 
 #[derive(Deserialize)]
@@ -81,6 +134,41 @@ impl GitHub {
             }
         }
         Ok(Whole::new(all))
+    }
+
+    /// The label `name` as the repository holds it, None where it holds
+    /// none. GitHub finds a label by its name in any case, so the name it
+    /// answers is kept for [`LabelHeld::is`]. A failure is read as gh's
+    /// answer beside it says (`question_outcome`); a repository that is
+    /// gone is `NotFound`, and an answer with errors in it is
+    /// `Unread(Inconsistent)`.
+    pub(crate) fn label_held(&mut self, name: &str) -> Got<Option<LabelHeld>> {
+        let (owner, repo) = self.owner_name();
+        let label = format!("label={name}");
+        let query = format!("query={LABEL}");
+        let args = [
+            "api", "graphql", "-F", &owner, "-F", &repo, "-f", &label, "-f", &query,
+        ];
+        let out = match self.call_answer("the label", &args) {
+            Ok(out) => out,
+            Err((e, said)) => {
+                let path = format!("repos/{}", self.repo);
+                return Err(self.question_outcome(&e, said.as_deref(), &path));
+            }
+        };
+        let answer: LabelAnswer = serde_json::from_str(out.trim()).map_err(|_| MALFORMED)?;
+        if answer.errors.is_some_and(|e| !e.is_empty()) {
+            return Err(INCONSISTENT);
+        }
+        let repository = answer.data.ok_or(MALFORMED)?.repository;
+        let held = repository.ok_or(Outcome::NotFound)?.label;
+        if held
+            .as_ref()
+            .is_some_and(|h| !h.name.eq_ignore_ascii_case(name))
+        {
+            return Err(INCONSISTENT);
+        }
+        Ok(held)
     }
 
     /// The owner's issue types as kinds, each once, in the site's order:

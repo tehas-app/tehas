@@ -10,6 +10,7 @@
 //! before the retry is made.
 
 use crate::call::Ran;
+use tehas_ports::Sent;
 
 /// The clock a call is measured against: seconds on a host, and a reading of
 /// the case's own in its tests, so no case of the rule sleeps. The shape
@@ -315,6 +316,45 @@ pub fn fault_of(err: &str) -> Fault {
     }
 }
 
+/// The ports' outcome of a failed gh or git call, from what it said, so the
+/// line a command prints is its own context and `Outcome::line()`, never gh's
+/// words (the ports spec, Decided 69, B7a). `sent` is whether a request that
+/// got no answer may have reached the site: `Sent::Maybe` for a write.
+pub fn outcome_of(err: &str, sent: Sent) -> tehas_ports::Outcome {
+    use tehas_ports::{At, Outcome, Passing, Pool, Refusal, Unread};
+    let low = err
+        .to_ascii_lowercase()
+        .replace("returned error: ", "http ");
+    let said = read_of(&low);
+    match (said.class, said.code) {
+        // When the budget is back is not read here; only the line is.
+        (Class::Limit, _) => Outcome::Spent {
+            pool: Pool::Unknown,
+            until: At::new(0),
+        },
+        (_, Some(401)) => Outcome::SignedOut,
+        (Class::Unknown403, _) => Outcome::Forbidden,
+        (_, Some(404 | 410)) => Outcome::NotFound,
+        (Class::State, _) => Outcome::Refused(Refusal::Unknown),
+        (Class::Server, _) => Outcome::Unavailable {
+            why: Passing::Server,
+            sent,
+        },
+        (Class::Nothing, _) => match fault_of(err) {
+            Fault::Slow => Outcome::Unavailable {
+                why: Passing::Timeout,
+                sent,
+            },
+            Fault::Down => Outcome::Unavailable {
+                why: Passing::Unreachable,
+                sent,
+            },
+            Fault::Unread => Outcome::Unread(Unread::Malformed),
+            _ => Outcome::Unread(Unread::Unknown),
+        },
+    }
+}
+
 /// How long to wait before the retry of attempt `attempts`: the whole seconds
 /// a caller sleeps for, or None when no retry follows it, or when the clock
 /// cannot be read and so no wait can be measured. `retry_with` hands it to the
@@ -503,6 +543,52 @@ pub fn retry_with(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // gh's own form of a status is read by `read_of`, whose cases are below;
+    // these give git's, which reads the same.
+    #[test]
+    fn a_failed_call_is_an_outcome_in_our_words() {
+        use tehas_ports::{Outcome, Passing, Refusal, Unread};
+        let status = |n: u32| format!("fatal: The requested URL returned error: {n}");
+        let read = |n| outcome_of(&status(n), Sent::No);
+        assert_eq!(read(401), Outcome::SignedOut);
+        assert_eq!(read(403), Outcome::Forbidden);
+        assert_eq!(read(404), Outcome::NotFound);
+        assert_eq!(read(422), Outcome::Refused(Refusal::Unknown));
+        assert!(matches!(read(429), Outcome::Spent { .. }));
+        assert!(matches!(
+            outcome_of("API rate limit exceeded for 203.0.113.5", Sent::No),
+            Outcome::Spent { .. }
+        ));
+        assert_eq!(
+            outcome_of(&status(502), Sent::Maybe),
+            Outcome::Unavailable {
+                why: Passing::Server,
+                sent: Sent::Maybe
+            }
+        );
+        assert_eq!(
+            outcome_of("Post \"https://api.example.test\": i/o timeout", Sent::No),
+            Outcome::Unavailable {
+                why: Passing::Timeout,
+                sent: Sent::No
+            }
+        );
+        let down = outcome_of("dial tcp: lookup api.example.test: no such host", Sent::No);
+        assert_eq!(
+            down,
+            Outcome::Unavailable {
+                why: Passing::Unreachable,
+                sent: Sent::No
+            }
+        );
+        assert!(!down.line().contains("example"));
+        assert_eq!(
+            outcome_of("something else", Sent::No),
+            Outcome::Unread(Unread::Unknown)
+        );
+        assert_eq!(outcome_of("", Sent::No), Outcome::Unread(Unread::Unknown));
+    }
 
     /// The clock every case is measured against: a fixed second, so none of
     /// them waits for anything.

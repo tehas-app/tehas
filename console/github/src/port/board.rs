@@ -1,11 +1,13 @@
 //! The joined reads, `Board`. Answered: `open_changes` for an ask that
 //! needs no blueprint and no body, so no marker: the changes a filter of
 //! states and branch takes, each with its files and the other open changes
-//! that close the same blueprints, in one GraphQL question a page; and for
-//! an ask of numbers, with the blueprints each closes, in `numbers.rs`.
-//! The rest is `Refused(Unsupported)` before any request.
+//! that close the same blueprints, in one GraphQL question a page; for an
+//! ask of numbers, with the blueprints each closes, in `numbers.rs`; and
+//! `open_work` for the queue's ask, in `work.rs`. The rest is
+//! `Refused(Unsupported)` before any request.
 
 mod numbers;
+mod work;
 
 use std::collections::HashSet;
 
@@ -100,8 +102,13 @@ fn more_files_query() -> String {
 }
 
 impl Board for GitHub {
-    fn open_work(&mut self, _: &BoardAsk, _: Bound) -> Got<OpenWork> {
-        unsupported()
+    /// The open issues, 25 a question, each with its digest, text,
+    /// blueprint, parts, blockers, assignees and mentions, its marks and
+    /// retitles when asked and its open closing changes when asked. Asked
+    /// at `Depth::Cut { notes: 0 }`, of every open ticket; any other ask is
+    /// `Refused(Unsupported)` before any request.
+    fn open_work(&mut self, ask: &BoardAsk, bound: Bound) -> Got<OpenWork> {
+        self.open_work_pages(ask, bound)
     }
 
     fn work_item(&mut self, _: &TicketKey, _: &BoardAsk) -> Got<WorkItem> {

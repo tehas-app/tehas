@@ -1956,6 +1956,7 @@ dependencies = [
  "attach",
  "regex",
  "rustix",
+ "serde",
  "serde_json",
  "sha2 0.10.9",
  "signal-hook",
@@ -2031,6 +2032,8 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "tehas-core",
+ "tehas-github",
+ "tehas-ports",
 ]
 
 [[package]]
@@ -2064,6 +2067,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "tehas-core",
+ "tehas-github",
  "tehas-ops",
  "tehas-ports",
 ]
