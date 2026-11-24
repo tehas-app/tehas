@@ -44,7 +44,8 @@ pub struct BoardAsk {
     pub changes: Option<(ChangeStates, Window)>,
     /// Which tickets.
     pub filter: Filter,
-    /// The control ticket, read whole with its history beside the rest.
+    /// The control ticket, read whole with its history beside the rest,
+    /// whatever the ask's depth and history say.
     pub control: Option<TicketKey>,
 }
 
