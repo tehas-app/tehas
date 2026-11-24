@@ -12,6 +12,7 @@
 
 use crate::file::{write_atomic, Temp};
 use crate::home::{Home, State};
+use crate::lock::Held;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File, TryLockError};
 use std::io::ErrorKind;
@@ -143,17 +144,18 @@ impl FileLedger {
         Ok(answer)
     }
 
-    /// The lock, held until the file is dropped; `LedgerDown` past the wait.
-    fn locked(&self) -> Result<File, LedgerDown> {
+    /// The lock, held until the value drops; `LedgerDown` past the wait.
+    fn locked(&self) -> Result<Held, LedgerDown> {
         if !self.lock.parent().is_some_and(|d| d.is_dir()) {
             return Err(LedgerDown);
         }
-        let f = File::create(&self.lock).map_err(|_| LedgerDown)?;
+        let mut f = File::create(&self.lock).map_err(|_| LedgerDown)?;
         let started = Instant::now();
         loop {
-            match f.try_lock() {
-                Ok(()) => return Ok(f),
-                Err(TryLockError::WouldBlock) if started.elapsed() < self.wait => {
+            match Held::try_take(f) {
+                Ok(held) => return Ok(held),
+                Err((TryLockError::WouldBlock, back)) if started.elapsed() < self.wait => {
+                    f = back;
                     std::thread::sleep(STEP);
                 }
                 Err(_) => return Err(LedgerDown),
