@@ -847,6 +847,24 @@ fn anonymous_reads_public_releases_and_writes_nothing() {
 }
 
 #[test]
+fn tickets_kinds_hold_no_unknown() {
+    for w in both() {
+        let w = w
+            .kind(Kind::Unknown)
+            .kind(Kind::Other(MarkName::new("Chore").unwrap()));
+        let site = FakeSite::new(&w);
+        let mut h = site.tickets(&full(), C).unwrap();
+        ok(laws::tickets::kinds_hold_no_unknown(h.as_mut()));
+        let kinds = h.kinds().unwrap().into_items();
+        assert!(kinds.contains(&Kind::Feature), "{kinds:?}");
+        assert!(
+            kinds.contains(&Kind::Other(MarkName::new("Chore").unwrap())),
+            "{kinds:?}"
+        );
+    }
+}
+
+#[test]
 fn blueprints_a_changes_number_is_no_blueprint() {
     let w = World::same_item();
     let n = first_change(&w);
@@ -1191,6 +1209,49 @@ fn a_sign_in_link_may_be_refused_and_a_marker_names_its_text() {
         Setup::One(Arc::new(site)).marker_text(Realm::CodeHost, &cleared),
         text
     );
+}
+
+#[test]
+fn faulty_passes_the_plural_edit_reads_whole_and_fails_each_item() {
+    let w = World::same_item()
+        .blueprint(1, |b| b.title("a").body("x"))
+        .blueprint(2, |b| b.title("b").body("y"));
+    let nos = [bp(1), bp(2)];
+    let plain = FakeSite::new(&w);
+    let want = plain
+        .blueprints(&full(), C)
+        .unwrap()
+        .body_edits_of(&nos, ALL_MAX);
+    let site = Faulty::new(FakeSite::new(&w));
+    let mut h = site.blueprints(&full(), C).unwrap();
+    assert_eq!(h.body_edits_of(&nos, ALL_MAX), want);
+    let site = Faulty::new(FakeSite::new(&w))
+        .on(Op::Blueprints(BlueprintsOp::BodyEditsOf), Fault::Timeout);
+    let mut h = site.blueprints(&full(), C).unwrap();
+    let got = h.body_edits_of(&nos, ALL_MAX);
+    assert_eq!(got.len(), 2);
+    assert!(got.iter().all(|(_, a)| a.is_err()), "{got:?}");
+    let ids = [CommentId::new("c1"), CommentId::new("c2")];
+    let site = Faulty::new(FakeSite::new(&w))
+        .on(Op::Blueprints(BlueprintsOp::CommentEditsOf), Fault::Timeout);
+    let mut h = site.blueprints(&full(), C).unwrap();
+    let got = h.comment_edits_of(&ids, ALL_MAX);
+    assert_eq!(got.iter().map(|(i, _)| i.clone()).collect::<Vec<_>>(), ids);
+    assert!(got.iter().all(|(_, a)| a.is_err()), "{got:?}");
+}
+
+#[test]
+fn marks_prepare_one_makes_the_mark_held() {
+    for w in both() {
+        let site = FakeSite::new(&w);
+        let mut h = site.ticket_writes(&full(), C).unwrap();
+        ok(laws::marks::prepare_one_makes_the_mark_held(
+            h.as_mut(),
+            &Mark::State(State::Escalated),
+        ));
+        let others = h.marks(ALL_MAX).unwrap().into_items();
+        assert_eq!(others.len(), 1, "one mark made, not every one: {others:?}");
+    }
 }
 
 #[test]
