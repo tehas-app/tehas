@@ -601,7 +601,8 @@ fn a_finished_turn_records_its_session_options_filed_and_outcome_file() {
     assert_eq!(p["turns"], 1);
     assert_eq!(p["options"], json!(["Yes", "No"]));
     assert_eq!(p["pending"], true);
-    assert_eq!(p["pending_outcome"], "state/plan-23.json.out");
+    let relative = Home::new("").plan_file(23, ".out");
+    assert_eq!(p["pending_outcome"], relative.to_str().unwrap());
     assert_eq!(p["running"], false);
     assert_eq!(p["failed"], false);
     assert_eq!(p["turn_rc"], 0);

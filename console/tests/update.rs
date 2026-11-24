@@ -46,7 +46,7 @@ fn bounded(h: &Host) -> String {
 }
 
 fn lock(h: &Host) -> String {
-    s(&h.home.join("state/update.lock"))
+    s(&Home::new(&h.home).state(State::UpdateLock))
 }
 
 /// libexec/update run with the lock held by the snippet's shell.
@@ -500,8 +500,11 @@ fn install_sh_is_handed_the_lock_the_update_holds() {
     let h = host(
         "handed",
         0,
-        r#"if [ "/dev/fd/${TEHAS_UPDATE_LOCK_FD:-x}" -ef "$TEHAS_HOME/state/update.lock" ] && flock -n "$TEHAS_UPDATE_LOCK_FD"; then echo "the lock is ours"; fi
-( exec 6>>"$TEHAS_HOME/state/update.lock"; flock -n 6 ) || echo "held against others""#,
+        &format!(
+            r#"if [ "/dev/fd/${{TEHAS_UPDATE_LOCK_FD:-x}}" -ef "$TEHAS_HOME/{lock}" ] && flock -n "$TEHAS_UPDATE_LOCK_FD"; then echo "the lock is ours"; fi
+( exec 6>>"$TEHAS_HOME/{lock}"; flock -n 6 ) || echo "held against others""#,
+            lock = State::UpdateLock.relative()
+        ),
     );
     let r = h.update(&[]);
     assert_eq!(r.rc, 0, "{}", r.out);
