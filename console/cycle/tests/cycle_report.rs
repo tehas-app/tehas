@@ -4,7 +4,7 @@
 
 mod common;
 
-use common::{has, World};
+use common::{has, twin, World};
 use tehas_core::testing::write_exe;
 
 #[test]
@@ -48,28 +48,29 @@ fn a_report_goes_by_the_settings_the_cycle_started_with_whatever_instance_env_sa
         r#"echo TEHAS_CYCLE_REPORT=bash >>"$TEHAS_INSTANCE_DIR/instance.env""#,
         r#"rm "$TEHAS_INSTANCE_DIR/instance.env""#,
     ] {
-        let w = World::new("report-settings");
-        w.ended("aborted", "develop", "", "");
-        w.work(change);
-        let r = w.run7();
+        let (w, r, said) = twin("report-settings", |w| {
+            w.ended("aborted", "develop", "", "");
+            w.work(change);
+        });
         assert_eq!(r.rc, 0, "{change}");
         has(&r.out, "done #7 rc=20 status=aborted step=develop");
         let gh = w.gh();
         has(&gh, "Tehas cycle stopped without a pull request");
-        has(&gh, "--repo acme/widget");
+        // The calls name the repository the cycle started with, none another.
+        has(&gh, "acme/widget");
         assert_eq!(gh.lines().filter(|l| l.contains("other/place")).count(), 0);
-        has(&gh, "--remove-label tehas:running");
+        has(&said, "unmark State(Running)");
         assert!(!w.row(&["cycle-show", "7"])["cycle"]["ended_at"].is_null());
     }
 }
 
 #[test]
 fn a_store_gone_by_the_end_still_gets_the_issue_its_comment_and_its_label_off_70() {
-    let w = World::new("report-store-gone");
-    w.ended("aborted", "develop", "", "");
-    w.work(r#"rm "$TEHAS_HOME/libexec/store""#);
-    let r = w.run7();
+    let (w, r, said) = twin("report-store-gone", |w| {
+        w.ended("aborted", "develop", "", "");
+        w.work(r#"rm "$TEHAS_HOME/libexec/store""#);
+    });
     assert_eq!(r.rc, 70);
     has(&w.gh(), "Tehas cycle stopped without a pull request");
-    has(&w.gh(), "--remove-label tehas:running");
+    has(&said, "unmark State(Running)");
 }
