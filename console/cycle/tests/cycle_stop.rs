@@ -3,21 +3,18 @@
 
 mod common;
 
-use common::{count_lines, has, lacks, Run, World};
+use common::{count_lines, has, lacks, said, site, through, twin, Run, World};
 use serde_json::{json, Value};
 use std::fs;
 use std::process::Command;
 use std::time::{Duration, Instant};
+use tehas_ports::fake::{BlueprintsOp, Fault, Faulty, Op, TicketsOp};
+use tehas_ports::Refusal;
 
 const PR9: &str = "https://github.com/acme/widget/pull/9";
 
 fn pr9(w: &World) {
     w.fx("pr.txt", &format!("{PR9}\n"));
-}
-
-/// The lines of `text` that hold `needle`.
-fn count_in(text: &str, needle: &str) -> usize {
-    text.lines().filter(|l| l.contains(needle)).count()
 }
 
 /// The runner notes the cycle's pid (its parent) before what it does.
@@ -28,6 +25,21 @@ const TRAPPED: &str = r#"sleep 30 & s=$!
 trap "kill \$s; : >\"\$T/calls/work.term\"; exit 2" TERM
 : >"$T/calls/work.ready"
 wait "$s""#;
+
+/// The writes of the report of a runner that exits 2, as one does on a stop,
+/// made in process: the report after a stop decides the same writes, and
+/// makes each with one try (apply.rs, `after_a_stop_each_write_is_one_try`).
+fn stopped_said(name: &str) -> String {
+    let w = World::new(name);
+    w.work("exit 2");
+    said(&w.report_writes(&site()))
+}
+
+/// A handoff on feature/x with pull request #9 open.
+fn handed_off(w: &mut World) {
+    w.ended("handoff", "commit-pr", "feature/x", "");
+    pr9(w);
+}
 
 /// A cycle of #7 sent `signal` once `calls/<ready>` is there, the wait for it
 /// bounded so a cycle that never gets there fails the case rather than hang.
@@ -68,8 +80,8 @@ fn a_stop_is_passed_on_to_the_runner_and_the_cycle_is_still_reported() {
     assert_eq!(r.rc, 0, "{}", r.out);
     assert!(w.t().join("calls/work.term").exists());
     has(
-        &w.gh(),
-        "--remove-label tehas:running --add-label needs-human-attention",
+        &stopped_said("st-term-writes"),
+        "unmark State(Running)\nmark State(NeedsPerson)",
     );
     has(&w.gh(), "(runner exit 2)");
 }
@@ -77,18 +89,22 @@ fn a_stop_is_passed_on_to_the_runner_and_the_cycle_is_still_reported() {
 #[test]
 fn a_stop_that_arrives_while_the_report_is_made_does_not_cut_the_report_short() {
     let w = World::new("st-report");
-    // The first relabel takes a second and says when it starts.
+    // The first mark taken off takes a second and says when it starts.
     w.touch("edit-slow");
     w.work(PID);
     let (r, _) = signalled(&w, "edit.started", "TERM");
     assert_eq!(r.rc, 0, "{}", r.out);
-    let gh = w.gh();
-    has(&gh, "issue edit 7");
-    has(&gh, "Tehas cycle stopped without a pull request");
-    has(
-        &gh,
-        "issue edit 7 --repo acme/widget --add-label tehas:question",
-    );
+    assert!(w.t().join("calls/edit.started").exists());
+    // After the stop the park's question is still asked, and kept: its mark
+    // went on, or the question would be taken off the record.
+    has(&w.gh(), "Tehas cycle stopped without a pull request");
+    assert_eq!(w.park()["question"], 4002);
+    let q = w.row(&["question-known", "7", "--id", "4002"]);
+    assert_eq!(json!([q["known"], q["answered"]]), json!([true, false]));
+    // The writes it makes, in tehas's terms.
+    let (_, _, said) = twin("st-report-writes", |w| w.work(PID));
+    has(&said, "unmark State(Running)\nmark State(NeedsPerson)");
+    has(&said, "mark State(Question)");
 }
 
 #[test]
@@ -112,8 +128,9 @@ wait "$s""#
     // default bound of 20 seconds, would take far longer. The report ignores
     // TERM, so a bound that only sent TERM would not cut a call.
     assert!(took <= Duration::from_secs(15), "{took:?}");
+    // One try of each write after a stop: apply.rs,
+    // `after_a_stop_each_write_is_one_try`.
     let gh = w.gh();
-    assert_eq!(count_in(&gh, "--remove-label tehas:running"), 1);
     assert_eq!(count_lines(&gh, "pr list "), 1);
     assert_eq!(w.calls("fake-status"), "");
     // A call cut at its bound is a write that failed, or one GitHub may have
@@ -129,10 +146,10 @@ wait "$s""#
 #[test]
 fn a_cycle_that_was_not_stopped_still_refreshes_the_status_and_tries_three_times() {
     let w = World::new("st-notstopped");
-    w.fx("edit-fails-on", "--remove-label tehas:running\n");
     w.run7();
-    assert_eq!(count_in(&w.gh(), "--remove-label tehas:running"), 3);
     assert_eq!(w.calls("fake-status").lines().count(), 1);
+    let (_, _, sent) = through("st-notstopped-writes", |_| {}, refuse_unmark);
+    assert_eq!(count_lines(&sent, "unmark State(Running)"), 3);
 }
 
 #[test]
@@ -143,57 +160,47 @@ fn a_hangup_is_a_stop_too_the_cycle_is_still_reported() {
     assert_eq!(r.rc, 0, "{}", r.out);
     assert!(w.t().join("calls/work.term").exists());
     has(
-        &w.gh(),
-        "--remove-label tehas:running --add-label needs-human-attention",
+        &stopped_said("st-hup-writes"),
+        "unmark State(Running)\nmark State(NeedsPerson)",
     );
+}
+
+/// The fake, refusing every mark taken off the issue.
+fn refuse_unmark(f: tehas_ports::fake::FakeSite) -> Faulty<tehas_ports::fake::FakeSite> {
+    Faulty::new(f).on(
+        Op::Tickets(TicketsOp::Unmark),
+        Fault::Refused(Refusal::Invalid),
+    )
 }
 
 #[test]
 fn a_label_change_that_github_refuses_once_is_made_again() {
-    let w = World::new("st-label-once");
-    w.ended("handoff", "commit-pr", "feature/x", "");
-    pr9(&w);
-    w.fx("edit-fails-times", "1\n");
-    let r = w.run7();
-    assert_eq!(r.rc, 0);
-    assert_eq!(
-        count_in(
-            &w.gh(),
-            "--remove-label tehas:running --add-label tehas:awaiting-merge"
-        ),
-        2
-    );
-    lacks(&r.out, "WARN: label change");
-    has(&w.gh(), "Pull request waiting for a human");
+    let (_, applied, sent) = through("st-label-once", handed_off, |f| refuse_unmark(f).times(1));
+    assert_eq!(count_lines(&sent, "unmark State(Running)"), 2);
+    has(&applied, "unmark State(Running)\nmark State(AwaitingMerge)");
+    lacks(&applied, "could not be changed");
+    has(&applied, "Pull request waiting for a human");
 }
 
 #[test]
 fn after_three_refusals_it_gives_up_says_so_in_the_log_and_still_reports() {
-    let w = World::new("st-label-three");
-    w.ended("handoff", "commit-pr", "feature/x", "");
-    pr9(&w);
-    w.fx("edit-fails-on", "--remove-label tehas:running\n");
-    let r = w.run7();
-    assert_eq!(r.rc, 0);
-    assert_eq!(count_in(&w.gh(), "--remove-label tehas:running"), 3);
-    has(&r.out, "WARN: label change on #7 failed: --remove-label tehas:running --add-label tehas:awaiting-merge");
-    has(&w.gh(), "Pull request waiting for a human");
+    let (_, applied, sent) = through("st-label-three", handed_off, refuse_unmark);
+    assert_eq!(count_lines(&sent, "unmark State(Running)"), 3);
+    lacks(&sent, "mark State(AwaitingMerge)");
+    has(&applied, "Pull request waiting for a human");
 }
 
 #[test]
 fn a_run_that_ended_as_st_is_not_said_to_wait_for_a_merge_though_a_pull_request_is_open() {
     for st in ["failed", "aborted", "unknown", "running"] {
-        let w = World::new("st-not-merge");
-        w.ended(st, "review", "feature/x", "");
-        pr9(&w);
-        let r = w.run7();
+        let (w, r, said) = twin("st-not-merge", |w| {
+            w.ended(st, "review", "feature/x", "");
+            pr9(w);
+        });
         assert_eq!(r.rc, 0, "{st}");
         let gh = w.gh();
-        lacks(&gh, "tehas:awaiting-merge");
-        has(
-            &gh,
-            "--remove-label tehas:running --add-label needs-human-attention",
-        );
+        lacks(&said, "State(AwaitingMerge)");
+        has(&said, "unmark State(Running)\nmark State(NeedsPerson)");
         has(
             &gh,
             "Its branch has an open pull request: https://github.com/acme/widget/pull/9",
@@ -208,19 +215,16 @@ fn a_run_that_ended_as_st_is_not_said_to_wait_for_a_merge_though_a_pull_request_
 
 #[test]
 fn a_stop_at_commit_pr_with_its_draft_pull_request_open_names_it_as_a_draft() {
-    let w = World::new("st-draft");
-    w.ended("running", "commit-pr", "feature/x", "");
-    w.fx("pr.txt", "https://github.com/acme/widget/pull/67\n");
-    w.touch("pr-draft");
-    let r = w.run7();
+    let (w, r, said) = twin("st-draft", |w| {
+        w.ended("running", "commit-pr", "feature/x", "");
+        w.fx("pr.txt", "https://github.com/acme/widget/pull/67\n");
+        w.touch("pr-draft");
+    });
     assert_eq!(r.rc, 0);
     let gh = w.gh();
     has(&gh, "pr list --repo acme/widget --head feature/x --author tehas-bot[bot] --state all --json url,state,body,headRefName,isDraft,createdAt");
     has(&gh, "Tehas cycle stopped with pull request #67 open (draft): status `running`, last step `commit-pr`");
-    has(
-        &gh,
-        "--remove-label tehas:running --add-label needs-human-attention",
-    );
+    has(&said, "unmark State(Running)\nmark State(NeedsPerson)");
     lacks(&gh, "without a pull request");
 }
 
@@ -254,95 +258,106 @@ fn journal_open(w: &World) -> Value {
     json!(rows)
 }
 
-const COMMENT: &str = "issue comment 7 ";
-const READ: &str = "api repos/acme/widget/issues/7/comments?per_page=100";
+/// The report's note on the issue, as `said` says it.
+const NOTE: &str = "note: ";
+
+/// The fake, its notes on the issue failing as `fault` says, `times` times.
+fn notes_fail(
+    fault: Fault,
+    times: u32,
+) -> impl Fn(tehas_ports::fake::FakeSite) -> Faulty<tehas_ports::fake::FakeSite> {
+    move |f| {
+        let site = Faulty::new(f).on(Op::Tickets(TicketsOp::Note), fault);
+        if times > 0 {
+            site.times(times)
+        } else {
+            site
+        }
+    }
+}
 
 #[test]
 fn a_comment_that_github_refuses_once_is_posted_on_the_second_try() {
-    let w = World::new("st-comment-once");
-    w.ended("handoff", "commit-pr", "feature/x", "");
-    pr9(&w);
-    w.fx("comment-fails-times", "1\n");
+    let mut w = World::new("st-comment-once");
+    handed_off(&mut w);
     let r = w.run7();
     assert_eq!(r.rc, 0);
-    assert_eq!(count_lines(&w.gh(), COMMENT), 2);
-    lacks(&r.out, "WARN: comment on #7 failed");
-    has(&w.gh(), "Pull request waiting for a human");
     assert!(ended_at(&w));
+    let (_, applied, sent) = through(
+        "st-comment-once-writes",
+        handed_off,
+        notes_fail(Fault::Refused(Refusal::Invalid), 1),
+    );
+    assert_eq!(count_lines(&sent, NOTE), 2);
+    assert_eq!(count_lines(&applied, NOTE), 1);
+    has(&applied, "Pull request waiting for a human");
 }
 
 #[test]
 fn after_three_refusals_the_comment_is_said_once_and_the_cycle_still_ends_its_record() {
-    let w = World::new("st-comment-three");
-    w.ended("handoff", "commit-pr", "feature/x", "");
-    pr9(&w);
-    w.touch("comment-fails");
+    let mut w = World::new("st-comment-three");
+    handed_off(&mut w);
     let r = w.run7();
     assert_eq!(r.rc, 0);
-    assert_eq!(count_lines(&w.gh(), COMMENT), 3);
-    assert_eq!(count_in(&r.out, "WARN: comment on #7 failed"), 1);
     assert!(ended_at(&w));
+    let (_, applied, sent) = through(
+        "st-comment-three-writes",
+        handed_off,
+        notes_fail(Fault::Refused(Refusal::Invalid), 0),
+    );
+    assert_eq!(count_lines(&sent, NOTE), 3);
+    assert_eq!(count_lines(&applied, NOTE), 0);
 }
 
 #[test]
 fn a_comment_github_answered_with_a_5xx_and_did_not_take_is_posted_again_after_the_read() {
-    let w = World::new("st-5xx-not-taken");
-    w.ended("handoff", "commit-pr", "feature/x", "");
-    pr9(&w);
-    w.fx("comment-fails-times", "1\n");
-    w.fx("comment-says", "HTTP 502: Bad Gateway\n");
-    w.fx("comments.json", "[]\n");
-    let r = w.run7();
-    assert_eq!(r.rc, 0);
-    assert_eq!(count_lines(&w.gh(), COMMENT), 2);
-    assert_eq!(count_lines(&w.gh(), READ), 1);
-    lacks(&r.out, "may have been posted");
-    lacks(&r.out, "WARN: comment on #7 failed");
-    // The unknown row stays for the poll, which finds the comment by its text.
-    assert_eq!(journal_open(&w), json!([["comment-post", "unknown"]]));
+    let (w, applied, sent) = through(
+        "st-5xx-not-taken",
+        handed_off,
+        notes_fail(Fault::Server { applied: false }, 1),
+    );
+    assert_eq!(count_lines(&sent, NOTE), 2);
+    assert_eq!(count_lines(&applied, NOTE), 1);
+    // The row of the note that did not land is closed as not sent.
+    assert_eq!(journal_open(&w), json!([]));
 }
 
 #[test]
 fn a_comment_github_answered_with_a_5xx_and_took_is_not_posted_again() {
-    let w = World::new("st-5xx-taken");
-    w.ended("handoff", "commit-pr", "feature/x", "");
-    pr9(&w);
-    w.fx("comment-fails", "HTTP 502: Bad Gateway\n");
-    w.touch("comment-taken");
-    let r = w.run7();
-    assert_eq!(r.rc, 0);
-    assert_eq!(count_lines(&w.gh(), COMMENT), 1);
-    assert_eq!(count_lines(&w.gh(), READ), 1);
-    lacks(&r.out, "may have been posted");
-    lacks(&r.out, "WARN: comment on #7 failed");
+    let (w, applied, sent) = through(
+        "st-5xx-taken",
+        handed_off,
+        notes_fail(Fault::Server { applied: true }, 1),
+    );
+    assert_eq!(count_lines(&sent, NOTE), 1);
+    assert_eq!(count_lines(&applied, NOTE), 1);
+    // Read back and settled: no row is left open.
+    assert_eq!(journal_open(&w), json!([]));
 }
 
 #[test]
 fn a_comment_github_answered_with_a_5xx_that_no_read_settles_is_not_posted_again() {
-    let w = World::new("st-5xx-unsettled");
-    w.ended("handoff", "commit-pr", "feature/x", "");
-    pr9(&w);
-    w.fx("comment-fails", "HTTP 502: Bad Gateway\n");
+    let mut w = World::new("st-5xx-unsettled");
+    handed_off(&mut w);
     let r = w.run7();
     assert_eq!(r.rc, 0);
-    assert_eq!(count_lines(&w.gh(), COMMENT), 1);
-    has(&r.out, "may have been posted");
-    assert_eq!(journal_open(&w), json!([["comment-post", "unknown"]]));
     assert!(ended_at(&w));
+    let (w, _, sent) = through("st-5xx-unsettled-writes", handed_off, |f| {
+        notes_fail(Fault::Server { applied: true }, 0)(f)
+            .on(Op::Blueprints(BlueprintsOp::Comments), Fault::Unreachable)
+    });
+    assert_eq!(count_lines(&sent, NOTE), 1);
+    assert_eq!(journal_open(&w), json!([["comment-post", "unknown"]]));
 }
 
 #[test]
 fn a_list_of_pull_requests_that_github_refuses_once_is_asked_for_again() {
-    let w = World::new("st-list-once");
-    w.ended("handoff", "commit-pr", "feature/x", "");
-    pr9(&w);
-    w.fx("pr-fails-times", "1\n");
-    w.run7();
+    let (w, _, said) = twin("st-list-once", |w| {
+        handed_off(w);
+        w.fx("pr-fails-times", "1\n");
+    });
     assert_eq!(count_lines(&w.gh(), "pr list "), 2);
-    has(
-        &w.gh(),
-        "--remove-label tehas:running --add-label tehas:awaiting-merge",
-    );
+    has(&said, "unmark State(Running)\nmark State(AwaitingMerge)");
 }
 
 /// A handoff on feature/x whose pull requests GitHub would not list.
@@ -357,19 +372,21 @@ fn unlisted(w: &World) -> Run {
 fn after_three_refusals_the_cycle_is_parked_as_one_whose_pull_request_could_not_be_looked_up() {
     let w = World::new("st-list-three");
     let r = unlisted(&w);
+    let twin = World::new("st-list-three-writes");
+    twin.ended("handoff", "commit-pr", "feature/x", "");
+    pr9(&twin);
+    twin.fx("pr-fails-times", "3\n");
+    let said = said(&twin.report_writes(&site()));
     let gh = w.gh();
     assert_eq!(count_lines(&gh, "pr list "), 3);
     has(
         &r.out,
         "WARN: the pull requests of feature/x could not be read",
     );
-    has(
-        &gh,
-        "--remove-label tehas:running --add-label needs-human-attention",
-    );
+    has(&said, "unmark State(Running)\nmark State(NeedsPerson)");
     has(&gh, "its pull request could not be looked up: GitHub did not list the pull requests of the branch `feature/x`");
     lacks(&gh, "stopped without a pull request");
-    lacks(&gh, "tehas:awaiting-merge");
+    lacks(&said, "State(AwaitingMerge)");
 }
 
 // The two cases after it go on from where the one above left the host.
@@ -388,7 +405,14 @@ fn the_branch_is_on_record_with_every_end_and_an_earlier_cycles_is_not_the_next_
     w.run7();
     let c = w.row(&["cycle-show", "7"])["cycle"].clone();
     assert_eq!(json!([c["attempt"], c["branch"]]), json!([2, "feature/y"]));
-    has(&w.gh(), "Pull request waiting for a human");
+    // The second cycle's report, in process after the same first cycle.
+    let twin = World::new("st-branch-each-writes");
+    unlisted(&twin);
+    twin.ended("handoff", "commit-pr", "feature/y", "");
+    has(
+        &said(&twin.report_writes(&site())),
+        "Pull request waiting for a human",
+    );
     fs::remove_file(w.fx.join("result.json")).unwrap();
     w.run7();
     let c = w.row(&["cycle-show", "7"])["cycle"].clone();
@@ -410,12 +434,8 @@ fn a_branch_name_the_container_wrote_is_reduced_before_it_is_recorded() {
 
 #[test]
 fn when_the_label_cannot_be_changed_the_comment_says_so() {
-    let w = World::new("st-label-said");
-    w.ended("handoff", "commit-pr", "feature/x", "");
-    pr9(&w);
-    w.fx("edit-fails-on", "--remove-label tehas:running\n");
-    w.run7();
-    has(&w.gh(), "Pull request waiting for a human: https://github.com/acme/widget/pull/9 The label of this issue could not be changed");
+    let (_, applied, _) = through("st-label-said", handed_off, refuse_unmark);
+    has(&applied, "Pull request waiting for a human: https://github.com/acme/widget/pull/9 The label of this issue could not be changed");
 }
 
 #[test]
@@ -429,16 +449,21 @@ fn and_a_comment_after_a_label_change_that_worked_does_not() {
 
 #[test]
 fn the_question_label_is_tried_three_times() {
-    let w = World::new("st-question");
-    w.fx("edit-fails-on", "--add-label tehas:question");
-    w.run7();
-    let gh = w.gh();
-    let tries = gh
-        .lines()
-        .filter(|l| *l == "issue edit 7 --repo acme/widget --add-label tehas:question")
-        .count();
-    assert_eq!(tries, 3);
-    has(&gh, "A reply to the choices above does nothing");
+    // The park's own mark goes on; the question's does not.
+    let (_, applied, sent) = through(
+        "st-question",
+        |_| {},
+        |f| {
+            Faulty::new(f)
+                .on(
+                    Op::Tickets(TicketsOp::Mark),
+                    Fault::Refused(Refusal::Invalid),
+                )
+                .after(1)
+        },
+    );
+    assert_eq!(count_lines(&sent, "mark State(Question)"), 3);
+    has(&applied, "A reply to the choices above does nothing");
 }
 
 #[test]

@@ -69,8 +69,10 @@ api_rest() {
 case "$1 $2" in
   # A label of an issue or a pull request through the REST endpoint, and the
   # body of the issue. label-missing answers 404; mark-fails, unmark-fails and
-  # patch-fails fail at once, the -times ones count down.
+  # patch-fails fail at once, the -times ones count down. With edit-slow the
+  # call takes a second and says when it starts.
   "api -X")
+    [ ! -e "$T/fx/edit-slow" ] || { : >"$T/calls/edit.started"; sleep 1; }
     if api_rest POST "*/labels"; then
       [ ! -e "$T/fx/label-missing" ] || not_found
       fails mark-fails mark-fails-times
@@ -99,7 +101,6 @@ case "$1 $2" in
         "[{url: \$url, state: \$state, body: \$body, headRefName: \$head, isDraft: \$draft, createdAt: \$created}]"
     else echo "[]"; fi ;;
   "issue edit")
-    [ ! -e "$T/fx/edit-slow" ] || { : >"$T/calls/edit.started"; sleep 1; }
     countdown edit-fails-times
     # An edit whose arguments hold the text of edit-fails-on fails.
     if [ -s "$T/fx/edit-fails-on" ]; then
@@ -143,6 +144,12 @@ pub struct FxAsk<'a> {
 impl tehas_cycle::report::Ask for FxAsk<'_> {
     fn prs(&mut self, branch: &str) -> Option<Vec<Value>> {
         let fx = |n: &str| fs::read_to_string(self.w.fx.join(n)).ok();
+        // pr-fails-times: GitHub refuses the list that many times, and the
+        // report asks three.
+        let refused = fx("pr-fails-times").and_then(|t| t.trim().parse::<u32>().ok());
+        if refused.is_some_and(|n| n >= 3) {
+            return None;
+        }
         if let Some(all) = fx("pr.json") {
             return serde_json::from_str(&all).ok();
         }
@@ -1111,7 +1118,10 @@ pub fn through<S: tehas_ports::Site>(
 #[allow(dead_code)] // each test file uses a part of this module
 pub fn site() -> tehas_ports::fake::World {
     use tehas_ports::{Mark, State};
+    // The site's clock reads the host's, as a journal row's time is the host's.
+    let now = tehas_ports::At::new(tehas_core::time::now());
     tehas_ports::fake::World::new()
+        .on_clock(tehas_ports::fake::Clock::new(now))
         .ticket(7, |t| {
             t.title("Install.sh checks the instance env")
                 .mark(Mark::State(State::Running))
