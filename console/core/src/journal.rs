@@ -75,6 +75,12 @@ pub struct Handles {
     pub code_host: Box<dyn CodeHost>,
 }
 
+/// A write as its row keeps it: its bodies summed, so a row holds no text.
+/// The poll's settle reads a row back as this, and a send asks for it by it.
+pub fn kept(write: &Write) -> Got<Write> {
+    write.summed(|text| Sha256::new(sha256(text)).ok())
+}
+
 /// The store's answer to one call, or its failure.
 pub type Store<'a> = &'a mut dyn FnMut(&[&str]) -> Result<Value, Value>;
 
@@ -160,7 +166,7 @@ impl Journal<'_> {
             read_only::tell(&format!("send {:?}", write.kind()));
             return Journaled::Answered(Err(Outcome::Refused(Refusal::ReadOnly)));
         }
-        let row = match write.summed(|text| Sha256::new(sha256(text)).ok()) {
+        let row = match kept(write) {
             Ok(row) => row,
             Err(o) => return Journaled::Answered(Err(o)),
         };
