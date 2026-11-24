@@ -869,6 +869,16 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Adopter action: a program that read gh's words in `last` reads the fixed
   lines. A line written before the update shows until it leaves the
   ten-minute window.
+- **`tehas setup`, `tehasbot github-token` and `console pins` name a failed
+  call in tehas's words.** #PRNUM. An error line of each names what failed
+  in its own words, then the kind of failure as one fixed line of the
+  ports' outcomes: `not found, or not visible to this actor`, `the
+  credential is no longer good`, `this actor may not do this`, `the site
+  could not be reached`, `the site failed`, `timed out before sending`, and
+  the like. They no longer pass on curl's words or `HTTP <status>`.
+  Readers: adopters, the end-to-end suite.
+  Adopter action: a script that matched curl's words or `HTTP <status>` in
+  those lines matches the fixed lines.
 - **The repository is tehas-app/tehas-factory.** #2980. Only the
   repository's name changes: the commands, the crates, the paths, the event
   names and the kit keep theirs. The release repository built into tehas
