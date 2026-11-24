@@ -4,8 +4,8 @@
 //! mapping of an error to its exit.
 
 use crate::{
-    answer, approval, cycle, db, history, journal, live, order, park, plan, plugin, poll, record,
-    upkeep,
+    answer, approval, cycle, db, history, journal, link, live, order, park, plan, plugin, poll,
+    record, upkeep,
 };
 use rusqlite::Connection;
 use serde_json::Value;
@@ -33,6 +33,7 @@ pub enum Call {
     Order(order::Call),
     Plugin(plugin::Call),
     Record(record::Call),
+    Link(link::Call),
 }
 
 /// None for a verb name this part does not know; else the call or the line of
@@ -76,6 +77,9 @@ pub fn parse(args: &[String]) -> Option<Result<Call, String>> {
     if let Some(r) = record::parse(name, rest) {
         return Some(r.map(Call::Record));
     }
+    if let Some(r) = link::parse(name, rest) {
+        return Some(r.map(Call::Link));
+    }
     history::parse(name, rest).map(|r| r.map(Call::History))
 }
 
@@ -94,6 +98,7 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
         Call::Order(c) => order::run(home, c, now),
         Call::Plugin(c) => plugin::run(home, c, now),
         Call::Record(c) => record::run(home, c, now),
+        Call::Link(c) => link::run(home, c, now),
     }
 }
 
