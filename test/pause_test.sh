@@ -20,7 +20,7 @@ t_stub gh '
 case "$1 $2" in
   "api repos/acme/widget/issues/1") cat "$T/labels.json" ;;
   "api repos/acme/widget/issues/1/events?per_page=100") cat "$T/events.json" ;;
-  "issue edit") exit 1 ;;
+  "issue edit") exit 1 ;; "api graphql") echo "{\"data\":{\"repository\":{\"issue\":{\"parent\":null}}}}" ;;
 esac'
 
 reset() {
