@@ -1144,7 +1144,7 @@ pub fn reported(home: &Path, s: &Start, handles: HandlesOf) -> Reported {
     let issue = s.issue;
     let workdir = host::workdir(s);
     let now = s.now.unwrap_or_else(tehas_core::time::now);
-    let facts_json = host::facts(home, s);
+    let facts_json = host::facts_with(home, s, &|k: &str| std::env::var(k).unwrap_or_default());
     // The driver's record goes with the run before the workspace is cleared of
     // what only its container wrote: the record is the only account of the
     // driver's own steps, and nothing else reads it later.

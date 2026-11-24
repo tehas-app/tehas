@@ -170,13 +170,9 @@ pub fn store_try(home: &Path, tries: u32, args: &[&str]) -> Result<Value, Refuse
     call::store_try(tries, Duration::from_secs(1), || store_value(home, args)).map_err(refused)
 }
 
-/// The facts of the cycle `s`, read from the host under `home`.
-pub fn facts(home: &Path, s: &Start) -> Value {
-    facts_with(home, s, &|k: &str| std::env::var(k).unwrap_or_default())
-}
-
-/// [`facts`] with the settings it reads given by `env`, not this process's
-/// environment: so a test reads a home's facts in process, beside others.
+/// The facts of the cycle `s`, read from the host under `home`, with the
+/// settings it reads given by `env`: this process's environment, or a test's
+/// own, so a test reads a home's facts in process, beside others.
 pub fn facts_with(home: &Path, s: &Start, env: &dyn Fn(&str) -> String) -> Value {
     let cycles = Home::new(home).cycles_dir();
     let issue = s.issue;

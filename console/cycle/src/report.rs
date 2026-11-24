@@ -39,9 +39,22 @@ pub trait Ask {
 pub struct Given(pub Value);
 
 impl Ask for Given {
-    fn prs(&mut self, _branch: &str) -> Option<Vec<Value>> {
+    /// A pull request with no head of its own is on the branch asked, as gh's
+    /// list by head answers.
+    fn prs(&mut self, branch: &str) -> Option<Vec<Value>> {
         match self.0.get("prs") {
-            Some(Value::Array(a)) => Some(a.clone()),
+            Some(Value::Array(a)) => Some(
+                a.iter()
+                    .cloned()
+                    .map(|mut p| {
+                        let head = Value::String(branch.to_string());
+                        if let Some(o) = p.as_object_mut() {
+                            o.entry("headRefName").or_insert(head);
+                        }
+                        p
+                    })
+                    .collect(),
+            ),
             None => Some(vec![]),
             _ => None,
         }

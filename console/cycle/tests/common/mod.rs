@@ -134,55 +134,6 @@ case "$1 $2" in
 esac
 "##;
 
-/// The report's questions of GitHub, answered from the fixtures the stub gh
-/// answers them from: the bot's pull request of `pr.txt` (or the whole of
-/// `pr.json`), and the issue of `issue-7.json`.
-pub struct FxAsk<'a> {
-    w: &'a World,
-}
-
-impl tehas_cycle::report::Ask for FxAsk<'_> {
-    fn prs(&mut self, branch: &str) -> Option<Vec<Value>> {
-        let fx = |n: &str| fs::read_to_string(self.w.fx.join(n)).ok();
-        // pr-fails-times: GitHub refuses the list that many times, and the
-        // report asks three.
-        let refused = fx("pr-fails-times").and_then(|t| t.trim().parse::<u32>().ok());
-        if refused.is_some_and(|n| n >= 3) {
-            return None;
-        }
-        if let Some(all) = fx("pr.json") {
-            return serde_json::from_str(&all).ok();
-        }
-        let Some(url) = fx("pr.txt") else {
-            return Some(vec![]);
-        };
-        let or = |n: &str, d: &str| fx(n).map_or(d.to_string(), |t| t.trim().to_string());
-        Some(vec![json!({
-            "url": url.trim(), "state": or("pr-state", "OPEN"), "body": or("pr-body", "Fixes #7"),
-            "headRefName": branch, "isDraft": self.w.fx.join("pr-draft").exists(),
-            "createdAt": tehas_core::time::iso(tehas_core::time::now()),
-        })])
-    }
-
-    fn attention(&mut self) -> Option<bool> {
-        let issue = self.issue()?;
-        Some(
-            issue["labels"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .any(|l| l.get("name").and_then(Value::as_str) == Some("needs-human-attention")),
-        )
-    }
-
-    fn issue(&mut self) -> Option<Value> {
-        match fs::read_to_string(self.w.fx.join("issue-7.json")) {
-            Ok(t) => serde_json::from_str(&t).ok(),
-            Err(_) => Some(json!({"number": 7, "state": "open"})),
-        }
-    }
-}
-
 /// The stub tehas work. A result and a progress the case wrote are put where
 /// tehas work leaves them, and so is the note of a container that never
 /// started. Without a progress of its own a case gets an empty one. work.sh is
@@ -749,7 +700,7 @@ impl World {
         let env = |k: &str| self.setting(k);
         let facts_json = tehas_cycle::host::facts_with(&self.home, &start, &env);
         let facts = tehas_cycle::Facts::from_json(&facts_json).expect("the facts read");
-        let mut ask = FxAsk { w: self };
+        let mut ask = self.fx_answers();
         let mut r = tehas_cycle::report::report(&facts, &mut ask);
         let fake = through;
         let (by, c) = (Actor::Ours(Scope::Full), Caller::new("report"));
@@ -804,6 +755,38 @@ impl World {
         );
         write_exe(path, text).unwrap();
         path.display().to_string()
+    }
+
+    /// The report's questions of GitHub answered from the fixtures the stub
+    /// gh answers them from: the bot's pull request of `pr.txt` (or the whole
+    /// of `pr.json`), none at all while `pr-fails-times` outlasts the report's
+    /// three asks, and the issue of `issue-7.json`.
+    pub fn fx_answers(&self) -> tehas_cycle::report::Given {
+        let fx = |n: &str| fs::read_to_string(self.fx.join(n)).ok();
+        let or = |n: &str, d: &str| fx(n).map_or(d.to_string(), |t| t.trim().to_string());
+        let refused = fx("pr-fails-times")
+            .and_then(|t| t.trim().parse::<u32>().ok())
+            .is_some_and(|n| n >= 3);
+        let prs = if refused {
+            Value::Null
+        } else if let Some(all) = fx("pr.json") {
+            serde_json::from_str(&all).unwrap_or(Value::Null)
+        } else if let Some(url) = fx("pr.txt") {
+            json!([{"url": url.trim(), "state": or("pr-state", "OPEN"),
+                "body": or("pr-body", "Fixes #7"), "isDraft": self.fx.join("pr-draft").exists(),
+                "createdAt": tehas_core::time::iso(tehas_core::time::now())}])
+        } else {
+            json!([])
+        };
+        let issue = fx("issue-7.json")
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_else(|| json!({"number": 7, "state": "open"}));
+        let attention = issue["labels"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|l| l.get("name").and_then(Value::as_str) == Some("needs-human-attention"));
+        tehas_cycle::report::Given(json!({"prs": prs, "attention": attention, "issue": issue}))
     }
 
     /// A cycle of #7.
