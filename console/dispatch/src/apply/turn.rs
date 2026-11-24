@@ -344,6 +344,7 @@ impl Writer {
                 ("--remove-label", "tehas:question"),
                 ("--remove-label", "needs-human-attention"),
             ],
+            log,
         );
         if !marked {
             self.put_back(n, &undo, log);

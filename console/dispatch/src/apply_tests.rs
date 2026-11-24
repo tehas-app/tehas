@@ -4629,6 +4629,39 @@ fn a_refine_with_later_parts_is_refined_and_stays_open() {
 }
 
 #[test]
+fn a_label_part_that_may_have_been_posted_leaves_its_line() {
+    let mut t = world();
+    t.fail(
+        "send",
+        &format!("{}|maybe", marked(7, "tehas:question", false)),
+    );
+    let a = t.apply(json!([{"plan_end": 7, "say": "Planning session ended by alice."}]));
+    assert!(
+        a.log
+            .iter()
+            .any(|l| l.starts_with("WARN: the label change on #7 may have been posted")),
+        "{:?}",
+        a.log
+    );
+    // The change stopped at that part: the session is not ended.
+    assert!(!t.writes().contains(&marked(7, "tehas:planning", false)));
+}
+
+#[test]
+fn a_label_part_that_failed_leaves_its_line() {
+    let mut t = world();
+    t.fail("send", &marked(7, "tehas:question", false));
+    let a = t.apply(json!([{"plan_end": 7, "say": "Planning session ended by alice."}]));
+    assert!(
+        a.log
+            .iter()
+            .any(|l| l.starts_with("WARN: a label change of #7 failed: ")),
+        "{:?}",
+        a.log
+    );
+}
+
+#[test]
 fn a_session_ended_by_a_person_is_closed_and_said() {
     let mut t = world();
     let a = t.apply(json!([{"plan_end": 7, "say": "Planning session ended by alice."}]));
