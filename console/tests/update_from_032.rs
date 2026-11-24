@@ -96,7 +96,7 @@ fn this_release_updates_the_home_0_32_x_left_from_the_built_in_repository_and_ke
     has(&r.out, "release: current is v1.0.0, was v0.32.0");
     assert_eq!(current(&h), "versions/v1.0.0");
     let pinned = pinned();
-    assert_eq!(listed(&h), [pinned.clone()]);
+    assert_eq!(listed(&h), std::slice::from_ref(&pinned));
     assert!(downloaded(&h, &pinned, "v1.0.0"), "{:?}", downloads(&h));
     assert_eq!(
         h.calls("minisign-key"),
