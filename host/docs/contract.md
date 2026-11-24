@@ -1128,7 +1128,7 @@ adopter action as the pull request states them.
   | `ticket.closed` | a ticket tehas follows is recorded closed | `<ticket>@<at>` |
   | `change.merged` | a change linked to a blueprint is recorded merged | the change's number |
 
-  They are raised after the first alpha, before the beta (ruling P2).
+  They are raised after the first alpha, before the beta.
   Until then a program reads their witnesses as the spec names them: a
   change of `tehas limit --json`, and the ticket's and the change's own
   history on the code host.
