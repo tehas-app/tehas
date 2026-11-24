@@ -9,6 +9,8 @@ use std::process::Command;
 use tehas_core::plugin::out::{Limits as OutLimits, Taken};
 use tehas_core::testdir::TestDir;
 use tehas_ops::plugin::exec::fake::{ok, Fake as Answers};
+use tehas_ports::fake::{CodeHostOp, FakeSite, Fault, Faulty, Op, World as Site};
+use tehas_ports::{Status, StatusState, WebLink, Write};
 
 pub const C: &str = "0123456789abcdef0123456789abcdef01234567";
 pub const H: &str = "89abcdef0123456789abcdef0123456789abcdef";
@@ -29,12 +31,10 @@ pub struct Fake {
     /// `docker cp` sources and the tar each gives.
     pub tars: BTreeMap<String, Vec<u8>>,
     pub on_run: Option<OnRun>,
-    /// The calls of gh, each its words one space apart.
-    pub gh: Vec<String>,
-    /// What GitHub gives for the pull request; None answers 404.
-    pub pull: Option<Value>,
-    /// What GitHub answers a status.
-    pub statuses: Result<String, String>,
+    /// The code host's world: its pull requests and the statuses written.
+    pub code: Site,
+    /// The code host the runner is given: the ports' fake over `code`.
+    pub site: Arc<dyn tehas_ports::Site>,
     next: u64,
 }
 
@@ -53,9 +53,8 @@ impl Fake {
             limit: None,
             tars: BTreeMap::new(),
             on_run: None,
-            gh: Vec::new(),
-            pull: None,
-            statuses: Ok("{}".into()),
+            code: Site::new(),
+            site: Arc::new(FakeSite::new(&Site::new())),
             next: 7,
         }
     }
@@ -99,16 +98,20 @@ impl Host for Fake {
         fs::write(to, format!("the log of {container}\n")).map_err(|e| e.to_string())
     }
 
-    fn github(&mut self, args: &[&str]) -> Result<String, String> {
-        self.gh.push(args.join(" "));
-        if args.iter().any(|a| a.contains("/statuses/")) {
-            return self.statuses.clone();
-        }
-        self.pull
-            .as_ref()
-            .map(Value::to_string)
-            .ok_or_else(|| ": HTTP 404".to_string())
+    fn site(&self) -> Arc<dyn tehas_ports::Site> {
+        Arc::clone(&self.site)
     }
+}
+
+/// The statuses the code host took, in order: the commit and the status.
+pub fn statuses(code: &Site) -> Vec<(String, Status)> {
+    code.wrote()
+        .into_iter()
+        .filter_map(|w| match w.what {
+            Write::SetStatus { at, status } => Some((at.as_str().to_string(), status)),
+            _ => None,
+        })
+        .collect()
 }
 
 /// A tar of `files` under `top`, as docker cp gives it. A file named
@@ -757,13 +760,12 @@ fn a_hook_with_no_request_or_grant_does_not_run() {
 #[test]
 fn a_hook_reads_the_plugin_again_after_its_waits() {
     let mut h = Fake::new();
-    let w = on_github(
+    let (w, head) = on_github(
         "plugin-run-hook-revoked",
         &mut h,
         "hook:after:change.offered",
-        H,
     );
-    ask_hook_on(&w, &mut h, H);
+    ask_hook_on(&w, &mut h, &head);
     // A refresh holds the lock while the plugin is refused, then lets go.
     let held = File::create(runs::refresh_lock(&w.home, "demo")).unwrap();
     held.lock().unwrap();
@@ -780,20 +782,19 @@ fn a_hook_reads_the_plugin_again_after_its_waits() {
     refuse.join().unwrap();
     assert!(h.argv.is_empty());
     assert!(h.calls.is_empty());
-    assert!(h.gh.is_empty(), "{:?}", h.gh);
+    assert!(statuses(&h.code).is_empty());
     assert!(!runs::hook_claimed(&w.home, "demo", 42).exists());
 }
 
 #[test]
 fn a_request_that_came_during_a_hook_is_not_run_once_the_pin_moved() {
     let mut h = Fake::new();
-    let w = on_github(
+    let (w, head) = on_github(
         "plugin-run-hook-moved-pin",
         &mut h,
         "hook:after:change.offered",
-        H,
     );
-    ask_hook_on(&w, &mut h, H);
+    ask_hook_on(&w, &mut h, &head);
     // During the first run another head is asked for, and tehas update
     // leaves the plugin built at another commit.
     let home = w.home.to_path_buf();
@@ -813,30 +814,24 @@ fn a_request_that_came_during_a_hook_is_not_run_once_the_pin_moved() {
     }));
     assert_eq!(go(&mut h, &w, &hook_ask()), 3);
     assert_eq!(h.argv.len(), 1);
-    let posts: Vec<&String> = h.gh.iter().filter(|c| c.contains("/statuses/")).collect();
-    assert_eq!(posts.len(), 1);
-    assert!(posts[0].contains(&format!("statuses/{H} ")));
+    assert_eq!(on(&h.code), [head]);
     assert!(!runs::hook_claimed(&w.home, "demo", 42).exists());
 }
 
 #[test]
 fn a_request_written_while_its_hook_runs_at_the_same_head_runs_after_it() {
     let mut h = Fake::new();
-    let w = on_github(
-        "plugin-run-hook-same",
-        &mut h,
-        "hook:after:change.offered",
-        H,
-    );
-    ask_hook_on(&w, &mut h, H);
+    let (w, head) = on_github("plugin-run-hook-same", &mut h, "hook:after:change.offered");
+    ask_hook_on(&w, &mut h, &head);
     let home = w.home.to_path_buf();
+    let same = head.clone();
     let mut first = true;
     h.on_run = Some(Box::new(move |_| {
         if first {
             first = false;
             let ask = HookAsk {
                 pr: 42,
-                head: H.into(),
+                head: same.clone(),
                 base: B.into(),
                 issue: None,
                 trigger: Trigger::Host,
@@ -850,30 +845,29 @@ fn a_request_written_while_its_hook_runs_at_the_same_head_runs_after_it() {
     assert!(!runs::hook_request(&w.home, "demo", 42).exists());
     assert!(!runs::hook_claimed(&w.home, "demo", 42).exists());
     // One written after the last take stays for the next start.
-    ask_hook_on(&w, &mut h, H);
+    ask_hook_on(&w, &mut h, &head);
     assert_eq!(
         runs::read_hook(&w.home, "demo", 42).map(|a| a.head),
-        Some(H.to_string())
+        Some(head)
     );
 }
 
 #[test]
 fn a_head_fetched_new_runs_with_the_base_github_gives_it() {
-    const B2: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     let mut h = Fake::new();
-    let w = on_github(
+    let (w, head) = on_github(
         "plugin-run-hook-base",
         &mut h,
         "product hook:after:change.offered",
-        H2,
     );
-    h.pull.as_mut().unwrap()["base"]["sha"] = json!(B2);
+    let base = h.code.head("main").unwrap().as_str().to_string();
+    // Asked at an older head; the fetch finds the code host's.
     ask_hook_on(&w, &mut h, H);
     h.x.on(
         "refs/tehas/plugin-pr/demo/42^{commit}",
-        ok(&format!("{H2}\n")),
+        ok(&format!("{head}\n")),
     );
-    h.x.on("rev-parse HEAD", ok(&format!("{H2}\n")));
+    h.x.on("rev-parse HEAD", ok(&format!("{head}\n")));
     let ctx = prepare::dir(&w.home, "demo").join("run-7/context.json");
     let seen = Arc::new(std::sync::Mutex::new(Value::Null));
     let s2 = Arc::clone(&seen);
@@ -882,33 +876,31 @@ fn a_head_fetched_new_runs_with_the_base_github_gives_it() {
     }));
     assert_eq!(go(&mut h, &w, &hook_ask()), 0);
     let pr = seen.lock().unwrap()["pr"].clone();
-    assert_eq!(pr, json!({"number": 42, "base": B2, "head": H2}));
-    assert_eq!(h.gh[0], "api repos/acme/widget/pulls/42");
-    assert!(h.calls[0].ends_with(&format!("--head {H2}")));
-    // GitHub's head is not the one fetched: nothing runs.
+    assert_eq!(pr, json!({"number": 42, "base": base, "head": head}));
+    assert!(h.calls[0].ends_with(&format!("--head {head}")));
+    // The code host's head is not the one fetched: nothing runs.
     let mut h = Fake::new();
-    let w = on_github(
+    let (w, head) = on_github(
         "plugin-run-hook-base-moved",
         &mut h,
         "product hook:after:change.offered",
-        B2,
     );
+    let fetched = h.code.push("elsewhere", "other", "acme-bot");
     ask_hook_on(&w, &mut h, H);
     h.x.on(
         "refs/tehas/plugin-pr/demo/42^{commit}",
-        ok(&format!("{H2}\n")),
+        ok(&format!("{}\n", fetched.as_str())),
     );
-    // Each try asks for GitHub's head again, until the start's last.
+    // Each try asks for the code host's head again, until the start's last.
     assert_eq!(go(&mut h, &w, &hook_ask()), 1);
     assert!(h.argv.is_empty());
-    let posts = h.gh.iter().filter(|c| c.contains("/statuses/")).count();
-    assert_eq!(posts, HOOK_RUNS);
+    assert_eq!(statuses(&h.code).len(), HOOK_RUNS);
     assert!(h
         .x
         .ran_any("git -C /m/product update-ref -d refs/tehas/plugin-pr/demo/42"));
     assert_eq!(
         runs::read_hook(&w.home, "demo", 42).map(|a| a.head),
-        Some(B2.to_string())
+        Some(head)
     );
 }
 
@@ -1068,19 +1060,27 @@ fn a_hook_an_event_asked_for_is_told_the_envelope() {
     );
 }
 
-/// A world whose GitHub knows the repository, the bot and the pull request
-/// at `head`, its plugin granted `grants`.
-fn on_github(name: &str, h: &mut Fake, grants: &str, head: &str) -> World {
+/// A world whose code host knows the repository and pull request 42, open
+/// and the factory's, at a head of its own on the default branch; its plugin
+/// granted `grants`. The head is given back: the fake numbers its commits.
+fn on_github(name: &str, h: &mut Fake, grants: &str) -> (World, String) {
     let mut w = world(name, h, "", grants);
     w.set("TEHAS_REPO", "acme/widget");
-    w.set("TEHAS_BOT_LOGIN", "acme-bot[bot]");
     w.set("TEHAS_DOMAIN", "example.org");
-    h.pull = Some(json!({
-        "state": "open", "merged": false,
-        "user": {"login": "acme-bot[bot]"},
-        "head": {"sha": head, "repo": {"full_name": "acme/widget"}},
-        "base": {"sha": B},
-    }));
+    h.code = Site::new();
+    h.code.push("main", "base", "acme-bot");
+    // A pull request as a real one is: several files and comments, more
+    // than a read of its digest asks for.
+    h.code = h.code.clone().change(42, "tehas/pr-42", |c| {
+        c.file("src/a.rs", 3, 1)
+            .file("src/b.rs", 2, 0)
+            .file("README.md", 1, 1)
+            .comment("alice", "One.")
+            .comment("bob", "Two.")
+            .comment("alice", "Three.")
+    });
+    h.site = Arc::new(FakeSite::new(&h.code));
+    let head = h.code.head("tehas/pr-42").unwrap();
     for id in ["7", "8", "9"] {
         h.tars.insert(
             format!("tehas-plugin-demo-{id}:/out/_tehas"),
@@ -1093,22 +1093,31 @@ fn on_github(name: &str, h: &mut Fake, grants: &str, head: &str) -> World {
             ),
         );
     }
-    w
+    (w, head.as_str().to_string())
+}
+
+/// The commits of `statuses`, in order.
+fn on(code: &Site) -> Vec<String> {
+    statuses(code).into_iter().map(|(at, _)| at).collect()
 }
 
 #[test]
 fn a_hooks_end_posts_one_status_on_the_head_it_read() {
     let mut h = Fake::new();
-    let w = on_github(
+    let (w, head) = on_github(
         "plugin-run-status",
         &mut h,
         "view hook:after:change.offered",
-        H,
     );
-    ask_hook_on(&w, &mut h, H);
+    ask_hook_on(&w, &mut h, &head);
     assert_eq!(go(&mut h, &w, &hook_ask()), 0);
-    let post = format!("api -X POST repos/acme/widget/statuses/{H} -f state=success -f context=tehas/plugin/demo -f description=One new finding at @\u{200b}octocat. -f target_url=https://plugin-demo.example.org/_hooks/42");
-    assert_eq!(h.gh, ["api repos/acme/widget/pulls/42".to_string(), post]);
+    let status = Status {
+        name: "tehas/plugin/demo".into(),
+        state: StatusState::Passed,
+        about: "One new finding at @\u{200b}octocat.".into(),
+        link: Some(WebLink::new("https://plugin-demo.example.org/_hooks/42").unwrap()),
+    };
+    assert_eq!(statuses(&h.code), [(head, status)]);
     assert_eq!(h.argv.len(), 1);
     assert!(!runs::unwritten(&w.home, "demo").exists());
 }
@@ -1116,40 +1125,42 @@ fn a_hooks_end_posts_one_status_on_the_head_it_read() {
 #[test]
 fn a_hook_that_did_not_finish_is_an_error_with_no_target_without_a_view() {
     let mut h = Fake::new();
-    let w = on_github(
+    let (w, head) = on_github(
         "plugin-run-status-error",
         &mut h,
         "hook:after:change.offered",
-        H,
     );
-    ask_hook_on(&w, &mut h, H);
+    ask_hook_on(&w, &mut h, &head);
     h.ended = Ended::Killed;
     assert_eq!(go(&mut h, &w, &hook_ask()), 1);
-    assert_eq!(
-        h.gh[1],
-        format!("api -X POST repos/acme/widget/statuses/{H} -f state=error -f context=tehas/plugin/demo -f description=the plugin's hook did not finish")
-    );
+    let status = Status {
+        name: "tehas/plugin/demo".into(),
+        state: StatusState::Errored,
+        about: "the plugin's hook did not finish".into(),
+        link: None,
+    };
+    assert_eq!(statuses(&h.code), [(head, status)]);
 }
 
 #[test]
 fn a_head_that_moved_while_the_hook_ran_is_asked_for_again() {
     let mut h = Fake::new();
-    let w = on_github(
+    let (w, read) = on_github(
         "plugin-run-status-moved",
         &mut h,
         "hook:after:change.offered",
-        H2,
     );
-    ask_hook_on(&w, &mut h, H);
+    ask_hook_on(&w, &mut h, &read);
+    // The pull request moves on before the hook's end reads it.
+    let moved = h.code.push("tehas/pr-42", "more", "acme-bot");
+    let moved = moved.as_str().to_string();
     assert_eq!(go(&mut h, &w, &hook_ask()), 0);
-    // The verdict of H is posted on H, then H2 is asked for and run.
+    // The verdict of the head read is posted on it, then the new head is
+    // asked for and run.
     assert_eq!(h.argv.len(), 2);
-    let posts: Vec<&String> = h.gh.iter().filter(|c| c.contains("/statuses/")).collect();
-    assert_eq!(posts.len(), 2);
-    assert!(posts[0].contains(&format!("statuses/{H} ")));
-    assert!(posts[1].contains(&format!("statuses/{H2} ")));
+    assert_eq!(on(&h.code), [read, moved.clone()]);
     assert!(
-        h.calls[2].ends_with(&format!("--head {H2}")),
+        h.calls[2].ends_with(&format!("--head {moved}")),
         "{:?}",
         h.calls
     );
@@ -1164,32 +1175,40 @@ fn a_head_that_moved_while_the_hook_ran_is_asked_for_again() {
 }
 
 #[test]
-fn a_status_github_refuses_the_app_is_kept_for_tehas_plugin() {
+fn a_status_the_code_host_refuses_the_factory_is_kept_for_tehas_plugin() {
     let mut h = Fake::new();
-    let w = on_github(
+    let (w, head) = on_github(
         "plugin-run-status-refused",
         &mut h,
         "hook:after:change.offered",
-        H,
     );
-    ask_hook_on(&w, &mut h, H);
-    h.statuses = Err(": HTTP 403".into());
+    ask_hook_on(&w, &mut h, &head);
+    let refusing = Arc::new(
+        Faulty::new(FakeSite::new(&h.code))
+            .on(Op::CodeHost(CodeHostOp::SetStatus), Fault::Forbidden),
+    );
+    h.site = refusing.clone();
     assert_eq!(go(&mut h, &w, &hook_ask()), 0);
-    // A refusal is not tried again.
-    assert_eq!(h.gh.iter().filter(|c| c.contains("/statuses/")).count(), 1);
+    // A refusal is not tried again: the pull request's read, one post.
+    assert_eq!(refusing.requests(), 2);
+    assert!(statuses(&h.code).is_empty());
     assert_eq!(
         runs::status_unwritten(&w.home, "demo").as_deref(),
-        Some("GitHub refused the status on #42: HTTP 403: the App needs Commit statuses: Read and write")
+        Some("GitHub refused the status on #42: this actor may not do this: the App needs Commit statuses: Read and write")
     );
     // Any other failure is tried once more, and a status written clears it.
-    h.gh.clear();
-    h.statuses = Err(": HTTP 502".into());
-    ask_hook_on(&w, &mut h, H);
+    let failing = Arc::new(Faulty::new(FakeSite::new(&h.code)).on(
+        Op::CodeHost(CodeHostOp::SetStatus),
+        Fault::Server { applied: false },
+    ));
+    h.site = failing.clone();
+    ask_hook_on(&w, &mut h, &head);
     assert_eq!(go(&mut h, &w, &hook_ask()), 0);
-    assert_eq!(h.gh.iter().filter(|c| c.contains("/statuses/")).count(), 2);
+    assert_eq!(failing.requests(), 3);
     assert!(runs::status_unwritten(&w.home, "demo").is_some());
-    h.statuses = Ok("{}".into());
-    ask_hook_on(&w, &mut h, H);
+    h.site = Arc::new(FakeSite::new(&h.code));
+    ask_hook_on(&w, &mut h, &head);
     assert_eq!(go(&mut h, &w, &hook_ask()), 0);
     assert_eq!(runs::status_unwritten(&w.home, "demo"), None);
+    assert_eq!(on(&h.code), [head]);
 }

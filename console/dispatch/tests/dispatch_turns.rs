@@ -8,6 +8,7 @@ use serde_json::{json, Value};
 use std::fs::{self, OpenOptions};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
+use tehas_ports::{Act, Mark, State};
 
 fn v(text: &str) -> Value {
     serde_json::from_str(text).unwrap_or_else(|e| panic!("{e}: {text}"))
@@ -26,10 +27,6 @@ fn beside(w: &World, ext: &str) -> PathBuf {
 
 fn holding(text: &str, want: &str) -> usize {
     text.lines().filter(|l| l.contains(want)).count()
-}
-
-fn exactly(text: &str, want: &str) -> usize {
-    text.lines().filter(|l| *l == want).count()
 }
 
 /// The instance lists the bot among the accounts that may label.
@@ -86,12 +83,12 @@ fn a_parked_issue_retried_by_its_labels_starts_a_cycle_and_its_old_question_goes
     );
     w.poll();
     assert_eq!(w.calls("fake-start").trim_end(), "7");
-    assert_eq!(
-        exactly(
-            &w.gh(),
-            "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:ready --remove-label tehas:question"
-        ),
-        1
+    assert!(
+        w.on(7, Mark::State(State::Running))
+            && w.off(7, Mark::Act(Act::Approve))
+            && w.off(7, Mark::State(State::Question)),
+        "{:?}",
+        w.writes_of(7)
     );
     assert_eq!(w.park_q(7), "none");
 }
@@ -338,7 +335,7 @@ fn a_first_turn_cut_off_by_a_restart_says_nothing_while_its_label_change_fails()
     let rows = |w: &World| w.row(&["history-show", "7", "--kind", "plan"])["rows"].clone();
     let lines = rows(&w).as_array().map(Vec::len);
     w.poll();
-    lacks(&w.gh(), "issue comment");
+    assert_eq!(w.notes_any(), 0);
     assert_eq!(w.rec()["running"], json!(true));
     // No end is on record: the next poll finds the same turn.
     assert_eq!(rows(&w).as_array().map(Vec::len), lines);
@@ -370,7 +367,7 @@ fn the_end_of_a_session_is_said_once() {
     w.comments(7, &plan_body(" ", " ", "x", 1, ""), "alice", json!([]));
     w.fx("edit-fails-on", "--remove-label needs-human-attention");
     w.poll();
-    lacks(&w.gh(), "issue comment");
+    assert_eq!(w.notes_any(), 0);
     assert_eq!(w.rec_open(), "open");
     w.clear_calls();
     w.rm_fx("edit-fails-on");
@@ -388,7 +385,7 @@ fn a_session_whose_record_is_gone_is_not_announced_while_its_labels_cannot_be_re
     w.comments(7, &plan_body("x", " ", " ", 1, ""), "alice", json!([]));
     w.touch("edit-fails");
     w.poll();
-    lacks(&w.gh(), "issue comment");
+    assert_eq!(w.notes_any(), 0);
 }
 
 #[test]
@@ -403,6 +400,7 @@ fn the_bot_is_refused_as_an_allowed_labeller_even_with_no_question_open() {
     );
     assert_eq!(w.calls("fake-start"), "");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
 }
 
 #[test]
@@ -414,7 +412,8 @@ fn a_bot_login_that_is_not_kept_ends_the_poll_before_anything_is_written() {
     assert_eq!(r.rc, 1, "{}", r.out);
     has(&r.out, "ERROR: the bot's own login could not be read");
     lacks(&w.gh(), "issue edit");
-    lacks(&w.gh(), "issue comment");
+    assert_eq!(w.marks(None), 0);
+    assert_eq!(w.notes_any(), 0);
     assert_eq!(w.calls("fake-start"), "");
 }
 

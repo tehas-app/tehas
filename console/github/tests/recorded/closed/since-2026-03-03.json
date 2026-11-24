@@ -1,6 +1,7 @@
 {
  "data": {
   "repository": {
+   "databaseId": 7001,
    "issues": {
     "pageInfo": {
      "hasNextPage": false,
@@ -53,7 +54,8 @@
       "closedByPullRequestsReferences": {
        "totalCount": 0,
        "nodes": []
-      }
+      },
+      "parent": null
      }
     ]
    }

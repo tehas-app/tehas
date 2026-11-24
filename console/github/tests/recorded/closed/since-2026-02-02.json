@@ -1,6 +1,7 @@
 {
  "data": {
   "repository": {
+   "databaseId": 7001,
    "issues": {
     "pageInfo": {
      "hasNextPage": true,
@@ -49,6 +50,7 @@
           "merged": true,
           "url": "https://github.com/acme/widget/pull/41",
           "repository": {
+           "databaseId": 7001,
            "nameWithOwner": "acme/widget"
           }
          }
@@ -63,6 +65,7 @@
        "nodes": [
         {
          "baseRepository": {
+          "databaseId": 7001,
           "nameWithOwner": "acme/widget"
          },
          "number": 41,
@@ -112,6 +115,7 @@
            {
             "number": 20,
             "repository": {
+             "databaseId": 7001,
              "nameWithOwner": "acme/widget"
             }
            }
@@ -120,6 +124,7 @@
         },
         {
          "baseRepository": {
+          "databaseId": 7102,
           "nameWithOwner": "other/tools"
          },
          "number": 7,
@@ -169,6 +174,7 @@
            {
             "number": 20,
             "repository": {
+             "databaseId": 7001,
              "nameWithOwner": "acme/widget"
             }
            }
@@ -176,7 +182,8 @@
          }
         }
        ]
-      }
+      },
+      "parent": null
      },
      {
       "number": 42,
@@ -224,7 +231,8 @@
       "closedByPullRequestsReferences": {
        "totalCount": 0,
        "nodes": []
-      }
+      },
+      "parent": null
      }
     ]
    }

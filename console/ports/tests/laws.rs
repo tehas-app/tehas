@@ -130,6 +130,57 @@ fn tickets_removing_an_absent_mark_is_done() {
 }
 
 #[test]
+fn tickets_closing_a_closed_ticket_is_done() {
+    for w in both() {
+        let w = w.ticket(1, |t| t.title("done").closed(CloseReason::Done));
+        let site = FakeSite::new(&w);
+        let mut h = site.ticket_writes(&full(), C).unwrap();
+        ok(laws::tickets::closing_a_closed_ticket_is_done(
+            h.as_mut(),
+            &w.key(1),
+            &CloseReason::NotPlanned,
+        ));
+    }
+}
+
+#[test]
+fn tickets_a_part_of_another_parent_is_refused() {
+    for w in both() {
+        let w = w
+            .ticket(3, |t| t.title("a part"))
+            .ticket(2, |t| t.title("another whole"));
+        let k3 = w.key(3);
+        let w = w.ticket(1, |t| t.title("the whole").part(k3.clone()));
+        let site = FakeSite::new(&w);
+        let mut h = site.ticket_writes(&full(), C).unwrap();
+        ok(laws::tickets::a_part_of_another_parent_is_refused(
+            h.as_mut(),
+            &w.key(1),
+            &w.key(2),
+            &k3,
+        ));
+    }
+}
+
+#[test]
+fn tickets_an_account_that_cannot_be_assigned_is_refused() {
+    for w in both() {
+        let w = w
+            .with_account("mallory", AccountKind::Person, Standing::None)
+            .ticket(1, |t| t.title("a ticket"));
+        let site = FakeSite::new(&w);
+        let mut h = site.ticket_writes(&full(), C).unwrap();
+        ok(
+            laws::tickets::an_account_that_cannot_be_assigned_is_refused(
+                h.as_mut(),
+                &w.key(1),
+                &AccountId::new("id-mallory"),
+            ),
+        );
+    }
+}
+
+#[test]
 fn tickets_carrying_any_takes_any_of_the_marks() {
     for w in both() {
         let w = w

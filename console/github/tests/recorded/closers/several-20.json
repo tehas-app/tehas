@@ -1,6 +1,7 @@
 {
  "data": {
   "repository": {
+   "databaseId": 7001,
    "i20": {
     "number": 20,
     "title": "Ship the importer",
@@ -52,12 +53,14 @@
         "number": 31,
         "merged": true,
         "repository": {
+         "databaseId": 7001,
          "nameWithOwner": "acme/widget"
         }
        }
       }
      ]
-    }
+    },
+    "parent": null
    },
    "i21": {
     "number": 21,
@@ -85,7 +88,8 @@
     },
     "closes": {
      "nodes": []
-    }
+    },
+    "parent": null
    },
    "i25": {
     "number": 25,
@@ -113,7 +117,8 @@
     },
     "closes": {
      "nodes": []
-    }
+    },
+    "parent": null
    }
   }
  }

@@ -731,7 +731,7 @@
     "actions": [
      {
       "issue": 7,
-      "say": "Retry was asked for and nothing was started: `tehas:lean` was applied by `mallory`, an account that may not choose the driver in this factory, and tehas does not run classic in its place. An account named in `TEHAS_ALLOWED_LABELERS` applies `tehas:lean` again, or takes it off for classic, then answers retry again.\n\n<!-- tehas:declined question=4001 -->"
+      "say": "Retry was asked for and nothing was started: `tehas:lean` was applied by `mallory`, an account that may not choose the driver in this factory, and tehas does not run classic in its place. An account named in `TEHAS_ALLOWED_LABELERS` applies `tehas:lean` again, or takes it off for classic, then answers retry again.", "markers": [{"type": "Declined", "value": {"question": "4001"}}]
      }
     ],
     "no_actions": [
@@ -2126,7 +2126,7 @@
     "actions": [
      {
       "issue": 7,
-      "say": "Retry was asked for and nothing was started: `tehas:lean` was taken off by `mallory`, an account that may not choose the driver in this factory, and tehas does not run classic in its place. An account named in `TEHAS_ALLOWED_LABELERS` applies `tehas:lean` again, and takes it off for classic, then answers retry again.\n\n<!-- tehas:declined question=4001 -->"
+      "say": "Retry was asked for and nothing was started: `tehas:lean` was taken off by `mallory`, an account that may not choose the driver in this factory, and tehas does not run classic in its place. An account named in `TEHAS_ALLOWED_LABELERS` applies `tehas:lean` again, and takes it off for classic, then answers retry again.", "markers": [{"type": "Declined", "value": {"question": "4001"}}]
      }
     ],
     "no_actions": [
@@ -4664,7 +4664,7 @@
     "actions": [
      {
       "issue": 7,
-      "say": "Retry was asked for and nothing was started: `tehas:lean` asks for the lean driver, which is still being built in this release, and tehas does not run classic in its place. An account named in `TEHAS_ALLOWED_LABELERS` takes `tehas:lean` off, then answers retry again.\n\n<!-- tehas:declined question=4001 -->"
+      "say": "Retry was asked for and nothing was started: `tehas:lean` asks for the lean driver, which is still being built in this release, and tehas does not run classic in its place. An account named in `TEHAS_ALLOWED_LABELERS` takes `tehas:lean` off, then answers retry again.", "markers": [{"type": "Declined", "value": {"question": "4001"}}]
      }
     ],
     "no_actions": [

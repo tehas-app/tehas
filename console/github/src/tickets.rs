@@ -21,7 +21,8 @@ impl GitHub {
         Ok(self.read_marks(&labels).into_iter().flatten().collect())
     }
 
-    /// A ticket's digest, from the issue's REST read: the answer of
+    /// A ticket's digest, from the issue's REST read and one question for
+    /// the ticket it is a part of (`GitHub::parent`): the answer of
     /// `Tickets::several` for one key. GitHub has no priority: every ticket
     /// is `Normal`. The revision is the sum of the title and the body as
     /// GitHub holds them, markers in (`gh::text_revision`), the one rule of
@@ -31,7 +32,9 @@ impl GitHub {
     pub(crate) fn digest(&mut self, key: &TicketKey) -> Got<TicketDigest> {
         let issue = number(key)?;
         let out = self.issue_answer(issue).map_err(|e| self.outcome(&e))?;
-        self.digest_of(key, &out)
+        let mut digest = self.digest_of(key, &out)?;
+        digest.parent = self.parent(key)?;
+        Ok(digest)
     }
 
     /// The digest of an issue's REST read. A pull request answers that read
@@ -62,6 +65,19 @@ impl GitHub {
             Some(kinds) if kinds.iter().all(|k| marks.contains(k)) => kinds,
             _ => return self.timeline(key, window, only),
         };
+        take(self.mark_events(issue, only)?, window)
+    }
+}
+
+impl GitHub {
+    /// Every event of the kinds `only` names, `Marked` and `Unmarked`
+    /// among them, on the issue, oldest first, from the label events' REST
+    /// read, whole.
+    pub(crate) fn mark_events(
+        &mut self,
+        issue: u64,
+        only: &[HappenedKind],
+    ) -> Got<Vec<TicketEvent>> {
         let out = self.event_pages(issue).map_err(|e| self.outcome(&e))?;
         let mut read =
             gh::parse_with_facts(&out).map_err(|_| Outcome::Unread(Unread::Malformed))?;
@@ -93,7 +109,7 @@ impl GitHub {
             event.at = at;
             items.push(event);
         }
-        take(items, window)
+        Ok(items)
     }
 }
 
@@ -314,6 +330,8 @@ fn outcome(e: &ForgeError, now: i64) -> Outcome {
             until: At::new(now),
         },
         Some("403") => Outcome::Forbidden,
+        // GitHub refusing the input: nothing was made.
+        Some("422") => Outcome::Refused(Refusal::Invalid),
         Some(s) if s.starts_with('5') => maybe(Passing::Server),
         _ if why.contains("rate limit") => Outcome::Spent {
             pool: Pool::Calls,
