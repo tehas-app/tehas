@@ -25,6 +25,7 @@ fn dirs() -> Dirs {
         live: Home::new(&f).live_dir(),
         sessions: f.join("sessions"),
         logs: f.join("logs"),
+        links: mcp::tools::no_links,
     }
 }
 

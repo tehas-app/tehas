@@ -126,6 +126,7 @@ fn handles(
     gh: &str,
     token: Option<&str>,
     bound: std::time::Duration,
+    calls: std::sync::Arc<std::sync::atomic::AtomicU64>,
 ) -> tehas_ports::Got<tehas_dispatch::apply::Handles> {
     use std::sync::Arc;
     use tehas_ports::{Actor, Caller, Scope, Site};
@@ -134,7 +135,11 @@ fn handles(
     let make: tehas_github::MakeRunner = Arc::new(move |_| {
         let mut b = tehas_core::forge::Bounded::new(gh.clone(), bound);
         b.token = token.clone();
-        Ok(Box::new(b) as Box<dyn tehas_core::forge::GhRunner>)
+        let counted = tehas_core::forge::Counted {
+            inner: Box::new(b),
+            count: calls.clone(),
+        };
+        Ok(Box::new(counted) as Box<dyn tehas_core::forge::GhRunner>)
     });
     let site = tehas_github::GitHubSite::new(repo, &login, id, make);
     let (by, c) = (Actor::Ours(Scope::Full), Caller::new("poll"));

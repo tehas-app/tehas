@@ -46,6 +46,17 @@ pub struct Dirs {
     /// The sessions snapshot and the outcomes counts, never published.
     pub sessions: PathBuf,
     pub logs: PathBuf,
+    /// The code host's links of a repository, as the wiring makes them.
+    pub links: Links,
+}
+
+/// What links the items of the repository `owner/name` for a person to open:
+/// the code host's `Cites`, made by the program's wiring. None links nothing.
+pub type Links = fn(&str) -> Option<Box<dyn tehas_ports::Cites + Send>>;
+
+/// Links nothing: a server, or a test, with no code host.
+pub fn no_links(_: &str) -> Option<Box<dyn tehas_ports::Cites + Send>> {
+    None
 }
 
 /// What a call returns: JSON, or JSON that describes a file sent with it.
@@ -2271,6 +2282,7 @@ mod tests {
             live: Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/live"),
             sessions: Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/sessions"),
             logs: Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/logs"),
+            links: no_links,
         }
     }
 }
