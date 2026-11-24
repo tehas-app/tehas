@@ -83,13 +83,13 @@ fn with_no_pull_request_on_the_branch_the_cycle_is_parked_as_any_other_that_left
         w.fx("pr.json", "[]\n");
     });
     assert_eq!(r.rc, 0);
-    let gh = w.gh();
-    has(&gh, &pr_list());
-    // The park's question still goes with gh until T4.5 (b).
-    has(&gh, "Tehas cycle stopped without a pull request");
-    has(&gh, "- retry-text: Retry with the issue text only");
+    has(&w.gh(), &pr_list());
+    has(&said, "Tehas cycle stopped without a pull request");
+    has(&said, "- retry-text: Retry with the issue text only");
+    has(&said, "markers: Park(");
+    has(&said, "Question(kind=Park blueprint=7 turn=1)");
     has(&said, "unmark State(Running)\nmark State(NeedsPerson)");
-    lacks(&gh, "handed off with its pull request open");
+    lacks(&said, "handed off with its pull request open");
 }
 
 #[test]
@@ -115,70 +115,64 @@ fn a_closed_pull_request_of_the_bot_on_that_branch_is_said_as_one_that_was_close
 
 #[test]
 fn a_runner_that_died_before_commit_pr_asks_github_about_no_branch_and_is_parked() {
-    let w = World::new("crash-early");
-    w.died(&["explore", "plan", "develop"]);
-    let r = w.run7();
+    let (w, r, said) = twin("crash-early", |w| w.died(&["explore", "plan", "develop"]));
     assert_eq!(r.rc, 0);
-    let gh = w.gh();
-    lacks(&gh, "pr list --repo");
-    has(&gh, "Tehas cycle stopped without a pull request");
-    has(&gh, "last step `develop` read from its run log");
+    lacks(&w.gh(), "pr list --repo");
+    has(&said, "Tehas cycle stopped without a pull request");
+    has(&said, "last step `develop` read from its run log");
 }
 
 #[test]
 fn a_step_after_commit_pr_that_is_no_branch_of_this_issue_asks_github_nothing() {
-    let w = World::new("crash-nobranch");
-    // A step name of any other shape than a branch of this issue is a step.
-    w.died(&["explore", "plan", "develop", "commit-pr", "lens-review"]);
-    w.run7();
-    let gh = w.gh();
-    lacks(&gh, "pr list --repo");
-    has(&gh, "Tehas cycle stopped without a pull request");
+    let (w, _, said) = twin("crash-nobranch", |w| {
+        // A step name of any other shape than a branch of this issue is a step.
+        w.died(&["explore", "plan", "develop", "commit-pr", "lens-review"]);
+    });
+    lacks(&w.gh(), "pr list --repo");
+    has(&said, "Tehas cycle stopped without a pull request");
 }
 
 #[test]
 fn a_pull_request_of_the_bot_that_names_another_issue_is_said_not_taken_as_this_cycles() {
-    let w = World::new("crash-other");
-    died_pushed(&w, &[]);
-    // A branch other than the one asked for, and a body that names another
-    // issue: the bot's, on this branch, but of #8.
-    w.fx("pr-body-issue", "8\n");
-    w.fx(
-        "pr.json",
-        &json!([{"url": "https://github.com/acme/widget/pull/347", "state": "OPEN",
-            "body": "Work on another thing", "headRefName": "feature/issue-8-another-branch"}])
-        .to_string(),
-    );
-    w.run7();
-    let gh = w.gh();
-    has(&gh, "does not name this issue");
-    has(&gh, "Tehas cycle stopped without a pull request");
-    lacks(&gh, "review unfinished");
+    let (_, _, said) = twin("crash-other", |w| {
+        died_pushed(w, &[]);
+        // A branch other than the one asked for, and a body that names another
+        // issue: the bot's, on this branch, but of #8.
+        w.fx("pr-body-issue", "8\n");
+        w.fx(
+            "pr.json",
+            &json!([{"url": "https://github.com/acme/widget/pull/347", "state": "OPEN",
+                "body": "Work on another thing", "headRefName": "feature/issue-8-another-branch"}])
+            .to_string(),
+        );
+    });
+    has(&said, "does not name this issue");
+    has(&said, "Tehas cycle stopped without a pull request");
+    lacks(&said, "review unfinished");
 }
 
 #[test]
 fn a_run_whose_steps_stop_at_commit_pr_names_no_branch() {
-    let w = World::new("crash-atpush");
-    // The push is the step after commit-pr: nothing was pushed.
-    w.died(&["explore", "plan", "develop", "commit-pr"]);
-    w.open_pr("");
-    w.run7();
-    let gh = w.gh();
-    lacks(&gh, "pr list --repo");
-    has(&gh, "Tehas cycle stopped without a pull request");
+    let (w, _, said) = twin("crash-atpush", |w| {
+        // The push is the step after commit-pr: nothing was pushed.
+        w.died(&["explore", "plan", "develop", "commit-pr"]);
+        w.open_pr("");
+    });
+    lacks(&w.gh(), "pr list --repo");
+    has(&said, "Tehas cycle stopped without a pull request");
 }
 
 #[test]
 fn github_refusing_the_list_is_said_as_the_unknown_it_is_with_the_branch_on_record() {
-    let w = World::new("crash-refused");
-    died_pushed(&w, &[]);
-    w.fx("pr-fails-times", "3\n");
-    let r = w.run7();
+    let (w, r, said) = twin("crash-refused", |w| {
+        died_pushed(w, &[]);
+        w.fx("pr-fails-times", "3\n");
+    });
     has(
         &r.out,
         &format!("WARN: the pull requests of {BRANCH} could not be read"),
     );
-    has(&w.gh(), "its pull request could not be looked up");
+    has(&said, "its pull request could not be looked up");
     assert_eq!(w.row(&["cycle-show", "7"])["cycle"]["branch"], BRANCH);
 }
 
@@ -192,24 +186,23 @@ fn the_step_of_a_cycle_with_no_log_at_all_stays_a_dash() {
 
 #[test]
 fn a_run_whose_tehas_work_wrote_nothing_at_all_is_read_as_a_cycle_that_started_no_container() {
-    let w = World::new("crash-nothing");
-    died_pushed(&w, &[]);
-    // No runner_exit and no progress: tehas work stopped before it watched a
-    // container, so the log of an earlier run is not read for this one.
-    w.work(
-        r#"mkdir -p "$TEHAS_HOME/logs"
+    let (w, _, said) = twin("crash-nothing", |w| {
+        died_pushed(w, &[]);
+        // No runner_exit and no progress: tehas work stopped before it watched a
+        // container, so the log of an earlier run is not read for this one.
+        w.work(
+            r#"mkdir -p "$TEHAS_HOME/logs"
 : >"$TEHAS_HOME/logs/work-7-261017-012100.jsonl"
 printf '{"v":1,"kind":"step-started","issue":7,"event":{"step":"lied-step"}}\n' \
   >>"$TEHAS_HOME/logs/work-7-261017-012100.jsonl"
 exit 2"#,
-    );
-    w.open_pr("");
-    w.run7();
-    let gh = w.gh();
-    lacks(&gh, "lied-step");
-    lacks(&gh, "read from its run log");
-    has(&gh, "Tehas cycle stopped without a pull request");
-    lacks(&gh, "pr list --repo");
+        );
+        w.open_pr("");
+    });
+    lacks(&said, "lied-step");
+    lacks(&said, "read from its run log");
+    has(&said, "Tehas cycle stopped without a pull request");
+    lacks(&w.gh(), "pr list --repo");
 }
 
 #[test]
@@ -225,10 +218,10 @@ fn a_result_that_was_written_names_the_step_nothing_of_a_log_is_read_for_it() {
     w.work(
         r#"echo "{\"v\":1,\"kind\":\"step-started\",\"event\":{\"step\":\"lied-step\"}}" >"$TEHAS_HOME/logs/work-7-261018-012100.jsonl"; exit 2"#,
     );
-    w.run7();
-    let gh = w.gh();
-    lacks(&gh, "lied-step");
-    lacks(&gh, "read from its run log");
+    let said = w.report_said();
+    has(&said, "Tehas cycle");
+    lacks(&said, "lied-step");
+    lacks(&said, "read from its run log");
 }
 
 #[test]
@@ -247,12 +240,12 @@ fn a_runner_killed_after_commit_pr_is_reported_with_its_pull_request_as_any_othe
 
 #[test]
 fn a_runner_killed_before_commit_pr_is_reported_as_killed_and_parked() {
-    let w = World::new("crash-killed-early");
-    w.died(&["explore", "plan", "develop", "rc=137", "status=killed"]);
-    w.open_pr("");
-    let r = w.run7();
+    let (_, r, said) = twin("crash-killed-early", |w| {
+        w.died(&["explore", "plan", "develop", "rc=137", "status=killed"]);
+        w.open_pr("");
+    });
     has(&r.out, "status=killed");
-    has(&w.gh(), "Tehas cycle stopped without a pull request");
+    has(&said, "Tehas cycle stopped without a pull request");
 }
 
 #[test]
@@ -288,42 +281,44 @@ fn the_runners_own_status_file_is_not_left_for_the_next_cycle_of_the_issue() {
 
 #[test]
 fn a_runner_exit_and_a_status_of_an_earlier_cycle_are_not_this_cycles_end() {
-    let w = World::new("crash-earlier");
-    // The files are cleared when the cycle takes its lock, before tehas work
-    // starts. The summary of the run, which says a log may be read at all, is
-    // seeded too, two days old.
-    let s = w.state();
-    fs::create_dir_all(&s).unwrap();
-    fs::write(s.join("7.runner_exit"), "134\n").unwrap();
-    fs::write(s.join("7.status"), "killed\n").unwrap();
-    fs::write(s.join("7.result.json"), "").unwrap();
-    let progress = s.join("7.progress.json");
-    fs::write(
-        &progress,
-        "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n",
-    )
-    .unwrap();
-    fs::File::options()
-        .write(true)
-        .open(&progress)
-        .unwrap()
-        .set_modified(SystemTime::now() - Duration::from_secs(2 * 86400))
+    let earlier = |w: &mut World| {
+        // The files are cleared when the cycle takes its lock, before tehas
+        // work starts. The summary of the run, which says a log may be read at
+        // all, is seeded too, two days old.
+        let s = w.state();
+        fs::create_dir_all(&s).unwrap();
+        fs::write(s.join("7.runner_exit"), "134\n").unwrap();
+        fs::write(s.join("7.status"), "killed\n").unwrap();
+        fs::write(s.join("7.result.json"), "").unwrap();
+        let progress = s.join("7.progress.json");
+        fs::write(
+            &progress,
+            "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n",
+        )
         .unwrap();
-    fs::write(
-        w.home.join("logs/work-7-261019-012100.jsonl"),
-        "{\"v\":1,\"kind\":\"step-started\",\"issue\":7,\"event\":{\"step\":\"lied-step\"}}\n\
-         {\"v\":1,\"kind\":\"step-started\",\"issue\":7,\"event\":{\"step\":\"feature/issue-7-from-an-earlier-run\"}}\n",
-    )
-    .unwrap();
-    fs::create_dir_all(w.workdir()).unwrap();
-    w.open_pr("");
-    w.run7();
-    let gh = w.gh();
-    lacks(&gh, "lied-step");
-    lacks(&gh, "read from its run log");
-    lacks(&gh, "(runner exit 134)");
-    lacks(&gh, "pr list --repo");
-    lacks(&gh, "handed off with its pull request open");
+        fs::File::options()
+            .write(true)
+            .open(&progress)
+            .unwrap()
+            .set_modified(SystemTime::now() - Duration::from_secs(2 * 86400))
+            .unwrap();
+        fs::write(
+            w.home.join("logs/work-7-261019-012100.jsonl"),
+            "{\"v\":1,\"kind\":\"step-started\",\"issue\":7,\"event\":{\"step\":\"lied-step\"}}\n\
+             {\"v\":1,\"kind\":\"step-started\",\"issue\":7,\"event\":{\"step\":\"feature/issue-7-from-an-earlier-run\"}}\n",
+        )
+        .unwrap();
+        fs::create_dir_all(w.workdir()).unwrap();
+        w.open_pr("");
+    };
+    let (w, _, said) = twin("crash-earlier", earlier);
+    let s = w.state();
+    has(&said, "Tehas cycle");
+    lacks(&said, "lied-step");
+    lacks(&said, "read from its run log");
+    lacks(&said, "(runner exit 134)");
+    lacks(&w.gh(), "pr list --repo");
+    lacks(&said, "handed off with its pull request open");
     assert!(!s.join("7.runner_exit").exists());
     assert!(!s.join("7.status").exists());
 }
@@ -361,31 +356,30 @@ fn of_several_run_logs_of_the_issue_only_the_newest_is_read() {
 
 #[test]
 fn a_step_name_over_the_bound_of_100_characters_is_no_step_of_a_run() {
-    let w = World::new("crash-long");
     let long = "x".repeat(101);
-    w.died(&["commit-pr", &long]);
-    w.open_pr("");
-    w.run7();
-    let gh = w.gh();
-    lacks(&gh, &long);
-    lacks(&gh, "pr list --repo");
-    has(&gh, "Tehas cycle stopped without a pull request");
+    let (w, _, said) = twin("crash-long", |w| {
+        w.died(&["commit-pr", &long]);
+        w.open_pr("");
+    });
+    lacks(&said, &long);
+    lacks(&w.gh(), "pr list --repo");
+    has(&said, "Tehas cycle stopped without a pull request");
 }
 
 #[test]
 fn the_step_tehas_work_saw_in_flight_is_said_as_its_own_word_not_the_runners() {
-    let w = World::new("crash-timed");
-    w.died(&[
-        "explore",
-        "plan",
-        "develop",
-        "timed-step",
-        "rc=2",
-        "work=2",
-        "status=-",
-    ]);
-    w.work(
-        r#"mkdir -p "$TEHAS_HOME/state/cycles" "$TEHAS_HOME/logs"
+    let (_, _, said) = twin("crash-timed", |w| {
+        w.died(&[
+            "explore",
+            "plan",
+            "develop",
+            "timed-step",
+            "rc=2",
+            "work=2",
+            "status=-",
+        ]);
+        w.work(
+            r#"mkdir -p "$TEHAS_HOME/state/cycles" "$TEHAS_HOME/logs"
 : >"$TEHAS_HOME/state/cycles/7.result.json"
 echo '{"roles":[],"reason":"","reviewHeld":false}' >"$TEHAS_HOME/state/cycles/7.progress.json"
 printf '3600 runner timed-step\n' >"$TEHAS_HOME/state/cycles/7.timed"
@@ -393,40 +387,38 @@ printf '%s\n' '3600' >"$TEHAS_HOME/state/cycles/7.runner_exit"
 log=$TEHAS_HOME/logs/work-7-$(date -u +%y%m%d-%H%M%S).jsonl
 printf '{"v":1,"kind":"step-started","event":{"step":"a-later-step"}}\n' >"$log"
 exit 2"#,
-    );
-    w.run7();
-    let gh = w.gh();
-    has(&gh, "last step `timed-step` tehas work saw in flight");
-    lacks(&gh, "read from its run log");
-    lacks(&gh, "a-later-step");
+        );
+    });
+    has(&said, "last step `timed-step` tehas work saw in flight");
+    lacks(&said, "read from its run log");
+    lacks(&said, "a-later-step");
 }
 
 #[test]
 fn the_step_of_a_stalled_cycle_is_said_as_what_tehas_work_saw() {
-    let w = World::new("crash-stalled");
-    w.work(
-        r#"mkdir -p "$TEHAS_HOME/state/cycles" "$TEHAS_HOME/logs"
+    let (_, _, said) = twin("crash-stalled", |w| {
+        w.work(
+            r#"mkdir -p "$TEHAS_HOME/state/cycles" "$TEHAS_HOME/logs"
 : >"$TEHAS_HOME/state/cycles/7.result.json"
 echo '{"roles":[],"reason":"","reviewHeld":false}' >"$TEHAS_HOME/state/cycles/7.progress.json"
 printf '%s\n%s\n' 1800 stall-step >"$TEHAS_HOME/state/cycles/7.stalled"
 printf '%s\n' '3600' >"$TEHAS_HOME/state/cycles/7.runner_exit"
 exit 2"#,
-    );
-    w.run7();
-    let gh = w.gh();
-    has(&gh, "last step `stall-step` tehas work saw in flight");
-    lacks(&gh, "read from its run log");
+        );
+    });
+    has(&said, "last step `stall-step` tehas work saw in flight");
+    lacks(&said, "read from its run log");
 }
 
 #[test]
 fn a_run_log_past_the_200_kb_tehas_reads_is_not_taken_for_a_clean_handoff() {
-    let w = World::new("crash-big");
-    // The commit-pr line of a big run may have gone at the cut, so such a
-    // cycle is parked with the pull request named.
-    died_pushed(&w, &[]);
-    w.open_pr("");
-    w.work(
-        r#"mkdir -p "$TEHAS_HOME/state/cycles" "$TEHAS_HOME/logs"
+    let (_, _, said) = twin("crash-big", |w| {
+        // The commit-pr line of a big run may have gone at the cut, so such a
+        // cycle is parked with the pull request named.
+        died_pushed(w, &[]);
+        w.open_pr("");
+        w.work(
+            r#"mkdir -p "$TEHAS_HOME/state/cycles" "$TEHAS_HOME/logs"
 : >"$TEHAS_HOME/state/cycles/7.result.json"
 echo '{"roles":[],"reason":"","reviewHeld":false}' >"$TEHAS_HOME/state/cycles/7.progress.json"
 printf '%s\n' '134' >"$TEHAS_HOME/state/cycles/7.runner_exit"
@@ -436,16 +428,15 @@ for step in explore plan develop commit-pr feature/issue-7-installed; do
   printf '{"v":1,"kind":"step-started","event":{"step":"%s"}}\n' "$step" >>"$log"
 done
 exit 2"#,
-    );
-    w.run7();
-    let gh = w.gh();
-    has(&gh, "Tehas cycle stopped with pull request #347 open");
+        );
+    });
+    has(&said, "Tehas cycle stopped with pull request #347 open");
     has(
-        &gh,
+        &said,
         "Its branch has an open pull request: https://github.com/acme/widget/pull/347",
     );
-    lacks(&gh, "handed off with its pull request open");
-    lacks(&gh, "its review unfinished");
+    lacks(&said, "handed off with its pull request open");
+    lacks(&said, "its review unfinished");
 }
 
 #[test]

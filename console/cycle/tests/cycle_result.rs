@@ -3,7 +3,7 @@
 
 mod common;
 
-use common::{has, lacks, twin, World};
+use common::{has, lacks, twin, twins, World};
 use serde_json::{json, Value};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
@@ -69,7 +69,7 @@ fn a_merged_cycle_only_loses_its_running_label() {
 
 #[test]
 fn a_merged_state_with_no_merged_pull_request_is_a_claim_parked_and_nothing_is_removed() {
-    let (w, r, said) = twin("res-claim", |w| {
+    let (w, r, asked, said) = twins("res-claim", |w| {
         w.ended("merged", "done", "feature/x", "");
         mark(w);
         fs::create_dir_all(before_retry(w)).unwrap();
@@ -82,25 +82,25 @@ fn a_merged_state_with_no_merged_pull_request_is_a_claim_parked_and_nothing_is_r
         "pr list --repo acme/widget --head feature/x --author tehas-bot[bot] --state all",
     );
     has(&said, "unmark State(Running)\nmark State(NeedsPerson)");
-    has(&gh, "Tehas cycle stopped: its state says `merged`, but the bot has no merged pull request for this issue on `feature/x`");
-    lacks(&gh, "The change was merged");
+    has(&said, "Tehas cycle stopped: its state says `merged`, but the bot has no merged pull request for this issue on `feature/x`");
     lacks(&said, "The change was merged");
     assert!(there(&w.workdir()) && there(&before_retry(&w)));
     assert!(!there(&w.home.join("state/rukas-proven")));
-    // park_q reads a string; the store keeps the id as a number.
-    assert_eq!(w.park()["question"], 4002);
+    // The question the report asked is the park's; the store keeps the id
+    // as a number.
+    has(&said, "Question(kind=Park blueprint=7 turn=1)");
+    assert_eq!(asked.park()["question"], 4002);
 }
 
 #[test]
 fn a_merged_state_whose_branch_has_only_an_open_pull_request_is_parked_and_the_comment_names_it() {
-    let (w, _, said) = twin("res-open", |w| {
+    let (_, _, said) = twin("res-open", |w| {
         w.ended("merged", "done", "feature/x", "");
         pr9(w);
     });
-    let gh = w.gh();
     has(&said, "mark State(NeedsPerson)");
     has(
-        &gh,
+        &said,
         "Its branch has an open pull request: https://github.com/acme/widget/pull/9",
     );
     lacks(&said, "State(AwaitingMerge)");
@@ -108,34 +108,31 @@ fn a_merged_state_whose_branch_has_only_an_open_pull_request_is_parked_and_the_c
 
 #[test]
 fn a_merged_pull_request_of_another_issue_does_not_make_a_merge() {
-    let (w, _, said) = twin("res-other-merged", |w| {
+    let (_, _, said) = twin("res-other-merged", |w| {
         w.ended("merged", "done", "feature/issue-9-other", "");
         w.merged_pr();
         w.fx("pr-body", "Fixes #9\n");
     });
-    let gh = w.gh();
     has(&said, "mark State(NeedsPerson)");
     has(
-        &gh,
+        &said,
         "has a pull request of the bot that does not name this issue",
     );
-    lacks(&gh, "The change was merged");
     lacks(&said, "The change was merged");
 }
 
 #[test]
 fn a_handoff_whose_branch_is_another_issues_pull_request_is_parked_and_nothing_is_posted_on_it() {
-    let (w, _, said) = twin("res-other-handoff", |w| {
+    let (_, _, said) = twin("res-other-handoff", |w| {
         w.ended("handoff", "commit-pr", "feature/issue-9-other", "");
         pr9(w);
         w.fx("pr-body", "Fixes #9 and mentions #7\n");
     });
-    let gh = w.gh();
     lacks(&said, "State(AwaitingMerge)");
     lacks(&said, "change 9 comment");
     has(&said, "mark State(NeedsPerson)");
-    has(&gh, "The branch `feature/issue-9-other` has a pull request of the bot that does not name this issue");
-    lacks(&gh, "Its branch has an open pull request");
+    has(&said, "The branch `feature/issue-9-other` has a pull request of the bot that does not name this issue");
+    lacks(&said, "Its branch has an open pull request");
 }
 
 #[test]
@@ -160,24 +157,23 @@ fn a_body_that_closes_a_longer_number_does_not_name_this_issue() {
 
 #[test]
 fn a_result_that_is_a_link_is_not_read() {
-    let w = World::new("res-link");
-    let elsewhere = w.t().join("elsewhere");
-    fs::create_dir_all(&elsewhere).unwrap();
-    fs::write(
-        elsewhere.join("7.json"),
-        json!({"schemaVersion": 5, "issues": [{"issue": 7, "status": "merged",
-            "failedStep": "done", "branch": "feature/x"}]})
-        .to_string(),
-    )
-    .unwrap();
-    w.work(r#"ln -sf "$T/elsewhere/7.json" "$TEHAS_HOME/state/cycles/7.result.json""#);
-    w.merged_pr();
-    let r = w.run7();
+    let (w, r, said) = twin("res-link", |w| {
+        let elsewhere = w.t().join("elsewhere");
+        fs::create_dir_all(&elsewhere).unwrap();
+        fs::write(
+            elsewhere.join("7.json"),
+            json!({"schemaVersion": 5, "issues": [{"issue": 7, "status": "merged",
+                "failedStep": "done", "branch": "feature/x"}]})
+            .to_string(),
+        )
+        .unwrap();
+        w.work(r#"ln -sf "$T/elsewhere/7.json" "$TEHAS_HOME/state/cycles/7.result.json""#);
+        w.merged_pr();
+    });
     has(&r.out, "WARN: the result of #7 is a link, it is not read");
-    let gh = w.gh();
-    has(&gh, "status `unknown`");
-    lacks(&gh, "pr list");
-    lacks(&gh, "The change was merged");
+    has(&said, "status `unknown`");
+    lacks(&w.gh(), "pr list");
+    lacks(&said, "The change was merged");
     // The end is on record all the same, and the store keeps nothing through
     // the link (F7).
     has(&r.out, "WARN: the result of #7 is not on record: refused");
@@ -205,13 +201,12 @@ fn a_progress_older_than_the_cycles_start_is_not_on_record_as_its_own_g3() {
 
 #[test]
 fn a_state_file_the_cycle_left_in_its_workspace_is_not_read_only_the_runners_result_is() {
-    let w = World::new("res-workstate");
-    work_state(&w.workdir());
-    w.merged_pr();
-    w.run7();
-    let gh = w.gh();
-    has(&gh, "status `unknown`");
-    lacks(&gh, "pr list");
+    let (w, _, said) = twin("res-workstate", |w| {
+        work_state(&w.workdir());
+        w.merged_pr();
+    });
+    has(&said, "status `unknown`");
+    lacks(&w.gh(), "pr list");
 }
 
 #[test]
@@ -225,23 +220,22 @@ fn a_result_of_another_schema_or_of_another_issue_is_no_result() {
         w.ended("merged", "done", "feature/x", "");
         w.result(change);
         w.merged_pr();
-        w.run7();
-        has(&w.gh(), "status `unknown`");
+        has(&w.report_said(), "status `unknown`");
     }
 }
 
 #[test]
 fn a_result_left_by_an_earlier_cycle_is_not_this_cycles() {
-    let w = World::new("res-earlier");
-    fs::create_dir_all(w.state()).unwrap();
-    fs::write(
-        w.state().join("7.result.json"),
-        json!({"schemaVersion": 5, "issues": [{"issue": 7, "status": "merged", "branch": "feature/x"}]})
-            .to_string(),
-    )
-    .unwrap();
-    w.run7();
-    has(&w.gh(), "status `unknown`");
+    let (w, _, said) = twin("res-earlier", |w| {
+        fs::create_dir_all(w.state()).unwrap();
+        fs::write(
+            w.state().join("7.result.json"),
+            json!({"schemaVersion": 5, "issues": [{"issue": 7, "status": "merged", "branch": "feature/x"}]})
+                .to_string(),
+        )
+        .unwrap();
+    });
+    has(&said, "status `unknown`");
     assert!(!there(&w.state().join("7.result.json")));
 }
 
@@ -255,13 +249,12 @@ fn a_pull_request_a_person_merged_while_the_cycle_ran_ends_it_as_merged_no_park_
         w.work("exit 2");
     });
     assert_eq!(r.rc, 0);
-    let gh = w.gh();
     assert_eq!(marks(&said), "unmark State(Running)");
     has(&said, "Tehas cycle ended: its pull request https://github.com/acme/widget/pull/9 was merged while the cycle ran (last step `handoff`");
     has(&said, "runner exit 2");
-    lacks(&gh, "stopped without a pull request");
     lacks(&said, "stopped without a pull request");
-    lacks(&gh, "issues/7/comments");
+    // No question: no marker beside the note.
+    lacks(&said, "markers: ");
     assert!(w.park()["question"].is_null());
     has(&r.out, "done #7 rc=0 status=merged");
     has(&r.out, "pr=https://github.com/acme/widget/pull/9");
@@ -297,13 +290,11 @@ fn a_pull_request_closed_without_a_merge_parks_the_issue_without_the_retry_boxes
         w.work("exit 2");
     });
     assert_eq!(r.rc, 0);
-    let gh = w.gh();
     has(&said, "unmark State(Running)\nmark State(NeedsPerson)");
     has(&said, "Tehas cycle stopped: its pull request https://github.com/acme/widget/pull/9 was closed without being merged");
     has(&said, &kept(&w));
     has(&said, "To retry, apply `tehas:ready`.");
-    lacks(&gh, "issues/7/comments");
-    lacks(&gh, "tehas:question");
+    lacks(&said, "Question(");
     lacks(&said, "State(Question)");
     assert!(w.park()["question"].is_null());
     assert!(there(&w.workdir()));
@@ -438,34 +429,32 @@ fn a_cycle_the_dispatcher_stopped_for_a_closed_issue_names_the_workspace_it_kept
 // A run that never cloned a workspace has no directory for its comment to name.
 #[test]
 fn a_cycle_that_made_no_workspace_is_not_said_to_have_kept_one() {
-    let w = World::new("res-noworkspace");
-    w.ended("interrupted", "review", "feature/x", "");
-    fs::remove_dir_all(w.workdir()).unwrap();
-    w.run7();
+    let (w, _, said) = twin("res-noworkspace", |w| {
+        w.ended("interrupted", "review", "feature/x", "");
+        fs::remove_dir_all(w.workdir()).unwrap();
+    });
     assert!(!there(&w.workdir()));
-    let gh = w.gh();
-    has(&gh, "Tehas cycle stopped without a pull request");
-    has(&gh, "This cycle left no workspace on this host");
-    lacks(&gh, &kept(&w));
+    has(&said, "Tehas cycle stopped without a pull request");
+    has(&said, "This cycle left no workspace on this host");
+    lacks(&said, &kept(&w));
 }
 
 // A run that moved an earlier attempt aside and then failed before it cloned
 // leaves only that copy.
 #[test]
 fn a_cycle_that_cloned_no_workspace_names_the_copy_an_earlier_attempt_left() {
-    let w = World::new("res-copy");
-    w.ended("interrupted", "review", "feature/x", "");
-    fs::remove_dir_all(w.workdir()).unwrap();
-    fs::create_dir_all(before_retry(&w)).unwrap();
-    w.run7();
+    let (w, _, said) = twin("res-copy", |w| {
+        w.ended("interrupted", "review", "feature/x", "");
+        fs::remove_dir_all(w.workdir()).unwrap();
+        fs::create_dir_all(before_retry(w)).unwrap();
+    });
     assert!(!there(&w.workdir()));
-    let gh = w.gh();
-    has(&gh, "Tehas cycle stopped without a pull request");
+    has(&said, "Tehas cycle stopped without a pull request");
     has(
-        &gh,
+        &said,
         &format!("The workspace is kept at `{}.before-retry`", w.kept_here()),
     );
-    lacks(&gh, "This cycle left no workspace on this host");
+    lacks(&said, "This cycle left no workspace on this host");
 }
 
 #[test]

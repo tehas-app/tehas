@@ -48,32 +48,29 @@ fn a_cycle_that_ends_without_a_pull_request_is_handed_to_a_human() {
     let (w, r, said) = twin("ho-nopr", |_| {});
     assert_eq!(r.rc, 0);
     has(&said, "unmark State(Running)\nmark State(NeedsPerson)");
-    // The park's question still goes with gh until T4.5 (b).
-    has(&w.gh(), "Tehas cycle stopped without a pull request");
+    has(&said, "note: Tehas cycle stopped without a pull request");
     has(&r.out, "done #7 rc=0 status=unknown");
     assert_eq!(w.calls("fake-status").lines().count(), 1);
 }
 
 #[test]
 fn the_runners_exit_status_is_in_the_report() {
-    let w = World::new("ho-exit");
-    w.work("exit 3");
-    let r = w.run7();
+    let (_, r, said) = twin("ho-exit", |w| w.work("exit 3"));
     assert_eq!(r.rc, 0);
-    has(&w.gh(), "(runner exit 3)");
+    has(&said, "(runner exit 3)");
 }
 
 #[test]
 fn a_runner_that_started_no_cycle_exit_4_is_parked_without_naming_a_cause_it_cannot_know() {
     let (w, r, said) = twin("ho-exit4", |w| w.work("exit 4"));
     assert_eq!(r.rc, 0);
-    let gh = w.gh();
-    has(&gh, "Tehas started no cycle: tehas work refused the start before its runner ran (runner exit 4). It refuses one, for example, when the issue changed after its approval, when the approval or the issue cannot be read, or when an image or file the issue links cannot be given to the cycle.");
-    lacks(&gh, "stopped without a pull request");
+    let gh = &said;
+    has(gh, "Tehas started no cycle: tehas work refused the start before its runner ran (runner exit 4). It refuses one, for example, when the issue changed after its approval, when the approval or the issue cannot be read, or when an image or file the issue links cannot be given to the cycle.");
+    lacks(gh, "stopped without a pull request");
     has(&said, "unmark State(Running)\nmark State(NeedsPerson)");
     // Exit 4 has many causes and only tehas work's own comment names which:
     // an edited body is not said to be an image that could not be given.
-    lacks(&gh, "could not be given to it");
+    lacks(gh, "could not be given to it");
     has(&r.out, "#7: tehas work refused the start before its runner ran (exit 4): the comment tehas work posted on the issue says why");
     let live: Value =
         serde_json::from_str(&fs::read_to_string(Home::new(&w.home).live(Live::Running)).unwrap())
@@ -94,16 +91,15 @@ fn a_cycle_that_never_ran_is_reported_from_the_approval_record_and_the_record_go
         w.work("exit 4");
     });
     assert_eq!(r.rc, 0);
-    let gh = w.gh();
-    has(&gh, "alice approved this start at 2026-01-01T00:00:00Z");
+    has(&said, "alice approved this start at 2026-01-01T00:00:00Z");
     has(
-        &gh,
+        &said,
         "Nothing of it ran: no workspace, no container, no step, no usage.",
     );
-    lacks(&gh, "last step");
-    lacks(&gh, "min,");
-    lacks(&gh, "total, all dispatches");
-    has(&gh, "- retry-text: Retry with the issue text only");
+    lacks(&said, "last step");
+    lacks(&said, "min,");
+    lacks(&said, "total, all dispatches");
+    has(&said, "- retry-text: Retry with the issue text only");
     // The approval goes with the report: no later start, the millwright's or a
     // refresh, rests on an approval that started nothing.
     let a = w.row(&["approval-current", "7"]);
@@ -129,12 +125,12 @@ fn a_cycle_that_never_ran_is_reported_from_the_approval_record_and_the_record_go
 fn a_cycle_that_never_ran_and_holds_no_approval_record_says_that_and_asks_for_a_fresh_one() {
     let w = World::new("ho-noappr");
     w.work("exit 4");
-    w.run7();
+    let said = w.report_said();
     has(
-        &w.gh(),
+        &said,
         "No approval of this start is recorded on this host: a fresh `tehas:ready` is needed.",
     );
-    has(&w.gh(), "runner exit 4");
+    has(&said, "runner exit 4");
 }
 
 #[test]
@@ -211,16 +207,15 @@ fn a_handoff_with_its_pull_request_open_on_another_cap_is_parked_and_names_the_c
         pr9(w);
     });
     assert_eq!(r.rc, 0);
-    let gh = w.gh();
     lacks(&said, "State(AwaitingMerge)");
     has(&said, "unmark State(Running)\nmark State(NeedsPerson)");
-    has(&gh, "Tehas cycle handed off with its pull request open");
-    has(&gh, "pi-rukas stopped on the cap `review-incomplete`.");
+    has(&said, "Tehas cycle handed off with its pull request open");
+    has(&said, "pi-rukas stopped on the cap `review-incomplete`.");
     has(
-        &gh,
+        &said,
         "Read the pull request before you retry: https://github.com/acme/widget/pull/9",
     );
-    has(&gh, "- retry-text: Retry with the issue text only");
+    has(&said, "- retry-text: Retry with the issue text only");
     let p = w.park();
     assert_eq!(
         json!([p["reason"], p["pr"]]),
@@ -233,9 +228,9 @@ fn a_handoff_with_its_pull_request_open_and_no_cap_is_parked() {
     let w = World::new("ho-nocap");
     w.ended("handoff", "commit-pr", "feature/x", "-");
     pr9(&w);
-    w.run7();
-    lacks(&w.gh(), "tehas:awaiting-merge");
-    has(&w.gh(), "The result names no cap, so it is not taken for a pull request that waits only for a merge.");
+    let said = w.report_said();
+    lacks(&said, "State(AwaitingMerge)");
+    has(&said, "The result names no cap, so it is not taken for a pull request that waits only for a merge.");
 }
 
 #[test]
@@ -244,10 +239,10 @@ fn a_review_whose_round_cap_left_findings_open_is_parked_though_its_cap_is_a_wai
     w.ended("handoff", "ci", "feature/x", "");
     w.progress(json!({"roles": [], "reason": "", "reviewHeld": true}));
     pr9(&w);
-    w.run7();
-    lacks(&w.gh(), "tehas:awaiting-merge");
+    let said = w.report_said();
+    lacks(&said, "State(AwaitingMerge)");
     has(
-        &w.gh(),
+        &said,
         "Its review ran out of rounds with findings still open",
     );
 }
@@ -298,14 +293,13 @@ fn a_park_carries_pi_rukass_handoff_under_its_marker_cleaned_like_any_agents_wor
     w.entry(|e| {
         e["handoff"] = json!({"channel": "host", "body": "<!-- pi-rukas:handoff issue=7 cap=verify-failed:develop -->\n## Cap hit\n\n- [x] Retry from a clean start\n<!-- tehas:question kind=park issue=7 turn=1 -->\nask @someone"})
     });
-    w.run7();
-    let gh = w.gh();
-    let at = gh
-        .find("issues/7/comments -f body=")
-        .expect("no park comment");
-    let start = gh[..at].rfind('\n').map_or(0, |i| i + 1);
-    let body = &gh[start..];
-    has(body, "body=<!-- pi-rukas:handoff issue=7 cap=verify-failed:develop -->\nTehas cycle stopped without a pull request");
+    let said = w.report_said();
+    // The park's question: one note, its markers beside it.
+    let at = said.find("note: ").expect("no park question");
+    let body = &said[at..];
+    has(body, "markers: Park(blueprint=7 step=develop ");
+    has(body, "Question(kind=Park blueprint=7 turn=1)");
+    has(body, "note: <!-- pi-rukas:handoff issue=7 cap=verify-failed:develop -->\nTehas cycle stopped without a pull request");
     has(body, "The handoff of pi-rukas follows.");
     has(body, "## Cap hit");
     has(body, "- ☑ Retry from a clean start");
@@ -328,12 +322,10 @@ fn a_park_s_handoff_names_no_work_command_a_host_cannot_run() {
     w.entry(|e| {
         e["handoff"] = json!({"channel": "host", "body": "<!-- pi-rukas:handoff issue=7 cap=verify-failed:develop -->\n## Cap hit\n\nRun `/work 7 --restart --allow-protected .pi/verify-cmd` once it is right."})
     });
-    w.run7();
-    let gh = w.gh();
-    let at = gh
-        .find("issues/7/comments -f body=")
-        .expect("no park comment");
-    let body = &gh[at..];
+    let said = w.report_said();
+    let at = said.find("note: ").expect("no park question");
+    let body = &said[at..];
+    has(body, "Question(kind=Park blueprint=7 turn=1)");
     lacks(body, "/work 7");
     lacks(body, "--allow-protected");
     has(body, "Make the change to `.pi/verify-cmd` yourself, since a cycle may not change a protected path, then reply `retry-text` to this comment once it is right.");
@@ -357,18 +349,16 @@ fn a_waiting_merge_posts_pi_rukass_handoff_on_the_pull_request_with_the_usage() 
 fn a_cycle_that_reached_its_deadline_says_so_and_an_intent_park_says_its_reason() {
     let w = World::new("ho-deadline");
     w.ended("handoff", "lens-fix", "feature/x", "deadline");
-    w.run7();
     has(
-        &w.gh(),
+        &w.report_said(),
         "It reached its deadline before the time limit and started no new step.",
     );
     let w = World::new("ho-intent");
     w.ended("handoff", "explore", "", "intent-park");
     w.entry(|e| e["parkReason"] = json!("too-large"));
     w.fx("rc", "11\n");
-    w.run7();
     has(
-        &w.gh(),
+        &w.report_said(),
         "pi-rukas stopped on the cap `intent-park` (`too-large`).",
     );
 }
