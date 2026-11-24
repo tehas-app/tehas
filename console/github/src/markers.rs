@@ -511,6 +511,10 @@ fn take_out(body: &str, (s, e): (usize, usize)) -> (usize, usize, String) {
 pub fn live_text(body: &str) -> String {
     let lines = lines(body);
     let mut gone = dead(body, &lines);
+    // Besides the reader's indented code: every indented line at the
+    // text's start or after a blank line, in a list item or an open HTML
+    // block too, as this blanked before the reader parsed blocks. More
+    // blanked only adds a closing line.
     let mut code_may_open = true;
     for l in &lines {
         let raw = &body[l.start..l.end];
