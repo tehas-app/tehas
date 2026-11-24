@@ -47,7 +47,7 @@ fn alias(n: u64) -> String {
 fn several_question(numbers: &[u64]) -> String {
     let fields = format!("{} {}", digest_fields(), closes());
     let mut q = String::from(
-        "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) {",
+        "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { databaseId",
     );
     for n in numbers {
         q.push_str(&format!(
@@ -66,7 +66,7 @@ fn several_question(numbers: &[u64]) -> String {
 /// them.
 fn since_question() -> String {
     format!(
-        "query($owner: String!, $name: String!, $cursor: String, $since: DateTime!) {{ repository(owner: $owner, name: $name) {{ issues(first: {SINCE_PAGE}, after: $cursor, orderBy: {{field: CREATED_AT, direction: ASC}}, filterBy: {{states: [CLOSED], since: $since}}) {{ pageInfo {{ hasNextPage endCursor }} nodes {{ {} closedAt {} subIssues {{ totalCount }} closedByPullRequestsReferences(first: {REFERENCES}) {{ totalCount nodes {{ baseRepository {{ nameWithOwner }} {} }} }} }} }} }} }}",
+        "query($owner: String!, $name: String!, $cursor: String, $since: DateTime!) {{ repository(owner: $owner, name: $name) {{ databaseId issues(first: {SINCE_PAGE}, after: $cursor, orderBy: {{field: CREATED_AT, direction: ASC}}, filterBy: {{states: [CLOSED], since: $since}}) {{ pageInfo {{ hasNextPage endCursor }} nodes {{ {} closedAt {} subIssues {{ totalCount }} closedByPullRequestsReferences(first: {REFERENCES}) {{ totalCount nodes {{ baseRepository {{ databaseId nameWithOwner }} {} }} }} }} }} }} }}",
         digest_fields(),
         closes(),
         super::board::pull_fields()
@@ -119,7 +119,8 @@ struct Reference {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Repo {
-    name_with_owner: String,
+    #[serde(rename = "databaseId")]
+    database_id: Option<u64>,
 }
 
 impl GitHub {
@@ -252,9 +253,11 @@ impl GitHub {
         let mut merged = Vec::new();
         for r in refs.nodes {
             let r = r.ok_or(INCONSISTENT)?;
-            let ours = r
-                .base_repository
-                .is_some_and(|b| b.name_with_owner.eq_ignore_ascii_case(&self.repo));
+            // A pull request whose repository is gone is no change here.
+            let ours = match r.base_repository {
+                Some(b) => self.is_here_id(b.database_id)?,
+                None => false,
+            };
             if !ours {
                 continue;
             }

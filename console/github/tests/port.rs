@@ -64,10 +64,11 @@ const ISSUE: &str = r#"{"number":7,"title":"Make it so","state":"open","state_re
 "html_url":"https://github.com/acme/widget/issues/7"}"#;
 
 /// The answer of the question of the ticket #7 is a part of: #3.
-const PARENT: &str = r#"{"data":{"repository":{"issue":{"number":7,"parent":{"number":3,"repository":{"nameWithOwner":"acme/widget"}}}}}}"#;
+const PARENT: &str = r#"{"data":{"repository":{"databaseId":7001,"issue":{"number":7,"parent":{"number":3,"repository":{"databaseId":7001,"nameWithOwner":"acme/widget"}}}}}}"#;
 
 /// The same, of a ticket that is a part of none.
-const NO_PARENT: &str = r#"{"data":{"repository":{"issue":{"number":7,"parent":null}}}}"#;
+const NO_PARENT: &str =
+    r#"{"data":{"repository":{"databaseId":7001,"issue":{"number":7,"parent":null}}}}"#;
 
 #[test]
 fn a_tickets_digest_is_the_issues_rest_read_and_its_parent() {
@@ -77,7 +78,7 @@ fn a_tickets_digest_is_the_issues_rest_read_and_its_parent() {
     assert_eq!(asked[0], "api repos/acme/widget/issues/7");
     assert!(asked[1].contains("-F number=7"), "{}", asked[1]);
     assert!(
-        asked[1].contains("parent { number repository { nameWithOwner } }"),
+        asked[1].contains("parent { number repository { databaseId nameWithOwner } }"),
         "{}",
         asked[1]
     );
@@ -114,7 +115,10 @@ fn a_tickets_digest_is_the_issues_rest_read_and_its_parent() {
 fn a_parent_is_named_where_it_is_and_one_that_cannot_be_read_fails_the_digest() {
     let (mut gh, _) = adapter(vec![Ok(ISSUE), Ok(NO_PARENT)]);
     assert_eq!(gh.several(&[key(7)]).remove(0).1.unwrap().parent, None);
-    let elsewhere = PARENT.replace("acme/widget", "other/lib");
+    let elsewhere = PARENT.replace(
+        r#""databaseId":7001,"nameWithOwner":"acme/widget""#,
+        r#""databaseId":7100,"nameWithOwner":"other/lib""#,
+    );
     let (mut gh, _) = adapter(vec![Ok(ISSUE), Ok(&elsewhere)]);
     assert_eq!(
         gh.several(&[key(7)]).remove(0).1.unwrap().parent,
@@ -124,7 +128,7 @@ fn a_parent_is_named_where_it_is_and_one_that_cannot_be_read_fails_the_digest() 
         })
     );
     // An answer that leaves the parent out does not say there is none.
-    let left_out = r#"{"data":{"repository":{"issue":{"number":7}}}}"#;
+    let left_out = r#"{"data":{"repository":{"databaseId":7001,"issue":{"number":7}}}}"#;
     let (mut gh, _) = adapter(vec![Ok(ISSUE), Ok(left_out)]);
     assert_eq!(
         gh.several(&[key(7)]).remove(0).1,
@@ -177,6 +181,66 @@ fn the_parent_is_graphqls_since_rest_leaves_out_the_field_of_none() {
             "#{n}"
         );
     }
+}
+
+/// The project is told by its repository's database id, never by its
+/// name. The live recordings were read after `tehas-app/tehas` was renamed
+/// `tehas-app/tehas-factory`: a handle still set to the old name reads #2824's
+/// parent as this project's, as one set to the new name does.
+#[test]
+fn a_renamed_project_is_still_here_by_its_repository_id() {
+    let issue = ISSUE.replace(r#""number":7"#, r#""number":2824"#).replace(
+        "acme/widget/issues/7",
+        "tehas-app/tehas-factory/issues/2824",
+    );
+    let answer = live("parent-2824.json");
+    for configured in [
+        "tehas-app/tehas",
+        "tehas-app/tehas-factory",
+        "TEHAS-APP/TEHAS",
+    ] {
+        let (mut gh, _) = adapter_in(configured, vec![Ok(&issue), Ok(&answer)]);
+        assert_eq!(
+            gh.several(&[key(2824)]).remove(0).1.unwrap().parent,
+            Some(Ref::Here(key(2597))),
+            "{configured}"
+        );
+    }
+}
+
+/// A repository that bears this project's configured name and another id
+/// is another project, and one named with no id is unread.
+#[test]
+fn another_repositorys_id_is_elsewhere_whatever_its_name() {
+    let impostor = PARENT.replace(
+        r#""databaseId":7001,"nameWithOwner""#,
+        r#""databaseId":7999,"nameWithOwner""#,
+    );
+    let (mut gh, _) = adapter(vec![Ok(ISSUE), Ok(&impostor)]);
+    assert_eq!(
+        gh.several(&[key(7)]).remove(0).1.unwrap().parent,
+        Some(Ref::Elsewhere {
+            project: tehas_ports::ProjectName::new("acme/widget"),
+            item: tehas_ports::ItemName::new("3"),
+        })
+    );
+    let no_id = PARENT.replace(r#""databaseId":7001,"nameWithOwner""#, r#""nameWithOwner""#);
+    let (mut gh, _) = adapter(vec![Ok(ISSUE), Ok(&no_id)]);
+    assert_eq!(
+        gh.several(&[key(7)]).remove(0).1,
+        Err(Outcome::Unread(Unread::Malformed))
+    );
+    // An answer that names no id of this project's repository leaves the
+    // handle nothing to tell here from elsewhere by.
+    let unlearned = PARENT.replace(
+        r#"{"repository":{"databaseId":7001,"issue""#,
+        r#"{"repository":{"issue""#,
+    );
+    let (mut gh, _) = adapter(vec![Ok(ISSUE), Ok(&unlearned)]);
+    assert_eq!(
+        gh.several(&[key(7)]).remove(0).1,
+        Err(Outcome::Unread(Unread::Inconsistent))
+    );
 }
 
 #[test]
