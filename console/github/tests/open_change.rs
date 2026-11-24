@@ -538,6 +538,72 @@ fn a_post_that_may_have_landed_is_settled_by_one_read_of_the_head() {
 }
 
 #[test]
+fn another_pull_request_of_the_head_found_by_the_settle_leaves_maybe() {
+    // Opened by someone else between the read and the POST: another base
+    // and ready, another title, or ready alone.
+    for found in [
+        "pulls-of-head-41-another-ready.json",
+        "pulls-of-head-41-other-title.json",
+        "pulls-of-head-41-other-ready.json",
+    ] {
+        let (mut gh, calls) = adapter(vec![
+            Ok(sample("pulls-of-head-none.json")),
+            Err(BOUND.to_string()),
+            Ok(sample(found)),
+        ]);
+        assert_eq!(
+            gh.open_change(&finish_change("B", vec![])),
+            Err(maybe(Passing::Timeout)),
+            "{found}"
+        );
+        assert_eq!(posts(&taken(&calls)), 1, "{found}");
+    }
+    // Ours: the base, title and draft sent.
+    let (mut gh, _) = adapter(vec![
+        Ok(sample("pulls-of-head-none.json")),
+        Err(BOUND.to_string()),
+        Ok(sample("pulls-of-head-41.json")),
+    ]);
+    assert_eq!(
+        gh.open_change(&finish_change("B", vec![]))
+            .unwrap()
+            .id
+            .get(),
+        41
+    );
+}
+
+#[test]
+fn a_closing_word_github_does_not_read_still_gets_the_line() {
+    for (body, want) in [
+        // In fenced code, an HTML comment, a quote, indented code, a code
+        // span: GitHub closes nothing, so the line is added.
+        ("```\nFixes #7.\n```", "```\nFixes #7.\n```\n\nFixes #7.\n"),
+        ("<!-- Fixes #7 -->", "<!-- Fixes #7 -->\n\nFixes #7.\n"),
+        ("> Fixes #7.", "> Fixes #7.\n\nFixes #7.\n"),
+        ("    Fixes #7.", "    Fixes #7.\n\nFixes #7.\n"),
+        ("See `Fixes #7`.", "See `Fixes #7`.\n\nFixes #7.\n"),
+        // Plain text closes it: no second line.
+        ("Fixes #7.", "Fixes #7."),
+        ("Work.\n\nFixes #7.\n", "Work.\n\nFixes #7.\n"),
+        // #70 does not name 7.
+        ("Fixes #70.", "Fixes #70.\n\nFixes #7.\n"),
+        // A form the reading does not take: the line is added.
+        (
+            "Fixes acme/widget#7.",
+            "Fixes acme/widget#7.\n\nFixes #7.\n",
+        ),
+    ] {
+        let (mut gh, calls) = adapter(vec![
+            Ok(sample("pulls-of-head-none.json")),
+            Ok(sample("pull-41-created.json")),
+        ]);
+        gh.open_change(&finish_change(body, vec![bp(7)])).unwrap();
+        assert_eq!(input(&taken(&calls)[1]).body, want, "{body:?}");
+    }
+}
+
+#[test]
 fn an_answer_after_a_2xx_that_does_not_read_is_unread() {
     for (name, out, want) in [
         ("empty", String::new(), Outcome::Unread(Unread::Malformed)),
