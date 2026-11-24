@@ -7,6 +7,7 @@ mod common;
 
 use common::*;
 use serde_json::{json, Value};
+use tehas_ports::{Act, Mark, State};
 
 /// One comment, written at second `id` (10-59), edited by `editor` when
 /// one is named (bnote).
@@ -301,9 +302,10 @@ fn tehas_blocked_alone_starts_the_issue_once_its_blockers_close_and_comes_off() 
     assert_eq!(w.poll().rc, 0);
     assert_eq!(w.started(), "7 ");
     let gh = w.gh();
-    has(
-        &gh,
-        "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:blocked",
+    assert!(
+        w.on(7, Mark::State(State::Running)) && w.off(7, Mark::Act(Act::Block)),
+        "{:?}",
+        w.writes_of(7)
     );
     lacks(&gh, "--remove-label tehas:ready");
     has(&gh, "authorized by @alice's `tehas:blocked` label");

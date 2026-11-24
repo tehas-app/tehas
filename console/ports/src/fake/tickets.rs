@@ -1058,6 +1058,15 @@ impl TicketWrites for Handle {
             if part_of(s, child, parent) {
                 return Err(Outcome::Refused(Refusal::Cycle));
             }
+            // A part has one parent: another parent's is never moved.
+            let elsewhere = s
+                .items
+                .iter()
+                .enumerate()
+                .any(|(i, item)| i != at && item.parts.contains(child));
+            if elsewhere {
+                return Err(Outcome::Refused(Refusal::Invalid));
+            }
             if !s.items[at].parts.contains(child) {
                 s.items[at].parts.push(child.clone());
                 s.touch(at, ctx.now);

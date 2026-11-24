@@ -72,8 +72,8 @@ pub mod tickets {
     use std::num::NonZeroU32;
 
     use crate::{
-        At, Bound, Depth, Filter, Mark, MarkHeld, Outcome, Refusal, TicketDigest, TicketKey,
-        TicketWrites, Tickets, Took, WithCloser,
+        AccountId, At, Bound, CloseReason, Depth, Filter, Mark, MarkHeld, Outcome, Ref, Refusal,
+        TicketDigest, TicketKey, TicketState, TicketWrites, Tickets, Took, WithCloser,
     };
 
     /// A newest-first page against the whole list it is cut from: each
@@ -486,6 +486,90 @@ pub mod tickets {
         hold(!after.digest.marks.contains(mark), LAW, || {
             "the mark is on after it was taken off".into()
         })
+    }
+
+    /// Closing a closed ticket is done, and leaves it closed: a close is
+    /// idempotent by its inputs. The fixture's ticket is closed.
+    pub fn closing_a_closed_ticket_is_done(
+        h: &mut dyn TicketWrites,
+        key: &TicketKey,
+        reason: &CloseReason,
+    ) -> Law {
+        const LAW: &str = "tickets::closing_a_closed_ticket_is_done";
+        let closed = |h: &mut dyn TicketWrites, what| {
+            got(LAW, what, h.ticket(key, Depth::Cut { notes: 0 }, None))
+                .map(|t| matches!(t.digest.state, TicketState::Closed(_)))
+        };
+        hold(closed(h, "the ticket")?, LAW, || {
+            "the fixture's ticket is open".into()
+        })?;
+        got(LAW, "close", h.close(key, reason))?;
+        hold(closed(h, "the ticket again")?, LAW, || {
+            "the ticket is open after a close".into()
+        })
+    }
+
+    /// A ticket that is a part of another is never made a part of a second
+    /// parent: `Refused(Invalid)`, and it stays its first parent's. Asked
+    /// of its own parent again, it is done. The fixture's `child` is a part
+    /// of `first` and not of `second`.
+    pub fn a_part_of_another_parent_is_refused(
+        h: &mut dyn TicketWrites,
+        first: &TicketKey,
+        second: &TicketKey,
+        child: &TicketKey,
+    ) -> Law {
+        const LAW: &str = "tickets::a_part_of_another_parent_is_refused";
+        let holds = |h: &mut dyn TicketWrites, parent: &TicketKey, what| {
+            got(LAW, what, h.parts(parent)).map(|parts| {
+                parts
+                    .items()
+                    .iter()
+                    .any(|p| p.key == Ref::Here(child.clone()))
+            })
+        };
+        hold(holds(h, first, "the first's parts")?, LAW, || {
+            "the fixture's child is no part of its first parent".into()
+        })?;
+        let other = h.add_part(second, child);
+        hold(
+            other == Err(Outcome::Refused(Refusal::Invalid)),
+            LAW,
+            || format!("a part of another parent answered {other:?}"),
+        )?;
+        got(LAW, "add_part again", h.add_part(first, child))?;
+        hold(holds(h, first, "the first's parts again")?, LAW, || {
+            "the child left its first parent".into()
+        })?;
+        hold(!holds(h, second, "the second's parts")?, LAW, || {
+            "the child became a part of a second parent".into()
+        })
+    }
+
+    /// An account that cannot be assigned is `Refused(Invalid)`, and the
+    /// ticket does not hold it. The fixture's `who` is not assignable.
+    pub fn an_account_that_cannot_be_assigned_is_refused(
+        h: &mut dyn TicketWrites,
+        key: &TicketKey,
+        who: &AccountId,
+    ) -> Law {
+        const LAW: &str = "tickets::an_account_that_cannot_be_assigned_is_refused";
+        let answer = h.assign(key, who);
+        hold(
+            answer == Err(Outcome::Refused(Refusal::Invalid)),
+            LAW,
+            || format!("assign answered {answer:?}"),
+        )?;
+        let t = got(
+            LAW,
+            "the ticket",
+            h.ticket(key, Depth::Cut { notes: 0 }, None),
+        )?;
+        hold(
+            !t.assignees.iter().any(|a| a.id.as_ref() == Some(who)),
+            LAW,
+            || "the ticket holds the account it refused".into(),
+        )
     }
 }
 
