@@ -42,7 +42,8 @@ impl GitHub {
         }
         let labels = gh::parse_labels(out).ok_or(Outcome::Unread(Unread::Malformed))?;
         let marks = self.read_marks(&labels).into_iter().flatten().collect();
-        read_digest(out, key.clone(), marks).ok_or(Outcome::Unread(Unread::Malformed))
+        read_digest(out, key.clone(), marks, self.bot.as_ref())
+            .ok_or(Outcome::Unread(Unread::Malformed))
     }
 
     /// A ticket's history, oldest first, as `Tickets::history` answers. The
@@ -88,7 +89,7 @@ impl GitHub {
                 )),
             };
             let mut event = TicketEvent::new(what);
-            event.by = account(&e.actor, &facts);
+            event.by = account(&e.actor, &facts, self.bot.as_ref());
             event.at = at;
             items.push(event);
         }
@@ -142,7 +143,12 @@ pub(crate) fn number(key: &TicketKey) -> Got<u64> {
 
 /// The digest of an issue's REST read, its marks read already. None for an
 /// answer that lacks a field every issue has.
-fn read_digest(out: &str, key: TicketKey, marks: Vec<Mark>) -> Option<TicketDigest> {
+fn read_digest(
+    out: &str,
+    key: TicketKey,
+    marks: Vec<Mark>,
+    bot: Option<&Bot>,
+) -> Option<TicketDigest> {
     let mut v: Value = serde_json::from_str(out.trim()).ok()?;
     tehas_core::accounts::vouch(&mut v);
     let text = |k: &str| v.get(k).and_then(Value::as_str);
@@ -173,7 +179,7 @@ fn read_digest(out: &str, key: TicketKey, marks: Vec<Mark>) -> Option<TicketDige
             id: u.get("id").and_then(Value::as_u64),
             kind: u.get("type").and_then(Value::as_str).map(str::to_string),
         };
-        account(u.get("login")?.as_str()?, &facts)
+        account(u.get("login")?.as_str()?, &facts, bot)
     });
     let mut digest = TicketDigest::new(
         key,
@@ -191,15 +197,51 @@ fn read_digest(out: &str, key: TicketKey, marks: Vec<Mark>) -> Option<TicketDige
     Some(digest)
 }
 
+/// The factory's own account, as a site gives it to the handles it makes:
+/// the user id of its bot account. A handle made without a site, or by a
+/// site given no id or a login that names nobody, answers no account
+/// `Ours`.
+#[derive(Clone, Debug)]
+pub(crate) struct Bot {
+    user_id: Option<u64>,
+}
+
+impl Bot {
+    /// The bot of `login`, as the caller read it, and its account's user
+    /// id. The login is trimmed, so a line read from a file names it; a
+    /// login that is then empty, holds whitespace, or is only the App's
+    /// marks names nobody, and the bot matches no account. GitHub gives no
+    /// account the id 0: given it, the bot has no id and matches none.
+    pub(crate) fn new(login: &str, user_id: Option<u64>) -> Bot {
+        let login = login.trim();
+        let named = !login.is_empty()
+            && !login.contains(char::is_whitespace)
+            && !matches!(tehas_core::accounts::account(login), "" | "[bot]" | "app/");
+        Bot {
+            user_id: user_id.filter(|id| named && *id > 0),
+        }
+    }
+
+    /// Whether the account of `facts` is this bot: GitHub types it a bot
+    /// and it carries the bot's user id. Nothing else decides: not the
+    /// login, which a renamed App changes and another account may hold.
+    /// With no id known, no account is the bot.
+    pub(crate) fn is(&self, facts: &gh::Facts) -> bool {
+        self.user_id.is_some_and(|ours| facts.id == Some(ours))
+            && facts.kind.as_deref() == Some("Bot")
+    }
+}
+
 /// The account of an event, None where it names nobody. The login is folded
 /// to lower case, as GitHub compares logins, and an app's spellings
 /// (`x[bot]` in REST, `x` in GraphQL, `app/x`) to one, as the spec's `Login`
-/// says.
-pub(crate) fn account(login: &str, facts: &gh::Facts) -> Option<Account> {
+/// says. It is `Ours` where it is the site's `bot`.
+pub(crate) fn account(login: &str, facts: &gh::Facts, bot: Option<&Bot>) -> Option<Account> {
     if login.is_empty() {
         return None;
     }
     let kind = match facts.kind.as_deref() {
+        _ if bot.is_some_and(|b| b.is(facts)) => AccountKind::Ours,
         Some("User") => AccountKind::Person,
         Some("Bot") => AccountKind::Bot,
         _ => AccountKind::Unknown,
@@ -235,7 +277,7 @@ pub(crate) fn take<T>(mut items: Vec<T>, window: Window) -> Got<Took<T>> {
 
 /// The reason a runner gives when its time ran out before it started gh,
 /// exactly: a runner's own words are never read.
-const NOT_STARTED: &str = "not started: out of time";
+pub(crate) const NOT_STARTED: &str = "not started: out of time";
 
 /// [`GitHub::outcome`] at the time `now`. A 410 is an issue deleted or
 /// issues turned off: `NotFound`, as the ports spec's table says. The
