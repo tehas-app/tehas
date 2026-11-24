@@ -39,6 +39,11 @@ pub(crate) struct LabelHeld {
 }
 
 impl LabelHeld {
+    /// The label's name as GitHub holds it.
+    pub(crate) fn name(&self) -> &str {
+        &self.name
+    }
+
     /// Whether the label is what `spec` makes: its name exactly, and the
     /// colour and the text the spec gives. A colour is read in any case.
     pub(crate) fn is(&self, spec: &MarkSpec) -> bool {

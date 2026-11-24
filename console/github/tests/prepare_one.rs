@@ -1,7 +1,8 @@
 //! `TicketWrites::prepare_one` as the adapter answers it, replayed from
 //! the recordings under `tests/recorded/prepare-one/<state>/` (made by
 //! hand from GitHub's documented shapes): `label` is the read of the one
-//! label, `labels` the read of every label, `create` the label's write.
+//! label, `labels` the read of every label, `create` the label's write and
+//! `rename` its `PATCH`.
 //! After a write the replay answers from `made/` where the state has it,
 //! so the law reads the site the write left. `.json` is gh's answer,
 //! `.fail` the reason it failed and `.answer.json` what gh printed beside
@@ -26,6 +27,7 @@ struct Replay {
     state: String,
     made: bool,
     asked: Asked,
+    input: Arc<Mutex<Vec<String>>>,
 }
 
 fn field<'a>(args: &'a [&str], name: &str) -> Option<&'a str> {
@@ -52,6 +54,7 @@ impl Replay {
     fn name(args: &[&str]) -> &'static str {
         match args {
             ["label", "create", ..] => "create",
+            ["api", "-X", "PATCH", _, "--input", "-"] => "rename",
             ["api", "graphql", ..] => {
                 let query = field(args, "query").expect("a query");
                 if query.contains("label(name: $label)") {
@@ -77,7 +80,7 @@ impl GhRunner for Replay {
             .push(args.iter().map(|a| a.to_string()).collect());
         let name = Self::name(args);
         if let Some(out) = self.read(&format!("{name}.json")) {
-            if name == "create" {
+            if name == "create" || name == "rename" {
                 self.made = true;
             }
             return Ok(out);
@@ -86,6 +89,11 @@ impl GhRunner for Replay {
             Some(why) => Err(why.trim_end().to_string()),
             None => Err(format!("no recording {name} in {}", self.state)),
         }
+    }
+
+    fn run_input(&mut self, args: &[&str], input: &str) -> Result<String, String> {
+        self.input.lock().unwrap().push(input.to_string());
+        self.run(args)
     }
 
     fn run_answer(&mut self, args: &[&str]) -> Result<String, Failed> {
@@ -101,14 +109,22 @@ fn replay_now() -> i64 {
 }
 
 fn adapter(state: &str) -> (GitHub, Asked) {
+    let (gh, asked, _) = adapter_input(state);
+    (gh, asked)
+}
+
+/// [`adapter`], and what each write sent on gh's standard input.
+fn adapter_input(state: &str) -> (GitHub, Asked, Arc<Mutex<Vec<String>>>) {
     let asked = Asked::default();
+    let input = Arc::default();
     let replay = Replay {
         state: state.to_string(),
         made: false,
         asked: Arc::clone(&asked),
+        input: Arc::clone(&input),
     };
     let gh = GitHub::new(PROJECT, Box::new(replay)).on_clock(replay_now);
-    (gh, asked)
+    (gh, asked, input)
 }
 
 /// The kind of each call asked, in order.
@@ -162,13 +178,57 @@ fn a_missing_label_is_made_as_prepare_makes_it() {
 
 #[test]
 fn a_label_with_another_colour_or_text_is_brought_back() {
-    for state in ["wrong-colour", "wrong-text", "no-text", "other-case"] {
+    for state in ["wrong-colour", "wrong-text", "no-text"] {
         let (mut gh, asked) = adapter(state);
         assert_eq!(gh.prepare_one(&ESCALATED), Ok(()), "{state}");
         let asked = asked.lock().unwrap();
         assert_eq!(asked.len(), 2, "{state}");
         assert_eq!(asked[1].join(" "), the_write(), "{state}");
     }
+}
+
+#[test]
+fn a_label_named_in_another_case_is_renamed_in_one_write_and_then_left() {
+    let (mut gh, asked, input) = adapter_input("other-case");
+    assert_eq!(gh.prepare_one(&ESCALATED), Ok(()));
+    assert_eq!(calls(&asked), ["label", "rename"]);
+    assert_eq!(
+        asked.lock().unwrap()[1],
+        [
+            "api",
+            "-X",
+            "PATCH",
+            "repos/acme/widget/labels/Tehas%3AMillwright-Escalated",
+            "--input",
+            "-"
+        ]
+    );
+    let sent: serde_json::Value = serde_json::from_str(&input.lock().unwrap()[0]).unwrap();
+    assert_eq!(
+        sent,
+        serde_json::json!({
+            "new_name": "tehas:millwright-escalated",
+            "color": "c5def5",
+            "description": "Tehas: the millwright left this issue to a person",
+        })
+    );
+    // The second call finds the label right and writes nothing.
+    assert_eq!(gh.prepare_one(&ESCALATED), Ok(()));
+    assert_eq!(calls(&asked), ["label", "rename", "label"]);
+}
+
+#[test]
+fn a_rename_that_fails_is_its_outcome() {
+    assert_eq!(
+        prepare("other-case-fails"),
+        (
+            Err(Outcome::Spent {
+                pool: Pool::Writes,
+                until: At::new(replay_now()),
+            }),
+            vec!["label", "rename"]
+        )
+    );
 }
 
 #[test]
