@@ -8,6 +8,7 @@
 
 mod change;
 mod checks;
+mod remote;
 
 use std::collections::BTreeSet;
 use std::num::NonZeroU32;
@@ -205,8 +206,9 @@ impl CodeHost for GitHub {
         unsupported()
     }
 
-    fn remote(&mut self, _: Access) -> Got<Remote> {
-        unsupported()
+    /// See `code_host/remote.rs`: no request, no credential.
+    fn remote(&mut self, access: Access) -> Got<Remote> {
+        self.git_remote(access)
     }
 }
 
@@ -312,7 +314,7 @@ fn changes_query(states: ChangeStates, me: bool, labels: &[String], recent: bool
     };
     let account = "{ __typename login ... on User { databaseId } ... on Bot { databaseId } }";
     format!(
-        "query($owner: String!, $name: String!, $head: String, $after: String) {{ {viewer}repository(owner: $owner, name: $name) {{ databaseId pullRequests(first: 100, after: $after, headRefName: $head{labels}, states: [{states}], orderBy: {{field: {order}}}) {{ totalCount pageInfo {{ hasNextPage endCursor }} nodes {{ number title state isDraft isCrossRepository headRefName headRefOid baseRefName baseRefOid createdAt updatedAt mergedAt closedAt lastEditedAt additions deletions changedFiles mergeable mergeStateStatus url author {account} editor {account} mergedBy {account} mergeCommit {{ oid }} labels(first: 100) {{ totalCount nodes {{ name }} }} closingIssuesReferences(first: 100) {{ totalCount nodes {{ number repository {{ databaseId nameWithOwner }} }} }} }} }} }} }}"
+        "query($owner: String!, $name: String!, $head: String, $after: String) {{ {viewer}repository(owner: $owner, name: $name) {{ databaseId pullRequests(first: 100, after: $after, headRefName: $head{labels}, states: [{states}], orderBy: {{field: {order}}}) {{ totalCount pageInfo {{ hasNextPage endCursor }} nodes {{ number title state isDraft isCrossRepository headRepository {{ databaseId }} headRefName headRefOid baseRefName baseRefOid createdAt updatedAt mergedAt closedAt lastEditedAt additions deletions changedFiles mergeable mergeStateStatus url author {account} editor {account} mergedBy {account} mergeCommit {{ oid }} labels(first: 100) {{ totalCount nodes {{ name }} }} closingIssuesReferences(first: 100) {{ totalCount nodes {{ number repository {{ databaseId nameWithOwner }} }} }} }} }} }} }}"
     )
 }
 
@@ -611,7 +613,19 @@ fn read_page(
         );
         digest.title = text("title")?.to_string();
         digest.author = who("author")?;
-        digest.from_fork = flag("isCrossRepository")?;
+        // From a fork unless GitHub says it is not and its head repository is
+        // this one: a deleted head repository, or one GitHub does not name,
+        // fails closed.
+        let head_here = match n.get("headRepository") {
+            None => return Err(malformed.clone()),
+            Some(Value::Null) => false,
+            Some(r) => {
+                let id = r.get("databaseId").and_then(Value::as_u64);
+                id.ok_or(malformed.clone())?;
+                here.is_some() && id == here
+            }
+        };
+        digest.from_fork = flag("isCrossRepository")? || !head_here;
         digest.draft = flag("isDraft")?;
         digest.merge_state = merge_state;
         digest.closes = closes()?;
