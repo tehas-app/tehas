@@ -1,19 +1,48 @@
-//! The blueprints port's reads, `Blueprints`. Answered: a search of the
-//! project's issues (`search`), the relay's way to settle an open. Nothing
-//! that answers a text is answered yet: a blueprint's body and comments
-//! carry markers, which no reader of this adapter takes out yet.
+//! The blueprints port's reads, `Blueprints`. Answered: one blueprint to
+//! a depth (`blueprint`, `several`), its comments whole (`comments`), and a
+//! search of the project's issues (`search`), the relay's way to settle an
+//! open.
+//!
+//! A blueprint is the issue's REST read, the same read `edit` makes, and
+//! its comments' REST pages as far as the depth asks: none at
+//! `Depth::Cut { notes: 0 }`. Each text goes through `markers::read`, so
+//! this item's markers come back apart and another item's words stay. The
+//! revision is `blueprint_writes::revision` over the raw answer, markers
+//! in, so an edit at it holds on an unchanged issue.
+//!
+//! REST names no editor and no time the body was edited, so a text that
+//! may have been edited is asked of GraphQL: the body when the issue's
+//! `updated_at` is not its `created_at`, and on each page of comments one
+//! question for those whose `updated_at` moved. `editor` None means
+//! unedited, never unread: a failed question fails the read. A read of
+//! comments that comes out `Unread(Inconsistent)` is made once more; no
+//! other failure is retried here.
 
 use std::collections::HashSet;
 use std::num::NonZeroU32;
 
+use super::blueprint_writes::{ends_with_folded, read_issue, revision};
 use super::unsupported;
-use crate::GitHub;
+use crate::ticket::CUT_TEXT;
+use crate::tickets::{account, Bot};
+use crate::{gh, markers, GitHub};
+use serde::Deserialize;
 use serde_json::Value;
 use tehas_ports::{
-    Attachment, AttachmentId, Blueprint, BlueprintDelta, BlueprintHit, BlueprintNo, Blueprints,
+    At, Attachment, AttachmentId, Blueprint, BlueprintDelta, BlueprintHit, BlueprintNo, Blueprints,
     Bound, ChangeToken, Comment, CommentId, Cursor, Depth, Did, Edit, Got, Outcome, Pool, Refusal,
-    Took, Unread, Whole, Within,
+    Revision, Took, Unread, Whole, Within, ALL_MAX,
 };
+
+/// The comments one page of an issue's comments asks for, the most GitHub
+/// gives.
+const COMMENTS_PER_PAGE: usize = 100;
+
+/// The most pages of comments one read takes, 10,000 comments: past it,
+/// `Unread(Cut)`, even where `Depth::Last` or the caller's bound asks for
+/// more. The spec bounds neither; a read that large is not one a caller
+/// should make in one pass.
+const COMMENT_PAGES_MAX: usize = 100;
 
 /// The hits one page of a search asks for, the most GitHub gives.
 const PER_PAGE: usize = 100;
@@ -25,16 +54,58 @@ const REACH: usize = 1000;
 const WORDS_MAX: usize = 256;
 
 impl Blueprints for GitHub {
-    fn blueprint(&mut self, _: BlueprintNo, _: Depth) -> Got<Blueprint> {
-        unsupported()
+    /// The issue's REST read, then the pages of its comments the depth
+    /// takes, counted by the issue's own count of them: at
+    /// `Depth::Cut { notes: 0 }` the one read alone. A pull request's number
+    /// is `NotFound`, with no request after the issue's. A read of comments
+    /// that comes out `Unread(Inconsistent)` is made once more, whole.
+    fn blueprint(&mut self, no: BlueprintNo, depth: Depth) -> Got<Blueprint> {
+        let read = |gh: &mut GitHub| -> Got<Blueprint> {
+            let (mut blueprint, stamp) = gh.issue(no)?;
+            if stamp.touched {
+                let (edited, editor) = gh.body_edit(no)?;
+                blueprint.edited = edited;
+                blueprint.editor = editor;
+            }
+            blueprint.comments = match depth {
+                Depth::Cut { notes } => {
+                    let mut took = gh.last_comments(no, &stamp, u32::from(notes))?;
+                    for c in &mut took.items {
+                        c.body = c.body.chars().take(CUT_TEXT).collect();
+                    }
+                    took
+                }
+                Depth::Last { notes } => gh.last_comments(no, &stamp, notes.get())?,
+                Depth::All => {
+                    let all = gh.whole_comments(no, &stamp, ALL_MAX)?;
+                    let mut took = Took::default();
+                    took.items = all.into_items();
+                    took
+                }
+            };
+            Ok(blueprint)
+        };
+        match depth.notes() {
+            None => read(self),
+            Some(_) => self.twice(read),
+        }
     }
 
-    fn several(&mut self, nos: &[BlueprintNo], _: Depth) -> Vec<(BlueprintNo, Got<Blueprint>)> {
-        nos.iter().map(|n| (*n, unsupported())).collect()
+    /// One `blueprint` a number, in the order asked.
+    fn several(&mut self, nos: &[BlueprintNo], depth: Depth) -> Vec<(BlueprintNo, Got<Blueprint>)> {
+        nos.iter()
+            .map(|n| (*n, self.blueprint(*n, depth)))
+            .collect()
     }
 
-    fn comments(&mut self, _: BlueprintNo, _: Bound) -> Got<Whole<Comment>> {
-        unsupported()
+    /// The issue's REST read for its count of comments, then every page of
+    /// them; more than `bound` is `Unread(Cut)`, with no page read. A read
+    /// that comes out `Unread(Inconsistent)` is made once more, whole.
+    fn comments(&mut self, no: BlueprintNo, bound: Bound) -> Got<Whole<Comment>> {
+        self.twice(|gh| {
+            let (_, stamp) = gh.issue(no)?;
+            gh.whole_comments(no, &stamp, bound)
+        })
     }
 
     fn comments_by_id(&mut self, ids: &[CommentId]) -> Vec<(CommentId, Got<Comment>)> {
@@ -49,8 +120,8 @@ impl Blueprints for GitHub {
         unsupported()
     }
 
-    /// None yet: this adapter reads no text, so it finds no attachment in
-    /// one.
+    /// None yet: the link rule of `attachments` is not built in this
+    /// adapter, and this answer cannot say unsupported.
     fn attachments_in(&self, _: &str) -> Vec<Attachment> {
         Vec::new()
     }
@@ -146,6 +217,179 @@ impl Blueprints for GitHub {
 }
 
 impl GitHub {
+    /// The blueprint `no` with no comment, and how many comments the issue
+    /// says it holds. A failed read is its outcome; a pull request is
+    /// `NotFound`; an answer of another issue or project is
+    /// `Unread(Inconsistent)`; one that lacks a field every issue has is
+    /// `Unread(Malformed)`.
+    fn issue(&mut self, no: BlueprintNo) -> Got<(Blueprint, Stamp)> {
+        let out = self.issue_answer(no.get()).map_err(|e| self.outcome(&e))?;
+        let issue = read_issue(&out, &self.repo)?;
+        if issue.no != no {
+            return Err(Outcome::Unread(Unread::Inconsistent));
+        }
+        let malformed = Outcome::Unread(Unread::Malformed);
+        let at = revision(&out).ok_or(malformed.clone())?;
+        let mut v: Value = serde_json::from_str(out.trim()).map_err(|_| malformed.clone())?;
+        tehas_core::accounts::vouch(&mut v);
+        let f: IssueFields = serde_json::from_value(v).map_err(|_| malformed.clone())?;
+        let open = match f.state.as_deref() {
+            Some("open") => true,
+            Some("closed") => false,
+            _ => return Err(malformed),
+        };
+        let created = time(f.created_at.as_deref())?;
+        let count = f.comments.ok_or(malformed.clone())? as usize;
+        let updated = f.updated_at.ok_or(malformed)?;
+        let touched = f.created_at != Some(updated.clone());
+        let read = markers::read(&issue.body, Some(no));
+        let mut blueprint = Blueprint::new(no, created, at, issue.link);
+        blueprint.title = issue.title;
+        blueprint.body = read.text;
+        blueprint.open = open;
+        blueprint.author = author(f.user.as_ref(), self.bot.as_ref());
+        blueprint.markers = read.markers;
+        blueprint.comments.more = count > 0;
+        Ok((
+            blueprint,
+            Stamp {
+                count,
+                updated,
+                touched,
+            },
+        ))
+    }
+
+    /// `read`, and once more when it comes out `Unread(Inconsistent)`: the
+    /// issue changed under it. The spec's read retry; a transient failure
+    /// is not retried here.
+    fn twice<T>(&mut self, mut read: impl FnMut(&mut GitHub) -> Got<T>) -> Got<T> {
+        match read(self) {
+            Err(Outcome::Unread(Unread::Inconsistent)) => read(self),
+            other => other,
+        }
+    }
+
+    /// The newest `n` of the issue's `count` comments, oldest first, with
+    /// `more` when it holds more than `n`.
+    fn last_comments(&mut self, no: BlueprintNo, stamp: &Stamp, n: u32) -> Got<Took<Comment>> {
+        let from = stamp.count.saturating_sub(n as usize);
+        let mut took = Took::default();
+        took.items = self.comments_from(no, stamp, from)?;
+        took.more = from > 0;
+        Ok(took)
+    }
+
+    /// Every one of the issue's `count` comments, or `Unread(Cut)` past
+    /// `bound` with no page read.
+    fn whole_comments(
+        &mut self,
+        no: BlueprintNo,
+        stamp: &Stamp,
+        bound: Bound,
+    ) -> Got<Whole<Comment>> {
+        if stamp.count > bound.get() as usize {
+            return Err(Outcome::Unread(Unread::Cut));
+        }
+        Ok(Whole::new(self.comments_from(no, stamp, 0)?))
+    }
+
+    /// The issue's comments from the `from`th (0 the oldest) to the last of
+    /// the `stamp.count` it held when read, a page at a time from the page
+    /// that holds the first one asked. The read is `Unread(Inconsistent)`
+    /// unless every page holds exactly what the count says, each comment
+    /// once, on issue `no` of this project, its id and time rising from the
+    /// one before. Over more than one page a comment deleted and another
+    /// posted between two pages keeps the count and skips one, so the issue
+    /// is read again after the last page and must still hold the count and
+    /// the `updated_at` it was read with. One page is one request and needs
+    /// no read after it.
+    fn comments_from(&mut self, no: BlueprintNo, stamp: &Stamp, from: usize) -> Got<Vec<Comment>> {
+        let count = stamp.count;
+        if from >= count {
+            return Ok(Vec::new());
+        }
+        let inconsistent = Outcome::Unread(Unread::Inconsistent);
+        let first = from / COMMENTS_PER_PAGE + 1;
+        let last = (count - 1) / COMMENTS_PER_PAGE + 1;
+        if last - first + 1 > COMMENT_PAGES_MAX {
+            return Err(Outcome::Unread(Unread::Cut));
+        }
+        let mut all: Vec<Comment> = Vec::new();
+        let mut before: Option<(u64, At)> = None;
+        for page in first..=last {
+            let out = self.comments_page(no, page)?;
+            let held = (count - (page - 1) * COMMENTS_PER_PAGE).min(COMMENTS_PER_PAGE);
+            let (mut comments, touched) = read_comments(&out, &self.repo, no, self.bot.as_ref())?;
+            if comments.len() != held {
+                return Err(inconsistent);
+            }
+            self.comment_edits_of(&mut comments, &touched)?;
+            for c in comments {
+                let id: u64 = c.id.as_str().parse().map_err(|_| inconsistent.clone())?;
+                if before.is_some_and(|(i, at)| id <= i || c.created < at) {
+                    return Err(inconsistent);
+                }
+                before = Some((id, c.created));
+                all.push(c);
+            }
+        }
+        if last > first && self.issue(no)?.1 != *stamp {
+            return Err(inconsistent);
+        }
+        Ok(all.split_off(from - (first - 1) * COMMENTS_PER_PAGE))
+    }
+
+    /// The body's last edit of issue `no`: when, and by whom, both None when
+    /// unedited. One GraphQL question; its failure is the read's.
+    fn body_edit(&mut self, no: BlueprintNo) -> Got<(Option<At>, Option<tehas_ports::Account>)> {
+        let out = self
+            .ask("the issue's editor", BODY_EDIT, Some(no.get()), None)
+            .map_err(|e| priced(self.outcome(&e)))?;
+        let edit: Edited = answer(&out, "/data/repository/issue", (self.now)())?;
+        edit.read(self.bot.as_ref())
+    }
+
+    /// The last edit of each comment of a page whose `updated_at` moved,
+    /// `touched` their indexes and node ids: one GraphQL question for the
+    /// page, none when none moved. Every one asked must be answered as an
+    /// issue comment, or the read is `Unread(Inconsistent)`.
+    fn comment_edits_of(&mut self, comments: &mut [Comment], touched: &[Touched]) -> Did {
+        if touched.is_empty() {
+            return Ok(());
+        }
+        let ids: Vec<String> = touched.iter().map(|(_, id)| format!("\"{id}\"")).collect();
+        let question = COMMENT_EDITS.replace("IDS", &ids.join(", "));
+        let out = self
+            .ask("the comments' editors", &question, None, None)
+            .map_err(|e| priced(self.outcome(&e)))?;
+        let nodes: Vec<Option<Edited>> = answer(&out, "/data/nodes", (self.now)())?;
+        if nodes.len() != touched.len() {
+            return Err(Outcome::Unread(Unread::Inconsistent));
+        }
+        for ((at, id), node) in touched.iter().zip(nodes) {
+            let node = node
+                .filter(|n| n.id.as_deref() == Some(id.as_str()))
+                .ok_or(Outcome::Unread(Unread::Inconsistent))?;
+            let (edited, editor) = node.read(self.bot.as_ref())?;
+            comments[*at].edited = edited;
+            comments[*at].editor = editor;
+        }
+        Ok(())
+    }
+
+    /// gh's answer to one page of an issue's comments, oldest first, or
+    /// its outcome.
+    fn comments_page(&mut self, no: BlueprintNo, page: usize) -> Got<String> {
+        let path = format!(
+            "repos/{}/issues/{}/comments?per_page={COMMENTS_PER_PAGE}&page={page}",
+            self.repo,
+            no.get()
+        );
+        self.call("the issue's comments", &["api", &path])
+            .map_err(|e| self.outcome(&e))
+    }
+
     /// gh's answer to one page of the issue search, or its outcome. A
     /// spent budget is the search pool's. A 422 is a project the site will
     /// not search, gone or not visible: the words were checked before.
@@ -178,6 +422,230 @@ impl GitHub {
             }
         })
     }
+}
+
+/// What an issue's read says of its comments: how many, and when the issue
+/// last changed. A comment posted or deleted moves one or the other.
+/// `touched`: it changed since it was opened, so its body may have been
+/// edited.
+#[derive(PartialEq, Eq)]
+struct Stamp {
+    count: usize,
+    updated: String,
+    touched: bool,
+}
+
+/// The question of an issue's last body edit.
+const BODY_EDIT: &str = "query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { issue(number: $number) { lastEditedAt editor { __typename login ...on User { databaseId } ...on Bot { databaseId } } } } }";
+
+/// The question of the last edit of comments by node id, `IDS` their
+/// quoted ids. It names the repository so the adapter's one way to ask
+/// GitHub, which always gives it, asks no variable it does not use.
+const COMMENT_EDITS: &str = "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { id } nodes(ids: [IDS]) { __typename ...on IssueComment { id lastEditedAt editor { __typename login ...on User { databaseId } ...on Bot { databaseId } } } } }";
+
+/// A text's last edit as GraphQL answers it.
+#[derive(Deserialize)]
+struct Edited {
+    id: Option<String>,
+    #[serde(rename = "lastEditedAt")]
+    last_edited_at: Option<String>,
+    editor: Option<Actor>,
+}
+
+/// An account GraphQL names.
+#[derive(Deserialize)]
+struct Actor {
+    #[serde(rename = "__typename")]
+    kind: Option<String>,
+    login: Option<String>,
+    #[serde(rename = "databaseId")]
+    id: Option<u64>,
+}
+
+impl Edited {
+    /// When the text was last edited, and by whom; both None when it was
+    /// never edited. An edit by an account GitHub no longer names (deleted:
+    /// its `ghost`) is answered as the account `ghost` of an unknown kind,
+    /// so an edited text never reads as unedited.
+    fn read(self, bot: Option<&Bot>) -> Got<(Option<At>, Option<tehas_ports::Account>)> {
+        let Some(at) = self.last_edited_at else {
+            return Ok((None, None));
+        };
+        let at = time(Some(&at))?;
+        // A deleted account is GitHub's `ghost`, with no type and no id.
+        let (login, facts) = match self.editor {
+            None => (
+                "ghost".to_string(),
+                gh::Facts {
+                    id: None,
+                    kind: None,
+                },
+            ),
+            Some(a) => (
+                a.login.ok_or(Outcome::Unread(Unread::Malformed))?,
+                gh::Facts {
+                    id: a.id,
+                    kind: a.kind,
+                },
+            ),
+        };
+        let editor = Some(account(&login, &facts, bot).ok_or(Outcome::Unread(Unread::Malformed))?);
+        Ok((Some(at), editor))
+    }
+}
+
+/// The part of a GraphQL answer at `at`, its logins vouched. An answer
+/// that carries errors is no whole answer: a spent priced budget when
+/// GitHub says the rate is limited, `Unread(Inconsistent)` for any other
+/// (a comment deleted since its page was read among them).
+fn answer<T: serde::de::DeserializeOwned>(out: &str, at: &str, now: i64) -> Got<T> {
+    let malformed = Outcome::Unread(Unread::Malformed);
+    let mut v: Value = serde_json::from_str(out.trim()).map_err(|_| malformed.clone())?;
+    if let Some(errors) = v.get("errors").filter(|e| !e.is_null()) {
+        let limited = errors.as_array().is_some_and(|all| {
+            all.iter()
+                .any(|e| e.get("type").and_then(Value::as_str) == Some("RATE_LIMITED"))
+        });
+        return Err(if limited {
+            Outcome::Spent {
+                pool: Pool::Priced,
+                until: At::new(now),
+            }
+        } else {
+            Outcome::Unread(Unread::Inconsistent)
+        });
+    }
+    tehas_core::accounts::vouch(&mut v);
+    let part = v
+        .pointer_mut(at)
+        .map(std::mem::take)
+        .ok_or(malformed.clone())?;
+    serde_json::from_value(part).map_err(|_| malformed)
+}
+
+/// A spent budget of a GraphQL call is the priced pool's.
+fn priced(o: Outcome) -> Outcome {
+    match o {
+        Outcome::Spent { until, .. } => Outcome::Spent {
+            pool: Pool::Priced,
+            until,
+        },
+        o => o,
+    }
+}
+
+/// The fields of an issue's REST answer the read takes beside
+/// `read_issue`'s; each missing one is None.
+#[derive(Deserialize)]
+struct IssueFields {
+    state: Option<String>,
+    created_at: Option<String>,
+    updated_at: Option<String>,
+    comments: Option<u64>,
+    user: Option<User>,
+}
+
+/// One comment of a page of an issue's comments. A body that is no text
+/// fails the page.
+#[derive(Deserialize)]
+struct CommentFields {
+    id: Option<u64>,
+    html_url: Option<String>,
+    body: Option<String>,
+    created_at: Option<String>,
+    updated_at: Option<String>,
+    node_id: Option<String>,
+    user: Option<User>,
+}
+
+/// The account GitHub names as an issue's or a comment's `user`.
+#[derive(Deserialize)]
+struct User {
+    login: Option<String>,
+    id: Option<u64>,
+    #[serde(rename = "type")]
+    kind: Option<String>,
+}
+
+/// A time of GitHub's, or `Unread(Malformed)`.
+fn time(iso: Option<&str>) -> Got<At> {
+    iso.and_then(tehas_core::time::from_iso)
+        .map(At::new)
+        .ok_or(Outcome::Unread(Unread::Malformed))
+}
+
+/// The account of an issue's or a comment's `user`, None where it names
+/// nobody: a deleted account's is `null`.
+fn author(user: Option<&User>, bot: Option<&Bot>) -> Option<tehas_ports::Account> {
+    let u = user?;
+    let facts = gh::Facts {
+        id: u.id,
+        kind: u.kind.clone(),
+    };
+    account(u.login.as_deref()?, &facts, bot)
+}
+
+/// One page of an issue's comments, each read: its text through
+/// `markers::read` as a text of blueprint `no`, its revision the sum of
+/// its raw text, markers in. A page that does not parse, or a comment that
+/// lacks a field every comment has, is `Unread(Malformed)`; a comment whose
+/// link is not one on issue `no` of this project is
+/// `Unread(Inconsistent)`.
+fn read_comments(
+    out: &str,
+    repo: &str,
+    no: BlueprintNo,
+    bot: Option<&Bot>,
+) -> Got<(Vec<Comment>, Vec<Touched>)> {
+    let malformed = Outcome::Unread(Unread::Malformed);
+    let mut v: Value = serde_json::from_str(out.trim()).map_err(|_| malformed.clone())?;
+    tehas_core::accounts::vouch(&mut v);
+    let items: Vec<CommentFields> = serde_json::from_value(v).map_err(|_| malformed.clone())?;
+    let mut comments = Vec::with_capacity(items.len());
+    let mut touched = Vec::new();
+    for c in items {
+        let id = c.id.ok_or(malformed.clone())?;
+        let url = c.html_url.as_deref().ok_or(malformed.clone())?;
+        if !ends_with_folded(
+            url,
+            &format!("/{repo}/issues/{}#issuecomment-{id}", no.get()),
+        ) {
+            return Err(Outcome::Unread(Unread::Inconsistent));
+        }
+        let link = tehas_ports::WebLink::new(url).map_err(|_| malformed.clone())?;
+        let raw = c.body.as_deref().unwrap_or_default();
+        let created = time(c.created_at.as_deref())?;
+        let updated = time(c.updated_at.as_deref())?;
+        let read = markers::read(raw, Some(no));
+        let sum = Revision::new(tehas_core::approval::body_sum(raw));
+        let mut comment = Comment::new(CommentId::new(id.to_string()), created, sum, link);
+        comment.author = author(c.user.as_ref(), bot);
+        if updated != created {
+            let node = c
+                .node_id
+                .filter(|n| is_node_id(n))
+                .ok_or(malformed.clone())?;
+            touched.push((comments.len(), node));
+        }
+        comment.body = read.text;
+        comment.markers = read.markers;
+        comments.push(comment);
+    }
+    Ok((comments, touched))
+}
+
+/// A comment of a page whose `updated_at` moved: where it stands in the
+/// page, and its node id.
+type Touched = (usize, String);
+
+/// A node id GitHub gives: letters, digits, `_` and `-`, so it goes in a
+/// question as it is.
+fn is_node_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 100
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
 
 /// The search's question: this project's issues, each word quoted, and
