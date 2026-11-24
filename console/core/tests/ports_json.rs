@@ -104,6 +104,7 @@ fn every_marker() -> Vec<Marker> {
             blueprint: bp(9),
             remove: true,
         },
+        Marker::Declined { question: 4001 },
         Marker::Project {
             name: name("hold"),
             key: Some(MarkerKey::new("k.1").unwrap()),
@@ -148,6 +149,7 @@ fn the_ports_values_read_back_from_json() {
         MarkerKind::Millwright,
         MarkerKind::TicketOf,
         MarkerKind::Link,
+        MarkerKind::Declined,
         MarkerKind::Project(name("hold")),
         MarkerKind::Unknown,
     ] {

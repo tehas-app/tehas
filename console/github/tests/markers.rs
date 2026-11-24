@@ -149,6 +149,12 @@ fn every_row_of_the_table_reads_as_its_kind() {
                 remove: true,
             },
         ),
+        (
+            "<!-- tehas:declined question=2501234567 -->".to_string(),
+            Marker::Declined {
+                question: 2_501_234_567,
+            },
+        ),
     ];
     let mut kinds: Vec<MarkerKind> = Vec::new();
     for (text, want) in &cases {
@@ -164,6 +170,27 @@ fn every_row_of_the_table_reads_as_its_kind() {
 }
 
 #[test]
+fn a_declined_note_of_1x_reads_typed_and_writes_back_the_same() {
+    let note = "Retry was asked for on another question.\n\n<!-- tehas:declined question=4001 -->";
+    let got = read(note, item());
+    let declined = Marker::Declined { question: 4001 };
+    assert_eq!(got.markers, std::slice::from_ref(&declined));
+    assert_eq!(got.text, "Retry was asked for on another question.");
+    let text = table::marker_text(&declined).unwrap();
+    assert_eq!(text, "<!-- tehas:declined question=4001 -->");
+    assert_eq!(markers(&text), [declined]);
+    // A question id too long for the table does not read.
+    assert_eq!(
+        markers("<!-- tehas:declined question=18446744073709551615 -->"),
+        [unreadable(MarkerKind::Declined)]
+    );
+    assert_eq!(
+        table::marker_text(&Marker::Declined { question: u64::MAX }),
+        None
+    );
+}
+
+#[test]
 fn the_rows_are_host_markers_tsv() {
     let file = include_str!("../../../host/markers.tsv");
     let lines: Vec<&str> = file
@@ -172,7 +199,7 @@ fn the_rows_are_host_markers_tsv() {
         .collect();
     let rows = table::marker_rows();
     assert_eq!(rows.len(), lines.len(), "a line was not read whole");
-    assert_eq!(rows.len(), 9);
+    assert_eq!(rows.len(), 10);
     for (row, line) in rows.iter().zip(&lines) {
         let cols: Vec<&str> = line.split('\t').collect();
         assert!(

@@ -17,6 +17,9 @@ pub const BLOCKED_MAX: usize = 20;
 /// `blueprint` are at most 9 digits.
 const NUMBER_MAX: u64 = 999_999_999;
 
+/// The largest question id the vendored table writes: `number(19)`.
+const QUESTION_MAX: u64 = 9_999_999_999_999_999_999;
+
 /// The kinds of tehas's markers: machine-read notes inside a comment or a
 /// body. One kind per marker tehas writes or reads today, and the two that
 /// 2.0 adds.
@@ -42,6 +45,8 @@ pub enum MarkerKind {
     TicketOf,
     /// An allowed account's ask to link a ticket and a blueprint. New in 2.0.
     Link,
+    /// The factory's note that it declined a reply's choice to a question.
+    Declined,
     /// A consumer's own marker kind, carried through by name.
     Project(MarkName),
     /// A kind this copy does not know. It holds what it sits on.
@@ -157,6 +162,13 @@ pub enum Marker {
         /// Take the link off instead.
         remove: bool,
     },
+    /// The factory's note that it declined a reply's choice to the
+    /// question `question`: a reply the note follows is read no more. 1.x
+    /// writes it.
+    Declined {
+        /// The site's id of the question's comment.
+        question: u64,
+    },
     /// A consumer's own marker, carried through by name, its fields as
     /// written. Only a project's own markers are untyped.
     Project {
@@ -237,6 +249,7 @@ fn tag_kind(tag: &str) -> Option<MarkerKind> {
         "Millwright" => MarkerKind::Millwright,
         "TicketOf" => MarkerKind::TicketOf,
         "Link" => MarkerKind::Link,
+        "Declined" => MarkerKind::Declined,
         _ if MARKER_TAGS.contains(&tag) => MarkerKind::Unknown,
         _ => return None,
     })
@@ -253,6 +266,7 @@ const MARKER_TAGS: &[&str] = &[
     "Millwright",
     "TicketOf",
     "Link",
+    "Declined",
     "Project",
     "Unreadable",
     "Bare",
@@ -401,6 +415,7 @@ impl Marker {
             Marker::Millwright(_) => MarkerKind::Millwright,
             Marker::TicketOf(_) => MarkerKind::TicketOf,
             Marker::Link { .. } => MarkerKind::Link,
+            Marker::Declined { .. } => MarkerKind::Declined,
             Marker::Project { name, .. } => MarkerKind::Project(name.clone()),
             Marker::Unreadable { kind } | Marker::Bare { kind, .. } => kind.clone(),
             Marker::Unknown => MarkerKind::Unknown,
@@ -408,7 +423,8 @@ impl Marker {
     }
 
     /// What the marker is found by, from its payload: a question's
-    /// blueprint and turn, a park's blueprint, a project marker's own key.
+    /// blueprint and turn, a park's blueprint, a declined note's question,
+    /// a project marker's own key.
     /// None for a kind found by kind alone, and for `Unreadable` and `Bare`.
     pub fn key(&self) -> Option<MarkerKey> {
         let key = match self {
@@ -416,6 +432,7 @@ impl Marker {
                 blueprint, turn, ..
             } => format!("blueprint={}.turn={turn}", blueprint.get()),
             Marker::Park(park) => format!("blueprint={}", park.blueprint.get()),
+            Marker::Declined { question } => format!("question={question}"),
             Marker::Project { key, .. } => return key.clone(),
             _ => return None,
         };
@@ -436,8 +453,8 @@ impl Marker {
     /// True for a marker a write may set: one that keeps the port's limits,
     /// that the vendored table can write, and that is not `Unreadable`,
     /// `Bare` or `Unknown`. A `Question` of `QuestionKind::Unknown` is not
-    /// written. The table writes a number of at most 9 digits,
-    /// and a `TicketOf` or `Blocked` names only a ticket of this realm and
+    /// written. The table writes a number of at most 9 digits, a
+    /// `Declined` question of at most 19, and a `TicketOf` or `Blocked` names only a ticket of this realm and
     /// project: a ticket `Elsewhere` is not written as a marker. A
     /// `Blocked` names ticket numbers alone.
     pub fn writable(&self) -> bool {
@@ -468,6 +485,7 @@ impl Marker {
             Marker::Millwright(m) => fits(m.blueprint.get()),
             Marker::TicketOf(ticket) => matches!(ticket, Ref::Here(_)),
             Marker::Link { blueprint, .. } => fits(blueprint.get()),
+            Marker::Declined { question } => *question <= QUESTION_MAX,
             _ => true,
         }
     }
@@ -712,6 +730,24 @@ mod tests {
         }
         let big = Marker::TicketOf(ticket(MAX + 1));
         assert!(big.writable());
+    }
+
+    #[test]
+    fn a_declined_note_is_found_by_its_question_of_at_most_nineteen_digits() {
+        let declined = |question| Marker::Declined { question };
+        assert_eq!(declined(4001).kind(), MarkerKind::Declined);
+        assert_eq!(
+            declined(4001).key(),
+            Some(MarkerKey::new("question=4001").unwrap())
+        );
+        for ok in [declined(0), declined(9_999_999_999_999_999_999)] {
+            assert!(ok.writable(), "{ok:?}");
+            assert_eq!(check_one(ok), Ok(()));
+        }
+        let big = declined(u64::MAX);
+        assert!(!big.writable());
+        assert_eq!(check_one(big.clone()), REFUSED);
+        assert_eq!(big.clone().checked(), big);
     }
 
     #[test]

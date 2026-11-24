@@ -463,6 +463,9 @@ fn build(row: &MarkerRow, values: &[(&str, &str)], note: Option<&str>) -> Option
             blueprint: no("blueprint")?,
             remove: get("remove").is_some(),
         },
+        MarkerKind::Declined => Marker::Declined {
+            question: get("question")?.parse().ok()?,
+        },
         _ => return None,
     };
     Some(marker.checked()).filter(|m| !matches!(m, Marker::Unreadable { .. }))

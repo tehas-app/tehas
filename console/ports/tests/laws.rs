@@ -1449,6 +1449,35 @@ fn marker_laws() {
 }
 
 #[test]
+fn a_declined_note_reads_back_typed_and_is_dropped_by_its_question() {
+    let w = World::split().blueprint(101, |b| b.title("a"));
+    let site = FakeSite::new(&w);
+    let mut h = site.blueprint_writes(&full(), C).unwrap();
+    let declined = Marker::Declined { question: 4001 };
+    let posted = h
+        .comment(bp(101), "Declined.", std::slice::from_ref(&declined))
+        .unwrap();
+    let read = h.comments_by_id(&[posted.id])[0].1.clone().unwrap();
+    assert_eq!(read.markers, std::slice::from_ref(&declined));
+    let b = h.blueprint(bp(101), Depth::All).unwrap();
+    let set = MarkerEdit {
+        set: vec![declined.clone()],
+        drop: Vec::new(),
+    };
+    h.edit(bp(101), None, None, &set, &b.revision).unwrap();
+    let b = h.blueprint(bp(101), Depth::All).unwrap();
+    assert_eq!(b.markers, std::slice::from_ref(&declined));
+    let drop = MarkerEdit {
+        set: Vec::new(),
+        drop: vec![(MarkerKind::Declined, declined.key())],
+    };
+    h.edit(bp(101), None, None, &drop, &b.revision).unwrap();
+    let b = h.blueprint(bp(101), Depth::All).unwrap();
+    assert!(b.markers.is_empty(), "{:?}", b.markers);
+    assert!(!tehas_ports::fake::marker_text(&declined).is_empty());
+}
+
+#[test]
 fn a_marker_law_finds_a_marker_that_reads() {
     let w = World::split().blueprint(101, |b| b.marker(park(101)));
     let site = FakeSite::new(&w);

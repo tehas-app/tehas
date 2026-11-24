@@ -401,6 +401,7 @@ fn every_marker() -> Vec<Marker> {
             blueprint: bp(9),
             remove: false,
         },
+        Marker::Declined { question: 4001 },
         Marker::Project {
             name: mark_name("hold"),
             key: Some(MarkerKey::new("k.1").unwrap()),
@@ -457,6 +458,7 @@ fn markers_read_back() {
         MarkerKind::Millwright,
         MarkerKind::TicketOf,
         MarkerKind::Link,
+        MarkerKind::Declined,
         MarkerKind::Project(mark_name("hold")),
         MarkerKind::Unknown,
     ] {
@@ -634,6 +636,7 @@ fn a_known_tag_whose_content_does_not_read_is_unknown_never_an_error() {
         MarkerKind::Millwright,
         MarkerKind::TicketOf,
         MarkerKind::Link,
+        MarkerKind::Declined,
         MarkerKind::Project(mark_name("x")),
     ];
     for k in &marker_kinds {
