@@ -1,0 +1,1 @@
+| 2026-11-24 | T7: alpha.1 closes T7 on written floors (the trio PM): the rest of untyped-signatures and untyped-fields, 977 and 21 per crate, beside the floor of 147 and 2, in docs/architecture.md | v2/t7-alpha1-floors |
