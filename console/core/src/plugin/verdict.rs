@@ -4,7 +4,8 @@
 //! a hook that did not finish.
 
 use crate::grammar::commit_id;
-use serde_json::{json, Map, Value};
+use serde::Serialize;
+use serde_json::{Map, Value};
 
 /// The most bytes of the file.
 pub const BYTES_MAX: u64 = 64 << 10;
@@ -13,20 +14,24 @@ pub const FINDINGS_MAX: usize = 20;
 pub const TEXT_MAX: usize = 300;
 const FILE_MAX: usize = 1024;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Word {
     Pass,
     Note,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Finding {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub file: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub line: Option<u64>,
     pub text: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// As api/plugin-verdict.schema.json has it, so it serialises to the file.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Verdict {
     pub verdict: Word,
     pub summary: String,
@@ -113,30 +118,6 @@ pub fn read(bytes: &[u8]) -> Result<Verdict, String> {
     })
 }
 
-impl Verdict {
-    pub fn json(&self) -> Value {
-        let word = match self.verdict {
-            Word::Pass => "pass",
-            Word::Note => "note",
-        };
-        let findings: Vec<Value> = self
-            .findings
-            .iter()
-            .map(|f| {
-                let mut o = json!({"text": f.text});
-                if let Some(file) = &f.file {
-                    o["file"] = json!(file);
-                }
-                if let Some(line) = f.line {
-                    o["line"] = json!(line);
-                }
-                o
-            })
-            .collect();
-        json!({"verdict": word, "summary": self.summary, "findings": findings})
-    }
-}
-
 /// `hooks/<pr>.verdict.json`: the end of a hook, which the runner writes and
 /// the gate's page reads. It holds a verdict only when `result` is `done`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -148,15 +129,27 @@ pub struct End {
     pub verdict: Option<Verdict>,
 }
 
+/// `hooks/<pr>.verdict.json` as it is written.
+#[derive(Serialize)]
+struct EndFile<'a> {
+    api: u8,
+    pr: u64,
+    head: &'a str,
+    result: &'a str,
+    verdict: Option<&'a Verdict>,
+}
+
 impl End {
-    pub fn json(&self) -> Value {
-        json!({
-            "api": 1,
-            "pr": self.pr,
-            "head": self.head,
-            "result": self.result,
-            "verdict": self.finished().map(Verdict::json),
-        })
+    /// The file's text.
+    pub fn json(&self) -> String {
+        let file = EndFile {
+            api: 1,
+            pr: self.pr,
+            head: &self.head,
+            result: &self.result,
+            verdict: self.finished(),
+        };
+        serde_json::to_string(&file).unwrap_or_default()
     }
 
     /// The file's bytes as an end, or None.
@@ -270,20 +263,14 @@ mod tests {
             result: "done".into(),
             verdict: Some(v.clone()),
         };
-        assert_eq!(
-            End::read(end.json().to_string().as_bytes()),
-            Some(end.clone())
-        );
+        assert_eq!(End::read(end.json().as_bytes()), Some(end.clone()));
         assert_eq!(end.finished(), Some(&v));
         let failed = End {
             result: "failed".into(),
             verdict: None,
             ..end.clone()
         };
-        assert_eq!(
-            End::read(failed.json().to_string().as_bytes()),
-            Some(failed.clone())
-        );
+        assert_eq!(End::read(failed.json().as_bytes()), Some(failed.clone()));
         assert_eq!(failed.finished(), None);
         for bad in [
             json!({"api": 1, "pr": 42, "head": "x", "result": "done", "verdict": null}),

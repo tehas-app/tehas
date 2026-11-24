@@ -1083,11 +1083,11 @@ fn with_a_github_app_the_container_is_given_the_apps_narrowed_cycle_token_never_
     has(
         &run_args,
         &format!(
-            "{}/state/github-cycle:/run/tehas/github:ro",
-            w.home.display()
+            "{}:/run/tehas/github:ro",
+            Home::new(&w.home).token_dir(TokenDir::Cycle).display()
         ),
     );
-    lacks(&run_args, "state/github:");
+    lacks(&run_args, &format!("{}:", TokenDir::App.relative()));
     lacks(&run_args, "ghs_app");
     lacks(&run_args, "user-token");
     lacks(&run_args, "github-app.pem");
@@ -1284,7 +1284,7 @@ fn a_thaw_unpauses_the_container_moves_its_start_and_its_clocks_count_again() {
     // The container thaws itself a second in, as tehas thaw would, and is
     // then stopped as stalled: the clock's answer counts once it is thawed.
     w.container(&format!(
-        r#""$nap" 1; rm -f "$T/home/tehas/state/cycles/7.freeze"; {HOLD}; {GONE}"#
+        r#""$nap" 1; rm -f "$T_CYCLES/7.freeze"; {HOLD}; {GONE}"#
     ));
     let r = w.work7();
     ok2(&r);
