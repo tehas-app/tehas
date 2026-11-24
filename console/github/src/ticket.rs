@@ -10,7 +10,7 @@
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer};
 
-use crate::tickets::{account, number, take};
+use crate::tickets::{account, number, take, Bot};
 use crate::{gh, markers, table, ForgeError, GitHub};
 use tehas_ports::{
     Account, At, Blocker, BlockerState, Bound, ChangeNo, CloseReason, Closer, CommitId, Depth,
@@ -216,12 +216,12 @@ struct Who {
 }
 
 impl Who {
-    fn account(&self) -> Option<Account> {
+    fn account(&self, bot: Option<&Bot>) -> Option<Account> {
         let facts = gh::Facts {
             id: self.id,
             kind: self.is.clone(),
         };
-        account(self.login.as_deref()?, &facts)
+        account(self.login.as_deref()?, &facts, bot)
     }
 }
 
@@ -492,7 +492,7 @@ impl GitHub {
                     id: u.id,
                     kind: u.kind.clone(),
                 };
-                account(u.login.as_deref()?, &facts)
+                account(u.login.as_deref()?, &facts, self.bot.as_ref())
             })
             .collect();
         ticket.markers = read.markers;
@@ -697,7 +697,7 @@ impl GitHub {
                     continue;
                 }
                 let mut event = TicketEvent::new(what);
-                event.by = e.actor.as_ref().and_then(Who::account);
+                event.by = e.actor.as_ref().and_then(|w| w.account(self.bot.as_ref()));
                 event.at = e.created_at.as_deref().map(time).transpose()?;
                 read.push(event);
             }
@@ -741,7 +741,10 @@ impl GitHub {
             let label = e.label.as_ref().ok_or(MALFORMED)?.name.clone();
             Ok(gh.read_marks(&[label]).pop().flatten())
         };
-        let who = e.assignee.as_ref().and_then(Who::account);
+        let who = e
+            .assignee
+            .as_ref()
+            .and_then(|w| w.account(self.bot.as_ref()));
         let blocker = |gh: &GitHub| -> Got<Option<Ref<Item>>> {
             e.blocking_issue
                 .as_ref()
@@ -796,7 +799,13 @@ impl GitHub {
     fn closer(&self, e: &Event) -> Got<Option<Closer>> {
         let by = match &e.closer {
             None => return Err(MALFORMED),
-            Some(None) => return Ok(e.actor.as_ref().and_then(Who::account).map(Closer::Account)),
+            Some(None) => {
+                return Ok(e
+                    .actor
+                    .as_ref()
+                    .and_then(|w| w.account(self.bot.as_ref()))
+                    .map(Closer::Account))
+            }
             Some(Some(by)) => by,
         };
         match by.is.as_deref() {
@@ -936,7 +945,7 @@ impl GitHub {
             "CLOSED" => TicketState::Closed(reason(n.state_reason.as_deref())),
             _ => return Err(MALFORMED),
         };
-        let author = n.author.as_ref().and_then(Who::account);
+        let author = n.author.as_ref().and_then(|w| w.account(self.bot.as_ref()));
         let created = time(&n.created_at)?;
         let updated = time(&n.updated_at)?;
         let link = WebLink::new(n.url).map_err(|_| MALFORMED)?;
