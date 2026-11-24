@@ -4,7 +4,7 @@
 
 mod common;
 
-use common::{count_lines, has, World};
+use common::{count_lines, has, Part::Off, World};
 use serde_json::json;
 use std::fs;
 use tehas_core::question::{q_text, question_marker, reasked, superseded, Kind};
@@ -136,7 +136,7 @@ fn a_stop_that_offered_no_retry_is_closed_and_not_asked_again() {
     assert_eq!(w.row(&["question-show", "21"])["question"], json!(null));
     // It waits on no question any more.
     assert!(
-        w.off(21, Mark::State(State::Question)),
+        w.changes(21, &[Off(Mark::State(State::Question))]),
         "{:?}",
         w.writes_of(21)
     );
