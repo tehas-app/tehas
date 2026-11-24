@@ -96,5 +96,4 @@ t_eq "$t_rc" 1
 t_contains "$t_out" "missing: $dev_bin/tehas"
 t_contains "$t_out" "sudo <root-owned copy>/bootstrap.sh dev boss"
 
-
 t_done
