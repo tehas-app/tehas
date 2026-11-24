@@ -6,6 +6,7 @@
 //! and the names it cites by, is here. A method no caller asks yet answers
 //! `Refused(Unsupported)` before any request.
 
+mod blueprint_writes;
 mod blueprints;
 mod board;
 mod code_host;

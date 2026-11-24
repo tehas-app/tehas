@@ -645,7 +645,12 @@ impl World {
         fs::create_dir_all(w.home.join("libexec")).unwrap();
         write_exe(
             w.home.join("libexec/tehas-cycle"),
-            format!("#!{}\necho \"$*\" >>\"$T/renew.calls\"\n", w.bash),
+            // Written whole, then put in place: a reader sees all of it or
+            // none.
+            format!(
+                "#!{}\nprintf '%s\\n' \"$*\" >\"$T/renew.calls.$$\" && mv \"$T/renew.calls.$$\" \"$T/renew.calls\"\n",
+                w.bash
+            ),
         )
         .unwrap();
         // tehas work as bin/tehas runs it: through `console run`, with the
