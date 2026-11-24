@@ -551,9 +551,11 @@ fn a_finish_reply_disarms_the_reason_it_quotes_and_keeps_its_own_marker() {
         said.starts_with("<!-- tehas:finish issue=5 result=refused -->\n"),
         "{said}"
     );
-    // The host's own two markers are there, and the quoted one is not.
-    assert!(said.contains(&marker(5)), "{said}");
-    assert_eq!(said.matches("<!-- tehas:").count(), 2, "{said}");
+    // The host's own marker alone: the form a person writes is the
+    // manual's, and the quoted one is disarmed.
+    assert!(!said.contains(&marker(5)), "{said}");
+    assert!(said.contains(ASK_FORM), "{said}");
+    assert_eq!(said.matches("<!-- tehas:").count(), 1, "{said}");
     assert!(
         said.contains("the branch says <!-- tehas\u{2010}millwright"),
         "{said}"

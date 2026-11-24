@@ -97,12 +97,12 @@ pub fn opened(r: &EndFault, url: &str) -> String {
 /// The reply once the poll stops trying.
 pub fn stopped(r: &EndFault) -> String {
     format!(
-        "<!-- tehas:finish issue={} result=stopped by=poll -->\nThe last cycle of this issue stopped because {}. Tehas tried to finish it on its own and stopped: {}. It waits for `{}`: write a comment that starts with `{}`, the reason after it, and apply the label.",
+        "<!-- tehas:finish issue={} result=stopped by=poll -->\nThe last cycle of this issue stopped because {}. Tehas tried to finish it on its own and stopped: {}. It waits for `{}`: write a comment that starts with the millwright's finish marker for this issue, the reason after it, and apply the label: {}.",
         r.issue,
         r.failure(),
         disarm(&r.stopped),
         crate::finish::LABEL,
-        crate::finish::marker(r.issue)
+        crate::finish::ASK_FORM
     )
 }
 
@@ -425,8 +425,9 @@ mod tests {
             said.starts_with("<!-- tehas:finish issue=7 result=stopped by=poll -->"),
             "{said}"
         );
-        // Its own marker and the one that tells a person what to write.
-        assert_eq!(said.matches("<!-- tehas:").count(), 2, "{said}");
+        // Its own marker alone: the form a person writes is the manual's.
+        assert_eq!(said.matches("<!-- tehas:").count(), 1, "{said}");
+        assert!(said.contains(crate::finish::ASK_FORM), "{said}");
         let said = opened(&r, &format!("https://example.test/pull/1{agent}"));
         assert_eq!(said.matches("<!-- tehas:").count(), 1, "{said}");
     }

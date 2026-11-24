@@ -283,6 +283,11 @@ pub trait Hands {
     fn log(&mut self, line: String);
 }
 
+/// Where the manual gives the ask's marked comment. A reply points there and
+/// does not quote the marker, which a 1.x reader would read as live even in
+/// code (Decided 83, until T2).
+pub const ASK_FORM: &str = "the tehas manual gives its first line under Finishing a stopped cycle, `/operating#finishing-a-stopped-cycle` on the factory's docs server";
+
 fn one_line(t: &str) -> String {
     let flat: String = t
         .chars()
@@ -308,9 +313,8 @@ pub fn opened(n: u64, by: &str, url: &str) -> String {
 /// The reply of a finish refused.
 pub fn refused(n: u64, why: &str) -> String {
     format!(
-        "<!-- tehas:finish issue={n} result=refused -->\nTehas took `{LABEL}` off this issue and finished nothing: {}. To ask again, write a new comment that starts with `{}` and apply `{LABEL}`.",
-        disarm(why),
-        marker(n)
+        "<!-- tehas:finish issue={n} result=refused -->\nTehas took `{LABEL}` off this issue and finished nothing: {}. To ask again, write a new comment that starts with the millwright's finish marker for this issue, the reason after it, and apply `{LABEL}`: {ASK_FORM}.",
+        disarm(why)
     )
 }
 
