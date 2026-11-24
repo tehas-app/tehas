@@ -1,14 +1,14 @@
 //! `CodeHost::changes` of a filter that names numbers: those pull requests
 //! alone, asked by number, an alias each, 100 a question, so a repository
 //! with many pull requests is not paged to find a few. Each is read as a
-//! page of the list reads it (`read_node`), and the rest of the filter is
+//! page of the list reads it (`PullNode::read`), and the rest of the filter is
 //! applied to what the numbers answer: the states, the author, the branch,
 //! the marks carried, the blueprints closed and the times. A number that
 //! names no pull request is left out (Decided 121).
 
 use serde_json::Value;
 
-use super::{pull_fields, read_node};
+use super::{pull_fields, PullNode};
 use crate::aliases::alias;
 use crate::GitHub;
 use tehas_ports::{
@@ -93,12 +93,10 @@ impl GitHub {
             Some(Some(id)) => Some(id.as_u64().ok_or(malformed.clone())?),
             _ => None,
         };
-        let viewer = match (me, asked.viewer.as_ref().map(|v| v.get("databaseId"))) {
+        let viewer = match (me, asked.viewer.and_then(|v| v.database_id)) {
             (false, _) => None,
-            (true, Some(Some(id))) => Some(AccountId::new(
-                id.as_u64().ok_or(malformed.clone())?.to_string(),
-            )),
-            (true, _) => return Err(malformed),
+            (true, Some(id)) => Some(AccountId::new(id.to_string())),
+            (true, None) => return Err(malformed),
         };
         let mut taken = Vec::new();
         for (n, node) in numbers.iter().zip(asked.nodes) {
@@ -107,7 +105,8 @@ impl GitHub {
                 Err(Outcome::NotFound) => continue,
                 Err(o) => return Err(o),
             };
-            let read = read_node(&node, here, viewer.as_ref(), filter, self.bot.as_ref())?;
+            let read =
+                PullNode { node: &node }.read(here, viewer.as_ref(), filter, self.bot.as_ref())?;
             if read.no.get() != *n {
                 return Err(Outcome::Unread(Unread::Inconsistent));
             }

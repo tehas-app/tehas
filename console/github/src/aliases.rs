@@ -39,7 +39,14 @@ struct Data<T> {
     repository: Option<BTreeMap<String, Option<T>>>,
     /// The account asking, when the question asks it.
     #[serde(default)]
-    viewer: Option<Value>,
+    viewer: Option<Viewer>,
+}
+
+/// The account asking, as a question that asks it names it.
+#[derive(Deserialize)]
+pub(crate) struct Viewer {
+    #[serde(rename = "databaseId")]
+    pub(crate) database_id: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -76,7 +83,7 @@ pub(crate) struct Aliased<T> {
     /// The repository's other fields, as asked beside the aliases.
     pub(crate) repository: BTreeMap<String, Option<T>>,
     /// The account asking, when asked.
-    pub(crate) viewer: Option<Value>,
+    pub(crate) viewer: Option<Viewer>,
 }
 
 impl GitHub {
