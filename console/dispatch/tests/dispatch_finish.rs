@@ -150,7 +150,9 @@ info --format {{.DockerRootDir}}"
         &w.calls("systemd-run"),
         "--user --quiet --collect --unit tehas-index -p RuntimeMaxSec=2400 /bin/bash -c",
     );
-    assert!(!Home::new(&w.home).state(home::State::DispatchAgain).exists());
+    assert!(!Home::new(&w.home)
+        .state(home::State::DispatchAgain)
+        .exists());
     // Three, not four: a poll that starts an index rather than a cycle cannot
     // change the queue (#871).
     assert_eq!(w.calls("fake-status").lines().count(), 3);

@@ -308,7 +308,9 @@ fn a_poll_that_finds_the_lock_held_leaves_the_ended_cycles_request_so_the_path_u
     w.home_file(Home::new(&w.home).state(home::State::DispatchAgain), "");
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
-    assert!(Home::new(&w.home).state(home::State::DispatchAgain).exists());
+    assert!(Home::new(&w.home)
+        .state(home::State::DispatchAgain)
+        .exists());
 }
 
 #[test]

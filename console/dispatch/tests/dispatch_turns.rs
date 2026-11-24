@@ -301,7 +301,9 @@ fn a_turn_that_ends_writes_its_status_and_asks_for_a_poll_which_posts_its_outcom
             .trim_end(),
         "0"
     );
-    assert!(Home::new(&w.home).state(home::State::DispatchAgain).exists());
+    assert!(Home::new(&w.home)
+        .state(home::State::DispatchAgain)
+        .exists());
     assert_eq!(w.calls("plan.fd9"), "");
     w.fx("plans.json", "[]");
     w.clear_calls();

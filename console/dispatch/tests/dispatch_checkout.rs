@@ -153,7 +153,9 @@ fn the_poll_after_the_index_run_says_how_it_ended_and_starts_the_cycles() {
     index_unit(&w);
     let base = git(&w.checkout(), &["rev-parse", "origin/main"]);
     w.home_file(
-        Home::new(&w.home).state(home::State::CodeIndex).join("widget.db"),
+        Home::new(&w.home)
+            .state(home::State::CodeIndex)
+            .join("widget.db"),
         "",
     );
     w.home_file(
