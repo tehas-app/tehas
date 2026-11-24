@@ -164,6 +164,7 @@ fn a_mark_that_fails_starts_nothing_marks_no_issue_and_leaves_no_refresh_in_the_
     assert_eq!(r.rc, 1, "{}", r.out);
     assert_eq!(w.started(), "");
     lacks(&w.gh(), "issue edit 7");
+    assert_eq!(w.marks(Some(7)), 0);
     lacks(&w.gh(), "pr edit");
     has(&r.out, "could not mark pull request #50 as refreshing");
     assert_eq!(requests(&w), 1);
@@ -266,6 +267,7 @@ fn a_start_whose_pull_request_label_fails_starts_nothing_and_marks_no_issue() {
     assert_eq!(r.rc, 1, "{}", r.out);
     assert_eq!(w.started(), "");
     lacks(&w.gh(), "issue edit 7");
+    assert_eq!(w.marks(Some(7)), 0);
     lacks(&w.gh(), "pr edit");
     has(&r.out, "could not mark pull request #50 as refreshing");
     assert_eq!(requests(&w), 1);

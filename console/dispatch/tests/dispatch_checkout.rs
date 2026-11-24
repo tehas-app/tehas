@@ -10,6 +10,7 @@ use std::fs::OpenOptions;
 use std::path::Path;
 use std::process::Command;
 use std::time::Instant;
+use tehas_ports::{Act, Mark};
 
 fn git(dir: &Path, args: &[&str]) -> String {
     let out = Command::new("git")
@@ -20,10 +21,6 @@ fn git(dir: &Path, args: &[&str]) -> String {
         .unwrap();
     assert!(out.status.success(), "git {args:?}: {out:?}");
     String::from_utf8_lossy(&out.stdout).trim_end().to_string()
-}
-
-fn count_exact(text: &str, line: &str) -> usize {
-    text.lines().filter(|l| *l == line).count()
 }
 
 #[test]
@@ -144,6 +141,7 @@ fn an_index_that_runs_as_its_own_unit_holds_the_cycles_until_the_poll_after_it()
         &format!("{h}/logs/dispatch-index.log {h}/state/index.rc {h}/state/dispatch.again"),
     );
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     assert_eq!(w.notes_any(), 0);
 }
 
@@ -216,6 +214,7 @@ fn while_an_index_run_holds_its_lock_no_cycle_starts_and_the_poll_says_why() {
     assert_eq!(w.calls("fake-index"), "");
     assert_eq!(w.started(), "");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
 }
 
 #[test]
@@ -237,13 +236,7 @@ fn a_real_poll_does_not_start_an_issue_the_bot_labelled_and_takes_that_label_off
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(w.started(), "");
     lacks(&w.gh(), "--add-label tehas:running");
-    assert_eq!(
-        count_exact(
-            &w.gh(),
-            "issue edit 7 --repo acme/widget --remove-label tehas:ready"
-        ),
-        1
-    );
+    assert_eq!(w.offs(7, Mark::Act(Act::Approve)), 1);
     assert_eq!(w.notes_any(), 1);
 }
 
@@ -413,10 +406,7 @@ fn an_issue_with_an_open_pull_request_that_closes_it_starts_nothing_and_loses_te
         &r.out,
         &format!("skip #7: pull request {PR90} is open and closes it"),
     );
-    has(
-        &w.gh(),
-        "issue edit 7 --repo acme/widget --remove-label tehas:ready",
-    );
+    assert!(w.off(7, Mark::Act(Act::Approve)), "{:?}", w.writes_of(7));
     lacks(&w.gh(), "--add-label tehas:running");
     assert_eq!(w.notes(7), 1);
     assert!(w.said_on(7, &format!("Tehas took `tehas:ready` off this issue and started nothing: {PR90} is open and closes it.")), "{:?}", w.said(7));
@@ -456,10 +446,7 @@ fn an_open_pull_request_into_another_branch_whose_body_closes_it_starts_nothing_
         &r.out,
         &format!("skip #7: pull request {PR90} is open and closes it"),
     );
-    has(
-        &w.gh(),
-        "issue edit 7 --repo acme/widget --remove-label tehas:ready",
-    );
+    assert!(w.off(7, Mark::Act(Act::Approve)), "{:?}", w.writes_of(7));
     lacks(&w.gh(), "--add-label tehas:running");
     assert!(w.said_on(7, &format!("Tehas took `tehas:ready` off this issue and started nothing: {PR90} is open and closes it.")), "{:?}", w.said(7));
 }
@@ -559,6 +546,7 @@ fn a_dry_run_of_a_pull_request_into_another_branch_says_it_would_take_the_label_
     );
     lacks(&r.out, "would run a cycle");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     assert_eq!(w.notes_any(), 0);
 }
 
@@ -596,6 +584,7 @@ fn a_dry_run_says_it_would_take_the_label_off_and_changes_nothing() {
     );
     lacks(&r.out, "would run a cycle");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     assert_eq!(w.notes_any(), 0);
 }
 
@@ -629,6 +618,7 @@ fn a_checkout_without_origin_head_stops_before_any_label_changes() {
     assert_eq!(r.rc, 78, "{}", r.out);
     has(&r.out, "default branch");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
 }
 
 #[test]

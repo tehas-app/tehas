@@ -30,6 +30,16 @@ const GH: &str = r####"# rest_verb, rest_path: the verb and the path of a call o
 # directly.
 rest_verb=$3
 rest_path=$4
+# edit_fails <the change as gh issue edit would say it>: GitHub refuses a
+# label change of the tickets port as $fx/edit-fails and $fx/edit-fails-on
+# refuse the same change made with gh issue edit, so a case names it once.
+edit_fails() {
+  local on
+  if [ -e "$T/fx/edit-fails" ]; then echo "gh: Forbidden (HTTP 403)" >&2; exit 1; fi
+  [ -s "$T/fx/edit-fails-on" ] || return 0
+  on=$(<"$T/fx/edit-fails-on")
+  case "$1" in *"$on"*) echo "gh: Forbidden (HTTP 403)" >&2; exit 1 ;; esac
+}
 # fails <fixture> [<fixture of a countdown>]: exit 1 when the first names an
 # outage, or while the second holds a count above 0, which it lowers.
 fails() {
@@ -128,9 +138,14 @@ case "$1 $2" in
     case "$rest_verb ${rest_path%%:*}" in
       "POST repos/acme/widget/issues/"*/labels)
         [ ! -e "$T/fx/label-missing" ] || not_found
+        n=${rest_path#repos/acme/widget/issues/}
+        edit_fails "issue edit ${n%%/*} --repo acme/widget --add-label ${6#*=}"
         fails mark-fails mark-fails-times ;;
       "DELETE repos/acme/widget/issues/"*/labels/*)
         [ ! -e "$T/fx/label-missing" ] || not_found
+        n=${rest_path#repos/acme/widget/issues/}
+        label=${rest_path##*/}
+        edit_fails "issue edit ${n%%/*} --repo acme/widget --remove-label $(printf '%b' "${label//%/\\x}")"
         fails unmark-fails ;;
       # A comment as the Rust poll posts it, with its method said. Its id
       # is 4002, or what $fx/post-id-<n> holds for issue n: alone when the
@@ -1381,6 +1396,49 @@ impl World {
     /// Whether a comment posted on issue `n` begins with `text`.
     pub fn said_on(&self, n: u64, text: &str) -> bool {
         self.said(n).iter().any(|b| b.starts_with(text))
+    }
+
+    /// Whether the poll put `mark` on issue `n`, as a write of the ports.
+    pub fn on(&self, n: u64, mark: tehas_ports::Mark) -> bool {
+        self.writes_of(n).contains(&tehas_ports::Write::Mark {
+            ticket: tehas_ports::TicketKey::Number(std::num::NonZeroU64::new(n).unwrap()),
+            mark,
+        })
+    }
+
+    /// Whether the poll took `mark` off issue `n`, as a write of the ports.
+    pub fn off(&self, n: u64, mark: tehas_ports::Mark) -> bool {
+        self.writes_of(n).contains(&tehas_ports::Write::Unmark {
+            ticket: tehas_ports::TicketKey::Number(std::num::NonZeroU64::new(n).unwrap()),
+            mark,
+        })
+    }
+
+    /// How often the poll took `mark` off issue `n`.
+    pub fn offs(&self, n: u64, mark: tehas_ports::Mark) -> usize {
+        let off = tehas_ports::Write::Unmark {
+            ticket: tehas_ports::TicketKey::Number(std::num::NonZeroU64::new(n).unwrap()),
+            mark,
+        };
+        self.writes_of(n).iter().filter(|w| **w == off).count()
+    }
+
+    /// The marks the poll put on or took off issue `n`, or any issue with
+    /// None, as writes of the ports.
+    pub fn marks(&self, n: Option<u64>) -> usize {
+        self.writes_like(n, "Mark") + self.writes_like(n, "Unmark")
+    }
+
+    fn writes_like(&self, n: Option<u64>, kind: &str) -> usize {
+        let q = format!(
+            "SELECT count(*) FROM actions WHERE id > ?1 AND (?2 = 0 OR issue = ?2) AND \
+             args_json LIKE '%\"write\":{{\"type\":\"{kind}\"%'"
+        );
+        self.journal()
+            .query_row(&q, [self.journal_from(), n.unwrap_or(0) as i64], |r| {
+                r.get::<_, i64>(0)
+            })
+            .unwrap_or(0) as usize
     }
 
     /// The writes of the ports for issue `n`, without their states.
