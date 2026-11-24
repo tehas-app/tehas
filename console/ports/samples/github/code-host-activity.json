@@ -1,0 +1,754 @@
+[
+  {
+    "op": "CodeHost::activity",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "live",
+    "fixture": "Pull request 15145 of a public project, recorded live: a bot's commit, labels, review and comment, a person's review and merge, and items of other kinds.",
+    "no": 15145,
+    "window": {
+      "Whole": 100
+    },
+    "answer": {
+      "Ok": {
+        "items": [
+          {
+            "at": 1795442609,
+            "by": null,
+            "committed": 1795442609,
+            "what": {
+              "type": "Pushed"
+            }
+          },
+          {
+            "at": 1795442615,
+            "by": null,
+            "committed": null,
+            "what": {
+              "type": "Unknown"
+            }
+          },
+          {
+            "at": 1795442615,
+            "by": null,
+            "committed": null,
+            "what": {
+              "type": "Unknown"
+            }
+          },
+          {
+            "at": 1795442615,
+            "by": {
+              "id": "49699333",
+              "kind": "Bot",
+              "login": "dependabot",
+              "realm": "CodeHost"
+            },
+            "committed": null,
+            "what": {
+              "type": "Marked",
+              "value": {
+                "type": "Project",
+                "value": "dependencies"
+              }
+            }
+          },
+          {
+            "at": 1795442615,
+            "by": {
+              "id": "49699333",
+              "kind": "Bot",
+              "login": "dependabot",
+              "realm": "CodeHost"
+            },
+            "committed": null,
+            "what": {
+              "type": "Marked",
+              "value": {
+                "type": "Project",
+                "value": "go"
+              }
+            }
+          },
+          {
+            "at": 1795442715,
+            "by": null,
+            "committed": null,
+            "what": {
+              "type": "Unknown"
+            }
+          },
+          {
+            "at": 1795442715,
+            "by": {
+              "id": "175728472",
+              "kind": "Bot",
+              "login": "copilot-pull-request-reviewer",
+              "realm": "CodeHost"
+            },
+            "committed": null,
+            "what": {
+              "type": "Reviewed"
+            }
+          },
+          {
+            "at": 1795443788,
+            "by": {
+              "id": "280752616",
+              "kind": "Bot",
+              "login": "cli-triage",
+              "realm": "CodeHost"
+            },
+            "committed": null,
+            "what": {
+              "type": "Commented"
+            }
+          },
+          {
+            "at": 1795458257,
+            "by": {
+              "id": "5001",
+              "kind": "Person",
+              "login": "person-one",
+              "realm": "CodeHost"
+            },
+            "committed": null,
+            "what": {
+              "type": "Reviewed"
+            }
+          },
+          {
+            "at": 1795458266,
+            "by": {
+              "id": "5001",
+              "kind": "Person",
+              "login": "person-one",
+              "realm": "CodeHost"
+            },
+            "committed": null,
+            "what": {
+              "type": "Merged"
+            }
+          },
+          {
+            "at": 1795458266,
+            "by": {
+              "id": "5001",
+              "kind": "Person",
+              "login": "person-one",
+              "realm": "CodeHost"
+            },
+            "committed": null,
+            "what": {
+              "type": "Closed"
+            }
+          },
+          {
+            "at": 1795458266,
+            "by": null,
+            "committed": null,
+            "what": {
+              "type": "Unknown"
+            }
+          },
+          {
+            "at": 1795458266,
+            "by": null,
+            "committed": null,
+            "what": {
+              "type": "Unknown"
+            }
+          }
+        ],
+        "more": false
+      }
+    }
+  },
+  {
+    "op": "CodeHost::activity",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "live",
+    "fixture": "The same pull request, the newest 3, read backward: more is held.",
+    "no": 15145,
+    "window": {
+      "Last": 3
+    },
+    "answer": {
+      "Ok": {
+        "items": [
+          {
+            "at": 1795458266,
+            "by": {
+              "id": "5001",
+              "kind": "Person",
+              "login": "person-one",
+              "realm": "CodeHost"
+            },
+            "committed": null,
+            "what": {
+              "type": "Closed"
+            }
+          },
+          {
+            "at": 1795458266,
+            "by": null,
+            "committed": null,
+            "what": {
+              "type": "Unknown"
+            }
+          },
+          {
+            "at": 1795458266,
+            "by": null,
+            "committed": null,
+            "what": {
+              "type": "Unknown"
+            }
+          }
+        ],
+        "more": true
+      }
+    }
+  },
+  {
+    "op": "CodeHost::activity",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "kinds",
+    "fixture": "One item of every kind the ports name, a pending review and a label no mark can have, which are left out, and items of other kinds.",
+    "no": 20,
+    "window": {
+      "Whole": 100
+    },
+    "answer": {
+      "Ok": {
+        "items": [
+          {
+            "at": 1795078800,
+            "by": null,
+            "committed": null,
+            "what": {
+              "type": "Unknown"
+            }
+          },
+          {
+            "at": 1795078800,
+            "by": null,
+            "committed": 1795078800,
+            "what": {
+              "type": "Pushed"
+            }
+          },
+          {
+            "at": 1795168800,
+            "by": {
+              "id": "100001",
+              "kind": "Bot",
+              "login": "tehas-bot",
+              "realm": "CodeHost"
+            },
+            "committed": null,
+            "what": {
+              "type": "Marked",
+              "value": {
+                "type": "State",
+                "value": "Refreshing"
+              }
+            }
+          },
+          {
+            "at": 1795168860,
+            "by": {
+              "id": "5001",
+              "kind": "Person",
+              "login": "person-one",
+              "realm": "CodeHost"
+            },
+            "committed": null,
+            "what": {
+              "type": "Commented"
+            }
+          },
+          {
+            "at": 1795168920,
+            "by": {
+              "id": "5001",
+              "kind": "Person",
+              "login": "person-one",
+              "realm": "CodeHost"
+            },
+            "committed": null,
+            "what": {
+              "type": "Reviewed"
+            }
+          },
+          {
+            "at": 1795168980,
+            "by": {
+              "id": "100001",
+              "kind": "Bot",
+              "login": "tehas-bot",
+              "realm": "CodeHost"
+            },
+            "committed": 1795168740,
+            "what": {
+              "type": "Pushed"
+            }
+          },
+          {
+            "at": 1795169040,
+            "by": {
+              "id": "100001",
+              "kind": "Bot",
+              "login": "tehas-bot",
+              "realm": "CodeHost"
+            },
+            "committed": null,
+            "what": {
+              "type": "Pushed"
+            }
+          },
+          {
+            "at": 1795169100,
+            "by": null,
+            "committed": null,
+            "what": {
+              "type": "Unmarked",
+              "value": {
+                "type": "State",
+                "value": "Refreshing"
+              }
+            }
+          },
+          {
+            "at": 1795169160,
+            "by": {
+              "id": "5001",
+              "kind": "Person",
+              "login": "person-one",
+              "realm": "CodeHost"
+            },
+            "committed": null,
+            "what": {
+              "type": "Closed"
+            }
+          },
+          {
+            "at": 1795169220,
+            "by": {
+              "id": "5001",
+              "kind": "Person",
+              "login": "person-one",
+              "realm": "CodeHost"
+            },
+            "committed": null,
+            "what": {
+              "type": "Reopened"
+            }
+          },
+          {
+            "at": 1795169280,
+            "by": {
+              "id": "100001",
+              "kind": "Bot",
+              "login": "tehas-bot",
+              "realm": "CodeHost"
+            },
+            "committed": null,
+            "what": {
+              "type": "Merged"
+            }
+          },
+          {
+            "at": 1795169280,
+            "by": {
+              "id": "100001",
+              "kind": "Bot",
+              "login": "tehas-bot",
+              "realm": "CodeHost"
+            },
+            "committed": null,
+            "what": {
+              "type": "Closed"
+            }
+          },
+          {
+            "at": 1795169280,
+            "by": null,
+            "committed": null,
+            "what": {
+              "type": "Unknown"
+            }
+          }
+        ],
+        "more": false
+      }
+    }
+  },
+  {
+    "op": "CodeHost::activity",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "kinds",
+    "fixture": "The same timeline, the newest 4.",
+    "no": 20,
+    "window": {
+      "Last": 4
+    },
+    "answer": {
+      "Ok": {
+        "items": [
+          {
+            "at": 1795169220,
+            "by": {
+              "id": "5001",
+              "kind": "Person",
+              "login": "person-one",
+              "realm": "CodeHost"
+            },
+            "committed": null,
+            "what": {
+              "type": "Reopened"
+            }
+          },
+          {
+            "at": 1795169280,
+            "by": {
+              "id": "100001",
+              "kind": "Bot",
+              "login": "tehas-bot",
+              "realm": "CodeHost"
+            },
+            "committed": null,
+            "what": {
+              "type": "Merged"
+            }
+          },
+          {
+            "at": 1795169280,
+            "by": {
+              "id": "100001",
+              "kind": "Bot",
+              "login": "tehas-bot",
+              "realm": "CodeHost"
+            },
+            "committed": null,
+            "what": {
+              "type": "Closed"
+            }
+          },
+          {
+            "at": 1795169280,
+            "by": null,
+            "committed": null,
+            "what": {
+              "type": "Unknown"
+            }
+          }
+        ],
+        "more": true
+      }
+    }
+  },
+  {
+    "op": "CodeHost::activity",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "two-pages",
+    "fixture": "Label events over two pages, one of a label no mark can have.",
+    "no": 20,
+    "window": {
+      "Whole": 5
+    },
+    "answer": {
+      "Ok": {
+        "items": [
+          {
+            "at": 1795168800,
+            "by": {
+              "id": "5001",
+              "kind": "Person",
+              "login": "person-one",
+              "realm": "CodeHost"
+            },
+            "committed": null,
+            "what": {
+              "type": "Marked",
+              "value": {
+                "type": "Act",
+                "value": "Approve"
+              }
+            }
+          },
+          {
+            "at": 1795168920,
+            "by": {
+              "id": "100001",
+              "kind": "Bot",
+              "login": "tehas-bot",
+              "realm": "CodeHost"
+            },
+            "committed": null,
+            "what": {
+              "type": "Marked",
+              "value": {
+                "type": "State",
+                "value": "Refreshing"
+              }
+            }
+          },
+          {
+            "at": 1795168980,
+            "by": null,
+            "committed": null,
+            "what": {
+              "type": "Unmarked",
+              "value": {
+                "type": "State",
+                "value": "Refreshing"
+              }
+            }
+          },
+          {
+            "at": 1795169040,
+            "by": {
+              "id": "5001",
+              "kind": "Person",
+              "login": "person-one",
+              "realm": "CodeHost"
+            },
+            "committed": null,
+            "what": {
+              "type": "Unmarked",
+              "value": {
+                "type": "Act",
+                "value": "Approve"
+              }
+            }
+          },
+          {
+            "at": 1795169040,
+            "by": {
+              "id": "100001",
+              "kind": "Bot",
+              "login": "tehas-bot",
+              "realm": "CodeHost"
+            },
+            "committed": null,
+            "what": {
+              "type": "Marked",
+              "value": {
+                "type": "State",
+                "value": "Running"
+              }
+            }
+          }
+        ],
+        "more": false
+      }
+    }
+  },
+  {
+    "op": "CodeHost::activity",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "two-pages",
+    "fixture": "The same events, one past the bound.",
+    "no": 20,
+    "window": {
+      "Whole": 4
+    },
+    "answer": {
+      "Err": {
+        "Unread": "Cut"
+      }
+    }
+  },
+  {
+    "op": "CodeHost::activity",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "many",
+    "fixture": "250 comments, the newest 3: one page read backward, more held.",
+    "no": 20,
+    "window": {
+      "Last": 3
+    },
+    "answer": {
+      "Ok": {
+        "items": [
+          {
+            "at": 1763633047,
+            "by": {
+              "id": "5001",
+              "kind": "Person",
+              "login": "person-one",
+              "realm": "CodeHost"
+            },
+            "committed": null,
+            "what": {
+              "type": "Commented"
+            }
+          },
+          {
+            "at": 1763633048,
+            "by": {
+              "id": "5001",
+              "kind": "Person",
+              "login": "person-one",
+              "realm": "CodeHost"
+            },
+            "committed": null,
+            "what": {
+              "type": "Commented"
+            }
+          },
+          {
+            "at": 1763633049,
+            "by": {
+              "id": "5001",
+              "kind": "Person",
+              "login": "person-one",
+              "realm": "CodeHost"
+            },
+            "committed": null,
+            "what": {
+              "type": "Commented"
+            }
+          }
+        ],
+        "more": true
+      }
+    }
+  },
+  {
+    "op": "CodeHost::activity",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "no-answer",
+    "fixture": "Number 20 is no pull request, and gh answered nothing beside its exit: the REST read settles it.",
+    "no": 20,
+    "window": {
+      "Whole": 10
+    },
+    "answer": {
+      "Err": "NotFound"
+    }
+  },
+  {
+    "op": "CodeHost::activity",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "issue",
+    "fixture": "Number 20 is an issue: gh's answer beside its exit says NOT_FOUND.",
+    "no": 20,
+    "window": {
+      "Whole": 10
+    },
+    "answer": {
+      "Err": "NotFound"
+    }
+  },
+  {
+    "op": "CodeHost::activity",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "forbidden",
+    "fixture": "The token may not read the pull request.",
+    "no": 20,
+    "window": {
+      "Whole": 10
+    },
+    "answer": {
+      "Err": "Forbidden"
+    }
+  },
+  {
+    "op": "CodeHost::activity",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "rate-limited",
+    "fixture": "gh's answer beside its exit says RATE_LIMITED.",
+    "no": 20,
+    "window": {
+      "Whole": 10
+    },
+    "answer": {
+      "Err": {
+        "Spent": {
+          "pool": "Priced",
+          "until": 1767225600
+        }
+      }
+    }
+  },
+  {
+    "op": "CodeHost::activity",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "server-error",
+    "fixture": "GitHub answered 502.",
+    "no": 20,
+    "window": {
+      "Whole": 10
+    },
+    "answer": {
+      "Err": {
+        "Unavailable": {
+          "sent": "Maybe",
+          "why": "Server"
+        }
+      }
+    }
+  },
+  {
+    "op": "CodeHost::activity",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "timeout",
+    "fixture": "gh was stopped at its time limit.",
+    "no": 20,
+    "window": {
+      "Whole": 10
+    },
+    "answer": {
+      "Err": {
+        "Unavailable": {
+          "sent": "Maybe",
+          "why": "Timeout"
+        }
+      }
+    }
+  },
+  {
+    "op": "CodeHost::activity",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "garbled",
+    "fixture": "gh's answer is no JSON.",
+    "no": 20,
+    "window": {
+      "Whole": 10
+    },
+    "answer": {
+      "Err": {
+        "Unread": "Malformed"
+      }
+    }
+  }
+]

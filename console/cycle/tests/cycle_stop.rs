@@ -3,7 +3,7 @@
 
 mod common;
 
-use common::{count_lines, has, lacks, said, site, through, twin, write_methods, Run, World};
+use common::{count_lines, has, lacks, through, twin, twins, write_methods, Run, World};
 use serde_json::{json, Value};
 use std::fs;
 use std::process::Command;
@@ -32,7 +32,7 @@ wait "$s""#;
 fn stopped_said(name: &str) -> String {
     let w = World::new(name);
     w.work("exit 2");
-    said(&w.report_writes(&site()))
+    w.report_said()
 }
 
 /// A handoff on feature/x with pull request #9 open.
@@ -79,11 +79,9 @@ fn a_stop_is_passed_on_to_the_runner_and_the_cycle_is_still_reported() {
     let (r, _) = signalled(&w, "work.ready", "TERM");
     assert_eq!(r.rc, 0, "{}", r.out);
     assert!(w.t().join("calls/work.term").exists());
-    has(
-        &stopped_said("st-term-writes"),
-        "unmark State(Running)\nmark State(NeedsPerson)",
-    );
-    has(&w.gh(), "(runner exit 2)");
+    let said = stopped_said("st-term-writes");
+    has(&said, "unmark State(Running)\nmark State(NeedsPerson)");
+    has(&said, "(runner exit 2)");
 }
 
 #[test]
@@ -95,16 +93,22 @@ fn a_stop_that_arrives_while_the_report_is_made_does_not_cut_the_report_short() 
     let (r, _) = signalled(&w, "edit.started", "TERM");
     assert_eq!(r.rc, 0, "{}", r.out);
     assert!(w.t().join("calls/edit.started").exists());
-    // After the stop the park's question is still asked, and kept: its mark
-    // went on, or the question would be taken off the record.
-    has(&w.gh(), "Tehas cycle stopped without a pull request");
-    assert_eq!(w.park()["question"], 4002);
-    let q = w.row(&["question-known", "7", "--id", "4002"]);
-    assert_eq!(json!([q["known"], q["answered"]]), json!([true, false]));
-    // The writes it makes, in tehas's terms.
-    let (_, _, said) = twin("st-report-writes", |w| w.work(PID));
+    // The report went on to its end: the park is on record.
+    assert_eq!(w.park()["reason"], "unknown");
+    assert!(!w.history0().is_null());
+    // The writes it makes, in tehas's terms: the park's question is asked,
+    // and kept: its mark went on, or the question would be taken off the
+    // record.
+    let (_, _, asked, said) = twins("st-report-writes", |w| w.work(PID));
     has(&said, "unmark State(Running)\nmark State(NeedsPerson)");
-    has(&said, "mark State(Question)");
+    has(&said, "note: Tehas cycle stopped without a pull request");
+    has(
+        &said,
+        "Question(kind=Park blueprint=7 turn=1)\nmark State(Question)",
+    );
+    assert_eq!(asked.park()["question"], 4002);
+    let q = asked.row(&["question-known", "7", "--id", "4002"]);
+    assert_eq!(json!([q["known"], q["answered"]]), json!([true, false]));
 }
 
 #[test]
@@ -197,23 +201,22 @@ fn after_three_refusals_it_gives_up_says_so_in_the_log_and_still_reports() {
 #[test]
 fn a_run_that_ended_as_st_is_not_said_to_wait_for_a_merge_though_a_pull_request_is_open() {
     for st in ["failed", "aborted", "unknown", "running"] {
-        let (w, r, said) = twin("st-not-merge", |w| {
+        let (_, r, said) = twin("st-not-merge", |w| {
             w.ended(st, "review", "feature/x", "");
             pr9(w);
         });
         assert_eq!(r.rc, 0, "{st}");
-        let gh = w.gh();
         lacks(&said, "State(AwaitingMerge)");
         has(&said, "unmark State(Running)\nmark State(NeedsPerson)");
         has(
-            &gh,
+            &said,
             "Its branch has an open pull request: https://github.com/acme/widget/pull/9",
         );
         has(
-            &gh,
+            &said,
             &format!("Tehas cycle stopped with pull request #9 open: status `{st}`"),
         );
-        lacks(&gh, "without a pull request");
+        lacks(&said, "without a pull request");
     }
 }
 
@@ -227,23 +230,23 @@ fn a_stop_at_commit_pr_with_its_draft_pull_request_open_names_it_as_a_draft() {
     assert_eq!(r.rc, 0);
     let gh = w.gh();
     has(&gh, "pr list --repo acme/widget --head feature/x --author tehas-bot[bot] --state all --json url,state,body,headRefName,isDraft,createdAt");
-    has(&gh, "Tehas cycle stopped with pull request #67 open (draft): status `running`, last step `commit-pr`");
+    has(&said, "Tehas cycle stopped with pull request #67 open (draft): status `running`, last step `commit-pr`");
     has(&said, "unmark State(Running)\nmark State(NeedsPerson)");
-    lacks(&gh, "without a pull request");
+    lacks(&said, "without a pull request");
 }
 
 #[test]
 fn a_stop_at_commit_pr_with_no_pull_request_says_it_has_none() {
-    let w = World::new("st-nopr");
-    w.ended("running", "commit-pr", "feature/x", "");
-    w.fx("pr.json", "[]\n");
-    let r = w.run7();
+    let (_, r, said) = twin("st-nopr", |w| {
+        w.ended("running", "commit-pr", "feature/x", "");
+        w.fx("pr.json", "[]\n");
+    });
     assert_eq!(r.rc, 0);
     has(
-        &w.gh(),
+        &said,
         "Tehas cycle stopped without a pull request: status `running`, last step `commit-pr`",
     );
-    lacks(&w.gh(), "open pull request");
+    lacks(&said, "open pull request");
 }
 
 fn ended_at(w: &World) -> bool {
@@ -386,7 +389,7 @@ fn after_three_refusals_the_cycle_is_parked_as_one_whose_pull_request_could_not_
     twin.ended("handoff", "commit-pr", "feature/x", "");
     pr9(&twin);
     twin.fx("pr-fails-times", "3\n");
-    let said = said(&twin.report_writes(&site()));
+    let said = twin.report_said();
     let gh = w.gh();
     assert_eq!(count_lines(&gh, "pr list "), 3);
     has(
@@ -394,8 +397,8 @@ fn after_three_refusals_the_cycle_is_parked_as_one_whose_pull_request_could_not_
         "WARN: the pull requests of feature/x could not be read",
     );
     has(&said, "unmark State(Running)\nmark State(NeedsPerson)");
-    has(&gh, "its pull request could not be looked up: GitHub did not list the pull requests of the branch `feature/x`");
-    lacks(&gh, "stopped without a pull request");
+    has(&said, "its pull request could not be looked up: GitHub did not list the pull requests of the branch `feature/x`");
+    lacks(&said, "stopped without a pull request");
     lacks(&said, "State(AwaitingMerge)");
 }
 
@@ -419,10 +422,7 @@ fn the_branch_is_on_record_with_every_end_and_an_earlier_cycles_is_not_the_next_
     let twin = World::new("st-branch-each-writes");
     unlisted(&twin);
     twin.ended("handoff", "commit-pr", "feature/y", "");
-    has(
-        &said(&twin.report_writes(&site())),
-        "Pull request waiting for a human",
-    );
+    has(&twin.report_said(), "Pull request waiting for a human");
     fs::remove_file(w.fx.join("result.json")).unwrap();
     w.run7();
     let c = w.row(&["cycle-show", "7"])["cycle"].clone();
@@ -431,15 +431,15 @@ fn the_branch_is_on_record_with_every_end_and_an_earlier_cycles_is_not_the_next_
 
 #[test]
 fn a_branch_name_the_container_wrote_is_reduced_before_it_is_recorded() {
-    let w = World::new("st-branch-reduced");
-    w.ended("handoff", "commit-pr", "feature/x`;@y$z", "");
-    w.fx("pr-fails-times", "3\n");
-    w.run7();
+    let (w, _, said) = twin("st-branch-reduced", |w| {
+        w.ended("handoff", "commit-pr", "feature/x`;@y$z", "");
+        w.fx("pr-fails-times", "3\n");
+    });
     assert_eq!(
         w.row(&["cycle-show", "7"])["cycle"]["branch"],
         "feature/xyz"
     );
-    has(&w.gh(), "the branch `feature/xyz`");
+    has(&said, "the branch `feature/xyz`");
 }
 
 #[test]
@@ -453,8 +453,9 @@ fn and_a_comment_after_a_label_change_that_worked_does_not() {
     let w = World::new("st-label-fine");
     w.ended("handoff", "commit-pr", "feature/x", "");
     pr9(&w);
-    w.run7();
-    lacks(&w.gh(), "could not be changed");
+    let said = w.report_said();
+    has(&said, "Pull request waiting for a human");
+    lacks(&said, "could not be changed");
 }
 
 #[test]
@@ -505,5 +506,7 @@ fn the_report_after_a_stop_writes_through_the_adapter() {
     let (r, _) = signalled(&w, "work.ready", "TERM");
     assert_eq!(r.rc, 0, "{}", r.out);
     assert!(!w.history0().is_null(), "the end is on record");
-    assert_eq!(write_methods(&w), ["DELETE", "POST", "POST"]);
+    // The park's marks. The question and its mark are the adapter's to post,
+    // which the stub gh does not take: they are shown in process.
+    assert_eq!(write_methods(&w)[..2], ["DELETE", "POST"]);
 }

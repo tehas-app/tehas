@@ -17,6 +17,7 @@ use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
+use tehas_ports::{LastAttemptMarker, Marker, Sha256 as MarkerSha};
 
 pub const CAP: &str = "child-timeout:develop";
 const OPEN: &str = "<!-- tehas:last-attempt base=";
@@ -80,6 +81,46 @@ pub fn of_issue(
     Some(decide(body, &entry, state))
 }
 
+/// What a develop timeout does with its ticket, read through the ports: its
+/// text without our markers, and the markers beside it.
+#[derive(Debug, PartialEq)]
+pub enum Parts {
+    /// Not a develop timeout.
+    Nothing,
+    /// Set this note on the ticket, its base the sum of the text.
+    Note(LastAttemptMarker),
+    /// The note of the last timeout is there and the text has not changed.
+    Repeat,
+}
+
+/// [`of_issue`] over a ticket's text and markers, as the ports give them.
+/// None when the result cannot be read.
+pub fn of_ticket(
+    n: u64,
+    text: &str,
+    markers: &[Marker],
+    result: Option<&str>,
+    state: Option<&Value>,
+) -> Option<Parts> {
+    let all = crate::runner::values(result?).filter(|a| !a.is_empty())?;
+    let entry = crate::runner::last_issue_entry(&all, n)
+        .cloned()
+        .unwrap_or(Value::Null);
+    if entry.get("cap").and_then(Value::as_str) != Some(CAP) {
+        return Some(Parts::Nothing);
+    }
+    let sum = sha(text.replace('\r', "").trim());
+    let repeat = markers
+        .iter()
+        .any(|m| matches!(m, Marker::LastAttempt(l) if l.base.as_str() == sum));
+    if repeat {
+        return Some(Parts::Repeat);
+    }
+    let mut note = LastAttemptMarker::new(MarkerSha::new(sum).ok()?);
+    note.note = inner(&entry, state);
+    Some(Parts::Note(note))
+}
+
 pub fn sha(text: &str) -> String {
     format!("{:x}", Sha256::digest(text.as_bytes()))
 }
@@ -110,6 +151,11 @@ fn clean_path(p: &str) -> Option<&str> {
 }
 
 fn note(base: &str, result: &Value, state: Option<&Value>) -> String {
+    format!("{OPEN}{base} -->\n{}{CLOSE}", inner(result, state))
+}
+
+/// The note's text between its open and close lines.
+fn inner(result: &Value, state: Option<&Value>) -> String {
     let bound = result
         .pointer("/failure/errorTail")
         .and_then(Value::as_str)
@@ -122,7 +168,7 @@ fn note(base: &str, result: &Value, state: Option<&Value>) -> String {
             format!("its time bound of {} minutes", ms / 60000)
         });
     let mut out = format!(
-        "{OPEN}{base} -->\n### The last attempt ran out of time\n\n\
+        "### The last attempt ran out of time\n\n\
          The last cycle on this text was stopped in develop: the developer ran past {bound}. \
          Its work was not pushed, and the next cycle starts from a clean checkout.\n"
     );
@@ -218,7 +264,6 @@ fn note(base: &str, result: &Value, state: Option<&Value>) -> String {
         "\nPlan a smaller change: finish one part well, or say in this issue what to leave out. \
          This section is the factory's; edit or delete it as you like.\n",
     );
-    out.push_str(CLOSE);
     out
 }
 

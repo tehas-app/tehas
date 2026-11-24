@@ -1,0 +1,155 @@
+[
+  {
+    "op": "CodeHost::branch",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "live",
+    "fixture": "The default branch of a public project, recorded live.",
+    "branch": "trunk",
+    "answer": {
+      "Ok": "761ea6d6915b74b5479e29e25019d4d9f09e58c7"
+    }
+  },
+  {
+    "op": "CodeHost::branch",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "live",
+    "fixture": "No branch of that name, recorded live.",
+    "branch": "no-such-branch-here",
+    "answer": {
+      "Ok": null
+    }
+  },
+  {
+    "op": "CodeHost::branch",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "branch",
+    "fixture": "A branch whose name holds a slash.",
+    "branch": "tehas/7-1",
+    "answer": {
+      "Ok": "761ea6d6915b74b5479e29e25019d4d9f09e58c7"
+    }
+  },
+  {
+    "op": "CodeHost::branch",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "branch",
+    "fixture": "GitHub answers a ref of another name.",
+    "branch": "other-name",
+    "answer": {
+      "Err": {
+        "Unread": "Inconsistent"
+      }
+    }
+  },
+  {
+    "op": "CodeHost::branch",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "branch",
+    "fixture": "The ref points at a tag, not a commit.",
+    "branch": "tag-target",
+    "answer": {
+      "Err": {
+        "Unread": "Malformed"
+      }
+    }
+  },
+  {
+    "op": "CodeHost::branch",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "branch",
+    "fixture": "gh's answer is no JSON.",
+    "branch": "garbled",
+    "answer": {
+      "Err": {
+        "Unread": "Malformed"
+      }
+    }
+  },
+  {
+    "op": "CodeHost::branch",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "branch",
+    "fixture": "The project is gone: gh's answer beside its exit says NOT_FOUND.",
+    "branch": "gone",
+    "answer": {
+      "Err": "NotFound"
+    }
+  },
+  {
+    "op": "CodeHost::branch",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "branch",
+    "fixture": "gh's answer beside its exit says RATE_LIMITED.",
+    "branch": "limited",
+    "answer": {
+      "Err": {
+        "Spent": {
+          "pool": "Priced",
+          "until": 1767225600
+        }
+      }
+    }
+  },
+  {
+    "op": "CodeHost::branch",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "branch",
+    "fixture": "The token may not read the project.",
+    "branch": "forbidden",
+    "answer": {
+      "Err": "Forbidden"
+    }
+  },
+  {
+    "op": "CodeHost::branch",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "branch",
+    "fixture": "GitHub answered 502.",
+    "branch": "server",
+    "answer": {
+      "Err": {
+        "Unavailable": {
+          "sent": "Maybe",
+          "why": "Server"
+        }
+      }
+    }
+  },
+  {
+    "op": "CodeHost::branch",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "branch",
+    "fixture": "gh was stopped at its time limit.",
+    "branch": "slow",
+    "answer": {
+      "Err": {
+        "Unavailable": {
+          "sent": "Maybe",
+          "why": "Timeout"
+        }
+      }
+    }
+  }
+]

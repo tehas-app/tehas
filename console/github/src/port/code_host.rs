@@ -1,10 +1,13 @@
 //! The code host port, `CodeHost` and `CodeHostWrites`: changes, branches,
 //! tags and releases. Answered: what the code host says of the project
 //! (`facts`), the changes a filter takes, with their bodies when it asks
-//! (`changes`), one change whole (`change`, in `change.rs`), and the check
-//! runs and status contexts on a commit (`checks`, in `checks.rs`). Every
-//! other read answers `Refused(Unsupported)` before any request.
+//! (`changes`), one change whole (`change`, in `change.rs`), the check
+//! runs and status contexts on a commit (`checks`, in `checks.rs`), and a
+//! pull request's timeline and the commit a branch points at (`activity`
+//! and `branch`, in `activity.rs`). Every other read answers
+//! `Refused(Unsupported)` before any request.
 
+mod activity;
 mod change;
 mod checks;
 mod remote;
@@ -34,8 +37,9 @@ impl CodeHost for GitHub {
         read_facts(&out, &self.repo).ok_or(Outcome::Unread(Unread::Malformed))
     }
 
-    fn branch(&mut self, _: &Branch) -> Got<Option<CommitId>> {
-        unsupported()
+    /// The branch's ref, one GraphQL question: see `activity.rs`.
+    fn branch(&mut self, name: &Branch) -> Got<Option<CommitId>> {
+        self.branch_at(name)
     }
 
     fn compare(&mut self, _: &CommitId, _: &CommitId) -> Got<Compared> {
@@ -150,8 +154,9 @@ impl CodeHost for GitHub {
         unsupported()
     }
 
-    fn activity(&mut self, _: ChangeNo, _: Window) -> Got<Took<ChangeEvent>> {
-        unsupported()
+    /// The pull request's timeline, every kind, paged: see `activity.rs`.
+    fn activity(&mut self, no: ChangeNo, window: Window) -> Got<Took<ChangeEvent>> {
+        self.activity_of(no, window)
     }
 
     /// The commit's check runs and status contexts, whole up to `ALL_MAX`

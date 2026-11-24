@@ -292,6 +292,9 @@ fn a_term_inside_a_gate_leaves_the_signal_and_the_step_closes_the_gate_in_the_st
     let w = world("stop-term-gate");
     w.fresh();
     w.under_cycle();
+    // Under load the console can read the log before the step is in it, and
+    // then never says develop: it waits for the step.
+    w.touch("now.wait");
     w.container(&format!(
         r#"progress '{{"v":1,"kind":"step-started","event":{{"step":"develop"}}}}'; progress '{{"v":1,"kind":"verify-started","issue":7,"event":{{"kind":"verify-started","step":"develop","command":"make test"}}}}'; {INTERRUPTED}"#
     ));
