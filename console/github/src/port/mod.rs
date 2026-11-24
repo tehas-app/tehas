@@ -12,6 +12,7 @@ mod blueprints;
 mod board;
 mod code_host;
 mod identity;
+mod mergeable;
 mod site;
 mod tickets;
 mod writes;

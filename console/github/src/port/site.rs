@@ -138,9 +138,13 @@ impl Site for GitHubSite {
         )?))
     }
 
-    /// Not built in this adapter yet.
-    fn code_host(&self, _: &Actor, _: Caller) -> Got<Box<dyn CodeHost + Send>> {
-        unsupported()
+    fn code_host(&self, by: &Actor, caller: Caller) -> Got<Box<dyn CodeHost + Send>> {
+        Ok(Box::new(self.handle(
+            by,
+            caller,
+            PortName::CodeHost,
+            false,
+        )?))
     }
 
     /// Not built in this adapter yet.
@@ -157,10 +161,9 @@ impl Site for GitHubSite {
         )?))
     }
 
-    /// Not built in this adapter yet: the joined read waits on blueprints
-    /// and the code host.
-    fn board(&self, _: &Actor, _: Caller) -> Got<Box<dyn Board + Send>> {
-        unsupported()
+    /// GitHub answers the joined read itself, with one question a page.
+    fn board(&self, by: &Actor, caller: Caller) -> Got<Box<dyn Board + Send>> {
+        Ok(Box::new(self.handle(by, caller, PortName::Board, false)?))
     }
 
     fn meter(&self) -> Vec<MeterRow> {

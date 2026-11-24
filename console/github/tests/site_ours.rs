@@ -2,7 +2,8 @@
 //! bot that carries the bot's user id the site was given, and no other.
 //! Every case reads the account on each path the adapter builds accounts
 //! on: REST's issue author, label event actor and assignee, GraphQL's
-//! timeline actor, close, assigned event's assignee and list author, and
+//! timeline actor, close, assigned event's assignee and list author, the
+//! code host's change author, the board's change author, and
 //! `Identity::me`.
 
 use std::num::NonZeroU64;
@@ -11,8 +12,9 @@ use std::sync::Arc;
 use tehas_core::forge::GhRunner;
 use tehas_github::{GitHub, GitHubSite, MakeRunner};
 use tehas_ports::{
-    Account, AccountKind, Actor, Bound, Caller, Closer, Depth, Filter, Happened, HappenedKind,
-    Identity, Scope, Site, TicketKey, Tickets, Window, ALL_MAX,
+    Account, AccountKind, Actor, Bound, Caller, ChangeAsk, ChangeFilter, ChangeStates, Closer,
+    Depth, Filter, Happened, HappenedKind, Identity, Scope, Site, TicketKey, Tickets, Window,
+    ALL_MAX,
 };
 
 const CALLER: Caller = Caller::new("test.ours");
@@ -120,6 +122,42 @@ fn list(author: &str) -> String {
     )
 }
 
+/// Answers every call with the same text.
+struct Always(String);
+
+impl GhRunner for Always {
+    fn run(&mut self, _: &[&str]) -> Result<String, String> {
+        Ok(self.0.clone())
+    }
+}
+
+fn always_site(bot_id: Option<u64>, answer: String) -> GitHubSite {
+    let make: MakeRunner =
+        Arc::new(move |_: &Actor| Ok(Box::new(Always(answer.clone())) as Box<dyn GhRunner>));
+    GitHubSite::new("acme/widget", LOGIN, bot_id, make)
+}
+
+/// A recorded page of pull requests, every account in it `actor`.
+fn pulls(file: &str, actor: &str) -> String {
+    let at = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/recorded")
+        .join(file);
+    let mut page: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(at).unwrap()).unwrap();
+    let actor: serde_json::Value = serde_json::from_str(actor).unwrap();
+    let nodes = page["data"]["repository"]["pullRequests"]["nodes"]
+        .as_array_mut()
+        .unwrap();
+    for n in nodes {
+        for k in ["author", "editor", "mergedBy"] {
+            if n.get(k).is_some_and(|v| !v.is_null()) {
+                n[k] = actor.clone();
+            }
+        }
+    }
+    page.to_string()
+}
+
 fn handle(bot_id: Option<u64>, answers: Vec<String>) -> Box<dyn Tickets + Send> {
     site_of(LOGIN, bot_id, answers)
         .tickets(&Actor::Ours(Scope::Full), CALLER)
@@ -171,6 +209,37 @@ fn kinds(bot_id: Option<u64>, w: Who) -> Vec<(&'static str, Option<AccountKind>)
     let mut h = handle(bot_id, vec![list(&gql)]);
     let all = h.list(&Filter::default(), Bound::new(10).unwrap()).unwrap();
     out.push(("graphql list author", kind(all.items()[0].author.as_ref())));
+
+    let page = pulls("code-host/widget/changes-OPEN_CLOSED_MERGED.json", &gql);
+    let mut h = always_site(bot_id, page)
+        .code_host(&Actor::Ours(Scope::Full), CALLER)
+        .unwrap();
+    let every = ChangeFilter {
+        states: ChangeStates::All,
+        ..ChangeFilter::default()
+    };
+    let all = h.changes(&every, Bound::new(50).unwrap()).unwrap();
+    out.push((
+        "code host change author",
+        kind(all.items()[0].author.as_ref()),
+    ));
+
+    let page = pulls("board/three-open-bare/pulls-first.json", &gql);
+    let mut h = always_site(bot_id, page)
+        .board(&Actor::Ours(Scope::Full), CALLER)
+        .unwrap();
+    let ask = ChangeAsk {
+        filter: ChangeFilter::default(),
+        files: None,
+        closing: false,
+        siblings: None,
+        activity: None,
+    };
+    let all = h.open_changes(&ask, Bound::new(50).unwrap()).unwrap();
+    out.push((
+        "board change author",
+        kind(all.items()[0].change.author.as_ref()),
+    ));
     out
 }
 
