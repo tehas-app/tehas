@@ -10,20 +10,20 @@ work=$T/work
 g() { git -c user.name=t -c user.email=t@example.com -c init.defaultBranch=main "$@"; }
 commit() { g -C "$T/up" commit --quiet --allow-empty -m "$1" && g -C "$T/up" push --quiet origin main; }
 head_of() { git -C "$origin" rev-parse "${1:-main}^{commit}"; }
+# The day a run stamps, read before and after it: a run across UTC midnight
+# stamps either day, and no other.
+day_run() { day0=$(date -u +%F); t_run "$1"; day1=$(date -u +%F); }
+day_of() { case $1 in *"($day0)"*) echo "$day0" ;; *) echo "$day1" ;; esac; }
 
-# The script execs the xtask of this checkout, built once and named in
-# TEHAS_XTASK.
+# The script execs this checkout's xtask, built once and named in TEHAS_XTASK.
 t_xtask || t_bad "no xtask: $t_xtask_why"
 
-# The annotated tags the script makes need a name.
 printf '[user]\n\tname = t\n\temail = t@example.com\n' >"$T/home/.gitconfig"
 
-# A remote with one commit tagged v0.1.0, a clone that runs the scripts, and a
-# second clone that adds commits to the remote. The remote's gate records that
-# it ran and exits with the status in $T/verify_rc. Its CHANGELOG.md has a
-# section of its own for each release the cases tag, as a release needs one:
-# a release whose section is still Unreleased gets a pull request that names
-# it first (the cases after `named` below).
+# A remote tagged v0.1.0, a clone that runs the scripts, and a clone that adds
+# commits. The remote's gate records that it ran and exits $T/verify_rc. Its
+# CHANGELOG.md has a section for each release the cases tag; one still
+# Unreleased gets a pull request first (the cases after `named` below).
 fresh() {
   rm -rf "$origin" "$work" "$T/up" "$T/calls/"* "$T/verify_rc" "$T/verify_hook"
   g init --quiet --bare "$origin"
@@ -507,12 +507,12 @@ esac'
 
 t_case "--dry-run counts the fragments' Adopter action and shows the collected section"
 fragmented
-t_run "$work/scripts/tag-release.sh --dry-run"
+day_run "$work/scripts/tag-release.sh --dry-run"
 t_eq "$t_rc" 0
 t_eq "$(tail -n 1 <<<"$t_out")" v0.1.1
 t_contains "$t_out" "would collect 2 changelog fragments into the Unreleased section of CHANGELOG.md:"
 t_contains "$t_out" "$(printf '%s\n' '    ### Changes' '    ' '    - in the file' '    - from three' '    - from twelve' '    ' '    ### Adopter action' '    ' '    Set TEHAS_TWELVE.')"
-t_contains "$t_out" "would name the Unreleased section of CHANGELOG.md v0.1.1 ($(date -u +%F)) in a pull request"
+t_contains "$t_out" "would name the Unreleased section of CHANGELOG.md v0.1.1 ($(day_of "$t_out")) in a pull request"
 t_eq "$(git -C "$origin" show HEAD:changelog.d/3.md | head -n 1)" "### Changes"
 t_eq "$(t_calls collect)" ""
 
@@ -536,7 +536,7 @@ t_contains "$t_out" "changelog.d/5.md line 1: text outside"
 
 t_case "fragments are collected by the head's own script in a pull request, and nothing is tagged"
 fragmented
-t_run "$work/scripts/tag-release.sh --local-gate"
+day_run "$work/scripts/tag-release.sh --local-gate"
 t_eq "$t_rc" 2
 t_contains "$t_out" "pull/14 readies CHANGELOG.md for v0.1.1; merge it, then tag. Nothing was tagged"
 t_eq "$(tags)" "v0.1.0 "
@@ -547,7 +547,7 @@ t_contains "$(t_calls gh)" "pr create --base main --head changelog-v0.1.1 --titl
 t_contains "$(t_calls gh)" "$(printf '%s\n' '- changelog.d/3.md' '- changelog.d/12.md')"
 # A release: the section the fragments went into is named for it, and a new
 # empty Unreleased goes above it.
-t_eq "$(git -C "$origin" show changelog-v0.1.1:CHANGELOG.md)" "$(printf '%s\n' '# Changelog' '' '## Unreleased' '' "## v0.1.1 ($(date -u +%F))" '' '### Changes' '' '- in the file' '- from three' '- from twelve' '' '### Adopter action' '' 'Set TEHAS_TWELVE.' '' '## v0.1.0 (2026-01-01)' '' '### Adopter action' '' 'None.')"
+t_eq "$(git -C "$origin" show changelog-v0.1.1:CHANGELOG.md)" "$(printf '%s\n' '# Changelog' '' '## Unreleased' '' "## v0.1.1 ($(day_of "$(git -C "$origin" show changelog-v0.1.1:CHANGELOG.md)"))" '' '### Changes' '' '- in the file' '- from three' '- from twelve' '' '### Adopter action' '' 'Set TEHAS_TWELVE.' '' '## v0.1.0 (2026-01-01)' '' '### Adopter action' '' 'None.')"
 t_eq "$(git -C "$origin" ls-tree --name-only changelog-v0.1.1 changelog.d/)" ""
 t_eq "$(git -C "$origin" rev-parse changelog-v0.1.1^)" "$(head_of)"
 t_eq "$(git -C "$work" worktree list | wc -l)" 1
@@ -620,14 +620,14 @@ esac'
 
 t_case "a release without a section of its own gets one in a pull request, with no fragments, and is not tagged"
 named
-t_run "$work/scripts/tag-release.sh --local-gate"
+day_run "$work/scripts/tag-release.sh --local-gate"
 t_eq "$t_rc" 2
 t_contains "$t_out" "pull/15 readies CHANGELOG.md for v0.1.1; merge it, then tag. Nothing was tagged"
 t_eq "$(tags)" "v0.1.0 "
 t_eq "$(t_calls verify)" ran
 t_contains "$(t_calls gh)" "pr create --base main --head changelog-v0.1.1 --title Name the v0.1.1 section of CHANGELOG.md"
 t_lacks "$(t_calls gh)" "changelog.d/"
-t_eq "$(git -C "$origin" show changelog-v0.1.1:CHANGELOG.md)" "$(printf '%s\n' '# Changelog' '' '## Unreleased' '' "## v0.1.1 ($(date -u +%F))" '' '### Changes' '' '- one' '' '### Adopter action' '' 'None.' '' '## v0.1.0 (2026-01-01)' '' '### Adopter action' '' 'None.')"
+t_eq "$(git -C "$origin" show changelog-v0.1.1:CHANGELOG.md)" "$(printf '%s\n' '# Changelog' '' '## Unreleased' '' "## v0.1.1 ($(day_of "$(git -C "$origin" show changelog-v0.1.1:CHANGELOG.md)"))" '' '### Changes' '' '- one' '' '### Adopter action' '' 'None.' '' '## v0.1.0 (2026-01-01)' '' '### Adopter action' '' 'None.')"
 
 t_case "the named head is tagged, and a prerelease after it publishes only what is new"
 g -C "$T/up" fetch --quiet origin changelog-v0.1.1
