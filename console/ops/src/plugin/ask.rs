@@ -7,15 +7,18 @@
 use super::exec::Exec;
 use super::prepare;
 use super::runs::{self, Asked, HookAsk, DISK_REFUSAL};
-use serde_json::Value;
 use std::io::Write;
 use std::path::Path;
 use tehas_core::exit;
-use tehas_core::forge::GhRunner;
-use tehas_core::plugin::hook::open_bot_pull;
+use tehas_core::plugin::hook::open_ours;
 use tehas_core::plugin::run::Trigger;
 use tehas_core::plugin::state::Word;
 use tehas_core::plugin::{self, Cap, Grants, Pin};
+use tehas_ports::{ChangeNo, CodeHost, Got, ALL_MAX};
+
+/// A code host handle on a project, acting as the factory's account whose
+/// login is given: the console's wiring makes it.
+pub type CodeHostOf<'a> = &'a dyn Fn(&str, &str) -> Got<Box<dyn CodeHost + Send>>;
 
 /// The pin and the grants at it, or the exit that says why not.
 fn plugin_of(get: &dyn Fn(&str) -> String, what: &str, name: &str) -> Result<(Pin, Grants), u8> {
@@ -90,7 +93,7 @@ pub fn run(x: &mut dyn Exec, home: &Path, get: &dyn Fn(&str) -> String, name: &s
 
 pub fn hook(
     x: &mut dyn Exec,
-    gh: &mut dyn GhRunner,
+    code_host: CodeHostOf,
     home: &Path,
     get: &dyn Fn(&str) -> String,
     name: &str,
@@ -117,15 +120,18 @@ pub fn hook(
         eprintln!("{what}: running: the hook of {name} on #{pr} runs");
         return exit::NO;
     }
-    let path = format!("repos/{repo}/pulls/{pr}");
-    let pull = match gh.run(&["api", &path]) {
-        Ok(out) => serde_json::from_str::<Value>(&out).unwrap_or(Value::Null),
+    let Some(no) = ChangeNo::new(pr) else {
+        eprintln!("{what}: #{pr} is no open pull request of the bot's in {repo}");
+        return exit::NO;
+    };
+    let change = match code_host(&repo, &bot).and_then(|mut h| h.change(no, ALL_MAX)) {
+        Ok(change) => change,
         Err(why) => {
-            eprintln!("{what}: GitHub did not answer for #{pr}: {why}");
+            eprintln!("{what}: GitHub did not answer for #{pr}: {}", why.line());
             return exit::FAILED;
         }
     };
-    let Some((head, base)) = open_bot_pull(&pull, &repo, &bot) else {
+    let Some((head, base)) = open_ours(&change.digest) else {
         eprintln!("{what}: #{pr} is no open pull request of the bot's in {repo}");
         return exit::NO;
     };
@@ -189,14 +195,13 @@ fn shown(bytes: &[u8]) -> String {
 mod tests {
     use super::super::exec::fake::{ok, Fake};
     use super::*;
-    use serde_json::json;
     use std::collections::BTreeMap;
     use tehas_core::plugin::state::State;
     use tehas_core::testdir::TestDir;
+    use tehas_ports::fake::{ChangeSpec, CodeHostOp, FakeSite, Fault, Faulty, Op, World};
+    use tehas_ports::{Actor, At, Caller, ChangeState, Scope, Site};
 
     const C: &str = "0123456789abcdef0123456789abcdef01234567";
-    const H: &str = "89abcdef0123456789abcdef0123456789abcdef";
-    const B: &str = "fedcba9876543210fedcba9876543210fedcba98";
     const URL: &str = "https://github.com/tehas-app/tehas-plugin-floorplan";
 
     fn vars(more: &[(&str, &str)]) -> impl Fn(&str) -> String {
@@ -223,21 +228,32 @@ mod tests {
         home
     }
 
-    struct Gh(Result<String, String>);
-    impl GhRunner for Gh {
-        fn run(&mut self, args: &[&str]) -> Result<String, String> {
-            assert_eq!(args, ["api", "repos/acme/widget/pulls/42"]);
-            self.0.clone()
+    /// Change 42 of the factory's account from `feature/issue-7`, open,
+    /// built further by `f`.
+    fn world(f: impl FnOnce(ChangeSpec) -> ChangeSpec) -> World {
+        World::new().change(42, "feature/issue-7", f)
+    }
+
+    /// The code host of `w`, as the factory's account, on acme/widget for
+    /// the bot the settings name.
+    fn site(w: &World) -> impl Fn(&str, &str) -> Got<Box<dyn CodeHost + Send>> + '_ {
+        move |repo: &str, bot: &str| {
+            assert_eq!((repo, bot), ("acme/widget", "acme-bot[bot]"));
+            FakeSite::new(w).code_host(&Actor::Ours(Scope::Full), Caller::new("plugin-hook"))
         }
     }
 
-    fn pull() -> Value {
-        json!({
-            "state": "open", "merged": false,
-            "user": {"login": "acme-bot[bot]"},
-            "head": {"sha": H, "repo": {"full_name": "acme/widget"}},
-            "base": {"sha": B},
-        })
+    /// The head and base commits of change 42 in `w`.
+    fn sides(w: &World) -> (String, String) {
+        let c = FakeSite::new(w)
+            .code_host(&Actor::Operator, Caller::new("test"))
+            .unwrap()
+            .change(ChangeNo::new(42).unwrap(), ALL_MAX)
+            .unwrap();
+        (
+            c.digest.head_commit.as_str().to_string(),
+            c.digest.base_commit.as_str().to_string(),
+        )
     }
 
     #[test]
@@ -274,44 +290,61 @@ mod tests {
         let home = home_with("plugin-ask-hook", Some(State::new(Word::Ready, C)));
         let mut x = Fake::new();
         x.on("systemctl", ok(""));
-        let mut gh = Gh(Ok(pull().to_string()));
-        assert_eq!(hook(&mut x, &mut gh, &home, &vars(&[]), "floorplan", 42), 0);
+        let w = world(|c| c);
+        assert_eq!(
+            hook(&mut x, &site(&w), &home, &vars(&[]), "floorplan", 42),
+            0
+        );
         let asked = runs::read_hook(&home, "floorplan", 42).unwrap();
-        assert_eq!((asked.head.as_str(), asked.base.as_str()), (H, B));
+        assert_eq!((asked.head, asked.base), sides(&w));
         assert_eq!(asked.trigger, Trigger::Host);
         assert_eq!(
             x.ran,
             ["systemctl --user start --no-block tehas-plugin-hook@floorplan-42.service"]
         );
-        for (ptr, v) in [
-            ("/state", json!("closed")),
-            ("/merged", json!(true)),
-            ("/user/login", json!("someone")),
-            ("/head/repo/full_name", json!("fork/widget")),
+        let closed = ChangeState::Closed { at: At::new(1) };
+        let merged = ChangeState::Merged {
+            at: At::new(1),
+            by: None,
+            commit: None,
+        };
+        for (what, w) in [
+            ("closed", world(|c| c.state(closed))),
+            ("merged", world(|c| c.state(merged))),
+            ("someone's", world(|c| c.author("someone"))),
         ] {
-            let mut p = pull();
-            *p.pointer_mut(ptr).unwrap() = v;
-            let mut gh = Gh(Ok(p.to_string()));
             assert_eq!(
-                hook(&mut x, &mut gh, &home, &vars(&[]), "floorplan", 42),
+                hook(&mut x, &site(&w), &home, &vars(&[]), "floorplan", 42),
                 3,
-                "{ptr}"
+                "{what}"
             );
         }
-        let mut down = Gh(Err("timeout".into()));
+        let none = World::new();
         assert_eq!(
-            hook(&mut x, &mut down, &home, &vars(&[]), "floorplan", 42),
-            1
+            hook(&mut x, &site(&none), &home, &vars(&[]), "floorplan", 42),
+            1,
+            "no such change"
         );
+        let down =
+            Faulty::new(FakeSite::new(&w)).on(Op::CodeHost(CodeHostOp::Change), Fault::Timeout);
+        let down = move |_: &str, _: &str| {
+            down.code_host(&Actor::Ours(Scope::Full), Caller::new("plugin-hook"))
+        };
+        assert_eq!(hook(&mut x, &down, &home, &vars(&[]), "floorplan", 42), 1);
         let no_hook = vars(&[("TEHAS_PLUGIN_GRANTS_FLOORPLAN", &format!("{C} product"))]);
-        assert_eq!(hook(&mut x, &mut gh, &home, &no_hook, "floorplan", 42), 3);
+        assert_eq!(hook(&mut x, &site(&w), &home, &no_hook, "floorplan", 42), 3);
         let no_repo = vars(&[("TEHAS_REPO", "")]);
-        assert_eq!(hook(&mut x, &mut gh, &home, &no_repo, "floorplan", 42), 78);
+        assert_eq!(
+            hook(&mut x, &site(&w), &home, &no_repo, "floorplan", 42),
+            78
+        );
         std::fs::create_dir_all(runs::hooks(&home, "floorplan")).unwrap();
         let lock = std::fs::File::create(runs::hook_lock(&home, "floorplan", 42)).unwrap();
         lock.lock().unwrap();
-        let mut gh = Gh(Ok(pull().to_string()));
-        assert_eq!(hook(&mut x, &mut gh, &home, &vars(&[]), "floorplan", 42), 3);
+        assert_eq!(
+            hook(&mut x, &site(&w), &home, &vars(&[]), "floorplan", 42),
+            3
+        );
     }
 
     #[test]

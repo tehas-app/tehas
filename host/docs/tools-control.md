@@ -309,7 +309,10 @@ the base images.
 Exit 0; 1 the fetch or the read failed; 3 refused, with why; 64; 78.
 
 `run` asks for a refresh now and `hook` for the plugin's hook on an open pull
-request of the bot's, at its current head. Each writes a request under
+request of the bot's, at its current head. The bot's means its author is the
+factory's account by the id `~/tehas/state/account-ids` records for
+`TEHAS_BOT_LOGIN`, not by the login alone, and its head is in the repository
+itself. Each writes a request under
 `~/tehas/plugins/<name>/` and starts a unit with `systemctl --user start
 --no-block`, and waits for nothing: `tehas-plugin@<name>.service` for a
 refresh, `tehas-plugin-hook@<name>-<pr>.service` for a hook. Exit 0 asked; 3

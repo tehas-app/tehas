@@ -194,7 +194,7 @@ pub fn tehas(given: &[String]) -> u8 {
         "top" => top::view(rest),
         "api" => api::main(rest),
         "labels" => labels::main(rest),
-        "plugin" => tehas_ops::plugin::main(rest),
+        "plugin" => tehas_ops::plugin::main(rest, &crate::wiring::code_host),
         "host-message" => host_message::main(rest),
         "resume" => holds::resume(rest, &mut *control_tickets()),
         "drain" => holds::drain(rest),
