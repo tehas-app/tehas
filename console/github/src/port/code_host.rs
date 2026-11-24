@@ -47,7 +47,11 @@ impl CodeHost for GitHub {
 
     /// One GraphQL question a page of the repository's pull requests, oldest
     /// first, so a change opened while the pages are read lands on a later
-    /// page and none moves past the cursor. The states, the branch and the
+    /// page and none moves past the cursor. With a since, newest updated
+    /// first, to the first pull request updated before the latest since (a
+    /// merge updates its pull request); the times must not rise down the
+    /// list, and past one page the first is asked again and must not have
+    /// moved. The states, the branch and the
     /// labels of the marks carried narrow the question; the author (by
     /// account id), the blueprints closed, the numbers, the times and every
     /// mark carried narrow what it answers. A mark no label can be is
@@ -64,26 +68,43 @@ impl CodeHost for GitHub {
             .map(|m| super::label_of(m).map(|l| Value::String(l).to_string()))
             .collect::<Got<Vec<String>>>()?;
         let me = matches!(filter.author, Some(Author::Me));
-        let query = format!("query={}", changes_query(filter.states, me, &labels));
+        let since = filter.merged_since.max(filter.updated_since);
+        let query = format!(
+            "query={}",
+            changes_query(filter.states, me, &labels, since.is_some())
+        );
         let (owner, name) = self.repo.split_once('/').unwrap_or((&self.repo, ""));
         let (owner, name) = (format!("owner={owner}"), format!("name={name}"));
         let head = filter.head.as_ref().map(|h| format!("head={}", h.as_str()));
-        let mut taken = Vec::new();
-        let mut numbers = BTreeSet::new();
-        let mut cursors = BTreeSet::new();
-        let mut after: Option<String> = None;
-        for pages in 1.. {
-            let from = after.as_ref().map(|c| format!("after={c}"));
+        let ask = |gh: &mut Self, after: Option<&String>| -> Got<Page> {
+            let from = after.map(|c| format!("after={c}"));
             let mut args = vec!["api", "graphql", "-f", &owner, "-f", &name];
             for var in [&head, &from].into_iter().flatten() {
                 args.extend(["-f", var.as_str()]);
             }
             args.extend(["-f", &query]);
-            let out = match self.call("the pull requests", &args) {
-                Ok(out) => out,
-                Err(e) => return Err(self.query_outcome(&e)),
-            };
-            let page = read_page(&out, me, filter, self.bot.as_ref())?;
+            match gh.call("the pull requests", &args) {
+                Ok(out) => read_page(&out, me, filter, gh.bot.as_ref()),
+                Err(e) => Err(gh.query_outcome(&e)),
+            }
+        };
+        let mut taken = Vec::new();
+        let mut numbers = BTreeSet::new();
+        let mut cursors = BTreeSet::new();
+        let mut after: Option<String> = None;
+        let mut first = None;
+        let mut last: Option<At> = None;
+        for pages in 1.. {
+            let page = ask(self, after.as_ref())?;
+            if since.is_some() && first.get_or_insert(page.top()).0 != page.total {
+                return Err(Outcome::Unread(Unread::Inconsistent));
+            }
+            for at in &page.updated {
+                if last.is_some_and(|l| *at > l) {
+                    return Err(Outcome::Unread(Unread::Inconsistent));
+                }
+                last = Some(*at);
+            }
             for no in page.numbers {
                 if !numbers.insert(no) {
                     return Err(Outcome::Unread(Unread::Inconsistent));
@@ -100,9 +121,13 @@ impl CodeHost for GitHub {
                     return Err(Outcome::Unread(Unread::Cut));
                 }
             }
+            let past = since.is_some_and(|s| last.is_some_and(|l| l < s));
             match page.next {
                 None if numbers.len() as u64 == page.total => break,
                 None => return Err(Outcome::Unread(Unread::Inconsistent)),
+                Some(_) if past && pages == 1 => break,
+                Some(_) if past && first == Some(ask(self, None)?.top()) => break,
+                Some(_) if past => return Err(Outcome::Unread(Unread::Inconsistent)),
                 Some(c) if !cursors.insert(c.clone()) => {
                     return Err(Outcome::Unread(Unread::Inconsistent));
                 }
@@ -314,8 +339,8 @@ fn read_facts(out: &str, repo: &str) -> Option<Facts> {
 
 /// The GraphQL question of one page of pull requests in `states`, carrying
 /// one of `labels` (each a GraphQL string) when given, with the account
-/// asking when `me`.
-fn changes_query(states: ChangeStates, me: bool, labels: &[String]) -> String {
+/// asking when `me`. Newest updated first when `recent`, else oldest created first.
+fn changes_query(states: ChangeStates, me: bool, labels: &[String], recent: bool) -> String {
     let states = match states {
         ChangeStates::Open => "OPEN",
         ChangeStates::Merged => "MERGED",
@@ -327,9 +352,13 @@ fn changes_query(states: ChangeStates, me: bool, labels: &[String]) -> String {
         true => String::new(),
         false => format!(", labels: [{}]", labels.join(", ")),
     };
+    let order = match recent {
+        true => "UPDATED_AT, direction: DESC",
+        false => "CREATED_AT, direction: ASC",
+    };
     let account = "{ __typename login ... on User { databaseId } ... on Bot { databaseId } }";
     format!(
-        "query($owner: String!, $name: String!, $head: String, $after: String) {{ {viewer}repository(owner: $owner, name: $name) {{ databaseId pullRequests(first: 100, after: $after, headRefName: $head{labels}, states: [{states}], orderBy: {{field: CREATED_AT, direction: ASC}}) {{ totalCount pageInfo {{ hasNextPage endCursor }} nodes {{ number title state isDraft isCrossRepository headRefName headRefOid baseRefName baseRefOid createdAt updatedAt mergedAt closedAt lastEditedAt additions deletions changedFiles mergeable mergeStateStatus url author {account} editor {account} mergedBy {account} mergeCommit {{ oid }} labels(first: 100) {{ totalCount nodes {{ name }} }} closingIssuesReferences(first: 100) {{ totalCount nodes {{ number repository {{ databaseId nameWithOwner }} }} }} }} }} }} }}"
+        "query($owner: String!, $name: String!, $head: String, $after: String) {{ {viewer}repository(owner: $owner, name: $name) {{ databaseId pullRequests(first: 100, after: $after, headRefName: $head{labels}, states: [{states}], orderBy: {{field: {order}}}) {{ totalCount pageInfo {{ hasNextPage endCursor }} nodes {{ number title state isDraft isCrossRepository headRefName headRefOid baseRefName baseRefOid createdAt updatedAt mergedAt closedAt lastEditedAt additions deletions changedFiles mergeable mergeStateStatus url author {account} editor {account} mergedBy {account} mergeCommit {{ oid }} labels(first: 100) {{ totalCount nodes {{ name }} }} closingIssuesReferences(first: 100) {{ totalCount nodes {{ number repository {{ databaseId nameWithOwner }} }} }} }} }} }} }}"
     )
 }
 
@@ -345,8 +374,22 @@ struct Page {
     next: Option<String>,
     /// The number of every pull request on the page, taken or not.
     numbers: Vec<ChangeNo>,
+    /// The updated time of every pull request on the page, when the filter
+    /// carries a since.
+    updated: Vec<At>,
     /// The pull requests the filter takes, each read whole.
     pulls: Vec<Pull>,
+}
+
+impl Page {
+    /// The total and the first pull request with its updated time.
+    fn top(&self) -> (u64, Option<ChangeNo>, Option<At>) {
+        (
+            self.total,
+            self.numbers.first().copied(),
+            self.updated.first().copied(),
+        )
+    }
 }
 
 /// One pull request, read: its digest with no marks yet, and its labels to
@@ -492,6 +535,7 @@ fn read_page(
         return Err(Outcome::Unread(Unread::Inconsistent));
     }
     let mut numbers = Vec::with_capacity(nodes.len());
+    let mut updated = Vec::new();
     let mut pulls = Vec::new();
     for n in nodes {
         let text = |k: &str| n.get(k).and_then(Value::as_str).ok_or(malformed.clone());
@@ -568,7 +612,7 @@ fn read_page(
                 Some(_) => Some(text("headRefName")?),
                 None => None,
             },
-            updated: match f.updated_since {
+            updated: match f.updated_since.or(f.merged_since) {
                 Some(_) => Some(at("updatedAt")?.ok_or(malformed.clone())?),
                 None => None,
             },
@@ -578,6 +622,7 @@ fn read_page(
                 closes()?
             },
         };
+        updated.extend(lead.updated);
         if !takes(f, viewer.as_ref(), &lead) {
             continue;
         }
@@ -638,6 +683,7 @@ fn read_page(
         total,
         next,
         numbers,
+        updated,
         pulls,
     })
 }
