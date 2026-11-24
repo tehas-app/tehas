@@ -30,7 +30,7 @@ impl GitHub {
 /// of letters, digits and inner single dashes, at most 39; a name of
 /// letters, digits, `-`, `_` and `.`, at most 100, not `.` or `..`, not
 /// ending in `.git`; neither starting with a dash.
-fn parts(repo: &str) -> Option<(&str, &str)> {
+pub(in crate::port) fn parts(repo: &str) -> Option<(&str, &str)> {
     let (owner, name) = repo.split_once('/')?;
     let owner_ok = !owner.is_empty()
         && owner.len() <= 39

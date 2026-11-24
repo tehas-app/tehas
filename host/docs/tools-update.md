@@ -281,10 +281,8 @@ records ignoring case too: a pair of the login in another case is its pair, so a
 case in the settings meets the check below, and the recorded pair is kept
 under the login as the settings write it, in place of every other case.
 
-Which logins are allowed is matched ignoring ASCII case by `tehas resume`,
-`tehas plan`, `tehas dev` and a cycle started by hand. The dispatcher still
-matches `TEHAS_ALLOWED_LABELERS` in exact case, so write each login there as
-GitHub spells it.
+Which logins are allowed is matched ignoring ASCII case, by the dispatcher
+as by `tehas resume`, `tehas plan`, `tehas dev` and a cycle started by hand.
 
 - A login that does not resolve stops `install.sh` and `tehas update` with 78
   and names it. Take it out of the settings or correct it.

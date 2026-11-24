@@ -85,6 +85,10 @@ pub struct Bounded {
     pub bound: std::time::Duration,
     /// The grace between TERM and KILL, as `timeout -k` gives.
     pub grace: std::time::Duration,
+    /// The token a poll took, handed to the shim as `TEHAS_GH_TOKEN`
+    /// (`call::gh_env`), so it asks for none of its own. Never in an
+    /// argument, a log or a reason.
+    pub token: Option<String>,
 }
 
 impl Bounded {
@@ -96,6 +100,7 @@ impl Bounded {
             program: program.into(),
             bound,
             grace: std::time::Duration::from_secs(5),
+            token: None,
         }
     }
 }
@@ -126,6 +131,7 @@ impl Bounded {
         let mut child = Command::new(&self.program)
             .args(args)
             .env(GH_NO_RETRY.0, GH_NO_RETRY.1)
+            .envs(crate::call::gh_env(self.token.as_deref()))
             .stdin(if input.is_some() {
                 Stdio::piped()
             } else {
@@ -363,6 +369,19 @@ mod tests {
         Bounded::new(program.to_str().unwrap(), Duration::from_secs(10))
     }
 
+    /// A poll's token goes to the shim in `TEHAS_GH_TOKEN` and nowhere else;
+    /// a runner given none gives none.
+    #[test]
+    fn a_token_goes_in_the_environment_never_into_an_argument() {
+        let d = crate::testdir::TestDir::new("forge-token");
+        let mut runner = recording(&d, "printf '%s' \"${TEHAS_GH_TOKEN:-none}\"");
+        assert_eq!(runner.run(&["api", "x"]).unwrap(), "none");
+        runner.token = Some("t0ken".into());
+        assert_eq!(runner.run(&["api", "x"]).unwrap(), "t0ken");
+        let args = std::fs::read_to_string(d.join("args")).unwrap();
+        assert!(!args.contains("t0ken"), "{args}");
+    }
+
     #[test]
     fn an_input_goes_on_standard_input_and_never_into_an_argument() {
         let d = crate::testdir::TestDir::new("forge-run-input");
@@ -397,6 +416,7 @@ mod tests {
             program: program.to_str().unwrap().to_string(),
             bound: Duration::from_secs(1),
             grace: Duration::from_secs(1),
+            token: None,
         };
         let began = Instant::now();
         let got = runner.run_input(&["api", "x"], &"x".repeat(1 << 20));
@@ -418,6 +438,7 @@ mod tests {
             program: program.to_str().unwrap().to_string(),
             bound: Duration::from_secs(1),
             grace: Duration::from_secs(1),
+            token: None,
         };
         let began = Instant::now();
         let got = runner.run(&["api", "x"]);

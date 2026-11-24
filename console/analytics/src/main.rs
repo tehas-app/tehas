@@ -454,7 +454,10 @@ pub fn execute(home: &Path, cmd: &Cmd, now: i64) -> Result<(), (u8, String)> {
         Cmd::Report | Cmd::ReportText => {
             let report = report::complete(&conn, home, now)?;
             if matches!(cmd, Cmd::Report) {
-                tehas_core::outln!("{report}");
+                // Through a JSON value, so the keys print sorted as they always have.
+                let json = serde_json::to_value(&report)
+                    .map_err(|e| (70, format!("the report could not be written: {e}")))?;
+                tehas_core::outln!("{json}");
             } else {
                 tehas_core::out!("{}", report::text(&report));
             }

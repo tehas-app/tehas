@@ -86,7 +86,7 @@ mod tests {
         let home = std::env::temp_dir().join(format!("tehas-wake-{}", std::process::id()));
         std::fs::create_dir_all(Home::new(&home).state_dir()).unwrap();
         let again = ask(&home).unwrap();
-        assert_eq!(again, home.join("state/dispatch.again"));
+        assert_eq!(again, Home::new(&home).state(State::DispatchAgain));
         assert!(again.is_file());
         // A second ask while the first waits is the same one ask.
         assert_eq!(ask(&home).unwrap(), again);

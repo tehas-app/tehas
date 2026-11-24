@@ -6,7 +6,7 @@ use crate::verbs::{j, obj};
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
-use tehas_core::home::Home;
+use tehas_core::home::{Home, CYCLES};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Lock {
@@ -84,9 +84,9 @@ pub fn probe(home: &Path, issue: i64, open_row: bool) -> Lock {
     };
     match fs::symlink_metadata(dir(home)) {
         Ok(m) if m.is_dir() => {}
-        Ok(_) => return Lock::unknown(false, "state/cycles is not a directory".to_string()),
+        Ok(_) => return Lock::unknown(false, format!("{CYCLES} is not a directory")),
         Err(e) if e.kind() == ErrorKind::NotFound => return absent(),
-        Err(e) => return Lock::unknown(false, format!("state/cycles: {e}")),
+        Err(e) => return Lock::unknown(false, format!("{CYCLES}: {e}")),
     }
     probe_file(&path(home, issue)).unwrap_or_else(absent)
 }
@@ -117,14 +117,14 @@ pub fn listed(home: &Path) -> Result<Vec<i64>, String> {
     let d = dir(home);
     match fs::symlink_metadata(&d) {
         Ok(m) if m.is_dir() => {}
-        Ok(_) => return Err("state/cycles is not a directory".to_string()),
+        Ok(_) => return Err(format!("{CYCLES} is not a directory")),
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(e) => return Err(format!("state/cycles: {e}")),
+        Err(e) => return Err(format!("{CYCLES}: {e}")),
     }
-    let entries = fs::read_dir(&d).map_err(|e| format!("state/cycles: {e}"))?;
+    let entries = fs::read_dir(&d).map_err(|e| format!("{CYCLES}: {e}"))?;
     let mut found = Vec::new();
     for entry in entries {
-        let entry = entry.map_err(|e| format!("state/cycles: {e}"))?;
+        let entry = entry.map_err(|e| format!("{CYCLES}: {e}"))?;
         let name = entry.file_name();
         let Some(name) = name.to_str() else { continue };
         if let Some(n) = name.strip_suffix(".lock").and_then(crate::verbs::number) {

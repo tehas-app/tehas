@@ -86,7 +86,25 @@ pub struct Writer {
     pub asked_again: bool,
     /// The events the writes raise (src/events.rs).
     pub events: tehas_ports::events::Dispatcher,
+    /// The ports the poll writes through and settles a row of the ports
+    /// with, from the program's wiring. None when the wiring could not make
+    /// them: a row of the ports then stays open for the next poll.
+    pub ports: Option<Handles>,
 }
+
+pub use tehas_core::journal::Handles;
+
+/// The wiring's handles of repository `repo` for the factory of `home`: the
+/// program `gh` given the poll's token, when it took one, each call bounded
+/// by `bound`. The library names no adapter (R8): the program's main.rs
+/// makes them.
+pub type HandlesOf = fn(
+    home: &Path,
+    repo: &str,
+    gh: &str,
+    token: Option<&str>,
+    bound: Duration,
+) -> tehas_ports::Got<Handles>;
 
 /// What the settle's read found of an open write that this poll may decide
 /// to make again.
