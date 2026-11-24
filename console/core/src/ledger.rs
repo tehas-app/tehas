@@ -430,6 +430,12 @@ mod tests {
         assert_eq!(l.put_budget(&host(), &ours, Pool::Calls, b), Ok(()));
     }
 
+    /// The lock's wait in a race: sixteen writes, each with two fsyncs, can
+    /// take longer than the 5 s of `WAIT` on a slow disk, and a write past it
+    /// is down by contract. A race tests what the lock keeps; the wait has a
+    /// test of its own.
+    const RACE_WAIT: Duration = Duration::from_secs(120);
+
     /// `n` threads, each with a ledger of its own over one home, as `n`
     /// processes are, started together; each answers what `call` did.
     fn race<T: Send + 'static>(
@@ -443,7 +449,7 @@ mod tests {
             .map(|i| {
                 let (root, call, start) = (h.root().to_path_buf(), call.clone(), start.clone());
                 std::thread::spawn(move || {
-                    let l = FileLedger::new(&Home::new(root));
+                    let l = FileLedger::new(&Home::new(root)).with_wait(RACE_WAIT);
                     start.wait();
                     call(&l, i)
                 })

@@ -174,7 +174,7 @@ pub fn deadline(now: i64, limit: u64) -> Option<i64> {
 /// gate, and every cycle is a fresh clone, so a lean run never finds a state
 /// file to discard. The dispatcher takes needs-human-attention off a lean start
 /// itself; on classic the cycle takes it off before the runner starts.
-pub fn run_flags(limit: u64, restart: bool, refresh: bool, driver: Driver) -> Vec<String> {
+fn run_flags(limit: u64, restart: bool, refresh: bool, driver: Driver) -> Vec<String> {
     let mut flags = vec![
         "--timeout".to_string(),
         limit.div_ceil(60).to_string(),
@@ -249,7 +249,7 @@ const NEVER_TAKEN: &str = "never-taken ";
 
 /// The lines of an unsupported answer, each flag the driver never takes marked
 /// with [`NEVER_TAKEN`].
-pub fn mark_never_taken(lacking: &str, driver: Driver) -> String {
+fn mark_never_taken(lacking: &str, driver: Driver) -> String {
     lacking
         .lines()
         .map(|l| match l.strip_prefix("the flag ") {
@@ -812,7 +812,7 @@ fn make_tree(tree: &str, state_dir: &str, branch: &str, depth: u32, set: &mut As
 
 /// The first line that is no comment and not empty: what a product names as its
 /// gate in .pi/verify-cmd.
-pub fn gate_line(text: &str) -> Option<&str> {
+fn gate_line(text: &str) -> Option<&str> {
     text.lines()
         .find(|l| !l.trim().is_empty() && !l.trim_start().starts_with('#'))
 }
@@ -1164,7 +1164,7 @@ pub fn unjudged(head: &str, pr: u64, said: Option<&str>) -> Option<String> {
 }
 
 /// Whether `head` is the 40 hexadecimal digits of a commit.
-pub fn is_commit(head: &str) -> bool {
+fn is_commit(head: &str) -> bool {
     tehas_core::grammar::commit_id(head)
 }
 

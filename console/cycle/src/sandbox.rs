@@ -6,6 +6,7 @@
 //! `smoke-run` is the build's: one offline work turn started inside an image
 //! that would take the uid tag, and the decision on what that turn printed.
 
+use crate::loose::Node;
 use crate::runner;
 use std::io::{self, Read, Write};
 use std::process::{Command, Stdio};
@@ -40,9 +41,9 @@ impl Smoke {
     }
 }
 
-fn crash_document(v: &serde_json::Value) -> bool {
-    v.get("schemaVersion").and_then(serde_json::Value::as_u64) == Some(runner::RESULT_SCHEMA)
-        && v.pointer("/error/code").and_then(serde_json::Value::as_str) == Some("crash")
+fn crash_document(v: &runner::RunResult) -> bool {
+    v.schema_version.get().and_then(serde_json::Number::as_u64) == Some(runner::RESULT_SCHEMA)
+        && v.error.object().map(|e| e.code.str()) == Some("crash")
 }
 
 /// What the whole output of one offline `work` turn in an image says of it.
@@ -53,17 +54,16 @@ fn crash_document(v: &serde_json::Value) -> bool {
 /// the whole output, one line or printed indented, so a crash document after
 /// `docker: command not found` answers nothing.
 fn smoke_verdict(text: &str) -> Smoke {
-    let started = runner::stable(text).any(|v| {
-        v.get("kind").and_then(serde_json::Value::as_str) == Some("step-started")
-            && !runner::hides(v.get("event"))
-    });
+    let started = runner::stable(text).any(|v| v.is("step-started") && !v.event.hides());
     if started {
         return Smoke::Started;
     }
     let head = text.trim_start();
-    let mut de = serde_json::Deserializer::from_str(head).into_iter::<serde_json::Value>();
+    let mut de = serde_json::Deserializer::from_str(head).into_iter::<Node<runner::RunResult>>();
     match de.next() {
-        Some(Ok(v)) if head[de.byte_offset()..].trim().is_empty() && crash_document(&v) => {
+        Some(Ok(Node::Object(v)))
+            if head[de.byte_offset()..].trim().is_empty() && crash_document(&v) =>
+        {
             Smoke::Crashed
         }
         _ => Smoke::Silent,
