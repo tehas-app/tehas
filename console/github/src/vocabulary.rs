@@ -1,8 +1,8 @@
 //! The words the site holds: the repository's labels, each with its node
 //! id, as `Tickets::marks` answers them, and the owner's issue types, as
 //! `Tickets::kinds` answers them. Each is a GraphQL question paged here to
-//! its end, or one past the bound. One label is read with its colour and
-//! text too, for `TicketWrites::prepare_one`.
+//! its end, or one past the bound. The labels are read with their colours and
+//! texts too, one or all, for `TicketWrites::prepare_one` and `prepare`.
 
 use serde::Deserialize;
 
@@ -20,6 +20,9 @@ const LABELS: &str = "query($owner: String!, $name: String!, $cursor: String) { 
 
 /// One label of the repository by its name, with its colour and text.
 const LABEL: &str = "query($owner: String!, $name: String!, $label: String!) { repository(owner: $owner, name: $name) { label(name: $label) { name color description } } }";
+
+/// Every label of the repository with its colour and text, a page of them.
+const LABELS_HELD: &str = "query($owner: String!, $name: String!, $cursor: String) { repository(owner: $owner, name: $name) { labels(first: 100, after: $cursor, orderBy: {field: NAME, direction: ASC}) { pageInfo { hasNextPage endCursor } nodes { name color description } } } }";
 
 /// The issue types of the repository's owner, a page of them.
 const ISSUE_TYPES: &str = "query($owner: String!, $name: String!, $cursor: String) { repository(owner: $owner, name: $name) { issueTypes(first: 100, after: $cursor) { pageInfo { hasNextPage endCursor } nodes { name } } } }";
@@ -66,17 +69,24 @@ struct LabelRepo {
 }
 
 #[derive(Deserialize)]
-struct LabelAnswer {
+struct LabelsRepo {
+    labels: Page<LabelHeld>,
+}
+
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "T: Deserialize<'de>"))]
+struct RepoAnswer<T> {
     #[serde(deserialize_with = "crate::ticket::present")]
-    data: Option<LabelData>,
+    data: Option<RepoData<T>>,
     #[serde(default)]
     errors: Option<Vec<serde::de::IgnoredAny>>,
 }
 
 #[derive(Deserialize)]
-struct LabelData {
+#[serde(bound(deserialize = "T: Deserialize<'de>"))]
+struct RepoData<T> {
     #[serde(deserialize_with = "crate::ticket::present")]
-    repository: Option<LabelRepo>,
+    repository: Option<T>,
 }
 
 #[derive(Deserialize)]
@@ -143,25 +153,9 @@ impl GitHub {
     /// gone is `NotFound`, and an answer with errors in it is
     /// `Unread(Inconsistent)`.
     pub(crate) fn label_held(&mut self, name: &str) -> Got<Option<LabelHeld>> {
-        let (owner, repo) = self.owner_name();
         let label = format!("label={name}");
-        let query = format!("query={LABEL}");
-        let args = [
-            "api", "graphql", "-F", &owner, "-F", &repo, "-f", &label, "-f", &query,
-        ];
-        let out = match self.call_answer("the label", &args) {
-            Ok(out) => out,
-            Err((e, said)) => {
-                let path = format!("repos/{}", self.repo);
-                return Err(self.question_outcome(&e, said.as_deref(), &path));
-            }
-        };
-        let answer: LabelAnswer = serde_json::from_str(out.trim()).map_err(|_| MALFORMED)?;
-        if answer.errors.is_some_and(|e| !e.is_empty()) {
-            return Err(INCONSISTENT);
-        }
-        let repository = answer.data.ok_or(MALFORMED)?.repository;
-        let held = repository.ok_or(Outcome::NotFound)?.label;
+        let repository: LabelRepo = self.ask_repository("the label", LABEL, &[&label])?;
+        let held = repository.label;
         if held
             .as_ref()
             .is_some_and(|h| !h.name.eq_ignore_ascii_case(name))
@@ -169,6 +163,66 @@ impl GitHub {
             return Err(INCONSISTENT);
         }
         Ok(held)
+    }
+
+    /// Every label of the repository with its colour and text, in name
+    /// order, as [`GitHub::label_held`] reads one. More than `ALL_MAX` is
+    /// `Unread(Cut)`.
+    pub(crate) fn labels_held(&mut self) -> Got<Vec<LabelHeld>> {
+        let mut all = Vec::new();
+        let mut pages = Pages::default();
+        let mut cursor: Option<String> = None;
+        loop {
+            let from = cursor.as_ref().map(|c| format!("cursor={c}"));
+            let fields: Vec<&str> = from.iter().map(String::as_str).collect();
+            let repository: LabelsRepo = self.ask_repository("the labels", LABELS_HELD, &fields)?;
+            for l in repository.labels.nodes {
+                all.push(l.ok_or(INCONSISTENT)?);
+            }
+            if all.len() > tehas_ports::ALL_MAX.get() as usize {
+                return Err(CUT);
+            }
+            match pages.next(repository.labels.page_info)? {
+                Some(next) => cursor = Some(next),
+                None => break,
+            }
+        }
+        Ok(all)
+    }
+
+    /// The repository's part of the answer to `question`, asked with the
+    /// `-f` fields given. A failure is read as gh's answer beside it says
+    /// (`question_outcome`); a repository that is gone is `NotFound`, and
+    /// an answer with errors in it is `Unread(Inconsistent)`.
+    fn ask_repository<T: serde::de::DeserializeOwned>(
+        &mut self,
+        call: &str,
+        question: &str,
+        fields: &[&str],
+    ) -> Got<T> {
+        let (owner, repo) = self.owner_name();
+        let query = format!("query={question}");
+        let mut args = vec!["api", "graphql", "-F", &owner, "-F", &repo];
+        for f in fields {
+            args.extend(["-f", f]);
+        }
+        args.extend(["-f", &query]);
+        let out = match self.call_answer(call, &args) {
+            Ok(out) => out,
+            Err((e, said)) => {
+                let path = format!("repos/{}", self.repo);
+                return Err(self.question_outcome(&e, said.as_deref(), &path));
+            }
+        };
+        let answer: RepoAnswer<T> = serde_json::from_str(out.trim()).map_err(|_| MALFORMED)?;
+        if answer.errors.is_some_and(|e| !e.is_empty()) {
+            return Err(INCONSISTENT);
+        }
+        answer
+            .data
+            .ok_or(MALFORMED)?
+            .repository
+            .ok_or(Outcome::NotFound)
     }
 
     /// The owner's issue types as kinds, each once, in the site's order:
