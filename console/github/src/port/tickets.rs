@@ -1,8 +1,9 @@
 //! The tickets port's reads, `Tickets`. Answered: one ticket to a depth
 //! (`ticket`), the tickets a filter takes (`list`), a ticket's digest
-//! (`several`), its history of every kind (`history`), its parts
-//! (`parts`), the site's marks with their ids (`marks`) and its types of
-//! ticket (`kinds`).
+//! (`several`), with its closer (`several_with_closers`), the tickets
+//! closed since a time (`closed_since`), its history of every kind
+//! (`history`), its parts (`parts`), the site's marks with their ids
+//! (`marks`) and its types of ticket (`kinds`).
 
 use std::num::{NonZeroU32, NonZeroU64};
 
@@ -53,8 +54,9 @@ impl Tickets for GitHub {
         keys.iter().map(|k| (k.clone(), self.digest(k))).collect()
     }
 
+    /// One GraphQL question for up to a hundred issues, an alias each.
     fn several_with_closers(&mut self, keys: &[TicketKey]) -> Vec<(TicketKey, Got<WithCloser>)> {
-        keys.iter().map(|k| (k.clone(), unsupported())).collect()
+        GitHub::several_with_closers(self, keys)
     }
 
     fn history(
@@ -82,8 +84,9 @@ impl Tickets for GitHub {
         GitHub::parts(self, key)
     }
 
-    fn closed_since(&mut self, _: At, _: Bound) -> Got<Whole<ClosedTicket>> {
-        unsupported()
+    /// The closed issues GitHub saw change since then, a question a page.
+    fn closed_since(&mut self, since: At, bound: Bound) -> Got<Whole<ClosedTicket>> {
+        GitHub::closed_since(self, since, bound)
     }
 
     fn search(

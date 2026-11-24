@@ -1,12 +1,13 @@
 //! A runner that answers each call from the adapter's recordings of the
 //! fixture projects, under `tests/recorded/`: `<item>/<read>.json` is gh's
-//! answer and `<item>/<read>.fail` the reason the call failed. A call with
-//! no recording fails. It counts the calls it was asked.
+//! answer and `<item>/<read>.fail` the reason the call failed, with
+//! `<item>/<read>.answer.json` beside it what gh printed as it failed. A
+//! call with no recording fails. It counts the calls it was asked.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use tehas_core::forge::GhRunner;
+use tehas_core::forge::{Failed, GhRunner};
 use tehas_github::GitHub;
 
 /// The fixture project the recordings were made against.
@@ -38,7 +39,15 @@ fn question(repo: &str, args: &[&str]) -> (String, String) {
     let field = |name: &str| args.iter().find_map(|a| a.strip_prefix(name));
     let query = field("query=").unwrap_or_default();
     let back = query.contains("last: 100, before");
-    let (dir, mut name) = if query.contains("issues(first:") {
+    let (dir, mut name) = if let Some(first) = between(query, ": issue(number: ", ")") {
+        ("closers".to_string(), format!("several-{first}"))
+    } else if query.contains("since: $since") {
+        let day = field("since=")
+            .unwrap_or_default()
+            .get(..10)
+            .unwrap_or_default();
+        ("closed".to_string(), format!("since-{day}"))
+    } else if query.contains("issues(first:") {
         let mut name = "list".to_string();
         if query.contains("states: [OPEN]") {
             name.push_str("-open");
@@ -98,6 +107,25 @@ fn question(repo: &str, args: &[&str]) -> (String, String) {
 }
 
 impl GhRunner for Replay {
+    /// `run`, and beside a `.fail` what gh printed as it failed, from
+    /// `<read>.answer.json` where there is one.
+    fn run_answer(&mut self, args: &[&str]) -> Result<String, Failed> {
+        self.run(args).map_err(|why| {
+            let answer = match args {
+                ["api", "graphql", ..] => {
+                    let (dir, name) = question(&self.repo, args);
+                    let at = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                        .join("tests/recorded")
+                        .join(dir)
+                        .join(format!("{name}.answer.json"));
+                    std::fs::read_to_string(at).ok()
+                }
+                _ => None,
+            };
+            Failed { why, answer }
+        })
+    }
+
     fn run(&mut self, args: &[&str]) -> Result<String, String> {
         self.asked.0.store(self.asked.get() + 1, Ordering::SeqCst);
         let none = || format!("no recording of {args:?}");

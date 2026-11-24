@@ -189,21 +189,32 @@ fn parts() -> String {
     format!("subIssues(first: 100, after: $cursor) {{ totalCount pageInfo {{ hasNextPage endCursor }} nodes {{ {NAMED} }} }}")
 }
 
+/// The issue's newest close, what `Ticket.closer` is read from.
+pub(crate) fn closes() -> String {
+    format!("closes: timelineItems(itemTypes: [CLOSED_EVENT], last: 1) {{ nodes {{ __typename ... on ClosedEvent {{ createdAt actor {{ {ACTOR} }} {CLOSER} }} }} }}")
+}
+
 /// What a ticket holds beside its digest and its history: its newest
 /// close, what it waits on, its parts and the changes that name it.
 fn beside() -> String {
     format!(
-        "closes: timelineItems(itemTypes: [CLOSED_EVENT], last: 1) {{ nodes {{ __typename ... on ClosedEvent {{ createdAt actor {{ {ACTOR} }} {CLOSER} }} }} }} blockedBy(first: 100) {{ totalCount nodes {{ {NAMED} }} }} {} {}",
+        "{} blockedBy(first: 100) {{ totalCount nodes {{ {NAMED} }} }} {} {}",
+        closes(),
         parts(),
         mentions()
     )
+}
+
+/// What an issue's digest is read from, a [`Node`].
+pub(crate) fn digest_fields() -> String {
+    format!("number title body state stateReason url createdAt updatedAt author {{ {ACTOR} }} issueType {{ name }} milestone {{ number title }} labels(first: 100) {{ totalCount nodes {{ name }} }}")
 }
 
 /// The list question: the repository's issues, oldest filed first, a page
 /// of them, each with what its digest holds. `narrow` is GitHub's filter,
 /// which only narrows: every ticket is held to the caller's filter again.
 fn listed(narrow: &str) -> String {
-    format!("query($owner: String!, $name: String!, $cursor: String) {{ repository(owner: $owner, name: $name) {{ issues(first: 100, after: $cursor, orderBy: {{field: CREATED_AT, direction: ASC}}{narrow}) {{ pageInfo {{ hasNextPage endCursor }} nodes {{ number title body state stateReason url createdAt updatedAt author {{ {ACTOR} }} issueType {{ name }} milestone {{ number title }} labels(first: 100) {{ totalCount nodes {{ name }} }} }} }} }} }}")
+    format!("query($owner: String!, $name: String!, $cursor: String) {{ repository(owner: $owner, name: $name) {{ issues(first: 100, after: $cursor, orderBy: {{field: CREATED_AT, direction: ASC}}{narrow}) {{ pageInfo {{ hasNextPage endCursor }} nodes {{ {} }} }} }} }}", digest_fields())
 }
 
 #[derive(Deserialize)]
@@ -273,7 +284,7 @@ pub(crate) struct Page<T> {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Event {
+pub(crate) struct Event {
     #[serde(rename = "__typename")]
     is: String,
     created_at: Option<String>,
@@ -307,8 +318,8 @@ struct Answer {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Node {
-    number: Option<u64>,
+pub(crate) struct Node {
+    pub(crate) number: Option<u64>,
     title: String,
     /// Asked for the revision alone, which sums the title and the body.
     body: String,
@@ -365,7 +376,7 @@ pub(crate) fn part<T: DeserializeOwned>(out: &str, at: &str) -> Got<T> {
     serde_json::from_value(part).map_err(|_| MALFORMED)
 }
 
-fn time(iso: &str) -> Got<At> {
+pub(crate) fn time(iso: &str) -> Got<At> {
     tehas_core::time::from_iso(iso)
         .map(At::new)
         .ok_or(MALFORMED)
@@ -446,14 +457,7 @@ impl GitHub {
         );
         let mut first: Answer = self.ask_issue(issue, &of_issue(&asks), None, false)?;
 
-        let closer = match (&digest.state, first.closes.take()) {
-            (TicketState::Open, _) => None,
-            (_, None) => return Err(MALFORMED),
-            (_, Some(closes)) => match closes.nodes.into_iter().flatten().next_back() {
-                Some(e) => self.closer(&e)?,
-                None => None,
-            },
-        };
+        let closer = self.newest_closer(&digest.state, first.closes.take())?;
         let blocked = first.blocked_by.take().ok_or(MALFORMED)?;
         if blocked.total_count.ok_or(INCONSISTENT)? != blocked.nodes.len() as u64 {
             return Err(CUT);
@@ -797,6 +801,23 @@ impl GitHub {
         }))
     }
 
+    /// What closed a ticket in `state`, from its newest close: None while
+    /// it is open, or where its history holds no close.
+    pub(crate) fn newest_closer(
+        &self,
+        state: &TicketState,
+        closes: Option<Page<Event>>,
+    ) -> Got<Option<Closer>> {
+        match (state, closes) {
+            (TicketState::Open, _) => Ok(None),
+            (_, None) => Err(MALFORMED),
+            (_, Some(closes)) => match closes.nodes.into_iter().flatten().next_back() {
+                Some(e) => self.closer(&e),
+                None => Ok(None),
+            },
+        }
+    }
+
     /// What closed the ticket at this close: the change or the commit it
     /// names, else the account that closed it by hand. A change of another
     /// repository has no number here, and is not named.
@@ -927,9 +948,10 @@ impl GitHub {
         Ok(out)
     }
 
-    /// A ticket's digest from the list's node, as the issue's REST read
-    /// gives it for `Tickets::several`.
-    fn digest_from(&mut self, n: Node) -> Got<TicketDigest> {
+    /// A ticket's digest from a node of a question (the list's, the
+    /// closed reads'), as the issue's REST read gives it for
+    /// `Tickets::several`.
+    pub(crate) fn digest_from(&mut self, n: Node) -> Got<TicketDigest> {
         let no = n
             .number
             .and_then(std::num::NonZeroU64::new)
