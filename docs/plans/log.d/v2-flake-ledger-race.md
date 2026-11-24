@@ -1,0 +1,1 @@
+| 2026-11-24 | The ledger's race test gives its handles a wait no runner outlasts: sixteen fsynced writes on a slow CI disk passed the 5 s wait, and a write past it is down by contract | v2/flake-ledger-race |

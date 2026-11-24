@@ -240,7 +240,7 @@ fn work_state(workdir: &str, issue: u64) -> Option<Value> {
     if !w.is_absolute() {
         return None;
     }
-    crate::last_attempt::state(w, issue)
+    crate::last_attempt::state::<Value>(w, issue)
 }
 
 /// The newest run log as the facts hold it: its name and its text, of a log
