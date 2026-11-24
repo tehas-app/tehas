@@ -64,7 +64,9 @@ pub struct TicketDigest {
     /// When the site last saw the ticket change, as it records it: a
     /// caller compares it with a time it stored.
     pub updated: At,
-    /// Equal revisions mean the ticket did not change.
+    /// Equal revisions mean the ticket did not change. It moves when the
+    /// title or the text changes; marks and notes do not move it
+    /// (Decided 111).
     pub revision: Revision,
     /// Where a person opens it.
     pub link: WebLink,

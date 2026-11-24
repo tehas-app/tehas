@@ -218,7 +218,9 @@ pub struct Change {
     pub body: String,
     /// The files it changes.
     pub files: Vec<ChangedFile>,
-    /// Its reviews.
+    /// Every review, not the latest of each reviewer: a consumer takes the
+    /// latest per reviewer and reads `Verdict::Unknown` as no approval
+    /// (Decided 112).
     pub reviews: Vec<Review>,
     /// Its comments.
     pub comments: Vec<Comment>,
@@ -281,7 +283,8 @@ pub enum Verdict {
     ChangesAsked,
     /// It comments only.
     Commented,
-    /// A verdict this copy does not know.
+    /// A verdict this copy does not know, and a review the site dismissed.
+    /// Never an approval.
     #[serde(other)]
     Unknown,
 }
