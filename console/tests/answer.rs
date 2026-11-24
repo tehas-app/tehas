@@ -485,6 +485,28 @@ fn the_choices_listed_are_those_offered_and_each_is_an_answer() {
     }
 }
 
+// host/docs/contract.md: a question waits until a person answers it. An
+// answer on record is not that: tehas question still prints the question
+// and exits 0, never 3, until the poll acts on a person's answer. The poll
+// takes away an answer whose how is plugin without acting on it
+// (tests/fixtures/park.json of the dispatcher).
+#[test]
+fn an_answer_on_record_leaves_the_question_waiting_until_the_poll_acts() {
+    let w = World::new("question-answered-not-acted");
+    stopped(&w);
+    let r = at_now(&w, "12 retry --by alice");
+    assert_eq!(r.rc, 0, "{}", r.out);
+    assert_eq!(waiting(&w, "4001"), "retry null alice");
+    let r = w.sh("\"$T_ROOT/bin/tehas\" question 12");
+    assert_eq!(r.rc, 0, "{}", r.out);
+    assert!(
+        r.out
+            .starts_with("#12 waits on its park question, asked at "),
+        "{}",
+        r.out
+    );
+}
+
 #[test]
 fn no_question_waiting_is_3_and_a_bad_argument_64() {
     let w = World::new("question-none");
