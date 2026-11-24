@@ -1359,7 +1359,9 @@ fn the_marker_laws_hold_over_a_blueprints_body() {
         (103, "<!-- tehas:question kind=plan issue=0103 turn=1 -->".to_string()),
         (104, format!("<!-- tehas:blocked by={} -->", many.join(","))),
         (105, format!("Prose: {}", park(105).trim_start_matches("<!-- ").trim_end_matches(" -->"))),
-        (106, "\ttehas:park issue=106".to_string()),
+        // After white space: one space, since a tab at the text's start
+        // opens an indented code block, where no marker reads.
+        (106, " tehas:park issue=106".to_string()),
         (107, "The tehas:blocked words, no field.".to_string()),
         (
             108,
