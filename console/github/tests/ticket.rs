@@ -498,6 +498,8 @@ fn an_answer_that_is_no_history_is_malformed() {
         // A close by a change with no number, and by a commit that is none.
         events(end, &[r#"{"__typename":"ClosedEvent","closer":{"__typename":"PullRequest","repository":{"nameWithOwner":"acme/widget"},"merged":true}}"#.to_string()]),
         events(end, &[r#"{"__typename":"ClosedEvent","closer":{"__typename":"Commit","oid":"zz"}}"#.to_string()]),
+        // A change of another project with no link to name it by.
+        events(end, &[r#"{"__typename":"ClosedEvent","closer":{"__typename":"PullRequest","number":4,"merged":true,"repository":{"nameWithOwner":"octo/tools"}}}"#.to_string()]),
     ] {
         let shown = format!("{answer:?}");
         assert_eq!(whole_history(vec![answer]), (Err(MALFORMED), 1), "{shown}");
@@ -513,7 +515,7 @@ fn an_event_is_read_in_the_ports_words() {
         r#"{"__typename":"ClosedEvent","createdAt":"2026-01-01T00:00:03Z","actor":{"__typename":"User","login":"Alice","databaseId":101},"stateReason":"NOT_PLANNED","closer":null}"#.to_string(),
         r#"{"__typename":"ClosedEvent","createdAt":"2026-01-01T00:00:04Z","actor":null,"stateReason":"COMPLETED","closer":{"__typename":"Commit","oid":"0123456789abcdef0123456789abcdef01234567"}}"#.to_string(),
         r#"{"__typename":"ClosedEvent","createdAt":"2026-01-01T00:00:05Z","actor":null,"stateReason":"COMPLETED","closer":{"__typename":"PullRequest","number":4,"merged":false,"repository":{"nameWithOwner":"Acme/Widget"}}}"#.to_string(),
-        r#"{"__typename":"ClosedEvent","createdAt":"2026-01-01T00:00:06Z","actor":null,"stateReason":"DUPLICATE","closer":{"__typename":"PullRequest","number":4,"merged":true,"repository":{"nameWithOwner":"octo/tools"}}}"#.to_string(),
+        r#"{"__typename":"ClosedEvent","createdAt":"2026-01-01T00:00:06Z","actor":null,"stateReason":"DUPLICATE","closer":{"__typename":"PullRequest","number":4,"merged":true,"url":"https://github.com/octo/tools/pull/4","repository":{"nameWithOwner":"octo/tools"}}}"#.to_string(),
         r#"{"__typename":"IssueTypeRemovedEvent","createdAt":"2026-01-01T00:00:07Z","actor":null}"#.to_string(),
         r#"{"__typename":"UnassignedEvent","createdAt":"2026-01-01T00:00:08Z","actor":null,"assignee":null}"#.to_string(),
         r#"{"__typename":"BlockedByRemovedEvent","createdAt":"2026-01-01T00:00:09Z","actor":null,"blockingIssue":{"number":3,"repository":{"nameWithOwner":"octo/tools"}}}"#.to_string(),
@@ -533,8 +535,8 @@ fn an_event_is_read_in_the_ports_words() {
             r#"{"type":"Closed","value":{"reason":"Done","closer":{"Commit":"0123456789abcdef0123456789abcdef01234567"}}}"#,
             r#"{"type":"Closed","value":{"reason":"Done","closer":{"Change":{"no":4,"merged":false}}}}"#,
             // A duplicate's original is not asked, and a change of another
-            // project has no number here.
-            r#"{"type":"Closed","value":{"reason":"NotPlanned","closer":null}}"#,
+            // project is named as GitHub names it there, with its link.
+            r#"{"type":"Closed","value":{"reason":"NotPlanned","closer":{"ChangeElsewhere":{"project":"octo/tools","item":"4","link":"https://github.com/octo/tools/pull/4"}}}}"#,
             r#"{"type":"Kind","value":null}"#,
             // An account that is gone cannot be named.
             r#"{"type":"Unknown"}"#,
@@ -735,7 +737,7 @@ const REST: &str = r#"{"number":7,"title":"T","state":"closed","state_reason":"c
 
 fn beside(closes: &str, blocked: &str, mentions: &str) -> Result<String, &'static str> {
     issue(&format!(
-        r#""closes":{{"nodes":[{closes}]}},"blockedBy":{blocked},"subIssues":{{"totalCount":0,"pageInfo":{{"hasNextPage":false,"endCursor":null}},"nodes":[]}},"mentions":{mentions}"#
+        r#""closes":{{"nodes":[{closes}]}},"blockedBy":{blocked},"subIssues":{{"totalCount":0,"pageInfo":{{"hasNextPage":false,"endCursor":null}},"nodes":[]}},"mentions":{mentions},"parent":null"#
     ))
 }
 
@@ -842,7 +844,7 @@ fn what_stands_beside_a_ticket_is_whole_or_the_ticket_is_unread() {
 
 fn node(n: u64, labels: &str, total: u64) -> String {
     format!(
-        r#"{{"number":{n},"title":"T{n}","body":"","state":"OPEN","stateReason":null,"url":"https://github.com/acme/widget/issues/{n}","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z","author":null,"issueType":null,"milestone":null,"labels":{{"totalCount":{total},"nodes":[{labels}]}}}}"#
+        r#"{{"number":{n},"title":"T{n}","body":"","state":"OPEN","stateReason":null,"url":"https://github.com/acme/widget/issues/{n}","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z","author":null,"issueType":null,"milestone":null,"labels":{{"totalCount":{total},"nodes":[{labels}]}},"parent":null}}"#
     )
 }
 
@@ -993,4 +995,62 @@ fn a_changes_number_is_no_ticket_to_any_read() {
         Err(Outcome::NotFound)
     );
     assert_eq!(gh.parts(&key(30)), Err(Outcome::NotFound));
+}
+
+#[test]
+fn a_ticket_and_a_list_name_the_ticket_each_is_a_part_of() {
+    let here = r#"{"number":3,"repository":{"nameWithOwner":"acme/widget"}}"#;
+    let there = r#"{"number":5,"repository":{"nameWithOwner":"other/lib"}}"#;
+    let with =
+        |parent: &str| node(1, "", 0).replace(r#""parent":null"#, &format!(r#""parent":{parent}"#));
+    let end = r#""hasNextPage":false,"endCursor":null"#;
+    let nodes = [
+        with(here),
+        node(2, "", 0),
+        with(there).replace(r#""number":1,"title":"T1""#, r#""number":4,"title":"T4""#),
+    ];
+    let (mut gh, _) = stub(vec![page(end, &nodes)]);
+    let parents: Vec<_> = gh
+        .list(&Filter::default(), bound(5))
+        .unwrap()
+        .into_items()
+        .into_iter()
+        .map(|d| d.parent)
+        .collect();
+    assert_eq!(
+        parents,
+        [
+            Some(tehas_ports::Ref::Here(key(3))),
+            None,
+            Some(tehas_ports::Ref::Elsewhere {
+                project: tehas_ports::ProjectName::new("other/lib"),
+                item: tehas_ports::ItemName::new("5"),
+            }),
+        ]
+    );
+    // A list node that leaves the parent out does not say there is none.
+    let bare = node(2, "", 0).replace(r#","parent":null"#, "");
+    let (mut gh, _) = stub(vec![page(end, &[bare])]);
+    assert_eq!(
+        gh.list(&Filter::default(), bound(5)).map(|_| ()),
+        Err(Outcome::Unread(Unread::Malformed))
+    );
+
+    // The ticket asks it in the question it makes beside the REST read.
+    let with_parent = |parent: &str| {
+        issue(&format!(
+            r#""closes":{{"nodes":[]}},"blockedBy":{NO_BLOCKERS},"subIssues":{{"totalCount":0,"pageInfo":{{"hasNextPage":false,"endCursor":null}},"nodes":[]}},"mentions":{NO_MENTIONS},"parent":{parent}"#
+        ))
+    };
+    let (got, calls) = cut_ticket(vec![Ok(REST.to_string()), with_parent(here)]);
+    assert_eq!(calls, 2);
+    assert_eq!(
+        got.unwrap().digest.parent,
+        Some(tehas_ports::Ref::Here(key(3)))
+    );
+    let left_out = issue(&format!(
+        r#""closes":{{"nodes":[]}},"blockedBy":{NO_BLOCKERS},"subIssues":{{"totalCount":0,"pageInfo":{{"hasNextPage":false,"endCursor":null}},"nodes":[]}},"mentions":{NO_MENTIONS}"#
+    ));
+    let (got, _) = cut_ticket(vec![Ok(REST.to_string()), left_out]);
+    assert_eq!(got.map(|_| ()), Err(Outcome::Unread(Unread::Malformed)));
 }

@@ -6,11 +6,14 @@
 //!
 //! GitHub answers a number it does not know with a null node and a
 //! `NOT_FOUND` error at that alias, and gh then exits 1, so the question is
-//! read from gh's answer beside its failure, item by item.
+//! read from gh's answer beside its failure, item by item. That reading,
+//! `ask_aliased`, is shared with every other aliased question of the
+//! adapter (`port/closed.rs`, `port/code_host/numbers.rs`).
 
 use std::collections::BTreeMap;
 use std::num::NonZeroU64;
 
+use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -25,7 +28,7 @@ const CUT: Outcome = Outcome::Unread(Unread::Cut);
 const PER_QUESTION: usize = 100;
 
 /// The alias a number is asked under.
-fn alias(n: u64) -> String {
+pub(crate) fn alias(n: u64) -> String {
     format!("n{n}")
 }
 
@@ -53,8 +56,28 @@ struct Answer {
 
 #[derive(Deserialize)]
 struct Data {
-    /// Each alias asked, null where GitHub has no node for it.
-    repository: Option<BTreeMap<String, Option<Node>>>,
+    /// Each alias asked, null where GitHub has no node for it, and any
+    /// other field asked of the repository.
+    repository: Option<BTreeMap<String, Value>>,
+    /// The account asking, when the question asks it.
+    #[serde(default)]
+    viewer: Option<Viewer>,
+}
+
+#[derive(Deserialize)]
+struct Viewer {
+    #[serde(rename = "databaseId")]
+    database_id: Option<u64>,
+}
+
+/// What an aliased question answered: each alias's node, as
+/// `GitHub::ask_aliased` reads it, and beside them the repository's id and
+/// the account asking's, where the question asked them and GitHub gave
+/// them.
+pub(crate) struct Aliased<T> {
+    pub(crate) nodes: Vec<Got<T>>,
+    pub(crate) repository_id: Option<u64>,
+    pub(crate) viewer_id: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -117,22 +140,67 @@ impl GitHub {
 
     /// One question of distinct numbers: an answer for each, in order.
     fn ask_items(&mut self, numbers: &[u64]) -> Vec<Got<Item>> {
+        let aliases: Vec<String> = numbers.iter().map(|n| alias(*n)).collect();
+        let nodes: Vec<Got<Node>> =
+            self.ask_aliased("the items' question", &question(numbers), &aliases);
+        numbers
+            .iter()
+            .zip(nodes)
+            .map(|(n, node)| node.and_then(|node| item(*n, &node)))
+            .collect()
+    }
+
+    /// One aliased question of the repository, read beside gh's failure
+    /// alias by alias: each alias's node in the type asked, its accounts
+    /// vouched. A null node with exactly one `NOT_FOUND` at its alias is
+    /// `NotFound` (Decided 121); any other error at an alias is
+    /// `Unread(Inconsistent)` for it, and an error that names no alias for
+    /// every one. A node not of the type asked, or an alias missing, is
+    /// `Unread(Malformed)`. gh's failure with nothing to read is its
+    /// outcome for every alias.
+    pub(crate) fn ask_aliased<T: DeserializeOwned>(
+        &mut self,
+        call: &str,
+        question: &str,
+        aliases: &[String],
+    ) -> Vec<Got<T>> {
+        self.ask_aliased_beside(call, question, aliases).nodes
+    }
+
+    /// [`GitHub::ask_aliased`], with the repository's `databaseId` and the
+    /// `viewer`'s where the question asks them: None where it fails whole.
+    pub(crate) fn ask_aliased_beside<T: DeserializeOwned>(
+        &mut self,
+        call: &str,
+        question: &str,
+        aliases: &[String],
+    ) -> Aliased<T> {
+        let all = |o: Outcome| Aliased {
+            nodes: aliases.iter().map(|_| Err(o.clone())).collect(),
+            repository_id: None,
+            viewer_id: None,
+        };
         let (owner, name) = self.owner_name();
-        let query = format!("query={}", question(numbers));
+        let query = format!("query={question}");
         let args = ["api", "graphql", "-F", &owner, "-F", &name, "-f", &query];
-        let (out, failed) = match self.call_answer("the items' question", &args) {
+        let (out, failed) = match self.call_answer(call, &args) {
             Ok(out) => (out, None),
             Err((e, Some(out))) => (out, Some(e)),
-            Err((e, None)) => return vec![Err(self.failed(&e, numbers.len())); numbers.len()],
+            Err((e, None)) => return all(self.failed(&e, aliases.len())),
         };
-        let answer: Answer = match serde_json::from_str(out.trim()) {
-            Ok(a) => a,
-            Err(_) => {
-                let o = failed.map_or(MALFORMED, |e| self.failed(&e, numbers.len()));
-                return vec![Err(o); numbers.len()];
-            }
+        let read = serde_json::from_str::<Value>(out.trim())
+            .ok()
+            .and_then(|mut v| {
+                tehas_core::accounts::vouch(&mut v);
+                serde_json::from_value::<Answer>(v).ok()
+            });
+        let Some(answer) = read else {
+            return all(failed.map_or(MALFORMED, |e| self.failed(&e, aliases.len())));
         };
-        let repository = answer.data.and_then(|d| d.repository);
+        let (repository, viewer_id) = match answer.data {
+            Some(d) => (d.repository, d.viewer.and_then(|v| v.database_id)),
+            None => (None, None),
+        };
         let nodes = match (repository, failed.as_ref()) {
             (Some(nodes), None) => Some(nodes),
             (Some(nodes), Some(_)) if !answer.errors.is_empty() => Some(nodes),
@@ -141,30 +209,34 @@ impl GitHub {
         let Some(mut nodes) = nodes else {
             // No node, or gh failed with no error to read the nodes by: the
             // call's own outcome.
-            let o = failed.map_or(MALFORMED, |e| self.failed(&e, numbers.len()));
-            return vec![Err(o); numbers.len()];
+            return all(failed.map_or(MALFORMED, |e| self.failed(&e, aliases.len())));
         };
         // An error that names no alias leaves no item sure.
         if answer.errors.iter().any(|e| e.alias().is_none()) {
-            return vec![Err(INCONSISTENT); numbers.len()];
+            return all(INCONSISTENT);
         }
-        numbers
+        let answered = aliases
             .iter()
-            .map(|n| {
-                let a = alias(*n);
+            .map(|a| {
                 let errors: Vec<&Error> = answer
                     .errors
                     .iter()
-                    .filter(|e| e.alias() == Some(&a))
+                    .filter(|e| e.alias() == Some(a))
                     .collect();
-                match (nodes.remove(&a), errors.as_slice()) {
+                match (nodes.remove(a), errors.as_slice()) {
                     (None, _) => Err(MALFORMED),
-                    (Some(None), [e]) if e.not_found() => Err(Outcome::NotFound),
-                    (Some(Some(node)), []) => item(*n, &node),
+                    (Some(Value::Null), [e]) if e.not_found() => Err(Outcome::NotFound),
+                    (Some(Value::Null), _) => Err(INCONSISTENT),
+                    (Some(node), []) => serde_json::from_value(node).map_err(|_| MALFORMED),
                     _ => Err(INCONSISTENT),
                 }
             })
-            .collect()
+            .collect();
+        Aliased {
+            nodes: answered,
+            repository_id: nodes.get("databaseId").and_then(Value::as_u64),
+            viewer_id,
+        }
     }
 
     /// The outcome of a question gh failed with no answer to read. A

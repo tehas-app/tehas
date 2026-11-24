@@ -457,9 +457,11 @@ fn a_record_that_cannot_be_read_changes_nothing_1_when_busy_78_when_there_is_no_
 
 // --- End to end with gh: the stops that go on to the issue ------------------
 
-/// gh: the issue's REST read answers $T/issue.json; the label's removal
-/// answers nothing.
-const GH: &str = r#"case "$1 $2" in
+/// gh: the issue's REST read answers $T/issue.json, the question of the
+/// ticket it is a part of answers none, and the label's removal answers
+/// nothing.
+const GH: &str = r#"case "$*" in *"parent {"*) echo '{"data":{"repository":{"issue":{"parent":null}}}}'; exit 0 ;; esac
+case "$1 $2" in
   "api repos/"*) cat "$T/issue.json" ;;
 esac"#;
 /// systemctl: the unit is active, and its stop ends the process that holds
@@ -599,10 +601,10 @@ fn a_running_cycle_is_stopped_its_leftovers_go_its_label_comes_off_and_the_recor
     let off = format!("removed {label} from #5");
     assert_eq!(r.out.lines().last(), Some(off.as_str()));
     assert_eq!(unit_stops(&w), 1);
-    // The issue is read once and its label taken off once: no other label,
-    // no comment. What is asked of the port is on its fake in
+    // The issue is read once, with the question of its parent, and its
+    // label taken off once: no other label, no comment. What is asked of the port is on its fake in
     // console/ops/src/stop.rs.
-    assert_eq!(w.gh().lines().count(), 2, "{}", w.gh());
+    assert_eq!(w.gh().lines().count(), 3, "{}", w.gh());
 }
 
 #[test]
@@ -700,7 +702,7 @@ fn stopping_5_touches_nothing_of_51_or_55_and_asks_gh_of_5_alone() {
     assert_eq!(leftovers(&w, 51).len(), LEFTOVERS_N);
     assert_eq!(leftovers(&w, 55).len(), LEFTOVERS_N);
     assert_eq!(removed_containers(&w), "tehas-work-5 ");
-    assert_eq!(w.gh().lines().count(), 2, "{}", w.gh());
+    assert_eq!(w.gh().lines().count(), 3, "{}", w.gh());
     for other in ["51", "55"] {
         lacks(&w.gh(), other);
         lacks(&r.out, other);

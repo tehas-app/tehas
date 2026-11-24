@@ -924,8 +924,10 @@ v2.0.0.
 
 Append a line per event: the fork, each step's pull requests, each port
 of main, each grade. From #2905 on, each pull request adds its own row
-as a one-line file, `docs/plans/log.d/<pull request>.md`, in the same form
-as the table's rows, so two open pull requests never conflict here. The
+as a one-line file, `docs/plans/log.d/<pull request>.md`, or
+`docs/plans/log.d/<branch>.md` with the branch's slashes as dashes, so the
+row needs no number before the first push, in the same form as the table's
+rows, so two open pull requests never conflict here. The
 log is this table and the files in `log.d/` together, and they are folded
 into the table now and then.
 

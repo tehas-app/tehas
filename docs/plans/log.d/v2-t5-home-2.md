@@ -1,0 +1,1 @@
+| 2026-11-24 | T5: cycle's tests ask `Home` for the cycles directory, the token dirs and the poll's ask; `home-layout` 389 to 319; the typed store client a written floor for alpha.1 in `docs/architecture.md` | v2/t5-home-2 |

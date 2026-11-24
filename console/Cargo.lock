@@ -29,6 +29,7 @@ version = "0.1.0"
 dependencies = [
  "regex",
  "rusqlite",
+ "serde",
  "serde_json",
  "tehas-core",
  "tehas-mcp",
@@ -2030,6 +2031,8 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "tehas-core",
+ "tehas-github",
+ "tehas-ports",
 ]
 
 [[package]]
@@ -2086,6 +2089,7 @@ dependencies = [
 name = "tehas-review-render"
 version = "0.1.0"
 dependencies = [
+ "serde",
  "serde_json",
 ]
 
@@ -2104,6 +2108,7 @@ version = "0.1.0"
 dependencies = [
  "pulldown-cmark",
  "regex",
+ "serde",
  "serde_json",
  "tehas-core",
 ]

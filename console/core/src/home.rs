@@ -5,6 +5,10 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+/// `state/cycles` relative to the home, for a message that names the
+/// directory.
+pub const CYCLES: &str = "state/cycles";
+
 /// A tehas home, the directory that `TEHAS_HOME` names.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Home {
@@ -303,7 +307,7 @@ impl Home {
 
     /// `state/cycles`, where a cycle's notes are.
     pub fn cycles_dir(&self) -> PathBuf {
-        self.root.join("state/cycles")
+        self.root.join(CYCLES)
     }
 
     /// `state/cycles/<issue>.<note>`.
