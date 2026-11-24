@@ -1360,8 +1360,8 @@ pub mod history {
 pub mod blueprints {
     use super::{got, hold, Law};
     use crate::{
-        BlueprintNo, BlueprintWrites, Blueprints, ChangeNo, CodeHost, Depth, Lost, MarkerEdit,
-        Outcome, Relation,
+        BlueprintNo, BlueprintWrites, Blueprints, ChangeNo, CodeHost, CommentId, Depth, Lost,
+        MarkerEdit, Outcome, Relation,
     };
 
     /// `attachments_in` over a blueprint's text gives the ids
@@ -1448,6 +1448,32 @@ pub mod blueprints {
             .collect();
         hold(several == [(change, Err(Outcome::NotFound))], LAW, || {
             format!("several of a change's number answered {several:?}")
+        })
+    }
+
+    /// `body_edits_of` and `comment_edits_of` give, in the order asked,
+    /// what `body_edits` and `comment_edits` give for each, so a number or
+    /// an id the site does not know fails alone. The fixture's `nos` and
+    /// `ids` hold edited and unknown ones.
+    pub fn several_edits_are_each_ones(
+        h: &mut dyn Blueprints,
+        nos: &[BlueprintNo],
+        ids: &[CommentId],
+    ) -> Law {
+        const LAW: &str = "blueprints::several_edits_are_each_ones";
+        let bound = crate::ALL_MAX;
+        let each: Vec<_> = nos.iter().map(|&n| (n, h.body_edits(n, bound))).collect();
+        let several = h.body_edits_of(nos, bound);
+        hold(several == each, LAW, || {
+            format!("body_edits_of gave {several:?}, one by one {each:?}")
+        })?;
+        let each: Vec<_> = ids
+            .iter()
+            .map(|id| (id.clone(), h.comment_edits(id, bound)))
+            .collect();
+        let several = h.comment_edits_of(ids, bound);
+        hold(several == each, LAW, || {
+            format!("comment_edits_of gave {several:?}, one by one {each:?}")
         })
     }
 

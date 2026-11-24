@@ -1345,6 +1345,45 @@ fn blueprints_an_edit_moves_the_revision() {
 }
 
 #[test]
+fn blueprints_several_edits_are_each_ones() {
+    for w in both() {
+        let no = first_blueprint(&w);
+        let w = w
+            .blueprint(no, |b| b.title("a plan").body("Do it."))
+            .blueprint(no + 1, |b| b.title("another").body("As is."));
+        let site = FakeSite::new(&w);
+        let mut h = site.blueprint_writes(&full(), C).unwrap();
+        let before = h.blueprint(bp(no), Depth::All).unwrap();
+        h.edit(
+            bp(no),
+            None,
+            Some("Do it now."),
+            &MarkerEdit::default(),
+            &before.revision,
+        )
+        .unwrap();
+        let edited = h.comment(bp(no), "first", &[]).unwrap().id;
+        let plain = h.comment(bp(no), "second", &[]).unwrap().id;
+        let rev = h.comments_by_id(std::slice::from_ref(&edited))[0]
+            .1
+            .clone()
+            .unwrap()
+            .revision;
+        h.edit_comment(&edited, "first, edited", &MarkerEdit::default(), &rev)
+            .unwrap();
+        assert_eq!(
+            h.body_edits(bp(no), ALL_MAX).map(|e| e.into_items().len()),
+            Ok(1)
+        );
+        ok(laws::blueprints::several_edits_are_each_ones(
+            h.as_mut(),
+            &[bp(no), bp(no + 1), bp(9999), bp(no)],
+            &[edited, plain, CommentId::new("no-such-comment")],
+        ));
+    }
+}
+
+#[test]
 fn blueprints_an_attachment_has_a_link_and_a_pasted_one_no_name() {
     for w in both() {
         let no = first_blueprint(&w);
