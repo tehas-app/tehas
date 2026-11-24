@@ -3,7 +3,10 @@
 //! order of the steps and the exit statuses, and `--help` prints it.
 //!
 //! The steps run in the order the script has always run them, with the same
-//! lines on stderr and the tag alone on stdout. git, gh, docker, the console's
+//! lines on stderr and the tag alone on stdout. The code host, its pull
+//! requests and the upstream work of a polyfill are asked through the ports,
+//! as the operator, on the sites the program's wiring gives ([`Hosts`]).
+//! git, gh for the release gate's runs, docker, the console's
 //! `rukas`, scripts/polyfills.sh, scripts/pins.sh, scripts/verify.sh and
 //! the head's scripts/collect-changelog.sh are still the programs that do
 //! the work; what moved here is what decides between them: the next version, the remote's head, the changelog's
@@ -21,7 +24,84 @@ use crate::pack::{is_exec, logical, Stage};
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::Arc;
 use tehas_core::version::{self, Stage as Pre};
+use tehas_ports::{
+    Actor, Body, Branch, Caller, ChangeFilter, ChangeNo, ChangeState, ChangeStates, Item,
+    NewChange, Site, ALL_MAX,
+};
+
+thread_local! {
+    /// The lines a test listens for, kept in place of stderr.
+    static HEARD: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
+/// A line on stderr, or kept for the test that listens on this thread.
+fn said(line: String) {
+    HEARD.with(|h| match h.borrow_mut().as_mut() {
+        Some(kept) => {
+            kept.push_str(&line);
+            kept.push('\n');
+        }
+        None => eprintln!("{line}"),
+    })
+}
+
+/// `eprintln!` through [`said`].
+macro_rules! say {
+    ($($arg:tt)*) => {
+        said(format!($($arg)*))
+    };
+}
+
+/// From now on this thread's lines are kept, not printed.
+#[cfg(test)]
+fn listen() {
+    HEARD.with(|h| *h.borrow_mut() = Some(String::new()));
+}
+
+/// The lines kept since [`listen`], taken.
+#[cfg(test)]
+fn heard() -> String {
+    HEARD.with(|h| {
+        h.borrow_mut()
+            .as_mut()
+            .map(std::mem::take)
+            .unwrap_or_default()
+    })
+}
+
+/// The code hosts tag-release asks, as the program's wiring makes them.
+pub struct Hosts<'a> {
+    /// The project `owner/name` a git remote names; None when it names no
+    /// project of the code host.
+    pub project_of: &'a dyn Fn(&str) -> Option<String>,
+    /// The code host of a project, `owner/name`.
+    pub site: &'a dyn Fn(&str) -> Arc<dyn Site>,
+}
+
+/// What the operator's environment names that the task runs, read by the
+/// wiring: TEHAS_CONSOLE, the console whose `rukas` is asked (None: the
+/// head's own, built with cargo), and the PATH its programs are found on
+/// (None: the task's own).
+#[derive(Default)]
+pub struct Programs {
+    pub console: Option<std::ffi::OsString>,
+    pub path: Option<std::ffi::OsString>,
+}
+
+/// Every question is the operator's own, as the gh of the operator's shell
+/// asked them.
+const BY: Actor = Actor::Operator;
+const CALLER: Caller = Caller::new("tag-release");
+
+/// The state of an upstream pull request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Upstream {
+    Open,
+    Merged,
+    Closed,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Part {
@@ -375,14 +455,15 @@ pub fn split_ref(r: &str) -> (&str, &str) {
 
 /// What the kept polyfills' upstream work says: the lines said for a merged
 /// pull request whose feature is not set, in order, and the lines of each
-/// polyfill that stands in for no work upstream is doing. `issue_state` and
-/// `pr_state` give what gh says of one (empty: not found).
+/// polyfill that stands in for no work upstream is doing. `issue_found`
+/// says whether an issue is there; `pr_state` gives a pull request's state,
+/// None when it cannot be found.
 pub fn upstream(
     carried: &[Carried],
     expired: &[&str],
     rukas: &str,
-    mut issue_state: impl FnMut(&str) -> String,
-    mut pr_state: impl FnMut(&str) -> String,
+    mut issue_found: impl FnMut(&str) -> bool,
+    mut pr_state: impl FnMut(&str) -> Option<Upstream>,
 ) -> (Vec<String>, Vec<String>) {
     let mut merged = Vec::new();
     let mut untracked = Vec::new();
@@ -390,7 +471,7 @@ pub fn upstream(
         if expired.contains(&c.feature.as_str()) {
             continue;
         }
-        if c.issue.is_empty() || issue_state(&c.issue).is_empty() {
+        if c.issue.is_empty() || !issue_found(&c.issue) {
             let issue = if c.issue.is_empty() {
                 "is not named"
             } else {
@@ -403,21 +484,21 @@ pub fn upstream(
             continue;
         }
         let state = if c.pr.is_empty() {
-            String::new()
+            None
         } else {
             pr_state(&c.pr)
         };
-        match state.as_str() {
-            "OPEN" => {}
-            "MERGED" => merged.push(format!(
+        match state {
+            Some(Upstream::Open) => {}
+            Some(Upstream::Merged) => merged.push(format!(
                 "tag-release: {} is merged, but {rukas} does not set features.{}: its polyfill stays until a release has it; check the feature's name",
                 c.pr, c.feature
             )),
-            "CLOSED" => untracked.push(format!(
+            Some(Upstream::Closed) => untracked.push(format!(
                 "    {}: its upstream pull request {} was closed without a merge",
                 c.feature, c.pr
             )),
-            _ => {
+            None => {
                 let pr = if c.pr.is_empty() { "is not named" } else { &c.pr };
                 untracked.push(format!(
                     "    {}: its upstream pull request {pr} cannot be found",
@@ -487,7 +568,7 @@ fn capture(cmd: &mut Command) -> (String, bool) {
             (text.trim_end_matches('\n').to_string(), o.status.success())
         }
         Err(e) => {
-            eprintln!("tag-release: {}: {e}", cmd.get_program().to_string_lossy());
+            say!("tag-release: {}: {e}", cmd.get_program().to_string_lossy());
             (String::new(), false)
         }
     }
@@ -515,7 +596,7 @@ fn ends_0(cmd: &mut Command) -> bool {
     match cmd.status() {
         Ok(s) => s.success(),
         Err(e) => {
-            eprintln!("tag-release: {}: {e}", cmd.get_program().to_string_lossy());
+            say!("tag-release: {}: {e}", cmd.get_program().to_string_lossy());
             false
         }
     }
@@ -543,7 +624,7 @@ impl Drop for Scratch {
 
 /// The task: `root` is the checkout the script lives in. Returns the exit
 /// status; every line it says is on stderr, the tag on stdout.
-pub fn run(a: &Args, root: &Path) -> u8 {
+pub fn run(a: &Args, root: &Path, hosts: &Hosts, programs: &Programs) -> u8 {
     let git = || {
         let mut c = Command::new("git");
         c.current_dir(root);
@@ -554,15 +635,15 @@ pub fn run(a: &Args, root: &Path) -> u8 {
         git().args(["fetch", "--quiet", "--tags", "--force", remote]),
         false,
     ) {
-        eprintln!("tag-release: git fetch --tags --force from {remote} failed");
+        say!("tag-release: git fetch --tags --force from {remote} failed");
         return 1;
     }
     let Some(listing) = ok_out(git().args(["ls-remote", "--symref", remote, "HEAD"])) else {
-        eprintln!("tag-release: cannot read HEAD of {remote}");
+        say!("tag-release: cannot read HEAD of {remote}");
         return 1;
     };
     let Some((branch, head)) = remote_head(&listing) else {
-        eprintln!("tag-release: {remote} did not name its default branch");
+        say!("tag-release: {remote} did not name its default branch");
         return 1;
     };
 
@@ -572,12 +653,12 @@ pub fn run(a: &Args, root: &Path) -> u8 {
         let rev = format!("{latest}^{{commit}}");
         let Some(latest_commit) = ok_out(git().args(["rev-parse", "--verify", "--quiet", &rev]))
         else {
-            eprintln!("tag-release: {latest} names no commit");
+            say!("tag-release: {latest} names no commit");
             return 1;
         };
         // A prerelease of the next version may sit on the newest release.
         if latest_commit == head && a.pre.is_none() {
-            eprintln!(
+            say!(
                 "tag-release: {branch} at {} is already {latest}",
                 short(&head)
             );
@@ -588,14 +669,14 @@ pub fn run(a: &Args, root: &Path) -> u8 {
             git().args(["merge-base", "--is-ancestor", &latest_commit, &head]),
             false,
         ) {
-            eprintln!("tag-release: {latest} is not on {branch}; tag by hand");
+            say!("tag-release: {latest} is not on {branch}; tag by hand");
             return 1;
         }
     }
     let mut next = match chosen_version(latest.as_deref(), a.part, a.version.as_deref()) {
         Ok(v) => v,
         Err(m) => {
-            eprintln!("tag-release: {m}; nothing was tagged");
+            say!("tag-release: {m}; nothing was tagged");
             return 1;
         }
     };
@@ -603,7 +684,7 @@ pub fn run(a: &Args, root: &Path) -> u8 {
         let (pre, same) = match next_prerelease(&tags, &next, stage) {
             Ok(found) => found,
             Err(m) => {
-                eprintln!("tag-release: {m}; nothing was tagged");
+                say!("tag-release: {m}; nothing was tagged");
                 return 1;
             }
         };
@@ -612,7 +693,7 @@ pub fn run(a: &Args, root: &Path) -> u8 {
             if ok_out(git().args(["rev-parse", "--verify", "--quiet", &rev])).as_deref()
                 == Some(head.as_str())
             {
-                eprintln!(
+                say!(
                     "tag-release: {branch} at {} is already {same}",
                     short(&head)
                 );
@@ -633,7 +714,7 @@ pub fn run(a: &Args, root: &Path) -> u8 {
     let changelog = match show {
         Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).into_owned(),
         _ => {
-            eprintln!(
+            say!(
                 "tag-release: {} has no CHANGELOG.md; nothing was tagged",
                 short(&head)
             );
@@ -643,7 +724,7 @@ pub fn run(a: &Args, root: &Path) -> u8 {
     // The head's changelog fragments count as lines of the section they will
     // be collected into.
     let Some(fragments) = head_fragments(root, &head) else {
-        eprintln!(
+        say!(
             "tag-release: cannot read the changelog fragments of {}; nothing was tagged",
             short(&head)
         );
@@ -656,7 +737,7 @@ pub fn run(a: &Args, root: &Path) -> u8 {
         Some(name) if !fragments.is_empty() => match collect(&changelog, name, &fragments) {
             Ok(c) => Some((name, c)),
             Err(Refusal::Fragment(m)) => {
-                eprintln!("tag-release: {m}; nothing was tagged");
+                say!("tag-release: {m}; nothing was tagged");
                 return 1;
             }
             Err(Refusal::NoSection) => None,
@@ -667,16 +748,16 @@ pub fn run(a: &Args, root: &Path) -> u8 {
     let (name, text) = match collected.and_then(|(n, c)| section(&c, n).map(|t| (n, t))) {
         Some((name, text)) if !text.is_empty() => (name, text),
         _ => {
-            eprintln!("tag-release: CHANGELOG.md has no section for {next} or Unreleased; nothing was tagged");
+            say!("tag-release: CHANGELOG.md has no section for {next} or Unreleased; nothing was tagged");
             return 1;
         }
     };
     if !adopter_action(&text) {
-        eprintln!("tag-release: the {name} section of CHANGELOG.md needs an \"### Adopter action\" heading with a line under it (\"None.\" will do); nothing was tagged");
+        say!("tag-release: the {name} section of CHANGELOG.md needs an \"### Adopter action\" heading with a line under it (\"None.\" will do); nothing was tagged");
         return 1;
     }
     if !changes(&text) {
-        eprintln!("tag-release: the {name} section of CHANGELOG.md lists no changes: it needs a \"### Changes\" heading with a line under it; nothing was tagged");
+        say!("tag-release: the {name} section of CHANGELOG.md lists no changes: it needs a \"### Changes\" heading with a line under it; nothing was tagged");
         return 1;
     }
     // A release's notes are its own section: Unreleased is named for it in
@@ -685,7 +766,7 @@ pub fn run(a: &Args, root: &Path) -> u8 {
     let rename = a.pre.is_none() && name == "Unreleased";
     if a.pre.is_some() && name == "Unreleased" {
         if let Err(m) = tag_before(root, &head, &next) {
-            eprintln!(
+            say!(
                 "tag-release: the release notes of {next} cannot be made: {m}; nothing was tagged"
             );
             return 1;
@@ -701,18 +782,18 @@ pub fn run(a: &Args, root: &Path) -> u8 {
     let since = latest.as_deref().unwrap_or("the start");
     if a.dry {
         if !fragments.is_empty() {
-            eprintln!(
+            say!(
                 "tag-release: would collect {} changelog fragments into the {name} section of CHANGELOG.md:",
                 fragments.len()
             );
             for line in text.split('\n') {
-                eprintln!("    {line}");
+                say!("    {line}");
             }
         }
         if rename {
-            eprintln!("tag-release: would name the Unreleased section of CHANGELOG.md {next} ({date}) in a pull request, with a new empty Unreleased above it");
+            say!("tag-release: would name the Unreleased section of CHANGELOG.md {next} ({date}) in a pull request, with a new empty Unreleased above it");
         }
-        eprintln!(
+        say!(
             "tag-release: would tag {branch} at {} as {next} ({count} commits since {since})",
             short(&head)
         );
@@ -721,7 +802,7 @@ pub fn run(a: &Args, root: &Path) -> u8 {
     }
 
     let Ok(dir) = Stage::new("tag-release") else {
-        eprintln!("tag-release: cannot make a scratch directory");
+        say!("tag-release: cannot make a scratch directory");
         return 1;
     };
     let scratch = Scratch {
@@ -737,7 +818,7 @@ pub fn run(a: &Args, root: &Path) -> u8 {
             .arg(&head),
         false,
     ) {
-        eprintln!("tag-release: cannot check out {}", short(&head));
+        say!("tag-release: cannot check out {}", short(&head));
         return 1;
     }
     let ctx = Ctx {
@@ -746,6 +827,8 @@ pub fn run(a: &Args, root: &Path) -> u8 {
         remote,
         branch: &branch,
         verify: a.verify,
+        hosts,
+        programs,
     };
 
     if let Some(code) = polyfills(&ctx, a, &scratch.dir.0, &head, &next) {
@@ -767,9 +850,9 @@ pub fn run(a: &Args, root: &Path) -> u8 {
     let rukas_before = ctx.rukas_pin();
 
     if a.verify && a.local_gate {
-        eprintln!("tag-release: running the gate on {}", short(&head));
+        say!("tag-release: running the gate on {}", short(&head));
         if !ctx.gate() {
-            eprintln!(
+            say!(
                 "tag-release: the gate failed on {}; nothing was tagged",
                 short(&head)
             );
@@ -787,7 +870,7 @@ pub fn run(a: &Args, root: &Path) -> u8 {
     let pin = match settle(rukas_before, ctx.rukas_pin()) {
         Ok(pin) => pin,
         Err(m) => {
-            eprintln!("tag-release: {m}; nothing was tagged");
+            say!("tag-release: {m}; nothing was tagged");
             return 1;
         }
     };
@@ -796,7 +879,7 @@ pub fn run(a: &Args, root: &Path) -> u8 {
         None => format!("Release {next} - {message}"),
     };
     if !runs(git().args(["tag", "-a", &next, "-m", &note, &head]), false) {
-        eprintln!("tag-release: cannot create {next}");
+        say!("tag-release: cannot create {next}");
         return 1;
     }
     if !runs(
@@ -804,10 +887,10 @@ pub fn run(a: &Args, root: &Path) -> u8 {
         false,
     ) {
         runs(git().args(["tag", "-d", &next]), true);
-        eprintln!("tag-release: pushing {next} to {remote} failed; the local tag is removed");
+        say!("tag-release: pushing {next} to {remote} failed; the local tag is removed");
         return 1;
     }
-    eprintln!(
+    say!(
         "tag-release: tagged {branch} at {} as {next} ({count} commits since {since})",
         short(&head)
     );
@@ -827,6 +910,8 @@ struct Ctx<'a> {
     remote: &'a str,
     branch: &'a str,
     verify: bool,
+    hosts: &'a Hosts<'a>,
+    programs: &'a Programs,
 }
 
 impl Ctx<'_> {
@@ -834,6 +919,9 @@ impl Ctx<'_> {
     fn cmd(&self, program: impl AsRef<std::ffi::OsStr>) -> Command {
         let mut c = Command::new(program);
         c.current_dir(self.root);
+        if let Some(path) = &self.programs.path {
+            c.env("PATH", path);
+        }
         c
     }
 
@@ -893,68 +981,93 @@ impl Ctx<'_> {
             true
         };
         let c = short(commit);
-        let say = |m: &str| eprintln!("tag-release: {m}");
+        let say = |m: &str| say!("tag-release: {m}");
         let hint = "tag-release: --local-gate runs the gate here instead";
         if !proofs {
             say("an alpha or a beta: the release gate runs without the Kani proofs");
         }
         match lane::gate(commit, proofs, list, start, wait, say) {
             lane::Outcome::Green(url) => {
-                eprintln!("tag-release: the release gate passed on {c}, {url}; no local gate");
+                say!("tag-release: the release gate passed on {c}, {url}; no local gate");
                 true
             }
             lane::Outcome::Red(url) => {
-                eprintln!("tag-release: the release gate failed on {c}, {url}; nothing was tagged");
+                say!("tag-release: the release gate failed on {c}, {url}; nothing was tagged");
                 false
             }
             lane::Outcome::TimedOut(url) => {
                 let run = url.map(|u| format!(" ({u})")).unwrap_or_default();
-                eprintln!("tag-release: no green release gate on {c} within {minutes} minutes{run}; nothing was tagged");
-                eprintln!(
-                    "tag-release: is a speedlane runner online? --gate-wait gives a longer bound"
-                );
-                eprintln!("{hint}");
+                say!("tag-release: no green release gate on {c} within {minutes} minutes{run}; nothing was tagged");
+                say!("tag-release: is a speedlane runner online? --gate-wait gives a longer bound");
+                say!("{hint}");
                 false
             }
             lane::Outcome::NoList => {
-                eprintln!(
+                say!(
                     "tag-release: cannot list the runs of {}; nothing was tagged",
                     lane::WORKFLOW
                 );
-                eprintln!("{hint}");
+                say!("{hint}");
                 false
             }
             lane::Outcome::NoStart => {
-                eprintln!(
+                say!(
                     "tag-release: cannot start {} on {c}; nothing was tagged",
                     lane::WORKFLOW
                 );
-                eprintln!("{hint}");
+                say!("{hint}");
                 false
             }
         }
     }
 
-    /// The URL of an open pull request from a branch whose name starts with
-    /// `prefix`, empty when there is none; None when gh cannot list them.
-    fn open_pr(&self, prefix: &str) -> Option<String> {
-        let jq =
-            format!("[.[] | select(.headRefName | startswith(\"{prefix}\")) | .url][0] // \"\"");
-        ok_out(self.cmd("gh").current_dir(self.tree).args([
-            "pr",
-            "list",
-            "--state",
-            "open",
-            "--json",
-            "url,headRefName",
-            "--jq",
-            &jq,
-        ]))
+    /// The checkout's own project, as its remote names it. A remote that
+    /// names no project of the code host stops the task, 78.
+    fn project(&self) -> Result<String, u8> {
+        let url =
+            ok_out(self.cmd("git").args(["remote", "get-url", self.remote])).unwrap_or_default();
+        (self.hosts.project_of)(&url).ok_or_else(|| {
+            say!(
+                "tag-release: the remote {} names no project of the code host; nothing was tagged",
+                self.remote
+            );
+            78
+        })
+    }
+
+    /// The link of an open pull request from a branch whose name starts with
+    /// `prefix`, empty when there is none. A list that cannot be read is
+    /// said, 1.
+    fn open_pr(&self, prefix: &str) -> Result<String, u8> {
+        let project = self.project()?;
+        let filter = ChangeFilter {
+            states: ChangeStates::Open,
+            ..Default::default()
+        };
+        let open = (self.hosts.site)(&project)
+            .code_host(&BY, CALLER)
+            .and_then(|mut c| c.changes(&filter, ALL_MAX));
+        match open {
+            Ok(open) => Ok(open
+                .items()
+                .iter()
+                .find(|d| d.head.as_str().starts_with(prefix))
+                .map(|d| d.link.as_str().to_string())
+                .unwrap_or_default()),
+            Err(o) => {
+                say!(
+                    "tag-release: cannot list the open pull requests: {}",
+                    o.line()
+                );
+                Err(1)
+            }
+        }
     }
 
     /// Commit the tree's changes as `title` with `body`, push them as the
-    /// branch `name` and open a pull request: its URL. A failure is said.
-    fn propose(&self, name: &str, title: &str, body: &str) -> Option<String> {
+    /// branch `name` and open a pull request: its link. A failure is said.
+    fn propose(&self, name: &str, title: &str, body: &str) -> Result<String, u8> {
+        let project = self.project()?;
         let git = || {
             let mut c = Command::new("git");
             c.arg("-C").arg(self.tree).current_dir(self.root);
@@ -975,30 +1088,35 @@ impl Ctx<'_> {
                 false,
             )
         {
-            eprintln!("tag-release: cannot commit or push {name}; nothing was tagged");
-            return None;
+            say!("tag-release: cannot commit or push {name}; nothing was tagged");
+            return Err(1);
         }
-        let url = ok_out(self.cmd("gh").current_dir(self.tree).args([
-            "pr",
-            "create",
-            "--base",
-            self.branch,
-            "--head",
-            name,
-            "--title",
-            title,
-            "--body",
-            body,
-        ]));
-        if url.is_none() {
-            eprintln!("tag-release: {name} is pushed, but no pull request could be opened for it; nothing was tagged");
-        }
-        url
+        let opened = match (Branch::new(name), Branch::new(self.branch)) {
+            (Ok(head), Ok(base)) => (self.hosts.site)(&project)
+                .code_host_writes(&BY, CALLER)
+                .and_then(|mut w| {
+                    w.open_change(&NewChange {
+                        head,
+                        base,
+                        title: title.to_string(),
+                        body: Body::Text(body.to_string()),
+                        draft: false,
+                        closes: Vec::new(),
+                    })
+                })
+                .map(|p| p.link.as_str().to_string())
+                .map_err(|o| o.line()),
+            _ => Err("a branch name the code host cannot take"),
+        };
+        opened.map_err(|why| {
+            say!("tag-release: {name} is pushed, but no pull request could be opened for it ({why}); nothing was tagged");
+            1
+        })
     }
 
     /// The console's `rukas`: TEHAS_CONSOLE, or the head's own built with cargo.
     fn rukas(&self, args: &[&str]) -> Option<String> {
-        let mut c = match std::env::var_os("TEHAS_CONSOLE").filter(|c| !c.is_empty()) {
+        let mut c = match self.programs.console.as_ref().filter(|c| !c.is_empty()) {
             Some(console) => self.cmd(console),
             None => {
                 let mut c = self.cmd("cargo");
@@ -1154,18 +1272,18 @@ fn fragments_pr(
     has_fragments: bool,
     named: Option<&str>,
 ) -> u8 {
-    let Some(open) = ctx.open_pr("changelog-") else {
-        eprintln!("tag-release: cannot list the open pull requests");
-        return 1;
+    let open = match ctx.open_pr("changelog-") {
+        Ok(open) => open,
+        Err(code) => return code,
     };
     if !open.is_empty() {
-        eprintln!("tag-release: {open} readies CHANGELOG.md for the release; merge it, then tag. Nothing was tagged");
+        say!("tag-release: {open} readies CHANGELOG.md for the release; merge it, then tag. Nothing was tagged");
         return 2;
     }
     let mut collected = String::new();
     if has_fragments {
         if !is_exec(&ctx.tree.join("scripts/collect-changelog.sh")) {
-            eprintln!("tag-release: {} has changelog fragments but no scripts/collect-changelog.sh to collect them; nothing was tagged", short(head));
+            say!("tag-release: {} has changelog fragments but no scripts/collect-changelog.sh to collect them; nothing was tagged", short(head));
             return 1;
         }
         let (out, ok) = capture(
@@ -1174,9 +1292,7 @@ fn fragments_pr(
                 .arg(ctx.tree.join("CHANGELOG.md")),
         );
         if !ok {
-            eprintln!(
-                "tag-release: the changelog fragments could not be collected; nothing was tagged"
-            );
+            say!("tag-release: the changelog fragments could not be collected; nothing was tagged");
             return 1;
         }
         collected = out;
@@ -1187,12 +1303,12 @@ fn fragments_pr(
             .ok()
             .and_then(|t| name_release(&t, next, date));
         if !renamed.is_some_and(|t| std::fs::write(&path, t).is_ok()) {
-            eprintln!("tag-release: cannot name the Unreleased section of CHANGELOG.md {next}; nothing was tagged");
+            say!("tag-release: cannot name the Unreleased section of CHANGELOG.md {next}; nothing was tagged");
             return 1;
         }
     }
     if ctx.verify && !ctx.gate() {
-        eprintln!("tag-release: the gate failed with CHANGELOG.md readied for the release; nothing was pushed or tagged");
+        say!("tag-release: the gate failed with CHANGELOG.md readied for the release; nothing was pushed or tagged");
         return 1;
     }
     let tree = format!("{}/", ctx.tree.display());
@@ -1205,10 +1321,11 @@ fn fragments_pr(
         Some(_) => format!("Name the {next} section of CHANGELOG.md"),
         None => "Collect the changelog fragments into CHANGELOG.md".to_string(),
     };
-    let Some(url) = ctx.propose(&format!("changelog-{next}"), &title, &body) else {
-        return 1;
+    let url = match ctx.propose(&format!("changelog-{next}"), &title, &body) {
+        Ok(url) => url,
+        Err(code) => return code,
     };
-    eprintln!("tag-release: {url} readies CHANGELOG.md for {next}; merge it, then tag. Nothing was tagged");
+    say!("tag-release: {url} readies CHANGELOG.md for {next}; merge it, then tag. Nothing was tagged");
     2
 }
 
@@ -1241,7 +1358,7 @@ fn polyfills(ctx: &Ctx, a: &Args, scratch: &Path, head: &str, next: &str) -> Opt
         c
     };
     let Some(list) = ok_out(&mut polyfills(&["list"])) else {
-        eprintln!("tag-release: cannot list the polyfills of {}", short(head));
+        say!("tag-release: cannot list the polyfills of {}", short(head));
         return Some(1);
     };
     if list.is_empty() {
@@ -1275,8 +1392,8 @@ fn polyfills(ctx: &Ctx, a: &Args, scratch: &Path, head: &str, next: &str) -> Opt
                 } else {
                     &image
                 };
-                eprintln!("tag-release: cannot ask {who} whether the polyfills of {} are still needed; nothing was tagged", short(head));
-                eprintln!("tag-release: --rukas-caps <file> gives its --capabilities answer");
+                say!("tag-release: cannot ask {who} whether the polyfills of {} are still needed; nothing was tagged", short(head));
+                say!("tag-release: --rukas-caps <file> gives its --capabilities answer");
                 return Some(1);
             }
             (caps, format!("pi-rukas {what}"))
@@ -1287,65 +1404,75 @@ fn polyfills(ctx: &Ctx, a: &Args, scratch: &Path, head: &str, next: &str) -> Opt
         return Some(1);
     };
     let expired: Vec<&str> = expired.lines().collect();
-    let gh_state = |kind: &str, r: &str| {
+    let site = |r: &str| {
         let (repo, num) = split_ref(r);
-        let o = ctx
-            .cmd("gh")
-            .args([
-                kind, "view", num, "-R", repo, "--json", "state", "--jq", ".state",
-            ])
-            .stderr(Stdio::null())
-            .output();
-        o.map(|o| {
-            String::from_utf8_lossy(&o.stdout)
-                .trim_end_matches('\n')
-                .to_string()
-        })
-        .unwrap_or_default()
+        let num = num.parse().ok().and_then(std::num::NonZeroU64::new);
+        num.map(|n| ((ctx.hosts.site)(repo), n))
     };
-    let (merged, untracked) = upstream(
-        &carried,
-        &expired,
-        &rukas,
-        |i| gh_state("issue", i),
-        |p| gh_state("pr", p),
-    );
+    // An issue is there when the number names one; any failure to say is
+    // "cannot be found", as gh's empty answer was.
+    let issue_found = |i: &str| {
+        site(i).is_some_and(|(site, n)| {
+            matches!(
+                site.tickets(&BY, CALLER).and_then(|mut t| t.what_is(n)),
+                Ok(Item::Ticket(_))
+            )
+        })
+    };
+    let pr_state = |p: &str| {
+        let (site, n) = site(p)?;
+        let no = ChangeNo::new(n.get())?;
+        let filter = ChangeFilter {
+            states: ChangeStates::All,
+            numbers: vec![no],
+            ..Default::default()
+        };
+        let found = site
+            .code_host(&BY, CALLER)
+            .and_then(|mut c| c.changes(&filter, ALL_MAX))
+            .ok()?;
+        let d = found.items().iter().find(|d| d.no == no)?;
+        Some(match d.state {
+            ChangeState::Open => Upstream::Open,
+            ChangeState::Merged { .. } => Upstream::Merged,
+            ChangeState::Closed { .. } => Upstream::Closed,
+        })
+    };
+    let (merged, untracked) = upstream(&carried, &expired, &rukas, issue_found, pr_state);
     for line in merged {
-        eprintln!("{line}");
+        say!("{line}");
     }
     if !untracked.is_empty() {
-        eprintln!("tag-release: these polyfills stand in for no work upstream is doing; nothing was tagged:");
+        say!("tag-release: these polyfills stand in for no work upstream is doing; nothing was tagged:");
         for line in untracked {
-            eprintln!("{line}");
+            say!("{line}");
         }
-        eprintln!(
-            "tag-release: name the upstream issue and an open pull request in each, or remove it"
-        );
+        say!("tag-release: name the upstream issue and an open pull request in each, or remove it");
         return Some(1);
     }
     if expired.is_empty() {
         return None;
     }
-    let Some(open) = ctx.open_pr("remove-polyfills-") else {
-        eprintln!("tag-release: cannot list the open pull requests");
-        return Some(1);
+    let open = match ctx.open_pr("remove-polyfills-") {
+        Ok(open) => open,
+        Err(code) => return Some(code),
     };
     if !open.is_empty() {
-        eprintln!("tag-release: {open} removes polyfills; merge it, then tag. Nothing was tagged");
+        say!("tag-release: {open} removes polyfills; merge it, then tag. Nothing was tagged");
         return Some(2);
     }
     let have: String = expired.iter().map(|f| format!("{f} ")).collect();
-    eprintln!("tag-release: {rukas} has {have}and no longer needs their polyfills");
+    say!("tag-release: {rukas} has {have}and no longer needs their polyfills");
     let (pruned, ok) = capture(&mut polyfills(&["prune", &caps_arg]));
     for line in pruned.lines() {
-        eprintln!("tag-release: removed from {line}");
+        say!("tag-release: removed from {line}");
     }
     if !ok {
-        eprintln!("tag-release: the polyfills could not be removed; nothing was pushed");
+        say!("tag-release: the polyfills could not be removed; nothing was pushed");
         return Some(1);
     }
     if ctx.verify && !ctx.gate() {
-        eprintln!(
+        say!(
             "tag-release: the gate failed with the polyfills removed; nothing was pushed or tagged"
         );
         return Some(1);
@@ -1353,35 +1480,34 @@ fn polyfills(ctx: &Ctx, a: &Args, scratch: &Path, head: &str, next: &str) -> Opt
     let body = polyfill_body(&rukas, &carried, &expired, next);
     let fix = format!("remove-polyfills-{next}");
     let title = "Remove the polyfills pi-rukas no longer needs";
-    let Some(url) = ctx.propose(&fix, title, &body) else {
-        return Some(1);
+    let url = match ctx.propose(&fix, title, &body) {
+        Ok(url) => url,
+        Err(code) => return Some(code),
     };
-    eprintln!("tag-release: {url} removes them; merge it, then tag. Nothing was tagged");
+    say!("tag-release: {url} removes them; merge it, then tag. Nothing was tagged");
     Some(2)
 }
 
 /// The pinned tools moved to the newest of their major: when anything moved,
 /// a pull request. Some(status) ends the task; None goes on to the gate.
 fn pins(ctx: &Ctx, next: &str) -> Option<u8> {
-    let Some(open) = ctx.open_pr("pins-") else {
-        eprintln!("tag-release: cannot list the open pull requests");
-        return Some(1);
+    let open = match ctx.open_pr("pins-") {
+        Ok(open) => open,
+        Err(code) => return Some(code),
     };
     if !open.is_empty() {
-        eprintln!(
-            "tag-release: {open} moves the pinned tools; merge it, then tag. Nothing was tagged"
-        );
+        say!("tag-release: {open} moves the pinned tools; merge it, then tag. Nothing was tagged");
         return Some(2);
     }
     let Some(moves) = ok_out(ctx.script("pins.sh").args(["move", "--release", next])) else {
-        eprintln!("tag-release: a pinned tool could not be moved; nothing was tagged");
-        eprintln!("tag-release: --no-pins tags without moving them");
+        say!("tag-release: a pinned tool could not be moved; nothing was tagged");
+        say!("tag-release: --no-pins tags without moving them");
         return Some(1);
     };
     let moved: Vec<&str> = moves.split('\n').collect();
     if !moves.is_empty() {
         for m in &moved {
-            eprintln!("tag-release: {m}");
+            say!("tag-release: {m}");
         }
     }
     let mut status = Command::new("git");
@@ -1391,15 +1517,16 @@ fn pins(ctx: &Ctx, next: &str) -> Option<u8> {
         return None;
     }
     if ctx.verify && !ctx.gate() {
-        eprintln!("tag-release: the gate failed with the pinned tools moved; nothing was pushed or tagged");
+        say!("tag-release: the gate failed with the pinned tools moved; nothing was pushed or tagged");
         return Some(1);
     }
     let body = pins_body(&moved, next);
     let title = "Move the pinned tools to the newest minor and patch";
-    let Some(url) = ctx.propose(&format!("pins-{next}"), title, &body) else {
-        return Some(1);
+    let url = match ctx.propose(&format!("pins-{next}"), title, &body) {
+        Ok(url) => url,
+        Err(code) => return Some(code),
     };
-    eprintln!("tag-release: {url} moves them; merge it, then tag. Nothing was tagged");
+    say!("tag-release: {url} moves them; merge it, then tag. Nothing was tagged");
     Some(2)
 }
 
