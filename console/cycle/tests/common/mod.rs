@@ -660,9 +660,27 @@ impl World {
     }
 
     /// #7's report run in process on a site of its own, `site_of` this
-    /// world, as `said` says its writes. Run again, the same store goes on.
+    /// world, as `said` says its writes, and its end on record as
+    /// tehas-cycle records it. Run again, the store goes on from there.
     pub fn report_said(&self) -> String {
-        said(&self.report_writes(&site_of(self)))
+        let site = site_of(self);
+        let t = self.report_through(&site, &tehas_ports::fake::FakeSite::new(&site));
+        self.record_end(&t);
+        said(&t.applied)
+    }
+
+    /// The end of the report `t` on record, under the issue's lock, as
+    /// tehas-cycle records it after the writes. A store that will not take
+    /// it is the case's own: nothing is asserted here.
+    pub fn record_end(&self, t: &Tried) {
+        let _ = Command::new("flock")
+            .args(["-w", "5"])
+            .arg(self.state().join("7.lock"))
+            .arg(self.t.join("store-bin"))
+            .args(&t.end)
+            .env("TEHAS_HOME", &self.home)
+            .env("TEHAS_TEST_STORE_ANSWERS", self.t.join("store-answers"))
+            .output();
     }
 
     pub fn report_writes(&self, site: &tehas_ports::fake::World) -> Vec<tehas_ports::Write> {
@@ -731,6 +749,12 @@ impl World {
             status_cmd: "fake-status".to_string(),
             status_args: vec![],
         };
+        // The store the report reads and calls answers as a run's store
+        // does, unless the case took it away.
+        let store = self.home.join("libexec/store");
+        if store.exists() {
+            self.as_run(&store, &self.t.join("store-bin"));
+        }
         let env = |k: &str| self.setting(k);
         let facts_json = tehas_cycle::host::facts_with(&self.home, &start, &env);
         let facts = tehas_cycle::Facts::from_json(&facts_json).expect("the facts read");
@@ -772,12 +796,6 @@ impl World {
             grace: std::time::Duration::ZERO,
             workdir: tehas_cycle::host::workdir_with(&start, &env),
         };
-        // The store the report calls answers as a run's store does, unless
-        // the case took it away.
-        let store = self.home.join("libexec/store");
-        if store.exists() {
-            self.as_run(&store, &self.t.join("store-bin"));
-        }
         let (written, logged) = tehas_cycle::after::holding(|| {
             tehas_cycle::apply::write(&self.home, &how, &mut r, &facts, handles)
         });
@@ -1307,7 +1325,21 @@ pub fn through<S: tehas_ports::Site>(
     setup(&mut w);
     let world = site_of(&w);
     let t = w.report_through(&world, &wrap(tehas_ports::fake::FakeSite::new(&world)));
+    w.record_end(&t);
     (w, said(&t.applied), said(&t.sent))
+}
+
+/// [`twin`], and the world the report ran on in process, for what it left on
+/// record: its park's question, the questions known.
+#[allow(dead_code)] // each test file uses a part of this module
+pub fn twins(name: &str, setup: impl Fn(&mut World)) -> (World, Run, World, String) {
+    let mut w = World::new(name);
+    setup(&mut w);
+    let r = w.run7();
+    let mut twin = World::new(&format!("{name}-writes"));
+    setup(&mut twin);
+    let said = twin.report_said();
+    (w, r, twin, said)
 }
 
 /// The site the report writes to in process: issue 7, running, and the bot's
