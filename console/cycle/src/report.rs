@@ -288,16 +288,15 @@ impl Park {
     }
 
     /// [`Park::comment`] as a write of the ports takes it: the text without
-    /// the park's marker, and the marker beside it.
+    /// the park's marker, and the marker beside it. A write refuses a text
+    /// with a marker in it, so a park with no typed marker posts its comment
+    /// with none.
     pub fn comment_parts(&self, stuck: bool, on_record: bool) -> (String, Vec<Marker>) {
-        let mut said = Park {
+        let said = Park {
             park_marker: String::new(),
             ..self.clone()
         }
         .comment(stuck, on_record);
-        if self.park.is_none() {
-            said = self.comment(stuck, on_record);
-        }
         (
             said,
             self.park.clone().map(Marker::Park).into_iter().collect(),
@@ -2202,6 +2201,26 @@ mod tests {
     use super::*;
     use serde_json::json;
     use tehas_core::text::has_marker;
+
+    #[test]
+    fn a_park_comment_carries_its_marker_beside_the_text_and_never_in_it() {
+        let p = Park {
+            text: "Stopped.".into(),
+            park_marker: park_marker(7, "develop", "cap", "why", "kind", "cause", false),
+            park: park_typed(7, "develop", "cap", "why", "kind", "cause", false),
+            ..Park::default()
+        };
+        assert!(has_marker(&p.comment(false, true)));
+        let (said, markers) = p.comment_parts(false, true);
+        assert!(!has_marker(&said), "{said}");
+        assert_eq!(markers.len(), 1);
+        // No typed marker: the comment goes without one, not with the text's.
+        let p = Park { park: None, ..p };
+        let (said, markers) = p.comment_parts(false, true);
+        assert!(!has_marker(&said), "{said}");
+        assert!(markers.is_empty());
+        assert!(!said.is_empty());
+    }
 
     #[test]
     fn the_pr_number_is_read_whatever_the_case_and_a_trailing_slash() {

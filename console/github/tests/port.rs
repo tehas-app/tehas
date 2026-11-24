@@ -234,7 +234,7 @@ fn a_mark_goes_on_and_comes_off_as_its_label() {
 fn what_no_caller_asks_yet_is_unsupported_before_any_request() {
     let (mut gh, asked) = adapter(vec![]);
     assert_eq!(
-        gh.blockers(&key(7)),
+        gh.count(&tehas_ports::Filter::default()),
         Err(Outcome::Refused(Refusal::Unsupported))
     );
     assert_eq!(

@@ -180,7 +180,7 @@ impl GitHub {
             answers.extend(distinct.iter().map(|n| (*n, Err(CUT))));
         } else {
             for chunk in distinct.chunks(PER_QUESTION) {
-                let got = self.ask_several(chunk);
+                let got = self.ask_closers(chunk);
                 answers.extend(chunk.iter().copied().zip(got));
             }
         }
@@ -194,7 +194,7 @@ impl GitHub {
     }
 
     /// One question of distinct numbers: an answer for each, in order.
-    fn ask_several(&mut self, numbers: &[u64]) -> Vec<Got<WithCloser>> {
+    fn ask_closers(&mut self, numbers: &[u64]) -> Vec<Got<WithCloser>> {
         let all = |o: Outcome| vec![Err(o); numbers.len()];
         let (owner, name) = self.owner_name();
         let query = format!("query={}", several_question(numbers));
@@ -202,7 +202,7 @@ impl GitHub {
         let (out, failed) = match self.call_answer("the tickets' closers", &args) {
             Ok(out) => (out, None),
             Err((e, Some(out))) => (out, Some(e)),
-            Err((e, None)) => return all(self.failed(&e, numbers.len())),
+            Err((e, None)) => return all(self.failed_closers(&e, numbers.len())),
         };
         let read = serde_json::from_str::<Value>(out.trim())
             .ok()
@@ -211,7 +211,7 @@ impl GitHub {
                 serde_json::from_value::<Answer>(v).ok()
             });
         let Some(answer) = read else {
-            return all(failed.map_or(MALFORMED, |e| self.failed(&e, numbers.len())));
+            return all(failed.map_or(MALFORMED, |e| self.failed_closers(&e, numbers.len())));
         };
         let repository = answer.data.and_then(|d| d.repository);
         let nodes = match (repository, failed.as_ref()) {
@@ -222,7 +222,7 @@ impl GitHub {
         let Some(mut nodes) = nodes else {
             // No issue, or gh failed with no error to read them by: the
             // call's own outcome.
-            return all(failed.map_or(MALFORMED, |e| self.failed(&e, numbers.len())));
+            return all(failed.map_or(MALFORMED, |e| self.failed_closers(&e, numbers.len())));
         };
         // An error that names no alias leaves no ticket sure.
         if answer.errors.iter().any(|e| e.alias().is_none()) {
@@ -264,7 +264,7 @@ impl GitHub {
     /// The outcome of a question gh failed with no answer to read. A
     /// number GitHub does not know fails the whole question, so where
     /// several were asked a `NotFound` names none of them.
-    fn failed(&self, e: &ForgeError, asked: usize) -> Outcome {
+    fn failed_closers(&self, e: &ForgeError, asked: usize) -> Outcome {
         match self.outcome(e) {
             Outcome::NotFound if asked > 1 => INCONSISTENT,
             o => o,
