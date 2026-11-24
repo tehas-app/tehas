@@ -19,7 +19,7 @@ const IMAGES: &str = "https://user-images.githubusercontent.com/";
 /// The id is the link itself. A file uploaded to an issue
 /// (`user-attachments/files/<n>/<name>`, or a project's
 /// `<owner>/<name>/files/<n>/<name>`) has its name, exactly one part of
-/// the path. A pasted image (`user-attachments/assets/<id>`, a project's
+/// the path, as the link spells it (percent-escapes kept: `my%20file.pdf`). A pasted image (`user-attachments/assets/<id>`, a project's
 /// `<owner>/<name>/assets/<n>/<id>`, or `user-images.githubusercontent.com`)
 /// has none. A link of another shape, a file link with no name or with
 /// more parts after it, or a link longer than a `WebLink` holds, is no
@@ -42,14 +42,14 @@ pub(crate) fn read(text: &str) -> Vec<Attachment> {
 /// escaped `.`, `/` or `\`), so what it found may be the start of a
 /// longer address, cut. Such a link is no attachment: it is taken only
 /// where the text holds it whole, with no character of an address
-/// straight after it (one the rule takes, `%`, `/` or `\`). An occurrence
-/// that runs on is a longer link, or this one cut.
+/// straight after it (one the rule takes, `%`, `/`, `\`, or any character
+/// that is not ASCII, which the rule never takes). An occurrence that runs
+/// on is a longer link, or this one cut.
 fn whole_somewhere(text: &str, link: &str) -> bool {
     text.match_indices(link).any(|(at, _)| {
-        !text[at + link.len()..]
-            .chars()
-            .next()
-            .is_some_and(|c| c.is_ascii_alphanumeric() || "._~?&=+-%/\\".contains(c))
+        !text[at + link.len()..].chars().next().is_some_and(|c| {
+            !c.is_ascii() || c.is_ascii_alphanumeric() || "._~?&=+-%/\\".contains(c)
+        })
     })
 }
 

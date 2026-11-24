@@ -174,6 +174,32 @@ fn the_same_link_whole_elsewhere_in_the_text_is_an_attachment() {
 }
 
 #[test]
+fn a_link_followed_straight_away_by_a_character_that_is_not_ascii_is_cut_and_no_attachment() {
+    // The rule takes ASCII alone, so it ends this link before the `ä`: the
+    // file is not `a.zip`.
+    assert!(read("https://github.com/user-attachments/files/1/a.zipä").is_empty());
+}
+
+#[test]
+fn a_link_then_a_space_then_a_word_that_is_not_ascii_is_an_attachment() {
+    let link = "https://github.com/user-attachments/files/1/a.zip";
+    assert_eq!(
+        read(&format!("{link} är här")),
+        [(
+            link.to_string(),
+            link.to_string(),
+            Some("a.zip".to_string())
+        )]
+    );
+}
+
+#[test]
+fn a_name_is_as_the_link_spells_it() {
+    let link = "https://github.com/user-attachments/files/2/my%20file.pdf";
+    assert_eq!(read(link)[0].2.as_deref(), Some("my%20file.pdf"));
+}
+
+#[test]
 fn the_blueprints_attachments_are_not_built_and_say_so_before_any_request() {
     let no = BlueprintNo::new(7).unwrap();
     assert_eq!(
