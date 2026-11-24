@@ -13,14 +13,14 @@ use crate::logs::LogGuard;
 use crate::plugins;
 use crate::tickets;
 use crate::tools::{self, Dirs, Output, Scope, ToolError};
-use serde_json::{json, Value};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Number, Value};
 use std::path::Path;
 
 pub const MODERN: &str = "2026-07-28";
 pub const LEGACY: &str = "2025-11-25";
 pub const MAX_BODY: usize = 65536;
 const VERSION_KEY: &str = "io.modelcontextprotocol/protocolVersion";
-const SERVER_INFO_KEY: &str = "io.modelcontextprotocol/serverInfo";
 const LIST_TTL_MS: u64 = 30000;
 
 /// Sent in both handshakes: how to use the tools.
@@ -75,7 +75,12 @@ impl Response {
         }
     }
 
-    fn json(status: u16, v: Value) -> Self {
+    /// An answer of JSON. It goes through `serde_json::to_value`, so its keys
+    /// are sorted, whatever order its type declares them in.
+    fn json(status: u16, v: impl Serialize) -> Self {
+        let Ok(v) = serde_json::to_value(v) else {
+            return Response::empty(500);
+        };
         Response {
             status,
             headers: vec![("Content-Type".into(), "application/json".into())],
@@ -106,25 +111,128 @@ impl Refusal {
     }
 }
 
-fn error(status: u16, id: &Value, code: i64, message: &str, data: Option<Value>) -> Response {
-    let mut e = json!({"code": code, "message": message});
-    if let Some(d) = data {
-        e["data"] = d;
-    }
-    Response::json(status, json!({"jsonrpc": "2.0", "id": id, "error": e}))
+/// A request's id as JSON-RPC 2.0 has it: text, a number, or null. A request
+/// that has none, or whose body could not be read, is answered with null. An
+/// id of any other kind (an object, a list, true or false) is not one: the
+/// request is refused as an Invalid Request, answered with null.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+enum Id {
+    Text(String),
+    Number(Number),
+    Null,
 }
 
-fn mismatch(id: &Value, what: &str) -> Response {
+/// The reply to a request that is answered.
+#[derive(Serialize)]
+struct Success<'a, R> {
+    jsonrpc: &'static str,
+    id: &'a Id,
+    result: R,
+}
+
+/// The reply to a request that is refused.
+#[derive(Serialize)]
+struct Failure<'a> {
+    jsonrpc: &'static str,
+    id: &'a Id,
+    error: Problem<'a>,
+}
+
+#[derive(Serialize)]
+struct Problem<'a> {
+    code: i64,
+    message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    data: Option<Versions<'a>>,
+}
+
+/// What an unsupported version's refusal says: the versions the server
+/// speaks, and the one the request asked for.
+#[derive(Serialize)]
+struct Versions<'a> {
+    supported: [&'static str; 2],
+    requested: &'a str,
+}
+
+/// The server, as a handshake and a modern result's `_meta` name it.
+#[derive(Serialize)]
+struct ServerInfo<'a> {
+    name: &'static str,
+    version: &'a str,
+}
+
+/// A result, with the server named in its `_meta` when the request is modern.
+#[derive(Serialize)]
+struct Stamped<'a, R> {
+    #[serde(flatten)]
+    result: R,
+    #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
+    meta: Option<Meta<'a>>,
+}
+
+#[derive(Serialize)]
+struct Meta<'a> {
+    #[serde(rename = "io.modelcontextprotocol/serverInfo")]
+    server_info: &'a ServerInfo<'a>,
+}
+
+/// A tool's answer that names its problem, as text.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ToolFailure<'a> {
+    result_type: &'static str,
+    content: [Text<'a>; 1],
+    is_error: bool,
+}
+
+#[derive(Serialize)]
+struct Text<'a> {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    text: &'a str,
+}
+
+fn reply(status: u16, id: &Id, result: impl Serialize) -> Response {
+    Response::json(
+        status,
+        Success {
+            jsonrpc: "2.0",
+            id,
+            result,
+        },
+    )
+}
+
+fn error(status: u16, id: &Id, code: i64, message: &str, data: Option<Versions>) -> Response {
+    Response::json(
+        status,
+        Failure {
+            jsonrpc: "2.0",
+            id,
+            error: Problem {
+                code,
+                message: message.to_string(),
+                data,
+            },
+        },
+    )
+}
+
+fn mismatch(id: &Id, what: &str) -> Response {
     error(400, id, -32020, &format!("Header mismatch: {what}"), None)
 }
 
-fn unsupported(id: &Value, requested: &str) -> Response {
+fn unsupported(id: &Id, requested: &str) -> Response {
     error(
         400,
         id,
         -32022,
         "Unsupported protocol version",
-        Some(json!({"supported": [MODERN, LEGACY], "requested": requested})),
+        Some(Versions {
+            supported: [MODERN, LEGACY],
+            requested,
+        }),
     )
 }
 
@@ -185,9 +293,12 @@ pub fn answer_in(
         return Response::empty(413);
     }
     let Ok(msg) = serde_json::from_slice::<Value>(req.body) else {
-        return error(400, &Value::Null, -32700, "Parse error", None);
+        return error(400, &Id::Null, -32700, "Parse error", None);
     };
-    let id = msg.get("id").cloned().unwrap_or(Value::Null);
+    let id = match msg.get("id").map(Id::deserialize).transpose() {
+        Ok(id) => id.unwrap_or(Id::Null),
+        Err(_) => return error(400, &Id::Null, -32600, "Invalid Request", None),
+    };
     let method = match (&msg["jsonrpc"], &msg["method"]) {
         (Value::String(v), Value::String(m)) if v == "2.0" => m.as_str(),
         _ => return error(400, &id, -32600, "Invalid Request", None),
@@ -195,7 +306,7 @@ pub fn answer_in(
     let params = msg.get("params").cloned().unwrap_or(json!({}));
     let modern = match params["_meta"][VERSION_KEY].as_str() {
         Some(v) => {
-            if let Some(r) = check_modern(req, &id, v, method, &params) {
+            if let Some(r) = check_modern(req, &id, v, method, params["name"].as_str()) {
                 return r;
             }
             true
@@ -210,7 +321,10 @@ pub fn answer_in(
     if msg.get("id").is_none() {
         return Response::empty(202);
     }
-    let info = json!({"name": "tehas", "version": server_version});
+    let info = ServerInfo {
+        name: "tehas",
+        version: server_version,
+    };
     let mut hold = None;
     let mut tool = None;
     let result = match (method, modern) {
@@ -227,14 +341,15 @@ pub fn answer_in(
         }
         ("initialize", false) => {
             git::ask_fetch();
-            return Response::json(
+            return reply(
                 200,
-                json!({"jsonrpc": "2.0", "id": id, "result": {
+                &id,
+                json!({
                     "protocolVersion": LEGACY,
                     "capabilities": {"tools": {}},
                     "serverInfo": info,
                     "instructions": INSTRUCTIONS,
-                }}),
+                }),
             );
         }
         ("ping", false) => json!({}),
@@ -258,7 +373,7 @@ pub fn answer_in(
                         "content": [{"type": "text", "text": v.to_string()}],
                         "structuredContent": v,
                     }),
-                    Err(why) => tool_error(&why),
+                    Err(why) => json!(tool_error(&why)),
                 };
                 return finish(&id, result, modern, &info, None, Some(t.name));
             }
@@ -271,7 +386,7 @@ pub fn answer_in(
                             "content": [{"type": "text", "text": v.to_string()}],
                             "structuredContent": v,
                         }),
-                        Err(why) => tool_error(&why),
+                        Err(why) => json!(tool_error(&why)),
                     };
                     return finish(&id, result, modern, &info, None, Some(n.to_string()));
                 }
@@ -287,7 +402,7 @@ pub fn answer_in(
                             "content": [{"type": "text", "text": v.to_string()}],
                             "structuredContent": v,
                         }),
-                        Err(why) => tool_error(&why),
+                        Err(why) => json!(tool_error(&why)),
                     };
                     return finish(&id, result, modern, &info, None, Some(n.to_string()));
                 }
@@ -345,8 +460,8 @@ pub fn answer_in(
                     r.tool = tool.take();
                     return r;
                 }
-                Err(ToolError::BadArgs(why)) => tool_error(&why),
-                Err(ToolError::File { file, why }) => tool_error(&format!("{file} {why}")),
+                Err(ToolError::BadArgs(why)) => json!(tool_error(&why)),
+                Err(ToolError::File { file, why }) => json!(tool_error(&format!("{file} {why}"))),
             }
         }
         _ => return error(404, &id, -32601, "Method not found", None),
@@ -355,17 +470,18 @@ pub fn answer_in(
 }
 
 fn finish(
-    id: &Value,
-    mut result: Value,
+    id: &Id,
+    result: impl Serialize,
     modern: bool,
-    info: &Value,
+    info: &ServerInfo,
     hold: Option<LogGuard>,
     tool: Option<String>,
 ) -> Response {
-    if modern {
-        result["_meta"] = json!({SERVER_INFO_KEY: info});
-    }
-    let mut r = Response::json(200, json!({"jsonrpc": "2.0", "id": id, "result": result}));
+    let result = Stamped {
+        result,
+        meta: modern.then_some(Meta { server_info: info }),
+    };
+    let mut r = reply(200, id, result);
     r.hold = hold;
     r.tool = tool;
     r
@@ -400,21 +516,21 @@ fn plugin_tool<'a>(
     Some((tool, broker?))
 }
 
-fn tool_error(text: &str) -> Value {
-    json!({
-        "resultType": "complete",
-        "content": [{"type": "text", "text": text}],
-        "isError": true,
-    })
+fn tool_error(text: &str) -> ToolFailure<'_> {
+    ToolFailure {
+        result_type: "complete",
+        content: [Text { kind: "text", text }],
+        is_error: true,
+    }
 }
 
 /// The modern request's version and the headers that mirror its body.
 fn check_modern(
     req: &Request,
-    id: &Value,
+    id: &Id,
     version: &str,
     method: &str,
-    params: &Value,
+    name: Option<&str>,
 ) -> Option<Response> {
     match header(req, "MCP-Protocol-Version") {
         Some(h) if h == version => {}
@@ -428,8 +544,8 @@ fn check_modern(
         return Some(mismatch(id, "Mcp-Method does not match the body"));
     }
     if method == "tools/call" {
-        let name = header(req, "Mcp-Name").and_then(decode_name);
-        if name.is_none() || name.as_deref() != params["name"].as_str() {
+        let mirrored = header(req, "Mcp-Name").and_then(decode_name);
+        if mirrored.is_none() || mirrored.as_deref() != name {
             return Some(mismatch(id, "Mcp-Name does not match the body"));
         }
     }
@@ -438,7 +554,7 @@ fn check_modern(
 
 /// A legacy request is on 2025-11-25; only its initialize comes without the
 /// header, as that revision has it.
-fn check_legacy(req: &Request, id: &Value, method: &str) -> Option<Response> {
+fn check_legacy(req: &Request, id: &Id, method: &str) -> Option<Response> {
     match header(req, "MCP-Protocol-Version") {
         Some(LEGACY) => None,
         None if method == "initialize" => None,
