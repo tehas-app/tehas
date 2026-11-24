@@ -379,11 +379,11 @@ fn the_step_tehas_work_saw_in_flight_is_said_as_its_own_word_not_the_runners() {
             "status=-",
         ]);
         w.work(
-            r#"mkdir -p "$TEHAS_HOME/state/cycles" "$TEHAS_HOME/logs"
-: >"$TEHAS_HOME/state/cycles/7.result.json"
-echo '{"roles":[],"reason":"","reviewHeld":false}' >"$TEHAS_HOME/state/cycles/7.progress.json"
-printf '3600 runner timed-step\n' >"$TEHAS_HOME/state/cycles/7.timed"
-printf '%s\n' '3600' >"$TEHAS_HOME/state/cycles/7.runner_exit"
+            r#"mkdir -p "$T_CYCLES" "$TEHAS_HOME/logs"
+: >"$T_CYCLES/7.result.json"
+echo '{"roles":[],"reason":"","reviewHeld":false}' >"$T_CYCLES/7.progress.json"
+printf '3600 runner timed-step\n' >"$T_CYCLES/7.timed"
+printf '%s\n' '3600' >"$T_CYCLES/7.runner_exit"
 log=$TEHAS_HOME/logs/work-7-$(date -u +%y%m%d-%H%M%S).jsonl
 printf '{"v":1,"kind":"step-started","event":{"step":"a-later-step"}}\n' >"$log"
 exit 2"#,
@@ -398,11 +398,11 @@ exit 2"#,
 fn the_step_of_a_stalled_cycle_is_said_as_what_tehas_work_saw() {
     let (_, _, said) = twin("crash-stalled", |w| {
         w.work(
-            r#"mkdir -p "$TEHAS_HOME/state/cycles" "$TEHAS_HOME/logs"
-: >"$TEHAS_HOME/state/cycles/7.result.json"
-echo '{"roles":[],"reason":"","reviewHeld":false}' >"$TEHAS_HOME/state/cycles/7.progress.json"
-printf '%s\n%s\n' 1800 stall-step >"$TEHAS_HOME/state/cycles/7.stalled"
-printf '%s\n' '3600' >"$TEHAS_HOME/state/cycles/7.runner_exit"
+            r#"mkdir -p "$T_CYCLES" "$TEHAS_HOME/logs"
+: >"$T_CYCLES/7.result.json"
+echo '{"roles":[],"reason":"","reviewHeld":false}' >"$T_CYCLES/7.progress.json"
+printf '%s\n%s\n' 1800 stall-step >"$T_CYCLES/7.stalled"
+printf '%s\n' '3600' >"$T_CYCLES/7.runner_exit"
 exit 2"#,
         );
     });
@@ -418,10 +418,10 @@ fn a_run_log_past_the_200_kb_tehas_reads_is_not_taken_for_a_clean_handoff() {
         died_pushed(w, &[]);
         w.open_pr("");
         w.work(
-            r#"mkdir -p "$TEHAS_HOME/state/cycles" "$TEHAS_HOME/logs"
-: >"$TEHAS_HOME/state/cycles/7.result.json"
-echo '{"roles":[],"reason":"","reviewHeld":false}' >"$TEHAS_HOME/state/cycles/7.progress.json"
-printf '%s\n' '134' >"$TEHAS_HOME/state/cycles/7.runner_exit"
+            r#"mkdir -p "$T_CYCLES" "$TEHAS_HOME/logs"
+: >"$T_CYCLES/7.result.json"
+echo '{"roles":[],"reason":"","reviewHeld":false}' >"$T_CYCLES/7.progress.json"
+printf '%s\n' '134' >"$T_CYCLES/7.runner_exit"
 log=$TEHAS_HOME/logs/work-7-$(date -u +%y%m%d-%H%M%S).jsonl
 head -c 210000 /dev/zero | tr '\0' 'y' | fold -w 100 | sed 's/.*/{"v":1,"kind":"log","message":"&"}/' >"$log"
 for step in explore plan develop commit-pr feature/issue-7-installed; do
