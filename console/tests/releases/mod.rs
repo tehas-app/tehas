@@ -188,7 +188,7 @@ pub fn pack(h: &Host, r: &Rel) {
         "prerelease": r.pre,
         "created_at": "2026-01-01T00:00:00Z",
         "published_at": "2026-01-01T00:00:00Z",
-        "html_url": format!("https://example.test/releases/{}", r.tag),
+        "html_url": format!("https://example.test/r/{}", r.tag),
     });
     fs::write(out.join("release.json"), format!("{json}\n")).unwrap();
     relist(h);
