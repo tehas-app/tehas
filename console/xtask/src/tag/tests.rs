@@ -5,6 +5,7 @@
 use super::*;
 use std::fs;
 use tehas_core::testdir::TestDir;
+use tehas_ports::fake::{FakeSite, World};
 
 fn s(v: &[&str]) -> Vec<String> {
     v.iter().map(|a| a.to_string()).collect()
@@ -280,22 +281,13 @@ fn a_carried_polyfill_is_three_words_the_last_taking_the_rest() {
 #[test]
 fn a_kept_polyfill_needs_live_upstream_work() {
     let c = carried("open i#1 p#1\nmerged i#2 p#2\nclosed i#3 p#3\ngone i#4 p#4\nnoissue i#5 p#5\nnopr i#6\nunnamed\nexpired i#9 p#9\n");
-    let issue = |i: &str| {
-        if i == "i#5" {
-            String::new()
-        } else {
-            "OPEN".into()
-        }
-    };
-    let pr = |p: &str| {
-        match p {
-            "p#1" => "OPEN",
-            "p#2" => "MERGED",
-            "p#3" => "CLOSED",
-            "p#9" => panic!("an expired polyfill is not asked about"),
-            _ => "",
-        }
-        .to_string()
+    let issue = |i: &str| i != "i#5";
+    let pr = |p: &str| match p {
+        "p#1" => Some(Upstream::Open),
+        "p#2" => Some(Upstream::Merged),
+        "p#3" => Some(Upstream::Closed),
+        "p#9" => panic!("an expired polyfill is not asked about"),
+        _ => None,
     };
     let (merged, untracked) = upstream(&c, &["expired"], "the pi-rukas of x", issue, pr);
     assert_eq!(
@@ -338,14 +330,25 @@ fn the_pull_requests_say_what_they_do_and_what_waits() {
 }
 
 /// A bare remote with one commit tagged v0.1.0 and a clone the task runs in.
+/// Its code host is the ports' fake: `code` is the project the remote names,
+/// `up` the upstream project of a polyfill, `up-owner/pi-rukas`.
 struct Remote {
     dir: TestDir,
+    code: World,
+    up: World,
 }
+
+/// The project a fixture's remote names.
+const PROJECT: &str = "acme/widget";
+/// The upstream of the polyfills.
+const UP: &str = "up-owner/pi-rukas";
 
 impl Remote {
     fn new() -> Remote {
         let r = Remote {
             dir: TestDir::new("xtask-tag"),
+            code: World::new().named(PROJECT),
+            up: World::new().named(UP),
         };
         r.git(&["init", "--quiet", "--bare", "-b", "main", "origin.git"]);
         r.git(&["init", "--quiet", "-b", "main", "up"]);
@@ -386,7 +389,15 @@ impl Remote {
         v.push("--no-verify");
         self.git(&["-C", "work", "config", "user.name", "t"]);
         self.git(&["-C", "work", "config", "user.email", "t@example.com"]);
-        run(&args(&v), &self.dir.join("work"))
+        let (code, up) = (self.code.clone(), self.up.clone());
+        let site = move |p: &str| -> Arc<dyn Site> {
+            Arc::new(FakeSite::new(if p == UP { &up } else { &code }))
+        };
+        let hosts = Hosts {
+            project_of: &|_| Some(PROJECT.to_string()),
+            site: &site,
+        };
+        run(&args(&v), &self.dir.join("work"), &hosts)
     }
 
     fn tags(&self) -> String {

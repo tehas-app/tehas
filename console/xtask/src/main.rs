@@ -251,7 +251,24 @@ fn tag_release(args: &[String]) -> ExitCode {
         }
     };
     let root = pack::logical(&pwd(), &script.join("../.."));
-    ExitCode::from(tag::run(&a, &root))
+    let hosts = tag::Hosts {
+        project_of: &tehas_github::project_of,
+        site: &github,
+    };
+    ExitCode::from(tag::run(&a, &root, &hosts))
+}
+
+/// GitHub as the code host of `project`, asked as the operator through the
+/// gh of the operator's shell, each call in the forge's bound. tag-release
+/// acts for no factory, so the site knows no factory's account.
+fn github(project: &str) -> std::sync::Arc<dyn tehas_ports::Site> {
+    let make: tehas_github::MakeRunner = std::sync::Arc::new(|_| {
+        Ok(Box::new(tehas_core::forge::Bounded::new(
+            "gh".to_string(),
+            tehas_ops::forge::CALL_BOUND,
+        )) as Box<dyn tehas_core::forge::GhRunner>)
+    });
+    std::sync::Arc::new(tehas_github::GitHubSite::new(project, "", None, make))
 }
 
 fn tag_deploy(args: &[String]) -> ExitCode {

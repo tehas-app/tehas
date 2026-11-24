@@ -3,7 +3,10 @@
 //! order of the steps and the exit statuses, and `--help` prints it.
 //!
 //! The steps run in the order the script has always run them, with the same
-//! lines on stderr and the tag alone on stdout. git, gh, docker, the console's
+//! lines on stderr and the tag alone on stdout. The code host, its pull
+//! requests and the upstream work of a polyfill are asked through the ports,
+//! as the operator, on the sites the program's wiring gives ([`Hosts`]).
+//! git, gh for the release gate's runs, docker, the console's
 //! `rukas`, scripts/polyfills.sh, scripts/pins.sh, scripts/verify.sh and
 //! the head's scripts/collect-changelog.sh are still the programs that do
 //! the work; what moved here is what decides between them: the next version, the remote's head, the changelog's
@@ -21,7 +24,34 @@ use crate::pack::{is_exec, logical, Stage};
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::Arc;
 use tehas_core::version::{self, Stage as Pre};
+use tehas_ports::{
+    Actor, Body, Branch, Caller, ChangeFilter, ChangeNo, ChangeState, ChangeStates, Item,
+    NewChange, Site, ALL_MAX,
+};
+
+/// The code hosts tag-release asks, as the program's wiring makes them.
+pub struct Hosts<'a> {
+    /// The project `owner/name` a git remote names; None when it names no
+    /// project of the code host.
+    pub project_of: &'a dyn Fn(&str) -> Option<String>,
+    /// The code host of a project, `owner/name`.
+    pub site: &'a dyn Fn(&str) -> Arc<dyn Site>,
+}
+
+/// Every question is the operator's own, as the gh of the operator's shell
+/// asked them.
+const BY: Actor = Actor::Operator;
+const CALLER: Caller = Caller::new("tag-release");
+
+/// The state of an upstream pull request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Upstream {
+    Open,
+    Merged,
+    Closed,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Part {
@@ -375,14 +405,15 @@ pub fn split_ref(r: &str) -> (&str, &str) {
 
 /// What the kept polyfills' upstream work says: the lines said for a merged
 /// pull request whose feature is not set, in order, and the lines of each
-/// polyfill that stands in for no work upstream is doing. `issue_state` and
-/// `pr_state` give what gh says of one (empty: not found).
+/// polyfill that stands in for no work upstream is doing. `issue_found`
+/// says whether an issue is there; `pr_state` gives a pull request's state,
+/// None when it cannot be found.
 pub fn upstream(
     carried: &[Carried],
     expired: &[&str],
     rukas: &str,
-    mut issue_state: impl FnMut(&str) -> String,
-    mut pr_state: impl FnMut(&str) -> String,
+    mut issue_found: impl FnMut(&str) -> bool,
+    mut pr_state: impl FnMut(&str) -> Option<Upstream>,
 ) -> (Vec<String>, Vec<String>) {
     let mut merged = Vec::new();
     let mut untracked = Vec::new();
@@ -390,7 +421,7 @@ pub fn upstream(
         if expired.contains(&c.feature.as_str()) {
             continue;
         }
-        if c.issue.is_empty() || issue_state(&c.issue).is_empty() {
+        if c.issue.is_empty() || !issue_found(&c.issue) {
             let issue = if c.issue.is_empty() {
                 "is not named"
             } else {
@@ -403,21 +434,21 @@ pub fn upstream(
             continue;
         }
         let state = if c.pr.is_empty() {
-            String::new()
+            None
         } else {
             pr_state(&c.pr)
         };
-        match state.as_str() {
-            "OPEN" => {}
-            "MERGED" => merged.push(format!(
+        match state {
+            Some(Upstream::Open) => {}
+            Some(Upstream::Merged) => merged.push(format!(
                 "tag-release: {} is merged, but {rukas} does not set features.{}: its polyfill stays until a release has it; check the feature's name",
                 c.pr, c.feature
             )),
-            "CLOSED" => untracked.push(format!(
+            Some(Upstream::Closed) => untracked.push(format!(
                 "    {}: its upstream pull request {} was closed without a merge",
                 c.feature, c.pr
             )),
-            _ => {
+            None => {
                 let pr = if c.pr.is_empty() { "is not named" } else { &c.pr };
                 untracked.push(format!(
                     "    {}: its upstream pull request {pr} cannot be found",
@@ -543,7 +574,7 @@ impl Drop for Scratch {
 
 /// The task: `root` is the checkout the script lives in. Returns the exit
 /// status; every line it says is on stderr, the tag on stdout.
-pub fn run(a: &Args, root: &Path) -> u8 {
+pub fn run(a: &Args, root: &Path, hosts: &Hosts) -> u8 {
     let git = || {
         let mut c = Command::new("git");
         c.current_dir(root);
@@ -746,6 +777,7 @@ pub fn run(a: &Args, root: &Path) -> u8 {
         remote,
         branch: &branch,
         verify: a.verify,
+        hosts,
     };
 
     if let Some(code) = polyfills(&ctx, a, &scratch.dir.0, &head, &next) {
@@ -827,6 +859,7 @@ struct Ctx<'a> {
     remote: &'a str,
     branch: &'a str,
     verify: bool,
+    hosts: &'a Hosts<'a>,
 }
 
 impl Ctx<'_> {
@@ -935,26 +968,50 @@ impl Ctx<'_> {
         }
     }
 
-    /// The URL of an open pull request from a branch whose name starts with
-    /// `prefix`, empty when there is none; None when gh cannot list them.
-    fn open_pr(&self, prefix: &str) -> Option<String> {
-        let jq =
-            format!("[.[] | select(.headRefName | startswith(\"{prefix}\")) | .url][0] // \"\"");
-        ok_out(self.cmd("gh").current_dir(self.tree).args([
-            "pr",
-            "list",
-            "--state",
-            "open",
-            "--json",
-            "url,headRefName",
-            "--jq",
-            &jq,
-        ]))
+    /// The checkout's own project, as its remote names it. A remote that
+    /// names no project of the code host stops the task, 78.
+    fn project(&self) -> Result<String, u8> {
+        let url = ok_out(self.cmd("git").args(["remote", "get-url", self.remote]))
+            .unwrap_or_default();
+        (self.hosts.project_of)(&url).ok_or_else(|| {
+            eprintln!(
+                "tag-release: the remote {} names no project of the code host; nothing was tagged",
+                self.remote
+            );
+            78
+        })
+    }
+
+    /// The link of an open pull request from a branch whose name starts with
+    /// `prefix`, empty when there is none. A list that cannot be read is
+    /// said, 1.
+    fn open_pr(&self, prefix: &str) -> Result<String, u8> {
+        let project = self.project()?;
+        let filter = ChangeFilter {
+            states: ChangeStates::Open,
+            ..Default::default()
+        };
+        let open = (self.hosts.site)(&project)
+            .code_host(&BY, CALLER)
+            .and_then(|mut c| c.changes(&filter, ALL_MAX));
+        match open {
+            Ok(open) => Ok(open
+                .items()
+                .iter()
+                .find(|d| d.head.as_str().starts_with(prefix))
+                .map(|d| d.link.as_str().to_string())
+                .unwrap_or_default()),
+            Err(o) => {
+                eprintln!("tag-release: cannot list the open pull requests: {}", o.line());
+                Err(1)
+            }
+        }
     }
 
     /// Commit the tree's changes as `title` with `body`, push them as the
-    /// branch `name` and open a pull request: its URL. A failure is said.
-    fn propose(&self, name: &str, title: &str, body: &str) -> Option<String> {
+    /// branch `name` and open a pull request: its link. A failure is said.
+    fn propose(&self, name: &str, title: &str, body: &str) -> Result<String, u8> {
+        let project = self.project()?;
         let git = || {
             let mut c = Command::new("git");
             c.arg("-C").arg(self.tree).current_dir(self.root);
@@ -976,24 +1033,29 @@ impl Ctx<'_> {
             )
         {
             eprintln!("tag-release: cannot commit or push {name}; nothing was tagged");
-            return None;
+            return Err(1);
         }
-        let url = ok_out(self.cmd("gh").current_dir(self.tree).args([
-            "pr",
-            "create",
-            "--base",
-            self.branch,
-            "--head",
-            name,
-            "--title",
-            title,
-            "--body",
-            body,
-        ]));
-        if url.is_none() {
-            eprintln!("tag-release: {name} is pushed, but no pull request could be opened for it; nothing was tagged");
-        }
-        url
+        let opened = match (Branch::new(name), Branch::new(self.branch)) {
+            (Ok(head), Ok(base)) => (self.hosts.site)(&project)
+                .code_host_writes(&BY, CALLER)
+                .and_then(|mut w| {
+                    w.open_change(&NewChange {
+                        head,
+                        base,
+                        title: title.to_string(),
+                        body: Body::Text(body.to_string()),
+                        draft: false,
+                        closes: Vec::new(),
+                    })
+                })
+                .map(|p| p.link.as_str().to_string())
+                .map_err(|o| o.line()),
+            _ => Err("a branch name the code host cannot take"),
+        };
+        opened.map_err(|why| {
+            eprintln!("tag-release: {name} is pushed, but no pull request could be opened for it ({why}); nothing was tagged");
+            1
+        })
     }
 
     /// The console's `rukas`: TEHAS_CONSOLE, or the head's own built with cargo.
@@ -1154,9 +1216,9 @@ fn fragments_pr(
     has_fragments: bool,
     named: Option<&str>,
 ) -> u8 {
-    let Some(open) = ctx.open_pr("changelog-") else {
-        eprintln!("tag-release: cannot list the open pull requests");
-        return 1;
+    let open = match ctx.open_pr("changelog-") {
+        Ok(open) => open,
+        Err(code) => return code,
     };
     if !open.is_empty() {
         eprintln!("tag-release: {open} readies CHANGELOG.md for the release; merge it, then tag. Nothing was tagged");
@@ -1205,8 +1267,9 @@ fn fragments_pr(
         Some(_) => format!("Name the {next} section of CHANGELOG.md"),
         None => "Collect the changelog fragments into CHANGELOG.md".to_string(),
     };
-    let Some(url) = ctx.propose(&format!("changelog-{next}"), &title, &body) else {
-        return 1;
+    let url = match ctx.propose(&format!("changelog-{next}"), &title, &body) {
+        Ok(url) => url,
+        Err(code) => return code,
     };
     eprintln!("tag-release: {url} readies CHANGELOG.md for {next}; merge it, then tag. Nothing was tagged");
     2
@@ -1287,29 +1350,41 @@ fn polyfills(ctx: &Ctx, a: &Args, scratch: &Path, head: &str, next: &str) -> Opt
         return Some(1);
     };
     let expired: Vec<&str> = expired.lines().collect();
-    let gh_state = |kind: &str, r: &str| {
+    let site = |r: &str| {
         let (repo, num) = split_ref(r);
-        let o = ctx
-            .cmd("gh")
-            .args([
-                kind, "view", num, "-R", repo, "--json", "state", "--jq", ".state",
-            ])
-            .stderr(Stdio::null())
-            .output();
-        o.map(|o| {
-            String::from_utf8_lossy(&o.stdout)
-                .trim_end_matches('\n')
-                .to_string()
-        })
-        .unwrap_or_default()
+        let num = num.parse().ok().and_then(std::num::NonZeroU64::new);
+        num.map(|n| ((ctx.hosts.site)(repo), n))
     };
-    let (merged, untracked) = upstream(
-        &carried,
-        &expired,
-        &rukas,
-        |i| gh_state("issue", i),
-        |p| gh_state("pr", p),
-    );
+    // An issue is there when the number names one; any failure to say is
+    // "cannot be found", as gh's empty answer was.
+    let issue_found = |i: &str| {
+        site(i).is_some_and(|(site, n)| {
+            matches!(
+                site.tickets(&BY, CALLER).and_then(|mut t| t.what_is(n)),
+                Ok(Item::Ticket(_))
+            )
+        })
+    };
+    let pr_state = |p: &str| {
+        let (site, n) = site(p)?;
+        let no = ChangeNo::new(n.get())?;
+        let filter = ChangeFilter {
+            states: ChangeStates::All,
+            numbers: vec![no],
+            ..Default::default()
+        };
+        let found = site
+            .code_host(&BY, CALLER)
+            .and_then(|mut c| c.changes(&filter, ALL_MAX))
+            .ok()?;
+        let d = found.items().iter().find(|d| d.no == no)?;
+        Some(match d.state {
+            ChangeState::Open => Upstream::Open,
+            ChangeState::Merged { .. } => Upstream::Merged,
+            ChangeState::Closed { .. } => Upstream::Closed,
+        })
+    };
+    let (merged, untracked) = upstream(&carried, &expired, &rukas, issue_found, pr_state);
     for line in merged {
         eprintln!("{line}");
     }
@@ -1326,9 +1401,9 @@ fn polyfills(ctx: &Ctx, a: &Args, scratch: &Path, head: &str, next: &str) -> Opt
     if expired.is_empty() {
         return None;
     }
-    let Some(open) = ctx.open_pr("remove-polyfills-") else {
-        eprintln!("tag-release: cannot list the open pull requests");
-        return Some(1);
+    let open = match ctx.open_pr("remove-polyfills-") {
+        Ok(open) => open,
+        Err(code) => return Some(code),
     };
     if !open.is_empty() {
         eprintln!("tag-release: {open} removes polyfills; merge it, then tag. Nothing was tagged");
@@ -1353,8 +1428,9 @@ fn polyfills(ctx: &Ctx, a: &Args, scratch: &Path, head: &str, next: &str) -> Opt
     let body = polyfill_body(&rukas, &carried, &expired, next);
     let fix = format!("remove-polyfills-{next}");
     let title = "Remove the polyfills pi-rukas no longer needs";
-    let Some(url) = ctx.propose(&fix, title, &body) else {
-        return Some(1);
+    let url = match ctx.propose(&fix, title, &body) {
+        Ok(url) => url,
+        Err(code) => return Some(code),
     };
     eprintln!("tag-release: {url} removes them; merge it, then tag. Nothing was tagged");
     Some(2)
@@ -1363,9 +1439,9 @@ fn polyfills(ctx: &Ctx, a: &Args, scratch: &Path, head: &str, next: &str) -> Opt
 /// The pinned tools moved to the newest of their major: when anything moved,
 /// a pull request. Some(status) ends the task; None goes on to the gate.
 fn pins(ctx: &Ctx, next: &str) -> Option<u8> {
-    let Some(open) = ctx.open_pr("pins-") else {
-        eprintln!("tag-release: cannot list the open pull requests");
-        return Some(1);
+    let open = match ctx.open_pr("pins-") {
+        Ok(open) => open,
+        Err(code) => return Some(code),
     };
     if !open.is_empty() {
         eprintln!(
@@ -1396,8 +1472,9 @@ fn pins(ctx: &Ctx, next: &str) -> Option<u8> {
     }
     let body = pins_body(&moved, next);
     let title = "Move the pinned tools to the newest minor and patch";
-    let Some(url) = ctx.propose(&format!("pins-{next}"), title, &body) else {
-        return Some(1);
+    let url = match ctx.propose(&format!("pins-{next}"), title, &body) {
+        Ok(url) => url,
+        Err(code) => return Some(code),
     };
     eprintln!("tag-release: {url} moves them; merge it, then tag. Nothing was tagged");
     Some(2)
