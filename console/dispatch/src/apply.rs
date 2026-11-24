@@ -195,19 +195,6 @@ fn strings(a: &Value, k: &str) -> Vec<String> {
 
 impl Writer {
     pub fn apply(&mut self, actions: &[Value]) -> Applied {
-        let mut out = self.apply_actions(actions);
-        // With no handles no comment goes: said once for the poll.
-        if self.unposted > 0 {
-            out.log.push(format!(
-                "WARN: the poll has no handles of the code host: {} comments not posted",
-                self.unposted
-            ));
-            self.unposted = 0;
-        }
-        out
-    }
-
-    fn apply_actions(&mut self, actions: &[Value]) -> Applied {
         let mut out = Applied::default();
         let mut i = 0;
         while i < actions.len() {
@@ -220,6 +207,7 @@ impl Writer {
                 i += run;
                 if let Some(rc) = self.starts(starts, &mut out.log, &mut out.printed) {
                     out.exit = Some(rc);
+                    self.said_unposted(&mut out);
                     return out;
                 }
                 continue;
@@ -241,6 +229,7 @@ impl Writer {
             }
             if let Some(rc) = self.ended.take() {
                 out.exit = Some(rc);
+                self.said_unposted(&mut out);
                 return out;
             }
         }
@@ -254,7 +243,19 @@ impl Writer {
             out.log
                 .push("WARN: the state store began no poll row, so no write was made".to_string());
         }
+        self.said_unposted(&mut out);
         out
+    }
+
+    /// With no handles no comment goes: said once for the poll.
+    fn said_unposted(&mut self, out: &mut Applied) {
+        if self.unposted > 0 {
+            out.log.push(format!(
+                "WARN: the poll has no handles of the code host: {} comments not posted",
+                self.unposted
+            ));
+            self.unposted = 0;
+        }
     }
 
     /// One action; false for one this part leaves.
