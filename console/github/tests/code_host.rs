@@ -680,7 +680,10 @@ fn a_run_that_names_no_app_or_no_check_suite_is_malformed() {
     ] {
         let page = format!(r#"{{"total_count":1,"check_runs":[{run}]}}"#);
         let (mut gh, _) = scripted(&[Ok(page), Ok(statuses_page(0, &[]))]);
-        assert_eq!(gh.checks(&at(), None), Err(Outcome::Unread(Unread::Malformed)));
+        assert_eq!(
+            gh.checks(&at(), None),
+            Err(Outcome::Unread(Unread::Malformed))
+        );
     }
 }
 
