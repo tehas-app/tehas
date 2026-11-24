@@ -144,7 +144,7 @@ fn parked(history: &[Value], at: &str) -> (bool, bool) {
 }
 
 /// The label of an issue that waits on its question.
-const ASKS: [&str; 1] = ["tehas:question"];
+pub(crate) const ASKS: [&str; 1] = ["tehas:question"];
 impl Poll<'_> {
     /// control_ask: the control issue is never worked on; said once a poll.
     pub(super) fn control_ask(&mut self, n: u64, what: &str) -> bool {

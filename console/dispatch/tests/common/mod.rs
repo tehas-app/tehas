@@ -2039,6 +2039,12 @@ impl World {
     /// else is queued. Its last cycle started on `by`'s label, or by hand for
     /// "-", and parked on `reason`.
     pub fn parked(&self, reason: &str, by: &str) {
+        self.parked_with(reason, by, "4001", &[]);
+    }
+
+    /// The same, the park recorded with `args` and its question `question`
+    /// (t_park's).
+    pub fn parked_with(&self, reason: &str, by: &str, question: &str, args: &[&str]) {
         self.reset();
         self.fx("ready.json", "[]");
         self.fx(
@@ -2046,7 +2052,7 @@ impl World {
             r#"[{"number":7,"labels":[{"name":"needs-human-attention"},{"name":"tehas:question"}]}]"#,
         );
         self.t_ended(7, by, "approved", &["--parked"]);
-        self.t_park(7, reason, "4001", &[]);
+        self.t_park(7, reason, question, args);
     }
 
     /// Issue 7's session as the store has it, in the shape of plan-view; Null

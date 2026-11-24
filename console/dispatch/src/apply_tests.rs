@@ -6210,7 +6210,7 @@ fn a_reask_posts_a_typed_question_and_takes_its_label_off_as_a_mark() {
 
     let mut t = world();
     let closed = json!({"reask": 7, "kind": "park", "old": "2101", "old_body": "Stopped.",
-        "body": null, "offers": "", "unlabel": "tehas:question"});
+        "body": null, "offers": "", "unlabel": crate::decide::retry::ASKS[0]});
     let a = t.apply(json!([closed]));
     let w = t.writes();
     let label = closed["unlabel"].as_str().unwrap();

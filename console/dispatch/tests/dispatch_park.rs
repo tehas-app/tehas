@@ -477,16 +477,11 @@ fn a_question_summed_before_2_0_is_adopted_on_its_first_read() {
     use tehas_core::question::{q_text, question_sum};
     let w = World::new("park-adopt");
     for ticks in [[" ", " "], ["x", " "]] {
-        w.reset();
-        w.fx("ready.json", "[]");
-        w.fx(
-            "asking.json",
-            r#"[{"number":7,"labels":[{"name":"needs-human-attention"},{"name":"tehas:question"}]}]"#,
-        );
-        w.t_ended(7, "alice", "approved", &["--parked"]);
+        // 1.x's park records its question with the sum of its comment.
         let body = park_body(&ticks);
         let raw = tehas_core::approval::body_sum(&park_body(&[" ", " "]));
-        w.t_park(7, "failed", "-", &["--comment-id", "4001", "--body-sha", &raw]);
+        let args = ["--comment-id", "4001", "--body-sha", &raw];
+        w.parked_with("failed", "alice", "-", &args);
         let known = || w.row(&["question-known", "7", "--id", "4001"]);
         assert_eq!(known()["sum_form"], "rendered");
         w.comments(7, &body, "alice", json!([]));
