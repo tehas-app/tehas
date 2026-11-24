@@ -6,6 +6,7 @@ use super::*;
 use std::fs;
 use tehas_core::testdir::TestDir;
 use tehas_ports::fake::{FakeSite, World};
+use tehas_ports::Write;
 
 fn s(v: &[&str]) -> Vec<String> {
     v.iter().map(|a| a.to_string()).collect()
@@ -335,7 +336,7 @@ fn the_pull_requests_say_what_they_do_and_what_waits() {
 struct Remote {
     dir: TestDir,
     code: World,
-    up: World,
+    up_world: std::cell::RefCell<World>,
 }
 
 /// The project a fixture's remote names.
@@ -348,7 +349,7 @@ impl Remote {
         let r = Remote {
             dir: TestDir::new("xtask-tag"),
             code: World::new().named(PROJECT),
-            up: World::new().named(UP),
+            up_world: std::cell::RefCell::new(World::new().named(UP)),
         };
         r.git(&["init", "--quiet", "--bare", "-b", "main", "origin.git"]);
         r.git(&["init", "--quiet", "-b", "main", "up"]);
@@ -389,7 +390,7 @@ impl Remote {
         v.push("--no-verify");
         self.git(&["-C", "work", "config", "user.name", "t"]);
         self.git(&["-C", "work", "config", "user.email", "t@example.com"]);
-        let (code, up) = (self.code.clone(), self.up.clone());
+        let (code, up) = (self.code.clone(), self.up_world.borrow().clone());
         let site = move |p: &str| -> Arc<dyn Site> {
             Arc::new(FakeSite::new(if p == UP { &up } else { &code }))
         };
@@ -397,7 +398,21 @@ impl Remote {
             project_of: &|_| Some(PROJECT.to_string()),
             site: &site,
         };
-        run(&args(&v), &self.dir.join("work"), &hosts)
+        run(&args(&v), &self.dir.join("work"), &hosts, &self.programs())
+    }
+
+    /// What the task runs, as the operator's environment would name it: no
+    /// console of its own, the task's PATH.
+    fn programs(&self) -> Programs {
+        let console = self.at("bin/console");
+        let path = std::env::var_os("PATH").unwrap_or_default();
+        let mut bin = self.at("bin").into_os_string();
+        bin.push(":");
+        bin.push(path);
+        Programs {
+            console: console.exists().then(|| console.into_os_string()),
+            path: Some(bin),
+        }
     }
 
     fn tags(&self) -> String {
@@ -653,4 +668,444 @@ fn only_an_alpha_or_a_beta_skips_the_proofs() {
     assert!(!needs_proofs(Some(Pre::Beta)));
     assert!(needs_proofs(Some(Pre::Rc)));
     assert!(needs_proofs(None));
+}
+
+// --- The polyfills, on the ports' fake (from test/tag_release_test.sh) -------
+
+/// The pi-rukas commit the console's `rukas` names, and the next one.
+const RUKAS: &str = "1234567890abcdef1234567890abcdef12345678";
+const RUKAS_NEXT: &str = "abcdef1234567890abcdef1234567890abcdef12";
+
+impl Remote {
+    fn at(&self, rel: &str) -> PathBuf {
+        self.dir.join(rel)
+    }
+
+    fn write(&self, rel: &str, text: &str) {
+        let p = self.at(rel);
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        fs::write(&p, text).unwrap();
+    }
+
+    fn exe(&self, rel: &str, text: &str) {
+        use std::os::unix::fs::PermissionsExt;
+        self.write(rel, text);
+        fs::set_permissions(self.at(rel), fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    /// A commit of everything under `up/`, pushed to the remote's main.
+    fn commit(&self, message: &str) {
+        self.git(&["-C", "up", "add", "-A"]);
+        self.git(&["-C", "up", "commit", "--quiet", "-m", message]);
+        self.git(&["-C", "up", "push", "--quiet", "origin", "main"]);
+    }
+
+    /// What a stub was called with, one call per line.
+    fn calls(&self, name: &str) -> String {
+        fs::read_to_string(self.at(&format!("calls/{name}"))).unwrap_or_default()
+    }
+
+    /// The head the shell's `fresh` made: a section of CHANGELOG.md for each
+    /// release a case tags, and a gate that records it ran and ends with
+    /// `verify_rc`, after `verify_hook` when there is one.
+    fn released(&self) {
+        let d = self.dir.display();
+        fs::create_dir_all(self.at("calls")).unwrap();
+        let mut log = String::from(
+            "# Changelog\n\n## Unreleased\n\n### Changes\n\n- first\n\n### Adopter action\n\nNone.\n",
+        );
+        for v in ["v1.0.1", "v1.0.0", "v0.2.0", "v0.1.3", "v0.1.2", "v0.1.1"] {
+            log.push_str(&format!(
+                "\n## {v} (2026-01-01)\n\n### Changes\n\n- first\n\n### Adopter action\n\nNone.\n"
+            ));
+        }
+        self.write("up/CHANGELOG.md", &log);
+        self.exe(
+            "up/scripts/verify.sh",
+            &format!(
+                "#!/usr/bin/env bash\necho ran >>\"{d}/calls/verify\"\n[ ! -f \"{d}/verify_hook\" ] || . \"{d}/verify_hook\"\nexit \"$(cat \"{d}/verify_rc\" 2>/dev/null || echo 0)\"\n"
+            ),
+        );
+        self.commit("first");
+        // The code host knows the default branch the task pushes beside.
+        self.code.push("main", "first", "t");
+    }
+
+    /// The shell's `polyfilled`: a head that carries a polyfill of
+    /// `someFeature`, for the upstream issue #77 and pull request #78, which
+    /// the upstream project holds open. The console's `rukas` names RUKAS as
+    /// the release versions.env follows, and the image built from it; caps.json
+    /// says pi-rukas lacks every feature.
+    fn polyfilled(&self) {
+        self.released();
+        let d = self.dir.display();
+        // scripts/polyfills.sh is `xtask polyfills`, tested in
+        // src/polyfills.rs; here a stand-in gives its answers for the one
+        // polyfill: list it, say it expired when caps.json has its feature,
+        // and prune its files and marked line.
+        self.exe(
+            "up/scripts/polyfills.sh",
+            "#!/usr/bin/env bash\nroot=$2 verb=$3 caps=${4:-}\nhas() { grep -q '\"someFeature\":true' \"$caps\"; }\ncase $verb in\n  list) [ ! -f \"$root/lib/polyfill-someFeature.sh\" ] || echo 'someFeature up-owner/pi-rukas#77 up-owner/pi-rukas#78' ;;\n  expired) ! has || echo someFeature ;;\n  prune)\n    has || exit 0\n    rm -f \"$root/lib/polyfill-someFeature.sh\" \"$root/test/polyfill_someFeature_test.sh\"\n    sed -i '/# polyfill someFeature/d' \"$root/libexec/run\"\n    echo lib/polyfill-someFeature.sh ;;\nesac\n",
+        );
+        self.write(
+            "up/host/versions.env",
+            "PI_RUKAS_REPO=https://github.com/up-owner/pi-rukas.git\nPI_RUKAS_FOLLOW=release\n",
+        );
+        self.write(
+            "up/lib/polyfill-someFeature.sh",
+            "# shellcheck shell=bash\n# Upstream issue: up-owner/pi-rukas#77\n# Upstream PR: up-owner/pi-rukas#78\n",
+        );
+        self.write(
+            "up/test/polyfill_someFeature_test.sh",
+            "#!/usr/bin/env bash\n",
+        );
+        self.write(
+            "up/libexec/run",
+            "#!/usr/bin/env bash\necho native\necho polyfill # polyfill someFeature\n",
+        );
+        self.commit("carry a polyfill");
+        self.write("caps.json", "{\"features\":{}}");
+        self.write("rukas_target", &format!("{RUKAS} release v0.14.0\n"));
+        self.exe(
+            "bin/console",
+            &format!(
+                "#!/usr/bin/env bash\necho \"$*\" >>\"{d}/calls/console\"\ncase \"$1 $2 $3\" in\n  \"rukas target release\") cat \"{d}/rukas_target\" ;;\n  \"rukas image \"*) echo \"ghcr.io/up-owner/pi-rukas:sha-${{4:0:12}}\" ;;\n  *) exit 1 ;;\nesac\n"
+            ),
+        );
+        self.upstream(Some(ChangeState::Open));
+    }
+
+    /// The upstream project: issue #77, and pull request #78 in `state`, or
+    /// none.
+    fn upstream(&self, state: Option<ChangeState>) {
+        let mut up = World::new().named(UP).ticket(77, |t| t);
+        if let Some(state) = state {
+            up = up.change(78, "some-feature", |c| c.state(state));
+        }
+        *self.up_world.borrow_mut() = up;
+    }
+
+    /// The task as the script runs it, with the gate here: its status and
+    /// what it said.
+    fn tag(&self, v: &[&str]) -> (u8, String) {
+        let mut v = v.to_vec();
+        v.push("--local-gate");
+        let code = self.code.clone();
+        let up = self.up_world.borrow().clone();
+        let site = move |p: &str| -> Arc<dyn Site> {
+            Arc::new(FakeSite::new(if p == UP { &up } else { &code }))
+        };
+        let hosts = Hosts {
+            project_of: &|_| Some(PROJECT.to_string()),
+            site: &site,
+        };
+        listen();
+        let status = run(&args(&v), &self.dir.join("work"), &hosts, &self.programs());
+        (status, heard())
+    }
+
+    fn caps(&self) -> String {
+        self.at("caps.json").display().to_string()
+    }
+
+    /// The pull requests the task opened on the code host.
+    fn opened(&self) -> Vec<NewChange> {
+        self.code
+            .wrote()
+            .into_iter()
+            .filter_map(|w| match w.what {
+                Write::OpenChange(new) => Some(new),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn origin(&self, a: &[&str]) -> String {
+        let mut v = vec!["-C", "origin.git"];
+        v.extend_from_slice(a);
+        self.git(&v)
+    }
+}
+
+/// Every case's arrangement says its lines held.
+#[track_caller]
+fn says(heard: &str, want: &str) {
+    assert!(heard.contains(want), "{want:?} not in:\n{heard}");
+}
+
+#[test]
+fn a_polyfill_whose_feature_pi_rukas_still_lacks_is_kept_and_the_head_is_tagged() {
+    let r = Remote::new();
+    r.polyfilled();
+    let (status, heard) = r.tag(&["--rukas-caps", &r.caps()]);
+    assert_eq!(status, 0, "{heard}");
+    assert_eq!(r.tags(), "v0.1.0 v0.1.1");
+    // The upstream issue and pull request were asked of the code host.
+    assert!(r.up_world.borrow().sent() > 0);
+    assert!(!heard.contains("is merged"), "{heard}");
+    assert_eq!(r.calls("verify"), "ran\n");
+    assert_eq!(r.calls("docker"), "");
+    let message = r.origin(&["tag", "-l", "--format=%(contents)", "v0.1.1"]);
+    assert!(
+        message
+            .lines()
+            .any(|l| l == format!("pi-rukas {RUKAS} release v0.14.0")),
+        "{message}"
+    );
+}
+
+#[test]
+fn a_pi_rukas_release_made_while_the_gate_runs_tags_nothing() {
+    let r = Remote::new();
+    r.polyfilled();
+    r.write(
+        "verify_hook",
+        &format!(
+            "echo '{RUKAS_NEXT} release v0.14.1' >\"{}\"\n",
+            r.at("rukas_target").display()
+        ),
+    );
+    let (status, heard) = r.tag(&["--rukas-caps", &r.caps()]);
+    assert_eq!(status, 1, "{heard}");
+    says(&heard, &format!("pi-rukas moved from {} to", &RUKAS[..7]));
+    says(
+        &heard,
+        "(release v0.14.1) while the gate ran; run again to gate it; nothing was tagged",
+    );
+    assert_eq!(r.tags(), "v0.1.0");
+}
+
+#[test]
+fn a_polyfill_whose_upstream_pull_request_is_merged_without_the_feature_released_is_said_and_kept()
+{
+    let r = Remote::new();
+    r.polyfilled();
+    r.upstream(Some(ChangeState::Merged {
+        at: tehas_ports::At::new(1_767_225_600),
+        by: None,
+        commit: None,
+    }));
+    let (status, heard) = r.tag(&["--rukas-caps", &r.caps()]);
+    assert_eq!(status, 0, "{heard}");
+    says(
+        &heard,
+        &format!(
+            "up-owner/pi-rukas#78 is merged, but the pi-rukas of {} does not set features.someFeature",
+            r.caps()
+        ),
+    );
+}
+
+#[test]
+fn a_polyfill_whose_upstream_pull_request_was_closed_unmerged_or_cannot_be_found_tags_nothing() {
+    let closed = ChangeState::Closed {
+        at: tehas_ports::At::new(1_767_225_600),
+    };
+    for (state, why) in [
+        (Some(closed), "was closed without a merge"),
+        (None, "cannot be found"),
+    ] {
+        let r = Remote::new();
+        r.polyfilled();
+        r.upstream(state);
+        let (status, heard) = r.tag(&["--rukas-caps", &r.caps()]);
+        assert_eq!(status, 1, "{heard}");
+        says(
+            &heard,
+            "stand in for no work upstream is doing; nothing was tagged",
+        );
+        says(
+            &heard,
+            &format!("someFeature: its upstream pull request up-owner/pi-rukas#78 {why}"),
+        );
+        assert_eq!(r.tags(), "v0.1.0");
+    }
+}
+
+#[test]
+fn a_polyfill_whose_upstream_issue_cannot_be_found_tags_nothing() {
+    let r = Remote::new();
+    r.polyfilled();
+    *r.up_world.borrow_mut() = World::new().named(UP).change(78, "some-feature", |c| c);
+    let (status, heard) = r.tag(&["--rukas-caps", &r.caps()]);
+    assert_eq!(status, 1, "{heard}");
+    says(
+        &heard,
+        "someFeature: its upstream issue up-owner/pi-rukas#77 cannot be found",
+    );
+    assert_eq!(r.tags(), "v0.1.0");
+}
+
+#[test]
+fn an_expired_polyfill_is_removed_even_when_its_upstream_pull_request_is_closed() {
+    let r = Remote::new();
+    r.polyfilled();
+    r.upstream(Some(ChangeState::Closed {
+        at: tehas_ports::At::new(1_767_225_600),
+    }));
+    r.write("caps.json", "{\"features\":{\"someFeature\":true}}");
+    r.code.push("remove-polyfills-v0.1.1", "pushed", "t");
+    let (status, heard) = r.tag(&["--rukas-caps", &r.caps()]);
+    assert_eq!(status, 2, "{heard}");
+    says(&heard, "removes them");
+}
+
+#[test]
+fn pi_rukas_is_asked_through_the_image_of_the_commit_versions_env_follows() {
+    let r = Remote::new();
+    r.polyfilled();
+    r.exe(
+        "bin/docker",
+        &format!(
+            "#!/usr/bin/env bash\necho \"$*\" >>\"{d}/calls/docker\"\n[ \"$1\" != run ] || cat \"{d}/caps.json\"\n",
+            d = r.dir.display()
+        ),
+    );
+    let (status, heard) = r.tag(&[]);
+    assert_eq!(status, 0, "{heard}");
+    let image = format!("ghcr.io/up-owner/pi-rukas:sha-{}", &RUKAS[..12]);
+    assert_eq!(
+        r.calls("docker"),
+        format!(
+            "pull -q {image}\nrun --rm --init {image} /opt/pi-rukas/bin/pi-rukas-headless --capabilities\n"
+        )
+    );
+}
+
+#[test]
+fn a_pi_rukas_that_cannot_be_asked_tags_nothing() {
+    let r = Remote::new();
+    r.polyfilled();
+    r.write(
+        "up/host/versions.env",
+        "PI_RUKAS_REPO=https://github.com/up-owner/pi-rukas.git\nPI_RUKAS_FOLLOW=nowhere\n",
+    );
+    r.commit("follow nowhere");
+    let (status, heard) = r.tag(&[]);
+    assert_eq!(status, 1, "{heard}");
+    says(&heard, "whether the polyfills of");
+    says(&heard, "--rukas-caps <file>");
+    assert_eq!(r.tags(), "v0.1.0");
+}
+
+#[test]
+fn without_tehas_console_the_heads_own_console_is_run_with_cargo() {
+    let r = Remote::new();
+    r.polyfilled();
+    fs::remove_file(r.at("bin/console")).unwrap();
+    r.exe(
+        "bin/cargo",
+        &format!(
+            "#!/usr/bin/env bash\necho \"$*\" >>\"{}/calls/cargo\"\nexit 101\n",
+            r.dir.display()
+        ),
+    );
+    let (status, heard) = r.tag(&[]);
+    assert_eq!(status, 1, "{heard}");
+    let cargo = r.calls("cargo");
+    assert!(
+        cargo.contains("run --quiet --locked --manifest-path"),
+        "{cargo}"
+    );
+    assert!(
+        cargo.contains(
+            "/console/Cargo.toml -p console -- rukas target release https://github.com/up-owner/pi-rukas.git"
+        ),
+        "{cargo}"
+    );
+    says(&heard, "whether the polyfills of");
+    assert_eq!(r.tags(), "v0.1.0");
+}
+
+#[test]
+fn a_polyfill_pi_rukas_no_longer_needs_is_removed_in_a_pull_request_and_nothing_is_tagged() {
+    let r = Remote::new();
+    r.polyfilled();
+    r.write("caps.json", "{\"features\":{\"someFeature\":true}}");
+    // The branch the task pushes, as the code host then has it.
+    r.code.push("remove-polyfills-v0.1.1", "pushed", "t");
+    let (status, heard) = r.tag(&["--rukas-caps", &r.caps()]);
+    assert_eq!(status, 2, "{heard}");
+    says(&heard, "removes them; merge it, then tag");
+    says(&heard, "removed from lib/polyfill-someFeature.sh");
+    assert_eq!(r.tags(), "v0.1.0");
+    assert_eq!(r.calls("verify"), "ran\n");
+    let opened = r.opened();
+    assert_eq!(opened.len(), 1);
+    assert_eq!(
+        (opened[0].head.as_str(), opened[0].base.as_str()),
+        ("remove-polyfills-v0.1.1", "main")
+    );
+    assert_eq!(
+        opened[0].title,
+        "Remove the polyfills pi-rukas no longer needs"
+    );
+    let Body::Text(body) = &opened[0].body else {
+        panic!("a body as text")
+    };
+    assert!(
+        body.contains(
+            "features.someFeature, upstream up-owner/pi-rukas#77 and up-owner/pi-rukas#78"
+        ),
+        "{body}"
+    );
+    let fixed = r.origin(&["ls-tree", "-r", "--name-only", "remove-polyfills-v0.1.1"]);
+    assert!(!fixed.contains("polyfill-someFeature"), "{fixed}");
+    assert!(!fixed.contains("polyfill_someFeature"), "{fixed}");
+    assert_eq!(
+        r.origin(&["show", "remove-polyfills-v0.1.1:libexec/run"]),
+        "#!/usr/bin/env bash\necho native"
+    );
+    assert_eq!(
+        r.origin(&["log", "-1", "--format=%s", "remove-polyfills-v0.1.1"]),
+        "Remove the polyfills pi-rukas no longer needs"
+    );
+    assert_eq!(
+        r.origin(&["rev-parse", "remove-polyfills-v0.1.1^"]),
+        r.origin(&["rev-parse", "main"])
+    );
+    assert_eq!(
+        r.git(&["-C", "work", "worktree", "list"]).lines().count(),
+        1
+    );
+    assert_eq!(
+        r.git(&["-C", "work", "branch", "--list", "remove-polyfills-*"]),
+        ""
+    );
+}
+
+#[test]
+fn an_open_pull_request_that_removes_polyfills_holds_the_tag_and_nothing_is_pushed_again() {
+    let r = Remote::new();
+    r.polyfilled();
+    r.write("caps.json", "{\"features\":{\"someFeature\":true}}");
+    // The world is shared by its clones: the change is the code host's.
+    let _ = r.code.clone().change(9, "remove-polyfills-v0.1.1", |c| c);
+    let link = format!("https://fake.test/{PROJECT}/c/9");
+    let (status, heard) = r.tag(&["--rukas-caps", &r.caps()]);
+    assert_eq!(status, 2, "{heard}");
+    says(
+        &heard,
+        &format!("{link} removes polyfills; merge it, then tag"),
+    );
+    assert!(r.opened().is_empty());
+    assert_eq!(r.tags(), "v0.1.0");
+}
+
+#[test]
+fn a_gate_that_fails_with_the_polyfills_removed_pushes_nothing_and_keeps_a_branch_it_did_not_make()
+{
+    let r = Remote::new();
+    r.polyfilled();
+    r.git(&["-C", "work", "branch", "remove-polyfills-v0.1.1"]);
+    r.write("caps.json", "{\"features\":{\"someFeature\":true}}");
+    r.write("verify_rc", "1");
+    let (status, heard) = r.tag(&["--rukas-caps", &r.caps()]);
+    assert_eq!(status, 1, "{heard}");
+    says(&heard, "the gate failed with the polyfills removed");
+    assert_eq!(r.origin(&["branch", "--list", "remove-polyfills-*"]), "");
+    assert!(r.opened().is_empty());
+    assert!(r
+        .git(&["-C", "work", "branch", "--list", "remove-polyfills-*"])
+        .contains("remove-polyfills-v0.1.1"));
 }

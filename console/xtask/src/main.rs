@@ -255,7 +255,11 @@ fn tag_release(args: &[String]) -> ExitCode {
         project_of: &tehas_github::project_of,
         site: &github,
     };
-    ExitCode::from(tag::run(&a, &root, &hosts))
+    let programs = tag::Programs {
+        console: std::env::var_os("TEHAS_CONSOLE"),
+        path: None,
+    };
+    ExitCode::from(tag::run(&a, &root, &hosts, &programs))
 }
 
 /// GitHub as the code host of `project`, asked as the operator through the
