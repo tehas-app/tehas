@@ -19,6 +19,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tehas_core::file::{write_atomic, Temp};
 use tehas_core::home::{Home, State};
+use tehas_core::lock::Held;
 use tehas_core::{call, mask, time};
 
 /// The report, under the home.
@@ -44,9 +45,9 @@ pub fn fetch(home: &Path, dir: &Path, now: i64) -> Done {
     let Ok(lock) = File::create(&path) else {
         return Done::Failed(format!("{} cannot be made", path.display()));
     };
-    if lock.try_lock().is_err() {
+    let Ok(_held) = Held::try_take(lock) else {
         return Done::Quiet;
-    }
+    };
     let report = home.join(REPORT);
     if last(&report).is_some_and(|t| now - t < QUIET) {
         return Done::Quiet;
