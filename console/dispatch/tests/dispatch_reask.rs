@@ -4,10 +4,11 @@
 
 mod common;
 
-use common::{count_lines, has, World};
+use common::{count_lines, has, Part::Off, World};
 use serde_json::json;
 use std::fs;
 use tehas_core::question::{question_marker, reasked, Kind};
+use tehas_ports::{Mark, State};
 
 /// #21's park question as tehas v1.4.0 posted it.
 fn old_park() -> String {
@@ -98,7 +99,7 @@ fn a_stop_that_offered_no_retry_is_closed_and_not_asked_again() {
     assert_eq!(w.row(&["question-show", "21"])["question"], json!(null));
     // It waits on no question any more.
     assert!(
-        w.changed(21, "--remove-label tehas:question"),
+        w.changes(21, &[Off(Mark::State(State::Question))]),
         "{:?}",
         w.writes_of(21)
     );

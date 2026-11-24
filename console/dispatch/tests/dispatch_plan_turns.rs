@@ -3,10 +3,12 @@
 
 mod common;
 
+use common::Part::{Off, On};
 use common::*;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::Path;
+use tehas_ports::{Act, Mark, State};
 
 /// `filter` of #7's session on record, through jq.
 fn rec_jq(w: &World, filter: &str) -> Value {
@@ -211,7 +213,18 @@ fn a_turn_cut_off_before_the_issue_was_marked_is_reported_like_any_cut_off_turn(
     w.comments(7, &plan_body(" ", "x", " ", 1, ""), "alice", json!([]));
     w.poll();
     has(&w.gh(), "This planning turn did not finish: it was cut off");
-    assert!(w.changed(7, "--remove-label tehas:planning --add-label tehas:question --add-label needs-human-attention"), "{:?}", w.writes_of(7));
+    assert!(
+        w.changes(
+            7,
+            &[
+                Off(Mark::State(State::Planning)),
+                On(Mark::State(State::Question)),
+                On(Mark::State(State::NeedsPerson))
+            ]
+        ),
+        "{:?}",
+        w.writes_of(7)
+    );
     assert_eq!(
         rec_jq(
             &w,
@@ -230,7 +243,18 @@ fn a_first_turn_cut_off_before_the_issue_was_marked_ends_visibly_and_takes_the_p
     // What GitHub answers once the label is off.
     w.fx("plans.json", "[]");
     w.poll();
-    assert!(w.changed(7, "--remove-label tehas:plan --remove-label tehas:planning --add-label needs-human-attention"), "{:?}", w.writes_of(7));
+    assert!(
+        w.changes(
+            7,
+            &[
+                Off(Mark::Act(Act::Plan)),
+                Off(Mark::State(State::Planning)),
+                On(Mark::State(State::NeedsPerson))
+            ]
+        ),
+        "{:?}",
+        w.writes_of(7)
+    );
     has(&w.gh(), "could not start");
     assert_eq!(w.rec_open(), "none");
     assert_eq!(w.plan_calls(), "");
@@ -243,9 +267,12 @@ fn a_first_turn_that_fails_parks_the_issue_and_leaves_no_session_open() {
     w.touch("plan-fails");
     w.poll();
     assert!(
-        w.changed(
+        w.changes(
             7,
-            "--remove-label tehas:planning --add-label needs-human-attention"
+            &[
+                Off(Mark::State(State::Planning)),
+                On(Mark::State(State::NeedsPerson))
+            ]
         ),
         "{:?}",
         w.writes_of(7)
@@ -308,7 +335,18 @@ fn a_first_turn_that_fails_after_its_session_came_into_being_keeps_the_session()
     );
     has(&w.gh(), "Reply in a comment to run the turn again");
     lacks(&w.gh(), "could not start");
-    assert!(w.changed(7, "--remove-label tehas:planning --add-label tehas:question --add-label needs-human-attention"), "{:?}", w.writes_of(7));
+    assert!(
+        w.changes(
+            7,
+            &[
+                Off(Mark::State(State::Planning)),
+                On(Mark::State(State::Question)),
+                On(Mark::State(State::NeedsPerson))
+            ]
+        ),
+        "{:?}",
+        w.writes_of(7)
+    );
     assert_eq!(
         rec_jq(&w, "del(.startedAt)"),
         json!({"session": "abc-123", "turns": 1, "options": [], "pending": false, "failed": true,

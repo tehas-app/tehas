@@ -5,10 +5,12 @@
 
 mod common;
 
+use common::Part::On;
 use common::*;
 use serde_json::{json, Value};
 use std::fs::{self, OpenOptions};
 use std::path::Path;
+use tehas_ports::{Mark, State};
 
 fn v(text: &str) -> Value {
     serde_json::from_str(text).unwrap_or_else(|e| panic!("{e}: {text}"))
@@ -238,7 +240,7 @@ fn a13_a_turn_running_on_record_is_not_begun_again_by_a_new_tehas_plan_and_the_p
     );
     assert_eq!(w.plan_calls(), "");
     assert!(
-        !w.changed(7, "--add-label tehas:planning"),
+        !w.changes(7, &[On(Mark::State(State::Planning))]),
         "{:?}",
         w.writes_of(7)
     );
@@ -444,7 +446,7 @@ fn d2_an_answer_whose_turn_the_store_will_not_begin_marks_nothing_and_leaves_the
     );
     assert_eq!(w.plan_calls(), "");
     assert!(
-        !w.changed(7, "--add-label tehas:planning"),
+        !w.changes(7, &[On(Mark::State(State::Planning))]),
         "{:?}",
         w.writes_of(7)
     );

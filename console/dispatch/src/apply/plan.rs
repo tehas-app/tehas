@@ -291,9 +291,8 @@ impl Writer {
         } else {
             "label-remove"
         };
-        match self.looked_1x(n, kind, &args, None) {
-            Some(wrote) => return matches!(wrote, Wrote::Done(_)),
-            None => {}
+        if let Some(wrote) = self.looked_1x(n, kind, &args, None) {
+            return matches!(wrote, Wrote::Done(_));
         }
         let Some(key) = super::ticket(n) else {
             return false;

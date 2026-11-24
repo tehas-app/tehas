@@ -3,6 +3,7 @@
 
 mod common;
 
+use common::Part::{Off, On};
 use common::*;
 use serde_json::{json, Value};
 use std::fs::{self, OpenOptions};
@@ -110,9 +111,12 @@ fn a_question_that_posted_but_could_not_be_labelled_is_not_lost() {
     w.poll();
     assert_eq!(holding(&w.gh(), "issues/7/comments"), 0);
     assert!(
-        w.changed(
+        w.changes(
             7,
-            "--remove-label tehas:planning --add-label tehas:question"
+            &[
+                Off(Mark::State(State::Planning)),
+                On(Mark::State(State::Question))
+            ]
         ),
         "{:?}",
         w.writes_of(7)
@@ -128,9 +132,12 @@ fn a_later_turn_cut_off_by_a_restart_is_reported_and_can_be_answered() {
     w.poll();
     has(&w.gh(), "This planning turn did not finish: it was cut off");
     assert!(
-        w.changed(
+        w.changes(
             7,
-            "--add-label tehas:question --add-label needs-human-attention"
+            &[
+                On(Mark::State(State::Question)),
+                On(Mark::State(State::NeedsPerson))
+            ]
         ),
         "{:?}",
         w.writes_of(7)
@@ -326,9 +333,12 @@ fn a_first_turn_cut_off_by_a_restart_ends_visibly() {
     w.t_plan(7, json!({"turns": 0, "running": true}));
     w.poll();
     assert!(
-        w.changed(
+        w.changes(
             7,
-            "--remove-label tehas:planning --add-label needs-human-attention"
+            &[
+                Off(Mark::State(State::Planning)),
+                On(Mark::State(State::NeedsPerson))
+            ]
         ),
         "{:?}",
         w.writes_of(7)
@@ -386,7 +396,7 @@ fn the_end_of_a_session_is_said_once() {
     w.poll();
     assert_eq!(holding(&w.gh(), "Planning session ended by alice."), 1);
     assert!(
-        w.changed(7, "--remove-label needs-human-attention"),
+        w.changes(7, &[Off(Mark::State(State::NeedsPerson))]),
         "{:?}",
         w.writes_of(7)
     );

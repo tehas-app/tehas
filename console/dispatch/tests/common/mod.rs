@@ -1479,25 +1479,28 @@ impl World {
         })
     }
 
-    /// Whether the poll made the label change gh's words `flags` give
-    /// (`--add-label a --remove-label b`) on issue `n`, a write of the ports
-    /// a part.
-    pub fn changed(&self, n: u64, flags: &str) -> bool {
-        let words: Vec<&str> = flags.split_whitespace().collect();
-        words.chunks(2).all(|pair| match pair {
-            ["--add-label", l] => tehas_github::table::word(l).is_some_and(|m| self.on(n, m)),
-            ["--remove-label", l] => tehas_github::table::word(l).is_some_and(|m| self.off(n, m)),
-            _ => false,
+    /// Whether the poll made each change of `parts` on issue `n`, a write
+    /// of the ports a part.
+    pub fn changes(&self, n: u64, parts: &[Part]) -> bool {
+        parts.iter().all(|p| match p {
+            Part::On(m) => self.on(n, m.clone()),
+            Part::Off(m) => self.off(n, m.clone()),
         })
     }
 
-    /// The edits of issue `n`'s own text or state the site was sent, each the
-    /// fields it set.
-    pub fn patched(&self, n: u64) -> Vec<Value> {
+    /// The edits of issue `n`'s own text or state the site was sent.
+    pub fn patched(&self, n: u64) -> Vec<Patched> {
         fs::read_to_string(self.t.join(format!("calls/patched-{n}")))
             .unwrap_or_default()
             .split('\0')
-            .filter_map(|b| serde_json::from_str(b).ok())
+            .filter_map(|b| serde_json::from_str::<Value>(b).ok())
+            .map(|v| {
+                let field = |k: &str| v[k].as_str().map(str::to_string);
+                Patched {
+                    title: field("title"),
+                    body: field("body"),
+                }
+            })
             .collect()
     }
 
@@ -1505,7 +1508,7 @@ impl World {
     pub fn body_of(&self, n: u64, text: &str) -> bool {
         self.patched(n)
             .iter()
-            .any(|p| p["body"].as_str().is_some_and(|b| b.starts_with(text)))
+            .any(|p| p.body.as_deref().is_some_and(|b| b.starts_with(text)))
     }
 
     /// Whether the poll changed no issue: no mark, no edit of a text.
@@ -1521,7 +1524,7 @@ impl World {
     /// with `text`.
     pub fn wrote(&self, n: u64, title: Option<&str>, text: &str) -> bool {
         self.patched(n).iter().any(|p| {
-            p["title"].as_str() == title && p["body"].as_str().is_some_and(|b| b.starts_with(text))
+            p.title.as_deref() == title && p.body.as_deref().is_some_and(|b| b.starts_with(text))
         })
     }
 
@@ -2708,4 +2711,19 @@ pub fn lacks(got: &str, want: &str) {
 /// The lines of `text` that start with `prefix`.
 pub fn count_lines(text: &str, prefix: &str) -> usize {
     text.lines().filter(|l| l.starts_with(prefix)).count()
+}
+
+/// A change of one mark: put on, or taken off.
+#[allow(dead_code)] // each test file uses a part of this module
+pub enum Part {
+    On(tehas_ports::Mark),
+    Off(tehas_ports::Mark),
+}
+
+/// An edit of an issue the site was sent: the title and text it set.
+#[allow(dead_code)] // each test file uses a part of this module
+#[derive(Debug)]
+pub struct Patched {
+    pub title: Option<String>,
+    pub body: Option<String>,
 }

@@ -3,10 +3,12 @@
 
 mod common;
 
+use common::Part::{Off, On};
 use common::*;
 use regex::Regex;
 use serde_json::{json, Value};
 use std::fs;
+use tehas_ports::{Mark, State};
 
 fn v(text: &str) -> Value {
     serde_json::from_str(text).unwrap_or_else(|e| panic!("{e}: {text}"))
@@ -230,9 +232,12 @@ fn with_tehas_analytics_off_a_planning_turn_is_not_recorded() {
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(w.calls("analytics"), "");
     assert!(
-        w.changed(
+        w.changes(
             7,
-            "--remove-label tehas:planning --add-label tehas:question"
+            &[
+                Off(Mark::State(State::Planning)),
+                On(Mark::State(State::Question))
+            ]
         ),
         "{:?}",
         w.writes_of(7)
