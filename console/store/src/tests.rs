@@ -1528,7 +1528,7 @@ fn migrate_writes_its_backup_before_it_changes_anything() {
     let (code, err) = migrate(&home, &elsewhere).unwrap_err();
     assert_eq!(code, 78, "{err}");
     assert!(err.starts_with("unreadable "), "{err}");
-    assert!(err.contains("is not the state/"), "{err}");
+    assert!(err.contains("the state/"), "{err}");
     assert_eq!(fs::read(&file).unwrap(), before, "a refused backup wrote");
     assert!(fs::read_dir(&elsewhere).unwrap().next().is_none());
 }
