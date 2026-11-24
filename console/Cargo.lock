@@ -1995,6 +1995,7 @@ dependencies = [
 name = "tehas-github"
 version = "0.1.0"
 dependencies = [
+ "attach",
  "comrak",
  "serde",
  "serde_json",
