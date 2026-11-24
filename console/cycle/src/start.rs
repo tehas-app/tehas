@@ -18,7 +18,6 @@
 //! approval of the issue's latest start counts, and none is a run by hand.
 
 use crate::host;
-use crate::runner;
 use serde_json::Value;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -136,7 +135,7 @@ fn read_record(home: &Path, issue: &str, attempt: &str) -> (Option<PathBuf>, &'s
 
 pub fn record_value(file: &Path) -> Option<Value> {
     let text = fs::read_to_string(file).ok()?;
-    runner::values(&text)?.pop()
+    crate::loose::values::<Value>(&text)?.pop()
 }
 
 pub fn is_record(p: &str) -> bool {
@@ -256,7 +255,7 @@ fn held(t: &Text, answer: &[u8]) -> Result<Value, (String, bool)> {
         )
     };
     let text = String::from_utf8_lossy(answer);
-    let mut values = runner::values(&text).ok_or_else(unread)?;
+    let mut values = crate::loose::values::<Value>(&text).ok_or_else(unread)?;
     if values.len() != 1 {
         return Err(unread());
     }
@@ -317,7 +316,7 @@ fn measure(home: &Path, t: &Text, issue: &Value) {
 
 /// The words of that comment. `why` can quote an issue, a comment or a
 /// record, so a marker in it is broken (tehas_core::text::disarm).
-pub fn no_cycle_body(why: &str) -> String {
+fn no_cycle_body(why: &str) -> String {
     format!(
         "Tehas started no cycle: {}. To retry, apply `tehas:ready`.",
         disarm(why)

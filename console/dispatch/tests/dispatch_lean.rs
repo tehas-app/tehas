@@ -3,7 +3,7 @@
 
 mod common;
 
-use common::{count_lines, has, lacks, park_body, World};
+use common::{has, lacks, park_body, World};
 use serde_json::json;
 
 /// lean is still being built: a test build turns it on, after reset().
@@ -73,7 +73,7 @@ fn a_retry_tick_on_the_park_of_a_refused_lean_start_waits_while_tehas_lean_is_on
     assert_eq!(w.started(), "");
     has(&r.out, "wait #7: a retry was answered on the park of a lean start this tehas cannot run; take tehas:lean off first");
     lacks(&w.gh(), "api -X PATCH");
-    lacks(&w.gh(), "issue comment 7");
+    assert_eq!(w.notes(7), 0);
 }
 
 #[test]
@@ -118,8 +118,8 @@ fn a_lean_start_whose_body_holds_no_pi_spec_block_starts_nothing_and_says_why_on
         &gh,
         "issue edit 7 --repo acme/widget --remove-label tehas:ready",
     );
-    has(&gh, "issue comment 7 --repo acme/widget --body Tehas took `tehas:ready` off this issue and started nothing: its text holds no `pi-spec v1` block for the lean driver to read: it is not there, or it is not the one block of valid JSON lean needs. A person writes that block, and applies `tehas:ready` again.");
-    assert_eq!(count_lines(&gh, "issue comment 7 "), 1, "{gh}");
+    assert!(w.said_on(7, "Tehas took `tehas:ready` off this issue and started nothing: its text holds no `pi-spec v1` block for the lean driver to read: it is not there, or it is not the one block of valid JSON lean needs. A person writes that block, and applies `tehas:ready` again."), "{:?}", w.said(7));
+    assert_eq!(w.notes(7), 1, "{gh}");
 }
 
 #[test]
@@ -135,7 +135,7 @@ fn a_lean_start_whose_body_holds_the_block_is_started() {
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(w.started(), "7 ");
-    assert_eq!(count_lines(&w.gh(), "issue comment 7 "), 1, "{}", w.gh());
+    assert_eq!(w.notes(7), 1, "{}", w.gh());
 }
 
 #[test]
@@ -160,8 +160,8 @@ fn with_lean_off_tehas_lean_starts_nothing_classic_included_and_says_why_once() 
         "issue edit 7 --repo acme/widget --remove-label tehas:ready",
     );
     lacks(&gh, "--remove-label tehas:lean");
-    has(&gh, "issue comment 7 --repo acme/widget --body Tehas took `tehas:ready` off this issue and started nothing: `tehas:lean` asks for the lean driver, which is still being built in this release, and tehas does not run classic in its place.");
-    assert_eq!(count_lines(&gh, "issue comment 7 "), 1, "{gh}");
+    assert!(w.said_on(7, "Tehas took `tehas:ready` off this issue and started nothing: `tehas:lean` asks for the lean driver, which is still being built in this release, and tehas does not run classic in its place."), "{:?}", w.said(7));
+    assert_eq!(w.notes(7), 1, "{gh}");
 }
 
 #[test]

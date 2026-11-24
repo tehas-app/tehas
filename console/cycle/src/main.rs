@@ -245,6 +245,7 @@ use tehas_core::home::{Home, State};
 use tehas_cycle::after::{self, After};
 use tehas_cycle::host::Start;
 use tehas_cycle::last_attempt::{self, Action};
+use tehas_cycle::loose::Node;
 use tehas_cycle::report::{last_attempts, to_json, Given};
 use tehas_cycle::{apply, finish, lock, pin, progress, renew, report};
 use tehas_cycle::{caps, clock, events, index, runner, sandbox, supervise, work, Facts};
@@ -757,7 +758,7 @@ fn outcome_verb(result: &str, n: &str) {
         std::process::exit(2)
     };
     match runner::outcome(&String::from_utf8_lossy(&bytes), n) {
-        Some(o) => tehas_core::outln!("{o}"),
+        Some(o) => tehas_core::outln!("{}", json!(o)),
         None => std::process::exit(4),
     }
 }
@@ -907,11 +908,13 @@ fn last_attempt(n: u64, result: &str, workspace: &Path) {
     let mut stdin = String::new();
     std::io::Read::read_to_string(&mut std::io::stdin(), &mut stdin)
         .unwrap_or_else(|e| fail(format!("the issue cannot be read: {e}")));
-    let issue: Value = serde_json::from_str(&stdin)
-        .unwrap_or_else(|e| fail(format!("the issue cannot be read: {e}")));
+    let issue = serde_json::from_str::<Node<last_attempt::IssueBody>>(&stdin)
+        .unwrap_or_else(|e| fail(format!("the issue cannot be read: {e}")))
+        .into_object()
+        .unwrap_or_default();
     let text = std::fs::read_to_string(result)
         .unwrap_or_else(|e| fail(format!("the result in {result} cannot be read: {e}")));
-    let state = last_attempt::state(workspace, n);
+    let state = last_attempt::WorkState::read(workspace, n);
     let action =
         last_attempt::of_issue(n, &issue, Some(&text), state.as_ref()).unwrap_or_else(|| {
             fail(format!(
