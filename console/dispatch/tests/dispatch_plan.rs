@@ -359,7 +359,7 @@ fn a_plan_label_from_the_bot_or_a_stranger_starts_nothing_and_is_taken_off_the_i
             ),
             1
         );
-        assert_eq!(count_lines(&w.gh(), "issue comment "), 1);
+        assert_eq!(w.notes_any(), 1);
     }
 }
 

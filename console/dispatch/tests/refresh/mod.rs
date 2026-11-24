@@ -176,11 +176,8 @@ pub fn marked_refreshing(w: &World) {
 
 /// The comments on #7 that say tehas does not refresh it.
 pub fn said_no_refresh(w: &World) -> usize {
-    w.gh()
-        .lines()
-        .filter(|l| {
-            l.split_once("issue comment 7 ")
-                .is_some_and(|(_, r)| r.contains("does not refresh"))
-        })
+    w.said(7)
+        .iter()
+        .filter(|b| b.contains("does not refresh"))
         .count()
 }

@@ -139,6 +139,13 @@ a key. `rows` itself is public.
 - **Events.** A new event name, a new gate or a new optional field of a
   payload is added in 2.x. A reader treats an event name it does not know
   as unknown and skips it, as `tehas-ports` reads it as `Unknown`.
+- **A gate's answer.** The gate's answer may gain values and fields in
+  2.x; a reader that meets one it does not know holds the act. This is the
+  one place where a field or a value a reader does not know is not skipped:
+  a gate fails closed, as `GateAnswer` and `Verdict` of `tehas-ports` do
+  (ports spec, Decided 123). `api/gate-answer.schema.json` describes the
+  answer of `api` 1 and gains such an addition as a later 2.x release
+  makes it.
 - **The flow's states.** The states of the status flow and the `why` of a
   held ticket may gain values in 2.x, plugin phases among them. A reader
   treats a state or a `why` it does not know as unknown.
@@ -878,6 +885,17 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Adopter action: a program that read gh's words in `last` reads the fixed
   lines. A line written before the update shows until it leaves the
   ten-minute window.
+- **`tehas start`, the preview's notice and `tehas init-product` name a
+  failed GitHub call in tehas's words.** #3149. Each error line names what
+  failed in its own words, then the kind of failure as one fixed line of the
+  ports' outcomes: `not found, or not visible to this actor`, `this actor
+  may not do this`, `the budget is spent until later`, `the site failed`,
+  and the like. They no longer pass on gh's words or `HTTP <status>`. The
+  notice's log lines change from `no such pull request (HTTP 404)` and
+  `GitHub refused the call (HTTP 403)` to these.
+  Readers: adopters, the end-to-end suite.
+  Adopter action: a script that matched gh's words or `HTTP <status>` in
+  those lines matches the fixed lines.
 - **`tehas setup`, `tehasbot github-token` and `console pins` name a failed
   call in tehas's words.** #3140. An error line of each names what failed
   in its own words, then the kind of failure as one fixed line of the
@@ -954,7 +972,7 @@ adopter action as the pull request states them.
   | `cycle.parked` | a cycle's history line says it parked | cycle id |
   | `question.asked` | a question is recorded | the question's id |
   | `cycle.ended` | a cycle's history line is written | cycle id |
-  | `change.offered` | a cycle left a change for review | cycle id |
+  | `change.offered` | a cycle left a change, draft or not | cycle id |
   | `factory.limit-changed` | `tehas limit` or `tehas drain` writes another limit | the limit's `set` |
   | `ticket.acted` | an allowed account's act is recorded | `<ticket>@<act>@<at>` |
   | `ticket.closed` | a ticket tehas follows is recorded closed | `<ticket>@<at>` |
@@ -1044,9 +1062,13 @@ does once it ships.
 
 ### plugins
 
-Building since v1.2.0, and off in 2.0: finishing it is 2.1's work. The 2.0
-contract holds the plugin API as it stands, outside the frozen surface.
-Off by default; `TEHAS_PLUGIN=on` stops every command with exit 78 and says
+Building since v1.2.0, and off in 2.0. 2.1 builds the plugin
+specification that is current at 2.1. Plugins stay outside 2.0's frozen
+surface, and the mechanisms of the 1.x plugin specifications are not
+promised: a plugin's build and container, its settings, the gate, the
+manifest and its grants may change or go in 2.1. What 2.x promises plugins
+is in [the rules for 2.x](#the-rules-for-2x) and in what 2.0 holds for
+2.1, below. Off by default; `TEHAS_PLUGIN=on` stops every command with exit 78 and says
 `plugins` is still being built.
 
 - `tehas api --json` has `"plugins": false` in `flags`, and no word `plugins`
@@ -1079,11 +1101,11 @@ Off by default; `TEHAS_PLUGIN=on` stops every command with exit 78 and says
 - No label, no `--json` field of another command, no MCP tool, no file under
   `live/`.
 
-The plugin API as 2.0 holds it, for the work of 2.1:
+What 2.0 holds for 2.1's plugins:
 
 - **What no plugin removes.** A plugin may add phases anywhere in the
-  status flow, and may skip or hide an optional phase under a grant
-  `tehas plugin review` lists. Approval, `tehas:ready` applied by an account
+  status flow, and may skip or hide an optional phase under a grant a
+  person gives. Approval, `tehas:ready` applied by an account
   of `TEHAS_ALLOWED_LABELERS` (hard rule 5), is never removed by a plugin.
   The merge is a gate whose only policy in 2.x is a person. The grant word
   `merge` is reserved and refused with 78 as not in this release; a later
@@ -1094,17 +1116,18 @@ The plugin API as 2.0 holds it, for the work of 2.1:
   wins. 2.0 refuses the word as reserved, like the other words of 2.1, and
   reserves `how` `plugin` and the field `plugin` in `api/answer.schema.json`
   ([the rules for 2.x](#the-rules-for-2x)).
-- **The grants.** A plugin asks in its manifest and a person grants for the
-  plugin's commit; `tehas plugin review` lists each grant, and every
-  install, enable and pin move checks them again. The one hook grant the
-  code takes is `hook:after:change.offered`, asked on `change.offered`;
-  1.x's `hook:after:work` is refused, with no alias.
-- **The events a plugin can see**, under the names 2.1 grants: each event
-  of the [list under Pending](#pending-for-20) as `hook:after:<event>`, and
-  a gate as `hook:before:<event>=<policy>`, where the policy is `hold` or
-  `pass` and a gate grant with none is refused with 78. 2.0 takes one,
-  `hook:after:change.offered`, and refuses every other `hook:` word as not
-  in this release. The first gate, `hook:before:cycle.started`, comes in 2.1.
+- **The events a plugin can see.** The events of the
+  [list under Pending](#pending-for-20) and their gates, by the names and
+  schemas in `api/` ([the rules for 2.x](#the-rules-for-2x)). A listener's
+  answer to a gate is an answer by `api/gate-answer.schema.json`; where a
+  listener writes it, and how a plugin is granted an event, are 2.1's
+  plugin specification. The first gate, the `before` side of
+  `cycle.started`, comes in 2.1.
+- **The grants in 2.0's code**, not promised: a plugin asks in its
+  manifest and a person grants for the plugin's commit. The one hook
+  grant the code takes is `hook:after:change.offered`; every other `hook:`
+  word is refused as not in this release, and 1.x's `hook:after:work` is
+  refused, with no alias.
 - **What plugins read of an approved body.** `start.approval.bodySha256`
   of `tehas start --json` and the reader of lean's `pi-spec v1` block,
   `spec_block` in `console/core/src/plan.rs`, stay through 2.x: the
@@ -1115,9 +1138,6 @@ The plugin API as 2.0 holds it, for the work of 2.1:
 - **A tool's typed blocks.** A tool's answer may carry typed blocks from
   2.1; their schema will live in `api/`, so the block vocabulary has one
   owner, as the events have.
-- **Revision 1.6.0** of the plugin specification
-  (`docs/specs/2026-11-22-plugins-1.6.md`) and the plugin surfaces for 2.1
-  (`docs/specs/2026-11-22-plugin-surfaces-2.1.md`) are built after 2.0.
 
 What 2.0 keeps for the plugins that take over the features it removed.
 Some of it is live in core: the edge routes `item-<n>.<domain>` to

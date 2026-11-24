@@ -955,7 +955,11 @@ impl<'a> Poll<'a> {
                 ));
                 continue;
             }
-            self.act(Action::Say { issue: n, say: format!("Every issue the `tehas:blocked` marker names is closed, so the hold has cleared. Tehas takes `tehas:blocked` off when the cycle starts. Leave it on until then: it is what asks for the start when `tehas:ready` is not on.\n\n{HOLD_CLEARED}") });
+            self.act(Action::Say {
+                issue: n,
+                say: "Every issue the `tehas:blocked` marker names is closed, so the hold has cleared. Tehas takes `tehas:blocked` off when the cycle starts. Leave it on until then: it is what asks for the start when `tehas:ready` is not on.".into(),
+                markers: vec![tehas_ports::Marker::HoldCleared],
+            });
         }
     }
 }
@@ -2931,7 +2935,8 @@ impl<'a> Poll<'a> {
 /// The most numbers `labelAlone` lists, so the line status prints is bounded.
 pub(crate) const LABEL_ALONE_MAX: usize = 50;
 
-/// The marker of the comment `hold_cleared` writes. It does not start
+/// The marker of the comment `hold_cleared` writes, as a comment read back
+/// holds it (the write sends `Marker::HoldCleared`). It does not start
 /// `<!-- tehas:blocked`, so `newest_marker` never reads it as one. Only the
 /// bot's own comment counts as said.
 const HOLD_CLEARED: &str = "<!-- tehas:hold-cleared -->";

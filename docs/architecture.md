@@ -232,9 +232,11 @@ its reason, as a floor; a departure from a should rule (R5) likewise.
 | gh-argv, tests-stub-gh | 1 each | `console/tests/top_snapshot.rs` | the short name "gh" of a process in a fixture of /proc (`"name":"gh"`, #2859), which tehas top shows. Nothing runs gh. A pattern that skipped it would be fragile and allowing the file would hide a later gh call there, so it stays counted as a floor |
 | gh-argv, tests-stub-gh | 3 and 2 | gh-argv: `console/ops/src/pins/tools.rs` 1 and `console/ops/src/pins/tests.rs` 2; tests-stub-gh: `console/ops/src/pins/tests.rs` 2 | the pinned tool named "gh" in the release's list of pinned tools (`host/versions.env`) and its tests (ports spec, Decided 71). Nothing runs gh there; the name is the tool's |
 | home-layout | 16, in the bash and the units | `install.sh` 12, `host/systemd/` 4 | T8's freeze, below |
+| T5's typed store client (no check counts it) | every caller of the store's verbs | the console and ops through `ops::store::call` and `line` (about 37 calls in 15 files), dispatch's `read/run.rs` `store()`, cycle's `host.rs` `store()` | a written floor for alpha.1 (tehas-84, 2026-11-24): the callers still pass a verb string and read `Value`. Many of them are in files other T4 lanes are changing, so typing them now would collide; the typed client is the series right after the alpha, and this row goes when it lands |
 | gh-argv | 3, in the bash | `lib/github-app.sh` 1, `host/sandbox/gh-shim` 1, `scripts/tag-release.sh` 1 | T8's freeze, below |
 | github-rest | 4, in the bash | `host/sandbox/gh-shim` 4 | T8's freeze, below |
 | tests-stub-gh | 83, in the shell tests that stay shell | 18 files of `test/` | T8's freeze, below |
+| untyped-signatures, untyped-fields | 147 and 2 | four causes, file by file | T7's floors, below |
 
 ### The bash that stays (T8)
 
@@ -310,11 +312,33 @@ the console's are 5 shell stubs in its update tests (`tests/update.rs` 2,
 `update/mod.rs` 2, `update_checkout.rs` 1) and 4 paths a test holds to
 check against, `wake.rs` line 89 an expected path.
 
+### Typed seams that stay untyped (T7)
+
+The lead, 2026-11-24 (tehas-84): what is untyped by nature stays, as a
+written floor; everything else is typed in T7's series. A count here may
+only fall: a pull request that adds a match to one of these files says
+which cause it is of, or types it. Measured on bc3bf1fe3 by
+`scripts/architecture.py`'s count, function by function.
+
+| Cause | untyped-signatures | untyped-fields | Where |
+| --- | --- | --- | --- |
+| A JSON Schema is a JSON document, and a check of any JSON against one walks the JSON | 91 | 1 | the MCP tools' input and output schemas: `console/mcp/src/tools.rs` 23 (`prop` to `stats_schema`, `build_entries`, `list_scoped`, `entries`, `spec_of`, `spec_of_keys`), `sessions.rs` 16 (the schema builders, `tools`, `spec`, `spec_of`, `issue_spec`), `outcomes_schema.rs` 9, `logs.rs` 4 (`described`, `tool`, `arr`, `search_tool`), `disk.rs` 2 (`tool`, `spec`), `decisions.rs`, `events.rs`, `park.rs` 1 each (`tool`); the checkers: `console/mcp/src/conform.rs` 5, `console/core/src/plugin/params.rs` 9 (a tool's parameters against its schema, and its tests' samples), `schema.rs` 3 (the api/ schemas the tests hold the files to); a plugin's manifest, read field by field with a refusal that names the field: `console/core/src/plugin/manifest.rs` 17 and its field `Tool::params`, the tool's own schema |
+| A body passed through whole, checked against its shape, not read | 26 | 0 | the model endpoint of a plugin run, which checks a chat request and its answer and forwards them unchanged: `console/plugin/src/model.rs` 12 and its tests 11; the arguments and the answer of a plugin's tool, which are the plugin's JSON, checked against its schema: `console/mcp/src/plugins.rs` 3 (`call`, `answered`, `exchange`) |
+| pi's `models.json`, which tehas edits in place and must keep every key it does not own | 16 | 1 | `console/core/src/models.rs` 4 and `ModelFile::json`, `console/ops/src/update/pi.rs` 6, `console/ops/src/setup.rs` 3, `console/ops/src/update/findings.rs` 1, `console/src/product.rs` 2 |
+| A contract test that walks any answer against its schema or lists its keys | 14 | 0 | `console/mcp/tests/tools.rs` 6 (`paths`, `key_paths`, `schema_paths`, `spec_paths`, `schema_of`, `described`), `sessions.rs` 5, `park.rs` 1 (`schema_paths`), `common.rs` 1 (`conforms`), `console/analytics/tests/sessions_contract.rs` 1 (`json_type`) |
+
+Not in this floor: the rest of these files. The MCP tools' answers
+(`status`, `issues`, `console`, `stats`, the sessions' `list`, `one`,
+`failures` and `issue`, `park`, `events`, `logs`), the listing of a
+plugin's tools and the JSON-RPC request's id and params are typeable and
+are typed in T7's series; so are the dispatcher's, the cycle's, the
+console's, ops' and the store client's, as T3 to T5 leave them.
+
 ### Temporary rises
 
 Empty since #2890. A T15 pull request that raises a count narrows the check in the same pull request: a test file whose every match is the check's data or tehas's own words goes in the check's `allowed`, by name and with what it covers, or a list copied in many tests gets one owner. A real finding goes to the step that fixes it in the plan.
 
-#2890 cleared the rows of #2859, #2860, #2866 and #2879 that way. Allowed by name: console/tests/store_paths.rs for label-words and home-layout (the store lint's patterns and sample lines), console/tests/host_bridge.rs for raw-statuses (the docs server's 404), and console/cycle/tests/headless_caps.rs, top_snapshot.rs, top_view.rs, top_frame.rs, drain.rs, host_message.rs and limit.rs for github-rest (the runner's --json and that of tehas top, drain, host-message and limit, tehas's running.json). The list of tools every test stubs to fail has one owner, console/core/src/testing.rs, allowed in gh-argv, in place of eight copies of the deny list and three lists of tools stubbed to fail; that took out 10 in gh-argv and tests-stub-gh, 5 of them older than T15. Its findings moved: two github-rest lines to T4's Done, one untyped-signatures line to T7's, and the /proc fixture to the floor above. Counts at #2890: github-rest 819, gh-argv 386, tests-stub-gh 401, home-layout 491, label-words 1855, raw-statuses 259.
+#2890 cleared the rows of #2859, #2860, #2866 and #2879 that way. Allowed by name: console/tests/store_paths.rs for label-words and home-layout (the store lint's patterns and sample lines), console/tests/host_bridge.rs for raw-statuses (the docs server's 404), and console/cycle/tests/headless_caps.rs, top_snapshot.rs, top_view.rs, top_frame.rs, drain.rs, host_message.rs, limit.rs, export.rs and history.rs for github-rest (the runner's --json and that of tehas top, drain, host-message, limit, export and history, tehas's running.json). The list of tools every test stubs to fail has one owner, console/core/src/testing.rs, allowed in gh-argv, in place of eight copies of the deny list and three lists of tools stubbed to fail; that took out 10 in gh-argv and tests-stub-gh, 5 of them older than T15. Its findings moved: two github-rest lines to T4's Done, one untyped-signatures line to T7's, and the /proc fixture to the floor above. Counts at #2890: github-rest 819, gh-argv 386, tests-stub-gh 401, home-layout 491, label-words 1855, raw-statuses 259.
 
 ### Fork values
 

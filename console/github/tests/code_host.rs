@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use serde::Deserialize;
-use tehas_core::forge::GhRunner;
+use tehas_core::forge::{Failed, GhRunner};
 use tehas_github::GitHub;
 use tehas_ports::laws;
 use tehas_ports::{
@@ -43,7 +43,9 @@ struct Replay {
 /// `checks-<commit>-<page>[-name=<name>]`, `statuses-<commit>-<page>`, or
 /// `changes-<states>[-me][-head=<branch>][-after=<cursor>][-updated]`
 /// (`-updated` for the question newest updated first), each byte
-/// outside `[A-Za-z0-9=-]` written `_`.
+/// outside `[A-Za-z0-9=-]` written `_`, or `numbers-<first>-<last>[-me]`
+/// for the question of pull requests by number, its first and last asked.
+/// `<read>.answer.json` beside a `.fail` is what gh printed as it failed.
 fn recording(args: &[&str]) -> Option<(String, String)> {
     let field = |name: &str| {
         args.iter()
@@ -52,6 +54,15 @@ fn recording(args: &[&str]) -> Option<(String, String)> {
     };
     let (project, read) = if args.get(1) == Some(&"graphql") {
         let query = field("query")?;
+        let asked: Vec<&str> = query
+            .split(": pullRequest(number: ")
+            .skip(1)
+            .filter_map(|r| r.split(')').next())
+            .collect();
+        if let (Some(first), Some(last)) = (asked.first(), asked.last()) {
+            let me = if query.contains("viewer") { "-me" } else { "" };
+            return Some((field("name")?, format!("numbers-{first}-{last}{me}")));
+        }
         let states = query.split("states: [").nth(1)?.split(']').next()?;
         let mut read = format!("changes-{}", states.replace(", ", "_"));
         if query.contains("viewer") {
@@ -103,6 +114,14 @@ fn recording(args: &[&str]) -> Option<(String, String)> {
 }
 
 impl GhRunner for Replay {
+    fn run_answer(&mut self, args: &[&str]) -> Result<String, Failed> {
+        let answer = recording(args).and_then(|(project, read)| {
+            let at = here().join("tests/recorded/code-host").join(project);
+            std::fs::read_to_string(at.join(format!("{read}.answer.json"))).ok()
+        });
+        self.run(args).map_err(|why| Failed { why, answer })
+    }
+
     fn run(&mut self, args: &[&str]) -> Result<String, String> {
         self.asked.lock().unwrap().push(args.join(" "));
         let (project, read) =
@@ -1123,4 +1142,137 @@ fn a_live_commit_holds_each_suites_run_of_one_name() {
         .count();
     assert_eq!(release, 3);
     assert_eq!(c.overall, Overall::Pass);
+}
+
+fn by_number(numbers: &[u64]) -> ChangeFilter {
+    ChangeFilter {
+        states: ChangeStates::All,
+        numbers: numbers.iter().map(|n| ChangeNo::new(*n).unwrap()).collect(),
+        ..ChangeFilter::default()
+    }
+}
+
+fn nos(got: Got<Whole<ChangeDigest>>) -> Vec<u64> {
+    got.unwrap()
+        .into_items()
+        .iter()
+        .map(|d| d.no.get())
+        .collect()
+}
+
+#[test]
+fn numbers_are_asked_by_number_in_one_question_with_the_lists_digests() {
+    let (mut gh, asked) = adapter("acme/widget");
+    let mut all = ChangeFilter {
+        states: ChangeStates::All,
+        ..ChangeFilter::default()
+    };
+    let listed = gh.changes(&all, Bound::new(10).unwrap()).unwrap();
+    all.numbers = listed.items().iter().map(|d| d.no).collect();
+    asked.lock().unwrap().clear();
+    let numbered = gh.changes(&all, Bound::new(10).unwrap()).unwrap();
+    assert_eq!(numbered, listed);
+    let asked = asked.lock().unwrap();
+    assert_eq!(asked.len(), 1);
+    assert!(asked[0].contains(" n19: pullRequest(number: 19) { number "));
+    assert!(!asked[0].contains("pullRequests("));
+}
+
+#[test]
+fn a_project_with_more_pull_requests_than_the_list_reads_is_not_cut() {
+    let (mut gh, asked) = adapter("acme/big");
+    let numbers: Vec<u64> = (1..=150).rev().collect();
+    let got = gh.changes(&by_number(&numbers), Bound::new(150).unwrap());
+    assert_eq!(nos(got), (1..=150).collect::<Vec<_>>());
+    assert_eq!(asked.lock().unwrap().len(), 2);
+    // More taken than the bound is cut; more numbers than ALL_MAX are cut
+    // before any question.
+    let (mut gh, _) = adapter("acme/big");
+    let cut = gh.changes(&by_number(&numbers), Bound::new(149).unwrap());
+    assert_eq!(cut, Err(Outcome::Unread(Unread::Cut)));
+    let (mut gh, asked) = adapter("acme/big");
+    let many: Vec<u64> = (1..=u64::from(ALL_MAX.get()) + 1).collect();
+    let cut = gh.changes(&by_number(&many), Bound::new(10).unwrap());
+    assert_eq!(cut, Err(Outcome::Unread(Unread::Cut)));
+    assert!(asked.lock().unwrap().is_empty());
+}
+
+#[test]
+fn the_rest_of_the_filter_applies_to_what_the_numbers_answer() {
+    let read = |f: ChangeFilter| {
+        nos(adapter("acme/widget")
+            .0
+            .changes(&f, Bound::new(10).unwrap()))
+    };
+    let both = || by_number(&[21, 22]);
+    assert_eq!(read(both()), [21, 22]);
+    assert_eq!(
+        read(ChangeFilter {
+            states: ChangeStates::Open,
+            ..both()
+        }),
+        Vec::<u64>::new()
+    );
+    assert_eq!(
+        read(ChangeFilter {
+            states: ChangeStates::Closed,
+            ..both()
+        }),
+        [22]
+    );
+    let bob = Author::Account(tehas_ports::AccountId::new("102"));
+    assert_eq!(
+        read(ChangeFilter {
+            author: Some(bob),
+            ..both()
+        }),
+        [22]
+    );
+    assert_eq!(
+        read(ChangeFilter {
+            author: Some(Author::Me),
+            ..both()
+        }),
+        [21]
+    );
+    let fix = tehas_ports::Branch::new("fix-typo").unwrap();
+    assert_eq!(
+        read(ChangeFilter {
+            head: Some(fix),
+            ..both()
+        }),
+        [22]
+    );
+    let bug = Mark::Project(MarkName::new("bug").unwrap());
+    assert_eq!(
+        read(ChangeFilter {
+            carrying: vec![bug],
+            ..both()
+        }),
+        [22]
+    );
+    let eight = tehas_ports::BlueprintNo::new(8).unwrap();
+    assert_eq!(
+        read(ChangeFilter {
+            closing: vec![eight],
+            ..both()
+        }),
+        [21]
+    );
+    let since = Some(At::new(0));
+    assert_eq!(
+        read(ChangeFilter {
+            merged_since: since,
+            ..both()
+        }),
+        [21]
+    );
+}
+
+#[test]
+fn a_number_github_does_not_know_is_left_out() {
+    let (mut gh, asked) = adapter("acme/widget");
+    let got = gh.changes(&by_number(&[99, 21]), Bound::new(10).unwrap());
+    assert_eq!(nos(got), [21]);
+    assert_eq!(asked.lock().unwrap().len(), 1);
 }
