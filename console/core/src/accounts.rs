@@ -3,8 +3,11 @@
 //! A login can be renamed, and a freed login registered by someone else, so a
 //! login alone does not say who acted. `tehas update` and install.sh resolve
 //! each login of TEHAS_ALLOWED_LABELERS and TEHAS_MILLWRIGHT_LOGIN to its user
-//! id and record the pairs in `state/account-ids`, one `<login> <id>` a line
-//! (console/src/accounts.rs). Every answer of GitHub a program reads goes
+//! id and record the pairs in `state/account-ids`, one `<realm> <login> <id>`
+//! a line, the realm `code-host` or `tickets` (console/ops/src/ids.rs). A
+//! 1.x line, `<login> <id>`, is read as the code host's: the update rewrites
+//! the file once in the new form, and every write is in it (ports spec,
+//! "Identity across suppliers"; R9, expand then contract). Every answer of GitHub a program reads goes
 //! through `vouch` first: a listed login whose object does not carry the
 //! recorded id is renamed `<login>#<id>`, or `<login>#` when it carries none,
 //! which no check of the list matches. A login of no list is left as it is.
@@ -84,7 +87,9 @@ fn is_bot(key: &str) -> bool {
 /// The id `ids` records under `key`, compared as `folded` gives it.
 pub fn id_of(ids: &BTreeMap<String, u64>, key: &str) -> Option<u64> {
     let key = folded(key);
-    ids.iter().find(|(l, _)| folded(l) == key).map(|(_, id)| *id)
+    ids.iter()
+        .find(|(l, _)| folded(l) == key)
+        .map(|(_, id)| *id)
 }
 
 /// Whether `login` is the factory's own, the bot's. An empty name matches
@@ -168,22 +173,33 @@ impl Unreadable {
                 "tehas: {file} cannot be read: {what}. Run console ids record (tehas update runs it)"
             ),
             (None, _) => format!(
-                "tehas: {file} cannot be read: {what}. Make it a regular file of `<login> <id>` lines, or remove it, then run tehas update"
+                "tehas: {file} cannot be read: {what}. Make it a regular file of `<realm> <login> <id>` lines, or remove it, then run tehas update"
             ),
         }
     }
 }
 
-/// The pairs a file holds, and whether no line of it had its end trimmed.
+/// The pairs a file holds, the code host's and the tickets realm's, and
+/// whether the file is in its written form: no line had its end trimmed and
+/// none was in the 1.x form.
 #[derive(Debug, PartialEq)]
 pub struct Pairs {
+    /// The code host's pairs: every check of 2.0 reads these.
     pub ids: BTreeMap<String, u64>,
+    /// The tickets realm's pairs, kept as they are: a split setup's.
+    pub tickets: BTreeMap<String, u64>,
     pub tidy: bool,
 }
 
-/// The pairs of a file's bytes. A line may end in spaces, tabs or a carriage
-/// return; anything else that is not `<login> <id>` is unreadable, and so is
-/// a login given two ids, in one case or two.
+/// The realm of a line, as the file spells it.
+pub const CODE_HOST: &str = "code-host";
+/// The tickets realm, as the file spells it.
+pub const TICKETS: &str = "tickets";
+
+/// The pairs of a file's bytes. A line is `<realm> <login> <id>`, or a 1.x
+/// line `<login> <id>`, read as the code host's. A line may end in spaces,
+/// tabs or a carriage return; anything else is unreadable, and so is a login
+/// given two ids in one realm, in one case or two.
 pub fn parse_bytes(bytes: &[u8]) -> Result<Pairs, Unreadable> {
     let text = std::str::from_utf8(bytes).map_err(|e| {
         let n = bytes[..e.valid_up_to()]
@@ -193,7 +209,8 @@ pub fn parse_bytes(bytes: &[u8]) -> Result<Pairs, Unreadable> {
         Unreadable::at(n + 1, "is not UTF-8")
     })?;
     let mut ids = BTreeMap::new();
-    let mut seen: BTreeMap<String, (usize, u64)> = BTreeMap::new();
+    let mut tickets = BTreeMap::new();
+    let mut seen: BTreeMap<(bool, String), (usize, u64)> = BTreeMap::new();
     let mut tidy = true;
     for (i, raw) in text.split('\n').enumerate() {
         let n = i + 1;
@@ -202,15 +219,17 @@ pub fn parse_bytes(bytes: &[u8]) -> Result<Pairs, Unreadable> {
         if line.is_empty() {
             continue;
         }
-        let (login, id) = pair(line).map_err(|what| Unreadable::at(n, what))?;
+        let (realm, login, id) = entry(line).map_err(|what| Unreadable::at(n, what))?;
+        tidy &= realm.is_some();
+        let ticket_realm = realm == Some(TICKETS);
         let key = key(login);
         if !crate::settings::rules::is_login(account(&key)) {
             return Err(Unreadable::at(
                 n,
-                "is not `<login> <id>`: the login is not a GitHub login",
+                "is not `<realm> <login> <id>`: the login is not a GitHub login",
             ));
         }
-        match seen.get(&folded(&key)) {
+        match seen.get(&(ticket_realm, folded(&key))) {
             Some(&(first, was)) if was != id => {
                 return Err(Unreadable::at(
                     n,
@@ -219,34 +238,61 @@ pub fn parse_bytes(bytes: &[u8]) -> Result<Pairs, Unreadable> {
             }
             Some(_) => {}
             None => {
-                seen.insert(folded(&key), (n, id));
+                seen.insert((ticket_realm, folded(&key)), (n, id));
             }
         }
-        ids.insert(key, id);
+        if ticket_realm {
+            tickets.insert(key, id);
+        } else {
+            ids.insert(key, id);
+        }
     }
-    Ok(Pairs { ids, tidy })
+    Ok(Pairs { ids, tickets, tidy })
+}
+
+/// The realm, login and id of a line with its end trimmed, or what is
+/// wrong. A line of one space is the 1.x form, `<login> <id>`, with no
+/// realm: the code host's. A line of more is `<realm> <login> <id>`, its
+/// realm `code-host` or `tickets`.
+fn entry(line: &str) -> Result<(Option<&'static str>, &str, u64), &'static str> {
+    if line.starts_with(' ') {
+        return Err("is not `<realm> <login> <id>`: it starts with a space");
+    }
+    if line.contains("  ") {
+        return Err("is not `<realm> <login> <id>`: more than one space");
+    }
+    if line.matches(' ').count() <= 1 {
+        return pair(line).map(|(login, id)| (None, login, id));
+    }
+    let (word, rest) = line.split_once(' ').expect("the line holds a space");
+    let realm = match word {
+        CODE_HOST => CODE_HOST,
+        TICKETS => TICKETS,
+        _ => return Err("is not `<realm> <login> <id>`: the realm is not code-host or tickets"),
+    };
+    pair(rest).map(|(login, id)| (Some(realm), login, id))
 }
 
 /// The login and id of a line with its end trimmed, or what is wrong.
 fn pair(line: &str) -> Result<(&str, u64), &'static str> {
     let Some((login, id)) = line.split_once(' ') else {
-        return Err("is not `<login> <id>`: it has no space");
+        return Err("is not `<realm> <login> <id>`: it has no space");
     };
     if login.is_empty() {
-        return Err("is not `<login> <id>`: it starts with a space");
+        return Err("is not `<realm> <login> <id>`: it starts with a space");
     }
     if id.starts_with(' ') {
-        return Err("is not `<login> <id>`: more than one space");
+        return Err("is not `<realm> <login> <id>`: more than one space");
     }
     if login.chars().any(|c| c.is_whitespace() || c.is_control()) {
-        return Err("is not `<login> <id>`: the login holds a tab or control character");
+        return Err("is not `<realm> <login> <id>`: the login holds a tab or control character");
     }
     if id.is_empty() || !id.bytes().all(|b| b.is_ascii_digit()) {
-        return Err("is not `<login> <id>`: the id is not a number");
+        return Err("is not `<realm> <login> <id>`: the id is not a number");
     }
     id.parse::<u64>()
         .map(|id| (login, id))
-        .map_err(|_| "is not `<login> <id>`: the id is too large")
+        .map_err(|_| "is not `<realm> <login> <id>`: the id is too large")
 }
 
 /// The pairs of a file's text, as `parse_bytes` reads them.
@@ -254,9 +300,16 @@ pub fn parse(text: &str) -> Result<BTreeMap<String, u64>, Unreadable> {
     parse_bytes(text.as_bytes()).map(|p| p.ids)
 }
 
-/// The file's text for these pairs.
-pub fn text(ids: &BTreeMap<String, u64>) -> String {
-    ids.iter().map(|(l, i)| format!("{l} {i}\n")).collect()
+/// The file's text for these pairs, the code host's then the tickets
+/// realm's, each `<realm> <login> <id>`: the one form tehas writes.
+pub fn text(ids: &BTreeMap<String, u64>, tickets: &BTreeMap<String, u64>) -> String {
+    let lines = |realm: &str, pairs: &BTreeMap<String, u64>| -> String {
+        pairs
+            .iter()
+            .map(|(l, i)| format!("{realm} {l} {i}\n"))
+            .collect()
+    };
+    lines(CODE_HOST, ids) + &lines(TICKETS, tickets)
 }
 
 /// The pairs with `new` given the user id of `old`, for an account whose
@@ -366,6 +419,7 @@ pub fn load(home: &Path) -> Result<Pairs, Unreadable> {
             Some(u) => Err(u),
             None => Ok(Pairs {
                 ids: BTreeMap::new(),
+                tickets: BTreeMap::new(),
                 tidy: true,
             }),
         },
@@ -596,13 +650,11 @@ impl Accounts {
             _ if is_bot(&key(login)) => bot,
             Kind::Bot => bot,
             Kind::Other => folded(login),
-            Kind::Unknown => {
-                match (self.listed.contains(&bare), self.listed.contains(&bot)) {
-                    (true, false) => bare,
-                    (false, true) => bot,
-                    _ => return None,
-                }
-            }
+            Kind::Unknown => match (self.listed.contains(&bare), self.listed.contains(&bot)) {
+                (true, false) => bare,
+                (false, true) => bot,
+                _ => return None,
+            },
         };
         self.listed
             .contains(&k)
@@ -881,14 +933,80 @@ mod tests {
     #[test]
     fn the_file_is_one_pair_a_line() {
         let ids = parse("alice 1001\napp/mill 3001\n").unwrap();
-        assert_eq!(text(&ids), "alice 1001\nmill[bot] 3001\n");
+        let none = BTreeMap::new();
+        assert_eq!(
+            text(&ids, &none),
+            "code-host alice 1001\ncode-host mill[bot] 3001\n"
+        );
         assert!(parse("alice\n").is_err());
         assert!(parse("alice x\n").is_err());
         assert!(parse(" 5\n").is_err());
         assert_eq!(parse(""), Ok(BTreeMap::new()));
-        assert!(parse_bytes(b"alice 1001\nmill 3001\n").unwrap().tidy);
+        assert!(
+            parse_bytes(b"code-host alice 1001\ncode-host mill 3001\n")
+                .unwrap()
+                .tidy
+        );
         // Another order or spelling is no damage.
-        assert!(parse_bytes(b"mill[bot] 3001\nalice 1001").unwrap().tidy);
+        assert!(
+            parse_bytes(b"code-host mill[bot] 3001\ncode-host alice 1001")
+                .unwrap()
+                .tidy
+        );
+    }
+
+    /// Expand then contract (R9): a 1.x line, `<login> <id>`, reads as the
+    /// code host's pair, beside a line of the new form; the file is then not
+    /// in its written form, so the update writes it once, every line with
+    /// its realm. A tickets realm's pair is kept apart and written back.
+    #[test]
+    fn a_1x_line_reads_as_the_code_hosts_and_is_written_with_its_realm() {
+        let old = parse_bytes(b"alice 1001\nmill 3001\n").unwrap();
+        let new = parse_bytes(b"code-host alice 1001\ncode-host mill 3001\n").unwrap();
+        assert_eq!(old.ids, new.ids);
+        assert!(old.tickets.is_empty());
+        assert!(!old.tidy && new.tidy);
+        let mixed = parse_bytes(b"alice 1001\ncode-host bob 1002\ntickets alice 77\n").unwrap();
+        assert!(!mixed.tidy);
+        assert_eq!(mixed.ids.get("alice"), Some(&1001));
+        assert_eq!(mixed.ids.get("bob"), Some(&1002));
+        assert_eq!(mixed.tickets.get("alice"), Some(&77));
+        let written = text(&mixed.ids, &mixed.tickets);
+        assert_eq!(
+            written,
+            "code-host alice 1001\ncode-host bob 1002\ntickets alice 77\n"
+        );
+        let again = parse_bytes(written.as_bytes()).unwrap();
+        assert!(again.tidy);
+        assert_eq!((again.ids, again.tickets), (mixed.ids, mixed.tickets));
+        // One login, one id a realm: in two realms it may differ, in one it
+        // may not, whichever form names it.
+        let u = parse_bytes(b"alice 1001\ncode-host Alice 7\n").unwrap_err();
+        assert_eq!(u.line, Some(2));
+        assert!(u.what.contains("another id than line 1"), "{}", u.what);
+    }
+
+    /// Any shape but the two forms is unreadable: no listed login counts
+    /// until the line is fixed, and the line says how.
+    #[test]
+    fn a_line_of_another_shape_is_unreadable() {
+        for (text, what) in [
+            ("jira alice 1001\n", "the realm is not code-host or tickets"),
+            (
+                "Code-Host alice 1001\n",
+                "the realm is not code-host or tickets",
+            ),
+            ("code-host alice 1001 extra\n", "not a number"),
+            ("code-host alice\n", "not a number"),
+            ("tickets alice x\n", "not a number"),
+        ] {
+            let u = parse_bytes(text.as_bytes()).unwrap_err();
+            assert_eq!(u.line, Some(1), "{text:?}");
+            assert!(u.what.contains(what), "{text:?}: {}", u.what);
+            assert!(u
+                .says(FILE)
+                .contains("Fix or remove that line, then run tehas update"));
+        }
     }
 
     #[test]
@@ -931,7 +1049,7 @@ mod tests {
         // The same pair twice says nothing new, in any case.
         assert!(parse("alice 1001\nalice 1001\n").is_ok());
         assert!(parse("alice 1001\nAlice 1001\n").is_ok());
-        let said = Unreadable::at(2, "is not `<login> <id>`").says(FILE);
+        let said = Unreadable::at(2, "is not `<realm> <login> <id>`").says(FILE);
         assert!(said.contains(FILE) && said.contains("line 2"));
         assert!(said.contains("Fix or remove that line, then run tehas update"));
     }
@@ -1031,6 +1149,7 @@ mod tests {
             load(&h),
             Ok(Pairs {
                 ids: BTreeMap::new(),
+                tickets: BTreeMap::new(),
                 tidy: true
             })
         );
@@ -1070,8 +1189,8 @@ mod tests {
         let had = parse("alice 1001\nacme-old[bot] 4242\n").unwrap();
         let ids = carried(&had, "acme-old[bot]", "acme-new[bot]").unwrap();
         assert_eq!(
-            text(&ids),
-            "acme-new[bot] 4242\nacme-old[bot] 4242\nalice 1001\n"
+            text(&ids, &BTreeMap::new()),
+            "code-host acme-new[bot] 4242\ncode-host acme-old[bot] 4242\ncode-host alice 1001\n"
         );
         let bot = |ids| Accounts::new(listed("alice", "acme-new[bot]"), ids);
         let mut v = json!({"author": {"login": "acme-new", "databaseId": 4242}});
@@ -1121,11 +1240,16 @@ mod tests {
         assert_eq!(ambiguous(&ids, &["tehas-app[bot]".to_string()]), None);
         // Both listed, each counts with its own id.
         let both = Accounts::new(listed("tehas-app", "tehas-app[bot]"), ids);
-        assert_eq!(both.doubt_as("tehas-app", Kind::Other, Some(344514095)), None);
+        assert_eq!(
+            both.doubt_as("tehas-app", Kind::Other, Some(344514095)),
+            None
+        );
         assert_eq!(both.doubt_as("tehas-app", Kind::Bot, Some(347290281)), None);
         assert_eq!(
             both.doubt_as("tehas-app", Kind::Bot, Some(344514095)),
-            Some(Doubt::Other { recorded: 347290281 })
+            Some(Doubt::Other {
+                recorded: 347290281
+            })
         );
     }
 
@@ -1162,8 +1286,14 @@ mod tests {
         // The person's pair is no bot's, and a person is not the listed bot.
         let only = parse("jane 1001\n").unwrap();
         let bot = Accounts::new(listed("", "jane[bot]"), only);
-        assert_eq!(bot.doubt_as("jane", Kind::Bot, Some(1001)), Some(Doubt::Unrecorded));
-        assert_eq!(bot.doubt_as("jane", Kind::Other, Some(1001)), Some(Doubt::Unrecorded));
+        assert_eq!(
+            bot.doubt_as("jane", Kind::Bot, Some(1001)),
+            Some(Doubt::Unrecorded)
+        );
+        assert_eq!(
+            bot.doubt_as("jane", Kind::Other, Some(1001)),
+            Some(Doubt::Unrecorded)
+        );
     }
 
     /// A file of before bots were keyed whole keeps a bot under its bare
@@ -1173,6 +1303,9 @@ mod tests {
         let bots = ["tehas-app[bot]".to_string()];
         let old = parse("alice 1\ntehas-app 347290281\n").unwrap();
         assert_eq!(ambiguous(&old, &bots), Some("tehas-app[bot]"));
+        // A 2.0 line with its realm keeps the bare slug the same way.
+        let realm = parse("code-host alice 1\ncode-host tehas-app 347290281\n").unwrap();
+        assert_eq!(ambiguous(&realm, &bots), Some("tehas-app[bot]"));
         let cased = parse("Tehas-App 347290281\n").unwrap();
         assert_eq!(ambiguous(&cased, &bots), Some("tehas-app[bot]"));
         let settled = parse("tehas-app 344514095\ntehas-app[bot] 347290281\n").unwrap();
@@ -1298,9 +1431,15 @@ mod bot_tests {
     /// factory recorded, its key the login GraphQL gives, any case.
     #[test]
     fn the_factorys_account_is_the_bots_login_and_its_recorded_id() {
-        let d = home_with(Some("tehas-bot[bot]\n"), Some("alice 42\nTehas-Bot[bot] 7\n"));
+        let d = home_with(
+            Some("tehas-bot[bot]\n"),
+            Some("alice 42\nTehas-Bot[bot] 7\n"),
+        );
         assert_eq!(bot(d.path()), ("tehas-bot[bot]".to_string(), Some(7)));
-        let side = home_with(Some("tehas-bot[bot]"), Some("tehas-bot 6\ntehas-bot[bot] 7\n"));
+        let side = home_with(
+            Some("tehas-bot[bot]"),
+            Some("tehas-bot 6\ntehas-bot[bot] 7\n"),
+        );
         assert_eq!(bot(side.path()).1, Some(7));
         assert_eq!(unsettled(side.path()), None);
     }
@@ -1317,6 +1456,11 @@ mod bot_tests {
         assert!(line.contains("Run console ids record"), "{line}");
         assert!(super::read(d.path()).is_empty());
         // A file that cannot be read is no bare key: the readers say it.
+        let realm = home_with(Some("tehas-bot[bot]"), Some("code-host tehas-bot 7\n"));
+        assert_eq!(bot(realm.path()).1, None);
+        assert!(unsettled(realm.path()).is_some());
+        let whole = home_with(Some("tehas-bot[bot]"), Some("code-host tehas-bot[bot] 7\n"));
+        assert_eq!(bot(whole.path()).1, Some(7));
         let bad = home_with(Some("tehas-bot[bot]"), Some("tehas-bot x\n"));
         assert_eq!(unsettled(bad.path()), None);
         let none = home_with(Some("tehas-bot[bot]"), None);

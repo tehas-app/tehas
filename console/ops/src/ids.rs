@@ -18,12 +18,16 @@
 //! bot's when it holds the id GitHub gives the bot, and is then written under
 //! the whole login. A bare pair that holds another id stops the run with 78,
 //! unless it is the id GitHub gives a listed login of that name, or a person
-//! confirms the bot's id with --accept-id; the pair stays as it is.
+//! confirms the bot's id with --accept-id; the pair stays as it is. This
+//! holds for 1.x lines and realm lines alike.
 //!
-//! A file whose lines only end in spaces or carriage returns is read as its
-//! pairs say, checked as above, and written back in its plain form. A file
-//! that cannot be read with certainty stops with 78 before GitHub is asked,
-//! names the line, and is left as it is.
+//! Every line is written `<realm> <login> <id>`, the realm `code-host` for
+//! these logins; a pair of the tickets realm is kept as it is. A file of 1.x
+//! lines, `<login> <id>`, or whose lines only end in spaces or carriage
+//! returns, is read as its pairs say, checked as above, and written back
+//! once in that form: the update's one rewrite (R9). A file that cannot be
+//! read with certainty stops with 78 before GitHub is asked, names the line,
+//! and is left as it is.
 //!
 //! With an app named and no GH_TOKEN, gh is given the app's token, made from
 //! its key as `tehasbot github-token` makes it (console/ops/src/github.rs). A first
@@ -122,9 +126,9 @@ pub fn record(
                     .filter(|(l, _)| folded(l) == bare(key) && !old.contains(l))
                     .map(|(_, w)| *w)
                     .find(|w| {
-                        !answers
-                            .iter()
-                            .any(|(_, k, i)| !k.ends_with("[bot]") && folded(k) == bare(key) && i == w)
+                        !answers.iter().any(|(_, k, i)| {
+                            !k.ends_with("[bot]") && folded(k) == bare(key) && i == w
+                        })
                     })
             })
             .flatten();
@@ -194,13 +198,19 @@ fn ask_github(gh: &mut dyn GhRunner, login: &str) -> Asked {
     }
 }
 
-fn write(home: &Path, ids: &BTreeMap<String, u64>) -> std::io::Result<()> {
+/// The file written whole, in the one form tehas writes: the code host's
+/// pairs `ids` and the tickets realm's `tickets`.
+fn write(
+    home: &Path,
+    ids: &BTreeMap<String, u64>,
+    tickets: &BTreeMap<String, u64>,
+) -> std::io::Result<()> {
     let file = home.join(accounts::FILE);
     if let Some(dir) = file.parent() {
         fs::create_dir_all(dir)?;
     }
     let tmp = file.with_extension(format!("tmp{}", std::process::id()));
-    fs::write(&tmp, accounts::text(ids))?;
+    fs::write(&tmp, accounts::text(ids, tickets))?;
     fs::rename(&tmp, &file)
 }
 
@@ -218,7 +228,7 @@ pub fn carry(home: &Path, old: &str, new: &str) -> std::io::Result<bool> {
     let Some(ids) = accounts::carried(&had.ids, old, new) else {
         return Ok(false);
     };
-    if let Err(e) = write(home, &ids) {
+    if let Err(e) = write(home, &ids, &had.tickets) {
         eprintln!(
             "tehas: could not write {}: {e}",
             home.join(accounts::FILE).display()
@@ -318,7 +328,7 @@ fn record_in(
     match record(logins, &had.ids, accept, ask) {
         Ok((ids, said)) => {
             if ids != had.ids || !had.tidy {
-                if let Err(e) = write(home, &ids) {
+                if let Err(e) = write(home, &ids, &had.tickets) {
                     eprintln!("tehas: could not write {}: {e}", file.display());
                     return 78;
                 }
@@ -380,7 +390,10 @@ mod tests {
             &mut github,
         )
         .unwrap();
-        assert_eq!(accounts::text(&ids), "alice 1001\nmill[bot] 3001\n");
+        assert_eq!(
+            accounts::text(&ids, &BTreeMap::new()),
+            "code-host alice 1001\ncode-host mill[bot] 3001\n"
+        );
         assert!(said.is_empty());
     }
 
@@ -398,29 +411,44 @@ mod tests {
     fn an_organisation_and_the_bot_of_its_name_are_recorded_side_by_side() {
         let both = logins(&["tehas-app", "tehas-app[bot]"]);
         let (ids, _) = record(&both, &BTreeMap::new(), &[], &mut org_and_bot).unwrap();
-        let text = "tehas-app 344514095\ntehas-app[bot] 347290281\n";
-        assert_eq!(accounts::text(&ids), text);
+        let text = "code-host tehas-app 344514095\ncode-host tehas-app[bot] 347290281\n";
+        assert_eq!(accounts::text(&ids, &BTreeMap::new()), text);
         // Recorded again, each is its own pair.
         let (again, said) = record(&both, &ids, &[], &mut org_and_bot).unwrap();
         assert_eq!(again, ids);
         assert!(said.is_empty());
         let had = accounts::parse("Jane 1001\n").unwrap();
-        let (ids, _) = record(&logins(&["jane", "jane[bot]"]), &had, &[], &mut org_and_bot).unwrap();
-        assert_eq!(accounts::text(&ids), "jane 1001\njane[bot] 2002\n");
+        let (ids, _) =
+            record(&logins(&["jane", "jane[bot]"]), &had, &[], &mut org_and_bot).unwrap();
+        assert_eq!(
+            accounts::text(&ids, &BTreeMap::new()),
+            "code-host jane 1001\ncode-host jane[bot] 2002\n"
+        );
     }
 
     #[test]
     fn a_bare_pair_with_the_bots_id_is_written_under_the_bots_login() {
         let had = accounts::parse("alice 1001\ntehas-app 347290281\n").unwrap();
         let (ids, _) = record(&logins(&["app/tehas-app"]), &had, &[], &mut org_and_bot).unwrap();
-        assert_eq!(accounts::text(&ids), "alice 1001\ntehas-app[bot] 347290281\n");
+        assert_eq!(
+            accounts::text(&ids, &BTreeMap::new()),
+            "code-host alice 1001\ncode-host tehas-app[bot] 347290281\n"
+        );
+        // A 2.0 file with realms reads the same.
+        let realm =
+            accounts::parse("code-host alice 1001\ncode-host tehas-app 347290281\n").unwrap();
+        let (ids, _) = record(&logins(&["tehas-app[bot]"]), &realm, &[], &mut org_and_bot).unwrap();
+        assert_eq!(
+            accounts::text(&ids, &BTreeMap::new()),
+            "code-host alice 1001\ncode-host tehas-app[bot] 347290281\n"
+        );
         // With the organisation listed too, the bare pair was the bot's, so
         // the organisation is recorded afresh.
         let both = logins(&["tehas-app", "tehas-app[bot]"]);
         let (ids, _) = record(&both, &had, &[], &mut org_and_bot).unwrap();
         assert_eq!(
-            accounts::text(&ids),
-            "alice 1001\ntehas-app 344514095\ntehas-app[bot] 347290281\n"
+            accounts::text(&ids, &BTreeMap::new()),
+            "code-host alice 1001\ncode-host tehas-app 344514095\ncode-host tehas-app[bot] 347290281\n"
         );
     }
 
@@ -434,18 +462,27 @@ mod tests {
         // Accepted, the bot is recorded and the bare pair, which may be an
         // account of that name, stays.
         let (ids, _) = record(&bot, &had, &bot, &mut org_and_bot).unwrap();
-        assert_eq!(accounts::text(&ids), "tehas-app 5\ntehas-app[bot] 347290281\n");
+        assert_eq!(
+            accounts::text(&ids, &BTreeMap::new()),
+            "code-host tehas-app 5\ncode-host tehas-app[bot] 347290281\n"
+        );
         // A bare pair GitHub gives a listed login of that name is that
         // account's, not the bot's.
         let had = accounts::parse("tehas-app 344514095\n").unwrap();
         let both = logins(&["tehas-app", "tehas-app[bot]"]);
         let (ids, _) = record(&both, &had, &[], &mut org_and_bot).unwrap();
         assert_eq!(
-            accounts::text(&ids),
-            "tehas-app 344514095\ntehas-app[bot] 347290281\n"
+            accounts::text(&ids, &BTreeMap::new()),
+            "code-host tehas-app 344514095\ncode-host tehas-app[bot] 347290281\n"
         );
         // The accept of the bare name is not the bot's.
-        assert!(record(&bot, &accounts::parse("tehas-app 5\n").unwrap(), &logins(&["tehas-app"]), &mut org_and_bot).is_err());
+        assert!(record(
+            &bot,
+            &accounts::parse("tehas-app 5\n").unwrap(),
+            &logins(&["tehas-app"]),
+            &mut org_and_bot
+        )
+        .is_err());
     }
 
     #[test]
@@ -502,7 +539,10 @@ mod tests {
         // A pair in another case of the same id is taken over by the login as
         // written, so the file holds one pair for it.
         let (ids, said) = record(&logins(&["Alice"]), &had, &[], &mut alice_is(5)).unwrap();
-        assert_eq!(accounts::text(&ids), "Alice 5\n");
+        assert_eq!(
+            accounts::text(&ids, &BTreeMap::new()),
+            "code-host Alice 5\n"
+        );
         assert!(said.is_empty());
     }
 
@@ -524,14 +564,20 @@ mod tests {
             &mut alice_is(99),
         )
         .unwrap();
-        assert_eq!(accounts::text(&ids), "alice 99\nbob 7\n");
+        assert_eq!(
+            accounts::text(&ids, &BTreeMap::new()),
+            "code-host alice 99\ncode-host bob 7\n"
+        );
         assert!(said[0].contains("99") && said[0].contains("it was 5"));
     }
 
     #[test]
     fn an_accept_names_a_listed_login_in_any_case() {
         let listed = logins(&["Alice", "mill[bot]"]);
-        assert_eq!(unlisted(&logins(&["alice", "MILL[bot]", "app/mill"]), &listed), None);
+        assert_eq!(
+            unlisted(&logins(&["alice", "MILL[bot]", "app/mill"]), &listed),
+            None
+        );
         // A bot's accept names the bot: its bare name is another account.
         assert_eq!(
             unlisted(&logins(&["mill"]), &listed),
@@ -549,14 +595,20 @@ mod tests {
         let _ = fs::remove_dir_all(&home);
         assert!(!carry(&home, "acme-old[bot]", "acme-new[bot]").unwrap());
         assert!(!home.join(accounts::FILE).exists());
-        write(&home, &accounts::parse("acme-old 4242\n").unwrap()).unwrap();
+        let none = BTreeMap::new();
+        write(&home, &accounts::parse("acme-old 4242\n").unwrap(), &none).unwrap();
         // A bare key is not known to be the bot's.
         assert!(!carry(&home, "acme-old[bot]", "acme-new[bot]").unwrap());
-        write(&home, &accounts::parse("acme-old[bot] 4242\n").unwrap()).unwrap();
+        write(
+            &home,
+            &accounts::parse("acme-old[bot] 4242\n").unwrap(),
+            &none,
+        )
+        .unwrap();
         assert!(carry(&home, "acme-old[bot]", "acme-new[bot]").unwrap());
         assert_eq!(
             fs::read_to_string(home.join(accounts::FILE)).unwrap(),
-            "acme-new[bot] 4242\nacme-old[bot] 4242\n"
+            "code-host acme-new[bot] 4242\ncode-host acme-old[bot] 4242\n"
         );
         assert!(!carry(&home, "acme-old[bot]", "acme-new[bot]").unwrap());
         fs::remove_dir_all(&home).unwrap();
@@ -568,11 +620,16 @@ mod tests {
         let _ = fs::remove_dir_all(&home);
         let dir = Home::new(&home).token_dir(TokenDir::App);
         fs::create_dir_all(&dir).unwrap();
-        write(&home, &accounts::parse("acme-old[bot] 4242\n").unwrap()).unwrap();
+        write(
+            &home,
+            &accounts::parse("code-host acme-old[bot] 4242\n").unwrap(),
+            &BTreeMap::new(),
+        )
+        .unwrap();
         assert!(carry_beside(&dir, "acme-old[bot]", "acme-new[bot]"));
         assert_eq!(
             fs::read_to_string(home.join(accounts::FILE)).unwrap(),
-            "acme-new[bot] 4242\nacme-old[bot] 4242\n"
+            "code-host acme-new[bot] 4242\ncode-host acme-old[bot] 4242\n"
         );
         // Nothing to add is no failure.
         assert!(carry_beside(&dir, "acme-old[bot]", "acme-new[bot]"));
@@ -615,8 +672,33 @@ mod tests {
         assert_eq!(record_alice(&h), (0, true));
         assert_eq!(
             fs::read_to_string(h.join(accounts::FILE)).unwrap(),
-            "alice 1001\n"
+            "code-host alice 1001\n"
         );
+        fs::remove_dir_all(&h).unwrap();
+    }
+
+    /// The update's one rewrite (R9): a 1.x file reads as the code host's
+    /// pairs, is checked as they say, and is written once with every line's
+    /// realm; a tickets realm's pair is kept. The file written then reads
+    /// tidy, so the next update leaves it as it is.
+    #[test]
+    fn a_1x_file_is_checked_then_written_once_with_its_realms() {
+        let h = home("realm");
+        let file = h.join(accounts::FILE);
+        fs::write(&file, "alice 1001\nbob 1002\ntickets alice 77\n").unwrap();
+        assert_eq!(record_alice(&h), (0, true));
+        let written = "code-host alice 1001\ncode-host bob 1002\ntickets alice 77\n";
+        assert_eq!(fs::read_to_string(&file).unwrap(), written);
+        assert!(accounts::load(&h).unwrap().tidy);
+        let stamp = fs::metadata(&file).unwrap().modified().unwrap();
+        assert_eq!(record_alice(&h), (0, true));
+        assert_eq!(fs::read_to_string(&file).unwrap(), written);
+        assert_eq!(fs::metadata(&file).unwrap().modified().unwrap(), stamp);
+        // A 1.x pair whose id changed hands stops as before, and the file is
+        // left in its 1.x form.
+        fs::write(&file, "alice 999\n").unwrap();
+        assert_eq!(record_alice(&h), (78, true));
+        assert_eq!(fs::read_to_string(&file).unwrap(), "alice 999\n");
         fs::remove_dir_all(&h).unwrap();
     }
 
@@ -628,7 +710,7 @@ mod tests {
             assert_eq!(record_alice(&h), (0, true));
             assert_eq!(
                 fs::read_to_string(h.join(accounts::FILE)).unwrap(),
-                "alice 1001\nbob 1002\n"
+                "code-host alice 1001\ncode-host bob 1002\n"
             );
             fs::remove_dir_all(&h).unwrap();
         }
@@ -646,7 +728,8 @@ mod tests {
 
     #[test]
     fn a_file_that_cannot_be_read_stops_before_github_and_is_kept() {
-        let cases: [&[u8]; 5] = [
+        let cases: [&[u8]; 6] = [
+            b"alice 999\njira bob 1002\n",
             b"alice 999\nbob\n",
             b"alice 999\nbob  1002\n",
             b"alice 999\nbob x\n",
