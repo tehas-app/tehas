@@ -443,6 +443,47 @@ fn board_a_window_per_kind_cuts_no_other() {
 }
 
 #[test]
+fn board_a_kind_named_twice_is_read_once_by_its_first_window() {
+    for w in both() {
+        let at = w.now();
+        let w = w.ticket(1, |t| t.title("busy").events(8, at));
+        let site = FakeSite::new(&w);
+        let mut board = site.board(&full(), C).unwrap();
+        let mut t = site.tickets(&full(), C).unwrap();
+        let ask = {
+            let mut ask = BoardAsk::new(Depth::Cut { notes: 0 });
+            ask.history_by_kind = vec![
+                (HappenedKind::Marked, Window::Last(n32(1))),
+                (HappenedKind::Unmarked, Window::Whole(b(50))),
+                (HappenedKind::Marked, Window::Whole(b(50))),
+            ];
+            ask
+        };
+        ok(laws::board::a_window_per_kind_cuts_no_other(
+            board.as_mut(),
+            t.as_mut(),
+            &w.key(1),
+            &ask,
+        ));
+        let history = board.work_item(&w.key(1), &ask).unwrap().ticket.history;
+        let marked: Vec<_> = history
+            .items
+            .iter()
+            .filter(|e| e.what.kind() == HappenedKind::Marked)
+            .collect();
+        let newest = t
+            .history(
+                &w.key(1),
+                Window::Last(n32(1)),
+                Some(&[HappenedKind::Marked]),
+            )
+            .unwrap();
+        assert_eq!(marked, newest.items.iter().collect::<Vec<_>>());
+        assert!(history.more);
+    }
+}
+
+#[test]
 fn tickets_several_carries_each_closer() {
     for w in both() {
         let w = w

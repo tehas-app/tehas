@@ -1205,7 +1205,8 @@ pub mod board {
     /// Asked a window of history per kind, an item's history holds, of
     /// each kind named, what `Tickets::history` gives for that kind and
     /// window, and no event of a kind not named, so a busy kind cuts no
-    /// other. `more` is set when any kind's window held more. The
+    /// other. A kind named twice is read by its first window. `more` is
+    /// set when any kind's window held more. The
     /// fixture's `key` has events of a named kind past another's window.
     pub fn a_window_per_kind_cuts_no_other(
         b: &mut dyn Board,
@@ -1220,7 +1221,7 @@ pub mod board {
         let item = got(LAW, "the work item", b.work_item(key, ask))?;
         let history = &item.ticket.history;
         let mut more = false;
-        for (kind, window) in &ask.history_by_kind {
+        for (kind, window) in crate::board::first_of_each_kind(&ask.history_by_kind) {
             let want = got(
                 LAW,
                 "the kind's history",

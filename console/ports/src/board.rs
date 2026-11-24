@@ -31,7 +31,8 @@ pub struct BoardAsk {
     pub history: Option<Window>,
     /// A window of each ticket's history for each kind named, so a busy
     /// kind cannot cut another out: a poll asks its marks whole beside the
-    /// newest few of every other kind. Not empty, the history is each
+    /// newest few of every other kind. Each kind once: a kind named again
+    /// is read by its first window alone. Not empty, the history is each
     /// kind's own window, merged oldest first; a kind not named is not
     /// read, and `history` and the depth's window give no history. `more`
     /// is set when any window held more. Empty, the history is as
@@ -345,6 +346,18 @@ impl Reports for Join {
     }
 }
 
+/// Each kind once, by its first window: a second read of a kind would
+/// hold its events twice.
+pub(crate) fn first_of_each_kind(
+    asked: &[(HappenedKind, Window)],
+) -> impl Iterator<Item = &(HappenedKind, Window)> {
+    asked
+        .iter()
+        .enumerate()
+        .filter(|(i, (kind, _))| !asked[..*i].iter().any(|(k, _)| k == kind))
+        .map(|(_, pair)| pair)
+}
+
 impl Board for Join {
     /// The filter's open tickets alone, whatever its `open` says, in list
     /// order. The control ticket is read with `Depth::All`.
@@ -380,7 +393,7 @@ impl Board for Join {
         let mut ticket = self.tickets.ticket(key, ask.depth, history)?;
         if !ask.history_by_kind.is_empty() {
             let mut each = Vec::with_capacity(ask.history_by_kind.len());
-            for (kind, window) in &ask.history_by_kind {
+            for (kind, window) in first_of_each_kind(&ask.history_by_kind) {
                 each.push(
                     self.tickets
                         .history(key, *window, Some(std::slice::from_ref(kind)))?,
