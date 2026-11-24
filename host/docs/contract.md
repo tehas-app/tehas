@@ -823,6 +823,19 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   read the issue again. It guards the moment of the edit, not an earlier
   edit by a person.
   Readers: the agents of a cycle.
+- **The relay answers in tehas's words.** #3072. A write the relay makes
+  answers the cycle's `gh` with its link, as before. A write GitHub refuses
+  or cannot take answers with status 1 and one line of tehas's words,
+  `gh-shim: the relay could not <verb> #<n>: <reason>`, never GitHub's own
+  error text. A create without both a title and a body, a comment without a
+  body or with a title, and an edit with neither are refused before any call.
+  An edit of an issue whose body holds a tehas marker is not made: 1.x
+  overwrote the marker, and the answer now says why. A create GitHub may
+  have taken without answering is looked for first: found, it answers its
+  link and the cycle may edit it; not found, it failed; when no read can
+  tell, the answer asks the agent to list the cycle's issues before it
+  creates one again.
+  Readers: the agents of a cycle.
 - **The merge is no plugin's grant.** #2943.
   The grant and the ask `merge` are refused with 78, saying the merge is a
   person's and no plugin is granted it in this release, where before they
