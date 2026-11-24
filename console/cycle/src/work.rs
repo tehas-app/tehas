@@ -356,8 +356,9 @@ pub struct Given {
     pub driver: Option<Driver>,
     /// The console beside the script, which the watch runs.
     pub console: String,
-    /// The read the relay holds an edit to.
-    pub read_text: relay::ReadText,
+    /// The blueprints write handle of a repository the relay's writes go
+    /// through, over the gh runner given.
+    pub writes: relay::WritesOf,
 }
 
 fn env(name: &str) -> String {
@@ -1078,7 +1079,7 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         &relay_dir,
         &env("TEHAS_REPO"),
         n,
-        relay::Via::from_env(home, g.read_text),
+        relay::Via::from_env(home, relay::writes_of(home, &env("TEHAS_REPO"), g.writes)),
         RELAY_END_WAIT,
     );
     let given = watch::Given {
@@ -1209,6 +1210,18 @@ mod tests {
         reap(renewer(d.path()).unwrap());
     }
 
+    /// A cycle's blueprints write handle on a fake site with its issue #3.
+    fn fake_writes() -> Box<dyn tehas_ports::BlueprintWrites> {
+        use tehas_ports::Site;
+        let world = tehas_ports::fake::World::new().ticket(3, |t| t);
+        tehas_ports::fake::FakeSite::new(&world)
+            .blueprint_writes(
+                &tehas_ports::Actor::Ours(tehas_ports::Scope::Cycle),
+                tehas_ports::Caller::new("relay"),
+            )
+            .unwrap()
+    }
+
     #[test]
     fn a_relay_outlives_the_first_token() {
         use std::time::Instant;
@@ -1259,7 +1272,11 @@ mod tests {
                 token: bot.clone(),
                 token_args: vec!["github-token".to_string()],
                 token_wait: 10,
-                read_text: relay::read_raw,
+                // The handle's write is the gh it is given, run once.
+                writes: Box::new(move |mut gh| {
+                    let _ = gh.run(&["issue", "comment", "3", "--body", "hi"]);
+                    Ok(fake_writes())
+                }),
             },
             Duration::from_secs(10),
         );
@@ -1317,7 +1334,7 @@ mod tests {
                 token,
                 token_args: vec![],
                 token_wait: 30,
-                read_text: relay::read_raw,
+                writes: Box::new(|_| Ok(fake_writes())),
             },
             Duration::from_secs(1),
         );
