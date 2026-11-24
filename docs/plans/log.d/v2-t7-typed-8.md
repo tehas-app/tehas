@@ -1,1 +1,1 @@
-| 2026-11-24 | T7: tehas plugin check and review answer --json in types (check's and review's Answer), written through serde_json::to_value so the keys stay sorted; untyped-signatures 1194 to 1192 | v2/t7-typed-8 |
+| 2026-11-24 | T7: tehas plugin check and review answer --json in types (check's and review's Answer), written through serde_json::to_value so the keys stay sorted; untyped-signatures 1124 to 1122 | v2/t7-typed-8 |
