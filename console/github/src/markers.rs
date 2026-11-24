@@ -15,11 +15,37 @@
 //! or `Unreadable`, and its words stay in the text, as 1.x left them. A
 //! marker of this item that does not read stays `Unreadable`.
 //!
-//! What is no marker: one on a quoted line (its first character that is no
-//! white space is `>`), inside a fenced code block, or inside a code span
-//! of one line. An indented line is text: tehas's writers indent nothing,
-//! and a list's continuation line is indented too.
+//! What is no marker, as GitHub renders it: one inside a block quote
+//! (on a `>` line, or on a line that lazily continues the quote's
+//! paragraph), one inside fenced or indented code, and one that may be
+//! inside a code span: between two backtick runs of one length in its
+//! paragraph, or its line for a heading or a table row. The reader reads
+//! the text's blocks as CommonMark and GitHub's tables do, as far as a
+//! marker's place needs (see `dead`): a marker in an HTML block or a
+//! paragraph, at the text's level or in a list item, reads. A line ends at
+//! a LF, a CRLF or a lone CR, a blank line is spaces and tabs alone, a tab
+//! partly used by a container keeps its other columns, and a byte order
+//! mark at the text's start is no part of it.
 //!
+//! A marker reads only where GitHub keeps it as hidden HTML. So it is no
+//! marker either where GitHub shows its words: after a backslash that
+//! escapes its `<` (an odd run of them), or in a link's or an image's
+//! destination or title, or in a paragraph that opens as a link reference
+//! definition.
+//!
+//! Code spans are not paired: what GitHub reads first (inline HTML, an
+//! autolink, a link's destination or title) may hold a backtick that pairs
+//! nothing, so the reader takes every marker between two runs of one
+//! length for code. Where the reader departs from GitHub it is the safe
+//! way: such a marker GitHub may hide, the reader does not read. So too a
+//! link is taken without its `[`, a definition without its rest, and past
+//! [`MAX_NESTING`] open containers all is dead.
+//!
+//! `tests/markers_oracle.rs` holds the reader to a CommonMark and GFM
+//! parser, comrak, over a recorded corpus and seeded random bodies: no
+//! marker read where GitHub shows code, a quote or words, and the known
+//! departures, each the safe way, named there.
+
 //! [`write`] is the reading's inverse: a text and its markers made into
 //! the one text GitHub keeps, each marker's words from `table.rs`, and
 //! held to read back as what it was given.
@@ -485,6 +511,10 @@ fn take_out(body: &str, (s, e): (usize, usize)) -> (usize, usize, String) {
 pub fn live_text(body: &str) -> String {
     let lines = lines(body);
     let mut gone = dead(body, &lines);
+    // Besides the reader's indented code: every indented line at the
+    // text's start or after a blank line, in a list item or an open HTML
+    // block too, as this blanked before the reader parsed blocks. More
+    // blanked only adds a closing line.
     let mut code_may_open = true;
     for l in &lines {
         let raw = &body[l.start..l.end];
@@ -550,62 +580,462 @@ fn lines(body: &str) -> Vec<Line> {
     let mut out = Vec::new();
     let mut start = 0;
     while start < body.len() {
-        let next = body[start..]
-            .find('\n')
-            .map_or(body.len(), |i| start + i + 1);
-        let text = body[start..next].trim_end_matches('\n');
-        let text = text.strip_suffix('\r').unwrap_or(text);
-        out.push(Line {
-            start,
-            end: start + text.len(),
-            next,
-        });
+        // A line ends at a LF, a CRLF or a lone CR, as CommonMark has it.
+        let (end, next) = match body[start..].find(['\n', '\r']) {
+            None => (body.len(), body.len()),
+            Some(i) if body[start + i..].starts_with("\r\n") => (start + i, start + i + 2),
+            Some(i) => (start + i, start + i + 1),
+        };
+        out.push(Line { start, end, next });
         start = next;
     }
     out
 }
 
-/// The parts of the text that hold no marker: quoted lines, fenced code
-/// with its fences, and the code spans of a line.
+/// The parts of the text that hold no marker, as GitHub renders it: every
+/// line inside a block quote (its own `>` lines and the lazy lines that
+/// continue its paragraph), every line of fenced or indented code with its
+/// fences, and the code spans of a line.
+///
+/// It reads the text's blocks as CommonMark and GitHub's tables do, line by
+/// line, as far as a marker's place needs: the open quotes and list items,
+/// each item by its content's indent; and the leaf a line is in: a
+/// paragraph, a table, fenced or indented code, or an HTML block. A marker
+/// in an HTML block or a paragraph at the text's level or in a list item
+/// reads. One pass, each line looked at once per open container.
 fn dead(body: &str, lines: &[Line]) -> Vec<(usize, usize)> {
     let mut out = Vec::new();
-    let mut fence: Option<(u8, usize)> = None;
+    let mut open: Vec<Container> = Vec::new();
+    let mut leaf = Leaf::None;
+    // The paragraph being read, from its first line's text to its last's
+    // end: its code spans may cross line ends.
+    let mut para_at: Option<(usize, usize)> = None;
+    // Which list item the paragraph is the first content of, if any.
+    let mut para_first: Option<usize> = None;
+    let flush = |para_at: &mut Option<(usize, usize)>, out: &mut Vec<(usize, usize)>| {
+        if let Some((s, e)) = para_at.take() {
+            inline(&body[s..e], s, true, out);
+        }
+    };
     for l in lines {
-        let raw = &body[l.start..l.end];
-        // A fence's line is indented 0 to 3 spaces; more is code inside
-        // or a line of text.
-        let indent = raw.len() - raw.trim_start_matches(' ').len();
-        let text = (indent <= 3).then(|| &raw[indent..]);
-        match fence {
-            Some((c, n)) => {
-                out.push((l.start, l.next));
-                let closes = text.is_some_and(|t| {
-                    let run = t.bytes().take_while(|b| *b == c).count();
-                    run >= n && t[run..].bytes().all(|b| b == b' ' || b == b'\t')
-                });
-                if closes {
-                    fence = None;
+        let line = &body[l.start..l.end];
+        // A byte order mark at the text's start is no part of it.
+        let bom = if l.start == 0 && line.starts_with('\u{feff}') {
+            3
+        } else {
+            0
+        };
+        let mut at = Cursor::at(bom, 0);
+        // The containers this line goes on.
+        let mut matched = 0;
+        for c in &open {
+            match c {
+                Container::Quote => {
+                    let (n, after) = at.indent(line);
+                    if n <= 3 && line[after.byte..].starts_with('>') {
+                        at = Cursor::at(after.byte + 1, after.col + 1).skip_one_space(line);
+                        matched += 1;
+                    } else {
+                        break;
+                    }
+                }
+                Container::Item { indent, empty } => {
+                    let (n, _) = at.indent(line);
+                    // An item may start with one blank line at most: one
+                    // still empty at a blank line closes.
+                    if blank(&line[at.byte..]) && !*empty {
+                        matched += 1;
+                    } else if !blank(&line[at.byte..]) && n >= *indent {
+                        at = at.advance(line, *indent);
+                        matched += 1;
+                    } else {
+                        break;
+                    }
                 }
             }
-            None => match text.and_then(opens) {
-                Some(open) => {
+        }
+        let rest = &line[at.byte..];
+        if matched < open.len() {
+            let lazy = (para(leaf) || leaf == Leaf::Deep) && !blank(rest) && !interrupts(at, line);
+            if lazy {
+                if leaf == Leaf::Deep || open.contains(&Container::Quote) {
                     out.push((l.start, l.next));
-                    fence = Some(open);
+                } else {
+                    // The lazy line is now the paragraph's last, which a
+                    // delimiter row may make a table's head.
+                    leaf = Leaf::Para(cells(&line[at.indent(line).1.byte..]).len());
+                    let s = para_at.map_or(l.start + at.byte, |(s, _)| s);
+                    para_at = Some((s, l.end));
                 }
-                None if raw.trim_start().starts_with('>') => out.push((l.start, l.next)),
-                None => spans(raw, l.start, &mut out),
-            },
+                continue;
+            }
+            open.truncate(matched);
+            leaf = Leaf::None;
+            flush(&mut para_at, &mut out);
+        }
+        // The leaf this line continues.
+        match leaf {
+            Leaf::Fence(c, n) => {
+                out.push((l.start, l.next));
+                let (ind, after) = at.indent(line);
+                let t = &line[after.byte..];
+                let run = t.bytes().take_while(|b| *b == c).count();
+                if ind <= 3 && run >= n && t[run..].bytes().all(|b| b == b' ' || b == b'\t') {
+                    leaf = Leaf::None;
+                }
+                continue;
+            }
+            Leaf::Indented => {
+                let (ind, _) = at.indent(line);
+                if blank(rest) || ind >= 4 {
+                    out.push((l.start, l.next));
+                    continue;
+                }
+                leaf = Leaf::None;
+            }
+            Leaf::Html(end) => {
+                if end == HtmlEnd::Blank && blank(rest) {
+                    leaf = Leaf::None;
+                    continue;
+                }
+                if open.contains(&Container::Quote) {
+                    out.push((l.start, l.next));
+                }
+                if html_ends(end, rest) {
+                    leaf = Leaf::None;
+                }
+                continue;
+            }
+            Leaf::Deep => {
+                out.push((l.start, l.next));
+                continue;
+            }
+            _ => {}
+        }
+        // New containers, as many as the line opens, up to the cap.
+        let mut deep = false;
+        let before = open.len();
+        // A thematic break runs to the line's end: only a start in the
+        // line's tail of one mark can be one, so each item tried costs
+        // nothing more.
+        let tail = rule_tail(line);
+        let is_rule = |from: usize| from >= tail && rule(&line[from..]);
+        loop {
+            let (ind, after) = at.indent(line);
+            if ind >= 4 {
+                break;
+            }
+            let t = &line[after.byte..];
+            let opens_one = t.starts_with('>')
+                || item(t).is_some_and(|width| {
+                    let empty = blank(&t[width..]);
+                    (!para(leaf)
+                        || (!empty
+                            && (matches!(t.as_bytes()[0], b'-' | b'*' | b'+')
+                                || t.starts_with("1.")
+                                || t.starts_with("1)"))))
+                        && !is_rule(after.byte)
+                });
+            if opens_one && open.len() >= MAX_NESTING {
+                deep = true;
+                break;
+            }
+            // A container that opens in an item gives it content.
+            if let Some(Container::Item { empty, .. }) = open.last_mut().filter(|_| opens_one) {
+                *empty = false;
+            }
+            if t.starts_with('>') {
+                open.push(Container::Quote);
+                at = Cursor::at(after.byte + 1, after.col + 1).skip_one_space(line);
+                leaf = Leaf::None;
+                continue;
+            }
+            if let Some(width) = item(t) {
+                let empty = blank(&t[width..]);
+                let may = !para(leaf)
+                    || (!empty
+                        && (matches!(t.as_bytes()[0], b'-' | b'*' | b'+')
+                            || t.starts_with("1.")
+                            || t.starts_with("1)")));
+                if may && !is_rule(after.byte) {
+                    let marker = Cursor::at(after.byte + width, after.col + width);
+                    let (spaces, content) = marker.indent(line);
+                    let indent = if empty || spaces > 4 {
+                        marker.col + 1 - at.col
+                    } else {
+                        content.col - at.col
+                    };
+                    open.push(Container::Item { indent, empty });
+                    at = if empty || spaces > 4 {
+                        marker.skip_one_space(line)
+                    } else {
+                        content
+                    };
+                    leaf = Leaf::None;
+                    continue;
+                }
+            }
+            break;
+        }
+        if deep {
+            // Past the cap, the rest of the line and all inside it is dead.
+            flush(&mut para_at, &mut out);
+            leaf = Leaf::Deep;
+            out.push((l.start, l.next));
+            continue;
+        }
+        if open.len() > before {
+            // A new container ends the paragraph before it.
+            flush(&mut para_at, &mut out);
+        }
+        let rest = &line[at.byte..];
+        let quoted = open.contains(&Container::Quote);
+        let first = match open.last() {
+            Some(Container::Item { empty, .. }) => *empty || open.len() > before,
+            _ => false,
+        };
+        if !blank(rest) {
+            for c in open.iter_mut() {
+                if let Container::Item { empty, .. } = c {
+                    *empty = false;
+                }
+            }
+        }
+        if blank(rest) {
+            // A paragraph of link reference definitions alone leaves no
+            // block: an item that held nothing else is empty again, and the
+            // next blank line closes it.
+            let defs = para_at.is_some_and(|(s, e)| definition(&body[s..e]));
+            if let Some(Container::Item { empty, .. }) =
+                para_first.filter(|_| defs).and_then(|i| open.get_mut(i))
+            {
+                *empty = true;
+            }
+            leaf = Leaf::None;
+            flush(&mut para_at, &mut out);
+            continue;
+        }
+        let (ind, after) = at.indent(line);
+        let t = &line[after.byte..];
+        let mut html_line = false;
+        let dead_line = if ind >= 4 {
+            if para(leaf) {
+                leaf = Leaf::Para(cells(t).len());
+                false
+            } else {
+                leaf = Leaf::Indented;
+                true
+            }
+        } else if let Some((c, n)) = opens(t) {
+            leaf = Leaf::Fence(c, n);
+            true
+        } else if let Some(end) = html_start(t, para(leaf)) {
+            html_line = true;
+            leaf = if html_ends(end, t) {
+                Leaf::None
+            } else {
+                Leaf::Html(end)
+            };
+            false
+        } else if heading(t) || (para(leaf) && setext(t)) || rule(t) {
+            leaf = Leaf::None;
+            false
+        } else if matches!(leaf, Leaf::Para(n) if delimiter_row(t) == Some(n)) {
+            // As GFM's tables have it: the paragraph's last line becomes the
+            // table's head, the lines before it stay a paragraph.
+            leaf = Leaf::Table;
+            false
+        } else if leaf == Leaf::Table {
+            false
+        } else {
+            leaf = Leaf::Para(cells(t).len());
+            false
+        };
+        if para(leaf) && !quoted {
+            if para_at.is_none() {
+                para_first = first.then(|| open.len() - 1);
+            }
+            let s = para_at.map_or(l.start + at.byte, |(s, _)| s);
+            para_at = Some((s, l.end));
+            continue;
+        }
+        flush(&mut para_at, &mut out);
+        if dead_line || quoted {
+            out.push((l.start, l.next));
+        } else {
+            inline(rest, l.start + at.byte, !html_line, &mut out);
         }
     }
+    flush(&mut para_at, &mut out);
     out
 }
 
-/// The fence a line opens, as CommonMark and GitHub read it: three or more
-/// backticks or tildes, indented 0 to 3 spaces, and a backtick fence's
-/// words after it hold no backtick. It closes at a line of the same
-/// character, at least as many, indented 0 to 3 spaces, with nothing but
-/// spaces and tabs after them. A fence inside a list item's indent is read
-/// by these rules alone, not by the item's.
+/// A container a line can be in: a block quote, or a list item whose
+/// content is indented by `indent` columns past its container's, `empty`
+/// while no line has given it content.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Container {
+    Quote,
+    Item { indent: usize, empty: bool },
+}
+
+/// How many containers, quotes and list items, may be open at once. A
+/// container that would go past it makes the rest of its line, and every
+/// line after it while the open ones go on, dead: the safe way. It keeps
+/// each line's work bounded, so a body of nested markers reads in linear
+/// time.
+const MAX_NESTING: usize = 100;
+
+/// The block a line is in, past its containers. `Para` is a paragraph with
+/// the count of cells of its last line, which a table's delimiter row of
+/// as many cells makes a table's head. `Deep` is what is past
+/// [`MAX_NESTING`].
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Leaf {
+    None,
+    Para(usize),
+    Table,
+    Deep,
+    Fence(u8, usize),
+    Indented,
+    Html(HtmlEnd),
+}
+
+/// A paragraph, of one line or more.
+fn para(leaf: Leaf) -> bool {
+    matches!(leaf, Leaf::Para(_))
+}
+
+/// How an HTML block ends: at a line holding these words, or at a blank
+/// line.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum HtmlEnd {
+    Words(&'static [&'static str]),
+    Blank,
+}
+
+/// A place in a line: its byte and its column, a tab going to the next 4.
+#[derive(Clone, Copy)]
+struct Cursor {
+    byte: usize,
+    col: usize,
+    /// The columns left of a tab partly used: spaces before `byte`.
+    extra: usize,
+}
+
+impl Cursor {
+    fn at(byte: usize, col: usize) -> Cursor {
+        Cursor {
+            byte,
+            col,
+            extra: 0,
+        }
+    }
+
+    /// The columns of white space from here, a partly used tab's first,
+    /// and where it ends.
+    fn indent(self, line: &str) -> (usize, Cursor) {
+        let mut c = Cursor::at(self.byte, self.col + self.extra);
+        for b in line.as_bytes()[self.byte..].iter() {
+            match b {
+                b' ' => c.col += 1,
+                b'\t' => c.col += 4 - c.col % 4,
+                _ => break,
+            }
+            c.byte += 1;
+        }
+        (c.col - self.col, c)
+    }
+
+    /// Past `n` columns of white space; of a tab that crosses the mark,
+    /// the columns past it are kept, as cmark keeps them.
+    fn advance(self, line: &str, n: usize) -> Cursor {
+        let goal = self.col + n;
+        let take = self.extra.min(n);
+        let mut c = Cursor {
+            byte: self.byte,
+            col: self.col + take,
+            extra: self.extra - take,
+        };
+        if c.extra > 0 {
+            return c;
+        }
+        for b in line.as_bytes()[self.byte..].iter() {
+            if c.col >= goal {
+                break;
+            }
+            match b {
+                b' ' => c.col += 1,
+                b'\t' => {
+                    let w = 4 - c.col % 4;
+                    c.byte += 1;
+                    if c.col + w > goal {
+                        c.extra = c.col + w - goal;
+                        c.col = goal;
+                        return c;
+                    }
+                    c.col += w;
+                    continue;
+                }
+                _ => break,
+            }
+            c.byte += 1;
+        }
+        c
+    }
+
+    /// Past one column of white space, if one is here: a space, or the
+    /// first column of a tab, the rest of the tab kept.
+    fn skip_one_space(self, line: &str) -> Cursor {
+        if self.extra > 0 {
+            return Cursor {
+                byte: self.byte,
+                col: self.col + 1,
+                extra: self.extra - 1,
+            };
+        }
+        match line.as_bytes().get(self.byte) {
+            Some(b' ') => Cursor::at(self.byte + 1, self.col + 1),
+            Some(b'\t') => Cursor {
+                byte: self.byte + 1,
+                col: self.col + 1,
+                extra: 3 - self.col % 4,
+            },
+            _ => self,
+        }
+    }
+}
+
+/// A line of spaces and tabs alone. Other white space, a no-break space
+/// among it, is text.
+fn blank(t: &str) -> bool {
+    t.bytes().all(|b| b == b' ' || b == b'\t')
+}
+
+/// Whether the rest of a line, past the containers it matched, starts a
+/// block that ends a paragraph, so it is no lazy continuation of one.
+fn interrupts(at: Cursor, line: &str) -> bool {
+    let (ind, after) = at.indent(line);
+    if ind >= 4 {
+        return false;
+    }
+    let t = &line[after.byte..];
+    // As cmark decides it, the block a line would open is tried against
+    // the last container the line matched, which is no paragraph: any list
+    // item and any HTML block opens, where inside the paragraph's own
+    // container they would not.
+    t.starts_with('>')
+        || opens(t).is_some()
+        || heading(t)
+        || rule(t)
+        || html_start(t, false).is_some()
+        || item(t).is_some()
+}
+
+/// The fence a line opens, as CommonMark reads it: three or more backticks
+/// or tildes, and a backtick fence's words after them hold no backtick. It
+/// closes at a line of the same character, at least as many, indented 0 to
+/// 3 columns, with nothing but spaces and tabs after them.
 fn opens(text: &str) -> Option<(u8, usize)> {
     let c = *text
         .as_bytes()
@@ -615,48 +1045,477 @@ fn opens(text: &str) -> Option<(u8, usize)> {
     (n >= 3 && (c == b'~' || !text[n..].contains('`'))).then_some((c, n))
 }
 
-/// The code spans of one line: a run of backticks to the next run of the
-/// same length, a backslash-escaped backtick opening none. A code span
-/// that crosses a line end, which CommonMark allows, is a known departure:
-/// it is read as no span. A factory marker stands alone on its line, so
-/// neither reaches one.
-fn spans(line: &str, at: usize, out: &mut Vec<(usize, usize)>) {
-    let bytes = line.as_bytes();
-    let run = |from: usize| bytes[from..].iter().take_while(|b| **b == b'`').count();
+/// An ATX heading: 1 to 6 `#`, then a space, a tab or the line's end.
+fn heading(t: &str) -> bool {
+    let n = t.bytes().take_while(|b| *b == b'#').count();
+    (1..=6).contains(&n) && t[n..].chars().next().is_none_or(|c| c == ' ' || c == '\t')
+}
+
+/// A setext heading's underline: `=` or `-` alone, spaces after.
+fn setext(t: &str) -> bool {
+    let t = t.trim_end_matches([' ', '\t']);
+    !t.is_empty() && (t.bytes().all(|b| b == b'=') || t.bytes().all(|b| b == b'-'))
+}
+
+/// A thematic break: three or more of one of `-`, `*` and `_`, spaces and
+/// tabs between.
+fn rule(t: &str) -> bool {
+    let marks: Vec<u8> = t.bytes().filter(|b| *b != b' ' && *b != b'\t').collect();
+    marks.len() >= 3
+        && matches!(marks[0], b'-' | b'*' | b'_')
+        && marks.iter().all(|b| *b == marks[0])
+}
+
+/// Where the line's tail of white space and one of `-`, `*` and `_` starts.
+fn rule_tail(line: &str) -> usize {
+    let b = line.as_bytes();
+    let mut mark = None;
+    let mut i = b.len();
+    while i > 0 {
+        let c = b[i - 1];
+        let fits = match mark {
+            _ if c == b' ' || c == b'\t' => true,
+            None if matches!(c, b'-' | b'*' | b'_') => {
+                mark = Some(c);
+                true
+            }
+            m => m == Some(c),
+        };
+        if !fits {
+            break;
+        }
+        i -= 1;
+    }
+    i
+}
+
+/// A list item's marker: `-`, `*` or `+`, or 1 to 9 digits and `.` or `)`,
+/// then a space, a tab or the line's end. Its width in bytes.
+fn item(t: &str) -> Option<usize> {
+    let width = match t.as_bytes().first() {
+        Some(b'-' | b'*' | b'+') => 1,
+        _ => {
+            let n = t.bytes().take_while(u8::is_ascii_digit).count();
+            if !(1..=9).contains(&n) || !matches!(t.as_bytes().get(n), Some(b'.' | b')')) {
+                return None;
+            }
+            n + 1
+        }
+    };
+    matches!(t.as_bytes().get(width), None | Some(b' ' | b'\t')).then_some(width)
+}
+
+/// A GFM table's delimiter row: cells of `-`, with `:` at either end,
+/// between pipes. Its count of cells.
+fn delimiter_row(t: &str) -> Option<usize> {
+    let all = cells(t);
+    let ok = (t.contains('|') || all.len() == 1)
+        && !all.is_empty()
+        && all.iter().all(|c| {
+            let c = c.strip_prefix(':').unwrap_or(c);
+            let c = c.strip_suffix(':').unwrap_or(c);
+            !c.is_empty() && c.bytes().all(|b| b == b'-')
+        });
+    ok.then_some(all.len())
+}
+
+/// A table row's cells, as GFM splits one: at each `|` no backslash
+/// escapes, a leading and a trailing pipe dropped.
+fn cells(t: &str) -> Vec<&str> {
+    let t = t.trim_matches([' ', '\t']);
+    let inner = t.strip_prefix('|').unwrap_or(t);
+    let inner = match inner.strip_suffix('|') {
+        Some(i) if !i.ends_with('\\') => i,
+        _ => inner,
+    };
+    let mut out = Vec::new();
+    let mut from = 0;
+    let b = inner.as_bytes();
+    for (i, c) in b.iter().enumerate() {
+        if *c == b'|' && (i == 0 || b[i - 1] != b'\\') {
+            out.push(inner[from..i].trim_matches([' ', '\t']));
+            from = i + 1;
+        }
+    }
+    out.push(inner[from..].trim_matches([' ', '\t']));
+    out
+}
+
+/// The block names of CommonMark's HTML blocks of the sixth kind.
+const BLOCK_TAGS: &[&str] = &[
+    "address",
+    "article",
+    "aside",
+    "base",
+    "basefont",
+    "blockquote",
+    "body",
+    "caption",
+    "center",
+    "col",
+    "colgroup",
+    "dd",
+    "details",
+    "dialog",
+    "dir",
+    "div",
+    "dl",
+    "dt",
+    "fieldset",
+    "figcaption",
+    "figure",
+    "footer",
+    "form",
+    "frame",
+    "frameset",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "head",
+    "header",
+    "hr",
+    "html",
+    "iframe",
+    "legend",
+    "li",
+    "link",
+    "main",
+    "menu",
+    "menuitem",
+    "nav",
+    "noframes",
+    "ol",
+    "optgroup",
+    "option",
+    "p",
+    "param",
+    "search",
+    "section",
+    "summary",
+    "table",
+    "tbody",
+    "td",
+    "tfoot",
+    "th",
+    "thead",
+    "title",
+    "tr",
+    "track",
+    "ul",
+];
+
+/// The HTML block a line, indented 0 to 3, opens, by CommonMark's seven
+/// kinds, and how it ends. The seventh, a lone tag, cannot interrupt a
+/// paragraph.
+fn html_start(t: &str, in_para: bool) -> Option<HtmlEnd> {
+    if !t.starts_with('<') {
+        return None;
+    }
+    let low = t.to_ascii_lowercase();
+    // The first kind ends at any of its four close tags, as cmark has it.
+    for open in ["<script", "<pre", "<style", "<textarea"] {
+        if let Some(after) = low.strip_prefix(open) {
+            if after.is_empty() || after.starts_with([' ', '\t', '>']) {
+                return Some(HtmlEnd::Words(&[
+                    "</script>",
+                    "</pre>",
+                    "</style>",
+                    "</textarea>",
+                ]));
+            }
+        }
+    }
+    if low.starts_with("<!--") {
+        return Some(HtmlEnd::Words(&["-->"]));
+    }
+    if low.starts_with("<?") {
+        return Some(HtmlEnd::Words(&["?>"]));
+    }
+    if low.starts_with("<![cdata[") {
+        return Some(HtmlEnd::Words(&["]]>"]));
+    }
+    if low.starts_with("<!") && low.as_bytes().get(2).is_some_and(u8::is_ascii_alphabetic) {
+        return Some(HtmlEnd::Words(&[">"]));
+    }
+    let name_at = if low.starts_with("</") { 2 } else { 1 };
+    let name: String = low[name_at..]
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .collect();
+    let after = &low[name_at + name.len()..];
+    if BLOCK_TAGS.contains(&name.as_str())
+        && (after.is_empty() || after.starts_with([' ', '\t', '>']) || after.starts_with("/>"))
+    {
+        return Some(HtmlEnd::Blank);
+    }
+    // The seventh kind: a whole open or close tag alone on the line. The
+    // first kind's open tags are taken above, so, as in cmark, its close
+    // tags (`</pre>`) are of this kind.
+    let lone = tag_end(&low).is_some_and(|end| blank(&low[end..]));
+    (!in_para && lone).then_some(HtmlEnd::Blank)
+}
+
+/// Where a whole open tag or close tag at the start of `t` ends, as
+/// CommonMark spells one: `<name`, attributes, white space, an optional
+/// `/`, then `>`; or `</name`, white space, `>`. None for anything else.
+fn tag_end(t: &str) -> Option<usize> {
+    let b = t.as_bytes();
+    let ws = |i: &mut usize| {
+        let from = *i;
+        while b.get(*i).is_some_and(|c| matches!(c, b' ' | b'\t')) {
+            *i += 1;
+        }
+        *i > from
+    };
+    let name = |i: &mut usize| {
+        if !b.get(*i).is_some_and(u8::is_ascii_alphabetic) {
+            return false;
+        }
+        while b
+            .get(*i)
+            .is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'-')
+        {
+            *i += 1;
+        }
+        true
+    };
+    let mut i = 1;
+    if b.get(1) == Some(&b'/') {
+        i = 2;
+        if !name(&mut i) {
+            return None;
+        }
+        ws(&mut i);
+        return (b.get(i) == Some(&b'>')).then_some(i + 1);
+    }
+    if !name(&mut i) {
+        return None;
+    }
+    loop {
+        let spaced = ws(&mut i);
+        match b.get(i) {
+            Some(b'>') => return Some(i + 1),
+            Some(b'/') => return (b.get(i + 1) == Some(&b'>')).then_some(i + 2),
+            Some(c) if spaced && (c.is_ascii_alphabetic() || matches!(c, b'_' | b':')) => {
+                while b.get(i).is_some_and(|c| {
+                    c.is_ascii_alphanumeric() || matches!(c, b'_' | b'.' | b':' | b'-')
+                }) {
+                    i += 1;
+                }
+                let at = i;
+                ws(&mut i);
+                if b.get(i) == Some(&b'=') {
+                    i += 1;
+                    ws(&mut i);
+                    match b.get(i) {
+                        Some(q @ (b'"' | b'\'')) => {
+                            let close = t[i + 1..].find(*q as char)?;
+                            i += close + 2;
+                        }
+                        Some(_) => {
+                            let from = i;
+                            while b.get(i).is_some_and(|c| {
+                                !matches!(
+                                    c,
+                                    b' ' | b'\t' | b'"' | b'\'' | b'=' | b'<' | b'>' | b'`'
+                                )
+                            }) {
+                                i += 1;
+                            }
+                            if i == from {
+                                return None;
+                            }
+                        }
+                        None => return None,
+                    }
+                } else {
+                    i = at;
+                }
+            }
+            _ => return None,
+        }
+    }
+}
+
+/// Whether a line of an HTML block ends it.
+fn html_ends(end: HtmlEnd, line: &str) -> bool {
+    match end {
+        HtmlEnd::Words(words) => {
+            let low = line.to_ascii_lowercase();
+            words.iter().any(|w| low.contains(w))
+        }
+        HtmlEnd::Blank => false,
+    }
+}
+
+/// What of a run of inline text holds no marker: the code spans of
+/// [`spans`]; and where `prose` (a paragraph, a heading or a table row; not
+/// an HTML block, whose text is raw), what GitHub shows as words: a `<!--`
+/// after an odd run of backslashes, which escape its `<`; a link's or an
+/// image's destination and title; and the whole of a paragraph that opens
+/// as a link reference definition.
+fn inline(text: &str, at: usize, prose: bool, out: &mut Vec<(usize, usize)>) {
+    spans(text, at, out);
+    if !prose {
+        return;
+    }
+    if definition(text) {
+        out.push((at, at + text.len()));
+        return;
+    }
+    let b = text.as_bytes();
+    for (i, _) in text.match_indices("<!--") {
+        if escaped(b, i) {
+            // Its words are shown, and are no bare marker either.
+            let end = text[i..].find("-->").map_or(text.len(), |e| i + e + 3);
+            out.push((at + i, at + end));
+        }
+    }
+    for (i, _) in text.match_indices("](") {
+        if let Some(end) = destination(b, i + 2).filter(|_| !escaped(b, i)) {
+            out.push((at + i + 2, at + end));
+            if end == b.len() {
+                break;
+            }
+        }
+    }
+}
+
+/// Whether the byte at `i` follows an odd run of backslashes.
+fn escaped(b: &[u8], i: usize) -> bool {
+    b[..i].iter().rev().take_while(|c| **c == b'\\').count() % 2 == 1
+}
+
+/// Whether a paragraph opens as a link reference definition: `[`, a label
+/// with no unescaped `]`, then `]:`. More than CommonMark takes, the safe
+/// way: the rest of the definition is not checked.
+fn definition(text: &str) -> bool {
+    let t = text.trim_start_matches([' ', '\t']).as_bytes();
+    if t.first() != Some(&b'[') {
+        return false;
+    }
+    let close = (1..t.len()).find(|i| t[*i] == b']' && !escaped(t, *i));
+    close.is_some_and(|i| i > 1 && t.get(i + 1) == Some(&b':'))
+}
+
+/// Where an inline link's destination and title, from the byte after
+/// `](`, end with their `)`: a destination in `<` and `>` or one of no
+/// white space with balanced parentheses, then a title in quotes or
+/// parentheses. None when no link closes there. The `[` that opens the
+/// link is not looked for, the safe way. Parentheses nested deeper than
+/// cmark takes (32) make the rest of the text a destination, the safe way
+/// too, which also keeps the scans linear.
+fn destination(b: &[u8], from: usize) -> Option<usize> {
+    let space = |i: &mut usize| {
+        while b
+            .get(*i)
+            .is_some_and(|c| matches!(c, b' ' | b'\t' | b'\n' | b'\r'))
+        {
+            *i += 1;
+        }
+    };
+    let mut i = from;
+    space(&mut i);
+    if b.get(i) == Some(&b'<') {
+        i += 1;
+        loop {
+            match b.get(i)? {
+                b'\n' | b'\r' | b'<' => return None,
+                b'\\' => i += 2,
+                b'>' => {
+                    i += 1;
+                    break;
+                }
+                _ => i += 1,
+            }
+        }
+    } else {
+        let mut depth = 0usize;
+        while let Some(&c) = b.get(i) {
+            match c {
+                b'\\' => i += 2,
+                b'(' if depth == 32 => return Some(b.len()),
+                b'(' => {
+                    depth += 1;
+                    i += 1;
+                }
+                b')' if depth == 0 => break,
+                b')' => {
+                    depth -= 1;
+                    i += 1;
+                }
+                c if c <= b' ' => break,
+                _ => i += 1,
+            }
+        }
+        if depth > 0 {
+            return None;
+        }
+    }
+    space(&mut i);
+    let close = match b.get(i)? {
+        b')' => return Some(i + 1),
+        b'"' => b'"',
+        b'\'' => b'\'',
+        b'(' => b')',
+        _ => return None,
+    };
+    i += 1;
+    loop {
+        match b.get(i)? {
+            b'\\' => i += 2,
+            c if *c == close => {
+                i += 1;
+                break;
+            }
+            b'(' if close == b')' => return None,
+            _ => i += 1,
+        }
+    }
+    space(&mut i);
+    (b.get(i)? == &b')').then_some(i + 1)
+}
+
+/// What of a paragraph's text, or of one line, may be inside a code span:
+/// for each length of backtick run, from the first run of it to the last,
+/// across line ends too. A run after an odd run of backslashes counts at
+/// its length and at one less. Whatever GitHub reads first (inline HTML, an
+/// autolink, a link's destination) may hold a backtick that pairs nothing,
+/// so no runs are paired here: a marker between two runs of one length is
+/// no marker, which is the safe way. One pass over the text.
+fn spans(text: &str, at: usize, out: &mut Vec<(usize, usize)>) {
+    let bytes = text.as_bytes();
+    // For each run length: where its first run starts, where its last
+    // ends, and how many runs it has.
+    let mut reach: std::collections::HashMap<usize, (usize, usize, usize)> = Default::default();
+    let mut note = |len: usize, start: usize, end: usize| {
+        if len > 0 {
+            reach
+                .entry(len)
+                .and_modify(|r| (r.1, r.2) = (end, r.2 + 1))
+                .or_insert((start, end, 1));
+        }
+    };
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] != b'`' {
             i += 1;
             continue;
         }
-        // A backtick after an odd run of backslashes is a literal one, and
-        // opens nothing.
+        let n = bytes[i..].iter().take_while(|b| **b == b'`').count();
         let slashes = bytes[..i].iter().rev().take_while(|b| **b == b'\\').count();
+        note(n, i, i + n);
         if slashes % 2 == 1 {
-            i += 1;
-            continue;
+            note(n - 1, i + 1, i + n);
         }
-        let n = run(i);
-        let mut j = i + n;
-        let mut close = None;
-        while j < bytes.len() {
-            if bytes[j] == b'`' {
-                let m = run(j);
-                if m == n {
-                    close = Some(j + m);
-                    break;
-                }
-                j += m;
-            } else {
-                j += 1;
-            }
-        }
-        match close {
-            Some(end) => {
-                out.push((at + i, at + end));
-                i = end;
-            }
-            None => i += n,
+        i += n;
+    }
+    for (s, e, runs) in reach.into_values() {
+        if runs > 1 {
+            out.push((at + s, at + e));
         }
     }
 }
