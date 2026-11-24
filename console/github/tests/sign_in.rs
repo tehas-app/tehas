@@ -138,14 +138,63 @@ fn a_code_github_does_not_take_is_forbidden_and_a_person_unread_is_unavailable()
 }
 
 #[test]
-fn an_empty_code_is_invalid_and_trades_nothing() {
+fn a_code_that_is_not_githubs_shape_is_invalid_and_trades_nothing() {
     let (site, trade, _) = site_with(carol());
     let mut id = site.identity(&READ, CALLER).unwrap();
-    assert_eq!(
-        id.signed_in(&SignInCode::new("")).err(),
-        Some(Outcome::Refused(Refusal::Invalid))
-    );
+    let long = "a".repeat(65);
+    for code in [
+        "",
+        "a\"\nurl = \"https://evil\"",
+        "ab\0cd",
+        "a b",
+        "a/b",
+        "a%0A",
+        long.as_str(),
+    ] {
+        assert_eq!(
+            id.signed_in(&SignInCode::new(code)).err(),
+            Some(Outcome::Refused(Refusal::Invalid)),
+            "{code:?}"
+        );
+    }
     assert!(trade.took.lock().unwrap().is_empty());
+    let longest = "a".repeat(64);
+    for code in ["0123456789abcdef0123", "a_b-C", longest.as_str()] {
+        assert!(id.signed_in(&SignInCode::new(code)).is_ok(), "{code:?}");
+    }
+}
+
+#[test]
+fn a_trade_that_failed_but_for_a_refusal_may_have_spent_the_code() {
+    for why in [
+        "GitHub could not be reached",
+        "curl cannot run",
+        "curl did not finish",
+    ] {
+        let mut lost = carol();
+        lost.token = Err(why.into());
+        let (site, _, _) = site_with(lost);
+        let mut id = site.identity(&READ, CALLER).unwrap();
+        assert_eq!(
+            id.signed_in(&SignInCode::new("c0de")).err(),
+            Some(Outcome::Unavailable {
+                why: Passing::Unreachable,
+                sent: Sent::Maybe,
+            }),
+            "{why}"
+        );
+    }
+    let mut garbled = carol();
+    garbled.token = Err("GitHub's answer was not JSON".into());
+    let (site, _, _) = site_with(garbled);
+    let mut id = site.identity(&READ, CALLER).unwrap();
+    assert_eq!(
+        id.signed_in(&SignInCode::new("c0de")).err(),
+        Some(Outcome::Unavailable {
+            why: Passing::Server,
+            sent: Sent::Maybe,
+        })
+    );
 }
 
 #[test]

@@ -17,6 +17,35 @@ use tehas_ports::{
     SignInCode, SignInState, WebLink,
 };
 
+/// What `access::Curl` says of a code GitHub answered and did not take.
+const REFUSED: &str = "GitHub did not take the sign-in's code";
+/// What `access::Curl` says when curl did not reach GitHub, or did not run.
+const UNREACHED: [&str; 3] = [
+    "GitHub could not be reached",
+    "curl cannot run",
+    "curl did not finish",
+];
+/// The most characters of a code: GitHub's are 20 hex.
+const CODE_MAX: usize = 64;
+
+/// A code as GitHub gives one: 1 to 64 letters, digits, `_` and `-`. Any
+/// other text is no code, and is never given to curl.
+fn code_shaped(code: &str) -> bool {
+    (1..=CODE_MAX).contains(&code.len())
+        && code
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
+/// Why a trade or a read failed: not reached, or GitHub's own failure.
+fn passing(why: &str) -> Passing {
+    if UNREACHED.contains(&why) {
+        Passing::Unreachable
+    } else {
+        Passing::Server
+    }
+}
+
 /// GitHub's web host: where a person signs in and trades the code.
 const WEB: &str = "https://github.com";
 /// GitHub's REST API, where none is given.
@@ -79,22 +108,31 @@ impl GitHub {
     }
 
     /// The code traded for the person's token, then who the token is: a
-    /// person's account, by its id. A code GitHub does not take is
-    /// `Forbidden`; a person it cannot read is `Unavailable`, nothing sent.
+    /// person's account, by its id. A code that is not GitHub's shape is
+    /// `Refused(Invalid)` before any trade. A code GitHub does not take is
+    /// `Forbidden`. A trade that failed otherwise is
+    /// `Unavailable { sent: Maybe }`: the code may be spent. A person that
+    /// cannot be read is `Unavailable`, the read not sent or failed.
     pub(super) fn person_of(&mut self, code: &SignInCode) -> Got<(Account, Secret)> {
         let people = self.people()?.clone();
-        if code.as_str().is_empty() {
+        if !code_shaped(code.as_str()) {
             return Err(Outcome::Refused(Refusal::Invalid));
         }
-        let token = people
-            .trade
-            .token(code.as_str())
-            .map_err(|_| Outcome::Forbidden)?;
+        let token = people.trade.token(code.as_str()).map_err(|why| {
+            if why == REFUSED {
+                Outcome::Forbidden
+            } else {
+                Outcome::Unavailable {
+                    why: passing(&why),
+                    sent: Sent::Maybe,
+                }
+            }
+        })?;
         let person = people
             .trade
             .user(&token)
-            .map_err(|_| Outcome::Unavailable {
-                why: Passing::Server,
+            .map_err(|why| Outcome::Unavailable {
+                why: passing(&why),
                 sent: Sent::No,
             })?;
         let mut account = Account::new(
