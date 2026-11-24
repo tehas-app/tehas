@@ -23,7 +23,9 @@ impl GitHub {
 
     /// A ticket's digest, from the issue's REST read: the answer of
     /// `Tickets::several` for one key. GitHub has no priority: every ticket
-    /// is `Normal`. The revision is the time GitHub last saw it change.
+    /// is `Normal`. The revision is the sum of the title and the body as
+    /// GitHub holds them, markers in (`gh::text_revision`), the one rule of
+    /// both ports' revisions; `updated` is the time it last changed.
     pub(crate) fn digest(&mut self, key: &TicketKey) -> Got<TicketDigest> {
         let issue = number(key)?;
         let out = self.issue_answer(issue).map_err(|e| self.outcome(&e))?;
@@ -176,7 +178,7 @@ fn read_digest(out: &str, key: TicketKey, marks: Vec<Mark>) -> Option<TicketDige
         state,
         time("created_at")?,
         time("updated_at")?,
-        Revision::new(text("updated_at")?),
+        Revision::new(gh::text_revision(out)?),
         WebLink::new(text("html_url")?).ok()?,
     );
     digest.title = text("title")?.to_string();
