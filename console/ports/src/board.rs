@@ -3,16 +3,16 @@
 //! `WorkItem`, `OpenWork` and `ChangeItem`, and `Join`, the default join
 //! over three owned handles and `Links`.
 
-use std::num::NonZeroU32;
+use std::num::{NonZeroU32, NonZeroU64};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    At, Blueprint, BlueprintNo, Blueprints, Bound, ChangeDigest, ChangeEvent, ChangeFilter,
-    ChangeState, ChangeStates, ChangedFile, CodeHost, Comment, Depth, Filter, Got, HappenedKind,
-    Links, Outcome, Ref, Report, Reports, TargetId, Ticket, TicketDigest, TicketEvent, TicketKey,
-    Tickets, Took, Unread, Whole, Window,
+    At, Blocker, BlockerState, Blueprint, BlueprintNo, Blueprints, Bound, ChangeDigest,
+    ChangeEvent, ChangeFilter, ChangeNo, ChangeState, ChangeStates, ChangedFile, CodeHost, Comment,
+    Depth, Filter, Got, HappenedKind, Item, Links, Outcome, Ref, Report, Reports, TargetId, Ticket,
+    TicketDigest, TicketEvent, TicketKey, TicketState, Tickets, Took, Unread, Whole, Window,
 };
 
 /// What a joined read asks for, so a cheap poll asks less. A caller builds
@@ -188,6 +188,17 @@ pub trait Board: Reports {
     /// the refresh's read, a review read, the stale and overlap reads, and
     /// the loop that counts open work every two minutes.
     fn open_changes(&mut self, ask: &ChangeAsk, bound: Bound) -> Got<Whole<ChangeItem>>;
+    /// The items these numbers name, each as a blocker: a ticket or a
+    /// change with its state, one answer per number in the order asked.
+    /// A number that names neither is `NotFound`, alone. What a person's
+    /// own hold names, where the site's links are not it (Decided 122).
+    /// Provided: each `Refused(Unsupported)`; a board that can ask both
+    /// tickets and changes answers it, in one question where the site
+    /// allows.
+    fn as_blockers(&mut self, numbers: &[NonZeroU64]) -> Vec<(NonZeroU64, Got<Blocker>)> {
+        let no = Outcome::Refused(crate::Refusal::Unsupported);
+        numbers.iter().map(|&n| (n, Err(no.clone()))).collect()
+    }
 }
 
 /// The join over three read handles and the links, for a split setup.
@@ -315,6 +326,17 @@ impl Join {
         ordered(self.code_host.changes(&filter, bound)?.into_items(), window)
     }
 
+    /// A change's state as a blocker's: whether it is open, merged or
+    /// closed unmerged.
+    fn change_state(&mut self, no: ChangeNo) -> Got<BlockerState> {
+        let change = self.code_host.change(no, crate::ALL_MAX)?;
+        Ok(match change.digest.state {
+            ChangeState::Open => BlockerState::Open,
+            ChangeState::Merged { .. } => BlockerState::Merged,
+            _ => BlockerState::Closed,
+        })
+    }
+
     fn digest(&mut self, key: &TicketKey) -> Got<TicketDigest> {
         self.tickets
             .several(std::slice::from_ref(key))
@@ -359,6 +381,47 @@ pub(crate) fn first_of_each_kind(
 }
 
 impl Board for Join {
+    /// What the numbers are, then the tickets' states in one read and each
+    /// change's own.
+    fn as_blockers(&mut self, numbers: &[NonZeroU64]) -> Vec<(NonZeroU64, Got<Blocker>)> {
+        let items = self.tickets.what_are(numbers);
+        let keys: Vec<TicketKey> = items
+            .iter()
+            .filter_map(|(_, i)| match i {
+                Ok(Item::Ticket(k)) => Some(k.clone()),
+                _ => None,
+            })
+            .collect();
+        let digests = match keys.is_empty() {
+            true => Vec::new(),
+            false => self.tickets.several(&keys),
+        };
+        numbers
+            .iter()
+            .map(|&n| {
+                let item = items
+                    .iter()
+                    .find(|(m, _)| *m == n)
+                    .map_or(Err(MISMATCH), |(_, i)| i.clone());
+                let answer = item.and_then(|item| {
+                    let state = match &item {
+                        Item::Ticket(key) => {
+                            let at = digests.iter().position(|(k, _)| k == key);
+                            let digest = at.map_or(Err(MISMATCH), |at| digests[at].1.clone())?;
+                            match digest.state {
+                                TicketState::Open => BlockerState::Open,
+                                TicketState::Closed(_) => BlockerState::Closed,
+                            }
+                        }
+                        Item::Change(no) => self.change_state(*no)?,
+                    };
+                    Ok(Blocker::new(Ref::Here(item), state))
+                });
+                (n, answer)
+            })
+            .collect()
+    }
+
     /// The filter's open tickets alone, whatever its `open` says, in list
     /// order. The control ticket is read with `Depth::All`.
     fn open_work(&mut self, ask: &BoardAsk, bound: Bound) -> Got<OpenWork> {
