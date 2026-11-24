@@ -44,7 +44,7 @@ fn after_a_parked_refresh_tehas_ready_does_what_the_park_said_nothing_while_the_
     let w = refresh_world("hold-parked-ready", &[]);
     refresh_record(&w, 1, true);
     w.poll();
-    has(&w.gh(), "issue comment 7 --repo acme/widget --body Tehas does not refresh this issue's pull request on its own: a refresh of it since alice approved it parked. It conflicts with the branch: a person resolves the conflict, or closes the pull request and then applies `tehas:ready` to start a fresh cycle.");
+    assert!(w.said_on(7, "Tehas does not refresh this issue's pull request on its own: a refresh of it since alice approved it parked. It conflicts with the branch: a person resolves the conflict, or closes the pull request and then applies `tehas:ready` to start a fresh cycle."), "{:?}", w.said(7));
     // A person applies tehas:ready with pull request 50 still open.
     issue7(&w, &["tehas:ready"]);
     w.fx(
@@ -70,7 +70,7 @@ fn after_a_parked_refresh_tehas_ready_does_what_the_park_said_nothing_while_the_
         &w.gh(),
         "issue edit 7 --repo acme/widget --remove-label tehas:ready",
     );
-    has(&w.gh(), "issue comment 7 --repo acme/widget --body Tehas took `tehas:ready` off this issue and started nothing: https://github.com/acme/widget/pull/50 is open and closes it. Merge or close that pull request, then apply `tehas:ready` if work is still needed.");
+    assert!(w.said_on(7, "Tehas took `tehas:ready` off this issue and started nothing: https://github.com/acme/widget/pull/50 is open and closes it. Merge or close that pull request, then apply `tehas:ready` if work is still needed."), "{:?}", w.said(7));
     // The person closes pull request 50, as the park said, then applies
     // tehas:ready.
     prs("CLOSED");

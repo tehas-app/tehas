@@ -997,33 +997,19 @@ t_eq "$(printf '%s\n' "$t_out" | sed -n '/the slowest files/{n;p}' | sed 's/.* s
 
 t_case "TEHAS_TEST_SLOWEST says how many of the slowest files the run names"
 fresh
-# A ladder of sleeps, so no two files tie: a run of four names the three
-# slowest, slowest first, and leaves the fastest out. The steps are 0.4 s
-# apart, so a loaded machine's start-up jitter does not reorder them.
+# The order is xtask's, pinned in console/xtask/src/run/tests.rs. Here the
+# setting reaches the run: wall-clock order under load is not tested (#3030's
+# push run reordered a sleep ladder).
 for n in 1 2 3 4; do
-  printf '#!/usr/bin/env bash\nsleep %s\necho "t%s_test.sh: 1 cases, 0 failed"\n' "$(((n * 4 - 2) / 10)).$(((n * 4 - 2) % 10))" "$n" >"$repo/test/t${n}_test.sh"
+  printf '#!/usr/bin/env bash\necho "t%s_test.sh: 1 cases, 0 failed"\n' "$n" >"$repo/test/t${n}_test.sh"
   chmod +x "$repo/test/t${n}_test.sh"
 done
-run_env TEHAS_TEST_SLOWEST=3
-t_eq "$t_rc" 0
-# The block is everything between its own header and the next one, so the
-# count is read from the run's output rather than from a window of its own.
-slowest=$(printf '%s\n' "$t_out" | sed -n '/^test\.sh: the slowest files:$/{n;:a;/^    .* s  /{p;n;ba};q}')
-t_eq "$(printf '%s\n' "$slowest" | wc -l)" 3
-t_eq "$(printf '%s\n' "$slowest" | sed 's/.* s  //')" "test/t4_test.sh
-test/t3_test.sh
-test/t2_test.sh"
-
-# More than there are files names every one of them, so a measurement run
-# reads its whole timing out of one go.
-run_env TEHAS_TEST_SLOWEST=9
-t_eq "$t_rc" 0
-slowest=$(printf '%s\n' "$t_out" | sed -n '/^test\.sh: the slowest files:$/{n;:a;/^    .* s  /{p;n;ba};q}')
-t_eq "$(printf '%s\n' "$slowest" | wc -l)" 4
-t_eq "$(printf '%s\n' "$slowest" | sed 's/.* s  //')" "test/t4_test.sh
-test/t3_test.sh
-test/t2_test.sh
-test/t1_test.sh"
+for k in 3 9; do
+  run_env TEHAS_TEST_SLOWEST=$k
+  t_eq "$t_rc" 0
+  slowest=$(printf '%s\n' "$t_out" | sed -n '/^test\.sh: the slowest files:$/{n;:a;/^    .* s  /{p;n;ba};q}')
+  t_eq "$(printf '%s\n' "$slowest" | wc -l)" "$((k < 4 ? k : 4))"
+done
 
 t_case "the slowest files run first, from the list, the others after in name order"
 fresh
