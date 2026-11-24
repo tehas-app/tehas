@@ -117,6 +117,8 @@ fn since() -> Revision {
 /// The names `WriteKind`'s serde knows: every variant, `Unknown` too.
 fn kinds() -> &'static [&'static str] {
     struct Names;
+    /// What a visitor makes: serde's, not JSON.
+    type Out<'de, V> = <V as Visitor<'de>>::Value;
     #[derive(Debug)]
     struct Got(&'static [&'static str]);
     impl fmt::Display for Got {
@@ -132,7 +134,7 @@ fn kinds() -> &'static [&'static str] {
     }
     impl<'de> de::Deserializer<'de> for Names {
         type Error = Got;
-        fn deserialize_any<V: Visitor<'de>>(self, _: V) -> Result<V::Value, Got> {
+        fn deserialize_any<V: Visitor<'de>>(self, _: V) -> Result<Out<'de, V>, Got> {
             Err(Got(&[]))
         }
         fn deserialize_enum<V: Visitor<'de>>(
@@ -140,7 +142,7 @@ fn kinds() -> &'static [&'static str] {
             _: &'static str,
             variants: &'static [&'static str],
             _: V,
-        ) -> Result<V::Value, Got> {
+        ) -> Result<Out<'de, V>, Got> {
             Err(Got(variants))
         }
         serde::forward_to_deserialize_any! {

@@ -13,7 +13,6 @@
 use super::unsupported;
 use crate::{gh, markers, GitHub};
 use serde_json::Value;
-use tehas_core::text::has_marker;
 use tehas_ports::{
     BlueprintNo, BlueprintWrites, Body, CommentId, Did, Got, Lost, Marker, MarkerEdit,
     NewBlueprint, Outcome, Pool, Posted, Refusal, Revision, Sent, Unread, WebLink,
@@ -68,8 +67,9 @@ impl BlueprintWrites for GitHub {
             return Err(Outcome::Conflict(Lost::Changed));
         }
         // The body's markers cannot be read apart yet, so a new body would
-        // lose them.
-        if body.is_some() && has_marker(&now.body) {
+        // lose them: any the reader finds, bare too, and our wrapper,
+        // opening or closing, as 1.x's readers find it.
+        if body.is_some() && markers::foreign_text(&now.body) {
             return unsupported();
         }
         let mut fields = serde_json::Map::new();
