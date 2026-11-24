@@ -119,6 +119,7 @@ fn run(given: &[String]) -> u8 {
         program: program.unwrap_or_else(|| "gh".to_string()),
         bound: Duration::from_secs(settings.wait),
         grace: GRACE,
+        token: None,
     };
     let cycles = Home::new(&settings.home).cycles_dir();
     // A lock that cannot be read is no free lock: the issue waits for a later poll.

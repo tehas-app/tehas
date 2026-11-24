@@ -24,6 +24,8 @@ regex = "1"
 serde_json = "1"
 sha2 = "0.10"
 tehas-core = { path = "../core", features = ["mask"] }
+# The GitHub adapter, named by the program's wiring (src/main.rs) alone.
+tehas-github = { path = "../github" }
 # The dispatcher of the events a poll raises (src/events.rs).
 tehas-ports = { path = "../ports" }
 

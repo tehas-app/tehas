@@ -404,6 +404,61 @@ fn a_write_a_dead_poll_left_in_the_journal_is_settled_first_and_decided_again() 
     assert_eq!(w.row(&["journal-open"])["actions"], serde_json::json!([]));
 }
 
+/// The wiring: a row of the ports a dead poll left is settled through the
+/// GitHub adapter, by the read its kind names. A mark
+/// that is not on the issue was not put on, and the poll decides again.
+/// Methods and counts only: the decisions are apply's tests, on the fake.
+#[test]
+fn a_write_of_the_ports_a_dead_poll_left_is_settled_through_the_adapter() {
+    use tehas_ports::{Mark, State, TicketKey, Write};
+    let w = world();
+    let at = w.row(&["poll-begin"])["at"].to_string();
+    let at = at.trim_matches('"');
+    let write = Write::Mark {
+        ticket: TicketKey::Number(std::num::NonZeroU64::new(7).unwrap()),
+        mark: Mark::State(State::NeedsPerson),
+    };
+    let rec = w.store(&[
+        "journal-record",
+        "--poll",
+        at,
+        "--write",
+        &serde_json::to_string(&write).unwrap(),
+        "--args",
+        r#"{"repo":"acme/widget"}"#,
+        "--before",
+        at,
+    ]);
+    assert_eq!(rec.rc, 0, "{}", rec.out);
+    assert_eq!(w.store(&["journal-attempt", "--action", "1"]).rc, 0);
+    // Issue 7 as GitHub's REST read gives it, with no label on it.
+    w.fx_json(
+        "work-7.json",
+        &serde_json::json!({
+            "number": 7, "state": "open", "title": "Widgets count their parts", "body": "",
+            "labels": [], "created_at": "2026-11-20T10:00:00Z",
+            "updated_at": "2026-11-20T10:00:00Z",
+            "html_url": "https://github.com/acme/widget/issues/7",
+            "user": {"login": "alice", "type": "User"}
+        }),
+    );
+    let before = w.gh().lines().count();
+    let r = rpoll(&w, "");
+    has(&r.out, "journal: action 1 (label-add on #7");
+    has(
+        &r.out,
+        "did not happen (it is not there); this poll decides it again",
+    );
+    let reads: Vec<String> = w.gh().lines().skip(before).map(str::to_string).collect();
+    let issue_reads = reads
+        .iter()
+        .filter(|c| c.as_str() == "api repos/acme/widget/issues/7")
+        .count();
+    assert_eq!(issue_reads, 1, "{reads:?}");
+    has(&r.out, "start #7 (labelled by alice)");
+    assert_eq!(w.row(&["journal-open"])["actions"], serde_json::json!([]));
+}
+
 /// The analytics program where install.sh puts it, a stub that records its
 /// calls, and analytics on.
 fn analytics_stub(w: &World) {
