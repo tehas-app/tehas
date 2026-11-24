@@ -158,6 +158,8 @@ pub(crate) struct State {
     pub targets: Vec<Target>,
     pub kinds: Vec<Kind>,
     pub prepared: bool,
+    /// The factory's marks made one at a time.
+    pub prepared_marks: Vec<Mark>,
     pub project_marks: Vec<MarkSpec>,
     /// Each mark's id by the name the site gives it now. An id is made at
     /// first sight and a rename keeps it, as a site's label ids do.
@@ -289,6 +291,7 @@ impl State {
             targets: Vec::new(),
             kinds: vec![Kind::Feature, Kind::Bug, Kind::Task, Kind::Epic],
             prepared: false,
+            prepared_marks: Vec::new(),
             project_marks: Vec::new(),
             mark_ids: Vec::new(),
             commits: Vec::new(),
