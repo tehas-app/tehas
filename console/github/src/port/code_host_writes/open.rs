@@ -28,7 +28,7 @@
 use super::{ends_with_folded, project, unsent};
 use crate::forge::uri;
 use crate::{markers, GitHub};
-use serde_json::Value;
+use serde::Deserialize;
 use tehas_ports::{
     BlueprintNo, Body, ChangeNo, Got, NewChange, Outcome, Posted, Refusal, Sent, Unread, WebLink,
 };
@@ -89,10 +89,9 @@ impl GitHub {
         let out = self
             .call("the change's head", &["api", &ask])
             .map_err(|e| self.outcome(&e))?;
-        let v: Value = serde_json::from_str(out.trim()).map_err(|_| MALFORMED)?;
-        v.as_array()
-            .ok_or(MALFORMED)?
-            .iter()
+        let pulls: Vec<Pull> = serde_json::from_str(out.trim()).map_err(|_| MALFORMED)?;
+        pulls
+            .into_iter()
             .map(|p| read_pull(p, &self.repo, head))
             .collect()
     }
@@ -123,12 +122,33 @@ fn with_closes(body: &str, closes: &[BlueprintNo]) -> String {
     text
 }
 
+/// A pull request as a REST answer gives the fields read here.
+#[derive(Deserialize)]
+struct Pull {
+    number: u64,
+    html_url: String,
+    head: Head,
+    draft: Option<bool>,
+}
+
+#[derive(Deserialize)]
+struct Head {
+    #[serde(rename = "ref")]
+    name: String,
+    repo: Option<HeadRepo>,
+}
+
+#[derive(Deserialize)]
+struct HeadRepo {
+    full_name: String,
+}
+
 /// The pull request a `POST` answered: this repository's, of `head`, a
 /// draft when one was asked.
 fn read_opened(out: &str, repo: &str, head: &str, draft: bool) -> Got<Posted<ChangeNo>> {
-    let v: Value = serde_json::from_str(out.trim()).map_err(|_| MALFORMED)?;
-    let posted = read_pull(&v, repo, head)?;
-    let is_draft = v.get("draft").and_then(Value::as_bool).ok_or(MALFORMED)?;
+    let pull: Pull = serde_json::from_str(out.trim()).map_err(|_| MALFORMED)?;
+    let is_draft = pull.draft.ok_or(MALFORMED)?;
+    let posted = read_pull(pull, repo, head)?;
     if draft && !is_draft {
         return Err(Outcome::Unread(Unread::Inconsistent));
     }
@@ -138,23 +158,19 @@ fn read_opened(out: &str, repo: &str, head: &str, draft: bool) -> Got<Posted<Cha
 /// One pull request of a REST answer, its number and link: its link must
 /// be this repository's pull request of that number, and its head `head`
 /// in this repository.
-fn read_pull(v: &Value, repo: &str, head: &str) -> Got<Posted<ChangeNo>> {
-    let no = v
-        .get("number")
-        .and_then(Value::as_u64)
-        .and_then(ChangeNo::new)
-        .ok_or(MALFORMED)?;
-    let url = v.get("html_url").and_then(Value::as_str).ok_or(MALFORMED)?;
-    let head_ref = v
-        .pointer("/head/ref")
-        .and_then(Value::as_str)
-        .ok_or(MALFORMED)?;
-    let head_repo = v.pointer("/head/repo/full_name").and_then(Value::as_str);
-    let here = ends_with_folded(url, &format!("/{repo}/pull/{}", no.get()))
-        && head_ref == head
-        && head_repo.is_some_and(|r| r.eq_ignore_ascii_case(repo));
+fn read_pull(pull: Pull, repo: &str, head: &str) -> Got<Posted<ChangeNo>> {
+    let no = ChangeNo::new(pull.number).ok_or(MALFORMED)?;
+    let here = ends_with_folded(&pull.html_url, &format!("/{repo}/pull/{}", no.get()))
+        && pull.head.name == head
+        && pull
+            .head
+            .repo
+            .is_some_and(|r| r.full_name.eq_ignore_ascii_case(repo));
     if !here {
         return Err(Outcome::Unread(Unread::Inconsistent));
     }
-    Ok(Posted::new(no, WebLink::new(url).map_err(|_| MALFORMED)?))
+    Ok(Posted::new(
+        no,
+        WebLink::new(pull.html_url).map_err(|_| MALFORMED)?,
+    ))
 }
