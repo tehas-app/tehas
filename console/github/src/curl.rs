@@ -347,39 +347,57 @@ pub(crate) fn api_path(address: &str) -> Option<&str> {
     address.strip_prefix(API).filter(|p| path_ok(p))
 }
 
-/// Whether `address` is `https://` and one of [`HOSTS`] exactly, then a
-/// path and query of plain bytes: no port, user part, fragment, `..`,
-/// empty segment, backslash or space. A redirect anywhere else is not
-/// followed.
+/// An address taken apart as curl takes it: its host, the path and the
+/// query. Only `https`, with no user part and no port: the authority ends at
+/// the first `/`, `?`, `#` or backslash, and must hold neither `@` nor `:`.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Parsed<'a> {
+    pub(crate) host: &'a str,
+    path: &'a str,
+    query: Option<&'a str>,
+}
+
+pub(crate) fn parse_address(address: &str) -> Option<Parsed<'_>> {
+    let rest = address.strip_prefix("https://")?;
+    let end = rest
+        .find(|c| matches!(c, '/' | '?' | '#' | '\\'))
+        .unwrap_or(rest.len());
+    let (host, rest) = rest.split_at(end);
+    if host.is_empty() || host.contains(['@', ':']) {
+        return None;
+    }
+    let (path, query) = match rest.split_once('?') {
+        Some((path, query)) => (path, Some(query)),
+        None => (rest, None),
+    };
+    Some(Parsed { host, path, query })
+}
+
+/// Whether `address` is one GitHub may send a release file's fetch to: its
+/// parsed host equal to one of [`HOSTS`], never matched by a prefix or an
+/// end, then a path of plain bytes (no `..`, empty segment, escaped `/` or
+/// `.`) and a query of plain bytes, with no fragment, backslash, space or
+/// control byte. Every address, each redirect's among them, is held to it
+/// before it is asked.
 pub(crate) fn address_ok(address: &str) -> bool {
-    let Some((host, rest)) = address
-        .strip_prefix("https://")
-        .and_then(|a| a.split_once('/'))
-    else {
+    let Some(parsed) = parse_address(address) else {
         return false;
     };
-    HOSTS.contains(&host)
-        && !rest.starts_with('/')
-        && !rest.contains("//")
-        && !rest.contains("..")
-        && rest.bytes().all(|b| {
-            b.is_ascii_alphanumeric()
-                || matches!(
-                    b,
-                    b'-' | b'.'
-                        | b'_'
-                        | b'~'
-                        | b'/'
-                        | b'?'
-                        | b'='
-                        | b'&'
-                        | b'%'
-                        | b'+'
-                        | b':'
-                        | b','
-                        | b';'
-                )
-        })
+    let plain = |b: u8, more: &[u8]| {
+        b.is_ascii_alphanumeric() || b"-._~%+:,;".contains(&b) || more.contains(&b)
+    };
+    let lower = parsed.path.to_ascii_lowercase();
+    HOSTS.iter().any(|h| *h == parsed.host)
+        && parsed.path.starts_with('/')
+        && !parsed.path.contains("//")
+        && !parsed.path.contains("..")
+        && !lower.contains("%2f")
+        && !lower.contains("%2e")
+        && !lower.contains("%5c")
+        && parsed.path.bytes().all(|b| plain(b, b"/"))
+        && parsed
+            .query
+            .is_none_or(|q| q.bytes().all(|b| plain(b, b"/?=&")))
 }
 
 /// `segment` escaped for one segment of a path: every byte but an
@@ -496,6 +514,57 @@ mod tests {
                 Curl::new().fetch_argv(bad, LIMIT, 1).unwrap_err(),
                 Outcome::Refused(Refusal::Unsupported)
             );
+        }
+    }
+
+    /// The allowlist is held against the host curl would connect to, taken
+    /// apart from the address, and compared whole.
+    #[test]
+    fn the_host_is_the_parsed_one_compared_whole() {
+        fn host(a: &str) -> Option<&str> {
+            parse_address(a).map(|p| p.host)
+        }
+        assert_eq!(host("https://github.com/a?b"), Some("github.com"));
+        assert_eq!(host("https://github.com?x/y"), Some("github.com"));
+        assert_eq!(
+            host("https://github.com.evil.test/x"),
+            Some("github.com.evil.test")
+        );
+        assert_eq!(host("https://github.com#@evil.test/x"), Some("github.com"));
+        assert_eq!(host("https://github.com\\@evil.test/x"), Some("github.com"));
+        assert_eq!(host("https://github.com@evil.test/x"), None, "user part");
+        assert_eq!(host("https://github.com:443/x"), None, "port");
+        assert_eq!(host("http://github.com/x"), None);
+        assert_eq!(host("https:///x"), None);
+        // A prefix or an end of an allowed host is not one.
+        for bad in [
+            "https://github.com.evil.test/x",
+            "https://api.github.com.evil.test/x",
+            "https://objects.githubusercontent.com.evil.test/x",
+            "https://evilgithub.com/x",
+            "https://xapi.github.com/x",
+            "https://githubusercontent.com/x",
+            "https://github.co/x",
+            "https://github.com#@evil.test/x",
+        ] {
+            assert!(!address_ok(bad), "{bad}");
+        }
+    }
+
+    /// GitHub's signed object addresses escape `/` in their query; a path
+    /// the adapter did not escape itself may not hide a `/` or a `.`.
+    #[test]
+    fn an_escaped_slash_or_dot_is_refused_in_the_path_alone() {
+        assert!(address_ok(
+            "https://objects.githubusercontent.com/a/1?X-Amz-Credential=K%2F2026%2Fs3&X-Amz-Signature=f"
+        ));
+        for bad in [
+            "https://github.com/a%2F..%2Fb",
+            "https://github.com/a%2fb",
+            "https://github.com/%2E%2E/b",
+            "https://github.com/a%5Cb",
+        ] {
+            assert!(!address_ok(bad), "{bad}");
         }
     }
 

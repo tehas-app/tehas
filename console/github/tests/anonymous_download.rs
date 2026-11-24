@@ -202,7 +202,9 @@ fn left_behind() -> Vec<PathBuf> {
 }
 
 /// No request carries a credential: curl's environment is exactly
-/// `CURL_ENV`, `-q` comes first, and no argument is a header, option or
+/// `CURL_ENV` (the test process's own, with its `PATH` and `HOME`, is
+/// cleared; no test sets a variable, which would race the other threads),
+/// `-q` comes first, and no argument is a header, option or
 /// value that could carry one, or makes curl follow a redirect itself.
 fn assert_no_credential(stub: &Stub) {
     let mut want: Vec<String> = CURL_ENV.iter().map(|(k, v)| format!("{k}={v}")).collect();
@@ -256,12 +258,6 @@ fn assert_no_credential(stub: &Stub) {
     }
 }
 
-fn set_tokens() {
-    for key in ["GH_TOKEN", "GITHUB_TOKEN", "TEHAS_GH_TOKEN"] {
-        std::env::set_var(key, "a-token-that-must-not-travel");
-    }
-}
-
 #[test]
 fn the_hosts_are_exactly_three() {
     assert_eq!(
@@ -277,7 +273,6 @@ fn the_hosts_are_exactly_three() {
 
 #[test]
 fn a_file_served_by_the_api_host_itself_is_downloaded() {
-    set_tokens();
     let stub = Stub::new("github-anon-dl-api");
     stub.answer(ASSET, 200, &[], &install());
     let site = site(&stub);
@@ -291,7 +286,6 @@ fn a_file_served_by_the_api_host_itself_is_downloaded() {
 
 #[test]
 fn a_redirect_to_github_com_then_to_the_objects_host_is_followed() {
-    set_tokens();
     let stub = Stub::new("github-anon-dl-two");
     stub.redirect(ASSET, PAGE);
     stub.redirect(PAGE, OBJECT);
@@ -361,7 +355,7 @@ fn a_redirect_to_any_other_host_is_refused_with_nothing_written() {
         "https://github.com/install#x",
         "//evil.example/install",
         "/acme/widget/install",
-        "",
+        "https://github.com/a%2F..%2F..%2Finstall",
     ]
     .iter()
     .enumerate()
@@ -624,4 +618,102 @@ fn past_the_deadline_a_download_makes_no_request() {
         })
     );
     assert!(stub.asked().is_empty());
+}
+
+#[test]
+fn every_redirect_is_held_to_the_hosts_and_https_before_it_is_followed() {
+    for (n, second) in [
+        "https://evil.example/install",
+        "https://objects.githubusercontent.com.evil.example/install",
+        "http://objects.githubusercontent.com/install",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let stub = Stub::new(&format!("github-anon-dl-second-{n}"));
+        stub.redirect(ASSET, PAGE);
+        stub.redirect(PAGE, second);
+        stub.answer(second, 200, &[], &install());
+        let site = site(&stub);
+        let (got, into) = download(handle(&site).as_mut(), "install", 1 << 20);
+        assert_eq!(got, Err(UNSUPPORTED), "{second}");
+        assert!(into.is_empty());
+        assert_eq!(stub.asked(), [RELEASE, ASSET, PAGE], "{second} never asked");
+        assert!(left_behind().is_empty());
+    }
+}
+
+#[test]
+fn the_hop_to_the_objects_host_carries_no_credential() {
+    let stub = Stub::new("github-anon-dl-cross");
+    stub.redirect(ASSET, PAGE);
+    stub.redirect(PAGE, OBJECT);
+    stub.answer(OBJECT, 200, &[], &install());
+    let site = site(&stub);
+    assert_eq!(
+        download(handle(&site).as_mut(), "install", 1 << 20).0,
+        Ok(())
+    );
+    let calls = stub.calls("argv");
+    let envs = stub.calls("env");
+    let at = calls
+        .iter()
+        .position(|c| c.last().map(String::as_str) == Some(OBJECT))
+        .unwrap();
+    let argv = &calls[at];
+    assert_eq!(argv[0], "-q");
+    for flag in ["-u", "--user", "-H", "-b", "--cookie", "-K", "--config"] {
+        assert!(!argv.iter().any(|a| a == flag), "{flag}");
+    }
+    // Its only headers are the two fixed ones.
+    let headers: Vec<_> = argv
+        .windows(2)
+        .filter(|w| w[0] == "--header")
+        .map(|w| w[1].as_str())
+        .collect();
+    assert_eq!(
+        headers,
+        [
+            "Accept: application/octet-stream",
+            "X-GitHub-Api-Version: 2022-11-28"
+        ]
+    );
+    let mut env = envs[at].clone();
+    env.sort();
+    let mut want: Vec<String> = CURL_ENV.iter().map(|(k, v)| format!("{k}={v}")).collect();
+    want.sort();
+    assert_eq!(env, want, "the environment cleared");
+    assert_no_credential(&stub);
+}
+
+#[test]
+fn the_cap_is_held_on_the_stream_not_on_the_content_length() {
+    let stub = Stub::new("github-anon-dl-lying-length");
+    // GitHub's length and the listing both say 98; the stream is longer.
+    stub.redirect(ASSET, OBJECT);
+    stub.answer(
+        OBJECT,
+        200,
+        &[("content-length", "98")],
+        &vec![b'x'; 200_000],
+    );
+    let site = site(&stub);
+    let (got, into) = download(handle(&site).as_mut(), "install", 100);
+    assert_eq!(got, Err(Outcome::Unread(Unread::TooLarge)));
+    assert!(into.is_empty());
+    assert!(left_behind().is_empty());
+}
+
+#[test]
+fn a_redirect_with_no_location_is_malformed() {
+    for (n, headers) in [vec![], vec![("location", "")]].into_iter().enumerate() {
+        let stub = Stub::new(&format!("github-anon-dl-nowhere-{n}"));
+        stub.answer(ASSET, 302, &headers, b"");
+        let site = site(&stub);
+        let (got, into) = download(handle(&site).as_mut(), "install", 1 << 20);
+        assert_eq!(got, Err(Outcome::Unread(Unread::Malformed)));
+        assert!(into.is_empty());
+        assert_eq!(stub.asked(), [RELEASE, ASSET]);
+        assert!(left_behind().is_empty());
+    }
 }

@@ -584,11 +584,19 @@ impl CodeHost for Anonymous {
                 }
                 return copy(&path, asset.size, into);
             }
+            if !is_redirect(answer.status) {
+                return Err(Outcome::Unread(Unread::Malformed));
+            }
+            // A redirect with no place to go is not GitHub's answer.
             let to = answer
                 .header("location")
-                .filter(|_| hop < REDIRECTS && is_redirect(answer.status))
-                .filter(|to| curl::address_ok(to))
-                .ok_or(Outcome::Refused(Refusal::Unsupported))?;
+                .filter(|to| !to.is_empty())
+                .ok_or(Outcome::Unread(Unread::Malformed))?;
+            // Every redirect is held to the hosts and https again, and
+            // only two are followed.
+            if hop == REDIRECTS || !curl::address_ok(to) {
+                return Err(Outcome::Refused(Refusal::Unsupported));
+            }
             address = to.to_string();
         }
         Err(Outcome::Refused(Refusal::Unsupported))
