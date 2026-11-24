@@ -65,7 +65,10 @@ fn a_runner_that_died_after_commit_pr_is_reported_with_its_pull_request_not_as_a
         &said,
         "Tehas cycle handed off with its pull request open and its review unfinished",
     );
-    has(&said, &format!("last step `{BRANCH}` read from its run log"));
+    has(
+        &said,
+        &format!("last step `{BRANCH}` read from its run log"),
+    );
     has(&said, "https://github.com/acme/widget/pull/347");
     has(&said, "unmark State(Running)\nmark State(NeedsPerson)");
     // Not a park's question: no boxes, and nothing on record for the poll.
@@ -78,53 +81,49 @@ fn a_runner_that_died_after_commit_pr_is_reported_with_its_pull_request_not_as_a
 
 #[test]
 fn the_runners_own_status_is_named_and_the_polls_line_keeps_the_status_of_tehas_work() {
-    let w = World::new("crash-status");
-    died_pushed(&w, &["rc=134"]);
-    w.open_pr("");
-    let r = w.run7();
-    has(&w.gh(), "(runner exit 134)");
+    let (_, r, said) = twin("crash-status", |w| {
+        died_pushed(w, &["rc=134"]);
+        w.open_pr("");
+    });
+    has(&said, "(runner exit 134)");
     has(&r.out, "done #7 rc=2 ");
 }
 
 #[test]
 fn with_no_pull_request_on_the_branch_the_cycle_is_parked_as_any_other_that_left_none() {
-    let w = World::new("crash-nopr");
-    died_pushed(&w, &[]);
-    w.fx("pr.json", "[]\n");
-    let r = w.run7();
+    let (w, r, said) = twin("crash-nopr", |w| {
+        died_pushed(w, &[]);
+        w.fx("pr.json", "[]\n");
+    });
     assert_eq!(r.rc, 0);
     let gh = w.gh();
     has(&gh, &pr_list());
+    // The park's question still goes with gh until T4.5 (b).
     has(&gh, "Tehas cycle stopped without a pull request");
     has(&gh, "- retry-text: Retry with the issue text only");
-    has(
-        &gh,
-        "--remove-label tehas:running --add-label needs-human-attention",
-    );
+    has(&said, "unmark State(Running)\nmark State(NeedsPerson)");
     lacks(&gh, "handed off with its pull request open");
 }
 
 #[test]
 fn a_merged_pull_request_of_the_bot_on_that_branch_ends_the_cycle_as_merged_not_as_a_handoff() {
-    let w = World::new("crash-merged");
-    died_pushed(&w, &[]);
-    w.merged_pr();
-    w.run7();
-    let gh = w.gh();
-    has(&gh, "Tehas cycle ended: its pull request https://github.com/acme/widget/pull/9 was merged while the cycle ran");
-    lacks(&gh, "review unfinished");
+    let (_, _, said) = twin("crash-merged", |w| {
+        died_pushed(w, &[]);
+        w.merged_pr();
+    });
+    has(&said, "Tehas cycle ended: its pull request https://github.com/acme/widget/pull/9 was merged while the cycle ran");
+    lacks(&said, "review unfinished");
 }
 
 #[test]
 fn a_closed_pull_request_of_the_bot_on_that_branch_is_said_as_one_that_was_closed() {
-    let w = World::new("crash-closed");
-    died_pushed(&w, &[]);
-    w.fx("pr.txt", "https://github.com/acme/widget/pull/347\n");
-    w.fx("pr-state", "CLOSED\n");
-    w.run7();
-    let gh = w.gh();
-    has(&gh, "was closed without being merged");
-    lacks(&gh, "review unfinished");
+    let (_, _, said) = twin("crash-closed", |w| {
+        died_pushed(w, &[]);
+        w.fx("pr.txt", "https://github.com/acme/widget/pull/347\n");
+        w.fx("pr-state", "CLOSED\n");
+    });
+    has(&said, "was closed without being merged");
+    lacks(&said, "review unfinished");
 }
 
 #[test]
@@ -247,17 +246,16 @@ fn a_result_that_was_written_names_the_step_nothing_of_a_log_is_read_for_it() {
 
 #[test]
 fn a_runner_killed_after_commit_pr_is_reported_with_its_pull_request_as_any_other_that_died() {
-    let w = World::new("crash-killed-late");
-    died_pushed(&w, &["rc=137", "status=killed"]);
-    w.open_pr("");
-    w.run7();
-    let gh = w.gh();
+    let (_, _, said) = twin("crash-killed-late", |w| {
+        died_pushed(w, &["rc=137", "status=killed"]);
+        w.open_pr("");
+    });
     has(
-        &gh,
+        &said,
         "Tehas cycle handed off with its pull request open and its review unfinished",
     );
-    has(&gh, "killed");
-    lacks(&gh, "Retry with the issue text only");
+    has(&said, "killed");
+    lacks(&said, "Retry with the issue text only");
 }
 
 #[test]
@@ -345,31 +343,33 @@ fn a_runner_exit_and_a_status_of_an_earlier_cycle_are_not_this_cycles_end() {
 
 #[test]
 fn of_several_run_logs_of_the_issue_only_the_newest_is_read() {
-    let w = World::new("crash-newest");
-    died_pushed(&w, &[]);
-    // Two earlier logs, one a day old and one two days: the newest name
-    // decides, and no step of the others is said.
-    fs::write(
-        w.home
-            .join("logs")
-            .join(log_name(Duration::from_secs(86400))),
-        "{\"v\":1,\"kind\":\"step-started\",\"issue\":7,\"event\":{\"step\":\"lied-step\"}}\n",
-    )
-    .unwrap();
-    fs::write(
-        w.home
-            .join("logs")
-            .join(log_name(Duration::from_secs(2 * 86400))),
-        "{\"v\":1,\"kind\":\"step-started\",\"issue\":7,\"event\":{\"step\":\"another-lied-step\"}}\n",
-    )
-    .unwrap();
-    w.open_pr("");
-    w.run7();
-    let gh = w.gh();
-    lacks(&gh, "lied-step");
-    lacks(&gh, "another-lied-step");
-    has(&gh, &format!("last step `{BRANCH}` read from its run log"));
-    has(&gh, &pr_list());
+    let (w, _, said) = twin("crash-newest", |w| {
+        died_pushed(w, &[]);
+        // Two earlier logs, one a day old and one two days: the newest name
+        // decides, and no step of the others is said.
+        fs::write(
+            w.home
+                .join("logs")
+                .join(log_name(Duration::from_secs(86400))),
+            "{\"v\":1,\"kind\":\"step-started\",\"issue\":7,\"event\":{\"step\":\"lied-step\"}}\n",
+        )
+        .unwrap();
+        fs::write(
+            w.home
+                .join("logs")
+                .join(log_name(Duration::from_secs(2 * 86400))),
+            "{\"v\":1,\"kind\":\"step-started\",\"issue\":7,\"event\":{\"step\":\"another-lied-step\"}}\n",
+        )
+        .unwrap();
+        w.open_pr("");
+    });
+    lacks(&said, "lied-step");
+    lacks(&said, "another-lied-step");
+    has(
+        &said,
+        &format!("last step `{BRANCH}` read from its run log"),
+    );
+    has(&w.gh(), &pr_list());
 }
 
 #[test]
@@ -463,22 +463,20 @@ exit 2"#,
 
 #[test]
 fn the_table_of_a_run_whose_result_carries_no_usage_totals_the_rows_it_did_write() {
-    let w = World::new("crash-rows");
-    w.ended_no_usage_with_rows();
-    w.open_pr("");
-    w.run7();
-    let gh = w.gh();
-    has(&gh, "| planner | 2 | 3 | 7 | 1 | 0 |");
-    has(&gh, "| **total, all dispatches** | 3 | 5 | 10 | 5 | 5 |");
+    let (_, _, said) = twin("crash-rows", |w| {
+        w.ended_no_usage_with_rows();
+        w.open_pr("");
+    });
+    has(&said, "| planner | 2 | 3 | 7 | 1 | 0 |");
+    has(&said, "| **total, all dispatches** | 3 | 5 | 10 | 5 | 5 |");
 }
 
 #[test]
 fn a_row_with_a_word_in_place_of_one_of_its_counts_is_not_summed_into_the_totals() {
-    let w = World::new("crash-sly");
-    w.ended_no_usage_with_a_sly_row();
-    w.open_pr("");
-    w.run7();
-    let gh = w.gh();
-    has(&gh, "| planner | 2 | 0 | 7 | 0 | 0 |");
-    has(&gh, "| **total, all dispatches** | 0 | 0 | 0 | 0 | 0 |");
+    let (_, _, said) = twin("crash-sly", |w| {
+        w.ended_no_usage_with_a_sly_row();
+        w.open_pr("");
+    });
+    has(&said, "| planner | 2 | 0 | 7 | 0 | 0 |");
+    has(&said, "| **total, all dispatches** | 0 | 0 | 0 | 0 | 0 |");
 }

@@ -159,9 +159,13 @@ impl tehas_cycle::report::Ask for FxAsk<'_> {
 
     fn attention(&mut self) -> Option<bool> {
         let issue = self.issue()?;
-        Some(issue["labels"].as_array().into_iter().flatten().any(|l| {
-            l.get("name").and_then(Value::as_str) == Some("needs-human-attention")
-        }))
+        Some(
+            issue["labels"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(|l| l.get("name").and_then(Value::as_str) == Some("needs-human-attention")),
+        )
     }
 
     fn issue(&mut self) -> Option<Value> {
@@ -675,9 +679,10 @@ impl World {
         // the store starts no cycle and takes no park without it.
         let cycles = Home::new(&self.home).cycles_dir();
         fs::create_dir_all(&cycles).unwrap();
-        let _held = tehas_cycle::lock::take(&cycles.join("7.lock"), std::time::Duration::from_secs(5))
-            .expect("the lock")
-            .expect("the lock is free");
+        let _held =
+            tehas_cycle::lock::take(&cycles.join("7.lock"), std::time::Duration::from_secs(5))
+                .expect("the lock")
+                .expect("the lock is free");
         // As tehas-cycle starts it: by hand unless the unit runs it.
         let mut start = vec!["cycle-start", "7"];
         if self.setting("TEHAS_CYCLE_FROM") != "unit" {
@@ -690,7 +695,13 @@ impl World {
             .unwrap();
         assert!(started.status.success(), "cycle-start: {started:?}");
         let answer: Value = serde_json::from_slice(&started.stdout).unwrap_or(Value::Null);
-        let text = |k: &str| answer.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+        let text = |k: &str| {
+            answer
+                .get(k)
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string()
+        };
         let attempt = answer.get("attempt").and_then(Value::as_u64).unwrap_or(0);
         let mut work = self.command(&self.t.join("bin/fake-work"));
         work.arg("7");
@@ -1002,7 +1013,10 @@ pub fn count_lines(text: &str, prefix: &str) -> usize {
 pub fn site() -> tehas_ports::fake::World {
     use tehas_ports::{Mark, State};
     tehas_ports::fake::World::new()
-        .ticket(7, |t| t.title("Install.sh checks the instance env").mark(Mark::State(State::Running)))
+        .ticket(7, |t| {
+            t.title("Install.sh checks the instance env")
+                .mark(Mark::State(State::Running))
+        })
         .change(9, "feature/issue-7-a", |c| c)
         .change(347, "feature/issue-7-b", |c| c)
 }
@@ -1022,7 +1036,9 @@ pub fn said(writes: &[tehas_ports::Write]) -> String {
             Write::Unmark { mark, .. } => format!("unmark {mark:?}"),
             Write::Mark { mark, .. } => format!("mark {mark:?}"),
             Write::TicketNote { body, .. } => format!("note: {}", text(body)),
-            Write::CommentChange { no, body, .. } => format!("change {} comment: {}", no.get(), text(body)),
+            Write::CommentChange { no, body, .. } => {
+                format!("change {} comment: {}", no.get(), text(body))
+            }
             Write::UnmarkChange { no, mark } => format!("change {} unmark {mark:?}", no.get()),
             other => format!("{:?}", other.kind()),
         })
