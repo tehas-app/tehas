@@ -416,6 +416,17 @@ pub mod tickets {
         Ok(())
     }
 
+    /// `kinds` never holds `Kind::Unknown`: a type this copy cannot name
+    /// is left out (Decided 120). The fixture's site has a type of a name
+    /// no kind can be.
+    pub fn kinds_hold_no_unknown(h: &mut dyn Tickets) -> Law {
+        const LAW: &str = "tickets::kinds_hold_no_unknown";
+        let kinds = got(LAW, "the kinds", h.kinds())?.into_items();
+        hold(!kinds.contains(&crate::Kind::Unknown), LAW, || {
+            format!("kinds gave {kinds:?}")
+        })
+    }
+
     /// `several_with_closers` answers each ticket's digest as `several`
     /// does, with the closer its `Ticket.closer` gives, None while it is
     /// open. The fixture holds `keys`, closed and open.

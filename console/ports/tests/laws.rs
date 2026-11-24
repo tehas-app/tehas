@@ -917,6 +917,24 @@ fn anonymous_reads_public_releases_and_writes_nothing() {
 }
 
 #[test]
+fn tickets_kinds_hold_no_unknown() {
+    for w in both() {
+        let w = w
+            .kind(Kind::Unknown)
+            .kind(Kind::Other(MarkName::new("Chore").unwrap()));
+        let site = FakeSite::new(&w);
+        let mut h = site.tickets(&full(), C).unwrap();
+        ok(laws::tickets::kinds_hold_no_unknown(h.as_mut()));
+        let kinds = h.kinds().unwrap().into_items();
+        assert!(kinds.contains(&Kind::Feature), "{kinds:?}");
+        assert!(
+            kinds.contains(&Kind::Other(MarkName::new("Chore").unwrap())),
+            "{kinds:?}"
+        );
+    }
+}
+
+#[test]
 fn blueprints_a_changes_number_is_no_blueprint() {
     let w = World::same_item();
     let n = first_change(&w);
