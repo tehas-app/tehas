@@ -36,7 +36,7 @@ t_eq "$t_rc" 0
 t_eq "$(state_of 12)" "serving"
 t_eq "$(writes)" ""
 t_eq "$(count "$root/12" .notice)" 0
-t_contains "$t_out" "#12: the description could not be read (GitHub refused the call (HTTP 403)), tried again at the next run"
+t_contains "$t_out" "#12: the description could not be read (the budget is spent until later), tried again at the next run"
 rm -f "$fx/pull-12.rc"
 t_run "$preview"
 t_eq "$(writes | wc -l)" 1
@@ -51,7 +51,7 @@ t_eq "$t_rc" 0
 t_eq "$(state_of 12)" "serving"
 t_eq "$(writes)" ""
 t_eq "$(count "$root/12" .notice)" 0
-t_contains "$t_out" "#12: the description could not be read (no such pull request (HTTP 404)), tried again at the next run"
+t_contains "$t_out" "#12: the description could not be read (not found, or not visible to this actor), tried again at the next run"
 
 t_case "unable to create, for a full disk: said once, with the figures"
 reset

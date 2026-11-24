@@ -737,7 +737,7 @@ const REST: &str = r#"{"number":7,"title":"T","state":"closed","state_reason":"c
 
 fn beside(closes: &str, blocked: &str, mentions: &str) -> Result<String, &'static str> {
     issue(&format!(
-        r#""closes":{{"nodes":[{closes}]}},"blockedBy":{blocked},"subIssues":{{"totalCount":0,"pageInfo":{{"hasNextPage":false,"endCursor":null}},"nodes":[]}},"mentions":{mentions}"#
+        r#""closes":{{"nodes":[{closes}]}},"blockedBy":{blocked},"subIssues":{{"totalCount":0,"pageInfo":{{"hasNextPage":false,"endCursor":null}},"nodes":[]}},"mentions":{mentions},"parent":null"#
     ))
 }
 
@@ -844,7 +844,7 @@ fn what_stands_beside_a_ticket_is_whole_or_the_ticket_is_unread() {
 
 fn node(n: u64, labels: &str, total: u64) -> String {
     format!(
-        r#"{{"number":{n},"title":"T{n}","body":"","state":"OPEN","stateReason":null,"url":"https://github.com/acme/widget/issues/{n}","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z","author":null,"issueType":null,"milestone":null,"labels":{{"totalCount":{total},"nodes":[{labels}]}}}}"#
+        r#"{{"number":{n},"title":"T{n}","body":"","state":"OPEN","stateReason":null,"url":"https://github.com/acme/widget/issues/{n}","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z","author":null,"issueType":null,"milestone":null,"labels":{{"totalCount":{total},"nodes":[{labels}]}},"parent":null}}"#
     )
 }
 
@@ -995,4 +995,62 @@ fn a_changes_number_is_no_ticket_to_any_read() {
         Err(Outcome::NotFound)
     );
     assert_eq!(gh.parts(&key(30)), Err(Outcome::NotFound));
+}
+
+#[test]
+fn a_ticket_and_a_list_name_the_ticket_each_is_a_part_of() {
+    let here = r#"{"number":3,"repository":{"nameWithOwner":"acme/widget"}}"#;
+    let there = r#"{"number":5,"repository":{"nameWithOwner":"other/lib"}}"#;
+    let with =
+        |parent: &str| node(1, "", 0).replace(r#""parent":null"#, &format!(r#""parent":{parent}"#));
+    let end = r#""hasNextPage":false,"endCursor":null"#;
+    let nodes = [
+        with(here),
+        node(2, "", 0),
+        with(there).replace(r#""number":1,"title":"T1""#, r#""number":4,"title":"T4""#),
+    ];
+    let (mut gh, _) = stub(vec![page(end, &nodes)]);
+    let parents: Vec<_> = gh
+        .list(&Filter::default(), bound(5))
+        .unwrap()
+        .into_items()
+        .into_iter()
+        .map(|d| d.parent)
+        .collect();
+    assert_eq!(
+        parents,
+        [
+            Some(tehas_ports::Ref::Here(key(3))),
+            None,
+            Some(tehas_ports::Ref::Elsewhere {
+                project: tehas_ports::ProjectName::new("other/lib"),
+                item: tehas_ports::ItemName::new("5"),
+            }),
+        ]
+    );
+    // A list node that leaves the parent out does not say there is none.
+    let bare = node(2, "", 0).replace(r#","parent":null"#, "");
+    let (mut gh, _) = stub(vec![page(end, &[bare])]);
+    assert_eq!(
+        gh.list(&Filter::default(), bound(5)).map(|_| ()),
+        Err(Outcome::Unread(Unread::Malformed))
+    );
+
+    // The ticket asks it in the question it makes beside the REST read.
+    let with_parent = |parent: &str| {
+        issue(&format!(
+            r#""closes":{{"nodes":[]}},"blockedBy":{NO_BLOCKERS},"subIssues":{{"totalCount":0,"pageInfo":{{"hasNextPage":false,"endCursor":null}},"nodes":[]}},"mentions":{NO_MENTIONS},"parent":{parent}"#
+        ))
+    };
+    let (got, calls) = cut_ticket(vec![Ok(REST.to_string()), with_parent(here)]);
+    assert_eq!(calls, 2);
+    assert_eq!(
+        got.unwrap().digest.parent,
+        Some(tehas_ports::Ref::Here(key(3)))
+    );
+    let left_out = issue(&format!(
+        r#""closes":{{"nodes":[]}},"blockedBy":{NO_BLOCKERS},"subIssues":{{"totalCount":0,"pageInfo":{{"hasNextPage":false,"endCursor":null}},"nodes":[]}},"mentions":{NO_MENTIONS}"#
+    ));
+    let (got, _) = cut_ticket(vec![Ok(REST.to_string()), left_out]);
+    assert_eq!(got.map(|_| ()), Err(Outcome::Unread(Unread::Malformed)));
 }
