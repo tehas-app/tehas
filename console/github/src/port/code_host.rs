@@ -127,7 +127,8 @@ impl CodeHost for GitHub {
         unsupported()
     }
 
-    /// The commit's check runs and status contexts: see `checks.rs`.
+    /// The commit's check runs and status contexts, whole up to `ALL_MAX`
+    /// together: see `checks.rs`.
     fn checks(&mut self, at: &CommitId, name: Option<&str>) -> Got<Checks> {
         self.checks_of(at, name)
     }

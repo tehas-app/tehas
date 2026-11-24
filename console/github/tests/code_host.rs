@@ -17,7 +17,7 @@ use tehas_ports::laws;
 use tehas_ports::{
     Access, Actor, Author, Bound, ChangeDigest, ChangeFilter, ChangeNo, ChangeStates, CheckStatus,
     Checks, CodeHost, CommitId, Conclusion, Facts, Got, Mark, MarkName, Outcome, Overall, Refusal,
-    State, Unread, Whole, Window,
+    State, Unread, Whole, Window, ALL_MAX,
 };
 
 fn here() -> PathBuf {
@@ -846,4 +846,99 @@ fn a_filter_carrying_a_mark_no_label_can_be_is_invalid_before_any_request() {
         gh.changes(&filter, Bound::new(10).unwrap()).map(|_| ()),
         Err(Outcome::Refused(Refusal::Invalid))
     );
+}
+
+#[test]
+fn an_unknown_status_state_alone_is_unknown_never_a_pass() {
+    let c = checks_of(&[], &[("ci/legacy", "queued_new")]);
+    assert_eq!(statuses(&c), [CheckStatus::Done(Conclusion::Unknown)]);
+    assert_ne!(c.overall, Overall::Pass);
+    assert_eq!(c.overall, Overall::Unknown);
+}
+
+#[test]
+fn an_unknown_status_word_beside_passing_runs_is_not_a_pass() {
+    let c = checks_of(
+        &[PASS, (2, 15368, "test", "completed", Some("success"))],
+        &[("ci/legacy", "queued_new")],
+    );
+    assert_eq!(
+        statuses(&c),
+        [
+            CheckStatus::Done(Conclusion::Passed),
+            CheckStatus::Done(Conclusion::Passed),
+            CheckStatus::Done(Conclusion::Unknown)
+        ]
+    );
+    assert_ne!(c.overall, Overall::Pass);
+    assert_eq!(c.overall, Overall::Unknown);
+}
+
+/// The runs `first..=last`, each a passing run of its own name.
+fn passing_runs(first: u64, last: u64) -> Vec<(u64, u64, String)> {
+    (first..=last)
+        .map(|i| (i, 15368, format!("shard-{i}")))
+        .collect()
+}
+
+fn runs_page_of(total: usize, runs: &[(u64, u64, String)]) -> String {
+    let runs: Vec<_> = runs
+        .iter()
+        .map(|(id, app, name)| (*id, *app, name.as_str(), "completed", Some("success")))
+        .collect();
+    runs_page(total, &runs)
+}
+
+#[test]
+fn runs_alone_at_all_max_are_read_whole() {
+    let all = ALL_MAX.get() as u64;
+    let mut answers = vec![
+        Ok(runs_page_of(all as usize, &passing_runs(1, 100))),
+        Ok(statuses_page(0, &[])),
+    ];
+    for page in 1..all / 100 {
+        answers.push(Ok(runs_page_of(
+            all as usize,
+            &passing_runs(page * 100 + 1, page * 100 + 100),
+        )));
+    }
+    let (mut gh, asked) = scripted(&answers);
+    let c = gh.checks(&at(), None).unwrap();
+    assert_eq!(c.runs.len() as u64, all);
+    assert_eq!(c.overall, Overall::Pass);
+    assert_eq!(asked.lock().unwrap().len(), answers.len());
+}
+
+#[test]
+fn runs_and_contexts_together_one_past_all_max_are_cut() {
+    let all = ALL_MAX.get() as usize;
+    for (runs, contexts) in [(all, 1), (all - 100, 101), (1, all)] {
+        let (mut gh, _) = scripted(&[
+            Ok(runs_page_of(runs, &passing_runs(1, runs.min(100) as u64))),
+            Ok(statuses_page(
+                contexts,
+                &passed(&contexts_named(contexts.min(100))),
+            )),
+        ]);
+        assert_eq!(
+            gh.checks(&at(), None),
+            Err(Outcome::Unread(Unread::Cut)),
+            "{runs} runs and {contexts} contexts"
+        );
+    }
+}
+
+#[test]
+fn a_cut_shown_by_the_first_pages_counts_reads_no_further_page() {
+    let all = ALL_MAX.get() as usize;
+    let (mut gh, asked) = scripted(&[
+        Ok(runs_page_of(all, &passing_runs(1, 100))),
+        Ok(statuses_page(1, &[("ci/legacy", "success")])),
+    ]);
+    assert_eq!(gh.checks(&at(), None), Err(Outcome::Unread(Unread::Cut)));
+    assert_eq!(asked.lock().unwrap().len(), 2);
+}
+
+fn contexts_named(n: usize) -> Vec<String> {
+    contexts(1, n)
 }

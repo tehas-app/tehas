@@ -20,8 +20,11 @@ impl GitHub {
     /// The runs, REST, `filter=latest`, which gives the newest run of each
     /// App and name and keeps two Apps' runs of one name apart; then the
     /// combined status, the newest state of each context. Each is read whole,
-    /// a page of 100 at a time, up to `ALL_MAX`. Asked by name, the runs of
-    /// that name (`check_name`) and the context of that name.
+    /// a page of 100 at a time, and the answer is whole up to `ALL_MAX` runs
+    /// and contexts together: past it, `Unread(Cut)`, known from the two
+    /// first pages' counts before any further page. Asked by name, the runs
+    /// of that name (`check_name`) and the context of that name; the bound
+    /// holds every context read.
     pub(super) fn checks_of(&mut self, at: &CommitId, name: Option<&str>) -> Got<Checks> {
         let named = name.map(|n| format!("&check_name={}", uri(n)));
         let repo = self.repo.clone();
@@ -32,14 +35,19 @@ impl GitHub {
                 named.as_deref().unwrap_or("")
             )
         };
-        let mut runs = self.whole("the check runs", runs_at, read_runs)?;
         let statuses_at = |page: u32| {
             format!(
                 "repos/{repo}/commits/{}/status?per_page=100&page={page}",
                 at.as_str()
             )
         };
-        let statuses = self.whole("the statuses", statuses_at, read_statuses)?;
+        let first_runs = self.page("the check runs", &runs_at(1), read_runs)?;
+        let first_statuses = self.page("the statuses", &statuses_at(1), read_statuses)?;
+        if first_runs.0.saturating_add(first_statuses.0) > u64::from(ALL_MAX.get()) {
+            return Err(Outcome::Unread(Unread::Cut));
+        }
+        let mut runs = self.whole("the check runs", runs_at, read_runs, first_runs)?;
+        let statuses = self.whole("the statuses", statuses_at, read_statuses, first_statuses)?;
         runs.extend(
             statuses
                 .into_iter()
@@ -51,44 +59,57 @@ impl GitHub {
         Ok(checks)
     }
 
-    /// A list read whole, page by page, from `path` of each page: the same count
-    /// on every page, no key twice, and the items adding up to the count. A
-    /// page that moves under the read, or a short page with more to come, is
-    /// `Unread(Inconsistent)`; a count past `ALL_MAX`, `Unread(Cut)`.
+    /// One page of a list, read. A count past `ALL_MAX` is `Unread(Cut)`.
+    fn page<K>(
+        &mut self,
+        what: &str,
+        path: &str,
+        read: fn(&str) -> Option<Counted<K>>,
+    ) -> Got<Counted<K>> {
+        let out = self
+            .call(what, &["api", path])
+            .map_err(|e| self.checks_outcome(&e))?;
+        let page = read(&out).ok_or(Outcome::Unread(Unread::Malformed))?;
+        if page.0 > u64::from(ALL_MAX.get()) {
+            return Err(Outcome::Unread(Unread::Cut));
+        }
+        Ok(page)
+    }
+
+    /// A list read whole from its first page on, from `path` of each next
+    /// page: the same count on every page, no key twice, and the items adding
+    /// up to the count. A page that moves under the read, or a short page
+    /// with more to come, is `Unread(Inconsistent)`.
     fn whole<K: Ord>(
         &mut self,
         what: &str,
         path: impl Fn(u32) -> String,
         read: fn(&str) -> Option<Counted<K>>,
+        first: Counted<K>,
     ) -> Got<Vec<Check>> {
+        let total = first.0;
         let mut items = Vec::new();
         let mut keys = BTreeSet::new();
-        let mut total = None;
-        for page in 1u32.. {
-            let out = self
-                .call(what, &["api", &path(page)])
-                .map_err(|e| self.checks_outcome(&e))?;
-            let (count, page) = read(&out).ok_or(Outcome::Unread(Unread::Malformed))?;
-            if count > u64::from(ALL_MAX.get()) {
-                return Err(Outcome::Unread(Unread::Cut));
-            }
-            if *total.get_or_insert(count) != count {
+        let mut page = first;
+        for next in 2u32.. {
+            if page.0 != total {
                 return Err(Outcome::Unread(Unread::Inconsistent));
             }
-            let empty = page.is_empty();
-            for (key, item) in page {
+            let empty = page.1.is_empty();
+            for (key, item) in page.1 {
                 if !keys.insert(key) {
                     return Err(Outcome::Unread(Unread::Inconsistent));
                 }
                 items.push(item);
             }
             let held = items.len() as u64;
-            if held == count {
+            if held == total {
                 return Ok(items);
             }
-            if held > count || empty {
+            if held > total || empty {
                 return Err(Outcome::Unread(Unread::Inconsistent));
             }
+            page = self.page(what, &path(next), read)?;
         }
         Err(Outcome::Unread(Unread::Inconsistent))
     }
