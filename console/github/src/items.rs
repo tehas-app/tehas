@@ -82,7 +82,7 @@ impl Error {
     }
 
     /// GitHub's word that the alias names nothing: the alias itself is not
-    /// found, not something inside it.
+    /// found, not something inside it (Decided 121).
     fn not_found(&self) -> bool {
         self.kind.as_deref() == Some("NOT_FOUND") && self.path.len() == 2
     }

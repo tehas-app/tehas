@@ -177,6 +177,8 @@ fn no_number_asks_nothing() {
     assert_eq!(calls, 0);
 }
 
+/// Decided 121: a null node with exactly one `NOT_FOUND` error whose path is
+/// that alias is `NotFound` (`live/`); every other shape is unread.
 #[test]
 fn a_node_that_does_not_add_up_is_unread_and_spoils_only_itself() {
     for (state, other, want) in [
@@ -194,6 +196,8 @@ fn a_node_that_does_not_add_up_is_unread_and_spoils_only_itself() {
         // Not found said twice, or of a field inside the node.
         ("two-errors", 6, INCONSISTENT),
         ("inner-not-found", 6, INCONSISTENT),
+        // Not found at another alias than the null node's.
+        ("error-elsewhere", 6, INCONSISTENT),
         // A node and an error both.
         ("found-and-error", 6, INCONSISTENT),
     ] {
