@@ -10,6 +10,7 @@ use crate::read::host::held;
 use crate::read::run::{run, run_grace, run_quiet};
 use serde_json::Value;
 use std::time::Duration;
+use tehas_core::home::{Home, State};
 
 /// The script tehas-index.service runs, index_launch's: the index's exit
 /// status kept, and a poll asked for at its end.
@@ -97,11 +98,11 @@ impl Writer {
     /// index_busy: an index run holds its lock, or its unit runs and has not
     /// taken it yet. One that left its exit status has ended.
     fn index_busy(&self) -> bool {
-        let state = self.home.join("state");
-        if held(&state.join("index.lock")) {
+        let home = Home::new(&self.home);
+        if held(&home.state(State::CodeIndexLock)) {
             return true;
         }
-        if state.join("index.rc").is_file() {
+        if home.state(State::CodeIndexRc).is_file() {
             return false;
         }
         let r = run(
@@ -122,7 +123,7 @@ impl Writer {
     /// index_report: how the last index run ended, said once. False when no
     /// run ended since the last report.
     fn index_report(&self, log: &mut Vec<String>) -> bool {
-        let rc = self.home.join("state/index.rc");
+        let rc = Home::new(&self.home).state(State::CodeIndexRc);
         if !rc.is_file() {
             return false;
         }
@@ -143,13 +144,13 @@ impl Writer {
     /// an index database is there, failed when the last run failed at it,
     /// else due.
     fn index_state(&self, base: &str) -> &'static str {
-        let state = self.home.join("state");
-        let named = std::fs::read_to_string(state.join("index.json"))
+        let home = Home::new(&self.home);
+        let named = std::fs::read_to_string(home.state(State::CodeIndexState))
             .ok()
             .and_then(|t| serde_json::from_str::<Value>(&t).ok())
             .and_then(|v| v.get("commit").and_then(Value::as_str).map(str::to_string));
         if named.as_deref() == Some(base) {
-            let db = std::fs::read_dir(state.join("index"))
+            let db = std::fs::read_dir(home.state(State::CodeIndex))
                 .into_iter()
                 .flatten()
                 .flatten()
@@ -164,7 +165,7 @@ impl Writer {
                 return "current";
             }
         }
-        let failed = std::fs::read(state.join("index.failed")).unwrap_or_default();
+        let failed = std::fs::read(home.state(State::CodeIndexFailed)).unwrap_or_default();
         // As $(head -c 64 ...) reads it: without its line ends.
         if String::from_utf8_lossy(&failed[..failed.len().min(64)]).trim_end_matches('\n') == base {
             "failed"
@@ -176,16 +177,18 @@ impl Writer {
     /// index_launch: tehas index --before-cycle as tehas-index.service, which
     /// asks for a poll when it ends.
     fn index_launch(&self) -> bool {
-        let _ = std::fs::remove_file(self.home.join("state/index.rc"));
+        let home = Home::new(&self.home);
+        let _ = std::fs::remove_file(home.state(State::CodeIndexRc));
         let p = |x: &str| self.home.join(x).to_string_lossy().into_owned();
+        let s = |x: State| home.state(x).to_string_lossy().into_owned();
         let mut cmd: Vec<String> = vec![
             "/bin/bash".into(),
             "-c".into(),
             INDEX.into(),
             "index-run".into(),
             p("logs/dispatch-index.log"),
-            p("state/index.rc"),
-            p("state/dispatch.again"),
+            s(State::CodeIndexRc),
+            s(State::DispatchAgain),
             self.host.index_cmd.clone(),
         ];
         cmd.extend(self.host.index_args.iter().cloned());
@@ -254,7 +257,7 @@ impl Writer {
         // this one, unless a session this poll ended asked for one too.
         if self.index_report(log) {
             if !self.asked_again {
-                let _ = std::fs::remove_file(self.home.join("state/dispatch.again"));
+                let _ = std::fs::remove_file(Home::new(&self.home).state(State::DispatchAgain));
             }
             return true;
         }
