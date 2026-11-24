@@ -140,12 +140,16 @@ fn changes<T, K: Ord>(
     v
 }
 
+/// A rule of the grant decision over one label's timeline: `grant::standing`,
+/// `last_application` or `latest`.
+type Rule = fn(&[LabelEvent<(), ()>], &()) -> Option<usize>;
+
 /// Which of `v` a rule of the grant decision answers. Its accounts are
 /// vouched for and its applications judged by the pins already, when the
 /// read was made, so the rule reads the order and the changes alone.
 fn decided<T>(
     v: &[(&T, Change)],
-    rule: fn(&[LabelEvent<(), ()>], &()) -> Option<usize>,
+    rule: Rule,
 ) -> Option<usize> {
     let timeline: Vec<LabelEvent<(), ()>> = v
         .iter()
@@ -163,7 +167,7 @@ fn decided<T>(
 /// strings.
 fn named(
     v: &[(&Event, Change)],
-    rule: fn(&[LabelEvent<(), ()>], &()) -> Option<usize>,
+    rule: Rule,
 ) -> (String, String) {
     match decided(v, rule).map(|i| v[i].0) {
         Some(e) => (e.actor.clone(), e.at.clone().unwrap_or_default()),
