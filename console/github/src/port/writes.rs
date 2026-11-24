@@ -117,7 +117,8 @@ impl TicketWrites for GitHub {
     /// `PATCH` of what changes. The revision is the sum of the issue's title
     /// and body as GitHub holds them, markers in (`blueprint_writes::revision`),
     /// the one rule of both ports: a label or a comment moves nothing, a
-    /// change of the title or of any byte of the body does. GitHub has no
+    /// change of the title or of any byte of the body does, but a title
+    /// changed by CRs or LFs alone, which the title's sum drops. GitHub has no
     /// conditional update of an issue, so the moment between the read and
     /// the write stays open: another account's edit in it is overwritten.
     ///

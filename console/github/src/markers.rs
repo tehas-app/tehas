@@ -143,7 +143,9 @@ pub fn write(text: &str, markers: &[Marker], item: Option<BlueprintNo>) -> Got<S
 
 /// How many of our wrappers, opening or closing, stand in `body` outside
 /// the markers that read: what 1.x's readers, which look in quotes, code
-/// and a block's note too, would find beside the typed markers.
+/// and a block's note too, would find beside the typed markers. A backstop
+/// over the typed words: the caller's own text is refused whole by
+/// [`foreign_text`] first, in [`write`] and in [`edit`].
 fn loose(body: &str, item: Option<BlueprintNo>) -> usize {
     let (read, at) = located(body, item);
     let typed: Vec<(usize, usize)> = read
@@ -258,8 +260,8 @@ fn compose(text: &str, markers: &[Marker]) -> Got<String> {
 /// line it takes out. An empty text leaves the markers alone. None when the
 /// body would not change.
 ///
-/// `Refused(Invalid)`: a marker set that is not writable or whose block's
-/// note [`foreign_text`] refuses, a text beside a marker that is not as
+/// `Refused(Invalid)`: a text that [`foreign_text`] refuses, a marker set
+/// that is not writable or whose block's note it refuses, a text beside a marker that is not as
 /// [`kept`] gives it, and a result that holds more of our wrappers outside
 /// its typed markers than the body did. `Refused(Unsupported)`: a text to
 /// replace that does not stand in the body in one piece, a second marker
@@ -273,7 +275,7 @@ pub fn edit(
 ) -> Got<Option<String>> {
     let invalid = Outcome::Refused(Refusal::Invalid);
     let unsupported = Outcome::Refused(Refusal::Unsupported);
-    if !edit.set.iter().all(Marker::writable) {
+    if !edit.set.iter().all(Marker::writable) || text.is_some_and(foreign_text) {
         return Err(invalid);
     }
     let words = edit.set.iter().map(render).collect::<Got<Vec<String>>>()?;
@@ -573,13 +575,23 @@ fn opens(text: &str) -> Option<(u8, usize)> {
 }
 
 /// The code spans of one line: a run of backticks to the next run of the
-/// same length.
+/// same length, a backslash-escaped backtick opening none. A code span
+/// that crosses a line end, which CommonMark allows, is a known departure:
+/// it is read as no span. A factory marker stands alone on its line, so
+/// neither reaches one.
 fn spans(line: &str, at: usize, out: &mut Vec<(usize, usize)>) {
     let bytes = line.as_bytes();
     let run = |from: usize| bytes[from..].iter().take_while(|b| **b == b'`').count();
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] != b'`' {
+            i += 1;
+            continue;
+        }
+        // A backtick after an odd run of backslashes is a literal one, and
+        // opens nothing.
+        let slashes = bytes[..i].iter().rev().take_while(|b| **b == b'\\').count();
+        if slashes % 2 == 1 {
             i += 1;
             continue;
         }

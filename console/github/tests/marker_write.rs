@@ -644,3 +644,41 @@ fn a_fence_indented_four_spaces_is_no_fence() {
         [Marker::HoldCleared]
     );
 }
+
+// After the lead's read.
+
+#[test]
+fn an_edit_whose_text_holds_a_live_marker_is_refused_even_at_the_same_count() {
+    use tehas_github::markers::edit;
+    use tehas_ports::MarkerEdit;
+    // The stored body holds a marker in a code span; the new text holds a
+    // live one in its place: the same count of wrappers, refused all the
+    // same.
+    let body = "See `<!-- tehas:blocked by=3 -->` here.";
+    for text in [
+        "See <!-- tehas:blocked by=3 --> here.",
+        "tehas:blocked by=3",
+    ] {
+        assert_eq!(
+            edit(body, Some(text), &MarkerEdit::default(), item()),
+            Err(Outcome::Refused(Refusal::Invalid)),
+            "{text}"
+        );
+    }
+}
+
+#[test]
+fn a_backslash_escaped_backtick_opens_no_code_span() {
+    // GitHub renders \` as a backtick and the comment between as a live
+    // comment: the marker reads.
+    assert_eq!(
+        read("\\`<!-- tehas:blocked by=3 -->\\`", item()).markers,
+        [Marker::Blocked {
+            by: vec![ticket(3)]
+        }]
+    );
+    // An even run of backslashes is a backslash, then a span.
+    assert!(read("\\\\`<!-- tehas:blocked by=3 -->`", item())
+        .markers
+        .is_empty());
+}
