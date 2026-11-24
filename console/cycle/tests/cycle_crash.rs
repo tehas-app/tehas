@@ -5,7 +5,7 @@
 
 mod common;
 
-use common::{has, lacks, World};
+use common::{has, lacks, said, site, Run, World};
 use serde_json::{json, Value};
 use std::fs;
 use std::time::{Duration, SystemTime};
@@ -19,6 +19,19 @@ fn died_pushed(w: &World, more: &[&str]) {
     let mut words = vec!["explore", "plan", "develop", "commit-pr", BRANCH];
     words.extend_from_slice(more);
     w.died(&words);
+}
+
+/// The same case run twice: the binary on one world, for what it owns (its
+/// exit, the store, its reads of GitHub), and its report decided and written
+/// in process on the ports' fake on another, for what the report writes.
+fn twin(name: &str, setup: impl Fn(&World)) -> (World, Run, String) {
+    let w = World::new(name);
+    setup(&w);
+    let r = w.run7();
+    let twin = World::new(&format!("{name}-writes"));
+    setup(&twin);
+    let said = said(&twin.report_writes(&site()));
+    (w, r, said)
 }
 
 fn pr_list() -> String {
@@ -42,27 +55,23 @@ fn log_name(ago: Duration) -> String {
 #[test]
 fn a_runner_that_died_after_commit_pr_is_reported_with_its_pull_request_not_as_a_park_with_a_clean_retry(
 ) {
-    let w = World::new("crash-pushed");
-    died_pushed(&w, &[]);
-    w.open_pr("https://github.com/acme/widget/pull/347");
-    let r = w.run7();
+    let (w, r, said) = twin("crash-pushed", |w| {
+        died_pushed(w, &[]);
+        w.open_pr("https://github.com/acme/widget/pull/347");
+    });
     assert_eq!(r.rc, 0);
-    let gh = w.gh();
-    has(&gh, &pr_list());
+    has(&w.gh(), &pr_list());
     has(
-        &gh,
+        &said,
         "Tehas cycle handed off with its pull request open and its review unfinished",
     );
-    has(&gh, &format!("last step `{BRANCH}` read from its run log"));
-    has(&gh, "https://github.com/acme/widget/pull/347");
-    has(
-        &gh,
-        "--remove-label tehas:running --add-label needs-human-attention",
-    );
+    has(&said, &format!("last step `{BRANCH}` read from its run log"));
+    has(&said, "https://github.com/acme/widget/pull/347");
+    has(&said, "unmark State(Running)\nmark State(NeedsPerson)");
     // Not a park's question: no boxes, and nothing on record for the poll.
-    lacks(&gh, "Retry with the issue text only");
-    lacks(&gh, "tehas:question");
-    lacks(&gh, "stopped without a pull request");
+    lacks(&said, "Retry with the issue text only");
+    lacks(&said, "mark State(Question)");
+    lacks(&said, "stopped without a pull request");
     assert!(w.park()["question"].is_null());
     assert_eq!(w.park(), Value::Null);
 }

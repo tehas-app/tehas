@@ -172,7 +172,12 @@ pub fn store_try(home: &Path, tries: u32, args: &[&str]) -> Result<Value, Refuse
 
 /// The facts of the cycle `s`, read from the host under `home`.
 pub fn facts(home: &Path, s: &Start) -> Value {
-    let env = |k: &str| std::env::var(k).unwrap_or_default();
+    facts_with(home, s, &|k: &str| std::env::var(k).unwrap_or_default())
+}
+
+/// [`facts`] with the settings it reads given by `env`, not this process's
+/// environment: so a test reads a home's facts in process, beside others.
+pub fn facts_with(home: &Path, s: &Start, env: &dyn Fn(&str) -> String) -> Value {
     let cycles = Home::new(home).cycles_dir();
     let issue = s.issue;
     let mut files = Map::new();
@@ -181,7 +186,7 @@ pub fn facts(home: &Path, s: &Start) -> Value {
             files.insert(name.to_string(), v);
         }
     }
-    let workdir = workdir(s);
+    let workdir = workdir_with(s, env);
     let parent = Path::new(&workdir)
         .parent()
         .map(Path::to_path_buf)
@@ -223,11 +228,12 @@ pub fn facts(home: &Path, s: &Start) -> Value {
 
 /// The cycle's workspace, $TEHAS_WORK_DIR-<issue>.
 pub fn workdir(s: &Start) -> String {
-    format!(
-        "{}-{}",
-        std::env::var("TEHAS_WORK_DIR").unwrap_or_default(),
-        s.issue
-    )
+    workdir_with(s, &|k: &str| std::env::var(k).unwrap_or_default())
+}
+
+/// [`workdir`] with the settings it reads given by `env`.
+pub fn workdir_with(s: &Start, env: &dyn Fn(&str) -> String) -> String {
+    format!("{}-{}", env("TEHAS_WORK_DIR"), s.issue)
 }
 
 /// The work state of the issue in the workspace `workdir`, read only when it
