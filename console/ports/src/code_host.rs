@@ -716,7 +716,9 @@ pub struct Tag {
     pub name: TagName,
     /// The commit it names, peeled.
     pub commit: CommitId,
-    /// When it was made, if the site says.
+    /// When the tag itself was made, if the site says: an annotated tag's
+    /// own date, never its commit's; None for a tag the site keeps no time
+    /// for (Decided 128).
     pub at: Option<At>,
     /// It is an annotated tag.
     pub annotated: bool,
