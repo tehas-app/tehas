@@ -19,6 +19,7 @@ use std::io::Write as _;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use tehas_core::home::{Home, State};
 use tehas_core::issue_pull::names_issue;
 
 /// The name the status reads to know the poll ran it, and the value that means
@@ -330,9 +331,6 @@ fn bounded(items: Vec<Value>) -> (Vec<Value>, usize) {
     (items.into_iter().skip(dropped).collect(), dropped)
 }
 
-/// Where the probe copies the checkout for its one check, under the home.
-const PROBE_TREE: &str = "state/push-probe";
-
 impl Writer {
     /// Ask the sandbox whether it can push, when the fault of
     /// `state/push-fault.json` has aged out: the dry-run container a cycle's
@@ -353,7 +351,7 @@ impl Writer {
         if dry {
             return (Vec::new(), true);
         }
-        let tree = self.home.join(PROBE_TREE);
+        let tree = Home::new(&self.home).state(State::PushProbe);
         let said = self.push_probe_in(&tree);
         let _ = std::fs::remove_dir_all(&tree);
         said
@@ -778,7 +776,7 @@ impl Writer {
             .and_then(Value::as_str)
             .unwrap_or("");
         if refresh_pr.is_some() {
-            let _ = std::fs::remove_file(self.home.join(format!("state/refresh/{n}.json")));
+            let _ = std::fs::remove_file(Home::new(&self.home).refresh_request(n));
             let url = text(a, "refresh_url");
             let said = format!("Tehas refresh started on `{host}` at {when} UTC: {url} conflicts with `{branch}`. This cycle merges that branch into it, resolves the conflicts and pushes to the same pull request. It rests on {whose} {how}. This issue is owned by the cycle until `tehas:running` is removed.");
             self.say(n, &said, log);
@@ -1333,7 +1331,7 @@ impl Writer {
             }
             std::thread::sleep(Duration::from_millis(500));
         }
-        if held(&self.home.join(format!("state/cycles/{n}.lock"))) {
+        if held(&Home::new(&self.home).cycle_note(n, "lock")) {
             log.push(format!(
                 "WARN: the cycle for #{n} holds its lock but did not say so in {wait}s; taking it as started"
             ));

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/tehas-app/tehas/api/order.schema.json",
+  "$id": "https://github.com/tehas-app/tehas-factory/api/order.schema.json",
   "title": "tehas order --json",
   "description": "What tehas order --json prints, version 1. host/docs/api.md says what each field means. Every object is closed, so a field tehas adds must be added here too. test/json_contract_test.sh checks the samples beside this file against it and what the command prints.",
   "type": "object",

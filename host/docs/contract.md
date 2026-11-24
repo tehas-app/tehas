@@ -855,6 +855,25 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Adopter action: a program that read gh's words in `last` reads the fixed
   lines. A line written before the update shows until it leaves the
   ten-minute window.
+- **The repository is tehas-app/tehas-factory.** #2980. Only the
+  repository's name changes: the commands, the crates, the paths, the event
+  names and the kit keep theirs. The release repository built into tehas
+  (`TEHAS_RELEASE_REPO` of `host/versions.env`), the installer's address and
+  the `$id` of every schema in `api/` name `tehas-app/tehas-factory`. The old
+  name, `tehas-app/tehas`, is still accepted wherever a repository is named:
+  GitHub redirects it until the name is reused. An instance whose
+  `TEHAS_RELEASE_REPO` names it loads and updates from it, and `tehas update`
+  says `release: the repository tehas-app/tehas is now
+  tehas-app/tehas-factory` on each run, `--check` included. A host that
+  updates from its checkout (`TEHAS_UPDATE_FROM=git`) whose `origin` names
+  it fetches from it as it is, and `tehas update` says the same line with
+  `checkout:` in place of `release:`. A 1.4.x host, whose built-in
+  repository is the old name, reaches 2.0 through the redirect.
+  Readers: adopters, the consumer that runs many factories, Obeya and
+  plugins where they compare a schema's `$id`, the end-to-end suite.
+  Adopter action: remove `TEHAS_RELEASE_REPO=tehas-app/tehas` from
+  `instance.env` or name `tehas-app/tehas-factory`, and point clones, links
+  and a pinned `$id` at the new name before the redirect ends.
 - **2.0 is supported from 1.4.x.** This page. The update to 2.0 is
   supported from 1.4.x only, and a host upgrades its factories and the
   programs that run them together.
@@ -944,8 +963,6 @@ adopter action as the pull request states them.
   analytics report and the dashboard's internal `pr` key.
   Readers: adopters, the consumer that runs many factories where it keeps
   an instance's settings.
-- **The rename.** T10. tehas becomes tehas-factory. The `$id` of every
-  schema in `api/`, the release repository and the manual move with it.
 - **The surface list for 2.x.** T9's last update: `api/surface-1.0.txt`
   becomes `api/surface-2.0.txt`, and `console/tests/surface.rs` reads it,
   once the removals above have landed.
