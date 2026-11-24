@@ -1,0 +1,1 @@
+{"data":{"repository":{"pullRequest":{"number":20,"events":{"pageInfo":{"hasNextPage":true,"endCursor":"MQ"},"nodes":[{"__typename":"LabeledEvent","createdAt":"2026-11-20T10:02:00Z","actor":{"__typename":"Bot","login":"tehas-bot","databaseId":100001},"label":{"name":"tehas:refreshing"}}]}}}}}
