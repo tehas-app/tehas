@@ -28,12 +28,14 @@ fn drain(w: &World, words: &[&str]) -> Run {
     w.tehas("drain", words)
 }
 
-fn json(text: &str) -> serde_json::Value {
-    serde_json::from_str(text).unwrap_or_else(|e| panic!("{e}: {text}"))
+/// The file of the limit, as JSON text.
+fn kept(w: &World) -> String {
+    fs::read_to_string(file(w)).unwrap()
 }
 
-fn kept(w: &World) -> serde_json::Value {
-    json(&fs::read_to_string(file(w)).unwrap())
+/// What an answer says of `drained` and `running`.
+fn said(text: &str) -> [String; 2] {
+    ["/drained", "/running"].map(|k| json_at(text, k))
 }
 
 fn locked(path: &Path) -> File {
@@ -92,10 +94,8 @@ fn with_nothing_running_the_limit_is_set_and_drain_is_done_at_once() {
         "limit     0 cycles at once, planning off, until cleared: draining",
     );
     has(&r.out, "drained: no cycle is running");
-    let mut limit = kept(&w);
-    limit.as_object_mut().unwrap().remove("set");
     assert_eq!(
-        limit.to_string(),
+        json_without(&kept(&w), "/set"),
         r#"{"cycles":0,"plan":false,"reason":"draining","until":null,"v":1}"#
     );
     assert_eq!(w.gh(), "");
@@ -103,11 +103,9 @@ fn with_nothing_running_the_limit_is_set_and_drain_is_done_at_once() {
     w.reset();
     let r = drain(&w, &["--json"]);
     assert_eq!(r.rc, 0, "{}", r.out);
-    let mut said = json(&r.out);
-    assert_eq!(said["limit"]["set"], kept(&w)["set"]);
-    said["limit"].as_object_mut().unwrap().remove("set");
+    assert_eq!(json_at(&r.out, "/limit/set"), json_at(&kept(&w), "/set"));
     assert_eq!(
-        said.to_string(),
+        json_without(&r.out, "/limit/set"),
         r#"{"api":1,"drained":true,"limit":{"cycles":0,"plan":false,"reason":"draining","state":"ok"},"running":[]}"#
     );
 }
@@ -118,11 +116,7 @@ fn a_cycle_still_running_is_exit_3_and_named() {
     let _cycle = running(&w, 7);
     let r = drain(&w, &["--json"]);
     assert_eq!(r.rc, 3, "{}", r.out);
-    let said = json(&r.out);
-    assert_eq!(
-        (&said["drained"], said["running"].to_string().as_str()),
-        (&false.into(), "[7]")
-    );
+    assert_eq!(said(&r.out), ["false", "[7]"]);
     let r = drain(&w, &[]);
     assert_eq!(r.rc, 3, "{}", r.out);
     has(&r.out, "still running: #7");
@@ -137,11 +131,7 @@ fn a_cycle_that_ends_during_the_wait_is_exit_0() {
     let cycle = ends_in(&w, 7, Duration::from_secs(1));
     let r = drain(&w, &["--wait", "20", "--json"]);
     assert_eq!(r.rc, 0, "{}", r.out);
-    let said = json(&r.out);
-    assert_eq!(
-        (&said["drained"], said["running"].to_string().as_str()),
-        (&true.into(), "[]")
-    );
+    assert_eq!(said(&r.out), ["true", "[]"]);
     cycle.join().unwrap();
 }
 
@@ -155,20 +145,8 @@ fn drain_replaces_a_limit_with_an_expiry_by_one_until_cleared() {
     .unwrap();
     assert_eq!(drain(&w, &[]).rc, 0);
     let limit = kept(&w);
-    assert_eq!(
-        [
-            &limit["cycles"],
-            &limit["plan"],
-            &limit["until"],
-            &limit["reason"]
-        ],
-        [
-            &0.into(),
-            &false.into(),
-            &serde_json::Value::Null,
-            &"draining".into()
-        ]
-    );
+    let got = ["/cycles", "/plan", "/until", "/reason"].map(|k| json_at(&limit, k));
+    assert_eq!(got, ["0", "false", "null", r#""draining""#]);
 }
 
 #[test]
@@ -225,11 +203,7 @@ fn a_cycle_a_running_poll_starts_after_the_limit_was_written_is_counted() {
     );
     let r = drain(&w, &["--wait", "4", "--json"]);
     assert_eq!(r.rc, 3, "{}", r.out);
-    let said = json(&r.out);
-    assert_eq!(
-        (&said["drained"], said["running"].to_string().as_str()),
-        (&false.into(), "[7]")
-    );
+    assert_eq!(said(&r.out), ["false", "[7]"]);
 }
 
 #[test]
@@ -239,10 +213,8 @@ fn a_poll_that_starts_nothing_is_waited_for_then_no_cycle_is_said() {
     let start = Instant::now();
     let r = drain(&w, &["--wait", "4", "--json"]);
     assert_eq!(r.rc, 0, "{}", r.out);
-    let mut said = json(&r.out);
-    said["limit"].as_object_mut().unwrap().remove("set");
     assert_eq!(
-        said.to_string(),
+        json_without(&r.out, "/limit/set"),
         r#"{"api":1,"drained":true,"limit":{"cycles":0,"plan":false,"reason":"draining","state":"ok"},"running":[]}"#
     );
     // It waited for the poll, which held the lock a second, not for its --wait.
@@ -256,11 +228,8 @@ fn a_poll_that_holds_its_lock_through_the_wait_is_exit_3_with_one_answer() {
     let _poll = poll(&w, Duration::ZERO, Duration::from_secs(30), None);
     let r = drain(&w, &["--wait", "1", "--json"]);
     assert_eq!(r.rc, 3, "{}", r.out);
-    let said = json(&r.out);
-    assert_eq!(
-        [&said["drained"], &said["running"], &said["limit"]["reason"]],
-        [&false.into(), &serde_json::json!([]), &"draining".into()]
-    );
+    assert_eq!(said(&r.out), ["false", "[]"]);
+    assert_eq!(json_at(&r.out, "/limit/reason"), r#""draining""#);
     let r = drain(&w, &["--wait", "1"]);
     assert_eq!(r.rc, 3, "{}", r.out);
     has(

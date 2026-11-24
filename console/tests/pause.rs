@@ -1,7 +1,7 @@
 //! `tehas pause` and `tehas resume` end to end: the flag they write and
 //! take off, the words they refuse, the settings they stop without, and the
-//! control issue resume reads through a stub gh. Who took the pause mark off
-//! and what cannot be read are on the ports' fake in
+//! control issue resume reads through a stub gh. What the pause mark on it
+//! says, who took it off and what cannot be read are on the ports' fake in
 //! console/ops/tests/resume_switch.rs; the flag's rules are beside its code
 //! in console/ops/src/holds.rs.
 
@@ -23,7 +23,7 @@ esac"#;
 fn host(name: &str) -> World {
     let w = World::new(&format!("pause-{name}"));
     w.gh_stub(GH);
-    labels(&w, "[]");
+    w.fx("labels.json", CONTROL);
     w
 }
 
@@ -31,26 +31,8 @@ fn flag(w: &World) -> PathBuf {
     w.at().state(State::Pause)
 }
 
-/// The control issue as GitHub's REST read gives it, with these labels.
-fn labels(w: &World, names: &str) {
-    w.fx(
-        "labels.json",
-        &format!(
-            r#"{{"title":"control","state":"open","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z","html_url":"https://github.com/acme/widget/issues/1","labels":{names}}}"#
-        ),
-    );
-}
-
-/// One event of the pause label on the control issue, by `login` or by no one.
-fn pause_event(w: &World, event: &str, login: Option<&str>) {
-    let actor = login.map_or("null".to_string(), |l| format!(r#"{{"login":"{l}"}}"#));
-    w.fx(
-        "events.json",
-        &format!(
-            r#"[{{"event":"{event}","label":{{"name":"tehas:pause"}},"actor":{actor},"created_at":"2026-01-02T00:00:00Z"}}]"#
-        ),
-    );
-}
+/// The control issue as GitHub's REST read gives it, with no label.
+const CONTROL: &str = r#"{"title":"control","state":"open","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z","html_url":"https://github.com/acme/widget/issues/1","labels":[]}"#;
 
 fn pause(w: &World, words: &[&str]) -> Run {
     w.tehas("pause", words)
@@ -162,31 +144,22 @@ fn resume_leaves_a_symlinked_name_alone() {
 }
 
 #[test]
-fn resume_reads_the_other_switch_on_the_control_issue() {
+fn resume_reads_the_control_issue_and_says_nothing_when_it_holds_nothing() {
     let w = host("other");
-    labels(&w, r#"[{"name":"tehas:pause"}]"#);
     pause(&w, &["--reason", "x"]);
     let r = resume(&w, &[]);
     assert_eq!(r.rc, 0, "{}", r.out);
-    has(
-        &r.out,
-        "the factory stays paused: tehas:pause is still on issue #1",
-    );
-    assert!(!flag(&w).exists());
-
-    labels(&w, "[]");
-    pause_event(&w, "unlabeled", Some("mallory"));
-    let r = resume(&w, &[]);
-    assert_eq!(r.rc, 0, "{}", r.out);
-    has(
-        &r.out,
-        "stays paused: tehas:pause was taken off #1 by 'mallory'",
-    );
-    pause_event(&w, "unlabeled", Some("alice"));
-    let r = resume(&w, &[]);
-    assert_eq!(r.rc, 0, "{}", r.out);
+    has(&r.out, "resumed: the pause flag is gone");
     lacks(&r.out, "stays paused");
-    assert_eq!(w.gh().lines().filter(|l| l.contains("events")).count(), 2);
+    // Two reads through the wiring, the labels and their events, and no write.
+    let calls = w.gh();
+    assert_eq!(calls.lines().count(), 2, "{calls}");
+    assert_eq!(
+        calls.lines().filter(|l| l.contains("/events")).count(),
+        1,
+        "{calls}"
+    );
+    lacks(&calls, "edit");
 }
 
 #[test]

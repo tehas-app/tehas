@@ -34,10 +34,11 @@ fn limit(w: &World, words: &[&str]) -> Run {
     w.tehas("limit", words)
 }
 
-fn show(w: &World) -> serde_json::Value {
+/// What `tehas limit --json` prints.
+fn show(w: &World) -> String {
     let r = limit(w, &["--json"]);
     assert_eq!(r.rc, 0, "{}", r.out);
-    serde_json::from_str(&r.out).unwrap()
+    r.out
 }
 
 /// The limit as the console reads it, at `at` epoch seconds or now.
@@ -53,8 +54,9 @@ fn in_secs(s: i64) -> String {
     iso(now() + s)
 }
 
-fn kept(w: &World) -> serde_json::Value {
-    serde_json::from_str(&fs::read_to_string(file(w)).unwrap()).unwrap()
+/// The JSON text of `key` in the file of the limit.
+fn kept(w: &World, key: &str) -> String {
+    json_at(&fs::read_to_string(file(w)).unwrap(), &format!("/{key}"))
 }
 
 #[test]
@@ -76,11 +78,10 @@ fn set_cycles_is_a_limit_with_planning_on_and_no_expiry() {
         r.out,
         "limit     2 cycles at once, planning on, until cleared"
     );
-    let mut shown = show(&w);
-    assert_eq!(shown["set"], kept(&w)["set"]);
-    shown.as_object_mut().unwrap().remove("set");
+    let shown = show(&w);
+    assert_eq!(json_at(&shown, "/set"), kept(&w, "set"));
     assert_eq!(
-        shown.to_string(),
+        json_without(&shown, "/set"),
         r#"{"api":1,"cycles":2,"plan":true,"state":"ok"}"#
     );
     assert_eq!(
@@ -121,11 +122,12 @@ fn set_with_every_flag_has_planning_off_an_expiry_and_a_reason() {
     has(&r.out, "limit     1 cycle at once, planning off, until 20");
     has(&r.out, ": held for alpha");
     let shown = show(&w);
-    assert_eq!(shown["state"], "ok");
-    assert_eq!(shown["cycles"], 1);
-    assert_eq!(shown["plan"], false);
-    assert_eq!(shown["reason"], "held for alpha");
-    let left = epoch(shown["until"].as_str().unwrap()) - now();
+    let until = json_at(&shown, "/until");
+    assert_eq!(
+        json_without(&json_without(&shown, "/until"), "/set"),
+        r#"{"api":1,"cycles":1,"plan":false,"reason":"held for alpha","state":"ok"}"#
+    );
+    let left = epoch(until.trim_matches('"')) - now();
     assert!(left > 290 && left <= 300, "{left}");
 }
 
@@ -135,11 +137,9 @@ fn set_until_a_time_and_setting_it_twice_leaves_the_same_file() {
     let until = in_secs(3600);
     let r = limit(&w, &["set", "--cycles", "0", "--until", &until, "--json"]);
     assert_eq!(r.rc, 0, "{}", r.out);
-    let mut said: serde_json::Value = serde_json::from_str(&r.out).unwrap();
-    assert_eq!(said["set"], kept(&w)["set"]);
-    said.as_object_mut().unwrap().remove("set");
+    assert_eq!(json_at(&r.out, "/set"), kept(&w, "set"));
     assert_eq!(
-        said.to_string(),
+        json_without(&r.out, "/set"),
         format!(r#"{{"api":1,"cycles":0,"plan":true,"state":"ok","until":"{until}"}}"#)
     );
 
@@ -161,10 +161,8 @@ fn a_new_set_replaces_the_whole_limit_and_clear_takes_it_off() {
     ];
     assert_eq!(limit(&w, &old).rc, 0);
     assert_eq!(limit(&w, &["set", "--cycles", "4"]).rc, 0);
-    let mut shown = show(&w);
-    shown.as_object_mut().unwrap().remove("set");
     assert_eq!(
-        shown.to_string(),
+        json_without(&show(&w), "/set"),
         r#"{"api":1,"cycles":4,"plan":true,"state":"ok"}"#
     );
     let r = limit(&w, &["clear"]);
@@ -178,16 +176,19 @@ fn the_reason_is_one_line_of_at_most_200_characters() {
     let w = host("reason");
     let r = limit(&w, &["set", "--cycles", "1", "--reason", "a\tb\nc\u{1}d"]);
     assert_eq!(r.rc, 0, "{}", r.out);
-    assert_eq!(show(&w)["reason"], "a b c d");
+    assert_eq!(json_at(&show(&w), "/reason"), r#""a b c d""#);
     let long = "x".repeat(300);
     assert_eq!(
         limit(&w, &["set", "--cycles", "1", "--reason", &long]).rc,
         0
     );
-    assert_eq!(show(&w)["reason"], "x".repeat(200));
+    assert_eq!(
+        json_at(&show(&w), "/reason"),
+        format!("{:?}", "x".repeat(200))
+    );
     let r = limit(&w, &["set", "--cycles", "1", "--reason", "--json"]);
     assert_eq!(r.rc, 0, "{}", r.out);
-    assert_eq!(kept(&w)["reason"], "--json");
+    assert_eq!(kept(&w, "reason"), r#""--json""#);
 }
 
 #[test]
@@ -259,20 +260,8 @@ fn an_expired_limit_is_read_as_expired_and_says_nothing_starts() {
     )
     .unwrap();
     let shown = show(&w);
-    assert_eq!(
-        (
-            &shown["state"],
-            &shown["cycles"],
-            &shown["plan"],
-            &shown["set"]
-        ),
-        (
-            &"expired".into(),
-            &2.into(),
-            &true.into(),
-            &serde_json::Value::Null
-        )
-    );
+    let got = ["/state", "/cycles", "/plan", "/set"].map(|k| json_at(&shown, k));
+    assert_eq!(got, [r#""expired""#, "2", "true", "null"]);
     let r = limit(&w, &[]);
     has(&r.out, "limit     expired at ");
     has(&r.out, "nothing starts until it is set again or cleared");
