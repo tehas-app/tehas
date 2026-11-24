@@ -4,6 +4,7 @@ use crate::snapshot::{Account, Comment, Comments, Given};
 use regex::Regex;
 use serde_json::{json, Value};
 use std::sync::OnceLock;
+use tehas_ports::Revision;
 
 /// The newest question of the bot among the comments (the one
 /// with id `id` when it is given), what was ticked in it and the replies
@@ -102,6 +103,9 @@ pub struct Asked {
     /// createdAt, empty when it is not text.
     pub asked_at: String,
     pub body: String,
+    /// The question comment's revision as the code host's edit of a comment
+    /// compares it: the sum of `body` as read, markers in.
+    pub revision: Revision,
     pub kind: String,
     /// The marker's issue and turn, as digits.
     pub issue: String,
@@ -349,6 +353,7 @@ pub fn answer_of(
         comment: qv.id.clone(),
         asked_at: qv.created_text().unwrap_or("").to_string(),
         body: body.to_string(),
+        revision: Revision::new(crate::text::body_sum(body)),
         kind: m["kind"].to_string(),
         issue: issue.to_string(),
         turn: m["turn"].to_string(),

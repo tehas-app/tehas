@@ -181,6 +181,13 @@ case "$1 $2" in
         case " $* " in *" .id "*) echo "$id" ;;
           *) printf '{"id":%s,"html_url":"https://github.com/acme/widget/issues/%s#issuecomment-%s"}\n' "$id" "$n" "$id" ;;
         esac ;;
+      # A comment's edit as the code host's adapter sends it, after its read
+      # below: the text sent is kept for `World::edited`, and the answer is
+      # $fx/rcomment-<id>.json with that text. $fx/patch-fails fails it.
+      "PATCH repos/acme/widget/issues/comments/"*)
+        fails patch-fails
+        printf '%s\0' "$body" >>"$T/calls/edited-${rest_path##*/}"
+        jq -c --arg b "$body" '.body = $b' "$T/fx/rcomment-${rest_path##*/}.json" || exit 1 ;;
       *) fails patch-fails ;;
     esac ;;
   # The reviews and inline comments of a pull request, as REST lists them.
@@ -209,6 +216,10 @@ case "$1 $2" in
     # None written is none at all; $fx/icomments-fails makes the read fail.
     [ ! -e "$T/fx/icomments-fails" ] || exit 1
     cat "$T/fx/icomments-${n%%/*}.json" 2>/dev/null || echo "[]" ;;
+  # One comment, as the code host's adapter reads it before its edit: what
+  # `World::comments_of` wrote, else not there.
+  "api repos/acme/widget/issues/comments/"*)
+    cat "$T/fx/rcomment-${2##*/}.json" 2>/dev/null || not_found ;;
   "api repos/acme/widget/issues/"*)
     n=${2#repos/acme/widget/issues/}
     case "$n" in
@@ -1888,6 +1899,25 @@ impl World {
             serde_json::from_str(&fs::read_to_string(self.fx.join(&name)).unwrap()).unwrap();
         v["data"]["repository"]["issue"]["comments"]["nodes"][0]["databaseId"] = json!(id);
         self.fx_json(&name, &v);
+        self.fx_json(
+            &format!("rcomment-{id}.json"),
+            &json!({
+                "id": id,
+                "html_url": format!("{}/{n}#issuecomment-{id}", "https://github.com/acme/widget/issues"),
+                "body": body,
+            }),
+        );
+    }
+
+    /// The texts the code host's adapter sent as comment `id`'s edits, in
+    /// their order.
+    pub fn edited(&self, id: u64) -> Vec<String> {
+        fs::read_to_string(self.t.join(format!("calls/edited-{id}")))
+            .unwrap_or_default()
+            .split('\0')
+            .filter(|b| !b.is_empty())
+            .map(str::to_string)
+            .collect()
     }
 
     /// The park of #7's current cycle on record, Null without one.
