@@ -157,7 +157,10 @@ impl GitHub {
         }
         let repository = answer.data.ok_or(MALFORMED)?.repository;
         let held = repository.ok_or(Outcome::NotFound)?.label;
-        if held.as_ref().is_some_and(|h| !h.name.eq_ignore_ascii_case(name)) {
+        if held
+            .as_ref()
+            .is_some_and(|h| !h.name.eq_ignore_ascii_case(name))
+        {
             return Err(INCONSISTENT);
         }
         Ok(held)
