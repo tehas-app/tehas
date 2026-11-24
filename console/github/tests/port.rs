@@ -34,6 +34,10 @@ impl GhRunner for Stub {
 }
 
 fn adapter(answers: Vec<Result<&str, &str>>) -> (GitHub, Asked) {
+    adapter_in("acme/widget", answers)
+}
+
+fn adapter_in(repo: &str, answers: Vec<Result<&str, &str>>) -> (GitHub, Asked) {
     let asked = Asked::default();
     let stub = Stub {
         answers: answers
@@ -42,7 +46,7 @@ fn adapter(answers: Vec<Result<&str, &str>>) -> (GitHub, Asked) {
             .collect(),
         asked: Arc::clone(&asked),
     };
-    (GitHub::new("acme/widget", Box::new(stub)), asked)
+    (GitHub::new(repo, Box::new(stub)), asked)
 }
 
 fn key(n: u64) -> TicketKey {
@@ -59,11 +63,25 @@ const ISSUE: &str = r#"{"number":7,"title":"Make it so","state":"open","state_re
 "created_at":"2026-01-02T03:04:05Z","updated_at":"2026-01-03T00:00:00Z",
 "html_url":"https://github.com/acme/widget/issues/7"}"#;
 
+/// The answer of the question of the ticket #7 is a part of: #3.
+const PARENT: &str = r#"{"data":{"repository":{"issue":{"number":7,"parent":{"number":3,"repository":{"nameWithOwner":"acme/widget"}}}}}}"#;
+
+/// The same, of a ticket that is a part of none.
+const NO_PARENT: &str = r#"{"data":{"repository":{"issue":{"number":7,"parent":null}}}}"#;
+
 #[test]
-fn a_tickets_digest_is_the_issues_rest_read() {
-    let (mut gh, asked) = adapter(vec![Ok(ISSUE)]);
+fn a_tickets_digest_is_the_issues_rest_read_and_its_parent() {
+    let (mut gh, asked) = adapter(vec![Ok(ISSUE), Ok(PARENT)]);
     let got = gh.several(&[key(7)]);
-    assert_eq!(*asked.lock().unwrap(), ["api repos/acme/widget/issues/7"]);
+    let asked = asked.lock().unwrap();
+    assert_eq!(asked[0], "api repos/acme/widget/issues/7");
+    assert!(asked[1].contains("-F number=7"), "{}", asked[1]);
+    assert!(
+        asked[1].contains("parent { number repository { nameWithOwner } }"),
+        "{}",
+        asked[1]
+    );
+    assert_eq!(asked.len(), 2);
     let (k, d) = &got[0];
     assert_eq!(*k, key(7));
     let d = d.as_ref().unwrap();
@@ -89,63 +107,74 @@ fn a_tickets_digest_is_the_issues_rest_read() {
     assert_eq!(d.created, at("2026-01-02T03:04:05Z"));
     assert_eq!(d.updated, at("2026-01-03T00:00:00Z"));
     assert_eq!(d.link.as_str(), "https://github.com/acme/widget/issues/7");
-    // GitHub leaves `parent_issue_url` out of an issue that is a part of
-    // none.
-    assert_eq!(d.parent, None);
+    assert_eq!(d.parent, Some(Ref::Here(key(3))));
 }
 
 #[test]
-fn a_digest_names_the_ticket_it_is_a_part_of_from_the_rest_read() {
-    let with = |url: &str| {
-        ISSUE.replace(
-            r#""number":7,"#,
-            &format!(r#""number":7,"parent_issue_url":{url},"#),
-        )
+fn a_parent_is_named_where_it_is_and_one_that_cannot_be_read_fails_the_digest() {
+    let (mut gh, _) = adapter(vec![Ok(ISSUE), Ok(NO_PARENT)]);
+    assert_eq!(gh.several(&[key(7)]).remove(0).1.unwrap().parent, None);
+    let elsewhere = PARENT.replace("acme/widget", "other/lib");
+    let (mut gh, _) = adapter(vec![Ok(ISSUE), Ok(&elsewhere)]);
+    assert_eq!(
+        gh.several(&[key(7)]).remove(0).1.unwrap().parent,
+        Some(Ref::Elsewhere {
+            project: tehas_ports::ProjectName::new("other/lib"),
+            item: tehas_ports::ItemName::new("3"),
+        })
+    );
+    // An answer that leaves the parent out does not say there is none.
+    let left_out = r#"{"data":{"repository":{"issue":{"number":7}}}}"#;
+    let (mut gh, _) = adapter(vec![Ok(ISSUE), Ok(left_out)]);
+    assert_eq!(
+        gh.several(&[key(7)]).remove(0).1,
+        Err(Outcome::Unread(Unread::Malformed))
+    );
+    let (mut gh, _) = adapter(vec![Ok(ISSUE), Err("HTTP 502")]);
+    assert_eq!(
+        gh.several(&[key(7)]).remove(0).1,
+        Err(Outcome::Unavailable {
+            why: Passing::Server,
+            sent: Sent::Maybe
+        })
+    );
+}
+
+fn live(name: &str) -> String {
+    let at = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/recorded/live-parent")
+        .join(name);
+    std::fs::read_to_string(at).unwrap()
+}
+
+/// Read live from a public repository, 2026-11-24: GitHub's REST read of an
+/// issue leaves `parent_issue_url` out where the issue is a part of none
+/// (the recordings `rest-*.json` keep the fields that say so), so the
+/// adapter cannot tell none from an answer cut short there, and asks
+/// GraphQL, whose `parent` is null for none. The `parent-*.json` are
+/// GraphQL's answers to the adapter's own question.
+#[test]
+fn the_parent_is_graphqls_since_rest_leaves_out_the_field_of_none() {
+    let rest = |n: u32| -> serde_json::Value {
+        serde_json::from_str(&live(&format!("rest-{n}.json"))).unwrap()
     };
-    for (url, want) in [
-        (
-            r#""https://api.github.com/repos/acme/widget/issues/3""#,
-            Some(Ref::Here(key(3))),
-        ),
-        (
-            r#""https://api.github.com/repos/Acme/Widget/issues/3""#,
-            Some(Ref::Here(key(3))),
-        ),
-        (
-            r#""https://ghe.example/api/v3/repos/other/lib/issues/5""#,
-            Some(Ref::Elsewhere {
-                project: tehas_ports::ProjectName::new("other/lib"),
-                item: tehas_ports::ItemName::new("5"),
-            }),
-        ),
-        ("null", None),
-    ] {
-        let issue = with(url);
-        let (mut gh, asked) = adapter(vec![Ok(&issue)]);
+    assert_eq!(rest(2597)["has_parent_issue_url"], false);
+    assert_eq!(rest(2824)["has_parent_issue_url"], true);
+    let issue = |n: u32| {
+        ISSUE
+            .replace(r#""number":7"#, &format!(r#""number":{n}"#))
+            .replace(
+                "acme/widget/issues/7",
+                &format!("tehas-app/tehas-factory/issues/{n}"),
+            )
+    };
+    for (n, want) in [(2824, Some(Ref::Here(key(2597)))), (2597, None)] {
+        let (out, answer) = (issue(n), live(&format!("parent-{n}.json")));
+        let (mut gh, _) = adapter_in("tehas-app/tehas-factory", vec![Ok(&out), Ok(&answer)]);
         assert_eq!(
-            gh.several(&[key(7)]).remove(0).1.unwrap().parent,
+            gh.several(&[key(n.into())]).remove(0).1.unwrap().parent,
             want,
-            "{url}"
-        );
-        assert_eq!(
-            asked.lock().unwrap().len(),
-            1,
-            "no question past the REST read"
-        );
-    }
-    // A link of another shape is no answer.
-    for url in [
-        r#""https://api.github.com/repos/acme/widget/issues/x""#,
-        r#""https://api.github.com/repos/acme/issues/3""#,
-        r#""https://example.com/3""#,
-        "3",
-    ] {
-        let issue = with(url);
-        let (mut gh, _) = adapter(vec![Ok(&issue)]);
-        assert_eq!(
-            gh.several(&[key(7)]).remove(0).1,
-            Err(Outcome::Unread(Unread::Malformed)),
-            "{url}"
+            "#{n}"
         );
     }
 }
@@ -163,7 +192,7 @@ fn a_closed_issue_says_why() {
                 r#""state_reason":null"#,
                 &format!(r#""state_reason":{reason}"#),
             );
-        let (mut gh, _) = adapter(vec![Ok(&closed)]);
+        let (mut gh, _) = adapter(vec![Ok(&closed), Ok(NO_PARENT)]);
         let d = gh.several(&[key(7)]).remove(0).1.unwrap();
         assert_eq!(d.state, TicketState::Closed(want), "{reason}");
     }

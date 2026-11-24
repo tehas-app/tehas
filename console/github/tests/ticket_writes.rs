@@ -656,6 +656,7 @@ fn an_edit_reads_the_issue_then_sends_a_200_kib_text_and_its_title_on_standard_i
 fn the_revision_a_read_gives_is_the_one_an_edit_is_held_to() {
     let (mut gh, _) = adapter(vec![
         Ok(sample("issue-7.json")),
+        Ok(r#"{"data":{"repository":{"issue":{"number":7,"parent":null}}}}"#.to_string()),
         Ok(sample("issue-7.json")),
         Ok(issue_7("t", "New.", EDITED)),
     ]);
@@ -681,7 +682,10 @@ fn a_tickets_revision_is_the_blueprint_writes_revision_of_the_same_answer() {
         "With <!-- tehas:blocked by=3 --> a marker.\r\n",
     ] {
         let answer = issue_7("A title", body, "2026-11-22T14:30:00Z");
-        let (mut gh, _) = adapter(vec![Ok(answer.clone())]);
+        let (mut gh, _) = adapter(vec![
+            Ok(answer.clone()),
+            Ok(r#"{"data":{"repository":{"issue":{"number":7,"parent":null}}}}"#.to_string()),
+        ]);
         let digest = gh.several(&[key(7)]).pop().unwrap().1.unwrap();
         assert_eq!(digest.revision, rev_of(&answer), "{body:?}");
         assert_eq!(digest.updated, At::new(1_795_357_800));

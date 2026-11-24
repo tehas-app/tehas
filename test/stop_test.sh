@@ -44,12 +44,13 @@ docker_stub() {
   "rm -f") mkdir -p "$T/gone"; : >"$T/gone/$3"; printf "%s\n" "$3" ;;
 esac'
 }
-# gh: the issue, read from $T/issue.json, and the label change, which
-# answers nothing.
+# gh: the issue, read from $T/issue.json, the ticket it is a part of
+# (none), and the label change, which answers nothing.
 GH_ISSUE=$T/issue.json
 gh_stub() {
   t_stub gh 'case "$1 $2" in
   "api repos/"*) cat "$T/issue.json" ;;
+  "api graphql") echo "{\"data\":{\"repository\":{\"issue\":{\"number\":5,\"parent\":null}}}}" ;;
 esac'
 }
 # The issue the stub reports, with these labels: names as arguments.
@@ -208,8 +209,9 @@ t_contains "$t_out" "removed tehas:running from #5"
 t_eq "$(tail -n 1 <<<"$t_out")" "removed tehas:running from #5"
 t_eq "$(t_calls systemctl | sed -n '/ stop /p' | wc -l)" 1
 t_eq "$(gh_views)" "api repos/acme/widget/issues/5"
-# Nothing else is asked of GitHub: no other label, no comment.
-t_eq "$(t_calls gh | wc -l)" 2
+# Nothing else is asked of GitHub but the ticket's parent: no other
+# label, no comment.
+t_eq "$(t_calls gh | wc -l)" 3
 t_eq "$(gh_edits)" "api -X DELETE repos/acme/widget/issues/5/labels/tehas%3Arunning"
 
 t_case "the marker of a stop goes with the leftovers of the cycle it ended"

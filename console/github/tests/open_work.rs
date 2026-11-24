@@ -336,6 +336,18 @@ fn the_queue_reads_each_open_issue_with_what_its_work_item_holds() {
     let nos: Vec<u64> = seven.changes.items.iter().map(|c| c.no.get()).collect();
     assert_eq!(nos, [21]);
     assert!(!seven.changes.more);
+    // A whole change's digest, read as `open_changes` reads one.
+    let change = &seven.changes.items[0];
+    assert_eq!(change.marks, [Mark::State(tehas_ports::State::Refreshing)]);
+    assert_eq!(
+        change.closes,
+        [Ref::Here(tehas_ports::BlueprintNo::new(7).unwrap())]
+    );
+    assert_eq!(
+        change.size.map(|s| (s.files, s.added, s.deleted)),
+        Some((2, 52, 3))
+    );
+    assert_eq!(change.merge_state, tehas_ports::Mergeable::Yes);
     let author = seven.changes.items[0].author.as_ref().unwrap();
     assert_eq!(author.kind, tehas_ports::AccountKind::Ours);
     assert_eq!(
@@ -484,15 +496,15 @@ fn the_queue_reads_each_open_issue_with_what_its_work_item_holds() {
     let eighteen = ok(&work, 18);
     assert_eq!(eighteen.ticket.history.items.len(), 2);
 
-    // The control ticket is on the page: its item's ticket, its text whole.
+    // The control ticket is read whole on its own, though it is on the
+    // page (Decided 120).
     let control = work.control.as_ref().unwrap().as_ref().unwrap();
     assert_eq!(control.digest.marks, [Mark::Act(Act::Pause)]);
     assert!(!control.history.more);
     assert_eq!(control.history.items.len(), 1);
-    assert_eq!(control, &ok(&work, 1).ticket);
 
     // One question for the page, one for the epic's second page of parts,
-    // two each for the timelines read again.
+    // two each for the timelines read again, two for the control ticket.
     let asked = asked.lock().unwrap();
     let names: Vec<String> = asked
         .iter()
@@ -511,6 +523,8 @@ fn the_queue_reads_each_open_issue_with_what_its_work_item_holds() {
             "issue-16-history-renamed_title_event-back",
             "events-18",
             "issue-18-history-renamed_title_event-back",
+            "issue-1",
+            "issue-1-ticket",
         ]
     );
     let query = field(&strs(&asked[0]), "query").unwrap().to_string();
@@ -805,4 +819,13 @@ fn a_control_ticket_off_the_page_is_read_whole_on_its_own() {
         .map(|a| recording(&strs(a)))
         .collect();
     assert_eq!(&names[names.len() - 2..], ["issue-1", "issue-1-ticket"]);
+}
+
+#[test]
+fn a_closing_change_past_its_bound_of_marks_cuts_its_item() {
+    let (mut b, _) = board("closing-big");
+    let work = b.open_work(&queue_ask(), bound(50));
+    let work = work.unwrap();
+    assert_eq!(item(&work, 7), &Err(Outcome::Unread(Unread::Cut)));
+    assert!(item(&work, 3).is_ok());
 }

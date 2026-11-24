@@ -15,13 +15,15 @@
 //! `Unread(Inconsistent)`.
 //!
 //! The changes are those GitHub links as closing the issue, from this
-//! project, open ones alone, each with the fields a closing change's holder
-//! is judged by: the twenty a page asks for, past them the item is
-//! `Unread(Cut)`. Their marks, what they close, their size and their merge
-//! state are not asked.
+//! project, open ones alone, each a whole change's digest read as
+//! `open_changes` reads it: the twenty a page asks for, past them, or past
+//! a change's bound of marks or of what it closes, the item is
+//! `Unread(Cut)`.
 //!
-//! A GraphQL error under one issue's node fails that item alone; any other
-//! error fails the read.
+//! A GraphQL error under one issue's node fails that item alone where the
+//! node itself is still there; a null node, which GitHub answers where the
+//! issue could not be read at all, has no number to fail and fails the
+//! read, as does any error elsewhere.
 
 use std::collections::{HashMap, HashSet};
 use std::num::{NonZeroU32, NonZeroU64};
@@ -30,7 +32,7 @@ use serde::Deserialize;
 
 use super::super::blueprint_writes::{ends_with_folded, text_revision};
 use super::super::blueprints::Edited;
-use super::{commit, malformed, time as pull_time, Actor, Counted};
+use super::{pull_fields, Counted, Pull};
 use crate::ticket::{
     self, order, time, Event, Named, Node, Page, Pages, Who, ACTOR, CUT, CUT_TEXT, INCONSISTENT,
     MALFORMED,
@@ -38,9 +40,9 @@ use crate::ticket::{
 use crate::tickets::take;
 use crate::{markers, GitHub};
 use tehas_ports::{
-    Blocker, Blueprint, BoardAsk, Bound, Branch, ChangeDigest, ChangeNo, ChangeState, ChangeStates,
-    Depth, Filter, Got, Happened, HappenedKind, Mark, OpenWork, Outcome, Ticket, TicketEvent,
-    TicketKey, Took, WebLink, Whole, Window, WorkItem,
+    Blocker, Blueprint, BoardAsk, Bound, ChangeDigest, ChangeNo, ChangeStates, Depth, Filter, Got,
+    Happened, HappenedKind, Mark, OpenWork, Outcome, Ticket, TicketEvent, TicketKey, Took, Unread,
+    Whole, Window, WorkItem,
 };
 
 /// The open issues one page asks for, dispatch's `ISSUE_PAGE`. A page over
@@ -66,10 +68,6 @@ const PAGE_KINDS: [HappenedKind; 3] = [
 
 const MARKS: [HappenedKind; 2] = [HappenedKind::Marked, HappenedKind::Unmarked];
 
-/// What a closing change is read with on the page: no labels, no closing
-/// list, no size, so twenty of them stay small beside the issue.
-const CLOSING: &str = "number title url state isDraft isCrossRepository headRefName headRefOid baseRefName baseRefOid createdAt updatedAt author { {ACTOR} }";
-
 /// The question of one page of open issues: with the newest hundred events
 /// of `kinds` when any, and each issue's closing changes when `changes`.
 fn work_query(kinds: &[HappenedKind], changes: bool) -> String {
@@ -89,7 +87,7 @@ fn work_query(kinds: &[HappenedKind], changes: bool) -> String {
     if changes {
         node.push_str(&format!(
             " closedByPullRequestsReferences(first: {CLOSING_MAX}) {{ totalCount nodes {{ {} }} }}",
-            CLOSING.replace("{ACTOR}", ACTOR)
+            pull_fields()
         ));
     }
     format!("query($owner: String!, $name: String!, $cursor: String) {{ repository(owner: $owner, name: $name) {{ issues(states: [OPEN], first: {ISSUE_PAGE}, after: $cursor, orderBy: {{field: CREATED_AT, direction: ASC}}) {{ totalCount pageInfo {{ hasNextPage endCursor }} nodes {{ {node} }} }} }} }}")
@@ -287,26 +285,7 @@ struct Item {
     events: Option<Page<Event>>,
     /// Asked only with the changes.
     #[serde(default)]
-    closed_by_pull_requests_references: Option<Counted<Closing>>,
-}
-
-/// A change that closes an issue, as the page asks it.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Closing {
-    number: Option<u64>,
-    title: String,
-    url: String,
-    state: String,
-    is_draft: bool,
-    is_cross_repository: bool,
-    head_ref_name: String,
-    head_ref_oid: String,
-    base_ref_name: String,
-    base_ref_oid: String,
-    created_at: String,
-    updated_at: String,
-    author: Option<Actor>,
+    closed_by_pull_requests_references: Option<Counted<Pull>>,
 }
 
 /// One issue of the pages, before it is read: its number, when it was
@@ -321,10 +300,10 @@ impl GitHub {
     /// The open work, page by page: whole, or `Unread(Cut)` once the
     /// site's count passes `bound`, with no item read. A count that moves
     /// between pages reads the pages once more, then fails. Each issue's
-    /// own failure fails it alone. The control ticket is its item's, read
-    /// whole of its text, when it is on the page and the marks are asked;
-    /// else `Tickets::ticket` at `Depth::All`. An ask this adapter does not
-    /// answer is `Refused(Unsupported)` before any request.
+    /// own failure fails it alone, where its node is there to fail: a null
+    /// node fails the read. The control ticket is `Tickets::ticket` at
+    /// `Depth::All` whatever the ask, two calls. An ask this adapter does
+    /// not answer is `Refused(Unsupported)` before any request.
     pub(super) fn open_work_pages(&mut self, ask: &BoardAsk, bound: Bound) -> Got<OpenWork> {
         let Some(kinds) = answered(ask) else {
             return super::super::unsupported();
@@ -344,20 +323,11 @@ impl GitHub {
         }
         items.sort_by_key(|(filed, no, _, _)| (*filed, *no));
         let mut work = OpenWork::default();
-        work.control = ask.control.as_ref().map(|key| {
-            let on_page = items.iter().find(|(_, _, k, _)| k == key);
-            let marks = kinds.iter().any(|(k, _)| MARKS.contains(k));
-            match on_page {
-                Some((_, _, _, item)) if marks => item.clone().map(|w| {
-                    let mut ticket = w.ticket;
-                    if let Some(same) = w.blueprints.into_iter().next() {
-                        ticket.text = same.body;
-                    }
-                    ticket
-                }),
-                _ => GitHub::ticket(self, key, Depth::All, None),
-            }
-        });
+        // The control ticket is read whole whatever the ask (Decided 120).
+        work.control = ask
+            .control
+            .as_ref()
+            .map(|key| GitHub::ticket(self, key, Depth::All, None));
         work.items = Whole::new(items.into_iter().map(|(_, _, k, i)| (k, i)).collect());
         Ok(work)
     }
@@ -623,7 +593,7 @@ impl GitHub {
     /// issue, in number order, as much as `window` takes: more than it, or
     /// more than the page read, is `Unread(Cut)`. One of another project is
     /// left out.
-    fn closing(&mut self, refs: Counted<Closing>, window: Window) -> Got<Took<ChangeDigest>> {
+    fn closing(&mut self, refs: Counted<Pull>, window: Window) -> Got<Took<ChangeDigest>> {
         if refs.total_count > refs.nodes.len() as u64 {
             return Err(CUT);
         }
@@ -640,7 +610,12 @@ impl GitHub {
             if pull.state != "OPEN" {
                 continue;
             }
-            open.push(self.closing_digest(no, pull)?);
+            // A change past its bound of marks or of what it closes is one
+            // this read did not take whole: the item's, not the read's.
+            open.push(match self.pull_digest(pull, ChangeStates::Open) {
+                Err(Outcome::Unread(Unread::TooLarge)) => return Err(CUT),
+                other => other?,
+            });
         }
         open.sort_by_key(|c| c.no);
         if open.windows(2).any(|w| w[0].no == w[1].no) {
@@ -654,27 +629,6 @@ impl GitHub {
             return Err(CUT);
         }
         Ok(took(open, false))
-    }
-
-    /// An open closing change as a change's digest, of the fields the page
-    /// asks: no marks, closes, size, merge state or edit.
-    fn closing_digest(&self, no: ChangeNo, p: Closing) -> Got<ChangeDigest> {
-        let mut digest = ChangeDigest::new(
-            no,
-            ChangeState::Open,
-            Branch::new(p.head_ref_name).map_err(|_| malformed())?,
-            commit(Some(p.head_ref_oid))?,
-            Branch::new(p.base_ref_name).map_err(|_| malformed())?,
-            commit(Some(p.base_ref_oid))?,
-            pull_time(Some(&p.created_at))?,
-            pull_time(Some(&p.updated_at))?,
-            WebLink::new(p.url).map_err(|_| malformed())?,
-        );
-        digest.title = p.title;
-        digest.author = p.author.as_ref().and_then(|a| a.account(self.bot.as_ref()));
-        digest.from_fork = p.is_cross_repository;
-        digest.draft = p.is_draft;
-        Ok(digest)
     }
 }
 

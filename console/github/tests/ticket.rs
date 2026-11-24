@@ -735,7 +735,7 @@ const REST: &str = r#"{"number":7,"title":"T","state":"closed","state_reason":"c
 
 fn beside(closes: &str, blocked: &str, mentions: &str) -> Result<String, &'static str> {
     issue(&format!(
-        r#""closes":{{"nodes":[{closes}]}},"blockedBy":{blocked},"subIssues":{{"totalCount":0,"pageInfo":{{"hasNextPage":false,"endCursor":null}},"nodes":[]}},"mentions":{mentions}"#
+        r#""closes":{{"nodes":[{closes}]}},"blockedBy":{blocked},"subIssues":{{"totalCount":0,"pageInfo":{{"hasNextPage":false,"endCursor":null}},"nodes":[]}},"mentions":{mentions},"parent":null"#
     ))
 }
 
@@ -1034,15 +1034,21 @@ fn a_ticket_and_a_list_name_the_ticket_each_is_a_part_of() {
         Err(Outcome::Unread(Unread::Malformed))
     );
 
-    // The ticket reads it from the issue's REST read.
-    let rest = REST.replace(
-        r#""number":7,"#,
-        r#""number":7,"parent_issue_url":"https://api.github.com/repos/acme/widget/issues/3","#,
-    );
-    let (got, calls) = cut_ticket(vec![Ok(rest), beside("", NO_BLOCKERS, NO_MENTIONS)]);
+    // The ticket asks it in the question it makes beside the REST read.
+    let with_parent = |parent: &str| {
+        issue(&format!(
+            r#""closes":{{"nodes":[]}},"blockedBy":{NO_BLOCKERS},"subIssues":{{"totalCount":0,"pageInfo":{{"hasNextPage":false,"endCursor":null}},"nodes":[]}},"mentions":{NO_MENTIONS},"parent":{parent}"#
+        ))
+    };
+    let (got, calls) = cut_ticket(vec![Ok(REST.to_string()), with_parent(here)]);
     assert_eq!(calls, 2);
     assert_eq!(
         got.unwrap().digest.parent,
         Some(tehas_ports::Ref::Here(key(3)))
     );
+    let left_out = issue(&format!(
+        r#""closes":{{"nodes":[]}},"blockedBy":{NO_BLOCKERS},"subIssues":{{"totalCount":0,"pageInfo":{{"hasNextPage":false,"endCursor":null}},"nodes":[]}},"mentions":{NO_MENTIONS}"#
+    ));
+    let (got, _) = cut_ticket(vec![Ok(REST.to_string()), left_out]);
+    assert_eq!(got.map(|_| ()), Err(Outcome::Unread(Unread::Malformed)));
 }

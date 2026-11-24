@@ -5,10 +5,9 @@
 use crate::{gh, table, ForgeError, GitHub};
 use serde_json::Value;
 use tehas_ports::{
-    Account, AccountId, AccountKind, At, CloseReason, Got, Happened, HappenedKind, ItemName, Kind,
-    Login, Mark, MarkName, Outcome, Passing, Pool, ProjectName, Realm, Ref, Refusal, Revision,
-    Sent, TargetId, TargetName, TicketDigest, TicketEvent, TicketKey, TicketState, Took, Unread,
-    WebLink, Window,
+    Account, AccountId, AccountKind, At, CloseReason, Got, Happened, HappenedKind, Kind, Login,
+    Mark, MarkName, Outcome, Passing, Pool, Realm, Refusal, Revision, Sent, TargetId, TargetName,
+    TicketDigest, TicketEvent, TicketKey, TicketState, Took, Unread, WebLink, Window,
 };
 
 impl GitHub {
@@ -22,7 +21,8 @@ impl GitHub {
         Ok(self.read_marks(&labels).into_iter().flatten().collect())
     }
 
-    /// A ticket's digest, from the issue's REST read: the answer of
+    /// A ticket's digest, from the issue's REST read and one question for
+    /// the ticket it is a part of (`GitHub::parent`): the answer of
     /// `Tickets::several` for one key. GitHub has no priority: every ticket
     /// is `Normal`. The revision is the sum of the title and the body as
     /// GitHub holds them, markers in (`gh::text_revision`), the one rule of
@@ -32,7 +32,9 @@ impl GitHub {
     pub(crate) fn digest(&mut self, key: &TicketKey) -> Got<TicketDigest> {
         let issue = number(key)?;
         let out = self.issue_answer(issue).map_err(|e| self.outcome(&e))?;
-        self.digest_of(key, &out)
+        let mut digest = self.digest_of(key, &out)?;
+        digest.parent = self.parent(key)?;
+        Ok(digest)
     }
 
     /// The digest of an issue's REST read. A pull request answers that read
@@ -43,7 +45,7 @@ impl GitHub {
         }
         let labels = gh::parse_labels(out).ok_or(Outcome::Unread(Unread::Malformed))?;
         let marks = self.read_marks(&labels).into_iter().flatten().collect();
-        read_digest(out, key.clone(), marks, self.bot.as_ref(), &self.repo)
+        read_digest(out, key.clone(), marks, self.bot.as_ref())
             .ok_or(Outcome::Unread(Unread::Malformed))
     }
 
@@ -162,7 +164,6 @@ fn read_digest(
     key: TicketKey,
     marks: Vec<Mark>,
     bot: Option<&Bot>,
-    repo: &str,
 ) -> Option<TicketDigest> {
     let mut v: Value = serde_json::from_str(out.trim()).ok()?;
     tehas_core::accounts::vouch(&mut v);
@@ -209,31 +210,7 @@ fn read_digest(
     digest.marks = marks;
     digest.target = target;
     digest.author = author;
-    digest.parent = match v.get("parent_issue_url") {
-        None | Some(Value::Null) => None,
-        Some(url) => Some(parent(url.as_str()?, repo)?),
-    };
     Some(digest)
-}
-
-/// The ticket an issue is a part of, from its REST read's
-/// `parent_issue_url`: the API's link to that issue, `…/repos/<owner>/
-/// <name>/issues/<n>`. GitHub leaves the field out of an issue that is a
-/// part of none. A link of another shape is None of the answer: unread.
-fn parent(url: &str, repo: &str) -> Option<Ref<TicketKey>> {
-    let (_, path) = url.rsplit_once("/repos/")?;
-    let (project, n) = path.rsplit_once("/issues/")?;
-    let n = n.parse::<u64>().ok().and_then(std::num::NonZeroU64::new)?;
-    if project.split('/').count() != 2 || project.split('/').any(str::is_empty) {
-        return None;
-    }
-    Some(match project.eq_ignore_ascii_case(repo) {
-        true => Ref::Here(TicketKey::Number(n)),
-        false => Ref::Elsewhere {
-            project: ProjectName::new(project),
-            item: ItemName::new(n.to_string()),
-        },
-    })
 }
 
 /// The factory's own account, as a site gives it to the handles it makes:
