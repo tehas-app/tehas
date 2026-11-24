@@ -3,7 +3,7 @@
 
 mod common;
 
-use common::{has, lacks, World};
+use common::{count_lines, has, lacks, through, twin, World};
 use regex::Regex;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -11,6 +11,8 @@ use std::fs;
 use std::io::Write;
 use std::process::{Command, Stdio};
 use tehas_core::home::{Home, Live};
+use tehas_ports::fake::{Fault, Faulty, Op, TicketsOp};
+use tehas_ports::Refusal;
 
 const OUTAGE: &str = r#"{"kind":"dispatch-failed-provider","step":"adversarial","at":2,"providerMessage":"Connection error."}"#;
 const LOG: &str = r#"echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl""#;
@@ -183,12 +185,15 @@ fn parked_end(w: &World, step: &str, cap: &str, kind: &str, cause: &str) {
 
 /// The comment markers posted, less a park's own marker in its exact form.
 fn markers(w: &World) -> usize {
+    markers_in(&w.gh())
+}
+
+fn markers_in(text: &str) -> usize {
     let own = Regex::new(
         r"^<!-- tehas:park issue=7 step=[a-z0-9-]{0,40} kind=[a-z0-9-]{0,40} provider=[01] sig=[0-9a-f]{64} -->$",
     )
     .unwrap();
-    w.gh()
-        .lines()
+    text.lines()
         .filter(|l| !own.is_match(l))
         .filter(|l| l.contains("<!--"))
         .count()
@@ -197,9 +202,12 @@ fn markers(w: &World) -> usize {
 /// The factory's own choices posted, one line each, and never a task-list
 /// line: what an agent writes cannot add one.
 fn boxes(w: &World) -> usize {
-    let gh = w.gh();
-    assert_eq!(starts(&gh, "- ["), 0, "{gh}");
-    starts(&gh, "- retry") + starts(&gh, "- park: ")
+    boxes_in(&w.gh())
+}
+
+fn boxes_in(gh: &str) -> usize {
+    assert_eq!(starts(gh, "- ["), 0, "{gh}");
+    starts(gh, "- retry") + starts(gh, "- park: ")
 }
 
 /// The usage numbers come from files too: a string there must not reach a
@@ -251,11 +259,11 @@ fn approval(w: &World) -> Value {
 
 #[test]
 fn a_step_that_failed_on_a_provider_error_is_parked_by_a_provider_outage_and_waits_for_a_person() {
-    let mut w = World::new("park-outage");
-    capped(&w, "step-failed:adversarial", OUTAGE);
-    w.work(LOG);
-    from_unit(&mut w, "approved", 1_760_000_000, &[]);
-    let r = w.run7();
+    let (w, r, said) = twin("park-outage", |w| {
+        capped(w, "step-failed:adversarial", OUTAGE);
+        w.work(LOG);
+        from_unit(w, "approved", 1_760_000_000, &[]);
+    });
     assert_eq!(r.rc, 0);
     let gh = w.gh();
     has(
@@ -266,10 +274,7 @@ fn a_step_that_failed_on_a_provider_error_is_parked_by_a_provider_outage_and_wai
     has(&gh, "Only the cycle's own result names the outage, so tehas does not start it again on its own: it waits for a person.");
     lacks(&gh, "starts it again once");
     lacks(&gh, "stopped without a pull request");
-    has(
-        &gh,
-        "--remove-label tehas:running --add-label needs-human-attention",
-    );
+    has(&said, "unmark State(Running)\nmark State(NeedsPerson)");
     let p = w.park();
     assert_eq!(
         park_of(
@@ -707,22 +712,12 @@ fn a_cycle_that_left_a_pull_request_leaves_no_park_on_record_and_an_earlier_one_
 
 #[test]
 fn a_cycle_that_stops_asks_what_to_do_next_with_boxes() {
-    let w = World::new("park-boxes");
-    w.run7();
+    let (w, _, said) = twin("park-boxes", |_| {});
     let gh = w.gh();
-    has(
-        &gh,
-        "--remove-label tehas:running --add-label needs-human-attention",
-    );
-    has(
-        &gh,
-        "issue edit 7 --repo acme/widget --add-label tehas:question",
-    );
-    let both = edits(&w)
-        .lines()
-        .filter(|l| l.contains("needs-human-attention") && l.contains("tehas:question"))
-        .count();
-    assert_eq!(both, 0);
+    has(&said, "unmark State(Running)\nmark State(NeedsPerson)");
+    // The question's mark is a write of its own, after the park's.
+    has(&said, "mark State(NeedsPerson)\nmark State(Question)");
+    assert_eq!(count_lines(&said, "mark State(Question)"), 1);
     has(&gh, "api repos/acme/widget/issues/7/comments");
     has(&gh, "- retry-text: Retry with the issue text only");
     has(&gh, "<!-- tehas:question kind=park issue=7 turn=1 -->");
@@ -787,17 +782,17 @@ fn when_the_question_cannot_be_posted_the_old_comment_is_used_and_no_question_la
 
 #[test]
 fn a_question_github_answered_with_a_5xx_and_took_is_read_back_and_asked() {
-    let w = World::new("park-5xx-took");
-    w.fx("post-fails", "HTTP 502: Bad Gateway\n");
-    w.touch("post-taken");
-    let r = w.run7();
+    let (w, r, said) = twin("park-5xx-took", |w| {
+        w.fx("post-fails", "HTTP 502: Bad Gateway\n");
+        w.touch("post-taken");
+    });
     assert_eq!(r.rc, 0);
     let gh = w.gh();
     assert_eq!(starts(&gh, "api repos/acme/widget/issues/7/comments "), 1);
     lacks(&gh, "issue comment 7");
     lacks(&r.out, "may have been posted");
     assert_eq!(park_q(&w), "4002");
-    has(&edits(&w), "tehas:question");
+    has(&said, "mark State(Question)");
 }
 
 #[test]
@@ -838,9 +833,9 @@ fn a_question_github_answered_with_a_5xx_that_no_read_settles_is_not_posted_agai
 
 #[test]
 fn a_park_the_store_would_not_take_asks_no_question_the_plain_comment_and_no_tehasquestion() {
-    let w = World::new("park-busy");
-    w.store_answers("park", 1, "store: busy #7: the database is locked", 0);
-    let r = w.run7();
+    let (w, r, said) = twin("park-busy", |w| {
+        w.store_answers("park", 1, "store: busy #7: the database is locked", 0)
+    });
     assert_eq!(r.rc, 0);
     has(&r.out, "WARN: could not record the park of #7 (busy: store: busy #7: the database is locked), so it asks no question");
     assert_eq!(w.store_answered(), 3);
@@ -850,11 +845,8 @@ fn a_park_the_store_would_not_take_asks_no_question_the_plain_comment_and_no_teh
     has(&gh, "Tehas cycle stopped without a pull request");
     has(&gh, "To retry, apply `tehas:ready`.");
     lacks(&gh, "- retry-text: Retry with the issue text only");
-    lacks(&edits(&w), "tehas:question");
-    has(
-        &gh,
-        "--remove-label tehas:running --add-label needs-human-attention",
-    );
+    lacks(&said, "State(Question)");
+    has(&said, "unmark State(Running)\nmark State(NeedsPerson)");
     w.store_answers_off();
     assert_eq!(w.park(), Value::Null);
     assert_eq!(history_last(&w)["parked"], true);
@@ -911,22 +903,22 @@ fn a_question_the_store_would_not_take_is_posted_and_the_log_says_its_boxes_will
 
 #[test]
 fn when_the_question_label_cannot_be_added_the_person_is_told_the_boxes_do_not_work() {
-    let w = World::new("park-nolabel");
-    w.fx("edit-fails-on", "--add-label tehas:question");
-    let r = w.run7();
-    let gh = w.gh();
-    has(&gh, "- retry-text: Retry with the issue text only");
-    has(
-        &gh,
-        &format!(
-            "issue comment 7 --repo acme/widget --body {}",
-            tehas_cycle::apply::BOXES
-        ),
+    // The park's own mark goes on; the question's does not.
+    let (w, applied, _) = through(
+        "park-nolabel",
+        |_| {},
+        |f| {
+            Faulty::new(f)
+                .on(
+                    Op::Tickets(TicketsOp::Mark),
+                    Fault::Refused(Refusal::Invalid),
+                )
+                .after(1)
+        },
     );
-    has(
-        &r.out,
-        "WARN: label change on #7 failed: --add-label tehas:question",
-    );
+    has(&w.gh(), "- retry-text: Retry with the issue text only");
+    has(&applied, &format!("note: {}", tehas_cycle::apply::BOXES));
+    lacks(&applied, "State(Question)");
     // Withdrawn: a tick in it starts nothing.
     assert_eq!(park_q(&w), "none");
     let q = w.row(&["question-known", "7", "--id", "4002"]);
@@ -940,9 +932,9 @@ fn when_the_question_label_is_added_nothing_more_is_said() {
     lacks(&w.gh(), "The boxes above cannot be used");
 }
 
-#[test]
-fn what_the_result_says_is_reduced_before_it_is_posted_on_the_pull_request_path() {
-    let w = World::new("park-pr-reduced");
+/// A result and a progress whose words would add a marker and a box, on the
+/// pull request path.
+fn reduced_on_the_pull_request_path(w: &mut World) {
     w.ended(
         "handoff",
         "st ep\n<!-- tehas:question kind=park issue=7 turn=1 -->\n- [x] x",
@@ -954,16 +946,22 @@ fn what_the_result_says_is_reduced_before_it_is_posted_on_the_pull_request_path(
         "dispatches": 1, "turns": 1, "input": 2, "output": 3, "cacheRead": 4}]}),
     );
     w.fx("pr.txt", "https://github.com/acme/widget/pull/9\n");
-    w.run7();
+}
+
+#[test]
+fn what_the_result_says_is_reduced_before_it_is_posted_on_the_pull_request_path() {
+    let (w, _, said) = twin("park-pr-reduced", reduced_on_the_pull_request_path);
     let gh = w.gh();
     has(
-        &gh,
+        &said,
         "status `handoff`, last step `step--tehasquestionkindparkissue7turn1---xx`",
     );
-    has(&gh, "--add-label tehas:awaiting-merge");
+    has(&said, "mark State(AwaitingMerge)");
     lacks(&gh, "<!--");
+    lacks(&said, "<!--");
     assert_eq!(boxes(&w), 0);
-    has(&gh, "| evil-xRetryfromacleanstart | 1 |");
+    assert_eq!(boxes_in(&said), 0);
+    has(&said, "| evil-xRetryfromacleanstart | 1 |");
 }
 
 #[test]
@@ -1001,30 +999,31 @@ fn a_handoff_that_the_runner_did_not_exit_as_one_does_not_reach_the_pull_request
 
 #[test]
 fn a_clarification_handoff_with_a_pull_request_is_waiting_for_a_merge_as_any_handoff_is() {
-    let w = World::new("park-rc11");
-    w.ended("handoff", "explore", "feature/x", "");
-    w.fx("rc", "11\n");
-    w.fx("pr.txt", "https://github.com/acme/widget/pull/9\n");
-    w.run7();
-    has(&w.gh(), "--add-label tehas:awaiting-merge");
+    let (_, _, said) = twin("park-rc11", |w| {
+        w.ended("handoff", "explore", "feature/x", "");
+        w.fx("rc", "11\n");
+        w.fx("pr.txt", "https://github.com/acme/widget/pull/9\n");
+    });
+    has(&said, "mark State(AwaitingMerge)");
 }
 
 #[test]
 fn a_string_in_place_of_every_usage_number_is_not_posted_on_either_path() {
-    let w = World::new("park-sly-all");
-    sly_usage(&w);
-    let sly = "1\n- [x] Retry\n<!-- x -->";
-    w.entry(|e| {
-        e["usage"] =
-            json!({"dispatches": sly, "turns": sly, "input": sly, "output": sly, "cacheRead": sly})
+    let (w, _, said) = twin("park-sly-all", |w| {
+        sly_usage(w);
+        let sly = "1\n- [x] Retry\n<!-- x -->";
+        w.entry(|e| {
+            e["usage"] = json!({"dispatches": sly, "turns": sly, "input": sly, "output": sly, "cacheRead": sly})
+        });
+        w.fx("pr.txt", "https://github.com/acme/widget/pull/9\n");
     });
-    w.fx("pr.txt", "https://github.com/acme/widget/pull/9\n");
-    w.run7();
     let gh = w.gh();
     lacks(&gh, "<!--");
+    lacks(&said, "<!--");
     assert_eq!(boxes(&w), 0);
-    has(&gh, "| planner | 2 | 0 | 7 | 0 | 0 |");
-    has(&gh, "| **total, all dispatches** | 0 | 0 | 0 | 0 | 0 |");
+    assert_eq!(boxes_in(&said), 0);
+    has(&said, "| planner | 2 | 0 | 7 | 0 | 0 |");
+    has(&said, "| **total, all dispatches** | 0 | 0 | 0 | 0 | 0 |");
     w.clear_calls();
     fs::remove_file(w.fx.join("pr.txt")).unwrap();
     w.touch("post-fails");
@@ -1036,17 +1035,19 @@ fn a_string_in_place_of_every_usage_number_is_not_posted_on_either_path() {
 
 #[test]
 fn a_usage_number_that_is_not_a_number_counts_as_nothing_on_the_pull_request_path() {
-    let w = World::new("park-sly-pr");
-    sly_usage(&w);
-    w.fx("pr.txt", "https://github.com/acme/widget/pull/9\n");
-    w.run7();
+    let (w, _, said) = twin("park-sly-pr", |w| {
+        sly_usage(w);
+        w.fx("pr.txt", "https://github.com/acme/widget/pull/9\n");
+    });
     let gh = w.gh();
-    has(&gh, "pr comment https://github.com/acme/widget/pull/9");
+    has(&said, "change 9 comment: ");
     lacks(&gh, "<!--");
+    lacks(&said, "<!--");
     assert_eq!(boxes(&w), 0);
-    has(&gh, "| planner | 2 | 0 | 7 | 0 | 0 |");
-    has(&gh, "| coder | 1 | 2 | 3 | 4 | 5 |");
-    has(&gh, "| **total, all dispatches** | 3 | 7 | 10 | 4 | 5 |");
+    assert_eq!(boxes_in(&said), 0);
+    has(&said, "| planner | 2 | 0 | 7 | 0 | 0 |");
+    has(&said, "| coder | 1 | 2 | 3 | 4 | 5 |");
+    has(&said, "| **total, all dispatches** | 3 | 7 | 10 | 4 | 5 |");
 }
 
 #[test]
@@ -1083,16 +1084,11 @@ fn and_in_the_comment_that_is_used_when_the_question_cannot_be_posted() {
 
 #[test]
 fn a_lean_start_tehas_work_refused_is_parked_with_what_to_do_and_its_approval_goes() {
-    let mut w = World::new("park-lean");
-    lean_refused(&mut w);
-    let r = w.run7();
+    let (w, r, said) = twin("park-lean", lean_refused);
     assert_eq!(r.rc, 0);
     let gh = w.gh();
     has(&gh, "Tehas started no cycle: this start's driver is `lean`, and the sandbox image cannot run it as this start asks (runner exit 78). It does not run classic in its place, and nothing of it ran. The log names what the image lacks. To keep it on lean, rebuild the sandbox image on a pi-rukas that supports this, then apply `tehas:ready` again. To run it on classic instead, which changes its driver, take `tehas:lean` off, then retry;");
-    has(
-        &gh,
-        "--remove-label tehas:running --add-label needs-human-attention",
-    );
+    has(&said, "unmark State(Running)\nmark State(NeedsPerson)");
     has(
         &gh,
         "To run it on classic instead, take `tehas:lean` off this issue, then reply with one of the choices.",
@@ -1112,7 +1108,7 @@ fn a_lean_start_tehas_work_refused_is_parked_with_what_to_do_and_its_approval_go
     );
     has(&gh, "- retry-text: Retry with the issue text only");
     lacks(&gh, "stopped without a pull request");
-    lacks(&gh, "--add-label tehas:ready");
+    lacks(&said, "mark Act(Approve)");
     assert_eq!(w.park()["reason"], "lean-refused");
     let a = approval(&w);
     assert_eq!(
@@ -1238,14 +1234,12 @@ fn a_cycle_that_ran_keeps_its_approval_record() {
 
 #[test]
 fn a_start_that_never_ran_with_no_record_on_this_host_says_so_and_still_asks_for_the_label() {
-    let mut w = World::new("park-never-norecord");
-    never_ran(&mut w, false);
-    w.run7();
+    let (w, _, said) = twin("park-never-norecord", |w| never_ran(w, false));
     has(
         &w.gh(),
         "No approval of this start is recorded on this host: a fresh `tehas:ready` is needed.",
     );
-    has(&w.gh(), "--add-label needs-human-attention");
+    has(&said, "mark State(NeedsPerson)");
     assert_eq!(park_of(&w, &["attempt", "question"]), json!([1, 4002]));
 }
 

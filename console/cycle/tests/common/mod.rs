@@ -761,19 +761,34 @@ impl World {
             issue: 7,
             attempt,
             now: tehas_core::time::now(),
-            gh_bin: self.t.join("bin/gh").display().to_string(),
+            gh_bin: self.as_run(&self.t.join("bin/gh-as-run"), &self.t.join("bin/gh")),
             tries: 3,
             retry_wait: std::time::Duration::ZERO,
             bound: std::time::Duration::from_secs(10),
             grace: std::time::Duration::ZERO,
             workdir: tehas_cycle::host::workdir_with(&start, &env),
         };
+        // The store the report calls answers as a run's store does.
+        self.as_run(&self.home.join("libexec/store"), &self.t.join("store-bin"));
         let _ = tehas_cycle::apply::write(&self.home, &how, &mut r, &facts, &mut ask, handles);
         let sent = sent.borrow().clone();
         Tried {
             applied: site.wrote().into_iter().map(|w| w.what).collect(),
             sent,
         }
+    }
+
+    /// `path`, a program that runs `program` with what a run of this world
+    /// gives the stubs and the store: `$T` and the store's answers.
+    fn as_run(&self, path: &Path, program: &Path) -> String {
+        let text = format!(
+            "#!/usr/bin/env bash\nexport T='{}' TEHAS_TEST_STORE_ANSWERS='{}'\nexec '{}' \"$@\"\n",
+            self.t.display(),
+            self.t.join("store-answers").display(),
+            program.display()
+        );
+        write_exe(path, text).unwrap();
+        path.display().to_string()
     }
 
     /// A cycle of #7.
@@ -1068,18 +1083,19 @@ pub fn twin(name: &str, setup: impl Fn(&mut World)) -> (World, Run, String) {
 }
 
 /// A case's report alone, in process, through the site `wrap` makes of the
-/// fake: the writes it took and each write sent, as `said` says them.
+/// fake: its world, and the writes the site took and each write sent, as
+/// `said` says them.
 #[allow(dead_code)] // each test file uses a part of this module
 pub fn through<S: tehas_ports::Site>(
     name: &str,
     setup: impl Fn(&mut World),
     wrap: impl FnOnce(tehas_ports::fake::FakeSite) -> S,
-) -> (String, String) {
+) -> (World, String, String) {
     let mut w = World::new(name);
     setup(&mut w);
     let world = site();
     let t = w.report_through(&world, &wrap(tehas_ports::fake::FakeSite::new(&world)));
-    (said(&t.applied), said(&t.sent))
+    (w, said(&t.applied), said(&t.sent))
 }
 
 /// The site the report writes to in process: issue 7, running, and the bot's
