@@ -668,6 +668,43 @@ fn code_host_two_apps_runs_of_one_name_are_both_held() {
 }
 
 #[test]
+fn code_host_two_suites_runs_of_one_name_are_both_held() {
+    let run = |status: CheckStatus| Check::new("test".into(), status);
+    for collapse in [false, true] {
+        for w in both() {
+            let at = w.head("main").unwrap();
+            let w = w
+                .check_in(
+                    "actions",
+                    "lint",
+                    &at,
+                    run(CheckStatus::Done(Conclusion::Failed)),
+                )
+                .check_in(
+                    "actions",
+                    "build",
+                    &at,
+                    run(CheckStatus::Done(Conclusion::Passed)),
+                );
+            let w = if collapse {
+                w.checks_collapsing_apps()
+            } else {
+                w
+            };
+            let site = FakeSite::new(&w);
+            let mut h = site.code_host(&full(), C).unwrap();
+            let law =
+                laws::code_host::two_suites_runs_of_one_name_are_both_held(h.as_mut(), &at, "test");
+            if collapse {
+                assert!(law.is_err(), "{law:?}");
+            } else {
+                ok(law);
+            }
+        }
+    }
+}
+
+#[test]
 fn code_host_a_failed_status_beside_a_passing_run_fails() {
     let status = |name: &str, state: StatusState| Status {
         name: name.into(),

@@ -37,7 +37,7 @@ const ACTOR: &str = "__typename login ...on User { databaseId } ...on Bot { data
 const ASSIGNEE: &str =
     "assignee { __typename ...on User { login databaseId } ...on Bot { login databaseId } }";
 
-const CLOSER: &str = "stateReason closer { __typename ...on PullRequest { number merged repository { nameWithOwner } } ...on Commit { oid } }";
+const CLOSER: &str = "stateReason closer { __typename ...on PullRequest { number merged url repository { nameWithOwner } } ...on Commit { oid } }";
 
 const BLOCKING: &str = "blockingIssue { number repository { nameWithOwner } }";
 
@@ -189,6 +189,11 @@ fn parts() -> String {
     format!("subIssues(first: 100, after: $cursor) {{ totalCount pageInfo {{ hasNextPage endCursor }} nodes {{ {NAMED} }} }}")
 }
 
+/// The issue's newest close, what `Ticket.closer` is read from.
+pub(crate) fn closes() -> String {
+    format!("closes: timelineItems(itemTypes: [CLOSED_EVENT], last: 1) {{ nodes {{ __typename ... on ClosedEvent {{ createdAt actor {{ {ACTOR} }} {CLOSER} }} }} }}")
+}
+
 /// What the issue waits on, whole up to a hundred: past that the ticket is
 /// `Unread(Cut)`. GitHub holds no more than fifty.
 fn blocked_by() -> String {
@@ -198,19 +203,19 @@ fn blocked_by() -> String {
 /// What a ticket holds beside its digest and its history: its newest
 /// close, what it waits on, its parts and the changes that name it.
 fn beside() -> String {
-    format!(
-        "closes: timelineItems(itemTypes: [CLOSED_EVENT], last: 1) {{ nodes {{ __typename ... on ClosedEvent {{ createdAt actor {{ {ACTOR} }} {CLOSER} }} }} }} {} {} {}",
-        blocked_by(),
-        parts(),
-        mentions()
-    )
+    format!("{} {} {} {}", closes(), blocked_by(), parts(), mentions())
+}
+
+/// What an issue's digest is read from, a [`Node`].
+pub(crate) fn digest_fields() -> String {
+    format!("number title body state stateReason url createdAt updatedAt author {{ {ACTOR} }} issueType {{ name }} milestone {{ number title }} labels(first: 100) {{ totalCount nodes {{ name }} }}")
 }
 
 /// The list question: the repository's issues, oldest filed first, a page
 /// of them, each with what its digest holds. `narrow` is GitHub's filter,
 /// which only narrows: every ticket is held to the caller's filter again.
 fn listed(narrow: &str) -> String {
-    format!("query($owner: String!, $name: String!, $cursor: String) {{ repository(owner: $owner, name: $name) {{ issues(first: 100, after: $cursor, orderBy: {{field: CREATED_AT, direction: ASC}}{narrow}) {{ pageInfo {{ hasNextPage endCursor }} nodes {{ number title body state stateReason url createdAt updatedAt author {{ {ACTOR} }} issueType {{ name }} milestone {{ number title }} labels(first: 100) {{ totalCount nodes {{ name }} }} }} }} }} }}")
+    format!("query($owner: String!, $name: String!, $cursor: String) {{ repository(owner: $owner, name: $name) {{ issues(first: 100, after: $cursor, orderBy: {{field: CREATED_AT, direction: ASC}}{narrow}) {{ pageInfo {{ hasNextPage endCursor }} nodes {{ {} }} }} }} }}", digest_fields())
 }
 
 #[derive(Deserialize)]
@@ -257,6 +262,7 @@ struct Named {
     number: Option<u64>,
     state: Option<String>,
     merged: Option<bool>,
+    url: Option<String>,
     oid: Option<String>,
     repository: Option<Repo>,
 }
@@ -280,7 +286,7 @@ pub(crate) struct Page<T> {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Event {
+pub(crate) struct Event {
     #[serde(rename = "__typename")]
     is: String,
     created_at: Option<String>,
@@ -314,8 +320,8 @@ struct Answer {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Node {
-    number: Option<u64>,
+pub(crate) struct Node {
+    pub(crate) number: Option<u64>,
     title: String,
     /// Asked for the revision alone, which sums the title and the body.
     body: String,
@@ -372,7 +378,7 @@ pub(crate) fn part<T: DeserializeOwned>(out: &str, at: &str) -> Got<T> {
     serde_json::from_value(part).map_err(|_| MALFORMED)
 }
 
-fn time(iso: &str) -> Got<At> {
+pub(crate) fn time(iso: &str) -> Got<At> {
     tehas_core::time::from_iso(iso)
         .map(At::new)
         .ok_or(MALFORMED)
@@ -453,14 +459,7 @@ impl GitHub {
         );
         let mut first: Answer = self.ask_issue(issue, &of_issue(&asks), None, false)?;
 
-        let closer = match (&digest.state, first.closes.take()) {
-            (TicketState::Open, _) => None,
-            (_, None) => return Err(MALFORMED),
-            (_, Some(closes)) => match closes.nodes.into_iter().flatten().next_back() {
-                Some(e) => self.closer(&e)?,
-                None => None,
-            },
-        };
+        let closer = self.newest_closer(&digest.state, first.closes.take())?;
         let blockers = self.blockers_from(first.blocked_by.take().ok_or(MALFORMED)?)?;
         let subs = first.sub_issues.take().ok_or(MALFORMED)?;
         let parts = self.parts_from(issue, subs)?;
@@ -805,9 +804,27 @@ impl GitHub {
         }))
     }
 
+    /// What closed a ticket in `state`, from its newest close: None while
+    /// it is open, or where its history holds no close.
+    pub(crate) fn newest_closer(
+        &self,
+        state: &TicketState,
+        closes: Option<Page<Event>>,
+    ) -> Got<Option<Closer>> {
+        match (state, closes) {
+            (TicketState::Open, _) => Ok(None),
+            (_, None) => Err(MALFORMED),
+            (_, Some(closes)) => match closes.nodes.into_iter().flatten().next_back() {
+                Some(e) => self.closer(&e),
+                None => Ok(None),
+            },
+        }
+    }
+
     /// What closed the ticket at this close: the change or the commit it
     /// names, else the account that closed it by hand. A change of another
-    /// repository has no number here, and is not named.
+    /// repository has no number here: it is named as GitHub names it
+    /// there, with its link (Decided 100, 109).
     fn closer(&self, e: &Event) -> Got<Option<Closer>> {
         let by = match &e.closer {
             None => return Err(MALFORMED),
@@ -824,7 +841,13 @@ impl GitHub {
             Some("PullRequest") => {
                 let repo = by.repository.as_ref().ok_or(MALFORMED)?;
                 if !self.is_here(repo) {
-                    return Ok(None);
+                    let no = by.number.filter(|n| *n > 0).ok_or(MALFORMED)?;
+                    let link = by.url.clone().ok_or(MALFORMED)?;
+                    return Ok(Some(Closer::change_elsewhere(
+                        ProjectName::new(repo.name_with_owner.clone()),
+                        ItemName::new(no.to_string()),
+                        WebLink::new(link).map_err(|_| MALFORMED)?,
+                    )));
                 }
                 Ok(Some(Closer::Change {
                     no: by.number.and_then(ChangeNo::new).ok_or(MALFORMED)?,
@@ -947,9 +970,10 @@ impl GitHub {
         Ok(out)
     }
 
-    /// A ticket's digest from the list's node, as the issue's REST read
-    /// gives it for `Tickets::several`.
-    fn digest_from(&mut self, n: Node) -> Got<TicketDigest> {
+    /// A ticket's digest from a node of a question (the list's, the
+    /// closed reads'), as the issue's REST read gives it for
+    /// `Tickets::several`.
+    pub(crate) fn digest_from(&mut self, n: Node) -> Got<TicketDigest> {
         let no = n
             .number
             .and_then(std::num::NonZeroU64::new)

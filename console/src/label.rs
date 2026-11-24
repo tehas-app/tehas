@@ -3,9 +3,10 @@
 //! a label decide something reads the same events the same way.
 //!
 //!   console label allowed <issue> <label>
-//!     asks GitHub for the issue's events in TEHAS_REPO: 0 when the account
-//!     that applied <label> most recently is one of TEHAS_ALLOWED_LABELERS, 1
-//!     when it is not or no event applies it, 2 when the events cannot be read.
+//!     asks GitHub for the issue's events in TEHAS_REPO: 0 when <label> is on
+//!     and the account whose application stands is one of
+//!     TEHAS_ALLOWED_LABELERS, 1 when it is not, the label was taken off
+//!     since, or no event applies it, 2 when the events cannot be read.
 //!
 //! Which issue to ask about, and what to do when its events cannot be read, is
 //! the caller's. 64 is bad words.
@@ -18,10 +19,10 @@ use tehas_ports::{HappenedKind, Mark, TicketKey, Tickets, Window, ALL_MAX};
 
 const USAGE: &str = "usage: console label allowed <issue> <label>";
 
-/// Whether an account of `list` put `mark` on `issue` most recently: 0 when
-/// one did, 1 when another account did or none, 2 when the issue is no
-/// number or its history could not be read. A mark of None is one no event
-/// can carry.
+/// Whether an account of `list` put on `mark` as it stands on `issue`: 0
+/// when one did, 1 when another account did, the mark was taken off since,
+/// or none put it on, 2 when the issue is no number or its history could not
+/// be read. A mark of None is one no event can carry.
 pub fn allowed(tickets: &mut dyn Tickets, issue: &str, mark: Option<&Mark>, list: &str) -> u8 {
     let Some(key) = issue
         .parse::<u64>()
@@ -34,7 +35,8 @@ pub fn allowed(tickets: &mut dyn Tickets, issue: &str, mark: Option<&Mark>, list
     let Some(mark) = mark else {
         return 1;
     };
-    let read = tickets.history(&key, Window::Whole(ALL_MAX), Some(&[HappenedKind::Marked]));
+    let only = [HappenedKind::Marked, HappenedKind::Unmarked];
+    let read = tickets.history(&key, Window::Whole(ALL_MAX), Some(&only));
     let Ok(read) = read else {
         return 2;
     };
@@ -139,6 +141,21 @@ mod tests {
         let w = World::new().ticket(7, |t| {
             t.event(Happened::Marked(ready()), Some("mallory"), Some(At::new(1)))
                 .event(Happened::Unmarked(ready()), Some("alice"), Some(At::new(2)))
+        });
+        assert_eq!(ask(&w, "7", Some(&ready())), 1);
+    }
+
+    /// The label an allowed account applied and someone took off since is
+    /// on no more: it counts for nobody (T4.7). 1.4.x answered its applier.
+    #[test]
+    fn a_label_taken_off_since_counts_for_nobody() {
+        let w = World::new().ticket(7, |t| {
+            t.event(Happened::Marked(ready()), Some("alice"), Some(At::new(1)))
+                .event(
+                    Happened::Unmarked(ready()),
+                    Some("mallory"),
+                    Some(At::new(2)),
+                )
         });
         assert_eq!(ask(&w, "7", Some(&ready())), 1);
     }
