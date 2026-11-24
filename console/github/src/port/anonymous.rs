@@ -1,8 +1,9 @@
 //! The code host handle of `Actor::Anonymous` (Decided 76): a public
 //! project's releases and tags, read through [`Curl`] with no credential
-//! and never through gh. It answers `releases`, `latest_release`, `tags`
-//! and `resolve_tag`; every other read is `Refused(Unsupported)` before any
-//! request, and a write handle is never made (`site.rs`).
+//! and never through gh. It answers `releases`, `latest_release`, `tags`,
+//! `resolve_tag` and `download`; every other read is
+//! `Refused(Unsupported)` before any request, and a write handle is never
+//! made (`site.rs`).
 //!
 //! GitHub answers 404 alike for a project that is not there and for one
 //! that is private, so either is `Refused(Unsupported)`, never `NotFound`.
@@ -14,16 +15,29 @@
 //! caller, `Holder::Anonymous`, in the `Calls` pool: a spent budget is kept
 //! in the ledger, and a call while it is spent answers `Spent` with no
 //! request. The factory's budget is never asked.
+//!
+//! `download` fetches one public release file: the release of the tag is
+//! read first, and a file it does not list is `NotFound`, one it lists as
+//! larger than the limit `Unread(TooLarge)`, both before any fetch. The
+//! file is asked of the API by its id, and at most [`REDIRECTS`] redirects
+//! are followed, each to one of `curl::HOSTS` exactly over `https`; any
+//! other is `Refused(Unsupported)` with nothing written. The bytes go to a
+//! file in a directory of the adapter's own, held to the limit while they
+//! are read and to the listed size after, then into the caller's writer;
+//! the directory is removed whatever happens. The whole call is bound by
+//! `curl::DOWNLOAD_LIMIT` and the deadline. `archive` stays
+//! `Refused(Unsupported)`.
 
 use std::num::NonZeroU32;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 
+use super::code_host::download::Scratch;
 use super::{site::count, unsupported};
-use crate::curl::{self, Answer, Curl};
+use crate::curl::{self, Answer, Curl, API, DOWNLOAD_LIMIT};
 use crate::markers;
 use tehas_ports::{
     Access, At, Bound, Branch, Caller, Change, ChangeDelta, ChangeDigest, ChangeEvent,
@@ -42,6 +56,9 @@ const FAILURES_KEPT: u32 = 600;
 
 /// The most tags a tag object is peeled through.
 const PEELS: usize = 4;
+
+/// The most redirects a download follows.
+pub(crate) const REDIRECTS: usize = 2;
 
 /// What a site needs to make anonymous handles: curl and the ledger.
 #[derive(Clone)]
@@ -102,6 +119,19 @@ impl Anonymous {
     }
 
     fn once(&mut self, path: &str) -> Got<Option<Answer>> {
+        let curl = self.curl.clone();
+        self.ask(Duration::MAX, |left| curl.get(path, left))
+    }
+
+    /// One request by `run`, given the time left of `bound` and the
+    /// deadline. At or past the deadline, or while the ledger holds the
+    /// budget spent, `run` is not called. The call is metered and its
+    /// answer given to the ledger.
+    fn ask(
+        &mut self,
+        bound: Duration,
+        run: impl FnOnce(Duration) -> Result<Answer, Outcome>,
+    ) -> Got<Option<Answer>> {
         let now = (self.now)();
         let left = match self.deadline {
             Some(d) if now >= d.secs() => {
@@ -117,7 +147,7 @@ impl Anonymous {
             return Err(spent);
         }
         count(&self.meter, self.caller, PortName::CodeHost, Pool::Calls);
-        let answer = self.curl.get(path, left).and_then(|a| read_status(a, now));
+        let answer = run(left.min(bound)).and_then(|a| read_status(a, now));
         self.observe(now, &answer);
         answer
     }
@@ -218,6 +248,36 @@ impl Anonymous {
     }
 }
 
+fn is_redirect(status: u16) -> bool {
+    matches!(status, 301 | 302 | 307 | 308)
+}
+
+/// A tag's name as a path, each segment escaped.
+fn segments(tag: &TagName) -> String {
+    tag.as_str()
+        .split('/')
+        .map(curl::escape)
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+/// The fetched file, `size` bytes, into `into`. A file of another size is
+/// `Unread(Inconsistent)`; one that cannot be read, or a writer that fails,
+/// `Unread(Malformed)`, as the ports' fake answers a writer that fails.
+fn copy(path: &std::path::Path, size: u64, into: &mut dyn std::io::Write) -> Did {
+    use std::io::Read;
+    let malformed = Outcome::Unread(Unread::Malformed);
+    let f = std::fs::File::open(path).map_err(|_| malformed.clone())?;
+    let mut bytes = Vec::new();
+    f.take(size.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .map_err(|_| malformed.clone())?;
+    if bytes.len() as u64 != size {
+        return Err(Outcome::Unread(Unread::Inconsistent));
+    }
+    into.write_all(&bytes).map_err(|_| malformed)
+}
+
 /// A private or missing project, alike.
 fn refused<T>() -> Got<T> {
     Err(Outcome::Refused(Refusal::Unsupported))
@@ -295,6 +355,7 @@ struct RestRelease {
 
 #[derive(Deserialize)]
 struct RestAsset {
+    id: u64,
     name: String,
     size: u64,
 }
@@ -425,14 +486,7 @@ impl CodeHost for Anonymous {
     /// The tag's ref, and an annotated tag's object peeled to its commit.
     fn resolve_tag(&mut self, name: &TagName) -> Got<CommitId> {
         let repo = self.repo_path()?.to_string();
-        let path = format!(
-            "repos/{repo}/git/ref/tags/{}",
-            name.as_str()
-                .split('/')
-                .map(curl::escape)
-                .collect::<Vec<_>>()
-                .join("/")
-        );
+        let path = format!("repos/{repo}/git/ref/tags/{}", segments(name));
         let Some(found) = self.get(&path)? else {
             return self.missing(Outcome::NotFound);
         };
@@ -486,8 +540,58 @@ impl CodeHost for Anonymous {
         unsupported()
     }
 
-    fn download(&mut self, _: &TagName, _: &FileName, _: u64, _: &mut dyn std::io::Write) -> Did {
-        unsupported()
+    /// See the module: the release, then the file by its id.
+    fn download(
+        &mut self,
+        tag: &TagName,
+        file: &FileName,
+        limit: u64,
+        into: &mut dyn std::io::Write,
+    ) -> Did {
+        let started = Instant::now();
+        let repo = self.repo_path()?.to_string();
+        let Some(found) = self.get(&format!("repos/{repo}/releases/tags/{}", segments(tag)))?
+        else {
+            return self.missing(Outcome::NotFound);
+        };
+        let release: RestRelease = json(&found)?;
+        let asset = release
+            .assets
+            .into_iter()
+            .find(|a| a.name == file.as_str())
+            .ok_or(Outcome::NotFound)?;
+        if asset.size > limit {
+            return Err(Outcome::Unread(Unread::TooLarge));
+        }
+        let scratch = Scratch::new().ok_or(Outcome::Unread(Unread::Unknown))?;
+        let path = scratch.file();
+        let mut address = format!("{API}repos/{repo}/releases/assets/{}", asset.id);
+        for hop in 0..=REDIRECTS {
+            let bound = DOWNLOAD_LIMIT.saturating_sub(started.elapsed());
+            if bound.is_zero() {
+                return Err(Outcome::Unavailable {
+                    why: Passing::Timeout,
+                    sent: Sent::Maybe,
+                });
+            }
+            let curl = self.curl.clone();
+            let answer = self
+                .ask(bound, |left| curl.fetch(&address, left, limit, &path))?
+                .ok_or(Outcome::NotFound)?;
+            if (200..300).contains(&answer.status) {
+                if answer.written != asset.size {
+                    return Err(Outcome::Unread(Unread::Inconsistent));
+                }
+                return copy(&path, asset.size, into);
+            }
+            let to = answer
+                .header("location")
+                .filter(|_| hop < REDIRECTS && is_redirect(answer.status))
+                .filter(|to| curl::address_ok(to))
+                .ok_or(Outcome::Refused(Refusal::Unsupported))?;
+            address = to.to_string();
+        }
+        Err(Outcome::Refused(Refusal::Unsupported))
     }
 
     fn archive(&mut self, _: &CommitId, _: u64, _: &mut dyn std::io::Write) -> Did {

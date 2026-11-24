@@ -5,9 +5,16 @@
 //! [`ENV`] alone, and `-q` keeps curl from reading a `.curlrc`. Its time
 //! limit and its size cap are its own. What an answer means is the
 //! handle's, in `port/anonymous.rs`.
+//!
+//! A public release file is fetched by [`Curl::fetch`]: a GET of one
+//! address on exactly one of [`HOSTS`], `https` alone, curl following no
+//! redirect (the handle follows at most two, each to one of [`HOSTS`]).
+//! The body goes into a file the caller gives, held to a byte cap while it
+//! is read, within a time limit of at most [`DOWNLOAD_LIMIT`].
 
-use std::io::Read;
-use std::path::PathBuf;
+use std::fs::File;
+use std::io::{BufRead, BufReader, Read, Write};
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::time::Duration;
@@ -16,6 +23,20 @@ use tehas_ports::{Outcome, Passing, Refusal, Sent, Unread};
 
 /// The one host it asks, as the start of every address.
 pub(crate) const API: &str = "https://api.github.com/";
+
+/// The hosts a release file's fetch may reach, each whole: an address's
+/// host is one of these exactly, never matched by its end.
+pub const HOSTS: [&str; 3] = [
+    "api.github.com",
+    "github.com",
+    "objects.githubusercontent.com",
+];
+
+/// The most time one release file's fetch takes, its redirects in.
+pub const DOWNLOAD_LIMIT: Duration = Duration::from_secs(600);
+
+/// The most bytes of a fetch's headers.
+const HEAD_CAP: u64 = 64 * 1024;
 
 /// The environment curl runs in, whole: nothing of the caller's reaches it,
 /// so no token, no proxy and no config file's place.
@@ -56,6 +77,8 @@ pub(crate) struct Answer {
     pub(crate) status: u16,
     headers: Vec<(String, String)>,
     pub(crate) body: Vec<u8>,
+    /// The bytes a fetch wrote into its file; 0 for a GET.
+    pub(crate) written: u64,
 }
 
 impl Answer {
@@ -162,6 +185,131 @@ impl Curl {
             _ => Err(unavailable(Passing::Unreachable)),
         }
     }
+    /// The arguments of a fetch of `address`, one of [`HOSTS`] by
+    /// [`address_ok`], within `limit` (at most [`DOWNLOAD_LIMIT`]) and
+    /// `cap` bytes, or `Refused(Unsupported)` for any other address. It
+    /// asks for the file's bytes and carries no credential.
+    pub fn fetch_argv(
+        &self,
+        address: &str,
+        limit: Duration,
+        cap: u64,
+    ) -> Result<Vec<String>, Outcome> {
+        if !address_ok(address) {
+            return Err(Outcome::Refused(Refusal::Unsupported));
+        }
+        let secs = limit.min(DOWNLOAD_LIMIT).as_secs().max(1);
+        Ok([
+            "-q",
+            "--silent",
+            "--include",
+            "--proto",
+            "=https",
+            "--max-redirs",
+            "0",
+            "--connect-timeout",
+            &CONNECT.min(secs).to_string(),
+            "--max-time",
+            &secs.to_string(),
+            "--max-filesize",
+            &cap.to_string(),
+            "--header",
+            "Accept: application/octet-stream",
+            "--header",
+            "X-GitHub-Api-Version: 2022-11-28",
+            "--user-agent",
+            "tehas",
+            address,
+        ]
+        .map(String::from)
+        .to_vec())
+    }
+
+    /// One GET of `address` within `limit` and `cap`. A 2xx answer's body
+    /// goes into `file` (made empty first), and more than `cap` bytes stop
+    /// it as `Unread(TooLarge)`; any other answer's body is not read, and
+    /// nothing is written. The answer's body is empty: its `written` says
+    /// how much the file holds.
+    pub(crate) fn fetch(
+        &self,
+        address: &str,
+        limit: Duration,
+        cap: u64,
+        file: &Path,
+    ) -> Result<Answer, Outcome> {
+        let argv = self.fetch_argv(address, limit, cap)?;
+        let into = File::create(file).map_err(|_| Outcome::Unread(Unread::Unknown))?;
+        let mut child = Command::new(&self.program)
+            .args(&argv)
+            .env_clear()
+            .envs(ENV)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|_| unavailable(Passing::Unreachable))?;
+        let Some(out) = child.stdout.take() else {
+            stop(&mut child);
+            return Err(unavailable(Passing::Unreachable));
+        };
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(stream(out, into, cap));
+        });
+        let Ok(got) = rx.recv_timeout(limit.min(DOWNLOAD_LIMIT) + GRACE) else {
+            stop(&mut child);
+            return Err(unavailable(Passing::Timeout));
+        };
+        let Some((mut answer, whole)) = got else {
+            stop(&mut child);
+            return Err(Outcome::Unread(Unread::Malformed));
+        };
+        if answer.written > cap {
+            stop(&mut child);
+            return Err(Outcome::Unread(Unread::TooLarge));
+        }
+        if !(200..300).contains(&answer.status) {
+            stop(&mut child);
+            answer.written = 0;
+            return Ok(answer);
+        }
+        match child.wait().ok().and_then(|s| s.code()) {
+            Some(0) if whole => Ok(answer),
+            Some(28) => Err(unavailable(Passing::Timeout)),
+            Some(63) => Err(Outcome::Unread(Unread::TooLarge)),
+            _ => Err(unavailable(Passing::Unreachable)),
+        }
+    }
+}
+
+/// curl's `--include` output read off `out`: the head, then for a 2xx
+/// answer the body into `into`, at most `cap` + 1 bytes. None for a head
+/// that is not one; with the answer, whether the body was read to its end.
+fn stream(out: impl Read, mut into: File, cap: u64) -> Option<(Answer, bool)> {
+    let mut reader = BufReader::new(out);
+    let mut head = Vec::new();
+    loop {
+        let start = head.len();
+        let read = Read::by_ref(&mut reader)
+            .take(HEAD_CAP.saturating_sub(start as u64))
+            .read_until(b'\n', &mut head)
+            .ok()?;
+        let line = &head[start..];
+        if read == 0 || !line.ends_with(b"\n") {
+            return None;
+        }
+        if line == b"\r\n" || line == b"\n" {
+            break;
+        }
+    }
+    let mut answer = parse(&head)?;
+    if !(200..300).contains(&answer.status) {
+        return Some((answer, false));
+    }
+    let copied = std::io::copy(&mut Read::by_ref(&mut reader).take(cap + 1), &mut into);
+    let whole = copied.is_ok() && into.flush().is_ok();
+    answer.written = copied.unwrap_or(0);
+    Some((answer, whole))
 }
 
 fn unavailable(why: Passing) -> Outcome {
@@ -199,6 +347,41 @@ pub(crate) fn api_path(address: &str) -> Option<&str> {
     address.strip_prefix(API).filter(|p| path_ok(p))
 }
 
+/// Whether `address` is `https://` and one of [`HOSTS`] exactly, then a
+/// path and query of plain bytes: no port, user part, fragment, `..`,
+/// empty segment, backslash or space. A redirect anywhere else is not
+/// followed.
+pub(crate) fn address_ok(address: &str) -> bool {
+    let Some((host, rest)) = address
+        .strip_prefix("https://")
+        .and_then(|a| a.split_once('/'))
+    else {
+        return false;
+    };
+    HOSTS.contains(&host)
+        && !rest.starts_with('/')
+        && !rest.contains("//")
+        && !rest.contains("..")
+        && rest.bytes().all(|b| {
+            b.is_ascii_alphanumeric()
+                || matches!(
+                    b,
+                    b'-' | b'.'
+                        | b'_'
+                        | b'~'
+                        | b'/'
+                        | b'?'
+                        | b'='
+                        | b'&'
+                        | b'%'
+                        | b'+'
+                        | b':'
+                        | b','
+                        | b';'
+                )
+        })
+}
+
 /// `segment` escaped for one segment of a path: every byte but an
 /// unreserved one as `%XX`.
 pub(crate) fn escape(segment: &str) -> String {
@@ -231,6 +414,7 @@ fn parse(bytes: &[u8]) -> Option<Answer> {
         status,
         headers,
         body: bytes[end + gap..].to_vec(),
+        written: 0,
     })
 }
 
@@ -277,6 +461,41 @@ mod tests {
             "https://api.github.com//evil.test/x",
         ] {
             assert_eq!(api_path(other), None, "{other}");
+        }
+    }
+
+    #[test]
+    fn a_fetch_reaches_exactly_the_three_hosts_over_https() {
+        for ok in [
+            "https://api.github.com/repos/acme/widget/releases/assets/11",
+            "https://github.com/acme/widget/releases/download/v1/install",
+            "https://objects.githubusercontent.com/a/1?X-Amz-Signature=a%2Bb&r=attachment%3B+f",
+        ] {
+            assert!(address_ok(ok), "{ok}");
+        }
+        for bad in [
+            "http://github.com/x",
+            "https://github.com",
+            "https://github.com.evil.test/x",
+            "https://objects.githubusercontent.com.evil.test/x",
+            "https://evil.githubusercontent.com/x",
+            "https://evilgithub.com/x",
+            "https://github.com:443/x",
+            "https://github.com@evil.test/x",
+            "https://user@github.com/x",
+            "https://github.com/x#y",
+            "https://github.com/x/../y",
+            "https://github.com//evil.test/x",
+            "https://github.com/x\\y",
+            "https://github.com/x y",
+            "https://github.com/x\ny",
+            " https://github.com/x",
+        ] {
+            assert!(!address_ok(bad), "{bad}");
+            assert_eq!(
+                Curl::new().fetch_argv(bad, LIMIT, 1).unwrap_err(),
+                Outcome::Refused(Refusal::Unsupported)
+            );
         }
     }
 
