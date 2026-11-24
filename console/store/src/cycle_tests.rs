@@ -1818,7 +1818,10 @@ fn cycle_show_of_an_unlistable_directory_is_probe_rc_2() {
         let v = ok(&home, &["cycle-show", "--running"]);
         fs::set_permissions(lock::dir(&home), fs::Permissions::from_mode(0o700)).unwrap(); // a directory
         assert_eq!(v["probe_rc"], 2);
-        assert!(v["why"].as_str().unwrap().starts_with("state/cycles"));
+        assert!(v["why"]
+            .as_str()
+            .unwrap()
+            .starts_with(tehas_core::home::CYCLES));
     }
     // state/cycles a file: not a directory.
     fs::remove_dir_all(lock::dir(&home)).unwrap();

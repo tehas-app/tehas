@@ -597,22 +597,24 @@ mod tests {
         assert!(seen.len() > 60);
         assert_eq!(retired().next(), Some("bin/tehas-console.ts"));
         assert!(seen.contains("libexec/github-token"));
+        let home = Home::new("");
+        let state = |rest: &str| format!("{}/{rest}", home.state_dir().display());
         // What outsource left: its programs, its files and its directories.
         for gone in [
-            "libexec/tehas-proxy",
-            "libexec/tehas-proxy.stamp",
-            "libexec/tehas-contractor",
-            "libexec/tehas-contractor.stamp",
-            "live/contractors.json",
-            "sandbox/vipune-shim",
-            "state/outsource/",
-            "state/memory/cycles/",
+            "libexec/tehas-proxy".to_string(),
+            "libexec/tehas-proxy.stamp".to_string(),
+            "libexec/tehas-contractor".to_string(),
+            "libexec/tehas-contractor.stamp".to_string(),
+            format!("{}/contractors.json", home.live_dir().display()),
+            "sandbox/vipune-shim".to_string(),
+            state("outsource/"),
+            state("memory/cycles/"),
         ] {
-            assert!(seen.contains(gone), "{gone} is not retired");
+            assert!(seen.contains(gone.as_str()), "{gone} is not retired");
         }
         // Not outsource's alone to remove: left where they are.
-        for kept in ["state/memory/", "state/images/"] {
-            assert!(!seen.contains(kept), "{kept} is retired");
+        for kept in [state("memory/"), state("images/")] {
+            assert!(!seen.contains(kept.as_str()), "{kept} is retired");
         }
         // The Protolab's list and log, which nothing writes or rotates now.
         let list = Home::new(Path::new("")).live_dir().join("protolab.json");

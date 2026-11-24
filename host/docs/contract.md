@@ -878,6 +878,16 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Adopter action: a program that read gh's words in `last` reads the fixed
   lines. A line written before the update shows until it leaves the
   ten-minute window.
+- **`tehas setup`, `tehasbot github-token` and `console pins` name a failed
+  call in tehas's words.** #3140. An error line of each names what failed
+  in its own words, then the kind of failure as one fixed line of the
+  ports' outcomes: `not found, or not visible to this actor`, `the
+  credential is no longer good`, `this actor may not do this`, `the site
+  could not be reached`, `the site failed`, `timed out before sending`, and
+  the like. They no longer pass on curl's words or `HTTP <status>`.
+  Readers: adopters, the end-to-end suite.
+  Adopter action: a script that matched curl's words or `HTTP <status>` in
+  those lines matches the fixed lines.
 - **The repository is tehas-app/tehas-factory.** #2980. Only the
   repository's name changes: the commands, the crates, the paths, the event
   names and the kit keep theirs. The release repository built into tehas
@@ -903,15 +913,14 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Readers: adopters, the consumer that runs many factories.
   Adopter action: update a host on an older release to the newest 1.4.x
   first.
-- **The allowed labellers are matched ignoring ASCII case.** #2962.
+- **The allowed labellers are matched ignoring ASCII case.** #2962, T4.7.
   1.4.x matched a login of `TEHAS_ALLOWED_LABELERS` in exact case. In 2.0
-  the checks of `tehas resume`, `tehas plan`, `tehas dev` and a cycle started
-  by hand match it ignoring ASCII case, as GitHub logins are one account in
-  any case, and print the login in lower case. The user id check folds case
-  too: every case variant of a listed login must carry the id recorded in
-  `state/account-ids`, or it does not count. The dispatcher still matches
-  in exact case until the two are one rule (see
-  [Pending for 2.0](#pending-for-20)).
+  the dispatcher and the checks of `tehas resume`, `tehas plan`, `tehas dev`
+  and a cycle started by hand match it ignoring ASCII case, as GitHub
+  logins are one account in any case, and the checks print the login in
+  lower case. The user id check folds case too: every case variant of a
+  listed login must carry the id recorded in `state/account-ids`, or it
+  does not count.
   Readers: adopters, the end-to-end suite.
   Adopter action: none.
 - **`tehas labels` reads no installed table, and its output text is not
@@ -934,10 +943,6 @@ Planned or in review, not merged. Each moves to
 [Changed in 2.0](#changed-in-20) when it lands, with its readers and
 adopter action as the pull request states them.
 
-- **One rule for the allowed labellers.** T4.7. The dispatcher matches
-  `TEHAS_ALLOWED_LABELERS` ignoring ASCII case, as the console's checks do
-  since #2962. Until then a case variant of a listed login gets no from the
-  dispatcher.
 - **Events.** T11, spec `docs/specs/2026-11-22-events.md`
   (#2878, merged); the build
   is under way. Notify events, each with a schema in `api/` and a witness in
