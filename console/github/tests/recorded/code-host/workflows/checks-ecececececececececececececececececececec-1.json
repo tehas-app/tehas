@@ -1,0 +1,65 @@
+{
+ "total_count": 4,
+ "check_runs": [
+  {
+   "id": 9104,
+   "name": "test",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-02-01T10:20:00Z",
+   "completed_at": "2026-02-01T10:20:00Z",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions"
+   },
+   "check_suite": {
+    "id": 8202
+   }
+  },
+  {
+   "id": 9103,
+   "name": "test",
+   "status": "completed",
+   "conclusion": "failure",
+   "started_at": "2026-02-01T10:10:00Z",
+   "completed_at": "2026-02-01T10:10:00Z",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions"
+   },
+   "check_suite": {
+    "id": 8201
+   }
+  },
+  {
+   "id": 9102,
+   "name": "deploy",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-02-01T10:05:00Z",
+   "completed_at": "2026-02-01T10:05:00Z",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions"
+   },
+   "check_suite": {
+    "id": 8202
+   }
+  },
+  {
+   "id": 9101,
+   "name": "test",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-02-01T10:00:00Z",
+   "completed_at": "2026-02-01T10:00:00Z",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions"
+   },
+   "check_suite": {
+    "id": 8201
+   }
+  }
+ ]
+}

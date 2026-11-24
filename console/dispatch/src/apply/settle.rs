@@ -192,7 +192,8 @@ impl Writer {
             // is not sent twice, unread is not sent at all.
             // A row of the ports by its write, as the journal keeps it.
             let key = match a.pointer("/args/write") {
-                Some(write) => looked_key(n, &kind, write, &Value::Null),
+                // As a send asks for it (`Writer::send`): by the write alone.
+                Some(write) => looked_key(n, "", write, &Value::Null),
                 None => looked_key(
                     n,
                     &kind,

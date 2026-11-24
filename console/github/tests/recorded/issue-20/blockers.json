@@ -1,1 +1,1 @@
-{"data":{"repository":{"issue":{"number":20,"blockedBy":{"totalCount":1,"nodes":[{"number":23,"state":"OPEN","repository":{"nameWithOwner":"acme/widget"}}]}}}}}
+{"data":{"repository":{"databaseId":7001,"issue":{"number":20,"blockedBy":{"totalCount":1,"nodes":[{"number":23,"state":"OPEN","repository":{"databaseId":7001,"nameWithOwner":"acme/widget"}}]}}}}}

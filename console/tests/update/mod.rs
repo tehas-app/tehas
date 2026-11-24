@@ -389,11 +389,15 @@ impl Host {
         let _ = fs::remove_dir_all(dir);
     }
 
-    /// The user ids an install records, of every login of `LOGINS` (t_ids).
+    /// The user ids an install records, of every login of `LOGINS` (t_ids),
+    /// in the form 2.0 writes: a 1.x file would be rewritten first.
     pub fn ids(&self, home: &Path) {
         let at = Home::new(home);
         fs::create_dir_all(at.state_dir()).unwrap();
-        let ids: String = LOGINS.iter().map(|l| format!("{l} {}\n", uid(l))).collect();
+        let ids: String = LOGINS
+            .iter()
+            .map(|l| format!("code-host {l} {}\n", uid(l)))
+            .collect();
         fs::write(at.state(State::AccountIds), ids).unwrap();
     }
 

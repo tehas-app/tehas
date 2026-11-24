@@ -138,6 +138,9 @@
 //!   store poll-idle --since <seconds> [--budget <spec>]
 //!                (what each poll cost, and the cost of the idle ones: src/poll.rs)
 //!   store poll-begin
+//!   store link-record <blueprint> --ticket <key> --by <account>
+//!                --realm code-host|tickets (--how opened|linked | --remove)
+//!                (the link of a ticket to a blueprint: src/link.rs)
 //!   store journal-record --poll <at> --kind <kind> --issue <n> --args <json>
 //!                --before <at>
 //!   store journal-record --poll <at> --write <json> --args <json> --before <at>

@@ -226,7 +226,14 @@ fn a_refine_that_files_one_issue_links_both_ways_and_closes_the_original_as_repl
         &gh,
         "api -X POST repos/acme/widget/issues/7/sub_issues -F sub_issue_id=5012",
     );
-    has(&gh, &format!("issue comment 7 --repo acme/widget --body Replaced by #12.\n\nFiled {I12}: Faster search, part 1."));
+    assert!(
+        w.said_on(
+            7,
+            &format!("Replaced by #12.\n\nFiled {I12}: Faster search, part 1.")
+        ),
+        "{:?}",
+        w.said(7)
+    );
     has(&gh, "issue edit 7 --repo acme/widget --remove-label tehas:question --remove-label tehas:planning --remove-label tehas:refined --add-label tehas:replaced");
     has(&gh, "issue close 7 --repo acme/widget --reason not planned");
     lacks(&gh, "tehas:question kind=plan");
