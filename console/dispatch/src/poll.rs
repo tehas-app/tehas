@@ -437,6 +437,8 @@ fn writer(
         plans_ended: Vec::new(),
         asked_again: false,
         events,
+        // Made once the poll has its token: run_poll.
+        ports: None,
     }
 }
 
@@ -625,6 +627,7 @@ pub fn run_poll(
     settings: &Settings,
     dry: bool,
     events: tehas_ports::events::Dispatcher,
+    handles: crate::apply::HandlesOf,
 ) -> i32 {
     // The poll hands both bounds to the unit of a turn, so a value it cannot
     // read stops it before the lock, a write or any call.
@@ -731,6 +734,10 @@ pub fn run_poll(
     // logged, never written to a file and never put in the arguments of
     // anything.
     w.calls.gh_token = first_token;
+    // The ports' handles carry the same token, so the adapter's gh asks for
+    // none either. A wiring that cannot make them leaves the rows of the
+    // ports open: the settle says so of each.
+    w.ports = handles(home, &w.repo, &w.gh, w.calls.gh_token.as_deref(), w.bound).ok();
     let mut end = End {
         home,
         dry,
@@ -1570,6 +1577,19 @@ mod tests {
         held
     }
 
+    /// A wiring with no code host: these polls write nothing of the ports.
+    fn no_handles(
+        _: &Path,
+        _: &str,
+        _: &str,
+        _: Option<&str>,
+        _: Duration,
+    ) -> tehas_ports::Got<crate::apply::Handles> {
+        Err(tehas_ports::Outcome::Refused(
+            tehas_ports::Refusal::Unsupported,
+        ))
+    }
+
     #[test]
     fn a_poll_that_finds_the_lock_held_leaves_the_ask_for_the_next_poll() {
         let home = poll_home("again-held");
@@ -1578,7 +1598,13 @@ mod tests {
         let held = held_lock(&home);
         let events = crate::events::wiring();
         assert_eq!(
-            run_poll(&home, &Settings::parse(&json!({})), false, events),
+            run_poll(
+                &home,
+                &Settings::parse(&json!({})),
+                false,
+                events,
+                no_handles
+            ),
             0
         );
         // A cycle ended while a poll ran and asked for another: the ask is
@@ -1598,6 +1624,7 @@ mod tests {
             &Settings::parse(&json!({})),
             false,
             crate::events::wiring(),
+            no_handles,
         );
         // This poll is the one that was asked for, so the ask is gone.
         assert!(!again.exists(), "the poll that ran left the ask");

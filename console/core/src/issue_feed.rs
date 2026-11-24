@@ -18,7 +18,7 @@ use crate::forge::GhRunner;
 use serde_json::Value;
 use std::path::Path;
 
-/// Whole logins, split by spaces, exact case. An empty name is nobody.
+/// Whole logins, split by spaces, in any ASCII case. An empty name is nobody.
 pub fn allowed(who: &str, list: &str) -> bool {
     crate::events::allowed_in(list, who)
 }
@@ -534,11 +534,11 @@ mod tests {
     }
 
     #[test]
-    fn the_allowed_list_is_whole_logins_in_exact_case() {
+    fn the_allowed_list_is_whole_logins_in_any_ascii_case() {
         assert!(allowed("alice", "alice bob"));
         assert!(allowed("bob", "alice bob"));
         assert!(!allowed("ali", "alice bob"));
-        assert!(!allowed("Alice", "alice bob"));
+        assert!(allowed("Alice", "alice bob"));
     }
 
     #[test]

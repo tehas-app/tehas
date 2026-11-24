@@ -13,7 +13,10 @@ use regex::Regex;
 use serde_json::{json, Value};
 use std::sync::OnceLock;
 use std::time::Duration;
-use tehas_ports::{Blobs, Got, Outcome, Passing, Receipt, Refusal, Sent, Sha256, Write, Writes};
+use tehas_ports::{
+    Blobs, Blueprints, CodeHost, Got, Outcome, Passing, Receipt, Refusal, Sent, Sha256, Tickets,
+    Write, Writes,
+};
 
 /// How a journaled call ended.
 #[derive(Debug, PartialEq)]
@@ -58,6 +61,18 @@ pub enum Found {
     /// It is not: the row is closed as not sent, and the caller decides
     /// afresh from the same read. Nothing is replayed from the row.
     NotSent,
+}
+
+/// The ports a journal's writes go through, and the reads that settle a
+/// write the site may have taken ([`settle::read`]). The program's wiring
+/// makes them.
+pub struct Handles {
+    pub writes: Box<dyn Writes>,
+    pub tickets: Box<dyn Tickets>,
+    /// Where a ticket is its own blueprint, its notes are the blueprint's
+    /// comments.
+    pub blueprints: Box<dyn Blueprints>,
+    pub code_host: Box<dyn CodeHost>,
 }
 
 /// The store's answer to one call, or its failure.
