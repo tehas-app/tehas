@@ -13,6 +13,8 @@ publish = false
 # Any HTML in a page is shown as text (src/render.rs).
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 regex = "1"
+# build.json as it is written (src/publish.rs).
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 [dev-dependencies]
