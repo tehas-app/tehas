@@ -185,7 +185,7 @@ t_run "$install"
 t_eq "$t_rc" 0
 # The user ids are asked again, and nothing else of GitHub.
 t_eq "$(t_calls gh)" "api users/alice --jq .id"
-t_eq "$(cat "$th/state/account-ids")" "alice $(t_uid alice)"
+t_eq "$(cat "$th/state/account-ids")" "code-host alice $(t_uid alice)"
 # Only the reset of a tehas unit systemd failed, which enables nothing.
 t_eq "$(t_calls systemctl)" "--user is-failed tehas-dispatch.path
 --user reset-failed tehas-*"
