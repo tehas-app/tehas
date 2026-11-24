@@ -781,7 +781,10 @@ pub trait TicketWrites: Tickets {
     fn close(&mut self, key: &TicketKey, reason: &CloseReason) -> Did;
     /// Write a note on the ticket, its markers beside it.
     fn note(&mut self, key: &TicketKey, body: &str, markers: &[Marker]) -> Got<Posted<CommentId>>;
-    /// File a new ticket.
+    /// File a new ticket. Its marks are asked, not promised: a site may
+    /// drop those the actor may not set and still make the ticket, and the
+    /// answer is then `Ok`, never a refusal of a ticket that was made. A
+    /// caller that needs the marks reads the ticket back or puts them.
     fn file(&mut self, new: &NewTicket) -> Got<Posted<TicketKey>>;
     /// The ticket's own title and text. `since`: write only if the ticket is
     /// still at this revision, else `Conflict(Changed)`. Markers not named in
@@ -814,7 +817,8 @@ pub trait TicketWrites: Tickets {
     fn add_part(&mut self, parent: &TicketKey, child: &TicketKey) -> Did;
     /// Take `child` out of `parent`'s parts.
     fn remove_part(&mut self, parent: &TicketKey, child: &TicketKey) -> Did;
-    /// Make a target.
+    /// Make a target. As with `file`, a target that was made is `Ok`,
+    /// whatever the site dropped from it.
     fn new_target(&mut self, title: &str, due: Option<At>) -> Got<TargetId>;
     /// Change a target.
     fn edit_target(&mut self, id: &TargetId, edit: &TargetEdit) -> Did;
