@@ -5,12 +5,13 @@
 
 use crate::args::{Arg, Args};
 use crate::snapshot::Snapshot;
-use crate::tools::{self, Dirs, ToolError};
+use crate::tools::{self, Dirs, Links, ToolError};
 use regex::Regex;
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
 use tehas_core::queue_lists::{AWAITING, COMPLETED, QUEUED, RUNNING, STOPPED};
+use tehas_ports::{BlueprintNo, ChangeNo, Cite, Cites, Ref};
 
 // The words an answer may give for an outcome or a kind, and the words the
 // filters of `factory_sessions` accept. The outcomes are the core's one
@@ -48,8 +49,6 @@ pub use tools::WORD;
 static IMAGE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(sha256:)?[0-9a-f]{12,64}$").unwrap());
 const GROUPS: [&str; 2] = ["version", "image"];
-static REPO: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$").unwrap());
 
 /// The snapshot's fields as this crate names them: key, JSON type,
 /// description. All three come from `tehas_core::snapshot`, in its order, so
@@ -358,16 +357,32 @@ pub fn tools() -> Vec<Value> {
     ]
 }
 
-/// Links to an issue and its pull request. A repo that is not `owner/name`
-/// gives none.
-pub fn links(repo: Option<&str>, issue: i64, pr: Option<i64>) -> (Option<String>, Option<String>) {
-    let Some(repo) = repo.filter(|r| REPO.is_match(r) && !r.contains("..")) else {
-        return (None, None);
-    };
-    (
-        Some(format!("https://github.com/{repo}/issues/{issue}")),
-        pr.map(|n| format!("https://github.com/{repo}/pull/{n}")),
-    )
+/// Where a person opens an issue and its pull request, as the code host
+/// links them (`Cites::link`). With no code host for the repository, or a
+/// number that is no item's, nothing is linked.
+pub struct Linker(Option<Box<dyn Cites + Send>>);
+
+impl Linker {
+    /// The links of the repository `repo` names, made by `links`.
+    pub fn of(links: Links, repo: Option<&str>) -> Linker {
+        Linker(repo.and_then(links))
+    }
+
+    fn link(&self, what: Cite) -> Option<String> {
+        Some(self.0.as_ref()?.link(&what)?.as_str().to_string())
+    }
+
+    /// The link of issue `issue`.
+    pub fn issue(&self, issue: i64) -> Option<String> {
+        let no = BlueprintNo::new(u64::try_from(issue).ok()?)?;
+        self.link(Cite::Blueprint(Ref::Here(no)))
+    }
+
+    /// The link of pull request `pr`.
+    pub fn pr(&self, pr: i64) -> Option<String> {
+        let no = ChangeNo::new(u64::try_from(pr).ok()?)?;
+        self.link(Cite::Change(Ref::Here(no)))
+    }
 }
 
 fn bad(why: &str) -> ToolError {
@@ -399,13 +414,15 @@ fn repo_of(status: &Option<Value>) -> Option<String> {
     status.as_ref()?["repo"].as_str().map(str::to_string)
 }
 
-fn repo(dirs: &Dirs) -> Result<Option<String>, ToolError> {
-    Ok(repo_of(&published(dirs, "status.json")?))
+/// The links of the repository the published status names.
+fn linker(dirs: &Dirs) -> Result<Linker, ToolError> {
+    let repo = repo_of(&published(dirs, "status.json")?);
+    Ok(Linker::of(dirs.links, repo.as_deref()))
 }
 
-fn session_links(repo: &Option<String>, s: &Value) -> (Option<String>, Option<String>) {
+fn session_links(links: &Linker, s: &Value) -> (Option<String>, Option<String>) {
     match s["issue"].as_i64() {
-        Some(n) => links(repo.as_deref(), n, s["pr"].as_i64()),
+        Some(n) => (links.issue(n), s["pr"].as_i64().and_then(|p| links.pr(p))),
         None => (None, None),
     }
 }
@@ -517,7 +534,7 @@ pub(crate) fn list(dirs: &Dirs, asked: &ListArgs) -> Result<Map<String, Value>, 
     let (limit, before) = (*limit, before.as_deref());
 
     let snap = open(dirs)?;
-    let repo = repo(dirs)?;
+    let links = linker(dirs)?;
     let eq = |s: &Value, key: &str, want: &Option<String>| {
         want.as_deref().is_none_or(|w| s[key].as_str() == Some(w))
     };
@@ -525,7 +542,7 @@ pub(crate) fn list(dirs: &Dirs, asked: &ListArgs) -> Result<Map<String, Value>, 
     let item = summary_schema();
     let summary = |s: &Value| {
         let mut o = pick_object(s, &keys);
-        let (i, p) = session_links(&repo, s);
+        let (i, p) = session_links(&links, s);
         insert_opt(&mut o, "issueUrl", i);
         insert_opt(&mut o, "prUrl", p);
         Value::Object(o)
@@ -658,7 +675,7 @@ pub(crate) fn one(dirs: &Dirs, asked: &OneArgs) -> Result<Map<String, Value>, To
         })
         .collect();
     s.insert("logs".into(), Value::Array(logs));
-    let (i, p) = session_links(&repo(dirs)?, &raw);
+    let (i, p) = session_links(&linker(dirs)?, &raw);
     insert_opt(&mut s, "issueUrl", i);
     insert_opt(&mut s, "prUrl", p);
     let s = Value::Object(s);
@@ -711,7 +728,7 @@ impl FailuresArgs {
 pub(crate) fn failures(dirs: &Dirs, asked: &FailuresArgs) -> Result<Map<String, Value>, ToolError> {
     let (by_image, only) = (asked.by_image, &asked.only);
     let snap = open(dirs)?;
-    let repo = repo(dirs)?;
+    let links = linker(dirs)?;
     let mut pairs: BTreeMap<(Option<String>, Option<String>, String), Pair> = BTreeMap::new();
     for s in snap.sessions().filter(|s| s["kind"] == "work") {
         let text = |k: &str| s[k].as_str().map(str::to_string);
@@ -761,11 +778,8 @@ pub(crate) fn failures(dirs: &Dirs, asked: &FailuresArgs) -> Result<Map<String, 
                 .into_iter()
                 .take(TOP_CAUSES)
                 .map(|((cause, kind), c)| {
-                    let issues: Vec<String> = c
-                        .issues
-                        .iter()
-                        .filter_map(|i| links(repo.as_deref(), *i, None).0)
-                        .collect();
+                    let issues: Vec<String> =
+                        c.issues.iter().filter_map(|i| links.issue(*i)).collect();
                     let mut o = Map::new();
                     o.insert("cause".into(), json!(cause));
                     insert_opt(&mut o, "kind", kind);
@@ -869,7 +883,7 @@ pub(crate) fn issue(dirs: &Dirs, asked: &IssueArgs) -> Result<Map<String, Value>
     // a host without it has nothing to answer with.
     let snap = open(dirs)?;
     let status = published(dirs, "status.json")?;
-    let repo = repo_of(&status);
+    let links = Linker::of(dirs.links, repo_of(&status).as_deref());
     let st = status.unwrap_or(Value::Null);
 
     // The first list that holds the number, as the dashboard shows it. The
@@ -937,11 +951,7 @@ pub(crate) fn issue(dirs: &Dirs, asked: &IssueArgs) -> Result<Map<String, Value>
         .map(|s| {
             let mut o = pick_object(&s, &keys);
             o.retain(|_, v| scalar(v));
-            insert_opt(
-                &mut o,
-                "prUrl",
-                links(repo.as_deref(), issue, s["pr"].as_i64()).1,
-            );
+            insert_opt(&mut o, "prUrl", s["pr"].as_i64().and_then(|p| links.pr(p)));
             Value::Object(o)
         })
         .collect();
@@ -950,7 +960,7 @@ pub(crate) fn issue(dirs: &Dirs, asked: &IssueArgs) -> Result<Map<String, Value>
 
     let mut out = Map::new();
     out.insert("issue".into(), json!(issue));
-    insert_opt(&mut out, "issueUrl", links(repo.as_deref(), issue, None).0);
+    insert_opt(&mut out, "issueUrl", links.issue(issue));
     if let Some(s) = stage {
         out.insert("stage".into(), json!(s));
     }

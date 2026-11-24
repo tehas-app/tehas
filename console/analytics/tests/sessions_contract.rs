@@ -129,6 +129,7 @@ fn the_mcp_reader_copies_every_field_the_sessions_writer_emits() {
         live: Home::new(home.path()).live_dir(),
         sessions: home.join("mcp"),
         logs: home.join("logs"),
+        links: mcp::tools::no_links,
     };
 
     let session = answer(&dirs, "factory_session", json!({"id": id}))["session"].clone();

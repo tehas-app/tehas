@@ -8,7 +8,7 @@
 //! `NOT_FOUND` error at that alias, and gh then exits 1, so the question is
 //! read from gh's answer beside its failure, item by item. That reading,
 //! `ask_aliased`, is shared with every other aliased question of the
-//! adapter (`port/closed.rs`).
+//! adapter (`port/closed.rs`, `port/code_host/numbers.rs`).
 
 use std::collections::BTreeMap;
 use std::num::NonZeroU64;
@@ -28,7 +28,7 @@ const CUT: Outcome = Outcome::Unread(Unread::Cut);
 const PER_QUESTION: usize = 100;
 
 /// The alias a number is asked under.
-fn alias(n: u64) -> String {
+pub(crate) fn alias(n: u64) -> String {
     format!("n{n}")
 }
 
@@ -56,8 +56,28 @@ struct Answer {
 
 #[derive(Deserialize)]
 struct Data {
-    /// Each alias asked, null where GitHub has no node for it.
+    /// Each alias asked, null where GitHub has no node for it, and any
+    /// other field asked of the repository.
     repository: Option<BTreeMap<String, Value>>,
+    /// The account asking, when the question asks it.
+    #[serde(default)]
+    viewer: Option<Viewer>,
+}
+
+#[derive(Deserialize)]
+struct Viewer {
+    #[serde(rename = "databaseId")]
+    database_id: Option<u64>,
+}
+
+/// What an aliased question answered: each alias's node, as
+/// `GitHub::ask_aliased` reads it, and beside them the repository's id and
+/// the account asking's, where the question asked them and GitHub gave
+/// them.
+pub(crate) struct Aliased<T> {
+    pub(crate) nodes: Vec<Got<T>>,
+    pub(crate) repository_id: Option<u64>,
+    pub(crate) viewer_id: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -144,7 +164,22 @@ impl GitHub {
         question: &str,
         aliases: &[String],
     ) -> Vec<Got<T>> {
-        let all = |o: Outcome| aliases.iter().map(|_| Err(o.clone())).collect();
+        self.ask_aliased_beside(call, question, aliases).nodes
+    }
+
+    /// [`GitHub::ask_aliased`], with the repository's `databaseId` and the
+    /// `viewer`'s where the question asks them: None where it fails whole.
+    pub(crate) fn ask_aliased_beside<T: DeserializeOwned>(
+        &mut self,
+        call: &str,
+        question: &str,
+        aliases: &[String],
+    ) -> Aliased<T> {
+        let all = |o: Outcome| Aliased {
+            nodes: aliases.iter().map(|_| Err(o.clone())).collect(),
+            repository_id: None,
+            viewer_id: None,
+        };
         let (owner, name) = self.owner_name();
         let query = format!("query={question}");
         let args = ["api", "graphql", "-F", &owner, "-F", &name, "-f", &query];
@@ -162,7 +197,10 @@ impl GitHub {
         let Some(answer) = read else {
             return all(failed.map_or(MALFORMED, |e| self.failed(&e, aliases.len())));
         };
-        let repository = answer.data.and_then(|d| d.repository);
+        let (repository, viewer_id) = match answer.data {
+            Some(d) => (d.repository, d.viewer.and_then(|v| v.database_id)),
+            None => (None, None),
+        };
         let nodes = match (repository, failed.as_ref()) {
             (Some(nodes), None) => Some(nodes),
             (Some(nodes), Some(_)) if !answer.errors.is_empty() => Some(nodes),
@@ -177,7 +215,7 @@ impl GitHub {
         if answer.errors.iter().any(|e| e.alias().is_none()) {
             return all(INCONSISTENT);
         }
-        aliases
+        let answered = aliases
             .iter()
             .map(|a| {
                 let errors: Vec<&Error> = answer
@@ -193,7 +231,12 @@ impl GitHub {
                     _ => Err(INCONSISTENT),
                 }
             })
-            .collect()
+            .collect();
+        Aliased {
+            nodes: answered,
+            repository_id: nodes.get("databaseId").and_then(Value::as_u64),
+            viewer_id,
+        }
     }
 
     /// The outcome of a question gh failed with no answer to read. A

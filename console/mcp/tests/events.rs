@@ -26,6 +26,7 @@ fn fixture_dirs() -> Dirs {
         live: Home::new(&f).live_dir(),
         sessions: f.join("sessions"),
         logs: f.join("logs"),
+        links: mcp::tools::no_links,
     }
 }
 
@@ -41,6 +42,7 @@ impl Env {
             live: Home::new(&*root).live_dir(),
             sessions: root.join("mcp"),
             logs: root.join("logs"),
+            links: mcp::tools::no_links,
         };
         for d in [&dirs.live, &dirs.sessions, &dirs.logs] {
             std::fs::create_dir_all(d).unwrap();
