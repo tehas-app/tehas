@@ -130,6 +130,12 @@ fn an_actor_the_factory_cannot_run_is_unsupported_before_a_runner_is_made() {
             Some(UNSUPPORTED),
             "{by:?}"
         );
+        assert_eq!(
+            refused(site.code_host(by, CALLER)),
+            Some(UNSUPPORTED),
+            "{by:?}"
+        );
+        assert_eq!(refused(site.board(by, CALLER)), Some(UNSUPPORTED), "{by:?}");
     }
     assert!(asked.lock().unwrap().is_empty());
 }
@@ -254,4 +260,40 @@ fn a_view_before_its_deadline_sends_and_a_view_of_a_view_keeps_the_earlier() {
     let mut h = again.tickets(&by, CALLER).unwrap();
     let (_, got) = h.several(&[key(7)]).pop().unwrap();
     assert_eq!(got.err(), Some(TIMEOUT));
+}
+
+#[test]
+fn a_marker_is_written_as_the_table_writes_it_with_no_handle() {
+    use tehas_ports::{Marker, MarkerKind};
+    let (site, asked) = site(&[]);
+    let writable = [
+        Marker::HoldCleared,
+        Marker::TicketOf(tehas_ports::Ref::Here(key(7))),
+    ];
+    for m in &writable {
+        let written = site.marker_text(m);
+        assert!(!written.is_empty(), "{m:?}");
+        assert_eq!(Some(written), table::marker_text(m), "{m:?}");
+    }
+    assert_eq!(
+        site.marker_text(&Marker::HoldCleared),
+        "<!-- tehas:hold-cleared -->"
+    );
+    for m in [
+        Marker::Unknown,
+        Marker::Unreadable {
+            kind: MarkerKind::Finish,
+        },
+        Marker::Blocked { by: vec![] },
+    ] {
+        assert_eq!(site.marker_text(&m), "", "{m:?}");
+    }
+    let setup = Setup::One(Arc::new(site));
+    for realm in [Realm::Tickets, Realm::CodeHost] {
+        assert_eq!(
+            setup.marker_text(realm, &Marker::HoldCleared),
+            "<!-- tehas:hold-cleared -->"
+        );
+    }
+    assert!(asked.lock().unwrap().is_empty());
 }

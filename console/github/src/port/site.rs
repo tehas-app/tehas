@@ -12,7 +12,7 @@ use crate::{table, GitHub};
 use tehas_core::forge::{Failed, GhRunner};
 use tehas_ports::{
     Actor, At, BlueprintWrites, Blueprints, Board, Caller, CodeHost, CodeHostWrites, Got, Identity,
-    Mark, MeterRow, Outcome, Pool, PortName, Realm, Scope, Site, TicketWrites, Tickets,
+    Mark, Marker, MeterRow, Outcome, Pool, PortName, Realm, Scope, Site, TicketWrites, Tickets,
 };
 
 /// What makes a runner of gh for an actor: the wiring's, so the adapter
@@ -176,6 +176,12 @@ impl Site for GitHubSite {
 
     fn mark_name(&self, mark: &Mark) -> String {
         table::mark_name(mark)
+    }
+
+    /// The marker's text from the table, as a person types it in an issue.
+    /// `""` for one that is not writable.
+    fn marker_text(&self, marker: &Marker) -> String {
+        table::marker_text(marker).unwrap_or_default()
     }
 
     /// A clone sharing the meter and the runner maker. A view of a view
