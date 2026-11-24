@@ -819,7 +819,7 @@ impl CodeHostWrites for Handle {
             s.changes[at].state = ChangeState::Merged {
                 at: ctx.now,
                 by,
-                commit,
+                commit: Some(commit),
             };
             change_event(s, ctx, at, ChangeHappened::Merged);
             for b in &c.closes {

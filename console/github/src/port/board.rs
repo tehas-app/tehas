@@ -327,7 +327,7 @@ impl GitHub {
                     .merged_by
                     .as_ref()
                     .and_then(|a| a.account(self.bot.as_ref())),
-                commit: commit(p.merge_commit.map(|c| c.oid))?,
+                commit: p.merge_commit.map(|c| commit(Some(c.oid))).transpose()?,
             },
             "CLOSED" => ChangeState::Closed {
                 at: time(p.closed_at.as_deref())?,

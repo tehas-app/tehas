@@ -108,7 +108,7 @@ fn merged() -> ChangeState {
     ChangeState::Merged {
         at: At::new(1),
         by: None,
-        commit: CommitId::new("def5678").unwrap(),
+        commit: Some(CommitId::new("def5678").unwrap()),
     }
 }
 
@@ -778,7 +778,7 @@ fn ended_at(no: u64, at: i64, was_merged: bool) -> ChangeDigest {
         ChangeState::Merged {
             at: At::new(at),
             by: None,
-            commit: CommitId::new("def5678").unwrap(),
+            commit: Some(CommitId::new("def5678").unwrap()),
         }
     } else {
         ChangeState::Closed { at: At::new(at) }
