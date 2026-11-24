@@ -24,6 +24,9 @@ use tehas_ports::{Outcome, Passing, Refusal, Sent, Unread};
 /// The one host it asks, as the start of every address.
 pub(crate) const API: &str = "https://api.github.com/";
 
+/// The API's host, whose answers alone carry the anonymous budget.
+pub(crate) const API_HOST: &str = "api.github.com";
+
 /// The hosts a release file's fetch may reach, each whole: an address's
 /// host is one of these exactly, never matched by its end.
 pub const HOSTS: [&str; 3] = [

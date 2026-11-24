@@ -29,6 +29,12 @@
 //! the directory is removed whatever happens. The whole call is bound by
 //! `curl::DOWNLOAD_LIMIT` and the deadline. `archive` stays
 //! `Refused(Unsupported)`.
+//!
+//! Only the API's answers touch the ledger: a redirect's or a file's
+//! answer from another host neither spends nor heals the anonymous
+//! budget. A 2xx from the API that ignored `Accept` and sent the asset's
+//! JSON in place of its bytes fails on its size as `Unread(Inconsistent)`,
+//! on purpose: it is never parsed.
 
 use std::num::NonZeroU32;
 use std::sync::{Arc, Mutex};
@@ -122,16 +128,21 @@ impl Anonymous {
 
     fn once(&mut self, path: &str) -> Got<Option<Answer>> {
         let curl = self.curl.clone();
-        self.ask(Duration::MAX, |left| curl.get(path, left))
+        self.ask(Duration::MAX, true, |left| curl.get(path, left))
     }
 
     /// One request by `run`, given the time left of `bound` and the
-    /// deadline. At or past the deadline, or while the ledger holds the
-    /// budget spent, `run` is not called. The call is metered and its
-    /// answer given to the ledger.
+    /// deadline. At or past the deadline `run` is not called. The call is
+    /// metered. An `api` call, one to the API's host, draws on the anonymous
+    /// budget: while the ledger holds it spent `run` is not called, and its
+    /// answer is given to the ledger. Any other host's answer (a download's
+    /// redirect or file) never touches the ledger: its rate headers and
+    /// refusals are not the API's, so they neither spend nor heal its
+    /// budget, and are read by [`read_other`].
     fn ask(
         &mut self,
         bound: Duration,
+        api: bool,
         run: impl FnOnce(Duration) -> Result<Answer, Outcome>,
     ) -> Got<Option<Answer>> {
         let now = (self.now)();
@@ -145,6 +156,10 @@ impl Anonymous {
             Some(d) => Duration::from_secs((d.secs() - now) as u64),
             None => Duration::MAX,
         };
+        if !api {
+            count(&self.meter, self.caller, PortName::CodeHost, Pool::Calls);
+            return run(left.min(bound)).and_then(read_other);
+        }
         if let Some(spent) = self.spent(now) {
             return Err(spent);
         }
@@ -307,6 +322,24 @@ fn read_status(a: Answer, now: i64) -> Got<Option<Answer>> {
         }
         401 => Err(Outcome::Forbidden),
         500..=599 => Err(Outcome::Unavailable {
+            why: Passing::Server,
+            sent: Sent::Maybe,
+        }),
+        _ => Err(Outcome::Unread(Unread::Malformed)),
+    }
+}
+
+/// An answer of a host other than the API's, by its status: a body or a
+/// redirect to read, None for a 404, else the outcome. Its rate headers are
+/// not the API's budget: a 429 or a `retry-after` is the site's failure for
+/// this call alone, and a 401 or 403 (a storage refusal, an expired
+/// signature) is `Forbidden`.
+fn read_other(a: Answer) -> Got<Option<Answer>> {
+    match a.status {
+        200..=299 | 301 | 302 | 307 | 308 => Ok(Some(a)),
+        404 => Ok(None),
+        401 | 403 if a.header("retry-after").is_none() => Err(Outcome::Forbidden),
+        401 | 403 | 429 | 500..=599 => Err(Outcome::Unavailable {
             why: Passing::Server,
             sent: Sent::Maybe,
         }),
@@ -579,9 +612,13 @@ impl CodeHost for Anonymous {
                 });
             }
             let curl = self.curl.clone();
+            let api = curl::parse_address(&address).is_some_and(|p| p.host == curl::API_HOST);
             let answer = self
-                .ask(bound, |left| curl.fetch(&address, left, limit, &path))?
+                .ask(bound, api, |left| curl.fetch(&address, left, limit, &path))?
                 .ok_or(Outcome::NotFound)?;
+            // A 2xx is the file's bytes. One from the API that ignored
+            // `Accept` and sent the asset's JSON is held to the listed size
+            // and fails as `Inconsistent`, on purpose: it is never parsed.
             if (200..300).contains(&answer.status) {
                 if answer.written != asset.size {
                     return Err(Outcome::Unread(Unread::Inconsistent));

@@ -16,8 +16,8 @@ use tehas_core::testdir::TestDir;
 use tehas_github::{Curl, GitHubSite, MakeRunner, CURL_ENV, DOWNLOAD_HOSTS, DOWNLOAD_LIMIT};
 use tehas_ports::fake::MemoryLedger;
 use tehas_ports::{
-    Actor, At, Caller, CodeHost, CommitId, FileName, Outcome, Passing, Refusal, Sent, Site,
-    TagName, Unread,
+    Actor, At, Caller, CodeHost, CommitId, FileName, HealthState, Holder, HolderId, HostId, Ledger,
+    Outcome, Passing, Pool, Refusal, Sent, Site, TagName, Unread, Whose,
 };
 
 const CALLER: Caller = Caller::new("test.anonymous-download");
@@ -165,8 +165,12 @@ fn no_gh() -> MakeRunner {
 }
 
 fn site(stub: &Stub) -> GitHubSite {
+    site_with(stub, Arc::new(MemoryLedger::new()))
+}
+
+fn site_with(stub: &Stub, ledger: Arc<MemoryLedger>) -> GitHubSite {
     GitHubSite::new("acme/widget", "tehas-bot[bot]", Some(900), no_gh())
-        .with_anonymous_curl(Curl::at(stub.program()), Arc::new(MemoryLedger::new()))
+        .with_anonymous_curl(Curl::at(stub.program()), ledger)
         .on_clock(|| NOW)
 }
 
@@ -716,4 +720,72 @@ fn a_redirect_with_no_location_is_malformed() {
         assert_eq!(stub.asked(), [RELEASE, ASSET]);
         assert!(left_behind().is_empty());
     }
+}
+
+/// A rate refusal from a host other than the API's is that call's failure
+/// alone: the anonymous API budget is not spent, and the next download
+/// still asks.
+#[test]
+fn a_retry_after_from_the_objects_host_does_not_spend_the_api_budget() {
+    for (n, (status, headers)) in [
+        (429, vec![("retry-after", "3600")]),
+        (
+            403,
+            vec![
+                ("retry-after", "3600"),
+                ("x-ratelimit-remaining", "0"),
+                ("x-ratelimit-reset", "1795599999"),
+            ],
+        ),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let stub = Stub::new(&format!("github-anon-dl-cdn-rate-{n}"));
+        stub.redirect(ASSET, OBJECT);
+        stub.answer(OBJECT, status, &headers, b"slow down");
+        let ledger = Arc::new(MemoryLedger::new());
+        let site = site_with(&stub, Arc::clone(&ledger));
+        let mut h = handle(&site);
+        let (got, into) = download(h.as_mut(), "install", 1 << 20);
+        assert_eq!(
+            got,
+            Err(Outcome::Unavailable {
+                why: Passing::Server,
+                sent: Sent::Maybe
+            }),
+            "{status}"
+        );
+        assert!(into.is_empty());
+        let host = HostId::new("github.com");
+        let anonymous = Holder::Anonymous(HolderId::new("anonymous"));
+        let whose = Whose::Pool(anonymous.clone(), Pool::Calls);
+        assert_eq!(ledger.health(&host, &whose).unwrap(), HealthState::Healthy);
+        let kept = ledger.budget(&host, &anonymous, Pool::Calls).unwrap();
+        assert!(kept.is_none(), "no budget read off another host's answer");
+        // The API is still asked.
+        let before = stub.asked().len();
+        let _ = download(h.as_mut(), "install", 1 << 20);
+        assert!(stub.asked().len() > before, "not parked");
+        assert!(left_behind().is_empty());
+    }
+}
+
+/// A 2xx from the API that ignored `Accept` and sent the asset's JSON is
+/// not parsed: it fails on its size.
+#[test]
+fn json_from_the_api_in_place_of_the_bytes_is_inconsistent() {
+    let stub = Stub::new("github-anon-dl-json");
+    stub.answer(
+        ASSET,
+        200,
+        &[("content-type", "application/json; charset=utf-8")],
+        br#"{"id":11,"name":"install","size":98,"browser_download_url":"https://evil.example/x"}"#,
+    );
+    let site = site(&stub);
+    let (got, into) = download(handle(&site).as_mut(), "install", 1 << 20);
+    assert_eq!(got, Err(Outcome::Unread(Unread::Inconsistent)));
+    assert!(into.is_empty());
+    assert_eq!(stub.asked(), [RELEASE, ASSET], "never followed");
+    assert!(left_behind().is_empty());
 }
