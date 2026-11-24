@@ -7,7 +7,14 @@ use tehas_ports::BlueprintNo;
 
 #[test]
 fn a_body_of_64_kib_of_backticks_quotes_and_items_reads_quickly() {
-    let pieces = ["` ", "`` x ", "\\\\` ", "> q\nlazy ", "- i\n  ", "<!-- tehas:hold-cleared -->\n"];
+    let pieces = [
+        "` ",
+        "`` x ",
+        "\\\\` ",
+        "> q\nlazy ",
+        "- i\n  ",
+        "<!-- tehas:hold-cleared -->\n",
+    ];
     for p in pieces {
         let body = p.repeat(65536 / p.len());
         let began = Instant::now();
