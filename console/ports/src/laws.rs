@@ -662,25 +662,21 @@ pub mod code_host {
         })
     }
 
-    /// The checks on a commit hold one run of each name, the newest, and
-    /// `overall` is `Overall::of` them; asked by name, the one run of that
-    /// name. The fixture's commit `at` holds runs of `name`, more than one:
-    /// the newest has the status `newest`, and an older one another.
-    pub fn checks_hold_the_newest_run_of_each_name(
+    /// The checks on a commit hold one run of each App and name, the
+    /// newest, and `overall` is `Overall::of` them; asked by name, the runs
+    /// of that name. Runs of different Apps are not collapsed, and a
+    /// `Check` names no App, so a name may stand more than once. The
+    /// fixture's commit `at` holds runs of `name` by one App and no status
+    /// of that name, more than one run: the newest has the status `newest`,
+    /// and an older one another.
+    pub fn checks_hold_the_newest_run_of_each_app_and_name(
         h: &mut dyn crate::CodeHost,
         at: &CommitId,
         name: &str,
         newest: &crate::CheckStatus,
     ) -> Law {
-        const LAW: &str = "code_host::checks_hold_the_newest_run_of_each_name";
+        const LAW: &str = "code_host::checks_hold_the_newest_run_of_each_app_and_name";
         let all = got(LAW, "the checks", h.checks(at, None))?;
-        for (i, r) in all.runs.iter().enumerate() {
-            hold(
-                !all.runs[i + 1..].iter().any(|o| o.name == r.name),
-                LAW,
-                || format!("{} is given more than once", r.name),
-            )?;
-        }
         hold(all.overall == crate::Overall::of(&all.runs), LAW, || {
             format!("overall is {:?} for {:?}", all.overall, all.runs)
         })?;
@@ -696,6 +692,34 @@ pub mod code_host {
         })?;
         hold(want[0].status == *newest, LAW, || {
             format!("{name} is {:?}, its newest run {newest:?}", want[0].status)
+        })
+    }
+
+    /// The checks on a commit hold its status contexts beside its check
+    /// runs, and a failed status beside a passing run is `Fail`. The
+    /// fixture's commit `at` holds one passing run of `run` and a status
+    /// of the context `status` whose newest state failed or errored.
+    pub fn a_failed_status_beside_a_passing_run_fails(
+        h: &mut dyn crate::CodeHost,
+        at: &CommitId,
+        run: &str,
+        status: &str,
+    ) -> Law {
+        const LAW: &str = "code_host::a_failed_status_beside_a_passing_run_fails";
+        let all = got(LAW, "the checks", h.checks(at, None))?;
+        let is = |n: &str, c: crate::Conclusion| {
+            all.runs
+                .iter()
+                .any(|r| r.name == n && r.status == crate::CheckStatus::Done(c))
+        };
+        hold(is(run, crate::Conclusion::Passed), LAW, || {
+            format!("the run {run} is not a pass in {:?}", all.runs)
+        })?;
+        hold(is(status, crate::Conclusion::Failed), LAW, || {
+            format!("the status {status} is not held failed in {:?}", all.runs)
+        })?;
+        hold(all.overall == crate::Overall::Fail, LAW, || {
+            format!("overall is {:?} for {:?}", all.overall, all.runs)
         })
     }
 

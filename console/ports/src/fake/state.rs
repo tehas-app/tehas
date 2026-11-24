@@ -166,7 +166,8 @@ pub(crate) struct State {
     pub branches: Vec<(Branch, CommitId)>,
     pub tags: Vec<Tag>,
     pub releases: Vec<ReleaseRec>,
-    pub checks: Vec<(CommitId, Check)>,
+    /// Each check run, with the App that ran it.
+    pub checks: Vec<(CommitId, String, Check)>,
     pub statuses: Vec<(CommitId, Status)>,
     pub links: Vec<(TicketKey, BlueprintNo)>,
     pub proposals: Vec<ProposalRec>,

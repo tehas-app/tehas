@@ -18,7 +18,17 @@ use crate::{
     Proposed, Ref, Refusal, Release, ReleaseFile, ReleaseId, Remote, RepoPath, Rev, Secret, Status,
     Sum, Tag, TagName, Takeover, Token, Took, Unread, WebLink, Whole, Window, Write,
 };
-use crate::{Author, Bound};
+use crate::{Author, Bound, Check, CheckStatus, Conclusion, StatusState};
+
+/// A status context as the run `Checks` holds for it.
+fn status_run(x: &Status) -> Check {
+    let status = match x.state {
+        StatusState::Pending => CheckStatus::Running,
+        StatusState::Passed => CheckStatus::Done(Conclusion::Passed),
+        StatusState::Failed | StatusState::Errored => CheckStatus::Done(Conclusion::Failed),
+    };
+    Check::new(x.name.clone(), status)
+}
 
 /// A change's fields, its body and what its text closes when `bodies`.
 pub(crate) fn change_digest(s: &State, c: &ChangeRec, bodies: bool) -> ChangeDigest {
@@ -252,19 +262,28 @@ impl CodeHost for Handle {
         })
     }
 
-    /// The newest run of each name, the last the world was given.
+    /// The newest run of each App and name, the last the world was given,
+    /// then each status as a run named by its context.
     fn checks(&mut self, at: &CommitId, name: Option<&str>) -> Got<Checks> {
         self.run(Pool::Calls, |s, _| {
             s.commit(at).ok_or(Outcome::NotFound)?;
-            let mut runs: Vec<crate::Check> = Vec::new();
-            for (_, k) in s
+            let named = |n: &str| name.is_none_or(|w| w == n);
+            let mut latest: Vec<(&str, &Check)> = Vec::new();
+            for (_, app, k) in s
                 .checks
                 .iter()
-                .filter(|(c, k)| c == at && name.is_none_or(|n| k.name == n))
+                .filter(|(c, _, k)| c == at && named(&k.name))
             {
-                runs.retain(|r| r.name != k.name);
-                runs.push(k.clone());
+                latest.retain(|(a, r)| !(*a == app.as_str() && r.name == k.name));
+                latest.push((app, k));
             }
+            let mut runs: Vec<Check> = latest.into_iter().map(|(_, k)| k.clone()).collect();
+            runs.extend(
+                s.statuses
+                    .iter()
+                    .filter(|(c, x)| c == at && named(&x.name))
+                    .map(|(_, x)| status_run(x)),
+            );
             Ok(Checks {
                 overall: Overall::of(&runs),
                 runs,

@@ -12,7 +12,7 @@ use crate::{
     Account, AccountId, AccountKind, Actor, At, BlueprintNo, Branch, ChangeEvent, ChangeNo,
     ChangeState, Check, CommentId, CommitId, DeployCredential, Got, Keyring, Kind, Links, Mark,
     Mergeable, PersonKey, ProjectName, Realm, Release, RepoPath, Scope, Secret, SignInCode,
-    Standing, Tag, TagName, Target, TargetId, TicketKey, Token, Write,
+    Standing, Status, Tag, TagName, Target, TargetId, TicketKey, Token, Write,
 };
 
 /// The login of the factory's own account in a `World`.
@@ -581,9 +581,26 @@ impl World {
         c
     }
 
-    /// A check on a commit.
+    /// A check run on a commit, by the world's one App.
     pub fn check(self, at: &CommitId, check: Check) -> Self {
-        self.lock().checks.push((at.clone(), check));
+        self.check_by("ci", at, check)
+    }
+
+    /// A check run on a commit, by this App. Runs of different Apps are
+    /// kept apart.
+    pub fn check_by(self, app: &str, at: &CommitId, check: Check) -> Self {
+        self.lock().checks.push((at.clone(), app.into(), check));
+        self
+    }
+
+    /// A status on a commit, as some other poster sets one. The newest of a
+    /// context wins.
+    pub fn status(self, at: &CommitId, status: Status) -> Self {
+        let mut s = self.lock();
+        s.statuses
+            .retain(|(c, x)| !(c == at && x.name == status.name));
+        s.statuses.push((at.clone(), status));
+        drop(s);
         self
     }
 
