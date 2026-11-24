@@ -13,7 +13,7 @@
 use crate::forge::{gh_program, repo, repo_shaped, CALL_BOUND};
 use std::env;
 use std::num::NonZeroU64;
-use tehas_core::events::{allowed_folded, mark_actor};
+use tehas_core::events::{allowed_in, mark_actor};
 use tehas_ports::{HappenedKind, Mark, TicketKey, Tickets, Window, ALL_MAX};
 
 const USAGE: &str = "usage: console label allowed <issue> <label>";
@@ -39,7 +39,7 @@ pub fn allowed(tickets: &mut dyn Tickets, issue: &str, mark: Option<&Mark>, list
         return 2;
     };
     match mark_actor(&read.items, mark) {
-        Some(by) if allowed_folded(list, by) => 0,
+        Some(by) if allowed_in(list, by) => 0,
         _ => 1,
     }
 }

@@ -24,8 +24,8 @@ use tehas_core::home::Home;
 use tehas_core::journal::{settle as rules, Found, Journal, Journaled, RowId};
 use tehas_core::question::is_handoff_marker;
 use tehas_ports::{
-    At, Blueprints, Bound, ChangeNo, CodeHost, Depth, Mark, NoBlobs, Outcome, Receipt,
-    Sent as Passed, State, TicketKey, Tickets, Window, Write, Writes,
+    At, Bound, ChangeNo, Depth, Mark, NoBlobs, Outcome, Receipt, Sent as Passed, State, TicketKey,
+    Window, Write,
 };
 
 /// The comment a park posts when its question's label could not be added.
@@ -210,16 +210,7 @@ impl Ask for Tried {
     }
 }
 
-/// The ports a report's writes go through, and the reads that settle a
-/// write the site may have taken. The program's wiring makes them.
-pub struct Handles {
-    pub writes: Box<dyn Writes>,
-    pub tickets: Box<dyn Tickets>,
-    /// Where a ticket is its own blueprint, its notes are the blueprint's
-    /// comments.
-    pub blueprints: Box<dyn Blueprints>,
-    pub code_host: Box<dyn CodeHost>,
-}
+pub use tehas_core::journal::Handles;
 
 /// The wiring's handles of repository `repo` for the factory of `home`, each
 /// call bounded by `bound` with `grace` after TERM.
@@ -330,56 +321,8 @@ impl Writer<'_> {
     /// could tell.
     fn found(&mut self, write: &Write, since: i64) -> Option<Found> {
         std::thread::sleep(self.gh.retry_wait);
-        let since = At::new(since);
         let bound = Bound::new(100).expect("100 is a bound");
-        match write {
-            Write::Mark { ticket, .. } | Write::Unmark { ticket, .. } => {
-                let (_, digest) = self
-                    .ports
-                    .tickets
-                    .several(std::slice::from_ref(ticket))
-                    .pop()?;
-                rules::by_marks(write, &digest.ok()?.marks)
-            }
-            Write::TicketNote { ticket, .. } => {
-                let notes = match ticket.same_item() {
-                    Some(no) => self
-                        .ports
-                        .blueprints
-                        .comments(no, bound)
-                        .ok()?
-                        .items()
-                        .to_vec(),
-                    None => {
-                        let last = std::num::NonZeroU32::new(100).expect("100 is no zero");
-                        self.ports
-                            .tickets
-                            .notes(ticket, Window::Last(last))
-                            .ok()?
-                            .items
-                    }
-                };
-                rules::by_comments(write, &notes, since)
-            }
-            Write::MarkChange { no, .. } | Write::UnmarkChange { no, .. } => {
-                // Its digest alone: the whole change answers Cut past its
-                // bound of files or comments, and its marks would never
-                // settle.
-                let filter = tehas_ports::ChangeFilter {
-                    states: tehas_ports::ChangeStates::All,
-                    numbers: vec![*no],
-                    ..Default::default()
-                };
-                let changes = self.ports.code_host.changes(&filter, bound).ok()?;
-                let digest = changes.items().iter().find(|d| d.no == *no)?;
-                rules::by_marks(write, &digest.marks)
-            }
-            Write::CommentChange { no, .. } => {
-                let change = self.ports.code_host.change(*no, bound).ok()?;
-                rules::by_comments(write, &change.comments, since)
-            }
-            _ => None,
-        }
+        rules::read(write, &mut self.ports, At::new(since), bound)
     }
 
     /// A write of the ports tried as the bash tried it, `warn` logged when
@@ -1327,7 +1270,7 @@ mod ports_tests {
     use tehas_ports::fake::{
         BlueprintsOp, Clock, CodeHostOp, FakeSite, Fault, Faulty, Op, TicketsOp, World,
     };
-    use tehas_ports::{Actor, Blobs, Caller, Got, Refusal, Scope, Site};
+    use tehas_ports::{Actor, Blobs, Caller, Got, Refusal, Scope, Site, Writes};
 
     /// A store that logs its calls and answers each as the real one does.
     const STORE: &str = r#"#!/usr/bin/env bash

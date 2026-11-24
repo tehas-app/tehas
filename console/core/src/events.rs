@@ -99,17 +99,12 @@ impl Events {
     }
 }
 
-/// Whether `login` is on the allowed list, logins with one space between them
-/// as lib/config.sh checks it. An empty name is nobody and is never allowed.
+/// Whether `login` is on the allowed list: a whole login of it, logins with
+/// one space between them as lib/config.sh checks it, in any ASCII case, as
+/// `accounts::folded` compares logins. The vouch already checked every case
+/// variant of a listed login against its recorded id. An empty name is
+/// nobody and is never allowed.
 pub fn allowed_in(list: &str, login: &str) -> bool {
-    !login.is_empty() && list.split(' ').any(|l| l == login)
-}
-
-/// [`allowed_in`] ignoring ASCII case, as `accounts::folded` compares
-/// logins: the vouch already checked every case variant of a listed login
-/// against its recorded id. Until T4.7 makes the two one rule, the
-/// dispatcher reads [`allowed_in`], exact case.
-pub fn allowed_folded(list: &str, login: &str) -> bool {
     let login = crate::accounts::folded(login);
     !login.is_empty() && list.split(' ').any(|l| crate::accounts::folded(l) == login)
 }
@@ -654,14 +649,13 @@ mod allowed_tests {
         assert!(!allowed_in("", ""));
     }
 
-    /// The console's rule: whole logins of the list, in any ASCII case.
+    /// Whole logins of the list, in any ASCII case.
     #[test]
-    fn the_folded_rule_ignores_ascii_case_and_nothing_else() {
-        use super::allowed_folded;
-        assert!(allowed_folded("alice", "Alice"));
-        assert!(allowed_folded("Alice", "alice"));
-        assert!(allowed_folded("alice", "ALICE"));
-        assert!(allowed_folded("alice bob", "BOB"));
+    fn the_rule_ignores_ascii_case_and_nothing_else() {
+        assert!(allowed_in("alice", "Alice"));
+        assert!(allowed_in("Alice", "alice"));
+        assert!(allowed_in("alice", "ALICE"));
+        assert!(allowed_in("alice bob", "BOB"));
         for login in [
             "",
             "alice bob",
@@ -672,25 +666,25 @@ mod allowed_tests {
             "alice#5",
             "Alice#",
         ] {
-            assert!(!allowed_folded("alice bob", login), "{login:?}");
+            assert!(!allowed_in("alice bob", login), "{login:?}");
         }
         // A list entry that is not a login is no wildcard.
         for list in ["", " ", "alice  bob", "*", "alice *"] {
             for login in ["mallory", "Mallory", "*x"] {
-                assert!(!allowed_folded(list, login), "{list:?} {login:?}");
+                assert!(!allowed_in(list, login), "{list:?} {login:?}");
             }
         }
-        assert!(!allowed_folded("alice  bob", ""));
+        assert!(!allowed_in("alice  bob", ""));
     }
 
     /// The list is what lib/config.sh checks: whole logins with one space
-    /// between them, exact case. The rule reads no other spelling as a login
-    /// of it.
+    /// between them. The rule reads no other spelling as a login of it but
+    /// another ASCII case.
     #[test]
     fn the_rule_reads_the_list_as_lib_config_sh_writes_it() {
-        // A login of the list, and one of no other case.
+        // A login of the list, in its own case or another.
         assert!(allowed_in("alice", "alice"));
-        assert!(!allowed_in("alice", "Alice"));
+        assert!(allowed_in("alice", "Alice"));
         // Two spaces stand for no login: the empty word between them names
         // nobody. The logins on either side of it are still whole logins.
         assert!(!allowed_in("alice  bob", ""));
