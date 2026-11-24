@@ -10,6 +10,7 @@
 mod activity;
 mod change;
 mod checks;
+mod numbers;
 mod remote;
 pub(super) use remote::parts;
 
@@ -59,8 +60,10 @@ impl CodeHost for GitHub {
     /// list, the total must hold, and past one page the first is asked
     /// again and must hold no pull request the read has not seen. The states, the branch and the
     /// labels of the marks carried narrow the question; the author (by
-    /// account id), the blueprints closed, the numbers, the times and every
-    /// mark carried narrow what it answers. A mark no label can be is
+    /// account id), the blueprints closed, the times and every mark carried
+    /// narrow what it answers. A filter that names numbers is asked by
+    /// number instead, the rest applied to what that answers: see
+    /// `numbers.rs`. A mark no label can be is
     /// `Refused(Invalid)` before any request. Read to the end, or to
     /// one past the bound, or `PAGES_MAX` pages: past those, `Unread(Cut)`.
     /// In the order of their numbers. With bodies, each page's question asks
@@ -72,6 +75,9 @@ impl CodeHost for GitHub {
             .iter()
             .map(|m| super::label_of(m).map(|l| Value::String(l).to_string()))
             .collect::<Got<Vec<String>>>()?;
+        if !filter.numbers.is_empty() {
+            return self.changes_by_number(filter, bound);
+        }
         let me = matches!(filter.author, Some(Author::Me));
         let since = filter.merged_since.max(filter.updated_since);
         let query = format!(
@@ -323,10 +329,19 @@ fn changes_query(
         true => "UPDATED_AT, direction: DESC",
         false => "CREATED_AT, direction: ASC",
     };
+    let fields = pull_fields(bodies);
+    format!(
+        "query($owner: String!, $name: String!, $head: String, $after: String) {{ {viewer}repository(owner: $owner, name: $name) {{ databaseId pullRequests(first: 100, after: $after, headRefName: $head{labels}, states: [{states}], orderBy: {{field: {order}}}) {{ totalCount pageInfo {{ hasNextPage endCursor }} nodes {{ {fields} }} }} }} }}"
+    )
+}
+
+/// What `PullNode::read` reads of a pull request, its body too when `bodies`:
+/// the same of a page of the list and of a pull request asked by number.
+fn pull_fields(bodies: bool) -> String {
     let account = "{ __typename login ... on User { databaseId } ... on Bot { databaseId } }";
     let body = if bodies { " body" } else { "" };
     format!(
-        "query($owner: String!, $name: String!, $head: String, $after: String) {{ {viewer}repository(owner: $owner, name: $name) {{ databaseId pullRequests(first: 100, after: $after, headRefName: $head{labels}, states: [{states}], orderBy: {{field: {order}}}) {{ totalCount pageInfo {{ hasNextPage endCursor }} nodes {{ number title state isDraft isCrossRepository headRepository {{ databaseId }} headRefName headRefOid baseRefName baseRefOid createdAt updatedAt mergedAt closedAt lastEditedAt additions deletions changedFiles mergeable mergeStateStatus url author {account} editor {account} mergedBy {account} mergeCommit {{ oid }}{body} labels(first: 100) {{ totalCount nodes {{ name }} }} closingIssuesReferences(first: 100) {{ totalCount nodes {{ number repository {{ databaseId nameWithOwner }} }} }} }} }} }} }}"
+        "number title state isDraft isCrossRepository headRepository {{ databaseId }} headRefName headRefOid baseRefName baseRefOid createdAt updatedAt mergedAt closedAt lastEditedAt additions deletions changedFiles mergeable mergeStateStatus url author {account} editor {account} mergedBy {account} mergeCommit {{ oid }}{body} labels(first: 100) {{ totalCount nodes {{ name }} }} closingIssuesReferences(first: 100) {{ totalCount nodes {{ number repository {{ databaseId nameWithOwner }} }} }}"
     )
 }
 
@@ -421,48 +436,6 @@ fn read_page(
     if v.get("errors").is_some_and(|e| !e.is_null()) {
         return Err(Outcome::Unread(Unread::Inconsistent));
     }
-    let time = |x: Option<&Value>| -> Got<Option<At>> {
-        match x {
-            None | Some(Value::Null) => Ok(None),
-            Some(Value::String(s)) => tehas_core::time::from_iso(s)
-                .map(At::new)
-                .map(Some)
-                .ok_or(malformed.clone()),
-            Some(_) => Err(malformed.clone()),
-        }
-    };
-    let account = |x: Option<&Value>| -> Got<Option<Account>> {
-        let o = match x {
-            None | Some(Value::Null) => return Ok(None),
-            Some(Value::Object(o)) => o,
-            Some(_) => return Err(malformed.clone()),
-        };
-        let login = o
-            .get("login")
-            .and_then(Value::as_str)
-            .ok_or(malformed.clone())?;
-        let kind = o.get("__typename").and_then(Value::as_str);
-        let id = match o.get("databaseId") {
-            None | Some(Value::Null) => None,
-            Some(i) => Some(i.as_u64().ok_or(malformed.clone())?),
-        };
-        let login = Login::new(tehas_core::accounts::folded(tehas_core::accounts::account(
-            login,
-        )));
-        let facts = crate::gh::Facts {
-            id,
-            kind: kind.map(str::to_string),
-        };
-        let kind = match kind {
-            _ if bot.is_some_and(|b| b.is(&facts)) => AccountKind::Ours,
-            Some("User") => AccountKind::Person,
-            Some("Bot") => AccountKind::Bot,
-            _ => AccountKind::Unknown,
-        };
-        let mut account = Account::new(Realm::CodeHost, login, kind);
-        account.id = id.map(|i| AccountId::new(i.to_string()));
-        Ok(Some(account))
-    };
     let repo = v.pointer("/data/repository").ok_or(malformed.clone())?;
     let here = repo.get("databaseId").and_then(Value::as_u64);
     let list = repo.get("pullRequests").ok_or(malformed.clone())?;
@@ -497,6 +470,90 @@ fn read_page(
     let mut updated = Vec::new();
     let mut pulls = Vec::new();
     for n in nodes {
+        let read = PullNode { node: n }.read(here, viewer.as_ref(), f, bot)?;
+        numbers.push(read.no);
+        updated.extend(read.updated);
+        pulls.extend(read.pull);
+    }
+    Ok(Page {
+        total,
+        next,
+        numbers,
+        updated,
+        pulls,
+    })
+}
+
+/// One pull request as the list or the question by number reads it:
+/// its number, its updated time when the filter carries a since, and,
+/// when the filter takes it, the pull request read whole.
+struct Read {
+    no: ChangeNo,
+    updated: Option<At>,
+    pull: Option<Pull>,
+}
+
+/// A node of the pull requests question, or of the question by number,
+/// as GitHub answered it.
+struct PullNode<'a> {
+    node: &'a Value,
+}
+
+impl PullNode<'_> {
+    /// The node, `here` the repository's id and `viewer` the account
+    /// asking: its lead is read and the filter decides; only a node it
+    /// takes is read whole, as `read_page` says.
+    fn read(
+        &self,
+        here: Option<u64>,
+        viewer: Option<&AccountId>,
+        f: &ChangeFilter,
+        bot: Option<&crate::tickets::Bot>,
+    ) -> Got<Read> {
+        let n = self.node;
+        let malformed = Outcome::Unread(Unread::Malformed);
+        let time = |x: Option<&Value>| -> Got<Option<At>> {
+            match x {
+                None | Some(Value::Null) => Ok(None),
+                Some(Value::String(s)) => tehas_core::time::from_iso(s)
+                    .map(At::new)
+                    .map(Some)
+                    .ok_or(malformed.clone()),
+                Some(_) => Err(malformed.clone()),
+            }
+        };
+        let account = |x: Option<&Value>| -> Got<Option<Account>> {
+            let o = match x {
+                None | Some(Value::Null) => return Ok(None),
+                Some(Value::Object(o)) => o,
+                Some(_) => return Err(malformed.clone()),
+            };
+            let login = o
+                .get("login")
+                .and_then(Value::as_str)
+                .ok_or(malformed.clone())?;
+            let kind = o.get("__typename").and_then(Value::as_str);
+            let id = match o.get("databaseId") {
+                None | Some(Value::Null) => None,
+                Some(i) => Some(i.as_u64().ok_or(malformed.clone())?),
+            };
+            let login = Login::new(tehas_core::accounts::folded(tehas_core::accounts::account(
+                login,
+            )));
+            let facts = crate::gh::Facts {
+                id,
+                kind: kind.map(str::to_string),
+            };
+            let kind = match kind {
+                _ if bot.is_some_and(|b| b.is(&facts)) => AccountKind::Ours,
+                Some("User") => AccountKind::Person,
+                Some("Bot") => AccountKind::Bot,
+                _ => AccountKind::Unknown,
+            };
+            let mut account = Account::new(Realm::CodeHost, login, kind);
+            account.id = id.map(|i| AccountId::new(i.to_string()));
+            Ok(Some(account))
+        };
         let text = |k: &str| n.get(k).and_then(Value::as_str).ok_or(malformed.clone());
         let flag = |k: &str| n.get(k).and_then(Value::as_bool).ok_or(malformed.clone());
         let at = |k: &str| time(n.get(k));
@@ -551,7 +608,6 @@ fn read_page(
             .and_then(Value::as_u64)
             .and_then(ChangeNo::new)
             .ok_or(Outcome::Unread(Unread::Inconsistent))?;
-        numbers.push(no);
         let state = text("state")?;
         if !matches!(state, "OPEN" | "MERGED" | "CLOSED") {
             return Err(malformed);
@@ -581,9 +637,13 @@ fn read_page(
                 closes()?
             },
         };
-        updated.extend(lead.updated);
-        if !takes(f, viewer.as_ref(), &lead) {
-            continue;
+        let updated = lead.updated;
+        if !takes(f, viewer, &lead) {
+            return Ok(Read {
+                no,
+                updated,
+                pull: None,
+            });
         }
 
         // Taken: the rest, whole.
@@ -663,13 +723,10 @@ fn read_page(
             digest.says_closes = change::says_closes(&read.text);
             digest.body = Some(read.text);
         }
-        pulls.push(Pull { digest, labels });
+        Ok(Read {
+            no,
+            updated,
+            pull: Some(Pull { digest, labels }),
+        })
     }
-    Ok(Page {
-        total,
-        next,
-        numbers,
-        updated,
-        pulls,
-    })
 }
