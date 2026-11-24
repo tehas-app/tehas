@@ -122,6 +122,20 @@ pub struct GitHub {
     /// The client a person signs in through, given by the site: None for a
     /// handle made with [`GitHub::new`], which signs nobody in.
     pub(crate) people: Option<std::sync::Arc<crate::port::People>>,
+    /// The database id of this project's repository, learned from the first
+    /// GraphQL answer that names it: what tells this project from another,
+    /// since a rename changes the name and not the id (`GitHub::is_here`).
+    here: Here,
+}
+
+/// What a handle learned of its repository's database id.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Here {
+    #[default]
+    Unknown,
+    Id(u64),
+    /// Two answers named two ids: none is trusted.
+    Torn,
 }
 
 impl GitHub {
@@ -141,6 +155,7 @@ impl GitHub {
             bot: None,
             comment_nodes: std::collections::HashMap::new(),
             people: None,
+            here: Here::Unknown,
         }
     }
 
@@ -160,8 +175,49 @@ impl GitHub {
     /// after gh; `call` is what a [`ForgeError`] names.
     pub(crate) fn call(&mut self, call: &str, args: &[&str]) -> Result<String, ForgeError> {
         match self.runner.run(args) {
-            Ok(out) => Ok(out),
+            Ok(out) => {
+                self.learn(args, &out);
+                Ok(out)
+            }
             Err(why) => Err(ForgeError::new(call, why)),
+        }
+    }
+
+    /// Learn this project's database id from a GraphQL answer about its
+    /// repository, `data.repository.databaseId`, where the question asked
+    /// it. A second id unlike the first tears what was learned.
+    fn learn(&mut self, args: &[&str], out: &str) {
+        if args.get(1) != Some(&"graphql") || !out.contains("\"databaseId\"") {
+            return;
+        }
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(out.trim()) else {
+            return;
+        };
+        let Some(id) = v
+            .pointer("/data/repository/databaseId")
+            .and_then(serde_json::Value::as_u64)
+        else {
+            return;
+        };
+        self.here = match self.here {
+            Here::Unknown => Here::Id(id),
+            Here::Id(was) if was == id => Here::Id(id),
+            _ => Here::Torn,
+        };
+    }
+
+    /// Whether a repository an answer names is this project's, by its
+    /// database id against the one this handle learned: never by its name,
+    /// which a rename leaves stale in the settings. A repository named with
+    /// no id is `Unread(Malformed)`; a handle that learned no id, or two, is
+    /// `Unread(Inconsistent)`.
+    pub(crate) fn is_here_id(&self, id: Option<u64>) -> tehas_ports::Got<bool> {
+        let id = id.ok_or(tehas_ports::Outcome::Unread(tehas_ports::Unread::Malformed))?;
+        match self.here {
+            Here::Id(here) => Ok(here == id),
+            _ => Err(tehas_ports::Outcome::Unread(
+                tehas_ports::Unread::Inconsistent,
+            )),
         }
     }
 
@@ -186,9 +242,18 @@ impl GitHub {
         call: &str,
         args: &[&str],
     ) -> Result<String, (ForgeError, Option<String>)> {
-        self.runner
-            .run_answer(args)
-            .map_err(|f| (ForgeError::new(call, f.why), f.answer))
+        match self.runner.run_answer(args) {
+            Ok(out) => {
+                self.learn(args, &out);
+                Ok(out)
+            }
+            Err(f) => {
+                if let Some(out) = &f.answer {
+                    self.learn(args, out);
+                }
+                Err((ForgeError::new(call, f.why), f.answer))
+            }
+        }
     }
 
     /// The reason of a read that is no answer, named after the read the
