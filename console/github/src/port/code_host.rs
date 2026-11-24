@@ -1,11 +1,12 @@
 //! The code host port, `CodeHost` and `CodeHostWrites`: changes, branches,
 //! tags and releases. Answered: what the code host says of the project
 //! (`facts`), the changes a filter takes without their bodies (`changes`),
-//! and the check runs and status contexts on a commit (`checks`, in
-//! `checks.rs`). Every other read, and a
-//! filter that asks for bodies, answers `Refused(Unsupported)` before any
-//! request: a body is read without our markers and closing lines, which no
-//! reader of this adapter takes out yet.
+//! one change whole (`change`, in `change.rs`), and the check runs and
+//! status contexts on a commit (`checks`, in `checks.rs`). Every other
+//! read, and a filter that asks for bodies, answers `Refused(Unsupported)`
+//! before any request: a list's bodies are not read yet.
+
+mod change;
 
 mod checks;
 
@@ -115,8 +116,9 @@ impl CodeHost for GitHub {
         Ok(Whole::new(taken))
     }
 
-    fn change(&mut self, _: ChangeNo, _: Bound) -> Got<Change> {
-        unsupported()
+    /// The pull request read whole: see `change.rs`.
+    fn change(&mut self, no: ChangeNo, bound: Bound) -> Got<Change> {
+        self.change_whole(no, bound)
     }
 
     fn changed_files(&mut self, _: ChangeNo, _: Bound) -> Got<Whole<ChangedFile>> {
