@@ -10,6 +10,7 @@ use crate::{Account, Act, At, BlueprintNo, ChangeNo, CloseReason, Login, Questio
 /// A cycle's start is on record. Witness: `running[]` of `status --json`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct CycleStarted {
     /// The cycle.
     pub cycle: CycleId,
@@ -28,10 +29,22 @@ pub struct CycleStarted {
     pub by: Option<Login>,
 }
 
+new!(
+    CycleStarted {
+        cycle: CycleId,
+        blueprint: BlueprintNo,
+        started: At,
+        how: How
+    },
+    ticket,
+    by
+);
+
 /// A cycle's history line is written. Witness: a work line of
 /// `history --json`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct CycleEnded {
     /// The cycle.
     pub cycle: CycleId,
@@ -70,9 +83,27 @@ pub struct CycleEnded {
     pub change: Option<ChangeNo>,
 }
 
+new!(
+    CycleEnded {
+        cycle: CycleId,
+        blueprint: BlueprintNo,
+        started: At,
+        ended: At,
+        end: End,
+        outcome: String
+    },
+    ticket,
+    recorded,
+    status,
+    parked,
+    signalled,
+    change
+);
+
 /// A cycle's history line says it parked. Witness: such a work line.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct CycleParked {
     /// The cycle.
     pub cycle: CycleId,
@@ -111,9 +142,28 @@ pub struct CycleParked {
     pub change: Option<ChangeNo>,
 }
 
+new!(
+    CycleParked {
+        cycle: CycleId,
+        blueprint: BlueprintNo,
+        at: At,
+        end: Stop
+    },
+    ticket,
+    step,
+    cap,
+    park_reason,
+    failure_kind,
+    failure_cause,
+    provider,
+    repeat,
+    change
+);
+
 /// A question is recorded. Witness: `tehas question --json --after <id>`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct QuestionAsked {
     /// The store's number, `tehas question`'s `id`.
     pub question: QuestionNo,
@@ -133,10 +183,22 @@ pub struct QuestionAsked {
     pub choices: Vec<QuestionChoice>,
 }
 
+new!(
+    QuestionAsked {
+        question: QuestionNo,
+        kind: QuestionKind,
+        blueprint: BlueprintNo,
+        asked_at: At
+    },
+    cycle,
+    choices
+);
+
 /// A cycle left a change for review. Witness: a work line with `change`,
 /// no `signalled`, and an end other than `refused` or `merged`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct ChangeOffered {
     /// The change.
     pub change: ChangeNo,
@@ -151,10 +213,19 @@ pub struct ChangeOffered {
     pub at: At,
 }
 
+new!(ChangeOffered {
+    change: ChangeNo,
+    blueprint: BlueprintNo,
+    cycle: CycleId,
+    end: End,
+    at: At
+});
+
 /// An allowed account's act is recorded. Witness: the act in the tickets
 /// port's history.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct TicketActed {
     /// The ticket.
     pub ticket: TicketKey,
@@ -167,10 +238,18 @@ pub struct TicketActed {
     pub at: At,
 }
 
+new!(TicketActed {
+    ticket: TicketKey,
+    act: Act,
+    by: Account,
+    at: At
+});
+
 /// A ticket the factory follows is recorded closed. Witness: `Closed` in
 /// the tickets port's history.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct TicketClosed {
     /// The ticket.
     pub ticket: TicketKey,
@@ -181,10 +260,17 @@ pub struct TicketClosed {
     pub at: At,
 }
 
+new!(TicketClosed {
+    ticket: TicketKey,
+    reason: CloseReason,
+    at: At
+});
+
 /// A change linked to a blueprint is recorded merged. Witness: `Merged` in
 /// the code host port's activity.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct ChangeMerged {
     /// The change.
     pub change: ChangeNo,
@@ -196,11 +282,20 @@ pub struct ChangeMerged {
     pub at: At,
 }
 
+new!(
+    ChangeMerged {
+        change: ChangeNo,
+        at: At
+    },
+    blueprint
+);
+
 /// `tehas limit --json` without `api`, after a write that changed the
 /// limit, or as a consumer observed it. It has exactly one of `set` and
 /// `observed`, which are the envelope's key and `at`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "LimitWire", into = "LimitWire")]
+#[non_exhaustive]
 pub struct LimitChanged {
     time: LimitTime,
     /// How the limit stands.

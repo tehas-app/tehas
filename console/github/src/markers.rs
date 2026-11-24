@@ -478,6 +478,47 @@ fn take_out(body: &str, (s, e): (usize, usize)) -> (usize, usize, String) {
     (start, end, String::new())
 }
 
+/// `body` with what GitHub renders as no text of a paragraph blanked to
+/// spaces, line ends kept: quoted lines, fenced and indented code, code
+/// spans and HTML comments. What a reader of GitHub's closing syntax may
+/// take as said.
+pub fn live_text(body: &str) -> String {
+    let lines = lines(body);
+    let mut gone = dead(body, &lines);
+    let mut code_may_open = true;
+    for l in &lines {
+        let raw = &body[l.start..l.end];
+        if raw.trim().is_empty() {
+            code_may_open = true;
+            continue;
+        }
+        let indented = raw.starts_with("    ") || raw.starts_with('\t');
+        if indented && code_may_open {
+            gone.push((l.start, l.next));
+        } else {
+            code_may_open = false;
+        }
+    }
+    let mut from = 0;
+    while let Some(open) = body[from..].find("<!--") {
+        let start = from + open;
+        let end = body[start + 4..]
+            .find("-->")
+            .map_or(body.len(), |e| start + 4 + e + 3);
+        gone.push((start, end));
+        from = end;
+    }
+    body.char_indices()
+        .map(|(i, c)| {
+            if c != '\n' && within(&gone, i) {
+                ' '
+            } else {
+                c
+            }
+        })
+        .collect()
+}
+
 /// Whether [`read`] finds any marker in `text`, of any item.
 pub fn holds_marker(text: &str) -> bool {
     !read(text, None).markers.is_empty()

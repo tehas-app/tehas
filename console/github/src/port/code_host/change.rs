@@ -410,6 +410,7 @@ struct PullFields {
     closed_at: Option<String>,
     created_at: Option<String>,
     updated_at: Option<String>,
+    #[serde(deserialize_with = "crate::ticket::present")]
     merge_commit_sha: Option<String>,
     merged_by: Option<User>,
     user: Option<User>,
@@ -508,8 +509,11 @@ fn read_pull(out: &str, repo: &str, no: ChangeNo, bot: Option<&Bot>) -> Got<(Pul
         (Some("closed"), Some(true)) => ChangeState::Merged {
             at: time(f.merged_at.as_deref())?,
             by: author(f.merged_by.as_ref(), bot),
-            commit: CommitId::new(f.merge_commit_sha.as_deref().ok_or(MALFORMED)?)
-                .map_err(|_| MALFORMED)?,
+            commit: f
+                .merge_commit_sha
+                .as_deref()
+                .map(|c| CommitId::new(c).map_err(|_| MALFORMED))
+                .transpose()?,
         },
         (Some("closed"), Some(false)) => ChangeState::Closed {
             at: time(f.closed_at.as_deref())?,
