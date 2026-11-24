@@ -84,17 +84,22 @@ pub struct Read {
 /// So another item's marker is never this ticket's, a copy of one holds
 /// nothing, and a reader still falls back to an older text.
 pub fn read(body: &str, item: Option<BlueprintNo>) -> Read {
-    located(body, item).0
+    located(body, item).read
 }
 
-/// [`read`], beside each marker read the bytes of the body it stands on,
-/// None for one whose words stay in the text (bare, or a wrapper with no
-/// close), and the bytes every wrapper of this text's markers holds, read
-/// or not, a wrapper with no close to its line's end.
-fn located(
-    body: &str,
-    item: Option<BlueprintNo>,
-) -> (Read, Vec<Option<(usize, usize)>>, Vec<(usize, usize)>) {
+/// [`read`] with where each marker stands in the body.
+struct Located {
+    read: Read,
+    /// Beside each marker read, the bytes of the body it stands on, None
+    /// for one whose words stay in the text (bare, or a wrapper with no
+    /// close).
+    at: Vec<Option<(usize, usize)>>,
+    /// The bytes every wrapper of this text's markers holds, read or not,
+    /// a wrapper with no close to its line's end.
+    held: Vec<(usize, usize)>,
+}
+
+fn located(body: &str, item: Option<BlueprintNo>) -> Located {
     let rows = table::marker_rows();
     let lines = lines(body);
     let dead = dead(body, &lines);
@@ -121,7 +126,7 @@ fn located(
         text: without(body, &lines, &spans),
         markers,
     };
-    (read, at, held)
+    Located { read, at, held }
 }
 
 /// Whether 1.x put a marker of this kind on a comment's first line, its
@@ -186,7 +191,7 @@ pub fn write(text: &str, markers: &[Marker], item: Option<BlueprintNo>) -> Got<S
 /// over the typed words: the caller's own text is refused whole by
 /// [`foreign_text`] first, in [`write`] and in [`edit`].
 fn loose(body: &str, item: Option<BlueprintNo>) -> usize {
-    let (read, at, _) = located(body, item);
+    let Located { read, at, .. } = located(body, item);
     let typed: Vec<(usize, usize)> = read
         .markers
         .iter()
@@ -319,7 +324,11 @@ pub fn edit(
         return Err(invalid);
     }
     let words = edit.set.iter().map(render).collect::<Got<Vec<String>>>()?;
-    let (before, at, held) = located(body, item);
+    let Located {
+        read: before,
+        at,
+        held,
+    } = located(body, item);
     let mut slots: Vec<Slot> = before
         .markers
         .iter()
