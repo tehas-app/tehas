@@ -70,8 +70,8 @@ pub trait Cites {
     fn cite(&self, what: &Cite) -> String;
     /// Where a person opens what `what` names, the same link the item's
     /// own read gives, with no request: an item of this project or an
-    /// account. None for a marker, a mark, and what the site cannot link
-    /// without asking, such as an item of another project.
+    /// account. None for a marker, a mark and an item of another project,
+    /// even where the site could build its link.
     fn link(&self, what: &Cite) -> Option<WebLink>;
 }
 
