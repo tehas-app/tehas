@@ -1,9 +1,16 @@
-//! The identity port, `Identity`: who the handle acts as (`me`) and an
-//! account's standing on the repository (`standing`), and a person's
-//! sign-in (`sign_in_link`, `signed_in`, in `people.rs`). The rest answers
-//! `Refused(Unsupported)` before any request: the account reads come with
-//! the moves that ask them, and tokens are the wiring's, made and reviewed
-//! as security changes of their own.
+//! The identity port, `Identity`: who the handle acts as (`me`), an
+//! account's standing on the repository (`standing`), the account a login
+//! names (`account_by_login`), whether a name is an organisation
+//! (`is_organisation`), whether an account may be assigned (`assignable`),
+//! and a person's sign-in (`sign_in_link`, `signed_in`, in `people.rs`).
+//! The rest answers `Refused(Unsupported)` before any request: `account`
+//! comes with the move that asks it, and tokens are the wiring's, made and
+//! reviewed as security changes of their own.
+//!
+//! A bot is looked up by its whole login, `<slug>[bot]`, and known by its
+//! id: the bare slug is another account's login, an organisation's (the
+//! App `tehas-app` and the organisation `tehas-app` are two accounts) or a
+//! person's.
 //!
 //! A login is folded as `tehas_core::accounts` keys it: REST names a GitHub
 //! App's account `<slug>[bot]` and GraphQL `<slug>`, one account with one
@@ -98,16 +105,77 @@ impl Identity for GitHub {
         unsupported()
     }
 
-    fn account_by_login(&mut self, _: &Login) -> Got<Account> {
-        unsupported()
+    /// REST's account of the login as it is given: a bot by its whole
+    /// `<slug>[bot]` (gh's `app/<slug>` is the same bot), never by the bare
+    /// slug, which is another account's login, an organisation's or a
+    /// person's, or nobody's. The answer is held to the login asked and read
+    /// by its id. An organisation is no account here: `NotFound`, as for a
+    /// login no account has. A login GitHub never gives is
+    /// `Refused(Invalid)`, with no request.
+    fn account_by_login(&mut self, login: &Login) -> Got<Account> {
+        let (holder, said, id) = self.by_login(login)?;
+        let kind = match holder {
+            Holder::User(_) => AccountKind::Person,
+            Holder::Bot => AccountKind::Bot,
+            Holder::Organisation => return Err(Outcome::NotFound),
+        };
+        let facts = crate::gh::Facts {
+            id: Some(id),
+            kind: Some(
+                if kind == AccountKind::Bot {
+                    "Bot"
+                } else {
+                    "User"
+                }
+                .to_string(),
+            ),
+        };
+        let ours = self.bot.as_ref().is_some_and(|b| b.is(&facts));
+        let kind = if ours { AccountKind::Ours } else { kind };
+        let login = Login::new(accounts::folded(accounts::account(&said)));
+        let mut account = Account::new(Realm::CodeHost, login, kind);
+        account.id = Some(AccountId::new(id.to_string()));
+        Ok(account)
     }
 
-    fn is_organisation(&mut self, _: &Login) -> Got<bool> {
-        unsupported()
+    /// Whether REST's account of the name, read as `account_by_login`
+    /// reads it, is an organisation. A bot or a person is not; `NotFound`
+    /// when no account has the name.
+    fn is_organisation(&mut self, name: &Login) -> Got<bool> {
+        let (holder, _, _) = self.by_login(name)?;
+        Ok(holder == Holder::Organisation)
     }
 
-    fn assignable(&mut self, _: &AccountId) -> Got<bool> {
-        unsupported()
+    /// The account read of the id, then GitHub's assignee check of the
+    /// login it has now: `true` when GitHub answers it may be assigned on
+    /// the repository. A bot and an organisation are never assignees, from
+    /// the account read alone. A check that finds nothing is read once more
+    /// under the login the id has then: the same login is `false`, another
+    /// is asked once more, then `Unread(Inconsistent)`.
+    fn assignable(&mut self, who: &AccountId) -> Got<bool> {
+        let id = id_of(who)?;
+        let mut last = None;
+        for _ in 0..3 {
+            let login = match self.login_of(id)? {
+                Some(login) => login,
+                None => return Ok(false),
+            };
+            if last
+                .as_ref()
+                .is_some_and(|l: &String| accounts::folded(l) == accounts::folded(&login))
+            {
+                return Ok(false);
+            }
+            let path = format!("repos/{}/assignees/{}", self.repo, uri(&login));
+            match self.call("whether the account may be assigned", &["api", &path]) {
+                Ok(_) => return Ok(true),
+                Err(e) => match self.outcome(&e) {
+                    Outcome::NotFound => last = Some(login),
+                    o => return Err(o),
+                },
+            }
+        }
+        Err(Outcome::Unread(Unread::Inconsistent))
     }
 
     fn token(&mut self, _: Scope) -> Got<Token> {
@@ -167,6 +235,75 @@ impl GitHub {
             },
         }
     }
+}
+
+impl GitHub {
+    /// REST's account of `login` as given: what it is, its login as GitHub
+    /// answers it and its id. `app/<slug>` asks `<slug>[bot]`.
+    fn by_login(&mut self, login: &Login) -> Got<(Holder, String, u64)> {
+        let asked = rest_login(login.as_str())?;
+        let path = format!("users/{}", uri(&asked));
+        let out = self
+            .call("the account of a login", &["api", &path])
+            .map_err(|e| self.outcome(&e))?;
+        read_login(&out, &asked)
+    }
+
+    /// The login the account of `id` has now; None for a bot or an
+    /// organisation, which hold no assignment.
+    fn login_of(&mut self, id: u64) -> Got<Option<String>> {
+        let user = format!("user/{id}");
+        let out = self
+            .call("the account", &["api", &user])
+            .map_err(|e| self.outcome(&e))?;
+        Ok(match read_user(&out, id)? {
+            Holder::User(login) => Some(login),
+            Holder::Bot | Holder::Organisation => None,
+        })
+    }
+}
+
+/// The login REST is asked for: a person's or an organisation's login, or a
+/// bot's `<slug>[bot]`, whole; gh's `app/<slug>` is that bot. Anything else
+/// is `Refused(Invalid)`.
+fn rest_login(given: &str) -> Got<String> {
+    let invalid = Outcome::Refused(Refusal::Invalid);
+    let is_login = tehas_core::settings::rules::is_login;
+    if let Some(slug) = given.strip_prefix("app/") {
+        return (!slug.is_empty() && is_login(slug))
+            .then(|| format!("{slug}[bot]"))
+            .ok_or(invalid);
+    }
+    let bare = given.strip_suffix("[bot]").unwrap_or(given);
+    (!bare.is_empty() && bare.len() <= 100 && is_login(bare))
+        .then(|| given.to_string())
+        .ok_or(invalid)
+}
+
+/// The account answer of a login: what it is, the login it gives and its
+/// id. An answer of another login is `Unread(Inconsistent)`: the bare slug
+/// and the bot are two accounts, and one must never stand for the other.
+fn read_login(out: &str, asked: &str) -> Got<(Holder, String, u64)> {
+    let v: Value = serde_json::from_str(out.trim()).map_err(|_| MALFORMED)?;
+    let id = v
+        .get("id")
+        .and_then(Value::as_u64)
+        .filter(|id| *id > 0)
+        .ok_or(MALFORMED)?;
+    let said = v
+        .get("login")
+        .and_then(Value::as_str)
+        .filter(|l| !l.is_empty())
+        .ok_or(MALFORMED)?;
+    if accounts::folded(said) != accounts::folded(asked) {
+        return Err(Outcome::Unread(Unread::Inconsistent));
+    }
+    let holder = read_user(out, id)?;
+    let bot = said.ends_with("[bot]");
+    if (holder == Holder::Bot) != bot {
+        return Err(Outcome::Unread(Unread::Inconsistent));
+    }
+    Ok((holder, said.to_string(), id))
 }
 
 /// GitHub's id in an `AccountId`, or `Refused(Invalid)` for one GitHub

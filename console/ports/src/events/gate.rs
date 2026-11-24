@@ -166,7 +166,7 @@ pub enum Verdict {
     Refuse,
 }
 
-/// What a gate's listener answers, `/out/_tehas/answer.json`:
+/// What a gate's listener answers, by `api/gate-answer.schema.json`:
 /// `{"api": 1, "answer": "allow" | "refuse", "why": "..."}`. A refusal
 /// says why; an allow may. It reads only with `api` this copy's. Built
 /// with `allow` or `refuse` (Decided 123).
