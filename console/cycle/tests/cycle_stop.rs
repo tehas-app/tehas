@@ -184,8 +184,12 @@ fn a_label_change_that_github_refuses_once_is_made_again() {
 
 #[test]
 fn after_three_refusals_it_gives_up_says_so_in_the_log_and_still_reports() {
-    let (_, applied, sent) = through("st-label-three", handed_off, refuse_unmark);
+    let (w, applied, sent) = through("st-label-three", handed_off, refuse_unmark);
     assert_eq!(count_lines(&sent, "unmark State(Running)"), 3);
+    has(
+        &w.report_log(),
+        "WARN: label change on #7 failed: off State(Running), on State(AwaitingMerge)",
+    );
     lacks(&sent, "mark State(AwaitingMerge)");
     has(&applied, "Pull request waiting for a human");
 }
@@ -300,13 +304,18 @@ fn after_three_refusals_the_comment_is_said_once_and_the_cycle_still_ends_its_re
     let r = w.run7();
     assert_eq!(r.rc, 0);
     assert!(ended_at(&w));
-    let (_, applied, sent) = through(
+    let (w, applied, sent) = through(
         "st-comment-three-writes",
         handed_off,
         notes_fail(Fault::Refused(Refusal::Invalid), 0),
     );
     assert_eq!(count_lines(&sent, NOTE), 3);
     assert_eq!(count_lines(&applied, NOTE), 0);
+    // Said once, after the three tries.
+    assert_eq!(
+        w.report_log().matches("WARN: comment on #7 failed").count(),
+        1
+    );
 }
 
 #[test]
@@ -348,6 +357,7 @@ fn a_comment_github_answered_with_a_5xx_that_no_read_settles_is_not_posted_again
     });
     assert_eq!(count_lines(&sent, NOTE), 1);
     assert_eq!(journal_open(&w), json!([["comment-post", "unknown"]]));
+    has(&w.report_log(), "may have been posted");
 }
 
 #[test]
