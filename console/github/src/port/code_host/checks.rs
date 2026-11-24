@@ -41,13 +41,14 @@ impl GitHub {
                 at.as_str()
             )
         };
-        let first_runs = self.page("the check runs", &runs_at(1), read_runs)?;
-        let first_statuses = self.page("the statuses", &statuses_at(1), read_statuses)?;
+        let first_runs = self.checks_page("the check runs", &runs_at(1), read_runs)?;
+        let first_statuses = self.checks_page("the statuses", &statuses_at(1), read_statuses)?;
         if first_runs.0.saturating_add(first_statuses.0) > u64::from(ALL_MAX.get()) {
             return Err(Outcome::Unread(Unread::Cut));
         }
-        let mut runs = self.whole("the check runs", runs_at, read_runs, first_runs)?;
-        let statuses = self.whole("the statuses", statuses_at, read_statuses, first_statuses)?;
+        let mut runs = self.checks_whole("the check runs", runs_at, read_runs, first_runs)?;
+        let statuses =
+            self.checks_whole("the statuses", statuses_at, read_statuses, first_statuses)?;
         runs.extend(
             statuses
                 .into_iter()
@@ -60,7 +61,7 @@ impl GitHub {
     }
 
     /// One page of a list, read. A count past `ALL_MAX` is `Unread(Cut)`.
-    fn page<K>(
+    fn checks_page<K>(
         &mut self,
         what: &str,
         path: &str,
@@ -80,7 +81,7 @@ impl GitHub {
     /// page: the same count on every page, no key twice, and the items adding
     /// up to the count. A page that moves under the read, or a short page
     /// with more to come, is `Unread(Inconsistent)`.
-    fn whole<K: Ord>(
+    fn checks_whole<K: Ord>(
         &mut self,
         what: &str,
         path: impl Fn(u32) -> String,
@@ -109,7 +110,7 @@ impl GitHub {
             if held > total || empty {
                 return Err(Outcome::Unread(Unread::Inconsistent));
             }
-            page = self.page(what, &path(next), read)?;
+            page = self.checks_page(what, &path(next), read)?;
         }
         Err(Outcome::Unread(Unread::Inconsistent))
     }

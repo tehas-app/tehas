@@ -7,7 +7,6 @@
 //! before any request: a list's bodies are not read yet.
 
 mod change;
-
 mod checks;
 
 use std::collections::BTreeSet;
