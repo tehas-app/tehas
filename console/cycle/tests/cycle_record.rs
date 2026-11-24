@@ -55,7 +55,7 @@ fn marks(said: &str) -> String {
 fn never_started(w: &World, more: &str) {
     let _ = fs::remove_file(w.fx.join("result.json"));
     w.work(&format!(
-        "mkdir -p \"$TEHAS_HOME/state/cycles\" \"$TEHAS_HOME/logs\"; {LOG}; cat \"$T/fx/nostart\" >\"$TEHAS_HOME/state/cycles/7.nostart\"; {more}exit 2"
+        "mkdir -p \"$T_CYCLES\" \"$TEHAS_HOME/logs\"; {LOG}; cat \"$T/fx/nostart\" >\"$T_CYCLES/7.nostart\"; {more}exit 2"
     ));
 }
 
@@ -168,9 +168,7 @@ fn another_exit_with_no_end_state_is_not_called_killed() {
 #[test]
 fn the_oom_count_file_is_read_as_digits_said_in_the_comment_put_in_the_record_and_removed() {
     let (w, r, said) = twin("rec-oom", |w| {
-        w.work(&format!(
-            r#"{LOG}; echo 3 >"$TEHAS_HOME/state/cycles/7.oom"; exit 137"#
-        ))
+        w.work(&format!(r#"{LOG}; echo 3 >"$T_CYCLES/7.oom"; exit 137"#))
     });
     has(
         &said,
@@ -188,7 +186,7 @@ fn a_stalled_cycle_is_reported_as_stalled_with_how_long_nothing_moved_parked_and
     let (w, r, said) = twin("rec-stall", |w| {
         w.ended("running", "lens-fix", "", "");
         w.work(&format!(
-            r#"{LOG}; echo 3600 >"$TEHAS_HOME/state/cycles/7.stalled"; exit 2"#
+            r#"{LOG}; echo 3600 >"$T_CYCLES/7.stalled"; exit 2"#
         ));
     });
     has(&r.out, "status=stalled");
@@ -233,7 +231,7 @@ fn a_container_that_ended_before_the_driver_wrote_an_event_is_on_record_as_runne
 fn the_memory_kills_of_a_runner_that_never_started_are_said_once_from_the_oom_file() {
     let (w, _, said) = twin("rec-nostart-oom", |w| {
         w.nostart("1");
-        never_started(w, r#"echo 3 >"$TEHAS_HOME/state/cycles/7.oom"; "#);
+        never_started(w, r#"echo 3 >"$T_CYCLES/7.oom"; "#);
     });
     has(
         &said,
@@ -274,7 +272,9 @@ fn a_note_that_holds_a_bad_value_is_no_note_the_cycle_is_reported_as_one_that_di
             let _ = fs::remove_file(w.fx.join("result.json"));
             w.nostart(note);
             w.died(&["explore"]);
-            w.work_more(r#"mkdir -p "$TEHAS_HOME/state/cycles"; cat "$T/fx/nostart" >"$TEHAS_HOME/state/cycles/7.nostart"; exit 2"#);
+            w.work_more(
+                r#"mkdir -p "$T_CYCLES"; cat "$T/fx/nostart" >"$T_CYCLES/7.nostart"; exit 2"#,
+            );
         });
         assert_eq!(
             hist(&w, &["step", "cap"]),
@@ -292,7 +292,7 @@ fn a_second_field_of_the_note_is_read_for_nothing_the_cap_stands_and_the_count_o
 ) {
     let (w, _, said) = twin("rec-note2", |w| {
         w.nostart("1 007");
-        never_started(w, r#"echo 3 >"$TEHAS_HOME/state/cycles/7.oom"; "#);
+        never_started(w, r#"echo 3 >"$T_CYCLES/7.oom"; "#);
     });
     assert_eq!(
         hist(&w, &["step", "cap"]),
@@ -339,7 +339,7 @@ fn the_pi_rukas_a_cycle_starts_with_is_on_its_record_and_nothing_writes_state_ru
         &said(&w.report_writes(&site())),
         "Pull request waiting for a human",
     );
-    assert!(gone(&w.home.join("state/rukas-proven")));
+    assert!(gone(&Home::new(&w.home).state_dir().join("rukas-proven")));
 }
 
 #[test]
@@ -382,7 +382,8 @@ fn the_path_unit_watches_for_the_file_the_cycle_leaves_and_starts_a_poll() {
     let text = fs::read_to_string(unit).unwrap();
     let value =
         |key: &str| -> Vec<&str> { text.lines().filter_map(|l| l.strip_prefix(key)).collect() };
-    assert_eq!(value("PathExists="), ["%h/tehas/state/dispatch.again"]);
+    let again = format!("%h/tehas/{}", State::DispatchAgain.relative());
+    assert_eq!(value("PathExists="), [again.as_str()]);
     assert_eq!(value("Unit="), ["tehas-dispatch.service"]);
 }
 
@@ -429,7 +430,7 @@ fn a_handoff_whose_pull_request_merged_before_the_cycle_ended_is_reported_with_i
 fn a_cycle_the_dispatcher_stopped_because_its_issue_was_closed_only_loses_its_running_label() {
     let (w, r, said) = twin("rec-closed", |w| {
         w.ended("running", "adversarial", "feature/x", "");
-        w.work(r#"mkdir -p "$TEHAS_HOME/state/cycles"; echo closed >"$TEHAS_HOME/state/cycles/7.done"; exit 2"#);
+        w.work(r#"mkdir -p "$T_CYCLES"; echo closed >"$T_CYCLES/7.done"; exit 2"#);
     });
     assert_eq!(r.rc, 0);
     assert_eq!(marks(&said), "unmark State(Running)");
@@ -448,7 +449,7 @@ fn a_cycle_the_dispatcher_stopped_because_its_issue_was_closed_only_loses_its_ru
 fn a_cycle_the_dispatcher_stopped_for_being_quiet_names_that_stop_in_its_comment_and_its_record() {
     let (w, r, said) = twin("rec-quiet", |w| {
         w.ended("running", "adversarial", "feature/x", "");
-        w.work(r#"mkdir -p "$TEHAS_HOME/state/cycles"; echo quiet >"$TEHAS_HOME/state/cycles/7.done"; exit 2"#);
+        w.work(r#"mkdir -p "$T_CYCLES"; echo quiet >"$T_CYCLES/7.done"; exit 2"#);
     });
     assert_eq!(r.rc, 0);
     has(&said, "The dispatcher stopped it");
@@ -471,7 +472,7 @@ fn a_merged_pull_request_wins_over_a_closed_issue() {
     let (_, r, said) = twin("rec-mergedclosed", |w| {
         w.ended("running", "adversarial", "feature/x", "");
         w.merged_pr();
-        w.work(r#"mkdir -p "$TEHAS_HOME/state/cycles"; echo closed >"$TEHAS_HOME/state/cycles/7.done"; exit 2"#);
+        w.work(r#"mkdir -p "$T_CYCLES"; echo closed >"$T_CYCLES/7.done"; exit 2"#);
     });
     has(&said, "was merged while the cycle ran");
     has(&r.out, "status=merged");
@@ -482,7 +483,7 @@ fn a_cycle_that_left_a_pull_request_says_the_count_too() {
     let (_, _, said) = twin("rec-prcount", |w| {
         w.ended("handoff", "commit-pr", "feature/x", "");
         w.fx("pr.txt", "https://github.com/acme/widget/pull/9\n");
-        w.work(r#"echo 2 >"$TEHAS_HOME/state/cycles/7.oom""#);
+        w.work(r#"echo 2 >"$T_CYCLES/7.oom""#);
     });
     has(&said, "Pull request waiting for a human: https://github.com/acme/widget/pull/9 2 processes were killed for memory in its container.");
     has(&said, "mark State(AwaitingMerge)");

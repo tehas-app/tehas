@@ -148,26 +148,27 @@ esac
 /// The stub tehas work. A result and a progress the case wrote are put where
 /// tehas work leaves them, and so is the note of a container that never
 /// started. Without a progress of its own a case gets an empty one. work.sh is
-/// what the runner does; rc is the exit of tehas work.
+/// what the runner does; rc is the exit of tehas work. `$T_CYCLES` is the
+/// cycles directory Home gives, so no snippet writes the home's layout.
 const WORK: &str = r#"#!/usr/bin/env bash
 printf '%s\n' "$*" >>"$T/calls/fake-work"
 for f in result progress; do
-  [ ! -e "$T/fx/$f.json" ] || cp "$T/fx/$f.json" "$TEHAS_HOME/state/cycles/7.$f.json"
+  [ ! -e "$T/fx/$f.json" ] || cp "$T/fx/$f.json" "$T_CYCLES/7.$f.json"
 done
 [ -e "$T/fx/progress.json" ] || [ -e "$T/fx/no-progress" ] ||
-  echo "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}" >"$TEHAS_HOME/state/cycles/7.progress.json"
-[ -e "$T/fx/nostart" ] && cat "$T/fx/nostart" >"$TEHAS_HOME/state/cycles/7.nostart"
+  echo "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}" >"$T_CYCLES/7.progress.json"
+[ -e "$T/fx/nostart" ] && cat "$T/fx/nostart" >"$T_CYCLES/7.nostart"
 [ ! -e "$T/fx/work.sh" ] || . "$T/fx/work.sh"
 exit "$(cat "$T/fx/rc" 2>/dev/null || echo 0)"
 "#;
 
 /// What tehas work leaves for a runner that died: an empty result, a progress,
 /// the runner's status and exit, and a run log of the steps it reached.
-const DIED: &str = r#"mkdir -p "$TEHAS_HOME/state/cycles" "$TEHAS_HOME/logs"
-: >"$TEHAS_HOME/state/cycles/7.result.json"
-echo '{"roles":[],"reason":"","reviewHeld":false}' >"$TEHAS_HOME/state/cycles/7.progress.json"
-[ -s "$T/fx/status" ] && cat "$T/fx/status" >"$TEHAS_HOME/state/cycles/7.status"
-cat "$T/fx/runner_exit" >"$TEHAS_HOME/state/cycles/7.runner_exit"
+const DIED: &str = r#"mkdir -p "$T_CYCLES" "$TEHAS_HOME/logs"
+: >"$T_CYCLES/7.result.json"
+echo '{"roles":[],"reason":"","reviewHeld":false}' >"$T_CYCLES/7.progress.json"
+[ -s "$T/fx/status" ] && cat "$T/fx/status" >"$T_CYCLES/7.status"
+cat "$T/fx/runner_exit" >"$T_CYCLES/7.runner_exit"
 log=$TEHAS_HOME/logs/work-7-$(date -u +%y%m%d-%H%M%S).jsonl
 : >"$log"
 while IFS= read -r step; do
@@ -597,6 +598,7 @@ impl World {
             .env("PATH", path)
             .env("HOME", self.t.join("home"))
             .env("TEHAS_HOME", &self.home)
+            .env("T_CYCLES", Home::new(&self.home).cycles_dir())
             .env("T", self.t.path())
             .env("TMPDIR", self.t.join("tmp"))
             .env("TEHAS_TEST_STORE_ANSWERS", self.t.join("store-answers"))
