@@ -8,6 +8,7 @@ use std::fs;
 use tehas_core::testdir::TestDir;
 use tehas_cycle::report::{report, Action, Given};
 use tehas_cycle::{progress, Facts, Report};
+use tehas_ports::{Mark, State};
 
 const PR: &str = "https://github.com/acme/widget/pull/41";
 
@@ -63,9 +64,9 @@ fn read(case: &str, result: &str, rc: i64, prs: Value, driver: &str) -> Report {
     report(&f, &mut Given(facts["github"].clone()))
 }
 
-/// The labels the report adds, and the one thing it says on the issue: the
+/// The marks the report puts on, and the one thing it says on the issue: the
 /// comment, or the text of its park.
-fn said(r: &Report) -> (Vec<String>, String) {
+fn said(r: &Report) -> (Vec<Mark>, String) {
     let mut added = vec![];
     let mut on_issue = vec![];
     for a in &r.actions {
@@ -73,7 +74,7 @@ fn said(r: &Report) -> (Vec<String>, String) {
             Action::Relabel { add, .. } => added.extend(add.clone()),
             Action::Comment { ok, .. } => on_issue.push(ok.clone()),
             Action::Park(p) => {
-                added.push("needs-human-attention".into());
+                added.push(Mark::State(State::NeedsPerson));
                 on_issue.push(p.comment(false, true));
             }
             _ => {}
@@ -107,7 +108,7 @@ fn a_green_ready_lean_pull_request_waits_for_a_merge() {
     let r = ended("green", 10, pr("OPEN", false), "lean");
     assert_eq!(r.arm, "awaiting-merge");
     let (added, comment) = said(&r);
-    assert_eq!(added, ["tehas:awaiting-merge"]);
+    assert_eq!(added, [Mark::State(State::AwaitingMerge)]);
     assert!(
         comment.contains(&format!("Pull request waiting for a human: {PR}")),
         "{comment}"
@@ -120,7 +121,7 @@ fn a_lean_pull_request_github_shows_as_a_draft_never_waits_for_a_merge() {
     let r = ended("green", 10, pr("OPEN", true), "lean");
     assert_eq!(r.arm, "handoff-parked");
     let (added, comment) = said(&r);
-    assert_eq!(added, ["needs-human-attention"]);
+    assert_eq!(added, [Mark::State(State::NeedsPerson)]);
     assert!(
         comment.contains("Lean left its pull request a draft"),
         "{comment}"
@@ -132,7 +133,7 @@ fn a_red_lean_draft_parks_and_says_why() {
     let r = ended("draft", 10, pr("OPEN", true), "lean");
     assert_eq!(r.arm, "handoff-parked");
     let (added, comment) = said(&r);
-    assert_eq!(added, ["needs-human-attention"]);
+    assert_eq!(added, [Mark::State(State::NeedsPerson)]);
     assert!(
         comment.contains("Lean left its pull request a draft"),
         "{comment}"
@@ -166,7 +167,7 @@ fn a_lean_run_with_no_pull_request_parks_with_its_reason() {
     let r = ended("nopr", 10, json!([]), "lean");
     assert_eq!(r.arm, "parked");
     let (added, comment) = said(&r);
-    assert_eq!(added, ["needs-human-attention"]);
+    assert_eq!(added, [Mark::State(State::NeedsPerson)]);
     assert!(
         comment.contains("stopped without a pull request"),
         "{comment}"
@@ -186,7 +187,7 @@ fn a_lean_run_that_found_the_issue_not_ready_asks_for_a_pi_spec_block() {
     let r = ended("notready", 11, json!([]), "lean");
     assert_eq!(r.arm, "not-ready");
     let (added, comment) = said(&r);
-    assert_eq!(added, ["needs-human-attention"]);
+    assert_eq!(added, [Mark::State(State::NeedsPerson)]);
     assert!(comment.contains("not ready to build from"), "{comment}");
     assert!(comment.contains("needs a `pi-spec v1` block"), "{comment}");
     assert!(!comment.contains("The issue's text is fine"), "{comment}");
@@ -240,7 +241,7 @@ fn a_lean_run_declined_for_the_repository_s_setup_says_the_issue_is_fine() {
     let r = ended("norunner", 11, json!([]), "lean");
     assert_eq!(r.arm, "not-ready");
     let (added, comment) = said(&r);
-    assert_eq!(added, ["needs-human-attention"]);
+    assert_eq!(added, [Mark::State(State::NeedsPerson)]);
     assert!(comment.contains("The issue's text is fine"), "{comment}");
     assert!(comment.contains("`.pi/work.json`"), "{comment}");
     assert!(comment.contains("`verify.test`"), "{comment}");

@@ -54,6 +54,8 @@ pub struct Given {
     pub status_cmd: String,
     pub status_args: Vec<String>,
     pub console: String,
+    /// The handles the report's writes go through.
+    pub handles: crate::apply::HandlesOf,
 }
 
 /// What a number is, as GitHub answers for it. The factory works on open issues
@@ -537,7 +539,7 @@ pub fn run(home: &Path, g: &Given, events: &Dispatcher) -> i32 {
         status_cmd: g.status_cmd.clone(),
         status_args: g.status_args.clone(),
     };
-    let reported = apply::reported(home, &start);
+    let reported = apply::reported(home, &start, g.handles);
     let attempt = u32::try_from(start.attempt).unwrap_or(0);
     crate::events::raise_ended(events, home, g.issue, attempt, Writer::Report);
     reported.rc

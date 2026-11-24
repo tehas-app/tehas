@@ -287,7 +287,8 @@ fn a_start_of_an_issue_without_needs_human_attention_takes_no_label_off() {
     let w = World::new("start-no-label");
     w.run7();
     assert_eq!(work_calls(&w), "7");
-    lacks(&w.gh(), "DELETE");
+    // The report's own writes are asserted on the ports' fake in its tests.
+    assert_eq!(deletes(&w), 0);
 }
 
 #[test]
