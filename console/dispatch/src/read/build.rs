@@ -955,9 +955,12 @@ fn joined_lists(lists: Vec<Value>) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::read::board;
     use crate::read::models::Models;
     use crate::read::run;
     use std::time::Duration;
+    use tehas_ports::fake::World;
+    use tehas_ports::TicketKey;
 
     #[test]
     fn the_bots_pull_requests_are_the_lists_of_both_authors() {
@@ -975,26 +978,33 @@ mod tests {
     /// a question whose Retry box may be ticked among them.
     #[test]
     fn the_edit_history_is_asked_of_the_edited_issues_that_may_start() {
-        let open = |n: u64, label: &str, edited: bool, parent: Option<u64>| github::Open {
-            number: n,
-            labels: vec![label.to_string()],
-            node: json!({"number": n,
-                "lastEditedAt": if edited { json!("2026-10-01T00:00:00Z") } else { json!(null) },
-                "parent": parent.map(|p| json!({"number": p}))}),
-        };
+        use tehas_ports::{Act, Mark, MarkName, State};
+        let marks = [
+            (3, Mark::Act(Act::Approve), true),
+            (4, Mark::Act(Act::Approve), false),
+            (5, Mark::Project(MarkName::new("bug").unwrap()), true),
+            (6, Mark::Act(Act::Plan), true),
+            (7, Mark::Act(Act::Finish), true),
+            (8, Mark::State(State::NeedsPerson), true),
+            (9, Mark::Epic, true),
+            (10, Mark::State(State::AwaitingMerge), true),
+            (11, Mark::State(State::Question), true),
+        ];
+        let mut world = World::new();
+        for (n, mark, _) in &marks {
+            world = world.ticket(*n, |t| t.mark(mark.clone()));
+        }
+        // #9 is the parent of #3.
+        let world = world.ticket(9, |t| t.part(TicketKey::Number(3.try_into().unwrap())));
+        world.advance(60);
+        for (n, _, edited) in &marks {
+            if *edited {
+                world.edit_elsewhere(&world.key(*n), "edited", "alice");
+            }
+        }
         let q = github::Queue {
             repo: None,
-            open: vec![
-                open(3, "tehas:ready", true, Some(9)),
-                open(4, "tehas:ready", false, None),
-                open(5, "bug", true, None),
-                open(6, "tehas:plan", true, None),
-                open(7, crate::finish::LABEL, true, None),
-                open(8, "needs-human-attention", true, None),
-                open(9, "epic", true, None),
-                open(10, "tehas:awaiting-merge", true, None),
-                open(11, "tehas:question", true, None),
-            ],
+            open: board::fake::page(&world),
             closed_running: Vec::new(),
             open_pulls: None,
             issue_types: None,
@@ -1024,6 +1034,34 @@ mod tests {
     const BLOCKER_MARK: &str = "issueOrPullRequest";
     const EDITS_MARK: &str = "nodes(ids:";
 
+    /// The tickets of the blocked world on the ports' fake: #21, #22 and #23,
+    /// filed by alice and blocked by her. The page's timeline holds the
+    /// label's event, so the poll trusts the page: no read by name is paid
+    /// for these issues.
+    fn blocked() -> World {
+        use tehas_ports::{Act, At};
+        let blocked = World::new();
+        blocked.set_now(At::new(
+            tehas_core::time::from_iso("2026-10-02T00:00:00Z").unwrap(),
+        ));
+        [21, 22, 23].into_iter().fold(blocked, |w, n| {
+            w.ticket(n, |t| {
+                t.title(&format!("issue {n}"))
+                    .text("a body")
+                    .author("alice")
+                    .act(Act::Block, "alice")
+            })
+        })
+    }
+
+    /// The open pull requests of `fake` mapped, their nodes the page's
+    /// `openPulls`, each digest changed by `edit` first.
+    fn pulls_of(fake: &World, edit: impl Fn(&mut tehas_ports::ChangeDigest)) -> board::Mapped {
+        let mut pulls = board::fake::pulls(fake);
+        pulls.iter_mut().for_each(edit);
+        board::fake::mapped(&tehas_ports::OpenWork::default(), Some(&pulls))
+    }
+
     /// The blocked world of a poll: issues #21, #22 and #23, open on the queue's
     /// page and all carrying `tehas:blocked`, each held by the marker of its own
     /// newest comment. #21 names #11, #22 names #11 and #12, and #23 names #13
@@ -1031,22 +1069,11 @@ mod tests {
     /// calls that a merged one does not. The page gives the label's event, so
     /// the poll trusts the page and pays no read by name for these issues.
     fn world() -> Value {
-        let node = |n: u64| {
-            json!({
-                "number": n, "title": format!("issue {n}"), "body": "a body",
-                "createdAt": "2026-10-01T00:00:00Z", "author": {"login": "alice"},
-                "lastEditedAt": null, "editor": null,
-                "labels": {"nodes": [{"name": crate::decide::BLOCKED}]},
-                // The page's timeline holds the label's event, so the poll
-                // trusts the page: no read by name is paid for these issues.
-                "timelineItems": {"nodes": [
-                    {"__typename": "LabeledEvent",
-                     "createdAt": "2026-10-02T00:00:00Z",
-                     "actor": {"login": "alice"}, "label": {"name": crate::decide::BLOCKED}}
-                ]},
-                "closedByPullRequestsReferences": {"nodes": []}
-            })
-        };
+        let blocked = blocked();
+        let nodes: Vec<Value> = board::fake::page(&blocked)
+            .into_iter()
+            .map(|o| o.node)
+            .collect();
         // The page answers no open pull request here, so a world's poll holds
         // nothing on a body; `openPulls` is written beside the nodes below.
         let comment = |body: &str| {
@@ -1064,7 +1091,7 @@ mod tests {
             "queue": {"data": {"repository": {
                 "nameWithOwner": "acme/widget",
                 "issues": {"pageInfo": {"hasNextPage": false, "endCursor": null},
-                           "nodes": [node(21), node(22), node(23)]},
+                           "nodes": nodes},
                 "closedRunning": {"nodes": []},
                 // The page's own list of open pull requests, empty here so a
                 // world's poll holds nothing on a body. A case that wants one
@@ -1748,18 +1775,16 @@ esac"#,
     #[test]
     fn an_issue_of_the_improvement_type_carries_the_label_and_costs_no_read() {
         let mut w = world();
-        let typed = |n: u64, t: &str| {
-            json!({"number": n, "title": format!("issue {n}"), "body": "",
-                "createdAt": "2026-10-01T00:00:00Z", "author": {"login": "alice"},
-                "lastEditedAt": null, "editor": null, "labels": {"nodes": []},
-                "issueType": {"name": t}, "timelineItems": {"nodes": []},
-                "closedByPullRequestsReferences": {"nodes": []}})
-        };
+        let typed = World::new()
+            .ticket(40, |t| {
+                t.title("issue 40")
+                    .kind(tehas_ports::Kind::named("Improvement"))
+            })
+            .ticket(41, |t| t.title("issue 41").kind(tehas_ports::Kind::Task));
         let repo = &mut w["queue"]["data"]["repository"];
         repo["issueTypes"] = json!({"nodes": [{"name": "Task"}, {"name": "Improvement"}]});
         let nodes = repo["issues"]["nodes"].as_array_mut().unwrap();
-        nodes.push(typed(40, "Improvement"));
-        nodes.push(typed(41, "Task"));
+        nodes.extend(board::fake::page(&typed).into_iter().map(|o| o.node));
         let mut c = settings();
         c.improvement_type = Some("Improvement".into());
         let (snap, calls, _, _) = poll_with(&w, &[], &c);
@@ -1786,27 +1811,26 @@ esac"#,
     /// show, and an issue that carries the label, cost no read.
     #[test]
     fn an_epic_titled_issue_is_listed_and_its_events_read_whole_when_the_page_shows_none() {
+        use tehas_ports::{At, Happened, Mark};
         let mut w = world();
-        let epic = |n: u64, labels: Value, timeline: Value| {
-            json!({"number": n, "title": "EPIC: Billing rework", "body": "",
-                "createdAt": "2026-10-01T00:00:00Z", "author": {"login": "alice"},
-                "lastEditedAt": null, "editor": null, "labels": {"nodes": labels},
-                "timelineItems": {"nodes": timeline},
-                "closedByPullRequestsReferences": {"nodes": []}})
-        };
-        let removed = json!([{"__typename": "UnlabeledEvent", "createdAt": "2026-10-02T00:00:00Z",
-            "actor": {"login": "alice"}, "label": {"name": "epic"}}]);
-        let carried = json!([{"__typename": "LabeledEvent", "createdAt": "2026-10-02T00:00:00Z",
-            "actor": {"login": "alice"}, "label": {"name": "epic"}}]);
-        let nodes = w["queue"]["data"]["repository"]["issues"]["nodes"]
+        let epics = World::new();
+        epics.set_now(At::new(
+            tehas_core::time::from_iso("2026-10-02T00:00:00Z").unwrap(),
+        ));
+        let at = Some(epics.now());
+        let epic = "EPIC: Billing rework";
+        let epics = epics
+            .ticket(30, |t| t.title(epic))
+            .ticket(31, |t| {
+                t.title(epic)
+                    .event(Happened::Unmarked(Mark::Epic), Some("alice"), at)
+            })
+            .ticket(32, |t| t.title(epic).marked(Mark::Epic, "alice"))
+            .ticket(33, |t| t.title("feat: a part of epic 30"));
+        w["queue"]["data"]["repository"]["issues"]["nodes"]
             .as_array_mut()
-            .unwrap();
-        nodes.push(epic(30, json!([]), json!([])));
-        nodes.push(epic(31, json!([]), removed));
-        nodes.push(epic(32, json!([{"name": "epic"}]), carried));
-        let mut title = epic(33, json!([]), json!([]));
-        title["title"] = json!("feat: a part of epic 30");
-        nodes.push(title);
+            .unwrap()
+            .extend(board::fake::page(&epics).into_iter().map(|o| o.node));
         w["events"]["30"] = json!([{"event": "unlabeled", "label": {"name": "epic"},
             "actor": {"login": "bob"}, "created_at": "2026-09-01T00:00:00Z"}]);
         let (snap, calls, _, _) = poll(&w, &[]);
@@ -1829,76 +1853,54 @@ esac"#,
     /// page shows a label newer than its last start costs no read.
     #[test]
     fn a_ready_label_no_newer_than_the_last_start_reads_the_events_whole() {
+        use tehas_ports::{Act, At, Happened, Mark, State};
         let mut w = world();
-        let ev = |kind: &str, at: &str, label: &str, who: &str| {
-            json!({"__typename": kind, "createdAt": at, "actor": {"login": who},
-                "label": {"name": label}})
+        let ready = Mark::Act(Act::Approve);
+        let question = Mark::State(State::Question);
+        let whole = [
+            (true, "2026-10-02T22:13:03Z", &ready, "alice"),
+            (false, "2026-10-03T02:30:05Z", &ready, "tehas-bot"),
+            (true, "2026-10-03T03:00:07Z", &question, "tehas-bot"),
+            (false, "2026-10-03T12:26:07Z", &question, "alice"),
+            (true, "2026-10-03T12:26:07Z", &ready, "alice"),
+        ];
+        let at = |iso: &str| Some(At::new(tehas_core::time::from_iso(iso).unwrap()));
+        let issue = |t: tehas_ports::fake::TicketSpec, n: u64, events: usize| {
+            whole[..events].iter().fold(
+                t.title(&format!("issue {n}"))
+                    .text("Words.")
+                    .mark(ready.clone()),
+                |t, (on, iso, mark, who)| {
+                    let what = match on {
+                        true => Happened::Marked((*mark).clone()),
+                        false => Happened::Unmarked((*mark).clone()),
+                    };
+                    t.event(what, Some(who), at(iso))
+                },
+            )
         };
-        let rest = |e: &Value| {
-            let kind = if e["__typename"] == "LabeledEvent" {
-                "labeled"
-            } else {
-                "unlabeled"
-            };
-            json!({"event": kind, "label": {"name": e["label"]["name"]},
-                "actor": e["actor"], "created_at": e["createdAt"]})
-        };
-        let whole: Vec<Value> = [
-            (
-                "LabeledEvent",
-                "2026-10-02T22:13:03Z",
-                "tehas:ready",
-                "alice",
-            ),
-            (
-                "UnlabeledEvent",
-                "2026-10-03T02:30:05Z",
-                "tehas:ready",
-                "tehas-bot",
-            ),
-            (
-                "LabeledEvent",
-                "2026-10-03T03:00:07Z",
-                "tehas:question",
-                "tehas-bot",
-            ),
-            (
-                "UnlabeledEvent",
-                "2026-10-03T12:26:07Z",
-                "tehas:question",
-                "alice",
-            ),
-            (
-                "LabeledEvent",
-                "2026-10-03T12:26:07Z",
-                "tehas:ready",
-                "alice",
-            ),
-        ]
-        .iter()
-        .map(|(k, at, l, who)| ev(k, at, l, who))
-        .collect();
-        let issue = |n: u64, timeline: &[Value]| {
-            json!({"number": n, "title": format!("issue {n}"), "body": "Words.",
-                "createdAt": "2026-10-01T00:00:00Z", "author": {"login": "alice"},
-                "lastEditedAt": null, "editor": null,
-                "labels": {"nodes": [{"name": "tehas:ready"}]},
-                "timelineItems": {"nodes": timeline},
-                "closedByPullRequestsReferences": {"nodes": []}})
-        };
-        let nodes = w["queue"]["data"]["repository"]["issues"]["nodes"]
-            .as_array_mut()
-            .unwrap();
         // #50 is cut after its first event, #51 is whole.
-        nodes.push(issue(50, &whole[..1]));
-        nodes.push(issue(51, &whole));
+        let ready_world = World::new()
+            .ticket(50, |t| issue(t, 50, 1))
+            .ticket(51, |t| issue(t, 51, whole.len()));
+        w["queue"]["data"]["repository"]["issues"]["nodes"]
+            .as_array_mut()
+            .unwrap()
+            .extend(board::fake::page(&ready_world).into_iter().map(|o| o.node));
+        let full: Vec<Value> = whole
+            .iter()
+            .map(|(on, iso, mark, who)| {
+                json!({"event": if *on { "labeled" } else { "unlabeled" },
+                    "label": {"name": board::fake::label(mark)},
+                    "actor": {"login": who}, "created_at": iso})
+            })
+            .collect();
         let sum = tehas_core::approval::body_sha256(&json!({"body": "Words."}));
         let at = tehas_core::time::from_iso("2026-10-02T22:13:03Z").unwrap();
         let said = format!(
             "{{\"api\":1,\"ok\":true,\"verb\":\"approval-current\",\"approval\":null,\"current\":{{\"at\":{at},\"by\":\"alice\",\"how\":\"approved\",\"body_sha256\":\"{sum}\",\"input\":{{}}}},\"rests_on\":null}}"
         );
         w["approvals"] = json!({"50": said, "51": said});
-        let full: Vec<Value> = whole.iter().map(rest).collect();
         w["events"]["50"] = json!(full);
         w["events"]["51"] = json!(full);
         let (snap, calls, _, _) = poll(&w, &[]);
@@ -2486,20 +2488,38 @@ esac"#,
     /// neither issue is held.
     #[test]
     fn a_pull_request_not_of_the_repository_names_nothing() {
+        let held = |what: &str, nodes: Value| {
+            let mut w = world();
+            w["queue"]["data"]["repository"]["openPulls"]["nodes"] = nodes;
+            let (snap, _, _, _) = poll(&w, &[]);
+            assert_eq!(snap.get("pulls_name"), None, "{what} names nothing");
+            assert!(
+                Snapshot::parse(&snap).pulls_name.is_empty(),
+                "{what} holds nothing"
+            );
+        };
+        // On the ports' fake: a change from a fork, or one by an account
+        // neither the factory nor allowed.
+        let cases: [(&str, &str, bool); 3] = [
+            ("an outsider's fork", "mallory", true),
+            ("an allowed account's fork", "alice", true),
+            (
+                "an outsider on a branch of the repository",
+                "mallory",
+                false,
+            ),
+        ];
+        for (what, author, fork) in cases {
+            let fake = blocked().change(90, "feature/other-90", |c| {
+                c.body("Closes #21, #22").author(author)
+            });
+            let m = pulls_of(&fake, |d| d.from_fork = fork);
+            held(what, m.queue.open_pulls.unwrap());
+        }
+        // GitHub's own shapes, which the port does not carry: they go with
+        // the page's parse.
         type Change = fn(&mut Value);
-        let cases: [(&str, Change); 6] = [
-            ("an outsider's fork", |p| {
-                p["isCrossRepository"] = json!(true);
-                p["headRepository"] = json!({"nameWithOwner": "mallory/widget"});
-                p["author"] = json!({"login": "mallory"});
-            }),
-            ("an allowed account's fork", |p| {
-                p["isCrossRepository"] = json!(true);
-                p["headRepository"] = json!({"nameWithOwner": "alice/widget"});
-            }),
-            ("an outsider on a branch of the repository", |p| {
-                p["author"] = json!({"login": "mallory"});
-            }),
+        let shapes: [(&str, Change); 3] = [
             ("a head of another repository", |p| {
                 p["headRepository"] = json!({"nameWithOwner": "acme/other"});
             }),
@@ -2510,17 +2530,10 @@ esac"#,
                 p.as_object_mut().unwrap().remove("isCrossRepository");
             }),
         ];
-        for (what, change) in cases {
-            let mut w = world();
+        for (what, change) in shapes {
             let mut p = pull(90, "Closes #21, #22");
             change(&mut p);
-            w["queue"]["data"]["repository"]["openPulls"]["nodes"] = json!([p]);
-            let (snap, _, _, _) = poll(&w, &[]);
-            assert_eq!(snap.get("pulls_name"), None, "{what} names nothing");
-            assert!(
-                Snapshot::parse(&snap).pulls_name.is_empty(),
-                "{what} holds nothing"
-            );
+            held(what, json!([p]));
         }
     }
 
@@ -2529,11 +2542,17 @@ esac"#,
     #[test]
     fn the_factorys_and_an_allowed_accounts_pull_requests_name_their_issues() {
         let mut w = world();
-        let mut bot = pull(90, "Closes #21");
-        bot["author"] = json!({"login": "app/tehas-bot"});
-        let mut person = pull(91, "Fixes #22");
-        person["headRepository"] = json!({"nameWithOwner": "Acme/Widget"});
-        w["queue"]["data"]["repository"]["openPulls"]["nodes"] = json!([bot, person]);
+        let fake = blocked()
+            .change(90, "feature/other-90", |c| {
+                c.body("Closes #21").author("app/tehas-bot")
+            })
+            .change(91, "feature/other-91", |c| {
+                c.body("Fixes #22").author("alice")
+            });
+        let mut nodes = pulls_of(&fake, |_| ()).queue.open_pulls.unwrap();
+        // GitHub writes the head's owner as the repository's own spelling.
+        nodes[1]["headRepository"] = json!({"nameWithOwner": "Acme/Widget"});
+        w["queue"]["data"]["repository"]["openPulls"]["nodes"] = nodes;
         let (snap, _, _, _) = poll(&w, &[]);
         assert_eq!(snap["pulls_name"], json!({"21": [90], "22": [91]}));
     }
@@ -2543,21 +2562,31 @@ esac"#,
     #[test]
     fn a_linked_pull_request_not_of_the_repository_is_left_out() {
         let mut w = world();
-        let own = json!({"url": "https://github.com/acme/widget/pull/90", "state": "OPEN",
-            "isCrossRepository": false, "author": {"login": "tehas-bot"},
-            "headRepository": {"nameWithOwner": "acme/widget"}});
-        let fork = json!({"url": "https://github.com/acme/widget/pull/91", "state": "OPEN",
-            "isCrossRepository": true, "author": {"login": "mallory"},
-            "headRepository": {"nameWithOwner": "mallory/widget"}});
-        let nodes = w["queue"]["data"]["repository"]["issues"]["nodes"]
-            .as_array_mut()
-            .unwrap();
-        nodes[0]["closedByPullRequestsReferences"]["nodes"] = json!([fork, own]);
-        nodes[1]["closedByPullRequestsReferences"]["nodes"] = json!([fork]);
+        let fake = blocked()
+            .change(90, "work-21", |c| c.closes(21).author("tehas-bot"))
+            .change(91, "fork-21", |c| c.closes(21).closes(22).author("mallory"));
+        let mut work = board::fake::work(&fake);
+        let mut items = std::mem::take(&mut work.items).into_items();
+        for (_, item) in &mut items {
+            for c in &mut item.as_mut().unwrap().changes.items {
+                c.from_fork = c.no.get() == 91;
+            }
+        }
+        work.items = tehas_ports::Whole::new(items);
+        let page = board::fake::page_of(&work);
+        let own = page[0].node["closedByPullRequestsReferences"]["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["isCrossRepository"] == json!(false))
+            .unwrap()["url"]
+            .clone();
+        w["queue"]["data"]["repository"]["issues"]["nodes"] =
+            page.into_iter().map(|o| o.node).collect();
         let (snap, _, _, _) = poll(&w, &[]);
         let parsed = Snapshot::parse(&snap);
         let own = ClosingPr {
-            url: own["url"].as_str().unwrap().to_string(),
+            url: own.as_str().unwrap().to_string(),
             open: true,
         };
         assert_eq!(parsed.issues[&21].prs, Some(vec![own]));
@@ -2572,16 +2601,23 @@ esac"#,
     #[test]
     fn an_open_pull_request_naming_the_issue_in_its_body_is_written_as_holding_it() {
         let mut w = world();
-        w["queue"]["data"]["repository"]["openPulls"]["nodes"] = json!([
-            pull(90, "Closes #21. Fixes #22."),
-            // A body that names no keyword, one that names a number with a
-            // colon but is not one of the closing words, one that names a
-            // longer number, and one of no body at all: none holds anything.
-            pull(91, "See #21 and issue 22 for background"),
-            pull(92, "Resolves #212, which is not #21"),
-            {"number": 93, "title": "no body", "headRefName": "x",
-             "author": {"login": "alice"}, "labels": {"nodes": []}},
-        ]);
+        // A body that names no keyword, one that names a number with a colon
+        // but is not one of the closing words, one that names a longer
+        // number, and none at all: none holds anything.
+        let fake = blocked()
+            .change(90, "feature/other-90", |c| {
+                c.body("Closes #21. Fixes #22.").author("alice")
+            })
+            .change(91, "feature/other-91", |c| {
+                c.body("See #21 and issue 22 for background")
+                    .author("alice")
+            })
+            .change(92, "feature/other-92", |c| {
+                c.body("Resolves #212, which is not #21").author("alice")
+            })
+            .change(93, "x", |c| c.author("alice"));
+        w["queue"]["data"]["repository"]["openPulls"]["nodes"] =
+            pulls_of(&fake, |_| ()).queue.open_pulls.unwrap();
         let (snap, _, _, _) = poll(&w, &[]);
         assert_eq!(
             snap["pulls_name"],

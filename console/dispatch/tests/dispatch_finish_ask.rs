@@ -6,6 +6,7 @@ mod common;
 
 use common::*;
 use serde_json::json;
+use tehas_ports::{Act, Mark};
 
 /// Issue 7 carries tehas:finish from `who`, and `who` wrote the marked
 /// comment a minute before. Its body is "Words.", and alice approved a cycle
@@ -60,10 +61,7 @@ fn an_allowed_ask_runs_the_finish_takes_the_label_off_and_comments_with_the_url(
             w.home.display()
         ),
     );
-    has(
-        &w.gh(),
-        "issue edit 7 --repo acme/widget --remove-label tehas:finish",
-    );
+    assert!(w.off(7, Mark::Act(Act::Finish)), "{:?}", w.writes_of(7));
     has(&w.gh(), "<!-- tehas:finish issue=7 result=opened -->");
     has(&w.gh(), "https://github.com/acme/widget/pull/90");
     has(&r.out, "finish #7: opened https://github.com/acme/widget/pull/90, asked by alice (label): The flaky test in other.rs failed, not the change.");
@@ -85,7 +83,7 @@ fn a_refusal_of_tehas_cycle_finish_takes_the_label_off_and_comments_with_its_lin
     w.fx("finish-refuses", "no workspace is kept for it\n");
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
-    has(&w.gh(), "--remove-label tehas:finish");
+    assert!(w.off(7, Mark::Act(Act::Finish)), "{:?}", w.writes_of(7));
     has(&w.gh(), "<!-- tehas:finish issue=7 result=refused -->");
     has(&w.gh(), "finished nothing: no workspace is kept for it.");
     has(
@@ -101,7 +99,7 @@ fn a_rule_not_met_takes_the_label_off_and_runs_nothing() {
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(w.calls("fake-finish"), "");
-    has(&w.gh(), "--remove-label tehas:finish");
+    assert!(w.off(7, Mark::Act(Act::Finish)), "{:?}", w.writes_of(7));
     has(
         &w.gh(),
         "the millwright may not ask it: its text is not the text alice approved",

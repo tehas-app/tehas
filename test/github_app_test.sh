@@ -379,8 +379,8 @@ t_instance "${app[@]}" TEHAS_ALLOWED_LABELERS=alice
 t_run "$ids"
 t_eq "$t_rc" 0
 # The app's own account is among the logins whose ids are recorded.
-t_eq "$(sort "$T/home/tehas/state/account-ids")" "alice $(t_uid alice)
-tehas-app-bot $(t_uid tehas-app-bot)"
+t_eq "$(sort "$T/home/tehas/state/account-ids")" "code-host alice $(t_uid alice)
+code-host tehas-app-bot $(t_uid tehas-app-bot)"
 t_eq "$(sort -u "$T/gh-token")" "ghs_fresh1"
 t_eq "$(cat "$kept")" "ghs_fresh1"
 # The token goes to gh in its environment, never on its command line.
@@ -405,6 +405,5 @@ t_run "$ids"
 t_eq "$t_rc" 78
 t_contains "$t_out" "tehas: ids record: no GitHub token for the app"
 t_eq "$(t_calls gh)" ""
-
 
 t_done

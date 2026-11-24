@@ -204,7 +204,7 @@ fn saved_after_alice(q: &mut Value) {
 }
 
 fn comments_7(w: &World) -> usize {
-    count_lines(&w.gh(), "issue comment 7 ")
+    w.notes(7)
 }
 
 /// The millwright's marked reply that names an option chooses it, as a
@@ -369,7 +369,7 @@ fn never_two_in_a_row_after_the_millwright_s_answer_its_next_one_runs_no_turn_an
     let r = w.poll();
     assert_eq!(w.plan_calls(), "");
     lacks(&r.out, "the millwright's answer runs no turn");
-    lacks(&w.gh(), "issue comment");
+    assert_eq!(w.notes_any(), 0);
 }
 
 #[test]
@@ -417,7 +417,7 @@ fn a_host_note_after_a_plan_question_is_no_millwright_reply_two_polls_post_nothi
         w.poll();
         let r = w.poll();
         assert_eq!(w.plan_calls(), "", "{note}");
-        lacks(&w.gh(), "issue comment");
+        assert_eq!(w.notes_any(), 0);
         lacks(&r.out, "the millwright's answer runs no turn");
     }
 }

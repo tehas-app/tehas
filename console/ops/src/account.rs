@@ -58,8 +58,8 @@ mod tests {
     #[test]
     fn the_name_is_the_one_id_un_prints() {
         // The name pause.json records as `by` and a stop records in its
-        // marker. test/stop_test.sh compares the marker with the account of the
-        // run; console/tests/pause.rs only asks that `by` is a string.
+        // marker. console/tests/stop.rs compares the marker with the account of
+        // the run; console/tests/pause.rs only asks that `by` is a string.
         let out = Command::new("id").arg("-un").output().expect("id -un");
         assert_eq!(name(), String::from_utf8_lossy(&out.stdout).trim_end());
     }

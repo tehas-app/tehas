@@ -12,7 +12,10 @@
 //! is a model's from untrusted images, and every line of an answer is quoted,
 //! so no answer can end its own section or start another.
 
-use serde_json::{json, Value};
+use serde::de::{Deserializer, IgnoredAny};
+use serde::Deserialize;
+use serde_json::{json, Map, Value};
+use std::collections::BTreeMap;
 
 pub const MOST_IMAGES: usize = 8;
 pub const MOST_CHARS: usize = 1500;
@@ -73,32 +76,62 @@ pub fn section(name: &str, link: &str, said: &str) -> String {
     format!("\n## {name}\n\nFrom {link}\n\n{}\n", quoted(said))
 }
 
-fn word(v: Option<&Value>) -> String {
-    match v {
-        Some(Value::String(s)) => s.clone(),
-        Some(o) => o.to_string(),
-        None => "null".into(),
+/// A word of a manifest's entry: a string as it is, any other value as its
+/// JSON, and one the entry does not give at all "null".
+struct Word(String);
+
+impl Default for Word {
+    fn default() -> Self {
+        Word("null".into())
+    }
+}
+
+impl<'de> Deserialize<'de> for Word {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        // The fetch writes text here; any other kind is shown as its JSON,
+        // so an odd manifest still names the image it means.
+        Ok(Word(match Value::deserialize(d)? {
+            Value::String(s) => s,
+            other => other.to_string(),
+        }))
+    }
+}
+
+/// One element of a manifest's `images`: an object, by its keys, or
+/// anything else, which ends the list.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum Entry {
+    Image(BTreeMap<String, Word>),
+    Other(IgnoredAny),
+}
+
+impl Entry {
+    /// The file and the first line of the link of an image entry.
+    fn image(self) -> Option<(String, String)> {
+        let Entry::Image(mut keys) = self else {
+            return None;
+        };
+        let mut word = |k: &str| keys.remove(k).unwrap_or_default().0;
+        let link = word("link");
+        let link = link.split('\n').next().unwrap_or("").to_string();
+        Some((word("file"), link))
     }
 }
 
 /// The file and the link of the first images of a manifest. It ends at an
 /// entry that is no object.
 pub fn listed(manifest: &str) -> Vec<(String, String)> {
-    let Some(v) = first_value::<Value>(manifest) else {
-        return vec![];
-    };
-    let Some(images) = v.get("images").and_then(Value::as_array) else {
+    let Some(images) = first_value::<Map<String, Value>>(manifest)
+        .and_then(|mut m| m.remove("images"))
+        .and_then(|v| Vec::<Entry>::deserialize(v).ok())
+    else {
         return vec![];
     };
     images
-        .iter()
+        .into_iter()
         .take(MOST_IMAGES)
-        .take_while(|i| i.is_object())
-        .map(|i| {
-            let link = word(i.get("link"));
-            let link = link.split('\n').next().unwrap_or("").to_string();
-            (word(i.get("file")), link)
-        })
+        .map_while(Entry::image)
         .collect()
 }
 
@@ -175,6 +208,11 @@ mod tests {
         assert_eq!(listed(m), vec![("a".to_string(), "x".to_string())]);
         assert!(listed(r#"{"images":null}"#).is_empty());
         assert!(listed("no").is_empty());
+        // A word that is not text is shown as its JSON, a missing one as null.
+        let odd = r#"{"images":[{"file":7,"link":["a"]},{"link":"l"}]}"#;
+        let want = [("7", r#"["a"]"#), ("null", "l")].map(|(f, l)| (f.to_string(), l.to_string()));
+        assert_eq!(listed(odd), want);
+        assert!(listed(r#"[{"images":[{"file":"a"}]}]"#).is_empty());
     }
 
     #[test]

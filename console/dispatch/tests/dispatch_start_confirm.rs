@@ -10,6 +10,7 @@ use serde_json::{json, Value};
 use std::fs;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tehas_core::home::Home;
+use tehas_ports::{Mark, State};
 
 fn now() -> i64 {
     SystemTime::now()
@@ -88,9 +89,10 @@ fn a_cycle_that_cannot_be_started_is_handed_to_a_human_exit_1() {
     let r = w.poll();
     assert_eq!(r.rc, 1, "{}", r.out);
     has(&r.out, "ERROR: the cycle for #7 did not start");
-    has(
-        &w.gh(),
-        "issue edit 7 --repo acme/widget --remove-label tehas:running --add-label needs-human-attention",
+    assert!(
+        w.off(7, Mark::State(State::Running)) && w.on(7, Mark::State(State::NeedsPerson)),
+        "{:?}",
+        w.writes_of(7)
     );
     has(&w.gh(), "could not start the cycle");
 }
@@ -101,9 +103,10 @@ fn a_cycle_that_never_says_it_holds_its_lock_is_handed_to_a_human() {
     w.touch("start-silent");
     let r = w.poll();
     assert_eq!(r.rc, 1, "{}", r.out);
-    has(
-        &w.gh(),
-        "--remove-label tehas:running --add-label needs-human-attention",
+    assert!(
+        w.on(7, Mark::State(State::NeedsPerson)) && w.off(7, Mark::State(State::Running)),
+        "{:?}",
+        w.writes_of(7)
     );
 }
 
@@ -199,9 +202,10 @@ fn when_the_approval_of_a_start_that_did_not_come_up_stays_on_record_the_unit_is
         "WARN: could not take the approval of #7 off the record (busy)",
     );
     assert_eq!(w.calls("fake-stop").trim_end(), "7");
-    has(
-        &w.gh(),
-        "--remove-label tehas:running --add-label needs-human-attention",
+    assert!(
+        w.on(7, Mark::State(State::NeedsPerson)) && w.off(7, Mark::State(State::Running)),
+        "{:?}",
+        w.writes_of(7)
     );
 }
 
@@ -471,5 +475,6 @@ fn a_running_list_that_cannot_be_read_ends_the_poll_before_it_acts_on_any_cycle_
         "ERROR: the state store could not list the running cycles (busy)",
     );
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     assert_eq!(w.started(), "");
 }

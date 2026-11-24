@@ -19,7 +19,7 @@ use tehas_core::home::{Home, State};
 use crate::live;
 
 /// PRAGMA user_version of the schema in schema.sql.
-pub const SCHEMA_VERSION: i64 = 31;
+pub const SCHEMA_VERSION: i64 = 32;
 pub const SCHEMA: &str = include_str!("schema.sql");
 
 /// The five tables schemas 15 to 28 held for outsource, which 2.0 dropped:
@@ -438,6 +438,23 @@ pub const STEP_31: &str = "
 ALTER TABLE cycle_history ADD COLUMN reported INTEGER NOT NULL DEFAULT 1 CHECK (reported IN (0, 1));
 ";
 
+/// The step from 31 to 32 (ports spec, "The links", T4.8): the table
+/// `links`, empty, one row a blueprint, naming the ticket it was made for,
+/// who made it in which realm, when, and how. Only `link-record` writes it;
+/// on every setup 2.0 runs ticket and blueprint are one item and no row is
+/// written.
+pub const STEP_32: &str = "
+CREATE TABLE links (
+  ticket        TEXT NOT NULL CHECK (length(ticket) BETWEEN 1 AND 128),
+  blueprint     INTEGER NOT NULL UNIQUE CHECK (blueprint > 0),
+  made_by       TEXT NOT NULL CHECK (length(made_by) > 0),
+  made_by_realm TEXT NOT NULL CHECK (made_by_realm IN ('code-host','tickets')),
+  made_at       INTEGER NOT NULL,
+  how           TEXT NOT NULL CHECK (how IN ('opened','linked'))
+);
+CREATE INDEX links_ticket ON links (ticket);
+";
+
 /// The step from 29 to 30 (docs/specs/2026-11-22-events.md, T11.2), in the
 /// words 2.0 uses for one fact everywhere:
 ///
@@ -780,7 +797,7 @@ pub fn install_test_bounds() -> (Duration, Duration) {
 /// them. Every CREATE INDEX of schema.sql appears here exactly once, which that
 /// test is what checks.
 #[cfg(test)]
-pub const COUNTED_INDEXES: [&str; 17] = [
+pub const COUNTED_INDEXES: [&str; 18] = [
     "issues_checked",
     "cycles_running",
     "heartbeats_at",
@@ -798,13 +815,14 @@ pub const COUNTED_INDEXES: [&str; 17] = [
     "journal_action",
     "plugin_runs_last",
     "plugin_records_issue",
+    "links_ticket",
 ];
 
 /// The tables of schema.sql, each exactly once, which the test
 /// every_counted_table_exists pins, so a table that goes missing from the
 /// schema cannot go missing from the report too. `check` and `copy` count
 /// these, and `load` moves them.
-pub const COUNTED_TABLES: [&str; 27] = [
+pub const COUNTED_TABLES: [&str; 28] = [
     "actions",
     "answers",
     "approvals",
@@ -818,6 +836,7 @@ pub const COUNTED_TABLES: [&str; 27] = [
     "heartbeats",
     "issues",
     "journal",
+    "links",
     "meta",
     "parks",
     "plan_history",
@@ -1587,6 +1606,9 @@ pub(crate) const STEPS: &[(i64, Step)] = &[
     // A store at 30 is one this binary wrote before a line said whether a
     // report wrote it (T11.3).
     (31, |c| step(c, 31, STEP_31)),
+    // A store at 31 is one this binary wrote before tehas kept the links
+    // of a ticket to its blueprints (T4.8).
+    (32, |c| step(c, 32, STEP_32)),
 ];
 
 /// One schema step to `to`, in one transaction with `meta.schema` and

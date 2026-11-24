@@ -7,7 +7,8 @@ use common::*;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::Path;
-use tehas_core::home::{Home, State};
+use tehas_core::home::{self, Home};
+use tehas_ports::{Act, Mark, State};
 
 fn v(text: &str) -> Value {
     serde_json::from_str(text).unwrap_or_else(|e| panic!("{e}: {text}"))
@@ -44,10 +45,6 @@ fn found(dir: &Path, start: &str) -> usize {
 
 fn holding(text: &str, want: &str) -> usize {
     text.lines().filter(|l| l.contains(want)).count()
-}
-
-fn exactly(text: &str, want: &str) -> usize {
-    text.lines().filter(|l| *l == want).count()
 }
 
 fn brief_line(w: &World) -> String {
@@ -214,6 +211,7 @@ fn a_session_whose_start_the_store_will_not_take_does_not_start_and_its_park_s_q
     assert_eq!(found(&w.home.join("tmp"), "plan-7.brief."), 0);
     assert_eq!(w.plan_calls(), "");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     assert_eq!(w.park_q(7), "4001");
 }
 
@@ -221,7 +219,7 @@ fn a_session_whose_start_the_store_will_not_take_does_not_start_and_its_park_s_q
 fn a_refining_turn_that_files_an_issue_notes_it_in_the_ledger_of_refined_issues_a_planning_one_does_not(
 ) {
     let w = World::new("plan");
-    let ledger = Home::new(&w.home).state(State::Refined);
+    let ledger = Home::new(&w.home).state(home::State::Refined);
     w.to_refine();
     w.plan_files(&["https://github.com/acme/widget/issues/41"]);
     let r = w.poll();
@@ -250,7 +248,7 @@ fn a_refining_turn_that_files_an_issue_notes_it_in_the_ledger_of_refined_issues_
 fn the_ledger_of_refined_issues_keeps_its_last_500_lines_as_the_ledger_of_sizes_does() {
     let w = World::new("plan");
     w.to_refine();
-    let ledger = Home::new(&w.home).state(State::Refined);
+    let ledger = Home::new(&w.home).state(home::State::Refined);
     let lines: String = (1..=500)
         .map(|i| format!("{{\"at\":\"x\",\"source\":0,\"filed\":{i},\"url\":\"u\"}}\n"))
         .collect();
@@ -353,14 +351,8 @@ fn a_plan_label_from_the_bot_or_a_stranger_starts_nothing_and_is_taken_off_the_i
                 "clear #7: tehas:plan off, applied by '{other}' who may not authorise work here"
             ),
         );
-        assert_eq!(
-            exactly(
-                &w.gh(),
-                "issue edit 7 --repo acme/widget --remove-label tehas:plan"
-            ),
-            1
-        );
-        assert_eq!(count_lines(&w.gh(), "issue comment "), 1);
+        assert_eq!(w.offs(7, Mark::Act(Act::Plan)), 1);
+        assert_eq!(w.notes_any(), 1);
     }
 }
 
@@ -452,9 +444,10 @@ fn a_ticked_retry_of_a_parked_issue_starts_its_cycle_whatever_planning_label_it_
     assert_eq!(w.plan_calls(), "");
     assert_eq!(w.park_q(7), "none");
     let gh = w.gh();
-    has(
-        &gh,
-        "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:question",
+    assert!(
+        w.on(7, Mark::State(State::Running)) && w.off(7, Mark::State(State::Question)),
+        "{:?}",
+        w.writes_of(7)
     );
     // Nothing edits the question: the start took it off the record.
     lacks(&gh, "api -X PATCH");

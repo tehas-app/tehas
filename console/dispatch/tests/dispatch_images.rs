@@ -176,6 +176,7 @@ fn an_issue_that_links_an_image_waits_while_the_model_does_not_answer_an_image()
     assert_eq!(r.rc, 0);
     assert_eq!(started(&w), "");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     has(
         &r.out,
         "hold #7: its text links an attachment and TEHAS_WORK_IMAGES is 1, but test-model does not answer an image",
@@ -251,6 +252,7 @@ fn an_issue_that_links_an_image_waits_while_the_model_does_not_declare_image_inp
         assert_eq!(r.rc, 0);
         assert_eq!(started(&w), "");
         lacks(&w.gh(), "issue edit");
+        assert_eq!(w.marks(None), 0);
         has(&r.out, "hold #7: its text links an attachment and TEHAS_WORK_IMAGES is 1, but test-model does not declare image input in models.json");
         assert_eq!(image_asks(&w), 0);
         assert_eq!(why(&w), json!(""));
@@ -298,6 +300,7 @@ fn a_retry_of_an_issue_that_links_an_image_waits_for_a_model_that_reads_one_and_
     assert_eq!(r.rc, 0);
     assert_eq!(started(&w), "");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     lacks(&w.gh(), "api -X PATCH");
     has(&r.out, "hold #7: its text links an attachment");
 }
@@ -329,6 +332,7 @@ fn the_hold_needs_neither_images_for_a_cycle_nor_a_model_that_reads_one() {
     let r = w.poll();
     assert_eq!(started(&w), "");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     assert_eq!(image_asks(&w), 0);
     has(
         &r.out,
@@ -511,6 +515,7 @@ fn an_issue_that_links_an_attachment_waits_for_a_model_that_reads_one_under_eith
         let r = w.poll();
         assert_eq!(started(&w), "", "{ticked}");
         lacks(&w.gh(), "issue edit");
+        assert_eq!(w.marks(None), 0);
         lacks(&w.gh(), "api -X PATCH");
         has(&r.out, "hold #7: its text links an attachment");
     }
@@ -530,6 +535,7 @@ fn a_retry_of_an_issue_whose_text_promises_a_file_waits_and_the_tick_stays() {
     assert_eq!(r.rc, 0);
     assert_eq!(started(&w), "");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     lacks(&w.gh(), "api -X PATCH");
     has(&r.out, "hold #7: its text says SCREENSHOT GOES HERE");
 }
@@ -552,6 +558,7 @@ fn an_issue_that_links_an_image_waits_while_the_sandbox_image_says_its_pi_rukas_
     let r = w.poll();
     assert_eq!(started(&w), "");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     assert_eq!(image_asks(&w), 0);
     has(&r.out, "hold #7: its text links an attachment and TEHAS_WORK_IMAGES is 1, but the pi-rukas in the sandbox image cccccccccccc does not read them");
     assert_eq!(why(&w), json!(""));
@@ -616,4 +623,5 @@ fn a_slice_probe_that_hangs_holds_within_its_bound() {
     has(&r.out, "holding: systemctl gave no answer");
     assert_eq!(started(&w), "");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
 }

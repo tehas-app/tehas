@@ -15,6 +15,7 @@
 mod attachments;
 mod forge;
 pub mod gh;
+mod items;
 pub mod markers;
 mod port;
 pub mod table;
@@ -23,4 +24,4 @@ mod tickets;
 mod vocabulary;
 
 pub use forge::{read_events, Approval, ForgeError, GitHub, LabelEvent};
-pub use port::{GitHubSite, MakeRunner};
+pub use port::{project_of, GitHubSite, MakeRunner, PeopleClient};

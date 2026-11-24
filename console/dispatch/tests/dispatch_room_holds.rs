@@ -69,6 +69,7 @@ fn a_disk_whose_free_space_cannot_be_read_holds_no_df_no_docker_info_and_no_numb
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(w.started(), "");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     has(&r.out, UNREAD);
     assert_eq!(w.dispatch_state()["why"], json!("disk"));
 
@@ -185,6 +186,7 @@ fn no_resources(answer: Option<&str>, text: &str) {
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(w.started(), "");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     let hold = format!("holding: no resources: {text}");
     assert_eq!(count(&r.out, &hold), 1, "{}", r.out);
     assert_eq!(

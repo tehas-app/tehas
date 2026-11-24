@@ -179,14 +179,13 @@ t_contains "$t_out" "    remote: Write access to repository not granted."
 t_contains "$t_out" "The requested URL returned error: 403"
 rm -rf "$product" "$T/push-refused" "$T/push-token" "$T/bin/git" "$th/state"/github*
 
-
 t_case "a second install makes no labels and enables nothing"
 rm -f "$T"/calls/*
 t_run "$install"
 t_eq "$t_rc" 0
 # The user ids are asked again, and nothing else of GitHub.
 t_eq "$(t_calls gh)" "api users/alice --jq .id"
-t_eq "$(cat "$th/state/account-ids")" "alice $(t_uid alice)"
+t_eq "$(cat "$th/state/account-ids")" "code-host alice $(t_uid alice)"
 # Only the reset of a tehas unit systemd failed, which enables nothing.
 t_eq "$(t_calls systemctl)" "--user is-failed tehas-dispatch.path
 --user reset-failed tehas-*"

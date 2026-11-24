@@ -1145,7 +1145,7 @@ impl Writer {
         if !out.is_object() {
             return None;
         }
-        let words = question::q_clean(s(out, "/text"), 40000);
+        let words = question::turn_text(s(out, "/text"));
         if !words.is_empty() {
             if !self.say(n, &words, log) {
                 return None;
