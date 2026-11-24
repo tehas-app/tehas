@@ -1,6 +1,7 @@
 {
  "data": {
   "repository": {
+   "databaseId": 7001,
    "issues": {
     "pageInfo": {
      "hasNextPage": false,
@@ -55,6 +56,7 @@
        "nodes": [
         {
          "baseRepository": {
+          "databaseId": 7001,
           "nameWithOwner": "acme/widget"
          },
          "number": 50,
@@ -104,6 +106,7 @@
            {
             "number": 20,
             "repository": {
+             "databaseId": 7001,
              "nameWithOwner": "acme/widget"
             }
            }
@@ -112,6 +115,7 @@
         },
         {
          "baseRepository": {
+          "databaseId": 7001,
           "nameWithOwner": "acme/widget"
          },
          "number": 51,
@@ -161,6 +165,7 @@
            {
             "number": 20,
             "repository": {
+             "databaseId": 7001,
              "nameWithOwner": "acme/widget"
             }
            }
@@ -169,6 +174,7 @@
         },
         {
          "baseRepository": {
+          "databaseId": 7001,
           "nameWithOwner": "acme/widget"
          },
          "number": 52,
@@ -218,6 +224,7 @@
            {
             "number": 20,
             "repository": {
+             "databaseId": 7001,
              "nameWithOwner": "acme/widget"
             }
            }
@@ -226,6 +233,7 @@
         },
         {
          "baseRepository": {
+          "databaseId": 7001,
           "nameWithOwner": "acme/widget"
          },
          "number": 53,
@@ -275,6 +283,7 @@
            {
             "number": 20,
             "repository": {
+             "databaseId": 7001,
              "nameWithOwner": "acme/widget"
             }
            }
@@ -283,6 +292,7 @@
         },
         {
          "baseRepository": {
+          "databaseId": 7001,
           "nameWithOwner": "acme/widget"
          },
          "number": 54,
@@ -332,6 +342,7 @@
            {
             "number": 20,
             "repository": {
+             "databaseId": 7001,
              "nameWithOwner": "acme/widget"
             }
            }
@@ -340,6 +351,7 @@
         },
         {
          "baseRepository": {
+          "databaseId": 7001,
           "nameWithOwner": "acme/widget"
          },
          "number": 55,
@@ -389,6 +401,7 @@
            {
             "number": 20,
             "repository": {
+             "databaseId": 7001,
              "nameWithOwner": "acme/widget"
             }
            }
@@ -397,6 +410,7 @@
         },
         {
          "baseRepository": {
+          "databaseId": 7001,
           "nameWithOwner": "acme/widget"
          },
          "number": 56,
@@ -446,6 +460,7 @@
            {
             "number": 20,
             "repository": {
+             "databaseId": 7001,
              "nameWithOwner": "acme/widget"
             }
            }
@@ -454,6 +469,7 @@
         },
         {
          "baseRepository": {
+          "databaseId": 7001,
           "nameWithOwner": "acme/widget"
          },
          "number": 57,
@@ -503,6 +519,7 @@
            {
             "number": 20,
             "repository": {
+             "databaseId": 7001,
              "nameWithOwner": "acme/widget"
             }
            }
@@ -511,6 +528,7 @@
         },
         {
          "baseRepository": {
+          "databaseId": 7001,
           "nameWithOwner": "acme/widget"
          },
          "number": 58,
@@ -560,6 +578,7 @@
            {
             "number": 20,
             "repository": {
+             "databaseId": 7001,
              "nameWithOwner": "acme/widget"
             }
            }
@@ -568,6 +587,7 @@
         },
         {
          "baseRepository": {
+          "databaseId": 7001,
           "nameWithOwner": "acme/widget"
          },
          "number": 59,
@@ -617,6 +637,7 @@
            {
             "number": 20,
             "repository": {
+             "databaseId": 7001,
              "nameWithOwner": "acme/widget"
             }
            }
@@ -625,6 +646,7 @@
         },
         {
          "baseRepository": {
+          "databaseId": 7001,
           "nameWithOwner": "acme/widget"
          },
          "number": 60,
@@ -674,6 +696,7 @@
            {
             "number": 20,
             "repository": {
+             "databaseId": 7001,
              "nameWithOwner": "acme/widget"
             }
            }
@@ -682,6 +705,7 @@
         },
         {
          "baseRepository": {
+          "databaseId": 7001,
           "nameWithOwner": "acme/widget"
          },
          "number": 61,
@@ -731,6 +755,7 @@
            {
             "number": 20,
             "repository": {
+             "databaseId": 7001,
              "nameWithOwner": "acme/widget"
             }
            }
@@ -739,6 +764,7 @@
         },
         {
          "baseRepository": {
+          "databaseId": 7001,
           "nameWithOwner": "acme/widget"
          },
          "number": 62,
@@ -788,6 +814,7 @@
            {
             "number": 20,
             "repository": {
+             "databaseId": 7001,
              "nameWithOwner": "acme/widget"
             }
            }
@@ -796,6 +823,7 @@
         },
         {
          "baseRepository": {
+          "databaseId": 7001,
           "nameWithOwner": "acme/widget"
          },
          "number": 63,
@@ -845,6 +873,7 @@
            {
             "number": 20,
             "repository": {
+             "databaseId": 7001,
              "nameWithOwner": "acme/widget"
             }
            }
@@ -853,6 +882,7 @@
         },
         {
          "baseRepository": {
+          "databaseId": 7001,
           "nameWithOwner": "acme/widget"
          },
          "number": 64,
@@ -902,6 +932,7 @@
            {
             "number": 20,
             "repository": {
+             "databaseId": 7001,
              "nameWithOwner": "acme/widget"
             }
            }
@@ -910,6 +941,7 @@
         },
         {
          "baseRepository": {
+          "databaseId": 7001,
           "nameWithOwner": "acme/widget"
          },
          "number": 65,
@@ -959,6 +991,7 @@
            {
             "number": 20,
             "repository": {
+             "databaseId": 7001,
              "nameWithOwner": "acme/widget"
             }
            }
@@ -967,6 +1000,7 @@
         },
         {
          "baseRepository": {
+          "databaseId": 7001,
           "nameWithOwner": "acme/widget"
          },
          "number": 66,
@@ -1016,6 +1050,7 @@
            {
             "number": 20,
             "repository": {
+             "databaseId": 7001,
              "nameWithOwner": "acme/widget"
             }
            }
@@ -1024,6 +1059,7 @@
         },
         {
          "baseRepository": {
+          "databaseId": 7001,
           "nameWithOwner": "acme/widget"
          },
          "number": 67,
@@ -1073,6 +1109,7 @@
            {
             "number": 20,
             "repository": {
+             "databaseId": 7001,
              "nameWithOwner": "acme/widget"
             }
            }
@@ -1081,6 +1118,7 @@
         },
         {
          "baseRepository": {
+          "databaseId": 7001,
           "nameWithOwner": "acme/widget"
          },
          "number": 68,
@@ -1130,6 +1168,7 @@
            {
             "number": 20,
             "repository": {
+             "databaseId": 7001,
              "nameWithOwner": "acme/widget"
             }
            }
@@ -1138,6 +1177,7 @@
         },
         {
          "baseRepository": {
+          "databaseId": 7001,
           "nameWithOwner": "acme/widget"
          },
          "number": 69,
@@ -1187,6 +1227,7 @@
            {
             "number": 20,
             "repository": {
+             "databaseId": 7001,
              "nameWithOwner": "acme/widget"
             }
            }

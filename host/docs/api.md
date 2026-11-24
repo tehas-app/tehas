@@ -164,7 +164,7 @@ tehas api [--json]
 | --- | --- |
 | `last.at` | The second the poll ended, Unix seconds. Its age is `ageMin`, so a program never subtracts two times |
 | `last.wallMs`, `last.cpuMs` | The wall time of the poll, and its CPU time with that of the commands it waited for, both in milliseconds |
-| `last.gh` | The `gh` calls the poll itself made; those of the commands it runs are not in it |
+| `last.gh` | The poll's own calls to the site, whichever way it makes them (through `gh` or the adapter); those of the commands it runs are not in it. The name stays through 2.x |
 | `last.writes` | The writes the host's `gh` shim logged while the poll ran, or `null` on a host with no write log, which is a host with no GitHub App. `null` is not 0 |
 | `last.kinds` | Those writes by kind: `label`, `comment`, `edit`, `other`. `null` with no write log, as `writes` is |
 | `last.starts` | The cycles that poll started, 0 when it started none; `null` when the row keeps no answer, which is a poll of an older tehas and is not 0 |
