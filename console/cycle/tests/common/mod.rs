@@ -772,8 +772,12 @@ impl World {
             grace: std::time::Duration::ZERO,
             workdir: tehas_cycle::host::workdir_with(&start, &env),
         };
-        // The store the report calls answers as a run's store does.
-        self.as_run(&self.home.join("libexec/store"), &self.t.join("store-bin"));
+        // The store the report calls answers as a run's store does, unless
+        // the case took it away.
+        let store = self.home.join("libexec/store");
+        if store.exists() {
+            self.as_run(&store, &self.t.join("store-bin"));
+        }
         let _ = tehas_cycle::apply::write(&self.home, &how, &mut r, &facts, &mut ask, handles);
         let sent = sent.borrow().clone();
         Tried {
