@@ -57,36 +57,36 @@ pub struct Entry {
     pub pr_state: Loose<String>,
     pub branch: Loose<String>,
     pub pr_url: Loose<String>,
-    pub steps: Many<Node<Step>>,
-    pub handoff: Node<Handoff>,
+    steps: Many<Node<Step>>,
+    handoff: Node<Handoff>,
     pub resumable: Loose<bool>,
     pub exit_code: Loose<Number>,
-    pub usage: Node<EntryUsage>,
+    usage: Node<EntryUsage>,
     pub failure: Node<EntryFailure>,
     pub comments: Node<Comments>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(default)]
-pub struct Step {
-    pub step: Loose<String>,
+struct Step {
+    step: Loose<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(default)]
-pub struct Handoff {
-    pub body: Loose<String>,
-    pub channel: Loose<String>,
+struct Handoff {
+    body: Loose<String>,
+    channel: Loose<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
-pub struct EntryUsage {
-    pub input: Loose<Number>,
-    pub output: Loose<Number>,
-    pub cache_read: Loose<Number>,
-    pub turns: Loose<Number>,
-    pub dispatches: Loose<Number>,
+struct EntryUsage {
+    input: Loose<Number>,
+    output: Loose<Number>,
+    cache_read: Loose<Number>,
+    turns: Loose<Number>,
+    dispatches: Loose<Number>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -405,18 +405,8 @@ impl Line {
         self.unstable.nothing()
     }
 
-    /// Marked unstable, with `true` itself.
-    pub fn unstable(&self) -> bool {
-        self.unstable == Field::Bool(true)
-    }
-
     pub fn is(&self, kind: &str) -> bool {
         self.kind.get().map(String::as_str) == Some(kind)
-    }
-
-    /// The event, when it is an object.
-    pub fn event(&self) -> Option<&Event> {
-        self.event.object()
     }
 }
 
@@ -489,7 +479,7 @@ pub fn run(text: &str, issue: u64) -> Run {
             steps.clear();
             break;
         }
-        if let Some(s) = v.event().and_then(|e| e.step.get()) {
+        if let Some(s) = v.event.object().and_then(|e| e.step.get()) {
             if step_name(s) {
                 steps.push(s.clone());
             }
@@ -522,7 +512,7 @@ fn branch_said_after_push(text: &str, issue: u64) -> String {
     let mut pushed = false;
     let mut branch = String::new();
     for v in text.split('\n').filter_map(Line::parse) {
-        let Some(e) = v.event() else {
+        let Some(e) = v.event.object() else {
             continue;
         };
         if v.is("step-started") {
@@ -551,7 +541,7 @@ pub struct Progress {
     pub reason: Loose<String>,
     from: Node<ProgressFrom>,
     pub failure: Node<ProgressFailure>,
-    pub roles: Many<Node<Row>>,
+    roles: Many<Node<Row>>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -572,13 +562,13 @@ pub struct ProgressFailure {
 /// A row of the progress's roles, each count as it was written.
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
-pub struct Row {
-    pub role: Field,
-    pub dispatches: Field,
-    pub turns: Field,
-    pub input: Field,
-    pub output: Field,
-    pub cache_read: Field,
+struct Row {
+    role: Field,
+    dispatches: Field,
+    turns: Field,
+    input: Field,
+    output: Field,
+    cache_read: Field,
 }
 
 impl Row {

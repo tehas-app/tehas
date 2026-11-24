@@ -111,7 +111,7 @@ fn roles_of(lines: &[&Line]) -> Option<J> {
         if !keys.insert(o.key.json()) {
             continue;
         }
-        let Some(event) = o.event() else {
+        let Some(event) = o.event.object() else {
             continue;
         };
         let usage = match &event.usage {
@@ -147,8 +147,10 @@ fn roles_of(lines: &[&Line]) -> Option<J> {
 /// What the stream of a run says, read only for a runner that wrote no result.
 fn from_lines(text: &str) -> Lines {
     let all = stream(text);
-    let is_failed =
-        |o: &&Line| o.unstable() && (o.is("dispatch-failed") || o.is("dispatch-failed-provider"));
+    let is_failed = |o: &&Line| {
+        o.unstable == Field::Bool(true)
+            && (o.is("dispatch-failed") || o.is("dispatch-failed-provider"))
+    };
     let mut lines: Vec<&Line> = all.iter().filter(|o| o.stable()).collect();
     lines.extend(all.iter().filter(is_failed));
     lines.extend(all.iter().filter(|o| o.is("cap-hit")));
@@ -163,19 +165,25 @@ fn from_lines(text: &str) -> Lines {
     let evidence = lines
         .iter()
         .filter(|o| o.is("cap-hit"))
-        .filter_map(|o| o.event().map(|e| e.evidence.str()).filter(|s| said(s)))
+        .filter_map(|o| {
+            o.event
+                .object()
+                .map(|e| e.evidence.str())
+                .filter(|s| said(s))
+        })
         .next_back();
     let held = lines.iter().any(|o| {
         o.is("cap-hit")
             && o.stable()
-            && o.event()
+            && o.event
+                .object()
                 .is_some_and(|e| e.cap.str() == "round-cap" && e.next_step.str() == "ci")
     });
     let failure = lines
         .iter()
-        .filter(|o| o.unstable())
+        .filter(|o| o.unstable == Field::Bool(true))
         .flat_map(|o| {
-            let e = o.event();
+            let e = o.event.object();
             [
                 e.map(|e| e.provider_message.str()).filter(|s| said(s)),
                 e.map(|e| e.error_tail.str()).filter(|s| said(s)),

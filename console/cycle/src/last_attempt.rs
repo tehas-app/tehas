@@ -43,51 +43,51 @@ pub struct IssueBody {
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct WorkState {
-    pub event_log: Loose<Vec<Node<StateEvent>>>,
-    pub pipeline_state: Node<Pipeline>,
+    event_log: Loose<Vec<Node<StateEvent>>>,
+    pipeline_state: Node<Pipeline>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(default)]
-pub struct StateEvent {
-    pub kind: Loose<String>,
-    pub ms: Loose<u64>,
-    pub step: Loose<String>,
-    pub ok: Loose<bool>,
+struct StateEvent {
+    kind: Loose<String>,
+    ms: Loose<u64>,
+    step: Loose<String>,
+    ok: Loose<bool>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
-pub struct Pipeline {
+struct Pipeline {
     /// There whenever the file names it, null included.
     #[serde(deserialize_with = "present")]
-    pub handoff_snapshot: Option<Node<Snapshot>>,
-    pub normalised_spec: Node<Spec>,
+    handoff_snapshot: Option<Node<Snapshot>>,
+    normalised_spec: Node<Spec>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
-pub struct Snapshot {
-    pub committed_work: Loose<Vec<Node<Committed>>>,
-    pub modified_files: Loose<Vec<IgnoredAny>>,
+struct Snapshot {
+    committed_work: Loose<Vec<Node<Committed>>>,
+    modified_files: Loose<Vec<IgnoredAny>>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(default)]
-pub struct Committed {
-    pub ahead: Loose<u64>,
+struct Committed {
+    ahead: Loose<u64>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(default)]
-pub struct Spec {
-    pub deliverables: Loose<Vec<Node<Deliverable>>>,
+struct Spec {
+    deliverables: Loose<Vec<Node<Deliverable>>>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(default)]
-pub struct Deliverable {
-    pub paths: Loose<Vec<Loose<String>>>,
+struct Deliverable {
+    paths: Loose<Vec<Loose<String>>>,
 }
 
 /// What tehas-cycle does with the issue's body.
