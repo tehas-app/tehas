@@ -491,17 +491,17 @@ fn a_question_summed_before_2_0_is_adopted_on_its_first_read() {
             &r.out,
             "INFO: the question of #7 (comment 4001) had its sum of before 2.0",
         );
-        assert_eq!(known()["sum_form"], "visible");
-        let sum = question_sum(&q_text(&body, 7).unwrap());
-        assert_eq!(
-            w.row(&["question-show", "7"])["question"]["body_sha256"],
-            json!(sum)
-        );
-        lacks(&w.gh(), "api -X PATCH");
-        assert_eq!(w.notes(7), 0, "{:?}", w.writes_of(7));
         if ticks[0] == "x" {
+            // The tick counts in the same poll, which uses the question up.
             assert_eq!(started(&w), "7");
         } else {
+            assert_eq!(known()["sum_form"], "visible");
+            let sum = question_sum(&q_text(&body, 7).unwrap());
+            assert_eq!(
+                w.row(&["question-show", "7"])["question"]["body_sha256"],
+                json!(sum)
+            );
+            lacks(&w.gh(), "api -X PATCH");
             assert_eq!(started(&w), "");
             assert!(w.writes_of(7).is_empty(), "{:?}", w.writes_of(7));
             // The next poll finds it adopted and says nothing.

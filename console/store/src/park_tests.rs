@@ -1063,7 +1063,7 @@ fn question_adopt_takes_a_1x_sum_into_the_visible_form_once() {
     let adopt = |issue: &str, id: &str| {
         ok(
             &home,
-            &["question-adopt", issue, "--id", id, "--body-sha", &visible],
+            &["question-adopt", issue, "--id", id, "--body-sha", visible.as_str()],
         )["adopted"]
             .clone()
     };
