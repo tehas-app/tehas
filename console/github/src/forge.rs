@@ -157,6 +157,19 @@ impl GitHub {
         }
     }
 
+    /// [`GitHub::call`] with `input` on gh's standard input, the way a write
+    /// sends its text: never in an argument.
+    pub(crate) fn call_input(
+        &mut self,
+        call: &str,
+        args: &[&str],
+        input: &str,
+    ) -> Result<String, ForgeError> {
+        self.runner
+            .run_input(args, input)
+            .map_err(|why| ForgeError::new(call, why))
+    }
+
     /// The reason of a read that is no answer, named after the read the
     /// adapter was making: the reader's words, kept whole.
     fn reason_of(why: String) -> ForgeError {

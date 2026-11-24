@@ -7,7 +7,7 @@
 use std::sync::{Arc, Mutex};
 
 use super::unsupported;
-use crate::tickets::Bot;
+use crate::tickets::{Bot, NOT_STARTED};
 use crate::{table, GitHub};
 use tehas_core::forge::{Failed, GhRunner};
 use tehas_ports::{
@@ -31,10 +31,6 @@ pub struct GitHubSite {
     deadline: Option<At>,
     now: fn() -> i64,
 }
-
-/// The reason a handle's runner gives for a call it did not send because
-/// the handle's deadline had passed: read as `Unavailable { Timeout, No }`.
-pub(crate) const PAST_DEADLINE: &str = "past the handle's deadline, not sent";
 
 impl GitHubSite {
     /// The site of `repo` (`owner/name`), whose runners `make` gives.
@@ -133,9 +129,13 @@ impl Site for GitHubSite {
         )?))
     }
 
-    /// Not built in this adapter yet.
-    fn blueprint_writes(&self, _: &Actor, _: Caller) -> Got<Box<dyn BlueprintWrites + Send>> {
-        unsupported()
+    fn blueprint_writes(&self, by: &Actor, caller: Caller) -> Got<Box<dyn BlueprintWrites + Send>> {
+        Ok(Box::new(self.handle(
+            by,
+            caller,
+            PortName::Blueprints,
+            true,
+        )?))
     }
 
     /// Not built in this adapter yet.
@@ -239,7 +239,7 @@ impl Metered {
 impl GhRunner for Metered {
     fn run(&mut self, args: &[&str]) -> Result<String, String> {
         if self.past() {
-            return Err(PAST_DEADLINE.to_string());
+            return Err(NOT_STARTED.to_string());
         }
         self.count(args);
         self.inner.run(args)
@@ -247,7 +247,7 @@ impl GhRunner for Metered {
 
     fn run_input(&mut self, args: &[&str], input: &str) -> Result<String, String> {
         if self.past() {
-            return Err(PAST_DEADLINE.to_string());
+            return Err(NOT_STARTED.to_string());
         }
         self.count(args);
         self.inner.run_input(args, input)
@@ -256,7 +256,7 @@ impl GhRunner for Metered {
     fn run_answer(&mut self, args: &[&str]) -> Result<String, Failed> {
         if self.past() {
             return Err(Failed {
-                why: PAST_DEADLINE.to_string(),
+                why: NOT_STARTED.to_string(),
                 answer: None,
             });
         }

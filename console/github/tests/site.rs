@@ -70,12 +70,13 @@ fn the_factorys_account_and_the_operator_get_handles_of_each_port_built() {
         assert!(site.tickets(&by, CALLER).is_ok(), "{by:?}");
         assert!(site.ticket_writes(&by, CALLER).is_ok(), "{by:?}");
         assert!(site.blueprints(&by, CALLER).is_ok(), "{by:?}");
+        assert!(site.blueprint_writes(&by, CALLER).is_ok(), "{by:?}");
         assert!(site.identity(&by, CALLER).is_ok(), "{by:?}");
     }
     let asked = asked.lock().unwrap();
-    assert_eq!(asked.len(), 8);
-    assert!(asked[..4].iter().all(|a| *a == Actor::Ours(Scope::Full)));
-    assert!(asked[4..].iter().all(|a| *a == Actor::Operator));
+    assert_eq!(asked.len(), 10);
+    assert!(asked[..5].iter().all(|a| *a == Actor::Ours(Scope::Full)));
+    assert!(asked[5..].iter().all(|a| *a == Actor::Operator));
     assert_eq!(site.realms(), [Realm::CodeHost, Realm::Tickets]);
 }
 
@@ -108,12 +109,17 @@ fn an_actor_the_factory_cannot_run_is_unsupported_before_a_runner_is_made() {
         };
         assert_eq!(
             refused(site.ticket_writes(by, CALLER)),
-            Some(want),
+            Some(want.clone()),
             "{by:?}"
         );
         assert_eq!(
             refused(site.blueprints(by, CALLER)),
             Some(UNSUPPORTED),
+            "{by:?}"
+        );
+        assert_eq!(
+            refused(site.blueprint_writes(by, CALLER)),
+            Some(want.clone()),
             "{by:?}"
         );
         assert_eq!(
@@ -129,10 +135,6 @@ fn an_actor_the_factory_cannot_run_is_unsupported_before_a_runner_is_made() {
 fn a_port_not_built_here_is_unsupported_and_makes_no_runner() {
     let (site, asked) = site(&[]);
     let by = Actor::Ours(Scope::Full);
-    assert_eq!(
-        refused(site.blueprint_writes(&by, CALLER)),
-        Some(UNSUPPORTED)
-    );
     assert_eq!(refused(site.code_host(&by, CALLER)), Some(UNSUPPORTED));
     assert_eq!(
         refused(site.code_host_writes(&by, CALLER)),
