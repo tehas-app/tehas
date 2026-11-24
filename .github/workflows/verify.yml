@@ -118,7 +118,22 @@ jobs:
           # a different host target or Rust release.
           toolchain=$(rustc -vV | awk '$1 == "host:" || $1 == "release:" {printf "%s-", $2}')
           dir=$HOME/.cache/tehas-target/$RUNNER_NAME/$toolchain
+          # Nothing else prunes the kept build and it only grows. A full disk
+          # fails every job on the runner, so past 40 GiB it starts again
+          # from empty: one cold build instead of a dead runner.
+          size=$(du -s --block-size=1G "$dir" 2>/dev/null | cut -f1)
+          if [ "${size:-0}" -gt 40 ]; then
+            echo "the kept build is ${size} GiB, over 40: removed, this run builds from empty"
+            rm -rf "$dir"
+          fi
           mkdir -p "$dir"
+          # A killed job leaves its mktemp directories in /tmp. Only this
+          # user's go, and only those older than any job's time limit, so no
+          # running job loses one. A failed removal does not fail the gate.
+          old=$(find /tmp -maxdepth 1 -name 'tmp.*' -user "$(id -un)" -mmin +180 | wc -l)
+          find /tmp -maxdepth 1 -name 'tmp.*' -user "$(id -un)" -mmin +180 -exec rm -rf {} + ||
+            echo "::warning title=temp dirs left::some of this user's old temp directories in /tmp could not be removed"
+          echo "removed $old leftover temp directories of $(id -un) from /tmp"
           echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
       - name: the type checker the kit passes
         run: |

@@ -769,6 +769,15 @@ pub trait TicketWrites: Tickets {
     /// cannot be made stops none of the others; the first that failed is
     /// the answer.
     fn prepare(&mut self) -> Result<(), Unprepared>;
+    /// Make sure the site can carry this one mark of the factory, as
+    /// `prepare` does for each: made, or brought to the colour and text the
+    /// adapter's table gives it, whatever the state of the others. A
+    /// project's own mark is `ensure_mark`'s: `Refused(Invalid)` here.
+    /// Provided: `Refused(Unsupported)` (Decided 127).
+    fn prepare_one(&mut self, mark: &Mark) -> Did {
+        let _ = mark;
+        Err(Outcome::Refused(crate::Refusal::Unsupported))
+    }
     /// Make sure a project's own mark exists. Already there is done. Its
     /// colour and text are made to match where the site has them and the
     /// spec gives them; a site without them ignores both, and that is done

@@ -116,6 +116,9 @@ pub struct GitHub {
     /// None for a handle made with [`GitHub::new`], which answers no account
     /// `Ours`.
     pub(crate) bot: Option<crate::tickets::Bot>,
+    /// The node id and the issue of each comment a read of comments found
+    /// edited, by its REST id: an edit history is asked by node id.
+    pub(crate) comment_nodes: std::collections::HashMap<u64, (String, tehas_ports::BlueprintNo)>,
 }
 
 impl GitHub {
@@ -133,6 +136,7 @@ impl GitHub {
             now: tehas_core::time::now,
             left_out: Vec::new(),
             bot: None,
+            comment_nodes: std::collections::HashMap::new(),
         }
     }
 
