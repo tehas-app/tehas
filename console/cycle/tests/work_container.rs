@@ -328,7 +328,11 @@ fn the_console_is_the_program_beside_this_one_given_the_cycles_log_the_transcrip
 
 #[test]
 fn a_console_that_fails_is_named_with_its_exit_status_and_where_it_wrote_why() {
-    let (w, r) = ran("console-fails");
+    let w = World::new("console-fails");
+    // The container ends only once the console stands ready for the end's TERM.
+    w.docker_runs_until(&w.path("console.up"));
+    let r = w.work7();
+    ok2(&r);
     lacks(&r.out, "the console ended");
     // The console ends with 1 on its own: TERM is caught first, and the
     // container ends only once the console has said why.
