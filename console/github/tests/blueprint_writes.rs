@@ -896,7 +896,9 @@ fn every_reason_bounded_gives_maps_as_before_the_relays_runner() {
         (": HTTP 403", Outcome::Forbidden),
         (": HTTP 404", Outcome::NotFound),
         (": HTTP 410", Outcome::NotFound),
-        (": HTTP 422", maybe(Passing::Server)),
+        // GitHub refusing the input made nothing (T4.7): refused, never a
+        // write that may have been sent.
+        (": HTTP 422", Outcome::Refused(Refusal::Invalid)),
         (": HTTP 429", spent.clone()),
         (": HTTP 500", maybe(Passing::Server)),
         (": HTTP 502", maybe(Passing::Server)),
