@@ -335,7 +335,9 @@ struct Rest {
 }
 
 /// A field that may be empty and may not be left out.
-fn present<'de, D: Deserializer<'de>, T: Deserialize<'de>>(d: D) -> Result<Option<T>, D::Error> {
+pub(crate) fn present<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
+    d: D,
+) -> Result<Option<T>, D::Error> {
     Option::<T>::deserialize(d)
 }
 

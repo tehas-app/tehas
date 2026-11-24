@@ -578,11 +578,16 @@ fn read_page(
             "MERGED" => ChangeState::Merged {
                 at: at("mergedAt")?.ok_or(malformed.clone())?,
                 by: who("mergedBy")?,
-                commit: n
-                    .pointer("/mergeCommit/oid")
-                    .and_then(Value::as_str)
-                    .and_then(|c| CommitId::new(c).ok())
-                    .ok_or(malformed.clone())?,
+                commit: match n.get("mergeCommit") {
+                    Some(Value::Null) => None,
+                    Some(c) => Some(
+                        c.get("oid")
+                            .and_then(Value::as_str)
+                            .and_then(|c| CommitId::new(c).ok())
+                            .ok_or(malformed.clone())?,
+                    ),
+                    None => return Err(malformed),
+                },
             },
             _ => ChangeState::Closed {
                 at: at("closedAt")?.ok_or(malformed.clone())?,
