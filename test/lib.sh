@@ -57,7 +57,6 @@
 #                                    with RC and LINE for its first TIMES calls,
 #                                    and is the real store otherwise; each
 #                                    call replaces the answer before it
-#   t_store_answered                 how many calls that answer matched
 #   t_approve HOME N BY HOW [AT] [ARGS...]
 #                                    an approval of issue N on record, as the
 #                                    dispatcher records it: at AT [1760000000],
@@ -1007,8 +1006,6 @@ t_store_answers() {
   printf '%s|%s|%s%s\n' "$1" "$2" "$3" "${4:+|$4}" >"$T/store-answers"
   rm -f "$T/store-answers.n"
 }
-# t_store_answered: how many calls the answer matched, $T/store-answers.n.
-t_store_answered() { cat "$T/store-answers.n" 2>/dev/null || echo 0; }
 T_WSUM=$(printf 'Words.' | sha256sum | cut -d' ' -f1)
 t_approve() { # <home> <issue> <by> <how> [<at>] [<approval-record args>...]
   local t_home=$1 t_n=$2 t_by=$3 t_how=$4 t_when=${5:-1760000000} t_args

@@ -712,7 +712,9 @@ impl World {
     /// The mounts of a cycle given nothing of the issue, as the shell tests
     /// list them: one `<host>:<container>[:ro]` per line.
     pub fn mounts_off(&self) -> String {
-        let (ws, state, home) = (self.ws.display(), self.state.display(), self.home.display());
+        let (ws, state) = (self.ws.display(), self.state.display());
+        let token = Home::new(&self.home).token_dir(TokenDir::Cycle);
+        let token = token.display();
         let pi = self.t.join("home/.pi/agent");
         let pi = pi.display();
         format!(
@@ -724,7 +726,7 @@ impl World {
 {pi}/mcp.json:/home/vscode/.pi/agent/mcp.json:ro
 {state}/models.json:/home/vscode/.pi/agent/models.json:ro
 {pi}/settings.json:/home/vscode/.pi/agent/settings.json:ro
-{home}/state/github-cycle:/run/tehas/github:ro
+{token}:/run/tehas/github:ro
 {state}/relay:/run/tehas/relay",
             inside = self.inside.display(),
             runs = self.runs.display(),
@@ -1084,6 +1086,7 @@ impl World {
             .env("PATH", path)
             .env("HOME", self.t.join("home"))
             .env("TEHAS_HOME", &self.home)
+            .env("T_CYCLES", Home::new(&self.home).cycles_dir())
             .env("T", self.t.path())
             .env("T_ROOT", root())
             .env("CARGO_TARGET_DIR", self.t.join("target"))
