@@ -31,6 +31,7 @@
 
 use std::collections::BTreeSet;
 
+use super::super::blueprint_writes::ends_with_folded;
 use crate::tickets::{account, Bot};
 use crate::{gh, markers, GitHub};
 use serde::Deserialize;
@@ -926,14 +927,6 @@ fn author(user: Option<&User>, bot: Option<&Bot>) -> Option<Account> {
         kind: u.kind.clone(),
     };
     account(u.login.as_deref()?, &facts, bot)
-}
-
-/// Whether `text` ends with `tail`, ASCII case folded: GitHub's links
-/// carry the project's name in the case it was made with.
-fn ends_with_folded(text: &str, tail: &str) -> bool {
-    text.len() >= tail.len()
-        && text.is_char_boundary(text.len() - tail.len())
-        && text[text.len() - tail.len()..].eq_ignore_ascii_case(tail)
 }
 
 /// A node id GitHub gives: letters, digits, `_` and `-`, so it goes in a

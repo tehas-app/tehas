@@ -203,7 +203,7 @@ fn beside() -> String {
 /// of them, each with what its digest holds. `narrow` is GitHub's filter,
 /// which only narrows: every ticket is held to the caller's filter again.
 fn listed(narrow: &str) -> String {
-    format!("query($owner: String!, $name: String!, $cursor: String) {{ repository(owner: $owner, name: $name) {{ issues(first: 100, after: $cursor, orderBy: {{field: CREATED_AT, direction: ASC}}{narrow}) {{ pageInfo {{ hasNextPage endCursor }} nodes {{ number title state stateReason url createdAt updatedAt author {{ {ACTOR} }} issueType {{ name }} milestone {{ number title }} labels(first: 100) {{ totalCount nodes {{ name }} }} }} }} }} }}")
+    format!("query($owner: String!, $name: String!, $cursor: String) {{ repository(owner: $owner, name: $name) {{ issues(first: 100, after: $cursor, orderBy: {{field: CREATED_AT, direction: ASC}}{narrow}) {{ pageInfo {{ hasNextPage endCursor }} nodes {{ number title body state stateReason url createdAt updatedAt author {{ {ACTOR} }} issueType {{ name }} milestone {{ number title }} labels(first: 100) {{ totalCount nodes {{ name }} }} }} }} }} }}")
 }
 
 #[derive(Deserialize)]
@@ -310,6 +310,8 @@ struct Answer {
 struct Node {
     number: Option<u64>,
     title: String,
+    /// Asked for the revision alone, which sums the title and the body.
+    body: String,
     state: String,
     state_reason: Option<String>,
     url: String,
@@ -949,12 +951,14 @@ impl GitHub {
         let created = time(&n.created_at)?;
         let updated = time(&n.updated_at)?;
         let link = WebLink::new(n.url).map_err(|_| MALFORMED)?;
+        let sums = serde_json::json!({ "title": n.title, "body": n.body }).to_string();
+        let revision = gh::text_revision(&sums).ok_or(MALFORMED)?;
         let mut digest = TicketDigest::new(
             TicketKey::Number(no),
             state,
             created,
             updated,
-            Revision::new(n.updated_at),
+            Revision::new(revision),
             link,
         );
         digest.title = n.title;

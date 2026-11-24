@@ -3,7 +3,8 @@
 //! Every case reads the account on each path the adapter builds accounts
 //! on: REST's issue author, label event actor and assignee, GraphQL's
 //! timeline actor, close, assigned event's assignee and list author, the
-//! code host's change author, the board's change author, one change's
+//! code host's change author, the board's change author, a blueprint's
+//! author, body editor, comment author and comment editor, one change's
 //! author, merger, body editor, comment author and editor, review author
 //! and review note author, and `Identity::me`.
 
@@ -13,9 +14,9 @@ use std::sync::Arc;
 use tehas_core::forge::GhRunner;
 use tehas_github::{GitHub, GitHubSite, MakeRunner};
 use tehas_ports::{
-    Account, AccountKind, Actor, Bound, Caller, ChangeAsk, ChangeFilter, ChangeNo, ChangeState,
-    ChangeStates, Closer, Depth, Filter, Happened, HappenedKind, Identity, Scope, Site, TicketKey,
-    Tickets, Window, ALL_MAX,
+    Account, AccountKind, Actor, BlueprintNo, Bound, Caller, ChangeAsk, ChangeFilter, ChangeNo,
+    ChangeState, ChangeStates, Closer, Depth, Filter, Happened, HappenedKind, Identity, Scope,
+    Site, TicketKey, Tickets, Window, ALL_MAX,
 };
 
 const CALLER: Caller = Caller::new("test.ours");
@@ -117,7 +118,7 @@ fn timeline(actor: &str) -> String {
 fn list(author: &str) -> String {
     format!(
         r#"{{"data":{{"repository":{{"issues":{{"pageInfo":{{"hasNextPage":false,"endCursor":null}},"nodes":[
-{{"number":7,"title":"t","state":"OPEN","stateReason":null,"url":"https://github.com/acme/widget/issues/7",
+{{"number":7,"title":"t","body":"","state":"OPEN","stateReason":null,"url":"https://github.com/acme/widget/issues/7",
 "createdAt":"2026-01-02T03:04:05Z","updatedAt":"2026-01-03T00:00:00Z","author":{author},
 "issueType":null,"milestone":null,"labels":{{"totalCount":0,"nodes":[]}}}}]}}}}}}}}"#
     )
@@ -194,6 +195,42 @@ fn pulls(file: &str, actor: &str) -> String {
         }
     }
     page.to_string()
+}
+
+/// A blueprint's REST read: issue 7 by `author`, touched since it was
+/// opened, with one comment.
+fn bp_issue(author: &str) -> String {
+    format!(
+        r#"{{"number":7,"title":"t","state":"open","body":"","user":{author},"comments":1,
+"created_at":"2026-01-02T03:04:05Z","updated_at":"2026-01-03T00:00:00Z",
+"html_url":"https://github.com/acme/widget/issues/7"}}"#
+    )
+}
+
+/// GraphQL's answer of the body's last edit, by `editor`.
+fn bp_body_edit(editor: &str) -> String {
+    format!(
+        r#"{{"data":{{"repository":{{"issue":{{"lastEditedAt":"2026-01-02T05:00:00Z","editor":{editor}}}}}}}}}"#
+    )
+}
+
+/// One page of comments: one by `author`, edited since.
+fn bp_comments(author: &str) -> String {
+    format!(
+        r#"[{{"id":11,"node_id":"IC_kwDOAbCdEf11","html_url":"https://github.com/acme/widget/issues/7#issuecomment-11",
+"body":"A note.","user":{author},"created_at":"2026-01-02T04:00:00Z","updated_at":"2026-01-02T06:00:00Z"}}]"#
+    )
+}
+
+/// GraphQL's answer of the comment's last edit, by `editor`.
+fn bp_comment_edit(editor: &str) -> String {
+    format!(
+        r#"{{"data":{{"repository":{{"id":"R_1"}},"nodes":[{{"__typename":"IssueComment","id":"IC_kwDOAbCdEf11","lastEditedAt":"2026-01-02T06:00:00Z","editor":{editor}}}]}}}}"#
+    )
+}
+
+fn bp_no() -> BlueprintNo {
+    BlueprintNo::new(7).unwrap()
 }
 
 fn handle(bot_id: Option<u64>, answers: Vec<String>) -> Box<dyn Tickets + Send> {
@@ -305,6 +342,22 @@ fn kinds(bot_id: Option<u64>, w: Who) -> Vec<(&'static str, Option<AccountKind>)
         "board change author",
         kind(all.items()[0].change.author.as_ref()),
     ));
+
+    let answers = vec![
+        bp_issue(&rest),
+        bp_body_edit(&gql),
+        bp_comments(&rest),
+        bp_comment_edit(&gql),
+    ];
+    let mut h = site_of(LOGIN, bot_id, answers)
+        .blueprints(&Actor::Ours(Scope::Full), CALLER)
+        .unwrap();
+    let b = h.blueprint(bp_no(), Depth::All).unwrap();
+    out.push(("blueprint author", kind(b.author.as_ref())));
+    out.push(("blueprint body editor", kind(b.editor.as_ref())));
+    let c = &b.comments.items[0];
+    out.push(("blueprint comment author", kind(c.author.as_ref())));
+    out.push(("blueprint comment editor", kind(c.editor.as_ref())));
     out
 }
 
@@ -475,4 +528,21 @@ fn me_through_a_handle_made_without_a_site_is_never_ours() {
         Box::new(Stub(vec![VIEWER_BOT.to_string(), USER_BOT.to_string()])),
     );
     assert_eq!(Identity::me(&mut gh).unwrap().kind, AccountKind::Bot);
+}
+
+#[test]
+fn an_edit_by_a_deleted_account_is_never_ours() {
+    // GraphQL names no editor of an edited text: GitHub's `ghost`, with no
+    // id, so the bot rule never matches it.
+    let bot = who(Some("Bot"), "tehas-bot[bot]", Some(BOT_ID));
+    let answers = vec![bp_issue(&bot.rest()), bp_body_edit("null")];
+    let mut h = site_of(LOGIN, Some(BOT_ID), answers)
+        .blueprints(&Actor::Ours(Scope::Full), CALLER)
+        .unwrap();
+    let b = h.blueprint(bp_no(), Depth::Cut { notes: 0 }).unwrap();
+    assert_eq!(b.author.unwrap().kind, AccountKind::Ours);
+    let editor = b.editor.unwrap();
+    assert_eq!(editor.login.as_str(), "ghost");
+    assert_eq!(editor.kind, AccountKind::Unknown);
+    assert!(b.edited.is_some());
 }
