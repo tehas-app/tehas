@@ -418,6 +418,45 @@ mod wiring {
         Box::new(tehas_github::GitHub::new(repo, runner))
     }
 
+    /// The board handle of `tehas plugin hook`, from the adapter's site
+    /// acting as the factory's account, which the adapter answers `Ours` by
+    /// the bot's recorded id. The gh it runs is the one the command names.
+    pub(crate) fn board(
+        a: &tehas_ops::plugin::HandleAsk,
+    ) -> tehas_ports::Got<Box<dyn tehas_ports::Board + Send>> {
+        use tehas_ports::{Actor, Caller, Scope, Site};
+        let (program, bound) = (a.program.to_string(), a.bound);
+        let make: tehas_github::MakeRunner = std::sync::Arc::new(move |_| {
+            Ok(Box::new(Bounded::new(&program, bound)) as Box<dyn tehas_core::forge::GhRunner>)
+        });
+        let site = tehas_github::GitHubSite::new(a.repo, a.bot, Some(a.bot_id), make);
+        site.board(&Actor::Ours(Scope::Full), Caller::new("plugin-hook"))
+    }
+
+    /// The blueprints handles on `repo` as the factory, asking the site
+    /// through `program`, each call in `bound`: the site knows the factory's
+    /// account by what `home` records of its bot.
+    pub(crate) fn blueprints(
+        repo: &str,
+        program: &str,
+        bound: Duration,
+        home: &std::path::Path,
+    ) -> tehas_ports::Got<(
+        Box<dyn tehas_ports::Blueprints>,
+        Box<dyn tehas_ports::BlueprintWrites>,
+    )> {
+        use tehas_ports::{Actor, Caller, Scope, Site};
+        let (login, id) = tehas_core::accounts::bot(home);
+        let program = program.to_string();
+        let make: tehas_github::MakeRunner = std::sync::Arc::new(move |_| {
+            Ok(Box::new(Bounded::new(program.clone(), bound))
+                as Box<dyn tehas_core::forge::GhRunner>)
+        });
+        let site = tehas_github::GitHubSite::new(repo, &login, id, make);
+        let (by, c) = (Actor::Ours(Scope::Full), Caller::new("plan"));
+        Ok((site.blueprints(&by, c)?, site.blueprint_writes(&by, c)?))
+    }
+
     /// The mark a label name given on a command line is: one of tehas's
     /// words, or a project's own mark. None for a name no mark can have.
     pub(crate) fn mark_of(label: &str) -> Option<Mark> {

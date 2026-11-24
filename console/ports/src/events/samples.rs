@@ -12,8 +12,10 @@ use super::{
 use crate::{Account, AccountId, AccountKind, Act, At, BlueprintNo, ChangeNo, CloseReason};
 use crate::{KeyText, Login, QuestionKind, Realm, TicketKey};
 
-/// The samples of one name and side.
+/// The samples of one name and side. Read, not built, outside the crate
+/// (Decided 123).
 #[derive(Clone, PartialEq, Eq, Debug)]
+#[non_exhaustive]
 pub struct Sample {
     /// The name.
     pub name: Name,
@@ -29,7 +31,8 @@ pub struct Sample {
 /// name does not compile until it has its samples.
 pub fn samples() -> Vec<Sample> {
     Name::ALL
-        .into_iter()
+        .iter()
+        .copied()
         .filter_map(|name| {
             let (full, bare) = match name {
                 Name::CycleStarted => pair(cycle_started(true), cycle_started(false)),
@@ -53,8 +56,10 @@ pub fn samples() -> Vec<Sample> {
         .collect()
 }
 
-/// The samples of one gate, the `before` side of a point.
+/// The samples of one gate, the `before` side of a point. Read, not
+/// built, outside the crate (Decided 123).
 #[derive(Clone, PartialEq, Eq, Debug)]
+#[non_exhaustive]
 pub struct GateSample {
     /// The point's name.
     pub name: Name,

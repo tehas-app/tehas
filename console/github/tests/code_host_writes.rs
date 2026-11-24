@@ -1,5 +1,5 @@
 //! The code host port's writes as the adapter answers them:
-//! `comment_change`, `mark_change` and `unmark_change`, over samples of
+//! `comment_change`, `mark_change`, `unmark_change` and `set_status`, over samples of
 //! GitHub's answers in `tests/samples/code-host-writes/` (hand-made from
 //! GitHub's documented shapes, no secret and no private name). A failure
 //! sample is gh's error stream, given to the adapter as `Bounded` would
@@ -800,4 +800,154 @@ fn every_other_write_is_unsupported_before_any_request() {
     let tag = TagName::new("v1.0.0").unwrap();
     assert_eq!(gh.tag(&tag, &head), unsupported);
     assert!(taken(&calls).is_empty());
+}
+
+// --- set_status ---------------------------------------------------------------
+
+const HEAD: &str = "6dcb09b5b57875f334f61aebed695e2e4193db5e";
+
+fn status(state: tehas_ports::StatusState, about: &str) -> tehas_ports::Status {
+    tehas_ports::Status {
+        name: "tehas/plugin/review".into(),
+        state,
+        about: about.into(),
+        link: Some(tehas_ports::WebLink::new("https://example.com/runs/1").unwrap()),
+    }
+}
+
+/// The sample answer with `state`, the answer to a status of that state.
+fn created(state: &str) -> String {
+    sample("status-created.json").replace("\"success\"", &format!("\"{state}\""))
+}
+
+fn head() -> CommitId {
+    CommitId::new(HEAD).unwrap()
+}
+
+#[test]
+fn a_status_is_one_post_to_the_commit_its_state_in_githubs_word_and_its_text_as_input() {
+    use tehas_ports::StatusState as S;
+    for (state, word) in [
+        (S::Pending, "pending"),
+        (S::Passed, "success"),
+        (S::Failed, "failure"),
+        (S::Errored, "error"),
+    ] {
+        let (mut gh, calls) = adapter(vec![Ok(created(word))]);
+        assert_eq!(gh.set_status(&head(), &status(state, "Passed.")), Ok(()));
+        let taken = taken(&calls);
+        assert_eq!(taken.len(), 1, "{word}: sent once");
+        assert_eq!(
+            taken[0].args,
+            [
+                "api",
+                "-X",
+                "POST",
+                &format!("repos/acme/widget/statuses/{HEAD}"),
+                "--input",
+                "-"
+            ]
+        );
+        let sent: serde_json::Value =
+            serde_json::from_str(taken[0].input.as_deref().unwrap()).unwrap();
+        assert_eq!(
+            sent,
+            serde_json::json!({
+                "state": word,
+                "context": "tehas/plugin/review",
+                "description": "Passed.",
+                "target_url": "https://example.com/runs/1",
+            })
+        );
+    }
+}
+
+#[test]
+fn a_status_with_no_link_sends_none_and_its_about_is_cut_to_what_github_keeps() {
+    use tehas_ports::StatusState as S;
+    let mut s = status(S::Passed, &"é".repeat(200));
+    s.link = None;
+    let (mut gh, calls) = adapter(vec![Ok(created("success"))]);
+    assert_eq!(gh.set_status(&head(), &s), Ok(()));
+    let sent: serde_json::Value =
+        serde_json::from_str(taken(&calls)[0].input.as_deref().unwrap()).unwrap();
+    assert_eq!(sent.get("target_url"), None);
+    assert_eq!(sent["description"], "é".repeat(140));
+}
+
+#[test]
+fn a_name_that_is_no_one_line_an_about_with_a_marker_or_a_project_that_is_no_name_sends_nothing() {
+    use tehas_ports::StatusState as S;
+    let invalid = Err(Outcome::Refused(Refusal::Invalid));
+    let mut cases = Vec::new();
+    for name in ["", "  ", "a\nb", "a\rb"] {
+        let mut s = status(S::Passed, "Passed.");
+        s.name = name.into();
+        cases.push((PROJECT, s));
+    }
+    cases.push((
+        PROJECT,
+        status(S::Passed, "See <!-- tehas:question 7 --> here"),
+    ));
+    cases.push(("acme/widget/x", status(S::Passed, "Passed.")));
+    cases.push(("acme/..", status(S::Passed, "Passed.")));
+    for (project, s) in cases {
+        let (mut gh, calls) = adapter_of(project, vec![Ok(created("success"))]);
+        assert_eq!(gh.set_status(&head(), &s), invalid, "{project} {s:?}");
+        assert_eq!(taken(&calls), vec![], "{project} {s:?}");
+    }
+}
+
+#[test]
+fn each_failure_of_the_post_is_its_outcome_and_it_is_never_sent_twice() {
+    use tehas_ports::StatusState as S;
+    for (what, why, want) in write_failures() {
+        let (mut gh, calls) = adapter(vec![Err(why)]);
+        assert_eq!(
+            gh.set_status(&head(), &status(S::Failed, "Failed.")),
+            Err(want),
+            "{what}"
+        );
+        assert_eq!(taken(&calls).len(), 1, "{what}");
+    }
+}
+
+#[test]
+fn an_answer_that_is_not_the_status_sent_is_unread() {
+    use tehas_ports::StatusState as S;
+    let other = sample("status-created.json").replace("tehas/plugin/review", "ci/other");
+    for (what, answer, want) in [
+        ("not json", "<html>".to_string(), Unread::Malformed),
+        (
+            "no state",
+            r#"{"context":"tehas/plugin/review"}"#.to_string(),
+            Unread::Malformed,
+        ),
+        ("another name", other, Unread::Inconsistent),
+        ("another state", created("pending"), Unread::Inconsistent),
+    ] {
+        let (mut gh, _) = adapter(vec![Ok(answer)]);
+        assert_eq!(
+            gh.set_status(&head(), &status(S::Passed, "Passed.")),
+            Err(Outcome::Unread(want)),
+            "{what}"
+        );
+    }
+}
+
+#[test]
+fn a_runner_that_takes_no_input_sends_no_status() {
+    let calls = Calls::default();
+    let runner = NoInput {
+        answers: VecDeque::new(),
+        calls: Arc::clone(&calls),
+    };
+    let mut gh = GitHub::new(PROJECT, Box::new(runner)).on_clock(now);
+    assert_eq!(
+        gh.set_status(
+            &head(),
+            &status(tehas_ports::StatusState::Passed, "Passed.")
+        ),
+        Err(Outcome::Refused(Refusal::Unsupported))
+    );
 }

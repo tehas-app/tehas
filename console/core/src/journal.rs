@@ -13,7 +13,10 @@ use regex::Regex;
 use serde_json::{json, Value};
 use std::sync::OnceLock;
 use std::time::Duration;
-use tehas_ports::{Blobs, Got, Outcome, Passing, Receipt, Refusal, Sent, Sha256, Write, Writes};
+use tehas_ports::{
+    Blobs, Blueprints, CodeHost, Got, Outcome, Passing, Receipt, Refusal, Sent, Sha256, Tickets,
+    Write, Writes,
+};
 
 /// How a journaled call ended.
 #[derive(Debug, PartialEq)]
@@ -58,6 +61,24 @@ pub enum Found {
     /// It is not: the row is closed as not sent, and the caller decides
     /// afresh from the same read. Nothing is replayed from the row.
     NotSent,
+}
+
+/// The ports a journal's writes go through, and the reads that settle a
+/// write the site may have taken ([`settle::read`]). The program's wiring
+/// makes them.
+pub struct Handles {
+    pub writes: Box<dyn Writes>,
+    pub tickets: Box<dyn Tickets>,
+    /// Where a ticket is its own blueprint, its notes are the blueprint's
+    /// comments.
+    pub blueprints: Box<dyn Blueprints>,
+    pub code_host: Box<dyn CodeHost>,
+}
+
+/// A write as its row keeps it: its bodies summed, so a row holds no text.
+/// The poll's settle reads a row back as this, and a send asks for it by it.
+pub fn kept(write: &Write) -> Got<Write> {
+    write.summed(|text| Sha256::new(sha256(text)).ok())
 }
 
 /// The store's answer to one call, or its failure.
@@ -145,7 +166,7 @@ impl Journal<'_> {
             read_only::tell(&format!("send {:?}", write.kind()));
             return Journaled::Answered(Err(Outcome::Refused(Refusal::ReadOnly)));
         }
-        let row = match write.summed(|text| Sha256::new(sha256(text)).ok()) {
+        let row = match kept(write) {
             Ok(row) => row,
             Err(o) => return Journaled::Answered(Err(o)),
         };

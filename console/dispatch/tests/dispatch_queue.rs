@@ -7,6 +7,7 @@ mod common;
 
 use common::*;
 use serde_json::{json, Value};
+use tehas_ports::{Act, Mark, State};
 
 /// One comment, written at second `id` (10-59), edited by `editor` when
 /// one is named (bnote).
@@ -301,9 +302,10 @@ fn tehas_blocked_alone_starts_the_issue_once_its_blockers_close_and_comes_off() 
     assert_eq!(w.poll().rc, 0);
     assert_eq!(w.started(), "7 ");
     let gh = w.gh();
-    has(
-        &gh,
-        "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:blocked",
+    assert!(
+        w.on(7, Mark::State(State::Running)) && w.off(7, Mark::Act(Act::Block)),
+        "{:?}",
+        w.writes_of(7)
     );
     lacks(&gh, "--remove-label tehas:ready");
     has(&gh, "authorized by @alice's `tehas:blocked` label");
@@ -486,7 +488,9 @@ fn a_push_fault_older_than_ten_minutes_and_a_probe_that_is_refused_holds_and_ren
         "probe-bad",
         &format!("printf '%s\\n' '{DENIED}' >&2\nexit 1"),
     );
+    let before = epoch("now");
     let r = w.poll();
+    let after = epoch("now");
     assert_eq!(r.rc, 0);
     assert_eq!(w.calls("fake-start"), "");
     has(
@@ -510,10 +514,13 @@ fn a_push_fault_older_than_ten_minutes_and_a_probe_that_is_refused_holds_and_ren
     );
     assert_eq!(why(&w), json!("lane"));
     assert_eq!(w.calls("probe-bad").lines().count(), 1);
-    // The time is the probe's own: the next poll waits the wait out.
-    let now = epoch("now");
+    // The time is the probe's own, taken during the poll: the next poll
+    // waits the wait out.
     let at = epoch(f["at"].as_str().unwrap());
-    assert!((at - now).abs() <= 2, "stale: {}", at - now);
+    assert!(
+        (before..=after).contains(&at),
+        "the renewed time {at} lies outside the poll, {before}..={after}"
+    );
 }
 
 #[test]

@@ -11,10 +11,10 @@ use std::path::{Path, PathBuf};
 use tehas_core::home::Home;
 
 /// The directories of the install a cycle runs from.
-pub const TREES: [&str; 3] = ["bin", "libexec", "lib"];
+const TREES: [&str; 3] = ["bin", "libexec", "lib"];
 
 /// Where the copies are, under the home.
-pub fn run_dir(home: &Path) -> PathBuf {
+fn run_dir(home: &Path) -> PathBuf {
     Home::new(home).code_copies()
 }
 

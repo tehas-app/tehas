@@ -159,17 +159,20 @@ fn step_sql(to: i64) -> &'static str {
         db::DROP_OUTSOURCE_STEP => db::DROP_OUTSOURCE,
         30 => db::STEP_30,
         31 => db::STEP_31,
+        32 => db::STEP_32,
         _ => unreachable!("no step to {to}"),
     }
 }
 
-/// Every table but meta, plugin_runs, plugin_records and answers, with its
-/// rows, in rowid order. The three are new at 19, 20 and 24, so no store a
-/// step starts from holds them.
+/// Every table but meta, plugin_runs, plugin_records, answers and links,
+/// with its rows, in rowid order. The four are new at 19, 20, 24 and 32, so
+/// no store a step starts from holds them.
 fn rows(c: &Connection) -> Vec<(String, usize)> {
     tables(c)
         .into_iter()
-        .filter(|t| !["meta", "plugin_runs", "plugin_records", "answers"].contains(&t.as_str()))
+        .filter(|t| {
+            !["meta", "plugin_runs", "plugin_records", "answers", "links"].contains(&t.as_str())
+        })
         .map(|t| {
             let n = dump(c, &t, &columns(c, &t)).len();
             (t, n)
@@ -298,14 +301,27 @@ fn columns(c: &Connection, table: &str) -> Vec<String> {
 }
 
 #[test]
-fn init_writes_schema_31() {
-    assert_eq!(db::SCHEMA_VERSION, 31);
-    let home = home("schema-31");
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 31);
+fn init_writes_schema_32() {
+    assert_eq!(db::SCHEMA_VERSION, 32);
+    let home = home("schema-32");
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 32);
     assert_eq!(
         one::<String>(&home, "SELECT value FROM meta WHERE key = 'schema'"),
-        "31"
+        "32"
     );
+    // Schema 32: the links of a ticket to its blueprints, empty.
+    assert_eq!(
+        columns(&conn(&home), "links"),
+        [
+            "ticket",
+            "blueprint",
+            "made_by",
+            "made_by_realm",
+            "made_at",
+            "how"
+        ]
+    );
+    assert_eq!(count(&home, "links"), 0);
     // Schema 30: the store's id; `approved` in place of `label`; the history's
     // recorded_at and signalled; the store's own numbers of the questions.
     crate::tests::assert_store_id(&conn(&home));
@@ -1335,7 +1351,7 @@ fn the_step_to_31_says_every_line_there_was_reported() {
     assert!(lines > 0);
     let rows = host_rows(&conn(&home));
     migrate(&home).unwrap();
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 31);
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), db::SCHEMA_VERSION);
     assert_eq!(host_rows(&conn(&home)), rows);
     assert_eq!(count(&home, "cycle_history WHERE reported = 1"), lines);
     assert!(conn(&home)
@@ -1343,6 +1359,49 @@ fn the_step_to_31_says_every_line_there_was_reported() {
         .is_err());
     let made = crate::verbs_tests::home("step-31-shape");
     same_shape_as_init(&home, &conn(&made), "30");
+}
+
+/// The step to 32 from a store at 31 adds `links`, empty, keeps every row,
+/// and leaves the store in the shape init lays. A row names a blueprint once,
+/// in the realm and the how the spec gives, and nothing else.
+#[test]
+fn the_step_to_32_adds_the_links_empty_and_keeps_every_row() {
+    let home = at_29("step-32");
+    let mut c = conn(&home);
+    for (to, run) in db::STEPS {
+        if (30..=31).contains(to) {
+            run(&mut c).unwrap();
+        }
+    }
+    drop(c);
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 31);
+    let rows = host_rows(&conn(&home));
+    migrate(&home).unwrap();
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 32);
+    assert_eq!(host_rows(&conn(&home)), rows);
+    assert_eq!(count(&home, "links"), 0);
+    let c = conn(&home);
+    let put = |ticket: &str, blueprint: i64, realm: &str, how: &str| {
+        c.execute(
+            "INSERT INTO links (ticket, blueprint, made_by, made_by_realm, made_at, how)
+             VALUES (?1, ?2, 'alice', ?3, 1790000000, ?4)",
+            rusqlite::params![ticket, blueprint, realm, how],
+        )
+    };
+    put("PROJ-1", 7, "tickets", "linked").unwrap();
+    put("PROJ-1", 8, "code-host", "opened").unwrap();
+    assert!(
+        put("PROJ-2", 7, "tickets", "linked").is_err(),
+        "one ticket a blueprint"
+    );
+    assert!(put("PROJ-1", 9, "jira", "linked").is_err());
+    assert!(put("PROJ-1", 9, "tickets", "same-item").is_err());
+    assert!(put("PROJ-1", 0, "tickets", "linked").is_err());
+    assert!(put("", 9, "tickets", "linked").is_err());
+    c.execute("DELETE FROM links", []).unwrap();
+    drop(c);
+    let made = crate::verbs_tests::home("step-32-shape");
+    same_shape_as_init(&home, &conn(&made), "31");
 }
 
 /// Two stores laid apart have two ids, and a migrate run again keeps the id.
@@ -1466,7 +1525,7 @@ fn load_brings_a_copy_of_a_0_30_store_forward_as_migrate_does() {
 }
 
 /// The sources of the verbs, without their tests.
-const VERB_SOURCES: [(&str, &str); 22] = [
+const VERB_SOURCES: [(&str, &str); 23] = [
     ("answer.rs", include_str!("answer.rs")),
     ("approval.rs", include_str!("approval.rs")),
     ("batch.rs", include_str!("batch.rs")),
@@ -1476,6 +1535,7 @@ const VERB_SOURCES: [(&str, &str); 22] = [
     ("history.rs", include_str!("history.rs")),
     ("journal.rs", include_str!("journal.rs")),
     ("lib.rs", include_str!("lib.rs")),
+    ("link.rs", include_str!("link.rs")),
     ("live.rs", include_str!("live.rs")),
     ("load.rs", include_str!("load.rs")),
     ("lock.rs", include_str!("lock.rs")),

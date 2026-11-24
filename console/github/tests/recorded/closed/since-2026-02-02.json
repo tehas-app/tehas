@@ -1,0 +1,241 @@
+{
+ "data": {
+  "repository": {
+   "databaseId": 7001,
+   "issues": {
+    "pageInfo": {
+     "hasNextPage": true,
+     "endCursor": "Y3Vyc29yOjI="
+    },
+    "nodes": [
+     {
+      "number": 40,
+      "title": "Ticket 40",
+      "body": "The work of 40.",
+      "state": "CLOSED",
+      "stateReason": "COMPLETED",
+      "url": "https://github.com/acme/widget/issues/40",
+      "createdAt": "2026-02-01T08:00:00Z",
+      "updatedAt": "2026-02-03T10:00:00Z",
+      "author": {
+       "__typename": "User",
+       "login": "carol",
+       "databaseId": 103
+      },
+      "issueType": null,
+      "milestone": null,
+      "labels": {
+       "totalCount": 1,
+       "nodes": [
+        {
+         "name": "tehas:done"
+        }
+       ]
+      },
+      "closedAt": "2026-02-03T10:00:00Z",
+      "closes": {
+       "nodes": [
+        {
+         "__typename": "ClosedEvent",
+         "createdAt": "2026-02-03T10:00:00Z",
+         "actor": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "stateReason": "COMPLETED",
+         "closer": {
+          "__typename": "PullRequest",
+          "number": 41,
+          "merged": true,
+          "url": "https://github.com/acme/widget/pull/41",
+          "repository": {
+           "databaseId": 7001,
+           "nameWithOwner": "acme/widget"
+          }
+         }
+        }
+       ]
+      },
+      "subIssues": {
+       "totalCount": 0
+      },
+      "closedByPullRequestsReferences": {
+       "totalCount": 2,
+       "nodes": [
+        {
+         "baseRepository": {
+          "databaseId": 7001,
+          "nameWithOwner": "acme/widget"
+         },
+         "number": 41,
+         "title": "Change 41",
+         "url": "https://github.com/acme/widget/pull/41",
+         "state": "MERGED",
+         "isDraft": false,
+         "isCrossRepository": false,
+         "headRefName": "feature/issue-41",
+         "headRefOid": "0000000000000000000000000000000000abc029",
+         "baseRefName": "main",
+         "baseRefOid": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+         "mergeable": "UNKNOWN",
+         "mergeStateStatus": "UNKNOWN",
+         "createdAt": "2026-02-01T09:30:00Z",
+         "updatedAt": "2026-02-03T10:00:00Z",
+         "lastEditedAt": null,
+         "mergedAt": "2026-02-03T10:00:00Z",
+         "closedAt": "2026-02-03T10:00:00Z",
+         "additions": 12,
+         "deletions": 3,
+         "changedFiles": 2,
+         "author": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "editor": null,
+         "mergedBy": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "mergeCommit": {
+          "oid": "0000000000000000000000000000000000def029"
+         },
+         "renames": {
+          "nodes": []
+         },
+         "labels": {
+          "totalCount": 0,
+          "nodes": []
+         },
+         "closingIssuesReferences": {
+          "totalCount": 1,
+          "nodes": [
+           {
+            "number": 20,
+            "repository": {
+             "databaseId": 7001,
+             "nameWithOwner": "acme/widget"
+            }
+           }
+          ]
+         }
+        },
+        {
+         "baseRepository": {
+          "databaseId": 7102,
+          "nameWithOwner": "other/tools"
+         },
+         "number": 7,
+         "title": "Change 7",
+         "url": "https://github.com/other/tools/pull/7",
+         "state": "MERGED",
+         "isDraft": false,
+         "isCrossRepository": false,
+         "headRefName": "feature/issue-7",
+         "headRefOid": "0000000000000000000000000000000000abc007",
+         "baseRefName": "main",
+         "baseRefOid": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+         "mergeable": "UNKNOWN",
+         "mergeStateStatus": "UNKNOWN",
+         "createdAt": "2026-02-01T09:30:00Z",
+         "updatedAt": "2026-02-03T09:00:00Z",
+         "lastEditedAt": null,
+         "mergedAt": "2026-02-03T09:00:00Z",
+         "closedAt": "2026-02-03T09:00:00Z",
+         "additions": 12,
+         "deletions": 3,
+         "changedFiles": 2,
+         "author": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "editor": null,
+         "mergedBy": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "mergeCommit": {
+          "oid": "0000000000000000000000000000000000def007"
+         },
+         "renames": {
+          "nodes": []
+         },
+         "labels": {
+          "totalCount": 0,
+          "nodes": []
+         },
+         "closingIssuesReferences": {
+          "totalCount": 1,
+          "nodes": [
+           {
+            "number": 20,
+            "repository": {
+             "databaseId": 7001,
+             "nameWithOwner": "acme/widget"
+            }
+           }
+          ]
+         }
+        }
+       ]
+      },
+      "parent": null
+     },
+     {
+      "number": 42,
+      "title": "Ticket 42",
+      "body": "The work of 42.",
+      "state": "CLOSED",
+      "stateReason": "COMPLETED",
+      "url": "https://github.com/acme/widget/issues/42",
+      "createdAt": "2026-02-01T08:30:00Z",
+      "updatedAt": "2026-02-01T23:59:59Z",
+      "author": {
+       "__typename": "User",
+       "login": "carol",
+       "databaseId": 103
+      },
+      "issueType": null,
+      "milestone": null,
+      "labels": {
+       "totalCount": 1,
+       "nodes": [
+        {
+         "name": "tehas:done"
+        }
+       ]
+      },
+      "closedAt": "2026-02-01T23:59:59Z",
+      "closes": {
+       "nodes": [
+        {
+         "__typename": "ClosedEvent",
+         "createdAt": "2026-02-01T23:59:59Z",
+         "actor": {
+          "__typename": "User",
+          "login": "carol",
+          "databaseId": 103
+         },
+         "stateReason": "COMPLETED",
+         "closer": null
+        }
+       ]
+      },
+      "subIssues": {
+       "totalCount": 0
+      },
+      "closedByPullRequestsReferences": {
+       "totalCount": 0,
+       "nodes": []
+      },
+      "parent": null
+     }
+    ]
+   }
+  }
+ }
+}

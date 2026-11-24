@@ -272,7 +272,7 @@ fn never_ran(w: &mut World, approved: bool) {
 /// tehas work refused a lean start (78).
 fn lean_refused(w: &mut World) {
     w.fx("rc", "78\n");
-    w.work(r#": >"$TEHAS_HOME/state/cycles/7.lean-refused""#);
+    w.work(r#": >"$T_CYCLES/7.lean-refused""#);
     let input = w.t().join("lean-input.json");
     fs::write(&input, r#"{"links":[],"driver":"lean"}"#).unwrap();
     let input = input.to_string_lossy().to_string();
@@ -781,7 +781,7 @@ fn a_cycle_that_stops_asks_what_to_do_next_with_boxes() {
 #[test]
 fn a_cycle_on_an_image_that_gives_a_retry_the_comments_offers_the_comments_retry() {
     let w = World::new("park-comments");
-    w.work(r#"echo native >"$TEHAS_HOME/state/cycles/7.comments""#);
+    w.work(r#"echo native >"$T_CYCLES/7.comments""#);
     let said = w.report_said();
     has(&said, "- retry: Retry with the issue and all its comments");
     has(&said, "- retry-text: Retry with the issue text only");

@@ -1,5 +1,6 @@
 //! The tickets port's writes, `TicketWrites`. Answered: the factory's
-//! labels made (`prepare`), a project's own label (`ensure_mark`), a mark
+//! labels made (`prepare`), or one of them (`prepare_one`), a project's own
+//! label (`ensure_mark`), a mark
 //! put on or taken off, a note with its markers (`note`), and the
 //! ticket's own title and text edited at a revision (`edit`).
 //!
@@ -11,6 +12,7 @@
 
 use super::blueprint_writes::{ends_with_folded, read_comment, revision, text_revision, unsent};
 use super::{label_of, number, unsupported};
+use crate::forge::uri;
 use crate::{markers, table, GitHub};
 use serde_json::Value;
 use tehas_ports::{
@@ -56,6 +58,28 @@ impl TicketWrites for GitHub {
         first
     }
 
+    /// The label of one factory mark read, then made or brought to the
+    /// table's colour and text as `prepare` makes each, only where it is
+    /// not so already: a label that is right is not written. A label whose
+    /// name is the table's in another case is renamed to it in the same
+    /// write ([`GitHub::rename_label`]). A project's own mark, and a mark
+    /// no label is, are `Refused(Invalid)` with no request.
+    fn prepare_one(&mut self, mark: &Mark) -> Did {
+        if matches!(mark, Mark::Project(_)) {
+            return Err(Outcome::Refused(Refusal::Invalid));
+        }
+        let label = label_of(mark)?;
+        let spec = table::specs()
+            .into_iter()
+            .find(|s| s.name.as_str() == label)
+            .ok_or(Outcome::Refused(Refusal::Invalid))?;
+        match self.label_held(&label)? {
+            Some(held) if held.is(&spec) => Ok(()),
+            Some(held) if held.name() != label => self.rename_label(held.name(), &spec),
+            _ => self.ensure_mark(&spec),
+        }
+    }
+
     /// `gh label create --force`: made, or its colour and text put back.
     fn ensure_mark(&mut self, spec: &MarkSpec) -> Did {
         let name = spec.name.as_str();
@@ -87,8 +111,31 @@ impl TicketWrites for GitHub {
             .map_err(|e| self.outcome(&e))
     }
 
-    fn close(&mut self, _: &TicketKey, _: &CloseReason) -> Did {
-        unsupported()
+    /// The issue read, then one `PATCH` of its state and the reason GitHub
+    /// keeps (`completed`, `not_planned`, `duplicate`; REST names no
+    /// original of a duplicate). A closed issue is done with nothing sent and
+    /// keeps the reason it has: closed is closed.
+    fn close(&mut self, key: &TicketKey, reason: &CloseReason) -> Did {
+        let issue = number(key)?;
+        let path = format!("{}/issues/{issue}", self.issues()?);
+        let out = self
+            .issue_answer(issue)
+            .map_err(|e| unsent(self.outcome(&e)))?;
+        issue_of(&out, &self.repo)?;
+        if state_of(&out)? == "closed" {
+            return Ok(());
+        }
+        let why = match reason {
+            CloseReason::Done => "completed",
+            CloseReason::NotPlanned => "not_planned",
+            CloseReason::Duplicate(_) => "duplicate",
+        };
+        let input = serde_json::json!({ "state": "closed", "state_reason": why }).to_string();
+        let answer = self.send("PATCH", &path, &input)?;
+        match state_of(&answer)? {
+            "closed" => Ok(()),
+            _ => Err(Outcome::Unread(Unread::Inconsistent)),
+        }
     }
 
     /// The issue read, then a comment on it: one `POST` of the text and
@@ -218,12 +265,73 @@ impl TicketWrites for GitHub {
         unsupported()
     }
 
-    fn assign(&mut self, _: &TicketKey, _: &tehas_ports::AccountId) -> Did {
-        unsupported()
+    /// The account's login read by its id, then one `POST` of it to the
+    /// issue's assignees. GitHub answers 201 and drops a login it cannot
+    /// assign without a word, so the answer's assignees are read: ours not
+    /// among them is `Refused(Invalid)`, never done on the status alone. A
+    /// bot or an organisation holds no assignment: `Refused(Invalid)` with
+    /// nothing sent.
+    fn assign(&mut self, key: &TicketKey, who: &tehas_ports::AccountId) -> Did {
+        let issue = number(key)?;
+        let id = super::identity::id_of(who)?;
+        let path = format!("{}/issues/{issue}/assignees", self.issues()?);
+        let login = self
+            .login_of(id)
+            .map_err(unsent)?
+            .ok_or(Outcome::Refused(Refusal::Invalid))?;
+        let input = serde_json::json!({ "assignees": [login] }).to_string();
+        let out = self.send("POST", &path, &input)?;
+        let v: Value = serde_json::from_str(out.trim()).map_err(|_| MALFORMED)?;
+        let assignees = v
+            .get("assignees")
+            .and_then(Value::as_array)
+            .ok_or(MALFORMED)?;
+        if assignees
+            .iter()
+            .any(|a| a.get("id").and_then(Value::as_u64) == Some(id))
+        {
+            Ok(())
+        } else {
+            Err(Outcome::Refused(Refusal::Invalid))
+        }
     }
 
-    fn add_part(&mut self, _: &TicketKey, _: &TicketKey) -> Did {
-        unsupported()
+    /// The child's parent read first: already this parent's part is done
+    /// with nothing sent, another parent's, in this repository or another,
+    /// is `Refused(Invalid)`, never moved. Then the child's own issue read for its id, which the
+    /// sub-issues endpoint takes, and one `POST` of it to the parent's.
+    fn add_part(&mut self, parent: &TicketKey, child: &TicketKey) -> Did {
+        let (up, down) = (number(parent)?, number(child)?);
+        if up == down {
+            return Err(Outcome::Refused(Refusal::Cycle));
+        }
+        let issues = self.issues()?;
+        let asked = format!("{issues}/issues/{down}/parent");
+        match self.call("the parent", &["api", &asked]) {
+            // A parent of another repository is another parent.
+            Ok(out) => {
+                return match issue_of(&out, &self.repo) {
+                    Ok(p) if p.number == up => Ok(()),
+                    Ok(_) | Err(Outcome::Unread(Unread::Inconsistent)) => {
+                        Err(Outcome::Refused(Refusal::Invalid))
+                    }
+                    Err(o) => Err(o),
+                }
+            }
+            Err(e) if crate::gh::says_not_found(&e.why) => {}
+            Err(e) => return Err(unsent(self.outcome(&e))),
+        }
+        let out = self
+            .issue_answer(down)
+            .map_err(|e| unsent(self.outcome(&e)))?;
+        issue_of(&out, &self.repo)?;
+        let id = serde_json::from_str::<Value>(out.trim())
+            .ok()
+            .and_then(|v| v.get("id").and_then(Value::as_u64))
+            .ok_or(MALFORMED)?;
+        let path = format!("{issues}/issues/{up}/sub_issues");
+        let input = serde_json::json!({ "sub_issue_id": id }).to_string();
+        self.send("POST", &path, &input).map(|_| ())
     }
 
     fn remove_part(&mut self, _: &TicketKey, _: &TicketKey) -> Did {
@@ -300,4 +408,35 @@ fn issue_of(out: &str, repo: &str) -> Got<Issue> {
         link: WebLink::new(url).map_err(|_| malformed)?,
         revision: revision(out),
     })
+}
+
+impl GitHub {
+    /// One `PATCH` of the label GitHub holds as `held` to the spec's name,
+    /// colour and text. `gh label create --force` keeps the case of the
+    /// name there, so a name in another case is renamed here; GitHub keeps
+    /// the label's id across a rename (Decided 92).
+    fn rename_label(&mut self, held: &str, spec: &MarkSpec) -> Did {
+        let path = format!("{}/labels/{}", self.issues()?, uri(held));
+        let mut input = serde_json::json!({ "new_name": spec.name.as_str() });
+        if let Some(c) = &spec.colour {
+            input["color"] = c.as_str().into();
+        }
+        if let Some(about) = &spec.about {
+            input["description"] = about.as_str().into();
+        }
+        self.send("PATCH", &path, &input.to_string()).map(|_| ())
+    }
+}
+
+/// An answer that does not read.
+const MALFORMED: Outcome = Outcome::Unread(Unread::Malformed);
+
+/// The `state` of an issue's answer: `open` or `closed`.
+fn state_of(out: &str) -> Got<&'static str> {
+    let v: Value = serde_json::from_str(out.trim()).map_err(|_| MALFORMED)?;
+    match v.get("state").and_then(Value::as_str) {
+        Some("open") => Ok("open"),
+        Some("closed") => Ok("closed"),
+        _ => Err(MALFORMED),
+    }
 }

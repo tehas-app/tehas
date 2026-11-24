@@ -49,7 +49,7 @@ macro_rules! names {
 
         impl Name {
             /// Every name, in the order of the spec's first list.
-            pub const ALL: [Name; 9] = [$(Name::$name),+];
+            pub const ALL: &'static [Name] = &[$(Name::$name),+];
 
             /// `cycle.started` and so on; `unknown` for a name this copy
             /// does not know.
@@ -162,8 +162,10 @@ pub trait Payload: Serialize + Clone + Into<Event> + 'static {
 /// its event as `Unknown`: this copy knows the payloads of its own alone.
 /// serde writes the fields as `api`, `source`, `event`, `data`, `when`,
 /// `key`, `at`, as `event` is flattened: compare envelopes as values.
+/// Built with `new`, `source` set by name (Decided 123).
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(from = "EnvelopeWire")]
+#[non_exhaustive]
 pub struct Envelope {
     /// The events' contract version, `API`.
     pub api: u32,

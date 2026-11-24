@@ -226,7 +226,14 @@ fn a_refine_that_files_one_issue_links_both_ways_and_closes_the_original_as_repl
         &gh,
         "api -X POST repos/acme/widget/issues/7/sub_issues -F sub_issue_id=5012",
     );
-    has(&gh, &format!("issue comment 7 --repo acme/widget --body Replaced by #12.\n\nFiled {I12}: Faster search, part 1."));
+    assert!(
+        w.said_on(
+            7,
+            &format!("Replaced by #12.\n\nFiled {I12}: Faster search, part 1.")
+        ),
+        "{:?}",
+        w.said(7)
+    );
     has(&gh, "issue edit 7 --repo acme/widget --remove-label tehas:question --remove-label tehas:planning --remove-label tehas:refined --add-label tehas:replaced");
     has(&gh, "issue close 7 --repo acme/widget --reason not planned");
     lacks(&gh, "tehas:question kind=plan");
@@ -272,6 +279,7 @@ fn a_filed_body_that_already_names_the_original_is_not_written_again() {
     filed_by_refine(&w, &format!("Replaces #7\n\n{ONE_PART}"), &[I12]);
     w.poll();
     lacks(&w.gh(), "issue edit 12");
+    assert_eq!(w.marks(Some(12)), 0);
     has(&w.gh(), "issue close 7");
 }
 
@@ -320,6 +328,7 @@ fn an_original_that_carries_the_mark_already_is_only_closed_nothing_is_said_or_l
     w.poll();
     has(&w.gh(), "issue close 7");
     lacks(&w.gh(), "issue edit 12");
+    assert_eq!(w.marks(Some(12)), 0);
     lacks(&w.gh(), "sub_issues");
     lacks(&w.gh(), "Replaced by");
     assert_eq!(w.rec_open(), "none");
@@ -408,6 +417,7 @@ fn a_filed_issue_of_another_repository_gets_no_links_and_is_named_the_original_s
         "Replaced by #12, https://github.com/other/repo/issues/3.",
     );
     lacks(&gh, "issue edit 3");
+    assert_eq!(w.marks(Some(3)), 0);
     assert_eq!(holding(&gh, "sub_issues"), 1);
     has(&gh, "--add-label tehas:refined");
 }

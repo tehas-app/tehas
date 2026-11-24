@@ -311,7 +311,9 @@ pub struct ChangeEvent {
     pub what: ChangeHappened,
     /// Who; None where the site names nobody.
     pub by: Option<Account>,
-    /// When.
+    /// When, as the site records it. For a push whose own time the site
+    /// does not record, the newest commit's time, as `committed`: so `at`
+    /// does not order events. The list's order does (Decided 126).
     pub at: At,
     /// For a push, when its newest commit was made, which may be long before.
     pub committed: Option<At>,
@@ -716,7 +718,9 @@ pub struct Tag {
     pub name: TagName,
     /// The commit it names, peeled.
     pub commit: CommitId,
-    /// When it was made, if the site says.
+    /// When the tag itself was made, if the site says: an annotated tag's
+    /// own date, never its commit's; None for a tag the site keeps no time
+    /// for (Decided 128).
     pub at: Option<At>,
     /// It is an annotated tag.
     pub annotated: bool,
@@ -850,13 +854,18 @@ pub trait CodeHost: Reports + Cites {
     fn change(&mut self, no: ChangeNo, bound: Bound) -> Got<Change>;
     /// The files a change changes, whole.
     fn changed_files(&mut self, no: ChangeNo, bound: Bound) -> Got<Whole<ChangedFile>>;
-    /// A change's events, oldest first.
+    /// A change's events, oldest first in the site's order: every kind the
+    /// site records. An adapter that cannot give a kind refuses the read
+    /// `Refused(Unsupported)`; it never leaves one out (Decided 124). `at`
+    /// does not order them; `more` may be true where only items the
+    /// adapter leaves out remain (Decided 126).
     fn activity(&mut self, no: ChangeNo, window: Window) -> Got<Took<ChangeEvent>>;
     /// The checks on a commit, or those of this name: its check runs, the
     /// newest of each App and name, so an old failure beside a passing
     /// re-run is not read, and its status contexts, each one's newest state
-    /// held as a run named by its context. Runs of different Apps are never
-    /// collapsed: two Apps' runs of one name are both given. `overall` is
+    /// held as a run named by its context. Runs of different Apps, or of one
+    /// App in different suites (one App's workflows), are never collapsed:
+    /// two such runs of one name are both given (Decided 129). `overall` is
     /// `Overall::of` all of them, so a failed status beside a passing run
     /// is `Fail`. `Checks` gives the fold of a status.
     fn checks(&mut self, at: &CommitId, name: Option<&str>) -> Got<Checks>;

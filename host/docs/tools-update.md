@@ -262,8 +262,11 @@ A GitHub login can be renamed, and a login that was freed can be registered by
 someone else. So a login alone does not say who applied a label. Before
 anything moves, `tehas update` asks GitHub for the user id of each login of
 `TEHAS_ALLOWED_LABELERS` and the millwright (`GET /users/<login>`)
-and records the pairs in `~/tehas/state/account-ids`, one `<login> <id>` a
-line. `install.sh` does the same before its first copy. The pair of a login
+and records the pairs in `~/tehas/state/account-ids`, one
+`<realm> <login> <id>` a line, the realm `code-host` for these logins
+(`tickets` is a split setup's tracker). A line of 1.x, `<login> <id>`, is
+read as the code host's, and the update writes the file once in the new
+form. `install.sh` does the same before its first copy. The pair of a login
 taken off the list stays, so the login, listed again, must still be the same
 account.
 
@@ -281,10 +284,8 @@ records ignoring case too: a pair of the login in another case is its pair, so a
 case in the settings meets the check below, and the recorded pair is kept
 under the login as the settings write it, in place of every other case.
 
-Which logins are allowed is matched ignoring ASCII case by `tehas resume`,
-`tehas plan`, `tehas dev` and a cycle started by hand. The dispatcher still
-matches `TEHAS_ALLOWED_LABELERS` in exact case, so write each login there as
-GitHub spells it.
+Which logins are allowed is matched ignoring ASCII case, by the dispatcher
+as by `tehas resume`, `tehas plan`, `tehas dev` and a cycle started by hand.
 
 - A login that does not resolve stops `install.sh` and `tehas update` with 78
   and names it. Take it out of the settings or correct it.
@@ -298,13 +299,14 @@ GitHub spells it.
 - A file that cannot be read with certainty stops them with 78 before GitHub
   is asked, and nothing is written. The message names the file, the line if
   there is one, what is wrong and how to repair it:
-  - A line that is not `<login> <id>` with one space between, a login that
+  - A line that is not `<realm> <login> <id>` (or 1.x's `<login> <id>`)
+    with one space between, a realm that is not `code-host` or `tickets`, a login that
     is not a GitHub login, an id that is not a number, a login given two ids
     in one case or two, or text that is not UTF-8: fix or remove that line,
     then run `tehas update`.
   - A link or other file that is not a regular one, a file over 64 KiB, or
     a file that is there but holds no pairs: make it a regular file of
-    `<login> <id>` lines, or remove it, then run `tehas update`. A removed
+    `<realm> <login> <id>` lines, or remove it, then run `tehas update`. A removed
     file is recorded afresh, as on a first install, with no recorded id to
     check against.
   - A file the factory's user cannot read: give it back read and write for
