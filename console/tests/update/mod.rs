@@ -94,6 +94,7 @@ if [ "$t_rc" = 0 ] && [ ! -s "$t_got" ]; then
   case "$1 $2 $3 $4" in
     "api users/"*" --jq .id") jq -rn --arg l "${2#users/}" '$l | sub("\\[bot\\]$"; "") | explode | add' >"$t_got" ;;
     "api repos/"*/labels/*" --jq .node_id") t_l=${2##*/}; echo "LA_${t_l#tehas:}" >"$t_got" ;;
+    "api "*) case "$*" in *"nodes { name color description }"*) cat "$T_ROOT/test/fixtures/labels-none.json" >"$t_got" ;; esac ;;
   esac
 fi
 if command -p grep -q '"login"' "$t_got" &&
@@ -389,11 +390,15 @@ impl Host {
         let _ = fs::remove_dir_all(dir);
     }
 
-    /// The user ids an install records, of every login of `LOGINS` (t_ids).
+    /// The user ids an install records, of every login of `LOGINS` (t_ids),
+    /// in the form 2.0 writes: a 1.x file would be rewritten first.
     pub fn ids(&self, home: &Path) {
         let at = Home::new(home);
         fs::create_dir_all(at.state_dir()).unwrap();
-        let ids: String = LOGINS.iter().map(|l| format!("{l} {}\n", uid(l))).collect();
+        let ids: String = LOGINS
+            .iter()
+            .map(|l| format!("code-host {l} {}\n", uid(l)))
+            .collect();
         fs::write(at.state(State::AccountIds), ids).unwrap();
     }
 

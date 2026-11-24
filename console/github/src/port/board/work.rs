@@ -30,7 +30,7 @@ use std::num::{NonZeroU32, NonZeroU64};
 
 use serde::Deserialize;
 
-use super::super::blueprint_writes::{ends_with_folded, text_revision};
+use super::super::blueprint_writes::text_revision;
 use super::super::blueprints::Edited;
 use super::{pull_fields, Counted, Pull};
 use crate::ticket::{
@@ -89,11 +89,11 @@ fn work_query(kinds: &[HappenedKind], changes: bool) -> String {
     }
     if changes {
         node.push_str(&format!(
-            " closedByPullRequestsReferences(first: {CLOSING_MAX}) {{ totalCount nodes {{ {} }} }}",
+            " closedByPullRequestsReferences(first: {CLOSING_MAX}) {{ totalCount nodes {{ {} repository {{ databaseId nameWithOwner }} }} }}",
             pull_fields()
         ));
     }
-    format!("query($owner: String!, $name: String!, $cursor: String) {{ repository(owner: $owner, name: $name) {{ issues(states: [OPEN], first: {ISSUE_PAGE}, after: $cursor, orderBy: {{field: CREATED_AT, direction: ASC}}) {{ totalCount pageInfo {{ hasNextPage endCursor }} nodes {{ {node} }} }} }} }}")
+    format!("query($owner: String!, $name: String!, $cursor: String) {{ repository(owner: $owner, name: $name) {{ databaseId issues(states: [OPEN], first: {ISSUE_PAGE}, after: $cursor, orderBy: {{field: CREATED_AT, direction: ASC}}) {{ totalCount pageInfo {{ hasNextPage endCursor }} nodes {{ {node} }} }} }} }}")
 }
 
 /// The ask's windows of history per kind, each kind once by its first, if
@@ -599,8 +599,9 @@ impl GitHub {
         let mut open = Vec::new();
         for pull in refs.nodes {
             let pull = pull.ok_or(INCONSISTENT)?;
-            let no = pull.number.and_then(ChangeNo::new).ok_or(INCONSISTENT)?;
-            if !ends_with_folded(&pull.url, &format!("/{}/pull/{}", self.repo, no.get())) {
+            pull.number.and_then(ChangeNo::new).ok_or(INCONSISTENT)?;
+            let repo = pull.repository.as_ref().ok_or(MALFORMED)?;
+            if !self.is_here_id(repo.database_id)? {
                 continue;
             }
             if pull.state != "OPEN" {

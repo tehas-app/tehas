@@ -20,3 +20,7 @@ serde_json = "1"
 sha2 = "0.10"
 tehas-core = { path = "../core" }
 tehas-ops = { path = "../ops" }
+# tag-release's code host: its pull requests and a polyfill's upstream work
+# (src/tag.rs), and GitHub as that code host in the wiring (src/main.rs alone).
+tehas-ports = { path = "../ports" }
+tehas-github = { path = "../github" }

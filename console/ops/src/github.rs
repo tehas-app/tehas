@@ -1673,7 +1673,7 @@ mod tests {
         assert_eq!(got.as_deref(), Some("acme-factory[bot]"));
         assert_eq!(
             fs::read_to_string(&ids).unwrap(),
-            "acme-factory 4242\nacme-old 4242\n"
+            "code-host acme-factory 4242\ncode-host acme-old 4242\n"
         );
         assert_eq!(
             fs::read_to_string(lookup.join("login")).unwrap(),

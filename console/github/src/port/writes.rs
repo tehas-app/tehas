@@ -13,6 +13,7 @@
 use super::blueprint_writes::{ends_with_folded, read_comment, revision, text_revision, unsent};
 use super::{label_of, number, unsupported};
 use crate::forge::uri;
+use crate::vocabulary::LabelHeld;
 use crate::{markers, table, GitHub};
 use serde_json::Value;
 use tehas_ports::{
@@ -43,12 +44,29 @@ impl TicketWrites for GitHub {
         (applied, None)
     }
 
-    /// Each label of the factory's table, made or brought back to its colour
-    /// and text, one call each.
+    /// The repository's labels read once, then each label of the factory's
+    /// table brought to its name, colour and text as `prepare_one` brings
+    /// one ([`GitHub::bring_label`]): a label that is right is not written.
+    /// A read that fails is the first failure, and each label is then made
+    /// or put back by `ensure_mark`, as with no read.
     fn prepare(&mut self) -> Result<(), Unprepared> {
-        let mut first = Ok(());
+        let held = self.labels_held();
+        let mut first = match &held {
+            Ok(_) => Ok(()),
+            Err(why) => Err(Unprepared::new(why.clone())),
+        };
         for spec in table::specs() {
-            let made = self.ensure_mark(&spec);
+            let made = match &held {
+                Ok(all) => {
+                    let name = spec.name.as_str();
+                    let of = all
+                        .iter()
+                        .find(|h| h.name() == name)
+                        .or_else(|| all.iter().find(|h| h.name().eq_ignore_ascii_case(name)));
+                    self.bring_label(of, &spec)
+                }
+                Err(_) => self.ensure_mark(&spec),
+            };
             if let (Ok(()), Err(why)) = (&first, made) {
                 let mut unprepared = Unprepared::new(why);
                 unprepared.mark = Some(spec.name.clone());
@@ -58,12 +76,10 @@ impl TicketWrites for GitHub {
         first
     }
 
-    /// The label of one factory mark read, then made or brought to the
-    /// table's colour and text as `prepare` makes each, only where it is
-    /// not so already: a label that is right is not written. A label whose
-    /// name is the table's in another case is renamed to it in the same
-    /// write ([`GitHub::rename_label`]). A project's own mark, and a mark
-    /// no label is, are `Refused(Invalid)` with no request.
+    /// The label of one factory mark read, then brought to the table's
+    /// name, colour and text as `prepare` brings each
+    /// ([`GitHub::bring_label`]). A project's own mark, and a mark no label
+    /// is, are `Refused(Invalid)` with no request.
     fn prepare_one(&mut self, mark: &Mark) -> Did {
         if matches!(mark, Mark::Project(_)) {
             return Err(Outcome::Refused(Refusal::Invalid));
@@ -73,11 +89,8 @@ impl TicketWrites for GitHub {
             .into_iter()
             .find(|s| s.name.as_str() == label)
             .ok_or(Outcome::Refused(Refusal::Invalid))?;
-        match self.label_held(&label)? {
-            Some(held) if held.is(&spec) => Ok(()),
-            Some(held) if held.name() != label => self.rename_label(held.name(), &spec),
-            _ => self.ensure_mark(&spec),
-        }
+        let held = self.label_held(&label)?;
+        self.bring_label(held.as_ref(), &spec)
     }
 
     /// `gh label create --force`: made, or its colour and text put back.
@@ -111,8 +124,31 @@ impl TicketWrites for GitHub {
             .map_err(|e| self.outcome(&e))
     }
 
-    fn close(&mut self, _: &TicketKey, _: &CloseReason) -> Did {
-        unsupported()
+    /// The issue read, then one `PATCH` of its state and the reason GitHub
+    /// keeps (`completed`, `not_planned`, `duplicate`; REST names no
+    /// original of a duplicate). A closed issue is done with nothing sent and
+    /// keeps the reason it has: closed is closed.
+    fn close(&mut self, key: &TicketKey, reason: &CloseReason) -> Did {
+        let issue = number(key)?;
+        let path = format!("{}/issues/{issue}", self.issues()?);
+        let out = self
+            .issue_answer(issue)
+            .map_err(|e| unsent(self.outcome(&e)))?;
+        issue_of(&out, &self.repo)?;
+        if state_of(&out)? == "closed" {
+            return Ok(());
+        }
+        let why = match reason {
+            CloseReason::Done => "completed",
+            CloseReason::NotPlanned => "not_planned",
+            CloseReason::Duplicate(_) => "duplicate",
+        };
+        let input = serde_json::json!({ "state": "closed", "state_reason": why }).to_string();
+        let answer = self.send("PATCH", &path, &input)?;
+        match state_of(&answer)? {
+            "closed" => Ok(()),
+            _ => Err(Outcome::Unread(Unread::Inconsistent)),
+        }
     }
 
     /// The issue read, then a comment on it: one `POST` of the text and
@@ -242,12 +278,73 @@ impl TicketWrites for GitHub {
         unsupported()
     }
 
-    fn assign(&mut self, _: &TicketKey, _: &tehas_ports::AccountId) -> Did {
-        unsupported()
+    /// The account's login read by its id, then one `POST` of it to the
+    /// issue's assignees. GitHub answers 201 and drops a login it cannot
+    /// assign without a word, so the answer's assignees are read: ours not
+    /// among them is `Refused(Invalid)`, never done on the status alone. A
+    /// bot or an organisation holds no assignment: `Refused(Invalid)` with
+    /// nothing sent.
+    fn assign(&mut self, key: &TicketKey, who: &tehas_ports::AccountId) -> Did {
+        let issue = number(key)?;
+        let id = super::identity::id_of(who)?;
+        let path = format!("{}/issues/{issue}/assignees", self.issues()?);
+        let login = self
+            .login_of(id)
+            .map_err(unsent)?
+            .ok_or(Outcome::Refused(Refusal::Invalid))?;
+        let input = serde_json::json!({ "assignees": [login] }).to_string();
+        let out = self.send("POST", &path, &input)?;
+        let v: Value = serde_json::from_str(out.trim()).map_err(|_| MALFORMED)?;
+        let assignees = v
+            .get("assignees")
+            .and_then(Value::as_array)
+            .ok_or(MALFORMED)?;
+        if assignees
+            .iter()
+            .any(|a| a.get("id").and_then(Value::as_u64) == Some(id))
+        {
+            Ok(())
+        } else {
+            Err(Outcome::Refused(Refusal::Invalid))
+        }
     }
 
-    fn add_part(&mut self, _: &TicketKey, _: &TicketKey) -> Did {
-        unsupported()
+    /// The child's parent read first: already this parent's part is done
+    /// with nothing sent, another parent's, in this repository or another,
+    /// is `Refused(Invalid)`, never moved. Then the child's own issue read for its id, which the
+    /// sub-issues endpoint takes, and one `POST` of it to the parent's.
+    fn add_part(&mut self, parent: &TicketKey, child: &TicketKey) -> Did {
+        let (up, down) = (number(parent)?, number(child)?);
+        if up == down {
+            return Err(Outcome::Refused(Refusal::Cycle));
+        }
+        let issues = self.issues()?;
+        let asked = format!("{issues}/issues/{down}/parent");
+        match self.call("the parent", &["api", &asked]) {
+            // A parent of another repository is another parent.
+            Ok(out) => {
+                return match issue_of(&out, &self.repo) {
+                    Ok(p) if p.number == up => Ok(()),
+                    Ok(_) | Err(Outcome::Unread(Unread::Inconsistent)) => {
+                        Err(Outcome::Refused(Refusal::Invalid))
+                    }
+                    Err(o) => Err(o),
+                }
+            }
+            Err(e) if crate::gh::says_not_found(&e.why) => {}
+            Err(e) => return Err(unsent(self.outcome(&e))),
+        }
+        let out = self
+            .issue_answer(down)
+            .map_err(|e| unsent(self.outcome(&e)))?;
+        issue_of(&out, &self.repo)?;
+        let id = serde_json::from_str::<Value>(out.trim())
+            .ok()
+            .and_then(|v| v.get("id").and_then(Value::as_u64))
+            .ok_or(MALFORMED)?;
+        let path = format!("{issues}/issues/{up}/sub_issues");
+        let input = serde_json::json!({ "sub_issue_id": id }).to_string();
+        self.send("POST", &path, &input).map(|_| ())
     }
 
     fn remove_part(&mut self, _: &TicketKey, _: &TicketKey) -> Did {
@@ -327,6 +424,18 @@ fn issue_of(out: &str, repo: &str) -> Got<Issue> {
 }
 
 impl GitHub {
+    /// The label of `spec` brought to the table from `held`, the label
+    /// GitHub holds by that name in any case: left where it is right,
+    /// renamed where its name is in another case, else made or put back by
+    /// `ensure_mark`. The one rule of `prepare` and `prepare_one`.
+    fn bring_label(&mut self, held: Option<&LabelHeld>, spec: &MarkSpec) -> Did {
+        match held {
+            Some(h) if h.is(spec) => Ok(()),
+            Some(h) if h.name() != spec.name.as_str() => self.rename_label(h.name(), spec),
+            _ => self.ensure_mark(spec),
+        }
+    }
+
     /// One `PATCH` of the label GitHub holds as `held` to the spec's name,
     /// colour and text. `gh label create --force` keeps the case of the
     /// name there, so a name in another case is renamed here; GitHub keeps
@@ -341,5 +450,18 @@ impl GitHub {
             input["description"] = about.as_str().into();
         }
         self.send("PATCH", &path, &input.to_string()).map(|_| ())
+    }
+}
+
+/// An answer that does not read.
+const MALFORMED: Outcome = Outcome::Unread(Unread::Malformed);
+
+/// The `state` of an issue's answer: `open` or `closed`.
+fn state_of(out: &str) -> Got<&'static str> {
+    let v: Value = serde_json::from_str(out.trim()).map_err(|_| MALFORMED)?;
+    match v.get("state").and_then(Value::as_str) {
+        Some("open") => Ok("open"),
+        Some("closed") => Ok("closed"),
+        _ => Err(MALFORMED),
     }
 }
