@@ -738,7 +738,7 @@ pub mod code_host {
         })
     }
 
-    /// One App's runs of one name in two suites (on GitHub, two workflows
+    /// One App's runs of one name in two suites (for example, two workflows
     /// with a job of one name) are both held, as two Apps' are, so a
     /// failure in one is not hidden by a newer pass in the other (Decided
     /// 129). The fixture's commit `at` holds such runs of `name`: the newest

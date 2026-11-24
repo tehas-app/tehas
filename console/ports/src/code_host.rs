@@ -864,7 +864,7 @@ pub trait CodeHost: Reports + Cites {
     /// newest of each App and name, so an old failure beside a passing
     /// re-run is not read, and its status contexts, each one's newest state
     /// held as a run named by its context. Runs of different Apps, or of one
-    /// App in different suites (on GitHub, workflows), are never collapsed:
+    /// App in different suites (one App's workflows), are never collapsed:
     /// two such runs of one name are both given (Decided 129). `overall` is
     /// `Overall::of` all of them, so a failed status beside a passing run
     /// is `Fail`. `Checks` gives the fold of a status.

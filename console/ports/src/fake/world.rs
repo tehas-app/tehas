@@ -600,7 +600,7 @@ impl World {
         self
     }
 
-    /// A check run on a commit, by this App in this suite (on GitHub, a
+    /// A check run on a commit, by this App in this suite (for example, a
     /// workflow). Runs of one App in different suites are kept apart, as
     /// runs of different Apps are (Decided 129).
     pub fn check_in(self, app: &str, suite: &str, at: &CommitId, check: Check) -> Self {
