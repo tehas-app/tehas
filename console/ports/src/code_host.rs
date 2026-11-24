@@ -852,11 +852,12 @@ pub trait CodeHost: Reports + Cites {
     fn change(&mut self, no: ChangeNo, bound: Bound) -> Got<Change>;
     /// The files a change changes, whole.
     fn changed_files(&mut self, no: ChangeNo, bound: Bound) -> Got<Whole<ChangedFile>>;
-    /// A change's events, oldest first: every kind the site records. An
+    /// A change's events, oldest first in the site's order: every kind the
+    /// site records. An
     /// adapter that cannot give a kind refuses the read
-    /// `Refused(Unsupported)`; it never leaves one out (Decided 124). In
-    /// the site's order, not by `at`; `more` may be true where only items
-    /// the adapter leaves out remain (Decided 126).
+    /// `Refused(Unsupported)`; it never leaves one out (Decided 124). `at`
+    /// does not order them; `more` may be true where only items the
+    /// adapter leaves out remain (Decided 126).
     fn activity(&mut self, no: ChangeNo, window: Window) -> Got<Took<ChangeEvent>>;
     /// The checks on a commit, or those of this name: its check runs, the
     /// newest of each App and name, so an old failure beside a passing
