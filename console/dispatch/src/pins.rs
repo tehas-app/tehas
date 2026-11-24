@@ -489,7 +489,7 @@ mod tests {
     #[test]
     fn settle_keeps_new_pins_unless_dry_and_reads_them_back() {
         let d = TestDir::new("pins");
-        fs::create_dir_all(Home::new(&d.path()).state_dir()).unwrap();
+        fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
         let mut s = snap(json!([{"name": "tehas:ready", "id": "LA_real"}]), json!([]));
         let (said, _) = settle(d.path(), &mut s.clone(), true);
         assert!(said[0].starts_with("would pin the label tehas:ready as LA_real"));
@@ -514,7 +514,7 @@ mod tests {
     #[test]
     fn with_no_file_a_poll_that_read_the_labels_writes_it_even_empty() {
         let d = TestDir::new("pins-empty");
-        fs::create_dir_all(Home::new(&d.path()).state_dir()).unwrap();
+        fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
         // Labels not read: nothing is written.
         settle(d.path(), &mut json!({}), false);
         assert!(!d.path().join(FILE).exists());

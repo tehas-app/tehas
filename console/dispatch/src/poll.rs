@@ -1491,7 +1491,7 @@ mod tests {
     /// The status file of `home`, written now and then given the time of
     /// `made`: no sleeping, and the age a test asks for.
     fn status_at(home: &Path, made: i64) {
-        let file = Home::new(&home).live(Live::Status);
+        let file = Home::new(home).live(Live::Status);
         std::fs::write(&file, b"{}").unwrap();
         std::fs::OpenOptions::new()
             .write(true)
@@ -1564,7 +1564,7 @@ mod tests {
         let held = OpenOptions::new()
             .create(true)
             .append(true)
-            .open(Home::new(&home).state(State::DispatchLock))
+            .open(Home::new(home).state(State::DispatchLock))
             .unwrap();
         held.try_lock()
             .expect("nothing else holds this home's lock");
