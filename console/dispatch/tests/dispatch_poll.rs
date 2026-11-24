@@ -454,7 +454,8 @@ fn a_write_of_the_ports_a_dead_poll_left_is_settled_through_the_adapter() {
         .iter()
         .filter(|c| c.as_str() == "api repos/acme/widget/issues/7")
         .count();
-    assert_eq!(issue_reads, 1, "{reads:?}");
+    // One by the settle, one by the start's comment before it posts.
+    assert_eq!(issue_reads, 2, "{reads:?}");
     has(&r.out, "start #7 (labelled by alice)");
     assert_eq!(w.row(&["journal-open"])["actions"], serde_json::json!([]));
 }

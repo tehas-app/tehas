@@ -338,7 +338,7 @@ fn a_first_turn_cut_off_by_a_restart_says_nothing_while_its_label_change_fails()
     let rows = |w: &World| w.row(&["history-show", "7", "--kind", "plan"])["rows"].clone();
     let lines = rows(&w).as_array().map(Vec::len);
     w.poll();
-    lacks(&w.gh(), "issue comment");
+    assert_eq!(w.notes_any(), 0);
     assert_eq!(w.rec()["running"], json!(true));
     // No end is on record: the next poll finds the same turn.
     assert_eq!(rows(&w).as_array().map(Vec::len), lines);
@@ -370,7 +370,7 @@ fn the_end_of_a_session_is_said_once() {
     w.comments(7, &plan_body(" ", " ", "x", 1, ""), "alice", json!([]));
     w.fx("edit-fails-on", "--remove-label needs-human-attention");
     w.poll();
-    lacks(&w.gh(), "issue comment");
+    assert_eq!(w.notes_any(), 0);
     assert_eq!(w.rec_open(), "open");
     w.clear_calls();
     w.rm_fx("edit-fails-on");
@@ -388,7 +388,7 @@ fn a_session_whose_record_is_gone_is_not_announced_while_its_labels_cannot_be_re
     w.comments(7, &plan_body("x", " ", " ", 1, ""), "alice", json!([]));
     w.touch("edit-fails");
     w.poll();
-    lacks(&w.gh(), "issue comment");
+    assert_eq!(w.notes_any(), 0);
 }
 
 #[test]
@@ -414,7 +414,7 @@ fn a_bot_login_that_is_not_kept_ends_the_poll_before_anything_is_written() {
     assert_eq!(r.rc, 1, "{}", r.out);
     has(&r.out, "ERROR: the bot's own login could not be read");
     lacks(&w.gh(), "issue edit");
-    lacks(&w.gh(), "issue comment");
+    assert_eq!(w.notes_any(), 0);
     assert_eq!(w.calls("fake-start"), "");
 }
 

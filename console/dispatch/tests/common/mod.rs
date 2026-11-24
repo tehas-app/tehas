@@ -132,12 +132,20 @@ case "$1 $2" in
       "DELETE repos/acme/widget/issues/"*/labels/*)
         [ ! -e "$T/fx/label-missing" ] || not_found
         fails unmark-fails ;;
-      # A question as the Rust poll posts it, with its method said.
-      # Its id is 4002, or what $fx/post-id-<n> holds for issue n.
+      # A comment as the Rust poll posts it, with its method said. Its id
+      # is 4002, or what $fx/post-id-<n> holds for issue n: alone when the
+      # poll asks for the id alone, else as the comment GitHub made.
+      # $fx/post-fails: GitHub refuses it, so it was not made.
       "POST repos/acme/widget/issues/"*/comments)
-        [ ! -e "$T/fx/post-fails" ] || exit 1
+        [ ! -e "$T/fx/post-fails" ] || { echo "gh: Validation Failed (HTTP 422)" >&2; exit 1; }
         n=${rest_path#repos/acme/widget/issues/}
-        cat "$T/fx/post-id-${n%%/*}" 2>/dev/null || echo 4002 ;;
+        n=${n%%/*}
+        # What was said, kept apart for `World::said`.
+        printf '%s\0' "$body" >>"$T/calls/said-$n"
+        id=$(cat "$T/fx/post-id-$n" 2>/dev/null || echo 4002)
+        case " $* " in *" .id "*) echo "$id" ;;
+          *) printf '{"id":%s,"html_url":"https://github.com/acme/widget/issues/%s#issuecomment-%s"}\n' "$id" "$n" "$id" ;;
+        esac ;;
       *) fails patch-fails ;;
     esac ;;
   # The reviews and inline comments of a pull request, as REST lists them.
@@ -166,9 +174,15 @@ case "$1 $2" in
         [ ! -e "$T/fx/work-fails" ] || exit 1
         # One number alone, for a poll that cannot read that issue.
         [ ! -e "$T/fx/work-$n-fails" ] || exit 1
-        if [ -e "$T/fx/work-$n.json" ]; then cat "$T/fx/work-$n.json"; else
-          jq -c --argjson n "$n" "{number: \$n, state: \"open\", labels: (if any(.[]?; type == \"object\" and .number == \$n)
-            then [{name: \"tehas:running\"}] else [] end)}" "$T/fx/marked.json" 2>/dev/null || echo "{\"number\":$n,\"state\":\"open\"}"
+        url="https://github.com/acme/widget/issues/$n"
+        # A case's issue, with the address and text a write's read of it
+        # needs when the case wrote none.
+        if [ -e "$T/fx/work-$n.json" ]; then
+          jq -c --arg url "$url" 'if type == "object" then . + {html_url: (.html_url // $url), body: (.body // "")} else . end' \
+            "$T/fx/work-$n.json" 2>/dev/null || cat "$T/fx/work-$n.json"
+        else
+          jq -c --argjson n "$n" --arg url "$url" "{number: \$n, state: \"open\", html_url: \$url, body: \"\", labels: (if any(.[]?; type == \"object\" and .number == \$n)
+            then [{name: \"tehas:running\"}] else [] end)}" "$T/fx/marked.json" 2>/dev/null || echo "{\"number\":$n,\"state\":\"open\",\"html_url\":\"$url\",\"body\":\"\"}"
         fi ;;
     esac ;;
   # The check runs of a name on the head commit of the branch.
@@ -222,6 +236,9 @@ case "$1 $2" in
       *closedByPullRequestsReferences*)
         [ ! -e "$T/fx/prs-fails" ] || exit 1
         cat "$T/fx/prs-$n.json" 2>/dev/null || cat "$T/fx/prs.json" || exit 1 ;;
+      # The ticket an issue is a part of, as the GitHub adapter asks it
+      # beside an issue's REST read: none.
+      *"parent { number repository"*) echo "{\"data\":{\"repository\":{\"issue\":{\"number\":$n,\"parent\":null}}}}" ;;
       *) cat "$T/fx/edit-$n.json" 2>/dev/null || cat "$T/fx/edit.json" || exit 1 ;;
     esac ;;
   "issue edit")
@@ -906,6 +923,8 @@ impl World {
         for f in ["tehas.db", "tehas.db-wal", "tehas.db-shm"] {
             let _ = fs::remove_file(state.join(f));
         }
+        // A new store: its rows are all read.
+        let _ = fs::remove_file(self.t.join("journal-from"));
         self.store_ok(&[
             "init",
             "--version",
@@ -1242,7 +1261,38 @@ impl World {
     pub fn clear_calls(&self) {
         let d = self.t.join("calls");
         let _ = fs::remove_dir_all(&d);
-        fs::create_dir_all(d).unwrap();
+        fs::create_dir_all(&d).unwrap();
+        // The journal keeps its rows: the writes read after this are the
+        // ones after its last row now.
+        let last = self
+            .journal()
+            .query_row("SELECT coalesce(max(id), 0) FROM actions", [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .unwrap_or(0);
+        fs::write(self.t.join("journal-from"), last.to_string()).unwrap();
+    }
+
+    /// The store's database, as the store keeps it, read only: one not made
+    /// yet is opened as an empty one in memory, never made here.
+    fn journal(&self) -> rusqlite::Connection {
+        let db = tehas_core::home::Home::new(&self.home)
+            .state_dir()
+            .join("tehas.db");
+        if !db.exists() {
+            return rusqlite::Connection::open_in_memory().unwrap();
+        }
+        rusqlite::Connection::open_with_flags(db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .unwrap()
+    }
+
+    /// The row of the journal the writes are read after: the last one when
+    /// the calls were last cleared.
+    fn journal_from(&self) -> i64 {
+        fs::read_to_string(self.t.join("journal-from"))
+            .ok()
+            .and_then(|s| s.trim().parse().ok())
+            .unwrap_or(0)
     }
 
     fn store_cmd(&self, args: &[&str], now: Option<i64>, lock: Option<&str>) -> Run {
@@ -1283,6 +1333,88 @@ impl World {
         let out = self.store(args);
         assert_eq!(out.rc, 0, "store {args:?}: {}", out.out);
         serde_json::from_str(&out.out).unwrap_or(Value::Null)
+    }
+
+    /// The writes of the ports the journal holds for issue `n`, oldest
+    /// first, each with its row's state: what the poll decided to write, in
+    /// tehas's words, read from the store as the store keeps them (bodies
+    /// by their sum, `tehas_core::journal::kept`). A call of gh's own rows is
+    /// not one.
+    pub fn sent(&self, n: u64) -> Vec<(tehas_ports::Write, String)> {
+        let c = self.journal();
+        let Ok(mut q) = c.prepare(
+            "SELECT args_json, state FROM actions WHERE issue = ?1 AND id > ?2 ORDER BY id",
+        ) else {
+            return Vec::new();
+        };
+        q.query_map([n as i64, self.journal_from()], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })
+        .unwrap()
+        .filter_map(|r| {
+            let (args, state) = r.unwrap();
+            let args: Value = serde_json::from_str(&args).ok()?;
+            Some((
+                serde_json::from_value(args.get("write")?.clone()).ok()?,
+                state,
+            ))
+        })
+        .collect()
+    }
+
+    /// The notes the poll wrote on any issue.
+    pub fn notes_any(&self) -> usize {
+        self.comments_where("?2 = ?2", 0)
+    }
+
+    /// The texts of the comments posted on issue `n`, in their order, as the
+    /// site was given them.
+    pub fn said(&self, n: u64) -> Vec<String> {
+        fs::read_to_string(self.t.join(format!("calls/said-{n}")))
+            .unwrap_or_default()
+            .split('\0')
+            .filter(|b| !b.is_empty())
+            .map(str::to_string)
+            .collect()
+    }
+
+    /// Whether a comment posted on issue `n` begins with `text`.
+    pub fn said_on(&self, n: u64, text: &str) -> bool {
+        self.said(n).iter().any(|b| b.starts_with(text))
+    }
+
+    /// The writes of the ports for issue `n`, without their states.
+    pub fn writes_of(&self, n: u64) -> Vec<tehas_ports::Write> {
+        self.sent(n).into_iter().map(|(w, _)| w).collect()
+    }
+
+    /// The comments the poll wrote on issue `n`: notes of the ports, and the
+    /// calls of gh a comment whose text holds a marker still makes.
+    pub fn notes(&self, n: u64) -> usize {
+        self.comments_where("issue = ?2", n as i64)
+    }
+
+    fn comments_where(&self, which: &str, n: i64) -> usize {
+        let q = format!(
+            "SELECT count(*) FROM actions WHERE id > ?1 AND {which} AND \
+             (args_json LIKE '%\"write\":{{\"type\":\"TicketNote\"%' \
+              OR args_json LIKE '%\"gh\":[\"issue\",\"comment\"%')"
+        );
+        self.journal()
+            .query_row(&q, [self.journal_from(), n], |r| r.get::<_, i64>(0))
+            .unwrap_or(0) as usize
+    }
+
+    /// Whether the poll wrote the note `body` on issue `n`, by the body's sum
+    /// as the journal keeps it.
+    pub fn noted(&self, n: u64, body: &str) -> bool {
+        let note = tehas_ports::Write::TicketNote {
+            ticket: tehas_ports::TicketKey::Number(std::num::NonZeroU64::new(n).unwrap()),
+            body: tehas_ports::Body::Text(body.into()),
+            markers: Vec::new(),
+        };
+        let kept = tehas_core::journal::kept(&note).unwrap();
+        self.writes_of(n).contains(&kept)
     }
 
     /// What the store has on record, through a read verb (t_row).

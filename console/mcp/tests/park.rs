@@ -54,6 +54,7 @@ impl Env {
                 live,
                 sessions: snap,
                 logs,
+                links: mcp::tools::no_links,
             },
         }
     }

@@ -83,6 +83,9 @@ fn key(n: u64) -> TicketKey {
     TicketKey::Number(NonZeroU64::new(n).unwrap())
 }
 
+/// The answer of the question of the ticket #7 is a part of: none.
+const NO_PARENT: &str = r#"{"data":{"repository":{"issue":{"number":7,"parent":null}}}}"#;
+
 fn rest_issue(author: &str, assignee: &str) -> String {
     format!(
         r#"{{"number":7,"title":"t","state":"open","state_reason":null,"labels":[],
@@ -97,7 +100,7 @@ fn rest_issue(author: &str, assignee: &str) -> String {
 const BESIDE: &str = r#"{"data":{"repository":{"issue":{"number":7,"closes":{"nodes":[]},
 "blockedBy":{"totalCount":0,"nodes":[]},
 "subIssues":{"totalCount":0,"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]},
-"mentions":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]}}}}}"#;
+"mentions":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]},"parent":null}}}}"#;
 
 fn rest_events(actor: &str) -> String {
     format!(
@@ -120,7 +123,7 @@ fn list(author: &str) -> String {
         r#"{{"data":{{"repository":{{"issues":{{"pageInfo":{{"hasNextPage":false,"endCursor":null}},"nodes":[
 {{"number":7,"title":"t","body":"","state":"OPEN","stateReason":null,"url":"https://github.com/acme/widget/issues/7",
 "createdAt":"2026-01-02T03:04:05Z","updatedAt":"2026-01-03T00:00:00Z","author":{author},
-"issueType":null,"milestone":null,"labels":{{"totalCount":0,"nodes":[]}}}}]}}}}}}}}"#
+"issueType":null,"milestone":null,"labels":{{"totalCount":0,"nodes":[]}},"parent":null}}]}}}}}}}}"#
     )
 }
 
@@ -246,7 +249,10 @@ fn kinds(bot_id: Option<u64>, w: Who) -> Vec<(&'static str, Option<AccountKind>)
     let kind = |a: Option<&Account>| a.map(|a| a.kind);
     let mut out = Vec::new();
 
-    let mut h = handle(bot_id, vec![rest_issue(&rest, &rest)]);
+    let mut h = handle(
+        bot_id,
+        vec![rest_issue(&rest, &rest), NO_PARENT.to_string()],
+    );
     let (_, d) = h.several(&[key(7)]).pop().unwrap();
     out.push(("rest author", kind(d.unwrap().author.as_ref())));
 
@@ -459,7 +465,11 @@ fn with_a_bot_id_of_zero_nothing_is_ours() {
 fn a_bot_login_is_trimmed_and_one_holding_whitespace_names_nobody() {
     let bot = who(Some("Bot"), "tehas-bot[bot]", Some(BOT_ID)).rest();
     let author = |login: &str| {
-        let s = site_of(login, Some(BOT_ID), vec![rest_issue(&bot, &bot)]);
+        let s = site_of(
+            login,
+            Some(BOT_ID),
+            vec![rest_issue(&bot, &bot), NO_PARENT.to_string()],
+        );
         let mut h = s.tickets(&Actor::Ours(Scope::Full), CALLER).unwrap();
         let (_, d) = h.several(&[key(7)]).pop().unwrap();
         d.unwrap().author.unwrap().kind
@@ -483,7 +493,11 @@ fn a_handle_made_without_a_site_never_answers_ours() {
     let bot = who(Some("Bot"), "tehas-bot[bot]", Some(BOT_ID)).rest();
     let mut gh = GitHub::new(
         "acme/widget",
-        Box::new(Stub(vec![rest_issue(&bot, &bot), rest_events(&bot)])),
+        Box::new(Stub(vec![
+            rest_issue(&bot, &bot),
+            NO_PARENT.to_string(),
+            rest_events(&bot),
+        ])),
     );
     let (_, d) = gh.several(&[key(7)]).pop().unwrap();
     assert_eq!(d.unwrap().author.unwrap().kind, AccountKind::Bot);

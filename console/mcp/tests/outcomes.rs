@@ -43,6 +43,7 @@ fn dirs(name: &str) -> (TestDir, Dirs) {
         live,
         sessions: mcp.clone(),
         logs: root.join("no-logs"),
+        links: mcp::tools::no_links,
     };
     (root, dir)
 }
