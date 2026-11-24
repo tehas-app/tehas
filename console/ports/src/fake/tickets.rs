@@ -499,7 +499,15 @@ impl Tickets for Handle {
     }
 
     fn kinds(&mut self) -> Got<Whole<Kind>> {
-        self.run(Pool::Calls, |s, _| whole_kept(s.kinds.clone()))
+        self.run(Pool::Calls, |s, _| {
+            whole_kept(
+                s.kinds
+                    .iter()
+                    .filter(|k| **k != Kind::Unknown)
+                    .cloned()
+                    .collect(),
+            )
+        })
     }
 
     fn targets(&mut self, bound: Bound) -> Got<Whole<Target>> {

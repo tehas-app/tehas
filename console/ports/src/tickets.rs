@@ -708,7 +708,8 @@ pub trait Tickets: Reports + Cites {
         key: &MarkerKey,
         open: Option<bool>,
     ) -> Got<Whole<TicketKey>>;
-    /// The site's types of ticket.
+    /// The site's types of ticket. Never `Kind::Unknown`: a type this copy
+    /// cannot name is left out and reported (Decided 120).
     fn kinds(&mut self) -> Got<Whole<Kind>>;
     /// The marks the site holds for the project, each with its id, as the
     /// site names them now: what a caller pins, so a mark renamed to one
