@@ -600,6 +600,16 @@ impl World {
         self
     }
 
+    /// A check run on a commit, by this App in this suite (on GitHub, a
+    /// workflow). Runs of one App in different suites are kept apart, as
+    /// runs of different Apps are (Decided 130).
+    pub fn check_in(self, app: &str, suite: &str, at: &CommitId, check: Check) -> Self {
+        self.lock()
+            .checks
+            .push((at.clone(), format!("{app}\u{0}{suite}"), check));
+        self
+    }
+
     /// A status on a commit, as some other poster sets one. The newest of a
     /// context wins.
     pub fn status(self, at: &CommitId, status: Status) -> Self {

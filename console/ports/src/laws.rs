@@ -738,6 +738,22 @@ pub mod code_host {
         })
     }
 
+    /// One App's runs of one name in two suites (on GitHub, two workflows
+    /// with a job of one name) are both held, as two Apps' are, so a
+    /// failure in one is not hidden by a newer pass in the other (Decided
+    /// 130). The fixture's commit `at` holds such runs of `name`: the newest
+    /// of one suite failed, and a newer run of the other passed.
+    pub fn two_suites_runs_of_one_name_are_both_held(
+        h: &mut dyn crate::CodeHost,
+        at: &CommitId,
+        name: &str,
+    ) -> Law {
+        two_apps_runs_of_one_name_are_both_held(h, at, name).map_err(|mut b| {
+            b.law = "code_host::two_suites_runs_of_one_name_are_both_held".into();
+            b
+        })
+    }
+
     /// The checks on a commit hold its status contexts beside its check
     /// runs, and a failed status beside a passing run is `Fail`. The
     /// fixture's commit `at` holds one passing run of `run` and a status
