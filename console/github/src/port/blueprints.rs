@@ -19,7 +19,7 @@
 //! other failure is retried here.
 
 use std::collections::HashSet;
-use std::num::NonZeroU32;
+use std::num::{NonZeroU32, NonZeroU64};
 
 use super::blueprint_writes::{ends_with_folded, read_issue, revision};
 use super::unsupported;
@@ -31,7 +31,7 @@ use serde_json::Value;
 use tehas_ports::{
     At, Attachment, AttachmentId, Blueprint, BlueprintDelta, BlueprintHit, BlueprintNo, Blueprints,
     Bound, ChangeToken, Comment, CommentId, Cursor, Depth, Did, Edit, Got, Outcome, Pool, Refusal,
-    Revision, Took, Unread, Whole, Within, ALL_MAX,
+    Revision, TicketDigest, TicketKey, Took, Unread, Whole, Within, ALL_MAX,
 };
 
 /// The comments one page of an issue's comments asks for, the most GitHub
@@ -62,11 +62,7 @@ impl Blueprints for GitHub {
     fn blueprint(&mut self, no: BlueprintNo, depth: Depth) -> Got<Blueprint> {
         let read = |gh: &mut GitHub| -> Got<Blueprint> {
             let (mut blueprint, stamp) = gh.issue(no)?;
-            if stamp.touched {
-                let (edited, editor) = gh.body_edit(no)?;
-                blueprint.edited = edited;
-                blueprint.editor = editor;
-            }
+            gh.edit_of(&mut blueprint, &stamp)?;
             blueprint.comments = match depth {
                 Depth::Cut { notes } => {
                     let mut took = gh.last_comments(no, &stamp, u32::from(notes))?;
@@ -227,12 +223,46 @@ impl GitHub {
     /// `Unread(Malformed)`.
     fn issue(&mut self, no: BlueprintNo) -> Got<(Blueprint, Stamp)> {
         let out = self.issue_answer(no.get()).map_err(|e| self.outcome(&e))?;
-        let issue = read_issue(&out, &self.repo)?;
+        self.issue_of(no, &out)
+    }
+
+    /// The blueprint `no` as `blueprint` reads it at
+    /// `Depth::Cut { notes: 0 }`, and its ticket's digest, from one REST
+    /// read of the issue: where ticket and blueprint are one item, both
+    /// are of the one answer. A pull request is `NotFound`.
+    pub(super) fn blueprint_and_digest(
+        &mut self,
+        no: BlueprintNo,
+    ) -> Got<(Blueprint, TicketDigest)> {
+        let out = self.issue_answer(no.get()).map_err(|e| self.outcome(&e))?;
+        let (mut blueprint, stamp) = self.issue_of(no, &out)?;
+        let key = NonZeroU64::new(no.get())
+            .map(TicketKey::Number)
+            .ok_or(Outcome::Unread(Unread::Inconsistent))?;
+        let digest = self.digest_of(&key, &out)?;
+        self.edit_of(&mut blueprint, &stamp)?;
+        Ok((blueprint, digest))
+    }
+
+    /// The body's last edit, asked only of an issue changed since it was
+    /// opened: unedited otherwise.
+    fn edit_of(&mut self, blueprint: &mut Blueprint, stamp: &Stamp) -> Did {
+        if stamp.touched {
+            let (edited, editor) = self.body_edit(blueprint.no)?;
+            blueprint.edited = edited;
+            blueprint.editor = editor;
+        }
+        Ok(())
+    }
+
+    /// [`GitHub::issue`] of an answer read already.
+    fn issue_of(&mut self, no: BlueprintNo, out: &str) -> Got<(Blueprint, Stamp)> {
+        let issue = read_issue(out, &self.repo)?;
         if issue.no != no {
             return Err(Outcome::Unread(Unread::Inconsistent));
         }
         let malformed = Outcome::Unread(Unread::Malformed);
-        let at = revision(&out).ok_or(malformed.clone())?;
+        let at = revision(out).ok_or(malformed.clone())?;
         let mut v: Value = serde_json::from_str(out.trim()).map_err(|_| malformed.clone())?;
         tehas_core::accounts::vouch(&mut v);
         let f: IssueFields = serde_json::from_value(v).map_err(|_| malformed.clone())?;

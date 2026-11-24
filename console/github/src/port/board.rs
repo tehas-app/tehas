@@ -1,9 +1,11 @@
 //! The joined reads, `Board`. Answered: `open_changes` for an ask that
 //! needs no blueprint and no body, so no marker: the changes a filter of
 //! states and branch takes, each with its files and the other open changes
-//! that close the same blueprints, in one GraphQL question a page. The
-//! rest reads a ticket's or a blueprint's text and its markers, which this
-//! adapter does not read yet: `Refused(Unsupported)` before any request.
+//! that close the same blueprints, in one GraphQL question a page; and for
+//! an ask of numbers, with the blueprints each closes, in `numbers.rs`.
+//! The rest is `Refused(Unsupported)` before any request.
+
+mod numbers;
 
 use std::collections::HashSet;
 
@@ -41,9 +43,19 @@ const LABELS_MAX: usize = 100;
 const ACCOUNT: &str = "__typename login ...on User { databaseId } ...on Bot { databaseId }";
 
 /// One page of the changes a filter takes. `{STATES}`, `{HEAD_VAR}`,
-/// `{HEAD}`, `{FILES}`, `{ACCOUNT}` and the page sizes are filled in by
-/// [`changes_query`].
-const CHANGES: &str = "query($owner: String!, $name: String!, $cursor: String{HEAD_VAR}) { repository(owner: $owner, name: $name) { pullRequests(states: [{STATES}], first: {PULL_PAGE}, after: $cursor, orderBy: {field: CREATED_AT, direction: ASC}{HEAD}) { totalCount pageInfo { hasNextPage endCursor } nodes { number title url state isDraft isCrossRepository headRefName headRefOid baseRefName baseRefOid mergeable mergeStateStatus createdAt updatedAt lastEditedAt mergedAt closedAt additions deletions changedFiles author { {ACCOUNT} } editor { {ACCOUNT} } mergedBy { {ACCOUNT} } mergeCommit { oid } renames: timelineItems(itemTypes: [RENAMED_TITLE_EVENT], last: 1) { nodes { ... on RenamedTitleEvent { createdAt actor { {ACCOUNT} } } } } labels(first: {LABELS_MAX}) { totalCount nodes { name } } closingIssuesReferences(first: {CLOSES_MAX}) { totalCount nodes { number repository { nameWithOwner } } }{FILES} } } } }";
+/// `{HEAD}`, `{FILES}` and the page size are filled in by
+/// [`changes_query`], `{PULL}` by [`pull_fields`].
+const CHANGES: &str = "query($owner: String!, $name: String!, $cursor: String{HEAD_VAR}) { repository(owner: $owner, name: $name) { pullRequests(states: [{STATES}], first: {PULL_PAGE}, after: $cursor, orderBy: {field: CREATED_AT, direction: ASC}{HEAD}) { totalCount pageInfo { hasNextPage endCursor } nodes { {PULL}{FILES} } } } }";
+
+/// What a change's digest is read from, a [`Pull`]: `{ACCOUNT}` and the
+/// bounds are filled in by [`pull_fields`].
+const PULL: &str = "number title url state isDraft isCrossRepository headRefName headRefOid baseRefName baseRefOid mergeable mergeStateStatus createdAt updatedAt lastEditedAt mergedAt closedAt additions deletions changedFiles author { {ACCOUNT} } editor { {ACCOUNT} } mergedBy { {ACCOUNT} } mergeCommit { oid } renames: timelineItems(itemTypes: [RENAMED_TITLE_EVENT], last: 1) { nodes { ... on RenamedTitleEvent { createdAt actor { {ACCOUNT} } } } } labels(first: {LABELS_MAX}) { totalCount nodes { name } } closingIssuesReferences(first: {CLOSES_MAX}) { totalCount nodes { number repository { nameWithOwner } } }";
+
+fn pull_fields() -> String {
+    PULL.replace("{LABELS_MAX}", &LABELS_MAX.to_string())
+        .replace("{CLOSES_MAX}", &CLOSES_MAX.to_string())
+        .replace("{ACCOUNT}", ACCOUNT)
+}
 
 /// A change's files, a page, nested in [`CHANGES`] or asked after it.
 const FILES: &str = "files(first: {FILE_PAGE}, after: $files) { totalCount pageInfo { hasNextPage endCursor } nodes { path additions deletions } }";
@@ -80,9 +92,7 @@ fn changes_query(states: ChangeStates, head: bool, files: bool) -> String {
         .replace("{STATES}", states)
         .replace("{FILES}", &files)
         .replace("{PULL_PAGE}", &PULL_PAGE.to_string())
-        .replace("{LABELS_MAX}", &LABELS_MAX.to_string())
-        .replace("{CLOSES_MAX}", &CLOSES_MAX.to_string())
-        .replace("{ACCOUNT}", ACCOUNT)
+        .replace("{PULL}", &pull_fields())
 }
 
 fn more_files_query() -> String {
@@ -121,8 +131,13 @@ impl Board for GitHub {
     /// alone. Answered for a filter of states and branch, with no bodies,
     /// and an ask of files and siblings; siblings only beside every open
     /// change, which they are read from. Any other ask, a blueprint's or a
-    /// body's, is `Refused(Unsupported)` before any request.
+    /// body's, is `Refused(Unsupported)` before any request. An ask of
+    /// numbers and states, with no files and no events, is answered as
+    /// `numbers.rs` says, with what each change closes and its siblings.
     fn open_changes(&mut self, ask: &ChangeAsk, bound: Bound) -> Got<Whole<ChangeItem>> {
+        if numbers::asked(ask) {
+            return self.numbered_changes(ask, bound);
+        }
         if !answered(ask) {
             return unsupported();
         }

@@ -331,8 +331,11 @@ fn what_needs_a_ticket_a_blueprint_or_a_body_is_unsupported_before_any_request()
             updated_since: Some(At::new(0)),
             ..ChangeFilter::default()
         },
+        // Numbers alone are answered (`open_changes_numbers.rs`); beside
+        // a branch they are not.
         ChangeFilter {
             numbers: vec![tehas_ports::ChangeNo::new(21).unwrap()],
+            head: Some(tehas_ports::Branch::new("feature/issue-21").unwrap()),
             ..ChangeFilter::default()
         },
         ChangeFilter {
