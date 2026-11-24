@@ -94,7 +94,7 @@ reset
 t_gh_fail 1 1 "HTTP 429: Too Many Requests"
 (
   T_ENV=(TEHAS_GH_RETRY_WAIT=60)
-  t_run "$T/home/tehas/shim/gh issue comment 777 -R o/r --body waits"
+  t_run "$T/home/tehas/shim/gh issue comment 777 -R o/r --body waits-$$"
 ) >/dev/null 2>&1 &
 waiter=$!
 for _ in $(seq 600); do
@@ -111,7 +111,7 @@ t_eq "$(lines | cut -f4,6)" "777	429
 12	-"
 # The waiting call is still in its wait: it has made one attempt only.
 t_eq "$(t_calls gh | grep -c 777)" 1
-pkill -f "issue comment 777" 2>/dev/null
+pkill -f "issue comment 777 -R o/r --body waits-$$\$" 2>/dev/null # this run's waiter, not another run's
 wait "$waiter" 2>/dev/null
 
 t_done

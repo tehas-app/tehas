@@ -227,6 +227,76 @@ fn kind_name(k: &Kind) -> Option<String> {
     Some(name.to_string())
 }
 
+/// The page of a world of the ports' fake, for the tests of the reads: the
+/// world through the fake's board and this mapping, each mark spelt as
+/// `host/labels.tsv` names it, as GitHub's site spells it.
+#[cfg(test)]
+pub(crate) mod fake {
+    use super::{queue, Open, Words};
+    use std::num::NonZeroU32;
+    use tehas_ports::fake::{FakeSite, World};
+    use tehas_ports::{
+        Actor, BoardAsk, Bound, Caller, ChangeStates, Depth, HappenedKind, Mark, Scope, Site,
+        Window, ALL_MAX,
+    };
+
+    /// The table every label of tehas is made from.
+    const THE_TABLE: &str = include_str!("../../../../host/labels.tsv");
+
+    /// The repository the tests' worlds are.
+    pub(crate) const REPO: &str = "acme/widget";
+
+    /// A mark's label by the table's last column (`Act::Approve`,
+    /// `Mark::Epic`), a project's own mark by its name.
+    pub(crate) fn label(m: &Mark) -> String {
+        let word = match m {
+            Mark::Act(a) => format!("Act::{a:?}"),
+            Mark::State(s) => format!("State::{s:?}"),
+            Mark::Choice(c) => format!("Choice::{c:?}"),
+            Mark::Epic => "Mark::Epic".to_string(),
+            Mark::Project(name) => return name.as_str().to_string(),
+            _ => return String::new(),
+        };
+        THE_TABLE
+            .lines()
+            .map(|l| l.split('\t').collect::<Vec<_>>())
+            .find(|cols| cols.last() == Some(&word.as_str()))
+            .map(|cols| cols[0].to_string())
+            .unwrap_or_default()
+    }
+
+    /// The open issues of `world` in the board's order, as the queue's page
+    /// gives them. Every item maps: a test world holds none the seam refuses.
+    pub(crate) fn page(world: &World) -> Vec<Open> {
+        let site = FakeSite::new(world);
+        let mut board = site
+            .board(&Actor::Ours(Scope::Full), Caller::new("test"))
+            .unwrap();
+        let mut ask = BoardAsk::new(Depth::Cut { notes: 0 });
+        ask.history_by_kind = vec![
+            (HappenedKind::Marked, Window::Whole(ALL_MAX)),
+            (HappenedKind::Unmarked, Window::Whole(ALL_MAX)),
+            (HappenedKind::Retitled, Window::Whole(ALL_MAX)),
+        ];
+        ask.changes = Some((
+            ChangeStates::All,
+            Window::Last(NonZeroU32::new(20).unwrap()),
+        ));
+        let work = board.open_work(&ask, Bound::new(100).unwrap()).unwrap();
+        let m = queue(
+            &work,
+            None,
+            None,
+            &Words {
+                repo: REPO,
+                mark: &label,
+            },
+        );
+        assert!(m.unread.is_empty(), "{:?}", m.unread);
+        m.queue.open
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
