@@ -16,6 +16,7 @@ use serde_json::{json, Map, Value};
 use tehas_core::driver::Driver;
 use tehas_core::question::{q_clean, q_render, Kind};
 use tehas_core::text::disarm;
+use tehas_ports::{Mark, State};
 
 /// What a report asks GitHub, as the bash asks it: each with its tries and
 /// bounds, which are the caller's.
@@ -313,11 +314,11 @@ pub const HANDOFF_MARK: &str = "<!-- pi-rukas:handoff ";
 /// One write of the report, in its order.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Action {
-    /// A label change on the issue, tried three times (once after a stop).
+    /// A change of the issue's marks, tried three times (once after a stop).
     /// One that works takes the stuck words out of what follows.
     Relabel {
-        remove: Vec<String>,
-        add: Vec<String>,
+        remove: Vec<Mark>,
+        add: Vec<Mark>,
     },
     /// A comment on the issue: `ok` after a label change that worked,
     /// `stuck` after one that did not.
@@ -1413,12 +1414,12 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         }))
     };
     let running = || Action::Relabel {
-        remove: vec!["tehas:running".into()],
+        remove: vec![Mark::State(State::Running)],
         add: vec![],
     };
-    let to = |label: &str| Action::Relabel {
-        remove: vec!["tehas:running".into()],
-        add: vec![label.into()],
+    let to = |state: State| Action::Relabel {
+        remove: vec![Mark::State(State::Running)],
+        add: vec![Mark::State(state)],
     };
     let comment = |body: &dyn Fn(&str) -> String| comment_of(body);
     let log_where = format!(
@@ -1582,7 +1583,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         }
     {
         r.arm = "awaiting-merge";
-        r.actions.push(to("tehas:awaiting-merge"));
+        r.actions.push(to(State::AwaitingMerge));
         r.actions.push(comment(&|s| {
             format!("Tehas cycle finished: {summary}. Pull request waiting for a human: {pr}{killed}{s}")
         }));
@@ -1635,7 +1636,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         status = "closed".into();
     } else if pr.is_empty() && !closed_pr.is_empty() && !never_started {
         r.arm = "pr-closed";
-        r.actions.push(to("needs-human-attention"));
+        r.actions.push(to(State::NeedsPerson));
         r.actions.push(comment(&|s| {
             format!(
                 "{marker_line}{}",
@@ -1644,7 +1645,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         }));
     } else if died_with_open_pr {
         r.arm = "died-with-pr";
-        r.actions.push(to("needs-human-attention"));
+        r.actions.push(to(State::NeedsPerson));
         r.actions.push(comment(&|s| {
             format!(
                 "{marker_line}{}",
