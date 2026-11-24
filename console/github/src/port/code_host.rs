@@ -1,26 +1,27 @@
 //! The code host port, `CodeHost` and `CodeHostWrites`: changes, branches,
 //! tags and releases. Answered: what the code host says of the project
 //! (`facts`), the changes a filter takes without their bodies (`changes`),
-//! and the check runs on a commit (`checks`). Every other read, and a
+//! and the check runs and status contexts on a commit (`checks`, in
+//! `checks.rs`). Every other read, and a
 //! filter that asks for bodies, answers `Refused(Unsupported)` before any
 //! request: a body is read without our markers and closing lines, which no
 //! reader of this adapter takes out yet.
+
+mod checks;
 
 use std::collections::BTreeSet;
 use std::num::NonZeroU32;
 
 use super::mergeable::mergeable;
 use super::unsupported;
-use crate::forge::uri;
 use crate::{ForgeError, GitHub};
 use serde_json::Value;
 use tehas_ports::{
     Access, Account, AccountId, AccountKind, At, Author, BlueprintNo, Bound, Branch, Change,
     ChangeDelta, ChangeDigest, ChangeEvent, ChangeFilter, ChangeNo, ChangeState, ChangeStates,
-    ChangeToken, ChangedFile, Check, CheckStatus, Checks, CodeHost, CommitId, Compared, Conclusion,
-    Cursor, Did, Facts, FileName, Got, ItemName, Login, Mark, MarkName, Outcome, Overall, Pool,
-    ProjectName, Realm, Ref, Release, Remote, RepoPath, Rev, Size, Tag, TagName, Took, Unread,
-    WebLink, Whole, Window, ALL_MAX,
+    ChangeToken, ChangedFile, Checks, CodeHost, CommitId, Compared, Cursor, Did, Facts, FileName,
+    Got, ItemName, Login, Mark, MarkName, Outcome, Pool, ProjectName, Realm, Ref, Release, Remote,
+    RepoPath, Rev, Size, Tag, TagName, Took, Unread, WebLink, Whole, Window,
 };
 
 impl CodeHost for GitHub {
@@ -126,51 +127,9 @@ impl CodeHost for GitHub {
         unsupported()
     }
 
-    /// The commit's check runs, the newest of each name alone
-    /// (`filter=latest`), REST, a page of 100 at a time, read whole up to
-    /// `ALL_MAX`. The overall is `Overall::of` them.
+    /// The commit's check runs and status contexts: see `checks.rs`.
     fn checks(&mut self, at: &CommitId, name: Option<&str>) -> Got<Checks> {
-        let named = name.map(|n| format!("&check_name={}", uri(n)));
-        let mut runs = Vec::new();
-        let mut ids = BTreeSet::new();
-        let mut total = None;
-        for page in 1u32.. {
-            let path = format!(
-                "repos/{}/commits/{}/check-runs?filter=latest&per_page=100&page={page}{}",
-                self.repo,
-                at.as_str(),
-                named.as_deref().unwrap_or("")
-            );
-            let out = self
-                .call("the check runs", &["api", &path])
-                .map_err(|e| self.checks_outcome(&e))?;
-            let (count, read) = read_runs(&out).ok_or(Outcome::Unread(Unread::Malformed))?;
-            if count > u64::from(ALL_MAX.get()) {
-                return Err(Outcome::Unread(Unread::Cut));
-            }
-            if *total.get_or_insert(count) != count {
-                return Err(Outcome::Unread(Unread::Inconsistent));
-            }
-            let empty = read.is_empty();
-            for (id, run) in read {
-                if !ids.insert(id) {
-                    return Err(Outcome::Unread(Unread::Inconsistent));
-                }
-                runs.push(run);
-            }
-            let held = runs.len() as u64;
-            if held == count {
-                break;
-            }
-            if held > count || empty {
-                return Err(Outcome::Unread(Unread::Inconsistent));
-            }
-        }
-        let overall = Overall::of(&runs);
-        let mut checks = Checks::default();
-        checks.runs = runs;
-        checks.overall = overall;
-        Ok(checks)
+        self.checks_of(at, name)
     }
 
     fn tags(&mut self, _: Bound) -> Got<Whole<Tag>> {
@@ -248,15 +207,6 @@ impl GitHub {
             },
             o => o,
         }
-    }
-
-    /// The outcome of a check runs read that failed. GitHub answers 422 for
-    /// a commit the repository does not hold.
-    fn checks_outcome(&self, e: &ForgeError) -> Outcome {
-        if e.why.trim_start_matches(": ").starts_with("HTTP 422") {
-            return Outcome::NotFound;
-        }
-        self.outcome(e)
     }
 
     /// The marks of a change's labels, in the site's order: a word of the
@@ -640,34 +590,4 @@ fn read_page(
         numbers,
         pulls,
     })
-}
-
-/// A page of the check runs read: the count the site says it holds, and
-/// each run with its id. None for an answer that lacks a field every run
-/// has. A conclusion is folded into the port's words: `success` and
-/// `neutral` pass, `skipped` is a skip, `failure`, `timed_out` and
-/// `startup_failure` fail, `cancelled` is cancelled, and any other word, or
-/// a finished run that names none, `Unknown`. A status that is not
-/// `in_progress` or `completed` is queued.
-fn read_runs(out: &str) -> Option<(u64, Vec<(u64, Check)>)> {
-    let v: Value = serde_json::from_str(out.trim()).ok()?;
-    let count = v.get("total_count")?.as_u64()?;
-    let mut runs = Vec::new();
-    for r in v.get("check_runs")?.as_array()? {
-        let text = |k: &str| r.get(k).and_then(Value::as_str);
-        let status = match text("status")? {
-            "completed" => CheckStatus::Done(match text("conclusion") {
-                Some("success" | "neutral") => Conclusion::Passed,
-                Some("skipped") => Conclusion::Skipped,
-                Some("failure" | "timed_out" | "startup_failure") => Conclusion::Failed,
-                Some("cancelled") => Conclusion::Cancelled,
-                _ => Conclusion::Unknown,
-            }),
-            "in_progress" => CheckStatus::Running,
-            _ => CheckStatus::Queued,
-        };
-        let check = Check::new(text("name")?.to_string(), status);
-        runs.push((r.get("id")?.as_u64()?, check));
-    }
-    Some((count, runs))
 }
