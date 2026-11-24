@@ -38,8 +38,12 @@
 //!                   is given nothing new.
 //!   exit            the runner's exit status of the last turn.
 //!   draft.json      the title and spec of the last drafted plan (exit 12),
-//!                   and "block": the `pi-spec v1` block pi-rukas placed at
-//!                   the top of the spec, when it placed one.
+//!                   "block": the `pi-spec v1` block pi-rukas placed at
+//!                   the top of the spec, when it placed one, and "shown":
+//!                   the spec as the runner gave it, which a tick to file
+//!                   files.
+//!   filing          a try to file the plan that may have filed it: the next
+//!                   try looks for it first (file.rs).
 //!   images/         the issue's images, with TEHAS_WORK_IMAGES=1: fetched on
 //!                   the first turn as tehas work fetches a cycle's. Each turn is given
 //!                   a copy, $TEHAS_HOME/work/<name>-plan-<issue>.images,
@@ -56,7 +60,8 @@
 //! What a turn runs, by the runner's own flags (docs/headless.md in pi-rukas):
 //!   first turn                    plan "<what to plan>" --start --context <brief> [--issue <N>]
 //!   after a plan was shown (12),
-//!     "File as a new issue"       plan --resume <id> --confirm
+//!     "File as a new issue"       nothing: the host files the plan the turn
+//!                                 showed (file.rs), and runs no container
 //!     "Update this issue"         nothing: the turn runs no container
 //!   any other answer              plan --resume <id> --answer <file>
 //! The runner writes one JSON document to stdout and NDJSON progress to stderr.
@@ -73,7 +78,8 @@
 //!                     "Update this issue", "File as a new issue" with --kind
 //!                     refine; without it, "clear": true when no point is open.
 //!   10 duplicate-risk the turn's text; answered by a reply.
-//!    0 filed          the issue the confirm filed, under "filed".
+//!    0 filed          the issue the host filed on a tick of "File as a new
+//!                     issue", under "filed" (file.rs); no runner runs.
 //! "filed" holds the issues this session filed; with none there is no such key.
 //! The dispatcher posts them on the issue and names them to the next turn.
 //! "update" is the drafted plan an answer chose to make the issue's text; the
@@ -465,14 +471,13 @@ pub(super) fn first(keep: &str, what: &str, kind: Option<&str>, issue: &str) -> 
 }
 
 /// Whether an answer ticked filing the plan, on any of its lines.
-fn chose_to_file(answer: &[u8]) -> bool {
+pub(super) fn chose_to_file(answer: &[u8]) -> bool {
     answer.split(|b| *b == b'\n').any(|line| {
         line.ends_with(b" chose: File as a new issue") || line.ends_with(b" chose: File this plan")
     })
 }
 
 pub(super) fn later(
-    keep: &str,
     session: &str,
     answer: &str,
     tree: &str,
@@ -480,10 +485,6 @@ pub(super) fn later(
     new: &str,
 ) -> Result<Vec<String>, u8> {
     let answer = fs::read(answer).unwrap_or_default();
-    let last = captured(fs::read(format!("{keep}/exit")).unwrap_or_default());
-    if last == b"12" && chose_to_file(&answer) {
-        return Ok(owned(&["plan", "--resume", session, "--confirm"]));
-    }
     if put_answer(tree, answer, new).is_err() {
         return Err(refuse(&format!(
             "could not put the answer into {tree}, not starting a turn"
@@ -1097,7 +1098,7 @@ mod tests {
     }
 
     #[test]
-    fn a_confirm_is_only_a_tick_after_a_drafted_plan() {
+    fn a_tick_to_file_is_only_a_tick_after_a_drafted_plan() {
         assert!(chose_to_file(b"alice chose: File as a new issue\n"));
         assert!(chose_to_file(
             b"Already filed: x\n\nalice chose: File this plan\n"
@@ -1105,28 +1106,29 @@ mod tests {
         assert!(!chose_to_file(b"alice chose: File this plan, but later\n"));
         assert!(!chose_to_file(b"alice chose: File this plan\r\n"));
         assert!(!chose_to_file(b"alice chose: Update this issue\n"));
+    }
 
+    /// A later turn is always an answer: a tick to file runs no turn, so
+    /// none is asked to confirm (start.rs files it).
+    #[test]
+    fn a_later_turn_answers_and_never_confirms() {
         let s = Scratch::new("later");
         s.write("answer", "alice chose: File this plan\n");
         fs::create_dir_all(s.0.join("keep")).unwrap();
-        let (keep, answer, tree) = (s.at("keep"), s.at("answer"), s.at("tree"));
-        s.write("keep/exit", "12\n");
-        assert_eq!(
-            later(&keep, "abc", &answer, &tree, "/w", ""),
-            Ok(owned(&["plan", "--resume", "abc", "--confirm"]))
-        );
-        assert!(!s.has("tree/.tehas/answer.md"));
-        s.write("keep/exit", "11\n");
-        assert_eq!(
-            later(&keep, "abc", &answer, &tree, "/w", ""),
-            Ok(owned(&[
-                "plan",
-                "--resume",
-                "abc",
-                "--answer",
-                "/w/.tehas/answer.md"
-            ]))
-        );
+        let (answer, tree) = (s.at("answer"), s.at("tree"));
+        for exit in ["12\n", "11\n"] {
+            s.write("keep/exit", exit);
+            assert_eq!(
+                later("abc", &answer, &tree, "/w", ""),
+                Ok(owned(&[
+                    "plan",
+                    "--resume",
+                    "abc",
+                    "--answer",
+                    "/w/.tehas/answer.md"
+                ]))
+            );
+        }
         assert_eq!(
             s.read("tree/.tehas/answer.md"),
             "alice chose: File this plan\n"
@@ -1149,8 +1151,8 @@ mod tests {
         let s = Scratch::new("answer-fail");
         s.write("answer", "yes\n");
         s.write("tree", "a file, no directory");
-        let (keep, answer, tree) = (s.at("keep"), s.at("answer"), s.at("tree"));
-        assert_eq!(later(&keep, "abc", &answer, &tree, "/w", ""), Err(78));
+        let (answer, tree) = (s.at("answer"), s.at("tree"));
+        assert_eq!(later("abc", &answer, &tree, "/w", ""), Err(78));
     }
 
     #[test]
