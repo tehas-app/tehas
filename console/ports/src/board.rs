@@ -115,7 +115,10 @@ pub struct ChangeAsk {
     /// tickets.
     pub closing: bool,
     /// The open changes that close the same blueprints, whole up to this
-    /// bound per change, the change itself counted where it is open.
+    /// bound per change, the change itself counted where it is open. One
+    /// the site shows that a `ChangeDigest` cannot carry, of another
+    /// project or with no base, refuses the read `Refused(Unsupported)`:
+    /// never left out (Decided 125).
     pub siblings: Option<Bound>,
     /// Each change's events: a stale read asks `Window::Last(50)`.
     pub activity: Option<Window>,
