@@ -311,7 +311,7 @@ fn the_role_name_is_read_first_and_the_permission_word_only_without_one() {
         of(r#","role_name":"triage","permission":"read""#),
         Ok(Standing::Triage)
     );
-    // A base role the word contradicts is still the role.
+    // A word above the base role: the role caps it.
     assert_eq!(
         of(r#","role_name":"read","permission":"admin""#),
         Ok(Standing::Read)
@@ -359,10 +359,17 @@ fn a_custom_role_is_never_write_whatever_its_permission_word() {
                 r#"{{{user},"role_name":"{role}","permission":"{word}"}}"#
             ))
         };
-        for word in ["admin", "maintain", "write", "triage", "read"] {
+        for word in ["admin", "write", "read"] {
             assert_eq!(of(word), Ok(Standing::Read), "{role:?} {word}");
         }
         assert_eq!(of("none"), Ok(Standing::None), "{role:?}");
+        for word in ["maintain", "triage"] {
+            assert_eq!(
+                of(word),
+                Err(Outcome::Unread(Unread::Malformed)),
+                "{role:?} {word}"
+            );
+        }
         assert_eq!(
             of("superuser"),
             Err(Outcome::Unread(Unread::Malformed)),
@@ -373,6 +380,222 @@ fn a_custom_role_is_never_write_whatever_its_permission_word() {
         standing_answered(&format!(r#"{{{user},"role_name":"deployer"}}"#)),
         Err(Outcome::Unread(Unread::Malformed))
     );
+}
+
+/// The standing of an answer about the account 124 with this role_name and
+/// legacy word, each given as JSON text, or left out when `None`.
+fn standing_of_pair(role: Option<&str>, word: Option<&str>) -> Got<Standing> {
+    let mut answer = r#"{"user":{"login":"peggy","id":124}"#.to_string();
+    if let Some(role) = role {
+        answer.push_str(&format!(r#","role_name":{role}"#));
+    }
+    if let Some(word) = word {
+        answer.push_str(&format!(r#","permission":{word}"#));
+    }
+    answer.push('}');
+    standing_answered(&answer)
+}
+
+/// The standing of a base role with a legacy word, both quoted.
+fn role_with_word(role: &str, word: &str) -> Got<Standing> {
+    standing_of_pair(Some(&format!("\"{role}\"")), Some(&format!("\"{word}\"")))
+}
+
+#[test]
+fn role_write_with_word_read_is_triage() {
+    assert_eq!(role_with_word("write", "read"), Ok(Standing::Triage));
+}
+
+#[test]
+fn role_write_with_word_none_is_none() {
+    assert_eq!(role_with_word("write", "none"), Ok(Standing::None));
+}
+
+#[test]
+fn role_admin_with_word_write_is_maintain() {
+    assert_eq!(role_with_word("admin", "write"), Ok(Standing::Maintain));
+}
+
+#[test]
+fn role_admin_with_word_read_is_triage() {
+    assert_eq!(role_with_word("admin", "read"), Ok(Standing::Triage));
+}
+
+#[test]
+fn role_admin_with_word_none_is_none() {
+    assert_eq!(role_with_word("admin", "none"), Ok(Standing::None));
+}
+
+#[test]
+fn role_maintain_with_word_read_is_triage() {
+    assert_eq!(role_with_word("maintain", "read"), Ok(Standing::Triage));
+}
+
+#[test]
+fn role_maintain_with_word_none_is_none() {
+    assert_eq!(role_with_word("maintain", "none"), Ok(Standing::None));
+}
+
+#[test]
+fn role_triage_with_word_none_is_none() {
+    assert_eq!(role_with_word("triage", "none"), Ok(Standing::None));
+}
+
+#[test]
+fn role_read_with_word_none_is_none() {
+    assert_eq!(role_with_word("read", "none"), Ok(Standing::None));
+}
+
+#[test]
+fn role_read_with_word_admin_is_read_the_role_caps_it() {
+    assert_eq!(role_with_word("read", "admin"), Ok(Standing::Read));
+}
+
+#[test]
+fn role_triage_with_word_write_is_triage_the_role_caps_it() {
+    assert_eq!(role_with_word("triage", "write"), Ok(Standing::Triage));
+}
+
+#[test]
+fn a_base_role_beside_a_word_this_copy_does_not_know_is_malformed() {
+    let malformed = Err(Outcome::Unread(Unread::Malformed));
+    assert_eq!(role_with_word("write", "owner"), malformed);
+    assert_eq!(role_with_word("admin", "maintain"), malformed);
+    assert_eq!(standing_of_pair(Some("\"read\""), Some("7")), malformed);
+}
+
+#[test]
+fn a_custom_or_empty_role_with_a_missing_or_null_word_is_malformed() {
+    let malformed = Err(Outcome::Unread(Unread::Malformed));
+    for (role, word) in [
+        ("\"deployer\"", None),
+        ("\"deployer\"", Some("null")),
+        ("\"\"", None),
+        ("\"\"", Some("null")),
+    ] {
+        assert_eq!(
+            standing_of_pair(Some(role), word),
+            malformed,
+            "{role} {word:?}"
+        );
+    }
+}
+
+#[test]
+fn every_agreeing_pair_is_the_role() {
+    for (role, word, standing) in [
+        ("admin", "admin", Standing::Admin),
+        ("maintain", "write", Standing::Maintain),
+        ("write", "write", Standing::Write),
+        ("triage", "read", Standing::Triage),
+        ("read", "read", Standing::Read),
+        ("none", "none", Standing::None),
+    ] {
+        assert_eq!(role_with_word(role, word), Ok(standing), "{role} {word}");
+    }
+}
+
+#[test]
+fn a_base_role_without_a_word_stays_the_role() {
+    for (role, standing) in [
+        ("admin", Standing::Admin),
+        ("maintain", Standing::Maintain),
+        ("write", Standing::Write),
+        ("triage", Standing::Triage),
+        ("read", Standing::Read),
+        ("none", Standing::None),
+    ] {
+        let quoted = format!("\"{role}\"");
+        assert_eq!(
+            standing_of_pair(Some(&quoted), None),
+            Ok(standing),
+            "{role}"
+        );
+        assert_eq!(
+            standing_of_pair(Some(&quoted), Some("null")),
+            Ok(standing),
+            "{role}"
+        );
+    }
+}
+
+/// The rule before a disagreeing answer took the lower reading: the role
+/// alone decided.
+fn before(role: Option<&str>, word: Option<&str>) -> Got<Standing> {
+    let malformed = Err(Outcome::Unread(Unread::Malformed));
+    let word = word.and_then(|w| w.strip_prefix('"')?.strip_suffix('"'));
+    let by_word = || match word {
+        Some("admin") => Ok(Standing::Admin),
+        Some("write") => Ok(Standing::Write),
+        Some("read") => Ok(Standing::Read),
+        Some("none") => Ok(Standing::None),
+        _ => malformed.clone(),
+    };
+    let role = match role {
+        None | Some("null") => return by_word(),
+        Some(r) => match r.strip_prefix('"').and_then(|r| r.strip_suffix('"')) {
+            Some(r) => r,
+            None => return malformed,
+        },
+    };
+    match role {
+        "admin" => Ok(Standing::Admin),
+        "maintain" => Ok(Standing::Maintain),
+        "write" => Ok(Standing::Write),
+        "triage" => Ok(Standing::Triage),
+        "read" => Ok(Standing::Read),
+        "none" => Ok(Standing::None),
+        _ => match word {
+            Some("admin" | "maintain" | "write" | "triage" | "read") => Ok(Standing::Read),
+            Some("none") => Ok(Standing::None),
+            _ => malformed,
+        },
+    }
+}
+
+#[test]
+fn no_role_and_word_answer_a_higher_standing_than_before() {
+    let quote = |w: &str| format!("\"{w}\"");
+    let roles = [
+        "admin",
+        "maintain",
+        "write",
+        "triage",
+        "read",
+        "none",
+        "deployer",
+        "",
+        "Write",
+        "ADMIN",
+        "superuser",
+    ]
+    .map(quote);
+    let words = [
+        "admin", "write", "read", "none", "maintain", "triage", "owner",
+    ]
+    .map(quote);
+    let mut role_axis: Vec<Option<&str>> = vec![None, Some("null"), Some("7")];
+    role_axis.extend(roles.iter().map(|q| Some(q.as_str())));
+    let mut word_axis: Vec<Option<&str>> = vec![None, Some("null")];
+    word_axis.extend(words.iter().map(|q| Some(q.as_str())));
+    let (mut lowered, mut refused) = (0, 0);
+    for role in &role_axis {
+        for word in &word_axis {
+            let old = before(*role, *word);
+            let new = standing_of_pair(*role, *word);
+            match (&old, &new) {
+                (Ok(o), Ok(n)) if n < o => lowered += 1,
+                (Ok(o), Ok(n)) => assert_eq!(n, o, "{role:?} {word:?}"),
+                (Ok(_), Err(Outcome::Unread(Unread::Malformed))) => refused += 1,
+                _ => assert_eq!(new, old, "{role:?} {word:?}"),
+            }
+        }
+    }
+    // Lowered: the nine pairs whose word is below the base role. Refused:
+    // each of the six base roles beside maintain, triage or an unknown
+    // word (18), and each of the five custom or empty roles beside
+    // maintain or triage (10).
+    assert_eq!((lowered, refused), (9, 28));
 }
 
 #[test]
