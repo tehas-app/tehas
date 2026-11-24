@@ -113,3 +113,38 @@ fn a_restraint_after_an_unclosed_fence_is_refused() {
         }
     }
 }
+
+/// An edit's text cut never overlaps a marker: where a marker splits the
+/// text, the text found once in the body may stand inside the marker.
+#[test]
+fn an_edit_whose_text_cut_overlaps_a_marker_is_refused() {
+    let refused = Err(tehas_ports::Outcome::Refused(
+        tehas_ports::Refusal::Unsupported,
+    ));
+    let none = MarkerEdit::default();
+
+    let unknown = "a\n<!-- tehas:zzz a\nb -->\nb";
+    assert_eq!(read(unknown, item()).text, "a\nb");
+    assert_eq!(read(unknown, item()).markers, vec![Marker::Unknown]);
+    assert_eq!(edit(unknown, Some("a\n b"), &none, item()), refused);
+
+    let apart = "a\nb\n\n<!-- tehas:zzz c\nd -->";
+    assert_eq!(read(apart, item()).markers, vec![Marker::Unknown]);
+    assert_eq!(
+        edit(apart, Some("a\n b"), &none, item()),
+        Ok(Some("a\n b\n\n<!-- tehas:zzz c\nd -->".to_string()))
+    );
+
+    let sig = "a".repeat(64);
+    let block = format!(
+        "a\n<!-- tehas:last-attempt base={sig} -->\nxa\nby\n<!-- /tehas:last-attempt -->\nb"
+    );
+    let mut last = LastAttemptMarker::new(Sha256::new(sig).unwrap());
+    last.note = "xa\nby".to_string();
+    assert_eq!(read(&block, item()).text, "a\nb");
+    assert_eq!(
+        read(&block, item()).markers,
+        vec![Marker::LastAttempt(last)]
+    );
+    assert_eq!(edit(&block, Some("a\n b"), &none, item()), refused);
+}
