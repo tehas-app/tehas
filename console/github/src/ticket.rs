@@ -189,11 +189,18 @@ fn parts() -> String {
     format!("subIssues(first: 100, after: $cursor) {{ totalCount pageInfo {{ hasNextPage endCursor }} nodes {{ {NAMED} }} }}")
 }
 
+/// What the issue waits on, whole up to a hundred: past that the ticket is
+/// `Unread(Cut)`. GitHub holds no more than fifty.
+fn blocked_by() -> String {
+    format!("blockedBy(first: 100, after: $cursor) {{ totalCount nodes {{ {NAMED} }} }}")
+}
+
 /// What a ticket holds beside its digest and its history: its newest
 /// close, what it waits on, its parts and the changes that name it.
 fn beside() -> String {
     format!(
-        "closes: timelineItems(itemTypes: [CLOSED_EVENT], last: 1) {{ nodes {{ __typename ... on ClosedEvent {{ createdAt actor {{ {ACTOR} }} {CLOSER} }} }} }} blockedBy(first: 100) {{ totalCount nodes {{ {NAMED} }} }} {} {}",
+        "closes: timelineItems(itemTypes: [CLOSED_EVENT], last: 1) {{ nodes {{ __typename ... on ClosedEvent {{ createdAt actor {{ {ACTOR} }} {CLOSER} }} }} }} {} {} {}",
+        blocked_by(),
         parts(),
         mentions()
     )
@@ -454,15 +461,7 @@ impl GitHub {
                 None => None,
             },
         };
-        let blocked = first.blocked_by.take().ok_or(MALFORMED)?;
-        if blocked.total_count.ok_or(INCONSISTENT)? != blocked.nodes.len() as u64 {
-            return Err(CUT);
-        }
-        let blockers = blocked
-            .nodes
-            .into_iter()
-            .map(|n| self.blocker(&n.ok_or(INCONSISTENT)?))
-            .collect::<Got<Vec<Blocker>>>()?;
+        let blockers = self.blockers_from(first.blocked_by.take().ok_or(MALFORMED)?)?;
         let subs = first.sub_issues.take().ok_or(MALFORMED)?;
         let parts = self.parts_from(issue, subs)?;
         let named = first.mentions.take().ok_or(MALFORMED)?;
@@ -533,6 +532,15 @@ impl GitHub {
         let first: Answer = self.ask_issue(issue, &of_issue(&parts()), None, true)?;
         let subs = first.sub_issues.ok_or(MALFORMED)?;
         Ok(Whole::new(self.parts_from(issue, subs)?))
+    }
+
+    /// What a ticket waits on, whole: `Tickets::blockers`, the same read
+    /// and rule as `Ticket.blockers`.
+    pub(crate) fn blockers(&mut self, key: &TicketKey) -> Got<Whole<Blocker>> {
+        let issue = number(key)?;
+        let first: Answer = self.ask_issue(issue, &of_issue(&blocked_by()), None, true)?;
+        let blocked = first.blocked_by.ok_or(MALFORMED)?;
+        Ok(Whole::new(self.blockers_from(blocked)?))
     }
 
     /// The tickets the filter takes, whole, oldest filed first:
@@ -851,6 +859,18 @@ impl GitHub {
             project: ProjectName::new(repo.name_with_owner.clone()),
             item: ItemName::new(no.to_string()),
         })
+    }
+
+    /// What a ticket waits on from the first page of its links: one page
+    /// is all GitHub holds, so a count past it is `Unread(Cut)`.
+    fn blockers_from(&self, page: Page<Named>) -> Got<Vec<Blocker>> {
+        if page.total_count.ok_or(INCONSISTENT)? != page.nodes.len() as u64 {
+            return Err(CUT);
+        }
+        page.nodes
+            .into_iter()
+            .map(|n| self.blocker(&n.ok_or(INCONSISTENT)?))
+            .collect()
     }
 
     fn blocker(&self, n: &Named) -> Got<Blocker> {
