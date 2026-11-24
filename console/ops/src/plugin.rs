@@ -405,7 +405,22 @@ fn review_main(
     }
 }
 
-pub fn main(given: &[String]) -> u8 {
+/// What a board handle is made of for `tehas plugin hook`: the project,
+/// the gh that asks it, each call's bound, and the factory's account, its
+/// login and the id `state/account-ids` records for it. The console's wiring
+/// makes the handle, the one place that names the adapter.
+pub struct HandleAsk<'a> {
+    pub repo: &'a str,
+    pub program: &'a str,
+    pub bound: std::time::Duration,
+    pub bot: &'a str,
+    pub bot_id: u64,
+}
+
+pub fn main(
+    given: &[String],
+    board: &dyn Fn(&HandleAsk) -> tehas_ports::Got<Box<dyn tehas_ports::Board + Send>>,
+) -> u8 {
     let asked = match words(given) {
         Ok(w) => w,
         Err(rc) => return rc,
@@ -477,8 +492,16 @@ pub fn main(given: &[String]) -> u8 {
                 eprintln!("tehas plugin hook: no gh to ask GitHub with");
                 return exit::FAILED;
             };
-            let mut gh = tehas_core::forge::Bounded::new(program, crate::forge::CALL_BOUND);
-            ask::hook(&mut exec::Host, &mut gh, &home, &get, &name, pr)
+            let make = |repo: &str, bot: &str, bot_id: u64| {
+                board(&HandleAsk {
+                    repo,
+                    program: &program,
+                    bound: crate::forge::CALL_BOUND,
+                    bot,
+                    bot_id,
+                })
+            };
+            ask::hook(&mut exec::Host, &make, &home, &get, &name, pr)
         }
         Words::Log { name, hook } => ask::log(&home, &get, &name, hook),
         Words::Call {

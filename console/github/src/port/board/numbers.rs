@@ -25,11 +25,11 @@ const CLOSERS_PAGE: usize = 10;
 
 /// One pull request by its number, `{PULL}` its digest's fields and
 /// `{CLOSERS}` the closers of each issue it closes, when asked.
-const ONE: &str = "query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { {PULL}{CLOSERS} } } }";
+const ONE: &str = "query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { databaseId pullRequest(number: $number) { {PULL}{CLOSERS} } } }";
 
 /// The pull requests that close each issue a change closes, beside the
 /// change's own list of those issues.
-const CLOSERS: &str = " closers: closingIssuesReferences(first: {CLOSES_MAX}) { totalCount nodes { number repository { nameWithOwner } closedByPullRequestsReferences(first: {CLOSERS_PAGE}) { totalCount nodes { baseRepository { nameWithOwner } {PULL} } } } }";
+const CLOSERS: &str = " closers: closingIssuesReferences(first: {CLOSES_MAX}) { totalCount nodes { number repository { databaseId nameWithOwner } closedByPullRequestsReferences(first: {CLOSERS_PAGE}) { totalCount nodes { baseRepository { databaseId nameWithOwner } {PULL} } } } }";
 
 fn one_query(closers: bool) -> String {
     let closers = match closers {
@@ -174,10 +174,10 @@ impl GitHub {
             }
             for node in list.nodes {
                 let node = node.ok_or(inconsistent.clone())?;
-                let ours = node
-                    .base_repository
-                    .as_ref()
-                    .is_some_and(|r| r.name_with_owner.eq_ignore_ascii_case(&self.repo));
+                let ours = match &node.base_repository {
+                    Some(r) => self.is_here_id(r.database_id)?,
+                    None => false,
+                };
                 if !ours {
                     match node.pull.state.as_str() {
                         "OPEN" => return Err(Outcome::Refused(Refusal::Unsupported)),

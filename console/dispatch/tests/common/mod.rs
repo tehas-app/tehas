@@ -30,6 +30,21 @@ const GH: &str = r####"# rest_verb, rest_path: the verb and the path of a call o
 # directly.
 rest_verb=$3
 rest_path=$4
+# edit_fails <the change as gh issue edit would say it>: GitHub refuses a
+# label change of the tickets port as $fx/edit-fails and $fx/edit-fails-on
+# refuse the same change made with gh issue edit, so a case names it once.
+edit_fails() {
+  local on
+  if [ -e "$T/fx/edit-fails" ]; then refuse; fi
+  [ -s "$T/fx/edit-fails-on" ] || return 0
+  on=$(<"$T/fx/edit-fails-on")
+  case "$1" in *"$on"*) refuse ;; esac
+}
+# refuse: GitHub answers that this account may not make the change.
+refuse() {
+  echo "gh: Forbidden (HTTP 403)" >&2
+  exit 1
+}
 # fails <fixture> [<fixture of a countdown>]: exit 1 when the first names an
 # outage, or while the second holds a count above 0, which it lowers.
 fails() {
@@ -38,9 +53,9 @@ fails() {
     left=$(<"$T/fx/$2")
     [ "$left" -gt 0 ] || return 0
     echo $((left - 1)) >"$T/fx/$2"
-    exit 1
+    refuse
   fi
-  [ ! -e "$T/fx/$1" ] || exit 1
+  [ ! -e "$T/fx/$1" ] || refuse
 }
 # The write log of the host shim (host/shim/gh), when a case keeps one: a line for
 # each write, in the format of the shim.
@@ -109,6 +124,12 @@ case "$1 $2" in
       *) echo "[]" ;;
     esac ;;
   "api user") cat "$T/fx/user.json" || exit 1 ;;
+  # An account by its login, and by its id: a person, carol unless a case
+  # names another for the id. The tail gives each login its id.
+  "api users/"*) [ ! -e "$T/fx/users-fails" ] || refuse
+    case " $* " in *" --jq "*) ;; *) printf '{"login":"%s","type":"User"}\n' "${2#users/}" ;; esac ;;
+  "api user/"*) id=${2#user/}
+    printf '{"login":"%s","type":"User","id":%s}\n' "$(cat "$T/fx/user-$id" 2>/dev/null || echo carol)" "$id" ;;
   # The label of a pull request, through the REST issues endpoint: a mark adds
   # it, an unmark takes it off. A mark fails while $fx/mark-fails-times counts
   # down, or at once when the file is there but holds nothing, so a case can
@@ -126,12 +147,26 @@ case "$1 $2" in
   # answer 404, as GitHub does for a label the repository has not got.
   "api -X")
     case "$rest_verb ${rest_path%%:*}" in
+      "POST repos/acme/widget/issues/"*/assignees)
+        n=${rest_path#repos/acme/widget/issues/}
+        who=$(jq -r '.assignees[0] // empty' <<<"$input" 2>/dev/null)
+        edit_fails "issue edit ${n%%/*} --repo acme/widget --add-assignee $who"
+        jq -cn --argjson n "${n%%/*}" --arg who "$who" \
+          '{number: $n, html_url: "https://github.com/acme/widget/issues/\($n)", assignees: [{login: $who, type: "User"}]}' ;;
       "POST repos/acme/widget/issues/"*/labels)
         [ ! -e "$T/fx/label-missing" ] || not_found
+        n=${rest_path#repos/acme/widget/issues/}
+        # The approval on record as the claim's mark goes on, as for gh
+        # issue edit below.
+        case "${6#*=}" in *:running) TEHAS_HOME=$T/home/tehas "$T/store-bin" approval-current "${n%%/*}" >"$T/calls/approved.at-mark" 2>/dev/null ;; esac
+        edit_fails "issue edit ${n%%/*} --repo acme/widget --add-label ${6#*=}"
         fails mark-fails mark-fails-times ;;
       "DELETE repos/acme/widget/issues/"*/labels/*)
         [ ! -e "$T/fx/label-missing" ] || not_found
-        fails unmark-fails ;;
+        n=${rest_path#repos/acme/widget/issues/}
+        label=${rest_path##*/}
+        edit_fails "issue edit ${n%%/*} --repo acme/widget --remove-label $(printf '%b' "${label//%/\\x}")"
+        [ ! -e "$T/fx/unmark-fails" ] || refuse ;;
       # A comment as the Rust poll posts it, with its method said. Its id
       # is 4002, or what $fx/post-id-<n> holds for issue n: alone when the
       # poll asks for the id alone, else as the comment GitHub made.
@@ -153,7 +188,17 @@ case "$1 $2" in
     n=${2#repos/acme/widget/pulls/}
     case "$2" in */reviews*) f=reviews ;; *) f=inline ;; esac
     cat "$T/fx/$f-${n%%/*}.json" 2>/dev/null || echo "[]" ;;
-  "api repos/acme/widget/pulls/"*) cat "$T/fx/pull-${2##*/}.json" 2>/dev/null || echo "{}" ;;
+  # A pull request as a case wrote it, open with its address when the case
+  # did not say, and with the labels $fx/refreshing.json lists for it when
+  # the case named none of its own.
+  "api repos/acme/widget/pulls/"*) n=${2##*/}
+    rf=$(cat "$T/fx/refreshing.json" 2>/dev/null || echo '[]')
+    pr=$(cat "$T/fx/pull-$n.json" 2>/dev/null || echo '{}')
+    jq -c --argjson n "$n" --argjson rf "$rf" 'if type == "object" then
+        . + {number: (.number // $n), state: (.state // "open"),
+          html_url: (.html_url // "https://github.com/acme/widget/pull/\($n)"),
+          labels: (.labels // [$rf[]? | select(.number == $n) | .labels[]?])}
+      else . end' <<<"$pr" 2>/dev/null || printf '%s\n' "$pr" ;;
   # Who may write: everyone, unless a case writes $fx/perm-<login>.json.
   "api repos/acme/widget/collaborators/"*"/permission")
     n=${2#repos/acme/widget/collaborators/}
@@ -1383,6 +1428,57 @@ impl World {
         self.said(n).iter().any(|b| b.starts_with(text))
     }
 
+    /// Whether the poll put `mark` on issue `n`, as a write of the ports.
+    pub fn on(&self, n: u64, mark: tehas_ports::Mark) -> bool {
+        self.writes_of(n).contains(&tehas_ports::Write::Mark {
+            ticket: tehas_ports::TicketKey::Number(std::num::NonZeroU64::new(n).unwrap()),
+            mark,
+        })
+    }
+
+    /// Whether the poll took `mark` off issue `n`, as a write of the ports.
+    pub fn off(&self, n: u64, mark: tehas_ports::Mark) -> bool {
+        self.writes_of(n).contains(&tehas_ports::Write::Unmark {
+            ticket: tehas_ports::TicketKey::Number(std::num::NonZeroU64::new(n).unwrap()),
+            mark,
+        })
+    }
+
+    /// How often the poll took `mark` off issue `n`.
+    pub fn offs(&self, n: u64, mark: tehas_ports::Mark) -> usize {
+        let off = tehas_ports::Write::Unmark {
+            ticket: tehas_ports::TicketKey::Number(std::num::NonZeroU64::new(n).unwrap()),
+            mark,
+        };
+        self.writes_of(n).iter().filter(|w| **w == off).count()
+    }
+
+    /// Whether the poll assigned issue `n` to anyone, as a write of the
+    /// ports.
+    pub fn assigned(&self, n: u64) -> bool {
+        self.writes_of(n)
+            .iter()
+            .any(|w| matches!(w, tehas_ports::Write::Assign { .. }))
+    }
+
+    /// The marks the poll put on or took off issue `n`, or any issue with
+    /// None, as writes of the ports.
+    pub fn marks(&self, n: Option<u64>) -> usize {
+        self.writes_like(n, "Mark") + self.writes_like(n, "Unmark")
+    }
+
+    fn writes_like(&self, n: Option<u64>, kind: &str) -> usize {
+        let q = format!(
+            "SELECT count(*) FROM actions WHERE id > ?1 AND (?2 = 0 OR issue = ?2) AND \
+             args_json LIKE '%\"write\":{{\"type\":\"{kind}\"%'"
+        );
+        self.journal()
+            .query_row(&q, [self.journal_from(), n.unwrap_or(0) as i64], |r| {
+                r.get::<_, i64>(0)
+            })
+            .unwrap_or(0) as usize
+    }
+
     /// The writes of the ports for issue `n`, without their states.
     pub fn writes_of(&self, n: u64) -> Vec<tehas_ports::Write> {
         self.sent(n).into_iter().map(|(w, _)| w).collect()
@@ -2265,7 +2361,7 @@ exec 6<&-
 call="$*"
 case " $* " in
   *" --body-file - "*) body=$(cat); call=${call/--body-file -/--body $body} ;;
-  *" --input - "*) body=$(cat); body=$(jq -r '.body // empty' <<<"$body" 2>/dev/null); call=${call/--input -/-f body=$body} ;;
+  *" --input - "*) input=$(cat); body=$(jq -r '.body // empty' <<<"$input" 2>/dev/null); call=${call/--input -/-f body=$body} ;;
 esac
 printf '%s\n' "$call" >>"$T/calls/gh"
 f_rc=
