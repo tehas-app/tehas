@@ -7,7 +7,7 @@ use common::*;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::Path;
-use tehas_ports::{Act, Mark};
+use tehas_ports::{Act, Mark, State};
 
 fn v(text: &str) -> Value {
     serde_json::from_str(text).unwrap_or_else(|e| panic!("{e}: {text}"))
@@ -443,9 +443,10 @@ fn a_ticked_retry_of_a_parked_issue_starts_its_cycle_whatever_planning_label_it_
     assert_eq!(w.plan_calls(), "");
     assert_eq!(w.park_q(7), "none");
     let gh = w.gh();
-    has(
-        &gh,
-        "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:question",
+    assert!(
+        w.on(7, Mark::State(State::Running)) && w.off(7, Mark::State(State::Question)),
+        "{:?}",
+        w.writes_of(7)
     );
     // Nothing edits the question: the start took it off the record.
     lacks(&gh, "api -X PATCH");
