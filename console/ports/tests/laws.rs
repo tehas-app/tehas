@@ -1212,6 +1212,20 @@ fn a_sign_in_link_may_be_refused_and_a_marker_names_its_text() {
 }
 
 #[test]
+fn marks_prepare_one_makes_the_mark_held() {
+    for w in both() {
+        let site = FakeSite::new(&w);
+        let mut h = site.ticket_writes(&full(), C).unwrap();
+        ok(laws::marks::prepare_one_makes_the_mark_held(
+            h.as_mut(),
+            &Mark::State(State::Escalated),
+        ));
+        let others = h.marks(ALL_MAX).unwrap().into_items();
+        assert_eq!(others.len(), 1, "one mark made, not every one: {others:?}");
+    }
+}
+
+#[test]
 fn every_mark_names_a_word_and_reads_back_cited() {
     for w in both() {
         let no = first_blueprint(&w);

@@ -86,6 +86,8 @@ pub enum TicketsOp {
     Apply,
     /// `TicketWrites::prepare`.
     Prepare,
+    /// `TicketWrites::prepare_one`.
+    PrepareOne,
     /// `TicketWrites::ensure_mark`.
     EnsureMark,
     /// `TicketWrites::mark`.
@@ -308,6 +310,7 @@ impl Op {
             Op::Tickets(
                 T::Apply
                     | T::Prepare
+                    | T::PrepareOne
                     | T::EnsureMark
                     | T::Mark
                     | T::Unmark
@@ -1233,6 +1236,9 @@ impl<H: TicketWrites + ?Sized> TicketWrites for Wrap<H> {
     }
     fn prepare(&mut self) -> Result<(), Unprepared> {
         self.call(Op::Tickets(T::Prepare), |o| Err(o.into()), |h| h.prepare())
+    }
+    fn prepare_one(&mut self, mark: &Mark) -> Did {
+        self.call(Op::Tickets(T::PrepareOne), Err, |h| h.prepare_one(mark))
     }
     fn ensure_mark(&mut self, spec: &MarkSpec) -> Did {
         self.call(Op::Tickets(T::EnsureMark), Err, |h| h.ensure_mark(spec))

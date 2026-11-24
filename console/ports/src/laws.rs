@@ -1608,7 +1608,33 @@ pub mod cites {
 /// Laws of naming a mark: on a terminal, in a log and in a body.
 pub mod marks {
     use super::{got, hold, Law};
-    use crate::{Act, BlueprintNo, BlueprintWrites, Choice, Cite, Mark, Site, State};
+    use crate::{
+        Act, BlueprintNo, BlueprintWrites, Choice, Cite, Mark, MarkName, Outcome, Refusal, Site,
+        State, TicketWrites,
+    };
+
+    /// `prepare_one` makes the one factory mark held: `marks` then names
+    /// it, whatever the others; a second call is done too; a project's own
+    /// mark is `Refused(Invalid)` (Decided 127). The fixture's site holds
+    /// none of the factory's marks yet.
+    pub fn prepare_one_makes_the_mark_held(h: &mut dyn TicketWrites, mark: &Mark) -> Law {
+        const LAW: &str = "marks::prepare_one_makes_the_mark_held";
+        let held = |h: &mut dyn TicketWrites| -> Result<bool, super::Broken> {
+            let all = got(LAW, "the marks", h.marks(crate::ALL_MAX))?.into_items();
+            Ok(all.iter().any(|m| m.mark == *mark))
+        };
+        hold(!held(h)?, LAW, || format!("{mark:?} was held before"))?;
+        got(LAW, "prepare_one", h.prepare_one(mark))?;
+        hold(held(h)?, LAW, || format!("{mark:?} is not held after"))?;
+        got(LAW, "prepare_one again", h.prepare_one(mark))?;
+        let own = Mark::Project(MarkName::new("ours").unwrap());
+        let answer = h.prepare_one(&own);
+        hold(
+            answer == Err(Outcome::Refused(Refusal::Invalid)),
+            LAW,
+            || format!("a project's own mark answered {answer:?}"),
+        )
+    }
 
     /// The variants listed, every one of the enum but `Unknown`. The match
     /// has no arm for the rest, so a variant added to the enum stops the
