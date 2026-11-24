@@ -42,7 +42,7 @@ t_eq "$(jq -r .question.question "$T/out.json")" "Open points, with the planner'
 Reply \`1\` (Update this issue) to make the plan, proposals included, this issue's text, or reply in your own words to change it."
 t_eq "$(jq -c '[.question.options[].label]' "$T/out.json")" '["Update this issue"]'
 t_eq "$(cat "$T/keep/exit")" 12
-t_eq "$(jq -c . "$T/keep/draft.json")" '{"shown":"## Context\n\nSearch is slow.\n\n## Acceptance criteria\n\n- p95 under 100 ms","spec":"## Context\n\nSearch is slow.\n\n## Acceptance criteria\n\n- p95 under 100 ms","title":"Faster search"}'
+t_eq "$(jq -c . "$T/keep/draft.json")" '{"shown":{"body":"## Context\n\nSearch is slow.\n\n## Acceptance criteria\n\n- p95 under 100 ms","title":"Faster search"},"spec":"## Context\n\nSearch is slow.\n\n## Acceptance criteria\n\n- p95 under 100 ms","title":"Faster search"}'
 
 t_case "a refine session's drafted plan also offers File as a new issue"
 reset

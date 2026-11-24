@@ -2,8 +2,9 @@
 //! No container runs for it: the planner's container holds a token that
 //! reads issues alone, so a confirm inside it was refused by the site. The
 //! host opens the plan as the factory, through the blueprints port: the
-//! title and the spec the runner showed, byte for byte, its session's line
-//! in it. A spec is a blueprint in the ports' terms, so a site that keeps
+//! title and the plan exactly as the question the person ticked displayed
+//! them (`plan::displayed`, kept at exit 12), mentions disarmed as there,
+//! its session's line in it. A spec is a blueprint in the ports' terms, so a site that keeps
 //! tickets and blueprints apart files it there too. It carries no marker of
 //! the issue it was planned on: the GitHub adapter opens no blueprint with
 //! a marker yet, and the dispatcher ties the filed issue to it, as it did
@@ -50,7 +51,7 @@ pub(super) fn file(
 ) -> Filed {
     let Some((title, spec)) = shown(keep) else {
         return Filed::Not(
-            "no plan the runner showed is kept: answer to have the plan drafted again".into(),
+            "no plan is kept as its question showed it whole: answer to have the plan drafted again".into(),
         );
     };
     let line = format!("plan-session={session}");
@@ -109,13 +110,13 @@ fn maybe(o: &Outcome) -> bool {
     )
 }
 
-/// The title and the spec of the plan the last turn showed, as the runner
-/// gave them (`outcome` keeps them at exit 12).
+/// The title and the plan the last turn's question displayed (`outcome`
+/// keeps them at exit 12).
 fn shown(keep: &Path) -> Option<(String, String)> {
     let draft: Value =
         serde_json::from_str(&fs::read_to_string(keep.join("draft.json")).ok()?).ok()?;
-    let title = draft.get("title")?.as_str()?.to_string();
-    let spec = draft.get("shown")?.as_str()?.to_string();
+    let title = draft.pointer("/shown/title")?.as_str()?.to_string();
+    let spec = draft.pointer("/shown/body")?.as_str()?.to_string();
     (!title.trim().is_empty() && !spec.trim().is_empty()).then_some((title, spec))
 }
 
@@ -174,7 +175,8 @@ mod tests {
     /// <keep> with the plan exit 12 kept.
     fn keep(name: &str) -> TestDir {
         let d = TestDir::new(&format!("plan-file-{name}"));
-        let draft = serde_json::json!({"title": TITLE, "spec": "Count them.", "shown": spec()});
+        let draft = serde_json::json!({"title": TITLE, "spec": "Count them.",
+                                       "shown": {"title": TITLE, "body": spec()}});
         fs::write(d.join("draft.json"), draft.to_string()).unwrap();
         d
     }

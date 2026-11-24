@@ -33,8 +33,9 @@ operator's answer. Each turn is one run of pi-rukas's headless runner,
 planner has questions (11), has drafted a plan to confirm (12), or thinks the
 plan duplicates open work (10). After a drafted plan in a refine session, an
 answer that chose **File as a new issue** runs no container: the host files
-the plan as it was shown, title and spec byte for byte, as the factory's
-account. The
+the plan exactly as the question showed it, title and text byte for byte,
+mentions disarmed as there, as the factory's account. A plan the comment cut
+is not filed. The
 planner's container holds a token that reads issues alone, so it files
 nothing itself. A try that may have filed it leaves `filing` in the `--keep`
 directory, and the next try looks for that filing (a search of titles, each
