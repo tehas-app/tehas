@@ -1707,20 +1707,20 @@ fn work_item() -> WorkItem {
 
 #[test]
 fn the_boards_asks_and_answers_read_back() {
-    let ask = BoardAsk {
-        depth: Depth::Last { notes: nz32(100) },
-        history: Some(Window::Last(nz32(100))),
-        history_by_kind: vec![],
-        changes: Some((ChangeStates::All, Window::Last(nz32(5)))),
-        filter: Filter::default(),
-        control: Some(tkey(9)),
+    let ask = {
+        let mut ask = BoardAsk::new(Depth::Last { notes: nz32(100) });
+        ask.history = Some(Window::Last(nz32(100)));
+        ask.changes = Some((ChangeStates::All, Window::Last(nz32(5))));
+        ask.control = Some(tkey(9));
+        ask
     };
     round(ask.clone());
-    round(BoardAsk {
-        history: None,
-        changes: None,
-        control: None,
-        ..ask
+    round({
+        let mut ask = ask;
+        ask.history = None;
+        ask.changes = None;
+        ask.control = None;
+        ask
     });
     round(work_item());
     round({

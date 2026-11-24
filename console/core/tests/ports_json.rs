@@ -237,13 +237,12 @@ fn the_ports_values_read_back_from_json() {
         })];
         change_delta
     });
-    round!(BoardAsk {
-        depth: Depth::Cut { notes: 0 },
-        history: Some(Window::Whole(Bound::new(500).unwrap())),
-        history_by_kind: vec![],
-        changes: Some((ChangeStates::Open, Window::Last(nz32(5)))),
-        filter: Filter::default(),
-        control: Some(TicketKey::Number(nz(1))),
+    round!({
+        let mut ask = BoardAsk::new(Depth::Cut { notes: 0 });
+        ask.history = Some(Window::Whole(Bound::new(500).unwrap()));
+        ask.changes = Some((ChangeStates::Open, Window::Last(nz32(5))));
+        ask.control = Some(TicketKey::Number(nz(1)));
+        ask
     });
     round!({
         let mut open_work = OpenWork::default();
@@ -356,11 +355,11 @@ fn a_target_stored_without_open_or_due_reads_as_none() {
 
 #[test]
 fn a_closer_of_another_project_reads_back_and_one_not_known_is_unknown() {
-    round!(Closer::ChangeElsewhere {
-        project: ProjectName::new("other/project"),
-        item: ItemName::new("other/project 12"),
-        link: WebLink::new("https://example.test/other/project/12").unwrap(),
-    });
+    round!(Closer::change_elsewhere(
+        ProjectName::new("other/project"),
+        ItemName::new("other/project 12"),
+        WebLink::new("https://example.test/other/project/12").unwrap(),
+    ));
     round!(Closer::Commit(CommitId::new("abc1234").unwrap()));
     // The older shapes read as they did.
     let change = read!(Closer, r#"{"Change":{"no":4,"merged":true}}"#);
@@ -438,15 +437,16 @@ fn a_board_ask_stored_without_windows_per_kind_reads_as_none() {
         r#"{"depth":"All","history":null,"changes":null,"filter":{"open":null,"carrying":[],"kind":null,"target":null},"control":null}"#
     );
     assert!(ask.history_by_kind.is_empty());
-    round!(BoardAsk {
-        history_by_kind: vec![
+    round!({
+        let mut ask = ask;
+        ask.history_by_kind = vec![
             (
                 HappenedKind::Marked,
-                Window::Whole(Bound::new(500).unwrap())
+                Window::Whole(Bound::new(500).unwrap()),
             ),
             (HappenedKind::Retitled, Window::Last(nz32(5))),
-        ],
-        ..ask
+        ];
+        ask
     });
 }
 

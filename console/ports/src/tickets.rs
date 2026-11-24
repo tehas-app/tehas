@@ -219,7 +219,9 @@ pub enum Closer {
     Account(Account),
     /// A change of another project that said it closes it: no number of
     /// this project names it, so it is named as the site names it there,
-    /// with its link.
+    /// with its link. An adapter builds it with `Closer::change_elsewhere`,
+    /// so a field added later breaks none.
+    #[non_exhaustive]
     ChangeElsewhere {
         /// The other project.
         project: ProjectName,
@@ -235,6 +237,17 @@ pub enum Closer {
         serialize_with = "unknown::write_external"
     )]
     Unknown,
+}
+
+impl Closer {
+    /// A change of another project that closed the ticket.
+    pub fn change_elsewhere(project: ProjectName, item: ItemName, link: WebLink) -> Self {
+        Self::ChangeElsewhere {
+            project,
+            item,
+            link,
+        }
+    }
 }
 
 /// One event of a ticket's history.

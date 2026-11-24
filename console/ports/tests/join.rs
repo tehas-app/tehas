@@ -632,16 +632,13 @@ fn join() -> Join {
 }
 
 fn ask() -> BoardAsk {
-    BoardAsk {
-        depth: Depth::Last {
-            notes: NonZeroU32::new(2).unwrap(),
-        },
-        history: Some(Window::Last(NonZeroU32::new(100).unwrap())),
-        history_by_kind: vec![],
-        changes: Some((ChangeStates::All, Window::Whole(bound()))),
-        filter: Filter::default(),
-        control: Some(key("CTRL-1")),
-    }
+    let mut ask = BoardAsk::new(Depth::Last {
+        notes: NonZeroU32::new(2).unwrap(),
+    });
+    ask.history = Some(Window::Last(NonZeroU32::new(100).unwrap()));
+    ask.changes = Some((ChangeStates::All, Window::Whole(bound())));
+    ask.control = Some(key("CTRL-1"));
+    ask
 }
 
 fn nos(items: &[ChangeDigest]) -> Vec<u64> {
@@ -722,14 +719,7 @@ fn a_whole_list_that_fails_fails_the_read_and_the_control_ticket_fails_alone() {
 
 #[test]
 fn a_cheap_ask_reads_no_changes_notes_or_history() {
-    let cheap = BoardAsk {
-        depth: Depth::Cut { notes: 0 },
-        history: None,
-        history_by_kind: vec![],
-        changes: None,
-        filter: Filter::default(),
-        control: None,
-    };
+    let cheap = BoardAsk::new(Depth::Cut { notes: 0 });
     let item = join().work_item(&key("PROJ-1"), &cheap).unwrap();
     assert!(item.changes.items.is_empty() && item.changes.more);
     assert!(item.notes.items.is_empty() && item.notes.more);
@@ -743,10 +733,11 @@ fn a_ticket_and_its_history_are_one_read_as_the_ask_or_its_depth_names() {
     let mut board = join_of(t, b, c, l);
     let item = board.work_item(&key("PROJ-1"), &ask()).unwrap();
     assert!(item.ticket.history.more, "the ask's window, Last");
-    let by_depth = BoardAsk {
-        depth: Depth::All,
-        history: None,
-        ..ask()
+    let by_depth = {
+        let mut ask = ask();
+        ask.depth = Depth::All;
+        ask.history = None;
+        ask
     };
     let item = board.work_item(&key("PROJ-1"), &by_depth).unwrap();
     assert!(!item.ticket.history.more, "the depth's window, Whole");
@@ -763,15 +754,17 @@ fn notes_are_read_as_deep_as_asked_and_not_at_all_for_none() {
     let (t, b, c, l) = handles();
     let asked = t.asked.clone();
     let mut board = join_of(t, b, c, l);
-    let none = BoardAsk {
-        depth: Depth::Cut { notes: 0 },
-        ..ask()
+    let none = {
+        let mut ask = ask();
+        ask.depth = Depth::Cut { notes: 0 };
+        ask
     };
     board.work_item(&key("PROJ-1"), &none).unwrap();
     assert_eq!(asked.lock().unwrap().notes, 0);
-    let one = BoardAsk {
-        depth: Depth::Cut { notes: 1 },
-        ..ask()
+    let one = {
+        let mut ask = ask();
+        ask.depth = Depth::Cut { notes: 1 };
+        ask
     };
     let item = board.work_item(&key("PROJ-1"), &one).unwrap();
     assert_eq!(asked.lock().unwrap().notes, 1);
@@ -810,9 +803,10 @@ fn busy() -> Vec<ChangeDigest> {
 fn item_changes(states: ChangeStates, window: Window) -> Got<Took<ChangeDigest>> {
     let (t, b, _, l) = handles();
     let mut board = join_of(t, b, StubCodeHost { changes: busy() }, l);
-    let asked = BoardAsk {
-        changes: Some((states, window)),
-        ..ask()
+    let asked = {
+        let mut ask = ask();
+        ask.changes = Some((states, window));
+        ask
     };
     board.work_item(&key("PROJ-1"), &asked).map(|i| i.changes)
 }

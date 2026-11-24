@@ -15,8 +15,11 @@ use crate::{
     Tickets, Took, Unread, Whole, Window,
 };
 
-/// What a joined read asks for, so a cheap poll asks less.
+/// What a joined read asks for, so a cheap poll asks less. A caller builds
+/// it with `new` and sets the rest by name, so a field added later breaks
+/// no caller.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct BoardAsk {
     /// How much of each ticket, its notes and its blueprints to read. It
     /// gives each ticket's history too (`Depth::history`).

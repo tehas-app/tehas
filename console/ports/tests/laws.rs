@@ -377,17 +377,15 @@ fn board_a_window_per_kind_cuts_no_other() {
         let site = FakeSite::new(&w);
         let mut board = site.board(&full(), C).unwrap();
         let mut t = site.tickets(&full(), C).unwrap();
-        let ask = BoardAsk {
-            depth: Depth::Cut { notes: 0 },
-            history: Some(Window::Last(n32(2))),
-            history_by_kind: vec![
+        let ask = {
+            let mut ask = BoardAsk::new(Depth::Cut { notes: 0 });
+            ask.history = Some(Window::Last(n32(2)));
+            ask.history_by_kind = vec![
                 (HappenedKind::Marked, Window::Whole(b(50))),
                 (HappenedKind::Unmarked, Window::Last(n32(1))),
                 (HappenedKind::Retitled, Window::Whole(b(50))),
-            ],
-            changes: None,
-            filter: Filter::default(),
-            control: None,
+            ];
+            ask
         };
         ok(laws::board::a_window_per_kind_cuts_no_other(
             board.as_mut(),
@@ -1132,13 +1130,10 @@ fn board_one_item_fails_alone() {
             .ticket(3, |t| t.title("small too").events(2, at));
         let site = FakeSite::new(&w);
         let mut board = site.board(&full(), C).unwrap();
-        let ask = BoardAsk {
-            depth: Depth::Cut { notes: 0 },
-            history: Some(Window::Whole(b(3))),
-            history_by_kind: vec![],
-            changes: None,
-            filter: Filter::default(),
-            control: None,
+        let ask = {
+            let mut ask = BoardAsk::new(Depth::Cut { notes: 0 });
+            ask.history = Some(Window::Whole(b(3)));
+            ask
         };
         ok(laws::board::one_item_fails_alone(
             board.as_mut(),
@@ -3134,17 +3129,7 @@ fn a_split_world_keeps_its_three_number_spaces_apart() {
     let item = setup
         .board(&full(), C)
         .unwrap()
-        .work_item(
-            &w.key(1),
-            &BoardAsk {
-                depth: Depth::All,
-                history: None,
-                history_by_kind: vec![],
-                changes: None,
-                filter: Filter::default(),
-                control: None,
-            },
-        )
+        .work_item(&w.key(1), &BoardAsk::new(Depth::All))
         .unwrap();
     assert_eq!(item.blueprints.len(), 1);
     assert_eq!(item.blueprints[0].no, bp(101));
@@ -3507,14 +3492,7 @@ fn cells() -> Vec<(Op, Fault, Call)> {
 }
 
 fn board_ask() -> BoardAsk {
-    BoardAsk {
-        depth: Depth::Cut { notes: 0 },
-        history: None,
-        history_by_kind: vec![],
-        changes: None,
-        filter: Filter::default(),
-        control: None,
-    }
+    BoardAsk::new(Depth::Cut { notes: 0 })
 }
 
 fn change_ask() -> ChangeAsk {
