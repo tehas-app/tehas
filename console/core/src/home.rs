@@ -44,6 +44,10 @@ pub enum State {
     DispatchAgain,
     /// Held while a poll reads.
     DispatchLock,
+    /// The start of the lock's hold a hanging poll was last said for.
+    DispatchStuck,
+    /// When the poll that holds the lock took it.
+    DispatchTaken,
     /// Held while one start makes the egress proxy.
     EgressLock,
     /// The mark of a host's first install.
@@ -130,6 +134,8 @@ impl State {
             State::CodeIndexState => "state/index.json",
             State::DispatchAgain => "state/dispatch.again",
             State::DispatchLock => "state/dispatch.lock",
+            State::DispatchStuck => "state/dispatch.stuck",
+            State::DispatchTaken => "state/dispatch.taken",
             State::EgressLock => "state/egress.lock",
             State::FirstInstall => "state/first-install",
             State::GithubFailures => "state/github-failures",
@@ -438,6 +444,8 @@ mod tests {
             (State::CodeIndexState, "/h/state/index.json"),
             (State::DispatchAgain, "/h/state/dispatch.again"),
             (State::DispatchLock, "/h/state/dispatch.lock"),
+            (State::DispatchStuck, "/h/state/dispatch.stuck"),
+            (State::DispatchTaken, "/h/state/dispatch.taken"),
             (State::EgressLock, "/h/state/egress.lock"),
             (State::FirstInstall, "/h/state/first-install"),
             (State::GithubFailures, "/h/state/github-failures"),

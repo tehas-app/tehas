@@ -18,12 +18,12 @@ use super::ready::{ready, Ready};
 use super::runs;
 use serde::de::{self, Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde_json::{json, Value};
-use std::fs::{self, File};
+use std::fs;
 use std::path::Path;
 use std::time::Duration;
 use tehas_core::access::{GitHub, Level};
 use tehas_core::file::{write_atomic, Temp};
-use tehas_core::lock::try_lock;
+use tehas_core::lock::{try_lock, Held};
 use tehas_core::plugin::manifest::Tool;
 use tehas_core::plugin::run::{context, Kind, Run, Trigger};
 use tehas_core::plugin::{self, params, Cap};
@@ -180,7 +180,7 @@ pub fn call(
 }
 
 /// A slot of two and the caller's lock, taken now, or busy.
-fn locks(home: &Path, name: &str, by: &str) -> Result<[File; 2], Failed> {
+fn locks(home: &Path, name: &str, by: &str) -> Result<[Held; 2], Failed> {
     let dir = runs::calls(home, name);
     let no = |e: String| Failed::Refused(e);
     fs::create_dir_all(&dir).map_err(|e| no(format!("{}: {e}", dir.display())))?;

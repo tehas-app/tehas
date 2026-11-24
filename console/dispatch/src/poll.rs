@@ -31,6 +31,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, UNIX_EPOCH};
+use tehas_core::home::{Home, Live, State};
 
 /// How long a held dispatcher lock may last before it is said to hang.
 const HANG: u64 = 1800;
@@ -48,7 +49,7 @@ const STATUS_AGE: i64 = 300;
 /// host would not answer is treated as one too old: the status is then the way
 /// to find out what it holds.
 pub fn status_due(home: &Path, now: i64) -> bool {
-    let made = std::fs::metadata(home.join("live/status.json"))
+    let made = std::fs::metadata(Home::new(home).live(Live::Status))
         .and_then(|m| m.modified())
         .ok()
         .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
@@ -217,7 +218,7 @@ fn store_ready(home: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     let bin = std::fs::metadata(home.join("libexec/store"))
         .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0);
-    let db = std::fs::symlink_metadata(home.join("state/tehas.db"))
+    let db = std::fs::symlink_metadata(Home::new(home).state(State::StoreDb))
         .is_ok_and(|m| m.file_type().is_file());
     bin && db
 }
@@ -522,10 +523,8 @@ impl End<'_> {
         let stat = std::fs::read_to_string("/proc/self/stat").unwrap_or_default();
         let cpu = cpu_ms(&stat, clock_ticks()).to_string();
         let gh = self.gh.to_string();
-        let writes = self
-            .home
-            .join("state")
-            .join("github-writes.log")
+        let writes = Home::new(self.home)
+            .state(State::GithubWrites)
             .to_string_lossy()
             .into_owned();
         let n = self.starts.to_string();
@@ -633,19 +632,22 @@ pub fn run_poll(
         say(&format!("ERROR: {why}"));
         return 78;
     }
-    let state = home.join("state");
-    for d in ["state/cycles", "logs", "live"] {
-        let _ = std::fs::create_dir_all(home.join(d));
+    let layout = Home::new(home);
+    for d in [layout.cycles_dir(), home.join("logs"), layout.live_dir()] {
+        let _ = std::fs::create_dir_all(d);
     }
     let Ok(lock) = OpenOptions::new()
         .create(true)
         .append(true)
-        .open(state.join("dispatch.lock"))
+        .open(layout.state(State::DispatchLock))
     else {
         say("ERROR: could not open the dispatcher's lock");
         return 1;
     };
-    let (taken, stuck) = (state.join("dispatch.taken"), state.join("dispatch.stuck"));
+    let (taken, stuck) = (
+        layout.state(State::DispatchTaken),
+        layout.state(State::DispatchStuck),
+    );
     if lock.try_lock().is_err() {
         if dry {
             say("another poll holds the dispatcher's lock");
@@ -680,7 +682,7 @@ pub fn run_poll(
     // once the lock is ours. A poll that found it held would drop the ask of
     // the running one, and the freed slot would wait for the timer.
     if !dry {
-        let _ = std::fs::remove_file(state.join("dispatch.again"));
+        let _ = std::fs::remove_file(layout.state(State::DispatchAgain));
     }
     if std::fs::write(&taken, format!("{}\n", tehas_core::time::now())).is_err() {
         say(&format!("WARN: could not write {}", taken.display()));
@@ -1190,7 +1192,7 @@ fn auto_finish_step(
 /// writes neither.
 fn demand_health(home: &Path, w: &mut Writer, d: &crate::Decision) {
     if let Some(demand) = &d.demand {
-        let file = home.join("live/demand.json");
+        let file = Home::new(home).live(Live::Demand);
         match demand {
             crate::decide::Demand::Unread => {
                 let _ = std::fs::remove_file(&file);
@@ -1240,7 +1242,7 @@ fn write_demand(file: &Path, demand: &crate::decide::Demand) {
 fn demand_again(home: &Path, w: &Writer, d: &crate::Decision) {
     let Some(demand) = &d.demand else { return };
     if let Some(v) = crate::decide::demand_after(demand, &d.demand_planning, &w.plans_ended) {
-        write_demand(&home.join("live/demand.json"), &v);
+        write_demand(&Home::new(home).live(Live::Demand), &v);
     }
 }
 
@@ -1270,7 +1272,7 @@ fn report(home: &Path, w: &mut Writer, d: &crate::Decision, snap: &Value) {
     };
     let mut v = report.to_value();
     v[tehas_core::hold::KEY_TIME] = json!(iso_now());
-    let file = home.join("live/dispatch.json");
+    let file = Home::new(home).live(Live::Dispatch);
     let made = w.scratch("dispatch").and_then(|p| {
         let mut f: File = OpenOptions::new()
             .write(true)
