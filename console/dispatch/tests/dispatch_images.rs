@@ -577,6 +577,20 @@ fn a_dispatch_json_that_cannot_be_read_does_not_stop_the_poll() {
     assert_eq!(why(&w), json!(""));
 }
 
+#[test]
+fn a_dispatch_json_that_cannot_be_written_is_said_with_its_path() {
+    let w = world("images-report-dir");
+    std::fs::create_dir_all(w.home.join("live/dispatch.json/x")).unwrap();
+    let r = w.poll();
+    has(
+        &r.out,
+        &format!(
+            "WARN: could not write {}/live/dispatch.json (",
+            w.home.display()
+        ),
+    );
+}
+
 /// The harness's systemctl, with a slice probe that hangs for 120 seconds.
 const SYSTEMCTL_HANGS: &str = r#"case "$1 $2" in
   "show tehas.slice")
