@@ -1,8 +1,10 @@
-//! `TicketWrites::prepare_one` as the adapter answers it, replayed from
+//! `TicketWrites::prepare_one`, and `prepare` where it renames, as the
+//! adapter answers them, replayed from
 //! the recordings under `tests/recorded/prepare-one/<state>/` (made by
 //! hand from GitHub's documented shapes): `label` is the read of the one
-//! label, `labels` the read of every label, `create` the label's write and
-//! `rename` its `PATCH`.
+//! label, `labels` the read of every label, `held` the read of every label
+//! with its colour and text, `create` a label's write and `rename` its
+//! `PATCH`.
 //! After a write the replay answers from `made/` where the state has it,
 //! so the law reads the site the write left. `.json` is gh's answer,
 //! `.fail` the reason it failed and `.answer.json` what gh printed beside
@@ -11,7 +13,7 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tehas_core::forge::{Failed, GhRunner};
-use tehas_github::GitHub;
+use tehas_github::{table, GitHub};
 use tehas_ports::laws;
 use tehas_ports::{
     At, Did, Mark, MarkName, Outcome, Passing, Pool, Refusal, Sent, State, TicketWrites, Unread,
@@ -61,6 +63,8 @@ impl Replay {
                     assert_eq!(field(args, "owner"), Some("acme"));
                     assert_eq!(field(args, "name"), Some("widget"));
                     "label"
+                } else if query.contains("nodes { name color description }") {
+                    "held"
                 } else if query.contains("labels(") {
                     "labels"
                 } else {
@@ -286,4 +290,38 @@ fn a_failure_is_its_outcome_and_nothing_is_written_after_a_failed_read() {
         prepare("create-fails"),
         (Err(Outcome::Forbidden), vec!["label", "create"])
     );
+}
+
+#[test]
+fn prepare_renames_a_label_in_another_case_and_leaves_one_that_is_right() {
+    let specs = table::specs();
+    let (mut gh, asked, input) = adapter_input("mixed");
+    assert_eq!(gh.prepare(), Ok(()));
+    let all = asked.lock().unwrap().clone();
+    let first = calls(&asked);
+    assert_eq!(first[0], "held");
+    assert_eq!(first.iter().filter(|c| **c == "held").count(), 1);
+    assert_eq!(first.iter().filter(|c| **c == "rename").count(), 1);
+    // The right label and the renamed one are not made; every other is.
+    assert_eq!(
+        first.iter().filter(|c| **c == "create").count(),
+        specs.len() - 2
+    );
+    let made: Vec<&str> = all
+        .iter()
+        .filter(|a| a[0] == "label")
+        .map(|a| a[2].as_str())
+        .collect();
+    assert!(!made.contains(&"tehas:ready"), "{made:?}");
+    assert!(!made.contains(&"tehas:running"), "{made:?}");
+    assert!(made.contains(&"tehas:pause"), "{made:?}");
+    let rename = all.iter().find(|a| a[2] == "PATCH").unwrap();
+    assert_eq!(rename[3], "repos/acme/widget/labels/Tehas%3ARunning");
+    let sent: serde_json::Value = serde_json::from_str(&input.lock().unwrap()[0]).unwrap();
+    assert_eq!(sent["new_name"], "tehas:running");
+    assert_eq!(sent["color"], "1d76db");
+    // Brought in one call: the second reads the labels and writes nothing.
+    asked.lock().unwrap().clear();
+    assert_eq!(gh.prepare(), Ok(()));
+    assert_eq!(calls(&asked), ["held"]);
 }
