@@ -150,7 +150,7 @@ impl GitHub {
     /// The REST path of this adapter's repository, the one place its writes
     /// go. A name that is no `owner/name` of GitHub's characters is
     /// `Refused(Invalid)`: it would aim the request somewhere else.
-    fn issues(&self) -> Got<String> {
+    pub(super) fn issues(&self) -> Got<String> {
         let (owner, name) = self
             .repo
             .split_once('/')
@@ -172,7 +172,7 @@ impl GitHub {
     /// its named outcome: a 422 is GitHub refusing the input, a spent
     /// budget is the writes' pool, and a runner that sends no input sent
     /// nothing. No word of gh's answer, or of the input, is kept.
-    fn send(&mut self, method: &str, path: &str, input: &str) -> Got<String> {
+    pub(super) fn send(&mut self, method: &str, path: &str, input: &str) -> Got<String> {
         let args = ["api", "-X", method, path, "--input", "-"];
         let e = match self.call_input("the write", &args, input) {
             Ok(out) => return Ok(out),
@@ -214,9 +214,9 @@ impl GitHub {
 /// relay's read before an edit has it (`GitHub::text_revision`). None for
 /// an answer with no title.
 ///
-/// The contract `Blueprints::blueprint` must keep when it is built: it
-/// answers the body without our markers, but its `revision` is this
-/// function over the RAW answer, markers in. A revision over the stripped
+/// The contract `Blueprints::blueprint` keeps: it answers the body
+/// without our markers, but its `revision` is this function over the RAW
+/// answer, markers in. A revision over the stripped
 /// body would never equal this one, and every edit at it would be
 /// `Conflict(Changed)`.
 pub(super) fn revision(out: &str) -> Option<Revision> {
@@ -225,12 +225,12 @@ pub(super) fn revision(out: &str) -> Option<Revision> {
 
 /// The revision an issue of this title and body reads at, as [`revision`]
 /// reads it.
-fn text_revision(title: &str, body: &str) -> Option<Revision> {
+pub(super) fn text_revision(title: &str, body: &str) -> Option<Revision> {
     revision(&serde_json::json!({ "title": title, "body": body }).to_string())
 }
 
 /// A failure of the read before a write: the write was not sent.
-fn unsent(o: Outcome) -> Outcome {
+pub(super) fn unsent(o: Outcome) -> Outcome {
     match o {
         Outcome::Unavailable { why, .. } => Outcome::Unavailable {
             why,
@@ -251,18 +251,18 @@ fn unmarked(texts: &[&str]) -> Did {
 }
 
 /// An issue of this project as a read or a write answers it.
-struct Issue {
-    no: BlueprintNo,
-    title: String,
-    body: String,
-    link: WebLink,
+pub(super) struct Issue {
+    pub(super) no: BlueprintNo,
+    pub(super) title: String,
+    pub(super) body: String,
+    pub(super) link: WebLink,
 }
 
 /// The issue in gh's answer. An answer that does not parse or lacks a
 /// field every issue has is `Unread(Malformed)`; a pull request is
 /// `NotFound`, no blueprint; a link that is not this project's issue of
 /// that number is `Unread(Inconsistent)`.
-fn read_issue(out: &str, repo: &str) -> Got<Issue> {
+pub(super) fn read_issue(out: &str, repo: &str) -> Got<Issue> {
     let malformed = Outcome::Unread(Unread::Malformed);
     let v: Value = serde_json::from_str(out.trim()).map_err(|_| malformed.clone())?;
     let no = v
@@ -301,7 +301,7 @@ fn read_issue(out: &str, repo: &str) -> Got<Issue> {
 
 /// The comment in gh's answer: its id, and its link, which must be the
 /// comment's on this project's issue `no`.
-fn read_comment(out: &str, repo: &str, no: BlueprintNo) -> Got<Posted<CommentId>> {
+pub(super) fn read_comment(out: &str, repo: &str, no: BlueprintNo) -> Got<Posted<CommentId>> {
     let malformed = Outcome::Unread(Unread::Malformed);
     let v: Value = serde_json::from_str(out.trim()).map_err(|_| malformed.clone())?;
     let id = v
@@ -326,7 +326,7 @@ fn read_comment(out: &str, repo: &str, no: BlueprintNo) -> Got<Posted<CommentId>
 
 /// `text` ends with `tail`, ASCII case folded: GitHub names a project in
 /// any case.
-fn ends_with_folded(text: &str, tail: &str) -> bool {
+pub(super) fn ends_with_folded(text: &str, tail: &str) -> bool {
     text.len() >= tail.len()
         && text.is_char_boundary(text.len() - tail.len())
         && text[text.len() - tail.len()..].eq_ignore_ascii_case(tail)
