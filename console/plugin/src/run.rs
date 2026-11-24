@@ -541,7 +541,8 @@ fn run_in(
     if let Err(e) = fs::create_dir(dir) {
         return Came::Failed(format!("{}: {e}", dir.display()));
     }
-    let ctx = match context(&run) {
+    let ctx = match context(&run).and_then(|c| serde_json::to_string(&c).map_err(|e| e.to_string()))
+    {
         Ok(c) => c,
         Err(why) => return Came::Failed(why),
     };
