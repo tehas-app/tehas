@@ -187,7 +187,7 @@ fn a_declined_note_of_1x_reads_typed_and_writes_back_the_same() {
         question: CommentId::new(nineteen.as_str()),
     };
     let text = format!("<!-- tehas:declined question={nineteen} -->");
-    assert_eq!(markers(&text), [longest.clone()]);
+    assert_eq!(markers(&text), std::slice::from_ref(&longest));
     assert_eq!(table::marker_text(&longest), Some(text));
     for bad in ["1".repeat(20), "04001".into()] {
         assert_eq!(
