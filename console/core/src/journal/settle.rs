@@ -36,10 +36,16 @@ pub fn by_marks(row: &Write, marks: &[tehas_ports::Mark]) -> Option<Found> {
     Some(found(marks.contains(mark) == on))
 }
 
-/// `TicketNote` and `CommentChange`: a comment of the factory's own account,
-/// made at or after `at`, the row's time, whose body (without markers) has
-/// the row's sum and whose markers are the row's. `comments` are those of the
-/// row's ticket or change as read now.
+/// `TicketNote` and `CommentChange`: a comment made at or after `at`, the
+/// row's time, whose body (without markers) has the row's sum and whose
+/// markers are the row's. `comments` are those of the row's ticket or change
+/// as read now. One such comment of the factory's own account (`Ours`) is
+/// the row's: landed. One by an account that could be ours but is not
+/// vouched for as ours (a bot, an account the site does not type, or none),
+/// as a site answers while it is not told the factory's id, cannot tell:
+/// None, so the write stays maybe and is never sent again. NotSent only when
+/// no comment matches, or only a person's does: a person's copy is not our
+/// post.
 pub fn by_comments(row: &Write, comments: &[Comment], at: At) -> Option<Found> {
     let (body, markers) = match row {
         Write::TicketNote { body, markers, .. } | Write::CommentChange { body, markers, .. } => {
@@ -49,16 +55,26 @@ pub fn by_comments(row: &Write, comments: &[Comment], at: At) -> Option<Found> {
     };
     let (sum, len) = sum_of(body)?;
     let from = at.secs().saturating_sub(SKEW);
-    let there = comments.iter().any(|c| {
-        c.author
-            .as_ref()
-            .is_some_and(|a| a.kind == AccountKind::Ours)
-            && c.created.secs() >= from
-            && c.body.len() as u64 == len
-            && sha256(&c.body) == sum
-            && c.markers == *markers
-    });
-    Some(found(there))
+    let matching: Vec<&Comment> = comments
+        .iter()
+        .filter(|c| {
+            c.created.secs() >= from
+                && c.body.len() as u64 == len
+                && sha256(&c.body) == sum
+                && c.markers == *markers
+        })
+        .collect();
+    let kind = |c: &&Comment| c.author.as_ref().map(|a| a.kind);
+    if matching.iter().any(|c| kind(c) == Some(AccountKind::Ours)) {
+        return Some(Found::Landed);
+    }
+    if matching
+        .iter()
+        .any(|c| kind(c) != Some(AccountKind::Person))
+    {
+        return None;
+    }
+    Some(Found::NotSent)
 }
 
 /// The sum of a row's body, as sent or as the store keeps it.
@@ -177,13 +193,45 @@ mod tests {
     }
 
     #[test]
-    fn a_note_with_the_rows_text_by_another_account_is_not_ours() {
-        for login in ["alice", "other-bot"] {
-            let (read, at) = noted(login, "Hello.", 0);
+    fn a_persons_note_with_the_rows_text_is_not_ours() {
+        let (read, at) = noted("alice", "Hello.", 0);
+        assert_eq!(
+            by_comments(&note("Hello."), &read, at),
+            Some(Found::NotSent)
+        );
+    }
+
+    /// While the site is not told the factory's id it answers our own
+    /// comments as a bot's: a match it cannot vouch for leaves the row
+    /// unknown, never sent again.
+    #[test]
+    fn a_note_with_the_rows_text_that_could_be_ours_cannot_tell() {
+        let (read, at) = noted("other-bot", "Hello.", 0);
+        assert_eq!(by_comments(&note("Hello."), &read, at), None);
+        // No match at all is still not sent, whoever wrote other notes.
+        assert_eq!(by_comments(&note("Bye."), &read, at), Some(Found::NotSent));
+        // An account the site does not type, or none at all.
+        let built = |author: Option<tehas_ports::Account>| {
+            let mut c = Comment::new(
+                tehas_ports::CommentId::new("1"),
+                at,
+                tehas_ports::Revision::new("r"),
+                tehas_ports::WebLink::new("https://site.example/c/1").unwrap(),
+            );
+            c.author = author;
+            c.body = "Hello.".to_string();
+            c
+        };
+        let unknown = tehas_ports::Account::new(
+            tehas_ports::Realm::CodeHost,
+            tehas_ports::Login::new("someone"),
+            AccountKind::Unknown,
+        );
+        for c in [built(Some(unknown)), built(None)] {
             assert_eq!(
-                by_comments(&note("Hello."), &read, at),
-                Some(Found::NotSent),
-                "{login}"
+                by_comments(&note("Hello."), std::slice::from_ref(&c), at),
+                None,
+                "{c:?}"
             );
         }
     }
