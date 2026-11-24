@@ -841,7 +841,7 @@ pub(super) fn says_closes(text: &str) -> Vec<Ref<BlueprintNo>> {
 /// The part of a GraphQL answer under `data`, its logins vouched. An answer
 /// that carries errors is no whole answer: a spent priced budget when
 /// GitHub says the rate is limited, `Unread(Inconsistent)` for any other.
-fn answer<T: serde::de::DeserializeOwned>(out: &str, now: i64) -> Got<T> {
+pub(super) fn answer<T: serde::de::DeserializeOwned>(out: &str, now: i64) -> Got<T> {
     let mut v: Value = serde_json::from_str(out.trim()).map_err(|_| MALFORMED)?;
     if let Some(errors) = v.get("errors").filter(|e| !e.is_null()) {
         let limited = errors.as_array().is_some_and(|all| {
@@ -869,7 +869,7 @@ fn parse<T: serde::de::DeserializeOwned>(out: &str) -> Got<T> {
 }
 
 /// A spent budget of a GraphQL call is the priced pool's.
-fn priced(o: Outcome) -> Outcome {
+pub(super) fn priced(o: Outcome) -> Outcome {
     match o {
         Outcome::Spent { until, .. } => Outcome::Spent {
             pool: Pool::Priced,
