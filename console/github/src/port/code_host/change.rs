@@ -819,8 +819,8 @@ impl Edited {
 /// order they first stand in the text. `text` is the body without this
 /// item's markers. A link (`closes https://github.com/<o>/<r>/issues/5`)
 /// and `<o>/<r>#5`, which GitHub counts too, are not read: this reads
-/// fewer, never more.
-fn says_closes(text: &str) -> Vec<Ref<BlueprintNo>> {
+/// fewer, never more. The list (`changes` with bodies) reads it the same.
+pub(super) fn says_closes(text: &str) -> Vec<Ref<BlueprintNo>> {
     let mut said: Vec<Ref<BlueprintNo>> = Vec::new();
     for (i, _) in text.match_indices('#') {
         let digits: String = text[i + 1..]

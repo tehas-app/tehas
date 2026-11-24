@@ -129,7 +129,9 @@ is what [the poll's finish step](/operating#finishing-a-stopped-cycle) checks
 before it calls this.
 
 It refuses with one line on standard error and exit 1, and changes nothing,
-when: `TEHAS_ALLOWED_LABELERS` names no account, the workspace or the branch
+when: `TEHAS_ALLOWED_LABELERS` names no account, `state/account-ids` records
+no id for the bot's account or cannot be read (then it cannot tell the
+factory's own pull requests), the workspace or the branch
 is missing or is no git repository, the
 working tree holds work that was never committed (nobody has checked it), the
 branch holds no commit over `origin/<branch>`, `origin/<branch>` is not a branch
@@ -142,8 +144,10 @@ the bot or an account of `TEHAS_ALLOWED_LABELERS` opened. One from a fork, or
 from any other account, does not stop it. The open pull requests are read in
 pages of 100 to the last page; a list it cannot read whole, or of more than ten
 pages, refuses the run. A push the remote refuses is not
-tried again. When the push went through and the draft then could not be
-opened, or gh said no URL for it, `finish/issue-<issue>` stays on the remote
+tried again. When the push went through and the answer to opening the draft
+was lost, the open pull requests of `finish/issue-<issue>` are read once: the
+factory's own one there is the run's draft. When the draft could not be opened,
+or may have been and is not found, `finish/issue-<issue>` stays on the remote
 and the refusal says so: open its pull request by hand, or delete the branch
 before asking again, since a branch of that name refuses the next run. A refusal
 names the rule and, where the command said something, its first line. On a

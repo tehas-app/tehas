@@ -671,19 +671,25 @@ fn an_edit_whose_text_holds_a_live_marker_is_refused_even_at_the_same_count() {
 }
 
 #[test]
-fn a_backslash_escaped_backtick_opens_no_code_span() {
+fn a_marker_between_two_backtick_runs_of_one_length_is_no_marker() {
     // GitHub renders \` as a backtick and the comment between as a live
-    // comment: the marker reads.
-    assert_eq!(
-        read("\\`<!-- tehas:blocked by=3 -->\\`", item()).markers,
-        [Marker::Blocked {
-            by: vec![ticket(3)]
-        }]
-    );
+    // comment, but the reader pairs no runs (what GitHub reads first may
+    // hold a backtick that pairs nothing): between two runs of one length,
+    // an escaped one counted too, a marker is no marker. The safe way.
+    assert!(read("\\`<!-- tehas:blocked by=3 -->\\`", item())
+        .markers
+        .is_empty());
     // An even run of backslashes is a backslash, then a span.
     assert!(read("\\\\`<!-- tehas:blocked by=3 -->`", item())
         .markers
         .is_empty());
+    // One run alone opens nothing.
+    assert_eq!(
+        read("` <!-- tehas:blocked by=3 -->", item()).markers,
+        [Marker::Blocked {
+            by: vec![ticket(3)]
+        }]
+    );
 }
 
 #[test]
