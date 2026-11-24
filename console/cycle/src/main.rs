@@ -491,15 +491,55 @@ fn cycle_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
     std::process::exit(supervise::run(home, &g, &raised));
 }
 
-/// The relay's read of an issue's title and body, from the GitHub adapter.
-fn read_text(
+/// The factory's account as the adapter knows it: the bot's login and the
+/// user id `state/account-ids` records for it, the bot account's and not the
+/// App's. An ids file that cannot be read, or no id for the login, gives no
+/// id: then no account is the factory's own, and a write the site may have
+/// taken is settled as unknown, never sent again.
+fn bot_of(home: &Path) -> (String, Option<u64>) {
+    use tehas_core::accounts::{account, folded, load};
+    let login = std::fs::read_to_string(Home::new(home).state(State::BotLogin))
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    let key = folded(account(&login));
+    let id = load(home).ok().and_then(|pairs| {
+        pairs
+            .ids
+            .iter()
+            .find(|(l, _)| folded(account(l)) == key)
+            .map(|(_, id)| *id)
+    });
+    (login, id)
+}
+
+/// The relay's blueprints write handle, from the GitHub adapter's site,
+/// acting as the factory's account. The gh it runs is the relay's own, with
+/// the token the relay asked for this request: the site is handed that
+/// runner and holds no token of its own.
+fn writes(
+    home: &Path,
     repo: &str,
     gh: Box<dyn tehas_core::forge::GhRunner>,
-    issue: u64,
-) -> Result<String, String> {
-    tehas_github::GitHub::new(repo, gh)
-        .text_revision(issue)
-        .map_err(|e| e.why)
+) -> tehas_ports::Got<Box<dyn tehas_ports::BlueprintWrites>> {
+    use tehas_ports::Site;
+    let (login, id) = bot_of(home);
+    let runner = std::sync::Mutex::new(Some(gh));
+    let make: tehas_github::MakeRunner = Arc::new(move |_| {
+        runner
+            .lock()
+            .ok()
+            .and_then(|mut r| r.take())
+            .ok_or(tehas_ports::Outcome::Refused(
+                tehas_ports::Refusal::Unsupported,
+            ))
+    });
+    let site = tehas_github::GitHubSite::new(repo, &login, id, make);
+    let writes = site.blueprint_writes(
+        &tehas_ports::Actor::Ours(tehas_ports::Scope::Full),
+        tehas_ports::Caller::new("relay"),
+    )?;
+    Ok(writes)
 }
 
 /// The words of tehas work.
@@ -509,7 +549,7 @@ fn work_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
         restart: false,
         driver: None,
         console: String::new(),
-        read_text,
+        writes,
     };
     let mut it = rest.iter();
     while let Some(flag) = it.next() {
@@ -852,4 +892,50 @@ fn last_attempt(n: u64, result: &str, workspace: &Path) {
             Action::Repeat => json!({"action": "repeat", "say": last_attempt::REPEAT}),
         }
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::bot_of;
+    use std::fs;
+    use tehas_core::home::{Home, State};
+    use tehas_core::testdir::TestDir;
+
+    fn home_with(login: Option<&str>, ids: Option<&str>) -> TestDir {
+        let d = TestDir::new("cycle-bot-of");
+        let home = Home::new(d.path());
+        if let Some(l) = login {
+            let p = home.state(State::BotLogin);
+            fs::create_dir_all(p.parent().unwrap()).unwrap();
+            fs::write(p, l).unwrap();
+        }
+        if let Some(i) = ids {
+            let p = home.state(State::AccountIds);
+            fs::create_dir_all(p.parent().unwrap()).unwrap();
+            fs::write(p, i).unwrap();
+        }
+        d
+    }
+
+    /// The adapter knows the factory's account by the bot account's id the
+    /// factory recorded, its key the login GraphQL gives, any case.
+    #[test]
+    fn the_factorys_account_is_the_bots_login_and_its_recorded_id() {
+        let d = home_with(Some("tehas-bot[bot]\n"), Some("alice 42\nTehas-Bot 7\n"));
+        assert_eq!(bot_of(d.path()), ("tehas-bot[bot]".to_string(), Some(7)));
+    }
+
+    /// No id the factory can stand on: no account is its own, and a write
+    /// the site may have taken settles as unknown.
+    #[test]
+    fn without_a_recorded_id_the_factory_has_no_account_of_its_own() {
+        let none = home_with(Some("tehas-bot[bot]"), Some("alice 42\n"));
+        assert_eq!(bot_of(none.path()).1, None);
+        let missing = home_with(Some("tehas-bot[bot]"), None);
+        assert_eq!(bot_of(missing.path()).1, None);
+        let unreadable = home_with(Some("tehas-bot[bot]"), Some("tehas-bot not-a-number\n"));
+        assert_eq!(bot_of(unreadable.path()).1, None);
+        let no_login = home_with(None, Some("tehas-bot 7\n"));
+        assert_eq!(bot_of(no_login.path()), (String::new(), None));
+    }
 }
