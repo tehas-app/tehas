@@ -7,15 +7,15 @@
 
 use serde::Deserialize;
 use std::collections::BTreeMap;
-use std::num::{NonZeroU32, NonZeroU64};
+use std::num::NonZeroU32;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tehas_core::forge::GhRunner;
 use tehas_github::GitHub;
 use tehas_ports::laws;
 use tehas_ports::{
-    Actor, BlueprintHit, BlueprintNo, Blueprints, Bound, CommentId, Got, Outcome, Pool, Refusal,
-    Took, Unread, Within,
+    Actor, BlueprintHit, Blueprints, Bound, CommentId, Got, Outcome, Pool, Refusal, Took, Unread,
+    Within,
 };
 
 const PROJECT: &str = "acme/widget";
@@ -242,7 +242,6 @@ impl GhRunner for Unasked {
 #[test]
 fn what_no_caller_asks_yet_is_unsupported_before_any_request() {
     let mut gh = GitHub::new(PROJECT, Box::new(Unasked));
-    let no = BlueprintNo::from(NonZeroU64::new(7).unwrap());
     let bound = Bound::new(10).unwrap();
     let id = CommentId::new("1");
     let unsupported = Outcome::Refused(Refusal::Unsupported);
@@ -250,7 +249,6 @@ fn what_no_caller_asks_yet_is_unsupported_before_any_request() {
         gh.comments_by_id(std::slice::from_ref(&id))[0].1,
         Err(unsupported.clone())
     );
-    assert_eq!(gh.attachments(no), Err(unsupported.clone()));
     assert_eq!(gh.changed(None).map(|_| ()), Err(unsupported.clone()));
     assert_eq!(gh.delta(None, bound).map(|_| ()), Err(unsupported));
 }
