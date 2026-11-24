@@ -11,6 +11,7 @@ mod activity;
 mod change;
 mod checks;
 mod remote;
+pub(super) use remote::parts;
 
 use std::collections::BTreeSet;
 use std::num::NonZeroU32;
