@@ -14,8 +14,8 @@ use tehas_github::GitHub;
 use tehas_ports::laws;
 use tehas_ports::{
     AccountKind, At, BlueprintNo, Bound, Branch, ChangeNo, ChangeState, CodeHost, CommitId, Mark,
-    Marker, MarkerKind, Mergeable, NotMergeable, Outcome, Passing, Pool, Ref, Sent, State, Unread,
-    Verdict, Whole,
+    Marker, MarkerKind, Mergeable, NotMergeable, Outcome, Passing, Pool, Ref, Relation, Sent,
+    State, Unread, Verdict, Whole,
 };
 
 const PROJECT: &str = "acme/widget";
@@ -987,16 +987,13 @@ fn a_malformed_answer_first_or_later_is_malformed() {
 // The consumer's settle, and the laws.
 
 #[test]
-fn gap_until_ours_is_wired_the_settle_finds_our_landed_comment_not_sent() {
+fn until_ours_is_wired_the_settle_leaves_our_landed_comment_unknown() {
     // The core's rule (`journal::settle::by_comments`) takes a comment of
     // the factory's own account made since the row, with the row's body to
     // the byte and its markers. The adapter answers the body as GitHub
-    // keeps it and `created` as GitHub's. It cannot tell its own account,
-    // so its author is a Bot and the rule answers NotSent for a comment
-    // that landed. That NotSent is the gap, not the wanted answer: no
-    // consumer may settle comments through this read until the site's
-    // wiring names the factory's account `Ours`, which the second half
-    // shows is then enough.
+    // keeps it and `created` as GitHub's. Not told the bot's id, it reads
+    // our comment as a Bot's, and the rule keeps a matching comment by an
+    // unvouched bot as unknown: never resent, never settled as landed.
     let sent = "The refresh is done.\n\nSee the new head.";
     let mut site = Site::default().with("comments", 2);
     comments!(site)[1]["user"] = json!({"login": "tehas-bot[bot]", "id": 100001, "type": "Bot"});
@@ -1019,7 +1016,7 @@ fn gap_until_ours_is_wired_the_settle_finds_our_landed_comment_not_sent() {
     };
     let since = at("2026-11-20T10:00:00Z");
     use tehas_core::journal::{settle::by_comments, Found};
-    assert_eq!(by_comments(&row, &read, since), Some(Found::NotSent));
+    assert_eq!(by_comments(&row, &read, since), None);
     for c in &mut read {
         if let Some(a) = c
             .author
@@ -1260,4 +1257,32 @@ fn what_the_text_closes_is_read_without_our_markers() {
         .digest
         .says_closes
         .is_empty());
+}
+
+#[test]
+fn the_authors_relation_is_read_from_its_association() {
+    for (word, want) in [
+        (Some("OWNER"), Some(Relation::Owner)),
+        (Some("MEMBER"), Some(Relation::Member)),
+        (Some("COLLABORATOR"), Some(Relation::Collaborator)),
+        (Some("CONTRIBUTOR"), Some(Relation::Outside)),
+        (Some("FIRST_TIME_CONTRIBUTOR"), Some(Relation::Outside)),
+        (Some("NONE"), Some(Relation::Outside)),
+        (Some("SOMETHING_NEW"), Some(Relation::Unknown)),
+        (None, None),
+    ] {
+        let mut site = Site::default();
+        match word {
+            Some(w) => site.pull["author_association"] = w.into(),
+            None => {
+                site.pull
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("author_association");
+            }
+        }
+        let (mut gh, _, _) = adapter(site);
+        let d = gh.change(nine(), bound(100)).unwrap().digest;
+        assert_eq!(d.author_relation, want, "{word:?}");
+    }
 }

@@ -38,8 +38,8 @@ use serde_json::Value;
 use tehas_ports::{
     Account, AccountKind, At, BlueprintNo, Bound, Branch, Change, ChangeDigest, ChangeNo,
     ChangeState, ChangedFile, Comment, CommentId, CommitId, Got, ItemName, Login, Mergeable,
-    Outcome, Pool, ProjectName, Realm, Ref, RepoPath, Review, ReviewNote, Revision, Size, Unread,
-    Verdict, WebLink,
+    Outcome, Pool, ProjectName, Realm, Ref, Relation, RepoPath, Review, ReviewNote, Revision, Size,
+    Unread, Verdict, WebLink,
 };
 
 /// What one page of a REST list asks for, the most GitHub gives.
@@ -406,6 +406,7 @@ struct PullFields {
     merge_commit_sha: Option<String>,
     merged_by: Option<User>,
     user: Option<User>,
+    author_association: Option<String>,
     head: Option<Side>,
     base: Option<Side>,
     labels: Option<Vec<Label>>,
@@ -522,6 +523,7 @@ fn read_pull(out: &str, repo: &str, no: ChangeNo) -> Got<(Pull, Stamp)> {
     );
     digest.title = f.title.ok_or(MALFORMED)?;
     digest.author = author(f.user.as_ref());
+    digest.author_relation = f.author_association.as_deref().map(relation);
     digest.draft = f.draft.ok_or(MALFORMED)?;
     let mut size = Size::default();
     size.files = small(f.changed_files)?;
@@ -873,6 +875,22 @@ fn on_pull(url: Option<&str>, repo: &str, no: ChangeNo) -> Got<bool> {
         url,
         &format!("/repos/{repo}/pulls/{}", no.get()),
     ))
+}
+
+/// How an author stands to the project, from GitHub's `author_association`:
+/// its owner, a member of the owning organisation, a collaborator, or one
+/// of GitHub's words for none of these. A word this adapter does not know
+/// is `Unknown`, which counts as none of these too.
+fn relation(word: &str) -> Relation {
+    match word {
+        "OWNER" => Relation::Owner,
+        "MEMBER" => Relation::Member,
+        "COLLABORATOR" => Relation::Collaborator,
+        "CONTRIBUTOR" | "FIRST_TIME_CONTRIBUTOR" | "FIRST_TIMER" | "NONE" | "MANNEQUIN" => {
+            Relation::Outside
+        }
+        _ => Relation::Unknown,
+    }
 }
 
 /// A time of GitHub's, or `Unread(Malformed)`.
