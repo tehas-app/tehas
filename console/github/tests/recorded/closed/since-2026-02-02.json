@@ -176,7 +176,8 @@
          }
         }
        ]
-      }
+      },
+      "parent": null
      },
      {
       "number": 42,
@@ -224,7 +225,8 @@
       "closedByPullRequestsReferences": {
        "totalCount": 0,
        "nodes": []
-      }
+      },
+      "parent": null
      }
     ]
    }
