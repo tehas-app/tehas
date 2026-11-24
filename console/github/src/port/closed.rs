@@ -240,7 +240,9 @@ impl GitHub {
                 match (nodes.remove(&a), errors.as_slice()) {
                     (None, _) => Err(MALFORMED),
                     (Some(Value::Null), [e]) if e.not_found() => Err(Outcome::NotFound),
-                    (Some(node), []) if !node.is_null() => self.with_closer(*n, node),
+                    (Some(node), []) if !node.is_null() => serde_json::from_value(node)
+                        .map_err(|_| MALFORMED)
+                        .and_then(|read| self.with_closer(*n, read)),
                     _ => Err(INCONSISTENT),
                 }
             })
@@ -248,8 +250,7 @@ impl GitHub {
     }
 
     /// One issue's digest and closer, of the number asked.
-    fn with_closer(&mut self, asked: u64, node: Value) -> Got<WithCloser> {
-        let read: WithClose = serde_json::from_value(node).map_err(|_| MALFORMED)?;
+    fn with_closer(&mut self, asked: u64, read: WithClose) -> Got<WithCloser> {
         if read.node.number != Some(asked) {
             return Err(INCONSISTENT);
         }
@@ -320,7 +321,8 @@ impl GitHub {
 
     /// A closed issue as the port holds it. Its merged changes are the
     /// merged pull requests of this project GitHub lists as closing it; one
-    /// of another project has no number here and is left out.
+    /// of another project, or of none GitHub names, has no number here and
+    /// is left out.
     fn closed_ticket(&mut self, n: ClosedNode) -> Got<ClosedTicket> {
         let digest = self.digest_from(n.node)?;
         if digest.state == TicketState::Open {
@@ -345,8 +347,10 @@ impl GitHub {
         let mut merged = Vec::new();
         for r in refs.nodes {
             let r = r.ok_or(INCONSISTENT)?;
-            let repo = r.base_repository.ok_or(MALFORMED)?;
-            if !repo.name_with_owner.eq_ignore_ascii_case(&self.repo) {
+            let ours = r
+                .base_repository
+                .is_some_and(|b| b.name_with_owner.eq_ignore_ascii_case(&self.repo));
+            if !ours {
                 continue;
             }
             let change = self.pull_digest(r.pull, ChangeStates::All)?;
