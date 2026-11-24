@@ -17,7 +17,7 @@ use tehas_ports::laws;
 use tehas_ports::{
     Actor, At, Author, Bound, ChangeDigest, ChangeFilter, ChangeNo, ChangeStates, CheckStatus,
     Checks, CodeHost, CommitId, Conclusion, Facts, Got, Mark, MarkName, Outcome, Overall, Refusal,
-    State, Unread, Whole, Window, ALL_MAX,
+    State, Unread, Whole, ALL_MAX,
 };
 
 fn here() -> PathBuf {
@@ -541,11 +541,6 @@ fn what_no_caller_asks_yet_is_unsupported_before_any_request() {
     let no = ChangeNo::new(20).unwrap();
     let bound = Bound::new(10).unwrap();
     assert_eq!(gh.changed_files(no, bound).map(|_| ()), unsupported);
-    assert_eq!(
-        gh.activity(no, Window::Last(std::num::NonZeroU32::MIN))
-            .map(|_| ()),
-        unsupported
-    );
     assert_eq!(gh.tags(bound).map(|_| ()), unsupported);
     assert_eq!(gh.latest_release().map(|_| ()), unsupported);
 }

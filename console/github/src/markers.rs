@@ -84,13 +84,22 @@ pub struct Read {
 /// So another item's marker is never this ticket's, a copy of one holds
 /// nothing, and a reader still falls back to an older text.
 pub fn read(body: &str, item: Option<BlueprintNo>) -> Read {
-    located(body, item).0
+    located(body, item).read
 }
 
-/// [`read`], and beside each marker read the bytes of the body it stands
-/// on, None for one whose words stay in the text (bare, or a wrapper with
-/// no close).
-fn located(body: &str, item: Option<BlueprintNo>) -> (Read, Vec<Option<(usize, usize)>>) {
+/// [`read`] with where each marker stands in the body.
+struct Located {
+    read: Read,
+    /// Beside each marker read, the bytes of the body it stands on, None
+    /// for one whose words stay in the text (bare, or a wrapper with no
+    /// close).
+    at: Vec<Option<(usize, usize)>>,
+    /// The bytes every wrapper of this text's markers holds, read or not,
+    /// a wrapper with no close to its line's end.
+    held: Vec<(usize, usize)>,
+}
+
+fn located(body: &str, item: Option<BlueprintNo>) -> Located {
     let rows = table::marker_rows();
     let lines = lines(body);
     let dead = dead(body, &lines);
@@ -99,6 +108,15 @@ fn located(body: &str, item: Option<BlueprintNo>) -> (Read, Vec<Option<(usize, u
     found.extend(bare);
     found.sort_by_key(|f| f.at);
     let spans: Vec<(usize, usize)> = found.iter().filter_map(|f| f.span).collect();
+    let held: Vec<(usize, usize)> = found
+        .iter()
+        .filter(|f| {
+            f.marker
+                .as_ref()
+                .is_some_and(|m| !matches!(m, Marker::Bare { .. }))
+        })
+        .map(|f| f.span.unwrap_or(f.shadow))
+        .collect();
     let (mut markers, at): (Vec<Marker>, Vec<Option<(usize, usize)>>) = found
         .into_iter()
         .filter_map(|f| Some((f.marker?, f.span)))
@@ -108,7 +126,7 @@ fn located(body: &str, item: Option<BlueprintNo>) -> (Read, Vec<Option<(usize, u
         text: without(body, &lines, &spans),
         markers,
     };
-    (read, at)
+    Located { read, at, held }
 }
 
 /// Whether 1.x put a marker of this kind on a comment's first line, its
@@ -173,7 +191,7 @@ pub fn write(text: &str, markers: &[Marker], item: Option<BlueprintNo>) -> Got<S
 /// over the typed words: the caller's own text is refused whole by
 /// [`foreign_text`] first, in [`write`] and in [`edit`].
 fn loose(body: &str, item: Option<BlueprintNo>) -> usize {
-    let (read, at) = located(body, item);
+    let Located { read, at, .. } = located(body, item);
     let typed: Vec<(usize, usize)> = read
         .markers
         .iter()
@@ -291,8 +309,9 @@ fn compose(text: &str, markers: &[Marker]) -> Got<String> {
 /// [`kept`] gives it, and a result that holds more of our wrappers outside
 /// its typed markers than the body did. `Refused(Unsupported)`: a text to
 /// replace that does not stand in the body in one piece, a second marker
-/// that would have to be the first line, or a result that does not read
-/// back as asked.
+/// that would have to be the first line, a text to replace whose bytes
+/// overlap a marker's wrapper, read or not, or a result that does not
+/// read back as asked.
 pub fn edit(
     body: &str,
     text: Option<&str>,
@@ -305,7 +324,11 @@ pub fn edit(
         return Err(invalid);
     }
     let words = edit.set.iter().map(render).collect::<Got<Vec<String>>>()?;
-    let (before, at) = located(body, item);
+    let Located {
+        read: before,
+        at,
+        held,
+    } = located(body, item);
     let mut slots: Vec<Slot> = before
         .markers
         .iter()
@@ -339,7 +362,11 @@ pub fn edit(
         }
         Some(t) => {
             let s = once(body, &before.text).ok_or(unsupported.clone())?;
-            cuts.push((s, s + before.text.len(), t.to_string()));
+            let e = s + before.text.len();
+            if held.iter().any(|(a, b)| s < *b && *a < e) {
+                return Err(unsupported);
+            }
+            cuts.push((s, e, t.to_string()));
         }
         None => {}
     }

@@ -184,6 +184,19 @@ impl GitHub {
             .map_err(|why| ForgeError::new(call, why))
     }
 
+    /// [`GitHub::call`], and on a failure what gh answered beside its
+    /// reason: gh exits 1 on any GraphQL error and prints the answer, which
+    /// a question of several items reads item by item.
+    pub(crate) fn call_answer(
+        &mut self,
+        call: &str,
+        args: &[&str],
+    ) -> Result<String, (ForgeError, Option<String>)> {
+        self.runner
+            .run_answer(args)
+            .map_err(|f| (ForgeError::new(call, f.why), f.answer))
+    }
+
     /// The reason of a read that is no answer, named after the read the
     /// adapter was making: the reader's words, kept whole.
     fn reason_of(why: String) -> ForgeError {
