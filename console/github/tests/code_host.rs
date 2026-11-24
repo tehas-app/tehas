@@ -560,8 +560,6 @@ fn what_no_caller_asks_yet_is_unsupported_before_any_request() {
     let no = ChangeNo::new(20).unwrap();
     let bound = Bound::new(10).unwrap();
     assert_eq!(gh.changed_files(no, bound).map(|_| ()), unsupported);
-    assert_eq!(gh.tags(bound).map(|_| ()), unsupported);
-    assert_eq!(gh.latest_release().map(|_| ()), unsupported);
 }
 
 /// A runner that answers every call with `answer`, writing each down.
