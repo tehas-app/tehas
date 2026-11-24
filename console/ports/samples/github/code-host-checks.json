@@ -1,0 +1,960 @@
+[
+  {
+    "op": "CodeHost::checks",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/widget",
+    "fixture": "Commit e1e1... has three runs: build passed, test failed, lint running.",
+    "at": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1",
+    "name": null,
+    "answer": {
+      "Ok": {
+        "runs": [
+          {
+            "name": "build",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "test",
+            "status": {
+              "Done": "Failed"
+            }
+          },
+          {
+            "name": "lint",
+            "status": "Running"
+          }
+        ],
+        "overall": "Fail"
+      }
+    }
+  },
+  {
+    "op": "CodeHost::checks",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/widget",
+    "fixture": "Commit e1e1..., the run named test alone.",
+    "at": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1",
+    "name": "test",
+    "answer": {
+      "Ok": {
+        "runs": [
+          {
+            "name": "test",
+            "status": {
+              "Done": "Failed"
+            }
+          }
+        ],
+        "overall": "Fail"
+      }
+    }
+  },
+  {
+    "op": "CodeHost::checks",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/widget",
+    "fixture": "Commit e2e2... has build passed, docs skipped and advice neutral.",
+    "at": "e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2",
+    "name": null,
+    "answer": {
+      "Ok": {
+        "runs": [
+          {
+            "name": "build",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "docs",
+            "status": {
+              "Done": "Skipped"
+            }
+          },
+          {
+            "name": "advice",
+            "status": {
+              "Done": "Passed"
+            }
+          }
+        ],
+        "overall": "Pass"
+      }
+    }
+  },
+  {
+    "op": "CodeHost::checks",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/widget",
+    "fixture": "Commit e3e3... has no run.",
+    "at": "e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3",
+    "name": null,
+    "answer": {
+      "Ok": {
+        "runs": [],
+        "overall": "None"
+      }
+    }
+  },
+  {
+    "op": "CodeHost::checks",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/widget",
+    "fixture": "Commit e4e4... has build queued and test running.",
+    "at": "e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4",
+    "name": null,
+    "answer": {
+      "Ok": {
+        "runs": [
+          {
+            "name": "build",
+            "status": "Queued"
+          },
+          {
+            "name": "test",
+            "status": "Running"
+          }
+        ],
+        "overall": "Pending"
+      }
+    }
+  },
+  {
+    "op": "CodeHost::checks",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/widget",
+    "fixture": "Commit e5e5... has build passed, deploy waiting on an action and e2e cancelled.",
+    "at": "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5",
+    "name": null,
+    "answer": {
+      "Ok": {
+        "runs": [
+          {
+            "name": "build",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "deploy",
+            "status": {
+              "Done": "Unknown"
+            }
+          },
+          {
+            "name": "e2e",
+            "status": {
+              "Done": "Cancelled"
+            }
+          }
+        ],
+        "overall": "Unknown"
+      }
+    }
+  },
+  {
+    "op": "CodeHost::checks",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/widget",
+    "fixture": "Commit e6e6... has 101 runs, two pages of the site's, every one passed.",
+    "at": "e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6",
+    "name": null,
+    "answer": {
+      "Ok": {
+        "runs": [
+          {
+            "name": "shard-1",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-2",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-3",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-4",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-5",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-6",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-7",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-8",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-9",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-10",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-11",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-12",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-13",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-14",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-15",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-16",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-17",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-18",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-19",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-20",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-21",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-22",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-23",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-24",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-25",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-26",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-27",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-28",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-29",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-30",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-31",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-32",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-33",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-34",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-35",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-36",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-37",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-38",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-39",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-40",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-41",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-42",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-43",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-44",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-45",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-46",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-47",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-48",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-49",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-50",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-51",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-52",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-53",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-54",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-55",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-56",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-57",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-58",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-59",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-60",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-61",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-62",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-63",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-64",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-65",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-66",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-67",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-68",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-69",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-70",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-71",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-72",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-73",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-74",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-75",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-76",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-77",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-78",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-79",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-80",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-81",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-82",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-83",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-84",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-85",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-86",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-87",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-88",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-89",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-90",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-91",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-92",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-93",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-94",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-95",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-96",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-97",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-98",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-99",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-100",
+            "status": {
+              "Done": "Passed"
+            }
+          },
+          {
+            "name": "shard-101",
+            "status": {
+              "Done": "Passed"
+            }
+          }
+        ],
+        "overall": "Pass"
+      }
+    }
+  },
+  {
+    "op": "CodeHost::checks",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/widget",
+    "fixture": "Commit e7e7...: the site says it holds three runs and gives two.",
+    "at": "e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7",
+    "name": null,
+    "answer": {
+      "Err": {
+        "Unread": "Inconsistent"
+      }
+    }
+  },
+  {
+    "op": "CodeHost::checks",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/widget",
+    "fixture": "Commit e8e8... is not in the project.",
+    "at": "e8e8e8e8e8e8e8e8e8e8e8e8e8e8e8e8e8e8e8e8",
+    "name": null,
+    "answer": {
+      "Err": "NotFound"
+    }
+  },
+  {
+    "op": "CodeHost::checks",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/gone",
+    "fixture": "acme/gone is not there, or not visible to the actor.",
+    "at": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1",
+    "name": null,
+    "answer": {
+      "Err": "NotFound"
+    }
+  },
+  {
+    "op": "CodeHost::checks",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/forbidden",
+    "fixture": "The actor may not read acme/forbidden.",
+    "at": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1",
+    "name": null,
+    "answer": {
+      "Err": "Forbidden"
+    }
+  },
+  {
+    "op": "CodeHost::checks",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/spent",
+    "fixture": "The site answers that the rate is limited.",
+    "at": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1",
+    "name": null,
+    "answer": {
+      "Err": {
+        "Spent": {
+          "pool": "Calls",
+          "until": 1767225600
+        }
+      }
+    }
+  },
+  {
+    "op": "CodeHost::checks",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/down",
+    "fixture": "The site fails on its side.",
+    "at": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1",
+    "name": null,
+    "answer": {
+      "Err": {
+        "Unavailable": {
+          "why": "Server",
+          "sent": "Maybe"
+        }
+      }
+    }
+  },
+  {
+    "op": "CodeHost::checks",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/slow",
+    "fixture": "The site does not answer within the time limit.",
+    "at": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1",
+    "name": null,
+    "answer": {
+      "Err": {
+        "Unavailable": {
+          "why": "Timeout",
+          "sent": "Maybe"
+        }
+      }
+    }
+  },
+  {
+    "op": "CodeHost::checks",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/garbled",
+    "fixture": "The answer is cut off in transit.",
+    "at": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1",
+    "name": null,
+    "answer": {
+      "Err": {
+        "Unread": "Malformed"
+      }
+    }
+  },
+  {
+    "op": "CodeHost::checks",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/widget",
+    "fixture": "Commit e9e9...: the site's second page holds a run of its first page again.",
+    "at": "e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9",
+    "name": null,
+    "answer": {
+      "Err": {
+        "Unread": "Inconsistent"
+      }
+    }
+  },
+  {
+    "op": "CodeHost::checks",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/widget",
+    "fixture": "Commit eaea...: the site says three runs on its first page and four on its second.",
+    "at": "eaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaea",
+    "name": null,
+    "answer": {
+      "Err": {
+        "Unread": "Inconsistent"
+      }
+    }
+  },
+  {
+    "op": "CodeHost::checks",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/widget",
+    "fixture": "Commit ebeb... has 1001 runs, more than a list is read whole to.",
+    "at": "ebebebebebebebebebebebebebebebebebebebeb",
+    "name": null,
+    "answer": {
+      "Err": {
+        "Unread": "Cut"
+      }
+    }
+  }
+]
