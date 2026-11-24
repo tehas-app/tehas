@@ -1,0 +1,1 @@
+| 2026-11-24 | T7 (cycle), first pull request: the runner's result and its outcome, the lines of its stream, the progress summary, the caps answer and the driver's work state are read into types where they are read, by jq's rules for a field of another type (tehas_cycle::loose); untyped-signatures 1194 to 1147 (47 fewer), untyped-fields 28 to 26 | v2/t7-cycle-1 |

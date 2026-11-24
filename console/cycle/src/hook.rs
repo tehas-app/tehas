@@ -24,7 +24,7 @@ const START_BOUND: Duration = Duration::from_secs(30);
 
 /// Each request written and its unit started by `start`. A failure is logged
 /// and the next is asked all the same.
-pub fn ask_each(
+fn ask_each(
     home: &Path,
     issue: u64,
     asked: &[(String, HookAsk)],

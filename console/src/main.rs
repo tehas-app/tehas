@@ -418,6 +418,21 @@ mod wiring {
         Box::new(tehas_github::GitHub::new(repo, runner))
     }
 
+    /// The board handle of `tehas plugin hook`, from the adapter's site
+    /// acting as the factory's account, which the adapter answers `Ours` by
+    /// the bot's recorded id. The gh it runs is the one the command names.
+    pub(crate) fn board(
+        a: &tehas_ops::plugin::HandleAsk,
+    ) -> tehas_ports::Got<Box<dyn tehas_ports::Board + Send>> {
+        use tehas_ports::{Actor, Caller, Scope, Site};
+        let (program, bound) = (a.program.to_string(), a.bound);
+        let make: tehas_github::MakeRunner = std::sync::Arc::new(move |_| {
+            Ok(Box::new(Bounded::new(&program, bound)) as Box<dyn tehas_core::forge::GhRunner>)
+        });
+        let site = tehas_github::GitHubSite::new(a.repo, a.bot, Some(a.bot_id), make);
+        site.board(&Actor::Ours(Scope::Full), Caller::new("plugin-hook"))
+    }
+
     /// The blueprints handles on `repo` as the factory, asking the site
     /// through `program`, each call in `bound`: the site knows the factory's
     /// account by what `home` records of its bot.
