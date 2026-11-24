@@ -40,6 +40,12 @@ method no command asks yet answers `Refused(Unsupported)` before any call.
 | `prepare()` | `tehas labels` | `gh label create <name> --repo <owner>/<name> --color <c> --description <d> --force` for each row of `host/labels.tsv`, compiled into the adapter. A label that cannot be made stops none of the others; the first that failed is the answer, with its name (`Unprepared`). |
 | `ensure_mark(spec)` | nothing yet | The same call for one label, with the colour and text the spec gives. |
 | `mark(key, mark)`, `unmark(key, mark)` | `unmark`: `tehas stop`, the running mark | `add_label` and `remove_label` below, of the mark's label. |
+| `close(key, reason)` | nothing yet (T4.7) | The issue read, then `PATCH repos/<owner>/<name>/issues/<n>` of `state` and `state_reason` (`completed`, `not_planned`, `duplicate`). A closed issue is done with nothing sent. |
+| `assign(key, who)` | nothing yet (T4.7) | `GET user/<id>` for the account's login, then `POST repos/<owner>/<name>/issues/<n>/assignees`. GitHub answers 201 and drops a login it cannot assign, so the answer's assignees are read: the account missing is `Refused(Invalid)`. A bot or an organisation is `Refused(Invalid)` with nothing sent. |
+| `add_part(parent, child)` | nothing yet (T4.7) | `GET repos/<owner>/<name>/issues/<child>/parent`: already this parent's part is done, another parent's is `Refused(Invalid)` and never moved. Else the child's issue read for its id, then `POST repos/<owner>/<name>/issues/<parent>/sub_issues`. |
+
+A write GitHub refuses with 422 made nothing: it answers `Refused(Invalid)`,
+never a write that may have been sent.
 
 ## The adapter's terms
 

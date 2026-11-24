@@ -178,9 +178,10 @@ fn a_poll_that_starts_a_cycle_journaled_its_children_without_the_polls_lock_its_
     has(&r.out, "start #7 (labelled by alice)");
     assert!(w.t().join("calls/fake-start").exists());
     assert!(!w.t().join("calls/start.fd8").exists());
-    has(
-        &w.gh(),
-        "issue edit 7 --repo acme/widget --add-label tehas:running",
+    assert!(
+        w.on(7, tehas_ports::Mark::State(tehas_ports::State::Running)),
+        "{:?}",
+        w.writes_of(7)
     );
     // Every write of the start was journaled and settled: none is left open.
     assert_eq!(w.row(&["journal-open"])["actions"], serde_json::json!([]));

@@ -9,6 +9,7 @@ use serde_json::json;
 use std::fs;
 use std::process::{Command, Stdio};
 use tehas_core::testing::{copy_exe, write_exe};
+use tehas_ports::{Mark, State};
 
 fn started(w: &World) -> String {
     w.calls("fake-start").trim_end().to_string()
@@ -66,6 +67,7 @@ fn a_retry_tick_on_an_issue_whose_cycle_was_an_epic_starts_nothing_and_the_tick_
     // No label of tehas's on it is theirs to take, and the tick stays for a
     // person to deal with.
     lacks(&w.gh(), "issue edit 7");
+    assert_eq!(w.marks(Some(7)), 0);
     assert_eq!(w.notes(7), 0);
     lacks(&w.gh(), "api -X PATCH");
     assert_eq!(w.park_q(7), "4001");
@@ -83,6 +85,7 @@ fn and_a_dry_run_of_that_tick_says_the_same_and_changes_nothing() {
     );
     lacks(&r.out, "would run a cycle");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     lacks(&w.gh(), "api -X");
     assert_eq!(w.park_q(7), "4001");
 }
@@ -136,6 +139,7 @@ fn a_start_whose_question_cannot_be_taken_off_the_record_starts_nothing_and_its_
     has(&r.out, "ERROR: #7: the question of its park could not be taken off the record (busy), not starting a cycle");
     assert_eq!(started(&w), "");
     lacks(&w.gh(), "issue edit 7");
+    assert_eq!(w.marks(Some(7)), 0);
     lacks(&w.gh(), "api -X PATCH");
     assert_eq!(w.park_q(7), "4001");
     assert_eq!(row(&w, &["approval-current", "7"], ".approval"), "null");
@@ -205,6 +209,7 @@ fn a_retry_ticked_on_an_issue_that_is_not_parked_starts_nothing() {
         assert_eq!(started(&w), "", "{have}");
         let gh = w.gh();
         lacks(&gh, "issue edit");
+        assert_eq!(w.marks(None), 0);
         // The note answers the reply, so a later poll reads it no more.
         lacks(&gh, "api -X PATCH");
         assert!(
@@ -232,6 +237,7 @@ fn a_retry_tick_on_an_issue_closed_since_its_cycle_stopped_starts_nothing() {
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(started(&w), "");
     lacks(&w.gh(), "issue edit 7");
+    assert_eq!(w.marks(Some(7)), 0);
     lacks(&w.gh(), "api -X PATCH");
     assert_eq!(w.park_q(7), "4001");
 }
@@ -265,6 +271,7 @@ fn a_bot_comment_with_a_park_marker_that_the_host_has_no_record_of_starts_nothin
     assert_eq!(started(&w), "");
     let gh = w.gh();
     lacks(&gh, "issue edit");
+    assert_eq!(w.marks(None), 0);
     lacks(&gh, "api -X PATCH");
     assert!(
         w.said_on(
@@ -387,9 +394,10 @@ fn retry_is_the_ticked_lines_text_not_its_place() {
     w.comments(7, &swapped("x", " "), "alice", json!([]));
     w.poll();
     assert_eq!(started(&w), "");
-    has(
-        &w.gh(),
-        "issue edit 7 --repo acme/widget --remove-label tehas:question",
+    assert!(
+        w.off(7, Mark::State(State::Question)),
+        "{:?}",
+        w.writes_of(7)
     );
     w.parked("failed", "alice");
     w.comments(7, &swapped(" ", "x"), "alice", json!([]));
