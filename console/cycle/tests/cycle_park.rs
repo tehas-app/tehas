@@ -400,7 +400,7 @@ fn a_handoff_no_pull_request_carries_is_posted_once_by_the_host() {
         handed_off(w, "verify-timeout:develop", &f);
         w.work(LOG);
     };
-    let (w, r, _) = twin("park-handoff", &setup);
+    let (w, r, _) = twin("park-handoff", setup);
     assert_eq!(r.rc, 0);
     assert_eq!(history_last(&w)["cap"], "verify-timeout:develop");
     // The report posts the handoff once, in its question, and it reached the
