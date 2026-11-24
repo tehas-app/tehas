@@ -95,7 +95,9 @@ impl GhRunner for Stub {
 
 fn blockers(inner: &str) -> (Result<Vec<Blocker>, Outcome>, Asked) {
     let asked = Asked::default();
-    let answer = format!(r#"{{"data":{{"repository":{{"issue":{{"number":7{inner}}}}}}}}}"#);
+    let answer = format!(
+        r#"{{"data":{{"repository":{{"databaseId":7001,"issue":{{"number":7{inner}}}}}}}}}"#
+    );
     let stub = Stub {
         answers: vec![answer],
         asked: Arc::clone(&asked),
@@ -104,8 +106,13 @@ fn blockers(inner: &str) -> (Result<Vec<Blocker>, Outcome>, Asked) {
     (gh.blockers(&key(7)).map(|w| w.into_items()), asked)
 }
 
+/// An issue another names, its repository known by its id: this
+/// project's for `acme/widget`.
 fn named(n: &str, state: &str, repo: &str) -> String {
-    format!(r#"{{"number":{n},"state":"{state}","repository":{{"nameWithOwner":"{repo}"}}}}"#)
+    let id = if repo == PROJECT { 7001 } else { 7100 };
+    format!(
+        r#"{{"number":{n},"state":"{state}","repository":{{"databaseId":{id},"nameWithOwner":"{repo}"}}}}"#
+    )
 }
 
 fn links(total: u64, nodes: &[String]) -> String {
@@ -155,7 +162,9 @@ fn a_list_that_does_not_add_up_is_unread() {
         blockers(&links(1, &["null".to_string()])).0,
         Err(INCONSISTENT)
     );
-    let nameless = r#"{"state":"OPEN","repository":{"nameWithOwner":"acme/widget"}}"#.to_string();
+    let nameless =
+        r#"{"state":"OPEN","repository":{"databaseId":7001,"nameWithOwner":"acme/widget"}}"#
+            .to_string();
     assert_eq!(blockers(&links(1, &[nameless])).0, Err(INCONSISTENT));
     assert_eq!(
         blockers(&links(1, &[named("4", "MERGED", "acme/widget")])).0,

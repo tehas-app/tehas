@@ -55,7 +55,7 @@ t_stub gh '[ -n "${GH_TOKEN:-}" ] || { echo "gh: not logged in" >&2; exit 4; }
 [ "$1 $2" != "api users/alice" ] || printf "%s\n" "$GH_TOKEN" >"$T/gh-token"'
 rm -f "$T/gh-token"
 t_run "$install"
-t_eq "$(cat "$th/state/account-ids")" "alice $(t_uid alice)"
+t_eq "$(cat "$th/state/account-ids")" "code-host alice $(t_uid alice)"
 t_eq "$(cat "$T/gh-token")" "ghs_minted"
 t_eq "$t_rc" 0
 t_lacks "$t_out" "ghs_minted"
