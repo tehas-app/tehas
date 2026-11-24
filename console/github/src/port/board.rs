@@ -51,7 +51,7 @@ const CHANGES: &str = "query($owner: String!, $name: String!, $cursor: String{HE
 /// bounds are filled in by [`pull_fields`].
 const PULL: &str = "number title url state isDraft isCrossRepository headRefName headRefOid baseRefName baseRefOid mergeable mergeStateStatus createdAt updatedAt lastEditedAt mergedAt closedAt additions deletions changedFiles author { {ACCOUNT} } editor { {ACCOUNT} } mergedBy { {ACCOUNT} } mergeCommit { oid } renames: timelineItems(itemTypes: [RENAMED_TITLE_EVENT], last: 1) { nodes { ... on RenamedTitleEvent { createdAt actor { {ACCOUNT} } } } } labels(first: {LABELS_MAX}) { totalCount nodes { name } } closingIssuesReferences(first: {CLOSES_MAX}) { totalCount nodes { number repository { nameWithOwner } } }";
 
-fn pull_fields() -> String {
+pub(super) fn pull_fields() -> String {
     PULL.replace("{LABELS_MAX}", &LABELS_MAX.to_string())
         .replace("{CLOSES_MAX}", &CLOSES_MAX.to_string())
         .replace("{ACCOUNT}", ACCOUNT)
@@ -329,7 +329,7 @@ impl GitHub {
 
     /// A pull request as a change's digest, in the states asked. A node of
     /// another state, or with no number, does not add up.
-    fn pull_digest(&mut self, p: Pull, asked: ChangeStates) -> Got<ChangeDigest> {
+    pub(super) fn pull_digest(&mut self, p: Pull, asked: ChangeStates) -> Got<ChangeDigest> {
         let no = p
             .number
             .and_then(ChangeNo::new)
@@ -577,7 +577,7 @@ struct Nodes<T> {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Pull {
+pub(super) struct Pull {
     number: Option<u64>,
     title: String,
     url: String,

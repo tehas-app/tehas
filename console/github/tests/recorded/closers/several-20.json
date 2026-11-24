@@ -1,0 +1,120 @@
+{
+ "data": {
+  "repository": {
+   "i20": {
+    "number": 20,
+    "title": "Ship the importer",
+    "body": "Import the old data.\r\n\r\n> <!-- tehas:blocked by=99 -->\r\n\r\ntehas:blocked by=23\r\n\r\n<!-- tehas:blocked by=23 -->\r\n",
+    "state": "CLOSED",
+    "stateReason": "COMPLETED",
+    "url": "https://github.com/acme/widget/issues/20",
+    "createdAt": "2026-02-01T09:00:00Z",
+    "updatedAt": "2026-02-03T12:00:00Z",
+    "author": {
+     "__typename": "User",
+     "login": "alice",
+     "databaseId": 101
+    },
+    "issueType": {
+     "name": "Feature"
+    },
+    "milestone": {
+     "number": 3,
+     "title": "v2"
+    },
+    "labels": {
+     "totalCount": 3,
+     "nodes": [
+      {
+       "name": "bug"
+      },
+      {
+       "name": "tehas:shipped"
+      },
+      {
+       "name": "not a label?"
+      }
+     ]
+    },
+    "closes": {
+     "nodes": [
+      {
+       "__typename": "ClosedEvent",
+       "createdAt": "2026-02-03T11:00:00Z",
+       "actor": {
+        "__typename": "Bot",
+        "login": "tehas-bot",
+        "databaseId": 900
+       },
+       "stateReason": "COMPLETED",
+       "closer": {
+        "__typename": "PullRequest",
+        "number": 31,
+        "merged": true,
+        "repository": {
+         "nameWithOwner": "acme/widget"
+        }
+       }
+      }
+     ]
+    }
+   },
+   "i21": {
+    "number": 21,
+    "title": "Read the old export",
+    "body": "A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. ",
+    "state": "OPEN",
+    "stateReason": null,
+    "url": "https://github.com/acme/widget/issues/21",
+    "createdAt": "2026-02-01T10:00:00Z",
+    "updatedAt": "2026-02-01T10:00:30Z",
+    "author": {
+     "__typename": "User",
+     "login": "Bob",
+     "databaseId": 102
+    },
+    "issueType": null,
+    "milestone": null,
+    "labels": {
+     "totalCount": 1,
+     "nodes": [
+      {
+       "name": "tehas:ready"
+      }
+     ]
+    },
+    "closes": {
+     "nodes": []
+    }
+   },
+   "i25": {
+    "number": 25,
+    "title": "Hold the line",
+    "body": "",
+    "state": "OPEN",
+    "stateReason": null,
+    "url": "https://github.com/acme/widget/issues/25",
+    "createdAt": "2026-02-02T00:00:00Z",
+    "updatedAt": "2026-02-02T01:43:00Z",
+    "author": {
+     "__typename": "User",
+     "login": "alice",
+     "databaseId": 101
+    },
+    "issueType": null,
+    "milestone": null,
+    "labels": {
+     "totalCount": 1,
+     "nodes": [
+      {
+       "name": "tehas:pause"
+      }
+     ]
+    },
+    "closes": {
+     "nodes": []
+    }
+   }
+  }
+ }
+}
