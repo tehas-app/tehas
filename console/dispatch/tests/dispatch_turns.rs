@@ -3,6 +3,7 @@
 
 mod common;
 
+use common::Part::{Off, On};
 use common::*;
 use serde_json::{json, Value};
 use std::fs::{self, OpenOptions};
@@ -109,9 +110,16 @@ fn a_question_that_posted_but_could_not_be_labelled_is_not_lost() {
     w.fx("asking.json", "[]");
     w.poll();
     assert_eq!(holding(&w.gh(), "issues/7/comments"), 0);
-    has(
-        &w.gh(),
-        "--remove-label tehas:planning --add-label tehas:question",
+    assert!(
+        w.changes(
+            7,
+            &[
+                Off(Mark::State(State::Planning)),
+                On(Mark::State(State::Question))
+            ]
+        ),
+        "{:?}",
+        w.writes_of(7)
     );
     assert_eq!(w.rec()["pending"], json!(false));
     assert!(!beside(&w, ".out").exists());
@@ -123,9 +131,16 @@ fn a_later_turn_cut_off_by_a_restart_is_reported_and_can_be_answered() {
     cut_off_later_turn(&w);
     w.poll();
     has(&w.gh(), "This planning turn did not finish: it was cut off");
-    has(
-        &w.gh(),
-        "--add-label tehas:question --add-label needs-human-attention",
+    assert!(
+        w.changes(
+            7,
+            &[
+                On(Mark::State(State::Question)),
+                On(Mark::State(State::NeedsPerson))
+            ]
+        ),
+        "{:?}",
+        w.writes_of(7)
     );
     assert_eq!(
         rec_jq(&w, "[.session, .turns, .failed, .running]"),
@@ -317,9 +332,16 @@ fn a_first_turn_cut_off_by_a_restart_ends_visibly() {
     w.fx("asking.json", "[]");
     w.t_plan(7, json!({"turns": 0, "running": true}));
     w.poll();
-    has(
-        &w.gh(),
-        "--remove-label tehas:planning --add-label needs-human-attention",
+    assert!(
+        w.changes(
+            7,
+            &[
+                Off(Mark::State(State::Planning)),
+                On(Mark::State(State::NeedsPerson))
+            ]
+        ),
+        "{:?}",
+        w.writes_of(7)
     );
     has(&w.gh(), "could not start");
     assert_eq!(w.rec_open(), "none");
@@ -373,7 +395,11 @@ fn the_end_of_a_session_is_said_once() {
     w.rm_fx("edit-fails-on");
     w.poll();
     assert_eq!(holding(&w.gh(), "Planning session ended by alice."), 1);
-    has(&w.gh(), "--remove-label needs-human-attention");
+    assert!(
+        w.changes(7, &[Off(Mark::State(State::NeedsPerson))]),
+        "{:?}",
+        w.writes_of(7)
+    );
     assert_eq!(w.rec_open(), "none");
 }
 
@@ -399,7 +425,7 @@ fn the_bot_is_refused_as_an_allowed_labeller_even_with_no_question_open() {
         "the bot account tehas-bot[bot] is in TEHAS_ALLOWED_LABELERS",
     );
     assert_eq!(w.calls("fake-start"), "");
-    lacks(&w.gh(), "issue edit");
+    assert!(w.untouched(), "{:?}", w.writes_of(7));
     assert_eq!(w.marks(None), 0);
 }
 
@@ -411,7 +437,7 @@ fn a_bot_login_that_is_not_kept_ends_the_poll_before_anything_is_written() {
     let r = w.poll();
     assert_eq!(r.rc, 1, "{}", r.out);
     has(&r.out, "ERROR: the bot's own login could not be read");
-    lacks(&w.gh(), "issue edit");
+    assert!(w.untouched(), "{:?}", w.writes_of(7));
     assert_eq!(w.marks(None), 0);
     assert_eq!(w.notes_any(), 0);
     assert_eq!(w.calls("fake-start"), "");
