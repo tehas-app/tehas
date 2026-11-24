@@ -147,10 +147,7 @@ type Rule = fn(&[LabelEvent<(), ()>], &()) -> Option<usize>;
 /// Which of `v` a rule of the grant decision answers. Its accounts are
 /// vouched for and its applications judged by the pins already, when the
 /// read was made, so the rule reads the order and the changes alone.
-fn decided<T>(
-    v: &[(&T, Change)],
-    rule: Rule,
-) -> Option<usize> {
+fn decided<T>(v: &[(&T, Change)], rule: Rule) -> Option<usize> {
     let timeline: Vec<LabelEvent<(), ()>> = v
         .iter()
         .map(|&(_, change)| LabelEvent {
@@ -165,10 +162,7 @@ fn decided<T>(
 
 /// The account and time of the event of `v` a rule answers, or empty
 /// strings.
-fn named(
-    v: &[(&Event, Change)],
-    rule: Rule,
-) -> (String, String) {
+fn named(v: &[(&Event, Change)], rule: Rule) -> (String, String) {
     match decided(v, rule).map(|i| v[i].0) {
         Some(e) => (e.actor.clone(), e.at.clone().unwrap_or_default()),
         None => (String::new(), String::new()),
