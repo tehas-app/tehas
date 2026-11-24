@@ -20,7 +20,7 @@ use std::time::Instant;
 use tehas_core::home::{Home, State, TokenDir};
 
 /// The schema this build's store writes.
-const SCHEMA: u64 = 31;
+const SCHEMA: u64 = 32;
 
 /// A host as the shell's reset() leaves it: both homes made at v0.17.0, a
 /// systemctl that lists `$T/units`, and git a stub that does nothing.
