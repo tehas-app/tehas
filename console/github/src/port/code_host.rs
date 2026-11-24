@@ -7,6 +7,7 @@
 //! reader of this adapter takes out yet.
 
 use std::collections::BTreeSet;
+use std::num::NonZeroU32;
 
 use super::mergeable::mergeable;
 use super::unsupported;
@@ -176,11 +177,19 @@ impl CodeHost for GitHub {
         unsupported()
     }
 
+    fn recent_tags(&mut self, _: NonZeroU32) -> Got<Took<Tag>> {
+        unsupported()
+    }
+
     fn resolve_tag(&mut self, _: &TagName) -> Got<CommitId> {
         unsupported()
     }
 
     fn releases(&mut self, _: Bound) -> Got<Whole<Release>> {
+        unsupported()
+    }
+
+    fn recent_releases(&mut self, _: NonZeroU32) -> Got<Took<Release>> {
         unsupported()
     }
 
