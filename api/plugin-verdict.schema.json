@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/tehas-app/tehas/api/plugin-verdict.schema.json",
+  "$id": "https://github.com/tehas-app/tehas-factory/api/plugin-verdict.schema.json",
   "title": "/out/_tehas/verdict.json",
   "description": "What a plugin's hook leaves in /out/_tehas/verdict.json, at most 64 KiB, read through the tar reader. Plugins are a feature still being built, so this is not contract until the release that ships them. verdict is pass or note; fail is v2 and is read as note. summary is one line, at most 140 characters. findings are at most 20: file a relative path in the product, line 1 or more, text one line of at most 300 characters; file and line may be left out. A verdict that breaks this schema is a hook that did not finish. The reader is console/core/src/plugin/verdict.rs; its tests hold it and the samples beside this file to this schema.",
   "type": "object",

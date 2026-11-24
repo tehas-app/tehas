@@ -24,7 +24,7 @@ check() { # <json file>: the lines test/schema.jq prints for it
 
 t_case "the schema is JSON Schema 2020-12 and every object of it is closed"
 t_eq "$(jq -r '."$schema"' "$schema")" "https://json-schema.org/draft/2020-12/schema"
-t_eq "$(jq -r '."$id"' "$schema")" "https://github.com/tehas-app/tehas/api/settings-rules.schema.json"
+t_eq "$(jq -r '."$id"' "$schema")" "https://github.com/tehas-app/tehas-factory/api/settings-rules.schema.json"
 t_eq "$(jq -c '[.. | objects | select(.type == "object") | .additionalProperties] | unique' "$schema")" '[false]'
 
 t_case "api/settings-rules.json fits the schema"

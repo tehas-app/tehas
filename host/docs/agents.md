@@ -26,7 +26,7 @@ Read http://<this host>/llms.txt, then set tehas up for this repository. Ask me 
 ```
 
 Away from this host, start from the README of the
-[public repository](https://github.com/tehas-app/tehas) instead. A running factory
+[public repository](https://github.com/tehas-app/tehas-factory) instead. A running factory
 to look at is the public dashboard at <https://tehas.app/>.
 
 ## What an agent can read here
