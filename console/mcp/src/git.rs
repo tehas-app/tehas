@@ -10,12 +10,15 @@
 //! Commit messages, diffs and lines of code were written by people and
 //! agents: each answer is masked as a log is and says it is third-party text.
 
+use crate::args::{Arg, Args, Shape};
 use crate::tools::Scope;
 use gix::bstr::{BStr, ByteSlice};
 use gix::diff::blob::unified_diff::{ConsumeBinaryHunk, ContextSize};
 use gix::diff::blob::{Algorithm, Diff, InternedInput, UnifiedDiff};
 use gix::ObjectId;
-use serde_json::{json, Map, Value};
+use serde::Serialize;
+use serde_json::{json, Value};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use tehas_core::{mask, time};
@@ -96,17 +99,109 @@ pub fn ask(socket: &Path) -> bool {
 
 /// The fetch's report as an answer gives it: when, whether it worked, and
 /// its error, masked. None when there is no report or it cannot be read.
-pub fn fetch_report(dir: &Path) -> Option<Value> {
+pub fn fetch_report(dir: &Path) -> Option<FetchReport> {
     let text = std::fs::read(dir.join(FETCH_FILE)).ok()?;
     let v: Value = serde_json::from_slice(&text).ok()?;
-    let mut o = Map::new();
     let time = v["time"].as_str().filter(|t| time::iso_shaped(t))?;
-    o.insert("time".into(), json!(time));
-    o.insert("ok".into(), json!(v["ok"].as_bool()?));
-    if let Some(e) = v["error"].as_str() {
-        o.insert("error".into(), json!(clean(e, LINE_MAX)));
-    }
-    Some(Value::Object(o))
+    Some(FetchReport {
+        time: time.to_string(),
+        ok: v["ok"].as_bool()?,
+        error: v["error"].as_str().map(|e| clean(e, LINE_MAX)),
+    })
+}
+
+/// The fetch's report, as an answer gives it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct FetchReport {
+    pub time: String,
+    pub ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// What a tool of the checkout answers: its own part, and what every answer
+/// carries.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Answer {
+    pub api: u8,
+    pub head: String,
+    pub untrusted: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checkout_updated: Option<Updated>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fetch: Option<FetchReport>,
+    #[serde(flatten)]
+    pub part: Part,
+}
+
+/// The part of an answer that is the tool's own.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(untagged)]
+pub enum Part {
+    Log {
+        commits: Vec<Commit>,
+        more: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        next: Option<String>,
+    },
+    Show {
+        #[serde(flatten)]
+        commit: Commit,
+        files: Vec<FileChange>,
+        diff: String,
+        cut: bool,
+    },
+    Blame {
+        path: String,
+        lines: Vec<BlameLine>,
+        commits: BTreeMap<String, Blamed>,
+        total: u32,
+    },
+}
+
+/// The checkout moved from the `seen` a client gave to its head.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Updated {
+    pub from: String,
+    pub to: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commits: Option<usize>,
+}
+
+/// One commit as an answer names it. The author is the name only: an address
+/// is a person's, and the history does not need it to say who.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Commit {
+    pub commit: String,
+    pub parents: Vec<String>,
+    #[serde(flatten)]
+    pub said: Blamed,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
+}
+
+/// What a commit says of itself: its author, time and subject.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Blamed {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub time: Option<String>,
+    pub subject: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct FileChange {
+    pub path: String,
+    pub change: &'static str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct BlameLine {
+    pub line: u32,
+    pub commit: String,
+    pub text: String,
 }
 
 /// The checkout at `dir`, opened with no config but its own file: not the
@@ -208,66 +303,64 @@ fn entries_in(scope: Scope, checkout: bool) -> Vec<Value> {
 }
 
 /// One call of a tool `serves` admits. The error is the tool error's text.
-pub fn call(name: &str, args: &Value) -> Result<Value, String> {
+pub fn call(name: &str, args: &Args) -> Result<Answer, String> {
     let dir = CHECKOUT.get().ok_or("the server has no checkout")?;
     let repo = open(dir).map_err(|_| "the checkout cannot be read now".to_string())?;
-    let mut v = call_in(&repo, name, args)?;
-    if let Some(report) = FETCH.get().and_then(|(_, d)| fetch_report(d)) {
-        v["fetch"] = report;
-    }
-    Ok(v)
+    let mut a = call_in(&repo, name, args)?;
+    a.fetch = FETCH.get().and_then(|(_, d)| fetch_report(d));
+    Ok(a)
 }
 
-pub fn call_in(repo: &gix::Repository, name: &str, args: &Value) -> Result<Value, String> {
+pub fn call_in(repo: &gix::Repository, name: &str, args: &Args) -> Result<Answer, String> {
     let known: &[&str] = match name {
         LOG => &["path", "grep", "limit", "after", "seen"],
         SHOW => &["commit", "seen"],
         BLAME => &["path", "start", "end", "seen"],
         _ => return Err(format!("{name} is no tool of the checkout")),
     };
-    if let Some(o) = args.as_object() {
-        if let Some(k) = o.keys().find(|k| !known.contains(&k.as_str())) {
-            return Err(format!("{k} is not an argument of {name}"));
+    match args.shape() {
+        Shape::Object => {
+            if let Some(k) = args.keys().find(|k| !known.contains(k)) {
+                return Err(format!("{k} is not an argument of {name}"));
+            }
         }
-    } else if !args.is_null() {
-        return Err("the arguments are not an object".into());
+        Shape::Nothing => {}
+        Shape::Other => return Err("the arguments are not an object".into()),
     }
     let head = repo
         .head_id()
         .map_err(|_| "the checkout has no commit at HEAD".to_string())?
         .detach();
-    let mut out = match name {
+    let part = match name {
         LOG => log(repo, head, args)?,
         SHOW => show(repo, args)?,
         _ => blame(repo, head, args)?,
     };
-    if !args["seen"].is_null() {
-        if !args["seen"].as_str().is_some_and(hex_id) {
-            return Err("seen is a commit id of 7 to 40 lowercase hex digits".into());
-        }
-        let seen = commit_id(repo, &args["seen"], "seen").ok();
-        if seen != Some(head) {
-            out.insert(
-                "checkoutUpdated".into(),
-                updated(repo, head, seen, &args["seen"]),
-            );
-        }
-    }
-    out.insert("api".into(), json!(1));
-    out.insert("head".into(), json!(head.to_string()));
-    out.insert("untrusted".into(), json!(UNTRUSTED));
-    Ok(Value::Object(out))
+    let seen = args.get("seen");
+    let checkout_updated = if seen.is_absent() {
+        None
+    } else {
+        let given = seen
+            .text()
+            .filter(|s| hex_id(s))
+            .ok_or("seen is a commit id of 7 to 40 lowercase hex digits")?;
+        let seen = commit_id(repo, &seen, "seen").ok();
+        (seen != Some(head)).then(|| updated(repo, head, seen, given))
+    };
+    Ok(Answer {
+        api: 1,
+        head: head.to_string(),
+        untrusted: UNTRUSTED,
+        checkout_updated,
+        fetch: None,
+        part,
+    })
 }
 
 /// The checkout moved from the `seen` a client gave to `head`: how many
 /// commits came since, when `seen` is among the last `SEEN_MAX` of them.
-fn updated(repo: &gix::Repository, head: ObjectId, seen: Option<ObjectId>, given: &Value) -> Value {
-    let mut o = Map::new();
-    o.insert(
-        "from".into(),
-        json!(seen.map_or_else(|| cut(given.as_str().unwrap_or(""), 40), |s| s.to_string())),
-    );
-    o.insert("to".into(), json!(head.to_string()));
+fn updated(repo: &gix::Repository, head: ObjectId, seen: Option<ObjectId>, given: &str) -> Updated {
+    let mut commits = None;
     if let Some(seen) = seen {
         let walk = repo
             .rev_walk([head])
@@ -280,31 +373,33 @@ fn updated(repo: &gix::Repository, head: ObjectId, seen: Option<ObjectId>, given
                 .take(SEEN_MAX)
                 .map_while(Result::ok)
                 .position(|i| i.id == seen);
-            if let Some(n) = n {
-                o.insert("commits".into(), json!(n));
-            }
+            commits = n;
         }
     }
-    Value::Object(o)
+    Updated {
+        from: seen.map_or_else(|| cut(given, 40), |s| s.to_string()),
+        to: head.to_string(),
+        commits,
+    }
 }
 
-fn log(repo: &gix::Repository, head: ObjectId, args: &Value) -> Result<Map<String, Value>, String> {
+fn log(repo: &gix::Repository, head: ObjectId, args: &Args) -> Result<Part, String> {
     let path = opt_path(args)?;
-    let grep = match &args["grep"] {
-        Value::Null => None,
-        Value::String(s) if !s.is_empty() && s.chars().count() <= GREP_MAX => Some(s.as_str()),
+    let grep = match args.get("grep") {
+        Arg::Absent => None,
+        Arg::Text(s) if !s.is_empty() && s.chars().count() <= GREP_MAX => Some(s),
         _ => return Err(format!("grep is text of 1 to {GREP_MAX} characters")),
     };
-    let limit = match &args["limit"] {
-        Value::Null => LOG_DEFAULT,
+    let limit = match args.get("limit") {
+        Arg::Absent => LOG_DEFAULT,
         v => v
-            .as_u64()
+            .whole()
             .filter(|n| (1..=LOG_MAX).contains(n))
             .ok_or(format!("limit is a whole number from 1 to {LOG_MAX}"))?,
     } as usize;
-    let after = match &args["after"] {
-        Value::Null => None,
-        v => Some(commit_id(repo, v, "after")?),
+    let after = match args.get("after") {
+        Arg::Absent => None,
+        v => Some(commit_id(repo, &v, "after")?),
     };
 
     let walk = repo
@@ -352,23 +447,20 @@ fn log(repo: &gix::Repository, head: ObjectId, args: &Value) -> Result<Map<Strin
             break;
         }
         shown = Some(info.id);
-        commits.push(Value::Object(describe(&commit)));
+        commits.push(describe(&commit));
     }
     if skipping {
         return Err("after is no commit of the history from HEAD".into());
     }
-    let mut out = Map::new();
-    out.insert("commits".into(), Value::Array(commits));
-    out.insert("more".into(), json!(more));
     // The next page starts after the last commit this one gave, or, when the
     // walk stopped at its bound, the last it looked at, so a search that
     // walked far and found little goes on from there.
-    if more {
-        if let Some(id) = last {
-            out.insert("next".into(), json!(id.to_string()));
-        }
-    }
-    Ok(out)
+    let next = last.filter(|_| more).map(|id| id.to_string());
+    Ok(Part::Log {
+        commits,
+        more,
+        next,
+    })
 }
 
 /// Whether the commit changed `path`: its entry there differs from that of
@@ -400,36 +492,27 @@ fn touches(repo: &gix::Repository, commit: &gix::Commit<'_>, path: &str) -> Resu
     Ok(true)
 }
 
-fn describe(commit: &gix::Commit<'_>) -> Map<String, Value> {
-    let mut o = Map::new();
-    o.insert("commit".into(), json!(commit.id.to_string()));
-    o.insert(
-        "parents".into(),
-        Value::Array(commit.parent_ids().map(|p| json!(p.to_string())).collect()),
-    );
-    if let Ok(author) = commit.author() {
-        // The name only: an address is a person's, and the history does
-        // not need it to say who.
-        o.insert(
-            "author".into(),
-            json!(clean(&author.name.to_str_lossy(), SUBJECT_MAX)),
-        );
-    }
-    if let Ok(t) = commit.time() {
-        o.insert("time".into(), json!(time::iso(t.seconds)));
-    }
+fn describe(commit: &gix::Commit<'_>) -> Commit {
     let message = commit.message_raw_sloppy().to_str_lossy();
     let (subject, body) = message.split_once('\n').unwrap_or((&message, ""));
-    o.insert("subject".into(), json!(clean(subject, SUBJECT_MAX)));
     let body = body.trim();
-    if !body.is_empty() {
-        o.insert("body".into(), json!(text(body, BODY_MAX)));
+    Commit {
+        commit: commit.id.to_string(),
+        parents: commit.parent_ids().map(|p| p.to_string()).collect(),
+        said: Blamed {
+            author: commit
+                .author()
+                .ok()
+                .map(|a| clean(&a.name.to_str_lossy(), SUBJECT_MAX)),
+            time: commit.time().ok().map(|t| time::iso(t.seconds)),
+            subject: clean(subject, SUBJECT_MAX),
+        },
+        body: (!body.is_empty()).then(|| text(body, BODY_MAX)),
     }
-    o
 }
 
-fn show(repo: &gix::Repository, args: &Value) -> Result<Map<String, Value>, String> {
-    let id = commit_id(repo, &args["commit"], "commit")?;
+fn show(repo: &gix::Repository, args: &Args) -> Result<Part, String> {
+    let id = commit_id(repo, &args.get("commit"), "commit")?;
     let commit = repo
         .find_commit(id)
         .map_err(|_| format!("commit {id} could not be read"))?;
@@ -505,7 +588,10 @@ fn show(repo: &gix::Repository, args: &Value) -> Result<Map<String, Value>, Stri
             break;
         }
         let path = path.to_str_lossy().into_owned();
-        files.push(json!({"path": clean(&path, PATH_MAX), "change": kind}));
+        files.push(FileChange {
+            path: clean(&path, PATH_MAX),
+            change: kind,
+        });
         if diff.len() >= DIFF_MAX {
             cut = true;
             continue;
@@ -521,11 +607,12 @@ fn show(repo: &gix::Repository, args: &Value) -> Result<Map<String, Value>, Stri
         diff.truncate(end);
         cut = true;
     }
-    let mut out = describe(&commit);
-    out.insert("files".into(), Value::Array(files));
-    out.insert("diff".into(), json!(mask::mask(&diff)));
-    out.insert("cut".into(), json!(cut));
-    Ok(out)
+    Ok(Part::Show {
+        commit: describe(&commit),
+        files,
+        diff: mask::mask(&diff),
+        cut,
+    })
 }
 
 /// The unified diff of one file, with three lines of context, from the blobs
@@ -578,17 +665,13 @@ fn file_diff(
     Ok(out)
 }
 
-fn blame(
-    repo: &gix::Repository,
-    head: ObjectId,
-    args: &Value,
-) -> Result<Map<String, Value>, String> {
+fn blame(repo: &gix::Repository, head: ObjectId, args: &Args) -> Result<Part, String> {
     let path = opt_path(args)?.ok_or("path is required")?;
     let line = |k: &str| -> Result<Option<u32>, String> {
-        match &args[k] {
-            Value::Null => Ok(None),
+        match args.get(k) {
+            Arg::Absent => Ok(None),
             v => v
-                .as_u64()
+                .whole()
                 .filter(|n| *n >= 1)
                 .and_then(|n| u32::try_from(n).ok())
                 .map(Some)
@@ -638,40 +721,36 @@ fn blame(
         .map_err(|_| format!("{path} could not be blamed"))?;
 
     let mut rows = Vec::new();
-    let mut commits = Map::new();
+    let mut commits = BTreeMap::new();
     for (e, texts) in outcome.entries_with_lines() {
         let id = e.commit_id.to_string();
         if !commits.contains_key(&id) {
             if let Ok(c) = repo.find_commit(e.commit_id) {
-                let mut d = describe(&c);
-                d.remove("commit");
-                d.remove("parents");
-                d.remove("body");
-                commits.insert(id.clone(), Value::Object(d));
+                commits.insert(id.clone(), describe(&c).said);
             }
         }
         for (i, t) in texts.iter().enumerate() {
             let t = t.to_str_lossy();
-            rows.push(json!({
-                "line": e.start_in_blamed_file + 1 + i as u32,
-                "commit": id,
-                "text": text(t.trim_end_matches(['\n', '\r']), LINE_MAX),
-            }));
+            rows.push(BlameLine {
+                line: e.start_in_blamed_file + 1 + i as u32,
+                commit: id.clone(),
+                text: text(t.trim_end_matches(['\n', '\r']), LINE_MAX),
+            });
         }
     }
-    let mut out = Map::new();
-    out.insert("path".into(), json!(path));
-    out.insert("lines".into(), Value::Array(rows));
-    out.insert("commits".into(), Value::Object(commits));
-    out.insert("total".into(), json!(lines));
-    Ok(out)
+    Ok(Part::Blame {
+        path,
+        lines: rows,
+        commits,
+        total: lines,
+    })
 }
 
 /// A path argument: relative, no `.` or `..` part, no NUL or backslash.
-fn opt_path(args: &Value) -> Result<Option<String>, String> {
-    let p = match &args["path"] {
-        Value::Null => return Ok(None),
-        Value::String(p) => p,
+fn opt_path(args: &Args) -> Result<Option<String>, String> {
+    let p = match args.get("path") {
+        Arg::Absent => return Ok(None),
+        Arg::Text(p) => p,
         _ => return Err("path is text".into()),
     };
     let ok = !p.is_empty()
@@ -684,13 +763,13 @@ fn opt_path(args: &Value) -> Result<Option<String>, String> {
             "path is a path in the repository, relative to its top, such as src/main.rs".into(),
         );
     }
-    Ok(Some(p.clone()))
+    Ok(Some(p.to_string()))
 }
 
 /// A commit argument: 7 to 40 hex digits, and nothing a revision could
 /// otherwise say, such as `HEAD~2` or `@{1}`.
-fn commit_id(repo: &gix::Repository, v: &Value, key: &str) -> Result<ObjectId, String> {
-    let s = v.as_str().filter(|s| hex_id(s)).ok_or(format!(
+fn commit_id(repo: &gix::Repository, v: &Arg<'_>, key: &str) -> Result<ObjectId, String> {
+    let s = v.text().filter(|s| hex_id(s)).ok_or(format!(
         "{key} is a commit id of 7 to 40 lowercase hex digits"
     ))?;
     let id = repo
@@ -763,12 +842,15 @@ mod tests {
             "a\\b",
             "a\0b",
         ] {
-            assert!(opt_path(&json!({"path": bad})).is_err(), "{bad:?}");
+            assert!(
+                opt_path(&Args::from(json!({"path": bad}))).is_err(),
+                "{bad:?}"
+            );
         }
         assert_eq!(
-            opt_path(&json!({"path": "console/mcp/src/git.rs"})).unwrap(),
+            opt_path(&Args::from(json!({"path": "console/mcp/src/git.rs"}))).unwrap(),
             Some("console/mcp/src/git.rs".into())
         );
-        assert_eq!(opt_path(&json!({})).unwrap(), None);
+        assert_eq!(opt_path(&Args::from(json!({}))).unwrap(), None);
     }
 }
