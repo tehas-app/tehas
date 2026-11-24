@@ -853,8 +853,7 @@ pub trait CodeHost: Reports + Cites {
     /// The files a change changes, whole.
     fn changed_files(&mut self, no: ChangeNo, bound: Bound) -> Got<Whole<ChangedFile>>;
     /// A change's events, oldest first in the site's order: every kind the
-    /// site records. An
-    /// adapter that cannot give a kind refuses the read
+    /// site records. An adapter that cannot give a kind refuses the read
     /// `Refused(Unsupported)`; it never leaves one out (Decided 124). `at`
     /// does not order them; `more` may be true where only items the
     /// adapter leaves out remain (Decided 126).
