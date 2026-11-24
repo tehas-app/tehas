@@ -132,12 +132,16 @@ fn an_answer_that_is_no_whole_issue_is_unread_and_a_failure_is_its_outcome() {
     assert_eq!(gh.several(&[key(7)]).remove(0).1, Err(Outcome::NotFound));
 }
 
+/// The repository's labels, one page: none.
+const NO_LABELS: &str = r#"{"data":{"repository":{"labels":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]}}}}"#;
+
 #[test]
 fn prepare_makes_every_label_of_the_table_and_one_that_fails_stops_none() {
     let specs = table::specs();
-    let mut answers = vec![Ok(""); specs.len()];
-    answers[2] = Err("HTTP 502");
-    answers[5] = Err("HTTP 403");
+    let mut answers = vec![Ok(NO_LABELS)];
+    answers.extend(vec![Ok(""); specs.len()]);
+    answers[3] = Err("HTTP 502");
+    answers[6] = Err("HTTP 403");
     let (mut gh, asked) = adapter(answers);
     assert_eq!(
         gh.prepare(),
@@ -151,12 +155,13 @@ fn prepare_makes_every_label_of_the_table_and_one_that_fails_stops_none() {
         })
     );
     let asked = asked.lock().unwrap();
-    assert_eq!(asked.len(), specs.len());
+    assert_eq!(asked.len(), specs.len() + 1);
+    assert!(asked[0].starts_with("api graphql "), "{}", asked[0]);
     assert_eq!(
-        asked[0],
+        asked[1],
         "label create tehas:ready --repo acme/widget --color 0e8a16 --description Tehas: eligible for dispatch (apply by hand to authorize a cycle) --force"
     );
-    for (call, spec) in asked.iter().zip(&specs) {
+    for (call, spec) in asked[1..].iter().zip(&specs) {
         assert!(
             call.starts_with(&format!(
                 "label create {} --repo acme/widget --color ",
@@ -166,8 +171,26 @@ fn prepare_makes_every_label_of_the_table_and_one_that_fails_stops_none() {
         );
         assert!(call.ends_with(" --force"), "{call}");
     }
-    let (mut gh, _) = adapter(vec![Ok(""); specs.len()]);
+    let mut answers = vec![Ok(NO_LABELS)];
+    answers.extend(vec![Ok(""); specs.len()]);
+    let (mut gh, _) = adapter(answers);
     assert_eq!(gh.prepare(), Ok(()));
+}
+
+#[test]
+fn prepare_whose_read_fails_still_makes_every_label_and_answers_the_read() {
+    let specs = table::specs();
+    let mut answers = vec![Err("HTTP 502")];
+    answers.extend(vec![Ok(""); specs.len()]);
+    let (mut gh, asked) = adapter(answers);
+    let read = Outcome::Unavailable {
+        why: Passing::Server,
+        sent: Sent::Maybe,
+    };
+    assert_eq!(gh.prepare(), Err(Unprepared::new(read)));
+    let asked = asked.lock().unwrap();
+    assert_eq!(asked.len(), specs.len() + 1);
+    assert!(asked[1..].iter().all(|c| c.starts_with("label create ")));
 }
 
 #[test]

@@ -13,6 +13,7 @@
 use super::blueprint_writes::{ends_with_folded, read_comment, revision, text_revision, unsent};
 use super::{label_of, number, unsupported};
 use crate::forge::uri;
+use crate::vocabulary::LabelHeld;
 use crate::{markers, table, GitHub};
 use serde_json::Value;
 use tehas_ports::{
@@ -43,12 +44,29 @@ impl TicketWrites for GitHub {
         (applied, None)
     }
 
-    /// Each label of the factory's table, made or brought back to its colour
-    /// and text, one call each.
+    /// The repository's labels read once, then each label of the factory's
+    /// table brought to its name, colour and text as `prepare_one` brings
+    /// one ([`GitHub::bring_label`]): a label that is right is not written.
+    /// A read that fails is the first failure, and each label is then made
+    /// or put back by `ensure_mark`, as with no read.
     fn prepare(&mut self) -> Result<(), Unprepared> {
-        let mut first = Ok(());
+        let held = self.labels_held();
+        let mut first = match &held {
+            Ok(_) => Ok(()),
+            Err(why) => Err(Unprepared::new(why.clone())),
+        };
         for spec in table::specs() {
-            let made = self.ensure_mark(&spec);
+            let made = match &held {
+                Ok(all) => {
+                    let name = spec.name.as_str();
+                    let of = all
+                        .iter()
+                        .find(|h| h.name() == name)
+                        .or_else(|| all.iter().find(|h| h.name().eq_ignore_ascii_case(name)));
+                    self.bring_label(of, &spec)
+                }
+                Err(_) => self.ensure_mark(&spec),
+            };
             if let (Ok(()), Err(why)) = (&first, made) {
                 let mut unprepared = Unprepared::new(why);
                 unprepared.mark = Some(spec.name.clone());
@@ -58,12 +76,10 @@ impl TicketWrites for GitHub {
         first
     }
 
-    /// The label of one factory mark read, then made or brought to the
-    /// table's colour and text as `prepare` makes each, only where it is
-    /// not so already: a label that is right is not written. A label whose
-    /// name is the table's in another case is renamed to it in the same
-    /// write ([`GitHub::rename_label`]). A project's own mark, and a mark
-    /// no label is, are `Refused(Invalid)` with no request.
+    /// The label of one factory mark read, then brought to the table's
+    /// name, colour and text as `prepare` brings each
+    /// ([`GitHub::bring_label`]). A project's own mark, and a mark no label
+    /// is, are `Refused(Invalid)` with no request.
     fn prepare_one(&mut self, mark: &Mark) -> Did {
         if matches!(mark, Mark::Project(_)) {
             return Err(Outcome::Refused(Refusal::Invalid));
@@ -73,11 +89,8 @@ impl TicketWrites for GitHub {
             .into_iter()
             .find(|s| s.name.as_str() == label)
             .ok_or(Outcome::Refused(Refusal::Invalid))?;
-        match self.label_held(&label)? {
-            Some(held) if held.is(&spec) => Ok(()),
-            Some(held) if held.name() != label => self.rename_label(held.name(), &spec),
-            _ => self.ensure_mark(&spec),
-        }
+        let held = self.label_held(&label)?;
+        self.bring_label(held.as_ref(), &spec)
     }
 
     /// `gh label create --force`: made, or its colour and text put back.
@@ -327,6 +340,18 @@ fn issue_of(out: &str, repo: &str) -> Got<Issue> {
 }
 
 impl GitHub {
+    /// The label of `spec` brought to the table from `held`, the label
+    /// GitHub holds by that name in any case: left where it is right,
+    /// renamed where its name is in another case, else made or put back by
+    /// `ensure_mark`. The one rule of `prepare` and `prepare_one`.
+    fn bring_label(&mut self, held: Option<&LabelHeld>, spec: &MarkSpec) -> Did {
+        match held {
+            Some(h) if h.is(spec) => Ok(()),
+            Some(h) if h.name() != spec.name.as_str() => self.rename_label(h.name(), spec),
+            _ => self.ensure_mark(spec),
+        }
+    }
+
     /// One `PATCH` of the label GitHub holds as `held` to the spec's name,
     /// colour and text. `gh label create --force` keeps the case of the
     /// name there, so a name in another case is renamed here; GitHub keeps

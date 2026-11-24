@@ -13,7 +13,7 @@ T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")
 t_stub gh 'case "$*" in *"${FAIL_ON:-no label fails}"*) exit 1 ;;
   "label create "*) [ -z "${GH_MADE:-}" ] || touch "$GH_MADE/$3" ;;
   "api repos/"*/labels/*) n=${2##*/}; [ -z "${GH_MADE:-}" ] || [ -e "$GH_MADE/$n" ] || exit 1; echo "LA_${n#tehas:}" ;;
-  "api graphql "*) [ -z "${GH_CREATED:-}" ] || cat "$GH_CREATED" ;; esac'
+  *"nodes { name color description }"*) ;; "api graphql "*) [ -z "${GH_CREATED:-}" ] || cat "$GH_CREATED" ;; esac'
 reset() {
   rm -f "$T"/calls/*
   T_ENV=()
