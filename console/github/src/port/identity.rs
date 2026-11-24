@@ -251,7 +251,7 @@ impl GitHub {
 
     /// The login the account of `id` has now; None for a bot or an
     /// organisation, which hold no assignment.
-    fn login_of(&mut self, id: u64) -> Got<Option<String>> {
+    pub(super) fn login_of(&mut self, id: u64) -> Got<Option<String>> {
         let user = format!("user/{id}");
         let out = self
             .call("the account", &["api", &user])
@@ -308,7 +308,7 @@ fn read_login(out: &str, asked: &str) -> Got<(Holder, String, u64)> {
 
 /// GitHub's id in an `AccountId`, or `Refused(Invalid)` for one GitHub
 /// never gives.
-fn id_of(who: &AccountId) -> Got<u64> {
+pub(super) fn id_of(who: &AccountId) -> Got<u64> {
     let s = who.as_str();
     match s.parse::<u64>() {
         Ok(id) if id > 0 && !s.starts_with(['0', '+']) => Ok(id),

@@ -8,6 +8,7 @@ use common::{has, lacks, park_body, World};
 use serde_json::{json, Value};
 use std::fs;
 use std::process::{Command, Stdio};
+use tehas_ports::{Act, Mark, State};
 
 /// The issues a cycle was started for, one per line.
 fn started(w: &World) -> String {
@@ -53,9 +54,10 @@ fn a_retry_ticked_by_an_allowed_account_starts_a_cycle() {
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(started(&w), "7");
-    has(
-        &w.gh(),
-        "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:question",
+    assert!(
+        w.on(7, Mark::State(State::Running)) && w.off(7, Mark::State(State::Question)),
+        "{:?}",
+        w.writes_of(7)
     );
     // The cycle's --restart takes it off, through pi-rukas.
     lacks(&w.gh(), "--remove-label needs-human-attention");
@@ -80,9 +82,12 @@ fn a_retry_tick_takes_tehas_ready_and_the_escalation_label_off() {
     let w = World::new("park-labels");
     retry_with_labels(&w);
     assert_eq!(started(&w), "7");
-    has(
-        &w.gh(),
-        "--remove-label tehas:question --remove-label tehas:ready --remove-label tehas:millwright-escalated",
+    assert!(
+        w.off(7, Mark::State(State::Question))
+            && w.off(7, Mark::Act(Act::Approve))
+            && w.off(7, Mark::State(State::Escalated)),
+        "{:?}",
+        w.writes_of(7)
     );
 }
 
@@ -137,6 +142,7 @@ fn a_retry_waits_while_every_slot_is_taken_and_the_tick_stays() {
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(started(&w), "");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     lacks(&w.gh(), "api -X PATCH");
     assert_eq!(w.park_q(7), "4001");
     let r = w.dispatch(&["--dry-run"]);
@@ -156,9 +162,10 @@ fn a_retry_whose_cycle_does_not_start_is_handed_back_exit_1() {
     let w = World::new("park-start-fails");
     let r = start_fails(&w);
     assert_eq!(r.rc, 1, "{}", r.out);
-    has(
-        &w.gh(),
-        "issue edit 7 --repo acme/widget --remove-label tehas:running --add-label needs-human-attention",
+    assert!(
+        w.off(7, Mark::State(State::Running)) && w.on(7, Mark::State(State::NeedsPerson)),
+        "{:?}",
+        w.writes_of(7)
     );
     has(&w.gh(), "Tehas could not start the cycle for this issue");
     // The start took the question off the record and spent the park's retry
@@ -181,6 +188,7 @@ fn a_dry_run_says_what_the_tick_would_do_and_changes_nothing() {
     has(&r.out, "would run a cycle for #7 (retry answered by alice)");
     assert_eq!(started(&w), "");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     lacks(&w.gh(), "api -X PATCH");
     assert_eq!(w.park_q(7), "4001");
 }
@@ -227,6 +235,7 @@ fn a_box_ticked_on_an_old_comment_does_nothing() {
         let gh = w.gh();
         assert_eq!(w.notes_any(), 0);
         lacks(&gh, "issue edit");
+        assert_eq!(w.marks(None), 0);
         lacks(&gh, "api -X PATCH");
         assert_eq!(w.park_q(7), "4001");
         assert_eq!(
@@ -251,9 +260,10 @@ fn the_issue_alone_reply_by_an_allowed_account_starts_a_cycle_with_how_reply() {
         w.at_mark("[.by, .how, .at, .comment_id] | tostring"),
         r#"["alice","reply","2026-01-01T01:00:00Z",4001]"#
     );
-    has(
-        &w.gh(),
-        "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:question",
+    assert!(
+        w.on(7, Mark::State(State::Running)) && w.off(7, Mark::State(State::Question)),
+        "{:?}",
+        w.writes_of(7)
     );
     has(&w.gh(), "authorized by @alice's reply");
     has(&r.out, "start #7 (retry answered by alice)");
@@ -289,6 +299,7 @@ fn a_retry_tick_of_the_issue_alone_waits_while_every_slot_is_taken_and_the_tick_
     w.poll();
     assert_eq!(started(&w), "");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     assert_eq!(w.park_q(7), "4001");
     w.release();
 }
@@ -301,6 +312,7 @@ fn a_dry_run_says_what_the_issue_alone_tick_would_do_and_changes_nothing() {
     has(&r.out, "would run a cycle for #7 (retry answered by alice)");
     assert_eq!(started(&w), "");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     assert_eq!(w.park_q(7), "4001");
 }
 
@@ -319,9 +331,10 @@ fn and_its_leave_box_still_takes_the_question_away() {
     ticked(&w, &[" ", "x"], "alice");
     w.poll();
     assert_eq!(started(&w), "");
-    has(
-        &w.gh(),
-        "issue edit 7 --repo acme/widget --remove-label tehas:question",
+    assert!(
+        w.off(7, Mark::State(State::Question)),
+        "{:?}",
+        w.writes_of(7)
     );
     assert_eq!(w.park_q(7), "none");
 }
@@ -332,9 +345,10 @@ fn leave_it_parked_takes_the_question_away_and_keeps_the_issue_parked() {
     ticked(&w, &[" ", " ", "x"], "alice");
     w.poll();
     assert_eq!(started(&w), "");
-    has(
-        &w.gh(),
-        "issue edit 7 --repo acme/widget --remove-label tehas:question",
+    assert!(
+        w.off(7, Mark::State(State::Question)),
+        "{:?}",
+        w.writes_of(7)
     );
     lacks(&w.gh(), "needs-human-attention");
     assert_eq!(w.park_q(7), "none");
@@ -372,9 +386,10 @@ fn a_leave_it_parked_whose_answer_the_store_would_not_take_is_said_in_the_log() 
         "store: busy #7: the database is locked",
     );
     let r = w.poll();
-    has(
-        &w.gh(),
-        "issue edit 7 --repo acme/widget --remove-label tehas:question",
+    assert!(
+        w.off(7, Mark::State(State::Question)),
+        "{:?}",
+        w.writes_of(7)
     );
     has(
         &r.out,
@@ -388,6 +403,7 @@ fn a_dry_run_of_leave_it_parked_changes_nothing() {
     ticked(&w, &[" ", " ", "x"], "alice");
     w.dispatch(&["--dry-run"]);
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     assert_eq!(w.park_q(7), "4001");
 }
 

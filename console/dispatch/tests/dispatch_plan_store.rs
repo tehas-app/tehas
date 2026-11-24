@@ -267,6 +267,7 @@ fn a13_open_sessions_that_cannot_be_read_hold_every_start_busy_is_exit_1_a_store
         );
         assert_eq!(w.calls("fake-start"), "");
         lacks(&w.gh(), "issue edit");
+        assert_eq!(w.marks(None), 0);
     }
 }
 

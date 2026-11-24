@@ -8,6 +8,7 @@ use serde_json::{json, Value};
 use std::fs::{self, OpenOptions};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
+use tehas_ports::{Act, Mark, State};
 
 fn v(text: &str) -> Value {
     serde_json::from_str(text).unwrap_or_else(|e| panic!("{e}: {text}"))
@@ -26,10 +27,6 @@ fn beside(w: &World, ext: &str) -> PathBuf {
 
 fn holding(text: &str, want: &str) -> usize {
     text.lines().filter(|l| l.contains(want)).count()
-}
-
-fn exactly(text: &str, want: &str) -> usize {
-    text.lines().filter(|l| *l == want).count()
 }
 
 /// The instance lists the bot among the accounts that may label.
@@ -86,12 +83,12 @@ fn a_parked_issue_retried_by_its_labels_starts_a_cycle_and_its_old_question_goes
     );
     w.poll();
     assert_eq!(w.calls("fake-start").trim_end(), "7");
-    assert_eq!(
-        exactly(
-            &w.gh(),
-            "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:ready --remove-label tehas:question"
-        ),
-        1
+    assert!(
+        w.on(7, Mark::State(State::Running))
+            && w.off(7, Mark::Act(Act::Approve))
+            && w.off(7, Mark::State(State::Question)),
+        "{:?}",
+        w.writes_of(7)
     );
     assert_eq!(w.park_q(7), "none");
 }
@@ -403,6 +400,7 @@ fn the_bot_is_refused_as_an_allowed_labeller_even_with_no_question_open() {
     );
     assert_eq!(w.calls("fake-start"), "");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
 }
 
 #[test]
@@ -414,6 +412,7 @@ fn a_bot_login_that_is_not_kept_ends_the_poll_before_anything_is_written() {
     assert_eq!(r.rc, 1, "{}", r.out);
     has(&r.out, "ERROR: the bot's own login could not be read");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     assert_eq!(w.notes_any(), 0);
     assert_eq!(w.calls("fake-start"), "");
 }
