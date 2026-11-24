@@ -37,7 +37,16 @@ const ORACLE: &str =
 
 /// Bodies where the reader does not read a marker GitHub shows as hidden
 /// HTML: the safe way, each named for why.
-const SAFE: &[(&str, &str)] = &[];
+const SAFE: &[(&str, &str)] = &[
+    (
+        "x <a b=\"`\"> M `",
+        "a backtick in an HTML tag's attribute and one after the marker: the reader pairs no runs, so the marker between is no marker",
+    ),
+    (
+        "| a | b |\\n|---|---|\\n| `x | M` |",
+        "a table's cells split the row before its code spans pair: the reader reads the row as one line",
+    ),
+];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Class {
@@ -70,6 +79,8 @@ impl Class {
 
 /// The classes comrak gives the markers of `body`, in their order.
 fn oracle(body: &str) -> Vec<Class> {
+    // GFM's tagfilter is left off: it changes how HTML is written out, not
+    // the tree.
     let mut o = Options::default();
     o.extension.table = true;
     o.extension.strikethrough = true;
@@ -86,11 +97,17 @@ fn walk<'a>(n: &'a AstNode<'a>, quoted: bool, out: &mut Vec<Class>) {
     let value = &n.data.borrow().value;
     let quoted = quoted || matches!(value, NodeValue::BlockQuote);
     let (literal, class) = match value {
-        NodeValue::CodeBlock(c) => (Some(c.literal.clone()), Class::Code),
+        // A fence's info words are the code block's too.
+        NodeValue::CodeBlock(c) => (Some(format!("{} {}", c.info, c.literal)), Class::Code),
         NodeValue::Code(c) => (Some(c.literal.clone()), Class::Code),
         NodeValue::HtmlBlock(h) => (Some(h.literal.clone()), Class::Live),
         NodeValue::HtmlInline(t) => (Some(t.clone()), Class::Live),
         NodeValue::Text(t) => (Some(t.clone()), Class::Text),
+        // A marker in a link's or an image's address or title is shown, or
+        // lost, but never hidden HTML.
+        NodeValue::Link(l) | NodeValue::Image(l) => {
+            (Some(format!("{} {}", l.url, l.title)), Class::Text)
+        }
         _ => (None, Class::Text),
     };
     if let Some(l) = literal {
@@ -122,6 +139,7 @@ fn reader(body: &str) -> Vec<bool> {
 /// `\t` and ` ` escaped.
 fn unescape(s: &str) -> String {
     s.replace("\\u00a0", "\u{a0}")
+        .replace("\\ufeff", "\u{feff}")
         .replace("\\r", "\r")
         .replace("\\n", "\n")
         .replace("\\t", "\t")
@@ -134,6 +152,7 @@ fn escape(s: &str) -> String {
         .replace('\r', "\\r")
         .replace('\t', "\\t")
         .replace('\u{a0}', "\\u00a0")
+        .replace('\u{feff}', "\\ufeff")
 }
 
 /// The bodies chosen by hand: the review's probes, the factory's shapes
@@ -220,6 +239,51 @@ const CHOSEN: &[&str] = &[
     "a `x\\nb M `",
     "See `M` here.",
     "\\\\`M\\\\`",
+    // The second read's causes: partly used tabs, empty items, the first
+    // kind of HTML block's close tags, backticks GitHub reads as something
+    // else first, and a byte order mark.
+    "-\\t  M",
+    "1.\\t   M",
+    "- a\\n\\n\\t  M",
+    "1. a\\n\\n\\t   M",
+    "-\\n\\n    M",
+    "1.\\n\\n    M",
+    "-   \\n\\n    M",
+    "<pre>\\n</script>\\n\\n    M",
+    "<pre>\\n</style>\\n\\n    M",
+    "<pre>\\n</textarea>\\n\\n    M",
+    "<script>\\n</pre>\\n\\n    M",
+    "<textarea>\\n</pre>\\n\\n    M",
+    "<style>\\n</script>\\n\\n    M",
+    "x <a title='`'> `M`",
+    "x <http://a.b/`> `M`",
+    "x <!-- ` --> `M`",
+    "x [a](`) `M`",
+    "x <?`?> `M`",
+    "x <!X `> `M`",
+    "x <![CDATA[`]]> `M`",
+    "x <a\\nb='`'> `M`",
+    "[a]: /u '`'\\n`M`",
+    "[a]: </u`>\\n`M`",
+    "[a]: /u\\n'`'\\n`M`",
+    "\\ufeff    M",
+    // The safe departures, and a marker inside a larger comment, which is
+    // hidden HTML to both.
+    "x <a b=\"`\"> M `",
+    "| a | b |\\n|---|---|\\n| `x | M` |",
+    "<!--\\nM\\n-->",
+    // Found unsafe by seeded random runs while this was built: a close tag
+    // of the first kind is of the seventh, a lone tag must be whole, and a
+    // table's head must have as many cells as its delimiter row.
+    "\\n\\n</pre>\\n- |---|---|\\n\\n\\t- <div>M",
+    "</pre>  \\n<pre>| a | b |\\n\\n>M",
+    "</pre>\\r\\n- | a | b |- ===``\\n\\n\\t`Mtext        ",
+    "   </pre>\\r<pre>            ---\\n\\n\\t|---|---|1.-M",
+    "  10) </pre>\\n\\t> - M",
+    "</pre><!--```-\\r\\n|---|---|\\n</pre>\\n~~~`1. M",
+    "   </pre>> \\n> |---|---|> ---</pre>\\tM",
+    "</pre>---```  -->-->\\n> </div>M",
+    "</pre>  -->\\n```\\n\\n# > M",
 ];
 
 /// The block a marker line may follow.
@@ -244,6 +308,13 @@ const BEFORE: &[&str] = &[
     "    code",
     "- > quoted",
     "- ```\n  x\n  ```",
+    "-",
+    "1.",
+    "-   ",
+    "<pre>\n</script>",
+    "<script>\n</pre>",
+    "<style>\n</textarea>",
+    "<textarea>\n</style>",
 ];
 
 /// Each before-block, a line end or a blank line, and a marker line
@@ -253,7 +324,7 @@ fn generated() -> Vec<String> {
     let mut out = Vec::new();
     let indents: Vec<String> = (0..=8)
         .map(|n| " ".repeat(n))
-        .chain(["\t".to_string()])
+        .chain(["\t", " \t", "\t ", "  \t", "\t\t"].map(str::to_string))
         .collect();
     for before in BEFORE {
         for sep in ["\n", "\n\n"] {
@@ -263,7 +334,7 @@ fn generated() -> Vec<String> {
                 } else {
                     format!("{before}{sep}{indent}{M}")
                 };
-                for wrap in ["", "> ", "- ", "1. "] {
+                for wrap in ["", "> ", ">\t", "- ", "-\t", "1. ", "1.\t"] {
                     let body = contain(&plain, wrap);
                     out.push(body.clone());
                     out.push(body.replace('\n', "\r\n"));
@@ -276,21 +347,25 @@ fn generated() -> Vec<String> {
     out
 }
 
-/// `body` inside a container: a quote's `> ` on each line, or a list
-/// item's marker on the first and its indent on the rest.
+/// `body` inside a container: a quote's marker on each line, or a list
+/// item's marker on the first and as many spaces as it is wide on the rest.
 fn contain(body: &str, wrap: &str) -> String {
     if wrap.is_empty() {
         return body.to_string();
     }
-    let rest = if wrap == "> " {
-        "> ".to_string()
+    let quote = wrap.starts_with('>');
+    let width = wrap
+        .chars()
+        .fold(0, |c, ch| if ch == '\t' { c + 4 - c % 4 } else { c + 1 });
+    let rest = if quote {
+        wrap.to_string()
     } else {
-        " ".repeat(wrap.len())
+        " ".repeat(width)
     };
     body.lines()
         .enumerate()
         .map(|(i, l)| match (i, l.is_empty()) {
-            (_, true) if wrap != "> " => String::new(),
+            (_, true) if !quote => String::new(),
             (0, _) => format!("{wrap}{l}"),
             _ => format!("{rest}{l}"),
         })
@@ -411,4 +486,121 @@ fn every_factory_shape_reads() {
         assert!(want.iter().all(|l| *l), "{b:?} is no factory shape");
         assert_eq!(reader(&body), want, "{b:?}");
     }
+}
+
+/// The fragments the random bodies are built from: markers, containers,
+/// tabs and spaces, fences, HTML, table rows, backticks and line ends.
+const FRAGMENTS: &[&str] = &[
+    "M",
+    "M",
+    "> ",
+    ">",
+    "- ",
+    "-",
+    "1. ",
+    "1.",
+    "10) ",
+    "\t",
+    "\t",
+    " ",
+    "  ",
+    "   ",
+    "    ",
+    "        ",
+    "```",
+    "~~~",
+    "<div>",
+    "</div>",
+    "<pre>",
+    "</pre>",
+    "| a | b |",
+    "|---|---|",
+    "`",
+    "``",
+    "\\`",
+    "x",
+    "text",
+    "# ",
+    "===",
+    "---",
+    "<!--",
+    "-->",
+    "\n",
+    "\n",
+    "\n",
+    "\n\n",
+    "\r",
+    "\r\n",
+];
+
+/// The random section's seed and size: the bodies are made anew at each
+/// run, the same each time, and not recorded.
+const SEED: u64 = 0x7e4a_5c0d_e2b1_9f37;
+const RANDOM: usize = 20_000;
+
+/// A body of 2 to 13 fragments drawn by a linear congruential generator,
+/// with a marker in it.
+fn random_bodies() -> Vec<String> {
+    let mut state = SEED;
+    let mut next = move || {
+        state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        (state >> 33) as usize
+    };
+    (0..RANDOM)
+        .map(|_| {
+            let n = 2 + next() % 12;
+            let mut body: String = (0..n)
+                .map(|_| FRAGMENTS[next() % FRAGMENTS.len()])
+                .collect::<String>()
+                .replace('M', M);
+            if !body.contains(WORDS) {
+                body.push_str(M);
+            }
+            body
+        })
+        .collect()
+}
+
+#[test]
+fn the_reader_never_reads_a_marker_github_shows_in_code_or_a_quote_in_random_bodies() {
+    let mut unsafe_ = Vec::new();
+    for body in random_bodies() {
+        let classes = oracle(&body);
+        let read = reader(&body);
+        if read.len() != classes.len() {
+            // A table drops a row's cells past its head's, a marker in them
+            // with them: GitHub shows it nowhere. The places are then
+            // unknown, so the body is skipped; any other difference fails.
+            let dropped = read.len() > classes.len() && body.contains("|-");
+            if !dropped {
+                unsafe_.push(format!(
+                    "{:?}: {} markers, comrak {}",
+                    escape(&body),
+                    read.len(),
+                    classes.len()
+                ));
+            }
+            continue;
+        }
+        for (i, (live, class)) in read.iter().zip(&classes).enumerate() {
+            if *live && *class != Class::Live {
+                unsafe_.push(format!("{:?} marker {i}: {class:?}", escape(&body)));
+            }
+        }
+    }
+    assert!(
+        unsafe_.is_empty(),
+        "{} of {RANDOM} random bodies (seed {SEED:#x}) read where GitHub shows no marker:\n{}",
+        unsafe_.len(),
+        unsafe_.join("\n")
+    );
+}
+
+#[test]
+fn a_marker_inside_a_larger_comment_is_hidden_html_to_both() {
+    let body = unescape("<!--\\nM\\n-->");
+    assert_eq!(oracle(&body), [Class::Live]);
+    assert_eq!(reader(&body), [true]);
 }
