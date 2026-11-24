@@ -1091,6 +1091,18 @@ pub fn write(home: &Path, how: &How, r: &mut Report, facts: &Facts, ports: Handl
             Action::RefreshOff { pr } => w.refresh_off(pr),
         }
     }
+    log(&r.done);
+    let delivered = r.after.ended.handoff_delivered.map(|d| d || w.handed_off);
+    let issue = how.issue;
+    if delivered == Some(false) && w.handoff_maybe && w.handoff_failed.is_none() {
+        log(&format!(
+            "WARN: the handoff of #{issue} may not have reached a comment: the next poll reads it"
+        ));
+    } else if delivered == Some(false) {
+        log(&format!(
+            "WARN: the handoff of #{issue} reached no comment: it is only in the run log"
+        ));
+    }
     Written {
         handed_off: w.handed_off,
         handoff_failed: w.handoff_failed,
@@ -1181,7 +1193,6 @@ pub fn reported(home: &Path, s: &Start, handles: HandlesOf) -> Reported {
         }
     };
     let w = write(home, &how, &mut r, &facts, ports);
-    log(&r.done);
     let approved = after::approved(home, issue, s.attempt);
     if !r.refused_why.is_empty() {
         refused_notice(home, &facts, &r.refused_why);
@@ -1190,15 +1201,6 @@ pub fn reported(home: &Path, s: &Start, handles: HandlesOf) -> Reported {
     let mut a = r.after.clone();
     let delivered = &mut a.ended.handoff_delivered;
     *delivered = delivered.map(|d| d || w.handed_off);
-    if *delivered == Some(false) && w.handoff_maybe && w.handoff_failed.is_none() {
-        log(&format!(
-            "WARN: the handoff of #{issue} may not have reached a comment: the next poll reads it"
-        ));
-    } else if *delivered == Some(false) {
-        log(&format!(
-            "WARN: the handoff of #{issue} reached no comment: it is only in the run log"
-        ));
-    }
     let fault_kept = keep_end_fault(home, &facts, &a, w.handoff_failed.as_ref(), now);
     a.approved = approved;
     a.console = s.console.clone();

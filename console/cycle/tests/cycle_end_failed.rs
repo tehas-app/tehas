@@ -4,7 +4,7 @@
 
 mod common;
 
-use common::{has, said as said_of, site_of, World};
+use common::{has, lacks, said as said_of, site_of, World};
 use serde_json::{json, Value};
 use std::fs;
 use tehas_cycle::end_failed::{self, Failure, Left};
@@ -119,6 +119,10 @@ fn a_handoff_comment_that_failed_503_is_on_record_as_githubs() {
         "note: <!-- pi-rukas:handoff issue=7 cap=verify-timeout:develop -->",
     );
     assert!(!t.written.handed_off);
+    has(
+        &w.report_log(),
+        "WARN: the handoff of #7 reached no comment: it is only in the run log",
+    );
     let failed = t.written.handoff_failed.expect("the handoff failed");
     // What tehas-cycle keeps of it: a failure of GitHub's at the handoff,
     // in the words of the site's answer.
@@ -158,6 +162,11 @@ fn a_handoff_comment_that_may_have_been_posted_is_no_failed_end() {
             .on(Op::Blueprints(BlueprintsOp::Comments), Fault::Unreachable),
     );
     has(&w.report_log(), "WARN: a write on #7 may have been posted");
+    has(
+        &w.report_log(),
+        "WARN: the handoff of #7 may not have reached a comment: the next poll reads it",
+    );
+    lacks(&w.report_log(), "reached no comment");
     assert!(!t.written.handed_off);
     assert!(t.written.handoff_maybe);
     assert!(t.written.handoff_failed.is_none());

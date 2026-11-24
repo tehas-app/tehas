@@ -436,7 +436,10 @@ fn a_handoff_that_reached_no_comment_is_said_in_the_log() {
     );
     has(&said(&t.sent), "pi-rukas:handoff issue=7 cap=");
     assert_eq!(said(&t.applied).matches("note: ").count(), 0);
-    // What the end logs "the handoff of #7 reached no comment" from.
+    has(
+        &w.report_log(),
+        "WARN: the handoff of #7 reached no comment: it is only in the run log",
+    );
     assert!(!t.written.handed_off);
     assert_eq!(
         t.written.handoff_failed,
