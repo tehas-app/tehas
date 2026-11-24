@@ -1,1 +1,1 @@
-{"data":{"repository":{"issue":{"number":8,"subIssues":{"totalCount":2,"pageInfo":{"hasNextPage":false,"endCursor":"Y3Vyc29yOnYyOjI="},"nodes":[{"number":10,"state":"CLOSED","repository":{"nameWithOwner":"acme/widget"}}]}}}}}
+{"data":{"repository":{"databaseId":7001,"issue":{"number":8,"subIssues":{"totalCount":2,"pageInfo":{"hasNextPage":false,"endCursor":"Y3Vyc29yOnYyOjI="},"nodes":[{"number":10,"state":"CLOSED","repository":{"databaseId":7001,"nameWithOwner":"acme/widget"}}]}}}}}

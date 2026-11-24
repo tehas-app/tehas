@@ -18,7 +18,7 @@ const ENTRIES: usize = 500_000;
 /// What a tree too big to read whole holds: more than any cap, and more than
 /// any scratch that was read whole. A walk that stopped short cannot say what
 /// the rest holds.
-pub const UNCOUNTED: u64 = u64::MAX;
+const UNCOUNTED: u64 = u64::MAX;
 
 /// What the watch is given of the scratch.
 #[derive(Clone, Debug, Default)]
@@ -146,7 +146,7 @@ pub fn free(path: &Path) -> Option<u64> {
 }
 
 /// The largest scratch beside `own` in its directory, `own` left out.
-pub fn largest_other(own: &Path) -> u64 {
+fn largest_other(own: &Path) -> u64 {
     let (Some(root), Some(name)) = (own.parent(), own.file_name()) else {
         return 0;
     };
