@@ -226,7 +226,7 @@ A factory moves from 1.4.x to 2.0 with `tehas update`:
 2. **Run `tehas update`.** It stops and removes the units and files of the
    features 2.0 took out of core, and migrates the state store and analytics.
 3. **The state store** (`state/tehas.db`) goes from schema 23, 1.4.x's, to
-   31 in one run, step by step: 24 adds the answers of `tehas answer`, 25
+   32 in one run, step by step: 24 adds the answers of `tehas answer`, 25
    keeps a stop's question with its choices, 26 lets a cycle's `how` say
    `reply`, 27 rewrites every `retry-tick` to `reply` and marks a question
    open at the upgrade to be asked again, 28 rewrites `fixer` to
@@ -236,8 +236,10 @@ A factory moves from 1.4.x to 2.0 with `tehas update`:
    keeps a withdrawn question with when it was withdrawn instead of deleting
    it, keeps when each history line was written and whether a signal stopped
    the cycle, and gives the store its id (`store` of `tehas api`; the step
-   is `STEP_30` in `console/store/src/db.rs`), and 31 adds
-   `cycle_history.reported`, 1 on every row there, as a report wrote each.
+   is `STEP_30` in `console/store/src/db.rs`), 31 adds
+   `cycle_history.reported`, 1 on every row there, as a report wrote each,
+   and 32 adds the table `links`, empty: the links of a ticket to its
+   blueprints, which only a split setup writes.
    The analytics' own step at the same update says `offered` where its
    `runs.outcome` said `pr`.
    `tehas state check --json` prints the schema.
@@ -753,11 +755,11 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Adopter action: `tehas update` removes the last `live/panels.json`.
   Leave `~/tehas/state/panels.json` in place: 2.0 no longer reads it, and
   the 2.1 `panels` plugin migrates its pages into its grant.
-- **The state store is at schema 31.**
-  #2794, #2830, #2843, #2867, #2889, #2886, #2911, #2926.
-  The steps 24 to 31 are listed under [Upgrading to 2.0](#upgrading-to-20).
-  `tehas state check --json` prints `schema` 31, and `rows` counts the new
-  table `answers` and no longer the tables of outsource. Later 2.x releases
+- **The state store is at schema 32.**
+  #2794, #2830, #2843, #2867, #2889, #2886, #2911, #2926, T4.8.
+  The steps 24 to 32 are listed under [Upgrading to 2.0](#upgrading-to-20).
+  `tehas state check --json` prints `schema` 32, and `rows` counts the new
+  tables `answers` and `links` and no longer the tables of outsource. Later 2.x releases
   migrate the store forward by numbered steps in the same way, so a new
   table in 2.1 is an ordinary step.
   Readers: `tehas update`, readers of `tehas state check` and of a state
@@ -941,6 +943,16 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   does not count.
   Readers: adopters, the end-to-end suite.
   Adopter action: none.
+- **`state/account-ids` names each pair's realm.** T4.8. A line is
+  `<realm> <login> <id>`, the realm `code-host` or `tickets`; 1.x wrote
+  `<login> <id>`. 2.0 reads a 1.x line as the code host's, writes every
+  line in the new form, and `tehas update` rewrites the file once. Any
+  other shape cannot be read: no listed login counts, and `tehas update`
+  stops with 78 naming the line and how to fix it. A later 2.x may stop
+  reading the 1.x form, never before a release that rewrote the file.
+  Readers: adopters and tools that read or write the file by hand, the
+  end-to-end suite.
+  Adopter action: none; edit the file by hand only in the new form.
 - **`tehas labels` reads no installed table, and its output text is not
   contract.** #2962. It makes the labels from the table compiled into the
   console, so a missing or malformed `~/tehas/lib/labels.tsv` no longer
