@@ -470,5 +470,6 @@ fn a_running_list_that_cannot_be_read_ends_the_poll_before_it_acts_on_any_cycle_
         "ERROR: the state store could not list the running cycles (busy)",
     );
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     assert_eq!(w.started(), "");
 }

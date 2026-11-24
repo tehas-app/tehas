@@ -8,6 +8,7 @@ use common::*;
 use serde_json::json;
 use std::fs::{self, File, OpenOptions};
 use std::time::{SystemTime, UNIX_EPOCH};
+use tehas_ports::{Act, Mark, State};
 
 fn now() -> u64 {
     SystemTime::now()
@@ -295,10 +296,7 @@ fn an_issue_with_open_sub_issues_is_not_started_its_tehas_ready_comes_off_and_th
         "skip #7: it is an epic with 13 sub-issues open, and an epic is never started",
     );
     let gh = w.gh();
-    has(
-        &gh,
-        "issue edit 7 --repo acme/widget --remove-label tehas:ready",
-    );
+    assert!(w.off(7, Mark::Act(Act::Approve)), "{:?}", w.writes_of(7));
     assert!(
         w.said_on(7, "Tehas took `tehas:ready` off this issue and started nothing. It has 13 sub-issues open"),
         "{:?}",
@@ -330,6 +328,7 @@ fn while_a_cycle_is_running_nothing_is_started() {
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(w.started(), "");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     let r = w.dispatch(&["--dry-run"]);
     has(&r.out, "holding: 1 cycles are running (limit 1)");
     w.release();
@@ -343,6 +342,7 @@ fn the_issue_is_read_again_before_it_is_parked_and_a_failed_read_ends_the_poll()
     let r = w.poll();
     assert_eq!(r.rc, 1, "{}", r.out);
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     assert_eq!(w.started(), "");
 }
 
@@ -352,9 +352,12 @@ fn a_closed_issue_marked_as_running_with_no_cycle_loses_the_mark_and_is_not_park
     w.fx("marked.json", r#"[{"number":9,"state":"CLOSED"}]"#);
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
-    let gh = w.gh();
-    let edit = "issue edit 9 --repo acme/widget --remove-label tehas:running";
-    assert_eq!(gh.lines().filter(|l| *l == edit).count(), 1, "{gh}");
+    assert_eq!(
+        w.offs(9, Mark::State(State::Running)),
+        1,
+        "{:?}",
+        w.writes_of(9)
+    );
     assert_eq!(w.notes(9), 0);
     has(
         &r.out,
@@ -368,9 +371,10 @@ fn a_lock_file_nobody_holds_does_not_make_it_a_running_cycle() {
     w.fx("marked.json", r#"[{"number":9}]"#);
     w.home_file("state/cycles/9.lock", "");
     w.poll();
-    has(
-        &w.gh(),
-        "issue edit 9 --repo acme/widget --remove-label tehas:running --add-label needs-human-attention",
+    assert!(
+        w.off(9, Mark::State(State::Running)) && w.on(9, Mark::State(State::NeedsPerson)),
+        "{:?}",
+        w.writes_of(9)
     );
 }
 
