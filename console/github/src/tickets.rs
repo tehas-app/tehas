@@ -330,6 +330,8 @@ fn outcome(e: &ForgeError, now: i64) -> Outcome {
             until: At::new(now),
         },
         Some("403") => Outcome::Forbidden,
+        // GitHub refusing the input: nothing was made.
+        Some("422") => Outcome::Refused(Refusal::Invalid),
         Some(s) if s.starts_with('5') => maybe(Passing::Server),
         _ if why.contains("rate limit") => Outcome::Spent {
             pool: Pool::Calls,
