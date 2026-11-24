@@ -9,17 +9,15 @@
 //! It reads the issue first, so a pull request's number is `NotFound` with
 //! nothing sent.
 
+use super::blueprint_writes::{ends_with_folded, read_comment, unsent};
 use super::{label_of, number, unsupported};
 use crate::{markers, table, GitHub};
 use serde_json::Value;
 use tehas_ports::{
     Applied, At, CloseReason, CommentId, Did, Got, Item, Kind, Lost, Mark, MarkSpec, Marker,
-    MarkerEdit, MarkerKind, NewTicket, Outcome, Pool, Posted, Priority, Refusal, Revision, Sent,
-    Step, StepPart, TargetEdit, TargetId, TicketKey, TicketWrites, Unprepared, Unread, WebLink,
+    MarkerEdit, MarkerKind, NewTicket, Outcome, Posted, Priority, Refusal, Revision, Sent, Step,
+    StepPart, TargetEdit, TargetId, TicketKey, TicketWrites, Unprepared, Unread, WebLink,
 };
-
-/// What `GhRunner::run_input`'s default answers: the runner sends nothing.
-const NO_INPUT: &str = "this runner takes no input";
 
 impl TicketWrites for GitHub {
     fn apply(
@@ -103,11 +101,12 @@ impl TicketWrites for GitHub {
     fn note(&mut self, key: &TicketKey, body: &str, markers: &[Marker]) -> Got<Posted<CommentId>> {
         let issue = number(key)?;
         let text = markers::write(body, markers, key.same_item())?;
-        let path = format!("{}/issues/{issue}/comments", rest_repo(&self.repo)?);
+        let path = format!("{}/issues/{issue}/comments", self.issues()?);
         read_first(self, issue)?;
         let input = serde_json::json!({ "body": text }).to_string();
-        let out = send(self, "POST", &path, &input)?;
-        comment_of(&out, &self.repo, issue)
+        let out = self.send("POST", &path, &input)?;
+        let no = key.same_item().ok_or(Outcome::Refused(Refusal::Invalid))?;
+        read_comment(&out, &self.repo, no)
     }
 
     fn file(&mut self, _: &NewTicket) -> Got<Posted<TicketKey>> {
@@ -147,7 +146,7 @@ impl TicketWrites for GitHub {
         if title.into_iter().chain(text).any(markers::holds_marker) {
             return Err(Outcome::Refused(Refusal::Invalid));
         }
-        let path = format!("{}/issues/{issue}", rest_repo(&self.repo)?);
+        let path = format!("{}/issues/{issue}", self.issues()?);
         let now = read_first(self, issue)?;
         if now.revision()? != *since {
             return Err(Outcome::Conflict(Lost::Changed));
@@ -179,7 +178,7 @@ impl TicketWrites for GitHub {
         if fields.is_empty() {
             return Ok(now.link);
         }
-        let failed = match send(self, "PATCH", &path, &Value::Object(fields).to_string()) {
+        let failed = match self.send("PATCH", &path, &Value::Object(fields).to_string()) {
             Ok(out) => {
                 let edited = issue_of(&out, &self.repo)?;
                 if edited.number != issue {
@@ -253,62 +252,11 @@ impl TicketWrites for GitHub {
     }
 }
 
-/// The REST path of the adapter's repository, the one place its writes
-/// go. A name that is no `owner/name` of GitHub's characters is
-/// `Refused(Invalid)`: it would aim the request somewhere else.
-fn rest_repo(repo: &str) -> Got<String> {
-    let (owner, name) = repo
-        .split_once('/')
-        .ok_or(Outcome::Refused(Refusal::Invalid))?;
-    let ok = |s: &str, max: usize, extra: &[u8]| {
-        !s.is_empty()
-            && s.len() <= max
-            && s.bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || extra.contains(&b))
-    };
-    if ok(owner, 39, b"") && ok(name, 100, b"._") && name != "." && name != ".." {
-        Ok(format!("repos/{owner}/{name}"))
-    } else {
-        Err(Outcome::Refused(Refusal::Invalid))
-    }
-}
-
-/// One write, its JSON on gh's standard input, sent once. A failure is its
-/// named outcome: a 422 is GitHub refusing the input, a spent budget is the
-/// writes' pool, and a runner that sends no input sent nothing. No word of
-/// gh's answer, or of the input, is kept.
-fn send(gh: &mut GitHub, method: &str, path: &str, input: &str) -> Got<String> {
-    let args = ["api", "-X", method, path, "--input", "-"];
-    let e = match gh.call_input("the write", &args, input) {
-        Ok(out) => return Ok(out),
-        Err(e) => e,
-    };
-    if e.why == NO_INPUT {
-        return Err(Outcome::Refused(Refusal::Unsupported));
-    }
-    if e.why.contains("HTTP 422") {
-        return Err(Outcome::Refused(Refusal::Invalid));
-    }
-    Err(match gh.outcome(&e) {
-        Outcome::Spent { until, .. } => Outcome::Spent {
-            pool: Pool::Writes,
-            until,
-        },
-        other => other,
-    })
-}
-
 /// The issue's REST read before a write, held to be this project's issue
 /// `issue`. A failure of the read is its outcome, with nothing sent; a pull
 /// request is `NotFound`.
 fn read_first(gh: &mut GitHub, issue: u64) -> Got<Issue> {
-    let out = gh.issue_answer(issue).map_err(|e| match gh.outcome(&e) {
-        Outcome::Unavailable { why, .. } => Outcome::Unavailable {
-            why,
-            sent: Sent::No,
-        },
-        other => other,
-    })?;
+    let out = gh.issue_answer(issue).map_err(|e| unsent(gh.outcome(&e)))?;
     let read = issue_of(&out, &gh.repo)?;
     if read.number != issue {
         return Err(Outcome::Unread(Unread::Inconsistent));
@@ -398,32 +346,4 @@ fn issue_of(out: &str, repo: &str) -> Got<Issue> {
         link: WebLink::new(url).map_err(|_| malformed)?,
         updated: text("updated_at"),
     })
-}
-
-/// The comment in gh's answer: its REST id, and its link, which must be the
-/// comment's on this project's issue `issue`.
-fn comment_of(out: &str, repo: &str, issue: u64) -> Got<Posted<CommentId>> {
-    let malformed = Outcome::Unread(Unread::Malformed);
-    let v: Value = serde_json::from_str(out.trim()).map_err(|_| malformed.clone())?;
-    let id = v
-        .get("id")
-        .and_then(Value::as_u64)
-        .ok_or(malformed.clone())?;
-    let url = v
-        .get("html_url")
-        .and_then(Value::as_str)
-        .ok_or(malformed.clone())?;
-    if !ends_with_folded(url, &format!("/{repo}/issues/{issue}#issuecomment-{id}")) {
-        return Err(Outcome::Unread(Unread::Inconsistent));
-    }
-    let link = WebLink::new(url).map_err(|_| malformed)?;
-    Ok(Posted::new(CommentId::new(id.to_string()), link))
-}
-
-/// `text` ends with `tail`, ASCII case folded: GitHub names a project in
-/// any case.
-fn ends_with_folded(text: &str, tail: &str) -> bool {
-    text.len() >= tail.len()
-        && text.is_char_boundary(text.len() - tail.len())
-        && text[text.len() - tail.len()..].eq_ignore_ascii_case(tail)
 }
