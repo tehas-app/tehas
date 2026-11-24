@@ -29,7 +29,6 @@
 use crate::after::log;
 use crate::apply;
 use crate::host::{self, Refused, Start};
-use crate::runner;
 use crate::start::attempt_shaped;
 use serde_json::Value;
 use std::fs::{self, OpenOptions};
@@ -70,7 +69,7 @@ pub enum Number {
 }
 
 pub fn number(answer: &str) -> Number {
-    let values = runner::values(answer).unwrap_or_default();
+    let values = crate::loose::values::<Value>(answer).unwrap_or_default();
     let [one] = values.as_slice() else {
         return Number::Unreadable;
     };
@@ -96,7 +95,7 @@ pub fn number(answer: &str) -> Number {
 /// person's answer: --restart tells the runner so, and the cycle takes the
 /// label off before the runner starts.
 pub fn wants_restart(answer: &str) -> bool {
-    let Some(v) = runner::first_value(answer) else {
+    let Some(v) = crate::loose::first_value::<Value>(answer) else {
         return false;
     };
     let is_it = |l: &Value| l.get("name").and_then(Value::as_str) == Some("needs-human-attention");

@@ -775,7 +775,8 @@ fn keep_lean_state(home: &Path, workdir: &str, issue: u64, lean: bool) {
     let _ = fs::remove_file(&to);
     // The read of the workspace's own file, which refuses a link anywhere on the
     // way and a file of no sane size; the copy is of what that read answered.
-    let Some(kept) = crate::last_attempt::lean(Path::new(workdir), issue) else {
+    let Some(kept) = crate::last_attempt::lean::<serde_json::Value>(Path::new(workdir), issue)
+    else {
         return;
     };
     if !write_private(&to, &kept.to_string()) {

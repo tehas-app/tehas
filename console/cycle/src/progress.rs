@@ -16,31 +16,17 @@
 //! the container's stdout), or `bad-result` when the file has something in it
 //! and gives no entry for the issue.
 
-use crate::runner::{self, kept, RESULT_SCHEMA};
-use serde_json::Value;
+use crate::loose::{Field, Many, Node};
+use crate::runner::{self, kept, Event, Line, RESULT_SCHEMA};
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::io::ErrorKind;
 use std::path::Path;
 use tehas_core::jq::{obj, J};
 
-fn stable(o: &Value) -> bool {
-    matches!(
-        o.get("unstable"),
-        None | Some(Value::Null) | Some(Value::Bool(false))
-    )
-}
-
-fn kind(o: &Value, word: &str) -> bool {
-    o.get("kind").and_then(Value::as_str) == Some(word)
-}
-
 /// The JSON objects of version 1 among the lines of a stream.
-fn stream(text: &str) -> Vec<Value> {
-    text.lines()
-        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
-        .filter(|v| v.is_object() && v.get("v").and_then(Value::as_f64) == Some(1.0))
-        .collect()
+fn stream(text: &str) -> Vec<Line> {
+    text.lines().filter_map(Line::parse).collect()
 }
 
 /// How many of the lines of a stream are no JSON, and of how many lines. A
@@ -50,7 +36,7 @@ fn unparsed(text: &str) -> (usize, usize) {
     let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
     let bad = lines
         .iter()
-        .filter(|l| serde_json::from_str::<Value>(l).is_err())
+        .filter(|l| serde_json::from_str::<serde_json::Value>(l).is_err())
         .count();
     (bad, lines.len())
 }
@@ -65,19 +51,19 @@ fn figure(x: f64) -> J {
 }
 
 /// `tonumber? // 0`.
-fn counted(v: Option<&Value>) -> f64 {
+fn counted(v: &Field) -> f64 {
     match v {
-        Some(Value::Number(x)) => x.as_f64().unwrap_or(0.0),
-        Some(Value::String(s)) => s.parse().unwrap_or(0.0),
+        Field::Num(x) => x.as_f64().unwrap_or(0.0),
+        Field::Str(s) => s.parse().unwrap_or(0.0),
         _ => 0.0,
     }
 }
 
-fn role_of(event: &serde_json::Map<String, Value>) -> String {
-    let text = match event.get("role") {
-        None | Some(Value::Null) | Some(Value::Bool(false)) => String::new(),
-        Some(Value::String(s)) => s.clone(),
-        Some(other) => other.to_string(),
+fn role_of(event: &Event) -> String {
+    let text = match &event.role {
+        r if r.nothing() => String::new(),
+        Field::Str(s) => s.clone(),
+        other => other.json(),
     };
     let role = kept(&text, |c| c.is_ascii_alphanumeric() || "_.-".contains(c));
     if role.is_empty() {
@@ -115,32 +101,30 @@ struct Lines {
 }
 
 /// None where jq stops: a usage that is no object.
-fn roles_of(lines: &[&Value]) -> Option<J> {
+fn roles_of(lines: &[&Line]) -> Option<J> {
     let mut keys = HashSet::new();
     let mut rows: BTreeMap<String, Row> = BTreeMap::new();
     for o in lines
         .iter()
-        .filter(|o| kind(o, "dispatch-completed") && stable(o))
+        .filter(|o| o.is("dispatch-completed") && o.stable())
     {
-        let key = o.get("key").unwrap_or(&Value::Null).to_string();
-        if !keys.insert(key) {
+        if !keys.insert(o.key.json()) {
             continue;
         }
-        let Some(event) = o.get("event").and_then(Value::as_object) else {
+        let Some(event) = o.event() else {
             continue;
         };
-        let empty = serde_json::Map::new();
-        let usage = match event.get("usage") {
-            None | Some(Value::Null) | Some(Value::Bool(false)) => &empty,
-            Some(Value::Object(u)) => u,
-            _ => return None,
+        let usage = match &event.usage {
+            Node::Absent | Node::Null | Node::False => Default::default(),
+            Node::Object(u) => u.clone(),
+            Node::Other => return None,
         };
         let row = rows.entry(role_of(event)).or_default();
         row.dispatches += 1.0;
-        row.turns += counted(usage.get("turns"));
-        row.input += counted(usage.get("input"));
-        row.output += counted(usage.get("output"));
-        row.cache_read += counted(usage.get("cacheRead"));
+        row.turns += counted(&usage.turns);
+        row.input += counted(&usage.input);
+        row.output += counted(&usage.output);
+        row.cache_read += counted(&usage.cache_read);
     }
     Some(J::Arr(
         rows.iter()
@@ -160,20 +144,14 @@ fn roles_of(lines: &[&Value]) -> Option<J> {
     ))
 }
 
-fn string_of(v: Option<&Value>) -> Option<&str> {
-    v.and_then(Value::as_str).filter(|s| !s.is_empty())
-}
-
 /// What the stream of a run says, read only for a runner that wrote no result.
 fn from_lines(text: &str) -> Lines {
     let all = stream(text);
-    let is_failed = |o: &&Value| {
-        o.get("unstable") == Some(&Value::Bool(true))
-            && (kind(o, "dispatch-failed") || kind(o, "dispatch-failed-provider"))
-    };
-    let mut lines: Vec<&Value> = all.iter().filter(|o| stable(o)).collect();
+    let is_failed =
+        |o: &&Line| o.unstable() && (o.is("dispatch-failed") || o.is("dispatch-failed-provider"));
+    let mut lines: Vec<&Line> = all.iter().filter(|o| o.stable()).collect();
     lines.extend(all.iter().filter(is_failed));
-    lines.extend(all.iter().filter(|o| kind(o, "cap-hit")));
+    lines.extend(all.iter().filter(|o| o.is("cap-hit")));
     let Some(roles) = roles_of(&lines) else {
         return Lines {
             roles: J::Arr(vec![]),
@@ -181,26 +159,26 @@ fn from_lines(text: &str) -> Lines {
             review_held: false,
         };
     };
-    let event = |o: &&Value, k: &str| o.get("event").and_then(|e| e.get(k)).cloned();
+    let said = |s: &'_ str| !s.is_empty();
     let evidence = lines
         .iter()
-        .filter(|o| kind(o, "cap-hit"))
-        .filter_map(|o| string_of(o.get("event").and_then(|e| e.get("evidence"))))
+        .filter(|o| o.is("cap-hit"))
+        .filter_map(|o| o.event().map(|e| e.evidence.str()).filter(|s| said(s)))
         .next_back();
     let held = lines.iter().any(|o| {
-        kind(o, "cap-hit")
-            && stable(o)
-            && event(o, "cap").as_ref().and_then(Value::as_str) == Some("round-cap")
-            && event(o, "nextStep").as_ref().and_then(Value::as_str) == Some("ci")
+        o.is("cap-hit")
+            && o.stable()
+            && o.event()
+                .is_some_and(|e| e.cap.str() == "round-cap" && e.next_step.str() == "ci")
     });
     let failure = lines
         .iter()
-        .filter(|o| o.get("unstable") == Some(&Value::Bool(true)))
+        .filter(|o| o.unstable())
         .flat_map(|o| {
-            let e = o.get("event");
+            let e = o.event();
             [
-                string_of(e.and_then(|e| e.get("providerMessage"))),
-                string_of(e.and_then(|e| e.get("errorTail"))),
+                e.map(|e| e.provider_message.str()).filter(|s| said(s)),
+                e.map(|e| e.error_tail.str()).filter(|s| said(s)),
             ]
         })
         .flatten()
@@ -361,18 +339,18 @@ pub fn summary(ndjson: &Path, result: Option<(&Path, u64)>) -> String {
 /// Whether `text` is a schema 5 result with no issue entry at all, as a refusal
 /// that carries only an error may be.
 pub fn error_only(text: &str) -> bool {
-    let Some(values) = runner::values(text) else {
+    let Some(values) = runner::results(text) else {
         return false;
     };
-    let Some(Value::Object(o)) = values.last() else {
+    let Some(Node::Object(o)) = values.last() else {
         return false;
     };
-    let none = match o.get("issues") {
-        None | Some(Value::Null) | Some(Value::Bool(false)) => true,
-        Some(Value::Array(a)) => a.is_empty(),
+    let none = match &o.issues {
+        Many::Absent | Many::Null | Many::False => true,
+        Many::List(a) => a.is_empty(),
         _ => false,
     };
-    o.get("schemaVersion").and_then(Value::as_f64) == Some(RESULT_SCHEMA as f64) && none
+    o.schema_5() && none
 }
 
 #[cfg(test)]

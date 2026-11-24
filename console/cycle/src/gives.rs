@@ -8,7 +8,6 @@
 //! A reason here may be put on the issue, so it names no host path.
 
 use crate::caps;
-use crate::runner;
 use crate::start::{is_record, record_value};
 use serde_json::{json, Value};
 use std::fs;
@@ -185,7 +184,7 @@ fn take_within(
         ));
     }
     let rc = ran.status.unwrap_or(127);
-    let answer = runner::values(&ran.out).unwrap_or_default();
+    let answer = crate::loose::values::<Value>(&ran.out).unwrap_or_default();
     let said = answer.iter().rev().find(|v| {
         v.get("api").and_then(Value::as_f64) == Some(1.0)
             && v.get("ok") == Some(&Value::Bool(true))
