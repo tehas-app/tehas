@@ -348,10 +348,11 @@ mod tests {
         for who in ["acme-millwright", "acme-millwright[bot]"] {
             assert!(!c.allowed(who) && c.is_millwright(who), "{who}");
         }
-        // The allow-list holds people, matched exactly: an App whose slug
-        // equals a listed login is another account.
+        // The allow-list holds people, whole logins in any ASCII case: an
+        // App whose slug equals a listed login is another account.
         assert!(c.allowed("alice"));
-        for who in ["alice[bot]", "Alice", "alice2", "", "[bot]"] {
+        assert!(c.allowed("Alice"));
+        for who in ["alice[bot]", "Alice[bot]", "alice2", "", "[bot]"] {
             assert!(!c.allowed(who), "{who}");
         }
         // Two spaces of the setting stand for no login: the empty word

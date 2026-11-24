@@ -1051,10 +1051,14 @@ fn upkeep_touches_no_name_but_the_four() {
     // `state/` is ever cut, however big it is: a log of another program, one of
     // the four with a suffix, and a name of the whole directory upkeep never
     // names. The four's own `.1` is the exception: the next roll replaces it.
-    let others = ["logs/other.log", "logs/dispatch.log.old", "state/other.log"];
+    let others = [
+        home.join("logs/other.log"),
+        home.join("logs/dispatch.log.old"),
+        Home::new(home.path()).state_dir().join("other.log"),
+    ];
     long_lived(&home, 600);
     for other in &others {
-        fs::write(home.join(other), log_text("a line of its own", 600)).unwrap();
+        fs::write(other, log_text("a line of its own", 600)).unwrap();
     }
     assert_eq!(
         upkeep(&home, cap, &[])["rolled"],
@@ -1062,9 +1066,10 @@ fn upkeep_touches_no_name_but_the_four() {
     );
     for other in &others {
         assert_eq!(
-            fs::read_to_string(home.join(other)).unwrap(),
+            fs::read_to_string(other).unwrap(),
             log_text("a line of its own", 600),
-            "{other}"
+            "{}",
+            other.display()
         );
     }
 }

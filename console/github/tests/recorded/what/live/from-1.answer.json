@@ -1,0 +1,1 @@
+{"data":{"repository":{"n1":{"__typename":"PullRequest","number":1},"n2":{"__typename":"Issue","number":2},"n999999999":null}},"errors":[{"type":"NOT_FOUND","path":["repository","n999999999"],"locations":[{"line":1,"column":289}],"message":"Could not resolve to an issue or pull request with the number of 999999999."}]}
