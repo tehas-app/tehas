@@ -1,0 +1,66 @@
+{
+ "data": {
+  "repository": {
+   "databaseId": 500001,
+   "pullRequests": {
+    "totalCount": 1,
+    "pageInfo": {
+     "hasNextPage": false,
+     "endCursor": null
+    },
+    "nodes": [
+     {
+      "number": 4,
+      "title": "Change 4",
+      "state": "OPEN",
+      "isDraft": false,
+      "isCrossRepository": false,
+      "headRepository": {
+       "databaseId": 500001
+      },
+      "headRefName": "topic-4",
+      "headRefOid": "0404040404040404040404040404040404040404",
+      "baseRefName": "main",
+      "baseRefOid": "0123456789abcdef0123456789abcdef01234567",
+      "createdAt": "2026-11-20T10:00:00Z",
+      "updatedAt": "2026-11-20T10:04:00Z",
+      "mergedAt": null,
+      "closedAt": null,
+      "lastEditedAt": null,
+      "additions": 1,
+      "deletions": 0,
+      "changedFiles": 1,
+      "mergeable": "MERGEABLE",
+      "mergeStateStatus": "CLEAN",
+      "url": "https://github.com/acme/widget/pull/4",
+      "author": {
+       "__typename": "User",
+       "login": "alice",
+       "databaseId": 510
+      },
+      "editor": null,
+      "mergedBy": null,
+      "mergeCommit": null,
+      "body": "Widgets count their parts.\n\nFixes #8.",
+      "labels": {
+       "totalCount": 0,
+       "nodes": []
+      },
+      "closingIssuesReferences": {
+       "totalCount": 1,
+       "nodes": [
+        {
+         "number": 8,
+         "repository": {
+          "databaseId": 500001,
+          "nameWithOwner": "acme/widget"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  }
+ }
+}
