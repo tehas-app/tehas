@@ -6085,12 +6085,12 @@ fn a_reask_posts_a_typed_question_and_takes_its_label_off_as_a_mark() {
     );
 
     let mut t = world();
-    let a = t.apply(
-        json!([{"reask": 7, "kind": "park", "old": "2101", "old_body": "Stopped.",
-        "body": null, "offers": "", "unlabel": "tehas:question"}]),
-    );
+    let closed = json!({"reask": 7, "kind": "park", "old": "2101", "old_body": "Stopped.",
+        "body": null, "offers": "", "unlabel": "tehas:question"});
+    let a = t.apply(json!([closed]));
     let w = t.writes();
-    assert!(w.contains(&marked(7, "tehas:question", false)), "{w:?}");
+    let label = closed["unlabel"].as_str().unwrap();
+    assert!(w.contains(&marked(7, label, false)), "{w:?}");
     assert!(!w.iter().any(|c| noted(c, None)), "{w:?}");
     assert!(
         !a.log
@@ -6102,10 +6102,7 @@ fn a_reask_posts_a_typed_question_and_takes_its_label_off_as_a_mark() {
     // A mark the site refuses is said, and the re-ask still ends.
     let mut t = world();
     t.fail("send", r#""type":"Unmark""#);
-    let a = t.apply(
-        json!([{"reask": 7, "kind": "park", "old": "2101", "old_body": "Stopped.",
-        "body": null, "offers": "", "unlabel": "tehas:question"}]),
-    );
+    let a = t.apply(json!([closed]));
     assert!(
         a.log
             .iter()
