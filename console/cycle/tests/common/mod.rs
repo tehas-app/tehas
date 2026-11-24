@@ -714,6 +714,10 @@ impl World {
                 .to_string()
         };
         let attempt = answer.get("attempt").and_then(Value::as_u64).unwrap_or(0);
+        // As tehas-cycle clears them before tehas work: an earlier cycle's notes.
+        for note in tehas_core::cycle_notes::started() {
+            let _ = fs::remove_file(cycles.join(format!("7.{note}")));
+        }
         let mut work = self.command(&self.t.join("bin/fake-work"));
         work.arg("7");
         let rc = run(work).rc;
