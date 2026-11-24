@@ -315,7 +315,7 @@ fn main() {
             if start.console.is_empty() || start.status_cmd.is_empty() {
                 wrong(&args);
             }
-            std::process::exit(apply::run(&home, &start));
+            std::process::exit(apply::run(&home, &start, handles));
         }
         ["clock", "now"] => {
             if clock::print_now(clock::boot_seconds).is_none() {
@@ -452,6 +452,7 @@ fn cycle_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
         status_cmd: String::new(),
         status_args: Vec::new(),
         console: String::new(),
+        handles,
     };
     let mut it = rest.iter();
     while let Some(flag) = it.next() {
@@ -540,6 +541,37 @@ fn writes(
         tehas_ports::Caller::new("relay"),
     )?;
     Ok(writes)
+}
+
+/// The handles a cycle's report writes through, from the GitHub adapter, its
+/// gh the host's own under the report's bound.
+fn handles(
+    home: &Path,
+    repo: &str,
+    bound: Duration,
+    grace: Duration,
+) -> tehas_ports::Got<tehas_cycle::apply::Handles> {
+    use tehas_ports::{Actor, Caller, Scope, Site};
+    let (login, id) = bot_of(home);
+    // The host's own gh, which takes the factory's token itself: the site is
+    // handed a runner and holds none.
+    let make: tehas_github::MakeRunner = Arc::new(move |_| {
+        let mut b = tehas_core::forge::Bounded::new("gh", bound);
+        b.grace = grace;
+        Ok(Box::new(b) as Box<dyn tehas_core::forge::GhRunner>)
+    });
+    let site = tehas_github::GitHubSite::new(repo, &login, id, make);
+    let (by, c) = (Actor::Ours(Scope::Full), Caller::new("report"));
+    Ok(tehas_cycle::apply::Handles {
+        writes: Box::new(tehas_ports::Writer {
+            tickets: site.ticket_writes(&by, c)?,
+            blueprints: site.blueprint_writes(&by, c)?,
+            code_host: site.code_host_writes(&by, c)?,
+        }),
+        tickets: site.tickets(&by, c)?,
+        blueprints: site.blueprints(&by, c)?,
+        code_host: site.code_host(&by, c)?,
+    })
 }
 
 /// The words of tehas work.

@@ -3,7 +3,7 @@
 
 mod common;
 
-use common::{has, lacks, World};
+use common::{has, lacks, twin, World};
 use serde_json::{json, Value};
 use std::fs;
 
@@ -94,7 +94,6 @@ fn lines(v: &[Value]) -> String {
 #[test]
 fn a_container_killed_after_its_pull_request_opened_is_on_record_as_container_killed_with_its_memory_kills_and_its_pull_request(
 ) {
-    let w = World::new("rs-killed");
     // A driver that names its branch in an event after commit-pr, not as a
     // step, and a container killed out of memory in lens-fix, with no result.
     let step = |s: &str| json!({"v": 1, "kind": "step-started", "issue": 7, "event": {"kind": "step-started", "step": s}});
@@ -105,9 +104,10 @@ fn a_container_killed_after_its_pull_request_opened_is_on_record_as_container_ki
     stream.push(json!({"v": 1, "kind": "lens-residuals-posted", "issue": 7, "unstable": true,
         "event": {"kind": "lens-residuals-posted", "prNumber": 347, "branch": "feature/issue-7-checks"}}));
     stream.push(step("lens-fix"));
-    w.fx("stream", &lines(&stream));
-    w.work(
-        r#"s=$TEHAS_HOME/state/cycles
+    let (w, _, said) = twin("rs-killed", |w| {
+        w.fx("stream", &lines(&stream));
+        w.work(
+            r#"s=$TEHAS_HOME/state/cycles
 : >"$s/7.result.json"
 echo killed >"$s/7.status"
 echo 137 >"$s/7.runner_exit"
@@ -115,9 +115,9 @@ echo 4 >"$s/7.oom"
 cp "$T/fx/stream" "$TEHAS_HOME/logs/work-7-261011-120000.jsonl"
 cp "$T/fx/stream" "$TEHAS_HOME/logs/dispatch-work-7.log"
 exit 137"#,
-    );
-    w.open_pr("");
-    w.run7();
+        );
+        w.open_pr("");
+    });
     assert_eq!(
         hist(&w, &["status", "step", "cap", "pr"]),
         json!(["handoff", "lens-fix", "container-killed", 347])
@@ -127,7 +127,7 @@ exit 137"#,
         &w.gh(),
         "pr list --repo acme/widget --head feature/issue-7-checks",
     );
-    has(&w.gh(), "https://github.com/acme/widget/pull/347");
+    has(&said, "https://github.com/acme/widget/pull/347");
 }
 
 #[test]
@@ -271,17 +271,17 @@ fn a_stall_file_beside_a_state_that_names_an_end_leaves_the_end_as_it_is() {
 
 #[test]
 fn a_runner_tehas_stopped_past_its_time_limit_is_reported_as_a_timeout_and_parked() {
-    let w = World::new("rs-past");
-    w.ended("interrupted", "develop", "", "");
-    w.work(r#"echo 21600 >"$TEHAS_HOME/state/cycles/7.timed"; exit 2"#);
-    w.run7();
+    let (w, _, said) = twin("rs-past", |w| {
+        w.ended("interrupted", "develop", "", "");
+        w.work(r#"echo 21600 >"$TEHAS_HOME/state/cycles/7.timed"; exit 2"#);
+    });
     let gh = w.gh();
     has(&gh, "status `timeout`, last step `develop`");
     has(
         &gh,
         "It ran past its time limit of 360 min at step `develop`",
     );
-    has(&gh, "--add-label needs-human-attention");
+    has(&said, "mark State(NeedsPerson)");
     assert!(gone(&w, "7.timed"));
 }
 

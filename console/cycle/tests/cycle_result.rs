@@ -3,7 +3,7 @@
 
 mod common;
 
-use common::{has, lacks, World};
+use common::{has, lacks, twin, World};
 use serde_json::{json, Value};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
@@ -42,48 +42,49 @@ fn pr9(w: &World) {
     w.fx("pr.txt", "https://github.com/acme/widget/pull/9\n");
 }
 
+/// The marks the report took off or put on, in their order.
+fn marks(said: &str) -> String {
+    said.lines()
+        .filter(|l| l.starts_with("mark ") || l.starts_with("unmark "))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn kept(w: &World) -> String {
     format!("The workspace is kept at `{}`", w.kept_here())
 }
 
 #[test]
 fn a_merged_cycle_only_loses_its_running_label() {
-    let w = World::new("res-merged");
-    w.ended("merged", "done", "feature/x", "");
-    w.merged_pr();
-    w.run7();
-    let gh = w.gh();
+    let (_, _, said) = twin("res-merged", |w| {
+        w.ended("merged", "done", "feature/x", "");
+        w.merged_pr();
+    });
+    assert_eq!(marks(&said), "unmark State(Running)");
     has(
-        &gh,
-        "issue edit 7 --repo acme/widget --remove-label tehas:running",
-    );
-    lacks(&gh, "--add-label");
-    has(
-        &gh,
+        &said,
         "The change was merged: https://github.com/acme/widget/pull/9",
     );
 }
 
 #[test]
 fn a_merged_state_with_no_merged_pull_request_is_a_claim_parked_and_nothing_is_removed() {
-    let w = World::new("res-claim");
-    w.ended("merged", "done", "feature/x", "");
-    mark(&w);
-    fs::create_dir_all(before_retry(&w)).unwrap();
-    w.fx("image.label", &format!("{}\n", "e".repeat(40)));
-    let r = w.run7();
+    let (w, r, said) = twin("res-claim", |w| {
+        w.ended("merged", "done", "feature/x", "");
+        mark(w);
+        fs::create_dir_all(before_retry(w)).unwrap();
+        w.fx("image.label", &format!("{}\n", "e".repeat(40)));
+    });
     assert_eq!(r.rc, 0);
     let gh = w.gh();
     has(
         &gh,
         "pr list --repo acme/widget --head feature/x --author tehas-bot[bot] --state all",
     );
-    has(
-        &gh,
-        "--remove-label tehas:running --add-label needs-human-attention",
-    );
+    has(&said, "unmark State(Running)\nmark State(NeedsPerson)");
     has(&gh, "Tehas cycle stopped: its state says `merged`, but the bot has no merged pull request for this issue on `feature/x`");
     lacks(&gh, "The change was merged");
+    lacks(&said, "The change was merged");
     assert!(there(&w.workdir()) && there(&before_retry(&w)));
     assert!(!there(&w.home.join("state/rukas-proven")));
     // park_q reads a string; the store keeps the id as a number.
@@ -92,61 +93,59 @@ fn a_merged_state_with_no_merged_pull_request_is_a_claim_parked_and_nothing_is_r
 
 #[test]
 fn a_merged_state_whose_branch_has_only_an_open_pull_request_is_parked_and_the_comment_names_it() {
-    let w = World::new("res-open");
-    w.ended("merged", "done", "feature/x", "");
-    pr9(&w);
-    w.run7();
+    let (w, _, said) = twin("res-open", |w| {
+        w.ended("merged", "done", "feature/x", "");
+        pr9(w);
+    });
     let gh = w.gh();
-    has(&gh, "--add-label needs-human-attention");
+    has(&said, "mark State(NeedsPerson)");
     has(
         &gh,
         "Its branch has an open pull request: https://github.com/acme/widget/pull/9",
     );
-    lacks(&gh, "tehas:awaiting-merge");
+    lacks(&said, "State(AwaitingMerge)");
 }
 
 #[test]
 fn a_merged_pull_request_of_another_issue_does_not_make_a_merge() {
-    let w = World::new("res-other-merged");
-    w.ended("merged", "done", "feature/issue-9-other", "");
-    w.merged_pr();
-    w.fx("pr-body", "Fixes #9\n");
-    w.run7();
+    let (w, _, said) = twin("res-other-merged", |w| {
+        w.ended("merged", "done", "feature/issue-9-other", "");
+        w.merged_pr();
+        w.fx("pr-body", "Fixes #9\n");
+    });
     let gh = w.gh();
-    has(&gh, "--add-label needs-human-attention");
+    has(&said, "mark State(NeedsPerson)");
     has(
         &gh,
         "has a pull request of the bot that does not name this issue",
     );
     lacks(&gh, "The change was merged");
+    lacks(&said, "The change was merged");
 }
 
 #[test]
 fn a_handoff_whose_branch_is_another_issues_pull_request_is_parked_and_nothing_is_posted_on_it() {
-    let w = World::new("res-other-handoff");
-    w.ended("handoff", "commit-pr", "feature/issue-9-other", "");
-    pr9(&w);
-    w.fx("pr-body", "Fixes #9 and mentions #7\n");
-    w.run7();
+    let (w, _, said) = twin("res-other-handoff", |w| {
+        w.ended("handoff", "commit-pr", "feature/issue-9-other", "");
+        pr9(w);
+        w.fx("pr-body", "Fixes #9 and mentions #7\n");
+    });
     let gh = w.gh();
-    lacks(&gh, "tehas:awaiting-merge");
-    lacks(&gh, "pr comment");
-    has(&gh, "--add-label needs-human-attention");
+    lacks(&said, "State(AwaitingMerge)");
+    lacks(&said, "change 9 comment");
+    has(&said, "mark State(NeedsPerson)");
     has(&gh, "The branch `feature/issue-9-other` has a pull request of the bot that does not name this issue");
     lacks(&gh, "Its branch has an open pull request");
 }
 
 #[test]
 fn a_pull_request_whose_head_is_the_issues_branch_names_it_whatever_its_body_says() {
-    let w = World::new("res-head");
-    w.ended("handoff", "commit-pr", "feature/issue-7-the-change", "");
-    pr9(&w);
-    w.fx("pr-body", "No keyword here.\n");
-    w.run7();
-    has(
-        &w.gh(),
-        "--remove-label tehas:running --add-label tehas:awaiting-merge",
-    );
+    let (_, _, said) = twin("res-head", |w| {
+        w.ended("handoff", "commit-pr", "feature/issue-7-the-change", "");
+        pr9(w);
+        w.fx("pr-body", "No keyword here.\n");
+    });
+    has(&said, "unmark State(Running)\nmark State(AwaitingMerge)");
 }
 
 #[test]
@@ -248,66 +247,64 @@ fn a_result_left_by_an_earlier_cycle_is_not_this_cycles() {
 
 #[test]
 fn a_pull_request_a_person_merged_while_the_cycle_ran_ends_it_as_merged_no_park_no_question() {
-    let w = World::new("res-person");
-    w.ended("running", "handoff", "feature/x", "");
-    w.merged_pr();
-    mark(&w);
-    w.fx("image.label", &format!("{}\n", "e".repeat(40)));
-    w.work("exit 2");
-    let r = w.run7();
+    let (w, r, said) = twin("res-person", |w| {
+        w.ended("running", "handoff", "feature/x", "");
+        w.merged_pr();
+        mark(w);
+        w.fx("image.label", &format!("{}\n", "e".repeat(40)));
+        w.work("exit 2");
+    });
     assert_eq!(r.rc, 0);
     let gh = w.gh();
-    let edits: Vec<&str> = gh.lines().filter(|l| l.starts_with("issue edit")).collect();
-    assert_eq!(
-        edits,
-        ["issue edit 7 --repo acme/widget --remove-label tehas:running"]
-    );
-    has(&gh, "Tehas cycle ended: its pull request https://github.com/acme/widget/pull/9 was merged while the cycle ran (last step `handoff`");
-    has(&gh, "runner exit 2");
+    assert_eq!(marks(&said), "unmark State(Running)");
+    has(&said, "Tehas cycle ended: its pull request https://github.com/acme/widget/pull/9 was merged while the cycle ran (last step `handoff`");
+    has(&said, "runner exit 2");
     lacks(&gh, "stopped without a pull request");
+    lacks(&said, "stopped without a pull request");
     lacks(&gh, "issues/7/comments");
     assert!(w.park()["question"].is_null());
     has(&r.out, "done #7 rc=0 status=merged");
     has(&r.out, "pr=https://github.com/acme/widget/pull/9");
     assert!(there(&w.workdir()));
-    has(&gh, &kept(&w));
+    has(&said, &kept(&w));
     assert!(!there(&w.home.join("state/rukas-proven")));
 }
 
 #[test]
 fn a_runner_stopped_at_lens_fix_after_its_pull_request_merged_ends_the_cycle_as_merged_with_0_its_own_exit_kept(
 ) {
-    let w = World::new("res-lensfix");
-    w.ended("interrupted", "lens-fix", "feature/x", "-");
-    w.merged_pr();
-    w.work(
-        r#"mkdir -p "$TEHAS_HOME/state/cycles"; echo 21 >"$TEHAS_HOME/state/cycles/7.runner_exit""#,
-    );
-    let r = w.run7();
+    let (w, r, said) = twin("res-lensfix", |w| {
+        w.ended("interrupted", "lens-fix", "feature/x", "-");
+        w.merged_pr();
+        w.work(
+            r#"mkdir -p "$TEHAS_HOME/state/cycles"; echo 21 >"$TEHAS_HOME/state/cycles/7.runner_exit""#,
+        );
+    });
     assert_eq!(r.rc, 0);
     has(&r.out, "done #7 rc=0 status=merged step=lens-fix");
-    has(&w.gh(), "runner exit 21");
+    has(&said, "runner exit 21");
     assert_eq!(w.row(&["cycle-show", "7"])["cycle"]["runner_exit"], 21);
     assert!(w.park()["question"].is_null());
 }
 
 #[test]
 fn a_pull_request_closed_without_a_merge_parks_the_issue_without_the_retry_boxes() {
-    let w = World::new("res-closed");
-    w.ended("running", "review", "feature/x", "");
-    pr9(&w);
-    w.fx("pr-state", "CLOSED\n");
-    mark(&w);
-    w.work("exit 2");
-    let r = w.run7();
+    let (w, r, said) = twin("res-closed", |w| {
+        w.ended("running", "review", "feature/x", "");
+        pr9(w);
+        w.fx("pr-state", "CLOSED\n");
+        mark(w);
+        w.work("exit 2");
+    });
     assert_eq!(r.rc, 0);
     let gh = w.gh();
-    has(&gh, "issue edit 7 --repo acme/widget --remove-label tehas:running --add-label needs-human-attention");
-    has(&gh, "Tehas cycle stopped: its pull request https://github.com/acme/widget/pull/9 was closed without being merged");
-    has(&gh, &kept(&w));
-    has(&gh, "To retry, apply `tehas:ready`.");
+    has(&said, "unmark State(Running)\nmark State(NeedsPerson)");
+    has(&said, "Tehas cycle stopped: its pull request https://github.com/acme/widget/pull/9 was closed without being merged");
+    has(&said, &kept(&w));
+    has(&said, "To retry, apply `tehas:ready`.");
     lacks(&gh, "issues/7/comments");
     lacks(&gh, "tehas:question");
+    lacks(&said, "State(Question)");
     assert!(w.park()["question"].is_null());
     assert!(there(&w.workdir()));
 }
@@ -330,27 +327,18 @@ fn an_open_pull_request_beside_a_closed_one_is_the_cycles() {
              "headRefName": "feature/x", "createdAt": at}])
         .to_string(),
     );
-    w.run7();
-    let gh = w.gh();
+    let said = common::said(&w.report_writes(&common::site()));
+    has(&said, "unmark State(Running)\nmark State(AwaitingMerge)");
     has(
-        &gh,
-        "--remove-label tehas:running --add-label tehas:awaiting-merge",
-    );
-    has(
-        &gh,
+        &said,
         "Pull request waiting for a human: https://github.com/acme/widget/pull/9",
     );
 }
 
 #[test]
 fn a_state_file_in_the_product_checkout_is_not_the_cycles_the_container_never_writes_there() {
-    let w = World::new("res-checkout");
-    work_state(&w.home.join("repos/widget"));
-    w.run7();
-    has(
-        &w.gh(),
-        "--remove-label tehas:running --add-label needs-human-attention",
-    );
+    let (_, _, said) = twin("res-checkout", |w| work_state(&w.home.join("repos/widget")));
+    has(&said, "unmark State(Running)\nmark State(NeedsPerson)");
 }
 
 #[test]
@@ -407,45 +395,44 @@ fn and_so_is_the_one_kept_from_the_cycle_before_it() {
 // own merge: what it had not pushed is only on the host.
 #[test]
 fn the_workspace_of_a_cycle_a_merge_interrupted_is_kept_and_its_comment_names_it() {
-    let w = World::new("res-interrupted");
-    w.ended("running", "review", "feature/x", "");
-    w.merged_pr();
-    mark(&w);
-    w.work("exit 2");
-    let r = w.run7();
+    let (w, r, said) = twin("res-interrupted", |w| {
+        w.ended("running", "review", "feature/x", "");
+        w.merged_pr();
+        mark(w);
+        w.work("exit 2");
+    });
     assert_eq!(r.rc, 0);
     assert!(there(&w.workdir()));
-    let gh = w.gh();
-    has(&gh, "was merged while the cycle ran");
-    has(&gh, &kept(&w));
-    lacks(&gh, &w.home.join("work").display().to_string());
-    lacks(&gh, "needs-human-attention");
+    has(&said, "was merged while the cycle ran");
+    has(&said, &kept(&w));
+    // The workspace by its ~ form, never by its path on this host.
+    lacks(&said, "/home/tehas/work");
+    lacks(&said, "NeedsPerson");
 }
 
 #[test]
 fn and_so_is_the_one_kept_from_an_earlier_stopped_cycle_of_an_interrupted_merge() {
-    let w = World::new("res-interrupted-before");
-    w.ended("running", "review", "feature/x", "");
-    w.merged_pr();
-    mark(&w);
-    fs::create_dir_all(before_retry(&w)).unwrap();
-    w.work("exit 2");
-    w.run7();
+    let (w, _, said) = twin("res-interrupted-before", |w| {
+        w.ended("running", "review", "feature/x", "");
+        w.merged_pr();
+        mark(w);
+        fs::create_dir_all(before_retry(w)).unwrap();
+        w.work("exit 2");
+    });
     assert!(there(&w.workdir()) && there(&before_retry(&w)));
-    has(&w.gh(), &kept(&w));
+    has(&said, &kept(&w));
 }
 
 #[test]
 fn a_cycle_the_dispatcher_stopped_for_a_closed_issue_names_the_workspace_it_kept() {
-    let w = World::new("res-closed-issue");
-    w.ended("running", "adversarial", "feature/x", "");
-    mark(&w);
-    w.work(r#"mkdir -p "$TEHAS_HOME/state/cycles"; echo closed >"$TEHAS_HOME/state/cycles/7.done"; exit 2"#);
-    w.run7();
+    let (w, _, said) = twin("res-closed-issue", |w| {
+        w.ended("running", "adversarial", "feature/x", "");
+        mark(w);
+        w.work(r#"mkdir -p "$TEHAS_HOME/state/cycles"; echo closed >"$TEHAS_HOME/state/cycles/7.done"; exit 2"#);
+    });
     assert!(there(&w.workdir()));
-    let gh = w.gh();
-    has(&gh, "this issue was closed while it ran");
-    has(&gh, &kept(&w));
+    has(&said, "this issue was closed while it ran");
+    has(&said, &kept(&w));
 }
 
 // A run that never cloned a workspace has no directory for its comment to name.
