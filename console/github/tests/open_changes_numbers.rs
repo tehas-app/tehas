@@ -172,9 +172,9 @@ fn the_refresh_reads_one_change_with_what_it_closes_and_its_siblings() {
     assert_eq!(ticket.key, TicketKey::Number(7.try_into().unwrap()));
     assert_eq!(ticket.state, TicketState::Open);
     assert_eq!(ticket.marks.len(), 1);
-    // The closers of #7: itself, one merged, one of another project and
-    // one of no project GitHub names; of other/lib#3, one there. None is
-    // a sibling.
+    // The closers of #7: itself, one merged, a closed one of another
+    // project and a merged one of no project GitHub names; of other/lib#3,
+    // one there. None is a sibling.
     assert!(item.siblings.is_empty());
     // One question for the change, the issue's REST read and its edit.
     assert_eq!(asked.len(), 3);
@@ -225,6 +225,18 @@ fn an_open_closer_of_this_project_is_a_sibling_counted_with_the_change() {
     // A merged change is not counted.
     let (got, _) = read("sibling", &ask(&[27], false, Some(1)), 5);
     assert_eq!(got.unwrap().items()[0].siblings.len(), 1);
+}
+
+#[test]
+fn an_open_closer_of_another_project_refuses_the_read() {
+    let (got, _) = read("foreign-closer", &ask(&[25], false, Some(10)), 5);
+    assert_eq!(got, Err(Outcome::Refused(Refusal::Unsupported)));
+}
+
+#[test]
+fn an_open_closer_of_no_base_repository_refuses_the_read() {
+    let (got, _) = read("no-base-closer", &ask(&[25], false, Some(10)), 5);
+    assert_eq!(got, Err(Outcome::Refused(Refusal::Unsupported)));
 }
 
 #[test]

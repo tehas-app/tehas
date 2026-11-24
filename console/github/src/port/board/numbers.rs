@@ -13,13 +13,14 @@ use super::{answer, malformed, pull_fields, Closing, Counted, NamedRepo, Pull, C
 use crate::GitHub;
 use tehas_ports::{
     BlueprintNo, Bound, ChangeAsk, ChangeDigest, ChangeFilter, ChangeItem, ChangeNo, ChangeState,
-    ChangeStates, Got, Outcome, Ref, Unread, Whole,
+    ChangeStates, Got, Outcome, Ref, Refusal, Unread, Whole,
 };
 
-/// The pull requests one question reads of each issue a change closes:
-/// past it, a change asked with siblings is `Unread(Cut)`. Ten, as the
-/// dispatcher's read of one pull request asks today; each costs GitHub's
-/// budget the change's whole digest.
+/// The pull requests one question reads of each issue a change closes,
+/// the cap of the siblings' bound: past ten closers of one issue, a change
+/// asked with siblings is `Unread(Cut)`, whatever bound was asked. Ten, as
+/// the dispatcher's read of one pull request asks today; each costs
+/// GitHub's budget the change's whole digest.
 const CLOSERS_PAGE: usize = 10;
 
 /// One pull request by its number, `{PULL}` its digest's fields and
@@ -132,8 +133,10 @@ impl GitHub {
     /// The open closers of this project of each issue of this project the
     /// change closes. The issues must be the change's own list of them;
     /// an issue with more closers than one question reads is
-    /// `Unread(Cut)`; a closer of another project, or of none GitHub
-    /// names, is left out.
+    /// `Unread(Cut)`. An open closer of another project, or of none
+    /// GitHub names, is no change the port can carry as a sibling, and
+    /// leaving it out would read as none: `Refused(Unsupported)`. A closer
+    /// that is not open is left out.
     fn open_closers(
         &mut self,
         change: &ChangeDigest,
@@ -176,7 +179,11 @@ impl GitHub {
                     .as_ref()
                     .is_some_and(|r| r.name_with_owner.eq_ignore_ascii_case(&self.repo));
                 if !ours {
-                    continue;
+                    match node.pull.state.as_str() {
+                        "OPEN" => return Err(Outcome::Refused(Refusal::Unsupported)),
+                        "MERGED" | "CLOSED" => continue,
+                        _ => return Err(malformed()),
+                    }
                 }
                 let closer = self.pull_digest(node.pull, ChangeStates::All)?;
                 if closer.state != ChangeState::Open {
