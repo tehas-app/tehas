@@ -628,7 +628,7 @@ pub fn resume(given: &[String], tickets: &mut dyn Tickets) -> u8 {
         return 1;
     }
     let list = setting("TEHAS_ALLOWED_LABELERS");
-    let allowed = |who: &str| tehas_core::events::allowed_folded(&list, who);
+    let allowed = |who: &str| tehas_core::events::allowed_in(&list, who);
     match other_switch(tickets, control, &allowed) {
         Some(Ok(line)) => tehas_core::outln!("{line}"),
         Some(Err(line)) => eprintln!("{line}"),
