@@ -99,7 +99,7 @@ this is the order and where to stop.
    as (`boss` here). Ask your person to run it, or to let you:
 
    ```
-   curl -fsSL https://github.com/tehas-app/tehas/releases/latest/download/install | sudo sh -s -- boss
+   curl -fsSL https://github.com/tehas-app/tehas-factory/releases/latest/download/install | sudo sh -s -- boss
    ```
 
    The installer checks the download's checksum and signature before it

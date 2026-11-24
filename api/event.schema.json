@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/tehas-app/tehas/api/event.schema.json",
+  "$id": "https://github.com/tehas-app/tehas-factory/api/event.schema.json",
   "title": "An event of tehas",
   "description": "The envelope of an event, version 1 of the events: api, source, event, when, key, at and the payload as data. host/docs/api.md, \"Events\", says what each field means. The object is closed. data is checked by event and when: one rule per name for after, one per gate for before, and a name with no before side refuses before. console/tests/events_contract.rs checks the samples against it.",
   "type": "object",

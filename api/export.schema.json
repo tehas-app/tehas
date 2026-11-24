@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/tehas-app/tehas/api/export.schema.json",
+  "$id": "https://github.com/tehas-app/tehas-factory/api/export.schema.json",
   "title": "tehas export --json",
   "description": "What tehas export --json --after CURSOR <dir> prints, version 1: the object tehas history --json prints for the runs it copied, with `version`, the layout of the export directory, and `to`, the directory. `runs` is the same as in history.schema.json, which test/json_contract_test.sh compares. host/docs/api.md says what each field means. Every object is closed, so a field tehas adds must be added here too; a program that reads the object still accepts fields it does not know. test/json_contract_test.sh checks the samples beside this file against it and what the command prints.",
   "type": "object",
