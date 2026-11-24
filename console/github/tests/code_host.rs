@@ -15,9 +15,9 @@ use tehas_core::forge::GhRunner;
 use tehas_github::GitHub;
 use tehas_ports::laws;
 use tehas_ports::{
-    Access, Actor, Author, Bound, ChangeDigest, ChangeFilter, ChangeNo, ChangeStates, CheckStatus,
-    Checks, CodeHost, CommitId, Conclusion, Facts, Got, Mark, MarkName, Outcome, Overall, Refusal,
-    State, Unread, Whole, Window,
+    Access, Actor, At, Author, Bound, ChangeDigest, ChangeFilter, ChangeNo, ChangeStates,
+    CheckStatus, Checks, CodeHost, CommitId, Conclusion, Facts, Got, Mark, MarkName, Outcome,
+    Overall, Refusal, State, Unread, Whole, Window,
 };
 
 fn here() -> PathBuf {
@@ -41,7 +41,8 @@ struct Replay {
 /// The recording a call reads, named by the project and the read: `repo`,
 /// `pulls` (the REST list that settles a failed question),
 /// `checks-<commit>-<page>[-name=<name>]`, or
-/// `changes-<states>[-me][-head=<branch>][-after=<cursor>]`, each byte
+/// `changes-<states>[-me][-head=<branch>][-after=<cursor>][-updated]`
+/// (`-updated` for the question newest updated first), each byte
 /// outside `[A-Za-z0-9=-]` written `_`.
 fn recording(args: &[&str]) -> Option<(String, String)> {
     let field = |name: &str| {
@@ -60,6 +61,9 @@ fn recording(args: &[&str]) -> Option<(String, String)> {
             if let Some(v) = field(var) {
                 read.push_str(&format!("-{var}={v}"));
             }
+        }
+        if query.contains("field: UPDATED_AT, direction: DESC") {
+            read.push_str("-updated");
         }
         (field("name")?, read)
     } else {
@@ -380,6 +384,129 @@ fn a_list_longer_than_ten_pages_is_cut_with_no_eleventh_request() {
         Err(Outcome::Unread(Unread::Cut))
     );
     assert_eq!(asked.lock().unwrap().len(), 10);
+}
+
+/// A runner for `acme/huge`, 1500 pull requests, #n updated `n` minutes
+/// into 2026, answered newest updated first, 100 a page, the cursor the
+/// offset. Those in `merged` are merged at their updated time, the rest
+/// open. With `moved` (#n, place, minutes), #n is updated after the second
+/// call to that time and stands at that place from then on.
+struct Huge {
+    merged: Vec<u64>,
+    moved: Option<(u64, usize, u64)>,
+    asked: Asked,
+}
+
+fn iso(minutes: u64) -> String {
+    format!(
+        "2026-01-{:02}T{:02}:{:02}:00Z",
+        1 + minutes / 1440,
+        minutes % 1440 / 60,
+        minutes % 60
+    )
+}
+
+impl GhRunner for Huge {
+    fn run(&mut self, args: &[&str]) -> Result<String, String> {
+        let calls = {
+            let mut asked = self.asked.lock().unwrap();
+            asked.push(args.join(" "));
+            asked.len()
+        };
+        let mut list: Vec<(u64, u64)> = (1..=1500).rev().map(|n| (n, n)).collect();
+        if let Some((no, place, at)) = self.moved.filter(|_| calls > 2) {
+            list.retain(|(n, _)| *n != no);
+            list.insert(place, (no, at));
+        }
+        let from: usize = args
+            .iter()
+            .find_map(|a| a.strip_prefix("after="))
+            .map_or(0, |c| c.parse().unwrap());
+        let to = (from + 100).min(list.len());
+        let nodes: Vec<String> = list[from..to]
+            .iter()
+            .map(|&(no, at)| {
+                let (state, merged, commit) = match self.merged.contains(&no) {
+                    true => ("MERGED", format!("\"{}\"", iso(at)), format!(r#"{{"oid":"{}"}}"#, "cd".repeat(20))),
+                    false => ("OPEN", "null".to_string(), "null".to_string()),
+                };
+                format!(
+                    r#"{{"number":{no},"title":"Change {no}","state":"{state}","isDraft":false,"isCrossRepository":false,"headRefName":"topic-{no}","headRefOid":"{sha}","baseRefName":"main","baseRefOid":"{sha}","createdAt":"2026-01-01T00:00:00Z","updatedAt":"{updated}","mergedAt":{merged},"closedAt":null,"lastEditedAt":null,"additions":1,"deletions":0,"changedFiles":1,"mergeable":"UNKNOWN","mergeStateStatus":"UNKNOWN","url":"https://github.com/acme/huge/pull/{no}","author":{{"__typename":"User","login":"alice","databaseId":101}},"editor":null,"mergedBy":null,"mergeCommit":{commit},"labels":{{"totalCount":0,"nodes":[]}},"closingIssuesReferences":{{"totalCount":0,"nodes":[]}}}}"#,
+                    sha = "ab".repeat(20),
+                    updated = iso(at)
+                )
+            })
+            .collect();
+        Ok(format!(
+            r#"{{"data":{{"repository":{{"databaseId":7030,"pullRequests":{{"totalCount":1500,"pageInfo":{{"hasNextPage":{more},"endCursor":"{to}"}},"nodes":[{}]}}}}}}}}"#,
+            nodes.join(","),
+            more = to < list.len()
+        ))
+    }
+}
+
+/// The merged changes of `acme/huge` since `minutes` into 2026, the
+/// numbers answered and the calls made.
+fn merged_since(
+    merged: &[u64],
+    minutes: i64,
+    moved: Option<(u64, usize, u64)>,
+) -> (Got<Vec<u64>>, Vec<String>) {
+    let asked = Asked::default();
+    let runner = Huge {
+        merged: merged.to_vec(),
+        moved,
+        asked: Arc::clone(&asked),
+    };
+    let mut gh = GitHub::new("acme/huge", Box::new(runner));
+    let filter = ChangeFilter {
+        states: ChangeStates::Merged,
+        merged_since: Some(At::new(1_767_225_600 + minutes * 60)),
+        ..ChangeFilter::default()
+    };
+    let got = gh
+        .changes(&filter, Bound::new(10).unwrap())
+        .map(|w| w.items().iter().map(|d| d.no.get()).collect());
+    let asked = asked.lock().unwrap().clone();
+    (got, asked)
+}
+
+#[test]
+fn a_recent_window_of_a_long_list_is_answered_whole_from_the_first_page() {
+    let (got, asked) = merged_since(&[1498, 1490, 1495, 3], 1489, None);
+    // Read newest first, answered in the order of their numbers.
+    assert_eq!(got, Ok(vec![1490, 1495, 1498]));
+    assert_eq!(asked.len(), 1);
+    assert!(asked[0].contains("orderBy: {field: UPDATED_AT, direction: DESC}"));
+}
+
+#[test]
+fn a_window_that_ends_at_a_page_boundary_reads_the_next_page_and_the_first_again() {
+    let (got, asked) = merged_since(&[1500, 1450, 1401, 1400], 1401, None);
+    assert_eq!(got, Ok(vec![1401, 1450, 1500]));
+    assert_eq!(asked.len(), 3);
+    assert!(asked[1].contains("-f after=100"));
+    assert_eq!(asked[2], asked[0]);
+}
+
+#[test]
+fn a_change_updated_while_the_pages_are_read_is_inconsistent() {
+    let (got, _) = merged_since(&[1500, 7], 1401, Some((7, 0, 2000)));
+    assert_eq!(got, Err(Outcome::Unread(Unread::Inconsistent)));
+}
+
+#[test]
+fn a_change_that_ties_the_top_and_lands_second_while_the_pages_are_read_is_inconsistent() {
+    // #7 is updated in the same minute as #1500 and GitHub keeps #1500 first.
+    let (got, _) = merged_since(&[1500, 7], 1401, Some((7, 1, 1500)));
+    assert_eq!(got, Err(Outcome::Unread(Unread::Inconsistent)));
+}
+
+#[test]
+fn a_change_already_read_that_moves_up_while_the_pages_are_read_is_not_inconsistent() {
+    let (got, asked) = merged_since(&[1500, 1450, 1401], 1401, Some((1450, 0, 2000)));
+    assert_eq!(got, Ok(vec![1401, 1450, 1500]));
+    assert_eq!(asked.len(), 3);
 }
 
 #[test]
