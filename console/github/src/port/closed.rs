@@ -4,20 +4,17 @@
 //! `Ticket.closer` gives, read by the same rule from the newest close.
 //!
 //! `several_with_closers` asks one GraphQL question for up to a hundred
-//! tickets, an alias a number. GitHub answers a number that is no issue
-//! with a null node and a `NOT_FOUND` error at that alias, and gh then
-//! exits 1, so the question is read from gh's answer beside its failure,
-//! ticket by ticket.
+//! tickets, an alias a number, read alias by alias as `items.rs` reads
+//! every aliased question: a number that is no issue is `NotFound`.
 
 use std::collections::BTreeMap;
 
 use serde::Deserialize;
-use serde_json::Value;
 
 use super::board::Pull;
 use super::number;
 use crate::ticket::{closes, digest_fields, part, present, time, Event, Node, Page, Pages};
-use crate::{ForgeError, GitHub};
+use crate::GitHub;
 use tehas_ports::{
     At, Bound, ChangeDigest, ChangeState, ChangeStates, ClosedTicket, Got, Outcome, TicketDigest,
     TicketKey, TicketState, Unread, Whole, WithCloser, ALL_MAX,
@@ -126,43 +123,6 @@ struct Repo {
     name_with_owner: String,
 }
 
-#[derive(Deserialize)]
-struct Answer {
-    data: Option<Data>,
-    #[serde(default)]
-    errors: Vec<GraphError>,
-}
-
-#[derive(Deserialize)]
-struct Data {
-    /// Each alias asked, null where GitHub has no issue for it.
-    repository: Option<BTreeMap<String, Value>>,
-}
-
-#[derive(Deserialize)]
-struct GraphError {
-    #[serde(rename = "type")]
-    kind: Option<String>,
-    #[serde(default)]
-    path: Vec<Value>,
-}
-
-impl GraphError {
-    /// The alias this error is about, None for one about the question.
-    fn alias(&self) -> Option<&str> {
-        match self.path.as_slice() {
-            [Value::String(r), Value::String(a), ..] if r == "repository" => Some(a),
-            _ => None,
-        }
-    }
-
-    /// GitHub's word that the alias names no issue: the alias itself, not
-    /// something inside it.
-    fn not_found(&self) -> bool {
-        self.kind.as_deref() == Some("NOT_FOUND") && self.path.len() == 2
-    }
-}
-
 impl GitHub {
     /// Several tickets' digests, each with its closer, in the order asked,
     /// a repeated key answered each time from one alias. A key that is no
@@ -195,57 +155,13 @@ impl GitHub {
 
     /// One question of distinct numbers: an answer for each, in order.
     fn ask_closers(&mut self, numbers: &[u64]) -> Vec<Got<WithCloser>> {
-        let all = |o: Outcome| vec![Err(o); numbers.len()];
-        let (owner, name) = self.owner_name();
-        let query = format!("query={}", several_question(numbers));
-        let args = ["api", "graphql", "-F", &owner, "-F", &name, "-f", &query];
-        let (out, failed) = match self.call_answer("the tickets' closers", &args) {
-            Ok(out) => (out, None),
-            Err((e, Some(out))) => (out, Some(e)),
-            Err((e, None)) => return all(self.failed_closers(&e, numbers.len())),
-        };
-        let read = serde_json::from_str::<Value>(out.trim())
-            .ok()
-            .and_then(|mut v| {
-                tehas_core::accounts::vouch(&mut v);
-                serde_json::from_value::<Answer>(v).ok()
-            });
-        let Some(answer) = read else {
-            return all(failed.map_or(MALFORMED, |e| self.failed_closers(&e, numbers.len())));
-        };
-        let repository = answer.data.and_then(|d| d.repository);
-        let nodes = match (repository, failed.as_ref()) {
-            (Some(nodes), None) => Some(nodes),
-            (Some(nodes), Some(_)) if !answer.errors.is_empty() => Some(nodes),
-            _ => None,
-        };
-        let Some(mut nodes) = nodes else {
-            // No issue, or gh failed with no error to read them by: the
-            // call's own outcome.
-            return all(failed.map_or(MALFORMED, |e| self.failed_closers(&e, numbers.len())));
-        };
-        // An error that names no alias leaves no ticket sure.
-        if answer.errors.iter().any(|e| e.alias().is_none()) {
-            return all(INCONSISTENT);
-        }
+        let aliases: Vec<String> = numbers.iter().map(|n| alias(*n)).collect();
+        let nodes: Vec<Got<WithClose>> =
+            self.ask_aliased("the tickets' closers", &several_question(numbers), &aliases);
         numbers
             .iter()
-            .map(|n| {
-                let a = alias(*n);
-                let errors: Vec<&GraphError> = answer
-                    .errors
-                    .iter()
-                    .filter(|e| e.alias() == Some(&a))
-                    .collect();
-                match (nodes.remove(&a), errors.as_slice()) {
-                    (None, _) => Err(MALFORMED),
-                    (Some(Value::Null), [e]) if e.not_found() => Err(Outcome::NotFound),
-                    (Some(node), []) if !node.is_null() => serde_json::from_value(node)
-                        .map_err(|_| MALFORMED)
-                        .and_then(|read| self.with_closer(*n, read)),
-                    _ => Err(INCONSISTENT),
-                }
-            })
+            .zip(nodes)
+            .map(|(n, node)| node.and_then(|node| self.with_closer(*n, node)))
             .collect()
     }
 
@@ -259,16 +175,6 @@ impl GitHub {
         let mut with = WithCloser::new(digest);
         with.closer = closer;
         Ok(with)
-    }
-
-    /// The outcome of a question gh failed with no answer to read. A
-    /// number GitHub does not know fails the whole question, so where
-    /// several were asked a `NotFound` names none of them.
-    fn failed_closers(&self, e: &ForgeError, asked: usize) -> Outcome {
-        match self.outcome(e) {
-            Outcome::NotFound if asked > 1 => INCONSISTENT,
-            o => o,
-        }
     }
 
     /// The tickets closed at or after `since`, whole, oldest filed first,
