@@ -1136,6 +1136,11 @@ mod tests {
             fails: false,
         },
         Read {
+            word: "check-runs",
+            fixture: r#"{"check_runs":[]}"#,
+            fails: false,
+        },
+        Read {
             word: "events?per_page=100",
             fixture: "events-",
             fails: false,
