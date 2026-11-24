@@ -78,12 +78,15 @@ impl Cites for GitHub {
         }
     }
 
-    /// The page GitHub shows an item of this repository or an account on,
-    /// built with no request as its read's `html_url` gives it: an issue's
-    /// for a ticket or a blueprint, a pull request's for a change. A key
-    /// that is no number, an item of another project, a mark and a marker
-    /// link nothing, and so does every cite of a repository that is not
-    /// exactly `owner/name`.
+    /// The page GitHub shows an item of this repository on, built with no
+    /// request as its read's `html_url` gives it: an issue's for a ticket
+    /// or a blueprint, a pull request's for a change. A key that is no
+    /// number, an item of another project, a mark and a marker link
+    /// nothing, and so does every cite of a repository that is not exactly
+    /// `owner/name`. An account links nothing either: a login does not say
+    /// whether it is a person's or an App's, whose page is
+    /// `apps/<slug>`, so `github.com/<login>` could be another account's,
+    /// until a cite carries the account's kind.
     fn link(&self, what: &Cite) -> Option<tehas_ports::WebLink> {
         let (owner, name) = code_host::parts(&self.repo)?;
         let page = match what {
@@ -92,7 +95,6 @@ impl Cites for GitHub {
             }
             Cite::Blueprint(Ref::Here(n)) => format!("{owner}/{name}/issues/{}", n.get()),
             Cite::Change(Ref::Here(n)) => format!("{owner}/{name}/pull/{}", n.get()),
-            Cite::Account(login) => login.as_str().to_string(),
             _ => return None,
         };
         tehas_ports::WebLink::new(format!("https://github.com/{page}")).ok()

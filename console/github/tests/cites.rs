@@ -1,5 +1,5 @@
 //! `Cites::link` as the adapter answers it: with no request, the page each
-//! item's own read gives, from the recordings under `tests/recorded/` and
+//! item's own read gives, and nothing for an account, from the recordings under `tests/recorded/` and
 //! the pull request sample of `tests/samples/change-read/`.
 
 mod replay;
@@ -53,21 +53,11 @@ fn a_ticket_and_a_blueprint_link_to_the_issue_its_read_gives_and_ask_nothing() {
 }
 
 #[test]
-fn a_change_links_to_its_pull_request_and_an_account_to_its_page() {
+fn a_change_links_to_its_pull_request() {
     let (gh, asked) = adapter_of(PROJECT);
     assert_eq!(
         gh.link(&change(9)),
         Some(html_url("samples/change-read/pull-9.json"))
-    );
-    let carol = std::fs::read_to_string(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/recorded/identity/permission-carol.json"),
-    )
-    .unwrap();
-    let doc: serde_json::Value = serde_json::from_str(&carol).unwrap();
-    assert_eq!(
-        gh.link(&Cite::Account(Login::new("carol"))),
-        Some(WebLink::new(doc["user"]["html_url"].as_str().unwrap()).unwrap())
     );
     assert_eq!(asked.get(), 0);
 }
@@ -80,7 +70,13 @@ fn what_is_not_an_item_of_this_repository_links_nothing() {
         item: ItemName::new("3"),
     });
     let key = Cite::Ticket(Ref::Here(TicketKey::Key(KeyText::new("WID-7").unwrap())));
-    for what in [elsewhere, key, Cite::Mark(Mark::Epic)] {
+    // A login says not whether it is a person's or an App's, whose page is
+    // another: a person, and a bot by its slug or its full login.
+    let accounts = ["carol", "tehas-bot", "tehas-bot[bot]"].map(|l| Cite::Account(Login::new(l)));
+    for what in [elsewhere, key, Cite::Mark(Mark::Epic)]
+        .into_iter()
+        .chain(accounts)
+    {
         assert_eq!(gh.link(&what), None, "{what:?}");
     }
 }
