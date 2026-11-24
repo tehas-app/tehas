@@ -10,9 +10,9 @@
 //!
 //! What the change closes is written after the body, one line per
 //! blueprint, in the words 1.x's finish wrote at the top of its draft:
-//! `Fixes #<n>.` (`console/cycle/src/finish/plan.rs`, `body`). A blueprint
-//! the body already closes in GitHub's syntax, on a line GitHub reads (not
-//! in code, a quote or an HTML comment), gets no second line.
+//! `Fixes #<n>.` (`console/cycle/src/finish/plan.rs`, `body`). It is left
+//! out only when a line GitHub reads (not in code, a quote or an HTML
+//! comment), trimmed, is exactly that line, with or without its dot.
 //!
 //! GitHub answers 422 for a head that already has an open pull request, a
 //! head with no commit past the base, a branch that is not there, and a
@@ -24,8 +24,10 @@
 //! A `POST` that may have landed (a time limit, a 5xx) is settled by one
 //! read of the head, as the spec's "`Sent::Maybe` is settled in the
 //! adapter first" asks: one open pull request of the head, where the read
-//! before found none, with the base, title and draft sent, is the one
-//! opened. Else it stays `sent: Maybe`.
+//! before found none, with the base, title and draft sent and opened by
+//! this handle's own account (the bot's user id, as the site's `Ours`
+//! rule reads it, never the login), is the one opened. Else it stays
+//! `sent: Maybe`. A handle that knows no bot id never settles it.
 //!
 //! **`Unread` after a 2xx: the pull request may exist; read `changes` for
 //! the head before anything else.** An answer that does not parse, or one
@@ -36,7 +38,7 @@
 
 use super::{ends_with_folded, project, unsent};
 use crate::forge::uri;
-use crate::{markers, GitHub};
+use crate::{gh, markers, GitHub};
 use serde::Deserialize;
 use tehas_ports::{
     BlueprintNo, Body, ChangeNo, Got, NewChange, Outcome, Posted, Refusal, Sent, Unread, WebLink,
@@ -79,11 +81,24 @@ impl GitHub {
             Outcome::Unavailable {
                 sent: Sent::Maybe, ..
             } => match self.pulls_of(head) {
-                Ok(mut there) if there.len() == 1 && there[0].1.is(new) => Ok(there.remove(0).0),
+                Ok(mut there) if there.len() == 1 && self.ours(&there[0].1, new) => {
+                    Ok(there.remove(0).0)
+                }
                 _ => Err(failed),
             },
             _ => Err(failed),
         }
+    }
+
+    /// The pull request `shape` is the one `new` asked for, opened by this
+    /// handle's own account: GitHub's user id and type of its author, by
+    /// the site's `Ours` rule. With no bot id given, none is.
+    fn ours(&self, shape: &Shape, new: &NewChange) -> bool {
+        let facts = gh::Facts {
+            id: shape.author_id,
+            kind: shape.author_kind.clone(),
+        };
+        shape.is(new) && self.bot.as_ref().is_some_and(|b| b.is(&facts))
     }
 
     /// The open pull requests of `head` in this repository. An answer that
@@ -111,18 +126,17 @@ impl GitHub {
 const MALFORMED: Outcome = Outcome::Unread(Unread::Malformed);
 
 /// `body`, then one closing line per blueprint `closes` names, each once,
-/// after a blank line. A blueprint the body already closes in GitHub's
-/// syntax on a line GitHub reads, as 1.x's finish body does (`Fixes #7.`
-/// at its top), gets no second line. One named only in code, a quote or an
-/// HTML comment closes nothing on GitHub and gets its line. A form the
-/// reading does not take (`owner/name#7`, a link) gets a line too: a
-/// second reference is harmless, a dropped one is not.
+/// after a blank line. A dropped line leaves the issue open and a doubled
+/// one is harmless, so the line is left out only when a line GitHub reads
+/// (not in code, a quote or an HTML comment), trimmed, is exactly
+/// `Fixes #<n>.` or `Fixes #<n>`, as 1.x's finish body starts. Every other
+/// form gets the line.
 fn with_closes(body: &str, closes: &[BlueprintNo]) -> String {
     let live = markers::live_text(body);
     let mut text = body.to_string();
     let mut said: Vec<BlueprintNo> = Vec::new();
     for b in closes {
-        if said.contains(b) || tehas_core::issue_pull::closes_issue(&live, b.get()) {
+        if said.contains(b) || closing_line(&live, *b) {
             continue;
         }
         if said.is_empty() && !text.is_empty() {
@@ -137,6 +151,16 @@ fn with_closes(body: &str, closes: &[BlueprintNo]) -> String {
     text
 }
 
+/// Whether a line of `live` (a body as `markers::live_text` leaves it),
+/// trimmed, is exactly `Fixes #<n>.` or `Fixes #<n>`.
+fn closing_line(live: &str, n: BlueprintNo) -> bool {
+    let line = format!("Fixes #{}", n.get());
+    live.lines().any(|l| {
+        let l = l.trim();
+        l == line || l.strip_suffix('.') == Some(line.as_str())
+    })
+}
+
 /// A pull request as a REST answer gives the fields read here.
 #[derive(Deserialize)]
 struct Pull {
@@ -146,6 +170,14 @@ struct Pull {
     head: Head,
     base: Base,
     draft: Option<bool>,
+    user: Option<User>,
+}
+
+#[derive(Deserialize)]
+struct User {
+    id: Option<u64>,
+    #[serde(rename = "type")]
+    kind: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -171,6 +203,8 @@ struct Shape {
     base: String,
     title: String,
     draft: Option<bool>,
+    author_id: Option<u64>,
+    author_kind: Option<String>,
 }
 
 impl Shape {
@@ -197,7 +231,8 @@ fn read_opened(out: &str, repo: &str, head: &str, draft: bool) -> Got<(Posted<Ch
 /// in this repository.
 fn read_pull(pull: Pull, repo: &str, head: &str) -> Got<(Posted<ChangeNo>, Shape)> {
     let no = ChangeNo::new(pull.number).ok_or(MALFORMED)?;
-    let here = ends_with_folded(&pull.html_url, &format!("/{repo}/pull/{}", no.get()))
+    let here = pull.html_url.starts_with("https://github.com/")
+        && ends_with_folded(&pull.html_url, &format!("/{repo}/pull/{}", no.get()))
         && pull.head.name == head
         && pull
             .head
@@ -210,6 +245,8 @@ fn read_pull(pull: Pull, repo: &str, head: &str) -> Got<(Posted<ChangeNo>, Shape
         base: pull.base.name,
         title: pull.title,
         draft: pull.draft,
+        author_id: pull.user.as_ref().and_then(|u| u.id),
+        author_kind: pull.user.and_then(|u| u.kind),
     };
     let link = WebLink::new(pull.html_url).map_err(|_| MALFORMED)?;
     Ok((Posted::new(no, link), shape))

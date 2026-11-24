@@ -9,10 +9,10 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tehas_core::forge::GhRunner;
-use tehas_github::GitHub;
+use tehas_github::{GitHub, GitHubSite, MakeRunner};
 use tehas_ports::{
-    Access, BlueprintNo, Body, Branch, CodeHost, CodeHostWrites, NewChange, Outcome, Passing, Pool,
-    Refusal, Sent, Sha256, Sum, Unread,
+    Access, Actor, BlueprintNo, Body, Branch, Caller, CodeHost, CodeHostWrites, NewChange, Outcome,
+    Passing, Pool, Refusal, Sent, Sha256, Site, Sum, Unread,
 };
 
 const PROJECT: &str = "acme/widget";
@@ -81,6 +81,38 @@ fn adapter_of(project: &str, answers: Vec<Result<String, String>>) -> (GitHub, C
 
 fn adapter(answers: Vec<Result<String, String>>) -> (GitHub, Calls) {
     adapter_of(PROJECT, answers)
+}
+
+/// The factory's bot account, as the site is given it.
+const BOT_ID: u64 = 100001;
+
+/// A code host writes handle the site makes for the factory's own account,
+/// knowing the bot's user id `bot_id`, over a runner answering `answers`.
+fn ours_of(
+    bot_id: Option<u64>,
+    answers: Vec<Result<String, String>>,
+) -> (Box<dyn CodeHostWrites + Send>, Calls) {
+    let calls = Calls::default();
+    let kept = Arc::new(Mutex::new(Some(Script {
+        answers: answers.into(),
+        calls: Arc::clone(&calls),
+    })));
+    let make: MakeRunner = Arc::new(move |_: &Actor| {
+        let script = kept.lock().unwrap().take().expect("one handle");
+        Ok(Box::new(script) as Box<dyn GhRunner>)
+    });
+    let site = GitHubSite::new(PROJECT, "tehas-bot[bot]", bot_id, make).on_clock(now);
+    let h = site
+        .code_host_writes(
+            &Actor::Ours(tehas_ports::Scope::Full),
+            Caller::new("test.open"),
+        )
+        .unwrap();
+    (h, calls)
+}
+
+fn ours(answers: Vec<Result<String, String>>) -> (Box<dyn CodeHostWrites + Send>, Calls) {
+    ours_of(Some(BOT_ID), answers)
 }
 
 fn taken(calls: &Calls) -> Vec<Call> {
@@ -507,7 +539,7 @@ fn each_failure_of_the_post_is_its_outcome_and_it_is_never_sent_again() {
 fn a_post_that_may_have_landed_is_settled_by_one_read_of_the_head() {
     // The read finds the one opened: done.
     for why in [BOUND.to_string(), failed("server-error.stderr")] {
-        let (mut gh, calls) = adapter(vec![
+        let (mut gh, calls) = ours(vec![
             Ok(sample("pulls-of-head-none.json")),
             Err(why),
             Ok(sample("pulls-of-head-41.json")),
@@ -524,7 +556,7 @@ fn a_post_that_may_have_landed_is_settled_by_one_read_of_the_head() {
         Ok(sample("pulls-of-head-two.json")),
         Err(failed("server-error.stderr")),
     ] {
-        let (mut gh, calls) = adapter(vec![
+        let (mut gh, calls) = ours(vec![
             Ok(sample("pulls-of-head-none.json")),
             Err(BOUND.to_string()),
             after,
@@ -546,7 +578,7 @@ fn another_pull_request_of_the_head_found_by_the_settle_leaves_maybe() {
         "pulls-of-head-41-other-title.json",
         "pulls-of-head-41-other-ready.json",
     ] {
-        let (mut gh, calls) = adapter(vec![
+        let (mut gh, calls) = ours(vec![
             Ok(sample("pulls-of-head-none.json")),
             Err(BOUND.to_string()),
             Ok(sample(found)),
@@ -559,7 +591,7 @@ fn another_pull_request_of_the_head_found_by_the_settle_leaves_maybe() {
         assert_eq!(posts(&taken(&calls)), 1, "{found}");
     }
     // Ours: the base, title and draft sent.
-    let (mut gh, _) = adapter(vec![
+    let (mut gh, _) = ours(vec![
         Ok(sample("pulls-of-head-none.json")),
         Err(BOUND.to_string()),
         Ok(sample("pulls-of-head-41.json")),
@@ -570,6 +602,64 @@ fn another_pull_request_of_the_head_found_by_the_settle_leaves_maybe() {
             .id
             .get(),
         41
+    );
+}
+
+#[test]
+fn the_settle_takes_only_a_pull_request_the_factorys_bot_opened() {
+    // A person's pull request on our head with our base, title and draft,
+    // and one by a user whose id is the bot's but who is no bot: Maybe.
+    for found in [
+        "pulls-of-head-41-by-a-person.json",
+        "pulls-of-head-41-user-with-the-bots-id.json",
+    ] {
+        let (mut gh, calls) = ours(vec![
+            Ok(sample("pulls-of-head-none.json")),
+            Err(BOUND.to_string()),
+            Ok(sample(found)),
+        ]);
+        assert_eq!(
+            gh.open_change(&finish_change("B", vec![])),
+            Err(maybe(Passing::Timeout)),
+            "{found}"
+        );
+        assert_eq!(posts(&taken(&calls)), 1, "{found}");
+    }
+    // Ours, by the bot's id: done.
+    let (mut gh, _) = ours(vec![
+        Ok(sample("pulls-of-head-none.json")),
+        Err(BOUND.to_string()),
+        Ok(sample("pulls-of-head-41.json")),
+    ]);
+    assert_eq!(
+        gh.open_change(&finish_change("B", vec![]))
+            .unwrap()
+            .id
+            .get(),
+        41
+    );
+    // No bot id given, so nothing is ours: it may land yet, from a site
+    // handle and from a bare one alike.
+    let (mut gh, _) = ours_of(
+        None,
+        vec![
+            Ok(sample("pulls-of-head-none.json")),
+            Err(BOUND.to_string()),
+            Ok(sample("pulls-of-head-41.json")),
+        ],
+    );
+    assert_eq!(
+        gh.open_change(&finish_change("B", vec![])),
+        Err(maybe(Passing::Timeout))
+    );
+    let (mut gh, _) = adapter(vec![
+        Ok(sample("pulls-of-head-none.json")),
+        Err(BOUND.to_string()),
+        Ok(sample("pulls-of-head-41.json")),
+    ]);
+    assert_eq!(
+        gh.open_change(&finish_change("B", vec![])),
+        Err(maybe(Passing::Timeout))
     );
 }
 
@@ -588,11 +678,24 @@ fn a_closing_word_github_does_not_read_still_gets_the_line() {
         ("Work.\n\nFixes #7.\n", "Work.\n\nFixes #7.\n"),
         // #70 does not name 7.
         ("Fixes #70.", "Fixes #70.\n\nFixes #7.\n"),
-        // A form the reading does not take: the line is added.
+        // Every other form gets the line: another project's form, another
+        // word, the lenient forms a looser reading would take, and a
+        // closing line in a table after a paragraph.
         (
             "Fixes acme/widget#7.",
             "Fixes acme/widget#7.\n\nFixes #7.\n",
         ),
+        ("Closes #7.", "Closes #7.\n\nFixes #7.\n"),
+        ("Fixes\n\n#7", "Fixes\n\n#7\n\nFixes #7.\n"),
+        ("fixed.#7", "fixed.#7\n\nFixes #7.\n"),
+        ("Fixes:#7", "Fixes:#7\n\nFixes #7.\n"),
+        ("Work. Fixes #7.", "Work. Fixes #7.\n\nFixes #7.\n"),
+        (
+            "Work.\n| a |\n| - |\n| Fixes #7 |",
+            "Work.\n| a |\n| - |\n| Fixes #7 |\n\nFixes #7.\n",
+        ),
+        // The exact line, with or without its dot, among other lines.
+        ("Work.\n  Fixes #7  \nMore.", "Work.\n  Fixes #7  \nMore."),
     ] {
         let (mut gh, calls) = adapter(vec![
             Ok(sample("pulls-of-head-none.json")),
