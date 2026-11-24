@@ -275,12 +275,15 @@ fn read_user(out: &str, id: u64) -> Got<Holder> {
 /// dispatcher's `may_write`: `role_name` first, the legacy `permission` word
 /// only when `role_name` is missing or null.
 ///
-/// A base role is its own rank. The legacy word is one of GitHub's four,
-/// which folds maintain into `write` and triage into `read`, so read alone
-/// it never answers `Maintain` or `Triage`. Any other `role_name`, a custom role or an empty one, is never
+/// A base role is its own rank, held to what the legacy word allows: when
+/// the two disagree the lower reading wins, and a word not of the four is
+/// no answer (see `word_cap`). The legacy word
+/// is one of GitHub's four, which folds maintain into `write` and triage
+/// into `read`, so read alone it never answers `Maintain` or `Triage`. Any
+/// other `role_name`, a custom role or an empty one, is never
 /// above `Read`, since the dispatcher lets no such account write: it is
 /// `Read` when the word shows any access, `None` when it says none, and no
-/// answer to read without a word.
+/// answer without a word or with a word not of the four.
 fn read_permission(out: &str, id: u64) -> Got<Standing> {
     let v: Value = serde_json::from_str(out.trim()).map_err(|_| MALFORMED)?;
     let said = v
@@ -304,18 +307,40 @@ fn read_permission(out: &str, id: u64) -> Got<Standing> {
         Some(Value::String(role)) => role.as_str(),
         Some(_) => return Err(MALFORMED),
     };
-    match role {
-        "admin" => Ok(Standing::Admin),
-        "maintain" => Ok(Standing::Maintain),
-        "write" => Ok(Standing::Write),
-        "triage" => Ok(Standing::Triage),
-        "read" => Ok(Standing::Read),
-        "none" => Ok(Standing::None),
-        _ => match word {
-            Some("admin" | "maintain" | "write" | "triage" | "read") => Ok(Standing::Read),
-            Some("none") => Ok(Standing::None),
-            _ => Err(MALFORMED),
-        },
+    let role = match role {
+        "admin" => Standing::Admin,
+        "maintain" => Standing::Maintain,
+        "write" => Standing::Write,
+        "triage" => Standing::Triage,
+        "read" => Standing::Read,
+        "none" => Standing::None,
+        _ => {
+            return match word {
+                Some("admin" | "write" | "read") => Ok(Standing::Read),
+                Some("none") => Ok(Standing::None),
+                _ => Err(MALFORMED),
+            }
+        }
+    };
+    let cap = match v.get("permission") {
+        None | Some(Value::Null) => Standing::Admin,
+        Some(w) => word_cap(w.as_str()).ok_or(MALFORMED)?,
+    };
+    Ok(role.min(cap))
+}
+
+/// The highest base role a legacy word agrees with. GitHub's own answers
+/// fold the role into the word, so a role above this cap disagrees with
+/// its word and is read at the cap: the lower of the two readings. None
+/// for any other word than the four: the role must not stand beside a word
+/// not understood. A missing or null word caps nothing.
+fn word_cap(word: Option<&str>) -> Option<Standing> {
+    match word? {
+        "admin" => Some(Standing::Admin),
+        "write" => Some(Standing::Maintain),
+        "read" => Some(Standing::Triage),
+        "none" => Some(Standing::None),
+        _ => None,
     }
 }
 

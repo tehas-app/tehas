@@ -120,10 +120,12 @@ impl Blueprints for GitHub {
         unsupported()
     }
 
-    /// None yet: the link rule of `attachments` is not built in this
-    /// adapter, and this answer cannot say unsupported.
-    fn attachments_in(&self, _: &str) -> Vec<Attachment> {
-        Vec::new()
+    /// The files `text` links to on GitHub's store, by tehas's one link
+    /// rule (`crate::attachments::read`), with no request. `attachments`,
+    /// when it is built, reads a blueprint's body without its markers
+    /// through the same function.
+    fn attachments_in(&self, text: &str) -> Vec<Attachment> {
+        crate::attachments::read(text)
     }
 
     /// GitHub's issue search, its pages read in turn until one hit past
@@ -199,6 +201,7 @@ impl Blueprints for GitHub {
         Ok(took)
     }
 
+    /// Not built yet: answered `Refused(Unsupported)` before any request.
     fn attachments(&mut self, _: BlueprintNo) -> Got<Whole<Attachment>> {
         unsupported()
     }
