@@ -10,8 +10,9 @@ use crate::after::{self, log};
 use crate::end_failed::Failure;
 use crate::facts::Facts;
 use crate::host::{self, Start};
+use crate::last_attempt;
 use crate::report::{report, Action, Ask, Park, Report};
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::fs;
 use std::io::Write as _;
 use std::os::unix::fs::OpenOptionsExt;
@@ -20,15 +21,12 @@ use std::time::Duration;
 use tehas_core::call::{run_full, store_try, GH_BOUND, GRACE};
 use tehas_core::end_fault;
 use tehas_core::home::Home;
-use tehas_core::journal::{settle as rules, Found, Journal, Journaled, RowId, Wrote};
+use tehas_core::journal::{settle as rules, Found, Journal, Journaled, RowId};
 use tehas_core::question::is_handoff_marker;
 use tehas_ports::{
-    At, Blueprints, Bound, ChangeNo, CodeHost, Mark, NoBlobs, Outcome, Receipt, Sent as Passed,
-    State, TicketKey, Tickets, Window, Write, Writes,
+    At, Blueprints, Bound, ChangeNo, CodeHost, Depth, Mark, NoBlobs, Outcome, Receipt,
+    Sent as Passed, State, TicketKey, Tickets, Window, Write, Writes,
 };
-
-mod reread;
-use reread::Seen;
 
 /// The comment a park posts when its question's label could not be added.
 pub const BOXES: &str = "A reply to the choices above does nothing: the label `tehas:question` could not be added (run `tehas labels` on the host). To retry, apply `tehas:ready`.";
@@ -126,9 +124,21 @@ impl Tried {
 /// What the post of a park question came to.
 enum Posted {
     Id(String),
+    /// Posted, with an id the store cannot keep: a number under 2^53 is
+    /// what it takes.
+    Unnumbered,
     /// GitHub may have taken it (#1754).
     Maybe,
     No,
+}
+
+/// Whether the store keeps `id` as a comment's: digits, no leading zero,
+/// under 2^53, as its comment_id reads them.
+fn numbered(id: &str) -> bool {
+    (1..=16).contains(&id.len())
+        && !id.starts_with('0')
+        && id.bytes().all(|b| b.is_ascii_digit())
+        && id.parse::<u64>().is_ok_and(|n| n < 1 << 53)
 }
 
 /// A write GitHub may have taken and no read could settle: not sent again.
@@ -254,8 +264,6 @@ fn said(remove: &[Mark], add: &[Mark]) -> String {
 struct Writer<'a> {
     /// The ports the writes go through.
     ports: Handles,
-    /// The gh of the writes that do not go through the ports yet.
-    gh_bin: String,
     home: &'a Path,
     repo: String,
     issue: u64,
@@ -280,120 +288,6 @@ struct Writer<'a> {
 }
 
 impl Writer<'_> {
-    fn write(
-        &mut self,
-        issue: u64,
-        kind: &str,
-        args: Vec<String>,
-        input: Option<&str>,
-        done_if: Option<&str>,
-    ) -> Wrote {
-        self.write_within(issue, kind, args, input, done_if, self.gh.bound)
-    }
-
-    fn write_within(
-        &mut self,
-        issue: u64,
-        kind: &str,
-        args: Vec<String>,
-        input: Option<&str>,
-        done_if: Option<&str>,
-        bound: Duration,
-    ) -> Wrote {
-        let home = self.home;
-        // A busy store must not lose a report: nothing decides it again.
-        let mut store =
-            |a: &[&str]| store_try(3, Duration::from_secs(1), || host::store_value(home, a));
-        let mut journal = Journal {
-            repo: &self.repo,
-            gh: &self.gh_bin,
-            before: self.before,
-            bound,
-            grace: self.gh.grace,
-            token: None,
-            poll_at: &mut self.poll_at,
-            row_not_begun: &mut self.no_row,
-            cycle: Some((self.issue, self.attempt)),
-        };
-        if !self.unjournaled {
-            let wrote = journal.write(&mut store, issue, kind, args.clone(), input, done_if);
-            if wrote != Wrote::Unrecorded {
-                return wrote;
-            }
-            self.unjournaled = true;
-            log(&format!(
-                "WARN: the journal will not record the report of #{}: its writes go to GitHub with no row",
-                self.issue
-            ));
-        }
-        journal.unrecorded(args, input, done_if)
-    }
-
-    /// What GitHub shows of a write it may have taken, read after the wait
-    /// between tries.
-    fn reread(&self, n: u64, kind: &str, args: &[String], input: Option<&str>, since: i64) -> Seen {
-        std::thread::sleep(self.gh.retry_wait);
-        let (bound, grace, gh) = (self.gh.bound, self.gh.grace, self.gh_bin.as_str());
-        let mut read = |path: &str, page: bool| {
-            let mut a = vec!["api".to_string(), path.to_string()];
-            if page {
-                a.push("--paginate".into());
-            }
-            let r = run_full(gh, &a, None, bound, grace, &[]);
-            if !r.ok() {
-                return None;
-            }
-            // Every page is a value of its own.
-            let mut all: Vec<Value> = vec![];
-            for v in serde_json::Deserializer::from_str(&r.out).into_iter::<Value>() {
-                match v.ok()? {
-                    Value::Array(items) if page => all.extend(items),
-                    v if !page => return Some(v),
-                    _ => return None,
-                }
-            }
-            page.then_some(Value::Array(all))
-        };
-        reread::seen(&self.repo, n, kind, args, input, since, &mut read)
-    }
-
-    /// A write tried as the bash tried it, `warn` logged when all tries fail.
-    /// One GitHub may have taken is read before it is sent again: Some(true)
-    /// when it is there, None when no read could tell (#1754).
-    fn tried(
-        &mut self,
-        warn: &str,
-        kind: &str,
-        args: Vec<String>,
-        input: Option<&str>,
-    ) -> Option<bool> {
-        let n = self.issue;
-        for t in 1..=self.gh.tries {
-            let since = tehas_core::time::now();
-            match self.write(n, kind, args.clone(), input, None) {
-                Wrote::Done(_) => return Some(true),
-                Wrote::Failed(why) => self.last_failed = Failure::Said(why),
-                Wrote::Unknown(why) => {
-                    self.last_failed = Failure::Said(why.clone());
-                    match self.reread(n, kind, &args, input, since) {
-                        Seen::There(_) => return Some(true),
-                        Seen::Missing => continue,
-                        Seen::Unread => {
-                            maybe_posted(n, &why);
-                            return None;
-                        }
-                    }
-                }
-                Wrote::Unrecorded => self.last_failed = Failure::Said(String::new()),
-            }
-            if t < self.gh.tries {
-                std::thread::sleep(self.gh.retry_wait);
-            }
-        }
-        log(warn);
-        Some(false)
-    }
-
     /// One write of the ports through the journal, or with no row once the
     /// journal failed: a hung store must not spend the time a stop leaves.
     fn send(&mut self, write: &Write) -> Sent {
@@ -403,7 +297,7 @@ impl Writer<'_> {
         if !self.unjournaled {
             let mut journal = Journal {
                 repo: &self.repo,
-                gh: &self.gh_bin,
+                gh: "gh",
                 before: self.before,
                 bound: self.gh.bound,
                 grace: self.gh.grace,
@@ -559,30 +453,18 @@ impl Writer<'_> {
     }
 
     fn comment(&mut self, body: &str) {
+        self.note(body, Vec::new());
+    }
+
+    /// A note on the issue, its markers beside its body.
+    fn note(&mut self, body: &str, markers: Vec<tehas_ports::Marker>) {
         let warn = format!("WARN: comment on #{} failed", self.issue);
         let note = Write::TicketNote {
             ticket: self.ticket(),
             body: tehas_ports::Body::Text(body.to_string()),
-            markers: vec![],
+            markers,
         };
         let (posted, _) = self.tried_send(&warn, self.issue, &note);
-        self.handed(posted, body);
-    }
-
-    /// A comment whose body holds a tehas marker, as the park's says, with
-    /// gh until the park's writes carry their markers beside the body.
-    fn comment_gh(&mut self, body: &str) {
-        let warn = format!("WARN: comment on #{} failed", self.issue);
-        let args = vec![
-            "issue".into(),
-            "comment".into(),
-            self.issue.to_string(),
-            "--repo".into(),
-            self.repo.clone(),
-            "--body-file".into(),
-            "-".into(),
-        ];
-        let posted = self.tried(&warn, "comment-post", args, Some(body));
         self.handed(posted, body);
     }
 
@@ -599,7 +481,7 @@ impl Writer<'_> {
         }
     }
 
-    fn park(&mut self, p: &mut Park, f: &Facts, ask: &mut dyn Ask) {
+    fn park(&mut self, p: &mut Park, f: &Facts) {
         let n = self.issue;
         let running = [Mark::State(State::Running)];
         let attention = [Mark::State(State::NeedsPerson)];
@@ -620,88 +502,197 @@ impl Writer<'_> {
                 false
             }
         };
-        p.last_attempt(f, ask);
-        if let Some(body) = p.edit.clone() {
-            let args = vec![
-                "api".into(),
-                "-X".into(),
-                "PATCH".into(),
-                format!("repos/{}/issues/{n}", self.repo),
-                "--input".into(),
-                "-".into(),
-            ];
-            let input = json!({"body": body}).to_string();
-            let done = self.write_within(n, "issue-edit", args, Some(&input), None, NOTE_BOUND);
-            if !matches!(done, Wrote::Done(_)) {
-                log(&format!(
-                    "WARN: could not leave the last attempt's note in the body of #{n}"
-                ));
-            }
-        }
+        self.last_attempt(p, f);
         // A park with nothing for a person to decide (no retry to offer)
         // says so in a comment, and asks nothing.
         if on_record && p.asks() {
-            let (_, body) = p.question(n, self.stuck);
-            match self.post_question(&body) {
-                Posted::Id(id) => {
-                    let offers = tehas_core::question::park_offers(!p.no_retry, p.comments)
-                        .iter()
-                        .map(|c| c.word())
-                        .collect::<Vec<_>>()
-                        .join(",");
-                    self.asked(&id, &body, &offers);
-                    return;
+            if let Some((full, text, markers)) = p.question_parts(n, self.stuck) {
+                match self.post_question(&text, markers) {
+                    Posted::Id(id) => {
+                        let offers = tehas_core::question::park_offers(!p.no_retry, p.comments)
+                            .iter()
+                            .map(|c| c.word())
+                            .collect::<Vec<_>>()
+                            .join(",");
+                        self.asked(&id, &full, &offers);
+                        return;
+                    }
+                    // Posted, but the store keeps no question of an id that is
+                    // not its number: nothing more is said, and no mark makes
+                    // the poll wait on a record that is not there.
+                    Posted::Unnumbered => {
+                        log(&format!(
+                            "WARN: the park question of #{n} got a comment id the store cannot keep, so it is not on record and no reply to it counts"
+                        ));
+                        return;
+                    }
+                    // The question may be there: a plain comment would say the
+                    // park twice.
+                    Posted::Maybe => return,
+                    Posted::No => {}
                 }
-                // The question may be there: a plain comment would say the
-                // park twice.
-                Posted::Maybe => return,
-                Posted::No => {}
             }
         }
-        let said = p.comment(self.stuck, on_record);
-        self.comment_gh(&said);
+        let (said, markers) = p.comment_parts(self.stuck, on_record);
+        self.note(&said, markers);
     }
 
-    /// The question's id, or whether it may have been posted.
-    fn post_question(&mut self, body: &str) -> Posted {
+    /// A develop timeout leaves its note on the issue, as a marker beside the
+    /// text, at the revision read; a second one on the same text offers no
+    /// retry. The park is on record before the issue is read. An issue that
+    /// cannot be read changes nothing.
+    fn last_attempt(&mut self, p: &mut Park, f: &Facts) {
+        if !p.develop {
+            return;
+        }
         let n = self.issue;
-        let args = vec![
-            "api".into(),
-            format!("repos/{}/issues/{n}/comments", self.repo),
-            "--input".into(),
-            "-".into(),
-            "--jq".into(),
-            ".id".into(),
-        ];
-        let input = json!({"body": body}).to_string();
-        let since = tehas_core::time::now();
-        let out = match self.write(n, "comment-post", args.clone(), Some(&input), None) {
-            Wrote::Done(out) => out,
-            // Read back: one not there gets the plain comment, as a refused
-            // post does.
-            Wrote::Unknown(why) => match self.reread(n, "comment-post", &args, Some(&input), since)
-            {
-                Seen::There(id) => id,
-                Seen::Missing => return Posted::No,
-                Seen::Unread => {
-                    maybe_posted(n, &why);
-                    self.last_failed = Failure::Said(why);
-                    self.handed(None, body);
-                    return Posted::Maybe;
+        let key = self.ticket();
+        // The ticket's revision moves with a comment or a mark too: an edit
+        // that lost to one reads again and tries once more.
+        for _ in 0..2 {
+            // Its whole text: a cut one would give the note a wrong base.
+            let one = std::num::NonZeroU32::new(1).expect("1 is no zero");
+            let Ok(t) = self
+                .ports
+                .tickets
+                .ticket(&key, Depth::Last { notes: one }, None)
+            else {
+                return;
+            };
+            let result = f.file("result.json").text();
+            let note = match last_attempt::of_ticket(
+                n,
+                &t.text,
+                &t.markers,
+                result,
+                f.work_state.as_ref(),
+            ) {
+                Some(last_attempt::Parts::Repeat) => {
+                    p.no_retry = true;
+                    p.say = last_attempt::REPEAT.to_string();
+                    return;
                 }
-            },
-            Wrote::Failed(_) | Wrote::Unrecorded => return Posted::No,
+                Some(last_attempt::Parts::Note(note)) => note,
+                _ => return,
+            };
+            let edit = Write::EditTicket {
+                ticket: key.clone(),
+                title: None,
+                text: None,
+                markers: tehas_ports::MarkerEdit {
+                    set: vec![tehas_ports::Marker::LastAttempt(note)],
+                    drop: vec![],
+                },
+                since: t.digest.revision,
+            };
+            match self.send(&edit) {
+                Sent::Done(_) => return,
+                Sent::Failed(Outcome::Conflict(tehas_ports::Lost::Changed)) => continue,
+                _ => break,
+            }
+        }
+        log(&format!(
+            "WARN: could not leave the last attempt's note in the body of #{n}"
+        ));
+    }
+
+    /// The question posted as a note, its markers beside its text: its id,
+    /// or whether it may have been posted. One the site may have taken is
+    /// looked for in the issue's notes by its rule, and its row settled.
+    fn post_question(&mut self, text: &str, markers: Vec<tehas_ports::Marker>) -> Posted {
+        let n = self.issue;
+        let note = Write::TicketNote {
+            ticket: self.ticket(),
+            body: tehas_ports::Body::Text(text.to_string()),
+            markers,
         };
-        self.handed(Some(true), body);
-        let id = out.trim().to_string();
-        let digits = (1..=16).contains(&id.len())
-            && !id.starts_with('0')
-            && id.bytes().all(|b| b.is_ascii_digit());
-        if digits {
+        let since = tehas_core::time::now();
+        let id = match self.send(&note) {
+            Sent::Done(Receipt::Comment(p)) => p.id.as_str().to_string(),
+            Sent::Done(_) => String::new(),
+            Sent::Failed(why) => {
+                self.last_failed = Failure::Answered(why);
+                return Posted::No;
+            }
+            Sent::Unknown(why, row) => {
+                std::thread::sleep(self.gh.retry_wait);
+                let found = self.landed_note(&note, since);
+                if let (Some(row), Some(f)) = (row, &found) {
+                    let home = self.home;
+                    let mut store = |a: &[&str]| {
+                        store_try(3, Duration::from_secs(1), || host::store_value(home, a))
+                    };
+                    let landed = if f.is_some() {
+                        Found::Landed
+                    } else {
+                        Found::NotSent
+                    };
+                    let _ = Journal::settle(&mut store, row, landed);
+                }
+                match found {
+                    Some(Some(id)) => id,
+                    // Not there: the plain comment, as a refused post gets.
+                    Some(None) => return Posted::No,
+                    None => {
+                        maybe_posted(n, &format!(": {}", why.line()));
+                        self.last_failed = Failure::Answered(why);
+                        self.handed(None, text);
+                        return Posted::Maybe;
+                    }
+                }
+            }
+        };
+        self.handed(Some(true), text);
+        if numbered(&id) {
             Posted::Id(id)
         } else {
-            Posted::No
+            Posted::Unnumbered
         }
+    }
+
+    /// The id of the note `note` asks for, as its rule finds it in the
+    /// issue's notes since `since`: Some(None) when it is not there, None
+    /// when no read could tell.
+    fn landed_note(&mut self, note: &Write, since: i64) -> Option<Option<String>> {
+        let Write::TicketNote { ticket, .. } = note else {
+            return None;
+        };
+        let notes = self.notes_of(ticket)?;
+        let at = At::new(since);
+        // The rule decides; this finds which note it found. A match it cannot
+        // vouch for as ours leaves the question unknown, never sent again.
+        rules::by_comments(note, &notes, at)?;
+        Some(
+            notes
+                .iter()
+                .find(|c| {
+                    rules::by_comments(note, std::slice::from_ref(c), at) == Some(Found::Landed)
+                })
+                .map(|c| c.id.as_str().to_string()),
+        )
+    }
+
+    /// The notes of a ticket: where a ticket is its own blueprint, its
+    /// blueprint's comments.
+    fn notes_of(&mut self, ticket: &TicketKey) -> Option<Vec<tehas_ports::Comment>> {
+        let bound = Bound::new(100).expect("100 is a bound");
+        Some(match ticket.same_item() {
+            Some(no) => self
+                .ports
+                .blueprints
+                .comments(no, bound)
+                .ok()?
+                .items()
+                .to_vec(),
+            None => {
+                let last = std::num::NonZeroU32::new(100).expect("100 is no zero");
+                self.ports
+                    .tickets
+                    .notes(ticket, Window::Last(last))
+                    .ok()?
+                    .items
+            }
+        })
     }
 
     /// On record before the label shows it: a tick counts only in the
@@ -1023,7 +1014,6 @@ pub struct How {
     pub attempt: u64,
     /// When the report began: the read its writes rest on.
     pub now: i64,
-    pub gh_bin: String,
     pub tries: u32,
     pub retry_wait: Duration,
     pub bound: Duration,
@@ -1045,17 +1035,9 @@ pub struct Written {
 
 /// The writes of report `r`, in its order, through `ports`, each a row of
 /// the journal of the store under `home`.
-pub fn write(
-    home: &Path,
-    how: &How,
-    r: &mut Report,
-    facts: &Facts,
-    ask: &mut dyn Ask,
-    ports: Handles,
-) -> Written {
+pub fn write(home: &Path, how: &How, r: &mut Report, facts: &Facts, ports: Handles) -> Written {
     let mut w = Writer {
         ports,
-        gh_bin: how.gh_bin.clone(),
         home,
         repo: how.repo.clone(),
         issue: how.issue,
@@ -1087,7 +1069,7 @@ pub fn write(
                 let said = if w.stuck { stuck.clone() } else { ok.clone() };
                 w.comment(&said);
             }
-            Action::Park(p) => w.park(p, facts, ask),
+            Action::Park(p) => w.park(p, facts),
             Action::PrComment { pr, body } => w.pr_comment(pr, body),
             Action::Tidy { remove, warn } => {
                 if !warn.is_empty() {
@@ -1178,7 +1160,6 @@ pub fn reported(home: &Path, s: &Start, handles: HandlesOf) -> Reported {
         issue,
         attempt: s.attempt,
         now,
-        gh_bin: "gh".to_string(),
         tries: gh.tries,
         retry_wait: gh.retry_wait,
         bound: gh.bound,
@@ -1199,7 +1180,7 @@ pub fn reported(home: &Path, s: &Start, handles: HandlesOf) -> Reported {
             };
         }
     };
-    let w = write(home, &how, &mut r, &facts, &mut ask, ports);
+    let w = write(home, &how, &mut r, &facts, ports);
     log(&r.done);
     let approved = after::approved(home, issue, s.attempt);
     if !r.refused_why.is_empty() {
@@ -1362,17 +1343,29 @@ case $1 in
 esac
 "#;
 
-    /// A port write, said beside the store's calls so their order shows.
+    /// A port write, said beside the store's calls so their order shows. A
+    /// comment it posts gets a number from 4001 on, as GitHub's ids are,
+    /// unless `numbered` is false.
     struct Logged {
         inner: Box<dyn Writes>,
         log: PathBuf,
+        numbered: bool,
+        next: u64,
+        /// The first edit of a ticket loses, as one another change beat.
+        conflict_once: bool,
     }
 
     fn said_write(w: &Write) -> String {
         match w {
             Write::Mark { mark, .. } => format!("mark {mark:?}"),
             Write::Unmark { mark, .. } => format!("unmark {mark:?}"),
-            Write::TicketNote { body, .. } => format!("note {body:?}"),
+            Write::TicketNote { body, markers, .. } if markers.is_empty() => {
+                format!("note {body:?}")
+            }
+            Write::TicketNote { body, markers, .. } => {
+                let kinds: Vec<_> = markers.iter().map(|m| m.kind()).collect();
+                format!("note {body:?} markers {kinds:?}")
+            }
             Write::CommentChange { no, body, .. } => {
                 format!("change-comment {} {body:?}", no.get())
             }
@@ -1389,7 +1382,15 @@ esac
                 .open(&self.log)
                 .unwrap();
             writeln!(f, "write {}", said_write(w)).unwrap();
-            self.inner.send(w, files)
+            if matches!(w, Write::EditTicket { .. }) && std::mem::take(&mut self.conflict_once) {
+                return Err(Outcome::Conflict(tehas_ports::Lost::Changed));
+            }
+            let mut got = self.inner.send(w, files);
+            if let (true, Ok(Receipt::Comment(p))) = (self.numbered, &mut got) {
+                self.next += 1;
+                p.id = tehas_ports::CommentId::new((4000 + self.next).to_string());
+            }
+            got
         }
         fn read_only(&self) -> bool {
             false
@@ -1420,8 +1421,13 @@ esac
             self.calls().iter().filter(|c| c.starts_with(what)).count()
         }
 
-        /// The handles of `site`, the factory's own, every write logged.
+        /// The handles of `site`, the factory's own, every write logged and
+        /// every comment numbered.
         fn handles(&self, site: &impl Site) -> Handles {
+            self.handles_numbered(site, true)
+        }
+
+        fn handles_numbered(&self, site: &impl Site, numbered: bool) -> Handles {
             let (by, c) = (Actor::Ours(Scope::Full), Caller::new("report"));
             let writes = tehas_ports::Writer {
                 tickets: site.ticket_writes(&by, c).unwrap(),
@@ -1432,6 +1438,9 @@ esac
                 writes: Box::new(Logged {
                     inner: Box::new(writes),
                     log: self.dir.join("calls.log"),
+                    numbered,
+                    next: 0,
+                    conflict_once: self.dir.join("conflict-once").exists(),
                 }),
                 tickets: site.tickets(&by, c).unwrap(),
                 blueprints: site.blueprints(&by, c).unwrap(),
@@ -1444,7 +1453,6 @@ esac
         fn writer(&self, site: &impl Site) -> Writer<'_> {
             Writer {
                 ports: self.handles(site),
-                gh_bin: self.dir.join("no-gh").to_string_lossy().into_owned(),
                 home: self.dir.path(),
                 repo: "a/b".to_string(),
                 issue: 7,
@@ -1692,19 +1700,6 @@ esac
         assert_eq!(h.count("store"), 0);
     }
 
-    /// A gh for the park's question and its comment, which go with gh until
-    /// the park's writes carry their markers: it logs its call, and the
-    /// question gets id 4002.
-    const GH: &str = r#"#!/usr/bin/env bash
-d=$(dirname "$0")
-body=""
-case " $* " in *" --body-file - "* | *" --input - "*) body=$(cat) ;; esac
-printf 'gh %s%s\n' "$*" "${body:+ <<< $body}" >>"$d/../calls.log"
-case "$1 $2" in
-  "api repos/acme/widget/issues/7/comments") echo 4002 ;;
-esac
-"#;
-
     /// Park case 5 of the fixtures, a step failed for an ordinary reason,
     /// written on `site` with `tries` tries.
     fn park(h: &Host, site: &impl Site, tries: u32) -> Written {
@@ -1713,8 +1708,18 @@ esac
 
     /// Case `n` of fixture suite `suite`, its report written on `site`.
     fn case(h: &Host, site: &impl Site, suite: &str, n: usize, tries: u32) -> Written {
-        fs::create_dir_all(h.dir.join("bin")).unwrap();
-        tehas_core::testing::write_exe(h.dir.join("bin/gh"), GH).unwrap();
+        case_with(h, site, suite, n, tries, true)
+    }
+
+    /// [`case`], its comments numbered or not.
+    fn case_with(
+        h: &Host,
+        site: &impl Site,
+        suite: &str,
+        n: usize,
+        tries: u32,
+        numbered: bool,
+    ) -> Written {
         let path = format!("{}/tests/fixtures/{suite}.json", env!("CARGO_MANIFEST_DIR"));
         let cases: Vec<Value> = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
         let c = &cases[n];
@@ -1726,7 +1731,6 @@ esac
             issue: 7,
             attempt: 1,
             now: 5,
-            gh_bin: h.dir.join("bin/gh").to_string_lossy().into_owned(),
             tries,
             retry_wait: Duration::ZERO,
             bound: Duration::from_secs(10),
@@ -1738,8 +1742,7 @@ esac
             &how,
             &mut r,
             &facts,
-            &mut ask,
-            h.handles(site),
+            h.handles_numbered(site, numbered),
         )
     }
 
@@ -1749,8 +1752,15 @@ esac
             .into_iter()
             .filter(|c| of.iter().any(|o| c.starts_with(o)))
             .map(|c| {
+                let marked = c.ends_with("markers [Park, Question]");
                 let c = c.split(" <<<").next().unwrap();
-                c.split(" --").next().unwrap().to_string()
+                let c = c.split(" Text(").next().unwrap();
+                let c = c.split(" --").next().unwrap();
+                if marked {
+                    format!("{c} question")
+                } else {
+                    c.to_string()
+                }
             })
             .collect()
     }
@@ -1761,12 +1771,12 @@ esac
         let w = world();
         park(&h, &FakeSite::new(&w), 3);
         assert_eq!(
-            order(&h, &["write", "store park", "store question", "gh"]),
+            order(&h, &["write", "store park", "store question"]),
             [
                 "write unmark State(Running)",
                 "write mark State(NeedsPerson)",
                 "store park 7",
-                "gh api repos/acme/widget/issues/7/comments",
+                "write note question",
                 "store question-asked 7",
                 "write mark State(Question)",
             ]
@@ -1782,19 +1792,19 @@ esac
         let h = Host::new("handoff");
         let w = world();
         case(&h, &FakeSite::new(&w), "handoff", 6, 3);
-        let writes: Vec<String> = order(&h, &["write"])
-            .into_iter()
-            .map(|c| c.chars().take(40).collect())
-            .collect();
         assert_eq!(
-            writes,
+            order(&h, &["write"]),
             [
                 "write unmark State(Running)",
                 "write mark State(AwaitingMerge)",
-                "write note Text(\"Tehas cycle finished: s",
-                "write change-comment 9 Text(\"Tehas cycle",
+                "write note",
+                "write change-comment 9",
             ]
         );
+        assert!(h
+            .calls()
+            .iter()
+            .any(|c| c.starts_with("write note Text(\"Tehas cycle finished:")));
         assert_eq!(marks_of_7(&w), vec![Mark::State(State::AwaitingMerge)]);
     }
 
@@ -1820,22 +1830,135 @@ esac
     }
 
     #[test]
-    fn the_questions_body_goes_to_gh_on_standard_input_and_its_row_keeps_a_sum() {
-        let h = Host::new("park-stdin");
+    fn the_question_goes_with_its_markers_beside_it_and_its_record_keeps_its_ids_and_sum() {
+        let h = Host::new("park-question");
         let w = world();
         park(&h, &FakeSite::new(&w), 3);
         let calls = h.calls();
         let q = calls
             .iter()
-            .find(|c| c.starts_with("gh api repos/acme/widget/issues/7/comments"))
+            .find(|c| c.ends_with("markers [Park, Question]"))
             .unwrap();
-        assert!(q.contains(r#"<<< {"body":""#), "{q}");
-        let record = calls
+        assert!(
+            !q.contains("tehas:park") && !q.contains("tehas:question"),
+            "{q}"
+        );
+        let asked = calls
             .iter()
-            .find(|c| c.starts_with("store journal-record") && c.contains("comment-post"))
+            .find(|c| c.starts_with("store question-asked"))
             .unwrap();
-        assert!(record.contains("sha256"), "{record}");
-        assert!(!record.contains("Tehas cycle"), "{record}");
+        assert!(asked.contains("--id 4001"), "{asked}");
+        assert!(asked.contains("--body-sha "), "{asked}");
+    }
+
+    #[test]
+    fn a_question_whose_id_the_store_cannot_keep_is_not_recorded_and_nothing_more_is_said() {
+        let h = Host::new("park-unnumbered");
+        let w = world();
+        // The fake's own ids, "comment-3", are no number.
+        case_with(&h, &FakeSite::new(&w), "park", 5, 3, false);
+        assert_eq!(h.count("store question-asked"), 0);
+        assert_eq!(h.count("write mark State(Question)"), 0);
+        assert_eq!(h.count("write note"), 1, "{:#?}", h.calls());
+        assert_eq!(marks_of_7(&w), vec![attention()]);
+    }
+
+    #[test]
+    fn a_develop_timeout_leaves_its_note_beside_the_text_at_the_revision_read() {
+        let h = Host::new("park-last-attempt");
+        let w = world();
+        case(&h, &FakeSite::new(&w), "park", 70, 3);
+        let edit = h
+            .calls()
+            .into_iter()
+            .find(|c| c.starts_with("write EditTicket"))
+            .expect("the note is written");
+        assert!(!edit.is_empty());
+        let site = FakeSite::new(&w);
+        let mut t = site.tickets(&Actor::Operator, Caller::new("test")).unwrap();
+        let key = TicketKey::Number(std::num::NonZeroU64::new(7).unwrap());
+        let one = std::num::NonZeroU32::new(1).unwrap();
+        let read = t.ticket(&key, Depth::Last { notes: one }, None).unwrap();
+        let note = read
+            .markers
+            .iter()
+            .find_map(|m| match m {
+                tehas_ports::Marker::LastAttempt(l) => Some(l.clone()),
+                _ => None,
+            })
+            .expect("the ticket carries the note");
+        assert!(
+            note.note
+                .starts_with("### The last attempt ran out of time"),
+            "{}",
+            note.note
+        );
+        assert_eq!(
+            note.base.as_str(),
+            crate::last_attempt::sha(read.text.trim())
+        );
+        // The text itself is not touched.
+        assert!(!read.text.contains("last attempt"), "{}", read.text);
+    }
+
+    #[test]
+    fn the_note_of_a_long_body_takes_the_sum_of_all_of_it() {
+        let h = Host::new("park-last-attempt-long");
+        // A ticket of a long body: the note's base is the sum of all of it.
+        let long = "word ".repeat(200);
+        let w = World::new()
+            .on_clock(Clock::new(At::new(tehas_core::time::now())))
+            .ticket(7, |t| t.title("the issue").text(&long).mark(running()));
+        case(&h, &FakeSite::new(&w), "park", 70, 3);
+        let site = FakeSite::new(&w);
+        let mut t = site.tickets(&Actor::Operator, Caller::new("test")).unwrap();
+        let key = TicketKey::Number(std::num::NonZeroU64::new(7).unwrap());
+        let one = std::num::NonZeroU32::new(1).unwrap();
+        let read = t.ticket(&key, Depth::Last { notes: one }, None).unwrap();
+        let base = read
+            .markers
+            .iter()
+            .find_map(|m| match m {
+                tehas_ports::Marker::LastAttempt(l) => Some(l.base.as_str().to_string()),
+                _ => None,
+            })
+            .expect("the note is on");
+        assert_eq!(base, crate::last_attempt::sha(long.trim()));
+    }
+
+    #[test]
+    fn a_note_that_lost_to_another_change_of_the_issue_is_read_again_and_tried_once_more() {
+        let h = Host::new("park-last-attempt-conflict");
+        fs::write(h.dir.join("conflict-once"), "").unwrap();
+        let w = world();
+        case(&h, &FakeSite::new(&w), "park", 70, 3);
+        assert_eq!(h.count("write EditTicket"), 2, "{:#?}", h.calls());
+        let site = FakeSite::new(&w);
+        let mut t = site.tickets(&Actor::Operator, Caller::new("test")).unwrap();
+        let key = TicketKey::Number(std::num::NonZeroU64::new(7).unwrap());
+        let one = std::num::NonZeroU32::new(1).unwrap();
+        let read = t.ticket(&key, Depth::Last { notes: one }, None).unwrap();
+        assert!(read
+            .markers
+            .iter()
+            .any(|m| matches!(m, tehas_ports::Marker::LastAttempt(_))));
+    }
+
+    #[test]
+    fn a_second_develop_timeout_on_the_same_text_offers_no_retry() {
+        let h = Host::new("park-last-attempt-repeat");
+        let w = world();
+        case(&h, &FakeSite::new(&w), "park", 70, 3);
+        let h2 = Host::new("park-last-attempt-repeat-2");
+        case(&h2, &FakeSite::new(&w), "park", 70, 3);
+        assert_eq!(h2.count("write EditTicket"), 0, "{:#?}", h2.calls());
+        let said = h2
+            .calls()
+            .into_iter()
+            .find(|c| c.starts_with("write note"))
+            .unwrap();
+        assert!(said.contains("twice on the same text"), "{said}");
+        assert!(!said.ends_with("markers [Park, Question]"), "{said}");
     }
 
     #[test]
@@ -1851,7 +1974,7 @@ esac
         let q = h
             .calls()
             .into_iter()
-            .find(|c| c.starts_with("gh api repos/acme/widget/issues/7/comments"))
+            .find(|c| c.ends_with("markers [Park, Question]"))
             .unwrap();
         assert!(q.contains("could not be changed"), "{q}");
     }
@@ -1869,8 +1992,15 @@ esac
             .after(1);
         park(&h, &site, 3);
         let calls = order(&h, &["store question", "write note"]);
-        assert_eq!(calls[0], "store question-asked 7");
-        assert_eq!(calls[1], "store question-answered 7");
+        assert_eq!(
+            calls,
+            [
+                "write note question",
+                "store question-asked 7",
+                "store question-answered 7",
+                "write note",
+            ]
+        );
         let boxes = format!("write note Text({BOXES:?})");
         assert!(h.calls().contains(&boxes), "{:#?}", h.calls());
     }
@@ -1881,13 +2011,19 @@ esac
         fs::write(h.dir.join("store-fail"), "park 7").unwrap();
         let w = world();
         park(&h, &FakeSite::new(&w), 3);
-        assert_eq!(h.count("gh api repos/acme/widget/issues/7/comments"), 0);
+        assert!(!h
+            .calls()
+            .iter()
+            .any(|c| c.ends_with("markers [Park, Question]")));
         let said = h
             .calls()
             .into_iter()
-            .find(|c| c.starts_with("gh issue comment 7"))
+            .find(|c| c.starts_with("write note"))
             .unwrap();
         assert!(said.contains("To retry, apply `tehas:ready`."), "{said}");
+        // The park's marker goes beside the text, not in it.
+        assert!(said.ends_with("markers [Park]"), "{said}");
+        assert!(!said.contains("tehas:park"), "{said}");
     }
 
     #[test]

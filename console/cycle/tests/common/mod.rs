@@ -723,7 +723,6 @@ impl World {
             issue: 7,
             attempt,
             now: tehas_core::time::now(),
-            gh_bin: self.as_run(&self.t.join("bin/gh-as-run"), &self.t.join("bin/gh")),
             tries: 3,
             retry_wait: std::time::Duration::ZERO,
             bound: std::time::Duration::from_secs(10),
@@ -736,7 +735,7 @@ impl World {
         if store.exists() {
             self.as_run(&store, &self.t.join("store-bin"));
         }
-        let _ = tehas_cycle::apply::write(&self.home, &how, &mut r, &facts, &mut ask, handles);
+        let _ = tehas_cycle::apply::write(&self.home, &how, &mut r, &facts, handles);
         let sent = sent.borrow().clone();
         Tried {
             applied: site.wrote().into_iter().map(|w| w.what).collect(),
