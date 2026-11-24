@@ -1,10 +1,9 @@
 //! The code host port, `CodeHost` and `CodeHostWrites`: changes, branches,
 //! tags and releases. Answered: what the code host says of the project
-//! (`facts`), the changes a filter takes without their bodies (`changes`),
-//! one change whole (`change`, in `change.rs`), and the check runs and
-//! status contexts on a commit (`checks`, in `checks.rs`). Every other
-//! read, and a filter that asks for bodies, answers `Refused(Unsupported)`
-//! before any request: a list's bodies are not read yet.
+//! (`facts`), the changes a filter takes, with their bodies when it asks
+//! (`changes`), one change whole (`change`, in `change.rs`), and the check
+//! runs and status contexts on a commit (`checks`, in `checks.rs`). Every
+//! other read answers `Refused(Unsupported)` before any request.
 
 mod change;
 mod checks;
@@ -15,7 +14,7 @@ use std::num::NonZeroU32;
 
 use super::mergeable::mergeable;
 use super::unsupported;
-use crate::{ForgeError, GitHub};
+use crate::{markers, ForgeError, GitHub};
 use serde_json::Value;
 use tehas_ports::{
     Access, Account, AccountId, AccountKind, At, Author, BlueprintNo, Bound, Branch, Change,
@@ -59,11 +58,10 @@ impl CodeHost for GitHub {
     /// mark carried narrow what it answers. A mark no label can be is
     /// `Refused(Invalid)` before any request. Read to the end, or to
     /// one past the bound, or `PAGES_MAX` pages: past those, `Unread(Cut)`.
-    /// In the order of their numbers.
+    /// In the order of their numbers. With bodies, each page's question asks
+    /// the body too, no request more, 100 a page still: a body is read as
+    /// `change` reads it.
     fn changes(&mut self, filter: &ChangeFilter, bound: Bound) -> Got<Whole<ChangeDigest>> {
-        if filter.bodies {
-            return unsupported();
-        }
         let labels = filter
             .carrying
             .iter()
@@ -73,7 +71,7 @@ impl CodeHost for GitHub {
         let since = filter.merged_since.max(filter.updated_since);
         let query = format!(
             "query={}",
-            changes_query(filter.states, me, &labels, since.is_some())
+            changes_query(filter.states, me, &labels, since.is_some(), filter.bodies)
         );
         let (owner, name) = self.repo.split_once('/').unwrap_or((&self.repo, ""));
         let (owner, name) = (format!("owner={owner}"), format!("name={name}"));
@@ -296,7 +294,14 @@ fn read_facts(out: &str, repo: &str) -> Option<Facts> {
 /// The GraphQL question of one page of pull requests in `states`, carrying
 /// one of `labels` (each a GraphQL string) when given, with the account
 /// asking when `me`. Newest updated first when `recent`, else oldest created first.
-fn changes_query(states: ChangeStates, me: bool, labels: &[String], recent: bool) -> String {
+/// Each pull request's body too when `bodies`.
+fn changes_query(
+    states: ChangeStates,
+    me: bool,
+    labels: &[String],
+    recent: bool,
+    bodies: bool,
+) -> String {
     let states = match states {
         ChangeStates::Open => "OPEN",
         ChangeStates::Merged => "MERGED",
@@ -313,8 +318,9 @@ fn changes_query(states: ChangeStates, me: bool, labels: &[String], recent: bool
         false => "CREATED_AT, direction: ASC",
     };
     let account = "{ __typename login ... on User { databaseId } ... on Bot { databaseId } }";
+    let body = if bodies { " body" } else { "" };
     format!(
-        "query($owner: String!, $name: String!, $head: String, $after: String) {{ {viewer}repository(owner: $owner, name: $name) {{ databaseId pullRequests(first: 100, after: $after, headRefName: $head{labels}, states: [{states}], orderBy: {{field: {order}}}) {{ totalCount pageInfo {{ hasNextPage endCursor }} nodes {{ number title state isDraft isCrossRepository headRepository {{ databaseId }} headRefName headRefOid baseRefName baseRefOid createdAt updatedAt mergedAt closedAt lastEditedAt additions deletions changedFiles mergeable mergeStateStatus url author {account} editor {account} mergedBy {account} mergeCommit {{ oid }} labels(first: 100) {{ totalCount nodes {{ name }} }} closingIssuesReferences(first: 100) {{ totalCount nodes {{ number repository {{ databaseId nameWithOwner }} }} }} }} }} }} }}"
+        "query($owner: String!, $name: String!, $head: String, $after: String) {{ {viewer}repository(owner: $owner, name: $name) {{ databaseId pullRequests(first: 100, after: $after, headRefName: $head{labels}, states: [{states}], orderBy: {{field: {order}}}) {{ totalCount pageInfo {{ hasNextPage endCursor }} nodes {{ number title state isDraft isCrossRepository headRepository {{ databaseId }} headRefName headRefOid baseRefName baseRefOid createdAt updatedAt mergedAt closedAt lastEditedAt additions deletions changedFiles mergeable mergeStateStatus url author {account} editor {account} mergedBy {account} mergeCommit {{ oid }}{body} labels(first: 100) {{ totalCount nodes {{ name }} }} closingIssuesReferences(first: 100) {{ totalCount nodes {{ number repository {{ databaseId nameWithOwner }} }} }} }} }} }} }}"
     )
 }
 
@@ -391,7 +397,9 @@ fn takes(f: &ChangeFilter, me: Option<&AccountId>, l: &Lead) -> bool {
 /// has a number, or the page is `Unread(Inconsistent)`. Read whole, an
 /// answer that lacks a field every pull request has, or holds a value
 /// outside its type, is `Unread(Malformed)`; one whose labels or closed
-/// issues are more than one page holds is `Unread(Cut)`. A page with
+/// issues are more than one page holds is `Unread(Cut)`. With bodies, a
+/// node with no body as text is `Unread(Malformed)`, never an empty body.
+/// A page with
 /// errors, or a page that says more follows and holds none, is
 /// `Unread(Inconsistent)`. A bot's login is written as GraphQL writes it,
 /// `name`, so one account has one login whichever read named it.
@@ -639,6 +647,16 @@ fn read_page(
             Some(_) => who("editor")?,
             None => None,
         };
+        if f.bodies {
+            let raw = n
+                .get("body")
+                .and_then(Value::as_str)
+                .ok_or(malformed.clone())?;
+            let item = BlueprintNo::new(no.get()).ok_or(malformed.clone())?;
+            let read = markers::read(raw, Some(item));
+            digest.says_closes = change::says_closes(&read.text);
+            digest.body = Some(read.text);
+        }
         pulls.push(Pull { digest, labels });
     }
     Ok(Page {

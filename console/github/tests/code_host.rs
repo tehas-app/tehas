@@ -538,13 +538,8 @@ impl GhRunner for Unasked {
 fn what_no_caller_asks_yet_is_unsupported_before_any_request() {
     let unsupported = Err(Outcome::Refused(Refusal::Unsupported));
     let mut gh = GitHub::new("acme/widget", Box::new(Unasked));
-    let bodies = ChangeFilter {
-        bodies: true,
-        ..ChangeFilter::default()
-    };
     let no = ChangeNo::new(20).unwrap();
     let bound = Bound::new(10).unwrap();
-    assert_eq!(gh.changes(&bodies, bound).map(|_| ()), unsupported);
     assert_eq!(gh.changed_files(no, bound).map(|_| ()), unsupported);
     assert_eq!(
         gh.activity(no, Window::Last(std::num::NonZeroU32::MIN))
