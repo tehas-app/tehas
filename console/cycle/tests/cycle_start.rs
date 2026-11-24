@@ -202,13 +202,12 @@ fn an_answer_that_cannot_be_read_is_a_refusal_not_a_guess() {
         "refuse #7: GitHub could not be asked what the number is (3 tries, the last: exit 1)",
     );
     lacks(&r.out, "could not be read");
-    let asks = |w: &World| {
-        w.gh()
-            .lines()
+    let asks = |gh: &str| {
+        gh.lines()
             .filter(|l| *l == "api repos/acme/widget/issues/7")
             .count()
     };
-    assert_eq!(asks(&w), 3);
+    assert_eq!(asks(&w.gh()), 3);
     assert_eq!(work_calls(&w), "");
     lacks(&w.gh(), "issue edit");
     assert_eq!(attempt_ended(&w, "7"), json!([1, true]));
@@ -217,9 +216,14 @@ fn an_answer_that_cannot_be_read_is_a_refusal_not_a_guess() {
     // authorized still starts.
     let w = World::new("start-retried");
     w.fx("issue-fails-times", "2\n");
+    // The calls made before tehas work ran are the start's: the report's
+    // writes and reads come after.
+    w.work(r#"wc -l <"$T/calls/gh" >"$T/calls/gh-before-work""#);
     let r = w.run7();
     assert_eq!(r.rc, 0);
-    assert_eq!(asks(&w), 3);
+    let before: usize = w.calls("gh-before-work").trim().parse().unwrap();
+    let start = w.gh().lines().take(before).collect::<Vec<_>>().join("\n");
+    assert_eq!(asks(&start), 3);
     assert_eq!(work_calls(&w), "7");
     lacks(&r.out, "refuse #7");
 }
