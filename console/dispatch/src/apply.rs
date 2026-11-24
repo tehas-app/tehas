@@ -24,10 +24,13 @@ use crate::read::run::{run, Calls};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicU64;
+use std::sync::Arc;
 use std::time::Duration;
 use tehas_core::call::{self, GRACE};
 use tehas_core::home::{Home, State};
-use tehas_core::journal::{Journal, Wrote};
+use tehas_core::journal::{Journal, Journaled, Wrote};
+use tehas_ports::{Body, NoBlobs, Receipt, TicketKey, Write};
 
 /// The calls of one poll's writes.
 pub struct Writer {
@@ -65,6 +68,9 @@ pub struct Writer {
     pub changed: bool,
     /// The gh calls the writes made, for the poll's cost.
     pub gh_writes: u32,
+    /// The gh calls the ports' handles made, for the poll's cost: the
+    /// wiring's runner counts them (`forge::Counted`).
+    pub port_calls: Arc<AtomicU64>,
     /// The issues marked running this poll, for the poll's cost.
     pub starts: u32,
     /// The checkout was refreshed this poll by the index's gate, so the
@@ -98,12 +104,15 @@ pub use tehas_core::journal::Handles;
 /// program `gh` given the poll's token, when it took one, each call bounded
 /// by `bound`. The library names no adapter (R8): the program's main.rs
 /// makes them.
+/// Each call of gh the handles make is counted into `calls`, for the
+/// poll's cost.
 pub type HandlesOf = fn(
     home: &Path,
     repo: &str,
     gh: &str,
     token: Option<&str>,
     bound: Duration,
+    calls: Arc<AtomicU64>,
 ) -> tehas_ports::Got<Handles>;
 
 /// What the settle's read found of an open write that this poll may decide
@@ -141,6 +150,11 @@ fn word(v: &Value) -> String {
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string()
+}
+
+/// Issue `n` as the tickets port names it; None for 0.
+fn ticket(n: u64) -> Option<TicketKey> {
+    std::num::NonZeroU64::new(n).map(TicketKey::Number)
 }
 
 /// The longest key kept in <n>.said: the writer here and the reader in
@@ -241,7 +255,12 @@ impl Writer {
                 self.record_told(n, log);
             }
         } else if let (Some(n), Some(say)) = (n, a.get("say").and_then(Value::as_str)) {
-            self.say(n, say, log);
+            // Our markers the action carries beside its text (`Action::Say`).
+            let markers = a
+                .get("markers")
+                .and_then(|m| serde_json::from_value(m.clone()).ok())
+                .unwrap_or_default();
+            self.say_marked(n, say, markers, log);
         } else if let Some(n) = a.get("answer_drop").and_then(Value::as_u64) {
             let id = match a.get("id") {
                 Some(Value::String(s)) => s.clone(),
@@ -345,16 +364,8 @@ impl Writer {
     ) -> Wrote {
         // The settle read this write's earlier try: done is not sent again,
         // unread is not sent until a read settles it.
-        let input_sum = tehas_core::journal::summed(&args, input).unwrap_or(Value::Null);
-        let key = looked_key(issue, kind, &json!(args), &input_sum);
-        match self.looked.get(&key) {
-            Some(Looked::Done(out)) => {
-                let out = out.clone();
-                self.looked.remove(&key);
-                return Wrote::Done(out);
-            }
-            Some(Looked::Unread(why)) => return Wrote::Unknown(format!(": {why}")),
-            None => {}
+        if let Some(wrote) = self.looked_1x(issue, kind, &args, input) {
+            return wrote;
         }
         let token = self.calls.gh_token.clone();
         let mut journal = Journal {
@@ -381,6 +392,87 @@ impl Writer {
         if !matches!(wrote, Wrote::Unrecorded) {
             self.changed = true;
             self.gh_writes += 1;
+        }
+        wrote
+    }
+
+    /// What this poll's settle read of a 1.x row of this write, the call of
+    /// gh a poll before T4.7 made for it: done is not sent again, unread is
+    /// not sent until a read settles it. A write of the ports asks it too,
+    /// so a row in flight at the upgrade is never sent twice (the ports
+    /// spec, "Rows in flight at upgrade"). None: no such row was read.
+    fn looked_1x(
+        &mut self,
+        issue: u64,
+        kind: &str,
+        args: &[String],
+        input: Option<&str>,
+    ) -> Option<Wrote> {
+        let input_sum = tehas_core::journal::summed(args, input).unwrap_or(Value::Null);
+        let key = looked_key(issue, kind, &json!(args), &input_sum);
+        match self.looked.get(&key)? {
+            Looked::Done(out) => {
+                let out = out.clone();
+                self.looked.remove(&key);
+                Some(Wrote::Done(out))
+            }
+            Looked::Unread(why) => Some(Wrote::Unknown(format!(": {why}"))),
+        }
+    }
+
+    /// A write of the ports, journaled, as `write` journals a call of gh:
+    /// one this poll's settle found done is not sent again, one it could not
+    /// read is not sent at all (`looked`, by the write as its row keeps it).
+    /// `Done` holds the id a comment was given, else nothing.
+    fn send(&mut self, n: u64, write: &Write) -> Wrote {
+        let Ok(kept) = tehas_core::journal::kept(write) else {
+            return Wrote::Failed(": its body could not be summed".into());
+        };
+        let key = looked_key(n, "", &json!(kept), &Value::Null);
+        match self.looked.get(&key) {
+            Some(Looked::Done(out)) => {
+                let out = out.clone();
+                self.looked.remove(&key);
+                return Wrote::Done(out);
+            }
+            Some(Looked::Unread(why)) => return Wrote::Unknown(format!(": {why}")),
+            None => {}
+        }
+        let Some(ports) = self.ports.as_mut() else {
+            return Wrote::Failed(": the poll has no handles of the code host".into());
+        };
+        let token = self.calls.gh_token.clone();
+        let mut journal = Journal {
+            repo: &self.repo,
+            gh: &self.gh,
+            before: self.before,
+            bound: self.bound,
+            grace: GRACE,
+            token: token.as_deref(),
+            poll_at: &mut self.poll_at,
+            row_not_begun: &mut self.row_not_begun,
+            cycle: None,
+        };
+        let calls = &mut self.calls;
+        let sent = journal.send(
+            &mut |a: &[&str]| calls.store(a),
+            write,
+            &mut *ports.writes,
+            &NoBlobs,
+        );
+        let wrote = match sent {
+            Journaled::Answered(Ok(Receipt::Comment(posted))) => {
+                Wrote::Done(posted.id.as_str().to_string())
+            }
+            Journaled::Answered(Ok(_)) => Wrote::Done(String::new()),
+            Journaled::Answered(Err(o)) => Wrote::Failed(format!(": {}", o.line())),
+            Journaled::Unknown { answer, .. } => Wrote::Unknown(format!(": {}", answer.line())),
+            Journaled::Unrecorded => Wrote::Unrecorded,
+        };
+        // The queue changes here: the poll's end owes a status and a sample.
+        // Its calls of gh are counted by the handles' runner.
+        if !matches!(wrote, Wrote::Unrecorded) {
+            self.changed = true;
         }
         wrote
     }
@@ -429,16 +521,44 @@ impl Writer {
     /// (record_said, record_told) read the answer; the rest of the comments
     /// of a poll are said again by their own rule, so they drop it.
     fn say(&mut self, n: u64, body: &str, log: &mut Vec<String>) -> bool {
-        let args = vec![
-            "issue".into(),
-            "comment".into(),
-            n.to_string(),
-            "--repo".into(),
-            self.repo.clone(),
-            "--body-file".into(),
-            "-".into(),
-        ];
-        match self.write(n, "comment-post", args, Some(body), None) {
+        self.say_marked(n, body, Vec::new(), log)
+    }
+
+    /// `say`, with our markers beside the text: a note of the tickets port.
+    fn say_marked(
+        &mut self,
+        n: u64,
+        body: &str,
+        markers: Vec<tehas_ports::Marker>,
+        log: &mut Vec<String>,
+    ) -> bool {
+        let Some(ticket) = ticket(n) else {
+            log.push(format!("WARN: comment on #{n} failed"));
+            return false;
+        };
+        let note = Write::TicketNote {
+            ticket,
+            body: Body::Text(body.to_string()),
+            markers,
+        };
+        let args: Vec<String> = ["issue", "comment", &n.to_string(), "--repo", &self.repo]
+            .into_iter()
+            .chain(["--body-file", "-"])
+            .map(str::to_string)
+            .collect();
+        // A text that still holds our marker inside it goes as 1.x wrote
+        // it, through gh, until its site gives the marker typed beside the
+        // text (the finish's at T4.7's step 5): a write of the ports
+        // refuses it.
+        let wrote = if tehas_core::text::has_marker(body) {
+            self.write(n, "comment-post", args, Some(body), None)
+        } else {
+            match self.looked_1x(n, "comment-post", &args, Some(body)) {
+                Some(wrote) => wrote,
+                None => self.send(n, &note),
+            }
+        };
+        match wrote {
             Wrote::Done(_) => true,
             Wrote::Failed(_) => {
                 log.push(format!("WARN: comment on #{n} failed"));

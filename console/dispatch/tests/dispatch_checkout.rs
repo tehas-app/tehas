@@ -144,7 +144,7 @@ fn an_index_that_runs_as_its_own_unit_holds_the_cycles_until_the_poll_after_it()
         &format!("{h}/logs/dispatch-index.log {h}/state/index.rc {h}/state/dispatch.again"),
     );
     lacks(&w.gh(), "issue edit");
-    lacks(&w.gh(), "issue comment");
+    assert_eq!(w.notes_any(), 0);
 }
 
 #[test]
@@ -244,7 +244,7 @@ fn a_real_poll_does_not_start_an_issue_the_bot_labelled_and_takes_that_label_off
         ),
         1
     );
-    assert_eq!(count_lines(&w.gh(), "issue comment "), 1);
+    assert_eq!(w.notes_any(), 1);
 }
 
 #[test]
@@ -418,11 +418,8 @@ fn an_issue_with_an_open_pull_request_that_closes_it_starts_nothing_and_loses_te
         "issue edit 7 --repo acme/widget --remove-label tehas:ready",
     );
     lacks(&w.gh(), "--add-label tehas:running");
-    assert_eq!(count_lines(&w.gh(), "issue comment 7 "), 1);
-    has(
-        &w.gh(),
-        &format!("issue comment 7 --repo acme/widget --body Tehas took `tehas:ready` off this issue and started nothing: {PR90} is open and closes it."),
-    );
+    assert_eq!(w.notes(7), 1);
+    assert!(w.said_on(7, &format!("Tehas took `tehas:ready` off this issue and started nothing: {PR90} is open and closes it.")), "{:?}", w.said(7));
 }
 
 #[test]
@@ -464,10 +461,7 @@ fn an_open_pull_request_into_another_branch_whose_body_closes_it_starts_nothing_
         "issue edit 7 --repo acme/widget --remove-label tehas:ready",
     );
     lacks(&w.gh(), "--add-label tehas:running");
-    has(
-        &w.gh(),
-        &format!("issue comment 7 --repo acme/widget --body Tehas took `tehas:ready` off this issue and started nothing: {PR90} is open and closes it."),
-    );
+    assert!(w.said_on(7, &format!("Tehas took `tehas:ready` off this issue and started nothing: {PR90} is open and closes it.")), "{:?}", w.said(7));
 }
 
 /// A poll that starts #7 and says no pull request holds it.
@@ -565,7 +559,7 @@ fn a_dry_run_of_a_pull_request_into_another_branch_says_it_would_take_the_label_
     );
     lacks(&r.out, "would run a cycle");
     lacks(&w.gh(), "issue edit");
-    lacks(&w.gh(), "issue comment");
+    assert_eq!(w.notes_any(), 0);
 }
 
 #[test]
@@ -588,7 +582,7 @@ fn when_the_label_cannot_be_taken_off_nothing_is_said_and_the_next_poll_tries_ag
         &r.out,
         "WARN: label change on #7 failed: --remove-label tehas:ready",
     );
-    lacks(&w.gh(), "issue comment 7");
+    assert_eq!(w.notes(7), 0);
 }
 
 #[test]
@@ -602,7 +596,7 @@ fn a_dry_run_says_it_would_take_the_label_off_and_changes_nothing() {
     );
     lacks(&r.out, "would run a cycle");
     lacks(&w.gh(), "issue edit");
-    lacks(&w.gh(), "issue comment");
+    assert_eq!(w.notes_any(), 0);
 }
 
 #[test]
