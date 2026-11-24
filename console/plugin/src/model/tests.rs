@@ -748,9 +748,15 @@ fn an_endpoint_s_error_is_passed_back_with_its_status() {
 
 #[test]
 fn an_endpoint_that_does_not_answer_is_502_and_keeps_the_reserve() {
-    let closed = TcpListener::bind("127.0.0.1:0").unwrap();
-    let url = format!("http://{}/v1", closed.local_addr().unwrap());
-    drop(closed);
+    // The port stays held, so no other process can take it and answer; each
+    // connection is closed unread.
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/v1", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+        for conn in listener.incoming() {
+            drop(conn);
+        }
+    });
     let (_dir, server) = start(run(&url));
     let a = chat(&server, &ask());
     assert_eq!(a.0, 502);
