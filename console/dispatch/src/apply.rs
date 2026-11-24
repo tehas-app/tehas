@@ -26,6 +26,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tehas_core::call::{self, GRACE};
+use tehas_core::home::{Home, State};
 use tehas_core::journal::{Journal, Wrote};
 
 /// The calls of one poll's writes.
@@ -140,7 +141,7 @@ struct Reask<'a> {
 
 /// state/refresh/<n>.said: what says that an issue's hold was told.
 pub fn said_file(home: &Path, n: u64) -> PathBuf {
-    home.join(format!("state/refresh/{n}.said"))
+    Home::new(home).refresh_said(n)
 }
 
 fn text<'a>(a: &'a Value, k: &str) -> &'a str {
@@ -248,14 +249,14 @@ impl Writer {
         } else if let Some(n) = a.get("refresh_drop").and_then(Value::as_u64) {
             self.refresh_drop(n, log);
         } else if let Some(held) = a.get("refresh_held").and_then(Value::as_str) {
-            let path = self.home.join("state/refresh/.held");
+            let path = Home::new(&self.home).state(State::RefreshHeld);
             if held.is_empty() {
                 let _ = std::fs::remove_file(&path);
             } else if std::fs::write(&path, held).is_err() {
                 log.push(format!("WARN: could not write {}", path.display()));
             }
         } else if let Some(note) = a.get("branch_note").and_then(Value::as_str) {
-            let path = self.home.join("state/branch-check");
+            let path = Home::new(&self.home).state(State::BranchCheck);
             if std::fs::write(&path, format!("{note}\n")).is_err() {
                 log.push(format!("WARN: could not write {}", path.display()));
             }
@@ -397,7 +398,7 @@ impl Writer {
 
     /// The refresh request of issue `n`, off this host.
     fn refresh_drop(&self, n: u64, log: &mut Vec<String>) {
-        let path = self.home.join(format!("state/refresh/{n}.json"));
+        let path = Home::new(&self.home).refresh_request(n);
         if let Err(e) = std::fs::remove_file(&path) {
             if e.kind() != std::io::ErrorKind::NotFound {
                 log.push(format!("WARN: could not remove {}", path.display()));

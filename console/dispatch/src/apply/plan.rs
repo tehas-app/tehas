@@ -28,6 +28,7 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 use tehas_core::events::{plan_credit, Events};
 use tehas_core::file::{write_atomic, Temp};
+use tehas_core::home::{Home, State};
 use tehas_core::mask::mask;
 use tehas_core::plan::{
     carries_update, clear_plan, draft_holds, is_refusal, keep_spec, refusal_document,
@@ -204,7 +205,7 @@ enum DraftCheck {
 
 impl Writer {
     pub(super) fn st(&self, n: u64, end: &str) -> PathBuf {
-        self.home.join(format!("state/plan-{n}.json{end}"))
+        Home::new(&self.home).plan_file(n, end)
     }
 
     pub(super) fn keep(&self, n: u64) -> PathBuf {
@@ -645,7 +646,7 @@ impl Writer {
         if lines.is_empty() {
             return;
         }
-        let ledger = self.home.join("state/refined.jsonl");
+        let ledger = Home::new(&self.home).state(State::Refined);
         use std::io::Write as _;
         let wrote = std::fs::OpenOptions::new()
             .create(true)
@@ -1472,7 +1473,7 @@ impl Writer {
         // What the session held, its issue and its room for planning, is free
         // for the poll after this one, now and not at the next timer: this
         // poll decided from what it read before the session ended.
-        let _ = std::fs::write(self.home.join("state/dispatch.again"), "");
+        let _ = std::fs::write(Home::new(&self.home).state(State::DispatchAgain), "");
         self.asked_again = true;
         true
     }
