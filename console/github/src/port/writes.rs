@@ -1,5 +1,6 @@
 //! The tickets port's writes, `TicketWrites`. Answered: the factory's
-//! labels made (`prepare`), a project's own label (`ensure_mark`), a mark
+//! labels made (`prepare`), or one of them (`prepare_one`), a project's own
+//! label (`ensure_mark`), a mark
 //! put on or taken off, a note with its markers (`note`), and the
 //! ticket's own title and text edited at a revision (`edit`).
 //!
@@ -54,6 +55,26 @@ impl TicketWrites for GitHub {
             }
         }
         first
+    }
+
+    /// The label of one factory mark read, then made or brought to the
+    /// table's colour and text as `prepare` makes each, only where it is
+    /// not so already: a label that is right is not written. A project's
+    /// own mark, and a mark no label is, are `Refused(Invalid)` with no
+    /// request.
+    fn prepare_one(&mut self, mark: &Mark) -> Did {
+        if matches!(mark, Mark::Project(_)) {
+            return Err(Outcome::Refused(Refusal::Invalid));
+        }
+        let label = label_of(mark)?;
+        let spec = table::specs()
+            .into_iter()
+            .find(|s| s.name.as_str() == label)
+            .ok_or(Outcome::Refused(Refusal::Invalid))?;
+        match self.label_held(&label)? {
+            Some(held) if held.is(&spec) => Ok(()),
+            _ => self.ensure_mark(&spec),
+        }
     }
 
     /// `gh label create --force`: made, or its colour and text put back.

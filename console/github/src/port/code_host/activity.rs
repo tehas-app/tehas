@@ -393,7 +393,7 @@ impl GitHub {
     /// a bare exit 1 is settled by the REST read at `path`, its `NotFound`
     /// or `Forbidden`, anything else `Unread(Inconsistent)`; any other
     /// failure is its own outcome, a spent budget the priced pool's.
-    fn question_outcome(&mut self, e: &ForgeError, said: Option<&str>, path: &str) -> Outcome {
+    pub(crate) fn question_outcome(&mut self, e: &ForgeError, said: Option<&str>, path: &str) -> Outcome {
         if let Some(said) = said.filter(|s| !s.trim().is_empty()) {
             let types: Vec<String> = serde_json::from_str::<Value>(said.trim())
                 .ok()
