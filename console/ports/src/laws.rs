@@ -66,10 +66,400 @@ fn got<T>(law: &str, what: &str, answer: crate::Got<T>) -> Result<T, Broken> {
     })
 }
 
-/// Laws of the tickets port's writes.
+/// Laws of the tickets port.
 pub mod tickets {
     use super::{got, hold, Law};
-    use crate::{Depth, Mark, TicketKey, TicketWrites};
+    use std::num::NonZeroU32;
+
+    use crate::{
+        At, Bound, Depth, Filter, Mark, MarkHeld, Outcome, Refusal, TicketDigest, TicketKey,
+        TicketWrites, Tickets, Took, WithCloser,
+    };
+
+    /// A newest-first page against the whole list it is cut from: each
+    /// held once and listed, `updated` never rising, none left out newer
+    /// than the last held, as many as fit, and `more` exactly when some
+    /// were left out.
+    fn newest_of(
+        law: &str,
+        page: &Took<TicketDigest>,
+        whole: &[TicketDigest],
+        first: NonZeroU32,
+    ) -> super::Law {
+        let n = first.get() as usize;
+        let held: Vec<&TicketKey> = page.items.iter().map(|d| &d.key).collect();
+        hold(
+            page.items.len() == whole.len().min(n) && page.more == (whole.len() > n),
+            law,
+            || {
+                format!(
+                    "{} held, more {}, of {} with room for {n}",
+                    page.items.len(),
+                    page.more,
+                    whole.len()
+                )
+            },
+        )?;
+        hold(
+            page.items.windows(2).all(|w| w[0].updated >= w[1].updated),
+            law,
+            || format!("not newest updated first: {held:?}"),
+        )?;
+        for d in &page.items {
+            hold(
+                whole.iter().filter(|w| w.key == d.key).count() == 1,
+                law,
+                || format!("{:?} is not once in the list", d.key),
+            )?;
+            hold(
+                held.iter().filter(|k| ***k == d.key).count() == 1,
+                law,
+                || format!("{:?} is held twice", d.key),
+            )?;
+        }
+        if let Some(last) = page.items.last() {
+            let newer = whole
+                .iter()
+                .find(|w| !held.contains(&&w.key) && w.updated > last.updated);
+            hold(newer.is_none(), law, || {
+                format!("{newer:?} is left out, newer than the last held")
+            })?;
+        }
+        Ok(())
+    }
+
+    /// `recent` holds the newest `first` tickets the filter takes, newest
+    /// `updated` first, with `more` exact, as the whole list orders them.
+    /// The fixture holds more tickets than `first` that `filter` takes,
+    /// with more than one `updated`, within `bound`.
+    pub fn recent_is_newest_updated_first(
+        h: &mut dyn Tickets,
+        filter: &Filter,
+        first: NonZeroU32,
+        bound: Bound,
+    ) -> Law {
+        const LAW: &str = "tickets::recent_is_newest_updated_first";
+        let whole = got(LAW, "the list", h.list(filter, bound))?.into_items();
+        let page = got(LAW, "recent", h.recent(filter, first))?;
+        newest_of(LAW, &page, &whole, first)?;
+        let room = NonZeroU32::new(bound.get()).unwrap_or(first);
+        let all = got(LAW, "recent, all of it", h.recent(filter, room))?;
+        newest_of(LAW, &all, &whole, room)
+    }
+
+    /// `recently_closed` holds the newest `first` closed tickets, newest
+    /// `updated` first, with `more` exact, each as `closed_since` answers
+    /// it. The fixture holds more closed tickets than `first`, within
+    /// `bound`.
+    pub fn recently_closed_is_newest_updated_first(
+        h: &mut dyn Tickets,
+        first: NonZeroU32,
+        bound: Bound,
+    ) -> Law {
+        const LAW: &str = "tickets::recently_closed_is_newest_updated_first";
+        let since = got(LAW, "closed_since", h.closed_since(At::new(0), bound))?.into_items();
+        let page = got(LAW, "recently_closed", h.recently_closed(first))?;
+        for c in &page.items {
+            hold(since.contains(c), LAW, || {
+                format!("{:?} is not as closed_since gives it", c.digest.key)
+            })?;
+        }
+        let whole: Vec<TicketDigest> = since.into_iter().map(|c| c.digest).collect();
+        let digests = Took {
+            items: page.items.into_iter().map(|c| c.digest).collect(),
+            more: page.more,
+        };
+        newest_of(LAW, &digests, &whole, first)
+    }
+
+    /// `count` is the length of the list the filter takes, for each
+    /// filter. The fixture's lists fit in `bound`, and its site's count can
+    /// express each filter.
+    pub fn count_is_the_lists_length(h: &mut dyn Tickets, filters: &[Filter], bound: Bound) -> Law {
+        const LAW: &str = "tickets::count_is_the_lists_length";
+        for f in filters {
+            let listed = got(LAW, "the list", h.list(f, bound))?.into_items().len() as u64;
+            let counted = got(LAW, "count", h.count(f))?;
+            hold(counted == listed, LAW, || {
+                format!("{f:?} counts {counted}, its list holds {listed}")
+            })?;
+        }
+        Ok(())
+    }
+
+    /// A filter the site's count cannot express is `Refused(Unsupported)`:
+    /// never a guess, and never `Unread(Inconsistent)`, which is for an
+    /// answer that does not add up. The fixture's site cannot count
+    /// `filter`.
+    pub fn a_count_it_cannot_express_is_refused(h: &mut dyn Tickets, filter: &Filter) -> Law {
+        const LAW: &str = "tickets::a_count_it_cannot_express_is_refused";
+        let answer = h.count(filter);
+        hold(
+            answer == Err(Outcome::Refused(Refusal::Unsupported)),
+            LAW,
+            || format!("{filter:?} counts {answer:?}"),
+        )
+    }
+
+    /// A ticket's target names the target as `targets` holds it: its id,
+    /// its title, whether it is open and its due date, where the read
+    /// says. The fixture's `key` has a target.
+    pub fn a_ticket_names_its_target_as_targets_does(
+        h: &mut dyn Tickets,
+        key: &TicketKey,
+        bound: Bound,
+    ) -> Law {
+        const LAW: &str = "tickets::a_ticket_names_its_target_as_targets_does";
+        let digest = got(
+            LAW,
+            "the ticket",
+            h.ticket(key, Depth::Cut { notes: 0 }, None),
+        )?
+        .digest;
+        let Some(named) = digest.target else {
+            return super::broken(LAW, format!("{key:?} has no target"));
+        };
+        let targets = got(LAW, "targets", h.targets(bound))?.into_items();
+        let Some(t) = targets.iter().find(|t| t.id == named.id) else {
+            return super::broken(LAW, format!("{:?} is not among the targets", named.id));
+        };
+        hold(
+            named.title == t.title
+                && named.open.is_none_or(|o| o == t.open)
+                && (named.due.is_none() || named.due == t.due),
+            LAW,
+            || format!("{key:?} names {named:?}, targets hold {t:?}"),
+        )
+    }
+
+    /// `Filter.carrying_any` takes the tickets that carry any one of the
+    /// marks: the tickets each mark's own `carrying` list takes, together,
+    /// in list order, each once. The fixture
+    /// holds tickets of more than one of `marks` within `bound`.
+    pub fn carrying_any_takes_any_of_the_marks(
+        h: &mut dyn Tickets,
+        marks: &[Mark],
+        bound: Bound,
+    ) -> Law {
+        const LAW: &str = "tickets::carrying_any_takes_any_of_the_marks";
+        let every = got(LAW, "every ticket", h.list(&Filter::default(), bound))?.into_items();
+        let mut keys = Vec::new();
+        for m in marks {
+            let one = Filter {
+                carrying: vec![m.clone()],
+                ..Filter::default()
+            };
+            keys.extend(
+                got(LAW, "one mark's list", h.list(&one, bound))?
+                    .into_items()
+                    .into_iter()
+                    .map(|d| d.key),
+            );
+        }
+        let want: Vec<_> = every
+            .iter()
+            .map(|d| d.key.clone())
+            .filter(|k| keys.contains(k))
+            .collect();
+        let any = Filter {
+            carrying_any: marks.to_vec(),
+            ..Filter::default()
+        };
+        let have: Vec<_> = got(LAW, "carrying_any", h.list(&any, bound))?
+            .into_items()
+            .into_iter()
+            .map(|d| d.key)
+            .collect();
+        hold(have == want, LAW, || {
+            format!("carrying_any took {have:?}, the marks' lists {want:?}")
+        })
+    }
+
+    /// `marks` names each mark once, each with an id of its own, and a mark
+    /// put on through the port is read back in the history with that id,
+    /// or with none where the site gives none. The fixture's ticket is open
+    /// and does not carry `mark`; the site holds `mark` once it is put on.
+    pub fn a_mark_event_names_the_marks_id(
+        h: &mut dyn TicketWrites,
+        key: &TicketKey,
+        mark: &Mark,
+        bound: Bound,
+    ) -> Law {
+        const LAW: &str = "tickets::a_mark_event_names_the_marks_id";
+        got(LAW, "mark", h.mark(key, mark))?;
+        let marks = got(LAW, "marks", h.marks(bound))?.into_items();
+        for (i, held) in marks.iter().enumerate() {
+            let again = marks[i + 1..]
+                .iter()
+                .find(|n| n.mark == held.mark || n.id == held.id);
+            hold(again.is_none(), LAW, || {
+                format!("marks names {held:?} and again {again:?}")
+            })?;
+        }
+        let id = marks.iter().find(|m| m.mark == *mark).map(|m| &m.id);
+        hold(id.is_some(), LAW, || format!("marks holds no {mark:?}"))?;
+        let only = [crate::HappenedKind::Marked];
+        let history = got(
+            LAW,
+            "the history",
+            h.history(key, crate::Window::Whole(bound), Some(&only)),
+        )?;
+        let event = history
+            .items
+            .iter()
+            .rev()
+            .find(|e| e.what == crate::Happened::Marked(mark.clone()));
+        let event = match event {
+            Some(e) => e,
+            None => return super::broken(LAW, format!("no event put {mark:?} on")),
+        };
+        hold(
+            event.mark_id.is_none() || event.mark_id.as_ref() == id,
+            LAW,
+            || format!("the event names {:?}, marks names {id:?}", event.mark_id),
+        )
+    }
+
+    /// A mark renamed on the site keeps its id under its new name, and the
+    /// event that put it on before the rename names the new name with that
+    /// id, or with none where the site gives none. An adapter that makes
+    /// the id from the name breaks it: a mark renamed to one of ours would
+    /// pass a pin (rule 5). The fixture's ticket is open and does not carry
+    /// `from`; the site holds no mark `to`; `rename` renames `from` to `to`
+    /// on the site, as a person with its settings does.
+    pub fn a_renamed_mark_keeps_its_id(
+        h: &mut dyn TicketWrites,
+        key: &TicketKey,
+        from: &Mark,
+        to: &Mark,
+        bound: Bound,
+        rename: &mut dyn FnMut(),
+    ) -> Law {
+        const LAW: &str = "tickets::a_renamed_mark_keeps_its_id";
+        got(LAW, "mark", h.mark(key, from))?;
+        let id_of = |marks: &[MarkHeld], m: &Mark| {
+            marks.iter().find(|h| h.mark == *m).map(|h| h.id.clone())
+        };
+        let before = got(LAW, "marks", h.marks(bound))?.into_items();
+        let id = match id_of(&before, from) {
+            Some(id) => id,
+            None => return super::broken(LAW, format!("marks holds no {from:?}")),
+        };
+        hold(id_of(&before, to).is_none(), LAW, || {
+            format!("the site holds {to:?} before the rename")
+        })?;
+        rename();
+        let after = got(LAW, "marks", h.marks(bound))?.into_items();
+        hold(id_of(&after, from).is_none(), LAW, || {
+            format!("marks still holds {from:?} after the rename")
+        })?;
+        let now = id_of(&after, to);
+        hold(now.as_ref() == Some(&id), LAW, || {
+            format!("{to:?} is {now:?} after the rename, {from:?} was {id:?}")
+        })?;
+        let only = [crate::HappenedKind::Marked];
+        let history = got(
+            LAW,
+            "the history",
+            h.history(key, crate::Window::Whole(bound), Some(&only)),
+        )?;
+        let event = history
+            .items
+            .iter()
+            .rev()
+            .find(|e| e.what == crate::Happened::Marked(to.clone()));
+        let event = match event {
+            Some(e) => e,
+            None => return super::broken(LAW, format!("no event names {to:?}")),
+        };
+        hold(
+            event.mark_id.is_none() || event.mark_id.as_ref() == Some(&id),
+            LAW,
+            || format!("the event names {:?}, the mark is {id:?}", event.mark_id),
+        )
+    }
+
+    /// A ticket's `parent` names P exactly when `parts(P)` holds it, and
+    /// `Ticket.parts` and `Ticket.blockers` are whole at every depth, the
+    /// same as `parts` and `blockers` answer, `Depth::Cut` included. The
+    /// fixture's `keys` hold a ticket with parts and one with blockers, and
+    /// the parent of every ticket among them.
+    pub fn a_parent_holds_its_parts(h: &mut dyn Tickets, keys: &[TicketKey]) -> Law {
+        const LAW: &str = "tickets::a_parent_holds_its_parts";
+        let mut parts_of = Vec::new();
+        for k in keys {
+            let parts = got(LAW, "parts", h.parts(k))?.into_items();
+            let blockers = got(LAW, "blockers", h.blockers(k))?.into_items();
+            for depth in [Depth::Cut { notes: 0 }, Depth::All] {
+                let t = got(LAW, "the ticket", h.ticket(k, depth, None))?;
+                hold(t.parts == parts && t.blockers == blockers, LAW, || {
+                    format!("{k:?} at {depth:?} holds parts or blockers apart from the lists")
+                })?;
+            }
+            parts_of.push((k.clone(), parts));
+        }
+        for (k, answer) in h.several(keys) {
+            let d = got(LAW, "several", answer)?;
+            let holders: Vec<&TicketKey> = parts_of
+                .iter()
+                .filter(|(_, parts)| parts.iter().any(|p| p.key == crate::Ref::Here(k.clone())))
+                .map(|(p, _)| p)
+                .collect();
+            let want = holders.first().map(|p| crate::Ref::Here((*p).clone()));
+            hold(holders.len() <= 1 && d.parent == want, LAW, || {
+                format!(
+                    "{k:?}'s parent is {:?}, the parts say {holders:?}",
+                    d.parent
+                )
+            })?;
+        }
+        Ok(())
+    }
+
+    /// `kinds` never holds `Kind::Unknown`: a type this copy cannot name
+    /// is left out (Decided 120). The fixture's site has a type of a name
+    /// no kind can be.
+    pub fn kinds_hold_no_unknown(h: &mut dyn Tickets) -> Law {
+        const LAW: &str = "tickets::kinds_hold_no_unknown";
+        let kinds = got(LAW, "the kinds", h.kinds())?.into_items();
+        hold(!kinds.contains(&crate::Kind::Unknown), LAW, || {
+            format!("kinds gave {kinds:?}")
+        })
+    }
+
+    /// `several_with_closers` answers each ticket's digest as `several`
+    /// does, with the closer its `Ticket.closer` gives, None while it is
+    /// open. The fixture holds `keys`, closed and open.
+    pub fn several_carries_each_closer(h: &mut dyn Tickets, keys: &[TicketKey]) -> Law {
+        const LAW: &str = "tickets::several_carries_each_closer";
+        let plain = h.several(keys);
+        let with = h.several_with_closers(keys);
+        hold(with.len() == plain.len(), LAW, || {
+            format!("{} answers for {} of several", with.len(), plain.len())
+        })?;
+        for ((k, digest), (k2, answer)) in plain.into_iter().zip(with) {
+            hold(k == k2, LAW, || {
+                format!("{k2:?} answered in the place of {k:?}")
+            })?;
+            let digest = got(LAW, "several", digest)?;
+            let WithCloser {
+                digest: d, closer, ..
+            } = got(LAW, "several_with_closers", answer)?;
+            hold(d == digest, LAW, || {
+                format!("{k:?}'s digest is not several's")
+            })?;
+            let t = got(
+                LAW,
+                "the ticket",
+                h.ticket(&k, Depth::Cut { notes: 0 }, None),
+            )?;
+            let want = if t.closed.is_some() { t.closer } else { None };
+            hold(closer == want, LAW, || {
+                format!("{k:?}'s closer is {closer:?}, the ticket says {want:?}")
+            })?;
+        }
+        Ok(())
+    }
 
     /// Taking off a mark a ticket does not carry is done, and leaves it
     /// without the mark. The fixture's ticket must not carry `mark`.
@@ -158,6 +548,332 @@ pub mod code_host {
 
     fn state(h: &mut dyn CodeHostWrites, law: &str, no: ChangeNo) -> Result<ChangeState, Broken> {
         Ok(got(law, "the change", h.change(no, ALL_MAX))?.digest.state)
+    }
+
+    /// A newest-first page: as many as fit, `more` exact, each held once
+    /// and in the whole list.
+    fn a_page_of<T: PartialEq + std::fmt::Debug>(
+        law: &str,
+        page: &crate::Took<T>,
+        whole: &[T],
+        first: std::num::NonZeroU32,
+    ) -> Law {
+        let n = first.get() as usize;
+        hold(
+            page.items.len() == whole.len().min(n) && page.more == (whole.len() > n),
+            law,
+            || {
+                format!(
+                    "{} held, more {}, of {}",
+                    page.items.len(),
+                    page.more,
+                    whole.len()
+                )
+            },
+        )?;
+        for (i, x) in page.items.iter().enumerate() {
+            hold(
+                whole.contains(x) && !page.items[..i].contains(x),
+                law,
+                || format!("{x:?} is not once in the whole list"),
+            )?;
+        }
+        Ok(())
+    }
+
+    /// `recent_tags` and `recent_releases` hold the newest `first`, with
+    /// `more` exact, each as `tags` and `releases` give it; tags newest
+    /// made first where each has a time. The fixture holds more tags and
+    /// releases than `first`, made at times apart, within `bound`; `newest`
+    /// names the release made last.
+    pub fn recent_tags_and_releases_are_newest_first(
+        h: &mut dyn crate::CodeHost,
+        first: std::num::NonZeroU32,
+        bound: crate::Bound,
+        newest: &crate::TagName,
+    ) -> Law {
+        const LAW: &str = "code_host::recent_tags_and_releases_are_newest_first";
+        let tags = got(LAW, "tags", h.tags(bound))?.into_items();
+        let recent = got(LAW, "recent_tags", h.recent_tags(first))?;
+        a_page_of(LAW, &recent, &tags, first)?;
+        let times: Vec<_> = recent.items.iter().filter_map(|t| t.at).collect();
+        hold(times.windows(2).all(|w| w[0] >= w[1]), LAW, || {
+            format!("tags not newest first: {times:?}")
+        })?;
+        if let Some(last) = recent.items.last().and_then(|t| t.at) {
+            let newer = tags
+                .iter()
+                .find(|t| !recent.items.contains(t) && t.at.is_some_and(|a| a > last));
+            hold(newer.is_none(), LAW, || format!("{newer:?} is left out"))?;
+        }
+        let releases = got(LAW, "releases", h.releases(bound))?.into_items();
+        let recent = got(LAW, "recent_releases", h.recent_releases(first))?;
+        a_page_of(LAW, &recent, &releases, first)?;
+        hold(
+            recent.items.first().map(|r| &r.tag) == Some(newest),
+            LAW,
+            || {
+                format!(
+                    "the newest release is not first: {:?}",
+                    recent.items.first()
+                )
+            },
+        )
+    }
+
+    /// A release made with notes reads them back, and one made without
+    /// reads `""`. The fixture holds tags `with` and `without`, with no
+    /// release yet.
+    pub fn a_release_gives_its_notes(
+        h: &mut dyn CodeHostWrites,
+        with: &crate::TagName,
+        without: &crate::TagName,
+    ) -> Law {
+        const LAW: &str = "code_host::a_release_gives_its_notes";
+        for (tag, notes) in [(with, "What changed."), (without, "")] {
+            let new = crate::NewRelease {
+                tag: tag.clone(),
+                title: tag.as_str().to_string(),
+                notes: crate::Body::Text(notes.to_string()),
+                draft: false,
+                prerelease: false,
+            };
+            got(LAW, "the new release", h.new_release(&new))?;
+            let read = got(LAW, "the release", h.release(tag))?;
+            hold(read.notes == notes, LAW, || {
+                format!("{tag:?} reads notes {:?}, not {notes:?}", read.notes)
+            })?;
+        }
+        Ok(())
+    }
+
+    /// A merge asked a way this copy does not know is `Refused(Invalid)`
+    /// and leaves the change open; asked `MergeHow::Site`, it merges the
+    /// project's way. The fixture's change `no` is open at `head` and may
+    /// merge.
+    pub fn the_sites_way_merges_and_an_unknown_one_is_refused(
+        h: &mut dyn CodeHostWrites,
+        no: ChangeNo,
+        head: &CommitId,
+    ) -> Law {
+        const LAW: &str = "code_host::the_sites_way_merges_and_an_unknown_one_is_refused";
+        let refused = h.merge(no, head, MergeHow::Unknown);
+        hold(
+            refused == Err(Outcome::Refused(Refusal::Invalid)),
+            LAW,
+            || format!("an unknown way answered {refused:?}"),
+        )?;
+        hold(state(h, LAW, no)? == ChangeState::Open, LAW, || {
+            "an unknown way merged".into()
+        })?;
+        got(LAW, "the site's way", h.merge(no, head, MergeHow::Site))?;
+        let merged = state(h, LAW, no)?;
+        hold(matches!(merged, ChangeState::Merged { .. }), LAW, || {
+            format!("the site's way left it {merged:?}")
+        })
+    }
+
+    /// The checks on a commit hold one run of each App and name, the
+    /// newest, and `overall` is `Overall::of` them; asked by name, the runs
+    /// of that name. Runs of different Apps are not collapsed, and a
+    /// `Check` names no App, so a name may stand more than once. The
+    /// fixture's commit `at` holds runs of `name` by one App and no status
+    /// of that name, more than one run: the newest has the status `newest`,
+    /// and an older one another.
+    pub fn checks_hold_the_newest_run_of_each_app_and_name(
+        h: &mut dyn crate::CodeHost,
+        at: &CommitId,
+        name: &str,
+        newest: &crate::CheckStatus,
+    ) -> Law {
+        const LAW: &str = "code_host::checks_hold_the_newest_run_of_each_app_and_name";
+        let all = got(LAW, "the checks", h.checks(at, None))?;
+        hold(all.overall == crate::Overall::of(&all.runs), LAW, || {
+            format!("overall is {:?} for {:?}", all.overall, all.runs)
+        })?;
+        let one = got(LAW, "the checks of a name", h.checks(at, Some(name)))?;
+        let want: Vec<_> = all
+            .runs
+            .iter()
+            .filter(|r| r.name == name)
+            .cloned()
+            .collect();
+        hold(one.runs == want && want.len() == 1, LAW, || {
+            format!("{name} answered {:?}, the whole read {want:?}", one.runs)
+        })?;
+        hold(want[0].status == *newest, LAW, || {
+            format!("{name} is {:?}, its newest run {newest:?}", want[0].status)
+        })
+    }
+
+    /// Two Apps' runs of one name are both held, in the whole read and
+    /// asked by name, and `overall` covers both. The fixture's commit `at`
+    /// holds runs of `name` by two Apps and no status of that name: the
+    /// newest of one App failed, and a newer run of the other passed.
+    pub fn two_apps_runs_of_one_name_are_both_held(
+        h: &mut dyn crate::CodeHost,
+        at: &CommitId,
+        name: &str,
+    ) -> Law {
+        const LAW: &str = "code_host::two_apps_runs_of_one_name_are_both_held";
+        let all = got(LAW, "the checks", h.checks(at, None))?;
+        let want: Vec<_> = all
+            .runs
+            .iter()
+            .filter(|r| r.name == name)
+            .cloned()
+            .collect();
+        hold(want.len() >= 2, LAW, || {
+            format!("{name} is held {} times in {:?}", want.len(), all.runs)
+        })?;
+        let one = got(LAW, "the checks of a name", h.checks(at, Some(name)))?;
+        hold(one.runs == want, LAW, || {
+            format!("{name} answered {:?}, the whole read {want:?}", one.runs)
+        })?;
+        hold(all.overall == crate::Overall::Fail, LAW, || {
+            format!("overall is {:?} for {:?}", all.overall, all.runs)
+        })?;
+        hold(one.overall == crate::Overall::Fail, LAW, || {
+            format!("overall of {name} is {:?} for {:?}", one.overall, one.runs)
+        })
+    }
+
+    /// The checks on a commit hold its status contexts beside its check
+    /// runs, and a failed status beside a passing run is `Fail`. The
+    /// fixture's commit `at` holds one passing run of `run` and a status
+    /// of the context `status` whose newest state failed or errored.
+    pub fn a_failed_status_beside_a_passing_run_fails(
+        h: &mut dyn crate::CodeHost,
+        at: &CommitId,
+        run: &str,
+        status: &str,
+    ) -> Law {
+        const LAW: &str = "code_host::a_failed_status_beside_a_passing_run_fails";
+        let all = got(LAW, "the checks", h.checks(at, None))?;
+        let is = |n: &str, c: crate::Conclusion| {
+            all.runs
+                .iter()
+                .any(|r| r.name == n && r.status == crate::CheckStatus::Done(c))
+        };
+        hold(is(run, crate::Conclusion::Passed), LAW, || {
+            format!("the run {run} is not a pass in {:?}", all.runs)
+        })?;
+        hold(is(status, crate::Conclusion::Failed), LAW, || {
+            format!("the status {status} is not held failed in {:?}", all.runs)
+        })?;
+        hold(all.overall == crate::Overall::Fail, LAW, || {
+            format!("overall is {:?} for {:?}", all.overall, all.runs)
+        })
+    }
+
+    /// `ChangeFilter.carrying` takes the changes that carry every one of
+    /// the marks, and empty narrows nothing. The fixture holds a change
+    /// carrying `marks` and one that does not, within `ALL_MAX`.
+    pub fn carrying_takes_changes_with_every_mark(
+        h: &mut dyn crate::CodeHost,
+        marks: &[crate::Mark],
+    ) -> Law {
+        const LAW: &str = "code_host::carrying_takes_changes_with_every_mark";
+        let every = crate::ChangeFilter {
+            states: crate::ChangeStates::All,
+            ..Default::default()
+        };
+        let all = got(LAW, "every change", h.changes(&every, ALL_MAX))?.into_items();
+        let carries = |c: &crate::ChangeDigest| marks.iter().all(|m| c.marks.contains(m));
+        hold(
+            all.iter().any(carries) && !all.iter().all(carries),
+            LAW,
+            || "an empty carrying narrowed the list".to_string(),
+        )?;
+        let carrying = crate::ChangeFilter {
+            carrying: marks.to_vec(),
+            ..every
+        };
+        let have = got(LAW, "the changes carrying", h.changes(&carrying, ALL_MAX))?.into_items();
+        let want: Vec<_> = all.into_iter().filter(|c| carries(c)).collect();
+        hold(have == want, LAW, || {
+            let nos = |l: &[crate::ChangeDigest]| l.iter().map(|c| c.no.get()).collect::<Vec<_>>();
+            format!("carrying took {:?}, not {:?}", nos(&have), nos(&want))
+        })
+    }
+
+    /// A change's `updated` is at or after its `created`, its `edited` and
+    /// its merge or close, in every state; and with bodies asked, what it
+    /// says it closes is given beside them. The fixture holds changes
+    /// within `ALL_MAX`.
+    pub fn updated_is_at_or_after_every_time(h: &mut dyn crate::CodeHost) -> Law {
+        const LAW: &str = "code_host::updated_is_at_or_after_every_time";
+        let filter = crate::ChangeFilter {
+            states: crate::ChangeStates::All,
+            bodies: true,
+            ..Default::default()
+        };
+        for c in got(LAW, "every change", h.changes(&filter, ALL_MAX))?.into_items() {
+            let ended = match c.state {
+                ChangeState::Open => None,
+                ChangeState::Merged { at, .. } | ChangeState::Closed { at } => Some(at),
+            };
+            let times = [Some(c.created), c.edited, ended];
+            let newest = times.into_iter().flatten().max();
+            hold(newest.is_none_or(|t| c.updated >= t), LAW, || {
+                format!(
+                    "change {} was updated at {:?}, before {newest:?}",
+                    c.no.get(),
+                    c.updated
+                )
+            })?;
+            hold(c.body.is_some(), LAW, || {
+                format!("change {} has no body though bodies were asked", c.no.get())
+            })?;
+        }
+        Ok(())
+    }
+
+    /// A change gives the base commit the site records, the same in the
+    /// list and in the one change's read; and what its text says it closes
+    /// only when bodies are asked, empty otherwise. The fixture's open
+    /// change `no` was opened on `base_commit`, and its text says it closes
+    /// `closes`, not empty.
+    pub fn a_change_gives_its_base_and_what_its_text_closes(
+        h: &mut dyn crate::CodeHost,
+        no: ChangeNo,
+        base_commit: &CommitId,
+        closes: &[crate::Ref<crate::BlueprintNo>],
+    ) -> Law {
+        const LAW: &str = "code_host::a_change_gives_its_base_and_what_its_text_closes";
+        let mut read = |bodies: bool| -> Result<crate::ChangeDigest, Broken> {
+            let filter = crate::ChangeFilter {
+                bodies,
+                ..Default::default()
+            };
+            got(LAW, "the open changes", h.changes(&filter, ALL_MAX))?
+                .into_items()
+                .into_iter()
+                .find(|c| c.no == no)
+                .ok_or_else(|| Broken {
+                    law: LAW.to_string(),
+                    what: format!("the list holds no change {}", no.get()),
+                })
+        };
+        let plain = read(false)?;
+        let full = read(true)?;
+        for d in [&plain, &full] {
+            hold(d.base_commit == *base_commit, LAW, || {
+                format!("the base is {:?}, not {base_commit:?}", d.base_commit)
+            })?;
+        }
+        hold(plain.says_closes.is_empty(), LAW, || {
+            format!("with no bodies it says {:?}", plain.says_closes)
+        })?;
+        hold(full.says_closes == closes, LAW, || {
+            format!("it says it closes {:?}, not {closes:?}", full.says_closes)
+        })?;
+        let one = got(LAW, "the change", h.change(no, ALL_MAX))?.digest;
+        hold(
+            one.base_commit == *base_commit && one.head_commit == plain.head_commit,
+            LAW,
+            || format!("the change's read gives {:?}", one.base_commit),
+        )
     }
 
     use super::Broken;
@@ -519,7 +1235,25 @@ pub mod lists {
 /// Laws of the joined reads.
 pub mod board {
     use super::{got, hold, Law};
-    use crate::{Board, BoardAsk, Bound, Outcome, TicketKey};
+    use crate::{Blocker, Board, BoardAsk, Bound, Got, Outcome, TicketKey, Tickets};
+    use std::num::NonZeroU64;
+
+    /// `as_blockers` answers each number in the order asked, a repeated
+    /// one each time, as the fixture says: what it names with its state,
+    /// or the number's own outcome. The fixture's `want` holds an open
+    /// and a closed ticket, an open, a merged and a closed change, and a
+    /// number that names nothing (Decided 122).
+    pub fn as_blockers_name_each_number(
+        b: &mut dyn Board,
+        want: &[(NonZeroU64, Got<Blocker>)],
+    ) -> Law {
+        const LAW: &str = "board::as_blockers_name_each_number";
+        let numbers: Vec<NonZeroU64> = want.iter().map(|(n, _)| *n).collect();
+        let got = b.as_blockers(&numbers);
+        hold(got == want, LAW, || {
+            format!("as_blockers gave {got:?}, not {want:?}")
+        })
+    }
 
     /// One ticket past a bound is `Unread` for that item, and the rest are
     /// answered. The fixture's open tickets include `big`, past the ask's
@@ -550,6 +1284,57 @@ pub mod board {
         })?;
         hold(rest.iter().all(|(_, a)| a.is_ok()), LAW, || {
             "another item failed with it".into()
+        })
+    }
+
+    /// Asked a window of history per kind, an item's history holds, of
+    /// each kind named, what `Tickets::history` gives for that kind and
+    /// window, and no event of a kind not named, so a busy kind cuts no
+    /// other. A kind named twice is read by its first window. `more` is
+    /// set when any kind's window held more. The
+    /// fixture's `key` has events of a named kind past another's window.
+    pub fn a_window_per_kind_cuts_no_other(
+        b: &mut dyn Board,
+        t: &mut dyn Tickets,
+        key: &TicketKey,
+        ask: &BoardAsk,
+    ) -> Law {
+        const LAW: &str = "board::a_window_per_kind_cuts_no_other";
+        hold(!ask.history_by_kind.is_empty(), LAW, || {
+            "the ask names no kind".into()
+        })?;
+        let item = got(LAW, "the work item", b.work_item(key, ask))?;
+        let history = &item.ticket.history;
+        let mut more = false;
+        for (kind, window) in crate::board::first_of_each_kind(&ask.history_by_kind) {
+            let want = got(
+                LAW,
+                "the kind's history",
+                t.history(key, *window, Some(std::slice::from_ref(kind))),
+            )?;
+            more |= want.more;
+            let have: Vec<_> = history
+                .items
+                .iter()
+                .filter(|e| e.what.kind() == *kind)
+                .cloned()
+                .collect();
+            hold(have == want.items, LAW, || {
+                format!(
+                    "{kind:?}: held {have:?}, the history gives {:?}",
+                    want.items
+                )
+            })?;
+        }
+        let stray = history
+            .items
+            .iter()
+            .find(|e| !ask.history_by_kind.iter().any(|(k, _)| *k == e.what.kind()));
+        hold(stray.is_none(), LAW, || {
+            format!("{stray:?} is of a kind not named")
+        })?;
+        hold(history.more == more, LAW, || {
+            format!("more is {}, the windows say {more}", history.more)
         })
     }
 }
@@ -603,7 +1388,125 @@ pub mod history {
 /// Laws of the blueprints port.
 pub mod blueprints {
     use super::{got, hold, Law};
-    use crate::{BlueprintNo, BlueprintWrites, Blueprints, Depth, Lost, MarkerEdit, Outcome};
+    use crate::{
+        BlueprintNo, BlueprintWrites, Blueprints, Bound, ChangeNo, CodeHost, CommentId, Depth,
+        Lost, MarkerEdit, Outcome, Relation,
+    };
+
+    /// `attachments_in` over a blueprint's text gives the ids
+    /// `attachments` gives for it, in the same order, each with the link
+    /// in the text, and nothing for a text with no link. The fixture's
+    /// blueprint `no` links files in its body.
+    pub fn attachments_in_a_text_are_the_blueprints(
+        h: &mut dyn Blueprints,
+        no: BlueprintNo,
+    ) -> Law {
+        const LAW: &str = "blueprints::attachments_in_a_text_are_the_blueprints";
+        let body = got(LAW, "the blueprint", h.blueprint(no, Depth::All))?.body;
+        let held = got(LAW, "the attachments", h.attachments(no))?.into_items();
+        hold(!held.is_empty(), LAW, || "the fixture links no file".into())?;
+        let found = h.attachments_in(&body);
+        let ids = |all: &[crate::Attachment]| -> Vec<(String, String)> {
+            all.iter()
+                .map(|a| (a.id.as_str().to_string(), a.link.as_str().to_string()))
+                .collect()
+        };
+        hold(ids(&found) == ids(&held), LAW, || {
+            format!(
+                "the text gives {:?}, attachments {:?}",
+                ids(&found),
+                ids(&held)
+            )
+        })?;
+        let twice = h.attachments_in(&format!("{body}\n{body}"));
+        hold(ids(&twice) == ids(&held), LAW, || {
+            "a link given twice is given twice".into()
+        })?;
+        let none = h.attachments_in("no link here");
+        hold(none.is_empty(), LAW, || {
+            format!("plain text gives {none:?}")
+        })
+    }
+
+    /// A blueprint and a change carry their author's relation to the
+    /// project as the fixture records it. The fixture's blueprint `no` and
+    /// change `change` were written by an account of relation `want`.
+    pub fn an_authors_relation_is_given(
+        b: &mut dyn Blueprints,
+        no: BlueprintNo,
+        c: &mut dyn CodeHost,
+        change: ChangeNo,
+        want: Relation,
+    ) -> Law {
+        const LAW: &str = "blueprints::an_authors_relation_is_given";
+        let bp = got(
+            LAW,
+            "the blueprint",
+            b.blueprint(no, Depth::Cut { notes: 0 }),
+        )?;
+        hold(bp.author_relation == Some(want), LAW, || {
+            format!(
+                "the blueprint's author is {:?}, not {want:?}",
+                bp.author_relation
+            )
+        })?;
+        let ch = got(LAW, "the change", c.change(change, crate::ALL_MAX))?;
+        hold(ch.digest.author_relation == Some(want), LAW, || {
+            format!(
+                "the change's author is {:?}, not {want:?}",
+                ch.digest.author_relation
+            )
+        })
+    }
+
+    /// A number that names a change is no blueprint: `blueprint` and
+    /// `several` answer it `NotFound`. The fixture's `change` is the
+    /// number of a change, where blueprints and changes share one number
+    /// space.
+    pub fn a_changes_number_is_no_blueprint(h: &mut dyn Blueprints, change: BlueprintNo) -> Law {
+        const LAW: &str = "blueprints::a_changes_number_is_no_blueprint";
+        let depth = Depth::Cut { notes: 0 };
+        let one = h.blueprint(change, depth).map(|b| b.no);
+        hold(one == Err(Outcome::NotFound), LAW, || {
+            format!("blueprint of a change's number answered {one:?}")
+        })?;
+        let several: Vec<_> = h
+            .several(&[change], depth)
+            .into_iter()
+            .map(|(n, a)| (n, a.map(|b| b.no)))
+            .collect();
+        hold(several == [(change, Err(Outcome::NotFound))], LAW, || {
+            format!("several of a change's number answered {several:?}")
+        })
+    }
+
+    /// `body_edits_of` and `comment_edits_of` give, in the order asked,
+    /// what `body_edits` and `comment_edits` give for each at `bound`, so a
+    /// number or an id the site does not know fails alone and the bound
+    /// holds for each item, not for the read. The fixture's `nos` and `ids`
+    /// hold edited, unknown and repeated ones; run it at a bound some item
+    /// passes too.
+    pub fn several_edits_are_each_ones(
+        h: &mut dyn Blueprints,
+        nos: &[BlueprintNo],
+        ids: &[CommentId],
+        bound: Bound,
+    ) -> Law {
+        const LAW: &str = "blueprints::several_edits_are_each_ones";
+        let each: Vec<_> = nos.iter().map(|&n| (n, h.body_edits(n, bound))).collect();
+        let several = h.body_edits_of(nos, bound);
+        hold(several == each, LAW, || {
+            format!("body_edits_of gave {several:?}, one by one {each:?}")
+        })?;
+        let each: Vec<_> = ids
+            .iter()
+            .map(|id| (id.clone(), h.comment_edits(id, bound)))
+            .collect();
+        let several = h.comment_edits_of(ids, bound);
+        hold(several == each, LAW, || {
+            format!("comment_edits_of gave {several:?}, one by one {each:?}")
+        })
+    }
 
     /// Each attachment of the blueprint `no` has its own link, and a name
     /// unless it was pasted. `named` are the fixture's named files, in the
@@ -667,10 +1570,89 @@ pub mod blueprints {
     }
 }
 
+/// Laws of `Cites::link`.
+pub mod cites {
+    use super::{got, hold, Law};
+    use crate::{
+        BlueprintNo, Blueprints, ChangeNo, Cite, CodeHost, Depth, Mark, Ref, TicketKey, Tickets,
+    };
+
+    /// `link` of an item of this project is the link its own read gives,
+    /// on each port's handle; of a mark, a marker or an item of another
+    /// project it is None. The fixture holds ticket `key`, blueprint `no`
+    /// and change `change`; `elsewhere` names an item of another project.
+    pub fn a_link_is_the_items_own(
+        t: &mut dyn Tickets,
+        key: &TicketKey,
+        b: &mut dyn Blueprints,
+        no: BlueprintNo,
+        c: &mut dyn CodeHost,
+        change: ChangeNo,
+        elsewhere: Ref<TicketKey>,
+    ) -> Law {
+        const LAW: &str = "cites::a_link_is_the_items_own";
+        let ticket = got(
+            LAW,
+            "the ticket",
+            t.ticket(key, Depth::Cut { notes: 0 }, None),
+        )?;
+        let blueprint = got(
+            LAW,
+            "the blueprint",
+            b.blueprint(no, Depth::Cut { notes: 0 }),
+        )?;
+        let digest = got(LAW, "the change", c.change(change, crate::ALL_MAX))?.digest;
+        let cases = [
+            (
+                t.link(&Cite::Ticket(Ref::Here(key.clone()))),
+                ticket.digest.link,
+            ),
+            (b.link(&Cite::Blueprint(Ref::Here(no))), blueprint.link),
+            (c.link(&Cite::Change(Ref::Here(change))), digest.link),
+        ];
+        for (have, want) in cases {
+            hold(have.as_ref() == Some(&want), LAW, || {
+                format!("linked {have:?}, the read gives {want:?}")
+            })?;
+        }
+        for what in [Cite::Mark(Mark::Epic), Cite::Ticket(elsewhere)] {
+            let have = t.link(&what);
+            hold(have.is_none(), LAW, || format!("{what:?} linked {have:?}"))?;
+        }
+        Ok(())
+    }
+}
+
 /// Laws of naming a mark: on a terminal, in a log and in a body.
 pub mod marks {
     use super::{got, hold, Law};
-    use crate::{Act, BlueprintNo, BlueprintWrites, Choice, Cite, Mark, Site, State};
+    use crate::{
+        Act, BlueprintNo, BlueprintWrites, Choice, Cite, Mark, MarkName, Outcome, Refusal, Site,
+        State, TicketWrites,
+    };
+
+    /// `prepare_one` makes the one factory mark held: `marks` then names
+    /// it, whatever the others; a second call is done too; a project's own
+    /// mark is `Refused(Invalid)` (Decided 127). The fixture's site holds
+    /// none of the factory's marks yet.
+    pub fn prepare_one_makes_the_mark_held(h: &mut dyn TicketWrites, mark: &Mark) -> Law {
+        const LAW: &str = "marks::prepare_one_makes_the_mark_held";
+        let held = |h: &mut dyn TicketWrites| -> Result<bool, super::Broken> {
+            let all = got(LAW, "the marks", h.marks(crate::ALL_MAX))?.into_items();
+            Ok(all.iter().any(|m| m.mark == *mark))
+        };
+        hold(!held(h)?, LAW, || format!("{mark:?} was held before"))?;
+        got(LAW, "prepare_one", h.prepare_one(mark))?;
+        hold(held(h)?, LAW, || format!("{mark:?} is not held after"))?;
+        got(LAW, "prepare_one again", h.prepare_one(mark))?;
+        let own = Mark::Project(MarkName::new("ours").unwrap());
+        let answer = h.prepare_one(&own);
+        hold(
+            answer == Err(Outcome::Refused(Refusal::Invalid)),
+            LAW,
+            || format!("a project's own mark answered {answer:?}"),
+        )
+    }
 
     /// The variants listed, every one of the enum but `Unknown`. The match
     /// has no arm for the rest, so a variant added to the enum stops the
@@ -769,7 +1751,45 @@ pub mod delta {
     use std::fmt::Debug;
 
     use super::{got, hold, Law};
-    use crate::{Blueprints, Bound, CodeHost, Cursor, Got, Tickets, ALL_MAX};
+    use crate::{
+        Blueprints, Bound, ChangeNo, CodeHost, CodeHostWrites, Cursor, Got, Tickets, ALL_MAX,
+    };
+
+    /// A comment written on a change after a cursor is in the code host's
+    /// delta from that cursor, with its change, and in neither the tickets'
+    /// notes nor the blueprints' comments from theirs. The fixture's change
+    /// `no` is open; `t` and `b` read the same project.
+    pub fn a_change_comment_is_in_the_change_delta(
+        h: &mut dyn CodeHostWrites,
+        t: &mut dyn Tickets,
+        b: &mut dyn Blueprints,
+        no: ChangeNo,
+    ) -> Law {
+        const LAW: &str = "delta::a_change_comment_is_in_the_change_delta";
+        let from_c = got(LAW, "the change delta", h.delta(None, ALL_MAX))?.next;
+        let from_t = got(LAW, "the tickets' delta", t.delta(None, ALL_MAX))?.next;
+        let from_b = got(LAW, "the blueprints' delta", b.delta(None, ALL_MAX))?.next;
+        let id = got(LAW, "the comment", h.comment_change(no, "Seen.", &[]))?.id;
+        let c = got(LAW, "the change delta", h.delta(Some(&from_c), ALL_MAX))?;
+        hold(
+            c.comments.iter().any(|(n, k)| *n == no && k.id == id),
+            LAW,
+            || format!("the change delta holds {:?}", c.comments),
+        )?;
+        let notes = got(LAW, "the tickets' delta", t.delta(Some(&from_t), ALL_MAX))?.notes;
+        hold(notes.iter().all(|(_, k)| k.id != id), LAW, || {
+            "a change's comment is a ticket's note".into()
+        })?;
+        let comments = got(
+            LAW,
+            "the blueprints' delta",
+            b.delta(Some(&from_b), ALL_MAX),
+        )?
+        .comments;
+        hold(comments.iter().all(|(_, k)| k.id != id), LAW, || {
+            "a change's comment is a blueprint's comment".into()
+        })
+    }
 
     /// A page as the law reads it: the two lists, where the next starts,
     /// and whether more wait.
@@ -1521,10 +2541,130 @@ pub mod scopes {
     }
 }
 
+/// Laws of `Actor::Anonymous`.
+pub mod anonymous {
+    use super::{got, hold, Law};
+    use crate::{Actor, Caller, CommitId, FileName, Outcome, Site, TagName, ALL_MAX};
+
+    /// On a public project, `Anonymous` reads its releases: `releases`,
+    /// `latest_release`, `tags`, `resolve_tag`, `download` and `archive`
+    /// answer, the tag resolving to `at`. A write handle asked as
+    /// `Anonymous` is `Forbidden`, for every port. The fixture's project is
+    /// public, `tag` names a published release on `at` holding `file`, and
+    /// both are within `limit` bytes.
+    pub fn reads_public_releases_and_writes_nothing(
+        site: &dyn Site,
+        caller: Caller,
+        tag: &TagName,
+        file: &FileName,
+        at: &CommitId,
+        limit: u64,
+    ) -> Law {
+        const LAW: &str = "anonymous::reads_public_releases_and_writes_nothing";
+        let by = Actor::Anonymous;
+        let mut h = got(LAW, "a code host read handle", site.code_host(&by, caller))?;
+        let releases = got(LAW, "releases", h.releases(ALL_MAX))?;
+        hold(releases.items().iter().any(|r| r.tag == *tag), LAW, || {
+            format!("releases holds no release of {}", tag.as_str())
+        })?;
+        got(LAW, "latest_release", h.latest_release())?;
+        let tags = got(LAW, "tags", h.tags(ALL_MAX))?;
+        hold(tags.items().iter().any(|t| t.name == *tag), LAW, || {
+            format!("tags holds no {}", tag.as_str())
+        })?;
+        let resolved = got(LAW, "resolve_tag", h.resolve_tag(tag))?;
+        hold(resolved == *at, LAW, || {
+            format!("{} resolved to {resolved:?}", tag.as_str())
+        })?;
+        let mut bytes = Vec::new();
+        got(LAW, "download", h.download(tag, file, limit, &mut bytes))?;
+        let mut tarball = Vec::new();
+        got(LAW, "archive", h.archive(at, limit, &mut tarball))?;
+        let writes = [
+            ("tickets", site.ticket_writes(&by, caller).map(drop)),
+            ("blueprints", site.blueprint_writes(&by, caller).map(drop)),
+            ("code host", site.code_host_writes(&by, caller).map(drop)),
+        ];
+        for (port, answer) in writes {
+            hold(answer == Err(Outcome::Forbidden), LAW, || {
+                format!("an anonymous {port} write handle answered {answer:?}")
+            })?;
+        }
+        Ok(())
+    }
+}
+
 /// Laws of identity and its tokens.
 pub mod identity {
     use super::{got, hold, Law, TokenLog};
-    use crate::{Covers, Got, Identity, Outcome, ProjectName, Scope, Token};
+    use crate::{
+        AccountId, Covers, Got, Identity, Login, Outcome, ProjectName, Scope, Standing, Token,
+    };
+
+    /// Every spelling the site has for one account, an app's among them,
+    /// names the same account: one login and one id. The fixture's
+    /// `spellings` all name one account.
+    pub fn an_accounts_spellings_fold_to_one_login(
+        h: &mut dyn Identity,
+        spellings: &[Login],
+    ) -> Law {
+        const LAW: &str = "identity::an_accounts_spellings_fold_to_one_login";
+        hold(spellings.len() > 1, LAW, || {
+            "one spelling proves nothing".into()
+        })?;
+        let mut seen = Vec::new();
+        for spelling in spellings {
+            let a = got(LAW, "the account", h.account_by_login(spelling))?;
+            seen.push((a.login, a.id));
+        }
+        hold(seen.windows(2).all(|w| w[0] == w[1]), LAW, || {
+            format!("the spellings name {seen:?}")
+        })
+    }
+
+    /// A standing the site could not read is an outcome, never
+    /// `Standing::None`: no caller reads a failure as an account with no
+    /// rights and acts on it. `failing` is a handle whose calls fail, as
+    /// a site down or a credential gone; `who` is an account of the
+    /// fixture.
+    pub fn a_failure_is_never_standing_none(failing: &mut dyn Identity, who: &AccountId) -> Law {
+        const LAW: &str = "identity::a_failure_is_never_standing_none";
+        let answer = failing.standing(who);
+        hold(answer.is_err(), LAW, || {
+            format!("a failing handle answered {answer:?}")
+        })
+    }
+
+    /// Each account answers the standing the fixture gave it, and the
+    /// answers sort as the ranks do, least first: `None < Read < Triage <
+    /// Write < Maintain < Admin`. A site without triage or maintain folds
+    /// them down, so the fixture gives the ranks the site has.
+    pub fn standings_are_ranked(h: &mut dyn Identity, ranked: &[(AccountId, Standing)]) -> Law {
+        const LAW: &str = "identity::standings_are_ranked";
+        let mut answered = Vec::new();
+        for (who, want) in ranked {
+            let have = got(LAW, "the standing", h.standing(who))?;
+            hold(have == *want, LAW, || {
+                format!("{who:?} stands {have:?}, not {want:?}")
+            })?;
+            answered.push(have);
+        }
+        let mut sorted = answered.clone();
+        sorted.sort();
+        let mut by_hand = ranked.to_vec();
+        by_hand.sort_by_key(|(_, s)| match s {
+            Standing::None => 0,
+            Standing::Read => 1,
+            Standing::Triage => 2,
+            Standing::Write => 3,
+            Standing::Maintain => 4,
+            Standing::Admin => 5,
+        });
+        let ranks: Vec<Standing> = by_hand.into_iter().map(|(_, s)| s).collect();
+        hold(sorted == ranks, LAW, || {
+            format!("the standings sort as {sorted:?}, the ranks as {ranks:?}")
+        })
+    }
 
     fn kept_since(tokens: &dyn TokenLog, from: usize) -> Vec<(Covers, Scope)> {
         tokens.kept().into_iter().skip(from).collect()
@@ -1671,10 +2811,10 @@ pub mod identity {
 /// reach the site, one that could not connect included, and never an answer
 /// it made without trying, so such an answer raises nothing.
 pub mod health {
-    use super::{hold, Law, Told};
+    use super::{broken, hold, Law, Told};
     use crate::{
-        At, Depth, Health, HealthState, Holder, HostId, Identity, Ledger, Outcome, Passing, Pool,
-        ProjectName, Scope, Sent, TicketKey, Tickets, Whose,
+        Actor, At, Caller, Depth, Health, HealthState, Holder, HostId, Identity, Ledger, Outcome,
+        Passing, Pool, ProjectName, Scope, Sent, Site, TicketKey, Tickets, Whose,
     };
 
     /// What the handle's site was wired with: the ledger, the sink and the
@@ -1834,16 +2974,30 @@ pub mod health {
         still_failing(wired, LAW, told, &failing, "an out-of-set token")
     }
 
-    /// A call past its pass's deadline answers `Unavailable { why: Timeout,
-    /// sent: No }` with no request, and raises no `Unavailable`: the host
-    /// stays healthy. The handle was made with its deadline passed; the
-    /// host is healthy in the ledger.
+    /// A call past its deadline answers `Unavailable { why: Timeout, sent:
+    /// No }` with no request, and raises no `Unavailable`: the host stays
+    /// healthy. The law makes a handle of `by` from `site.until(until)`,
+    /// `until` at or before the site's now, and asks it for `key`; a handle
+    /// made before the view, from `site` itself, still sends. The host is
+    /// healthy in the ledger.
     pub fn past_the_deadline_raises_no_unavailable(
-        h: &mut dyn Tickets,
+        site: &dyn Site,
+        by: &Actor,
         key: &TicketKey,
+        until: At,
         wired: Wiring<'_>,
     ) -> Law {
         const LAW: &str = "health::past_the_deadline_raises_no_unavailable";
+        let caller = Caller::new("laws.health");
+        let mut before_view = match site.tickets(by, caller) {
+            Ok(h) => h,
+            Err(o) => return broken(LAW, format!("a handle of the site: {}", o.line())),
+        };
+        let view = site.until(until);
+        let mut h = match view.tickets(by, caller) {
+            Ok(h) => h,
+            Err(o) => return broken(LAW, format!("a handle of the view: {}", o.line())),
+        };
         let Wiring {
             ledger,
             sink,
@@ -1858,6 +3012,15 @@ pub mod health {
         let sent = requests();
         let answer = h.ticket(key, Depth::Cut { notes: 0 }, None).map(|_| ());
         no_request(LAW, sent, requests(), "a call past the deadline")?;
+        let earlier = before_view
+            .ticket(key, Depth::Cut { notes: 0 }, None)
+            .map(|_| ());
+        hold(earlier.is_ok(), LAW, || {
+            format!("a handle made before the view answered {earlier:?}")
+        })?;
+        hold(requests() > sent, LAW, || {
+            "a handle made before the view sent nothing".into()
+        })?;
         let timeout = Outcome::Unavailable {
             why: Passing::Timeout,
             sent: Sent::No,

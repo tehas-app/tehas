@@ -1,51 +1,88 @@
 //! The fake's code host port, over the world.
 
 use std::io::Read as _;
+use std::num::NonZeroU32;
 
 use super::faulty::{CodeHostOp, Op};
 use super::site::{
-    comments_of, edit_markers, known_mark, text_of, whole, window, writable, Ctx, Handle,
+    comments_of, edit_markers, first, known_mark, text_of, whole, window, writable, Ctx, Handle,
 };
 use super::state::{ChangeRec, ProposalRec, ReleaseRec, State};
 use super::tickets::{close_item, page, since, token};
 use crate::{
     Access, Actor, Applied, Blobs, Branch, Change, ChangeDelta, ChangeDigest, ChangeEvent,
     ChangeFilter, ChangeHappened, ChangeNo, ChangeState, ChangeStates, ChangeToken, ChangedFile,
-    CheckStatus, Checks, CloseReason, Closer, CodeHost, CodeHostWrites, CommentId, CommitId,
-    Compared, Conclusion, Cursor, Did, Facts, FileName, GitCredential, GitRemote, Got, Lost, Mark,
-    Marker, MarkerEdit, MergeHow, Mergeable, NewChange, NewRelease, Outcome, Overall, Pool, Posted,
-    Proposal, ProposalPart, Proposed, Ref, Refusal, Release, ReleaseFile, ReleaseId, Remote,
-    RepoPath, Rev, Secret, Status, Sum, Tag, TagName, Takeover, Token, Took, Unread, WebLink,
-    Whole, Window, Write,
+    Checks, CloseReason, Closer, CodeHost, CodeHostWrites, CommentId, CommitId, Compared, Cursor,
+    Did, Facts, FileName, GitCredential, GitRemote, Got, Lost, Mark, Marker, MarkerEdit, MergeHow,
+    Mergeable, NewChange, NewRelease, Outcome, Overall, Pool, Posted, Proposal, ProposalPart,
+    Proposed, Ref, Refusal, Release, ReleaseFile, ReleaseId, Remote, RepoPath, Rev, Secret, Status,
+    Sum, Tag, TagName, Takeover, Token, Took, Unread, WebLink, Whole, Window, Write,
 };
-use crate::{Author, Bound};
+use crate::{Author, Bound, Check, CheckStatus, Conclusion, StatusState};
 
-/// A change's fields, its body when `bodies`.
+/// A status context as the run `Checks` holds for it.
+fn status_run(x: &Status) -> Check {
+    let status = match x.state {
+        StatusState::Pending => CheckStatus::Running,
+        StatusState::Passed => CheckStatus::Done(Conclusion::Passed),
+        StatusState::Failed | StatusState::Errored => CheckStatus::Done(Conclusion::Failed),
+    };
+    Check::new(x.name.clone(), status)
+}
+
+/// A change's fields, its body and what its text closes when `bodies`.
 pub(crate) fn change_digest(s: &State, c: &ChangeRec, bodies: bool) -> ChangeDigest {
-    ChangeDigest {
-        no: c.no,
-        title: c.title.clone(),
-        state: c.state.clone(),
-        head: c.head.clone(),
-        head_commit: c.head_commit.clone(),
-        base: c.base.clone(),
-        author: c.author.clone(),
-        from_fork: false,
-        draft: c.draft,
-        merge_state: c.merge_state,
-        marks: c.marks.clone(),
-        closes: c.closes.iter().map(|n| Ref::Here(*n)).collect(),
-        size: Some(crate::Size {
-            files: c.files.len() as u32,
-            added: c.files.iter().map(|f| f.added).sum(),
-            deleted: c.files.iter().map(|f| f.deleted).sum(),
-        }),
-        body: bodies.then(|| c.body.clone()),
-        created: c.created,
-        edited: c.edited,
-        editor: c.editor.clone(),
-        link: s.change_link(c.no),
+    let closes: Vec<_> = c.closes.iter().map(|n| Ref::Here(*n)).collect();
+    let mut d = ChangeDigest::new(
+        c.no,
+        c.state.clone(),
+        c.head.clone(),
+        c.head_commit.clone(),
+        c.base.clone(),
+        c.base_commit.clone(),
+        c.created,
+        updated_of(s, c),
+        s.change_link(c.no),
+    );
+    d.title = c.title.clone();
+    d.author = c.author.clone();
+    d.author_relation = s.relation_of(c.author.as_ref());
+    d.draft = c.draft;
+    d.merge_state = c.merge_state;
+    d.marks = c.marks.clone();
+    if bodies {
+        d.says_closes = closes.clone();
+        d.body = Some(c.body.clone());
     }
+    d.closes = closes;
+    d.size = Some(crate::Size {
+        files: c.files.len() as u32,
+        added: c.files.iter().map(|f| f.added).sum(),
+        deleted: c.files.iter().map(|f| f.deleted).sum(),
+    });
+    d.edited = c.edited;
+    d.editor = c.editor.clone();
+    d
+}
+
+/// When the fake last saw a change change: its making, edit, end, events
+/// and comments.
+fn updated_of(s: &State, c: &ChangeRec) -> crate::At {
+    let comments = c
+        .comments
+        .iter()
+        .filter_map(|id| s.comment_at(id))
+        .flat_map(|at| {
+            let k = &s.comments[at];
+            [Some(k.created), k.edited]
+        });
+    [Some(c.created), c.edited, ended_at(c)]
+        .into_iter()
+        .chain(c.events.iter().map(|e| Some(e.at)))
+        .chain(comments)
+        .flatten()
+        .max()
+        .unwrap_or(c.created)
 }
 
 fn at_change(s: &State, no: ChangeNo) -> Got<usize> {
@@ -88,17 +125,14 @@ fn taken(s: &State, ctx: &Ctx, c: &ChangeRec, f: &ChangeFilter) -> bool {
     let merged_ok = f
         .merged_since
         .is_none_or(|since_at| matches!(c.state, ChangeState::Merged { at, .. } if at >= since_at));
-    let updated = [Some(c.created), c.edited, ended_at(c)]
-        .into_iter()
-        .flatten()
-        .max();
+    let updated = updated_of(s, c);
     state_ok
         && author_ok
         && merged_ok
         && f.head.as_ref().is_none_or(|h| c.head == *h)
+        && f.carrying.iter().all(|m| c.marks.contains(m))
         && (f.closing.is_empty() || c.closes.iter().any(|n| f.closing.contains(n)))
-        && f.updated_since
-            .is_none_or(|u| updated.is_some_and(|x| x >= u))
+        && f.updated_since.is_none_or(|u| updated >= u)
         && (f.numbers.is_empty() || f.numbers.contains(&c.no))
 }
 
@@ -228,37 +262,33 @@ impl CodeHost for Handle {
         })
     }
 
-    /// The overall is `Fail` when a check failed or was cancelled,
-    /// `Pending` while one runs, `Pass` when all passed or were skipped,
-    /// `None` with no check.
+    /// The newest run of each App and name, the last the world was given,
+    /// then each status as a run named by its context.
     fn checks(&mut self, at: &CommitId, name: Option<&str>) -> Got<Checks> {
         self.run(Pool::Calls, |s, _| {
             s.commit(at).ok_or(Outcome::NotFound)?;
-            let runs: Vec<crate::Check> = s
+            let named = |n: &str| name.is_none_or(|w| w == n);
+            let mut latest: Vec<(&str, &Check)> = Vec::new();
+            for (_, app, k) in s
                 .checks
                 .iter()
-                .filter(|(c, k)| c == at && name.is_none_or(|n| k.name == n))
-                .map(|(_, k)| k.clone())
-                .collect();
-            let failed = runs.iter().any(|r| {
-                matches!(
-                    r.status,
-                    CheckStatus::Done(Conclusion::Failed | Conclusion::Cancelled)
-                )
-            });
-            let pending = runs
-                .iter()
-                .any(|r| !matches!(r.status, CheckStatus::Done(_)));
-            let overall = if runs.is_empty() {
-                Overall::None
-            } else if failed {
-                Overall::Fail
-            } else if pending {
-                Overall::Pending
-            } else {
-                Overall::Pass
-            };
-            Ok(Checks { runs, overall })
+                .filter(|(c, _, k)| c == at && named(&k.name))
+            {
+                let collapse = s.checks_collapse_apps;
+                latest.retain(|(a, r)| !((collapse || *a == app.as_str()) && r.name == k.name));
+                latest.push((app, k));
+            }
+            let mut runs: Vec<Check> = latest.into_iter().map(|(_, k)| k.clone()).collect();
+            runs.extend(
+                s.statuses
+                    .iter()
+                    .filter(|(c, x)| c == at && named(&x.name))
+                    .map(|(_, x)| status_run(x)),
+            );
+            Ok(Checks {
+                overall: Overall::of(&runs),
+                runs,
+            })
         })
     }
 
@@ -268,6 +298,25 @@ impl CodeHost for Handle {
 
     fn resolve_tag(&mut self, name: &TagName) -> Got<CommitId> {
         self.run(Pool::Calls, |s, _| resolve(s, &Rev::Tag(name.clone())))
+    }
+
+    /// Newest made first; ties and tags with no time newest held first.
+    fn recent_tags(&mut self, n: NonZeroU32) -> Got<Took<Tag>> {
+        self.run(Pool::Calls, |s, _| {
+            let mut all: Vec<Tag> = s.tags.iter().rev().cloned().collect();
+            all.sort_by_key(|t| std::cmp::Reverse(t.at));
+            Ok(first(all, n.get()))
+        })
+    }
+
+    /// Newest made first: the world holds them in the order made.
+    fn recent_releases(&mut self, n: NonZeroU32) -> Got<Took<Release>> {
+        self.run(Pool::Calls, |s, _| {
+            Ok(first(
+                s.releases.iter().rev().map(|r| r.release.clone()).collect(),
+                n.get(),
+            ))
+        })
     }
 
     fn releases(&mut self, bound: Bound) -> Got<Whole<Release>> {
@@ -433,7 +482,8 @@ fn open_change(s: &mut State, ctx: &Ctx, new: &NewChange) -> Got<Posted<ChangeNo
     let head_commit = s
         .branch_at(&new.head)
         .ok_or(Outcome::Refused(Refusal::Invalid))?;
-    s.branch_at(&new.base)
+    let base_commit = s
+        .branch_at(&new.base)
         .ok_or(Outcome::Refused(Refusal::Invalid))?;
     if s.changes
         .iter()
@@ -453,6 +503,7 @@ fn open_change(s: &mut State, ctx: &Ctx, new: &NewChange) -> Got<Posted<ChangeNo
         head: new.head.clone(),
         head_commit,
         base: new.base.clone(),
+        base_commit,
         author,
         draft: new.draft,
         merge_state: Mergeable::Yes,
@@ -723,7 +774,11 @@ impl CodeHostWrites for Handle {
     /// At a head that moved, `Conflict(HeadMoved)`. A change that cannot
     /// merge, or is not open, is `Refused(NotMergeable)`. Merged, its base
     /// moves to a new commit and the blueprints it closes close.
+    /// `MergeHow::Site` is a merge commit, the fake project's default.
     fn merge(&mut self, no: ChangeNo, head: &CommitId, how: MergeHow) -> Did {
+        if how == MergeHow::Unknown {
+            return Err(Outcome::Refused(Refusal::Invalid));
+        }
         self.write(Op::CodeHost(CodeHostOp::Merge), |s, ctx| {
             let at = at_change(s, no)?;
             let c = s.changes[at].clone();
@@ -754,8 +809,8 @@ impl CodeHostWrites for Handle {
                 .clone()
                 .unwrap_or_else(|| super::world::FACTORY.into());
             let parents = match how {
-                MergeHow::Merge => vec![base_tip, head.clone()],
-                MergeHow::Squash | MergeHow::Rebase => vec![base_tip],
+                MergeHow::Merge | MergeHow::Site => vec![base_tip, head.clone()],
+                MergeHow::Squash | MergeHow::Rebase | MergeHow::Unknown => vec![base_tip],
             };
             let files = s.commit(head).map(|k| k.files.clone()).unwrap_or_default();
             let commit = s.new_commit(parents, &c.title, &me, files);
@@ -764,7 +819,7 @@ impl CodeHostWrites for Handle {
             s.changes[at].state = ChangeState::Merged {
                 at: ctx.now,
                 by,
-                commit,
+                commit: Some(commit),
             };
             change_event(s, ctx, at, ChangeHappened::Merged);
             for b in &c.closes {
@@ -868,6 +923,7 @@ impl CodeHostWrites for Handle {
                             draft: new.draft,
                             prerelease: new.prerelease,
                             published: (!new.draft).then_some(ctx.now),
+                            notes: text_of(&new.notes)?.to_string(),
                             files: Vec::new(),
                             link: link.clone(),
                         },

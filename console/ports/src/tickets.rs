@@ -8,9 +8,10 @@ use serde::{Deserialize, Serialize};
 use crate::mark::unknown_tag;
 use crate::{
     unknown, Account, AccountId, Applied, At, Body, Bound, ChangeDigest, ChangeNo, ChangeToken,
-    Cites, Comment, CommentId, CommitId, Cursor, Depth, Did, Edit, Got, Item, Kind, Mark, MarkName,
-    MarkSpec, Marker, MarkerEdit, MarkerKey, MarkerKind, Outcome, Posted, Priority, Ref, Reports,
-    Revision, TargetId, TicketKey, Took, WebLink, Whole, Window, Within,
+    Cites, Comment, CommentId, CommitId, Cursor, Depth, Did, Edit, Got, Item, ItemName, Kind, Mark,
+    MarkId, MarkName, MarkSpec, Marker, MarkerEdit, MarkerKey, MarkerKind, Outcome, Posted,
+    Priority, ProjectName, Ref, Reports, Revision, TargetId, TicketKey, Took, WebLink, Whole,
+    Window, Within,
 };
 
 /// Whether a ticket is open, and why it closed.
@@ -53,12 +54,19 @@ pub struct TicketDigest {
     pub target: Option<TargetName>,
     /// Who filed it; None where the site names nobody.
     pub author: Option<Account>,
+    /// The ticket it is a part of: P exactly when `Tickets::parts(P)`
+    /// holds this ticket. None when it is a part of none. Missing, it reads
+    /// as None.
+    #[serde(default)]
+    pub parent: Option<Ref<TicketKey>>,
     /// When it was filed.
     pub created: At,
     /// When the site last saw the ticket change, as it records it: a
     /// caller compares it with a time it stored.
     pub updated: At,
-    /// Equal revisions mean the ticket did not change.
+    /// Equal revisions mean the ticket did not change. It moves when the
+    /// title or the text changes; marks and notes do not move it
+    /// (Decided 111).
     pub revision: Revision,
     /// Where a person opens it.
     pub link: WebLink,
@@ -78,10 +86,12 @@ new!(
     priority,
     marks,
     target,
-    author
+    author,
+    parent
 );
 
-/// A target by its id, with its title as the site names it now.
+/// A ticket's target as the site names it now: its id, its title, whether
+/// it is open and when it is due. No number: `TargetId` is opaque.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct TargetName {
@@ -89,12 +99,24 @@ pub struct TargetName {
     pub id: TargetId,
     /// Its title.
     pub title: String,
+    /// It is open; None where the read did not say. Missing, it reads as
+    /// None.
+    #[serde(default)]
+    pub open: Option<bool>,
+    /// When it is due; None when it has no date or the read did not say.
+    /// Missing, it reads as None.
+    #[serde(default)]
+    pub due: Option<At>,
 }
 
-new!(TargetName {
-    id: TargetId,
-    title: String
-});
+new!(
+    TargetName {
+        id: TargetId,
+        title: String
+    },
+    open,
+    due
+);
 
 /// A ticket, read whole to the depth asked.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -110,9 +132,12 @@ pub struct Ticket {
     pub closed: Option<At>,
     /// What closed it, from the newest close in its history.
     pub closer: Option<Closer>,
-    /// Its parts.
+    /// Its parts, whole at every `Depth`, `Depth::Cut` included: as
+    /// `Tickets::parts` answers. Past the read's bound the ticket is
+    /// `Unread(Cut)`, never a short list.
     pub parts: Vec<Part>,
-    /// What it waits on.
+    /// What it waits on, whole at every `Depth` as `parts` is: as
+    /// `Tickets::blockers` answers.
     pub blockers: Vec<Blocker>,
     /// The accounts it is assigned to.
     pub assignees: Vec<Account>,
@@ -178,8 +203,10 @@ pub enum BlockerState {
     Merged,
 }
 
-/// Who or what closed a ticket.
+/// Who or what closed a ticket. It may grow: a match on it outside this
+/// crate has an arm for the rest, and that arm names no closer.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum Closer {
     /// A merged change that said it closes it.
     Change {
@@ -192,6 +219,37 @@ pub enum Closer {
     Commit(CommitId),
     /// An account, by hand.
     Account(Account),
+    /// A change of another project that said it closes it: no number of
+    /// this project names it, so it is named as the site names it there,
+    /// with its link. An adapter builds it with `Closer::change_elsewhere`,
+    /// so a field added later breaks none.
+    #[non_exhaustive]
+    ChangeElsewhere {
+        /// The other project.
+        project: ProjectName,
+        /// The change there, for display.
+        item: ItemName,
+        /// Where a person opens it.
+        link: WebLink,
+    },
+    /// A closer this copy does not know: it names no closer.
+    #[serde(
+        untagged,
+        deserialize_with = "unknown::read_external",
+        serialize_with = "unknown::write_external"
+    )]
+    Unknown,
+}
+
+impl Closer {
+    /// A change of another project that closed the ticket.
+    pub fn change_elsewhere(project: ProjectName, item: ItemName, link: WebLink) -> Self {
+        Self::ChangeElsewhere {
+            project,
+            item,
+            link,
+        }
+    }
 }
 
 /// One event of a ticket's history.
@@ -204,9 +262,20 @@ pub struct TicketEvent {
     pub by: Option<Account>,
     /// When, if the site says.
     pub at: Option<At>,
+    /// For a mark that went on or came off, the site's id of that mark,
+    /// as `Tickets::marks` names it: a mark renamed to one of ours keeps
+    /// its old id, so it is not ours. None where the site gave no id: the
+    /// caller then compares `Tickets::marks`' id for that mark with its
+    /// pin, and refuses the mark when they differ or the mark has no pin.
+    /// The ticket's current marks carry no ids and prove nothing. A mark
+    /// `marks` does not list, or every mark when `marks` cannot be read, is
+    /// refused for that read, and so is an event with an id whose mark is
+    /// refused. Missing, it reads as None.
+    #[serde(default)]
+    pub mark_id: Option<MarkId>,
 }
 
-new!(TicketEvent { what: Happened }, by, at);
+new!(TicketEvent { what: Happened }, by, at, mark_id);
 
 /// What happened to a ticket.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -365,6 +434,11 @@ pub struct Filter {
     pub open: Option<bool>,
     /// Tickets carrying every one of these marks.
     pub carrying: Vec<Mark>,
+    /// Tickets carrying at least one of these marks. Empty narrows
+    /// nothing. Beside `carrying`, a ticket must meet both. Missing, it
+    /// reads as empty.
+    #[serde(default)]
+    pub carrying_any: Vec<Mark>,
     /// Tickets of this type.
     pub kind: Option<Kind>,
     /// Tickets of this target.
@@ -511,6 +585,41 @@ new!(
     first_line
 );
 
+/// A ticket's digest with what closed it, as `Tickets::several_with_closers`
+/// answers it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct WithCloser {
+    /// The digest `several` gives.
+    pub digest: TicketDigest,
+    /// What closed it: None while it is open or where the site names
+    /// nothing.
+    #[serde(default)]
+    pub closer: Option<Closer>,
+}
+
+new!(
+    WithCloser {
+        digest: TicketDigest
+    },
+    closer
+);
+
+/// A mark the site holds, with its id, as `Tickets::marks` answers it.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct MarkHeld {
+    /// The mark, by the name it has now.
+    pub mark: Mark,
+    /// The site's id of it, which a rename keeps.
+    pub id: MarkId,
+}
+
+new!(MarkHeld {
+    mark: Mark,
+    id: MarkId
+});
+
 /// The tickets port's reads. A handle is bound to one project, one actor
 /// and one caller name.
 pub trait Tickets: Reports + Cites {
@@ -525,11 +634,31 @@ pub trait Tickets: Reports + Cites {
     /// The tickets the filter takes, whole. In list order: oldest filed
     /// first, ties broken by key.
     fn list(&mut self, filter: &Filter, bound: Bound) -> Got<Whole<TicketDigest>>;
+    /// The newest `first` tickets the filter takes, with `more`: newest
+    /// `updated` first, ties in the site's order. This order differs from
+    /// `Window::Last`'s, which gives the newest oldest first, and from
+    /// `list`'s: a snapshot reads the tickets that moved last without
+    /// listing every one, so it never ends `Unread(Cut)` on a big project.
+    fn recent(&mut self, filter: &Filter, first: NonZeroU32) -> Got<Took<TicketDigest>>;
+    /// The newest `first` closed tickets, with `more`, newest `updated`
+    /// first as in `recent`: a page now, the rest later, never
+    /// `Unread(Cut)`.
+    fn recently_closed(&mut self, first: NonZeroU32) -> Got<Took<ClosedTicket>>;
+    /// How many tickets the filter takes, as the site counts them: the
+    /// figure keeps rising past any list's bound. `Refused(Unsupported)`
+    /// for a filter the site's count cannot express; `Unread(Inconsistent)`
+    /// only for an answer that does not add up.
+    fn count(&mut self, filter: &Filter) -> Got<u64>;
     /// Several tickets' digests. A key whose number names a change, where
     /// they share one number space, is `NotFound`: it is no ticket. A
     /// caller that may hold either asks `what_are` first; an adapter may
     /// answer both from one question and keep the answer for the pass.
     fn several(&mut self, keys: &[TicketKey]) -> Vec<(TicketKey, Got<TicketDigest>)>;
+    /// `several`, each digest with what closed the ticket, in the same
+    /// request: the closer `Ticket.closer` gives, from the newest close in
+    /// its history, and None while it is open or where the site names
+    /// nothing. A key that names a change is `NotFound`, as in `several`.
+    fn several_with_closers(&mut self, keys: &[TicketKey]) -> Vec<(TicketKey, Got<WithCloser>)>;
     /// A ticket's history, oldest first: the events of the kinds in
     /// `only`, or every event for None. The window counts the events taken.
     fn history(
@@ -579,8 +708,15 @@ pub trait Tickets: Reports + Cites {
         key: &MarkerKey,
         open: Option<bool>,
     ) -> Got<Whole<TicketKey>>;
-    /// The site's types of ticket.
+    /// The site's types of ticket. Never `Kind::Unknown`: a type this copy
+    /// cannot name is left out and reported (Decided 120).
     fn kinds(&mut self) -> Got<Whole<Kind>>;
+    /// The marks the site holds for the project, each with its id, as the
+    /// site names them now: what a caller pins, so a mark renamed to one
+    /// of ours is told apart by its id. The id is the site's own and a
+    /// rename keeps it: never one made from the name. Each mark once; a
+    /// site word this copy does not know is left out.
+    fn marks(&mut self, bound: Bound) -> Got<Whole<MarkHeld>>;
     /// The project's targets, open and closed, whole.
     fn targets(&mut self, bound: Bound) -> Got<Whole<Target>>;
     /// The tickets of a target, in list order.
@@ -633,6 +769,15 @@ pub trait TicketWrites: Tickets {
     /// cannot be made stops none of the others; the first that failed is
     /// the answer.
     fn prepare(&mut self) -> Result<(), Unprepared>;
+    /// Make sure the site can carry this one mark of the factory, as
+    /// `prepare` does for each: made, or brought to the colour and text the
+    /// adapter's table gives it, whatever the state of the others. A
+    /// project's own mark is `ensure_mark`'s: `Refused(Invalid)` here.
+    /// Provided: `Refused(Unsupported)` (Decided 127).
+    fn prepare_one(&mut self, mark: &Mark) -> Did {
+        let _ = mark;
+        Err(Outcome::Refused(crate::Refusal::Unsupported))
+    }
     /// Make sure a project's own mark exists. Already there is done. Its
     /// colour and text are made to match where the site has them and the
     /// spec gives them; a site without them ignores both, and that is done
@@ -646,7 +791,10 @@ pub trait TicketWrites: Tickets {
     fn close(&mut self, key: &TicketKey, reason: &CloseReason) -> Did;
     /// Write a note on the ticket, its markers beside it.
     fn note(&mut self, key: &TicketKey, body: &str, markers: &[Marker]) -> Got<Posted<CommentId>>;
-    /// File a new ticket.
+    /// File a new ticket. Its marks are asked, not promised: a site may
+    /// drop those the actor may not set and still make the ticket, and the
+    /// answer is then `Ok`, never a refusal of a ticket that was made. A
+    /// caller that needs the marks reads the ticket back or puts them.
     fn file(&mut self, new: &NewTicket) -> Got<Posted<TicketKey>>;
     /// The ticket's own title and text. `since`: write only if the ticket is
     /// still at this revision, else `Conflict(Changed)`. Markers not named in
@@ -679,7 +827,8 @@ pub trait TicketWrites: Tickets {
     fn add_part(&mut self, parent: &TicketKey, child: &TicketKey) -> Did;
     /// Take `child` out of `parent`'s parts.
     fn remove_part(&mut self, parent: &TicketKey, child: &TicketKey) -> Did;
-    /// Make a target.
+    /// Make a target. As with `file`, a target that was made is `Ok`,
+    /// whatever the site dropped from it.
     fn new_target(&mut self, title: &str, due: Option<At>) -> Got<TargetId>;
     /// Change a target.
     fn edit_target(&mut self, id: &TargetId, edit: &TargetEdit) -> Did;

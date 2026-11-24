@@ -13,6 +13,28 @@
 
 use serde_json::Value;
 use tehas_core::end_fault::EndFault;
+use tehas_ports::{Outcome, Passing};
+
+/// Why a write of the report failed: gh's words, of a write that still goes
+/// with gh, or the site's answer, of one that goes through the ports.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Failure {
+    Said(String),
+    Answered(Outcome),
+}
+
+/// Whether an answer was the site's fault: no answer in time, none at all,
+/// its own failure, or a spent budget. A refusal or a missing item is the
+/// request's own.
+fn sites_fault(o: &Outcome) -> bool {
+    matches!(
+        o,
+        Outcome::Unavailable {
+            why: Passing::Timeout | Passing::Unreachable | Passing::Server,
+            ..
+        } | Outcome::Spent { .. }
+    )
+}
 
 /// The step pi-rukas pushes and opens its pull request in.
 const COMMIT_PR: &str = "commit-pr";
@@ -38,7 +60,7 @@ pub struct Left<'a> {
     pub result: Option<&'a str>,
     pub progress: Option<&'a str>,
     pub pr: bool,
-    pub handoff_failed: Option<&'a str>,
+    pub handoff_failed: Option<&'a Failure>,
 }
 
 /// The record of a failed end, or None for an end with no failed GitHub step.
@@ -48,9 +70,19 @@ pub fn of(l: &Left, now: i64) -> Option<EndFault> {
             return Some(EndFault::new(l.issue, l.attempt, step, &said, now));
         }
     }
-    l.handoff_failed.map(|said| EndFault {
-        host: true,
-        ..EndFault::new(l.issue, l.attempt, "handoff", said, now)
+    l.handoff_failed.map(|failed| {
+        let fault = match failed {
+            Failure::Said(said) => EndFault::new(l.issue, l.attempt, "handoff", said, now),
+            Failure::Answered(o) => EndFault {
+                github: sites_fault(o),
+                why: o.line().to_string(),
+                ..EndFault::new(l.issue, l.attempt, "handoff", "", now)
+            },
+        };
+        EndFault {
+            host: true,
+            ..fault
+        }
     })
 }
 
@@ -107,7 +139,7 @@ mod tests {
         )
     }
 
-    fn left<'a>(result: &'a str, pr: bool, handoff: Option<&'a str>) -> Left<'a> {
+    fn left<'a>(result: &'a str, pr: bool, handoff: Option<&'a Failure>) -> Left<'a> {
         Left {
             issue: 7,
             attempt: 2,
@@ -157,8 +189,45 @@ mod tests {
     fn a_cycle_with_its_pull_request_failed_only_what_came_after() {
         let r = result(r#"{"message":"git push: HTTP 502"}"#);
         assert_eq!(of(&left(&r, true, None), 100), None);
-        let f = of(&left(&r, true, Some(": HTTP 503")), 100).unwrap();
+        let said = Failure::Said(": HTTP 503".into());
+        let f = of(&left(&r, true, Some(&said)), 100).unwrap();
         assert_eq!((f.step.as_str(), f.github, f.host), ("handoff", true, true));
+    }
+
+    #[test]
+    fn a_handoff_the_site_did_not_take_is_its_fault_and_one_it_refused_is_not() {
+        use tehas_ports::{Refusal, Sent};
+        let r = result(r#"{"message":"git push: connection refused"}"#);
+        let failed = Failure::Answered(Outcome::Unavailable {
+            why: Passing::Server,
+            sent: Sent::No,
+        });
+        let f = of(&left(&r, true, Some(&failed)), 100).unwrap();
+        assert_eq!((f.step.as_str(), f.github, f.host), ("handoff", true, true));
+        assert_eq!(f.why, "the site failed");
+        for (o, github) in [
+            (Outcome::Refused(Refusal::Invalid), false),
+            (Outcome::NotFound, false),
+            (Outcome::Forbidden, false),
+            (
+                Outcome::Unavailable {
+                    why: Passing::Timeout,
+                    sent: Sent::Maybe,
+                },
+                true,
+            ),
+            (
+                Outcome::Unavailable {
+                    why: Passing::Unreachable,
+                    sent: Sent::No,
+                },
+                true,
+            ),
+        ] {
+            let failed = Failure::Answered(o.clone());
+            let f = of(&left(&r, true, Some(&failed)), 100).unwrap();
+            assert_eq!(f.github, github, "{o:?}");
+        }
     }
 
     #[test]

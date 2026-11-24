@@ -35,11 +35,11 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 use tehas_core::cycle_notes;
 use tehas_core::home::Home;
-use tehas_core::lock::{probe, Probe};
+use tehas_core::lock::{probe, Held, Probe};
 use tehas_core::raise::{self, Writer};
 use tehas_core::settings::rules::is_repo;
 use tehas_ports::events::Dispatcher;
-use tehas_ports::{Mark, State, TicketKey, TicketWrites};
+use tehas_ports::{Mark, Outcome, State, TicketKey, TicketWrites};
 
 pub const USAGE: &str = include_str!("../../src/usage/stop.txt");
 
@@ -322,9 +322,9 @@ impl Names {
     }
 
     /// The last step, the issue's half: what to say, on standard output when
-    /// it went well, or on standard error, with exit 1, when the running
-    /// mark could not be read or taken off, or a cycle holds the lock again
-    /// and owns the mark.
+    /// it went well, or on standard error, with exit 1, when the number is
+    /// not an issue, the running mark could not be read or taken off, or a
+    /// cycle holds the lock again and owns the mark.
     fn take_label(&self, tickets: &mut dyn TicketWrites) -> Result<Option<String>, String> {
         let n = &self.n;
         let running = Mark::State(State::Running);
@@ -334,14 +334,21 @@ impl Names {
             .ok()
             .and_then(NonZeroU64::new)
             .map(TicketKey::Number);
-        let digest = key
+        let answer = key
             .as_ref()
             .and_then(|k| tickets.several(std::slice::from_ref(k)).pop())
-            .and_then(|(_, d)| d.ok());
-        let (Some(key), Some(digest)) = (key, digest) else {
-            return Err(format!(
-                "WARN: the labels of #{n} could not be read, so tehas:running stays on the issue"
-            ));
+            .map(|(_, d)| d);
+        let (key, digest) = match (key, answer) {
+            (Some(key), Some(Ok(digest))) => (key, digest),
+            // A pull request's number, or no item at all: no read failed.
+            (_, Some(Err(Outcome::NotFound))) => {
+                return Err(format!("#{n} is not an issue; tehas stops only issues"));
+            }
+            _ => {
+                return Err(format!(
+                    "WARN: the labels of #{n} could not be read, so tehas:running stays on the issue"
+                ));
+            }
         };
         if !digest.marks.contains(&running) {
             return Ok(None);
@@ -510,10 +517,10 @@ impl Names {
             say(&ended_line(n, already, reason));
             raise_stopped(home, n, &open_at, &answer.to_string(), events);
         }
-        if !held.as_ref().is_ok_and(|f| f.try_lock().is_ok()) {
+        let Some(Ok(held)) = held.ok().map(Held::try_take) else {
             eprintln!("tehas stop: a cycle for #{n} holds its lock, so nothing was removed.");
             return Ok(1);
-        }
+        };
 
         // Read again: a cycle that stopped just now may have parked as it
         // reported.
@@ -746,11 +753,14 @@ mod tests {
         home
     }
 
-    // A start of #5 by hand, under the lock a cycle holds.
+    // A start of #5 by hand, under the lock a cycle holds. Unlocked by name:
+    // a child another case forks this instant shares the descriptor until it
+    // execs, so a drop alone may not free it before the next start takes it.
     fn started(home: &Path) {
         let lock = File::create(Home::new(home).cycle_note(5, "lock")).unwrap();
         lock.try_lock().unwrap();
         store::call(home, &["cycle-start", "5", "--by-hand"]).unwrap();
+        lock.unlock().unwrap();
     }
 
     #[test]
@@ -796,7 +806,7 @@ mod tests {
             "65",
         ];
         store::call(&home, &refused).unwrap();
-        drop(lock);
+        lock.unlock().unwrap();
         let rows = store::call(&home, &["history-show", "5"]).unwrap()["rows"].clone();
         assert_eq!(rows[2]["reported"], false);
         let answer = stop("3");
@@ -810,6 +820,16 @@ mod tests {
 
     fn words(given: &[&str]) -> Vec<String> {
         given.iter().map(|w| w.to_string()).collect()
+    }
+
+    fn text(p: std::path::PathBuf) -> String {
+        p.display().to_string()
+    }
+
+    /// The path of five's note that ends in `end`, `.lock` say.
+    fn note(end: &str) -> String {
+        let end = end.strip_prefix('.').unwrap();
+        text(Home::new("/h/tehas").cycle_note(5, end))
     }
 
     fn names(n: &str) -> Names {
@@ -877,8 +897,9 @@ mod tests {
             assert!(!path.contains('*'), "{path}");
             assert!(!fifty_one.candidates(false).contains(path), "{path}");
         }
-        assert!(all.contains(&"/h/tehas/state/cycles/5.lock".to_string()));
-        assert!(all.contains(&"/h/tehas/live/console-5.txt".to_string()));
+        let home = Home::new("/h/tehas");
+        assert!(all.contains(&text(home.cycle_note(5, "lock"))));
+        assert!(all.contains(&text(home.live_console(5))));
         assert!(all.contains(&"/h/.pi/agent/ensemble-runs/issue-5".to_string()));
         assert!(all.contains(&"/h/tehas/work/widget-5".to_string()));
         assert!(all.contains(&"/h/tehas/work/widget-5.before-retry".to_string()));
@@ -897,10 +918,7 @@ mod tests {
             ".frozen",
             ".status.new",
         ] {
-            assert!(
-                all.contains(&format!("/h/tehas/state/cycles/5{end}")),
-                "{end}"
-            );
+            assert!(all.contains(&note(end)), "{end}");
         }
     }
 
@@ -915,7 +933,7 @@ mod tests {
     fn the_candidates_keep_the_cycles_record() {
         let all = names("5").candidates(false);
         for end in [".json", ".manifest.json", ".runner_exit", ".status"] {
-            assert!(!all.contains(&format!("/h/tehas/state/cycles/5{end}")));
+            assert!(!all.contains(&note(end)));
         }
     }
 
@@ -923,8 +941,8 @@ mod tests {
     fn a_path_is_said_the_way_a_person_types_it() {
         let five = names("5");
         assert_eq!(
-            five.short("/h/tehas/state/cycles/5.lock"),
-            "state/cycles/5.lock"
+            five.short(&text(Home::new("/h/tehas").cycle_note(5, "lock"))),
+            text(Home::new("").cycle_note(5, "lock"))
         );
         assert_eq!(five.short("/h/.pi/x"), "~/.pi/x");
         assert_eq!(five.short("/other/x"), "/other/x");
@@ -1107,9 +1125,37 @@ mod tests {
             let warn =
                 format!("WARN: the labels of #5 could not be read, so {LABEL} stays on the issue");
             assert_eq!(take(&five(&dir), &slow), Err(warn.clone()));
-            // An issue the site does not know is marks it could not read.
-            assert_eq!(take(&five(&dir), &FakeSite::new(&World::new())), Err(warn));
+            for fault in [Fault::Unreachable, Fault::Forbidden, Fault::Malformed] {
+                let failed =
+                    Faulty::new(FakeSite::new(&w)).on(Op::Tickets(TicketsOp::Several), fault);
+                assert_eq!(take(&five(&dir), &failed), Err(warn.clone()));
+            }
             assert_eq!(w.wrote(), vec![]);
+        }
+
+        /// The line of a number that is not an issue of this project.
+        fn not_an_issue(n: u64) -> Result<Option<String>, String> {
+            Err(format!("#{n} is not an issue; tehas stops only issues"))
+        }
+
+        #[test]
+        fn a_changes_number_is_not_an_issue_and_nothing_is_written() {
+            let dir = TestDir::new("stop-label-change");
+            let w = World::new().change(5, "work/5", |c| c);
+            let answer = take(&five(&dir), &FakeSite::new(&w));
+            assert_eq!(answer, not_an_issue(5));
+            assert!(!answer.unwrap_err().contains(LABEL));
+            assert_eq!(w.wrote(), vec![]);
+            assert_eq!(w.sent(), 1);
+        }
+
+        #[test]
+        fn a_number_with_no_item_is_not_an_issue_and_nothing_is_written() {
+            let dir = TestDir::new("stop-label-none");
+            let w = World::new().ticket(51, |t| t.mark(running()));
+            assert_eq!(take(&five(&dir), &FakeSite::new(&w)), not_an_issue(5));
+            assert_eq!(w.wrote(), vec![]);
+            assert_eq!(w.sent(), 1);
         }
 
         #[test]

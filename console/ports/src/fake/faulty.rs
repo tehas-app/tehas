@@ -17,14 +17,14 @@ use crate::{
     ChangeFilter, ChangeItem, ChangeNo, ChangeToken, ChangedFile, Checks, Cite, Cites, CloseReason,
     ClosedTicket, CodeHost, CodeHostWrites, Comment, CommentId, CommitId, Compared, Cursor, Depth,
     Did, Edit, Facts, Failure, FileName, Filed, Filter, Got, HappenedKind, HealthState, Holder,
-    HolderId, HostId, Identity, Item, Kind, Ledger, Login, Mark, MarkSpec, Marker, MarkerEdit,
-    MarkerKey, MarkerKind, MergeHow, MeterRow, NewBlueprint, NewChange, NewRelease, NewTicket,
-    OpenWork, Outcome, Part, Passing, Pool, PortName, Posted, Priority, ProjectName, Proposal,
-    ProposalPart, Proposed, Realm, Refusal, Release, ReleaseId, Remote, RepoPath, Report, Reports,
-    Rev, Revision, Scope, Secret, Sent, SignInCode, SignInState, Site, SiteId, Standing, Status,
-    Step, StepPart, Sum, Tag, TagName, Target, TargetEdit, TargetId, Ticket, TicketDelta,
+    HolderId, HostId, Identity, Item, Kind, Ledger, Login, Mark, MarkHeld, MarkSpec, Marker,
+    MarkerEdit, MarkerKey, MarkerKind, MergeHow, MeterRow, NewBlueprint, NewChange, NewRelease,
+    NewTicket, OpenWork, Outcome, Part, Passing, Pool, PortName, Posted, Priority, ProjectName,
+    Proposal, ProposalPart, Proposed, Realm, Refusal, Release, ReleaseId, Remote, RepoPath, Report,
+    Reports, Rev, Revision, Scope, Secret, Sent, SignInCode, SignInState, Site, SiteId, Standing,
+    Status, Step, StepPart, Sum, Tag, TagName, Target, TargetEdit, TargetId, Ticket, TicketDelta,
     TicketDigest, TicketEvent, TicketKey, TicketWrites, Tickets, Token, Took, Unprepared, Unread,
-    WebLink, Whole, Whose, Window, Within, WorkItem,
+    WebLink, Whole, Whose, Window, WithCloser, Within, WorkItem,
 };
 
 /// How many seconds of failures a `Faulty` asks its ledger to keep: the
@@ -44,6 +44,8 @@ pub enum TicketsOp {
     List,
     /// `Tickets::several`.
     Several,
+    /// `Tickets::several_with_closers`.
+    SeveralWithClosers,
     /// `Tickets::history`.
     History,
     /// `Tickets::notes`.
@@ -56,6 +58,12 @@ pub enum TicketsOp {
     Parts,
     /// `Tickets::closed_since`.
     ClosedSince,
+    /// `Tickets::recent`.
+    Recent,
+    /// `Tickets::recently_closed`.
+    RecentlyClosed,
+    /// `Tickets::count`.
+    Count,
     /// `Tickets::search`.
     Search,
     /// `Tickets::filed_by`.
@@ -64,6 +72,8 @@ pub enum TicketsOp {
     FindMarked,
     /// `Tickets::kinds`.
     Kinds,
+    /// `Tickets::marks`.
+    Marks,
     /// `Tickets::targets`.
     Targets,
     /// `Tickets::members`.
@@ -76,6 +86,8 @@ pub enum TicketsOp {
     Apply,
     /// `TicketWrites::prepare`.
     Prepare,
+    /// `TicketWrites::prepare_one`.
+    PrepareOne,
     /// `TicketWrites::ensure_mark`.
     EnsureMark,
     /// `TicketWrites::mark`.
@@ -129,6 +141,10 @@ pub enum BlueprintsOp {
     BodyEdits,
     /// `Blueprints::comment_edits`.
     CommentEdits,
+    /// `Blueprints::body_edits_of`.
+    BodyEditsOf,
+    /// `Blueprints::comment_edits_of`.
+    CommentEditsOf,
     /// `Blueprints::search`.
     Search,
     /// `Blueprints::attachments`.
@@ -174,6 +190,10 @@ pub enum CodeHostOp {
     Checks,
     /// `CodeHost::tags`.
     Tags,
+    /// `CodeHost::recent_tags`.
+    RecentTags,
+    /// `CodeHost::recent_releases`.
+    RecentReleases,
     /// `CodeHost::resolve_tag`.
     ResolveTag,
     /// `CodeHost::releases`.
@@ -256,10 +276,12 @@ pub enum BoardOp {
     TargetWork,
     /// `Board::open_changes`.
     OpenChanges,
+    /// `Board::as_blockers`.
+    AsBlockers,
 }
 
 /// Every method of every port that answers an outcome. A method that
-/// makes no request (`cite`, `take_reports`, `new_ticket_link`,
+/// makes no request (`cite`, `link`, `attachments_in`, `take_reports`, `new_ticket_link`,
 /// `sign_in_link`) has no outcome to inject and no `Op`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Op {
@@ -294,6 +316,7 @@ impl Op {
             Op::Tickets(
                 T::Apply
                     | T::Prepare
+                    | T::PrepareOne
                     | T::EnsureMark
                     | T::Mark
                     | T::Unmark
@@ -510,8 +533,10 @@ type Calls = Vec<(Op, Option<Actor>, u32)>;
 struct Shared {
     rules: Vec<Rule>,
     draws: Vec<(Op, Vec<Pool>)>,
-    calls: Mutex<Calls>,
-    requests: Mutex<Vec<(Actor, u32)>>,
+    /// Shared with the `until` views made of it.
+    calls: Arc<Mutex<Calls>>,
+    /// Shared with the `until` views made of it.
+    requests: Arc<Mutex<Vec<(Actor, u32)>>>,
     watch: Option<Watch>,
 }
 
@@ -564,8 +589,8 @@ impl<S: Site> Faulty<S> {
             shared: Arc::new(Shared {
                 rules: Vec::new(),
                 draws: Vec::new(),
-                calls: Mutex::new(Vec::new()),
-                requests: Mutex::new(Vec::new()),
+                calls: Arc::new(Mutex::new(Vec::new())),
+                requests: Arc::new(Mutex::new(Vec::new())),
                 watch: None,
             }),
         }
@@ -579,8 +604,8 @@ impl<S: Site> Faulty<S> {
             let copy = Shared {
                 rules: s.rules.clone(),
                 draws: s.draws.clone(),
-                calls: Mutex::new(lock(&s.calls).clone()),
-                requests: Mutex::new(lock(&s.requests).clone()),
+                calls: Arc::new(Mutex::new(lock(&s.calls).clone())),
+                requests: Arc::new(Mutex::new(lock(&s.requests).clone())),
                 watch: s.watch.clone(),
             };
             self.shared = Arc::new(copy);
@@ -681,8 +706,34 @@ impl<S: Site> Site for Faulty<S> {
         self.site.realms()
     }
 
+    /// The view of its site's `until`, under the same rules, counting its
+    /// calls and requests with this one's. With a watch, the watch's
+    /// `deadline` is `until`, or the earlier one it had.
+    fn until(&self, until: At) -> Arc<dyn Site> {
+        let s = &*self.shared;
+        let watch = s.watch.clone().map(|mut w| {
+            w.deadline = Some(w.deadline.map_or(until, |d| d.min(until)));
+            w
+        });
+        Arc::new(Faulty {
+            site: self.site.until(until),
+            shared: Arc::new(Shared {
+                rules: s.rules.clone(),
+                draws: s.draws.clone(),
+                calls: Arc::clone(&s.calls),
+                requests: Arc::clone(&s.requests),
+                watch,
+            }),
+            log: self.log.clone(),
+        })
+    }
+
     fn mark_name(&self, mark: &crate::Mark) -> String {
         self.site.mark_name(mark)
+    }
+
+    fn marker_text(&self, marker: &crate::Marker) -> String {
+        self.site.marker_text(marker)
     }
 
     fn tickets(&self, by: &Actor, caller: Caller) -> Got<Box<dyn Tickets + Send>> {
@@ -1039,6 +1090,9 @@ impl<H: Cites + ?Sized> Cites for Wrap<H> {
     fn cite(&self, what: &Cite) -> String {
         self.inner.cite(what)
     }
+    fn link(&self, what: &Cite) -> Option<WebLink> {
+        self.inner.link(what)
+    }
 }
 
 use BlueprintsOp as B;
@@ -1061,9 +1115,26 @@ impl<H: Tickets + ?Sized> Tickets for Wrap<H> {
     fn list(&mut self, filter: &Filter, bound: Bound) -> Got<Whole<TicketDigest>> {
         self.call(Op::Tickets(T::List), Err, |h| h.list(filter, bound))
     }
+    fn recent(&mut self, filter: &Filter, first: NonZeroU32) -> Got<Took<TicketDigest>> {
+        self.call(Op::Tickets(T::Recent), Err, |h| h.recent(filter, first))
+    }
+    fn recently_closed(&mut self, first: NonZeroU32) -> Got<Took<ClosedTicket>> {
+        self.call(Op::Tickets(T::RecentlyClosed), Err, |h| {
+            h.recently_closed(first)
+        })
+    }
+    fn count(&mut self, filter: &Filter) -> Got<u64> {
+        self.call(Op::Tickets(T::Count), Err, |h| h.count(filter))
+    }
     fn several(&mut self, keys: &[TicketKey]) -> Vec<(TicketKey, Got<TicketDigest>)> {
         let fail = |o: Outcome| keys.iter().map(|k| (k.clone(), Err(o.clone()))).collect();
         self.call(Op::Tickets(T::Several), fail, |h| h.several(keys))
+    }
+    fn several_with_closers(&mut self, keys: &[TicketKey]) -> Vec<(TicketKey, Got<WithCloser>)> {
+        let fail = |o: Outcome| keys.iter().map(|k| (k.clone(), Err(o.clone()))).collect();
+        self.call(Op::Tickets(T::SeveralWithClosers), fail, |h| {
+            h.several_with_closers(keys)
+        })
     }
     fn history(
         &mut self,
@@ -1122,6 +1193,9 @@ impl<H: Tickets + ?Sized> Tickets for Wrap<H> {
     fn kinds(&mut self) -> Got<Whole<Kind>> {
         self.call(Op::Tickets(T::Kinds), Err, |h| h.kinds())
     }
+    fn marks(&mut self, bound: Bound) -> Got<Whole<MarkHeld>> {
+        self.call(Op::Tickets(T::Marks), Err, |h| h.marks(bound))
+    }
     fn targets(&mut self, bound: Bound) -> Got<Whole<Target>> {
         self.call(Op::Tickets(T::Targets), Err, |h| h.targets(bound))
     }
@@ -1168,6 +1242,9 @@ impl<H: TicketWrites + ?Sized> TicketWrites for Wrap<H> {
     }
     fn prepare(&mut self) -> Result<(), Unprepared> {
         self.call(Op::Tickets(T::Prepare), |o| Err(o.into()), |h| h.prepare())
+    }
+    fn prepare_one(&mut self, mark: &Mark) -> Did {
+        self.call(Op::Tickets(T::PrepareOne), Err, |h| h.prepare_one(mark))
     }
     fn ensure_mark(&mut self, spec: &MarkSpec) -> Did {
         self.call(Op::Tickets(T::EnsureMark), Err, |h| h.ensure_mark(spec))
@@ -1269,6 +1346,28 @@ impl<H: Blueprints + ?Sized> Blueprints for Wrap<H> {
             h.comment_edits(id, bound)
         })
     }
+    /// The whole call goes to the inner handle, so an adapter's batch is
+    /// kept; a fault fails each item.
+    fn body_edits_of(
+        &mut self,
+        nos: &[BlueprintNo],
+        bound: Bound,
+    ) -> Vec<(BlueprintNo, Got<Whole<Edit>>)> {
+        let fail = |o: Outcome| nos.iter().map(|&n| (n, Err(o.clone()))).collect();
+        self.call(Op::Blueprints(B::BodyEditsOf), fail, |h| {
+            h.body_edits_of(nos, bound)
+        })
+    }
+    fn comment_edits_of(
+        &mut self,
+        ids: &[CommentId],
+        bound: Bound,
+    ) -> Vec<(CommentId, Got<Whole<Edit>>)> {
+        let fail = |o: Outcome| ids.iter().map(|i| (i.clone(), Err(o.clone()))).collect();
+        self.call(Op::Blueprints(B::CommentEditsOf), fail, |h| {
+            h.comment_edits_of(ids, bound)
+        })
+    }
     fn search(
         &mut self,
         words: &str,
@@ -1282,6 +1381,9 @@ impl<H: Blueprints + ?Sized> Blueprints for Wrap<H> {
     }
     fn attachments(&mut self, no: BlueprintNo) -> Got<Whole<Attachment>> {
         self.call(Op::Blueprints(B::Attachments), Err, |h| h.attachments(no))
+    }
+    fn attachments_in(&self, text: &str) -> Vec<Attachment> {
+        self.inner.attachments_in(text)
     }
     fn fetch(&mut self, a: &AttachmentId, limit: u64, into: &mut dyn std::io::Write) -> Did {
         self.call(Op::Blueprints(B::Fetch), Err, |h| h.fetch(a, limit, into))
@@ -1371,6 +1473,14 @@ impl<H: CodeHost + ?Sized> CodeHost for Wrap<H> {
     }
     fn resolve_tag(&mut self, name: &TagName) -> Got<CommitId> {
         self.call(Op::CodeHost(C::ResolveTag), Err, |h| h.resolve_tag(name))
+    }
+    fn recent_tags(&mut self, first: NonZeroU32) -> Got<Took<Tag>> {
+        self.call(Op::CodeHost(C::RecentTags), Err, |h| h.recent_tags(first))
+    }
+    fn recent_releases(&mut self, first: NonZeroU32) -> Got<Took<Release>> {
+        self.call(Op::CodeHost(C::RecentReleases), Err, |h| {
+            h.recent_releases(first)
+        })
     }
     fn releases(&mut self, bound: Bound) -> Got<Whole<Release>> {
         self.call(Op::CodeHost(C::Releases), Err, |h| h.releases(bound))
@@ -1525,7 +1635,7 @@ impl<H: Identity + ?Sized> Identity for Wrap<H> {
             h.token_over(scope, projects)
         })
     }
-    fn sign_in_link(&self, state: &SignInState) -> WebLink {
+    fn sign_in_link(&self, state: &SignInState) -> Got<WebLink> {
         self.inner.sign_in_link(state)
     }
     fn signed_in(&mut self, code: &SignInCode) -> Got<(crate::Account, Secret)> {
@@ -1567,6 +1677,12 @@ impl<H: Board + ?Sized> Board for Wrap<H> {
     fn open_changes(&mut self, ask: &ChangeAsk, bound: Bound) -> Got<Whole<ChangeItem>> {
         self.call(Op::Board(BoardOp::OpenChanges), Err, |h| {
             h.open_changes(ask, bound)
+        })
+    }
+    fn as_blockers(&mut self, numbers: &[NonZeroU64]) -> Vec<(NonZeroU64, Got<Blocker>)> {
+        let fail = |o: Outcome| numbers.iter().map(|&n| (n, Err(o.clone()))).collect();
+        self.call(Op::Board(BoardOp::AsBlockers), fail, |h| {
+            h.as_blockers(numbers)
         })
     }
 }

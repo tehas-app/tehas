@@ -3,11 +3,12 @@
 //! keeps, and each marker's text. The rest of the adapter names a word or a
 //! marker, never its text. The labels are `host/labels.tsv`, read when the
 //! adapter is built, and a test of the adapter holds the words here to that
-//! file. The markers are `host/markers.tsv`, compiled in the same way.
+//! file. The markers are `host/markers.tsv`, compiled in the same way:
+//! `markers.rs` reads a text by these rows and writes none of their words.
 
 use tehas_ports::{
-    Act, Choice, Colour, FinishResult, Mark, MarkName, MarkSpec, Marker, MillwrightAction,
-    QuestionKind, Ref, State, TicketKey,
+    Act, Choice, Colour, FinishResult, Mark, MarkName, MarkSpec, Marker, MarkerKind,
+    MillwrightAction, QuestionKind, Ref, State, TicketKey,
 };
 
 /// The characters a GitHub label name is built from in tehas. The `:` of
@@ -230,6 +231,11 @@ pub fn marker_text(m: &Marker) -> Option<String> {
             ],
             None,
         ),
+        Marker::Declined { question } => (
+            "Declined",
+            vec![("question", Some(question.as_str().to_string()))],
+            None,
+        ),
         _ => return None,
     };
     let row = MARKERS
@@ -276,4 +282,134 @@ pub fn specs() -> Vec<MarkSpec> {
             })
         })
         .collect()
+}
+
+/// What stands between a marker's `<!--` and its kind's word.
+pub(crate) const OURS: &str = "tehas:";
+
+/// A marker's wrapper as the table writes it, up to the kind's word.
+pub(crate) const WRAP: &str = "<!-- tehas:";
+
+/// The 1.x word of a millwright's marker: it reads as an unreadable one.
+pub(crate) const OLD_MILLWRIGHT: &str = "fixer";
+
+/// What a field of a marker's row takes, as the table's header names it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Rule {
+    /// The number of the item the marker is read from.
+    Blueprint,
+    /// A decimal number of at most this many digits.
+    Number(usize),
+    /// `min` to `max` numbers of at most `digits` digits, commas between.
+    Numbers {
+        min: usize,
+        max: usize,
+        digits: usize,
+    },
+    /// One of these words.
+    Words(Vec<String>),
+    /// At most this many of `a-z`, `0-9` and `-`, maybe none.
+    Word(usize),
+    /// Exactly this many lower-case hex digits.
+    Hex(usize),
+    /// 1 to this many characters of a ticket's key.
+    Key(usize),
+    /// A block's enclosed text.
+    Text,
+}
+
+/// One field of a marker's row.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Field {
+    pub name: String,
+    /// It may be left out, with the space before it.
+    pub optional: bool,
+    pub rule: Rule,
+}
+
+/// One row of `host/markers.tsv`: a kind, its word after [`OURS`], the
+/// close line of a block, and its fields in the order they are written.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MarkerRow {
+    pub kind: MarkerKind,
+    pub word: String,
+    pub close: Option<String>,
+    pub fields: Vec<Field>,
+}
+
+/// Every row of the markers' table, in its order. A line the file does not
+/// give whole is left out; the table's test holds the file to none.
+pub fn marker_rows() -> Vec<MarkerRow> {
+    MARKERS
+        .lines()
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .filter_map(marker_row)
+        .collect()
+}
+
+fn marker_row(line: &str) -> Option<MarkerRow> {
+    let mut cols = line.split('\t');
+    let (kind, open, close, fields) = (cols.next()?, cols.next()?, cols.next()?, cols.next()?);
+    let kind = match kind {
+        "Question" => MarkerKind::Question,
+        "Blocked" => MarkerKind::Blocked,
+        "HoldCleared" => MarkerKind::HoldCleared,
+        "Park" => MarkerKind::Park,
+        "Finish" => MarkerKind::Finish,
+        "LastAttempt" => MarkerKind::LastAttempt,
+        "Millwright" => MarkerKind::Millwright,
+        "TicketOf" => MarkerKind::TicketOf,
+        "Link" => MarkerKind::Link,
+        "Declined" => MarkerKind::Declined,
+        _ => return None,
+    };
+    let word = open.strip_prefix(WRAP)?.split(' ').next()?.to_string();
+    let fields = fields
+        .split(';')
+        .map(str::trim)
+        .filter(|f| !f.is_empty())
+        .map(field)
+        .collect::<Option<Vec<Field>>>()?;
+    Some(MarkerRow {
+        kind,
+        word,
+        close: Some(close.to_string()).filter(|c| !c.is_empty()),
+        fields,
+    })
+}
+
+fn field(text: &str) -> Option<Field> {
+    let (name, rule) = text.split_once(' ')?;
+    let (name, optional) = match name.strip_suffix('?') {
+        Some(n) => (n, true),
+        None => (name, false),
+    };
+    let (word, arg) = match rule.split_once('(') {
+        Some((w, a)) => (w, a.strip_suffix(')')?),
+        None => (rule, ""),
+    };
+    let rule = match word {
+        "blueprint" => Rule::Blueprint,
+        "number" => Rule::Number(arg.parse().ok()?),
+        "numbers" => {
+            let (range, digits) = arg.split_once(',')?;
+            let (min, max) = range.split_once('-')?;
+            Rule::Numbers {
+                min: min.parse().ok()?,
+                max: max.parse().ok()?,
+                digits: digits.parse().ok()?,
+            }
+        }
+        "words" => Rule::Words(arg.split('|').map(str::to_string).collect()),
+        "word" => Rule::Word(arg.parse().ok()?),
+        "hex" => Rule::Hex(arg.parse().ok()?),
+        "key" => Rule::Key(arg.parse().ok()?),
+        "text" => Rule::Text,
+        _ => return None,
+    };
+    Some(Field {
+        name: name.to_string(),
+        optional,
+        rule,
+    })
 }

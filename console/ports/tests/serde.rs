@@ -62,6 +62,7 @@ fn ids_read_back() {
     round(CommentId::new("c1"));
     round(TargetId::new("t1"));
     round(ReleaseId::new("r1"));
+    round(MarkId::new("m1"));
     round(AttachmentId::new("a1"));
     round(Revision::new("rev"));
     round(ChangeToken::new("tok"));
@@ -400,6 +401,9 @@ fn every_marker() -> Vec<Marker> {
             blueprint: bp(9),
             remove: false,
         },
+        Marker::Declined {
+            question: CommentId::new("4001"),
+        },
         Marker::Project {
             name: mark_name("hold"),
             key: Some(MarkerKey::new("k.1").unwrap()),
@@ -456,6 +460,7 @@ fn markers_read_back() {
         MarkerKind::Millwright,
         MarkerKind::TicketOf,
         MarkerKind::Link,
+        MarkerKind::Declined,
         MarkerKind::Project(mark_name("hold")),
         MarkerKind::Unknown,
     ] {
@@ -633,6 +638,7 @@ fn a_known_tag_whose_content_does_not_read_is_unknown_never_an_error() {
         MarkerKind::Millwright,
         MarkerKind::TicketOf,
         MarkerKind::Link,
+        MarkerKind::Declined,
         MarkerKind::Project(mark_name("x")),
     ];
     for k in &marker_kinds {
@@ -790,6 +796,7 @@ fn digest() -> TicketDigest {
         ticket_digest.marks = vec![Mark::Act(Act::Approve)];
         ticket_digest.target = Some(TargetName::new(TargetId::new("t1"), "2.0".into()));
         ticket_digest.author = Some(account());
+        ticket_digest.parent = Some(Ref::Here(tkey(9)));
         ticket_digest
     }
 }
@@ -891,6 +898,11 @@ fn tickets_read_back() {
     assert_eq!(kinds.len(), 13, "one kind for each event");
     round(TicketEvent::new(Happened::Reopened));
     round({
+        let mut e = TicketEvent::new(Happened::Marked(Mark::Act(Act::Approve)));
+        e.mark_id = Some(MarkId::new("LA_1"));
+        e
+    });
+    round({
         let mut target = Target::new(TargetId::new("t"), "2.0".into(), At::new(1));
         target.due = Some(At::new(9));
         target.open = true;
@@ -911,6 +923,7 @@ fn tickets_read_back() {
     round(Filter {
         open: Some(true),
         carrying: vec![Mark::Act(Act::Plan)],
+        carrying_any: vec![Mark::State(State::Running), Mark::Epic],
         kind: Some(Kind::Feature),
         target: Some(TargetId::new("t")),
     });
@@ -1049,12 +1062,14 @@ fn change_digest() -> ChangeDigest {
             ChangeState::Merged {
                 at: At::new(1),
                 by: Some(account()),
-                commit: commit(),
+                commit: Some(commit()),
             },
             branch("work"),
             commit(),
             branch("main"),
+            commit(),
             At::new(1),
+            At::new(2),
             link(),
         );
         change_digest.title = "c".into();
@@ -1062,6 +1077,7 @@ fn change_digest() -> ChangeDigest {
         change_digest.merge_state = Mergeable::No(NotMergeable::Behind);
         change_digest.marks = vec![Mark::State(State::Refreshing)];
         change_digest.closes = vec![Ref::Here(bp(7)), elsewhere()];
+        change_digest.says_closes = vec![Ref::Here(bp(7)), Ref::Here(bp(8))];
         change_digest.size = Some({
             let mut size = Size::default();
             size.files = 1;
@@ -1202,6 +1218,7 @@ fn the_code_host_reads_back() {
         states: ChangeStates::All,
         author: Some(Author::Account(AccountId::new("1"))),
         head: Some(branch("work")),
+        carrying: vec![Mark::State(State::Refreshing)],
         closing: vec![bp(7)],
         merged_since: Some(At::new(1)),
         updated_since: None,
@@ -1234,6 +1251,7 @@ fn the_code_host_reads_back() {
         Overall::Fail,
         Overall::Pending,
         Overall::None,
+        Overall::Unknown,
     ] {
         round({
             let mut checks = Checks::default();
@@ -1264,7 +1282,12 @@ fn the_code_host_reads_back() {
         round(c);
     }
     round(new_change());
-    for how in [MergeHow::Merge, MergeHow::Squash, MergeHow::Rebase] {
+    for how in [
+        MergeHow::Merge,
+        MergeHow::Squash,
+        MergeHow::Rebase,
+        MergeHow::Site,
+    ] {
         round(how);
     }
     for t in every_takeover() {
@@ -1689,19 +1712,20 @@ fn work_item() -> WorkItem {
 
 #[test]
 fn the_boards_asks_and_answers_read_back() {
-    let ask = BoardAsk {
-        depth: Depth::Last { notes: nz32(100) },
-        history: Some(Window::Last(nz32(100))),
-        changes: Some((ChangeStates::All, Window::Last(nz32(5)))),
-        filter: Filter::default(),
-        control: Some(tkey(9)),
+    let ask = {
+        let mut ask = BoardAsk::new(Depth::Last { notes: nz32(100) });
+        ask.history = Some(Window::Last(nz32(100)));
+        ask.changes = Some((ChangeStates::All, Window::Last(nz32(5))));
+        ask.control = Some(tkey(9));
+        ask
     };
     round(ask.clone());
-    round(BoardAsk {
-        history: None,
-        changes: None,
-        control: None,
-        ..ask
+    round({
+        let mut ask = ask;
+        ask.history = None;
+        ask.changes = None;
+        ask.control = None;
+        ask
     });
     round(work_item());
     round({
@@ -2042,4 +2066,20 @@ fn a_hosts_holders_and_states_refuse_what_they_do_not_know() {
     assert!(from_node::<Holder>(future_tag.clone()).is_err());
     assert!(from_node::<Whose>(future_tag.clone()).is_err());
     assert!(from_node::<HealthState>(future_tag).is_err());
+}
+
+#[test]
+fn a_merged_change_with_no_merge_commit_reads_back() {
+    let with = ChangeState::Merged {
+        at: At::new(1),
+        by: None,
+        commit: Some(commit()),
+    };
+    let without = ChangeState::Merged {
+        at: At::new(1),
+        by: None,
+        commit: None,
+    };
+    round(with);
+    round(without);
 }

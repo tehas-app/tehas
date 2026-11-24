@@ -112,5 +112,40 @@ fn main() {
         &settings,
         dry,
         tehas_dispatch::events::wiring(),
+        handles,
     ));
+}
+
+/// The handles a poll writes and settles through, from the GitHub adapter's
+/// site acting as the factory's account. Its gh is the host's own, given the
+/// poll's token so the shim asks for none, under the poll's bound: the site
+/// is handed that runner and holds no token of its own.
+fn handles(
+    home: &Path,
+    repo: &str,
+    gh: &str,
+    token: Option<&str>,
+    bound: std::time::Duration,
+) -> tehas_ports::Got<tehas_dispatch::apply::Handles> {
+    use std::sync::Arc;
+    use tehas_ports::{Actor, Caller, Scope, Site};
+    let (login, id) = tehas_core::accounts::bot(home);
+    let (gh, token) = (gh.to_string(), token.map(str::to_string));
+    let make: tehas_github::MakeRunner = Arc::new(move |_| {
+        let mut b = tehas_core::forge::Bounded::new(gh.clone(), bound);
+        b.token = token.clone();
+        Ok(Box::new(b) as Box<dyn tehas_core::forge::GhRunner>)
+    });
+    let site = tehas_github::GitHubSite::new(repo, &login, id, make);
+    let (by, c) = (Actor::Ours(Scope::Full), Caller::new("poll"));
+    Ok(tehas_dispatch::apply::Handles {
+        writes: Box::new(tehas_ports::Writer {
+            tickets: site.ticket_writes(&by, c)?,
+            blueprints: site.blueprint_writes(&by, c)?,
+            code_host: site.code_host_writes(&by, c)?,
+        }),
+        tickets: site.tickets(&by, c)?,
+        blueprints: site.blueprints(&by, c)?,
+        code_host: site.code_host(&by, c)?,
+    })
 }

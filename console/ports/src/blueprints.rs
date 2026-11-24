@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     Account, At, AttachmentId, BlueprintNo, Body, Bound, ChangeToken, Cites, CommentId, Cursor,
-    Depth, Did, Got, Marker, MarkerEdit, Posted, Reports, Revision, Took, WebLink, Whole, Within,
+    Depth, Did, Got, Marker, MarkerEdit, Posted, Relation, Reports, Revision, Took, WebLink, Whole,
+    Within,
 };
 
 /// A blueprint, read to the depth asked.
@@ -25,6 +26,11 @@ pub struct Blueprint {
     pub open: bool,
     /// Who opened it; None where the site names nobody.
     pub author: Option<Account>,
+    /// How its author stands to the project, as the site records it with
+    /// the item; None where the site does not say. Missing, it reads as
+    /// None.
+    #[serde(default)]
+    pub author_relation: Option<Relation>,
     /// The last account to edit the body; None when unedited.
     pub editor: Option<Account>,
     /// When it was opened.
@@ -54,6 +60,7 @@ new!(
     body,
     open,
     author,
+    author_relation,
     editor,
     edited,
     markers,
@@ -217,9 +224,13 @@ new!(BlueprintDelta { next: Cursor }, blueprints, comments, more);
 /// The blueprints port's reads. A handle is bound to one project, one
 /// actor and one caller name.
 pub trait Blueprints: Reports + Cites {
-    /// One blueprint, to the depth asked.
+    /// One blueprint, to the depth asked. A number that names a change,
+    /// where they share one number space, is `NotFound`, never a
+    /// `Blueprint`: a caller that must tell the two apart asks
+    /// `CodeHost::change` after.
     fn blueprint(&mut self, no: BlueprintNo, depth: Depth) -> Got<Blueprint>;
-    /// Several blueprints, each with its own answer.
+    /// Several blueprints, each with its own answer; a change's number is
+    /// `NotFound`, as in `blueprint`.
     fn several(&mut self, nos: &[BlueprintNo], depth: Depth) -> Vec<(BlueprintNo, Got<Blueprint>)>;
     /// A blueprint's comments, whole.
     fn comments(&mut self, no: BlueprintNo, bound: Bound) -> Got<Whole<Comment>>;
@@ -229,6 +240,29 @@ pub trait Blueprints: Reports + Cites {
     fn body_edits(&mut self, no: BlueprintNo, bound: Bound) -> Got<Whole<Edit>>;
     /// The edits of a comment, oldest first.
     fn comment_edits(&mut self, id: &CommentId, bound: Bound) -> Got<Whole<Edit>>;
+    /// The edits of several bodies, one answer for each number in the
+    /// order asked, each what `body_edits` gives for it: one that fails
+    /// fails alone. An adapter that can ask for several in one request
+    /// answers this itself; the default asks one by one (Decided 119).
+    fn body_edits_of(
+        &mut self,
+        nos: &[BlueprintNo],
+        bound: Bound,
+    ) -> Vec<(BlueprintNo, Got<Whole<Edit>>)> {
+        nos.iter()
+            .map(|&no| (no, self.body_edits(no, bound)))
+            .collect()
+    }
+    /// The edits of several comments, as `body_edits_of` for bodies.
+    fn comment_edits_of(
+        &mut self,
+        ids: &[CommentId],
+        bound: Bound,
+    ) -> Vec<(CommentId, Got<Whole<Edit>>)> {
+        ids.iter()
+            .map(|id| (id.clone(), self.comment_edits(id, bound)))
+            .collect()
+    }
     /// The first `first` hits by relevance, with `more`, words only,
     /// escaped by the adapter, as `Tickets::search`.
     fn search(
@@ -241,6 +275,12 @@ pub trait Blueprints: Reports + Cites {
     /// The files the blueprint's text links to on the site's own store, by
     /// the site's rule for its links.
     fn attachments(&mut self, no: BlueprintNo) -> Got<Whole<Attachment>>;
+    /// The files a text links to on the site's own store, by the same
+    /// rule, in the order the text links them, each once: the text of an
+    /// approval record or an accepted reply, not the current body. Pure,
+    /// no request: the ids are those `attachments` gives for a blueprint
+    /// of this text, and a name or size the text does not hold is None.
+    fn attachments_in(&self, text: &str) -> Vec<Attachment>;
     /// One attachment into `into`, at most `limit` bytes.
     fn fetch(&mut self, a: &AttachmentId, limit: u64, into: &mut dyn std::io::Write) -> Did;
     /// Has anything changed since this token.

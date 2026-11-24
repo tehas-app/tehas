@@ -16,6 +16,7 @@ use serde_json::{json, Map, Value};
 use tehas_core::driver::Driver;
 use tehas_core::question::{q_clean, q_render, Kind};
 use tehas_core::text::disarm;
+use tehas_ports::{BlueprintNo, Mark, Marker, MarkerWord, ParkMarker, Sha256, State};
 
 /// What a report asks GitHub, as the bash asks it: each with its tries and
 /// bounds, which are the caller's.
@@ -38,9 +39,22 @@ pub trait Ask {
 pub struct Given(pub Value);
 
 impl Ask for Given {
-    fn prs(&mut self, _branch: &str) -> Option<Vec<Value>> {
+    /// A pull request with no head of its own is on the branch asked, as gh's
+    /// list by head answers.
+    fn prs(&mut self, branch: &str) -> Option<Vec<Value>> {
         match self.0.get("prs") {
-            Some(Value::Array(a)) => Some(a.clone()),
+            Some(Value::Array(a)) => Some(
+                a.iter()
+                    .cloned()
+                    .map(|mut p| {
+                        let head = Value::String(branch.to_string());
+                        if let Some(o) = p.as_object_mut() {
+                            o.entry("headRefName").or_insert(head);
+                        }
+                        p
+                    })
+                    .collect(),
+            ),
             None => Some(vec![]),
             _ => None,
         }
@@ -164,6 +178,9 @@ pub struct Park {
     /// pi-rukas's handoff marker and tehas's park marker.
     pub marker: String,
     pub park_marker: String,
+    /// The park's marker typed, for a write of the ports. The text above
+    /// stays for q_render until T4.7.
+    pub park: Option<ParkMarker>,
     /// The host's line when this park repeats the one before it.
     pub repeat: String,
     /// It ended at child-timeout:develop with no stop: once it is on record
@@ -224,6 +241,21 @@ impl Park {
         (text, body)
     }
 
+    /// [`Park::question`] as a write of the ports takes it: the body as
+    /// q_render writes it, whose sum goes on record, then its text without
+    /// our markers and the markers beside it.
+    pub fn question_parts(&self, issue: u64, stuck: bool) -> Option<(String, String, Vec<Marker>)> {
+        let (_, full) = self.question(issue, stuck);
+        let bare = Park {
+            park_marker: String::new(),
+            ..self.clone()
+        };
+        let (_, rendered) = bare.question(issue, stuck);
+        let (text, markers) =
+            tehas_core::question::q_parts(&rendered, Kind::Park, issue, 1, self.park.clone())?;
+        Some((full, text, markers))
+    }
+
     /// The comment of a park that asks no question: one not on record, or
     /// one whose question could not be posted. It has no boxes.
     pub fn comment(&self, stuck: bool, on_record: bool) -> String {
@@ -253,6 +285,22 @@ impl Park {
             format!("\n\n{}", self.park_marker)
         };
         format!("{marker}{words}{park}")
+    }
+
+    /// [`Park::comment`] as a write of the ports takes it: the text without
+    /// the park's marker, and the marker beside it. A write refuses a text
+    /// with a marker in it, so a park with no typed marker posts its comment
+    /// with none.
+    pub fn comment_parts(&self, stuck: bool, on_record: bool) -> (String, Vec<Marker>) {
+        let said = Park {
+            park_marker: String::new(),
+            ..self.clone()
+        }
+        .comment(stuck, on_record);
+        (
+            said,
+            self.park.clone().map(Marker::Park).into_iter().collect(),
+        )
     }
 
     fn handoff_part(&self) -> String {
@@ -313,11 +361,11 @@ pub const HANDOFF_MARK: &str = "<!-- pi-rukas:handoff ";
 /// One write of the report, in its order.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Action {
-    /// A label change on the issue, tried three times (once after a stop).
+    /// A change of the issue's marks, tried three times (once after a stop).
     /// One that works takes the stuck words out of what follows.
     Relabel {
-        remove: Vec<String>,
-        add: Vec<String>,
+        remove: Vec<Mark>,
+        add: Vec<Mark>,
     },
     /// A comment on the issue: `ok` after a label change that worked,
     /// `stuck` after one that did not.
@@ -456,6 +504,29 @@ fn text(o: &Value, k: &str) -> String {
     }
 }
 
+/// The fields of a park's marker: its step and kind, cut to the marker's
+/// words, whether the model provider failed, and its sig, its free text in
+/// the hash only.
+fn park_fields(
+    step: &str,
+    cap: &str,
+    park_reason: &str,
+    kind: &str,
+    cause: &str,
+) -> (String, String, String) {
+    let low = |s: &str| {
+        cut(
+            &kept(s, |c| {
+                c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'
+            }),
+            40,
+        )
+    };
+    let s = if step == "-" { "" } else { step };
+    let sig = tehas_core::question::park_sig(step, cap, park_reason, kind, cause);
+    (low(s), low(kind), sig)
+}
+
 /// tehas_park_marker: the fields of a park for the millwright, its free
 /// text in the hash only.
 pub fn park_marker(
@@ -467,22 +538,30 @@ pub fn park_marker(
     cause: &str,
     provider: bool,
 ) -> String {
-    let low = |s: &str| {
-        cut(
-            &kept(s, |c| {
-                c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'
-            }),
-            40,
-        )
-    };
-    let s = if step == "-" { "" } else { step };
-    let sig = tehas_core::question::park_sig(step, cap, park_reason, kind, cause);
+    let (s, k, sig) = park_fields(step, cap, park_reason, kind, cause);
     format!(
-        "<!-- tehas:park issue={issue} step={} kind={} provider={} sig={sig} -->",
-        low(s),
-        low(kind),
+        "<!-- tehas:park issue={issue} step={s} kind={k} provider={} sig={sig} -->",
         u8::from(provider)
     )
+}
+
+/// The park's marker as a write of the ports carries it beside the body:
+/// the same fields as [`park_marker`]'s text.
+pub fn park_typed(
+    issue: u64,
+    step: &str,
+    cap: &str,
+    park_reason: &str,
+    kind: &str,
+    cause: &str,
+    provider: bool,
+) -> Option<ParkMarker> {
+    let (s, k, sig) = park_fields(step, cap, park_reason, kind, cause);
+    let mut m = ParkMarker::new(BlueprintNo::new(issue)?, Sha256::new(sig).ok()?);
+    m.step = MarkerWord::new(s).ok()?;
+    m.kind = MarkerWord::new(k).ok()?;
+    m.provider = provider;
+    Some(m)
 }
 
 /// q_park_repeat: the line a repeating park says of itself, in the host's
@@ -577,7 +656,7 @@ pub fn record_image(rec: &Value, attempt: u64) -> (String, String) {
 /// Where the manual explains `.pi/work.json`, for a comment on a product's
 /// issue, which a relative link would not reach.
 const LEAN_SETTINGS_DOC: &str =
-    "https://github.com/tehas-app/tehas/blob/main/host/docs/new-project.md#the-lean-drivers-settings";
+    "https://github.com/tehas-app/tehas-factory/blob/main/host/docs/new-project.md#the-lean-drivers-settings";
 
 /// What the repository must change, when every rule lean declined with is
 /// about the repository's `.pi/work.json` rather than the issue. The result
@@ -1363,6 +1442,15 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         &failure_cause,
         provider,
     );
+    let typed = park_typed(
+        issue,
+        &step,
+        &cap,
+        &park_reason,
+        &failure_kind,
+        &failure_cause,
+        provider,
+    );
     let sig =
         tehas_core::question::park_sig(&step, &cap, &park_reason, &failure_kind, &failure_cause);
     let base = Park {
@@ -1370,6 +1458,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         usage: usage.clone(),
         marker: marker.clone(),
         park_marker: pm,
+        park: typed,
         repeat: if !provider && repeats(f, &sig, &step) {
             repeat_line(&step, &cap)
         } else {
@@ -1413,12 +1502,12 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         }))
     };
     let running = || Action::Relabel {
-        remove: vec!["tehas:running".into()],
+        remove: vec![Mark::State(State::Running)],
         add: vec![],
     };
-    let to = |label: &str| Action::Relabel {
-        remove: vec!["tehas:running".into()],
-        add: vec![label.into()],
+    let to = |state: State| Action::Relabel {
+        remove: vec![Mark::State(State::Running)],
+        add: vec![Mark::State(state)],
     };
     let comment = |body: &dyn Fn(&str) -> String| comment_of(body);
     let log_where = format!(
@@ -1582,7 +1671,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         }
     {
         r.arm = "awaiting-merge";
-        r.actions.push(to("tehas:awaiting-merge"));
+        r.actions.push(to(State::AwaitingMerge));
         r.actions.push(comment(&|s| {
             format!("Tehas cycle finished: {summary}. Pull request waiting for a human: {pr}{killed}{s}")
         }));
@@ -1635,7 +1724,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         status = "closed".into();
     } else if pr.is_empty() && !closed_pr.is_empty() && !never_started {
         r.arm = "pr-closed";
-        r.actions.push(to("needs-human-attention"));
+        r.actions.push(to(State::NeedsPerson));
         r.actions.push(comment(&|s| {
             format!(
                 "{marker_line}{}",
@@ -1644,7 +1733,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         }));
     } else if died_with_open_pr {
         r.arm = "died-with-pr";
-        r.actions.push(to("needs-human-attention"));
+        r.actions.push(to(State::NeedsPerson));
         r.actions.push(comment(&|s| {
             format!(
                 "{marker_line}{}",
@@ -2112,6 +2201,26 @@ mod tests {
     use super::*;
     use serde_json::json;
     use tehas_core::text::has_marker;
+
+    #[test]
+    fn a_park_comment_carries_its_marker_beside_the_text_and_never_in_it() {
+        let p = Park {
+            text: "Stopped.".into(),
+            park_marker: park_marker(7, "develop", "cap", "why", "kind", "cause", false),
+            park: park_typed(7, "develop", "cap", "why", "kind", "cause", false),
+            ..Park::default()
+        };
+        assert!(has_marker(&p.comment(false, true)));
+        let (said, markers) = p.comment_parts(false, true);
+        assert!(!has_marker(&said), "{said}");
+        assert_eq!(markers.len(), 1);
+        // No typed marker: the comment goes without one, not with the text's.
+        let p = Park { park: None, ..p };
+        let (said, markers) = p.comment_parts(false, true);
+        assert!(!has_marker(&said), "{said}");
+        assert!(markers.is_empty());
+        assert!(!said.is_empty());
+    }
 
     #[test]
     fn the_pr_number_is_read_whatever_the_case_and_a_trailing_slash() {

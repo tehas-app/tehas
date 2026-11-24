@@ -3,8 +3,12 @@
 
 mod common;
 
-use common::World;
+use common::{site_of, World};
+use std::sync::Arc;
+use tehas_core::raise::Writer;
+use tehas_cycle::{after, events};
 use tehas_ports::events::{Envelope, Event, Name};
+use tehas_ports::fake::FakeSite;
 
 /// The envelopes the cycle's log listener wrote, in order.
 fn raised(out: &str) -> Vec<Envelope> {
@@ -23,27 +27,61 @@ fn names(all: &[Envelope]) -> Vec<Name> {
 
 #[test]
 fn a_park_raises_its_start_its_park_its_question_and_its_end_in_order() {
+    // The binary: its start first, then the events of its end. The stub gh
+    // takes no note the adapter sends, so its question is shown in process
+    // below.
     let w = World::new("events-park");
     let r = w.run7();
     let all = raised(&r.out);
+    let but_asked: Vec<Name> = names(&all)
+        .into_iter()
+        .filter(|n| *n != Name::QuestionAsked)
+        .collect();
     assert_eq!(
-        names(&all),
-        [
-            Name::CycleStarted,
-            Name::CycleParked,
-            Name::QuestionAsked,
-            Name::CycleEnded
-        ],
+        but_asked,
+        [Name::CycleStarted, Name::CycleParked, Name::CycleEnded],
         "{}",
         r.out
     );
     let line = w.history0();
-    let q = w.row(&["question-list", "--after", "0"])["questions"][0].clone();
     for e in &all {
         match &e.event {
             Event::CycleStarted(p) => {
                 assert_eq!(p.started.secs(), line["started_at"].as_i64().unwrap());
             }
+            Event::CycleParked(p) => assert_eq!(p.at.secs(), line["at"].as_i64().unwrap()),
+            Event::CycleEnded(p) => {
+                assert!(p.parked);
+                assert_eq!(p.ended.secs(), line["at"].as_i64().unwrap());
+                assert_eq!(p.outcome, line["status"].as_str().unwrap());
+            }
+            Event::QuestionAsked(_) => {}
+            other => panic!("{other:?}"),
+        }
+        if e.name() != Name::QuestionAsked {
+            assert_eq!(e.key.as_str(), "7-1");
+        }
+    }
+    // In process: the report asks its question on the fake, its end goes on
+    // record as tehas-cycle records it, and the end raises the park, the
+    // question and the end, in that order.
+    let w = World::new("events-park-asked");
+    let t = w.report_through(&site_of(&w), &FakeSite::new(&site_of(&w)));
+    let end: Vec<&str> = t.end.iter().map(String::as_str).collect();
+    w.store_locked(&end);
+    let d = events::wiring(&w.home, Arc::new(|_| String::new()));
+    let ((), logged) = after::holding(|| events::raise_ended(&d, &w.home, 7, 1, Writer::Report));
+    let all = raised(&logged);
+    assert_eq!(
+        names(&all),
+        [Name::CycleParked, Name::QuestionAsked, Name::CycleEnded],
+        "{logged}"
+    );
+    let line = w.history0();
+    let q = w.row(&["question-list", "--after", "0"])["questions"][0].clone();
+    assert_eq!(w.park_q(), "4002");
+    for e in &all {
+        match &e.event {
             Event::CycleParked(p) => assert_eq!(p.at.secs(), line["at"].as_i64().unwrap()),
             Event::QuestionAsked(p) => {
                 assert_eq!(p.question.get(), q["id"].as_u64().unwrap());
@@ -53,7 +91,6 @@ fn a_park_raises_its_start_its_park_its_question_and_its_end_in_order() {
             Event::CycleEnded(p) => {
                 assert!(p.parked);
                 assert_eq!(p.ended.secs(), line["at"].as_i64().unwrap());
-                assert_eq!(p.outcome, line["status"].as_str().unwrap());
             }
             other => panic!("{other:?}"),
         }

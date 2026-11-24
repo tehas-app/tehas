@@ -21,6 +21,7 @@ use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::Mutex;
+use tehas_ports::{AccountKind, ChangeDigest};
 
 /// Where the pairs are, under the instance's home.
 pub const FILE: &str = crate::home::State::AccountIds.relative();
@@ -231,6 +232,28 @@ pub fn carried(ids: &BTreeMap<String, u64>, old: &str, new: &str) -> Option<BTre
     Some(out)
 }
 
+/// The factory's account as the adapter knows it: the bot's login and the
+/// user id `state/account-ids` records for it, the bot account's and not the
+/// App's. An ids file that cannot be read, or no id for the login, gives no
+/// id: then no account is the factory's own, and a write the site may have
+/// taken is settled as unknown, never sent again.
+pub fn bot(home: &Path) -> (String, Option<u64>) {
+    use crate::home::{Home, State};
+    let login = std::fs::read_to_string(Home::new(home).state(State::BotLogin))
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    let key = folded(account(&login));
+    let id = load(home).ok().and_then(|pairs| {
+        pairs
+            .ids
+            .iter()
+            .find(|(l, _)| folded(account(l)) == key)
+            .map(|(_, id)| *id)
+    });
+    (login, id)
+}
+
 /// The pairs recorded in `home`. An absent file is no pairs, as before the
 /// first record. A file that is there with no pairs is unreadable: it is
 /// written whole or not at all, so it is never empty while it holds pairs.
@@ -375,11 +398,53 @@ impl Accounts {
         }
     }
 
+    /// Why the recorded ids could not be read, when they could not: then no
+    /// listed login counts.
+    pub fn unread(&self) -> Option<&str> {
+        self.unread.as_deref()
+    }
+
     /// Whether `login` with `id` counts as the listed account it names. A
     /// login of no list is no claim to doubt.
     pub fn doubt(&self, login: &str, id: Option<u64>) -> Option<Doubt> {
         let a = self.actor(login, id);
         grant::doubt(self.is_listed(login), a.recorded, a.carried)
+    }
+
+    /// Whether a change counts as the factory's own, the ports' form of
+    /// [`own_pull`]: anyone can open a change from a fork with any branch name
+    /// and any body, so no other one stands for an issue. `from_fork` is the
+    /// site's word that the head is in another project, GitHub's
+    /// `isCrossRepository`; the port gives no head project beside it, so it
+    /// stands for both of own_pull's checks of the head's repository.
+    ///
+    /// The author is the factory's own (`AccountKind::Ours`, which the
+    /// adapter answers only for a bot whose id is the bot's recorded one), or
+    /// a login `allowed` takes, compared as `folded` gives it, whose id is the
+    /// one recorded for it. No recorded id, no id on the account, or a file
+    /// that could not be read: not own.
+    pub fn own_change(&self, c: &ChangeDigest, allowed: impl Fn(&str) -> bool) -> bool {
+        let Some(author) = c.author.as_ref().filter(|_| !c.from_fork) else {
+            return false;
+        };
+        if self.unread.is_some() {
+            return false;
+        }
+        if author.kind == AccountKind::Ours {
+            return true;
+        }
+        let login = account(author.login.as_str());
+        if login.is_empty() || !allowed(login) {
+            return false;
+        }
+        let carried = author
+            .id
+            .as_ref()
+            .and_then(|i| i.as_str().parse::<u64>().ok());
+        match (self.ids.get(&folded(login)), carried) {
+            (Some(recorded), Some(id)) => *recorded == id,
+            _ => false,
+        }
     }
 
     fn is_listed(&self, login: &str) -> bool {
@@ -862,5 +927,131 @@ mod tests {
         assert!(line.contains("alice") && line.contains("66") && line.contains("1001"));
         assert!(line.contains("may have changed hands"));
         assert!(line.contains("If it is the same person, run tehas update --accept-id alice"));
+    }
+
+    /// A change of this project by `login` of `kind` carrying `id`.
+    fn change(login: &str, kind: tehas_ports::AccountKind, id: Option<&str>) -> ChangeDigest {
+        use tehas_ports::{
+            Account, AccountId, At, Branch, ChangeNo, ChangeState, CommitId, Login, Realm, WebLink,
+        };
+        let mut c = ChangeDigest::new(
+            ChangeNo::new(9).unwrap(),
+            ChangeState::Open,
+            Branch::new("feature/issue-7-a").unwrap(),
+            CommitId::new("a".repeat(40)).unwrap(),
+            Branch::new("main").unwrap(),
+            CommitId::new("b".repeat(40)).unwrap(),
+            At::new(1),
+            At::new(1),
+            WebLink::new("https://site.example/c/9").unwrap(),
+        );
+        let mut a = Account::new(Realm::CodeHost, Login::new(login), kind);
+        a.id = id.map(AccountId::new);
+        c.author = Some(a);
+        c
+    }
+
+    fn with_ids(pairs: &[(&str, u64)]) -> Accounts {
+        let ids = pairs.iter().map(|(l, i)| (l.to_string(), *i)).collect();
+        Accounts::new(vec!["alice".into()], ids)
+    }
+
+    #[test]
+    fn a_change_is_own_by_the_factorys_account_or_an_allowed_login_with_its_recorded_id() {
+        use tehas_ports::AccountKind::{Bot, Ours, Person};
+        let accounts = with_ids(&[("alice", 42), ("tehas-bot", 7)]);
+        let allowed = |l: &str| folded(l) == "alice";
+        let own = |c: &ChangeDigest| accounts.own_change(c, allowed);
+        // The factory's own account, as the adapter vouches for it.
+        assert!(own(&change("tehas-bot", Ours, Some("7"))));
+        // An allowed login with its recorded id, in any case.
+        assert!(own(&change("alice", Person, Some("42"))));
+        assert!(own(&change("Alice", Person, Some("42"))));
+        // A fork's change, whoever opened it: its head is in another project.
+        let mut fork = change("alice", Person, Some("42"));
+        fork.from_fork = true;
+        assert!(!own(&fork));
+        let mut ours_fork = change("tehas-bot", Ours, Some("7"));
+        ours_fork.from_fork = true;
+        assert!(!own(&ours_fork));
+        // Another login, allowed or not.
+        assert!(!own(&change("mallory", Person, Some("42"))));
+        // An allowed login with another id, or with none.
+        assert!(!own(&change("alice", Person, Some("43"))));
+        assert!(!own(&change("alice", Person, None)));
+        assert!(!own(&change("alice", Person, Some("not-a-number"))));
+        // The bot's login without the adapter's word that it is the bot's
+        // account: a bot of that name is not the factory.
+        assert!(!own(&change("tehas-bot", Bot, Some("7"))));
+        // No author.
+        let mut nobody = change("alice", Person, Some("42"));
+        nobody.author = None;
+        assert!(!own(&nobody));
+    }
+
+    #[test]
+    fn an_allowed_login_with_no_recorded_id_is_not_own() {
+        let accounts = with_ids(&[("bob", 5)]);
+        let c = change("alice", tehas_ports::AccountKind::Person, Some("42"));
+        assert!(!accounts.own_change(&c, |l| folded(l) == "alice"));
+    }
+
+    #[test]
+    fn while_the_ids_cannot_be_read_no_change_is_own() {
+        let u = Unreadable::whole("is not a regular file", Repair::File);
+        let accounts = Accounts::unreadable(vec!["alice".into()], &u);
+        let allowed = |l: &str| folded(l) == "alice";
+        for c in [
+            change("alice", tehas_ports::AccountKind::Person, Some("42")),
+            change("tehas-bot", tehas_ports::AccountKind::Ours, Some("7")),
+        ] {
+            assert!(!accounts.own_change(&c, allowed), "{c:?}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod bot_tests {
+    use super::bot;
+    use crate::home::{Home, State};
+    use crate::testdir::TestDir;
+    use std::fs;
+
+    fn home_with(login: Option<&str>, ids: Option<&str>) -> TestDir {
+        let d = TestDir::new("accounts-bot");
+        let home = Home::new(d.path());
+        if let Some(l) = login {
+            let p = home.state(State::BotLogin);
+            fs::create_dir_all(p.parent().unwrap()).unwrap();
+            fs::write(p, l).unwrap();
+        }
+        if let Some(i) = ids {
+            let p = home.state(State::AccountIds);
+            fs::create_dir_all(p.parent().unwrap()).unwrap();
+            fs::write(p, i).unwrap();
+        }
+        d
+    }
+
+    /// The adapter knows the factory's account by the bot account's id the
+    /// factory recorded, its key the login GraphQL gives, any case.
+    #[test]
+    fn the_factorys_account_is_the_bots_login_and_its_recorded_id() {
+        let d = home_with(Some("tehas-bot[bot]\n"), Some("alice 42\nTehas-Bot 7\n"));
+        assert_eq!(bot(d.path()), ("tehas-bot[bot]".to_string(), Some(7)));
+    }
+
+    /// No id the factory can stand on: no account is its own, and a write
+    /// the site may have taken settles as unknown.
+    #[test]
+    fn without_a_recorded_id_the_factory_has_no_account_of_its_own() {
+        let none = home_with(Some("tehas-bot[bot]"), Some("alice 42\n"));
+        assert_eq!(bot(none.path()).1, None);
+        let missing = home_with(Some("tehas-bot[bot]"), None);
+        assert_eq!(bot(missing.path()).1, None);
+        let unreadable = home_with(Some("tehas-bot[bot]"), Some("tehas-bot not-a-number\n"));
+        assert_eq!(bot(unreadable.path()).1, None);
+        let no_login = home_with(None, Some("tehas-bot 7\n"));
+        assert_eq!(bot(no_login.path()), (String::new(), None));
     }
 }

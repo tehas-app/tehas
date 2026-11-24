@@ -51,8 +51,10 @@ use std::sync::atomic::AtomicBool;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 use tehas_core::home::{Home, TokenDir};
+use tehas_core::lock::Held;
 use tehas_core::{read_only, settings, time};
 use tehas_cycle::renew;
+use tehas_ports::{Outcome, Passing, Sent, Unread};
 
 const USAGE: &str = "usage: tehasbot github-token [--cycle | --session] [--check] [--login]";
 const ACCEPT: &str = "Accept: application/vnd.github+json";
@@ -105,16 +107,34 @@ fn quoted(value: &str) -> String {
         .replace('\r', "\\r")
 }
 
-/// curl's answer, when it exits 0, else why not: `HTTP <status>` or curl's own
-/// words. The bearer goes on standard input.
-fn curl_why(bearer: &str, flags: &[&str], url: &str) -> Result<Vec<u8>, String> {
+/// curl's answer, when it exits 0, else the outcome that stopped it. The
+/// bearer goes on standard input.
+fn curl_why(bearer: &str, flags: &[&str], url: &str) -> Result<Vec<u8>, Outcome> {
     let config = format!("header = \"Authorization: Bearer {}\"\n", quoted(bearer));
-    curl_config(&config, flags, Some(url))
+    let sent = if flags.contains(&"POST") {
+        Sent::Maybe
+    } else {
+        Sent::No
+    };
+    curl_config(&config, flags, Some(url), sent)
 }
 
 /// curl with `config` on its standard input; the URL there too when `url`
-/// is None.
-fn curl_config(config: &str, flags: &[&str], url: Option<&str>) -> Result<Vec<u8>, String> {
+/// is None. A failure is an outcome of `crate::curl`: curl's words are not
+/// kept, and a curl that cannot run is said on standard error.
+fn curl_config(
+    config: &str,
+    flags: &[&str],
+    url: Option<&str>,
+    sent: Sent,
+) -> Result<Vec<u8>, Outcome> {
+    let unrun = |e: io::Error| {
+        eprintln!("tehas: curl cannot run: {e}");
+        Outcome::Unavailable {
+            why: Passing::Unreachable,
+            sent: Sent::No,
+        }
+    };
     let mut child = Command::new("curl")
         .args(["-fsS", "--max-time", "30", "-K", "-"])
         .args(flags)
@@ -124,23 +144,16 @@ fn curl_config(config: &str, flags: &[&str], url: Option<&str>) -> Result<Vec<u8
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| format!("curl cannot run: {e}"))?;
+        .map_err(unrun)?;
     if let Some(mut stdin) = child.stdin.take() {
         let _ = stdin.write_all(config.as_bytes());
     }
-    let out = child
-        .wait_with_output()
-        .map_err(|e| format!("curl did not finish: {e}"))?;
+    let out = child.wait_with_output().map_err(unrun)?;
     if out.status.success() {
         return Ok(out.stdout);
     }
     let said = String::from_utf8_lossy(&out.stderr);
-    let said = said.trim();
-    Err(match said.rsplit_once("returned error: ") {
-        Some((_, status)) => format!("HTTP {}", status.trim()),
-        None if said.is_empty() => format!("curl failed ({})", out.status),
-        None => said.replace('\n', " "),
-    })
+    Err(crate::curl::failed(out.status.code(), &said, sent))
 }
 
 /// GitHub's answer to POST /app-manifests/{code}/conversions, which needs no
@@ -151,7 +164,7 @@ pub fn convert_manifest(code: &str) -> Result<Vec<u8>, String> {
         "url = \"{}\"\nrequest = \"POST\"\n",
         quoted(&format!("{}/app-manifests/{code}/conversions", api()))
     );
-    curl_config(&config, &[], None)
+    curl_config(&config, &[], None, Sent::Maybe).map_err(|o| o.line().to_string())
 }
 
 /// Whether a GitHub account is an organisation, from GET /users/{login}.
@@ -160,8 +173,9 @@ pub fn is_org(login: &str) -> Result<bool, String> {
         "url = \"{}\"\n",
         quoted(&format!("{}/users/{login}", api()))
     );
-    let answer: Value = serde_json::from_slice(&curl_config(&config, &[], None)?)
-        .map_err(|_| "its answer was not JSON".to_string())?;
+    let answer = curl_config(&config, &[], None, Sent::No).map_err(|o| o.line().to_string())?;
+    let answer: Value =
+        serde_json::from_slice(&answer).map_err(|_| "its answer was not JSON".to_string())?;
     match answer["type"].as_str() {
         Some(kind) => Ok(kind == "Organization"),
         None => Err("its answer named no account type".to_string()),
@@ -277,13 +291,13 @@ impl App {
                 serde_json::from_slice::<Value>(&answer)
                     .ok()
                     .and_then(|answer| answer["id"].as_u64())
-                    .ok_or_else(|| "its answer held no installation id".to_string())
+                    .ok_or(Outcome::Unread(Unread::Malformed))
             },
         );
         let id = match found {
             Ok(id) => id,
             Err(why) => {
-                let slug = (why == "HTTP 404")
+                let slug = (why == Outcome::NotFound)
                     .then(|| self.login(dir))
                     .flatten()
                     .map(|l| l.trim_end_matches("[bot]").to_string());
@@ -352,13 +366,18 @@ impl App {
     }
 
     /// How many installations the app has, from GET /app/installations, or
-    /// why GitHub did not say (`HTTP <status>` for a refusal).
-    pub fn installations(&self) -> Result<usize, String> {
+    /// why GitHub did not say. None when GitHub does not know the app yet: a
+    /// new app may not be known everywhere at once.
+    pub fn installations(&self) -> Result<Option<usize>, String> {
         let jwt = self.jwt().ok_or("the app's token could not be signed")?;
-        let answer = curl_why(&jwt, &[], &format!("{}/app/installations", api()))?;
+        let answer = match curl_why(&jwt, &[], &format!("{}/app/installations", api())) {
+            Ok(answer) => answer,
+            Err(Outcome::NotFound) => return Ok(None),
+            Err(why) => return Err(why.line().to_string()),
+        };
         serde_json::from_slice::<Value>(&answer)
             .ok()
-            .and_then(|a| a.as_array().map(Vec::len))
+            .and_then(|a| a.as_array().map(|a| Some(a.len())))
             .ok_or_else(|| "its answer held no list of installations".to_string())
     }
 
@@ -366,7 +385,8 @@ impl App {
     /// /repos/{repo}/installation; why not when it is not.
     pub fn reaches(&self, repo: &str) -> Result<(), String> {
         let jwt = self.jwt().ok_or("the app's token could not be signed")?;
-        let answer = curl_why(&jwt, &[], &format!("{}/repos/{repo}/installation", api()))?;
+        let answer = curl_why(&jwt, &[], &format!("{}/repos/{repo}/installation", api()))
+            .map_err(|o| o.line().to_string())?;
         serde_json::from_slice::<Value>(&answer)
             .ok()
             .and_then(|a| a["id"].as_u64())
@@ -396,11 +416,14 @@ fn digits(word: &str) -> bool {
 /// What is said when the installation on `repo` was not found: that the app
 /// is not installed there for a 404 alone, and for any other failure that it
 /// could not be looked up, and why.
-fn not_found(repo: &str, slug: Option<&str>, why: &str) -> String {
-    if why == "HTTP 404" {
+fn not_found(repo: &str, slug: Option<&str>, why: &Outcome) -> String {
+    if *why == Outcome::NotFound {
         not_installed(repo, slug)
     } else {
-        format!("tehas: could not find the GitHub App's installation on {repo}: {why}")
+        format!(
+            "tehas: could not find the GitHub App's installation on {repo}: {}",
+            why.line()
+        )
     }
 }
 
@@ -526,15 +549,17 @@ fn keep(dir: &Path, token: &str, until: i64, read_only: Option<bool>) -> bool {
     kept
 }
 
-fn wait_for(lock: &File, wait: Duration) -> bool {
+/// The lock of `lock`, waited for up to `wait`, held until the value drops.
+fn wait_for(mut lock: File, wait: Duration) -> Option<Held> {
     let started = Instant::now();
     loop {
-        match lock.try_lock() {
-            Ok(()) => return true,
-            Err(TryLockError::WouldBlock) if started.elapsed() < wait => {
+        match Held::try_take(lock) {
+            Ok(held) => return Some(held),
+            Err((TryLockError::WouldBlock, back)) if started.elapsed() < wait => {
+                lock = back;
                 sleep(Duration::from_millis(50));
             }
-            Err(_) => return false,
+            Err(_) => return None,
         }
     }
 }
@@ -589,10 +614,10 @@ fn token(app: &App, dir: &Path, lookup: &Path, repo: &str, narrow: Option<&str>)
             return None;
         }
     };
-    if !wait_for(&lock, LOCK_WAIT) {
+    let Some(_held) = wait_for(lock, LOCK_WAIT) else {
         eprintln!("tehas: another command is making the GitHub token");
         return None;
-    }
+    };
     // Another command may have made one while this one waited.
     if let Some(token) = kept(dir, time::now() + LEFT, read_only) {
         return Some(token);
@@ -1008,11 +1033,10 @@ mod tests {
                 .open(d.join("lock"))
                 .unwrap()
         };
-        let (held, waiting) = (open(), open());
-        assert!(wait_for(&held, Duration::ZERO));
-        assert!(!wait_for(&waiting, Duration::from_millis(100)));
-        held.unlock().unwrap();
-        assert!(wait_for(&waiting, Duration::ZERO));
+        let held = wait_for(open(), Duration::ZERO).unwrap();
+        assert!(wait_for(open(), Duration::from_millis(100)).is_none());
+        drop(held);
+        assert!(wait_for(open(), Duration::ZERO).is_some());
     }
 
     #[test]
@@ -1351,18 +1375,29 @@ mod tests {
     }
 
     #[test]
-    fn only_a_404_says_the_app_is_not_installed() {
-        let said = not_found("acme/widget", Some("acme-factory"), "HTTP 404");
+    fn only_not_found_says_the_app_is_not_installed() {
+        let said = not_found("acme/widget", Some("acme-factory"), &Outcome::NotFound);
         assert!(said.contains("is not installed on acme/widget"), "{said}");
         assert!(
             said.contains("/apps/acme-factory/installations/new"),
             "{said}"
         );
-        for why in ["HTTP 500", "HTTP 401", "Could not resolve host: x"] {
-            let said = not_found("acme/widget", None, why);
+        for why in [
+            Outcome::SignedOut,
+            Outcome::Unavailable {
+                why: Passing::Unreachable,
+                sent: Sent::No,
+            },
+        ] {
+            let said = not_found("acme/widget", None, &why);
             assert!(!said.contains("not installed"), "{said}");
-            assert!(said.contains("could not find"), "{said}");
-            assert!(said.contains("acme/widget") && said.contains(why), "{said}");
+            assert_eq!(
+                said,
+                format!(
+                    "tehas: could not find the GitHub App's installation on acme/widget: {}",
+                    why.line()
+                )
+            );
         }
     }
 
@@ -1377,7 +1412,7 @@ mod tests {
             (convert_manifest("abc123"), convert_manifest("other"))
         });
         assert_eq!(made, Ok(br#"{"id":9,"slug":"acme-factory"}"#.to_vec()));
-        assert_eq!(again, Err("HTTP 404".to_string()));
+        assert_eq!(again, Err(Outcome::NotFound.line().to_string()));
         assert_eq!(f.count("POST /app-manifests/abc123/conversions"), 1);
     }
 
@@ -1388,7 +1423,14 @@ mod tests {
             ("GET /users/alice", 200, r#"{"type":"User"}"#),
         ]);
         let got = against(&f, || (is_org("acme"), is_org("alice"), is_org("ghost")));
-        assert_eq!(got, (Ok(true), Ok(false), Err("HTTP 404".to_string())));
+        assert_eq!(
+            got,
+            (
+                Ok(true),
+                Ok(false),
+                Err(Outcome::NotFound.line().to_string())
+            )
+        );
     }
 
     #[test]
@@ -1403,7 +1445,23 @@ mod tests {
                 app.installations(),
             )
         });
-        assert_eq!(got, (Ok(()), Err("HTTP 404".to_string()), Ok(1)));
+        assert_eq!(
+            got,
+            (
+                Ok(()),
+                Err(Outcome::NotFound.line().to_string()),
+                Ok(Some(1))
+            )
+        );
+    }
+
+    // A new app may not be known everywhere at once: setup waits on it.
+    #[test]
+    fn an_app_github_does_not_know_yet_has_no_installations_to_count() {
+        let d = dir("installations-unknown");
+        let app = app_of(&d);
+        let f = fake(&[]);
+        assert_eq!(against(&f, || app.installations()), Ok(None));
     }
 
     // tehas setup stops at a refusal rather than wait ten minutes on it.
@@ -1414,26 +1472,49 @@ mod tests {
         let f = fake(&[("GET /app/installations", 401, "{}")]);
         assert_eq!(
             against(&f, || app.installations()),
-            Err("HTTP 401".to_string())
+            Err(Outcome::SignedOut.line().to_string())
         );
     }
 
     #[test]
-    fn curl_says_the_status_of_a_refusal() {
-        let f = fake(&[("GET /ok", 200, "{}"), ("GET /down", 500, "{}")]);
-        let (ok, down, gone) = against(&f, || {
+    fn curl_says_the_outcome_of_a_refusal_in_our_words() {
+        let f = fake(&[
+            ("GET /ok", 200, "{}"),
+            ("GET /down", 500, "{}"),
+            ("POST /down", 500, "{}"),
+        ]);
+        let (ok, down, gone, wrote) = against(&f, || {
             let url = |p: &str| format!("{}{p}", api());
             (
                 curl_why("t", &[], &url("/ok")),
                 curl_why("t", &[], &url("/down")),
                 curl_why("t", &[], &url("/missing")),
+                curl_why("t", &["-X", "POST"], &url("/down")),
             )
         });
+        assert_eq!(
+            wrote,
+            Err(Outcome::Unavailable {
+                why: Passing::Server,
+                sent: Sent::Maybe
+            })
+        );
         assert_eq!(ok, Ok(b"{}".to_vec()));
-        assert_eq!(down, Err("HTTP 500".to_string()));
-        assert_eq!(gone, Err("HTTP 404".to_string()));
-        let dead = curl_why("t", &[], "http://127.0.0.1:1/x").unwrap_err();
-        assert!(!dead.starts_with("HTTP"), "{dead}");
+        assert_eq!(
+            down,
+            Err(Outcome::Unavailable {
+                why: Passing::Server,
+                sent: Sent::No
+            })
+        );
+        assert_eq!(gone, Err(Outcome::NotFound));
+        assert_eq!(
+            curl_why("t", &[], "http://127.0.0.1:1/x"),
+            Err(Outcome::Unavailable {
+                why: Passing::Unreachable,
+                sent: Sent::No
+            })
+        );
     }
 
     #[test]

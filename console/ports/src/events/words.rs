@@ -223,12 +223,18 @@ impl QuestionNo {
 
 /// One choice of a question, in the words `tehas answer` takes.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct QuestionChoice {
     /// The word a reply or `tehas answer` gives.
     pub choice: String,
     /// What the choice does, for a person.
     pub label: String,
 }
+
+new!(QuestionChoice {
+    choice: String,
+    label: String
+});
 
 /// How the factory's limit stands, as `tehas limit --json` says.
 /// Exhaustive.

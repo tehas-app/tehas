@@ -112,6 +112,13 @@ pub struct GitHub {
     pub(crate) now: fn() -> i64,
     /// Mark names the site gave that no mark can have, not yet taken.
     pub(crate) left_out: Vec<String>,
+    /// The factory's own account, given by the site that made this handle:
+    /// None for a handle made with [`GitHub::new`], which answers no account
+    /// `Ours`.
+    pub(crate) bot: Option<crate::tickets::Bot>,
+    /// The node id and the issue of each comment a read of comments found
+    /// edited, by its REST id: an edit history is asked by node id.
+    pub(crate) comment_nodes: std::collections::HashMap<u64, (String, tehas_ports::BlueprintNo)>,
 }
 
 impl GitHub {
@@ -128,6 +135,8 @@ impl GitHub {
             runner,
             now: tehas_core::time::now,
             left_out: Vec::new(),
+            bot: None,
+            comment_nodes: std::collections::HashMap::new(),
         }
     }
 
@@ -137,7 +146,7 @@ impl GitHub {
         GitHub { now, ..self }
     }
 
-    /// The names the site gave that no mark can have, each once, since the
+    /// The names the site gave that no mark or kind can have, each once, since the
     /// last take: for the caller to report (Decided 61).
     pub fn take_left_out(&mut self) -> Vec<String> {
         std::mem::take(&mut self.left_out)
@@ -152,6 +161,32 @@ impl GitHub {
         }
     }
 
+    /// [`GitHub::call`] with `input` on gh's standard input, the way a write
+    /// sends its text: never in an argument.
+    pub(crate) fn call_input(
+        &mut self,
+        call: &str,
+        args: &[&str],
+        input: &str,
+    ) -> Result<String, ForgeError> {
+        self.runner
+            .run_input(args, input)
+            .map_err(|why| ForgeError::new(call, why))
+    }
+
+    /// [`GitHub::call`], and on a failure what gh answered beside its
+    /// reason: gh exits 1 on any GraphQL error and prints the answer, which
+    /// a question of several items reads item by item.
+    pub(crate) fn call_answer(
+        &mut self,
+        call: &str,
+        args: &[&str],
+    ) -> Result<String, (ForgeError, Option<String>)> {
+        self.runner
+            .run_answer(args)
+            .map_err(|f| (ForgeError::new(call, f.why), f.answer))
+    }
+
     /// The reason of a read that is no answer, named after the read the
     /// adapter was making: the reader's words, kept whole.
     fn reason_of(why: String) -> ForgeError {
@@ -159,7 +194,7 @@ impl GitHub {
     }
 
     /// The `-F` fields of a GraphQL question of the repository.
-    fn owner_name(&self) -> (String, String) {
+    pub(crate) fn owner_name(&self) -> (String, String) {
         let (o, n) = self.repo.split_once('/').unwrap_or((&self.repo, ""));
         (format!("owner={o}"), format!("name={n}"))
     }

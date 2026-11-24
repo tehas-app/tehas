@@ -174,6 +174,12 @@ Releases are read from the repository built into tehas, the
 An instance may name another, owner/name on GitHub, with `TEHAS_RELEASE_REPO`
 in `instance.env`. The `versions.env` on the host is not read for it: a
 release writes that file, so it cannot choose where the next one comes from.
+The repository was `tehas-app/tehas` before 2.0. An instance that still
+names it updates from it while GitHub redirects the old name, and each
+update, `--check` included, says `release: the repository tehas-app/tehas
+is now tehas-app/tehas-factory`: remove the line or name the new one. An
+update from the checkout says the same of its `origin`, as "From the
+checkout" says.
 The list and the download use `gh` when it is signed in, which
 reaches a private repository with the bot's token, and `curl` from the public
 address otherwise.
@@ -275,10 +281,8 @@ records ignoring case too: a pair of the login in another case is its pair, so a
 case in the settings meets the check below, and the recorded pair is kept
 under the login as the settings write it, in place of every other case.
 
-Which logins are allowed is matched ignoring ASCII case by `tehas resume`,
-`tehas plan`, `tehas dev` and a cycle started by hand. The dispatcher still
-matches `TEHAS_ALLOWED_LABELERS` in exact case, so write each login there as
-GitHub spells it.
+Which logins are allowed is matched ignoring ASCII case, by the dispatcher
+as by `tehas resume`, `tehas plan`, `tehas dev` and a cycle started by hand.
 
 - A login that does not resolve stops `install.sh` and `tehas update` with 78
   and names it. Take it out of the settings or correct it.
@@ -338,6 +342,13 @@ is updated, because nothing reaches it without a person: a checkout on another
 branch, or one whose `origin/HEAD` is not set, changes nothing and exits 1. To
 install another branch, run `./install.sh` in the checkout by hand.
 `git remote set-head origin --auto` sets `origin/HEAD`.
+
+When the URL of the checkout's `origin` names `tehas-app/tehas` on GitHub,
+the name the repository had before 2.0, the update still fetches from it
+while GitHub redirects the old name, and each run, `--check` included, says
+`checkout: the repository tehas-app/tehas is now tehas-app/tehas-factory`,
+naming the checkout whose origin still names the old one: set its URL to the
+new one. The URL is read as written, and the update never rewrites it.
 
 While `~/tehas/state/update-hold` exists it changes nothing and exits 1, naming
 the file; `--check` says the hold is there and reports as usual. The file is

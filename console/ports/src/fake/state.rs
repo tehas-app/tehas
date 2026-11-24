@@ -7,9 +7,9 @@ use std::sync::{Mutex, MutexGuard};
 use crate::{
     Account, AccountKind, Actor, At, Attachment, BlueprintNo, Branch, ChangeEvent, ChangeNo,
     ChangeState, ChangedFile, Check, CloseReason, Closer, CommentId, CommitId, DeployCredential,
-    Edit, GrantId, Item, KeyText, Kind, Mark, MarkSpec, Marker, Mergeable, PersonKey, Priority,
-    ProjectName, Proposal, Realm, Release, RepoPath, Review, Scope, SignInCode, Standing, Status,
-    Tag, TagName, Target, TargetId, TicketEvent, TicketKey, Token, WebLink,
+    Edit, GrantId, Item, KeyText, Kind, Mark, MarkId, MarkSpec, Marker, Mergeable, PersonKey,
+    Priority, ProjectName, Proposal, Realm, Release, RepoPath, Review, Scope, SignInCode, Standing,
+    Status, Tag, TagName, Target, TargetId, TicketEvent, TicketKey, Token, WebLink,
 };
 
 use super::world::{Wrote, FACTORY, KEY_PREFIX, OPERATOR};
@@ -86,6 +86,7 @@ pub(crate) struct ChangeRec {
     pub head: Branch,
     pub head_commit: CommitId,
     pub base: Branch,
+    pub base_commit: CommitId,
     pub author: Option<Account>,
     pub draft: bool,
     pub merge_state: Mergeable,
@@ -111,6 +112,9 @@ pub(crate) struct CommitRec {
     pub files: Vec<(RepoPath, Vec<u8>)>,
 }
 
+/// Where the fake's store keeps a file, under its site.
+const FILES: &str = "files/";
+
 /// An account of the world, by login, in every realm it serves.
 #[derive(Debug, Clone)]
 pub(crate) struct AccountRec {
@@ -119,6 +123,8 @@ pub(crate) struct AccountRec {
     pub standing: Standing,
     pub assignable: bool,
     pub organisation: bool,
+    /// How it stands to the project, as an item it wrote records it.
+    pub relation: crate::Relation,
 }
 
 /// A release and the bytes of its files.
@@ -152,12 +158,18 @@ pub(crate) struct State {
     pub targets: Vec<Target>,
     pub kinds: Vec<Kind>,
     pub prepared: bool,
+    /// The factory's marks made one at a time.
+    pub prepared_marks: Vec<Mark>,
     pub project_marks: Vec<MarkSpec>,
+    /// Each mark's id by the name the site gives it now. An id is made at
+    /// first sight and a rename keeps it, as a site's label ids do.
+    pub mark_ids: Vec<(String, MarkId)>,
     pub commits: Vec<CommitRec>,
     pub branches: Vec<(Branch, CommitId)>,
     pub tags: Vec<Tag>,
     pub releases: Vec<ReleaseRec>,
-    pub checks: Vec<(CommitId, Check)>,
+    /// Each check run, with the App that ran it.
+    pub checks: Vec<(CommitId, String, Check)>,
     pub statuses: Vec<(CommitId, Status)>,
     pub links: Vec<(TicketKey, BlueprintNo)>,
     pub proposals: Vec<ProposalRec>,
@@ -166,6 +178,14 @@ pub(crate) struct State {
     pub given: Vec<(PersonKey, Scope, Token)>,
     pub signed_out: Vec<PersonKey>,
     pub sign_ins: Vec<(SignInCode, String, bool)>,
+    /// A person may sign in: false for a site with no client for people.
+    pub sign_in_on: bool,
+    /// `Tickets::count` can express `Filter::carrying_any`: false for a
+    /// site whose count cannot say "at least one of".
+    pub count_any_on: bool,
+    /// `CodeHost::checks` keeps the newest run of each name, whatever its
+    /// App: true for a site that collapses runs across Apps.
+    pub checks_collapse_apps: bool,
     pub grant: GrantId,
     pub grant_projects: Vec<ProjectName>,
     pub wrote: Vec<Wrote>,
@@ -198,6 +218,60 @@ fn link(path: String) -> WebLink {
 }
 
 impl State {
+    /// The id of a mark, made at first sight; None for a mark that names
+    /// no word. Not made from the name, so a rename keeps it.
+    pub(crate) fn mark_id(&mut self, mark: &Mark) -> Option<MarkId> {
+        let name = super::site::mark_name(mark);
+        if name.is_empty() {
+            return None;
+        }
+        if let Some((_, id)) = self.mark_ids.iter().find(|(n, _)| *n == name) {
+            return Some(id.clone());
+        }
+        let id = MarkId::new(format!("mark-{}", self.mark_ids.len() + 1));
+        self.mark_ids.push((name, id.clone()));
+        Some(id)
+    }
+
+    /// Renames the mark `from` to `to` where the site holds it: its id
+    /// stays, and every item, change and event that names it names `to`,
+    /// as a site's label events give a label's current name.
+    pub(crate) fn rename_mark(&mut self, from: &Mark, to: &Mark) {
+        let id = self.mark_id(from);
+        let (old, new) = (super::site::mark_name(from), super::site::mark_name(to));
+        self.mark_ids.retain(|(n, _)| *n != new && *n != old);
+        if let Some(id) = id {
+            self.mark_ids.push((new, id));
+        }
+        let rename = |m: &mut Mark| {
+            if m == from {
+                *m = to.clone();
+            }
+        };
+        for item in &mut self.items {
+            item.marks.iter_mut().for_each(rename);
+            for e in &mut item.history {
+                if let crate::Happened::Marked(m) | crate::Happened::Unmarked(m) = &mut e.what {
+                    rename(m);
+                }
+            }
+        }
+        for c in &mut self.changes {
+            c.marks.iter_mut().for_each(rename);
+        }
+        if let Mark::Project(name) = from {
+            let spec = self.project_marks.iter().position(|m| m.name == *name);
+            if let Some(at) = spec {
+                match to {
+                    Mark::Project(to) => self.project_marks[at].name = to.clone(),
+                    _ => {
+                        self.project_marks.remove(at);
+                    }
+                }
+            }
+        }
+    }
+
     pub(crate) fn new(layout: Layout) -> Self {
         let (blueprints, changes) = match layout {
             Layout::SameItem => (1, 1),
@@ -217,7 +291,9 @@ impl State {
             targets: Vec::new(),
             kinds: vec![Kind::Feature, Kind::Bug, Kind::Task, Kind::Epic],
             prepared: false,
+            prepared_marks: Vec::new(),
             project_marks: Vec::new(),
+            mark_ids: Vec::new(),
             commits: Vec::new(),
             branches: Vec::new(),
             tags: Vec::new(),
@@ -231,6 +307,9 @@ impl State {
             given: Vec::new(),
             signed_out: Vec::new(),
             sign_ins: Vec::new(),
+            sign_in_on: true,
+            count_any_on: true,
+            checks_collapse_apps: false,
             grant: GrantId::new("grant-1"),
             grant_projects: Vec::new(),
             wrote: Vec::new(),
@@ -263,6 +342,7 @@ impl State {
                 standing,
                 assignable: standing != Standing::None,
                 organisation: false,
+                relation: crate::Relation::Outside,
             }),
         }
     }
@@ -288,6 +368,63 @@ impl State {
             id: Some(account_id(login, realm)),
             kind,
         }
+    }
+
+    /// How the author of an item stands to the project: `Outside` for an
+    /// account the world gave no relation; None for no author.
+    pub fn relation_of(&self, author: Option<&Account>) -> Option<crate::Relation> {
+        let login = author?.login.as_str();
+        Some(
+            self.accounts
+                .iter()
+                .find(|a| a.login == login)
+                .map_or(crate::Relation::Outside, |a| a.relation),
+        )
+    }
+
+    /// A file on the site's store, linked from the end of the item's text
+    /// on a line of its own, as a person pastes it.
+    pub fn attach(&mut self, at: usize, name: Option<String>, bytes: Vec<u8>) {
+        let id = crate::AttachmentId::new(self.fresh_id("file"));
+        let link = super::site::web(&format!("{FILES}{}", id.as_str()));
+        let item = &mut self.items[at];
+        if !item.text.is_empty() {
+            item.text.push('\n');
+        }
+        item.text.push_str(link.as_str());
+        let mut a = Attachment::new(id, link);
+        a.name = name;
+        a.size = Some(bytes.len() as u64);
+        item.attachments.push((a, bytes));
+    }
+
+    /// The files a text links to on the fake's store, in the order it
+    /// links them, each once: a name and size from the world where it
+    /// holds the file.
+    pub fn attachments_in(&self, text: &str) -> Vec<Attachment> {
+        let prefix = super::site::web(FILES);
+        let mut found: Vec<Attachment> = Vec::new();
+        for word in text.split(|c: char| c.is_whitespace() || "()<>[]\"'".contains(c)) {
+            let Some(id) = word.strip_prefix(prefix.as_str()) else {
+                continue;
+            };
+            if id.is_empty() || found.iter().any(|a| a.id.as_str() == id) {
+                continue;
+            }
+            let held = self
+                .items
+                .iter()
+                .flat_map(|i| i.attachments.iter())
+                .find(|(a, _)| a.id.as_str() == id)
+                .map(|(a, _)| a.clone());
+            found.push(held.unwrap_or_else(|| {
+                Attachment::new(
+                    crate::AttachmentId::new(id),
+                    super::site::web(&format!("{FILES}{id}")),
+                )
+            }));
+        }
+        found
     }
 
     /// The login an account id names in a realm, if the world has it.
@@ -372,9 +509,17 @@ impl State {
             Some((_, c)) => *c = at.clone(),
             None => self.branches.push((name.clone(), at.clone())),
         }
-        for change in &mut self.changes {
+        let tips: Vec<Option<CommitId>> = self
+            .changes
+            .iter()
+            .map(|c| self.branch_at(&c.base))
+            .collect();
+        for (change, tip) in self.changes.iter_mut().zip(tips) {
             if change.head == *name && change.state == ChangeState::Open {
                 change.head_commit = at.clone();
+                if let Some(tip) = tip {
+                    change.base_commit = tip;
+                }
             }
         }
     }

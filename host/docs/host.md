@@ -2236,6 +2236,6 @@ nothing an earlier cycle could have left in it remains:
 
 ```
 mv ~/tehas/repos/tehas ~/tehas/repos/tehas.old
-git clone https://github.com/tehas-app/tehas.git ~/tehas/repos/tehas
+git clone https://github.com/tehas-app/tehas-factory.git ~/tehas/repos/tehas
 ./install.sh
 ```

@@ -88,4 +88,4 @@ it before relying on anything here.
 
 - [A new project](/new-project): installing tehas for another repository.
 - [Overview](/overview): how an issue flows through the factory.
-- Source: [github.com/tehas-app/tehas](https://github.com/tehas-app/tehas).
+- Source: [github.com/tehas-app/tehas-factory](https://github.com/tehas-app/tehas-factory).

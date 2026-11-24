@@ -92,6 +92,8 @@ fn change(no: u64, state: ChangeState, closes: Vec<Ref<BlueprintNo>>) -> ChangeD
             Branch::new("work").unwrap(),
             CommitId::new("abc1234").unwrap(),
             Branch::new("main").unwrap(),
+            CommitId::new("abc1230").unwrap(),
+            At::new(0),
             At::new(0),
             link(),
         );
@@ -106,7 +108,7 @@ fn merged() -> ChangeState {
     ChangeState::Merged {
         at: At::new(1),
         by: None,
-        commit: CommitId::new("def5678").unwrap(),
+        commit: Some(CommitId::new("def5678").unwrap()),
     }
 }
 
@@ -160,6 +162,9 @@ impl Cites for StubTickets {
     fn cite(&self, _: &Cite) -> String {
         String::new()
     }
+    fn link(&self, _: &Cite) -> Option<WebLink> {
+        None
+    }
 }
 
 impl Tickets for StubTickets {
@@ -203,9 +208,30 @@ impl Tickets for StubTickets {
         listed.extend(self.unread.iter().map(|k| digest(k.clone(), true)));
         Ok(Whole::new(listed))
     }
+    fn recent(&mut self, _: &Filter, _: NonZeroU32) -> Got<Took<TicketDigest>> {
+        unreachable!()
+    }
+    fn recently_closed(&mut self, _: NonZeroU32) -> Got<Took<ClosedTicket>> {
+        unreachable!()
+    }
+    fn count(&mut self, _: &Filter) -> Got<u64> {
+        unreachable!()
+    }
     fn several(&mut self, keys: &[TicketKey]) -> Vec<(TicketKey, Got<TicketDigest>)> {
         keys.iter()
             .map(|k| (k.clone(), self.find(k).map(|t| t.digest)))
+            .collect()
+    }
+    fn several_with_closers(&mut self, keys: &[TicketKey]) -> Vec<(TicketKey, Got<WithCloser>)> {
+        keys.iter()
+            .map(|k| {
+                let with = self.find(k).map(|t| {
+                    let mut with = WithCloser::new(t.digest);
+                    with.closer = t.closer;
+                    with
+                });
+                (k.clone(), with)
+            })
             .collect()
     }
     fn history(
@@ -294,6 +320,9 @@ impl Tickets for StubTickets {
     fn kinds(&mut self) -> Got<Whole<Kind>> {
         Err(unsupported())
     }
+    fn marks(&mut self, _: Bound) -> Got<Whole<MarkHeld>> {
+        Err(unsupported())
+    }
     fn targets(&mut self, _: Bound) -> Got<Whole<Target>> {
         Err(unsupported())
     }
@@ -334,6 +363,9 @@ impl Cites for StubBlueprints {
     fn cite(&self, _: &Cite) -> String {
         String::new()
     }
+    fn link(&self, _: &Cite) -> Option<WebLink> {
+        None
+    }
 }
 
 impl Blueprints for StubBlueprints {
@@ -369,6 +401,9 @@ impl Blueprints for StubBlueprints {
     fn attachments(&mut self, _: BlueprintNo) -> Got<Whole<Attachment>> {
         Err(unsupported())
     }
+    fn attachments_in(&self, _: &str) -> Vec<Attachment> {
+        Vec::new()
+    }
     fn fetch(&mut self, _: &AttachmentId, _: u64, _: &mut dyn std::io::Write) -> Did {
         Err(unsupported())
     }
@@ -401,6 +436,9 @@ impl Reports for StubCodeHost {
 impl Cites for StubCodeHost {
     fn cite(&self, _: &Cite) -> String {
         String::new()
+    }
+    fn link(&self, _: &Cite) -> Option<WebLink> {
+        None
     }
 }
 
@@ -477,6 +515,12 @@ impl CodeHost for StubCodeHost {
         Err(unsupported())
     }
     fn resolve_tag(&mut self, _: &TagName) -> Got<CommitId> {
+        Err(unsupported())
+    }
+    fn recent_tags(&mut self, _: NonZeroU32) -> Got<Took<Tag>> {
+        Err(unsupported())
+    }
+    fn recent_releases(&mut self, _: NonZeroU32) -> Got<Took<Release>> {
         Err(unsupported())
     }
     fn releases(&mut self, _: Bound) -> Got<Whole<Release>> {
@@ -588,15 +632,13 @@ fn join() -> Join {
 }
 
 fn ask() -> BoardAsk {
-    BoardAsk {
-        depth: Depth::Last {
-            notes: NonZeroU32::new(2).unwrap(),
-        },
-        history: Some(Window::Last(NonZeroU32::new(100).unwrap())),
-        changes: Some((ChangeStates::All, Window::Whole(bound()))),
-        filter: Filter::default(),
-        control: Some(key("CTRL-1")),
-    }
+    let mut ask = BoardAsk::new(Depth::Last {
+        notes: NonZeroU32::new(2).unwrap(),
+    });
+    ask.history = Some(Window::Last(NonZeroU32::new(100).unwrap()));
+    ask.changes = Some((ChangeStates::All, Window::Whole(bound())));
+    ask.control = Some(key("CTRL-1"));
+    ask
 }
 
 fn nos(items: &[ChangeDigest]) -> Vec<u64> {
@@ -677,13 +719,7 @@ fn a_whole_list_that_fails_fails_the_read_and_the_control_ticket_fails_alone() {
 
 #[test]
 fn a_cheap_ask_reads_no_changes_notes_or_history() {
-    let cheap = BoardAsk {
-        depth: Depth::Cut { notes: 0 },
-        history: None,
-        changes: None,
-        filter: Filter::default(),
-        control: None,
-    };
+    let cheap = BoardAsk::new(Depth::Cut { notes: 0 });
     let item = join().work_item(&key("PROJ-1"), &cheap).unwrap();
     assert!(item.changes.items.is_empty() && item.changes.more);
     assert!(item.notes.items.is_empty() && item.notes.more);
@@ -697,10 +733,11 @@ fn a_ticket_and_its_history_are_one_read_as_the_ask_or_its_depth_names() {
     let mut board = join_of(t, b, c, l);
     let item = board.work_item(&key("PROJ-1"), &ask()).unwrap();
     assert!(item.ticket.history.more, "the ask's window, Last");
-    let by_depth = BoardAsk {
-        depth: Depth::All,
-        history: None,
-        ..ask()
+    let by_depth = {
+        let mut ask = ask();
+        ask.depth = Depth::All;
+        ask.history = None;
+        ask
     };
     let item = board.work_item(&key("PROJ-1"), &by_depth).unwrap();
     assert!(!item.ticket.history.more, "the depth's window, Whole");
@@ -717,15 +754,17 @@ fn notes_are_read_as_deep_as_asked_and_not_at_all_for_none() {
     let (t, b, c, l) = handles();
     let asked = t.asked.clone();
     let mut board = join_of(t, b, c, l);
-    let none = BoardAsk {
-        depth: Depth::Cut { notes: 0 },
-        ..ask()
+    let none = {
+        let mut ask = ask();
+        ask.depth = Depth::Cut { notes: 0 };
+        ask
     };
     board.work_item(&key("PROJ-1"), &none).unwrap();
     assert_eq!(asked.lock().unwrap().notes, 0);
-    let one = BoardAsk {
-        depth: Depth::Cut { notes: 1 },
-        ..ask()
+    let one = {
+        let mut ask = ask();
+        ask.depth = Depth::Cut { notes: 1 };
+        ask
     };
     let item = board.work_item(&key("PROJ-1"), &one).unwrap();
     assert_eq!(asked.lock().unwrap().notes, 1);
@@ -739,7 +778,7 @@ fn ended_at(no: u64, at: i64, was_merged: bool) -> ChangeDigest {
         ChangeState::Merged {
             at: At::new(at),
             by: None,
-            commit: CommitId::new("def5678").unwrap(),
+            commit: Some(CommitId::new("def5678").unwrap()),
         }
     } else {
         ChangeState::Closed { at: At::new(at) }
@@ -764,9 +803,10 @@ fn busy() -> Vec<ChangeDigest> {
 fn item_changes(states: ChangeStates, window: Window) -> Got<Took<ChangeDigest>> {
     let (t, b, _, l) = handles();
     let mut board = join_of(t, b, StubCodeHost { changes: busy() }, l);
-    let asked = BoardAsk {
-        changes: Some((states, window)),
-        ..ask()
+    let asked = {
+        let mut ask = ask();
+        ask.changes = Some((states, window));
+        ask
     };
     board.work_item(&key("PROJ-1"), &asked).map(|i| i.changes)
 }
@@ -995,6 +1035,20 @@ impl Site for StubSite {
     }
     fn meter(&self) -> Vec<MeterRow> {
         vec![]
+    }
+    /// The stub has no clock: every deadline has passed, so each handle
+    /// asked answers the timeout.
+    fn until(&self, _: At) -> Arc<dyn Site> {
+        Arc::new(StubSite {
+            realms: self.realms.clone(),
+            fail: Outcome::Unavailable {
+                why: Passing::Timeout,
+                sent: Sent::No,
+            },
+            tickets: None,
+            blueprints: None,
+            code_host: None,
+        })
     }
 }
 

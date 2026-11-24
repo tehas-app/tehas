@@ -1,0 +1,75 @@
+{
+ "repo:acme/widget is:issue in:title \"alpha\"": [
+  "alpha-titles/page-1.json"
+ ],
+ "repo:acme/widget is:issue in:title \"alpha\" is:open": [
+  "alpha-titles-open/page-1.json"
+ ],
+ "repo:acme/widget is:issue in:title \"is:pr\"": [
+  "is-pr-titles/page-1.json"
+ ],
+ "repo:acme/widget is:issue in:title \"label:bug\"": [
+  "label-bug-titles/page-1.json"
+ ],
+ "repo:acme/widget is:issue in:title \"repo:acme/other\"": [
+  "repo-other-titles/page-1.json"
+ ],
+ "repo:acme/widget is:issue in:title \"report\"": [
+  "report/page-1.json",
+  "report/page-2.json"
+ ],
+ "repo:acme/widget is:issue in:title \"report\" is:open": [
+  "report/page-1.json",
+  "shifting/page-2.json"
+ ],
+ "repo:acme/widget is:issue in:title,body \"alpha\"": [
+  "alpha-everything/page-1.json"
+ ],
+ "repo:acme/widget is:issue in:title,body \"alpha\" is:closed": [
+  "alpha-everything-closed/page-1.json"
+ ],
+ "repo:acme/widget is:issue in:title,body \"busy\"": [
+  "busy/page-1.fail"
+ ],
+ "repo:acme/widget is:issue in:title,body \"cut\"": [
+  "cut/page-1.json"
+ ],
+ "repo:acme/widget is:issue in:title,body \"hidden\"": [
+  "hidden/page-1.fail"
+ ],
+ "repo:acme/widget is:issue in:title,body \"is:pr\"": [
+  "is-pr-everything/page-1.json"
+ ],
+ "repo:acme/widget is:issue in:title,body \"label:bug\"": [
+  "label-bug-everything/page-1.json"
+ ],
+ "repo:acme/widget is:issue in:title,body \"limited\"": [
+  "limited/page-1.fail"
+ ],
+ "repo:acme/widget is:issue in:title,body \"nothing\"": [
+  "nothing/page-1.json"
+ ],
+ "repo:acme/widget is:issue in:title,body \"outage\"": [
+  "outage/page-1.fail"
+ ],
+ "repo:acme/widget is:issue in:title,body \"private\"": [
+  "private/page-1.fail"
+ ],
+ "repo:acme/widget is:issue in:title,body \"repo:acme/other\"": [
+  "repo-other-everything/page-1.json"
+ ],
+ "repo:acme/widget is:issue in:title,body \"report\"": [
+  "report/page-1.json",
+  "repeat/page-2.json"
+ ],
+ "repo:acme/widget is:issue in:title,body \"report\" is:open": [
+  "report/page-1.json",
+  "short/page-2.json"
+ ],
+ "repo:acme/widget is:issue in:title,body \"slow\"": [
+  "slow/page-1.fail"
+ ],
+ "repo:acme/widget is:issue in:title,body \"unfinished\"": [
+  "unfinished/page-1.json"
+ ]
+}

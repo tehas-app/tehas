@@ -13,7 +13,7 @@ nothing of tehas is cloned.
 What you get is issue to pull request: the queue, cycles, gates, the dashboard
 and the live console. The effort is settings, plus your toolchain in the
 sandbox image. This page walks through it with the instance that works on
-tehas itself: host `tehas-tehas`, user `boss`, product `tehas-app/tehas`.
+tehas itself: host `tehas-tehas`, user `boss`, product `tehas-app/tehas-factory`.
 
 ## What the product repository must provide
 
@@ -190,7 +190,7 @@ GitHub and an OpenAI-compatible model endpoint. `bootstrap.sh` supports Ubuntu
 As root:
 
 ```
-curl -fsSL https://github.com/tehas-app/tehas/releases/latest/download/install | sudo sh -s -- boss
+curl -fsSL https://github.com/tehas-app/tehas-factory/releases/latest/download/install | sudo sh -s -- boss
 ```
 
 The installer downloads the newest release and checks the tarball against its
@@ -206,10 +206,10 @@ has what the machine needs.
 
 To install from files you downloaded yourself, for example on a host that
 cannot reach GitHub, pass their directory. The newest release's tag comes from
-`gh release view -R tehas-app/tehas --json tagName`:
+`gh release view -R tehas-app/tehas-factory --json tagName`:
 
 ```
-gh release download <tag> -R tehas-app/tehas --pattern 'tehas-*' --pattern install -D /tmp/tehas-release
+gh release download <tag> -R tehas-app/tehas-factory --pattern 'tehas-*' --pattern install -D /tmp/tehas-release
 sudo sh /tmp/tehas-release/install --version <tag> --from /tmp/tehas-release boss
 ```
 
@@ -232,7 +232,7 @@ As the tehas user. `tehas` is not on the `PATH` until the first install has
 put the `env.sh` line in `~/.bashrc`, so the first run names the release:
 
 ```
-~/tehas/current/bin/tehas setup --repo tehas-app/tehas --labelers "janit" \
+~/tehas/current/bin/tehas setup --repo tehas-app/tehas-factory --labelers "janit" \
   --new-app --endpoint http://gb1:8086/v1
 ```
 
@@ -466,7 +466,7 @@ The instance that works on tehas itself has a few extras. Its settings are in
 comments:
 
 ```
-TEHAS_REPO=tehas-app/tehas
+TEHAS_REPO=tehas-app/tehas-factory
 TEHAS_CONTROL_ISSUE=1
 TEHAS_ALLOWED_LABELERS="janit"
 

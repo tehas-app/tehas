@@ -238,6 +238,7 @@ fn world() -> World {
         plans_ended: Vec::new(),
         asked_again: false,
         events: tehas_core::raise::logged(move |l| h.lock().unwrap().push(l.to_string())).build(),
+        ports: None,
     };
     World {
         dir,
@@ -1096,6 +1097,14 @@ fn a_plan_note_says_its_words_only_the_first_time() {
     fs::write(t.dir.join("said"), "false").unwrap();
     t.apply(act);
     assert!(!t.calls().iter().any(|c| c.starts_with("gh issue comment")));
+}
+
+#[test]
+fn the_said_file_of_an_issue_is_beside_its_request() {
+    assert_eq!(
+        crate::apply::said_file(Path::new("/h"), 3),
+        Path::new("/h/state/refresh/3.said")
+    );
 }
 
 #[test]
@@ -6051,9 +6060,10 @@ fn an_intended_action_is_asked_for_no_time() {
 }
 
 /// T4.4: a row `Journal::send` recorded keeps its write, not argv. Under a
-/// 1.x word it would read as done with nothing checked, so an attempted one
-/// stays open, neither settled nor read; one never attempted made no call
-/// and is abandoned as any other.
+/// 1.x word it would read as done with nothing checked, so it is read by its
+/// write and never by gh: one whose write cannot be read stays open, neither
+/// settled nor read; one never attempted made no call and is abandoned as
+/// any other.
 #[test]
 fn a_write_row_of_the_ports_is_never_settled_by_a_1x_read() {
     let words = [
@@ -6067,6 +6077,7 @@ fn a_write_row_of_the_ports_is_never_settled_by_a_1x_read() {
     ];
     for (i, kind) in words.iter().enumerate() {
         let mut t = world();
+        t.w.ports = Some(handles(&ports_world()));
         fs::write(
             t.dir.join("issue-7"),
             r#"{"number": 7, "state": "closed", "labels": [], "body": "Replaces #1"}"#,
@@ -6086,14 +6097,145 @@ fn a_write_row_of_the_ports_is_never_settled_by_a_1x_read() {
         t.w.settle(1000, &mut log);
         assert_eq!(
             log[0],
-            format!("WARN: the journal's action {id} ({kind} on #7, 10s old) could not be settled: it is a write of the ports, which no read settles yet; the next poll tries again"),
+            format!("WARN: the journal's action {id} ({kind} on #7, 10s old) could not be settled: its write is of no kind this poll knows; the next poll tries again"),
         );
         assert_eq!(
             settled(&t),
             ["store journal-settle --action 99 --abandoned"],
             "{kind}"
         );
+        assert!(!t.calls().iter().any(|c| c.starts_with("gh ")), "{kind}");
     }
+}
+
+/// Issue 7 of the ports' fake, running.
+fn ports_world() -> tehas_ports::fake::World {
+    tehas_ports::fake::World::new().ticket(7, |t| t.mark(running()))
+}
+
+fn running() -> tehas_ports::Mark {
+    tehas_ports::Mark::State(tehas_ports::State::Running)
+}
+
+/// The factory's handles of a fake site holding `world`, as the wiring makes
+/// them of GitHub's.
+fn handles(world: &tehas_ports::fake::World) -> Handles {
+    use tehas_ports::{fake::FakeSite, Actor, Caller, Scope, Site};
+    let site = FakeSite::new(world);
+    let (by, c) = (Actor::Ours(Scope::Full), Caller::new("poll"));
+    Handles {
+        writes: Box::new(tehas_ports::Writer {
+            tickets: site.ticket_writes(&by, c).unwrap(),
+            blueprints: site.blueprint_writes(&by, c).unwrap(),
+            code_host: site.code_host_writes(&by, c).unwrap(),
+        }),
+        tickets: site.tickets(&by, c).unwrap(),
+        blueprints: site.blueprints(&by, c).unwrap(),
+        code_host: site.code_host(&by, c).unwrap(),
+    }
+}
+
+/// An open row of the ports on issue 7, left `unknown` by a send, keeping
+/// its write as the journal keeps it.
+macro_rules! open_write {
+    ($id:expr, $kind:expr, $write:expr) => {
+        json!({"id": $id, "kind": $kind, "issue": 7, "state": "unknown", "intended_at": 990,
+               "attempted_at": 991, "args": {"repo": "r", "write": $write}})
+    };
+}
+
+fn ticket_7() -> tehas_ports::TicketKey {
+    tehas_ports::TicketKey::Number(std::num::NonZeroU64::new(7).unwrap())
+}
+
+/// A row of the ports is read by its write through the ports, by the rule
+/// of its kind: a mark that is on was put on, and the row is done; one that
+/// is not is not sent, and the poll decides it again. Neither reads gh.
+#[test]
+fn a_write_row_of_the_ports_is_settled_by_the_read_its_kind_names() {
+    use tehas_ports::Write;
+    let on = Write::Mark {
+        ticket: ticket_7(),
+        mark: running(),
+    };
+    let off = Write::Unmark {
+        ticket: ticket_7(),
+        mark: running(),
+    };
+    let mut t = world();
+    t.w.ports = Some(handles(&ports_world()));
+    left_open(
+        &t,
+        json!([
+            open_write!(3, "label-add", on),
+            open_write!(4, "label-remove", off)
+        ]),
+    );
+    let mut log = Vec::new();
+    t.w.settle(1000, &mut log);
+    assert_eq!(log, vec![
+        "journal: action 3 (label-add on #7, 10s old) was done",
+        "journal: action 4 (label-remove on #7, 10s old) did not happen (it is not there); this poll decides it again",
+    ]);
+    assert_eq!(
+        settled(&t),
+        [
+            r#"store journal-settle --action 3 --result ok --evidence {"landed":true}"#,
+            "store journal-settle --action 4 --abandoned",
+        ]
+    );
+    assert!(!t.calls().iter().any(|c| c.starts_with("gh ")));
+    // The write found there is not sent again this poll.
+    let key = looked_key(7, "label-add", &json!(on), &Value::Null);
+    assert!(matches!(t.w.looked.get(&key), Some(Looked::Done(_))));
+}
+
+/// A row no read can tell of stays open, and is not sent this poll: a kind
+/// no rule reads yet, and any row while the poll has no handles.
+#[test]
+fn a_write_row_no_read_can_tell_of_stays_open() {
+    use tehas_ports::{CloseReason, Write};
+    let close = Write::Close {
+        ticket: ticket_7(),
+        reason: CloseReason::Done,
+    };
+    let mut t = world();
+    t.w.ports = Some(handles(&ports_world()));
+    left_open(&t, json!([open_write!(3, "issue-close", close)]));
+    let mut log = Vec::new();
+    t.w.settle(1000, &mut log);
+    assert_eq!(log, vec![
+        "WARN: the journal's action 3 (issue-close on #7, 10s old) could not be settled: no read could tell whether it landed; the next poll tries again",
+    ]);
+    assert!(settled(&t).is_empty());
+    let key = looked_key(7, "issue-close", &json!(close), &Value::Null);
+    assert!(matches!(t.w.looked.get(&key), Some(Looked::Unread(_))));
+
+    let mark = Write::Mark {
+        ticket: ticket_7(),
+        mark: running(),
+    };
+    let mut t = world();
+    left_open(&t, json!([open_write!(3, "label-add", mark)]));
+    let mut log = Vec::new();
+    t.w.settle(1000, &mut log);
+    assert_eq!(log, vec![
+        "WARN: the journal's action 3 (label-add on #7, 10s old) could not be settled: the poll has no handles of the code host; the next poll tries again",
+    ]);
+    assert!(settled(&t).is_empty());
+
+    // A write that is no write at all.
+    let mut t = world();
+    t.w.ports = Some(handles(&ports_world()));
+    let mut row = open_write!(3, "label-add", mark);
+    row["args"]["write"] = json!(5);
+    left_open(&t, json!([row]));
+    let mut log = Vec::new();
+    t.w.settle(1000, &mut log);
+    assert_eq!(log, vec![
+        "WARN: the journal's action 3 (label-add on #7, 10s old) could not be settled: its write could not be read; the next poll tries again",
+    ]);
+    assert!(settled(&t).is_empty());
 }
 
 #[test]

@@ -39,18 +39,20 @@ use tehas_core::home::Home;
 use tehas_core::hostnet::version;
 pub use tehas_core::hostnet::words;
 use tehas_core::hostnet::{docker_fault, net_create, net_fault};
+use tehas_core::lock::Held;
 
 /// `$TEHAS_HOME/state/<name>.lock`, held until the file is dropped. Without a
 /// wait, another holder is an answer at once. None when it is held or cannot
 /// be opened. The file closes on exec, so a child cannot keep the lock.
-pub fn lock(home: &Path, name: &str, wait: Option<Duration>) -> Option<File> {
+pub fn lock(home: &Path, name: &str, wait: Option<Duration>) -> Option<Held> {
     let state = Home::new(home).state_dir();
     fs::create_dir_all(&state).ok()?;
-    let file = File::create(state.join(format!("{name}.lock"))).ok()?;
+    let mut file = File::create(state.join(format!("{name}.lock"))).ok()?;
     let deadline = Instant::now() + wait.unwrap_or_default();
     loop {
-        if file.try_lock().is_ok() {
-            return Some(file);
+        match Held::try_take(file) {
+            Ok(held) => return Some(held),
+            Err((_, back)) => file = back,
         }
         if Instant::now() >= deadline {
             return None;
