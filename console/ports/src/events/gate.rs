@@ -21,9 +21,11 @@ pub trait GatePayload: Serialize + DeserializeOwned + Clone + 'static {
 }
 
 /// The `before` side of `cycle.started`: a start is decided and its
-/// container has not started.
+/// container has not started. Built with `new`, the rest set by name
+/// (Decided 123).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct StartAsk {
     /// The blueprint.
     pub blueprint: BlueprintNo,
@@ -39,6 +41,16 @@ pub struct StartAsk {
     #[serde(with = "rfc3339")]
     pub approval: At,
 }
+
+new!(
+    StartAsk {
+        blueprint: BlueprintNo,
+        how: How,
+        approval: At
+    },
+    ticket,
+    by
+);
 
 impl GatePayload for StartAsk {
     const NAME: Name = Name::CycleStarted;
@@ -56,9 +68,10 @@ impl GatePayload for StartAsk {
 
 /// A gate's envelope: the fields of `Envelope`, `when` always `before`,
 /// `event` the payload's name. It reads only as that, and only with `api`
-/// this copy's.
+/// this copy's. Built with `new` (Decided 123).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "AskWire<P>", bound = "P: GatePayload")]
+#[non_exhaustive]
 pub struct Ask<P: GatePayload> {
     /// The events' contract version, `API`.
     pub api: u32,
@@ -139,9 +152,13 @@ fn why_ok(s: &str) -> bool {
     (1..=140).contains(&s.chars().count()) && !s.chars().any(char::is_control)
 }
 
-/// A gate listener's word. Exhaustive.
+/// A gate listener's word. More may come (Decided 123): a match outside
+/// this crate has an arm for the rest, which holds the act. A word this
+/// copy does not know does not read, and the raise holds on an answer it
+/// cannot read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
 pub enum Verdict {
     /// The act goes on.
     Allow,
@@ -149,11 +166,13 @@ pub enum Verdict {
     Refuse,
 }
 
-/// What a gate's listener answers, `/out/_tehas/answer.json`:
+/// What a gate's listener answers, by `api/gate-answer.schema.json`:
 /// `{"api": 1, "answer": "allow" | "refuse", "why": "..."}`. A refusal
-/// says why; an allow may. It reads only with `api` this copy's.
+/// says why; an allow may. It reads only with `api` this copy's. Built
+/// with `allow` or `refuse` (Decided 123).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "AnswerWire")]
+#[non_exhaustive]
 pub struct GateAnswer {
     /// The events' contract version, `API`.
     pub api: u32,
@@ -200,6 +219,14 @@ impl GateAnswer {
             api: API,
             answer: Verdict::Allow,
             why: None,
+        }
+    }
+
+    /// The act goes on, for `why`.
+    pub fn allow_because(why: Why) -> Self {
+        GateAnswer {
+            why: Some(why),
+            ..Self::allow()
         }
     }
 

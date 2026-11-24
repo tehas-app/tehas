@@ -430,6 +430,8 @@ fn writer(
         status_due: false,
         changed: false,
         gh_writes: 0,
+        port_calls: Default::default(),
+        unposted: 0,
         starts: 0,
         fetched: false,
         looked: HashMap::new(),
@@ -437,6 +439,11 @@ fn writer(
         plans_ended: Vec::new(),
         asked_again: false,
         events,
+        // Made once the poll has its token: run_poll.
+        ports: None,
+        // The wiring's, set with the handles: run_poll.
+        mark_of: |_| None,
+        assignee: None,
     }
 }
 
@@ -625,6 +632,7 @@ pub fn run_poll(
     settings: &Settings,
     dry: bool,
     events: tehas_ports::events::Dispatcher,
+    wiring: crate::apply::Wiring,
 ) -> i32 {
     // The poll hands both bounds to the unit of a turn, so a value it cannot
     // read stops it before the lock, a write or any call.
@@ -720,6 +728,17 @@ pub fn run_poll(
         &retry,
         events,
     );
+    w.mark_of = wiring.mark_of;
+    w.assignee = match wiring.assignee {
+        Some(Ok(id)) => Some(id),
+        Some(Err(why)) => {
+            say(&format!(
+                "WARN: the assignee could not be resolved ({why}), so this poll's claims go without one"
+            ));
+            None
+        }
+        None => None,
+    };
     // The poll's GitHub token, kept in memory from before its first call: the
     // first gh of the poll asks the host's token program once, and every gh
     // process after it is given the token as TEHAS_GH_TOKEN, so the shim of a
@@ -731,6 +750,18 @@ pub fn run_poll(
     // logged, never written to a file and never put in the arguments of
     // anything.
     w.calls.gh_token = first_token;
+    // The ports' handles carry the same token, so the adapter's gh asks for
+    // none either. A wiring that cannot make them leaves the rows of the
+    // ports open: the settle says so of each.
+    w.ports = (wiring.handles)(
+        home,
+        &w.repo,
+        &w.gh,
+        w.calls.gh_token.as_deref(),
+        w.bound,
+        w.port_calls.clone(),
+    )
+    .ok();
     let mut end = End {
         home,
         dry,
@@ -749,7 +780,9 @@ pub fn run_poll(
     for n in w.calls.retry.taken() {
         failed_read(home, dry, &n);
     }
-    end.gh += w.calls.gh_count + w.gh_writes;
+    end.gh += w.calls.gh_count
+        + w.gh_writes
+        + w.port_calls.load(std::sync::atomic::Ordering::Relaxed) as u32;
     end.starts = w.starts;
     end.changed.queue = w.changed;
     end.run(&mut w);
@@ -1051,6 +1084,7 @@ impl FinishHands<'_> {
         let post = Action::Say {
             issue: n,
             say: body.to_string(),
+            markers: Vec::new(),
         };
         let done = self.w.apply(&[Value::from(&post)]);
         for l in &done.log {
@@ -1571,6 +1605,30 @@ mod tests {
         held
     }
 
+    /// A wiring with no code host and no marks: these polls write nothing of
+    /// the ports.
+    fn no_wiring() -> crate::apply::Wiring {
+        crate::apply::Wiring {
+            handles: no_handles,
+            mark_of: |_| None,
+            assignee: None,
+        }
+    }
+
+    /// A wiring with no code host: these polls write nothing of the ports.
+    fn no_handles(
+        _: &Path,
+        _: &str,
+        _: &str,
+        _: Option<&str>,
+        _: Duration,
+        _: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    ) -> tehas_ports::Got<crate::apply::Handles> {
+        Err(tehas_ports::Outcome::Refused(
+            tehas_ports::Refusal::Unsupported,
+        ))
+    }
+
     #[test]
     fn a_poll_that_finds_the_lock_held_leaves_the_ask_for_the_next_poll() {
         let home = poll_home("again-held");
@@ -1579,7 +1637,13 @@ mod tests {
         let held = held_lock(&home);
         let events = crate::events::wiring();
         assert_eq!(
-            run_poll(&home, &Settings::parse(&json!({})), false, events),
+            run_poll(
+                &home,
+                &Settings::parse(&json!({})),
+                false,
+                events,
+                no_wiring()
+            ),
             0
         );
         // A cycle ended while a poll ran and asked for another: the ask is
@@ -1599,6 +1663,7 @@ mod tests {
             &Settings::parse(&json!({})),
             false,
             crate::events::wiring(),
+            no_wiring(),
         );
         // This poll is the one that was asked for, so the ask is gone.
         assert!(!again.exists(), "the poll that ran left the ask");

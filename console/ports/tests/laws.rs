@@ -130,6 +130,57 @@ fn tickets_removing_an_absent_mark_is_done() {
 }
 
 #[test]
+fn tickets_closing_a_closed_ticket_is_done() {
+    for w in both() {
+        let w = w.ticket(1, |t| t.title("done").closed(CloseReason::Done));
+        let site = FakeSite::new(&w);
+        let mut h = site.ticket_writes(&full(), C).unwrap();
+        ok(laws::tickets::closing_a_closed_ticket_is_done(
+            h.as_mut(),
+            &w.key(1),
+            &CloseReason::NotPlanned,
+        ));
+    }
+}
+
+#[test]
+fn tickets_a_part_of_another_parent_is_refused() {
+    for w in both() {
+        let w = w
+            .ticket(3, |t| t.title("a part"))
+            .ticket(2, |t| t.title("another whole"));
+        let k3 = w.key(3);
+        let w = w.ticket(1, |t| t.title("the whole").part(k3.clone()));
+        let site = FakeSite::new(&w);
+        let mut h = site.ticket_writes(&full(), C).unwrap();
+        ok(laws::tickets::a_part_of_another_parent_is_refused(
+            h.as_mut(),
+            &w.key(1),
+            &w.key(2),
+            &k3,
+        ));
+    }
+}
+
+#[test]
+fn tickets_an_account_that_cannot_be_assigned_is_refused() {
+    for w in both() {
+        let w = w
+            .with_account("mallory", AccountKind::Person, Standing::None)
+            .ticket(1, |t| t.title("a ticket"));
+        let site = FakeSite::new(&w);
+        let mut h = site.ticket_writes(&full(), C).unwrap();
+        ok(
+            laws::tickets::an_account_that_cannot_be_assigned_is_refused(
+                h.as_mut(),
+                &w.key(1),
+                &AccountId::new("id-mallory"),
+            ),
+        );
+    }
+}
+
+#[test]
 fn tickets_carrying_any_takes_any_of_the_marks() {
     for w in both() {
         let w = w
@@ -659,6 +710,43 @@ fn code_host_two_apps_runs_of_one_name_are_both_held() {
             if collapse {
                 // A site that keeps only the newest run of a name across
                 // Apps fails the law.
+                assert!(law.is_err(), "{law:?}");
+            } else {
+                ok(law);
+            }
+        }
+    }
+}
+
+#[test]
+fn code_host_two_suites_runs_of_one_name_are_both_held() {
+    let run = |status: CheckStatus| Check::new("test".into(), status);
+    for collapse in [false, true] {
+        for w in both() {
+            let at = w.head("main").unwrap();
+            let w = w
+                .check_in(
+                    "actions",
+                    "lint",
+                    &at,
+                    run(CheckStatus::Done(Conclusion::Failed)),
+                )
+                .check_in(
+                    "actions",
+                    "build",
+                    &at,
+                    run(CheckStatus::Done(Conclusion::Passed)),
+                );
+            let w = if collapse {
+                w.checks_collapsing_apps()
+            } else {
+                w
+            };
+            let site = FakeSite::new(&w);
+            let mut h = site.code_host(&full(), C).unwrap();
+            let law =
+                laws::code_host::two_suites_runs_of_one_name_are_both_held(h.as_mut(), &at, "test");
+            if collapse {
                 assert!(law.is_err(), "{law:?}");
             } else {
                 ok(law);
@@ -1279,6 +1367,49 @@ fn a_sign_in_link_may_be_refused_and_a_marker_names_its_text() {
         Setup::One(Arc::new(site)).marker_text(Realm::CodeHost, &cleared),
         text
     );
+}
+
+#[test]
+fn faulty_passes_the_plural_edit_reads_whole_and_fails_each_item() {
+    let w = World::same_item()
+        .blueprint(1, |b| b.title("a").body("x"))
+        .blueprint(2, |b| b.title("b").body("y"));
+    let nos = [bp(1), bp(2)];
+    let plain = FakeSite::new(&w);
+    let want = plain
+        .blueprints(&full(), C)
+        .unwrap()
+        .body_edits_of(&nos, ALL_MAX);
+    let site = Faulty::new(FakeSite::new(&w));
+    let mut h = site.blueprints(&full(), C).unwrap();
+    assert_eq!(h.body_edits_of(&nos, ALL_MAX), want);
+    let site = Faulty::new(FakeSite::new(&w))
+        .on(Op::Blueprints(BlueprintsOp::BodyEditsOf), Fault::Timeout);
+    let mut h = site.blueprints(&full(), C).unwrap();
+    let got = h.body_edits_of(&nos, ALL_MAX);
+    assert_eq!(got.len(), 2);
+    assert!(got.iter().all(|(_, a)| a.is_err()), "{got:?}");
+    let ids = [CommentId::new("c1"), CommentId::new("c2")];
+    let site = Faulty::new(FakeSite::new(&w))
+        .on(Op::Blueprints(BlueprintsOp::CommentEditsOf), Fault::Timeout);
+    let mut h = site.blueprints(&full(), C).unwrap();
+    let got = h.comment_edits_of(&ids, ALL_MAX);
+    assert_eq!(got.iter().map(|(i, _)| i.clone()).collect::<Vec<_>>(), ids);
+    assert!(got.iter().all(|(_, a)| a.is_err()), "{got:?}");
+}
+
+#[test]
+fn marks_prepare_one_makes_the_mark_held() {
+    for w in both() {
+        let site = FakeSite::new(&w);
+        let mut h = site.ticket_writes(&full(), C).unwrap();
+        ok(laws::marks::prepare_one_makes_the_mark_held(
+            h.as_mut(),
+            &Mark::State(State::Escalated),
+        ));
+        let others = h.marks(ALL_MAX).unwrap().into_items();
+        assert_eq!(others.len(), 1, "one mark made, not every one: {others:?}");
+    }
 }
 
 #[test]

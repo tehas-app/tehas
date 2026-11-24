@@ -14,7 +14,8 @@ use std::path::PathBuf;
 use tehas_core::home::State;
 
 /// The control issue, #1: its labels and its pause events, from fixtures.
-const GH: &str = r#"case "$1 $2" in
+const GH: &str = r#"case "$*" in *"parent {"*) echo '{"data":{"repository":{"issue":{"parent":null}}}}'; exit 0 ;; esac
+case "$1 $2" in
   "api repos/acme/widget/issues/1") cat "$T/labels.json" ;;
   "api repos/acme/widget/issues/1/events?per_page=100") cat "$T/events.json" ;;
   "issue edit") exit 1 ;;
@@ -151,9 +152,10 @@ fn resume_reads_the_control_issue_and_says_nothing_when_it_holds_nothing() {
     assert_eq!(r.rc, 0, "{}", r.out);
     has(&r.out, "resumed: the pause flag is gone");
     lacks(&r.out, "stays paused");
-    // Two reads through the wiring, the labels and their events, and no write.
+    // Three reads through the wiring, the labels, the question of the
+    // ticket it is a part of and the events, and no write.
     let calls = w.gh();
-    assert_eq!(calls.lines().count(), 2, "{calls}");
+    assert_eq!(calls.lines().count(), 3, "{calls}");
     assert_eq!(
         calls.lines().filter(|l| l.contains("/events")).count(),
         1,

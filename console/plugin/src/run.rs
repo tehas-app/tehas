@@ -541,7 +541,8 @@ fn run_in(
     if let Err(e) = fs::create_dir(dir) {
         return Came::Failed(format!("{}: {e}", dir.display()));
     }
-    let ctx = match context(&run) {
+    let ctx = match context(&run).and_then(|c| serde_json::to_string(&c).map_err(|e| e.to_string()))
+    {
         Ok(c) => c,
         Err(why) => return Came::Failed(why),
     };
@@ -985,7 +986,7 @@ fn hook_at(h: &mut dyn Host, s: &Setup, p: &Plugin, ask: &Ask, req: &HookAsk) ->
                     req.pr
                 ));
                 // The base of the new head, which the request does not know.
-                let why = match status::pull(h, s, req.pr) {
+                let why = match status::pull(h, req.pr) {
                     Ok(Some((at, b))) if at == c => {
                         base = b;
                         None

@@ -1,11 +1,13 @@
 //! The joined reads, `Board`. Answered: `open_changes` for an ask that
 //! needs no blueprint and no body, so no marker: the changes a filter of
 //! states and branch takes, each with its files and the other open changes
-//! that close the same blueprints, in one GraphQL question a page; and for
-//! an ask of numbers, with the blueprints each closes, in `numbers.rs`.
-//! The rest is `Refused(Unsupported)` before any request.
+//! that close the same blueprints, in one GraphQL question a page; for an
+//! ask of numbers, with the blueprints each closes, in `numbers.rs`; and
+//! `open_work` for the queue's ask, in `work.rs`. The rest is
+//! `Refused(Unsupported)` before any request.
 
 mod numbers;
+mod work;
 
 use std::collections::HashSet;
 
@@ -45,13 +47,13 @@ const ACCOUNT: &str = "__typename login ...on User { databaseId } ...on Bot { da
 /// One page of the changes a filter takes. `{STATES}`, `{HEAD_VAR}`,
 /// `{HEAD}`, `{FILES}` and the page size are filled in by
 /// [`changes_query`], `{PULL}` by [`pull_fields`].
-const CHANGES: &str = "query($owner: String!, $name: String!, $cursor: String{HEAD_VAR}) { repository(owner: $owner, name: $name) { pullRequests(states: [{STATES}], first: {PULL_PAGE}, after: $cursor, orderBy: {field: CREATED_AT, direction: ASC}{HEAD}) { totalCount pageInfo { hasNextPage endCursor } nodes { {PULL}{FILES} } } } }";
+const CHANGES: &str = "query($owner: String!, $name: String!, $cursor: String{HEAD_VAR}) { repository(owner: $owner, name: $name) { databaseId pullRequests(states: [{STATES}], first: {PULL_PAGE}, after: $cursor, orderBy: {field: CREATED_AT, direction: ASC}{HEAD}) { totalCount pageInfo { hasNextPage endCursor } nodes { {PULL}{FILES} } } } }";
 
 /// What a change's digest is read from, a [`Pull`]: `{ACCOUNT}` and the
 /// bounds are filled in by [`pull_fields`].
-const PULL: &str = "number title url state isDraft isCrossRepository headRefName headRefOid baseRefName baseRefOid mergeable mergeStateStatus createdAt updatedAt lastEditedAt mergedAt closedAt additions deletions changedFiles author { {ACCOUNT} } editor { {ACCOUNT} } mergedBy { {ACCOUNT} } mergeCommit { oid } renames: timelineItems(itemTypes: [RENAMED_TITLE_EVENT], last: 1) { nodes { ... on RenamedTitleEvent { createdAt actor { {ACCOUNT} } } } } labels(first: {LABELS_MAX}) { totalCount nodes { name } } closingIssuesReferences(first: {CLOSES_MAX}) { totalCount nodes { number repository { nameWithOwner } } }";
+const PULL: &str = "number title url state isDraft isCrossRepository headRefName headRefOid baseRefName baseRefOid mergeable mergeStateStatus createdAt updatedAt lastEditedAt mergedAt closedAt additions deletions changedFiles author { {ACCOUNT} } editor { {ACCOUNT} } mergedBy { {ACCOUNT} } mergeCommit { oid } renames: timelineItems(itemTypes: [RENAMED_TITLE_EVENT], last: 1) { nodes { ... on RenamedTitleEvent { createdAt actor { {ACCOUNT} } } } } labels(first: {LABELS_MAX}) { totalCount nodes { name } } closingIssuesReferences(first: {CLOSES_MAX}) { totalCount nodes { number repository { databaseId nameWithOwner } } }";
 
-fn pull_fields() -> String {
+pub(super) fn pull_fields() -> String {
     PULL.replace("{LABELS_MAX}", &LABELS_MAX.to_string())
         .replace("{CLOSES_MAX}", &CLOSES_MAX.to_string())
         .replace("{ACCOUNT}", ACCOUNT)
@@ -100,8 +102,13 @@ fn more_files_query() -> String {
 }
 
 impl Board for GitHub {
-    fn open_work(&mut self, _: &BoardAsk, _: Bound) -> Got<OpenWork> {
-        unsupported()
+    /// The open issues, 25 a question, each with its digest, text,
+    /// blueprint, parts, blockers, assignees and mentions, its marks and
+    /// retitles when asked and its open closing changes when asked. Asked
+    /// at `Depth::Cut { notes: 0 }`, of every open ticket; any other ask is
+    /// `Refused(Unsupported)` before any request.
+    fn open_work(&mut self, ask: &BoardAsk, bound: Bound) -> Got<OpenWork> {
+        self.open_work_pages(ask, bound)
     }
 
     fn work_item(&mut self, _: &TicketKey, _: &BoardAsk) -> Got<WorkItem> {
@@ -329,7 +336,7 @@ impl GitHub {
 
     /// A pull request as a change's digest, in the states asked. A node of
     /// another state, or with no number, does not add up.
-    fn pull_digest(&mut self, p: Pull, asked: ChangeStates) -> Got<ChangeDigest> {
+    pub(super) fn pull_digest(&mut self, p: Pull, asked: ChangeStates) -> Got<ChangeDigest> {
         let no = p
             .number
             .and_then(ChangeNo::new)
@@ -432,12 +439,11 @@ impl GitHub {
             .number
             .and_then(BlueprintNo::new)
             .ok_or(Outcome::Unread(Unread::Inconsistent))?;
-        let project = c.repository.name_with_owner;
-        if project.eq_ignore_ascii_case(&self.repo) {
+        if self.is_here_id(c.repository.database_id)? {
             Ok(Ref::Here(no))
         } else {
             Ok(Ref::Elsewhere {
-                project: ProjectName::new(project),
+                project: ProjectName::new(c.repository.name_with_owner),
                 item: ItemName::new(no.get().to_string()),
             })
         }
@@ -577,7 +583,7 @@ struct Nodes<T> {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Pull {
+pub(super) struct Pull {
     number: Option<u64>,
     title: String,
     url: String,
@@ -608,6 +614,9 @@ struct Pull {
     closing_issues_references: Counted<Closing>,
     #[serde(default)]
     files: Option<FileConn>,
+    /// The repository it belongs to, where a question asks it.
+    #[serde(default)]
+    repository: Option<NamedRepo>,
 }
 
 type FileConn = Conn<File>;
@@ -637,8 +646,10 @@ struct Closing {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct NamedRepo {
-    name_with_owner: String,
+pub(super) struct NamedRepo {
+    #[serde(rename = "databaseId")]
+    pub(super) database_id: Option<u64>,
+    pub(super) name_with_owner: String,
 }
 
 #[derive(Deserialize)]

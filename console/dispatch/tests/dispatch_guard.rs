@@ -5,12 +5,13 @@
 
 mod common;
 
-use common::{count_lines, has, lacks, root, World, MINIMAL};
+use common::{has, lacks, root, World, MINIMAL};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tehas_core::testing::{copy_exe, write_exe};
+use tehas_ports::{Act, Mark, State};
 
 fn tehasbot(w: &World) -> String {
     w.front()
@@ -792,9 +793,9 @@ fn when_the_labels_cannot_be_changed_nothing_is_said_on_the_issue_and_the_poll_g
     w.fx("gh-stderr", "HTTP 403: refused\n");
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
-    has(&r.out, "WARN: label change on #7 failed: --remove-label tehas:ready --add-label needs-human-attention");
-    has(&r.out, "HTTP 403");
-    lacks(&w.gh(), "issue comment 7");
+    // The site's reason, in tehas's words.
+    has(&r.out, "WARN: label change on #7 failed: --remove-label tehas:ready --add-label needs-human-attention: this actor may not do this");
+    assert_eq!(w.notes(7), 0);
     assert_eq!(w.started(), "");
 }
 
@@ -950,6 +951,7 @@ fn the_poll_runs_the_consoles_tidy_on_a_host_and_a_dry_run_edits_nothing() {
     has(&r.out, "tidy #44: would remove tehas:awaiting-merge");
     lacks(&r.out, "No such file");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     host_poll(&w);
     let r = w.sh(&format!(
         "env -u TEHAS_TIDY_CMD \"{}\" dispatch",
@@ -972,10 +974,14 @@ fn an_issue_over_the_ceiling_is_held_its_label_comes_off_needs_human_attention_g
     assert_eq!(w.started(), "");
     has(&r.out, "skip #7: its body names 6 files, more than TEHAS_SIZE_MAX_FILES (3), and one cycle does not make that many changes");
     let gh = w.gh();
-    has(&gh, "issue edit 7 --repo acme/widget --remove-label tehas:ready --add-label needs-human-attention");
-    has(&gh, "issue comment 7 --repo acme/widget --body Tehas took `tehas:ready` off this issue, put `needs-human-attention` on it and started nothing. Its body names 6 files, more than the 3 of `TEHAS_SIZE_MAX_FILES`");
+    assert!(
+        w.off(7, Mark::Act(Act::Approve)) && w.on(7, Mark::State(State::NeedsPerson)),
+        "{:?}",
+        w.writes_of(7)
+    );
+    assert!(w.said_on(7, "Tehas took `tehas:ready` off this issue, put `needs-human-attention` on it and started nothing. Its body names 6 files, more than the 3 of `TEHAS_SIZE_MAX_FILES`"), "{:?}", w.said(7));
     has(&gh, "apply `tehas:ready` again to start one of them");
     // One label change and one comment: the comment of a start is not there.
-    assert_eq!(count_lines(&gh, "issue edit 7 "), 1, "{gh}");
-    assert_eq!(count_lines(&gh, "issue comment 7 "), 1, "{gh}");
+    assert_eq!(w.marks(Some(7)), 2, "{:?}", w.writes_of(7));
+    assert_eq!(w.notes(7), 1, "{gh}");
 }

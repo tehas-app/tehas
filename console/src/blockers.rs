@@ -76,8 +76,7 @@ pub fn object(at: &str, record: &Record) -> Value {
             json!({"issue": n, "cycle": g.reach_cycle.contains(n), "ends": ends})
         })
         .collect();
-    let edges: Vec<Value> = record.edges.iter().map(Edge::to_value).collect();
-    json!({"api": 1, "state": "ok", "at": at, "edges": edges, "cycles": g.cycles, "chains": chains})
+    json!({"api": 1, "state": "ok", "at": at, "edges": record.edges, "cycles": g.cycles, "chains": chains})
 }
 
 /// The same for a person, one line a chain.

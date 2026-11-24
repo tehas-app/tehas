@@ -72,7 +72,6 @@ t_eq "$(jq -c '[.approval, .settings.concurrentCycles]' "$T/calls/facts.json")" 
 t_store_home "$home"
 t_eq "$(find "$T/home/tehas/tmp" -type f | wc -l)" 0
 
-
 t_case "facts that cannot be written are one WARN line, and the program is not called"
 rm -f "$T"/calls/*
 rm -rf "$T/home/tehas/tmp"

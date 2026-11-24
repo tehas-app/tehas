@@ -62,7 +62,7 @@ pub fn every(setting: &str) -> u64 {
 
 /// When the next ask is made after one that ended `ok`: the whole of `every`
 /// seconds after a success, `retry` after a failure.
-pub fn next_wait(ok: bool, every: u64, retry: u64) -> u64 {
+fn next_wait(ok: bool, every: u64, retry: u64) -> u64 {
     if ok {
         every
     } else {

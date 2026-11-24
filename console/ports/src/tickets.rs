@@ -769,6 +769,15 @@ pub trait TicketWrites: Tickets {
     /// cannot be made stops none of the others; the first that failed is
     /// the answer.
     fn prepare(&mut self) -> Result<(), Unprepared>;
+    /// Make sure the site can carry this one mark of the factory, as
+    /// `prepare` does for each: made, or brought to the colour and text the
+    /// adapter's table gives it, whatever the state of the others. A
+    /// project's own mark is `ensure_mark`'s: `Refused(Invalid)` here.
+    /// Provided: `Refused(Unsupported)` (Decided 127).
+    fn prepare_one(&mut self, mark: &Mark) -> Did {
+        let _ = mark;
+        Err(Outcome::Refused(crate::Refusal::Unsupported))
+    }
     /// Make sure a project's own mark exists. Already there is done. Its
     /// colour and text are made to match where the site has them and the
     /// spec gives them; a site without them ignores both, and that is done
@@ -778,7 +787,8 @@ pub trait TicketWrites: Tickets {
     fn mark(&mut self, key: &TicketKey, mark: &Mark) -> Did;
     /// Take a mark off.
     fn unmark(&mut self, key: &TicketKey, mark: &Mark) -> Did;
-    /// Close the ticket.
+    /// Close the ticket. A closed ticket is done and keeps its reason:
+    /// closed is closed.
     fn close(&mut self, key: &TicketKey, reason: &CloseReason) -> Did;
     /// Write a note on the ticket, its markers beside it.
     fn note(&mut self, key: &TicketKey, body: &str, markers: &[Marker]) -> Got<Posted<CommentId>>;

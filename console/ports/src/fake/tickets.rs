@@ -480,6 +480,7 @@ impl Tickets for Handle {
             if s.prepared {
                 all.extend(crate::laws::marks::factory_marks());
             }
+            all.extend(s.prepared_marks.iter().cloned());
             all.extend(
                 s.project_marks
                     .iter()
@@ -745,6 +746,19 @@ impl TicketWrites for Handle {
             Ok(())
         })
         .map_err(Unprepared::from)
+    }
+
+    fn prepare_one(&mut self, mark: &Mark) -> Did {
+        self.write(Op::Tickets(TicketsOp::PrepareOne), |s, _| {
+            known_mark(mark)?;
+            if matches!(mark, Mark::Project(_)) {
+                return Err(Outcome::Refused(Refusal::Invalid));
+            }
+            if !s.prepared_marks.contains(mark) {
+                s.prepared_marks.push(mark.clone());
+            }
+            Ok(())
+        })
     }
 
     fn ensure_mark(&mut self, spec: &MarkSpec) -> Did {
@@ -1043,6 +1057,15 @@ impl TicketWrites for Handle {
             at_ticket(s, child)?;
             if part_of(s, child, parent) {
                 return Err(Outcome::Refused(Refusal::Cycle));
+            }
+            // A part has one parent: another parent's is never moved.
+            let elsewhere = s
+                .items
+                .iter()
+                .enumerate()
+                .any(|(i, item)| i != at && item.parts.contains(child));
+            if elsewhere {
+                return Err(Outcome::Refused(Refusal::Invalid));
             }
             if !s.items[at].parts.contains(child) {
                 s.items[at].parts.push(child.clone());

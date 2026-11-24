@@ -245,6 +245,7 @@ use tehas_core::home::{Home, State};
 use tehas_cycle::after::{self, After};
 use tehas_cycle::host::Start;
 use tehas_cycle::last_attempt::{self, Action};
+use tehas_cycle::loose::Node;
 use tehas_cycle::report::{last_attempts, to_json, Given};
 use tehas_cycle::{apply, finish, lock, pin, progress, renew, report};
 use tehas_cycle::{caps, clock, events, index, runner, sandbox, supervise, work, Facts};
@@ -492,28 +493,6 @@ fn cycle_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
     std::process::exit(supervise::run(home, &g, &raised));
 }
 
-/// The factory's account as the adapter knows it: the bot's login and the
-/// user id `state/account-ids` records for it, the bot account's and not the
-/// App's. An ids file that cannot be read, or no id for the login, gives no
-/// id: then no account is the factory's own, and a write the site may have
-/// taken is settled as unknown, never sent again.
-fn bot_of(home: &Path) -> (String, Option<u64>) {
-    use tehas_core::accounts::{account, folded, load};
-    let login = std::fs::read_to_string(Home::new(home).state(State::BotLogin))
-        .unwrap_or_default()
-        .trim()
-        .to_string();
-    let key = folded(account(&login));
-    let id = load(home).ok().and_then(|pairs| {
-        pairs
-            .ids
-            .iter()
-            .find(|(l, _)| folded(account(l)) == key)
-            .map(|(_, id)| *id)
-    });
-    (login, id)
-}
-
 /// The relay's blueprints write handle, from the GitHub adapter's site,
 /// acting as the factory's account. The gh it runs is the relay's own, with
 /// the token the relay asked for this request: the site is handed that
@@ -524,7 +503,7 @@ fn writes(
     gh: Box<dyn tehas_core::forge::GhRunner>,
 ) -> tehas_ports::Got<Box<dyn tehas_ports::BlueprintWrites>> {
     use tehas_ports::Site;
-    let (login, id) = bot_of(home);
+    let (login, id) = tehas_core::accounts::bot(home);
     let runner = std::sync::Mutex::new(Some(gh));
     let make: tehas_github::MakeRunner = Arc::new(move |_| {
         runner
@@ -547,7 +526,7 @@ fn writes(
 /// as the factory's account, its gh the host's own under the finish's bound.
 fn finish_ports(home: &Path, repo: &str) -> tehas_ports::Got<finish::Ports> {
     use tehas_ports::{Actor, Caller, Scope, Site};
-    let (login, id) = bot_of(home);
+    let (login, id) = tehas_core::accounts::bot(home);
     let make: tehas_github::MakeRunner = Arc::new(move |_| {
         let mut b = tehas_core::forge::Bounded::new("gh", finish::cmd::BOUND);
         b.grace = finish::cmd::GRACE;
@@ -572,7 +551,7 @@ fn handles(
     grace: Duration,
 ) -> tehas_ports::Got<tehas_cycle::apply::Handles> {
     use tehas_ports::{Actor, Caller, Scope, Site};
-    let (login, id) = bot_of(home);
+    let (login, id) = tehas_core::accounts::bot(home);
     // The host's own gh, which takes the factory's token itself: the site is
     // handed a runner and holds none.
     let make: tehas_github::MakeRunner = Arc::new(move |_| {
@@ -779,7 +758,7 @@ fn outcome_verb(result: &str, n: &str) {
         std::process::exit(2)
     };
     match runner::outcome(&String::from_utf8_lossy(&bytes), n) {
-        Some(o) => tehas_core::outln!("{o}"),
+        Some(o) => tehas_core::outln!("{}", json!(o)),
         None => std::process::exit(4),
     }
 }
@@ -929,11 +908,13 @@ fn last_attempt(n: u64, result: &str, workspace: &Path) {
     let mut stdin = String::new();
     std::io::Read::read_to_string(&mut std::io::stdin(), &mut stdin)
         .unwrap_or_else(|e| fail(format!("the issue cannot be read: {e}")));
-    let issue: Value = serde_json::from_str(&stdin)
-        .unwrap_or_else(|e| fail(format!("the issue cannot be read: {e}")));
+    let issue = serde_json::from_str::<Node<last_attempt::IssueBody>>(&stdin)
+        .unwrap_or_else(|e| fail(format!("the issue cannot be read: {e}")))
+        .into_object()
+        .unwrap_or_default();
     let text = std::fs::read_to_string(result)
         .unwrap_or_else(|e| fail(format!("the result in {result} cannot be read: {e}")));
-    let state = last_attempt::state(workspace, n);
+    let state = last_attempt::WorkState::read(workspace, n);
     let action =
         last_attempt::of_issue(n, &issue, Some(&text), state.as_ref()).unwrap_or_else(|| {
             fail(format!(
@@ -948,50 +929,4 @@ fn last_attempt(n: u64, result: &str, workspace: &Path) {
             Action::Repeat => json!({"action": "repeat", "say": last_attempt::REPEAT}),
         }
     );
-}
-
-#[cfg(test)]
-mod tests {
-    use super::bot_of;
-    use std::fs;
-    use tehas_core::home::{Home, State};
-    use tehas_core::testdir::TestDir;
-
-    fn home_with(login: Option<&str>, ids: Option<&str>) -> TestDir {
-        let d = TestDir::new("cycle-bot-of");
-        let home = Home::new(d.path());
-        if let Some(l) = login {
-            let p = home.state(State::BotLogin);
-            fs::create_dir_all(p.parent().unwrap()).unwrap();
-            fs::write(p, l).unwrap();
-        }
-        if let Some(i) = ids {
-            let p = home.state(State::AccountIds);
-            fs::create_dir_all(p.parent().unwrap()).unwrap();
-            fs::write(p, i).unwrap();
-        }
-        d
-    }
-
-    /// The adapter knows the factory's account by the bot account's id the
-    /// factory recorded, its key the login GraphQL gives, any case.
-    #[test]
-    fn the_factorys_account_is_the_bots_login_and_its_recorded_id() {
-        let d = home_with(Some("tehas-bot[bot]\n"), Some("alice 42\nTehas-Bot 7\n"));
-        assert_eq!(bot_of(d.path()), ("tehas-bot[bot]".to_string(), Some(7)));
-    }
-
-    /// No id the factory can stand on: no account is its own, and a write
-    /// the site may have taken settles as unknown.
-    #[test]
-    fn without_a_recorded_id_the_factory_has_no_account_of_its_own() {
-        let none = home_with(Some("tehas-bot[bot]"), Some("alice 42\n"));
-        assert_eq!(bot_of(none.path()).1, None);
-        let missing = home_with(Some("tehas-bot[bot]"), None);
-        assert_eq!(bot_of(missing.path()).1, None);
-        let unreadable = home_with(Some("tehas-bot[bot]"), Some("tehas-bot not-a-number\n"));
-        assert_eq!(bot_of(unreadable.path()).1, None);
-        let no_login = home_with(None, Some("tehas-bot 7\n"));
-        assert_eq!(bot_of(no_login.path()), (String::new(), None));
-    }
 }

@@ -182,8 +182,8 @@ const STORE_STAND_IN: &str = r##"#!/usr/bin/env bash
 printf '%s\n' "$*" >>"$T/calls/store"
 if [ "${STORE_RC:-0}" != 0 ]; then echo "store: corrupt the database: a stand-in" >&2; exit "$STORE_RC"; fi
 case $1 in
-  init) echo "store: made $TEHAS_HOME/state/tehas.db" ;;
-  migrate) echo "store: $TEHAS_HOME/state/tehas.db at schema 1, backup $3/tehas-1-0.db" ;;
+  init) echo "store: made $TEHAS_HOME/@DB@" ;;
+  migrate) echo "store: $TEHAS_HOME/@DB@ at schema 1, backup $3/tehas-1-0.db" ;;
 esac
 "##;
 
@@ -261,7 +261,7 @@ impl Host {
         let home = t.join("home/tehas");
         let h = Host {
             checkout: home.join("platform"),
-            owed: home.join("state/update-pending"),
+            owed: Home::new(&home).state(State::UpdatePending),
             dev_etc: t.join("etc"),
             dev_bin: t.join("usr-local-bin"),
             home,
@@ -389,11 +389,15 @@ impl Host {
         let _ = fs::remove_dir_all(dir);
     }
 
-    /// The user ids an install records, of every login of `LOGINS` (t_ids).
+    /// The user ids an install records, of every login of `LOGINS` (t_ids),
+    /// in the form 2.0 writes: a 1.x file would be rewritten first.
     pub fn ids(&self, home: &Path) {
         let at = Home::new(home);
         fs::create_dir_all(at.state_dir()).unwrap();
-        let ids: String = LOGINS.iter().map(|l| format!("{l} {}\n", uid(l))).collect();
+        let ids: String = LOGINS
+            .iter()
+            .map(|l| format!("code-host {l} {}\n", uid(l)))
+            .collect();
         fs::write(at.state(State::AccountIds), ids).unwrap();
     }
 
@@ -767,7 +771,8 @@ exec '{}' "$@""#,
     /// cargo as install.sh runs it, and the store stand-in it builds.
     pub fn stub_cargo(&self) {
         self.stub("cargo", CARGO);
-        fs::write(self.t.join("store-stand-in"), STORE_STAND_IN).unwrap();
+        let text = STORE_STAND_IN.replace("@DB@", State::StoreDb.relative());
+        fs::write(self.t.join("store-stand-in"), text).unwrap();
     }
 
     /// The workspace's source in `dir/console`, without its build, and the
