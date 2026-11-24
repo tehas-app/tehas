@@ -12,7 +12,7 @@ use tehas_github::GitHub;
 use tehas_ports::laws;
 use tehas_ports::{
     Actor, At, Board, BoardAsk, Bound, ChangeAsk, ChangeFilter, ChangeItem, ChangedFile, Depth,
-    Filter, Got, Outcome, Refusal, TargetId, TicketKey, Unread, Whole,
+    Got, Outcome, Refusal, TargetId, TicketKey, Unread, Whole,
 };
 
 const PROJECT: &str = "acme/widget";
@@ -301,13 +301,7 @@ fn a_change_of_a_state_not_asked_does_not_add_up() {
 #[test]
 fn what_needs_a_ticket_a_blueprint_or_a_body_is_unsupported_before_any_request() {
     let unsupported = || Some(Outcome::Refused(Refusal::Unsupported));
-    let ask = BoardAsk {
-        depth: Depth::All,
-        history: None,
-        changes: None,
-        filter: Filter::default(),
-        control: None,
-    };
+    let ask = BoardAsk::new(Depth::All);
     let key = TicketKey::Number(std::num::NonZeroU64::new(7).unwrap());
     let mut gh = unasked();
     assert_eq!(gh.open_work(&ask, bound(10)).err(), unsupported());

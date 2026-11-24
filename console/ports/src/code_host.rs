@@ -2,14 +2,16 @@
 //! releases and the git remote, and its two traits, `CodeHost` and
 //! `CodeHostWrites`.
 
+use std::num::NonZeroU32;
+
 use serde::{Deserialize, Serialize};
 
 use crate::mark::unknown_tag;
 use crate::{
     unknown, Account, AccountId, Applied, At, Blobs, BlueprintNo, Body, Bound, Branch, ChangeNo,
     ChangeToken, Cites, Comment, CommentId, CommitId, Cursor, Did, FileName, GitRemote, Got, Mark,
-    Marker, MarkerEdit, Posted, ProjectName, Ref, ReleaseId, RepoPath, Reports, Rev, Secret, Sum,
-    TagName, Token, Took, WebLink, Whole, Window,
+    Marker, MarkerEdit, Posted, ProjectName, Ref, Relation, ReleaseId, RepoPath, Reports, Rev,
+    Secret, Sum, TagName, Token, Took, WebLink, Whole, Window,
 };
 
 /// What the code host says of the project. `tracker_on`: the code host's
@@ -136,6 +138,11 @@ pub struct ChangeDigest {
     pub base_commit: CommitId,
     /// Who opened it; None where the site names nobody.
     pub author: Option<Account>,
+    /// How its author stands to the project, as the site records it with
+    /// the change; None where the site does not say. Missing, it reads as
+    /// None.
+    #[serde(default)]
+    pub author_relation: Option<Relation>,
     /// Its head is in another project.
     pub from_fork: bool,
     /// It is a draft.
@@ -188,6 +195,7 @@ new!(
     },
     title,
     author,
+    author_relation,
     from_fork,
     draft,
     merge_state,
@@ -210,7 +218,9 @@ pub struct Change {
     pub body: String,
     /// The files it changes.
     pub files: Vec<ChangedFile>,
-    /// Its reviews.
+    /// Every review, not the latest of each reviewer: a consumer takes the
+    /// latest per reviewer and reads `Verdict::Unknown` as no approval
+    /// (Decided 112).
     pub reviews: Vec<Review>,
     /// Its comments.
     pub comments: Vec<Comment>,
@@ -273,7 +283,8 @@ pub enum Verdict {
     ChangesAsked,
     /// It comments only.
     Commented,
-    /// A verdict this copy does not know.
+    /// A verdict this copy does not know, and a review the site dismissed.
+    /// Never an approval.
     #[serde(other)]
     Unknown,
 }
@@ -398,7 +409,12 @@ pub struct ChangeFilter {
 pub struct ChangeDelta {
     /// The changes that changed.
     pub changes: Vec<ChangeDigest>,
-    /// The comments on changes since the cursor, each with its change.
+    /// The comments on changes written or edited since the cursor, each
+    /// with its change, beside the tickets' notes of `TicketDelta`: the
+    /// conversation of a change, read with the change's own cursor. A
+    /// comment of a ticket or a blueprint is never here. Missing, it reads
+    /// as empty.
+    #[serde(default)]
     pub comments: Vec<(ChangeNo, Comment)>,
     /// Where the next delta starts: after the last change it holds.
     pub next: Cursor,
@@ -573,8 +589,10 @@ pub struct NewChange {
     pub closes: Vec<BlueprintNo>,
 }
 
-/// How a change merges.
+/// How a change merges. It may grow: an adapter's match on it has an arm
+/// for the rest, and that arm refuses the merge.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum MergeHow {
     /// A merge commit.
     Merge,
@@ -582,6 +600,13 @@ pub enum MergeHow {
     Squash,
     /// Its commits on top of the base.
     Rebase,
+    /// The way the site's settings for the project make the default: a
+    /// caller that keeps no rule of its own leaves it to the project.
+    Site,
+    /// A way this copy does not know: `Refused(Invalid)` before any
+    /// request, never written.
+    #[serde(other)]
+    Unknown,
 }
 
 /// Files committed on a fresh branch from `base`, and a change opened for
@@ -707,6 +732,10 @@ pub struct Release {
     pub prerelease: bool,
     /// When it was published; None for a draft.
     pub published: Option<At>,
+    /// Its notes, without our markers; `""` when it has none. Missing, it
+    /// reads as `""`.
+    #[serde(default)]
+    pub notes: String,
     /// Its files.
     pub files: Vec<ReleaseFile>,
     /// Where a person opens it.
@@ -723,6 +752,7 @@ new!(
     draft,
     prerelease,
     published,
+    notes,
     files
 );
 
@@ -811,12 +841,22 @@ pub trait CodeHost: Reports + Cites {
     /// each name alone, so an old failure beside a passing re-run is not
     /// read. `overall` is `Overall::of` those runs.
     fn checks(&mut self, at: &CommitId, name: Option<&str>) -> Got<Checks>;
-    /// The project's tags, whole.
+    /// The project's tags, whole, in the site's order: no order is
+    /// promised, so a caller that wants the newest asks `recent_tags`.
     fn tags(&mut self, bound: Bound) -> Got<Whole<Tag>>;
+    /// The newest `first` tags, with `more`: newest first by the time each
+    /// was made, ties and tags with no time in the site's order. A caller
+    /// that reads one page of the newest asks this, never `tags`.
+    fn recent_tags(&mut self, first: NonZeroU32) -> Got<Took<Tag>>;
     /// The commit a tag names, an annotated tag peeled.
     fn resolve_tag(&mut self, name: &TagName) -> Got<CommitId>;
-    /// The project's releases, whole.
+    /// The project's releases, whole, drafts among them, in the site's
+    /// order: no order is promised, as in `tags`.
     fn releases(&mut self, bound: Bound) -> Got<Whole<Release>>;
+    /// The newest `first` releases, drafts among them, with `more`: newest
+    /// first by when the site made each, a draft too, not by when it was
+    /// published.
+    fn recent_releases(&mut self, first: NonZeroU32) -> Got<Took<Release>>;
     /// The newest published release, if any.
     fn latest_release(&mut self) -> Got<Option<Release>>;
     /// The release of a tag.

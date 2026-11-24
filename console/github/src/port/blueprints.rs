@@ -49,6 +49,12 @@ impl Blueprints for GitHub {
         unsupported()
     }
 
+    /// None yet: this adapter reads no text, so it finds no attachment in
+    /// one.
+    fn attachments_in(&self, _: &str) -> Vec<Attachment> {
+        Vec::new()
+    }
+
     /// GitHub's issue search, its pages read in turn until one hit past
     /// `first` or the end. Each word is quoted, so none is a qualifier,
     /// and a hit is kept only when it is an issue of this project that

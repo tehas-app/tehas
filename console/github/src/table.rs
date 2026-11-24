@@ -231,6 +231,11 @@ pub fn marker_text(m: &Marker) -> Option<String> {
             ],
             None,
         ),
+        Marker::Declined { question } => (
+            "Declined",
+            vec![("question", Some(question.as_str().to_string()))],
+            None,
+        ),
         _ => return None,
     };
     let row = MARKERS
@@ -355,6 +360,7 @@ fn marker_row(line: &str) -> Option<MarkerRow> {
         "Millwright" => MarkerKind::Millwright,
         "TicketOf" => MarkerKind::TicketOf,
         "Link" => MarkerKind::Link,
+        "Declined" => MarkerKind::Declined,
         _ => return None,
     };
     let word = open.strip_prefix(WRAP)?.split(' ').next()?.to_string();

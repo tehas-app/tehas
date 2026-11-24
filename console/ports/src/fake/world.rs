@@ -204,6 +204,12 @@ impl World {
         self.edit_account(login, |a| a.assignable = yes)
     }
 
+    /// How an account stands to the project, as the items it writes record
+    /// it.
+    pub fn relation(self, login: &str, relation: crate::Relation) -> Self {
+        self.edit_account(login, |a| a.relation = relation)
+    }
+
     /// Make a name an organisation.
     pub fn organisation(self, login: &str) -> Self {
         self.lock()
@@ -337,6 +343,20 @@ impl World {
             s.sign_ins
                 .push((SignInCode::new(code), login.to_string(), false));
         }
+        self
+    }
+
+    /// A site with no way for a person to sign in: `sign_in_link` is
+    /// `Refused(Unsupported)`.
+    pub fn without_sign_in(self) -> Self {
+        self.lock().sign_in_on = false;
+        self
+    }
+
+    /// A site whose count cannot express `Filter::carrying_any`: a count
+    /// of a filter that names one is `Refused(Unsupported)`.
+    pub fn count_without_carrying_any(self) -> Self {
+        self.lock().count_any_on = false;
         self
     }
 
@@ -594,6 +614,7 @@ impl World {
                 draft: false,
                 prerelease: false,
                 published: Some(now),
+                notes: String::new(),
                 files: Vec::new(),
                 link,
             };
