@@ -749,7 +749,9 @@ pub fn run_poll(
     };
     // The poll's one policy is already in both `Calls`: the writer's made above,
     // the snapshot's made by `body` from the value `body` is given.
-    let rc = body(home, settings, dry, &token, &mut w, &mut end, &retry);
+    let rc = body(
+        home, settings, dry, &token, &mut w, &mut end, &retry, handles,
+    );
     // The lines the poll's reads left, of both its `Calls`, said once here and
     // nowhere else: `taken` empties the shared queue, so the drain of `body` and
     // this one read disjoint buckets of the same queue and no line is said twice.
@@ -764,6 +766,8 @@ pub fn run_poll(
     rc
 }
 
+// The poll's own parts, each made once by `run_poll`.
+#[allow(clippy::too_many_arguments)]
 fn body(
     home: &Path,
     settings: &Settings,
@@ -772,6 +776,7 @@ fn body(
     w: &mut Writer,
     end: &mut End,
     retry: &RetryPolicy,
+    handles: crate::apply::HandlesOf,
 ) -> i32 {
     // The journal first, before GitHub is read for the queue: what a poll
     // that died between two writes left is settled from fresh reads. One that
@@ -809,10 +814,20 @@ fn body(
         now,
         models: crate::read::models::Models::read(),
         endpoint: (String::new(), String::new()),
+        code_host: None,
     };
     // The same token for the poll's reads as for its writes: what the shim of
     // every gh call would ask for anyway, asked once by the poll.
     src.calls.gh_token = w.calls.gh_token.clone().or_else(|| token.get(home));
+    // The code host's reads go through the port, its handle from the same
+    // wiring as the writes', with the same token. Only the branch's check
+    // reads through it yet, so none is made for an instance that names none.
+    if !settings.branch_check.is_empty() {
+        let gh_token = src.calls.gh_token.as_deref();
+        src.code_host = handles(home, &w.repo, &w.gh, gh_token, w.bound)
+            .ok()
+            .map(|h| h.code_host);
+    }
     let snap = snapshot(&mut src, settings);
     end.gh = src.calls.gh_count;
     // Every gh read the poll could not make says why, in gh's own words: only the

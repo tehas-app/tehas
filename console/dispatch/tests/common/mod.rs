@@ -171,14 +171,23 @@ case "$1 $2" in
             then [{name: \"tehas:running\"}] else [] end)}" "$T/fx/marked.json" 2>/dev/null || echo "{\"number\":$n,\"state\":\"open\"}"
         fi ;;
     esac ;;
-  # The check runs of a name on the head commit of the branch.
+  # The check runs of a name on the head commit of the branch, and the
+  # commit's statuses, as the code host adapter reads them.
   "api repos/acme/widget/commits/"*)
-    [ ! -e "$T/fx/checks-fails" ] || exit 1
-    [ ! -e "$T/fx/checks-hangs" ] || exec sleep 20
-    cat "$T/fx/checks.json" 2>/dev/null || echo "{\"total_count\":0,\"check_runs\":[]}" ;;
+    case "$2" in
+      */status\?*) cat "$T/fx/statuses.json" 2>/dev/null || echo "{\"total_count\":0,\"statuses\":[]}" ;;
+      *)
+        [ ! -e "$T/fx/checks-fails" ] || exit 1
+        [ ! -e "$T/fx/checks-hangs" ] || exec sleep 20
+        cat "$T/fx/checks.json" 2>/dev/null || echo "{\"total_count\":0,\"check_runs\":[]}" ;;
+    esac ;;
   "api graphql")
     n=$(printf "%s\n" "$@" | sed -n "s/^number=//p")
     case "$*" in
+      # The head commit of a branch, as the code host adapter asks it.
+      *"qualifiedName"*) b=$(printf "%s\n" "$@" | sed -n "s|^ref=refs/heads/||p")
+        cat "$T/fx/branch.json" 2>/dev/null ||
+          echo "{\"data\":{\"repository\":{\"ref\":{\"name\":\"$b\",\"prefix\":\"refs/heads/\",\"target\":{\"__typename\":\"Commit\",\"oid\":\"0123456789abcdef0123456789abcdef01234567\"}}}}}" ;;
       # The open issues in one page, as tehas-dispatch asks for them.
       *"issues(states: OPEN"*) if [ -e "$T/fx/gh-stderr-fails" ]; then
           cat "$T/fx/gh-stderr" >&2 2>/dev/null; exit 1; fi

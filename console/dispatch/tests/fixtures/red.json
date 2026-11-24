@@ -2,7 +2,8 @@
  "from": "test/dispatch_red_test.sh",
  "later": [],
  "not_ported": [
-  "red: no check named, GitHub is not asked: a count of calls (#253 part 4)"
+  "red: no check named, GitHub is not asked: a count of calls (#253 part 4)",
+  "how GitHub's conclusions fold into a state, and which runs are kept: the code host adapter's (console/github), whose recorded tests pin it; these cases give the state it answers"
  ],
  "cases": [
   {
@@ -17,15 +18,8 @@
    ],
    "snapshot": {
     "checks": {
-     "total_count": 1,
-     "check_runs": [
-      {
-       "name": "verify",
-       "head_sha": "0123456789abcdef0123456789abcdef01234567",
-       "status": "completed",
-       "conclusion": "failure"
-      }
-     ]
+     "state": "red",
+     "head": "0123456789ab"
     }
    },
    "expect": {
@@ -53,13 +47,8 @@
    },
    "snapshot": {
     "checks": {
-     "check_runs": [
-      {
-       "head_sha": "0123456789abcdef0123456789abcdef01234567",
-       "status": "completed",
-       "conclusion": "timed_out"
-      }
-     ]
+     "state": "red",
+     "head": "0123456789ab"
     }
    },
    "expect": {
@@ -77,13 +66,8 @@
    },
    "snapshot": {
     "checks": {
-     "check_runs": [
-      {
-       "head_sha": "0123456789abcdef0123456789abcdef01234567",
-       "status": "completed",
-       "conclusion": "startup_failure"
-      }
-     ]
+     "state": "red",
+     "head": "0123456789ab"
     }
    },
    "expect": {
@@ -102,13 +86,8 @@
    "snapshot": {
     "last_why": "red",
     "checks": {
-     "check_runs": [
-      {
-       "head_sha": "0123456789abcdef0123456789abcdef01234567",
-       "status": "completed",
-       "conclusion": "failure"
-      }
-     ]
+     "state": "red",
+     "head": "0123456789ab"
     }
    },
    "expect": {
@@ -132,13 +111,8 @@
    ],
    "snapshot": {
     "checks": {
-     "check_runs": [
-      {
-       "head_sha": "0123456789abcdef0123456789abcdef01234567",
-       "status": "completed",
-       "conclusion": "success"
-      }
-     ]
+     "state": "done",
+     "head": "0123456789ab"
     }
    },
    "expect": {
@@ -163,13 +137,8 @@
    ],
    "snapshot": {
     "checks": {
-     "check_runs": [
-      {
-       "head_sha": "0123456789abcdef0123456789abcdef01234567",
-       "status": "in_progress",
-       "conclusion": null
-      }
-     ]
+     "state": "pending",
+     "head": "0123456789ab"
     }
    },
    "expect": {
@@ -194,13 +163,8 @@
    ],
    "snapshot": {
     "checks": {
-     "check_runs": [
-      {
-       "head_sha": "0123456789abcdef0123456789abcdef01234567",
-       "status": "queued",
-       "conclusion": null
-      }
-     ]
+     "state": "pending",
+     "head": "0123456789ab"
     }
    },
    "expect": {
@@ -225,13 +189,8 @@
    ],
    "snapshot": {
     "checks": {
-     "check_runs": [
-      {
-       "head_sha": "0123456789abcdef0123456789abcdef01234567",
-       "status": "completed",
-       "conclusion": "cancelled"
-      }
-     ]
+     "state": "unknown",
+     "head": "0123456789ab"
     }
    },
    "expect": {
@@ -271,13 +230,8 @@
    ],
    "snapshot": {
     "checks": {
-     "check_runs": [
-      {
-       "head_sha": "0123456789abcdef0123456789abcdef01234567",
-       "status": "completed",
-       "conclusion": null
-      }
-     ]
+     "state": "unknown",
+     "head": "0123456789ab"
     }
    },
    "expect": {
@@ -309,13 +263,8 @@
    ],
    "snapshot": {
     "checks": {
-     "check_runs": [
-      {
-       "head_sha": "0123456789abcdef0123456789abcdef01234567",
-       "status": "completed",
-       "conclusion": "wontfix"
-      }
-     ]
+     "state": "unknown",
+     "head": "0123456789ab"
     }
    },
    "expect": {
@@ -347,15 +296,8 @@
    ],
    "snapshot": {
     "checks": {
-     "total_count": 1,
-     "check_runs": [
-      {
-       "name": "verify",
-       "head_sha": "0123456789abcdef0123456789abcdef01234567",
-       "status": "completed",
-       "conclusion": "action_required"
-      }
-     ]
+     "state": "unknown",
+     "head": "0123456789ab"
     }
    },
    "expect": {
@@ -390,15 +332,8 @@
    ],
    "snapshot": {
     "checks": {
-     "total_count": 1,
-     "check_runs": [
-      {
-       "name": "verify",
-       "head_sha": "0123456789abcdef0123456789abcdef01234567",
-       "status": "completed",
-       "conclusion": "stale"
-      }
-     ]
+     "state": "unknown",
+     "head": "0123456789ab"
     }
    },
    "expect": {
@@ -433,18 +368,8 @@
    ],
    "snapshot": {
     "checks": {
-     "check_runs": [
-      {
-       "head_sha": "0123456789abcdef0123456789abcdef01234567",
-       "status": "completed",
-       "conclusion": "cancelled"
-      },
-      {
-       "head_sha": "0123456789abcdef0123456789abcdef01234567",
-       "status": "in_progress",
-       "conclusion": null
-      }
-     ]
+     "state": "pending",
+     "head": "0123456789ab"
     }
    },
    "expect": {
@@ -470,13 +395,8 @@
    ],
    "snapshot": {
     "checks": {
-     "check_runs": [
-      {
-       "head_sha": "0123456789abcdef0123456789abcdef01234567",
-       "status": "completed",
-       "conclusion": "skipped"
-      }
-     ]
+     "state": "done",
+     "head": "0123456789ab"
     }
    },
    "expect": {
@@ -501,13 +421,8 @@
    ],
    "snapshot": {
     "checks": {
-     "check_runs": [
-      {
-       "head_sha": "0123456789abcdef0123456789abcdef01234567",
-       "status": "completed",
-       "conclusion": "neutral"
-      }
-     ]
+     "state": "done",
+     "head": "0123456789ab"
     }
    },
    "expect": {
@@ -530,13 +445,8 @@
     "last_why": "unknown-gate",
     "branch_note": "the check \"verify\" on main at 0123456789ab finished without saying it passed: cycles start",
     "checks": {
-     "check_runs": [
-      {
-       "head_sha": "0123456789abcdef0123456789abcdef01234567",
-       "status": "completed",
-       "conclusion": "cancelled"
-      }
-     ]
+     "state": "unknown",
+     "head": "0123456789ab"
     }
    },
    "expect": {
@@ -560,13 +470,8 @@
    },
    "snapshot": {
     "checks": {
-     "check_runs": [
-      {
-       "head_sha": "0123456789abcdef0123456789abcdef01234567",
-       "status": "in_progress",
-       "conclusion": null
-      }
-     ]
+     "state": "pending",
+     "head": "0123456789ab"
     }
    },
    "expect": {
@@ -589,13 +494,8 @@
    "snapshot": {
     "branch_note": "the check verify on main at 0123456789ab has not finished: cycles start",
     "checks": {
-     "check_runs": [
-      {
-       "head_sha": "0123456789abcdef0123456789abcdef01234567",
-       "status": "in_progress",
-       "conclusion": null
-      }
-     ]
+     "state": "pending",
+     "head": "0123456789ab"
     }
    },
    "expect": {
@@ -617,8 +517,7 @@
    },
    "snapshot": {
     "checks": {
-     "total_count": 0,
-     "check_runs": []
+     "state": "none"
     }
    },
    "expect": {
@@ -638,7 +537,7 @@
    },
    "snapshot": {
     "checks": {
-     "failed": true
+     "state": "unreadable"
     }
    },
    "expect": {
@@ -678,13 +577,8 @@
    },
    "snapshot": {
     "checks": {
-     "check_runs": [
-      {
-       "head_sha": "<b>",
-       "status": "completed",
-       "conclusion": "failure"
-      }
-     ]
+     "state": "red",
+     "head": "<b>"
     }
    },
    "expect": {
@@ -719,13 +613,8 @@
    ],
    "snapshot": {
     "checks": {
-     "check_runs": [
-      {
-       "head_sha": "0123456789abcdef0123456789abcdef01234567",
-       "status": "completed",
-       "conclusion": "failure"
-      }
-     ]
+     "state": "red",
+     "head": "0123456789ab"
     }
    },
    "expect": {
@@ -751,13 +640,8 @@
    "snapshot": {
     "last_why": "red",
     "checks": {
-     "check_runs": [
-      {
-       "head_sha": "0123456789abcdef0123456789abcdef01234567",
-       "status": "completed",
-       "conclusion": "success"
-      }
-     ]
+     "state": "done",
+     "head": "0123456789ab"
     }
    },
    "expect": {
@@ -778,13 +662,8 @@
    "dry": true,
    "snapshot": {
     "checks": {
-     "check_runs": [
-      {
-       "head_sha": "0123456789abcdef0123456789abcdef01234567",
-       "status": "completed",
-       "conclusion": "failure"
-      }
-     ]
+     "state": "red",
+     "head": "0123456789ab"
     }
    },
    "expect": {
@@ -811,15 +690,8 @@
    },
    "snapshot": {
     "checks": {
-     "total_count": 1,
-     "check_runs": [
-      {
-       "name": "verify",
-       "head_sha": "0123456789abcdef0123456789abcdef01234567",
-       "status": "completed",
-       "conclusion": "failure"
-      }
-     ]
+     "state": "red",
+     "head": "0123456789ab"
     }
    },
    "expect": {
@@ -863,15 +735,8 @@
      }
     },
     "checks": {
-     "total_count": 1,
-     "check_runs": [
-      {
-       "name": "verify",
-       "head_sha": "0123456789abcdef0123456789abcdef01234567",
-       "status": "completed",
-       "conclusion": "failure"
-      }
-     ]
+     "state": "red",
+     "head": "0123456789ab"
     }
    },
    "settings": {
@@ -925,15 +790,8 @@
      }
     },
     "checks": {
-     "total_count": 1,
-     "check_runs": [
-      {
-       "name": "verify",
-       "head_sha": "0123456789abcdef0123456789abcdef01234567",
-       "status": "completed",
-       "conclusion": "failure"
-      }
-     ]
+     "state": "red",
+     "head": "0123456789ab"
     }
    },
    "asked": {
