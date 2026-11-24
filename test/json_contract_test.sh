@@ -357,12 +357,12 @@ limit_now() { # <name>
 }
 
 # The two samples of `drain` differ only by the lock below: an issue's cycle
-# that holds it for a minute, as test/drain_test.sh holds one. The drain takes
+# that holds it for a minute, as console/tests/drain.rs holds one. The drain takes
 # no lock of its own, so 0 is a wait long enough for the lock to be tried and
 # not one the case waits through, and `running` is the list made at once.
 drain_hold=0
-# 12, the issue of test/drain_test.sh whose cycle holds its lock for the
-# `running` sample: 12.lock is the file drain finds and names.
+# 12, the issue whose cycle holds its lock for the `running` sample: 12.lock
+# is the file drain finds and names.
 drain_issue=12
 
 # <name>: the world that sample is a reading of. Both of them are drained by
@@ -552,8 +552,7 @@ limit_reading() { # <name>
 # it, so the holder must be alive while a reading is made and gone when the case
 # is done. It is a child of this shell, and a run of t_run waits for the children
 # of the shell it runs in, so the holder is made of its own session: adopted, not
-# waited for (test/lib.sh holds a lock the same way in t_hold, and test/drain_test
-# .sh holds a cycle's lock as a poll's child for the same reason).
+# waited for (test/lib.sh holds a lock the same way in t_hold).
 freeze_home=$T/home/tehas/state/cycles
 freeze_holder=
 
@@ -583,7 +582,7 @@ freeze_holder_start() { # <file>
 # behind when it ends says nothing on its own either (console/ops/src/freeze.rs, and
 # the one probe of console/core/src/lock.rs that `tehas drain` reads the same
 # way). So `idle` is no lock, no request and no pause. `asked` is the lock held,
-# as test/drain_test.sh holds a running cycle's lock, with no request yet, and is
+# as console/tests/drain.rs holds a running cycle's lock, with no request yet, and is
 # read by the freeze that asks for one. `frozen` adds the two files the watch
 # leaves, and is read by `tehas freeze` again, which answers it is frozen already.
 # `thaw` is that same world read by `tehas thaw`, which removes the request and
@@ -1373,7 +1372,7 @@ pinned=(
   'state-copy	console/tests/state.rs'
   'state-load	console/tests/state.rs'
   'disk-cycles	console/tests/disk.rs	own'
-  'host-messages	test/host_message_test.sh'
+  'host-messages	console/tests/host_message.rs'
   'wake	console/src/wake.rs'
   'blockers	console/src/blockers.rs'
   'settings-rules	test/settings_rules_test.sh	own'
