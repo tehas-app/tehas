@@ -864,7 +864,7 @@ mod tests {
 
     #[test]
     fn a_repository_is_owner_and_name_of_safe_characters() {
-        for good in ["tehas-app/tehas", "a/b", "A_1.x/y-z.git", "-/."] {
+        for good in ["tehas-app/tehas-factory", "a/b", "A_1.x/y-z.git", "-/."] {
             assert!(is_repo(good), "{good}");
         }
         for bad in [

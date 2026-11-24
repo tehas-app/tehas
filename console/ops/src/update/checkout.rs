@@ -5,6 +5,7 @@
 use super::{output, say, tell, timed, Host, Mode, Plan};
 use crate::store::merged;
 use std::process::{Command, Stdio};
+use tehas_core::release;
 
 /// Seconds for git fetch from origin.
 const FETCH_LIMIT: u32 = 120;
@@ -83,6 +84,14 @@ pub(crate) fn pull(host: &Host, plan: &mut Plan) -> u8 {
     let tree = host.checkout().display().to_string();
     let checkout = tree.as_str();
     plan.tree = tree.clone();
+    // The URL as written, not as git's insteadOf rewrites it: the name the
+    // instance gives is the one read from, and the one that may have moved.
+    let url = asked(checkout, &["config", "--get", "remote.origin.url"]);
+    if let Some(moved) =
+        release::on_github(&url).and_then(|r| release::moved(&r, release::Holder::Origin(checkout)))
+    {
+        say(&format!("checkout: {moved}"));
+    }
     // A branch, and nothing uncommitted: an update that carried on past either one
     // would merge into a tree somebody is editing.
     let branch = asked(checkout, &["symbolic-ref", "--quiet", "--short", "HEAD"]);
