@@ -102,17 +102,17 @@ fn a_label_from_a_listed_login_with_another_user_id_does_not_count_and_is_warned
     lacks(&r.out, "would run a cycle");
 }
 
-/// Until T4.7 makes the two one rule, the dispatcher matches the allowed
-/// list in exact case, stricter than `console label allowed`: a case
-/// variant of a listed login with the recorded id gets no here.
+/// The dispatcher matches the allowed list in any ASCII case, as
+/// `console label allowed` does: a case variant of a listed login with the
+/// recorded id counts, and names the login as GitHub gave it.
 #[test]
-fn until_t4_7_a_case_variant_of_a_listed_login_gets_no_from_the_dispatcher() {
+fn a_case_variant_of_a_listed_login_with_the_recorded_user_id_counts() {
     let w = World::new("ap-uid-case");
     ready_by(&w, json!({"login": "Alice", "id": uid("alice")}));
     let r = w.dispatch(&["--dry-run"]);
     lacks(&r.out, "does not count");
-    has(&r.out, "was applied by 'Alice', not an allowed account");
-    lacks(&r.out, "would run a cycle");
+    lacks(&r.out, "not an allowed account");
+    has(&r.out, "would run a cycle for #7 (labelled by Alice)");
 }
 
 /// The vouch folds case: a case variant with another id is doubted.
