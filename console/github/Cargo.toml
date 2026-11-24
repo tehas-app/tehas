@@ -21,3 +21,9 @@ serde_json = "1"
 tehas-core = { path = "../core", features = ["mask"] }
 tehas-ports = { path = "../ports" }
 
+
+[dev-dependencies]
+# A CommonMark and GFM parser, as an oracle in tests/markers_oracle.rs alone:
+# where GitHub shows a marker as code, in a quote or as hidden HTML. Never
+# reachable from the adapter's code.
+comrak = { version = "=0.28.0", default-features = false }

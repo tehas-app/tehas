@@ -2,7 +2,7 @@
 //! continuation and an indented code block are text, so a marker there does
 //! not read. A line indented under a paragraph continues it, and a list
 //! item's indented line is the item's text: a marker there reads. A code
-//! span across line ends stays a known departure.
+//! span across line ends holds its marker as code.
 
 use std::num::NonZeroU32;
 use tehas_github::markers::{read, write};
@@ -67,10 +67,12 @@ fn an_indented_line_in_a_list_item_is_the_item_s_text_as_before() {
 }
 
 #[test]
-fn a_code_span_across_line_ends_is_a_known_departure_and_reads_as_no_span() {
-    // CommonMark would make this one span holding the marker; the reader
-    // reads code spans within a line, so the marker reads.
-    assert_eq!(markers(&format!("a `x\nb {M} `")), [finish()]);
+fn a_code_span_across_line_ends_holds_its_marker_as_code() {
+    // CommonMark lets a code span cross the line ends of its paragraph, and
+    // GitHub shows the marker in it as code.
+    assert!(markers(&format!("a `x\nb {M} `")).is_empty());
+    // A blank line ends the paragraph, and the backtick opens nothing.
+    assert_eq!(markers(&format!("a `x\n\nb {M} `")), [finish()]);
 }
 
 #[test]
