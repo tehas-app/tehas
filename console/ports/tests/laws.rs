@@ -937,6 +937,8 @@ fn identity_an_accounts_spellings_fold_to_one_login() {
             Login::new("tehas-bot"),
             Login::new("Tehas-Bot"),
             Login::new("TEHAS-BOT"),
+            Login::new("tehas-bot[bot]"),
+            Login::new("app/tehas-bot"),
         ],
     ));
 }

@@ -7,16 +7,16 @@
 use std::sync::{Arc, Mutex};
 
 use super::faulty::{IdentityOp, Op};
-use super::state::{lock, CommentRec, ItemRec, State};
+use super::state::{lock, AccountRec, CommentRec, ItemRec, State};
 use super::world::{World, FACTORY, OPERATOR};
 use super::MemoryTokens;
 use crate::{
-    Account, Actor, At, Blueprint, BlueprintNo, BlueprintWrites, Blueprints, Board, Bound, Caller,
-    Cite, Cites, CodeHost, CodeHostWrites, Comment, CommentId, Covers, Depth, Got, Identity, Join,
-    Login, Marker, MarkerEdit, MeterRow, Outcome, Pool, PortName, ProjectName, Realm, Ref, Refusal,
-    Report, Reports, Revision, Scope, Secret, SignInCode, SignInState, Site, SiteId, Standing,
-    TicketDigest, TicketKey, TicketWrites, Tickets, Token, TokenStore, Took, Unread, WebLink,
-    Whole, Window, Write, ALL_MAX,
+    Account, AccountKind, Actor, At, Blueprint, BlueprintNo, BlueprintWrites, Blueprints, Board,
+    Bound, Caller, Cite, Cites, CodeHost, CodeHostWrites, Comment, CommentId, Covers, Depth, Got,
+    Identity, Join, Login, Marker, MarkerEdit, MeterRow, Outcome, Pool, PortName, ProjectName,
+    Realm, Ref, Refusal, Report, Reports, Revision, Scope, Secret, SignInCode, SignInState, Site,
+    SiteId, Standing, TicketDigest, TicketKey, TicketWrites, Tickets, Token, TokenStore, Took,
+    Unread, WebLink, Whole, Window, Write, ALL_MAX,
 };
 
 /// How long a token the fake mints is good for, in seconds.
@@ -647,6 +647,20 @@ impl Handle {
     }
 }
 
+/// Whether `spelling` names the account, folded as the fake's site folds
+/// a login: case, and for an app `x[bot]` and `app/x` as well as `x`.
+fn same_login(a: &AccountRec, spelling: &str) -> bool {
+    let lower = spelling.to_ascii_lowercase();
+    let name = match a.kind {
+        AccountKind::Bot | AccountKind::Ours => {
+            let bare = lower.strip_suffix("[bot]").unwrap_or(&lower);
+            bare.strip_prefix("app/").unwrap_or(bare).to_string()
+        }
+        _ => lower,
+    };
+    a.login.eq_ignore_ascii_case(&name)
+}
+
 /// Whether a token of scope `own` may answer for `asked`: a full token for
 /// any known scope, any other only for itself.
 fn covers(own: Scope, asked: Scope) -> bool {
@@ -772,7 +786,7 @@ impl Identity for Handle {
             let found = s
                 .accounts
                 .iter()
-                .find(|a| a.login.eq_ignore_ascii_case(login.as_str()) && !a.organisation)
+                .find(|a| same_login(a, login.as_str()) && !a.organisation)
                 .map(|a| a.login.clone())
                 .ok_or(Outcome::NotFound)?;
             Ok(s.account(&found, ctx.realm))
