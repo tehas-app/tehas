@@ -15,10 +15,24 @@
 //! or `Unreadable`, and its words stay in the text, as 1.x left them. A
 //! marker of this item that does not read stays `Unreadable`.
 //!
-//! What is no marker: one on a quoted line (its first character that is no
-//! white space is `>`), inside a fenced code block, or inside a code span
-//! of one line. An indented line is text: tehas's writers indent nothing,
-//! and a list's continuation line is indented too.
+//! What is no marker, as GitHub renders it as text: one on a quoted line
+//! (its first character that is no white space is `>`), or on a line that
+//! lazily continues a quote's paragraph (a line right after a quoted line,
+//! no blank line between, that starts no block of its own: not a `<!--`,
+//! a fence, a heading, a thematic break or a list item); one inside a
+//! fenced code block, or an indented code block (a line indented 4 columns
+//! or more, a tab to the next 4, after a blank line, the text's start, a
+//! fence's close, a heading, a thematic break or a line that is one HTML
+//! comment, and outside a list, with the lines indented as much or blank
+//! after it); and one inside a code span of one line.
+//!
+//! What stays live: a line indented 4 or more right after a paragraph's
+//! line continues that paragraph, as CommonMark has it, so its marker
+//! reads. Inside a list, an indented line is the item's text, as before:
+//! a list's continuation line is indented too. A code span across line
+//! ends, which CommonMark allows, is read as no span: a known departure. A
+//! factory marker stands alone on its line, after a blank line, so none of
+//! these reach one: they drop what a person pasted.
 //!
 //! [`write`] is the reading's inverse: a text and its markers made into
 //! the one text GitHub keeps, each marker's words from `table.rs`, and
@@ -524,39 +538,133 @@ fn lines(body: &str) -> Vec<Line> {
     out
 }
 
-/// The parts of the text that hold no marker: quoted lines, fenced code
-/// with its fences, and the code spans of a line.
+/// The parts of the text that hold no marker, as the module's doc says:
+/// quoted lines and their lazy continuations, fenced and indented code with
+/// their fences, and the code spans of a line.
 fn dead(body: &str, lines: &[Line]) -> Vec<(usize, usize)> {
     let mut out = Vec::new();
     let mut fence: Option<(u8, usize)> = None;
+    // The line before ends a block, so an indented line starts code.
+    let mut after_block = true;
+    let mut prev_blank = true;
+    let mut quote_para = false;
+    let mut code = false;
+    let mut list = false;
     for l in lines {
         let raw = &body[l.start..l.end];
+        let blank = raw.trim().is_empty();
         // A fence's line is indented 0 to 3 spaces; more is code inside
         // or a line of text.
         let indent = raw.len() - raw.trim_start_matches(' ').len();
         let text = (indent <= 3).then(|| &raw[indent..]);
-        match fence {
-            Some((c, n)) => {
-                out.push((l.start, l.next));
-                let closes = text.is_some_and(|t| {
-                    let run = t.bytes().take_while(|b| *b == c).count();
-                    run >= n && t[run..].bytes().all(|b| b == b' ' || b == b'\t')
-                });
-                if closes {
-                    fence = None;
-                }
+        let deep = columns(raw) >= 4;
+        if let Some((c, n)) = fence {
+            out.push((l.start, l.next));
+            let closes = text.is_some_and(|t| {
+                let run = t.bytes().take_while(|b| *b == c).count();
+                run >= n && t[run..].bytes().all(|b| b == b' ' || b == b'\t')
+            });
+            if closes {
+                fence = None;
             }
-            None => match text.and_then(opens) {
-                Some(open) => {
-                    out.push((l.start, l.next));
-                    fence = Some(open);
-                }
-                None if raw.trim_start().starts_with('>') => out.push((l.start, l.next)),
-                None => spans(raw, l.start, &mut out),
-            },
+            (after_block, prev_blank, quote_para) = (closes, false, false);
+            continue;
         }
+        if code && (blank || deep) {
+            out.push((l.start, l.next));
+            prev_blank = blank;
+            continue;
+        }
+        code = false;
+        if blank {
+            (after_block, prev_blank, quote_para) = (true, true, false);
+            continue;
+        }
+        if list && prev_blank && !deep && columns(raw) < 2 && !item(raw.trim_start()) {
+            list = false;
+        }
+        if item(raw.trim_start()) && !deep {
+            list = true;
+        }
+        let opened = text.and_then(opens);
+        if deep && after_block && !list {
+            out.push((l.start, l.next));
+            code = true;
+        } else if let Some(open) = opened {
+            out.push((l.start, l.next));
+            fence = Some(open);
+        } else if raw.trim_start().starts_with('>') {
+            out.push((l.start, l.next));
+            quote_para = !raw.trim_start()[1..].trim().is_empty();
+        } else if quote_para && !starts_block(raw) {
+            out.push((l.start, l.next));
+        } else {
+            quote_para = false;
+            spans(raw, l.start, &mut out);
+        }
+        let t = raw.trim();
+        after_block = heading(t) || rule(t) || (t.starts_with("<!--") && t.ends_with("-->"));
+        prev_blank = false;
     }
     out
+}
+
+/// The columns a line is indented by: a space one, a tab to the next 4.
+fn columns(raw: &str) -> usize {
+    let mut n = 0;
+    for b in raw.bytes() {
+        match b {
+            b' ' => n += 1,
+            b'\t' => n += 4 - n % 4,
+            _ => break,
+        }
+    }
+    n
+}
+
+/// Whether a line, indented 0 to 3, starts a block that ends a quote's
+/// lazy paragraph: a `<!--`, a fence, a heading, a thematic break or a
+/// list item.
+fn starts_block(raw: &str) -> bool {
+    if columns(raw) >= 4 {
+        return false;
+    }
+    let t = raw.trim_start();
+    t.starts_with("<!--") || opens(t).is_some() || heading(t) || rule(t) || item(t)
+}
+
+/// An ATX heading: 1 to 6 `#`, then a space or the line's end.
+fn heading(t: &str) -> bool {
+    let n = t.bytes().take_while(|b| *b == b'#').count();
+    (1..=6).contains(&n) && t[n..].chars().next().is_none_or(|c| c == ' ' || c == '\t')
+}
+
+/// A thematic break: three or more of one of `-`, `*` and `_`, spaces
+/// between.
+fn rule(t: &str) -> bool {
+    let marks: Vec<u8> = t.bytes().filter(|b| *b != b' ' && *b != b'\t').collect();
+    marks.len() >= 3
+        && matches!(marks[0], b'-' | b'*' | b'_')
+        && marks.iter().all(|b| *b == marks[0])
+}
+
+/// A list item's first line: `-`, `*` or `+`, or 1 to 9 digits and `.` or
+/// `)`, then a space or the line's end.
+fn item(t: &str) -> bool {
+    let after = match t.as_bytes().first() {
+        Some(b'-' | b'*' | b'+') => &t[1..],
+        _ => {
+            let n = t.bytes().take_while(u8::is_ascii_digit).count();
+            if !(1..=9).contains(&n) {
+                return false;
+            }
+            match t.as_bytes().get(n) {
+                Some(b'.' | b')') => &t[n + 1..],
+                _ => return false,
+            }
+        }
+    };
+    after.is_empty() || after.starts_with(' ') || after.starts_with('\t')
 }
 
 /// The fence a line opens, as CommonMark and GitHub read it: three or more
