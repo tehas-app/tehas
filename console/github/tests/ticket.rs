@@ -393,7 +393,7 @@ fn stub(answers: Vec<Result<String, &str>>) -> (GitHub, Asked) {
 /// One issue's answer to a question, `inner` its fields.
 fn issue(inner: &str) -> Result<String, &'static str> {
     Ok(format!(
-        r#"{{"data":{{"repository":{{"issue":{{"number":7,{inner}}}}}}}}}"#
+        r#"{{"data":{{"repository":{{"databaseId":7001,"issue":{{"number":7,{inner}}}}}}}}}"#
     ))
 }
 
@@ -484,7 +484,7 @@ fn an_answer_that_is_no_history_is_malformed() {
         Ok("not json".to_string()),
         Ok(String::new()),
         Ok(r#"{"data":{"repository":null}}"#.to_string()),
-        Ok(r#"{"data":{"repository":{"issue":null}}}"#.to_string()),
+        Ok(r#"{"data":{"repository":{"databaseId":7001,"issue":null}}}"#.to_string()),
         issue(r#""milestone":null"#),
         issue(r#""milestone":null,"events":{"pageInfo":{},"nodes":{}}"#),
         // A stamp that is no time, and one that is no text.
@@ -496,10 +496,10 @@ fn an_answer_that_is_no_history_is_malformed() {
         // A close that does not say what closed it, not even nothing.
         events(end, &[r#"{"__typename":"ClosedEvent","createdAt":null,"actor":null,"stateReason":"COMPLETED"}"#.to_string()]),
         // A close by a change with no number, and by a commit that is none.
-        events(end, &[r#"{"__typename":"ClosedEvent","closer":{"__typename":"PullRequest","repository":{"nameWithOwner":"acme/widget"},"merged":true}}"#.to_string()]),
+        events(end, &[r#"{"__typename":"ClosedEvent","closer":{"__typename":"PullRequest","repository":{"databaseId":7001,"nameWithOwner":"acme/widget"},"merged":true}}"#.to_string()]),
         events(end, &[r#"{"__typename":"ClosedEvent","closer":{"__typename":"Commit","oid":"zz"}}"#.to_string()]),
         // A change of another project with no link to name it by.
-        events(end, &[r#"{"__typename":"ClosedEvent","closer":{"__typename":"PullRequest","number":4,"merged":true,"repository":{"nameWithOwner":"octo/tools"}}}"#.to_string()]),
+        events(end, &[r#"{"__typename":"ClosedEvent","closer":{"__typename":"PullRequest","number":4,"merged":true,"repository":{"databaseId":7101,"nameWithOwner":"octo/tools"}}}"#.to_string()]),
     ] {
         let shown = format!("{answer:?}");
         assert_eq!(whole_history(vec![answer]), (Err(MALFORMED), 1), "{shown}");
@@ -514,11 +514,11 @@ fn an_event_is_read_in_the_ports_words() {
         r#"{"__typename":"ReopenedEvent","createdAt":null,"actor":null}"#.to_string(),
         r#"{"__typename":"ClosedEvent","createdAt":"2026-01-01T00:00:03Z","actor":{"__typename":"User","login":"Alice","databaseId":101},"stateReason":"NOT_PLANNED","closer":null}"#.to_string(),
         r#"{"__typename":"ClosedEvent","createdAt":"2026-01-01T00:00:04Z","actor":null,"stateReason":"COMPLETED","closer":{"__typename":"Commit","oid":"0123456789abcdef0123456789abcdef01234567"}}"#.to_string(),
-        r#"{"__typename":"ClosedEvent","createdAt":"2026-01-01T00:00:05Z","actor":null,"stateReason":"COMPLETED","closer":{"__typename":"PullRequest","number":4,"merged":false,"repository":{"nameWithOwner":"Acme/Widget"}}}"#.to_string(),
-        r#"{"__typename":"ClosedEvent","createdAt":"2026-01-01T00:00:06Z","actor":null,"stateReason":"DUPLICATE","closer":{"__typename":"PullRequest","number":4,"merged":true,"url":"https://github.com/octo/tools/pull/4","repository":{"nameWithOwner":"octo/tools"}}}"#.to_string(),
+        r#"{"__typename":"ClosedEvent","createdAt":"2026-01-01T00:00:05Z","actor":null,"stateReason":"COMPLETED","closer":{"__typename":"PullRequest","number":4,"merged":false,"repository":{"databaseId":7001,"nameWithOwner":"Acme/Widget"}}}"#.to_string(),
+        r#"{"__typename":"ClosedEvent","createdAt":"2026-01-01T00:00:06Z","actor":null,"stateReason":"DUPLICATE","closer":{"__typename":"PullRequest","number":4,"merged":true,"url":"https://github.com/octo/tools/pull/4","repository":{"databaseId":7101,"nameWithOwner":"octo/tools"}}}"#.to_string(),
         r#"{"__typename":"IssueTypeRemovedEvent","createdAt":"2026-01-01T00:00:07Z","actor":null}"#.to_string(),
         r#"{"__typename":"UnassignedEvent","createdAt":"2026-01-01T00:00:08Z","actor":null,"assignee":null}"#.to_string(),
-        r#"{"__typename":"BlockedByRemovedEvent","createdAt":"2026-01-01T00:00:09Z","actor":null,"blockingIssue":{"number":3,"repository":{"nameWithOwner":"octo/tools"}}}"#.to_string(),
+        r#"{"__typename":"BlockedByRemovedEvent","createdAt":"2026-01-01T00:00:09Z","actor":null,"blockingIssue":{"number":3,"repository":{"databaseId":7101,"nameWithOwner":"octo/tools"}}}"#.to_string(),
     ];
     let (mut gh, _) = stub(vec![events(end, &nodes)]);
     let got = gh.history(&key(7), Window::Whole(ALL_MAX), None).unwrap();
@@ -688,7 +688,9 @@ fn a_kind_github_keeps_no_event_of_asks_no_question_and_settles_the_issue() {
 }
 
 fn sub(n: u64) -> String {
-    format!(r#"{{"number":{n},"state":"OPEN","repository":{{"nameWithOwner":"acme/widget"}}}}"#)
+    format!(
+        r#"{{"number":{n},"state":"OPEN","repository":{{"databaseId":7001,"nameWithOwner":"acme/widget"}}}}"#
+    )
 }
 
 fn subs(total: u64, info: &str, nodes: &[String]) -> Result<String, &'static str> {
@@ -713,7 +715,9 @@ fn the_parts_are_paged_whole_and_counted() {
     // a part that does not say whether it is open.
     let parts = |answers| stub(answers).0.parts(&key(7)).map(|w| w.items().len());
     assert_eq!(parts(vec![subs(4, end, &[sub(1)])]), Err(INCONSISTENT));
-    let nameless = r#"{"state":"OPEN","repository":{"nameWithOwner":"acme/widget"}}"#.to_string();
+    let nameless =
+        r#"{"state":"OPEN","repository":{"databaseId":7001,"nameWithOwner":"acme/widget"}}"#
+            .to_string();
     assert_eq!(parts(vec![subs(1, end, &[nameless])]), Err(INCONSISTENT));
     assert_eq!(
         parts(vec![subs(1, end, &["null".to_string()])]),
@@ -764,7 +768,7 @@ fn what_stands_beside_a_ticket_is_whole_or_the_ticket_is_unread() {
     assert!(matches!(&t.closer, Some(Closer::Account(a)) if a.login.as_str() == "bob"));
     assert_eq!((t.text.as_str(), t.markers.len()), ("", 0));
     // More blockers than the answer holds.
-    let cut = r#"{"totalCount":2,"nodes":[{"number":1,"state":"OPEN","repository":{"nameWithOwner":"acme/widget"}}]}"#;
+    let cut = r#"{"totalCount":2,"nodes":[{"number":1,"state":"OPEN","repository":{"databaseId":7001,"nameWithOwner":"acme/widget"}}]}"#;
     assert_eq!(
         cut_ticket(vec![Ok(REST.to_string()), beside("", cut, NO_MENTIONS)]).0,
         Err(Outcome::Unread(Unread::Cut))
@@ -772,7 +776,7 @@ fn what_stands_beside_a_ticket_is_whole_or_the_ticket_is_unread() {
     // The changes that name it run to a second page, which is asked.
     let pull = |n: u64| {
         format!(
-            r#"{{"__typename":"CrossReferencedEvent","source":{{"__typename":"PullRequest","number":{n},"repository":{{"nameWithOwner":"acme/widget"}}}}}}"#
+            r#"{{"__typename":"CrossReferencedEvent","source":{{"__typename":"PullRequest","number":{n},"repository":{{"databaseId":7001,"nameWithOwner":"acme/widget"}}}}}}"#
         )
     };
     let page = |more: bool, cursor: &str, n: u64| {
@@ -850,7 +854,7 @@ fn node(n: u64, labels: &str, total: u64) -> String {
 
 fn page(info: &str, nodes: &[String]) -> Result<String, &'static str> {
     Ok(format!(
-        r#"{{"data":{{"repository":{{"issues":{{"pageInfo":{{{info}}},"nodes":[{}]}}}}}}}}"#,
+        r#"{{"data":{{"repository":{{"databaseId":7001,"issues":{{"pageInfo":{{{info}}},"nodes":[{}]}}}}}}}}"#,
         nodes.join(",")
     ))
 }
@@ -999,8 +1003,8 @@ fn a_changes_number_is_no_ticket_to_any_read() {
 
 #[test]
 fn a_ticket_and_a_list_name_the_ticket_each_is_a_part_of() {
-    let here = r#"{"number":3,"repository":{"nameWithOwner":"acme/widget"}}"#;
-    let there = r#"{"number":5,"repository":{"nameWithOwner":"other/lib"}}"#;
+    let here = r#"{"number":3,"repository":{"databaseId":7001,"nameWithOwner":"acme/widget"}}"#;
+    let there = r#"{"number":5,"repository":{"databaseId":7100,"nameWithOwner":"other/lib"}}"#;
     let with =
         |parent: &str| node(1, "", 0).replace(r#""parent":null"#, &format!(r#""parent":{parent}"#));
     let end = r#""hasNextPage":false,"endCursor":null"#;

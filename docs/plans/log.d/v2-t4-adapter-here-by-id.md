@@ -1,0 +1,1 @@
+| 2026-11-24 | T4 adapter: this project is told from another by its repository's database id, learned from the answers that name it, never by the configured name: a stale name after a rename no longer makes this project's parents, blockers, parts or closers foreign (after #3110) | v2/t4-adapter-here-by-id |
