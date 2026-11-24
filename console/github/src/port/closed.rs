@@ -33,10 +33,9 @@ const PER_QUESTION: usize = 100;
 /// than the list's.
 const SINCE_PAGE: usize = 50;
 
-/// The pull requests one read names of each closed issue, as the
-/// refresh's read of the closers of one issue asks (`board/numbers.rs`):
-/// past that the read is `Unread(Cut)`.
-const REFERENCES: usize = 10;
+/// The pull requests one read names of each closed issue, as ops reads
+/// them today (`shipped.rs`): past that the read is `Unread(Cut)`.
+const REFERENCES: usize = 20;
 
 /// The alias a ticket is asked under.
 fn alias(n: u64) -> String {

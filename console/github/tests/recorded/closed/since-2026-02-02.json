@@ -47,6 +47,7 @@
           "__typename": "PullRequest",
           "number": 41,
           "merged": true,
+          "url": "https://github.com/acme/widget/pull/41",
           "repository": {
            "nameWithOwner": "acme/widget"
           }

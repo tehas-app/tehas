@@ -37,7 +37,7 @@ const ACTOR: &str = "__typename login ...on User { databaseId } ...on Bot { data
 const ASSIGNEE: &str =
     "assignee { __typename ...on User { login databaseId } ...on Bot { login databaseId } }";
 
-const CLOSER: &str = "stateReason closer { __typename ...on PullRequest { number merged repository { nameWithOwner } } ...on Commit { oid } }";
+const CLOSER: &str = "stateReason closer { __typename ...on PullRequest { number merged url repository { nameWithOwner } } ...on Commit { oid } }";
 
 const BLOCKING: &str = "blockingIssue { number repository { nameWithOwner } }";
 
@@ -262,6 +262,7 @@ struct Named {
     number: Option<u64>,
     state: Option<String>,
     merged: Option<bool>,
+    url: Option<String>,
     oid: Option<String>,
     repository: Option<Repo>,
 }
@@ -822,7 +823,8 @@ impl GitHub {
 
     /// What closed the ticket at this close: the change or the commit it
     /// names, else the account that closed it by hand. A change of another
-    /// repository has no number here, and is not named.
+    /// repository has no number here: it is named as GitHub names it
+    /// there, with its link (Decided 100, 109).
     fn closer(&self, e: &Event) -> Got<Option<Closer>> {
         let by = match &e.closer {
             None => return Err(MALFORMED),
@@ -839,7 +841,13 @@ impl GitHub {
             Some("PullRequest") => {
                 let repo = by.repository.as_ref().ok_or(MALFORMED)?;
                 if !self.is_here(repo) {
-                    return Ok(None);
+                    let no = by.number.filter(|n| *n > 0).ok_or(MALFORMED)?;
+                    let link = by.url.clone().ok_or(MALFORMED)?;
+                    return Ok(Some(Closer::change_elsewhere(
+                        ProjectName::new(repo.name_with_owner.clone()),
+                        ItemName::new(no.to_string()),
+                        WebLink::new(link).map_err(|_| MALFORMED)?,
+                    )));
                 }
                 Ok(Some(Closer::Change {
                     no: by.number.and_then(ChangeNo::new).ok_or(MALFORMED)?,

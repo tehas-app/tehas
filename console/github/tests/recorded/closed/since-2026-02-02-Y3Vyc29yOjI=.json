@@ -215,6 +215,120 @@
         }
        ]
       }
+     },
+     {
+      "number": 47,
+      "title": "Ticket 47",
+      "body": "The work of 47.",
+      "state": "CLOSED",
+      "stateReason": "COMPLETED",
+      "url": "https://github.com/acme/widget/issues/47",
+      "createdAt": "2026-02-01T12:00:00Z",
+      "updatedAt": "2026-02-05T10:00:00Z",
+      "author": {
+       "__typename": "User",
+       "login": "carol",
+       "databaseId": 103
+      },
+      "issueType": null,
+      "milestone": null,
+      "labels": {
+       "totalCount": 1,
+       "nodes": [
+        {
+         "name": "tehas:done"
+        }
+       ]
+      },
+      "closedAt": "2026-02-05T10:00:00Z",
+      "closes": {
+       "nodes": [
+        {
+         "__typename": "ClosedEvent",
+         "createdAt": "2026-02-05T10:00:00Z",
+         "actor": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "stateReason": "COMPLETED",
+         "closer": {
+          "__typename": "PullRequest",
+          "number": 7,
+          "merged": true,
+          "url": "https://github.com/other/tools/pull/7",
+          "repository": {
+           "nameWithOwner": "other/tools"
+          }
+         }
+        }
+       ]
+      },
+      "subIssues": {
+       "totalCount": 0
+      },
+      "closedByPullRequestsReferences": {
+       "totalCount": 1,
+       "nodes": [
+        {
+         "baseRepository": {
+          "nameWithOwner": "other/tools"
+         },
+         "number": 7,
+         "title": "Change 7",
+         "url": "https://github.com/other/tools/pull/7",
+         "state": "MERGED",
+         "isDraft": false,
+         "isCrossRepository": false,
+         "headRefName": "feature/issue-7",
+         "headRefOid": "0000000000000000000000000000000000abc007",
+         "baseRefName": "main",
+         "baseRefOid": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+         "mergeable": "UNKNOWN",
+         "mergeStateStatus": "UNKNOWN",
+         "createdAt": "2026-02-01T09:30:00Z",
+         "updatedAt": "2026-02-05T10:00:00Z",
+         "lastEditedAt": null,
+         "mergedAt": "2026-02-05T10:00:00Z",
+         "closedAt": "2026-02-05T10:00:00Z",
+         "additions": 12,
+         "deletions": 3,
+         "changedFiles": 2,
+         "author": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "editor": null,
+         "mergedBy": {
+          "__typename": "Bot",
+          "login": "tehas-bot",
+          "databaseId": 900
+         },
+         "mergeCommit": {
+          "oid": "0000000000000000000000000000000000def007"
+         },
+         "renames": {
+          "nodes": []
+         },
+         "labels": {
+          "totalCount": 0,
+          "nodes": []
+         },
+         "closingIssuesReferences": {
+          "totalCount": 1,
+          "nodes": [
+           {
+            "number": 20,
+            "repository": {
+             "nameWithOwner": "acme/widget"
+            }
+           }
+          ]
+         }
+        }
+       ]
+      }
      }
     ]
    }

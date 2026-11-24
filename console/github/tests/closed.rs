@@ -7,8 +7,8 @@ mod replay;
 use std::num::NonZeroU64;
 use tehas_github::GitHub;
 use tehas_ports::{
-    laws, At, Bound, ChangeNo, ChangeState, CloseReason, Closer, CommitId, KeyText, Outcome,
-    Passing, Refusal, Sent, TicketKey, TicketState, Tickets, Unread,
+    laws, At, Bound, ChangeNo, ChangeState, CloseReason, Closer, CommitId, ItemName, KeyText,
+    Outcome, Passing, ProjectName, Refusal, Sent, TicketKey, TicketState, Tickets, Unread, WebLink,
 };
 
 const MALFORMED: Outcome = Outcome::Unread(Unread::Malformed);
@@ -139,7 +139,7 @@ fn closed_since_holds_each_ticket_closed_since_in_list_order() {
     assert_eq!(asked.get(), 2);
     let keys: Vec<TicketKey> = got.iter().map(|c| c.digest.key.clone()).collect();
     // Oldest filed first, ties by number; 42 closed before the time asked.
-    assert_eq!(numbers(&keys), [44, 40, 43]);
+    assert_eq!(numbers(&keys), [44, 40, 43, 47]);
 
     let hand = &got[0];
     assert_eq!(hand.closed, at("2026-02-02T00:00:00Z"));
@@ -175,6 +175,19 @@ fn closed_since_holds_each_ticket_closed_since_in_list_order() {
     );
     let nos: Vec<u64> = commit.merged.iter().map(|c| c.no.get()).collect();
     assert_eq!(nos, [46], "the change GitHub lists beside a commit's close");
+
+    // A merged change of another project closed 47: it is named there with
+    // its link, and is no merged change here.
+    let elsewhere = &got[3];
+    assert_eq!(
+        elsewhere.closer,
+        Some(Closer::change_elsewhere(
+            ProjectName::new("other/tools"),
+            ItemName::new("7"),
+            WebLink::new("https://github.com/other/tools/pull/7").unwrap()
+        ))
+    );
+    assert!(elsewhere.merged.is_empty());
 }
 
 #[test]
