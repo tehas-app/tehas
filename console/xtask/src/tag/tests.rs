@@ -360,6 +360,10 @@ impl Remote {
         r.git(&["-C", "up", "tag", "v0.1.0"]);
         r.git(&["-C", "up", "push", "--quiet", "origin", "v0.1.0"]);
         r.git(&["clone", "--quiet", "origin.git", "work"]);
+        // The task's own git commits and tags in this clone, with no global
+        // identity on a runner.
+        r.git(&["-C", "work", "config", "user.name", "t"]);
+        r.git(&["-C", "work", "config", "user.email", "t@example.com"]);
         r
     }
 
@@ -390,8 +394,6 @@ impl Remote {
     fn run(&self, v: &[&str]) -> u8 {
         let mut v = v.to_vec();
         v.push("--no-verify");
-        self.git(&["-C", "work", "config", "user.name", "t"]);
-        self.git(&["-C", "work", "config", "user.email", "t@example.com"]);
         let (code, up) = (self.code.clone(), self.up_world.borrow().clone());
         let site = move |p: &str| -> Arc<dyn Site> {
             Arc::new(FakeSite::new(if p == UP { &up } else { &code }))
