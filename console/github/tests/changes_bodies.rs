@@ -39,8 +39,8 @@ fn pr(no: u64, state: &'static str, body: &'static str, closes: &[u64]) -> Pr {
 }
 
 /// The site's pull requests: a body with this change's marker, a pull
-/// request description that closes #7, one whose closing words stand only
-/// in a quote, code and a code span, an empty body, and a merged one.
+/// request description that closes #7, one whose closing words stand in
+/// a quote, a fence and a code span, an empty body, and a merged one.
 fn prs() -> Vec<Pr> {
     vec![
         pr(
@@ -290,13 +290,16 @@ fn each_listed_body_is_read_without_its_markers_with_what_it_says_it_closes() {
         Some("## Summary\n\nWidgets count their parts.\n\nFixes #7.")
     );
     assert_eq!(d.says_closes, [here(7)]);
-    // Closing words in a quote, a fence and a code span close nothing.
+    // Closing words in a quote and a fence are read as the text says them,
+    // as `change` reads them: a closer that reads fewer would miss a change
+    // that names its issue. In a code span the reference runs into the
+    // span's end and names nothing.
     assert!(of(&list, 5)
         .body
         .as_deref()
         .unwrap()
         .contains("> Fixes #8."));
-    assert!(of(&list, 5).says_closes.is_empty());
+    assert_eq!(of(&list, 5).says_closes, [here(8), here(9)]);
     // An empty body is an empty body, given.
     assert_eq!(of(&list, 6).body.as_deref(), Some(""));
     assert!(of(&list, 6).says_closes.is_empty());
