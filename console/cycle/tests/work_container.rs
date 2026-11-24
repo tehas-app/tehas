@@ -1484,6 +1484,9 @@ fn the_cycle_starts_the_token_renewer_and_one_that_cannot_start_refuses_the_cycl
     w.minimal(&[]);
     w.clear_calls();
     w.rm("renew.calls");
+    // The cycle ends only once the renewer has said how it was started: the
+    // end stops it, and a slow start would otherwise say nothing.
+    w.docker_runs_until(&w.path("renew.calls"));
     let r = w.work7();
     ok2(&r);
     has(
