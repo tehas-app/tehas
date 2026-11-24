@@ -1,8 +1,9 @@
 //! The identity port, `Identity`: who the handle acts as (`me`) and an
-//! account's standing on the repository (`standing`). The rest answers
+//! account's standing on the repository (`standing`), and a person's
+//! sign-in (`sign_in_link`, `signed_in`, in `people.rs`). The rest answers
 //! `Refused(Unsupported)` before any request: the account reads come with
-//! the moves that ask them, and tokens and sign-in are the wiring's, made
-//! and reviewed as security changes of their own.
+//! the moves that ask them, and tokens are the wiring's, made and reviewed
+//! as security changes of their own.
 //!
 //! A login is folded as `tehas_core::accounts` keys it: REST names a GitHub
 //! App's account `<slug>[bot]` and GraphQL `<slug>`, one account with one
@@ -117,14 +118,14 @@ impl Identity for GitHub {
         unsupported()
     }
 
-    /// `Refused(Unsupported)`: the adapter holds no OAuth client, so no
-    /// link it made would finish a sign-in.
-    fn sign_in_link(&self, _: &SignInState) -> Got<WebLink> {
-        unsupported()
+    /// See [`super::people`]: GitHub's page for the App's client for
+    /// people, `Refused(Unsupported)` from a site given none.
+    fn sign_in_link(&self, state: &SignInState) -> Got<WebLink> {
+        self.sign_in_page(state)
     }
 
-    fn signed_in(&mut self, _: &SignInCode) -> Got<(Account, Secret)> {
-        unsupported()
+    fn signed_in(&mut self, code: &SignInCode) -> Got<(Account, Secret)> {
+        self.person_of(code)
     }
 }
 
