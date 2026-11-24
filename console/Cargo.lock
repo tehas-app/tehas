@@ -1869,6 +1869,7 @@ dependencies = [
 name = "tehas-github"
 version = "0.1.0"
 dependencies = [
+ "attach",
  "serde",
  "serde_json",
  "tehas-core",
