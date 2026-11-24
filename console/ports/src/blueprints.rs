@@ -240,6 +240,29 @@ pub trait Blueprints: Reports + Cites {
     fn body_edits(&mut self, no: BlueprintNo, bound: Bound) -> Got<Whole<Edit>>;
     /// The edits of a comment, oldest first.
     fn comment_edits(&mut self, id: &CommentId, bound: Bound) -> Got<Whole<Edit>>;
+    /// The edits of several bodies, one answer for each number in the
+    /// order asked, each what `body_edits` gives for it: one that fails
+    /// fails alone. An adapter that can ask for several in one request
+    /// answers this itself; the default asks one by one (Decided 119).
+    fn body_edits_of(
+        &mut self,
+        nos: &[BlueprintNo],
+        bound: Bound,
+    ) -> Vec<(BlueprintNo, Got<Whole<Edit>>)> {
+        nos.iter()
+            .map(|&no| (no, self.body_edits(no, bound)))
+            .collect()
+    }
+    /// The edits of several comments, as `body_edits_of` for bodies.
+    fn comment_edits_of(
+        &mut self,
+        ids: &[CommentId],
+        bound: Bound,
+    ) -> Vec<(CommentId, Got<Whole<Edit>>)> {
+        ids.iter()
+            .map(|id| (id.clone(), self.comment_edits(id, bound)))
+            .collect()
+    }
     /// The first `first` hits by relevance, with `more`, words only,
     /// escaped by the adapter, as `Tickets::search`.
     fn search(
