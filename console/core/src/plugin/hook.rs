@@ -11,7 +11,7 @@ use super::Cap;
 use crate::accounts::factorys;
 use crate::file::{write_atomic, Temp};
 use crate::grammar::commit_id;
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::path::{Path, PathBuf};
 use tehas_ports::events::{Envelope, Name, When};
 
@@ -44,20 +44,32 @@ pub struct HookAsk {
     pub event: Option<Envelope>,
 }
 
+/// The request file as it is written.
+#[derive(serde::Serialize)]
+struct AskFile<'a> {
+    api: u8,
+    pr: u64,
+    head: &'a str,
+    base: &'a str,
+    issue: Option<u64>,
+    trigger: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    event: Option<&'a Envelope>,
+}
+
 impl HookAsk {
-    pub fn json(&self) -> Value {
-        let mut v = json!({
-            "api": 1,
-            "pr": self.pr,
-            "head": self.head,
-            "base": self.base,
-            "issue": self.issue,
-            "trigger": self.trigger.word(),
-        });
-        if let Some(Ok(event)) = self.event.as_ref().map(serde_json::to_value) {
-            v["event"] = event;
-        }
-        v
+    /// The request file's text.
+    pub fn json(&self) -> String {
+        let file = AskFile {
+            api: 1,
+            pr: self.pr,
+            head: &self.head,
+            base: &self.base,
+            issue: self.issue,
+            trigger: self.trigger.word(),
+            event: self.event.as_ref(),
+        };
+        serde_json::to_string(&file).unwrap_or_default()
     }
 
     pub fn read(text: &[u8]) -> Option<HookAsk> {
@@ -198,6 +210,7 @@ pub fn requests(
 mod tests {
     use super::*;
     use crate::testdir::TestDir;
+    use serde_json::json;
     use std::collections::BTreeMap;
 
     const C: &str = "0123456789abcdef0123456789abcdef01234567";
@@ -345,23 +358,20 @@ mod tests {
             trigger: Trigger::Host,
             ..ask.clone()
         };
-        assert_eq!(by_hand.json().get("event"), None);
+        assert!(!by_hand.json().contains("\"event\""));
         // An event other than the offer, or no envelope, refuses the request.
         for event in [
             serde_json::to_value(sample(Name::CycleEnded)).unwrap(),
             json!({"api": 1, "key": "7-1"}),
         ] {
-            let mut other = ask.json();
+            let mut other: Value = serde_json::from_str(&ask.json()).unwrap();
             other["event"] = event;
             assert_eq!(HookAsk::read(other.to_string().as_bytes()), None);
         }
-        assert_eq!(
-            HookAsk::read(by_hand.json().to_string().as_bytes()),
-            Some(by_hand)
-        );
+        assert_eq!(HookAsk::read(by_hand.json().as_bytes()), Some(by_hand));
         assert_eq!(read_request(&home, "demo", 43), None);
         assert_eq!(unit("demo", 42), "tehas-plugin-hook@demo-42.service");
-        let mut timer = ask.json();
+        let mut timer: Value = serde_json::from_str(&ask.json()).unwrap();
         timer["trigger"] = json!("timer");
         assert_eq!(HookAsk::read(timer.to_string().as_bytes()), None);
     }

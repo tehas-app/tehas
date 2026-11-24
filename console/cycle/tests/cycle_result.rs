@@ -8,6 +8,7 @@ use serde_json::{json, Value};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use tehas_core::home::Home;
 
 /// The mark tehas work leaves on the directory of its workspaces.
 fn mark(w: &World) {
@@ -85,7 +86,7 @@ fn a_merged_state_with_no_merged_pull_request_is_a_claim_parked_and_nothing_is_r
     has(&said, "Tehas cycle stopped: its state says `merged`, but the bot has no merged pull request for this issue on `feature/x`");
     lacks(&said, "The change was merged");
     assert!(there(&w.workdir()) && there(&before_retry(&w)));
-    assert!(!there(&w.home.join("state/rukas-proven")));
+    assert!(!there(&Home::new(&w.home).state_dir().join("rukas-proven")));
     // The question the report asked is the park's; the store keeps the id
     // as a number.
     has(&said, "Question(kind=Park blueprint=7 turn=1)");
@@ -167,7 +168,7 @@ fn a_result_that_is_a_link_is_not_read() {
             .to_string(),
         )
         .unwrap();
-        w.work(r#"ln -sf "$T/elsewhere/7.json" "$TEHAS_HOME/state/cycles/7.result.json""#);
+        w.work(r#"ln -sf "$T/elsewhere/7.json" "$T_CYCLES/7.result.json""#);
         w.merged_pr();
     });
     has(&r.out, "WARN: the result of #7 is a link, it is not read");
@@ -193,7 +194,7 @@ fn a_result_that_is_a_link_is_not_read() {
 fn a_progress_older_than_the_cycles_start_is_not_on_record_as_its_own_g3() {
     let w = World::new("res-stale");
     w.ended("handoff", "commit-pr", "feature/x", "");
-    w.work(r#"touch -d "@$(($(date +%s) - 3600))" "$TEHAS_HOME/state/cycles/7.progress.json""#);
+    w.work(r#"touch -d "@$(($(date +%s) - 3600))" "$T_CYCLES/7.progress.json""#);
     let r = w.run7();
     has(&r.out, "WARN: the progress of #7 is not on record: stale");
     lacks(&r.out, "the result of #7 is not on record");
@@ -260,7 +261,7 @@ fn a_pull_request_a_person_merged_while_the_cycle_ran_ends_it_as_merged_no_park_
     has(&r.out, "pr=https://github.com/acme/widget/pull/9");
     assert!(there(&w.workdir()));
     has(&said, &kept(&w));
-    assert!(!there(&w.home.join("state/rukas-proven")));
+    assert!(!there(&Home::new(&w.home).state_dir().join("rukas-proven")));
 }
 
 #[test]
@@ -269,9 +270,7 @@ fn a_runner_stopped_at_lens_fix_after_its_pull_request_merged_ends_the_cycle_as_
     let (w, r, said) = twin("res-lensfix", |w| {
         w.ended("interrupted", "lens-fix", "feature/x", "-");
         w.merged_pr();
-        w.work(
-            r#"mkdir -p "$TEHAS_HOME/state/cycles"; echo 21 >"$TEHAS_HOME/state/cycles/7.runner_exit""#,
-        );
+        w.work(r#"mkdir -p "$T_CYCLES"; echo 21 >"$T_CYCLES/7.runner_exit""#);
     });
     assert_eq!(r.rc, 0);
     has(&r.out, "done #7 rc=0 status=merged step=lens-fix");
@@ -419,7 +418,7 @@ fn a_cycle_the_dispatcher_stopped_for_a_closed_issue_names_the_workspace_it_kept
     let (w, _, said) = twin("res-closed-issue", |w| {
         w.ended("running", "adversarial", "feature/x", "");
         mark(w);
-        w.work(r#"mkdir -p "$TEHAS_HOME/state/cycles"; echo closed >"$TEHAS_HOME/state/cycles/7.done"; exit 2"#);
+        w.work(r#"mkdir -p "$T_CYCLES"; echo closed >"$T_CYCLES/7.done"; exit 2"#);
     });
     assert!(there(&w.workdir()));
     has(&said, "this issue was closed while it ran");
