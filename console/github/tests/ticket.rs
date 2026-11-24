@@ -842,7 +842,7 @@ fn what_stands_beside_a_ticket_is_whole_or_the_ticket_is_unread() {
 
 fn node(n: u64, labels: &str, total: u64) -> String {
     format!(
-        r#"{{"number":{n},"title":"T{n}","state":"OPEN","stateReason":null,"url":"https://github.com/acme/widget/issues/{n}","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z","author":null,"issueType":null,"milestone":null,"labels":{{"totalCount":{total},"nodes":[{labels}]}}}}"#
+        r#"{{"number":{n},"title":"T{n}","body":"","state":"OPEN","stateReason":null,"url":"https://github.com/acme/widget/issues/{n}","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z","author":null,"issueType":null,"milestone":null,"labels":{{"totalCount":{total},"nodes":[{labels}]}}}}"#
     )
 }
 
