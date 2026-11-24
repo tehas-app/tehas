@@ -273,6 +273,7 @@ fn tehas_ready_on_an_issue_with_an_open_planning_session_starts_no_cycle() {
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(w.calls("fake-start"), "");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     has(
         &r.out,
         "skip #7: a planning session is open on it; end it first",

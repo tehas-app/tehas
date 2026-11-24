@@ -1,6 +1,7 @@
 //! The tickets port's `note` and `edit` as the adapter answers them: the
 //! issue read, then one comment posted with its markers, or one edit of
-//! the issue's title and body at its revision, over samples of GitHub's
+//! the issue's title and body at its revision; and its `close`, `assign`
+//! and `add_part`, each read first; over samples of GitHub's
 //! answers in `tests/samples/ticket-writes/` (hand-made from GitHub's
 //! documented shapes, no secret and no private name). A failure sample is
 //! gh's error stream, given to the adapter as `Bounded` would give it. No
@@ -1428,4 +1429,218 @@ fn a_revision_from_the_list_read_is_held_by_an_edit_of_the_unchanged_issue() {
         assert!(got.is_ok(), "{body:?}: {got:?}");
         assert_eq!(taken(&calls).len(), 3);
     }
+}
+
+/// The JSON a write sent on standard input, as its text.
+fn input_of(c: &Call) -> String {
+    c.input.clone().unwrap()
+}
+
+fn call(words: &[&str]) -> Call {
+    Call {
+        args: args(words),
+        input: None,
+    }
+}
+
+/// An open issue is closed by one `PATCH` of its state and the reason
+/// GitHub keeps, after the read.
+#[test]
+fn close_reads_the_issue_then_patches_its_state_and_reason() {
+    use tehas_ports::CloseReason;
+    let (mut gh, calls) = adapter(vec![
+        Ok(sample("issue-7.json")),
+        Ok(sample("issue-7-closed-not-planned.json")),
+    ]);
+    gh.close(&key(7), &CloseReason::NotPlanned).unwrap();
+    let calls = taken(&calls);
+    assert_eq!(calls.len(), 2);
+    assert_eq!(calls[0], read_7());
+    assert_eq!(
+        calls[1].args,
+        args(&[
+            "api",
+            "-X",
+            "PATCH",
+            "repos/acme/widget/issues/7",
+            "--input",
+            "-"
+        ])
+    );
+    assert_eq!(
+        input_of(&calls[1]),
+        serde_json::json!({"state": "closed", "state_reason": "not_planned"}).to_string()
+    );
+}
+
+/// Closing a closed issue is done, and nothing is sent.
+#[test]
+fn closing_a_closed_issue_is_done_with_nothing_sent() {
+    use tehas_ports::CloseReason;
+    let (mut gh, calls) = adapter(vec![Ok(sample("issue-7-closed.json"))]);
+    gh.close(&key(7), &CloseReason::Done).unwrap();
+    assert_eq!(taken(&calls), vec![read_7()]);
+}
+
+/// A pull request's number is no ticket, and a refused input made nothing.
+#[test]
+fn close_refuses_a_pull_request_and_reads_a_422_as_refused() {
+    use tehas_ports::CloseReason;
+    let (mut gh, calls) = adapter(vec![Ok(sample("pull-8.json"))]);
+    assert_eq!(
+        gh.close(&key(8), &CloseReason::Done),
+        Err(Outcome::NotFound)
+    );
+    assert_eq!(taken(&calls).len(), 1);
+    let (mut gh, _) = adapter(vec![
+        Ok(sample("issue-7.json")),
+        Err(failed("validation.stderr")),
+    ]);
+    assert_eq!(
+        gh.close(&key(7), &CloseReason::Done),
+        Err(Outcome::Refused(Refusal::Invalid))
+    );
+}
+
+/// The login of the account is read by its id, then posted to the
+/// issue's assignees, and the answer is read for it.
+#[test]
+fn assign_posts_the_accounts_login_and_reads_it_back() {
+    let (mut gh, calls) = adapter(vec![
+        Ok(sample("user-904.json")),
+        Ok(sample("assignees-taken.json")),
+    ]);
+    gh.assign(&key(7), &tehas_ports::AccountId::new("904"))
+        .unwrap();
+    let calls = taken(&calls);
+    assert_eq!(calls.len(), 2);
+    assert_eq!(calls[0], call(&["api", "user/904"]));
+    assert_eq!(
+        calls[1].args,
+        args(&[
+            "api",
+            "-X",
+            "POST",
+            "repos/acme/widget/issues/7/assignees",
+            "--input",
+            "-"
+        ])
+    );
+    assert_eq!(
+        input_of(&calls[1]),
+        serde_json::json!({"assignees": ["carol"]}).to_string()
+    );
+}
+
+/// GitHub answers 201 and drops a login it cannot assign: the answer is
+/// read, and ours missing from it is refused, never done.
+#[test]
+fn an_assignee_github_dropped_is_refused() {
+    let (mut gh, _) = adapter(vec![
+        Ok(sample("user-904.json")),
+        Ok(sample("assignees-dropped.json")),
+    ]);
+    assert_eq!(
+        gh.assign(&key(7), &tehas_ports::AccountId::new("904")),
+        Err(Outcome::Refused(Refusal::Invalid))
+    );
+}
+
+/// A bot holds no assignment, and an id GitHub never gives is no account:
+/// both refused, nothing posted.
+#[test]
+fn assign_refuses_a_bot_and_an_id_that_is_no_githubs() {
+    let (mut gh, calls) = adapter(vec![Ok(sample("user-100001.json"))]);
+    assert_eq!(
+        gh.assign(&key(7), &tehas_ports::AccountId::new("100001")),
+        Err(Outcome::Refused(Refusal::Invalid))
+    );
+    assert_eq!(taken(&calls).len(), 1);
+    let (mut gh, calls) = adapter(vec![]);
+    assert_eq!(
+        gh.assign(&key(7), &tehas_ports::AccountId::new("carol")),
+        Err(Outcome::Refused(Refusal::Invalid))
+    );
+    assert!(taken(&calls).is_empty());
+}
+
+/// A child with no parent: its id read, then posted to the parent's
+/// sub-issues.
+#[test]
+fn add_part_reads_the_childs_parent_and_id_then_posts_it() {
+    let (mut gh, calls) = adapter(vec![
+        Err(failed("not-found.stderr")),
+        Ok(sample("issue-13.json")),
+        Ok(sample("sub-issue-added.json")),
+    ]);
+    gh.add_part(&key(12), &key(13)).unwrap();
+    let calls = taken(&calls);
+    assert_eq!(calls.len(), 3);
+    assert_eq!(
+        calls[0],
+        call(&["api", "repos/acme/widget/issues/13/parent"])
+    );
+    assert_eq!(calls[1], call(&["api", "repos/acme/widget/issues/13"]));
+    assert_eq!(
+        calls[2].args,
+        args(&[
+            "api",
+            "-X",
+            "POST",
+            "repos/acme/widget/issues/12/sub_issues",
+            "--input",
+            "-"
+        ])
+    );
+    assert_eq!(
+        input_of(&calls[2]),
+        serde_json::json!({"sub_issue_id": 3001230013u64}).to_string()
+    );
+}
+
+/// Already this parent's part is done with nothing sent; another
+/// parent's is refused and never moved; a ticket is no part of itself.
+#[test]
+fn add_part_is_done_for_its_own_parent_and_refused_for_another() {
+    let (mut gh, calls) = adapter(vec![Ok(sample("issue-12.json"))]);
+    gh.add_part(&key(12), &key(13)).unwrap();
+    assert_eq!(taken(&calls).len(), 1);
+    let (mut gh, calls) = adapter(vec![Ok(sample("issue-14.json"))]);
+    assert_eq!(
+        gh.add_part(&key(12), &key(13)),
+        Err(Outcome::Refused(Refusal::Invalid))
+    );
+    assert_eq!(taken(&calls).len(), 1);
+    let (mut gh, calls) = adapter(vec![]);
+    assert_eq!(
+        gh.add_part(&key(12), &key(12)),
+        Err(Outcome::Refused(Refusal::Cycle))
+    );
+    assert!(taken(&calls).is_empty());
+}
+
+/// A 422 is GitHub refusing the input: a mark it refused made nothing, so
+/// it is refused, never a write that may have been sent.
+#[test]
+fn a_mark_github_refuses_with_422_is_refused_not_maybe_sent() {
+    let (mut gh, _) = adapter(vec![Err(failed("validation.stderr"))]);
+    assert_eq!(
+        gh.mark(
+            &key(7),
+            &tehas_ports::Mark::State(tehas_ports::State::Running)
+        ),
+        Err(Outcome::Refused(Refusal::Invalid))
+    );
+}
+
+/// A child whose parent is an issue of another repository has another
+/// parent: refused, never moved.
+#[test]
+fn a_parent_of_another_repository_is_another_parent() {
+    let (mut gh, calls) = adapter(vec![Ok(sample("issue-12-other-repo.json"))]);
+    assert_eq!(
+        gh.add_part(&key(12), &key(13)),
+        Err(Outcome::Refused(Refusal::Invalid))
+    );
+    assert_eq!(taken(&calls).len(), 1);
 }

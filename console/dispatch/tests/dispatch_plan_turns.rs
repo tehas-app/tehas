@@ -113,6 +113,7 @@ fn a_session_does_not_start_when_its_record_cannot_be_written_and_the_issue_is_n
         }
         assert_eq!(w.plan_calls(), "");
         lacks(&w.gh(), "issue edit");
+        assert_eq!(w.marks(None), 0);
         assert_eq!(w.notes_any(), 0);
     }
 }
