@@ -68,6 +68,9 @@ pub struct Writer {
     pub changed: bool,
     /// The gh calls the writes made, for the poll's cost.
     pub gh_writes: u32,
+    /// The comments this poll did not post for want of handles, said once
+    /// at the end of `apply`.
+    pub unposted: u32,
     /// The gh calls the ports' handles made, for the poll's cost: the
     /// wiring's runner counts them (`forge::Counted`).
     pub port_calls: Arc<AtomicU64>,
@@ -192,6 +195,19 @@ fn strings(a: &Value, k: &str) -> Vec<String> {
 
 impl Writer {
     pub fn apply(&mut self, actions: &[Value]) -> Applied {
+        let mut out = self.apply_actions(actions);
+        // With no handles no comment goes: said once for the poll.
+        if self.unposted > 0 {
+            out.log.push(format!(
+                "WARN: the poll has no handles of the code host: {} comments not posted",
+                self.unposted
+            ));
+            self.unposted = 0;
+        }
+        out
+    }
+
+    fn apply_actions(&mut self, actions: &[Value]) -> Applied {
         let mut out = Applied::default();
         let mut i = 0;
         while i < actions.len() {
@@ -256,10 +272,21 @@ impl Writer {
             }
         } else if let (Some(n), Some(say)) = (n, a.get("say").and_then(Value::as_str)) {
             // Our markers the action carries beside its text (`Action::Say`).
-            let markers = a
-                .get("markers")
-                .and_then(|m| serde_json::from_value(m.clone()).ok())
-                .unwrap_or_default();
+            // Only no key at all is none: markers that cannot be read are not
+            // dropped, since one may be a restraint (a declined reply's), so
+            // the comment is not posted and the next poll decides it again.
+            let markers = match a.get("markers") {
+                None => Vec::new(),
+                Some(m) => match serde_json::from_value(m.clone()) {
+                    Ok(markers) => markers,
+                    Err(_) => {
+                        log.push(format!(
+                            "WARN: the markers of a comment on #{n} could not be read, so it was not posted"
+                        ));
+                        return true;
+                    }
+                },
+            };
             self.say_marked(n, say, markers, log);
         } else if let Some(n) = a.get("answer_drop").and_then(Value::as_u64) {
             let id = match a.get("id") {
@@ -555,6 +582,10 @@ impl Writer {
         } else {
             match self.looked_1x(n, "comment-post", &args, Some(body)) {
                 Some(wrote) => wrote,
+                None if self.ports.is_none() => {
+                    self.unposted += 1;
+                    return false;
+                }
                 None => self.send(n, &note),
             }
         };

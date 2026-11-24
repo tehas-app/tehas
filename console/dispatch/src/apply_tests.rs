@@ -320,6 +320,7 @@ fn world() -> World {
         changed: false,
         gh_writes: 0,
         port_calls: Default::default(),
+        unposted: 0,
         starts: 0,
         fetched: false,
         looked: Default::default(),
@@ -1067,6 +1068,33 @@ fn a_comment_carries_its_markers_beside_its_text() {
             note_marked(8, "Declined.", vec![declined]),
         ]
     );
+}
+
+/// With no handles no comment is posted, and the poll says so once, not
+/// once a comment.
+#[test]
+fn with_no_handles_the_comments_not_posted_are_said_once() {
+    let mut t = world();
+    t.w.ports = None;
+    let a = t.apply(json!([{"issue": 7, "say": "One."}, {"issue": 8, "say": "Two."}]));
+    assert_eq!(
+        a.log,
+        vec!["WARN: the poll has no handles of the code host: 2 comments not posted"]
+    );
+    assert!(t.writes().is_empty(), "{:?}", t.writes());
+}
+
+/// Markers that cannot be read are not dropped: the comment is not posted,
+/// and the next poll decides it again. Only no key at all is none.
+#[test]
+fn a_comment_whose_markers_cannot_be_read_is_not_posted() {
+    let mut t = world();
+    let a = t.apply(json!([{"issue": 7, "say": "Declined.", "markers": [{"type": 5}]}]));
+    assert_eq!(
+        a.log,
+        vec!["WARN: the markers of a comment on #7 could not be read, so it was not posted"]
+    );
+    assert!(t.writes().is_empty(), "{:?}", t.writes());
 }
 
 /// A text that still holds our marker inside it is posted as 1.x posted it,

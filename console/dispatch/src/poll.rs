@@ -431,6 +431,7 @@ fn writer(
         changed: false,
         gh_writes: 0,
         port_calls: Default::default(),
+        unposted: 0,
         starts: 0,
         fetched: false,
         looked: HashMap::new(),
