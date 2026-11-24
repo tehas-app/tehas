@@ -72,8 +72,8 @@ pub mod tickets {
     use std::num::NonZeroU32;
 
     use crate::{
-        At, Bound, Depth, Filter, Mark, MarkHeld, TicketDigest, TicketKey, TicketWrites, Tickets,
-        Took, WithCloser,
+        At, Bound, Depth, Filter, Mark, MarkHeld, Outcome, Refusal, TicketDigest, TicketKey,
+        TicketWrites, Tickets, Took, WithCloser,
     };
 
     /// A newest-first page against the whole list it is cut from: each
@@ -173,7 +173,8 @@ pub mod tickets {
     }
 
     /// `count` is the length of the list the filter takes, for each
-    /// filter. The fixture's lists fit in `bound`.
+    /// filter. The fixture's lists fit in `bound`, and its site's count can
+    /// express each filter.
     pub fn count_is_the_lists_length(h: &mut dyn Tickets, filters: &[Filter], bound: Bound) -> Law {
         const LAW: &str = "tickets::count_is_the_lists_length";
         for f in filters {
@@ -184,6 +185,20 @@ pub mod tickets {
             })?;
         }
         Ok(())
+    }
+
+    /// A filter the site's count cannot express is `Refused(Unsupported)`:
+    /// never a guess, and never `Unread(Inconsistent)`, which is for an
+    /// answer that does not add up. The fixture's site cannot count
+    /// `filter`.
+    pub fn a_count_it_cannot_express_is_refused(h: &mut dyn Tickets, filter: &Filter) -> Law {
+        const LAW: &str = "tickets::a_count_it_cannot_express_is_refused";
+        let answer = h.count(filter);
+        hold(
+            answer == Err(Outcome::Refused(Refusal::Unsupported)),
+            LAW,
+            || format!("{filter:?} counts {answer:?}"),
+        )
     }
 
     /// A ticket's target names the target as `targets` holds it: its id,

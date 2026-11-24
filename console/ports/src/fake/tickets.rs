@@ -323,6 +323,9 @@ impl Tickets for Handle {
 
     fn count(&mut self, filter: &Filter) -> Got<u64> {
         self.run(Pool::Calls, |s, _| {
+            if !s.count_any_on && !filter.carrying_any.is_empty() {
+                return Err(Outcome::Refused(Refusal::Unsupported));
+            }
             Ok(listed(s, |i| takes(filter, i)).len() as u64)
         })
     }

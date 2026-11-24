@@ -645,8 +645,9 @@ pub trait Tickets: Reports + Cites {
     /// `Unread(Cut)`.
     fn recently_closed(&mut self, first: NonZeroU32) -> Got<Took<ClosedTicket>>;
     /// How many tickets the filter takes, as the site counts them: the
-    /// figure keeps rising past any list's bound. `Unread(Inconsistent)`
-    /// where the site cannot say for this filter.
+    /// figure keeps rising past any list's bound. `Refused(Unsupported)`
+    /// for a filter the site's count cannot express; `Unread(Inconsistent)`
+    /// only for an answer that does not add up.
     fn count(&mut self, filter: &Filter) -> Got<u64>;
     /// Several tickets' digests. A key whose number names a change, where
     /// they share one number space, is `NotFound`: it is no ticket. A

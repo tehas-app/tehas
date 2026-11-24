@@ -339,6 +339,41 @@ fn tickets_count_is_the_lists_length() {
 }
 
 #[test]
+fn tickets_a_count_it_cannot_express_is_refused() {
+    for w in both() {
+        let w = w
+            .ticket(1, |t| t.title("a").mark(Mark::Epic))
+            .count_without_carrying_any();
+        let site = FakeSite::new(&w);
+        let mut h = site.tickets(&full(), C).unwrap();
+        let any = Filter {
+            carrying_any: vec![Mark::Epic],
+            ..Filter::default()
+        };
+        ok(laws::tickets::a_count_it_cannot_express_is_refused(
+            h.as_mut(),
+            &any,
+        ));
+        // What it can express it still counts.
+        ok(laws::tickets::count_is_the_lists_length(
+            h.as_mut(),
+            &[Filter::default()],
+            b(50),
+        ));
+    }
+    // A site that counts it breaks the law.
+    for w in both() {
+        let site = FakeSite::new(&w.ticket(1, |t| t.title("a").mark(Mark::Epic)));
+        let mut h = site.tickets(&full(), C).unwrap();
+        let any = Filter {
+            carrying_any: vec![Mark::Epic],
+            ..Filter::default()
+        };
+        assert!(laws::tickets::a_count_it_cannot_express_is_refused(h.as_mut(), &any).is_err());
+    }
+}
+
+#[test]
 fn tickets_a_ticket_names_its_target_as_targets_does() {
     for w in both() {
         let due = At::new(1_900_000_000);

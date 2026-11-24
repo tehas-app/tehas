@@ -353,6 +353,13 @@ impl World {
         self
     }
 
+    /// A site whose count cannot express `Filter::carrying_any`: a count
+    /// of a filter that names one is `Refused(Unsupported)`.
+    pub fn count_without_carrying_any(self) -> Self {
+        self.lock().count_any_on = false;
+        self
+    }
+
     /// The projects the factory's grant covers, this world's among them.
     pub fn grant(self, projects: &[&str]) -> Self {
         {
