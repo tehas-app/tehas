@@ -104,7 +104,9 @@ fn every_marker() -> Vec<Marker> {
             blueprint: bp(9),
             remove: true,
         },
-        Marker::Declined { question: 4001 },
+        Marker::Declined {
+            question: CommentId::new("4001"),
+        },
         Marker::Project {
             name: name("hold"),
             key: Some(MarkerKey::new("k.1").unwrap()),

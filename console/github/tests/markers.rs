@@ -152,7 +152,7 @@ fn every_row_of_the_table_reads_as_its_kind() {
         (
             "<!-- tehas:declined question=2501234567 -->".to_string(),
             Marker::Declined {
-                question: 2_501_234_567,
+                question: CommentId::new("2501234567"),
             },
         ),
     ];
@@ -173,21 +173,33 @@ fn every_row_of_the_table_reads_as_its_kind() {
 fn a_declined_note_of_1x_reads_typed_and_writes_back_the_same() {
     let note = "Retry was asked for on another question.\n\n<!-- tehas:declined question=4001 -->";
     let got = read(note, item());
-    let declined = Marker::Declined { question: 4001 };
+    let declined = Marker::Declined {
+        question: CommentId::new("4001"),
+    };
     assert_eq!(got.markers, std::slice::from_ref(&declined));
     assert_eq!(got.text, "Retry was asked for on another question.");
     let text = table::marker_text(&declined).unwrap();
     assert_eq!(text, "<!-- tehas:declined question=4001 -->");
     assert_eq!(markers(&text), [declined]);
-    // A question id too long for the table does not read.
-    assert_eq!(
-        markers("<!-- tehas:declined question=18446744073709551615 -->"),
-        [unreadable(MarkerKind::Declined)]
-    );
-    assert_eq!(
-        table::marker_text(&Marker::Declined { question: u64::MAX }),
-        None
-    );
+    // 19 digits read and write as written; 20, or a leading zero, do not.
+    let nineteen = "9".repeat(19);
+    let longest = Marker::Declined {
+        question: CommentId::new(nineteen.as_str()),
+    };
+    let text = format!("<!-- tehas:declined question={nineteen} -->");
+    assert_eq!(markers(&text), [longest.clone()]);
+    assert_eq!(table::marker_text(&longest), Some(text));
+    for bad in ["1".repeat(20), "04001".into()] {
+        assert_eq!(
+            markers(&format!("<!-- tehas:declined question={bad} -->")),
+            [unreadable(MarkerKind::Declined)],
+            "{bad}"
+        );
+        let m = Marker::Declined {
+            question: CommentId::new(bad),
+        };
+        assert_eq!(table::marker_text(&m), None);
+    }
 }
 
 #[test]

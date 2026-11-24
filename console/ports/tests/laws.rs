@@ -1453,7 +1453,9 @@ fn a_declined_note_reads_back_typed_and_is_dropped_by_its_question() {
     let w = World::split().blueprint(101, |b| b.title("a"));
     let site = FakeSite::new(&w);
     let mut h = site.blueprint_writes(&full(), C).unwrap();
-    let declined = Marker::Declined { question: 4001 };
+    let declined = Marker::Declined {
+        question: CommentId::new("4001"),
+    };
     let posted = h
         .comment(bp(101), "Declined.", std::slice::from_ref(&declined))
         .unwrap();

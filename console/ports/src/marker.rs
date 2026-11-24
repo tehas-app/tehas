@@ -8,7 +8,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::ids::checked;
 use crate::mark::unknown_tag;
-use crate::{unknown, BlueprintNo, Did, MarkName, Outcome, Ref, Refusal, TicketKey};
+use crate::{unknown, BlueprintNo, CommentId, Did, MarkName, Outcome, Ref, Refusal, TicketKey};
 
 /// The most tickets one `Blocked` marker names.
 pub const BLOCKED_MAX: usize = 20;
@@ -17,8 +17,8 @@ pub const BLOCKED_MAX: usize = 20;
 /// `blueprint` are at most 9 digits.
 const NUMBER_MAX: u64 = 999_999_999;
 
-/// The largest question id the vendored table writes: `number(19)`.
-const QUESTION_MAX: u64 = 9_999_999_999_999_999_999;
+/// The most digits of a question id the vendored table writes: `number(19)`.
+const QUESTION_DIGITS: usize = 19;
 
 /// The kinds of tehas's markers: machine-read notes inside a comment or a
 /// body. One kind per marker tehas writes or reads today, and the two that
@@ -166,8 +166,8 @@ pub enum Marker {
     /// question `question`: a reply the note follows is read no more. 1.x
     /// writes it.
     Declined {
-        /// The site's id of the question's comment.
-        question: u64,
+        /// The id of the question's comment.
+        question: CommentId,
     },
     /// A consumer's own marker, carried through by name, its fields as
     /// written. Only a project's own markers are untyped.
@@ -432,7 +432,7 @@ impl Marker {
                 blueprint, turn, ..
             } => format!("blueprint={}.turn={turn}", blueprint.get()),
             Marker::Park(park) => format!("blueprint={}", park.blueprint.get()),
-            Marker::Declined { question } => format!("question={question}"),
+            Marker::Declined { question } => format!("question={}", question.as_str()),
             Marker::Project { key, .. } => return key.clone(),
             _ => return None,
         };
@@ -453,8 +453,9 @@ impl Marker {
     /// True for a marker a write may set: one that keeps the port's limits,
     /// that the vendored table can write, and that is not `Unreadable`,
     /// `Bare` or `Unknown`. A `Question` of `QuestionKind::Unknown` is not
-    /// written. The table writes a number of at most 9 digits, a
-    /// `Declined` question of at most 19, and a `TicketOf` or `Blocked` names only a ticket of this realm and
+    /// written. The table writes a number of at most 9 digits, and a
+    /// `Declined` question id of 1 to 19 ASCII digits with no leading zero.
+    /// A `TicketOf` or `Blocked` names only a ticket of this realm and
     /// project: a ticket `Elsewhere` is not written as a marker. A
     /// `Blocked` names ticket numbers alone.
     pub fn writable(&self) -> bool {
@@ -485,7 +486,12 @@ impl Marker {
             Marker::Millwright(m) => fits(m.blueprint.get()),
             Marker::TicketOf(ticket) => matches!(ticket, Ref::Here(_)),
             Marker::Link { blueprint, .. } => fits(blueprint.get()),
-            Marker::Declined { question } => *question <= QUESTION_MAX,
+            Marker::Declined { question } => {
+                let id = question.as_str();
+                (1..=QUESTION_DIGITS).contains(&id.len())
+                    && id.bytes().all(|b| b.is_ascii_digit())
+                    && (id == "0" || !id.starts_with('0'))
+            }
             _ => true,
         }
     }
@@ -734,20 +740,25 @@ mod tests {
 
     #[test]
     fn a_declined_note_is_found_by_its_question_of_at_most_nineteen_digits() {
-        let declined = |question| Marker::Declined { question };
-        assert_eq!(declined(4001).kind(), MarkerKind::Declined);
+        let declined = |question: &str| Marker::Declined {
+            question: CommentId::new(question),
+        };
+        assert_eq!(declined("4001").kind(), MarkerKind::Declined);
         assert_eq!(
-            declined(4001).key(),
+            declined("4001").key(),
             Some(MarkerKey::new("question=4001").unwrap())
         );
-        for ok in [declined(0), declined(9_999_999_999_999_999_999)] {
+        for ok in [declined("0"), declined(&"9".repeat(19))] {
             assert!(ok.writable(), "{ok:?}");
             assert_eq!(check_one(ok), Ok(()));
         }
-        let big = declined(u64::MAX);
-        assert!(!big.writable());
-        assert_eq!(check_one(big.clone()), REFUSED);
-        assert_eq!(big.clone().checked(), big);
+        let twenty = "1".repeat(20);
+        for bad in ["", "0123", "IC_kwDO", "12a", "-1", twenty.as_str()] {
+            let bad = declined(bad);
+            assert!(!bad.writable(), "{bad:?}");
+            assert_eq!(check_one(bad.clone()), REFUSED);
+            assert_eq!(bad.clone().checked(), bad);
+        }
     }
 
     #[test]

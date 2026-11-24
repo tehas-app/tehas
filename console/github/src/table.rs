@@ -233,7 +233,7 @@ pub fn marker_text(m: &Marker) -> Option<String> {
         ),
         Marker::Declined { question } => (
             "Declined",
-            vec![("question", Some(question.to_string()))],
+            vec![("question", Some(question.as_str().to_string()))],
             None,
         ),
         _ => return None,

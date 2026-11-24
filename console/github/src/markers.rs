@@ -24,9 +24,9 @@ use std::num::{NonZeroU32, NonZeroU64};
 
 use crate::table::{self, MarkerRow, Rule};
 use tehas_ports::{
-    BlueprintNo, FinishMarker, FinishResult, KeyText, LastAttemptMarker, Marker, MarkerKind,
-    MarkerWord, MillwrightAction, MillwrightMarker, ParkMarker, QuestionKind, Ref, Sha256,
-    TicketKey,
+    BlueprintNo, CommentId, FinishMarker, FinishResult, KeyText, LastAttemptMarker, Marker,
+    MarkerKind, MarkerWord, MillwrightAction, MillwrightMarker, ParkMarker, QuestionKind, Ref,
+    Sha256, TicketKey,
 };
 
 /// A text as the ports carry it: without our markers, and the markers.
@@ -464,7 +464,7 @@ fn build(row: &MarkerRow, values: &[(&str, &str)], note: Option<&str>) -> Option
             remove: get("remove").is_some(),
         },
         MarkerKind::Declined => Marker::Declined {
-            question: get("question")?.parse().ok()?,
+            question: CommentId::new(get("question")?),
         },
         _ => return None,
     };

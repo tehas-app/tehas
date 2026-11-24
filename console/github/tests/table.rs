@@ -135,7 +135,7 @@ last_attempt_marker
         ),
         (
             Marker::Declined {
-                question: 2_501_234_567,
+                question: CommentId::new("2501234567"),
             },
             "<!-- tehas:declined question=2501234567 -->",
         ),
