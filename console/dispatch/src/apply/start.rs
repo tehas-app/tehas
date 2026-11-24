@@ -601,15 +601,22 @@ impl Writer {
         });
         let refresh_pr = a.get("refresh_pr").and_then(Value::as_u64);
         if let Some(pr) = refresh_pr {
+            let word = "tehas:refreshing";
             let args = vec![
                 "api".into(),
                 "-X".into(),
                 "POST".into(),
                 format!("repos/{}/issues/{pr}/labels", self.repo),
                 "-f".into(),
-                "labels[]=tehas:refreshing".into(),
+                format!("labels[]={word}"),
             ];
-            let why = match self.write(pr, "change-mark", args, None, None) {
+            let mark = tehas_ports::ChangeNo::new(pr).zip((self.mark_of)(word));
+            let wrote = match (self.looked_1x(pr, "change-mark", &args, None), mark) {
+                (Some(wrote), _) => wrote,
+                (None, Some((no, mark))) => self.send(pr, &Write::MarkChange { no, mark }),
+                (None, None) => Wrote::Failed(format!(": {word} is no mark this poll knows")),
+            };
+            let why = match wrote {
                 Wrote::Done(_) => None,
                 Wrote::Failed(why) | Wrote::Unknown(why) => Some(why),
                 Wrote::Unrecorded => {
