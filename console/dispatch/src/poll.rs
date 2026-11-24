@@ -443,6 +443,7 @@ fn writer(
         ports: None,
         // The wiring's, set with the handles: run_poll.
         mark_of: |_| None,
+        assignee: None,
     }
 }
 
@@ -728,6 +729,16 @@ pub fn run_poll(
         events,
     );
     w.mark_of = wiring.mark_of;
+    w.assignee = match wiring.assignee {
+        Some(Ok(id)) => Some(id),
+        Some(Err(why)) => {
+            say(&format!(
+                "WARN: the assignee could not be resolved ({why}), so this poll's claims go without one"
+            ));
+            None
+        }
+        None => None,
+    };
     // The poll's GitHub token, kept in memory from before its first call: the
     // first gh of the poll asks the host's token program once, and every gh
     // process after it is given the token as TEHAS_GH_TOKEN, so the shim of a
@@ -1600,6 +1611,7 @@ mod tests {
         crate::apply::Wiring {
             handles: no_handles,
             mark_of: |_| None,
+            assignee: None,
         }
     }
 

@@ -113,8 +113,8 @@ impl TicketWrites for GitHub {
 
     /// The issue read, then one `PATCH` of its state and the reason GitHub
     /// keeps (`completed`, `not_planned`, `duplicate`; REST names no
-    /// original of a duplicate). A closed issue is done with nothing sent:
-    /// closing is idempotent by its inputs.
+    /// original of a duplicate). A closed issue is done with nothing sent and
+    /// keeps the reason it has: closed is closed.
     fn close(&mut self, key: &TicketKey, reason: &CloseReason) -> Did {
         let issue = number(key)?;
         let path = format!("{}/issues/{issue}", self.issues()?);
@@ -297,8 +297,8 @@ impl TicketWrites for GitHub {
     }
 
     /// The child's parent read first: already this parent's part is done
-    /// with nothing sent, another parent's is `Refused(Invalid)`, never
-    /// moved. Then the child's own issue read for its id, which the
+    /// with nothing sent, another parent's, in this repository or another,
+    /// is `Refused(Invalid)`, never moved. Then the child's own issue read for its id, which the
     /// sub-issues endpoint takes, and one `POST` of it to the parent's.
     fn add_part(&mut self, parent: &TicketKey, child: &TicketKey) -> Did {
         let (up, down) = (number(parent)?, number(child)?);
@@ -308,10 +308,14 @@ impl TicketWrites for GitHub {
         let issues = self.issues()?;
         let asked = format!("{issues}/issues/{down}/parent");
         match self.call("the parent", &["api", &asked]) {
+            // A parent of another repository is another parent.
             Ok(out) => {
-                return match issue_of(&out, &self.repo)?.number {
-                    n if n == up => Ok(()),
-                    _ => Err(Outcome::Refused(Refusal::Invalid)),
+                return match issue_of(&out, &self.repo) {
+                    Ok(p) if p.number == up => Ok(()),
+                    Ok(_) | Err(Outcome::Unread(Unread::Inconsistent)) => {
+                        Err(Outcome::Refused(Refusal::Invalid))
+                    }
+                    Err(o) => Err(o),
                 }
             }
             Err(e) if crate::gh::says_not_found(&e.why) => {}

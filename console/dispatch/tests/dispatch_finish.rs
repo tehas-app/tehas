@@ -400,9 +400,10 @@ fn a_cycle_a_provider_outage_parked_starts_again_once_without_a_tick_and_the_iss
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(w.calls("fake-start").trim_end(), "7");
-    has(
-        &w.gh(),
-        "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:question",
+    assert!(
+        w.on(7, Mark::State(State::Running)) && w.off(7, Mark::State(State::Question)),
+        "{:?}",
+        w.writes_of(7)
     );
     lacks(&w.gh(), "--remove-label needs-human-attention");
     has(&w.gh(), "Tehas starts this issue again on its own: its last cycle was parked by a provider outage, and the model endpoint answers again. It does this once.");

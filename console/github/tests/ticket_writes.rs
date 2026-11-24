@@ -1632,3 +1632,15 @@ fn a_mark_github_refuses_with_422_is_refused_not_maybe_sent() {
         Err(Outcome::Refused(Refusal::Invalid))
     );
 }
+
+/// A child whose parent is an issue of another repository has another
+/// parent: refused, never moved.
+#[test]
+fn a_parent_of_another_repository_is_another_parent() {
+    let (mut gh, calls) = adapter(vec![Ok(sample("issue-12-other-repo.json"))]);
+    assert_eq!(
+        gh.add_part(&key(12), &key(13)),
+        Err(Outcome::Refused(Refusal::Invalid))
+    );
+    assert_eq!(taken(&calls).len(), 1);
+}

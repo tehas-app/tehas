@@ -220,6 +220,19 @@ fn noted(line: &str, n: Option<u64>) -> bool {
         && n.is_none_or(|n| line.contains(&format!(r#""ticket":{{"Number":{n}}}"#)))
 }
 
+/// The running mark of a claim on issue 7, as fail-send names it.
+const MARK7: &str = r#""type":"Mark","value":{"ticket":{"Number":7}"#;
+
+/// The world's reads of the ports, from a fake holding `world`; its writes
+/// stay the recording ones.
+fn reads_from(t: &mut World, world: &tehas_ports::fake::World) {
+    let writes = t.w.ports.take().unwrap().writes;
+    t.w.ports = Some(Handles {
+        writes,
+        ..handles(world)
+    });
+}
+
 /// The line of a mark put on (`on`) or taken off issue `n`.
 fn marked(n: u64, label: &str, on: bool) -> String {
     let (ticket, mark) = (key(n), mark(label));
@@ -359,6 +372,7 @@ fn world() -> World {
             ..handles(&tehas_ports::fake::World::new())
         }),
         mark_of: mark_of_word,
+        assignee: None,
     };
     World {
         dir,
@@ -1080,17 +1094,24 @@ fn an_answered_question_is_recorded_after_its_label_and_retried_when_busy() {
     );
 }
 
+/// The refreshing mark off a pull request, as a write of the code host: a
+/// change already without it is the adapter's done.
 #[test]
-fn a_pull_request_without_the_mark_is_unmarked_already() {
+fn a_pull_request_is_unmarked_through_the_code_host() {
     let act = json!([{"pr": 12, "remove": ["tehas:refreshing"], "log": "unmark #12"}]);
     let mut t = world();
     assert_eq!(t.apply(act.clone()).log, vec!["unmark #12"]);
-    assert!(t.calls()[0].contains("--kind change-unmark --issue 12"));
-    // GitHub's Not Found: the mark is not there, which is what was wanted.
+    let unmark = tehas_ports::Write::UnmarkChange {
+        no: tehas_ports::ChangeNo::new(12).unwrap(),
+        mark: mark("tehas:refreshing"),
+    };
+    assert_eq!(t.writes(), vec![sent(&unmark)]);
     let mut t = world();
-    t.fail("gh", "DELETE");
-    assert_eq!(t.apply(act.clone()).log, vec!["unmark #12"]);
-    assert!(t.calls().last().unwrap().ends_with("--result empty"));
+    t.fail("send", "UnmarkChange");
+    assert_eq!(
+        t.apply(act).log,
+        vec!["WARN: label change on pull request #12 failed: --remove-label tehas:refreshing"]
+    );
 }
 
 /// A comment's markers go beside its text, typed, never inside it: the
@@ -1508,9 +1529,9 @@ fn a_start_on_an_epics_approval_is_recorded_as_the_persons_label() {
     let c = t.writes();
     assert!(c[0].contains("approval-record 7 --at 1793008800 --by alice --how approved"));
     assert!(c[0].contains("--label tehas:ready"));
-    assert!(c[4].contains(
+    assert!(c.iter().any(|l| note_text(l).contains(
         "(authorized by @alice's `tehas:ready` label on epic #5 at 2026-10-25T09:00:00Z, which the millwright carried to this sub-issue)."
-    ));
+    )));
 }
 
 #[test]
@@ -1523,7 +1544,7 @@ fn a_read_only_start_that_worked_is_kept_on_record_and_one_that_failed_is_not() 
     assert_eq!(tehas_core::read_only::recorded(&home), vec![7]);
     let r = tehas_core::read_only::read_records(&home);
     assert_eq!(r[0]["how"], "cycle");
-    t.fail("gh", "--add-label tehas:running");
+    t.fail("send", r#""type":"Mark","value":{"ticket":{"Number":8}"#);
     t.apply(json!([start_of(8, "approved")]));
     assert_eq!(tehas_core::read_only::recorded(&home), vec![7]);
 }
@@ -1587,7 +1608,8 @@ fn a_start_records_marks_says_and_starts_in_that_order() {
             "store approval-record",
             "store cycle-show",
             "store park-show",
-            "gh issue",
+            "send \"Mark\"",
+            "send \"Unmark\"",
             "send \"TicketNote\"",
             "start 7",
             "store cycle-show",
@@ -1599,9 +1621,12 @@ fn a_start_records_marks_says_and_starts_in_that_order() {
     assert!(c[0].contains(&format!("--body-sha {} ", "a".repeat(64))));
     assert!(c[0].contains("--label tehas:ready"));
     assert!(c[0].contains(&format!("--title-sha {}", "b".repeat(64))));
-    assert_eq!(c[3], "gh issue edit 7 --repo example-owner/example-product --add-label tehas:running --remove-label tehas:ready");
-    assert!(c[4].contains("Tehas cycle started on `tehas-tehas` at "));
-    assert!(c[4].contains("(authorized by @alice's `tehas:ready` label)"));
+    // The claim in parts: the running mark, then the word it takes the
+    // place of off, then the comment.
+    assert_eq!(c[3], marked(7, "tehas:running", true));
+    assert_eq!(c[4], marked(7, "tehas:ready", false));
+    assert!(note_text(&c[5]).contains("Tehas cycle started on `tehas-tehas` at "));
+    assert!(note_text(&c[5]).contains("(authorized by @alice's `tehas:ready` label)"));
     let input: Value =
         serde_json::from_str(&fs::read_to_string(t.dir.join("input.json")).unwrap()).unwrap();
     assert_eq!(
@@ -1636,9 +1661,9 @@ fn an_approval_the_store_refuses_starts_nothing() {
             "ERROR: could not write the approval record of #7 (busy), not starting a cycle"
         ]
     );
-    assert!(!t.writes().iter().any(|c| c.contains("issue edit 7")));
+    assert!(!t.writes().contains(&marked(7, "tehas:running", true)));
     // The issue after it still starts: the bash goes on to the next one.
-    assert!(t.writes().iter().any(|c| c.contains("issue edit 8")));
+    assert!(t.writes().contains(&marked(8, "tehas:running", true)));
 }
 
 #[test]
@@ -1669,10 +1694,40 @@ fn a_store_that_cannot_be_used_ends_the_poll_with_78_before_any_mark() {
     assert!(!t.w.home.join("state/branch-check").exists());
 }
 
+/// B5: the claim's parts in order, the owner assigned last; an assign the
+/// site refuses is said, and the claim stands.
+#[test]
+fn a_claim_assigns_its_owner_last_and_stands_when_the_site_refuses() {
+    let who = tehas_ports::AccountId::new("904");
+    let assign = sent(&tehas_ports::Write::Assign {
+        ticket: key(7),
+        who: who.clone(),
+    });
+    let mut t = world();
+    t.w.host.owner = "carol".into();
+    t.w.assignee = Some(who.clone());
+    let a = t.apply(json!([start_of(7, "approved")]));
+    assert_eq!(a.exit, None);
+    let w = t.writes();
+    let at = |line: &str| w.iter().position(|c| c == line);
+    assert!(at(&marked(7, "tehas:running", true)) < at(&marked(7, "tehas:ready", false)));
+    assert!(at(&marked(7, "tehas:ready", false)) < at(&assign), "{w:?}");
+    let mut t = world();
+    t.w.host.owner = "carol".into();
+    t.w.assignee = Some(who);
+    t.fail("send", r#""type":"Assign""#);
+    let a = t.apply(json!([start_of(7, "approved")]));
+    assert_eq!(a.exit, None);
+    assert!(a.log.contains(
+        &"WARN: could not assign #7 to carol, marking it running without an assignee".to_string()
+    ));
+    assert!(t.calls().iter().any(|c| c == "start 7"));
+}
+
 #[test]
 fn a_mark_that_fails_takes_the_approval_back_and_starts_nothing() {
     let mut t = world();
-    t.fail("gh", "--add-label tehas:running");
+    t.fail("send", MARK7);
     let a = t.apply(json!([start_of(7, "approved")]));
     assert_eq!(a.exit, Some(1));
     assert_eq!(
@@ -1700,7 +1755,14 @@ fn a_unit_that_never_says_it_started_is_put_back_and_said() {
     assert!(w
         .iter()
         .any(|c| c.starts_with("store approval-record 7 --undo")));
-    assert!(w.iter().any(|c| c == "gh issue edit 7 --repo example-owner/example-product --remove-label tehas:running --add-label needs-human-attention"));
+    // The person's mark goes on before the running one comes off.
+    let on = w
+        .iter()
+        .position(|c| *c == marked(7, "needs-human-attention", true));
+    let off = w
+        .iter()
+        .position(|c| *c == marked(7, "tehas:running", false));
+    assert!(on.is_some() && on < off, "{w:?}");
     assert!(w.last().unwrap().starts_with("status"));
     assert!(w
         .iter()
@@ -1719,10 +1781,7 @@ fn host_start_of(n: u64) -> Value {
 fn a_host_start_that_gives_up_before_its_cycle_keeps_the_hosts_approval() {
     // The host's approval is the only record that asks for the start: a
     // failure that may pass leaves it for the next poll.
-    for (program, pattern) in [
-        ("gh", "--add-label tehas:running"),
-        ("store", "cycle-show|busy"),
-    ] {
+    for (program, pattern) in [("send", MARK7), ("store", "cycle-show|busy")] {
         let mut t = world();
         t.fail(program, pattern);
         let a = t.apply(json!([host_start_of(7)]));
@@ -1768,12 +1827,10 @@ fn a_host_start_whose_unit_does_not_come_up_says_to_run_tehas_start_again() {
 #[test]
 fn a_mark_answered_unknown_that_landed_starts_the_cycle() {
     let mut t = world();
-    t.fail("gh", "--add-label tehas:running|HTTP 502");
-    fs::write(
-        t.dir.join("issue-7"),
-        r#"{"labels":[{"name":"tehas:running"},{"name":"bug"}]}"#,
-    )
-    .unwrap();
+    t.fail("send", &format!("{MARK7}|maybe"));
+    // The read of the ports finds the mark on: it landed.
+    let landed = tehas_ports::fake::World::new().ticket(7, |i| i.mark(mark("tehas:running")));
+    reads_from(&mut t, &landed);
     let a = t.apply(json!([start_of(7, "approved")]));
     assert_eq!(a.exit, None, "{:?}", a.log);
     assert!(
@@ -1793,21 +1850,19 @@ fn a_mark_answered_unknown_that_landed_starts_the_cycle() {
 
 #[test]
 fn a_mark_answered_unknown_that_did_not_land_starts_nothing() {
-    for issue in [
-        // Its label is still on: the mark was not made whole.
-        Some(r#"{"labels":[{"name":"tehas:running"},{"name":"tehas:ready"}]}"#),
-        Some(r#"{"labels":[{"name":"tehas:ready"}]}"#),
-        // A read that fails cannot say it was made.
+    // The claim is its running mark alone (B5): a read that finds it off,
+    // or no read that can tell, has the claim not made.
+    for reads in [
+        Some(tehas_ports::fake::World::new().ticket(7, |i| i.mark(mark("tehas:ready")))),
         None,
     ] {
         let mut t = world();
-        t.fail("gh", "--add-label tehas:running|HTTP 502");
-        match issue {
-            Some(body) => fs::write(t.dir.join("issue-7"), body).unwrap(),
-            None => t.fail("gh", "api repos/example-owner/example-product/issues/7"),
+        t.fail("send", &format!("{MARK7}|maybe"));
+        if let Some(world) = &reads {
+            reads_from(&mut t, world);
         }
         let a = t.apply(json!([start_of(7, "approved")]));
-        assert_eq!(a.exit, Some(1), "{issue:?}");
+        assert_eq!(a.exit, Some(1), "{:?}", a.log);
         assert_eq!(
             a.log.last().unwrap(),
             "ERROR: could not mark #7 as running, not starting a cycle"
@@ -1895,14 +1950,14 @@ fn a_start_takes_its_park_question_off_and_spends_the_retry_after_the_mark() {
         .unwrap();
     let mark = w
         .iter()
-        .position(|c| c.contains("--add-label tehas:running"))
+        .position(|c| *c == marked(7, "tehas:running", true))
         .unwrap();
     let spend = s.iter().position(|c| c == "store park-retry").unwrap();
     assert!(withdraw < mark && mark < spend);
     // A mark that fails puts the question back.
     let mut t = world();
     fs::write(t.dir.join("park"), r#"{"question": 41}"#).unwrap();
-    t.fail("gh", "--add-label tehas:running");
+    t.fail("send", MARK7);
     t.apply(json!([start_of(7, "approved")]));
     assert!(t
         .writes()
@@ -1952,12 +2007,11 @@ fn a_refresh_marks_its_pull_request_first_and_its_approval_names_what_it_refresh
         json!({"pr": 12, "head_sha": "c".repeat(40), "base_sha": "d".repeat(40), "branch": "main"});
     t.apply(json!([a.clone()]));
     let w = t.writes();
-    assert!(w[0].starts_with("gh api -X POST repos/example-owner/example-product/issues/12/labels -f labels[]=tehas:refreshing"));
-    assert!(t
-        .calls()
-        .iter()
-        .any(|c| c.starts_with("store journal-record")
-            && c.contains("--kind change-mark --issue 12")));
+    let refreshing = tehas_ports::Write::MarkChange {
+        no: tehas_ports::ChangeNo::new(12).unwrap(),
+        mark: mark("tehas:refreshing"),
+    };
+    assert_eq!(w[0], sent(&refreshing));
     // A refresh is on record at the time the poll decided it.
     assert!(!w[1].contains("--at 1793008800"));
     assert!(!w[1].contains("--label"));
@@ -1968,6 +2022,7 @@ fn a_refresh_marks_its_pull_request_first_and_its_approval_names_what_it_refresh
     assert!(!h.join("state/refresh/7.json").exists());
     assert!(w
         .iter()
+        .map(|c| note_text(c))
         .any(|c| c.contains("Tehas refresh started on `tehas-tehas`")
             && c.contains("pull/12 conflicts with `main`")
             && c.contains("rests on @alice's approval")));
@@ -1981,11 +2036,11 @@ fn a_refresh_marks_its_pull_request_first_and_its_approval_names_what_it_refresh
         .starts_with("This pull request conflicts with `main`."));
     // A mark that fails records nothing and starts nothing.
     let mut t = world();
-    t.fail("gh", "POST");
+    t.fail("send", "MarkChange");
     let r = t.apply(json!([a]));
     assert_eq!(
         r.log[1],
-        "ERROR: could not mark pull request #12 as refreshing, not starting a cycle"
+        "ERROR: could not mark pull request #12 as refreshing, not starting a cycle: refused: an input is not valid"
     );
     assert!(!t
         .calls()
@@ -1994,16 +2049,16 @@ fn a_refresh_marks_its_pull_request_first_and_its_approval_names_what_it_refresh
 }
 
 #[test]
-fn a_refused_refresh_mark_logs_gh_reason() {
+fn a_refused_refresh_mark_logs_the_sites_reason() {
     let mut t = world();
-    t.fail("gh", "POST|HTTP 404");
+    t.fail("send", "MarkChange");
     let mut a = start_of(7, "refresh");
     a["how"] = json!("approval");
     a["refresh_pr"] = json!(12);
     let r = t.apply(json!([a]));
     assert_eq!(
         r.log[1],
-        "ERROR: could not mark pull request #12 as refreshing, not starting a cycle: HTTP 404"
+        "ERROR: could not mark pull request #12 as refreshing, not starting a cycle: refused: an input is not valid"
     );
 }
 
@@ -5433,7 +5488,7 @@ fn a_unit_systemd_cannot_load_ends_the_poll_before_any_mark() {
     assert!(!t
         .calls()
         .iter()
-        .any(|c| c.contains("--add-label tehas:running")));
+        .any(|c| *c == marked(7, "tehas:running", true)));
     // With a start command of its own, systemd is not asked.
     let mut t = world();
     fs::write(t.dir.join("loadstate"), "not-found\n").unwrap();
@@ -5526,7 +5581,7 @@ fn a_busy_index_holds_the_starts_with_0() {
     assert!(!t
         .calls()
         .iter()
-        .any(|c| c.contains("--add-label tehas:running")));
+        .any(|c| *c == marked(7, "tehas:running", true)));
 }
 
 #[test]
@@ -5563,7 +5618,7 @@ fn a_due_index_is_launched_and_holds_and_one_that_ran_lets_the_starts_go() {
     assert!(t
         .calls()
         .iter()
-        .any(|c| c.contains("--add-label tehas:running")));
+        .any(|c| *c == marked(7, "tehas:running", true)));
     // A session this poll ended asked for the next poll too, and keeps it.
     let mut t = world();
     t.w.host.systemctl = t.dir.join("systemctl").to_string_lossy().into_owned();
@@ -5597,7 +5652,7 @@ fn a_current_index_lets_the_starts_go() {
     assert!(t
         .calls()
         .iter()
-        .any(|c| c.contains("--add-label tehas:running")));
+        .any(|c| *c == marked(7, "tehas:running", true)));
     // The start does not fetch a second time.
     assert_eq!(
         t.calls()
@@ -5638,7 +5693,7 @@ fn an_index_that_failed_at_the_tip_is_not_launched_again() {
     assert!(t
         .calls()
         .iter()
-        .any(|c| c.contains("--add-label tehas:running")));
+        .any(|c| *c == marked(7, "tehas:running", true)));
 }
 
 #[test]
