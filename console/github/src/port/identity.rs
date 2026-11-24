@@ -322,24 +322,25 @@ fn read_permission(out: &str, id: u64) -> Got<Standing> {
             }
         }
     };
-    Ok(role.min(word_cap(v.get("permission"))?))
+    let cap = match v.get("permission") {
+        None | Some(Value::Null) => Standing::Admin,
+        Some(w) => word_cap(w.as_str()).ok_or(MALFORMED)?,
+    };
+    Ok(role.min(cap))
 }
 
 /// The highest base role a legacy word agrees with. GitHub's own answers
 /// fold the role into the word, so a role above this cap disagrees with
-/// its word and is read at the cap: the lower of the two readings. A
-/// missing or null word caps nothing; any other word than the four is no
-/// answer, since the role must not stand beside a word not understood.
-fn word_cap(word: Option<&Value>) -> Got<Standing> {
-    match word {
-        None | Some(Value::Null) => Ok(Standing::Admin),
-        Some(w) => match w.as_str() {
-            Some("admin") => Ok(Standing::Admin),
-            Some("write") => Ok(Standing::Maintain),
-            Some("read") => Ok(Standing::Triage),
-            Some("none") => Ok(Standing::None),
-            _ => Err(MALFORMED),
-        },
+/// its word and is read at the cap: the lower of the two readings. None
+/// for any other word than the four: the role must not stand beside a word
+/// not understood. A missing or null word caps nothing.
+fn word_cap(word: Option<&str>) -> Option<Standing> {
+    match word? {
+        "admin" => Some(Standing::Admin),
+        "write" => Some(Standing::Maintain),
+        "read" => Some(Standing::Triage),
+        "none" => Some(Standing::None),
+        _ => None,
     }
 }
 
