@@ -184,9 +184,9 @@ fn the_parent_is_graphqls_since_rest_leaves_out_the_field_of_none() {
 }
 
 /// The project is told by its repository's database id, never by its
-/// name. The live recordings were read after `tehas-app/tehas` was renamed
-/// `tehas-app/tehas-factory`: a handle still set to the old name reads #2824's
-/// parent as this project's, as one set to the new name does.
+/// name. The live recordings were read from a repository renamed before:
+/// a handle set to a name it no longer bears reads #2824's parent as this
+/// project's, as one set to its name does.
 #[test]
 fn a_renamed_project_is_still_here_by_its_repository_id() {
     let issue = ISSUE.replace(r#""number":7"#, r#""number":2824"#).replace(
@@ -195,9 +195,9 @@ fn a_renamed_project_is_still_here_by_its_repository_id() {
     );
     let answer = live("parent-2824.json");
     for configured in [
-        "tehas-app/tehas",
+        "tehas-app/factory-before",
         "tehas-app/tehas-factory",
-        "TEHAS-APP/TEHAS",
+        "someone/else",
     ] {
         let (mut gh, _) = adapter_in(configured, vec![Ok(&issue), Ok(&answer)]);
         assert_eq!(
