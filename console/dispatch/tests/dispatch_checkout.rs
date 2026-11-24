@@ -10,7 +10,7 @@ use std::fs::OpenOptions;
 use std::path::Path;
 use std::process::Command;
 use std::time::Instant;
-use tehas_ports::{Act, Mark};
+use tehas_ports::{Act, Mark, State};
 
 fn git(dir: &Path, args: &[&str]) -> String {
     let out = Command::new("git")
@@ -53,9 +53,10 @@ fn a_real_poll_puts_the_checkout_on_main_and_fast_forwards_it() {
     );
     lacks(&r.out, "WARN");
     assert_eq!(w.started(), "7 ");
-    has(
-        &w.gh(),
-        "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:ready",
+    assert!(
+        w.on(7, Mark::State(State::Running)) && w.off(7, Mark::Act(Act::Approve)),
+        "{:?}",
+        w.writes_of(7)
     );
 }
 

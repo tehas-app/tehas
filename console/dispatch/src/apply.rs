@@ -30,7 +30,7 @@ use std::time::Duration;
 use tehas_core::call::{self, GRACE};
 use tehas_core::home::{Home, State};
 use tehas_core::journal::{Journal, Journaled, Wrote};
-use tehas_ports::{Body, NoBlobs, Receipt, TicketKey, Write};
+use tehas_ports::{Body, ChangeNo, NoBlobs, Receipt, TicketKey, Write};
 
 /// The calls of one poll's writes.
 pub struct Writer {
@@ -103,14 +103,22 @@ pub struct Writer {
     /// Temporary (T4.7, Decided by the branch owner): the T4.6 pull request
     /// that types decide's actions onto `Mark` removes it.
     pub mark_of: MarkOf,
+    /// The account a claim assigns: `Wiring::assignee` resolved. None
+    /// assigns nobody.
+    pub assignee: Option<tehas_ports::AccountId>,
 }
 
 /// What the program's wiring gives a poll: its handles, and the word of a
 /// label as a mark. The library names no adapter (R8).
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct Wiring {
     pub handles: HandlesOf,
     pub mark_of: MarkOf,
+    /// `TEHAS_ASSIGNEE`'s account, resolved once by the program's wiring
+    /// through the site's identity: None with no such setting, Err with
+    /// why when it could not be resolved, and the claim then goes without
+    /// an assignee.
+    pub assignee: Option<Result<tehas_ports::AccountId, String>>,
 }
 
 /// The wiring's word for a label as a mark: tehas's words, None for any
@@ -922,13 +930,20 @@ impl Writer {
     /// refresh_unmark: tehas:refreshing off a pull request; one already
     /// without it is done.
     fn unmark(&mut self, pr: u64, a: &Value, log: &mut Vec<String>) {
-        let args = vec![
-            "api".into(),
-            "-X".into(),
-            "DELETE".into(),
-            format!("repos/{}/issues/{pr}/labels/tehas:refreshing", self.repo),
-        ];
-        let worked = match self.write(pr, "change-unmark", args, None, Some("Not Found")) {
+        let word = "tehas:refreshing";
+        let failed =
+            format!("WARN: label change on pull request #{pr} failed: --remove-label {word}");
+        let (Some(no), Some(mark)) = (ChangeNo::new(pr), (self.mark_of)(word)) else {
+            log.push(failed);
+            return;
+        };
+        let path = format!("repos/{}/issues/{pr}/labels/{word}", self.repo);
+        let args = ["api", "-X", "DELETE", &path].map(str::to_string);
+        let wrote = match self.looked_1x(pr, "change-unmark", &args, None) {
+            Some(wrote) => wrote,
+            None => self.send(pr, &Write::UnmarkChange { no, mark }),
+        };
+        let worked = match wrote {
             Wrote::Done(_) => true,
             Wrote::Failed(_) => false,
             Wrote::Unknown(why) => {
@@ -945,9 +960,7 @@ impl Writer {
                 log.push(line.to_string());
             }
         } else {
-            log.push(format!(
-                "WARN: label change on pull request #{pr} failed: --remove-label tehas:refreshing"
-            ));
+            log.push(failed);
         }
     }
 
