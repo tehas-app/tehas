@@ -513,7 +513,7 @@ mkdir -p "$cfg"
 printf 'TEHAS_RELEASE_REPO=acme/reviews\n' >"$cfg/instance.env"
 run_setup "${app_args[@]}" --no-build
 t_eq "$t_rc" 0
-t_contains "$t_out" "the app does not reach acme/reviews (TEHAS_RELEASE_REPO: HTTP 404); install it there at https://github.com/apps/tehas-app/installations/new"
+t_contains "$t_out" "the app does not reach acme/reviews (TEHAS_RELEASE_REPO: not found, or not visible to this actor); install it there at https://github.com/apps/tehas-app/installations/new"
 fresh
 mkdir -p "$cfg"
 printf 'TEHAS_RELEASE_REPO=acme/other\n' >"$cfg/instance.env"
