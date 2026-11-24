@@ -33,7 +33,7 @@ What this means for you now:
 
 The rest of this page says how a host works with the feature on, as the code
 of this release does it. The design is the plugin specification,
-[docs/specs/2026-11-21-plugins-1.0.0.md](https://github.com/tehas-app/tehas/blob/main/docs/specs/2026-11-21-plugins-1.0.0.md),
+[docs/specs/2026-11-21-plugins-1.0.0.md](https://github.com/tehas-app/tehas-factory/blob/main/docs/specs/2026-11-21-plugins-1.0.0.md),
 at revision 1.3.4. This release builds part of its v1.
 
 ## Setting one up

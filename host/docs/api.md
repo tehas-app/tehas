@@ -125,7 +125,7 @@ tehas api [--json]
   "api": 1,
   "tehas": "v0.8.0",
   "commit": "cb6912a",
-  "repo": "tehas-app/tehas",
+  "repo": "tehas-app/tehas-factory",
   "features": ["status", "limit", "drain", "history", "export", "analytics", "state-move", "mcp-dashboard-keys", "clean", "disk", "state-check", "finish", "status-versions", "state-copy", "state-load", "freeze", "host-bridge", "cycle-writes", "settings-rules", "start-order", "host-message", "refresh-pr", "host-start", "flags", "status-previews", "wake", "start-reasons", "blockers", "answer", "question", "cycle-ids", "questions", "events"],
   "flags": {"lean": false, "plugins": false},
   "millwright": null,

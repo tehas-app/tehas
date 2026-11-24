@@ -35,7 +35,7 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 use tehas_core::cycle_notes;
 use tehas_core::home::Home;
-use tehas_core::lock::{probe, Probe};
+use tehas_core::lock::{probe, Held, Probe};
 use tehas_core::raise::{self, Writer};
 use tehas_core::settings::rules::is_repo;
 use tehas_ports::events::Dispatcher;
@@ -510,10 +510,10 @@ impl Names {
             say(&ended_line(n, already, reason));
             raise_stopped(home, n, &open_at, &answer.to_string(), events);
         }
-        if !held.as_ref().is_ok_and(|f| f.try_lock().is_ok()) {
+        let Some(Ok(held)) = held.ok().map(Held::try_take) else {
             eprintln!("tehas stop: a cycle for #{n} holds its lock, so nothing was removed.");
             return Ok(1);
-        }
+        };
 
         // Read again: a cycle that stopped just now may have parked as it
         // reported.
@@ -746,11 +746,14 @@ mod tests {
         home
     }
 
-    // A start of #5 by hand, under the lock a cycle holds.
+    // A start of #5 by hand, under the lock a cycle holds. Unlocked by name:
+    // a child another case forks this instant shares the descriptor until it
+    // execs, so a drop alone may not free it before the next start takes it.
     fn started(home: &Path) {
         let lock = File::create(Home::new(home).cycle_note(5, "lock")).unwrap();
         lock.try_lock().unwrap();
         store::call(home, &["cycle-start", "5", "--by-hand"]).unwrap();
+        lock.unlock().unwrap();
     }
 
     #[test]
@@ -796,7 +799,7 @@ mod tests {
             "65",
         ];
         store::call(&home, &refused).unwrap();
-        drop(lock);
+        lock.unlock().unwrap();
         let rows = store::call(&home, &["history-show", "5"]).unwrap()["rows"].clone();
         assert_eq!(rows[2]["reported"], false);
         let answer = stop("3");

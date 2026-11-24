@@ -63,10 +63,11 @@ fn releases(h: &Host) {
 }
 
 #[test]
-fn a_0_32_x_host_lists_releases_where_this_release_is_published_and_checks_them_with_its_key() {
+fn a_0_32_x_host_lists_releases_under_the_former_name_github_redirects_and_checks_them_with_its_key(
+) {
     assert_eq!(
         setting(&old().join("versions.env"), "TEHAS_RELEASE_REPO"),
-        pinned()
+        tehas_core::release::FORMER_REPO
     );
     assert_eq!(
         fs::read_to_string(old().join("release/minisign.pub")).unwrap(),

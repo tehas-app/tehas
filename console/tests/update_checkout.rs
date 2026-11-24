@@ -744,3 +744,74 @@ fn a_login_that_no_longer_resolves_stops_the_update_with_78_and_is_named() {
     );
     assert_eq!(h.calls("install"), "");
 }
+
+/// origin named `url`, which git's insteadOf turns back into the scratch
+/// remote, so the update fetches with no network and the name stays as given.
+fn origin_named(h: &Host, url: &str) {
+    let c = Some(h.checkout.as_path());
+    let path = git(c, &["config", "--get", "remote.origin.url"]);
+    git(c, &["config", "remote.origin.url", url]);
+    git(c, &["config", &format!("url.{path}.insteadOf"), url]);
+}
+
+fn moved_line(h: &Host) -> String {
+    tehas_core::release::moved(
+        tehas_core::release::FORMER_REPO,
+        tehas_core::release::Holder::Origin(&s(&h.checkout)),
+    )
+    .map(|m| format!("checkout: {m}"))
+    .unwrap()
+}
+
+#[test]
+fn a_remote_naming_the_former_repository_still_updates_and_says_it_moved_once() {
+    let h = host(1, "echo \"installed: nothing\"");
+    let url = format!(
+        "https://github.com/{}.git",
+        tehas_core::release::FORMER_REPO.to_uppercase()
+    );
+    origin_named(&h, &url);
+    let before = h.head_sha();
+    let line = moved_line(&h);
+    has(
+        &line,
+        "still names the old one, which works only while GitHub redirects it: set its URL to the new one",
+    );
+    has(
+        &line,
+        &format!("the remote origin of {} still", s(&h.checkout)),
+    );
+
+    let r = h.update(&["--check"]);
+    assert_eq!(r.rc, 3, "{}", r.out);
+    assert_eq!(r.out.matches(&line).count(), 1, "{}", r.out);
+    assert_eq!(h.head_sha(), before);
+
+    let r = h.update(&[]);
+    assert_eq!(r.rc, 0, "{}", r.out);
+    assert_eq!(r.out.matches(&line).count(), 1, "{}", r.out);
+    has(&r.out, "checkout: fast-forwarded");
+    assert_ne!(h.head_sha(), before);
+    assert_eq!(
+        git(Some(&h.checkout), &["config", "--get", "remote.origin.url"]),
+        url
+    );
+}
+
+#[test]
+fn a_remote_naming_the_new_repository_or_another_says_nothing_of_a_move() {
+    for url in [
+        format!("git@github.com:{}.git", tehas_core::release::pinned_repo()),
+        "https://github.com/someone/tehas.git".to_string(),
+    ] {
+        let h = host(1, "echo \"installed: nothing\"");
+        origin_named(&h, &url);
+        let r = h.update(&["--check"]);
+        assert_eq!(r.rc, 3, "{url}: {}", r.out);
+        lacks(&r.out, "is now");
+        let r = h.update(&[]);
+        assert_eq!(r.rc, 0, "{url}: {}", r.out);
+        has(&r.out, "checkout: fast-forwarded");
+        lacks(&r.out, "is now");
+    }
+}

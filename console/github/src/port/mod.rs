@@ -6,10 +6,13 @@
 //! and the names it cites by, is here. A method no caller asks yet answers
 //! `Refused(Unsupported)` before any request.
 
+mod blueprint_writes;
 mod blueprints;
 mod board;
 mod code_host;
+mod code_host_writes;
 mod identity;
+mod mergeable;
 mod tickets;
 mod writes;
 

@@ -36,12 +36,18 @@ pub enum State {
     CodeIndexFailed,
     /// Held while the indexer runs.
     CodeIndexLock,
+    /// The exit status the last run of the indexer left.
+    CodeIndexRc,
     /// The commit and indexer image the code index was made from.
     CodeIndexState,
     /// The ask a poll is started on.
     DispatchAgain,
     /// Held while a poll reads.
     DispatchLock,
+    /// The start of the lock's hold a hanging poll was last said for.
+    DispatchStuck,
+    /// When the poll that holds the lock took it.
+    DispatchTaken,
     /// Held while one start makes the egress proxy.
     EgressLock,
     /// The mark of a host's first install.
@@ -75,6 +81,8 @@ pub enum State {
     PublishLock,
     /// The record of a sandbox that cannot push.
     PushFault,
+    /// Where the push probe copies the checkout for its one check.
+    PushProbe,
     /// The local records of starts a read-only host made.
     ReadOnly,
     /// The writes a read-only host did not make.
@@ -122,9 +130,12 @@ impl State {
             State::CodeIndex => "state/index",
             State::CodeIndexFailed => "state/index.failed",
             State::CodeIndexLock => "state/index.lock",
+            State::CodeIndexRc => "state/index.rc",
             State::CodeIndexState => "state/index.json",
             State::DispatchAgain => "state/dispatch.again",
             State::DispatchLock => "state/dispatch.lock",
+            State::DispatchStuck => "state/dispatch.stuck",
+            State::DispatchTaken => "state/dispatch.taken",
             State::EgressLock => "state/egress.lock",
             State::FirstInstall => "state/first-install",
             State::GithubFailures => "state/github-failures",
@@ -141,6 +152,7 @@ impl State {
             State::PlatformNewest => "state/platform-newest",
             State::PublishLock => "state/publish.lock",
             State::PushFault => "state/push-fault.json",
+            State::PushProbe => "state/push-probe",
             State::ReadOnly => "state/read-only",
             State::ReadOnlyLog => "state/read-only.log",
             State::Refined => "state/refined.jsonl",
@@ -312,6 +324,17 @@ impl Home {
             .join(format!("{issue}.json"))
     }
 
+    /// `state/refresh/<issue>.json`, the request for a refresh of an issue's
+    /// branch.
+    pub fn refresh_request(&self, issue: u64) -> PathBuf {
+        self.state(State::Refreshes).join(format!("{issue}.json"))
+    }
+
+    /// `state/refresh/<issue>.said`, what says an issue's hold was told.
+    pub fn refresh_said(&self, issue: u64) -> PathBuf {
+        self.state(State::Refreshes).join(format!("{issue}.said"))
+    }
+
     /// `state/dev/<name>.lock`, what `tehas dev` holds for a clone's session.
     pub fn dev_lock(&self, name: &str) -> PathBuf {
         self.state_dir().join("dev").join(format!("{name}.lock"))
@@ -417,9 +440,12 @@ mod tests {
             (State::CodeIndex, "/h/state/index"),
             (State::CodeIndexFailed, "/h/state/index.failed"),
             (State::CodeIndexLock, "/h/state/index.lock"),
+            (State::CodeIndexRc, "/h/state/index.rc"),
             (State::CodeIndexState, "/h/state/index.json"),
             (State::DispatchAgain, "/h/state/dispatch.again"),
             (State::DispatchLock, "/h/state/dispatch.lock"),
+            (State::DispatchStuck, "/h/state/dispatch.stuck"),
+            (State::DispatchTaken, "/h/state/dispatch.taken"),
             (State::EgressLock, "/h/state/egress.lock"),
             (State::FirstInstall, "/h/state/first-install"),
             (State::GithubFailures, "/h/state/github-failures"),
@@ -436,6 +462,7 @@ mod tests {
             (State::PlatformNewest, "/h/state/platform-newest"),
             (State::PublishLock, "/h/state/publish.lock"),
             (State::PushFault, "/h/state/push-fault.json"),
+            (State::PushProbe, "/h/state/push-probe"),
             (State::ReadOnly, "/h/state/read-only"),
             (State::ReadOnlyLog, "/h/state/read-only.log"),
             (State::Refined, "/h/state/refined.jsonl"),
@@ -476,6 +503,8 @@ mod tests {
         assert_eq!(at(h().plan_file(7, "")), "/h/state/plan-7.json");
         assert_eq!(at(h().plan_file(7, ".out")), "/h/state/plan-7.json.out");
         assert_eq!(at(h().plan_start(7)), "/h/state/plan-start/7.json");
+        assert_eq!(at(h().refresh_request(7)), "/h/state/refresh/7.json");
+        assert_eq!(at(h().refresh_said(7)), "/h/state/refresh/7.said");
     }
 
     #[test]
