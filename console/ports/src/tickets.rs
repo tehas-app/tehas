@@ -265,8 +265,10 @@ pub struct TicketEvent {
     /// its old id, so it is not ours. None where the site gave no id: the
     /// caller then compares `Tickets::marks`' id for that mark with its
     /// pin, and refuses the mark when they differ or the mark has no pin.
-    /// The ticket's current marks carry no ids and prove nothing. Missing,
-    /// it reads as None.
+    /// The ticket's current marks carry no ids and prove nothing. A mark
+    /// `marks` does not list, or every mark when `marks` cannot be read, is
+    /// refused for that read, and so is an event with an id whose mark is
+    /// refused. Missing, it reads as None.
     #[serde(default)]
     pub mark_id: Option<MarkId>,
 }

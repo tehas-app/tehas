@@ -67,6 +67,9 @@ pub trait Site: Send + Sync {
     fn until(&self, until: At) -> Arc<dyn Site>;
 }
 
+/// Forwards every method. A method added to `Site` after the freeze, with
+/// its default body, is forwarded here too, or an `Arc` of a site that
+/// answers it would answer the default.
 impl<T: Site + ?Sized> Site for Arc<T> {
     fn realms(&self) -> &[Realm] {
         (**self).realms()

@@ -157,7 +157,9 @@ pub struct ChangeDigest {
     pub closes: Vec<Ref<BlueprintNo>>,
     /// The blueprints the change's text names with the site's closing
     /// syntax, whatever its base. Given when the filter asks for bodies,
-    /// empty otherwise. The adapter owns the syntax.
+    /// empty otherwise. The adapter owns the syntax. Missing, it reads as
+    /// empty.
+    #[serde(default)]
     pub says_closes: Vec<Ref<BlueprintNo>>,
     /// Its size, if the site says.
     pub size: Option<Size>,
