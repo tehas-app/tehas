@@ -416,6 +416,17 @@ pub mod tickets {
         Ok(())
     }
 
+    /// `kinds` never holds `Kind::Unknown`: a type this copy cannot name
+    /// is left out (Decided 120). The fixture's site has a type of a name
+    /// no kind can be.
+    pub fn kinds_hold_no_unknown(h: &mut dyn Tickets) -> Law {
+        const LAW: &str = "tickets::kinds_hold_no_unknown";
+        let kinds = got(LAW, "the kinds", h.kinds())?.into_items();
+        hold(!kinds.contains(&crate::Kind::Unknown), LAW, || {
+            format!("kinds gave {kinds:?}")
+        })
+    }
+
     /// `several_with_closers` answers each ticket's digest as `several`
     /// does, with the closer its `Ticket.closer` gives, None while it is
     /// open. The fixture holds `keys`, closed and open.
@@ -1224,7 +1235,25 @@ pub mod lists {
 /// Laws of the joined reads.
 pub mod board {
     use super::{got, hold, Law};
-    use crate::{Board, BoardAsk, Bound, Outcome, TicketKey, Tickets};
+    use crate::{Blocker, Board, BoardAsk, Bound, Got, Outcome, TicketKey, Tickets};
+    use std::num::NonZeroU64;
+
+    /// `as_blockers` answers each number in the order asked, a repeated
+    /// one each time, as the fixture says: what it names with its state,
+    /// or the number's own outcome. The fixture's `want` holds an open
+    /// and a closed ticket, an open, a merged and a closed change, and a
+    /// number that names nothing (Decided 122).
+    pub fn as_blockers_name_each_number(
+        b: &mut dyn Board,
+        want: &[(NonZeroU64, Got<Blocker>)],
+    ) -> Law {
+        const LAW: &str = "board::as_blockers_name_each_number";
+        let numbers: Vec<NonZeroU64> = want.iter().map(|(n, _)| *n).collect();
+        let got = b.as_blockers(&numbers);
+        hold(got == want, LAW, || {
+            format!("as_blockers gave {got:?}, not {want:?}")
+        })
+    }
 
     /// One ticket past a bound is `Unread` for that item, and the rest are
     /// answered. The fixture's open tickets include `big`, past the ask's

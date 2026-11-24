@@ -1,7 +1,8 @@
 //! The tickets port's reads, `Tickets`. Answered: one ticket to a depth
 //! (`ticket`), the tickets a filter takes (`list`), a ticket's digest
-//! (`several`), its history of every kind (`history`) and its parts
-//! (`parts`).
+//! (`several`), its history of every kind (`history`), its parts
+//! (`parts`), the site's marks with their ids (`marks`) and its types of
+//! ticket (`kinds`).
 
 use std::num::{NonZeroU32, NonZeroU64};
 
@@ -109,12 +110,14 @@ impl Tickets for GitHub {
         unsupported()
     }
 
+    /// The owner's issue types, a question a page.
     fn kinds(&mut self) -> Got<Whole<Kind>> {
-        unsupported()
+        self.kinds_held()
     }
 
-    fn marks(&mut self, _: Bound) -> Got<Whole<MarkHeld>> {
-        unsupported()
+    /// The repository's labels with their node ids, a question a page.
+    fn marks(&mut self, bound: Bound) -> Got<Whole<MarkHeld>> {
+        self.marks_held(bound)
     }
 
     fn targets(&mut self, _: Bound) -> Got<Whole<Target>> {
