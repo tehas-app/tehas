@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/tehas-app/tehas/api/event-ticket-acted.schema.json",
+  "$id": "https://github.com/tehas-app/tehas-factory/api/event-ticket-acted.schema.json",
   "title": "The data of ticket.acted",
   "description": "An allowed account's act is recorded. Witness: the act in the tickets port's history. Version 1 of the events. host/docs/api.md, \"Events\", says what each field means. The object is closed; a minor release may add an optional field. console/tests/events_contract.rs checks the samples beside this file against it.",
   "type": "object",

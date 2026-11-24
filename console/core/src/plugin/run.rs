@@ -581,7 +581,7 @@ pub(crate) mod tests {
         let s = api("plugin-context.schema.json");
         assert_eq!(
             s["$id"],
-            "https://github.com/tehas-app/tehas/api/plugin-context.schema.json"
+            "https://github.com/tehas-app/tehas-factory/api/plugin-context.schema.json"
         );
         closed(&s);
         for name in ["refresh", "hook", "call"] {

@@ -3064,7 +3064,7 @@ fn a_batch_of_13_issues_answers_each_issue_it_was_asked_about() {
 #[test]
 fn a_repository_flag_is_owner_and_name_within_the_bound_of_each_half() {
     let long = "a".repeat(100);
-    assert!(super::repo_within("tehas-app/tehas", 100));
+    assert!(super::repo_within("tehas-app/tehas-factory", 100));
     assert!(super::repo_within(&format!("{long}/{long}"), 100));
     assert!(!super::repo_within(&format!("{long}a/b"), 100));
     assert!(!super::repo_within(&format!("a/{long}a"), 100));

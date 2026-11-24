@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/tehas-app/tehas/api/status.schema.json",
+  "$id": "https://github.com/tehas-app/tehas-factory/api/status.schema.json",
   "title": "tehas status --json",
   "description": "The object tehas status --json prints, version 1. host/docs/api.md says what each field means. Every object is closed, so a field tehas adds must be added here too; a program that reads the object still accepts fields it does not know. console/tests/status_contract.rs checks the samples beside this file against it.",
   "type": "object",

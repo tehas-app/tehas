@@ -35,7 +35,7 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 use tehas_core::cycle_notes;
 use tehas_core::home::Home;
-use tehas_core::lock::{probe, Probe};
+use tehas_core::lock::{probe, Held, Probe};
 use tehas_core::raise::{self, Writer};
 use tehas_core::settings::rules::is_repo;
 use tehas_ports::events::Dispatcher;
@@ -510,10 +510,10 @@ impl Names {
             say(&ended_line(n, already, reason));
             raise_stopped(home, n, &open_at, &answer.to_string(), events);
         }
-        if !held.as_ref().is_ok_and(|f| f.try_lock().is_ok()) {
+        let Some(Ok(held)) = held.ok().map(Held::try_take) else {
             eprintln!("tehas stop: a cycle for #{n} holds its lock, so nothing was removed.");
             return Ok(1);
-        }
+        };
 
         // Read again: a cycle that stopped just now may have parked as it
         // reported.

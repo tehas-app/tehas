@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/tehas-app/tehas/api/event-cycle-parked.schema.json",
+  "$id": "https://github.com/tehas-app/tehas-factory/api/event-cycle-parked.schema.json",
   "title": "The data of cycle.parked",
   "description": "A cycle's history line says it parked. Witness: a work line with parked true. Version 1 of the events. host/docs/api.md, \"Events\", says what each field means. The object is closed; a minor release may add an optional field. console/tests/events_contract.rs checks the samples beside this file against it.",
   "type": "object",

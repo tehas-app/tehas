@@ -104,6 +104,9 @@ fn every_marker() -> Vec<Marker> {
             blueprint: bp(9),
             remove: true,
         },
+        Marker::Declined {
+            question: CommentId::new("4001"),
+        },
         Marker::Project {
             name: name("hold"),
             key: Some(MarkerKey::new("k.1").unwrap()),
@@ -148,6 +151,7 @@ fn the_ports_values_read_back_from_json() {
         MarkerKind::Millwright,
         MarkerKind::TicketOf,
         MarkerKind::Link,
+        MarkerKind::Declined,
         MarkerKind::Project(name("hold")),
         MarkerKind::Unknown,
     ] {
@@ -237,12 +241,12 @@ fn the_ports_values_read_back_from_json() {
         })];
         change_delta
     });
-    round!(BoardAsk {
-        depth: Depth::Cut { notes: 0 },
-        history: Some(Window::Whole(Bound::new(500).unwrap())),
-        changes: Some((ChangeStates::Open, Window::Last(nz32(5)))),
-        filter: Filter::default(),
-        control: Some(TicketKey::Number(nz(1))),
+    round!({
+        let mut ask = BoardAsk::new(Depth::Cut { notes: 0 });
+        ask.history = Some(Window::Whole(Bound::new(500).unwrap()));
+        ask.changes = Some((ChangeStates::Open, Window::Last(nz32(5))));
+        ask.control = Some(TicketKey::Number(nz(1)));
+        ask
     });
     round!({
         let mut open_work = OpenWork::default();
@@ -340,6 +344,114 @@ fn a_ticket_digest_stored_without_a_parent_reads_as_none() {
     assert_eq!(back, d);
     d.parent = Some(here(1));
     round!(d);
+}
+
+#[test]
+fn a_target_stored_without_open_or_due_reads_as_none() {
+    let t = read!(TargetName, r#"{"id":"3","title":"v2"}"#);
+    assert_eq!(t, TargetName::new(TargetId::new("3"), "v2".into()));
+    assert_eq!((t.open, t.due), (None, None));
+    let mut full = t;
+    full.open = Some(false);
+    full.due = Some(At::new(5));
+    round!(full);
+}
+
+#[test]
+fn a_closer_of_another_project_reads_back_and_one_not_known_is_unknown() {
+    round!(Closer::change_elsewhere(
+        ProjectName::new("other/project"),
+        ItemName::new("other/project 12"),
+        WebLink::new("https://example.test/other/project/12").unwrap(),
+    ));
+    round!(Closer::Commit(CommitId::new("abc1234").unwrap()));
+    // The older shapes read as they did.
+    let change = read!(Closer, r#"{"Change":{"no":4,"merged":true}}"#);
+    assert_eq!(
+        change,
+        Closer::Change {
+            no: ChangeNo::new(4).unwrap(),
+            merged: true
+        }
+    );
+    for json in [
+        r#"{"Later":{"x":1}}"#,
+        r#"{"Commit":5}"#,
+        r#""Later""#,
+        r#""Unknown""#,
+    ] {
+        assert_eq!(read!(Closer, json), Closer::Unknown, "{json}");
+    }
+    assert_eq!(
+        serde_json::to_string(&Closer::Unknown).unwrap(),
+        r#""Unknown""#
+    );
+    for bad in ["3", "[]", "{}", r#"{"a":1,"b":2}"#] {
+        assert!(serde_json::from_str::<Closer>(bad).is_err(), "{bad}");
+    }
+}
+
+#[test]
+fn a_relation_is_its_name_and_an_author_without_one_reads_as_none() {
+    for r in [
+        Relation::Owner,
+        Relation::Member,
+        Relation::Collaborator,
+        Relation::Outside,
+    ] {
+        round!(r);
+    }
+    assert_eq!(
+        serde_json::to_string(&Relation::Collaborator).unwrap(),
+        r#""Collaborator""#
+    );
+    assert_eq!(read!(Relation, r#""Contributor""#), Relation::Unknown);
+    let link = WebLink::new("https://example.test/b/7").unwrap();
+    let mut b = Blueprint::new(bp(7), At::new(1), Revision::new("r"), link);
+    let mut json = serde_json::to_value(&b).unwrap();
+    json.as_object_mut().unwrap().remove("author_relation");
+    assert_eq!(serde_json::from_value::<Blueprint>(json).unwrap(), b);
+    b.author_relation = Some(Relation::Member);
+    round!(b);
+}
+
+#[test]
+fn a_release_without_notes_and_a_merge_way_not_known_read() {
+    let mut r = Release::new(
+        ReleaseId::new("r1"),
+        TagName::new("v2.0.0").unwrap(),
+        WebLink::new("https://example.test/r/v2.0.0").unwrap(),
+    );
+    let mut json = serde_json::to_value(&r).unwrap();
+    json.as_object_mut().unwrap().remove("notes");
+    assert_eq!(serde_json::from_value::<Release>(json).unwrap(), r);
+    r.notes = "What changed.".into();
+    round!(r);
+    round!(MergeHow::Site);
+    assert_eq!(serde_json::to_string(&MergeHow::Site).unwrap(), r#""Site""#);
+    assert_eq!(read!(MergeHow, r#""FastForward""#), MergeHow::Unknown);
+    let delta = read!(ChangeDelta, r#"{"changes":[],"next":"c3"}"#);
+    assert!(delta.comments.is_empty());
+}
+
+#[test]
+fn a_board_ask_stored_without_windows_per_kind_reads_as_none() {
+    let ask = read!(
+        BoardAsk,
+        r#"{"depth":"All","history":null,"changes":null,"filter":{"open":null,"carrying":[],"kind":null,"target":null},"control":null}"#
+    );
+    assert!(ask.history_by_kind.is_empty());
+    round!({
+        let mut ask = ask;
+        ask.history_by_kind = vec![
+            (
+                HappenedKind::Marked,
+                Window::Whole(Bound::new(500).unwrap()),
+            ),
+            (HappenedKind::Retitled, Window::Last(nz32(5))),
+        ];
+        ask
+    });
 }
 
 #[test]

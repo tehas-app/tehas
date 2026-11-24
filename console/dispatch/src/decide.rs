@@ -677,9 +677,11 @@ impl<'a> Poll<'a> {
                 "the flag tehas pause wrote at {at} holds this host"
             )),
             PauseFlag::Unreadable => {
-                let home = self.c.home.clone();
+                let flag = tehas_core::home::Home::of_text(&self.c.home)
+                    .state(tehas_core::home::State::Pause);
                 self.log(format!(
-                    "WARN: {home}/state/pause.json is not a pause flag: taking it as paused"
+                    "WARN: {} is not a pause flag: taking it as paused",
+                    flag.display()
                 ));
                 Some("the pause flag is there and cannot be read".into())
             }

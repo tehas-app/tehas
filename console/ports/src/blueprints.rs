@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     Account, At, AttachmentId, BlueprintNo, Body, Bound, ChangeToken, Cites, CommentId, Cursor,
-    Depth, Did, Got, Marker, MarkerEdit, Posted, Reports, Revision, Took, WebLink, Whole, Within,
+    Depth, Did, Got, Marker, MarkerEdit, Posted, Relation, Reports, Revision, Took, WebLink, Whole,
+    Within,
 };
 
 /// A blueprint, read to the depth asked.
@@ -25,6 +26,11 @@ pub struct Blueprint {
     pub open: bool,
     /// Who opened it; None where the site names nobody.
     pub author: Option<Account>,
+    /// How its author stands to the project, as the site records it with
+    /// the item; None where the site does not say. Missing, it reads as
+    /// None.
+    #[serde(default)]
+    pub author_relation: Option<Relation>,
     /// The last account to edit the body; None when unedited.
     pub editor: Option<Account>,
     /// When it was opened.
@@ -54,6 +60,7 @@ new!(
     body,
     open,
     author,
+    author_relation,
     editor,
     edited,
     markers,
@@ -245,6 +252,12 @@ pub trait Blueprints: Reports + Cites {
     /// The files the blueprint's text links to on the site's own store, by
     /// the site's rule for its links.
     fn attachments(&mut self, no: BlueprintNo) -> Got<Whole<Attachment>>;
+    /// The files a text links to on the site's own store, by the same
+    /// rule, in the order the text links them, each once: the text of an
+    /// approval record or an accepted reply, not the current body. Pure,
+    /// no request: the ids are those `attachments` gives for a blueprint
+    /// of this text, and a name or size the text does not hold is None.
+    fn attachments_in(&self, text: &str) -> Vec<Attachment>;
     /// One attachment into `into`, at most `limit` bytes.
     fn fetch(&mut self, a: &AttachmentId, limit: u64, into: &mut dyn std::io::Write) -> Did;
     /// Has anything changed since this token.

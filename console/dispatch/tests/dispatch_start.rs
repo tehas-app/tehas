@@ -180,6 +180,10 @@ fn a_poll_that_finds_the_lock_held_for_longer_than_a_turn_may_take_says_so_once_
         "more than 1800s: a poll hangs, and no poll runs until it ends",
     );
     assert_eq!(w.gh(), "");
+    assert_eq!(
+        w.read_home("state/dispatch.stuck"),
+        w.read_home("state/dispatch.taken")
+    );
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(r.out, "");

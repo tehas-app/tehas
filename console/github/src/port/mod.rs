@@ -10,7 +10,9 @@ mod blueprint_writes;
 mod blueprints;
 mod board;
 mod code_host;
+mod code_host_writes;
 mod identity;
+mod mergeable;
 mod tickets;
 mod writes;
 
@@ -70,5 +72,10 @@ impl Cites for GitHub {
             // wrong item.
             _ => String::new(),
         }
+    }
+
+    /// No caller asks it of this adapter yet: it links nothing.
+    fn link(&self, _: &Cite) -> Option<tehas_ports::WebLink> {
+        None
     }
 }

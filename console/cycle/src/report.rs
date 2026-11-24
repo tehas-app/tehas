@@ -577,7 +577,7 @@ pub fn record_image(rec: &Value, attempt: u64) -> (String, String) {
 /// Where the manual explains `.pi/work.json`, for a comment on a product's
 /// issue, which a relative link would not reach.
 const LEAN_SETTINGS_DOC: &str =
-    "https://github.com/tehas-app/tehas/blob/main/host/docs/new-project.md#the-lean-drivers-settings";
+    "https://github.com/tehas-app/tehas-factory/blob/main/host/docs/new-project.md#the-lean-drivers-settings";
 
 /// What the repository must change, when every rule lean declined with is
 /// about the repository's `.pi/work.json` rather than the issue. The result
