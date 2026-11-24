@@ -236,6 +236,9 @@ case "$1 $2" in
       *closedByPullRequestsReferences*)
         [ ! -e "$T/fx/prs-fails" ] || exit 1
         cat "$T/fx/prs-$n.json" 2>/dev/null || cat "$T/fx/prs.json" || exit 1 ;;
+      # The ticket an issue is a part of, as the GitHub adapter asks it
+      # beside an issue's REST read: none.
+      *"parent { number repository"*) echo "{\"data\":{\"repository\":{\"issue\":{\"number\":$n,\"parent\":null}}}}" ;;
       *) cat "$T/fx/edit-$n.json" 2>/dev/null || cat "$T/fx/edit.json" || exit 1 ;;
     esac ;;
   "issue edit")
