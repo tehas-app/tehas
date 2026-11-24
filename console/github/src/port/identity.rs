@@ -1,11 +1,11 @@
 //! The identity port, `Identity`: who the handle acts as (`me`), an
 //! account's standing on the repository (`standing`), the account a login
 //! names (`account_by_login`), whether a name is an organisation
-//! (`is_organisation`) and whether an account may be assigned
-//! (`assignable`). The rest answers `Refused(Unsupported)` before any
-//! request: `account` comes with the move that asks it, and tokens and
-//! sign-in are the wiring's, made and reviewed as security changes of their
-//! own.
+//! (`is_organisation`), whether an account may be assigned (`assignable`),
+//! and a person's sign-in (`sign_in_link`, `signed_in`, in `people.rs`).
+//! The rest answers `Refused(Unsupported)` before any request: `account`
+//! comes with the move that asks it, and tokens are the wiring's, made and
+//! reviewed as security changes of their own.
 //!
 //! A bot is looked up by its whole login, `<slug>[bot]`, and known by its
 //! id: the bare slug is another account's login, an organisation's (the
@@ -186,14 +186,14 @@ impl Identity for GitHub {
         unsupported()
     }
 
-    /// `Refused(Unsupported)`: the adapter holds no OAuth client, so no
-    /// link it made would finish a sign-in.
-    fn sign_in_link(&self, _: &SignInState) -> Got<WebLink> {
-        unsupported()
+    /// See [`super::people`]: GitHub's page for the App's client for
+    /// people, `Refused(Unsupported)` from a site given none.
+    fn sign_in_link(&self, state: &SignInState) -> Got<WebLink> {
+        self.sign_in_page(state)
     }
 
-    fn signed_in(&mut self, _: &SignInCode) -> Got<(Account, Secret)> {
-        unsupported()
+    fn signed_in(&mut self, code: &SignInCode) -> Got<(Account, Secret)> {
+        self.person_of(code)
     }
 }
 
