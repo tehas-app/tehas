@@ -448,7 +448,7 @@ const COMMENT_EDITS: &str = "query($owner: String!, $name: String!) { repository
 
 /// A text's last edit as GraphQL answers it.
 #[derive(Deserialize)]
-struct Edited {
+pub(super) struct Edited {
     id: Option<String>,
     #[serde(rename = "lastEditedAt")]
     last_edited_at: Option<String>,
@@ -470,7 +470,7 @@ impl Edited {
     /// never edited. An edit by an account GitHub no longer names (deleted:
     /// its `ghost`) is answered as the account `ghost` of an unknown kind,
     /// so an edited text never reads as unedited.
-    fn read(self, bot: Option<&Bot>) -> Got<(Option<At>, Option<tehas_ports::Account>)> {
+    pub(super) fn read(self, bot: Option<&Bot>) -> Got<(Option<At>, Option<tehas_ports::Account>)> {
         let Some(at) = self.last_edited_at else {
             return Ok((None, None));
         };

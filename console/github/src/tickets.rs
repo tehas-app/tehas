@@ -62,6 +62,19 @@ impl GitHub {
             Some(kinds) if kinds.iter().all(|k| marks.contains(k)) => kinds,
             _ => return self.timeline(key, window, only),
         };
+        take(self.mark_events(issue, only)?, window)
+    }
+}
+
+impl GitHub {
+    /// Every event of the kinds `only` names, `Marked` and `Unmarked`
+    /// among them, on the issue, oldest first, from the label events' REST
+    /// read, whole.
+    pub(crate) fn mark_events(
+        &mut self,
+        issue: u64,
+        only: &[HappenedKind],
+    ) -> Got<Vec<TicketEvent>> {
         let out = self.event_pages(issue).map_err(|e| self.outcome(&e))?;
         let mut read =
             gh::parse_with_facts(&out).map_err(|_| Outcome::Unread(Unread::Malformed))?;
@@ -93,7 +106,7 @@ impl GitHub {
             event.at = at;
             items.push(event);
         }
-        take(items, window)
+        Ok(items)
     }
 }
 
