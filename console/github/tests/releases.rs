@@ -21,7 +21,9 @@ type Asked = Arc<Mutex<Vec<String>>>;
 /// tags from `tags`, a later one from `tags-after-<cursor>`, one tag from
 /// `ref-<tag>`, a page of releases from `releases-<page>`, one release from
 /// `release-<tag>`; `.json` is gh's answer, `.fail` the runner's reason. A
-/// call with no recording fails the test.
+/// release file asked with `release download` is written, as gh writes it,
+/// to the `--output` path from `download-<name>.bin`, or fails with
+/// `download-<name>.fail`. A call with no recording fails the test.
 struct Replay {
     case: String,
     asked: Asked,
@@ -35,6 +37,22 @@ impl GhRunner for Replay {
                 .find_map(|a| a.strip_prefix(&format!("{name}=")))
                 .map(str::to_string)
         };
+        let at = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/recorded/releases")
+            .join(&self.case);
+        if let ["release", "download", ..] = args {
+            let name = field("--pattern").expect("a pattern");
+            let output = field("--output").expect("an output");
+            let recorded = format!("download-{name}");
+            if let Ok(bytes) = std::fs::read(at.join(format!("{recorded}.bin"))) {
+                std::fs::write(&output, bytes).unwrap();
+                return Ok(String::new());
+            }
+            return match std::fs::read_to_string(at.join(format!("{recorded}.fail"))) {
+                Ok(why) => Err(why.trim_end().to_string()),
+                Err(_) => panic!("no recording {}/{recorded}", self.case),
+            };
+        }
         let name = match args {
             ["api", "graphql", ..] => {
                 assert_eq!(field("owner").as_deref(), Some("acme"));
@@ -63,9 +81,6 @@ impl GhRunner for Replay {
             }
             _ => panic!("no recording of {args:?}"),
         };
-        let at = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/recorded/releases")
-            .join(&self.case);
         if let Ok(out) = std::fs::read_to_string(at.join(format!("{name}.json"))) {
             return Ok(out);
         }
@@ -261,15 +276,85 @@ fn releases_are_paged_and_bounded() {
     );
 }
 
+const SUMS: &str = "tehas-v1.1.0-linux-x86_64.tar.gz.sha256";
+
+fn file(name: &str) -> FileName {
+    FileName::new(name).unwrap()
+}
+
 #[test]
-fn download_and_archive_wait_for_their_ruling() {
+fn a_release_file_is_downloaded_whole_and_its_directory_goes() {
+    let (mut gh, asked) = adapter("fixture");
+    let mut into = Vec::new();
+    assert_eq!(
+        gh.download(&tag("v1.1.0"), &file(SUMS), 1 << 20, &mut into),
+        Ok(())
+    );
+    assert_eq!(into.len(), 98);
+    assert!(into.starts_with(b"0000"));
+    let asked = asked.lock().unwrap();
+    assert_eq!(asked[0], "api repos/acme/widget/releases/tags/v1.1.0");
+    let words: Vec<&str> = asked[1].split(' ').collect();
+    assert_eq!(
+        &words[..4],
+        [
+            "release",
+            "download",
+            "--repo=acme/widget",
+            &format!("--pattern={SUMS}")
+        ]
+    );
+    assert_eq!(&words[words.len() - 2..], ["--", "v1.1.0"]);
+    let output = words[4].strip_prefix("--output=").unwrap();
+    assert!(
+        !std::path::Path::new(output).parent().unwrap().exists(),
+        "the directory goes"
+    );
+    assert!(!asked[1].contains("token"), "{}", asked[1]);
+}
+
+#[test]
+fn a_file_past_the_limit_or_not_listed_is_never_downloaded() {
+    let (mut gh, asked) = adapter("fixture");
+    let mut into = Vec::new();
+    assert_eq!(
+        gh.download(&tag("v1.1.0"), &file(SUMS), 97, &mut into),
+        Err(Outcome::Unread(Unread::TooLarge)),
+        "listed at 98 bytes"
+    );
+    assert_eq!(
+        gh.download(&tag("v1.1.0"), &file("other.tar.gz"), 1 << 20, &mut into),
+        Err(Outcome::NotFound)
+    );
+    assert_eq!(
+        gh.download(&tag("v9"), &file(SUMS), 1 << 20, &mut into),
+        Err(Outcome::NotFound)
+    );
+    assert!(into.is_empty());
+    assert!(asked.lock().unwrap().iter().all(|a| a.starts_with("api ")));
+}
+
+#[test]
+fn a_file_of_another_size_or_a_refused_download_is_an_outcome() {
+    let mut into = Vec::new();
+    let (mut gh, _) = adapter("lying");
+    assert_eq!(
+        gh.download(&tag("v1.1.0"), &file(SUMS), 1 << 20, &mut into),
+        Err(Outcome::Unread(Unread::Inconsistent)),
+        "gh wrote 97 bytes of a file listed at 98"
+    );
+    let (mut gh, _) = adapter("refused");
+    assert_eq!(
+        gh.download(&tag("v1.1.0"), &file(SUMS), 1 << 20, &mut into),
+        Err(Outcome::Forbidden)
+    );
+    assert!(into.is_empty());
+}
+
+#[test]
+fn archive_is_a_floor() {
     let (mut gh, asked) = adapter("fixture");
     let no: Got<()> = Err(Outcome::Refused(tehas_ports::Refusal::Unsupported));
-    let file = FileName::new("tehas-v1.1.0-linux-x86_64.tar.gz").unwrap();
-    assert_eq!(
-        gh.download(&tag("v1.1.0"), &file, 1 << 20, &mut Vec::new()),
-        no
-    );
     assert_eq!(gh.archive(&commit(1), 1 << 20, &mut Vec::new()), no);
     assert!(asked.lock().unwrap().is_empty());
 }
