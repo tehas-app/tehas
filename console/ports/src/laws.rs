@@ -695,6 +695,38 @@ pub mod code_host {
         })
     }
 
+    /// Two Apps' runs of one name are both held, in the whole read and
+    /// asked by name, and `overall` covers both. The fixture's commit `at`
+    /// holds runs of `name` by two Apps and no status of that name: the
+    /// newest of one App failed, and a newer run of the other passed.
+    pub fn two_apps_runs_of_one_name_are_both_held(
+        h: &mut dyn crate::CodeHost,
+        at: &CommitId,
+        name: &str,
+    ) -> Law {
+        const LAW: &str = "code_host::two_apps_runs_of_one_name_are_both_held";
+        let all = got(LAW, "the checks", h.checks(at, None))?;
+        let want: Vec<_> = all
+            .runs
+            .iter()
+            .filter(|r| r.name == name)
+            .cloned()
+            .collect();
+        hold(want.len() >= 2, LAW, || {
+            format!("{name} is held {} times in {:?}", want.len(), all.runs)
+        })?;
+        let one = got(LAW, "the checks of a name", h.checks(at, Some(name)))?;
+        hold(one.runs == want, LAW, || {
+            format!("{name} answered {:?}, the whole read {want:?}", one.runs)
+        })?;
+        hold(all.overall == crate::Overall::Fail, LAW, || {
+            format!("overall is {:?} for {:?}", all.overall, all.runs)
+        })?;
+        hold(one.overall == crate::Overall::Fail, LAW, || {
+            format!("overall of {name} is {:?} for {:?}", one.overall, one.runs)
+        })
+    }
+
     /// The checks on a commit hold its status contexts beside its check
     /// runs, and a failed status beside a passing run is `Fail`. The
     /// fixture's commit `at` holds one passing run of `run` and a status

@@ -360,6 +360,13 @@ impl World {
         self
     }
 
+    /// A site whose checks keep only the newest run of each name across
+    /// Apps, against Decided 115: a broken site for the laws to catch.
+    pub fn checks_collapsing_apps(self) -> Self {
+        self.lock().checks_collapse_apps = true;
+        self
+    }
+
     /// The projects the factory's grant covers, this world's among them.
     pub fn grant(self, projects: &[&str]) -> Self {
         {

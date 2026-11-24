@@ -274,7 +274,8 @@ impl CodeHost for Handle {
                 .iter()
                 .filter(|(c, _, k)| c == at && named(&k.name))
             {
-                latest.retain(|(a, r)| !(*a == app.as_str() && r.name == k.name));
+                let collapse = s.checks_collapse_apps;
+                latest.retain(|(a, r)| !((collapse || *a == app.as_str()) && r.name == k.name));
                 latest.push((app, k));
             }
             let mut runs: Vec<Check> = latest.into_iter().map(|(_, k)| k.clone()).collect();

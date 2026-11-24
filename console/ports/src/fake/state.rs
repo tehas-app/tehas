@@ -181,6 +181,9 @@ pub(crate) struct State {
     /// `Tickets::count` can express `Filter::carrying_any`: false for a
     /// site whose count cannot say "at least one of".
     pub count_any_on: bool,
+    /// `CodeHost::checks` keeps the newest run of each name, whatever its
+    /// App: true for a site that collapses runs across Apps.
+    pub checks_collapse_apps: bool,
     pub grant: GrantId,
     pub grant_projects: Vec<ProjectName>,
     pub wrote: Vec<Wrote>,
@@ -303,6 +306,7 @@ impl State {
             sign_ins: Vec::new(),
             sign_in_on: true,
             count_any_on: true,
+            checks_collapse_apps: false,
             grant: GrantId::new("grant-1"),
             grant_projects: Vec::new(),
             wrote: Vec::new(),
