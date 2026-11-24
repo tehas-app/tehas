@@ -1,0 +1,1 @@
+| 2026-11-24 | The poll asks a question, its own and one of before 2.0 asked again, as a note of the tickets port with its markers typed beside the text, and a re-ask takes its label off as a mark; the old comment's superseded line stays a 1.x edit until the adapter edits a comment (T4.7 6) | v2/t4-7-question |

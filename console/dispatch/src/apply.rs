@@ -821,8 +821,40 @@ impl Writer {
     }
 
     /// A question's comment posted on issue `n`: its id, or None when GitHub
-    /// did not take it or gave no id.
+    /// did not take it or gave no id. `body` is the question as q_render
+    /// made it: its text goes as a note of the tickets port, our markers
+    /// typed beside it (`question::q_typed`). A body they cannot be taken
+    /// out of is not posted.
     pub(crate) fn question_post(&mut self, n: u64, body: &str) -> Option<u64> {
+        let (args, input) = self.question_1x(n, body);
+        let said = match self.looked_1x(n, "comment-post", &args, Some(&input)) {
+            Some(Wrote::Done(said)) => said,
+            Some(_) => return None,
+            None => {
+                let (text, markers) = tehas_core::question::q_typed(body, n)?;
+                let note = Write::TicketNote {
+                    ticket: ticket(n)?,
+                    body: Body::Text(text),
+                    markers,
+                };
+                if self.ports.is_none() {
+                    self.unposted += 1;
+                    return None;
+                }
+                let Wrote::Done(said) = self.send(n, &note) else {
+                    return None;
+                };
+                said
+            }
+        };
+        // The comment's id: the note's, or what gh printed for a 1.x row
+        // (--jq .id).
+        said.trim().parse::<u64>().ok()
+    }
+
+    /// The call of gh and its input a poll before T4.7 made to post the
+    /// question `body` on issue `n`: what its row in the journal holds.
+    fn question_1x(&self, n: u64, body: &str) -> (Vec<String>, String) {
         let args = vec![
             "api".into(),
             "-X".into(),
@@ -833,12 +865,7 @@ impl Writer {
             "--jq".into(),
             ".id".into(),
         ];
-        let input = json!({"body": body}).to_string();
-        let Wrote::Done(said) = self.write(n, "comment-post", args, Some(&input), None) else {
-            return None;
-        };
-        // gh prints the id alone, as --jq .id has it.
-        said.trim().parse::<u64>().ok()
+        (args, json!({"body": body}).to_string())
     }
 
     /// A question of before 2.0 asked again in 2.0's words (#2782): the new
@@ -886,11 +913,7 @@ impl Writer {
         }
         // A stop closed with nothing to ask no longer waits on a question.
         if let Some(label) = r.unlabel {
-            if !self.edit_labels(n, &[("--remove-label", label)]) {
-                log.push(format!(
-                    "WARN: the question's label could not be taken off #{n}"
-                ));
-            }
+            self.unlabel(n, label, log);
         }
         let line = tehas_core::question::superseded(new);
         if !r.old_body.trim_end().ends_with(&line) {
@@ -917,6 +940,29 @@ impl Writer {
             "asked #{n}'s question again in the words of 2.0 (comment {} superseded)",
             r.old
         ));
+    }
+
+    /// A re-ask's label taken off issue `n`: a 1.x row of the same change
+    /// that this poll's settle found is not sent again.
+    fn unlabel(&mut self, n: u64, label: &str, log: &mut Vec<String>) {
+        let fail = format!("WARN: the question's label could not be taken off #{n}");
+        let Some(key) = ticket(n) else {
+            log.push(fail);
+            return;
+        };
+        let args: Vec<String> = ["issue", "edit", &n.to_string(), "--repo", &self.repo]
+            .into_iter()
+            .chain(["--remove-label", label])
+            .map(str::to_string)
+            .collect();
+        match self.looked_1x(n, "label-remove", &args, None) {
+            Some(Wrote::Done(_)) => {}
+            Some(Wrote::Unknown(why)) => log.push(Self::unknown(n, "label change", &why)),
+            Some(_) => log.push(fail),
+            None => {
+                self.mark_part(n, &key, label, false, &fail, log);
+            }
+        }
     }
 
     /// refresh_unmark: tehas:refreshing off a pull request; one already

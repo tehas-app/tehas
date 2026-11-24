@@ -214,6 +214,12 @@ fn note_text(line: &str) -> String {
         .unwrap_or_default()
 }
 
+/// Whether a line of calls.log is a question asked on issue `n`: a note
+/// with the question's marker typed beside its text.
+fn asked(line: &str, n: u64) -> bool {
+    noted(line, Some(n)) && line.contains(r#"{"type":"Question""#)
+}
+
 /// Whether a line of calls.log is a note on issue `n`, or on any with None.
 fn noted(line: &str, n: Option<u64>) -> bool {
     line.starts_with(r#"send {"type":"TicketNote""#)
@@ -2895,12 +2901,11 @@ fn a_turn_that_ended_is_recorded_and_its_question_posted() {
         .find(|c| c.starts_with("store plan-end 7 --turn"))
         .unwrap();
     assert!(end.contains("--turn 2 --outcome finished --rc 0 --session s-2 --option A --filed https://github.com/example-owner/example-product/issues/9 --out "));
-    assert!(w.iter().any(|c| c.starts_with(
-        "gh api -X POST repos/example-owner/example-product/issues/7/comments --input -"
-    ) && c.contains(
-        "Filed in this turn: https://github.com/example-owner/example-product/issues/9"
-    )));
-    assert!(w.contains(&"store question-asked 7 --id 99 --kind plan".to_string()));
+    assert!(w.iter().any(|c| asked(c, 7)
+        && c.contains(
+            "Filed in this turn: https://github.com/example-owner/example-product/issues/9"
+        )));
+    assert!(w.contains(&"store question-asked 7 --id 4002 --kind plan".to_string()));
     assert!(w.contains(&"gh issue edit 7 --repo example-owner/example-product --remove-label tehas:planning --add-label tehas:question".to_string()));
     assert!(w.contains(&"store plan-end 7 --posted".to_string()));
     assert!(!t.w.home.join("state/plan-7.json.rc").exists());
@@ -3301,7 +3306,7 @@ fn a_plan_chosen_for_its_issue_is_written_onto_it_and_ends_the_session() {
     assert!(w
         .iter()
         .any(|c| noted(c, Some(7)) && c.contains("This issue now holds the plan.")));
-    assert!(!w.iter().any(|c| c.contains("issues/7/comments")));
+    assert!(!w.iter().any(|c| asked(c, 7)));
     assert!(!t.w.home.join("state/plan-7.json.out").exists());
 }
 
@@ -3390,11 +3395,7 @@ fn the_record(t: &World) -> PathBuf {
 /// Today's question, and nothing else of the plan.
 fn asks(t: &World) {
     let w = t.writes();
-    assert!(
-        w.iter()
-            .any(|c| c.starts_with("gh api -X POST") && c.contains("issues/7/comments")),
-        "{w:?}"
-    );
+    assert!(w.iter().any(|c| asked(c, 7)), "{w:?}");
     assert!(w.contains(&"gh issue edit 7 --repo example-owner/example-product --remove-label tehas:planning --add-label tehas:question".to_string()), "{w:?}");
     assert!(!w.iter().any(|c| c.contains("--title")), "{w:?}");
     assert!(
@@ -3426,7 +3427,7 @@ fn a_plan_with_no_open_points_from_an_allowed_account_updates_and_starts() {
         "{w:?}"
     );
     // No question: nothing to tick.
-    assert!(!w.iter().any(|c| c.contains("issues/7/comments")), "{w:?}");
+    assert!(!w.iter().any(|c| asked(c, 7)), "{w:?}");
     assert!(!w.iter().any(|c| c.contains("--add-label tehas:question")));
     assert!(a.log.iter().any(|l| l.contains("alice")), "{:?}", a.log);
     let record: Value = serde_json::from_str(&fs::read_to_string(the_record(&t)).unwrap()).unwrap();
@@ -3847,11 +3848,7 @@ fn a_draft_that_is_gone_asks() {
 fn posts_nothing_of_itself(t: &World) {
     let w = t.writes();
     assert!(!w.iter().any(|c| noted(c, Some(7))), "{w:?}");
-    assert!(
-        !w.iter()
-            .any(|c| c.starts_with("gh api -X POST") && c.contains("issues/7/comments")),
-        "{w:?}"
-    );
+    assert!(!w.iter().any(|c| asked(c, 7)), "{w:?}");
     assert!(!w.iter().any(|c| c.starts_with("gh issue edit 7")), "{w:?}");
     assert!(
         !w.iter().any(|c| c.contains("--add-label tehas:question")),
@@ -4011,9 +4008,7 @@ fn chosen_draft_asked(t: &World, title: &str, spec: &str, question: &Value) {
 fn asks_without_the_tick(t: &World) {
     let w = t.writes();
     assert!(
-        w.iter().any(|c| {
-            c.starts_with("gh api -X POST") && c.contains("issues/7/comments") && !c.contains(TICK)
-        }),
+        w.iter().any(|c| { asked(c, 7) && !c.contains(TICK) }),
         "{w:?}"
     );
 }
@@ -4024,11 +4019,7 @@ fn asks_without_the_tick(t: &World) {
 fn asks_nothing(t: &World) {
     let w = t.writes();
     assert!(!w.iter().any(|c| noted(c, Some(7))), "{w:?}");
-    assert!(
-        !w.iter()
-            .any(|c| c.starts_with("gh api -X POST") && c.contains("issues/7/comments")),
-        "{w:?}"
-    );
+    assert!(!w.iter().any(|c| asked(c, 7)), "{w:?}");
     assert!(
         !w.iter()
             .any(|c| c.starts_with("gh issue edit 7 --repo example-owner/example-product --title")),
@@ -4099,10 +4090,7 @@ fn a_clear_plan_that_fails_the_check_asks_and_starts_nothing() {
             .position(|c| noted(c, Some(7)) && c.contains(REFUSED));
         assert!(refusal.is_some(), "{what}: {w:?}");
         assert!(
-            refusal.unwrap() < w
-                .iter()
-                .position(|c| c.starts_with("gh api -X POST") && c.contains("issues/7/comments"))
-                .unwrap(),
+            refusal.unwrap() < w.iter().position(|c| asked(c, 7)).unwrap(),
             "{what}: {w:?}"
         );
         assert!(
@@ -4266,13 +4254,7 @@ fn a_clear_refusal_whose_outcome_cannot_be_kept_posts_it_once() {
     t.apply(json!([{"plan_post": 7}]));
     assert_eq!(said(&t), once, "{:?}", t.writes());
     let w = t.writes();
-    assert_eq!(
-        w.iter()
-            .filter(|c| c.starts_with("gh api -X POST") && c.contains("issues/7/comments"))
-            .count(),
-        1,
-        "{w:?}"
-    );
+    assert_eq!(w.iter().filter(|c| asked(c, 7)).count(), 1, "{w:?}");
     assert!(
         w.contains(&"store plan-end 7 --posted".to_string()),
         "{w:?}"
@@ -4746,27 +4728,29 @@ fn a_plan_is_said_before_its_boxes_and_once() {
     )
     .unwrap();
     // The boxes do not go up: the plan stays said, the next poll adds them.
-    t.fail(
-        "gh",
-        "repos/example-owner/example-product/issues/7/comments",
-    );
+    t.fail("send", r#"{"type":"Question""#);
     let a = t.apply(json!([{"plan_post": 7}]));
     assert_eq!(
         a.log,
         vec!["WARN: the planning turn of #7 could not be posted; the next poll tries again"]
     );
-    let said = |t: &World| t.writes().iter().filter(|c| noted(c, Some(7))).count();
+    let said = |t: &World| {
+        t.writes()
+            .iter()
+            .filter(|c| noted(c, Some(7)) && !asked(c, 7))
+            .count()
+    };
     assert_eq!(said(&t), 1);
     let kept: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
     assert_eq!(kept["text"], "");
     assert_eq!(kept["question"]["question"], "Which?");
 
-    fs::remove_file(t.dir.join("fail-gh")).unwrap();
+    fs::remove_file(t.dir.join("fail-send")).unwrap();
     assert!(t.apply(json!([{"plan_post": 7}])).log.is_empty());
     let w = t.writes();
     assert_eq!(said(&t), 1);
     let plan = w.iter().position(|c| noted(c, Some(7)));
-    let boxes = w.iter().rposition(|c| c.contains("/issues/7/comments"));
+    let boxes = w.iter().rposition(|c| asked(c, 7));
     assert!(plan < boxes);
 }
 
@@ -4788,7 +4772,7 @@ fn a_plan_not_said_stops_its_boxes_too() {
             "WARN: the planning turn of #7 could not be posted; the next poll tries again"
         ]
     );
-    assert!(!t.writes().iter().any(|c| c.contains("/issues/7/comments")));
+    assert!(!t.writes().iter().any(|c| asked(c, 7)));
 }
 
 #[test]
@@ -6071,6 +6055,90 @@ fn an_unknown_write_a_read_finds_missing_is_sent_once() {
     assert!(t.calls().iter().any(|c| c.starts_with("store park-told 4")));
 }
 
+/// A question of before 2.0 asked again: its text a note of the tickets
+/// port with the question's marker typed beside it, recorded by the note's
+/// id; a stop with nothing to ask takes its label off as a mark, and posts
+/// nothing.
+#[test]
+fn a_reask_posts_a_typed_question_and_takes_its_label_off_as_a_mark() {
+    use tehas_core::question::{q_render, q_typed, Kind};
+    let mut t = world();
+    let out = json!({"question": {"question": "Adopt?", "options": [{"label": "Adopt all"}]}});
+    let body = q_render(Kind::Plan, 7, 1, &out, "");
+    let a = t.apply(
+        json!([{"reask": 7, "kind": "plan", "old": "2101", "old_body": "Adopt?",
+        "body": body, "offers": ""}]),
+    );
+    let (text, markers) = q_typed(&body, 7).unwrap();
+    let w = t.writes();
+    assert!(w.contains(&note_marked(7, &text, markers)), "{w:?}");
+    assert!(
+        w.contains(&"store question-asked 7 --id 4001 --kind plan".to_string()),
+        "{w:?}"
+    );
+    assert!(
+        a.log
+            .iter()
+            .any(|l| l.starts_with("asked #7's question again")),
+        "{:?}",
+        a.log
+    );
+
+    let mut t = world();
+    let a = t.apply(
+        json!([{"reask": 7, "kind": "park", "old": "2101", "old_body": "Stopped.",
+        "body": null, "offers": "", "unlabel": "tehas:question"}]),
+    );
+    let w = t.writes();
+    assert!(w.contains(&marked(7, "tehas:question", false)), "{w:?}");
+    assert!(!w.iter().any(|c| noted(c, None)), "{w:?}");
+    assert!(
+        !a.log
+            .iter()
+            .any(|l| l.contains("label could not be taken off")),
+        "{:?}",
+        a.log
+    );
+    // A mark the site refuses is said, and the re-ask still ends.
+    let mut t = world();
+    t.fail("send", r#""type":"Unmark""#);
+    let a = t.apply(
+        json!([{"reask": 7, "kind": "park", "old": "2101", "old_body": "Stopped.",
+        "body": null, "offers": "", "unlabel": "tehas:question"}]),
+    );
+    assert!(
+        a.log
+            .iter()
+            .any(|l| l.starts_with("WARN: the question's label could not be taken off #7")),
+        "{:?}",
+        a.log
+    );
+}
+
+/// A question a poll before T4.7 posted, found by this poll's settle, is
+/// not asked again: its row's comment is the one recorded.
+#[test]
+fn a_question_a_1x_row_posted_is_not_posted_again() {
+    use tehas_core::question::{q_render, Kind};
+    let mut t = world();
+    let out = json!({"question": {"question": "Adopt?", "options": [{"label": "Adopt all"}]}});
+    let body = q_render(Kind::Plan, 7, 1, &out, "");
+    let (args, input) = t.w.question_1x(7, &body);
+    let sum = tehas_core::journal::summed(&args, Some(&input)).unwrap();
+    let key = looked_key(7, "comment-post", &json!(args), &sum);
+    t.w.looked.insert(key, Looked::Done("41".into()));
+    t.apply(
+        json!([{"reask": 7, "kind": "plan", "old": "2101", "old_body": "Adopt?",
+        "body": body, "offers": ""}]),
+    );
+    let w = t.writes();
+    assert!(!w.iter().any(|c| noted(c, None)), "{w:?}");
+    assert!(
+        w.contains(&"store question-asked 7 --id 41 --kind plan".to_string()),
+        "{w:?}"
+    );
+}
+
 #[test]
 fn a_question_posted_as_json_is_found_by_the_sum_of_its_body() {
     let mut t = world();
@@ -6765,10 +6833,7 @@ fn a_leftover_sibling_is_replaced_and_the_new_document_is_read() {
         1,
         "{w:?}"
     );
-    let boxes = w
-        .iter()
-        .find(|c| c.starts_with("gh api -X POST") && c.contains("issues/7/comments"))
-        .unwrap();
+    let boxes = w.iter().find(|c| asked(c, 7)).unwrap();
     assert!(!boxes.contains(TICK), "{boxes}");
     // The sibling's name is not this write's to open, either. A world of the
     // same facts, with a link under the name instead of a file: the keep is
@@ -6846,10 +6911,7 @@ fn a_link_at_the_outcome_reads_as_no_outcome() {
             .any(|c| noted(c, Some(7)) && c.contains("The plan of another issue")),
         "{w:?}"
     );
-    let boxes = w
-        .iter()
-        .find(|c| c.starts_with("gh api -X POST") && c.contains("issues/7/comments"))
-        .unwrap();
+    let boxes = w.iter().find(|c| asked(c, 7)).unwrap();
     assert!(
         boxes.contains(TICK) && boxes.contains("Which of the two?"),
         "{boxes}"
@@ -6883,12 +6945,7 @@ fn a_link_at_the_outcome_reads_as_no_outcome() {
     // The words and the tick of the file behind the link are nowhere in a
     // write: no comment of the plan, and no boxes of its tick.
     assert!(!w.iter().any(|c| noted(c, Some(7))), "{:?}", t.calls());
-    assert!(
-        !w.iter()
-            .any(|c| c.starts_with("gh api -X POST") && c.contains("issues/7/comments")),
-        "{:?}",
-        t.calls()
-    );
+    assert!(!w.iter().any(|c| asked(c, 7)), "{:?}", t.calls());
     // No plan of the linked document was written onto the issue.
     assert!(
         !w.iter()
@@ -6947,10 +7004,7 @@ fn an_outcome_over_the_read_bound_reads_as_no_outcome() {
             .any(|c| c.starts_with("gh issue edit 7 --repo example-owner/example-product --title")),
         "{w:?}"
     );
-    let boxes = w
-        .iter()
-        .find(|c| c.starts_with("gh api -X POST") && c.contains("issues/7/comments"))
-        .unwrap();
+    let boxes = w.iter().find(|c| asked(c, 7)).unwrap();
     assert!(boxes.contains("End this planning session"), "{boxes}");
     assert!(!boxes.contains(TICK), "{boxes}");
 
@@ -6973,10 +7027,7 @@ fn an_outcome_over_the_read_bound_reads_as_no_outcome() {
             .any(|c| noted(c, Some(7)) && c.contains("This planning turn did not finish")),
         "{w:?}"
     );
-    let boxes = w
-        .iter()
-        .find(|c| c.starts_with("gh api -X POST") && c.contains("issues/7/comments"))
-        .unwrap();
+    let boxes = w.iter().find(|c| asked(c, 7)).unwrap();
     assert!(boxes.contains(TICK), "{boxes}");
     assert!(boxes.contains("Which?"), "{boxes}");
 }

@@ -515,6 +515,55 @@ pub fn q_parts(
     Some((text, markers))
 }
 
+/// A question's body as [`q_render`] made it, with our markers taken out of
+/// its text and typed beside it, for a poll that posts a body it did not
+/// render itself (a re-ask's, a planning turn's): the question's marker on
+/// its last line and, for a park, the park's on the line before. None when
+/// the last line is no question marker of `issue`, or when what is left
+/// still holds a marker of ours: such a body is not posted.
+pub fn q_typed(rendered: &str, issue: u64) -> Option<(String, Vec<Marker>)> {
+    let (head, last) = rendered.rsplit_once('\n').unwrap_or(("", rendered));
+    // The question's marker of either kind, its turn the digits it ends in.
+    let (word, kind, turn) = [("park", Kind::Park), ("plan", Kind::Plan)]
+        .into_iter()
+        .find_map(|(word, kind)| {
+            let at = question_marker(word, issue, 0);
+            let digits = last
+                .strip_prefix(at.strip_suffix("0 -->")?)?
+                .strip_suffix(" -->")?;
+            let turn = digits
+                .bytes()
+                .all(|b| b.is_ascii_digit())
+                .then(|| digits.parse().ok())??;
+            Some((word, kind, turn))
+        })?;
+    let (above, park_line) = head.rsplit_once('\n').unwrap_or(("", head));
+    let (text, park) = match park_read(park_line, issue) {
+        Some(p) => (above, Some(p)),
+        None => (head, None),
+    };
+    let rest = format!("{}\n{}", text, question_marker(word, issue, turn));
+    let (text, markers) = q_parts(&rest, kind, issue, turn, park)?;
+    (!crate::text::has_marker(&text)).then_some((text, markers))
+}
+
+/// The host's park marker of `issue` on `line`, typed.
+fn park_read(line: &str, issue: u64) -> Option<ParkMarker> {
+    use tehas_ports::{MarkerWord, Sha256};
+    if !is_park_marker(line, issue) {
+        return None;
+    }
+    let field = |k: &str| {
+        line.split(' ')
+            .find_map(|w| w.strip_prefix(k).and_then(|v| v.strip_prefix('=')))
+    };
+    let mut m = ParkMarker::new(BlueprintNo::new(issue)?, Sha256::new(field("sig")?).ok()?);
+    m.step = MarkerWord::new(field("step")?).ok()?;
+    m.kind = MarkerWord::new(field("kind")?).ok()?;
+    m.provider = field("provider")? == "1";
+    Some(m)
+}
+
 /// Whether `line` is the host's park marker of `issue`.
 pub fn is_park_marker(line: &str, issue: u64) -> bool {
     Regex::new(&format!(
@@ -1341,5 +1390,43 @@ mod tests {
         // A body that is not this question's says so.
         assert_eq!(q_parts(&rendered, Kind::Park, 7, 3, None), None);
         assert_eq!(q_parts(&rendered, Kind::Plan, 7, 2, None), None);
+    }
+
+    /// q_typed reads back what q_render wrote: the text q_parts gives, the
+    /// park's marker typed from its line, then the question's. A body of
+    /// another issue, or one that still holds a marker of ours, is none.
+    #[test]
+    fn q_typed_takes_our_markers_out_of_a_rendered_question() {
+        use tehas_ports::{MarkerWord, Sha256};
+        let park_out = json!({"text": "It stopped.", "retry": true,
+            "question": {"question": "What now?"}, "park": park_marker_7()});
+        let rendered = q_render(Kind::Park, 7, 1, &park_out, "");
+        let (text, markers) = q_typed(&rendered, 7).unwrap();
+        let mut bare = park_out.clone();
+        bare["park"] = json!("");
+        let mut park = ParkMarker::new(
+            BlueprintNo::new(7).unwrap(),
+            Sha256::new("a".repeat(64)).unwrap(),
+        );
+        park.step = MarkerWord::new("review").unwrap();
+        let want = q_parts(
+            &q_render(Kind::Park, 7, 1, &bare, ""),
+            Kind::Park,
+            7,
+            1,
+            Some(park),
+        );
+        assert_eq!(Some((text, markers)), want);
+        let plan_out =
+            json!({"question": {"question": "Which way?", "options": [{"label": "One"}]}});
+        let rendered = q_render(Kind::Plan, 7, 2, &plan_out, "The host's line.");
+        assert_eq!(
+            q_typed(&rendered, 7),
+            q_parts(&rendered, Kind::Plan, 7, 2, None)
+        );
+        assert_eq!(q_typed(&rendered, 8), None);
+        let inside = rendered.replace("Which way?", &question_marker("park", 7, 1));
+        assert_eq!(q_typed(&inside, 7), None);
+        assert_eq!(q_typed("no marker", 7), None);
     }
 }
