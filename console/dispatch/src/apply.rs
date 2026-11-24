@@ -30,7 +30,7 @@ use std::time::Duration;
 use tehas_core::call::{self, GRACE};
 use tehas_core::home::{Home, State};
 use tehas_core::journal::{Journal, Journaled, Wrote};
-use tehas_ports::{Body, NoBlobs, Receipt, TicketKey, Write};
+use tehas_ports::{Body, ChangeNo, NoBlobs, Receipt, TicketKey, Write};
 
 /// The calls of one poll's writes.
 pub struct Writer {
@@ -922,13 +922,20 @@ impl Writer {
     /// refresh_unmark: tehas:refreshing off a pull request; one already
     /// without it is done.
     fn unmark(&mut self, pr: u64, a: &Value, log: &mut Vec<String>) {
-        let args = vec![
-            "api".into(),
-            "-X".into(),
-            "DELETE".into(),
-            format!("repos/{}/issues/{pr}/labels/tehas:refreshing", self.repo),
-        ];
-        let worked = match self.write(pr, "change-unmark", args, None, Some("Not Found")) {
+        let word = "tehas:refreshing";
+        let failed =
+            format!("WARN: label change on pull request #{pr} failed: --remove-label {word}");
+        let (Some(no), Some(mark)) = (ChangeNo::new(pr), (self.mark_of)(word)) else {
+            log.push(failed);
+            return;
+        };
+        let path = format!("repos/{}/issues/{pr}/labels/{word}", self.repo);
+        let args = ["api", "-X", "DELETE", &path].map(str::to_string);
+        let wrote = match self.looked_1x(pr, "change-unmark", &args, None) {
+            Some(wrote) => wrote,
+            None => self.send(pr, &Write::UnmarkChange { no, mark }),
+        };
+        let worked = match wrote {
             Wrote::Done(_) => true,
             Wrote::Failed(_) => false,
             Wrote::Unknown(why) => {
@@ -945,9 +952,7 @@ impl Writer {
                 log.push(line.to_string());
             }
         } else {
-            log.push(format!(
-                "WARN: label change on pull request #{pr} failed: --remove-label tehas:refreshing"
-            ));
+            log.push(failed);
         }
     }
 

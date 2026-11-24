@@ -35,10 +35,15 @@ rest_path=$4
 # refuse the same change made with gh issue edit, so a case names it once.
 edit_fails() {
   local on
-  if [ -e "$T/fx/edit-fails" ]; then echo "gh: Forbidden (HTTP 403)" >&2; exit 1; fi
+  if [ -e "$T/fx/edit-fails" ]; then refuse; fi
   [ -s "$T/fx/edit-fails-on" ] || return 0
   on=$(<"$T/fx/edit-fails-on")
-  case "$1" in *"$on"*) echo "gh: Forbidden (HTTP 403)" >&2; exit 1 ;; esac
+  case "$1" in *"$on"*) refuse ;; esac
+}
+# refuse: GitHub answers that this account may not make the change.
+refuse() {
+  echo "gh: Forbidden (HTTP 403)" >&2
+  exit 1
 }
 # fails <fixture> [<fixture of a countdown>]: exit 1 when the first names an
 # outage, or while the second holds a count above 0, which it lowers.
@@ -146,7 +151,7 @@ case "$1 $2" in
         n=${rest_path#repos/acme/widget/issues/}
         label=${rest_path##*/}
         edit_fails "issue edit ${n%%/*} --repo acme/widget --remove-label $(printf '%b' "${label//%/\\x}")"
-        fails unmark-fails ;;
+        [ ! -e "$T/fx/unmark-fails" ] || refuse ;;
       # A comment as the Rust poll posts it, with its method said. Its id
       # is 4002, or what $fx/post-id-<n> holds for issue n: alone when the
       # poll asks for the id alone, else as the comment GitHub made.
@@ -168,7 +173,17 @@ case "$1 $2" in
     n=${2#repos/acme/widget/pulls/}
     case "$2" in */reviews*) f=reviews ;; *) f=inline ;; esac
     cat "$T/fx/$f-${n%%/*}.json" 2>/dev/null || echo "[]" ;;
-  "api repos/acme/widget/pulls/"*) cat "$T/fx/pull-${2##*/}.json" 2>/dev/null || echo "{}" ;;
+  # A pull request as a case wrote it, open with its address when the case
+  # did not say, and with the labels $fx/refreshing.json lists for it when
+  # the case named none of its own.
+  "api repos/acme/widget/pulls/"*) n=${2##*/}
+    rf=$(cat "$T/fx/refreshing.json" 2>/dev/null || echo '[]')
+    pr=$(cat "$T/fx/pull-$n.json" 2>/dev/null || echo '{}')
+    jq -c --argjson n "$n" --argjson rf "$rf" 'if type == "object" then
+        . + {number: (.number // $n), state: (.state // "open"),
+          html_url: (.html_url // "https://github.com/acme/widget/pull/\($n)"),
+          labels: (.labels // [$rf[]? | select(.number == $n) | .labels[]?])}
+      else . end' <<<"$pr" 2>/dev/null || printf '%s\n' "$pr" ;;
   # Who may write: everyone, unless a case writes $fx/perm-<login>.json.
   "api repos/acme/widget/collaborators/"*"/permission")
     n=${2#repos/acme/widget/collaborators/}
