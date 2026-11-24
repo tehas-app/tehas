@@ -925,6 +925,16 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   does not count.
   Readers: adopters, the end-to-end suite.
   Adopter action: none.
+- **`state/account-ids` names each pair's realm.** T4.8. A line is
+  `<realm> <login> <id>`, the realm `code-host` or `tickets`; 1.x wrote
+  `<login> <id>`. 2.0 reads a 1.x line as the code host's, writes every
+  line in the new form, and `tehas update` rewrites the file once. Any
+  other shape cannot be read: no listed login counts, and `tehas update`
+  stops with 78 naming the line and how to fix it. A later 2.x may stop
+  reading the 1.x form, never before a release that rewrote the file.
+  Readers: adopters and tools that read or write the file by hand, the
+  end-to-end suite.
+  Adopter action: none; edit the file by hand only in the new form.
 - **`tehas labels` reads no installed table, and its output text is not
   contract.** #2962. It makes the labels from the table compiled into the
   console, so a missing or malformed `~/tehas/lib/labels.tsv` no longer
