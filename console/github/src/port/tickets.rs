@@ -35,6 +35,18 @@ impl Tickets for GitHub {
         GitHub::list(self, filter, bound)
     }
 
+    fn recent(&mut self, _: &Filter, _: NonZeroU32) -> Got<Took<TicketDigest>> {
+        unsupported()
+    }
+
+    fn recently_closed(&mut self, _: NonZeroU32) -> Got<Took<ClosedTicket>> {
+        unsupported()
+    }
+
+    fn count(&mut self, _: &Filter) -> Got<u64> {
+        unsupported()
+    }
+
     /// One REST read of each issue, in the order asked.
     fn several(&mut self, keys: &[TicketKey]) -> Vec<(TicketKey, Got<TicketDigest>)> {
         keys.iter().map(|k| (k.clone(), self.digest(k))).collect()

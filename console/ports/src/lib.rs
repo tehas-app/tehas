@@ -166,6 +166,39 @@ mod unknown {
         d.deserialize_map(Tagged(tag))
     }
 
+    /// `Unknown` from a value of an externally tagged enum that may grow:
+    /// a name alone, or a map of one name to its content, whatever the
+    /// name. Anything else is no record of the enum, and stays an error.
+    pub(crate) fn read_external<'de, D: Deserializer<'de>>(d: D) -> Result<(), D::Error> {
+        struct External;
+        impl<'de> Visitor<'de> for External {
+            type Value = ();
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("a name, or a map of one name")
+            }
+            fn visit_str<E: serde::de::Error>(self, _: &str) -> Result<(), E> {
+                Ok(())
+            }
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<(), A::Error> {
+                if map.next_key::<String>()?.is_none() {
+                    return Err(A::Error::invalid_length(0, &self));
+                }
+                map.next_value::<IgnoredAny>()?;
+                if map.next_key::<String>()?.is_some() {
+                    return Err(A::Error::invalid_length(2, &self));
+                }
+                Ok(())
+            }
+        }
+        d.deserialize_any(External)
+    }
+
+    /// `Unknown` of an externally tagged enum, as its name alone, so it
+    /// reads back as `Unknown`.
+    pub(crate) fn write_external<S: Serializer>(s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str("Unknown")
+    }
+
     /// `Unknown` as its tag alone, so it reads back as `Unknown`.
     pub(crate) fn write<S: Serializer>(s: S) -> Result<S::Ok, S::Error> {
         let mut map = s.serialize_map(Some(1))?;

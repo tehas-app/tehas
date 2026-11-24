@@ -1,5 +1,5 @@
 //! Accounts and actors: `Realm`, `Login`, `AccountId`, `Account`, `Actor`,
-//! `Scope`, `Secret`, `Token`, `Keyring`, `DeployCredential`, `TokenStore`,
+//! `Relation`, `Scope`, `Secret`, `Token`, `Keyring`, `DeployCredential`, `TokenStore`,
 //! `TokenLock`, `SiteId`, `GrantId`, `Covers`, `Kept`.
 
 use std::fmt;
@@ -41,6 +41,27 @@ pub enum AccountKind {
     /// A person.
     Person,
     /// The site does not say.
+    Unknown,
+}
+
+/// How the author of an item stands to the project, as the site records it
+/// with the item: what a caller's own rule reads, such as whose links an
+/// unapproved ticket's attachments may come from. Not a `Standing`, which
+/// is a question of its own per account; a caller maps neither into the
+/// other. On the wire each is its name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum Relation {
+    /// The project's owner.
+    Owner,
+    /// A member of the organisation that owns the project.
+    Member,
+    /// An account the project gave access to.
+    Collaborator,
+    /// None of these.
+    Outside,
+    /// A relation this copy does not know: it counts as none of these.
+    #[serde(other)]
     Unknown,
 }
 
