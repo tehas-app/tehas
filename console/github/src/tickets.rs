@@ -153,7 +153,10 @@ fn read_digest(out: &str, key: TicketKey, marks: Vec<Mark>) -> Option<TicketDige
         ("closed", _) => TicketState::Closed(CloseReason::Done),
         _ => return None,
     };
-    let kind = v.pointer("/type/name").and_then(Value::as_str).map(kind_of);
+    let kind = v
+        .pointer("/type/name")
+        .and_then(Value::as_str)
+        .map(Kind::named);
     let target = match v.get("milestone").filter(|m| !m.is_null()) {
         None => None,
         Some(m) => Some(TargetName::new(
@@ -182,17 +185,6 @@ fn read_digest(out: &str, key: TicketKey, marks: Vec<Mark>) -> Option<TicketDige
     digest.target = target;
     digest.author = author;
     Some(digest)
-}
-
-/// The kind an issue type of GitHub's is, by its name.
-pub(crate) fn kind_of(name: &str) -> Kind {
-    match name {
-        "Feature" => Kind::Feature,
-        "Bug" => Kind::Bug,
-        "Task" => Kind::Task,
-        "Epic" => Kind::Epic,
-        other => MarkName::new(other).map_or(Kind::Unknown, Kind::Other),
-    }
 }
 
 /// The account of an event, None where it names nobody. The login is folded
@@ -237,9 +229,25 @@ pub(crate) fn take<T>(mut items: Vec<T>, window: Window) -> Got<Took<T>> {
     }
 }
 
+/// The reason a runner gives when its time ran out before it started gh,
+/// exactly: a runner's own words are never read.
+const NOT_STARTED: &str = "not started: out of time";
+
 /// [`GitHub::outcome`] at the time `now`. A 410 is an issue deleted or
-/// issues turned off: `NotFound`, as the ports spec's table says.
+/// issues turned off: `NotFound`, as the ports spec's table says. The
+/// status is found anywhere in the reason: `Bounded` gives `: HTTP 403`,
+/// the relay's runner `gh exited 1: HTTP 403`, and its `gh exited 124` is a
+/// gh it stopped at its bound.
+///
+/// [`NOT_STARTED`] is the one form any runner returns when it gives up
+/// before it starts gh because its time is up: nothing was sent.
 fn outcome(e: &ForgeError, now: i64) -> Outcome {
+    if e.why == NOT_STARTED {
+        return Outcome::Unavailable {
+            why: Passing::Timeout,
+            sent: Sent::No,
+        };
+    }
     if gh::says_not_found(&e.why) {
         return Outcome::NotFound;
     }
@@ -248,7 +256,11 @@ fn outcome(e: &ForgeError, now: i64) -> Outcome {
         why,
         sent: Sent::Maybe,
     };
-    match why.strip_prefix("HTTP ").and_then(|s| s.get(..3)) {
+    let status = why.match_indices("HTTP ").find_map(|(i, _)| {
+        why.get(i + 5..i + 8)
+            .filter(|d| d.bytes().all(|b| b.is_ascii_digit()))
+    });
+    match status {
         Some("401") => Outcome::SignedOut,
         Some("410") => Outcome::NotFound,
         Some("429") => Outcome::Spent {
@@ -261,7 +273,11 @@ fn outcome(e: &ForgeError, now: i64) -> Outcome {
             pool: Pool::Calls,
             until: At::new(now),
         },
-        _ if why.contains("timed out") || why.contains("timeout") || why.contains("bound") => {
+        _ if why.contains("timed out")
+            || why.contains("timeout")
+            || why.contains("bound")
+            || e.why.starts_with("gh exited 124") =>
+        {
             maybe(Passing::Timeout)
         }
         _ if why.contains("connection refused") || why.contains("no such host") => {

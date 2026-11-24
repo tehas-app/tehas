@@ -10,7 +10,7 @@
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer};
 
-use crate::tickets::{account, kind_of, number, take};
+use crate::tickets::{account, number, take};
 use crate::{gh, markers, table, ForgeError, GitHub};
 use tehas_ports::{
     Account, At, Blocker, BlockerState, Bound, ChangeNo, CloseReason, Closer, CommitId, Depth,
@@ -582,6 +582,8 @@ impl GitHub {
                     .open
                     .is_none_or(|o| o == (digest.state == TicketState::Open))
                     && filter.carrying.iter().all(|m| digest.marks.contains(m))
+                    && (filter.carrying_any.is_empty()
+                        || filter.carrying_any.iter().any(|m| digest.marks.contains(m)))
                     && filter
                         .kind
                         .as_ref()
@@ -774,7 +776,7 @@ impl GitHub {
             },
             "ReopenedEvent" => Happened::Reopened,
             "IssueTypeAddedEvent" | "IssueTypeChangedEvent" => match &e.issue_type {
-                Some(t) => Happened::Kind(Some(kind_of(&t.name))),
+                Some(t) => Happened::Kind(Some(tehas_ports::Kind::named(&t.name))),
                 None => Happened::Unknown,
             },
             "IssueTypeRemovedEvent" => Happened::Kind(None),
@@ -947,7 +949,7 @@ impl GitHub {
             link,
         );
         digest.title = n.title;
-        digest.kind = n.issue_type.map(|t| kind_of(&t.name));
+        digest.kind = n.issue_type.map(|t| tehas_ports::Kind::named(&t.name));
         digest.marks = marks;
         digest.target = n
             .milestone

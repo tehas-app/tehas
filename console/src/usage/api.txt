@@ -21,7 +21,7 @@ whose flags is {"<feature>": true|false} and whose poll is {"last": {"at",
 
   api         1
   tehas       v0.8.0 (cb6912a)
-  repo        tehas-app/tehas
+  repo        tehas-app/tehas-factory
   features    status limit drain history export analytics state-move mcp-dashboard-keys clean disk state-check finish status-versions state-copy state-load
   flags       plugins=off
   millwright  none

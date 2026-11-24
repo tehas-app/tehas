@@ -25,9 +25,12 @@
 # The business page left core in 2.0: its line went, and the floor and
 # dashboard lines went down.
 # The floor names an open ticket with no state label Idea.
-page floor 112261 49092
-page dashboard 78498 51741
-page manual 0 47910
+# The repository's name is eight bytes longer (T10), approved by the trio's
+# program manager on 2026-11-23: floor 3 occurrences, 49092 to 49116;
+# dashboard 1, 51741 to 51749; manual 1, 47910 to 47918.
+page floor 112261 49116
+page dashboard 78498 51749
+page manual 0 47918
 island factory/tehas-factory-console 4156
 island factory/tehas-factory-days 4684
 island factory/parts 847
