@@ -162,6 +162,21 @@ impl Journal<'_> {
         writes: &mut dyn Writes,
         files: &dyn Blobs,
     ) -> Journaled {
+        self.send_on(store, None, write, writes, files)
+    }
+
+    /// `send`, for a write on a comment, which names no item of its own
+    /// (`Write::EditComment`): its row is keyed by `item`, the item the
+    /// comment is on. Any other write's row is keyed by the number it
+    /// names, and `item` is not given for it.
+    pub fn send_on(
+        &mut self,
+        store: Store,
+        item: Option<u64>,
+        write: &Write,
+        writes: &mut dyn Writes,
+        files: &dyn Blobs,
+    ) -> Journaled {
         if writes.read_only() {
             read_only::tell(&format!("send {:?}", write.kind()));
             return Journaled::Answered(Err(Outcome::Refused(Refusal::ReadOnly)));
@@ -177,7 +192,14 @@ impl Journal<'_> {
         if let Some((n, attempt)) = self.cycle {
             call["cycle"] = json!({"issue": n, "attempt": attempt});
         }
-        let Some(id) = self.intend(store, &call.to_string(), &["--write", &row]) else {
+        let item = item
+            .filter(|_| matches!(write, Write::EditComment { .. }))
+            .map(|n| n.to_string());
+        let mut what = vec!["--write", row.as_str()];
+        if let Some(n) = &item {
+            what.extend(["--issue", n.as_str()]);
+        }
+        let Some(id) = self.intend(store, &call.to_string(), &what) else {
             return Journaled::Unrecorded;
         };
         let answer = writes.send(write, files);
@@ -592,6 +614,35 @@ mod tests {
     fn flag<'a>(call: &'a [String], name: &str) -> &'a str {
         let i = call.iter().position(|a| a == name).unwrap();
         &call[i + 1]
+    }
+
+    /// A comment's edit names no item: its row is keyed by the item its
+    /// caller gives. Any other write's row is keyed by its own number, and
+    /// the item given is not passed on.
+    #[test]
+    fn a_comments_edit_is_recorded_on_the_item_given_and_no_other_write_is() {
+        let edit = Write::EditComment {
+            id: tehas_ports::CommentId::new("2101"),
+            body: Body::Text("text".into()),
+            markers: tehas_ports::MarkerEdit::default(),
+            since: tehas_ports::Revision::new("r1"),
+        };
+        for (write, issue) in [(edit, Some("21")), (note(), None)] {
+            let (mut at, mut no_row, mut asked) = (0, false, vec![]);
+            let mut j = journal(&mut at, &mut no_row, "true", None);
+            let mut w = script(vec![Ok(Receipt::Done)]);
+            j.send_on(
+                &mut |a| taken(&mut asked, a),
+                Some(21),
+                &write,
+                &mut w,
+                &NoBlobs,
+            );
+            let record = &asked[1];
+            assert_eq!(record[0], "journal-record");
+            let at = record.iter().position(|a| a == "--issue");
+            assert_eq!(at.map(|i| record[i + 1].as_str()), issue, "{record:?}");
+        }
     }
 
     /// T4.4: a write of the ports goes the journal's way: begin, record,

@@ -64,7 +64,7 @@ fn carol() -> Trade {
         took: Mutex::new(Vec::new()),
         token: Ok("gho_person".into()),
         user: Ok(Person {
-            id: 4021,
+            id: access::AccountId::new("4021"),
             login: "Carol".into(),
         }),
     }

@@ -30,6 +30,11 @@
               "value": "Shipped"
             }
           ],
+          "labels": [
+            "bug",
+            "tehas:shipped",
+            "not a label?"
+          ],
           "priority": "Normal",
           "revision": "fc797fae2a4b3ddb564a3b7d97d0fdde00f17511ad4a719f9db293145a76299f:c4d7925b2d4ad3f7a24fb08915f6fe1a5ecc9bb4f57e2e2c3e7502e1b239d949",
           "state": {
@@ -61,6 +66,9 @@
               "value": "Approve"
             }
           ],
+          "labels": [
+            "tehas:ready"
+          ],
           "priority": "Normal",
           "revision": "4ed3964568bd9b007e1f6eb9672ab16596f83e7b57c64dd829a69c7d565d0026:e966b7e06a24b9c6c3b92824c0574927c3d43874530957a15bfb95d14cfaeaf0",
           "state": "Open",
@@ -82,6 +90,7 @@
           "kind": null,
           "link": "https://github.com/acme/widget/issues/22",
           "marks": [],
+          "labels": [],
           "priority": "Normal",
           "revision": "b80ba21b4d1a195489be8f5d8d96884500ec29dd0bcf79d2974f785df4cb6cb5:43fd7080fc0386966e37f09815492fccef61a4ff9ee990f50a3e023ff2ee4f97",
           "state": {
@@ -116,6 +125,10 @@
               "value": "Block"
             }
           ],
+          "labels": [
+            "bug",
+            "tehas:blocked"
+          ],
           "priority": "Normal",
           "revision": "52824f90ef7cc647d9b850c6b4a53f0e18b49d2bcd9be01e4f1fdf685bc2494f:63265a18fe231c0168e1a071fe31fdce0a216d35013709fdbbe1ca80eb69b3ef",
           "state": "Open",
@@ -141,6 +154,9 @@
               "type": "Act",
               "value": "Pause"
             }
+          ],
+          "labels": [
+            "tehas:pause"
           ],
           "priority": "Normal",
           "revision": "f2e09589d13ea8bbce30d3eaddbc4706099cbc7bb242a44365ade55ba8c8d07e:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -205,6 +221,9 @@
               "value": "Approve"
             }
           ],
+          "labels": [
+            "tehas:ready"
+          ],
           "priority": "Normal",
           "revision": "4ed3964568bd9b007e1f6eb9672ab16596f83e7b57c64dd829a69c7d565d0026:e966b7e06a24b9c6c3b92824c0574927c3d43874530957a15bfb95d14cfaeaf0",
           "state": "Open",
@@ -237,6 +256,10 @@
               "value": "Block"
             }
           ],
+          "labels": [
+            "bug",
+            "tehas:blocked"
+          ],
           "priority": "Normal",
           "revision": "52824f90ef7cc647d9b850c6b4a53f0e18b49d2bcd9be01e4f1fdf685bc2494f:63265a18fe231c0168e1a071fe31fdce0a216d35013709fdbbe1ca80eb69b3ef",
           "state": "Open",
@@ -262,6 +285,9 @@
               "type": "Act",
               "value": "Pause"
             }
+          ],
+          "labels": [
+            "tehas:pause"
           ],
           "priority": "Normal",
           "revision": "f2e09589d13ea8bbce30d3eaddbc4706099cbc7bb242a44365ade55ba8c8d07e:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -313,6 +339,11 @@
               "value": "Shipped"
             }
           ],
+          "labels": [
+            "bug",
+            "tehas:shipped",
+            "not a label?"
+          ],
           "priority": "Normal",
           "revision": "fc797fae2a4b3ddb564a3b7d97d0fdde00f17511ad4a719f9db293145a76299f:c4d7925b2d4ad3f7a24fb08915f6fe1a5ecc9bb4f57e2e2c3e7502e1b239d949",
           "state": {
@@ -339,6 +370,7 @@
           "kind": null,
           "link": "https://github.com/acme/widget/issues/22",
           "marks": [],
+          "labels": [],
           "priority": "Normal",
           "revision": "b80ba21b4d1a195489be8f5d8d96884500ec29dd0bcf79d2974f785df4cb6cb5:43fd7080fc0386966e37f09815492fccef61a4ff9ee990f50a3e023ff2ee4f97",
           "state": {
@@ -390,6 +422,10 @@
               "type": "Act",
               "value": "Block"
             }
+          ],
+          "labels": [
+            "bug",
+            "tehas:blocked"
           ],
           "priority": "Normal",
           "revision": "52824f90ef7cc647d9b850c6b4a53f0e18b49d2bcd9be01e4f1fdf685bc2494f:63265a18fe231c0168e1a071fe31fdce0a216d35013709fdbbe1ca80eb69b3ef",
@@ -472,6 +508,11 @@
               "value": "Shipped"
             }
           ],
+          "labels": [
+            "bug",
+            "tehas:shipped",
+            "not a label?"
+          ],
           "priority": "Normal",
           "revision": "fc797fae2a4b3ddb564a3b7d97d0fdde00f17511ad4a719f9db293145a76299f:c4d7925b2d4ad3f7a24fb08915f6fe1a5ecc9bb4f57e2e2c3e7502e1b239d949",
           "state": {
@@ -528,6 +569,11 @@
               "type": "State",
               "value": "Shipped"
             }
+          ],
+          "labels": [
+            "bug",
+            "tehas:shipped",
+            "not a label?"
           ],
           "priority": "Normal",
           "revision": "fc797fae2a4b3ddb564a3b7d97d0fdde00f17511ad4a719f9db293145a76299f:c4d7925b2d4ad3f7a24fb08915f6fe1a5ecc9bb4f57e2e2c3e7502e1b239d949",

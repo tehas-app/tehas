@@ -21,7 +21,7 @@ use serde_json::{json, Value};
 use std::fs;
 use std::path::Path;
 use std::time::Duration;
-use tehas_core::access::{GitHub, Level};
+use tehas_core::access::{AccountId, GitHub, Level};
 use tehas_core::file::{write_atomic, Temp};
 use tehas_core::lock::{try_lock, Held};
 use tehas_core::plugin::manifest::Tool;
@@ -59,11 +59,12 @@ pub enum Failed {
 }
 
 impl Caller {
-    /// The name of its lock, `by-<this>.lock`: a person's by GitHub's user
-    /// id, so a renamed login is the same person.
-    fn lock(&self, user: Option<u64>) -> String {
+    /// The name of its lock, `by-<this>.lock`: a person's by their account's
+    /// id, so a renamed login is the same person. The id is one
+    /// [`lock_safe`] passed.
+    fn lock(&self, user: Option<&AccountId>) -> String {
         match (self, user) {
-            (Caller::Login(_), Some(id)) => format!("login-{id}"),
+            (Caller::Login(_), Some(id)) => format!("login-{}", id.as_str()),
             (Caller::Login(_), None) => "login".into(),
             (Caller::Mcp(key), _) => format!("mcp-{key}"),
             (Caller::Host, _) => "host".into(),
@@ -94,15 +95,34 @@ fn is_key_id(s: &str) -> bool {
     s.len() == 8 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
-/// The GitHub user id of a login with access, asked of GitHub on every
-/// call: a verdict kept for a login could pass for whoever holds that login
-/// next. GitHub's error is a refusal: a login it could not check gets no
-/// answer.
-fn login_access(get: &dyn Fn(&str) -> String, gh: &dyn GitHub, login: &str) -> Result<u64, Failed> {
+/// Whether an account's id may name a file: 1 to 64 letters, digits, `-`
+/// and `_`.
+fn lock_safe(id: &AccountId) -> bool {
+    let s = id.as_str();
+    (1..=64).contains(&s.len())
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+/// The account of a login with access, asked of GitHub on every call: a
+/// verdict kept for a login could pass for whoever holds that login next.
+/// GitHub's error is a refusal: a login it could not check gets no answer,
+/// and nor does one whose id cannot name its lock.
+fn login_access(
+    get: &dyn Fn(&str) -> String,
+    gh: &dyn GitHub,
+    login: &str,
+) -> Result<AccountId, Failed> {
     let access = Level::of_setting(&get("TEHAS_PLUGIN_ACCESS"))
         .ok_or_else(|| Failed::Refused("TEHAS_PLUGIN_ACCESS is not set".into()))?;
     match tehas_core::access::check(gh, access, login, None) {
-        Ok(v) => v.user.ok_or_else(|| Failed::Refused(NO_ACCESS.into())),
+        Ok(v) => match v.user {
+            Some(id) if lock_safe(&id) => Ok(id),
+            Some(_) => Err(Failed::Refused(
+                "GitHub's id of the login cannot name a lock".into(),
+            )),
+            None => Err(Failed::Refused(NO_ACCESS.into())),
+        },
         Err(why) => Err(Failed::Refused(format!(
             "GitHub could not say whether the login has access: {why}"
         ))),
@@ -148,7 +168,7 @@ pub fn call(
         .image
         .clone()
         .ok_or_else(|| Failed::Refused("it has no build".into()))?;
-    let _held = locks(home, plugin, &caller.lock(user))?;
+    let _held = locks(home, plugin, &caller.lock(user.as_ref()))?;
     let id = begin(home, &r, caller)?;
     let dir = prepare::dir(home, plugin).join(format!("run-{id}"));
     let dir_text = dir.display().to_string();

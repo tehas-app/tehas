@@ -1,4 +1,4 @@
-//! The public surface of 1.x, held to api/surface-1.0.txt.
+//! The public surface of 2.x, held to api/surface-2.0.txt.
 //!
 //! The surface is read from the files that already pin each part:
 //! api/commands.txt for commands and flags, api/settings-rules.json for
@@ -9,7 +9,7 @@
 //! api/commands.txt marks internal and the fields host/docs/contract.md says
 //! may change.
 //!
-//! Within 1.x the surface is only added to. A name of the baseline that the
+//! Within 2.x the surface is only added to. A name of the baseline that the
 //! surface no longer has fails; a name the surface has and the baseline does
 //! not fails until it is appended to the baseline. A second test holds every
 //! public command to an exit table in host/docs/contract.md.
@@ -21,7 +21,7 @@ use std::path::PathBuf;
 use serde_json::Value;
 use tehas_core::features::{Feature, Stage, FEATURES};
 
-const BASELINE: &str = "api/surface-1.0.txt";
+const BASELINE: &str = "api/surface-2.0.txt";
 
 /// Fields of a building feature's `--json` output, with the feature. When the
 /// feature ships its row goes and the field joins the surface.
@@ -247,7 +247,7 @@ fn no_name_of_the_baseline_is_gone() {
         .collect();
     assert!(
         gone.is_empty(),
-        "{BASELINE}: within 1.x a public name is never removed, renamed or made \
+        "{BASELINE}: within 2.x a public name is never removed, renamed or made \
          internal, and a building feature's is not public. Gone:\n{}",
         gone.join("\n")
     );

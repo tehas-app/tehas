@@ -17,7 +17,8 @@
 
 use std::collections::HashMap;
 
-use super::{editor, ends_with_folded, is_node_id, priced, time, Actor};
+use super::{editor, is_node_id, priced, time, Actor};
+use crate::port::blueprint_writes::comment_issue;
 use crate::tickets::Bot;
 use crate::{markers, GitHub};
 use serde::Deserialize;
@@ -312,7 +313,7 @@ impl GitHub {
         if c.id != Some(n) {
             return Err(Outcome::Unread(Unread::Inconsistent));
         }
-        let no = issue_of(
+        let no = comment_issue(
             &self.repo,
             c.html_url.as_deref().ok_or(malformed.clone())?,
             n,
@@ -338,7 +339,7 @@ impl GitHub {
             return Err(Outcome::Unread(Unread::Inconsistent));
         }
         let url = c.url.as_deref().ok_or(Outcome::Unread(Unread::Malformed))?;
-        if issue_of(&self.repo, url, n)? != *no {
+        if comment_issue(&self.repo, url, n)? != *no {
             return Err(Outcome::Unread(Unread::Inconsistent));
         }
         c.text.edits(*no, bound, self.bot.as_ref())
@@ -469,29 +470,6 @@ fn answered(out: &str) -> bool {
     serde_json::from_str::<Value>(out.trim())
         .ok()
         .is_some_and(|v| v.get("data").is_some_and(Value::is_object))
-}
-
-/// The issue of this project a comment's link `url` names, the comment
-/// `n`: `NotFound` for a comment on a pull request, `Unread(Inconsistent)`
-/// for one of another project or another comment.
-fn issue_of(repo: &str, url: &str, n: u64) -> Got<BlueprintNo> {
-    let inconsistent = Outcome::Unread(Unread::Inconsistent);
-    let head = url
-        .strip_suffix(&format!("#issuecomment-{n}"))
-        .ok_or(inconsistent.clone())?;
-    let (at, no) = head.rsplit_once('/').ok_or(inconsistent.clone())?;
-    let no = no
-        .parse()
-        .ok()
-        .and_then(BlueprintNo::new)
-        .ok_or(inconsistent.clone())?;
-    if ends_with_folded(at, &format!("/{repo}/pull")) {
-        return Err(Outcome::NotFound);
-    }
-    if !ends_with_folded(at, &format!("/{repo}/issues")) {
-        return Err(inconsistent);
-    }
-    Ok(no)
 }
 
 /// The items in the order first asked, each once.

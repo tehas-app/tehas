@@ -13,8 +13,8 @@ use crate::GitHub;
 use tehas_core::access::{self, Curl};
 use tehas_core::accounts;
 use tehas_ports::{
-    Account, AccountId, AccountKind, Got, Login, Outcome, Passing, Realm, Refusal, Secret, Sent,
-    SignInCode, SignInState, WebLink,
+    Account, AccountKind, Got, Login, Outcome, Passing, Realm, Refusal, Secret, Sent, SignInCode,
+    SignInState, WebLink,
 };
 
 /// What `access::Curl` says of a code GitHub answered and did not take.
@@ -140,7 +140,7 @@ impl GitHub {
             Login::new(accounts::folded(&person.login)),
             AccountKind::Person,
         );
-        account.id = Some(AccountId::new(person.id.to_string()));
+        account.id = Some(person.id);
         Ok((account, Secret::new(token)))
     }
 
