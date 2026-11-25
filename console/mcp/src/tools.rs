@@ -1890,6 +1890,7 @@ pub(crate) fn epoch(t: &str) -> Option<i64> {
 mod tests {
     use super::*;
     use tehas_core::testdir::TestDir;
+    use tehas_core::time::from_iso as epoch;
 
     // `issues` keeps the spec keys that are stages, and the spec names the
     // lists by the core's constants: a stage missing from `STAGES` would drop

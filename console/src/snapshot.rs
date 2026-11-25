@@ -332,6 +332,7 @@ fn clock_in(v: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tehas_core::time::from_iso as epoch;
 
     // The queue reads the lists under the core's names, the names the writer
     // puts them under.

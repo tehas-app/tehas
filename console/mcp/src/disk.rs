@@ -425,7 +425,7 @@ mod tests {
     // the answer says itself when the reading is too old to trust.
     #[test]
     fn an_old_reading_or_one_without_a_time_is_stale() {
-        let at = tools::epoch("2026-10-31T23:09:32Z").unwrap();
+        let at = tehas_core::time::from_iso("2026-10-31T23:09:32Z").unwrap();
         let dir = published(ANSWER);
         let stale = |now| call_at(&dirs(&dir), now).unwrap()["stale"].clone();
         assert_eq!(stale(at + 60), false);

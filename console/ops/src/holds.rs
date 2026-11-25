@@ -1144,6 +1144,7 @@ mod tests {
     use std::fs::File;
     use std::os::unix::fs::{symlink, PermissionsExt};
     use tehas_core::testdir::TestDir;
+    use tehas_core::time::from_iso_jq as epoch;
 
     fn dir(name: &str) -> TestDir {
         TestDir::new(&format!("holds-{name}"))

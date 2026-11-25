@@ -440,6 +440,7 @@ mod tests {
     use super::*;
     use std::io::BufRead;
     use tehas_core::testdir::TestDir;
+    use tehas_core::time::from_iso as epoch;
 
     /// A home of this case's own, with its `state`.
     fn home(name: &str) -> TestDir {

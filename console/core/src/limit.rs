@@ -479,6 +479,7 @@ pub use crate::time::from_iso_jq as epoch;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::time::from_iso_jq as epoch;
 
     const NOW: i64 = 1_792_245_620; // 2026-10-17T14:00:20Z
 
