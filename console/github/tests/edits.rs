@@ -527,3 +527,37 @@ fn a_failed_question_fails_each_of_its_items() {
         }
     }
 }
+
+/// The edits are read by the adapter's one reader of several
+/// (`items.rs`): a not found inside an item is no word that the item is
+/// gone (Decided 121), an item missing from the answer is malformed, and
+/// a whole question of one item that GitHub did not find is that item's.
+#[test]
+fn the_edits_are_read_by_the_one_reader_of_several() {
+    let malformed = Err(Outcome::Unread(Unread::Malformed));
+    let (mut gh, _) = adapter("inner-not-found");
+    let got = gh.body_edits_of(&[bp(7), bp(8)], ALL_MAX);
+    assert_eq!(got[0].1, inconsistent());
+    assert_eq!(got[1].1, Err(Outcome::NotFound));
+    let got = gh.comment_edits_of(&[cid(EDITED), cid(PLAIN)], ALL_MAX);
+    assert_eq!(got[0].1, inconsistent());
+    assert_eq!(got[1].1, Err(Outcome::NotFound));
+
+    let (mut gh, _) = adapter("missing-items");
+    for (_, got) in gh.body_edits_of(&[bp(7), bp(8)], ALL_MAX) {
+        assert_eq!(got, malformed);
+    }
+    for (_, got) in gh.comment_edits_of(&[cid(EDITED), cid(PLAIN)], ALL_MAX) {
+        assert_eq!(got, malformed);
+    }
+
+    let (mut gh, _) = adapter("unresolved");
+    assert_eq!(
+        gh.body_edits_of(&[bp(7)], ALL_MAX)[0].1,
+        Err(Outcome::NotFound)
+    );
+    assert_eq!(
+        gh.comment_edits_of(&[cid(EDITED)], ALL_MAX)[0].1,
+        Err(Outcome::NotFound)
+    );
+}

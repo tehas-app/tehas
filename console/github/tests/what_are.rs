@@ -212,6 +212,22 @@ fn an_error_of_the_question_leaves_no_number_sure() {
     assert_eq!(got, [(3, Err(INCONSISTENT)), (6, Err(INCONSISTENT))]);
 }
 
+/// An error that names no alias is the question's: a limited rate spends
+/// the priced budget for every number, any other leaves none sure, the
+/// repository's own not found among them.
+#[test]
+fn an_error_that_names_no_alias_is_every_numbers() {
+    let limited = Outcome::Spent {
+        pool: Pool::Priced,
+        until: At::new(1_767_225_600),
+    };
+    for (state, want) in [("limited", limited), ("no-repository", INCONSISTENT)] {
+        let (got, calls) = what(state, &[3, 4]);
+        assert_eq!(got, [(3, Err(want.clone())), (4, Err(want))], "{state}");
+        assert_eq!(calls, 1, "{state}");
+    }
+}
+
 #[test]
 fn an_answer_that_is_no_answer_fails_every_number() {
     for (state, want) in [
@@ -219,7 +235,6 @@ fn an_answer_that_is_no_answer_fails_every_number() {
         // gh failed: its answer is read only by its errors.
         ("failed-no-errors", SERVER),
         ("failed-garbled", SERVER),
-        ("no-repository", SERVER),
     ] {
         let (got, _) = what(state, &[3, 4]);
         assert_eq!(got, [(3, Err(want.clone())), (4, Err(want))], "{state}");
@@ -230,10 +245,11 @@ fn an_answer_that_is_no_answer_fails_every_number() {
 fn a_failed_question_is_its_outcome_for_every_number() {
     for (state, want) in [
         ("server-error", SERVER),
+        // A GraphQL question draws on the priced pool.
         (
             "rate-limited",
             Outcome::Spent {
-                pool: Pool::Calls,
+                pool: Pool::Priced,
                 until: At::new(1_767_225_600),
             },
         ),
