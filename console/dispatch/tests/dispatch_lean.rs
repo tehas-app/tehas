@@ -34,7 +34,7 @@ fn lean_parked(w: &World, input: &str, reason: &str) {
     );
     w.t_started(7, None, &[]);
     let r = w.sh(
-        r#"flock -w 5 "$TEHAS_HOME/state/cycles/7.lock" "$T/store-bin" cycle-end 7 --attempt 1 --status failed --parked >/dev/null"#,
+        r#"flock -w 5 "$T_CYCLES/7.lock" "$T/store-bin" cycle-end 7 --attempt 1 --status failed --parked >/dev/null"#,
     );
     assert_eq!(r.rc, 0, "the store refused the end of #7: {}", r.out);
     w.t_park(7, reason, "4001", &[]);

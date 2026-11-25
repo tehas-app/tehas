@@ -820,57 +820,54 @@ pub enum Check {
     /// ended the gate, so nothing starts on it unsaid. Its sha is the head the
     /// hold names.
     Unknown(String),
-    /// The answer is no answer: no list of runs, or a head sha that is not one.
+    /// The read failed, was cut, or its answer could not be read.
     Unreadable,
 }
 
-/// The state of a branch's check runs, as the bash dispatcher read them. Of the
-/// conclusions GitHub answers, these three pass: `success`, `neutral` and
-/// `skipped`; these three are red: `failure`, `timed_out` and
-/// `startup_failure`. Every other conclusion, and a finished run that names
-/// none, is unknown: the gate holds. A conclusion GitHub adds later is a
-/// deliberate edit to one of the three lists beside this function, never a
-/// run that reads as green.
-pub(crate) fn check_state(a: &Value) -> Option<Check> {
-    let runs = a.get("check_runs")?.as_array()?;
-    if runs.is_empty() {
-        return Some(Check::None);
-    }
-    let sha_ok = |r: &Value| {
-        r.get("head_sha")
-            .and_then(Value::as_str)
-            .is_some_and(tehas_core::grammar::commit_id)
-    };
-    if !runs.iter().all(sha_ok) {
-        return None;
-    }
-    let sha = &runs[0]["head_sha"].as_str()?[..12];
-    // One walk of the runs: which of the four readings hold.
-    let mut any_red = false;
-    let mut all_done = true;
-    let mut all_passed = true;
-    for r in runs {
-        let finished = r.get("status").and_then(Value::as_str) == Some("completed");
-        let conclusion = r.get("conclusion").and_then(Value::as_str);
-        all_done &= finished;
-        if finished
-            && matches!(
-                conclusion,
-                Some("failure" | "timed_out" | "startup_failure")
-            )
-        {
-            any_red = true;
+impl Check {
+    /// The word the read writes the state in: the words of the store's
+    /// pin, `unknown` beside them.
+    pub fn word(&self) -> &'static str {
+        match self {
+            Check::Red(_) => "red",
+            Check::Done(_) => "done",
+            Check::Pending(_) => "pending",
+            Check::None => "none",
+            Check::Unknown(_) => "unknown",
+            Check::Unreadable => "unreadable",
         }
-        all_passed &= finished && matches!(conclusion, Some("success" | "neutral" | "skipped"));
     }
-    if any_red {
-        Some(Check::Red(sha.into()))
-    } else if all_passed {
-        Some(Check::Done(sha.into()))
-    } else if all_done {
-        Some(Check::Unknown(sha.into()))
-    } else {
-        Some(Check::Pending(sha.into()))
+
+    /// The head commit the state is of, as its first 12 hex digits.
+    pub fn head(&self) -> Option<&str> {
+        match self {
+            Check::Red(h) | Check::Done(h) | Check::Pending(h) | Check::Unknown(h) => Some(h),
+            Check::None | Check::Unreadable => None,
+        }
+    }
+}
+
+/// The state of the branch's check as the read wrote it: `state`, one of
+/// `Check::word`, with `head`, the head commit's first 12 hex digits, where
+/// the state has one. The code host's adapter folds the runs (Decided 129);
+/// this reads its answer back. Anything else is unreadable.
+fn check_of(a: &Value) -> Check {
+    let head = a
+        .get("head")
+        .and_then(Value::as_str)
+        .filter(|h| {
+            h.len() == 12
+                && h.bytes()
+                    .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+        })
+        .map(str::to_string);
+    match (a.get("state").and_then(Value::as_str), head) {
+        (Some("none"), _) => Check::None,
+        (Some("red"), Some(h)) => Check::Red(h),
+        (Some("done"), Some(h)) => Check::Done(h),
+        (Some("pending"), Some(h)) => Check::Pending(h),
+        (Some("unknown"), Some(h)) => Check::Unknown(h),
+        _ => Check::Unreadable,
     }
 }
 
@@ -2004,12 +2001,7 @@ impl Snapshot {
                 })
                 .unwrap_or_default(),
             disk_kb: v.get("disk_kb").map(Value::as_u64),
-            checks: v.get("checks").map(|c| {
-                Some(c)
-                    .filter(|c| !failed(c))
-                    .and_then(check_state)
-                    .unwrap_or(Check::Unreadable)
-            }),
+            checks: v.get("checks").map(check_of),
             branch_note: s("branch_note"),
             push_fault: match v.get("push_fault") {
                 None | Some(Value::Null) => None,
