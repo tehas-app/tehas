@@ -1368,6 +1368,8 @@ fn a_database_another_program_made_meanwhile_is_not_moved_aside() {
 fn programs_that_open_a_new_database_at_once_all_get_it() {
     // The journal switch is where the openers contend, so the eight-opener
     // run is repeated rather than run once: one pass can miss the lock race.
+    // A failure names every opener of its round: the step each was at, how
+    // long it took, and the error, so a rare one says where the wait was.
     for round in 0..20 {
         let home = scratch(&format!("concurrent-{round}"));
         let file = db::path(&home);
@@ -1375,17 +1377,31 @@ fn programs_that_open_a_new_database_at_once_all_get_it() {
             .map(|i| {
                 let file = file.clone();
                 std::thread::spawn(move || {
-                    let (conn, moved) = db::open(&file, 1_792_000_000).unwrap();
-                    db::event(&conn, i, "ready", 1_792_000_000).unwrap();
-                    moved
+                    let start = std::time::Instant::now();
+                    let ms = || start.elapsed().as_millis();
+                    let (conn, moved) = db::open(&file, 1_792_000_000)
+                        .map_err(|e| format!("opener {i}: open failed at {} ms: {e}", ms()))?;
+                    let opened = ms();
+                    db::event(&conn, i, "ready", 1_792_000_000).map_err(|e| {
+                        format!("opener {i}: opened at {opened} ms, its first write failed at {} ms: {e}", ms())
+                    })?;
+                    Ok::<_, String>((format!("opener {i}: opened at {opened} ms, wrote at {} ms", ms()), moved))
                 })
             })
             .collect();
-        for o in openers {
-            assert!(
-                o.join().unwrap().is_none(),
-                "a valid database was moved aside"
-            );
+        let ends: Vec<Result<_, String>> = openers.into_iter().map(|o| o.join().unwrap()).collect();
+        if ends.iter().any(Result::is_err) {
+            let lines: Vec<&str> = ends
+                .iter()
+                .map(|e| match e {
+                    Ok((line, _)) => line.as_str(),
+                    Err(line) => line.as_str(),
+                })
+                .collect();
+            panic!("round {round}:\n{}", lines.join("\n"));
+        }
+        for (_, moved) in ends.into_iter().flatten() {
+            assert!(moved.is_none(), "a valid database was moved aside");
         }
         assert!(!h(&home).state_dir().join("analytics.db.broken").exists());
         let conn = Connection::open(&file).unwrap();
@@ -1524,16 +1540,14 @@ fn a_broken_file_is_moved_aside_and_a_new_database_made() {
 fn a_database_of_another_schema_is_kept_aside_under_its_version() {
     let home = scratch("foreign");
     let file = db::path(&home);
-    {
-        let c = Connection::open(&file).unwrap();
-        c.execute_batch(
-            "PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0;
-             CREATE TABLE runs (x); INSERT INTO runs VALUES (42); PRAGMA user_version = 99",
-        )
-        .unwrap();
-        // The row is still in the -wal when the file is moved.
-        std::mem::forget(c);
-    }
+    // Held open until the end, so the row is still in the -wal when the file
+    // is moved: its close would checkpoint it into the file.
+    let c = Connection::open(&file).unwrap();
+    c.execute_batch(
+        "PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0;
+         CREATE TABLE runs (x); INSERT INTO runs VALUES (42); PRAGMA user_version = 99",
+    )
+    .unwrap();
     execute(&home, &Cmd::Event(1, "ready".into(), None), 1_792_000_000).unwrap();
     assert!(!h(&home).state_dir().join("analytics.db.broken").exists());
     let kept = Connection::open(h(&home).state_dir().join("analytics.db.schema-99")).unwrap();
@@ -1542,6 +1556,10 @@ fn a_database_of_another_schema_is_kept_aside_under_its_version() {
     let conn = Connection::open(&file).unwrap();
     assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), db::SCHEMA_VERSION);
     assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM issue_events"), 1);
+    // The moved file's last connection closes last.
+    drop(conn);
+    drop(kept);
+    c.close().unwrap();
 }
 
 /// A file another program has made and not yet given a schema: what `settle`
