@@ -1162,13 +1162,13 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   in place and keeps every row. `tehas analytics copy --json` reports
   schema 8. This takes the place of the pin of schema 7 above. The MCP
   tool `factory_session` and the lines of `analytics sessions` no longer
-  carry `cost`, on a session or on its `roles`.
+  carry `cost` or `roles[].cost`.
   Readers: the consumer that reads the analytics copies, adopters, MCP
   clients.
   Adopter action: a program that reads the copies pins `user_version` 8
   and `console/analytics/src/schema.pinned` of this release, reads no
   `cost` column and works out what the views gave from the tables. An MCP
-  client reads no `cost` from `factory_session`.
+  client reads no `cost` or `roles[].cost` from `factory_session`.
 - **The analytics report leaves core.**
   #3296.
   Gone: `tehas analytics report` and the analytics program's
