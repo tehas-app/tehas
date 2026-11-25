@@ -1181,21 +1181,30 @@ const NODE: &str = "36ca6a74f19204e710057645c9c28974fc459362";
 const QUEUE: u64 = 2195107;
 const FAILED_SUITE: u64 = 123245603656;
 
-/// One of the node recordings as JSON: `checks`, `runs` or `statuses`.
-fn node(read: &str) -> serde_json::Value {
+/// One of the node recordings: `checks`, `runs` or `statuses`.
+fn node(read: &str) -> String {
     let at = here().join(format!(
         "tests/recorded/code-host/node/{read}-{NODE}-1.json"
     ));
-    let text = std::fs::read_to_string(&at).unwrap_or_else(|e| panic!("{}: {e}", at.display()));
-    serde_json::from_str(&text).unwrap()
+    std::fs::read_to_string(&at).unwrap_or_else(|e| panic!("{}: {e}", at.display()))
+}
+
+/// An answer read as JSON, edited and written again.
+fn edited<T: serde::Serialize + serde::de::DeserializeOwned>(
+    text: &str,
+    edit: impl FnOnce(&mut T),
+) -> String {
+    let mut v: T = serde_json::from_str(text).unwrap();
+    edit(&mut v);
+    serde_json::to_string(&v).unwrap()
 }
 
 /// The node commit's checks from these answers of its check runs and its
 /// workflow runs, its statuses as recorded.
-fn node_checks(checks: &serde_json::Value, runs: &serde_json::Value) -> Got<Checks> {
+fn node_checks(checks: &str, runs: &str) -> Got<Checks> {
     let (mut gh, asked) = scripted(&[
         Ok(checks.to_string()),
-        Ok(node("statuses").to_string()),
+        Ok(node("statuses")),
         Ok(runs.to_string()),
     ]);
     let got = gh.checks(&CommitId::new(NODE).unwrap(), None);
@@ -1214,14 +1223,16 @@ fn candidate_prs(c: &Checks) -> Vec<&CheckStatus> {
 
 /// Each `get_candidate_prs` run in the node recording's check runs, by
 /// its suite, set to this conclusion.
-fn with_candidate_prs(checks: &mut serde_json::Value, of: impl Fn(u64) -> Option<&'static str>) {
-    for r in checks["check_runs"].as_array_mut().unwrap() {
-        if r["name"] == "get_candidate_prs" {
-            if let Some(c) = of(r["check_suite"]["id"].as_u64().unwrap()) {
-                r["conclusion"] = c.into();
+fn with_candidate_prs(of: impl Fn(u64) -> Option<&'static str>) -> String {
+    edited(&node("checks"), |checks: &mut serde_json::Value| {
+        for r in checks["check_runs"].as_array_mut().unwrap() {
+            if r["name"] == "get_candidate_prs" {
+                if let Some(c) = of(r["check_suite"]["id"].as_u64().unwrap()) {
+                    r["conclusion"] = c.into();
+                }
             }
         }
-    }
+    })
 }
 
 /// Law 1 of #3246, on the live recordings of nodejs/node at 36ca6a74,
@@ -1237,7 +1248,7 @@ fn with_candidate_prs(checks: &mut serde_json::Value, of: impl Fn(u64) -> Option
 /// one per suite (the recording has 35).
 #[test]
 fn an_old_failure_then_newer_passes_of_one_workflow_reads_passing() {
-    let recorded = node("checks");
+    let recorded: serde_json::Value = serde_json::from_str(&node("checks")).unwrap();
     let failed = recorded["check_runs"]
         .as_array()
         .unwrap()
@@ -1263,13 +1274,14 @@ fn an_old_failure_then_newer_passes_of_one_workflow_reads_passing() {
 /// other workflow hide nothing.
 #[test]
 fn two_workflows_with_one_job_name_one_failing_read_failing() {
-    let mut runs = node("runs");
-    for w in runs["workflow_runs"].as_array_mut().unwrap() {
-        if w["check_suite_id"] == FAILED_SUITE {
-            assert_eq!(w["workflow_id"], QUEUE);
-            w["workflow_id"] = 1.into();
+    let runs = edited(&node("runs"), |runs: &mut serde_json::Value| {
+        for w in runs["workflow_runs"].as_array_mut().unwrap() {
+            if w["check_suite_id"] == FAILED_SUITE {
+                assert_eq!(w["workflow_id"], QUEUE);
+                w["workflow_id"] = 1.into();
+            }
         }
-    }
+    });
     let c = node_checks(&node("checks"), &runs).unwrap();
     assert_eq!(
         candidate_prs(&c),
@@ -1286,8 +1298,7 @@ fn two_workflows_with_one_job_name_one_failing_read_failing() {
 /// failing.
 #[test]
 fn a_newer_failure_after_a_pass_of_one_workflow_reads_failing() {
-    let mut checks = node("checks");
-    with_candidate_prs(&mut checks, |suite| match suite {
+    let checks = with_candidate_prs(|suite| match suite {
         FAILED_SUITE => Some("success"),
         123253441310 => Some("failure"),
         _ => None,
@@ -1297,25 +1308,26 @@ fn a_newer_failure_after_a_pass_of_one_workflow_reads_failing() {
     assert_eq!(c.overall, Overall::Fail);
     // The same runs, every one passing but the oldest: the oldest is
     // superseded, whichever order the site lists them in.
-    let mut checks = node("checks");
-    with_candidate_prs(&mut checks, |suite| match suite {
+    let passing = with_candidate_prs(|suite| match suite {
         FAILED_SUITE => Some("success"),
         _ => None,
     });
-    let first = checks["check_runs"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|r| r["name"] == "get_candidate_prs")
-        .min_by_key(|r| r["started_at"].as_str().unwrap().to_string())
-        .unwrap()["id"]
-        .clone();
-    for r in checks["check_runs"].as_array_mut().unwrap() {
-        if r["id"] == first {
-            r["conclusion"] = "failure".into();
+    let checks = edited(&passing, |checks: &mut serde_json::Value| {
+        let first = checks["check_runs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|r| r["name"] == "get_candidate_prs")
+            .min_by_key(|r| r["started_at"].as_str().unwrap().to_string())
+            .unwrap()["id"]
+            .clone();
+        for r in checks["check_runs"].as_array_mut().unwrap() {
+            if r["id"] == first {
+                r["conclusion"] = "failure".into();
+            }
         }
-    }
-    checks["check_runs"].as_array_mut().unwrap().reverse();
+        checks["check_runs"].as_array_mut().unwrap().reverse();
+    });
     let c = node_checks(&checks, &node("runs")).unwrap();
     assert_eq!(candidate_prs(&c), [&CheckStatus::Done(Conclusion::Passed)]);
 }
@@ -1326,11 +1338,12 @@ fn a_newer_failure_after_a_pass_of_one_workflow_reads_failing() {
 /// any App but GitHub Actions is never folded by workflow.
 #[test]
 fn a_suite_the_workflow_runs_do_not_map_keeps_its_own_fold() {
-    let mut runs = node("runs");
-    let all = runs["workflow_runs"].as_array_mut().unwrap();
-    all.retain(|w| w["check_suite_id"] != FAILED_SUITE);
-    let left = all.len();
-    runs["total_count"] = left.into();
+    let runs = edited(&node("runs"), |runs: &mut serde_json::Value| {
+        let all = runs["workflow_runs"].as_array_mut().unwrap();
+        all.retain(|w| w["check_suite_id"] != FAILED_SUITE);
+        let left = all.len();
+        runs["total_count"] = left.into();
+    });
     let c = node_checks(&node("checks"), &runs).unwrap();
     assert_eq!(
         candidate_prs(&c),
@@ -1345,12 +1358,13 @@ fn a_suite_the_workflow_runs_do_not_map_keeps_its_own_fold() {
 
     // Another App's runs in the suites the workflow runs map: each suite's
     // run is held, as 129 has it.
-    let mut checks = node("checks");
-    for r in checks["check_runs"].as_array_mut().unwrap() {
-        if r["name"] == "get_candidate_prs" {
-            r["app"] = serde_json::json!({"id": 9, "slug": "other-ci"});
+    let checks = edited(&node("checks"), |checks: &mut serde_json::Value| {
+        for r in checks["check_runs"].as_array_mut().unwrap() {
+            if r["name"] == "get_candidate_prs" {
+                r["app"] = serde_json::json!({"id": 9, "slug": "other-ci"});
+            }
         }
-    }
+    });
     let c = node_checks(&checks, &node("runs")).unwrap();
     assert_eq!(candidate_prs(&c).len(), 11);
     assert_eq!(c.overall, Overall::Fail);
@@ -1475,11 +1489,14 @@ fn the_workflow_fold_refuses_what_it_cannot_place() {
         Err(Outcome::Unread(Unread::Inconsistent))
     );
 
-    let mut runs: serde_json::Value =
-        serde_json::from_str(&actions_runs(&[(1, "test", "success")])).unwrap();
-    runs["check_runs"][0]["started_at"] = serde_json::Value::Null;
+    let runs = edited(
+        &actions_runs(&[(1, "test", "success")]),
+        |runs: &mut serde_json::Value| {
+            runs["check_runs"][0]["started_at"] = serde_json::Value::Null;
+        },
+    );
     let (mut gh, _) = scripted(&[
-        Ok(runs.to_string()),
+        Ok(runs),
         Ok(statuses_page(0, &[])),
         Ok(workflow_runs(1, &[(5, 70_000_001, 7)])),
     ]);
