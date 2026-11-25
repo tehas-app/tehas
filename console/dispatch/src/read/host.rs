@@ -128,15 +128,8 @@ pub fn push_fault_aged_out(fault: &Value, now: i64) -> bool {
         && fault
             .get("at")
             .and_then(Value::as_str)
-            .and_then(epoch)
+            .and_then(tehas_core::time::from_iso)
             .is_some_and(|at| now - at >= PUSH_FAULT_HOLD)
-}
-
-/// Seconds since the epoch of an ISO 8601 UTC time as fromdateiso8601 reads
-/// it: YYYY-MM-DDTHH:MM:SSZ. Core's strict reader, kept as the name the other
-/// dispatch modules call.
-pub(crate) fn epoch(s: &str) -> Option<i64> {
-    tehas_core::time::from_iso(s)
 }
 
 /// The limit, as `flags limit read` reads it: the one reader in tehas_core.
@@ -557,7 +550,7 @@ mod tests {
     fn only_a_dated_fault_past_the_wait_owes_a_probe() {
         let at = "2026-10-31T00:00:00Z";
         let fault = |line: &str| json!({"at": at, "login": "tehas-bot", "line": line});
-        let now = epoch(at).unwrap();
+        let now = tehas_core::time::from_iso(at).unwrap();
         assert!(
             !push_fault_aged_out(&Value::Null, now),
             "no fault, nothing to ask"

@@ -11,7 +11,7 @@
 
 use super::{text, word, Writer, Wrote};
 use crate::decide::{in_window, iso, window_order};
-use crate::read::host::{epoch, held};
+use crate::read::host::held;
 use crate::read::run::{gh_env, run_grace_env, run_quiet};
 use crate::settings::account;
 use serde_json::{json, Map, Value};
@@ -21,6 +21,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tehas_core::home::{Home, State};
 use tehas_core::issue_pull::names_issue;
+use tehas_core::time::from_iso;
 use tehas_ports::{TicketKey, Write};
 
 /// What a claim answers when a poll before T4.7 made it whole: its parts
@@ -889,7 +890,7 @@ impl Writer {
         }
         let at = match given.as_str() {
             "refresh" | "outage-retry" => None,
-            _ => epoch(&given_at),
+            _ => from_iso(&given_at),
         }
         .filter(|t| (1..100_000_000_000).contains(t))
         .unwrap_or(tehas_core::time::now());
@@ -1209,7 +1210,7 @@ impl Writer {
     /// `tehas start`, and this poll recorded onto that row: it stays, so the
     /// next poll tries the start again.
     fn withdraw(&mut self, n: u64, a: &Value, recorded: i64, log: &mut Vec<String>) {
-        if text(a, "given") == crate::decide::HOST && epoch(text(a, "at")) == Some(recorded) {
+        if text(a, "given") == crate::decide::HOST && from_iso(text(a, "at")) == Some(recorded) {
             log.push(format!(
                 "the host's approval of #{n} stays on record: the next poll tries it again"
             ));

@@ -98,7 +98,7 @@ fn call_at(dirs: &Dirs, now: i64) -> Result<Map<String, Value>, ToolError> {
     masked_docker(&mut out);
     let stale = answer["time"]
         .as_str()
-        .and_then(tools::epoch)
+        .and_then(tehas_core::time::from_iso)
         .is_none_or(|t| now - t > STALE_SECS);
     out.insert("stale".into(), json!(stale));
     Ok(out)

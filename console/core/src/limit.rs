@@ -219,7 +219,7 @@ pub fn parse(bytes: &[u8], now: i64) -> Limit {
         },
     };
     let expired = match &until {
-        Some(s) => match epoch(s) {
+        Some(s) => match crate::time::from_iso_jq(s) {
             Some(at) => at <= now,
             None => return Limit::of("unreadable"),
         },
@@ -471,10 +471,6 @@ pub fn oneline(s: &str) -> String {
 fn edges(c: char) -> bool {
     c == ' ' || replaced(c)
 }
-
-/// Seconds since the epoch of an ISO 8601 UTC time, as jq's `fromdateiso8601`
-/// reads it: core's reader of the form, by the name its callers use.
-pub use crate::time::from_iso_jq as epoch;
 
 #[cfg(test)]
 mod tests {
