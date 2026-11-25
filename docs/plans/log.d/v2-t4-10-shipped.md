@@ -1,0 +1,1 @@
+| 2026-11-25 | T4.10: shipped.rs states its rule on the ports (`by_merge` over `Closer` and the merged changes listed) and reads with `Tickets::closed_since` (`since`, `lacking_mark`); the search and its reader stay for tehasbot status (T4.9) and tidy until each switches (Decided 79) | v2/t4-10-shipped |

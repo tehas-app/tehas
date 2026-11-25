@@ -33,13 +33,33 @@
 //! The name of a label reaches this program as one argument and is compared as
 //! text, so one of "*" is no pattern and one with a space is no two names.
 //!
+//! On the ports (T4.10) the rule is `by_merge`, over the closer the tickets
+//! port names and the merged changes of this project it lists, and the read
+//! is `since`, over `Tickets::closed_since`. A change of another project
+//! has no number here, so it speaks as a closer that names no change. The
+//! search below and its reader stay for their two callers until each moves
+//! onto `since` and `by_merge`: tehasbot status (T4.9, after this) and tidy
+//! (T4.10).
+//!
 //! Exit: 0, or 2 for usage.
 
+use std::num::NonZeroU32;
+
 use serde_json::Value;
+use tehas_ports::{
+    At, Bound, ChangeDigest, ChangeState, ClosedTicket, Closer, Got, Mark, State, TicketKey,
+    Tickets,
+};
 
 // How many issues one read of the search names: the page of the query and the
 // ceiling of the list a caller builds, in the one number.
 pub const PAGE: usize = 100;
+
+// `PAGE` as the bound of a port's read.
+const BOUND: NonZeroU32 = match NonZeroU32::new(PAGE as u32) {
+    Some(n) => n,
+    None => panic!("PAGE is above 0"),
+};
 
 // How many of the pull requests GitHub lists as closing an issue one read
 // names: the page of that connection and the most the rule scans, in the one
@@ -53,6 +73,52 @@ pub const REFERENCES: usize = 20;
 // named here because both the comparison that earns it and the edit that writes
 // it read this one word.
 pub const SHIPPED: &str = "tehas:shipped";
+
+/// The mark of a merge, in tehas's words: what `SHIPPED` is on GitHub.
+pub const MARK: Mark = Mark::State(State::Shipped);
+
+/// Whether a merged change of this project closed the ticket. A closer that
+/// is a change of this project speaks for itself, so one not merged is no
+/// merge whatever else is listed. Any other closer, or none, lets the
+/// merged changes the site lists as closing it decide.
+pub fn by_merge(closer: Option<&Closer>, listed: &[ChangeDigest]) -> bool {
+    match closer {
+        Some(Closer::Change { merged, .. }) => *merged,
+        _ => listed
+            .iter()
+            .any(|c| matches!(c.state, ChangeState::Merged { .. })),
+    }
+}
+
+/// The tickets closed at or after `since` that a merged change closed, most
+/// recently closed first, every one of `controls` left out. Two closed at
+/// the same instant keep the port's order. More closed tickets than `PAGE`
+/// since then is the port's `Unread(Cut)`, and any read that failed is its
+/// outcome: no answer, never an empty list.
+pub fn since(
+    tickets: &mut dyn Tickets,
+    since: At,
+    controls: &[TicketKey],
+) -> Got<Vec<ClosedTicket>> {
+    let mut kept: Vec<ClosedTicket> = tickets
+        .closed_since(since, Bound::from(BOUND))?
+        .into_items()
+        .into_iter()
+        .filter(|t| by_merge(t.closer.as_ref(), &t.merged))
+        .filter(|t| !controls.contains(&t.digest.key))
+        .collect();
+    kept.sort_by_key(|t| std::cmp::Reverse(t.closed));
+    Ok(kept)
+}
+
+/// The keys of the shipped tickets that do not carry `MARK`, in their order.
+pub fn lacking_mark(shipped: &[ClosedTicket]) -> Vec<TicketKey> {
+    shipped
+        .iter()
+        .filter(|t| !t.digest.marks.contains(&MARK))
+        .map(|t| t.digest.key.clone())
+        .collect()
+}
 
 // The document, in the lines the GitHub endpoint reads as one. $q is a GraphQL
 // variable and reaches gh as the caller's -f q= argument. The braces are the
@@ -986,5 +1052,201 @@ mod tests {
         assert_eq!(main(&given(&[])), 2);
         assert_eq!(main(&given(&["page", "x"])), 2);
         assert_eq!(main(&given(&["query"])), 2);
+    }
+
+    mod ports {
+        //! The rule and the read on the ports, over the ports' fake: a
+        //! ticket a merged change closed is shipped, by its closer first and
+        //! by the merged changes listed as closing it when the closer names
+        //! no change of this project.
+
+        use super::super::*;
+        use super::{merged_ref, refs};
+        use serde_json::json;
+        use tehas_ports::fake::{FakeSite, Fault, Faulty, Op, TicketsOp, World};
+        use tehas_ports::{
+            Actor, Caller, ChangeNo, CloseReason, CommitId, ItemName, Outcome, ProjectName, Site,
+            Unread, WebLink,
+        };
+
+        fn merged_state(w: &World) -> ChangeState {
+            ChangeState::Merged {
+                at: w.now(),
+                by: None,
+                commit: None,
+            }
+        }
+
+        /// Ticket `n` closed by hand now, and change `n + 1` merged that
+        /// closes it.
+        fn shipped_at(w: World, n: u64) -> World {
+            let state = merged_state(&w);
+            w.ticket(n, |t| t.closed(CloseReason::Done))
+                .change(n + 1, &format!("work/{n}"), |c| c.closes(n).state(state))
+        }
+
+        fn read(site: &impl Site, since: At, controls: &[TicketKey]) -> Got<Vec<ClosedTicket>> {
+            let mut t = site
+                .tickets(&Actor::Operator, Caller::new("shipped"))
+                .unwrap();
+            super::super::since(&mut *t, since, controls)
+        }
+
+        fn keys(got: &[ClosedTicket]) -> Vec<TicketKey> {
+            got.iter().map(|t| t.digest.key.clone()).collect()
+        }
+
+        /// The merged changes the fake lists as closing a shipped ticket,
+        /// to give the rule as a site gives them.
+        fn listed() -> Vec<ChangeDigest> {
+            let w = shipped_at(World::new(), 7);
+            let got = read(&FakeSite::new(&w), At::new(0), &[]).unwrap();
+            assert_eq!(got.len(), 1);
+            assert!(!got[0].merged.is_empty());
+            got[0].merged.clone()
+        }
+
+        #[test]
+        fn a_change_closer_speaks_for_itself_and_any_other_lets_the_list_decide() {
+            let listed = listed();
+            let no = ChangeNo::new(8).unwrap();
+            let merged = Closer::Change { no, merged: true };
+            let unmerged = Closer::Change { no, merged: false };
+            assert!(by_merge(Some(&merged), &[]));
+            assert!(!by_merge(Some(&unmerged), &listed));
+            assert!(!by_merge(Some(&unmerged), &[]));
+            let commit = Closer::Commit(CommitId::new("abc1234").unwrap());
+            let elsewhere = Closer::change_elsewhere(
+                ProjectName::new("acme/other"),
+                ItemName::new("3"),
+                WebLink::new("https://example.test/acme/other/pull/3").unwrap(),
+            );
+            for closer in [
+                None,
+                Some(&commit),
+                Some(&elsewhere),
+                Some(&Closer::Unknown),
+            ] {
+                assert!(by_merge(closer, &listed), "{closer:?} with a merge listed");
+                assert!(!by_merge(closer, &[]), "{closer:?} with none listed");
+            }
+            // A change listed that is not merged is no merge.
+            let mut open = listed.clone();
+            open[0].state = ChangeState::Open;
+            assert!(!by_merge(None, &open));
+            let mut closed = listed;
+            closed[0].state = ChangeState::Closed { at: At::new(0) };
+            assert!(!by_merge(None, &closed));
+        }
+
+        /// The two statements of the rule answer alike while both stand: the
+        /// search's reader of GitHub's nodes and `by_merge` of the port.
+        #[test]
+        fn the_rule_on_the_ports_answers_as_the_rule_of_the_search() {
+            let listed = listed();
+            let no = ChangeNo::new(8).unwrap();
+            let commit = Closer::Commit(CommitId::new("abc1234").unwrap());
+            let cases: [(Value, Option<Closer>, bool); 6] = [
+                (
+                    json!({"merged": true}),
+                    Some(Closer::Change { no, merged: true }),
+                    false,
+                ),
+                (
+                    json!({"merged": false}),
+                    Some(Closer::Change { no, merged: false }),
+                    true,
+                ),
+                (
+                    json!({"merged": false}),
+                    Some(Closer::Change { no, merged: false }),
+                    false,
+                ),
+                (json!({"__typename": "Commit"}), Some(commit.clone()), true),
+                (json!({"__typename": "Commit"}), Some(commit), false),
+                (Value::Null, None, true),
+            ];
+            for (closer, port, a_merge_listed) in cases {
+                let found = if a_merge_listed {
+                    vec![merged_ref(json!(true))]
+                } else {
+                    vec![]
+                };
+                let node = refs(7, closer.clone(), found);
+                let on_ports = by_merge(port.as_ref(), if a_merge_listed { &listed } else { &[] });
+                assert_eq!(
+                    shipped(&node),
+                    on_ports,
+                    "{closer} with a merge listed {a_merge_listed}"
+                );
+            }
+        }
+
+        #[test]
+        fn the_read_keeps_the_shipped_most_recently_closed_first_without_the_controls() {
+            let w = shipped_at(World::new(), 1);
+            let since = w.now();
+            let w = shipped_at(w, 7);
+            w.advance(10);
+            let w = w.ticket(9, |t| t.closed(CloseReason::Done));
+            w.advance(10);
+            let w = shipped_at(w, 11);
+            let site = FakeSite::new(&w);
+            let control = w.key(1);
+            assert_eq!(
+                keys(&read(&site, since, std::slice::from_ref(&control)).unwrap()),
+                vec![w.key(11), w.key(7)]
+            );
+            assert_eq!(
+                keys(&read(&site, since, &[]).unwrap()),
+                vec![w.key(11), w.key(1), w.key(7)]
+            );
+        }
+
+        #[test]
+        fn a_ticket_closed_before_the_time_asked_is_left_out() {
+            let w = shipped_at(World::new(), 7);
+            w.advance(10);
+            let since = w.now();
+            let w = shipped_at(w, 11);
+            assert_eq!(
+                keys(&read(&FakeSite::new(&w), since, &[]).unwrap()),
+                vec![w.key(11)]
+            );
+        }
+
+        #[test]
+        fn a_read_that_failed_is_its_outcome_and_never_an_empty_list() {
+            let w = shipped_at(World::new(), 7);
+            let site = Faulty::new(FakeSite::new(&w))
+                .on(Op::Tickets(TicketsOp::ClosedSince), Fault::Unreachable);
+            let got = read(&site, At::new(0), &[]);
+            assert!(matches!(got, Err(Outcome::Unavailable { .. })), "{got:?}");
+        }
+
+        #[test]
+        fn more_closed_than_a_page_is_cut_and_not_a_shorter_list() {
+            let mut w = World::new();
+            for n in 1..=PAGE as u64 + 1 {
+                w = w.ticket(n, |t| t.closed(CloseReason::Done));
+            }
+            assert_eq!(
+                read(&FakeSite::new(&w), At::new(0), &[]),
+                Err(Outcome::Unread(Unread::Cut))
+            );
+        }
+
+        #[test]
+        fn the_tickets_lacking_the_mark_are_the_shipped_without_it() {
+            let state = merged_state(&World::new());
+            let w = World::new()
+                .ticket(7, |t| t.mark(MARK).closed(CloseReason::Done))
+                .change(8, "work/7", |c| c.closes(7).state(state));
+            let w = shipped_at(w, 11);
+            let got = read(&FakeSite::new(&w), At::new(0), &[]).unwrap();
+            assert_eq!(keys(&got).len(), 2);
+            assert_eq!(lacking_mark(&got), vec![w.key(11)]);
+            assert_eq!(lacking_mark(&[]), Vec::<TicketKey>::new());
+        }
     }
 }
