@@ -139,6 +139,11 @@ a key. `rows` itself is public.
 - **Events.** A new event name, a new gate or a new optional field of a
   payload is added in 2.x. A reader treats an event name it does not know
   as unknown and skips it, as `tehas-ports` reads it as `Unknown`.
+  The subject `plugin-<name>` belongs to the plugin `<name>`, and
+  `annex-<name>` to the annex `<name>`, its plant and its plugin: tehas
+  raises no event whose subject starts `plugin-` or `annex-` in any 2.x
+  release, and `api/events.txt` never holds one. How a plugin declares
+  and raises its events is 2.1.
 - **A gate's answer.** The gate's answer may gain values and fields in
   2.x; a reader that meets one it does not know holds the act. This is the
   one place where a field or a value a reader does not know is not skipped:
@@ -918,6 +923,14 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   plugins.
   Adopter action: none. A program that reads a cycle's log, or
   `logs/dispatch.log`, sees the `event` lines.
+- **The event subjects `plugin-<name>` and `annex-<name>` are reserved.**
+  #3330.
+  `plugin-<name>` belongs to the plugin `<name>` and `annex-<name>` to the
+  annex `<name>`, its plant and its plugin. tehas raises no event under
+  either in 2.x, and `api/events.txt` never holds one
+  ([Events](/api#events)). No name changes today.
+  Readers: plugins, the consumer that runs many factories.
+  Adopter action: none.
 - **The plugin hook is named by its event.** #2939.
   The grant and the ask `hook:after:work` are `hook:after:change.offered`,
   and a manifest's hook `at` is `after:change.offered`, not `after:work`.
