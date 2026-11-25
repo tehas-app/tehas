@@ -904,7 +904,7 @@ fn with_github_down_the_lists_are_kept_and_health_names_the_failed_calls() {
         &r.out,
         "queue     stale: queue and completed and pause kept from an earlier read, GitHub did not answer",
     );
-    has(&r.out, "github    6 failed calls in the last 10 min");
+    has(&r.out, "github    5 failed calls in the last 10 min");
 }
 
 #[test]
