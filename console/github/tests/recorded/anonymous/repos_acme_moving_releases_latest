@@ -1,0 +1,46 @@
+HTTP/2 302 
+location: https://api.github.com/repos/acme/renamed/releases/latest
+content-type: application/json; charset=utf-8
+
+{
+  "url": "https://api.github.com/repos/acme/moved/releases/456449700",
+  "html_url": "https://github.com/acme/moved/releases/tag/v1.4.1",
+  "id": 456449700,
+  "tag_name": "v1.4.1",
+  "target_commitish": "main",
+  "name": "v1.4.1",
+  "draft": false,
+  "prerelease": false,
+  "created_at": "2026-11-23T22:42:06Z",
+  "published_at": "2026-11-24T07:54:05Z",
+  "assets": [
+    {
+      "url": "https://api.github.com/repos/acme/moved/releases/assets/786231540",
+      "id": 786231540,
+      "name": "install",
+      "content_type": "application/octet-stream",
+      "state": "uploaded",
+      "size": 7213,
+      "browser_download_url": "https://github.com/acme/moved/releases/download/v1.4.1/install"
+    },
+    {
+      "url": "https://api.github.com/repos/acme/moved/releases/assets/786231564",
+      "id": 786231564,
+      "name": "install.minisig",
+      "content_type": "application/octet-stream",
+      "state": "uploaded",
+      "size": 282,
+      "browser_download_url": "https://github.com/acme/moved/releases/download/v1.4.1/install.minisig"
+    },
+    {
+      "url": "https://api.github.com/repos/acme/moved/releases/assets/786231591",
+      "id": 786231591,
+      "name": "tehas-front-v1.4.1-linux-x86_64",
+      "content_type": "application/octet-stream",
+      "state": "uploaded",
+      "size": 512776,
+      "browser_download_url": "https://github.com/acme/moved/releases/download/v1.4.1/tehas-front-v1.4.1-linux-x86_64"
+    }
+  ],
+  "body": "### Highlights\n\n- **A fix release on the 1.4 line.** v1.4.1 makes two of the factory's trust files fail closed when they are damaged, and holds pi-rukas to its 0.15 line. It asks nothing of an adopter.\n- **Damaged trust files stop, not open.** A `state/account-ids` or `state/labels` file that cannot be read with certainty no longer counts as no file. tehas refuses what the file would have allowed "
+}

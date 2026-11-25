@@ -312,6 +312,47 @@ fn a_redirect_with_no_location_is_malformed_never_its_body() {
     assert_eq!(stub.asked(), ["repos/acme/moved/releases/latest"]);
 }
 
+/// A redirect within the API's host is followed once, to the answer.
+#[test]
+fn one_redirect_within_the_api_is_followed() {
+    let stub = Stub::new("github-anonymous-renamed");
+    let site = site("acme/renamed", &stub, Arc::new(MemoryLedger::new()));
+    let mut h = site.code_host(&Actor::Anonymous, CALLER).unwrap();
+    let latest = h.latest_release().unwrap().unwrap();
+    assert_eq!(latest.tag, tag("v1.4.1"));
+    assert_eq!(
+        latest.link.as_str(),
+        "https://github.com/acme/widget/releases/tag/v1.4.1"
+    );
+    assert_eq!(
+        stub.asked(),
+        [
+            "repos/acme/renamed/releases/latest",
+            "repos/acme/widget/releases/latest"
+        ]
+    );
+}
+
+/// A second redirect is not followed, and its body, which would read as a
+/// release, is never the answer.
+#[test]
+fn a_second_redirect_is_malformed_never_its_body() {
+    let stub = Stub::new("github-anonymous-moving");
+    let site = site("acme/moving", &stub, Arc::new(MemoryLedger::new()));
+    let mut h = site.code_host(&Actor::Anonymous, CALLER).unwrap();
+    assert_eq!(
+        h.latest_release().err(),
+        Some(Outcome::Unread(Unread::Malformed))
+    );
+    assert_eq!(
+        stub.asked(),
+        [
+            "repos/acme/moving/releases/latest",
+            "repos/acme/renamed/releases/latest"
+        ]
+    );
+}
+
 #[test]
 fn a_public_project_with_no_release_or_no_such_tag_says_so() {
     let stub = Stub::new("github-anonymous-none");
@@ -321,6 +362,22 @@ fn a_public_project_with_no_release_or_no_such_tag_says_so() {
     let site = self::site("acme/widget", &stub, Arc::new(MemoryLedger::new()));
     let mut h = site.code_host(&Actor::Anonymous, CALLER).unwrap();
     assert_eq!(h.resolve_tag(&tag("v9.9.9")).err(), Some(Outcome::NotFound));
+}
+
+/// A 429 with no reset time or `retry-after` holds the budget out for a
+/// minute, the floor of every rate limit the adapter reads with no reset.
+#[test]
+fn a_bare_too_many_requests_holds_the_budget_for_a_minute() {
+    let stub = Stub::new("github-anonymous-busy");
+    let site = site("acme/busy", &stub, Arc::new(MemoryLedger::new()));
+    let mut h = site.code_host(&Actor::Anonymous, CALLER).unwrap();
+    assert_eq!(
+        h.releases(ALL_MAX).err(),
+        Some(Outcome::Spent {
+            pool: Pool::Calls,
+            until: At::new(1_795_530_060),
+        })
+    );
 }
 
 #[test]
