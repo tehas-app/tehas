@@ -460,6 +460,56 @@ fn a_write_on_no_issue_number_is_refused() {
     );
 }
 
+/// A comment's edit names no issue: its caller names the item the comment
+/// is on with `--issue`, which no other write takes.
+#[test]
+fn a_comments_edit_is_recorded_on_the_issue_its_caller_names() {
+    let edit = tehas_ports::Write::EditComment {
+        id: tehas_ports::CommentId::new("2101"),
+        body: tehas_ports::Body::Summed(tehas_ports::Sum {
+            sha256: tehas_ports::Sha256::new("a".repeat(64)).unwrap(),
+            len: 3,
+        }),
+        markers: tehas_ports::MarkerEdit::default(),
+        since: tehas_ports::Revision::new("r1"),
+    };
+    let rec = |extra: &[&str], w: &tehas_ports::Write| {
+        let json = write_json(w);
+        let mut a = vec!["journal-record", "--poll", "1", "--write", &json];
+        a.extend_from_slice(extra);
+        a.extend(["--args", "{}", "--before", "1"]);
+        usage(&a)
+    };
+    assert!(rec(&[], &edit).contains("--write names no issue the journal keys a row by"));
+    assert!(rec(&["--issue", "0"], &edit).contains("--issue is not an issue number"));
+    assert!(rec(&["--issue", "21"], &tehas_ports::Write::Prepare)
+        .contains("--issue is taken only with a comment's edit"));
+    let home = home("journal-write-edit");
+    ok_at(&home, 1000, &["poll-begin"]);
+    ok_at(
+        &home,
+        1000,
+        &[
+            "journal-record",
+            "--poll",
+            "1000",
+            "--write",
+            &write_json(&edit),
+            "--issue",
+            "21",
+            "--args",
+            "{}",
+            "--before",
+            "995",
+        ],
+    );
+    let row = &ok(&home, &["journal-open"])["actions"][0];
+    assert_eq!(row["kind"], "comment-edit");
+    assert_eq!(row["issue"], 21);
+    let kept: tehas_ports::Write = serde_json::from_value(row["args"]["write"].clone()).unwrap();
+    assert_eq!(kept, edit);
+}
+
 #[test]
 fn a_write_row_takes_no_kind_no_issue_and_no_body_in_text() {
     let reopen = write_json(&tehas_ports::Write::Reopen { ticket: ticket(7) });
@@ -472,7 +522,8 @@ fn a_write_row_takes_no_kind_no_issue_and_no_body_in_text() {
     assert!(
         rec(&["--kind", "label-add"], &reopen, "{}").contains("--kind is not taken with --write")
     );
-    assert!(rec(&["--issue", "7"], &reopen, "{}").contains("--issue is not taken with --write"));
+    assert!(rec(&["--issue", "7"], &reopen, "{}")
+        .contains("--issue is not taken with a write that names its issue"));
     assert!(rec(&[], "[1]", "{}").contains("--write is not a write the journal records"));
     assert!(rec(&[], r#"{"type":"Paint"}"#, "{}")
         .contains("--write is not a write the journal records"));
