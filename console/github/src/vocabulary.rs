@@ -6,7 +6,7 @@
 
 use serde::Deserialize;
 
-use crate::ticket::{part, Page, Pages};
+use crate::ticket::{Page, Pages};
 use crate::GitHub;
 use tehas_ports::{Bound, Got, Kind, MarkHeld, MarkId, MarkSpec, Outcome, Unread, Whole};
 
@@ -78,8 +78,6 @@ struct LabelsRepo {
 struct RepoAnswer<T> {
     #[serde(deserialize_with = "crate::ticket::present")]
     data: Option<RepoData<T>>,
-    #[serde(default)]
-    errors: Option<Vec<serde::de::IgnoredAny>>,
 }
 
 #[derive(Deserialize)]
@@ -115,7 +113,8 @@ impl GitHub {
             let out = self
                 .ask("the labels", LABELS, None, cursor.as_deref())
                 .map_err(|e| self.outcome(&e))?;
-            let page: Page<Label> = part(&out, "/data/repository/labels")?;
+            let page: Page<Label> =
+                crate::graphql::part(&out, "/data/repository/labels", (self.now)())?;
             let labels = page
                 .nodes
                 .into_iter()
@@ -214,10 +213,10 @@ impl GitHub {
                 return Err(self.question_outcome(&e, said.as_deref(), &path));
             }
         };
-        let answer: RepoAnswer<T> = serde_json::from_str(out.trim()).map_err(|_| MALFORMED)?;
-        if answer.errors.is_some_and(|e| !e.is_empty()) {
-            return Err(INCONSISTENT);
+        if let Some(refused) = crate::graphql::refusal(&out, (self.now)()) {
+            return Err(refused);
         }
+        let answer: RepoAnswer<T> = serde_json::from_str(out.trim()).map_err(|_| MALFORMED)?;
         answer
             .data
             .ok_or(MALFORMED)?
@@ -238,7 +237,7 @@ impl GitHub {
             let out = self
                 .ask("the issue types", ISSUE_TYPES, None, cursor.as_deref())
                 .map_err(|e| self.outcome(&e))?;
-            let types: Types = part(&out, "/data/repository")?;
+            let types: Types = crate::graphql::part(&out, "/data/repository", (self.now)())?;
             let Some(page) = types.issue_types else {
                 return match cursor {
                     None => Ok(Whole::default()),

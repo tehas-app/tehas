@@ -1127,9 +1127,10 @@ fn a_failed_editor_read_fails_the_answer() {
         ),
         (
             Ok(r#"{"data":null,"errors":[{"type":"RATE_LIMITED","message":"API rate limit exceeded"}]}"#.to_string()),
+            // The answer names no reset: the budget is held out a minute.
             Outcome::Spent {
                 pool: Pool::Priced,
-                until: At::new(now()),
+                until: At::new(now() + 60),
             },
         ),
         (
