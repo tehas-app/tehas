@@ -1132,15 +1132,23 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   issue behind it. The front page `/` is the plain dashboard, as
   `/dashboard` is, in both designs; `/floor` sends a reader there with a
   permanent redirect. The dock, the host messages banner, the versions
-  line and the epics list are on the dashboard now. This takes the place of
-  the business page's line above that `/` is the factory floor. The game
-  lives on outside tehas as tehas-app/buzzword-buster.
+  line and the epics list are on the dashboard now. The dashboard's
+  canonical address is `/`, and it carries no structured data: the
+  floor's SoftwareApplication block is gone. This row supersedes the
+  business page's line above that `/` is the factory floor, the row "The
+  first stage is Idea" (#2877) and the Idea line of #2899: no page shows a
+  ticket's stage now. The dashboard lists In line, Waiting for your review,
+  Stopped, needs attention, and Completed.
+  The game lives on outside tehas as tehas-app/buzzword-buster.
   Readers: adopters, visitors with a link to `/floor`, a reader of
   `buzzwords` in `live/status.json`, the consumer that runs many factories
   where it links a factory's floor, plugins that read the `--game-*`
   tokens.
-  Adopter action: none to keep tehas running: an install removes the old
-  files, and no setting changes. Point a link to `/floor` at `/`. A program
+  Adopter action: during the update, `/` answers 404 until the docs
+  container is recreated, which `tehas update` does in its
+  `docs --force-recreate` step and a person does by hand with the `docs`
+  line of [Rolling back tehas](/host#rolling-back-tehas). Point a link to `/floor`
+  at `/`. A program
   that read `buzzwords` from `live/status.json` stops: the field is gone.
   `~/tehas/state/buzzwords.at` is read by nothing and may be deleted.
 
