@@ -2032,4 +2032,132 @@ esac
         assert_eq!(h.count("write note"), 3);
         assert_eq!(h.count("store journal-settle"), 0);
     }
+
+    /// The resilience test's cases of a cycle's report (the ports spec,
+    /// "The resilience test", 1, 3 to 7, 10 and 11), over
+    /// `Faulty<FakeSite>`: each write ends with its line or lands, none is
+    /// sent twice, and the report goes on.
+    mod resilience {
+        use super::*;
+        use tehas_ports::Pool;
+
+        fn note_faulted(fault: Fault) -> Faulty<FakeSite> {
+            Faulty::new(FakeSite::new(&world())).on(Op::Tickets(TicketsOp::Note), fault)
+        }
+
+        /// Every failure a note can answer that sent nothing: each try is a
+        /// row of its own, no note lands, and what the site said is kept
+        /// for the end.
+        #[test]
+        fn a_note_the_site_will_not_take_is_tried_and_left_with_its_answer() {
+            let spent = Fault::Spent {
+                pool: Pool::Writes,
+                until: At::new(tehas_core::time::now() + 3600),
+            };
+            for fault in [
+                Fault::Timeout,
+                Fault::Unreachable,
+                Fault::Forbidden,
+                Fault::SignedOut,
+                spent,
+                Fault::Refused(Refusal::Invalid),
+            ] {
+                let h = Host::new("res-no");
+                let site = note_faulted(fault);
+                let mut writer = h.writer(&site);
+                writer.comment("Tehas cycle stopped.");
+                assert_eq!(notes_of_7(site.inner().world()), 0, "{fault:?}");
+                assert_eq!(h.count("write note"), 3, "{fault:?}");
+                assert_eq!(h.count("store journal-record"), 3, "{fault:?}");
+                assert_eq!(
+                    writer.last_failed,
+                    Failure::Answered(fault.outcome()),
+                    "{fault:?}"
+                );
+                assert_eq!(
+                    site.requests_by(&Actor::Ours(Scope::Full)),
+                    site.requests(),
+                    "{fault:?}"
+                );
+            }
+        }
+
+        /// A note that timed out, or found the site away, once lands on the
+        /// next try, once.
+        #[test]
+        fn a_note_that_timed_out_once_lands_on_the_next_try() {
+            for fault in [Fault::Timeout, Fault::Unreachable] {
+                let h = Host::new("res-once");
+                let site = note_faulted(fault).times(1);
+                let mut writer = h.writer(&site);
+                writer.comment("Tehas cycle stopped.");
+                assert_eq!(notes_of_7(site.inner().world()), 1, "{fault:?}");
+                assert_eq!(h.count("write note"), 2, "{fault:?}");
+            }
+        }
+
+        /// A note that may have landed, whose read answers oddly, signed
+        /// out or not in time, is left unknown and never sent again.
+        #[test]
+        fn a_note_whose_read_answers_oddly_is_never_sent_again() {
+            for read in [
+                Fault::Cut,
+                Fault::Inconsistent,
+                Fault::Repeated,
+                Fault::Malformed,
+                Fault::TooLarge,
+                Fault::SignedOut,
+                Fault::Timeout,
+            ] {
+                let h = Host::new("res-odd");
+                let site = note_faulted(Fault::TimeoutMaybe { applied: true })
+                    .on(Op::Blueprints(BlueprintsOp::Comments), read);
+                let mut writer = h.writer(&site);
+                writer.comment("Tehas cycle stopped.");
+                assert_eq!(h.count("write note"), 1, "{read:?}");
+                assert_eq!(notes_of_7(site.inner().world()), 1, "{read:?}");
+                assert_eq!(
+                    h.calls()
+                        .into_iter()
+                        .filter(|c| c.starts_with("store journal-settle"))
+                        .collect::<Vec<_>>(),
+                    ["store journal-settle --action 1 --result unknown"],
+                    "{read:?}"
+                );
+            }
+        }
+
+        /// A mark and an unmark forbidden or signed out: tried, left, and
+        /// nothing of the issue changed.
+        #[test]
+        fn a_change_of_marks_forbidden_or_signed_out_changes_nothing() {
+            for fault in [Fault::Forbidden, Fault::SignedOut] {
+                let h = Host::new("res-marks");
+                let w = world();
+                let site = Faulty::new(FakeSite::new(&w)).on(Op::Tickets(TicketsOp::Unmark), fault);
+                let mut writer = h.writer(&site);
+                assert!(!writer.relabel(&[running()], &[attention()]), "{fault:?}");
+                assert_eq!(h.count("write mark"), 0, "{fault:?}");
+                assert_eq!(marks_of_7(&w), vec![running()], "{fault:?}");
+                assert_eq!(writer.last_failed, Failure::Answered(fault.outcome()));
+            }
+        }
+
+        /// A read-only host: no request, no row, and the report goes on as
+        /// after writes that answered nothing.
+        #[test]
+        fn a_read_only_host_sends_nothing_and_records_no_row() {
+            let h = Host::new("res-ro");
+            let w = world();
+            let site = Faulty::new(FakeSite::new(&w));
+            let mut writer = h.writer(&site);
+            writer.ports.writes = Box::new(tehas_ports::ReadOnly);
+            writer.comment("Tehas cycle stopped.");
+            assert!(writer.relabel(&[running()], &[attention()]));
+            assert_eq!(site.requests(), 0);
+            assert_eq!(h.count("store journal-"), 0);
+            assert_eq!(marks_of_7(&w), vec![running()]);
+            assert_eq!(notes_of_7(&w), 0);
+        }
+    }
 }
