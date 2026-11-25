@@ -13,6 +13,7 @@
 //! comment's markers and changes them as `markers::edit` says, and edits
 //! only a comment the factory's own account wrote, known by its id.
 
+use super::named::ends_with_folded;
 use super::unsupported;
 use crate::{gh, markers, GitHub};
 use serde_json::Value;
@@ -419,14 +420,6 @@ pub(super) fn read_comment(out: &str, repo: &str, no: BlueprintNo) -> Got<Posted
         CommentId::new(id.to_string()),
         WebLink::new(url).map_err(|_| malformed)?,
     ))
-}
-
-/// `text` ends with `tail`, ASCII case folded: GitHub names a project in
-/// any case.
-pub(super) fn ends_with_folded(text: &str, tail: &str) -> bool {
-    text.len() >= tail.len()
-        && text.is_char_boundary(text.len() - tail.len())
-        && text[text.len() - tail.len()..].eq_ignore_ascii_case(tail)
 }
 
 /// The REST id a comment's id is. Any other id names no comment here:

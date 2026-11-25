@@ -18,6 +18,7 @@ mod code_host;
 mod code_host_writes;
 mod identity;
 mod mergeable;
+mod named;
 mod people;
 mod site;
 mod tickets;

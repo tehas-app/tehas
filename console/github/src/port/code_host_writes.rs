@@ -24,6 +24,7 @@
 
 mod open;
 
+use super::named::ends_with_folded;
 use super::{label_of, unsupported};
 use crate::{markers, ForgeError, GitHub};
 use serde_json::Value;
@@ -356,12 +357,4 @@ fn read_status(out: &str, name: &str, state: &str) -> Did {
         (Some(_), Some(_)) => Err(Outcome::Unread(Unread::Inconsistent)),
         _ => Err(Outcome::Unread(Unread::Malformed)),
     }
-}
-
-/// `text` ends with `tail`, ASCII case folded: GitHub names a project in
-/// any case.
-fn ends_with_folded(text: &str, tail: &str) -> bool {
-    text.len() >= tail.len()
-        && text.is_char_boundary(text.len() - tail.len())
-        && text[text.len() - tail.len()..].eq_ignore_ascii_case(tail)
 }

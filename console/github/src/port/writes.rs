@@ -10,7 +10,8 @@
 //! It reads the issue first, so a pull request's number is `NotFound` with
 //! nothing sent.
 
-use super::blueprint_writes::{ends_with_folded, read_comment, revision, text_revision, unsent};
+use super::blueprint_writes::{read_comment, revision, text_revision, unsent};
+use super::named::ends_with_folded;
 use super::{label_of, number, unsupported};
 use crate::forge::uri;
 use crate::vocabulary::LabelHeld;

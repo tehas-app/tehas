@@ -25,7 +25,8 @@ use std::num::{NonZeroU32, NonZeroU64};
 
 mod edits;
 
-use super::blueprint_writes::{comment_revision, ends_with_folded, read_issue, revision};
+use super::blueprint_writes::{comment_revision, read_issue, revision};
+use super::named::ends_with_folded;
 use super::unsupported;
 use crate::ticket::CUT_TEXT;
 use crate::tickets::{account, Bot};

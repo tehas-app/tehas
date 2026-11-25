@@ -31,7 +31,8 @@
 
 use std::collections::BTreeSet;
 
-use super::super::blueprint_writes::{comment_revision, ends_with_folded};
+use super::super::blueprint_writes::comment_revision;
+use super::super::named::ends_with_folded;
 use crate::tickets::{account, Bot};
 use crate::{gh, markers, GitHub};
 use serde::Deserialize;

@@ -36,7 +36,8 @@
 //! repository is compared by its configured name, case folded: a project
 //! renamed on GitHub needs its configured name changed in the same step.
 
-use super::{ends_with_folded, project, unsent};
+use super::super::named::ends_with_folded;
+use super::{project, unsent};
 use crate::forge::uri;
 use crate::{gh, markers, GitHub};
 use serde::Deserialize;
