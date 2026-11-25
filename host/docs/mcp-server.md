@@ -72,7 +72,7 @@ files. A key the files gain later is not served until a release names it.
 
 On a factory that works on a private repository, a full key gives its holder
 that repository's code, issue text and model output as the agents saw them, in
-the logs. Give one only to someone who may read the repository. The four tools
+the logs. Give one only to someone who may read the repository. The three tools
 of a dashboard key copy the dashboard's own numbers and issue titles, which is
 what the dashboard publishes, and no log line: give one where the logs are what
 you would rather keep on the host. The mask takes

@@ -667,7 +667,7 @@ fn factory_disk_is_listed_and_answers() {
         .collect();
     assert!(listed.contains(&"factory_disk"), "{listed:?}");
     // A dashboard key is not served it: of the full catalog it is given only
-    // the four tools that copy from the live files.
+    // the three tools that copy from the live files.
     let short = list_scoped(Scope::Dashboard);
     let dashboard: Vec<&str> = short
         .as_array()
