@@ -378,16 +378,6 @@ pub fn gh_env(token: Option<&str>) -> Vec<(&str, &str)> {
     }
 }
 
-/// What a failed store call's line says, cut as the bash cuts it: the control
-/// characters of anything a container wrote are no part of a log line, and a
-/// line over 300 of them is no part of one either.
-pub fn trim(line: &str) -> String {
-    line.chars()
-        .map(|c| if c.is_control() { '?' } else { c })
-        .take(300)
-        .collect()
-}
-
 /// The first word of the store's line, as every caller takes it:
 /// the text after `store: `, of lowercase letters, digits of the alphabet, `_`
 /// and `-`. Nothing when the line is not the store's own, which is the case a
@@ -479,7 +469,7 @@ pub fn store_executable(store: &str) -> bool {
 
 /// The failure of a store call: {failed, word, rc, line}.
 pub fn store_failed(rc: i32, word: &str, line: &str) -> Value {
-    json!({"failed": true, "rc": rc, "word": word, "line": trim(line)})
+    json!({"failed": true, "rc": rc, "word": word, "line": crate::text::trim(line)})
 }
 
 /// The store's answer to one verb, or its failure: {failed, word, rc, line}.
