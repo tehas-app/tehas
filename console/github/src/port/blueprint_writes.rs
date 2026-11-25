@@ -10,7 +10,8 @@
 //! number or id. `open`, `edit` and `comment` carry no marker: a write that
 //! names one, or whose text holds one, is refused before any request, and
 //! an edit that would drop one is refused too. `edit_comment` keeps the
-//! comment's markers and changes them as `markers::edit` says.
+//! comment's markers and changes them as `markers::edit` says, and edits
+//! only a comment the factory's own account wrote, known by its id.
 
 use super::unsupported;
 use crate::{gh, markers, GitHub};
@@ -140,6 +141,15 @@ impl BlueprintWrites for GitHub {
     /// the `PATCH` stays open: another account's edit in it is overwritten.
     /// A caller that cares reads again after.
     ///
+    /// Only the factory's own comment is edited (the tehas ports owner's
+    /// ruling): the read's author must carry the user id of the site's bot
+    /// account and be typed a bot, as `Bot::is` decides. Any other author,
+    /// a person's, another bot's, or an author missing or unread, is
+    /// `Forbidden` with nothing sent, and so is every comment through a
+    /// handle that knows no bot id, one made with [`GitHub::new`]. The
+    /// login decides nothing: a renamed App changes it and another account
+    /// may hold it.
+    ///
     /// `body` takes the place of the comment's text and its markers change
     /// as [`markers::edit`] says, the ones not named kept where they stand;
     /// the whole is read back before it is sent (Decided 116). A body that
@@ -166,6 +176,9 @@ impl BlueprintWrites for GitHub {
         let n = comment_number(id)?;
         let path = format!("{}/issues/comments/{n}", self.issues()?);
         let now = self.comment_before(&path, n)?;
+        if !self.bot.as_ref().is_some_and(|b| b.is(&now.author)) {
+            return Err(Outcome::Forbidden);
+        }
         if now.revision != *since {
             return Err(Outcome::Conflict(Lost::Changed));
         }
@@ -427,6 +440,9 @@ fn comment_number(id: &CommentId) -> Got<u64> {
 /// A comment of this project's issue `no` as its REST read answers it.
 struct Held {
     no: BlueprintNo,
+    /// Its author's user id and type as GitHub gives them, each None where
+    /// the answer names none or not as GitHub writes it.
+    author: gh::Facts,
     body: String,
     link: WebLink,
     revision: Revision,
@@ -455,8 +471,17 @@ fn held(out: &str, repo: &str, n: u64) -> Got<Held> {
         Some(_) => return Err(malformed),
     };
     let no = comment_issue(repo, url, n)?;
+    let user = v.get("user");
+    let author = gh::Facts {
+        id: user.and_then(|u| u.get("id")).and_then(Value::as_u64),
+        kind: user
+            .and_then(|u| u.get("type"))
+            .and_then(Value::as_str)
+            .map(str::to_string),
+    };
     Ok(Held {
         no,
+        author,
         revision: comment_revision(&body),
         body,
         link: WebLink::new(url).map_err(|_| malformed)?,

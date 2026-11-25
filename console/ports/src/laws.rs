@@ -1635,6 +1635,68 @@ pub mod blueprints {
         })
     }
 
+    /// `edit_comment` edits only a comment the handle's own account wrote,
+    /// at every standing: a comment another account wrote is `Forbidden`
+    /// and is not written, its text and revision as they were; the handle's
+    /// own comment is edited and its revision moves. The fixture's
+    /// blueprint `no` holds the comment `ours`, written by the handle's
+    /// account, and `theirs`, written by another account.
+    pub fn only_its_own_comment_is_edited(
+        h: &mut dyn BlueprintWrites,
+        no: BlueprintNo,
+        ours: &CommentId,
+        theirs: &CommentId,
+    ) -> Law {
+        const LAW: &str = "blueprints::only_its_own_comment_is_edited";
+        fn find(
+            h: &mut dyn BlueprintWrites,
+            no: BlueprintNo,
+            id: &CommentId,
+        ) -> Result<crate::Comment, super::Broken> {
+            let bound = Bound::new(100).expect("a bound above zero");
+            let all = got(LAW, "the comments", h.comments(no, bound))?.into_items();
+            all.into_iter()
+                .find(|c| c.id == *id)
+                .ok_or_else(|| super::Broken {
+                    law: LAW.into(),
+                    what: format!("the fixture holds no comment {id:?}"),
+                })
+        }
+        let before = find(h, no, theirs)?;
+        let refused = h.edit_comment(
+            theirs,
+            "Taken over.",
+            &MarkerEdit::default(),
+            &before.revision,
+        );
+        hold(refused == Err(Outcome::Forbidden), LAW, || {
+            format!("editing another account's comment answered {refused:?}")
+        })?;
+        let after = find(h, no, theirs)?;
+        hold(
+            after.revision == before.revision && after.body == before.body,
+            LAW,
+            || "a refused edit wrote the comment".into(),
+        )?;
+        let mine = find(h, no, ours)?;
+        got(
+            LAW,
+            "the edit of our own",
+            h.edit_comment(
+                ours,
+                "Ours, edited.",
+                &MarkerEdit::default(),
+                &mine.revision,
+            ),
+        )?;
+        let edited = find(h, no, ours)?;
+        hold(
+            edited.revision != mine.revision && edited.body == "Ours, edited.",
+            LAW,
+            || "our own comment's edit did not land".into(),
+        )
+    }
+
     /// An edit moves the revision, and an edit at the old revision is then
     /// `Conflict(Changed)`.
     pub fn an_edit_moves_the_revision(h: &mut dyn BlueprintWrites, no: BlueprintNo) -> Law {

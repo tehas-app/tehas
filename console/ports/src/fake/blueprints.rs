@@ -295,7 +295,8 @@ impl BlueprintWrites for Handle {
         })
     }
 
-    /// A comment deleted since it was read is `Conflict(Gone)`; one that
+    /// A comment deleted since it was read is `Conflict(Gone)`; one
+    /// another account wrote is `Forbidden` at every standing; one that
     /// changed, `Conflict(Changed)`.
     fn edit_comment(
         &mut self,
@@ -310,7 +311,7 @@ impl BlueprintWrites for Handle {
             if s.comments[at].gone {
                 return Err(Outcome::Conflict(Lost::Gone));
             }
-            ctx.own(s, s.comments[at].author.as_ref())?;
+            ctx.authored(s, s.comments[at].author.as_ref())?;
             if revision(s.comments[at].revision) != *since_rev {
                 return Err(Outcome::Conflict(Lost::Changed));
             }

@@ -407,6 +407,17 @@ impl Ctx {
         Ok(())
     }
 
+    /// `Forbidden` unless the handle's own account wrote it, known by its
+    /// id, at every standing: what `BlueprintWrites::edit_comment` edits.
+    /// No author, or one with no id, is `Forbidden` too.
+    pub fn authored(&self, s: &State, author: Option<&Account>) -> Got<()> {
+        let mine = self.me(s).id;
+        match author.and_then(|a| a.id.as_ref()) {
+            Some(id) if mine.as_ref() == Some(id) => Ok(()),
+            _ => Err(Outcome::Forbidden),
+        }
+    }
+
     /// `Forbidden` where a cycle's ticket or blueprint write carries more
     /// than text (`bare` false): a marker, a mark, a kind, a priority, a
     /// target or a parent. Its relay passes a title, a body and an item

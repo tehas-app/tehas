@@ -2930,7 +2930,8 @@ fn the_writer_sends_each_write_to_its_port_and_answers_its_receipt() {
     let head = w.head("work").unwrap();
     let w = w
         .tag("v1.0.0", &head)
-        .blueprint(1, |b| b.comment("alice", "hello"));
+        // The factory's own comment: `edit_comment` edits no other.
+        .blueprint(1, |b| b.comment(FACTORY, "hello"));
     let site = FakeSite::new(&w);
     let mut writer = Writer {
         tickets: site.ticket_writes(&full(), C).unwrap(),
@@ -4645,6 +4646,59 @@ fn triage_is_below_write_and_maintain_is_not() {
     let tia = id.account_by_login(&Login::new("tia")).unwrap();
     let standing = id.standing(tia.id.as_ref().unwrap()).unwrap();
     assert_eq!(standing, Standing::Triage);
+}
+
+#[test]
+fn blueprints_only_its_own_comment_is_edited_at_every_standing() {
+    let people = [
+        ("bob", Some(Standing::Admin)),
+        ("max", Some(Standing::Maintain)),
+        ("wes", Some(Standing::Write)),
+        ("tia", Some(Standing::Triage)),
+        ("ned", None),
+    ];
+    let mut actors = vec![(full(), FACTORY), (Actor::Operator, OPERATOR)];
+    for (login, _) in people {
+        actors.push((
+            Actor::Person(PersonKey::new(&format!("{login}-key"))),
+            login,
+        ));
+    }
+    for (by, login) in &actors {
+        for mut world in both() {
+            let no = first_blueprint(&world);
+            for (person, standing) in people {
+                world = world.person(&format!("{person}-key"), person);
+                if let Some(standing) = standing {
+                    world = world.with_account(person, AccountKind::Person, standing);
+                }
+            }
+            let world = world.blueprint(no, |b| {
+                b.title("a plan")
+                    .author("alice")
+                    .comment(login, "ours")
+                    .comment("alice", "theirs")
+            });
+            let site = FakeSite::new(&world);
+            let mut h = site.blueprint_writes(by, C).unwrap();
+            let all = h.comments(bp(no), b(10)).unwrap().into_items();
+            let id = |body: &str| all.iter().find(|c| c.body == body).unwrap().id.clone();
+            let (ours, theirs) = (id("ours"), id("theirs"));
+            ok(laws::blueprints::only_its_own_comment_is_edited(
+                h.as_mut(),
+                bp(no),
+                &ours,
+                &theirs,
+            ));
+            assert!(
+                !site.world().wrote().iter().any(|r| matches!(
+                    &r.what,
+                    Write::EditComment { id, .. } if *id == theirs
+                )),
+                "{login}: the refused edit is written down"
+            );
+        }
+    }
 }
 
 #[test]

@@ -318,6 +318,12 @@ pub trait BlueprintWrites: Blueprints {
     /// window of a moment remains; the adapter's contract test states it.
     /// Markers not named in `markers` are kept: an answer's tick keeps the
     /// question's marker.
+    ///
+    /// Only a comment the handle's own account wrote is edited, at every
+    /// standing: one another account wrote, or whose author is missing or
+    /// cannot be read, is `Forbidden` and nothing is written. The author is
+    /// known by its `AccountId`, never by its login; a handle that cannot
+    /// tell its own account's id edits no comment.
     fn edit_comment(
         &mut self,
         id: &CommentId,
