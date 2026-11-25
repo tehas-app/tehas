@@ -62,12 +62,23 @@ impl Default for Curl {
 }
 
 /// One answer: its status, its headers with their names in lower case, and
-/// its body.
-#[derive(Debug)]
+/// its body. Its `Debug` shows the status and the headers' names alone: a
+/// trade's body holds the person's token.
 pub(crate) struct Answer {
     pub(crate) status: u16,
     headers: Vec<(String, String)>,
     pub(crate) body: Vec<u8>,
+}
+
+impl std::fmt::Debug for Answer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let names: Vec<&str> = self.headers.iter().map(|(n, _)| n.as_str()).collect();
+        f.debug_struct("Answer")
+            .field("status", &self.status)
+            .field("headers", &names)
+            .field("body", &format_args!("{} bytes", self.body.len()))
+            .finish()
+    }
 }
 
 impl Answer {
@@ -437,6 +448,19 @@ mod tests {
         assert_eq!(
             a.trade(&[("a=b", "x")], LIMIT).unwrap_err(),
             Outcome::Refused(Refusal::Invalid)
+        );
+    }
+
+    #[test]
+    fn an_answer_shows_no_header_value_and_no_body() {
+        let a =
+            parse(b"HTTP/2 200 \r\nset-cookie: s3cret\r\n\r\n{\"access_token\":\"gho_s3cret\"}")
+                .unwrap();
+        let shown = format!("{a:?}");
+        assert!(!shown.contains("s3cret"), "{shown}");
+        assert_eq!(
+            shown,
+            r#"Answer { status: 200, headers: ["set-cookie"], body: 29 bytes }"#
         );
     }
 

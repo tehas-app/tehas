@@ -152,7 +152,7 @@ impl GitHub for People {
 fn ask(x: &mut Peek, home: &Path, args: &Value, caller: &Caller) -> Result<Value, Failed> {
     call(
         x,
-        &People::default(),
+        Some(&People::default()),
         home,
         &settings("tool:find-doc"),
         "floorplan",
@@ -304,7 +304,7 @@ fn a_call_not_ready_or_granted_is_refused_and_runs_nothing() {
     let (home, mut x) = world("call-refused", out("{}"));
     let other = call(
         &mut x,
-        &People::default(),
+        Some(&People::default()),
         &home,
         &settings("tool:find-doc"),
         "floorplan",
@@ -320,7 +320,7 @@ fn a_call_not_ready_or_granted_is_refused_and_runs_nothing() {
     );
     let ungranted = call(
         &mut x,
-        &People::default(),
+        Some(&People::default()),
         &home,
         &settings(""),
         "floorplan",
@@ -416,7 +416,7 @@ fn an_mcp_key_id_is_8_lower_case_hex_and_the_rows_by() {
 fn as_login(x: &mut Peek, gh: &dyn GitHub, home: &Path, login: &str) -> Result<Value, Failed> {
     call(
         x,
-        gh,
+        Some(gh),
         home,
         &settings("tool:find-doc"),
         "floorplan",
@@ -526,6 +526,25 @@ fn an_account_id_that_cannot_name_a_lock_is_refused() {
         assert_eq!(super::lock_safe(&AccountId::new(id)), safe, "{id:?}");
     }
     assert!(!super::lock_safe(&AccountId::new("9".repeat(65))));
+}
+
+/// With no way to ask the code host, a call for a login is refused before
+/// any row.
+#[test]
+fn a_login_with_nothing_to_ask_is_refused() {
+    let (home, mut x) = world("call-unasked", out("{}"));
+    let got = call(
+        &mut x,
+        None,
+        &home,
+        &settings("tool:find-doc"),
+        "floorplan",
+        "find-doc",
+        &q(),
+        &Caller::Login("octocat".into()),
+    );
+    assert_eq!(got, Err(Failed::Refused(super::NO_HOST.into())));
+    assert_eq!(rows(&home).len(), 0);
 }
 
 #[test]
