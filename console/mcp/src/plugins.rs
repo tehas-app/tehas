@@ -419,7 +419,7 @@ mod tests {
 
     #[test]
     fn a_broker_that_is_not_there_serves_nothing() {
-        let dir = tehas_core::testdir::TestDir::new("mcp-plugins-none");
+        let dir = tehas_core::testdir::TestDir::short();
         let sock = dir.join("calls.sock");
         assert_eq!(list(&sock), vec![]);
         let t = &tools_of(vec![row("docs", "find")])[0];
@@ -446,12 +446,13 @@ mod tests {
         )
     }
 
-    /// A broker on a socket in a new directory that answers each connection
-    /// with the next of <answers> and sends what it was asked.
+    /// A broker on a socket in a new short directory, so the socket path stays
+    /// under SUN_LEN, that answers each connection with the next of <answers>
+    /// and sends what it was asked.
     fn broker_answering(
         answers: Vec<String>,
     ) -> (tehas_core::testdir::TestDir, mpsc::Receiver<String>) {
-        let dir = tehas_core::testdir::TestDir::new("mcp-plugins");
+        let dir = tehas_core::testdir::TestDir::short();
         let listener = UnixListener::bind(dir.join("calls.sock")).unwrap();
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {

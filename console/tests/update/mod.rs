@@ -27,7 +27,7 @@ pub const MINIMAL: &[&str] = &[
 
 /// The logins whose user ids an install records (T_LOGINS).
 pub const LOGINS: &[&str] = &[
-    "tehas-bot",
+    "tehas-bot[bot]",
     "alice",
     "bob",
     "bob-2",
@@ -94,6 +94,7 @@ if [ "$t_rc" = 0 ] && [ ! -s "$t_got" ]; then
   case "$1 $2 $3 $4" in
     "api users/"*" --jq .id") jq -rn --arg l "${2#users/}" '$l | sub("\\[bot\\]$"; "") | explode | add' >"$t_got" ;;
     "api repos/"*/labels/*" --jq .node_id") t_l=${2##*/}; echo "LA_${t_l#tehas:}" >"$t_got" ;;
+    "api "*) case "$*" in *"nodes { name color description }"*) cat "$T_ROOT/test/fixtures/labels-none.json" >"$t_got" ;; esac ;;
   esac
 fi
 if command -p grep -q '"login"' "$t_got" &&

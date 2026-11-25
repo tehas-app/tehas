@@ -392,9 +392,9 @@ command -p cat "$t_got.e" >&2
 if [ "$t_rc" = 0 ] && [ ! -s "$t_got" ]; then
   case "$1 $2 $3 $4" in
     "api users/"*" --jq .id") jq -rn --arg l "${2#users/}" '$l | sub("\\[bot\\]$"; "") | explode | add' >"$t_got" ;;
-    # The node id tehas labels pins a label to (src/labels.rs): LA_ and the
-    # label's name after tehas:, unless the body answers it.
+    # A label's node id (src/labels.rs) is LA_ and its name after tehas:; the labels read before they are made are none.
     "api repos/"*/labels/*" --jq .node_id") t_l=${2##*/}; echo "LA_${t_l#tehas:}" >"$t_got" ;;
+    "api "*) case "$*" in *"nodes { name color description }"*) cat "$T_ROOT/test/fixtures/labels-none.json" >"$t_got" ;; esac ;;
   esac
 fi
 if command -p grep -q '"login"' "$t_got" &&
@@ -422,13 +422,13 @@ t_calls() { cat "$T/calls/$1" 2>/dev/null || true; }
 t_uid() { jq -rn --arg l "$1" '$l | sub("\\[bot\\]$"; "") | explode | add'; }
 # t_ids <home> [<login>...]: the user ids install.sh and tehas update record,
 # in <home>/state/account-ids, of every login the tests list unless named.
-T_LOGINS=(tehas-bot alice bob bob-2 carol boss tehas-millwright tehas-mill millbot mill-bot acme-millwright acme-app-millwright)
+T_LOGINS=("tehas-bot[bot]" alice bob bob-2 carol boss tehas-millwright tehas-mill millbot mill-bot acme-millwright acme-app-millwright)
 t_ids() {
   local home=$1 l
   shift
   [ "$#" -gt 0 ] || set -- "${T_LOGINS[@]}"
   mkdir -p "$home/state"
-  for l in "$@"; do printf '%s %s\n' "${l%\[bot\]}" "$(t_uid "$l")"; done >"$home/state/account-ids"
+  for l in "$@"; do printf '%s %s\n' "$l" "$(t_uid "$l")"; done >"$home/state/account-ids"
 }
 
 # t_unstub NAME...: take a stub away, and leave nothing for the run to find in
