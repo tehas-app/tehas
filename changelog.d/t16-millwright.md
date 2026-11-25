@@ -8,4 +8,4 @@
 
 ### Adopter action
 
-None. The state store migrates to schema 28 at the next `tehas update`. A program that reads the store's approval or planning views, or filters runs by `how`, reads `millwright` and `millwright_refused`.
+None. The state store migrates to 2.0's schema, 32, at the next `tehas update`; its step to schema 28 makes this change. A program that reads the store's approval or planning views, or filters runs by `how`, reads `millwright` and `millwright_refused`.

@@ -1560,7 +1560,7 @@ fn a_handshake_asks_the_fetch_socket_for_a_fetch() {
             .unwrap()
             .success();
     assert!(ok);
-    let sock_dir = TestDir::new("mcp-serve-fetch-sock");
+    let sock_dir = TestDir::short();
     let socket = sock_dir.join("fetch.sock");
     let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
     let dir = repo.display().to_string();

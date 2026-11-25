@@ -19,14 +19,14 @@
 //!
 //! A comment carries no marker: this adapter has no writer of markers
 //! beside a body yet, so one named is `Refused(Unsupported)` and a body
-//! that holds one is `Refused(Invalid)`.
+//! that holds one, as `markers::foreign_text` finds it, is
+//! `Refused(Invalid)`.
 
 mod open;
 
 use super::{label_of, unsupported};
-use crate::{ForgeError, GitHub};
+use crate::{markers, ForgeError, GitHub};
 use serde_json::Value;
-use tehas_core::text::has_marker;
 use tehas_ports::{
     Applied, Blobs, ChangeNo, CodeHostWrites, CommentId, CommitId, Did, FileName, Got, Mark,
     Marker, MarkerEdit, MergeHow, NewChange, NewRelease, Outcome, Pool, Posted, Proposal,
@@ -105,7 +105,7 @@ impl CodeHostWrites for GitHub {
         if !markers.is_empty() {
             return unsupported();
         }
-        if has_marker(body) {
+        if markers::foreign_text(body) {
             return Err(Outcome::Refused(Refusal::Invalid));
         }
         let path = format!("{}/issues/{}/comments", project(&self.repo)?, no.get());
@@ -140,14 +140,15 @@ impl CodeHostWrites for GitHub {
     /// keeps the newest of a name, so the same status sent again is the
     /// same answer, and a row left unknown is settled by sending it again.
     /// Its about is cut to the characters GitHub keeps. A name that is
-    /// empty or more than one line, or an about that holds a marker, is
+    /// empty or more than one line, or an about that holds a marker as
+    /// `markers::foreign_text` finds one, is
     /// `Refused(Invalid)` with nothing sent.
     fn set_status(&mut self, at: &CommitId, status: &Status) -> Did {
         let path = format!("{}/statuses/{}", project(&self.repo)?, at.as_str());
         if status.name.trim().is_empty() || status.name.contains(['\n', '\r']) {
             return Err(Outcome::Refused(Refusal::Invalid));
         }
-        if has_marker(&status.about) {
+        if markers::foreign_text(&status.about) {
             return Err(Outcome::Refused(Refusal::Invalid));
         }
         let state = status_state(status.state);

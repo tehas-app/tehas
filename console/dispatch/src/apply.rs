@@ -593,6 +593,7 @@ impl Writer {
             log.push(format!("WARN: comment on #{n} failed"));
             return false;
         };
+        let markers_empty = markers.is_empty();
         let note = Write::TicketNote {
             ticket,
             body: Body::Text(body.to_string()),
@@ -603,11 +604,11 @@ impl Writer {
             .chain(["--body-file", "-"])
             .map(str::to_string)
             .collect();
-        // A text that still holds our marker inside it goes as 1.x wrote
-        // it, through gh, until its site gives the marker typed beside the
-        // text (the finish's at T4.7's step 5): a write of the ports
-        // refuses it.
-        let wrote = if tehas_core::text::has_marker(body) {
+        // A text that holds our marker inside it, with none typed beside
+        // it, goes as 1.x wrote it, through gh: a write of the ports refuses
+        // it. One given its markers typed never goes through gh: the port
+        // refuses a marker in its text, and no gh call writes it there.
+        let wrote = if markers_empty && tehas_core::text::has_marker(body) {
             self.write(n, "comment-post", args, Some(body), None)
         } else {
             match self.looked_1x(n, "comment-post", &args, Some(body)) {
@@ -768,10 +769,17 @@ impl Writer {
         } else {
             Write::Unmark { ticket, mark }
         };
-        match self.send(n, &write) {
+        let wrote = self.send(n, &write);
+        Self::label_landed(n, wrote, fail, log)
+    }
+
+    /// Whether a part of a label change went: true when done, else false with
+    /// its line said, after `fail` when it failed.
+    fn label_landed(n: u64, wrote: Wrote, fail: &str, log: &mut Vec<String>) -> bool {
+        match wrote {
             Wrote::Done(_) => true,
             Wrote::Failed(why) => {
-                log.push(format!("{}{why}", fail));
+                log.push(format!("{fail}{why}"));
                 false
             }
             Wrote::Unknown(why) => {
@@ -898,7 +906,7 @@ impl Writer {
         }
         // A stop closed with nothing to ask no longer waits on a question.
         if let Some(label) = r.unlabel {
-            if !self.edit_labels(n, &[("--remove-label", label)]) {
+            if !self.edit_labels(n, &[("--remove-label", label)], log) {
                 log.push(format!(
                     "WARN: the question's label could not be taken off #{n}"
                 ));
