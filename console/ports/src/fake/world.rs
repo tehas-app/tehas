@@ -689,16 +689,15 @@ impl World {
     /// Put a label on a ticket by the site's own name, one no mark need
     /// give, such as `won't fix`, as a person does on the site. It stands
     /// after the marks the ticket carries now, and before any put on
-    /// later; a name the ticket holds already is held once. Only
-    /// `TicketDigest.labels` shows it: `marks` leaves it out, and no
-    /// write, event or revision follows (Decided 130).
+    /// later. Names are one whatever their case, as on the site: a name
+    /// the ticket holds already, by a mark or by name, is held once, and
+    /// a mark of that name put on later takes its place. An empty name
+    /// is no label. Only `TicketDigest.labels` shows it: `marks` leaves
+    /// it out, and no write, event or revision follows (Decided 130).
     pub fn label(&self, key: &TicketKey, name: &str) {
         let mut s = self.lock();
         if let Some(at) = s.ticket_at(key) {
-            let item = &mut s.items[at];
-            if !item.labels.iter().any(|(_, n)| n == name) {
-                item.labels.push((item.marks.len(), name.to_string()));
-            }
+            s.items[at].label(name);
         }
     }
 

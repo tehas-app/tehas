@@ -598,8 +598,7 @@ fn mark(s: &mut State, ctx: &Ctx, key: &TicketKey, m: &Mark) -> Did {
     if !s.items[at].open {
         return Err(Outcome::Refused(Refusal::Invalid));
     }
-    if !s.items[at].marks.contains(m) {
-        s.items[at].marks.push(m.clone());
+    if s.items[at].put_mark(m) {
         event(s, at, ctx, Happened::Marked(m.clone()));
     }
     ctx.wrote(
@@ -616,14 +615,7 @@ fn mark(s: &mut State, ctx: &Ctx, key: &TicketKey, m: &Mark) -> Did {
 fn unmark(s: &mut State, ctx: &Ctx, key: &TicketKey, m: &Mark) -> Did {
     known_mark(m)?;
     let at = at_ticket(s, key)?;
-    if let Some(i) = s.items[at].marks.iter().position(|x| x == m) {
-        s.items[at].marks.remove(i);
-        // A label that stood after the mark taken off keeps its place.
-        for (after, _) in &mut s.items[at].labels {
-            if *after > i {
-                *after -= 1;
-            }
-        }
+    if s.items[at].take_mark(m) {
         event(s, at, ctx, Happened::Unmarked(m.clone()));
     }
     ctx.wrote(
@@ -848,8 +840,7 @@ impl TicketWrites for Handle {
             item.priority = new.priority;
             item.target = new.target.clone();
             for m in &new.marks {
-                if !s.items[at].marks.contains(m) {
-                    s.items[at].marks.push(m.clone());
+                if s.items[at].put_mark(m) {
                     event(s, at, ctx, Happened::Marked(m.clone()));
                 }
             }

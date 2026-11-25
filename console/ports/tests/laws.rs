@@ -395,6 +395,58 @@ fn tickets_every_label_is_in_labels_in_order_with_names_no_mark_gives() {
 }
 
 #[test]
+fn tickets_a_name_a_mark_gives_is_one_label() {
+    for w in both() {
+        let bug = Mark::Project(MarkName::new("bug").unwrap());
+        let w = w
+            .ticket(6, |t| t.title("marked first").mark(bug.clone()))
+            .ticket(7, |t| t.title("named first"));
+        // A name a mark gives already, in any case, and an empty name
+        // add nothing.
+        for name in ["bug", "BUG", ""] {
+            w.label(&w.key(6), name);
+        }
+        w.label(&w.key(7), "won't fix");
+        w.label(&w.key(7), "Bug");
+        w.label(&w.key(7), "c++");
+        w.label(&w.key(7), "C++");
+        let site = FakeSite::new(&w);
+        let mut h = site.tickets(&full(), C).unwrap();
+        let mut wr = site.ticket_writes(&full(), C).unwrap();
+        let names = |n: &[&str]| n.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let held = [
+            (w.key(6), names(&["bug"])),
+            (w.key(7), names(&["won't fix", "Bug", "c++"])),
+        ];
+        ok(laws::tickets::every_label_is_in_labels_in_order(
+            h.as_mut(),
+            &held,
+            b(50),
+        ));
+        // The mark of a name held takes the name's place.
+        wr.mark(&w.key(7), &bug).unwrap();
+        let held = [(w.key(7), names(&["won't fix", "bug", "c++"]))];
+        ok(laws::tickets::every_label_is_in_labels_in_order(
+            h.as_mut(),
+            &held,
+            b(50),
+        ));
+        // Taking the mark off takes the label off.
+        wr.unmark(&w.key(6), &bug).unwrap();
+        wr.unmark(&w.key(7), &bug).unwrap();
+        let held = [
+            (w.key(6), names(&[])),
+            (w.key(7), names(&["won't fix", "c++"])),
+        ];
+        ok(laws::tickets::every_label_is_in_labels_in_order(
+            h.as_mut(),
+            &held,
+            b(50),
+        ));
+    }
+}
+
+#[test]
 fn tickets_recent_and_recently_closed_are_newest_updated_first() {
     for w in both() {
         let w = w.ticket(1, |t| t.title("oldest").mark(Mark::Epic));

@@ -1129,17 +1129,14 @@ pub(crate) fn digest(s: &State, item: &ItemRec) -> Option<TicketDigest> {
     })
 }
 
-/// A ticket's label names in the site's order, the order they were put
-/// on: each mark by its name (`mark_name`), and each name `World::label`
-/// put on among them where it was put on, as the site answers in the
-/// adapter's recorded samples of `labels`, an adapter keeping the site's
-/// order as it stands. A name a mark gives is held once, where the mark
-/// stands.
+/// A ticket's label names in the order they were put on: each mark by
+/// its name (`mark_name`), and each name `World::label` put on among
+/// them where it was put on. `ItemRec` holds a name once.
 fn labels(item: &ItemRec) -> Vec<String> {
     let marks: Vec<String> = item.marks.iter().map(mark_name).collect();
     let raw = |n: usize| {
         (item.labels.iter())
-            .filter(|(after, name)| *after == n && !marks.contains(name))
+            .filter(|(after, _)| *after == n)
             .map(|(_, name)| name.clone())
             .collect::<Vec<_>>()
     };
