@@ -276,10 +276,18 @@ impl GitHub {
         if !unread(&first) || unread(&check(Named::Any)) {
             return first;
         }
-        match self.here_name() {
-            Some(name) if !name.eq_ignore_ascii_case(&self.repo) => check(Named::As(&name)),
-            _ => first,
+        match self.renamed() {
+            Some(name) => check(Named::As(&name)),
+            None => first,
         }
+    }
+
+    /// The name GitHub gives this project's repository with its database
+    /// id, where it is not the configured name: learned as `as_here` learns
+    /// it.
+    pub(crate) fn renamed(&mut self) -> Option<String> {
+        self.here_name()
+            .filter(|name| !name.eq_ignore_ascii_case(&self.repo))
     }
 
     /// The name GitHub gives this project's repository with its database

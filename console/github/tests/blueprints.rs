@@ -309,3 +309,68 @@ fn past_githubs_reach_a_search_that_cannot_tell_is_inconsistent() {
     assert_eq!((took.items.len(), took.more), (150, true));
     assert_eq!(asked.lock().unwrap().len(), 2);
 }
+
+/// A search answered under the name GitHub gives the project now, with one
+/// hit of another repository; and the name `repository` answers by the
+/// configured one.
+struct Renamed {
+    now: &'static str,
+    asked: Asked,
+}
+
+impl GhRunner for Renamed {
+    fn run(&mut self, args: &[&str]) -> Result<String, String> {
+        self.asked.lock().unwrap().push(args.join(" "));
+        if args[..2] == ["api", "graphql"] {
+            return Ok(format!(
+                r#"{{"data":{{"repository":{{"databaseId":7001,"nameWithOwner":"{}"}}}}}}"#,
+                self.now
+            ));
+        }
+        let item = |no: u32, repo: &str| {
+            format!(
+                r#"{{"number":{no},"title":"Report {no}","state":"open","body":null,"repository_url":"https://api.github.com/repos/{repo}"}}"#
+            )
+        };
+        Ok(format!(
+            r#"{{"total_count":3,"incomplete_results":false,"items":[{},{},{}]}}"#,
+            item(1, PROJECT),
+            item(2, "Acme/Widget"),
+            item(3, "stranger/widget")
+        ))
+    }
+}
+
+/// An instance that still names the project's old name finds its own
+/// issues by the name GitHub gives with the repository's id, asked once;
+/// a hit of another repository is still not one.
+#[test]
+fn a_renamed_project_still_finds_its_issues_by_its_repository_id() {
+    let asked = Asked::default();
+    let renamed = Renamed {
+        now: PROJECT,
+        asked: Arc::clone(&asked),
+    };
+    let mut gh = GitHub::new("acme/widget-before", Box::new(renamed));
+    let took = gh.search("report", Within::Titles, None, n(5)).unwrap();
+    let found: Vec<_> = took.items.iter().map(|h| h.no.get()).collect();
+    assert_eq!(found, [1, 2]);
+    let asked = asked.lock().unwrap();
+    assert_eq!(asked.len(), 2);
+    assert!(asked[1].starts_with("api graphql"), "{asked:?}");
+}
+
+/// Where the configured name is GitHub's, a hit of another repository is
+/// dropped and nothing more is read.
+#[test]
+fn a_search_hit_of_another_repository_is_not_one_of_this_projects() {
+    let asked = Asked::default();
+    let same = Renamed {
+        now: PROJECT,
+        asked: Arc::clone(&asked),
+    };
+    let mut gh = GitHub::new(PROJECT, Box::new(same));
+    let took = gh.search("report", Within::Titles, None, n(5)).unwrap();
+    let found: Vec<_> = took.items.iter().map(|h| h.no.get()).collect();
+    assert_eq!(found, [1, 2]);
+}
