@@ -782,6 +782,7 @@ pub fn run_poll(
         &mut end,
         &retry,
         wiring.handles,
+        wiring.board,
     );
     // The lines the poll's reads left, of both its `Calls`, said once here and
     // nowhere else: `taken` empties the shared queue, so the drain of `body` and
@@ -808,6 +809,7 @@ fn body(
     end: &mut End,
     retry: &RetryPolicy,
     handles: crate::apply::HandlesOf,
+    board: crate::apply::BoardOf,
 ) -> i32 {
     // The journal first, before GitHub is read for the queue: what a poll
     // that died between two writes left is settled from fresh reads. One that
@@ -846,6 +848,7 @@ fn body(
         models: crate::read::models::Models::read(),
         endpoint: (String::new(), String::new()),
         code_host: None,
+        board: None,
         said: Vec::new(),
     };
     // The same token for the poll's reads as for its writes: what the shim of
@@ -862,6 +865,11 @@ fn body(
             .ok()
             .map(|h| h.code_host);
     }
+    // The blockers' states are read through the board, made by the same
+    // wiring, with the same token and counted with the writes' calls.
+    let gh_token = src.calls.gh_token.as_deref();
+    let calls = w.port_calls.clone();
+    src.board = board(home, &w.repo, &w.gh, gh_token, w.bound, calls).ok();
     let snap = snapshot(&mut src, settings);
     // What the reads met that their outcome alone does not say, once each:
     // a code host that refused the branch's checks, and where the setup page
@@ -1640,6 +1648,7 @@ mod tests {
     fn no_wiring() -> crate::apply::Wiring {
         crate::apply::Wiring {
             handles: no_handles,
+            board: no_board,
             mark_of: |_| None,
             assignee: None,
         }
@@ -1654,6 +1663,20 @@ mod tests {
         _: Duration,
         _: std::sync::Arc<std::sync::atomic::AtomicU64>,
     ) -> tehas_ports::Got<crate::apply::Handles> {
+        Err(tehas_ports::Outcome::Refused(
+            tehas_ports::Refusal::Unsupported,
+        ))
+    }
+
+    /// A wiring with no board: these polls read no blocker's state.
+    fn no_board(
+        _: &Path,
+        _: &str,
+        _: &str,
+        _: Option<&str>,
+        _: Duration,
+        _: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    ) -> tehas_ports::Got<Box<dyn tehas_ports::Board + Send>> {
         Err(tehas_ports::Outcome::Refused(
             tehas_ports::Refusal::Unsupported,
         ))
