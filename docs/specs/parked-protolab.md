@@ -96,7 +96,7 @@ name.
 
 | Setting | Rule | Documented |
 | --- | --- | --- |
-| `TEHAS_PROTOLAB_URL` | `console/core/src/settings/rules.rs:448` | `host/docs/tools.md:154`; `api/settings-rules.json:705`; `api/surface-1.0.txt:199` |
+| `TEHAS_PROTOLAB_URL` | `console/core/src/settings/rules.rs:448` | `host/docs/tools.md:154`; `api/settings-rules.json:705`; the surface list of 1.x, line 199 |
 | `TEHAS_PROTOLAB_ZIP_URL` | `console/core/src/settings/rules.rs:449` | `host/docs/tools.md:155`; `api/settings-rules.json:712` |
 | `TEHAS_PROTOLAB_ZIP_HOSTS` | `console/core/src/settings/rules.rs:450` | `host/docs/tools.md:156`; `api/settings-rules.json:726` |
 | `TEHAS_PROTOTYPE_FILE` | `console/core/src/settings/rules.rs:451` | `host/docs/tools.md:157`; `api/settings-rules.json:734` |

@@ -2,7 +2,7 @@
 //! stubbed.
 
 use super::catalog::Facts;
-use super::github::Permission;
+use super::github::{AccountId, Permission};
 use super::*;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -20,7 +20,7 @@ struct Hub {
     level: Option<Result<Option<Level>, String>>,
     public: bool,
     // The id the permission answer is about, when not the person's.
-    other_id: Option<u64>,
+    other_id: Option<&'static str>,
     permission_calls: usize,
     token_calls: usize,
 }
@@ -48,7 +48,7 @@ impl GitHub for Stub {
     fn user(&self, token: &str) -> Result<Person, String> {
         assert_eq!(token, "person-token");
         Ok(Person {
-            id: 7,
+            id: AccountId::new("7"),
             login: "alice".to_string(),
         })
     }
@@ -56,7 +56,7 @@ impl GitHub for Stub {
         assert_eq!(login, "alice");
         let mut h = lock(&self.0);
         h.permission_calls += 1;
-        let id = h.other_id.unwrap_or(7);
+        let id = AccountId::new(h.other_id.unwrap_or("7"));
         match h.level.clone().unwrap_or(Ok(Some(Level::Write))) {
             Err(e) => Err(e),
             Ok(None) => Ok(Permission::None),
@@ -749,11 +749,34 @@ fn access_is_checked_again_every_ten_minutes_by_user_id() {
     // The login now names someone else: a renamed and reused login.
     f.hub.set(|h| {
         h.level = None;
-        h.other_id = Some(8);
+        h.other_id = Some("8");
     });
     assert_eq!(ok(T0 + 2 * auth::CHECK + 1), 401);
     f.hub.set(|h| h.other_id = None);
     assert_eq!(ok(T0 + 2 * auth::CHECK + 2), 401);
+}
+
+/// The account's id is compared whole: a login that GitHub now says is
+/// another spelling of the number is someone else, and every session ends.
+#[test]
+fn only_the_same_account_id_keeps_a_session() {
+    for other in ["07", "7 ", "", "70"] {
+        let f = fixture();
+        let c = sign_in(&f, P, T0);
+        f.hub.set(|h| h.other_id = Some(other));
+        let at = T0 + auth::CHECK;
+        assert_eq!(
+            f.gate.answer(&fetch(P, "/app.js", &c), at).status,
+            401,
+            "{other:?}"
+        );
+        f.hub.set(|h| h.other_id = None);
+        assert_eq!(
+            f.gate.answer(&fetch(P, "/app.js", &c), at + 1).status,
+            401,
+            "{other:?}"
+        );
+    }
 }
 
 #[test]
@@ -1017,7 +1040,7 @@ fn githubs_permission_answer_is_read_from_its_booleans() {
             format!(r#"{{"permission":"write","role_name":"custom","user":{{"id":7,"login":"alice","permissions":{perms}}}}}"#).as_bytes(),
         )
     };
-    let of = |l| Ok(Permission::Of(7, l, "custom".into()));
+    let of = |l| Ok(Permission::Of(AccountId::new("7"), l, "custom".into()));
     assert_eq!(
         answer(r#"{"pull":true,"triage":false,"push":false}"#),
         of(Some(Level::Read))

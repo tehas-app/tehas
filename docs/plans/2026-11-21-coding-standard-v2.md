@@ -164,6 +164,33 @@ python3 -I scripts/architecture.py --force --base origin/refactor/coding-standar
 The pull request that lowers a count lowers its `max`. A `max` is never
 raised without a new `why`.
 
+### Alpha grade and beta grade
+
+The owner, 2026-11-25: work is graded by what it does, and every line of
+work has its grade, set by the program manager.
+
+- **Alpha grade** shapes the code. Much of it is replaced by new work
+  soon, so most validation of it is wasted, and it takes the fast lane:
+  - a pull request whose files are all mechanical (docs, plan and log
+    rows, pins, lock files, pure moves, import-only edits, an
+    `architecture.toml` change that only lowers a `max` or drops an
+    allowance) needs green CI, and the lead merges it;
+  - other code needs green CI and the lead's own read of the diff, with
+    no independent review, and no second reviewer's yes.
+  - Long serial chains go first: one worker each, and a build slot kept
+    free for them whatever the other priorities.
+- **Beta grade** improves the code that alpha work shaped, under the
+  standing rules: an independent review and the tehas reviewer's yes.
+
+At either grade the full review stays for a seam another part reads (`console/ports/`, `api/`, the update and release code, events, and the events, ports and plugins specs), `scripts/architecture.py`,
+`.tehas/`, an `architecture.toml` change that raises a `max` or adds an
+allowance, an added ignore or skip, and tests removed. Gate files still need
+the owner each time; no count rises; a flake is fixed at its cause. A pull
+request may ask for beta grade on an alpha line (`Grade: beta` in its
+body), never the reverse.
+
+This branch is **alpha grade** until v2.0.0-alpha.1 is tagged.
+
 ## What must keep passing
 
 **The gate.** Every pull request passes `scripts/verify.sh`, the whole
@@ -516,6 +543,12 @@ floors. A finding #2890 moved here from "Temporary rises", to fix:
   `console/src/preview/choose_tests.rs` (#2866), which edits a row of
   GitHub's list, the untyped value `preview::choose` takes. It goes when
   T7 types that list.
+
+For alpha.1 (the trio PM's ruling, 2026-11-24), T7 closes on written
+floors: the open T7 pull requests land first, and what is still untyped
+is written down as the alpha.1 floor in
+[docs/architecture.md, "The alpha.1 floor"](../architecture.md#the-alpha1-floor).
+Typing it is T7's remaining lane, before the beta.
 
 ### T8. The bash that stays
 

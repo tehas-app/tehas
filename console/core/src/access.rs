@@ -4,8 +4,9 @@
 //! GitHub is behind [`GitHub`], so the tests stub it: the person's token for
 //! the web flow's code, who the token is, and the person's permission on the
 //! repository with the installation token. [`check`] compares the answer
-//! with `TEHAS_PLUGIN_ACCESS` by user id
-//! for 10 minutes in a file.
+//! with `TEHAS_PLUGIN_ACCESS` and the person by their [`AccountId`], whole
+//! and exact. Nothing of it is kept here: the gate keeps a session's last
+//! check in its memory, which a restart empties.
 //!
 //! [`Curl`] asks through curl, as console/ops/src/github.rs does: every token,
 //! secret and code goes on curl's standard input, never on a command line.
@@ -15,6 +16,7 @@ use serde_json::Value;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+pub use tehas_ports::AccountId;
 
 /// A permission on a repository, least first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -58,7 +60,7 @@ impl Level {
 /// A person, as GitHub's `GET /user` names them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Person {
-    pub id: u64,
+    pub id: AccountId,
     pub login: String,
 }
 
@@ -69,7 +71,7 @@ pub enum Permission {
     None,
     /// The user the answer is about, their level and `role_name`, which is
     /// for logs only.
-    Of(u64, Option<Level>, String),
+    Of(AccountId, Option<Level>, String),
 }
 
 pub trait GitHub: Send + Sync {
@@ -195,7 +197,7 @@ impl GitHub for Curl {
         let v = json(&body)?;
         match (v["id"].as_u64(), v["login"].as_str()) {
             (Some(id), Some(login)) if crate::settings::rules::is_login(login) => Ok(Person {
-                id,
+                id: id_of(id),
                 login: login.to_string(),
             }),
             _ => Err("GitHub's answer named no person".to_string()),
@@ -240,29 +242,36 @@ pub fn permission_of(status: u16, body: &[u8]) -> Result<Permission, String> {
     };
     let role = v["role_name"].as_str().unwrap_or("").to_string();
     Ok(Permission::Of(
-        id,
+        id_of(id),
         Level::of_permissions(&v["user"]["permissions"]),
         role,
     ))
 }
 
-/// What [`check`] found: the user id it lets in, if any, and a line for a
+/// GitHub's user id as the account's id: its number in decimal, as the
+/// adapter writes it.
+fn id_of(id: u64) -> AccountId {
+    AccountId::new(id.to_string())
+}
+
+/// What [`check`] found: the account it lets in, if any, and a line for a
 /// log of why.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Verdict {
-    pub user: Option<u64>,
+    pub user: Option<AccountId>,
     pub said: String,
 }
 
-/// Whether `login` has `access` now: the user GitHub names for the login,
-/// when it is `id` if one is given and its level is at least `access`. On a
+/// Whether `login` has `access` now: the account GitHub names for the
+/// login, when it is `id` if one is given, compared whole, and its level is
+/// at least `access`. On a
 /// public repository read and triage let no one in, since every account has
 /// them. Err: GitHub could not say, which a caller takes as a refusal.
 pub fn check(
     gh: &dyn GitHub,
     access: Level,
     login: &str,
-    id: Option<u64>,
+    id: Option<&AccountId>,
 ) -> Result<Verdict, String> {
     if access <= Level::Triage && gh.public()? {
         return Ok(Verdict {
@@ -281,7 +290,7 @@ pub fn check(
                 .filter(|c| c.is_ascii_alphanumeric() || " _-".contains(*c))
                 .take(64)
                 .collect();
-            let ok = id.is_none_or(|i| i == user) && level.is_some_and(|l| l >= access);
+            let ok = id.is_none_or(|i| *i == user) && level.is_some_and(|l| l >= access);
             Verdict {
                 user: ok.then_some(user),
                 said: format!("{login} has the role {role:?}"),
@@ -313,7 +322,7 @@ mod tests {
             *self.asked.lock().unwrap() += 1;
             match self.level.clone()? {
                 None => Ok(Permission::None),
-                Some(l) => Ok(Permission::Of(7, Some(l), "write".into())),
+                Some(l) => Ok(Permission::Of(AccountId::new("7"), Some(l), "write".into())),
             }
         }
         fn public(&self) -> Result<bool, String> {
@@ -329,19 +338,27 @@ mod tests {
         }
     }
 
+    fn id(s: &str) -> AccountId {
+        AccountId::new(s)
+    }
+
     #[test]
     fn a_login_has_access_at_its_level_and_its_id_only() {
         let w = stub(Ok(Some(Level::Write)));
         assert_eq!(
             check(&w, Level::Write, "octocat", None).unwrap().user,
-            Some(7)
+            Some(id("7"))
         );
         assert_eq!(
-            check(&w, Level::Write, "octocat", Some(7)).unwrap().user,
-            Some(7)
+            check(&w, Level::Write, "octocat", Some(&id("7")))
+                .unwrap()
+                .user,
+            Some(id("7"))
         );
         assert_eq!(
-            check(&w, Level::Write, "octocat", Some(8)).unwrap().user,
+            check(&w, Level::Write, "octocat", Some(&id("8")))
+                .unwrap()
+                .user,
             None
         );
         assert_eq!(check(&w, Level::Admin, "octocat", None).unwrap().user, None);
@@ -354,8 +371,40 @@ mod tests {
         assert_eq!(check(&public, Level::Triage, "x", None).unwrap().user, None);
         assert_eq!(
             check(&public, Level::Write, "x", None).unwrap().user,
-            Some(7)
+            Some(id("7"))
         );
         assert!(check(&stub(Err("down".into())), Level::Write, "x", None).is_err());
+    }
+
+    /// The id is compared whole: no spelling of another id, nor of the same
+    /// number, passes for it.
+    #[test]
+    fn only_the_same_id_passes() {
+        let w = stub(Ok(Some(Level::Admin)));
+        for other in ["07", "7 ", " 7", "", "70", "+7", "id-7", "7\n"] {
+            assert_eq!(
+                check(&w, Level::Read, "octocat", Some(&id(other)))
+                    .unwrap()
+                    .user,
+                None,
+                "{other:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_permission_names_its_user_by_the_decimal_of_its_number() {
+        let body =
+            br#"{"user": {"id": 583231, "permissions": {"push": true}}, "role_name": "write"}"#;
+        assert_eq!(
+            permission_of(200, body),
+            Ok(Permission::Of(
+                id("583231"),
+                Some(Level::Write),
+                "write".into()
+            ))
+        );
+        assert_eq!(permission_of(404, b""), Ok(Permission::None));
+        assert!(permission_of(200, br#"{"user": {"id": "583231"}}"#).is_err());
     }
 }
