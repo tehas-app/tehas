@@ -34,8 +34,9 @@ of the fixed list, and goes on the host's record of failed GitHub calls that
 with what was read: when the list of issues failed, the lists of work
 (`running`, `queued`, `awaiting`, `stopped`, `planned`, `planning`) and
 `queueAt`, the time they were read, are the file's of the run before; when the
-read of what closed them failed or answered no list, `completed`,
-`completedCount` and `completedAt` are. When the read of the control issue's
+read of the shipped issues failed, or named more than a hundred closed since
+it started, `completed`, `completedCount` and `completedAt` are, with a line
+`WARN status: the shipped issues closed since <time> were not read: <why>`. When the read of the control issue's
 labels failed, its events say whether `tehas:pause` is on: it is when the last
 event of the label applied it. When that read failed too, `pause.label` and
 `pause.lifted` are the file's of the run before, and `paused` follows them.
@@ -43,7 +44,15 @@ event of the label applied it. When that read failed too, `pause.label` and
 when every read answered. A part the file before did not hold is left out. The
 pause flag and the words are this run's. `planned` lists the open issues labelled `tehas:plan` or
 `tehas:planning`, found by the same search as the lists, and `planning` counts
-them. `completedCount` is a count, not a list: a whole number from 0 of the closed issues that
+them. `completed` lists the shipped issues, newest closed first, at most a hundred:
+an issue is shipped when a merged pull request of this repository closed it
+(one closed only by another repository's pull request is not). Each run reads
+the issues closed since an hour before the last read that answered, or since
+a day back when there was none, and adds them to the list the file held, so
+the list fills over a few polls after an update; an issue reopened stays
+listed until a hundred newer ones push it out. Because a stale part keeps its
+`completedAt`, a run after a failed or cut read asks from the same time again.
+`completedCount` is a count, not a list: a whole number from 0 of the closed issues that
 carry `tehas:shipped`, counted by a search of its own, so it keeps rising past
 the hundred `completed` holds. The figure of the Shipped stage of the business
 plugin's page is that count where the file has one, and the length of the list where
@@ -51,8 +60,8 @@ it has none. The call for that count may take 60 seconds, the same limit the
 platform reads go under; a call that fails or runs out of time leaves the key
 out of the snapshot. The key is absent whenever the search gave no such number, so
 absence is not zero: a reader cannot tell a factory that shipped nothing from
-one whose search could not be read. `tehasbot status` gives each such issue `tehas:shipped`, so GitHub
-lists the same issues, and `console tidy run` gives it too, from the same read; run `tehas labels` once so the label exists. The control
+one whose search could not be read. `tehasbot status` gives each issue of its read that lacks it `tehas:shipped`, so GitHub
+lists the same issues, and `console tidy run` gives it too, by the same rule; run `tehas labels` once so the label exists. The control
 issue, the one `TEHAS_CONTROL_ISSUE` names, is left out of every list and every
 count: it holds the pause label and is not work, whatever label it carries.
 
