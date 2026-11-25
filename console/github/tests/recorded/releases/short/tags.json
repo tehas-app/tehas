@@ -1,0 +1,50 @@
+{
+ "data": {
+  "repository": {
+   "refs": {
+    "totalCount": 4,
+    "pageInfo": {
+     "hasNextPage": false,
+     "endCursor": null
+    },
+    "nodes": [
+     {
+      "name": "v1.0.0",
+      "target": {
+       "__typename": "Commit",
+       "oid": "0000000000000000000000000000000000000001"
+      }
+     },
+     {
+      "name": "v1.1.0",
+      "target": {
+       "__typename": "Tag",
+       "oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "tagger": {
+        "date": "2026-01-02T10:00:00Z"
+       },
+       "target": {
+        "__typename": "Commit",
+        "oid": "0000000000000000000000000000000000000002"
+       }
+      }
+     },
+     {
+      "name": "v1.2.0",
+      "target": {
+       "__typename": "Tag",
+       "oid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+       "tagger": {
+        "date": "2026-01-03T10:00:00Z"
+       },
+       "target": {
+        "__typename": "Commit",
+        "oid": "0000000000000000000000000000000000000003"
+       }
+      }
+     }
+    ]
+   }
+  }
+ }
+}
