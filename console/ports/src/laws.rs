@@ -465,7 +465,11 @@ pub mod tickets {
             digests.extend(t.items.into_iter().map(|c| ("recently_closed", c.digest)));
         }
         if let Some(w) = answered(LAW, "closed_since", h.closed_since(since, bound))? {
-            digests.extend(w.into_items().into_iter().map(|c| ("closed_since", c.digest)));
+            digests.extend(
+                w.into_items()
+                    .into_iter()
+                    .map(|c| ("closed_since", c.digest)),
+            );
         }
         let mut titles = Vec::new();
         let mut targets = Vec::new();

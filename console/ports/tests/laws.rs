@@ -321,7 +321,9 @@ fn tickets_every_digest_answers_parent_or_refuses() {
             .ticket(3, |t| t.title("another part").closed(CloseReason::Done))
             .ticket(4, |t| t.title("alone").closed(CloseReason::Done));
         let (k2, k3) = (w.key(2), w.key(3));
-        let w = w.ticket(1, |t| t.title("the whole").part(k2.clone()).part(k3.clone()));
+        let w = w.ticket(1, |t| {
+            t.title("the whole").part(k2.clone()).part(k3.clone())
+        });
         let site = FakeSite::new(&w);
         let mut h = site.tickets(&full(), C).unwrap();
         let keys = [w.key(1), k2, k3, w.key(4)];
