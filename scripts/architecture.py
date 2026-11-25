@@ -372,14 +372,30 @@ def standard(root):
     return standard_in_toml(read_text(new_path, STANDARD_FILE), STANDARD_FILE)
 
 
+def verify_base(root, base):
+    """Refuse a --base that is not a commit here: an unfetched ref, a typo, a
+    shallow clone or a --root that is not a repository must never read as
+    "a base with no standard"."""
+    try:
+        git("rev-parse", "--verify", "--quiet", f"{base}^{{commit}}", cwd=root)
+    except ConfigError:
+        raise ConfigError(f"--base {base}: not a commit in {root}; fetch it, or pass a ref that exists")
+
+
 def base_standard(root, base):
-    """The standard the base names, by either file name, or None."""
+    """The standard the base names, by either file name, or None when the base
+    has neither. The base is history: it may hold the old file saying `v2`
+    (main does, until the move lands), so the old-name rule of standard() is
+    deliberately not applied here. With both files at the base, the new one
+    counts."""
     for name, parse_ in ((STANDARD_FILE, standard_in_toml), (OLD_STANDARD_FILE, standard_in_line)):
-        try:
-            text = git("show", f"{base}:{name}", cwd=root)
-        except ConfigError:
+        entry = git("ls-tree", base, "--", name, cwd=root).strip()
+        if not entry:
             continue
-        return parse_(text, f"{base}:{name}")
+        mode = entry.split()[0]
+        if mode not in ("100644", "100755"):
+            raise ConfigError(f"{base}:{name}: not a regular file (mode {mode})")
+        return parse_(git("show", f"{base}:{name}", cwd=root), f"{base}:{name}")
     return None
 
 
@@ -452,6 +468,34 @@ def checked_version(value, name):
     return value
 
 
+PLATFORM_ALLOWED = {"rust": {"1.x"}, "typescript": {"7.x"}}
+
+
+def platform(root):
+    """The `[platform]` table of `.tehas/repository.toml`, checked: the
+    toolchains the repository builds with, each at a major this standard
+    allows. This script owns the table for now; an unknown key or a value
+    the standard does not allow is refused. None with no file or no table."""
+    path = os.path.join(root, STANDARD_FILE)
+    if not os.path.lexists(path) or os.path.islink(path):
+        return None
+    doc = tomllib.loads(read_text(path, STANDARD_FILE))
+    table = doc.get("platform")
+    if table is None:
+        return None
+    if not isinstance(table, dict):
+        raise ConfigError(f"{STANDARD_FILE}: [platform] must be a table")
+    for key in sorted(table):
+        allowed = PLATFORM_ALLOWED.get(key)
+        if allowed is None:
+            raise ConfigError(f"{STANDARD_FILE}: [platform] has a key this script does not know: {key} "
+                              f"(it knows {', '.join(sorted(PLATFORM_ALLOWED))})")
+        if table[key] not in allowed:
+            raise ConfigError(f"{STANDARD_FILE}: [platform] {key} = {table[key]!r}; this standard allows "
+                              f"{', '.join(sorted(allowed))}")
+    return table
+
+
 def skipped(found, summary):
     said = f"is {found}" if found else f"is not set (no [standard] version in {STANDARD_FILE})"
     text = (f"## Architecture test\n\nSkipped: this repository's standard {said}. "
@@ -474,7 +518,9 @@ def main(argv=None):
     a = ap.parse_args(argv)
     try:
         found = standard(a.root)
+        platform(a.root)
         if a.base:
+            verify_base(a.root, a.base)
             no_downgrade(a.root, a.base, found)
         if found != ENFORCED and not a.force:
             return skipped(found, a.summary)

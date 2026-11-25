@@ -378,11 +378,11 @@ class Standard(unittest.TestCase):
         self.assertIn("keys this script does not know: strict", out)
 
     def test_other_tables_are_left_to_their_owners(self):
-        code, out = self.breaking('[standard]\nversion = "v2"\n\n[platform]\nos = "linux"').run()
+        code, out = self.breaking('[standard]\nversion = "v2"\n\n[kit]\nversion = "3"').run()
         self.assertEqual(code, 1, out)
 
     def test_a_file_without_the_table_is_refused(self):
-        for text in ['[platform]\nos = "linux"', '[Standard]\nversion = "v2"', '[standards]\nversion = "v2"', 'version = "v2"\n[x]', "# empty\n[x]"]:
+        for text in ['[kit]\nversion = "3"', '[Standard]\nversion = "v2"', '[standards]\nversion = "v2"', 'version = "v2"\n[x]', "# empty\n[x]"]:
             with self.subTest(text=text):
                 code, out = self.breaking(text).run()
                 self.assertEqual(code, 2, out)
@@ -444,6 +444,79 @@ class Standard(unittest.TestCase):
         code, out = self.downgrade((".tehas/repository.toml", pointer("v1")), (".tehas/repository.toml", pointer("v2")))
         self.assertNotIn("goes down", out)
         self.assertNotEqual(code, 2, out)
+
+    def test_platform_names_the_toolchains(self):
+        code, out = self.breaking('[standard]\nversion = "v2"\n\n[platform]\nrust = "1.x"\ntypescript = "7.x"').run()
+        self.assertEqual(code, 1, out)
+
+    def test_platform_refuses_an_unknown_key(self):
+        code, out = self.breaking('[standard]\nversion = "v2"\n\n[platform]\nos = "linux"').run()
+        self.assertEqual(code, 2, out)
+        self.assertIn("[platform] has a key this script does not know: os", out)
+
+    def test_platform_refuses_a_major_the_standard_does_not_allow(self):
+        code, out = self.breaking('[standard]\nversion = "v2"\n\n[platform]\nrust = "2.x"').run()
+        self.assertEqual(code, 2, out)
+        self.assertIn("[platform] rust = '2.x'; this standard allows 1.x", out)
+
+    def test_platform_must_be_a_table(self):
+        code, out = self.breaking('platform = "rust"\n[standard]\nversion = "v2"').run()
+        self.assertEqual(code, 2, out)
+        self.assertIn("[platform] must be a table", out)
+
+    def test_platform_is_checked_at_v1_too(self):
+        code, out = self.breaking('[standard]\nversion = "v1"\n\n[platform]\nrust = "0.x"').run()
+        self.assertEqual(code, 2, out)
+
+    def test_an_unresolvable_base_is_refused(self):
+        r = base_repo(standard="v1")
+        r.commit()
+        code, out = r.run("--base", "no-such-ref")
+        self.assertEqual(code, 2, out)
+        self.assertIn("--base no-such-ref: not a commit", out)
+
+    def test_a_base_outside_a_repository_is_refused(self):
+        with tempfile.TemporaryDirectory() as root:
+            out, err = io.StringIO(), io.StringIO()
+            with redirect_stdout(out), redirect_stderr(err):
+                code = architecture.main(["--root", root, "--summary", os.devnull, "--base", "main"])
+            self.assertEqual(code, 2, out.getvalue() + err.getvalue())
+
+    def test_a_directory_is_refused_at_either_name(self):
+        for name in (".tehas/repository.toml", ".tehas/coding-standard"):
+            with self.subTest(name=name):
+                r = self.breaking(None)
+                os.makedirs(os.path.join(r.root, name))
+                code, out = r.run()
+                self.assertEqual(code, 2, out)
+
+    def test_a_symlink_is_refused_at_the_old_name(self):
+        r = self.breaking(None)
+        r.write(".tehas/v1.txt", "v1\n")
+        os.symlink("v1.txt", os.path.join(r.root, ".tehas/coding-standard"))
+        code, out = r.run()
+        self.assertEqual(code, 2, out)
+        self.assertIn("a symlink", out)
+
+    def test_a_symlink_to_a_good_file_is_refused(self):
+        r = self.breaking(None)
+        r.write(".tehas/real.toml", pointer("v2"))
+        os.symlink("real.toml", os.path.join(r.root, ".tehas/repository.toml"))
+        code, out = r.run()
+        self.assertEqual(code, 2, out)
+        self.assertIn("a symlink", out)
+
+    def test_a_symlink_at_the_base_is_named(self):
+        r = base_repo(standard=None)
+        r.write(".tehas/real.toml", pointer("v2"))
+        os.symlink("real.toml", os.path.join(r.root, ".tehas/repository.toml"))
+        r.git("add", ".tehas/repository.toml")
+        r.commit()
+        os.remove(os.path.join(r.root, ".tehas/repository.toml"))
+        r.write(".tehas/repository.toml", pointer("v2"))
+        code, out = r.run("--base", "main")
+        self.assertEqual(code, 2, out)
+        self.assertIn("not a regular file (mode 120000)", out)
 
     def test_an_empty_file_is_refused(self):
         r = self.breaking(None)

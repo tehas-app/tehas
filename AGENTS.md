@@ -1,5 +1,8 @@
 # AGENTS.md
 
+This repository follows tehas-standard v2 (`.tehas/repository.toml`):
+https://github.com/tehas-app/tehas-standard/tree/main/v2
+
 Rules for agents working in this repository. Read `README.md` for the map of
 the repository and `host/docs/` for how tehas is operated.
 

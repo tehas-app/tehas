@@ -2,3 +2,7 @@
 # scripts/architecture.py's. See github.com/tehas-app/tehas-standard.
 [standard]
 version = "v2"
+
+[platform]
+rust = "1.x"
+typescript = "7.x"
