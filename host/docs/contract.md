@@ -991,6 +991,14 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Readers: adopters, the end-to-end suite.
   Adopter action: a script that matched gh's words or `HTTP <status>` in
   those lines matches the fixed lines.
+- **The poll's unreadable edit history is named in tehas's words.** #3376.
+  `ERROR: unreadable edit history of #N` ends with one fixed line of the
+  ports' outcomes, such as `the site could not be reached`, not gh's words.
+  A body history whose versions do not agree holds the issue as changed by
+  `unknown`, as a history longer than the poll reads does.
+  Readers: adopters, the end-to-end suite.
+  Adopter action: a script that matched gh's words in that line matches the
+  fixed lines.
 - **`tehas setup`, `tehasbot github-token` and `console pins` name a failed
   call in tehas's words.** #3140. An error line of each names what failed
   in its own words, then the kind of failure as one fixed line of the
