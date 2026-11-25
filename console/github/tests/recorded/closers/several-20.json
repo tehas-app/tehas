@@ -89,7 +89,13 @@
     "closes": {
      "nodes": []
     },
-    "parent": null
+    "parent": {
+      "number": 20,
+      "repository": {
+        "databaseId": 7001,
+        "nameWithOwner": "acme/widget"
+      }
+    }
    },
    "i25": {
     "number": 25,

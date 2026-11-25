@@ -44,9 +44,25 @@ fn an_issue_waits_on_what_its_links_name() {
 #[test]
 fn the_list_is_the_tickets_own_at_every_depth() {
     let (mut gh, _) = adapter_of(PROJECT);
-    // 21 is a part of 20, whose parent this adapter does not read yet.
     assert_eq!(
-        laws::tickets::a_parent_holds_its_parts(&mut gh, &[key(20), key(25)]),
+        laws::tickets::a_parent_holds_its_parts(&mut gh, &[key(20), key(21), key(25)]),
+        Ok(())
+    );
+}
+
+#[test]
+fn every_digest_answers_parent_or_refuses() {
+    // 21 is a part of 20. The reads GitHub has no answer for refuse.
+    let (mut gh, _) = adapter_of(PROJECT);
+    let since = tehas_ports::At::new(1_769_990_400); // 2026-02-02
+    let bound = tehas_ports::Bound::new(10).unwrap();
+    assert_eq!(
+        laws::tickets::every_digest_answers_parent_or_refuses(
+            &mut gh,
+            &[key(20), key(21), key(25)],
+            since,
+            bound
+        ),
         Ok(())
     );
 }

@@ -801,7 +801,12 @@
           "state": "Open",
           "target": null,
           "title": "Read the old export",
-          "updated": 1769940030
+          "updated": 1769940030,
+          "parent": {
+            "Here": {
+              "Number": 20
+            }
+          }
         },
         "history": {
           "items": [],
@@ -818,7 +823,7 @@
         "notes": 0
       }
     },
-    "fixture": "Ticket 21 is open, filed by bob, with the approval put on by alice, a text of 390 characters and no marker, and nothing beside it.",
+    "fixture": "Ticket 21 is open, filed by bob, with the approval put on by alice, a text of 390 characters and no marker, a part of ticket 20, and nothing else beside it.",
     "history": null,
     "op": "Tickets::ticket",
     "ticket": {
@@ -862,7 +867,12 @@
           "state": "Open",
           "target": null,
           "title": "Read the old export",
-          "updated": 1769940030
+          "updated": 1769940030,
+          "parent": {
+            "Here": {
+              "Number": 20
+            }
+          }
         },
         "history": {
           "items": [
@@ -892,7 +902,7 @@
       }
     },
     "depth": "All",
-    "fixture": "Ticket 21 is open, filed by bob, with the approval put on by alice, a text of 390 characters and no marker, and nothing beside it.",
+    "fixture": "Ticket 21 is open, filed by bob, with the approval put on by alice, a text of 390 characters and no marker, a part of ticket 20, and nothing else beside it.",
     "history": null,
     "op": "Tickets::ticket",
     "ticket": {
