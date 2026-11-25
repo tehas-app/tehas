@@ -124,7 +124,8 @@ esac
 /// calls, as `send <the write in JSON>`, so a case reads their order with
 /// the rest, and answered done, a note with the next id from 4001 on. A
 /// line of fail-send names a part of that line and what the site answers:
-/// `maybe` an answer that may have been sent, anything else a refusal.
+/// `maybe` an answer that may have been sent, `signed-out` a gh with no
+/// credential, anything else a refusal.
 struct Logged {
     dir: PathBuf,
     next: u64,
@@ -152,6 +153,9 @@ impl tehas_ports::Writes for Logged {
                         why: Passing::Server,
                         sent: Sent::Maybe,
                     },
+                    // What the adapter answers for a gh that exits 4, its
+                    // "authentication required" (tehas-68, 2026-11-25).
+                    "signed-out" => Outcome::SignedOut,
                     _ => Outcome::Refused(Refusal::Invalid),
                 });
             }
@@ -1276,6 +1280,21 @@ fn a_write_the_site_may_have_taken_is_unknown() {
         vec!["WARN: the comment on #7 may have been posted: the site failed; it may have been sent; the next poll reads it before it is sent again"]
     );
     assert!(t.calls().last().unwrap().ends_with("--result unknown"));
+}
+
+#[test]
+fn a_write_gh_could_not_sign_in_for_is_said_once_and_never_read_again() {
+    // Before tehas-68's ruling of 2026-11-25 a gh with no credential (exit 4)
+    // was answered as one that may have been sent, so every poll read the
+    // row again (the case above). Signed out, nothing was taken: one line,
+    // the row settled, and the next poll has nothing of it to read.
+    let mut t = world();
+    t.fail("send", "no sign-in|signed-out");
+    let a = t.apply(json!([{"issue": 7, "say": "no sign-in"}]));
+    assert_eq!(a.log, vec!["WARN: comment on #7 failed"]);
+    let last = t.calls().last().unwrap().clone();
+    assert!(last.ends_with("--result read-failed"), "{last}");
+    assert!(!t.calls().iter().any(|c| c.ends_with("--result unknown")));
 }
 
 #[test]
