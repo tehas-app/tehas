@@ -5,4 +5,4 @@
 
 ### Adopter action
 
-Run `tehas update`, which migrates the state store to schema 27: `state/tehas.db` holds no `retry-tick` after it. `state/analytics.db` keeps its schema; its runs say `reply` from the first analytics run after the update. A program that filtered or counted runs by `how` `retry-tick` reads `reply` instead.
+Run `tehas update`, which migrates the state store to 2.0's schema, 32: `state/tehas.db` holds no `retry-tick` after it. `state/analytics.db` takes no step of its own for this; its runs say `reply` from the first analytics run after the update. A program that filtered or counted runs by `how` `retry-tick` reads `reply` instead.

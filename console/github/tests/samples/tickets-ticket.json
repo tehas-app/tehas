@@ -63,6 +63,11 @@
               "value": "Shipped"
             }
           ],
+          "labels": [
+            "bug",
+            "tehas:shipped",
+            "not a label?"
+          ],
           "priority": "Normal",
           "revision": "fc797fae2a4b3ddb564a3b7d97d0fdde00f17511ad4a719f9db293145a76299f:c4d7925b2d4ad3f7a24fb08915f6fe1a5ecc9bb4f57e2e2c3e7502e1b239d949",
           "state": {
@@ -418,6 +423,11 @@
               "value": "Shipped"
             }
           ],
+          "labels": [
+            "bug",
+            "tehas:shipped",
+            "not a label?"
+          ],
           "priority": "Normal",
           "revision": "fc797fae2a4b3ddb564a3b7d97d0fdde00f17511ad4a719f9db293145a76299f:c4d7925b2d4ad3f7a24fb08915f6fe1a5ecc9bb4f57e2e2c3e7502e1b239d949",
           "state": {
@@ -584,6 +594,11 @@
               "type": "State",
               "value": "Shipped"
             }
+          ],
+          "labels": [
+            "bug",
+            "tehas:shipped",
+            "not a label?"
           ],
           "priority": "Normal",
           "revision": "fc797fae2a4b3ddb564a3b7d97d0fdde00f17511ad4a719f9db293145a76299f:c4d7925b2d4ad3f7a24fb08915f6fe1a5ecc9bb4f57e2e2c3e7502e1b239d949",
@@ -778,6 +793,9 @@
               "value": "Approve"
             }
           ],
+          "labels": [
+            "tehas:ready"
+          ],
           "priority": "Normal",
           "revision": "4ed3964568bd9b007e1f6eb9672ab16596f83e7b57c64dd829a69c7d565d0026:e966b7e06a24b9c6c3b92824c0574927c3d43874530957a15bfb95d14cfaeaf0",
           "state": "Open",
@@ -835,6 +853,9 @@
               "type": "Act",
               "value": "Approve"
             }
+          ],
+          "labels": [
+            "tehas:ready"
           ],
           "priority": "Normal",
           "revision": "4ed3964568bd9b007e1f6eb9672ab16596f83e7b57c64dd829a69c7d565d0026:e966b7e06a24b9c6c3b92824c0574927c3d43874530957a15bfb95d14cfaeaf0",

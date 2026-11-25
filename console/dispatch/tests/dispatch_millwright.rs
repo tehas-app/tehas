@@ -63,7 +63,7 @@ fn body_of(w: &World, n: u64, body: &str) {
 fn app_unknown(w: &World) {
     let ids = w.home.join("state/account-ids");
     let mut text = fs::read_to_string(&ids).unwrap();
-    text.push_str(&format!("unknown {}\n", uid("unknown")));
+    text.push_str(&format!("unknown[bot] {}\n", uid("unknown")));
     fs::write(&ids, text).unwrap();
     let env = w.t().join("instance/instance.env");
     let mut text = fs::read_to_string(&env).unwrap();

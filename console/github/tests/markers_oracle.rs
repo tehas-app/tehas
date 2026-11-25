@@ -24,14 +24,14 @@
 //! class shows as a difference here. `TEHAS_RECORD_ORACLE=1` rewrites it
 //! from comrak.
 
+mod oracle_corpus;
+
 use comrak::nodes::{AstNode, NodeValue};
 use comrak::{parse_document, Arena, Options};
-use std::path::PathBuf;
+use oracle_corpus::{rows, unescape, M};
 use tehas_github::markers::read;
 use tehas_ports::{BlueprintNo, Marker, MarkerKind};
 
-/// The marker the corpus writes for `M`.
-const M: &str = "<!-- tehas:finish issue=7 result=opened -->";
 /// The words comrak and the reader look for.
 const WORDS: &str = "tehas:finish";
 /// The same words of no marker: a copy of `M` that keeps the text's shape.
@@ -173,41 +173,6 @@ fn reader(body: &str) -> Vec<bool> {
 /// A marker the reader reads where GitHub shows no hidden HTML.
 fn unsafe_read(live: bool, class: Class) -> bool {
     live && !matches!(class, Class::Live | Class::None)
-}
-
-/// A body as the corpus file writes it: `M` the marker, and `\\`, `\n`,
-/// `\r`, `\t`, `\u00a0` and `\ufeff` escaped. A backslash before any other
-/// character stands for itself.
-fn unescape(s: &str) -> String {
-    let mut out = String::new();
-    let mut chars = s.chars();
-    while let Some(c) = chars.next() {
-        if c == 'M' {
-            out.push_str(M);
-            continue;
-        }
-        if c != '\\' {
-            out.push(c);
-            continue;
-        }
-        match chars.clone().next() {
-            Some('\\') => out.push('\\'),
-            Some('n') => out.push('\n'),
-            Some('r') => out.push('\r'),
-            Some('t') => out.push('\t'),
-            Some('u') => {
-                let hex: String = chars.clone().skip(1).take(4).collect();
-                out.push(char::from_u32(u32::from_str_radix(&hex, 16).unwrap()).unwrap());
-                chars.nth(3);
-            }
-            _ => {
-                out.push('\\');
-                continue;
-            }
-        }
-        chars.next();
-    }
-    out
 }
 
 fn escape(s: &str) -> String {
@@ -479,10 +444,6 @@ fn contain(body: &str, wrap: &str) -> String {
         .join("\n")
 }
 
-fn corpus_file() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/samples/markers-oracle.tsv")
-}
-
 /// A GFM table whose head is the last line of a paragraph, under 0 to 3
 /// lines of prose, its delimiter row indented 0, 3 or 4, then a marker
 /// line: indented, at the margin, after a blank line or after a row; each
@@ -523,19 +484,9 @@ fn bodies() -> Vec<String> {
 
 /// The recorded corpus: each body and the classes comrak gave it.
 fn recorded() -> Vec<(String, Vec<Class>)> {
-    std::fs::read_to_string(corpus_file())
-        .unwrap()
-        .lines()
-        .filter(|l| !l.starts_with('#') && !l.is_empty())
-        .map(|l| {
-            let (classes, body) = l.split_once('\t').unwrap();
-            let classes = classes
-                .split(',')
-                .filter(|c| !c.is_empty())
-                .map(Class::of)
-                .collect();
-            (unescape(body), classes)
-        })
+    rows()
+        .into_iter()
+        .map(|(classes, body)| (body, classes.iter().map(|c| Class::of(c)).collect()))
         .collect()
 }
 
@@ -549,7 +500,7 @@ fn the_recorded_corpus_is_the_oracle_s_answer() {
             let classes: Vec<&str> = classes(&body).iter().map(|c| c.word()).collect();
             file.push_str(&format!("{}\t{}\n", classes.join(","), escape(&body)));
         }
-        std::fs::write(corpus_file(), file).unwrap();
+        std::fs::write(oracle_corpus::file(), file).unwrap();
     }
     let recorded = recorded();
     let all = bodies();
