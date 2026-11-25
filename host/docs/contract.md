@@ -283,7 +283,9 @@ one is not covered by this page.
 line is one of three:
 
 - **Kept.** Every row of `api/settings-rules.json` not marked
-  `"building": true` loads as in 1.4.x.
+  `"building": true` loads as in 1.4.x. `TEHAS_CODE_HOST` and
+  `TEHAS_TICKETS` are new in 2.0 and take `github` alone
+  ([Changed in 2.0](#changed-in-20)).
 - **Dropped with a warning.** A setting of a feature 2.0 took out of core
   loads, every command warns of it once on standard error, and nothing reads
   it (`IGNORED` in `console/core/src/settings/load.rs`). A 1.4.x instance
@@ -1191,9 +1193,10 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
 - **Two settings name the adapters.** #3359.
   `TEHAS_CODE_HOST` names the code host and `TEHAS_TICKETS` the ticket
   tracker. In 2.0 each takes `github` alone, where `TEHAS_TICKETS=github` is
-  the code host's own issues. A missing or empty setting means `github`, so a
-  1.4.x instance loads unchanged. Any other value, `jira` among them, stops
-  every command with 78 before any call: it is not built in this release.
+  the code host's own issues. A missing or empty setting means `github`, so
+  an instance without the two lines loads unchanged. Any other value, `jira`
+  among them, stops every command with 78 before any call: it is not built
+  in this release.
   Readers: adopters, the consumer that runs many factories where it keeps
   an instance's settings.
   Adopter action: none. An instance may write `TEHAS_CODE_HOST=github` and
