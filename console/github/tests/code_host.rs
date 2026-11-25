@@ -40,7 +40,8 @@ struct Replay {
 
 /// The recording a call reads, named by the project and the read: `repo`,
 /// `pulls` (the REST list that settles a failed question),
-/// `checks-<commit>-<page>[-name=<name>]`, `statuses-<commit>-<page>`, or
+/// `checks-<commit>-<page>[-name=<name>]`, `statuses-<commit>-<page>`,
+/// `runs-<commit>-<page>` (the commit's workflow runs), or
 /// `changes-<states>[-me][-head=<branch>][-after=<cursor>][-updated]`
 /// (`-updated` for the question newest updated first), each byte
 /// outside `[A-Za-z0-9=-]` written `_`, or `numbers-<first>-<last>[-me]`
@@ -85,6 +86,10 @@ fn recording(args: &[&str]) -> Option<(String, String)> {
                 (project.to_string(), "pulls".to_string())
             }
             Some((project, rest)) => {
+                if let Some(q) = rest.strip_prefix("actions/runs?head_sha=") {
+                    let (commit, page) = q.split_once("&per_page=100&page=")?;
+                    return Some((project.to_string(), format!("runs-{commit}-{page}")));
+                }
                 let rest = rest.strip_prefix("commits/")?;
                 if let Some((commit, page)) = rest.split_once("/status?per_page=100&page=") {
                     (project.to_string(), format!("statuses-{commit}-{page}"))
@@ -1093,7 +1098,8 @@ fn contexts_named(n: usize) -> Vec<String> {
 }
 
 /// Two workflows each with a job named `test`, and the first one re-run:
-/// the newest run of each App, check suite and name is held (Decided 129).
+/// the newest run of each App, workflow and name is held (Decided 129, as
+/// amended 2026-11-25), and the commit's workflow runs are read once.
 #[test]
 fn two_workflows_runs_of_one_name_are_both_held() {
     let at = CommitId::new("ec".repeat(20)).unwrap();
@@ -1118,6 +1124,13 @@ fn two_workflows_runs_of_one_name_are_both_held() {
         "the lint workflow's re-run hides its own first run, and no other"
     );
     assert_eq!(c.overall, Overall::Fail);
+    let reads = asked
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|a| a.contains("/check-runs?"))
+        .count();
+    assert_eq!(workflow_reads(&asked), reads, "once for each commit read");
     assert!(asked
         .lock()
         .unwrap()
@@ -1127,21 +1140,500 @@ fn two_workflows_runs_of_one_name_are_both_held() {
 
 /// A live read-only answer of a public repository (actions/runner-images
 /// at e015a08e7, its fields cut to what the read takes, moved under the
-/// fixture's owner): one workflow run three times by dispatch, each run its
-/// own suite. Every run is held, as GitHub's `filter=latest` also gave.
+/// fixture's owner): two workflows each run three times by dispatch, each
+/// run its own suite. Its workflow runs were read anonymously on
+/// 2026-11-25, after its check runs, so they hold four newer runs no check
+/// run of the recording names. A newer run of a workflow supersedes an
+/// older one (Decided 129 as amended 2026-11-25): one run of each job of
+/// each workflow is held.
 #[test]
-fn a_live_commit_holds_each_suites_run_of_one_name() {
+fn a_live_commit_holds_each_workflows_newest_run_of_one_name() {
     let at = CommitId::new("e015a08e7601a17f5d9a2938136537aab0f66b6c").unwrap();
-    let (mut gh, _) = adapter("acme/images");
+    let (mut gh, asked) = adapter("acme/images");
     let c = gh.checks(&at, None).unwrap();
-    assert_eq!(c.runs.len(), 8);
+    assert_eq!(c.runs.len(), 4);
     let release = c
         .runs
         .iter()
         .filter(|r| r.name == "Create_GitHub_release")
         .count();
-    assert_eq!(release, 3);
+    assert_eq!(release, 1);
     assert_eq!(c.overall, Overall::Pass);
+    assert_eq!(workflow_reads(&asked), 1);
+}
+
+/// How many reads of the workflow runs were asked.
+fn workflow_reads(asked: &Asked) -> usize {
+    asked
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|a| a.contains("/actions/runs?head_sha="))
+        .count()
+}
+
+/// The commit of nodejs/node the issue (#3246) was seen on.
+const NODE: &str = "36ca6a74f19204e710057645c9c28974fc459362";
+
+/// The id of the workflow that runs `get_candidate_prs` in the node
+/// recording (Commit Queue), and the suite of its run that failed, at
+/// 04:47Z.
+const QUEUE: u64 = 2195107;
+const FAILED_SUITE: u64 = 123245603656;
+
+/// One of the node recordings: `checks`, `runs` or `statuses`.
+fn node(read: &str) -> String {
+    let at = here().join(format!(
+        "tests/recorded/code-host/node/{read}-{NODE}-1.json"
+    ));
+    std::fs::read_to_string(&at).unwrap_or_else(|e| panic!("{}: {e}", at.display()))
+}
+
+/// An answer read as JSON, edited and written again.
+fn edited<T: serde::Serialize + serde::de::DeserializeOwned>(
+    text: &str,
+    edit: impl FnOnce(&mut T),
+) -> String {
+    let mut v: T = serde_json::from_str(text).unwrap();
+    edit(&mut v);
+    serde_json::to_string(&v).unwrap()
+}
+
+/// The node commit's checks from these answers of its check runs and its
+/// workflow runs, its statuses as recorded.
+fn node_checks(checks: &str, runs: &str) -> Got<Checks> {
+    let (mut gh, asked) = scripted(&[
+        Ok(checks.to_string()),
+        Ok(node("statuses")),
+        Ok(runs.to_string()),
+    ]);
+    let got = gh.checks(&CommitId::new(NODE).unwrap(), None);
+    assert_eq!(workflow_reads(&asked), 1);
+    got
+}
+
+/// The runs of `get_candidate_prs` held in an answer.
+fn candidate_prs(c: &Checks) -> Vec<&CheckStatus> {
+    c.runs
+        .iter()
+        .filter(|r| r.name == "get_candidate_prs")
+        .map(|r| &r.status)
+        .collect()
+}
+
+/// Each `get_candidate_prs` run in the node recording's check runs, by
+/// its suite, set to this conclusion.
+fn with_candidate_prs(of: impl Fn(u64) -> Option<&'static str>) -> String {
+    edited(&node("checks"), |checks: &mut serde_json::Value| {
+        for r in checks["check_runs"].as_array_mut().unwrap() {
+            if r["name"] == "get_candidate_prs" {
+                if let Some(c) = of(r["check_suite"]["id"].as_u64().unwrap()) {
+                    r["conclusion"] = c.into();
+                }
+            }
+        }
+    })
+}
+
+/// Law 1 of #3246, on the live recordings of nodejs/node at 36ca6a74,
+/// read anonymously and read-only on 2026-11-25 from a public repository,
+/// their fields cut to what the read takes and moved under the fixture's
+/// owner. They are scheduled (cron) runs on the default branch's head, not
+/// re-run attempts: one workflow (Commit Queue) ran 11 times on the
+/// commit, each run its own suite. Its `get_candidate_prs` failed at
+/// 04:47Z and passed at 04:56Z, at 05:13Z and in every other run. The newer
+/// passes supersede the old failure, so the commit reads passing, where
+/// the per-suite fold kept the failure and read it failing forever. The
+/// workflows are learned in one read of the commit's workflow runs, not
+/// one per suite (the recording has 35).
+#[test]
+fn an_old_failure_then_newer_passes_of_one_workflow_reads_passing() {
+    let recorded: serde_json::Value = serde_json::from_str(&node("checks")).unwrap();
+    let failed = recorded["check_runs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["name"] == "get_candidate_prs" && r["conclusion"] == "failure")
+        .count();
+    assert_eq!(failed, 1, "the recording holds the old failure");
+    let (mut gh, asked) = adapter("acme/node");
+    let c = gh.checks(&CommitId::new(NODE).unwrap(), None).unwrap();
+    assert_eq!(candidate_prs(&c), [&CheckStatus::Done(Conclusion::Passed)]);
+    assert_eq!(c.overall, Overall::Pass);
+    for job in ["start-ci", "get-prs-for-ci", "commitQueue"] {
+        assert_eq!(c.runs.iter().filter(|r| r.name == job).count(), 1, "{job}");
+    }
+    assert_eq!(c.runs.len(), 76 - 4 * 10);
+    assert_eq!(workflow_reads(&asked), 1);
+    assert_eq!(asked.lock().unwrap().len(), 3);
+}
+
+/// Law 2 of #3246: two workflows that each have a job of one name, one
+/// failing, read failing, whoever ran last. The node recording with the
+/// failed run's suite moved to a workflow of its own, newer passes of the
+/// other workflow hide nothing.
+#[test]
+fn two_workflows_with_one_job_name_one_failing_read_failing() {
+    let runs = edited(&node("runs"), |runs: &mut serde_json::Value| {
+        for w in runs["workflow_runs"].as_array_mut().unwrap() {
+            if w["check_suite_id"] == FAILED_SUITE {
+                assert_eq!(w["workflow_id"], QUEUE);
+                w["workflow_id"] = 1.into();
+            }
+        }
+    });
+    let c = node_checks(&node("checks"), &runs).unwrap();
+    assert_eq!(
+        candidate_prs(&c),
+        [
+            &CheckStatus::Done(Conclusion::Passed),
+            &CheckStatus::Done(Conclusion::Failed)
+        ]
+    );
+    assert_eq!(c.overall, Overall::Fail);
+}
+
+/// Law 3 of #3246: a newer failure after a pass reads failing. The node
+/// recording with its old failure passing and its newest run, 05:13Z,
+/// failing.
+#[test]
+fn a_newer_failure_after_a_pass_of_one_workflow_reads_failing() {
+    let checks = with_candidate_prs(|suite| match suite {
+        FAILED_SUITE => Some("success"),
+        123253441310 => Some("failure"),
+        _ => None,
+    });
+    let c = node_checks(&checks, &node("runs")).unwrap();
+    assert_eq!(candidate_prs(&c), [&CheckStatus::Done(Conclusion::Failed)]);
+    assert_eq!(c.overall, Overall::Fail);
+    // The same runs, every one passing but the oldest: the oldest is
+    // superseded, whichever order the site lists them in.
+    let passing = with_candidate_prs(|suite| match suite {
+        FAILED_SUITE => Some("success"),
+        _ => None,
+    });
+    let checks = edited(&passing, |checks: &mut serde_json::Value| {
+        let first = checks["check_runs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|r| r["name"] == "get_candidate_prs")
+            .min_by_key(|r| r["started_at"].as_str().unwrap().to_string())
+            .unwrap()["id"]
+            .clone();
+        for r in checks["check_runs"].as_array_mut().unwrap() {
+            if r["id"] == first {
+                r["conclusion"] = "failure".into();
+            }
+        }
+        checks["check_runs"].as_array_mut().unwrap().reverse();
+    });
+    let c = node_checks(&checks, &node("runs")).unwrap();
+    assert_eq!(candidate_prs(&c), [&CheckStatus::Done(Conclusion::Passed)]);
+}
+
+/// Law 4 of #3246: a suite the workflow runs do not map keeps Decided
+/// 129's fold by App, suite and name, so its failure is held whatever
+/// newer runs pass; the suites they map still fold by workflow. A run of
+/// any App but GitHub Actions is never folded by workflow.
+#[test]
+fn a_suite_the_workflow_runs_do_not_map_keeps_its_own_fold() {
+    let runs = edited(&node("runs"), |runs: &mut serde_json::Value| {
+        let all = runs["workflow_runs"].as_array_mut().unwrap();
+        all.retain(|w| w["check_suite_id"] != FAILED_SUITE);
+        let left = all.len();
+        runs["total_count"] = left.into();
+    });
+    let c = node_checks(&node("checks"), &runs).unwrap();
+    assert_eq!(
+        candidate_prs(&c),
+        [
+            &CheckStatus::Done(Conclusion::Passed),
+            &CheckStatus::Done(Conclusion::Failed)
+        ]
+    );
+    assert_eq!(c.overall, Overall::Fail);
+    // commitQueue of the unmapped suite is held beside the workflow's.
+    assert_eq!(c.runs.iter().filter(|r| r.name == "commitQueue").count(), 2);
+
+    // Another App's runs in the suites the workflow runs map: each suite's
+    // run is held, as 129 has it.
+    let checks = edited(&node("checks"), |checks: &mut serde_json::Value| {
+        for r in checks["check_runs"].as_array_mut().unwrap() {
+            if r["name"] == "get_candidate_prs" {
+                r["app"] = serde_json::json!({"id": 9, "slug": "other-ci"});
+            }
+        }
+    });
+    let c = node_checks(&checks, &node("runs")).unwrap();
+    assert_eq!(candidate_prs(&c).len(), 11);
+    assert_eq!(c.overall, Overall::Fail);
+}
+
+/// Runs of GitHub Actions, one page, each its own suite and started.
+fn actions_runs(runs: &[(u64, &str, &str)]) -> String {
+    let runs: Vec<serde_json::Value> = runs
+        .iter()
+        .map(|(id, name, conclusion)| {
+            serde_json::json!({"id": id, "name": name, "status": "completed", "conclusion": conclusion,
+                "started_at": "2026-02-01T10:00:00Z", "app": {"id": 15368, "slug": "github-actions"},
+                "check_suite": {"id": 70_000_000 + id}})
+        })
+        .collect();
+    serde_json::json!({"total_count": runs.len(), "check_runs": runs}).to_string()
+}
+
+/// A page of workflow runs, each `(id, suite, workflow)`, and the count it
+/// says it holds.
+fn workflow_runs(total: usize, runs: &[(u64, u64, u64)]) -> String {
+    let runs: Vec<(u64, u64, u64, &str)> = runs
+        .iter()
+        .map(|&(id, suite, workflow)| (id, suite, workflow, "pull_request"))
+        .collect();
+    workflow_runs_of(total, &runs)
+}
+
+/// A page of workflow runs, each `(id, suite, workflow, event)`, and the
+/// count it says it holds.
+fn workflow_runs_of(total: usize, runs: &[(u64, u64, u64, &str)]) -> String {
+    let runs: Vec<serde_json::Value> = runs
+        .iter()
+        .map(|(id, suite, workflow, event)| {
+            serde_json::json!({"id": id, "check_suite_id": suite, "workflow_id": workflow, "event": event})
+        })
+        .collect();
+    serde_json::json!({"total_count": total, "workflow_runs": runs}).to_string()
+}
+
+/// A read of the workflow runs that fails of anything but a refusal leaves
+/// the checks unread for this poll: the runs are not folded per suite in
+/// its place.
+#[test]
+fn a_failed_read_of_the_workflow_runs_is_unread() {
+    let fails = [
+        "gh: Not Found (HTTP 404)",
+        "gh: Server Error (HTTP 502)",
+        "gh: HTTP 422",
+        "gh: API rate limit exceeded",
+    ];
+    for why in fails {
+        let (mut gh, asked) = scripted(&[
+            Ok(actions_runs(&[(1, "test", "success")])),
+            Ok(statuses_page(0, &[])),
+            Err(why.to_string()),
+        ]);
+        assert_eq!(
+            gh.checks(&at(), None),
+            Err(Outcome::Unread(Unread::Inconsistent)),
+            "{why}"
+        );
+        assert_eq!(workflow_reads(&asked), 1);
+    }
+    let (mut gh, _) = scripted(&[
+        Ok(actions_runs(&[(1, "test", "success")])),
+        Ok(statuses_page(0, &[])),
+        Ok("{\"total_count\": 1}".to_string()),
+    ]);
+    assert_eq!(
+        gh.checks(&at(), None),
+        Err(Outcome::Unread(Unread::Malformed))
+    );
+}
+
+/// An App without `actions: read` is refused the workflow runs: the checks
+/// read is `Forbidden`, and the adapter gives the poll its line once, so
+/// the operator of an old App sees why. A read the site answers gives none.
+#[test]
+fn a_refused_read_of_the_workflow_runs_is_forbidden_and_says_why() {
+    let (mut gh, _) = scripted(&[
+        Ok(actions_runs(&[(1, "test", "success")])),
+        Ok(statuses_page(0, &[])),
+        Err("gh: Resource not accessible by integration (HTTP 403)".to_string()),
+        Ok(actions_runs(&[(1, "test", "success")])),
+        Ok(statuses_page(0, &[])),
+        Err("gh: Resource not accessible by integration (HTTP 403)".to_string()),
+    ]);
+    assert_eq!(gh.checks(&at(), None), Err(Outcome::Forbidden));
+    assert_eq!(gh.checks(&at(), None), Err(Outcome::Forbidden));
+    assert_eq!(
+        gh.take_lines(),
+        [tehas_github::WORKFLOW_RUNS_FORBIDDEN],
+        "once, however many reads met it"
+    );
+    assert_eq!(
+        tehas_github::WORKFLOW_RUNS_FORBIDDEN,
+        "the App cannot read workflow runs (actions: read)"
+    );
+    assert!(gh.take_lines().is_empty(), "taken");
+
+    let (mut gh, _) = adapter("acme/node");
+    gh.checks(&CommitId::new(NODE).unwrap(), None).unwrap();
+    assert!(gh.take_lines().is_empty());
+}
+
+/// Law 5, of #3251's review: one workflow run by `push` and by
+/// `pull_request` on one head. The `pull_request` run tests the merge with
+/// the base, the `push` run the branch alone, so a later passing `push` run
+/// never hides a failing `pull_request` run: the event is in the key.
+#[test]
+fn a_push_pass_after_a_pull_request_failure_of_one_workflow_reads_failing() {
+    let (mut gh, _) = scripted(&[
+        Ok(actions_runs(&[
+            (1, "test", "failure"),
+            (2, "test", "success"),
+        ])),
+        Ok(statuses_page(0, &[])),
+        Ok(workflow_runs_of(
+            2,
+            &[
+                (5, 70_000_001, 7, "pull_request"),
+                (6, 70_000_002, 7, "push"),
+            ],
+        )),
+    ]);
+    let c = gh.checks(&at(), None).unwrap();
+    assert_eq!(c.runs.len(), 2);
+    assert_eq!(c.overall, Overall::Fail);
+    // The same runs both of `push`: the newer supersedes.
+    let (mut gh, _) = scripted(&[
+        Ok(actions_runs(&[
+            (1, "test", "failure"),
+            (2, "test", "success"),
+        ])),
+        Ok(statuses_page(0, &[])),
+        Ok(workflow_runs_of(
+            2,
+            &[(5, 70_000_001, 7, "push"), (6, 70_000_002, 7, "push")],
+        )),
+    ]);
+    assert_eq!(gh.checks(&at(), None).unwrap().overall, Overall::Pass);
+}
+
+/// A fresh re-run, queued and not yet started (no `started_at`), after a
+/// pass of the same workflow and event is the newest of its key, whatever
+/// its id: the job reads queued, the commit pending, and the rest of the
+/// commit's checks still read. On the node recording, with a re-run of
+/// `get_candidate_prs` queued in a suite of its own.
+#[test]
+fn a_queued_rerun_after_a_pass_reads_pending_and_the_rest_still_reads() {
+    const RERUN_SUITE: u64 = 1;
+    let checks = edited(&node("checks"), |checks: &mut serde_json::Value| {
+        checks["check_runs"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "id": 1, "name": "get_candidate_prs", "status": "queued",
+                "conclusion": null, "started_at": null, "completed_at": null,
+                "app": {"id": 15368, "slug": "github-actions"},
+                "check_suite": {"id": RERUN_SUITE}
+            }));
+        checks["total_count"] = 77.into();
+    });
+    let runs = edited(&node("runs"), |runs: &mut serde_json::Value| {
+        runs["workflow_runs"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "id": 1, "name": "Commit Queue", "event": "schedule",
+                "workflow_id": QUEUE, "check_suite_id": RERUN_SUITE
+            }));
+        runs["total_count"] = 36.into();
+    });
+    let c = node_checks(&checks, &runs).unwrap();
+    assert_eq!(candidate_prs(&c), [&CheckStatus::Queued]);
+    assert_eq!(c.overall, Overall::Pending);
+    assert_eq!(c.runs.len(), 76 - 4 * 10, "the rest are read as before");
+}
+
+/// The workflow runs are read whole, a page of 100 at a time, up to
+/// `ALL_MAX`; past it, `Unread(Cut)` from the first page's count, with no
+/// further page asked.
+#[test]
+fn the_workflow_runs_are_paged_and_cut_past_all_max() {
+    let first: Vec<(u64, u64, u64)> = (1..=100).map(|i| (i, 70_000_000 + i, 7)).collect();
+    let (mut gh, asked) = scripted(&[
+        Ok(actions_runs(&[
+            (1, "test", "failure"),
+            (2, "test", "success"),
+        ])),
+        Ok(statuses_page(0, &[])),
+        Ok(workflow_runs(101, &first)),
+        Ok(workflow_runs(101, &[(101, 70_000_101, 7)])),
+    ]);
+    let c = gh.checks(&at(), None).unwrap();
+    assert_eq!(c.runs.len(), 1, "suites 1 and 2 are runs of workflow 7");
+    assert_eq!(
+        c.overall,
+        Overall::Pass,
+        "the larger id wins a tie of starts"
+    );
+    assert!(asked.lock().unwrap()[3].ends_with("&per_page=100&page=2"));
+
+    let all = ALL_MAX.get() as usize;
+    let (mut gh, asked) = scripted(&[
+        Ok(actions_runs(&[(1, "test", "success")])),
+        Ok(statuses_page(0, &[])),
+        Ok(workflow_runs(all + 1, &first)),
+    ]);
+    assert_eq!(gh.checks(&at(), None), Err(Outcome::Unread(Unread::Cut)));
+    assert_eq!(asked.lock().unwrap().len(), 3);
+}
+
+/// A commit with no run of GitHub Actions asks no workflow runs; one
+/// suite given two workflows, or two events, is inconsistent; a run folded
+/// by workflow whose start is no time cannot be placed.
+#[test]
+fn the_workflow_fold_refuses_what_it_cannot_place() {
+    let (mut gh, asked) = scripted(&[
+        Ok(runs_page(
+            1,
+            &[(1, 15368, "test", "completed", Some("success"))],
+        )),
+        Ok(statuses_page(0, &[])),
+    ]);
+    assert_eq!(gh.checks(&at(), None).unwrap().overall, Overall::Pass);
+    assert_eq!(workflow_reads(&asked), 0);
+
+    let (mut gh, _) = scripted(&[
+        Ok(actions_runs(&[(1, "test", "success")])),
+        Ok(statuses_page(0, &[])),
+        Ok(workflow_runs(2, &[(5, 70_000_001, 7), (6, 70_000_001, 8)])),
+    ]);
+    assert_eq!(
+        gh.checks(&at(), None),
+        Err(Outcome::Unread(Unread::Inconsistent))
+    );
+    let (mut gh, _) = scripted(&[
+        Ok(actions_runs(&[(1, "test", "success")])),
+        Ok(statuses_page(0, &[])),
+        Ok(workflow_runs_of(
+            2,
+            &[
+                (5, 70_000_001, 7, "push"),
+                (6, 70_000_001, 7, "pull_request"),
+            ],
+        )),
+    ]);
+    assert_eq!(
+        gh.checks(&at(), None),
+        Err(Outcome::Unread(Unread::Inconsistent))
+    );
+
+    let runs = edited(
+        &actions_runs(&[(1, "test", "success")]),
+        |runs: &mut serde_json::Value| {
+            runs["check_runs"][0]["started_at"] = "yesterday".into();
+        },
+    );
+    let (mut gh, _) = scripted(&[
+        Ok(runs),
+        Ok(statuses_page(0, &[])),
+        Ok(workflow_runs(1, &[(5, 70_000_001, 7)])),
+    ]);
+    assert_eq!(
+        gh.checks(&at(), None),
+        Err(Outcome::Unread(Unread::Malformed))
+    );
 }
 
 fn by_number(numbers: &[u64]) -> ChangeFilter {
