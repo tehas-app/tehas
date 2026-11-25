@@ -27,7 +27,7 @@ mod epic;
 mod flow;
 mod note;
 mod plan;
-mod retry;
+pub(crate) mod retry;
 mod starts;
 
 pub(crate) use crate::snapshot::{base_approver, base_stands, named_blockers, record_base, shape};
