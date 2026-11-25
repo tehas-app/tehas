@@ -12,4 +12,6 @@ publish = false
 
 [dependencies]
 tehas-core = { path = "../core" }
+tehas-github = { path = "../github" }
 tehas-plugin = { path = "../plugin" }
+tehas-ports = { path = "../ports" }
