@@ -200,7 +200,7 @@ Take any `TEHAS_PROTOLAB_URL`, `TEHAS_PROTOLAB_ZIP_URL`, `TEHAS_PROTOLAB_ZIP_HOS
 
 None to keep tehas running: an install removes the old files. `/` now shows the factory floor where it showed the business page, and a link to `/business` answers 404: point it at `/`. A build that takes rules from `business.css` takes them from `pages.css`.
 
-Before you update a host to 2.0, run `cargo xtask config-check --settings <instance dir>` in a checkout of the 2.0 release, fix every `fail` line, and run it again until it passes. It does not read `~/.config/tehas/env`: take a `GH_TOKEN` line or a renamed setting out of that file too.
+Before you update a host to 2.0, run `cargo xtask config-check --settings <instance dir>` in a checkout of the 2.0 release, fix every `fail` line, and run it again until it passes. Add `--env ~/.config/tehas/env` so it checks that file too, and take a `GH_TOKEN` line or a renamed setting out of it.
 
 Run `tehas update`: it stops and removes `tehas-energy.service` and the last `live/energy.json`. Then take `TEHAS_ENERGY`, `TEHAS_ENERGY_URL` and `TEHAS_ENERGY_SOURCE_URL` out of `instance.env` and `~/.config/tehas/env`.
 
