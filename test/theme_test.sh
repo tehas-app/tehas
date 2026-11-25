@@ -11,10 +11,9 @@
 
 fun=$T_ROOT/host/fun
 themes=$(cd "$fun" && ls theme-*.css)
-# The stylesheets that draw the pages, and the files that write their markup or
-# paint their canvases.
-sheets=(game-view.css manual.css pages.css)
-markup=("$fun/index.html" "$T_ROOT/host/docs/_layout.html" "$T_ROOT/host/docs/dashboard.frag" "$T_ROOT/console/items/src/page.rs")
+# The stylesheets that draw the pages, and the files that write their markup.
+sheets=(manual.css pages.css)
+markup=("$T_ROOT/host/docs/_layout.html" "$T_ROOT/host/docs/dashboard.frag" "$T_ROOT/console/items/src/page.rs")
 
 # The tokens a file sets: every custom property declared in it.
 sets() { grep -oE '^ *--[a-z0-9-]+:' "$1" | tr -d ' :' | sort -u; }
@@ -34,9 +33,9 @@ for th in $themes; do
 done
 
 t_case "the pages use no token that a theme does not set"
-# A stylesheet may also set layout tokens of its own (--header, --meter-column)
-# and a script may set some on an element (--fold-pad): those are not the
-# theme's, and are allowed where something sets them.
+# A stylesheet may also set layout tokens of its own (--header) and a script
+# may set some on an element: those are not the theme's, and are allowed where
+# something sets them.
 own=$( (cd "$fun" && cat "${sheets[@]}" && grep -ohE "setProperty\\(\"--[a-z0-9-]+" ./*.js | sed 's/setProperty("//') |
   grep -oE -- '--[a-z0-9-]+(:|$)' | tr -d ':' | sort -u)
 used=$(cd "$fun" && cat "${sheets[@]}" | grep -oE 'var\(--[a-z0-9-]+' | sed 's/var(//' | sort -u)
@@ -44,20 +43,6 @@ for v in $used; do
   grep -qxF -- "$v" <<<"$pixel" && continue
   grep -qxF -- "$v" <<<"$own" && continue
   t_bad "$v is used and neither a theme nor the stylesheets set it"
-done
-
-t_case "a canvas paints only with tokens a theme sets"
-# brick-wall.js names its pieces, and the game view draws through
-# paint("<token>").
-painted=$(cd "$fun" && {
-  grep -oE 'paint\("[a-z0-9-]+"' game-view.js | sed 's/.*paint("//; s/"$//'
-  grep -oE '"(game|piece)-[a-z0-9-]+"' game-view.js | tr -d '"'
-  sed -n 's/^ *const COLORS = \[\(.*\)\];$/\1/p' brick-wall.js | tr -d '",' | sed 's/piece/ piece/g'
-} | xargs -n1 | sort -u)
-t_eq "$(wc -l <<<"$painted" | tr -d ' ')" "$(grep -cE '^(band|piece|game)-|^(screen|screen-quiet|surface|font-code)$' <<<"$painted")"
-t_contains "$painted" piece-4
-for v in $painted; do
-  grep -qxF -- "--$v" <<<"$pixel" || t_bad "--$v is painted and no theme sets it"
 done
 
 t_case "nothing outside a theme names a colour"
@@ -74,14 +59,11 @@ t_case "pixel keeps the Twelve Bit Rule"
 t_eq "$(grep -oE '#[0-9a-fA-F]+\b' "$fun/theme-pixel.css" | grep -cvE '^#[0-9a-f]{3}$')" 0
 
 t_case "every page names the theme of the instance's design, beesknees26 unless it says pixel, before its own styles"
-for f in "$fun/index.html" "$T_ROOT/host/docs/_layout.html"; do
-  t_contains "$(cat "$f")" '{{- $design := "beesknees26" }}{{ if eq (env "TEHAS_DESIGN") "pixel" }}{{ $design = "pixel" }}{{ end -}}'
-  first=$(grep -oE 'href="/fun/theme-[^"]+\.css' "$f" | head -1 | sed 's/.*"//')
-  t_eq "$first" '/fun/theme-{{ $design }}.css'
-  t_eq "$(sed -n '1,/theme-{{ \$design }}\.css/p' "$f" | grep -c 'rel="stylesheet"')" 1
-done
-order=$(grep -oE 'src="/fun/[a-z-]+\.js"' "$fun/index.html" | sed 's/src="\/fun\///; s/"//' | xargs)
-t_contains "$order" "theme.js sample-issues.js brick-wall.js"
+f=$T_ROOT/host/docs/_layout.html
+t_contains "$(cat "$f")" '{{- $design := "beesknees26" }}{{ if eq (env "TEHAS_DESIGN") "pixel" }}{{ $design = "pixel" }}{{ end -}}'
+first=$(grep -oE 'href="/fun/theme-[^"]+\.css' "$f" | head -1 | sed 's/.*"//')
+t_eq "$first" '/fun/theme-{{ $design }}.css'
+t_eq "$(sed -n '1,/theme-{{ \$design }}\.css/p' "$f" | grep -c 'rel="stylesheet"')" 1
 
 t_case "no page and no server asks for a theme to be chosen"
 for f in "${markup[@]}" "$T_ROOT/host/edge/docs.Caddyfile" "$T_ROOT/host/edge/router.Caddyfile"; do
@@ -98,18 +80,15 @@ t_case "pixel shows the animated factory and its share card, beesknees26 the log
 t_contains "$(cat "$fun/favicon.svg")" 'tehas factory icon'
 t_contains "$(cat "$fun/factory.svg")" 'turbine-rotor'
 t_contains "$(cat "$fun/theme-beesknees26.css")" '.brand img { width: 50px; height: 50px; }'
-t_contains "$(cat "$fun/game-view.css")" '.brand img { width: auto; height: 40px; }'
+t_contains "$(cat "$fun/manual.css")" '.brand img { width: auto; height: 40px; }'
 t_contains "$(cat "$fun/theme-beesknees26.css")" '.brand .wordmark { width: auto; height: 28px; }'
-for f in "$fun/index.html" "$T_ROOT/host/docs/_layout.html"; do
-  t_contains "$(cat "$f")" '<img src="/fun/factory.svg" width="100" height="50" alt="">'
-  t_contains "$(cat "$f")" '<img src="/fun/favicon.svg" width="50" height="50" alt="">'
-  t_contains "$(cat "$f")" '<img class="wordmark" src="/fun/tehas-logotype.svg" width="99" height="28" alt="TEHAS">'
-  t_contains "$(cat "$f")" '<small>FACTORY</small>'
-done
-for f in "$fun/index.html" "$T_ROOT/host/docs/_layout.html"; do
-  t_contains "$(cat "$f")" '/fun/share.png'
-  t_contains "$(cat "$f")" '/fun/share-logo.png'
-done
+layout=$(cat "$T_ROOT/host/docs/_layout.html")
+t_contains "$layout" '<img src="/fun/factory.svg" width="100" height="50" alt="">'
+t_contains "$layout" '<img src="/fun/favicon.svg" width="50" height="50" alt="">'
+t_contains "$layout" '<img class="wordmark" src="/fun/tehas-logotype.svg" width="99" height="28" alt="TEHAS">'
+t_contains "$layout" '<small>FACTORY</small>'
+t_contains "$layout" '/fun/share.png'
+t_contains "$layout" '/fun/share-logo.png'
 
 t_case "pages.css holds the 17 rules other pages pick by selector, each once, and no page of tehas links it"
 heads=$(sed 's:/\*.*\*/::' "$fun/pages.css" | grep -oE '^[^ /].*\{' | sed 's/ *{$//')
@@ -131,21 +110,20 @@ look=$(sed -n '/handle @look {/,/file_server/p' "$T_ROOT/host/edge/router.Caddyf
 t_contains "$look" 'uri strip_prefix /fun'
 t_eq "$(grep -c 'rewrite' <<<"$look")" 0
 
-t_case "the docs server answers / and /floor with the floor in every design, and has no business page"
+t_case "the docs server sends /floor to the front page, and has no business page"
 caddy=$(cat "$T_ROOT/host/edge/docs.Caddyfile")
-t_contains "$caddy" '@front path / /floor'
+t_contains "$caddy" 'redir /floor / permanent'
+t_eq "$(grep -c 'index.html' <<<"$caddy")" 0
 t_eq "$(grep -ciE 'business|TEHAS_DESIGN:' <<<"$caddy")" 0
 
 t_case "no footer links to the other frontend"
-for f in "$fun/index.html" "$T_ROOT/host/docs/_layout.html"; do
-  foot=$(sed -n '/<footer/,/<\/footer>/p' "$f")
-  t_eq "$(grep -cE 'href="/floor"|href="/dashboard"|href="/"' <<<"$foot")" 0
-done
+foot=$(sed -n '/<footer/,/<\/footer>/p' "$T_ROOT/host/docs/_layout.html")
+t_eq "$(grep -cE 'href="/floor"|href="/dashboard"|href="/"' <<<"$foot")" 0
 
-t_case "the plain dashboard loads the host bridge before its islands, which hold the page's script"
+t_case "the plain dashboard loads the host bridge before its islands and the dock after them"
 frag=$T_ROOT/host/docs/dashboard.frag
 order=$(grep -oE 'src="/fun/[a-z/-]+\.js"' "$frag" | sed 's/src="\/fun\///; s/"//' | xargs)
-t_eq "$order" "host-bridge.js factory/tehas-factory-state.js factory/tehas-factory-console.js factory/tehas-factory-issues.js factory/tehas-factory-readonly.js factory/tehas-factory-days.js factory/tehas-factory-previews.js"
+t_eq "$order" "host-bridge.js factory/tehas-factory-state.js factory/tehas-factory-console.js factory/tehas-factory-issues.js factory/tehas-factory-readonly.js factory/tehas-factory-days.js factory/tehas-factory-previews.js dom.js epics-view.js versions.js dock.js"
 t_contains "$(cat "$frag")" '<script type="module" src="/fun/factory/tehas-factory-state.js"></script>'
 t_eq "$(grep -c '<script type="module">' "$frag")" 0
 

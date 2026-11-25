@@ -5,8 +5,8 @@
 //! `host/fun` and `host/docs` are copied to `<stage dir>/fun` and
 //! `<stage dir>/docs` as 644, but for the `.d.ts` type files, which no page
 //! loads. Then each `<script src="/fun/X.js">` and each
-//! `<link rel="stylesheet" href="/fun/X.css">` of `fun/index.html` and
-//! `docs/dashboard.frag` is named by the bytes it asks for: `fun/X.<hex>.js` holds a copy of `fun/X.js` and the tag names that
+//! `<link rel="stylesheet" href="/fun/X.css">` of `docs/dashboard.frag` is
+//! named by the bytes it asks for: `fun/X.<hex>.js` holds a copy of `fun/X.js` and the tag names that
 //! file, where `<hex>` is the first 12 hex digits of the sha256 of the bytes.
 //! A file in a subfolder is copied in that subfolder and named there:
 //! `/fun/factory/X.js` becomes `/fun/factory/X.<hex>.js`.
@@ -42,7 +42,7 @@ use std::path::{Path, PathBuf};
 const DIRS: [&str; 2] = ["fun", "docs"];
 
 /// The pages that name a script or a stylesheet by tag, from the stage.
-pub(super) const PAGES: [&str; 2] = ["fun/index.html", "docs/dashboard.frag"];
+pub(super) const PAGES: [&str; 1] = ["docs/dashboard.frag"];
 
 /// The extensions a page may name by tag and the server may cache for ever.
 /// Nothing else is given a hashed name: an image, a font or a document keeps
@@ -333,14 +333,14 @@ mod tests {
     use super::super::testing::dir;
     use super::*;
 
-    /// A host directory with the three pages and the files they name. Each file
+    /// A host directory with the dashboard and the files it names. Each file
     /// holds exactly the text written here: the console's own test helper adds a
     /// newline to what it writes, which would end these tags early.
     fn host(name: &str) -> super::super::testing::Dir {
         let d = dir(name);
         put(
             &d,
-            "host/fun/index.html",
+            "host/docs/dashboard.frag",
             "<html>\n  <link rel=\"stylesheet\" href=\"/fun/panels.css\">\n  \
              <link rel=\"stylesheet\" href=\"/fun/theme-{{ $design }}.css\">\n  \
              <script src=\"/fun/panels.js\"></script>\n</html>\n",
@@ -350,11 +350,6 @@ mod tests {
         put(&d, "host/fun/theme-pixel.css", "/* pixel */\n");
         put(&d, "host/fun/visible.js", "// staged\n");
         put(&d, "host/fun/.hidden.js", "// not staged\n");
-        put(
-            &d,
-            "host/docs/dashboard.frag",
-            "<script src=\"/fun/panels.js\"></script>\n",
-        );
         put(&d, "host/docs/host.md", "# The host\n");
         d
     }
@@ -404,7 +399,7 @@ mod tests {
         let css = b".panel { color: green }\n";
         let js_name = format!("panels.{}.js", hex(js));
         let css_name = format!("panels.{}.css", hex(css));
-        let page = fs::read_to_string(staged(&d, "fun/index.html")).unwrap();
+        let page = fs::read_to_string(staged(&d, "docs/dashboard.frag")).unwrap();
         assert!(
             page.contains(&format!("<script src=\"/fun/{js_name}\"></script>")),
             "{page}"
@@ -415,7 +410,7 @@ mod tests {
             )),
             "{page}"
         );
-        // Neither page asks for the plain name any more.
+        // The page asks for the plain name no more.
         assert!(!page.contains("\"/fun/panels.js\""), "{page}");
         assert!(names(&staged(&d, "fun")).contains(&js_name));
         assert!(names(&staged(&d, "fun")).contains(&css_name));
@@ -425,8 +420,6 @@ mod tests {
             fs::read(staged(&d, &format!("fun/panels.{}.js", hex(js)))).unwrap(),
             js
         );
-        let frag = fs::read_to_string(staged(&d, "docs/dashboard.frag")).unwrap();
-        assert!(frag.contains(&format!("/fun/{js_name}")), "{frag}");
     }
 
     #[test]
@@ -675,7 +668,7 @@ mod tests {
     fn the_theme_link_the_template_names_is_left_as_it_is() {
         let d = host("assets-theme");
         assert_eq!(run(&d), 0);
-        let page = fs::read_to_string(staged(&d, "fun/index.html")).unwrap();
+        let page = fs::read_to_string(staged(&d, "docs/dashboard.frag")).unwrap();
         assert!(
             page.contains("<link rel=\"stylesheet\" href=\"/fun/theme-{{ $design }}.css\">"),
             "{page}"
@@ -708,7 +701,7 @@ mod tests {
         let new = format!("panels.{}.js", hex(b"// another panel\n"));
         assert!(after.contains(&new), "{after:?}");
         assert!(!after.contains(&old), "{after:?}");
-        let page = fs::read_to_string(staged(&d, "fun/index.html")).unwrap();
+        let page = fs::read_to_string(staged(&d, "docs/dashboard.frag")).unwrap();
         assert!(page.contains(&format!("/fun/{new}")), "{page}");
         assert!(!page.contains(&old), "{page}");
     }
@@ -724,15 +717,15 @@ mod tests {
             names(&staged(&second, "fun"))
         );
         assert_eq!(
-            fs::read_to_string(staged(&first, "fun/index.html")).unwrap(),
-            fs::read_to_string(staged(&second, "fun/index.html")).unwrap()
+            fs::read_to_string(staged(&first, "docs/dashboard.frag")).unwrap(),
+            fs::read_to_string(staged(&second, "docs/dashboard.frag")).unwrap()
         );
         // Staging the same tree twice over is no different: nothing here reads
         // a clock, which is what keeps --check quiet the second time.
         assert_eq!(run(&first), 0);
         assert_eq!(
-            fs::read_to_string(staged(&first, "fun/index.html")).unwrap(),
-            fs::read_to_string(staged(&second, "fun/index.html")).unwrap()
+            fs::read_to_string(staged(&first, "docs/dashboard.frag")).unwrap(),
+            fs::read_to_string(staged(&second, "docs/dashboard.frag")).unwrap()
         );
     }
 
@@ -741,7 +734,7 @@ mod tests {
         let d = dir("assets-missing");
         put(
             &d,
-            "host/fun/index.html",
+            "host/docs/dashboard.frag",
             "<script src=\"/fun/gone.js\"></script>\n\
              <script type=\"module\" src=\"./panels.js\"></script>\n\
              <script type=\"module\" src=\"/fun/dashboard-view.js\"></script>\n\
@@ -751,10 +744,9 @@ mod tests {
         put(&d, "host/fun/dashboard-view.js", "import \"./dom.js\";\n");
         put(&d, "host/fun/favicon.svg", "<svg></svg>\n");
         put(&d, "host/fun/manual.css", "body { margin: 0 }\n");
-        put(&d, "host/docs/dashboard.frag", "<p>nothing</p>\n");
         put(&d, "host/docs/host.md", "# The host\n");
         assert_eq!(run(&d), 0);
-        let page = fs::read_to_string(staged(&d, "fun/index.html")).unwrap();
+        let page = fs::read_to_string(staged(&d, "docs/dashboard.frag")).unwrap();
         // A file the stage does not hold, and a relative address a module names
         // its siblings by, keep their tags.
         assert!(
@@ -890,7 +882,10 @@ mod tests {
         // A relative address, an address of another page's, a tag with no
         // address, and a tag that is no script or link.
         assert_eq!(address("<script type=\"module\" src=\"./dom.js\">"), None);
-        assert_eq!(address("<link rel=\"canonical\" href=\"/floor\">"), None);
+        assert_eq!(
+            address("<link rel=\"canonical\" href=\"/dashboard\">"),
+            None
+        );
         assert_eq!(address("<link rel=\"stylesheet\">"), None);
         assert_eq!(address("<p>hello</p>"), None);
         // src= is the address a script runs, so it is the one rewritten where a

@@ -4,7 +4,7 @@
 //
 // A classic script, like the pages' other shared files: it holds no import and
 // exports nothing, and a page that uses it loads it with a <script> tag before
-// its own script (host/fun/index.html). A module that
+// its own script (docs/dashboard.frag). A module that
 // wants it imports the file, which is the same script run once for the page.
 //
 // Text is always set through textContent, never as markup: the words a page

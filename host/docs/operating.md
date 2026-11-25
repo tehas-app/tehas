@@ -14,8 +14,7 @@ Optional. An open issue that carries none of tehas's queue labels
 (`tehas:ready`, `tehas:plan`, `tehas:running` and the others of the
 [line](#3-what-happens-next)) is an idea: it is not in line yet. Work on it can
 happen anywhere, with other tools and systems, for as long as it takes.
-tehas does not act on it. The factory floor counts such tickets as not on
-the line.
+tehas does not act on it, and the dashboard lists it nowhere.
 
 This version has no Protolab: the site that kept a page of the files
 attached to each prototype is parked, to come back as a plugin. tehas 2.0
@@ -220,7 +219,7 @@ line.
 
 ## 3. What happens next
 
-Watch it on the [factory floor](/floor) or the [plain dashboard](/dashboard): the queue, the issue being worked on with its
+Watch it on the [plain dashboard](/dashboard): the queue, the issue being worked on with its
 console streaming live, and what is waiting for you.
 
 Unless `TEHAS_ANALYTICS=off`, the plain dashboard also has a section **Last 10
@@ -342,7 +341,7 @@ snapshot; where the snapshot has none, the figure is the length of that list.
 When the cycle starts and when it ends, the bot comments on the issue. The token
 usage per agent role is posted on the pull request.
 
-The console on the [factory floor](/floor) and on the [plain dashboard](/dashboard)
+The console on the [plain dashboard](/dashboard)
 shows one cycle at a time. When several are running, or one is running and an
 earlier one can still be read, a row of tabs above it names each by its issue
 number.
@@ -1387,7 +1386,7 @@ whose issue is closed or whose pull request is merged or closed, stops one nobod
 has heard from, and clears an issue marked `tehas:running` with no cycle behind
 it. A paused factory therefore keeps no slot and no model time for work it has
 already done. `tehas status` prints a line for each switch that is set, with when the
-flag was written and why; the dashboard and the front page say the factory is
+flag was written and why; the dashboard says the factory is
 paused and, while a cycle is still running, that it is finishing that issue.
 
 The reason is written to the flag and shown on pages that may be public, so write
@@ -2517,7 +2516,7 @@ its one-shot runner, `pi-rukas-headless work <issue>`, with no terminal and no
 Pi session of its own: it starts a Pi process for each agent. There is no prompt to type at and nothing waits for an
 answer.
 
-What you can do is watch it, on the [factory floor](/floor) or on the host:
+What you can do is watch it, on the [plain dashboard](/dashboard) or on the host:
 
 ```
 tail -f ~/tehas/live/console-123.txt     # the console the dashboard shows
@@ -2572,7 +2571,7 @@ your own git configuration. An administrator lets an account in once, with
   approve.
 - **The factory beside you.** Nothing is paused. A session and a cycle share
   the model endpoint, and the command tells you when a cycle is running. Apply
-  `tehas:pause` first if you want the models to yourself. The factory floor
+  `tehas:pause` first if you want the models to yourself. The dashboard
   does not show a session.
 - **Outside the queue.** No labels and no bot comments. The dispatcher does
   not know the session exists.
