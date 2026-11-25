@@ -121,11 +121,11 @@ fn run(given: &[String]) -> u8 {
         grace: GRACE,
         token: None,
     };
-    let cycles = Home::new(&settings.home).cycles_dir();
+    let at = Home::new(&settings.home);
     // A lock that cannot be read is no free lock: the issue waits for a later poll.
     let running = |n: u64| {
         !matches!(
-            probe(&cycles.join(format!("{n}.lock"))),
+            probe(&at.cycle_note(n, "lock")),
             Probe::Absent | Probe::Free
         )
     };

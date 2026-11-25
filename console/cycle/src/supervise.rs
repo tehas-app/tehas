@@ -487,11 +487,11 @@ pub fn run(home: &Path, g: &Given, events: &Dispatcher) -> i32 {
     }
     let started = time::now();
     let restart = wants_restart(&issue);
-    let cycles = Home::new(home).cycles_dir();
+    let at = Home::new(home);
     // The notes of an earlier cycle, killed outright before it could report. A
     // freeze left by one would pause this cycle the moment it starts.
     for note in cycle_notes::started() {
-        let _ = fs::remove_file(cycles.join(format!("{n}.{note}")));
+        let _ = fs::remove_file(at.cycle_note(g.issue, note));
     }
     // The driver's record of the cycle before this one, had it kept one. Its
     // one reader was that cycle's run of the analytics, and a start comes here
@@ -499,7 +499,7 @@ pub fn run(home: &Path, g: &Given, events: &Dispatcher) -> i32 {
     // this is where the note goes. Left behind it would be read as this
     // cycle's own steps, the analytics read the file by its issue alone, and
     // it would hold the place this cycle's copy needs.
-    let _ = fs::remove_file(cycles.join(format!("{n}.{}", apply::LEAN_STATE)));
+    let _ = fs::remove_file(at.cycle_note(g.issue, apply::LEAN_STATE));
     let stop = Arc::new(AtomicBool::new(false));
     for sig in [
         signal_hook::consts::SIGTERM,

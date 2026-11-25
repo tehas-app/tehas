@@ -174,11 +174,11 @@ pub fn store_try(home: &Path, tries: u32, args: &[&str]) -> Result<Value, Refuse
 /// settings it reads given by `env`: this process's environment, or a test's
 /// own, so a test reads a home's facts in process, beside others.
 pub fn facts_with(home: &Path, s: &Start, env: &dyn Fn(&str) -> String) -> Value {
-    let cycles = Home::new(home).cycles_dir();
+    let at = Home::new(home);
     let issue = s.issue;
     let mut files = Map::new();
     for name in FILES {
-        if let Some(v) = file(&cycles.join(format!("{issue}.{name}"))) {
+        if let Some(v) = file(&at.cycle_note(issue, name)) {
             files.insert(name.to_string(), v);
         }
     }

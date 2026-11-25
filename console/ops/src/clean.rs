@@ -1229,8 +1229,10 @@ impl Run {
         ok
     }
 
+    /// `n` is a number `issue_of` read.
     fn cycle_lock(&self, n: &str) -> PathBuf {
-        Home::new(&self.home).cycles_dir().join(format!("{n}.lock"))
+        let n: u64 = n.parse().unwrap_or_default();
+        Home::new(&self.home).cycle_note(n, "lock")
     }
 
     /// A cycle holds the issue's lock, or the probe could not tell: the cases

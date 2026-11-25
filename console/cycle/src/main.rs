@@ -479,7 +479,8 @@ fn cycle_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
     let _ = std::fs::create_dir_all(home.join("logs"));
     // tehas work and the docker client it starts inherit this lock. If this
     // process is killed outright the place stays taken until they are gone too.
-    let held = match lock::take(&cycles.join(format!("{n}.lock")), Duration::from_secs(5)) {
+    let lock = Home::new(home).cycle_note(n, "lock");
+    let held = match lock::take(&lock, Duration::from_secs(5)) {
         Ok(Some(f)) => f,
         Ok(None) => {
             after::log(&format!("a cycle for #{n} is already running"));
