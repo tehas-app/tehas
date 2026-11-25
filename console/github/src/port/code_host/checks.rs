@@ -18,31 +18,53 @@ use tehas_ports::{
 /// key that names it once in the list.
 type Counted<K, T = Check> = (u64, Vec<(K, T)>);
 
+/// The line [`GitHub::take_lines`] gives where the site refuses a checks
+/// read its workflow runs: an App made before the read needs
+/// `actions: read`.
+pub const WORKFLOW_RUNS_FORBIDDEN: &str = "the App cannot read workflow runs (actions: read)";
+
 /// The slug of GitHub Actions' App, the one App whose check suites are
-/// workflow runs.
+/// workflow runs. The same on GitHub Enterprise Server, where the App's id
+/// differs: so the App is known by its slug, never by its id.
 const ACTIONS: &str = "github-actions";
 
 /// What names a check run: its id, the App that made it, whether that App
 /// is GitHub Actions, its check suite (for GitHub Actions, one workflow
-/// run) and when it started, in Unix seconds, if the site says.
+/// run) and when it started.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct Run {
     id: u64,
     app: u64,
     actions: bool,
     suite: u64,
-    started: Option<i64>,
+    started: Started,
 }
 
+/// When a check run started, as the site says it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Started {
+    /// At this time, in Unix seconds.
+    At(i64),
+    /// Not yet: no `started_at`, or null, as a queued run (a fresh re-run)
+    /// has.
+    Not,
+    /// A `started_at` that is not a time of the form GitHub writes.
+    Bad,
+}
+
+/// The workflow a suite of GitHub Actions runs, and the event that ran it.
+type Ran = (u64, String);
+
 /// What a check run is folded by. A run of GitHub Actions whose suite the
-/// commit's workflow runs map is held by its workflow, so a newer run of
-/// the same workflow, scheduled or re-run, supersedes; any other by its
-/// suite, as Decided 129 has it.
+/// commit's workflow runs map is held by its workflow and event, so a
+/// newer run of the same workflow and event, scheduled or re-run,
+/// supersedes; any other by its suite, as Decided 129 has it.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum Fold {
     Workflow {
         app: u64,
         workflow: u64,
+        event: String,
         name: String,
     },
     Suite {
@@ -57,8 +79,9 @@ impl GitHub {
     /// `newest_of_each`: two Apps' runs of one name, or two workflows' jobs
     /// of one name, stay apart whatever GitHub's own `latest` would keep
     /// (Decided 129), and a newer run of the same workflow, scheduled or
-    /// re-run, supersedes an older one (amended 2026-11-25). Which workflow
-    /// each suite of GitHub Actions runs comes from one paged read of the
+    /// re-run, of the same event, supersedes an older one (amended
+    /// 2026-11-25). Which workflow and event each suite of GitHub Actions
+    /// runs comes from one paged read of the
     /// commit's workflow runs, never one per suite, asked only when a run of
     /// GitHub Actions is held: see `workflows_of`. Then the combined status,
     /// the newest state of each context. Each is read whole, a page of 100
@@ -109,13 +132,15 @@ impl GitHub {
         Ok(checks)
     }
 
-    /// The workflow of each check suite of GitHub Actions on the commit:
-    /// one paged read of `actions/runs?head_sha=`, whole up to `ALL_MAX`
-    /// workflow runs, past it `Unread(Cut)`. A call that fails leaves the
-    /// checks unread for this poll (`Unread(Inconsistent)`), whatever it
-    /// failed of: the runs cannot be folded without it. Two workflow runs
-    /// that give one suite two workflows are `Unread(Inconsistent)`.
-    fn workflows_of(&mut self, at: &CommitId) -> Got<BTreeMap<u64, u64>> {
+    /// The workflow and event of each check suite of GitHub Actions on the
+    /// commit: one paged read of `actions/runs?head_sha=`, whole up to
+    /// `ALL_MAX` workflow runs, past it `Unread(Cut)`. A call that fails
+    /// fails the checks read for this poll: the runs cannot be folded
+    /// without it. The site refusing it is `Forbidden`, as for an App
+    /// without `actions: read` (its line, `WORKFLOW_RUNS_FORBIDDEN`), and
+    /// any other failure `Unread(Inconsistent)`. Two workflow runs that give
+    /// one suite two workflows or events are `Unread(Inconsistent)`.
+    fn workflows_of(&mut self, at: &CommitId) -> Got<BTreeMap<u64, Ran>> {
         let repo = self.repo.clone();
         let path = |page: u32| {
             format!(
@@ -128,15 +153,20 @@ impl GitHub {
             _ => Outcome::Unread(Unread::Inconsistent),
         };
         let what = "the workflow runs";
-        let first = self
+        let runs = match self
             .checks_page(what, &path(1), read_workflow_runs)
-            .map_err(unread)?;
-        let runs = self
-            .checks_whole(what, path, read_workflow_runs, first)
-            .map_err(unread)?;
+            .and_then(|first| self.checks_whole(what, path, read_workflow_runs, first))
+        {
+            Ok(runs) => runs,
+            Err(Outcome::Forbidden) => {
+                self.line_once(WORKFLOW_RUNS_FORBIDDEN);
+                return Err(Outcome::Forbidden);
+            }
+            Err(o) => return Err(unread(o)),
+        };
         let mut of = BTreeMap::new();
-        for (_, (suite, workflow)) in runs {
-            if *of.entry(suite).or_insert(workflow) != workflow {
+        for (_, (suite, ran)) in runs {
+            if *of.entry(suite).or_insert_with(|| ran.clone()) != ran {
                 return Err(Outcome::Unread(Unread::Inconsistent));
             }
         }
@@ -210,23 +240,31 @@ impl GitHub {
 
 /// The newest run of each fold, in the order the site listed the first of
 /// each. A run of GitHub Actions whose suite `workflows` maps is folded by
-/// App, workflow and name, the newest by `started_at`, then the larger id
-/// (Decided 129 as amended 2026-11-25); such a run with no start is
-/// `Unread(Malformed)`, as it cannot be placed. Any other run, of another
-/// App or of a suite the workflow runs do not map, keeps 129's fold: by
-/// App, suite and name, the newest the highest id. That can make no false
-/// pass, and only that suite pays.
-fn newest_of_each(runs: Vec<(Run, Check)>, workflows: &BTreeMap<u64, u64>) -> Got<Vec<Check>> {
+/// App, workflow, event and name, the newest by `started_at`, then the
+/// larger id (Decided 129 as amended 2026-11-25). The event keeps a `push`
+/// run, which tests the branch alone, apart from a `pull_request` run,
+/// which tests its merge with the base. A run not yet started is the
+/// newest of its fold, so its own status (queued, so pending) decides; a
+/// start that is no time is `Unread(Malformed)`, as the run cannot be
+/// placed. Any other run, of another App or of a suite the workflow runs
+/// do not map, keeps 129's fold: by App, suite and name, the newest the
+/// highest id. That can make no false pass, and only that suite pays.
+fn newest_of_each(runs: Vec<(Run, Check)>, workflows: &BTreeMap<u64, Ran>) -> Got<Vec<Check>> {
     let mut at: BTreeMap<Fold, usize> = BTreeMap::new();
     let mut kept: Vec<((i64, u64), Check)> = Vec::new();
     for (run, check) in runs {
         let name = check.name.clone();
         let (fold, newness) = match workflows.get(&run.suite).filter(|_| run.actions) {
-            Some(&workflow) => {
-                let started = run.started.ok_or(Outcome::Unread(Unread::Malformed))?;
+            Some((workflow, event)) => {
+                let started = match run.started {
+                    Started::At(t) => t,
+                    Started::Not => i64::MAX,
+                    Started::Bad => return Err(Outcome::Unread(Unread::Malformed)),
+                };
                 let fold = Fold::Workflow {
                     app: run.app,
-                    workflow,
+                    workflow: *workflow,
+                    event: event.clone(),
                     name,
                 };
                 (fold, (started, run.id))
@@ -254,10 +292,10 @@ fn newest_of_each(runs: Vec<(Run, Check)>, workflows: &BTreeMap<u64, u64>) -> Go
 
 /// A page of the check runs read: the count the site says it holds, and
 /// each run with its id, App, check suite and start. None for an answer
-/// that lacks a field every run has. A start that is not given, or not a
-/// time of the form GitHub writes, is None (`newest_of_each` refuses it
-/// where it folds by start), and an App with no slug is not GitHub
-/// Actions. A conclusion is folded into the port's words: `success` and
+/// that lacks a field every run has. A start that is not given, or null,
+/// is `Started::Not`, and one that is not a time of the form GitHub writes
+/// `Started::Bad` (`newest_of_each` refuses it where it folds by start);
+/// an App with no slug is not GitHub Actions. A conclusion is folded into the port's words: `success` and
 /// `neutral` pass, `skipped` is a skip, `failure`, `timed_out` and
 /// `startup_failure` fail, `cancelled` is cancelled, and any other word, or
 /// a finished run that names none, `Unknown`. A status that is not
@@ -280,7 +318,13 @@ fn read_runs(out: &str) -> Option<Counted<Run>> {
             _ => CheckStatus::Queued,
         };
         let check = Check::new(text("name")?.to_string(), status);
-        let started = text("started_at").and_then(tehas_core::time::from_iso);
+        let started = match r.get("started_at") {
+            None | Some(Value::Null) => Started::Not,
+            Some(t) => t
+                .as_str()
+                .and_then(tehas_core::time::from_iso)
+                .map_or(Started::Bad, Started::At),
+        };
         let run = Run {
             id: r.get("id")?.as_u64()?,
             app: r.pointer("/app/id")?.as_u64()?,
@@ -294,9 +338,9 @@ fn read_runs(out: &str) -> Option<Counted<Run>> {
 }
 
 /// A page of the commit's workflow runs: the count the site says it holds,
-/// and each run by its id with its check suite and workflow. None for an
-/// answer that lacks a field every workflow run has.
-fn read_workflow_runs(out: &str) -> Option<Counted<u64, (u64, u64)>> {
+/// and each run by its id with its check suite, workflow and event. None
+/// for an answer that lacks a field every workflow run has.
+fn read_workflow_runs(out: &str) -> Option<Counted<u64, (u64, Ran)>> {
     let v: Value = serde_json::from_str(out.trim()).ok()?;
     let count = v.get("total_count")?.as_u64()?;
     let mut runs = Vec::new();
@@ -304,7 +348,8 @@ fn read_workflow_runs(out: &str) -> Option<Counted<u64, (u64, u64)>> {
         let id = r.get("id")?.as_u64()?;
         let suite = r.get("check_suite_id")?.as_u64()?;
         let workflow = r.get("workflow_id")?.as_u64()?;
-        runs.push((id, (suite, workflow)));
+        let event = r.get("event")?.as_str()?.to_string();
+        runs.push((id, (suite, (workflow, event))));
     }
     Some((count, runs))
 }
