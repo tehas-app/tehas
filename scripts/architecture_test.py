@@ -388,6 +388,63 @@ class Standard(unittest.TestCase):
                 self.assertEqual(code, 2, out)
                 self.assertIn("no [standard] table", out)
 
+    def test_standard_that_is_not_a_table_is_refused(self):
+        for text in ['standard = "v2"\n[x]', '[[standard]]\nversion = "v2"']:
+            with self.subTest(text=text):
+                code, out = self.breaking(text).run()
+                self.assertEqual(code, 2, out)
+                self.assertIn("[standard] must be a table", out)
+
+    def test_an_old_file_that_is_not_utf8_is_refused(self):
+        r = self.breaking(None)
+        os.makedirs(os.path.join(r.root, ".tehas"), exist_ok=True)
+        with open(os.path.join(r.root, ".tehas/coding-standard"), "wb") as f:
+            f.write(b"v\xff\n")
+        code, out = r.run()
+        self.assertEqual(code, 2, out)
+        self.assertIn("not UTF-8", out)
+
+    def test_a_symlink_is_refused_even_dangling(self):
+        r = self.breaking(None)
+        r.write(".tehas/coding-standard", "v1\n")
+        os.symlink("nowhere.toml", os.path.join(r.root, ".tehas/repository.toml"))
+        code, out = r.run()
+        self.assertEqual(code, 2, out)
+        self.assertIn("a symlink", out)
+
+    def downgrade(self, before, after):
+        r = base_repo(standard=None)
+        if before:
+            r.write(*before)
+        r.commit()
+        for name in (".tehas/repository.toml", ".tehas/coding-standard"):
+            path = os.path.join(r.root, name)
+            if os.path.lexists(path):
+                os.remove(path)
+        if after:
+            r.write(*after)
+        return r.run("--base", "main")
+
+    def test_a_lower_standard_than_the_base_is_refused(self):
+        code, out = self.downgrade((".tehas/repository.toml", pointer("v2")), (".tehas/repository.toml", pointer("v1")))
+        self.assertEqual(code, 2, out)
+        self.assertIn("the standard goes down from v2 at main to v1", out)
+
+    def test_removing_the_file_the_base_has_is_refused(self):
+        code, out = self.downgrade((".tehas/repository.toml", pointer("v2")), None)
+        self.assertEqual(code, 2, out)
+        self.assertIn("goes down from v2 at main to none", out)
+
+    def test_the_move_from_the_old_file_is_not_a_downgrade(self):
+        code, out = self.downgrade((".tehas/coding-standard", "v2\n"), (".tehas/repository.toml", pointer("v2")))
+        self.assertNotIn("goes down", out)
+        self.assertNotEqual(code, 2, out)
+
+    def test_going_up_is_fine(self):
+        code, out = self.downgrade((".tehas/repository.toml", pointer("v1")), (".tehas/repository.toml", pointer("v2")))
+        self.assertNotIn("goes down", out)
+        self.assertNotEqual(code, 2, out)
+
     def test_an_empty_file_is_refused(self):
         r = self.breaking(None)
         r.write(".tehas/repository.toml", "")

@@ -41,8 +41,8 @@ the check's `comment` prefix are skipped.
 The repository says which standard it follows in `.tehas/repository.toml`,
 table `[standard]`, key `version` (before v2 the one line of
 `.tehas/coding-standard`, read only for `v1`): `v1` (the code as it was,
-before its
-first refactoring runs) or `v2` (the architecture method as the wiki page defines it; a
+before its first refactoring runs) or `v2` (the architecture method as the
+wiki page defines it; a
 later standard, v3 or more, comes with the version of this script that
 enforces it, and this one refuses it). The checks are
 enforced only at `v2`. At `v1`, or with no such file, the test says it is
@@ -352,57 +352,89 @@ def standard(root):
     Read from `.tehas/repository.toml`, table `[standard]`, key `version`.
     This script owns that table only: an unknown key in it is refused, other
     tables are left to their owners. The old one-line `.tehas/coding-standard`
-    is read only for `v1`; both at once is refused."""
+    is read only for `v1`. Both at once, or either as a symlink, is refused."""
     new_path = os.path.join(root, STANDARD_FILE)
-    new = os.path.exists(new_path)
-    old = os.path.exists(os.path.join(root, OLD_STANDARD_FILE))
+    old_path = os.path.join(root, OLD_STANDARD_FILE)
+    for path, name in ((new_path, STANDARD_FILE), (old_path, OLD_STANDARD_FILE)):
+        if os.path.islink(path):
+            raise ConfigError(f"{name}: a symlink; write the file itself")
+    new, old = os.path.lexists(new_path), os.path.lexists(old_path)
     if new and old:
         raise ConfigError(f"{OLD_STANDARD_FILE} and {STANDARD_FILE} are both here; keep {STANDARD_FILE} alone")
     if old:
-        found = old_standard(root)
+        found = standard_in_line(read_text(old_path, OLD_STANDARD_FILE), OLD_STANDARD_FILE)
         if found != "v1":
             raise ConfigError(f"{OLD_STANDARD_FILE} says {found}; move it to {STANDARD_FILE} as "
                               f"[standard] version = \"{found}\"")
         return found
     if not new:
         return None
+    return standard_in_toml(read_text(new_path, STANDARD_FILE), STANDARD_FILE)
+
+
+def base_standard(root, base):
+    """The standard the base names, by either file name, or None."""
+    for name, parse_ in ((STANDARD_FILE, standard_in_toml), (OLD_STANDARD_FILE, standard_in_line)):
+        try:
+            text = git("show", f"{base}:{name}", cwd=root)
+        except ConfigError:
+            continue
+        return parse_(text, f"{base}:{name}")
+    return None
+
+
+def no_downgrade(root, base, found):
+    """Adopted standards only go up: refuse a head that names a lower standard
+    than its base, or none where the base names one."""
+    was = base_standard(root, base)
+    if was is not None and (found is None or rank(found) < rank(was)):
+        raise ConfigError(f"the standard goes down from {was} at {base} to {found or 'none'}; "
+                          f"an adopted standard only goes up")
+
+
+def rank(version):
+    return tuple(int(n) for n in version[1:].split("."))
+
+
+def read_text(path, name):
     try:
-        with open(new_path, encoding="utf-8") as f:
-            doc = tomllib.loads(f.read())
+        with open(path, encoding="utf-8") as f:
+            return f.read()
     except UnicodeDecodeError:
-        raise ConfigError(f"{STANDARD_FILE}: not UTF-8")
+        raise ConfigError(f"{name}: not UTF-8")
+    except IsADirectoryError:
+        raise ConfigError(f"{name}: a directory, not a file")
+
+
+def standard_in_toml(text, name):
+    try:
+        doc = tomllib.loads(text)
     except tomllib.TOMLDecodeError as e:
-        raise ConfigError(f"{STANDARD_FILE}: not valid TOML: {e}")
+        raise ConfigError(f"{name}: not valid TOML: {e}")
     table = doc.get("standard")
     if table is None:
         # Fail closed: a file that exists names its standard. A near miss
         # ([Standard], [standards], a top-level version) must not read as
         # "no standard" and switch the checks off.
-        raise ConfigError(f"{STANDARD_FILE}: no [standard] table; write [standard] version = \"{ENFORCED}\" "
+        raise ConfigError(f"{name}: no [standard] table; write [standard] version = \"{ENFORCED}\" "
                           f"(a repository that names no standard has no {STANDARD_FILE})")
     if not isinstance(table, dict):
-        raise ConfigError(f"{STANDARD_FILE}: [standard] must be a table")
+        raise ConfigError(f"{name}: [standard] must be a table")
     extra = sorted(set(table) - STANDARD_KEYS)
     if extra:
-        raise ConfigError(f"{STANDARD_FILE}: [standard] has keys this script does not know: {', '.join(extra)}")
+        raise ConfigError(f"{name}: [standard] has keys this script does not know: {', '.join(extra)}")
     if "version" not in table:
-        raise ConfigError(f"{STANDARD_FILE}: [standard] has no version; write one of {known()}")
-    return checked_version(table["version"], STANDARD_FILE)
+        raise ConfigError(f"{name}: [standard] has no version; write one of {known()}")
+    return checked_version(table["version"], name)
 
 
-def old_standard(root):
-    """The first line of the old `.tehas/coding-standard` that is not empty and
-    not a `#` comment."""
-    try:
-        with open(os.path.join(root, OLD_STANDARD_FILE), encoding="utf-8") as f:
-            text = f.read()
-    except UnicodeDecodeError:
-        raise ConfigError(f"{OLD_STANDARD_FILE}: not UTF-8")
+def standard_in_line(text, name):
+    """The first line that is not empty and not a `#` comment."""
     for line in text.splitlines():
         line = line.strip()
         if line and not line.startswith("#"):
-            return checked_version(line, OLD_STANDARD_FILE)
-    raise ConfigError(f"{OLD_STANDARD_FILE}: empty; write one of {known()}")
+            return checked_version(line, name)
+    raise ConfigError(f"{name}: empty; write one of {known()}")
 
 
 def known():
@@ -442,6 +474,8 @@ def main(argv=None):
     a = ap.parse_args(argv)
     try:
         found = standard(a.root)
+        if a.base:
+            no_downgrade(a.root, a.base, found)
         if found != ENFORCED and not a.force:
             return skipped(found, a.summary)
         return run(a.root, a.config, a.base, a.summary)
