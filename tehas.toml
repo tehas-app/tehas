@@ -1,0 +1,11 @@
+# How this repository is kept, for the tehas system. Each table has one
+# owner; [standard] and [platform] are scripts/architecture.py's for now.
+[standard]
+url = "https://github.com/tehas-app/tehas-standard"
+version = "v2"
+
+# The toolchains this repository builds or checks with, at the majors the
+# standard allows. List only the ones the repository uses.
+[platform]
+rust = "1.x"
+typescript = "7.x"

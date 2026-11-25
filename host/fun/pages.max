@@ -28,11 +28,17 @@
 # The repository's name is eight bytes longer (T10), approved by the trio's
 # program manager on 2026-11-23: floor 3 occurrences, 49092 to 49116;
 # dashboard 1, 51741 to 51749; manual 1, 47910 to 47918.
-page floor 112261 49116
-page dashboard 78498 51749
-page manual 0 47918
+# The factory floor left core in 2.0 (TF-B51): its line went, and the
+# manual's and the dashboard's markup went down with game-view.css. The
+# dashboard's script line rises from 78498 to 97072 for dom.js, dock.js,
+# epics-view.js and versions.js, which move to it from the floor; that raise
+# is asked of a person in the pull request.
+# The analytics report left core in 2.0 (TF-B50): its island and the
+# "Last 10 days" style went, which lowers the dashboard to 85587 31393 and
+# the manual to 23838.
+page dashboard 85587 31393
+page manual 0 23838
 island factory/tehas-factory-console 4156
-island factory/tehas-factory-days 4684
 island factory/parts 847
 island factory/tehas-factory-issues 3728
 island factory/tehas-factory-previews 4073

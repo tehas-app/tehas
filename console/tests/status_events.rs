@@ -20,10 +20,9 @@ const GH: &str = r####"case "$*" in
   "api graphql"*) cat "$T/shipped.json" ;;
 esac"####;
 
-/// The analytics of every run: the report, the sessions and the outcomes
-/// answered, every event taken.
-const ANALYTICS: &str = r####"[ "$1" != report ] || echo "{\"report\":1}"
-[ "$1" != sessions ] || { mkdir -p "$3" && chmod 700 "$3" && echo "{\"api\":1,\"days\":30}" >"$3/sessions.jsonl"; }
+/// The analytics of every run: the sessions and the outcomes answered, every
+/// event taken.
+const ANALYTICS: &str = r####"[ "$1" != sessions ] || { mkdir -p "$3" && chmod 700 "$3" && echo "{\"api\":1,\"days\":30}" >"$3/sessions.jsonl"; }
 [ "$1" != outcomes ] || { mkdir -p "$3" && chmod 700 "$3" && echo "{\"api\":1,\"by\":\"version\"}" >"$3/outcomes.jsonl"; }"####;
 
 struct Ev {
@@ -86,17 +85,13 @@ impl Ev {
         closed(n, &self.ago(ago), r#"{"merged":true}"#, "tehas:shipped")
     }
 
-    /// The calls that record events: every run also asks for the report, the
-    /// sessions and the outcomes, which are left out.
+    /// The calls that record events: every run also asks for the sessions and
+    /// the outcomes, which are left out.
     fn events(&self) -> String {
         self.w
             .calls("analytics")
             .lines()
-            .filter(|l| {
-                !(l.starts_with("report --json")
-                    || l.starts_with("sessions --out ")
-                    || l.starts_with("outcomes --out "))
-            })
+            .filter(|l| !(l.starts_with("sessions --out ") || l.starts_with("outcomes --out ")))
             .collect::<Vec<_>>()
             .join("\n")
     }

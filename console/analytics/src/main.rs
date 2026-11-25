@@ -1,5 +1,5 @@
 //! A year of factory data in SQLite: what each run did and with which
-//! versions, for the dashboard's report and for a program that fetches the
+//! versions, for the MCP server and for a program that fetches the
 //! database. All of tehas's SQL is here; the bash commands only call this.
 //!
 //!   analytics run <issue> --facts <file> [--image <id>] [--image-built <time>]
@@ -46,13 +46,6 @@
 //!     issue that started and never ended are kept at most a day longer.
 //!     An expired database kept aside that cannot be deleted is named in a
 //!     WARN line, and the command exits 73.
-//!   analytics report [--json]
-//!     Prints the ten-day report the dashboard shows, aggregates only
-//!     (report.rs says what is in it): as plain text for a person, or with
-//!     --json as one JSON object, which tehasbot status writes to
-//!     live/analytics.json. Among the figures, `gate`: report.rs's `gate`
-//!     says what it holds, and tehasbot status publishes no key it does not
-//!     name, which `gate` is not.
 //!   analytics sessions [--out <directory>]
 //!     Prints the runs of the last 30 days as JSON Lines, for the MCP server
 //!     (sessions.rs lists the keys): a header line, then one session per
@@ -84,7 +77,7 @@
 //!
 //! The database is $TEHAS_HOME/state/analytics.db, mode 0600, in WAL mode,
 //! its schema version in PRAGMA user_version (schema.sql). A database of
-//! schema 4 or 5 is migrated to 6 in place. A file that is not a database is moved to
+//! schema 4, 5, 6 or 7 is migrated to 8 in place. A file that is not a database is moved to
 //! analytics.db.broken, a database of another schema version to
 //! analytics.db.schema-<version>, and a new one is made, said on standard error. prune deletes a schema-<version> file 365 days
 //! after its last write. Any other failure leaves the file
@@ -103,7 +96,6 @@ mod db;
 mod outcomes;
 mod plan;
 mod publish;
-mod report;
 mod run;
 mod sample;
 mod sessions;
@@ -116,16 +108,14 @@ use std::process::ExitCode;
 use tehas_core::grammar::{count, digits, is_hex, is_image};
 use tehas_core::time::now;
 
-/// The rule one state ledger is read under, held once for both readers: bytes
-/// of the whole file, and bytes of one line. `report` and `sessions` read the
-/// ledgers beside the database, and a file one of them reads is the same file
-/// the other does. Both writers keep 500 lines of a few small counts --
-/// `console size record` trims `sizes.jsonl` and `plan_refined` trims
-/// `refined.jsonl` -- so no ledger of their own making comes near the bound.
+/// The rule a state ledger is read under: bytes of the whole file, and bytes
+/// of one line. `sessions` reads `refined.jsonl` beside the database; its
+/// writer, `plan_refined`, keeps 500 lines of a few small counts, so no
+/// ledger of its making comes near the bound.
 pub const LEDGER_MAX_BYTES: u64 = tehas_core::file::READ_BOUND;
 pub const LEDGER_MAX_LINE: usize = 100_000;
 
-const USAGE: &str = "usage: analytics run <issue> --facts <file> [--image <id>] [--image-built <time>] [--rukas-image <commit>] [--oom <n>] [--forks <n>] | plan <issue> --rc <rc> --facts <file> [--rukas-image <commit>] [--image <id>] [--image-built <time>] | event <issue> <event> [--at <epoch seconds>] | sample | prune | report [--json] | sessions [--out <directory>] | outcomes [--tehas <version>] [--rukas <version>] [--since <day or time>] [--until <day or time>] [--by version|week] [--out <directory>] | copy --to <file> [--json]";
+const USAGE: &str = "usage: analytics run <issue> --facts <file> [--image <id>] [--image-built <time>] [--rukas-image <commit>] [--oom <n>] [--forks <n>] | plan <issue> --rc <rc> --facts <file> [--rukas-image <commit>] [--image <id>] [--image-built <time>] | event <issue> <event> [--at <epoch seconds>] | sample | prune | sessions [--out <directory>] | outcomes [--tehas <version>] [--rukas <version>] [--since <day or time>] [--until <day or time>] [--by version|week] [--out <directory>] | copy --to <file> [--json]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -156,8 +146,6 @@ pub enum Cmd {
     Event(i64, String, Option<i64>),
     Sample,
     Prune,
-    Report,
-    ReportText,
     Sessions(Option<PathBuf>),
     Outcomes(outcomes::Filter, Option<PathBuf>),
     Copy(PathBuf, bool),
@@ -178,8 +166,6 @@ fn parse(args: &[String]) -> Option<Cmd> {
         }
         [c] if c == "sample" => Some(Cmd::Sample),
         [c] if c == "prune" => Some(Cmd::Prune),
-        [c, f] if c == "report" && f == "--json" => Some(Cmd::Report),
-        [c] if c == "report" => Some(Cmd::ReportText),
         [c, rest @ ..] if c == "sessions" => sessions_command(rest),
         [c, rest @ ..] if c == "outcomes" => outcome_command(rest),
         [c, rest @ ..] if c == "copy" => copy_command(rest),
@@ -450,18 +436,6 @@ pub fn execute(home: &Path, cmd: &Cmd, now: i64) -> Result<(), (u8, String)> {
                     names.join(", ")
                 ),
             ))
-        }
-        Cmd::Report | Cmd::ReportText => {
-            let report = report::complete(&conn, home, now)?;
-            if matches!(cmd, Cmd::Report) {
-                // Through a JSON value, so the keys print sorted as they always have.
-                let json = serde_json::to_value(&report)
-                    .map_err(|e| (70, format!("the report could not be written: {e}")))?;
-                tehas_core::outln!("{json}");
-            } else {
-                tehas_core::out!("{}", report::text(&report));
-            }
-            Ok(())
         }
         Cmd::Sessions(to) => {
             match to {

@@ -104,15 +104,14 @@ test("an empty list, no list or an unreadable file is no message, and the banner
   assert.deepEqual(el.kids, []);
 });
 
-test("the front page has the banner at the top, hidden until there is a message, and loads this module", () => {
-  for (const page of ["index.html"]) {
-    const html = readFileSync(new URL(`../host/fun/${page}`, import.meta.url), "utf8");
-    const banner = html.match(/<section class="host-messages[^"]*" id="host-messages"[^>]*>/);
-    assert.ok(banner, page);
-    assert.match(banner[0], / hidden>$/, page);
-    assert.ok(html.indexOf(banner[0]) > html.indexOf("</header>"), page);
-    assert.ok(html.indexOf(banner[0]) < html.indexOf("<main"), page);
-    assert.ok(html.includes('<script src="/fun/versions.js"></script>'), page);
-    assert.ok(!html.includes("industry-alerts"), page);
-  }
+test("the dashboard has the banner at the top, hidden until there is a message, and loads this module", () => {
+  const html = readFileSync(new URL("../host/docs/dashboard.frag", import.meta.url), "utf8");
+  const banner = html.match(/<section class="host-messages[^"]*" id="host-messages"[^>]*>/);
+  assert.ok(banner);
+  assert.match(banner[0], / hidden>$/);
+  assert.ok(html.indexOf(banner[0]) > html.indexOf("<h1>"));
+  assert.ok(html.indexOf(banner[0]) < html.indexOf("<tehas-factory-state"));
+  assert.ok(html.includes('<p class="credit" id="versions" hidden></p>'));
+  assert.ok(html.includes('<script src="/fun/versions.js"></script>'));
+  assert.ok(!html.includes("industry-alerts"));
 });

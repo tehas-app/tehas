@@ -85,7 +85,7 @@ test("a last cycle that ended badly is the failure until a cycle starts after it
   assert.equal(view({ cycles: [], last: ended(7, "handoff") }, null).failure, null);
 });
 
-test("a long status is cut, as it is drawn on the floor", () => {
+test("a long status is cut", () => {
   assert.equal(view({ cycles: [], last: ended(7, "x".repeat(100)) }, null).failure.status.length, 40);
 });
 

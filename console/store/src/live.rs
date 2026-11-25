@@ -23,8 +23,8 @@
 //! away the views of the cycles that ended, so a reader never shows one that
 //! is no longer running. It reads the rows and writes files; it writes no row.
 //!
-//! The factory floor, the plain dashboard, tehasbot health, tehas dev and the
-//! MCP server read these views. publish renders the cycle views from the
+//! The plain dashboard, tehasbot health, tehas dev and the MCP server read
+//! these views. publish renders the cycle views from the
 //! heartbeats and from the ends cycle-end records. A running cycle not heard
 //! from for two minutes whose issue lock (state/cycles/<issue>.lock) is free
 //! is shown as lost.
