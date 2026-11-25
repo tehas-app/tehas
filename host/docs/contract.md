@@ -921,7 +921,7 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Adopter action: none. A program that reads a cycle's log, or
   `logs/dispatch.log`, sees the `event` lines.
 - **The event subjects `plugin-<name>` and `annex-<name>` are reserved.**
-  #PRNUM.
+  #3330.
   `plugin-<name>` belongs to the plugin `<name>` and `annex-<name>` to the
   annex `<name>`, its plant and its plugin. tehas raises no event under
   either in 2.x, and `api/events.txt` never holds one
