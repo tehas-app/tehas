@@ -303,7 +303,9 @@ The program `~/tehas/libexec/analytics` prints the runs of the last 30 days as
 JSON Lines, for the MCP server. It is not a `tehas` command. Line 1 is
 `{"api":1,"sessions":1,"days":30,"generatedAt":"..."}`. Each line after it is
 one session, newest first: the run's columns in camelCase (`queueWait`,
-`failureKind`, `rukasVersion`), times as ISO 8601 UTC, `reviewHeld` and
+`failureKind`, `rukasVersion`), the change's number as `change` (the
+column `pr` of the runs table, named by 2.0's word), times as ISO 8601
+UTC, `reviewHeld` and
 `providerOutage` as booleans, a key left out where the value is empty, its
 `steps` and `roles`, and `logs`: the name and size of each log file the run
 left in `~/tehas/logs` (`transcript`, `err`, `preflight`, `console`, `result`
