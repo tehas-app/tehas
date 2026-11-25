@@ -318,6 +318,18 @@ pub trait BlueprintWrites: Blueprints {
     /// window of a moment remains; the adapter's contract test states it.
     /// Markers not named in `markers` are kept: an answer's tick keeps the
     /// question's marker.
+    ///
+    /// Only a comment the factory's own account wrote is edited, and only
+    /// through a handle of `Actor::Ours`, the factory's account, at every
+    /// standing. Through any other handle, the operator's, a person's or a
+    /// given token's, every comment is `Forbidden` and nothing is sent,
+    /// the factory's own and the handle's own account's as well. Through
+    /// the factory's handle, a comment another account wrote, a person's
+    /// or another bot's, or whose author is missing or cannot be read, is
+    /// `Forbidden` and nothing is written. The author is known by its
+    /// `AccountId`, never by its login: an account that holds the
+    /// factory's login under another id is another account. A handle that
+    /// cannot tell the factory's account id edits no comment.
     fn edit_comment(
         &mut self,
         id: &CommentId,
