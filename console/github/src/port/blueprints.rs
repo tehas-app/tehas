@@ -26,7 +26,7 @@ use std::num::{NonZeroU32, NonZeroU64};
 mod edits;
 
 use super::blueprint_writes::{comment_revision, read_issue, revision};
-use super::named::ends_with_folded;
+use super::named::Named;
 use super::unsupported;
 use crate::ticket::CUT_TEXT;
 use crate::tickets::{account, Bot};
@@ -290,7 +290,7 @@ impl GitHub {
 
     /// [`GitHub::issue`] of an answer read already.
     fn issue_of(&mut self, no: BlueprintNo, out: &str) -> Got<(Blueprint, Stamp)> {
-        let issue = read_issue(out, &self.repo)?;
+        let issue = self.as_here(|repo| read_issue(out, repo))?;
         if issue.no != no {
             return Err(Outcome::Unread(Unread::Inconsistent));
         }
@@ -386,7 +386,9 @@ impl GitHub {
         for page in first..=last {
             let out = self.comments_page(no, page)?;
             let held = (count - (page - 1) * COMMENTS_PER_PAGE).min(COMMENTS_PER_PAGE);
-            let (mut comments, touched) = read_comments(&out, &self.repo, no, self.bot.as_ref())?;
+            let bot = self.bot.clone();
+            let (mut comments, touched) =
+                self.as_here(|repo| read_comments(&out, repo, no, bot.as_ref()))?;
             if comments.len() != held {
                 return Err(inconsistent);
             }
@@ -654,7 +656,7 @@ fn author(user: Option<&User>, bot: Option<&Bot>) -> Option<tehas_ports::Account
 /// `Unread(Inconsistent)`.
 fn read_comments(
     out: &str,
-    repo: &str,
+    repo: Named,
     no: BlueprintNo,
     bot: Option<&Bot>,
 ) -> Got<(Vec<Comment>, Vec<Touched>)> {
@@ -667,10 +669,7 @@ fn read_comments(
     for c in items {
         let id = c.id.ok_or(malformed.clone())?;
         let url = c.html_url.as_deref().ok_or(malformed.clone())?;
-        if !ends_with_folded(
-            url,
-            &format!("/{repo}/issues/{}#issuecomment-{id}", no.get()),
-        ) {
+        if !repo.ends(url, "", &format!("/issues/{}#issuecomment-{id}", no.get())) {
             return Err(Outcome::Unread(Unread::Inconsistent));
         }
         let link = tehas_ports::WebLink::new(url).map_err(|_| malformed.clone())?;

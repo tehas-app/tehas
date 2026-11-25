@@ -24,7 +24,7 @@
 
 mod open;
 
-use super::named::ends_with_folded;
+use super::named::Named;
 use super::{label_of, unsupported};
 use crate::{markers, ForgeError, GitHub};
 use serde_json::Value;
@@ -116,7 +116,7 @@ impl CodeHostWrites for GitHub {
         let out = self
             .call_input("the change's comment", &args, &input)
             .map_err(|e| self.written(&e))?;
-        read_comment(&out, &self.repo, no, &pull.link)
+        self.as_here(|repo| read_comment(&out, repo, no, &pull.link))
     }
 
     fn close_change(&mut self, _: ChangeNo) -> Did {
@@ -191,7 +191,7 @@ impl GitHub {
         let out = self
             .call("the change", &["api", &path])
             .map_err(|e| unsent(self.outcome(&e)))?;
-        read_pull(&out, &self.repo, no)
+        self.as_here(|repo| read_pull(&out, repo, no))
     }
 
     /// The named outcome of a write that failed. A 422 is GitHub refusing
@@ -281,7 +281,7 @@ impl Pull {
 /// The pull request in gh's answer. An answer that does not parse or lacks
 /// a field every pull request has is `Unread(Malformed)`; one of another
 /// number or another repository is `Unread(Inconsistent)`.
-fn read_pull(out: &str, repo: &str, no: ChangeNo) -> Got<Pull> {
+fn read_pull(out: &str, repo: Named, no: ChangeNo) -> Got<Pull> {
     let malformed = Outcome::Unread(Unread::Malformed);
     let v: Value = serde_json::from_str(out.trim()).map_err(|_| malformed.clone())?;
     let number = v
@@ -305,7 +305,7 @@ fn read_pull(out: &str, repo: &str, no: ChangeNo) -> Got<Pull> {
         .map(|l| l.get("name").and_then(Value::as_str).map(str::to_string))
         .collect::<Option<Vec<_>>>()
         .ok_or(malformed.clone())?;
-    if number != no.get() || !ends_with_folded(url, &format!("/{repo}/pull/{number}")) {
+    if number != no.get() || !repo.ends(url, "", &format!("/pull/{number}")) {
         return Err(Outcome::Unread(Unread::Inconsistent));
     }
     let link = WebLink::new(url).map_err(|_| malformed)?;
@@ -315,7 +315,7 @@ fn read_pull(out: &str, repo: &str, no: ChangeNo) -> Got<Pull> {
 /// The comment in gh's answer: its id, and its link, which must be the
 /// comment's on this repository's pull request `no`. The link answered is
 /// the pull request's read link with `#issuecomment-<id>`.
-fn read_comment(out: &str, repo: &str, no: ChangeNo, pull: &WebLink) -> Got<Posted<CommentId>> {
+fn read_comment(out: &str, repo: Named, no: ChangeNo, pull: &WebLink) -> Got<Posted<CommentId>> {
     let malformed = Outcome::Unread(Unread::Malformed);
     let v: Value = serde_json::from_str(out.trim()).map_err(|_| malformed.clone())?;
     let id = v
@@ -326,8 +326,7 @@ fn read_comment(out: &str, repo: &str, no: ChangeNo, pull: &WebLink) -> Got<Post
         .get("html_url")
         .and_then(Value::as_str)
         .ok_or(malformed.clone())?;
-    let tail = format!("/{repo}/pull/{}#issuecomment-{id}", no.get());
-    if !ends_with_folded(url, &tail) {
+    if !repo.ends(url, "", &format!("/pull/{}#issuecomment-{id}", no.get())) {
         return Err(Outcome::Unread(Unread::Inconsistent));
     }
     let link =

@@ -13,7 +13,7 @@
 //! comment's markers and changes them as `markers::edit` says, and edits
 //! only a comment the factory's own account wrote, known by its id.
 
-use super::named::ends_with_folded;
+use super::named::Named;
 use super::unsupported;
 use crate::{gh, markers, GitHub};
 use serde_json::Value;
@@ -38,7 +38,7 @@ impl BlueprintWrites for GitHub {
         let path = format!("{}/issues", self.issues()?);
         let input = serde_json::json!({ "title": new.title, "body": body }).to_string();
         let out = self.send("POST", &path, &input)?;
-        let issue = read_issue(&out, &self.repo)?;
+        let issue = self.as_here(|repo| read_issue(&out, repo))?;
         Ok(Posted::new(issue.no, issue.link))
     }
 
@@ -88,7 +88,7 @@ impl BlueprintWrites for GitHub {
         }
         let failed = match self.send("PATCH", &path, &Value::Object(fields).to_string()) {
             Ok(out) => {
-                let edited = read_issue(&out, &self.repo)?;
+                let edited = self.as_here(|repo| read_issue(&out, repo))?;
                 if edited.no != no {
                     return Err(Outcome::Unread(Unread::Inconsistent));
                 }
@@ -132,7 +132,7 @@ impl BlueprintWrites for GitHub {
         self.read_before(no)?;
         let input = serde_json::json!({ "body": body }).to_string();
         let out = self.send("POST", &path, &input)?;
-        read_comment(&out, &self.repo, no)
+        self.as_here(|repo| read_comment(&out, repo, no))
     }
 
     /// The comment read, its revision compared with `since`, then one
@@ -195,7 +195,7 @@ impl BlueprintWrites for GitHub {
         let input = serde_json::json!({ "body": new }).to_string();
         let failed = match self.send("PATCH", &path, &input) {
             Ok(out) => {
-                let edited = read_comment(&out, &self.repo, now.no)?;
+                let edited = self.as_here(|repo| read_comment(&out, repo, now.no))?;
                 if edited.id != *id {
                     return Err(Outcome::Unread(Unread::Inconsistent));
                 }
@@ -281,7 +281,7 @@ impl GitHub {
         let out = self
             .issue_answer(no.get())
             .map_err(|e| unsent(self.outcome(&e)))?;
-        let issue = read_issue(&out, &self.repo)?;
+        let issue = self.as_here(|repo| read_issue(&out, repo))?;
         if issue.no != no {
             return Err(Outcome::Unread(Unread::Inconsistent));
         }
@@ -297,7 +297,7 @@ impl GitHub {
         let out = self
             .call("the comment", &["api", path])
             .map_err(|e| unsent(self.outcome(&e)))?;
-        held(&out, &self.repo, n)
+        self.as_here(|repo| held(&out, repo, n))
     }
 }
 
@@ -360,7 +360,7 @@ pub(super) struct Issue {
 /// field every issue has is `Unread(Malformed)`; a pull request is
 /// `NotFound`, no blueprint; a link that is not this project's issue of
 /// that number is `Unread(Inconsistent)`.
-pub(super) fn read_issue(out: &str, repo: &str) -> Got<Issue> {
+pub(super) fn read_issue(out: &str, repo: Named) -> Got<Issue> {
     let malformed = Outcome::Unread(Unread::Malformed);
     let v: Value = serde_json::from_str(out.trim()).map_err(|_| malformed.clone())?;
     let no = v
@@ -385,7 +385,7 @@ pub(super) fn read_issue(out: &str, repo: &str) -> Got<Issue> {
     if v.get("pull_request").is_some_and(|p| !p.is_null()) {
         return Err(Outcome::NotFound);
     }
-    if !ends_with_folded(url, &format!("/{repo}/issues/{}", no.get())) {
+    if !repo.ends(url, "", &format!("/issues/{}", no.get())) {
         return Err(Outcome::Unread(Unread::Inconsistent));
     }
     let link = WebLink::new(url).map_err(|_| malformed)?;
@@ -399,7 +399,7 @@ pub(super) fn read_issue(out: &str, repo: &str) -> Got<Issue> {
 
 /// The comment in gh's answer: its id, and its link, which must be the
 /// comment's on this project's issue `no`.
-pub(super) fn read_comment(out: &str, repo: &str, no: BlueprintNo) -> Got<Posted<CommentId>> {
+pub(super) fn read_comment(out: &str, repo: Named, no: BlueprintNo) -> Got<Posted<CommentId>> {
     let malformed = Outcome::Unread(Unread::Malformed);
     let v: Value = serde_json::from_str(out.trim()).map_err(|_| malformed.clone())?;
     let id = v
@@ -410,10 +410,7 @@ pub(super) fn read_comment(out: &str, repo: &str, no: BlueprintNo) -> Got<Posted
         .get("html_url")
         .and_then(Value::as_str)
         .ok_or(malformed.clone())?;
-    if !ends_with_folded(
-        url,
-        &format!("/{repo}/issues/{}#issuecomment-{id}", no.get()),
-    ) {
+    if !repo.ends(url, "", &format!("/issues/{}#issuecomment-{id}", no.get())) {
         return Err(Outcome::Unread(Unread::Inconsistent));
     }
     Ok(Posted::new(
@@ -451,7 +448,7 @@ struct Held {
 /// a field every comment has is `Unread(Malformed)`; a comment on a pull
 /// request is `NotFound`, no blueprint's; another comment, or one of
 /// another project, is `Unread(Inconsistent)`.
-fn held(out: &str, repo: &str, n: u64) -> Got<Held> {
+fn held(out: &str, repo: Named, n: u64) -> Got<Held> {
     let malformed = Outcome::Unread(Unread::Malformed);
     let v: Value = serde_json::from_str(out.trim()).map_err(|_| malformed.clone())?;
     if v.get("id").and_then(Value::as_u64) != Some(n) {
@@ -490,7 +487,7 @@ fn held(out: &str, repo: &str, n: u64) -> Got<Held> {
 /// The issue of this project a comment's link `url` names, the comment
 /// `n`: `NotFound` for a comment on a pull request, `Unread(Inconsistent)`
 /// for one of another project or another comment.
-pub(super) fn comment_issue(repo: &str, url: &str, n: u64) -> Got<BlueprintNo> {
+pub(super) fn comment_issue(repo: Named, url: &str, n: u64) -> Got<BlueprintNo> {
     let inconsistent = Outcome::Unread(Unread::Inconsistent);
     let head = url
         .strip_suffix(&format!("#issuecomment-{n}"))
@@ -501,10 +498,10 @@ pub(super) fn comment_issue(repo: &str, url: &str, n: u64) -> Got<BlueprintNo> {
         .ok()
         .and_then(BlueprintNo::new)
         .ok_or(inconsistent.clone())?;
-    if ends_with_folded(at, &format!("/{repo}/pull")) {
+    if repo.ends(at, "", "/pull") {
         return Err(Outcome::NotFound);
     }
-    if !ends_with_folded(at, &format!("/{repo}/issues")) {
+    if !repo.ends(at, "", "/issues") {
         return Err(inconsistent);
     }
     Ok(no)

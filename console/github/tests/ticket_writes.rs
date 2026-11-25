@@ -142,6 +142,15 @@ fn sent_body(c: &Call) -> String {
         .body
 }
 
+/// The calls but the question of this project's name, which an answer
+/// naming another repository asks once.
+fn but_the_name(calls: &[Call]) -> usize {
+    calls
+        .iter()
+        .filter(|c| c.args.get(1).map(String::as_str) != Some("graphql"))
+        .count()
+}
+
 fn args(words: &[&str]) -> Vec<String> {
     words.iter().map(|w| w.to_string()).collect()
 }
@@ -401,11 +410,68 @@ fn an_answer_for_another_repository_or_issue_is_inconsistent() {
             Err(Outcome::Unread(Unread::Inconsistent)),
             "{to}"
         );
-        assert_eq!(taken(&calls).len(), 1, "nothing posted");
+        assert_eq!(but_the_name(&taken(&calls)), 1, "nothing posted");
     }
     // A project named in another case is the same project.
     let answer = sample("comment-posted.json").replace("acme/widget", "Acme/Widget");
     assert!(note_against(Ok(answer)).0.is_ok());
+}
+
+/// GitHub's answer for the repository the configured name resolves to:
+/// its database id and the name it has now.
+const RENAMED: &str =
+    r#"{"data":{"repository":{"databaseId":7001,"nameWithOwner":"acme/widget"}}}"#;
+
+/// An instance that still names the project's old name writes it as here:
+/// the name is asked once, with the repository's id, and every link after
+/// is read against it.
+#[test]
+fn a_renamed_project_is_still_written_as_here_by_its_repository_id() {
+    let (mut gh, calls) = adapter_of(
+        "acme/widget-before",
+        vec![
+            Ok(sample("issue-7.json")),
+            Ok(RENAMED.into()),
+            Ok(sample("comment-posted.json")),
+        ],
+    );
+    let got = gh.note(&key(7), "b", &[]).unwrap();
+    assert_eq!(got.id, CommentId::new("2507654321"));
+    let calls = taken(&calls);
+    assert_eq!(calls.len(), 3, "the name is asked once");
+    assert_eq!(calls[1].args[..2], args(&["api", "graphql"]));
+    assert!(calls[1].args.contains(&"owner=acme".to_string()));
+    assert!(calls[1].args.contains(&"name=widget-before".to_string()));
+    assert!(calls[2].input.is_some(), "then the note is posted");
+}
+
+/// A link to another repository is not here, whatever name was learned;
+/// with no name learned, the answer stays unread.
+#[test]
+fn another_repositorys_link_is_not_here_for_a_renamed_project() {
+    let read = sample("issue-7.json").replace(
+        "github.com/acme/widget/issues/7",
+        "github.com/acme/other/issues/7",
+    );
+    let (mut gh, calls) = adapter_of("acme/widget-before", vec![Ok(read), Ok(RENAMED.into())]);
+    assert_eq!(
+        gh.note(&key(7), "b", &[]),
+        Err(Outcome::Unread(Unread::Inconsistent))
+    );
+    assert!(
+        taken(&calls).iter().all(|c| c.input.is_none()),
+        "nothing posted"
+    );
+    let no_name = RENAMED.replace(r#","nameWithOwner":"acme/widget""#, "");
+    for name in [Ok(no_name), Err("no answer".to_string())] {
+        let (mut gh, calls) =
+            adapter_of("acme/widget-before", vec![Ok(sample("issue-7.json")), name]);
+        assert_eq!(
+            gh.note(&key(7), "b", &[]),
+            Err(Outcome::Unread(Unread::Inconsistent))
+        );
+        assert_eq!(taken(&calls).len(), 2, "nothing posted");
+    }
 }
 
 /// A runner of the trait's default, which takes no input.
@@ -1642,5 +1708,5 @@ fn a_parent_of_another_repository_is_another_parent() {
         gh.add_part(&key(12), &key(13)),
         Err(Outcome::Refused(Refusal::Invalid))
     );
-    assert_eq!(taken(&calls).len(), 1);
+    assert_eq!(but_the_name(&taken(&calls)), 1);
 }

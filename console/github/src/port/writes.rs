@@ -11,7 +11,7 @@
 //! nothing sent.
 
 use super::blueprint_writes::{read_comment, revision, text_revision, unsent};
-use super::named::ends_with_folded;
+use super::named::Named;
 use super::{label_of, number, unsupported};
 use crate::forge::uri;
 use crate::vocabulary::LabelHeld;
@@ -135,7 +135,7 @@ impl TicketWrites for GitHub {
         let out = self
             .issue_answer(issue)
             .map_err(|e| unsent(self.outcome(&e)))?;
-        issue_of(&out, &self.repo)?;
+        self.as_here(|repo| issue_of(&out, repo))?;
         if state_of(&out)? == "closed" {
             return Ok(());
         }
@@ -167,7 +167,7 @@ impl TicketWrites for GitHub {
         let input = serde_json::json!({ "body": text }).to_string();
         let out = self.send("POST", &path, &input)?;
         let no = key.same_item().ok_or(Outcome::Refused(Refusal::Invalid))?;
-        read_comment(&out, &self.repo, no)
+        self.as_here(|repo| read_comment(&out, repo, no))
     }
 
     fn file(&mut self, _: &NewTicket) -> Got<Posted<TicketKey>> {
@@ -230,7 +230,7 @@ impl TicketWrites for GitHub {
         }
         let failed = match self.send("PATCH", &path, &Value::Object(fields).to_string()) {
             Ok(out) => {
-                let edited = issue_of(&out, &self.repo)?;
+                let edited = self.as_here(|repo| issue_of(&out, repo))?;
                 if edited.number != issue {
                     return Err(Outcome::Unread(Unread::Inconsistent));
                 }
@@ -324,7 +324,7 @@ impl TicketWrites for GitHub {
         match self.call("the parent", &["api", &asked]) {
             // A parent of another repository is another parent.
             Ok(out) => {
-                return match issue_of(&out, &self.repo) {
+                return match self.as_here(|repo| issue_of(&out, repo)) {
                     Ok(p) if p.number == up => Ok(()),
                     Ok(_) | Err(Outcome::Unread(Unread::Inconsistent)) => {
                         Err(Outcome::Refused(Refusal::Invalid))
@@ -338,7 +338,7 @@ impl TicketWrites for GitHub {
         let out = self
             .issue_answer(down)
             .map_err(|e| unsent(self.outcome(&e)))?;
-        issue_of(&out, &self.repo)?;
+        self.as_here(|repo| issue_of(&out, repo))?;
         let id = serde_json::from_str::<Value>(out.trim())
             .ok()
             .and_then(|v| v.get("id").and_then(Value::as_u64))
@@ -370,7 +370,7 @@ impl TicketWrites for GitHub {
 /// request is `NotFound`.
 fn read_first(gh: &mut GitHub, issue: u64) -> Got<Issue> {
     let out = gh.issue_answer(issue).map_err(|e| unsent(gh.outcome(&e)))?;
-    let read = issue_of(&out, &gh.repo)?;
+    let read = gh.as_here(|repo| issue_of(&out, repo))?;
     if read.number != issue {
         return Err(Outcome::Unread(Unread::Inconsistent));
     }
@@ -391,7 +391,7 @@ struct Issue {
 /// field every issue has is `Unread(Malformed)`; a pull request is
 /// `NotFound`, no ticket; a link that is not this project's issue of that
 /// number is `Unread(Inconsistent)`.
-fn issue_of(out: &str, repo: &str) -> Got<Issue> {
+fn issue_of(out: &str, repo: Named) -> Got<Issue> {
     let malformed = Outcome::Unread(Unread::Malformed);
     let v: Value = serde_json::from_str(out.trim()).map_err(|_| malformed.clone())?;
     let number = v
@@ -412,7 +412,7 @@ fn issue_of(out: &str, repo: &str) -> Got<Issue> {
     if v.get("pull_request").is_some_and(|p| !p.is_null()) {
         return Err(Outcome::NotFound);
     }
-    if !ends_with_folded(url, &format!("/{repo}/issues/{number}")) {
+    if !repo.ends(url, "", &format!("/issues/{number}")) {
         return Err(Outcome::Unread(Unread::Inconsistent));
     }
     Ok(Issue {

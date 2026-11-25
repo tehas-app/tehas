@@ -202,6 +202,15 @@ fn new_blueprint(title: &str, body: &str) -> NewBlueprint {
     }
 }
 
+/// The calls but the question of this project's name, which an answer
+/// naming another repository asks once.
+fn but_the_name(calls: &[Call]) -> usize {
+    calls
+        .iter()
+        .filter(|c| c.args.get(1).map(String::as_str) != Some("graphql"))
+        .count()
+}
+
 fn args(words: &[&str]) -> Vec<String> {
     words.iter().map(|w| w.to_string()).collect()
 }
@@ -272,6 +281,31 @@ fn a_comment_sends_a_200_kib_body_on_standard_input_and_answers_the_comments_lin
     );
     kept_out_of_argv(&calls, &body);
     assert_eq!(input(&calls[1]), sent(None, Some(&body)));
+}
+
+/// An instance that still names the project's old name comments on it as
+/// here, by the name GitHub gives with the repository's id.
+#[test]
+fn a_renamed_project_still_gets_its_comment_by_its_repository_id() {
+    let calls = Calls::default();
+    let script = Script {
+        answers: vec![
+            Ok(sample("issue-7.json")),
+            Ok(
+                r#"{"data":{"repository":{"databaseId":7001,"nameWithOwner":"acme/widget"}}}"#
+                    .into(),
+            ),
+            Ok(sample("comment-created.json")),
+        ]
+        .into(),
+        calls: Arc::clone(&calls),
+    };
+    let mut gh = GitHub::new("acme/widget-before", Box::new(script)).on_clock(now);
+    let got = gh.comment(no(7), "b", &[]).unwrap();
+    assert_eq!(got.id, CommentId::new("2501234567"));
+    let calls = calls.lock().unwrap();
+    assert_eq!(calls.len(), 3);
+    assert_eq!(calls[1].args[..2], args(&["api", "graphql"]));
 }
 
 #[test]
@@ -1333,7 +1367,11 @@ fn a_comment_on_a_pull_request_or_of_another_comment_is_not_edited() {
         let (mut gh, calls) = adapter_ours(vec![Ok(answer.to_string())]);
         let got = gh.edit_comment(&question_id(), "b", &MarkerEdit::default(), &since);
         assert_eq!(got, Err(want.clone()), "{answer}");
-        assert_eq!(calls.lock().unwrap().len(), 1, "no write: {answer}");
+        assert_eq!(
+            but_the_name(&calls.lock().unwrap()),
+            1,
+            "no write: {answer}"
+        );
     }
 }
 

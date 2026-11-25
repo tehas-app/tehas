@@ -313,11 +313,8 @@ impl GitHub {
         if c.id != Some(n) {
             return Err(Outcome::Unread(Unread::Inconsistent));
         }
-        let no = comment_issue(
-            &self.repo,
-            c.html_url.as_deref().ok_or(malformed.clone())?,
-            n,
-        )?;
+        let url = c.html_url.as_deref().ok_or(malformed.clone())?;
+        let no = self.as_here(|repo| comment_issue(repo, url, n))?;
         let node = c.node_id.filter(|n| is_node_id(n)).ok_or(malformed)?;
         self.comment_nodes.insert(n, (node.clone(), no));
         Ok((n, (node, no)))
@@ -326,7 +323,7 @@ impl GitHub {
     /// The history of comment `n` from its node, which must be the comment
     /// kept, on the issue kept.
     fn comment_edits_from(
-        &self,
+        &mut self,
         c: CommentNode,
         n: u64,
         (node, no): &Kept,
@@ -339,7 +336,7 @@ impl GitHub {
             return Err(Outcome::Unread(Unread::Inconsistent));
         }
         let url = c.url.as_deref().ok_or(Outcome::Unread(Unread::Malformed))?;
-        if comment_issue(&self.repo, url, n)? != *no {
+        if self.as_here(|repo| comment_issue(repo, url, n))? != *no {
             return Err(Outcome::Unread(Unread::Inconsistent));
         }
         c.text.edits(*no, bound, self.bot.as_ref())

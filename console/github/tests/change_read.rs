@@ -113,6 +113,8 @@ struct Site {
     /// holds still.
     restless: bool,
     pull_reads: usize,
+    /// The name GraphQL gives with the repository's id, where it gives one.
+    name: Option<&'static str>,
 }
 
 impl Default for Site {
@@ -135,6 +137,7 @@ impl Default for Site {
             after: Vec::new(),
             restless: false,
             pull_reads: 0,
+            name: None,
         }
     }
 }
@@ -193,6 +196,9 @@ impl Site {
                 .unwrap_or(json!({"lastEditedAt": null, "editor": null}))
         };
         let mut data = json!({"repository": {"databaseId": 500001}});
+        if let Some(name) = self.name {
+            data["repository"]["nameWithOwner"] = name.into();
+        }
         if q.contains("pullRequest(number: $number)") {
             if !args.contains(&"number=9") {
                 return Err("no number".into());
@@ -391,6 +397,49 @@ fn the_cheapest_read_is_three_requests_and_gives_the_whole_digest() {
     assert_eq!(c.body, "Counts each part once.\n\nCloses #7");
     assert_eq!(d.body.as_deref(), Some(c.body.as_str()));
     assert!(c.comments.is_empty() && c.files.is_empty() && c.reviews.is_empty());
+}
+
+/// A change of a project renamed since its name was configured: every
+/// link names the new name, which GitHub gives with the repository's id.
+fn renamed() -> Site {
+    let mut site = Site::default()
+        .with("comments", 2)
+        .with("reviews", 2)
+        .with("notes", 2);
+    let moved = |v: &Value| {
+        serde_json::from_str::<Value>(&v.to_string().replace("acme/widget/", "acme/widget-after/"))
+            .unwrap()
+    };
+    site.pull = moved(&site.pull);
+    for list in site.lists.values_mut() {
+        for v in list.iter_mut() {
+            *v = moved(v);
+        }
+    }
+    site
+}
+
+#[test]
+fn a_renamed_project_reads_its_change_as_here_by_its_repository_id() {
+    let mut site = renamed();
+    site.name = Some("acme/widget-after");
+    let (mut gh, _, calls) = adapter(site);
+    let c = gh.change(nine(), bound(100)).unwrap();
+    assert_eq!(c.comments.len(), 2);
+    assert_eq!(c.reviews.len(), 2);
+    let asked = asked(&calls);
+    assert_eq!(asked[..2], [PULL.to_string(), "graphql".into()]);
+    assert_eq!(
+        asked.iter().filter(|c| *c == "graphql").count(),
+        2,
+        "the name is asked once"
+    );
+    // With no name given beside the id, the links are not here.
+    let (mut gh, _, _) = adapter(renamed());
+    assert_eq!(
+        gh.change(nine(), bound(100)).map(|_| ()),
+        Err(Outcome::Unread(Unread::Inconsistent))
+    );
 }
 
 #[test]
@@ -901,8 +950,8 @@ fn an_answer_of_another_repository_or_number_is_inconsistent() {
         gh.change(nine(), bound(100)).map(|_| ()),
         Err(Outcome::Unread(Unread::Inconsistent))
     );
-    // Read once more, then answered.
-    assert_eq!(asked(&calls), [PULL, PULL]);
+    // Read once more, then answered; this project's name is asked once.
+    assert_eq!(asked(&calls), [PULL, "graphql", PULL]);
     let mut site = Site::default();
     site.pull["number"] = 8.into();
     let (mut gh, _, _) = adapter(site);

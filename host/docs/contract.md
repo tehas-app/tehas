@@ -1027,7 +1027,10 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   updates from its checkout (`TEHAS_UPDATE_FROM=git`) whose `origin` names
   it fetches from it as it is, and `tehas update` says the same line with
   `checkout:` in place of `release:`. A 1.4.x host, whose built-in
-  repository is the old name, reaches 2.0 through the redirect.
+  repository is the old name, reaches 2.0 through the redirect. The GitHub
+  adapter holds the links in its answers to the name GitHub gives with the
+  repository's id, so an instance whose `TEHAS_REPO` names the old name
+  reads and writes its issues, comments and pull requests as its own.
   Readers: adopters, the consumer that runs many factories, Obeya and
   plugins where they compare a schema's `$id`, the end-to-end suite.
   Adopter action: remove `TEHAS_RELEASE_REPO=tehas-app/tehas` from
