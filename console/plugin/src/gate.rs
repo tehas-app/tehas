@@ -13,6 +13,8 @@ pub mod catalog;
 pub mod csp;
 pub mod frame;
 /// What the gate asks GitHub, and the access check it shares with a call.
+/// A person's sign-in is not among these questions: it goes through
+/// [`Identity`], and the adapter answers it as its own.
 pub use tehas_core::access as github;
 pub mod http;
 pub mod page;
@@ -20,13 +22,13 @@ pub mod path;
 
 use auth::{Memory, Session, Site};
 use catalog::Catalog;
-use github::{GitHub, Level, Person};
+use github::{GitHub, Level};
 use http::{Body, Request, Response};
 use path::Route;
 use serde_json::json;
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
-use tehas_ports::Got;
+use tehas_ports::{Account, Got, Identity, Outcome, SignInCode, SignInState, Unread};
 
 /// A press within this many seconds of the plugin's last is 429.
 pub const PRESS_GAP: u64 = 10 * 60;
@@ -37,6 +39,18 @@ pub const VERDICT_MAX: u64 = 64 * 1024;
 /// The answer to a name that is none of the settings' names, as the edge
 /// router says it for a name no plugin can have.
 pub const NO_PLUGIN: &str = "No plugin is set at this address.\n";
+/// The edge name of the sign-in.
+const SIGNIN: &str = "plugins";
+
+/// The address GitHub sends a finished sign-in back to: the gate's own
+/// `/_auth/callback` on the sign-in's name. The gate's wiring gives it to
+/// the adapter's client for people, which carries it in the sign-in link.
+pub fn signin_callback(domain: &str, one_level: bool) -> String {
+    format!(
+        "https://{}/_auth/callback",
+        tehas_core::settings::edge_name(SIGNIN, domain, one_level)
+    )
+}
 
 /// What a press came to.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,15 +80,15 @@ pub struct Settings {
     pub access: Level,
     /// TEHAS_HOME.
     pub home: PathBuf,
-    /// The App's client id.
-    pub client_id: String,
-    /// GitHub's web address, `https://github.com`.
-    pub web: String,
 }
 
 pub struct Gate {
     settings: Settings,
     github: Box<dyn GitHub>,
+    /// The sign-in, the adapter's `Identity` of the factory's own account:
+    /// who the gate signs in is its answer, and the person's token is
+    /// dropped at the callback. `signed_in` takes the handle by itself.
+    identity: Mutex<Box<dyn Identity + Send>>,
     catalog: Box<dyn Catalog>,
     refresh: Box<dyn Refresh>,
     memory: Mutex<Memory>,
@@ -176,12 +190,14 @@ impl Gate {
     pub fn new(
         settings: Settings,
         github: Box<dyn GitHub>,
+        identity: Box<dyn Identity + Send>,
         catalog: Box<dyn Catalog>,
         refresh: Box<dyn Refresh>,
     ) -> Gate {
         Gate {
             settings,
             github,
+            identity: Mutex::new(identity),
             catalog,
             refresh,
             memory: Mutex::new(Memory::default()),
@@ -203,7 +219,7 @@ impl Gate {
 
     /// The name of the sign-in.
     pub fn signin_host(&self) -> String {
-        self.name_of("plugins")
+        self.name_of(SIGNIN)
     }
 
     /// The site of a whole `Host`, against the names the settings make.
@@ -289,14 +305,20 @@ impl Gate {
 
     // --- Who gets in ------------------------------------------------------
 
-    /// Whether `person` has access now. Err: GitHub could not say, which is
-    /// a refusal.
-    fn access(&self, person: &Person) -> Got<bool> {
+    /// Whether `person` has access now: the account GitHub names for the
+    /// login must be the sign-in's, id compared whole. An account with no
+    /// id is refused before any ask, and so is a GitHub that could not say,
+    /// which is an error, not a no.
+    fn access(&self, person: &Account) -> Got<bool> {
+        let id = person
+            .id
+            .as_ref()
+            .ok_or(Outcome::Unread(Unread::Malformed))?;
         let v = github::check(
             self.github.as_ref(),
             self.settings.access,
-            &person.login,
-            Some(&person.id),
+            person.login.as_str(),
+            Some(id),
         )?;
         eprintln!("tehas-plugin-gate: {}", v.said);
         Ok(v.user.is_some())
@@ -316,10 +338,10 @@ impl Gate {
             return Ok(Some(s));
         }
         if self.access(&s.person)? {
-            lock(&self.memory).checked(&s.person.id, now);
+            lock(&self.memory).checked(&s.person, now);
             Ok(Some(s))
         } else {
-            lock(&self.memory).end(&s.person.id);
+            lock(&self.memory).end(&s.person);
             Ok(None)
         }
     }
@@ -386,13 +408,13 @@ impl Gate {
         let Some((flow, nonce)) = lock(&self.memory).flow(&state, &back, now) else {
             return Response::empty(500);
         };
-        let callback = format!("https://{}/_auth/callback", self.signin_host());
-        let mut r = see(&format!(
-            "{}/login/oauth/authorize?client_id={}&redirect_uri={}&state={flow}&allow_signup=false",
-            self.settings.web,
-            path::component(&self.settings.client_id),
-            path::component(&callback),
-        ));
+        // The adapter owns the sign-in page: the gate sends the browser to
+        // the link its Identity answers, carrying the flow's state.
+        let link = match lock(&self.identity).sign_in_link(&SignInState::new(&flow)) {
+            Ok(link) => link,
+            Err(_) => return Response::empty(500),
+        };
+        let mut r = see(link.as_str());
         r.add(
             "Set-Cookie",
             &auth::set_cookie(auth::SIGNIN, &nonce, Some(auth::FLOW)),
@@ -422,9 +444,10 @@ impl Gate {
         )
     }
 
-    /// GitHub's callback: the flow this browser started, the person's token
-    /// for its code, who they are, and their access. The token is dropped
-    /// here.
+    /// GitHub's callback: the flow this browser started, the person behind
+    /// its code as the adapter's `Identity` answers it, and their access.
+    /// The credential `signed_in` hands back is dropped here: a session
+    /// keeps no token.
     fn callback(&self, req: &Request, now: u64) -> Response {
         let state = path::query(&req.target, "state").unwrap_or_default();
         let code = path::query(&req.target, "code").unwrap_or_default();
@@ -440,7 +463,7 @@ impl Gate {
         if !good {
             return self.stale();
         }
-        let person = match self.github.token(&code).and_then(|t| self.github.user(&t)) {
+        let (person, _token) = match lock(&self.identity).signed_in(&SignInCode::new(&code)) {
             Ok(p) => p,
             Err(_) => return self.github_refusal(),
         };
@@ -453,7 +476,7 @@ impl Gate {
                     "No access",
                     &format!(
                         "The GitHub account {} does not have the access to the factory's repository that this factory's plugins need.",
-                        person.login
+                        person.login.as_str()
                     ),
                 ),
             ),
@@ -496,7 +519,7 @@ impl Gate {
         let person = id.and_then(|id| memory.session(&id, site, now));
         let mut r = match person {
             Some(s) => {
-                memory.end(&s.person.id);
+                memory.end(&s.person);
                 Response::with(200, "application/json", br#"{"signed": false}"#.to_vec())
             }
             None => Response::empty(401),
@@ -643,9 +666,9 @@ impl Gate {
             return Response::empty(403);
         }
         match self.access(&s.person) {
-            Ok(true) => lock(&self.memory).checked(&s.person.id, now),
+            Ok(true) => lock(&self.memory).checked(&s.person, now),
             Ok(false) => {
-                lock(&self.memory).end(&s.person.id);
+                lock(&self.memory).end(&s.person);
                 return Response::empty(403);
             }
             Err(_) => return Response::empty(403),
@@ -658,12 +681,12 @@ impl Gate {
         {
             return Response::empty(429);
         }
-        match self.refresh.ask(name, id, &s.person.login) {
+        match self.refresh.ask(name, id, s.person.login.as_str()) {
             Press::Asked => {
                 memory.presses.insert(name.to_string(), now);
                 eprintln!(
                     "tehas-plugin-gate: {} pressed {id} of {name}",
-                    s.person.login
+                    s.person.login.as_str()
                 );
                 Response::empty(202)
             }

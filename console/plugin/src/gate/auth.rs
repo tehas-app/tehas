@@ -9,10 +9,10 @@
 //! When that name has a session it makes a [`Code`] for the ask: one use, 60
 //! seconds, for that plugin's name and the nonce's hash only.
 
-use super::github::{AccountId, Person};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::io::Read;
+use tehas_ports::Account;
 
 pub const SESSION: &str = "__Host-tehas-plugin";
 /// The nonce of an ask, on a plugin's name.
@@ -42,7 +42,7 @@ pub enum Site {
 #[derive(Debug, Clone)]
 pub struct Session {
     pub site: Site,
-    pub person: Person,
+    pub person: Account,
     pub started: u64,
     pub used: u64,
     pub checked: u64,
@@ -68,7 +68,7 @@ pub struct Code {
     pub plugin: String,
     pub ask: String,
     pub back: String,
-    pub person: Person,
+    pub person: Account,
     pub checked: u64,
     pub at: u64,
 }
@@ -161,7 +161,7 @@ impl Memory {
         Some(s.clone())
     }
 
-    pub fn open(&mut self, site: Site, person: Person, checked: u64, now: u64) -> Option<String> {
+    pub fn open(&mut self, site: Site, person: Account, checked: u64, now: u64) -> Option<String> {
         self.sessions.retain(|_, s| {
             now.saturating_sub(s.used) <= IDLE && now.saturating_sub(s.started) <= TOTAL
         });
@@ -180,17 +180,19 @@ impl Memory {
         Some(id)
     }
 
-    /// Marks every session of the account checked at `now`.
-    pub fn checked(&mut self, user: &AccountId, now: u64) {
-        for s in self.sessions.values_mut().filter(|s| s.person.id == *user) {
+    /// Marks every session of the account checked at `now`. A session's
+    /// account carries its id: the gate refuses an account without one,
+    /// so the ids are what name the person across a rename.
+    pub fn checked(&mut self, who: &Account, now: u64) {
+        for s in self.sessions.values_mut().filter(|s| s.person.id == who.id) {
             s.checked = now;
         }
     }
 
     /// Ends every session of the account, on every name.
-    pub fn end(&mut self, user: &AccountId) {
-        self.sessions.retain(|_, s| s.person.id != *user);
-        self.codes.retain(|_, c| c.person.id != *user);
+    pub fn end(&mut self, who: &Account) {
+        self.sessions.retain(|_, s| s.person.id != who.id);
+        self.codes.retain(|_, c| c.person.id != who.id);
     }
 
     /// A new ask of `plugin`: the nonce for its cookie. The ask is kept
