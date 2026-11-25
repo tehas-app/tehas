@@ -1,0 +1,22 @@
+{
+ "data": {
+  "repository": {
+   "refs": {
+    "totalCount": 1,
+    "pageInfo": {
+     "hasNextPage": false,
+     "endCursor": null
+    },
+    "nodes": [
+     {
+      "name": "v-tree",
+      "target": {
+       "__typename": "Tree",
+       "oid": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      }
+     }
+    ]
+   }
+  }
+ }
+}

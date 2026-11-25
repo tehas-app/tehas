@@ -429,7 +429,6 @@ fn writer(
         spend: None,
         status_due: false,
         changed: false,
-        gh_writes: 0,
         port_calls: Default::default(),
         unposted: 0,
         starts: 0,
@@ -780,9 +779,7 @@ pub fn run_poll(
     for n in w.calls.retry.taken() {
         failed_read(home, dry, &n);
     }
-    end.gh += w.calls.gh_count
-        + w.gh_writes
-        + w.port_calls.load(std::sync::atomic::Ordering::Relaxed) as u32;
+    end.gh += w.calls.gh_count + w.port_calls.load(std::sync::atomic::Ordering::Relaxed) as u32;
     end.starts = w.starts;
     end.changed.queue = w.changed;
     end.run(&mut w);

@@ -168,6 +168,9 @@ pub(crate) struct State {
     pub branches: Vec<(Branch, CommitId)>,
     pub tags: Vec<Tag>,
     pub releases: Vec<ReleaseRec>,
+    /// The tag of the release the site marks latest, as a person may mark
+    /// an older one; None for no marking.
+    pub marked_latest: Option<TagName>,
     /// Each check run, with the App that ran it.
     pub checks: Vec<(CommitId, String, Check)>,
     pub statuses: Vec<(CommitId, Status)>,
@@ -298,6 +301,7 @@ impl State {
             branches: Vec::new(),
             tags: Vec::new(),
             releases: Vec::new(),
+            marked_latest: None,
             checks: Vec::new(),
             statuses: Vec::new(),
             links: Vec::new(),

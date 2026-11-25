@@ -11,6 +11,16 @@
 
 use std::borrow::Cow;
 
+/// A line from outside, cut for a log as the bash cuts it: the control
+/// characters of anything a container wrote are no part of a log line, and a
+/// line over 300 of them is no part of one either.
+pub fn trim(line: &str) -> String {
+    line.chars()
+        .map(|c| if c.is_control() { '?' } else { c })
+        .take(300)
+        .collect()
+}
+
 /// The character that replaces the colon of `tehas:`: U+2010 HYPHEN, which
 /// reads as a hyphen and is no colon to any parser of ours.
 pub const BREAK: char = '\u{2010}';

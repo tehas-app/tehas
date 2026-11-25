@@ -119,6 +119,11 @@ pub struct GitHub {
     /// None for a handle made with [`GitHub::new`], which answers no account
     /// `Ours`.
     pub(crate) bot: Option<crate::tickets::Bot>,
+    /// A site made the handle for `Actor::Ours`, the factory's own account:
+    /// false for every other actor (the operator's gh, a person's, a given
+    /// token's) and for a handle made with [`GitHub::new`].
+    /// `edit_comment` edits nothing through any other handle.
+    pub(crate) as_bot: bool,
     /// The node id and the issue of each comment a read of comments found
     /// edited, by its REST id: an edit history is asked by node id.
     pub(crate) comment_nodes: std::collections::HashMap<u64, (String, tehas_ports::BlueprintNo)>,
@@ -157,6 +162,7 @@ impl GitHub {
             left_out: Vec::new(),
             lines: Vec::new(),
             bot: None,
+            as_bot: false,
             comment_nodes: std::collections::HashMap::new(),
             people: None,
             here: Here::Unknown,

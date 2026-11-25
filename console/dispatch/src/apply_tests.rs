@@ -409,7 +409,6 @@ fn world() -> World {
         spend: None,
         status_due: false,
         changed: false,
-        gh_writes: 0,
         port_calls: Default::default(),
         unposted: 0,
         starts: 0,
@@ -1218,20 +1217,23 @@ fn a_comment_whose_markers_cannot_be_read_is_not_posted() {
     assert!(t.writes().is_empty(), "{:?}", t.writes());
 }
 
-/// A text that still holds our marker inside it is posted as 1.x posted it,
-/// through gh, until its site gives the marker typed: a write of the ports
-/// refuses it.
+/// A text that holds our marker inside it, with none typed beside it, is
+/// not posted: a marker that cannot be read is never written (T4.7).
 #[test]
-fn a_comment_whose_text_holds_a_marker_goes_through_gh() {
+fn a_comment_whose_text_holds_an_untyped_marker_is_not_posted() {
     let mut t = world();
     let body = format!("Finished.\n\n{}", crate::finish::marker(7));
-    t.apply(json!([{"issue": 7, "say": body}]));
-    let w = t.writes();
+    let a = t.apply(json!([{"issue": 7, "say": body}]));
     assert_eq!(
-        w[0],
-        "gh issue comment 7 --repo example-owner/example-product --body-file - <<< Finished."
+        a.log,
+        vec!["WARN: the comment on #7 holds a marker of ours with none typed beside it, so it was not posted"]
     );
-    assert!(!w.iter().any(|c| c.starts_with("send ")), "{w:?}");
+    let w = t.writes();
+    assert!(
+        !w.iter()
+            .any(|c| c.starts_with("send ") || c.starts_with("gh ")),
+        "{w:?}"
+    );
 }
 
 /// The finish's reply: its marker typed beside its text, through the port
@@ -6375,23 +6377,9 @@ fn a_question_posted_as_json_is_found_by_the_sum_of_its_body() {
     .map(String::from)
     .to_vec();
     let input = json!({"body": "Which?"}).to_string();
-    t.w.write(7, "comment-post", args, Some(&input), None);
-    let record = t
-        .calls()
-        .into_iter()
-        .find(|c| c.starts_with("store journal-record"))
-        .unwrap();
-    let call: Value = serde_json::from_str(
-        record
-            .split(" --args ")
-            .nth(1)
-            .unwrap()
-            .split(" --before ")
-            .next()
-            .unwrap(),
-    )
-    .unwrap();
-    let mut t = world();
+    // The call of gh as a 1.x row keeps it.
+    let call = json!({"repo": "r", "gh": args,
+        "input": tehas_core::journal::summed(&args, Some(&input))});
     left_open(
         &t,
         json!([{"id": 6, "kind": "comment-post", "issue": 7, "state": "attempted", "intended_at": 1792000000,
@@ -6594,8 +6582,12 @@ fn running() -> tehas_ports::Mark {
 /// The factory's handles of a fake site holding `world`, as the wiring makes
 /// them of GitHub's.
 fn handles(world: &tehas_ports::fake::World) -> Handles {
-    use tehas_ports::{fake::FakeSite, Actor, Caller, Scope, Site};
-    let site = FakeSite::new(world);
+    site_handles(&tehas_ports::fake::FakeSite::new(world))
+}
+
+/// The factory's handles of any site, as the wiring makes them.
+fn site_handles(site: &impl tehas_ports::Site) -> Handles {
+    use tehas_ports::{Actor, Caller, Scope};
     let (by, c) = (Actor::Ours(Scope::Full), Caller::new("poll"));
     Handles {
         writes: Box::new(tehas_ports::Writer {
@@ -7244,4 +7236,132 @@ fn an_outcome_over_the_read_bound_reads_as_no_outcome() {
     let boxes = w.iter().find(|c| asked(c, 7)).unwrap();
     assert!(boxes.contains(TICK), "{boxes}");
     assert!(boxes.contains("Which?"), "{boxes}");
+}
+
+/// The resilience test's cases of the poll's writes (the ports spec, "The
+/// resilience test", 3, 4, 7, 10 and 11), over `Faulty<FakeSite>`.
+mod resilience {
+    use super::*;
+    use tehas_ports::fake::{FakeSite, Fault, Faulty, TicketsOp};
+    use tehas_ports::{Actor, Refusal, Scope};
+
+    fn faulty(fault: Fault) -> Faulty<FakeSite> {
+        Faulty::new(FakeSite::new(&open_issues()))
+            .on(tehas_ports::fake::Op::Tickets(TicketsOp::Note), fault)
+            .times(1)
+    }
+
+    /// The notes the site holds on `n`, as it applied them.
+    fn notes_on(site: &Faulty<FakeSite>, n: u64) -> usize {
+        let key = format!(r#""ticket":{{"Number":{n}}}"#);
+        site.inner()
+            .world()
+            .wrote()
+            .iter()
+            .filter(|w| matches!(w.what, Write::TicketNote { .. }))
+            .filter(|w| serde_json::to_string(&w.what).unwrap().contains(&key))
+            .count()
+    }
+
+    fn two_notes(t: &mut World) -> Vec<String> {
+        t.apply(json!([{"issue": 7, "say": "One."}, {"issue": 8, "say": "Two."}]))
+            .log
+    }
+
+    /// Refused and forbidden: one line, the write not made again this poll
+    /// and its row settled failed, the next write made, and no call by any
+    /// other account.
+    #[test]
+    fn a_refused_or_forbidden_note_is_one_line_and_the_poll_goes_on() {
+        for fault in [Fault::Refused(Refusal::Invalid), Fault::Forbidden] {
+            let site = faulty(fault);
+            let mut t = world();
+            t.w.ports = Some(site_handles(&site));
+            assert_eq!(
+                two_notes(&mut t),
+                vec!["WARN: comment on #7 failed"],
+                "{fault:?}"
+            );
+            assert_eq!((notes_on(&site, 7), notes_on(&site, 8)), (0, 1));
+            assert_eq!(site.requests(), 2, "{fault:?}");
+            let ours = Actor::Ours(Scope::Full);
+            assert_eq!(site.requests_by(&ours), site.requests(), "{fault:?}");
+            assert_eq!(
+                settled(&t),
+                [
+                    "store journal-settle --action 1 --result read-failed",
+                    "store journal-settle --action 2 --result ok",
+                ],
+                "{fault:?}"
+            );
+        }
+    }
+
+    /// A note that may have landed, applied or not: it is not sent again on
+    /// the answer, its row is left unknown, and the next poll's settle reads
+    /// it. Applied, it is done and not sent again; not applied, the row is
+    /// abandoned and the poll sends it afresh, once.
+    #[test]
+    fn a_note_that_may_have_landed_is_never_sent_twice() {
+        for applied in [true, false] {
+            let site = faulty(Fault::TimeoutMaybe { applied });
+            let mut t = world();
+            t.w.ports = Some(site_handles(&site));
+            let a = t.apply(json!([{"issue": 7, "say": "One."}]));
+            assert_eq!(a.log.len(), 1, "{:?}", a.log);
+            assert!(
+                a.log[0].starts_with("WARN: the comment on #7 may have been posted"),
+                "{:?}",
+                a.log
+            );
+            assert_eq!(
+                settled(&t),
+                ["store journal-settle --action 1 --result unknown"]
+            );
+            assert_eq!(notes_on(&site, 7), usize::from(applied));
+
+            // The next poll: its settle reads the row the journal kept.
+            let note = Write::TicketNote {
+                ticket: ticket_7(),
+                body: Body::Text("One.".into()),
+                markers: vec![],
+            };
+            let kept = tehas_core::journal::kept(&note).unwrap();
+            let mut t = world();
+            t.w.ports = Some(site_handles(&site));
+            left_open(&t, json!([open_write!(1, "comment-post", kept)]));
+            let mut log = Vec::new();
+            t.w.settle(1000, &mut log);
+            let end = if applied {
+                "store journal-settle --action 1 --result ok"
+            } else {
+                "store journal-settle --action 1 --abandoned"
+            };
+            assert!(
+                settled(&t)[0].starts_with(end),
+                "{applied}: {:?}",
+                settled(&t)
+            );
+            let a = t.apply(json!([{"issue": 7, "say": "One."}]));
+            assert!(a.log.is_empty(), "{applied}: {:?}", a.log);
+            assert_eq!(notes_on(&site, 7), 1, "{applied}");
+        }
+    }
+
+    /// A read-only host: its writer sends nothing, the journal records no
+    /// row, and the poll goes on as after a write that answered nothing, as
+    /// the gh shim answers one.
+    #[test]
+    fn a_read_only_host_sends_nothing_and_records_no_row() {
+        let site = Faulty::new(FakeSite::new(&open_issues()));
+        let mut t = world();
+        t.w.ports = Some(Handles {
+            writes: Box::new(tehas_ports::ReadOnly),
+            ..site_handles(&site)
+        });
+        assert!(two_notes(&mut t).is_empty());
+        assert_eq!(site.requests(), 0);
+        assert!(!t.calls().iter().any(|c| c.starts_with("store journal-")));
+        assert_eq!((notes_on(&site, 7), notes_on(&site, 8)), (0, 0));
+    }
 }
