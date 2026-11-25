@@ -152,6 +152,7 @@ impl GitHubSite {
         };
         let mut gh = GitHub::new(self.repo.clone(), Box::new(runner)).on_clock(self.now);
         gh.bot = Some(self.bot.clone());
+        gh.as_bot = matches!(by, Actor::Ours(_));
         gh.people = self.people.clone();
         Ok(gh)
     }
