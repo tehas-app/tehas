@@ -298,11 +298,9 @@ test("the answer's age is judged by the server's clock when it gives one", async
 });
 
 test("the pages read the answer only through the module, and only when it is there", () => {
-  for (const f of ["game-view.js", "epics-view.js"]) {
-    const src = readFileSync(new URL(`../host/fun/${f}`, import.meta.url), "utf8");
-    assert.ok(!src.includes("/host/bridge.json"), f);
-    assert.ok(src.includes("globalThis.TEHAS_HOST_BRIDGE || null"), f);
-  }
+  const src = readFileSync(new URL("../host/fun/epics-view.js", import.meta.url), "utf8");
+  assert.ok(!src.includes("/host/bridge.json"));
+  assert.ok(src.includes("globalThis.TEHAS_HOST_BRIDGE || null"));
   // The plain dashboard's islands read it through one page store.
   const store = readFileSync(new URL("../host/fun/factory/bridge.state.js", import.meta.url), "utf8");
   assert.ok(!store.includes("/host/bridge.json"));

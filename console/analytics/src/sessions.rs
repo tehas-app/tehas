@@ -174,27 +174,58 @@ struct Filed {
 
 /// A line of state/refined.jsonl as the poll writes it.
 #[derive(serde::Deserialize)]
-struct FiledLine {
+pub(crate) struct FiledLine {
     at: String,
     source: i64,
     filed: i64,
     url: String,
 }
 
-// state/refined.jsonl, read by the report's own ledger reader, the same
-// bounded plain-file rule: anything unreadable, a link, or a line of another
-// shape is no filed issue.
+// state/refined.jsonl under the bounded plain-file rule: anything
+// unreadable, a link, or a line of another shape is no filed issue.
 fn ledger(home: &Path) -> Vec<Filed> {
-    crate::report::ledger_lines(home, tehas_core::home::State::Refined)
+    ledger_lines(home)
         .into_iter()
         .filter_map(|l: FiledLine| {
             Some(Filed {
-                at: crate::report::ledger_at(&l.at)?,
+                at: ledger_at(&l.at)?,
                 source: l.source,
                 filed: Some(l.filed).filter(|n| *n >= 1)?,
                 url: l.url.starts_with("https://").then_some(l.url)?,
             })
         })
+        .collect()
+}
+
+/// The bounds a ledger timestamp may fall inside, in milliseconds.
+const LEDGER_AT_MIN: i64 = 1_735_689_600_000; // 2025-01-01T00:00:00Z
+const LEDGER_AT_MAX: i64 = 4_102_444_800_000; // 2100-01-01T00:00:00Z
+
+/// A ledger line's `at` in Unix seconds, or nothing: an ISO time as the
+/// writer prints it, inside the bounds above.
+fn ledger_at(at: &str) -> Option<i64> {
+    let ms = iso_ms(at)?;
+    (LEDGER_AT_MIN..=LEDGER_AT_MAX)
+        .contains(&ms)
+        .then_some(ms / 1000)
+}
+
+/// The lines of refined.jsonl, each read as a `FiledLine`; a line of another
+/// shape, or of `LEDGER_MAX_LINE` bytes or more, is skipped. What the file is
+/// not (no file, a link, a device, too long, not text) is no lines at all.
+pub(crate) fn ledger_lines(home: &Path) -> Vec<FiledLine> {
+    let Some(text) = crate::run::read_ledger(
+        home,
+        tehas_core::home::State::Refined,
+        crate::LEDGER_MAX_BYTES,
+    ) else {
+        return Vec::new();
+    };
+    text.lines()
+        .filter(|l| l.len() < crate::LEDGER_MAX_LINE)
+        // An object only: serde would read a struct from an array too.
+        .filter(|l| l.trim_start().starts_with('{'))
+        .filter_map(|l| serde_json::from_str::<FiledLine>(l).ok())
         .collect()
 }
 
