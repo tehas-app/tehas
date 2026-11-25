@@ -4,8 +4,6 @@
 
 use crate::settings::{account, Settings};
 use crate::slice::gib;
-#[cfg(test)]
-use crate::snapshot::check_state;
 use crate::snapshot::{
     Check, Comment, CommentId, HostStart, Issues, Labels, LimitState, Listed, OrderState,
     PauseFlag, PlanStart, Snapshot, Text, Until, Work, WorkIssue,
@@ -27,7 +25,7 @@ mod epic;
 mod flow;
 mod note;
 mod plan;
-mod retry;
+pub(crate) mod retry;
 mod starts;
 
 pub(crate) use crate::snapshot::{base_approver, base_stands, named_blockers, record_base, shape};
@@ -468,7 +466,7 @@ impl<'a> Poll<'a> {
             ),
             None => format!("ERROR: unreadable {what}"),
         };
-        self.fail(tehas_core::call::trim(&line), 1)
+        self.fail(tehas_core::text::trim(&line), 1)
     }
 
     /// The end of a poll on comments of `n` that were not read.
@@ -3097,86 +3095,6 @@ mod millwright_tests {
     #[test]
     fn an_approval_whose_account_has_a_newline_on_the_end_is_no_base() {
         assert_eq!(record_base(&person("alice\n")), None);
-    }
-}
-
-#[cfg(test)]
-mod check_state_tests {
-    use super::{check_state, Check};
-    use serde_json::{json, Value};
-
-    const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
-    const HEAD: &str = "0123456789ab";
-
-    fn answer(runs: Vec<Value>) -> Value {
-        json!({"check_runs": runs})
-    }
-
-    fn run(status: &str, conclusion: Option<&str>) -> Value {
-        json!({"head_sha": SHA, "status": status, "conclusion": conclusion})
-    }
-
-    /// Every conclusion GitHub answers is classified: the three that pass, the
-    /// three that are red, and the rest that leave the gate's outcome unknown
-    /// and hold the start.
-    #[test]
-    fn every_finished_conclusion_is_classified() {
-        for c in ["success", "neutral", "skipped"] {
-            let a = answer(vec![run("completed", Some(c))]);
-            assert_eq!(check_state(&a), Some(Check::Done(HEAD.into())), "{c}");
-        }
-        for c in ["failure", "timed_out", "startup_failure"] {
-            let a = answer(vec![run("completed", Some(c))]);
-            assert_eq!(check_state(&a), Some(Check::Red(HEAD.into())), "{c}");
-        }
-        for c in ["cancelled", "action_required", "stale", "wontfix"] {
-            let a = answer(vec![run("completed", Some(c))]);
-            assert_eq!(
-                check_state(&a),
-                Some(Check::Unknown(HEAD.into())),
-                "{c} must hold"
-            );
-        }
-        // A finished run that names no conclusion at all is unknown too.
-        let a = answer(vec![run("completed", None)]);
-        assert_eq!(check_state(&a), Some(Check::Unknown(HEAD.into())));
-        let a = json!({"check_runs": [{"head_sha": SHA, "status": "completed"}]});
-        assert_eq!(check_state(&a), Some(Check::Unknown(HEAD.into())));
-    }
-
-    #[test]
-    fn a_run_that_has_not_finished_is_pending() {
-        for st in ["queued", "in_progress"] {
-            let a = answer(vec![run(st, None)]);
-            assert_eq!(check_state(&a), Some(Check::Pending(HEAD.into())), "{st}");
-        }
-        // One run of two that has not finished is enough: nothing is known of
-        // the gate until all of them answer.
-        let a = answer(vec![
-            run("completed", Some("cancelled")),
-            run("in_progress", None),
-        ]);
-        assert_eq!(check_state(&a), Some(Check::Pending(HEAD.into())));
-    }
-
-    #[test]
-    fn a_red_run_outweighs_every_other_reading() {
-        let a = answer(vec![
-            run("completed", Some("success")),
-            run("completed", Some("failure")),
-        ]);
-        assert_eq!(check_state(&a), Some(Check::Red(HEAD.into())));
-    }
-
-    #[test]
-    fn no_runs_and_an_answer_that_is_not_runs() {
-        assert_eq!(check_state(&answer(vec![])), Some(Check::None));
-        assert_eq!(check_state(&json!({})), None);
-        assert_eq!(check_state(&json!({"check_runs": {}})), None);
-        // A head sha the poll cannot name is an answer it cannot read.
-        let a = json!({"check_runs": [{"head_sha": "<b>", "status": "completed",
-                                       "conclusion": "success"}]});
-        assert_eq!(check_state(&a), None);
     }
 }
 

@@ -8,6 +8,7 @@ use common::*;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::Path;
+use tehas_core::home::{self, Home};
 use tehas_ports::{Act, Mark, State};
 
 fn v(text: &str) -> Value {
@@ -265,7 +266,7 @@ fn a_session_whose_start_the_store_will_not_take_does_not_start_and_its_park_s_q
 fn a_refining_turn_that_files_an_issue_notes_it_in_the_ledger_of_refined_issues_a_planning_one_does_not(
 ) {
     let w = World::new("plan");
-    let ledger = w.home.join("state/refined.jsonl");
+    let ledger = Home::new(&w.home).state(home::State::Refined);
     w.to_refine();
     w.plan_files(&["https://github.com/acme/widget/issues/41"]);
     let r = w.poll();
@@ -294,7 +295,7 @@ fn a_refining_turn_that_files_an_issue_notes_it_in_the_ledger_of_refined_issues_
 fn the_ledger_of_refined_issues_keeps_its_last_500_lines_as_the_ledger_of_sizes_does() {
     let w = World::new("plan");
     w.to_refine();
-    let ledger = w.home.join("state/refined.jsonl");
+    let ledger = Home::new(&w.home).state(home::State::Refined);
     let lines: String = (1..=500)
         .map(|i| format!("{{\"at\":\"x\",\"source\":0,\"filed\":{i},\"url\":\"u\"}}\n"))
         .collect();

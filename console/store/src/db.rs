@@ -19,7 +19,7 @@ use tehas_core::home::{Home, State};
 use crate::live;
 
 /// PRAGMA user_version of the schema in schema.sql.
-pub const SCHEMA_VERSION: i64 = 32;
+pub const SCHEMA_VERSION: i64 = 33;
 pub const SCHEMA: &str = include_str!("schema.sql");
 
 /// The five tables schemas 15 to 28 held for outsource, which 2.0 dropped:
@@ -453,6 +453,21 @@ CREATE TABLE links (
   how           TEXT NOT NULL CHECK (how IN ('opened','linked'))
 );
 CREATE INDEX links_ticket ON links (ticket);
+";
+
+/// The step from 32 to 33 (T4.7, the lead's ruling on the question's sum):
+/// `questions.body_form` says what a question's `body_sha256` sums. 2.0 sums
+/// a question's visible text alone, without our markers (`visible`); every
+/// sum of before is of the comment as it was posted, its markers in
+/// (`rendered`). A `rendered` row is adopted in place on the poll's first
+/// read of its comment (`question-adopt`): `visible` with the sum of its
+/// visible text when the comment reads as it was posted, `visible` with no
+/// sum when it was ticked or edited since. No write to the code host, no
+/// edit and no label change; it is not asked again. The reading of
+/// `rendered` goes once the last 1.x host has updated (contract, R9).
+pub const STEP_33: &str = "
+ALTER TABLE questions ADD COLUMN body_form TEXT CHECK (body_form IN ('rendered','visible'));
+UPDATE questions SET body_form = 'rendered' WHERE body_sha256 IS NOT NULL;
 ";
 
 /// The step from 29 to 30 (docs/specs/2026-11-22-events.md, T11.2), in the
@@ -1609,6 +1624,9 @@ pub(crate) const STEPS: &[(i64, Step)] = &[
     // A store at 31 is one this binary wrote before tehas kept the links
     // of a ticket to its blueprints (T4.8).
     (32, |c| step(c, 32, STEP_32)),
+    // A store at 32 is one this binary wrote before a question's sum said
+    // what it sums (T4.7).
+    (33, |c| step(c, 33, STEP_33)),
 ];
 
 /// One schema step to `to`, in one transaction with `meta.schema` and

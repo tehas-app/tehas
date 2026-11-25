@@ -27,10 +27,10 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use std::time::Duration;
-use tehas_core::call::{self, GRACE};
+use tehas_core::call;
 use tehas_core::home::{Home, State};
 use tehas_core::journal::{Journal, Journaled, Wrote};
-use tehas_ports::{Body, ChangeNo, NoBlobs, Receipt, TicketKey, Write};
+use tehas_ports::{Body, ChangeNo, NoBlobs, Outcome, Receipt, Refusal, TicketKey, Write};
 
 /// The calls of one poll's writes.
 pub struct Writer {
@@ -63,11 +63,9 @@ pub struct Writer {
     /// The poll changed the queue, so its end refreshes the status and takes
     /// a sample: the poll wrote to GitHub, started or stopped something, or
     /// ended on an action that could not be read. Marked where the change is
-    /// made - write(), the two stops here - or where the poll ends inside a
+    /// made - send(), the two stops here - or where the poll ends inside a
     /// step. An idle poll marks nothing, so it runs neither.
     pub changed: bool,
-    /// The gh calls the writes made, for the poll's cost.
-    pub gh_writes: u32,
     /// The comments this poll did not post for want of handles, said once
     /// at the end of `apply`.
     pub unposted: u32,
@@ -324,6 +322,9 @@ impl Writer {
             };
             let say = a.get("say").and_then(Value::as_str);
             self.answer_drop(n, &id, say, text(a, "fail"), log);
+        } else if let Some(n) = a.get("adopt").and_then(Value::as_u64) {
+            let sum = a.get("sum").and_then(Value::as_str);
+            self.adopt(n, text(a, "id"), text(a, "posted"), sum, log);
         } else if let Some(n) = a.get("reask").and_then(Value::as_u64) {
             let r = Reask {
                 kind: text(a, "kind"),
@@ -407,51 +408,6 @@ impl Writer {
         true
     }
 
-    /// A write to GitHub, journaled. `input` goes to gh on standard input.
-    /// `done_if`: words in a failed call's answer that mean the change is
-    /// there already. The poll says once that no row stands: apply().
-    fn write(
-        &mut self,
-        issue: u64,
-        kind: &str,
-        args: Vec<String>,
-        input: Option<&str>,
-        done_if: Option<&str>,
-    ) -> Wrote {
-        // The settle read this write's earlier try: done is not sent again,
-        // unread is not sent until a read settles it.
-        if let Some(wrote) = self.looked_1x(issue, kind, &args, input) {
-            return wrote;
-        }
-        let token = self.calls.gh_token.clone();
-        let mut journal = Journal {
-            repo: &self.repo,
-            gh: &self.gh,
-            before: self.before,
-            bound: self.bound,
-            grace: GRACE,
-            token: token.as_deref(),
-            poll_at: &mut self.poll_at,
-            row_not_begun: &mut self.row_not_begun,
-            cycle: None,
-        };
-        let calls = &mut self.calls;
-        let wrote = journal.write(
-            &mut |a: &[&str]| calls.store(a),
-            issue,
-            kind,
-            args,
-            input,
-            done_if,
-        );
-        // The queue changes here: the poll's end owes a status and a sample.
-        if !matches!(wrote, Wrote::Unrecorded) {
-            self.changed = true;
-            self.gh_writes += 1;
-        }
-        wrote
-    }
-
     /// What this poll's settle read of a 1.x row of this write, the call of
     /// gh a poll before T4.7 made for it: done is not sent again, unread is
     /// not sent until a read settles it. A write of the ports asks it too,
@@ -476,8 +432,7 @@ impl Writer {
         }
     }
 
-    /// A write of the ports, journaled, as `write` journals a call of gh:
-    /// one this poll's settle found done is not sent again, one it could not
+    /// A write of the ports, journaled: one this poll's settle found done is not sent again, one it could not
     /// read is not sent at all (`looked`, by the write as its row keeps it).
     /// `Done` holds the id a comment was given, else nothing.
     fn send(&mut self, n: u64, write: &Write) -> Wrote {
@@ -497,14 +452,9 @@ impl Writer {
         let Some(ports) = self.ports.as_mut() else {
             return Wrote::Failed(": the poll has no handles of the code host".into());
         };
-        let token = self.calls.gh_token.clone();
         let mut journal = Journal {
             repo: &self.repo,
-            gh: &self.gh,
             before: self.before,
-            bound: self.bound,
-            grace: GRACE,
-            token: token.as_deref(),
             poll_at: &mut self.poll_at,
             row_not_begun: &mut self.row_not_begun,
             cycle: None,
@@ -522,6 +472,12 @@ impl Writer {
                 Wrote::Done(posted.id.as_str().to_string())
             }
             Journaled::Answered(Ok(_)) => Wrote::Done(String::new()),
+            // A read-only host goes on as after a write that answered
+            // nothing, as its gh shim answers one; the journal said what it
+            // did not send.
+            Journaled::Answered(Err(Outcome::Refused(Refusal::ReadOnly))) => {
+                Wrote::Done(String::new())
+            }
             Journaled::Answered(Err(o)) => Wrote::Failed(format!(": {}", o.line())),
             Journaled::Unknown { answer, .. } => Wrote::Unknown(format!(": {}", answer.line())),
             Journaled::Unrecorded => Wrote::Unrecorded,
@@ -605,20 +561,22 @@ impl Writer {
             .map(str::to_string)
             .collect();
         // A text that holds our marker inside it, with none typed beside
-        // it, goes as 1.x wrote it, through gh: a write of the ports refuses
-        // it. One given its markers typed never goes through gh: the port
-        // refuses a marker in its text, and no gh call writes it there.
-        let wrote = if markers_empty && tehas_core::text::has_marker(body) {
-            self.write(n, "comment-post", args, Some(body), None)
-        } else {
-            match self.looked_1x(n, "comment-post", &args, Some(body)) {
-                Some(wrote) => wrote,
-                None if self.ports.is_none() => {
-                    self.unposted += 1;
-                    return false;
-                }
-                None => self.send(n, &note),
+        // it, is not posted: a marker that cannot be read is never written.
+        // Every site gives its markers typed; a 1.x row of the same post
+        // that this poll's settle read still answers it.
+        let wrote = match self.looked_1x(n, "comment-post", &args, Some(body)) {
+            Some(wrote) => wrote,
+            None if markers_empty && tehas_core::text::has_marker(body) => {
+                log.push(format!(
+                    "WARN: the comment on #{n} holds a marker of ours with none typed beside it, so it was not posted"
+                ));
+                return false;
             }
+            None if self.ports.is_none() => {
+                self.unposted += 1;
+                return false;
+            }
+            None => self.send(n, &note),
         };
         match wrote {
             Wrote::Done(_) => true,
@@ -841,8 +799,40 @@ impl Writer {
     }
 
     /// A question's comment posted on issue `n`: its id, or None when GitHub
-    /// did not take it or gave no id.
+    /// did not take it or gave no id. `body` is the question as q_render
+    /// made it: its text goes as a note of the tickets port, our markers
+    /// typed beside it (`question::q_typed`). A body they cannot be taken
+    /// out of is not posted.
     pub(crate) fn question_post(&mut self, n: u64, body: &str) -> Option<u64> {
+        let (args, input) = self.question_1x(n, body);
+        let said = match self.looked_1x(n, "comment-post", &args, Some(&input)) {
+            Some(Wrote::Done(said)) => said,
+            Some(_) => return None,
+            None => {
+                let (text, markers) = tehas_core::question::q_typed(body, n)?;
+                let note = Write::TicketNote {
+                    ticket: ticket(n)?,
+                    body: Body::Text(text),
+                    markers,
+                };
+                if self.ports.is_none() {
+                    self.unposted += 1;
+                    return None;
+                }
+                let Wrote::Done(said) = self.send(n, &note) else {
+                    return None;
+                };
+                said
+            }
+        };
+        // The comment's id: the note's, or what gh printed for a 1.x row
+        // (--jq .id).
+        said.trim().parse::<u64>().ok()
+    }
+
+    /// The call of gh and its input a poll before T4.7 made to post the
+    /// question `body` on issue `n`: what its row in the journal holds.
+    fn question_1x(&self, n: u64, body: &str) -> (Vec<String>, String) {
         let args = vec![
             "api".into(),
             "-X".into(),
@@ -853,12 +843,36 @@ impl Writer {
             "--jq".into(),
             ".id".into(),
         ];
-        let input = json!({"body": body}).to_string();
-        let Wrote::Done(said) = self.write(n, "comment-post", args, Some(&input), None) else {
-            return None;
-        };
-        // gh prints the id alone, as --jq .id has it.
-        said.trim().parse::<u64>().ok()
+        (args, json!({"body": body}).to_string())
+    }
+
+    /// The question `id` on record of `n` takes 2.0's form in place of its
+    /// sum of before T4.7 (`question-adopt`, the lead's ruling): `sum`, the
+    /// sum of its visible text, when `posted`, the sum of its comment as read
+    /// now, is the sum on record, so the comment is unchanged since it was
+    /// posted; no sum when it was ticked or edited since. One line either
+    /// way, nothing written to the code host, no edit, no label change, and
+    /// nothing asked again. A store that cannot say leaves the row as it
+    /// was, and the next poll tries again.
+    fn adopt(&mut self, n: u64, id: &str, posted: &str, sum: Option<&str>, log: &mut Vec<String>) {
+        let issue = n.to_string();
+        let mut args = vec!["question-adopt", &issue, "--id", id, "--posted-sha", posted];
+        if let Some(sum) = sum {
+            args.extend(["--body-sha", sum]);
+        }
+        match self.store_try(3, &args) {
+            Ok(v) if v.get("adopted") != Some(&Value::Bool(true)) => {}
+            Ok(v) if v.get("summed") == Some(&Value::Bool(true)) => log.push(format!(
+                "INFO: the question of #{n} (comment {id}) had its sum of before 2.0, of the comment with its markers; it is kept, summed now by its visible text, and not asked again"
+            )),
+            Ok(_) => log.push(format!(
+                "INFO: the question of #{n} (comment {id}) had its sum of before 2.0, and its comment changed since it was posted; it is kept with no sum, not asked again, and its answer read as it is"
+            )),
+            Err(f) => log.push(format!(
+                "WARN: the sum of the question of #{n} could not be adopted ({}); the next poll tries again",
+                word(&f)
+            )),
+        }
     }
 
     /// A question of before 2.0 asked again in 2.0's words (#2782): the new
@@ -906,11 +920,7 @@ impl Writer {
         }
         // A stop closed with nothing to ask no longer waits on a question.
         if let Some(label) = r.unlabel {
-            if !self.edit_labels(n, &[("--remove-label", label)], log) {
-                log.push(format!(
-                    "WARN: the question's label could not be taken off #{n}"
-                ));
-            }
+            self.unlabel(n, label, log);
         }
         let line = tehas_core::question::superseded(new);
         if !r.old_body.trim_end().ends_with(&line) {
@@ -924,6 +934,29 @@ impl Writer {
             "asked #{n}'s question again in the words of 2.0 (comment {} superseded)",
             r.old
         ));
+    }
+
+    /// A re-ask's label taken off issue `n`: a 1.x row of the same change
+    /// that this poll's settle found is not sent again.
+    fn unlabel(&mut self, n: u64, label: &str, log: &mut Vec<String>) {
+        let fail = format!("WARN: the question's label could not be taken off #{n}");
+        let Some(key) = ticket(n) else {
+            log.push(fail);
+            return;
+        };
+        let args: Vec<String> = ["issue", "edit", &n.to_string(), "--repo", &self.repo]
+            .into_iter()
+            .chain(["--remove-label", label])
+            .map(str::to_string)
+            .collect();
+        match self.looked_1x(n, "label-remove", &args, None) {
+            Some(Wrote::Done(_)) => {}
+            Some(Wrote::Unknown(why)) => log.push(Self::unknown(n, "label change", &why)),
+            Some(_) => log.push(fail),
+            None => {
+                self.mark_part(n, &key, label, false, &fail, log);
+            }
+        }
     }
 
     /// The old question of a re-ask told it is superseded: `line` added
