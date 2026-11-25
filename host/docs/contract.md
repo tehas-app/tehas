@@ -93,7 +93,7 @@ other issue the poll takes it off, as it does an outsider's.
 | Commands | The `tehas` commands, their subcommands and the flags of each, but the flags marked `internal` | `api/commands.txt`, held to the commands tehas knows and to the synopsis lines of each command's text by the tests of `console/src/front.rs` |
 | Exit statuses | One meaning per status, and [one table per command](#exit-statuses) | `console/core/src/exit.rs`, the tests of each command, and `console/tests/surface.rs`, which fails when a public command of `api/commands.txt` has no table below |
 | Labels | The rows of `host/labels.tsv`: the name, what the dispatcher does with it, and the word of the ports it is (the fourth column, such as `State::Running`) | The dispatcher's and the tidy's tests, and the table's own test in `console/github/tests/table.rs` |
-| Store | `tehas update` brings a store of 1.4.x (schema 23) to 2.0's schema, 31 | The store's migration tests |
+| Store | `tehas update` brings a store of 1.4.x (schema 23) to 2.0's schema, 32 | The store's migration tests |
 | analytics.db | `user_version` 7, tables and columns only added | `console/analytics/src/schema.pinned` |
 | Factory API | `tehas api --json`: `api`, `features` (words only added), `flags`, `millwright`, `poll` | `api/api.schema.json` and its samples, and `api/features.txt`, the words of `features` in order, held by `test/api_test.sh` |
 | `--json` objects | Each object with a schema and samples in `api/`. Fields are only added | `test/json_contract_test.sh`, which lists every schema in `api/` and the test that holds each one's samples to what its command prints, and the tests of `console/src/front.rs`, which fail when a public `--json` row of `api/commands.txt` has no schema |
@@ -562,7 +562,7 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   starts it when it creates or restores one, drops the unit from both
   lists.
 - **The business page leaves core.**
-  T16.
+  #2904.
   Gone: the page at `/business`, `fun/business.html`, `business-view.js`,
   `business.css` and `mode.js`. The front page `/` is the factory floor in
   both designs, as `/floor` is; `TEHAS_DESIGN=beesknees26` draws it in the
@@ -760,7 +760,7 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Leave `~/tehas/state/panels.json` in place: 2.0 no longer reads it, and
   the 2.1 `panels` plugin migrates its pages into its grant.
 - **The state store is at schema 33.**
-  #2794, #2830, #2843, #2867, #2889, #2886, #2911, #2926, T4.8.
+  #2794, #2830, #2843, #2867, #2889, #2886, #2911, #2926, #3164.
   The steps 24 to 33 are listed under [Upgrading to 2.0](#upgrading-to-20).
   `tehas state check --json` prints `schema` 33, and `rows` counts the new
   tables `answers` and `links` and no longer the tables of outsource. Later 2.x releases
@@ -794,6 +794,91 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   stays.
   Readers: adopters, the consumer that runs many factories (`flags`).
   Adopter action: take `TEHAS_SPEC_PIPE` out of `instance.env`.
+- **The how `label` is `approved`, the end `pr` is `offered`, and a
+  question has the store's number.** #2911.
+  A cycle started by an approval has the `how` `approved`, no longer
+  `label`: in `tehas history`, `tehas export`, the approval record,
+  `libexec/store approval-record --how` and `history-show --how`, and the
+  MCP tool `factory_sessions`, which take `approved` and no longer `label`.
+  The end word `pr` is `offered` in analytics, the stats report's `runs`
+  and the MCP tools `factory_stats`, `factory_sessions` and
+  `factory_outcomes`, as under analytics.db's schema 7 above.
+  `id` in `tehas question --json` and `question.id` in `tehas answer --json`
+  are the state store's own number, given in order and never reused, not
+  the comment's id. No old word is kept as an alias.
+  Readers: the consumer that runs many factories, the consumer that reads
+  the analytics copies, MCP clients, the end-to-end suite, plugins.
+  Adopter action: a program that reads or filters `how` by `label` reads
+  `approved`; one that kept a question's `id` as a comment id keys it as
+  the store's number.
+- **Every start has its line in the history.** #2926.
+  A start the cycle refused writes a work line with the outcome `refused`
+  and the exit status its unit left, `tehas stop` one with `stopped`, and a
+  cycle that died without a word one with `lost`, ended when it was last
+  heard from; 1.x wrote these three only to the short list of ends the
+  dashboard shows. The poll ends a lost cycle too, through the store's
+  `cycle-end --lost`, once its lock is free and it has not been heard from
+  for two minutes. A work line may have no `status`; one written after its
+  end has `recorded`, and `--after` lists it once, in the order the lines
+  were written; one a signal stopped has `signalled: true`. The 50 lines
+  kept per issue are the newest written, not the newest ended. The record
+  of an approval reads only the lines a report wrote, so these lines move
+  no refresh base, refresh count or easy merge. `tehas stop` says the
+  record was already ended, and how, when the poll ended it as lost first.
+  Readers: the consumer that runs many factories (`tehas history` and
+  `tehas export`), the end-to-end suite.
+  Adopter action: a program that reads `tehas history` or `tehas export`
+  takes a line for each refused, stopped and lost start and a work line
+  with no `status`; one that counts runs from the history counts them; one
+  that keys lines on their cursor reads `recorded` on a lost line and takes
+  it in the order it was written.
+- **The cycle id, its end and its change are in the factory API.** #2932.
+  `tehas api --json` prints `store`, the id of the factory's state store,
+  and `features` gains `cycle-ids`. `tehas status --json` prints on each
+  running cycle `cycle`, the cycle id `<issue>-<attempt>` such as `12-3`,
+  with `how` and `by`, and the health file's cycles carry `attempt`, `how`
+  and `by`; `since` is the second the cycle's history line prints as
+  `started`. `tehas history --json` and `tehas export` print on every work
+  line `cycle`, `end` (one of `offered`, `merged`, `handoff`, `parked`,
+  `failed`, `refused`, `stopped`), `change` (the pull request's number,
+  beside its address in `pr`) and always `started`: a line the store holds
+  no start for started when it ended. `tehas state pack`, `unpack` and
+  `load` keep the store's id and its attempts, so a moved factory never
+  gives a cycle id twice.
+  Readers: the consumer that runs many factories, the consumer that reads
+  the analytics copies (`end` says the words of `runs.outcome`), MCP
+  clients, the end-to-end suite.
+  Adopter action: none. A program that reads many factories keys a cycle
+  on `cycle` with the factory and its `store`, and decides on `end` in
+  place of `outcome`, once `features` lists `cycle-ids`.
+- **A limit has the time it was set.** #2925.
+  `tehas limit --json`, and the `limit` of `tehas drain --json`, print
+  `set`, when the limit was written, kept in `state/limit.json`. Setting
+  the same limit again (the same `cycles`, `plan` and `reason`, whatever
+  its expiry) keeps it; another limit takes the time it is written at, the
+  next second when one was written in the same second; after
+  `tehas limit clear` there is none. A limit set before the update prints
+  no `set` until it changes. `tehas limit set` takes `--json` and then
+  prints that object in place of its words.
+  Readers: the consumer that runs many factories, any program that checks
+  the two objects against a closed copy of their schemas.
+  Adopter action: none.
+- **The events have their schemas, and the kit raises them on a page.**
+  #2936.
+  In `api/`: `events.txt`, the names; `event.schema.json`, the envelope
+  with `when`; `event-page.schema.json`, the envelope a page takes;
+  `event-<name>.schema.json` with a `.full.json` and a `.bare.json` sample
+  per name; `event-cycle-started-before.schema.json`, the ask of the start
+  gate, and `gate-answer.schema.json`, `{"api": 1, "answer": "allow" |
+  "refuse", "why": "..."}`, why at most 140 characters, both for 2.1. The
+  kit gains `events.js`: `raise(envelope)` dispatches an event on a page
+  as `tehas:<event>`, such as `tehas:cycle.ended` ([Events](/api#events)).
+  Which events 2.0 raises is in the next entry, and which it does not under
+  [Pending for 2.0](#pending-for-20).
+  Readers: the consumer that runs many factories, Obeya, plugins, the
+  end-to-end suite.
+  Adopter action: none. A page that shows many factories may raise the
+  events it builds from its own stream with `events.js`.
 - **A cycle raises its events.** #2937, #2940.
   `tehas-cycle` raises `cycle.started` once a start is on record, and after
   the report `cycle.parked` (a parked line), `question.asked` (a park's
@@ -937,7 +1022,7 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Readers: adopters, the consumer that runs many factories.
   Adopter action: update a host on an older release to the newest 1.4.x
   first.
-- **The allowed labellers are matched ignoring ASCII case.** #2962, T4.7.
+- **The allowed labellers are matched ignoring ASCII case.** #2962, #3142.
   1.4.x matched a login of `TEHAS_ALLOWED_LABELERS` in exact case. In 2.0
   the dispatcher and the checks of `tehas resume`, `tehas plan`, `tehas dev`
   and a cycle started by hand match it ignoring ASCII case, as GitHub
@@ -947,7 +1032,7 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   does not count.
   Readers: adopters, the end-to-end suite.
   Adopter action: none.
-- **`state/account-ids` names each pair's realm.** T4.8. A line is
+- **`state/account-ids` names each pair's realm.** #3164. A line is
   `<realm> <login> <id>`, the realm `code-host` or `tickets`; 1.x wrote
   `<login> <id>`. 2.0 reads a 1.x line as the code host's, writes every
   line in the new form, and `tehas update` rewrites the file once. Any
@@ -970,6 +1055,61 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   internal, every verb of it.
   Readers: adopters, the consumer that runs many factories.
   Adopter action: call `tehas refresh --pr N`.
+- **`tehas stop` says a number that is not an issue is not one.** #3039.
+  `tehas stop` on a pull request's number, or a number with no issue, that
+  has leftovers on this host says `#12 is not an issue; tehas stops only
+  issues` and exits 1, where it said the labels could not be read: 1.x
+  read a pull request's number as an issue's. With nothing on the host it
+  says there is nothing to stop and exits 0, as before.
+  Readers: adopters, the consumer that runs many factories, the end-to-end
+  suite.
+  Adopter action: none. A script that stops by number reads status 1 and
+  this line for a number that is not an issue.
+- **A pull request's checks hold the newest run of each workflow.** #3179.
+  The checks are read with every run on the commit and keep the newest of
+  each App, check suite and name, not only of each check name. A workflow
+  triggered again on the same commit by another event no longer hides the
+  older run's failure: the checks stay failed until the workflow that
+  failed is re-run and passes. Two workflows with a job of the same name
+  are both counted.
+  Readers: adopters, people on a pull request, the end-to-end suite.
+  Adopter action: re-run a failed workflow itself, not only another
+  trigger of it, for its pull request's checks to pass.
+- **A label counts only while its application stands.** #3150.
+  A cycle started by hand fetches an issue's images and links only while
+  `tehas:ready` is on and an allowed account applied it. A label taken off
+  since counts for nobody; 1.4.x counted its newest application, removed
+  or not. The approvals already read the application that stands.
+  Readers: adopters, people on an issue, the end-to-end suite.
+  Adopter action: none.
+- **The claim of an issue is three writes.** #3214.
+  The dispatcher claims an issue by the `tehas:running` mark, then takes
+  off the label it takes the place of, then assigns `TEHAS_ASSIGNEE`: one
+  more GitHub request per claim than 1.x's one edit. A poll stopped
+  between them leaves the issue marked running, so it is never started
+  twice. An assignee login that cannot be resolved is said once in
+  `logs/dispatch.log`, and that poll's claims go without one.
+  Readers: adopters (the GitHub budget), people on an issue, the
+  end-to-end suite.
+  Adopter action: none.
+- **tehas's own `gh` writes are sent once.** #2946.
+  A rate-limited write that tehas's programs send themselves, the poll's,
+  those of `tehasbot status` and the tidy, the console's commands, and the
+  cycle's report, hooks, finish and the files it fetches, fails at once:
+  the host's gh shim no longer sends it again after a minute. The cycle's
+  calls under `timeout`, the container's `gh`, the relay's calls for it and
+  a `gh` an operator runs on the host keep the retry.
+  Readers: adopters, the end-to-end suite.
+  Adopter action: none.
+- **The host files a drafted plan.** #3158.
+  **File as a new issue** in a refine session files the drafted plan
+  again: it ran `plan --confirm` inside the planner's container, whose token
+  reads issues alone, and GitHub refused it. The host now files the plan as
+  the factory's account, exactly as the question showed it. A plan too long
+  for its comment is not filed, and a try that may have filed it is looked
+  for before the next try files, so a plan is never filed twice.
+  Readers: people on an issue, the end-to-end suite.
+  Adopter action: none.
 
 ## Pending for 2.0
 
@@ -978,44 +1118,32 @@ Planned or in review, not merged. Each moves to
 adopter action as the pull request states them.
 
 - **Events.** T11, spec `docs/specs/2026-11-22-events.md`
-  (#2878, merged); the build
-  is under way. Notify events, each with a schema in `api/` and a witness in
-  the factory API:
+  (#2878, merged). 2.0 raises the cycle's five only, `cycle.started`,
+  `cycle.parked`, `question.asked`, `cycle.ended` and `change.offered`
+  (#2937 and #2940, under [Changed in 2.0](#changed-in-20); the raisers
+  are `console/core/src/raise.rs`). Four more have their names in
+  `api/events.txt` and their schemas and samples in `api/` (#2936), and
+  nothing raises them:
 
   | Event | Raised when | Key |
   | --- | --- | --- |
-  | `cycle.started` | a start is on record | cycle id |
-  | `cycle.parked` | a cycle's history line says it parked | cycle id |
-  | `question.asked` | a question is recorded | the question's id |
-  | `cycle.ended` | a cycle's history line is written | cycle id |
-  | `change.offered` | a cycle left a change, draft or not | cycle id |
   | `factory.limit-changed` | `tehas limit` or `tehas drain` writes another limit | the limit's `set` |
   | `ticket.acted` | an allowed account's act is recorded | `<ticket>@<act>@<at>` |
   | `ticket.closed` | a ticket tehas follows is recorded closed | `<ticket>@<at>` |
   | `change.merged` | a change linked to a blueprint is recorded merged | the change's number |
 
-  With them: the end word `pr` becomes `offered`, the `how` word `label`
-  becomes `approved`, `tehas question` prints `askedAt` for `asked_at`, a
-  question's `id` becomes the store's own number, every start gets a
-  history line, `tehas api --json` prints `store`, and `features` gains
-  `cycle-ids`, `questions` and `events`. A further store step and an
-  analytics step carry the words.
-  The schemas and the kit (T11.7) add, in `api/`: `events.txt`, the names;
-  `event.schema.json`, the envelope with `when`; `event-page.schema.json`,
-  the envelope a page takes; `event-<name>.schema.json` with a `.full.json`
-  and a `.bare.json` sample per name; the gate's
-  `event-cycle-started-before.schema.json`, the ask of the start gate that
-  2.1 raises; and `gate-answer.schema.json`, `{"api": 1, "answer": "allow" |
-  "refuse", "why": "..."}`, why at most 140 characters. The kit gains
-  `events.js`, which raises an envelope on a page as `tehas:<event>`
-  ([Events](/api#events)). A cycle raises its five (#2937, under
-  [Changed in 2.0](#changed-in-20)); the limit, a stop, a refused start, a
-  lost end and the ticket and change events are still to come.
-  Readers: the consumer that runs many factories, the consumer that reads
-  the analytics copies, MCP clients, the end-to-end suite, plugins.
-- **The rest of clean house.** T16. Panels and the Business page leave
-  core for plugins; the store keeps only the migration from 1.4.x.
-  Readers: as each pull request names them.
+  They are raised after the first alpha, before the beta.
+  Until then a program reads their witnesses as the spec names them: a
+  change of `tehas limit --json`, and the ticket's and the change's own
+  history on the code host.
+  Readers: the consumer that runs many factories, MCP clients, the
+  end-to-end suite, plugins.
+- **The store's migration from 1.4.x alone.** T16. The store still
+  migrates from schema 12, the one v0.30.0 wrote (`OLDEST` in
+  `console/store/src/db.rs`), not only from 1.4.x's 23: its steps 13 to 23
+  are still in it, though 2.0 is supported from 1.4.x only. Taking them
+  out leaves a store of 1.4.x migrated as now.
+  Readers: `tehas update`, the end-to-end suite.
 - **The ports.** T4, spec `docs/specs/2026-11-22-ports.md`.
   The ports themselves. Two settings choose the adapters:
   `TEHAS_CODE_HOST` and `TEHAS_TICKETS`. In 2.0 each accepts only
@@ -1373,7 +1501,7 @@ error, when its reader goes away, as in `tehas status | head -1`.
 | Status | When |
 | --- | --- |
 | 0 | The cycle is stopped and its leftovers are gone, or there was nothing to do |
-| 1 | The cycle still holds its lock, a stop or a removal failed, the label could not be read or taken off, or the state store could not be read or written |
+| 1 | The cycle still holds its lock, a stop or a removal failed, the number is not an issue (a pull request's, or no item's), the label could not be read or taken off, or the state store could not be read or written |
 | 64 | No issue number, one that is not a positive number, or an argument it does not know |
 | 78 | The settings are missing or malformed, or the state store is not installed or cannot be used |
 

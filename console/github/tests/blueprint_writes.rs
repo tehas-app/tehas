@@ -440,6 +440,26 @@ fn an_edit_that_would_drop_a_marker_is_refused_and_a_title_alone_is_made() {
     );
 }
 
+/// A marker the reader finds bare, or our closing wrapper alone, is kept
+/// as an opening marker is: a new body would lose it.
+#[test]
+fn an_edit_over_a_bare_marker_or_a_closing_wrapper_is_refused() {
+    for kept in [
+        "tehas:park issue=7 step=work kind=stopped provider=0 sig=0000000000000000000000000000000000000000000000000000000000000000",
+        "<!-- /tehas:last-attempt -->",
+    ] {
+        let text = format!("The plan.\n\n{kept}");
+        assert!(!tehas_core::text::has_marker(&text), "{kept}");
+        assert!(tehas_github::markers::foreign_text(&text), "{kept}");
+        let marked = issue_7("Plan", &text);
+        let since = revision_of(&marked);
+        let (mut gh, calls) = adapter(vec![Ok(marked)]);
+        let got = gh.edit(no(7), None, Some("New."), &MarkerEdit::default(), &since);
+        assert_eq!(got, Err(Outcome::Refused(Refusal::Unsupported)), "{kept}");
+        assert_eq!(calls.lock().unwrap().len(), 1, "only the read");
+    }
+}
+
 #[test]
 fn an_edit_with_nothing_to_change_reads_and_writes_nothing() {
     let read = sample("issue-7.json");

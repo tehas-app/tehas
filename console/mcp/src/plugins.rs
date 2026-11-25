@@ -7,6 +7,7 @@
 //! either: `for_scope` is the one place that decides it.
 
 use crate::tools::Scope;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
@@ -55,13 +56,36 @@ pub struct Tool {
 
 impl Tool {
     /// The tool's entry in `tools/list`.
-    pub fn entry(&self) -> Value {
-        json!({
-            "name": self.name,
-            "description": format!("Plugin {}, untrusted: {}", self.label, self.about),
-            "inputSchema": self.params,
-        })
+    pub fn entry(&self) -> Entry<'_> {
+        Entry {
+            name: &self.name,
+            description: format!("Plugin {}, untrusted: {}", self.label, self.about),
+            input_schema: &self.params,
+        }
     }
+}
+
+/// A plugin tool's entry in `tools/list`: its name, what it does as the
+/// plugin says it, marked untrusted, and its arguments' JSON Schema as the
+/// broker gave it.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Entry<'a> {
+    name: &'a str,
+    description: String,
+    input_schema: &'a Value,
+}
+
+/// One entry of the broker's `GET /tools`, before the manifest's rules are
+/// checked. An entry that is not of this shape is left out.
+#[derive(Deserialize)]
+#[cfg_attr(test, derive(Serialize))]
+struct Row {
+    plugin: String,
+    id: String,
+    label: String,
+    about: String,
+    params: Value,
 }
 
 /// The plugin tools a key of this scope is served: none for a dashboard key,
@@ -91,7 +115,7 @@ pub fn list(socket: &Path) -> Vec<Tool> {
 
 /// The tools of a `GET /tools` answer. An entry that breaks a rule of the
 /// manifest is left out, and the rest are served.
-pub fn read_tools(body: &[u8]) -> Vec<Tool> {
+fn read_tools(body: &[u8]) -> Vec<Tool> {
     let Ok(v) = serde_json::from_slice::<Value>(body) else {
         return Vec::new();
     };
@@ -100,7 +124,9 @@ pub fn read_tools(body: &[u8]) -> Vec<Tool> {
     };
     let mut out: Vec<Tool> = Vec::new();
     for row in rows {
-        let Some(t) = read_tool(row) else { continue };
+        let Some(t) = Row::deserialize(row).ok().and_then(read_tool) else {
+            continue;
+        };
         if out.len() == TOOLS_MAX {
             break;
         }
@@ -111,13 +137,14 @@ pub fn read_tools(body: &[u8]) -> Vec<Tool> {
     out
 }
 
-fn read_tool(row: &Value) -> Option<Tool> {
-    let text = |k: &str| row[k].as_str();
-    let plugin = text("plugin")?;
-    let id = text("id")?;
-    let label = text("label")?;
-    let about = text("about")?;
-    let params = &row["params"];
+fn read_tool(row: Row) -> Option<Tool> {
+    let Row {
+        plugin,
+        id,
+        label,
+        about,
+        params,
+    } = row;
     let name_ok = (1..=12).contains(&plugin.len())
         && plugin.starts_with(|c: char| c.is_ascii_lowercase())
         && plugin
@@ -125,7 +152,7 @@ fn read_tool(row: &Value) -> Option<Tool> {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit());
     let id_ok =
         (1..=16).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_lowercase() || b == b'-');
-    if !name_ok || !id_ok || !one_line(label, 24) || !one_line(about, 120) {
+    if !name_ok || !id_ok || !one_line(&label, 24) || !one_line(&about, 120) {
         return None;
     }
     if params["type"] != "object" {
@@ -137,11 +164,11 @@ fn read_tool(row: &Value) -> Option<Tool> {
     }
     Some(Tool {
         name,
-        plugin: plugin.to_string(),
-        id: id.to_string(),
-        label: label.to_string(),
-        about: about.to_string(),
-        params: params.clone(),
+        plugin,
+        id,
+        label,
+        about,
+        params,
     })
 }
 
@@ -256,12 +283,17 @@ mod tests {
     use std::os::unix::net::UnixListener;
     use std::sync::mpsc;
 
-    fn row(plugin: &str, id: &str) -> Value {
-        json!({"plugin": plugin, "id": id, "label": "Docs", "about": "Find a doc",
-               "params": {"type": "object", "properties": {"q": {"type": "string", "maxLength": 200}}}})
+    fn row(plugin: &str, id: &str) -> Row {
+        Row {
+            plugin: plugin.to_string(),
+            id: id.to_string(),
+            label: "Docs".to_string(),
+            about: "Find a doc".to_string(),
+            params: json!({"type": "object", "properties": {"q": {"type": "string", "maxLength": 200}}}),
+        }
     }
 
-    fn tools_of(rows: Vec<Value>) -> Vec<Tool> {
+    fn tools_of(rows: Vec<Row>) -> Vec<Tool> {
         read_tools(json!({ "tools": rows }).to_string().as_bytes())
     }
 
@@ -271,18 +303,27 @@ mod tests {
         assert_eq!(t.len(), 1);
         assert_eq!(t[0].name, "plugin_docs_find_doc");
         let e = t[0].entry();
-        assert_eq!(e["description"], "Plugin Docs, untrusted: Find a doc");
-        assert_eq!(e["inputSchema"]["type"], "object");
+        assert_eq!(e.name, "plugin_docs_find_doc");
+        assert_eq!(e.description, "Plugin Docs, untrusted: Find a doc");
+        assert_eq!(e.input_schema["type"], "object");
+        assert_eq!(
+            serde_json::to_value(&e).unwrap().to_string(),
+            concat!(
+                r#"{"description":"Plugin Docs, untrusted: Find a doc","#,
+                r#""inputSchema":{"properties":{"q":{"maxLength":200,"type":"string"}},"type":"object"},"#,
+                r#""name":"plugin_docs_find_doc"}"#
+            )
+        );
     }
 
     #[test]
     fn an_entry_that_breaks_a_rule_is_left_out() {
         let mut long = row("docs", "a");
-        long["about"] = json!("x".repeat(121));
+        long.about = "x".repeat(121);
         let mut no_object = row("docs", "b");
-        no_object["params"] = json!({"type": "string"});
+        no_object.params = json!({"type": "string"});
         let mut control = row("docs", "c");
-        control["label"] = json!("Do\ncs");
+        control.label = "Do\ncs".to_string();
         let bad = vec![
             row("Docs", "find"),
             row("1docs", "find"),
@@ -293,9 +334,15 @@ mod tests {
             long,
             no_object,
             control,
-            json!({"plugin": "docs"}),
         ];
         assert_eq!(tools_of(bad), vec![]);
+        // An entry that is not of a row's shape: a field missing, or not text.
+        let mut label_number = json!(row("docs", "d"));
+        label_number["label"] = json!(3);
+        let mut no_params = json!(row("docs", "e"));
+        no_params.as_object_mut().unwrap().remove("params");
+        let shapes = json!({"tools": [{"plugin": "docs"}, label_number, no_params]});
+        assert_eq!(read_tools(shapes.to_string().as_bytes()), vec![]);
         assert_eq!(read_tools(b"not json"), vec![]);
         assert_eq!(read_tools(b"{\"tools\": 1}"), vec![]);
     }
@@ -304,7 +351,7 @@ mod tests {
     fn a_list_holds_no_name_twice_and_at_most_32() {
         let twice = tools_of(vec![row("docs", "find"), row("docs", "find")]);
         assert_eq!(twice.len(), 1);
-        let many: Vec<Value> = (0..40).map(|i| row(&format!("p{i}"), "find")).collect();
+        let many: Vec<Row> = (0..40).map(|i| row(&format!("p{i}"), "find")).collect();
         assert_eq!(tools_of(many).len(), TOOLS_MAX);
     }
 
@@ -372,7 +419,7 @@ mod tests {
 
     #[test]
     fn a_broker_that_is_not_there_serves_nothing() {
-        let dir = tehas_core::testdir::TestDir::new("mcp-plugins-none");
+        let dir = tehas_core::testdir::TestDir::short();
         let sock = dir.join("calls.sock");
         assert_eq!(list(&sock), vec![]);
         let t = &tools_of(vec![row("docs", "find")])[0];
@@ -399,12 +446,13 @@ mod tests {
         )
     }
 
-    /// A broker on a socket in a new directory that answers each connection
-    /// with the next of <answers> and sends what it was asked.
+    /// A broker on a socket in a new short directory, so the socket path stays
+    /// under SUN_LEN, that answers each connection with the next of <answers>
+    /// and sends what it was asked.
     fn broker_answering(
         answers: Vec<String>,
     ) -> (tehas_core::testdir::TestDir, mpsc::Receiver<String>) {
-        let dir = tehas_core::testdir::TestDir::new("mcp-plugins");
+        let dir = tehas_core::testdir::TestDir::short();
         let listener = UnixListener::bind(dir.join("calls.sock")).unwrap();
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
