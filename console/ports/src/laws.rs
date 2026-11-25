@@ -745,6 +745,34 @@ pub mod code_host {
         )
     }
 
+    /// The latest release is the one the site marks latest, though a newer
+    /// one is published, and it is neither a draft nor a prerelease. The
+    /// fixture marks the release of `marked` latest and publishes a newer
+    /// one after it.
+    pub fn the_marked_release_is_the_latest(
+        h: &mut dyn crate::CodeHost,
+        marked: &crate::TagName,
+    ) -> Law {
+        const LAW: &str = "code_host::the_marked_release_is_the_latest";
+        let latest = got(LAW, "latest_release", h.latest_release())?;
+        let Some(r) = latest else {
+            return broken(
+                LAW,
+                format!("no latest release, {} is marked", marked.as_str()),
+            );
+        };
+        hold(&r.tag == marked, LAW, || {
+            format!(
+                "{} is the latest, {} is marked",
+                r.tag.as_str(),
+                marked.as_str()
+            )
+        })?;
+        hold(!r.draft && !r.prerelease, LAW, || {
+            format!("{r:?} is a draft or a prerelease")
+        })
+    }
+
     /// A release made with notes reads them back, and one made without
     /// reads `""`. The fixture holds tags `with` and `without`, with no
     /// release yet.

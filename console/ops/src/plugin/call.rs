@@ -36,6 +36,10 @@ pub const ANSWER_MAX: usize = 16 << 10;
 /// let in.
 pub const NO_ACCESS: &str = "the login has no access to the repository";
 
+/// The refusal of a login when the code host cannot be asked: TEHAS_REPO
+/// names no `owner/name`.
+const NO_HOST: &str = "TEHAS_REPO names no repository to check the login's access on";
+
 /// Who asks for a call.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Caller {
@@ -124,17 +128,19 @@ fn login_access(
             None => Err(Failed::Refused(NO_ACCESS.into())),
         },
         Err(why) => Err(Failed::Refused(format!(
-            "GitHub could not say whether the login has access: {why}"
+            "GitHub could not say whether the login has access: {}",
+            why.line()
         ))),
     }
 }
 
 /// One call of `tool` of `plugin` with `args`: its answer, one JSON object.
-/// `gh` checks a login's access; a host or the MCP broker never asks it.
+/// `gh` checks a login's access, and with none a login is refused; a host
+/// or the MCP broker never asks it.
 #[allow(clippy::too_many_arguments)]
 pub fn call(
     x: &mut dyn Exec,
-    gh: &dyn GitHub,
+    gh: Option<&dyn GitHub>,
     home: &Path,
     get: &dyn Fn(&str) -> String,
     plugin: &str,
@@ -158,7 +164,10 @@ pub fn call(
         .ok_or_else(|| Failed::Refused(format!("no tool {tool} is granted at the pin")))?
         .clone();
     let user = match caller {
-        Caller::Login(login) => Some(login_access(get, gh, login)?),
+        Caller::Login(login) => {
+            let gh = gh.ok_or_else(|| Failed::Refused(NO_HOST.into()))?;
+            Some(login_access(get, gh, login)?)
+        }
         _ => None,
     };
     params::check(args, &t.params).map_err(Failed::Args)?;
