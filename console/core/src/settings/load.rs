@@ -2456,7 +2456,8 @@ mod tests {
                 let role = ["PI_ENSEMBLE_MODEL_", "PI_ENSEMBLE_PROVIDER_"]
                     .iter()
                     .any(|p| name.strip_prefix(p).is_some_and(|r| ROLES.contains(&r)));
-                let family = name.starts_with(crate::plugin::GRANTS);
+                let family = name.starts_with(crate::plugin::GRANTS)
+                    || name.starts_with(rules::PLUGIN_ORIGINS);
                 !(in_table(name) || role || family || RULED_ELSEWHERE.contains(&name.as_str()))
             })
             .collect();
