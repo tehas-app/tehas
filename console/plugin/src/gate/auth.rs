@@ -9,7 +9,7 @@
 //! When that name has a session it makes a [`Code`] for the ask: one use, 60
 //! seconds, for that plugin's name and the nonce's hash only.
 
-use super::github::Person;
+use super::github::{AccountId, Person};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::io::Read;
@@ -180,17 +180,17 @@ impl Memory {
         Some(id)
     }
 
-    /// Marks every session of the user checked at `now`.
-    pub fn checked(&mut self, user: u64, now: u64) {
-        for s in self.sessions.values_mut().filter(|s| s.person.id == user) {
+    /// Marks every session of the account checked at `now`.
+    pub fn checked(&mut self, user: &AccountId, now: u64) {
+        for s in self.sessions.values_mut().filter(|s| s.person.id == *user) {
             s.checked = now;
         }
     }
 
-    /// Ends every session of the user, on every name.
-    pub fn end(&mut self, user: u64) {
-        self.sessions.retain(|_, s| s.person.id != user);
-        self.codes.retain(|_, c| c.person.id != user);
+    /// Ends every session of the account, on every name.
+    pub fn end(&mut self, user: &AccountId) {
+        self.sessions.retain(|_, s| s.person.id != *user);
+        self.codes.retain(|_, c| c.person.id != *user);
     }
 
     /// A new ask of `plugin`: the nonce for its cookie. The ask is kept

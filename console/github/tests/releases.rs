@@ -20,7 +20,8 @@ type Asked = Arc<Mutex<Vec<String>>>;
 /// Answers from `tests/recorded/releases/<case>/`: the first page of the
 /// tags from `tags`, a later one from `tags-after-<cursor>`, one tag from
 /// `ref-<tag>`, a page of releases from `releases-<page>`, one release from
-/// `release-<tag>`; `.json` is gh's answer, `.fail` the runner's reason. A
+/// `release-<tag>`, the latest release from `latest` and the project from
+/// `project`; `.json` is gh's answer, `.fail` the runner's reason. A
 /// release file asked with `release download` is written, as gh writes it,
 /// to the `--output` path from `download-<name>.bin`, or fails with
 /// `download-<name>.fail`. A call with no recording fails the test.
@@ -66,11 +67,14 @@ impl GhRunner for Replay {
                     (None, None) => "tags".to_string(),
                 }
             }
+            ["api", path] if *path == format!("repos/{PROJECT}") => "project".to_string(),
             ["api", path] => {
                 let rest = path
                     .strip_prefix(&format!("repos/{PROJECT}/releases"))
                     .unwrap_or_else(|| panic!("no recording of {path}"));
-                if let Some(tag) = rest.strip_prefix("/tags/") {
+                if rest == "/latest" {
+                    "latest".to_string()
+                } else if let Some(tag) = rest.strip_prefix("/tags/") {
                     format!("release-{tag}")
                 } else {
                     let page = rest
@@ -231,9 +235,43 @@ fn the_newest_releases_are_newest_made_and_the_latest_is_published() {
     let recent = gh.recent_releases(nz(2)).unwrap();
     assert_eq!(tags_of(&recent.items), ["v1.3.0", "v1.2.0"]);
     assert!(recent.more);
-    // Neither the draft nor the prerelease is the latest.
+    // The latest is GitHub's own, one question: here neither the draft nor
+    // the prerelease.
+    let (mut gh, asked) = adapter("fixture");
     let latest = gh.latest_release().unwrap().unwrap();
     assert_eq!(latest.tag.as_str(), "v1.1.0");
+    assert_eq!(
+        *asked.lock().unwrap(),
+        ["api repos/acme/widget/releases/latest"]
+    );
+}
+
+#[test]
+fn the_latest_release_is_the_one_github_names_latest() {
+    // A release marked latest by hand is the latest, though a newer one is
+    // published: the token's reader answers as the anonymous one does.
+    let (mut gh, _) = adapter("marked");
+    tehas_ports::laws::code_host::the_marked_release_is_the_latest(&mut gh, &tag("v1.0.0"))
+        .unwrap();
+    // None answered, the project is there: it has no latest release.
+    let (mut gh, asked) = adapter("none");
+    assert_eq!(gh.latest_release(), Ok(None));
+    assert_eq!(
+        *asked.lock().unwrap(),
+        [
+            "api repos/acme/widget/releases/latest",
+            "api repos/acme/widget"
+        ]
+    );
+    // Nor the project: the read's own outcome.
+    let (mut gh, _) = adapter("gone");
+    assert_eq!(gh.latest_release(), Err(Outcome::NotFound));
+    // A prerelease named latest is no latest.
+    let (mut gh, _) = adapter("bad");
+    assert_eq!(
+        gh.latest_release(),
+        Err(Outcome::Unread(Unread::Inconsistent))
+    );
 }
 
 #[test]

@@ -471,10 +471,18 @@ impl CodeHost for Anonymous {
     }
 
     /// GitHub's latest release; a project that answers with none has none.
+    /// A draft or a prerelease in the answer is `Unread(Inconsistent)`, as
+    /// the token's reader has it.
     fn latest_release(&mut self) -> Got<Option<Release>> {
         let repo = self.repo_path()?.to_string();
         match self.get(&format!("repos/{repo}/releases/latest"))? {
-            Some(a) => json::<RestRelease>(&a)?.release().map(Some),
+            Some(a) => {
+                let r = json::<RestRelease>(&a)?.release()?;
+                if r.draft || r.prerelease {
+                    return Err(Outcome::Unread(Unread::Inconsistent));
+                }
+                Ok(Some(r))
+            }
             None => match self.get(&format!("repos/{repo}"))? {
                 Some(_) => Ok(None),
                 None => refused(),

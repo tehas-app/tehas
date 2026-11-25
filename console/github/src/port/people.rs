@@ -1,30 +1,23 @@
 //! A person's sign-in, `Identity::sign_in_link` and `signed_in`, through
-//! the factory's GitHub App's client for people (its OAuth client). A
-//! security change of its own: the client's secret and the person's token
-//! go on curl's standard input, never on a command line, and a handle made
-//! for a sign-in holds no runner of gh, so it can ask nothing as the
-//! factory. The wiring gives the client; the adapter reads no file and no
+//! the factory's GitHub App's client for people (its OAuth client), asked
+//! by [`Access`] through the adapter's authorised curl. The client's secret
+//! and the person's token go on curl's standard input, never on a command
+//! line, and a handle made for a sign-in holds no runner of gh and no
+//! installation token, so it can ask nothing as the factory. The wiring gives the client; the adapter reads no file and no
 //! variable. A site given none answers `Refused(Unsupported)`.
 
 use std::sync::Arc;
 
 use crate::forge::uri;
 use crate::GitHub;
-use tehas_core::access::{self, Curl};
+use crate::{Access, AuthorisedCurl};
+use tehas_core::access;
 use tehas_core::accounts;
 use tehas_ports::{
-    Account, AccountId, AccountKind, Got, Login, Outcome, Passing, Realm, Refusal, Secret, Sent,
-    SignInCode, SignInState, WebLink,
+    Account, AccountKind, Got, Login, Outcome, Passing, Realm, Refusal, Secret, Sent, SignInCode,
+    SignInState, WebLink,
 };
 
-/// What `access::Curl` says of a code GitHub answered and did not take.
-const REFUSED: &str = "GitHub did not take the sign-in's code";
-/// What `access::Curl` says when curl did not reach GitHub, or did not run.
-const UNREACHED: [&str; 3] = [
-    "GitHub could not be reached",
-    "curl cannot run",
-    "curl did not finish",
-];
 /// The most characters of a code: GitHub's are 20 hex.
 const CODE_MAX: usize = 64;
 
@@ -37,19 +30,17 @@ fn code_shaped(code: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
 
-/// Why a trade or a read failed: not reached, or GitHub's own failure.
-fn passing(why: &str) -> Passing {
-    if UNREACHED.contains(&why) {
-        Passing::Unreachable
-    } else {
-        Passing::Server
+/// Why a trade or a read failed: what passed, when it was a passing
+/// failure, else GitHub's own failure.
+fn passing(why: &Outcome) -> Passing {
+    match why {
+        Outcome::Unavailable { why, .. } => *why,
+        _ => Passing::Server,
     }
 }
 
-/// GitHub's web host: where a person signs in and trades the code.
+/// GitHub's web host: where a person signs in.
 const WEB: &str = "https://github.com";
-/// GitHub's REST API, where none is given.
-const API: &str = "https://api.github.com";
 
 /// The factory's client for people, as the wiring reads it.
 #[derive(Clone)]
@@ -58,14 +49,12 @@ pub struct PeopleClient {
     pub id: String,
     /// The client's secret.
     pub secret: Secret,
-    /// The REST API's address, `https://api.github.com` when None: a test's
-    /// GitHub, as `TEHAS_GITHUB_API` names it.
-    pub api: Option<String>,
     /// Where GitHub sends the person back, with the code and the state.
     pub callback: WebLink,
 }
 
-/// The client and what trades a code for a person: curl, or a test's.
+/// The client and what trades a code for a person: [`Access`], or a
+/// test's.
 #[derive(Clone)]
 pub(crate) struct People {
     client: PeopleClient,
@@ -73,17 +62,11 @@ pub(crate) struct People {
 }
 
 impl People {
-    /// The client, trading through curl.
-    pub(crate) fn new(client: PeopleClient, repo: &str) -> People {
-        let trade = Curl {
-            api: client.api.clone().unwrap_or_else(|| API.to_string()),
-            web: WEB.to_string(),
-            repo: repo.to_string(),
-            client_id: client.id.clone(),
-            client_secret: client.secret.expose().to_string(),
-            console: Default::default(),
-        };
-        People::trading(client, Arc::new(trade))
+    /// The client, trading through `curl`. None for a project that is not
+    /// `owner/name`.
+    pub(crate) fn new(client: PeopleClient, repo: &str, curl: AuthorisedCurl) -> Option<People> {
+        let trade = Access::new(curl, repo)?.with_client(&client.id, client.secret.clone());
+        Some(People::trading(client, Arc::new(trade)))
     }
 
     /// The client, trading through `trade`.
@@ -118,15 +101,12 @@ impl GitHub {
         if !code_shaped(code.as_str()) {
             return Err(Outcome::Refused(Refusal::Invalid));
         }
-        let token = people.trade.token(code.as_str()).map_err(|why| {
-            if why == REFUSED {
-                Outcome::Forbidden
-            } else {
-                Outcome::Unavailable {
-                    why: passing(&why),
-                    sent: Sent::Maybe,
-                }
-            }
+        let token = people.trade.token(code.as_str()).map_err(|why| match why {
+            Outcome::Forbidden => Outcome::Forbidden,
+            other => Outcome::Unavailable {
+                why: passing(&other),
+                sent: Sent::Maybe,
+            },
         })?;
         let person = people
             .trade
@@ -140,7 +120,7 @@ impl GitHub {
             Login::new(accounts::folded(&person.login)),
             AccountKind::Person,
         );
-        account.id = Some(AccountId::new(person.id.to_string()));
+        account.id = Some(person.id);
         Ok((account, Secret::new(token)))
     }
 

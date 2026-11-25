@@ -313,6 +313,44 @@ fn tickets_a_parent_holds_its_parts() {
 }
 
 #[test]
+fn tickets_every_label_is_in_labels_in_order() {
+    for w in both() {
+        let bug = Mark::Project(MarkName::new("bug").unwrap());
+        let w = w
+            .ticket(1, |t| {
+                t.title("marked")
+                    .mark(Mark::Epic)
+                    .mark(bug.clone())
+                    .mark(Mark::State(State::Running))
+            })
+            .ticket(2, |t| t.title("plain"))
+            .ticket(3, |t| {
+                t.title("closed")
+                    .mark(Mark::Act(Act::Approve))
+                    .closed(CloseReason::Done)
+            });
+        let site = FakeSite::new(&w);
+        let mut h = site.tickets(&full(), C).unwrap();
+        let names = |n: &[&str]| n.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let held = [
+            (w.key(1), names(&["mark:epic", "bug", "state:running"])),
+            (w.key(2), names(&[])),
+            (w.key(3), names(&["act:approve"])),
+        ];
+        ok(laws::tickets::every_label_is_in_labels_in_order(
+            h.as_mut(),
+            &held,
+            b(50),
+        ));
+        // Out of the site's order, the law is broken.
+        let wrong = [(w.key(1), names(&["bug", "mark:epic", "state:running"]))];
+        assert!(
+            laws::tickets::every_label_is_in_labels_in_order(h.as_mut(), &wrong, b(50)).is_err()
+        );
+    }
+}
+
+#[test]
 fn tickets_recent_and_recently_closed_are_newest_updated_first() {
     for w in both() {
         let w = w.ticket(1, |t| t.title("oldest").mark(Mark::Epic));
@@ -927,6 +965,27 @@ fn code_host_recent_tags_and_releases_are_newest_first() {
         let one = h.recent_tags(n32(1)).unwrap();
         assert_eq!(one.items[0].name.as_str(), "v2.0.0");
         assert!(one.more);
+    }
+}
+
+#[test]
+fn code_host_the_marked_release_is_the_latest() {
+    for w in both() {
+        let at = w.head("main").unwrap();
+        let w = w.tag("v1.0.0", &at).release("v1.0.0", &[]);
+        w.advance(60);
+        let w = w.tag("v1.1.0", &at).release("v1.1.0", &[]);
+        let site = FakeSite::new(&w);
+        let mut h = site.code_host(&full(), C).unwrap();
+        // With no marking, the newest published is the latest.
+        assert_eq!(h.latest_release().unwrap().unwrap().tag.as_str(), "v1.1.0");
+        let w = w.mark_latest("v1.0.0");
+        w.advance(60);
+        let _w = w.tag("v1.2.0", &at).release("v1.2.0", &[]);
+        ok(laws::code_host::the_marked_release_is_the_latest(
+            h.as_mut(),
+            &TagName::new("v1.0.0").unwrap(),
+        ));
     }
 }
 

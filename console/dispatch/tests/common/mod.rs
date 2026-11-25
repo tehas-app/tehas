@@ -183,6 +183,13 @@ case "$1 $2" in
         case " $* " in *" .id "*) echo "$id" ;;
           *) printf '{"id":%s,"html_url":"https://github.com/acme/widget/issues/%s#issuecomment-%s"}\n' "$id" "$n" "$id" ;;
         esac ;;
+      # A comment's edit as the code host's adapter sends it, after its read
+      # below: the text sent is kept for `World::edited`, and the answer is
+      # $fx/rcomment-<id>.json with that text. $fx/patch-fails fails it.
+      "PATCH repos/acme/widget/issues/comments/"*)
+        fails patch-fails
+        printf '%s\0' "$body" >>"$T/calls/edited-${rest_path##*/}"
+        jq -c --arg b "$body" '.body = $b' "$T/fx/rcomment-${rest_path##*/}.json" || exit 1 ;;
       # An edit of an issue's own text or state, as the tickets port sends
       # it: kept in calls/patched-<n> for `World::patched`, answered as the
       # issue it made. $fx/patch-fails refuses it.
@@ -239,6 +246,10 @@ case "$1 $2" in
     # None written is none at all; $fx/icomments-fails makes the read fail.
     [ ! -e "$T/fx/icomments-fails" ] || exit 1
     cat "$T/fx/icomments-${n%%/*}.json" 2>/dev/null || echo "[]" ;;
+  # One comment, as the code host's adapter reads it before its edit: what
+  # `World::comments_of` wrote, else not there.
+  "api repos/acme/widget/issues/comments/"*)
+    cat "$T/fx/rcomment-${2##*/}.json" 2>/dev/null || not_found ;;
   "api repos/acme/widget/issues/"*)
     n=${2#repos/acme/widget/issues/}
     case "$n" in
@@ -609,7 +620,7 @@ pub const MINIMAL: &[&str] = &[
 
 /// The logins whose user ids install.sh records, as the shell tests list them.
 const LOGINS: &[&str] = &[
-    "tehas-bot",
+    "tehas-bot[bot]",
     "alice",
     "bob",
     "bob-2",
@@ -1366,6 +1377,22 @@ impl World {
             .unwrap()
     }
 
+    /// The sum on record of the question comment `id` asked, and its form, as
+    /// the store keeps them; None when no such question is kept.
+    #[allow(dead_code)] // each test file uses a part of this module
+    pub fn question_sum(&self, id: u64) -> Option<(Option<String>, Option<String>)> {
+        use rusqlite::OptionalExtension;
+        self.journal()
+            .query_row(
+                "SELECT body_sha256, body_form FROM questions WHERE comment_id = ?1
+                 ORDER BY id DESC LIMIT 1",
+                [i64::try_from(id).unwrap()],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .unwrap()
+    }
+
     /// The row of the journal the writes are read after: the last one when
     /// the calls were last cleared.
     fn journal_from(&self) -> i64 {
@@ -1990,6 +2017,25 @@ impl World {
             serde_json::from_str(&fs::read_to_string(self.fx.join(&name)).unwrap()).unwrap();
         v["data"]["repository"]["issue"]["comments"]["nodes"][0]["databaseId"] = json!(id);
         self.fx_json(&name, &v);
+        self.fx_json(
+            &format!("rcomment-{id}.json"),
+            &json!({
+                "id": id,
+                "html_url": format!("{}/{n}#issuecomment-{id}", "https://github.com/acme/widget/issues"),
+                "body": body,
+            }),
+        );
+    }
+
+    /// The texts the code host's adapter sent as comment `id`'s edits, in
+    /// their order.
+    pub fn edited(&self, id: u64) -> Vec<String> {
+        fs::read_to_string(self.t.join(format!("calls/edited-{id}")))
+            .unwrap_or_default()
+            .split('\0')
+            .filter(|b| !b.is_empty())
+            .map(str::to_string)
+            .collect()
     }
 
     /// The park of #7's current cycle on record, Null without one.
@@ -2009,6 +2055,12 @@ impl World {
     /// else is queued. Its last cycle started on `by`'s label, or by hand for
     /// "-", and parked on `reason`.
     pub fn parked(&self, reason: &str, by: &str) {
+        self.parked_with(reason, by, "4001", &[]);
+    }
+
+    /// The same, the park recorded with `args` and its question `question`
+    /// (t_park's).
+    pub fn parked_with(&self, reason: &str, by: &str, question: &str, args: &[&str]) {
         self.reset();
         self.fx("ready.json", "[]");
         self.fx(
@@ -2016,7 +2068,7 @@ impl World {
             r#"[{"number":7,"labels":[{"name":"needs-human-attention"},{"name":"tehas:question"}]}]"#,
         );
         self.t_ended(7, by, "approved", &["--parked"]);
-        self.t_park(7, reason, "4001", &[]);
+        self.t_park(7, reason, question, args);
     }
 
     /// Issue 7's session as the store has it, in the shape of plan-view; Null
