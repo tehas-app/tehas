@@ -20,6 +20,7 @@ use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
+use tehas_core::file::base64url;
 use tehas_core::home::{Home, Socket};
 use tehas_core::mask;
 use tehas_core::models;
@@ -62,19 +63,6 @@ fn key() -> u8 {
             1
         }
     }
-}
-
-fn base64url(bytes: &[u8]) -> String {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
-    for chunk in bytes.chunks(3) {
-        let group =
-            chunk.iter().fold(0u32, |n, b| n << 8 | u32::from(*b)) << (8 * (3 - chunk.len()));
-        for i in 0..=chunk.len() {
-            out.push(char::from(ALPHABET[(group >> (18 - 6 * i) & 63) as usize]));
-        }
-    }
-    out
 }
 
 /// Whether the setting holds a key, by the rule the server reads its lists
