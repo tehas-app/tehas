@@ -1,0 +1,23 @@
+{
+ "total_count": 2,
+ "workflow_runs": [
+  {
+   "id": 6202,
+   "name": "test",
+   "event": "pull_request",
+   "workflow_id": 502,
+   "check_suite_id": 8202,
+   "run_attempt": 1,
+   "run_started_at": "2026-02-01T10:05:00Z"
+  },
+  {
+   "id": 6201,
+   "name": "lint",
+   "event": "pull_request",
+   "workflow_id": 501,
+   "check_suite_id": 8201,
+   "run_attempt": 2,
+   "run_started_at": "2026-02-01T10:00:00Z"
+  }
+ ]
+}
