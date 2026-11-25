@@ -24,11 +24,6 @@ pub const SESSIONS_DAYS: i64 = 30;
 /// The name of the private file, which the reader of the MCP server opens.
 pub const FILE: &str = "sessions.jsonl";
 const DAY: i64 = 86_400;
-/// Bytes of a jsonl ledger the sessions read, and the width one line may
-/// have: the same bounds the report's ledger reader works within, from the
-/// crate's root.
-const LEDGER_MAX_BYTES: u64 = crate::LEDGER_MAX_BYTES;
-const LEDGER_MAX_LINE: usize = crate::LEDGER_MAX_LINE;
 /// How long after a planning turn ended a ledger line may still be its.
 const FILED_AFTER: i64 = 120;
 
@@ -177,22 +172,27 @@ struct Filed {
     url: String,
 }
 
-// state/refined.jsonl, as the poll writes it, read by the same bounded
-// plain-file rule the report's own ledger reader uses: anything unreadable, a
-// link, or a line of another shape is no filed issue.
+/// A line of state/refined.jsonl as the poll writes it.
+#[derive(serde::Deserialize)]
+struct FiledLine {
+    at: String,
+    source: i64,
+    filed: i64,
+    url: String,
+}
+
+// state/refined.jsonl, read by the report's own ledger reader, the same
+// bounded plain-file rule: anything unreadable, a link, or a line of another
+// shape is no filed issue.
 fn ledger(home: &Path) -> Vec<Filed> {
-    let text = crate::run::read_ledger(home, crate::report::REFINED_LEDGER, LEDGER_MAX_BYTES)
-        .unwrap_or_default();
-    text.lines()
-        .filter(|l| l.len() < LEDGER_MAX_LINE)
-        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
-        .filter_map(|v| {
-            let url = v.get("url")?.as_str()?;
+    crate::report::ledger_lines(home, tehas_core::home::State::Refined)
+        .into_iter()
+        .filter_map(|l: FiledLine| {
             Some(Filed {
-                at: crate::report::ledger_at(&v)?,
-                source: v.get("source")?.as_i64()?,
-                filed: v.get("filed")?.as_i64().filter(|n| *n >= 1)?,
-                url: url.starts_with("https://").then(|| url.to_string())?,
+                at: crate::report::ledger_at(&l.at)?,
+                source: l.source,
+                filed: Some(l.filed).filter(|n| *n >= 1)?,
+                url: l.url.starts_with("https://").then_some(l.url)?,
             })
         })
         .collect()

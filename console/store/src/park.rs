@@ -1,10 +1,18 @@
 //! The park and question verbs: park, park-show, park-retry, park-told,
-//! question-asked, question-known and question-answered.
+//! question-asked, question-known, question-adopt and question-answered.
 //!
 //! The current park of an issue is its `parks` row of the cycle's attempt. The
 //! question on record is the one comment a tick may count in: for a park the
 //! newest unanswered park question of the current attempt, for a plan the open
-//! session's `comment_id` while its question is unanswered.
+//! session's `comment_id` while its question is unanswered. A withdrawn
+//! question is never on record.
+//!
+//! A question has two numbers (schema 30): `id`, the store's own, given in
+//! order and never reused, which `tehas question` and `tehas answer` print;
+//! and `comment_id`, the comment that asked it. The verbs here are the code
+//! host's door: `--id` and `--comment-id` take the comment's id, and `park`'s
+//! `question` is the comment's id, which the dispatcher compares with the
+//! issue's comments.
 
 use crate::verbs::{
     self, cap_char, j, line, list, obj, refuse, row_json, stub, word_char, Args, Cleaned, Fail,
@@ -42,10 +50,21 @@ pub enum Call {
         kind: &'static str,
         attempt: Option<i64>,
         body_sha: Option<String>,
+        /// The choices a park's question offers, as their words joined.
+        offers: Option<String>,
     },
     Known {
         issue: i64,
         id: i64,
+    },
+    /// A question whose sum is 1.x's, of the comment as it was posted, takes
+    /// `body_sha`, the sum of its visible text, when `posted_sha` (the sum of
+    /// the comment as it reads now) is the sum on record; else no sum (T4.7).
+    Adopt {
+        issue: i64,
+        id: i64,
+        posted_sha: String,
+        body_sha: Option<String>,
     },
     /// `by` None is a withdrawal.
     Answered {
@@ -123,6 +142,24 @@ pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
                     id: a.strict_need("--id", "a comment id", verbs::comment_id)?,
                 })
             }),
+        "question-adopt" => Args::parse(
+            "question-adopt",
+            rest,
+            &[
+                ("--id", Kind::Value),
+                ("--posted-sha", Kind::Value),
+                ("--body-sha", Kind::Value),
+            ],
+            true,
+        )
+        .and_then(|a| {
+            Ok(Call::Adopt {
+                issue: a.issue()?,
+                id: a.strict_need("--id", "a comment id", verbs::comment_id)?,
+                posted_sha: a.strict_need("--posted-sha", "a sha256", verbs::sha256)?,
+                body_sha: a.strict("--body-sha", "a sha256", verbs::sha256)?,
+            })
+        }),
         "question-answered" => answered_args(rest),
         _ => return None,
     })
@@ -178,20 +215,35 @@ fn asked_args(rest: &[String]) -> Result<Call, String> {
             ("--kind", Kind::Value),
             ("--attempt", Kind::Value),
             ("--body-sha", Kind::Value),
+            ("--offers", Kind::Value),
         ],
         true,
     )?;
     let issue = a.issue()?;
     let id = a.strict_need("--id", "a comment id", verbs::comment_id)?;
     a.need("--kind")?;
+    let kind = a
+        .word("--kind", &[("park", "park"), ("plan", "plan")])?
+        .expect("--kind was given");
+    // A park's choices, each a word of a park's question, once each.
+    let offers = a.strict("--offers", "the words of a park's choices", |v| {
+        use tehas_core::question::{Choice, Kind as Asked};
+        let words: Vec<&str> = v.split(',').collect();
+        let each = words.iter().enumerate().all(|(i, w)| {
+            Choice::of(w).is_some_and(|c| c.kind() == Asked::Park) && !words[..i].contains(w)
+        });
+        each.then(|| v.to_string())
+    })?;
+    if offers.is_some() && kind != "park" {
+        return Err(a.usage("--offers", "is given only with --kind park"));
+    }
     Ok(Call::Asked {
         issue,
         id,
-        kind: a
-            .word("--kind", &[("park", "park"), ("plan", "plan")])?
-            .expect("--kind was given"),
+        kind,
         attempt: a.strict("--attempt", "a number", verbs::number)?,
         body_sha: a.strict("--body-sha", "a sha256", verbs::sha256)?,
+        offers,
     })
 }
 
@@ -228,8 +280,24 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
             kind,
             attempt,
             body_sha,
-        } => asked(home, *issue, *id, kind, *attempt, body_sha.as_deref(), now),
+            offers,
+        } => asked(
+            home,
+            *issue,
+            *id,
+            kind,
+            *attempt,
+            body_sha.as_deref(),
+            offers.as_deref(),
+            now,
+        ),
         Call::Known { issue, id } => verbs::look(home, |c| known(c, *issue, *id)),
+        Call::Adopt {
+            issue,
+            id,
+            posted_sha,
+            body_sha,
+        } => adopt(home, *issue, *id, posted_sha, body_sha.as_deref()),
         Call::Answered { issue, id, by } => answered(home, *issue, *id, by.as_deref(), now),
     }
 }
@@ -249,15 +317,16 @@ const PARK_SELECT: &str = "SELECT p.issue, p.attempt, p.at, p.reason, p.step, p.
     c.started_at, c.started_by,
     (p.reason = 'provider-outage' AND p.retries = 0 AND c.requeued = 0 AND c.how <> 'hand'
       AND c.started_by IS NOT NULL),
-    (SELECT q.id FROM questions q WHERE q.issue = p.issue AND q.kind = 'park'
-      AND q.answered_at IS NULL AND q.attempt = c.attempt ORDER BY q.posted_at DESC, q.id DESC LIMIT 1),
+    (SELECT q.comment_id FROM questions q WHERE q.issue = p.issue AND q.kind = 'park'
+      AND q.answered_at IS NULL AND q.withdrawn_at IS NULL AND q.attempt = c.attempt
+      ORDER BY q.posted_at DESC, q.id DESC LIMIT 1),
     p.told_at,
     (SELECT a.body_sha256 FROM approvals a WHERE a.issue = p.issue AND a.used_by = p.attempt
       ORDER BY a.used_at DESC, a.at DESC LIMIT 1),
     h.park_reason,
     h.cap,
     (p.reason = 'intent-park' AND h.park_reason IN ('underspecified', 'too-large')
-      AND p.retries = 0 AND c.how IN ('label', 'retry-tick', 'outage-retry', 'host')
+      AND p.retries = 0 AND c.how IN ('approved', 'outage-retry', 'host', 'answer', 'reply')
       AND c.started_by IS NOT NULL
       AND NOT EXISTS (SELECT 1 FROM planning g WHERE g.issue = p.issue)
       AND NOT EXISTS (SELECT 1 FROM plan_history g WHERE g.issue = p.issue))
@@ -284,18 +353,29 @@ const PARK_NAMES: [&str; 16] = [
     "refine?",
 ];
 
+/// The current park, with the answer `tehas answer` gave to its question on
+/// record (null for none): a poll that reads the park and not the question,
+/// as the lift of a hold does, reads the answer here.
 fn park_json(c: &Connection, issue: i64) -> Result<String, Fail> {
-    Ok(
-        c.query_row(&format!("{PARK_SELECT} WHERE p.issue = ?1"), [issue], |r| {
+    let row = c
+        .query_row(&format!("{PARK_SELECT} WHERE p.issue = ?1"), [issue], |r| {
             row_json(r, &PARK_NAMES)
         })
         .optional()
-        .q()?
-        .map_or("null".to_string(), |p| obj(&p)),
-    )
+        .q()?;
+    let Some(mut p) = row else {
+        return Ok("null".to_string());
+    };
+    let answer = match question_on_record(c, issue)? {
+        Some(id) => crate::answer::waiting_json(c, issue, id)?,
+        None => "null".to_string(),
+    };
+    p.push(("answer", answer));
+    Ok(obj(&p))
 }
 
-/// `(retries, automatic, question on record)` of the current park.
+/// `(retries, automatic, the comment of the question on record)` of the
+/// current park.
 fn current(c: &Connection, issue: i64) -> Result<Option<(i64, bool, Option<i64>)>, Fail> {
     c.query_row(&format!("{PARK_SELECT} WHERE p.issue = ?1"), [issue], |r| {
         Ok((r.get(6)?, r.get(9)?, r.get(10)?))
@@ -304,12 +384,30 @@ fn current(c: &Connection, issue: i64) -> Result<Option<(i64, bool, Option<i64>)
     .q()
 }
 
-/// The id is taken when it is a question of another issue or of `kind`'s other
-/// kind. Some(true) when the same question is already on record.
+/// The park question on record of the issue, by the store's number: the
+/// newest unanswered one of the current park's attempt that was not withdrawn,
+/// as `PARK_SELECT` reads its comment.
+pub(crate) fn question_on_record(c: &Connection, issue: i64) -> Result<Option<i64>, Fail> {
+    c.query_row(
+        "SELECT q.id FROM parks p JOIN cycles c ON c.issue = p.issue AND c.attempt = p.attempt
+         JOIN questions q ON q.issue = p.issue AND q.kind = 'park' AND q.answered_at IS NULL
+           AND q.withdrawn_at IS NULL AND q.attempt = c.attempt
+         WHERE p.issue = ?1 ORDER BY q.posted_at DESC, q.id DESC LIMIT 1",
+        [issue],
+        |r| r.get(0),
+    )
+    .optional()
+    .q()
+}
+
+/// The comment is taken when it is a question of another issue or of `kind`'s
+/// other kind. Some(true) when the same question is already on record. A
+/// withdrawn question takes nothing: its comment asked again is a new
+/// question, with the next number.
 fn taken(c: &Connection, issue: i64, id: i64, kind: &str) -> Result<Option<bool>, Fail> {
     let had: Option<(i64, String)> = c
         .query_row(
-            "SELECT issue, kind FROM questions WHERE id = ?1",
+            "SELECT issue, kind FROM questions WHERE comment_id = ?1 AND withdrawn_at IS NULL",
             [id],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
@@ -322,8 +420,9 @@ fn taken(c: &Connection, issue: i64, id: i64, kind: &str) -> Result<Option<bool>
     }
 }
 
-/// Records `id` as a park question of `attempt`. A replay of the same question
-/// changes nothing; an id that is another question is refused.
+/// Records comment `id` as a park question of `attempt`, given the store's
+/// next number. A replay of the same question changes nothing; a comment that
+/// is another question is refused.
 fn park_question(
     c: &Connection,
     issue: i64,
@@ -334,7 +433,8 @@ fn park_question(
 ) -> Result<(), Fail> {
     let had: Option<(i64, String, i64)> = c
         .query_row(
-            "SELECT issue, kind, attempt FROM questions WHERE id = ?1",
+            "SELECT issue, kind, attempt FROM questions
+             WHERE comment_id = ?1 AND withdrawn_at IS NULL",
             [id],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
@@ -343,8 +443,9 @@ fn park_question(
     match had {
         None => {
             c.execute(
-                "INSERT INTO questions (id, issue, attempt, kind, posted_at, body_sha256)
-                 VALUES (?1, ?2, ?3, 'park', ?4, ?5)",
+                "INSERT INTO questions (comment_id, issue, attempt, kind, posted_at, body_sha256,
+                   body_form)
+                 VALUES (?1, ?2, ?3, 'park', ?4, ?5, 'rendered')",
                 params![id, issue, attempt, now, sha],
             )
             .q()?;
@@ -501,8 +602,9 @@ fn open_plan(c: &Connection, issue: i64) -> Result<Option<(i64, Option<i64>)>, F
     .q()
 }
 
-const QUESTION_NAMES: [&str; 8] = [
+const QUESTION_NAMES: [&str; 10] = [
     "id",
+    "comment_id",
     "issue",
     "attempt",
     "kind",
@@ -510,12 +612,16 @@ const QUESTION_NAMES: [&str; 8] = [
     "body_sha256",
     "answered_at",
     "answered_by",
+    "withdrawn_at",
 ];
 
+/// The newest question that comment `id` asked, with the store's number as
+/// `id`.
 fn question_json(c: &Connection, id: i64) -> Result<String, Fail> {
     Ok(c.query_row(
-        "SELECT id, issue, attempt, kind, posted_at, body_sha256, answered_at, answered_by
-             FROM questions WHERE id = ?1",
+        "SELECT id, comment_id, issue, attempt, kind, posted_at, body_sha256, answered_at,
+               answered_by, withdrawn_at
+             FROM questions WHERE comment_id = ?1 ORDER BY id DESC LIMIT 1",
         [id],
         |r| row_json(r, &QUESTION_NAMES),
     )
@@ -524,6 +630,7 @@ fn question_json(c: &Connection, id: i64) -> Result<String, Fail> {
     .map_or("null".to_string(), |p| obj(&p)))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn asked(
     home: &Path,
     issue: i64,
@@ -531,6 +638,7 @@ fn asked(
     kind: &str,
     attempt: Option<i64>,
     body_sha: Option<&str>,
+    offers: Option<&str>,
     now: i64,
 ) -> Result<String, Fail> {
     verbs::write(home, |c| {
@@ -552,7 +660,8 @@ fn asked(
                 &format!("the question is for {derived}"),
             ));
         }
-        match taken(c, issue, id, kind)? {
+        let had = taken(c, issue, id, kind)?;
+        match had {
             None => {
                 return Err(refuse(
                     "taken",
@@ -562,10 +671,13 @@ fn asked(
             }
             Some(true) => {}
             Some(false) => {
+                // The sum given is of the question's visible text (T4.7).
+                let form = body_sha.map(|_| "visible");
                 c.execute(
-                    "INSERT INTO questions (id, issue, attempt, kind, posted_at, body_sha256)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                    params![id, issue, derived, kind, now, body_sha],
+                    "INSERT INTO questions (comment_id, issue, attempt, kind, posted_at,
+                       body_sha256, offers, body_form)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    params![id, issue, derived, kind, now, body_sha, offers, form],
                 )
                 .q()?;
                 if kind == "plan" {
@@ -577,23 +689,29 @@ fn asked(
                 }
             }
         }
+        // `already` for a replay: the call that recorded the question
+        // raises it (T11.9).
         Ok(line(
             "question-asked",
-            &[("question", question_json(c, id)?)],
+            &[
+                ("question", question_json(c, id)?),
+                ("already", j(had == Some(true))),
+            ],
         ))
     })
 }
 
-/// Whether `id` is the question on record of the issue.
+/// Whether comment `id` is the question on record of the issue.
 pub fn on_record(c: &Connection, issue: i64, id: i64) -> Result<bool, Fail> {
     if current(c, issue)?.is_some_and(|(_, _, q)| q == Some(id)) {
         return Ok(true);
     }
     let plan: bool = c
         .query_row(
-            "SELECT count(*) > 0 FROM planning p JOIN questions q ON q.id = p.comment_id
+            "SELECT count(*) > 0 FROM planning p JOIN questions q ON q.comment_id = p.comment_id
              WHERE p.issue = ?1 AND p.ended_at IS NULL AND p.comment_id = ?2
-               AND q.issue = ?1 AND q.kind = 'plan' AND q.answered_at IS NULL",
+               AND q.issue = ?1 AND q.kind = 'plan' AND q.answered_at IS NULL
+               AND q.withdrawn_at IS NULL",
             params![issue, id],
             |r| r.get(0),
         )
@@ -601,15 +719,22 @@ pub fn on_record(c: &Connection, issue: i64, id: i64) -> Result<bool, Fail> {
     Ok(plan)
 }
 
+/// A question's row as `question-known` reads it: its kind, when it was
+/// answered, whether it is asked again, the store's number, and what its sum
+/// sums.
+type KnownRow = (String, Option<i64>, bool, i64, Option<String>);
+
 /// `question-known <issue> --id <id>`: whether the comment is the question the
-/// host has on record for the issue. The single call reads it through
+/// host has on record for the issue. A withdrawn question is not recorded:
+/// its row is kept, and it asks nothing. The single call reads it through
 /// `verbs::look`; `verbs::look_many` hands it the connection of the batch.
 pub(crate) fn known(c: &Connection, issue: i64, id: i64) -> Result<String, Fail> {
-    let row: Option<(String, Option<i64>)> = c
+    let row: Option<KnownRow> = c
         .query_row(
-            "SELECT kind, answered_at FROM questions WHERE id = ?1 AND issue = ?2",
+            "SELECT kind, answered_at, reask, id, body_form FROM questions
+             WHERE comment_id = ?1 AND issue = ?2 AND withdrawn_at IS NULL",
             params![id, issue],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
         )
         .optional()
         .q()?;
@@ -620,16 +745,91 @@ pub(crate) fn known(c: &Connection, issue: i64, id: i64) -> Result<String, Fail>
             ("known", j(known)),
             ("kind", j(row.as_ref().map(|r| r.0.clone()))),
             ("recorded", j(row.is_some())),
-            ("answered", j(row.is_some_and(|r| r.1.is_some()))),
+            ("answered", j(row.as_ref().is_some_and(|r| r.1.is_some()))),
+            // Asked before 2.0, open at the upgrade: the poll asks it again
+            // in 2.0's words, once.
+            ("reask", j(row.as_ref().is_some_and(|r| r.2))),
+            // What its sum sums: `rendered` is 1.x's, which the poll adopts
+            // on its first read (`question-adopt`); null with no sum.
+            ("sum_form", j(row.as_ref().and_then(|r| r.4.clone()))),
+            (
+                "answer",
+                match row.as_ref().filter(|_| known) {
+                    Some(r) => crate::answer::waiting_json(c, issue, r.3)?,
+                    None => "null".to_string(),
+                },
+            ),
         ],
     ))
 }
 
+/// `question-adopt <issue> --id <id> --posted-sha <sha256> [--body-sha
+/// <sha256>]`: the question comment `id` asked on `issue`, whose sum is
+/// 1.x's (`rendered`, the comment as it was posted, its markers in), takes
+/// 2.0's form, `visible` (T4.7, the lead's ruling). When `posted_sha`, the
+/// sum of the comment as it reads now, is the sum on record, the comment is
+/// unchanged since it was posted and its sum becomes `body_sha`, the sum of
+/// its visible text (`summed` true). Otherwise, a comment ticked or edited
+/// since, or no `body_sha` given, the row keeps no sum. Done once, in place:
+/// a question of another form, a withdrawn one, or none is left as it is,
+/// and `adopted` says false. Nothing else of the row changes.
+fn adopt(
+    home: &Path,
+    issue: i64,
+    id: i64,
+    posted_sha: &str,
+    body_sha: Option<&str>,
+) -> Result<String, Fail> {
+    verbs::write(home, |c| {
+        let on_record: Option<Option<String>> = c
+            .query_row(
+                "SELECT body_sha256 FROM questions
+                 WHERE comment_id = ?2 AND issue = ?1 AND withdrawn_at IS NULL
+                   AND body_form = 'rendered'",
+                params![issue, id],
+                |r| r.get(0),
+            )
+            .optional()
+            .q()?;
+        let Some(on_record) = on_record else {
+            return Ok(line(
+                "question-adopt",
+                &[
+                    ("issue", j(issue)),
+                    ("adopted", j(false)),
+                    ("summed", j(false)),
+                ],
+            ));
+        };
+        let sum = body_sha.filter(|_| on_record.as_deref() == Some(posted_sha));
+        c.execute(
+            "UPDATE questions SET body_sha256 = ?3, body_form = 'visible'
+             WHERE comment_id = ?2 AND issue = ?1 AND withdrawn_at IS NULL
+               AND body_form = 'rendered'",
+            params![issue, id, sum],
+        )
+        .q()?;
+        Ok(line(
+            "question-adopt",
+            &[
+                ("issue", j(issue)),
+                ("adopted", j(true)),
+                ("summed", j(sum.is_some())),
+            ],
+        ))
+    })
+}
+
+/// `question-answered`: the question comment `id` asked, answered by `by`, or
+/// withdrawn when `by` is None. A withdrawal keeps the row and its answer,
+/// with when it was withdrawn, and takes it off the record; a withdrawn
+/// question is answered and withdrawn no more.
 fn answered(home: &Path, issue: i64, id: i64, by: Option<&str>, now: i64) -> Result<String, Fail> {
     verbs::write(home, |c| {
         let there: bool = c
             .query_row(
-                "SELECT count(*) > 0 FROM questions WHERE id = ?1 AND issue = ?2",
+                "SELECT count(*) > 0 FROM questions
+                 WHERE comment_id = ?1 AND issue = ?2 AND withdrawn_at IS NULL",
                 params![id, issue],
                 |r| r.get(0),
             )
@@ -645,7 +845,7 @@ fn answered(home: &Path, issue: i64, id: i64, by: Option<&str>, now: i64) -> Res
             Some(by) => {
                 c.execute(
                     "UPDATE questions SET answered_at = ?2, answered_by = ?3
-                     WHERE id = ?1 AND answered_at IS NULL",
+                     WHERE comment_id = ?1 AND answered_at IS NULL AND withdrawn_at IS NULL",
                     params![id, now, by],
                 )
                 .q()?;
@@ -660,8 +860,16 @@ fn answered(home: &Path, issue: i64, id: i64, by: Option<&str>, now: i64) -> Res
                     params![issue, id],
                 )
                 .q()?;
-                c.execute("DELETE FROM questions WHERE id = ?1", [id]).q()?;
-                Ok(line("question-answered", &[("withdrawn", j(true))]))
+                c.execute(
+                    "UPDATE questions SET withdrawn_at = ?2
+                     WHERE comment_id = ?1 AND withdrawn_at IS NULL",
+                    params![id, now],
+                )
+                .q()?;
+                Ok(line(
+                    "question-answered",
+                    &[("withdrawn", j(true)), ("question", question_json(c, id)?)],
+                ))
             }
         }
     })

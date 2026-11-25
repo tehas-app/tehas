@@ -1,0 +1,14 @@
+{
+  "api": 1,
+  "event": "cycle.parked",
+  "data": {
+    "cycle": "12-3",
+    "blueprint": 12,
+    "at": "2026-11-22T13:20:00Z",
+    "end": "failed",
+    "provider": false
+  },
+  "when": "after",
+  "key": "12-3",
+  "at": "2026-11-22T13:20:00Z"
+}

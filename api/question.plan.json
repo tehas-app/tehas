@@ -1,0 +1,24 @@
+{
+  "api": 1,
+  "issue": 12,
+  "question": {
+    "askedAt": "2026-10-17T14:00:20Z",
+    "choices": [
+      {
+        "choice": "option:1",
+        "label": "Adopt all"
+      },
+      {
+        "choice": "update",
+        "label": "Update this issue"
+      },
+      {
+        "choice": "end",
+        "label": "End this planning session"
+      }
+    ],
+    "comment": 4002,
+    "id": 1,
+    "kind": "plan"
+  }
+}

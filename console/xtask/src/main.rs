@@ -65,6 +65,7 @@ fn main() -> ExitCode {
         Some("kani-shard") => kani_shard(&args[1..]),
         Some("lean-test") => lean_test(&args[1..]),
         Some("lean-roster") => lean_roster(&args[1..]),
+        Some("config-check") => config_check(&args[1..]),
         _ => {
             eprintln!("xtask: usage: xtask select-tests --root <dir> <path>...");
             eprintln!("       xtask pack-release --script <path> <argument>...");
@@ -77,6 +78,7 @@ fn main() -> ExitCode {
             eprintln!("       xtask kani-shard <kani-list.json> <index> <count>");
             eprintln!("       xtask lean-test --root <dir> <file>");
             eprintln!("       xtask lean-roster --root <dir> --report <file>");
+            eprintln!("       xtask config-check --settings <instance dir> [--env <file>]");
             ExitCode::from(64)
         }
     }
@@ -93,6 +95,47 @@ fn workspace(root: &std::path::Path) -> Option<Vec<lean::Target>> {
             })
             .collect(),
     )
+}
+
+/// `config-check --settings <dir> [--env <file>]`: an instance's settings
+/// held against this version's load (tehas_ops::settings::config_check),
+/// with `<file>` standing for the host's ~/.config/tehas/env. 78 before
+/// anything is read when the directory is not given or is not there, or the
+/// file is given and is not there; then 0 on a pass and 78 on a fail.
+fn config_check(args: &[String]) -> ExitCode {
+    const USAGE: &str = "xtask: usage: xtask config-check --settings <instance dir> [--env <file>]";
+    let (mut dir, mut env) = (None, None);
+    for pair in args.chunks(2) {
+        let slot = match pair {
+            [flag, _] if flag == "--settings" => &mut dir,
+            [flag, _] if flag == "--env" => &mut env,
+            _ => {
+                eprintln!("{USAGE}");
+                return ExitCode::from(78);
+            }
+        };
+        if slot.replace(pair[1].as_str()).is_some() {
+            eprintln!("{USAGE}");
+            return ExitCode::from(78);
+        }
+    }
+    let Some(dir) = dir else {
+        eprintln!("{USAGE}");
+        return ExitCode::from(78);
+    };
+    if !std::path::Path::new(dir).is_dir() {
+        eprintln!("xtask: config-check: no instance directory at {dir}");
+        return ExitCode::from(78);
+    }
+    if let Some(file) = env.filter(|f| !std::path::Path::new(f).is_file()) {
+        eprintln!("xtask: config-check: no env file at {file}");
+        return ExitCode::from(78);
+    }
+    let (lines, pass) = tehas_ops::settings::config_check(dir, env, "bash");
+    for line in lines {
+        tehas_core::outln!("{line}");
+    }
+    ExitCode::from(if pass { 0 } else { 78 })
 }
 
 fn lean_test(args: &[String]) -> ExitCode {
@@ -208,7 +251,28 @@ fn tag_release(args: &[String]) -> ExitCode {
         }
     };
     let root = pack::logical(&pwd(), &script.join("../.."));
-    ExitCode::from(tag::run(&a, &root))
+    let hosts = tag::Hosts {
+        project_of: &tehas_github::project_of,
+        site: &github,
+    };
+    let programs = tag::Programs {
+        console: std::env::var_os("TEHAS_CONSOLE"),
+        path: None,
+    };
+    ExitCode::from(tag::run(&a, &root, &hosts, &programs))
+}
+
+/// GitHub as the code host of `project`, asked as the operator through the
+/// gh of the operator's shell, each call in the forge's bound. tag-release
+/// acts for no factory, so the site knows no factory's account.
+fn github(project: &str) -> std::sync::Arc<dyn tehas_ports::Site> {
+    let make: tehas_github::MakeRunner = std::sync::Arc::new(|_| {
+        Ok(Box::new(tehas_core::forge::Bounded::new(
+            "gh".to_string(),
+            tehas_ops::forge::CALL_BOUND,
+        )) as Box<dyn tehas_core::forge::GhRunner>)
+    });
+    std::sync::Arc::new(tehas_github::GitHubSite::new(project, "", None, make))
 }
 
 fn tag_deploy(args: &[String]) -> ExitCode {

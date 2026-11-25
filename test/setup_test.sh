@@ -510,14 +510,14 @@ t_lacks "$(t_calls gh)" "issue create"
 t_case "another repository the instance names that the app does not reach is named with the link"
 fresh
 mkdir -p "$cfg"
-printf 'TEHAS_REVIEW_REPO=acme/reviews\nTEHAS_RELEASE_REPO=acme/other\n' >"$cfg/instance.env"
-# review is still being built: a release refuses its repository, a test may
-# turn it on.
-T_ENV=(TEHAS_TEST_FEATURES=review)
+printf 'TEHAS_RELEASE_REPO=acme/reviews\n' >"$cfg/instance.env"
 run_setup "${app_args[@]}" --no-build
-T_ENV=()
 t_eq "$t_rc" 0
-t_contains "$t_out" "the app does not reach acme/reviews (TEHAS_REVIEW_REPO: HTTP 404); install it there at https://github.com/apps/tehas-app/installations/new"
+t_contains "$t_out" "the app does not reach acme/reviews (TEHAS_RELEASE_REPO: not found, or not visible to this actor); install it there at https://github.com/apps/tehas-app/installations/new"
+fresh
+mkdir -p "$cfg"
+printf 'TEHAS_RELEASE_REPO=acme/other\n' >"$cfg/instance.env"
+run_setup "${app_args[@]}" --no-build
 t_contains "$t_out" "the app reaches acme/other (TEHAS_RELEASE_REPO)"
 
 t_case "an installation without write on contents, issues or pull requests stops with 1 and writes nothing"

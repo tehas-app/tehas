@@ -15,7 +15,8 @@
 //! name that is not the file that was locked proves nothing either way.
 //!
 //! [`try_lock`] is the other side: a holder that takes a lock now or not at
-//! all, and creates its file to do so.
+//! all, and creates its file to do so. What it holds is a [`Held`], which
+//! gives the lock back by name when it drops.
 
 use std::fs::{self, File, TryLockError};
 use std::io::ErrorKind;
@@ -23,16 +24,64 @@ use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use std::time::Duration;
 
+/// A lock this process holds, given back when the value drops.
+///
+/// An flock belongs to the open file description, and a child that any
+/// thread of this process starts holds a copy of every descriptor until its
+/// exec closes it. Closing the file alone can then leave the lock held for a
+/// moment after the drop, which the next taker reads as a lock still held.
+/// So the drop unlocks first, which frees the lock for every copy at once.
+/// Two locks are handed down to children on purpose and must never be a
+/// `Held`, whose drop would free them under the children that still run:
+/// a cycle's lock and the code index's (`tehas-cycle`'s `lock::take` and
+/// `lock::hand_down`), and the update's lock (`tehas-ops`'s `update::lock`,
+/// `Held::inherit`).
+#[derive(Debug)]
+pub struct Held(File);
+
+impl Held {
+    /// The lock of `file`, taken now; else why not, with the file back to
+    /// try again (`WouldBlock` when another holds it).
+    pub fn try_take(file: File) -> Result<Held, (TryLockError, File)> {
+        match file.try_lock() {
+            Ok(()) => Ok(Held(file)),
+            Err(e) => Err((e, file)),
+        }
+    }
+
+    /// The lock of `file`, waited for.
+    pub fn take(file: File) -> std::io::Result<Held> {
+        file.lock()?;
+        Ok(Held(file))
+    }
+
+    /// A shared lock of `file`, waited for.
+    pub fn take_shared(file: File) -> std::io::Result<Held> {
+        file.lock_shared()?;
+        Ok(Held(file))
+    }
+}
+
+impl Drop for Held {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
+}
+
 /// A lock taken now, or None when another holds it.
-pub fn try_lock(path: &Path) -> Result<Option<File>, String> {
-    let f = File::create(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    // A lock just given back can still be held a moment by a child forked
-    // while it was taken, until that child's exec closes it.
+pub fn try_lock(path: &Path) -> Result<Option<Held>, String> {
+    let mut f = File::create(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    // A lock just given back by another process can still be held a moment
+    // by a child it forked while it was taken, until that child's exec
+    // closes it.
     for _ in 0..10 {
-        match f.try_lock() {
-            Ok(()) => return Ok(Some(f)),
-            Err(TryLockError::WouldBlock) => std::thread::sleep(Duration::from_millis(50)),
-            Err(TryLockError::Error(e)) => return Err(format!("{}: {e}", path.display())),
+        match Held::try_take(f) {
+            Ok(held) => return Ok(Some(held)),
+            Err((TryLockError::WouldBlock, back)) => {
+                f = back;
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err((TryLockError::Error(e), _)) => return Err(format!("{}: {e}", path.display())),
         }
     }
     Ok(None)
@@ -168,6 +217,40 @@ mod tests {
         assert!(try_lock(&missing)
             .unwrap_err()
             .starts_with(&missing.display().to_string()));
+    }
+
+    #[test]
+    fn a_held_lock_is_free_at_once_while_other_threads_start_children() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+        let d = TestDir::new("lock-held-drop");
+        let f = d.join("x.lock");
+        // Children started all the while: each holds a copy of every open
+        // descriptor of this process until its exec. A drop that only closed
+        // the file left the next take refused about one time in six.
+        let stop = Arc::new(AtomicBool::new(false));
+        let spawners: Vec<_> = (0..4)
+            .map(|_| {
+                let stop = Arc::clone(&stop);
+                std::thread::spawn(move || {
+                    while !stop.load(Ordering::Relaxed) {
+                        let _ = std::process::Command::new("true").status();
+                    }
+                })
+            })
+            .collect();
+        let mut refused = 0;
+        for _ in 0..2000 {
+            match Held::try_take(File::create(&f).unwrap()) {
+                Ok(held) => drop(held),
+                Err(_) => refused += 1,
+            }
+        }
+        stop.store(true, Ordering::Relaxed);
+        for s in spawners {
+            s.join().unwrap();
+        }
+        assert_eq!(refused, 0, "a dropped Held was still held");
     }
 
     #[test]

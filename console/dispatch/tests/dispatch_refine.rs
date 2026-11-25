@@ -4,10 +4,13 @@
 
 mod common;
 
+use common::Part::{Off, On};
 use common::*;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::fs;
+use tehas_core::home::{self, Home};
+use tehas_ports::{Act, Mark, State};
 
 /// Issue 7's cycle was started on `who`'s tehas:ready of `body` and parked at
 /// explore as intent-park, its question 4001 on record and unanswered. The
@@ -26,10 +29,10 @@ fn refine_park(w: &World, reason: &str, extra: &str, body: &str, who: &str) {
         &json!({"title": "Faster search", "body": body, "state": "OPEN", "labels": labels}),
     );
     let sum = format!("{:x}", Sha256::digest(body.as_bytes()));
-    w.t_approve(7, who, "label", 1_700_000_001, &["--body-sha", &sum]);
+    w.t_approve(7, who, "approved", 1_700_000_001, &["--body-sha", &sum]);
     w.t_started(7, None, &[]);
     let r = w.sh(&format!(
-        "flock -w 5 \"$TEHAS_HOME/state/cycles/7.lock\" \"$T/store-bin\" cycle-end 7 --attempt 1 --status parked \
+        "flock -w 5 \"$T_CYCLES/7.lock\" \"$T/store-bin\" cycle-end 7 --attempt 1 --status parked \
          --cap intent-park --park-reason {reason} --parked"
     ));
     assert_eq!(r.rc, 0, "refine_park: the store refused the end: {}", r.out);
@@ -138,7 +141,19 @@ fn a_cycle_parked_as_underspecified_is_refined_with_the_refine_brief_on_the_word
         json!(["alice", "tehas:refine", true])
     );
     has(&w.gh(), "its cycle parked as `underspecified`, and the start of that cycle by @alice authorizes one refine.");
-    has(&w.gh(), "issue edit 7 --repo acme/widget --add-label tehas:planning --remove-label tehas:refine --remove-label tehas:question --remove-label needs-human-attention");
+    assert!(
+        w.changes(
+            7,
+            &[
+                On(Mark::State(State::Planning)),
+                Off(Mark::Act(Act::Refine)),
+                Off(Mark::State(State::Question)),
+                Off(Mark::State(State::NeedsPerson))
+            ]
+        ),
+        "{:?}",
+        w.writes_of(7)
+    );
     assert_eq!(spent(&w), json!(1));
     // The session's start took the park's question off the record.
     assert_eq!(w.park_q(7), "none");
@@ -205,7 +220,7 @@ fn a_paused_factory_refines_nothing_and_refines_once_it_is_resumed() {
     w.poll();
     assert_eq!(w.plan_calls(), "");
     assert_eq!(spent(&w), json!(0));
-    fs::remove_file(w.home.join("state/pause.json")).unwrap();
+    fs::remove_file(Home::new(&w.home).state(home::State::Pause)).unwrap();
     w.clear_calls();
     let r = w.poll();
     has(&r.out, "start refining #7");
@@ -218,19 +233,40 @@ fn a_refine_that_files_one_issue_links_both_ways_and_closes_the_original_as_repl
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
     let gh = w.gh();
-    has(
-        &gh,
-        "issue edit 12 --repo acme/widget --body Replaces #7\n\nSearch answers in 50 ms.",
+    assert!(
+        w.wrote(12, None, "Replaces #7\n\nSearch answers in 50 ms."),
+        "{:?}",
+        w.patched(12)
     );
-    has(
-        &gh,
-        "api -X POST repos/acme/widget/issues/7/sub_issues -F sub_issue_id=5012",
+    assert!(w.parted(7, 12));
+    assert!(
+        w.said_on(
+            7,
+            &format!("Replaced by #12.\n\nFiled {I12}: Faster search, part 1.")
+        ),
+        "{:?}",
+        w.said(7)
     );
-    has(&gh, &format!("issue comment 7 --repo acme/widget --body Replaced by #12.\n\nFiled {I12}: Faster search, part 1."));
-    has(&gh, "issue edit 7 --repo acme/widget --remove-label tehas:question --remove-label tehas:planning --remove-label tehas:refined --add-label tehas:replaced");
-    has(&gh, "issue close 7 --repo acme/widget --reason not planned");
+    assert!(
+        w.changes(
+            7,
+            &[
+                Off(Mark::State(State::Question)),
+                Off(Mark::State(State::Planning)),
+                Off(Mark::State(State::Refined)),
+                On(Mark::State(State::Replaced))
+            ]
+        ),
+        "{:?}",
+        w.writes_of(7)
+    );
+    assert!(w.closed(7), "{:?}", w.writes_of(7));
     lacks(&gh, "tehas:question kind=plan");
-    lacks(&gh, "--add-label tehas:question");
+    assert!(
+        !w.changes(7, &[On(Mark::State(State::Question))]),
+        "{:?}",
+        w.writes_of(7)
+    );
     assert_eq!(w.rec_open(), "none");
     let mut out = w.record().into_os_string();
     out.push(".out");
@@ -246,12 +282,24 @@ fn a_refine_whose_plan_lists_later_parts_keeps_the_original_open_as_refined() {
     let w = World::new("refine");
     filed_by_refine(&w, MORE_PARTS, &[I12]);
     w.poll();
-    has(
-        &w.gh(),
-        "--remove-label tehas:planning --remove-label tehas:replaced --add-label tehas:refined",
+    assert!(
+        w.changes(
+            7,
+            &[
+                Off(Mark::State(State::Planning)),
+                Off(Mark::State(State::Replaced)),
+                On(Mark::State(State::Refined))
+            ]
+        ),
+        "{:?}",
+        w.writes_of(7)
     );
-    lacks(&w.gh(), "--add-label tehas:replaced");
-    lacks(&w.gh(), "issue close");
+    assert!(
+        !w.changes(7, &[On(Mark::State(State::Replaced))]),
+        "{:?}",
+        w.writes_of(7)
+    );
+    assert!(!w.closed(7));
     assert_eq!(w.rec_open(), "none");
 }
 
@@ -262,8 +310,12 @@ fn a_filed_body_that_cannot_be_read_keeps_the_original_open() {
     w.fx("issue-12.json", "{\"title\":\"no body here\"\n");
     let r = w.poll();
     has(&r.out, "WARN: could not read #12, which refining #7 filed");
-    has(&w.gh(), "--add-label tehas:refined");
-    lacks(&w.gh(), "issue close");
+    assert!(
+        w.changes(7, &[On(Mark::State(State::Refined))]),
+        "{:?}",
+        w.writes_of(7)
+    );
+    assert!(!w.closed(7));
 }
 
 #[test]
@@ -271,19 +323,19 @@ fn a_filed_body_that_already_names_the_original_is_not_written_again() {
     let w = World::new("refine");
     filed_by_refine(&w, &format!("Replaces #7\n\n{ONE_PART}"), &[I12]);
     w.poll();
-    lacks(&w.gh(), "issue edit 12");
-    has(&w.gh(), "issue close 7");
+    assert!(w.patched(12).is_empty());
+    assert_eq!(w.marks(Some(12)), 0);
+    assert!(w.closed(7), "{:?}", w.writes_of(7));
 }
 
 #[test]
 fn a_sub_issue_link_that_fails_is_a_warning_and_the_rest_goes_on() {
     let w = World::new("refine");
     filed_by_refine(&w, ONE_PART, &[I12]);
-    w.rm_fx("work-12.json");
-    w.touch("work-12-fails");
+    w.touch("part-fails");
     let r = w.poll();
     has(&r.out, "WARN: could not link #12 as a sub-issue of #7");
-    has(&w.gh(), "issue close 7");
+    assert!(w.closed(7), "{:?}", w.writes_of(7));
 }
 
 #[test]
@@ -297,15 +349,19 @@ fn a_label_change_that_fails_is_repeated_by_the_next_poll_and_replaced_by_is_sai
         "could not mark #7 tehas:replaced; the next poll replaces it",
     );
     lacks(&w.gh(), "Replaced by");
-    lacks(&w.gh(), "issue close");
+    assert!(!w.closed(7));
     assert_eq!(w.rec_open(), "open");
     w.clear_calls();
     w.rm_fx("edit-fails-on");
     w.fx("refines.json", "[]");
     w.poll();
-    has(&w.gh(), "--add-label tehas:replaced");
+    assert!(
+        w.changes(7, &[On(Mark::State(State::Replaced))]),
+        "{:?}",
+        w.writes_of(7)
+    );
     assert_eq!(holding(&w.gh(), "Replaced by"), 1);
-    has(&w.gh(), "issue close 7");
+    assert!(w.closed(7), "{:?}", w.writes_of(7));
     assert_eq!(w.rec_open(), "none");
 }
 
@@ -318,9 +374,10 @@ fn an_original_that_carries_the_mark_already_is_only_closed_nothing_is_said_or_l
         r#"{"title":"Faster search","body":"Make it fast.","labels":[{"name":"tehas:replaced"}]}"#,
     );
     w.poll();
-    has(&w.gh(), "issue close 7");
-    lacks(&w.gh(), "issue edit 12");
-    lacks(&w.gh(), "sub_issues");
+    assert!(w.closed(7), "{:?}", w.writes_of(7));
+    assert!(w.patched(12).is_empty());
+    assert_eq!(w.marks(Some(12)), 0);
+    assert!(!w.parted(7, 12));
     lacks(&w.gh(), "Replaced by");
     assert_eq!(w.rec_open(), "none");
 }
@@ -335,14 +392,21 @@ fn a_mark_an_earlier_refine_left_marks_nothing_the_new_filed_issue_is_linked_and
     );
     w.poll();
     let gh = w.gh();
-    has(&gh, "issue edit 12 --repo acme/widget --body Replaces #7");
-    has(&gh, "sub_issues");
-    has(
-        &gh,
-        "--remove-label tehas:refined --add-label tehas:replaced",
+    assert!(w.wrote(12, None, "Replaces #7"), "{:?}", w.patched(12));
+    assert!(w.parted(7, 12));
+    assert!(
+        w.changes(
+            7,
+            &[
+                Off(Mark::State(State::Refined)),
+                On(Mark::State(State::Replaced))
+            ]
+        ),
+        "{:?}",
+        w.writes_of(7)
     );
     has(&gh, "Replaced by #12.");
-    has(&gh, "issue close 7");
+    assert!(w.closed(7), "{:?}", w.writes_of(7));
 }
 
 #[test]
@@ -356,18 +420,23 @@ fn a_filed_issue_whose_replaces_line_cannot_be_written_is_not_marked_and_the_nex
         &r.out,
         "could not say on #12 that it replaces #7; the next poll replaces it",
     );
-    lacks(&w.gh(), "--add-label tehas:replaced");
+    assert!(
+        !w.changes(7, &[On(Mark::State(State::Replaced))]),
+        "{:?}",
+        w.writes_of(7)
+    );
     lacks(&w.gh(), "Replaced by");
     assert_eq!(w.rec_open(), "open");
     w.clear_calls();
     w.rm_fx("edit-fails-on");
     w.fx("refines.json", "[]");
     w.poll();
-    has(
-        &w.gh(),
-        "issue edit 12 --repo acme/widget --body Replaces #7",
+    assert!(w.wrote(12, None, "Replaces #7"), "{:?}", w.patched(12));
+    assert!(
+        w.changes(7, &[On(Mark::State(State::Replaced))]),
+        "{:?}",
+        w.writes_of(7)
     );
-    has(&w.gh(), "--add-label tehas:replaced");
     assert_eq!(w.rec_open(), "none");
 }
 
@@ -389,7 +458,7 @@ fn a_filed_address_that_is_not_an_issue_address_is_left_out_and_the_session_stil
     has(&gh, "Replaced by #12.");
     lacks(&gh, "mallory");
     lacks(&gh, "issue view 13");
-    has(&gh, "issue close 7");
+    assert!(w.closed(7), "{:?}", w.writes_of(7));
     assert_eq!(w.rec_open(), "none");
 }
 
@@ -407,9 +476,14 @@ fn a_filed_issue_of_another_repository_gets_no_links_and_is_named_the_original_s
         &gh,
         "Replaced by #12, https://github.com/other/repo/issues/3.",
     );
-    lacks(&gh, "issue edit 3");
-    assert_eq!(holding(&gh, "sub_issues"), 1);
-    has(&gh, "--add-label tehas:refined");
+    assert!(w.patched(3).is_empty());
+    assert_eq!(w.marks(Some(3)), 0);
+    assert!(w.parted(7, 12));
+    assert!(
+        w.changes(7, &[On(Mark::State(State::Refined))]),
+        "{:?}",
+        w.writes_of(7)
+    );
 }
 
 #[test]
@@ -418,7 +492,7 @@ fn the_repository_is_compared_without_its_case() {
     filed_by_refine(&w, ONE_PART, &["https://github.com/Acme/Widget/issues/12"]);
     w.poll();
     has(&w.gh(), "Replaced by #12.");
-    has(&w.gh(), "issue close 7");
+    assert!(w.closed(7), "{:?}", w.writes_of(7));
 }
 
 #[test]
@@ -433,7 +507,7 @@ fn a_plan_session_that_files_is_posted_as_before() {
     w.poll();
     has(&w.gh(), &format!("Filed in this turn: {I12}"));
     lacks(&w.gh(), "Replaced by");
-    lacks(&w.gh(), "issue close");
+    assert!(!w.closed(7));
 }
 
 #[test]

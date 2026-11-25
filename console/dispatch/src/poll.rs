@@ -18,7 +18,7 @@
 
 use crate::apply::start::Host;
 use crate::apply::Writer;
-use crate::decide::{iso, iso_now};
+use crate::decide::{iso, iso_now, Action, LabelChange, PlanStep};
 use crate::read::build::{fill, may_start, snapshot, Sources};
 use crate::read::host::{hostname, push_fault, push_fault_aged_out};
 use crate::read::run::{read_gh_token, Calls, RetryPolicy};
@@ -31,6 +31,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, UNIX_EPOCH};
+use tehas_core::home::{Home, Live, State};
 
 /// How long a held dispatcher lock may last before it is said to hang.
 const HANG: u64 = 1800;
@@ -48,7 +49,7 @@ const STATUS_AGE: i64 = 300;
 /// host would not answer is treated as one too old: the status is then the way
 /// to find out what it holds.
 pub fn status_due(home: &Path, now: i64) -> bool {
-    let made = std::fs::metadata(home.join("live/status.json"))
+    let made = std::fs::metadata(Home::new(home).live(Live::Status))
         .and_then(|m| m.modified())
         .ok()
         .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
@@ -217,7 +218,7 @@ fn store_ready(home: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     let bin = std::fs::metadata(home.join("libexec/store"))
         .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0);
-    let db = std::fs::symlink_metadata(home.join("state/tehas.db"))
+    let db = std::fs::symlink_metadata(Home::new(home).state(State::StoreDb))
         .is_ok_and(|m| m.file_type().is_file());
     bin && db
 }
@@ -316,6 +317,7 @@ fn writer(
     poll_at: i64,
     before: i64,
     retry: &RetryPolicy,
+    events: tehas_ports::events::Dispatcher,
 ) -> Writer {
     // run_poll refused a bound that does not read before it built this.
     let plan = plan_bounds_of_env().unwrap_or(PLAN_DEFAULTS);
@@ -350,7 +352,6 @@ fn writer(
         store_retry: Duration::from_secs(1),
         host: Host {
             name: hostname(),
-            comments: env("TEHAS_WORK_COMMENTS") == "1",
             allowed: env("TEHAS_ALLOWED_LABELERS")
                 .split_whitespace()
                 .map(str::to_string)
@@ -363,7 +364,6 @@ fn writer(
                 bot.to_string()
             },
             owner: env("TEHAS_ASSIGNEE"),
-            outsource: tehas_core::features::on("outsource"),
             systemctl: "systemctl".into(),
             start_cmd: opt("TEHAS_CYCLE_START_CMD"),
             stop_cmd: opt("TEHAS_CYCLE_STOP_CMD"),
@@ -429,13 +429,20 @@ fn writer(
         spend: None,
         status_due: false,
         changed: false,
-        gh_writes: 0,
+        port_calls: Default::default(),
+        unposted: 0,
         starts: 0,
         fetched: false,
         looked: HashMap::new(),
         say_now: Some(say),
         plans_ended: Vec::new(),
         asked_again: false,
+        events,
+        // Made once the poll has its token: run_poll.
+        ports: None,
+        // The wiring's, set with the handles: run_poll.
+        mark_of: |_| None,
+        assignee: None,
     }
 }
 
@@ -522,10 +529,8 @@ impl End<'_> {
         let stat = std::fs::read_to_string("/proc/self/stat").unwrap_or_default();
         let cpu = cpu_ms(&stat, clock_ticks()).to_string();
         let gh = self.gh.to_string();
-        let writes = self
-            .home
-            .join("state")
-            .join("github-writes.log")
+        let writes = Home::new(self.home)
+            .state(State::GithubWrites)
             .to_string_lossy()
             .into_owned();
         let n = self.starts.to_string();
@@ -621,26 +626,35 @@ fn adopt_login(home: &Path, settings: &Settings) -> Option<Settings> {
 }
 
 /// One poll. The exit status the bash poll would end with.
-pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
+pub fn run_poll(
+    home: &Path,
+    settings: &Settings,
+    dry: bool,
+    events: tehas_ports::events::Dispatcher,
+    wiring: crate::apply::Wiring,
+) -> i32 {
     // The poll hands both bounds to the unit of a turn, so a value it cannot
     // read stops it before the lock, a write or any call.
     if let Err(why) = plan_bounds_of_env() {
         say(&format!("ERROR: {why}"));
         return 78;
     }
-    let state = home.join("state");
-    for d in ["state/cycles", "logs", "live"] {
-        let _ = std::fs::create_dir_all(home.join(d));
+    let layout = Home::new(home);
+    for d in [layout.cycles_dir(), home.join("logs"), layout.live_dir()] {
+        let _ = std::fs::create_dir_all(d);
     }
     let Ok(lock) = OpenOptions::new()
         .create(true)
         .append(true)
-        .open(state.join("dispatch.lock"))
+        .open(layout.state(State::DispatchLock))
     else {
         say("ERROR: could not open the dispatcher's lock");
         return 1;
     };
-    let (taken, stuck) = (state.join("dispatch.taken"), state.join("dispatch.stuck"));
+    let (taken, stuck) = (
+        layout.state(State::DispatchTaken),
+        layout.state(State::DispatchStuck),
+    );
     if lock.try_lock().is_err() {
         if dry {
             say("another poll holds the dispatcher's lock");
@@ -675,7 +689,7 @@ pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
     // once the lock is ours. A poll that found it held would drop the ask of
     // the running one, and the freed slot would wait for the timer.
     if !dry {
-        let _ = std::fs::remove_file(state.join("dispatch.again"));
+        let _ = std::fs::remove_file(layout.state(State::DispatchAgain));
     }
     if std::fs::write(&taken, format!("{}\n", tehas_core::time::now())).is_err() {
         say(&format!("WARN: could not write {}", taken.display()));
@@ -704,7 +718,26 @@ pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
     let first_token = token.get(home);
     let adopted = adopt_login(home, settings);
     let settings = adopted.as_ref().unwrap_or(settings);
-    let mut w = writer(home, settings, "", 0, tehas_core::time::now(), &retry);
+    let mut w = writer(
+        home,
+        settings,
+        "",
+        0,
+        tehas_core::time::now(),
+        &retry,
+        events,
+    );
+    w.mark_of = wiring.mark_of;
+    w.assignee = match wiring.assignee {
+        Some(Ok(id)) => Some(id),
+        Some(Err(why)) => {
+            say(&format!(
+                "WARN: the assignee could not be resolved ({why}), so this poll's claims go without one"
+            ));
+            None
+        }
+        None => None,
+    };
     // The poll's GitHub token, kept in memory from before its first call: the
     // first gh of the poll asks the host's token program once, and every gh
     // process after it is given the token as TEHAS_GH_TOKEN, so the shim of a
@@ -716,6 +749,18 @@ pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
     // logged, never written to a file and never put in the arguments of
     // anything.
     w.calls.gh_token = first_token;
+    // The ports' handles carry the same token, so the adapter's gh asks for
+    // none either. A wiring that cannot make them leaves the rows of the
+    // ports open: the settle says so of each.
+    w.ports = (wiring.handles)(
+        home,
+        &w.repo,
+        &w.gh,
+        w.calls.gh_token.as_deref(),
+        w.bound,
+        w.port_calls.clone(),
+    )
+    .ok();
     let mut end = End {
         home,
         dry,
@@ -727,14 +772,23 @@ pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
     };
     // The poll's one policy is already in both `Calls`: the writer's made above,
     // the snapshot's made by `body` from the value `body` is given.
-    let rc = body(home, settings, dry, &token, &mut w, &mut end, &retry);
+    let rc = body(
+        home,
+        settings,
+        dry,
+        &token,
+        &mut w,
+        &mut end,
+        &retry,
+        wiring.handles,
+    );
     // The lines the poll's reads left, of both its `Calls`, said once here and
     // nowhere else: `taken` empties the shared queue, so the drain of `body` and
     // this one read disjoint buckets of the same queue and no line is said twice.
     for n in w.calls.retry.taken() {
         failed_read(home, dry, &n);
     }
-    end.gh += w.calls.gh_count + w.gh_writes;
+    end.gh += w.calls.gh_count + w.port_calls.load(std::sync::atomic::Ordering::Relaxed) as u32;
     end.starts = w.starts;
     end.changed.queue = w.changed;
     end.run(&mut w);
@@ -742,6 +796,8 @@ pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
     rc
 }
 
+// The poll's own parts, each made once by `run_poll`.
+#[allow(clippy::too_many_arguments)]
 fn body(
     home: &Path,
     settings: &Settings,
@@ -750,6 +806,7 @@ fn body(
     w: &mut Writer,
     end: &mut End,
     retry: &RetryPolicy,
+    handles: crate::apply::HandlesOf,
 ) -> i32 {
     // The journal first, before GitHub is read for the queue: what a poll
     // that died between two writes left is settled from fresh reads. One that
@@ -787,11 +844,30 @@ fn body(
         now,
         models: crate::read::models::Models::read(),
         endpoint: (String::new(), String::new()),
+        code_host: None,
+        said: Vec::new(),
     };
     // The same token for the poll's reads as for its writes: what the shim of
     // every gh call would ask for anyway, asked once by the poll.
     src.calls.gh_token = w.calls.gh_token.clone().or_else(|| token.get(home));
+    // The code host's reads go through the port, its handle from the same
+    // wiring as the writes', with the same token, its calls counted with
+    // theirs in the poll's cost. Only the branch's check
+    // reads through it yet, so none is made for an instance that names none.
+    if !settings.branch_check.is_empty() {
+        let gh_token = src.calls.gh_token.as_deref();
+        let calls = w.port_calls.clone();
+        src.code_host = handles(home, &w.repo, &w.gh, gh_token, w.bound, calls)
+            .ok()
+            .map(|h| h.code_host);
+    }
     let snap = snapshot(&mut src, settings);
+    // What the reads met that their outcome alone does not say, once each:
+    // a code host that refused the branch's checks, and where the setup page
+    // says what its account needs.
+    for line in std::mem::take(&mut src.said) {
+        say(&format!("WARN: {line}"));
+    }
     end.gh = src.calls.gh_count;
     // Every gh read the poll could not make says why, in gh's own words: only the
     // queue's failure reached the log before, because only the rules that cannot
@@ -826,9 +902,9 @@ fn body(
         && may_start(&snap, settings)
     {
         let slice = crate::snapshot::reading(snap.get("slice").unwrap_or(&Value::Null));
-        w.host.container_mb =
-            crate::slice::usable(&slice, &settings.reserve, &settings.slice_containers)
-                .map_or(0, |u| u.ceiling_mb);
+        w.host.container_mb = slice
+            .usable(&settings.reserve, &settings.slice_containers)
+            .map_or(0, |u| u.ceiling_mb);
         let (lines, holds) = w.push_probe(dry);
         for l in &lines {
             say(l);
@@ -848,45 +924,46 @@ fn body(
     end.tidy = d.tidy;
     w.host.bot = d.bot.clone();
     demand_health(home, w, &d);
-    // The decision's lines, the actions between them, and the two steps the
-    // bash takes where they fall: a poll an action ends logs nothing after
-    // it, as the bash exits there.
-    let mut next = 0;
-    let mut i = 0;
-    let (mut swept, mut reported) = (false, false);
-    let lines_to = |upto: usize, next: &mut usize| {
-        let upto = upto.min(d.log.len()).max(*next);
-        for l in &d.log[*next..upto] {
-            say(l);
+    // The decision's plan: its lines, its actions and the two steps the bash
+    // takes where they fall. A poll an action ends logs nothing after it, as
+    // the bash exits there.
+    // apply reads each action as JSON.
+    let actions: Vec<Value> = d.actions.iter().map(Value::from).collect();
+    let starts = |a: usize| d.actions[a].is_start();
+    let mut k = 0;
+    while k < d.plan.len() {
+        let step = d.plan[k];
+        k += 1;
+        let a = match step {
+            PlanStep::Say(l) => {
+                say(&d.log[l]);
+                continue;
+            }
+            PlanStep::SweepLocks => {
+                sweep_locks(w, dry);
+                continue;
+            }
+            PlanStep::Report => {
+                report(home, w, &d, &snap);
+                continue;
+            }
+            PlanStep::Act(a) => a,
+        };
+        // A run of starts is applied as one call; the lines between them are
+        // logged after its output.
+        let mut end = a + 1;
+        let mut held = Vec::new();
+        if starts(a) {
+            while let Some(&next) = d.plan.get(k) {
+                match next {
+                    PlanStep::Say(l) => held.push(l),
+                    PlanStep::Act(b) if b == end && starts(b) => end += 1,
+                    _ => break,
+                }
+                k += 1;
+            }
         }
-        *next = upto;
-    };
-    loop {
-        if let Some((_, l)) = d.swept_at.filter(|(a, _)| *a == i && !swept) {
-            lines_to(l, &mut next);
-            sweep_locks(w, dry);
-            swept = true;
-        }
-        if let Some((_, l)) = d.reported_at.filter(|(a, _)| *a == i && !reported) {
-            lines_to(l, &mut next);
-            report(home, w, &d, &snap);
-            reported = true;
-        }
-        if i >= d.actions.len() {
-            break;
-        }
-        let at = d.actions[i]
-            .get("_line")
-            .and_then(Value::as_u64)
-            .unwrap_or(0) as usize;
-        lines_to(at, &mut next);
-        let run = d.actions[i..]
-            .iter()
-            .take_while(|a| a.get("start").is_some())
-            .count()
-            .max(1);
-        let done = w.apply(&d.actions[i..i + run]);
-        i += run;
+        let done = w.apply(&actions[a..end]);
         for l in &done.log {
             say(l);
         }
@@ -898,8 +975,10 @@ fn body(
             demand_again(home, w, &d);
             return rc;
         }
+        for l in held {
+            say(&d.log[l]);
+        }
     }
-    lines_to(d.log.len(), &mut next);
     demand_again(home, w, &d);
     if d.exit == 0 && d.tidy && !dry {
         write_starts(home, &d);
@@ -929,10 +1008,11 @@ impl crate::finish::Hands for FinishHands<'_> {
     fn unlabel(&mut self, n: u64) -> bool {
         let label = crate::finish::LABEL;
         let done = format!("finish #{n}: {label} off");
-        let done = self.w.apply(&[json!({
-            "issue": n, "remove": [label], "reread": label, "log": done,
-            "fail": format!("WARN: label change on #{n} failed: --remove-label {label}"),
-        })]);
+        let fail = format!("WARN: label change on #{n} failed: --remove-label {label}");
+        let off = LabelChange::new(n, &[label], fail)
+            .reread(label, None)
+            .log(done);
+        let done = self.w.apply(&[Value::from(&Action::Label(off))]);
         let off = done
             .log
             .iter()
@@ -954,8 +1034,8 @@ impl crate::finish::Hands for FinishHands<'_> {
         self.run(n, reason)
     }
 
-    fn say(&mut self, n: u64, body: &str) {
-        self.post(n, body);
+    fn say(&mut self, n: u64, reply: crate::finish::Reply) {
+        self.post(n, reply);
     }
 
     fn log(&mut self, line: String) {
@@ -968,8 +1048,8 @@ impl crate::auto_finish::Hands for FinishHands<'_> {
         self.run(n, reason)
     }
 
-    fn say(&mut self, n: u64, body: &str) {
-        self.post(n, body);
+    fn say(&mut self, n: u64, reply: crate::finish::Reply) {
+        self.post(n, reply);
     }
 
     fn log(&mut self, line: String) {
@@ -1028,8 +1108,14 @@ impl FinishHands<'_> {
         crate::finish::outcome(n, &ran, FINISH_BOUND)
     }
 
-    fn post(&mut self, n: u64, body: &str) {
-        let done = self.w.apply(&[json!({"issue": n, "say": body})]);
+    /// A finish's reply, its marker typed beside its text.
+    fn post(&mut self, n: u64, reply: crate::finish::Reply) {
+        let post = Action::Say {
+            issue: n,
+            say: reply.text,
+            markers: reply.markers,
+        };
+        let done = self.w.apply(&[Value::from(&post)]);
         for l in &done.log {
             say(l);
         }
@@ -1169,11 +1255,12 @@ fn auto_finish_step(
 /// writes neither.
 fn demand_health(home: &Path, w: &mut Writer, d: &crate::Decision) {
     if let Some(demand) = &d.demand {
-        let file = home.join("live/demand.json");
-        if demand.is_null() {
-            let _ = std::fs::remove_file(&file);
-        } else {
-            write_demand(&file, demand);
+        let file = Home::new(home).live(Live::Demand);
+        match demand {
+            crate::decide::Demand::Unread => {
+                let _ = std::fs::remove_file(&file);
+            }
+            crate::decide::Demand::Counted(_) => write_demand(&file, demand),
         }
         // health, whose gh calls are given the poll's token as the poll's own
         // are: TEHAS_HEALTH_CMD is a test's name for it, as TEHAS_STATUS_CMD
@@ -1194,8 +1281,8 @@ fn demand_health(home: &Path, w: &mut Writer, d: &crate::Decision) {
     }
 }
 
-fn write_demand(file: &Path, demand: &Value) {
-    let mut v = demand.clone();
+fn write_demand(file: &Path, demand: &crate::decide::Demand) {
+    let mut v = Value::from(demand);
     v["time"] = json!(iso_now());
     // A unique name, not the fixed `demand.json.new` two polls can
     // share: each writer holds its own file until its rename.
@@ -1218,7 +1305,7 @@ fn write_demand(file: &Path, demand: &Value) {
 fn demand_again(home: &Path, w: &Writer, d: &crate::Decision) {
     let Some(demand) = &d.demand else { return };
     if let Some(v) = crate::decide::demand_after(demand, &d.demand_planning, &w.plans_ended) {
-        write_demand(&home.join("live/demand.json"), &v);
+        write_demand(&Home::new(home).live(Live::Demand), &v);
     }
 }
 
@@ -1248,7 +1335,7 @@ fn report(home: &Path, w: &mut Writer, d: &crate::Decision, snap: &Value) {
     };
     let mut v = report.to_value();
     v[tehas_core::hold::KEY_TIME] = json!(iso_now());
-    let file = home.join("live/dispatch.json");
+    let file = Home::new(home).live(Live::Dispatch);
     let made = w.scratch("dispatch").and_then(|p| {
         let mut f: File = OpenOptions::new()
             .write(true)
@@ -1446,8 +1533,9 @@ mod tests {
         let home = home_of("adopt");
         let none = Settings::parse(&json!({}));
         assert!(adopt_login(&home, &none).is_none(), "no login is kept yet");
-        std::fs::create_dir_all(home.join("state/github")).unwrap();
-        std::fs::write(home.join("state/github/login"), "acme-app[bot]\n").unwrap();
+        std::fs::create_dir_all(Home::new(&*home).token_dir(tehas_core::home::TokenDir::App))
+            .unwrap();
+        std::fs::write(Home::new(&*home).state(State::BotLogin), "acme-app[bot]\n").unwrap();
         let got = adopt_login(&home, &none).expect("the kept login is adopted");
         assert_eq!(got.bot_login, "acme-app[bot]");
         assert!(got.is_millwright("acme-app[bot]"));
@@ -1459,14 +1547,14 @@ mod tests {
     /// A scratch home of this test, with `live/` in it.
     fn home_of(name: &str) -> tehas_core::testdir::TestDir {
         let dir = tehas_core::testdir::TestDir::new(&format!("poll-{name}"));
-        std::fs::create_dir_all(dir.join("live")).unwrap();
+        std::fs::create_dir_all(Home::new(&*dir).live_dir()).unwrap();
         dir
     }
 
     /// The status file of `home`, written now and then given the time of
     /// `made`: no sleeping, and the age a test asks for.
     fn status_at(home: &Path, made: i64) {
-        let file = home.join("live/status.json");
+        let file = Home::new(home).live(Live::Status);
         std::fs::write(&file, b"{}").unwrap();
         std::fs::OpenOptions::new()
             .write(true)
@@ -1481,7 +1569,7 @@ mod tests {
     #[test]
     fn a_poll_with_no_status_file_runs_the_status() {
         let home = home_of("missing");
-        assert!(!home.join("live/status.json").exists());
+        assert!(!Home::new(&*home).live(Live::Status).exists());
         assert!(status_due(&home, NOW));
     }
 
@@ -1513,7 +1601,7 @@ mod tests {
         let dir = home_of("unreadable");
         // Not a file at all: the time of it cannot be had, and the poll asks
         // the status what it holds rather than trusting a file it cannot read.
-        std::fs::create_dir_all(dir.join("live/status.json")).unwrap();
+        std::fs::create_dir_all(Home::new(&*dir).live(Live::Status)).unwrap();
         assert!(status_due(&dir, NOW));
         let dir = home_of("epoch");
         status_at(&dir, 0);
@@ -1526,10 +1614,10 @@ mod tests {
     fn poll_home(name: &str) -> tehas_core::testdir::TestDir {
         let home = home_of(name);
         std::fs::create_dir_all(home.join("libexec")).unwrap();
-        std::fs::create_dir_all(home.join("state")).unwrap();
+        std::fs::create_dir_all(Home::new(&*home).state_dir()).unwrap();
         let store = home.join("libexec/store");
         tehas_core::testing::write_exe(&store, "#!/bin/sh\nexit 0\n").unwrap();
-        std::fs::write(home.join("state/tehas.db"), "").unwrap();
+        std::fs::write(Home::new(&*home).state(State::StoreDb), "").unwrap();
         home
     }
 
@@ -1539,20 +1627,54 @@ mod tests {
         let held = OpenOptions::new()
             .create(true)
             .append(true)
-            .open(home.join("state/dispatch.lock"))
+            .open(Home::new(home).state(State::DispatchLock))
             .unwrap();
         held.try_lock()
             .expect("nothing else holds this home's lock");
         held
     }
 
+    /// A wiring with no code host and no marks: these polls write nothing of
+    /// the ports.
+    fn no_wiring() -> crate::apply::Wiring {
+        crate::apply::Wiring {
+            handles: no_handles,
+            mark_of: |_| None,
+            assignee: None,
+        }
+    }
+
+    /// A wiring with no code host: these polls write nothing of the ports.
+    fn no_handles(
+        _: &Path,
+        _: &str,
+        _: &str,
+        _: Option<&str>,
+        _: Duration,
+        _: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    ) -> tehas_ports::Got<crate::apply::Handles> {
+        Err(tehas_ports::Outcome::Refused(
+            tehas_ports::Refusal::Unsupported,
+        ))
+    }
+
     #[test]
     fn a_poll_that_finds_the_lock_held_leaves_the_ask_for_the_next_poll() {
         let home = poll_home("again-held");
-        let again = home.join("state/dispatch.again");
+        let again = Home::new(&*home).state(State::DispatchAgain);
         std::fs::write(&again, "").unwrap();
         let held = held_lock(&home);
-        assert_eq!(run_poll(&home, &Settings::parse(&json!({})), false), 0);
+        let events = crate::events::wiring();
+        assert_eq!(
+            run_poll(
+                &home,
+                &Settings::parse(&json!({})),
+                false,
+                events,
+                no_wiring()
+            ),
+            0
+        );
         // A cycle ended while a poll ran and asked for another: the ask is
         // the running poll's to take, and one that found the lock held must
         // leave it for `tehas-dispatch.path` to start a poll when it ends.
@@ -1563,9 +1685,15 @@ mod tests {
     #[test]
     fn a_poll_that_takes_the_lock_takes_the_ask_with_it() {
         let home = poll_home("again-taken");
-        let again = home.join("state/dispatch.again");
+        let again = Home::new(&*home).state(State::DispatchAgain);
         std::fs::write(&again, "").unwrap();
-        let _ = run_poll(&home, &Settings::parse(&json!({})), false);
+        let _ = run_poll(
+            &home,
+            &Settings::parse(&json!({})),
+            false,
+            crate::events::wiring(),
+            no_wiring(),
+        );
         // This poll is the one that was asked for, so the ask is gone.
         assert!(!again.exists(), "the poll that ran left the ask");
     }

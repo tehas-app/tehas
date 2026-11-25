@@ -14,22 +14,28 @@
 # The wiki, asked for by the owner on 2026-11-21 with its link on the
 # dashboard (#2687): page dashboard 90375 54342, page manual 0 49974 for the
 # wiki page's title in the layout, and the new page wiki.
+# The wiki left core in 2.0, and the dashboard and manual lines went down.
 # Approved by the owner on 2026-11-21 for the plugins menu in panels.js and
 # panels.css, which both pages load: page business 101015 40730 and page
 # floor 146222 68698.
-page business 101015 40730
-page floor 146222 68698
-page dashboard 90375 54342
-page manual 0 49974
-page wiki 48094 51706
+# Energy use left core in 2.0, and the business and floor lines went down.
+# The host panel left core in 2.0, and the floor, dashboard and manual lines
+# went down.
+# Panels left core in 2.0, and the business and floor lines went down again.
+# The business page left core in 2.0: its line went, and the floor and
+# dashboard lines went down.
+# The floor names an open ticket with no state label Idea.
+# The repository's name is eight bytes longer (T10), approved by the trio's
+# program manager on 2026-11-23: floor 3 occurrences, 49092 to 49116;
+# dashboard 1, 51741 to 51749; manual 1, 47910 to 47918.
+page floor 112261 49116
+page dashboard 78498 51749
+page manual 0 47918
 island factory/tehas-factory-console 4156
-island factory/tehas-factory-days 4686
+island factory/tehas-factory-days 4684
 island factory/parts 847
-island factory/tehas-factory-host 4410
 island factory/tehas-factory-issues 3728
 island factory/tehas-factory-previews 4073
 island factory/tehas-factory-readonly 2877
-island factory/tehas-factory-state 3261
-island factory/tehas-factory-wiki 2712
-island factory/tehas-factory-wikilink 1408
+island factory/tehas-factory-state 3008
 library solid 123689

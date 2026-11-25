@@ -5,19 +5,19 @@ description: "How the dashboard and the front pages are built: the platform and 
 
 # The front end
 
-This page is the contract for the pages a factory serves: the business page,
-the factory floor, the dashboard, the manual and the Protolab's pages. It says
+This page is the contract for the pages a factory serves: the factory floor,
+the dashboard and the manual. It says
 what a page may use, how its parts are named and split, and how big it may
 grow. Existing pages follow the rules as they are touched; a page moved to them
 looks the same before and after.
 
 What is true today: the pages are static HTML and Caddy templates in
 `host/fun/` and `host/docs/`, with plain scripts and ES modules, no build step.
-The Protolab's pages are written by `tehasbot protolab` and hold no script. The
+The pages of an item, which the edge router serves, hold no script. The
 kit in `host/fun/kit/` holds Solid 2 and the island base. The plain dashboard
 is on it: its sections are the islands of `host/fun/factory/`
-([The plain dashboard](#the-plain-dashboard)). The business page and the
-factory floor still draw with plain scripts and move in 1.2. The byte ratchet
+([The plain dashboard](#the-plain-dashboard)). The factory floor still draws
+with plain scripts. The byte ratchet
 in [Budgets](#budgets) holds every page at its size today.
 
 ## The split
@@ -276,7 +276,7 @@ plan.meta(); // null before the first answer, then
   one too, and a new `Date` with the same bytes leaves `data()`'s readers be.
   It lands a moment before `data()` does, while the poll is still pending.
 - The server's clock is `meta().date` moved on by what the viewer's clock has
-  run since `meta().at`. The host island judges a snapshot's age so.
+  run since `meta().at`.
 - An error of a status that is not accepted carries it as `error.status`.
 
 Two more, added in `kit 1` with no change for a caller that does not use
@@ -580,11 +580,20 @@ const said = live.error()?.data?.error;
 ## Light and dark
 
 The mode is a toggle a person sets, not the system setting. A page is light
-unless the viewer picks dark, and the choice is kept in that browser where
-storage allows (`fun/mode.js`, the key `tehas-mode`). Only a theme whose
-`--modes` token names `dark` offers it: today `beesknees26`, on the business
-page's mode button. The kit has no mode element: a page that offers the
-toggle loads `fun/mode.js`.
+unless it sets `data-mode="dark"` on the root at the viewer's pick. Only a
+theme whose `--modes` token names `dark` has the set: today `beesknees26`. No
+page of tehas offers the toggle since the business page left core in 2.0, and
+the kit has no mode element.
+
+## The shared page rules
+
+`host/fun/pages.css` holds 17 rules that pages outside tehas wear over the
+theme: the base, the top bar, the logo mark, the panels and the foot. Obeya and
+industry's workshop take them from a release by selector, top-level rules only,
+so a selector keeps its exact text from one release to the next. No page of
+tehas links the file; the floor draws its own in `game-view.css`.
+`test/theme_test.sh` holds the file to its 17 selectors and to the theme's
+tokens.
 
 ## The kit
 
@@ -599,6 +608,7 @@ release that ships it:
 | `island.js` | The island base: attributes, the hydrate trigger, the mount and the disposal, the events. No library |
 | `feed.js` | The feed store ([Feeds](#feeds)) |
 | `stream.js` | The stream source ([Streams](#streams)) |
+| `events.js` | The factory's events on a page: `events`, `names` and `raise` ([Events](/api#events)). No library |
 | `press.js` | Presses ([Presses](#presses)). No library |
 | `request.js` | What the kit's modules that make requests share about a request and its answer. No library |
 | `state.js` | Page stores ([Page state](#page-state)), and `shared(key, make)`, one value per key per page under the page's owner |
@@ -798,36 +808,23 @@ reads "loading", the lists are empty and the optional sections are hidden.
 
 | Element | Reads | Draws |
 | --- | --- | --- |
-| `tehas-factory-state` | `status.json`, `running.json` | The state, the all-hands and read-only marks, how old the queue is, the link to all issues |
+| `tehas-factory-state` | `status.json`, `running.json` | The state, the read-only mark, how old the queue is, the link to all issues |
 | `tehas-factory-console` | `running.json`, `status.json` | The tabs of the cycles, the shown cycle's title and step, and the console |
 | `tehas-factory-issues` | `status.json` | One list, named by `list`: `queued`, `awaiting`, `stopped` or `completed` |
 | `tehas-factory-readonly` | `status.json` | What a read-only factory's starts left |
 | `tehas-factory-days` | `analytics.json` | Last 10 days |
 | `tehas-factory-previews` | `previews.json` | The previews |
-| `tehas-factory-host` | `top.json` | The host and its units, the snapshot's age by the server's clock |
-| `tehas-factory-wikilink` | `wiki.json` | The link "wiki" to the current build of the product wiki, hidden with no build |
-
-The wiki page, `/wiki` (`host/docs/wiki.frag`), is one island,
-`tehas-factory-wiki`, on `wiki.json`, read every 30 seconds: the current build,
-when and at which commit it was built, how far it is behind main and its link.
 
 - Seven islands read `status.json` through one feed, polled every ten seconds;
-  `running.json` the same. `analytics.json` is read once a minute. `top.json`
-  is read every ten seconds while the last answer was good and once a minute
-  while there is none: the island reads it at a minute, and a second reader
-  that asks for ten seconds lives only while the file is there.
+  `running.json` the same. `analytics.json` is read once a minute.
 - A file that is not there leaves its island's server HTML: a host with no
-  previews, no `top.json` or no report has those sections hidden, as before.
+  previews or no report has those sections hidden, as before.
   The section comes when the file does.
 - The host bridge's answer (`fun/host-bridge.js`) reaches the islands that
   draw tickets through the page store of `factory/bridge.state.js`.
 - What more than one island draws, the space between two elements and the
   host's notes on a ticket, is in `factory/parts.render.js`. It is a render
   module with no element, so `pages.max` gives it an island line of its own.
-- The host island judges the snapshot's age by the server's clock: the
-  `Date` of the feed's last answer (`meta()`), moved on by what the viewer's
-  clock has run since. A viewer whose clock is off from the host's sees the
-  same age as one whose clock is right.
 - The console is a plain element inside the console island,
   `<tehas-factory-tail file live>` (`factory/tehas-factory-tail.js`). A
   console is text that grows and is read by byte range, so the element reads
@@ -869,11 +866,9 @@ library solid <bytes>
 
 | Page | Made of |
 | --- | --- |
-| `business` | `fun/business.html` |
 | `floor` | `fun/index.html` |
 | `dashboard` | `docs/_layout.html` and `docs/dashboard.frag`, with the islands its tags load |
 | `manual` | `docs/_layout.html` |
-| `wiki` | `docs/_layout.html` and `docs/wiki.frag`, with the island its tag loads |
 
 A page's script bytes are the files its `<script src="/fun/…">` tags name and
 the modules those import by a relative address, at any depth, each file once,
@@ -914,7 +909,7 @@ The budgets for new work:
 | A plain element | 2 KB | Review |
 | The kit's core modules | 30 KB (30720 bytes) for `island.js`, `feed.js`, `request.js`, `state.js` and `parts.js`, which a page that polls loads: a review figure, not a gate. The owner set 24 KB on 2026-11-20 and raised it to 30 KB on 2026-11-21 for the kit's JSDoc types. At `kit 1` with the types they are 29616 bytes, under it. `stream.js` and `press.js`, 19843 more, load only on a page that imports them | Review |
 | A new page | 40 KB of script, 30 KB of CSS beside the theme and the kit | Review, and its line in `pages.max` |
-| A page with no island | No script beyond `fun/mode.js` | Review |
+| A page with no island | No script | Review |
 
 ## Tests
 

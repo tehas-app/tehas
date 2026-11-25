@@ -181,6 +181,10 @@ Run `tehas dispatch --dry-run` and read what it prints.
   start lowest number first`: the poll treats it as no order. Set it again
   with `tehas order set`, or clear it, and run `tehas state check` if it
   keeps coming back.
+- `<NAME> is no longer read: <reason>; remove it from the instance`: the
+  instance sets a setting of a feature 2.0 took out of core. The command goes
+  on: the line loads, nothing reads it, and the warning comes once a load.
+  Take the line out of `instance.env`.
 - `TEHAS_PRIORITY_FIELD is no longer read: tehas order sets the order ready
   issues start in, so take the line out` (the same for `TEHAS_LOW_GATE` and
   `TEHAS_LOW_GATE_WAIT`): every command stops with 78 while the instance sets
@@ -209,15 +213,10 @@ Run `tehas dispatch --dry-run` and read what it prints.
   `instance.env` or `~/.config/tehas/env`. Every command stops with 78 until
   the line is renamed or taken out. The refusal and `tehas update --check`
   list every such line at once (see [tehas update](/tools-update#settings-tehas-10-renamed-or-removed)).
-- `ERROR: TEHAS_ISSUE_TYPES maps improvement to ...` (the poll) or
-  `... maps prototype to ...` (the Protolab's log): the owner of the repository has no issue type of that name. Nothing was
+- `ERROR: TEHAS_ISSUE_TYPES maps improvement to ...` (the poll): the owner of the repository has no issue type of that name. Nothing was
   written. Add the type in the organisation's settings, spell it as the
   organisation does, or leave the kind out of the setting for its label. See
   [Kinds as issue types](/operating#kinds-as-issue-types).
-- `#N: the issue type Prototype was set by ...`: with `TEHAS_ISSUE_TYPES`, the
-  newest change to the ticket's type came from an account outside
-  `TEHAS_ALLOWED_LABELERS`, or the Protolab could not see who made it. Set the
-  type again from an allowed account.
 - `holding: <n> of <free> free slots start: ...`: some cycles started, fewer
   than there are free slots and issues waiting. The rest of the line is the
   one limit that cut it: issues awaiting merge (`TEHAS_MAX_AWAITING`), or the
@@ -401,8 +400,7 @@ Run `tehas dispatch --dry-run` and read what it prints.
   without that issue or that field.
 - `ERROR: <repo> is now <other> on GitHub`: the repository was renamed or
   moved. Until it is put right the factory floor shows an empty board. Set
-  `TEHAS_REPO` to the new name, and `TEHAS_REVIEW_REPO` too if it named the
-  same repository. Point the product checkout's `origin` at it, move the
+  `TEHAS_REPO` to the new name. Point the product checkout's `origin` at it, move the
   checkout if its directory was named after the old one, and run
   `install.sh`. When the product is tehas itself, point the platform
   checkout's `origin` at it as well, or `tehas update` pulls from the old
@@ -529,7 +527,7 @@ The common ones:
 | underspecified, needs clarification | The issue does not say enough                       | The factory refines it once on its own; after that, add acceptance criteria and relabel |
 | `explore-bodies-empty`              | `gh` could not read the issue                       | Check the bot token: `gh auth status`                    |
 | verify or smoke failure             | The gates failed on the developer's change          | Read the gate output in the handoff; often a real defect |
-| protected paths                     | The patch touched `.pi/`, `.github/`, `CODEOWNERS` or `agents.json` | By design. Make that change yourself, then tick a retry box on the park comment. The comment says so in place of pi-rukas's `/work --restart --allow-protected`, which a host cannot run |
+| protected paths                     | The patch touched `.pi/`, `.github/`, `CODEOWNERS` or `agents.json` | By design. Make that change yourself, then reply to the park comment with the word of one of its retries. The comment says so in place of pi-rukas's `/work --restart --allow-protected`, which a host cannot run |
 | review round cap                    | The review kept finding problems                    | Read the review on the pull request                      |
 | developer timeout                   | An agent ran out of time                            | Usually model endpoint capacity; retry later             |
 | `wall-clock`, `stall`               | tehas ended the cycle: its time limit `TEHAS_WORK_TIMEOUT`, or no log moved for `TEHAS_WORK_STALL` | Read the run log the comment names; see [a cycle stops at a cap](#a-cycle-stops-at-a-cap) |
@@ -537,10 +535,10 @@ The common ones:
 | `container-killed`                  | The container ended with 137 and nobody here stopped it: the kernel killed it for memory, or something outside the cycle killed it. The record's `capReason` names the step in flight and how many processes in the container were killed for memory, and `err.txt` says the same | Read the memory kills first: a cycle that keeps reaching this cap needs a larger share of the slice or fewer cycles at once. A pull request it had opened is named in the comment |
 | `process-limit:<step>`              | The container reached its `--pids-limit` and refused starts of a process, and the run named no other cap. The comment says how many were refused and the limit it reached | Read the run log the comment names for what ran at that step. The limit follows the container's share of the slice: `TEHAS_MAX_CYCLES` and `TEHAS_SLICE_CONTAINERS`, both on the cycle's record |
 | `runner-never-started`              | The container ended before the driver wrote its first event: no step ran and the record would hold nothing but an exit status | Look for a host-side fault: the image, the slice, the model endpoint. See [`runner-never-started`](#runner-never-started) below |
-| `the sandbox image cannot run it as this start asks` | The issue carries [`tehas:lean`](/operating#choosing-the-driver) and the sandbox image cannot run `work-lean` as asked: its pi-rukas is older than v0.14.47, or lacks a flag, input or feature this start gives it, such as `--continue-pr` for a refresh. The comment names each one. `tehas work` stopped with exit 78: no container ran, nothing moved, classic did not run in its place. The start's approval is gone, so nothing starts it again on its own | To keep it on lean, rebuild the sandbox image on a pi-rukas that supports what the comment names, then apply `tehas:ready` again. To run it on classic instead, which changes its driver, take `tehas:lean` off, then tick Retry (under `TEHAS_DRIVER=lean`, apply `tehas:classic` instead). A Retry ticked with the label still on waits for it to come off |
+| `the sandbox image cannot run it as this start asks` | The issue carries [`tehas:lean`](/operating#choosing-the-driver) and the sandbox image cannot run `work-lean` as asked: its pi-rukas is older than v0.14.47, or lacks a flag, input or feature this start gives it, such as `--continue-pr` for a refresh. The comment names each one. `tehas work` stopped with exit 78: no container ran, nothing moved, classic did not run in its place. The start's approval is gone, so nothing starts it again on its own | To keep it on lean, rebuild the sandbox image on a pi-rukas that supports what the comment names, then apply `tehas:ready` again. To run it on classic instead, which changes its driver, take `tehas:lean` off, then reply with the retry the park comment offers (under `TEHAS_DRIVER=lean`, apply `tehas:classic` instead). A retry answered with the label still on waits for it to come off |
 | `` tehas gave `work-lean` what it never takes `` | The issue carries `tehas:lean`, and tehas passed `work-lean` a flag it takes in no release, such as `--restart`. The comment names the flag. This is a fault in tehas, not in the issue or the sandbox image: no image and no label fixes it. `tehas work` stopped with exit 78 and nothing ran | Update tehas to a release that fixes it, then retry. Taking `tehas:lean` off would only run the issue on classic, which is a change of driver and not a fix |
-| `tehas work stopped it before its runner ran` | A step of `tehas work` failed before the driver started, and it exited 78. The comment names the driver and, where `tehas work` left word of it, the step: the product's install failed, with its exit status, a tool the sandbox image lacks, or the install timed out. Otherwise the run log the comment names says which step | Read the run log. Fix what it names, then tick Retry |
-| `docker refused --cpus <n>, it counts <m> CPUs` | The Docker daemon counts fewer CPUs than the host has: it was running when the host was given more, and it refuses a CPU quota above its count. tehas sizes the containers for Docker's count and logs `its Docker daemon counts <m>`, so this park means Docker gave no count tehas could read | Restart the Docker daemon when no cycle runs (`sudo systemctl restart docker`), then tick Retry. See [limits and concurrency](/host#limits-and-concurrency) |
+| `tehas work stopped it before its runner ran` | A step of `tehas work` failed before the driver started, and it exited 78. The comment names the driver and, where `tehas work` left word of it, the step: the product's install failed, with its exit status, a tool the sandbox image lacks, or the install timed out. Otherwise the run log the comment names says which step | Read the run log. Fix what it names, then reply with the retry the park comment offers |
+| `docker refused --cpus <n>, it counts <m> CPUs` | The Docker daemon counts fewer CPUs than the host has: it was running when the host was given more, and it refuses a CPU quota above its count. tehas sizes the containers for Docker's count and logs `its Docker daemon counts <m>`, so this park means Docker gave no count tehas could read | Restart the Docker daemon when no cycle runs (`sudo systemctl restart docker`), then reply with the retry the park comment offers. See [limits and concurrency](/host#limits-and-concurrency) |
 | `lean found this issue not ready to build from` | A lean run read the issue's `pi-spec v1` block and refused it (runner exit 11). The rules it failed follow in the comment | Fix the block, or run pi-rukas's `/plan` to write it, then apply `tehas:ready` |
 | `lean stopped on the repository's setup, not on this issue` | A lean run refused the issue for the repository's `.pi/work.json` (runner exit 11): it names no `verify.test` while the spec has a `test` criterion, or the file does not load. The issue's text is fine. Lean's reason follows in the comment | A person adds `verify.test` to `.pi/work.json` or fixes the field it names; see [the lean driver's settings](/new-project#the-lean-drivers-settings). Then apply `tehas:ready` |
 | `Lean left its pull request a draft` | A lean run handed back with a draft pull request: its gate did not clear the head it pushed. A draft never waits for a merge | Read the reason in the comment and the pull request before you retry |
@@ -565,55 +563,6 @@ apply `tehas:ready` again. The block is the only text pi-rukas's lean driver
 plans from, and its `/plan` writes one; [Choosing the
 driver](/operating#choosing-the-driver) says what the block must look like.
 
-With `TEHAS_SPEC_PIPE=on`, a start whose issue has a `Spec:` line tehas cannot
-read starts nothing either: the poll takes the label off and says once why,
-for example `` its `Spec:` line is not a link and its sha256 `` or `` the link
-of its `Spec:` line is not a file attached on GitHub ``. Write the one line
-`Spec: <link of the attached file> sha256:<64 hex digits of its bytes>`, or
-take it out, and apply `tehas:ready` again.
-
-A start with a `Spec:` line also fetches the file and checks that its bytes
-have the sha256 the line names. When they do not, or GitHub refuses the link
-with a 4xx, nothing starts and the poll says once why, for example `` the
-bytes of its spec are not the ones its `Spec:` line names: they have sha256
-<hex> ``. The file attached is not the one the line was written for: attach
-the spec, write its link and the sha256 of its bytes (`sha256sum spec.md`),
-and apply `tehas:ready` again. A start from `tehas start` is not told on the
-issue: the line is in `~/tehas/logs/dispatch.log`, and the host's approval is
-taken off the record, so run `tehas start <n>` again once the line is right.
-An outage's retry or a refresh stopped this way is not tried again on its
-own: apply `tehas:ready`. `ERROR: the spec of #<n> could not be fetched
-(curl exited <n>)`, with `HTTP <status>` when GitHub answered, is a fetch
-that failed on the way, a 5xx among them: nothing changed, the poll ends
-with 1, and the next poll tries again.
-
-The cycle fetches the spec once more as it starts and holds it to the same
-pin. `Tehas started no cycle: the bytes of its spec are not the ones
-approved` means the file changed between the poll and the start; `its spec
-could not be fetched (curl exited <n>)` is a fetch that failed. Nothing ran:
-apply `tehas:ready` again once the spec is right. `tehas work: <image> does
-not support what this cycle is given` followed by `the feature issueSpec`
-means the sandbox image's pi-rukas does not read a spec: the start stops with
-78 rather than run a cycle that would never see it. Rebuild the image on a
-pi-rukas that lists `issueSpec`, or take the `Spec:` line out and approve the
-issue again.
-
-A cycle with a pinned spec that hands off with its pull request open parks,
-rather than wait for a merge, when the pull request does not answer to that
-spec. The park reason is `spec-block`, and the comment says `Its pull request
-does not answer to the approved spec:` and then one of:
-
-- `its body has no spec block`;
-- `its spec block names sha256 <got>, not <pinned>, the one approved`;
-- `its spec block cannot be read: <why>`, with the reason of the parser;
-- `the approval of this start could not be read, so its spec block could not
-  be checked`, when the state store did not answer.
-
-Fix the block in the pull request's body so that it is [one tehas
-reads](/contract#the-pull-request-spec-block) and names the approved sha256,
-then retry. Or, when the issue should not be held to a spec, take the `Spec:`
-line out of the issue and approve it again.
-
 The caps this factory has posted are explained one by one in the next
 section.
 
@@ -623,20 +572,21 @@ edit. The edit ships and you see it in the diff, and the cycle is judged
 against the doctrine at the commit it started from, so an edit of its own
 changes nothing for that cycle. See [Operating tehas](/operating).
 
-### A tick in the park comment starts nothing
+### An answer to the park comment starts nothing
 
-A box counts only in the question this host has on record for the issue's
-current park, on the state store. The poll's log says which case it is:
+An answer counts only to the question this host has on record for the issue's
+current park, on the state store. A box ticked in a comment of before 2.0 is
+no answer at all, and nothing is said of it. The poll's log says which
+case it is:
 
-- `skip #N: a box was ticked in a question this host has no record of`: the
+- `skip #N: a choice was made in a question this host has no record of`: the
   comment is not that question. It may be the question of an earlier cycle (a
   start takes its question off the record), one a `tehas:plan` session or
   `tehas stop` took off, one whose `tehas:question` label could not be added
-  when it was posted, or a comment with a copied marker. The poll unticks it
-  and comments that the factory is not waiting on it. Apply `tehas:ready` to
-  start a cycle.
+  when it was posted, or a comment with a copied marker. The bot comments once
+  that the factory is not waiting on it. Apply `tehas:ready` to start a cycle.
 - `skip #N: its question on record could not be read (<word>)`: the state
-  store was busy. Nothing was ticked or unticked; the next poll reads it
+  store was busy. Nothing was taken; the next poll reads it
   again. A store that cannot be used stops the poll with exit 78 instead: see
   `~/tehas/logs/dispatch.log`.
 - `skip #N: the question on record does not belong to this issue`: the
@@ -652,7 +602,7 @@ current park, on the state store. The poll's log says which case it is:
   start afresh. The last is what a factory does when the account that posted
   the question is gone: see
   [a GitHub App for a factory](/github-app#things-seen-on-the-first-app).
-- `WARN: could not record the park question of #N, its boxes will not work`
+- `WARN: could not record the park question of #N, a reply to it will not count`
   in the cycle's log: the question was posted while the store did not take
   it. Apply `tehas:ready`.
 
@@ -681,8 +631,8 @@ Read the rest of the comment with three things in mind:
 - Its paths are the ones inside the cycle's container. The workspace that is
   `~/tehas/work/tehas` there is `~/tehas/work/tehas-<issue>` on the host.
 - Its "Concrete recovery commands" are written for pi-rukas run by hand. On
-  the host a retry does what they do: tick a retry box in the bot's
-  comment, or apply `tehas:ready`. Both start a fresh cycle from the
+  the host a retry does what they do: reply to the bot's comment with
+  the retry it offers, or apply `tehas:ready`. Both start a fresh cycle from the
   first step, in a new workspace. Commits that were never pushed are kept in
   `tehas-<issue>.before-retry` until the next retry. See step 5 of
   [Operating](/operating).
@@ -757,7 +707,7 @@ two forms:
   sheets (`host/fun/*.css`), and in one cycle scripts as well. Tests and
   manual pages are what the repository's rules require a change to touch, so
   the plan's fence and the rules disagree
-  (tehas-app/tehas#159, trail-openers/pi-rukas#1250). Name in the issue every file
+  (tehas-app/tehas-factory#159, trail-openers/pi-rukas#1250). Name in the issue every file
   the change will touch, the test file and the manual page included, as
   step 1 of [Operating](/operating) says.
 - `verify command ... failed on the CONSOLIDATED tree`, or `exceeded its
@@ -780,7 +730,7 @@ two forms:
   directory, a pattern or a cut-down entry can cover it. Then name the file in
   the deliverable, drop it from `Out of scope`, and approve the edited body
   again, as step 1 and the end of step 5 of [Operating](/operating) say: the
-  label or the tick approves the body as it was then.
+  label or the answer approves the body as it was then.
 - `consolidated verify was refused  repoRoot is dirty (...)`. Not a gate
   failure: the driver would not run the consolidated gate at all because it
   found files in the checkout that git does not ignore. When the names are
@@ -819,7 +769,7 @@ with `holding: main is red at <sha>` while that check failed on the head
 commit (see [Limits that hold work back](/operating#limits-that-hold-work-back)).
 Fix the branch, then retry.
 
-What only pi-rukas can change (tehas-app/tehas#751): the base run should
+What only pi-rukas can change (tehas-app/tehas-factory#751): the base run should
 write a `verify-started` and a `verify-completed` event with `status:
 "failed"`, the failing suite, the assertion and the path of the output it
 kept. When it extracts no assertion it should say so and name that path.
@@ -957,7 +907,7 @@ named `developer-timeout`.
 
 The adversarial review could not run: its dispatch failed twice. It says
 nothing about the code. All three times it was seen here, on 14 October, the
-model endpoint was timing out (tehas-app/tehas#147,
+model endpoint was timing out (tehas-app/tehas-factory#147,
 trail-openers/pi-rukas#1243). The work is committed on a local branch in the
 workspace and was not pushed. There is no pull request. Check the endpoint,
 as in "The model endpoint does not answer" below, and retry once it answers.
@@ -968,7 +918,7 @@ already done is not reused.
 
 The gate passed, but the change lacks a part the plan declared. The comment
 names the missing parts by id and path, for example `d5
-(host/fun/host-data.js)`. pi-rukas has already tried once to add them.
+(host/fun/page-data.js)`. pi-rukas has already tried once to add them.
 The work is committed on a local branch in the workspace and was not pushed.
 There is no pull request. Retry: a new cycle gets a new attempt at the
 missing parts. If a missing part is one the issue does not want, say so in
@@ -1065,9 +1015,9 @@ Nothing was written. Here it was once a pull request of an earlier cycle and
 once a person's own. Merge that pull request, or close it and retry. A retry
 that asks with the `tehas:ready` label stops the same way while it is open: the
 poll takes the label off and names the pull request on the issue. A retry
-asked by ticking `Retry` in the park comment does not reach pi-rukas at all:
-the poll sees the open pull request first, unticks the box and says the same
-on the issue. Merge or close the pull request, then tick the box again.
+answered on the park comment does not reach pi-rukas at all: the poll
+sees the open pull request first and says the same on the issue. Merge or
+close the pull request, then answer the retry again.
 
 ### `review-incomplete`
 
@@ -1088,11 +1038,11 @@ log and asked GitHub for the bot's pull request of the branch that
 
 - The comment names the pull request when GitHub lists one. Read it: the change
   is up for review, and a clean retry redoes what it already holds. That
-  comment has no retry boxes, and the issue carries `needs-human-attention`.
+  comment offers no retry, and the issue carries `needs-human-attention`.
 - A run log longer than the 200 KB tehas reads is read from its end, and only
   what that end says is known. Such a cycle is not handed off: tehas cannot say
   that nothing came after the step its log's end names, so the issue is parked
-  with the retry boxes, and the comment still names the pull request GitHub
+  with the retry choices, and the comment still names the pull request GitHub
   lists on the branch. Read `~/tehas/logs/work-<N>-*.jsonl` for the rest.
 - The comment says no pull request was found when GitHub lists none. The
   change is then either unpushed or pushed without a pull request. The
@@ -1246,7 +1196,7 @@ so the update says so first:
 ```
 Cycle token:  CANNOT PUSH (tehas-app-bot[bot] was refused a dry-run push to origin)
     remote: Write access to repository not granted.
-    fatal: unable to access 'https://github.com/tehas-app/tehas.git/': The requested URL returned error: 403
+    fatal: unable to access 'https://github.com/tehas-app/tehas-factory.git/': The requested URL returned error: 403
 ```
 
 The update exits 1. What it installed stays installed. A drained factory stays
@@ -1567,8 +1517,9 @@ pull request than the one on record, so a notice a person removed comes back at
 the next run. The rules are in
 [tehasbot preview](/tools). The log line says which case it is:
 
-- `#<pr>: the description could not be read (no such pull request (HTTP 404)),
-  tried again at the next run`, or with `GitHub refused the call (HTTP 403)`.
+- `#<pr>: the description could not be read (not found, or not visible to
+  this actor), tried again at the next run`, or with `this actor may not do
+  this`.
   Check `gh auth status` as the tehas user: a token that lost access, or one
   that cannot write pull requests, answers that way for every pull request.
 - `#<pr>: the description has a preview notice that is not this one, left

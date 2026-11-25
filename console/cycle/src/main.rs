@@ -8,14 +8,11 @@
 //!   tehas-cycle report <issue> --attempt <n> --rc <n> --started <s>
 //!       --signalled 0|1 --by <login> --how <how> --approval-at <s>
 //!       --requeued 0|1 [--now <s>] --console <path> --status-cmd <path>
-//!       [--status-arg <word>]... [--runner work|job]
+//!       [--status-arg <word>]...
 //!                                     report an ended cycle, every GitHub
 //!                                     write through the action journal, then
 //!                                     what follows its end (src/apply.rs), as
-//!                                     `cycle` does once tehas work is over.
-//!                                     --runner job reports a cycle run on a
-//!                                     contractor and needs the outsource
-//!                                     feature on (78)
+//!                                     `cycle` does once tehas work is over
 //!   tehas-cycle approved <issue> <attempt>
 //!                                     print {at, how, driver} of the approval
 //!                                     that attempt used, or null: read
@@ -50,20 +47,14 @@
 //!                                     "say": <a repeat's words for the park>}
 //!                                     (src/last_attempt.rs)
 //!   tehas-cycle cycle <issue> --work <path> [--work-arg <word>]...
-//!       [--runner work|job] --status-cmd <path> [--status-arg <word>]...
-//!       --console <path>
+//!       --status-cmd <path> [--status-arg <word>]... --console <path>
 //!                                     tehasbot cycle, which the console execs
 //!                                     with the settings loaded: the issue's
 //!                                     lock, waited for 5 s (3 when another
 //!                                     holds it), the start on record, what
 //!                                     the number is, tehas work to its end and
 //!                                     the report (src/supervise.rs). Exits as
-//!                                     tehasbot cycle does. With --runner job
-//!                                     the --work program waits on a cycle run
-//!                                     on a contractor, and the start and the
-//!                                     report read no image and no workspace
-//!                                     here; it needs the outsource feature
-//!                                     on (78)
+//!                                     tehasbot cycle does
 //!   tehas-cycle run <issue>           what tehas-cycle@.service starts:
 //!                                     copy the install's code for this
 //!                                     cycle and run tehasbot cycle from the
@@ -92,14 +83,6 @@
 //!                                     is stopped on a guess. It reads no wall
 //!                                     clock, so a VM that was saved is not
 //!                                     counted against a cycle
-//!   tehas-cycle describe <dir> <issue>
-//!                                     write <dir>/images.md, a model's
-//!                                     description of each image in
-//!                                     <dir>/manifest.json, and name it in the
-//!                                     manifest (src/describe.rs). <issue> is
-//!                                     the issue number, sent as X-Tehas-Issue
-//!                                     on each request when it is digits. Exits
-//!                                     1 only when a file could not be written
 //!   tehas-cycle private <models.json> <email>
 //!                                     the names a mask hides, two lines each:
 //!                                     `--private` and the name, for a command
@@ -247,8 +230,7 @@
 //! read, said on standard error, or run could not exec, or `clock check` said
 //! `stalled`, or `finish` refused, or a caps or runner verb said no as above;
 //! 2 `clock check` said `over`; 3 `clock check` said `unknown`; 64 an argument
-//! it does not know; 78 run without an absolute TEHAS_HOME, or cycle or report
-//! --runner job with the outsource feature off.
+//! it does not know; 78 run without an absolute TEHAS_HOME.
 //!
 //! finish is asked the whole of its words and reads no setting of its own, so it
 //! takes no TEHAS_HOME: part 2's poll step, the only caller today, passes the
@@ -259,12 +241,14 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use tehas_core::driver::Driver;
+use tehas_core::home::{Home, State};
 use tehas_cycle::after::{self, After};
-use tehas_cycle::host::{Runner, Start};
+use tehas_cycle::host::Start;
 use tehas_cycle::last_attempt::{self, Action};
+use tehas_cycle::loose::Node;
 use tehas_cycle::report::{last_attempts, to_json, Given};
 use tehas_cycle::{apply, finish, lock, pin, progress, renew, report};
-use tehas_cycle::{caps, clock, index, runner, sandbox, supervise, work, Facts};
+use tehas_cycle::{caps, clock, events, index, runner, sandbox, supervise, work, Facts};
 
 fn usage() -> String {
     include_str!("main.rs")
@@ -332,11 +316,7 @@ fn main() {
             if start.console.is_empty() || start.status_cmd.is_empty() {
                 wrong(&args);
             }
-            if start.runner == Runner::Job && !tehas_core::features::on("outsource") {
-                after::log("ERROR: --runner job needs the outsource feature on: it is off");
-                std::process::exit(78);
-            }
-            std::process::exit(apply::run(&home, &start));
+            std::process::exit(apply::run(&home, &start, handles));
         }
         ["clock", "now"] => {
             if clock::print_now(clock::boot_seconds).is_none() {
@@ -436,11 +416,6 @@ fn main() {
             Some(r) => tehas_core::outln!("{}\n{}\n{}", r.step, r.branch, r.read),
             None => std::process::exit(1),
         },
-        ["describe", dir, issue] => {
-            if tehas_cycle::describe::describe(Path::new(dir), issue).is_err() {
-                std::process::exit(1);
-            }
-        }
         ["private", models, email] => {
             for name in tehas_core::mask::host_names(models, email) {
                 tehas_core::outln!("--private\n{name}");
@@ -453,9 +428,9 @@ fn main() {
 /// One run of the indexer under state/index.lock, which its docker client
 /// inherits: a client that outlives the run still writes the index.
 fn index_verb(home: &Path, run: impl FnOnce() -> u8) -> ! {
-    let state = home.join("state");
-    let _ = std::fs::create_dir_all(&state);
-    let held = match lock::take(&state.join("index.lock"), Duration::ZERO) {
+    let home = Home::new(home);
+    let _ = std::fs::create_dir_all(home.state_dir());
+    let held = match lock::take(&home.state(State::CodeIndexLock), Duration::ZERO) {
         Ok(Some(f)) => f,
         Ok(None) => {
             eprintln!("tehas index: another index run holds its lock, nothing was indexed; run it again in a moment");
@@ -475,10 +450,10 @@ fn cycle_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
         issue: n,
         work: String::new(),
         work_args: Vec::new(),
-        runner: Runner::Work,
         status_cmd: String::new(),
         status_args: Vec::new(),
         console: String::new(),
+        handles,
     };
     let mut it = rest.iter();
     while let Some(flag) = it.next() {
@@ -486,7 +461,6 @@ fn cycle_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
         match *flag {
             "--work" => g.work = v,
             "--work-arg" => g.work_args.push(v),
-            "--runner" => g.runner = Runner::named(&v).unwrap_or_else(|| wrong(args)),
             "--status-cmd" => g.status_cmd = v,
             "--status-arg" => g.status_args.push(v),
             "--console" => g.console = v,
@@ -496,16 +470,11 @@ fn cycle_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
     if g.work.is_empty() || g.status_cmd.is_empty() || g.console.is_empty() {
         wrong(args);
     }
-    // A cycle run elsewhere is the outsource feature's, and only it may ask.
-    if g.runner == Runner::Job && !tehas_core::features::on("outsource") {
-        after::log("ERROR: --runner job needs the outsource feature on: it is off");
-        std::process::exit(78);
-    }
     if !work::store_ready(home) {
         after::log("ERROR: the state store is not installed (run install.sh)");
         std::process::exit(78);
     }
-    let cycles = home.join("state/cycles");
+    let cycles = Home::new(home).cycles_dir();
     let _ = std::fs::create_dir_all(&cycles);
     let _ = std::fs::create_dir_all(home.join("logs"));
     // tehas work and the docker client it starts inherit this lock. If this
@@ -519,7 +488,94 @@ fn cycle_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
         Err(e) => fail(e),
     };
     lock::hand_down(&held).unwrap_or_else(|e| fail(e));
-    std::process::exit(supervise::run(home, &g));
+    let get: events::Get = Arc::new(|k: &str| std::env::var(k).unwrap_or_default());
+    let raised = events::wiring(home, get);
+    std::process::exit(supervise::run(home, &g, &raised));
+}
+
+/// The relay's blueprints write handle, from the GitHub adapter's site,
+/// acting as the factory's account. The gh it runs is the relay's own, with
+/// the token the relay asked for this request: the site is handed that
+/// runner and holds no token of its own.
+fn writes(
+    home: &Path,
+    repo: &str,
+    gh: Box<dyn tehas_core::forge::GhRunner>,
+) -> tehas_ports::Got<Box<dyn tehas_ports::BlueprintWrites>> {
+    use tehas_ports::Site;
+    let (login, id) = tehas_core::accounts::bot(home);
+    let runner = std::sync::Mutex::new(Some(gh));
+    let make: tehas_github::MakeRunner = Arc::new(move |_| {
+        runner
+            .lock()
+            .ok()
+            .and_then(|mut r| r.take())
+            .ok_or(tehas_ports::Outcome::Refused(
+                tehas_ports::Refusal::Unsupported,
+            ))
+    });
+    let site = tehas_github::GitHubSite::new(repo, &login, id, make);
+    let writes = site.blueprint_writes(
+        &tehas_ports::Actor::Ours(tehas_ports::Scope::Full),
+        tehas_ports::Caller::new("relay"),
+    )?;
+    Ok(writes)
+}
+
+/// What a finish asks of the code host, from the GitHub adapter's site acting
+/// as the factory's account, its gh the host's own under the finish's bound.
+fn finish_ports(home: &Path, repo: &str) -> tehas_ports::Got<finish::Ports> {
+    use tehas_ports::{Actor, Caller, Scope, Site};
+    let (login, id) = tehas_core::accounts::bot(home);
+    let make: tehas_github::MakeRunner = Arc::new(move |_| {
+        let mut b = tehas_core::forge::Bounded::new("gh", finish::cmd::BOUND);
+        b.grace = finish::cmd::GRACE;
+        Ok(Box::new(b) as Box<dyn tehas_core::forge::GhRunner>)
+    });
+    let site = tehas_github::GitHubSite::new(repo, &login, id, make);
+    let (by, c) = (Actor::Ours(Scope::Full), Caller::new("finish"));
+    Ok(finish::Ports {
+        code_host: site.code_host(&by, c)?,
+        writes: site.code_host_writes(&by, c)?,
+        accounts: tehas_core::accounts::Accounts::from_env(),
+        bot_id: id,
+    })
+}
+
+/// The handles a cycle's report writes through, from the GitHub adapter, its
+/// gh the host's own under the report's bound.
+fn handles(
+    home: &Path,
+    repo: &str,
+    bound: Duration,
+    grace: Duration,
+) -> tehas_ports::Got<tehas_cycle::apply::Handles> {
+    use tehas_ports::{Actor, Caller, Scope, Site};
+    let (login, id) = tehas_core::accounts::bot(home);
+    // The host's own gh, which takes the factory's token itself: the site is
+    // handed a runner and holds none.
+    let make: tehas_github::MakeRunner = Arc::new(move |_| {
+        let mut b = tehas_core::forge::Bounded::new("gh", bound);
+        b.grace = grace;
+        Ok(Box::new(b) as Box<dyn tehas_core::forge::GhRunner>)
+    });
+    let site = tehas_github::GitHubSite::new(repo, &login, id, make);
+    let (by, c) = (Actor::Ours(Scope::Full), Caller::new("report"));
+    let writes: Box<dyn tehas_ports::Writes> = if tehas_core::read_only::on() {
+        Box::new(tehas_ports::ReadOnly)
+    } else {
+        Box::new(tehas_ports::Writer {
+            tickets: site.ticket_writes(&by, c)?,
+            blueprints: site.blueprint_writes(&by, c)?,
+            code_host: site.code_host_writes(&by, c)?,
+        })
+    };
+    Ok(tehas_cycle::apply::Handles {
+        writes,
+        tickets: site.tickets(&by, c)?,
+        blueprints: site.blueprints(&by, c)?,
+        code_host: site.code_host(&by, c)?,
+    })
 }
 
 /// The words of tehas work.
@@ -529,6 +585,7 @@ fn work_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
         restart: false,
         driver: None,
         console: String::new(),
+        writes,
     };
     let mut it = rest.iter();
     while let Some(flag) = it.next() {
@@ -551,8 +608,8 @@ fn work_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
     // Under tehasbot cycle the lock comes down already held. Taken here, it is
     // handed down: every program of the cycle, the docker client among them,
     // holds it, so a run by hand and the unit's cycle never share a workspace.
-    let path = home.join(format!("state/cycles/{n}.lock"));
-    let _ = std::fs::create_dir_all(home.join("state/cycles"));
+    let path = Home::new(home).cycle_note(n, "lock");
+    let _ = std::fs::create_dir_all(Home::new(home).cycles_dir());
     let _held = if lock::held_here(&path) {
         None
     } else {
@@ -587,7 +644,6 @@ fn start(n: u64, args: &[String], rest: &[&str]) -> Start {
         console: String::new(),
         status_cmd: String::new(),
         status_args: Vec::new(),
-        runner: Runner::Work,
     };
     let mut it = rest.iter();
     while let Some(flag) = it.next() {
@@ -606,7 +662,6 @@ fn start(n: u64, args: &[String], rest: &[&str]) -> Start {
             "--console" => start.console = v,
             "--status-cmd" => start.status_cmd = v,
             "--status-arg" => start.status_args.push(v),
-            "--runner" => start.runner = Runner::named(&v).unwrap_or_else(|| wrong(args)),
             _ => wrong(args),
         }
     }
@@ -708,7 +763,7 @@ fn outcome_verb(result: &str, n: &str) {
         std::process::exit(2)
     };
     match runner::outcome(&String::from_utf8_lossy(&bytes), n) {
-        Some(o) => tehas_core::outln!("{o}"),
+        Some(o) => tehas_core::outln!("{}", json!(o)),
         None => std::process::exit(4),
     }
 }
@@ -772,7 +827,11 @@ fn finish_verb(n: u64, args: &[String], rest: &[&str]) -> ! {
         Ok(host) => host,
         Err(e) => fail(e),
     };
-    let done = finish::finish(&plan, &mut host);
+    let mut ports = match finish_ports(&plan.home, &plan.repo) {
+        Ok(p) => p,
+        Err(e) => fail(format!("the code host gives no handle: {}", e.line())),
+    };
+    let done = finish::finish(&plan, &mut host, &mut ports);
     if done.url.is_empty() {
         if !done.said.is_empty() {
             finish::say(n, &format!("{}{}", finish::SAID, done.said));
@@ -854,11 +913,13 @@ fn last_attempt(n: u64, result: &str, workspace: &Path) {
     let mut stdin = String::new();
     std::io::Read::read_to_string(&mut std::io::stdin(), &mut stdin)
         .unwrap_or_else(|e| fail(format!("the issue cannot be read: {e}")));
-    let issue: Value = serde_json::from_str(&stdin)
-        .unwrap_or_else(|e| fail(format!("the issue cannot be read: {e}")));
+    let issue = serde_json::from_str::<Node<last_attempt::IssueBody>>(&stdin)
+        .unwrap_or_else(|e| fail(format!("the issue cannot be read: {e}")))
+        .into_object()
+        .unwrap_or_default();
     let text = std::fs::read_to_string(result)
         .unwrap_or_else(|e| fail(format!("the result in {result} cannot be read: {e}")));
-    let state = last_attempt::state(workspace, n);
+    let state = last_attempt::WorkState::read(workspace, n);
     let action =
         last_attempt::of_issue(n, &issue, Some(&text), state.as_ref()).unwrap_or_else(|| {
             fail(format!(

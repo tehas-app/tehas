@@ -10,17 +10,169 @@ use std::fs;
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use tehas_core::home::{Home, State};
 use tehas_core::testing::write_exe;
 
-/// gh answering from `$T/releases`; GH_AUTH is the status of `auth status`.
+/// gh answering from `$T/releases` as GitHub does the code host's release
+/// reads: the list, one release with its files and their sizes as they are
+/// now, and a file downloaded to `--output`. With GH_AUTH set to other than
+/// 0 it is a gh with no credential for the release project: each of those
+/// reads exits 4 and asks nothing, as gh does. The update's other reads of
+/// gh (an account's id) answer as before.
 pub const GH: &str = r#"case "$1 $2" in
-  "auth status") exit "${GH_AUTH:-0}" ;;
-  "api repos/"*) cat "$T/releases/list.json" ;;
+  "api repos/"*/releases* | "release download")
+    if [ "${GH_AUTH:-0}" != 0 ]; then
+      echo "Alternatively, populate the GH_TOKEN environment variable with a GitHub API authentication token." >&2
+      exit 4
+    fi ;;
+esac
+files_of() {
+  for f in "$T/releases/$1"/tehas-*; do
+    [ -f "$f" ] && jq -n --arg n "${f##*/}" --argjson s "$(stat -c %s "$f")" '{name: $n, size: $s}'
+  done | jq -s .
+}
+one() { jq --argjson a "$(files_of "$1")" '. + {assets: $a}' "$T/releases/$1/release.json"; }
+case "$1 $2" in
+  "api repos/"*/releases/tags/*)
+    tag=${2##*/}
+    [ -f "$T/releases/$tag/release.json" ] || { echo "release not found" >&2; exit 1; }
+    one "$tag" ;;
+  "api repos/"*"&page=1")
+    for d in "$T/releases"/*/; do
+      d=${d%/}; [ ! -f "$d/release.json" ] || one "${d##*/}"
+    done | jq -s . ;;
+  "api repos/"*) echo "[]" ;;
   "release download")
-    tag=$3 dir=""; prev=""
-    for a in "$@"; do [ "$prev" != --dir ] || dir=$a; prev=$a; done
-    cp "$T/releases/$tag"/tehas-* "$dir/" ;;
+    out="" name="" tag=""
+    for a in "$@"; do
+      case $a in --output=*) out=${a#--output=} ;; --pattern=*) name=${a#--pattern=} ;; esac
+      tag=$a
+    done
+    cp "$T/releases/$tag/$name" "$out" ;;
 esac"#;
+
+/// GitHub's API, as the anonymous code host asks it through curl.
+const API: &str = "https://api.github.com/";
+
+/// curl answering from `$T/releases` as GitHub's API does the anonymous
+/// code host's reads: the list, one release by its tag with its files, each
+/// file's id its inode, and a file asked by its id. The adapter runs curl
+/// with an environment of its own, so the stub names `$T` itself. Each
+/// call's arguments are kept in `$T/calls/curl`.
+pub fn curl_stub(h: &Host) {
+    let t = h.join("");
+    let api = API;
+    let body = format!(
+        r#"#!/usr/bin/env bash
+T='{t}'
+printf '%s\n' "$*" >>"$T/calls/curl"
+url=""; for a in "$@"; do url=$a; done
+path=${{url#{api}}}
+[ "$path" != "$url" ] || path=/
+files_of() {{
+  for f in "$T/releases/$1"/tehas-*; do
+    [ -f "$f" ] && jq -n --arg n "${{f##*/}}" --argjson s "$(stat -c %s "$f")" \
+      --argjson i "$(stat -c %i "$f")" '{{id: $i, name: $n, size: $s}}'
+  done | jq -s .
+}}
+one() {{ jq --argjson a "$(files_of "$1")" '. + {{assets: $a}}' "$T/releases/$1/release.json"; }}
+found() {{ printf 'HTTP/2 200 \r\ncontent-type: application/json\r\n\r\n'; }}
+none() {{ printf 'HTTP/2 404 \r\n\r\n{{"message":"Not Found"}}'; }}
+case "$path" in
+  repos/*/releases\?per_page=100*)
+    found
+    for d in "$T/releases"/*/; do
+      d=${{d%/}}; [ ! -f "$d/release.json" ] || one "${{d##*/}}"
+    done | jq -s . ;;
+  repos/*/releases/tags/*)
+    tag=${{url##*/}}
+    if [ -f "$T/releases/$tag/release.json" ]; then found; one "$tag"; else none; fi ;;
+  repos/*/releases/assets/*)
+    f=$(find "$T/releases" -type f -inum "${{url##*/}}" | head -n 1)
+    if [ -n "$f" ]; then printf 'HTTP/2 200 \r\n\r\n'; cat "$f"; else none; fi ;;
+  *) none ;;
+esac
+"#,
+        t = t.display().to_string().trim_end_matches('/'),
+    );
+    write_exe(h.join("bin/curl"), body).unwrap();
+}
+
+/// The release files asked of the anonymous handle, by curl, each as
+/// `<project> <tag> <file>`.
+pub fn anonymous_downloads(h: &Host) -> Vec<String> {
+    let calls = h.calls("curl");
+    let asked: Vec<&str> = calls.lines().filter_map(|l| l.rsplit(' ').next()).collect();
+    let mut got = Vec::new();
+    for (i, url) in asked.iter().enumerate() {
+        let Some(rest) = url.strip_prefix(API).and_then(|u| u.strip_prefix("repos/")) else {
+            continue;
+        };
+        let Some((project, id)) = rest.split_once("/releases/assets/") else {
+            continue;
+        };
+        // The release read by its tag just before names the tag.
+        let tag = asked[..i]
+            .iter()
+            .rev()
+            .find_map(|u| u.rsplit_once("/releases/tags/").map(|(_, tag)| tag))
+            .unwrap_or_default();
+        let file = inode_name(h, id).unwrap_or_default();
+        got.push(format!("{project} {tag} {file}"));
+    }
+    got
+}
+
+/// The name of the release file whose inode is `id`.
+fn inode_name(h: &Host, id: &str) -> Option<String> {
+    use std::os::unix::fs::MetadataExt;
+    let id: u64 = id.parse().ok()?;
+    for tag in fs::read_dir(rel_dir(h)).ok()? {
+        let tag = tag.ok()?.path();
+        for f in fs::read_dir(&tag).into_iter().flatten().flatten() {
+            if f.metadata().is_ok_and(|m| m.ino() == id) {
+                return Some(f.file_name().to_string_lossy().into_owned());
+            }
+        }
+    }
+    None
+}
+
+/// The program the release stub answers as. Its calls are read here alone.
+const STUB: &str = "gh";
+
+/// The projects whose releases were listed through the stub, one a read.
+pub fn listed(h: &Host) -> Vec<String> {
+    h.calls(STUB)
+        .lines()
+        .filter_map(|l| l.strip_prefix("api repos/"))
+        .filter_map(|l| l.split_once("/releases?").map(|(repo, _)| repo.to_string()))
+        .collect()
+}
+
+/// The files downloaded through the stub, each as `<project> <tag> <file>`.
+pub fn downloads(h: &Host) -> Vec<String> {
+    h.calls(STUB)
+        .lines()
+        .filter(|l| l.starts_with("release download "))
+        .map(|l| {
+            let words: Vec<&str> = l.split(' ').collect();
+            let given = |flag: &str| {
+                words
+                    .iter()
+                    .find_map(|w| w.strip_prefix(flag))
+                    .unwrap_or_default()
+            };
+            let tag = words.last().copied().unwrap_or_default();
+            format!("{} {tag} {}", given("--repo="), given("--pattern="))
+        })
+        .collect()
+}
+
+/// Whether `tag`'s tarball of this machine was downloaded from `project`.
+pub fn downloaded(h: &Host, project: &str, tag: &str) -> bool {
+    downloads(h).contains(&format!("{project} {tag} {}", asset_of(tag)))
+}
 
 /// minisign that keeps the key it was handed and takes "signed". It exits
 /// itself: `Host::stub` ends a body with `:`.
@@ -118,11 +270,20 @@ pub fn pack(h: &Host, r: &Rel) {
     repack(h, r.tag, &name);
     fs::write(out.join(format!("{name}.minisig")), "signed\n").unwrap();
     let default = format!("### Changes\n- {}\n### Adopter action\nNone.", r.tag);
+    let id = r
+        .tag
+        .bytes()
+        .fold(7u64, |h, b| h.wrapping_mul(31).wrapping_add(b.into()));
     let json = serde_json::json!({
+        "id": id % 1_000_000_007 + 1,
         "tag_name": r.tag,
+        "name": r.tag,
         "body": r.body.unwrap_or(&default),
         "draft": false,
         "prerelease": r.pre,
+        "created_at": "2026-01-01T00:00:00Z",
+        "published_at": "2026-01-01T00:00:00Z",
+        "html_url": format!("https://example.test/r/{}", r.tag),
     });
     fs::write(out.join("release.json"), format!("{json}\n")).unwrap();
     relist(h);
@@ -158,7 +319,7 @@ pub fn unpublish(h: &Host, tag: &str) {
 
 /// The tokens and login of the app, as t_instance makes them (t_app_world).
 pub fn app_world(h: &Host) {
-    let state = h.home.join("state");
+    let state = Home::new(&h.home).state_dir();
     let until = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -180,7 +341,7 @@ pub fn app_world(h: &Host) {
 /// (t_instance).
 pub fn instance(h: &mut Host, lines: &[&str]) {
     h.instance_with(lines);
-    if !h.home.join("state/github/login").exists() {
+    if !Home::new(&h.home).state(State::BotLogin).exists() {
         app_world(h);
     }
 }
@@ -211,7 +372,11 @@ pub fn old_home(h: &Host, fixture: &Path, version: &str) {
     )
     .unwrap();
     symlink(format!("versions/{version}"), th.join("current")).unwrap();
-    fs::write(th.join("state/release-history"), format!("{version}\n")).unwrap();
+    fs::write(
+        Home::new(th).state(State::ReleaseHistory),
+        format!("{version}\n"),
+    )
+    .unwrap();
 }
 
 /// Where current points.

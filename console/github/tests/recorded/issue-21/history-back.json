@@ -1,0 +1,1 @@
+{"data":{"repository":{"databaseId":7001,"issue":{"number":21,"milestone":null,"events":{"pageInfo":{"hasPreviousPage":false,"startCursor":"Y3Vyc29yOnYyOjE"},"nodes":[{"__typename":"LabeledEvent","createdAt":"2026-02-01T10:00:30Z","actor":{"__typename":"User","login":"alice","databaseId":101},"label":{"name":"tehas:ready"}}]}}}}}

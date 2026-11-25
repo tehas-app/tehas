@@ -9,13 +9,14 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use tehas_core::home::{Home, Live, State};
 use tehas_core::testdir::TestDir;
 
 const DAY: i64 = 86_400;
 
 fn scratch(name: &str) -> TestDir {
     let dir = TestDir::new(&format!("analytics-{name}"));
-    fs::create_dir_all(dir.join("state/cycles")).unwrap();
+    fs::create_dir_all(h(&dir).cycles_dir()).unwrap();
     fs::create_dir_all(dir.join("logs")).unwrap();
     fs::create_dir_all(dir.join("docs")).unwrap();
     fs::create_dir_all(dir.join("tmp")).unwrap();
@@ -39,6 +40,14 @@ fn iso(t: i64) -> String {
 // An address written out here, so no private one stands in the source.
 fn ip(octets: [u8; 4]) -> String {
     octets.map(|o| o.to_string()).join(".")
+}
+
+fn h(home: &Path) -> Home {
+    Home::new(home)
+}
+
+fn put_at(p: PathBuf, text: &str) {
+    fs::write(p, text).unwrap();
 }
 
 fn put(home: &Path, name: &str, text: &str) {
@@ -133,7 +142,7 @@ fn cycle(home: &Path, name: &str, started: i64, line: Value) {
     let dir = fixture(name);
     fs::copy(
         dir.join("result.json"),
-        home.join("state/cycles/7.result.json"),
+        h(home).cycle_note(7, "result.json"),
     )
     .unwrap();
     fs::copy(
@@ -146,9 +155,8 @@ fn cycle(home: &Path, name: &str, started: i64, line: Value) {
         "logs/work-7-261015-183834.jsonl.preflight",
         "Everything up-to-date\nprovider retry: 3 tries\n",
     );
-    put(
-        home,
-        "state/cycles/7.progress.json",
+    put_at(
+        h(home).cycle_note(7, "progress.json"),
         r#"{"roles":[],"reason":"","failure":null,"reviewHeld":false,"from":{"roles":"progress","failure":"progress"}}"#,
     );
     fact(
@@ -165,7 +173,7 @@ fn cycle(home: &Path, name: &str, started: i64, line: Value) {
         home,
         7,
         "approval",
-        json!({"at": iso(started - 90), "how": "label"}),
+        json!({"at": iso(started - 90), "how": "approved"}),
     );
     fact(home, 7, "rukas", json!("abcdef1"));
     put(home, "docs/version.txt", "v0.7.22+1234abc\n");
@@ -209,11 +217,11 @@ fn each_fixture_result_is_stored_with_what_the_outcome_drops() {
         let ended = started + 80;
         let line = if status == "unknown" {
             json!({"at": iso(ended), "started": started, "rc": 10, "status": "unknown",
-                   "step": "-", "parked": true, "provider": false, "how": "label"})
+                   "step": "-", "parked": true, "provider": false, "how": "approved"})
         } else {
             json!({"at": iso(ended), "started": started, "rc": 10, "status": "handoff",
                    "step": "explore", "cap": "explore-bodies-empty", "failure_kind": "cap",
-                   "parked": true, "provider": false, "how": "label"})
+                   "parked": true, "provider": false, "how": "approved"})
         };
         cycle(&home, name, started, line);
         let conn = record(&home, 7, ended + 60);
@@ -350,7 +358,7 @@ fn cache_write_cost_and_role_usage_are_kept() {
         json!({"at": iso(started + 30), "started": started, "rc": 10, "status": "handoff",
                "parked": true}),
     );
-    let path = home.join("state/cycles/7.result.json");
+    let path = h(&home).cycle_note(7, "result.json");
     let mut r: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
     r["issues"][0]["usage"] = json!({"input": 1000, "output": 200, "cacheRead": 5000,
         "cacheWrite": 300, "cost": 0.25, "turns": 9, "dispatches": 3,
@@ -414,7 +422,7 @@ fn a_schema_5_result_is_read() {
         json!({"at": iso(started + 30), "started": started, "rc": 10, "status": "handoff",
                "parked": true}),
     );
-    let path = home.join("state/cycles/7.result.json");
+    let path = h(&home).cycle_note(7, "result.json");
     let mut r: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
     r["schemaVersion"] = json!(5);
     r["issues"][0]["usage"]["input"] = json!(1234);
@@ -436,7 +444,7 @@ fn tool_counts_and_the_driver_that_ran_are_kept_and_absent_ones_stay_null() {
     let facts = json!({"at": iso(started + 30), "started": started, "rc": 10,
                        "status": "handoff", "parked": true});
     cycle(&home, "headless-316134e", started, facts.clone());
-    let path = home.join("state/cycles/7.result.json");
+    let path = h(&home).cycle_note(7, "result.json");
     let mut r: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
     r["schemaVersion"] = json!(5);
     r["issues"][0]["driver"] = json!("lean");
@@ -466,7 +474,7 @@ fn tool_counts_and_the_driver_that_ran_are_kept_and_absent_ones_stay_null() {
     // know, leaves the columns empty: no count, not none.
     let home = scratch("tool-counts-absent");
     cycle(&home, "headless-316134e", started, facts);
-    let path = home.join("state/cycles/7.result.json");
+    let path = h(&home).cycle_note(7, "result.json");
     let mut r: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
     r["issues"][0]["driver"] = json!("other");
     fs::write(&path, r.to_string()).unwrap();
@@ -492,13 +500,12 @@ fn roles_come_from_the_progress_and_steps_from_the_stream_when_the_result_has_no
         started,
         json!({"at": iso(ended), "started": started, "rc": 10, "status": "unknown", "parked": true}),
     );
-    let path = home.join("state/cycles/7.result.json");
+    let path = h(&home).cycle_note(7, "result.json");
     let mut r: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
     r["issues"][0].as_object_mut().unwrap().remove("steps");
     fs::write(&path, r.to_string()).unwrap();
-    put(
-        &home,
-        "state/cycles/7.progress.json",
+    put_at(
+        h(&home).cycle_note(7, "progress.json"),
         r#"{"roles":[{"role":"ops","dispatches":2,"turns":3,"input":10,"output":20,"cacheRead":30}],"reason":"","failure":null,"reviewHeld":true}"#,
     );
     let conn = record(&home, 7, ended);
@@ -541,10 +548,9 @@ fn a_run_with_no_result_is_stored_with_tehas_s_status_and_times() {
             ],
         );
         // What tehas-cycle passes on. The files it removed are not read.
-        put(&home, "state/cycles/12.oom", "9\n");
-        put(
-            &home,
-            "state/cycles/12.image",
+        put_at(h(&home).cycle_note(12, "oom"), "9\n");
+        put_at(
+            h(&home).cycle_note(12, "image"),
             &format!("sha256:{} 1111111\n", "e".repeat(64)),
         );
         let given = Given {
@@ -801,7 +807,7 @@ fn the_steps_after_the_gate_bound_are_still_read() {
                "pr": "https://github.com/o/r/pull/3"}),
     );
     // The result names no steps, so the run's steps come from the stream.
-    let path = home.join("state/cycles/7.result.json");
+    let path = h(&home).cycle_note(7, "result.json");
     let mut r: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
     r["issues"][0].as_object_mut().unwrap().remove("steps");
     fs::write(&path, r.to_string()).unwrap();
@@ -885,16 +891,16 @@ fn attempt_counts_earlier_runs_and_how_is_kept() {
         &home,
         9,
         &[
-            line(t, "label"),
-            line(t + 1000, "retry-tick"),
-            line(t + 2000, "fixer"),
+            line(t, "approved"),
+            line(t + 1000, "reply"),
+            line(t + 2000, "millwright"),
         ],
     );
     fact(
         &home,
         9,
         "approval",
-        json!({"at": iso(t + 1900), "how": "fixer"}),
+        json!({"at": iso(t + 1900), "how": "millwright"}),
     );
     let conn = record(&home, 9, t + 3000);
     assert_eq!(
@@ -902,7 +908,7 @@ fn attempt_counts_earlier_runs_and_how_is_kept() {
             &conn,
             "SELECT attempt || ' ' || how || ' ' || queue_wait FROM runs"
         ),
-        "3 fixer 100"
+        "3 millwright 100"
     );
     // Recorded again, it replaces itself.
     execute(&home, &Cmd::Run(9, given(&home, 9)), t + 3000).unwrap();
@@ -925,19 +931,12 @@ fn every_outcome_of_a_run_is_an_outcome_word() {
                             failure_kind: kind.map(str::to_string),
                             ..run::Run::default()
                         };
-                        let o = run::outcome(&r, parked);
+                        let o = tehas_core::outcome::end(&r.line(parked));
                         assert!(OUTCOMES.contains(&o), "{o} from {status:?}");
                     }
                 }
             }
         }
-    }
-}
-
-#[test]
-fn every_failed_status_is_a_cycle_status() {
-    for s in run::FAILED {
-        assert!(tehas_core::outcome::STATUSES.contains(&s), "{s}");
     }
 }
 
@@ -953,7 +952,7 @@ fn outcomes_follow_how_the_cycle_ended() {
         ),
         (
             json!({"status": "handoff", "rc": 10, "pr": "https://github.com/o/r/pull/42", "parked": false}),
-            "pr",
+            "offered",
             Some(42),
         ),
         (
@@ -979,6 +978,19 @@ fn outcomes_follow_how_the_cycle_ended() {
         ),
         (
             json!({"status": "parked", "rc": 10, "cap": "intent-park", "failure_kind": "cap", "parked": true}),
+            "parked",
+            None,
+        ),
+        // The four ends that moved in 2.0.
+        (json!({"status": "stopped", "rc": 143}), "stopped", None),
+        (json!({"status": "lost", "rc": 10}), "failed", None),
+        (
+            json!({"status": "merged", "rc": 0, "cap": "merged-claimed", "parked": true}),
+            "parked",
+            None,
+        ),
+        (
+            json!({"status": "interrupted", "rc": 21, "parked": true}),
             "parked",
             None,
         ),
@@ -1013,7 +1025,7 @@ fn a_failure_cause_is_masked_and_cut() {
         json!({"at": iso(started + 30), "started": started, "rc": 10, "status": "handoff",
                "parked": true}),
     );
-    let path = home.join("state/cycles/7.result.json");
+    let path = h(&home).cycle_note(7, "result.json");
     let mut r: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
     let long = "x".repeat(400);
     r["issues"][0]["failure"] = json!({"kind": "provider", "step": "implement",
@@ -1043,7 +1055,7 @@ fn the_history_s_cause_is_taken_before_the_result_s() {
         json!({"at": iso(started + 30), "started": started, "rc": 10, "status": "handoff",
                "failure_kind": "provider", "failure_cause": "ECONNREFUSED"}),
     );
-    let path = home.join("state/cycles/7.result.json");
+    let path = h(&home).cycle_note(7, "result.json");
     let mut r: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
     r["issues"][0]["failure"] = json!({"kind": "provider", "cause": "a long raw text"});
     fs::write(&path, r.to_string()).unwrap();
@@ -1171,29 +1183,25 @@ fn the_run_takes_its_history_approval_settings_and_commit_from_the_facts_alone()
     let home = scratch("factsonly");
     let started = 1_792_000_000;
     // The files these facts once came from, saying otherwise: none is read.
-    put(
-        &home,
-        "state/cycles/7.history.jsonl",
+    put_at(
+        h(&home).cycle_note(7, "history.jsonl"),
         &format!(
             "{}\n",
             json!({"at": iso(started + 9), "started": started - 5000, "rc": 1, "status": "failed"})
         ),
     );
-    put(
-        &home,
-        "state/cycles/7.approved.json",
-        &json!({"at": iso(started - 9000), "how": "fixer"}).to_string(),
+    put_at(
+        h(&home).cycle_note(7, "approved.json"),
+        &json!({"at": iso(started - 9000), "how": "millwright"}).to_string(),
     );
-    put(
-        &home,
-        "state/cycles/7.settings",
+    put_at(
+        h(&home).cycle_note(7, "settings"),
         &json!({"container": {"PI_ENSEMBLE_SUBAGENT_MODEL": "file-model"}, "concurrentCycles": 9})
             .to_string(),
     );
-    put(&home, "state/cycles/7.rukas", "fedcba9\n");
-    put(
-        &home,
-        "state/cycles/7.progress.json",
+    put_at(h(&home).cycle_note(7, "rukas"), "fedcba9\n");
+    put_at(
+        h(&home).cycle_note(7, "progress.json"),
         r#"{"roles":[{"role":"ops","dispatches":1}],"reviewHeld":false}"#,
     );
     history(
@@ -1201,7 +1209,7 @@ fn the_run_takes_its_history_approval_settings_and_commit_from_the_facts_alone()
         7,
         &[
             json!({"at": iso(started + 60), "started": started, "rc": 0, "status": "merged",
-                 "how": "label"}),
+                 "how": "approved"}),
         ],
     );
     fact(&home, 7, "attempt", json!(4));
@@ -1209,7 +1217,7 @@ fn the_run_takes_its_history_approval_settings_and_commit_from_the_facts_alone()
         &home,
         7,
         "approval",
-        json!({"at": iso(started - 30), "how": "retry-tick"}),
+        json!({"at": iso(started - 30), "how": "reply"}),
     );
     fact(
         &home,
@@ -1226,7 +1234,7 @@ fn the_run_takes_its_history_approval_settings_and_commit_from_the_facts_alone()
             "SELECT id || ' ' || attempt || ' ' || how || ' ' || queue_wait || ' ' || status || ' ' ||
                seconds || ' ' || concurrent || ' ' || rukas_commit FROM runs"
         ),
-        format!("work-7-{started} 4 retry-tick 30 merged 60 2 1234abc")
+        format!("work-7-{started} 4 reply 30 merged 60 2 1234abc")
     );
     assert_eq!(
         one::<String>(&conn, "SELECT role || ' ' || model FROM run_roles"),
@@ -1239,7 +1247,7 @@ fn the_run_takes_its_history_approval_settings_and_commit_from_the_facts_alone()
         7,
         &[
             json!({"at": iso(started + 60), "started": started, "rc": 0, "status": "merged",
-                 "how": "label"}),
+                 "how": "approved"}),
         ],
     );
     fact(&home, 7, "rukas", json!("not hex"));
@@ -1250,7 +1258,7 @@ fn the_run_takes_its_history_approval_settings_and_commit_from_the_facts_alone()
             "SELECT how || ' ' || coalesce(queue_wait, '-') || ' ' || coalesce(concurrent, '-') ||
                ' ' || coalesce(rukas_commit, '-') || ' ' || attempt FROM runs"
         ),
-        "label - - - 1"
+        "approved - - - 1"
     );
 }
 
@@ -1353,13 +1361,15 @@ fn a_database_another_program_made_meanwhile_is_not_moved_aside() {
         one::<String>(&late, "SELECT value FROM meta WHERE key = 'created'"),
         "1792000000"
     );
-    assert!(!home.join("state/analytics.db.broken").exists());
+    assert!(!h(&home).state_dir().join("analytics.db.broken").exists());
 }
 
 #[test]
 fn programs_that_open_a_new_database_at_once_all_get_it() {
     // The journal switch is where the openers contend, so the eight-opener
     // run is repeated rather than run once: one pass can miss the lock race.
+    // A failure names every opener of its round: the step each was at, how
+    // long it took, and the error, so a rare one says where the wait was.
     for round in 0..20 {
         let home = scratch(&format!("concurrent-{round}"));
         let file = db::path(&home);
@@ -1367,19 +1377,33 @@ fn programs_that_open_a_new_database_at_once_all_get_it() {
             .map(|i| {
                 let file = file.clone();
                 std::thread::spawn(move || {
-                    let (conn, moved) = db::open(&file, 1_792_000_000).unwrap();
-                    db::event(&conn, i, "ready", 1_792_000_000).unwrap();
-                    moved
+                    let start = std::time::Instant::now();
+                    let ms = || start.elapsed().as_millis();
+                    let (conn, moved) = db::open(&file, 1_792_000_000)
+                        .map_err(|e| format!("opener {i}: open failed at {} ms: {e}", ms()))?;
+                    let opened = ms();
+                    db::event(&conn, i, "ready", 1_792_000_000).map_err(|e| {
+                        format!("opener {i}: opened at {opened} ms, its first write failed at {} ms: {e}", ms())
+                    })?;
+                    Ok::<_, String>((format!("opener {i}: opened at {opened} ms, wrote at {} ms", ms()), moved))
                 })
             })
             .collect();
-        for o in openers {
-            assert!(
-                o.join().unwrap().is_none(),
-                "a valid database was moved aside"
-            );
+        let ends: Vec<Result<_, String>> = openers.into_iter().map(|o| o.join().unwrap()).collect();
+        if ends.iter().any(Result::is_err) {
+            let lines: Vec<&str> = ends
+                .iter()
+                .map(|e| match e {
+                    Ok((line, _)) => line.as_str(),
+                    Err(line) => line.as_str(),
+                })
+                .collect();
+            panic!("round {round}:\n{}", lines.join("\n"));
         }
-        assert!(!home.join("state/analytics.db.broken").exists());
+        for (_, moved) in ends.into_iter().flatten() {
+            assert!(moved.is_none(), "a valid database was moved aside");
+        }
+        assert!(!h(&home).state_dir().join("analytics.db.broken").exists());
         let conn = Connection::open(&file).unwrap();
         assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM issue_events"), 8);
         assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM meta"), 3);
@@ -1402,18 +1426,18 @@ fn a_database_that_cannot_be_written_is_an_error_and_stays() {
         70
     );
     assert!(fs::read(&file).unwrap() == before);
-    assert!(!home.join("state/analytics.db.broken").exists());
+    assert!(!h(&home).state_dir().join("analytics.db.broken").exists());
     // A directory it may not write in, with the database in it.
     let home = scratch("readonly-dir");
     let file = db::path(&home);
     execute(&home, &Cmd::Event(1, "ready".into(), None), now).unwrap();
-    let state = home.join("state");
+    let state = h(&home).state_dir();
     fs::set_permissions(&state, fs::Permissions::from_mode(0o500)).unwrap();
     let err = execute(&home, &Cmd::Event(2, "ready".into(), None), now);
     fs::set_permissions(&state, fs::Permissions::from_mode(0o700)).unwrap(); // a directory
     assert_eq!(err.unwrap_err().0, 70);
     assert!(file.is_file());
-    assert!(!home.join("state/analytics.db.broken").exists());
+    assert!(!h(&home).state_dir().join("analytics.db.broken").exists());
 }
 
 #[test]
@@ -1493,7 +1517,7 @@ fn a_broken_file_is_moved_aside_and_a_new_database_made() {
         }
         let before = fs::read(&file).unwrap();
         execute(&home, &Cmd::Event(1, "ready".into(), None), 1_792_000_000).unwrap();
-        let aside = fs::read(home.join("state/analytics.db.broken")).unwrap();
+        let aside = fs::read(h(&home).state_dir().join("analytics.db.broken")).unwrap();
         assert!(
             aside == before,
             "{name}: the file moved aside is not the one found"
@@ -1516,24 +1540,26 @@ fn a_broken_file_is_moved_aside_and_a_new_database_made() {
 fn a_database_of_another_schema_is_kept_aside_under_its_version() {
     let home = scratch("foreign");
     let file = db::path(&home);
-    {
-        let c = Connection::open(&file).unwrap();
-        c.execute_batch(
-            "PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0;
-             CREATE TABLE runs (x); INSERT INTO runs VALUES (42); PRAGMA user_version = 99",
-        )
-        .unwrap();
-        // The row is still in the -wal when the file is moved.
-        std::mem::forget(c);
-    }
+    // Held open until the end, so the row is still in the -wal when the file
+    // is moved: its close would checkpoint it into the file.
+    let c = Connection::open(&file).unwrap();
+    c.execute_batch(
+        "PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0;
+         CREATE TABLE runs (x); INSERT INTO runs VALUES (42); PRAGMA user_version = 99",
+    )
+    .unwrap();
     execute(&home, &Cmd::Event(1, "ready".into(), None), 1_792_000_000).unwrap();
-    assert!(!home.join("state/analytics.db.broken").exists());
-    let kept = Connection::open(home.join("state/analytics.db.schema-99")).unwrap();
+    assert!(!h(&home).state_dir().join("analytics.db.broken").exists());
+    let kept = Connection::open(h(&home).state_dir().join("analytics.db.schema-99")).unwrap();
     assert_eq!(one::<i64>(&kept, "PRAGMA user_version"), 99);
     assert_eq!(one::<i64>(&kept, "SELECT x FROM runs"), 42);
     let conn = Connection::open(&file).unwrap();
     assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), db::SCHEMA_VERSION);
     assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM issue_events"), 1);
+    // The moved file's last connection closes last.
+    drop(conn);
+    drop(kept);
+    c.close().unwrap();
 }
 
 /// A file another program has made and not yet given a schema: what `settle`
@@ -1581,10 +1607,10 @@ fn a_write_lock_held_past_the_busy_timeout_is_waited_out() {
 }
 
 /// v0.30.0 wrote schema 4 already, so a database of an older schema is no
-/// 0.30 host's: it is kept aside under its version, as any other is.
+/// 0.30 host's: it is kept aside under its version, as a newer one is.
 #[test]
-fn a_database_of_schema_1_to_3_is_kept_aside() {
-    for v in 1..=3 {
+fn a_database_of_schema_1_to_3_or_8_is_kept_aside() {
+    for v in [1, 2, 3, 8] {
         let home = scratch(&format!("schema-{v}"));
         let file = db::path(&home);
         {
@@ -1597,7 +1623,11 @@ fn a_database_of_schema_1_to_3_is_kept_aside() {
         let (conn, moved) = db::open(&file, 1_792_000_000).unwrap();
         assert_eq!(
             moved,
-            Some(home.join(format!("state/analytics.db.schema-{v}"))),
+            Some(
+                h(&home)
+                    .state_dir()
+                    .join(format!("analytics.db.schema-{v}"))
+            ),
             "schema {v} has no migration"
         );
         assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), db::SCHEMA_VERSION);
@@ -1609,18 +1639,22 @@ fn a_run_stores_the_driver_its_approval_bound_and_nothing_else() {
     let home = scratch("driver");
     let started = secs("2026-10-18T10:16:39Z");
     for (issue, approval, want) in [
-        (1, json!({"how": "label", "driver": "lean"}), Some("lean")),
+        (
+            1,
+            json!({"how": "approved", "driver": "lean"}),
+            Some("lean"),
+        ),
         (
             2,
-            json!({"how": "label", "driver": "classic"}),
+            json!({"how": "approved", "driver": "classic"}),
             Some("classic"),
         ),
-        (3, json!({"how": "label"}), None),
-        (4, json!({"how": "label", "driver": null}), None),
-        (5, json!({"how": "label", "driver": "fast"}), None),
-        (6, json!({"how": "label", "driver": "LEAN"}), None),
-        (7, json!({"how": "label", "driver": "le an"}), None),
-        (8, json!({"how": "label", "driver": 1}), None),
+        (3, json!({"how": "approved"}), None),
+        (4, json!({"how": "approved", "driver": null}), None),
+        (5, json!({"how": "approved", "driver": "fast"}), None),
+        (6, json!({"how": "approved", "driver": "LEAN"}), None),
+        (7, json!({"how": "approved", "driver": "le an"}), None),
+        (8, json!({"how": "approved", "driver": 1}), None),
         (9, Value::Null, None),
     ] {
         let line = json!({"at": "2026-10-18T10:20:00Z", "started": started, "rc": 0,
@@ -1643,7 +1677,7 @@ fn a_run_stores_the_driver_its_approval_bound_and_nothing_else() {
 #[test]
 fn prune_deletes_a_kept_schema_365_days_after_its_last_write() {
     let home = scratch("aside");
-    let state = home.join("state");
+    let state = h(&home).state_dir();
     let now = 1_792_000_000;
     let at = |secs: i64| std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs as u64);
     for (name, written) in [
@@ -1685,7 +1719,7 @@ fn prune_deletes_a_kept_schema_365_days_after_its_last_write() {
 #[test]
 fn prune_aside_returns_the_expired_files_it_could_not_delete() {
     let home = scratch("aside-stuck");
-    let state = home.join("state");
+    let state = h(&home).state_dir();
     fs::create_dir_all(&state).unwrap();
     let now = 1_792_000_000;
     let old = std::time::UNIX_EPOCH + std::time::Duration::from_secs((now - 366 * 86_400) as u64);
@@ -1747,7 +1781,7 @@ fn export_writes_a_copy_that_opens_with_the_same_version_mode_0600_and_nothing_p
         json!({"at": iso(started + 30), "started": started, "rc": 10, "status": "handoff",
                "parked": true, "pr": "https://github.com/o/r/pull/3"}),
     );
-    let path = home.join("state/cycles/7.result.json");
+    let path = h(&home).cycle_note(7, "result.json");
     let mut r: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
     r["issues"][0]["failure"] = json!({"kind": "provider",
         "cause": format!("GET https://user:hunter2@models.example/v1 from {} and {} with Bearer abcdefghijklmnopqrstuvwxyz; \
@@ -1886,7 +1920,7 @@ fn the_views_answer_for_a_known_data_set() {
     );
     let versions: Vec<(String, i64, f64, f64, f64, f64)> = conn
         .prepare(
-            "SELECT tehas_version, runs, pr_share, handoff_share, median_minutes, median_tokens
+            "SELECT tehas_version, runs, change_share, handoff_share, median_minutes, median_tokens
              FROM v_versions ORDER BY tehas_version",
         )
         .unwrap()
@@ -2082,7 +2116,7 @@ fn schema_is_pinned() {
         if version_line(&dump) == version_line(pinned) {
             panic!(
                 "the schema changed and user_version did not: a column added within the \
-                 version goes last in its table and in db::ADDED, anything else raises \
+                 version goes last in its table, anything else raises \
                  SCHEMA_VERSION in db.rs; then replace src/schema.pinned with:\n{dump}"
             );
         }
@@ -2100,7 +2134,7 @@ fn run_reads_nothing_through_a_link() {
         started,
         json!({"at": iso(started + 30), "started": started, "rc": 10, "status": "handoff"}),
     );
-    let result = home.join("state/cycles/7.result.json");
+    let result = h(&home).cycle_note(7, "result.json");
     let moved = home.join("result.json");
     fs::rename(&result, &moved).unwrap();
     std::os::unix::fs::symlink(&moved, &result).unwrap();
@@ -2123,9 +2157,8 @@ fn a_kept_lean_record_gives_a_lean_run_its_steps() {
         json!({"at": iso(started + 30), "started": started, "rc": 0, "status": "merged"}),
     );
     let steps = |home: &Path, v: Value| {
-        put(
-            home,
-            "state/cycles/7.lean-state.json",
+        put_at(
+            h(home).cycle_note(7, "lean-state.json"),
             &json!({"schema": 1, "issue": 7, "steps": v}).to_string(),
         );
     };
@@ -2149,7 +2182,7 @@ fn a_kept_lean_record_gives_a_lean_run_its_steps() {
         &home,
         7,
         "approval",
-        json!({"at": iso(started - 90), "how": "label", "driver": "lean"}),
+        json!({"at": iso(started - 90), "how": "approved", "driver": "lean"}),
     );
     let r = run::read(&home, 7, &given(&home, 7)).unwrap();
     assert_eq!(
@@ -2175,23 +2208,22 @@ fn a_kept_lean_record_gives_a_lean_run_its_steps() {
         r#"{"steps": 1}"#,
         "{not json",
     ] {
-        put(&home, "state/cycles/7.lean-state.json", body);
+        put_at(h(&home).cycle_note(7, "lean-state.json"), body);
         let r = run::read(&home, 7, &given(&home, 7)).unwrap();
         assert_eq!(names(&r), stream, "{body}");
     }
-    fs::remove_file(home.join("state/cycles/7.lean-state.json")).unwrap();
+    fs::remove_file(h(&home).cycle_note(7, "lean-state.json")).unwrap();
     let r = run::read(&home, 7, &given(&home, 7)).unwrap();
     assert_eq!(names(&r), stream);
 }
 
-// The live files of one poll, as tehasbot status, tehas-dispatch and
-// console energy write them, at `at`.
+// The live files of one poll, as tehasbot status and tehas-dispatch write
+// them, at `at`, and the energy file a 1.4 host left, which no sample reads.
 fn live(home: &Path, at: i64, why: &str, limit_room: Option<i64>) {
-    fs::create_dir_all(home.join("live")).unwrap();
+    fs::create_dir_all(h(home).live_dir()).unwrap();
     let issue = |n: i64| json!({"number": n, "title": "t", "url": "u"});
-    put(
-        home,
-        "live/status.json",
+    put_at(
+        h(home).live(Live::Status),
         &json!({"generatedAt": iso(at), "repo": "acme/widget", "paused": true,
                 "running": [issue(1), issue(2)], "queued": [issue(3), issue(4), issue(5)],
                 "awaiting": [issue(6)], "stopped": [], "planning": 2, "completed": [issue(9)]})
@@ -2203,12 +2235,7 @@ fn live(home: &Path, at: i64, why: &str, limit_room: Option<i64>) {
     if let Some(r) = limit_room {
         d["limitRoom"] = json!(r);
     }
-    put(home, "live/dispatch.json", &d.to_string());
-    put(
-        home,
-        "live/energy.json",
-        &json!({"generatedAt": iso(at), "totals": {"watts": 412.5, "hosts": 2}}).to_string(),
-    );
+    put_at(h(home).live(Live::Dispatch), &d.to_string());
 }
 
 fn sample_row(home: &Path) -> String {
@@ -2218,7 +2245,7 @@ fn sample_row(home: &Path) -> String {
         "SELECT group_concat(row, ' | ') FROM (SELECT at || ' ' || coalesce(in_line, '-') || ' ' ||
            coalesce(running, '-') || ' ' || coalesce(awaiting, '-') || ' ' || coalesce(stopped, '-') || ' ' ||
            coalesce(planning, '-') || ' ' || coalesce(cycle_limit, '-') || ' ' || coalesce(paused, '-') || ' ' ||
-           coalesce('[' || held || ']', '-') || ' ' || coalesce(watts, '-') AS row FROM samples ORDER BY at)",
+           coalesce('[' || held || ']', '-') AS row FROM samples ORDER BY at)",
     )
 }
 
@@ -2229,15 +2256,12 @@ fn a_sample_reads_the_live_files_of_the_poll() {
     live(&home, now - 30, "awaiting", None);
     execute(&home, &Cmd::Sample, now).unwrap();
     // Five slots: two running and three free.
-    assert_eq!(
-        sample_row(&home),
-        format!("{now} 3 2 1 0 2 5 1 [awaiting] 412.5")
-    );
+    assert_eq!(sample_row(&home), format!("{now} 3 2 1 0 2 5 1 [awaiting]"));
 
     // The limit of tehas limit allows fewer; nothing holds.
     live(&home, now + 90, "", Some(1));
     execute(&home, &Cmd::Sample, now + 100).unwrap();
-    assert!(sample_row(&home).ends_with(&format!(" | {} 3 2 1 0 2 3 1 [] 412.5", now + 100)));
+    assert!(sample_row(&home).ends_with(&format!(" | {} 3 2 1 0 2 3 1 []", now + 100)));
 }
 
 #[test]
@@ -2265,20 +2289,17 @@ fn a_sample_reads_the_report_the_dispatcher_writes() {
     };
     let mut v = r.to_value();
     v[tehas_core::hold::KEY_TIME] = json!(iso(now - 20));
-    put(&home, "live/dispatch.json", &v.to_string());
+    put_at(h(&home).live(Live::Dispatch), &v.to_string());
     execute(&home, &Cmd::Sample, now).unwrap();
     // The limit of tehas limit is the lower ceiling: count plus limitRoom,
     // three, though count plus free would give seven.
-    assert_eq!(
-        sample_row(&home),
-        format!("{now} 3 2 1 0 2 3 1 [limit] 412.5")
-    );
+    assert_eq!(sample_row(&home), format!("{now} 3 2 1 0 2 3 1 [limit]"));
 }
 
 #[test]
 fn a_live_file_that_is_missing_stale_a_link_or_malformed_gives_null_columns() {
     let now = 1_792_000_000;
-    let nothing = |at: i64| format!("{at} - - - - - - - - -");
+    let nothing = |at: i64| format!("{at} - - - - - - - -");
 
     let home = scratch("sample-none");
     execute(&home, &Cmd::Sample, now).unwrap();
@@ -2292,19 +2313,18 @@ fn a_live_file_that_is_missing_stale_a_link_or_malformed_gives_null_columns() {
     live(&home, now - 30, "count", None);
     // A poll runs every two minutes: a dispatch.json older than that is an
     // earlier poll's, though status.json still counts.
-    put(
-        &home,
-        "live/dispatch.json",
+    put_at(
+        h(&home).live(Live::Dispatch),
         &json!({"time": iso(now - 200), "why": "count", "count": 1, "free": 0}).to_string(),
     );
     execute(&home, &Cmd::Sample, now + 1).unwrap();
-    assert!(sample_row(&home).ends_with(&format!(" | {} 3 2 1 0 2 - 1 - 412.5", now + 1)));
+    assert!(sample_row(&home).ends_with(&format!(" | {} 3 2 1 0 2 - 1 -", now + 1)));
 
     let home = scratch("sample-links");
     live(&home, now - 30, "count", None);
-    for name in ["status.json", "dispatch.json", "energy.json"] {
-        let p = home.join("live").join(name);
-        let moved = home.join(name);
+    for view in [Live::Status, Live::Dispatch] {
+        let p = h(&home).live(view);
+        let moved = home.join(p.file_name().unwrap());
         fs::rename(&p, &moved).unwrap();
         std::os::unix::fs::symlink(&moved, &p).unwrap();
     }
@@ -2312,38 +2332,30 @@ fn a_live_file_that_is_missing_stale_a_link_or_malformed_gives_null_columns() {
     assert_eq!(sample_row(&home), nothing(now));
 
     let home = scratch("sample-bad");
-    fs::create_dir_all(home.join("live")).unwrap();
-    put(&home, "live/status.json", "not json");
-    put(
-        &home,
-        "live/dispatch.json",
+    fs::create_dir_all(h(&home).live_dir()).unwrap();
+    put_at(h(&home).live(Live::Status), "not json");
+    put_at(
+        h(&home).live(Live::Dispatch),
         &json!({"time": "yesterday", "why": "count", "count": 1, "free": 0}).to_string(),
-    );
-    put(
-        &home,
-        "live/energy.json",
-        &json!({"generatedAt": iso(now), "totals": {"watts": null}}).to_string(),
     );
     execute(&home, &Cmd::Sample, now).unwrap();
     assert_eq!(sample_row(&home), nothing(now));
 
     // Fields of the wrong type, and a hold that is not one word.
     let home = scratch("sample-types");
-    fs::create_dir_all(home.join("live")).unwrap();
-    put(
-        &home,
-        "live/status.json",
+    fs::create_dir_all(h(&home).live_dir()).unwrap();
+    put_at(
+        h(&home).live(Live::Status),
         &json!({"generatedAt": iso(now), "paused": "no", "queued": 3, "running": [], "awaiting": {}, "stopped": null,
                 "planning": "2"})
             .to_string(),
     );
-    put(
-        &home,
-        "live/dispatch.json",
+    put_at(
+        h(&home).live(Live::Dispatch),
         &json!({"time": iso(now), "why": "holding: <b>", "count": "2", "free": 1}).to_string(),
     );
     execute(&home, &Cmd::Sample, now).unwrap();
-    assert_eq!(sample_row(&home), format!("{now} - 0 - - - - - - -"));
+    assert_eq!(sample_row(&home), format!("{now} - 0 - - - - - -"));
 }
 
 // The sampler finds each list under the name the writer gives it.
@@ -2356,8 +2368,8 @@ fn the_sampler_reads_the_lists_by_the_names_status_json_writes() {
     for (i, name) in queue_lists::LISTS.iter().enumerate() {
         st[*name] = json!(vec![json!({"number": 1}); i + 1]);
     }
-    fs::create_dir_all(home.join("live")).unwrap();
-    put(&home, "live/status.json", &st.to_string());
+    fs::create_dir_all(h(&home).live_dir()).unwrap();
+    put_at(h(&home).live(Live::Status), &st.to_string());
     let s = crate::sample::read(&home, now);
     let at = |k: &str| queue_lists::LISTS.iter().position(|n| *n == k).unwrap() as i64 + 1;
     assert_eq!(s.in_line, Some(at(QUEUED)));
@@ -2377,9 +2389,9 @@ fn planning_is_the_count_status_json_gives_and_null_without_one() {
         if let Some(p) = planning {
             s["planning"] = p;
         }
-        put(&home, "live/status.json", &s.to_string());
+        put_at(h(&home).live(Live::Status), &s.to_string());
     };
-    fs::create_dir_all(home.join("live")).unwrap();
+    fs::create_dir_all(h(&home).live_dir()).unwrap();
     for (at, planning) in [
         (now, Some(json!(0))),
         (now + 1, Some(json!(4))),
@@ -2410,7 +2422,7 @@ fn a_sample_prunes_too_and_two_in_one_second_keep_the_last() {
     execute(&home, &Cmd::Sample, now).unwrap();
     live(&home, now, "", None);
     execute(&home, &Cmd::Sample, now).unwrap();
-    assert_eq!(sample_row(&home), format!("{now} 3 2 1 0 2 5 1 [] 412.5"));
+    assert_eq!(sample_row(&home), format!("{now} 3 2 1 0 2 5 1 []"));
     let conn = Connection::open(db::path(&home)).unwrap();
     assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM issue_events"), 0);
 }
@@ -2606,7 +2618,7 @@ fn an_event_far_in_the_past_is_stored_as_given() {
 fn turn(home: &Path, record: Value, out: Option<Value>) {
     fs::write(facts_path(home, 7), record.to_string()).unwrap();
     if let Some(o) = out {
-        put(home, "state/plan-7.json.out", &o.to_string());
+        put_at(h(home).plan_file(7, ".out"), &o.to_string());
     }
     put(home, "docs/version.txt", "v0.7.22+1234abc\n");
 }
@@ -2633,7 +2645,7 @@ fn plan_stores_the_turn_with_its_times_turn_and_outcome_and_no_usage() {
         &home,
         json!({"session": "s1", "turns": 1, "options": [], "pending": false, "failed": false,
                "running": true, "startedAt": iso(started), "by": "alice",
-               "answers": [{"turn": 2, "by": "alice", "fixer": false}]}),
+               "answers": [{"turn": 2, "by": "alice", "millwright": false}]}),
         Some(json!({"session": "s1", "text": "Which one?", "question": null})),
     );
     execute(&home, &plan_cmd(&home, "0"), now).unwrap();
@@ -2673,7 +2685,6 @@ fn plan_outcomes_follow_how_the_turn_ended_and_how_it_was_started() {
     let now = 1_792_000_000;
     let at = iso(now - 60);
     let rec = |turns: i64, answers: Value| json!({"session": "s", "turns": turns, "running": true, "startedAt": at, "answers": answers});
-    let fixer = json!([{"turn": 3, "by": "fixer-bot", "fixer": true}]);
     let millwright = json!([{"turn": 3, "by": "millwright-bot", "millwright": true}]);
     for (rc, record, out, outcome, status, how) in [
         (
@@ -2682,7 +2693,7 @@ fn plan_outcomes_follow_how_the_turn_ended_and_how_it_was_started() {
             Some(json!({"session": "s", "text": "t"})),
             "handoff",
             "-",
-            "label",
+            "approved",
         ),
         (
             "0",
@@ -2690,18 +2701,10 @@ fn plan_outcomes_follow_how_the_turn_ended_and_how_it_was_started() {
             Some(json!({"text": "t"})),
             "failed",
             "-",
-            "label",
+            "approved",
         ),
-        (
-            "2",
-            rec(2, fixer.clone()),
-            Some(json!({"session": "s"})),
-            "failed",
-            "-",
-            "millwright",
-        ),
-        // An answer marked `millwright` is the millwright's too, and a record
-        // marked with neither word is an answer of a person.
+        // An answer marked `millwright` is the millwright's, and a record
+        // not marked so is an answer of a person.
         (
             "2",
             rec(2, millwright.clone()),
@@ -2726,8 +2729,8 @@ fn plan_outcomes_follow_how_the_turn_ended_and_how_it_was_started() {
             "lost",
             "answer",
         ),
-        ("4", rec(0, json!([])), None, "refused", "-", "label"),
-        ("64", rec(0, json!([])), None, "refused", "-", "label"),
+        ("4", rec(0, json!([])), None, "refused", "-", "approved"),
+        ("64", rec(0, json!([])), None, "refused", "-", "approved"),
         (
             "not-started",
             rec(1, json!([])),
@@ -2769,12 +2772,12 @@ fn plan_outcomes_follow_how_the_turn_ended_and_how_it_was_started() {
 }
 
 #[test]
-fn plan_how_words_are_the_pair_of_the_core_grammar() {
-    // Each reader of the class has a test of its own that its words are these
-    // two: this is analytics', beside the MCP server's and the core pair's.
+fn plan_how_words_are_the_word_of_the_core_grammar() {
+    // Each reader of the word has a test of its own that its word is this
+    // one: this is analytics', beside the MCP server's and the core word's.
     assert_eq!(
-        crate::plan::MILLWRIGHT_MARKS,
-        tehas_core::grammar::MILLWRIGHT_WORDS
+        crate::plan::MILLWRIGHT_MARK,
+        tehas_core::grammar::MILLWRIGHT
     );
     let now = 1_792_000_000;
     let at = iso(now - 60);
@@ -2789,18 +2792,18 @@ fn plan_how_words_are_the_pair_of_the_core_grammar() {
         let conn = Connection::open(db::path(&home)).unwrap();
         one::<String>(&conn, "SELECT how FROM runs")
     };
-    // Each word of the pair marks the turn the millwright's and neither word
-    // is an answer: were the marks anything else, one of these three disagrees.
+    // The word marks the turn the millwright's, and the old one is no mark:
+    // were the mark anything else, one of these three disagrees.
     assert_eq!(
         mark(json!({"turn": 3, "by": "bot", "millwright": true})),
         "millwright"
     );
     assert_eq!(
         mark(json!({"turn": 3, "by": "bot", "fixer": true})),
-        "millwright"
+        "answer"
     );
     assert_eq!(
-        mark(json!({"turn": 3, "by": "bot", "millwright": false, "fixer": false})),
+        mark(json!({"turn": 3, "by": "bot", "millwright": false})),
         "answer"
     );
 }
@@ -2811,8 +2814,8 @@ fn a_refining_session_s_first_turn_is_how_refine_and_its_later_turns_are_answers
     let at = iso(now - 60);
     for (turns, label, how) in [
         (0, Some("tehas:refine"), "refine"),
-        (0, Some("tehas:plan"), "label"),
-        (0, None, "label"),
+        (0, Some("tehas:plan"), "approved"),
+        (0, None, "approved"),
         (1, Some("tehas:refine"), "answer"),
     ] {
         let mut record = json!({"session": "s", "turns": turns, "running": true, "startedAt": at, "answers": []});
@@ -2843,7 +2846,7 @@ fn the_refine_figures_follow_the_refined_issues_and_compare_them_with_the_rest()
         (1, day0 + 100, "refine"),
         (2, day0 + 200, "refine"),
         (3, day0 - DAY, "refine"),
-        (4, day0 + 300, "label"),
+        (4, day0 + 300, "approved"),
     ] {
         conn.execute(
             "INSERT INTO runs (id, kind, issue, how, started, ended) VALUES (?1, 'plan', ?2, ?3, ?4, ?4)",
@@ -2869,9 +2872,9 @@ fn the_refine_figures_follow_the_refined_issues_and_compare_them_with_the_rest()
     ev(20, "merged", day0 + 9000);
     ev(21, "ready", day0 + 4000);
     ev(21, "started", day0 + 4100);
-    std::fs::create_dir_all(home.join("state")).unwrap();
+    std::fs::create_dir_all(h(&home).state_dir()).unwrap();
     std::fs::write(
-        home.join("state").join("refined.jsonl"),
+        h(&home).state(State::Refined),
         format!(
             "{}\n{}\nnot json\n{}\n",
             json!({"at": iso(day0 + 900), "source": 1, "filed": 10, "url": "u"}),
@@ -2882,7 +2885,8 @@ fn the_refine_figures_follow_the_refined_issues_and_compare_them_with_the_rest()
     .unwrap();
     let refined = crate::report::read_refined(&home);
     assert_eq!(refined.len(), 2);
-    let got = crate::report::refine(&conn, &refined, to).unwrap();
+    let got_typed = crate::report::refine(&conn, &refined, to).unwrap();
+    let got = serde_json::to_value(&got_typed).unwrap();
     assert_eq!(
         got,
         json!({"sessions": 2, "n": 2, "started": 1, "shipped": 1, "shippedShare": 0.5,
@@ -2890,7 +2894,7 @@ fn the_refine_figures_follow_the_refined_issues_and_compare_them_with_the_rest()
                "others": {"n": 2, "started": 2, "shipped": 1, "shippedShare": 0.5}})
     );
     let mut report = crate::report::build(&conn, to).unwrap();
-    report["refine"] = got;
+    report.refine = Some(got_typed);
     let text = crate::report::text(&report);
     assert!(
         text.contains("Refine             2 sessions, 2 issues filed: 1 started, 1 shipped (50%), lead median 2h00m; other issues 50% shipped (n=2)"),
@@ -2944,9 +2948,8 @@ fn the_size_figures_follow_the_measured_starts_of_the_window() {
     // file: issue 1's later measure stands first here and still answers.
     let mut wide = json!({"at": iso(day0 + 6100), "issue": 12, "files": 3});
     wide["filler"] = json!("x".repeat(100_000));
-    put(
-        &home,
-        "state/sizes.jsonl",
+    put_at(
+        h(&home).state(State::Sizes),
         &ledger(&[
             json!({"at": iso(day0 + 1000), "issue": 1, "files": 2, "tests": 1,
                   "deliverables": 1, "done_when": 2}),
@@ -3006,7 +3009,8 @@ fn the_size_figures_follow_the_measured_starts_of_the_window() {
     );
     let empty = json!({"n": 0, "shipped": 0, "leadTime": {"n": 0}});
     assert_eq!(empty_buckets()["3-4"], empty);
-    let got = crate::report::sizes(&conn, &ledger, to).unwrap();
+    let got_typed = crate::report::sizes(&conn, &ledger, to).unwrap();
+    let got = serde_json::to_value(&got_typed).unwrap();
     assert_eq!(
         got,
         json!({
@@ -3029,13 +3033,19 @@ fn the_size_figures_follow_the_measured_starts_of_the_window() {
     assert_eq!(got["3-4"]["n"], json!(3));
     assert_eq!(got["5+"]["n"], json!(1));
     // The same ledger with no work in the window: no bucket but "none".
-    assert_eq!(crate::report::sizes(&conn, &[], to).unwrap()["3-4"], empty);
+    assert_eq!(
+        serde_json::to_value(crate::report::sizes(&conn, &[], to).unwrap()).unwrap()["3-4"],
+        empty
+    );
     // No ledger at all: empty buckets, not a missing key.
     assert_eq!(
-        crate::report::sizes(
-            &conn,
-            &crate::report::read_sizes(&scratch("report-sizes-none")),
-            to
+        serde_json::to_value(
+            crate::report::sizes(
+                &conn,
+                &crate::report::read_sizes(&scratch("report-sizes-none")),
+                to
+            )
+            .unwrap()
         )
         .unwrap(),
         empty_buckets()
@@ -3061,13 +3071,13 @@ fn the_report_command_adds_the_refine_and_size_figures() {
         rusqlite::params![day0 + 1000, 1, day0 + 4600],
     )
     .unwrap();
-    std::fs::create_dir_all(home.join("state")).unwrap();
-    put(
-        &home,
-        "state/sizes.jsonl",
+    std::fs::create_dir_all(h(&home).state_dir()).unwrap();
+    put_at(
+        h(&home).state(State::Sizes),
         &ledger(&[json!({"at": iso(day0 + 1000), "issue": 1, "files": 2})]),
     );
-    let got = crate::report::complete(&conn, &home, to).unwrap();
+    let got_typed = crate::report::complete(&conn, &home, to).unwrap();
+    let got = serde_json::to_value(&got_typed).unwrap();
     assert_eq!(
         got["sizes"]["1-2"],
         json!({"n": 1, "shipped": 1,
@@ -3079,19 +3089,21 @@ fn the_report_command_adds_the_refine_and_size_figures() {
     );
     assert!(got["refine"].is_object());
     // build() alone holds neither: the keys belong to the command.
-    let bare = crate::report::build(&conn, to).unwrap();
+    let bare_typed = crate::report::build(&conn, to).unwrap();
+    let bare = serde_json::to_value(&bare_typed).unwrap();
     assert!(bare.get("sizes").is_none() && bare.get("refine").is_none());
     // A ledger that is a link is read no more than a ledger that is no file:
     // the figures are four buckets of nothing.
     let moved = home.join("elsewhere.jsonl");
-    fs::rename(home.join("state").join("sizes.jsonl"), &moved).unwrap();
-    std::os::unix::fs::symlink(&moved, home.join("state").join("sizes.jsonl")).unwrap();
+    fs::rename(h(&home).state(State::Sizes), &moved).unwrap();
+    std::os::unix::fs::symlink(&moved, h(&home).state(State::Sizes)).unwrap();
     assert!(crate::report::read_sizes(&home).is_empty());
-    let got = crate::report::complete(&conn, &home, to).unwrap();
+    let got_typed = crate::report::complete(&conn, &home, to).unwrap();
+    let got = serde_json::to_value(&got_typed).unwrap();
     assert_eq!(got["sizes"], empty_buckets());
     // The Size line says the buckets by name.
     assert!(
-        crate::report::text(&got).contains("none: 0 shipped 0, lead - | 1-2: 0 shipped 0, lead - | 3-4: 0 shipped 0, lead - | 5+: 0 shipped 0, lead -"),
+        crate::report::text(&got_typed).contains("none: 0 shipped 0, lead - | 1-2: 0 shipped 0, lead - | 3-4: 0 shipped 0, lead - | 5+: 0 shipped 0, lead -"),
     );
 }
 
@@ -3104,7 +3116,7 @@ fn a_ship_whose_merge_precedes_its_ready_contributes_no_lead() {
     let day0 = 1_792_022_400;
     let to = day0 + 9 * DAY + 43_200;
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    std::fs::create_dir_all(home.join("state")).unwrap();
+    std::fs::create_dir_all(h(&home).state_dir()).unwrap();
     conn.execute(
         "INSERT OR IGNORE INTO issue_events (at, issue, event) VALUES (?1, ?2, ?3)",
         rusqlite::params![day0 + 2000, 1, "ready"],
@@ -3115,16 +3127,44 @@ fn a_ship_whose_merge_precedes_its_ready_contributes_no_lead() {
         rusqlite::params![day0 + 1000, 1, "merged"],
     )
     .unwrap();
-    put(
-        &home,
-        "state/sizes.jsonl",
+    put_at(
+        h(&home).state(State::Sizes),
         &ledger(&[json!({"at": iso(day0 + 900), "issue": 1, "files": 2})]),
     );
-    let got = crate::report::sizes(&conn, &crate::report::read_sizes(&home), to).unwrap();
+    let got_typed = crate::report::sizes(&conn, &crate::report::read_sizes(&home), to).unwrap();
+    let got = serde_json::to_value(&got_typed).unwrap();
     assert_eq!(
         got["1-2"],
         json!({"n": 1, "shipped": 1, "leadTime": {"n": 0}})
     );
+}
+
+// A ledger line is an object of the fields the reader names, each once: the
+// same fields as an array, or a field given twice, are no line.
+#[test]
+fn a_ledger_line_of_another_shape_is_skipped() {
+    let home = scratch("report-ledger-shape");
+    let day0 = 1_792_022_400;
+    std::fs::create_dir_all(h(&home).state_dir()).unwrap();
+    let at = iso(day0 + 1000);
+    put_at(
+        h(&home).state(State::Sizes),
+        &format!(
+            "[\"{at}\",1,2]\n{{\"at\":\"{at}\",\"issue\":2,\"issue\":3,\"files\":2}}\n{}\n",
+            json!({"at": at, "issue": 4, "files": 2})
+        ),
+    );
+    let got = crate::report::read_sizes(&home);
+    assert_eq!(got.iter().map(|s| s.issue).collect::<Vec<_>>(), [4]);
+    put_at(
+        h(&home).state(State::Refined),
+        &format!(
+            "[\"{at}\",10]\n{{\"at\":\"{at}\",\"filed\":11,\"filed\":12}}\n{}\n",
+            json!({"at": at, "filed": 13})
+        ),
+    );
+    let got = crate::report::read_refined(&home);
+    assert_eq!(got.iter().map(|r| r.filed).collect::<Vec<_>>(), [13]);
 }
 
 // The published privacy claim of the size figures, held where it is made:
@@ -3136,16 +3176,16 @@ fn the_size_figures_hold_no_keys_but_their_own() {
     let day0 = 1_792_022_400;
     let to = day0 + 9 * DAY + 43_200;
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    std::fs::create_dir_all(home.join("state")).unwrap();
-    put(
-        &home,
-        "state/sizes.jsonl",
+    std::fs::create_dir_all(h(&home).state_dir()).unwrap();
+    put_at(
+        h(&home).state(State::Sizes),
         &ledger(&[
             json!({"at": iso(day0 + 1000), "issue": 1, "files": 2, "tests": 1,
                    "deliverables": 3, "done_when": 4, "title": "what the issue asked for"}),
         ]),
     );
-    let got = crate::report::sizes(&conn, &crate::report::read_sizes(&home), to).unwrap();
+    let got_typed = crate::report::sizes(&conn, &crate::report::read_sizes(&home), to).unwrap();
+    let got = serde_json::to_value(&got_typed).unwrap();
     assert_eq!(
         got.as_object().unwrap().keys().collect::<Vec<_>>(),
         ["1-2", "3-4", "5+", "none"]
@@ -3168,12 +3208,12 @@ fn a_ledger_past_the_whole_file_bound_is_no_ledger_at_all() {
     let day0 = 1_792_022_400;
     let to = day0 + 9 * DAY + 43_200;
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    std::fs::create_dir_all(home.join("state")).unwrap();
+    std::fs::create_dir_all(h(&home).state_dir()).unwrap();
     // The 500 lines the writers keep: read whole, and of one issue each.
     let starts: Vec<Value> = (1..=500)
         .map(|i| json!({"at": iso(day0 + 1000 + i), "issue": i, "files": 2}))
         .collect();
-    put(&home, "state/sizes.jsonl", &ledger(&starts));
+    put_at(h(&home).state(State::Sizes), &ledger(&starts));
     assert_eq!(crate::report::read_sizes(&home).len(), 500);
     // A line one byte short of the width bound is a record; one at it is a
     // paste. Both sit beside a good line, so the wide one costs only itself.
@@ -3200,18 +3240,16 @@ fn a_ledger_past_the_whole_file_bound_is_no_ledger_at_all() {
             .len(),
         51
     );
-    put(
-        &home,
-        "state/sizes.jsonl",
+    put_at(
+        h(&home).state(State::Sizes),
         &ledger(&[
             json!({"at": at.clone(), "issue": 900, "files": 2}),
             wide_of(901, 99_999),
         ]),
     );
     assert_eq!(crate::report::read_sizes(&home).len(), 2);
-    put(
-        &home,
-        "state/sizes.jsonl",
+    put_at(
+        h(&home).state(State::Sizes),
         &ledger(&[
             json!({"at": at.clone(), "issue": 900, "files": 2}),
             wide_of(902, 100_000),
@@ -3224,21 +3262,23 @@ fn a_ledger_past_the_whole_file_bound_is_no_ledger_at_all() {
     let mut big = ledger(&starts);
     big.push_str(&"y".repeat(one_mib - big.len() + 1));
     assert_eq!(big.len(), one_mib + 1);
-    put(&home, "state/sizes.jsonl", &big);
+    put_at(h(&home).state(State::Sizes), &big);
     assert!(crate::report::read_sizes(&home).is_empty());
     assert_eq!(
-        crate::report::sizes(&conn, &crate::report::read_sizes(&home), to).unwrap(),
+        serde_json::to_value(
+            crate::report::sizes(&conn, &crate::report::read_sizes(&home), to).unwrap()
+        )
+        .unwrap(),
         empty_buckets()
     );
     // The last byte within the bound is read: the same file one byte shorter
     // answers for all 500 starts.
-    put(&home, "state/sizes.jsonl", &big[..one_mib]);
+    put_at(h(&home).state(State::Sizes), &big[..one_mib]);
     assert_eq!(crate::report::read_sizes(&home).len(), 500);
     // A `files` count of more than the nine digits the setting may hold is no
     // measure, whatever bucket it would have fallen in.
-    put(
-        &home,
-        "state/sizes.jsonl",
+    put_at(
+        h(&home).state(State::Sizes),
         &ledger(&[
             json!({"at": iso(day0 + 1000), "issue": 903, "files": 999_999_999}),
             json!({"at": iso(day0 + 1000), "issue": 904, "files": 1_000_000_000}),
@@ -3254,17 +3294,19 @@ fn a_ledger_past_the_whole_file_bound_is_no_ledger_at_all() {
     );
     // A stamp of an eleven-digit year is refused at the parse, so neither
     // ledger can panic the report with one.
-    for name in ["sizes.jsonl", "refined.jsonl"] {
-        put(
-            &home,
-            &format!("state/{name}"),
+    for ledger_of in [State::Sizes, State::Refined] {
+        put_at(
+            h(&home).state(ledger_of),
             &ledger(&[
                 json!({"at": "71167994112-01-01T00:00:00Z", "issue": 1, "files": 2,
                             "source": 1, "filed": 1, "url": "https://x/y/issues/1"}),
             ]),
         );
-        assert!(crate::report::read_sizes(&home).is_empty(), "{name}");
-        assert!(crate::report::read_refined(&home).is_empty(), "{name}");
+        assert!(crate::report::read_sizes(&home).is_empty(), "{ledger_of:?}");
+        assert!(
+            crate::report::read_refined(&home).is_empty(),
+            "{ledger_of:?}"
+        );
     }
 }
 
@@ -3279,8 +3321,10 @@ fn the_text_report_prints_one_row_for_every_section_of_the_report() {
     let to = day0 + 9 * DAY + 43_200;
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
     report_data(&conn, day0, to);
-    let built = crate::report::build(&conn, to).unwrap();
-    let full = crate::report::complete(&conn, &home, to).unwrap();
+    let built_typed = crate::report::build(&conn, to).unwrap();
+    let built = serde_json::to_value(&built_typed).unwrap();
+    let full_typed = crate::report::complete(&conn, &home, to).unwrap();
+    let full = serde_json::to_value(&full_typed).unwrap();
     let keys = |v: &Value| {
         v.as_object()
             .unwrap()
@@ -3292,8 +3336,8 @@ fn the_text_report_prints_one_row_for_every_section_of_the_report() {
     // prints the row `SECTIONS` names, so a section without a row and a row
     // without a section both fail here. The two of the ledgers come with
     // `complete`, the two of the database with `build`.
-    let full_text = crate::report::text(&full);
-    let built_text = crate::report::text(&built);
+    let full_text = crate::report::text(&full_typed);
+    let built_text = crate::report::text(&built_typed);
     let added = keys(&full)
         .into_iter()
         .filter(|k| !keys(&built).contains(k))
@@ -3341,7 +3385,7 @@ fn the_size_figures_of_a_full_ledger_come_in_inside_the_time_limit() {
     let starts: Vec<Value> = (0..400)
         .map(|i| json!({"at": iso(to - 3600), "issue": i, "files": i % 7}))
         .collect();
-    put(&home, "state/sizes.jsonl", &ledger(&starts));
+    put_at(h(&home).state(State::Sizes), &ledger(&starts));
     let t = std::time::Instant::now();
     assert_eq!(execute(&home, &Cmd::Report, to), Ok(()));
     let took = t.elapsed();
@@ -3373,7 +3417,7 @@ fn a_planning_turn_not_in_flight_records_nothing() {
     // The record on disk is not read, and facts through a link are not either.
     let in_flight =
         json!({"session": "s", "turns": 0, "running": true, "startedAt": iso(now - 60)});
-    put(&home, "state/plan-7.json", &in_flight.to_string());
+    put_at(h(&home).plan_file(7, ""), &in_flight.to_string());
     let target = home.join("tmp/elsewhere.json");
     fs::write(&target, in_flight.to_string()).unwrap();
     fs::remove_file(facts_path(&home, 7)).unwrap();
@@ -3584,7 +3628,7 @@ fn report_data(conn: &Connection, day0: i64, to: i64) {
             2,
             day0 + 3000,
             1800,
-            "pr",
+            "offered",
             Some(2000),
             Some(500),
             None,
@@ -3762,26 +3806,19 @@ fn report_data(conn: &Connection, day0: i64, to: i64) {
     db::event(conn, 7, "merged", day0 + 2 * DAY).unwrap();
     db::event(conn, 3, "stopped", day0 + DAY + 400).unwrap();
     #[allow(clippy::type_complexity)]
-    let samples: [(
-        i64,
-        Option<i64>,
-        Option<i64>,
-        Option<i64>,
-        Option<&str>,
-        Option<f64>,
-    ); 6] = [
-        (day0 - 60, Some(9), Some(9), Some(0), Some(""), Some(999.0)),
-        (day0 + DAY, Some(1), Some(0), Some(0), Some(""), Some(100.0)),
-        (to - 1800, Some(2), Some(1), Some(0), Some(""), Some(100.0)),
-        (to - 1200, Some(3), None, Some(1), None, Some(200.0)),
-        (to - 600, Some(4), Some(2), Some(0), Some("resources"), None),
-        (to - 300, Some(5), Some(1), Some(0), Some(""), Some(100.0)),
+    let samples: [(i64, Option<i64>, Option<i64>, Option<i64>, Option<&str>); 6] = [
+        (day0 - 60, Some(9), Some(9), Some(0), Some("")),
+        (day0 + DAY, Some(1), Some(0), Some(0), Some("")),
+        (to - 1800, Some(2), Some(1), Some(0), Some("")),
+        (to - 1200, Some(3), None, Some(1), None),
+        (to - 600, Some(4), Some(2), Some(0), Some("resources")),
+        (to - 300, Some(5), Some(1), Some(0), Some("")),
     ];
-    for (at, in_line, planning, paused, held, watts) in samples {
+    for (at, in_line, planning, paused, held) in samples {
         conn.execute(
-            "INSERT INTO samples (at, in_line, planning, paused, held, watts)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            rusqlite::params![at, in_line, planning, paused, held, watts],
+            "INSERT INTO samples (at, in_line, planning, paused, held)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![at, in_line, planning, paused, held],
         )
         .unwrap();
     }
@@ -3794,7 +3831,8 @@ fn the_report_gives_the_figures_of_a_known_data_set() {
     let to = day0 + 9 * DAY + 43_200;
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
     report_data(&conn, day0, to);
-    let got = crate::report::build(&conn, to).unwrap();
+    let got_typed = crate::report::build(&conn, to).unwrap();
+    let got = serde_json::to_value(&got_typed).unwrap();
     let day = |d: &str, shipped: i64, runs: i64, failed: i64, minutes: i64| json!({"day": d, "shipped": shipped, "runs": runs, "failed": failed, "minutes": minutes});
     let mut trend: Vec<Value> = (15..=24)
         .map(|d| json!({"day": format!("2026-10-{d}")}))
@@ -3807,7 +3845,7 @@ fn the_report_gives_the_figures_of_a_known_data_set() {
         "to": to,
         "shipped": {"n": 3},
         "planned": {"n": 6, "inLine": 5, "planning": 1, "trend": trend},
-        "runs": {"n": 6, "pr": 1, "merged": 1, "handoff": 1, "parked": 0, "failed": 2,
+        "runs": {"n": 6, "offered": 1, "merged": 1, "handoff": 1, "parked": 0, "failed": 2,
                  "refused": 1, "stopped": 0},
         "planningTurns": {"n": 1},
         "handoffRate": {"n": 6, "share": 0.167},
@@ -3826,8 +3864,6 @@ fn the_report_gives_the_figures_of_a_known_data_set() {
                    "shipped": 3, "perShipped": 2217},
         // 1500 seconds of 734400 since the first sample: 600 + 600 + 300.
         "availability": {"n": 5, "seconds": 734_400, "share": 0.002},
-        // 100 W for 600 s, 100 W for 600 s, 200 W for 600 s, 100 W for 300 s.
-        "energy": {"n": 4, "kwh": 0.075, "perShipped": 0.025},
         "daily": [
             day("2026-10-15", 1, 3, 0, 60),
             day("2026-10-16", 1, 2, 2, 20),
@@ -3854,7 +3890,7 @@ fn the_report_gives_the_figures_of_a_known_data_set() {
         ]},
         // Three runs or more show their figures; fewer, the count only.
         "versions": [
-            {"tehas": "v1", "rukas": "0.13.0", "n": 4, "prShare": 0.5, "medianSeconds": 900,
+            {"tehas": "v1", "rukas": "0.13.0", "n": 4, "changeShare": 0.5, "medianSeconds": 900,
              "medianTokens": 2500, "tokensN": 3},
             {"tehas": "v2", "n": 1},
             {"tehas": "v2", "rukas": "0.13.0", "n": 1},
@@ -3867,7 +3903,7 @@ fn the_report_gives_the_figures_of_a_known_data_set() {
                 // Two pull requests and one run are under VERSION_FLOOR: their
                 // counts stand and their shares are left out. The hand-back of
                 // each entry is set below.
-                "0.13.0": {"n": 5, "ran": 4, "prShare": 0.5, "parkedShare": 0.25,
+                "0.13.0": {"n": 5, "ran": 4, "changeShare": 0.5, "parkedShare": 0.25,
                            "minutes": {"n": 4, "total": 65, "median": 15},
                            "tokens": {"n": 3, "total": 6500, "median": 2500},
                            "pullRequests": {"n": 2, "merged": 2}},
@@ -3903,7 +3939,8 @@ fn the_gate_line_of_the_report_gives_its_figures_in_text_and_json() {
     let to = day0 + 9 * DAY + 43_200;
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
     report_data(&conn, day0, to);
-    let report = crate::report::build(&conn, to).unwrap();
+    let report_typed = crate::report::build(&conn, to).unwrap();
+    let report = serde_json::to_value(&report_typed).unwrap();
     // The four gate rows of the window, read back as the report worked them
     // out: 300 s and 300 s in c, 540 s in e and 60 s in f.
     assert_eq!(
@@ -3913,7 +3950,7 @@ fn the_gate_line_of_the_report_gives_its_figures_in_text_and_json() {
     );
     // The text line holds the same four figures, with the seconds of the two
     // other durations of the report as minutes.
-    let text = crate::report::text(&report);
+    let text = crate::report::text(&report_typed);
     assert!(
         text.contains(
             "\nGate               median 5m, p90 9m, 1.333 runs per run, 46.7% of run time  (n=3, 20m)\n"
@@ -3921,7 +3958,8 @@ fn the_gate_line_of_the_report_gives_its_figures_in_text_and_json() {
         "{text}"
     );
     // The JSON the report command prints holds the same key as `build`'s.
-    let json = crate::report::complete(&conn, &home, to).unwrap();
+    let json_typed = crate::report::complete(&conn, &home, to).unwrap();
+    let json = serde_json::to_value(&json_typed).unwrap();
     assert_eq!(json["gate"], report["gate"]);
     // A second row of e's that carries no milliseconds of its own, and no
     // tier: the count of the gate's runs of it rises to two, and its 540 s are
@@ -3935,7 +3973,8 @@ fn the_gate_line_of_the_report_gives_its_figures_in_text_and_json() {
     .unwrap();
     conn.execute("UPDATE runs SET gate_runs = 2 WHERE id = 'e'", [])
         .unwrap();
-    let again = crate::report::build(&conn, to).unwrap();
+    let again_typed = crate::report::build(&conn, to).unwrap();
+    let again = serde_json::to_value(&again_typed).unwrap();
     assert_eq!(again["gate"]["n"], json!(3));
     assert_eq!(again["gate"]["median"], json!(270));
     assert_eq!(again["gate"]["p90"], json!(300));
@@ -3945,7 +3984,7 @@ fn the_gate_line_of_the_report_gives_its_figures_in_text_and_json() {
     // seconds, whatever the count of them is.
     assert_eq!(again["gate"]["perRun"], json!(1.667));
     assert_eq!(again["gate"]["share"], json!(0.467));
-    let text = crate::report::text(&again);
+    let text = crate::report::text(&again_typed);
     assert!(
         text.contains("median 4m30s, p90 5m, 1.667 runs per run, 46.7% of run time  (n=3, 20m)"),
         "{text}"
@@ -3979,29 +4018,30 @@ fn the_report_splits_by_driver_and_counts_a_null_row_as_classic() {
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
     // Classic: two pull requests, one merged by the driver, one parked run.
     driver_run(&conn, "a", 1, day0, "merged", Some(100), None);
-    driver_run(&conn, "b", 2, day0, "pr", Some(200), Some("classic"));
+    driver_run(&conn, "b", 2, day0, "offered", Some(200), Some("classic"));
     driver_run(&conn, "c", 3, day0, "parked", Some(300), None);
     driver_run(&conn, "d", 4, day0, "failed", Some(400), None);
     // Lean: no usage yet. One pull request a person merged later, one not.
-    driver_run(&conn, "e", 5, day0, "pr", None, Some("lean"));
-    driver_run(&conn, "f", 6, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "e", 5, day0, "offered", None, Some("lean"));
+    driver_run(&conn, "f", 6, day0, "offered", None, Some("lean"));
     driver_run(&conn, "g", 7, day0, "parked", None, Some("lean"));
     db::event(&conn, 5, "merged", day0 + 3600).unwrap();
-    let got = crate::report::build(&conn, to).unwrap();
+    let got_typed = crate::report::build(&conn, to).unwrap();
+    let got = serde_json::to_value(&got_typed).unwrap();
     assert_eq!(
         got["drivers"],
         json!({
-            "classic": {"none": {"n": 4, "ran": 4, "prShare": 0.5, "parkedShare": 0.25,
+            "classic": {"none": {"n": 4, "ran": 4, "changeShare": 0.5, "parkedShare": 0.25,
                                  "minutes": {"n": 4, "total": 40, "median": 10},
                                  "tokens": {"n": 4, "total": 1000, "median": 250},
                                  "pullRequests": {"n": 2, "merged": 1}}},
-            "lean": {"none": {"n": 3, "ran": 3, "prShare": 0.667, "parkedShare": 0.333,
+            "lean": {"none": {"n": 3, "ran": 3, "changeShare": 0.667, "parkedShare": 0.333,
                               "minutes": {"n": 3, "total": 30, "median": 10},
                               "tokens": {"n": 0},
                               "pullRequests": {"n": 2, "merged": 1}}},
         })
     );
-    let text = crate::report::text(&got);
+    let text = crate::report::text(&got_typed);
     let row = |name: &str| {
         text.lines()
             .find(|l| l.trim_start().starts_with(name))
@@ -4021,14 +4061,15 @@ fn a_merge_is_credited_to_the_version_of_the_run_that_reached_the_pull_request()
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
     // One issue, two releases: the older reached a pull request first, the
     // newer last, and the merge followed both.
-    lean_run(&conn, "a", 5, day0, "pr", "0.14.49");
-    lean_run(&conn, "b", 5, day0 + 1000, "pr", "0.14.50");
+    lean_run(&conn, "a", 5, day0, "offered", "0.14.49");
+    lean_run(&conn, "b", 5, day0 + 1000, "offered", "0.14.50");
     db::event(&conn, 5, "merged", day0 + 2000).unwrap();
     // The newer version needs enough runs for its own share to be published.
-    for (id, issue, outcome) in [("c", 6, "pr"), ("d", 7, "failed"), ("e", 8, "pr")] {
+    for (id, issue, outcome) in [("c", 6, "offered"), ("d", 7, "failed"), ("e", 8, "offered")] {
         lean_run(&conn, id, issue, day0, outcome, "0.14.50");
     }
-    let got = crate::report::build(&conn, day0 + DAY).unwrap();
+    let got_typed = crate::report::build(&conn, day0 + DAY).unwrap();
+    let got = serde_json::to_value(&got_typed).unwrap();
     let lean = &got["drivers"]["lean"];
     assert_eq!(
         lean["0.14.49"]["pullRequests"],
@@ -4039,7 +4080,7 @@ fn a_merge_is_credited_to_the_version_of_the_run_that_reached_the_pull_request()
         json!({"n": 3, "merged": 1, "share": 0.333})
     );
     // The terminal prints the same split: no merged count on the older line.
-    let rows = crate::report::text(&got)
+    let rows = crate::report::text(&got_typed)
         .lines()
         .map(|l| l.split_whitespace().collect::<Vec<_>>().join(" "))
         .filter(|l| l.starts_with("lean "))
@@ -4058,16 +4099,17 @@ fn a_drivers_shares_are_of_its_runs_that_ran() {
     let home = scratch("report-driver-ran");
     let day0 = 1_792_022_400;
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    driver_run(&conn, "a", 1, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "a", 1, day0, "offered", None, Some("lean"));
     driver_run(&conn, "b", 2, day0, "failed", None, Some("lean"));
     driver_run(&conn, "c", 3, day0, "refused", None, Some("lean"));
     driver_run(&conn, "d", 4, day0, "stopped", None, Some("lean"));
-    driver_run(&conn, "e", 5, day0, "pr", None, Some("lean"));
-    let got = crate::report::build(&conn, day0 + DAY).unwrap();
+    driver_run(&conn, "e", 5, day0, "offered", None, Some("lean"));
+    let got_typed = crate::report::build(&conn, day0 + DAY).unwrap();
+    let got = serde_json::to_value(&got_typed).unwrap();
     let lean = &got["drivers"]["lean"]["none"];
     assert_eq!(lean["n"], 5);
     assert_eq!(lean["ran"], 3);
-    assert_eq!(lean["prShare"], 0.667);
+    assert_eq!(lean["changeShare"], 0.667);
     assert_eq!(lean["parkedShare"], 0.0);
 }
 
@@ -4077,10 +4119,11 @@ fn a_driver_with_only_refused_runs_has_no_shares() {
     let day0 = 1_792_022_400;
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
     driver_run(&conn, "a", 1, day0, "refused", None, Some("lean"));
-    let got = crate::report::build(&conn, day0 + DAY).unwrap();
+    let got_typed = crate::report::build(&conn, day0 + DAY).unwrap();
+    let got = serde_json::to_value(&got_typed).unwrap();
     let lean = &got["drivers"]["lean"]["none"];
     assert_eq!((&lean["n"], &lean["ran"]), (&json!(1), &json!(0)));
-    assert_eq!(lean.get("prShare"), None);
+    assert_eq!(lean.get("changeShare"), None);
     assert_eq!(lean.get("parkedShare"), None);
 }
 
@@ -4091,9 +4134,10 @@ fn a_run_handed_off_to_a_person_counts_as_parked_for_its_driver() {
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
     driver_run(&conn, "a", 1, day0, "handoff", None, Some("lean"));
     driver_run(&conn, "b", 2, day0, "parked", None, Some("lean"));
-    driver_run(&conn, "c", 3, day0, "pr", None, Some("lean"));
-    driver_run(&conn, "d", 4, day0, "pr", None, Some("lean"));
-    let got = crate::report::build(&conn, day0 + DAY).unwrap();
+    driver_run(&conn, "c", 3, day0, "offered", None, Some("lean"));
+    driver_run(&conn, "d", 4, day0, "offered", None, Some("lean"));
+    let got_typed = crate::report::build(&conn, day0 + DAY).unwrap();
+    let got = serde_json::to_value(&got_typed).unwrap();
     assert_eq!(got["drivers"]["lean"]["none"]["parkedShare"], 0.5);
     assert_eq!(got["handoffRate"]["share"], 0.5);
 }
@@ -4103,15 +4147,16 @@ fn a_shipped_issue_whose_runs_reported_no_usage_is_no_zero_in_tokens_per_shipped
     let home = scratch("report-per-shipped");
     let day0 = 1_792_022_400;
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    let tokens =
-        |conn: &Connection| crate::report::build(conn, day0 + DAY).unwrap()["tokens"].clone();
+    let tokens = |conn: &Connection| {
+        serde_json::to_value(crate::report::build(conn, day0 + DAY).unwrap().tokens).unwrap()
+    };
     driver_run(&conn, "a", 1, day0, "merged", Some(1_000_000), None);
-    driver_run(&conn, "b", 2, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "b", 2, day0, "offered", None, Some("lean"));
     db::event(&conn, 2, "merged", day0 + 3600).unwrap();
     assert_eq!(tokens(&conn)["perShipped"], 1_000_000);
     assert_eq!(tokens(&conn)["shipped"], 1);
     // One run with a figure is enough for the issue to count.
-    driver_run(&conn, "c", 2, day0 + 1, "pr", Some(0), Some("lean"));
+    driver_run(&conn, "c", 2, day0 + 1, "offered", Some(0), Some("lean"));
     assert_eq!(tokens(&conn)["perShipped"], 500_000);
     assert_eq!(tokens(&conn)["shipped"], 2);
     // No run here at all: no driver left a gap, so the issue counts as it did.
@@ -4127,7 +4172,7 @@ fn a_driver_of_no_runs_has_counts_and_no_figures() {
     // A driver with no run has no entry: the versions are those of the runs, and
     // it has none. `text` prints no line for it.
     assert_eq!(
-        crate::report::build(&conn, to).unwrap()["drivers"],
+        serde_json::to_value(crate::report::build(&conn, to).unwrap().drivers).unwrap(),
         json!({"classic": {}, "lean": {}})
     );
 }
@@ -4137,16 +4182,17 @@ fn empty_tokens_are_left_out_of_a_drivers_sum_and_not_counted() {
     let home = scratch("report-part-tokens");
     let day0 = 1_792_022_400;
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    driver_run(&conn, "a", 1, day0, "pr", Some(0), Some("lean"));
-    driver_run(&conn, "b", 2, day0, "pr", Some(400), Some("lean"));
-    driver_run(&conn, "c", 3, day0, "pr", None, Some("lean"));
-    let got = crate::report::build(&conn, day0 + DAY).unwrap();
+    driver_run(&conn, "a", 1, day0, "offered", Some(0), Some("lean"));
+    driver_run(&conn, "b", 2, day0, "offered", Some(400), Some("lean"));
+    driver_run(&conn, "c", 3, day0, "offered", None, Some("lean"));
+    let got_typed = crate::report::build(&conn, day0 + DAY).unwrap();
+    let got = serde_json::to_value(&got_typed).unwrap();
     // A reported 0 is a figure; an empty run is not in the median either.
     assert_eq!(
         got["drivers"]["lean"]["none"]["tokens"],
         json!({"n": 2, "total": 400, "median": 200})
     );
-    assert!(crate::report::text(&got).contains("400 (n=2)"));
+    assert!(crate::report::text(&got_typed).contains("400 (n=2)"));
 }
 
 #[test]
@@ -4156,20 +4202,21 @@ fn a_pull_request_counts_once_and_only_a_merge_after_it_was_reached() {
     let to = day0 + DAY;
     let (conn, _) = db::open(&db::path(&home), day0 - 9 * DAY).unwrap();
     // Two runs of one pull request, the second a follow-up by another how.
-    driver_run(&conn, "a", 1, day0, "pr", None, Some("lean"));
-    driver_run(&conn, "b", 1, day0 + 1000, "pr", None, Some("lean"));
+    driver_run(&conn, "a", 1, day0, "offered", None, Some("lean"));
+    driver_run(&conn, "b", 1, day0 + 1000, "offered", None, Some("lean"));
     db::event(&conn, 1, "merged", day0 + 2000).unwrap();
     // Merged before this cycle of the issue: an earlier pull request's.
     db::event(&conn, 2, "merged", day0 - 8 * DAY).unwrap();
-    driver_run(&conn, "c", 2, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "c", 2, day0, "offered", None, Some("lean"));
     // Merged after the report's end: not yet, in this report.
-    driver_run(&conn, "d", 3, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "d", 3, day0, "offered", None, Some("lean"));
     db::event(&conn, 3, "merged", to + 1).unwrap();
     // No pull request, so it is in no count of them, merged or not.
     driver_run(&conn, "e", 4, day0, "failed", None, Some("lean"));
     db::event(&conn, 4, "merged", day0 + 2000).unwrap();
     assert_eq!(
-        crate::report::build(&conn, to).unwrap()["drivers"]["lean"]["none"]["pullRequests"],
+        serde_json::to_value(crate::report::build(&conn, to).unwrap().drivers).unwrap()["lean"]
+            ["none"]["pullRequests"],
         json!({"n": 3, "merged": 1, "share": 0.333})
     );
 }
@@ -4181,15 +4228,16 @@ fn a_merge_is_of_the_driver_that_last_reached_a_pull_request_before_it() {
     let to = day0 + DAY;
     let (conn, _) = db::open(&db::path(&home), day0 - 9 * DAY).unwrap();
     // Lean's pull request was closed, classic's merged.
-    driver_run(&conn, "a", 1, day0, "pr", None, Some("lean"));
-    driver_run(&conn, "b", 1, day0 + 1000, "pr", None, None);
+    driver_run(&conn, "a", 1, day0, "offered", None, Some("lean"));
+    driver_run(&conn, "b", 1, day0 + 1000, "offered", None, None);
     db::event(&conn, 1, "merged", day0 + 2000).unwrap();
     // The other way round, and a classic run after the merge changes nothing.
-    driver_run(&conn, "c", 2, day0, "pr", None, None);
-    driver_run(&conn, "d", 2, day0 + 1000, "pr", None, Some("lean"));
+    driver_run(&conn, "c", 2, day0, "offered", None, None);
+    driver_run(&conn, "d", 2, day0 + 1000, "offered", None, Some("lean"));
     db::event(&conn, 2, "merged", day0 + 2000).unwrap();
-    driver_run(&conn, "e", 2, day0 + 3000, "pr", None, None);
-    let report = crate::report::build(&conn, to).unwrap();
+    driver_run(&conn, "e", 2, day0 + 3000, "offered", None, None);
+    let report_typed = crate::report::build(&conn, to).unwrap();
+    let report = serde_json::to_value(&report_typed).unwrap();
     // Two pull requests are under VERSION_FLOOR: the counts, and no share.
     assert_eq!(
         report["drivers"]["lean"]["none"]["pullRequests"],
@@ -4206,10 +4254,11 @@ fn a_refused_run_is_in_no_minutes_of_its_driver() {
     let home = scratch("report-minutes-ran");
     let day0 = 1_792_022_400;
     let (conn, _) = db::open(&db::path(&home), day0 - 9 * DAY).unwrap();
-    driver_run(&conn, "a", 1, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "a", 1, day0, "offered", None, Some("lean"));
     driver_run(&conn, "b", 2, day0, "refused", None, Some("lean"));
     driver_run(&conn, "c", 3, day0, "stopped", None, Some("lean"));
-    let report = crate::report::build(&conn, day0 + DAY).unwrap();
+    let report_typed = crate::report::build(&conn, day0 + DAY).unwrap();
+    let report = serde_json::to_value(&report_typed).unwrap();
     assert_eq!(report["drivers"]["lean"]["none"]["n"], json!(3));
     assert_eq!(
         report["drivers"]["lean"]["none"]["minutes"],
@@ -4243,11 +4292,11 @@ fn each_drivers_entry_carries_the_keys_the_terminal_prints() {
     let home = scratch("report-drivers-shape");
     let day0 = 1_792_022_400;
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    lean_run(&conn, "a", 1, day0, "pr", "0.14.50");
+    lean_run(&conn, "a", 1, day0, "offered", "0.14.50");
     // A classic run of the same version that reached a pull request.
     conn.execute(
         "INSERT INTO runs (id, kind, issue, started, ended, seconds, outcome, rukas_version)
-         VALUES ('c', 'work', 2, ?1, ?1 + 600, 600, 'pr', '0.14.50')",
+         VALUES ('c', 'work', 2, ?1, ?1 + 600, 600, 'offered', '0.14.50')",
         rusqlite::params![day0],
     )
     .unwrap();
@@ -4255,7 +4304,8 @@ fn each_drivers_entry_carries_the_keys_the_terminal_prints() {
     run_step(&conn, "a", "verify");
     conn.execute("UPDATE runs SET attempt = 1 WHERE id = 'a'", [])
         .unwrap();
-    let got = crate::report::build(&conn, day0 + DAY).unwrap();
+    let got_typed = crate::report::build(&conn, day0 + DAY).unwrap();
+    let got = serde_json::to_value(&got_typed).unwrap();
     for driver in crate::run::DRIVERS {
         let entries = got["drivers"][driver]
             .as_object()
@@ -4268,7 +4318,7 @@ fn each_drivers_entry_carries_the_keys_the_terminal_prints() {
             // A figure the report cannot work out is left out, never null: a
             // key that is there holds a value of the shape `text` prints.
             assert!(
-                e.get("prShare").is_none_or(Value::is_number),
+                e.get("changeShare").is_none_or(Value::is_number),
                 "{driver} {version}"
             );
             assert!(
@@ -4294,7 +4344,7 @@ fn each_drivers_entry_carries_the_keys_the_terminal_prints() {
     }
     // And the two figures of the comparison hold what their lines print.
     let e = &got["drivers"]["lean"]["0.14.50"];
-    assert!(e["oneAttempt"]["pr"].is_number() && e["oneAttempt"]["n"].is_number());
+    assert!(e["oneAttempt"]["change"].is_number() && e["oneAttempt"]["n"].is_number());
     let back = e["handBack"]["steps"].as_array().unwrap();
     assert!(back[0]["step"].is_string() && back[0]["n"].is_number());
     assert!(back[0]["passed"].is_number() && back[0]["share"].is_number());
@@ -4305,21 +4355,22 @@ fn the_drivers_section_never_pools_two_pi_rukas_versions() {
     let home = scratch("report-drivers-versions");
     let day0 = 1_792_022_400;
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    lean_run(&conn, "a", 1, day0, "pr", "0.14.49");
-    lean_run(&conn, "b", 2, day0, "pr", "0.14.49");
+    lean_run(&conn, "a", 1, day0, "offered", "0.14.49");
+    lean_run(&conn, "b", 2, day0, "offered", "0.14.49");
     lean_run(&conn, "c", 3, day0, "parked", "0.14.49");
     // The next release, one run: it stands on its own with its own count, and
     // one run is too few for a share, as in `versions`.
-    lean_run(&conn, "d", 4, day0, "pr", "0.14.50");
-    let got = crate::report::build(&conn, day0 + DAY).unwrap();
+    lean_run(&conn, "d", 4, day0, "offered", "0.14.50");
+    let got_typed = crate::report::build(&conn, day0 + DAY).unwrap();
+    let got = serde_json::to_value(&got_typed).unwrap();
     let lean = &got["drivers"]["lean"];
     assert_eq!(lean["0.14.49"]["n"], json!(3));
-    assert_eq!(lean["0.14.49"]["prShare"], json!(0.667));
+    assert_eq!(lean["0.14.49"]["changeShare"], json!(0.667));
     assert_eq!(lean["0.14.50"]["n"], json!(1));
-    assert_eq!(lean["0.14.50"].get("prShare"), None);
+    assert_eq!(lean["0.14.50"].get("changeShare"), None);
     assert_eq!(lean["0.14.50"].get("parkedShare"), None);
     // The terminal prints one line per pair, the version in its own column.
-    let text = crate::report::text(&got);
+    let text = crate::report::text(&got_typed);
     assert!(text.contains("0.14.49"), "{text}");
     assert!(text.contains("0.14.50"), "{text}");
 }
@@ -4334,9 +4385,10 @@ fn two_versions_the_report_cannot_name_are_one_other_entry_whose_runs_are_summed
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
     // One past the length a version may hold, and one with a word no release
     // carries: both are rejected, and both are the same entry.
-    lean_run(&conn, "a", 1, day0, "pr", &"0".repeat(41));
+    lean_run(&conn, "a", 1, day0, "offered", &"0".repeat(41));
     lean_run(&conn, "b", 2, day0, "parked", "v0.14.50$");
-    let got = crate::report::build(&conn, day0 + DAY).unwrap();
+    let got_typed = crate::report::build(&conn, day0 + DAY).unwrap();
+    let got = serde_json::to_value(&got_typed).unwrap();
     let lean = got["drivers"]["lean"].clone();
     let other = lean["other"].clone();
     // Both runs, not the last one alone.
@@ -4355,10 +4407,10 @@ fn a_drivers_entry_gives_the_one_attempt_success_and_the_hand_back_by_step() {
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
     // Issue 1: the first attempt parked at verify, the second reached a PR.
     lean_run(&conn, "a", 1, day0, "parked", "0.14.50");
-    lean_run(&conn, "b", 1, day0 + 1000, "pr", "0.14.50");
+    lean_run(&conn, "b", 1, day0 + 1000, "offered", "0.14.50");
     // Issues 2 and 3: first attempts that reached a PR; issue 4: one refused.
-    lean_run(&conn, "c", 2, day0, "pr", "0.14.50");
-    lean_run(&conn, "d", 3, day0, "pr", "0.14.50");
+    lean_run(&conn, "c", 2, day0, "offered", "0.14.50");
+    lean_run(&conn, "d", 3, day0, "offered", "0.14.50");
     lean_run(&conn, "e", 4, day0, "refused", "0.14.50");
     for (id, attempt) in [("a", 1), ("b", 2), ("c", 1), ("d", 1), ("e", 1)] {
         conn.execute(
@@ -4374,10 +4426,14 @@ fn a_drivers_entry_gives_the_one_attempt_success_and_the_hand_back_by_step() {
         run_step(&conn, id, "verify");
     }
     run_step(&conn, "b", "fix");
-    let got = crate::report::build(&conn, day0 + DAY).unwrap();
+    let got_typed = crate::report::build(&conn, day0 + DAY).unwrap();
+    let got = serde_json::to_value(&got_typed).unwrap();
     let e = &got["drivers"]["lean"]["0.14.50"];
     // Three first attempts ran (the refused one did not), two reached a PR.
-    assert_eq!(e["oneAttempt"], json!({"n": 3, "pr": 2, "share": 0.667}));
+    assert_eq!(
+        e["oneAttempt"],
+        json!({"n": 3, "change": 2, "share": 0.667})
+    );
     // Four runs in the funnel; the fix step is the second run's alone.
     assert_eq!(e["handBack"]["n"], json!(4));
     let steps: BTreeMap<String, (i64, i64)> = e["handBack"]["steps"]
@@ -4396,7 +4452,7 @@ fn a_drivers_entry_gives_the_one_attempt_success_and_the_hand_back_by_step() {
     assert_eq!(steps["fix"], (1, 1));
     // The classic side of the window holds none of these runs.
     assert_eq!(got["drivers"]["classic"], json!({}));
-    let text = crate::report::text(&got);
+    let text = crate::report::text(&got_typed);
     assert!(text.contains("verify"), "{text}");
 }
 
@@ -4406,19 +4462,20 @@ fn a_run_with_no_usage_is_no_zero_in_a_version_pairs_median() {
     let day0 = 1_792_022_400;
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
     let pair = |conn: &Connection| {
-        let got = crate::report::build(conn, day0 + DAY).unwrap();
+        let got_typed = crate::report::build(conn, day0 + DAY).unwrap();
+        let got = serde_json::to_value(&got_typed).unwrap();
         let row = &got["versions"][0];
         (row["medianTokens"].clone(), row["tokensN"].clone())
     };
-    driver_run(&conn, "a", 1, day0, "pr", None, Some("lean"));
-    driver_run(&conn, "b", 2, day0, "pr", None, Some("lean"));
-    driver_run(&conn, "c", 3, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "a", 1, day0, "offered", None, Some("lean"));
+    driver_run(&conn, "b", 2, day0, "offered", None, Some("lean"));
+    driver_run(&conn, "c", 3, day0, "offered", None, Some("lean"));
     assert_eq!(pair(&conn), (Value::Null, Value::Null));
     // The floor holds for the runs behind the figure, not the pair's.
-    driver_run(&conn, "d", 4, day0, "pr", Some(500), None);
-    driver_run(&conn, "e", 5, day0, "pr", Some(600), None);
+    driver_run(&conn, "d", 4, day0, "offered", Some(500), None);
+    driver_run(&conn, "e", 5, day0, "offered", Some(600), None);
     assert_eq!(pair(&conn), (Value::Null, Value::Null));
-    driver_run(&conn, "f", 6, day0, "pr", Some(700), None);
+    driver_run(&conn, "f", 6, day0, "offered", Some(700), None);
     assert_eq!(pair(&conn), (json!(600), json!(3)));
 }
 
@@ -4430,13 +4487,13 @@ fn v_versions_leaves_runs_with_no_usage_out_of_its_median_tokens() {
     let (fresh, _) = db::open(&db::path(&new), 1_792_022_400).unwrap();
     {
         let conn = &fresh;
-        driver_run(conn, "a", 1, 1_792_022_400, "pr", None, Some("lean"));
-        driver_run(conn, "b", 2, 1_792_022_400, "pr", None, Some("lean"));
+        driver_run(conn, "a", 1, 1_792_022_400, "offered", None, Some("lean"));
+        driver_run(conn, "b", 2, 1_792_022_400, "offered", None, Some("lean"));
         assert_eq!(median(conn), None);
-        driver_run(conn, "c", 3, 1_792_022_400, "pr", Some(500), None);
+        driver_run(conn, "c", 3, 1_792_022_400, "offered", Some(500), None);
         assert_eq!(median(conn), Some(500.0));
         // A reported 0 is a figure.
-        driver_run(conn, "d", 4, 1_792_022_400, "pr", Some(0), None);
+        driver_run(conn, "d", 4, 1_792_022_400, "offered", Some(0), None);
         assert_eq!(median(conn), Some(250.0));
     }
 }
@@ -4446,9 +4503,10 @@ fn a_version_pair_reaches_its_figures_at_three_runs() {
     let home = scratch("report-floor");
     let day0 = 1_792_022_400;
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    let pair =
-        |conn: &Connection| crate::report::build(conn, day0 + DAY).unwrap()["versions"][0].clone();
-    for (i, outcome) in ["pr", "failed", "pr"].iter().enumerate() {
+    let pair = |conn: &Connection| {
+        serde_json::to_value(&crate::report::build(conn, day0 + DAY).unwrap().versions[0]).unwrap()
+    };
+    for (i, outcome) in ["offered", "failed", "offered"].iter().enumerate() {
         conn.execute(
             "INSERT INTO runs (id, kind, issue, started, ended, seconds, outcome, input,
                                tehas_version, rukas_version)
@@ -4464,7 +4522,7 @@ fn a_version_pair_reaches_its_figures_at_three_runs() {
         let want = if i < 2 {
             json!({"tehas": "v0.7.22", "rukas": "0.13.0", "n": i + 1})
         } else {
-            json!({"tehas": "v0.7.22", "rukas": "0.13.0", "n": 3, "prShare": 0.667,
+            json!({"tehas": "v0.7.22", "rukas": "0.13.0", "n": 3, "changeShare": 0.667,
                    "medianSeconds": 60, "medianTokens": 10, "tokensN": 3})
         };
         assert_eq!(pair(&conn), want);
@@ -4476,7 +4534,8 @@ fn an_empty_database_reports_counts_of_nothing_and_leaves_out_what_has_no_value(
     let home = scratch("report-empty");
     let to = 1_792_022_400 + 3600;
     let (conn, _) = db::open(&db::path(&home), to).unwrap();
-    let got = crate::report::build(&conn, to).unwrap();
+    let got_typed = crate::report::build(&conn, to).unwrap();
+    let got = serde_json::to_value(&got_typed).unwrap();
     let keys: Vec<&str> = got
         .as_object()
         .unwrap()
@@ -4511,7 +4570,8 @@ fn an_empty_database_reports_counts_of_nothing_and_leaves_out_what_has_no_value(
     assert!(got.get("refine").is_none());
     assert!(got.get("sizes").is_none());
     // The command's own report carries both keys, as `text` needs them.
-    let full = crate::report::complete(&conn, &home, to).unwrap();
+    let full_typed = crate::report::complete(&conn, &home, to).unwrap();
+    let full = serde_json::to_value(&full_typed).unwrap();
     assert!(full["sizes"].is_object() && full["refine"].is_object());
     assert_eq!(full["sizes"]["none"]["n"], json!(0));
     assert_eq!(execute(&home, &Cmd::Report, to), Ok(()));
@@ -4536,8 +4596,8 @@ fn ten_days_of_data_report_well_inside_the_time_limit() {
     // A sample every two minutes, and a run every fifteen with three steps.
     for i in 0..7200 {
         tx.execute(
-            "INSERT INTO samples (at, in_line, planning, paused, held, watts)
-             VALUES (?1, 3, 1, 0, '', 250.0)",
+            "INSERT INTO samples (at, in_line, planning, paused, held)
+             VALUES (?1, 3, 1, 0, '')",
             [to - 10 * DAY + i * 120],
         )
         .unwrap();
@@ -4554,7 +4614,7 @@ fn ten_days_of_data_report_well_inside_the_time_limit() {
                 i / 2,
                 started,
                 started + 600,
-                if i % 3 == 0 { "failed" } else { "pr" },
+                if i % 3 == 0 { "failed" } else { "offered" },
                 format!("0.{}.0", i % 7)
             ],
         )
@@ -4576,7 +4636,8 @@ fn ten_days_of_data_report_well_inside_the_time_limit() {
     let got = execute(&home, &Cmd::Report, to);
     let took = t.elapsed();
     assert_eq!(got, Ok(()));
-    let report = crate::report::build(&conn, to).unwrap();
+    let report_typed = crate::report::build(&conn, to).unwrap();
+    let report = serde_json::to_value(&report_typed).unwrap();
     assert!(report["runs"]["n"].as_i64().unwrap() > 800);
     assert!(report["shipped"]["n"].as_i64().unwrap() > 400);
     // The limit is 5 s; an unoptimised build on a busy machine is well inside
@@ -4635,7 +4696,7 @@ fn the_text_report_says_the_figures_with_their_counts() {
         "Last 10 days, 2026-10-15 to 2026-10-24 (UTC)\n",
         "\nShipped            3 issues\n",
         "\nPlanned            6 now: 5 in line, 1 in planning\n",
-        "\nRuns               6: 1 pr, 1 merged, 1 handoff, 0 parked, 2 failed, 1 refused, 0 stopped\n",
+        "\nRuns               6: 1 offered, 1 merged, 1 handoff, 0 parked, 2 failed, 1 refused, 0 stopped\n",
         "\nHandoff rate       16.7%  (n=6)\n",
         "\nFirst-pass yield   50%  (n=2)\n",
         "\nLead time          median 12h03m, p90 23h13m  (n=2)\n",
@@ -4643,7 +4704,6 @@ fn the_text_report_says_the_figures_with_their_counts() {
         "\nMachine time       1h20m, 26m40s per shipped issue  (n=6)\n",
         "\nTokens             6650: 6100 input, 500 output, 50 cache read, 2217 per shipped issue  (n=4)\n",
         "\nAvailability       0.2% of 8d12h  (n=5)\n",
-        "\nEnergy             0.075 kWh, 0.025 kWh per shipped issue  (n=4)\n",
         "\nGate               median 5m, p90 9m, 1.333 runs per run, 46.7% of run time  (n=3, 20m)\n",
         "\n2026-10-16         1     2       2       20\n",
         "\nStop reasons  (n=4)\n  explore-bodies-empty              1\n",
@@ -4710,7 +4770,8 @@ fn a_factory_whose_cycles_run_is_available_whatever_holds_the_next_start() {
         )
         .unwrap();
     }
-    let report = crate::report::build(&conn, to).unwrap();
+    let report_typed = crate::report::build(&conn, to).unwrap();
+    let report = serde_json::to_value(&report_typed).unwrap();
     assert_eq!(
         report["availability"],
         json!({"n": 5, "seconds": 3000, "share": 0.4})
@@ -4749,7 +4810,8 @@ fn a_wrong_typed_samples_cell_leaves_its_figure_out() {
     .unwrap();
     // The first and third rows are available: 600 of the 900 seconds since the
     // first sample. The middle one is not, since its pause is unknown.
-    let report = crate::report::build(&conn, to).unwrap();
+    let report_typed = crate::report::build(&conn, to).unwrap();
+    let report = serde_json::to_value(&report_typed).unwrap();
     assert_eq!(
         report["availability"],
         json!({"n": 3, "seconds": 900, "share": 0.667})
@@ -4776,7 +4838,8 @@ fn a_word_in_a_counted_column_leaves_the_line_out_and_the_report_up() {
         params![to - 300],
     )
     .unwrap();
-    let report = crate::report::build(&conn, to).unwrap();
+    let report_typed = crate::report::build(&conn, to).unwrap();
+    let report = serde_json::to_value(&report_typed).unwrap();
     let planned = report["planned"].as_object().unwrap();
     assert_eq!(planned["n"], json!(3));
     assert_eq!(planned["inLine"], json!(2));
@@ -4807,7 +4870,8 @@ fn a_cell_that_is_not_text_names_no_hold() {
         params![to - 300],
     )
     .unwrap();
-    let report = crate::report::build(&conn, to).unwrap();
+    let report_typed = crate::report::build(&conn, to).unwrap();
+    let report = serde_json::to_value(&report_typed).unwrap();
     assert_eq!(
         report["availability"],
         json!({"n": 1, "seconds": 300, "share": 1.0})
@@ -4827,13 +4891,14 @@ fn a_wrong_typed_samples_cell_no_longer_ends_the_published_report() {
         params![to - 300],
     )
     .unwrap();
-    let report = crate::report::complete(&conn, &home, to).unwrap();
+    let report_typed = crate::report::complete(&conn, &home, to).unwrap();
+    let report = serde_json::to_value(&report_typed).unwrap();
     // The row is there and not available, since its pause is unknown.
     assert_eq!(
         report["availability"],
         json!({"n": 1, "seconds": 300, "share": 0.0})
     );
-    assert!(crate::report::text(&report).contains("Availability"));
+    assert!(crate::report::text(&report_typed).contains("Availability"));
 
     // The same row read the old way, which is what the command used to print.
     let mut q = conn
@@ -4843,25 +4908,9 @@ fn a_wrong_typed_samples_cell_no_longer_ends_the_published_report() {
     assert!(old_way.is_err(), "a REAL is not a count read the old way");
 }
 
-// A cell of the wrong type in `at` or `watts`, the two columns still read as
-// they were, does end the report: this is the half the careful readers do not
-// reach, kept here so the shape of what changed is on the record.
-#[test]
-fn a_word_in_the_watts_column_still_ends_the_report() {
-    let home = scratch("report-sample-watts");
-    let to = 1_792_022_400 + 10 * DAY;
-    let (conn, _) = db::open(&db::path(&home), to).unwrap();
-    conn.execute(
-        "INSERT INTO samples (at, paused, held, watts) VALUES (?1, 0, '', 'lots')",
-        params![to - 300],
-    )
-    .unwrap();
-    assert!(crate::report::build(&conn, to).is_err());
-}
-
 fn add_run(conn: &Connection, id: &str, issue: i64, started: i64) {
     conn.execute(
-        "INSERT INTO runs (id, kind, issue, started, ended, outcome) VALUES (?1, 'work', ?2, ?3, ?3 + 600, 'pr')",
+        "INSERT INTO runs (id, kind, issue, started, ended, outcome) VALUES (?1, 'work', ?2, ?3, ?3 + 600, 'offered')",
         rusqlite::params![id, issue, started],
     )
     .unwrap();
@@ -5112,7 +5161,7 @@ fn plan_sessions_carry_filed() {
         line(started - 1, 5, 15),
     ]
     .join("\n");
-    put(&home, "state/refined.jsonl", &ledger);
+    put_at(h(&home).state(State::Refined), &ledger);
     let session = &sessions_output(&home, now)[1];
     assert_eq!(session["how"], "refine");
     assert_eq!(
@@ -5122,7 +5171,7 @@ fn plan_sessions_carry_filed() {
             {"issue": 13, "url": "https://example.com/i/13"},
         ])
     );
-    fs::remove_file(home.join("state/refined.jsonl")).unwrap();
+    fs::remove_file(h(&home).state(State::Refined)).unwrap();
     assert!(sessions_output(&home, now)[1].get("filed").is_none());
 }
 
@@ -6100,7 +6149,7 @@ fn the_build_time_options_are_read() {
 /// carries the kind, so a test that runs both commands adds one run each.
 fn one_ended_run(conn: &Connection, id: &str, at: i64) {
     conn.execute(
-        "INSERT INTO runs (id, kind, issue, started, ended, outcome) VALUES (?1, ?2, 1, ?3, ?3, 'pr')",
+        "INSERT INTO runs (id, kind, issue, started, ended, outcome) VALUES (?1, ?2, 1, ?3, ?3, 'offered')",
         rusqlite::params![id, if id.starts_with("plan") { "plan" } else { "work" }, at],
     )
     .unwrap();
@@ -6242,6 +6291,33 @@ fn out_writes_the_file_and_its_stamp_the_first_time() {
         ),
         "the line is not the fingerprint of this database"
     );
+}
+
+/// A run whose old how an open rewrites changes no count and no end, and the
+/// published sessions still follow it: the next call writes the file again
+/// in the new word, for each old word.
+#[test]
+fn out_after_a_rewrite_of_old_hows_writes_the_sessions_again() {
+    let now = 1_792_000_000i64 - 1_792_000_000i64.rem_euclid(86_400) + 43_200;
+    for (old, new) in db::OLD_HOWS {
+        let (home, dir) = home_of_one_ended_run(&format!("out-rewrite-{old}"), now);
+        let before = written(&dir, "sessions");
+        let conn = Connection::open(db::path(&home)).unwrap();
+        conn.execute("UPDATE runs SET how = ?1", [old]).unwrap();
+        drop(conn);
+        execute(&home, &sessions_cmd(&home), now + 60).unwrap();
+        let after = written(&dir, "sessions");
+        assert_ne!(after.1, before.1, "{old}: the line did not move");
+        let body = String::from_utf8(after.0).unwrap();
+        assert!(
+            body.contains(&format!("\"how\":\"{new}\"")),
+            "{old}: {body}"
+        );
+        assert!(!body.contains(&format!("\"{old}\"")), "{old}: {body}");
+        // Nothing more to rewrite: the next call writes nothing.
+        execute(&home, &sessions_cmd(&home), now + 120).unwrap();
+        assert_eq!(written(&dir, "sessions").1, after.1, "{old}");
+    }
 }
 
 #[test]
@@ -6599,64 +6675,425 @@ fn columns(conn: &Connection, table: &str) -> Vec<String> {
     names.map(Result::unwrap).collect()
 }
 
-#[test]
-fn a_schema_4_file_of_0_30_opens_in_place_and_gains_the_contractor_column() {
-    let home = scratch("schema-4-v0.30");
-    let file = db::path(&home);
-    {
-        let old = Connection::open(&file).unwrap();
-        old.execute_batch(include_str!("../tests/fixtures/schema-4-v0.30.6.sql"))
-            .unwrap();
-        old.execute_batch(
-            "INSERT INTO meta (key, value) VALUES ('schema', '4'), ('retention_days', '365'),
-               ('created', '100');
-             INSERT INTO runs (id, kind, issue, started, outcome)
-               VALUES ('work-7-100', 'work', 7, 100, 'pr');
-             PRAGMA user_version = 4;",
+/// The tables' columns, the foreign keys, and the SQL of every index and view:
+/// what makes two files the same schema whatever ALTER TABLE left in the
+/// text of their tables.
+fn shape(conn: &Connection) -> Vec<String> {
+    let mut q = conn
+        .prepare(
+            "SELECT type, name, coalesce(sql, '') FROM sqlite_master
+             WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name",
         )
         .unwrap();
-        assert!(!columns(&old, "runs").contains(&"contractor_id".to_string()));
+    let rows: Vec<(String, String, String)> = q
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    let mut out = Vec::new();
+    for (kind, name, sql) in rows {
+        if kind != "table" {
+            out.push(format!("{kind} {name}: {sql}"));
+            continue;
+        }
+        for pragma in ["table_info", "foreign_key_list"] {
+            let mut q = conn
+                .prepare(&format!("SELECT * FROM pragma_{pragma}('{name}')"))
+                .unwrap();
+            let n = q.column_count();
+            let cells = q
+                .query_map([], |r| {
+                    (0..n)
+                        .map(|i| {
+                            r.get::<_, rusqlite::types::Value>(i)
+                                .map(|v| format!("{v:?}"))
+                        })
+                        .collect::<rusqlite::Result<Vec<_>>>()
+                })
+                .unwrap();
+            for c in cells {
+                out.push(format!("{kind} {name} {pragma}: {}", c.unwrap().join(" ")));
+            }
+        }
     }
-    let (conn, moved) = db::open(&file, 200).unwrap();
-    assert_eq!(moved, None, "a file of schema 4 is not moved aside");
-    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 4);
-    assert_eq!(
-        one::<String>(
-            &conn,
-            "SELECT id || ' ' || outcome || ' ' || coalesce(contractor_id, 'null') FROM runs"
-        ),
-        "work-7-100 pr null"
-    );
-    let fresh = scratch("schema-4-fresh");
-    let (made, _) = db::open(&db::path(&fresh), 0).unwrap();
-    assert_eq!(columns(&conn, "runs"), columns(&made, "runs"));
-    drop(conn);
-    // A second open finds the column there and changes nothing.
-    let (again, moved) = db::open(&file, 300).unwrap();
-    assert_eq!(moved, None);
-    assert_eq!(columns(&again, "runs"), columns(&made, "runs"));
+    out
+}
+
+/// A file of schema 4 as `fixture` wrote it, with rows in runs, run_roles
+/// and samples, watts among them.
+fn schema_4_file(file: &Path, fixture: &str) {
+    let old = Connection::open(file).unwrap();
+    old.execute_batch(fixture).unwrap();
+    old.execute_batch(
+        "INSERT INTO meta (key, value) VALUES ('schema', '4'), ('retention_days', '365'),
+           ('created', '100');
+         INSERT INTO runs (id, kind, issue, started, outcome, how)
+           VALUES ('work-7-100', 'work', 7, 100, 'pr', 'label');
+         INSERT INTO run_roles (run_id, role, model, input) VALUES ('work-7-100', 'worker', 'm', 12);
+         INSERT INTO samples (at, in_line, running, awaiting, stopped, planning, cycle_limit,
+           paused, held, watts) VALUES (150, 1, 2, 3, 4, 5, 6, 0, 'limit', 412.5),
+           (160, NULL, NULL, NULL, NULL, NULL, NULL, 1, NULL, NULL);
+         PRAGMA user_version = 4;",
+    )
+    .unwrap();
+    assert!(columns(&old, "samples").contains(&"watts".to_string()));
+}
+
+const SCHEMA_4: [(&str, &str); 2] = [
+    (
+        "v1.4.0",
+        include_str!("../tests/fixtures/schema-4-v1.4.0.sql"),
+    ),
+    (
+        "v0.30.6",
+        include_str!("../tests/fixtures/schema-4-v0.30.6.sql"),
+    ),
+];
+
+#[test]
+fn a_new_database_is_schema_7_with_no_watts_and_no_contractor() {
+    let home = scratch("schema-7-new");
+    let (conn, _) = db::open(&db::path(&home), 0).unwrap();
+    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 7);
+    assert!(!columns(&conn, "samples").contains(&"watts".to_string()));
+    assert!(!columns(&conn, "runs").contains(&"contractor_id".to_string()));
+}
+
+/// A file of schema 5 as the 2.0 branch wrote it before schema 6: the
+/// v1.4.0 fixture without samples.watts, with a contractor on one run and
+/// none on the other.
+fn schema_5_file(file: &Path) {
+    let old = Connection::open(file).unwrap();
+    old.execute_batch(SCHEMA_4[0].1).unwrap();
+    old.execute_batch(
+        "ALTER TABLE samples DROP COLUMN watts;
+         INSERT INTO meta (key, value) VALUES ('schema', '5'), ('retention_days', '365'),
+           ('created', '100');
+         INSERT INTO runs (id, kind, issue, started, outcome, contractor_id)
+           VALUES ('work-7-100', 'work', 7, 100, 'pr', 'box-1'),
+                  ('work-8-110', 'work', 8, 110, 'parked', NULL);
+         INSERT INTO run_roles (run_id, role, model, input) VALUES ('work-7-100', 'worker', 'm', 12);
+         INSERT INTO samples (at, in_line, running, awaiting, stopped, planning, cycle_limit,
+           paused, held) VALUES (150, 1, 2, 3, 4, 5, 6, 0, 'limit');
+         PRAGMA user_version = 5;",
+    )
+    .unwrap();
+    assert!(columns(&old, "runs").contains(&"contractor_id".to_string()));
+    assert!(!columns(&old, "samples").contains(&"watts".to_string()));
 }
 
 #[test]
-fn the_contractor_of_a_run_is_kept_and_an_in_house_run_or_a_bad_word_keeps_none() {
-    let started = secs("2026-10-18T10:16:39Z");
-    let line = json!({"at": iso(started + 30), "started": started, "rc": 10,
-                      "status": "handoff", "parked": true});
-    for (name, contractor, want) in [
-        ("contractor-named", json!("box-1.lan"), "box-1.lan"),
-        ("contractor-none", Value::Null, "null"),
-        ("contractor-spaced", json!("box 1"), "null"),
-        ("contractor-long", json!("b".repeat(65)), "null"),
-        ("contractor-number", json!(7), "null"),
-    ] {
-        let home = scratch(name);
-        cycle(&home, "headless-316134e", started, line.clone());
-        fact(&home, 7, "contractor", contractor);
-        let conn = record(&home, 7, started + 60);
+fn a_schema_5_file_migrates_in_place_and_keeps_every_row_without_its_contractor() {
+    let fresh = scratch("schema-7-fresh-from-5");
+    let (made, _) = db::open(&db::path(&fresh), 0).unwrap();
+    let home = scratch("schema-5");
+    let file = db::path(&home);
+    schema_5_file(&file);
+    let (conn, moved) = db::open(&file, 200).unwrap();
+    assert_eq!(moved, None, "a file of schema 5 is not moved aside");
+    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 7);
+    assert_eq!(
+        one::<String>(&conn, "SELECT value FROM meta WHERE key = 'schema'"),
+        "7"
+    );
+    assert_eq!(shape(&conn), shape(&made));
+    assert!(!columns(&conn, "runs").contains(&"contractor_id".to_string()));
+    assert_eq!(
+        one::<String>(
+            &conn,
+            "SELECT group_concat(row, ' | ') FROM (SELECT id || ' ' || issue || ' ' || outcome
+               AS row FROM runs ORDER BY id)"
+        ),
+        "work-7-100 7 offered | work-8-110 8 parked"
+    );
+    assert_eq!(
+        one::<String>(
+            &conn,
+            "SELECT o.model || ' ' || o.input FROM runs r JOIN run_roles o ON o.run_id = r.id"
+        ),
+        "m 12"
+    );
+    assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM samples"), 1);
+    assert_eq!(
+        one::<i64>(&conn, "SELECT count(*) FROM pragma_foreign_key_check"),
+        0
+    );
+    drop(conn);
+    // Opened again it is a 7 already: nothing is written.
+    let before = fs::read(&file).unwrap();
+    let (again, moved) = db::open(&file, 300).unwrap();
+    assert_eq!(moved, None);
+    drop(again);
+    assert!(fs::read(&file).unwrap() == before, "a second open wrote");
+}
+
+#[test]
+fn a_schema_4_file_of_either_age_migrates_in_place_to_the_shape_of_a_new_one() {
+    let fresh = scratch("schema-7-fresh");
+    let (made, _) = db::open(&db::path(&fresh), 0).unwrap();
+    for (age, fixture) in SCHEMA_4 {
+        let home = scratch(&format!("schema-4-{age}"));
+        let file = db::path(&home);
+        schema_4_file(&file, fixture);
+        let (conn, moved) = db::open(&file, 200).unwrap();
+        assert_eq!(moved, None, "{age}: a file of schema 4 is not moved aside");
+        assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 7, "{age}");
+        assert_eq!(shape(&conn), shape(&made), "{age}");
         assert_eq!(
-            one::<String>(&conn, "SELECT coalesce(contractor_id, 'null') FROM runs"),
-            want,
-            "{name}"
+            one::<String>(&conn, "SELECT value FROM meta WHERE key = 'schema'"),
+            "7",
+            "{age}"
+        );
+        assert_eq!(
+            one::<String>(
+                &conn,
+                "SELECT group_concat(row, ' | ') FROM (SELECT at || ' ' || coalesce(in_line, '-')
+                   || ' ' || coalesce(running, '-') || ' ' || coalesce(awaiting, '-') || ' ' ||
+                   coalesce(stopped, '-') || ' ' || coalesce(planning, '-') || ' ' ||
+                   coalesce(cycle_limit, '-') || ' ' || paused || ' ' || coalesce(held, '-') AS row
+                   FROM samples ORDER BY at)"
+            ),
+            "150 1 2 3 4 5 6 0 limit | 160 - - - - - - 1 -",
+            "{age}"
+        );
+        assert_eq!(
+            one::<String>(
+                &conn,
+                "SELECT r.id || ' ' || r.outcome || ' ' || r.how || ' ' || o.model || ' ' || o.input
+                   FROM runs r JOIN run_roles o ON o.run_id = r.id"
+            ),
+            "work-7-100 offered approved m 12",
+            "{age}"
+        );
+        assert_eq!(
+            one::<i64>(&conn, "SELECT count(*) FROM pragma_foreign_key_check"),
+            0,
+            "{age}"
+        );
+        drop(conn);
+        // Opened again it is a 7 already: nothing is written.
+        let before = fs::read(&file).unwrap();
+        let (again, moved) = db::open(&file, 300).unwrap();
+        assert_eq!(moved, None, "{age}");
+        assert_eq!(shape(&again), shape(&made), "{age}");
+        drop(again);
+        assert!(
+            fs::read(&file).unwrap() == before,
+            "{age}: a second open wrote"
         );
     }
+}
+
+#[test]
+fn a_schema_4_file_another_program_migrated_meanwhile_is_not_migrated_again() {
+    let home = scratch("schema-4-race");
+    let file = db::path(&home);
+    schema_4_file(&file, SCHEMA_4[0].1);
+    // Both read user_version 4; the other migrated before this one took the
+    // write lock.
+    let mut late = Connection::open(&file).unwrap();
+    db::open(&file, 200).unwrap();
+    assert!(db::settle(&mut late, 4, 300).is_ok());
+    assert_eq!(one::<i64>(&late, "PRAGMA user_version"), 7);
+    assert!(!columns(&late, "samples").contains(&"watts".to_string()));
+    assert_eq!(one::<i64>(&late, "SELECT count(*) FROM samples"), 2);
+}
+
+#[test]
+fn programs_that_open_a_schema_4_file_at_once_all_get_it_migrated() {
+    for round in 0..10 {
+        let home = scratch(&format!("schema-4-concurrent-{round}"));
+        let file = db::path(&home);
+        schema_4_file(&file, SCHEMA_4[round % 2].1);
+        let openers: Vec<_> = (0..8)
+            .map(|i| {
+                let file = file.clone();
+                std::thread::spawn(move || {
+                    let (conn, moved) = db::open(&file, 1_792_000_000).unwrap();
+                    db::event(&conn, i, "ready", 1_792_000_000).unwrap();
+                    moved
+                })
+            })
+            .collect();
+        for o in openers {
+            assert!(
+                o.join().unwrap().is_none(),
+                "a schema 4 file was moved aside"
+            );
+        }
+        let conn = Connection::open(&file).unwrap();
+        assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 7);
+        assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM issue_events"), 8);
+        assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM samples"), 2);
+    }
+}
+
+/// A file of schema 6 as the 2.0 branch wrote it before schema 7, with runs
+/// that ended `pr` and were started by `label`, and the steps and roles of
+/// one of them.
+fn schema_6_file(file: &Path) {
+    let old = Connection::open(file).unwrap();
+    old.execute_batch(include_str!("../tests/fixtures/schema-6.sql"))
+        .unwrap();
+    old.execute_batch(
+        "INSERT INTO meta (key, value) VALUES ('schema', '6'), ('retention_days', '365'),
+           ('created', '100');
+         INSERT INTO runs (id, kind, issue, how, started, ended, seconds, outcome, tehas_version)
+           VALUES ('work-7-100', 'work', 7, 'label', 100, 700, 600, 'pr', 'v1.4.0'),
+                  ('work-8-110', 'work', 8, 'reply', 110, 710, 600, 'merged', 'v1.4.0'),
+                  ('work-9-120', 'work', 9, 'label', 120, 720, 600, 'parked', 'v1.4.0'),
+                  ('plan-5-130', 'plan', 5, 'label', 130, 190, 60, NULL, 'v1.4.0');
+         INSERT INTO run_roles (run_id, role, model, input) VALUES ('work-7-100', 'worker', 'm', 12);
+         INSERT INTO run_steps (run_id, step, round, seconds) VALUES ('work-7-100', 'develop', 1, 300);
+         INSERT INTO run_gate_runs (run_id, seq, ok, ms) VALUES ('work-7-100', 1, 1, 900);
+         PRAGMA user_version = 6;",
+    )
+    .unwrap();
+}
+
+/// Schema 6 to 7: `runs.outcome` takes `offered` and no longer `pr`, every
+/// `pr` outcome and every `label` how is rewritten, every row of runs and of
+/// its children stays, `v_versions` counts `change_share`, the file has the
+/// shape of a new one, the rewrite is counted for the published sessions, and
+/// a second open writes nothing. No `pr` outcome and no `label` how is left.
+#[test]
+fn a_schema_6_file_takes_the_words_of_2_0_and_keeps_every_row() {
+    let fresh = scratch("schema-7-fresh-from-6");
+    let (made, _) = db::open(&db::path(&fresh), 0).unwrap();
+    let home = scratch("schema-6");
+    let file = db::path(&home);
+    schema_6_file(&file);
+    let (conn, moved) = db::open(&file, 200).unwrap();
+    assert_eq!(moved, None, "a file of schema 6 is not moved aside");
+    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 7);
+    assert_eq!(
+        one::<String>(&conn, "SELECT value FROM meta WHERE key = 'schema'"),
+        "7"
+    );
+    assert_eq!(shape(&conn), shape(&made));
+    assert_eq!(
+        one::<String>(
+            &conn,
+            "SELECT group_concat(row, ' | ') FROM (SELECT id || ' ' || how || ' '
+               || coalesce(outcome, '-') AS row FROM runs ORDER BY id)"
+        ),
+        "plan-5-130 approved - | work-7-100 approved offered | work-8-110 reply merged | \
+         work-9-120 approved parked"
+    );
+    assert_eq!(
+        one::<i64>(
+            &conn,
+            "SELECT count(*) FROM runs WHERE outcome = 'pr' OR how = 'label'"
+        ),
+        0
+    );
+    assert_eq!(
+        one::<String>(
+            &conn,
+            "SELECT o.model || ' ' || o.input || ' ' || s.step || ' ' || g.ms FROM run_roles o
+               JOIN run_steps s ON s.run_id = o.run_id JOIN run_gate_runs g ON g.run_id = o.run_id
+               WHERE o.run_id = 'work-7-100'"
+        ),
+        "m 12 develop 900"
+    );
+    assert_eq!(
+        one::<i64>(&conn, "SELECT count(*) FROM pragma_foreign_key_check"),
+        0
+    );
+    assert!(conn
+        .execute("UPDATE runs SET outcome = 'pr' WHERE id = 'work-7-100'", [])
+        .is_err());
+    assert_eq!(
+        one::<String>(
+            &conn,
+            "SELECT runs || ' ' || change_share FROM v_versions WHERE tehas_version = 'v1.4.0'"
+        ),
+        "3 0.667"
+    );
+    assert_eq!(
+        one::<String>(
+            &conn,
+            &format!(
+                "SELECT value FROM meta WHERE key = '{}'",
+                db::HOWS_REWRITTEN
+            )
+        ),
+        "1"
+    );
+    drop(conn);
+    // Opened again it is a 7 already: nothing is written.
+    let before = fs::read(&file).unwrap();
+    let (again, moved) = db::open(&file, 300).unwrap();
+    assert_eq!(moved, None);
+    drop(again);
+    assert!(fs::read(&file).unwrap() == before, "a second open wrote");
+}
+
+/// The view columns and values schema 7 renamed: none of the old words is
+/// left in the schema's views, and the new ones are there.
+#[test]
+fn the_views_of_schema_7_say_offered_and_approved_and_never_pr_or_label() {
+    let home = scratch("schema-7-views");
+    let (conn, _) = db::open(&db::path(&home), 0).unwrap();
+    let views = one::<String>(
+        &conn,
+        "SELECT group_concat(sql, ' ') FROM sqlite_master WHERE type = 'view'",
+    );
+    assert!(views.contains("change_share"), "{views}");
+    for old in ["'pr'", " pr,", "pr_share", "'label'"] {
+        assert!(!views.contains(old), "{old} in {views}");
+    }
+    assert!(!SCHEMA_TEXT.contains("'pr'"));
+}
+
+const SCHEMA_TEXT: &str = include_str!("schema.sql");
+
+/// A store of before 2.0 holds runs a ticked retry started, `how`
+/// `retry-tick`, and runs recorded under the millwright's old name, `fixer`.
+/// Each open rewrites them to `reply` and `millwright` as data, on the schema
+/// the file has, and an open with none left writes nothing; the sessions then
+/// list those runs with the new words (#2782).
+#[test]
+fn an_open_rewrites_the_hows_of_before_2_0_once_and_the_sessions_list_them() {
+    let home = scratch("old-hows");
+    let now = 1_792_000_000;
+    drop(db::open(&db::path(&home), now).unwrap());
+    let conn = Connection::open(db::path(&home)).unwrap();
+    add_run(&conn, "work-7-old", 7, now - 3600);
+    add_run(&conn, "work-8-old", 8, now - 3600);
+    conn.execute_batch(
+        "UPDATE runs SET how = 'retry-tick' WHERE id = 'work-7-old';
+         UPDATE runs SET how = 'fixer' WHERE id = 'work-8-old';",
+    )
+    .unwrap();
+    let version: i64 = one(&conn, "PRAGMA user_version");
+    drop(conn);
+    for _ in 0..2 {
+        let (c, _) = db::open(&db::path(&home), now).unwrap();
+        assert_eq!(
+            one::<i64>(&c, "SELECT count(*) FROM runs WHERE how = 'retry-tick'"),
+            0
+        );
+        assert_eq!(
+            one::<String>(&c, "SELECT how FROM runs WHERE id = 'work-7-old'"),
+            "reply"
+        );
+        assert_eq!(
+            one::<String>(&c, "SELECT how FROM runs WHERE id = 'work-8-old'"),
+            "millwright"
+        );
+        assert_eq!(one::<i64>(&c, "PRAGMA user_version"), version);
+        drop(c);
+    }
+    let listed = sessions_output(&home, now);
+    let run = listed
+        .iter()
+        .find(|l| l["id"] == "work-7-old")
+        .expect("the run is listed");
+    assert_eq!(run["how"], "reply", "{run}");
+    let run = listed
+        .iter()
+        .find(|l| l["id"] == "work-8-old")
+        .expect("the run is listed");
+    assert_eq!(run["how"], "millwright", "{run}");
 }

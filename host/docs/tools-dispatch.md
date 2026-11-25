@@ -85,7 +85,7 @@ state labels off closed issues: `tehas:running`, `tehas:awaiting-merge`,
 `tehas:question`, `tehas:planning`, `tehas:refreshing`, `tehas:blocked`,
 `tehas:ready`, `tehas:plan` and `tehas:refine`. Not `tehas:shipped`, not
 `needs-human-attention`, and not the labels a person chooses (`tehas:lean`,
-`tehas:classic`, `tehas:prototype`). It is one console verb
+`tehas:classic`). It is one console verb
 (`console/ops/src/tidy.rs`), with the settings of the poll's environment: the list,
 the searches, the decision of what comes off which issue and the edits are all
 there. It makes one search,
@@ -140,12 +140,11 @@ writes no row rather than the same reading again. One consequence: the report co
 for the time to the next, at most ten minutes (see
 [`availability`](/tools-health#tehasbot-status-and-the-console)), so a stretch with no
 sample - a long pause or an idle week - counts as not available rather than as
-one reading held. The same rule bounds `energy`.
+one reading held.
 `~/tehas/libexec/analytics sample` reads the issues in line, running, awaiting
 a merge, stopped and in planning from
-`~/tehas/live/status.json`, the hold and the cycles allowed from
-`~/tehas/live/dispatch.json`, and the mesh's draw from
-`~/tehas/live/energy.json`. A file older than ten minutes gives no value, and a
+`~/tehas/live/status.json`, and the hold and the cycles allowed from
+`~/tehas/live/dispatch.json`. A file older than ten minutes gives no value, and a
 `dispatch.json` older than two and a half, an earlier poll's, neither. Nothing
 at the end of the poll prunes the analytics database: each write of the program
 - `run`, `plan`, `event` and `sample` - prunes after it writes, so a poll that
@@ -163,8 +162,7 @@ log once when its reason changes, with `released: cycles may start again`
 when it ends. A real poll also writes it to `~/tehas/live/dispatch.json` with
 the slice's numbers, for [tehas status](/tools-status#tehas-status), and, once the model
 endpoint has been settled, the subagent provider's endpoint as one word
-(`"endpoint": "main"` or `"backup"`), which is what
-[`tehasbot energy`](/tools-health#tehasbot-energy) asks. Every real poll that
+(`"endpoint": "main"` or `"backup"`), never an address. Every real poll that
 gets past the settings and the bot's login, a paused one too, writes
 `~/tehas/live/demand.json`: how many issues would start if there were room,
 and when the oldest of them was accepted, refresh requests included, with
@@ -181,8 +179,8 @@ that may be) and the branch has moved
 since the last indexing, it starts [tehas index](/tools-dev#tehas-index) as its own unit,
 `tehas-index.service`, and ends: the log says `holding: the code index is
 refreshed first`. The unit asks for a poll when it ends, and that poll starts
-the cycles. Nothing about the issues changes in the poll that holds them, so a
-ticked retry stays ticked. While the index runs, polls say `holding: the cycles
+the cycles. Nothing about the issues changes in the poll that holds them, so an
+answered retry stands. While the index runs, polls say `holding: the cycles
 wait for the code index`, and planning turns and sweeps go on. An index that
 could not be refreshed is a warning in the next poll's log; the cycles still
 start. It then marks each issue `tehas:running` and starts
@@ -199,13 +197,17 @@ repository only after [tehas labels](/tools-setup#tehas-labels) has been run for
 version that uses them. After pulling a version that adds a label, run it
 again on the host. It only creates or updates labels, so running it twice is
 safe. Without it the labels are not there to apply, and a stopped cycle cannot get
-its question label. The bot then says in a second comment that the boxes
-cannot be used.
+its question label. The bot then says in a second comment that a reply
+to it does nothing.
 
-Beside the queue, a poll also reads two kinds of answer. A box ticked by an
-allowed account in the bot's comment on a stopped cycle can start a fresh
-cycle, and a reply or a ticked box on a planning question runs the next turn of
-that session. A retry waits for a free slot and for the cap, as any cycle does.
+Beside the queue, a poll also reads two kinds of answer. A reply of an
+allowed account that names `retry` or `retry-text` to the bot's comment on a
+stopped cycle can start a fresh cycle, and a reply to a planning question runs
+the next turn of that session; `tehas answer` gives either from the host. A
+box ticked in a comment of before 2.0 is no answer, and nothing happens. A
+question open at the move to 2.0, which `tehas update` marks, is asked again
+first, once, in 2.0's words, and its old comment gets one line that links the
+new one. A retry waits for a free slot and for the cap, as any cycle does.
 A planning turn waits for neither. It runs as its own unit,
 `tehas-plan-<issue>.service`, started with `systemd-run`, from its own copy of
 the code as a cycle runs (`tehas-cycle pin plan`, see
@@ -261,7 +263,7 @@ comments the poll spoke about once. An option is one label, kept as its
 text: `plan-end` writes the options as a JSON list of the labels it was
 given, and a stored options value that is not a JSON list of labels is
 damage, refused by every read and write of the session with `corrupt` and
-78, never shown as a question with no boxes. Each change is one write: `plan-begin` as
+78, never shown as a question with no choices. Each change is one write: `plan-begin` as
 a session starts, `plan-answer` as an answer begins a turn, `plan-end` as a
 turn ends, as its outcome is posted, and as the session ends. A turn's end the
 store would not take keeps the turn's exit status, and the next poll takes it
@@ -285,12 +287,12 @@ it is not reported as cut off while it may be at work.
 A comment is a question only if the host has its id on record
 on the state store: the question of the issue's open planning session, or of
 its current park (`question-known`). An answer that begins a turn answers that
-question on record, so a second tick in it runs nothing. A question of an earlier attempt, one taken off the record,
-one already answered and one of another issue are none of those: a box ticked
-in it starts nothing, and it is unticked with a comment that says the factory
-is not waiting on it. When the store cannot be read the issue is skipped for
+question on record, so a second answer to it runs nothing. A question of an earlier attempt, one taken off the record,
+one already answered and one of another issue are none of those: an answer to
+it starts nothing, and the bot says once that the factory is not waiting on
+it. When the store cannot be read the issue is skipped for
 that poll with `skip #N: its question on record could not be read (<word>)`:
-no tick counts and none is undone. A store that cannot be used stops the poll
+no answer counts. A store that cannot be used stops the poll
 with exit 78. Only the last 100
 comments of an issue are read; a question further back than that is skipped
 with a line in the log. See [Operating](/operating). The dispatcher stops with exit 78 if
@@ -301,7 +303,7 @@ the bot is refused whatever else the poll would have done. A planning turn's
 runner output is in `~/tehas/logs/dispatch-plan-<issue>.log`.
 
 A park on the state store with the reason `provider-outage` starts again once
-without a tick. `tehasbot cycle` no longer records that reason, because only a
+without an answer. `tehasbot cycle` no longer records that reason, because only a
 cycle's own result names an outage; a park an earlier version recorded keeps
 its retry. The store says the park owes one retry when the cycle
 was started on an approval (not by hand) and was not itself that retry
@@ -399,8 +401,8 @@ nobody else has changed its title or body since, and only while GitHub says the
 number is an open issue. Every edit of the body after the label is judged,
 not only the last: an outside account's edit holds the issue even when an
 allowed account saves the body after it. For an issue its labels would start
-that was edited, and for an edited issue with a question whose Retry box a
-person may tick, the poll reads the body's edit history, the last 100 edits;
+that was edited, and for an edited issue with a question a person may answer
+`retry` to, the poll reads the body's edit history, the last 100 edits;
 a longer history, or an edit that names no account, holds the issue too
 (`skip #N: its text was changed by 'unknown' ...`), and a history GitHub does
 not give ends the poll with exit 1. A closed issue and a pull request are never taken,
@@ -453,7 +455,8 @@ off, the change was made and the cycle starts.
 Before it marks an issue, the poll records what the start rests on in the
 state store (`~/tehas/state/tehas.db`, through `libexec/store`
 `approval-record`): `at` and `by`, when and by whom it was approved, `how`
-(`label`, `retry-tick`, `millwright`, `refresh`, `outage-retry` for the one start
+(`approved` for a label an allowed account applied, `reply` for a retry a person's reply answered, `answer` for one
+`tehas answer` gave, `millwright`, `refresh`, `outage-retry` for the one start
 after a provider outage, or `host` for an approval of `tehas start`, whose `by`
 is `host` too), `body_sha256`, the sha256 of the body that approval
 was checked against with carriage returns dropped, `title_sha256`, the sha256
@@ -461,7 +464,7 @@ of the issue's title held the same way (line ends dropped), and as the start's
 inputs `links`, the links to GitHub's attachment storage in that body, and
 `driver` when the start [chose lean](/operating#choosing-the-driver). A record
 with no `driver` is classic. `at` is
-the time GitHub gave the label or the tick; a refresh and the retry after an
+the time GitHub gave the label or the answer; a refresh and the retry after an
 outage rest on an approval that started a cycle already, and are on record at
 the time the poll decided them. The body, the title and the record of who last
 edited it come in the same call, so the record is the text the check passed.
@@ -490,22 +493,19 @@ A value that is no whole number of at least 1, has more than 9 digits, or is a
 timeout over 7200 ends the poll with
 `ERROR: TEHAS_PLAN_TIMEOUT is not valid: expected a positive whole number` (or
 `... (7201) is more than 7200 ...`) and exit 78. An answer that names no title records no
-`title_sha256`, and `tehas work` then checks the body alone. With `TEHAS_WORK_COMMENTS=on` the poll also lists the
-issue's comments and adds `comment_links`: the links of each comment an
-allowed account wrote whose `created_at` and `updated_at` are at or before
-`at`, in the order written, each as `{link, source, by}` with `source`
-`comment:<id>`. [tehas work](/tools-work#tehas-work) fetches those links and no others.
+`title_sha256`, and `tehas work` then checks the body alone. The record names
+no link of a comment: [tehas work](/tools-work#tehas-work) fetches the body's
+links and no others.
 An approval the store does not take starts nothing: `ERROR: could not write
 the approval record of #N (<the store's word>), not starting a cycle`, exit 1,
 and no label changes.
 Comments that cannot be read are logged as `ERROR: the comments of #N could
-not be read` and stop the start the same way. On a retry tick, with the
-setting on, the poll also lists the bot's pull requests that name the issue,
-as `tehasbot cycle` finds a cycle's, and their comments: those an allowed
-account wrote between the park question and the tick and nobody edited after
-the tick. Their links join `comment_links` with `source` `pr-comment:<id>`,
-and their text, the first 20 cut at 4000 characters each, goes to
+not be read` and stop the start the same way. On a retry with the comments
+the poll lists the issue's comments and the bot's pull requests that name the
+issue, as `tehasbot cycle` finds a cycle's, and their comments: those an
+allowed account wrote between the park question and the answer and nobody
+edited after the answer. Their text, the first 20 cut at 4000 characters each, goes to
 `retry_context` as `{source, by, at, text}`. Pull requests or comments that
 cannot be read stop the retry: `ERROR: the comments on the pull request of
-#N could not be read`, exit 1, and the tick stays. Only conversation comments
+#N could not be read`, exit 1, and the answer stands. Only conversation comments
 are read, not review comments or reviews.

@@ -396,7 +396,11 @@ pub fn cycles(calls: &mut Calls) -> Result<Vec<Value>, Value> {
                     let c = get(r, "cycle");
                     let num = |x: &Value, k: &str| x.get(k).and_then(Value::as_u64).unwrap_or(0);
                     Some(if c.is_object() && c.get("ended_at").is_none_or(Value::is_null) {
+                        // An open record whose lock no process holds is a
+                        // cycle that died without a word (T11.3).
+                        let lost = r.pointer("/lock/probe_rc").and_then(Value::as_i64) == Some(0);
                         json!({"issue": n, "how": c.get("how").and_then(Value::as_str).unwrap_or(""),
+                            "attempt": num(&c, "attempt"), "lost": lost,
                             "took": num(&c, "started_at"), "heard": num(&c, "heard_at"),
                             "said_for": c.pointer("/quiet/said_for").map(|s| match s { Value::String(s) => s.clone(), v => v.to_string() }).unwrap_or("-".into()),
                             "quiet_at": c.pointer("/quiet/at").and_then(Value::as_u64).unwrap_or(0),
@@ -446,26 +450,17 @@ pub fn approval_shape(v: &Value) -> Option<Value> {
             "body_sha256": get(p, "body_sha256")}),
         )
     };
-    let starts = v
-        .get("millwright_starts")
-        .filter(|x| !x.is_null())
-        .or_else(|| v.get("fixer_starts").filter(|x| !x.is_null()))
-        .cloned()
-        .unwrap_or(json!(0));
     let input = c.get("input").cloned().unwrap_or(json!({}));
     let base = person(&get(v, "rests_on"))?;
-    let how = match c.get("how").and_then(Value::as_str) {
-        Some("millwright") => "fixer".to_string(),
-        Some(h) => h.to_string(),
-        None => String::new(),
-    };
+    let how = c
+        .get("how")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
     let mut out = json!({"at": iso(c.get("at")?.as_u64()?), "by": get(c, "by"), "how": how,
         "body_sha256": get(c, "body_sha256"), "links": input.get("links").cloned().unwrap_or(json!([]))});
     if let Some(t) = c.get("title_sha256").filter(|t| !t.is_null()) {
         out["title_sha256"] = t.clone();
-    }
-    if let Some(l) = input.get("comment_links") {
-        out["comment_links"] = l.clone();
     }
     if let Some(d) = input.get("driver").filter(|d| !d.is_null()) {
         out["driver"] = d.clone();
@@ -477,13 +472,11 @@ pub fn approval_shape(v: &Value) -> Option<Value> {
     {
         out["retry_context"] = input["retry_context"].clone();
     }
-    if how == "fixer" {
+    if how == tehas_core::grammar::MILLWRIGHT {
         out["rests_on"] = base.clone();
-        out["fixer_starts"] = starts.clone();
     }
     if how == "refresh" {
         out["rests_on"] = base.clone();
-        out["fixer_starts"] = starts;
         out["refreshes"] = get(v, "refreshes");
         out["refresh_of"] = get(&input, "refresh_of");
         if !base.is_null() {
@@ -504,28 +497,6 @@ pub fn approval(asked: &Asked, n: u64) -> (Value, Value) {
             get(&v, "current"),
         ),
     }
-}
-
-/// How many of `running` a fed start began: the millwright's start resting on
-/// no person's approval. `{"failed": true}` when one cannot be read.
-pub fn fed(asked: &Asked, running: &[u64]) -> Value {
-    let mut count = 0;
-    for n in running {
-        let v = asked.answer(Read::Approval(*n));
-        if v.get("failed") == Some(&json!(true)) {
-            return json!({"failed": true});
-        }
-        let how = v
-            .pointer("/current/how")
-            .and_then(Value::as_str)
-            .unwrap_or("");
-        if tehas_core::grammar::MILLWRIGHT_WORDS.contains(&how)
-            && v.get("rests_on").is_none_or(Value::is_null)
-        {
-            count += 1;
-        }
-    }
-    json!(count)
 }
 
 /// history-show <n> --kind cycle, its lines in the shape they had before the store.
@@ -587,6 +558,9 @@ pub fn question(asked: &Asked, n: u64) -> Value {
         reason = park.pointer("/park/reason").cloned().unwrap_or(Value::Null);
     }
     let mut kind = String::new();
+    let mut answer = Value::Null;
+    let mut reask = false;
+    let mut old_sum = false;
     if !qid.is_empty() {
         match asked.know(n) {
             v if v.get("failed") == Some(&json!(true)) => return v,
@@ -596,11 +570,15 @@ pub fn question(asked: &Asked, n: u64) -> Value {
                     .and_then(Value::as_str)
                     .unwrap_or("")
                     .to_string();
+                answer = v.get("answer").cloned().unwrap_or(Value::Null);
+                reask = v.get("reask") == Some(&json!(true));
+                old_sum = v.get("sum_form") == Some(&json!("rendered"));
             }
             _ => qid.clear(),
         }
     }
-    json!({"plan": plan, "id": qid, "kind": kind, "reason": reason})
+    json!({"plan": plan, "id": qid, "kind": kind, "reason": reason, "answer": answer, "reask": reask,
+        "old_sum": old_sum})
 }
 
 #[cfg(test)]
@@ -608,7 +586,7 @@ mod approval_shape_tests {
     use serde_json::{json, Value};
 
     fn shaped(how: &str, input: Value) -> Value {
-        let base = json!({"at": 1, "by": "alice", "how": "label", "body_sha256": "a"});
+        let base = json!({"at": 1, "by": "alice", "how": "approved", "body_sha256": "a"});
         super::approval_shape(&json!({"rests_on": base, "current": {"at": 2, "by": "bot",
             "how": how, "body_sha256": "a", "input": input}}))
         .unwrap()
@@ -618,13 +596,7 @@ mod approval_shape_tests {
     /// with none, as every record before the driver is, names none.
     #[test]
     fn the_driver_of_a_start_is_read_off_its_own_record() {
-        for how in [
-            "label",
-            "retry-tick",
-            "outage-retry",
-            "millwright",
-            "refresh",
-        ] {
+        for how in ["approved", "reply", "outage-retry", "millwright", "refresh"] {
             assert_eq!(shaped(how, json!({"driver": "lean"}))["driver"], "lean");
             assert_eq!(shaped(how, json!({})).get("driver"), None);
             assert_eq!(shaped(how, Value::Null).get("driver"), None);
@@ -640,6 +612,7 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::sync::Once;
     use std::time::Duration;
+    use tehas_core::home::Home;
     use tehas_core::testdir::TestDir;
 
     /// The store of a case: the real store program of this build, so the four
@@ -647,7 +620,7 @@ mod tests {
     /// asks. A home of the test's own, as the store's tests have theirs.
     fn scratch(name: &str) -> TestDir {
         let dir = TestDir::new(&format!("dispatch-store-{name}"));
-        fs::create_dir_all(dir.join("state/cycles")).unwrap();
+        fs::create_dir_all(Home::new(&*dir).cycles_dir()).unwrap();
         dir
     }
 
@@ -727,7 +700,7 @@ mod tests {
         let home = scratch(name);
         // The store's own home: its file, and the mark of a home the store asks
         // for before it opens anything.
-        fs::write(home.join("state/.tehas-home"), "{}\n").unwrap();
+        fs::write(Home::new(&*home).state_dir().join(".tehas-home"), "{}\n").unwrap();
         let bin = store_binary().display().to_string();
 
         let store = home.join("store");
@@ -837,7 +810,7 @@ printf 'store %s %s\\n' \"$*\" \"$(cat \"$0.request\")\" >>\"$0.calls\"\nexec {b
             .create(true)
             .truncate(false)
             .write(true)
-            .open(h.home.join("state/cycles").join(format!("{n}.lock")))
+            .open(Home::new(&*h.home).cycle_note(n, "lock"))
             .unwrap();
         lock.try_lock().unwrap();
         let run = |args: &[&str]| {
@@ -862,7 +835,7 @@ printf 'store %s %s\\n' \"$*\" \"$(cat \"$0.request\")\" >>\"$0.calls\"\nexec {b
             "--by",
             "alice",
             "--how",
-            "label",
+            "approved",
             "--label",
             "tehas:ready",
             "--body-sha",
@@ -1038,24 +1011,6 @@ printf 'store %s %s\\n' \"$*\" \"$(cat \"$0.request\")\" >>\"$0.calls\"\nexec {b
             super::park(&asked, 7)["issue"],
             super::park(&asked, 8)["issue"]
         );
-    }
-
-    #[test]
-    fn fed_counts_the_millwrights_starts_on_no_persons_approval() {
-        let mut a = Asked::empty();
-        let fed = |how: &str, base: Value| json!({"current": {"how": how}, "rests_on": base});
-        a.answers
-            .insert(Read::Approval(7), fed("millwright", Value::Null));
-        a.answers
-            .insert(Read::Approval(8), fed("fixer", Value::Null));
-        a.answers
-            .insert(Read::Approval(9), fed("millwright", json!({"by": "alice"})));
-        a.answers
-            .insert(Read::Approval(10), fed("label", Value::Null));
-        assert_eq!(super::fed(&a, &[7, 8, 9, 10]), json!(2));
-        assert_eq!(super::fed(&a, &[]), json!(0));
-        // One that cannot be read leaves the count unknown, not low.
-        assert_eq!(super::fed(&a, &[7, 11])["failed"], true);
     }
 
     #[test]

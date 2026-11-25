@@ -4,26 +4,36 @@
 -- later version comes last in its table, where ALTER TABLE puts it, so a store
 -- migrated from an older version (db::migrate) and one init made hold the
 -- same columns. SQLite cannot change a CHECK in place, so cycles is
--- written as db::STEP_14 rebuilds it and actions as db::STEP_16 does. The
+-- written as db::STEP_24 rebuilds it and actions as db::STEP_16 does. The
 -- oldest store db::migrate takes is the one v0.30.0 wrote, schema 12 (db::OLDEST):
 -- sections 3.10 to 3.12 were gone by then. Schema 13 adds the
 -- started_* columns of approvals (db::STEP_13). Schema 14 lets cycles.how say
--- 'host', a start `tehas start` approved (db::STEP_14). Schema 15 adds the
--- five outsource tables of section 3.15, in outsource.sql (db::step_15). Every
--- store holds them; only a factory with TEHAS_OUTSOURCE=1 writes a row of
--- them. No secret is in them: an invite code is kept only as the sha256 of
--- what was printed, and a contractor gives only its public key, so there is
--- no private key of any kind in the file. Schema 16 lets actions.state say
--- 'unknown', a write GitHub may have taken, and writes 'millwright' in every
--- row that still said 'fixer' (db::STEP_16). Schema 17 adds to the outsource
--- tables (db::STEP_17, which init runs after outsource.sql): jobs.token_sha256,
--- the sha256 of a job's token and never the token, and the report_* columns of
--- contractors, what a contractor last said it has. Schema 18 gives a job's
--- token two scopes (db::STEP_18, run after STEP_17): jobs.token_sha256 becomes
--- job_token_sha256, the contractor program's token for the job channel, and
--- model_token_sha256 is the token of the container's models.json. Schema 19
--- adds plugin_runs, one row per run of a plugin (db::STEP_19, run after
--- STEP_18).
+-- 'host', a start `tehas start` approved (db::STEP_14). Schemas 15, 17 and 18
+-- held the five tables of outsource (db::STEP_15, STEP_17, STEP_18), which
+-- schema 29 drops (db::DROP_OUTSOURCE): init lays none of them. Schema 16 lets
+-- actions.state say 'unknown', a write GitHub may have taken, and writes
+-- 'millwright' in every row that still said 'fixer' (db::STEP_16). Schema 19
+-- adds plugin_runs, one row per run of a plugin (db::STEP_19). Schema 24 adds answers, an answer `tehas answer` gave to the
+-- question on record of an issue (db::STEP_24_INIT, run after STEP_23), and
+-- cycles.how takes 'answer', which db::STEP_24 rebuilds cycles for.
+-- Schema 25 adds questions.offers, the choices a park's question offers
+-- (db::STEP_25). Schema 26: cycles.how takes 'reply', a retry a person's reply
+-- asked for, which db::STEP_26 rebuilds cycles for. Schema 27: cycles.how no
+-- longer takes 'retry-tick' (every one stored became 'reply', in cycles,
+-- approvals and cycle_history), and questions.reask marks a question open at
+-- the upgrade, which the first poll asks again in 2.0's words
+-- (db::STEP_27). Schema 28: cycles.how no longer
+-- takes 'fixer' and planning_notes.kind no longer takes 'fixer-refused'
+-- (db::STEP_28).
+-- Schema 29 drops the outsource tables (db::DROP_OUTSOURCE). Schema 30
+-- (db::STEP_30): cycles.how says 'approved' where it said 'label', in its
+-- CHECK and in every row of cycles, cycle_history and approvals; cycle_history
+-- adds recorded_at and signalled; questions is rebuilt with the store's own
+-- number as id, the comment's id in comment_id and withdrawn_at, and is laid
+-- here whole, so init runs neither the step to 25 nor that to 27 for it; and
+-- meta holds the store's id under 'store'. Schema 31 (db::STEP_31):
+-- cycle_history.reported. Schema 32 (db::STEP_32): links, the links of a
+-- ticket to its blueprints.
 -- Within one version columns are only added; a change of meaning raises the
 -- version. Times are
 -- UTC Unix seconds and durations are seconds, as integers: a column named
@@ -70,15 +80,12 @@ CREATE INDEX issues_checked ON issues (checked_at);
 -- end_reason is the union of what the two writers can say; cycle-end stores
 -- a word outside it as 'unknown'. An ended row with end_reason NULL is a start
 -- the cycle refused. A run by hand has how 'hand' and no started_by.
--- 'millwright' (v4) is the new name of 'fixer'; both are accepted until the
--- verbs write only the new one. #686: part 5 drops 'fixer' from this list, with
--- the aliases in console/store.
 CREATE TABLE cycles (
   issue          INTEGER PRIMARY KEY REFERENCES issues (issue) ON DELETE CASCADE,
   attempt        INTEGER NOT NULL DEFAULT 1,
   started_at     INTEGER NOT NULL,
   started_by     TEXT,
-  how            TEXT NOT NULL CHECK (how IN ('label','refresh','retry-tick','outage-retry','fixer','millwright','hand','host')),
+  how            TEXT NOT NULL CHECK (how IN ('approved','refresh','outage-retry','millwright','hand','host','answer','reply')),
   requeued       INTEGER NOT NULL DEFAULT 0,
   rukas_commit   TEXT,
   image          TEXT,
@@ -134,7 +141,7 @@ CREATE INDEX endings_recent ON endings (ended_at DESC);
 -- 3.4 approvals: one approval is one start. A used_at that is null is one
 -- start still owed. by_account is the actor of the labelled event, and
 -- body_sha256 is the text the approval binds to. input_json (v2) is what the
--- cycle is given with it: links, comment_links, retry_context, refresh_of, and
+-- cycle is given with it: links, retry_context, refresh_of, and
 -- driver when the start is not classic.
 -- easy (v9) says a refresh start ran as an easy merge (#1031): a row of the
 -- same approval that says 1 has had the one easy merge that approval is owed,
@@ -215,12 +222,10 @@ CREATE TABLE planning_filed (
 );
 -- (v2) The comments the poll spoke about once in this session: a millwright's
 -- reply it refused, and a question whose tick it held. They go with the
--- session. 'millwright-refused' (v4) is the new name of 'fixer-refused'; both
--- are accepted until the verbs write only the new one. #686: part 5 drops
--- 'fixer-refused' from this list, with the aliases in console/store.
+-- session.
 CREATE TABLE planning_notes (
   issue INTEGER NOT NULL REFERENCES planning (issue) ON DELETE CASCADE,
-  kind  TEXT NOT NULL CHECK (kind IN ('fixer-refused','millwright-refused','held')),
+  kind  TEXT NOT NULL CHECK (kind IN ('millwright-refused','held')),
   comment_id INTEGER NOT NULL,
   at INTEGER NOT NULL,
   PRIMARY KEY (issue, kind, comment_id)
@@ -265,8 +270,7 @@ CREATE TABLE cycle_progress (
 
 -- 3.7 parks and questions. questions is the only place a comment id is
 -- believed: a comment that is not in this table is not the factory's question.
--- A question the host withdrew is deleted. told_at (v2) is when the poll said,
--- once, that the park holds the issue.
+-- told_at (v2) is when the poll said, once, that the park holds the issue.
 CREATE TABLE parks (
   issue    INTEGER NOT NULL REFERENCES issues (issue) ON DELETE CASCADE,
   attempt  INTEGER NOT NULL,
@@ -278,24 +282,46 @@ CREATE TABLE parks (
   told_at  INTEGER,
   PRIMARY KEY (issue, attempt)
 );
+-- id (v30) is the store's own number, given in order and never reused, which
+-- `tehas question` and `tehas answer` print; comment_id is the id of the
+-- comment that asked it, which only the store and the code host's side read.
+-- offers (v25) are the choices a park's question offers, reask (v27) marks a
+-- question open at the upgrade to 2.0, and withdrawn_at (v30) is when the host
+-- withdrew it: a withdrawn question is kept, never deleted. A comment names one
+-- question that is not withdrawn; asked again after a withdrawal, it is a new
+-- question with the next number. body_form (v33) says what body_sha256 sums:
+-- 'visible', the question's text alone, without our markers, as 2.0 asks it;
+-- 'rendered', the comment as 1.x posted it, its markers in, which the poll
+-- adopts in place on its first read (question-adopt), 'visible' with no sum
+-- when its comment changed since it was posted; NULL with no sum.
 CREATE TABLE questions (
-  id         INTEGER PRIMARY KEY,
-  issue      INTEGER NOT NULL REFERENCES issues (issue) ON DELETE CASCADE,
-  attempt    INTEGER NOT NULL,
-  kind       TEXT NOT NULL CHECK (kind IN ('park','plan')),
-  posted_at  INTEGER NOT NULL,
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  comment_id  INTEGER,
+  issue       INTEGER NOT NULL REFERENCES issues (issue) ON DELETE CASCADE,
+  attempt     INTEGER NOT NULL,
+  kind        TEXT NOT NULL CHECK (kind IN ('park','plan')),
+  posted_at   INTEGER NOT NULL,
   body_sha256 TEXT,
   answered_at INTEGER,
-  answered_by TEXT
+  answered_by TEXT,
+  offers      TEXT,
+  reask       INTEGER NOT NULL DEFAULT 0,
+  withdrawn_at INTEGER,
+  body_form   TEXT CHECK (body_form IN ('rendered','visible'))
 );
 CREATE INDEX questions_issue ON questions (issue, posted_at);
+CREATE UNIQUE INDEX questions_comment ON questions (comment_id) WHERE withdrawn_at IS NULL;
 
 -- 3.8 the histories, one row per end, the 50 newest per issue kept. Were the
 -- two JSONL ledgers the shell commands parsed: the cycle's and the planning
 -- turn's. The runner's words (cap, park_reason, failure_kind, failure_cause)
 -- are claims, stored only cleaned to a fixed set and bound. step_number,
 -- step_total and round (v10) are where the step the cycle ended in was, from
--- its last heartbeat of that step.
+-- its last heartbeat of that step. recorded_at (v30) is when the line was
+-- written, which a line written late (a lost cycle's) has after its at;
+-- signalled (v30) is 1 when a signal stopped the cycle. reported (v31) is 1 on
+-- a line a cycle's report wrote, 0 on one the store wrote for a start with no
+-- report: a refused start, tehas stop, a lost cycle.
 CREATE TABLE cycle_history (
   id INTEGER PRIMARY KEY,
   issue INTEGER NOT NULL, attempt INTEGER NOT NULL, at INTEGER NOT NULL,
@@ -304,7 +330,10 @@ CREATE TABLE cycle_history (
   failure_kind TEXT, failure_cause TEXT,
   provider INTEGER NOT NULL DEFAULT 0, parked INTEGER NOT NULL DEFAULT 0,
   seq INTEGER,
-  step_number INTEGER, step_total INTEGER, round INTEGER
+  step_number INTEGER, step_total INTEGER, round INTEGER,
+  recorded_at INTEGER,
+  signalled INTEGER NOT NULL DEFAULT 0 CHECK (signalled IN (0, 1)),
+  reported INTEGER NOT NULL DEFAULT 1 CHECK (reported IN (0, 1))
 );
 CREATE INDEX cycle_history_issue ON cycle_history (issue, at);
 CREATE TABLE plan_history (
@@ -406,3 +435,18 @@ CREATE TABLE start_order (
   reason TEXT,
   set_at INTEGER NOT NULL
 );
+-- The links of a ticket to its blueprints (ports spec, "The links"): one row a
+-- blueprint, naming the ticket's key it was made for, who made it in which
+-- realm, when, and how. `opened`: tehas opened the blueprint for the ticket;
+-- `linked`: an allowed account's act or the operator. Written only by
+-- link-record. Where ticket and blueprint are one item, as on every setup 2.0
+-- runs, the link is answered without a row and the table stays empty.
+CREATE TABLE links (
+  ticket        TEXT NOT NULL CHECK (length(ticket) BETWEEN 1 AND 128),
+  blueprint     INTEGER NOT NULL UNIQUE CHECK (blueprint > 0),
+  made_by       TEXT NOT NULL CHECK (length(made_by) > 0),
+  made_by_realm TEXT NOT NULL CHECK (made_by_realm IN ('code-host','tickets')),
+  made_at       INTEGER NOT NULL,
+  how           TEXT NOT NULL CHECK (how IN ('opened','linked'))
+);
+CREATE INDEX links_ticket ON links (ticket);

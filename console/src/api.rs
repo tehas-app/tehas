@@ -13,10 +13,8 @@ use std::path::{Path, PathBuf};
 /// brings it, and taken out only with the feature itself. The shipped features
 /// of the registry (core/src/features.rs) follow these; a building one is not
 /// a word of `features`.
-const FEATURES: [&str; 31] = [
+const FEATURES: [&str; 33] = [
     "status",
-    "millwright-grant",
-    "all-hands",
     "limit",
     "drain",
     "history",
@@ -26,7 +24,6 @@ const FEATURES: [&str; 31] = [
     "mcp-dashboard-keys",
     "clean",
     "disk",
-    "panels",
     "state-check",
     "finish",
     "status-versions",
@@ -45,6 +42,11 @@ const FEATURES: [&str; 31] = [
     "wake",
     "start-reasons",
     "blockers",
+    "answer",
+    "question",
+    "cycle-ids",
+    "questions",
+    "events",
 ];
 
 /// The longest version text read, which `head -c` kept it to.
@@ -91,6 +93,14 @@ fn or_null(v: &Option<String>) -> J {
     v.clone().map_or(J::Null, J::str)
 }
 
+/// The store's id in its answer, null when it names none.
+fn store_of(answer: &J) -> J {
+    match answer.get("store") {
+        J::Str(id) if !id.is_empty() => J::Str(id.clone()),
+        _ => J::Null,
+    }
+}
+
 /// `{last, hour}` of the store's answer, or null when no poll is on record.
 fn poll_of(answer: &J) -> J {
     if answer.get("last").is_null() {
@@ -126,7 +136,13 @@ fn flags_line(flags: &[(&str, bool)]) -> String {
     words.join(" ")
 }
 
-fn object(version: &str, repo: &str, login: &str, flags: &[(&str, bool)], poll: J) -> J {
+fn object(
+    version: &str,
+    repo: &str,
+    login: &str,
+    flags: &[(&str, bool)],
+    (poll, store): (J, J),
+) -> J {
     let (tehas, commit) = split_version(version);
     let millwright = if login.is_empty() {
         J::Null
@@ -145,6 +161,7 @@ fn object(version: &str, repo: &str, login: &str, flags: &[(&str, bool)], poll: 
         ("flags", flags_object(flags)),
         ("millwright", millwright),
         ("poll", poll),
+        ("store", store),
     ])
 }
 
@@ -190,11 +207,13 @@ pub fn main(given: &[String]) -> u8 {
     let flags = tehas_core::features::flags();
     if json {
         let now = tehas_core::time::now().to_string();
-        let poll = store::line(&home, &["poll-show", "--api", "--now", &now])
+        let read = store::line(&home, &["poll-show", "--api", "--now", &now])
             .ok()
             .and_then(|text| J::parse(&text))
-            .map_or(J::Null, |answer| poll_of(&answer));
-        tehas_core::outln!("{}", object(&version, &repo, &login, &flags, poll).dump());
+            .map_or((J::Null, J::Null), |answer| {
+                (poll_of(&answer), store_of(&answer))
+            });
+        tehas_core::outln!("{}", object(&version, &repo, &login, &flags, read).dump());
     } else {
         let poll = store::call(&home, &["poll-show"]).ok();
         let line = poll.as_ref().and_then(|v| v["line"].as_str()).unwrap_or("");
@@ -231,13 +250,14 @@ mod tests {
     #[test]
     fn the_keys_stay_in_the_order_of_the_api() {
         let poll = J::parse(r#"{"z":1,"a":2}"#).unwrap();
-        let flags = [("outsource", false), ("other", true)];
-        let printed = object("v1.2.3", "acme/widget", "mill", &flags, poll).dump();
+        let flags = [("plugins", false), ("other", true)];
+        let store = J::str("0123456789abcdef0123456789abcdef");
+        let printed = object("v1.2.3", "acme/widget", "mill", &flags, (poll, store)).dump();
         assert!(printed.starts_with(
             r#"{"api":1,"tehas":"v1.2.3","commit":null,"repo":"acme/widget","features":["status","#
         ));
         assert!(printed.ends_with(
-            r#""disk","panels","state-check","finish","status-versions","state-copy","state-load","freeze","host-bridge","cycle-writes","settings-rules","start-order","host-message","refresh-pr","host-start","flags","status-previews","wake","start-reasons","blockers"],"flags":{"outsource":false,"other":true},"millwright":"mill","poll":{"z":1,"a":2}}"#
+            r#""disk","state-check","finish","status-versions","state-copy","state-load","freeze","host-bridge","cycle-writes","settings-rules","start-order","host-message","refresh-pr","host-start","flags","status-previews","wake","start-reasons","blockers","answer","question","cycle-ids","questions","events"],"flags":{"plugins":false,"other":true},"millwright":"mill","poll":{"z":1,"a":2},"store":"0123456789abcdef0123456789abcdef"}"#
         ));
     }
 
@@ -256,6 +276,10 @@ mod tests {
             assert!(!pinned.contains(&f.name), "{} is still being built", f.name);
         }
     }
+
+    /// The words 2.0 takes out with their features. Within a major a word is
+    /// only added.
+    const DROPPED_IN_2: [&str; 3] = ["all-hands", "millwright-grant", "panels"];
 
     /// The words of api/features.txt at the newest tag that holds it, when git
     /// has the history: a shallow clone or a tree with no tag skips the check.
@@ -290,11 +314,28 @@ mod tests {
             return;
         };
         let then = git(&["show", &format!("{tag}:{file}")]).unwrap();
-        let then: Vec<&str> = then.lines().filter(|l| !l.starts_with('#')).collect();
+        let then: Vec<&str> = then
+            .lines()
+            .filter(|l| !l.starts_with('#') && !DROPPED_IN_2.contains(l))
+            .collect();
         assert!(
             features().starts_with(&then),
             "features drops or moves a word of {tag}: only add, at the end"
         );
+    }
+
+    /// The manual's row of `features` names every word, each with what it is.
+    #[test]
+    fn the_manual_names_every_word_of_features() {
+        let manual = include_str!("../../host/docs/api.md");
+        let row = manual
+            .lines()
+            .find(|l| l.starts_with("| `features` |"))
+            .unwrap();
+        for word in features() {
+            assert!(row.contains(&format!("`{word}`")), "{word}");
+        }
+        assert!(row.contains("`answer` ([`tehas answer`](#tehas-answer))"));
     }
 
     #[test]
@@ -330,12 +371,25 @@ mod tests {
         );
     }
 
+    /// `store` is the store's id (T11.5), null when the store names none.
+    #[test]
+    fn the_store_is_the_id_the_store_names() {
+        let one = J::parse(r#"{"store":"0123456789abcdef0123456789abcdef","last":null}"#).unwrap();
+        assert_eq!(
+            store_of(&one).dump(),
+            r#""0123456789abcdef0123456789abcdef""#
+        );
+        for none in [r#"{"last":null}"#, r#"{"store":""}"#, r#"{"store":7}"#] {
+            assert!(store_of(&J::parse(none).unwrap()).is_null(), "{none}");
+        }
+    }
+
     #[test]
     fn the_poll_line_takes_the_column_of_the_others() {
-        let flags = [("outsource", false), ("other", true)];
+        let flags = [("plugins", false), ("other", true)];
         let got = lines("cb6912a", "a/b", "", &flags, "poll  last 2 s wall");
         assert_eq!(got[1], "tehas       unknown (cb6912a)");
-        assert_eq!(got[4], "flags       outsource=off other=on");
+        assert_eq!(got[4], "flags       plugins=off other=on");
         assert_eq!(got[5], "millwright  none");
         assert_eq!(got[6], "poll        last 2 s wall");
         assert_eq!(lines("", "a/b", "", &flags, "").len(), 6);

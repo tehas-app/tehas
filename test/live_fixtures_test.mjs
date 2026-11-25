@@ -11,21 +11,15 @@ import { readdirSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 import "../host/fun/console-tabs.js";
 import "../host/fun/epics-view.js";
-import "../host/fun/panels.js";
 import "../host/fun/versions.js";
 import { analyticsView } from "../host/fun/analytics-data.js";
-import { boardRows, consoleView, labBase, lineView, liveView } from "../host/fun/business-view.js";
-import { layout as energyLayout } from "../host/fun/energy-view.js";
 import { normalize } from "../host/fun/game-data.js";
-import { layout as hostLayout } from "../host/fun/host-data.js";
 import { consoleModel } from "../host/fun/factory/tehas-factory-console.model.js";
 import { daysModel } from "../host/fun/factory/tehas-factory-days.model.js";
-import { hostModel } from "../host/fun/factory/tehas-factory-host.model.js";
 import { issuesModel } from "../host/fun/factory/tehas-factory-issues.model.js";
 import { previewsModel } from "../host/fun/factory/tehas-factory-previews.model.js";
 import { readonlyModel } from "../host/fun/factory/tehas-factory-readonly.model.js";
 import { stateModel } from "../host/fun/factory/tehas-factory-state.model.js";
-import { wikiLink, wikiModel } from "../host/fun/factory/tehas-factory-wiki.model.js";
 
 const FIXTURES = new URL("./fixtures/live/", import.meta.url);
 const FUN = new URL("../host/fun/", import.meta.url);
@@ -48,12 +42,6 @@ test("every file under /live/ a page fetches has a sample, and every sample is f
   assert.deepEqual(samples, [...fetched].sort());
 });
 
-test("wiki.json draws the wiki page and the dashboard's link", () => {
-  const m = wikiModel(read("wiki.json"), NOW);
-  assert.deepEqual([m.href, m.behind], ["/wiki/2026-11-17-68ffab1d/", "4 commits and 1 day behind main."]);
-  assert.deepEqual(wikiLink(read("wiki.json")), { href: m.href, title: "2026-11-17-68ffab1d" });
-});
-
 test("the samples are written at one time and name no real repository", () => {
   for (const name of readdirSync(FIXTURES)) {
     const text = readFileSync(new URL(name, FIXTURES), "utf8");
@@ -62,18 +50,6 @@ test("the samples are written at one time and name no real repository", () => {
     const at = f.generatedAt ?? f.time;
     if (at !== undefined) assert.equal(Date.parse(at), T * 1000, name);
   }
-});
-
-test("status.json and protolab.json draw the business page's line", () => {
-  const v = lineView({ status: read("status.json"), lab: read("protolab.json"), nowMs: NOW });
-  assert.equal(v.source, "live");
-  assert.equal(v.repo, "https://github.com/acme/widget");
-  assert.equal(v.lab, "https://lab.example.org");
-  assert.equal(labBase(read("protolab.json"), null), "https://lab.example.org");
-  assert.deepEqual(v.stages.map((s) => [s.key, s.count]),
-    [["proto", 1], ["line", 2], ["plan", 1], ["build", 1], ["review", 1], ["stop", 1], ["ship", 28]]);
-  assert.deepEqual(v.stages[0].items[0].url, "https://lab-45.example.org/");
-  assert.deepEqual(boardRows(v).map((r) => r.number), [42, 43, 41, 39, 37]);
 });
 
 test("status.json draws the factory floor's tickets", () => {
@@ -91,28 +67,11 @@ test("status.json draws the factory floor's tickets", () => {
   assert.ok(data.words.length > 0);
 });
 
-test("running.json draws the console tabs and the business page's console", () => {
+test("running.json draws the console tabs", () => {
   const { view } = globalThis.TEHAS_CONSOLE_TABS;
   const v = view(read("running.json"), null);
   assert.equal(v.running, 1);
   assert.equal(v.shown.cycle.issue, 41);
-  const titles = new Map(read("status.json").running.map((i) => [i.number, i.title]));
-  const c = consoleView(v, titles, T);
-  assert.equal(c.state, "live");
-  assert.equal(c.cycle, "Working on #41  Export the report as CSV");
-  assert.equal(c.file, "console-41.txt");
-});
-
-test("energy.json draws the energy section and the business page's meter", () => {
-  const v = energyLayout(read("energy.json"), NOW);
-  assert.equal(v.state, "live");
-  assert.equal(v.watts, "1190");
-  assert.deepEqual(v.rows.map((r) => r.name), ["node-a", "node-b"]);
-  assert.equal(v.models.length, 1);
-  const live = liveView(read("energy.json"), NOW);
-  assert.equal(live.present, true);
-  assert.equal(live.stale, false);
-  assert.ok(live.tokenRates.length > 0);
 });
 
 test("analytics.json draws the ten-day report", () => {
@@ -123,18 +82,10 @@ test("analytics.json draws the ten-day report", () => {
   assert.equal(v.versions.length, 2);
 });
 
-test("top.json draws the host section", () => {
-  const v = hostLayout(read("top.json"), NOW);
-  assert.equal(v.rows.length, 3);
-  assert.equal(v.units.length, 2);
-});
-
-test("epics.json, panels.json and health.json draw their parts", () => {
+test("epics.json and health.json draw their parts", () => {
   const epics = globalThis.TEHAS_EPICS.view(read("epics.json"));
   assert.equal(epics.epics.length, 1);
   assert.equal(epics.epics[0].subs.length, 3);
-  assert.deepEqual(globalThis.TEHAS_PANELS.view(read("panels.json"), "https://example.org"),
-    [{ id: "support", label: "Support", url: "https://support.example.net/" }]);
   const { line, messages } = globalThis.TEHAS_VERSIONS;
   assert.equal(line(read("health.json")), "tehas v1.0.0 · pi-rukas v0.14.84 · manager v0.9.0");
   assert.deepEqual(messages(read("health.json"), NOW).map((m) => m.word), ["Notice"]);
@@ -154,8 +105,6 @@ test("the plain dashboard's islands make every section from the samples", () => 
   assert.deepEqual([c.tabs.length, c.title, c.file], [2, "Working on #41  Export the report as CSV", "console-41.txt"]);
   const previews = previewsModel(read("previews.json"), NOW);
   assert.deepEqual([previews.present, previews.rows.length], [true, 3]);
-  const host = hostModel(read("top.json"), NOW);
-  assert.deepEqual([host.present, host.rows.length, host.units.length], [true, 3, 2]);
   const days = daysModel(read("analytics.json"));
   assert.deepEqual([days.present, days.chart.length, days.versions.length > 0], [true, 10, true]);
 });

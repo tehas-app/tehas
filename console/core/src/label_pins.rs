@@ -1,8 +1,7 @@
-//! The pins of the granting `tehas:` labels and of `tehas:prototype`:
-//! `$TEHAS_HOME/state/labels`, one `<name>\t<GitHub node id>` line each. The
-//! dispatcher judges each label application against them
-//! (tehas_dispatch::pins), the Protolab its label, and `tehas labels` pins the
-//! labels it made (`pin_made`).
+//! The pins of the granting `tehas:` labels: `$TEHAS_HOME/state/labels`, one
+//! `<name>\t<GitHub node id>` line each. The dispatcher judges each label
+//! application against them (tehas_dispatch::pins), and `tehas labels` pins
+//! the labels it made (`pin_made`).
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -13,7 +12,7 @@ use std::path::Path;
 use crate::file::ReadError;
 
 /// The labels whose application the dispatcher takes as a person's word to
-/// start or plan work. A lone `tehas:blocked` starts an issue once its
+/// start or plan work, the ones `tehas labels` pins. A lone `tehas:blocked` starts an issue once its
 /// blockers close, so it is one of them.
 pub const GRANTING: [&str; 7] = [
     "tehas:ready",
@@ -25,21 +24,12 @@ pub const GRANTING: [&str; 7] = [
     "tehas:classic",
 ];
 
-/// The labels `tehas labels` pins: the granting ones, and the label that
-/// puts a ticket in the Protolab.
-pub const PINNED: [&str; 8] = [
-    "tehas:ready",
-    "tehas:plan",
-    "tehas:refine",
-    "tehas:finish",
-    "tehas:blocked",
-    "tehas:lean",
-    "tehas:classic",
-    "tehas:prototype",
-];
+/// The prefix of the labels of plugin phases. No core label takes it, and
+/// none of them grants: core neither pins nor acts on one.
+pub const PLUGIN_PHASE: &str = "tehas:p-";
 
 /// Where the pins are kept, under TEHAS_HOME.
-pub const FILE: &str = "state/labels";
+pub const FILE: &str = crate::home::State::LabelPins.relative();
 
 /// Label name to node id.
 pub type Pins = BTreeMap<String, String>;
@@ -78,7 +68,7 @@ impl std::fmt::Display for Unreadable {
     }
 }
 
-/// The bound of the file: eight pins take well under 1 KiB.
+/// The bound of the file: seven pins take well under 1 KiB.
 const BOUND: u64 = 64 * 1024;
 
 /// The pins on record. Only a file that is not there is [`Record::Absent`].
@@ -149,7 +139,7 @@ pub fn granting(name: &str) -> bool {
     GRANTING.contains(&name)
 }
 
-/// A label of [`PINNED`] as `tehas labels` saw it: its id before it made the
+/// A label of [`GRANTING`] as `tehas labels` saw it: its id before it made the
 /// labels and after, None where GitHub had no such label, and when GitHub
 /// says the label of `after` was created, in Unix seconds.
 pub struct Seen<'a> {
@@ -164,7 +154,7 @@ pub struct Seen<'a> {
 pub const SAME_RUN_SECS: i64 = 60;
 
 /// `tehas labels`' step, after it made the labels. With no file yet (a fresh
-/// install, or a host from before the pins) every label of [`PINNED`] found
+/// install, or a host from before the pins) every label of [`GRANTING`] found
 /// is pinned, as the poll would pin it. Once the file exists, only a label this
 /// run made, one there was none of before, is pinned: a label that was there
 /// with no pin may be another label renamed to the name, and its name cannot
@@ -172,10 +162,10 @@ pub const SAME_RUN_SECS: i64 = 60;
 /// GitHub says it was created within [`SAME_RUN_SECS`] of a label that is
 /// pinned and still that label: the run that made the pinned one made it too.
 /// A label renamed keeps its creation time, so another label renamed to the
-/// name is still refused. That is how a label added to [`PINNED`] after a host
+/// name is still refused. That is how a label added to [`GRANTING`] after a host
 /// pinned the others gets its pin. A pin is never changed here. The file is written even with no pin in it, so the poll
 /// pins nothing after. The lines to print, and whether every label of
-/// [`PINNED`] now has its pin. A file that is there and cannot be read is
+/// [`GRANTING`] now has its pin. A file that is there and cannot be read is
 /// [`Unreadable`], and nothing is written over it.
 pub fn pin_made(home: &Path, seen: &[Seen]) -> Result<(Vec<String>, bool), Unreadable> {
     let record = load(home)?;
@@ -195,7 +185,7 @@ pub fn pin_made(home: &Path, seen: &[Seen]) -> Result<(Vec<String>, bool), Unrea
     let mut whole = true;
     for s in seen {
         let name = s.name;
-        if !PINNED.contains(&name) {
+        if !GRANTING.contains(&name) {
             continue;
         }
         match (pins.get(name), &s.after) {
@@ -241,6 +231,7 @@ pub fn pin_made(home: &Path, seen: &[Seen]) -> Result<(Vec<String>, bool), Unrea
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::home::Home;
     use crate::testdir::TestDir;
 
     fn pins(home: &Path) -> Pins {
@@ -274,7 +265,7 @@ mod tests {
                 seen("tehas:ready", Some("LA_r"), Some("LA_r")),
                 seen("tehas:plan", None, None),
                 seen("tehas:running", None, Some("LA_x")),
-                seen("tehas:prototype", None, Some("LA_p")),
+                seen("tehas:lean", None, Some("LA_l")),
             ],
         )
         .unwrap();
@@ -286,18 +277,16 @@ mod tests {
         assert_eq!(said[1], "not pinned: the label tehas:plan was not found");
         assert_eq!(
             said[2],
-            "pinned the label tehas:prototype as LA_p in state/labels"
+            "pinned the label tehas:lean as LA_l in state/labels"
         );
         assert_eq!(said.len(), 3);
         assert_eq!(
             pins(d.path()),
             Pins::from([
                 ("tehas:ready".into(), "LA_r".into()),
-                ("tehas:prototype".into(), "LA_p".into())
+                ("tehas:lean".into(), "LA_l".into())
             ])
         );
-        // The Protolab's label is pinned and grants the dispatcher nothing.
-        assert!(!granting("tehas:prototype"));
     }
 
     // tehas:plan has no pin and a label of that name is there: it may be a
@@ -305,7 +294,7 @@ mod tests {
     #[test]
     fn once_the_file_exists_only_a_label_this_run_made_is_pinned() {
         let d = TestDir::new("pins-made-kept");
-        fs::create_dir_all(d.path().join("state")).unwrap();
+        fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
         fs::write(d.path().join(FILE), format!("{READY}\tLA_r\n")).unwrap();
         let (said, whole) = pin_made(
             d.path(),
@@ -326,9 +315,9 @@ mod tests {
             said[2],
             "pinned the label tehas:lean as LA_lean in state/labels"
         );
-        let got = pins(d.path());
-        assert_eq!(got["tehas:ready"], "LA_r");
-        assert!(!got.contains_key("tehas:plan"));
+        let pins = pins(d.path());
+        assert_eq!(pins["tehas:ready"], "LA_r");
+        assert!(!pins.contains_key("tehas:plan"));
         let (said, whole) = pin_made(
             d.path(),
             &[
@@ -340,12 +329,12 @@ mod tests {
         assert!(whole && said.is_empty());
     }
 
-    // A host pinned the labels before tehas:blocked joined PINNED. The run
+    // A host pinned the labels before tehas:blocked joined GRANTING. The run
     // that made tehas:ready made tehas:blocked 8 s later, so it is adopted.
     #[test]
     fn a_label_made_with_a_pinned_one_is_pinned() {
         let d = TestDir::new("pins-same-run");
-        fs::create_dir_all(d.path().join("state")).unwrap();
+        fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
         fs::write(d.path().join(FILE), format!("{READY}\tLA_r\n")).unwrap();
         let (said, whole) = pin_made(
             d.path(),
@@ -397,7 +386,7 @@ mod tests {
         ];
         for (why, ready, blocked) in cases {
             let d = TestDir::new("pins-not-same-run");
-            fs::create_dir_all(d.path().join("state")).unwrap();
+            fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
             fs::write(d.path().join(FILE), format!("{READY}\tLA_r\n")).unwrap();
             let (said, whole) = pin_made(d.path(), &[ready, blocked]).unwrap();
             assert!(!whole, "{why}");
@@ -411,12 +400,6 @@ mod tests {
     }
 
     const READY: &str = GRANTING[0];
-    const PLAN: &str = GRANTING[1];
-    const PROTOTYPE: &str = PINNED[7];
-
-    fn state(d: &TestDir) {
-        fs::create_dir_all(d.path().join(FILE).parent().unwrap()).unwrap();
-    }
 
     type Case = (&'static str, Box<dyn Fn(&Path)>);
 
@@ -510,17 +493,22 @@ mod tests {
     fn only_a_missing_file_is_absent() {
         let d = TestDir::new("pins-absent");
         assert_eq!(load(d.path()), Ok(Record::Absent));
-        state(&d);
+        fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
         assert_eq!(load(d.path()), Ok(Record::Absent));
         fs::write(d.path().join(FILE), "").unwrap();
         assert_eq!(load(d.path()), Ok(Record::Kept(Pins::new())));
         fs::write(
             d.path().join(FILE),
-            format!("{READY}\tLA_r\ntehas:other\tLA_x\n"),
+            format!("{READY}\tLA_r\n{PLUGIN_PHASE}x\tLA_x\n"),
         )
         .unwrap();
         assert_eq!(pins(d.path())[READY], "LA_r");
     }
+
+    const PLAN: &str = GRANTING[1];
+
+    /// Pinned by 1.x until 2.0 dropped the label.
+    const PROTOTYPE: &str = "tehas:prototype";
 
     /// `t` with `{R}` and `{P}` as [`READY`] and [`PLAN`].
     fn fill(t: &str) -> String {
@@ -540,11 +528,12 @@ mod tests {
             .filter(|n| *n != GRANTING[4])
             .chain([PROTOTYPE])
             .collect();
+        let all: Vec<&str> = GRANTING.iter().copied().chain([PROTOTYPE]).collect();
         let cases = [
             ("no pin", vec![]),
             ("one pin", vec![READY]),
             ("the beta set", beta),
-            ("the 1.x set", PINNED.to_vec()),
+            ("the 1.x set", all),
         ];
         for (why, names) in cases {
             let want: Pins = names
@@ -554,7 +543,7 @@ mod tests {
                 .collect();
             let text: String = want.iter().map(|(n, id)| format!("{n}\t{id}\n")).collect();
             let d = TestDir::new("pins-1x");
-            state(&d);
+            fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
             fs::write(d.path().join(FILE), &text).unwrap();
             assert_eq!(load(d.path()), Ok(Record::Kept(want.clone())), "{why}");
             save(d.path(), &want).unwrap();
@@ -583,7 +572,7 @@ mod tests {
     fn trailing_whitespace_crlf_and_blank_lines_read_as_the_same_pairs() {
         for (why, text) in LENIENT {
             let d = TestDir::new("pins-lenient");
-            state(&d);
+            fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
             fs::write(d.path().join(FILE), fill(text)).unwrap();
             assert_eq!(load(d.path()), Ok(Record::Kept(lenient_pins())), "{why}");
         }
@@ -605,7 +594,7 @@ mod tests {
             "{R}\t \n",
         ] {
             let d = TestDir::new("pins-inside");
-            state(&d);
+            fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
             fs::write(d.path().join(FILE), fill(text)).unwrap();
             assert!(load(d.path()).is_err(), "{text:?}");
         }
@@ -616,7 +605,7 @@ mod tests {
     fn tehas_labels_writes_a_damaged_file_plain() {
         for (why, text) in LENIENT {
             let d = TestDir::new("pins-lenient-made");
-            state(&d);
+            fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
             fs::write(d.path().join(FILE), fill(text)).unwrap();
             let (said, whole) = pin_made(
                 d.path(),
@@ -639,7 +628,7 @@ mod tests {
     fn a_file_that_is_there_and_cannot_be_read_is_unreadable() {
         for (why, make) in unreadable_cases() {
             let d = TestDir::new("pins-unreadable");
-            state(&d);
+            fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
             make(d.path());
             let Err(u) = load(d.path()) else {
                 panic!("{why}: read");
@@ -657,7 +646,7 @@ mod tests {
     fn tehas_labels_writes_nothing_over_a_file_it_cannot_read() {
         for (why, make) in unreadable_cases() {
             let d = TestDir::new("pins-made-unreadable");
-            state(&d);
+            fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
             make(d.path());
             let was = as_is(d.path());
             let got = pin_made(d.path(), &[seen(READY, None, Some("LA_new"))]);

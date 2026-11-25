@@ -10,6 +10,8 @@ use common::*;
 use refresh::*;
 use serde_json::{json, Value};
 use std::fs;
+use tehas_core::home::{self, Home};
+use tehas_ports::{Mark, State};
 
 /// The REST call of rule 4b that marks a pull request.
 const MARK_CALL: &str =
@@ -20,7 +22,9 @@ const MARK_CALL: &str =
 fn label_pair(w: &World) -> String {
     w.gh()
         .lines()
-        .filter(|l| l.starts_with("api -X POST") || l.starts_with("issue edit 7"))
+        .filter(|l| {
+            (l.starts_with("api -X POST") && l.contains("/labels")) || l.starts_with("issue edit 7")
+        })
         .map(|l| format!("{l}\n"))
         .collect::<String>()
         .trim_end()
@@ -85,9 +89,10 @@ fn a_refresh_starts_the_pull_request_is_marked_first_then_the_issue_and_the_requ
     has(&r.out, "start #7 (refresh by alice)");
     let edits = label_pair(&w);
     has(&edits, MARK_CALL);
-    has(
-        &edits,
-        "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:awaiting-merge",
+    assert!(
+        w.on(7, Mark::State(State::Running)) && w.off(7, Mark::State(State::AwaitingMerge)),
+        "{:?}",
+        w.writes_of(7)
     );
     assert_eq!(edits.lines().next(), Some(MARK_CALL));
     assert_eq!(edits.lines().count(), 2);
@@ -115,13 +120,13 @@ fn the_approval_record_of_a_refresh_by_the_person_rests_on_refreshes_refresh_of_
 ) {
     let w = started_refresh("start-record");
     let filter = format!(
-        "[.by, .how, .at, .body_sha256 == \"{}\", .rests_on.by, .rests_on.how, .refreshes, .fixer_starts, \
+        "[.by, .how, .at, .body_sha256 == \"{}\", .rests_on.by, .rests_on.how, .refreshes, \
          .refresh_of.pr, .refresh_of.head_sha == \"{RHEAD}\", .refresh_of.base_sha == \"{RBASE}\", .refresh_of.branch]",
         wsum()
     );
     assert_eq!(
         w.approval(&filter, 7),
-        r#"["alice","refresh","2026-10-01T00:00:00Z",true,"alice","label",1,0,50,true,true,"main"]"#
+        r#"["alice","refresh","2026-10-01T00:00:00Z",true,"alice","approved",1,50,true,true,"main"]"#
     );
     assert_eq!(
         w.approval("[.retry_context[] | {source, by}]", 7),
@@ -151,7 +156,7 @@ fn the_record_was_on_disk_before_the_issue_was_marked_and_after_the_mark() {
     // record that says refresh is on disk between them.
     let pair = label_pair(&w);
     assert_eq!(pair.lines().next(), Some(MARK_CALL));
-    has(pair.lines().last().unwrap(), "--add-label tehas:running");
+    has(pair.lines().last().unwrap(), "labels[]=tehas:running");
 }
 
 #[test]
@@ -162,6 +167,7 @@ fn a_mark_that_fails_starts_nothing_marks_no_issue_and_leaves_no_refresh_in_the_
     assert_eq!(r.rc, 1, "{}", r.out);
     assert_eq!(w.started(), "");
     lacks(&w.gh(), "issue edit 7");
+    assert_eq!(w.marks(Some(7)), 0);
     lacks(&w.gh(), "pr edit");
     has(&r.out, "could not mark pull request #50 as refreshing");
     assert_eq!(requests(&w), 1);
@@ -202,8 +208,15 @@ fn the_first_two_marks_fail_and_the_third_starts_the_refresh_the_failures_counte
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(w.started(), "7 ");
     assert_eq!(record_refreshes(&w), "1");
-    // Three marks were asked for: the two that failed and the one that worked.
-    assert_eq!(count_lines(&w.gh(), "api -X POST"), 3);
+    // Three marks of the change were asked for: the two that failed and the
+    // one that worked.
+    assert_eq!(
+        w.gh()
+            .lines()
+            .filter(|l| l.starts_with("api -X POST") && l.contains("/issues/50/labels"))
+            .count(),
+        3
+    );
     assert_eq!(requests(&w), 0);
 }
 
@@ -223,7 +236,7 @@ fn the_reaper_clears_a_mark_its_cycle_could_not_take_off() {
     w.touch("refreshing.json");
     w.rm_fx("unmark-fails");
     w.poll();
-    has(&w.gh(), UNMARK_CALL);
+    assert!(unmarked_change(&w, 50), "{:?}", w.writes_of(50));
 }
 
 #[test]
@@ -239,14 +252,14 @@ fn a_refresh_after_a_refresh_counts_on_from_it() {
 }
 
 #[test]
-fn a_refresh_of_a_fixer_s_start_rests_on_the_person_s_approval_and_keeps_the_fixer_s_count() {
-    let w = refresh_world("fixer-start", &[]);
-    w.past(7, "tehas-bot", "fixer", "2026-10-02T00:00:00Z", &[]);
+fn a_refresh_of_a_millwright_s_start_rests_on_the_person_s_approval() {
+    let w = refresh_world("millwright-start", &[]);
+    w.past(7, "tehas-bot", "millwright", "2026-10-02T00:00:00Z", &[]);
     w.poll();
     assert_eq!(w.started(), "7 ");
     assert_eq!(
-        w.approval("[.by, .how, .rests_on.by, .fixer_starts, .refreshes]", 7),
-        r#"["alice","refresh","alice",1,1]"#
+        w.approval("[.by, .how, .rests_on.by, .refreshes]", 7),
+        r#"["alice","refresh","alice",1]"#
     );
 }
 
@@ -258,6 +271,7 @@ fn a_start_whose_pull_request_label_fails_starts_nothing_and_marks_no_issue() {
     assert_eq!(r.rc, 1, "{}", r.out);
     assert_eq!(w.started(), "");
     lacks(&w.gh(), "issue edit 7");
+    assert_eq!(w.marks(Some(7)), 0);
     lacks(&w.gh(), "pr edit");
     has(&r.out, "could not mark pull request #50 as refreshing");
     assert_eq!(requests(&w), 1);
@@ -283,7 +297,10 @@ fn a_request_without_asked_as_the_timed_scan_of_before_wrote_it_starts_too() {
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(w.started(), "7 ");
     lacks(&r.out, "hold refreshes");
-    assert_eq!(w.read_home("state/refresh/.held"), "");
+    assert_eq!(
+        w.read_home(Home::new(&w.home).state(home::State::RefreshHeld)),
+        ""
+    );
 }
 
 #[test]
@@ -301,7 +318,10 @@ fn a_pr_request_counts_in_the_demand_and_nothing_is_held() {
         json!({"waiting": d["waiting"], "oldest": d["oldest"], "refreshHold": d["refreshHold"]}),
         json!({"waiting": 1, "oldest": "2026-10-17T09:00:00Z", "refreshHold": null})
     );
-    assert_eq!(w.read_home("state/refresh/.held"), "");
+    assert_eq!(
+        w.read_home(Home::new(&w.home).state(home::State::RefreshHeld)),
+        ""
+    );
     lacks(&r.out, "hold refreshes");
     assert_eq!(requests(&w), 1);
 }
@@ -401,10 +421,14 @@ fn a_stale_tehas_refreshing_is_cleared_while_a_pr_request_waits() {
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
     has(&w.gh(), "--label tehas:refreshing");
-    has(
-        &w.gh(),
-        "api -X DELETE repos/acme/widget/issues/60/labels/tehas:refreshing",
-    );
+    assert!(unmarked_change(&w, 60), "{:?}", w.writes_of(60));
+    // The wiring: one DELETE of the label on the change, through the adapter.
+    let deletes = w
+        .gh()
+        .lines()
+        .filter(|l| l.starts_with("api -X DELETE") && l.contains("/issues/60/labels/"))
+        .count();
+    assert_eq!(deletes, 1, "{}", w.gh());
     has(
         &r.out,
         "clear pull request #60: tehas:refreshing off, no refresh on this host names it",
@@ -481,10 +505,7 @@ fn a_handed_off_issue_s_pull_request_is_refreshed_the_issue_is_marked_running_wi
     assert_eq!(w.started(), "7 ");
     let edits = label_pair(&w);
     has(&edits, MARK_CALL);
-    has(
-        &edits,
-        "issue edit 7 --repo acme/widget --add-label tehas:running",
-    );
+    assert!(w.on(7, Mark::State(State::Running)), "{:?}", w.writes_of(7));
     lacks(&edits, "--remove-label");
     assert_eq!(w.approval(".how", 7), "refresh");
 }
@@ -507,9 +528,10 @@ fn a_handed_off_issue_that_carries_tehas_question_is_refreshed_and_the_start_tak
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(w.started(), "7 ");
     let edits = label_pair(&w);
-    has(
-        &edits,
-        "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:question",
+    assert!(
+        w.on(7, Mark::State(State::Running)) && w.off(7, Mark::State(State::Question)),
+        "{:?}",
+        w.writes_of(7)
     );
     assert_eq!(edits.lines().count(), 2);
 }
@@ -521,8 +543,9 @@ fn an_issue_that_carries_tehas_awaiting_merge_and_tehas_question_has_both_taken_
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(w.started(), "7 ");
-    has(
-        &label_pair(&w),
-        "--remove-label tehas:awaiting-merge --remove-label tehas:question",
+    assert!(
+        w.off(7, Mark::State(State::AwaitingMerge)) && w.off(7, Mark::State(State::Question)),
+        "{:?}",
+        w.writes_of(7)
     );
 }

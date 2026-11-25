@@ -15,7 +15,7 @@
 //!   console update keeps <home> <work dir>
 //!   console update leftovers [--check] <home>
 //!   console update cycles <home>
-//!   console update units <env file>
+//!   console update units
 //!   console update login <root> <login command> <marker>
 //!   console update pi <instance> <generic settings> <provider> <model> <out>
 //!   console update programs <home> release|build|lab <tree> <program>...
@@ -70,7 +70,7 @@
 mod assets;
 mod checkout;
 mod files;
-mod findings;
+pub(crate) mod findings;
 mod finish;
 mod host;
 #[cfg(test)]
@@ -101,6 +101,7 @@ use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
+use tehas_core::home::{Home, State};
 
 /// What `console update api` answers. `run` passes this plan and these
 /// arguments to `finish`; a console that answers anything
@@ -330,6 +331,8 @@ pub(crate) fn temp_dir(parent: &Path, prefix: &str) -> io::Result<PathBuf> {
 pub(crate) struct Host {
     pub home: PathBuf,
     pub image: String,
+    /// TEHAS_UPDATE_FROM: `git` or `release`, else told from the home.
+    pub from: String,
 }
 
 impl Host {
@@ -338,6 +341,7 @@ impl Host {
         Some(Host {
             home: PathBuf::from(home),
             image: env::var("PI_ENSEMBLE_IMAGE").unwrap_or_default(),
+            from: env::var("TEHAS_UPDATE_FROM").unwrap_or_default(),
         })
     }
 
@@ -466,7 +470,7 @@ fn pass(host: &Host, asked: &Asked) -> u8 {
         tell("tehas update: --to installs a release, and this host updates from its platform checkout (TEHAS_UPDATE_FROM=git); nothing was changed");
         return 64;
     }
-    let hold = host.home.join("state/update-hold");
+    let hold = Home::new(&host.home).state(State::UpdateHold);
     if hold.exists() && asked.to.is_none() {
         if asked.mode == Mode::Update {
             tell(&format!(
@@ -542,7 +546,7 @@ fn leftover(host: &Host, plan: &mut Plan) -> u8 {
 
 /// Under the lock: what the run does next, with the plan written to `file`, or
 /// the status it ends with.
-fn prepare(file: &Path, asked: &Asked) -> Result<Prepared, u8> {
+fn prepare(file: &Path, asked: &Asked, site: release::Releases) -> Result<Prepared, u8> {
     let host = host_or_refuse()?;
     let mut plan = Plan {
         mode: asked.mode,
@@ -557,7 +561,7 @@ fn prepare(file: &Path, asked: &Asked) -> Result<Prepared, u8> {
         ok(if plan.from == "git" {
             checkout::pull(&host, &mut plan)
         } else {
-            release::go(&host, asked.to.as_deref(), &mut plan)
+            release::go(site, &host, asked.to.as_deref(), &mut plan)
         })?;
     }
     if plan.over {
@@ -576,15 +580,16 @@ fn prepare(file: &Path, asked: &Asked) -> Result<Prepared, u8> {
     Ok(Prepared::Planned(plan.undo.take()))
 }
 
-pub fn main(given: &[String]) -> u8 {
+/// `site` makes the code host handle on tehas's release project.
+pub fn main(given: &[String], site: release::Releases) -> u8 {
     match given.split_first() {
-        Some((verb, rest)) if verb == "run" => run::main(rest),
+        Some((verb, rest)) if verb == "run" => run::main(rest, site),
         Some((verb, [])) if verb == "api" => {
             say(&API.to_string());
             0
         }
         Some((verb, rest)) if verb == "finish" => finish::main(rest),
-        Some((verb, rest)) if verb == "release" => release::verb(rest),
+        Some((verb, rest)) if verb == "release" => release::verb(rest, site),
         Some((verb, rest)) if verb == "files" => files::verb(rest),
         Some((verb, rest)) if verb == "findings" => findings::verb(rest),
         Some((verb, rest)) if verb == "keeps" => host::keeps_verb(rest),
@@ -626,7 +631,7 @@ pub(crate) mod testing {
     }
 
     impl Dir {
-        pub fn file(&self, name: &str, text: &str) -> PathBuf {
+        pub fn file(&self, name: impl AsRef<Path>, text: &str) -> PathBuf {
             let path: PathBuf = self.0.join(name);
             fs::create_dir_all(path.parent().unwrap_or(Path::new("/"))).unwrap();
             fs::write(&path, text).unwrap();
@@ -731,6 +736,7 @@ mod tests {
         Host {
             home: d.0.to_path_buf(),
             image: String::new(),
+            from: String::new(),
         }
     }
 
@@ -738,7 +744,7 @@ mod tests {
     fn a_hold_stops_a_plain_update_and_neither_to_nor_pending_nor_check() {
         use std::os::unix::fs::symlink;
         let d = dir("gate-hold");
-        d.file("state/update-hold", "");
+        d.file(Home::new(d.0.path()).state(State::UpdateHold), "");
         d.file("versions/v1.0.0/VERSION", "v1.0.0\n");
         symlink("versions/v1.0.0", d.0.join("current")).unwrap();
         let h = home(&d);
@@ -792,7 +798,10 @@ mod tests {
     #[test]
     fn the_record_is_read_into_what_is_owed_and_what_no_step_knows() {
         let d = dir("leftover-lines");
-        d.file("state/update-pending", "sandbox\nrenew-dashboard --now\n");
+        d.file(
+            Home::new(d.0.path()).state(State::UpdatePending),
+            "sandbox\nrenew-dashboard --now\n",
+        );
         let h = home(&d);
         let mut plan = Plan {
             mode: Mode::Pending,
@@ -806,7 +815,7 @@ mod tests {
     #[test]
     fn a_record_that_cannot_be_read_stops_the_run() {
         let d = dir("leftover-unreadable");
-        fs::create_dir_all(d.0.join("state/update-pending")).unwrap();
+        fs::create_dir_all(Home::new(d.0.path()).state(State::UpdatePending)).unwrap();
         let h = home(&d);
         assert_eq!(leftover(&h, &mut Plan::default()), 1);
     }

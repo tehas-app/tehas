@@ -5,6 +5,7 @@
 use regex::{Captures, Regex};
 use serde_json::Value;
 use std::sync::OnceLock;
+use tehas_ports::{BlueprintNo, Marker, ParkMarker, QuestionKind};
 
 /// The options a question lists and its record keeps.
 pub const MAX_OPTIONS: usize = 20;
@@ -23,9 +24,222 @@ pub const BOX_ALONE: &str = "Retry with the issue text only";
 pub const OLD_BOX_CLEAN: &str = "Retry from a clean start";
 pub const OLD_BOX_ALONE: &str = "Retry from the issue alone";
 
-/// What the retries are given, said under the boxes.
-pub const SAY_COMMENTS: &str = "Both retries start over in a new workspace. \"All its comments\" means what\nallowed accounts wrote on this issue and on its pull requests up to your\ntick. \"Issue text only\" means the title and body, nothing else.";
-pub const SAY_ALONE: &str = "The retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.";
+/// The last box of a park's question, and of a planning question. A program
+/// answers with them through `tehas answer` (#2782), so the poll finds the
+/// box an answer stands for by the same text the comment shows.
+pub const BOX_PARKED: &str = "Leave it parked";
+pub const BOX_END: &str = "End this planning session";
+
+/// A choice an answer of `tehas answer` gives (#2782). Its word is the one
+/// the command, the store's verb, its CHECK (a test of the store holds the two
+/// alike) and the dispatcher read; `option` carries the number of an option,
+/// `text` a reply in words, and `update` is the planner's option
+/// [`crate::plan::UPDATE`], kept by its number.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Choice {
+    Retry,
+    RetryText,
+    Park,
+    Option,
+    Update,
+    End,
+    Text,
+}
+
+/// Every choice, in the order a refusal lists their words.
+pub const CHOICES: [Choice; 7] = [
+    Choice::Retry,
+    Choice::RetryText,
+    Choice::Park,
+    Choice::Option,
+    Choice::Update,
+    Choice::End,
+    Choice::Text,
+];
+
+impl Choice {
+    pub fn word(self) -> &'static str {
+        match self {
+            Choice::Retry => "retry",
+            Choice::RetryText => "retry-text",
+            Choice::Park => "park",
+            Choice::Option => "option",
+            Choice::Update => "update",
+            Choice::End => "end",
+            Choice::Text => "text",
+        }
+    }
+
+    /// The kind of question it answers.
+    pub fn kind(self) -> Kind {
+        match self {
+            Choice::Retry | Choice::RetryText | Choice::Park => Kind::Park,
+            _ => Kind::Plan,
+        }
+    }
+
+    /// The choice of a word, or None for no word of one.
+    pub fn of(word: &str) -> Option<Choice> {
+        CHOICES.into_iter().find(|c| c.word() == word)
+    }
+}
+
+/// The choices a park's question offers, in the order it lists them: the
+/// comments retry when the image gives a cycle the comments and a retry is
+/// offered at all, the text-only retry when one is, and leaving it parked.
+/// A develop timeout that repeats on the same text offers no retry.
+pub fn park_offers(retry: bool, comments: bool) -> Vec<Choice> {
+    let mut offers = Vec::new();
+    if retry && comments {
+        offers.push(Choice::Retry);
+    }
+    if retry {
+        offers.push(Choice::RetryText);
+    }
+    offers.push(Choice::Park);
+    offers
+}
+
+/// The words a person sees for a choice of a park's question; empty for a
+/// choice of a planning question.
+pub fn park_label(c: Choice) -> &'static str {
+    match c {
+        Choice::Retry => BOX_COMMENTS,
+        Choice::RetryText => BOX_ALONE,
+        Choice::Park => BOX_PARKED,
+        _ => "",
+    }
+}
+
+/// One choice a waiting question offers: the words a person sees, the
+/// choice, and the number of a planning option.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Offered {
+    pub label: String,
+    pub choice: Choice,
+    pub option: Option<u64>,
+}
+
+/// The choices of a planning question whose turn offered `options`, in the
+/// order its comment lists them: each option up to [`MAX_OPTIONS`] (the
+/// planner's [`crate::plan::UPDATE`] as `update`), then the end of the session.
+pub fn plan_choices(options: &[String]) -> Vec<Offered> {
+    let mut out: Vec<Offered> = options
+        .iter()
+        .take(MAX_OPTIONS)
+        .enumerate()
+        .map(|(i, label)| Offered {
+            label: label.clone(),
+            choice: if label == crate::plan::UPDATE {
+                Choice::Update
+            } else {
+                Choice::Option
+            },
+            option: Some(i as u64 + 1),
+        })
+        .collect();
+    out.push(Offered {
+        label: BOX_END.to_string(),
+        choice: Choice::End,
+        option: None,
+    });
+    out
+}
+
+impl Offered {
+    /// The word `tehas answer` takes for it: `option:<k>` for an option.
+    pub fn answer_word(&self) -> String {
+        match (self.choice, self.option) {
+            (Choice::Option, Some(k)) => format!("option:{k}"),
+            (c, _) => c.word().to_string(),
+        }
+    }
+}
+
+/// The choices of a question as the store keeps it: a planning question's
+/// from its options, a park's from the words of the choices it was asked
+/// with, every park choice when those were not kept.
+pub fn stored_choices(kind: &str, offers: Option<&[String]>, options: &[String]) -> Vec<Offered> {
+    if kind == "plan" {
+        return plan_choices(options);
+    }
+    let offered: Vec<Choice> = match offers {
+        Some(words) => words.iter().filter_map(|w| Choice::of(w)).collect(),
+        None => CHOICES.to_vec(),
+    };
+    park_choices(&offered)
+}
+
+/// The choices of a park's question that offers `offers`, with their words.
+pub fn park_choices(offers: &[Choice]) -> Vec<Offered> {
+    offers
+        .iter()
+        .filter(|c| c.kind() == Kind::Park)
+        .map(|c| Offered {
+            label: park_label(*c).to_string(),
+            choice: *c,
+            option: None,
+        })
+        .collect()
+}
+
+/// The line that asks a planning question's choices, and a park's. The
+/// choices follow it, one to a line, and [`listed`] reads them back from
+/// after its last one: the host writes it after the agent's words.
+pub const ASK_PLAN: &str =
+    "Reply in a comment with the number of one of these, or answer in your own words:";
+pub const ASK_PARK: &str = "Reply in a comment with the word of one of these:";
+
+/// The line that ends the choices of every question.
+pub const ONLY_ALLOWED: &str = "Only an answer from an account that may authorise work counts.";
+
+/// What the end of a planning session leads to.
+pub const LEADS_END: &str = "the session ends, and nothing more is planned";
+
+/// What a park's choice leads to, said after its words.
+pub fn leads_to(c: Choice) -> &'static str {
+    match c {
+        Choice::Retry => "A new cycle starts over in a new workspace, given what allowed accounts wrote on this issue and on its pull requests",
+        Choice::RetryText => "A new cycle starts over in a new workspace, given the title and body and nothing else",
+        Choice::Park => "Nothing more happens until someone answers",
+        _ => "",
+    }
+}
+
+/// The labels of the choices a question's comment lists, in its order: the
+/// lines after the last of its asking lines, up to the line that ends them.
+/// A planning option's label is its line's words before the first ": ", the
+/// end of the session [`BOX_END`]; a park's choice is the label of its word.
+/// None for a comment that lists none, as a comment of before 2.0 does.
+pub fn listed(body: &str) -> Option<Vec<String>> {
+    let lines: Vec<&str> = body.lines().collect();
+    let at = lines
+        .iter()
+        .rposition(|l| *l == ASK_PLAN || *l == ASK_PARK)?;
+    let plan = lines[at] == ASK_PLAN;
+    let mut out = Vec::new();
+    for l in lines[at + 1..].iter().copied() {
+        if l == ONLY_ALLOWED {
+            return Some(out);
+        }
+        if l.is_empty() {
+            continue;
+        }
+        let label = if plan {
+            let rest = l.split_once(". ").map(|(_, r)| r)?;
+            if rest.starts_with(BOX_END) {
+                BOX_END.to_string()
+            } else {
+                rest.split_once(": ").map_or(rest, |(l, _)| l).to_string()
+            }
+        } else {
+            let word = l.strip_prefix("- ")?.split_once(':')?.0;
+            park_label(Choice::of(word)?).to_string()
+        };
+        out.push(label);
+    }
+    None
+}
 
 /// Which retry a ticked label asks for: Some(true) the comments retry, Some(false)
 /// the text-only one, None no retry. The labels of before #1492 count as theirs.
@@ -93,11 +307,21 @@ pub fn park_sig(step: &str, cap: &str, park_reason: &str, kind: &str, cause: &st
         .collect()
 }
 
-/// The line `q_render` prints for a box, and the line a fixture writes for a
-/// ticked one. Both polls take the text after the box as it stands, so the
+/// The line a comment of before 2.0 held for a box, ticked or not: what the
+/// readers of an old comment and their test fixtures write. Nothing the
+/// factory writes now holds one. Both polls take the text after the box as it stands, so the
 /// label of the answer parser and this line are the same text.
 pub fn box_line(label: &str, ticked: bool) -> String {
     format!("- [{}] {}", if ticked { "x" } else { " " }, label)
+}
+
+/// The most characters of a planning turn's text its comment shows.
+pub const TURN_TEXT_MAX: usize = 40_000;
+
+/// A planning turn's text as its comment shows it: the one rendering, so the
+/// plan a person ticks to file is the text the factory files.
+pub fn turn_text(text: &str) -> String {
+    q_clean(text, TURN_TEXT_MAX)
 }
 
 /// q_clean: an agent's words, safe to post on a public issue, cut at `max`
@@ -138,6 +362,16 @@ pub enum Kind {
     Park,
 }
 
+impl Kind {
+    /// The kind as the store and a question's marker name it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Kind::Plan => "plan",
+            Kind::Park => "park",
+        }
+    }
+}
+
 /// A text of the outcome, a string or nothing, as `.k // ""` reads it.
 fn s<'a>(v: &'a Value, path: &str) -> &'a str {
     v.pointer(path).and_then(Value::as_str).unwrap_or("")
@@ -163,6 +397,9 @@ pub fn is_handoff_marker(line: &str, issue: u64) -> bool {
 /// park marker (`park`); `line` is the host's own, put between the question
 /// and the boxes. A planning turn's text is left out: the caller says it in
 /// a comment before this one, so nothing of a long plan can move a box.
+///
+/// Our markers are written into the text here, until T4.7 moves the
+/// dispatcher onto [`q_parts`], whose markers travel beside the body.
 pub fn q_render(kind: Kind, issue: u64, turn: u64, out: &Value, line: &str) -> String {
     let mut b = String::new();
     if kind == Kind::Park {
@@ -198,58 +435,411 @@ pub fn q_render(kind: Kind, issue: u64, turn: u64, out: &Value, line: &str) -> S
             .replace_all(t, " ")
             .into_owned()
     };
-    for o in &options[..n] {
-        b += &format!("- [ ] {}\n", q_clean(&one_line(o.get("label")), 300));
-        let desc = q_clean(&one_line(o.get("description")), 600);
-        if !desc.is_empty() {
-            b += &format!("  {desc}\n");
-        }
-    }
     let name = match kind {
         Kind::Plan => {
-            b += "- [ ] End this planning session\n\n";
-            b += "Tick one box, or reply in a comment. Only an answer from an account that may authorise work counts.\n";
+            b += &format!("{ASK_PLAN}\n\n");
+            for (k, o) in options[..n].iter().enumerate() {
+                let mut label = q_clean(&one_line(o.get("label")), 300);
+                // An agent's option never reads as the end of the session.
+                if label.to_lowercase().starts_with(&BOX_END.to_lowercase()) {
+                    label = format!("Option {}, {label}", k + 1);
+                }
+                let desc = q_clean(&one_line(o.get("description")), 600);
+                b += &if desc.is_empty() {
+                    format!("{}. {label}\n", k + 1)
+                } else {
+                    format!("{}. {label}: {desc}\n", k + 1)
+                };
+            }
+            b += &format!("{}. {BOX_END}: {LEADS_END}.\n\n", n + 1);
+            b += &format!("{ONLY_ALLOWED}\n");
             "plan"
         }
         Kind::Park => {
             // A develop timeout that repeats on the same text offers no retry,
-            // and no box offers comments the image would not give the cycle.
+            // and no choice offers comments the image would not give the cycle.
             let retry = out.get("retry") != Some(&Value::Bool(false));
             let comments = out.get("comments") == Some(&Value::Bool(true));
-            if retry && comments {
-                b += &format!("{}\n", box_line(BOX_COMMENTS, false));
+            b += &format!("{ASK_PARK}\n\n");
+            for c in park_offers(retry, comments) {
+                b += &format!("- {}: {}. {}.\n", c.word(), park_label(c), leads_to(c));
             }
-            if retry {
-                b += &format!("{}\n", box_line(BOX_ALONE, false));
-            }
-            b += "- [ ] Leave it parked\n\n";
-            match (retry, comments) {
-                (true, true) => b += &format!("{SAY_COMMENTS}\n"),
-                (true, false) => b += &format!("{SAY_ALONE}\n"),
-                _ => {}
-            }
-            b += "Tick one box. Only a tick from an account that may authorise work counts.\n";
+            b += &format!("\n{ONLY_ALLOWED}\n");
             "park"
         }
     };
     b += "\n";
-    let park = Regex::new(&format!(
-        r"^<!-- tehas:park issue={issue} step=[a-z0-9-]{{0,40}} kind=[a-z0-9-]{{0,40}} provider=[01] sig=[0-9a-f]{{64}} -->$"
-    ))
-    .unwrap();
     let park_marker = s(out, "/park");
-    if park.is_match(park_marker) {
+    if is_park_marker(park_marker, issue) {
         b += &format!("{park_marker}\n");
     }
-    b += &format!("<!-- tehas:question kind={name} issue={issue} turn={turn} -->\n");
+    b += &format!("{}\n", question_marker(name, issue, turn));
     // As $(q_render) has it: without its last line ends.
     b.trim_end_matches('\n').to_string()
+}
+
+/// A question's body and our markers apart, as a write of the ports takes
+/// them. `rendered` is q_render's body of a question with no `park` in its
+/// `out`: its text, without our markers, and the park's marker, when there is
+/// one, then the question's. pi-rukas's handoff marker is not ours and stays
+/// in the text. None when `rendered` does not end with the question's marker
+/// of `kind`, `issue` and `turn`.
+pub fn q_parts(
+    rendered: &str,
+    kind: Kind,
+    issue: u64,
+    turn: u64,
+    park: Option<ParkMarker>,
+) -> Option<(String, Vec<Marker>)> {
+    let word = match kind {
+        Kind::Park => "park",
+        Kind::Plan => "plan",
+    };
+    let text = rendered
+        .strip_suffix(&question_marker(word, issue, turn))?
+        .trim_end_matches('\n')
+        .to_string();
+    let question = Marker::Question {
+        kind: match kind {
+            Kind::Park => QuestionKind::Park,
+            Kind::Plan => QuestionKind::Plan,
+        },
+        blueprint: BlueprintNo::new(issue)?,
+        turn: std::num::NonZeroU32::new(u32::try_from(turn).ok()?)?,
+    };
+    let markers = park
+        .map(Marker::Park)
+        .into_iter()
+        .chain([question])
+        .collect();
+    Some((text, markers))
+}
+
+/// A question's body as [`q_render`] made it, with our markers taken out of
+/// its text and typed beside it, for a poll that posts a body it did not
+/// render itself (a re-ask's, a planning turn's): the question's marker on
+/// its last line and, for a park, the park's on the line before. None when
+/// the last line is no question marker of `issue`, or when what is left
+/// still holds a marker of ours: such a body is not posted.
+pub fn q_typed(rendered: &str, issue: u64) -> Option<(String, Vec<Marker>)> {
+    let (head, last) = rendered.rsplit_once('\n').unwrap_or(("", rendered));
+    // The question's marker of either kind, its turn the digits it ends in.
+    let (word, kind, turn) = [("park", Kind::Park), ("plan", Kind::Plan)]
+        .into_iter()
+        .find_map(|(word, kind)| {
+            let at = question_marker(word, issue, 0);
+            let digits = last
+                .strip_prefix(at.strip_suffix("0 -->")?)?
+                .strip_suffix(" -->")?;
+            let turn = digits
+                .bytes()
+                .all(|b| b.is_ascii_digit())
+                .then(|| digits.parse().ok())??;
+            Some((word, kind, turn))
+        })?;
+    let (above, park_line) = head.rsplit_once('\n').unwrap_or(("", head));
+    let (text, park) = match park_read(park_line, issue) {
+        Some(p) => (above, Some(p)),
+        None => (head, None),
+    };
+    let rest = format!("{}\n{}", text, question_marker(word, issue, turn));
+    let (text, markers) = q_parts(&rest, kind, issue, turn, park)?;
+    (!crate::text::has_marker(&text)).then_some((text, markers))
+}
+
+/// The host's park marker of `issue` on `line`, typed.
+fn park_read(line: &str, issue: u64) -> Option<ParkMarker> {
+    use tehas_ports::{MarkerWord, Sha256};
+    if !is_park_marker(line, issue) {
+        return None;
+    }
+    let field = |k: &str| {
+        line.split(' ')
+            .find_map(|w| w.strip_prefix(k).and_then(|v| v.strip_prefix('=')))
+    };
+    let mut m = ParkMarker::new(BlueprintNo::new(issue)?, Sha256::new(field("sig")?).ok()?);
+    m.step = MarkerWord::new(field("step")?).ok()?;
+    m.kind = MarkerWord::new(field("kind")?).ok()?;
+    m.provider = field("provider")? == "1";
+    Some(m)
+}
+
+/// Whether `line` is the host's park marker of `issue`.
+pub fn is_park_marker(line: &str, issue: u64) -> bool {
+    Regex::new(&format!(
+        r"^<!-- tehas:park issue={issue} step=[a-z0-9-]{{0,40}} kind=[a-z0-9-]{{0,40}} provider=[01] sig=[0-9a-f]{{64}} -->$"
+    ))
+    .unwrap()
+    .is_match(line)
+}
+
+/// The marker that ends a question of `kind` ("park" or "plan").
+pub fn question_marker(kind: &str, issue: u64, turn: u64) -> String {
+    format!("<!-- tehas:question kind={kind} issue={issue} turn={turn} -->")
+}
+
+/// The text of a question of before 2.0 without our markers, as a write of
+/// the ports takes it: `old` without its last line, the question's marker of
+/// `issue`, nor the park's marker of `issue` on the line before it, and
+/// without the white space at its end. None when `old` does not end with a
+/// question's marker of `issue`: a text that may still hold one is never
+/// given to a write.
+pub fn q_text(old: &str, issue: u64) -> Option<String> {
+    let marker = |line: &str| {
+        ["park", "plan"].iter().any(|kind| {
+            let head = question_marker(kind, issue, 1);
+            let head = head.strip_suffix("1 -->").unwrap_or(&head);
+            line.strip_prefix(head)
+                .and_then(|rest| rest.strip_suffix(" -->"))
+                .is_some_and(|turn| {
+                    (1..=9).contains(&turn.len())
+                        && !turn.starts_with('0')
+                        && turn.bytes().all(|b| b.is_ascii_digit())
+                })
+        })
+    };
+    let lines: Vec<&str> = old.trim_end().lines().collect();
+    let (last, rest) = lines.split_last()?;
+    if !marker(last) {
+        return None;
+    }
+    let rest = match rest.split_last() {
+        Some((park, above)) if is_park_marker(park, issue) => above,
+        _ => rest,
+    };
+    Some(rest.join("\n").trim_end().to_string())
+}
+
+/// A question asked before 2.0, asked again in 2.0's words (#2782): what the
+/// poll posts in its place.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Reasked {
+    /// The new comment, or None when the old one offered nothing to decide
+    /// (a stop with no retry), which 2.0 does not ask.
+    pub body: Option<String>,
+    /// The words of a stop's choices, as `question-asked --offers` takes them.
+    pub offers: Vec<Choice>,
+}
+
+/// The question of before 2.0 in `old`, a comment of boxes, rendered as 2.0
+/// asks it: its words above the boxes, its markers, and its boxes as the
+/// choices they were. None when `old` holds no box, which no question of
+/// before 2.0 lacks.
+pub fn reasked(kind: Kind, issue: u64, turn: u64, old: &str) -> Option<Reasked> {
+    let lines: Vec<&str> = old.lines().collect();
+    let is_box =
+        |l: &str| l.starts_with("- [") && matches!(l.get(3..6), Some(" ] " | "x] " | "X] "));
+    let first = lines.iter().position(|l| is_box(l))?;
+    let boxes: Vec<(usize, &str)> = lines
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| is_box(l))
+        .map(|(i, l)| (i, &l[6..]))
+        .collect();
+    let mut above: Vec<&str> = lines[..first].to_vec();
+    let marker = match above.first() {
+        Some(l) if is_handoff_marker(l, issue) => {
+            let m = l.to_string();
+            above.remove(0);
+            m
+        }
+        _ => String::new(),
+    };
+    let words = above.join("\n").trim().to_string();
+    match kind {
+        Kind::Park => {
+            let labels: Vec<&str> = boxes.iter().map(|(_, l)| *l).collect();
+            let retry = labels.iter().any(|l| retry_of(l).is_some());
+            let comments = labels.iter().any(|l| retry_of(l) == Some(true));
+            if !retry {
+                return Some(Reasked {
+                    body: None,
+                    offers: Vec::new(),
+                });
+            }
+            // The words of before 2.0 that asked for a tick ask for a reply.
+            let word = if comments { "retry" } else { "retry-text" };
+            let words = words
+                .replace(
+                    "Tick a retry box on this comment",
+                    &format!("Reply `{word}` to this comment"),
+                )
+                .replace(
+                    "tick a retry box on this comment",
+                    &format!("reply `{word}` to this comment"),
+                )
+                .replace("then tick a box.", "then reply with one of the choices.");
+            let park = lines
+                .iter()
+                .find(|l| is_park_marker(l, issue))
+                .copied()
+                .unwrap_or("");
+            let out = serde_json::json!({"text": words, "question": null, "marker": marker,
+                "park": park, "retry": true, "comments": comments});
+            Some(Reasked {
+                body: Some(q_render(Kind::Park, issue, turn, &out, "")),
+                offers: park_offers(true, comments),
+            })
+        }
+        _ => {
+            // An option is its box and the indented lines under it; the last
+            // box, the end of the session, is the host's own.
+            let mut options = Vec::new();
+            for (k, (at, label)) in boxes.iter().enumerate() {
+                if k + 1 == boxes.len() && label.starts_with(BOX_END) {
+                    break;
+                }
+                let desc: Vec<&str> = lines[at + 1..]
+                    .iter()
+                    .take_while(|l| l.starts_with("  ") && !is_box(l))
+                    .map(|l| l.trim())
+                    .collect();
+                options.push(serde_json::json!({"label": label, "description": desc.join(" ")}));
+            }
+            let out = serde_json::json!({"question": {"question": words, "options": options}});
+            Some(Reasked {
+                body: Some(q_render(Kind::Plan, issue, turn, &out, "")),
+                offers: Vec::new(),
+            })
+        }
+    }
+}
+
+/// The line added once to a question of before 2.0 that was asked again as
+/// the comment `id` on the same issue, or closed when it offered nothing to
+/// decide (None).
+pub fn superseded(id: Option<u64>) -> String {
+    match id {
+        Some(id) => format!("This question is asked again in the words of tehas 2.0: answer [the new comment](#issuecomment-{id}). A box ticked here does nothing."),
+        None => format!(
+            "This question is closed: tehas 2.0 asks nothing of a stop that offers no retry: {}.",
+            crate::hold::HELD_PARKED_EDIT
+        ),
+    }
+}
+
+/// The sum the store keeps of a question (`question-asked --body-sha`): the
+/// sum of its visible text alone, the text a person reads, without our
+/// markers and without the white space at its end (T4.7, the lead's ruling).
+/// A question posted through the ports, whose markers the adapter writes
+/// beside its text, and one of before 2.0, read back through [`q_text`],
+/// sum alike.
+pub fn question_sum(text: &str) -> String {
+    crate::approval::body_sum(text.trim_end())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// A question's sum is its visible text's: the text a park posts through
+    /// the ports and the comment 1.x posted with its markers in it, read back
+    /// through q_text, sum alike; a tick changes it.
+    #[test]
+    fn a_questions_sum_is_its_visible_texts() {
+        let text = "Stopped.\n\n- [ ] Retry\n- [ ] Leave it parked";
+        let q = question_marker("park", 21, 1);
+        let park = park_marker_7().replace("issue=7", "issue=21");
+        let posted = format!("{text}\n\n{park}\n{q}\n");
+        assert_eq!(
+            question_sum(&q_text(&posted, 21).unwrap()),
+            question_sum(text)
+        );
+        assert_eq!(question_sum(&format!("{text}\n\n")), question_sum(text));
+        assert_ne!(question_sum(text), crate::approval::body_sum(&posted));
+        assert_ne!(
+            question_sum(&text.replace("- [ ] Retry", "- [x] Retry")),
+            question_sum(text)
+        );
+    }
+
+    #[test]
+    fn q_text_is_a_question_of_before_2_0_without_our_markers() {
+        let q = question_marker("park", 21, 1);
+        let park = park_marker_7().replace("issue=7", "issue=21");
+        assert_eq!(
+            q_text(&format!("Stopped.\n\n- [ ] Retry\n\n{q}\n"), 21).as_deref(),
+            Some("Stopped.\n\n- [ ] Retry")
+        );
+        assert_eq!(
+            q_text(&format!("Stopped.\r\n\r\n{park}\r\n{q}"), 21).as_deref(),
+            Some("Stopped.")
+        );
+        // Another issue's marker, a marker that is not last, and none.
+        assert_eq!(q_text(&format!("Stopped.\n\n{q}"), 22), None);
+        assert_eq!(q_text(&format!("{q}\n\nStopped."), 21), None);
+        assert_eq!(q_text("Stopped.", 21), None);
+        assert_eq!(q_text("", 21), None);
+    }
+
+    /// The park marker of #7 that the tests below render.
+    fn park_marker_7() -> String {
+        let sig = "a".repeat(64);
+        format!("<!-- tehas:park issue=7 step=review kind= provider=0 sig={sig} -->")
+    }
+
+    /// A question of before 2.0 is asked again in 2.0's words: a stop with
+    /// its markers, its words and the retries its boxes offered; a planning
+    /// question with its options and their descriptions; a stop that
+    /// offered no retry is not asked.
+    #[test]
+    fn a_question_of_boxes_is_asked_again_in_words() {
+        let park = park_marker_7();
+        let old = format!("<!-- pi-rukas:handoff issue=7 cap=x -->\nTehas cycle stopped.\n\n- [ ] {OLD_BOX_CLEAN}\n- [x] {BOX_PARKED}\n\nTick one box.\n\n{park}\n{}", question_marker("park", 7, 1));
+        let r = reasked(Kind::Park, 7, 1, &old).unwrap();
+        let body = r.body.unwrap();
+        assert!(body.starts_with("<!-- pi-rukas:handoff issue=7 cap=x -->\nTehas cycle stopped.\n\nReply in a comment"), "{body}");
+        assert!(body.contains("- retry: Retry with the issue and all its comments."));
+        assert!(body.contains(&park));
+        assert!(!body.contains("- ["), "{body}");
+        assert_eq!(
+            r.offers,
+            vec![Choice::Retry, Choice::RetryText, Choice::Park]
+        );
+        // The phrases of before 2.0 that asked for a tick ask for a reply of
+        // a choice the comment offers.
+        for (said, says, label) in [
+            ("To run it on classic instead, take the label off this issue, then tick a box.", "To run it on classic instead, take the label off this issue, then reply with one of the choices.", OLD_BOX_CLEAN),
+            ("Make the change yourself, then tick a retry box on this comment.", "Make the change yourself, then reply `retry` to this comment.", OLD_BOX_CLEAN),
+            ("Tick a retry box on this comment once it is right.", "Reply `retry-text` to this comment once it is right.", BOX_ALONE),
+        ] {
+            let was = old.replace("Tehas cycle stopped.", &format!("Tehas cycle stopped.\n\n{said}")).replace(OLD_BOX_CLEAN, label);
+            let body = reasked(Kind::Park, 7, 1, &was).unwrap().body.unwrap();
+            assert!(body.contains(says), "{body}");
+            assert!(!body.to_lowercase().contains("tick a"), "{body}");
+        }
+        let alone = old.replace(OLD_BOX_CLEAN, BOX_ALONE);
+        assert_eq!(
+            reasked(Kind::Park, 7, 1, &alone).unwrap().offers,
+            vec![Choice::RetryText, Choice::Park]
+        );
+        let none = old.replace(&format!("- [ ] {OLD_BOX_CLEAN}\n"), "");
+        assert_eq!(
+            reasked(Kind::Park, 7, 1, &none).unwrap(),
+            Reasked {
+                body: None,
+                offers: vec![]
+            }
+        );
+        let plan = format!("Adopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\nTick one box.\n\n{}", question_marker("plan", 7, 2));
+        let body = reasked(Kind::Plan, 7, 2, &plan).unwrap().body.unwrap();
+        assert_eq!(
+            listed(&body),
+            Some(vec![
+                "Adopt all".to_string(),
+                "Change some".to_string(),
+                BOX_END.to_string()
+            ])
+        );
+        assert!(
+            body.contains(
+                "1. Adopt all: Apply all five\n2. Change some\n3. End this planning session"
+            ),
+            "{body}"
+        );
+        assert_eq!(reasked(Kind::Plan, 7, 2, "no boxes"), None);
+    }
 
     #[test]
     fn no_shape_of_task_box_survives_q_clean() {
@@ -284,35 +874,28 @@ mod tests {
             "question": {"question": "Which?", "options": [{"label": "Update this issue"}]}});
         assert_eq!(
             q_render(Kind::Plan, 7, 2, &out, ""),
-            "Which?\n\n- [ ] Update this issue\n- [ ] End this planning session\n\nTick one box, or reply in a comment. Only an answer from an account that may authorise work counts.\n\n<!-- tehas:question kind=plan issue=7 turn=2 -->"
+            format!("Which?\n\n{ASK_PLAN}\n\n1. Update this issue\n2. End this planning session: the session ends, and nothing more is planned.\n\n{ONLY_ALLOWED}\n\n<!-- tehas:question kind=plan issue=7 turn=2 -->")
         );
-        // A turn with nothing but text: the boxes open the comment.
+        // A turn with nothing but text: the choices open the comment.
         let out = json!({"text": "Which branch?", "question": null});
-        assert!(q_render(Kind::Plan, 7, 1, &out, "").starts_with("- [ ] End this planning session"));
+        assert!(q_render(Kind::Plan, 7, 1, &out, "").starts_with(ASK_PLAN));
     }
-
     #[test]
-    fn a_park_question_has_the_retry_boxes_and_both_markers() {
-        let sig = "a".repeat(64);
-        let park = format!("<!-- tehas:park issue=7 step=review kind= provider=0 sig={sig} -->");
+    fn a_park_question_lists_its_choices_in_words_and_both_markers() {
+        let park = park_marker_7();
         let out = json!({"text": "Tehas cycle stopped.", "question": null,
             "marker": "<!-- pi-rukas:handoff issue=7 cap=x -->", "park": park, "comments": true});
         assert_eq!(
             q_render(Kind::Park, 7, 1, &out, ""),
             format!(
-                "<!-- pi-rukas:handoff issue=7 cap=x -->\nTehas cycle stopped.\n\n- [ ] Retry with the issue and all its comments\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nBoth retries start over in a new workspace. \"All its comments\" means what\nallowed accounts wrote on this issue and on its pull requests up to your\ntick. \"Issue text only\" means the title and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n{park}\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+                "<!-- pi-rukas:handoff issue=7 cap=x -->\nTehas cycle stopped.\n\n{ASK_PARK}\n\n- retry: Retry with the issue and all its comments. A new cycle starts over in a new workspace, given what allowed accounts wrote on this issue and on its pull requests.\n- retry-text: Retry with the issue text only. A new cycle starts over in a new workspace, given the title and body and nothing else.\n- park: Leave it parked. Nothing more happens until someone answers.\n\n{ONLY_ALLOWED}\n\n{park}\n<!-- tehas:question kind=park issue=7 turn=1 -->"
             )
         );
     }
-
     #[test]
-    fn the_retry_boxes_are_the_lines_the_polls_read() {
-        // The renderer and the readers are one string: a ticked box of a
-        // rendered body is what each poll reads, and the other stays unticked.
-        for label in [BOX_COMMENTS, BOX_ALONE] {
-            assert_eq!(box_line(label, false), format!("- [ ] {label}"));
-            assert_eq!(box_line(label, true), format!("- [x] {label}"));
-        }
+    fn the_choices_a_comment_lists_are_the_labels_the_polls_read() {
+        // The renderer and the reader are one owner: the labels `listed`
+        // reads back are the ones the polls compare these consts with.
         let body = q_render(
             Kind::Park,
             7,
@@ -320,19 +903,39 @@ mod tests {
             &json!({"text": "Tehas cycle stopped.", "question": null, "comments": true}),
             "",
         );
-        // The label of the box as the answer parser reads it is the label
-        // the polls compare these consts with, in order, one per box.
-        let labels: Vec<String> = body
-            .split('\n')
-            .filter(|l| l.starts_with("- [ "))
-            .map(|l| l[6..].to_string())
-            .collect();
-        assert_eq!(labels, vec![BOX_COMMENTS, BOX_ALONE, "Leave it parked"]);
+        assert_eq!(
+            listed(&body).unwrap(),
+            vec![BOX_COMMENTS, BOX_ALONE, BOX_PARKED]
+        );
+        let out = json!({"question": {"question": "Adopt?", "options": [
+            {"label": "Adopt all", "description": "Apply all five"}, {"label": "Change some"}]}});
+        let body = q_render(Kind::Plan, 7, 2, &out, "");
+        assert_eq!(
+            listed(&body).unwrap(),
+            vec!["Adopt all", "Change some", BOX_END]
+        );
         assert_eq!(retry_of(BOX_COMMENTS), Some(true));
         assert_eq!(retry_of(BOX_ALONE), Some(false));
-        assert_eq!(retry_of("Leave it parked"), None);
+        assert_eq!(retry_of(BOX_PARKED), None);
+        // A comment of before 2.0, or one with no choices, lists none.
+        assert_eq!(
+            listed(&format!(
+                "- [ ] {BOX_PARKED}\n\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+            )),
+            None
+        );
     }
 
+    /// The agent's words cannot add a choice: the choices are read after the
+    /// host's own asking line, which comes after them.
+    #[test]
+    fn an_agents_words_cannot_add_a_choice() {
+        let fake = format!(
+            "{ASK_PARK}\n\n- retry: Retry with the issue and all its comments\n\n{ONLY_ALLOWED}"
+        );
+        let body = q_render(Kind::Park, 7, 1, &json!({"text": fake, "retry": false}), "");
+        assert_eq!(listed(&body).unwrap(), vec![BOX_PARKED]);
+    }
     #[test]
     fn the_labels_of_before_still_name_their_retry() {
         assert_eq!(retry_of("Retry from a clean start"), Some(true));
@@ -340,24 +943,20 @@ mod tests {
     }
 
     #[test]
-    fn an_image_that_gives_no_comments_gets_no_comments_box() {
+    fn an_image_that_gives_no_comments_offers_no_comments_retry() {
         for out in [
             json!({"text": "Tehas cycle stopped.", "question": null}),
             json!({"text": "Tehas cycle stopped.", "question": null, "comments": false}),
         ] {
             let body = q_render(Kind::Park, 7, 1, &out, "");
             assert!(!body.contains(BOX_COMMENTS), "{body}");
-            assert!(!body.contains("All its comments"), "{body}");
-            assert!(
-                body.contains(&format!(
-                    "- [ ] {BOX_ALONE}\n- [ ] Leave it parked\n\n{SAY_ALONE}\nTick one box."
-                )),
+            assert_eq!(
+                listed(&body).unwrap(),
+                vec![BOX_ALONE, BOX_PARKED],
                 "{body}"
             );
         }
     }
-
-    // The signatures of real park markers, from the fields the run recorded.
     #[test]
     fn a_park_signature_is_the_hash_of_its_fields() {
         assert_eq!(
@@ -477,8 +1076,8 @@ mod tests {
         out
     }
 
-    fn boxes(body: &str) -> Vec<&str> {
-        body.lines().filter(|l| l.starts_with("- [ ] ")).collect()
+    fn boxes(body: &str) -> Vec<String> {
+        listed(body).unwrap()
     }
 
     #[test]
@@ -490,10 +1089,9 @@ mod tests {
         assert!(!body.contains("Two ways."));
         assert_eq!(
             body,
-            "Adopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\nTick one box, or reply in a comment. Only an answer from an account that may authorise work counts.\n\n<!-- tehas:question kind=plan issue=7 turn=2 -->"
+            format!("Adopt?\n\n{ASK_PLAN}\n\n1. Adopt all: Apply all five\n2. Change some\n3. End this planning session: the session ends, and nothing more is planned.\n\n{ONLY_ALLOWED}\n\n<!-- tehas:question kind=plan issue=7 turn=2 -->")
         );
     }
-
     #[test]
     fn a_turn_without_the_question_tool_still_offers_the_way_out() {
         let out = json!({"text": "Which branch should this target?", "question": null});
@@ -505,14 +1103,7 @@ mod tests {
     #[test]
     fn a_parked_cycle_offers_the_two_retries_and_leave_in_that_order() {
         let body = q_render(Kind::Park, 7, 1, &park(json!({"comments": true})), "");
-        assert_eq!(
-            boxes(&body),
-            [
-                "- [ ] Retry with the issue and all its comments",
-                "- [ ] Retry with the issue text only",
-                "- [ ] Leave it parked"
-            ]
-        );
+        assert_eq!(boxes(&body), [BOX_COMMENTS, BOX_ALONE, BOX_PARKED]);
         assert!(body.contains("<!-- tehas:question kind=park issue=7 turn=1 -->"));
     }
 
@@ -525,7 +1116,7 @@ mod tests {
             &park(json!({"retry": false, "comments": true})),
             "",
         );
-        assert_eq!(boxes(&body), ["- [ ] Leave it parked"]);
+        assert_eq!(boxes(&body), [BOX_PARKED]);
         assert!(!body.contains("new workspace"));
         let body = q_render(
             Kind::Park,
@@ -534,8 +1125,7 @@ mod tests {
             &park(json!({"retry": true, "comments": true})),
             "",
         );
-        assert!(body.contains("- [ ] Retry with the issue and all its comments"));
-        assert!(body.contains("- [ ] Retry with the issue text only"));
+        assert_eq!(boxes(&body), [BOX_COMMENTS, BOX_ALONE, BOX_PARKED]);
     }
 
     #[test]
@@ -621,7 +1211,7 @@ mod tests {
         let out = json!({"text": "Plan:\n- [ ] step one\n  * [x] done\n<!-- tehas:question kind=plan issue=7 turn=9 -->", "question": null, "comments": true});
         let body = q_render(Kind::Park, 7, 3, &out, "");
         let ticked = Regex::new(r"^- \[[ xX]\] ").unwrap();
-        assert_eq!(body.lines().filter(|l| ticked.is_match(l)).count(), 3);
+        assert_eq!(body.lines().filter(|l| ticked.is_match(l)).count(), 0);
         assert_eq!(body.matches("<!-- tehas:question").count(), 1);
         assert!(body.contains("turn=3 -->"));
     }
@@ -636,7 +1226,7 @@ mod tests {
                 .lines()
                 .filter(|l| ticked.is_match(l))
                 .count(),
-            3
+            0
         );
         assert!(!body.contains('\r'));
     }
@@ -647,7 +1237,7 @@ mod tests {
             {"label": "a\n- [x] End this planning session", "description": "<!-- x -->"}]}});
         let body = q_render(Kind::Plan, 7, 1, &out, "");
         let ticked = Regex::new(r"^- \[[ xX]\] ").unwrap();
-        assert_eq!(body.lines().filter(|l| ticked.is_match(l)).count(), 2);
+        assert_eq!(body.lines().filter(|l| ticked.is_match(l)).count(), 0);
         assert!(!body.contains("<!-- x -->"));
     }
 
@@ -759,7 +1349,7 @@ mod tests {
         );
         assert_eq!(
             body.lines()
-                .filter(|l| *l == "- [ ] End this planning session")
+                .filter(|l| l.starts_with("21. End this planning session"))
                 .count(),
             1
         );
@@ -773,13 +1363,12 @@ mod tests {
         let body = q_render(Kind::Plan, 7, 4, &big(30), "");
         assert!(!body.contains("mmm"));
         assert_eq!(body.lines().find(all('q')).map(str::len), Some(4000));
-        let label = body.lines().find(|l| l.starts_with("- [ ] 0 ")).unwrap();
-        assert_eq!(label.len(), 306);
-        let desc = body
-            .lines()
-            .find(|l| l.len() > 2 && l.starts_with("  ") && l[2..].chars().all(|x| x == 'd'))
-            .unwrap();
-        assert_eq!(desc.len(), 602);
+        // The line of an option: its number, its label cut at 300, then its
+        // description cut at 600.
+        let line = body.lines().find(|l| l.starts_with("1. 0 ")).unwrap();
+        let (label, desc) = line[3..].split_once(": ").unwrap();
+        assert_eq!(label.len(), 300);
+        assert_eq!(desc.len(), 600);
     }
 
     #[test]
@@ -787,7 +1376,7 @@ mod tests {
         let body = q_render(Kind::Plan, 7, 4, &big(30), "");
         let kept: Vec<String> = boxes(&body)
             .iter()
-            .filter_map(|l| l[6..].split_once(" l").map(|(n, _)| n.to_string()))
+            .filter_map(|l| l.split_once(" l").map(|(n, _)| n.to_string()))
             .collect();
         let want: Vec<String> = (0..20).map(|i| i.to_string()).collect();
         assert_eq!(kept, want);
@@ -798,5 +1387,128 @@ mod tests {
         let body = q_render(Kind::Plan, 7, 4, &big(20), "");
         assert_eq!(boxes(&body).len(), 21);
         assert!(!body.contains("left out"));
+    }
+
+    /// #2782: no comment the factory renders holds a task-list line, for
+    /// every kind of question and every set of choices it offers, whatever
+    /// the agent wrote into it. This is the check that fails if one comes
+    /// back.
+    #[test]
+    fn no_rendered_question_holds_a_task_list_line() {
+        let task =
+            Regex::new(r"(?m)^[[:space:]>]*(?:[-*+]|[0-9]+[.)])[[:space:]]+\[[ xX]\]").unwrap();
+        let sly = "Plan:\n- [ ] step\n* [x] done\n1. [ ] one\n> - [X] quoted";
+        let mut bodies = Vec::new();
+        for retry in [true, false] {
+            for comments in [true, false] {
+                let out = json!({"text": sly, "question": {"question": sly, "options": [{"label": sly, "description": sly}]},
+                    "retry": retry, "comments": comments});
+                bodies.push(q_render(Kind::Park, 7, 1, &out, "The host's line."));
+            }
+        }
+        for out in [
+            json!({"text": sly, "question": null}),
+            json!({"text": sly, "question": {"question": sly, "options": []}}),
+            json!({"text": sly, "question": {"question": sly, "options": (0..25).map(|i| json!({"label": format!("{i} {sly}"), "description": sly})).collect::<Vec<_>>()}}),
+        ] {
+            bodies.push(q_render(Kind::Plan, 7, 2, &out, "Filed in this turn: #9"));
+        }
+        for b in &bodies {
+            assert!(!task.is_match(b), "a task-list line in:\n{b}");
+            assert!(listed(b).is_some(), "no choices listed in:\n{b}");
+        }
+    }
+
+    /// q_parts gives q_render's body without our markers, and the markers
+    /// it would have written beside it, until T4.7 moves the dispatcher onto
+    /// it.
+    #[test]
+    fn q_parts_is_q_render_with_our_markers_beside_the_text() {
+        use tehas_ports::{MarkerWord, Sha256};
+        let handoff = "<!-- pi-rukas:handoff issue=7 cap=verify-failed:develop -->";
+        let park_out = json!({
+            "text": "It stopped.", "marker": handoff, "retry": true,
+            "question": {"question": "What now?"},
+        });
+        let plan_out = json!({"question": {"question": "Which way?", "options": [
+            {"label": "One", "description": "the first"}, {"label": "Two"}]}});
+        let mut park = ParkMarker::new(
+            BlueprintNo::new(7).unwrap(),
+            Sha256::new("a".repeat(64)).unwrap(),
+        );
+        park.step = MarkerWord::new("develop").unwrap();
+        park.kind = MarkerWord::new("tooling").unwrap();
+        park.provider = true;
+        for (kind, word, out, typed, line) in [
+            (
+                Kind::Park,
+                "park",
+                &park_out,
+                Some(park.clone()),
+                "The host's line.",
+            ),
+            (Kind::Plan, "plan", &plan_out, None, ""),
+        ] {
+            let rendered = q_render(kind, 7, 2, out, line);
+            let (text, markers) = q_parts(&rendered, kind, 7, 2, typed.clone()).unwrap();
+            let question = question_marker(word, 7, 2);
+            assert_eq!(rendered, format!("{text}\n\n{question}"), "{kind:?}");
+            assert!(!crate::text::has_marker(&text), "{kind:?}: {text}");
+            let q = Marker::Question {
+                kind: match kind {
+                    Kind::Park => QuestionKind::Park,
+                    Kind::Plan => QuestionKind::Plan,
+                },
+                blueprint: BlueprintNo::new(7).unwrap(),
+                turn: std::num::NonZeroU32::new(2).unwrap(),
+            };
+            let want: Vec<Marker> = typed.map(Marker::Park).into_iter().chain([q]).collect();
+            assert_eq!(markers, want, "{kind:?}");
+        }
+        // pi-rukas's handoff marker is not ours: it stays first in the text.
+        let rendered = q_render(Kind::Park, 7, 2, &park_out, "");
+        let (text, _) = q_parts(&rendered, Kind::Park, 7, 2, None).unwrap();
+        assert!(text.starts_with(&format!("{handoff}\n")), "{text}");
+        // A body that is not this question's says so.
+        assert_eq!(q_parts(&rendered, Kind::Park, 7, 3, None), None);
+        assert_eq!(q_parts(&rendered, Kind::Plan, 7, 2, None), None);
+    }
+
+    /// q_typed reads back what q_render wrote: the text q_parts gives, the
+    /// park's marker typed from its line, then the question's. A body of
+    /// another issue, or one that still holds a marker of ours, is none.
+    #[test]
+    fn q_typed_takes_our_markers_out_of_a_rendered_question() {
+        use tehas_ports::{MarkerWord, Sha256};
+        let park_out = json!({"text": "It stopped.", "retry": true,
+            "question": {"question": "What now?"}, "park": park_marker_7()});
+        let rendered = q_render(Kind::Park, 7, 1, &park_out, "");
+        let (text, markers) = q_typed(&rendered, 7).unwrap();
+        let mut bare = park_out.clone();
+        bare["park"] = json!("");
+        let mut park = ParkMarker::new(
+            BlueprintNo::new(7).unwrap(),
+            Sha256::new("a".repeat(64)).unwrap(),
+        );
+        park.step = MarkerWord::new("review").unwrap();
+        let want = q_parts(
+            &q_render(Kind::Park, 7, 1, &bare, ""),
+            Kind::Park,
+            7,
+            1,
+            Some(park),
+        );
+        assert_eq!(Some((text, markers)), want);
+        let plan_out =
+            json!({"question": {"question": "Which way?", "options": [{"label": "One"}]}});
+        let rendered = q_render(Kind::Plan, 7, 2, &plan_out, "The host's line.");
+        assert_eq!(
+            q_typed(&rendered, 7),
+            q_parts(&rendered, Kind::Plan, 7, 2, None)
+        );
+        assert_eq!(q_typed(&rendered, 8), None);
+        let inside = rendered.replace("Which way?", &question_marker("park", 7, 1));
+        assert_eq!(q_typed(&inside, 7), None);
+        assert_eq!(q_typed("no marker", 7), None);
     }
 }

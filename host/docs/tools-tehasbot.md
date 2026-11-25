@@ -21,13 +21,9 @@ tehasbot dispatch             # one poll; what tehas-dispatch.timer runs
 tehasbot cycle <issue>        # one cycle and its report; what tehas-cycle@<issue>.service runs
 tehasbot status               # write the queue snapshot
 tehasbot health               # write the health file
-tehasbot energy [--every]     # sample the model mesh; what tehas-energy.service runs
-tehasbot top [--every]        # publish the snapshot of tehas top; what tehas-top.service runs
-tehasbot protolab             # build the Protolab; what tehas-protolab.timer runs
 tehasbot preview              # keep the previews; what tehas-preview.timer runs
 tehasbot preview --sweep      # the second check; what tehas-preview-sweep.timer runs
 tehasbot refresh --pr N       # tehas refresh --pr N, by its old name
-tehasbot review               # one review of the branch; what tehas-review.timer runs
 tehasbot clean                # remove what the host can make again; what tehas-clean.timer runs
 tehasbot github-token         # the GitHub App's token; what the gh shim runs
 tehasbot github-token --cycle [--check]  # the cycle's token: the product repository only
@@ -35,23 +31,18 @@ tehasbot github-token --session [--check]  # the same body, for a planning turn 
 tehasbot github-writes        # tehas github writes, by its old name
 tehasbot mcp serve            # the read-only MCP server; what tehas-mcp.service runs
 tehasbot mcp fetch            # fetch its shared checkout; what tehas-mcp-fetch@.service runs
-tehasbot outsource-proxy      # the model proxy of outsource; what tehas-outsource-proxy.service runs
 tehasbot plugin tick          # a refresh of each plugin whose default branch moved; what tehas-plugin.timer runs
 tehasbot plugin run <name> --kind refresh|hook  # one run of a plugin; what its units run
 tehasbot plugin-gate          # the gate of the plugins' views; what tehas-plugin-gate.service runs
 ```
 
 The units are `tehas-dispatch.timer`, `tehas-dispatch.path` (a poll as soon
-as a cycle ends), `tehas-energy.service`, `tehas-top.service`,
-`tehas-protolab.timer`, the previews' `tehas-preview.timer` and
-`tehas-preview-sweep.timer`, the review loop's `tehas-review.timer` (weekly; installed only while
-review is on, which no release allows yet: [the review loop](/operating#the-review-loop)), the cleaner's `tehas-clean.timer` (installed, and enabled
+as a cycle ends), the previews' `tehas-preview.timer` and
+`tehas-preview-sweep.timer`, the cleaner's `tehas-clean.timer` (installed, and enabled
 by a person), `tehas-mcp.service` (installed, and enabled by a person; it runs
 `tehasbot mcp serve` only while `TEHAS_MCP=1`, and
 [The MCP server](/mcp-server) is how it is switched on),
-`tehas-outsource-proxy.service` (installed only while `TEHAS_OUTSOURCE` is on;
-it runs `tehasbot outsource-proxy`, the model proxy of
-[outsource](/outsource)), the plugins' `tehas-plugin.timer` with
+the plugins' `tehas-plugin.timer` with
 `tehas-plugin@<name>.service` for a refresh and
 `tehas-plugin-hook@<name>-<pr>.service` for a hook, and the gate of their
 views, `tehas-plugin-gate.service`, which runs `tehasbot plugin-gate`
@@ -138,7 +129,9 @@ is what [the poll's finish step](/operating#finishing-a-stopped-cycle) checks
 before it calls this.
 
 It refuses with one line on standard error and exit 1, and changes nothing,
-when: `TEHAS_ALLOWED_LABELERS` names no account, the workspace or the branch
+when: `TEHAS_ALLOWED_LABELERS` names no account, `state/account-ids` records
+no id for the bot's account or cannot be read (then it cannot tell the
+factory's own pull requests), the workspace or the branch
 is missing or is no git repository, the
 working tree holds work that was never committed (nobody has checked it), the
 branch holds no commit over `origin/<branch>`, `origin/<branch>` is not a branch
@@ -151,8 +144,10 @@ the bot or an account of `TEHAS_ALLOWED_LABELERS` opened. One from a fork, or
 from any other account, does not stop it. The open pull requests are read in
 pages of 100 to the last page; a list it cannot read whole, or of more than ten
 pages, refuses the run. A push the remote refuses is not
-tried again. When the push went through and the draft then could not be
-opened, or gh said no URL for it, `finish/issue-<issue>` stays on the remote
+tried again. When the push went through and the answer to opening the draft
+was lost, the open pull requests of `finish/issue-<issue>` are read once: the
+factory's own one there is the run's draft. When the draft could not be opened,
+or may have been and is not found, `finish/issue-<issue>` stays on the remote
 and the refusal says so: open its pull request by hand, or delete the branch
 before asking again, since a branch of that name refuses the next run. A refusal
 names the rule and, where the command said something, its first line. On a
@@ -165,16 +160,16 @@ the step it stopped in, cap, branch, token usage), finds the pull request the
 bot opened, and relabels and
 comments: merged, `tehas:awaiting-merge`, or `needs-human-attention`. A cycle
 that stopped is parked on the state store first (`store park`: why it parked,
-its step and its pull request), then gets its comment with three boxes and the
+its step and its pull request), then gets its comment with its choices as plain lines and the
 label `tehas:question`. The comment's id goes on the store as the park's
 question, with the sha256 of the body posted, which is what lets the
-dispatcher take a tick there. A park the store does not take asks no
+dispatcher take an answer to it. A park the store does not take asks no
 question: the comment is the plain one that says to apply `tehas:ready`, with
-no boxes and no `tehas:question`, and the log says `WARN: could not record the
+no choices and no `tehas:question`, and the log says `WARN: could not record the
 park of #N (...), so it asks no question`. A question the store does not take
-is posted all the same, and the log says its boxes will not work. A question
+is posted all the same, and the log says a reply to it will not count. A question
 whose label cannot be added is taken off the record again, and the issue is
-told the boxes cannot be used. It
+told a reply to it does nothing. It
 then removes the workspace of a cycle that merged or left a pull request, and
 keeps the workspace of one that stopped. The images `tehas work` fetched for
 the cycle are removed in every case. A runner that started no cycle (exit 4) is
@@ -221,7 +216,7 @@ poll that started the unit takes such a cycle as one that came up: the issue
 keeps `tehas:running`, and the next poll clears it in silence.
 
 **The start on record.** The record holds the attempt, when it started, the
-approval it used and who gave it, how (`label`, `retry-tick`, `millwright`,
+approval it used and who gave it, how (`approved`, `reply`, `answer`, `millwright`,
 `refresh`, `outage-retry`, `host`, or `hand`), whether it is the one retry after an
 outage, and the pi-rukas commit of the sandbox image. Docker is asked for that
 commit before the record starts, and a daemon that has not answered in 30
@@ -293,7 +288,7 @@ is parked, and the tail of every poll,
 [tehasbot status](/tools-health#tehasbot-status-and-the-console)
 label the closed issue `tehas:shipped`. One that a person closed without
 merging gets `needs-human-attention` and a plain comment that says so, without
-the retry boxes: to try again, apply `tehas:ready`.
+the retry choices: to try again, apply `tehas:ready`.
 
 What the result says is checked against GitHub. A pull request counts as the
 cycle's only when the bot opened it on the branch the result names and it

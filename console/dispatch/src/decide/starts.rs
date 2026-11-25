@@ -3,24 +3,16 @@
 //! is asked twice and no reason is written apart from its rule.
 
 use super::{blockers, has, newest_marker, Poll, BLOCKED};
+use crate::snapshot::OrderState;
 use crate::starts::{code_of, of_issue};
-use serde_json::Value;
 use tehas_core::starts::{code, Edge, Reason, Record};
 
 impl Poll<'_> {
     /// The ranked issues, then the rest of rule 7's order, each once.
     fn start_issues(&self) -> Vec<u64> {
         let mut out: Vec<u64> = Vec::new();
-        if self.s.order.get("state").and_then(Value::as_str) == Some("ok") {
-            out.extend(
-                self.s
-                    .order
-                    .get("issues")
-                    .and_then(Value::as_array)
-                    .into_iter()
-                    .flatten()
-                    .filter_map(Value::as_u64),
-            );
+        if self.s.order.state == OrderState::Ok {
+            out.extend(self.s.order.issues.iter().copied());
         }
         for n in &self.cand_order {
             if !out.contains(n) {
@@ -39,9 +31,9 @@ impl Poll<'_> {
         own.or_else(|| {
             self.d.actions[action..]
                 .iter()
-                .filter(|a| a.get("issue").and_then(Value::as_u64) == Some(n))
-                .filter_map(|a| a.get("log").and_then(Value::as_str))
-                .find_map(|l| of_issue(l, n).map(str::to_string))
+                .filter_map(|a| a.issue_log())
+                .filter(|(i, _)| *i == n)
+                .find_map(|(_, l)| of_issue(l, n).map(str::to_string))
         })
     }
 
@@ -95,11 +87,7 @@ impl Poll<'_> {
     fn edges(&self, issues: &[u64]) -> Vec<Edge> {
         let mut out = Vec::new();
         for &n in issues {
-            let open = self
-                .work(n)
-                .pointer("/issue_dependencies_summary/blocked_by")
-                .and_then(Value::as_u64)
-                .unwrap_or(0);
+            let open = self.work(n).map_or(0, |w| w.blocked_by);
             if open > 0 {
                 out.push(Edge::Link { issue: n, open });
             }
@@ -109,28 +97,17 @@ impl Poll<'_> {
             let Some(issue) = self.s.issues.get(&n) else {
                 continue;
             };
-            let Some(nodes) = issue
-                .comments
-                .as_ref()
-                .and_then(|c| c.pointer("/data/repository/issue/comments/nodes"))
-                .and_then(Value::as_array)
-            else {
+            let Some(nodes) = issue.comments.as_ref().and_then(|c| c.listed()) else {
                 continue;
             };
             let Some(x) = newest_marker(nodes, self.c) else {
                 continue;
             };
-            let login = |k: &str| {
-                x.pointer(&format!("/{k}/login"))
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_string()
-            };
-            let by = login("author");
-            if !x.get("lastEditedAt").unwrap_or(&Value::Null).is_null() && login("editor") != by {
+            let by = x.author.login.clone();
+            if x.edited && x.editor_login() != by {
                 continue;
             }
-            let body = x.get("body").and_then(Value::as_str).unwrap_or("");
+            let body = x.body_text().unwrap_or("");
             for on in blockers(body).unwrap_or_default() {
                 let closed = matches!(
                     issue.blockers.get(&on).map(String::as_str),
@@ -150,12 +127,6 @@ impl Poll<'_> {
 
     /// What holds a blocker the poll did not decide on, from the lists it read.
     fn hold_of(&self, n: u64) -> Reason {
-        let numbered = |v: Option<&Value>| {
-            v.and_then(Value::as_array).is_some_and(|l| {
-                l.iter()
-                    .any(|i| i.get("number").and_then(Value::as_u64) == Some(n))
-            })
-        };
         let awaiting = self
             .s
             .awaiting
@@ -164,7 +135,14 @@ impl Poll<'_> {
             .is_some_and(|l| l.iter().any(|i| i.number == Some(n)));
         if self.running(n) {
             Reason::new(code::RUNNING, "its cycle is running")
-        } else if numbered(self.s.asking.as_ref()) {
+        } else if self
+            .s
+            .asking
+            .iter()
+            .flatten()
+            .flatten()
+            .any(|i| i.number == Some(n))
+        {
             Reason::new(
                 code::QUESTION,
                 "it carries tehas:question: it waits for an answer",

@@ -5,15 +5,17 @@
 mod common;
 
 use common::*;
+use tehas_core::home::Live;
 
-/// The answers of gh for these cases: the search and the shipped work from
+/// The answers of gh for these cases: the search and the closed tickets from
 /// the fixtures, nothing else open, the epics read empty.
 const GH: &str = r####"case "$*" in
   "issue list"*--search*) cat "$T/issues.json" ;;
   "issue list"*) echo "[]" ;;
   "issue view"*) echo "" ;;
-  "issue edit"*) ;;
+  "api -X POST repos/"*"/labels "*) ;;
   "api repos/"*) echo "[]" ;;
+  "api graphql"*"filterBy: {states: [CLOSED], since: "*) cat "$T/shipped.json" ;;
   "api graphql"*subIssues*) echo "{\"data\":{\"repository\":{\"issues\":{\"nodes\":[]}}}}" ;;
   "api graphql"*) cat "$T/shipped.json" ;;
 esac"####;
@@ -81,10 +83,7 @@ impl Ev {
 
     /// An issue a merged pull request closed `ago` seconds ago.
     fn merged(&self, n: u64, ago: i64) -> String {
-        let at = self.ago(ago);
-        format!(
-            r#"{{"number":{n},"title":"t","url":"u","updatedAt":"{at}","closedAt":"{at}","labels":{{"nodes":[{{"name":"tehas:shipped"}}]}},"timelineItems":{{"nodes":[{{"closer":{{"merged":true}}}}]}}}}"#
-        )
+        closed(n, &self.ago(ago), r#"{"merged":true}"#, "tehas:shipped")
     }
 
     /// The calls that record events: every run also asks for the report, the
@@ -167,10 +166,11 @@ fn an_unchanged_snapshot_records_nothing() {
 fn a_merge_is_recorded_at_the_time_the_issue_was_closed_the_first_time_it_is_completed() {
     let e = Ev::new("merge");
     e.w.status();
-    e.w.shipped(&[e.merged(20, 3600)]);
+    // Closed after the run before, within the hour each read goes back.
+    e.w.shipped(&[e.merged(20, 600)]);
     e.again();
-    assert_eq!(e.events(), format!("event 20 merged --at {}", e.at(3600)));
-    e.w.shipped(&[e.merged(21, 60), e.merged(20, 3600)]);
+    assert_eq!(e.events(), format!("event 20 merged --at {}", e.at(600)));
+    e.w.shipped(&[e.merged(21, 60), e.merged(20, 600)]);
     e.again();
     assert_eq!(e.events(), format!("event 21 merged --at {}", e.at(60)));
 }
@@ -277,7 +277,7 @@ fn a_snapshot_before_more_than_an_hour_old_counts_as_none() {
 #[test]
 fn a_snapshot_before_that_is_not_one_counts_as_none() {
     let e = Ev::new("not-one");
-    e.w.home_file("live/status.json", "not json\n");
+    e.w.home_file(e.w.at().live(Live::Status), "not json\n");
     e.issues(&[e.issue(3, "tehas:awaiting-merge")]);
     let r = e.w.status();
     assert_eq!(r.rc, 0, "{}", r.out);

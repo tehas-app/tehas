@@ -4,32 +4,23 @@
 
 use super::clean::iso;
 use super::{
-    base_approver, base_stands, fixer_base, has, or_unknown, standing_actor, Choice, End, Poll,
-    Room, Start, Step, CLASSIC, LEAN,
+    has, or_unknown, standing_actor, Action, Choice, End, LabelChange, Poll, RefreshOf, RetryTick,
+    Room, Spend, Start, StartExtra, Step, CLASSIC, LEAN,
 };
-use crate::questions;
+use crate::answer::{self, Overlay};
+use crate::questions::{self, Answer, Asked};
+#[cfg(test)]
+use crate::snapshot::refresh_count;
+use crate::snapshot::{CycleRow, Given, PullNode, PullRead, View};
 use crate::text;
-use serde_json::{json, Map, Value};
+#[cfg(test)]
+use serde_json::json;
+#[cfg(test)]
+use serde_json::Value;
 use tehas_core::driver::Driver;
 
 const ISSUE_MAX: u64 = 9_999_999_999;
 const TIME_MAX: u64 = 99_999_999_999;
-
-fn labels(v: &Value) -> Vec<String> {
-    v.get("labels")
-        .and_then(Value::as_array)
-        .map(|a| {
-            a.iter()
-                .filter_map(|l| l.get("name").and_then(Value::as_str).map(str::to_string))
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-pub(crate) fn hex40(v: Option<&Value>) -> bool {
-    v.and_then(Value::as_str)
-        .is_some_and(tehas_core::grammar::commit_id)
-}
 
 /// Why the labels `have` of an issue keep its refresh from starting, None
 /// when they do not.
@@ -53,70 +44,33 @@ fn refresh_labels_why(have: &[String]) -> Option<String> {
 
 /// tehas_refresh_rule's refresh_why: what keeps a pull request from being
 /// refreshed, empty when nothing does. The bot's are those of `bot`.
-pub(crate) fn refresh_why(pr: &Value, bot: &str, repo: &str, control: u64) -> String {
-    let names = |v: &Value| -> Vec<String> {
-        v.pointer("/labels/nodes")
-            .and_then(Value::as_array)
-            .map(|a| {
-                a.iter()
-                    .filter_map(|l| l.get("name").and_then(Value::as_str).map(str::to_string))
-                    .collect()
-            })
-            .unwrap_or_default()
-    };
-    let s = |v: &Value, p: &str| {
-        v.pointer(p)
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string()
-    };
-    let Some(num) = pr.get("number").and_then(Value::as_u64) else {
+pub(crate) fn refresh_why(pr: &PullRead, bot: &str, repo: &str, control: u64) -> String {
+    let Some(num) = pr.number else {
         return "it cannot be read".into();
     };
-    let closing = pr
-        .pointer("/closingIssuesReferences/nodes")
-        .and_then(Value::as_array);
-    if !tehas_core::accounts::factorys(&s(pr, "/author/login"), bot) {
+    if !tehas_core::accounts::factorys(&pr.author, bot) {
         "it is not the bot's".into()
-    } else if pr.get("isCrossRepository") != Some(&json!(false))
-        || !s(pr, "/headRepository/nameWithOwner").eq_ignore_ascii_case(repo)
-    {
+    } else if pr.cross_repository != Some(false) || !pr.head_repository.eq_ignore_ascii_case(repo) {
         format!("its branch is not in {repo}")
-    } else if !matches!(pr.get("isDraft"), Some(&json!(true)) | Some(&json!(false))) {
+    } else if pr.draft.is_none() {
         "its draft state cannot be read".into()
-    } else if pr
-        .pointer("/closingIssuesReferences/totalCount")
-        .and_then(Value::as_f64)
-        .unwrap_or(0.0)
-        != 1.0
-        || closing.map_or(0, Vec::len) != 1
-    {
+    } else if pr.closing_count != 1.0 || pr.closing.len() != 1 {
         "it does not close exactly one issue".into()
     } else {
-        let i = &closing.unwrap()[0];
-        let Some(n) = i.get("number").and_then(Value::as_u64) else {
+        let i = &pr.closing[0];
+        let Some(n) = i.number else {
             return "the issue it closes cannot be read".into();
         };
-        let l = names(i);
-        let open: Vec<Option<u64>> = i
-            .pointer("/closedByPullRequestsReferences/nodes")
-            .and_then(Value::as_array)
-            .map(|a| {
-                a.iter()
-                    .filter(|p| p.get("state").and_then(Value::as_str) == Some("OPEN"))
-                    .map(|p| p.get("number").and_then(Value::as_u64))
-                    .collect()
-            })
-            .unwrap_or_default();
+        let l = &i.labels;
         if n == control {
             "it closes the control issue".into()
-        } else if i.get("state").and_then(Value::as_str) != Some("OPEN") {
+        } else if i.state != "OPEN" {
             format!("#{n} is not open")
-        } else if !has(&l, "tehas:awaiting-merge") && !has(&l, "needs-human-attention") {
+        } else if !has(l, "tehas:awaiting-merge") && !has(l, "needs-human-attention") {
             format!("#{n} carries neither tehas:awaiting-merge nor needs-human-attention")
-        } else if has(&l, "tehas:running") {
+        } else if has(l, "tehas:running") {
             format!("#{n} carries tehas:running")
-        } else if open != [Some(num)] {
+        } else if i.open_prs != [Some(num)] {
             format!("it is not the one open pull request that closes #{n}")
         } else {
             String::new()
@@ -146,7 +100,7 @@ fn is_instant(s: &str) -> bool {
 /// the poll say so instead of reading as a park it dated. A `parked` that is
 /// not JSON true is no park; the store answers that column as a bool or NULL,
 /// and the importer takes only a boolean for it.
-fn parked(history: &[Value], at: &str) -> (bool, bool) {
+fn parked_rows(history: &[CycleRow], at: &str) -> (bool, bool) {
     // No instant on the record is no date to measure a park from; the rule of
     // the approval itself has already said what to do with such a record.
     if at.is_empty() {
@@ -161,24 +115,15 @@ fn parked(history: &[Value], at: &str) -> (bool, bool) {
     let mut held = false;
     let mut unread = false;
     for h in history {
-        if h.get("how").and_then(Value::as_str) != Some("refresh")
-            || h.get("parked") != Some(&json!(true))
-        {
+        if !h.refresh || !h.parked {
             continue;
         }
-        match h.get("started") {
-            Some(v) => match v.as_u64().filter(|s| *s <= MAX_START) {
-                // A park from the approval's second on holds the refresh.
-                Some(started) => held |= iso(started).as_str() >= at,
-                // A start that is not a count of seconds this rule can date,
-                // or one past the last date it can write: held as the row with
-                // no start is, and named as one the store did not give.
-                None => {
-                    held = true;
-                    unread = true;
-                }
-            },
-            // No key at all: no start on record.
+        match h.started.filter(|s| *s <= MAX_START) {
+            // A park from the approval's second on holds the refresh.
+            Some(started) => held |= iso(started).as_str() >= at,
+            // No start on record, one that is not a count of seconds this rule
+            // can date, or one past the last date it can write: held, and
+            // named as one the store did not give.
             None => {
                 held = true;
                 unread = true;
@@ -188,28 +133,18 @@ fn parked(history: &[Value], at: &str) -> (bool, bool) {
     (held, unread)
 }
 
-/// The refreshes a record counts on that approval.
-fn refresh_count(record: &Value, base: &Value) -> Option<u64> {
-    let same = |r: &Value| {
-        ["at", "by"]
-            .iter()
-            .all(|k| r.get(*k).unwrap_or(&Value::Null) == base.get(*k).unwrap_or(&Value::Null))
-    };
-    if record.get("how").and_then(Value::as_str) == Some("refresh") {
-        // jq's (.rests_on | {at, by}) fails on anything but an object or null.
-        let rests = record.get("rests_on").unwrap_or(&Value::Null);
-        if !rests.is_object() && !rests.is_null() {
-            return None;
-        }
-        if !same(rests) {
-            return Some(0);
-        }
-        let n = record.get("refreshes")?.as_f64()?;
-        return (n >= 1.0 && n.fract() == 0.0 && n < 1_000_000.0).then_some(n as u64);
+/// [`parked_rows`] of cycle_history rows as the store gives them.
+#[cfg(test)]
+fn parked(history: &[Value], at: &str) -> (bool, bool) {
+    let s = crate::snapshot::Snapshot::parse(&json!({"issues": {"1": {"history": history}}}));
+    match &s.issues[&1].history {
+        Some(Ok(rows)) => parked_rows(rows, at),
+        _ => unreachable!("an array of rows is a history"),
     }
-    Some(0)
 }
 
+/// The label of an issue that waits on its question.
+pub(crate) const ASKS: [&str; 1] = ["tehas:question"];
 impl Poll<'_> {
     /// control_ask: the control issue is never worked on; said once a poll.
     pub(super) fn control_ask(&mut self, n: u64, what: &str) -> bool {
@@ -225,23 +160,126 @@ impl Poll<'_> {
         true
     }
 
-    pub(super) fn untick(&mut self, n: u64, ans: &Value, note: Option<&str>) {
-        let mut a = json!({
-            "untick": n, "comment": ans["comment"],
-            "body": questions::untick(ans["body"].as_str().unwrap_or("")),
-            "fail": format!("WARN: could not untick the question on #{n}"),
-        });
-        if let Some(note) = note {
-            a["say"] = json!(note);
+    /// A choice the poll does not act on: an answer of `tehas answer` is
+    /// taken away with the note, and a reply's choice is answered by the
+    /// note, which the next poll sees after it and reads the reply no more.
+    pub(super) fn decline(&mut self, n: u64, ans: &Asked, note: Option<&str>) {
+        self.decline_failing(n, ans, note, None);
+    }
+
+    /// A decline whose failure to take an answer away logs `fail`, or the
+    /// default line when None.
+    fn decline_failing(&mut self, n: u64, ans: &Asked, note: Option<&str>, fail: Option<String>) {
+        if ans.tick.answered {
+            let question = match &ans.comment {
+                Some(Given::Number(c)) => c.as_u64().unwrap_or(0),
+                _ => 0,
+            };
+            self.drop_answer_failing(n, question, note, fail);
+            return;
         }
-        self.act(a);
+        if let (Some(note), false) = (note, self.dry) {
+            let question = tehas_ports::CommentId::new(Given::said(ans.comment.as_ref()));
+            self.act(Action::Say {
+                issue: n,
+                say: note.to_string(),
+                markers: vec![tehas_ports::Marker::Declined { question }],
+            });
+        }
+    }
+
+    /// The question `id` on record of `n`, its sum of before T4.7 (the
+    /// comment as posted, its markers in), takes 2.0's form (the lead's
+    /// ruling). The store compares the sum of the comment as `ans` reads it
+    /// now with the sum on record: the same, the comment is unchanged since
+    /// it was posted and its sum becomes its visible text's; another, or no
+    /// visible text, and it keeps no sum. A question with no sum is nothing
+    /// to compare, never a reason to ask again.
+    fn adopt(&mut self, n: u64, id: &str, ans: &Asked) {
+        use tehas_core::question::{q_text, question_sum};
+        if self.dry {
+            self.log(format!(
+                "would adopt the sum of #{n}'s question as its visible text's"
+            ));
+            return;
+        }
+        self.act(Action::Adopt {
+            issue: n,
+            id: id.to_string(),
+            posted: tehas_core::approval::body_sum(&ans.body),
+            sum: q_text(&ans.body, n).map(|t| question_sum(&t)),
+        });
+    }
+
+    /// The question of before 2.0 in `ans` asked again in 2.0's words.
+    fn reask(&mut self, n: u64, ans: &Asked) {
+        use tehas_core::question::{reasked, Kind};
+        let kind = if ans.kind == "park" {
+            Kind::Park
+        } else {
+            Kind::Plan
+        };
+        let turn = ans.turn.parse().unwrap_or(1);
+        let Some(r) = reasked(kind, n, turn, &ans.body) else {
+            self.log(format!(
+                "skip #{n}: its question of before 2.0 holds no choice to ask again"
+            ));
+            return;
+        };
+        if self.dry {
+            self.log(format!(
+                "would ask #{n}'s question again in the words of 2.0"
+            ));
+            return;
+        }
+        let offers: Vec<&str> = r.offers.iter().map(|c| c.word()).collect();
+        // A stop closed with nothing to ask waits on no question any more.
+        let unlabel = r.body.is_none().then(|| ASKS[0].to_string());
+        self.act(Action::Reask {
+            unlabel,
+            issue: n,
+            kind: ans.kind.clone(),
+            old: Given::said(ans.comment.as_ref()),
+            old_body: ans.body.clone(),
+            since: ans.revision.clone(),
+            body: r.body,
+            offers: offers.join(","),
+        });
+    }
+
+    /// The answer `tehas answer` gave to question `question` taken away, as a
+    /// box is unticked, with its note. A dry run takes nothing away.
+    pub(super) fn drop_answer(&mut self, n: u64, question: u64, note: Option<&str>) {
+        self.drop_answer_failing(n, question, note, None);
+    }
+
+    /// A drop of an answer whose failure logs `fail`, or the default line
+    /// when None.
+    fn drop_answer_failing(
+        &mut self,
+        n: u64,
+        question: u64,
+        note: Option<&str>,
+        fail: Option<String>,
+    ) {
+        if self.dry {
+            return;
+        }
+        self.act(Action::AnswerDrop {
+            issue: n,
+            id: question,
+            fail: fail.unwrap_or_else(|| {
+                format!("WARN: could not take away the answer to the question on #{n}")
+            }),
+            say: note.map(str::to_string),
+        });
     }
 
     /// The hold of a ticked retry: the pull request of `holds_on_pr` read the
     /// same way, and the box taken off with the note that names it. The issue
     /// keeps `tehas:question` and stays parked, so the park's comment is still
     /// there to tick once the pull request is gone.
-    pub(super) fn holds_on_pr_tick(&mut self, n: u64, ans: &Value, url: &str) {
+    pub(super) fn holds_on_pr_tick(&mut self, n: u64, ans: &Asked, url: &str) {
         self.log(format!(
             "skip #{n}: pull request {url} is open and closes it"
         ));
@@ -249,9 +287,9 @@ impl Poll<'_> {
             return;
         }
         let note = format!(
-            "Retry was ticked and nothing was started: {url} is open and closes this issue. Merge or close that pull request, then tick Retry."
+            "Retry was asked for and nothing was started: {url} is open and closes this issue. Merge or close that pull request, then answer retry again."
         );
-        self.untick(n, ans, Some(&note));
+        self.decline(n, ans, Some(&note));
     }
 
     /// Rule 4: the questions that wait for an answer. A box ticked to retry
@@ -266,16 +304,16 @@ impl Poll<'_> {
             self.need("asking");
             return Ok(());
         };
-        let Some(list) = asking.as_array() else {
+        let Some(list) = asking else {
             self.log("WARN: the issues with a question could not be read, so no question is answered this poll");
             return Ok(());
         };
         let mut numbers: Vec<(u64, Vec<String>)> = Vec::new();
         for i in list {
-            let Some(n) = i.get("number").and_then(Value::as_u64) else {
+            let Some(n) = i.number else {
                 return Err(self.fail("ERROR: unreadable list of issues with a question", 1));
             };
-            numbers.push((n, labels(i)));
+            numbers.push((n, i.labels));
         }
         numbers.sort_by_key(|(n, _)| *n);
         let asked: Vec<u64> = numbers.iter().map(|(n, _)| *n).collect();
@@ -304,16 +342,8 @@ impl Poll<'_> {
                     ))
                 }
             };
-            let mut qkind = q
-                .get("kind")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string();
-            let mut qid = match q.get("id") {
-                Some(Value::String(s)) => s.clone(),
-                Some(Value::Number(x)) => x.to_string(),
-                _ => String::new(),
-            };
+            let mut qkind = q.kind.clone();
+            let mut qid = q.id.clone();
             if qkind != "park" && qkind != "plan" {
                 qid.clear();
                 qkind.clear();
@@ -321,60 +351,82 @@ impl Poll<'_> {
             let Some(comments) = self.s.issues.get(&n).and_then(|i| i.comments.clone()) else {
                 return Err(self.comments_unread(n));
             };
-            let Some(mut ans) = questions::answer(
-                &comments,
-                bot,
-                self.s.bot_id,
-                &self.c.allowed,
-                &qid,
-                &self.c.millwright,
-            ) else {
+            let Some(ans) = comments.or_none().and_then(|c| {
+                questions::answer_of(
+                    c,
+                    bot,
+                    self.s.bot_id,
+                    &self.c.allowed,
+                    &qid,
+                    &self.c.millwright,
+                )
+            }) else {
                 return Err(self.fail(format!("ERROR: unreadable comments of #{n}"), 1));
             };
-            if ans["asked"] != json!(true) {
-                if let Some(by) = ans["written_by"].as_str() {
-                    self.log(format!(
-                        "skip #{n}: its question was written by '{}', not the bot '{bot}'",
-                        or_unknown(by)
-                    ));
-                } else if !qid.is_empty() {
-                    // The line names the hold and what clears it: the label is
-                    // the hold, not the read's bound, and a new comment lifts
-                    // nothing while the question on record stays open.
-                    self.log(format!(
-                        "skip #{n}: its question is not among the last 100 comments; tehas:question is set and no comment carries the question, so the issue waits until its open points are answered or the label is taken off"
-                    ));
+            let mut ans = match ans {
+                Answer::Asked(a) => a,
+                Answer::NotAsked { written_by } => {
+                    if let Some(by) = written_by {
+                        self.log(format!(
+                            "skip #{n}: its question was written by '{}', not the bot '{bot}'",
+                            or_unknown(&by)
+                        ));
+                    } else if !qid.is_empty() {
+                        // The line names the hold and what clears it: the label
+                        // is the hold, not the read's bound, and a new comment
+                        // lifts nothing while the question on record stays open.
+                        self.log(format!(
+                            "skip #{n}: its question is not among the last 100 comments; tehas:question is set and no comment carries the question, so the issue waits until its open points are answered or the label is taken off"
+                        ));
+                    }
+                    continue;
                 }
+            };
+            // A question asked before 2.0 and open at the upgrade is asked
+            // again in 2.0's words, once: nothing of the old comment is read
+            // as an answer this poll.
+            if q.reask && !qid.is_empty() && ans.kind == qkind && ans.issue_number() == Some(n) {
+                self.reask(n, &ans);
                 continue;
             }
-            let kind = ans["kind"].as_str().unwrap_or("").to_string();
-            if !qid.is_empty() && (ans["issue"] != json!(n) || kind != qkind) {
+            // A sum on record of the comment as posted (before T4.7) is
+            // adopted as its visible text's, in place, on this first read:
+            // nothing is written to the code host and nothing asked again,
+            // and the answer is read as it is.
+            if q.old_sum && !qid.is_empty() && ans.kind == qkind && ans.issue_number() == Some(n) {
+                self.adopt(n, &qid, &ans);
+            }
+            // An answer `tehas answer` gave reads as the box it stands for.
+            // One the question does not offer is taken away, and said.
+            // One a person's later tick or reply stands over is taken away
+            // without a word. Either way the tick of the comment is read as
+            // it is.
+            let given = self.s.issues.get(&n).and_then(|i| i.answer.clone());
+            let allowed = |by: &str| self.c.allowed(by);
+            match (answer::overlay(&mut ans, given.as_ref(), allowed), &given) {
+                (Overlay::Refused(why), Some(a)) => {
+                    self.log(format!("skip #{n}: {why}"));
+                    let note = format!("The answer given for this question was not taken: {why}.");
+                    self.drop_answer(n, a.question, Some(&note));
+                }
+                (Overlay::Later(who), Some(a)) => {
+                    self.log(format!(
+                        "skip #{n}: the answer of {} is no answer: {who} answered the question after it",
+                        a.by
+                    ));
+                    self.drop_answer(n, a.question, None);
+                }
+                _ => {}
+            }
+            let kind = ans.kind.clone();
+            if !qid.is_empty() && (ans.issue_number() != Some(n) || kind != qkind) {
                 self.log(format!(
                     "skip #{n}: the question on record does not belong to this issue"
                 ));
                 continue;
             }
-            let mut tick = ans["tick"]["status"].as_str().unwrap_or("").to_string();
-            let by = ans["tick"]["by"].as_str().unwrap_or("").to_string();
-            if tick == "fixer" && kind != "plan" {
-                tick = "stranger".into();
-            }
-            if tick == "stranger" || tick == "many" {
-                self.log(format!(
-                    "skip #{n}: boxes ticked by '{}' are no answer ({tick})",
-                    or_unknown(&by)
-                ));
-                if !self.dry {
-                    let note = if tick == "many" {
-                        "More than one box was ticked, so nothing was chosen. Tick one.".to_string()
-                    } else {
-                        format!("A box was ticked by an account that may not answer for this factory ({}). It was unticked.", or_unknown(&by))
-                    };
-                    self.untick(n, &ans, Some(&note));
-                }
-                tick = "none".into();
-                ans["tick"]["status"] = json!("none");
-            }
+            let tick = ans.tick.status.word().to_string();
+            let by = ans.tick.by.clone();
             if kind == "plan" {
                 // A turn this poll collects or posts asks a new question: the
                 // one read before it answers nothing. A turn still in flight
@@ -383,8 +435,16 @@ impl Poll<'_> {
                 if fresh.contains(&n) && !in_flight {
                     continue;
                 }
-                let row = q.get("plan").cloned().unwrap_or(Value::Null);
-                self.plan_answer(n, &ans, &tick, &row, room)?;
+                self.plan_answer(n, &ans, &tick, &q.plan, room)?;
+                continue;
+            }
+            if kind == "park" && tick == "unoffered" {
+                self.log(format!(
+                    "skip #{n}: {by} answered a choice its question does not offer"
+                ));
+                if !self.dry {
+                    self.decline(n, &ans, Some("The reply names a choice this question does not offer, so nothing was started. Reply with the word of one of the choices it lists."));
+                }
                 continue;
             }
             if kind != "park" || tick != "one" {
@@ -393,10 +453,10 @@ impl Poll<'_> {
             self.park_ticked.push(n);
             if qkind != "park" {
                 self.log(format!(
-                    "skip #{n}: a box was ticked in a question this host has no record of"
+                    "skip #{n}: a choice was made in a question this host has no record of"
                 ));
                 if !self.dry {
-                    self.untick(n, &ans, Some("This question is not one the factory is waiting on. To retry, apply `tehas:ready`."));
+                    self.decline(n, &ans, Some("This question is not one the factory is waiting on. To retry, apply `tehas:ready`."));
                 }
                 continue;
             }
@@ -407,16 +467,12 @@ impl Poll<'_> {
             // differs is that its record names no comment of the issue or of
             // the pull request. A comment posted before #1492 carries the old
             // labels, read as the retries they stand for.
-            let retry = ans["tick"]["index"]
-                .as_u64()
-                .and_then(|i| ans["labels"].get(usize::try_from(i).unwrap_or(usize::MAX)))
-                .and_then(Value::as_str)
-                .and_then(tehas_core::question::retry_of);
+            let retry = ans.ticked_label().and_then(tehas_core::question::retry_of);
             let Some(with_comments) = retry else {
                 if !self.dry {
-                    self.act(json!({"issue": n, "remove": ["tehas:question"],
-                        "fail": Self::label_fail(n, &["tehas:question"], &[]),
-                        "answered": {"id": qid, "by": by}}));
+                    let mut l = LabelChange::new(n, &ASKS, Self::label_fail(n, &ASKS, &[]));
+                    l.answered = Some((qid.clone(), by.clone()));
+                    self.act(Action::Label(l));
                 }
                 continue;
             };
@@ -426,13 +482,13 @@ impl Poll<'_> {
                 && has(&have, "needs-human-attention");
             if !parked {
                 self.log(format!(
-                    "skip #{n}: a retry was ticked but the issue is not parked"
+                    "skip #{n}: a retry was answered but the issue is not parked"
                 ));
                 if !self.dry {
-                    self.untick(
+                    self.decline(
                         n,
                         &ans,
-                        Some("Retry was ticked, but this issue is not parked, so nothing was started."),
+                        Some("Retry was asked for, but this issue is not parked, so nothing was started."),
                     );
                 }
                 continue;
@@ -442,26 +498,25 @@ impl Poll<'_> {
             // the label is off, or under a lean default once `tehas:classic`
             // is on. That label is then a person's new choice, read as one
             // and not against the record of the refused lean start.
-            let lean_refused =
-                q.get("reason").and_then(Value::as_str) == Some(tehas_core::question::LEAN_REFUSED);
+            let lean_refused = q.reason.as_deref() == Some(tehas_core::question::LEAN_REFUSED);
             if lean_refused && (self.c.driver_default == Driver::Lean) && !has(&have, CLASSIC) {
-                self.log(format!("wait #{n}: a retry was ticked on the park of a lean start this tehas cannot run; apply {CLASSIC} first, and the tick then starts it on classic"));
+                self.log(format!("wait #{n}: a retry was answered on the park of a lean start this tehas cannot run; apply {CLASSIC} first, and the answer then starts it on classic"));
                 continue;
             }
             if lean_refused && !(self.c.driver_default == Driver::Lean) && has(&have, LEAN) {
-                self.log(format!("wait #{n}: a retry was ticked on the park of a lean start this tehas cannot run; take {LEAN} off first, and the tick then starts it on classic"));
+                self.log(format!("wait #{n}: a retry was answered on the park of a lean start this tehas cannot run; take {LEAN} off first, and the answer then starts it on classic"));
                 continue;
             }
             if !self.work_ok(n)? || !self.epic_ok(n, "tehas:ready", &have) {
                 continue;
             }
-            let at = ans["tick"]["at"].as_str().unwrap_or("").to_string();
+            let at = ans.tick.at.clone();
             if !self.unchanged_since(
                 n,
                 &at,
                 &by,
-                &format!("{by} ticked retry"),
-                "untick the box and tick it again",
+                &format!("{by} answered retry"),
+                "answer again",
             )? {
                 continue;
             }
@@ -500,17 +555,19 @@ impl Poll<'_> {
                     self.lean_deny(n, &s);
                     if !self.dry {
                         let note = format!(
-                            "Retry was ticked and nothing was started: {}, then ticks Retry.",
+                            "Retry was asked for and nothing was started: {}, then answers retry again.",
                             s.said()
                         );
-                        self.untick(n, &ans, Some(&note));
+                        self.decline(n, &ans, Some(&note));
                     }
                     continue;
                 }
                 d => d,
             };
             if self.dry {
-                self.log(format!("would run a cycle for #{n} (retry ticked by {by})"));
+                self.log(format!(
+                    "would run a cycle for #{n} (retry answered by {by})"
+                ));
                 return Err(End(0));
             }
             let mut remove = vec!["tehas:question".to_string()];
@@ -519,12 +576,14 @@ impl Poll<'_> {
                     remove.push(l.into());
                 }
             }
-            let mut extra = Map::new();
-            extra.insert("comment".into(), ans["comment"].clone());
-            extra.insert("since".into(), ans["asked_at"].clone());
-            if issue_alone {
-                extra.insert("issue_alone".into(), json!(true));
-            }
+            let mut extra = StartExtra {
+                retry: Some(RetryTick {
+                    comment: ans.comment.clone(),
+                    since: ans.asked_at.clone(),
+                    issue_alone,
+                }),
+                ..StartExtra::default()
+            };
             driver.bind(&mut extra, &mut remove, &have);
             self.d.picked.push(n);
             self.act_gates(n);
@@ -532,21 +591,17 @@ impl Poll<'_> {
                 n,
                 Start {
                     starter: by,
-                    verb: "retry ticked".into(),
-                    how: "retry tick".into(),
+                    verb: "retry answered".into(),
+                    how: if ans.tick.answered { "answer" } else { "reply" }.into(),
                     given_at: at,
-                    given_how: "retry-tick".into(),
+                    given_how: if ans.tick.answered { "answer" } else { "reply" }.into(),
                     remove,
-                    fixer: None,
-                    park_lifted: None,
                     extra,
-                    placed: None,
                 },
             );
-            self.untick(n, &ans, None);
-            if let Some(a) = self.d.actions.last_mut() {
-                a["fail"] = json!(format!("WARN: could not untick the retry on #{n}; its question is no longer on record, so it starts nothing more"));
-            }
+            // The answer of `tehas answer` is spent; a reply needs nothing: its
+            // question is no longer on record.
+            self.decline_failing(n, &ans, None, Some(format!("WARN: could not take away the answer to the retry on #{n}; its question is no longer on record, so it starts nothing more")));
             return Err(End(0));
         }
         Ok(())
@@ -591,47 +646,39 @@ impl Poll<'_> {
         for p in owed {
             // A row of a shape the store never writes is said: one with no
             // issue cannot be spent, one with no start is spent once.
-            let Some(n) = p
-                .get("issue")
-                .and_then(Value::as_u64)
-                .filter(|n| (1..=ISSUE_MAX).contains(n))
-            else {
+            let Some(n) = p.issue.filter(|n| (1..=ISSUE_MAX).contains(n)) else {
                 self.log(format!(
                     "WARN: a park owed a retry after a provider outage names no issue tehas can read (issue={})",
-                    p.get("issue").unwrap_or(&Value::Null)
+                    p.issue_said
                 ));
                 continue;
             };
-            let Some(started) = p
-                .get("started_at")
-                .and_then(Value::as_u64)
-                .filter(|t| *t <= TIME_MAX)
-            else {
+            let Some(started) = p.started_at.filter(|t| *t <= TIME_MAX) else {
                 self.log(format!(
                     "skip #{n}: its retry after a provider outage is not started: its park record has no time its cycle began (started_at={})",
-                    p.get("started_at").unwrap_or(&Value::Null)
+                    p.started_said
                 ));
                 if !self.dry {
-                    self.act(json!({"park_retry": n, "how": "outage"}));
+                    self.act(Action::ParkRetry {
+                        issue: n,
+                        how: Spend::Outage,
+                    });
                 }
                 continue;
             };
-            let by = p
-                .get("started_by")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string();
+            let by = p.started_by.text_or_empty().to_string();
             if self.running(n) {
                 continue;
             }
-            let Some(view) = self.s.issues.get(&n).and_then(|i| i.view.clone()) else {
-                self.need("view");
-                continue;
+            let view = match self.s.issues.get(&n).and_then(|i| i.view.clone()) {
+                None => {
+                    self.need("view");
+                    continue;
+                }
+                Some(View::Failed) => return Err(self.fail("ERROR: gh issue view failed", 1)),
+                Some(View::Read(v)) => v,
             };
-            if view.get("failed") == Some(&json!(true)) {
-                return Err(self.fail("ERROR: gh issue view failed", 1));
-            }
-            let have = labels(&view);
+            let have = view.labels;
             if has(&have, "tehas:ready") {
                 continue;
             }
@@ -643,7 +690,7 @@ impl Poll<'_> {
                 continue;
             }
             let held = matches!(driver, Choice::Stranger(_))
-                || view.get("state").and_then(Value::as_str) != Some("OPEN")
+                || view.state.as_deref() != Some("OPEN")
                 || !has(&have, "needs-human-attention")
                 || has(&have, "tehas:running")
                 || self.plan_open(n)
@@ -661,10 +708,17 @@ impl Poll<'_> {
                 }
                 self.log(format!("skip #{n}: its retry after a provider outage is not started; it waits for a person"));
                 if !self.dry {
-                    self.act(json!({"park_retry": n, "how": "outage"}));
+                    self.act(Action::ParkRetry {
+                        issue: n,
+                        how: Spend::Outage,
+                    });
                     if let Choice::Stranger(s) = &driver {
                         let say = format!("Tehas did not start this issue again after the provider outage: {}, then applies `tehas:ready`.", s.said());
-                        self.act(json!({"issue": n, "say": say}));
+                        self.act(Action::Say {
+                            issue: n,
+                            say,
+                            markers: Vec::new(),
+                        });
                     }
                 }
                 continue;
@@ -681,9 +735,13 @@ impl Poll<'_> {
                 Vec::new()
             };
             self.act_gates(n);
-            self.act(json!({"issue": n, "say": "Tehas starts this issue again on its own: its last cycle was parked by a provider outage, and the model endpoint answers again. It does this once. If the new cycle is parked the same way, it waits for a person."}));
+            self.act(Action::Say {
+                issue: n,
+                say: "Tehas starts this issue again on its own: its last cycle was parked by a provider outage, and the model endpoint answers again. It does this once. If the new cycle is parked the same way, it waits for a person.".into(),
+                markers: Vec::new(),
+            });
             self.d.picked.push(n);
-            let mut extra = Map::new();
+            let mut extra = StartExtra::default();
             driver.bind(&mut extra, &mut remove, &have);
             self.act_start(
                 n,
@@ -694,10 +752,7 @@ impl Poll<'_> {
                     given_at: iso(started),
                     given_how: "outage-retry".into(),
                     remove,
-                    fixer: None,
-                    park_lifted: None,
                     extra,
-                    placed: None,
                 },
             );
             return Err(End(0));
@@ -725,37 +780,23 @@ impl Poll<'_> {
     /// for from starting: "wait" while GitHub has not said whether it
     /// conflicts, "busy" while it carries tehas:refreshing, empty when
     /// nothing does, and otherwise why the request goes.
-    fn refresh_pull_why(&self, n: u64, node: &Value, req: &Value, bot: &str) -> String {
-        let number = node
-            .get("number")
-            .map(|x| x.to_string())
-            .unwrap_or("null".into());
+    fn refresh_pull_why(&self, n: u64, node: &PullRead, head_sha: &str, bot: &str) -> String {
+        let number = &node.number_said;
         let rule = refresh_why(node, bot, &self.c.repo, self.c.control);
-        let st = |k: &str| node.get(k).and_then(Value::as_str).unwrap_or("");
-        if st("state") != "OPEN" {
+        let merge = node.merge.as_deref().unwrap_or("");
+        if node.state != "OPEN" {
             format!("pull request #{number} is not open")
         } else if !rule.is_empty() {
             format!("pull request #{number}: {rule}")
-        } else if node
-            .pointer("/closingIssuesReferences/nodes/0/number")
-            .and_then(Value::as_u64)
-            != Some(n)
-        {
+        } else if node.closing.first().and_then(|i| i.number) != Some(n) {
             format!("pull request #{number} does not close #{n}")
-        } else if node.get("headRefOid") != req.get("head_sha") {
+        } else if node.head_oid.as_deref() != Some(head_sha) {
             format!("pull request #{number} moved since the request")
-        } else if st("mergeable") == "UNKNOWN" {
+        } else if merge == "UNKNOWN" {
             "wait".into()
-        } else if st("mergeable") != "CONFLICTING" {
+        } else if merge != "CONFLICTING" {
             format!("pull request #{number} no longer conflicts")
-        } else if node
-            .pointer("/labels/nodes")
-            .and_then(Value::as_array)
-            .is_some_and(|a| {
-                a.iter()
-                    .any(|l| l.get("name").and_then(Value::as_str) == Some("tehas:refreshing"))
-            })
-        {
+        } else if has(&node.labels, "tehas:refreshing") {
             "busy".into()
         } else {
             String::new()
@@ -765,7 +806,7 @@ impl Poll<'_> {
     fn refresh_drop(&mut self, n: u64, why: &str) -> Step<Option<Start>> {
         self.log(format!("drop the refresh of #{n}: {why}"));
         if !self.dry {
-            self.act(json!({"refresh_drop": n}));
+            self.act(Action::RefreshDrop(n));
         }
         Ok(None)
     }
@@ -778,10 +819,11 @@ impl Poll<'_> {
             return Ok(None);
         };
         if !self.dry && said != key {
-            self.act(json!({
-                "issue": n, "refresh_said": key,
-                "say": format!("Tehas does not refresh this issue's pull request on its own: {why}. It conflicts with the branch: a person resolves the conflict, or closes the pull request and then applies `tehas:ready` to start a fresh cycle."),
-            }));
+            self.act(Action::SayOnce {
+                issue: n,
+                key: key.to_string(),
+                say: format!("Tehas does not refresh this issue's pull request on its own: {why}. It conflicts with the branch: a person resolves the conflict, or closes the pull request and then applies `tehas:ready` to start a fresh cycle."),
+            });
         }
         Ok(None)
     }
@@ -803,13 +845,10 @@ impl Poll<'_> {
             self.need("request");
             return Ok(None);
         };
-        if !(req.get("pr").is_some_and(Value::is_number)
-            && hex40(req.get("head_sha"))
-            && hex40(req.get("base_sha")))
-        {
+        let Some(req) = req.target else {
             return self.refresh_drop(n, "its request cannot be read");
-        }
-        let pr = req["pr"].as_u64().unwrap_or(0);
+        };
+        let pr = req.pr;
         if self.running(n) {
             return self.refresh_drop(n, "a cycle runs on it");
         }
@@ -819,7 +858,10 @@ impl Poll<'_> {
         if !self.work_ok(n)? {
             return self.refresh_drop(n, "it is not an open issue");
         }
-        let have = labels(&self.work(n));
+        let have = self
+            .work(n)
+            .map(|w| w.labels.names().to_vec())
+            .unwrap_or_default();
         if let Some(why) = refresh_labels_why(&have) {
             return self.refresh_drop(n, &why);
         }
@@ -836,13 +878,13 @@ impl Poll<'_> {
             Some(Ok(None)) => return self.refresh_drop(n, none),
             Some(Ok(Some(r))) => r,
         };
-        let Some(rests) = fixer_base(&record).filter(|b| base_stands(self.c, b)) else {
+        let Some(rests) = record.base().filter(|b| b.stands(self.c)) else {
             return self.refresh_drop(n, none);
         };
-        let count = refresh_count(&record, &rests);
-        let by = rests["by"].as_str().unwrap_or("").to_string();
-        let at = rests["at"].as_str().unwrap_or("").to_string();
-        let approver = base_approver(&rests).to_string();
+        let count = record.refresh_count(&rests);
+        let by = rests.by.clone();
+        let at = rests.at.clone();
+        let approver = rests.approver().to_string();
         if !self.unchanged_since(
             n,
             &at,
@@ -855,22 +897,23 @@ impl Poll<'_> {
                 &format!("its title or text was changed since {by} approved it"),
             );
         }
-        if text::body_sha256(&self.text(n)) != rests["body_sha256"].as_str().unwrap_or("") {
+        if text::body_sum(self.text(n).body_text()) != rests.body_sha256 {
             return self.refresh_drop(n, &format!("its text is not the text {by} approved"));
         }
-        let Some(node) = self.s.pulls.get(&pr).cloned() else {
-            self.need("pull");
-            return Ok(None);
+        let node = match self.s.pulls.get(&pr).cloned() {
+            None => {
+                self.need("pull");
+                return Ok(None);
+            }
+            Some(PullNode::Failed { line }) => {
+                return Err(self.unreadable(&format!("pull request #{pr}"), line.as_deref()));
+            }
+            Some(PullNode::Unreadable) => {
+                return self.refresh_drop(n, &format!("pull request #{pr} cannot be read"));
+            }
+            Some(PullNode::Read(node)) => node,
         };
-        if node.get("failed") == Some(&json!(true)) {
-            let call = crate::snapshot::failed_line(Some(&node));
-            return Err(self.unreadable(&format!("pull request #{pr}"), call.as_deref()));
-        }
-        if !node.is_object() {
-            return self.refresh_drop(n, &format!("pull request #{pr} cannot be read"));
-        }
-        let why = self.refresh_pull_why(n, &node, &req, bot);
-        let st = |k: &str| node.get(k).and_then(Value::as_str).unwrap_or("");
+        let why = self.refresh_pull_why(n, &node, &req.head_sha, bot);
         match why.as_str() {
             "" => {}
             "wait" => {
@@ -913,7 +956,7 @@ impl Poll<'_> {
         };
         // The last of the holds: a refresh that parked since the approval is
         // not offered again. One whose history cannot be read waits, above.
-        let (parked, unread) = parked(&history, &at);
+        let (parked, unread) = parked_rows(&history, &at);
         if parked {
             let why = if unread {
                 format!("a refresh of it since {by} approved it parked, its start unread, so it is held")
@@ -933,13 +976,11 @@ impl Poll<'_> {
             d => d,
         };
         let branch: String = node
-            .get("baseRefName")
-            .and_then(Value::as_str)
-            .unwrap_or("")
+            .base_ref
             .chars()
             .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '/' | '-'))
             .collect();
-        let url = Some(st("url"))
+        let url = Some(node.url.as_str())
             .filter(|u| {
                 u.starts_with("https://")
                     && u[8..].bytes().all(|b| {
@@ -954,14 +995,20 @@ impl Poll<'_> {
                 remove.push(l.to_string());
             }
         }
-        let mut extra = Map::new();
-        extra.insert("refresh_pr".into(), json!(pr));
-        extra.insert("refresh_url".into(), json!(url));
-        extra.insert(
-            "refresh_of".into(),
-            json!({"pr": pr, "head_sha": req["head_sha"], "base_sha": req["base_sha"],
-                "branch": if branch.is_empty() { self.c.branch.clone() } else { branch }}),
-        );
+        let mut extra = StartExtra {
+            refresh: Some(RefreshOf {
+                pr,
+                url: url.to_string(),
+                head_sha: req.head_sha.clone(),
+                base_sha: req.base_sha.clone(),
+                branch: if branch.is_empty() {
+                    self.c.branch.clone()
+                } else {
+                    branch
+                },
+            }),
+            ..StartExtra::default()
+        };
         driver.bind(&mut extra, &mut remove, &have);
         Ok(Some(Start {
             starter: by,
@@ -970,10 +1017,7 @@ impl Poll<'_> {
             given_at: at,
             given_how: "refresh".into(),
             remove,
-            fixer: None,
-            park_lifted: None,
             extra,
-            placed: None,
         }))
     }
 }
@@ -987,7 +1031,7 @@ mod tests {
         let base = json!({"at": "2026-10-01T00:00:00Z", "by": "alice"});
         let r = json!({"how": "refresh", "refreshes": 2, "rests_on": {"at": "2026-10-01T00:00:00Z", "by": "alice"}});
         assert_eq!(refresh_count(&r, &base), Some(2));
-        assert_eq!(refresh_count(&json!({"how": "label"}), &base), Some(0));
+        assert_eq!(refresh_count(&json!({"how": "approved"}), &base), Some(0));
         let other = json!({"how": "refresh", "refreshes": 2, "rests_on": {"at": "2026-09-01T00:00:00Z", "by": "alice"}});
         assert_eq!(refresh_count(&other, &base), Some(0));
         let bad = json!({"how": "refresh", "refreshes": 0, "rests_on": base});
@@ -1039,7 +1083,7 @@ mod tests {
             ),
             (
                 "the park of a cycle that was no refresh",
-                json!({"how": "label", "parked": true, "started": 1790899201}),
+                json!({"how": "approved", "parked": true, "started": 1790899201}),
                 false,
             ),
         ];

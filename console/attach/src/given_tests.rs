@@ -7,7 +7,7 @@ use tehas_core::testdir::TestDir;
 const LINK: &str = "https://github.com/user-attachments/assets/1";
 
 fn record() -> Value {
-    json!({"links": [LINK], "at": "2026-01-01T00:00:00Z", "by": "alice", "how": "label"})
+    json!({"links": [LINK], "at": "2026-01-01T00:00:00Z", "by": "alice", "how": "approved"})
 }
 
 fn compose(rec: &Value) -> (Value, String) {
@@ -107,17 +107,19 @@ fn a_link_is_cut_at_512_and_counted_once() {
 }
 
 #[test]
-fn a_comments_link_says_where_it_came_from() {
-    let mut rec = record();
-    rec["links"] = json!([]);
-    rec["comment_links"] = json!([
-        {"link": LINK, "source": "comment:5", "by": "bob"},
-        {"link": LINK, "source": "pr-comment:6", "by": "bob"},
-        {"link": "https://github.com/user-attachments/assets/2", "source": "answer:1", "by": "bob"},
-    ]);
-    let (manifest, _) = compose(&rec);
-    assert_eq!(manifest["leftOut"].as_array().unwrap().len(), 1);
-    assert_eq!(manifest["leftOut"][0]["source"], "comment:5");
+fn a_record_s_comment_links_are_ignored_whatever_they_hold() {
+    for held in [
+        json!([{"link": LINK, "source": "comment:5", "by": "bob"}]),
+        json!("x"),
+    ] {
+        let mut rec = record();
+        rec["links"] = json!([]);
+        rec["comment_links"] = held;
+        assert_eq!(
+            left_out_manifest(&json!(7), &rec, "r", "g", None).unwrap(),
+            None
+        );
+    }
 }
 
 #[test]
@@ -141,7 +143,7 @@ fn an_earlier_manifest_of_the_approval_keeps_its_entries_in_its_order() {
     fs::write(&rec, record().to_string()).unwrap();
     fs::write(
         &file,
-        r#"{"images":[{"zeta":1,"file":"image-1.png","alpha":"\u007f"}],"files":[],"approval":{"how":"label","by":"alice","at":"2026-01-01T00:00:00Z"}}"#,
+        r#"{"images":[{"zeta":1,"file":"image-1.png","alpha":"\u007f"}],"files":[],"approval":{"how":"approved","by":"alice","at":"2026-01-01T00:00:00Z"}}"#,
     )
     .unwrap();
     let path = file.to_str().unwrap();
@@ -154,6 +156,24 @@ fn an_earlier_manifest_of_the_approval_keeps_its_entries_in_its_order() {
     assert!(written
         .contains(",\"leftOutMore\":0,\"files\":[],\"linksUnavailable\":\"This instance gives"));
     assert!(!dir.join("7.manifest.json.new").exists());
+}
+
+#[test]
+fn with_no_files_word_the_gap_names_the_images_alone() {
+    let dir = TestDir::new("attach-given");
+    let file = dir.join("7.manifest.json");
+    let rec = dir.join("record.json");
+    fs::write(&rec, record().to_string()).unwrap();
+    let path = file.to_str().unwrap();
+    let gap = left_out("7", path, rec.to_str().unwrap(), "0", "").unwrap();
+    assert!(gap.unwrap().contains("(TEHAS_WORK_IMAGES=0)"));
+    let written = fs::read_to_string(&file).unwrap();
+    assert!(!written.contains("TEHAS_WORK_FILES"), "{written}");
+    assert!(written.contains("gives a cycle none (TEHAS_WORK_IMAGES=0)"));
+    assert_eq!(
+        left_out("7", path, rec.to_str().unwrap(), "1", "").unwrap(),
+        None
+    );
 }
 
 #[test]
@@ -198,7 +218,7 @@ fn a_manifest_that_cannot_be_written_leaves_no_new_file_and_refuses() {
 
 #[test]
 fn the_same_link_of_the_same_approval_must_keep_its_bytes() {
-    let approval = json!({"at": "1", "by": "a", "how": "label"});
+    let approval = json!({"at": "1", "by": "a", "how": "approved"});
     let m = |sum: &str, a: &Value| {
         json!({"images": [{"link": LINK, "sha256": sum}], "approval": a}).to_string()
     };
@@ -217,7 +237,7 @@ fn the_same_link_of_the_same_approval_must_keep_its_bytes() {
 
 #[test]
 fn each_file_of_an_archive_must_keep_its_bytes() {
-    let approval = json!({"at": "1", "by": "a", "how": "label"});
+    let approval = json!({"at": "1", "by": "a", "how": "approved"});
     let m = |a: &str, b: &str| {
         json!({"files": [
             {"link": LINK, "path": "a.md", "sha256": a},
@@ -233,7 +253,7 @@ fn each_file_of_an_archive_must_keep_its_bytes() {
 
 #[test]
 fn an_archive_must_keep_its_set_of_files() {
-    let approval = json!({"at": "1", "by": "a", "how": "label"});
+    let approval = json!({"at": "1", "by": "a", "how": "approved"});
     let m = |paths: &[&str]| {
         let files: Vec<Value> = paths
             .iter()
@@ -256,7 +276,7 @@ fn an_archive_must_keep_its_set_of_files() {
     assert_eq!(changed(&m(&["a.md"]), &none), None);
     // Another approval holds no one to the old set.
     let other = json!({"files": [{"link": LINK, "zip": LINK, "path": "x.md", "sha256": "s"}],
-        "approval": {"at": "2", "by": "a", "how": "label"}})
+        "approval": {"at": "2", "by": "a", "how": "approved"}})
     .to_string();
     assert_eq!(changed(&m(&["a.md"]), &other), None);
 }

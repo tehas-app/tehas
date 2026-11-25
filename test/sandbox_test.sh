@@ -152,8 +152,8 @@ t_contains "$(cat "$dockerfile")" 'LABEL tehas.rukas=$PI_RUKAS_COMMIT tehas.ruka
 t_contains "$(cat "$build")" '--build-arg TEHAS_RUKAS_IMAGES="$reads"'
 t_contains "$(cat "$dockerfile")" '/opt/pi-rukas/bin/pi-rukas-headless --capabilities'
 t_contains "$(cat "$dockerfile")" '.name == "PI_ENSEMBLE_ISSUE_IMAGES" and .manifestVersion == 1'
-t_contains "$(cat "$T_ROOT/console/cycle/src/caps.rs")" '.and_then(Value::as_str) == Some("PI_ENSEMBLE_ISSUE_IMAGES")'
-t_contains "$(cat "$T_ROOT/console/cycle/src/caps.rs")" 'is_num(i.get("manifestVersion"), 1)'
+t_contains "$(cat "$T_ROOT/console/cycle/src/caps.rs")" 'i.name.str() == "PI_ENSEMBLE_ISSUE_IMAGES"'
+t_contains "$(cat "$T_ROOT/console/cycle/src/caps.rs")" 'i.manifest_version.get() == Some(&1.0)'
 
 # --- What the image has to carry --------------------------------------------
 # A cycle reaches for the tools its instructions name. Each of these cases is
@@ -1481,7 +1481,7 @@ records=$(records_of "$T_ROOT/libexec")
 t_console || t_bad "no console: $t_console_why"
 # shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
 t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
-program_runs=$("$T_CONSOLE" check-product table; "$T_CONSOLE" review table; "$T_CONSOLE" plan table; "$T_CONSOLE" dev table; "$T_CYCLE" index table; "$T_CYCLE" sandbox table)
+program_runs=$("$T_CONSOLE" check-product table; "$T_CONSOLE" plan table; "$T_CONSOLE" dev table; "$T_CYCLE" index table; "$T_CYCLE" sandbox table)
 while IFS= read -r row; do
   records+=$'\n'"${row/$'\t'/$'\t0\t'}"$'\t'
 done <<<"$program_runs"
@@ -1494,7 +1494,6 @@ dev	PI_ENSEMBLE_IMAGE	pi
 index	PI_ENSEMBLE_IMAGE	codebase-memory-mcp
 plan	PI_ENSEMBLE_IMAGE	/opt/pi-rukas/bin/pi-rukas-headless
 plan	PI_ENSEMBLE_IMAGE	/opt/pi-rukas/bin/pi-rukas-headless
-review	PI_ENSEMBLE_IMAGE	/opt/pi-rukas/bin/pi-rukas-headless
 work	PI_ENSEMBLE_IMAGE	$runner
 work	PI_ENSEMBLE_IMAGE	$runner
 work	PI_ENSEMBLE_IMAGE	bash

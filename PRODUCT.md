@@ -30,9 +30,9 @@ The page shows the factory's live queue and the running cycle's console, from
 the same files the plain dashboard reads, and says so in the header. Where the
 queue cannot be reached it falls back to fictional sample data, clearly marked;
 a viewer can also load an export. The queue snapshot lists only tickets on the
-line. With the live queue, prototypes come from the Protolab's own list where
-the host runs one. Tickets not on the line appear only from an export or the
-sample.
+line. The first stage is Idea, the open tickets with no queue label. The live
+queue lists none, so with it Idea is left out: tickets not on the line appear
+only from an export or the sample.
 
 ## Brand Personality
 
@@ -53,7 +53,7 @@ typeface is the exception: it sets every word on the front page.
 That identity is the pixel design's, for a site where the factory is shown and
 demonstrated: with `TEHAS_DESIGN=pixel` it draws the whole site. A factory that
 sets nothing is in the business register everywhere: beesknees26, IBM Plex on
-white panels with one muted green, with the business page at `/`. Same voice,
+white panels with one muted green, with the factory floor at `/`. Same voice,
 same facts, no 16-bit clothing.
 
 Voice is short and plain, in the manner of game interface text: labels, counts,

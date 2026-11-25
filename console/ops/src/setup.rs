@@ -59,6 +59,7 @@ enum Fail {
     /// The status, with what there was to say said.
     Stop(u8),
 }
+use tehas_core::home::{Home, TokenDir};
 use Fail::{Bad, Die, Stop};
 
 mod manifest;
@@ -530,10 +531,8 @@ fn make_app(
     let started = std::time::Instant::now();
     loop {
         match app.installations() {
-            Ok(n) if n > 0 => break,
+            Ok(Some(n)) if n > 0 => break,
             Ok(_) => {}
-            // A new app may not be known everywhere at once.
-            Err(why) if why == "HTTP 404" => {}
             Err(why) => {
                 return Err(Die(format!(
                     "GitHub did not list the installations of {slug} ({why}); a refused app token often means the host's clock is off. Check it, install the app at {install} and run tehas setup again: it finds app {id} and checks it"
@@ -615,7 +614,7 @@ const INSTALL_WAIT: std::time::Duration = std::time::Duration::from_secs(600);
 const INSTALL_POLL: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// The settings besides TEHAS_REPO that name a repository the factory works in.
-const OTHER_REPOS: [&str; 2] = ["TEHAS_REVIEW_REPO", "TEHAS_RELEASE_REPO"];
+const OTHER_REPOS: [&str; 1] = ["TEHAS_RELEASE_REPO"];
 
 /// The app is installed on the repository and may write what the factory
 /// writes; the other repositories the instance names are reached or named.
@@ -1087,7 +1086,7 @@ fn files(dir: &Path, args: &[String]) -> Result<Written, Fail> {
     set(&inst, "PI_ENSEMBLE_SUBAGENT_PROVIDER", &g.provider, false)?;
     set(&inst, "PI_ENSEMBLE_SUBAGENT_MODEL", &g.model, false)?;
     let _ = fs::set_permissions(&inst, fs::Permissions::from_mode(0o600));
-    let lookups = tehas_home.join("state/github");
+    let lookups = Home::new(&tehas_home).token_dir(TokenDir::App);
     let mut stale: &[&str] = if kept_id == app.id {
         &[]
     } else {

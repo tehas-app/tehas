@@ -6,6 +6,9 @@
 use serde_json::{json, Map, Value};
 use std::fs;
 use tehas_core::question::box_line;
+
+#[path = "common/replies.rs"]
+mod replies;
 use tehas_dispatch::text::{body_sha256, plan_sum};
 use tehas_dispatch::{decide, Settings, Snapshot};
 
@@ -283,7 +286,7 @@ fn expand(c: &Value, snap: &mut Value) {
     // hold: cycles that hold their lock.
     if let Some(list) = c.get("hold").and_then(Value::as_array) {
         let mut running = snap["running"].as_array().cloned().unwrap_or_default();
-        running.extend(list.iter().map(|n| json!({"issue": n, "how": "label"})));
+        running.extend(list.iter().map(|n| json!({"issue": n, "how": "approved"})));
         snap["running"] = json!(running);
     }
     // other: a container in the slice that is no cycle's, using the bytes.
@@ -356,22 +359,14 @@ fn expand(c: &Value, snap: &mut Value) {
         }
     }
     // approved: the approval of the issue's latest start, as `past` writes
-    // it: {by, at, body, fixer_starts}. With fixer starts, the latest is the
-    // fixer's and rests on the person's.
+    // it: {by, at, body, how}.
     if let Some(m) = c.get("approved").and_then(Value::as_object) {
         let mut is = issues(snap);
         for (n, x) in m {
             let sum = body_sha256(&json!({"body": x["body"]}));
-            let base = json!({"at": x["at"], "by": x["by"], "how": x.get("how").unwrap_or(&json!("label")), "body_sha256": sum});
-            let record = match x.get("fixer_starts").and_then(Value::as_u64) {
-                Some(k) if k > 0 => {
-                    json!({"at": "2026-10-01T05:00:00Z", "by": "tehas-fixer", "how": "fixer",
-                    "body_sha256": sum, "fixer_starts": k, "rests_on": base})
-                }
-                _ => base,
-            };
+            let base = json!({"at": x["at"], "by": x["by"], "how": x.get("how").unwrap_or(&json!("approved")), "body_sha256": sum});
             let i = is.entry(n.clone()).or_insert_with(|| json!({}));
-            i["approval"] = record;
+            i["approval"] = base;
         }
         snap["issues"] = Value::Object(is);
     }
@@ -442,9 +437,30 @@ fn expand(c: &Value, snap: &mut Value) {
     if !asked.is_empty() {
         let mut is = issues(snap);
         for (n, x) in asked {
-            let ed = x[1].as_str().unwrap_or("");
+            // A box ticked is answered now by a reply of its editor (#2782).
+            let later = x
+                .get(2)
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let (unticked, later, answered) = replies::as_reply(
+                x[0].as_str().unwrap_or(""),
+                x[1].as_str().unwrap_or(""),
+                None,
+                later,
+            );
+            let ed = if answered {
+                ""
+            } else {
+                x[1].as_str().unwrap_or("")
+            };
+            let body = if answered {
+                json!(unticked)
+            } else {
+                x[0].clone()
+            };
             let mut nodes = vec![
-                json!({"databaseId": 4001, "author": {"login": "tehas-bot"}, "body": x[0],
+                json!({"databaseId": 4001, "author": {"login": "tehas-bot"}, "body": body,
                 "createdAt": "2026-01-01T00:00:00Z",
                 "lastEditedAt": if ed.is_empty() { Value::Null } else { json!("2026-01-01T01:00:00Z") },
                 "editor": if ed.is_empty() { Value::Null } else { json!({"login": ed}) }}),
@@ -457,12 +473,7 @@ fn expand(c: &Value, snap: &mut Value) {
             if let Some(a) = c.get("question_author") {
                 nodes[0]["author"] = a.clone();
             }
-            nodes.extend(
-                x.get(2)
-                    .and_then(Value::as_array)
-                    .cloned()
-                    .unwrap_or_default(),
-            );
+            nodes.extend(later);
             let i = is.entry(n).or_insert_with(|| json!({}));
             i["comments"] =
                 json!({"data": {"repository": {"issue": {"comments": {"nodes": nodes}}}}});
@@ -595,9 +606,10 @@ fn run_suite(name: &str) {
         }
         let dry = c.get("dry") == Some(&json!(true));
         let d = decide(&Snapshot::parse(&snap), &Settings::parse(&settings), dry);
+        let actions: Vec<Value> = d.actions.iter().map(Value::from).collect();
         let e = &c["expect"];
         let mut bad = Vec::new();
-        let log = expected(&json!({"log": d.log, "actions": d.actions})).join("\n");
+        let log = expected(&json!({"log": d.log, "actions": actions})).join("\n");
         if let Some(x) = e.get("exit") {
             if x != &json!(d.exit) {
                 bad.push(format!("exit {} not {x}", d.exit));
@@ -633,11 +645,11 @@ fn run_suite(name: &str) {
         }
         // apply takes a decision's starts as one run, as start_cycles is
         // called once: no other action stands between two of them.
-        let starts: Vec<usize> = (0..d.actions.len())
-            .filter(|&i| d.actions[i].get("start").is_some())
+        let starts: Vec<usize> = (0..actions.len())
+            .filter(|&i| actions[i].get("start").is_some())
             .collect();
         if starts.windows(2).any(|w| w[1] != w[0] + 1) {
-            bad.push(format!("starts not side by side: {:?}", d.actions));
+            bad.push(format!("starts not side by side: {:?}", actions));
         }
         for x in e
             .get("actions")
@@ -645,7 +657,7 @@ fn run_suite(name: &str) {
             .into_iter()
             .flatten()
         {
-            if !d.actions.iter().any(|a| within(x, a)) {
+            if !actions.iter().any(|a| within(x, a)) {
                 bad.push(format!("no action {x}"));
             }
         }
@@ -655,21 +667,21 @@ fn run_suite(name: &str) {
             .into_iter()
             .flatten()
         {
-            if d.actions.iter().any(|a| within(x, a)) {
+            if actions.iter().any(|a| within(x, a)) {
                 bad.push(format!("an action {x}"));
             }
         }
         // action_count: how many actions carry each key.
         if let Some(x) = e.get("action_count") {
             for (k, n) in x.as_object().unwrap() {
-                let got = d.actions.iter().filter(|a| a.get(k).is_some()).count();
+                let got = actions.iter().filter(|a| a.get(k).is_some()).count();
                 if json!(got) != *n {
                     bad.push(format!("{got} actions with {k:?}, not {n}"));
                 }
             }
         }
-        if e.get("nothing") == Some(&json!(true)) && !d.actions.is_empty() {
-            bad.push(format!("actions {:?}", d.actions));
+        if e.get("nothing") == Some(&json!(true)) && !actions.is_empty() {
+            bad.push(format!("actions {:?}", actions));
         }
         if let Some(x) = e.get("report") {
             let ok = match (x, &d.report) {
@@ -681,12 +693,13 @@ fn run_suite(name: &str) {
                 bad.push(format!("report {:?} not {x}", d.report));
             }
         }
-        if e.get("no_demand") == Some(&json!(true)) && d.demand.is_some() {
-            bad.push(format!("demand {:?}", d.demand));
+        let demand = d.demand.as_ref().map(Value::from);
+        if e.get("no_demand") == Some(&json!(true)) && demand.is_some() {
+            bad.push(format!("demand {demand:?}"));
         }
         if let Some(x) = e.get("demand_is") {
-            if d.demand.as_ref() != Some(x) {
-                bad.push(format!("demand {:?} not {x}", d.demand));
+            if demand.as_ref() != Some(x) {
+                bad.push(format!("demand {demand:?} not {x}"));
             }
         }
         for x in e
@@ -709,18 +722,18 @@ fn run_suite(name: &str) {
             .flatten()
         {
             let k = x.as_str().unwrap();
-            if d.demand.as_ref().is_some_and(|v| v.get(k).is_some()) {
-                bad.push(format!("demand {:?} has {k}", d.demand));
+            if demand.as_ref().is_some_and(|v| v.get(k).is_some()) {
+                bad.push(format!("demand {demand:?} has {k}"));
             }
         }
         if let Some(x) = e.get("demand") {
-            let ok = match (x, &d.demand) {
+            let ok = match (x, &demand) {
                 (Value::Null, Some(Value::Null)) => true,
                 (x, Some(r)) if !x.is_null() => within(x, r),
                 _ => false,
             };
             if !ok {
-                bad.push(format!("demand {:?} not {x}", d.demand));
+                bad.push(format!("demand {demand:?} not {x}"));
             }
         }
         // starts: each issue of the record as "<n> start" or "<n> <code>";
@@ -762,7 +775,7 @@ fn run_suite(name: &str) {
                 "{name}:\n  {}\n  log: {:?}\n  actions: {:?}",
                 bad.join("\n  "),
                 d.log,
-                d.actions
+                actions
             ));
         }
     }
@@ -812,11 +825,6 @@ fn plan_answer() {
 #[test]
 fn lean() {
     run_suite("lean");
-}
-
-#[test]
-fn outsource() {
-    run_suite("outsource");
 }
 
 #[test]
@@ -870,7 +878,7 @@ fn read_only() {
 }
 
 #[test]
-fn fixer() {
+fn millwright() {
     run_suite("fixer");
 }
 
@@ -923,8 +931,8 @@ fn every_logged_hold_of_the_fixtures_has_a_code() {
         // Rule 5a, a refine of a park: it starts no cycle.
         "not refined",
         // Rule 5, the answers of a planning session: a turn, not a start.
-        "the fixer's answer runs no turn",
-        "the fixer saved the question after another account did",
+        "the millwright's answer runs no turn",
+        "the millwright saved the question after another account did",
         "the question answered is not the one this session is waiting on",
         "the ticked box matches no option on record",
         // Rule 2's clean-up of the running mark, not a hold of a start.

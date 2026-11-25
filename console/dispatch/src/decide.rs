@@ -2,48 +2,52 @@
 //! it logs and every text it writes on an issue is the bash's, word for word,
 //! so the two can be compared line by line.
 
-use crate::place::{place, Need, Outsourcing, Place};
-use crate::read::host;
 use crate::settings::{account, Settings};
-use crate::slice::{self, gib};
-use crate::snapshot::{Issues, Listed, Snapshot};
+use crate::slice::gib;
+use crate::snapshot::{
+    Check, Comment, CommentId, HostStart, Issues, Labels, LimitState, Listed, OrderState,
+    PauseFlag, PlanStart, Snapshot, Text, Until, Work, WorkIssue,
+};
 use crate::text;
 use serde_json::{json, Map, Value};
 use tehas_core::driver::Driver;
 use tehas_core::events::{
-    edit_history_unread, edit_holds, first_unallowed_rename, label_actor, label_state, pause_holds,
-    plan_credit, sole_application, standing_actor, standing_past_bot, Event, Events, LabelState,
-    NOBODY, UNKNOWN_ACTOR,
+    edit_history_unread_of, edit_holds_of, first_unallowed_rename, label_actor, label_state,
+    pause_holds, plan_credit, sole_application, standing_actor, standing_past_bot, EditRecord,
+    Event, Events, LabelState, Stamp, NOBODY, UNKNOWN_ACTOR,
 };
 use tehas_core::hold::{Held, Report, Why, HELD_PARKED, HELD_TEXT_MAX};
 use tehas_core::kinds::Kind;
 
+mod action;
 mod clean;
 mod epic;
 mod flow;
+mod note;
 mod plan;
-mod retry;
+pub(crate) mod retry;
 mod starts;
 
+pub(crate) use crate::snapshot::{base_approver, base_stands, named_blockers, record_base, shape};
+pub use action::{
+    Action, CommentRef, CycleStart, LabelChange, NoteKind, QuietDue, RefreshOf, RetryTick, Spend,
+    StartExtra, Turn,
+};
 pub(crate) use clean::{iso, quiet_due, quiet_why, Due, QUIET_ASKS};
 pub(crate) use flow::in_flow;
-pub(crate) use plan::shape;
-pub(crate) use retry::{hex40, refresh_why};
+pub(crate) use note::{in_window, window_order};
+pub(crate) use retry::refresh_why;
 
 /// The time now as log() writes it.
 pub fn iso_now() -> String {
     iso(tehas_core::time::now() as u64)
 }
 
-/// The numbers every blocker comment of an issue names, for the snapshot to
-/// ask their states: blocked_ok reads the newest one an allowed account wrote.
-pub(crate) fn named_blockers(comments: &Value) -> Vec<u64> {
-    let mut out: Vec<u64> = comments
-        .pointer("/data/repository/issue/comments/nodes")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|x| x.get("body").and_then(Value::as_str))
+/// The numbers every blocker comment names.
+pub(crate) fn named_blockers_of(nodes: &[Comment]) -> Vec<u64> {
+    let mut out: Vec<u64> = nodes
+        .iter()
+        .filter_map(|x| x.body_text())
         .filter_map(blockers)
         .flatten()
         .collect();
@@ -97,9 +101,9 @@ impl Choice {
     /// The action of a classic start names no driver. A lean start takes
     /// `needs-human-attention` off with its other labels: classic's
     /// `--restart` clears it in the cycle, and work-lean has no restart.
-    fn bind(&self, extra: &mut Map<String, Value>, remove: &mut Vec<String>, labels: &[String]) {
+    fn bind(&self, extra: &mut StartExtra, remove: &mut Vec<String>, labels: &[String]) {
         if matches!(self, Choice::Run(Driver::Lean)) {
-            extra.insert("driver".into(), json!(Driver::Lean.word()));
+            extra.driver = Some(Driver::Lean);
             let attention = "needs-human-attention";
             if has(labels, attention) && !remove.iter().any(|l| l == attention) {
                 remove.push(attention.into());
@@ -206,14 +210,14 @@ impl Stranger {
 pub struct Decision {
     pub exit: i32,
     pub log: Vec<String>,
-    pub actions: Vec<Value>,
+    pub actions: Vec<Action>,
     /// live/dispatch.json, without its time. A dry run writes none. The keys
     /// and the hold's words are tehas-core's, so the readers of the file name
     /// them by the same type the writer does.
     pub report: Option<Report>,
-    /// live/demand.json, without its time: Some(Null) removes it. A dry run
-    /// writes none.
-    pub demand: Option<Value>,
+    /// live/demand.json, without its time: Some(Unread) removes it. A dry
+    /// run writes none.
+    pub demand: Option<Demand>,
     /// The issues the demand left out only for the planning session open on
     /// each, and when each began to wait: a poll that ends one of those
     /// sessions counts it again (`demand_after`).
@@ -229,21 +233,72 @@ pub struct Decision {
     pub paused: bool,
     /// The bot's login, which the poll's writes name.
     pub bot: String,
-    /// Where the poll sweeps the unused locks (after its clean-up) and
-    /// publishes its report (at rule 3): the action and the line each comes
-    /// before, as the bash does them there.
-    pub swept_at: Option<(usize, usize)>,
-    pub reported_at: Option<(usize, usize)>,
+    /// The poll's steps in order: its lines, its actions, and where it sweeps
+    /// the unused locks (after its clean-up) and publishes its report (at
+    /// rule 3), as the bash does them there.
+    pub plan: Vec<PlanStep>,
     /// What the poll decided of each issue it could start, and the holds
     /// between issues it read: state/starts.json, without its time. A dry run
     /// writes none.
     pub starts: tehas_core::starts::Record,
 }
 
+/// One step of a poll's plan.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PlanStep {
+    /// Log the line at this index of `log`.
+    Say(usize),
+    /// Apply the action at this index of `actions`.
+    Act(usize),
+    SweepLocks,
+    Report,
+}
+
+/// live/demand.json, without its time.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Demand {
+    /// A read the count needs failed: the file is removed.
+    Unread,
+    Counted(DemandCount),
+}
+
+/// The open issues that would start with room.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DemandCount {
+    pub waiting: u64,
+    /// When the oldest was accepted.
+    pub oldest: Option<String>,
+    /// Why the image holds every refresh.
+    pub refresh_hold: Option<String>,
+    /// The issues held only by a blocked label (`label_alone`).
+    pub label_alone: Vec<u64>,
+}
+
+/// The file's keys: Null for Unread, and a key left out when it is empty.
+impl From<&Demand> for Value {
+    fn from(d: &Demand) -> Self {
+        let Demand::Counted(c) = d else {
+            return Value::Null;
+        };
+        let mut m = Map::new();
+        m.insert("waiting".into(), json!(c.waiting));
+        if let Some(o) = &c.oldest {
+            m.insert("oldest".into(), json!(o));
+        }
+        if let Some(h) = &c.refresh_hold {
+            m.insert("refreshHold".into(), json!(h));
+        }
+        if !c.label_alone.is_empty() {
+            m.insert("labelAlone".into(), json!(c.label_alone));
+        }
+        Value::Object(m)
+    }
+}
+
 /// The demand a poll wrote, with the issues it left out for a planning
 /// session counted once the poll ended that session, as the next poll would
 /// count them. None when it ended none of them: the file stays as it is.
-pub fn demand_after(demand: &Value, planning: &[(u64, String)], ended: &[u64]) -> Option<Value> {
+pub fn demand_after(demand: &Demand, planning: &[(u64, String)], ended: &[u64]) -> Option<Demand> {
     let freed: Vec<&str> = planning
         .iter()
         .filter(|(n, _)| ended.contains(n))
@@ -252,23 +307,19 @@ pub fn demand_after(demand: &Value, planning: &[(u64, String)], ended: &[u64]) -
     if freed.is_empty() {
         return None;
     }
-    let mut m = demand.as_object()?.clone();
-    let waiting = m.get("waiting").and_then(Value::as_u64)?;
-    let mut oldest = m
-        .get("oldest")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
+    let Demand::Counted(c) = demand else {
+        return None;
+    };
+    let mut c = c.clone();
+    let mut oldest = c.oldest.take().unwrap_or_default();
     for at in &freed {
         if !at.is_empty() && (oldest.is_empty() || *at < oldest.as_str()) {
             oldest = at.to_string();
         }
     }
-    m.insert("waiting".into(), json!(waiting + freed.len() as u64));
-    if !oldest.is_empty() {
-        m.insert("oldest".into(), json!(oldest));
-    }
-    Some(Value::Object(m))
+    c.waiting += freed.len() as u64;
+    c.oldest = (!oldest.is_empty()).then_some(oldest);
+    Some(Demand::Counted(c))
 }
 
 /// The poll ends here with this exit status.
@@ -282,20 +333,9 @@ struct Start {
     given_at: String,
     given_how: String,
     remove: Vec<String>,
-    /// A start of the fixer's: the person's approval it rests on, and its
-    /// starts with this one.
-    fixer: Option<(Value, u64)>,
-    /// The millwright's guidance comment that lifted the park's hold off this
-    /// start's label: the one entry the record names `park_lifted`, so the
-    /// reason the start was allowed is on it (#1130). A person's label lifts
-    /// nothing.
-    park_lifted: Option<Value>,
     /// What a start of its kind adds to the action: the comment of a retry
     /// tick, the pull request of a refresh.
-    extra: Map<String, Value>,
-    /// Under the outsource feature: where the start runs, as its log line
-    /// ends. None with the feature off, and for the starts it does not place.
-    placed: Option<String>,
+    extra: StartExtra,
 }
 
 /// What an issue's epic says of the millwright's label on the issue, under
@@ -330,8 +370,6 @@ struct Poll<'a> {
     dry: bool,
     d: Decision,
     control_skipped: bool,
-    /// Fed starts this poll picked, beside the ones running.
-    fed_picked: u64,
     work_refused: Vec<u64>,
     starts: Vec<(u64, Start)>,
     /// image_ok's answer, asked once a poll: the hold, empty for none.
@@ -351,11 +389,6 @@ struct Poll<'a> {
     /// this poll closed.
     plan_busy: Option<u64>,
     plan_closed: Vec<u64>,
-    /// The memory ceiling of one cycle's container in MiB, as the slice
-    /// gives it; 0 when the slice did not say.
-    cycle_mb: u64,
-    /// The contractors this poll gave a start.
-    taken: Vec<String>,
     /// Where rules 6 and 7 began, as the line and the action, once they did.
     cand_from: Option<(usize, usize)>,
     /// The issues of rule 7's order, refreshes left out, and those of them the
@@ -374,7 +407,6 @@ pub fn decide(s: &Snapshot, c: &Settings, dry: bool) -> Decision {
         dry,
         d: Decision::default(),
         control_skipped: false,
-        fed_picked: 0,
         work_refused: Vec::new(),
         starts: Vec::new(),
         image_hold: None,
@@ -385,8 +417,6 @@ pub fn decide(s: &Snapshot, c: &Settings, dry: bool) -> Decision {
         park_ticked: Vec::new(),
         plan_busy: None,
         plan_closed: Vec::new(),
-        cycle_mb: 0,
-        taken: Vec::new(),
         cand_from: None,
         cand_order: Vec::new(),
         cand_seen: Vec::new(),
@@ -416,6 +446,7 @@ fn or_unknown(who: &str) -> &str {
 
 impl<'a> Poll<'a> {
     fn log(&mut self, line: impl Into<String>) {
+        self.d.plan.push(PlanStep::Say(self.d.log.len()));
         self.d.log.push(line.into());
     }
 
@@ -435,7 +466,7 @@ impl<'a> Poll<'a> {
             ),
             None => format!("ERROR: unreadable {what}"),
         };
-        self.fail(tehas_core::call::trim(&line), 1)
+        self.fail(tehas_core::text::trim(&line), 1)
     }
 
     /// The end of a poll on comments of `n` that were not read.
@@ -448,12 +479,9 @@ impl<'a> Poll<'a> {
         self.unreadable(&format!("comments of #{n}"), call.as_deref())
     }
 
-    /// An action, with its place among the poll's lines: the lines before it
-    /// are logged before it is applied.
-    fn act(&mut self, mut a: Value) {
-        if let Some(o) = a.as_object_mut() {
-            o.insert("_line".into(), json!(self.d.log.len()));
-        }
+    /// An action, in its place among the poll's lines.
+    fn act(&mut self, a: Action) {
+        self.d.plan.push(PlanStep::Act(self.d.actions.len()));
         self.d.actions.push(a);
     }
 
@@ -606,7 +634,7 @@ impl<'a> Poll<'a> {
             None => self.pause_label()?,
         };
         self.clean_up(&bot)?;
-        self.d.swept_at = Some((self.d.actions.len(), self.d.log.len()));
+        self.d.plan.push(PlanStep::SweepLocks);
         // 1b. The pause switches end the poll here.
         if let Some(h) = holds {
             self.d.paused = true;
@@ -642,20 +670,16 @@ impl<'a> Poll<'a> {
 
     /// 1. The flag tehas pause writes: what holds this host, if anything.
     fn pause_flag(&mut self) -> Option<String> {
-        let f = self.s.pause_flag.as_ref()?;
-        let ok = f.as_object().filter(|o| {
-            o.get("at").map(Value::is_string) == Some(true)
-                && o.get("reason").map(Value::is_string) == Some(true)
-        });
-        match ok {
-            Some(o) => Some(format!(
-                "the flag tehas pause wrote at {} holds this host",
-                o["at"].as_str().unwrap_or("")
+        match self.s.pause_flag.as_ref()? {
+            PauseFlag::Held { at } => Some(format!(
+                "the flag tehas pause wrote at {at} holds this host"
             )),
-            None => {
-                let home = self.c.home.clone();
+            PauseFlag::Unreadable => {
+                let flag = tehas_core::home::Home::of_text(&self.c.home)
+                    .state(tehas_core::home::State::Pause);
                 self.log(format!(
-                    "WARN: {home}/state/pause.json is not a pause flag: taking it as paused"
+                    "WARN: {} is not a pause flag: taking it as paused",
+                    flag.display()
                 ));
                 Some("the pause flag is there and cannot be read".into())
             }
@@ -707,10 +731,10 @@ impl<'a> Poll<'a> {
 
     /// report_demand: the open issues that would start with room, and when
     /// the oldest was accepted. A read that fails removes the file.
-    fn demand(&mut self) -> Value {
+    fn demand(&mut self) -> Demand {
         let s = self.s;
         let Some(list) = &s.ready.0 else {
-            return Value::Null;
+            return Demand::Unread;
         };
         let (mut waiting, mut oldest) = (0, String::new());
         let mut counted: Vec<u64> = Vec::new();
@@ -723,7 +747,7 @@ impl<'a> Poll<'a> {
             let ev = match self.s.issues.get(&n).map(|x| &x.events) {
                 Some(Events::Read(v)) => v,
                 _ if planning => continue,
-                _ => return Value::Null,
+                _ => return Demand::Unread,
             };
             let (by, at) = standing_actor(ev, "tehas:ready");
             if !self.c.allowed(&by) && !self.c.is_millwright(&by) && !self.planned(n, &by) {
@@ -761,17 +785,13 @@ impl<'a> Poll<'a> {
                     if self.running(n) {
                         continue;
                     }
-                    let req = self
+                    let at = self
                         .s
                         .issues
                         .get(&n)
-                        .and_then(|i| i.request.clone())
-                        .unwrap_or(Value::Null);
-                    let at = req
-                        .get("at")
-                        .and_then(Value::as_str)
-                        .unwrap_or("")
-                        .to_string();
+                        .and_then(|i| i.request.as_ref())
+                        .map(|r| r.at.clone())
+                        .unwrap_or_default();
                     if self.plan_open(n) {
                         self.d.demand_planning.push((n, at));
                         continue;
@@ -786,63 +806,49 @@ impl<'a> Poll<'a> {
                 if !held.is_empty() {
                     self.log(format!("hold refreshes: {held}"));
                 }
-                self.act(json!({"refresh_held": held}));
+                self.act(Action::RefreshHeld(held.clone()));
             }
             self.refresh_said = true;
         } else if !self.s.refresh_held.is_empty() {
-            self.act(json!({"refresh_held": ""}));
+            self.act(Action::RefreshHeld(String::new()));
         }
-        let mut m = Map::new();
-        m.insert("waiting".into(), json!(waiting));
-        if !oldest.is_empty() {
-            m.insert("oldest".into(), json!(oldest));
-        }
-        if !held.is_empty() {
-            m.insert("refreshHold".into(), json!(held));
-        }
-        let alone = self.label_alone();
-        if !alone.is_empty() {
-            m.insert("labelAlone".into(), json!(alone));
-        }
-        Value::Object(m)
+        Demand::Counted(DemandCount {
+            waiting,
+            oldest: (!oldest.is_empty()).then_some(oldest),
+            refresh_hold: (!held.is_empty()).then_some(held),
+            label_alone: self.label_alone(),
+        })
     }
 
     /// The parked issues with a question on record where one allowed account
     /// ticked a Retry, and when: what rule 4 would start with room. An issue
     /// whose question or comments this poll did not read is left out.
     fn retries_ticked(&self) -> Vec<(u64, String)> {
-        let Some(list) = self.s.asking.as_ref().and_then(Value::as_array) else {
+        let Some(Some(list)) = &self.s.asking else {
             return Vec::new();
         };
         let mut out = Vec::new();
         for i in list {
-            let Some(n) = i.get("number").and_then(Value::as_u64) else {
+            let Some(n) = i.number else {
                 continue;
             };
-            let labels: Vec<String> = i
-                .get("labels")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter_map(|l| l.get("name").and_then(Value::as_str).map(String::from))
-                .collect();
+            let labels = &i.labels;
             if n == self.c.control
                 || self.plan_open(n)
                 || self.running(n)
-                || has(&labels, "tehas:running")
-                || has(&labels, "tehas:awaiting-merge")
-                || !has(&labels, "needs-human-attention")
+                || has(labels, "tehas:running")
+                || has(labels, "tehas:awaiting-merge")
+                || !has(labels, "needs-human-attention")
             {
                 continue;
             }
             let Some(Ok(q)) = self.s.issues.get(&n).and_then(|x| x.question.as_ref()) else {
                 continue;
             };
-            if q.get("kind").and_then(Value::as_str) != Some("park") {
+            if q.kind != "park" {
                 continue;
             }
-            let park = json!({"question": q.get("id").cloned().unwrap_or(Value::Null)});
-            if let Some(Ok(at)) = self.retry_ticked_at(n, &park) {
+            if let Some(Ok((_, at))) = self.retry_tick(n, Some(&q.id)) {
                 out.push((n, at));
             }
         }
@@ -877,12 +883,7 @@ impl<'a> Poll<'a> {
             if !self.order_stands(&label_state(ev, BLOCKED)) {
                 continue;
             }
-            let Some(nodes) = issue
-                .comments
-                .as_ref()
-                .and_then(|a| a.pointer("/data/repository/issue/comments/nodes"))
-                .and_then(Value::as_array)
-            else {
+            let Some(nodes) = issue.comments.as_ref().and_then(|c| c.listed()) else {
                 continue;
             };
             if newest_marker(nodes, self.c).is_none() {
@@ -926,17 +927,8 @@ impl<'a> Poll<'a> {
             if state.event() != "labeled" || !self.c.allowed(state.actor()) {
                 continue;
             }
-            let links = self
-                .work(n)
-                .pointer("/issue_dependencies_summary/blocked_by")
-                .and_then(Value::as_u64)
-                .unwrap_or(0);
-            let Some(nodes) = issue
-                .comments
-                .as_ref()
-                .and_then(|a| a.pointer("/data/repository/issue/comments/nodes"))
-                .and_then(Value::as_array)
-            else {
+            let links = self.work(n).map_or(0, |w| w.blocked_by);
+            let Some(nodes) = issue.comments.as_ref().and_then(|c| c.listed()) else {
                 continue;
             };
             let Some(marker) = newest_marker(nodes, self.c) else {
@@ -945,23 +937,11 @@ impl<'a> Poll<'a> {
             if links > 0 || !self.marker_hold(n, nodes).is_empty() {
                 continue;
             }
-            let at = |x: &Value| {
-                x.get("createdAt")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_string()
-            };
+            let at = |x: &Comment| x.created_text().unwrap_or_default().to_string();
             let since = at(marker);
             let said = nodes.iter().any(|x| {
-                x.get("body")
-                    .and_then(Value::as_str)
-                    .is_some_and(|b| b.contains(HOLD_CLEARED))
-                    && tehas_core::accounts::factorys(
-                        x.pointer("/author/login")
-                            .and_then(Value::as_str)
-                            .unwrap_or(""),
-                        &self.c.bot_login,
-                    )
+                x.body_text().is_some_and(|b| b.contains(HOLD_CLEARED))
+                    && tehas_core::accounts::factorys(&x.author.login, &self.c.bot_login)
                     && at(x) >= since
             });
             if !said {
@@ -975,7 +955,11 @@ impl<'a> Poll<'a> {
                 ));
                 continue;
             }
-            self.act(json!({"issue": n, "say": format!("Every issue the `tehas:blocked` marker names is closed, so the hold has cleared. Tehas takes `tehas:blocked` off when the cycle starts. Leave it on until then: it is what asks for the start when `tehas:ready` is not on.\n\n{HOLD_CLEARED}")}));
+            self.act(Action::Say {
+                issue: n,
+                say: "Every issue the `tehas:blocked` marker names is closed, so the hold has cleared. Tehas takes `tehas:blocked` off when the cycle starts. Leave it on until then: it is what asks for the start when `tehas:ready` is not on.".into(),
+                markers: vec![tehas_ports::Marker::HoldCleared],
+            });
         }
     }
 }
@@ -1004,14 +988,8 @@ impl<'a> Poll<'a> {
         match &self.s.host_starts {
             Some(hosts) => all.extend(hosts.iter().filter_map(|h| {
                 Some(Listed {
-                    number: Some(h.get("issue")?.as_u64()?),
-                    labels: h
-                        .get("labels")
-                        .and_then(Value::as_array)
-                        .into_iter()
-                        .flatten()
-                        .filter_map(|l| l.get("name")?.as_str().map(str::to_string))
-                        .collect(),
+                    number: Some(h.issue?),
+                    labels: h.labels.clone(),
                     state: "OPEN".into(),
                 })
             })),
@@ -1030,24 +1008,24 @@ impl<'a> Poll<'a> {
     }
 
     /// The approval `tehas start` recorded for `n` that waits for a start.
-    fn host_start(&self, n: u64) -> Option<Value> {
+    fn host_start(&self, n: u64) -> Option<HostStart> {
         self.s
             .host_starts
             .as_ref()?
             .iter()
-            .find(|h| h.get("issue").and_then(Value::as_u64) == Some(n))
+            .find(|h| h.issue == Some(n))
             .cloned()
     }
 
     /// host_ok: the host's approval binds the title and the text it was given
     /// on; a change since starts nothing until the host approves it again. The
     /// time of the approval, or None.
-    fn host_ok(&mut self, n: u64, h: &Value) -> Option<String> {
-        let at = h.get("at").and_then(Value::as_u64).map(iso)?;
+    fn host_ok(&mut self, n: u64, h: &HostStart) -> Option<String> {
+        let at = h.at.map(iso)?;
         let t = self.text(n);
-        let body = h.get("body_sha256").and_then(Value::as_str) == Some(&text::body_sha256(&t));
-        let title = match h.get("title_sha256").and_then(Value::as_str) {
-            Some(sum) => text::title_sha256(&t).as_deref() == Some(sum),
+        let body = h.body_sha256.as_deref() == Some(&text::body_sum(t.body_text()));
+        let title = match h.title_sha256.as_deref() {
+            Some(sum) => text::title_sum(t.title.as_deref()).as_deref() == Some(sum),
             None => true,
         };
         if body && title {
@@ -1076,23 +1054,13 @@ impl<'a> Poll<'a> {
         }
         let concurrency = c.concurrency;
         let free = concurrency - cycles;
-        let limit_state = s
-            .limit
-            .get("state")
-            .and_then(Value::as_str)
-            .unwrap_or("unreadable")
-            .to_string();
-        let limit_cycles = s.limit.get("cycles").and_then(Value::as_i64).unwrap_or(0);
-        let limit_reason = s
-            .limit
-            .get("reason")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
-        let limit_room: Option<i64> = match limit_state.as_str() {
-            "ok" => Some((limit_cycles - count).max(0)),
-            "expired" | "unreadable" => Some(0),
-            _ => None,
+        let limit_state = s.limit.state;
+        let limit_cycles = s.limit.cycles;
+        let limit_reason = s.limit.reason.clone();
+        let limit_room: Option<i64> = match limit_state {
+            LimitState::Ok => Some((limit_cycles - count).max(0)),
+            LimitState::Expired | LimitState::Unreadable => Some(0),
+            LimitState::None => None,
         };
         let limit_words = if limit_cycles == 1 {
             "1 cycle".to_string()
@@ -1101,8 +1069,7 @@ impl<'a> Poll<'a> {
         };
         // The plan of the file, read the way the dispatcher's other reader of
         // it does: a boolean or the text of one.
-        let limit_plan_off = matches!(s.limit.get("plan"), Some(Value::Bool(false)))
-            || s.limit.get("plan").and_then(Value::as_str) == Some("false");
+        let limit_plan_off = s.limit.plan_off;
         let with_reason = |r: &str| {
             if r.is_empty() {
                 String::new()
@@ -1122,11 +1089,10 @@ impl<'a> Poll<'a> {
         // answers with it later: the slice's text decides it, and only the
         // arms of `slice::room` name it.
         let mut slice_word = None;
-        match slice::usable(&s.slice, &c.reserve, &c.slice_containers) {
+        match s.slice.usable(&c.reserve, &c.slice_containers) {
             Ok(u) => {
                 ceiling_mb = u.ceiling_mb;
-                self.cycle_mb = u.ceiling_mb;
-                let r = slice::room(&s.slice, &u, &c.reserve, count as u64);
+                let r = s.slice.room(&u, &c.reserve, count as u64);
                 room_mem = r.room;
                 committed = r.committed;
                 slice_max = r.max;
@@ -1148,10 +1114,8 @@ impl<'a> Poll<'a> {
             Err(why) => slice_hold = format!("holding: {why}"),
         }
         let slice_ok = slice_hold.is_empty() && mem_why != "unreadable";
-        let limit_ok = limit_state != "expired" && limit_state != "unreadable";
-        let limit_plan_ok = limit_ok
-            && !matches!(s.limit.get("plan"), Some(Value::Bool(false)))
-            && s.limit.get("plan").and_then(Value::as_str) != Some("false");
+        let limit_ok = !matches!(limit_state, LimitState::Expired | LimitState::Unreadable);
+        let limit_plan_ok = limit_ok && !limit_plan_off;
         for line in s.endpoint_log.clone() {
             self.log(line);
         }
@@ -1199,14 +1163,16 @@ impl<'a> Poll<'a> {
         } else if matches!(s.disk_kb, Some(None)) {
             why = Some(Why::Disk);
             hold = "holding: the free disk space could not be read: no cycle starts".into();
-        } else if limit_state == "expired" {
+        } else if limit_state == LimitState::Expired {
             why = Some(Why::Limit);
-            hold =
-                format!(
+            hold = format!(
                 "holding: the limit expired at {}: nothing starts until it is set again or cleared",
-                s.limit.get("until").and_then(Value::as_str).unwrap_or("null")
+                match &s.limit.until {
+                    Until::At(t) => t.as_str(),
+                    Until::Unset | Until::Other => "null",
+                }
             );
-        } else if limit_state == "unreadable" {
+        } else if limit_state == LimitState::Unreadable {
             why = Some(Why::Limit);
             hold = format!(
                 "holding: the limit cannot be read: nothing starts until it is set again or cleared ({}/state/limit.json)",
@@ -1218,10 +1184,8 @@ impl<'a> Poll<'a> {
             // stays until a person clears it, so the line names the command
             // that frees the factory. Another limit under its own ceiling is
             // no drain and keeps its words.
-            let drained = limit_cycles == 0
-                && count == 0
-                && limit_plan_off
-                && s.limit.get("until").is_none_or(Value::is_null);
+            let drained =
+                limit_cycles == 0 && count == 0 && limit_plan_off && s.limit.until == Until::Unset;
             hold = format!(
                 "holding: the limit allows {limit_words} at once and {count} {} running{}{}",
                 if count == 1 { "is" } else { "are" },
@@ -1400,7 +1364,7 @@ impl<'a> Poll<'a> {
                 endpoint: (!s.endpoint.is_empty()).then(|| s.endpoint.clone()),
                 held: Vec::new(),
             });
-            self.d.reported_at = Some((self.d.actions.len(), self.d.log.len()));
+            self.d.plan.push(PlanStep::Report);
         }
         Ok(Room {
             want,
@@ -1444,22 +1408,12 @@ impl<'a> Poll<'a> {
             self.push_hold.clear();
             return false;
         };
-        if !host::push_fault_holds(fault) {
-            self.push_hold.clear();
-            return false;
-        }
-        let line = host::push_fault_line(fault);
-        let login = fault
-            .get("login")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
-        let who = if login.is_empty() {
+        let who = if fault.login.is_empty() {
             String::new()
         } else {
-            format!(" ({login})")
+            format!(" ({})", fault.login)
         };
-        self.push_hold = format!("holding: the sandbox cannot push: {line}{who}");
+        self.push_hold = format!("holding: the sandbox cannot push: {}{who}", fault.line);
         true
     }
 
@@ -1473,32 +1427,27 @@ impl<'a> Poll<'a> {
         if c.branch_check.is_empty() {
             return None;
         }
-        let answer = match &self.s.checks {
-            Some(a) => a.clone(),
+        let state = match &self.s.checks {
+            Some(check) => check.clone(),
             None => {
                 self.need("checks");
                 return None;
             }
         };
-        let state = answer.as_ref().and_then(check_state);
-        // None stands for the answer the poll could not read: the arm below
-        // that holds nothing, so it is named here rather than left to a
-        // catch-all.
-        let state = state.or(Some(Check::Unreadable));
         let (name, branch) = (&c.branch_check, &c.branch);
         // Exhaustive: a new state is a compile error here, never a fall
         // through to the arm that starts cycles.
         let (red, note) = match state {
-            Some(Check::Red(sha)) => (
+            Check::Red(sha) => (
                 Some((Why::Red, format!("holding: {branch} is red at {sha}"))),
                 String::new(),
             ),
-            Some(Check::Done(_)) => (None, String::new()),
-            Some(Check::Pending(sha)) => (
+            Check::Done(_) => (None, String::new()),
+            Check::Pending(sha) => (
                 None,
                 format!("the check {name} on {branch} at {sha} has not finished: cycles start"),
             ),
-            Some(Check::None) => (
+            Check::None => (
                 None,
                 format!("{branch} has no check named {name} on its head commit: cycles start"),
             ),
@@ -1507,7 +1456,7 @@ impl<'a> Poll<'a> {
             // note of the same words goes to state/branch-check, where the
             // manual sends a person for the branch's condition. The name is
             // quoted: an instance may set one with spaces in it.
-            Some(Check::Unknown(sha)) => {
+            Check::Unknown(sha) => {
                 let said = format!(
                     "the check {name:?} on {branch} at {sha} finished without saying it passed: cycles start"
                 );
@@ -1516,7 +1465,7 @@ impl<'a> Poll<'a> {
                 // the check that answers it. The hold itself is the same hold.
                 (Some((Why::UnknownGate, format!("holding: {said}"))), said)
             }
-            Some(Check::Unreadable) | None => (
+            Check::Unreadable => (
                 None,
                 format!("the check {name} on {branch} could not be read: cycles start"),
             ),
@@ -1529,81 +1478,9 @@ impl<'a> Poll<'a> {
             if !note.is_empty() {
                 self.log(note.clone());
             }
-            self.act(json!({"branch_note": note}));
+            self.act(Action::BranchNote(note));
         }
         red
-    }
-}
-
-/// What the poll reads of a check's runs on the branch's head. The words are
-/// the set the store pins in console/store/src/schema.sql
-/// (`red`|`done`|`pending`|`none`|`unreadable`), so this enum is the contract
-/// in both places.
-#[derive(Debug, PartialEq, Eq)]
-enum Check {
-    /// A run says it failed, timed out or could not start.
-    Red(String),
-    /// Every run says it passed.
-    Done(String),
-    /// A run has not finished.
-    Pending(String),
-    /// The branch's head has no run of that check at all.
-    None,
-    /// Every run finished and none says it passed: the poll cannot tell what
-    /// ended the gate, so nothing starts on it unsaid. Its sha is the head the
-    /// hold names.
-    Unknown(String),
-    /// The answer is no answer: no list of runs, or a head sha that is not one.
-    Unreadable,
-}
-
-/// The state of a branch's check runs, as the bash dispatcher read them. Of the
-/// conclusions GitHub answers, these three pass: `success`, `neutral` and
-/// `skipped`; these three are red: `failure`, `timed_out` and
-/// `startup_failure`. Every other conclusion, and a finished run that names
-/// none, is unknown: the gate holds. A conclusion GitHub adds later is a
-/// deliberate edit to one of the three lists beside this function, never a
-/// run that reads as green.
-fn check_state(a: &Value) -> Option<Check> {
-    let runs = a.get("check_runs")?.as_array()?;
-    if runs.is_empty() {
-        return Some(Check::None);
-    }
-    let sha_ok = |r: &Value| {
-        r.get("head_sha")
-            .and_then(Value::as_str)
-            .is_some_and(tehas_core::grammar::commit_id)
-    };
-    if !runs.iter().all(sha_ok) {
-        return None;
-    }
-    let sha = &runs[0]["head_sha"].as_str()?[..12];
-    // One walk of the runs: which of the four readings hold.
-    let mut any_red = false;
-    let mut all_done = true;
-    let mut all_passed = true;
-    for r in runs {
-        let finished = r.get("status").and_then(Value::as_str) == Some("completed");
-        let conclusion = r.get("conclusion").and_then(Value::as_str);
-        all_done &= finished;
-        if finished
-            && matches!(
-                conclusion,
-                Some("failure" | "timed_out" | "startup_failure")
-            )
-        {
-            any_red = true;
-        }
-        all_passed &= finished && matches!(conclusion, Some("success" | "neutral" | "skipped"));
-    }
-    if any_red {
-        Some(Check::Red(sha.into()))
-    } else if all_passed {
-        Some(Check::Done(sha.into()))
-    } else if all_done {
-        Some(Check::Unknown(sha.into()))
-    } else {
-        Some(Check::Pending(sha.into()))
     }
 }
 
@@ -1617,7 +1494,7 @@ impl<'a> Poll<'a> {
     }
 
     /// order_label: tehas:blocked stands when an allowed account
-    /// or the fixer applied it last and nobody took it off since.
+    /// or the millwright applied it last and nobody took it off since.
     fn order_label(&mut self, n: u64, label: &str) -> Step<bool> {
         let ev = self.events(n)?;
         let state = label_state(&ev, label);
@@ -1724,9 +1601,7 @@ impl<'a> Poll<'a> {
             // No start on record to follow: this one is the first.
             Some(Ok(None)) => Ok(chosen),
             // Only a record that names lean runs lean; any other runs classic.
-            Some(Ok(Some(r))) if Driver::of_record(&r) == Some(Driver::Lean) => {
-                Ok(Choice::Run(Driver::Lean))
-            }
+            Some(Ok(Some(r))) if r.driver == Some(Driver::Lean) => Ok(Choice::Run(Driver::Lean)),
             Some(Ok(Some(_))) => Ok(Choice::Run(Driver::Classic)),
         }
     }
@@ -1762,30 +1637,6 @@ impl<'a> Poll<'a> {
         }
     }
 
-    /// Whether the issue's text is the text of a record on the state store, as
-    /// `fixer_base` reads one: the base approval a fixer's or a refresh's start
-    /// rests on, or the record itself, and the sum of the body it bound, asked
-    /// of the same `edit` record `fixer_ok` summed. Nothing on record, or a
-    /// record that cannot be read, is no record: the question falls back to
-    /// whatever the body itself answers.
-    fn bound_to_a_record(&self, n: u64) -> bool {
-        let Some(Some(Ok(Some(record)))) = self.s.issues.get(&n).map(|i| i.approval.clone()) else {
-            return false;
-        };
-        // The one rule of `fixer_base`, so the two cannot disagree about which
-        // of the record's sums binds the text.
-        let rests = matches!(
-            record.get("how").and_then(Value::as_str),
-            Some("fixer" | "refresh")
-        );
-        let base = match record.get("rests_on") {
-            Some(b) if rests => b,
-            _ => &record,
-        };
-        base.get("body_sha256").and_then(Value::as_str)
-            == Some(text::body_sha256(&self.text(n)).as_str())
-    }
-
     /// The body a start reads its text from: the issue's own, as the page of
     /// the queue gave it. `edit` is the record an approval binds and `work`
     /// the REST issue; the read of the queue puts the same text in both, and a
@@ -1797,14 +1648,18 @@ impl<'a> Poll<'a> {
         let i = self.s.issues.get(&n)?;
         // A body that is there and no string answers `Some(None)`: the poll
         // ends rather than reading it as a body of no text.
-        fn read(rec: Option<&Map<String, Value>>) -> Option<Option<String>> {
-            match rec?.get("body") {
-                None | Some(Value::Null) => None,
-                Some(Value::String(b)) => Some(Some(b.clone())),
-                Some(_) => Some(None),
-            }
-        }
-        read(i.edit.as_ref()).or_else(|| read(i.work.as_ref().and_then(Value::as_object)))?
+        let read = |t: &Text| match t {
+            Text::None => None,
+            Text::Some(b) => Some(Some(b.clone())),
+            Text::Unreadable => Some(None),
+        };
+        i.edit
+            .as_ref()
+            .and_then(|e| read(&e.body))
+            .or_else(|| match i.work.as_ref()? {
+                Work::Issue(w) => read(&w.body),
+                Work::Unreadable => None,
+            })?
     }
 
     /// The labels that ask for a start come off, and the issue says why once:
@@ -1831,11 +1686,11 @@ impl<'a> Poll<'a> {
             return;
         }
         let names = format!("`{}`", off.join("` and `"));
-        self.act(json!({
-            "issue": n, "remove": off,
-            "fail": Self::label_fail(n, &off, &[]),
-            "say": format!("Tehas took {names} off this issue and started nothing: {why}"),
-        }));
+        self.act(Action::Label(
+            LabelChange::new(n, &off, Self::label_fail(n, &off, &[])).say(format!(
+                "Tehas took {names} off this issue and started nothing: {why}"
+            )),
+        ));
     }
 
     /// spec_ok: the last hold of a lean start. The driver reads only the
@@ -1845,28 +1700,10 @@ impl<'a> Poll<'a> {
     /// `tehas:lean` stays on, or the next `tehas:ready` would run classic in
     /// its place. Classic is asked nothing of the block, and a start that
     /// follows a record on purpose runs the driver of that record: a tick, an
-    /// outage retry, the fixer's `tehas:ready` and a refresh ask nothing new
-    /// of the body. Only a start that asks for a cycle is asked this question,
-    /// so `ask` is the label that asked it and always sits on the issue here.
-    ///
-    /// `follows_a_record` is not the flag `driver` is given two lines above for
-    /// the same start: that one says whose driver to run, this one says the body
-    /// may be asked nothing of because the start is bound to text a person
-    /// approved. The fixer path earns that at `fixer_grant`'s sum check on the
-    /// body it read, in another function, so the premise is checked here as well
-    /// as trusted: a start given the flag with no record behind it, or whose
-    /// text is no longer the record's, is asked for its block like any other.
-    /// A caller that cannot point at such a check must pass false.
-    fn spec_ok(
-        &mut self,
-        n: u64,
-        ask: &str,
-        labels: &[String],
-        follows_a_record: bool,
-    ) -> Step<bool> {
-        if follows_a_record && self.bound_to_a_record(n) {
-            return Ok(true);
-        }
+    /// outage retry and a refresh ask nothing new of the body. Only a start
+    /// that asks for a cycle is asked this question, so `ask` is the label
+    /// that asked it and always sits on the issue here.
+    fn spec_ok(&mut self, n: u64, ask: &str, labels: &[String]) -> Step<bool> {
         let Some(body) = self.body(n) else {
             return Err(self.fail(format!("ERROR: the text of #{n} could not be read"), 1));
         };
@@ -1882,25 +1719,6 @@ impl<'a> Poll<'a> {
             &why,
             &format!("its text holds no {} block", text::SPEC_INFO),
         );
-        Ok(false)
-    }
-
-    /// mark_ok: with the spec-pipe feature on, an issue whose body has a
-    /// `Spec:` line tehas cannot read starts nothing: the labels that asked
-    /// come off and the reason is said once. A body with no such line starts
-    /// as before. Off, the body is asked nothing.
-    fn mark_ok(&mut self, n: u64, ask: &str, labels: &[String]) -> Step<bool> {
-        if !self.c.spec_pipe {
-            return Ok(true);
-        }
-        let Some(body) = self.body(n) else {
-            return Err(self.fail(format!("ERROR: the text of #{n} could not be read"), 1));
-        };
-        let Err(why) = text::spec_mark(&body) else {
-            return Ok(true);
-        };
-        self.log(format!("skip #{n}: {why}"));
-        self.refuse_start(n, ask, labels, &text::no_mark_said(ask, &why), &why);
         Ok(false)
     }
 
@@ -1976,14 +1794,11 @@ impl<'a> Poll<'a> {
                 let Some(edit) = self.s.issues.get(&n).and_then(|i| i.edit.clone()) else {
                     return Err(self.unreadable(&format!("edit record of #{n}"), None));
                 };
-                let edit = Value::Object(edit);
-                let held = edit_holds(&edit, since, approver, &|w| c.allowed(w));
+                let held = edit_holds_of(&edit, since, approver, &|w| c.allowed(w));
                 // A history the poll asked for and GitHub did not give ends
                 // the poll, as an unread comment does.
-                if held.is_some() && edit_history_unread(&edit, &|w| c.allowed(w)) {
-                    let line = edit
-                        .pointer("/userContentEdits/line")
-                        .and_then(Value::as_str);
+                if held.is_some() && edit_history_unread_of(&edit, &|w| c.allowed(w)) {
+                    let line = edit.history.line();
                     return Err(self.unreadable(&format!("edit history of #{n}"), line));
                 }
                 held
@@ -2014,7 +1829,7 @@ impl<'a> Poll<'a> {
         }
         let (who, at) = standing_actor(&ev, label);
         if !self.c.allowed(&who) {
-            // The millwright's labels are answered by its grant.
+            // The millwright's labels are answered on the epic path alone.
             let granted = matches!(label, "tehas:ready" | "tehas:plan" | "tehas:refine");
             if !granted || !self.c.is_millwright(&who) {
                 self.deny("skip", n, label, &who);
@@ -2062,8 +1877,11 @@ impl<'a> Poll<'a> {
         if !self.planned(n, &who) {
             return Ok(Planned::No);
         }
-        let record = self.s.issues[&n].plan_start.clone().unwrap_or(Value::Null);
-        let by = record.get("by").and_then(Value::as_str).unwrap_or("");
+        let (by, sum) = match self.s.issues[&n].plan_start.clone() {
+            Some(PlanStart::Record { by, sum }) => (by, sum),
+            _ => (String::new(), None),
+        };
+        let by = by.as_str();
         let c = self.c;
         let credit = plan_credit(&ev, by, &|l| c.allowed(l), &|l| c.is_millwright(l));
         let Some(since) = credit else {
@@ -2081,7 +1899,9 @@ impl<'a> Poll<'a> {
             return Ok(self.plan_taken_off(n, "its text was changed since the plan was written"));
         }
         // The time cannot see a change made before the label went on.
-        if record.get("sum").and_then(Value::as_str) != Some(&text::plan_sum(&self.text(n))) {
+        let t = self.text(n);
+        let plan = text::plan_sum_of(t.title.as_deref().unwrap_or(""), t.body_text());
+        if sum.as_deref() != Some(plan.as_str()) {
             return Ok(self.plan_refused(n, "its title or text is not the plan tehas wrote"));
         }
         Ok(Planned::Go(by.to_string(), at))
@@ -2099,12 +1919,11 @@ impl<'a> Poll<'a> {
         if self.dry {
             self.log(format!("would take tehas:ready off #{n}"));
         } else {
-            self.act(json!({
-                "issue": n, "remove": ["tehas:ready"],
-                "fail": Self::label_fail(n, &["tehas:ready"], &[]),
-                "say": format!("Tehas took `tehas:ready` off this issue and started nothing: {why}. Read it, and an account named in `TEHAS_ALLOWED_LABELERS` applies `tehas:ready` to build it."),
-            }));
-            self.act(json!({"plan_start_drop": n}));
+            self.act(Action::Label(
+                LabelChange::new(n, &["tehas:ready"], Self::label_fail(n, &["tehas:ready"], &[]))
+                    .say(format!("Tehas took `tehas:ready` off this issue and started nothing: {why}. Read it, and an account named in `TEHAS_ALLOWED_LABELERS` applies `tehas:ready` to build it.")),
+            ));
+            self.act(Action::PlanStartDrop(n));
         }
         Planned::Refused
     }
@@ -2118,12 +1937,11 @@ impl<'a> Poll<'a> {
             ));
             return;
         }
-        self.act(json!({
-            "issue": n, "remove": [label],
-            "fail": Self::label_fail(n, &[label], &[]),
-            "log": format!("clear #{n}: {label} off, applied by '{by}' who may not authorise work here"),
-            "say": format!("Tehas took `{label}` off this issue. It was applied by `{by}`, an account that may not authorise work in this factory, so nothing was started and the issue is not queued. To ask again, an account named in `TEHAS_ALLOWED_LABELERS` applies `{label}`."),
-        }));
+        self.act(Action::Label(
+            LabelChange::new(n, &[label], Self::label_fail(n, &[label], &[]))
+                .log(format!("clear #{n}: {label} off, applied by '{by}' who may not authorise work here"))
+                .say(format!("Tehas took `{label}` off this issue. It was applied by `{by}`, an account that may not authorise work in this factory, so nothing was started and the issue is not queued. To ask again, an account named in `TEHAS_ALLOWED_LABELERS` applies `{label}`.")),
+        ));
     }
 
     /// links_ok: whether the issue's native blocked-by links let it start.
@@ -2133,11 +1951,7 @@ impl<'a> Poll<'a> {
     /// without the field holds nothing, so the marked comment of `blocked_ok`
     /// is all that names blockers there.
     fn links_ok(&mut self, n: u64) -> bool {
-        let open = self
-            .work(n)
-            .pointer("/issue_dependencies_summary/blocked_by")
-            .and_then(Value::as_u64)
-            .unwrap_or(0);
+        let open = self.work(n).map_or(0, |w| w.blocked_by);
         if open == 0 {
             return true;
         }
@@ -2158,10 +1972,7 @@ impl<'a> Poll<'a> {
         let Some(answer) = self.s.issues.get(&n).and_then(|i| i.comments.clone()) else {
             return Err(self.comments_unread(n));
         };
-        let Some(nodes) = answer
-            .pointer("/data/repository/issue/comments/nodes")
-            .and_then(Value::as_array)
-        else {
+        let Some(nodes) = answer.listed() else {
             return Err(self.fail(format!("ERROR: unreadable comments of #{n}"), 1));
         };
         let why = self.marker_hold(n, nodes);
@@ -2174,22 +1985,15 @@ impl<'a> Poll<'a> {
 
     /// What the newest marker comment of `n` still holds it on, empty when
     /// every blocker it names is closed.
-    fn marker_hold(&self, n: u64, nodes: &[Value]) -> String {
+    fn marker_hold(&self, n: u64, nodes: &[Comment]) -> String {
         match newest_marker(nodes, self.c) {
             None => LABEL_ALONE.to_string(),
             Some(x) => {
-                let author = x
-                    .pointer("/author/login")
-                    .and_then(Value::as_str)
-                    .unwrap_or("");
-                let editor = x
-                    .pointer("/editor/login")
-                    .and_then(Value::as_str)
-                    .unwrap_or("");
-                if !x.get("lastEditedAt").unwrap_or(&Value::Null).is_null() && editor != author {
+                let editor = x.editor_login();
+                if x.edited && editor != x.author.login {
                     format!("the newest comment that names its blockers was edited by '{editor}'")
                 } else {
-                    match blockers(x.get("body").and_then(Value::as_str).unwrap_or("")) {
+                    match blockers(x.body_text().unwrap_or("")) {
                         None => "the newest comment that names its blockers cannot be read".into(),
                         Some(list) => {
                             let states = &self.s.issues[&n].blockers;
@@ -2224,22 +2028,14 @@ impl<'a> Poll<'a> {
             let repo = self.c.repo.clone();
             return Err(self.fail(format!("ERROR: gh api repos/{repo}/issues/{n} failed"), 1));
         };
-        let kind = if !w.is_object() {
-            "unreadable"
-        } else if !w.get("pull_request").unwrap_or(&Value::Null).is_null() {
-            "pr"
-        } else {
-            match w
-                .get("state")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_lowercase()
-                .as_str()
-            {
+        let kind = match w {
+            Work::Unreadable => "unreadable",
+            Work::Issue(w) if w.is_pull => "pr",
+            Work::Issue(w) => match w.state.as_deref().unwrap_or("").to_lowercase().as_str() {
                 "open" => "open",
                 "closed" => "closed",
                 _ => "unreadable",
-            }
+            },
         };
         match kind {
             "open" => Ok(true),
@@ -2275,10 +2071,9 @@ impl<'a> Poll<'a> {
         };
         Ok(prs
             .iter()
-            .find(|p| p.get("state").and_then(Value::as_str) == Some("OPEN"))
-            .and_then(|p| p.get("url").and_then(Value::as_str))
-            .filter(|u| !u.is_empty())
-            .map(str::to_string))
+            .find(|p| p.open)
+            .map(|p| p.url.clone())
+            .filter(|u| !u.is_empty()))
     }
 
     /// The address of an open pull request that names the issue with a closing
@@ -2308,40 +2103,37 @@ impl<'a> Poll<'a> {
             "skip #{n}: pull request {url} is open and closes it"
         ));
         if !self.dry && ask != HOST {
-            self.act(json!({
-                "issue": n, "remove": [ask],
-                "fail": Self::label_fail(n, &[ask], &[]),
-                "say": format!("Tehas took `{ask}` off this issue and started nothing: {url} is open and closes it. Merge or close that pull request, then apply `tehas:ready` if work is still needed."),
-            }));
+            self.act(Action::Label(
+                LabelChange::new(n, &[ask], Self::label_fail(n, &[ask], &[]))
+                    .say(format!("Tehas took `{ask}` off this issue and started nothing: {url} is open and closes it. Merge or close that pull request, then apply `tehas:ready` if work is still needed.")),
+            ));
         }
     }
 
-    /// The answer work_ok read for the issue.
-    fn work(&self, n: u64) -> Value {
-        self.s
-            .issues
-            .get(&n)
-            .and_then(|i| i.work.clone())
-            .unwrap_or(Value::Null)
+    /// The answer work_ok read for the issue, when it is an object.
+    fn work(&self, n: u64) -> Option<&WorkIssue> {
+        match self.s.issues.get(&n)?.work.as_ref()? {
+            Work::Issue(w) => Some(w),
+            Work::Unreadable => None,
+        }
     }
 
     /// The edit record unchanged_since read, the text an approval binds.
-    fn text(&self, n: u64) -> Value {
+    fn text(&self, n: u64) -> EditRecord {
         self.s
             .issues
             .get(&n)
             .and_then(|i| i.edit.clone())
-            .map(Value::Object)
-            .unwrap_or_else(|| json!({}))
+            .unwrap_or_default()
     }
 
     /// epic_ok: an issue with open sub-issues is a plan, never started. Only
     /// the label that asked for the cycle comes off.
     fn epic_ok(&mut self, n: u64, ask: &str, labels: &[String]) -> bool {
-        let w = self.work(n);
-        let sum = w.get("sub_issues_summary");
-        let count = |k: &str| sum.and_then(|s| s.get(k)).and_then(Value::as_f64);
-        let (Some(total), Some(done)) = (count("total"), count("completed")) else {
+        let sum = self.work(n).and_then(|w| w.sub_issues.as_ref());
+        let (Some(total), Some(done)) =
+            (sum.and_then(|s| s.total.f), sum.and_then(|s| s.completed.f))
+        else {
             return true;
         };
         let open = total - done;
@@ -2364,11 +2156,10 @@ impl<'a> Poll<'a> {
         if self.dry {
             self.log(format!("would take {ask} off #{n}: it is an epic"));
         } else {
-            self.act(json!({
-                "issue": n, "remove": [ask],
-                "fail": Self::label_fail(n, &[ask], &[]),
-                "say": format!("Tehas took `{ask}` off this issue and started nothing. It has {open} {word} open, so it is an epic: a plan, not a change. An epic is never started. {}", self.epic_next(n, ask)),
-            }));
+            let say = format!("Tehas took `{ask}` off this issue and started nothing. It has {open} {word} open, so it is an epic: a plan, not a change. An epic is never started. {}", self.epic_next(n, ask));
+            self.act(Action::Label(
+                LabelChange::new(n, &[ask], Self::label_fail(n, &[ask], &[])).say(say),
+            ));
         }
         false
     }
@@ -2397,20 +2188,18 @@ impl<'a> Poll<'a> {
     /// every open issue, so a closed epic is not in it.
     fn epic_stands(&self, p: u64) -> Option<(String, String)> {
         let i = self.s.issues.get(&p)?;
-        let w = i.work.as_ref()?;
-        if w.get("state").and_then(Value::as_str) != Some("open") {
+        let w = self.work(p)?;
+        if w.state.as_deref() != Some("open") {
             return None;
         }
-        let sum = w.get("sub_issues_summary")?;
-        let count = |k: &str| sum.get(k).and_then(Value::as_u64);
-        if count("total")? <= count("completed")? {
+        let sum = w.sub_issues.as_ref()?;
+        if sum.total.u? <= sum.completed.u? {
             return None;
         }
-        let held = w
-            .get("labels")
-            .and_then(Value::as_array)?
-            .iter()
-            .any(|l| l.get("name").and_then(Value::as_str) == Some("needs-human-attention"));
+        let Labels::Names(names) = &w.labels else {
+            return None;
+        };
+        let held = has(names, "needs-human-attention");
         if held {
             return None;
         }
@@ -2429,7 +2218,7 @@ impl<'a> Poll<'a> {
         if !self.c.millwright_epics || self.c.millwright.is_empty() {
             return Ok(EpicPart::None);
         }
-        let Some(p) = self.work(n).get("parent").and_then(Value::as_u64) else {
+        let Some(p) = self.work(n).and_then(|w| w.parent) else {
             return Ok(EpicPart::None);
         };
         let Some((by, at)) = self.epic_stands(p) else {
@@ -2437,12 +2226,8 @@ impl<'a> Poll<'a> {
         };
         let labels: Vec<String> = self
             .work(n)
-            .get("labels")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(|l| l.get("name").and_then(Value::as_str).map(str::to_string))
-            .collect();
+            .map(|w| w.labels.names().to_vec())
+            .unwrap_or_default();
         let refuse = |why: String| {
             Ok(EpicPart::Refused(format!(
                 "its epic #{p} is approved, but {why}"
@@ -2458,29 +2243,23 @@ impl<'a> Poll<'a> {
         let t = self.text(n);
         // GitHub answers null for a text never edited. A record without the
         // field, or with something else in it, was not read and grants nothing.
-        let edited = match t.get("lastEditedAt") {
-            Some(Value::Null) => false,
-            Some(Value::String(_)) => true,
-            _ => {
+        let edited = match t.last_edited {
+            Stamp::Never => false,
+            Stamp::At(_) => true,
+            Stamp::Unread => {
                 return refuse(
                     "whether its text was changed since it was written could not be read".into(),
                 )
             }
         };
-        let login = |k: &str| {
-            t.pointer(&format!("/{k}/login"))
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string()
-        };
-        let author = login("author");
+        let author = t.author.clone();
         if !ours(&author) {
             return refuse(format!(
                 "its author {} is neither tehas nor named in `TEHAS_ALLOWED_LABELERS`",
                 or_unknown(&author)
             ));
         }
-        let editor = login("editor");
+        let editor = t.editor.clone();
         if edited && !ours(&editor) {
             return refuse(format!(
                 "its text was last changed by {}",
@@ -2488,9 +2267,9 @@ impl<'a> Poll<'a> {
             ));
         }
         // Every edit counts, not only the last.
-        if let Some(who) = edited.then(|| edit_holds(&t, "", "", &ours)).flatten() {
-            if edit_history_unread(&t, &ours) {
-                let line = t.pointer("/userContentEdits/line").and_then(Value::as_str);
+        if let Some(who) = edited.then(|| edit_holds_of(&t, "", "", &ours)).flatten() {
+            if edit_history_unread_of(&t, &ours) {
+                let line = t.history.line();
                 return Err(self.unreadable(&format!("edit history of #{n}"), line));
             }
             return refuse(format!("its text was changed by {who}"));
@@ -2503,17 +2282,27 @@ impl<'a> Poll<'a> {
 
     /// epic_ready: the millwright's tehas:ready, applied at `at`, on the
     /// first cycle of an approved epic's sub-issue. None when no epic stands
-    /// over it or a cycle of it was approved before, which the fixer's grant
-    /// decides as for any issue; Some(None) with the label off and the
-    /// reason said.
+    /// over it or a cycle of it was approved before; Some(None) with the label
+    /// off and the reason said, or kept while its approvals are not read.
     fn epic_ready(&mut self, n: u64, who: &str, at: &str) -> Step<Option<Option<EpicGrant>>> {
-        if !matches!(self.s.issues.get(&n), Some(i) if matches!(i.approval, Some(Ok(None)))) {
-            return Ok(None);
+        match self.s.issues.get(&n).map(|i| &i.approval) {
+            Some(Some(Ok(None))) => {}
+            Some(Some(Err(()))) => {
+                self.log(format!(
+                    "skip #{n}: tehas:ready from the millwright waits: its approvals on the state store could not be read"
+                ));
+                return Ok(Some(None));
+            }
+            None | Some(None) => {
+                self.need("approval");
+                return Ok(Some(None));
+            }
+            Some(Some(Ok(Some(_)))) => return Ok(None),
         }
         match self.epic_part(n)? {
             EpicPart::None => Ok(None),
             EpicPart::Refused(why) => {
-                self.fixer_refused(n, &why);
+                self.millwright_refused(n, &why);
                 Ok(Some(None))
             }
             EpicPart::Granted(g) => {
@@ -2521,8 +2310,8 @@ impl<'a> Poll<'a> {
                     n,
                     at,
                     who,
-                    "the fixer applied tehas:ready",
-                    "the fixer or a person applies it again",
+                    "the millwright applied tehas:ready",
+                    "the millwright or a person applies it again",
                 )? {
                     return Ok(Some(None));
                 }
@@ -2537,11 +2326,10 @@ impl<'a> Poll<'a> {
         let Some(max) = self.c.size_max_files else {
             return Ok(true);
         };
-        let w = self.work(n);
-        let body = match w.get("body") {
-            None | Some(Value::Null) => "",
-            Some(Value::String(b)) => b,
-            Some(_) => {
+        let body = match self.work(n).map(|w| &w.body) {
+            None | Some(Text::None) => "",
+            Some(Text::Some(b)) => b,
+            Some(Text::Unreadable) => {
                 return Err(self.fail(format!("ERROR: the size of #{n} could not be read"), 1))
             }
         };
@@ -2556,11 +2344,11 @@ impl<'a> Poll<'a> {
         if self.dry {
             self.log(format!("would take {ask} off #{n} and add needs-human-attention: its body names {files} files, more than TEHAS_SIZE_MAX_FILES ({max})"));
         } else {
-            self.act(json!({
-                "issue": n, "remove": [ask], "add": ["needs-human-attention"],
-                "fail": Self::label_fail(n, &[ask], &["needs-human-attention"]),
-                "say": format!("Tehas took `{ask}` off this issue, put `needs-human-attention` on it and started nothing. Its body names {files} files, more than the {max} of `TEHAS_SIZE_MAX_FILES`, so one cycle would be asked for too many changes at once. Narrow this issue to the part of it one cycle can make, or split it into issues of that size, and apply `tehas:ready` again to start one of them."),
-            }));
+            self.act(Action::Label(
+                LabelChange::new(n, &[ask], Self::label_fail(n, &[ask], &["needs-human-attention"]))
+                    .put_on(&["needs-human-attention"])
+                    .say(format!("Tehas took `{ask}` off this issue, put `needs-human-attention` on it and started nothing. Its body names {files} files, more than the {max} of `TEHAS_SIZE_MAX_FILES`, so one cycle would be asked for too many changes at once. Narrow this issue to the part of it one cycle can make, or split it into issues of that size, and apply `tehas:ready` again to start one of them.")),
+            ));
         }
         Ok(false)
     }
@@ -2572,11 +2360,10 @@ impl<'a> Poll<'a> {
         if !self.c.work_images {
             return Ok(true);
         }
-        let w = self.work(n);
-        let linked = match w.get("body") {
-            None | Some(Value::Null) => false,
-            Some(Value::String(b)) => text::links(b) > 0,
-            Some(_) => {
+        let linked = match self.work(n).map(|w| &w.body) {
+            None | Some(Text::None) => false,
+            Some(Text::Some(b)) => text::links(b) > 0,
+            Some(Text::Unreadable) => {
                 return Err(self.fail(
                     format!("ERROR: the text of #{n} could not be read for its links"),
                     1,
@@ -2622,11 +2409,7 @@ impl<'a> Poll<'a> {
     /// image_missing_ok: a text that promises a file and links none waits for
     /// its owner, with nothing on the issue changed.
     fn image_missing_ok(&mut self, n: u64) -> bool {
-        let w = self.work(n);
-        if w.is_null() {
-            return true;
-        }
-        let Some(word) = text::promise(&w) else {
+        let Some(word) = self.work(n).and_then(|w| text::promise_of(&w.strings)) else {
             return true;
         };
         self.log(format!("hold #{n}: its text says {word} and links no attachment, so the cycle would be given none; attach the file or write out what it shows, before applying `tehas:ready`"));
@@ -2634,16 +2417,8 @@ impl<'a> Poll<'a> {
     }
 
     /// park_holds: a fresh label on the very body the last cycle parked on
-    /// starts nothing. Said on the issue once a park. The millwright's own
-    /// label, applied at `fixer_at` within its grant, is lifted by a fresh
-    /// `action=change` comment when the instance gives a cycle the note
-    /// (#1130): `lift` then carries that comment for the start.
-    fn park_holds(
-        &mut self,
-        n: u64,
-        fixer_at: Option<&str>,
-        lift: &mut Option<Value>,
-    ) -> Step<bool> {
+    /// starts nothing. Said on the issue once a park.
+    fn park_holds(&mut self, n: u64) -> Step<bool> {
         let Some(park) = self.s.issues.get(&n).and_then(|i| i.park.clone()) else {
             self.need("park");
             return Ok(true);
@@ -2664,67 +2439,36 @@ impl<'a> Poll<'a> {
                 ))
             }
         };
-        let Some(p) = park.filter(|p| p.is_object()) else {
+        let Some(p) = park else {
             return Ok(false);
         };
-        let sum = p.get("body_sha256").and_then(Value::as_str).unwrap_or("");
+        let sum = p.body_sha256.as_str();
         let hex = sum.len() == 64 && sum.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
-        if p.get("reason").and_then(Value::as_str) == Some("provider-outage")
-            || p.get("retries").and_then(Value::as_f64) != Some(0.0)
-            || !hex
-        {
+        if p.reason == "provider-outage" || !p.fresh || !hex {
             return Ok(false);
         }
-        if text::body_sha256(&self.text(n)) != sum {
+        if text::body_sum(self.text(n).body_text()) != sum {
             return Ok(false);
         }
-        // As `tostring` and `read -r` leave it: no reason is "null", and
-        // only its first line counts, trimmed of spaces and tabs.
-        let reason = match p.get("reason") {
-            None => "null".to_string(),
-            Some(Value::String(r)) => r.clone(),
-            Some(r) => r.to_string(),
-        };
-        let cap = reason
+        // As `read -r` leaves it: only its first line counts, trimmed of
+        // spaces and tabs.
+        let cap = p
+            .reason
             .split('\n')
             .next()
             .unwrap_or("")
             .trim_matches([' ', '\t']);
         let cap = if cap.is_empty() { "nothing" } else { cap }.to_string();
-        // The way round a park open to the millwright alone: its own guidance
-        // comment says the next run is not the run that stopped. The grant was
-        // reached before this, and the note reaches a cycle only where the
-        // instance gives it images or files. A read that failed proves no note
-        // either way: the hold stays, untold, and the next poll asks again.
-        if let Some(at) = fixer_at.filter(|_| self.c.work_images || self.c.work_files) {
-            let read = self
-                .s
-                .issues
-                .get(&n)
-                .and_then(|i| i.comments.as_ref())
-                .and_then(|list| crate::apply::start::change_note(list, n, &self.c.millwright, at));
-            let Some(found) = read else {
-                self.log(format!(
-                    "hold #{n}: its last cycle parked on {cap} and the body has not changed since, and the fixer's comments could not be read"
-                ));
-                self.held_parked(n, &cap);
-                return Ok(true);
-            };
-            if let Some(note) = found {
-                *lift = Some(note);
-                self.log(format!(
-                    "lift #{n}: its last cycle parked on {cap} and the body has not changed since, lifted on the fixer's guidance comment"
-                ));
-                return Ok(false);
-            }
-        }
         // A Retry ticked in the park's own question is the new approval the
         // hold waits for, also once the question label is off (#1829). A read
         // that failed proves no tick: the hold stays, untold.
-        match self.retry_ticked(n, &p) {
+        match self
+            .retry_tick(n, p.question.as_deref())
+            .map(|r| r.map(|(by, _)| by))
+        {
             Some(Ok(by)) => {
                 self.log(format!(
-                    "lift #{n}: its last cycle parked on {cap} and the body has not changed since, lifted on the Retry {by} ticked"
+                    "lift #{n}: its last cycle parked on {cap} and the body has not changed since, lifted on the retry {by} answered"
                 ));
                 return Ok(false);
             }
@@ -2737,25 +2481,34 @@ impl<'a> Poll<'a> {
             }
             None => {}
         }
-        // With no question on record no tick can start the park (rule 4
-        // unticks it and points at the label), so the label is not held.
-        let asked = match p.get("question") {
-            Some(Value::Number(_)) => true,
-            Some(Value::String(s)) => !s.is_empty(),
-            _ => false,
-        };
-        if !asked {
+        // A develop timeout on the same text twice offers no retry and asks
+        // nothing: only a new text releases it.
+        if p.question.is_none() && cap == "child-timeout:develop" {
+            if !p.told && !self.dry {
+                self.act(Action::ParkTold {
+                    issue: n,
+                    say: format!("Not started: the last cycle ran out of time in develop twice on this text, so it offers no retry: {}.", tehas_core::hold::HELD_PARKED_EDIT),
+                });
+            }
             self.log(format!(
-                "lift #{n}: its last cycle parked on {cap} and the body has not changed since, lifted as its park has no question on record to tick"
+                "hold #{n}: its last cycle parked on {cap} twice on the same text, and the body has not changed since"
+            ));
+            self.held_parked_as(n, &cap, tehas_core::hold::HELD_PARKED_EDIT);
+            return Ok(true);
+        }
+        // With no question on record no reply can start the park, so the
+        // label is not held.
+        if p.question.is_none() {
+            self.log(format!(
+                "lift #{n}: its last cycle parked on {cap} and the body has not changed since, lifted as its park has no question on record to answer"
             ));
             return Ok(false);
         }
-        let told = !p.get("told_at").unwrap_or(&Value::Null).is_null();
-        if !told && !self.dry {
-            self.act(json!({
-                "issue": n, "park_told": true,
-                "say": format!("Not started: the last cycle parked on `{cap}` and the issue text has not changed since. Edit the body, or tick Retry in the park comment."),
-            }));
+        if !p.told && !self.dry {
+            self.act(Action::ParkTold {
+                issue: n,
+                say: format!("Not started: the last cycle parked on `{cap}` and the issue text has not changed since. Edit the body, or reply to the park comment with the word of one of its retries."),
+            });
         }
         self.log(format!(
             "hold #{n}: its last cycle parked on {cap} and the body has not changed since"
@@ -2764,59 +2517,52 @@ impl<'a> Poll<'a> {
         Ok(true)
     }
 
-    /// retry_ticked: who ticked a Retry box in the question on record of the
-    /// park `p`, when one tick of an allowed account did. None when the park
-    /// has no question or nothing in it counts; Some(Err) when its comments
-    /// could not be read.
-    fn retry_ticked(&self, n: u64, p: &Value) -> Option<Result<String, ()>> {
-        self.retry_tick(n, p)
-            .map(|r| r.map(|t| t["by"].as_str().unwrap_or("").to_string()))
-    }
-
-    /// When the Retry that retry_ticked reads was ticked.
-    fn retry_ticked_at(&self, n: u64, p: &Value) -> Option<Result<String, ()>> {
-        self.retry_tick(n, p)
-            .map(|r| r.map(|t| t["at"].as_str().unwrap_or("").to_string()))
-    }
-
-    /// The tick of retry_ticked, as questions::answer reads it.
-    fn retry_tick(&self, n: u64, p: &Value) -> Option<Result<Value, ()>> {
-        let qid = match p.get("question") {
-            Some(Value::String(s)) if !s.is_empty() => s.clone(),
-            Some(Value::Number(x)) => x.to_string(),
-            _ => return None,
-        };
+    /// retry_tick: who ticked a Retry box in the question `qid` on record
+    /// of a park and when, as questions::answer reads it, when one tick of an
+    /// allowed account did; an answer `tehas answer` gave counts as the box
+    /// it stands for. None when the park has no question or nothing in it
+    /// counts; Some(Err) when its comments could not be read.
+    fn retry_tick(&self, n: u64, qid: Option<&str>) -> Option<Result<(String, String), ()>> {
+        let qid = qid.filter(|q| !q.is_empty())?;
         let Some(comments) = self.s.issues.get(&n).and_then(|i| i.comments.as_ref()) else {
             return Some(Err(()));
         };
-        let Some(ans) = crate::questions::answer(
-            comments,
-            &self.bot,
-            self.s.bot_id,
-            &self.c.allowed,
-            &qid,
-            &self.c.millwright,
-        ) else {
+        let Some(ans) = comments.or_none().and_then(|c| {
+            crate::questions::answer_of(
+                c,
+                &self.bot,
+                self.s.bot_id,
+                &self.c.allowed,
+                qid,
+                &self.c.millwright,
+            )
+        }) else {
             return Some(Err(()));
         };
-        if ans["asked"] != json!(true)
-            || ans["issue"] != json!(n)
-            || ans["kind"] != json!("park")
-            || ans["tick"]["status"] != json!("one")
+        let crate::questions::Answer::Asked(mut ans) = ans else {
+            return None;
+        };
+        let given = self.s.issues.get(&n).and_then(|i| i.answer.as_ref());
+        crate::answer::overlay(&mut ans, given, |by| self.c.allowed(by));
+        if ans.issue_number() != Some(n)
+            || ans.kind != "park"
+            || ans.tick.status != crate::questions::Status::One
         {
             return None;
         }
-        ans["tick"]["index"]
-            .as_u64()
-            .and_then(|i| ans["labels"].get(usize::try_from(i).ok()?))
-            .and_then(Value::as_str)
+        ans.ticked_label()
             .and_then(tehas_core::question::retry_of)?;
-        Some(Ok(ans["tick"].clone()))
+        Some(Ok((ans.tick.by.clone(), ans.tick.at.clone())))
     }
 
     /// The park's hold of `n` goes into the poll's report, so status names
     /// the issue the queue would otherwise show as next.
     fn held_parked(&mut self, n: u64, cap: &str) {
+        self.held_parked_as(n, cap, tehas_core::hold::HELD_PARKED_CLEAR);
+    }
+
+    /// held_parked with what releases it said as `clear`.
+    fn held_parked_as(&mut self, n: u64, cap: &str, clear: &str) {
         let Some(r) = self.d.report.as_mut() else {
             return;
         };
@@ -2828,235 +2574,52 @@ impl<'a> Poll<'a> {
             issue: n,
             why: HELD_PARKED,
             text: text.chars().take(HELD_TEXT_MAX).collect(),
-            clear: "edit the body, or tick Retry in the park comment".into(),
+            clear: clear.into(),
         });
     }
 
-    /// fixer_ok: the fixer's tehas:ready, applied at `at`. The person's
-    /// approval it rests on and the count of fixer starts with this one, or
-    /// None with the label off and the reason said. With the feed on, an
-    /// issue never approved may rest on its author instead (feed_ok).
-    fn fixer_ok(
-        &mut self,
-        n: u64,
-        who: &str,
-        at: &str,
-        labels: &[String],
-    ) -> Step<Option<(Value, u64)>> {
-        if !self.unchanged_since(
-            n,
-            at,
-            who,
-            "the fixer applied tehas:ready",
-            "the fixer or a person applies it again",
-        )? {
-            return Ok(None);
-        }
-        if n != self.c.control && !matches!(self.s.issues.get(&n), Some(i) if i.approval.is_some())
-        {
-            self.need("approval");
-            return Ok(None);
-        }
-        let sum = text::body_sha256(&self.text(n));
-        let never =
-            matches!(self.s.issues.get(&n), Some(i) if matches!(i.approval, Some(Ok(None))));
-        if self.c.millwright_feed && never && n != self.c.control {
-            return self.feed_ok(n, &sum, labels);
-        }
-        let why = match self.fixer_grant(n, &sum) {
-            Ok((base, count)) => {
-                let by = base["by"].as_str().unwrap_or("").to_string();
-                let since = base["at"].as_str().unwrap_or("").to_string();
-                let approver = base_approver(&base).to_string();
-                if self.unchanged_since(
-                    n,
-                    &since,
-                    &approver,
-                    &format!("{by} approved it"),
-                    "a person applies tehas:ready",
-                )? {
-                    return Ok(Some((base, count)));
-                }
-                format!("its title or text was changed since {by} approved it")
-            }
-            Err((why, true)) => {
-                self.log(format!(
-                    "skip #{n}: tehas:ready from the fixer waits: {why}"
-                ));
-                return Ok(None);
-            }
-            Err((why, false)) => why,
-        };
-        self.fixer_refused(n, &why);
-        Ok(None)
-    }
-
-    /// The fixer's tehas:ready comes off, and the issue says why.
-    fn fixer_refused(&mut self, n: u64, why: &str) {
+    /// The millwright's tehas:ready comes off, and the issue says why.
+    fn millwright_refused(&mut self, n: u64, why: &str) {
         self.log(format!(
-            "skip #{n}: tehas:ready from the fixer starts nothing: {why}"
+            "skip #{n}: tehas:ready from the millwright starts nothing: {why}"
         ));
         if self.dry {
             self.log(format!("would take tehas:ready off #{n}"));
         } else {
-            self.act(json!({
-                "issue": n, "remove": ["tehas:ready"],
-                "fail": Self::label_fail(n, &["tehas:ready"], &[]),
-                "say": format!("Tehas took `tehas:ready` off this issue and started nothing. The fixer applied it, and the fixer may not start this issue: {why}. A person decides now: an account named in `TEHAS_ALLOWED_LABELERS` applies `tehas:ready` to start a cycle."),
-            }));
-        }
-    }
-
-    /// feed_ok: the millwright's tehas:ready on an issue no person approved a
-    /// cycle of, under TEHAS_MILLWRIGHT_FEED. A person wrote it, and the text
-    /// is still theirs: the start rests on that. Some(base, 1), or None with
-    /// the label off and the reason said, or kept when the cap only defers it.
-    fn feed_ok(&mut self, n: u64, sum: &str, labels: &[String]) -> Step<Option<(Value, u64)>> {
-        let Some(running) = self.s.fed else {
-            self.log(format!(
-                "skip #{n}: tehas:ready from the fixer waits: the fed cycles running could not be counted"
-            ));
-            return Ok(None);
-        };
-        let max = self.c.millwright_max_feeds.max(0) as u64;
-        if running + self.fed_picked >= max {
-            self.log(format!(
-                "wait #{n}: {} fed cycles run, TEHAS_MILLWRIGHT_MAX_FEEDS is {max}",
-                running + self.fed_picked
-            ));
-            return Ok(None);
-        }
-        let t = self.text(n);
-        let author = t
-            .pointer("/author/login")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
-        let written = t
-            .get("createdAt")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
-        let held = MILLWRIGHT_HELD.into_iter().find(|l| has(labels, l));
-        let ev = self.events(n)?;
-        let c = self.c;
-        let undone = ev
-            .iter()
-            .find(|e| e.event == "unlabeled" && e.label == "tehas:ready" && c.allowed(&e.actor))
-            .map(|e| e.actor.clone());
-        let why = if !self.c.allowed(&author) {
-            Some(format!(
-                "no person approved a cycle of it, and its author {} is not named in `TEHAS_ALLOWED_LABELERS`",
-                or_unknown(&author)
-            ))
-        } else if written.is_empty() {
-            Some(
-                "no person approved a cycle of it, and when it was written could not be read"
-                    .into(),
-            )
-        } else if let Some(l) = held {
-            Some(format!(
-                "no person approved a cycle of it, and it carries `{l}`"
-            ))
-        } else {
-            undone.map(|who| format!("{who} took `tehas:ready` off it before"))
-        };
-        if let Some(why) = why {
-            self.fixer_refused(n, &why);
-            return Ok(None);
-        }
-        if !self.unchanged_since(
-            n,
-            &written,
-            &author,
-            &format!("{author} wrote it"),
-            "a person applies tehas:ready",
-        )? {
-            return Ok(None);
-        }
-        Ok(Some((
-            json!({"at": written, "by": author, "how": "feed", "body_sha256": sum}),
-            1,
-        )))
-    }
-
-    /// tehas_fixer_grant: the approval and count, or why not and whether
-    /// that is only for now (the store could not answer).
-    fn fixer_grant(&self, n: u64, sum: &str) -> Result<(Value, u64), (String, bool)> {
-        if n == self.c.control {
-            return Err(("it is the control issue".into(), false));
-        }
-        let record = match self.s.issues.get(&n).and_then(|i| i.approval.clone()) {
-            Some(Err(())) => {
-                return Err((
-                    "its approvals on the state store could not be read".into(),
-                    true,
-                ))
-            }
-            Some(Ok(r)) => r,
-            None => None,
-        };
-        let none = || {
-            (
-                "no person approved an earlier cycle of it, so the fixer may not start one"
-                    .to_string(),
-                false,
-            )
-        };
-        let record = record.ok_or_else(none)?;
-        let base = fixer_base(&record)
-            .filter(|b| base_stands(self.c, b))
-            .ok_or_else(none)?;
-        let by = base["by"].as_str().unwrap_or("").to_string();
-        if sum != base["body_sha256"].as_str().unwrap_or("") {
-            return Err((format!("its text is not the text {by} approved"), false));
-        }
-        let Some(had) = fixer_starts(&record) else {
-            return Err((
-                "its approval record does not say how many cycles the fixer started".into(),
-                false,
-            ));
-        };
-        if had as i64 >= self.c.fixer_max_retries {
-            return Err((
-                format!(
-                    "the fixer has started {had} cycles on it since {by} approved it, the limit"
-                ),
-                false,
+            self.act(Action::Label(
+                LabelChange::new(n, &["tehas:ready"], Self::label_fail(n, &["tehas:ready"], &[]))
+                    .say(format!("Tehas took `tehas:ready` off this issue and started nothing. The millwright applied it, and the millwright may not start this issue: {why}. A person decides now: an account named in `TEHAS_ALLOWED_LABELERS` applies `tehas:ready` to start a cycle.")),
             ));
         }
-        Ok((base, had + 1))
     }
 
     /// The start order `tehas order` set, when one is in force: its issues
     /// that are ready, in order, and whether it holds every other ready issue.
     fn ranked(&mut self, ready: &[Listed]) -> (Vec<u64>, bool) {
         let o = &self.s.order;
-        match o.get("state").and_then(Value::as_str) {
-            Some("ok") => {}
-            Some("expired") => {
-                let until = o.get("until").and_then(Value::as_str).unwrap_or("?");
+        match o.state {
+            OrderState::Ok => {}
+            OrderState::Expired => {
+                let until = o.until.as_deref().unwrap_or("?");
                 self.log(format!(
                     "order expired at {until}: ready issues start lowest number first"
                 ));
                 return (Vec::new(), false);
             }
-            Some("unreadable") => {
+            OrderState::Unreadable => {
                 self.log(
                     "WARN: the start order could not be read from the state store: ready issues start lowest number first",
                 );
                 return (Vec::new(), false);
             }
-            _ => return (Vec::new(), false),
+            OrderState::Other => return (Vec::new(), false),
         }
-        let only = o.get("only").and_then(Value::as_bool) == Some(true);
+        let only = o.only;
         let listed: Vec<u64> = ready.iter().filter_map(|i| i.number).collect();
         let ranked = o
-            .get("issues")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_u64)
+            .issues
+            .iter()
+            .copied()
             .filter(|n| listed.contains(n))
             .collect();
         (ranked, only)
@@ -3162,7 +2725,6 @@ impl<'a> Poll<'a> {
             } else {
                 "tehas:blocked"
             };
-            let mut fixer = None;
             let mut epic: Option<EpicGrant> = None;
             let mut planned = false;
             let (who, at) = if let Some(h) = &host {
@@ -3194,11 +2756,9 @@ impl<'a> Poll<'a> {
                                 }
                                 Some(None) => continue,
                                 None => {
-                                    match self.fixer_ok(n, &refused, &at, &labels)? {
-                                        Some(grant) => fixer = Some(grant),
-                                        None => continue,
-                                    }
-                                    (refused, at)
+                                    self.deny("skip", n, "tehas:ready", &refused);
+                                    self.clear_unauthorised(n, "tehas:ready", &refused);
+                                    continue;
                                 }
                             }
                         }
@@ -3227,9 +2787,6 @@ impl<'a> Poll<'a> {
             if !self.size_ok(n, ask, &labels)? {
                 continue;
             }
-            if !self.mark_ok(n, ask, &labels)? {
-                continue;
-            }
             if let Some(url) = self.open_pr(n)? {
                 self.holds_on_pr(n, ask, &url);
                 continue;
@@ -3241,22 +2798,16 @@ impl<'a> Poll<'a> {
                 self.holds_on_pr(n, ask, &url);
                 continue;
             }
-            // The start a lift lets through is held back here and built with
-            // the note below, so the record says why the hold let it go.
-            let mut lift = None;
-            if !self.image_ok(n)?
-                || !self.image_missing_ok(n)
-                || self.park_holds(n, fixer.as_ref().map(|_| at.as_str()), &mut lift)?
-            {
+            if !self.image_ok(n)? || !self.image_missing_ok(n) || self.park_holds(n)? {
                 continue;
             }
-            let driver = match self.driver(n, &labels, fixer.is_some())? {
+            let driver = match self.driver(n, &labels, false)? {
                 Choice::Wait => continue,
                 Choice::Stranger(s) => {
                     self.lean_refused(n, ask, &labels, &s);
                     continue;
                 }
-                Choice::Run(Driver::Lean) if !self.spec_ok(n, ask, &labels, fixer.is_some())? => {
+                Choice::Run(Driver::Lean) if !self.spec_ok(n, ask, &labels)? => {
                     continue;
                 }
                 d => d,
@@ -3287,64 +2838,31 @@ impl<'a> Poll<'a> {
                 verb: "labelled".into(),
                 how: format!("`{ask}` label"),
                 given_at: at,
-                given_how: "label".into(),
+                given_how: "approved".into(),
                 remove,
-                fixer: None,
-                park_lifted: None,
-                extra: Map::new(),
-                placed: None,
+                extra: StartExtra::default(),
             };
             if ask == HOST {
                 st.verb = "started from the host".into();
                 st.how = "`tehas start`".into();
                 st.given_how = HOST.into();
             }
-            if let Some((base, count)) = fixer {
-                let s = |k: &str| {
-                    base.get(k)
-                        .and_then(Value::as_str)
-                        .unwrap_or("")
-                        .to_string()
-                };
-                st.verb = "labelled by the fixer".into();
-                st.how = if s("how") == "feed" {
-                    self.fed_picked += 1;
-                    format!(
-                        "`tehas:ready` label as the fixer, on the issue {} wrote at {}",
-                        s("by"),
-                        s("at")
-                    )
-                } else {
-                    format!(
-                        "`tehas:ready` label as the fixer, on {}'s approval of {}",
-                        s("by"),
-                        s("at")
-                    )
-                };
-                st.given_how = "millwright".into();
-                if let Some(note) = lift.take() {
-                    st.park_lifted = Some(note);
-                }
-                st.fixer = Some((base, count));
-            }
             // The start is recorded as the person's label: their tehas:ready
-            // on the epic approved this issue, and a retry of the fixer's
+            // on the epic approved this issue, and a retry of the millwright's
             // rests on it as on any person's approval.
             if let Some(g) = &epic {
-                st.verb = format!("approved on epic #{}, labelled by the fixer,", g.epic);
+                st.verb = format!("approved on epic #{}, labelled by the millwright,", g.epic);
                 st.how = format!(
-                    "`tehas:ready` label on epic #{} at {}, which the fixer carried to this sub-issue",
+                    "`tehas:ready` label on epic #{} at {}, which the millwright carried to this sub-issue",
                     g.epic, g.at
                 );
             }
             if planned {
                 st.verb = "planned".into();
                 st.how = "`tehas:plan` label, on a plan with no open points".into();
-                st.extra
-                    .insert("approved_label".into(), json!("tehas:plan"));
+                st.extra.approved_label = Some("tehas:plan".into());
             }
             driver.bind(&mut st.extra, &mut st.remove, &labels);
-            self.place(n, &mut st);
             self.starts.push((n, st));
         }
         let count = self.live().count();
@@ -3363,13 +2881,8 @@ impl<'a> Poll<'a> {
         }
         for (n, st) in starts {
             if self.dry {
-                let placed = st
-                    .placed
-                    .as_ref()
-                    .map(|p| format!(", {p}"))
-                    .unwrap_or_default();
                 self.log(format!(
-                    "would run a cycle for #{n} ({} by {}){placed}",
+                    "would run a cycle for #{n} ({} by {})",
                     st.verb, st.starter
                 ));
             } else {
@@ -3385,35 +2898,8 @@ impl<'a> Poll<'a> {
     /// stops.
     pub(super) fn act_gates(&mut self, first: u64) {
         let running: Vec<u64> = self.live().map(|(n, _)| *n).collect();
-        self.act(json!({"units": first}));
-        self.act(json!({"index_gate": running}));
-    }
-
-    /// Under the outsource feature, where the start of `n` runs: a contractor
-    /// is named in the action, which the approval binds, and either way the
-    /// start's line says where. With the feature off nothing changes.
-    fn place(&mut self, n: u64, st: &mut Start) {
-        let Some(rules) = &self.c.outsource else {
-            return;
-        };
-        let none = Outsourcing::default();
-        let need = Need {
-            repo: self.c.repo.clone(),
-            issue: n,
-            mem_mb: self.cycle_mb,
-            disk_kb: self.c.min_free_mb * 1024,
-            now: self.s.now.unwrap_or(0),
-        };
-        let o = self.s.outsource.as_ref().unwrap_or(&none);
-        st.placed = Some(match place(rules, o, &need, &self.taken) {
-            Place::Out(name) => {
-                st.extra.insert("contractor".into(), json!(name));
-                let said = format!("outsourced to {name}");
-                self.taken.push(name);
-                said
-            }
-            Place::InHouse(why) => format!("in-house: {why}"),
-        });
+        self.act(Action::Units { first });
+        self.act(Action::IndexGate { running });
     }
 
     /// The start of a cycle as an action: what start_cycles records and
@@ -3422,118 +2908,35 @@ impl<'a> Poll<'a> {
         // What the approval binds: the sums and links of the text this poll
         // read, which the record is written from.
         let t = self.text(n);
-        let body = t.get("body").and_then(Value::as_str).unwrap_or("");
-        let mut a = json!({
-            "start": n, "by": st.starter, "how": st.how, "at": st.given_at,
-            "given": st.given_how, "remove": st.remove, "verb": st.verb,
-            // The line apply logs as the start begins.
-            "log": match (st.given_how == HOST, &st.placed) {
-                (true, None) => format!("start #{n} ({})", st.verb),
-                (true, Some(p)) => format!("start #{n} ({}), {p}", st.verb),
-                (false, None) => format!("start #{n} ({} by {})", st.verb, st.starter),
-                (false, Some(p)) => format!("start #{n} ({} by {}), {p}", st.verb, st.starter),
-            },
-            "text": !t.as_object().is_none_or(|o| o.is_empty()),
-            "body_sha256": text::body_sha256(&t), "title_sha256": text::title_sha256(&t),
-            "links": text::link_list(body),
-        });
-        if let Some((base, count)) = st.fixer {
-            a["rests_on"] = base;
-            a["fixer_starts"] = json!(count);
-        }
-        if let Some(note) = st.park_lifted {
-            a["park_lifted"] = note;
-        }
-        if self.c.spec_pipe {
-            if let Some(spec) = spec_of(body, &st.remove) {
-                a["spec"] = spec;
-            }
-        }
-        for (k, v) in st.extra {
-            a[k] = v;
-        }
-        self.act(a);
+        let body = t.body_text();
+        let log = if st.given_how == HOST {
+            format!("start #{n} ({})", st.verb)
+        } else {
+            format!("start #{n} ({} by {})", st.verb, st.starter)
+        };
+        self.act(Action::Start(Box::new(CycleStart {
+            issue: n,
+            by: st.starter,
+            how: st.how,
+            at: st.given_at,
+            given: st.given_how,
+            remove: st.remove,
+            verb: st.verb,
+            log,
+            text: !t.empty,
+            body_sha256: text::body_sum(body),
+            title_sha256: text::title_sum(t.title.as_deref()),
+            links: text::link_list(body),
+            extra: st.extra,
+        })));
     }
-}
-
-/// The spec a start pins, from the body its approval binds: {link, sha256,
-/// off} for a `Spec:` line, {why, off} for one tehas cannot read, so a start
-/// that did not pass `mark_ok` (a retry, a refresh) fails closed too. `off` is
-/// what comes off when the spec stops the start: of the labels the start takes
-/// off, those that asked for it. None for a body with no such line.
-fn spec_of(body: &str, remove: &[String]) -> Option<Value> {
-    let off: Vec<&String> = remove
-        .iter()
-        .filter(|l| matches!(l.as_str(), "tehas:ready" | "tehas:blocked" | "tehas:plan"))
-        .collect();
-    match text::spec_mark(body) {
-        Ok(None) => None,
-        Ok(Some(m)) => Some(json!({"link": m.link, "sha256": m.sha256, "off": off})),
-        Err(why) => Some(json!({"why": why, "off": off})),
-    }
-}
-
-/// The person's approval a record rests on, {at, by, how,
-/// body_sha256}, when it reads as one.
-pub(crate) fn fixer_base(record: &Value) -> Option<Value> {
-    let how = record.get("how").and_then(Value::as_str);
-    let base = if matches!(how, Some("fixer" | "refresh")) {
-        record.get("rests_on")?
-    } else {
-        record
-    };
-    let s = |k: &str| base.get(k).and_then(Value::as_str);
-    let at = s("at")?;
-    let by = s("by")?;
-    let how = s("how")?;
-    let sum = s("body_sha256")?;
-    let ok = !at.is_empty()
-        && at
-            .bytes()
-            .all(|b| b.is_ascii_digit() || matches!(b, b'T' | b':' | b'.' | b'Z' | b'-'))
-        && !by.is_empty()
-        && by.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
-        && matches!(how, "label" | "retry-tick" | "outage-retry" | HOST)
-        && sum.len() == 64
-        && sum.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
-    ok.then(|| json!({"at": at, "by": by, "how": how, "body_sha256": sum}))
-}
-
-/// Whether a base of `fixer_base` still approves: the host's approval names no
-/// account (#1967), and a person's stands while the list names its account.
-pub(crate) fn base_stands(c: &Settings, base: &Value) -> bool {
-    base["how"] == HOST || c.allowed(base["by"].as_str().unwrap_or(""))
-}
-
-/// The account a base of `fixer_base` was given by, as `changed_after` reads
-/// an approver: none for the host's, whose `by` is a word and not an account,
-/// so a change in its second by an account called `host` counts as after it.
-pub(crate) fn base_approver(base: &Value) -> &str {
-    if base["how"] == HOST {
-        ""
-    } else {
-        base["by"].as_str().unwrap_or("")
-    }
-}
-
-/// The fixer starts a record counts, at most six digits.
-pub(crate) fn fixer_starts(record: &Value) -> Option<u64> {
-    let whole = |v: &Value, min: f64| v.as_f64().filter(|f| *f >= min && f.fract() == 0.0);
-    let n = match record.get("how").and_then(Value::as_str) {
-        Some("fixer") => whole(record.get("fixer_starts")?, 1.0)?,
-        Some("refresh") => match record.get("fixer_starts") {
-            None | Some(Value::Null) => 0.0,
-            Some(v) => whole(v, 0.0)?,
-        },
-        _ => 0.0,
-    };
-    (n < 1_000_000.0).then_some(n as u64)
 }
 
 /// The most numbers `labelAlone` lists, so the line status prints is bounded.
 pub(crate) const LABEL_ALONE_MAX: usize = 50;
 
-/// The marker of the comment `hold_cleared` writes. It does not start
+/// The marker of the comment `hold_cleared` writes, as a comment read back
+/// holds it (the write sends `Marker::HoldCleared`). It does not start
 /// `<!-- tehas:blocked`, so `newest_marker` never reads it as one. Only the
 /// bot's own comment counts as said.
 const HOLD_CLEARED: &str = "<!-- tehas:hold-cleared -->";
@@ -3545,29 +2948,22 @@ pub(crate) const LABEL_ALONE: &str = "no comment of an allowed account or the mi
 
 /// The newest comment that holds a `tehas:blocked` marker and was written by
 /// an allowed account or the millwright: the one rule 6 reads its blockers from.
-fn newest_marker<'v>(nodes: &'v [Value], c: &Settings) -> Option<&'v Value> {
-    let mut marked: Vec<&Value> = nodes
+fn newest_marker<'v>(nodes: &'v [Comment], c: &Settings) -> Option<&'v Comment> {
+    let mut marked: Vec<&Comment> = nodes
         .iter()
         .filter(|x| {
-            x.get("body")
-                .and_then(Value::as_str)
+            x.body_text()
                 .is_some_and(|b| b.contains("<!-- tehas:blocked"))
                 && {
-                    let a = x
-                        .pointer("/author/login")
-                        .and_then(Value::as_str)
-                        .unwrap_or("");
+                    let a = x.author.login.as_str();
                     !a.is_empty() && (c.allowed(a) || c.is_millwright(a))
                 }
         })
         .collect();
     marked.sort_by_key(|x| {
         (
-            x.get("createdAt")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string(),
-            x.get("databaseId").and_then(Value::as_i64).unwrap_or(0),
+            x.created_text().unwrap_or_default().to_string(),
+            CommentId::sort_key(x.id.as_ref()),
         )
     });
     marked.last().copied()
@@ -3616,93 +3012,59 @@ mod label_tests {
 }
 
 #[cfg(test)]
-mod spec_tests {
-    use super::spec_of;
-    use serde_json::json;
-
-    #[test]
-    fn a_start_pins_the_spec_its_body_marks_and_names_what_asked_for_it() {
-        let h = "e".repeat(64);
-        let link = "https://github.com/user-attachments/files/3/spec.md";
-        let remove = [
-            "tehas:ready",
-            "tehas:blocked",
-            "tehas:question",
-            "tehas:awaiting-merge",
-        ]
-        .map(String::from);
-        assert_eq!(
-            spec_of(&format!("Do it.\n\nSpec: {link} sha256:{h}"), &remove),
-            Some(json!({"link": link, "sha256": h, "off": ["tehas:ready", "tehas:blocked"]}))
-        );
-        assert_eq!(spec_of("Do it.", &remove), None);
-        assert_eq!(
-            spec_of("Spec: docs/spec.md", &["tehas:question".to_string()]),
-            Some(json!({"why": "its `Spec:` line is not a link and its sha256", "off": []}))
-        );
-        assert_eq!(
-            spec_of(&format!("Spec: https://example.com/s.md sha256:{h}"), &[]),
-            Some(
-                json!({"why": "the link of its `Spec:` line is not a file attached on GitHub", "off": []})
-            )
-        );
-    }
-}
-
-#[cfg(test)]
-mod fixer_tests {
-    use super::{base_approver, base_stands, fixer_base, fixer_starts};
+mod millwright_tests {
+    use super::{base_approver, base_stands, record_base};
     use serde_json::{json, Value};
 
     const SUM: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
     fn person(by: &str) -> Value {
-        json!({"at": "2026-10-01T00:00:00Z", "by": by, "how": "label", "body_sha256": SUM, "links": []})
+        json!({"at": "2026-10-01T00:00:00Z", "by": by, "how": "approved", "body_sha256": SUM, "links": []})
     }
 
-    fn by_fixer(starts: Value, rests_on: Value) -> Value {
-        json!({"at": "2026-10-02T00:00:00Z", "by": "tehas-fixer", "how": "fixer", "body_sha256": SUM,
-            "links": [], "fixer_starts": starts, "rests_on": rests_on})
+    fn by_millwright(rests_on: Value) -> Value {
+        json!({"at": "2026-10-02T00:00:00Z", "by": "tehas-millwright", "how": "millwright", "body_sha256": SUM,
+            "links": [], "rests_on": rests_on})
     }
 
-    fn by_refresh(starts: Value) -> Value {
+    fn by_refresh() -> Value {
         json!({"at": "2026-10-01T00:00:00Z", "by": "alice", "how": "refresh", "body_sha256": SUM,
-            "links": [], "refreshes": 1, "fixer_starts": starts, "rests_on": person("alice")})
+            "links": [], "refreshes": 1, "rests_on": person("alice")})
     }
 
     #[test]
     fn a_base_is_the_persons_approval_a_record_rests_on() {
-        let want = json!({"at": "2026-10-01T00:00:00Z", "by": "alice", "how": "label", "body_sha256": SUM});
-        assert_eq!(fixer_base(&person("alice")), Some(want.clone()));
+        let want = json!({"at": "2026-10-01T00:00:00Z", "by": "alice", "how": "approved", "body_sha256": SUM});
+        assert_eq!(record_base(&person("alice")), Some(want.clone()));
         assert_eq!(
-            fixer_base(&by_fixer(json!(1), person("alice"))),
+            record_base(&by_millwright(person("alice"))),
             Some(want.clone())
         );
-        assert_eq!(fixer_base(&by_refresh(json!(1))), Some(want));
+        assert_eq!(record_base(&by_refresh()), Some(want));
     }
 
     #[test]
-    fn a_fixers_record_that_rests_on_no_person_is_no_base() {
-        assert_eq!(fixer_base(&by_fixer(json!(1), Value::Null)), None);
-        let twice = by_fixer(json!(1), by_fixer(json!(1), person("alice")));
-        assert_eq!(fixer_base(&twice), None);
+    fn a_millwrights_record_that_rests_on_no_person_is_no_base() {
+        assert_eq!(record_base(&by_millwright(Value::Null)), None);
+        let twice = by_millwright(by_millwright(person("alice")));
+        assert_eq!(record_base(&twice), None);
         let mut own = person("alice");
-        own["how"] = json!("fixer");
-        assert_eq!(fixer_base(&own), None);
+        own["how"] = json!("millwright");
+        assert_eq!(record_base(&own), None);
     }
 
-    /// #1967: the host's approval is a base the fixer and a finish may rest
+    /// #1967: the host's approval is a base the millwright and a finish may rest
     /// on, whatever the list of accounts names; a person's needs the list.
     #[test]
     fn the_hosts_approval_stands_as_a_base_with_no_account_on_the_list() {
         let c = crate::Settings::parse(&json!({"TEHAS_ALLOWED_LABELERS": "alice"}));
         let mut host = person("host");
         host["how"] = json!("host");
-        let base = fixer_base(&by_fixer(json!(1), host)).unwrap();
+        let base = record_base(&by_millwright(host)).unwrap();
         assert_eq!(base["how"], "host");
         assert!(base_stands(&c, &base));
-        assert!(base_stands(&c, &fixer_base(&person("alice")).unwrap()));
-        assert!(!base_stands(&c, &fixer_base(&person("host")).unwrap()));
+        assert!(base_stands(&c, &record_base(&person("alice")).unwrap()));
+        assert!(!base_stands(&c, &record_base(&person("host")).unwrap()));
     }
 
     /// #2571: the host's approval names no account, so a change in its second
@@ -3711,7 +3073,7 @@ mod fixer_tests {
     fn the_hosts_approval_has_no_approver_to_excuse_a_change_in_its_second() {
         let mut host = person("host");
         host["how"] = json!("host");
-        let base = fixer_base(&host).unwrap();
+        let base = record_base(&host).unwrap();
         assert_eq!(base_approver(&base), "");
         let at = base["at"].as_str().unwrap();
         assert!(tehas_core::events::changed_after(
@@ -3720,7 +3082,7 @@ mod fixer_tests {
             at,
             base_approver(&base)
         ));
-        let own = fixer_base(&person("host")).unwrap();
+        let own = record_base(&person("host")).unwrap();
         assert_eq!(base_approver(&own), "host");
         assert!(!tehas_core::events::changed_after(
             at,
@@ -3732,111 +3094,13 @@ mod fixer_tests {
 
     #[test]
     fn an_approval_whose_account_has_a_newline_on_the_end_is_no_base() {
-        assert_eq!(fixer_base(&person("alice\n")), None);
-    }
-
-    #[test]
-    fn a_record_counts_its_fixer_starts_and_a_refresh_carries_them_on() {
-        assert_eq!(fixer_starts(&person("alice")), Some(0));
-        assert_eq!(fixer_starts(&by_fixer(json!(2), person("alice"))), Some(2));
-        assert_eq!(fixer_starts(&by_refresh(json!(1))), Some(1));
-        assert_eq!(fixer_starts(&by_refresh(json!(0))), Some(0));
-        assert_eq!(fixer_starts(&by_refresh(Value::Null)), Some(0));
-    }
-
-    #[test]
-    fn a_count_that_is_no_whole_number_is_no_count() {
-        assert_eq!(fixer_starts(&by_fixer(json!(0), person("alice"))), None);
-        assert_eq!(fixer_starts(&by_fixer(json!(1.5), person("alice"))), None);
-        assert_eq!(fixer_starts(&by_fixer(json!("1"), person("alice"))), None);
-        assert_eq!(fixer_starts(&by_refresh(json!(-1))), None);
-    }
-}
-
-#[cfg(test)]
-mod check_state_tests {
-    use super::{check_state, Check};
-    use serde_json::{json, Value};
-
-    const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
-    const HEAD: &str = "0123456789ab";
-
-    fn answer(runs: Vec<Value>) -> Value {
-        json!({"check_runs": runs})
-    }
-
-    fn run(status: &str, conclusion: Option<&str>) -> Value {
-        json!({"head_sha": SHA, "status": status, "conclusion": conclusion})
-    }
-
-    /// Every conclusion GitHub answers is classified: the three that pass, the
-    /// three that are red, and the rest that leave the gate's outcome unknown
-    /// and hold the start.
-    #[test]
-    fn every_finished_conclusion_is_classified() {
-        for c in ["success", "neutral", "skipped"] {
-            let a = answer(vec![run("completed", Some(c))]);
-            assert_eq!(check_state(&a), Some(Check::Done(HEAD.into())), "{c}");
-        }
-        for c in ["failure", "timed_out", "startup_failure"] {
-            let a = answer(vec![run("completed", Some(c))]);
-            assert_eq!(check_state(&a), Some(Check::Red(HEAD.into())), "{c}");
-        }
-        for c in ["cancelled", "action_required", "stale", "wontfix"] {
-            let a = answer(vec![run("completed", Some(c))]);
-            assert_eq!(
-                check_state(&a),
-                Some(Check::Unknown(HEAD.into())),
-                "{c} must hold"
-            );
-        }
-        // A finished run that names no conclusion at all is unknown too.
-        let a = answer(vec![run("completed", None)]);
-        assert_eq!(check_state(&a), Some(Check::Unknown(HEAD.into())));
-        let a = json!({"check_runs": [{"head_sha": SHA, "status": "completed"}]});
-        assert_eq!(check_state(&a), Some(Check::Unknown(HEAD.into())));
-    }
-
-    #[test]
-    fn a_run_that_has_not_finished_is_pending() {
-        for st in ["queued", "in_progress"] {
-            let a = answer(vec![run(st, None)]);
-            assert_eq!(check_state(&a), Some(Check::Pending(HEAD.into())), "{st}");
-        }
-        // One run of two that has not finished is enough: nothing is known of
-        // the gate until all of them answer.
-        let a = answer(vec![
-            run("completed", Some("cancelled")),
-            run("in_progress", None),
-        ]);
-        assert_eq!(check_state(&a), Some(Check::Pending(HEAD.into())));
-    }
-
-    #[test]
-    fn a_red_run_outweighs_every_other_reading() {
-        let a = answer(vec![
-            run("completed", Some("success")),
-            run("completed", Some("failure")),
-        ]);
-        assert_eq!(check_state(&a), Some(Check::Red(HEAD.into())));
-    }
-
-    #[test]
-    fn no_runs_and_an_answer_that_is_not_runs() {
-        assert_eq!(check_state(&answer(vec![])), Some(Check::None));
-        assert_eq!(check_state(&json!({})), None);
-        assert_eq!(check_state(&json!({"check_runs": {}})), None);
-        // A head sha the poll cannot name is an answer it cannot read.
-        let a = json!({"check_runs": [{"head_sha": "<b>", "status": "completed",
-                                       "conclusion": "success"}]});
-        assert_eq!(check_state(&a), None);
+        assert_eq!(record_base(&person("alice\n")), None);
     }
 }
 
 #[cfg(test)]
 mod demand_tests {
-    use super::demand_after;
-    use serde_json::json;
+    use super::{demand_after, Demand, DemandCount};
 
     fn planning() -> Vec<(u64, String)> {
         vec![
@@ -3845,26 +3109,35 @@ mod demand_tests {
         ]
     }
 
+    fn count(waiting: u64, oldest: Option<&str>, label_alone: Vec<u64>) -> Demand {
+        Demand::Counted(DemandCount {
+            waiting,
+            oldest: oldest.map(str::to_string),
+            refresh_hold: None,
+            label_alone,
+        })
+    }
+
     #[test]
     fn a_session_this_poll_ended_counts_its_issue_and_its_wait() {
-        let d = json!({"waiting": 1, "oldest": "2026-10-17T10:00:00Z", "labelAlone": [9]});
+        let d = count(1, Some("2026-10-17T10:00:00Z"), vec![9]);
         assert_eq!(
             demand_after(&d, &planning(), &[7]),
-            Some(json!({"waiting": 2, "oldest": "2026-10-17T08:00:00Z", "labelAlone": [9]}))
+            Some(count(2, Some("2026-10-17T08:00:00Z"), vec![9]))
         );
         assert_eq!(
-            demand_after(&json!({"waiting": 0}), &planning(), &[8, 7]),
-            Some(json!({"waiting": 2, "oldest": "2026-10-17T08:00:00Z"}))
+            demand_after(&count(0, None, vec![]), &planning(), &[8, 7]),
+            Some(count(2, Some("2026-10-17T08:00:00Z"), vec![]))
         );
     }
 
     #[test]
     fn no_session_of_a_waiting_issue_ended_leaves_the_demand_as_written() {
-        let d = json!({"waiting": 0});
+        let d = count(0, None, vec![]);
         assert_eq!(demand_after(&d, &planning(), &[]), None);
         assert_eq!(demand_after(&d, &planning(), &[12]), None);
         assert_eq!(demand_after(&d, &[], &[7]), None);
         // A demand the poll could not count stays uncounted.
-        assert_eq!(demand_after(&json!(null), &planning(), &[7]), None);
+        assert_eq!(demand_after(&Demand::Unread, &planning(), &[7]), None);
     }
 }

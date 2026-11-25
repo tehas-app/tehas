@@ -2,7 +2,7 @@
 // completed) from live/status.json: the first ten rows, the count and a link
 // to the rest. `host` is what the host bridge says (host-bridge.js): where a
 // ticket links and its notes. Pure: the clock is nowMs.
-import { ago, webHref } from "../host-data.js";
+import { ago, webHref } from "../page-data.js";
 
 export const MAX = 10;
 

@@ -176,7 +176,13 @@ fn check_main(dir: &str, json_out: bool) -> u8 {
         }
     };
     if json_out {
-        outln!("{}", c.json());
+        match c.json() {
+            Ok(j) => outln!("{j}"),
+            Err(why) => {
+                eprintln!("tehas plugin check: the answer could not be written: {why}");
+                return exit::FAILED;
+            }
+        }
     } else {
         for line in c.text() {
             outln!("{line}");
@@ -392,7 +398,13 @@ fn review_main(
         }
     };
     if json_out {
-        outln!("{}", r.json());
+        match r.json() {
+            Ok(j) => outln!("{j}"),
+            Err(why) => {
+                eprintln!("tehas plugin review: the answer could not be written: {why}");
+                return exit::FAILED;
+            }
+        }
     } else {
         for line in r.text() {
             outln!("{line}");
@@ -405,7 +417,29 @@ fn review_main(
     }
 }
 
-pub fn main(given: &[String]) -> u8 {
+/// What a board handle is made of for `tehas plugin hook`: the project,
+/// the gh that asks it, each call's bound, and the factory's account, its
+/// login and the id `state/account-ids` records for it. The console's wiring
+/// makes the handle, the one place that names the adapter.
+pub struct HandleAsk<'a> {
+    pub repo: &'a str,
+    pub program: &'a str,
+    pub bound: std::time::Duration,
+    pub bot: &'a str,
+    pub bot_id: u64,
+}
+
+/// What a call with `--login` asks the code host through, from the
+/// wiring: for a repository and the console that prints the installation
+/// token, or None for a repository it cannot ask.
+type AccessOf = dyn Fn(&str, &Path) -> Option<Box<dyn tehas_core::access::GitHub>>;
+
+/// `tehas plugin`.
+pub fn main(
+    given: &[String],
+    board: &dyn Fn(&HandleAsk) -> tehas_ports::Got<Box<dyn tehas_ports::Board + Send>>,
+    access: &AccessOf,
+) -> u8 {
     let asked = match words(given) {
         Ok(w) => w,
         Err(rc) => return rc,
@@ -477,8 +511,16 @@ pub fn main(given: &[String]) -> u8 {
                 eprintln!("tehas plugin hook: no gh to ask GitHub with");
                 return exit::FAILED;
             };
-            let mut gh = tehas_core::forge::Bounded::new(program, crate::forge::CALL_BOUND);
-            ask::hook(&mut exec::Host, &mut gh, &home, &get, &name, pr)
+            let make = |repo: &str, bot: &str, bot_id: u64| {
+                board(&HandleAsk {
+                    repo,
+                    program: &program,
+                    bound: crate::forge::CALL_BOUND,
+                    bot,
+                    bot_id,
+                })
+            };
+            ask::hook(&mut exec::Host, &make, &home, &get, &name, pr)
         }
         Words::Log { name, hook } => ask::log(&home, &get, &name, hook),
         Words::Call {
@@ -487,13 +529,18 @@ pub fn main(given: &[String]) -> u8 {
             args,
             login,
             json,
-        } => call_main(&home, &get, &name, &tool, &args, login, json),
+        } => {
+            let gh = access(&get("TEHAS_REPO"), &home.join("libexec/console"));
+            call_main(&home, &get, gh.as_deref(), &name, &tool, &args, login, json)
+        }
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn call_main(
     home: &Path,
     get: &dyn Fn(&str) -> String,
+    gh: Option<&dyn tehas_core::access::GitHub>,
     name: &str,
     tool: &str,
     args: &Value,
@@ -503,20 +550,7 @@ fn call_main(
     let pins = plugin::pins(&get("TEHAS_PLUGINS")).unwrap_or_default();
     let got = if pins.iter().any(|p| p.name == name) {
         let caller = login.map_or(call::Caller::Host, call::Caller::Login);
-        let api = Some(get("TEHAS_GITHUB_API"))
-            .filter(|a| !a.is_empty())
-            .unwrap_or_else(|| "https://api.github.com".to_string());
-        // Only the permission is asked, with the installation token: the
-        // App's client is the gate's, for its web flow.
-        let gh = tehas_core::access::Curl {
-            api,
-            web: "https://github.com".into(),
-            repo: get("TEHAS_REPO"),
-            client_id: String::new(),
-            client_secret: String::new(),
-            console: home.join("libexec/console"),
-        };
-        call::call(&mut exec::Host, &gh, home, get, name, tool, args, &caller)
+        call::call(&mut exec::Host, gh, home, get, name, tool, args, &caller)
     } else {
         Err(call::Failed::Args(format!(
             "TEHAS_PLUGINS names no plugin {name}"
@@ -810,7 +844,8 @@ mod tests {
 
     #[test]
     fn a_plugin_granted_at_its_pin_is_unbuilt_with_its_grants() {
-        let line = format!("{PIN} view product model:2000000 action:refresh hook:after:work");
+        let line =
+            format!("{PIN} view product model:2000000 action:refresh hook:after:change.offered");
         let get = vars(&[
             ("TEHAS_PLUGINS", &floorplan()),
             ("TEHAS_PLUGIN_GRANTS_FLOORPLAN", &line),
@@ -819,13 +854,14 @@ mod tests {
         assert_eq!(json(&rows), sample("sample"));
         assert_eq!(
             text(&rows),
-            [format!("floorplan\t{URL}@{PIN}\tunbuilt\tgrants: view product model:2000000 action:refresh hook:after:work\tlast run: none\ttokens today: 0")]
+            [format!("floorplan\t{URL}@{PIN}\tunbuilt\tgrants: view product model:2000000 action:refresh hook:after:change.offered\tlast run: none\ttokens today: 0")]
         );
     }
 
     #[test]
     fn the_state_update_left_for_the_pin_is_shown() {
-        let line = format!("{PIN} view product model:2000000 action:refresh hook:after:work");
+        let line =
+            format!("{PIN} view product model:2000000 action:refresh hook:after:change.offered");
         let get = vars(&[
             ("TEHAS_PLUGINS", &floorplan()),
             ("TEHAS_PLUGIN_GRANTS_FLOORPLAN", &line),
@@ -847,7 +883,7 @@ mod tests {
         let refused = |_: &str| Some(State::refused(PIN, "view is asked and not granted"));
         assert_eq!(
             text(&rows(&get, &refused, &never))[0],
-            format!("floorplan\t{URL}@{PIN}\trefused: view is asked and not granted\tgrants: view product model:2000000 action:refresh hook:after:work\tlast run: none\ttokens today: 0")
+            format!("floorplan\t{URL}@{PIN}\trefused: view is asked and not granted\tgrants: view product model:2000000 action:refresh hook:after:change.offered\tlast run: none\ttokens today: 0")
         );
         let old = |_: &str| Some(State::new(Word::Ready, &"f".repeat(40)));
         assert_eq!(rows(&get, &old, &never)[0].state.state, Word::Unbuilt);
@@ -884,13 +920,14 @@ mod tests {
     fn a_status_the_hook_could_not_write_is_said() {
         let mut rows = rows(&vars(&[("TEHAS_PLUGINS", &floorplan())]), &none, &never);
         assert_eq!(rows[0].status_unwritten, None);
-        rows[0].status_unwritten = Some("GitHub refused it: HTTP 403".into());
+        rows[0].status_unwritten = Some("GitHub refused it: this actor may not do this".into());
         let v: Value = serde_json::from_str(&json(&rows).dump()).unwrap();
         assert_eq!(
             v["plugins"][0]["status_unwritten"],
-            "GitHub refused it: HTTP 403"
+            "GitHub refused it: this actor may not do this"
         );
-        assert!(text(&rows)[0]
-            .ends_with("\tthe status could not be written: GitHub refused it: HTTP 403"));
+        assert!(text(&rows)[0].ends_with(
+            "\tthe status could not be written: GitHub refused it: this actor may not do this"
+        ));
     }
 }

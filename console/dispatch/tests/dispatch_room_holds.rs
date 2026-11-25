@@ -10,6 +10,7 @@ mod common;
 use common::{has, jq, lacks, World, GIB, MINIMAL};
 use serde_json::json;
 use std::fs;
+use tehas_core::home::{Home, Live};
 
 /// The endpoint of the host a case builds, offering `answer`.
 fn asked(w: &World, answer: &str) {
@@ -35,7 +36,7 @@ fn status_calls(w: &World) -> usize {
 }
 
 fn state_text(w: &World) -> String {
-    w.read_home("live/dispatch.json")
+    w.read_home(Home::new(&w.home).live(Live::Dispatch))
 }
 
 #[test]
@@ -68,6 +69,7 @@ fn a_disk_whose_free_space_cannot_be_read_holds_no_df_no_docker_info_and_no_numb
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(w.started(), "");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     has(&r.out, UNREAD);
     assert_eq!(w.dispatch_state()["why"], json!("disk"));
 
@@ -141,7 +143,7 @@ fn a_real_poll_logs_a_hold_once_then_released_once_and_writes_live_dispatch_json
         jq(".time | fromdateiso8601 | (now - .) < 60", &state_text(&w)),
         "true"
     );
-    let live = w.files(&w.home.join("live"));
+    let live = w.files(&Home::new(&w.home).live_dir());
     assert!(
         !live.iter().any(|f| f.starts_with("dispatch.json.")),
         "{live:?}"
@@ -184,6 +186,7 @@ fn no_resources(answer: Option<&str>, text: &str) {
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(w.started(), "");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     let hold = format!("holding: no resources: {text}");
     assert_eq!(count(&r.out, &hold), 1, "{}", r.out);
     assert_eq!(
@@ -391,8 +394,8 @@ fn a_main_endpoint_that_fails_starts_the_cycle_on_the_backup_and_says_so() {
     }
 }
 
-/// Which endpoint the subagent provider is on, as the energy sampler reads
-/// it: the one word in live/dispatch.json. The endpoint itself is never
+/// Which endpoint the subagent provider is on, as the 2.1 mesh feed will
+/// read it: the one word in live/dispatch.json. The endpoint itself is never
 /// written.
 #[test]
 fn the_poll_publishes_the_subagent_providers_endpoint_as_one_word() {

@@ -8,6 +8,7 @@ use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
+use tehas_core::home::{Home, State};
 use tehas_core::testdir::TestDir;
 
 const STORE: &str = r#"#!/usr/bin/env bash
@@ -24,7 +25,6 @@ case $1 in
   cycle-show) echo '{"api":1,"verb":"cycle-show","ok":true,"cycle":null}' ;;
   approval-current) echo '{"api":1,"verb":"approval-current","ok":true,"current":null}' ;;
   history-show) echo '{"api":1,"verb":"history-show","ok":true,"rows":[]}' ;;
-  job-stamp) cat "$d/../job.json" 2>/dev/null || echo '{"api":1,"verb":"job-stamp","ok":true,"job":null}' ;;
   *) echo "{\"api\":1,\"verb\":\"$1\",\"ok\":true}" ;;
 esac
 "#;
@@ -67,9 +67,10 @@ fn exe(p: &Path, text: &str) {
 impl Host {
     fn new(name: &str) -> Host {
         let dir = TestDir::new(&format!("apply-{name}"));
-        for d in ["libexec", "bin", "state/cycles", "logs", "work"] {
+        for d in ["libexec", "bin", "logs", "work"] {
             fs::create_dir_all(dir.join(d)).unwrap();
         }
+        fs::create_dir_all(Home::new(dir.path()).cycles_dir()).unwrap();
         exe(&dir.join("libexec/store"), STORE);
         exe(&dir.join("bin/gh"), GH);
         exe(&dir.join("bin/docker"), "#!/bin/sh\nexit 1\n");
@@ -81,10 +82,14 @@ impl Host {
     fn result(&self, status: &str, step: &str, branch: &str, cap: &str) {
         let r = json!({"schemaVersion": 5, "issues": [{"issue": 7, "status": status,
             "failedStep": step, "branch": branch, "cap": cap}]});
-        fs::write(self.dir.join("state/cycles/7.result.json"), r.to_string()).unwrap();
+        fs::write(
+            Home::new(self.dir.path()).cycle_note(7, "result.json"),
+            r.to_string(),
+        )
+        .unwrap();
         // As the progress summary writes it: its review held nothing.
         fs::write(
-            self.dir.join("state/cycles/7.progress.json"),
+            Home::new(self.dir.path()).cycle_note(7, "progress.json"),
             r#"{"roles":[],"reason":"","reviewHeld":false}"#,
         )
         .unwrap();
@@ -113,7 +118,7 @@ impl Host {
         let store = self.dir.join("libexec/store");
         let body = fs::read_to_string(&store).unwrap().replace(
             r#"  approval-current) echo '{"api":1,"verb":"approval-current","ok":true,"current":null}' ;;"#,
-            r#"  approval-current) echo '{"api":1,"verb":"approval-current","ok":true,"current":{"at":"900","how":"label","input":{"driver":"lean"}}}' ;;"#,
+            r#"  approval-current) echo '{"api":1,"verb":"approval-current","ok":true,"current":{"at":"900","how":"approved","input":{"driver":"lean"}}}' ;;"#,
         );
         exe(&store, &body);
     }
@@ -121,7 +126,7 @@ impl Host {
     fn report_cmd(&self, rc: i64, signalled: bool, status: &[&str]) -> Command {
         let mut c = Command::new(env!("CARGO_BIN_EXE_tehas-cycle"));
         c.args(["report", "7", "--attempt", "1", "--rc", &rc.to_string()])
-            .args(["--started", "1000", "--by", "alice", "--how", "label"])
+            .args(["--started", "1000", "--by", "alice", "--how", "approved"])
             .args(["--signalled", if signalled { "1" } else { "0" }])
             .args(["--approval-at", "900", "--requeued", "0", "--now", "1060"])
             .args(["--console", "true"])
@@ -227,101 +232,6 @@ fn the_status_command_of_the_end_of_a_cycle_gets_its_arguments() {
 }
 
 #[test]
-fn a_park_goes_label_record_question_asked_label_end() {
-    let h = Host::new("park");
-    h.result("aborted", "develop", "", "");
-    let o = h.report(20, false);
-    assert!(o.status.success(), "{}", out(&o));
-    let order = [
-        "gh issue edit 7 --repo a/b --remove-label tehas:running --add-label needs-human-attention",
-        "store park 7 --attempt 1 --reason aborted --step develop",
-        "gh api repos/a/b/issues/7/comments --input - --jq .id",
-        "store question-asked 7 --id 4002 --kind park --body-sha",
-        "gh issue edit 7 --repo a/b --add-label tehas:question",
-        "store cycle-end 7 --attempt 1 --status aborted",
-        "store publish",
-    ];
-    let at: Vec<usize> = order.iter().map(|c| h.at(c)).collect();
-    assert!(at.windows(2).all(|w| w[0] < w[1]), "{:#?}", h.calls());
-}
-
-#[test]
-fn each_try_of_a_write_is_a_row_of_its_own_named_by_its_cycle() {
-    let h = Host::new("tries");
-    h.result("aborted", "develop", "", "");
-    fs::write(h.dir.join("gh-fail"), "--add-label needs-human-attention\n").unwrap();
-    let o = h.report(20, false);
-    assert!(o.status.success(), "{}", out(&o));
-    assert_eq!(h.count("gh issue edit 7 --repo a/b --remove-label"), 3);
-    let rows: Vec<String> = h
-        .calls()
-        .into_iter()
-        .filter(|c| c.starts_with("store journal-record") && c.contains("label-add"))
-        .collect();
-    assert!(rows.len() >= 3, "{rows:#?}");
-    assert!(
-        rows[0].contains(r#""cycle":{"attempt":1,"issue":7}"#),
-        "{}",
-        rows[0]
-    );
-    assert!(h.count("store journal-settle") >= 3);
-    let said = out(&o);
-    assert!(said.contains("WARN: label change on #7 failed: --remove-label tehas:running --add-label needs-human-attention"), "{said}");
-    // The label stayed, and the question says so.
-    let q = h.at("gh api repos/a/b/issues/7/comments");
-    assert!(h.calls()[q].contains("The label of this issue could not be changed"));
-}
-
-#[test]
-fn a_body_goes_to_gh_on_standard_input() {
-    let h = Host::new("stdin");
-    h.result("aborted", "develop", "", "");
-    h.report(20, false);
-    let q = h.at("gh api repos/a/b/issues/7/comments");
-    assert!(h.calls()[q].contains(r#"<<< {"body":"Tehas cycle stopped"#));
-    let record = h.at("store journal-record --poll 100 --kind comment-post");
-    assert!(!h.calls()[record].contains("Tehas cycle stopped"));
-    assert!(h.calls()[record].contains("sha256"));
-}
-
-#[test]
-fn a_question_whose_label_fails_is_taken_off_the_record_and_says_so() {
-    let h = Host::new("withdraw");
-    h.result("aborted", "develop", "", "");
-    fs::write(h.dir.join("gh-fail"), "--add-label tehas:question\n").unwrap();
-    h.report(20, false);
-    assert!(h.at("store question-asked") < h.at("store question-answered 7 --id 4002 --withdraw"));
-    let last = h.at("gh issue comment 7");
-    assert!(h.calls()[last].contains("The boxes above cannot be used"));
-}
-
-#[test]
-fn a_park_the_store_will_not_take_asks_no_question() {
-    let h = Host::new("unrecorded");
-    h.result("aborted", "develop", "", "");
-    fs::write(h.dir.join("store-fail"), "park 7").unwrap();
-    let o = h.report(20, false);
-    assert!(out(&o).contains("WARN: could not record the park of #7 (refused: store: refused #7: not now), so it asks no question"));
-    assert_eq!(h.count("gh api repos/a/b/issues/7/comments"), 0);
-    let c = h.at("gh issue comment 7");
-    assert!(h.calls()[c].contains("To retry, apply `tehas:ready`."));
-}
-
-#[test]
-fn after_a_stop_each_call_is_one_bounded_try() {
-    let h = Host::new("stop");
-    h.result("aborted", "develop", "", "");
-    fs::write(h.dir.join("gh-hangs"), "").unwrap();
-    let t0 = std::time::Instant::now();
-    let o = h.report(20, true);
-    assert!(o.status.success(), "{}", out(&o));
-    assert_eq!(h.count("gh issue edit 7 --repo a/b --remove-label"), 1);
-    assert!(t0.elapsed().as_secs() < 25, "{:?}", t0.elapsed());
-    // The report still ended the cycle's record.
-    assert_eq!(h.count("store cycle-end"), 1);
-}
-
-#[test]
 fn an_end_the_store_will_not_take_is_exit_70_and_what_follows_still_runs() {
     let h = Host::new("end");
     h.result("aborted", "develop", "", "");
@@ -331,13 +241,18 @@ fn an_end_the_store_will_not_take_is_exit_70_and_what_follows_still_runs() {
     let said = out(&o);
     assert!(said.contains("ERROR: the end of #7 is not on record (refused: store: refused #7: not now): cycle-end 7 --attempt 1"), "{said}");
     assert_eq!(h.count("store publish"), 1);
-    assert!(h.dir.join("state/dispatch.again").exists());
+    assert!(Home::new(h.dir.path()).state(State::DispatchAgain).exists());
 }
 
 /// The record of a failed end is where a directory is: no write lands on it
 /// and no remove takes it, whoever runs the test.
 fn block_end_fault(h: &Host) {
-    fs::create_dir_all(h.dir.join("state/cycles/7.end-failed.json/x")).unwrap();
+    fs::create_dir_all(
+        Home::new(h.dir.path())
+            .cycle_note(7, "end-failed.json")
+            .join("x"),
+    )
+    .unwrap();
 }
 
 #[test]
@@ -347,7 +262,11 @@ fn a_failed_end_whose_record_cannot_be_written_is_exit_70_and_says_why() {
     let r = json!({"schemaVersion": 5, "issues": [{"issue": 7, "status": "handoff",
         "failedStep": "commit-pr", "branch": "feature/issue-7-a",
         "failure": {"step": "commit-pr", "message": "git push failed: The requested URL returned error: 502"}}]});
-    fs::write(h.dir.join("state/cycles/7.result.json"), r.to_string()).unwrap();
+    fs::write(
+        Home::new(h.dir.path()).cycle_note(7, "result.json"),
+        r.to_string(),
+    )
+    .unwrap();
     block_end_fault(&h);
     let o = h.report(0, false);
     let said = out(&o);
@@ -385,137 +304,6 @@ fn a_clean_end_with_no_record_to_remove_is_exit_0() {
 }
 
 #[test]
-fn a_write_the_journal_cannot_record_is_made_with_no_row() {
-    for verb in ["poll-begin", "journal-record", "journal-attempt"] {
-        let h = Host::new(&format!("journal-{verb}"));
-        h.result("aborted", "develop", "", "");
-        fs::write(h.dir.join("store-fail"), verb).unwrap();
-        let o = h.report(20, false);
-        assert!(o.status.success(), "{}", out(&o));
-        let order = [
-            "gh issue edit 7 --repo a/b --remove-label tehas:running --add-label needs-human-attention",
-            "store park 7",
-            "gh api repos/a/b/issues/7/comments --input - --jq .id",
-            "store question-asked 7 --id 4002",
-            "gh issue edit 7 --repo a/b --add-label tehas:question",
-            "store cycle-end 7",
-        ];
-        let at: Vec<usize> = order.iter().map(|c| h.at(c)).collect();
-        assert!(at.windows(2).all(|w| w[0] < w[1]), "{:#?}", h.calls());
-        let said = out(&o);
-        assert_eq!(
-            said.matches("WARN: the journal will not record").count(),
-            1,
-            "{said}"
-        );
-        assert!(!said.contains("WARN: label change"), "{said}");
-        // Once it failed, the report asks it no more: a hung store would
-        // spend what a stop leaves.
-        assert_eq!(h.count(&format!("store {verb}")), 1, "{:#?}", h.calls());
-    }
-}
-
-/// #1754: a write GitHub answered with a 5xx may be there. The report reads
-/// it back before it sends it again: there, it is done.
-#[test]
-fn a_write_github_answered_with_a_5xx_and_took_is_not_sent_again() {
-    let h = Host::new("tries-5xx-took");
-    h.result("aborted", "develop", "", "");
-    fs::write(h.dir.join("gh-fail"), "--add-label needs-human-attention\n").unwrap();
-    fs::write(h.dir.join("gh-says"), "gh: HTTP 502\n").unwrap();
-    fs::write(
-        h.dir.join("issue.json"),
-        r#"{"number":7,"labels":[{"name":"needs-human-attention"}]}"#,
-    )
-    .unwrap();
-    let o = h.report(20, false);
-    assert!(o.status.success(), "{}", out(&o));
-    assert_eq!(h.count("gh issue edit 7 --repo a/b --remove-label"), 1);
-    assert!(!out(&o).contains("may have been posted"), "{}", out(&o));
-    assert!(
-        !out(&o).contains("label change on #7 failed"),
-        "{}",
-        out(&o)
-    );
-    assert!(
-        h.count("gh api repos/a/b/issues/7") >= 1,
-        "{:#?}",
-        h.calls()
-    );
-}
-
-/// A 5xx GitHub did not take is sent again after the read finds it missing.
-#[test]
-fn a_write_github_answered_with_a_5xx_and_did_not_take_is_sent_again() {
-    let h = Host::new("tries-5xx-lost");
-    h.result("aborted", "develop", "", "");
-    fs::write(h.dir.join("gh-fail"), "--add-label needs-human-attention\n").unwrap();
-    fs::write(h.dir.join("gh-fail-once"), "").unwrap();
-    fs::write(h.dir.join("gh-says"), "gh: HTTP 502\n").unwrap();
-    let o = h.report(20, false);
-    assert!(o.status.success(), "{}", out(&o));
-    assert_eq!(h.count("gh issue edit 7 --repo a/b --remove-label"), 2);
-    let results: Vec<String> = h
-        .calls()
-        .into_iter()
-        .filter(|c| c.starts_with("store journal-settle"))
-        .collect();
-    assert!(results[0].contains("--result unknown"), "{results:#?}");
-    assert!(results[1].contains("--result ok"), "{results:#?}");
-}
-
-/// A 5xx whose read fails too is not sent again; its row stays open as
-/// unknown for the poll's read.
-#[test]
-fn a_write_github_answered_with_a_5xx_that_no_read_settles_is_left_unknown() {
-    let h = Host::new("tries-5xx-unread");
-    h.result("aborted", "develop", "", "");
-    fs::write(
-        h.dir.join("gh-fail"),
-        "--add-label needs-human-attention\napi repos/a/b/issues/7\n",
-    )
-    .unwrap();
-    fs::write(h.dir.join("gh-says"), "gh: HTTP 502\n").unwrap();
-    let o = h.report(20, false);
-    assert!(o.status.success(), "{}", out(&o));
-    assert_eq!(h.count("gh issue edit 7 --repo a/b --remove-label"), 1);
-    assert!(out(&o).contains("may have been posted"), "{}", out(&o));
-    let settles: Vec<String> = h
-        .calls()
-        .into_iter()
-        .filter(|c| c.starts_with("store journal-settle") && c.contains("--result unknown"))
-        .collect();
-    // The label and the park question, whose read fails as well.
-    assert_eq!(settles.len(), 2, "{:#?}", h.calls());
-    assert_eq!(h.count("gh api repos/a/b/issues/7/comments --input"), 1);
-}
-
-#[test]
-fn a_write_with_no_row_keeps_its_tries() {
-    let h = Host::new("journal-tries");
-    h.result("aborted", "develop", "", "");
-    fs::write(h.dir.join("store-fail"), "journal-record").unwrap();
-    fs::write(h.dir.join("gh-fail"), "--add-label needs-human-attention\n").unwrap();
-    let o = h.report(20, false);
-    assert!(o.status.success());
-    assert_eq!(h.count("gh issue edit 7 --repo a/b --remove-label"), 3);
-    assert!(out(&o).contains("WARN: label change on #7 failed"));
-    let q = h.at("gh api repos/a/b/issues/7/comments");
-    assert!(h.calls()[q].contains("The label of this issue could not be changed"));
-}
-
-#[test]
-fn after_a_stop_a_write_with_no_row_is_one_try() {
-    let h = Host::new("journal-stop");
-    h.result("aborted", "develop", "", "");
-    fs::write(h.dir.join("store-fail"), "poll-begin").unwrap();
-    fs::write(h.dir.join("gh-fail"), "--add-label needs-human-attention\n").unwrap();
-    let o = h.report(20, true);
-    assert!(o.status.success());
-    assert_eq!(h.count("gh issue edit 7 --repo a/b --remove-label"), 1);
-}
-
-#[test]
 fn a_merged_cycle_removes_its_workspace_and_its_notes() {
     let h = Host::new("merged");
     h.result("merged", "done", "feature/issue-7-x", "");
@@ -523,8 +311,8 @@ fn a_merged_cycle_removes_its_workspace_and_its_notes() {
     fs::write(work.join(".tehas-workspaces"), "").unwrap();
     fs::create_dir_all(work.join("widget-7")).unwrap();
     fs::create_dir_all(work.join("widget-7.images")).unwrap();
-    fs::write(h.dir.join("state/cycles/7.oom"), "2\n").unwrap();
-    fs::write(h.dir.join("state/cycles/7.done"), "merged\n").unwrap();
+    fs::write(Home::new(h.dir.path()).cycle_note(7, "oom"), "2\n").unwrap();
+    fs::write(Home::new(h.dir.path()).cycle_note(7, "done"), "merged\n").unwrap();
     let prs: Value = json!([{"url": "https://github.com/a/b/pull/9", "state": "MERGED",
         "body": "Fixes #7", "headRefName": "feature/issue-7-x", "createdAt": CREATED}]);
     fs::write(h.dir.join("prs.json"), prs.to_string()).unwrap();
@@ -532,13 +320,11 @@ fn a_merged_cycle_removes_its_workspace_and_its_notes() {
     assert!(o.status.success(), "{}", out(&o));
     assert!(!work.join("widget-7").exists());
     assert!(!work.join("widget-7.images").exists());
-    assert!(!h.dir.join("state/cycles/7.oom").exists());
-    assert!(!h.dir.join("state/cycles/7.done").exists());
-    assert!(h.dir.join("state/cycles/7.result.json").exists());
-    assert!(
-        h.at("gh issue comment 7")
-            > h.at("gh issue edit 7 --repo a/b --remove-label tehas:running")
-    );
+    assert!(!Home::new(h.dir.path()).cycle_note(7, "oom").exists());
+    assert!(!Home::new(h.dir.path()).cycle_note(7, "done").exists());
+    assert!(Home::new(h.dir.path())
+        .cycle_note(7, "result.json")
+        .exists());
     let end = h.at("store cycle-end");
     assert!(h.calls()[end].contains("--oom 2"), "{}", h.calls()[end]);
     assert!(h.calls()[end].contains("--pr 9"));
@@ -571,7 +357,7 @@ fn a_lean_cycle_keeps_the_driver_record_before_it_clears_the_workspace() {
     )
     .unwrap();
     // The approval of the start bound the lean driver.
-    let kept = h.dir.join("state/cycles/7.lean-state.json");
+    let kept = Home::new(h.dir.path()).cycle_note(7, "lean-state.json");
     assert!(!kept.exists());
     h.approve_lean();
     let o = h.report_with_analytics(10);
@@ -603,7 +389,9 @@ fn a_classic_cycle_keeps_no_lean_record_and_a_lean_one_of_no_file_is_no_warning(
     .unwrap();
     let o = h.report_with_analytics(10);
     assert!(o.status.success(), "{}", out(&o));
-    assert!(!h.dir.join("state/cycles/7.lean-state.json").exists());
+    assert!(!Home::new(h.dir.path())
+        .cycle_note(7, "lean-state.json")
+        .exists());
     assert!(!out(&o).contains("lean record"), "{}", out(&o));
     // Lean, but the driver wrote no record: nothing to keep, and no warning.
     let h = Host::new("lean-no-file");
@@ -614,7 +402,9 @@ fn a_classic_cycle_keeps_no_lean_record_and_a_lean_one_of_no_file_is_no_warning(
     h.approve_lean();
     let o = h.report_with_analytics(10);
     assert!(o.status.success(), "{}", out(&o));
-    assert!(!h.dir.join("state/cycles/7.lean-state.json").exists());
+    assert!(!Home::new(h.dir.path())
+        .cycle_note(7, "lean-state.json")
+        .exists());
     assert!(!out(&o).contains("lean record"), "{}", out(&o));
 }
 
@@ -632,8 +422,8 @@ fn a_lean_run_whose_record_cannot_be_kept_is_one_warning() {
     .unwrap();
     h.approve_lean();
     // The notes directory cannot hold the copy.
-    fs::remove_dir_all(h.dir.join("state/cycles")).unwrap();
-    fs::write(h.dir.join("state/cycles"), "").unwrap();
+    fs::remove_dir_all(Home::new(h.dir.path()).cycles_dir()).unwrap();
+    fs::write(Home::new(h.dir.path()).cycles_dir(), "").unwrap();
     let o = h.report_with_analytics(10);
     assert!(o.status.success(), "{}", out(&o));
     assert!(
@@ -650,7 +440,7 @@ fn a_lean_run_whose_record_cannot_be_kept_is_one_warning() {
 fn a_handoff_on_awaiting_human_merge_waits_for_a_merge() {
     let h = Host::new("awaiting");
     h.result("handoff", "ci", "feature/issue-7-x", "awaiting-human-merge");
-    fs::write(h.dir.join("state/cycles/7.runner_exit"), "10\n").unwrap();
+    fs::write(Home::new(h.dir.path()).cycle_note(7, "runner_exit"), "10\n").unwrap();
     let work = h.dir.join("work");
     fs::write(work.join(".tehas-workspaces"), "").unwrap();
     fs::create_dir_all(work.join("widget-7")).unwrap();
@@ -664,20 +454,10 @@ fn a_handoff_on_awaiting_human_merge_waits_for_a_merge() {
     .unwrap();
     let o = h.report(10, false);
     assert!(o.status.success(), "{}", out(&o));
-    let order = [
-        "gh issue edit 7 --repo a/b --remove-label tehas:running --add-label tehas:awaiting-merge",
-        "gh pr comment https://github.com/a/b/pull/9",
-        "store cycle-end 7 --attempt 1 --status handoff",
-    ];
-    let at: Vec<usize> = order.iter().map(|c| h.at(c)).collect();
-    assert!(at.windows(2).all(|w| w[0] < w[1]), "{:#?}", h.calls());
+    // Its writes, the marks and the comment on the pull request, are
+    // apply.rs's ports_tests. The record says what it waits for.
+    h.at("store cycle-end 7 --attempt 1 --status handoff");
     assert_eq!(h.count("store park"), 0, "{:#?}", h.calls());
-    assert_eq!(
-        h.count("gh issue edit 7 --repo a/b --add-label tehas:question"),
-        0
-    );
-    let calls = h.calls().join("\n");
-    assert!(!calls.contains("needs-human-attention"), "{calls}");
     assert!(!work.join("widget-7").exists());
     let end = h.at("store cycle-end");
     assert!(h.calls()[end].contains("--pr 9"), "{}", h.calls()[end]);
@@ -700,7 +480,7 @@ fn a_handoff_on_lens_fix_reposition_waits_for_a_merge() {
         "feature/issue-7-x",
         "lens-fix-reposition",
     );
-    fs::write(h.dir.join("state/cycles/7.runner_exit"), "10\n").unwrap();
+    fs::write(Home::new(h.dir.path()).cycle_note(7, "runner_exit"), "10\n").unwrap();
     let prs: Value = json!([{"url": "https://github.com/a/b/pull/9", "state": "OPEN",
         "body": "Fixes #7", "headRefName": "feature/issue-7-x", "createdAt": CREATED}]);
     fs::write(h.dir.join("prs.json"), prs.to_string()).unwrap();
@@ -711,9 +491,7 @@ fn a_handoff_on_lens_fix_reposition_waits_for_a_merge() {
     .unwrap();
     let o = h.report(10, false);
     assert!(o.status.success(), "{}", out(&o));
-    h.at(
-        "gh issue edit 7 --repo a/b --remove-label tehas:running --add-label tehas:awaiting-merge",
-    );
+    h.at("store cycle-end 7 --attempt 1 --status handoff");
     assert_eq!(h.count("store park"), 0, "{:#?}", h.calls());
 }
 
@@ -780,306 +558,5 @@ done
     let facts: Value =
         serde_json::from_str(&fs::read_to_string(h.dir.join("facts.json")).unwrap()).unwrap();
     assert_eq!(facts["line"]["step"].as_str(), Some(step.as_str()));
-    assert!(h.dir.join("state/dispatch.again").exists());
-}
-
-/// A merged cycle of issue 7 whose pull request #9 GitHub holds, on the
-/// branch `feature/issue-7-x` of `a/b`.
-fn merged_with_pull(h: &Host, body: &str) {
-    pull_in_state(h, body, "closed");
-}
-
-/// The same, with GitHub's pull request in `state`.
-fn pull_in_state(h: &Host, body: &str, state: &str) {
-    h.result("merged", "done", "feature/issue-7-x", "");
-    let prs: Value = json!([{"url": "https://github.com/a/b/pull/9", "state": "MERGED",
-        "body": "Fixes #7", "headRefName": "feature/issue-7-x", "createdAt": CREATED}]);
-    fs::write(h.dir.join("prs.json"), prs.to_string()).unwrap();
-    let pull = json!({"number": 9, "body": body, "state": state,
-        "head": {"ref": "feature/issue-7-x", "repo": {"full_name": "a/b"}},
-        "base": {"ref": "main"}});
-    fs::write(h.dir.join("pull.json"), pull.to_string()).unwrap();
-}
-
-/// The report with outsource on, as a test build turns a building feature on.
-fn outsourced(h: &Host, runner: &str) -> Command {
-    exe(
-        &h.dir.join("libexec/analytics"),
-        "#!/bin/sh\nd=$(dirname \"$0\")\nwhile [ $# -gt 0 ]; do [ \"$1\" = --facts ] && cat \"$2\" >>\"$d/../facts.log\"; shift; done\nexit 0\n",
-    );
-    let mut c = h.report_cmd(0, false, &["--status-cmd", "true", "--runner", runner]);
-    c.env("TEHAS_TEST_FEATURES", "outsource")
-        .env("TEHAS_OUTSOURCE", "on")
-        .env("TEHAS_ANALYTICS", "on");
-    c
-}
-
-#[test]
-fn with_outsource_off_nothing_is_stamped_and_a_job_runner_is_refused() {
-    let h = Host::new("stamp-off");
-    merged_with_pull(&h, "Fixes #7");
-    let o = h.report(0, false);
-    assert!(o.status.success(), "{}", out(&o));
-    let calls = h.calls().join("\n");
-    assert!(!calls.contains("Built by"), "{calls}");
-    assert!(!calls.contains("repos/a/b/pulls/9"), "{calls}");
-    assert!(!calls.contains("job-stamp"), "{calls}");
-    let o = h
-        .report_cmd(0, false, &["--status-cmd", "true", "--runner", "job"])
-        .output()
-        .unwrap();
-    assert_eq!(o.status.code(), Some(78), "{}", out(&o));
-}
-
-#[test]
-fn an_in_house_cycle_says_so_on_its_comment_and_its_pull_request() {
-    let h = Host::new("stamp-in-house");
-    merged_with_pull(&h, "Fixes #7");
-    let o = outsourced(&h, "work").output().unwrap();
-    assert!(o.status.success(), "{}", out(&o));
-    let calls = h.calls().join("\n");
-    assert!(
-        calls.contains("\n\nBuilt by: in-house"),
-        "{calls}\n{}",
-        out(&o)
-    );
-    assert_eq!(h.count("store job-stamp"), 0);
-    let edit = h.at("gh api -X PATCH repos/a/b/issues/9 --input -");
-    assert!(
-        h.calls()[edit].contains(r#"{"body":"Fixes #7\n\nBuilt by: in-house"}"#),
-        "{}",
-        h.calls()[edit]
-    );
-    assert!(edit < h.at("store cycle-end"));
-    let facts = fs::read_to_string(h.dir.join("facts.log")).unwrap();
-    assert!(!facts.contains("contractor"), "{facts}");
-}
-
-#[test]
-fn a_pull_request_that_carries_the_stamp_is_not_written_again() {
-    let h = Host::new("stamp-there");
-    merged_with_pull(&h, "Fixes #7\n\nBuilt by: in-house");
-    let o = outsourced(&h, "work").output().unwrap();
-    assert!(o.status.success(), "{}", out(&o));
-    assert_eq!(h.count("gh api repos/a/b/pulls/9"), 1);
-    assert_eq!(h.count("gh api -X PATCH repos/a/b/issues/9"), 0);
-}
-
-fn git(dir: &Path, args: &[&str]) -> String {
-    let o = Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(args)
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .env("GIT_AUTHOR_NAME", "Ada")
-        .env("GIT_AUTHOR_EMAIL", "ada@example.invalid")
-        .env("GIT_COMMITTER_NAME", "Ada")
-        .env("GIT_COMMITTER_EMAIL", "ada@example.invalid")
-        .output()
-        .unwrap();
-    assert!(o.status.success(), "{args:?}: {o:?}");
-    String::from_utf8(o.stdout).unwrap()
-}
-
-/// The repository a contractor's pull request's branch is on, reached at
-/// GitHub's address: `main`, and the branch with `commits` over it. The note
-/// of the heads as the cycle started holds what the branch held after the
-/// first `before` of them.
-fn contractors_branch(h: &Host, commits: &[&str], before: usize) -> std::path::PathBuf {
-    fs::write(
-        h.dir.join("job.json"),
-        r#"{"api":1,"verb":"job-stamp","ok":true,"job":4,"issue":7,"contractor":"box-1","attempt":1,"state":"finished"}"#,
-    )
-    .unwrap();
-    let remote = h.dir.join("remote.git");
-    let work = h.dir.join("clone");
-    fs::create_dir_all(&work).unwrap();
-    git(
-        &h.dir,
-        &["init", "--quiet", "--bare", remote.to_str().unwrap()],
-    );
-    git(&work, &["init", "--quiet", "-b", "main"]);
-    fs::write(work.join("a"), "1").unwrap();
-    git(&work, &["add", "a"]);
-    git(&work, &["commit", "--quiet", "-m", "Base"]);
-    git(&work, &["checkout", "--quiet", "-b", "feature/issue-7-x"]);
-    let r = remote.to_str().unwrap();
-    git(&work, &["push", "--quiet", r, "main"]);
-    for (i, message) in commits.iter().enumerate() {
-        if i == before {
-            let heads = git(&h.dir, &["ls-remote", "--heads", r]);
-            fs::write(h.dir.join("state/cycles/7.heads"), heads).unwrap();
-        }
-        fs::write(work.join("a"), format!("{}", i + 2)).unwrap();
-        git(&work, &["commit", "--quiet", "-am", message]);
-        git(&work, &["push", "--quiet", r, "feature/issue-7-x"]);
-    }
-    remote
-}
-
-fn at_github(mut c: Command, remote: &Path) -> Command {
-    c.env("GIT_CONFIG_COUNT", "1")
-        .env(
-            "GIT_CONFIG_KEY_0",
-            format!("url.{}.insteadOf", remote.display()),
-        )
-        .env("GIT_CONFIG_VALUE_0", "https://github.com/a/b.git");
-    c
-}
-
-#[test]
-fn a_contractors_cycle_names_it_and_its_job_and_its_commits_carry_its_trailer() {
-    let h = Host::new("stamp-contractor");
-    pull_in_state(&h, "Fixes #7", "open");
-    // A new branch: its commit names another contractor.
-    let remote = contractors_branch(&h, &["Change\n\nBuilt-by: other"], 0);
-    let o = at_github(outsourced(&h, "job"), &remote).output().unwrap();
-    assert!(o.status.success(), "{}", out(&o));
-    let stamp = h.at("store job-stamp --issue 7 --since 900");
-    assert!(stamp < h.at("gh issue comment 7"));
-    let calls = h.calls().join("\n");
-    assert!(
-        calls.contains("\n\nBuilt by contractor: box-1 (job 4)"),
-        "{calls}"
-    );
-    let edit = h.at("gh api -X PATCH repos/a/b/issues/9 --input -");
-    assert!(
-        h.calls()[edit].contains(r#"{"body":"Fixes #7\n\nBuilt by contractor: box-1 (job 4)"}"#),
-        "{}",
-        h.calls()[edit]
-    );
-    let message = git(&remote, &["log", "-1", "--format=%B", "feature/issue-7-x"]);
-    assert_eq!(message.trim_end(), "Change\n\nBuilt-by: box-1");
-    let said = out(&o);
-    assert!(
-        said.contains("1 commit(s) of feature/issue-7-x did not name box-1"),
-        "{said}"
-    );
-    assert!(!h.dir.join("state/outsource/stamp/7").exists());
-    assert!(!h.dir.join("state/cycles/7.heads").exists());
-    let facts = fs::read_to_string(h.dir.join("facts.log")).unwrap();
-    assert!(facts.contains(r#""contractor":"box-1""#), "{facts}");
-}
-
-#[test]
-fn the_commits_on_a_contractors_branch_before_its_cycle_keep_their_message_and_id() {
-    let h = Host::new("stamp-earlier");
-    pull_in_state(&h, "Fixes #7", "open");
-    // An in-house cycle pushed the first commit; the contractor's cycle the
-    // second.
-    let remote = contractors_branch(&h, &["In-house\n\nIt changes a.", "Contractor"], 1);
-    let earlier = git(&remote, &["rev-parse", "feature/issue-7-x^"]);
-    let o = at_github(outsourced(&h, "job"), &remote).output().unwrap();
-    assert!(o.status.success(), "{}", out(&o));
-    assert_eq!(git(&remote, &["rev-parse", "feature/issue-7-x^"]), earlier);
-    let message = git(&remote, &["log", "-1", "--format=%B", "feature/issue-7-x^"]);
-    assert_eq!(message.trim_end(), "In-house\n\nIt changes a.");
-    let message = git(&remote, &["log", "-1", "--format=%B", "feature/issue-7-x"]);
-    assert_eq!(message.trim_end(), "Contractor\n\nBuilt-by: box-1");
-    assert!(out(&o).contains("1 commit(s) of feature/issue-7-x did not name box-1"));
-}
-
-#[test]
-fn with_no_note_of_the_heads_or_read_only_a_contractors_branch_is_left_alone() {
-    let h = Host::new("stamp-no-heads");
-    pull_in_state(&h, "Fixes #7", "open");
-    let remote = contractors_branch(&h, &["Change"], 0);
-    fs::remove_file(h.dir.join("state/cycles/7.heads")).unwrap();
-    let head = git(&remote, &["rev-parse", "feature/issue-7-x"]);
-    let o = at_github(outsourced(&h, "job"), &remote).output().unwrap();
-    assert!(o.status.success(), "{}", out(&o));
-    assert!(
-        out(&o).contains("WARN: the Built-by: trailers of feature/issue-7-x were not checked: the branch heads as the cycle started were not noted"),
-        "{}",
-        out(&o)
-    );
-    assert_eq!(git(&remote, &["rev-parse", "feature/issue-7-x"]), head);
-
-    let h = Host::new("stamp-read-only");
-    pull_in_state(&h, "Fixes #7", "open");
-    let remote = contractors_branch(&h, &["Change"], 0);
-    let head = git(&remote, &["rev-parse", "feature/issue-7-x"]);
-    let o = at_github(outsourced(&h, "job"), &remote)
-        .env("TEHAS_READ_ONLY", "1")
-        .output()
-        .unwrap();
-    assert!(
-        out(&o).contains("read-only: would push the Built-by: rewrite of feature/issue-7-x"),
-        "{}",
-        out(&o)
-    );
-    assert_eq!(git(&remote, &["rev-parse", "feature/issue-7-x"]), head);
-    assert!(!h.dir.join("state/outsource/stamp").exists());
-}
-
-#[test]
-fn a_contractors_cycle_with_no_job_or_no_approval_time_carries_no_stamp() {
-    let h = Host::new("stamp-no-job");
-    merged_with_pull(&h, "Fixes #7");
-    let o = outsourced(&h, "job").output().unwrap();
-    assert!(o.status.success(), "{}", out(&o));
-    assert!(
-        out(&o).contains(
-            "WARN: #7: the store did not say which job built it (its answer names no job)"
-        ),
-        "{}",
-        out(&o)
-    );
-    let calls = h.calls().join("\n");
-    assert!(!calls.contains("Built by"), "{calls}");
-
-    let h = Host::new("stamp-no-approval");
-    merged_with_pull(&h, "Fixes #7");
-    fs::write(
-        h.dir.join("job.json"),
-        r#"{"api":1,"verb":"job-stamp","ok":true,"job":4,"contractor":"box-1"}"#,
-    )
-    .unwrap();
-    let o = outsourced(&h, "job")
-        .args(["--approval-at", ""])
-        .output()
-        .unwrap();
-    assert!(o.status.success(), "{}", out(&o));
-    assert!(
-        out(&o).contains("the cycle's approval has no time"),
-        "{}",
-        out(&o)
-    );
-    assert_eq!(h.count("store job-stamp"), 0);
-    let calls = h.calls().join("\n");
-    assert!(!calls.contains("Built by"), "{calls}");
-}
-
-#[test]
-fn a_contractors_cycle_the_store_cannot_place_carries_no_stamp() {
-    let h = Host::new("stamp-unknown");
-    merged_with_pull(&h, "Fixes #7");
-    fs::write(h.dir.join("store-fail"), "job-stamp").unwrap();
-    let o = outsourced(&h, "job").output().unwrap();
-    assert!(o.status.success(), "{}", out(&o));
-    let said = out(&o);
-    assert!(
-        said.contains("WARN: #7: the store did not say which job built it"),
-        "{said}"
-    );
-    let calls = h.calls().join("\n");
-    assert!(!calls.contains("Built by"), "{calls}");
-}
-
-#[test]
-fn a_merged_contractors_pull_request_is_footed_and_its_branch_left_alone() {
-    let h = Host::new("stamp-merged");
-    merged_with_pull(&h, "Fixes #7");
-    fs::write(
-        h.dir.join("job.json"),
-        r#"{"api":1,"verb":"job-stamp","ok":true,"job":4,"contractor":"box-1"}"#,
-    )
-    .unwrap();
-    let o = outsourced(&h, "job").output().unwrap();
-    assert!(o.status.success(), "{}", out(&o));
-    let said = out(&o);
-    assert!(!said.contains("Built-by"), "{said}");
-    assert!(!h.dir.join("state/outsource/stamp").exists());
-    let edit = h.at("gh api -X PATCH repos/a/b/issues/9 --input -");
-    assert!(h.calls()[edit].contains("Built by contractor: box-1 (job 4)"));
+    assert!(Home::new(h.dir.path()).state(State::DispatchAgain).exists());
 }

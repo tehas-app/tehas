@@ -142,44 +142,8 @@ fn run(url: &str) -> Run {
     }
 }
 
-/// The run's directory: a test directory, or one under /tmp when that path
-/// is too long for a socket (108 bytes of `sun_path`).
-enum SockDir {
-    Test(TestDir),
-    Short(PathBuf),
-}
-
-impl SockDir {
-    fn new() -> SockDir {
-        let t = TestDir::new("sock");
-        if t.join(SOCKET).as_os_str().len() < 100 {
-            return SockDir::Test(t);
-        }
-        static NEXT: AtomicUsize = AtomicUsize::new(0);
-        let n = NEXT.fetch_add(1, Ordering::SeqCst);
-        let p = PathBuf::from(format!("/tmp/tehas-sock-{}-{n}", std::process::id()));
-        std::fs::create_dir(&p).unwrap();
-        SockDir::Short(p)
-    }
-
-    fn path(&self) -> &Path {
-        match self {
-            SockDir::Test(t) => t.path(),
-            SockDir::Short(p) => p,
-        }
-    }
-}
-
-impl Drop for SockDir {
-    fn drop(&mut self) {
-        if let SockDir::Short(p) = self {
-            let _ = std::fs::remove_dir_all(p);
-        }
-    }
-}
-
-fn start(run: Run) -> (SockDir, Server) {
-    let dir = SockDir::new();
+fn start(run: Run) -> (TestDir, Server) {
+    let dir = TestDir::short();
     let server = Server::start(dir.path(), run).unwrap();
     (dir, server)
 }
@@ -784,9 +748,15 @@ fn an_endpoint_s_error_is_passed_back_with_its_status() {
 
 #[test]
 fn an_endpoint_that_does_not_answer_is_502_and_keeps_the_reserve() {
-    let closed = TcpListener::bind("127.0.0.1:0").unwrap();
-    let url = format!("http://{}/v1", closed.local_addr().unwrap());
-    drop(closed);
+    // The port stays held, so no other process can take it and answer; each
+    // connection is closed unread.
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/v1", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+        for conn in listener.incoming() {
+            drop(conn);
+        }
+    });
     let (_dir, server) = start(run(&url));
     let a = chat(&server, &ask());
     assert_eq!(a.0, 502);

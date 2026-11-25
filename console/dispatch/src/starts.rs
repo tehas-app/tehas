@@ -27,12 +27,14 @@ pub fn code_of(text: &str) -> &'static str {
         ("is open and closes it", code::OPEN_PR),
         ("an epic is never started", code::EPIC),
         ("TEHAS_SIZE_MAX_FILES", code::TOO_LARGE),
-        // Rule 4: a tick on the bot's question, and the question itself.
+        // Rule 4: an answer to the bot's question, and the question itself.
         (
-            "a box was ticked in a question this host has no record of",
+            "a choice was made in a question this host has no record of",
             code::QUESTION,
         ),
-        ("are no answer", code::QUESTION),
+        ("is no answer", code::QUESTION),
+        ("no plugin answers a question", code::QUESTION),
+        ("matches no option on record", code::QUESTION),
         ("its question is not among", code::QUESTION),
         ("its question was written by", code::QUESTION),
         ("the question on record does not belong", code::QUESTION),
@@ -41,7 +43,7 @@ pub fn code_of(text: &str) -> &'static str {
             code::DRIVER,
         ),
         (
-            "a retry was ticked but the issue is not parked",
+            "a retry was answered but the issue is not parked",
             code::PARKED,
         ),
         (
@@ -55,8 +57,7 @@ pub fn code_of(text: &str) -> &'static str {
         ("who may not authorise work here", code::NOT_ALLOWED),
         ("not an allowed account", code::NOT_ALLOWED),
         ("was taken off by", code::LABEL_OFF),
-        ("from the fixer", code::MILLWRIGHT),
-        ("TEHAS_MILLWRIGHT_MAX_FEEDS", code::MILLWRIGHT),
+        ("from the millwright", code::MILLWRIGHT),
         ("from the bot starts nothing", code::NOT_ALLOWED),
         ("tehas:ready was applied by", code::NOT_ALLOWED),
         ("it carries both", code::DRIVER),
@@ -71,7 +72,6 @@ pub fn code_of(text: &str) -> &'static str {
         ("the refresh lane is full", code::REFRESH_LANE),
         ("carries tehas:refreshing", code::REFRESH_LANE),
         ("GitHub has not said yet", code::UNREADABLE),
-        ("Spec:", code::SPEC),
         ("could not be read", code::UNREADABLE),
     ];
     ARMS.iter()
@@ -88,6 +88,7 @@ mod tests {
         for (line, want) in [
             ("wait #8: not in the start order (--only)", code::NOT_IN_ORDER),
             ("wait #8: its cycle is still running", code::RUNNING),
+            ("skip #8: the answer of tehas-bot is a plugin's, and no plugin answers a question in this release", code::QUESTION),
             ("skip #8: a planning session is open on it; end it first", code::PLANNING),
             ("skip #8: it is closed, and a closed issue is never taken", code::CLOSED),
             ("wait #8: a blocked-by link holds it: 2 blockers are open", code::BLOCKED_LINK),

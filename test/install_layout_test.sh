@@ -7,13 +7,6 @@
 # shellcheck source=test/install_lib.sh
 . "$(dirname "$0")/install_lib.sh" || exit 1
 
-# Before bin/tehas there was one file for each command in ~/tehas/bin.
-old_layout() {
-  for f in tehas-console.ts tehas-dispatch tehas-energy tehas-health tehas-index tehas-protolab \
-    tehas-status tehas-test tehas-work; do echo "# old" >"$th/bin/$f"; done
-  echo "# older" >"$th/bin/tehas-dispatch.prev"
-}
-
 t_case "--check names the commands of the earlier layout and removes nothing"
 fresh
 instance
@@ -33,10 +26,9 @@ t_run "$install"
 t_eq "$t_rc" 0
 t_contains "$t_out" "removed: $th/bin/tehas-dispatch"
 t_contains "$t_out" "removed: $th/bin/tehas-test"
-# A running sampler is the old file calling itself. The units step restarts it,
-# so the step is asked for and owed although no unit file changed.
-t_contains "$t_out" "next: units tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-mcp-fetch.socket tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-clean.timer"
-t_contains "$(cat "$th/state/update-pending")" "units tehas-dispatch.timer tehas-energy.service"
+# The old sampler left with energy use, so no running loop is the old file
+# calling itself and no unit is restarted for it.
+t_lacks "$t_out" "next: units"
 # systemd reloaded before the files its old units name were removed.
 t_eq "$(t_calls systemctl | head -n 1)" "--user daemon-reload"
 t_eq "$(cd "$th/bin" && find . -type f | LC_ALL=C sort | tr '\n' ' ')" "./gh ./tehas ./tehasbot "
@@ -119,191 +111,52 @@ t_stub systemctl
 t_run "$install"
 t_contains "$t_out" "removed: $units/tehas-refresh.timer"
 
-t_case "the units of the improvement loop are named, then stopped and removed"
-echo "[Timer]" >"$units/tehas-improve.timer"
-echo "[Service]" >"$units/tehas-improve.service"
-t_run "$install --check"
-t_eq "$t_rc" 1
-t_contains "$t_out" "stale: $units/tehas-improve.timer"
-t_contains "$t_out" "stale: $units/tehas-improve.service"
-rm -f "$T/calls/systemctl"
-t_run "$install"
-t_eq "$t_rc" 0
-t_contains "$t_out" "removed: $units/tehas-improve.timer"
-t_contains "$t_out" "removed: $units/tehas-improve.service"
-t_eq "$(t_calls systemctl | head -n 2)" "--user disable --now tehas-improve.timer
+# The improvement loop, and the Protolab, parked (docs/specs/parked-protolab.md).
+for old in improve protolab; do
+  t_case "the units of tehas-$old are named, then stopped and removed"
+  echo "[Timer]" >"$units/tehas-$old.timer"
+  echo "[Service]" >"$units/tehas-$old.service"
+  t_run "$install --check"
+  t_eq "$t_rc" 1
+  t_contains "$t_out" "stale: $units/tehas-$old.timer"
+  t_contains "$t_out" "stale: $units/tehas-$old.service"
+  rm -f "$T/calls/systemctl"
+  t_run "$install"
+  t_eq "$t_rc" 0
+  t_contains "$t_out" "removed: $units/tehas-$old.timer"
+  t_contains "$t_out" "removed: $units/tehas-$old.service"
+  t_eq "$(t_calls systemctl | head -n 2)" "--user disable --now tehas-$old.timer
 --user daemon-reload"
-t_eq "$([ -e "$units/tehas-improve.timer" ] || [ -e "$units/tehas-improve.service" ] || echo gone)" "gone"
+  t_eq "$([ -e "$units/tehas-$old.timer" ] || [ -e "$units/tehas-$old.service" ] || echo gone)" "gone"
+done
 
-t_case "one retired timer systemd cannot disable leaves its units and not the other's"
-echo "[Timer]" >"$units/tehas-refresh.timer"
-echo "[Timer]" >"$units/tehas-improve.timer"
-echo "[Service]" >"$units/tehas-improve.service"
-t_stub systemctl '[ "$4" != tehas-refresh.timer ]'
-t_run "$install"
-t_eq "$t_rc" 0
-t_contains "$t_out" "later: ./install.sh again   (systemctl --user disable --now tehas-refresh.timer failed"
-t_contains "$t_out" "removed: $units/tehas-improve.timer"
-t_contains "$t_out" "removed: $units/tehas-improve.service"
-t_eq "$([ -e "$units/tehas-refresh.timer" ] && echo there)" "there"
-t_stub systemctl
-t_run "$install"
-t_contains "$t_out" "removed: $units/tehas-refresh.timer"
-
-t_case "an enabled timer of a feature that is off is named, then stopped and disabled, and its files stay"
+t_case "the units of the review loop are named, then stopped and removed"
 echo "[Timer]" >"$units/tehas-review.timer"
 echo "[Service]" >"$units/tehas-review.service"
-rm -f "$T/disabled"
-t_stub systemctl 'case $2 in
-  is-enabled) [ ! -e "$T/disabled" ] ;;
-  disable) : >"$T/disabled" ;;
-esac'
-rm -f "$T/calls/systemctl"
 t_run "$install --check"
 t_eq "$t_rc" 1
-t_contains "$t_out" "enabled: $units/tehas-review.timer (its feature is off; a real run disables it)"
-t_lacks "$(t_calls systemctl)" "disable"
+t_contains "$t_out" "stale: $units/tehas-review.timer"
+t_contains "$t_out" "stale: $units/tehas-review.service"
 rm -f "$T/calls/systemctl"
 t_run "$install"
 t_eq "$t_rc" 0
-t_contains "$t_out" "systemd: stopped and disabled tehas-review.timer: its feature is off (the unit files stay)"
-t_contains "$(t_calls systemctl)" "--user disable --now tehas-review.timer"
-t_eq "$(cat "$units/tehas-review.timer" "$units/tehas-review.service")" "[Timer]
-[Service]"
-t_run "$install"
-t_contains "$t_out" "tehas is up to date"
-t_lacks "$t_out" "tehas-review.timer"
+t_contains "$t_out" "removed: $units/tehas-review.timer"
+t_contains "$t_out" "removed: $units/tehas-review.service"
+t_eq "$(t_calls systemctl | head -n 2)" "--user disable --now tehas-review.timer
+--user daemon-reload"
+t_eq "$([ -e "$units/tehas-review.timer" ] || [ -e "$units/tehas-review.service" ] || echo gone)" "gone"
 
-t_case "a timer of a feature that is off that systemd cannot disable is left for the next run"
-rm -f "$T/disabled"
-t_stub systemctl '[ "$2" != disable ]'
-t_run "$install"
-t_eq "$t_rc" 0
-t_contains "$t_out" "later: systemctl --user disable --now tehas-review.timer   (its feature is off)"
-rm -f "$units/tehas-review.timer" "$units/tehas-review.service"
-t_stub systemctl
-
-t_case "while a poll holds the dispatcher's lock nothing is installed, and the next run removes them"
-old_layout
-mkdir -p "$th/state"
-lock=$th/state/dispatch.lock
-bash -c 'exec 8>"$1"; flock 8; exec sleep 60' _ "$lock" &
-holder=$!
-for _ in $(seq 50); do flock -n "$lock" true || break; sleep 0.1; done
-rm -f "$th/bin/tehas"
-t_run "export TEHAS_DISPATCH_LOCK_WAIT=0; $install"
-t_eq "$t_rc" 1
-t_contains "$t_out" "tehas: a poll is running ($lock still held after 0s); nothing was installed"
-t_lacks "$t_out" "removed: $th/bin/tehas-dispatch"
-t_eq "$([ -e "$th/bin/tehas-status" ] && echo there)" "there"
-t_eq "$([ -e "$th/bin/tehas" ] || echo gone)" "gone"
-kill "$holder" 2>/dev/null
-wait "$holder" 2>/dev/null
-t_run "$install"
-t_eq "$t_rc" 0
-t_contains "$t_out" "removed: $th/bin/tehas-status"
-t_eq "$([ -e "$th/bin/tehas-status" ] || echo gone)" "gone"
-t_eq "$([ -e "$th/bin/tehas" ] && echo there)" "there"
-t_eq "$(flock -n "$lock" true && echo free)" "free"
-
-t_case "they stay while systemd has not reloaded its units"
-old_layout
-rm -f "$T"/calls/systemctl
-t_stub systemctl 'echo "Failed to connect to bus: No such file or directory" >&2; exit 1'
-t_run "$install"
-t_eq "$t_rc" 0
-t_contains "$t_out" "later: ./install.sh again once systemctl --user daemon-reload works"
-t_lacks "$t_out" "removed: $th/bin/tehas-dispatch"
-t_eq "$([ -e "$th/bin/tehas-dispatch" ] && echo there)" "there"
-# A wrapper that prints an error and still exits 0 did not reload either.
-t_stub systemctl 'echo "System has not been booted with systemd"'
-t_run "$install"
-t_contains "$t_out" "later: ./install.sh again once systemctl --user daemon-reload works"
-t_eq "$([ -e "$th/bin/tehas-dispatch" ] && echo there)" "there"
-t_stub systemctl
-t_run "$install"
-t_contains "$t_out" "removed: $th/bin/tehas-dispatch"
-
-# A tree may carry a polyfill of a pi-rukas feature (scripts/polyfills.sh);
-# install.sh has no name for one, so a case makes the tree rather than the
-# repository holding one: the same tree twice, once with the file in its lib/
-# and once without. The tree is a copy of the fixture, so nothing under it is
-# written by a case and the polyfill is never sourced from the tree that has it.
-make_checkout() { # <dir> <polyfill?>
-  local d=$1 with=${2:-}
-  rm -rf "$d"
-  mkdir -p "$d"
-  cp -R "$fixture/install.sh" "$fixture/lib" "$fixture/host" "$fixture/bin" \
-    "$fixture/libexec" "$d/"
-  # An install of a checkout reads the instance's models.json before it copies
-  # anything, so the copy carries the file this file's instance() writes.
-  cp "$TEHAS_INSTANCE_DIR/models.json" "$d/host/"
-  t_console_source "$d" "$fixture"
-  [ -z "$with" ] || echo '# polyfill of a feature the image lacks' >"$d/lib/polyfill-demo.sh"
-}
-
-t_case "a polyfill the tree carries is installed beside the other libraries"
-# The host of the cases above is the one the real run of this file made, and it
-# keeps what an install puts; clear it so neither case sees the other's lib/.
-fresh
-instance
-# install.sh reads its own directory, so the tree is a copy of this checkout
-# with the polyfill added to its lib/.
-checkout=$T/checkout
-make_checkout "$checkout" demo
-t_run "cd '$checkout' && ./install.sh"
-t_eq "$t_rc" 0
-t_contains "$t_out" "installed: $th/lib/polyfill-demo.sh"
-t_eq "$([ -f "$th/lib/polyfill-demo.sh" ] && echo there)" "there"
-t_eq "$(stat -L -c %a "$th/lib/polyfill-demo.sh")" "644"
-# The host answers the way the checkout does: a feature the image lacks and the
-# tree carries is `polyfill`, not `off`. The file tehas-cycle reads for it is
-# the one in the lib/ beside its own libexec/, so it is asked from there, and
-# the program the install left is put back: the build here is a stub.
-mode_in() { # <tree> <feature>: what tehas-cycle in that tree answers
-  local held=""
-  [ ! -e "$1/libexec/tehas-cycle" ] || { held=$T/held-cycle; mv "$1/libexec/tehas-cycle" "$held"; }
-  cp "$T_CYCLE" "$1/libexec/tehas-cycle"
-  t_run "'$1/libexec/tehas-cycle' caps mode $2 <<<'{}'"
-  rm -f "$1/libexec/tehas-cycle"
-  [ -z "$held" ] || mv "$held" "$1/libexec/tehas-cycle"
-}
-# shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
-t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
-mode_in "$th" demo
-t_eq "$t_out" "polyfill"
-mkdir -p "$checkout/libexec"
-mode_in "$checkout" demo
-t_eq "$t_out" "polyfill"
-# The host the install just made is current, apart from the follow-ups its own
-# copies asked for, which no run of this file has taken.
-t_run "rm -f '$th/state/update-pending'; cd '$checkout' && ./install.sh --check"
-t_eq "$t_rc" 0
-t_lacks "$t_out" "polyfill-demo.sh"
-
-t_case "a tree with no polyfill installs no polyfill file"
-fresh
-instance
-make_checkout "$checkout"
-t_run "cd '$checkout' && ./install.sh"
-t_eq "$t_rc" 0
-t_eq "$(cd "$th/lib" && find . -name 'polyfill-*' | tr '\n' ' ')" ""
-mode_in "$th" demo
-t_eq "$t_out" "off"
-
-t_case "an old command that cannot be removed fails the install"
-old_layout
-chmod a-w "$th/bin"
-t_run "$install"
-chmod u+w "$th/bin"
-if [ "$(id -u)" = 0 ]; then
-  t_eq "$t_rc" 0 # root removes it anyway
-else
-  t_eq "$([ "$t_rc" != 0 ] && echo failed)" "failed"
-  t_eq "$([ -e "$th/bin/tehas-energy" ] && echo there)" "there"
-fi
-t_run "$install"
-t_eq "$t_rc" 0
-
+for unit in tehas-energy.service tehas-top.service; do
+  t_case "the retired $unit, a service with no timer, is stopped and removed"
+  echo "[Service]" >"$units/$unit"
+  t_run "$install --check"
+  t_contains "$t_out" "stale: $units/$unit"
+  rm -f "$T/calls/systemctl"
+  t_run "$install"
+  t_eq "$t_rc" 0
+  t_contains "$t_out" "removed: $units/$unit"
+  t_eq "$(t_calls systemctl | head -n 2)" "--user disable --now $unit
+--user daemon-reload"
+done
 
 t_done

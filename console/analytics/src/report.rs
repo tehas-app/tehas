@@ -43,17 +43,18 @@
 //! `gate`, `tehasbot status` does not publish it.
 
 use rusqlite::{params, Connection};
-use serde_json::{json, Map, Value};
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
+use tehas_core::home::State;
 use tehas_core::time::civil_from_days;
 
 pub const REPORT_VERSION: i64 = 1;
 pub const DAYS: i64 = 10;
 const DAY: i64 = 86_400;
 /// The longest stretch one sample stands for. A longer gap between samples
-/// is a dispatcher that was not polling: it is not counted as available,
-/// nor as one long draw of the sample's watts.
+/// is a dispatcher that was not polling: it is not counted as available.
 pub const SAMPLE_SPAN: i64 = 600;
 /// A version pair with fewer work runs shows its count only, and one with fewer
 /// that reported usage no median of tokens.
@@ -107,10 +108,266 @@ const SIZE_MAX_FILES: i64 = 999_999_999;
 /// The greatest gate share the report prints: a run of the gate that outlasted
 /// the run it was in is a figure of two clocks, not a share above the whole.
 const MAX_SHARE: f64 = 1.0;
-/// The two ledgers beside the database, named once: `sessions` reads
-/// `refined.jsonl` too, and both readers must mean the same file.
-const SIZES_LEDGER: &str = "sizes.jsonl";
-pub(crate) const REFINED_LEDGER: &str = "refined.jsonl";
+
+/// The report as `analytics report --json` prints it. A figure that is
+/// `None` is left out of the JSON, never null.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Report {
+    pub report: i64,
+    pub from: i64,
+    pub to: i64,
+    pub shipped: Count,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub planned: Option<Planned>,
+    pub runs: Runs,
+    pub planning_turns: Count,
+    pub handoff_rate: Share,
+    pub first_pass_yield: Share,
+    pub lead_time: Spread,
+    pub cycle_time: Spread,
+    pub machine_time: MachineTime,
+    pub tokens: Tokens,
+    pub availability: Availability,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gate: Option<Gate>,
+    pub daily: Vec<Day>,
+    pub stop_reasons: StopReasons,
+    pub stations: Funnel,
+    pub versions: Vec<Version>,
+    /// By driver, then by the pi-rukas version `named` gives.
+    pub drivers: BTreeMap<String, BTreeMap<String, DriverRuns>>,
+    /// Added by `complete`, from the ledger of refined issues.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refine: Option<Refine>,
+    /// Added by `complete`, from the ledger of sizes, by the word of each bucket.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sizes: Option<BTreeMap<String, SizeRow>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Count {
+    pub n: i64,
+}
+
+/// The work runs, and how many ended in each outcome of
+/// `tehas_core::outcome::OUTCOMES`.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Runs {
+    pub n: usize,
+    #[serde(flatten)]
+    pub by: BTreeMap<String, usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Share {
+    pub n: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub share: Option<f64>,
+}
+
+/// `n` sorted values, their median and p90.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Spread {
+    pub n: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub median: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub p90: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MachineTime {
+    pub n: usize,
+    pub seconds: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub per_shipped: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Tokens {
+    pub n: usize,
+    pub total: i64,
+    pub input: i64,
+    pub output: i64,
+    pub cache_read: i64,
+    pub shipped: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub per_shipped: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Availability {
+    pub n: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seconds: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub share: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Gate {
+    pub n: usize,
+    pub seconds: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub median: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub p90: Option<i64>,
+    pub per_run: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub share: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Planned {
+    pub n: i64,
+    pub in_line: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub planning: Option<i64>,
+    pub trend: Vec<Trend>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Trend {
+    pub day: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub n: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Day {
+    pub day: String,
+    pub shipped: i64,
+    pub runs: i64,
+    pub failed: i64,
+    pub minutes: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct StopReasons {
+    pub n: usize,
+    pub top: Vec<Reason>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Reason {
+    pub reason: String,
+    pub n: usize,
+}
+
+/// A step funnel: the runs it counts, and of each step the runs that reached
+/// it and passed it.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Funnel {
+    pub n: usize,
+    pub steps: Vec<Station>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Station {
+    pub step: String,
+    pub n: usize,
+    pub passed: usize,
+    pub share: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Version {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tehas: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rukas: Option<String>,
+    pub n: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub change_share: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub median_seconds: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub median_tokens: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tokens_n: Option<usize>,
+}
+
+/// The runs of one driver and pi-rukas version, as `drivers` states.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DriverRuns {
+    pub n: usize,
+    pub ran: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub change_share: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parked_share: Option<f64>,
+    pub minutes: Tally,
+    pub tokens: Tally,
+    pub pull_requests: PullRequests,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub one_attempt: Option<OneAttempt>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hand_back: Option<Funnel>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Tally {
+    pub n: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub median: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct PullRequests {
+    pub n: usize,
+    pub merged: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub share: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct OneAttempt {
+    pub n: usize,
+    pub change: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub share: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Refine {
+    pub sessions: i64,
+    pub n: usize,
+    pub started: usize,
+    pub shipped: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shipped_share: Option<f64>,
+    pub lead_time: Spread,
+    pub others: RefineOthers,
+}
+
+/// The other issues made ready in the window, to compare with the refined.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RefineOthers {
+    pub n: usize,
+    pub started: usize,
+    pub shipped: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shipped_share: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SizeRow {
+    pub n: usize,
+    pub shipped: usize,
+    pub lead_time: Spread,
+}
 
 /// A word of a published vocabulary, or "other": a value of any other shape
 /// is never published as it is.
@@ -128,8 +385,8 @@ fn vocab(s: &str) -> String {
 
 /// A version as published: left out when unknown, "other" when of another
 /// shape than a version or a commit.
-fn named(s: &str) -> Option<Value> {
-    named_str(s).map(|w| json!(w))
+fn named(s: &str) -> Option<String> {
+    named_str(s).map(str::to_string)
 }
 
 /// The word `named` publishes for a version.
@@ -176,16 +433,6 @@ fn p90(sorted: &[i64]) -> Option<i64> {
 fn date(days: i64) -> String {
     let (y, m, d) = civil_from_days(days);
     format!("{y:04}-{m:02}-{d:02}")
-}
-
-fn obj(pairs: Vec<(&str, Option<Value>)>) -> Value {
-    let mut m = Map::new();
-    for (k, v) in pairs {
-        if let Some(v) = v {
-            m.insert(k.to_string(), v);
-        }
-    }
-    Value::Object(m)
 }
 
 struct WorkRun {
@@ -264,7 +511,7 @@ impl WorkRun {
 }
 
 /// The report at `to`.
-pub fn build(conn: &Connection, to: i64) -> rusqlite::Result<Value> {
+pub fn build(conn: &Connection, to: i64) -> rusqlite::Result<Report> {
     let today = to.div_euclid(DAY);
     let from = (today - (DAYS - 1)) * DAY;
     let runs = work_runs(conn, from, to)?;
@@ -277,70 +524,28 @@ pub fn build(conn: &Connection, to: i64) -> rusqlite::Result<Value> {
     )?;
 
     let n_shipped = shipped.len();
-    let per =
-        |total: i64, n: usize| (n > 0).then(|| json!((total as f64 / n as f64).round() as i64));
-    let per_shipped = |total: i64| per(total, n_shipped);
-
-    let mut report = Map::new();
-    report.insert("report".into(), json!(REPORT_VERSION));
-    report.insert("from".into(), json!(from));
-    report.insert("to".into(), json!(to));
-    report.insert("shipped".into(), json!({"n": n_shipped}));
-    if let Some(p) = planned(&samples, from) {
-        report.insert(PLANNED.into(), p);
-    }
+    let per = |total: i64, n: usize| (n > 0).then(|| (total as f64 / n as f64).round() as i64);
 
     let count = |o: &str| runs.iter().filter(|r| r.outcome == o).count();
-    let mut split = Map::new();
-    split.insert("n".into(), json!(runs.len()));
-    for o in tehas_core::outcome::OUTCOMES {
-        split.insert(o.into(), json!(count(o)));
-    }
-    report.insert("runs".into(), Value::Object(split));
-    report.insert("planningTurns".into(), json!({"n": planning_turns}));
-    // Runs that ended needing a person: handed off or parked.
-    report.insert(
-        "handoffRate".into(),
-        obj(vec![
-            ("n", Some(json!(runs.len()))),
-            (
-                "share",
-                share(count("handoff") + count("parked"), runs.len()).map(Value::from),
-            ),
-        ]),
-    );
+    let by = tehas_core::outcome::OUTCOMES
+        .iter()
+        .map(|o| (o.to_string(), count(o)))
+        .collect();
 
     // Shipped issues with at least one work run here: one whose runs were
     // all pruned says nothing about how many it took.
     let counted: Vec<&Shipped> = shipped.iter().filter(|s| s.runs > 0).collect();
     let first = counted.iter().filter(|s| s.runs == 1).count();
-    report.insert(
-        "firstPassYield".into(),
-        obj(vec![
-            ("n", Some(json!(counted.len()))),
-            ("share", share(first, counted.len()).map(Value::from)),
-        ]),
-    );
     let mut lead: Vec<i64> = shipped
         .iter()
         .filter_map(|s| s.lead)
         .filter(|l| *l >= 0)
         .collect();
     lead.sort_unstable();
-    report.insert("leadTime".into(), spread(&lead));
 
     let mut secs: Vec<i64> = runs.iter().filter_map(|r| r.seconds).collect();
     secs.sort_unstable();
-    report.insert("cycleTime".into(), spread(&secs));
     let total_secs: i64 = secs.iter().sum();
-    report.insert(
-        "machineTime".into(),
-        obj(vec![
-            ("n", Some(json!(secs.len()))),
-            ("seconds", Some(json!(total_secs))),
-            ("perShipped", per_shipped(total_secs)),
-        ]),
-    );
 
     let used: Vec<(i64, i64, i64)> = runs.iter().filter_map(|r| r.tokens).collect();
     let (input, output, cache_read) = used
@@ -348,32 +553,52 @@ pub fn build(conn: &Connection, to: i64) -> rusqlite::Result<Value> {
         .fold((0, 0, 0), |a, t| (a.0 + t.0, a.1 + t.1, a.2 + t.2));
     let total_tokens = input + output + cache_read;
     let usage_shipped = shipped.iter().filter(|s| s.runs == 0 || s.usage).count();
-    report.insert(
-        "tokens".into(),
-        obj(vec![
-            ("n", Some(json!(used.len()))),
-            ("total", Some(json!(total_tokens))),
-            ("input", Some(json!(input))),
-            ("output", Some(json!(output))),
-            ("cacheRead", Some(json!(cache_read))),
-            ("shipped", Some(json!(usage_shipped))),
-            ("perShipped", per(total_tokens, usage_shipped)),
-        ]),
-    );
 
-    report.insert("availability".into(), availability(&samples, to));
-    if let Some(g) = gate(&runs) {
-        report.insert(GATE.into(), g);
-    }
-    if let Some(e) = energy(&samples, to, n_shipped) {
-        report.insert(ENERGY.into(), e);
-    }
-    report.insert("daily".into(), daily(&runs, &shipped, from));
-    report.insert("stopReasons".into(), stop_reasons(&runs));
-    report.insert("stations".into(), stations(conn, &runs, from, to)?);
-    report.insert("versions".into(), versions(&runs));
-    report.insert("drivers".into(), drivers(conn, &runs, from, to)?);
-    Ok(Value::Object(report))
+    Ok(Report {
+        report: REPORT_VERSION,
+        from,
+        to,
+        shipped: Count {
+            n: n_shipped as i64,
+        },
+        planned: planned(&samples, from),
+        runs: Runs { n: runs.len(), by },
+        planning_turns: Count { n: planning_turns },
+        // Runs that ended needing a person: handed off or parked.
+        handoff_rate: Share {
+            n: runs.len(),
+            share: share(count("handoff") + count("parked"), runs.len()),
+        },
+        first_pass_yield: Share {
+            n: counted.len(),
+            share: share(first, counted.len()),
+        },
+        lead_time: spread(&lead),
+        cycle_time: spread(&secs),
+        machine_time: MachineTime {
+            n: secs.len(),
+            seconds: total_secs,
+            per_shipped: per(total_secs, n_shipped),
+        },
+        tokens: Tokens {
+            n: used.len(),
+            total: total_tokens,
+            input,
+            output,
+            cache_read,
+            shipped: usage_shipped,
+            per_shipped: per(total_tokens, usage_shipped),
+        },
+        availability: availability(&samples, to),
+        gate: gate(&runs),
+        daily: daily(&runs, &shipped, from),
+        stop_reasons: stop_reasons(&runs),
+        stations: stations(conn, &runs, from, to)?,
+        versions: versions(&runs),
+        drivers: drivers(conn, &runs, from, to)?,
+        refine: None,
+        sizes: None,
+    })
 }
 
 /// Each entry is one section whose whole row `text` prints only when the key
@@ -383,22 +608,20 @@ pub fn build(conn: &Connection, to: i64) -> rusqlite::Result<Value> {
 /// without a producer, fails a test rather than going unprinted. The rows that
 /// stand whatever the report holds -- `Shipped`, `Runs`, the times -- come from
 /// `build`, which always publishes them, and are not listed here. Each of the
-/// five holds an object of its own when it holds anything at all, and prints no
-/// row when it does not: `planned` and `energy` with a sample that counted
-/// them, `refine` and `sizes` with the ledgers beside the database, in
-/// `complete`, and `gate` with a run that recorded the gate.
-pub const SECTIONS: [(&str, &str); 5] = [
+/// four holds an object of its own when it holds anything at all, and prints no
+/// row when it does not: `planned` with a sample that counted it, `refine` and
+/// `sizes` with the ledgers beside the database, in `complete`, and `gate` with
+/// a run that recorded the gate.
+pub const SECTIONS: [(&str, &str); 4] = [
     (PLANNED, "Planned"),
-    (ENERGY, "Energy"),
     (REFINE, "Refine"),
     (SIZES, "Size"),
     (GATE, "Gate"),
 ];
 
-/// The keys of the five sections of `SECTIONS`, named once so `text` and the
+/// The keys of the four sections of `SECTIONS`, named once so `text` and the
 /// report's own writers cannot spell them apart.
 const PLANNED: &str = "planned";
-const ENERGY: &str = "energy";
 pub(crate) const REFINE: &str = "refine";
 pub(crate) const SIZES: &str = "sizes";
 /// `gate` is the section of a run that recorded the gate: absent with no such
@@ -419,6 +642,14 @@ pub(crate) fn label(key: &str) -> &'static str {
         .unwrap_or_default()
 }
 
+/// One line of state/refined.jsonl as the report reads it: what the poll
+/// wrote of when a refining session filed an issue, and its number.
+#[derive(Deserialize)]
+struct RefinedLine {
+    at: String,
+    filed: i64,
+}
+
 /// One line of state/refined.jsonl (the poll writes it): when a refining session
 /// filed an issue, and that issue's number.
 #[derive(Debug, Clone, PartialEq)]
@@ -427,8 +658,8 @@ pub struct Refined {
     pub filed: i64,
 }
 
-fn read_ledger(home: &Path, name: &str) -> Option<String> {
-    crate::run::read_ledger(home, name, LEDGER_MAX_BYTES)
+fn read_ledger(home: &Path, ledger: State) -> Option<String> {
+    crate::run::read_ledger(home, ledger, LEDGER_MAX_BYTES)
 }
 
 /// A ledger line's `at` in Unix seconds, or nothing: an ISO time as the writers
@@ -436,11 +667,8 @@ fn read_ledger(home: &Path, name: &str) -> Option<String> {
 /// milliseconds, where they are already a number; `iso_ms` itself refuses a
 /// year it cannot hold, so a stamp that reaches here is a date and this only
 /// asks whether the report keeps that year.
-pub(crate) fn ledger_at(v: &Value) -> Option<i64> {
-    let ms = v
-        .get("at")
-        .and_then(Value::as_str)
-        .and_then(crate::run::iso_ms)?;
+pub(crate) fn ledger_at(at: &str) -> Option<i64> {
+    let ms = crate::run::iso_ms(at)?;
     (LEDGER_AT_MIN..=LEDGER_AT_MAX)
         .contains(&ms)
         .then_some(ms / 1000)
@@ -450,26 +678,29 @@ pub(crate) fn ledger_at(v: &Value) -> Option<i64> {
 /// and a positive number is skipped, and so is a line of `LEDGER_MAX_LINE`
 /// bytes or more; no file is no refined issue.
 pub fn read_refined(home: &Path) -> Vec<Refined> {
-    ledger_lines(home, REFINED_LEDGER)
+    ledger_lines(home, State::Refined)
         .into_iter()
-        .filter_map(|v| {
-            let at = ledger_at(&v)?;
-            let filed = v.get("filed").and_then(Value::as_i64).filter(|n| *n > 0)?;
+        .filter_map(|l: RefinedLine| {
+            let at = ledger_at(&l.at)?;
+            let filed = Some(l.filed).filter(|n| *n > 0)?;
             Some(Refined { at, filed })
         })
         .collect()
 }
 
-/// The lines of one ledger beside the database, each parsed as a JSON value and
-/// none of a shape it cannot be: what the file is not (no file, a link, a
+/// The lines of one ledger beside the database, each read as an object of
+/// the fields `T` names, every one of them there and of its type; a line of
+/// another shape is skipped. What the file is not (no file, a link, a
 /// device, too long, not text) is no lines at all.
-fn ledger_lines(home: &Path, name: &str) -> Vec<Value> {
-    let Some(text) = read_ledger(home, name) else {
+pub(crate) fn ledger_lines<T: DeserializeOwned>(home: &Path, ledger: State) -> Vec<T> {
+    let Some(text) = read_ledger(home, ledger) else {
         return Vec::new();
     };
     text.lines()
         .filter(|l| l.len() < LEDGER_MAX_LINE)
-        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        // An object only: serde would read a struct from an array too.
+        .filter(|l| l.trim_start().starts_with('{'))
+        .filter_map(|l| serde_json::from_str::<T>(l).ok())
         .collect()
 }
 
@@ -478,7 +709,7 @@ fn ledger_lines(home: &Path, name: &str) -> Vec<Value> {
 /// many started a cycle and how many shipped, with the lead time of the
 /// shipped ones from their ready event; and, to compare, the other issues
 /// made ready in the window, how many started and shipped.
-pub fn refine(conn: &Connection, refined: &[Refined], to: i64) -> rusqlite::Result<Value> {
+pub fn refine(conn: &Connection, refined: &[Refined], to: i64) -> rusqlite::Result<Refine> {
     let from = (to.div_euclid(DAY) - (DAYS - 1)) * DAY;
     let sessions: i64 = conn.query_row(
         "SELECT count(*) FROM runs WHERE kind = 'plan' AND how = 'refine' AND started >= ?1 AND started <= ?2",
@@ -535,26 +766,29 @@ pub fn refine(conn: &Connection, refined: &[Refined], to: i64) -> rusqlite::Resu
             o_shipped += 1;
         }
     }
-    Ok(obj(vec![
-        ("sessions", Some(json!(sessions))),
-        ("n", Some(json!(filed.len()))),
-        ("started", Some(json!(started))),
-        ("shipped", Some(json!(shipped))),
-        ("shippedShare", share(shipped, filed.len()).map(Value::from)),
-        ("leadTime", Some(spread(&lead))),
-        (
-            "others",
-            Some(obj(vec![
-                ("n", Some(json!(others.len()))),
-                ("started", Some(json!(o_started))),
-                ("shipped", Some(json!(o_shipped))),
-                (
-                    "shippedShare",
-                    share(o_shipped, others.len()).map(Value::from),
-                ),
-            ])),
-        ),
-    ]))
+    Ok(Refine {
+        sessions,
+        n: filed.len(),
+        started,
+        shipped,
+        shipped_share: share(shipped, filed.len()),
+        lead_time: spread(&lead),
+        others: RefineOthers {
+            n: others.len(),
+            started: o_started,
+            shipped: o_shipped,
+            shipped_share: share(o_shipped, others.len()),
+        },
+    })
+}
+
+/// One line of state/sizes.jsonl as the report reads it: of what the line
+/// holds only `at`, `issue` and `files`, each a whole number but the time.
+#[derive(Deserialize)]
+struct SizeLine {
+    at: String,
+    issue: i64,
+    files: i64,
 }
 
 /// One line of state/sizes.jsonl (console/ops/src/size.rs): what an approved start
@@ -579,14 +813,14 @@ pub struct Size {
 /// measured issue at all, as no file is.
 pub fn read_sizes(home: &Path) -> Vec<Size> {
     let mut latest: BTreeMap<i64, Size> = BTreeMap::new();
-    for v in ledger_lines(home, SIZES_LEDGER) {
-        let Some(at) = ledger_at(&v) else {
+    for l in ledger_lines::<SizeLine>(home, State::Sizes) {
+        let Some(at) = ledger_at(&l.at) else {
             continue;
         };
-        let Some(issue) = whole(&v, "issue").filter(|n| *n > 0) else {
+        let Some(issue) = Some(l.issue).filter(|n| *n > 0) else {
             continue;
         };
-        let Some(files) = whole(&v, "files").filter(|n| *n >= 0 && *n <= SIZE_MAX_FILES) else {
+        let Some(files) = Some(l.files).filter(|n| *n >= 0 && *n <= SIZE_MAX_FILES) else {
             continue;
         };
         match latest.get(&issue) {
@@ -597,12 +831,6 @@ pub fn read_sizes(home: &Path) -> Vec<Size> {
         }
     }
     latest.into_values().collect()
-}
-
-/// A field of a ledger line as a whole number: a JSON integer, never a float.
-/// The writer's jq prints integers, and a measure of 2.5 files is no measure.
-fn whole(v: &Value, key: &str) -> Option<i64> {
-    v.get(key).filter(|v| v.is_i64()).and_then(Value::as_i64)
 }
 
 /// The size of one issue as a bucket: the file counts 1-2, 3-4 and 5+, or
@@ -655,7 +883,11 @@ fn leads(conn: &Connection, from: i64) -> rusqlite::Result<BTreeMap<i64, (i64, O
 /// ledger, bounded by the window's own first day.
 /// Counts only, so the threshold of the dispatcher's hold (`TEHAS_SIZE_MAX_FILES`)
 /// can be set from what the outcomes say.
-pub fn sizes(conn: &Connection, ledger: &[Size], to: i64) -> rusqlite::Result<Value> {
+pub fn sizes(
+    conn: &Connection,
+    ledger: &[Size],
+    to: i64,
+) -> rusqlite::Result<BTreeMap<String, SizeRow>> {
     let from = (to.div_euclid(DAY) - (DAYS - 1)) * DAY;
     let leads = leads(conn, from)?;
     let mut acc: BTreeMap<Bucket, BucketCount> = SIZE_BUCKETS
@@ -694,38 +926,31 @@ pub fn sizes(conn: &Connection, ledger: &[Size], to: i64) -> rusqlite::Result<Va
         let a = acc
             .get(&b)
             .expect("a bucket of SIZE_BUCKETS, which the map was seeded from");
-        obj(vec![
-            ("n", Some(json!(a.n))),
-            ("shipped", Some(json!(a.shipped))),
-            ("leadTime", Some(spread(&a.leads))),
-        ])
+        SizeRow {
+            n: a.n,
+            shipped: a.shipped,
+            lead_time: spread(&a.leads),
+        }
     };
-    let mut out = Map::new();
-    for b in SIZE_BUCKETS {
-        out.insert(b.name().to_string(), row(b));
-    }
-    Ok(Value::Object(out))
+    Ok(SIZE_BUCKETS
+        .iter()
+        .map(|b| (b.name().to_string(), row(*b)))
+        .collect())
 }
 
 /// The whole report a person or the dashboard sees: the figures of `build`,
 /// and the two sections that come from the ledgers beside the database. The
 /// keys of one section are its own; a section that fails is the error, named
 /// for itself, so a defect in one ledger says which.
-pub fn complete(conn: &Connection, home: &Path, now: i64) -> Result<Value, (u8, String)> {
-    let report = build(conn, now).map_err(|e| (70, format!("the report failed: {e}")))?;
+pub fn complete(conn: &Connection, home: &Path, now: i64) -> Result<Report, (u8, String)> {
+    let mut report = build(conn, now).map_err(|e| (70, format!("the report failed: {e}")))?;
     let refine = refine(conn, &read_refined(home), now)
         .map_err(|e| (70, format!("the refine figures failed: {e}")))?;
     let sizes = sizes(conn, &read_sizes(home), now)
         .map_err(|e| (70, format!("the size figures failed: {e}")))?;
-    // `build` returns an object on every path; a report that is not one is
-    // published as it is rather than ending the command over its shape.
-    let Some(o) = report.as_object() else {
-        return Ok(report);
-    };
-    let mut o = o.clone();
-    o.insert(REFINE.into(), refine);
-    o.insert(SIZES.into(), sizes);
-    Ok(Value::Object(o))
+    report.refine = Some(refine);
+    report.sizes = Some(sizes);
+    Ok(report)
 }
 
 /// The gate figures of the window: of the `n` work runs that recorded a run of
@@ -743,7 +968,7 @@ pub fn complete(conn: &Connection, home: &Path, now: i64) -> Result<Value, (u8, 
 /// across them, because the stream gives no wall time of its own: what the
 /// runner reports is the gate's own milliseconds, and a run of it that waited
 /// for another to free the container's CPU share does not count that wait.
-fn gate(runs: &[WorkRun]) -> Option<Value> {
+fn gate(runs: &[WorkRun]) -> Option<Gate> {
     let with: Vec<(&WorkRun, GateFigures)> = runs
         .iter()
         .filter_map(|r| {
@@ -767,22 +992,22 @@ fn gate(runs: &[WorkRun]) -> Option<Value> {
     let shares: Vec<f64> = with.iter().filter_map(|(r, _)| r.gate_share()).collect();
     let share =
         (!shares.is_empty()).then(|| round3(shares.iter().sum::<f64>() / shares.len() as f64));
-    Some(obj(vec![
-        ("n", Some(json!(n))),
-        ("seconds", Some(json!(gate_seconds))),
-        ("median", median(&each).map(Value::from)),
-        ("p90", p90(&each).map(Value::from)),
-        ("perRun", Some(json!(per_run))),
-        ("share", share.map(Value::from)),
-    ]))
+    Some(Gate {
+        n,
+        seconds: gate_seconds,
+        median: median(&each),
+        p90: p90(&each),
+        per_run,
+        share,
+    })
 }
 
-fn spread(sorted: &[i64]) -> Value {
-    obj(vec![
-        ("n", Some(json!(sorted.len()))),
-        ("median", median(sorted).map(Value::from)),
-        ("p90", p90(sorted).map(Value::from)),
-    ])
+fn spread(sorted: &[i64]) -> Spread {
+    Spread {
+        n: sorted.len(),
+        median: median(sorted),
+        p90: p90(sorted),
+    }
 }
 
 /// One column of the runs table as a whole number: a cell that is not an
@@ -876,12 +1101,11 @@ struct Sample {
     at: i64,
     planned: Option<(i64, Option<i64>)>,
     available: bool,
-    watts: Option<f64>,
 }
 
 fn samples(conn: &Connection, from: i64, to: i64) -> rusqlite::Result<Vec<Sample>> {
     let mut q = conn.prepare(
-        "SELECT at, in_line, planning, paused, held, watts, running FROM samples
+        "SELECT at, in_line, planning, paused, held, running FROM samples
          WHERE at >= ?1 AND at <= ?2 ORDER BY at",
     )?;
     let rows = q.query_map(params![from, to], |r| {
@@ -889,7 +1113,7 @@ fn samples(conn: &Connection, from: i64, to: i64) -> rusqlite::Result<Vec<Sample
         let planning = integer(r, 2);
         let paused = integer(r, 3);
         let held = word(r, 4);
-        let running = integer(r, 6);
+        let running = integer(r, 5);
         Ok(Sample {
             at: r.get(0)?,
             planned: in_line.map(|n| (n, planning)),
@@ -897,7 +1121,6 @@ fn samples(conn: &Connection, from: i64, to: i64) -> rusqlite::Result<Vec<Sample
             // start or cycles were running: full slots are not down time.
             available: paused == Some(0)
                 && (held.as_deref().unwrap_or("").is_empty() || running.is_some_and(|n| n > 0)),
-            watts: r.get(5)?,
         })
     })?;
     rows.collect()
@@ -914,7 +1137,7 @@ fn spans(samples: &[Sample], to: i64) -> impl Iterator<Item = (&Sample, i64)> {
 
 // Planned work now, from the latest sample that counted the line, and one
 // value a day, the day's last such sample.
-fn planned(samples: &[Sample], from: i64) -> Option<Value> {
+fn planned(samples: &[Sample], from: i64) -> Option<Planned> {
     let with: Vec<(i64, i64, Option<i64>)> = samples
         .iter()
         .filter_map(|s| s.planned.map(|(l, p)| (s.at, l, p)))
@@ -924,66 +1147,44 @@ fn planned(samples: &[Sample], from: i64) -> Option<Value> {
     for (at, l, p) in &with {
         per_day.insert((at - from) / DAY, l + p.unwrap_or(0));
     }
-    let trend: Vec<Value> = (0..DAYS)
-        .map(|d| {
-            obj(vec![
-                ("day", Some(json!(date(from / DAY + d)))),
-                ("n", per_day.get(&d).map(|n| json!(n))),
-            ])
+    let trend = (0..DAYS)
+        .map(|d| Trend {
+            day: date(from / DAY + d),
+            n: per_day.get(&d).copied(),
         })
         .collect();
-    Some(obj(vec![
-        ("n", Some(json!(in_line + planning.unwrap_or(0)))),
-        ("inLine", Some(json!(in_line))),
-        ("planning", planning.map(Value::from)),
-        ("trend", Some(Value::Array(trend))),
-    ]))
+    Some(Planned {
+        n: in_line + planning.unwrap_or(0),
+        in_line,
+        planning,
+        trend,
+    })
 }
 
 // The share of the time since the first sample in the window that the
 // factory could take work. Each sample stands for the time to the next, at
 // most SAMPLE_SPAN, so a stretch with no samples counts as not available.
-fn availability(samples: &[Sample], to: i64) -> Value {
+fn availability(samples: &[Sample], to: i64) -> Availability {
     let Some(first) = samples.first() else {
-        return json!({"n": 0});
+        return Availability {
+            n: 0,
+            seconds: None,
+            share: None,
+        };
     };
     let span = to - first.at;
     let up: i64 = spans(samples, to)
         .filter(|(s, _)| s.available)
         .map(|(_, d)| d)
         .sum();
-    obj(vec![
-        ("n", Some(json!(samples.len()))),
-        ("seconds", Some(json!(span))),
-        (
-            "share",
-            (span > 0).then(|| json!(round3((up as f64 / span as f64).min(1.0)))),
-        ),
-    ])
-}
-
-// kWh over the window: each sample's watts for the time it stands for.
-// Left out where no sample has watts.
-fn energy(samples: &[Sample], to: i64, shipped: usize) -> Option<Value> {
-    let n = samples.iter().filter(|s| s.watts.is_some()).count();
-    if n == 0 {
-        return None;
+    Availability {
+        n: samples.len(),
+        seconds: Some(span),
+        share: (span > 0).then(|| round3((up as f64 / span as f64).min(1.0))),
     }
-    let joules: f64 = spans(samples, to)
-        .filter_map(|(s, d)| s.watts.map(|w| w * d as f64))
-        .sum();
-    let kwh = joules / 3_600_000.0;
-    Some(obj(vec![
-        ("n", Some(json!(n))),
-        ("kwh", Some(json!(round3(kwh)))),
-        (
-            "perShipped",
-            (shipped > 0).then(|| json!(round3(kwh / shipped as f64))),
-        ),
-    ]))
 }
 
-fn daily(runs: &[WorkRun], shipped: &[Shipped], from: i64) -> Value {
+fn daily(runs: &[WorkRun], shipped: &[Shipped], from: i64) -> Vec<Day> {
     let mut days: Vec<(i64, i64, i64, i64)> = vec![(0, 0, 0, 0); DAYS as usize];
     let at = |t: i64| {
         usize::try_from((t - from) / DAY)
@@ -1002,24 +1203,25 @@ fn daily(runs: &[WorkRun], shipped: &[Shipped], from: i64) -> Value {
             days[d].3 += r.seconds.unwrap_or(0);
         }
     }
-    Value::Array(
-        days.iter()
-            .enumerate()
-            .map(|(d, (shipped, runs, failed, secs))| {
-                json!({"day": date(from / DAY + d as i64), "shipped": shipped, "runs": runs,
-                       "failed": failed, "minutes": (*secs as f64 / 60.0).round() as i64})
-            })
-            .collect(),
-    )
+    days.iter()
+        .enumerate()
+        .map(|(d, (shipped, runs, failed, secs))| Day {
+            day: date(from / DAY + d as i64),
+            shipped: *shipped,
+            runs: *runs,
+            failed: *failed,
+            minutes: (*secs as f64 / 60.0).round() as i64,
+        })
+        .collect()
 }
 
 // The runs that did not reach a pull request, by why they stopped, the five
 // most common. A run a person stopped by closing the issue is not counted.
-fn stop_reasons(runs: &[WorkRun]) -> Value {
+fn stop_reasons(runs: &[WorkRun]) -> StopReasons {
     let mut by: BTreeMap<String, usize> = BTreeMap::new();
     let mut n = 0;
     for r in runs {
-        if matches!(r.outcome.as_str(), "pr" | "merged" | "stopped") {
+        if matches!(r.outcome.as_str(), "offered" | "merged" | "stopped") {
             continue;
         }
         n += 1;
@@ -1028,7 +1230,13 @@ fn stop_reasons(runs: &[WorkRun]) -> Value {
     let mut top: Vec<(String, usize)> = by.into_iter().collect();
     top.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
     top.truncate(STOP_REASONS);
-    json!({"n": n, "top": top.into_iter().map(|(reason, n)| json!({"reason": reason, "n": n})).collect::<Vec<_>>()})
+    StopReasons {
+        n,
+        top: top
+            .into_iter()
+            .map(|(reason, n)| Reason { reason, n })
+            .collect(),
+    }
 }
 
 // Per step: of the runs that reached it, the share that got through it. A
@@ -1036,7 +1244,7 @@ fn stop_reasons(runs: &[WorkRun]) -> Value {
 // handed off, parked or failed stopped in its failed step, else its last;
 // refused and stopped runs are not the line's doing and are left out.
 // Steps are in the order runs reach them: by their mean start in the run.
-fn stations(conn: &Connection, runs: &[WorkRun], from: i64, to: i64) -> rusqlite::Result<Value> {
+fn stations(conn: &Connection, runs: &[WorkRun], from: i64, to: i64) -> rusqlite::Result<Funnel> {
     let all: Vec<&WorkRun> = runs.iter().collect();
     Ok(funnel(&reached_steps(conn, runs, from, to)?, &all))
 }
@@ -1081,7 +1289,7 @@ fn reached_steps<'a>(
 /// The step funnel of `runs`, by the rule `stations` states, from the steps
 /// `reached_steps` read: one table for the whole window and for each entry of
 /// `drivers`, so the two can never disagree on where a run stopped.
-fn funnel(reached: &BTreeMap<&str, BTreeMap<String, i64>>, runs: &[&WorkRun]) -> Value {
+fn funnel(reached: &BTreeMap<&str, BTreeMap<String, i64>>, runs: &[&WorkRun]) -> Funnel {
     // step -> (reached, passed, sum of offsets)
     let mut steps: BTreeMap<String, (usize, usize, i64)> = BTreeMap::new();
     let mut n = 0;
@@ -1090,7 +1298,7 @@ fn funnel(reached: &BTreeMap<&str, BTreeMap<String, i64>>, runs: &[&WorkRun]) ->
             continue;
         };
         let stop = match run.outcome.as_str() {
-            "pr" | "merged" => None,
+            "offered" | "merged" => None,
             "handoff" | "parked" | "failed" => Some(
                 run.failed_step
                     .as_deref()
@@ -1121,21 +1329,23 @@ fn funnel(reached: &BTreeMap<&str, BTreeMap<String, i64>>, runs: &[&WorkRun]) ->
             .then_with(|| a.0.cmp(&b.0))
     });
     order.truncate(STEPS);
-    let list: Vec<Value> = order
+    let steps = order
         .into_iter()
-        .map(|(step, (reached, passed, _))| {
-            json!({"step": step, "n": reached, "passed": passed,
-                   "share": round3(passed as f64 / reached as f64)})
+        .map(|(step, (reached, passed, _))| Station {
+            step,
+            n: reached,
+            passed,
+            share: round3(passed as f64 / reached as f64),
         })
         .collect();
-    json!({"n": n, "steps": list})
+    Funnel { n, steps }
 }
 
 // One row per tehas and pi-rukas version pair, the pair that ran last
 // first. A pair with VERSION_FLOOR runs or more also has the share that
 // reached a pull request and the median seconds, and with as many that reported
 // usage, the median tokens of those and their count.
-fn versions(runs: &[WorkRun]) -> Value {
+fn versions(runs: &[WorkRun]) -> Vec<Version> {
     let mut pairs: Vec<((String, String), Vec<&WorkRun>)> = Vec::new();
     for r in runs {
         let key = (r.tehas.clone(), r.rukas.clone());
@@ -1147,38 +1357,32 @@ fn versions(runs: &[WorkRun]) -> Value {
     let last = |v: &[&WorkRun]| v.iter().map(|r| r.ended).max().unwrap_or(0);
     pairs.sort_by(|a, b| last(&b.1).cmp(&last(&a.1)).then_with(|| a.0.cmp(&b.0)));
     pairs.truncate(VERSIONS);
-    Value::Array(
-        pairs
-            .into_iter()
-            .map(|((tv, rv), v)| {
-                let n = v.len();
-                let enough = n >= VERSION_FLOOR;
-                let pr = v
-                    .iter()
-                    .filter(|r| matches!(r.outcome.as_str(), "pr" | "merged"))
-                    .count();
-                let mut secs: Vec<i64> = v.iter().map(|r| r.seconds.unwrap_or(0)).collect();
-                secs.sort_unstable();
-                let mut tokens = used_tokens(&v);
-                tokens.sort_unstable();
-                let pick = |o: Option<Value>| if enough { o } else { None };
-                let used = tokens.len();
-                let pick_tokens = |o: Option<Value>| o.filter(|_| used >= VERSION_FLOOR);
-                obj(vec![
-                    ("tehas", named(&tv)),
-                    ("rukas", named(&rv)),
-                    ("n", Some(json!(n))),
-                    ("prShare", pick(share(pr, n).map(Value::from))),
-                    ("medianSeconds", pick(median(&secs).map(Value::from))),
-                    (
-                        "medianTokens",
-                        pick_tokens(median(&tokens).map(Value::from)),
-                    ),
-                    ("tokensN", pick_tokens(Some(json!(used)))),
-                ])
-            })
-            .collect(),
-    )
+    pairs
+        .into_iter()
+        .map(|((tv, rv), v)| {
+            let n = v.len();
+            let enough = n >= VERSION_FLOOR;
+            let pr = v
+                .iter()
+                .filter(|r| matches!(r.outcome.as_str(), "offered" | "merged"))
+                .count();
+            let mut secs: Vec<i64> = v.iter().map(|r| r.seconds.unwrap_or(0)).collect();
+            secs.sort_unstable();
+            let mut tokens = used_tokens(&v);
+            tokens.sort_unstable();
+            let used = tokens.len();
+            let tokens_enough = used >= VERSION_FLOOR;
+            Version {
+                tehas: named(&tv),
+                rukas: named(&rv),
+                n,
+                change_share: share(pr, n).filter(|_| enough),
+                median_seconds: median(&secs).filter(|_| enough),
+                median_tokens: median(&tokens).filter(|_| tokens_enough),
+                tokens_n: tokens_enough.then_some(used),
+            }
+        })
+        .collect()
 }
 
 /// Each issue's last merge up to `to`: a merged event, or a work run that
@@ -1206,16 +1410,13 @@ fn used_tokens(runs: &[&WorkRun]) -> Vec<i64> {
 
 /// `n`, the sum and the median of sorted values in units of `per`, the last two
 /// left out with no value to work them from: nothing reported is no figure, not 0.
-fn tally(sorted: &[i64], per: i64) -> Value {
-    let whole = |x: i64| json!((x as f64 / per as f64).round() as i64);
-    obj(vec![
-        ("n", Some(json!(sorted.len()))),
-        (
-            "total",
-            (!sorted.is_empty()).then(|| whole(sorted.iter().sum())),
-        ),
-        ("median", median(sorted).map(whole)),
-    ])
+fn tally(sorted: &[i64], per: i64) -> Tally {
+    let whole = |x: i64| (x as f64 / per as f64).round() as i64;
+    Tally {
+        n: sorted.len(),
+        total: (!sorted.is_empty()).then(|| whole(sorted.iter().sum())),
+        median: median(sorted).map(whole),
+    }
 }
 
 /// The runs of each driver in the window, one entry per pi-rukas version of
@@ -1236,15 +1437,16 @@ fn tally(sorted: &[i64], per: i64) -> Value {
 /// pull request. `handBack` is the step funnel of the entry's runs, by the rule
 /// and from the steps `stations` reads, so it is where the runs of one driver
 /// and version handed the work back. Each is left out when no run is in it.
-fn drivers(conn: &Connection, runs: &[WorkRun], from: i64, to: i64) -> rusqlite::Result<Value> {
+fn drivers(
+    conn: &Connection,
+    runs: &[WorkRun],
+    from: i64,
+    to: i64,
+) -> rusqlite::Result<BTreeMap<String, BTreeMap<String, DriverRuns>>> {
     let merges = last_merges(conn, to)?;
-    let reaches = |r: &WorkRun| matches!(r.outcome.as_str(), "pr" | "merged");
+    let reaches = |r: &WorkRun| matches!(r.outcome.as_str(), "offered" | "merged");
     let ran_at_all = |r: &WorkRun| !matches!(r.outcome.as_str(), "refused" | "stopped");
-    let floor = |part: usize, whole: usize| {
-        share(part, whole)
-            .filter(|_| whole >= VERSION_FLOOR)
-            .map(Value::from)
-    };
+    let floor = |part: usize, whole: usize| share(part, whole).filter(|_| whole >= VERSION_FLOOR);
     let mut merged_by: BTreeMap<i64, (i64, &str, &str)> = BTreeMap::new();
     for r in runs.iter().filter(|r| reaches(r)) {
         if merges.get(&r.issue).is_some_and(|m| *m >= r.started) {
@@ -1257,14 +1459,14 @@ fn drivers(conn: &Connection, runs: &[WorkRun], from: i64, to: i64) -> rusqlite:
         }
     }
     let steps = reached_steps(conn, runs, from, to)?;
-    let mut out = Map::new();
+    let mut out = BTreeMap::new();
     for driver in DRIVERS {
         let mut by_version: BTreeMap<&str, Vec<&WorkRun>> = BTreeMap::new();
         for r in runs.iter().filter(|r| r.driver == driver) {
             let version = named_str(&r.rukas).unwrap_or("none");
             by_version.entry(version).or_default().push(r);
         }
-        let mut entries = Map::new();
+        let mut entries = BTreeMap::new();
         for (version, of) in by_version {
             let n = of.len();
             let ran = of.iter().filter(|r| ran_at_all(r)).count();
@@ -1297,64 +1499,46 @@ fn drivers(conn: &Connection, runs: &[WorkRun], from: i64, to: i64) -> rusqlite:
             tokens.sort_unstable();
             entries.insert(
                 version.to_string(),
-                obj(vec![
-                    ("n", Some(json!(n))),
-                    ("ran", Some(json!(ran))),
-                    ("prShare", floor(reached.len(), ran)),
-                    ("parkedShare", floor(parked, ran)),
-                    ("minutes", Some(tally(&secs, 60))),
-                    ("tokens", Some(tally(&tokens, 1))),
-                    (
-                        "pullRequests",
-                        Some(obj(vec![
-                            ("n", Some(json!(pulls.len()))),
-                            ("merged", Some(json!(merged))),
-                            ("share", floor(merged, pulls.len())),
-                        ])),
-                    ),
-                    (
-                        "oneAttempt",
-                        (!firsts.is_empty()).then(|| {
-                            obj(vec![
-                                ("n", Some(json!(firsts.len()))),
-                                ("pr", Some(json!(first_pr))),
-                                ("share", floor(first_pr, firsts.len())),
-                            ])
-                        }),
-                    ),
-                    (
-                        "handBack",
-                        Some(funnel(&steps, &of)).filter(|f| f["n"] != 0),
-                    ),
-                ]),
+                DriverRuns {
+                    n,
+                    ran,
+                    change_share: floor(reached.len(), ran),
+                    parked_share: floor(parked, ran),
+                    minutes: tally(&secs, 60),
+                    tokens: tally(&tokens, 1),
+                    pull_requests: PullRequests {
+                        n: pulls.len(),
+                        merged,
+                        share: floor(merged, pulls.len()),
+                    },
+                    one_attempt: (!firsts.is_empty()).then(|| OneAttempt {
+                        n: firsts.len(),
+                        change: first_pr,
+                        share: floor(first_pr, firsts.len()),
+                    }),
+                    hand_back: Some(funnel(&steps, &of)).filter(|f| f.n != 0),
+                },
             );
         }
-        out.insert(driver.to_string(), Value::Object(entries));
+        out.insert(driver.to_string(), entries);
     }
-    Ok(Value::Object(out))
+    Ok(out)
 }
 
 /// The report as `analytics report` prints it for a person: the figures of
 /// `build`, one to a line, then the days, the stop reasons, the steps, the
 /// versions and the drivers. A figure that is left out of the JSON is shown as "-".
-pub fn text(report: &Value) -> String {
-    let int = |v: &Value| v.as_i64();
-    let at = |path: &[&str]| path.iter().fold(report, |v, k| &v[*k]).clone();
-    let n = |key: &str| format!("(n={})", int(&report[key]["n"]).unwrap_or(0));
-    let pct = |v: &Value| v.as_f64().map_or("-".to_string(), percent);
-    let dur = |v: &Value| int(v).map_or("-".to_string(), duration);
-    let num = |v: &Value| int(v).map_or("-".to_string(), |x| x.to_string());
-    // A figure rounded to three places, printed as the three it holds: an f64
-    // of its own would print 1 as "1" and a small mean as 0.
-    let dec = |v: &Value| v.as_f64().map_or("-".to_string(), |x| format!("{x:.3}"));
-    let from = int(&report["from"]).unwrap_or(0);
-    let to = int(&report["to"]).unwrap_or(0);
+pub fn text(report: &Report) -> String {
+    let n = |count: usize| format!("(n={count})");
+    let pct = |v: Option<f64>| v.map_or("-".to_string(), percent);
+    let dur = |v: Option<i64>| v.map_or("-".to_string(), duration);
+    let num = |v: Option<i64>| v.map_or("-".to_string(), |x| x.to_string());
 
     let mut lines = vec![
         format!(
             "Last {DAYS} days, {} to {} (UTC)",
-            date(from.div_euclid(DAY)),
-            date(to.div_euclid(DAY))
+            date(report.from.div_euclid(DAY)),
+            date(report.to.div_euclid(DAY))
         ),
         String::new(),
     ];
@@ -1368,74 +1552,67 @@ pub fn text(report: &Value) -> String {
     };
     row(
         "Shipped",
-        format!("{} issues", num(&at(&["shipped", "n"]))),
+        format!("{} issues", report.shipped.n),
         String::new(),
     );
     // The five conditional rows take their labels from `SECTIONS`, so the
     // renderer and the test of the contract read one list: a section that gains
     // a key without a row, or a row without a section, fails a test.
-    let planned = &report[PLANNED];
     row(
         label(PLANNED),
-        if planned.is_object() {
-            format!(
+        match &report.planned {
+            Some(p) => format!(
                 "{} now: {} in line, {} in planning",
-                num(&planned["n"]),
-                num(&planned["inLine"]),
-                num(&planned["planning"])
-            )
-        } else {
-            "-".to_string()
+                p.n,
+                p.in_line,
+                num(p.planning)
+            ),
+            None => "-".to_string(),
         },
         String::new(),
     );
-    let runs = &report["runs"];
+    let runs = &report.runs;
     let split: Vec<String> = tehas_core::outcome::OUTCOMES
         .iter()
-        .map(|o| format!("{} {o}", num(&runs[*o])))
+        .map(|o| format!("{} {o}", num(runs.by.get(*o).map(|c| *c as i64))))
         .collect();
     row(
         "Runs",
-        format!("{}: {}", num(&runs["n"]), split.join(", ")),
+        format!("{}: {}", runs.n, split.join(", ")),
         String::new(),
     );
     row(
         "Planning turns",
-        num(&at(&["planningTurns", "n"])),
+        report.planning_turns.n.to_string(),
         String::new(),
     );
-    let refine = &report[REFINE];
-    if refine.as_object().is_some() {
+    if let Some(refine) = &report.refine {
         row(
             label(REFINE),
             format!(
                 "{} sessions, {} issues filed: {} started, {} shipped ({}), lead median {}; other issues {} shipped (n={})",
-                num(&refine["sessions"]),
-                num(&refine["n"]),
-                num(&refine["started"]),
-                num(&refine["shipped"]),
-                pct(&refine["shippedShare"]),
-                dur(&refine["leadTime"]["median"]),
-                pct(&refine["others"]["shippedShare"]),
-                num(&refine["others"]["n"]),
+                refine.sessions,
+                refine.n,
+                refine.started,
+                refine.shipped,
+                pct(refine.shipped_share),
+                dur(refine.lead_time.median),
+                pct(refine.others.shipped_share),
+                refine.others.n,
             ),
             String::new(),
         );
     }
-    let sizes = &report[SIZES];
-    if let Some(s) = sizes.as_object() {
-        // Each bucket is read as the three counts `sizes` publishes; a bucket
-        // that is not an object of them prints as nothing rather than a row of
-        // dashes, so producer and consumer cannot drift unseen.
-        let bucket = |b: Bucket| {
-            let e = &s[b.name()];
-            format!(
+    if let Some(s) = &report.sizes {
+        let bucket = |b: Bucket| match s.get(b.name()) {
+            Some(e) => format!(
                 "{}: {} shipped {}, lead {}",
                 b.name(),
-                num(&e["n"]),
-                num(&e["shipped"]),
-                dur(&e["leadTime"]["median"]),
-            )
+                e.n,
+                e.shipped,
+                dur(e.lead_time.median),
+            ),
+            None => format!("{}: - shipped -, lead -", b.name()),
         };
         row(
             label(SIZES),
@@ -1449,144 +1626,110 @@ pub fn text(report: &Value) -> String {
     }
     row(
         "Handoff rate",
-        pct(&at(&["handoffRate", "share"])),
-        n("handoffRate"),
+        pct(report.handoff_rate.share),
+        n(report.handoff_rate.n),
     );
     row(
         "First-pass yield",
-        pct(&at(&["firstPassYield", "share"])),
-        n("firstPassYield"),
+        pct(report.first_pass_yield.share),
+        n(report.first_pass_yield.n),
     );
-    for (name, key) in [("Lead time", "leadTime"), ("Cycle time", "cycleTime")] {
+    for (name, spread) in [
+        ("Lead time", &report.lead_time),
+        ("Cycle time", &report.cycle_time),
+    ] {
         row(
             name,
-            format!(
-                "median {}, p90 {}",
-                dur(&report[key]["median"]),
-                dur(&report[key]["p90"])
-            ),
-            n(key),
+            format!("median {}, p90 {}", dur(spread.median), dur(spread.p90)),
+            n(spread.n),
         );
     }
-    let per = |v: &Value, f: &dyn Fn(&Value) -> String| match v {
-        Value::Null => String::new(),
+    let per = |v: Option<i64>, f: &dyn Fn(Option<i64>) -> String| match v {
+        None => String::new(),
         v => format!(", {} per shipped issue", f(v)),
     };
-    let machine = &report["machineTime"];
+    let machine = &report.machine_time;
     row(
         "Machine time",
         format!(
             "{}{}",
-            dur(&machine["seconds"]),
-            per(&machine["perShipped"], &dur)
+            duration(machine.seconds),
+            per(machine.per_shipped, &dur)
         ),
-        n("machineTime"),
+        n(machine.n),
     );
-    let tokens = &report["tokens"];
+    let tokens = &report.tokens;
     row(
         "Tokens",
         format!(
             "{}: {} input, {} output, {} cache read{}",
-            num(&tokens["total"]),
-            num(&tokens["input"]),
-            num(&tokens["output"]),
-            num(&tokens["cacheRead"]),
-            per(&tokens["perShipped"], &num)
+            tokens.total,
+            tokens.input,
+            tokens.output,
+            tokens.cache_read,
+            per(tokens.per_shipped, &num)
         ),
-        n("tokens"),
+        n(tokens.n),
     );
-    let gate = &report[GATE];
-    if gate.is_object() {
+    if let Some(gate) = &report.gate {
         // The row of the four figures `gate` works out. Its whole time is not
         // one of them: it is read from the same object for the count.
+        // The mean is rounded to three places and printed as the three it
+        // holds: an f64 of its own would print 1 as "1" and a small mean as 0.
         row(
             label(GATE),
             format!(
-                "median {}, p90 {}, {} runs per run, {} of run time",
-                dur(&gate["median"]),
-                dur(&gate["p90"]),
-                dec(&gate["perRun"]),
-                pct(&gate["share"]),
+                "median {}, p90 {}, {:.3} runs per run, {} of run time",
+                dur(gate.median),
+                dur(gate.p90),
+                gate.per_run,
+                pct(gate.share),
             ),
-            format!(
-                "(n={}, {})",
-                int(&gate["n"]).unwrap_or(0),
-                dur(&gate["seconds"])
-            ),
+            format!("(n={}, {})", gate.n, duration(gate.seconds)),
         );
     }
-    let avail = &report["availability"];
+    let avail = &report.availability;
     row(
         "Availability",
-        match int(&avail["seconds"]) {
-            Some(s) => format!("{} of {}", pct(&avail["share"]), duration(s)),
+        match avail.seconds {
+            Some(s) => format!("{} of {}", pct(avail.share), duration(s)),
             None => "-".to_string(),
         },
-        n("availability"),
+        n(avail.n),
     );
-    let energy = &report[ENERGY];
-    if energy.is_object() {
-        let kwh = |v: &Value| v.as_f64().map_or("-".to_string(), |k| format!("{k} kWh"));
-        row(
-            label(ENERGY),
-            format!(
-                "{}{}",
-                kwh(&energy["kwh"]),
-                per(&energy["perShipped"], &kwh)
-            ),
-            n(ENERGY),
-        );
-    }
-
     lines.push(String::new());
     lines.push(format!(
         "{:<12}{:>8}{:>6}{:>8}{:>9}",
         "Day", "Shipped", "Runs", "Failed", "Minutes"
     ));
-    for d in report["daily"].as_array().into_iter().flatten() {
+    for d in &report.daily {
         lines.push(format!(
             "{:<12}{:>8}{:>6}{:>8}{:>9}",
-            d["day"].as_str().unwrap_or("-"),
-            num(&d["shipped"]),
-            num(&d["runs"]),
-            num(&d["failed"]),
-            num(&d["minutes"])
+            d.day, d.shipped, d.runs, d.failed, d.minutes
         ));
     }
 
     lines.push(String::new());
-    lines.push(format!("Stop reasons  {}", n("stopReasons")));
-    let top = report["stopReasons"]["top"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
-    if top.is_empty() {
+    lines.push(format!("Stop reasons  {}", n(report.stop_reasons.n)));
+    if report.stop_reasons.top.is_empty() {
         lines.push("  none".to_string());
     }
-    for r in &top {
-        lines.push(format!(
-            "  {:<30}{:>5}",
-            r["reason"].as_str().unwrap_or("-"),
-            num(&r["n"])
-        ));
+    for r in &report.stop_reasons.top {
+        lines.push(format!("  {:<30}{:>5}", r.reason, r.n));
     }
 
     lines.push(String::new());
-    lines.push(format!("Steps passed  {}", n("stations")));
-    let steps = report["stations"]["steps"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
-    if steps.is_empty() {
+    lines.push(format!("Steps passed  {}", n(report.stations.n)));
+    if report.stations.steps.is_empty() {
         lines.push("  none".to_string());
     }
-    for s in &steps {
+    for s in &report.stations.steps {
         lines.push(format!(
             "  {:<30}{:>5} of {:<5}{:>6}",
-            s["step"].as_str().unwrap_or("-"),
-            num(&s["passed"]),
-            num(&s["n"]),
-            pct(&s["share"])
+            s.step,
+            s.passed,
+            s.n,
+            percent(s.share)
         ));
     }
 
@@ -1594,8 +1737,7 @@ pub fn text(report: &Value) -> String {
     lines.push(format!(
         "Versions  (fewer than {VERSION_FLOOR} runs: the count only)"
     ));
-    let versions = report["versions"].as_array().cloned().unwrap_or_default();
-    if versions.is_empty() {
+    if report.versions.is_empty() {
         lines.push("  none".to_string());
     } else {
         lines.push(format!(
@@ -1603,20 +1745,19 @@ pub fn text(report: &Value) -> String {
             "tehas", "pi-rukas", "runs", "to a PR", "median", "tokens"
         ));
     }
-    for v in &versions {
-        let name = |k: &str| v[k].as_str().unwrap_or("-").to_string();
+    for v in &report.versions {
         let mut line = format!(
             "  {:<20}{:<20}{:>5}",
-            name("tehas"),
-            name("rukas"),
-            num(&v["n"])
+            v.tehas.as_deref().unwrap_or("-"),
+            v.rukas.as_deref().unwrap_or("-"),
+            v.n
         );
-        if v["prShare"].is_number() {
+        if let Some(change) = v.change_share {
             line.push_str(&format!(
                 "{:>9}{:>8}{:>10}",
-                pct(&v["prShare"]),
-                dur(&v["medianSeconds"]),
-                num(&v["medianTokens"])
+                percent(change),
+                dur(v.median_seconds),
+                num(v.median_tokens)
             ));
         }
         lines.push(line);
@@ -1639,45 +1780,45 @@ pub fn text(report: &Value) -> String {
         "1st try"
     ));
     for driver in DRIVERS {
-        let Some(versions) = report["drivers"][driver].as_object() else {
+        let Some(versions) = report.drivers.get(driver) else {
             continue;
         };
         for (version, d) in versions {
-            let pulls = &d["pullRequests"];
+            let pulls = &d.pull_requests;
             // A count short of the runs says the tokens are not all of them.
-            let tokens = match (int(&d["tokens"]["n"]), int(&d["n"])) {
-                (Some(some), Some(all)) if some < all => {
-                    format!("{} (n={some})", num(&d["tokens"]["total"]))
-                }
-                _ => num(&d["tokens"]["total"]),
+            let tokens = if d.tokens.n < d.n {
+                format!("{} (n={})", num(d.tokens.total), d.tokens.n)
+            } else {
+                num(d.tokens.total)
             };
+            let first = d.one_attempt.as_ref();
             lines.push(format!(
                 "  {:<10}{:<12}{:>5}{:>5}{:>9}{:>8}{:>10}{:>14}{:>5}{:>8}{:>10}",
                 driver,
                 version,
-                num(&d["n"]),
-                num(&d["ran"]),
-                pct(&d["prShare"]),
-                pct(&d["parkedShare"]),
-                num(&d["minutes"]["total"]),
+                d.n,
+                d.ran,
+                pct(d.change_share),
+                pct(d.parked_share),
+                num(d.minutes.total),
                 tokens,
-                num(&pulls["n"]),
-                num(&pulls["merged"]),
+                pulls.n,
+                pulls.merged,
                 format!(
                     "{}/{}",
-                    num(&d["oneAttempt"]["pr"]),
-                    num(&d["oneAttempt"]["n"])
+                    num(first.map(|f| f.change as i64)),
+                    num(first.map(|f| f.n as i64))
                 )
             ));
-            for s in d["handBack"]["steps"].as_array().into_iter().flatten() {
+            for s in d.hand_back.iter().flat_map(|h| &h.steps) {
                 lines.push(format!(
                     "  {:<10}{:<12}{:<16}{:>5} of {:<5}{:>8}",
                     "",
                     "",
-                    s["step"].as_str().unwrap_or("-"),
-                    num(&s["passed"]),
-                    num(&s["n"]),
-                    pct(&s["share"])
+                    s.step,
+                    s.passed,
+                    s.n,
+                    percent(s.share)
                 ));
             }
         }

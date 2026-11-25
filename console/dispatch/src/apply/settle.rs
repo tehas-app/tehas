@@ -3,13 +3,17 @@
 //! between two writes, is read again and settled from what GitHub says now.
 //! Never replayed: the poll that settles it decides afresh whether anything
 //! is still owed. A write never attempted made no call, and is abandoned.
-//! A row that does not describe itself is left open with one WARN. A row of
-//! a cycle whose lock is held is that cycle's own, and is left alone: a poll
-//! that abandoned it would have the cycle's write refused.
+//! A row that does not describe itself is left open with one WARN, as is a
+//! row of the ports no read can tell of: the rest of those are read by
+//! their write, through the ports. A row of a cycle whose lock is held is
+//! that cycle's own, and is left alone: a poll that abandoned it would have
+//! the cycle's write refused.
 
 use super::{looked_key, text, word, Looked, Writer};
 use serde_json::{json, Value};
+use tehas_core::journal::{settle as rules, Found as Settled};
 use tehas_core::lock::{probe, Probe};
+use tehas_ports::{At, Bound, Write};
 
 /// How a fresh read settles one action.
 enum Found {
@@ -99,7 +103,7 @@ fn live_cycle(home: &std::path::Path, a: &Value) -> bool {
         return false;
     };
     matches!(
-        probe(&home.join(format!("state/cycles/{n}.lock"))),
+        probe(&tehas_core::home::Home::new(home).cycle_note(n, "lock")),
         Probe::Held | Probe::Unknown(_)
     )
 }
@@ -186,12 +190,17 @@ impl Writer {
             };
             // What the read found, for a write this poll decides again: done
             // is not sent twice, unread is not sent at all.
-            let key = looked_key(
-                n,
-                &kind,
-                a.pointer("/args/gh").unwrap_or(&Value::Null),
-                a.pointer("/args/input").unwrap_or(&Value::Null),
-            );
+            // A row of the ports by its write, as the journal keeps it.
+            let key = match a.pointer("/args/write") {
+                // As a send asks for it (`Writer::send`): by the write alone.
+                Some(write) => looked_key(n, "", write, &Value::Null),
+                None => looked_key(
+                    n,
+                    &kind,
+                    a.pointer("/args/gh").unwrap_or(&Value::Null),
+                    a.pointer("/args/input").unwrap_or(&Value::Null),
+                ),
+            };
             match &found {
                 Found::Done(e) => {
                     let out = e
@@ -242,8 +251,35 @@ impl Writer {
         }
     }
 
+    /// What the site says now of a write of the ports attempted at
+    /// `attempted`: the read its kind names, decided by core's rule
+    /// (`journal::settle::read`). A row no read can tell of stays open: the
+    /// write may have landed, so it is never sent again on a guess.
+    fn found_write(&mut self, write: &Write, attempted: u64) -> Found {
+        let Some(h) = self.ports.as_mut() else {
+            return Found::Unread("the poll has no handles of the code host".into());
+        };
+        let bound = Bound::new(100).expect("100 is a bound");
+        match rules::read(write, h, At::new(attempted as i64), bound) {
+            Some(Settled::Landed) => Found::Done(json!({"landed": true})),
+            Some(Settled::NotSent) => Found::Abandoned("it is not there"),
+            None => Found::Unread("no read could tell whether it landed".into()),
+        }
+    }
+
     /// What GitHub says now of one attempted write.
     fn found(&mut self, a: &Value, kind: &str, n: u64, attempted: u64) -> Found {
+        // A row of `Journal::send` shares the 1.x words but has no argv: it
+        // is read by its write, through the ports, by the rule of its kind.
+        if let Some(write) = a.pointer("/args/write") {
+            return match serde_json::from_value::<Write>(write.clone()) {
+                Ok(Write::Unknown) => {
+                    Found::Unread("its write is of no kind this poll knows".into())
+                }
+                Ok(write) => self.found_write(&write, attempted),
+                Err(_) => Found::Unread("its write could not be read".into()),
+            };
+        }
         let repo = self.repo.clone();
         let gh: Vec<Value> = a
             .pointer("/args/gh")
@@ -340,13 +376,15 @@ impl Writer {
                     Found::Abandoned("the comment was not edited since")
                 }
             }
-            "refresh-begin" | "refresh-end" => {
+            // refresh-begin and refresh-end are the 1.x words of a row
+            // written before the update.
+            "change-mark" | "change-unmark" | "refresh-begin" | "refresh-end" => {
                 let v = match read(self, format!("repos/{repo}/issues/{n}"), false) {
                     Ok(v) => v,
                     Err(e) => return Found::Unread(e),
                 };
                 let marked = names(&v).iter().any(|l| l == "tehas:refreshing");
-                if marked == (kind == "refresh-begin") {
+                if marked == matches!(kind, "change-mark" | "refresh-begin") {
                     Found::Done(json!({"labels": names(&v)}))
                 } else {
                     Found::Abandoned("the pull request's mark is not as it wanted it")

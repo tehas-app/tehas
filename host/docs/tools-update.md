@@ -57,9 +57,82 @@ names, and exits 78 before install.sh runs.
 A feature still being built is refused the same way: its switch set to `on`,
 or a line that gives one of its own settings a value, stops every command
 with 78 and names the feature, and both checks list every such line at once.
-A host that turned the review loop on under an earlier release takes
-`TEHAS_REVIEW=on` and `TEHAS_REVIEW_REPO` out before it updates
-([the review loop](/operating#the-review-loop)).
+
+The review loop left core in 2.0 and returns as a plugin. A line of
+`TEHAS_REVIEW` or `TEHAS_REVIEW_REPO` still loads, with one warning, and
+nothing reads it: take it out. The update stops and removes
+`tehas-review.timer` and `tehas-review.service` where an earlier release left
+them.
+
+The host panel left core in 2.0 and returns as a plugin; `tehas top` stays.
+A line of `TEHAS_TOP` still loads, with one warning, and nothing reads it:
+take it out. The update stops and removes `tehas-top.service` and the last
+`~/tehas/live/top.json` where an earlier release left them.
+
+### Before updating to 2.0: check the settings
+
+2.0 rewrites no setting. Each line of `instance.env` is either kept, dropped
+with one warning because its feature left core, or refused with 78. Before you
+update a host to 2.0, check its instance directory against 2.0's own load, in
+a checkout of the 2.0 release:
+
+```
+cargo xtask config-check --settings ~/tehas-instance
+```
+
+It runs the checks `tehas update` runs on the settings before it installs:
+the load, the settings every instance sets itself, and the models
+`models.json` lists. It prints one line for each setting 2.0 drops,
+`dropped <NAME>: <reason>`, as the load's own warning names it, and one for
+each finding, `fail <NAME>: <why>`, then `pass` or `fail`. It exits 0 on a
+pass and 78 on a fail, and 78 before it reads anything when `--settings` is
+missing or names no directory. It reads only the instance directory: no
+GitHub, Docker or git, and no writes.
+
+`--env <file>` stands a file for the host's `~/.config/tehas/env`, for a
+program that renders instance directories for many factories, or a test
+suite, where the host's file is not at hand:
+
+```
+cargo xtask config-check --settings ~/tehas-instance --env host.env
+```
+
+The file is read as tehas reads `~/.config/tehas/env`: `NAME=value` lines,
+an `export ` in front, blank lines and `#` comments. Its settings are given
+to the load as the host's file gives them, so a `TEHAS_MODEL_KEY_<NAME>`
+that `models.json` names counts as set. A line `NAME=<redacted>`, the
+marker unquoted, means the setting is set and its value is not shown: it
+counts as set and its value is not checked. No working file holds that
+line, since a shell that sources it stops at the `<`. Quoted,
+`NAME='<redacted>'` is an ordinary value and is checked like any other.
+Every other value is checked against its rule. `TEHAS_HOME` and
+`TEHAS_INSTANCE_DIR` are checked and not used: `--settings` names the
+directory and no home is read. The check fails with 78, before the load,
+when the file has a line that is no assignment, a value a shell would
+expand, a name that is not a [host setting](/tools#host-settings) or
+`TEHAS_MANAGER_VERSION`, or a value its rule refuses. A missing file is 78
+before anything is read. The output names settings and lines by number,
+never a value.
+
+A required `PI_ENSEMBLE_*` setting that is not set fails, and its line adds
+that a manager which renders `instance.env` for the factories it runs
+supplies it: for such a factory, check the `instance.env` the manager pushes,
+not its raw instance directory.
+
+A pass does not promise the update goes through:
+
+- without `--env`, the credential file is not read. A `GH_TOKEN` line, or a
+  setting `api/renames-1.0.tsv` lists, in `~/.config/tehas/env` still stops
+  2.0, and a key `models.json` names fails as not set;
+- who owns the files is not judged. The update refuses settings another
+  account can write;
+- a finding can hide what comes after it. The load stops at its first
+  refusal, which can come before it warns of dropped settings, and the
+  required settings and models are checked only after a load that passes.
+  Run the check again after each fix, until it passes.
+
+Take the dropped lines out when it suits you; fix the refused ones before you
+update.
 
 ### From v0.30.x, v0.31.x or v0.32.x
 
@@ -101,9 +174,23 @@ Releases are read from the repository built into tehas, the
 An instance may name another, owner/name on GitHub, with `TEHAS_RELEASE_REPO`
 in `instance.env`. The `versions.env` on the host is not read for it: a
 release writes that file, so it cannot choose where the next one comes from.
+The repository was `tehas-app/tehas` before 2.0. An instance that still
+names it updates from it while GitHub redirects the old name, and each
+update, `--check` included, says `release: the repository tehas-app/tehas
+is now tehas-app/tehas-factory`: remove the line or name the new one. An
+update from the checkout says the same of its `origin`, as "From the
+checkout" says.
 The list and the download use `gh` when it is signed in, which
-reaches a private repository with the bot's token, and `curl` from the public
-address otherwise.
+reaches a private repository with the bot's token. When `gh` has no
+credential, its credential is refused, it may not read the repository, or
+there is no `gh` to run, they read GitHub's API with no credential instead,
+through `curl`: a public repository alone. A failure of GitHub's, or one that
+may have reached it, fails the update as it is and never changes the way.
+Either way, the list reads every release, and each of the three files is
+fetched alone through a scratch directory under the system's temporary
+directory; a file over 1 GiB is refused before it is fetched, and one served
+at another size is refused. With no credential, a file is fetched from
+GitHub's API and its file hosts alone, following at most two redirects.
 
 The newest is the newest release, never a prerelease (`vX.Y.Z-alpha.N`,
 `-beta.N` or `-rc.N`): a plain `tehas update` passes over them, and a host
@@ -183,18 +270,59 @@ A GitHub login can be renamed, and a login that was freed can be registered by
 someone else. So a login alone does not say who applied a label. Before
 anything moves, `tehas update` asks GitHub for the user id of each login of
 `TEHAS_ALLOWED_LABELERS` and the millwright (`GET /users/<login>`)
-and records the pairs in `~/tehas/state/account-ids`, one `<login> <id>` a
-line. `install.sh` does the same before its first copy. The pair of a login
+and records the pairs in `~/tehas/state/account-ids`, one
+`<realm> <login> <id>` a line, the realm `code-host` for these logins
+(`tickets` is a split setup's tracker). A line of 1.x, `<login> <id>`, is
+read as the code host's, and the update writes the file once in the new
+form. `install.sh` does the same before its first copy. The pair of a login
 taken off the list stays, so the login, listed again, must still be the same
 account.
 
-From then on a label, a retry tick, an answer to a planning question and a
+A GitHub App's bot is recorded under its whole login, `<slug>[bot]`, and a
+person or an organisation under its login. An organisation and the bot of an
+app with its name are two accounts, each with its own pair. A file written by
+an older tehas keeps a bot under its bare slug, which is also the login of an
+account of that name, so tehas does not read that pair as either:
+
+- When the factory's bot, the millwright or a listed bot has no pair of its
+  own and its bare slug has one, the dispatcher stops with 78 and names
+  `console ids record`, no listed login counts, and no account is the
+  factory's own. `tehas update` runs the record.
+- The record writes the bare pair under the bot's whole login when it holds
+  the id GitHub gives the bot. A bare pair with another id stops it with 78
+  and names both ids, unless the id is the one GitHub gives a listed login of
+  that name. If the bare pair was the bot,
+  `tehas update --accept-id <slug>[bot]` records the bot's id; the bare pair
+  stays.
+
+From then on a label, an answer to a question and a
 comment count only when the account that made them carries the recorded id
 (`user.id`, `actor.id`, or GraphQL's `databaseId`). An account with the
 login and another id, or with no id at all, does not count: the dispatcher
 reads it as `<login>#<id>`, which no list matches, and says why on standard
 error. With no id recorded for a login, nothing of it counts until
-`tehas update` records one.
+`tehas update` records one. An account counts as a listed login of its own
+kind only: a person or an organisation is not the listed bot of its name,
+nor a bot the listed person. GitHub logins are one account in any case, so
+within a kind the check ignores ASCII case: `Alice` is checked against the id recorded for
+`alice`, and does not count with another id. A file that gives one login
+two different ids in two cases cannot be read, as below. `tehas update`
+records ignoring case too: a pair of the login in another case is its pair, so a change of
+case in the settings meets the check below, and the recorded pair is kept
+under the login as the settings write it, in place of every other case.
+
+A bot listed in `TEHAS_ALLOWED_LABELERS` no longer counts in 2.0: only the
+millwright (the factory's own app, or the app `TEHAS_MILLWRIGHT_APP` names) is
+a listed bot. A bot listed bare there loses its approvals, with only doubted
+lines (`<login>#<id>`) in the log. The list takes logins only (a `[` is
+refused), and a bare name is now the key of a person or an organisation of
+that name, so a bot app's label events do not count for it, where 1.x folded
+the bot onto the bare name. This narrows who counts and fails closed. If that
+bot should approve, it can only as the millwright (`TEHAS_MILLWRIGHT_APP`, in
+`host/docs/operating.md`); otherwise take it out of the list.
+
+Which logins are allowed is matched ignoring ASCII case, by the dispatcher
+as by `tehas resume`, `tehas plan`, `tehas dev` and a cycle started by hand.
 
 - A login that does not resolve stops `install.sh` and `tehas update` with 78
   and names it. Take it out of the settings or correct it.
@@ -208,13 +336,14 @@ error. With no id recorded for a login, nothing of it counts until
 - A file that cannot be read with certainty stops them with 78 before GitHub
   is asked, and nothing is written. The message names the file, the line if
   there is one, what is wrong and how to repair it:
-  - A line that is not `<login> <id>` with one space between, a login that
+  - A line that is not `<realm> <login> <id>` (or 1.x's `<login> <id>`)
+    with one space between, a realm that is not `code-host` or `tickets`, a login that
     is not a GitHub login, an id that is not a number, a login given two ids
-    or text that is not UTF-8: fix or remove that line, then run
-    `tehas update`.
+    in one case or two, or text that is not UTF-8: fix or remove that line,
+    then run `tehas update`.
   - A link or other file that is not a regular one, a file over 64 KiB, or
     a file that is there but holds no pairs: make it a regular file of
-    `<login> <id>` lines, or remove it, then run `tehas update`. A removed
+    `<realm> <login> <id>` lines, or remove it, then run `tehas update`. A removed
     file is recorded afresh, as on a first install, with no recorded id to
     check against.
   - A file the factory's user cannot read: give it back read and write for
@@ -254,6 +383,13 @@ is updated, because nothing reaches it without a person: a checkout on another
 branch, or one whose `origin/HEAD` is not set, changes nothing and exits 1. To
 install another branch, run `./install.sh` in the checkout by hand.
 `git remote set-head origin --auto` sets `origin/HEAD`.
+
+When the URL of the checkout's `origin` names `tehas-app/tehas` on GitHub,
+the name the repository had before 2.0, the update still fetches from it
+while GitHub redirects the old name, and each run, `--check` included, says
+`checkout: the repository tehas-app/tehas is now tehas-app/tehas-factory`,
+naming the checkout whose origin still names the old one: set its URL to the
+new one. The URL is read as written, and the update never rewrites it.
 
 While `~/tehas/state/update-hold` exists it changes nothing and exits 1, naming
 the file; `--check` says the hold is there and reports as usual. The file is
@@ -530,7 +666,7 @@ production host.
 
    ```
    cd ~/tehas/platform
-   TEHAS_TEST_FEATURES=outsource ./install.sh --lab-build
+   TEHAS_TEST_FEATURES=plugins ./install.sh --lab-build
    ```
 
    Every program is built with `TEHAS_LAB_BUILD=on`, a marker the programs
@@ -539,33 +675,33 @@ production host.
    assertions, so it does not read the tests' other hooks, such as
    `TEHAS_TEST_STORE_ANSWERS`. `TEHAS_TEST_FEATURES` on the command line is
    for this run only: it lets the install see the feature, so a feature with
-   programs or units of its own, as outsource has, gets them. The run prints
+   programs or units of its own, as plugins have, gets them. The run prints
    `note: a lab build`.
 
 2. Put the variable in the units' environment. The settings load refuses it
    in `instance.env` and `~/.config/tehas/env`. systemd gives every user unit,
-   the dispatcher, each cycle, the Protolab and the console they run, the
+   the dispatcher, each cycle and the console they run, the
    variables of `~/.config/environment.d/`:
 
    ```
    mkdir -p ~/.config/environment.d
-   echo 'TEHAS_TEST_FEATURES=outsource' > ~/.config/environment.d/tehas-lab.conf
+   echo 'TEHAS_TEST_FEATURES=plugins' > ~/.config/environment.d/tehas-lab.conf
    systemctl --user daemon-reload
-   systemctl --user restart tehas-mcp.service tehas-top.service   # the long-running units that are active
+   systemctl --user restart tehas-mcp.service   # the long-running units that are active
    ```
 
    Names are separated by spaces. A word that is no building feature is
    ignored.
 
-3. Switch the feature on in `instance.env` (`TEHAS_OUTSOURCE=on`) and prove
+3. Switch the feature on in `instance.env` (`TEHAS_PLUGIN=on`) and prove
    it. A shell of the tehas user does not read `environment.d`, so a command
    typed there, such as `tehas api --json`, needs
-   `TEHAS_TEST_FEATURES=outsource` in front of it, or it stops with 78.
+   `TEHAS_TEST_FEATURES=plugins` in front of it, or it stops with 78.
 
 Health warns on a lab build whether the variable is set or not. Set, it says
-`A lab build: TEHAS_TEST_FEATURES names outsource, still being built. No
+`A lab build: TEHAS_TEST_FEATURES names plugins, still being built. No
 release reads it.` and `checks.testFeatures` says `{"read": true, "features":
-["outsource"], "lab": true}`. Unset, it says `A lab build: TEHAS_TEST_FEATURES
+["plugins"], "lab": true}`. Unset, it says `A lab build: TEHAS_TEST_FEATURES
 is unset, so no building feature is on. ./install.sh without --lab-build goes
 back.` and `features` is empty. `tehas status` prints a `features` line either
 way.

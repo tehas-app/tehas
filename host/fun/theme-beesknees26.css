@@ -1,7 +1,7 @@
 /* Beesknees26: the business look as redrawn in 2026. Ink and one muted green
    on a near-white ground, white panels with faint edges and soft shadows,
-   IBM Plex, and no motion. Light; dark only when the viewer picks it with the
-   business page's mode button, never from the system setting. The palette is
+   IBM Plex, and no motion. Light; dark only where a page sets data-mode="dark"
+   at the viewer's pick, never from the system setting. The palette is
    the drawing's own: text and quiet text are at least 4.5:1 on their grounds,
    the faint labels about 3.4:1.
 
@@ -84,8 +84,6 @@
   --stage-stop-soft: #fff1ed;
   --stage-ship: #5573aa;
   --stage-ship-soft: #eef3fb;
-
-  --prototype-ground: #fff;
 
   /* The canvases draw on the dark screen: light, muted marks. */
   --band-1: #77ba8d;

@@ -2,10 +2,7 @@
 //!
 //!   tehas-mcp --live <dir> --sessions <dir> --logs <dir> --listen <addr:port>
 //!             --server-version <v> [--io-timeout <seconds>] [--private <name>]...
-//!             [--outsource] [--plugin-calls <socket>] [--checkout <dir> [--checkout-fetch <socket>]]
-//!
-//! --outsource serves the tool of outsource, `factory_contractors`, to both
-//! kinds of key. `tehasbot mcp serve` passes it while the feature is on.
+//!             [--plugin-calls <socket>] [--checkout <dir> [--checkout-fetch <socket>]]
 //!
 //! --plugin-calls serves, to full keys, the plugin tools of the broker on
 //! that socket (mcp::plugins). `tehasbot mcp serve` passes it while a plugin
@@ -58,7 +55,7 @@ fn of(setting: Setting) -> (&'static Setting, &'static str) {
 fn usage(why: &str) -> ! {
     eprintln!("tehas-mcp: {why}");
     eprintln!(
-        "usage: tehas-mcp --live <dir> --sessions <dir> --logs <dir> --listen <addr:port> --server-version <v> [--io-timeout <seconds>] [--private <name>]... [--outsource] [--plugin-calls <socket>] [--checkout <dir> [--checkout-fetch <socket>]]"
+        "usage: tehas-mcp --live <dir> --sessions <dir> --logs <dir> --listen <addr:port> --server-version <v> [--io-timeout <seconds>] [--private <name>]... [--plugin-calls <socket>] [--checkout <dir> [--checkout-fetch <socket>]]"
     );
     std::process::exit(78);
 }
@@ -119,10 +116,6 @@ fn main() {
     let mut private = Vec::new();
     let mut fetch: Option<PathBuf> = None;
     while let Some(a) = args.next() {
-        if a == "--outsource" {
-            mcp::tools::serve_outsource();
-            continue;
-        }
         if a == "--plugin-calls" {
             let socket = args
                 .next()
@@ -196,6 +189,7 @@ fn main() {
         live: dir(live, "--live"),
         sessions: sessions_dir,
         logs: dir(logs, "--logs"),
+        links: github_links,
     };
     let listen = listen.unwrap_or_else(|| usage("--listen is missing"));
     let version = version.unwrap_or_else(|| usage("--server-version is missing"));
@@ -250,5 +244,21 @@ fn main() {
             let line = mcp::http::serve(stream, &shared.0, &shared.1, &shared.2, shared.3);
             eprintln!("{line}");
         });
+    }
+}
+
+/// The code host's links of `repo`: GitHub's, made with no request. The
+/// server asks GitHub nothing, so the adapter is given a runner that runs no
+/// gh.
+fn github_links(repo: &str) -> Option<Box<dyn tehas_ports::Cites + Send>> {
+    Some(Box::new(tehas_github::GitHub::new(repo, Box::new(NoCalls))))
+}
+
+/// A runner of gh that runs none: the server links, and asks nothing.
+struct NoCalls;
+
+impl tehas_core::forge::GhRunner for NoCalls {
+    fn run(&mut self, _: &[&str]) -> Result<String, String> {
+        Err("the MCP server asks GitHub nothing".into())
     }
 }

@@ -1193,7 +1193,7 @@
    ],
    "expect": {
     "log": [
-     "skip #7: not refined: a box of its park question is ticked"
+     "skip #7: not refined: a choice was made on its park question"
     ],
     "nothing": true
    }

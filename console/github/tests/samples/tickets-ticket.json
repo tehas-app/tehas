@@ -1,0 +1,1080 @@
+[
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": {
+        "assignees": [
+          {
+            "id": "101",
+            "kind": "Person",
+            "login": "alice",
+            "realm": "CodeHost"
+          },
+          {
+            "id": "102",
+            "kind": "Person",
+            "login": "bob",
+            "realm": "CodeHost"
+          }
+        ],
+        "blockers": [
+          {
+            "on": {
+              "Here": {
+                "Ticket": {
+                  "Number": 23
+                }
+              }
+            },
+            "state": "Open"
+          }
+        ],
+        "closed": 1770116400,
+        "closer": {
+          "Change": {
+            "merged": true,
+            "no": 31
+          }
+        },
+        "digest": {
+          "author": {
+            "id": "101",
+            "kind": "Person",
+            "login": "alice",
+            "realm": "CodeHost"
+          },
+          "created": 1769936400,
+          "key": {
+            "Number": 20
+          },
+          "kind": {
+            "type": "Feature"
+          },
+          "link": "https://github.com/acme/widget/issues/20",
+          "marks": [
+            {
+              "type": "Project",
+              "value": "bug"
+            },
+            {
+              "type": "State",
+              "value": "Shipped"
+            }
+          ],
+          "labels": [
+            "bug",
+            "tehas:shipped",
+            "not a label?"
+          ],
+          "priority": "Normal",
+          "revision": "fc797fae2a4b3ddb564a3b7d97d0fdde00f17511ad4a719f9db293145a76299f:c4d7925b2d4ad3f7a24fb08915f6fe1a5ecc9bb4f57e2e2c3e7502e1b239d949",
+          "state": {
+            "Closed": "Done"
+          },
+          "target": {
+            "id": "3",
+            "title": "v2"
+          },
+          "title": "Ship the importer",
+          "updated": 1770120000
+        },
+        "history": {
+          "items": [
+            {
+              "at": 1769936405,
+              "by": {
+                "id": "101",
+                "kind": "Person",
+                "login": "alice",
+                "realm": "CodeHost"
+              },
+              "what": {
+                "type": "Marked",
+                "value": {
+                  "type": "Project",
+                  "value": "bug"
+                }
+              }
+            },
+            {
+              "at": 1769936410,
+              "by": {
+                "id": "101",
+                "kind": "Person",
+                "login": "alice",
+                "realm": "CodeHost"
+              },
+              "what": {
+                "type": "Kind",
+                "value": {
+                  "type": "Feature"
+                }
+              }
+            },
+            {
+              "at": 1769936460,
+              "by": {
+                "id": "101",
+                "kind": "Person",
+                "login": "alice",
+                "realm": "CodeHost"
+              },
+              "what": {
+                "type": "Unknown"
+              }
+            },
+            {
+              "at": 1769936520,
+              "by": {
+                "id": "101",
+                "kind": "Person",
+                "login": "alice",
+                "realm": "CodeHost"
+              },
+              "what": {
+                "type": "Targeted",
+                "value": null
+              }
+            },
+            {
+              "at": 1769936580,
+              "by": {
+                "id": "101",
+                "kind": "Person",
+                "login": "alice",
+                "realm": "CodeHost"
+              },
+              "what": {
+                "type": "Targeted",
+                "value": "3"
+              }
+            },
+            {
+              "at": 1769936640,
+              "by": {
+                "id": "101",
+                "kind": "Person",
+                "login": "alice",
+                "realm": "CodeHost"
+              },
+              "what": {
+                "type": "Assigned",
+                "value": {
+                  "id": "102",
+                  "kind": "Person",
+                  "login": "bob",
+                  "realm": "CodeHost"
+                }
+              }
+            },
+            {
+              "at": 1769936700,
+              "by": {
+                "id": "102",
+                "kind": "Person",
+                "login": "bob",
+                "realm": "CodeHost"
+              },
+              "what": {
+                "type": "Retitled",
+                "value": {
+                  "from": "Ship importer",
+                  "to": "Ship the importer"
+                }
+              }
+            },
+            {
+              "at": 1769936760,
+              "by": {
+                "id": "101",
+                "kind": "Person",
+                "login": "alice",
+                "realm": "CodeHost"
+              },
+              "what": {
+                "type": "BlockerAdded",
+                "value": {
+                  "Here": {
+                    "Ticket": {
+                      "Number": 23
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "at": 1770019200,
+              "by": {
+                "id": "900",
+                "kind": "Bot",
+                "login": "tehas-bot",
+                "realm": "CodeHost"
+              },
+              "what": {
+                "type": "Marked",
+                "value": {
+                  "type": "State",
+                  "value": "Running"
+                }
+              }
+            },
+            {
+              "at": 1770116400,
+              "by": {
+                "id": "900",
+                "kind": "Bot",
+                "login": "tehas-bot",
+                "realm": "CodeHost"
+              },
+              "what": {
+                "type": "Marked",
+                "value": {
+                  "type": "State",
+                  "value": "Shipped"
+                }
+              }
+            },
+            {
+              "at": 1770116400,
+              "by": {
+                "id": "900",
+                "kind": "Bot",
+                "login": "tehas-bot",
+                "realm": "CodeHost"
+              },
+              "what": {
+                "type": "Closed",
+                "value": {
+                  "closer": {
+                    "Change": {
+                      "merged": true,
+                      "no": 31
+                    }
+                  },
+                  "reason": "Done"
+                }
+              }
+            },
+            {
+              "at": 1770116400,
+              "by": {
+                "id": "900",
+                "kind": "Bot",
+                "login": "tehas-bot",
+                "realm": "CodeHost"
+              },
+              "what": {
+                "type": "Unmarked",
+                "value": {
+                  "type": "State",
+                  "value": "Running"
+                }
+              }
+            }
+          ],
+          "more": false
+        },
+        "markers": [
+          {
+            "type": "Bare",
+            "value": {
+              "kind": {
+                "type": "Blocked"
+              },
+              "read": {
+                "type": "Blocked",
+                "value": {
+                  "by": [
+                    {
+                      "Here": {
+                        "Number": 23
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "type": "Blocked",
+            "value": {
+              "by": [
+                {
+                  "Here": {
+                    "Number": 23
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "mentioned_by": [
+          {
+            "Here": 31
+          },
+          {
+            "Elsewhere": {
+              "item": "9",
+              "project": "octo/tools"
+            }
+          }
+        ],
+        "parts": [
+          {
+            "key": {
+              "Here": {
+                "Number": 21
+              }
+            },
+            "open": true
+          },
+          {
+            "key": {
+              "Here": {
+                "Number": 22
+              }
+            },
+            "open": false
+          },
+          {
+            "key": {
+              "Elsewhere": {
+                "item": "5",
+                "project": "octo/tools"
+              }
+            },
+            "open": true
+          }
+        ],
+        "text": "Import the old data.\r\n\r\n> <!-- tehas:blocked by=99 -->\r\n\r\ntehas:blocked by=23"
+      }
+    },
+    "depth": "All",
+    "fixture": "Ticket 20 is closed as done by the merged change 31. It is a feature of the target v2, filed by alice and assigned to alice and bob, and carries the project's mark bug, the shipped state and a name no mark can have. Its text quotes a blocked marker, names one bare and holds one wrapped. It waits on the open ticket 23; its parts are the open ticket 21, the closed ticket 22 and an open ticket of another project; the change 31 names it twice, a ticket once and a change of another project once. Its history: bug on, the type set, a target that is gone set and taken off, the target v2 set, bob assigned, a new title, the wait on 23, the running state on, then in one second the running state off, the shipped state on and the close, and last a mark no name can have, put on by an account that is gone.",
+    "history": null,
+    "op": "Tickets::ticket",
+    "ticket": {
+      "Number": 20
+    }
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": {
+        "assignees": [
+          {
+            "id": "101",
+            "kind": "Person",
+            "login": "alice",
+            "realm": "CodeHost"
+          },
+          {
+            "id": "102",
+            "kind": "Person",
+            "login": "bob",
+            "realm": "CodeHost"
+          }
+        ],
+        "blockers": [
+          {
+            "on": {
+              "Here": {
+                "Ticket": {
+                  "Number": 23
+                }
+              }
+            },
+            "state": "Open"
+          }
+        ],
+        "closed": 1770116400,
+        "closer": {
+          "Change": {
+            "merged": true,
+            "no": 31
+          }
+        },
+        "digest": {
+          "author": {
+            "id": "101",
+            "kind": "Person",
+            "login": "alice",
+            "realm": "CodeHost"
+          },
+          "created": 1769936400,
+          "key": {
+            "Number": 20
+          },
+          "kind": {
+            "type": "Feature"
+          },
+          "link": "https://github.com/acme/widget/issues/20",
+          "marks": [
+            {
+              "type": "Project",
+              "value": "bug"
+            },
+            {
+              "type": "State",
+              "value": "Shipped"
+            }
+          ],
+          "labels": [
+            "bug",
+            "tehas:shipped",
+            "not a label?"
+          ],
+          "priority": "Normal",
+          "revision": "fc797fae2a4b3ddb564a3b7d97d0fdde00f17511ad4a719f9db293145a76299f:c4d7925b2d4ad3f7a24fb08915f6fe1a5ecc9bb4f57e2e2c3e7502e1b239d949",
+          "state": {
+            "Closed": "Done"
+          },
+          "target": {
+            "id": "3",
+            "title": "v2"
+          },
+          "title": "Ship the importer",
+          "updated": 1770120000
+        },
+        "history": {
+          "items": [],
+          "more": true
+        },
+        "markers": [
+          {
+            "type": "Bare",
+            "value": {
+              "kind": {
+                "type": "Blocked"
+              },
+              "read": {
+                "type": "Blocked",
+                "value": {
+                  "by": [
+                    {
+                      "Here": {
+                        "Number": 23
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "type": "Blocked",
+            "value": {
+              "by": [
+                {
+                  "Here": {
+                    "Number": 23
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "mentioned_by": [
+          {
+            "Here": 31
+          },
+          {
+            "Elsewhere": {
+              "item": "9",
+              "project": "octo/tools"
+            }
+          }
+        ],
+        "parts": [
+          {
+            "key": {
+              "Here": {
+                "Number": 21
+              }
+            },
+            "open": true
+          },
+          {
+            "key": {
+              "Here": {
+                "Number": 22
+              }
+            },
+            "open": false
+          },
+          {
+            "key": {
+              "Elsewhere": {
+                "item": "5",
+                "project": "octo/tools"
+              }
+            },
+            "open": true
+          }
+        ],
+        "text": "Import the old data.\r\n\r\n> <!-- tehas:blocked by=99 -->\r\n\r\ntehas:blocked by=23"
+      }
+    },
+    "depth": {
+      "Cut": {
+        "notes": 0
+      }
+    },
+    "fixture": "Ticket 20 is closed as done by the merged change 31. It is a feature of the target v2, filed by alice and assigned to alice and bob, and carries the project's mark bug, the shipped state and a name no mark can have. Its text quotes a blocked marker, names one bare and holds one wrapped. It waits on the open ticket 23; its parts are the open ticket 21, the closed ticket 22 and an open ticket of another project; the change 31 names it twice, a ticket once and a change of another project once. Its history: bug on, the type set, a target that is gone set and taken off, the target v2 set, bob assigned, a new title, the wait on 23, the running state on, then in one second the running state off, the shipped state on and the close, and last a mark no name can have, put on by an account that is gone.",
+    "history": null,
+    "op": "Tickets::ticket",
+    "ticket": {
+      "Number": 20
+    }
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": {
+        "assignees": [
+          {
+            "id": "101",
+            "kind": "Person",
+            "login": "alice",
+            "realm": "CodeHost"
+          },
+          {
+            "id": "102",
+            "kind": "Person",
+            "login": "bob",
+            "realm": "CodeHost"
+          }
+        ],
+        "blockers": [
+          {
+            "on": {
+              "Here": {
+                "Ticket": {
+                  "Number": 23
+                }
+              }
+            },
+            "state": "Open"
+          }
+        ],
+        "closed": 1770116400,
+        "closer": {
+          "Change": {
+            "merged": true,
+            "no": 31
+          }
+        },
+        "digest": {
+          "author": {
+            "id": "101",
+            "kind": "Person",
+            "login": "alice",
+            "realm": "CodeHost"
+          },
+          "created": 1769936400,
+          "key": {
+            "Number": 20
+          },
+          "kind": {
+            "type": "Feature"
+          },
+          "link": "https://github.com/acme/widget/issues/20",
+          "marks": [
+            {
+              "type": "Project",
+              "value": "bug"
+            },
+            {
+              "type": "State",
+              "value": "Shipped"
+            }
+          ],
+          "labels": [
+            "bug",
+            "tehas:shipped",
+            "not a label?"
+          ],
+          "priority": "Normal",
+          "revision": "fc797fae2a4b3ddb564a3b7d97d0fdde00f17511ad4a719f9db293145a76299f:c4d7925b2d4ad3f7a24fb08915f6fe1a5ecc9bb4f57e2e2c3e7502e1b239d949",
+          "state": {
+            "Closed": "Done"
+          },
+          "target": {
+            "id": "3",
+            "title": "v2"
+          },
+          "title": "Ship the importer",
+          "updated": 1770120000
+        },
+        "history": {
+          "items": [
+            {
+              "at": 1770116400,
+              "by": {
+                "id": "900",
+                "kind": "Bot",
+                "login": "tehas-bot",
+                "realm": "CodeHost"
+              },
+              "what": {
+                "type": "Closed",
+                "value": {
+                  "closer": {
+                    "Change": {
+                      "merged": true,
+                      "no": 31
+                    }
+                  },
+                  "reason": "Done"
+                }
+              }
+            },
+            {
+              "at": 1770116400,
+              "by": {
+                "id": "900",
+                "kind": "Bot",
+                "login": "tehas-bot",
+                "realm": "CodeHost"
+              },
+              "what": {
+                "type": "Unmarked",
+                "value": {
+                  "type": "State",
+                  "value": "Running"
+                }
+              }
+            }
+          ],
+          "more": true
+        },
+        "markers": [
+          {
+            "type": "Bare",
+            "value": {
+              "kind": {
+                "type": "Blocked"
+              },
+              "read": {
+                "type": "Blocked",
+                "value": {
+                  "by": [
+                    {
+                      "Here": {
+                        "Number": 23
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "type": "Blocked",
+            "value": {
+              "by": [
+                {
+                  "Here": {
+                    "Number": 23
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "mentioned_by": [
+          {
+            "Here": 31
+          },
+          {
+            "Elsewhere": {
+              "item": "9",
+              "project": "octo/tools"
+            }
+          }
+        ],
+        "parts": [
+          {
+            "key": {
+              "Here": {
+                "Number": 21
+              }
+            },
+            "open": true
+          },
+          {
+            "key": {
+              "Here": {
+                "Number": 22
+              }
+            },
+            "open": false
+          },
+          {
+            "key": {
+              "Elsewhere": {
+                "item": "5",
+                "project": "octo/tools"
+              }
+            },
+            "open": true
+          }
+        ],
+        "text": "Import the old data.\r\n\r\n> <!-- tehas:blocked by=99 -->\r\n\r\ntehas:blocked by=23"
+      }
+    },
+    "depth": {
+      "Last": {
+        "notes": 2
+      }
+    },
+    "fixture": "Ticket 20 is closed as done by the merged change 31. It is a feature of the target v2, filed by alice and assigned to alice and bob, and carries the project's mark bug, the shipped state and a name no mark can have. Its text quotes a blocked marker, names one bare and holds one wrapped. It waits on the open ticket 23; its parts are the open ticket 21, the closed ticket 22 and an open ticket of another project; the change 31 names it twice, a ticket once and a change of another project once. Its history: bug on, the type set, a target that is gone set and taken off, the target v2 set, bob assigned, a new title, the wait on 23, the running state on, then in one second the running state off, the shipped state on and the close, and last a mark no name can have, put on by an account that is gone.",
+    "history": null,
+    "op": "Tickets::ticket",
+    "ticket": {
+      "Number": 20
+    }
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Unread": "Cut"
+      }
+    },
+    "depth": {
+      "Cut": {
+        "notes": 0
+      }
+    },
+    "fixture": "Ticket 20 is closed as done by the merged change 31. It is a feature of the target v2, filed by alice and assigned to alice and bob, and carries the project's mark bug, the shipped state and a name no mark can have. Its text quotes a blocked marker, names one bare and holds one wrapped. It waits on the open ticket 23; its parts are the open ticket 21, the closed ticket 22 and an open ticket of another project; the change 31 names it twice, a ticket once and a change of another project once. Its history: bug on, the type set, a target that is gone set and taken off, the target v2 set, bob assigned, a new title, the wait on 23, the running state on, then in one second the running state off, the shipped state on and the close, and last a mark no name can have, put on by an account that is gone.",
+    "history": {
+      "Whole": 5
+    },
+    "op": "Tickets::ticket",
+    "ticket": {
+      "Number": 20
+    }
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": {
+        "assignees": [],
+        "blockers": [],
+        "closed": null,
+        "closer": null,
+        "digest": {
+          "author": {
+            "id": "102",
+            "kind": "Person",
+            "login": "bob",
+            "realm": "CodeHost"
+          },
+          "created": 1769940000,
+          "key": {
+            "Number": 21
+          },
+          "kind": null,
+          "link": "https://github.com/acme/widget/issues/21",
+          "marks": [
+            {
+              "type": "Act",
+              "value": "Approve"
+            }
+          ],
+          "labels": [
+            "tehas:ready"
+          ],
+          "priority": "Normal",
+          "revision": "4ed3964568bd9b007e1f6eb9672ab16596f83e7b57c64dd829a69c7d565d0026:e966b7e06a24b9c6c3b92824c0574927c3d43874530957a15bfb95d14cfaeaf0",
+          "state": "Open",
+          "target": null,
+          "title": "Read the old export",
+          "updated": 1769940030
+        },
+        "history": {
+          "items": [],
+          "more": true
+        },
+        "markers": [],
+        "mentioned_by": [],
+        "parts": [],
+        "text": "A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A lon"
+      }
+    },
+    "depth": {
+      "Cut": {
+        "notes": 0
+      }
+    },
+    "fixture": "Ticket 21 is open, filed by bob, with the approval put on by alice, a text of 390 characters and no marker, and nothing beside it.",
+    "history": null,
+    "op": "Tickets::ticket",
+    "ticket": {
+      "Number": 21
+    }
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": {
+        "assignees": [],
+        "blockers": [],
+        "closed": null,
+        "closer": null,
+        "digest": {
+          "author": {
+            "id": "102",
+            "kind": "Person",
+            "login": "bob",
+            "realm": "CodeHost"
+          },
+          "created": 1769940000,
+          "key": {
+            "Number": 21
+          },
+          "kind": null,
+          "link": "https://github.com/acme/widget/issues/21",
+          "marks": [
+            {
+              "type": "Act",
+              "value": "Approve"
+            }
+          ],
+          "labels": [
+            "tehas:ready"
+          ],
+          "priority": "Normal",
+          "revision": "4ed3964568bd9b007e1f6eb9672ab16596f83e7b57c64dd829a69c7d565d0026:e966b7e06a24b9c6c3b92824c0574927c3d43874530957a15bfb95d14cfaeaf0",
+          "state": "Open",
+          "target": null,
+          "title": "Read the old export",
+          "updated": 1769940030
+        },
+        "history": {
+          "items": [
+            {
+              "at": 1769940030,
+              "by": {
+                "id": "101",
+                "kind": "Person",
+                "login": "alice",
+                "realm": "CodeHost"
+              },
+              "what": {
+                "type": "Marked",
+                "value": {
+                  "type": "Act",
+                  "value": "Approve"
+                }
+              }
+            }
+          ],
+          "more": false
+        },
+        "markers": [],
+        "mentioned_by": [],
+        "parts": [],
+        "text": "A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. A long text. "
+      }
+    },
+    "depth": "All",
+    "fixture": "Ticket 21 is open, filed by bob, with the approval put on by alice, a text of 390 characters and no marker, and nothing beside it.",
+    "history": null,
+    "op": "Tickets::ticket",
+    "ticket": {
+      "Number": 21
+    }
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Unread": "Malformed"
+      }
+    },
+    "depth": "All",
+    "fixture": "Ticket 8 comes back cut off part way.",
+    "history": null,
+    "op": "Tickets::ticket",
+    "ticket": {
+      "Number": 8
+    }
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": "NotFound"
+    },
+    "depth": "All",
+    "fixture": "Ticket 9 does not exist.",
+    "history": null,
+    "op": "Tickets::ticket",
+    "ticket": {
+      "Number": 9
+    }
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Unavailable": {
+          "sent": "Maybe",
+          "why": "Timeout"
+        }
+      }
+    },
+    "depth": "All",
+    "fixture": "No answer comes in time when ticket 10 is read.",
+    "history": null,
+    "op": "Tickets::ticket",
+    "ticket": {
+      "Number": 10
+    }
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": "NotFound"
+    },
+    "depth": "All",
+    "fixture": "Ticket 11 was deleted, so the site says it is gone.",
+    "history": null,
+    "op": "Tickets::ticket",
+    "ticket": {
+      "Number": 11
+    }
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Spent": {
+          "pool": "Calls",
+          "until": 1767225600
+        }
+      }
+    },
+    "depth": "All",
+    "fixture": "The site answers that too many requests came when ticket 12 is read.",
+    "history": null,
+    "op": "Tickets::ticket",
+    "ticket": {
+      "Number": 12
+    }
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Spent": {
+          "pool": "Calls",
+          "until": 1767225600
+        }
+      }
+    },
+    "depth": "All",
+    "fixture": "The site answers that requests came too fast when ticket 13 is read.",
+    "history": null,
+    "op": "Tickets::ticket",
+    "ticket": {
+      "Number": 13
+    }
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": "Forbidden"
+    },
+    "depth": "All",
+    "fixture": "The actor may not read ticket 14.",
+    "history": null,
+    "op": "Tickets::ticket",
+    "ticket": {
+      "Number": 14
+    }
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Unavailable": {
+          "sent": "Maybe",
+          "why": "Server"
+        }
+      }
+    },
+    "depth": "All",
+    "fixture": "Ticket 27 is there, and the site fails on its side when what stands beside its digest is read.",
+    "history": null,
+    "op": "Tickets::ticket",
+    "ticket": {
+      "Number": 27
+    }
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Unread": "Malformed"
+      }
+    },
+    "depth": {
+      "Cut": {
+        "notes": 0
+      }
+    },
+    "fixture": "Ticket 28 is there, and what stands beside its digest comes back cut off part way.",
+    "history": null,
+    "op": "Tickets::ticket",
+    "ticket": {
+      "Number": 28
+    }
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": "NotFound"
+    },
+    "depth": "All",
+    "fixture": "The number 30 names a change, where tickets and changes share one number space.",
+    "history": null,
+    "op": "Tickets::ticket",
+    "ticket": {
+      "Number": 30
+    }
+  }
+]

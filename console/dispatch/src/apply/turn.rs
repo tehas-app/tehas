@@ -5,7 +5,7 @@
 //! What a poll does before a turn (the checkout's refresh) is the poll's,
 //! part 4 of #254.
 
-use super::{text, word, Writer, Wrote};
+use super::{text, word, Writer};
 use crate::read::host::held;
 use crate::read::run::run_quiet;
 use serde_json::Value;
@@ -13,6 +13,7 @@ use std::io::Write as _;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use tehas_core::home::{Home, State};
 
 /// The script the turn's unit runs, plan_launch's: the turn's lock held
 /// for its length, its exit status kept, and a poll asked for at its end.
@@ -335,22 +336,17 @@ impl Writer {
             input = answer;
         }
         // The turn runs only once the issue is marked as taken.
-        let edit = vec![
-            "issue".into(),
-            "edit".into(),
-            n.to_string(),
-            "--repo".into(),
-            self.repo.clone(),
-            "--add-label".into(),
-            "tehas:planning".into(),
-            "--remove-label".into(),
-            label.clone(),
-            "--remove-label".into(),
-            "tehas:question".into(),
-            "--remove-label".into(),
-            "needs-human-attention".into(),
-        ];
-        if !matches!(self.write(n, "label-add", edit, None, None), Wrote::Done(_)) {
+        let marked = self.edit_labels(
+            n,
+            &[
+                ("--add-label", "tehas:planning"),
+                ("--remove-label", label.as_str()),
+                ("--remove-label", "tehas:question"),
+                ("--remove-label", "needs-human-attention"),
+            ],
+            log,
+        );
+        if !marked {
             self.put_back(n, &undo, log);
             if first {
                 let _ = std::fs::remove_file(&input);
@@ -373,10 +369,10 @@ impl Writer {
                 .and_then(Value::as_str)
                 .filter(|x| !x.is_empty())
             {
-                Some(auto) => format!("Tehas planning session started on `{host}` at {when} UTC to refine this issue: its cycle parked as `{auto}`, and the start of that cycle by @{by} authorizes one refine. Each turn ends in a comment here. Answer by ticking a box or by replying. To stop it, take `tehas:question` off while a question waits, or close the issue."),
+                Some(auto) => format!("Tehas planning session started on `{host}` at {when} UTC to refine this issue: its cycle parked as `{auto}`, and the start of that cycle by @{by} authorizes one refine. Each turn ends in a comment here. Answer by replying in a comment. To stop it, take `tehas:question` off while a question waits, or close the issue."),
                 None => match a.get("epic").and_then(Value::as_u64) {
-                    Some(e) => format!("Tehas planning session started on `{host}` at {when} UTC (authorized by @{by}'s `tehas:ready` label on epic #{e}, which the millwright carried to this sub-issue with `{label}`). Each turn ends in a comment here. Answer by ticking a box or by replying."),
-                    None => format!("Tehas planning session started on `{host}` at {when} UTC (authorized by @{by}'s `{label}` label). Each turn ends in a comment here. Answer by ticking a box or by replying."),
+                    Some(e) => format!("Tehas planning session started on `{host}` at {when} UTC (authorized by @{by}'s `tehas:ready` label on epic #{e}, which the millwright carried to this sub-issue with `{label}`). Each turn ends in a comment here. Answer by replying in a comment."),
+                    None => format!("Tehas planning session started on `{host}` at {when} UTC (authorized by @{by}'s `{label}` label). Each turn ends in a comment here. Answer by replying in a comment."),
                 },
             };
             self.say(n, &said, log);
@@ -478,8 +474,8 @@ impl Writer {
                 .to_string_lossy()
                 .into_owned(),
             format!("{}.rc", st.display()),
-            self.home
-                .join("state/dispatch.again")
+            Home::new(&self.home)
+                .state(State::DispatchAgain)
                 .to_string_lossy()
                 .into_owned(),
             format!("{}.lock", st.display()),

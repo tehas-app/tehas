@@ -28,6 +28,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use tehas_core::home::{Home, Live};
 use tehas_core::lock;
 use tehas_core::models;
 use tehas_core::sandbox::{self, Identity, Kind, Paths, Taken};
@@ -291,10 +292,11 @@ fn running_said(view: &str) -> Option<String> {
 // What the room looks like now, with the cycles that hold a lock. The session's
 // own memory comes off it once its container runs.
 fn room_said(home: &str, usable: &slice::Usable, load: &Load) -> String {
-    let issues = lock::held_in(&Path::new(home).join("state/cycles"));
+    let issues = lock::held_in(&Home::new(home).cycles_dir());
+    let cycles = Home::of_text(home).cycles_dir();
     let cids: Vec<String> = issues
         .iter()
-        .map(|n| format!("{home}/state/cycles/{n}.cid"))
+        .map(|n| cycles.join(format!("{n}.cid")).display().to_string())
         .collect();
     let reading = Reading::of_room(slice::root(), &cids);
     let room = slice::room(&reading, usable, &load.reserve, issues.len() as u64);
@@ -402,9 +404,9 @@ fn ready(given: &Words) -> Result<Taken, u8> {
     let taken = sandbox::take(&Host::here(), &Load::from_env(), "tehas dev", "a session");
     let taken = taken.map_err(refuse)?;
     let on = |k: &str| env::var(k).is_ok_and(|v| v == "1");
-    if !given.issue.is_empty() && !on("TEHAS_WORK_IMAGES") && !on("TEHAS_WORK_FILES") {
+    if !given.issue.is_empty() && !on("TEHAS_WORK_IMAGES") {
         return Err(refuse(
-            "tehas dev: this instance gives no images or files (TEHAS_WORK_IMAGES, TEHAS_WORK_FILES), so --issue has nothing to give"
+            "tehas dev: this instance gives no images (TEHAS_WORK_IMAGES), so --issue has nothing to give"
                 .to_string(),
         ));
     }
@@ -434,7 +436,7 @@ fn token() -> Result<(), u8> {
     Ok(())
 }
 
-// The issue's images and files, by the rules a cycle is given them. Who applied
+// The issue's images, by the rules a cycle is given them. Who applied
 // the label decides (rule 5). Err is the exit status.
 fn images(given: &Words) -> Result<(), u8> {
     if given.issue.is_empty() {
@@ -443,7 +445,8 @@ fn images(given: &Words) -> Result<(), u8> {
     let devs = format!("{}/dev", env::var("TEHAS_HOME").unwrap_or_default());
     fs::create_dir_all(&devs).map_err(|_| 78u8)?;
     let dir = format!("{devs}/{}.images", given.name);
-    let approved = match label::allowed_issue(&given.issue, "tehas:ready") {
+    let ready = tehas_ports::Mark::Act(tehas_ports::Act::Approve);
+    let approved = match label::allowed_issue(&given.issue, Some(&ready)) {
         0 => Ok("approved"),
         2 => Err("the issue's label events could not be read for its images".to_string()),
         _ => Ok(""),
@@ -652,7 +655,7 @@ fn session(given: &Words, taken: &Taken) -> u8 {
     };
 
     tehas_core::outln!("tehas dev: {tree}, commits as {}", who.said);
-    let view = fs::read_to_string(format!("{home}/live/running.json")).unwrap_or_default();
+    let view = fs::read_to_string(Home::of_text(&home).live(Live::Running)).unwrap_or_default();
     if let Some(said) = running_said(&view) {
         tehas_core::outln!("tehas dev: {said}");
     }

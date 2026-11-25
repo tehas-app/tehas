@@ -74,6 +74,8 @@ use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant, SystemTime};
+use tehas_core::home::{Home, State};
+use tehas_core::lock::Held;
 use tehas_core::{rukas, time};
 
 /// Sandbox builds a host keeps: the current one and the one before it, for a
@@ -427,14 +429,11 @@ fn scratch_made(given: &[String]) -> u8 {
 /// go to standard error, and name who else holds the lock. `wait` is in
 /// seconds.
 #[allow(clippy::result_unit_err)]
-pub fn open_session(home: &str, name: &str, wait: u64) -> Result<File, ()> {
+pub fn open_session(home: &str, name: &str, wait: u64) -> Result<Held, ()> {
     let devs = Path::new(home).join("dev");
     let state = devs.join(format!("{name}.state"));
     let target = state.join("target");
-    let lock = Path::new(home)
-        .join("state")
-        .join("dev")
-        .join(format!("{name}.lock"));
+    let lock = Home::new(home).dev_lock(name);
     let shown = lock.display().to_string();
     // Made apart, and the build output with a plain create: a create of one
     // path of a tree makes the directory beside it too, and then nothing left
@@ -490,7 +489,7 @@ pub fn open_session(home: &str, name: &str, wait: u64) -> Result<File, ()> {
 /// beside `is held`. A link, a directory or a file that cannot be opened is
 /// never taken, since a lock is held by descriptor and a lock of a name that is
 /// no file proves nothing either way.
-fn take_clone_lock(path: &Path) -> Result<File, String> {
+fn take_clone_lock(path: &Path) -> Result<Held, String> {
     let f = OpenOptions::new()
         .append(true)
         .create(true)
@@ -499,8 +498,7 @@ fn take_clone_lock(path: &Path) -> Result<File, String> {
     if !fs::symlink_metadata(path).is_ok_and(|m| m.is_file()) {
         return Err(": its name is no regular file".to_string());
     }
-    f.try_lock().map_err(|_| lock_holders(path))?;
-    Ok(f)
+    Held::try_take(f).map_err(|_| lock_holders(path))
 }
 
 /// Who holds a clone's lock, as the process table can say it: the login and the
@@ -1129,7 +1127,7 @@ impl Run {
     }
 
     fn main(&mut self, min_mb: u64, min_word: &str, free_kb: &str) -> u8 {
-        let state = self.home.join("state");
+        let state = Home::new(&self.home).state_dir();
         let logs = self.logfile.parent().map(Path::to_path_buf);
         if logs.is_some_and(|l| fs::create_dir_all(l).is_err())
             || fs::create_dir_all(&state).is_err()
@@ -1141,7 +1139,7 @@ impl Run {
         let lock = OpenOptions::new()
             .append(true)
             .create(true)
-            .open(state.join("clean.lock"));
+            .open(Home::new(&self.home).state(State::CleanLock));
         let held = lock.as_ref().map(File::try_lock);
         if !matches!(held, Ok(Ok(()))) {
             if let Ok(Err(TryLockError::WouldBlock)) = held {
@@ -1153,7 +1151,7 @@ impl Run {
             }
             eprintln!(
                 "tehas clean: {} could not be locked",
-                state.join("clean.lock").display()
+                Home::new(&self.home).state(State::CleanLock).display()
             );
             return 1;
         }
@@ -1232,10 +1230,7 @@ impl Run {
     }
 
     fn cycle_lock(&self, n: &str) -> PathBuf {
-        self.home
-            .join("state")
-            .join("cycles")
-            .join(format!("{n}.lock"))
+        Home::new(&self.home).cycles_dir().join(format!("{n}.lock"))
     }
 
     /// A cycle holds the issue's lock, or the probe could not tell: the cases
@@ -1271,9 +1266,9 @@ impl Run {
         let Ok(f) = File::open(&lock) else {
             return false;
         };
-        if f.try_lock().is_err() {
+        let Ok(_held) = Held::try_take(f) else {
             return false;
-        }
+        };
         remove(p)
     }
 
@@ -1859,7 +1854,7 @@ impl Run {
     // --- 6. old logs and the state store's upkeep.
     fn upkeep(&mut self) -> bool {
         let bin = self.home.join("libexec").join("store");
-        let db = self.home.join("state").join("tehas.db");
+        let db = Home::new(&self.home).state(State::StoreDb);
         let runnable =
             fs::metadata(&bin).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0);
         if !runnable || !plain_file(&db) {
@@ -1911,7 +1906,7 @@ impl Run {
             v["word"] = json!(word);
             v["line"] = json!(line);
         }
-        let file = self.home.join("state").join("upkeep.json");
+        let file = Home::new(&self.home).state(State::Upkeep);
         if let Err(e) = crate::edge::put(&file, format!("{v}\n").as_bytes()) {
             self.warn(&format!("could not write {}: {e}", file.display()));
         }
@@ -1932,17 +1927,12 @@ impl Run {
         {
             return None;
         }
-        Some(
-            self.home
-                .join("state")
-                .join("dev")
-                .join(format!("{name}.lock")),
-        )
+        Some(Home::new(&self.home).dev_lock(name))
     }
 
     /// The clone's lock, held while the file lives. A lock not there yet is made:
     /// a session that starts during the removal must find it taken.
-    fn hold_clone(&self, name: &str) -> Option<File> {
+    fn hold_clone(&self, name: &str) -> Option<Held> {
         let lock = self.clone_lock(name)?;
         fs::create_dir_all(lock.parent()?).ok()?;
         take_clone_lock(&lock).ok()
@@ -2231,19 +2221,19 @@ mod tests {
         let works = root.join("work");
         let home = root.join("home");
         let d = works.join("widget-7");
-        fs::create_dir_all(home.join("state/cycles")).unwrap();
+        fs::create_dir_all(Home::new(&home).cycles_dir()).unwrap();
         fs::create_dir_all(d.join("target")).unwrap();
         fs::create_dir_all(d.join("src")).unwrap();
         fs::write(d.join("src").join("main.rs"), "keep").unwrap();
         fs::write(d.join("target").join("console"), vec![b'x'; 4096]).unwrap();
         fs::write(d.join("target").join("build"), vec![b'y'; 3072]).unwrap();
         // The cycle's lock: a removal is tried only under one that is there.
-        fs::write(home.join("state/cycles/7.lock"), "").unwrap();
+        fs::write(Home::new(&home).cycle_note(7, "lock"), "").unwrap();
         // The age rule reads the workspace, its lock and each tree of the
         // issue: all of them are three days old, as the shell fixture dates
         // what it writes.
         age_tree(&works, 72);
-        age_tree(&home.join("state/cycles"), 72);
+        age_tree(&Home::new(&home).cycles_dir(), 72);
         // No scratch disk; the image names are empty, so neither image step is
         // asked of docker, and no store stands in this home, so step 6 fails
         // and reports itself. A dry run asks docker nothing; the real run below
@@ -2272,7 +2262,7 @@ mod tests {
         let tmp = TestDir::new("clean-upkept");
         let root = tmp.join("root");
         let (mut run, _) = one_issue_tree(&root);
-        let record = run.home.join("state/upkeep.json");
+        let record = Home::new(&run.home).state(State::Upkeep);
         let said = || -> serde_json::Value {
             serde_json::from_str(&fs::read_to_string(&record).unwrap()).unwrap()
         };
@@ -2286,7 +2276,7 @@ mod tests {
         assert_eq!(said()["word"], json!("absent"));
         fs::create_dir_all(run.home.join("libexec")).unwrap();
         tehas_core::testing::write_exe(store::program(&run.home), "#!/bin/sh\n").unwrap();
-        fs::write(run.home.join("state/tehas.db"), "").unwrap();
+        fs::write(Home::new(&run.home).state(State::StoreDb), "").unwrap();
         let answers = run.home.join("answers");
         store::testing::plant(&run.home, &answers);
         let store = |line: &str| {
@@ -2639,9 +2629,9 @@ mod tests {
         let hold = run.hold_clone("eve").unwrap();
         assert_eq!(tehas_core::lock::probe(&eve), tehas_core::lock::Probe::Held);
         assert!(run.hold_clone("eve").is_none());
-        // Unlocked by name: a child another case forks this instant shares the
-        // descriptor until it execs, so a drop alone may not free it yet.
-        hold.unlock().unwrap();
+        // Given back by its drop, which unlocks by name: a child another case
+        // forks this instant shares the descriptor until it execs.
+        drop(hold);
         assert_eq!(tehas_core::lock::probe(&eve), tehas_core::lock::Probe::Free);
         // A link is not taken, and a name of no plain word has no lock to hold.
         assert!(run.hold_clone("dave").is_none());
@@ -2674,7 +2664,7 @@ mod tests {
         let root = TestDir::new("clean-open-session-taken");
         let home = root.join("home");
         let target = home.join("dev/frank.state/target");
-        let lock = home.join("state/dev/frank.lock");
+        let lock = Home::new(&home).dev_lock("frank");
         fs::create_dir_all(lock.parent().unwrap()).unwrap();
         // The cleaner's hold: a descriptor of its own, which the session's
         // try_lock meets as held though it is the same process.
@@ -2702,7 +2692,7 @@ mod tests {
         let root = TestDir::new("clean-open-session-link");
         let home = root.join("home");
         let target = home.join("dev/frank.state/target");
-        let lock = home.join("state/dev/frank.lock");
+        let lock = Home::new(&home).dev_lock("frank");
         fs::create_dir_all(lock.parent().unwrap()).unwrap();
         let cleaner = OpenOptions::new()
             .append(true)
@@ -2743,8 +2733,8 @@ mod tests {
     fn lock_rules(root: &Path, lock: LockShape) -> (bool, bool) {
         let _ = fs::remove_dir_all(root);
         let home = root.join("home");
-        fs::create_dir_all(home.join("state/cycles")).unwrap();
-        let path = home.join("state/cycles/7.lock");
+        fs::create_dir_all(Home::new(&home).cycles_dir()).unwrap();
+        let path = Home::new(&home).cycle_note(7, "lock");
         match lock {
             LockShape::None => {}
             LockShape::File => fs::write(&path, "").unwrap(),

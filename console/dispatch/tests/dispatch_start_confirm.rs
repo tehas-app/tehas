@@ -9,6 +9,8 @@ use common::*;
 use serde_json::{json, Value};
 use std::fs;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use tehas_core::home::Home;
+use tehas_ports::{Mark, State};
 
 fn now() -> i64 {
     SystemTime::now()
@@ -75,7 +77,7 @@ fn the_container_of_a_cycle_that_holds_its_lock_is_not_touched() {
 #[test]
 fn the_lock_file_of_a_cycle_that_ended_holds_nothing_back() {
     let w = World::new("sc-lock-file");
-    w.home_file("state/cycles/9.lock", "");
+    w.home_file(Home::new(&w.home).cycle_note(9, "lock"), "");
     w.poll();
     assert_eq!(w.started(), "7 ");
 }
@@ -87,9 +89,10 @@ fn a_cycle_that_cannot_be_started_is_handed_to_a_human_exit_1() {
     let r = w.poll();
     assert_eq!(r.rc, 1, "{}", r.out);
     has(&r.out, "ERROR: the cycle for #7 did not start");
-    has(
-        &w.gh(),
-        "issue edit 7 --repo acme/widget --remove-label tehas:running --add-label needs-human-attention",
+    assert!(
+        w.off(7, Mark::State(State::Running)) && w.on(7, Mark::State(State::NeedsPerson)),
+        "{:?}",
+        w.writes_of(7)
     );
     has(&w.gh(), "could not start the cycle");
 }
@@ -100,9 +103,10 @@ fn a_cycle_that_never_says_it_holds_its_lock_is_handed_to_a_human() {
     w.touch("start-silent");
     let r = w.poll();
     assert_eq!(r.rc, 1, "{}", r.out);
-    has(
-        &w.gh(),
-        "--remove-label tehas:running --add-label needs-human-attention",
+    assert!(
+        w.on(7, Mark::State(State::NeedsPerson)) && w.off(7, Mark::State(State::Running)),
+        "{:?}",
+        w.writes_of(7)
     );
 }
 
@@ -112,7 +116,7 @@ fn a_cycle_that_holds_its_lock_but_wrote_no_marker_in_time_is_taken_as_started()
     // The holder keeps the cycle's lock for a few seconds, its output detached.
     w.stub(
         "fake-late",
-        r#"( exec 9>"$TEHAS_HOME/state/cycles/$1.lock"; flock -n 9; exec sleep 5 ) >/dev/null 2>&1 &
+        r#"( exec 9>"$T_CYCLES/$1.lock"; flock -n 9; exec sleep 5 ) >/dev/null 2>&1 &
 echo $! >"$T/late.pid""#,
     );
     w.env("TEHAS_CYCLE_START_CMD", "fake-late");
@@ -198,9 +202,10 @@ fn when_the_approval_of_a_start_that_did_not_come_up_stays_on_record_the_unit_is
         "WARN: could not take the approval of #7 off the record (busy)",
     );
     assert_eq!(w.calls("fake-stop").trim_end(), "7");
-    has(
-        &w.gh(),
-        "--remove-label tehas:running --add-label needs-human-attention",
+    assert!(
+        w.on(7, Mark::State(State::NeedsPerson)) && w.off(7, Mark::State(State::Running)),
+        "{:?}",
+        w.writes_of(7)
     );
 }
 
@@ -425,7 +430,7 @@ fn a_state_store_that_is_not_installed_stops_the_poll_at_78_before_any_call_to_g
 fn a_label_that_cannot_be_changed_takes_the_approval_off_the_record_again_and_the_last_starts_stays_current_a2(
 ) {
     let w = World::new("sc-a2");
-    w.past(7, "bob", "label", "2026-01-01T00:00:00Z", &[]);
+    w.past(7, "bob", "approved", "2026-01-01T00:00:00Z", &[]);
     w.fx("edit-fails-on", "--add-label tehas:running\n");
     let r = w.poll();
     assert_eq!(r.rc, 1, "{}", r.out);
@@ -470,5 +475,6 @@ fn a_running_list_that_cannot_be_read_ends_the_poll_before_it_acts_on_any_cycle_
         "ERROR: the state store could not list the running cycles (busy)",
     );
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     assert_eq!(w.started(), "");
 }

@@ -29,6 +29,7 @@ use std::process::{self, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tehas_core::file::Temp;
+use tehas_core::home::{Home, State};
 use tehas_core::install::{self, Step};
 use tehas_core::{exit, sandbox, slice, time};
 
@@ -744,14 +745,18 @@ fn result_text(at: &str, failures: &[String], sandbox: Option<bool>) -> String {
 }
 
 fn write_result(home: &str, failures: &[String], sandbox: Option<bool>) {
-    let state = format!("{home}/state");
-    let file = format!("{state}/check-product.json");
+    let at = Home::new(home);
+    let state = at.state_dir();
+    let file = at.state(State::CheckProduct);
     let text = result_text(&time::iso(time::now()), failures, sandbox);
     let written = fs::create_dir_all(&state).and_then(|()| {
-        tehas_core::file::write_atomic(Path::new(&file), text.as_bytes(), 0o644, &Temp::Predictable)
+        tehas_core::file::write_atomic(&file, text.as_bytes(), 0o644, &Temp::Predictable)
     });
     if written.is_err() {
-        complain(&format!("tehas check-product: could not write {file}"));
+        complain(&format!(
+            "tehas check-product: could not write {}",
+            file.display()
+        ));
     }
 }
 
@@ -883,8 +888,20 @@ fn propose(branch: &str, dry: bool) -> Result<u8, u8> {
     let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
     let opened = tehas_core::call::run("gh", &args, tehas_core::call::GH_BOUND);
     tehas_core::out!("{}", opened.out);
-    eprint!("{}", opened.err);
-    Ok(if opened.ok() { 0 } else { 1 })
+    if opened.ok() {
+        return Ok(0);
+    }
+    complain(&not_opened(&opened.err));
+    Ok(1)
+}
+
+/// The line for a pull request gh did not open: our words and the outcome's
+/// line, never gh's (Decided 69).
+fn not_opened(said: &str) -> String {
+    format!(
+        "tehas init-product: the pull request of {HEAD} was not opened ({})",
+        tehas_core::retry::outcome_of(said, tehas_ports::Sent::Maybe).line()
+    )
 }
 
 #[derive(Debug, PartialEq)]
@@ -1018,6 +1035,19 @@ fn run_step(line: &str) -> Option<String> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn a_pull_request_not_opened_is_said_in_our_words() {
+        assert_eq!(
+            not_opened("gh: Resource not accessible by integration (HTTP 403)"),
+            "tehas init-product: the pull request of tehas/init-product was not opened (this actor may not do this)"
+        );
+        let line = not_opened("Post \"https://api.example.test/x\": i/o timeout");
+        assert!(
+            line.ends_with("(timed out; it may have been sent)"),
+            "{line}"
+        );
+    }
 
     // The files of a tree and what is guessed from them.
     type Case<'a> = (

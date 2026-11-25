@@ -11,6 +11,7 @@
 use crate::accounts::account;
 use crate::grant::{self, Actor, Change, LabelEvent};
 use serde_json::Value;
+use tehas_ports::{Act, Happened, Mark, TicketEvent};
 
 /// The account of an event that names nobody, as a person reads it: the
 /// same word decide's `or_unknown` answers for an empty login. A list may
@@ -98,10 +99,14 @@ impl Events {
     }
 }
 
-/// Whether `login` is on the allowed list, logins with one space between them
-/// as lib/config.sh checks it. An empty name is nobody and is never allowed.
+/// Whether `login` is on the allowed list: a whole login of it, logins with
+/// one space between them as lib/config.sh checks it, in any ASCII case, as
+/// `accounts::folded` compares logins. The vouch already checked every case
+/// variant of a listed login against its recorded id. An empty name is
+/// nobody and is never allowed.
 pub fn allowed_in(list: &str, login: &str) -> bool {
-    !login.is_empty() && list.split(' ').any(|l| l == login)
+    let login = crate::accounts::folded(login);
+    !login.is_empty() && list.split(' ').any(|l| crate::accounts::folded(l) == login)
 }
 
 /// Who applied `label` most recently, and when: tehas_label_actor. Events
@@ -109,33 +114,54 @@ pub fn allowed_in(list: &str, login: &str) -> bool {
 /// Empty strings when no event applied it. A label taken off since still names
 /// its applier here, so an approval reads `standing_actor` instead.
 pub fn label_actor(events: &[Event], label: &str) -> (String, String) {
-    let mut v: Vec<&Event> = events
+    named(&ordered(events, label), grant::last_application)
+}
+
+/// The applications and removals among `items`, oldest first, as the grant
+/// decision reads them: `change` says which an item is, None for one of
+/// another label or mark. Of two sharing a stamp the removal comes last, and
+/// one with no stamp is older than any. The labels' events and the marks'
+/// history are both read here, so the two give one answer.
+fn changes<T, K: Ord>(
+    items: &[T],
+    change: impl Fn(&T) -> Option<Change>,
+    at: impl Fn(&T) -> K,
+) -> Vec<(&T, Change)> {
+    let mut v: Vec<(&T, Change)> = items
         .iter()
-        .filter(|e| e.event == "labeled" && e.label == label)
+        .filter_map(|e| change(e).map(|c| (e, c)))
         .collect();
-    v.sort_by(|a, b| a.at.cmp(&b.at));
-    match grant::last_application(&timeline(&v), &label).map(|i| v[i]) {
+    v.sort_by_key(|(e, c)| (at(e), *c == Change::Removed));
+    v
+}
+
+/// A rule of the grant decision over one label's timeline: `grant::standing`,
+/// `last_application` or `latest`.
+type Rule = fn(&[LabelEvent<(), ()>], &()) -> Option<usize>;
+
+/// Which of `v` a rule of the grant decision answers. Its accounts are
+/// vouched for and its applications judged by the pins already, when the
+/// read was made, so the rule reads the order and the changes alone.
+fn decided<T>(v: &[(&T, Change)], rule: Rule) -> Option<usize> {
+    let timeline: Vec<LabelEvent<(), ()>> = v
+        .iter()
+        .map(|&(_, change)| LabelEvent {
+            actor: Actor::vouched(()),
+            label: (),
+            pinned: true,
+            change,
+        })
+        .collect();
+    rule(&timeline, &())
+}
+
+/// The account and time of the event of `v` a rule answers, or empty
+/// strings.
+fn named(v: &[(&Event, Change)], rule: Rule) -> (String, String) {
+    match decided(v, rule).map(|i| v[i].0) {
         Some(e) => (e.actor.clone(), e.at.clone().unwrap_or_default()),
         None => (String::new(), String::new()),
     }
-}
-
-/// Labeled and unlabeled events in their order, as the grant decision reads
-/// them. Their accounts are vouched for and their applications judged by the
-/// pins already, when the snapshot was read.
-fn timeline<'a>(v: &[&'a Event]) -> Vec<LabelEvent<&'a str, &'a str>> {
-    v.iter()
-        .map(|e| LabelEvent {
-            actor: Actor::vouched(e.actor.as_str()),
-            label: e.label.as_str(),
-            pinned: true,
-            change: if e.event == "labeled" {
-                Change::Applied
-            } else {
-                Change::Removed
-            },
-        })
-        .collect()
 }
 
 /// The time of the `tehas:plan` a plan's start is credited to: `by` applied it
@@ -212,7 +238,7 @@ impl LabelState {
 /// unstamped events.
 pub fn label_state(events: &[Event], label: &str) -> LabelState {
     let v = ordered(events, label);
-    let Some(e) = grant::latest(&timeline(&v), &label).map(|i| v[i]) else {
+    let Some(e) = decided(&v, grant::latest).map(|i| v[i].0) else {
         return LabelState::Absent;
     };
     let at = e.at.clone().unwrap_or_default();
@@ -235,11 +261,7 @@ pub fn label_state(events: &[Event], label: &str) -> LabelState {
 /// off since or never applied, so a removal the issue's labels do not show yet
 /// grants nothing.
 pub fn standing_actor(events: &[Event], label: &str) -> (String, String) {
-    let v = ordered(events, label);
-    match grant::standing(&timeline(&v), &label).map(|i| v[i]) {
-        Some(e) => (e.actor.clone(), e.at.clone().unwrap_or_default()),
-        None => (String::new(), String::new()),
-    }
+    named(&ordered(events, label), grant::standing)
 }
 
 /// `standing_actor`, but a removal by the factory's own account `bot`
@@ -247,25 +269,25 @@ pub fn standing_actor(events: &[Event], label: &str) -> (String, String) {
 /// `tehas:ready` off an epic and the person's application still approves its
 /// sub-issues; a removal by anyone else ends it.
 pub fn standing_past_bot(events: &[Event], label: &str, bot: &str) -> (String, String) {
-    let v: Vec<&Event> = ordered(events, label)
+    let v: Vec<(&Event, Change)> = ordered(events, label)
         .into_iter()
-        .filter(|e| !(e.event == "unlabeled" && crate::accounts::factorys(&e.actor, bot)))
+        .filter(|(e, c)| !(*c == Change::Removed && crate::accounts::factorys(&e.actor, bot)))
         .collect();
-    match grant::standing(&timeline(&v), &label).map(|i| v[i]) {
-        Some(e) => (e.actor.clone(), e.at.clone().unwrap_or_default()),
-        None => (String::new(), String::new()),
-    }
+    named(&v, grant::standing)
 }
 
-/// The labeled and unlabeled events of `label`, oldest first: of two sharing
-/// a stamp the removal comes last, and one with no stamp is older than any.
-fn ordered<'a>(events: &'a [Event], label: &str) -> Vec<&'a Event> {
-    let mut v: Vec<&Event> = events
-        .iter()
-        .filter(|e| (e.event == "labeled" || e.event == "unlabeled") && e.label == label)
-        .collect();
-    v.sort_by_key(|e| (e.at.clone().unwrap_or_default(), e.event == "unlabeled"));
-    v
+/// The labeled and unlabeled events of `label`, in [`changes`]'s order.
+fn ordered<'a>(events: &'a [Event], label: &str) -> Vec<(&'a Event, Change)> {
+    changes(
+        events,
+        |e| match e.event.as_str() {
+            _ if e.label != label => None,
+            "labeled" => Some(Change::Applied),
+            "unlabeled" => Some(Change::Removed),
+            _ => None,
+        },
+        |e| e.at.clone().unwrap_or_default(),
+    )
 }
 
 /// tehas_pause_holds: the event that holds the host paused, `(event, by)`,
@@ -282,6 +304,51 @@ pub fn pause_holds(events: &[Event], allowed: &dyn Fn(&str) -> bool) -> Option<(
         "unlabeled" | "labeled" => Some((e.event.clone(), e.actor.clone())),
         _ => None,
     }
+}
+
+/// [`pause_holds`] over the tickets port's history: whether the event that
+/// holds the host paused took the pause off, and by whom, or None. The same
+/// rule, for a caller that reads through the port; the two are one when the
+/// last caller of [`pause_holds`] moves.
+pub fn pause_holds_marks(
+    events: &[TicketEvent],
+    allowed: &dyn Fn(&str) -> bool,
+) -> Option<(bool, String)> {
+    let pause = Mark::Act(Act::Pause);
+    let mut v: Vec<(bool, &TicketEvent)> = events
+        .iter()
+        .filter_map(|e| match &e.what {
+            Happened::Unmarked(m) if *m == pause => Some((true, e)),
+            Happened::Marked(m) if *m == pause => Some((false, e)),
+            _ => None,
+        })
+        .collect();
+    v.sort_by_key(|(off, e)| (e.at, !off));
+    let (off, e) = v.last()?;
+    let by = e.by.as_ref().map(|a| a.login.as_str()).unwrap_or_default();
+    if *off && allowed(by) {
+        return None;
+    }
+    Some((*off, by.to_string()))
+}
+
+/// Who put `mark` on, over the tickets port's history, when that is the
+/// mark's newest event: the rule of [`standing_actor`]. A mark taken off since
+/// names nobody, so a check of who applied it never answers for a mark that
+/// is no longer on. An event with no time is older than any. None when no
+/// application stands, or that one names nobody.
+pub fn mark_actor<'a>(events: &'a [TicketEvent], mark: &Mark) -> Option<&'a str> {
+    let v = changes(
+        events,
+        |e| match &e.what {
+            Happened::Marked(m) if m == mark => Some(Change::Applied),
+            Happened::Unmarked(m) if m == mark => Some(Change::Removed),
+            _ => None,
+        },
+        |e| e.at,
+    );
+    let i = decided(&v, grant::standing)?;
+    v[i].0.by.as_ref().map(|a| a.login.as_str())
 }
 
 /// Whether a change `who` made at `at` is after an approval `approver` gave
@@ -316,33 +383,40 @@ pub fn edit_holds(
     approver: &str,
     allowed: &dyn Fn(&str) -> bool,
 ) -> Option<String> {
-    let at = edit
-        .get("lastEditedAt")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    let by = login_of(edit);
+    edit_holds_of(&EditRecord::parse(edit), since, approver, allowed)
+}
+
+/// [`edit_holds`] over the record as read. A `lastEditedAt` that is no text
+/// is no stamp, as an empty one is.
+pub fn edit_holds_of(
+    edit: &EditRecord,
+    since: &str,
+    approver: &str,
+    allowed: &dyn Fn(&str) -> bool,
+) -> Option<String> {
+    let at = match &edit.last_edited {
+        Stamp::At(at) => at.as_str(),
+        Stamp::Never | Stamp::Unread => "",
+    };
+    let by = edit.editor.as_str();
     if at.is_empty() || !changed_after(at, by, since, approver) {
         return None;
     }
     if by == NOBODY || !allowed(by) {
         return Some(shown(by));
     }
-    let history = edit.get("userContentEdits");
-    let nodes = history
-        .and_then(|h| h.get("nodes"))
-        .and_then(Value::as_array);
-    let total = history
-        .and_then(|h| h.get("totalCount"))
-        .and_then(Value::as_u64);
-    let (Some(nodes), Some(total)) = (nodes, total) else {
+    let History::Read {
+        total: Some(total),
+        nodes,
+    } = &edit.history
+    else {
         return Some(UNKNOWN_ACTOR.to_string());
     };
-    if total > nodes.len() as u64 {
+    if *total > nodes.len() as u64 {
         return Some(UNKNOWN_ACTOR.to_string());
     }
     nodes.iter().find_map(|n| {
-        let at = n.get("editedAt").and_then(Value::as_str).unwrap_or("");
-        let by = login_of(n);
+        let (at, by) = (n.edited_at.as_str(), n.editor.as_str());
         if !at.is_empty() && !changed_after(at, by, since, approver) {
             return None;
         }
@@ -365,17 +439,146 @@ fn shown(login: &str) -> String {
 /// that failed: the last editor is one `allowed` takes, and the history is
 /// `{"failed": true}`. The caller waits for a read rather than refuse.
 pub fn edit_history_unread(edit: &Value, allowed: &dyn Fn(&str) -> bool) -> bool {
-    let by = login_of(edit);
-    !by.is_empty()
-        && allowed(by)
-        && edit.pointer("/userContentEdits/failed") == Some(&Value::Bool(true))
+    edit_history_unread_of(&EditRecord::parse(edit), allowed)
 }
 
-fn login_of(v: &Value) -> &str {
-    v.get("editor")
-        .and_then(|e| e.get("login"))
-        .and_then(Value::as_str)
-        .unwrap_or("")
+/// [`edit_history_unread`] over the record as read.
+pub fn edit_history_unread_of(edit: &EditRecord, allowed: &dyn Fn(&str) -> bool) -> bool {
+    let by = edit.editor.as_str();
+    !by.is_empty() && allowed(by) && matches!(edit.history, History::Failed { .. })
+}
+
+/// A text field: missing or null is None, anything but text Unreadable.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Text {
+    None,
+    Some(String),
+    Unreadable,
+}
+
+/// An issue's `lastEditedAt`: null for a text never edited, a time (empty
+/// included) for one edited, Unread when the field is missing or no text.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Stamp {
+    Never,
+    At(String),
+    Unread,
+}
+
+/// An issue's `userContentEdits`: Failed for a read that failed, with the
+/// line of its gh call; Read when it holds a list of nodes; Missing else.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum History {
+    Missing,
+    Failed {
+        line: Option<String>,
+    },
+    Read {
+        /// totalCount, None when it is no u64.
+        total: Option<u64>,
+        nodes: Vec<HistoryEdit>,
+    },
+}
+
+impl History {
+    /// The line of the gh call a failed read failed on.
+    pub fn line(&self) -> Option<&str> {
+        match self {
+            History::Failed { line } => line.as_deref(),
+            _ => None,
+        }
+    }
+}
+
+/// One node of the history: a missing stamp or editor reads as "".
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HistoryEdit {
+    pub edited_at: String,
+    pub editor: String,
+}
+
+/// The edit record of an issue as the poll reads it from GraphQL: the stamp
+/// and author of the last edit, the author, the time it was written, the
+/// body, the title and the history of edits. A login or time that is missing
+/// or no text reads as "".
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EditRecord {
+    /// The record held no field at all, or was no object.
+    pub empty: bool,
+    pub last_edited: Stamp,
+    pub editor: String,
+    pub author: String,
+    pub created_at: String,
+    pub body: Text,
+    /// None when it is missing or no text.
+    pub title: Option<String>,
+    pub history: History,
+}
+
+impl Default for EditRecord {
+    /// The record of no answer, as `{}` reads.
+    fn default() -> Self {
+        EditRecord {
+            empty: true,
+            last_edited: Stamp::Unread,
+            editor: String::new(),
+            author: String::new(),
+            created_at: String::new(),
+            body: Text::None,
+            title: None,
+            history: History::Missing,
+        }
+    }
+}
+
+impl EditRecord {
+    /// The record from GraphQL's answer. Anything but an object reads as `{}`.
+    pub fn parse(v: &Value) -> EditRecord {
+        let text = |v: Option<&Value>| v.and_then(Value::as_str).unwrap_or("").to_string();
+        let login = |v: Option<&Value>| text(v.and_then(|v| v.get("login")));
+        let history = v.get("userContentEdits");
+        EditRecord {
+            empty: v.as_object().is_none_or(|o| o.is_empty()),
+            last_edited: match v.get("lastEditedAt") {
+                Some(Value::Null) => Stamp::Never,
+                Some(Value::String(at)) => Stamp::At(at.clone()),
+                _ => Stamp::Unread,
+            },
+            editor: login(v.get("editor")),
+            author: login(v.get("author")),
+            created_at: text(v.get("createdAt")),
+            body: match v.get("body") {
+                None | Some(Value::Null) => Text::None,
+                Some(Value::String(b)) => Text::Some(b.clone()),
+                Some(_) => Text::Unreadable,
+            },
+            title: v.get("title").and_then(Value::as_str).map(str::to_string),
+            history: match (history, history.and_then(|h| h.get("nodes"))) {
+                (Some(h), _) if h.get("failed") == Some(&Value::Bool(true)) => History::Failed {
+                    line: h.get("line").and_then(Value::as_str).map(str::to_string),
+                },
+                (Some(h), Some(Value::Array(nodes))) => History::Read {
+                    total: h.get("totalCount").and_then(Value::as_u64),
+                    nodes: nodes
+                        .iter()
+                        .map(|n| HistoryEdit {
+                            edited_at: text(n.get("editedAt")),
+                            editor: login(n.get("editor")),
+                        })
+                        .collect(),
+                },
+                _ => History::Missing,
+            },
+        }
+    }
+
+    /// The body as a sum and a start read it: "" when it is no text.
+    pub fn body_text(&self) -> &str {
+        match &self.body {
+            Text::Some(b) => b,
+            Text::None | Text::Unreadable => "",
+        }
+    }
 }
 
 /// The first `renamed` event after `since` (any of them when `since` is
@@ -411,6 +614,48 @@ pub fn first_unallowed_rename(
 }
 
 #[cfg(test)]
+mod mark_actor_tests {
+    use super::mark_actor;
+    use tehas_ports::{Account, AccountKind, Act, At, Happened, Login, Mark, Realm, TicketEvent};
+
+    fn ev(what: Happened, by: Option<&str>, at: Option<i64>) -> TicketEvent {
+        let mut e = TicketEvent::new(what);
+        e.by = by.map(|l| Account::new(Realm::CodeHost, Login::new(l), AccountKind::Person));
+        e.at = at.map(At::new);
+        e
+    }
+
+    #[test]
+    fn the_standing_application_answers_and_a_removal_ends_it() {
+        let ready = Mark::Act(Act::Approve);
+        let plan = Mark::Act(Act::Plan);
+        let on = |by, at| ev(Happened::Marked(ready.clone()), by, at);
+        let off = |by, at| ev(Happened::Unmarked(ready.clone()), by, at);
+        assert_eq!(mark_actor(&[], &ready), None);
+        let v = [on(Some("bob"), Some(2)), on(Some("alice"), Some(1))];
+        assert_eq!(mark_actor(&v, &ready), Some("bob"));
+        // Taken off since: nobody's application stands, the remover's least.
+        let v = [on(Some("alice"), Some(1)), off(Some("mallory"), Some(2))];
+        assert_eq!(mark_actor(&v, &ready), None);
+        let v = [
+            on(Some("alice"), Some(1)),
+            off(Some("mallory"), Some(2)),
+            on(Some("bob"), Some(3)),
+        ];
+        assert_eq!(mark_actor(&v, &ready), Some("bob"));
+        // In one second the removal is read last, as the labels' rule reads it.
+        let v = [off(Some("mallory"), Some(1)), on(Some("alice"), Some(1))];
+        assert_eq!(mark_actor(&v, &ready), None);
+        let v = [on(Some("alice"), Some(1)), on(Some("mallory"), None)];
+        assert_eq!(mark_actor(&v, &ready), Some("alice"), "no time is older");
+        let v = [on(Some("alice"), Some(1)), on(None, Some(2))];
+        assert_eq!(mark_actor(&v, &ready), None);
+        let v = [ev(Happened::Marked(plan.clone()), Some("alice"), Some(1))];
+        assert_eq!(mark_actor(&v, &ready), None);
+    }
+}
+
+#[cfg(test)]
 mod allowed_tests {
     use super::allowed_in;
 
@@ -423,14 +668,42 @@ mod allowed_tests {
         assert!(!allowed_in("", ""));
     }
 
+    /// Whole logins of the list, in any ASCII case.
+    #[test]
+    fn the_rule_ignores_ascii_case_and_nothing_else() {
+        assert!(allowed_in("alice", "Alice"));
+        assert!(allowed_in("Alice", "alice"));
+        assert!(allowed_in("alice", "ALICE"));
+        assert!(allowed_in("alice bob", "BOB"));
+        for login in [
+            "",
+            "alice bob",
+            " alice",
+            "alice ",
+            "alic",
+            "alıce",
+            "alice#5",
+            "Alice#",
+        ] {
+            assert!(!allowed_in("alice bob", login), "{login:?}");
+        }
+        // A list entry that is not a login is no wildcard.
+        for list in ["", " ", "alice  bob", "*", "alice *"] {
+            for login in ["mallory", "Mallory", "*x"] {
+                assert!(!allowed_in(list, login), "{list:?} {login:?}");
+            }
+        }
+        assert!(!allowed_in("alice  bob", ""));
+    }
+
     /// The list is what lib/config.sh checks: whole logins with one space
-    /// between them, exact case. The rule reads no other spelling as a login
-    /// of it.
+    /// between them. The rule reads no other spelling as a login of it but
+    /// another ASCII case.
     #[test]
     fn the_rule_reads_the_list_as_lib_config_sh_writes_it() {
-        // A login of the list, and one of no other case.
+        // A login of the list, in its own case or another.
         assert!(allowed_in("alice", "alice"));
-        assert!(!allowed_in("alice", "Alice"));
+        assert!(allowed_in("alice", "Alice"));
         // Two spaces stand for no login: the empty word between them names
         // nobody. The logins on either side of it are still whole logins.
         assert!(!allowed_in("alice  bob", ""));

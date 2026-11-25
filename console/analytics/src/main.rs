@@ -37,8 +37,8 @@
 //!     row.
 //!   analytics sample
 //!     Records one sample of the factory: the issues in line, running,
-//!     awaiting a merge and stopped, the cycles allowed, the pause, the hold
-//!     and the mesh's draw, from the live files the poll wrote (sample.rs
+//!     awaiting a merge and stopped, the cycles allowed, the pause and the
+//!     hold, from the live files the poll wrote (sample.rs
 //!     lists them). The dispatcher calls it once a poll.
 //!   analytics prune
 //!     Deletes what is older than 365 days, then runs PRAGMA optimize. run,
@@ -83,7 +83,8 @@
 //!     its runs, both left out when it has none.
 //!
 //! The database is $TEHAS_HOME/state/analytics.db, mode 0600, in WAL mode,
-//! its schema version in PRAGMA user_version (schema.sql). A file that is not a database is moved to
+//! its schema version in PRAGMA user_version (schema.sql). A database of
+//! schema 4 or 5 is migrated to 6 in place. A file that is not a database is moved to
 //! analytics.db.broken, a database of another schema version to
 //! analytics.db.schema-<version>, and a new one is made, said on standard error. prune deletes a schema-<version> file 365 days
 //! after its last write. Any other failure leaves the file
@@ -453,7 +454,10 @@ pub fn execute(home: &Path, cmd: &Cmd, now: i64) -> Result<(), (u8, String)> {
         Cmd::Report | Cmd::ReportText => {
             let report = report::complete(&conn, home, now)?;
             if matches!(cmd, Cmd::Report) {
-                tehas_core::outln!("{report}");
+                // Through a JSON value, so the keys print sorted as they always have.
+                let json = serde_json::to_value(&report)
+                    .map_err(|e| (70, format!("the report could not be written: {e}")))?;
+                tehas_core::outln!("{json}");
             } else {
                 tehas_core::out!("{}", report::text(&report));
             }

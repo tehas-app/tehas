@@ -1,0 +1,54 @@
+tehas answer <issue> <choice>: answer the question an issue waits on, for a person.
+
+A program on the host, such as an industry or a chat a person answers in,
+gives here the answer of a person to the question a stopped ticket or a
+planning session waits on, beside a reply on the issue.
+--by names the person. It is trusted as the host's caller, as tehas start
+trusts its caller, and it must be an account that may authorise work for
+this factory: one of TEHAS_ALLOWED_LABELERS.
+
+The answer is recorded in the state store (state/tehas.db), bound to the
+question on record of the issue, with who gave it, when, and how (`answer`).
+Nothing happens at once. The next poll acts on it as on a reply of that
+account that names the same choice, under the rules every answer passes: a retry waits for room
+and starts only while the issue is still stopped and its text unchanged. An
+answer that cannot be taken is taken away, and the poll says why on the
+issue. Running it again before the poll replaces the answer that waits. A
+question answered, or a new question asked, leaves an answer to the old one
+with nothing to answer.
+
+Usage:
+  tehas answer <issue> <choice> --by <login>        answer with a choice
+  tehas answer <issue> --text <file> --by <login>   answer a planning question in words
+  tehas answer <issue> --text - --by <login>        the same, the words read from standard input
+  tehas answer ... --json                           answer with what was recorded
+
+  <choice>  for a stopped ticket:
+              retry          start over with the issue and its comments
+              retry-text     start over with the issue text only
+              park           leave it stopped
+            for a planning question:
+              option:<k>     the option numbered <k>, from 1, as the question lists it
+              update         the option "Update this issue"
+              end            end the planning session
+  --text    a reply in words to a planning question, read from <file>, or
+            from standard input with `-`, for a caller that may not write a
+            file on the host. Either is at most 1 MiB, and stdin with no
+            words is a bad argument
+
+Each command prints one line:
+
+  answered the park question of #12 for alice at 2026-10-17T14:00:20Z: retry; the next poll acts on it
+
+With --json, {"api": 1, "issue": 12, "question": {"id": 1, "kind":
+"park"}, "answer": {"choice": "retry", "option": null, "by": "alice", "how":
+"answer", "at": "..."}, "replaced": false}.
+
+Exit: 0 recorded; 1 the state store refused or is not installed; 3 no
+question of that kind waits on the issue, or the question does not offer
+that option; 64 a bad argument, which writes nothing; 78 --by may not
+authorise work, or the instance settings are missing or malformed, which
+writes nothing.
+
+Instance settings (lib/config.sh): TEHAS_ALLOWED_LABELERS, the accounts an
+answer may be given for.

@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tehas-app/tehas-factory/api/event-ticket-acted.schema.json",
+  "title": "The data of ticket.acted",
+  "description": "An allowed account's act is recorded. Witness: the act in the tickets port's history. Version 1 of the events. host/docs/api.md, \"Events\", says what each field means. The object is closed; a minor release may add an optional field. console/tests/events_contract.rs checks the samples beside this file against it.",
+  "type": "object",
+  "required": [
+    "ticket",
+    "act",
+    "by",
+    "at"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "ticket": {
+      "description": "The ticket, in the ports' shape.",
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "Number": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "Key": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._:/-]{1,128}$"
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "Number"
+          ]
+        },
+        {
+          "required": [
+            "Key"
+          ]
+        }
+      ]
+    },
+    "act": {
+      "description": "The act, as the ports write it: Approve, Plan, Refine, Finish and so on. May grow.",
+      "type": "string",
+      "pattern": "^[A-Z][A-Za-z]{0,63}$"
+    },
+    "by": {
+      "description": "The account, in the ports' shape.",
+      "type": "object",
+      "required": [
+        "realm",
+        "login",
+        "kind"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "realm": {
+          "enum": [
+            "CodeHost",
+            "Tickets"
+          ]
+        },
+        "login": {
+          "type": "string",
+          "minLength": 1
+        },
+        "id": {
+          "description": "The site's stable id of the account. Left out when the site gives none.",
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "Ours",
+            "Bot",
+            "Person",
+            "Unknown"
+          ]
+        }
+      }
+    },
+    "at": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$",
+      "description": "When, in the supplier's history."
+    }
+  }
+}

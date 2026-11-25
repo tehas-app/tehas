@@ -50,7 +50,7 @@
 //! dispatcher's lock, so a run waits for that lock, up to a minute, before it
 //! looks at the cycles, and lets it go again. A poll is never held by a run.
 //!
-//! What the container is given is pinned by test/index_test.sh: the clone, the
+//! What the container is given is pinned by tests/index_runs.rs: the clone, the
 //! host's index directory, which is the only thing it may write, and nothing
 //! else. No network, no token, no settings. It runs in tehas.slice with a
 //! cycle's limits, so the dispatcher counts its memory with the cycles'. Without
@@ -68,6 +68,7 @@ use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::{self, sleep};
 use std::time::{Duration, Instant};
+use tehas_core::home::{Home, State as HomeState};
 use tehas_core::lock;
 use tehas_core::sandbox::{self, CACHE_DIR};
 use tehas_core::slice::{self, Host, Load};
@@ -283,7 +284,7 @@ fn temp_dir(tmp: &Path, prefix: &str) -> Option<PathBuf> {
 // The poll that is starting cycles holds the dispatcher's lock: wait for it, look
 // at the cycles, let it go. Err is the exit status.
 fn cycles_idle(home: &Path, wait: &str) -> Result<(), u8> {
-    let path = home.join("state/dispatch.lock");
+    let path = Home::new(home).state(HomeState::DispatchLock);
     let poll = OpenOptions::new().append(true).create(true).open(path);
     let seconds: f64 = wait.parse().unwrap_or(0.0);
     let until = Instant::now() + Duration::from_secs_f64(seconds.max(0.0));
@@ -303,7 +304,7 @@ fn cycles_idle(home: &Path, wait: &str) -> Result<(), u8> {
         return Err(tehas_core::exit::NO);
     }
     // What a running cycle looks like: its lock is held.
-    let issues = lock::held_in(&home.join("state/cycles"));
+    let issues = lock::held_in(&Home::new(home).cycles_dir());
     if !issues.is_empty() {
         warn(&format!(
             "a cycle is running (issue {}), nothing was indexed; run it again afterwards",
@@ -786,18 +787,23 @@ pub fn main(branch: &str, base: &str, before_cycle: bool) -> u8 {
     };
     let var = |k: &str| env::var(k).unwrap_or_default();
     let home = PathBuf::from(var("TEHAS_HOME"));
-    for dir in ["logs", "tmp", "state/index"] {
-        let _ = fs::create_dir_all(home.join(dir));
+    let layout = Home::new(&home);
+    for dir in [
+        home.join("logs"),
+        home.join("tmp"),
+        layout.state(HomeState::CodeIndex),
+    ] {
+        let _ = fs::create_dir_all(dir);
     }
     let repo_name = var("TEHAS_REPO");
     let product = repo_name.rsplit('/').next().unwrap_or("").to_string();
     let wait = env::var("TEHAS_INDEX_LOCK_WAIT").unwrap_or_else(|_| "60".into());
     let mut run = Run {
-        index: home.join("state/index"),
+        index: layout.state(HomeState::CodeIndex),
         tmp: home.join("tmp"),
-        marker: home.join("state/index.json"),
+        marker: layout.state(HomeState::CodeIndexState),
         // Apart from the marker, which install.sh reads as "an index was built".
-        failed: home.join("state/index.failed"),
+        failed: layout.state(HomeState::CodeIndexFailed),
         log: home.join(format!("logs/index-{}.log", time::stamp(time::now()))),
         src: var("TEHAS_WORK_REPO"),
         repo: var("TEHAS_WORK_DIR"),

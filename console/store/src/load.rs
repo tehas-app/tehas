@@ -7,8 +7,7 @@
 //! it is older. A copy that fails any of these is refused before the store is
 //! opened. Then, in one transaction under the write lock, the store must be at
 //! this binary's schema, no cycle lock may be held and no table of HISTORY may
-//! hold a row, nor any of OUTSOURCE_HISTORY; every table, the outsource ones
-//! too, is emptied and filled from the copy. A refusal or a
+//! hold a row; every table is emptied and filled from the copy. A refusal or a
 //! failure rolls the transaction back, so the store is as it was. The store's
 //! own file is never replaced: the readers of a drained factory hold it open,
 //! and a file renamed under them would meet the old one's -wal.
@@ -17,7 +16,7 @@
 //! took. The refusals are 1 with a word: `no-copy`, `bad-copy`, `newer-copy`,
 //! `running` and `history`.
 
-use crate::db::{self, COUNTED_TABLES, OUTSOURCE_TABLES, SCHEMA_VERSION};
+use crate::db::{self, COUNTED_TABLES, SCHEMA_VERSION};
 use crate::lock;
 use crate::verbs::{self, j, line, Fail, Q};
 use rusqlite::{Connection, OpenFlags};
@@ -32,7 +31,7 @@ use std::time::Instant;
 /// these -- `meta`, `issues`, `polls`, `poll_cost` and `sweep_log` -- are the
 /// installation's record, the numbers the poll reads from GitHub and its own
 /// log, which a drained factory may still write and the copy's rows replace.
-pub const HISTORY: [&str; 19] = [
+pub const HISTORY: [&str; 20] = [
     "cycles",
     "heartbeats",
     "endings",
@@ -47,6 +46,7 @@ pub const HISTORY: [&str; 19] = [
     "cycle_progress",
     "parks",
     "questions",
+    "answers",
     "cycle_history",
     "plan_history",
     "actions",
@@ -54,14 +54,9 @@ pub const HISTORY: [&str; 19] = [
     "plugin_runs",
 ];
 
-/// The outsource tables that record what contractors did, held to the same
-/// rule as HISTORY. `contractors` and `join_codes` are the installation's
-/// record and the copy's rows replace them.
-pub const OUTSOURCE_HISTORY: [&str; 3] = ["jobs", "job_history", "issue_attempts"];
-
 /// Every table load empties and fills, parents before children.
 fn moved() -> impl Iterator<Item = &'static str> {
-    COUNTED_TABLES.iter().chain(&OUTSOURCE_TABLES).copied()
+    COUNTED_TABLES.iter().copied()
 }
 
 /// The copy's own file beside the store, and SQLite's files beside it, removed
@@ -220,7 +215,7 @@ fn fill(conn: &Connection, home: &Path) -> Result<(), Fail> {
             _ => {}
         }
     }
-    for table in HISTORY.iter().chain(&OUTSOURCE_HISTORY) {
+    for table in HISTORY {
         let n: i64 = conn
             .query_row(&format!("SELECT count(*) FROM main.{table}"), [], |r| {
                 r.get(0)

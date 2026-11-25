@@ -11,7 +11,6 @@
     "local": true,
     "label": false
   },
-  "allHands": true,
   "limit": {
     "state": "ok",
     "cycles": 3,
@@ -31,7 +30,10 @@
   "running": [
     {
       "issue": 12,
+      "cycle": "12-3",
       "since": "2026-10-17T11:20:00Z",
+      "how": "approved",
+      "by": "alice",
       "progress": {
         "step": "review",
         "stepNumber": 7,
@@ -43,7 +45,9 @@
     },
     {
       "issue": 15,
-      "since": "2026-10-17T13:59:00Z"
+      "cycle": "15-1",
+      "since": "2026-10-17T13:59:00Z",
+      "how": "hand"
     }
   ],
   "planning": [
@@ -74,7 +78,7 @@
       "issue": 21,
       "why": "parked",
       "text": "its last cycle parked on `gate` and the body has not changed since",
-      "clear": "edit the body, or tick Retry in the park comment"
+      "clear": "edit the body, or reply to the park comment with the word of one of its retries"
     }
   ],
   "room": {
@@ -97,15 +101,6 @@
       "behind": true
     }
   },
-  "prototypes": [
-    {
-      "issue": 21,
-      "builtAt": "2026-10-17T09:12:00Z"
-    },
-    {
-      "issue": 20
-    }
-  ],
   "previews": [
     {
       "number": 31,

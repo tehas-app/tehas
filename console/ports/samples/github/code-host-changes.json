@@ -1,0 +1,1481 @@
+[
+  {
+    "op": "CodeHost::changes",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/widget",
+    "fixture": "acme/widget's pull requests: #19 the factory's, closed, from tehas/issue-7; #20 the factory's, open from tehas/issue-7, marked refreshing, held by a rule, edited by the factory; #21 the factory's, merged by alice, closing #8 and acme/docs#3, edited by alice; #22 bob's, closed, from a fork, marked bug and with a label no mark can have; #23 the factory's, an open draft; #24 mallory's, open from a fork's tehas/issue-7, conflicting; #25 open by an account that is gone, behind its base; #26 alice's, open, clean. Every open change.",
+    "filter": {
+      "states": "Open",
+      "author": null,
+      "head": null,
+      "closing": [],
+      "merged_since": null,
+      "updated_since": null,
+      "numbers": [],
+      "bodies": false
+    },
+    "bound": 10,
+    "answer": {
+      "Ok": [
+        {
+          "no": 20,
+          "title": "Make it so (#7)",
+          "state": "Open",
+          "head": "tehas/issue-7",
+          "head_commit": "1414141414141414141414141414141414141414",
+          "base": "main",
+          "base_commit": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+          "author": {
+            "realm": "CodeHost",
+            "login": "tehas-bot",
+            "id": "900",
+            "kind": "Bot"
+          },
+          "from_fork": false,
+          "draft": false,
+          "merge_state": {
+            "No": "Blocked"
+          },
+          "marks": [
+            {
+              "type": "State",
+              "value": "Refreshing"
+            }
+          ],
+          "closes": [
+            {
+              "Here": 7
+            }
+          ],
+          "size": {
+            "files": 3,
+            "added": 40,
+            "deleted": 2
+          },
+          "body": null,
+          "created": 1767344400,
+          "updated": 1767348000,
+          "edited": 1767346200,
+          "editor": {
+            "realm": "CodeHost",
+            "login": "tehas-bot",
+            "id": "900",
+            "kind": "Bot"
+          },
+          "link": "https://github.com/acme/widget/pull/20"
+        },
+        {
+          "no": 23,
+          "title": "Draft: the widget's colour (#9)",
+          "state": "Open",
+          "head": "tehas/issue-9",
+          "head_commit": "1717171717171717171717171717171717171717",
+          "base": "main",
+          "base_commit": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+          "author": {
+            "realm": "CodeHost",
+            "login": "tehas-bot",
+            "id": "900",
+            "kind": "Bot"
+          },
+          "from_fork": false,
+          "draft": true,
+          "merge_state": {
+            "No": "Draft"
+          },
+          "marks": [],
+          "closes": [],
+          "size": {
+            "files": 2,
+            "added": 10,
+            "deleted": 0
+          },
+          "body": null,
+          "created": 1767603600,
+          "updated": 1767603600,
+          "edited": null,
+          "editor": null,
+          "link": "https://github.com/acme/widget/pull/23"
+        },
+        {
+          "no": 24,
+          "title": "Make it so, better",
+          "state": "Open",
+          "head": "tehas/issue-7",
+          "head_commit": "1818181818181818181818181818181818181818",
+          "base": "main",
+          "base_commit": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+          "author": {
+            "realm": "CodeHost",
+            "login": "mallory",
+            "id": "666",
+            "kind": "Person"
+          },
+          "from_fork": true,
+          "draft": false,
+          "merge_state": {
+            "No": "Conflict"
+          },
+          "marks": [],
+          "closes": [],
+          "size": {
+            "files": 1,
+            "added": 2,
+            "deleted": 0
+          },
+          "body": null,
+          "created": 1767690000,
+          "updated": 1767690000,
+          "edited": null,
+          "editor": null,
+          "link": "https://github.com/acme/widget/pull/24"
+        },
+        {
+          "no": 25,
+          "title": "An old idea",
+          "state": "Open",
+          "head": "old-idea",
+          "head_commit": "1919191919191919191919191919191919191919",
+          "base": "main",
+          "base_commit": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+          "author": null,
+          "from_fork": false,
+          "draft": false,
+          "merge_state": {
+            "No": "Behind"
+          },
+          "marks": [],
+          "closes": [],
+          "size": {
+            "files": 1,
+            "added": 2,
+            "deleted": 0
+          },
+          "body": null,
+          "created": 1767693600,
+          "updated": 1767693600,
+          "edited": null,
+          "editor": null,
+          "link": "https://github.com/acme/widget/pull/25"
+        },
+        {
+          "no": 26,
+          "title": "Tweak the docs",
+          "state": "Open",
+          "head": "docs-tweak",
+          "head_commit": "1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a",
+          "base": "main",
+          "base_commit": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+          "author": {
+            "realm": "CodeHost",
+            "login": "alice",
+            "id": "101",
+            "kind": "Person"
+          },
+          "from_fork": false,
+          "draft": false,
+          "merge_state": "Yes",
+          "marks": [],
+          "closes": [],
+          "size": {
+            "files": 1,
+            "added": 2,
+            "deleted": 0
+          },
+          "body": null,
+          "created": 1767700800,
+          "updated": 1767772800,
+          "edited": null,
+          "editor": null,
+          "link": "https://github.com/acme/widget/pull/26"
+        }
+      ]
+    }
+  },
+  {
+    "op": "CodeHost::changes",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/widget",
+    "fixture": "acme/widget's pull requests: #19 the factory's, closed, from tehas/issue-7; #20 the factory's, open from tehas/issue-7, marked refreshing, held by a rule, edited by the factory; #21 the factory's, merged by alice, closing #8 and acme/docs#3, edited by alice; #22 bob's, closed, from a fork, marked bug and with a label no mark can have; #23 the factory's, an open draft; #24 mallory's, open from a fork's tehas/issue-7, conflicting; #25 open by an account that is gone, behind its base; #26 alice's, open, clean. The factory's changes from tehas/issue-7 in every state, as the journal settles an open change: mallory's change from a branch of the same name is not ours.",
+    "filter": {
+      "states": "All",
+      "author": "Me",
+      "head": "tehas/issue-7",
+      "closing": [],
+      "merged_since": null,
+      "updated_since": null,
+      "numbers": [],
+      "bodies": false
+    },
+    "bound": 5,
+    "answer": {
+      "Ok": [
+        {
+          "no": 19,
+          "title": "Make it so (#7)",
+          "state": {
+            "Closed": {
+              "at": 1767268800
+            }
+          },
+          "head": "tehas/issue-7",
+          "head_commit": "1313131313131313131313131313131313131313",
+          "base": "main",
+          "base_commit": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+          "author": {
+            "realm": "CodeHost",
+            "login": "tehas-bot",
+            "id": "900",
+            "kind": "Bot"
+          },
+          "from_fork": false,
+          "draft": false,
+          "merge_state": "Unknown",
+          "marks": [],
+          "closes": [
+            {
+              "Here": 7
+            }
+          ],
+          "size": {
+            "files": 1,
+            "added": 2,
+            "deleted": 0
+          },
+          "body": null,
+          "created": 1767258000,
+          "updated": 1767268800,
+          "edited": null,
+          "editor": null,
+          "link": "https://github.com/acme/widget/pull/19"
+        },
+        {
+          "no": 20,
+          "title": "Make it so (#7)",
+          "state": "Open",
+          "head": "tehas/issue-7",
+          "head_commit": "1414141414141414141414141414141414141414",
+          "base": "main",
+          "base_commit": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+          "author": {
+            "realm": "CodeHost",
+            "login": "tehas-bot",
+            "id": "900",
+            "kind": "Bot"
+          },
+          "from_fork": false,
+          "draft": false,
+          "merge_state": {
+            "No": "Blocked"
+          },
+          "marks": [
+            {
+              "type": "State",
+              "value": "Refreshing"
+            }
+          ],
+          "closes": [
+            {
+              "Here": 7
+            }
+          ],
+          "size": {
+            "files": 3,
+            "added": 40,
+            "deleted": 2
+          },
+          "body": null,
+          "created": 1767344400,
+          "updated": 1767348000,
+          "edited": 1767346200,
+          "editor": {
+            "realm": "CodeHost",
+            "login": "tehas-bot",
+            "id": "900",
+            "kind": "Bot"
+          },
+          "link": "https://github.com/acme/widget/pull/20"
+        }
+      ]
+    }
+  },
+  {
+    "op": "CodeHost::changes",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/widget",
+    "fixture": "acme/widget's pull requests: #19 the factory's, closed, from tehas/issue-7; #20 the factory's, open from tehas/issue-7, marked refreshing, held by a rule, edited by the factory; #21 the factory's, merged by alice, closing #8 and acme/docs#3, edited by alice; #22 bob's, closed, from a fork, marked bug and with a label no mark can have; #23 the factory's, an open draft; #24 mallory's, open from a fork's tehas/issue-7, conflicting; #25 open by an account that is gone, behind its base; #26 alice's, open, clean. The factory's changes in every state.",
+    "filter": {
+      "states": "All",
+      "author": "Me",
+      "head": null,
+      "closing": [],
+      "merged_since": null,
+      "updated_since": null,
+      "numbers": [],
+      "bodies": false
+    },
+    "bound": 10,
+    "answer": {
+      "Ok": [
+        {
+          "no": 19,
+          "title": "Make it so (#7)",
+          "state": {
+            "Closed": {
+              "at": 1767268800
+            }
+          },
+          "head": "tehas/issue-7",
+          "head_commit": "1313131313131313131313131313131313131313",
+          "base": "main",
+          "base_commit": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+          "author": {
+            "realm": "CodeHost",
+            "login": "tehas-bot",
+            "id": "900",
+            "kind": "Bot"
+          },
+          "from_fork": false,
+          "draft": false,
+          "merge_state": "Unknown",
+          "marks": [],
+          "closes": [
+            {
+              "Here": 7
+            }
+          ],
+          "size": {
+            "files": 1,
+            "added": 2,
+            "deleted": 0
+          },
+          "body": null,
+          "created": 1767258000,
+          "updated": 1767268800,
+          "edited": null,
+          "editor": null,
+          "link": "https://github.com/acme/widget/pull/19"
+        },
+        {
+          "no": 20,
+          "title": "Make it so (#7)",
+          "state": "Open",
+          "head": "tehas/issue-7",
+          "head_commit": "1414141414141414141414141414141414141414",
+          "base": "main",
+          "base_commit": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+          "author": {
+            "realm": "CodeHost",
+            "login": "tehas-bot",
+            "id": "900",
+            "kind": "Bot"
+          },
+          "from_fork": false,
+          "draft": false,
+          "merge_state": {
+            "No": "Blocked"
+          },
+          "marks": [
+            {
+              "type": "State",
+              "value": "Refreshing"
+            }
+          ],
+          "closes": [
+            {
+              "Here": 7
+            }
+          ],
+          "size": {
+            "files": 3,
+            "added": 40,
+            "deleted": 2
+          },
+          "body": null,
+          "created": 1767344400,
+          "updated": 1767348000,
+          "edited": 1767346200,
+          "editor": {
+            "realm": "CodeHost",
+            "login": "tehas-bot",
+            "id": "900",
+            "kind": "Bot"
+          },
+          "link": "https://github.com/acme/widget/pull/20"
+        },
+        {
+          "no": 21,
+          "title": "Count the widgets (#8)",
+          "state": {
+            "Merged": {
+              "at": 1767452400,
+              "by": {
+                "realm": "CodeHost",
+                "login": "alice",
+                "id": "101",
+                "kind": "Person"
+              },
+              "commit": "c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1"
+            }
+          },
+          "head": "tehas/issue-8",
+          "head_commit": "1515151515151515151515151515151515151515",
+          "base": "main",
+          "base_commit": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+          "author": {
+            "realm": "CodeHost",
+            "login": "tehas-bot",
+            "id": "900",
+            "kind": "Bot"
+          },
+          "from_fork": false,
+          "draft": false,
+          "merge_state": "Unknown",
+          "marks": [],
+          "closes": [
+            {
+              "Here": 8
+            },
+            {
+              "Elsewhere": {
+                "project": "acme/docs",
+                "item": "3"
+              }
+            }
+          ],
+          "size": {
+            "files": 5,
+            "added": 120,
+            "deleted": 30
+          },
+          "body": null,
+          "created": 1767430800,
+          "updated": 1767452400,
+          "edited": 1767438000,
+          "editor": {
+            "realm": "CodeHost",
+            "login": "alice",
+            "id": "101",
+            "kind": "Person"
+          },
+          "link": "https://github.com/acme/widget/pull/21"
+        },
+        {
+          "no": 23,
+          "title": "Draft: the widget's colour (#9)",
+          "state": "Open",
+          "head": "tehas/issue-9",
+          "head_commit": "1717171717171717171717171717171717171717",
+          "base": "main",
+          "base_commit": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+          "author": {
+            "realm": "CodeHost",
+            "login": "tehas-bot",
+            "id": "900",
+            "kind": "Bot"
+          },
+          "from_fork": false,
+          "draft": true,
+          "merge_state": {
+            "No": "Draft"
+          },
+          "marks": [],
+          "closes": [],
+          "size": {
+            "files": 2,
+            "added": 10,
+            "deleted": 0
+          },
+          "body": null,
+          "created": 1767603600,
+          "updated": 1767603600,
+          "edited": null,
+          "editor": null,
+          "link": "https://github.com/acme/widget/pull/23"
+        }
+      ]
+    }
+  },
+  {
+    "op": "CodeHost::changes",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/widget",
+    "fixture": "acme/widget's pull requests: #19 the factory's, closed, from tehas/issue-7; #20 the factory's, open from tehas/issue-7, marked refreshing, held by a rule, edited by the factory; #21 the factory's, merged by alice, closing #8 and acme/docs#3, edited by alice; #22 bob's, closed, from a fork, marked bug and with a label no mark can have; #23 the factory's, an open draft; #24 mallory's, open from a fork's tehas/issue-7, conflicting; #25 open by an account that is gone, behind its base; #26 alice's, open, clean. The factory's changes in every state, past the bound.",
+    "filter": {
+      "states": "All",
+      "author": "Me",
+      "head": null,
+      "closing": [],
+      "merged_since": null,
+      "updated_since": null,
+      "numbers": [],
+      "bodies": false
+    },
+    "bound": 3,
+    "answer": {
+      "Err": {
+        "Unread": "Cut"
+      }
+    }
+  },
+  {
+    "op": "CodeHost::changes",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/widget",
+    "fixture": "acme/widget's pull requests: #19 the factory's, closed, from tehas/issue-7; #20 the factory's, open from tehas/issue-7, marked refreshing, held by a rule, edited by the factory; #21 the factory's, merged by alice, closing #8 and acme/docs#3, edited by alice; #22 bob's, closed, from a fork, marked bug and with a label no mark can have; #23 the factory's, an open draft; #24 mallory's, open from a fork's tehas/issue-7, conflicting; #25 open by an account that is gone, behind its base; #26 alice's, open, clean. Changes 21 and 22 alone.",
+    "filter": {
+      "states": "All",
+      "author": null,
+      "head": null,
+      "closing": [],
+      "merged_since": null,
+      "updated_since": null,
+      "numbers": [
+        21,
+        22
+      ],
+      "bodies": false
+    },
+    "bound": 10,
+    "answer": {
+      "Ok": [
+        {
+          "no": 21,
+          "title": "Count the widgets (#8)",
+          "state": {
+            "Merged": {
+              "at": 1767452400,
+              "by": {
+                "realm": "CodeHost",
+                "login": "alice",
+                "id": "101",
+                "kind": "Person"
+              },
+              "commit": "c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1"
+            }
+          },
+          "head": "tehas/issue-8",
+          "head_commit": "1515151515151515151515151515151515151515",
+          "base": "main",
+          "base_commit": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+          "author": {
+            "realm": "CodeHost",
+            "login": "tehas-bot",
+            "id": "900",
+            "kind": "Bot"
+          },
+          "from_fork": false,
+          "draft": false,
+          "merge_state": "Unknown",
+          "marks": [],
+          "closes": [
+            {
+              "Here": 8
+            },
+            {
+              "Elsewhere": {
+                "project": "acme/docs",
+                "item": "3"
+              }
+            }
+          ],
+          "size": {
+            "files": 5,
+            "added": 120,
+            "deleted": 30
+          },
+          "body": null,
+          "created": 1767430800,
+          "updated": 1767452400,
+          "edited": 1767438000,
+          "editor": {
+            "realm": "CodeHost",
+            "login": "alice",
+            "id": "101",
+            "kind": "Person"
+          },
+          "link": "https://github.com/acme/widget/pull/21"
+        },
+        {
+          "no": 22,
+          "title": "Fix a typo",
+          "state": {
+            "Closed": {
+              "at": 1767520800
+            }
+          },
+          "head": "fix-typo",
+          "head_commit": "1616161616161616161616161616161616161616",
+          "base": "main",
+          "base_commit": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+          "author": {
+            "realm": "CodeHost",
+            "login": "bob",
+            "id": "102",
+            "kind": "Person"
+          },
+          "from_fork": true,
+          "draft": false,
+          "merge_state": "Unknown",
+          "marks": [
+            {
+              "type": "Project",
+              "value": "bug"
+            }
+          ],
+          "closes": [],
+          "size": {
+            "files": 1,
+            "added": 2,
+            "deleted": 0
+          },
+          "body": null,
+          "created": 1767517200,
+          "updated": 1767520800,
+          "edited": null,
+          "editor": null,
+          "link": "https://github.com/acme/widget/pull/22"
+        }
+      ]
+    }
+  },
+  {
+    "op": "CodeHost::changes",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/widget",
+    "fixture": "acme/widget's pull requests: #19 the factory's, closed, from tehas/issue-7; #20 the factory's, open from tehas/issue-7, marked refreshing, held by a rule, edited by the factory; #21 the factory's, merged by alice, closing #8 and acme/docs#3, edited by alice; #22 bob's, closed, from a fork, marked bug and with a label no mark can have; #23 the factory's, an open draft; #24 mallory's, open from a fork's tehas/issue-7, conflicting; #25 open by an account that is gone, behind its base; #26 alice's, open, clean. The changes that close blueprint 8.",
+    "filter": {
+      "states": "All",
+      "author": null,
+      "head": null,
+      "closing": [
+        8
+      ],
+      "merged_since": null,
+      "updated_since": null,
+      "numbers": [],
+      "bodies": false
+    },
+    "bound": 10,
+    "answer": {
+      "Ok": [
+        {
+          "no": 21,
+          "title": "Count the widgets (#8)",
+          "state": {
+            "Merged": {
+              "at": 1767452400,
+              "by": {
+                "realm": "CodeHost",
+                "login": "alice",
+                "id": "101",
+                "kind": "Person"
+              },
+              "commit": "c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1"
+            }
+          },
+          "head": "tehas/issue-8",
+          "head_commit": "1515151515151515151515151515151515151515",
+          "base": "main",
+          "base_commit": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+          "author": {
+            "realm": "CodeHost",
+            "login": "tehas-bot",
+            "id": "900",
+            "kind": "Bot"
+          },
+          "from_fork": false,
+          "draft": false,
+          "merge_state": "Unknown",
+          "marks": [],
+          "closes": [
+            {
+              "Here": 8
+            },
+            {
+              "Elsewhere": {
+                "project": "acme/docs",
+                "item": "3"
+              }
+            }
+          ],
+          "size": {
+            "files": 5,
+            "added": 120,
+            "deleted": 30
+          },
+          "body": null,
+          "created": 1767430800,
+          "updated": 1767452400,
+          "edited": 1767438000,
+          "editor": {
+            "realm": "CodeHost",
+            "login": "alice",
+            "id": "101",
+            "kind": "Person"
+          },
+          "link": "https://github.com/acme/widget/pull/21"
+        }
+      ]
+    }
+  },
+  {
+    "op": "CodeHost::changes",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/widget",
+    "fixture": "acme/widget's pull requests: #19 the factory's, closed, from tehas/issue-7; #20 the factory's, open from tehas/issue-7, marked refreshing, held by a rule, edited by the factory; #21 the factory's, merged by alice, closing #8 and acme/docs#3, edited by alice; #22 bob's, closed, from a fork, marked bug and with a label no mark can have; #23 the factory's, an open draft; #24 mallory's, open from a fork's tehas/issue-7, conflicting; #25 open by an account that is gone, behind its base; #26 alice's, open, clean. The changes merged since 2026-01-03.",
+    "filter": {
+      "states": "All",
+      "author": null,
+      "head": null,
+      "closing": [],
+      "merged_since": 1767398400,
+      "updated_since": null,
+      "numbers": [],
+      "bodies": false
+    },
+    "bound": 10,
+    "answer": {
+      "Ok": [
+        {
+          "no": 21,
+          "title": "Count the widgets (#8)",
+          "state": {
+            "Merged": {
+              "at": 1767452400,
+              "by": {
+                "realm": "CodeHost",
+                "login": "alice",
+                "id": "101",
+                "kind": "Person"
+              },
+              "commit": "c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1"
+            }
+          },
+          "head": "tehas/issue-8",
+          "head_commit": "1515151515151515151515151515151515151515",
+          "base": "main",
+          "base_commit": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+          "author": {
+            "realm": "CodeHost",
+            "login": "tehas-bot",
+            "id": "900",
+            "kind": "Bot"
+          },
+          "from_fork": false,
+          "draft": false,
+          "merge_state": "Unknown",
+          "marks": [],
+          "closes": [
+            {
+              "Here": 8
+            },
+            {
+              "Elsewhere": {
+                "project": "acme/docs",
+                "item": "3"
+              }
+            }
+          ],
+          "size": {
+            "files": 5,
+            "added": 120,
+            "deleted": 30
+          },
+          "body": null,
+          "created": 1767430800,
+          "updated": 1767452400,
+          "edited": 1767438000,
+          "editor": {
+            "realm": "CodeHost",
+            "login": "alice",
+            "id": "101",
+            "kind": "Person"
+          },
+          "link": "https://github.com/acme/widget/pull/21"
+        }
+      ]
+    }
+  },
+  {
+    "op": "CodeHost::changes",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/widget",
+    "fixture": "acme/widget's pull requests: #19 the factory's, closed, from tehas/issue-7; #20 the factory's, open from tehas/issue-7, marked refreshing, held by a rule, edited by the factory; #21 the factory's, merged by alice, closing #8 and acme/docs#3, edited by alice; #22 bob's, closed, from a fork, marked bug and with a label no mark can have; #23 the factory's, an open draft; #24 mallory's, open from a fork's tehas/issue-7, conflicting; #25 open by an account that is gone, behind its base; #26 alice's, open, clean. The merged changes since 2026-01-04: none.",
+    "filter": {
+      "states": "Merged",
+      "author": null,
+      "head": null,
+      "closing": [],
+      "merged_since": 1767484800,
+      "updated_since": null,
+      "numbers": [],
+      "bodies": false
+    },
+    "bound": 10,
+    "answer": {
+      "Ok": []
+    }
+  },
+  {
+    "op": "CodeHost::changes",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/widget",
+    "fixture": "acme/widget's pull requests: #19 the factory's, closed, from tehas/issue-7; #20 the factory's, open from tehas/issue-7, marked refreshing, held by a rule, edited by the factory; #21 the factory's, merged by alice, closing #8 and acme/docs#3, edited by alice; #22 bob's, closed, from a fork, marked bug and with a label no mark can have; #23 the factory's, an open draft; #24 mallory's, open from a fork's tehas/issue-7, conflicting; #25 open by an account that is gone, behind its base; #26 alice's, open, clean. bob's changes, by his account's id.",
+    "filter": {
+      "states": "All",
+      "author": {
+        "Account": "102"
+      },
+      "head": null,
+      "closing": [],
+      "merged_since": null,
+      "updated_since": null,
+      "numbers": [],
+      "bodies": false
+    },
+    "bound": 10,
+    "answer": {
+      "Ok": [
+        {
+          "no": 22,
+          "title": "Fix a typo",
+          "state": {
+            "Closed": {
+              "at": 1767520800
+            }
+          },
+          "head": "fix-typo",
+          "head_commit": "1616161616161616161616161616161616161616",
+          "base": "main",
+          "base_commit": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+          "author": {
+            "realm": "CodeHost",
+            "login": "bob",
+            "id": "102",
+            "kind": "Person"
+          },
+          "from_fork": true,
+          "draft": false,
+          "merge_state": "Unknown",
+          "marks": [
+            {
+              "type": "Project",
+              "value": "bug"
+            }
+          ],
+          "closes": [],
+          "size": {
+            "files": 1,
+            "added": 2,
+            "deleted": 0
+          },
+          "body": null,
+          "created": 1767517200,
+          "updated": 1767520800,
+          "edited": null,
+          "editor": null,
+          "link": "https://github.com/acme/widget/pull/22"
+        }
+      ]
+    }
+  },
+  {
+    "op": "CodeHost::changes",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/widget",
+    "fixture": "acme/widget's pull requests: #19 the factory's, closed, from tehas/issue-7; #20 the factory's, open from tehas/issue-7, marked refreshing, held by a rule, edited by the factory; #21 the factory's, merged by alice, closing #8 and acme/docs#3, edited by alice; #22 bob's, closed, from a fork, marked bug and with a label no mark can have; #23 the factory's, an open draft; #24 mallory's, open from a fork's tehas/issue-7, conflicting; #25 open by an account that is gone, behind its base; #26 alice's, open, clean. The open changes updated since 2026-01-06T11:00.",
+    "filter": {
+      "states": "Open",
+      "author": null,
+      "head": null,
+      "closing": [],
+      "merged_since": null,
+      "updated_since": 1767697200,
+      "numbers": [],
+      "bodies": false
+    },
+    "bound": 10,
+    "answer": {
+      "Ok": [
+        {
+          "no": 26,
+          "title": "Tweak the docs",
+          "state": "Open",
+          "head": "docs-tweak",
+          "head_commit": "1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a",
+          "base": "main",
+          "base_commit": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+          "author": {
+            "realm": "CodeHost",
+            "login": "alice",
+            "id": "101",
+            "kind": "Person"
+          },
+          "from_fork": false,
+          "draft": false,
+          "merge_state": "Yes",
+          "marks": [],
+          "closes": [],
+          "size": {
+            "files": 1,
+            "added": 2,
+            "deleted": 0
+          },
+          "body": null,
+          "created": 1767700800,
+          "updated": 1767772800,
+          "edited": null,
+          "editor": null,
+          "link": "https://github.com/acme/widget/pull/26"
+        }
+      ]
+    }
+  },
+  {
+    "op": "CodeHost::changes",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/many",
+    "fixture": "acme/many holds 101 open changes, two pages of the site's: the factory opened the 100th, the last of the first page, and the 101st, alone on the second.",
+    "filter": {
+      "states": "All",
+      "author": "Me",
+      "head": null,
+      "closing": [],
+      "merged_since": null,
+      "updated_since": null,
+      "numbers": [],
+      "bodies": false
+    },
+    "bound": 2,
+    "answer": {
+      "Ok": [
+        {
+          "no": 100,
+          "title": "Topic 100",
+          "state": "Open",
+          "head": "topic-100",
+          "head_commit": "6464646464646464646464646464646464646464",
+          "base": "main",
+          "base_commit": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+          "author": {
+            "realm": "CodeHost",
+            "login": "tehas-bot",
+            "id": "900",
+            "kind": "Bot"
+          },
+          "from_fork": false,
+          "draft": false,
+          "merge_state": "Yes",
+          "marks": [],
+          "closes": [],
+          "size": {
+            "files": 1,
+            "added": 2,
+            "deleted": 0
+          },
+          "body": null,
+          "created": 1767285600,
+          "updated": 1767285600,
+          "edited": null,
+          "editor": null,
+          "link": "https://github.com/acme/many/pull/100"
+        },
+        {
+          "no": 101,
+          "title": "Topic 101",
+          "state": "Open",
+          "head": "topic-101",
+          "head_commit": "6565656565656565656565656565656565656565",
+          "base": "main",
+          "base_commit": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+          "author": {
+            "realm": "CodeHost",
+            "login": "tehas-bot",
+            "id": "900",
+            "kind": "Bot"
+          },
+          "from_fork": false,
+          "draft": false,
+          "merge_state": "Yes",
+          "marks": [],
+          "closes": [],
+          "size": {
+            "files": 1,
+            "added": 2,
+            "deleted": 0
+          },
+          "body": null,
+          "created": 1767286200,
+          "updated": 1767286200,
+          "edited": null,
+          "editor": null,
+          "link": "https://github.com/acme/many/pull/101"
+        }
+      ]
+    }
+  },
+  {
+    "op": "CodeHost::changes",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/looping",
+    "fixture": "The site's second page names the first page's cursor again.",
+    "filter": {
+      "states": "Open",
+      "author": null,
+      "head": null,
+      "closing": [],
+      "merged_since": null,
+      "updated_since": null,
+      "numbers": [],
+      "bodies": false
+    },
+    "bound": 10,
+    "answer": {
+      "Err": {
+        "Unread": "Inconsistent"
+      }
+    }
+  },
+  {
+    "op": "CodeHost::changes",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/short",
+    "fixture": "The site says it holds three changes and gives two.",
+    "filter": {
+      "states": "Open",
+      "author": null,
+      "head": null,
+      "closing": [],
+      "merged_since": null,
+      "updated_since": null,
+      "numbers": [],
+      "bodies": false
+    },
+    "bound": 10,
+    "answer": {
+      "Err": {
+        "Unread": "Inconsistent"
+      }
+    }
+  },
+  {
+    "op": "CodeHost::changes",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/forbidden",
+    "fixture": "The actor may not read acme/forbidden.",
+    "filter": {
+      "states": "Open",
+      "author": null,
+      "head": null,
+      "closing": [],
+      "merged_since": null,
+      "updated_since": null,
+      "numbers": [],
+      "bodies": false
+    },
+    "bound": 10,
+    "answer": {
+      "Err": "Forbidden"
+    }
+  },
+  {
+    "op": "CodeHost::changes",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/spent",
+    "fixture": "The site's answer to the query says the rate is limited.",
+    "filter": {
+      "states": "Open",
+      "author": null,
+      "head": null,
+      "closing": [],
+      "merged_since": null,
+      "updated_since": null,
+      "numbers": [],
+      "bodies": false
+    },
+    "bound": 10,
+    "answer": {
+      "Err": {
+        "Spent": {
+          "pool": "Priced",
+          "until": 1767225600
+        }
+      }
+    }
+  },
+  {
+    "op": "CodeHost::changes",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/down",
+    "fixture": "The site fails on its side.",
+    "filter": {
+      "states": "Open",
+      "author": null,
+      "head": null,
+      "closing": [],
+      "merged_since": null,
+      "updated_since": null,
+      "numbers": [],
+      "bodies": false
+    },
+    "bound": 10,
+    "answer": {
+      "Err": {
+        "Unavailable": {
+          "why": "Server",
+          "sent": "Maybe"
+        }
+      }
+    }
+  },
+  {
+    "op": "CodeHost::changes",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/slow",
+    "fixture": "The site does not answer within the time limit.",
+    "filter": {
+      "states": "Open",
+      "author": null,
+      "head": null,
+      "closing": [],
+      "merged_since": null,
+      "updated_since": null,
+      "numbers": [],
+      "bodies": false
+    },
+    "bound": 10,
+    "answer": {
+      "Err": {
+        "Unavailable": {
+          "why": "Timeout",
+          "sent": "Maybe"
+        }
+      }
+    }
+  },
+  {
+    "op": "CodeHost::changes",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/garbled",
+    "fixture": "The answer is cut off in transit.",
+    "filter": {
+      "states": "Open",
+      "author": null,
+      "head": null,
+      "closing": [],
+      "merged_since": null,
+      "updated_since": null,
+      "numbers": [],
+      "bodies": false
+    },
+    "bound": 10,
+    "answer": {
+      "Err": {
+        "Unread": "Malformed"
+      }
+    }
+  },
+  {
+    "op": "CodeHost::changes",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/twice",
+    "fixture": "The site says it holds three changes; its second page holds the last change of its first page again, and the third.",
+    "filter": {
+      "states": "Open",
+      "author": null,
+      "head": null,
+      "closing": [],
+      "merged_since": null,
+      "updated_since": null,
+      "numbers": [],
+      "bodies": false
+    },
+    "bound": 10,
+    "answer": {
+      "Err": {
+        "Unread": "Inconsistent"
+      }
+    }
+  },
+  {
+    "op": "CodeHost::changes",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/nameless",
+    "fixture": "The site gives a change with no number.",
+    "filter": {
+      "states": "Open",
+      "author": null,
+      "head": null,
+      "closing": [],
+      "merged_since": null,
+      "updated_since": null,
+      "numbers": [],
+      "bodies": false
+    },
+    "bound": 10,
+    "answer": {
+      "Err": {
+        "Unread": "Inconsistent"
+      }
+    }
+  },
+  {
+    "op": "CodeHost::changes",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/hollow",
+    "fixture": "The site's first page holds no change and says more follow.",
+    "filter": {
+      "states": "Open",
+      "author": null,
+      "head": null,
+      "closing": [],
+      "merged_since": null,
+      "updated_since": null,
+      "numbers": [],
+      "bodies": false
+    },
+    "bound": 10,
+    "answer": {
+      "Err": {
+        "Unread": "Inconsistent"
+      }
+    }
+  },
+  {
+    "op": "CodeHost::changes",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/labelled",
+    "fixture": "The one open change carries 101 labels, past one page of them.",
+    "filter": {
+      "states": "Open",
+      "author": null,
+      "head": null,
+      "closing": [],
+      "merged_since": null,
+      "updated_since": null,
+      "numbers": [],
+      "bodies": false
+    },
+    "bound": 10,
+    "answer": {
+      "Err": {
+        "Unread": "Cut"
+      }
+    }
+  },
+  {
+    "op": "CodeHost::changes",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/erring",
+    "fixture": "The site answers the list and an error in the same answer.",
+    "filter": {
+      "states": "Open",
+      "author": null,
+      "head": null,
+      "closing": [],
+      "merged_since": null,
+      "updated_since": null,
+      "numbers": [],
+      "bodies": false
+    },
+    "bound": 10,
+    "answer": {
+      "Err": {
+        "Unread": "Inconsistent"
+      }
+    }
+  },
+  {
+    "op": "CodeHost::changes",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/crowded",
+    "fixture": "acme/crowded's pull requests: #1 the factory's, open from tehas/issue-9; #2 mallory's, closing 101 issues, past one page of them; #3 mallory's, from a fork's branch -x, which git refuses as a branch; #4 mallory's, merged, with no merge commit given. The factory's changes in every state: none of the others is read whole.",
+    "filter": {
+      "states": "All",
+      "author": "Me",
+      "head": null,
+      "closing": [],
+      "merged_since": null,
+      "updated_since": null,
+      "numbers": [],
+      "bodies": false
+    },
+    "bound": 10,
+    "answer": {
+      "Ok": [
+        {
+          "no": 1,
+          "title": "Change 1",
+          "state": "Open",
+          "head": "tehas/issue-9",
+          "head_commit": "0101010101010101010101010101010101010101",
+          "base": "main",
+          "base_commit": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+          "author": {
+            "realm": "CodeHost",
+            "login": "tehas-bot",
+            "id": "900",
+            "kind": "Bot"
+          },
+          "from_fork": false,
+          "draft": false,
+          "merge_state": "Unknown",
+          "marks": [],
+          "closes": [],
+          "size": {
+            "files": 1,
+            "added": 2,
+            "deleted": 0
+          },
+          "body": null,
+          "created": 1767225660,
+          "updated": 1767225660,
+          "edited": null,
+          "editor": null,
+          "link": "https://github.com/acme/crowded/pull/1"
+        }
+      ]
+    }
+  },
+  {
+    "op": "CodeHost::changes",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/crowded",
+    "fixture": "acme/crowded's pull requests: #1 the factory's, open from tehas/issue-9; #2 mallory's, closing 101 issues, past one page of them; #3 mallory's, from a fork's branch -x, which git refuses as a branch; #4 mallory's, merged, with no merge commit given. Every change in every state: #2 is taken and cannot be read whole.",
+    "filter": {
+      "states": "All",
+      "author": null,
+      "head": null,
+      "closing": [],
+      "merged_since": null,
+      "updated_since": null,
+      "numbers": [],
+      "bodies": false
+    },
+    "bound": 10,
+    "answer": {
+      "Err": {
+        "Unread": "Cut"
+      }
+    }
+  },
+  {
+    "op": "CodeHost::changes",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/gone",
+    "fixture": "acme/gone is not there, or not visible to the actor.",
+    "filter": {
+      "states": "Open",
+      "author": null,
+      "head": null,
+      "closing": [],
+      "merged_since": null,
+      "updated_since": null,
+      "numbers": [],
+      "bodies": false
+    },
+    "bound": 10,
+    "answer": {
+      "Err": "NotFound"
+    }
+  },
+  {
+    "op": "CodeHost::changes",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/locked",
+    "fixture": "The actor may not read acme/locked's pull requests: the question answers an error, the list answers 403.",
+    "filter": {
+      "states": "Open",
+      "author": null,
+      "head": null,
+      "closing": [],
+      "merged_since": null,
+      "updated_since": null,
+      "numbers": [],
+      "bodies": false
+    },
+    "bound": 10,
+    "answer": {
+      "Err": "Forbidden"
+    }
+  },
+  {
+    "op": "CodeHost::changes",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/troubled",
+    "fixture": "The question answers an error while the project's pull requests can be read.",
+    "filter": {
+      "states": "Open",
+      "author": null,
+      "head": null,
+      "closing": [],
+      "merged_since": null,
+      "updated_since": null,
+      "numbers": [],
+      "bodies": false
+    },
+    "bound": 10,
+    "answer": {
+      "Err": {
+        "Unread": "Inconsistent"
+      }
+    }
+  }
+]

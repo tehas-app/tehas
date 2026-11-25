@@ -107,8 +107,8 @@ t_stub docker 'case "$1" in
   run)
     # The smoke run the build starts in the image it made is asked of bash,
     # and the answer that lets the tag move is a step that started. Every
-    # case of this file builds an image that passes: test/sandbox_build_test
-    # .sh is where a refusal of the smoke run is checked.
+    # case of this file builds an image that passes: a refusal of the smoke run
+    # is checked in test/sandbox_build_smoke_test.sh.
     # Its vipune check, the run with a cpuset, answers the quiet line.
     for a in "$@"; do [ "$a" != --cpuset-cpus ] || { echo quiet; exit 0; }; done
     for a in "$@"; do
@@ -123,13 +123,13 @@ t_stub docker 'case "$1" in
     done
     if [ -n "${CAPS:-}" ]; then echo "$CAPS"; else cat "$T_ROOT/test/fixtures/headless-c5ddc0a/capabilities.json"; fi ;;
 esac'
-# Six builds before this one, the oldest first, each its own image. The last
-# also carried the uid tag, which the build moves to the new image.
+# Six builds before this one, oldest first; the last also had the uid tag, which
+# the build moves. A build stages beside itself: the host's copy, not the tree's.
 setup() {
   : >"$T/containers"
   printf '%s\n' "uid$uid sha256:new" "uid$uid sha256:6" "261009-1000 sha256:1" "261010-1000 sha256:2" \
     "261011-1000 sha256:3" "261012-1000 sha256:4" "261013-1000 sha256:5" "261014-1000 sha256:6" >"$T/images"
-  rm -f "$T"/calls/* "$T/docker-build-recipe" "$T"/home/tehas/sandbox/sandbox-uid.Dockerfile*
+  rm -f "$T"/calls/* "$T/docker-build-recipe" "$T"/home/tehas/sandbox/sandbox-uid.Dockerfile* && install_host_toolchain
 }
 removed() { t_calls docker | awk '$1 == "rmi" { print $2 }' | LC_ALL=C sort | tr '\n' ' '; }
 # The docker calls but the build of the base, which test/sandbox_build_test.sh
@@ -138,7 +138,7 @@ docker_calls() { t_calls docker | grep -v -e '^build -f base.Dockerfile '; }
 
 t_case "after a build the tags of this build and the one before it stay, and older ones are removed"
 setup
-t_run "$build"
+t_run "\"$home/build.sh\""
 t_eq "$t_rc" 0
 t_eq "$(removed)" "tehas/pi-rukas:261009-1000 tehas/pi-rukas:261010-1000 tehas/pi-rukas:261011-1000 tehas/pi-rukas:261012-1000 tehas/pi-rukas:261013-1000 "
 t_contains "$t_out" "removed tehas/pi-rukas:261009-1000"
@@ -147,7 +147,7 @@ t_lacks "$(t_calls docker)" "rmi tehas/pi-rukas:uid"
 t_case "a tag whose image a container was made from is kept"
 setup
 printf '%s\n' "c1 sha256:2" "c2 sha256:new" >"$T/containers"
-t_run "$build"
+t_run "\"$home/build.sh\""
 t_eq "$t_rc" 0
 t_eq "$(removed)" "tehas/pi-rukas:261009-1000 tehas/pi-rukas:261011-1000 tehas/pi-rukas:261012-1000 tehas/pi-rukas:261013-1000 "
 t_contains "$t_out" "kept tehas/pi-rukas:261010-1000: a container or a uid tag uses it"
@@ -155,14 +155,14 @@ t_contains "$t_out" "kept tehas/pi-rukas:261010-1000: a container or a uid tag u
 t_case "a tag whose image another uid tag names is kept"
 setup
 echo "uid4242 sha256:1" >>"$T/images"
-t_run "$build"
+t_run "\"$home/build.sh\""
 t_eq "$t_rc" 0
 t_eq "$(removed)" "tehas/pi-rukas:261010-1000 tehas/pi-rukas:261011-1000 tehas/pi-rukas:261012-1000 tehas/pi-rukas:261013-1000 "
 
 t_case "a tag that cannot be removed is said, and the build still counts"
 setup
 T_ENV=(RMI_FAILS=tehas/pi-rukas:261010-1000)
-t_run "$build"
+t_run "\"$home/build.sh\""
 t_eq "$t_rc" 0
 t_contains "$t_out" "warning: could not remove tehas/pi-rukas:261010-1000"
 t_contains "$t_out" "removed tehas/pi-rukas:261009-1000"
@@ -171,7 +171,7 @@ T_ENV=()
 t_case "a docker that does not list its containers removes nothing"
 setup
 T_ENV=(PS_RC=1)
-t_run "$build"
+t_run "\"$home/build.sh\""
 t_eq "$t_rc" 0
 t_eq "$(removed)" ""
 t_contains "$t_out" "no old tehas/pi-rukas tag was removed"
@@ -180,7 +180,7 @@ T_ENV=()
 t_case "a build and the one before it remove nothing"
 setup
 printf '%s\n' "uid$uid sha256:2" "261011-1000 sha256:2" >"$T/images"
-t_run "$build"
+t_run "\"$home/build.sh\""
 t_eq "$t_rc" 0
 t_eq "$(removed)" ""
 

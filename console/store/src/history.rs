@@ -19,17 +19,16 @@ pub struct Call {
 }
 
 /// The `how` words a cycle row can hold: `cycles.how`, in the words of this
-/// release, in the order a refusal prints them. Each pair is one word and its
-/// old spelling: `fixer` is matched and never printed, and a filter of either
-/// word keeps the rows of both. #686: part 5 drops the alias of the pair.
-pub const HOWS: [(&str, &str); 7] = [
-    (crate::approval::MILLWRIGHT, crate::approval::FIXER),
-    ("label", "label"),
+/// release, in the order a refusal prints them.
+pub const HOWS: [(&str, &str); 8] = [
+    (crate::approval::MILLWRIGHT, crate::approval::MILLWRIGHT),
+    (crate::approval::APPROVED, crate::approval::APPROVED),
     ("refresh", "refresh"),
-    ("retry-tick", "retry-tick"),
     ("outage-retry", "outage-retry"),
     ("hand", "hand"),
     (crate::approval::HOST, crate::approval::HOST),
+    (crate::approval::ANSWER, crate::approval::ANSWER),
+    (crate::approval::REPLY, crate::approval::REPLY),
 ];
 
 pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
@@ -53,22 +52,6 @@ fn args(rest: &[String]) -> Result<Call, String> {
         return Err(a.usage("--how", "is not taken with --kind plan"));
     }
     Ok(Call { issue, kind, how })
-}
-
-/// The words a history read filters on. `HOWS` pairs each word with the
-/// spelling it replaces, so a filter of either word of the millwright pair
-/// keeps the rows of both: a row written before the rename still says `fixer`.
-/// A filter of any other word is the one word given, and a read with no filter
-/// is None.
-fn how_words(how: Option<&'static str>) -> Option<[Option<&'static str>; 2]> {
-    match how {
-        Some(w) if crate::approval::is_millwright(w) => Some([
-            Some(crate::approval::MILLWRIGHT),
-            Some(crate::approval::FIXER),
-        ]),
-        Some(w) => Some([Some(w), Some(w)]),
-        None => None,
-    }
 }
 
 const CYCLE_NAMES: [&str; 19] = [
@@ -131,7 +114,6 @@ fn cycles(c: &Connection, issue: Option<i64>, how: Option<&'static str>) -> Resu
     // NULL is the filter of no word: no row's `how` is NULL, and the empty
     // string is no word of `HOWS`, so neither stands for a filter it does not
     // mean.
-    let [first, second] = how_words(how).unwrap_or([None, None]);
     let mut q = c
         .prepare(
             // The mark of an easy merge lives on the approval of the start that ran
@@ -146,22 +128,25 @@ fn cycles(c: &Connection, issue: Option<i64>, how: Option<&'static str>) -> Resu
                (SELECT count(*) > 0 FROM approvals a
                   WHERE a.issue = h.issue AND a.started_how = 'refresh'
                     AND a.started_by = h.attempt AND a.started_easy = 1),
-               h.seq, h.step_number, h.step_total, h.round
+               h.seq, h.step_number, h.step_total, h.round, h.recorded_at, h.signalled,
+               h.reported
              FROM cycle_history h
              WHERE (?1 IS NULL OR h.issue = ?1)
-               AND (?2 IS NULL OR h.how = ?2 OR h.how = ?3)",
+               AND (?2 IS NULL OR h.how = ?2)",
         )
         .q()?;
     let rows = q
-        .query_map(rusqlite::params![issue, first, second], |r| {
+        .query_map(rusqlite::params![issue, how], |r| {
             let n = CYCLE_NAMES.len();
             let at: [Option<i64>; 3] = [r.get(n)?, r.get(n + 1)?, r.get(n + 2)?];
-            Ok((r.get(n - 1)?, row_json(r, &CYCLE_NAMES)?, at))
+            let written: (i64, Option<i64>, bool, bool) =
+                (r.get(3)?, r.get(n + 3)?, r.get(n + 4)?, r.get(n + 5)?);
+            Ok((r.get(n - 1)?, row_json(r, &CYCLE_NAMES)?, at, written))
         })
         .q()?;
     let mut out = Vec::new();
     for row in rows {
-        let (seq, mut p, at) = row.q()?;
+        let (seq, mut p, at, (ended, recorded, signalled, reported)) = row.q()?;
         p.insert(0, ("kind", j("cycle")));
         // Every cycle row answers `easy`, not only a refresh's, so a reader of
         // one kind reads one answer for every row.
@@ -170,6 +155,20 @@ fn cycles(c: &Connection, issue: Option<i64>, how: Option<&'static str>) -> Resu
             if let Some(v) = v {
                 p.push((k, j(v)));
             }
+        }
+        // When the line was written, where that is not its end (a lost
+        // cycle's line, written by the start or the poll after it), and
+        // whether a signal stopped the cycle, only when one did (T11.3).
+        if let Some(recorded) = recorded.filter(|r| *r != ended) {
+            p.push(("recorded_at", j(recorded)));
+        }
+        if signalled {
+            p.push(("signalled", j(true)));
+        }
+        // A line no report wrote (T11.9): its writer raises its end, not the
+        // cycle.
+        if !reported {
+            p.push(("reported", j(false)));
         }
         out.push((seq, obj(&p)));
     }

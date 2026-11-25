@@ -4,7 +4,7 @@
 
 mod common;
 
-use common::{count_lines, has, icomment, lacks, park_body, Run, World, MINIMAL};
+use common::{has, lacks, park_body, Run, World};
 use serde_json::{json, Value};
 use std::fs;
 use std::process::{Command, Stdio};
@@ -32,14 +32,6 @@ fn jqr(filter: &str, input: &str) -> String {
 /// #7's current park through `filter`, as a string.
 fn park_of(w: &World, filter: &str) -> String {
     jqr(&format!("{filter} | tostring"), &w.park_of().to_string())
-}
-
-fn iso(epoch: i64) -> String {
-    let out = Command::new("date")
-        .args(["-u", "-d", &format!("@{epoch}"), "+%Y-%m-%dT%H:%M:%SZ"])
-        .output()
-        .unwrap();
-    String::from_utf8_lossy(&out.stdout).trim().to_string()
 }
 
 // --- A relabelled start of an issue whose last cycle parked ------------------
@@ -98,6 +90,7 @@ fn holds(w: &World) -> Run {
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(started(w), "");
     lacks(&w.gh(), "issue edit 7");
+    assert_eq!(w.marks(Some(7)), 0);
     assert_eq!(park_of(w, "[.attempt, .retries, .question]"), "[1,0,4001]");
     r
 }
@@ -125,12 +118,12 @@ fn a_relabelled_start_on_the_body_its_last_cycle_parked_on_is_held_said_once_on_
     parked_words(&w);
     let r = holds(&w);
     has(&r.out, HOLD);
-    has(&w.gh(), "issue comment 7 --repo acme/widget --body Not started: the last cycle parked on `intent-park` and the issue text has not changed since. Edit the body, or tick Retry in the park comment.");
+    assert!(w.said_on(7, "Not started: the last cycle parked on `intent-park` and the issue text has not changed since. Edit the body, or reply to the park comment with the word of one of its retries."), "{:?}", w.said(7));
     assert_eq!(park_of(&w, ".told_at != null"), "true");
-    assert_eq!(count_lines(&w.gh(), "issue comment 7"), 1);
+    assert_eq!(w.notes(7), 1);
     assert_eq!(
         w.dispatch_state()["held"],
-        json!([{"clear": "edit the body, or tick Retry in the park comment", "issue": 7,
+        json!([{"clear": "edit the body, or reply to the park comment with the word of one of its retries", "issue": 7,
             "text": "its last cycle parked on `intent-park` and the body has not changed since",
             "why": "parked"}])
     );
@@ -143,65 +136,7 @@ fn and_the_next_poll_of_the_same_park_only_logs_with_no_comment() {
     holds(&w);
     let r = holds(&w);
     has(&r.out, HOLD);
-    lacks(&w.gh(), "issue comment 7");
-}
-
-#[test]
-fn the_millwrights_tehas_ready_on_the_body_its_last_cycle_parked_on_is_held_too() {
-    // A second develop timeout on unchanged text offers no retry box, and
-    // leaves the millwright's label as the one way round it.
-    let w = World::new("hold-millwright");
-    parked_words(&w);
-    w.instance(MINIMAL);
-    w.fx(
-        "events-7.json",
-        r#"[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"tehas-bot"},"created_at":"2026-10-02T00:00:00Z"}]"#,
-    );
-    let r = holds(&w);
-    has(&r.out, HOLD);
-}
-
-// --- The millwright's guidance comment lifts the hold -------------------------
-
-/// The park of #7 on "Words." with the millwright's tehas:ready of two minutes
-/// ago on it and alice's approval behind it, with these settings
-/// [TEHAS_WORK_FILES=1]. The label's epoch.
-fn millwright_parked(w: &World, settings: &[&str]) -> i64 {
-    parked_words(w);
-    let at = tehas_core::time::now() - 120;
-    let mut lines = MINIMAL.to_vec();
-    lines.extend_from_slice(if settings.is_empty() {
-        &["TEHAS_WORK_FILES=1"]
-    } else {
-        settings
-    });
-    w.instance(&lines);
-    ready_by(w, "tehas-bot", at);
-    at
-}
-
-/// tehas:ready on #7 by `login` at `at`.
-fn ready_by(w: &World, login: &str, at: i64) {
-    w.fx_json(
-        "events-7.json",
-        &json!([{"event": "labeled", "label": {"name": "tehas:ready"},
-            "actor": {"login": login}, "created_at": iso(at)}]),
-    );
-}
-
-/// A change note of the millwright.
-fn change_note(id: u64, login: &str, at: &str, text: &str) -> Value {
-    icomment(
-        id,
-        login,
-        at,
-        at,
-        &format!("<!-- tehas:millwright issue=7 action=change -->\n{text}"),
-    )
-}
-
-fn with_notes(w: &World, notes: &[Value]) {
-    park_comments(w, Value::Array(notes.to_vec()));
+    assert_eq!(w.notes(7), 0);
 }
 
 /// The park's question taken off #7, as leaving it parked does.
@@ -221,319 +156,6 @@ fn no_question(w: &World) {
 }
 
 #[test]
-fn the_millwrights_action_change_comment_of_the_ten_minutes_before_its_label_lifts_the_hold_and_the_record_says_so(
-) {
-    let w = World::new("hold-lift");
-    let at = millwright_parked(&w, &[]);
-    let note_at = iso(at - 180);
-    with_notes(
-        &w,
-        &[change_note(
-            81,
-            "tehas-bot",
-            &note_at,
-            "Do not run the whole suite.",
-        )],
-    );
-    let r = lifts(&w);
-    has(&r.out, "lift #7: its last cycle parked on intent-park and the body has not changed since, lifted on the fixer's guidance comment");
-    has(&r.out, "start #7 (labelled by the fixer by tehas-bot)");
-    assert_eq!(
-        w.approval("[.by, .how, .fixer_starts, .rests_on.by, .rests_on.how]", 7),
-        r#"["tehas-bot","fixer",1,"alice","label"]"#
-    );
-    // The lift is its own field: rests_on keeps naming alice's approval, and
-    // the note is the comment the cycle is given.
-    let lifted: Value = serde_json::from_str(&w.approval(".park_lifted", 7)).unwrap();
-    assert_eq!(
-        lifted,
-        json!({"source": "millwright:81", "by": "tehas-bot", "at": note_at,
-            "text": "<!-- tehas:millwright issue=7 action=change -->\nDo not run the whole suite."})
-    );
-    assert_eq!(
-        w.approval(".rests_on.body_sha256 == .body_sha256", 7),
-        "true"
-    );
-    assert_eq!(
-        w.approval(".retry_context", 7),
-        w.approval("[.park_lifted]", 7)
-    );
-}
-
-#[test]
-fn the_lift_needs_the_instance_to_give_a_cycle_the_note_images_lift_it_neither_setting_holds() {
-    let w = World::new("hold-lift-settings");
-    let at = millwright_parked(&w, &["TEHAS_WORK_IMAGES=1"]);
-    with_notes(
-        &w,
-        &[change_note(
-            81,
-            "tehas-bot",
-            &iso(at - 180),
-            "Look at the shot.",
-        )],
-    );
-    lifts(&w);
-    let at = millwright_parked(&w, &["TEHAS_WORK_IMAGES=0", "TEHAS_WORK_FILES=0"]);
-    with_notes(
-        &w,
-        &[change_note(
-            81,
-            "tehas-bot",
-            &iso(at - 180),
-            "Reaches no cycle.",
-        )],
-    );
-    let r = holds(&w);
-    has(&r.out, HOLD);
-    lacks(&r.out, "lift #7");
-    assert_eq!(park_of(&w, ".told_at != null"), "true");
-}
-
-#[test]
-fn an_action_retry_comment_of_the_same_window_lifts_nothing_that_ask_is_the_run_again() {
-    let w = World::new("hold-retry-note");
-    let at = millwright_parked(&w, &[]);
-    let t = iso(at - 180);
-    with_notes(
-        &w,
-        &[icomment(
-            81,
-            "tehas-bot",
-            &t,
-            &t,
-            "<!-- tehas:millwright issue=7 action=retry -->\nOnce more, the same.",
-        )],
-    );
-    let r = holds(&w);
-    has(&r.out, HOLD);
-    lacks(&r.out, "lift #7");
-}
-
-#[test]
-fn two_change_notes_of_the_window_the_newest_of_them_is_the_one_the_record_names() {
-    let w = World::new("hold-two-notes");
-    let at = millwright_parked(&w, &[]);
-    with_notes(
-        &w,
-        &[
-            change_note(
-                81,
-                "tehas-bot",
-                &iso(at - 300),
-                "First the tests, then the build.",
-            ),
-            change_note(82, "tehas-bot", &iso(at - 60), "Run only the named tests."),
-        ],
-    );
-    lifts(&w);
-    assert_eq!(w.approval(".park_lifted.source", 7), "millwright:82");
-}
-
-#[test]
-fn a_change_note_outside_the_ten_minutes_or_none_at_all_lifts_nothing() {
-    let w = World::new("hold-old-note");
-    let at = millwright_parked(&w, &[]);
-    with_notes(
-        &w,
-        &[change_note(
-            81,
-            "tehas-bot",
-            &iso(at - 900),
-            "Out of its time.",
-        )],
-    );
-    let r = holds(&w);
-    has(&r.out, HOLD);
-    lacks(&r.out, "lift #7");
-}
-
-#[test]
-fn a_change_note_of_another_account_or_one_saved_after_the_label_lifts_nothing() {
-    let w = World::new("hold-other-note");
-    let at = millwright_parked(&w, &[]);
-    with_notes(
-        &w,
-        &[
-            change_note(81, "mallory", &iso(at - 180), "Not the millwright."),
-            icomment(
-                82,
-                "tehas-bot",
-                &iso(at - 120),
-                &iso(at + 3600),
-                "<!-- tehas:millwright issue=7 action=change -->\nSaved after the label.",
-            ),
-        ],
-    );
-    let r = holds(&w);
-    has(&r.out, HOLD);
-}
-
-#[test]
-fn a_newer_action_retry_comment_takes_the_lift_away_the_note_on_record_would_ask_for_the_same_run()
-{
-    let w = World::new("hold-newer-retry");
-    let at = millwright_parked(&w, &[]);
-    let t = iso(at - 60);
-    with_notes(
-        &w,
-        &[
-            change_note(81, "tehas-bot", &iso(at - 180), "Guidance."),
-            icomment(
-                82,
-                "tehas-bot",
-                &t,
-                &t,
-                "<!-- tehas:millwright issue=7 action=retry -->\nOnce more.",
-            ),
-        ],
-    );
-    let r = holds(&w);
-    lacks(&r.out, "lift #7");
-}
-
-#[test]
-fn a_change_note_whose_marker_names_another_issue_lifts_nothing() {
-    let w = World::new("hold-note-other-issue");
-    let at = millwright_parked(&w, &[]);
-    let t = iso(at - 180);
-    with_notes(
-        &w,
-        &[icomment(
-            81,
-            "tehas-bot",
-            &t,
-            &t,
-            "<!-- tehas:millwright issue=77 action=change -->\nAnother issue.",
-        )],
-    );
-    let r = holds(&w);
-    lacks(&r.out, "lift #7");
-}
-
-#[test]
-fn a_parked_issue_that_asks_no_question_has_its_comments_read_and_the_note_lifts_the_hold() {
-    let w = World::new("hold-no-question");
-    let at = millwright_parked(&w, &[]);
-    with_notes(
-        &w,
-        &[change_note(81, "tehas-bot", &iso(at - 180), "Guidance.")],
-    );
-    no_question(&w);
-    lifts(&w);
-}
-
-#[test]
-fn a_change_note_saved_again_before_the_label_lifts_only_where_the_poll_can_see_its_own_account_did(
-) {
-    // GraphQL names the editor.
-    let w = World::new("hold-saved-again");
-    let at = millwright_parked(&w, &[]);
-    with_notes(
-        &w,
-        &[icomment(
-            81,
-            "tehas-bot",
-            &iso(at - 180),
-            &iso(at - 60),
-            "<!-- tehas:millwright issue=7 action=change -->\nSecond thoughts.",
-        )],
-    );
-    lifts(&w);
-}
-
-#[test]
-fn comments_that_cannot_be_read_keep_the_hold_untold_and_the_next_poll_asks_again() {
-    let w = World::new("hold-unreadable");
-    let at = millwright_parked(&w, &[]);
-    with_notes(
-        &w,
-        &[change_note(81, "tehas-bot", &iso(at - 180), "Guidance.")],
-    );
-    // With the question open that read ends the poll before any start is
-    // weighed.
-    no_question(&w);
-    for f in ["comments-7", "icomments-7"] {
-        fs::rename(
-            w.fx.join(format!("{f}.json")),
-            w.fx.join(format!("{f}.kept")),
-        )
-        .unwrap();
-    }
-    let r = holds(&w);
-    has(&r.out, "the fixer's comments could not be read");
-    lacks(&w.gh(), "Not started: the last cycle parked on");
-    assert_eq!(park_of(&w, ".told_at != null"), "false");
-    for f in ["comments-7", "icomments-7"] {
-        fs::rename(
-            w.fx.join(format!("{f}.kept")),
-            w.fx.join(format!("{f}.json")),
-        )
-        .unwrap();
-    }
-    lifts(&w);
-}
-
-#[test]
-fn a_persons_tehas_ready_on_the_parked_body_is_held_whatever_comments_exist() {
-    let w = World::new("hold-person");
-    let at = millwright_parked(&w, &[]);
-    with_notes(
-        &w,
-        &[change_note(81, "tehas-bot", &iso(at - 180), "Guidance.")],
-    );
-    // The lift belongs to the millwright's own label.
-    ready_by(&w, "alice", at);
-    let r = holds(&w);
-    has(&r.out, HOLD);
-    lacks(&r.out, "lift #7");
-}
-
-#[test]
-fn a_start_the_lift_let_through_counts_against_the_cap_of_retries_and_a_second_one_is_refused() {
-    let w = World::new("hold-lift-cap");
-    let at = millwright_parked(
-        &w,
-        &["TEHAS_WORK_FILES=1", "TEHAS_MILLWRIGHT_MAX_RETRIES=1"],
-    );
-    with_notes(
-        &w,
-        &[change_note(81, "tehas-bot", &iso(at - 180), "Guidance.")],
-    );
-    lifts(&w);
-    assert_eq!(w.approval(".fixer_starts", 7), "1");
-    // The cycle that lift started parks on the same body: the millwright's
-    // next label is at the cap, and a second note lifts nothing.
-    w.t_park(7, "intent-park", "4009", &[]);
-    w.clear_calls();
-    let r = w.poll();
-    assert_eq!(started(&w), "");
-    has(
-        &r.out,
-        "the fixer has started 1 cycles on it since alice approved it, the limit",
-    );
-    lacks(&r.out, "lift #7");
-}
-
-#[test]
-fn a_dry_run_of_the_lift_says_it_and_changes_nothing_and_the_park_keeps_its_hold() {
-    let w = World::new("hold-lift-dry");
-    let at = millwright_parked(&w, &[]);
-    with_notes(
-        &w,
-        &[change_note(81, "tehas-bot", &iso(at - 180), "Guidance.")],
-    );
-    w.clear_calls();
-    let r = w.dispatch(&["--dry-run"]);
-    assert_eq!(r.rc, 0, "{}", r.out);
-    has(&r.out, "lift #7: its last cycle parked on intent-park and the body has not changed since, lifted on the fixer's guidance comment");
-    has(&r.out, "would run a cycle for #7");
-    assert_eq!(started(&w), "");
-    lacks(&w.gh(), "issue edit 7");
-    assert_eq!(park_of(&w, "[.retries, .told_at] | tostring"), "[0,null]");
-}
-
-#[test]
 fn a_dry_run_of_the_hold_says_it_and_changes_nothing_not_its_park() {
     let w = World::new("hold-dry");
     parked_words(&w);
@@ -543,7 +165,8 @@ fn a_dry_run_of_the_hold_says_it_and_changes_nothing_not_its_park() {
     has(&r.out, HOLD);
     assert_eq!(started(&w), "");
     lacks(&w.gh(), "issue edit 7");
-    lacks(&w.gh(), "issue comment 7");
+    assert_eq!(w.marks(Some(7)), 0);
+    assert_eq!(w.notes(7), 0);
     lacks(&w.gh(), "api -X");
     assert_eq!(park_of(&w, ".told_at"), "null");
 }
@@ -559,7 +182,7 @@ fn a_hold_whose_tell_the_store_would_not_take_tells_it_again_on_the_next_poll_an
         "WARN: could not record the hold on the park of #7 (busy)",
     );
     holds(&w);
-    assert_eq!(count_lines(&w.gh(), "issue comment 7"), 1);
+    assert_eq!(w.notes(7), 1);
     assert_eq!(park_of(&w, ".told_at"), "null");
 }
 
@@ -644,7 +267,7 @@ fn the_retry_rests_on_who_started_the_parked_cycle_not_on_a_later_approval_of_an
     let w = World::new("hold-outage-bob");
     outage_parked(&w, "alice");
     // bob's approval, later and never used: the retry is alice's.
-    w.t_approve(7, "bob", "label", 1_767_300_000, &[]);
+    w.t_approve(7, "bob", "approved", 1_767_300_000, &[]);
     let r = w.poll();
     assert_eq!(started(&w), "7");
     has(&r.out, "start #7 (requeued by alice)");
@@ -784,6 +407,7 @@ fn a_busy_store_keeps_the_retry_after_an_outage_for_the_next_poll_nothing_starts
     );
     assert_eq!(park_of(&w, "[.retries, .automatic]"), "[0,true]");
     lacks(&w.gh(), "issue edit 7");
+    assert_eq!(w.marks(Some(7)), 0);
 }
 
 #[test]
@@ -809,7 +433,25 @@ fn a_retry_ticked_in_the_park_comment_lifts_the_hold_once_the_question_label_is_
     no_question(&w);
     w.comments(7, &park_body(&[" ", "x", " "]), "alice", json!([]));
     let r = lifts(&w);
-    has(&r.out, "lift #7: its last cycle parked on intent-park and the body has not changed since, lifted on the Retry alice ticked");
+    has(&r.out, "lift #7: its last cycle parked on intent-park and the body has not changed since, lifted on the retry alice answered");
+}
+
+#[test]
+fn a_retry_answered_through_tehas_answer_lifts_the_hold_as_a_tick_does() {
+    let w = World::new("hold-answered-lift");
+    parked_words(&w);
+    no_question(&w);
+    w.comments(7, &park_body(&[" ", " ", " "]), "", json!([]));
+    w.store_ok(&[
+        "answer-record",
+        "7",
+        "--by",
+        "alice",
+        "--choice",
+        "retry-text",
+    ]);
+    let r = lifts(&w);
+    has(&r.out, "lifted on the retry alice answered");
 }
 
 #[test]
@@ -830,5 +472,47 @@ fn a_park_whose_question_is_no_longer_on_record_does_not_hold_a_new_tehas_ready(
     parked_words(&w);
     w.store_ok(&["question-answered", "7", "--id", "4001", "--withdraw"]);
     let r = lifts(&w);
-    has(&r.out, "lift #7: its last cycle parked on intent-park and the body has not changed since, lifted as its park has no question on record to tick");
+    has(&r.out, "lift #7: its last cycle parked on intent-park and the body has not changed since, lifted as its park has no question on record to answer");
+}
+
+/// A develop timeout on the same text twice offered no retry and asked
+/// nothing: its park has no question on record, and a new `tehas:ready` on
+/// the unchanged text is held all the same, said once, until the body changes.
+#[test]
+fn a_park_that_offered_no_retry_holds_a_new_tehas_ready_until_the_body_changes() {
+    let w = World::new("hold-no-retry");
+    parked_again(&w, "Words.", "child-timeout:develop", "alice");
+    w.store_ok(&["question-answered", "7", "--id", "4001", "--withdraw"]);
+    w.clear_calls();
+    let r = w.poll();
+    assert_eq!(r.rc, 0, "{}", r.out);
+    assert_eq!(started(&w), "");
+    has(&r.out, "hold #7: its last cycle parked on child-timeout:develop twice on the same text, and the body has not changed since");
+    let edit = tehas_core::hold::HELD_PARKED_EDIT;
+    assert!(w.said_on(7, &format!("Not started: the last cycle ran out of time in develop twice on this text, so it offers no retry: {edit}.")), "{:?}", w.said(7));
+    assert_eq!(
+        w.dispatch_state()["held"],
+        json!([{"clear": edit, "issue": 7,
+            "text": "its last cycle parked on `child-timeout:develop` and the body has not changed since",
+            "why": "parked"}])
+    );
+    w.clear_calls();
+    w.poll();
+    assert_eq!(w.notes(7), 0);
+    assert_eq!(started(&w), "");
+    parked_body_changed(&w);
+}
+
+/// The same park once the body changed: the label starts the cycle.
+fn parked_body_changed(w: &World) {
+    issue_body(w, "Smaller words.");
+    let work = fs::read_to_string(w.fx.join("work-7.json")).unwrap();
+    w.fx(
+        "work-7.json",
+        &work.replace("\"Words.\"", "\"Smaller words.\""),
+    );
+    w.clear_calls();
+    let r = w.poll();
+    assert_eq!(r.rc, 0, "{}", r.out);
+    assert_eq!(started(w), "7");
 }

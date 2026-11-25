@@ -18,16 +18,7 @@
 //! (AGENTS.md, rule 2). A command's own rule sits between 2 and 4:
 //!
 //!   refresh   exit 64 before step 2 unless the arguments are --pr N
-//!   review    exit 0 after step 3 unless the review feature is on
 //!   preview   exit 78 after step 3 unless TEHAS_PREVIEWS is 1
-//!
-//! The review's gate sits below the check of the settings it needs because an
-//! agent runs here on a timer with no person in front of it: a weekly run says 78
-//! for an instance that could not review rather than exiting 0 on it.
-//!
-//! tehasbot outsource-proxy is `tehas-proxy` beside this program, by exec
-//! under the settings: the model proxy of outsource, which says itself
-//! whether the feature is on.
 //!
 //! tehasbot plugin is `tehas-plugin` beside this program, by exec under the
 //! settings: a plugin's run and the plugins' tick, which say themselves
@@ -45,7 +36,7 @@
 //! settings are missing or malformed.
 
 use crate::commands::{self, ANSWERED};
-use crate::{clean, disk, github, plan, preview, product, protolab, review, settings};
+use crate::{clean, disk, plan, preview, product, settings};
 use std::env;
 use std::ffi::OsString;
 use std::fs::File;
@@ -138,18 +129,6 @@ fn hand_to_dispatcher(libexec: &str, rest: &[String], log: Option<String>) -> u8
     let failed = refresh.exec();
     eprintln!("tehas refresh: {program} cannot run (run install.sh): {failed}");
     78
-}
-
-/// The GitHub App's token goes in this environment for the pass and its children.
-fn protolab_run() -> u8 {
-    match github::token_env() {
-        Ok(token) => env::set_var("GH_TOKEN", token),
-        Err(rc) => {
-            eprintln!("tehasbot protolab: no GitHub token for the app");
-            return rc;
-        }
-    }
-    protolab::main(&["run".to_string()])
 }
 
 /// A free figure that cannot be read changes nothing.
@@ -316,9 +295,6 @@ fn command(libexec: &str, uid: &str, bash: &str, words: &[String]) -> Result<u8,
         }
         ["tehasbot", "cycle"] => cycle_run(libexec, rest.first().ok_or(64u8)?),
         ["tehasbot", "plugin"] => beside(libexec, "tehas-plugin", "tehasbot plugin", rest),
-        ["tehasbot", "outsource-proxy"] if rest.is_empty() => {
-            beside(libexec, "tehas-proxy", "tehasbot outsource-proxy", &[])
-        }
         ["tehasbot", "plugin-gate"] if rest.is_empty() => {
             beside(libexec, "tehas-plugin-gate", "tehasbot plugin-gate", &[])
         }
@@ -326,19 +302,12 @@ fn command(libexec: &str, uid: &str, bash: &str, words: &[String]) -> Result<u8,
         ["tehasbot", "clean"] => clean_run(rest)?,
         ["tehasbot", "dispatch"] => dispatch(bash, libexec, rest)?,
         ["tehasbot", "preview"] => preview_run(rest, settle),
-        ["tehasbot", "protolab"] => protolab_run(),
         ["tehasbot", "refresh"] => {
             let home = var("TEHAS_HOME");
             let path = factory_path(Path::new(&home), env::var_os("PATH"));
             env::set_var("PATH", path);
             hand_to_dispatcher(libexec, rest, Some(format!("{home}/logs/refresh.log")))
         }
-        ["tehasbot", "wiki"] if rest.first().is_some_and(|w| w == "build") => {
-            crate::wiki::runner::main(&rest[1..])
-        }
-        ["tehasbot", "wiki"] => crate::wiki::publish(rest),
-        ["tehasbot", "review"] if !tehas_core::features::on("review") => 0,
-        ["tehasbot", "review"] => review::main(&["main".to_string()]),
         _ => commands::tehasbot(&words[1..]),
     })
 }

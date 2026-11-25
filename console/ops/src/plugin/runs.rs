@@ -302,6 +302,7 @@ mod tests {
             base: B.into(),
             issue: Some(7),
             trigger: Trigger::Cycle,
+            event: None,
         };
         ask_hook(&mut x, &home, "demo", &ask).unwrap();
         assert_eq!(
@@ -310,10 +311,10 @@ mod tests {
         );
         assert_eq!(read_hook(&home, "demo", 42), Some(ask.clone()));
         assert_eq!(read_hook(&home, "demo", 43), None);
-        let mut timer = ask.json();
+        let mut timer: serde_json::Value = serde_json::from_str(&ask.json()).unwrap();
         timer["trigger"] = json!("timer");
         assert_eq!(HookAsk::read(timer.to_string().as_bytes()), None);
-        let mut short = ask.json();
+        let mut short: serde_json::Value = serde_json::from_str(&ask.json()).unwrap();
         short["head"] = json!("89abcdef");
         assert_eq!(HookAsk::read(short.to_string().as_bytes()), None);
     }
@@ -329,6 +330,7 @@ mod tests {
             base: B.into(),
             issue: None,
             trigger: Trigger::Host,
+            event: None,
         };
         assert_eq!(claim_hook(&home, "demo", 42), None);
         ask_hook(&mut x, &home, "demo", &ask).unwrap();
@@ -364,8 +366,9 @@ mod tests {
         let home = TestDir::new("plugin-runs-unwritten");
         std::fs::create_dir_all(prepare::dir(&home, "demo")).unwrap();
         assert_eq!(status_unwritten(&home, "demo"), None);
-        std::fs::write(unwritten(&home, "demo"), "HTTP 403\nmore\n").unwrap();
-        assert_eq!(status_unwritten(&home, "demo"), Some("HTTP 403".into()));
+        let line = "GitHub refused the status on #42: this actor may not do this";
+        std::fs::write(unwritten(&home, "demo"), format!("{line}\nmore\n")).unwrap();
+        assert_eq!(status_unwritten(&home, "demo"), Some(line.into()));
         std::fs::write(unwritten(&home, "demo"), "\n").unwrap();
         assert_eq!(status_unwritten(&home, "demo"), None);
     }

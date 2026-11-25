@@ -1,0 +1,34 @@
+# The GitHub adapter: the forge's GitHub side and the ports' answers over
+# it. A library member of the workspace in ../Cargo.toml. Only a program's
+# wiring takes it, and the callers architecture.toml's adapter-wiring check
+# names.
+[package]
+name = "tehas-github"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89"
+publish = false
+
+[lib]
+name = "tehas_github"
+path = "src/lib.rs"
+
+[dependencies]
+# The typed readers of GitHub's answers.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# approval's text sums, for the relay's read before an edit.
+tehas-core = { path = "../core", features = ["mask"] }
+# tehas's one link rule of GitHub's store, for the attachments of a text
+# and of a blueprint. It stays in attach, written once, as a floor
+# (architecture.toml's adapter-link-rule): core, dispatch, items and cycle
+# read it too.
+attach = { path = "../attach" }
+tehas-ports = { path = "../ports" }
+
+
+[dev-dependencies]
+# A CommonMark and GFM parser, as an oracle in tests/markers_oracle.rs alone:
+# where GitHub shows a marker as code, in a quote or as hidden HTML. Never
+# reachable from the adapter's code.
+comrak = { version = "=0.28.0", default-features = false }

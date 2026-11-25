@@ -6,20 +6,21 @@
 //! `initialize` is answered, then the client's requests carry the header
 //! `MCP-Protocol-Version: 2025-11-25`. No session is kept for either.
 
+use crate::args::Args;
 use crate::git;
 use crate::keys::{Authenticated, Keys};
 use crate::logs::LogGuard;
 use crate::plugins;
 use crate::tickets;
 use crate::tools::{self, Dirs, Output, Scope, ToolError};
-use serde_json::{json, Value};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Number, Value};
 use std::path::Path;
 
 pub const MODERN: &str = "2026-07-28";
 pub const LEGACY: &str = "2025-11-25";
 pub const MAX_BODY: usize = 65536;
 const VERSION_KEY: &str = "io.modelcontextprotocol/protocolVersion";
-const SERVER_INFO_KEY: &str = "io.modelcontextprotocol/serverInfo";
 const LIST_TTL_MS: u64 = 30000;
 
 /// Sent in both handshakes: how to use the tools.
@@ -74,7 +75,12 @@ impl Response {
         }
     }
 
-    fn json(status: u16, v: Value) -> Self {
+    /// An answer of JSON. It goes through `serde_json::to_value`, so its keys
+    /// are sorted, whatever order its type declares them in.
+    fn json(status: u16, v: impl Serialize) -> Self {
+        let Ok(v) = serde_json::to_value(v) else {
+            return Response::empty(500);
+        };
         Response {
             status,
             headers: vec![("Content-Type".into(), "application/json".into())],
@@ -105,25 +111,188 @@ impl Refusal {
     }
 }
 
-fn error(status: u16, id: &Value, code: i64, message: &str, data: Option<Value>) -> Response {
-    let mut e = json!({"code": code, "message": message});
-    if let Some(d) = data {
-        e["data"] = d;
-    }
-    Response::json(status, json!({"jsonrpc": "2.0", "id": id, "error": e}))
+/// A request's id as JSON-RPC 2.0 has it: text, a number, or null. A request
+/// that has none, or whose body could not be read, is answered with null. An
+/// id of any other kind (an object, a list, true or false) is not one: the
+/// request is refused as an Invalid Request, answered with null.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+enum Id {
+    Text(String),
+    Number(Number),
+    Null,
 }
 
-fn mismatch(id: &Value, what: &str) -> Response {
+/// The reply to a request that is answered.
+#[derive(Serialize)]
+struct Success<'a, R> {
+    jsonrpc: &'static str,
+    id: &'a Id,
+    result: R,
+}
+
+/// The reply to a request that is refused.
+#[derive(Serialize)]
+struct Failure<'a> {
+    jsonrpc: &'static str,
+    id: &'a Id,
+    error: Problem<'a>,
+}
+
+#[derive(Serialize)]
+struct Problem<'a> {
+    code: i64,
+    message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    data: Option<Versions<'a>>,
+}
+
+/// What an unsupported version's refusal says: the versions the server
+/// speaks, and the one the request asked for.
+#[derive(Serialize)]
+struct Versions<'a> {
+    supported: [&'static str; 2],
+    requested: &'a str,
+}
+
+/// The server, as a handshake and a modern result's `_meta` name it.
+#[derive(Serialize)]
+struct ServerInfo<'a> {
+    name: &'static str,
+    version: &'a str,
+}
+
+/// A result, with the server named in its `_meta` when the request is modern.
+#[derive(Serialize)]
+struct Stamped<'a> {
+    #[serde(flatten)]
+    result: Outcome,
+    #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
+    meta: Option<Meta<'a>>,
+}
+
+#[derive(Serialize)]
+struct Meta<'a> {
+    #[serde(rename = "io.modelcontextprotocol/serverInfo")]
+    server_info: &'a ServerInfo<'a>,
+}
+
+/// What a request that `finish` answers gets as its result. Every kind is an
+/// object, so `Stamped` can flatten it and put `_meta` beside its keys.
+#[derive(Serialize)]
+#[serde(untagged)]
+enum Outcome {
+    Discovered(Discovered),
+    Listed(Listed),
+    Pong(Empty),
+    Complete(Complete),
+    Failed(ToolFailure),
+}
+
+/// The answer to `server/discover`.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Discovered {
+    result_type: &'static str,
+    supported_versions: [&'static str; 2],
+    capabilities: Capabilities,
+    instructions: &'static str,
+    ttl_ms: u64,
+    cache_scope: &'static str,
+}
+
+/// The answer to `tools/list`: the tools' entries, with their JSON Schemas.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Listed {
+    result_type: &'static str,
+    tools: Value,
+    ttl_ms: u64,
+    cache_scope: &'static str,
+}
+
+#[derive(Serialize)]
+struct Capabilities {
+    tools: Empty,
+}
+
+/// An object with no keys.
+#[derive(Serialize)]
+struct Empty {}
+
+/// A tool's answer: its JSON as text, and as structured content.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Complete {
+    result_type: &'static str,
+    content: Vec<Content>,
+    structured_content: Value,
+}
+
+#[derive(Serialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+enum Content {
+    Text { text: String },
+    Resource { resource: Resource },
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Resource {
+    uri: String,
+    mime_type: &'static str,
+    blob: String,
+}
+
+/// A tool's answer that names its problem, as text.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ToolFailure {
+    result_type: &'static str,
+    content: [Content; 1],
+    is_error: bool,
+}
+
+fn reply(status: u16, id: &Id, result: impl Serialize) -> Response {
+    Response::json(
+        status,
+        Success {
+            jsonrpc: "2.0",
+            id,
+            result,
+        },
+    )
+}
+
+fn error(status: u16, id: &Id, code: i64, message: &str, data: Option<Versions>) -> Response {
+    Response::json(
+        status,
+        Failure {
+            jsonrpc: "2.0",
+            id,
+            error: Problem {
+                code,
+                message: message.to_string(),
+                data,
+            },
+        },
+    )
+}
+
+fn mismatch(id: &Id, what: &str) -> Response {
     error(400, id, -32020, &format!("Header mismatch: {what}"), None)
 }
 
-fn unsupported(id: &Value, requested: &str) -> Response {
+fn unsupported(id: &Id, requested: &str) -> Response {
     error(
         400,
         id,
         -32022,
         "Unsupported protocol version",
-        Some(json!({"supported": [MODERN, LEGACY], "requested": requested})),
+        Some(Versions {
+            supported: [MODERN, LEGACY],
+            requested,
+        }),
     )
 }
 
@@ -184,9 +353,12 @@ pub fn answer_in(
         return Response::empty(413);
     }
     let Ok(msg) = serde_json::from_slice::<Value>(req.body) else {
-        return error(400, &Value::Null, -32700, "Parse error", None);
+        return error(400, &Id::Null, -32700, "Parse error", None);
     };
-    let id = msg.get("id").cloned().unwrap_or(Value::Null);
+    let id = match msg.get("id").map(Id::deserialize).transpose() {
+        Ok(id) => id.unwrap_or(Id::Null),
+        Err(_) => return error(400, &Id::Null, -32600, "Invalid Request", None),
+    };
     let method = match (&msg["jsonrpc"], &msg["method"]) {
         (Value::String(v), Value::String(m)) if v == "2.0" => m.as_str(),
         _ => return error(400, &id, -32600, "Invalid Request", None),
@@ -194,7 +366,7 @@ pub fn answer_in(
     let params = msg.get("params").cloned().unwrap_or(json!({}));
     let modern = match params["_meta"][VERSION_KEY].as_str() {
         Some(v) => {
-            if let Some(r) = check_modern(req, &id, v, method, &params) {
+            if let Some(r) = check_modern(req, &id, v, method, params["name"].as_str()) {
                 return r;
             }
             true
@@ -209,39 +381,53 @@ pub fn answer_in(
     if msg.get("id").is_none() {
         return Response::empty(202);
     }
-    let info = json!({"name": "tehas", "version": server_version});
+    let info = ServerInfo {
+        name: "tehas",
+        version: server_version,
+    };
+    // A tool's JSON, answered as text and as structured content.
+    let complete = |v: Value| {
+        Outcome::Complete(Complete {
+            result_type: "complete",
+            content: vec![Content::Text {
+                text: v.to_string(),
+            }],
+            structured_content: v,
+        })
+    };
     let mut hold = None;
     let mut tool = None;
     let result = match (method, modern) {
         ("server/discover", _) => {
             git::ask_fetch();
-            json!({
-            "resultType": "complete",
-            "supportedVersions": [MODERN, LEGACY],
-            "capabilities": {"tools": {}},
-            "instructions": INSTRUCTIONS,
-            "ttlMs": LIST_TTL_MS,
-            "cacheScope": "private",
+            Outcome::Discovered(Discovered {
+                result_type: "complete",
+                supported_versions: [MODERN, LEGACY],
+                capabilities: Capabilities { tools: Empty {} },
+                instructions: INSTRUCTIONS,
+                ttl_ms: LIST_TTL_MS,
+                cache_scope: "private",
             })
         }
         ("initialize", false) => {
             git::ask_fetch();
-            return Response::json(
+            return reply(
                 200,
-                json!({"jsonrpc": "2.0", "id": id, "result": {
+                &id,
+                json!({
                     "protocolVersion": LEGACY,
                     "capabilities": {"tools": {}},
                     "serverInfo": info,
                     "instructions": INSTRUCTIONS,
-                }}),
+                }),
             );
         }
-        ("ping", false) => json!({}),
-        ("tools/list", _) => json!({
-            "resultType": "complete",
-            "tools": with_plugins(tools::list_scoped(key.scope()), key.scope(), broker),
-            "ttlMs": LIST_TTL_MS,
-            "cacheScope": "private",
+        ("ping", false) => Outcome::Pong(Empty {}),
+        ("tools/list", _) => Outcome::Listed(Listed {
+            result_type: "complete",
+            tools: with_plugins(tools::list_scoped(key.scope()), key.scope(), broker),
+            ttl_ms: LIST_TTL_MS,
+            cache_scope: "private",
         }),
         ("tools/call", _) => {
             // One read of the body's name, shared by the dispatch and the log
@@ -252,39 +438,31 @@ pub fn answer_in(
             if let Some((t, socket)) = plugin_tool(name, key.scope(), broker) {
                 let args = params.get("arguments").cloned().unwrap_or(json!({}));
                 let result = match plugins::call(socket, &t, &args, key.fingerprint()) {
-                    Ok(v) => json!({
-                        "resultType": "complete",
-                        "content": [{"type": "text", "text": v.to_string()}],
-                        "structuredContent": v,
-                    }),
-                    Err(why) => tool_error(&why),
+                    Ok(v) => complete(v),
+                    Err(why) => Outcome::Failed(tool_error(&why)),
                 };
                 return finish(&id, result, modern, &info, None, Some(t.name));
             }
             if let Some(n) = name.and_then(|n| git::NAMES.into_iter().find(|g| *g == n)) {
                 if git::serves(key.scope(), n) {
-                    let args = params.get("arguments").cloned().unwrap_or(json!({}));
-                    let result = match git::call(n, &args) {
-                        Ok(v) => json!({
-                            "resultType": "complete",
-                            "content": [{"type": "text", "text": v.to_string()}],
-                            "structuredContent": v,
-                        }),
-                        Err(why) => tool_error(&why),
+                    let args = Args::from(params.get("arguments").cloned().unwrap_or(json!({})));
+                    let result = match git::call(n, &args)
+                        .and_then(|a| serde_json::to_value(a).map_err(|e| e.to_string()))
+                    {
+                        Ok(v) => complete(v),
+                        Err(why) => Outcome::Failed(tool_error(&why)),
                     };
                     return finish(&id, result, modern, &info, None, Some(n.to_string()));
                 }
             }
             if let Some(n) = name.and_then(|n| tickets::NAMES.into_iter().find(|t| *t == n)) {
                 if tickets::serves(key.scope(), n) {
-                    let args = params.get("arguments").cloned().unwrap_or(json!({}));
-                    let result = match tickets::call(&dirs.sessions, n, &args) {
-                        Ok(v) => json!({
-                            "resultType": "complete",
-                            "content": [{"type": "text", "text": v.to_string()}],
-                            "structuredContent": v,
-                        }),
-                        Err(why) => tool_error(&why),
+                    let args = Args::from(params.get("arguments").cloned().unwrap_or(json!({})));
+                    let result = match tickets::Call::read(n, &args)
+                        .and_then(|call| tickets::run(&dirs.sessions, &call))
+                    {
+                        Ok(v) => complete(v),
+                        Err(why) => Outcome::Failed(tool_error(&why)),
                     };
                     return finish(&id, result, modern, &info, None, Some(n.to_string()));
                 }
@@ -300,13 +478,14 @@ pub fn answer_in(
                 Some(_) => "?".into(),
                 None => "-".into(),
             });
-            let args = params.get("arguments").cloned().unwrap_or(json!({}));
+            let args = Args::from(params.get("arguments").cloned().unwrap_or(json!({})));
             // A tool outside the key's scope is answered exactly as one the
             // server does not have, so the scope is not probeable tool by
-            // tool. The arguments above are read for either answer.
+            // tool. Its arguments are not looked at: only a tool the key may
+            // call reads them, and refuses them before it runs.
             let asked = name.unwrap_or("");
             let called = if key.may_call(asked) {
-                tools::call_held(dirs, asked, &args)
+                tools::Call::read(asked, &args).and_then(|call| tools::call_held(dirs, &call))
             } else {
                 Err(ToolError::Unknown(asked.to_string()))
             };
@@ -314,23 +493,27 @@ pub fn answer_in(
                 hold = place;
                 out
             }) {
-                Ok(Output::Json(v)) => json!({
-                    "resultType": "complete",
-                    "content": [{"type": "text", "text": v.to_string()}],
-                    "structuredContent": v,
-                }),
+                Ok(Output::Json(v)) => complete(v),
                 Ok(Output::Blob {
                     meta,
                     uri,
                     mime,
                     blob,
-                }) => json!({
-                    "resultType": "complete",
-                    "content": [
-                        {"type": "text", "text": meta.to_string()},
-                        {"type": "resource", "resource": {"uri": uri, "mimeType": mime, "blob": blob}},
+                }) => Outcome::Complete(Complete {
+                    result_type: "complete",
+                    content: vec![
+                        Content::Text {
+                            text: meta.to_string(),
+                        },
+                        Content::Resource {
+                            resource: Resource {
+                                uri,
+                                mime_type: mime,
+                                blob,
+                            },
+                        },
                     ],
-                    "structuredContent": meta,
+                    structured_content: meta,
                 }),
                 Err(ToolError::Unknown(_)) => {
                     // The name the client sent is not echoed: the answer is
@@ -341,8 +524,10 @@ pub fn answer_in(
                     r.tool = tool.take();
                     return r;
                 }
-                Err(ToolError::BadArgs(why)) => tool_error(&why),
-                Err(ToolError::File { file, why }) => tool_error(&format!("{file} {why}")),
+                Err(ToolError::BadArgs(why)) => Outcome::Failed(tool_error(&why)),
+                Err(ToolError::File { file, why }) => {
+                    Outcome::Failed(tool_error(&format!("{file} {why}")))
+                }
             }
         }
         _ => return error(404, &id, -32601, "Method not found", None),
@@ -351,17 +536,18 @@ pub fn answer_in(
 }
 
 fn finish(
-    id: &Value,
-    mut result: Value,
+    id: &Id,
+    result: Outcome,
     modern: bool,
-    info: &Value,
+    info: &ServerInfo,
     hold: Option<LogGuard>,
     tool: Option<String>,
 ) -> Response {
-    if modern {
-        result["_meta"] = json!({SERVER_INFO_KEY: info});
-    }
-    let mut r = Response::json(200, json!({"jsonrpc": "2.0", "id": id, "result": result}));
+    let result = Stamped {
+        result,
+        meta: modern.then_some(Meta { server_info: info }),
+    };
+    let mut r = reply(200, id, result);
     r.hold = hold;
     r.tool = tool;
     r
@@ -376,7 +562,7 @@ fn with_plugins(own: Value, scope: Scope, broker: Option<&Path>) -> Value {
     all.extend(
         plugins::for_scope(scope, broker)
             .iter()
-            .map(plugins::Tool::entry),
+            .filter_map(|t| serde_json::to_value(t.entry()).ok()),
     );
     Value::Array(all)
 }
@@ -396,21 +582,23 @@ fn plugin_tool<'a>(
     Some((tool, broker?))
 }
 
-fn tool_error(text: &str) -> Value {
-    json!({
-        "resultType": "complete",
-        "content": [{"type": "text", "text": text}],
-        "isError": true,
-    })
+fn tool_error(text: &str) -> ToolFailure {
+    ToolFailure {
+        result_type: "complete",
+        content: [Content::Text {
+            text: text.to_string(),
+        }],
+        is_error: true,
+    }
 }
 
 /// The modern request's version and the headers that mirror its body.
 fn check_modern(
     req: &Request,
-    id: &Value,
+    id: &Id,
     version: &str,
     method: &str,
-    params: &Value,
+    name: Option<&str>,
 ) -> Option<Response> {
     match header(req, "MCP-Protocol-Version") {
         Some(h) if h == version => {}
@@ -424,8 +612,8 @@ fn check_modern(
         return Some(mismatch(id, "Mcp-Method does not match the body"));
     }
     if method == "tools/call" {
-        let name = header(req, "Mcp-Name").and_then(decode_name);
-        if name.is_none() || name.as_deref() != params["name"].as_str() {
+        let mirrored = header(req, "Mcp-Name").and_then(decode_name);
+        if mirrored.is_none() || mirrored.as_deref() != name {
             return Some(mismatch(id, "Mcp-Name does not match the body"));
         }
     }
@@ -434,7 +622,7 @@ fn check_modern(
 
 /// A legacy request is on 2025-11-25; only its initialize comes without the
 /// header, as that revision has it.
-fn check_legacy(req: &Request, id: &Value, method: &str) -> Option<Response> {
+fn check_legacy(req: &Request, id: &Id, method: &str) -> Option<Response> {
     match header(req, "MCP-Protocol-Version") {
         Some(LEGACY) => None,
         None if method == "initialize" => None,

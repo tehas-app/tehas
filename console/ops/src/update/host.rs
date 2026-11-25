@@ -1,7 +1,7 @@
 //! Four things install.sh asks of the console about the host it installs on.
 //!
 //!   console update keeps <home> <work dir>
-//!   console update units <env file>
+//!   console update units
 //!   console update featured
 //!   console update login <root> <login command> <marker>
 //!
@@ -16,10 +16,7 @@
 //! `units` prints, on one line, the units a first install enables: the dispatch
 //! timer and path, and each optional unit whose setting is on. A service its
 //! timer starts is left to the timer. It reads the settings from its
-//! environment. A first install runs before any shell has
-//! read env.sh, which exports TEHAS_ENERGY from the host's private file, so
-//! without it in the environment the last `TEHAS_ENERGY=` line of `<env file>`
-//! counts. Exit 0, 64 usage.
+//! environment. Exit 0, 64 usage.
 //!
 //! `featured` prints what the features that are on install besides the rest
 //! (core/src/features.rs), one per line: `program <name>` for a program of the
@@ -44,6 +41,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tehas_core::features;
+use tehas_core::home::Home;
 use tehas_core::settings::rules::switch;
 
 pub fn keeps_verb(given: &[String]) -> u8 {
@@ -89,7 +87,7 @@ fn kept(state: &Path) -> Vec<String> {
 }
 
 fn keeps(home: &Path, work: &str, lines: &mut Vec<Line>) -> u8 {
-    let state = home.join("state");
+    let state = Home::new(home).state_dir();
     for n in kept(&state) {
         let keep = state.join(format!("plan-{n}.json.keep"));
         let to = PathBuf::from(format!("{work}-plan-{n}.keep"));
@@ -157,13 +155,11 @@ fn move_dir(from: &Path, to: &Path) -> io::Result<()> {
 }
 
 pub fn units_verb(given: &[String]) -> u8 {
-    let [env_file] = given else {
-        tell("console update units: usage: <env file>");
+    if !given.is_empty() {
+        tell("console update units: usage: (no arguments)");
         return 64;
-    };
-    let file = fs::read(env_file).ok();
-    let file = file.as_deref().map(String::from_utf8_lossy);
-    say(&first_units(|name| env::var(name).ok(), file.as_deref()).join(" "));
+    }
+    say(&first_units(|name| env::var(name).ok()).join(" "));
     0
 }
 
@@ -190,27 +186,12 @@ fn featured(get: &dyn Fn(&str) -> String) -> Vec<String> {
         .collect()
 }
 
-/// The units a first install enables, from the settings `get` reads and the
-/// host's private env file.
-fn first_units(get: impl Fn(&str) -> Option<String>, env_file: Option<&str>) -> Vec<&'static str> {
-    let set = |name: &str| get(name).filter(|v| !v.is_empty());
+/// The units a first install enables, from the settings `get` reads.
+fn first_units(get: impl Fn(&str) -> Option<String>) -> Vec<&'static str> {
     let mut units = vec!["tehas-dispatch.timer", "tehas-dispatch.path"];
-    if set("TEHAS_DOMAIN").is_some() {
-        units.push("tehas-protolab.timer");
-    }
     let on = |name: &str| get(name).and_then(|v| switch(&v)) == Some(true);
     if on("TEHAS_PREVIEWS") {
         units.extend(["tehas-preview.timer", "tehas-preview-sweep.timer"]);
-    }
-    let energy = set("TEHAS_ENERGY").or_else(|| {
-        env_file?
-            .lines()
-            .filter_map(|l| l.strip_prefix("TEHAS_ENERGY="))
-            .next_back()
-            .map(str::to_string)
-    });
-    if energy.is_some_and(|e| switch(&e) == Some(true)) {
-        units.push("tehas-energy.service");
     }
     let featured = features::installs_in(&|name| get(name).unwrap_or_default()).1;
     units.extend(
@@ -306,7 +287,7 @@ mod tests {
             fs::read_to_string(format!("{to}/plan-sessions/one")).unwrap(),
             "kept"
         );
-        assert!(!home.join("state/plan-8.json.keep").exists());
+        assert!(!Home::new(&home).plan_file(8, ".keep").exists());
         assert_eq!(
             lines,
             [Line::Out(format!(
@@ -329,7 +310,7 @@ mod tests {
         holder.lock().unwrap();
         let mut lines = Vec::new();
         assert_eq!(keeps(&home, &work, &mut lines), 0);
-        let state = home.join("state");
+        let state = Home::new(&home).state_dir();
         assert_eq!(
             lines,
             [
@@ -373,57 +354,53 @@ mod tests {
         let mut lines = Vec::new();
         assert_eq!(keeps(&home, &work, &mut lines), 1);
         assert!(matches!(&lines[..], [Line::Err(l)] if l.starts_with("tehas: could not move ")));
-        assert!(home.join("state/plan-2.json.keep/a").exists());
+        assert!(Home::new(&home).plan_file(2, ".keep").join("a").exists());
     }
 
-    fn units(set: &[(&str, &str)], env_file: Option<&str>) -> String {
+    fn units(set: &[(&str, &str)]) -> String {
         let set: HashMap<String, String> = set
             .iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect();
-        first_units(|name| set.get(name).cloned(), env_file).join(" ")
+        first_units(|name| set.get(name).cloned()).join(" ")
     }
 
     #[test]
     fn a_first_install_enables_the_dispatcher_and_the_units_whose_setting_is_on() {
-        assert_eq!(units(&[], None), "tehas-dispatch.timer tehas-dispatch.path");
+        assert_eq!(units(&[]), "tehas-dispatch.timer tehas-dispatch.path");
         assert_eq!(
-            units(&[("TEHAS_DOMAIN", ""), ("TEHAS_PREVIEWS", "0")], None),
+            units(&[("TEHAS_DOMAIN", ""), ("TEHAS_PREVIEWS", "0")]),
             "tehas-dispatch.timer tehas-dispatch.path"
         );
         assert_eq!(
-            units(
-                &[
-                    ("TEHAS_DOMAIN", "example.org"),
-                    ("TEHAS_PREVIEWS", "on"),
-                    ("TEHAS_ENERGY", "on"),
-                ],
-                None
-            ),
-            "tehas-dispatch.timer tehas-dispatch.path tehas-protolab.timer \
-             tehas-preview.timer tehas-preview-sweep.timer tehas-energy.service"
+            units(&[
+                ("TEHAS_DOMAIN", "example.org"),
+                ("TEHAS_PREVIEWS", "on"),
+                // Energy use left core in 2.0: its unit is never enabled.
+                ("TEHAS_ENERGY", "on"),
+            ],),
+            "tehas-dispatch.timer tehas-dispatch.path \
+             tehas-preview.timer tehas-preview-sweep.timer"
         );
     }
 
     #[test]
-    fn a_first_install_enables_the_proxy_only_while_outsource_is_on() {
+    fn a_domain_enables_no_timer_of_its_own_and_the_previews_bring_theirs() {
         let base = "tehas-dispatch.timer tehas-dispatch.path";
-        assert_eq!(units(&[("TEHAS_OUTSOURCE", "on")], None), base);
-        let tested = |v| [("TEHAS_OUTSOURCE", v), ("TEHAS_TEST_FEATURES", "outsource")];
-        assert_eq!(units(&tested("off"), None), base);
+        assert_eq!(units(&[("TEHAS_DOMAIN", "example.org")]), base);
         assert_eq!(
-            units(&tested("on"), None),
-            format!("{base} tehas-outsource-proxy.service")
+            units(&[("TEHAS_DOMAIN", "example.org"), ("TEHAS_PREVIEWS", "on")]),
+            format!("{base} tehas-preview.timer tehas-preview-sweep.timer")
         );
     }
 
     #[test]
     fn a_first_install_enables_the_plugins_timer_and_gate_and_no_template() {
         let base = "tehas-dispatch.timer tehas-dispatch.path";
-        assert_eq!(units(&[("TEHAS_PLUGIN", "on")], None), base);
+        assert_eq!(units(&[("TEHAS_PLUGIN", "on")]), base);
         let on = [("TEHAS_PLUGIN", "on"), ("TEHAS_TEST_FEATURES", "plugins")];
         assert_eq!(
-            units(&on, None),
+            units(&on),
             format!("{base} tehas-plugin.timer tehas-plugin-gate.service")
         );
     }
@@ -439,56 +416,30 @@ mod tests {
                     .unwrap_or_default()
             }
         };
-        let idle = [
-            "idle tehas-review.timer",
-            "idle tehas-plugin.timer",
-            "idle tehas-wiki-status.timer",
-            "idle tehas-wiki.timer",
-        ];
+        let idle = ["idle tehas-plugin.timer"];
         assert_eq!(featured(&get(&[])), idle);
-        assert_eq!(featured(&get(&[("TEHAS_OUTSOURCE", "on")])), idle);
+        // Outsource was dropped in 2.0: its switch installs nothing.
         assert_eq!(
             featured(&get(&[
                 ("TEHAS_OUTSOURCE", "on"),
                 ("TEHAS_TEST_FEATURES", "outsource")
             ])),
-            [
-                "program tehas-proxy",
-                "program tehas-contractor",
-                "unit tehas-outsource-proxy.service",
-                "idle tehas-review.timer",
-                "idle tehas-plugin.timer",
-                "idle tehas-wiki-status.timer",
-                "idle tehas-wiki.timer"
-            ]
+            idle
         );
         // On, the timer is installed and no longer idle.
         assert_eq!(
             featured(&get(&[
-                ("TEHAS_REVIEW", "on"),
-                ("TEHAS_TEST_FEATURES", "review")
+                ("TEHAS_PLUGIN", "on"),
+                ("TEHAS_TEST_FEATURES", "plugins")
             ])),
             [
-                "unit tehas-review.service",
-                "unit tehas-review.timer",
-                "idle tehas-plugin.timer",
-                "idle tehas-wiki-status.timer",
-                "idle tehas-wiki.timer"
-            ]
-        );
-        assert_eq!(
-            featured(&get(&[
-                ("TEHAS_WIKI", "on"),
-                ("TEHAS_TEST_FEATURES", "wiki")
-            ])),
-            [
-                "unit tehas-wiki-status.service",
-                "unit tehas-wiki-status.timer",
-                "unit tehas-wiki.service",
-                "unit tehas-wiki.timer",
-                "unit tehas-wiki.path",
-                "idle tehas-review.timer",
-                "idle tehas-plugin.timer"
+                "program tehas-plugin",
+                "program tehas-plugin-gate",
+                "unit tehas-plugin@.service",
+                "unit tehas-plugin-hook@.service",
+                "unit tehas-plugin.service",
+                "unit tehas-plugin.timer",
+                "unit tehas-plugin-gate.service"
             ]
         );
         assert_eq!(featured_verb(&["x".to_string()]), 64);
@@ -513,62 +464,9 @@ mod tests {
                 installed.iter().all(|l| l.starts_with("idle ")),
                 "{value}: {installed:?}"
             );
-            let units = first_units(|name| Some(get(name)), None);
+            let units = first_units(|name| Some(get(name)));
             assert_eq!(units, ["tehas-dispatch.timer", "tehas-dispatch.path"]);
         }
-    }
-
-    #[test]
-    fn a_first_install_enables_the_review_timer_only_while_review_is_on_and_never_its_service() {
-        let base = "tehas-dispatch.timer tehas-dispatch.path";
-        assert_eq!(units(&[("TEHAS_REVIEW", "on")], None), base);
-        let tested = |v| [("TEHAS_REVIEW", v), ("TEHAS_TEST_FEATURES", "review")];
-        assert_eq!(units(&tested("off"), None), base);
-        assert_eq!(
-            units(&tested("on"), None),
-            format!("{base} tehas-review.timer")
-        );
-    }
-
-    #[test]
-    fn energy_comes_from_the_environment_else_the_last_line_of_the_env_file() {
-        let base = "tehas-dispatch.timer tehas-dispatch.path";
-        let energy = format!("{base} tehas-energy.service");
-        assert_eq!(units(&[("TEHAS_ENERGY", "off")], None), base);
-        assert_eq!(units(&[("TEHAS_ENERGY", "0")], None), base);
-        assert_eq!(units(&[("TEHAS_ENERGY", "1")], None), energy);
-        // A word that is not a switch is one the load refuses: no unit.
-        assert_eq!(units(&[("TEHAS_ENERGY", "mesh")], None), base);
-        assert_eq!(
-            units(
-                &[],
-                Some(
-                    "TEHAS_ENERGY=0
-"
-                )
-            ),
-            base
-        );
-        assert_eq!(
-            units(&[], Some("TEHAS_ENERGY=on\nTEHAS_ENERGY=off\n")),
-            base
-        );
-        assert_eq!(
-            units(&[], Some("TEHAS_ENERGY=off\nTEHAS_ENERGY=on\n")),
-            energy
-        );
-        assert_eq!(units(&[], Some("TEHAS_ENERGY=\n")), base);
-        assert_eq!(units(&[], Some("# TEHAS_ENERGY=on\nOTHER=1\n")), base);
-        // The environment wins over the file.
-        assert_eq!(
-            units(&[("TEHAS_ENERGY", "off")], Some("TEHAS_ENERGY=on\n")),
-            base
-        );
-        // An empty setting is no setting.
-        assert_eq!(
-            units(&[("TEHAS_ENERGY", "")], Some("TEHAS_ENERGY=on\n")),
-            energy
-        );
     }
 
     #[test]

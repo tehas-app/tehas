@@ -10,15 +10,15 @@
 #                   tehas-preview-<number> that `tehasbot preview` runs
 #   uat-main.       the preview of the default branch, a container named
 #                   tehas-preview-main that the same command runs
-#   lab-<number>.   that ticket's page in the Protolab and its files, as
-#                   `tehasbot protolab` wrote them
-#   anything else   the Protolab by path: the list at /, a ticket at /<number>/
+#   item-<number>.  that item's page and its files, as the item store wrote
+#                   them under $TEHAS_HOME/items
+#   anything else   the items by path: the list at /, an item at /<number>/
 #
 # This file is fixed. Nothing writes it when a preview comes or goes: Docker's
 # own name lookup finds the container, and a name it does not find is a 404.
 #
-# It is a server of its own, apart from the dashboard, because a prototype and
-# a preview are somebody's HTML and script.
+# It is a server of its own, apart from the dashboard, because an item's files
+# and a preview are somebody's HTML and script.
 {
     auto_https off
     admin off
@@ -34,10 +34,10 @@
     @noplugin header_regexp noplugin Host (?i)^plugin
     @preview header_regexp preview Host ^uat-([1-9][0-9]{0,8})\.
     @main header_regexp main Host ^uat-main\.
-    @ticket header_regexp ticket Host ^lab-([1-9][0-9]{0,8})\.
-    # A uat- or lab- name that is neither of the above: no number, or one
+    @item header_regexp item Host ^item-([1-9][0-9]{0,8})\.
+    # A uat- or item- name that is neither of the above: no number, or one
     # that starts with a zero.
-    @odd header_regexp odd Host ^(uat|lab)-
+    @odd header_regexp odd Host ^(uat|item)-
     @look path /fun/*.css /fun/*.ttf /fun/*.woff2 /fun/*.svg
     @kept path */.*
     @hostfiles path /files/*
@@ -45,7 +45,7 @@
 
     route {
         # The plugins' names first, and only to the gate: nothing of the
-        # previews or the Protolab answers them. The gate sets its own
+        # previews or the items answer them. The gate sets its own
         # headers; what it says about sniffing this server has already said.
         # The address is the gate's own, which router.compose.yaml always
         # gives; the loopback is for a caddy run without it.
@@ -75,11 +75,11 @@
             }
         }
 
-        # From here on, the Protolab.
+        # From here on, the items.
         header Referrer-Policy "no-referrer"
         # The pages are rebuilt in place; a browser asks again every time.
         header Cache-Control "no-cache"
-        # What `tehasbot protolab` keeps for itself: stamps, lists, work in progress.
+        # What the item store keeps for itself: stamps, lists, work in progress.
         respond @kept 404
         # The typeface, the style sheets and the sprites, shared with the
         # dashboard. Its page and its scripts stay there.
@@ -90,11 +90,11 @@
             uri strip_prefix /fun
             file_server
         }
-        # One ticket under a name of its own, so one prototype's script is a
+        # One item under a name of its own, so one item's script is a
         # stranger to another's.
-        handle @ticket {
-            root * /srv/protolab/{re.ticket.1}
-            # A ticket's files, served as they are. The sandbox gives each one
+        handle @item {
+            root * /srv/items/{re.item.1}
+            # An item's files, served as they are. The sandbox gives each one
             # an origin with nothing in it. Scripts may run.
             handle @hostfiles {
                 header Content-Security-Policy "sandbox allow-scripts allow-forms allow-modals allow-pointer-lock"
@@ -102,7 +102,7 @@
                 header Access-Control-Allow-Origin "*"
                 file_server
             }
-            # The page `tehasbot protolab` wrote: no script, nothing from elsewhere.
+            # The page the item store wrote: no script, nothing from elsewhere.
             handle {
                 header Content-Security-Policy "default-src 'none'; style-src 'self'; img-src 'self' data:; media-src 'self'; font-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'"
                 file_server
@@ -111,10 +111,10 @@
         handle @odd {
             respond "No such address." 404
         }
-        # The Protolab by path: its list, and every ticket for a host that has
+        # The items by path: their list, and every item for a host that has
         # no domain for the edge.
         handle {
-            root * /srv/protolab
+            root * /srv/items
             handle @pathfiles {
                 header Content-Security-Policy "sandbox allow-scripts allow-forms allow-modals allow-pointer-lock"
                 header Access-Control-Allow-Origin "*"

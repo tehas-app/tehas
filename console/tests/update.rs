@@ -14,9 +14,10 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Once;
 use std::time::{Duration, Instant};
+use tehas_core::home::{Home, State};
 use tehas_core::testing::write_exe;
 
-const UNITS: &str = "tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-mcp-fetch.socket tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-clean.timer";
+const UNITS: &str = "tehas-dispatch.timer tehas-mcp.service tehas-mcp-fetch.socket tehas-preview.timer tehas-preview-sweep.timer tehas-clean.timer";
 
 /// The pi-rukas head of the image cases: forty b.
 const IMAGE_HEAD: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -45,12 +46,12 @@ fn bounded(h: &Host) -> String {
 }
 
 fn lock(h: &Host) -> String {
-    s(&h.home.join("state/update.lock"))
+    s(&Home::new(&h.home).state(State::UpdateLock))
 }
 
 /// libexec/update run with the lock held by the snippet's shell.
 fn held_run(h: &Host, wait0: bool, args: &str) -> Run {
-    fs::create_dir_all(h.home.join("state")).unwrap();
+    fs::create_dir_all(Home::new(&h.home).state_dir()).unwrap();
     let no_wait = if wait0 {
         "export TEHAS_UPDATE_LOCK_WAIT=0; "
     } else {
@@ -148,8 +149,8 @@ fn real(name: &str) -> Host {
 
 /// The host of one install before this run.
 fn installed_once(h: &Host) {
-    fs::create_dir_all(h.home.join("state")).unwrap();
-    fs::write(h.home.join("state/first-install"), "").unwrap();
+    fs::create_dir_all(Home::new(&h.home).state_dir()).unwrap();
+    fs::write(Home::new(&h.home).state(State::FirstInstall), "").unwrap();
 }
 
 /// build.sh that records its arguments and exits `rc`, and a versions.env
@@ -425,7 +426,7 @@ fn check_takes_no_lock() {
 #[test]
 fn an_update_that_finds_the_lock_held_waits_for_it_and_runs_when_it_is_let_go() {
     let h = host("wait", 0, "");
-    fs::create_dir_all(h.home.join("state")).unwrap();
+    fs::create_dir_all(Home::new(&h.home).state_dir()).unwrap();
     let ready = h.join("holder-ready");
     let mut holder = Command::new("bash")
         .arg("-c")
@@ -484,7 +485,7 @@ fn the_wait_rule_takes_0_through_300_is_10_unset_and_refuses_anything_else_with_
 #[test]
 fn tehas_update_with_a_wait_it_cannot_read_stops_with_78_before_the_lock_and_the_install() {
     let h = host("wait-bad", 0, "");
-    fs::create_dir_all(h.home.join("state")).unwrap();
+    fs::create_dir_all(Home::new(&h.home).state_dir()).unwrap();
     let r = h.sh(&format!(
         "export TEHAS_UPDATE_LOCK_WAIT=soon; '{}'",
         h.update_script()
@@ -499,8 +500,11 @@ fn install_sh_is_handed_the_lock_the_update_holds() {
     let h = host(
         "handed",
         0,
-        r#"if [ "/dev/fd/${TEHAS_UPDATE_LOCK_FD:-x}" -ef "$TEHAS_HOME/state/update.lock" ] && flock -n "$TEHAS_UPDATE_LOCK_FD"; then echo "the lock is ours"; fi
-( exec 6>>"$TEHAS_HOME/state/update.lock"; flock -n 6 ) || echo "held against others""#,
+        &format!(
+            r#"if [ "/dev/fd/${{TEHAS_UPDATE_LOCK_FD:-x}}" -ef "$TEHAS_HOME/{lock}" ] && flock -n "$TEHAS_UPDATE_LOCK_FD"; then echo "the lock is ours"; fi
+( exec 6>>"$TEHAS_HOME/{lock}"; flock -n 6 ) || echo "held against others""#,
+            lock = State::UpdateLock.relative()
+        ),
     );
     let r = h.update(&[]);
     assert_eq!(r.rc, 0, "{}", r.out);
@@ -750,7 +754,7 @@ ps --quiet --filter label=com.docker.compose.project=tehas-edge"
         .collect();
     assert_eq!(
         h.calls("systemctl"),
-        format!("--user daemon-reload\n{active}--user restart tehas-dispatch.timer tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-clean.timer")
+        format!("--user daemon-reload\n{active}--user restart tehas-dispatch.timer tehas-preview.timer tehas-preview-sweep.timer tehas-clean.timer")
     );
     assert_eq!(h.owed_steps(), "");
 }
@@ -765,7 +769,7 @@ fn every_state_of_systemds_active_family_restarts_the_unit() {
         r#"if [ "$2" = is-active ]; then
   case "$3" in
     tehas-dispatch.timer) echo activating ;;
-    tehas-energy.service) echo reloading ;;
+    tehas-mcp.service) echo reloading ;;
     *) echo active ;;
   esac
 fi"#,
@@ -791,7 +795,7 @@ fi"#,
     assert_eq!(r.rc, 0, "{}", r.out);
     has(
         &r.out,
-        "systemd: restarted tehas-energy.service tehas-top.service tehas-mcp.service tehas-mcp-fetch.socket tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-clean.timer",
+        "systemd: restarted tehas-mcp.service tehas-mcp-fetch.socket tehas-preview.timer tehas-preview-sweep.timer tehas-clean.timer",
     );
     lacks(&r.out, "no unit was restarted");
 }
@@ -1164,16 +1168,40 @@ fn an_owed_units_line_from_before_a_unit_was_retired_restarts_the_current_units_
 ) {
     let h = host("retired", 1, "echo \"tehas is up to date\"");
     // What the version before wrote, the retired timers among them.
-    h.record(&["units tehas-dispatch.timer tehas-refresh.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-mcp-fetch.socket tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-review.timer tehas-clean.timer"]);
+    h.record(&["units tehas-dispatch.timer tehas-refresh.timer tehas-energy.service tehas-outsource-proxy.service tehas-top.service tehas-mcp.service tehas-mcp-fetch.socket tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-review.timer tehas-wiki-status.timer tehas-wiki.path tehas-clean.timer"]);
     let r = h.update(&[]);
     assert_eq!(r.rc, 0, "{}", r.out);
     has(
         &r.out,
-        "systemd: restarted tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-mcp-fetch.socket tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-review.timer tehas-clean.timer",
+        "systemd: restarted tehas-dispatch.timer tehas-mcp.service tehas-mcp-fetch.socket tehas-preview.timer tehas-preview-sweep.timer tehas-clean.timer",
     );
     lacks(&r.out, "tehas-refresh.timer");
     lacks(&r.out, "tehas-improve.timer");
+    lacks(&r.out, "tehas-review.timer");
+    lacks(&r.out, "tehas-energy.service");
+    lacks(&r.out, "tehas-top.service");
+    lacks(&r.out, "tehas-outsource-proxy.service");
+    lacks(&r.out, "tehas-wiki");
+    lacks(&r.out, "tehas-protolab.timer");
     assert_eq!(h.owed_steps(), "");
+}
+
+#[test]
+fn an_update_removes_the_directory_of_the_parked_protolab_and_a_check_leaves_it() {
+    let h = host("parked", 1, "echo \"tehas is up to date\"");
+    let pages = h.home.join("protolab/7");
+    fs::create_dir_all(&pages).unwrap();
+    fs::write(pages.join("index.html"), "<p>7</p>\n").unwrap();
+    let r = h.update(&["--check"]);
+    lacks(&r.out, "removed:");
+    assert!(pages.join("index.html").exists());
+    let r = h.update(&[]);
+    assert_eq!(r.rc, 0, "{}", r.out);
+    has(
+        &r.out,
+        &format!("removed: {}", h.home.join("protolab").display()),
+    );
+    assert!(!h.home.join("protolab").exists());
 }
 
 #[test]
@@ -1555,8 +1583,8 @@ fn a_step_that_fails_under_pending_stays_recorded_for_the_next_run() {
 #[test]
 fn pending_runs_the_steps_with_the_platform_held() {
     let h = host("pending-held", 0, "");
-    fs::create_dir_all(h.home.join("state")).unwrap();
-    fs::write(h.home.join("state/update-hold"), "").unwrap();
+    fs::create_dir_all(Home::new(&h.home).state_dir()).unwrap();
+    fs::write(Home::new(&h.home).state(State::UpdateHold), "").unwrap();
     h.record(&["docs --force-recreate"]);
     let r = h.update(&["--pending"]);
     assert_eq!(r.rc, 0, "{}", r.out);

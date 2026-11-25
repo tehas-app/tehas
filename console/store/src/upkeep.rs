@@ -27,7 +27,7 @@
 //!   upkeep [--dry-run]
 //!                     what tehasbot clean asks once an hour: the logs of
 //!                     cycles, planning turns, index runs and reviews
-//!                     older than 7 days, the seven long-lived logs rolled past
+//!                     older than 7 days, the six long-lived logs rolled past
 //!                     64 MiB, then backup and prune --days 90. A dry run
 //!                     names the logs and touches nothing
 
@@ -39,6 +39,7 @@ use std::fs::{self, File, TryLockError};
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
+use tehas_core::home::{Home, State, CYCLES};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Call {
@@ -216,7 +217,7 @@ fn copy(home: &Path, to: &str) -> Result<String, Fail> {
         ));
     }
     // Caddy serves live/: a copy there would be the store on the web.
-    let live = home.join("live");
+    let live = Home::new(home).live_dir();
     let served = |d: &Path| {
         d.canonicalize()
             .is_ok_and(|d| live.canonicalize().is_ok_and(|l| d.starts_with(l)))
@@ -245,7 +246,7 @@ fn copy(home: &Path, to: &str) -> Result<String, Fail> {
 }
 
 fn backup(home: &Path, show: bool, now: i64) -> Result<String, Fail> {
-    let dir = home.join("state").join("backup");
+    let dir = Home::new(home).state(State::Backups);
     // The store is checked as every verb checks it, before anything is made.
     verbs::look(home, |_| Ok(()))?;
     if show {
@@ -265,7 +266,7 @@ fn backup(home: &Path, show: bool, now: i64) -> Result<String, Fail> {
 /// Today's copy when there is none, and the old ones removed: whether it was
 /// made, what was removed and the newest.
 fn make_backup(home: &Path, now: i64) -> Result<(bool, Vec<String>, String), Fail> {
-    let dir = db::backup_dir(home, &home.join("state").join("backup")).map_err(crate::line)?;
+    let dir = db::backup_dir(home, &Home::new(home).state(State::Backups)).map_err(crate::line)?;
     let copy = dir.join(format!("tehas-{}.db", date(now)));
     let made = !copy.exists();
     if made {
@@ -348,10 +349,12 @@ pub fn history_delete(table: HistoryTable) -> String {
     // end path; a hand-repair that moves one of them apart is the case this is
     // here for.
     let cycle_last_before_window = last("cycle_history", true);
-    // `cycle-end --stopped` and `--refused` write no cycle_history row, so this
-    // is the only thing keeping the planning rows of those issues, and the only
-    // record of how their plan went. Dropping it as redundant would erase it.
-    let has_cycle_history = "issue IN (SELECT issue FROM cycle_history)";
+    // `cycle-end --stopped` and `--refused` wrote no cycle_history row before
+    // 2.0, and since write one no report wrote (`reported` 0), so this is the
+    // only thing keeping the planning rows of those issues, and the only record
+    // of how their plan went, as in 1.4.0. Dropping it as redundant would
+    // erase it.
+    let has_cycle_history = "issue IN (SELECT issue FROM cycle_history WHERE reported = 1)";
     format!(
         "DELETE FROM {name} WHERE
            issue IN (SELECT issue FROM cycles WHERE ended_at < ?1)
@@ -482,7 +485,7 @@ fn remove_held(file: &Path) -> Result<bool, String> {
 
 fn sweep_locks(home: &Path, days: i64, max: i64, dry_run: bool, now: i64) -> Result<String, Fail> {
     let before = now - days * DAY;
-    let issues = lock::listed(home).map_err(|e| (1, format!("unreadable state/cycles: {e}")))?;
+    let issues = lock::listed(home).map_err(|e| (1, format!("unreadable {CYCLES}: {e}")))?;
     let mut picked = Vec::new();
     verbs::look(home, |c| {
         for issue in issues {
@@ -509,7 +512,7 @@ fn sweep_locks(home: &Path, days: i64, max: i64, dry_run: bool, now: i64) -> Res
         match remove_held(file) {
             Ok(true) => removed.push(*issue),
             Ok(false) => kept.push(*issue),
-            Err(e) => return Err((1, format!("write state/cycles/{issue}.lock: {e}"))),
+            Err(e) => return Err((1, format!("write {CYCLES}/{issue}.lock: {e}"))),
         }
     }
     if !dry_run && !removed.is_empty() {
@@ -538,7 +541,7 @@ fn sweep_locks(home: &Path, days: i64, max: i64, dry_run: bool, now: i64) -> Res
 
 /// A lock that cannot be probed counts as held, as a failed `flock -n` did.
 fn locks_held(home: &Path) -> Result<String, Fail> {
-    let issues = lock::listed(home).map_err(|e| (1, format!("unreadable state/cycles: {e}")))?;
+    let issues = lock::listed(home).map_err(|e| (1, format!("unreadable {CYCLES}: {e}")))?;
     let held: Vec<String> = issues
         .into_iter()
         .filter(|n| lock::probe_file(&lock::path(home, *n)).is_some_and(|l| l.held_or_unknown()))
@@ -567,25 +570,24 @@ const LOG_DAYS: i64 = 7;
 const PRUNE_DAYS: i64 = 90;
 
 /// The size one long-lived log may reach before upkeep rolls it: one figure for
-/// the seven, no setting for it, and nothing fsynced. The cap is a function
+/// the six, no setting for it, and nothing fsynced. The cap is a function
 /// argument all the way to `upkeep`, and the parse of the verb gives this, so a
 /// test proves the same rule on a log it can write instead of 64 MiB.
 pub const LOG_CAP: u64 = 64 * 1024 * 1024;
 
 /// The long-lived logs the units and the shim append to, by the fixed names of
 /// the tools that read them: the dispatcher's, the refresh's, the review
-/// timer's, the previews', the protolab's and the cleaner's in `logs/`, and the
+/// timer's, the previews' and the cleaner's in `logs/`, and the
 /// `gh` shim's record of every GitHub write in `state/`. The names are written
 /// out, never found by a pattern, and a rotated `.1` is never a candidate for
 /// another cut.
-pub const LONG_LIVED: [&str; 7] = [
+pub const LONG_LIVED: [&str; 6] = [
     "logs/dispatch.log",
     "logs/review-timer.log",
     "logs/refresh.log",
     "logs/preview.log",
-    "logs/protolab.log",
     "logs/clean.log",
-    "state/github-writes.log",
+    State::GithubWrites.relative(),
 ];
 
 /// Whether one long-lived log is due to be cut: a plain file over `cap`, so

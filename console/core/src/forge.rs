@@ -1,436 +1,73 @@
-//! The forge: what tehas asks of the site its issues live on, in tehas terms.
+//! The runner of gh that the forge's callers share: [`GhRunner`], the trait
+//! a call to gh is made through, and [`Bounded`], the runner a host uses,
+//! with the reading of a failed call's reason that the runner makes.
 //!
-//! tehas keeps an issue's state in labels and decides from the account that
-//! put a label on (AGENTS.md rule 5). Today about twenty scripts ask GitHub
-//! for those things themselves, each in its own shape, so the forge is welded
-//! in. This module is the first half of the seam: one trait that says what
-//! tehas wants to know, and one adapter that answers it from GitHub's labels
-//! the way tehas-dispatch does today. Nothing calls it
-//! yet; the next issues of #800 give bash a command for it.
+//! The forge's terms and their GitHub side are the adapter's, `tehas-github`
+//! (`console/github/`), behind the tickets port of `tehas-ports`. What stays
+//! here is the runner, until its last caller outside the adapter moves
+//! behind the ports and it goes into the adapter (T4.11).
 //!
-//! The terms are tehas's, not GitHub's: an issue's labels, the newest event of
-//! one label, who applied the label that lets a cycle start, and putting a
-//! label on or taking it off. Whether a term is backed by a label or, later,
-//! by a native field, is the adapter's choice and never a caller's: a caller
-//! that named a GitHub field would still be writing GitHub. Whether a label is
-//! on the issue now is no term of its own, because a caller that asks for one
-//! and not the other is how a stale read decides something.
-//!
-//! Errors are values. A call that fails names the call and gh's reason for
-//! it, made from a fixed list of error words, so a caller can log why it
-//! stopped without holding gh's whole answer, which may name a host or carry a
-//! token. Nothing here panics.
-//!
-//! The adapter sits with the rules because the rules are only true of GitHub
-//! when read through the calls that adapter makes: the 404 that means a label
-//! was not there, the `--paginate` read that is the whole of an issue's
-//! events, the REST endpoints whose argv the poll's write log and the action
-//! journal of #800 record. Split the two and the copy of the rule and the copy
-//! of the call drift apart, which is what the module exists to stop. It is a
-//! library with no caller yet, and it holds no token: [`Bounded`] is the only
-//! thing here that starts a process, and it is what the next issues of #800
-//! build once, with the instance's shim as its program.
-//!
-//! The reading of gh's answers, and the rules that decide
-//! which of an issue's events answer a term, are in [`gh`].
-
-mod gh;
-
-/// The label whose latest application approves work. Named once in this
-/// module: the same string is still spelled out in `console/dispatch`,
-/// `console/cycle` and `host/labels.tsv`, and the issue that consolidates
-/// tehas's label names (#810) is where the other copies are gathered.
-const APPROVAL_LABEL: &str = "tehas:ready";
-
-/// The characters a GitHub label name is built from in tehas. The `:` of
-/// `tehas:ready` is one of them; a space, a `/` and a `?` are not.
-const LABEL_BYTES: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:-_";
-
-/// The longest label name GitHub accepts.
-const LABEL_MAX: usize = 50;
-
-/// Whether `label` is a name the writes will accept: non-empty, no longer than
-/// GitHub allows, and built from the characters in [`LABEL_BYTES`]. A write
-/// refuses a name outside it, because such a name is no label of tehas and the
-/// request that carries it is aimed at something else - a newline, or a `-f`,
-/// would otherwise reach gh as part of the one argument it is given. A read of
-/// a term takes any string, so a repository's own label can still be asked
-/// about. The path segment of a removal is encoded as well, so a name that did
-/// reach a write could not leave the labels of its issue.
-pub fn is_label(label: &str) -> bool {
-    !label.is_empty()
-        && label.len() <= LABEL_MAX
-        && label.as_bytes().iter().all(|b| LABEL_BYTES.contains(b))
-}
-
-/// `s` as jq's `@uri` writes it, so a value cannot carry a path or a query of
-/// its own past the segment it sits in. Applied to the one part of a path the
-/// site's own answer fills: the label of a removal. The dispatcher's
-/// `read::build::uri` holds the same function, for the branch of a query.
-fn uri(s: &str) -> String {
-    s.bytes()
-        .map(|b| match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                (b as char).to_string()
-            }
-            _ => format!("%{b:02X}"),
-        })
-        .collect()
-}
-
-/// A term the forge could not answer, as a value rather than a panic.
-///
-/// `call` names the term that stopped, so one line says what was attempted,
-/// and `why` is gh's reason, which the runner made from its fixed list of
-/// error words and never from the whole of its answer: a caller does not hold
-/// what may name a host or carry a token. An error is never an empty answer,
-/// and an empty answer is never an error.
-#[derive(Clone, Debug)]
-pub struct ForgeError {
-    pub call: String,
-    /// The reason, without its `": "`: the line adds that. Empty when the
-    /// call gave none.
-    pub why: String,
-}
-
-impl ForgeError {
-    /// The error of one call, with its reason, which may be empty. A reason is
-    /// what a runner said, not gh's own words: only the fixed list of them
-    /// belongs in a log line.
-    pub fn new(call: &str, why: impl Into<String>) -> ForgeError {
-        ForgeError {
-            call: call.to_string(),
-            why: why.into(),
-        }
-    }
-
-    /// The line a caller logs, shaped as the poll's lines are: what failed,
-    /// and gh's own words when it had any. The separator is made here, so a
-    /// reason never has to carry it.
-    pub fn line(&self) -> String {
-        if self.why.is_empty() {
-            format!("ERROR: {} failed", self.call)
-        } else {
-            format!("ERROR: {} failed: {}", self.call, self.why)
-        }
-    }
-}
-
-impl std::fmt::Display for ForgeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.line())
-    }
-}
-
-impl std::error::Error for ForgeError {}
-
-/// Who applied a label, and when, as the approval term answers. `None` is the
-/// answer of an issue nothing applied; an empty `actor` inside `Some` is a fact
-/// and not a refusal, the event's account being gone. The caller compares the
-/// account with the allowed list, which is what keeps authorisation where the
-/// site put it (AGENTS.md rule 5): a [`Forge`] answers who, and never whether
-/// that account may start anything.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Approval {
-    /// The account that applied the label, empty when the event names none.
-    pub actor: String,
-    /// The application's stamp, empty when it has none.
-    pub at: String,
-}
-
-/// The latest `labeled` or `unlabeled` event of one label: its kind, the
-/// account behind it, and its time. A field is empty when the event names
-/// none, which is what GitHub answers for an event whose actor is gone; an
-/// event with no time is read as older than any stamped one.
-///
-/// An empty `actor` is a fact, not a refusal: the caller compares it with the
-/// allowed list and decides that nobody was asked.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct LabelEvent {
-    /// `labeled` or `unlabeled`.
-    pub kind: String,
-    /// The account that changed the label, empty when the event names none.
-    pub actor: String,
-    /// The event's stamp, empty when it has none.
-    pub at: String,
-}
-
-/// What tehas asks of the site its issues live on. `issue` is the issue's
-/// number in every term.
-///
-/// The trait holds only what tehas needs and names no endpoint, no field and
-/// no JSON shape, because a second forge would be written against it. Every
-/// term answers a value or a [`ForgeError`]: a term that cannot be answered
-/// says so, and the caller decides what a missing answer is worth. An empty
-/// value is the site's answer and not a read that failed: the labels of an
-/// issue that carries none are the empty list, and an answer that could not
-/// be read is an error, which is what keeps a poll from clearing a label
-/// nobody took off.
-///
-/// Every term makes its own call. A caller that wants more than one answer of
-/// one issue holds what it read itself, as the poll caches a label's events:
-/// the adapter keeps nothing between terms.
-pub trait Forge {
-    /// The labels the issue carries, in the order the site gave them. The
-    /// empty list is the site's answer that it carries none; a read that could
-    /// not be read is an error.
-    fn labels(&mut self, issue: u64) -> Result<Vec<String>, ForgeError>;
-
-    /// The newest `labeled` or `unlabeled` event of `label`, or None when no
-    /// event of the issue carries it.
-    fn label_state(&mut self, issue: u64, label: &str) -> Result<Option<LabelEvent>, ForgeError>;
-
-    /// Every label event of the issue, for a rule of the caller's to read, as
-    /// [`crate::events::pause_holds`] reads them.
-    fn label_events(&mut self, issue: u64) -> Result<Vec<crate::events::Event>, ForgeError>;
-
-    /// The newest application of `label`, or None when no event applied it.
-    /// Only an application answers it: a label taken off does not, whoever
-    /// took it off, because authorisation is the account that applied the
-    /// label and a removal would hand the caller the remover to compare with
-    /// the allowed list.
-    fn applied_by(&mut self, issue: u64, label: &str) -> Result<Option<Approval>, ForgeError>;
-
-    /// Who applied the label that approves work most recently, and when, for
-    /// the caller to compare with the allowed list. None when nothing applied
-    /// it: the same answer as [`Forge::applied_by`] of [`APPROVAL_LABEL`].
-    fn approval(&mut self, issue: u64) -> Result<Option<Approval>, ForgeError> {
-        self.applied_by(issue, APPROVAL_LABEL)
-    }
-
-    /// The names of the issue types an issue of the repository can be given.
-    /// The empty list is an owner with none, as a personal account is.
-    fn issue_types(&mut self) -> Result<Vec<String>, ForgeError>;
-
-    /// Who gave the issue the type `name` it holds now, and when, for the
-    /// caller to compare with the allowed list, as [`Forge::applied_by`]
-    /// answers of a label. None when it holds another type or none. An empty
-    /// `actor` when the newest change of its type is not the one that set
-    /// `name`, or names nobody.
-    fn typed_by(&mut self, issue: u64, name: &str) -> Result<Option<Approval>, ForgeError>;
-
-    /// Put `label` on the issue. An issue that carries it already is the
-    /// state wanted, not an error. A name no label can have is refused
-    /// without a call.
-    fn add_label(&mut self, issue: u64, label: &str) -> Result<(), ForgeError>;
-
-    /// Take `label` off the issue. An issue that does not carry it is already
-    /// in the state wanted, not an error. A name no label can have is refused
-    /// without a call.
-    fn remove_label(&mut self, issue: u64, label: &str) -> Result<(), ForgeError>;
-}
-
-/// gh's answer to the events call as [`crate::events`] reads events. Why not
-/// when it says nothing of them: an empty answer included.
-pub fn read_events(out: &str) -> Result<Vec<crate::events::Event>, String> {
-    Ok(gh::parse_events(out)?.into_iter().map(public).collect())
-}
-
-fn public(e: gh::Event) -> crate::events::Event {
-    crate::events::Event {
-        event: e.event,
-        label: e.label,
-        actor: e.actor,
-        at: e.at,
-    }
-}
+//! A failed call's reason is made from a fixed list of error words, so a
+//! caller can log why it stopped without holding gh's whole answer, which
+//! may name a host or carry a token. Nothing here panics.
 
 /// gh, behind a trait of its own, so the adapter's rules are read without gh,
-/// a token or a network: a test hands [`GitHub`] a stub that answers from
+/// a token or a network: a test hands the adapter a stub that answers from
 /// fixtures, and what it decides is the rules alone.
 ///
 /// A runner runs one gh call and owns how: it holds the program, gives the
 /// call its bound, and reads its standard output. `args` are the words after
 /// the program, which the runner does not repeat, and the reason an adapter
-/// holds is the runner's own for the failure, not what gh printed.
-pub trait GhRunner {
+/// holds is the runner's own for the failure, not what gh printed. It is
+/// `Send`, so an adapter holding one can be a site's `Send` handle.
+pub trait GhRunner: Send {
     /// Run gh with these arguments: its standard output, or the reason it
     /// gave for failing.
     fn run(&mut self, args: &[&str]) -> Result<String, String>;
-}
 
-/// The GitHub adapter: every term backed by labels, as the bash backs them
-/// today. It holds the repository it asks and the runner that asks GitHub, and
-/// reads nothing else.
-///
-/// The ordering of the events that answers [`Forge::label_state`] and
-/// [`Forge::approval`] is the rules of [`gh`].
-pub struct GitHub {
-    /// `owner/name`, as `TEHAS_REPO` gives it.
-    pub repo: String,
-    runner: Box<dyn GhRunner>,
-}
-
-impl GitHub {
-    /// The adapter of one repository, asking GitHub through `runner`. The
-    /// runner is the one that runs gh: on a host, [`Bounded`], built with the
-    /// path of the instance's `host/shim/gh`, which takes the bot's token from
-    /// `TEHAS_GH_TOKEN`. Where the program, its token and the bound come from
-    /// is the caller's setting to read; the next issues of #800 say which
-    /// command owns it.
-    pub fn new(repo: impl Into<String>, runner: Box<dyn GhRunner>) -> GitHub {
-        GitHub {
-            repo: repo.into(),
-            runner,
-        }
+    /// Run gh with these arguments and `input` on its standard input, the way
+    /// a write sends a body: a body may be as long as 1 MiB, past what one
+    /// argument may hold (128 KiB), and an argument list is seen by every
+    /// process on the host. The reason a call failed never holds the input.
+    fn run_input(&mut self, args: &[&str], input: &str) -> Result<String, String> {
+        let _ = (args, input);
+        Err("this runner takes no input".to_string())
     }
 
-    /// Ask gh, keeping the reason a failed call gave. `args` are the words
-    /// after gh; `call` is what a [`ForgeError`] names.
-    fn call(&mut self, call: &str, args: &[&str]) -> Result<String, ForgeError> {
-        match self.runner.run(args) {
-            Ok(out) => Ok(out),
-            Err(why) => Err(ForgeError::new(call, why)),
-        }
-    }
-
-    /// The reason of a read that is no answer, named after the read the
-    /// adapter was making: the reader's words, kept whole.
-    fn reason_of(why: String) -> ForgeError {
-        ForgeError::new("the issue's label events", why)
-    }
-
-    /// The `-F` fields of a GraphQL question of the repository.
-    fn owner_name(&self) -> (String, String) {
-        let (o, n) = self.repo.split_once('/').unwrap_or((&self.repo, ""));
-        (format!("owner={o}"), format!("name={n}"))
-    }
-
-    /// The issue's label events, whole: the REST list with `--paginate`, so an
-    /// issue with more events than one page holds is read to the end rather
-    /// than to its first hundred.
-    fn events(&mut self, issue: u64) -> Result<Vec<gh::Event>, ForgeError> {
-        let path = format!("repos/{}/issues/{issue}/events?per_page=100", self.repo);
-        let out = self.call("the issue's label events", &["api", &path, "--paginate"])?;
-        gh::parse_events(&out).map_err(Self::reason_of)
+    /// [`GhRunner::run`], and on a failure what gh answered on its standard
+    /// output beside the reason. gh exits 1 on any GraphQL `errors` and
+    /// prints them there, so an adapter reads the error's type from
+    /// `answer`. A runner that keeps no answer gives None.
+    fn run_answer(&mut self, args: &[&str]) -> Result<String, Failed> {
+        self.run(args).map_err(|why| Failed { why, answer: None })
     }
 }
 
-impl Forge for GitHub {
-    fn labels(&mut self, issue: u64) -> Result<Vec<String>, ForgeError> {
-        let path = format!("repos/{}/issues/{issue}", self.repo);
-        let out = self.call("the issue", &["api", &path])?;
-        // The answer is read as an issue with labels or not at all: an answer
-        // that is no issue is not an issue with no labels.
-        gh::parse_labels(&out).ok_or_else(|| ForgeError::new("the issue", "no labels to read"))
-    }
+/// A gh call that failed: the runner's reason, and what gh answered.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Failed {
+    /// The runner's own words for the failure, as [`GhRunner::run`] gives
+    /// them: never gh's answer, which a host writes and may carry a token.
+    pub why: String,
+    /// gh's standard output when it exited non-zero and said something,
+    /// for the adapter alone to read the error's type from. Never logged.
+    pub answer: Option<String>,
+}
 
-    fn label_state(&mut self, issue: u64, label: &str) -> Result<Option<LabelEvent>, ForgeError> {
-        Ok(gh::latest_event(&self.events(issue)?, label))
-    }
+/// Given to every gh call of tehas's own, by `Bounded` and by `call`'s
+/// runners: the host's shim then sends a rate-limited write once, so a
+/// call's bound is not spent in the shim's minute of waiting. An operator's
+/// or a plugin's gh keeps the retry.
+pub const GH_NO_RETRY: (&str, &str) = ("TEHAS_GH_RETRY", "0");
 
-    fn label_events(&mut self, issue: u64) -> Result<Vec<crate::events::Event>, ForgeError> {
-        Ok(self.events(issue)?.into_iter().map(public).collect())
-    }
-
-    fn applied_by(&mut self, issue: u64, label: &str) -> Result<Option<Approval>, ForgeError> {
-        // The applications alone, as `tehas_label_actor` reads them: the
-        // newest event of the label is not the newest application of it, and
-        // a removal would hand the caller the remover's account to compare
-        // with the allowed list.
-        Ok(
-            gh::latest_applied(&self.events(issue)?, label).map(|e| Approval {
-                actor: e.actor,
-                at: e.at,
-            }),
-        )
-    }
-
-    fn issue_types(&mut self) -> Result<Vec<String>, ForgeError> {
-        let (owner, name) = self.owner_name();
-        let out = self.call(
-            "the issue types",
-            &[
-                "api",
-                "graphql",
-                "-F",
-                &owner,
-                "-F",
-                &name,
-                "-f",
-                &format!("query={}", gh::ISSUE_TYPES),
-            ],
-        )?;
-        gh::parse_issue_types(&out).map_err(|why| ForgeError::new("the issue types", why))
-    }
-
-    fn typed_by(&mut self, issue: u64, type_name: &str) -> Result<Option<Approval>, ForgeError> {
-        let (owner, name) = self.owner_name();
-        let out = self.call(
-            "the issue's type events",
-            &[
-                "api",
-                "graphql",
-                "-F",
-                &owner,
-                "-F",
-                &name,
-                "-F",
-                &format!("number={issue}"),
-                "-f",
-                &format!("query={}", gh::TYPE_EVENTS),
-            ],
-        )?;
-        gh::parse_typed_by(&out, type_name)
-            .map_err(|why| ForgeError::new("the issue's type events", why))
-    }
-
-    fn add_label(&mut self, issue: u64, label: &str) -> Result<(), ForgeError> {
-        if !is_label(label) {
-            return Err(ForgeError::new(
-                "the label change",
-                format!("{label} is no label name to write: an empty one, a long one, or one outside the characters tehas's labels use"),
-            ));
-        }
-        let path = format!("repos/{}/issues/{issue}/labels", self.repo);
-        // The label goes as a field of the request, as the bash and the
-        // dispatcher's writer send it, and not into a path: it keeps the
-        // characters of the site's answer. The REST list endpoint, not
-        // `gh issue edit`, which asks GitHub a
-        // GraphQL question a bot's token may not answer (issue #120): a mark
-        // made that way fails on every issue. Adding a label GitHub already
-        // has is not an error, so this is safe to ask twice. The whole call is
-        // one argv, so the words here are the words the poll's write log
-        // records, and the action journal of #800 records the same call.
-        self.call(
-            "the label change",
-            &[
-                "api",
-                "-X",
-                "POST",
-                &path,
-                "-f",
-                &format!("labels[]={label}"),
-            ],
-        )?;
-        Ok(())
-    }
-
-    fn remove_label(&mut self, issue: u64, label: &str) -> Result<(), ForgeError> {
-        if !is_label(label) {
-            return Err(ForgeError::new(
-                "the label change",
-                format!("{label} is no label name to write: an empty one, a long one, or one outside the characters tehas's labels use"),
-            ));
-        }
-        // The name is encoded, so a character outside the tehas vocabulary -
-        // a `:`, a space - stays inside the last segment of the path and moves
-        // the DELETE nowhere else. The repository is the settings' own
-        // `owner/name`, as every reader of it passes it to this path.
-        let path = format!("repos/{}/issues/{issue}/labels/{}", self.repo, uri(label));
-        // A label that is not on the issue answers 404, which is the state
-        // wanted: as the poll's refresh_unmark reads that answer, it is
-        // success. Any other failure is the caller's to log.
-        match self.call("the label change", &["api", "-X", "DELETE", &path]) {
-            Ok(_) => Ok(()),
-            Err(e) if gh::says_not_found(&e.why) => Ok(()),
-            Err(e) => Err(e),
-        }
-    }
+/// A program is gh by its file name: `gh` on the PATH, or a shim's path.
+pub fn is_gh(program: &str) -> bool {
+    std::path::Path::new(program).file_name() == Some("gh".as_ref())
 }
 
 /// The runner a host uses: gh of its own, in a bound of its own. One call per
-/// [`GhRunner::run`], so nothing one call set is seen by the next.
+/// [`GhRunner::run`], so nothing one call set is seen by the next. The call
+/// has the shim's retry off ([`GH_NO_RETRY`]).
 ///
 /// The child leads a process group and the group is signalled, as `timeout -k`
 /// does: TERM first, KILL after the grace, so gh and what it started are
@@ -448,6 +85,10 @@ pub struct Bounded {
     pub bound: std::time::Duration,
     /// The grace between TERM and KILL, as `timeout -k` gives.
     pub grace: std::time::Duration,
+    /// The token a poll took, handed to the shim as `TEHAS_GH_TOKEN`
+    /// (`call::gh_env`), so it asks for none of its own. Never in an
+    /// argument, a log or a reason.
+    pub token: Option<String>,
 }
 
 impl Bounded {
@@ -459,24 +100,80 @@ impl Bounded {
             program: program.into(),
             bound,
             grace: std::time::Duration::from_secs(5),
+            token: None,
         }
+    }
+}
+
+/// A runner that counts each call it makes into `count`, shared with the
+/// one who made it: a poll counts the calls of gh its writes made through
+/// the adapter as it counts its own.
+pub struct Counted {
+    pub inner: Box<dyn GhRunner>,
+    pub count: std::sync::Arc<std::sync::atomic::AtomicU64>,
+}
+
+impl Counted {
+    fn one(&self) {
+        self.count
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+impl GhRunner for Counted {
+    fn run(&mut self, args: &[&str]) -> Result<String, String> {
+        self.one();
+        self.inner.run(args)
+    }
+
+    fn run_input(&mut self, args: &[&str], input: &str) -> Result<String, String> {
+        self.one();
+        self.inner.run_input(args, input)
+    }
+
+    fn run_answer(&mut self, args: &[&str]) -> Result<String, Failed> {
+        self.one();
+        self.inner.run_answer(args)
     }
 }
 
 impl GhRunner for Bounded {
     fn run(&mut self, args: &[&str]) -> Result<String, String> {
-        use std::io::Read;
+        self.call(args, None).map_err(|f| f.why)
+    }
+
+    /// The input is written on a pipe of its own thread, closed once written,
+    /// within the call's bound: a gh that stops reading is stopped with it.
+    fn run_input(&mut self, args: &[&str], input: &str) -> Result<String, String> {
+        self.call(args, Some(input)).map_err(|f| f.why)
+    }
+
+    fn run_answer(&mut self, args: &[&str]) -> Result<String, Failed> {
+        self.call(args, None)
+    }
+}
+
+impl Bounded {
+    fn call(&mut self, args: &[&str], input: Option<&str>) -> Result<String, Failed> {
+        let failed = |why: String| Failed { why, answer: None };
+        use std::io::{Read, Write};
         use std::os::unix::process::CommandExt;
         use std::process::{Command, Stdio};
 
         let mut child = Command::new(&self.program)
             .args(args)
-            .stdin(Stdio::null())
+            .env(GH_NO_RETRY.0, GH_NO_RETRY.1)
+            .envs(crate::call::gh_env(self.token.as_deref()))
+            .stdin(if input.is_some() {
+                Stdio::piped()
+            } else {
+                Stdio::null()
+            })
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .process_group(0)
             .spawn()
-            .map_err(|e| format!("{} could not be run: {e}", self.program))?;
+            .map_err(|e| failed(format!("{} could not be run: {e}", self.program)))?;
         // Both pipes are drained on their own thread: a child that fills one
         // while the other is still being read would never get to its end.
         let out = child.stdout.take().expect("piped");
@@ -491,20 +188,35 @@ impl GhRunner for Bounded {
         };
         let reading = drain(Box::new(out));
         let reading_err = drain(Box::new(child.stderr.take().expect("piped")));
+        // Dropped once written, so gh sees the end of its input.
+        let writing = child.stdin.take().map(|mut pipe| {
+            let text = input.unwrap_or_default().to_string();
+            std::thread::spawn(move || {
+                let _ = pipe.write_all(text.as_bytes());
+            })
+        });
 
         let code = wait(&mut child, self.bound, self.grace);
+        if let Some(w) = writing {
+            let _ = w.join();
+        }
         let out = reading.join().ok().flatten();
         let err = reading_err.join().ok().flatten().unwrap_or_default();
         match code {
-            Some(0) => out.ok_or_else(|| format!("{}'s answer could not be read", self.program)),
+            Some(0) => {
+                out.ok_or_else(|| failed(format!("{}'s answer could not be read", self.program)))
+            }
             // Outlived its bound: a call that says nothing of itself still
             // says what stopped it.
-            None => Err(format!(
+            None => Err(failed(format!(
                 "{} ran out of its {}s bound",
                 self.program,
                 self.bound.as_secs()
-            )),
-            Some(c) => Err(gh::why(&err, Some(c))),
+            ))),
+            Some(c) => Err(Failed {
+                why: why(&err, Some(c)),
+                answer: out.filter(|o| !o.is_empty()),
+            }),
         }
     }
 }
@@ -520,7 +232,9 @@ fn wait(
     use std::os::unix::process::ExitStatusExt;
     use std::time::{Duration, Instant};
 
-    let group = child.id().to_string();
+    // Negative: kill signals the group whose id it is, the child and what it
+    // started, not the child alone.
+    let group = format!("-{}", child.id());
     let began = Instant::now();
     loop {
         match child.try_wait() {
@@ -557,5 +271,310 @@ fn signal(which: &str, group: &str) {
         .status();
 }
 
+/// Whether a failed removal answers that the label was not there, which is the
+/// state wanted. The status is read whole out of the digits `find_http`
+/// located, never as "404" anywhere in the text: a gateway error whose body
+/// happens to carry those three digits is no removal. gh's own words
+/// `Not Found` count only as the whole reason, never inside one that says
+/// something else: a gh that could not start, or a proxy whose host was not
+/// found, left the label where it was.
+pub fn says_not_found(why: &str) -> bool {
+    let w = why.to_ascii_lowercase();
+    if w.strip_prefix(": ").unwrap_or(&w).trim() == "not found" {
+        return true;
+    }
+    find_http(&w).is_some_and(|i| &w.as_bytes()[i + 5..i + 8] == b"404")
+}
+
+/// What a failed gh call's answer says of its error: ": " and the first of a
+/// fixed list of words in what gh printed, else the exit status. The list is
+/// the one the bash dispatcher's `gh_json` grepped and the dispatcher's
+/// `gh_why` holds, so a caller logs the reason the poll logs. Only these words, or a
+/// status: the rest of gh's answer is written by a host and may name one, or
+/// carry a token.
+pub fn why(err: &str, code: Option<i32>) -> String {
+    // Longest first where two could match the same word, so a secondary limit
+    // is not reported as a plain one where they start alike.
+    const WORDS: [&str; 8] = [
+        "secondary rate limit",
+        "unexpected EOF",
+        "connection reset",
+        "connection refused",
+        "rate limit",
+        "timed out",
+        "timeout",
+        "no such host",
+    ];
+    for line in err.lines() {
+        let low = line.to_ascii_lowercase();
+        // The first line that says anything is the one quoted, and within it
+        // the LEFTMOST word of the list, as grep -oE and the dispatcher's
+        // regex answer: the first entry of the list would report "rate limit"
+        // for a line whose only match is a secondary limit later on. Only
+        // these words, so the rest of gh's answer - a host's address, a token
+        // - stays out. The text is cut from `low`, the string that was
+        // searched, so the byte offsets of `find` are its own.
+        if let Some((i, w)) = WORDS
+            .iter()
+            .filter_map(|w| low.find(w).map(|i| (i, *w)))
+            .min_by_key(|(i, w)| (*i, std::cmp::Reverse(w.len())))
+        {
+            return format!(": {}", &low[i..i + w.len()]);
+        }
+        // An HTTP status is gh's own word for the state and is kept whole.
+        if let Some(i) = find_http(&low) {
+            return format!(": HTTP {}", &low[i + 5..i + 8]);
+        }
+    }
+    match code {
+        Some(c) => format!(": gh exited {c}"),
+        None => ": gh was stopped by a signal".to_string(),
+    }
+}
+
+/// Where a lower-case line names an HTTP status: "http " and the digits after
+/// it. The digits are checked so that a line that only holds the word is not
+/// read as a status.
+fn find_http(line: &str) -> Option<usize> {
+    let b = line.as_bytes();
+    let head = b"http ";
+    let mut i = 0;
+    while i + head.len() + 3 <= b.len() {
+        if b[i..i + head.len()] == head[..] && b[i + 5..i + 8].iter().all(u8::is_ascii_digit) {
+            return Some(i);
+        }
+        i += 1;
+    }
+    None
+}
+
 #[cfg(test)]
-mod tests;
+mod tests {
+    /// The GitHub adapter (console/github, `ask_issue` in `ticket.rs`)
+    /// reads this form: a question that fails with no reason of the list
+    /// is settled by one more REST read. Change it there too.
+    #[test]
+    fn a_failure_with_no_reason_of_the_list_is_the_exit_status() {
+        for err in [
+            "",
+            "GraphQL: Could not resolve to an Issue with the number of 9.",
+        ] {
+            assert_eq!(super::why(err, Some(1)), ": gh exited 1", "{err}");
+        }
+        assert_eq!(super::why("", Some(4)), ": gh exited 4");
+    }
+
+    #[test]
+    fn a_gh_call_of_call_turns_the_shims_retry_off_and_another_program_is_left_alone() {
+        use crate::call::{run, run_grace_env, GRACE};
+        let d = crate::testdir::TestDir::new("gh-no-retry");
+        let says = "#!/bin/sh\necho \"${TEHAS_GH_RETRY-unset}\"\n";
+        let (gh, other) = (d.join("gh"), d.join("not-gh"));
+        crate::testing::write_exe(&gh, says).unwrap();
+        crate::testing::write_exe(&other, says).unwrap();
+        let bound = std::time::Duration::from_secs(10);
+        assert_eq!(run(gh.to_str().unwrap(), &[], bound).out, "0\n");
+        assert_eq!(run(other.to_str().unwrap(), &[], bound).out, "unset\n");
+        let kept = d.join("out");
+        let f = std::fs::File::create(&kept).unwrap();
+        let rc = run_grace_env(gh.to_str().unwrap(), &[], Some(f), bound, GRACE, &[]);
+        assert_eq!(rc, Some(0));
+        assert_eq!(std::fs::read_to_string(&kept).unwrap(), "0\n");
+    }
+
+    use super::{Bounded, Counted, Failed, GhRunner};
+    use std::time::{Duration, Instant};
+
+    /// A runner whose program writes each argument on a line of `args` and
+    /// its standard input to `input`, then runs `then`.
+    fn recording(d: &crate::testdir::TestDir, then: &str) -> Bounded {
+        let program = d.join("runner");
+        crate::testing::write_exe(
+            &program,
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$@\" >'{a}'\ncat >'{i}'\n{then}\n",
+                a = d.join("args").display(),
+                i = d.join("input").display(),
+            ),
+        )
+        .unwrap();
+        Bounded::new(program.to_str().unwrap(), Duration::from_secs(10))
+    }
+
+    /// A poll's token goes to the shim in `TEHAS_GH_TOKEN` and nowhere else;
+    /// a runner given none gives none.
+    #[test]
+    fn a_token_goes_in_the_environment_never_into_an_argument() {
+        let d = crate::testdir::TestDir::new("forge-token");
+        let mut runner = recording(&d, "printf '%s' \"${TEHAS_GH_TOKEN:-none}\"");
+        assert_eq!(runner.run(&["api", "x"]).unwrap(), "none");
+        runner.token = Some("t0ken".into());
+        assert_eq!(runner.run(&["api", "x"]).unwrap(), "t0ken");
+        let args = std::fs::read_to_string(d.join("args")).unwrap();
+        assert!(!args.contains("t0ken"), "{args}");
+    }
+
+    /// Each call through a counted runner adds one to the shared count.
+    #[test]
+    fn a_counted_runner_counts_each_call() {
+        let d = crate::testdir::TestDir::new("forge-counted");
+        let count = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let mut runner = Counted {
+            inner: Box::new(recording(&d, "true")),
+            count: count.clone(),
+        };
+        runner.run(&["api", "x"]).unwrap();
+        runner.run_input(&["api", "y"], "body").unwrap();
+        let _ = runner.run_answer(&["api", "z"]);
+        assert_eq!(count.load(std::sync::atomic::Ordering::Relaxed), 3);
+    }
+
+    #[test]
+    fn an_input_goes_on_standard_input_and_never_into_an_argument() {
+        let d = crate::testdir::TestDir::new("forge-run-input");
+        let body = format!("{}end", "body ".repeat(200 * 1024 / 5));
+        let mut runner = recording(&d, "echo answered");
+        let got = runner.run_input(&["api", "repos/x/issues", "--input", "-"], &body);
+        assert_eq!(got, Ok("answered\n".to_string()));
+        assert_eq!(std::fs::read_to_string(d.join("input")).unwrap(), body);
+        let args = std::fs::read_to_string(d.join("args")).unwrap();
+        assert_eq!(args, "api\nrepos/x/issues\n--input\n-\n");
+    }
+
+    /// The GitHub adapter (console/github, `outcome` in `tickets.rs`)
+    /// reads exactly this reason as `SignedOut`: a gh with no credential
+    /// exits 4 with gh's own words on its error stream, and none of them
+    /// reach the reason. Change it there too.
+    #[test]
+    fn a_gh_with_no_credential_is_the_exit_status_alone() {
+        let d = crate::testdir::TestDir::new("forge-no-credential");
+        let mut runner = recording(
+            &d,
+            "echo 'To get started with GitHub CLI, please run:  gh auth login' >&2\n\
+             echo 'Alternatively, populate the GH_TOKEN environment variable with a GitHub API authentication token.' >&2\n\
+             exit 4",
+        );
+        assert_eq!(runner.run(&["api", "x"]), Err(": gh exited 4".to_string()));
+        assert_eq!(
+            runner.run_input(&["api", "x"], "body"),
+            Err(": gh exited 4".to_string())
+        );
+        let failed = runner.run_answer(&["api", "x"]).unwrap_err();
+        assert_eq!(failed.why, ": gh exited 4");
+    }
+
+    #[test]
+    fn a_failed_call_with_an_input_never_answers_the_input() {
+        let d = crate::testdir::TestDir::new("forge-run-input-fails");
+        let mut runner = recording(
+            &d,
+            &format!("cat '{}' >&2\nexit 1", d.join("input").display()),
+        );
+        let got = runner.run_input(&["api", "x"], "a private body\nof two lines\n");
+        let why = got.unwrap_err();
+        assert!(!why.contains("private"), "{why}");
+        assert_eq!(why, ": gh exited 1");
+    }
+
+    #[test]
+    fn a_gh_that_never_reads_its_input_is_stopped_within_its_bound() {
+        let d = crate::testdir::TestDir::new("forge-run-input-unread");
+        let program = d.join("runner");
+        crate::testing::write_exe(&program, "#!/bin/sh\nsleep 30\n").unwrap();
+        let mut runner = Bounded {
+            program: program.to_str().unwrap().to_string(),
+            bound: Duration::from_secs(1),
+            grace: Duration::from_secs(1),
+            token: None,
+        };
+        let began = Instant::now();
+        let got = runner.run_input(&["api", "x"], &"x".repeat(1 << 20));
+        assert!(
+            began.elapsed() < Duration::from_secs(8),
+            "{:?}",
+            began.elapsed()
+        );
+        assert!(got.unwrap_err().contains("ran out of its 1s bound"));
+    }
+
+    #[test]
+    fn what_a_gh_started_is_stopped_with_it_within_its_bound() {
+        let d = crate::testdir::TestDir::new("forge-run-group");
+        let program = d.join("runner");
+        // A shim whose gh outlives it would hold the pipes open.
+        crate::testing::write_exe(&program, "#!/bin/sh\nsleep 30 &\nwait\n").unwrap();
+        let mut runner = Bounded {
+            program: program.to_str().unwrap().to_string(),
+            bound: Duration::from_secs(1),
+            grace: Duration::from_secs(1),
+            token: None,
+        };
+        let began = Instant::now();
+        let got = runner.run(&["api", "x"]);
+        assert!(
+            began.elapsed() < Duration::from_secs(8),
+            "{:?}",
+            began.elapsed()
+        );
+        assert!(got.unwrap_err().contains("ran out of its 1s bound"));
+    }
+
+    #[test]
+    fn a_failed_call_hands_back_gh_s_answer_and_keeps_its_reason_to_fixed_words() {
+        let d = crate::testdir::TestDir::new("forge-run-answer");
+        let body = r#"{"data":null,"errors":[{"type":"NOT_FOUND","message":"ghp_secret"}]}"#;
+        let mut runner = recording(&d, &format!("printf '%s' '{body}'\nexit 1"));
+        let got = runner.run_answer(&["api", "graphql"]);
+        let failed = got.unwrap_err();
+        assert_eq!(failed.answer.as_deref(), Some(body));
+        assert_eq!(failed.why, ": gh exited 1");
+        assert_eq!(
+            runner.run(&["api", "graphql"]),
+            Err(": gh exited 1".to_string())
+        );
+    }
+
+    #[test]
+    fn a_failed_call_that_answered_nothing_has_no_answer() {
+        let d = crate::testdir::TestDir::new("forge-run-no-answer");
+        let mut runner = recording(&d, "echo 'HTTP 403: Forbidden' >&2\nexit 1");
+        let failed = runner.run_answer(&["api", "x"]).unwrap_err();
+        assert_eq!(failed.answer, None);
+        assert_eq!(failed.why, ": HTTP 403");
+    }
+
+    #[test]
+    fn a_runner_that_keeps_no_answer_gives_none() {
+        struct Plain;
+        impl GhRunner for Plain {
+            fn run(&mut self, _: &[&str]) -> Result<String, String> {
+                Err(": gh exited 1".to_string())
+            }
+        }
+        let failed = Plain.run_answer(&["api"]).unwrap_err();
+        assert_eq!(
+            failed,
+            Failed {
+                why: ": gh exited 1".to_string(),
+                answer: None
+            }
+        );
+    }
+
+    #[test]
+    fn a_runner_that_takes_no_input_says_so_and_runs_nothing() {
+        struct Plain(u32);
+        impl GhRunner for Plain {
+            fn run(&mut self, _: &[&str]) -> Result<String, String> {
+                self.0 += 1;
+                Ok(String::new())
+            }
+        }
+        let mut plain = Plain(0);
+        assert_eq!(
+            plain.run_input(&["api"], "body"),
+            Err("this runner takes no input".to_string())
+        );
+        assert_eq!(plain.0, 0);
+    }
+}

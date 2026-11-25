@@ -75,7 +75,7 @@ T_ENV=()
 
 t_case "a plain run names a lab environment file it finds, and a lab build does not"
 mkdir -p "${lab_env%/*}"
-echo "TEHAS_TEST_FEATURES=outsource" >"$lab_env"
+echo "TEHAS_TEST_FEATURES=plugins" >"$lab_env"
 t_run "$install"
 t_eq "$t_rc" 0
 t_contains "$t_out" "later: rm $lab_env && systemctl --user daemon-reload   (this is no lab build, so TEHAS_TEST_FEATURES does nothing)"
@@ -83,7 +83,7 @@ t_run "$install --lab-build"
 t_eq "$t_rc" 0
 t_lacks "$t_out" "later: rm $lab_env"
 # The file is the person's: no run removes it.
-t_eq "$(cat "$lab_env")" "TEHAS_TEST_FEATURES=outsource"
+t_eq "$(cat "$lab_env")" "TEHAS_TEST_FEATURES=plugins"
 
 t_case "a release tree is refused with 78 before anything is written or built"
 fresh

@@ -13,7 +13,7 @@ nothing of tehas is cloned.
 What you get is issue to pull request: the queue, cycles, gates, the dashboard
 and the live console. The effort is settings, plus your toolchain in the
 sandbox image. This page walks through it with the instance that works on
-tehas itself: host `tehas-tehas`, user `boss`, product `tehas-app/tehas`.
+tehas itself: host `tehas-tehas`, user `boss`, product `tehas-app/tehas-factory`.
 
 ## What the product repository must provide
 
@@ -190,7 +190,7 @@ GitHub and an OpenAI-compatible model endpoint. `bootstrap.sh` supports Ubuntu
 As root:
 
 ```
-curl -fsSL https://github.com/tehas-app/tehas/releases/latest/download/install | sudo sh -s -- boss
+curl -fsSL https://github.com/tehas-app/tehas-factory/releases/latest/download/install | sudo sh -s -- boss
 ```
 
 The installer downloads the newest release and checks the tarball against its
@@ -206,10 +206,10 @@ has what the machine needs.
 
 To install from files you downloaded yourself, for example on a host that
 cannot reach GitHub, pass their directory. The newest release's tag comes from
-`gh release view -R tehas-app/tehas --json tagName`:
+`gh release view -R tehas-app/tehas-factory --json tagName`:
 
 ```
-gh release download <tag> -R tehas-app/tehas --pattern 'tehas-*' --pattern install -D /tmp/tehas-release
+gh release download <tag> -R tehas-app/tehas-factory --pattern 'tehas-*' --pattern install -D /tmp/tehas-release
 sudo sh /tmp/tehas-release/install --version <tag> --from /tmp/tehas-release boss
 ```
 
@@ -232,7 +232,7 @@ As the tehas user. `tehas` is not on the `PATH` until the first install has
 put the `env.sh` line in `~/.bashrc`, so the first run names the release:
 
 ```
-~/tehas/current/bin/tehas setup --repo tehas-app/tehas --labelers "janit" \
+~/tehas/current/bin/tehas setup --repo tehas-app/tehas-factory --labelers "janit" \
   --new-app --endpoint http://gb1:8086/v1
 ```
 
@@ -425,7 +425,7 @@ turn one on.
 | -------------------------------------- | --------------------------------------------------------------------------------------------------- |
 | `TEHAS_REPO`                           | `owner/name` of the product repository                                                              |
 | `TEHAS_CONTROL_ISSUE`                  | Number of an issue you create for the pause label. Keep it open                                     |
-| `TEHAS_ALLOWED_LABELERS`               | Logins whose labels count, space separated: `tehas:ready`, `tehas:plan`, `tehas:prototype`. Never the bot |
+| `TEHAS_ALLOWED_LABELERS`               | Logins whose labels count, space separated: `tehas:ready`, `tehas:plan`. Never the bot |
 | `PI_ENSEMBLE_SUBAGENT_MODEL`, `_PROVIDER` | The model the session and every agent role use unless one has its own. Must be listed in `models.json` |
 | `PI_ENSEMBLE_MODEL_<ROLE>`, `PI_ENSEMBLE_PROVIDER_<ROLE>` | Optional. A model for one role, such as the lens reviewers, so cycles do not all wait on one model. See [A model per role](/host#a-model-per-role) |
 | `PI_ENSEMBLE_HOST_ALIASES`             | Optional. `name:address` pairs the sandbox needs, such as a model host whose name only resolves privately |
@@ -458,14 +458,6 @@ checkout cannot be moved - it is at a release tag, or its remote does not answer
 `tehas update --pending` runs the follow-ups `install.sh` recorded and no git
 command; see [tehas update](/tools-update#tehas-update).
 
-## Optional parts
-
-`tehas-energy.service` is optional: set `TEHAS_ENERGY=on` only when your model
-endpoint is a [viiwork](https://github.com/janit/viiwork) mesh. It is a switch,
-`on` or `off`, and any other value stops every command with 78. With any other
-endpoint leave it unset: an update restarts a unit only where it already runs.
-See [the energy sampler](/tools).
-
 ## Aside: the tehas-tehas instance
 
 The instance that works on tehas itself has a few extras. Its settings are in
@@ -474,7 +466,7 @@ The instance that works on tehas itself has a few extras. Its settings are in
 comments:
 
 ```
-TEHAS_REPO=tehas-app/tehas
+TEHAS_REPO=tehas-app/tehas-factory
 TEHAS_CONTROL_ISSUE=1
 TEHAS_ALLOWED_LABELERS="janit"
 
@@ -501,7 +493,7 @@ TEHAS_SITE_ANALYTICS_COOKIE=on
 - Its endpoint is a [viiwork](https://github.com/janit/viiwork) mesh, a meshed
   inference platform for home and enterprise hardware, reached as `gb1` on the
   private network. That is not required: any OpenAI-compatible endpoint that
-  serves your model works, and only the energy sampler depends on viiwork.
+  serves your model works.
 - It was installed before releases, from a platform checkout at
   `~/tehas/platform`, so `tehas update` pulls that checkout until it is moved
   to releases.

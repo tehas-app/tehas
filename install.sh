@@ -24,26 +24,20 @@
 #                           plain run builds it again, and a release replaces it
 #
 # What is installed: the commands and units (issue to pull request), the
-# sandbox files, the docs server, the edge router, the Protolab and the
-# manual, plus Pi's model list and settings, made from
+# sandbox files, the docs server, the edge router and the manual, plus Pi's model list and settings, made from
 # the instance's models.json and settings.json (see section 2).
 #
 # It copies files, and compiles seven: the console of a running cycle, the
 # analytics program, the MCP server, the state store, the attachment checker,
 # the dispatcher and the cycle's supervisor, Rust programs in the Cargo
 # workspace console/ (the other six in console/analytics, console/mcp,
-# console/store, console/attach, console/dispatch and console/cycle). While
-# outsource is on (TEHAS_OUTSOURCE) it compiles two more, the model proxy
-# (console/proxy, libexec/tehas-proxy) and the contractor program
-# (console/contractor, libexec/tehas-contractor), and installs the proxy's
-# unit, tehas-outsource-proxy.service; off, none of the three. While plugins
+# console/store, console/attach, console/dispatch and console/cycle). While plugins
 # are on (TEHAS_PLUGIN) it compiles the runner (console/plugin,
 # libexec/tehas-plugin) and installs its units: the templates of a run,
 # tehas-plugin@.service and tehas-plugin-hook@.service, and tehas-plugin.timer
-# with its service; off, none of them. The review
-# loop's units, tehas-review.service and .timer, are installed only while
-# review is on (TEHAS_REVIEW), which no release allows yet; off, a timer an
-# earlier release left enabled is stopped and disabled, its files kept. A real
+# with its service; off, none of them. The timer of a feature that is off,
+# which an earlier release left enabled, is stopped and disabled, its files
+# kept. A real
 # run builds each with cargo in this checkout (console/target, which git
 # ignores) and installs them as libexec/console, libexec/analytics,
 # libexec/tehas-mcp, libexec/store, libexec/attach, libexec/tehas-dispatch and
@@ -414,8 +408,8 @@ home_marker=.tehas-home
 # code (tehas-cycle run). docs and fun are not among them: a home that has
 # them without the marker is not known to be tehas's, and this run would remove
 # the pages of someone else from them.
-home_dirs=(bin libexec lib live logs mcp platform preview protolab repos sandbox
-  state tmp tools work target .cargo versions current run wiki)
+home_dirs=(bin libexec lib live logs mcp platform preview items repos
+  sandbox state tmp tools work target .cargo versions current run)
 
 home_refusal() { # the reason $TEHAS_HOME is not provably tehas's, or nothing
   local path=${TEHAS_HOME:-} entry part rest
@@ -556,6 +550,14 @@ tehas_tool_paths
 # have named another home.
 refuse_home
 
+# The paths under the home's state/ that more than one line here names, each
+# written once, after the home is settled. Home (console/core/src/home.rs)
+# owns the layout; no console verb prints its paths, so they are written here.
+state_dir=$TEHAS_HOME/state
+db_file=$TEHAS_HOME/state/tehas.db
+backup_dir=$TEHAS_HOME/state/backup
+dispatch_lock=$TEHAS_HOME/state/dispatch.lock
+
 # --- 1c. The commit the store records -----------------------------------------
 # The store's database records which commit of tehas made it, and the pages and
 # the store show the version, both as the console reads them from this tree
@@ -597,8 +599,8 @@ if [ "$check" != 1 ]; then
   # yet has none, and a run that has not been given the lock by tehas update
   # opens the file itself. It is the store's directory too, so it is 0700 from
   # here on: with WAL on, a readable state/ is a readable copy of the database.
-  if ! mkdir -p "$TEHAS_HOME/state" || ! chmod 700 "$TEHAS_HOME/state"; then
-    echo "tehas: could not make $TEHAS_HOME/state mode 0700; nothing was installed" >&2
+  if ! mkdir -p "$state_dir" || ! chmod 700 "$state_dir"; then
+    echo "tehas: could not make $state_dir mode 0700; nothing was installed" >&2
     exit 1
   fi
   if [[ $update_fd =~ ^[0-9]+$ ]] && [ "/dev/fd/$update_fd" -ef "$update_lock" ]; then
@@ -663,7 +665,6 @@ files=(
   "sandbox/base.Dockerfile|$TEHAS_HOME/sandbox/base.Dockerfile|644"
   "sandbox/build.sh|$TEHAS_HOME/sandbox/build.sh|755"
   "sandbox/gh-shim|$TEHAS_HOME/sandbox/gh-shim|755"
-  "sandbox/vipune-shim|$TEHAS_HOME/sandbox/vipune-shim|755"
   "sandbox/npm/playwright/package.json|$TEHAS_HOME/sandbox/npm/playwright/package.json|644"
   "sandbox/npm/playwright/package-lock.json|$TEHAS_HOME/sandbox/npm/playwright/package-lock.json|644"
   # The npm trees the sandbox base installs pi, ctx7 and parallel-cli from.
@@ -683,17 +684,13 @@ files=(
   "systemd/tehas-dispatch.service|$units/tehas-dispatch.service|644"
   "systemd/tehas-dispatch.path|$units/tehas-dispatch.path|644"
   "systemd/tehas-dispatch.timer|$units/tehas-dispatch.timer|644"
-  "systemd/tehas-energy.service|$units/tehas-energy.service|644"
   "systemd/tehas-mcp.service|$units/tehas-mcp.service|644"
   "systemd/tehas-mcp-fetch.socket|$units/tehas-mcp-fetch.socket|644"
   "systemd/tehas-mcp-fetch@.service|$units/tehas-mcp-fetch@.service|644"
-  "systemd/tehas-protolab.service|$units/tehas-protolab.service|644"
-  "systemd/tehas-protolab.timer|$units/tehas-protolab.timer|644"
   "systemd/tehas-preview.service|$units/tehas-preview.service|644"
   "systemd/tehas-preview.timer|$units/tehas-preview.timer|644"
   "systemd/tehas-preview-sweep.service|$units/tehas-preview-sweep.service|644"
   "systemd/tehas-preview-sweep.timer|$units/tehas-preview-sweep.timer|644"
-  "systemd/tehas-top.service|$units/tehas-top.service|644"
   # 600 as Pi keeps its own files: Pi 1.5 lets the global mcp.json hold a
   # server's auth. A container runs as this account, so it still reads it.
   "pi/mcp.json|$agent/mcp.json|600"
@@ -724,9 +721,7 @@ for f in "$root"/lib/polyfill-*.sh; do
   files+=("lib/${f##*/}|$TEHAS_HOME/lib/${f##*/}|644")
 done
 shopt -u nullglob
-# What a feature that is on installs besides the rest: outsource's model proxy,
-# its unit and the contractor program, review's units, the plugins' runner and
-# units
+# What a feature that is on installs besides the rest: the plugins' runner and units
 # (console/ops/src/update/host.rs). Off,
 # none of it is installed or compared.
 featured=$(export "${!TEHAS_@}"; "$loaded_console" update featured) ||
@@ -942,26 +937,26 @@ fi
 # refuses or copies it cannot write stop the run with exit 78.
 dispatch_held=0
 dispatch_hold() {
-  exec 9>>"$TEHAS_HOME/state/dispatch.lock"
+  exec 9>>"$dispatch_lock"
   if ! flock -w "$dispatch_wait" 9; then
-    echo "tehas: a poll is running ($TEHAS_HOME/state/dispatch.lock still held after ${dispatch_wait}s); nothing was installed" >&2
+    echo "tehas: a poll is running ($dispatch_lock still held after ${dispatch_wait}s); nothing was installed" >&2
     exit 1
   fi
   dispatch_held=1
   if [ ! -e "$TEHAS_HOME/$home_marker" ] && [ ! -L "$TEHAS_HOME/$home_marker" ]; then
     printf 'tehas\n' | "$steps_console" update files write "$TEHAS_HOME/$home_marker" || exit 1
   fi
-  [ -e "$TEHAS_HOME/state/tehas.db" ] || [ -L "$TEHAS_HOME/state/tehas.db" ] || return 0
+  [ -e "$db_file" ] || [ -L "$db_file" ] || return 0
   if [ ! -x "$gate_store" ]; then
-    echo "tehas: there is no store to judge $TEHAS_HOME/state/tehas.db with ($gate_store); nothing was installed" >&2
+    echo "tehas: there is no store to judge $db_file with ($gate_store); nothing was installed" >&2
     exit 78
   fi
   # The store says its refusal itself, exit 78; any other status is a store
   # that could not say.
-  local copies=$TEHAS_HOME/state/backup
+  local copies=$backup_dir
   TEHAS_HOME=$TEHAS_HOME "$gate_store" migrate --dry-run --backup "$copies" >/dev/null && return 0
-  [ $? = 78 ] || { echo "tehas: the store could not judge $TEHAS_HOME/state/tehas.db; nothing was installed" >&2; exit 1; }
-  echo "tehas: this release cannot migrate $TEHAS_HOME/state/tehas.db; nothing was installed" >&2
+  [ $? = 78 ] || { echo "tehas: the store could not judge $db_file; nothing was installed" >&2; exit 1; }
+  echo "tehas: this release cannot migrate $db_file; nothing was installed" >&2
   exit 78
 }
 # Given back before the first index, which takes the lock itself.
@@ -987,13 +982,14 @@ fi
 had_versions=0
 [ -f "$TEHAS_HOME/versions.env" ] && had_versions=1
 # The home's own directories are made here, before the first copy: the servers
-# mount live/ and protolab/, preview/ is where `tehasbot preview` keeps each pull
-# request, and an empty home has none of them yet. Making them here rather than
-# after the copies is what lets the marker go into a home that is not yet there.
+# mount live/ and items/, which Docker would otherwise make as root, preview/ is
+# where `tehasbot preview` keeps each pull request, and an empty home has none
+# of them yet. Making them here rather than after the copies is what lets the
+# marker go into a home that is not yet there.
 # --check changes nothing, so it makes neither.
 if [ "$check" != 1 ]; then
-  mkdir -p "$TEHAS_HOME/logs" "$TEHAS_HOME/state" "$TEHAS_HOME/tmp" "$TEHAS_HOME/live" "$TEHAS_HOME/protolab" \
-    "$TEHAS_HOME/preview" "$TEHAS_HOME/wiki"
+  mkdir -p "$TEHAS_HOME/logs" "$state_dir" "$TEHAS_HOME/tmp" "$TEHAS_HOME/live" "$TEHAS_HOME/items" \
+    "$TEHAS_HOME/preview"
   # A home with no env.sh has never been installed.
   [ -f "$TEHAS_HOME/env.sh" ] || : >"$first_owed"
   if ! bashrc_ok; then
@@ -1027,7 +1023,7 @@ if [ "$sandbox_changed" = 1 ]; then
     # a run that had nothing else to do prints "tehas is up to date" and ends
     # before then. A run that died with the step still in the record leaves the
     # file unseen, so tehas update owes the build and the next install sees it.
-    mkdir -p "$TEHAS_HOME/state"
+    mkdir -p "$state_dir"
     if hash=$(sha256sum "$instance/sandbox.Dockerfile" 2>/dev/null); then
       printf '%s\n' "${hash:0:64}" | "$steps_console" update files write "$sandbox_at_file" || exit 1
     else
@@ -1107,12 +1103,18 @@ while IFS= read -r f; do
 done <<<"$retired"
 
 # The units of features this version does not have: the timed refresh scan
-# (refreshes are asked for one pull request at a time) and the improvement
-# loop. Found here; in step 5 each timer is stopped and disabled and its files
-# go.
+# (refreshes are asked for one pull request at a time), the improvement loop,
+# the review loop, the product wiki, the energy sampler and the host panel's
+# publisher, which left core in 2.0, the Protolab, removed in 2.0, and the
+# model proxy of outsource, which 2.0 dropped. Found here; in step 5 each timer
+# and path unit, or a service none starts, is stopped and disabled and its
+# files go.
 old_units=()
 scan_units=$units
-for unit in tehas-refresh.timer tehas-refresh.service tehas-improve.timer tehas-improve.service; do
+for unit in tehas-refresh.timer tehas-refresh.service tehas-improve.timer tehas-improve.service \
+  tehas-review.timer tehas-review.service \
+  tehas-wiki-status.timer tehas-wiki-status.service tehas-wiki.timer tehas-wiki.path tehas-wiki.service \
+  tehas-energy.service tehas-top.service tehas-protolab.timer tehas-protolab.service tehas-outsource-proxy.service; do
   [ -e "$scan_units/$unit" ] || [ -L "$scan_units/$unit" ] || continue
   old_units+=("$unit")
   [ "$check" = 0 ] || note "stale: $scan_units/$unit"
@@ -1172,17 +1174,17 @@ fi
 # A store that fails stops the run: the files are copied, the database is left
 # as it was, and the store's own line says why.
 store_db() {
-  local store=$TEHAS_HOME/libexec/store db=$TEHAS_HOME/state/tehas.db version=$tree_version name verb
+  local store=$TEHAS_HOME/libexec/store db=$db_file version=$tree_version name verb
   name=${instance%/}
   name=${name##*/}
   [ -n "$version" ] || version=${store_commit:0:7}
   if [ -e "$db" ] || [ -L "$db" ]; then
-    verb=(migrate --backup "$TEHAS_HOME/state/backup")
+    verb=(migrate --backup "$backup_dir")
   else
     verb=(init)
   fi
   [ -x "$store" ] || { echo "tehas: $store is not installed, so $db was neither made nor migrated" >&2; exit 1; }
-  chmod 700 "$TEHAS_HOME/state" || { echo "tehas: could not keep $TEHAS_HOME/state mode 0700" >&2; exit 1; }
+  chmod 700 "$state_dir" || { echo "tehas: could not keep $state_dir mode 0700" >&2; exit 1; }
   if ! TEHAS_HOME=$TEHAS_HOME "$store" "${verb[@]}" --version "$version" --commit "$store_commit" \
     --instance "$name" --repo "$TEHAS_REPO" --say; then
     echo "tehas: the store could not ${verb[0]} $db; the files are installed, the database was left as it was" >&2
@@ -1235,9 +1237,7 @@ first_index() {
 first_install() {
   [ -f "$first_owed" ] || return 0
   local units=() why="" line
-  # A first install runs before any shell has read env.sh, so the console reads
-  # TEHAS_ENERGY from the host's private file too.
-  line=$(export "${!TEHAS_@}"; "$loaded_console" update units "$HOME/.config/tehas/env") || line=""
+  line=$(export "${!TEHAS_@}"; "$loaded_console" update units) || line=""
   read -ra units <<<"$line"
   if [ "${#units[@]}" = 0 ]; then
     why="the console at $loaded_console did not name the units"
@@ -1281,13 +1281,18 @@ report_login() {
   fi
 }
 
-# A timer is stopped before its files go, so systemd holds no timer whose
-# unit file is gone. A unit systemd cannot let go of is left, and the next run
-# tries again. The timer comes first in the list, so its service follows it.
+# A trigger is stopped before its files go, so systemd holds no timer or path
+# unit whose file is gone, and so is a service none starts. A unit systemd
+# cannot let go of is left, and the next run tries again. Triggers come first
+# in the list, so a service follows its own: the path unit while one is left,
+# else the timer.
 if [ "${#old_units[@]}" -gt 0 ]; then
   gone=0
   for unit in "${old_units[@]}"; do
     timer=${unit%.*}.timer
+    [ "${unit##*.}" != path ] || timer=$unit
+    [ "${unit##*.}" != service ] || [ ! -e "$scan_units/${unit%.*}.path" ] || timer=${unit%.*}.path
+    case " ${old_units[*]} " in *" $timer "*) ;; *) timer=$unit ;; esac
     if [ -e "$scan_units/$timer" ] && ! systemctl --user disable --now "$timer" >/dev/null 2>&1; then
       [ "$unit" != "$timer" ] ||
         echo "later: ./install.sh again   (systemctl --user disable --now $timer failed, so its units were left)"
@@ -1375,7 +1380,12 @@ if [ "${#old[@]}" -gt 0 ]; then
     retire_later="once systemctl --user daemon-reload works   (systemd still holds the units that name the old commands and server files in $TEHAS_HOME, so they were left)"
   elif [ "$dispatch_held" = 1 ]; then
     for to in "${old[@]}"; do
-      rm -f "$to" "$to.prev"
+      # A path the list ends with a slash is a directory, removed with what it
+      # holds; a link in its place is unlinked, never followed.
+      case $to in
+        */) if [ -L "${to%/}" ]; then rm -f "${to%/}"; else rm -rf "${to%/}"; fi ;;
+        *) rm -f "$to" "$to.prev" ;;
+      esac
       echo "removed: $to"
     done
   fi

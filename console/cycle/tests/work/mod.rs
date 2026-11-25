@@ -20,8 +20,13 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Once;
+use tehas_core::home::{Home, State, TokenDir};
 use tehas_core::testdir::TestDir;
 use tehas_core::testing::{copy_exe, link_exe, write_exe};
+
+#[path = "../docker_args/mod.rs"]
+mod docker_args;
+pub use docker_args::*;
 
 /// The settings of a minimal valid instance (T_MINIMAL).
 #[allow(dead_code)] // each test file uses a part of this module
@@ -62,22 +67,6 @@ pub const WEBP: &[u8] = b"RIFF\x10\x00\x00\x00WEBPVP8 ";
 #[allow(dead_code)] // each test file uses a part of this module
 pub const PUSH_SAYS: &str = "fatal: could not read from remote repository";
 
-/// The options of the slice limits, by name.
-#[allow(dead_code)] // each test file uses a part of this module
-pub const LIMITS: &str =
-    "--cgroup-parent --memory --memory-swap --memory-reservation --cpus --pids-limit --cpu-shares";
-
-/// The options of the slice limits and of the security list, by name: the
-/// allow-list of unknown_options for every suite of a cycle's container.
-#[allow(dead_code)] // each test file uses a part of this module
-pub const DOCKER_OPTS: &str = "--cgroup-parent --memory --memory-swap --memory-reservation --cpus --pids-limit --cpu-shares --cap-drop --cap-add --security-opt --tmpfs";
-
-/// The documented security options of a container, for the ceiling the
-/// stubbed slice gives it (--memory 2048m): /tmp is half of it. A literal, not
-/// read from console/core/src/sandbox.rs, which is the code under test.
-#[allow(dead_code)] // each test file uses a part of this module
-pub const SECURITY_OPTS: &str = "--cap-drop ALL --cap-add CHOWN --cap-add FOWNER --security-opt no-new-privileges:true --tmpfs /tmp:rw,exec,nosuid,nodev,size=1024m,mode=1777";
-
 /// What the cycle's container is given (AGENTS.md rule 4): its variables, by
 /// name, in the order the shell tests list them.
 #[allow(dead_code)] // each test file uses a part of this module
@@ -115,13 +104,13 @@ pub const GONE: &str = "wait; exit 137";
 
 /// The logins whose user ids install.sh records (T_LOGINS).
 const LOGINS: &[&str] = &[
-    "tehas-bot",
+    "tehas-bot[bot]",
     "alice",
     "bob",
     "bob-2",
     "carol",
     "boss",
-    "tehas-fixer",
+    "tehas-millwright",
     "tehas-mill",
     "millbot",
     "mill-bot",
@@ -131,31 +120,47 @@ const LOGINS: &[&str] = &[
 
 /// The old record files the store replaced, as <dir>, <prefix>, <suffix>
 /// under the home (t_old_state). No case leaves one.
-const OLD_STATE: &[(&str, &str, &str)] = &[
-    ("state/cycles", "", ".taken"),
-    ("state/cycles", "", ".by"),
-    ("state/cycles", "", ".requeued"),
-    ("state/cycles", "", ".rukas"),
-    ("state/cycles", "", ".image"),
-    ("state/cycles", "", ".settings"),
-    ("state/cycles", "", ".branch"),
-    ("state/cycles", "", ".approved.json"),
-    ("state/cycles", "", ".approved.json.new"),
-    ("state/cycles", "", ".park"),
-    ("state/cycles", "", ".park.new"),
-    ("state/cycles", "", ".quiet"),
-    ("state/cycles", "plan-", ".history.jsonl"),
-    ("state", "park-", ".id"),
-    ("state", "park-", ".json"),
-    ("state", "plan-", ".json"),
-    ("state", "plan-", ".json.new"),
-    ("state", "plan-", ".json.brief"),
-    ("state", "plan-", ".json.answer"),
-    ("state", "plan-", ".json.answer.new"),
-    ("state", "plan-", ".json.keep"),
-    ("state", "plan-", ".turn"),
-    ("state", "plan-", ".history.jsonl"),
+const OLD_STATE: &[(Under, &str, &str)] = &[
+    (Under::Cycles, "", ".taken"),
+    (Under::Cycles, "", ".by"),
+    (Under::Cycles, "", ".requeued"),
+    (Under::Cycles, "", ".rukas"),
+    (Under::Cycles, "", ".image"),
+    (Under::Cycles, "", ".settings"),
+    (Under::Cycles, "", ".branch"),
+    (Under::Cycles, "", ".approved.json"),
+    (Under::Cycles, "", ".approved.json.new"),
+    (Under::Cycles, "", ".park"),
+    (Under::Cycles, "", ".park.new"),
+    (Under::Cycles, "", ".quiet"),
+    (Under::Cycles, "plan-", ".history.jsonl"),
+    (Under::State, "park-", ".id"),
+    (Under::State, "park-", ".json"),
+    (Under::State, "plan-", ".json"),
+    (Under::State, "plan-", ".json.new"),
+    (Under::State, "plan-", ".json.brief"),
+    (Under::State, "plan-", ".json.answer"),
+    (Under::State, "plan-", ".json.answer.new"),
+    (Under::State, "plan-", ".json.keep"),
+    (Under::State, "plan-", ".turn"),
+    (Under::State, "plan-", ".history.jsonl"),
 ];
+
+/// A directory of `OLD_STATE`.
+#[derive(Clone, Copy)]
+enum Under {
+    Cycles,
+    State,
+}
+
+impl Under {
+    fn dir(self, home: &Home) -> PathBuf {
+        match self {
+            Under::Cycles => home.cycles_dir(),
+            Under::State => home.state_dir(),
+        }
+    }
+}
 
 /// The console of the cycle, in place of the program a host has beside the
 /// script. It records its words and keeps the two lines beside its file as the
@@ -165,6 +170,9 @@ const OLD_STATE: &[(&str, &str, &str)] = &[
 /// waits up to ten seconds for a step-started line in the log. A size verb
 /// goes to the real console.
 const CONSOLE: &str = r#"[ "${1:-}" != size ] || exec "$T/console-bin" "$@"
+# As the real console, it finishes its pass when the end of the cycle stops it.
+trap 'exit 0' TERM
+: >"$T/console.up"
 prev=
 for a in "$@"; do
   case $prev in
@@ -565,7 +573,7 @@ impl World {
         state.push(".state");
         let mut imgs = ws.clone().into_os_string();
         imgs.push(".images");
-        let cycles = home.join("state/cycles");
+        let cycles = Home::new(&home).cycles_dir();
         let w = World {
             fx: t.join("fx"),
             upstream: t.join("git/acme/widget"),
@@ -574,9 +582,9 @@ impl World {
             runs: t.join("home/.pi/agent/ensemble-runs/issue-7"),
             state: PathBuf::from(state),
             imgs: PathBuf::from(imgs),
-            hostindex: home.join("state/index"),
+            hostindex: Home::new(&home).state(State::CodeIndex),
             kept: cycles.join("7.manifest.json"),
-            live: home.join("live"),
+            live: Home::new(&home).live_dir(),
             cid_file: cycles.join("7.cid"),
             oom_file: cycles.join("7.oom"),
             forks_file: cycles.join("7.forks"),
@@ -595,7 +603,7 @@ impl World {
             instance_on: Cell::new(false),
             record: RefCell::new(Value::Null),
         };
-        for name in ["docker", "gh", "systemctl", "curl", "ssh"] {
+        for name in tehas_core::testing::DENIED {
             write_exe(
                 w.t.join("deny").join(name),
                 format!(
@@ -628,7 +636,12 @@ impl World {
         fs::create_dir_all(w.home.join("libexec")).unwrap();
         write_exe(
             w.home.join("libexec/tehas-cycle"),
-            format!("#!{}\necho \"$*\" >>\"$T/renew.calls\"\n", w.bash),
+            // Written whole, then put in place: a reader sees all of it or
+            // none.
+            format!(
+                "#!{}\nprintf '%s\\n' \"$*\" >\"$T/renew.calls.$$\" && mv \"$T/renew.calls.$$\" \"$T/renew.calls\"\n",
+                w.bash
+            ),
         )
         .unwrap();
         // tehas work as bin/tehas runs it: through `console run`, with the
@@ -699,7 +712,9 @@ impl World {
     /// The mounts of a cycle given nothing of the issue, as the shell tests
     /// list them: one `<host>:<container>[:ro]` per line.
     pub fn mounts_off(&self) -> String {
-        let (ws, state, home) = (self.ws.display(), self.state.display(), self.home.display());
+        let (ws, state) = (self.ws.display(), self.state.display());
+        let token = Home::new(&self.home).token_dir(TokenDir::Cycle);
+        let token = token.display();
         let pi = self.t.join("home/.pi/agent");
         let pi = pi.display();
         format!(
@@ -711,7 +726,7 @@ impl World {
 {pi}/mcp.json:/home/vscode/.pi/agent/mcp.json:ro
 {state}/models.json:/home/vscode/.pi/agent/models.json:ro
 {pi}/settings.json:/home/vscode/.pi/agent/settings.json:ro
-{home}/state/github-cycle:/run/tehas/github:ro
+{token}:/run/tehas/github:ro
 {state}/relay:/run/tehas/relay",
             inside = self.inside.display(),
             runs = self.runs.display(),
@@ -748,7 +763,7 @@ impl World {
     }
 
     /// A file under the home, with these bytes.
-    pub fn home_file(&self, rel: &str, text: impl AsRef<[u8]>) {
+    pub fn home_file(&self, rel: impl AsRef<Path>, text: impl AsRef<[u8]>) {
         let p = self.home.join(rel);
         fs::create_dir_all(p.parent().unwrap()).unwrap();
         fs::write(p, text).unwrap();
@@ -825,6 +840,17 @@ impl World {
     /// The stub docker, with `before` ahead of its ordinary body.
     fn docker_stub(&self, before: &str) {
         self.stub("docker", &format!("{before}{DOCKER}"));
+    }
+
+    /// The same docker, but the run of the cycle's container, the one given a
+    /// --cidfile, ends only once `file` is there, at most 20 seconds on. A
+    /// console that must end on its own, before the end of the cycle stops it,
+    /// makes the file.
+    pub fn docker_runs_until(&self, file: &Path) {
+        self.docker_stub(&format!(
+            "case \" $* \" in \" run \"*\" --cidfile \"*) i=0; while [ ! -e '{}' ] && [ $i -lt 400 ]; do sleep 0.05; i=$((i + 1)); done ;; esac\n",
+            file.display()
+        ));
     }
 
     /// The same docker, but the run of the container is a client that never
@@ -985,7 +1011,7 @@ impl World {
         }
         fs::write(dir.join("instance.env"), text).unwrap();
         self.instance_on.set(true);
-        if !self.home.join("state/github/login").exists() {
+        if !Home::new(&self.home).state(State::BotLogin).exists() {
             self.app_world("tehas-bot");
         }
     }
@@ -1007,15 +1033,17 @@ impl World {
     /// The factory as the GitHub App `<slug>[bot]`, with its tokens.
     pub fn app_world(&self, slug: &str) {
         let until = tehas_core::time::now() + 86400;
+        let home = Home::new(&self.home);
         for (dir, token) in [
-            ("github", "app"),
-            ("github-cycle", "cycle"),
-            ("github-session", "session"),
+            (TokenDir::App, "app"),
+            (TokenDir::Cycle, "cycle"),
+            (TokenDir::Session, "session"),
         ] {
-            self.home_file(&format!("state/{dir}/token"), format!("ghs_{token}\n"));
-            self.home_file(&format!("state/{dir}/token.expires"), format!("{until}\n"));
+            let dir = home.token_dir(dir);
+            self.home_file(dir.join("token"), format!("ghs_{token}\n"));
+            self.home_file(dir.join("token.expires"), format!("{until}\n"));
         }
-        self.home_file("state/github/login", format!("{slug}[bot]\n"));
+        self.home_file(home.state(State::BotLogin), format!("{slug}[bot]\n"));
     }
 
     /// A variable of every later run, as T_ENV+= is. A name given again
@@ -1058,6 +1086,7 @@ impl World {
             .env("PATH", path)
             .env("HOME", self.t.join("home"))
             .env("TEHAS_HOME", &self.home)
+            .env("T_CYCLES", Home::new(&self.home).cycles_dir())
             .env("T", self.t.path())
             .env("T_ROOT", root())
             .env("CARGO_TARGET_DIR", self.t.join("target"))
@@ -1154,7 +1183,7 @@ impl World {
 
     /// The fault of a sandbox that cannot push, compact, "" for none.
     pub fn push_fault_file(&self) -> String {
-        fs::read_to_string(self.home.join("state/push-fault.json"))
+        fs::read_to_string(Home::new(&self.home).state(State::PushFault))
             .ok()
             .and_then(|s| serde_json::from_str::<Value>(&s).ok())
             .map(|v| v.to_string())
@@ -1164,7 +1193,7 @@ impl World {
     /// The three fields of the fault as three lines: whether `at` is the form
     /// a host writes, the account and git's own line; "" for no fault.
     pub fn push_fault_parts(&self) -> String {
-        let Ok(text) = fs::read_to_string(self.home.join("state/push-fault.json")) else {
+        let Ok(text) = fs::read_to_string(Home::new(&self.home).state(State::PushFault)) else {
             return String::new();
         };
         let Ok(v) = serde_json::from_str::<Value>(&text) else {
@@ -1178,7 +1207,7 @@ impl World {
 
     /// The account the factory acts as.
     pub fn cycle_account(&self) -> String {
-        fs::read_to_string(self.home.join("state/github/login"))
+        fs::read_to_string(Home::new(&self.home).state(State::BotLogin))
             .unwrap_or_default()
             .trim_end()
             .to_string()
@@ -1214,7 +1243,7 @@ impl World {
     pub fn push_fault_ended(&self, n: u64) -> String {
         let out = Command::new("sqlite3")
             .args(["-cmd", ".mode list"])
-            .arg(self.home.join("state/tehas.db"))
+            .arg(Home::new(&self.home).state(State::StoreDb))
             .arg(format!("select status from endings where issue={n};"))
             .stderr(Stdio::null())
             .output();
@@ -1241,7 +1270,7 @@ impl World {
             self.rm(f);
         }
         remove_like(&self.home.join("logs"), "work-7-*");
-        let _ = fs::remove_file(self.home.join("state/push-fault.json"));
+        let _ = fs::remove_file(Home::new(&self.home).state(State::PushFault));
         self.store_home();
         self.env_unset("TEHAS_CYCLE_ATTEMPT");
     }
@@ -1254,7 +1283,7 @@ impl World {
             let _ = fs::remove_dir_all(self.home.join("logs"));
         }
         let _ = fs::remove_file(&self.kept);
-        let _ = fs::remove_file(self.home.join("state/push-fault.json"));
+        let _ = fs::remove_file(Home::new(&self.home).state(State::PushFault));
         self.rm("container.sh");
         self.store_home();
         fs::create_dir_all(self.fx.join("net")).unwrap();
@@ -1275,7 +1304,7 @@ impl World {
     /// The same instance with nothing given to the cycle.
     pub fn images_off(&self) {
         self.images_reset(true);
-        self.minimal(&["TEHAS_WORK_IMAGES=0", "TEHAS_WORK_FILES=0"]);
+        self.minimal(&["TEHAS_WORK_IMAGES=0"]);
     }
 
     // --- GitHub ------------------------------------------------------------
@@ -1347,10 +1376,10 @@ impl World {
     fn store_cmd(&self, args: &[&str], now: Option<i64>, lock: Option<u64>) -> Run {
         let mut c = match lock {
             Some(n) => {
-                fs::create_dir_all(self.home.join("state/cycles")).unwrap();
+                fs::create_dir_all(Home::new(&self.home).cycles_dir()).unwrap();
                 let mut c = Command::new("flock");
                 c.args(["-w", "5"])
-                    .arg(self.home.join(format!("state/cycles/{n}.lock")))
+                    .arg(Home::new(&self.home).cycle_note(n, "lock"))
                     .arg(self.t.join("store-bin"));
                 c
             }
@@ -1406,9 +1435,9 @@ impl World {
     /// A fresh database, made by the store's own init (t_store_db).
     pub fn store_db(&self) {
         for f in ["tehas.db", "tehas.db-wal", "tehas.db-shm"] {
-            let _ = fs::remove_file(self.home.join("state").join(f));
+            let _ = fs::remove_file(Home::new(&self.home).state_dir().join(f));
         }
-        fs::create_dir_all(self.home.join("state")).unwrap();
+        fs::create_dir_all(Home::new(&self.home).state_dir()).unwrap();
         self.store_ok(&[
             "init",
             "--version",
@@ -1435,7 +1464,7 @@ impl World {
         self.store_db();
         place(&self.t.join("attach-bin"), &libexec.join("attach"));
         let ids: String = LOGINS.iter().map(|l| format!("{l} {}\n", uid(l))).collect();
-        self.home_file("state/account-ids", ids);
+        self.home_file(Home::new(&self.home).state(State::AccountIds), ids);
     }
 
     /// The store of a run answers a call whose arguments begin with `args`
@@ -1457,11 +1486,11 @@ impl World {
 
     /// An approval of issue `n` on record, as the dispatcher records it: the
     /// body hash of "Words." unless `extra` gives one, tehas:ready for a
-    /// label and a fixer (t_approve).
+    /// label and a millwright (t_approve).
     pub fn approve(&self, n: u64, by: &str, how: &str, at: i64, extra: &[&str]) {
         let (n, at) = (n.to_string(), at.to_string());
         let mut a = vec!["approval-record", &n, "--at", &at, "--by", by, "--how", how];
-        if matches!(how, "label" | "fixer") {
+        if matches!(how, "approved" | "millwright") {
             a.extend(["--label", "tehas:ready"]);
         }
         let sum = wsum();
@@ -1562,8 +1591,8 @@ impl World {
 
     /// On a fresh store, the approval `j` describes in the shape approval-view
     /// gives it, used by a start of `n`: with the person's approval it rests
-    /// on (`rests_on`), and the fixer's (`fixer_starts`) and the refreshes'
-    /// (`refreshes`) starts it counts, as ended starts before it (t_record).
+    /// on (`rests_on`), and the refreshes' (`refreshes`) starts it counts, as
+    /// ended starts before it (t_record).
     pub fn record_on(&self, n: u64, j: &Value) {
         self.store_db();
         let how = j["how"].as_str().unwrap_or_default().to_string();
@@ -1582,20 +1611,13 @@ impl World {
             at
         };
         let base = &j["rests_on"];
-        if matches!(how.as_str(), "fixer" | "refresh") && base.is_object() {
+        if matches!(how.as_str(), "millwright" | "refresh") && base.is_object() {
             last = used(
                 &text_of(&base["by"]),
                 &text_of(&base["how"]),
                 epoch(&text_of(&base["at"])),
                 &["--body-sha", &text_of(&base["body_sha256"])],
             );
-            let mut count = j["fixer_starts"].as_i64().unwrap_or(0);
-            if how == "fixer" {
-                count -= 1;
-            }
-            for _ in 0..count.max(0) {
-                last = used("tehas-fixer", "fixer", last + 10, &[]);
-            }
             if how == "refresh" {
                 let head = "a".repeat(40);
                 for _ in 1..j["refreshes"].as_i64().unwrap_or(1) {
@@ -1613,7 +1635,7 @@ impl World {
         }
         let mut input =
             json!({"links": j.get("links").cloned().filter(|v| !v.is_null()).unwrap_or(json!([]))});
-        for k in ["comment_links", "retry_context", "driver", "spec"] {
+        for k in ["retry_context", "driver"] {
             if let Some(v) = j.get(k) {
                 input[k] = v.clone();
             }
@@ -1640,7 +1662,7 @@ impl World {
             "--input-file",
             &file,
         ];
-        if matches!(how.as_str(), "label" | "fixer") {
+        if matches!(how.as_str(), "approved" | "millwright") {
             a.extend(["--label", "tehas:ready"]);
         }
         let title = text_of(&j["title_sha256"]);
@@ -1675,7 +1697,7 @@ impl World {
     /// The approval of a start: by `by`, of `body`, with `links`, by label on
     /// 2026-10-14 (record_is).
     pub fn record_is(&self, by: &str, body: &str, links: &[&str]) {
-        *self.record.borrow_mut() = json!({"at": "2026-10-14T00:00:00Z", "by": by, "how": "label",
+        *self.record.borrow_mut() = json!({"at": "2026-10-14T00:00:00Z", "by": by, "how": "approved",
             "body_sha256": body_sha256(body), "links": links});
         self.record_put();
     }
@@ -1717,24 +1739,26 @@ impl Drop for World {
         let denied = self.read("denied");
         assert!(denied.is_empty(), "no stub stands in for:\n{denied}");
         let mut left = vec![];
-        for (dir, start, end) in OLD_STATE {
-            let Ok(entries) = fs::read_dir(self.home.join(dir)) else {
+        let home = Home::new(&self.home);
+        for (under, start, end) in OLD_STATE {
+            let dir = under.dir(&home);
+            let Ok(entries) = fs::read_dir(&dir) else {
                 continue;
             };
             for e in entries.flatten() {
                 let f = e.file_name().to_string_lossy().into_owned();
                 if f.starts_with(start) && f.ends_with(end) && f.len() >= start.len() + end.len() {
-                    left.push(format!("{dir}/{f}"));
+                    left.push(dir.join(f));
                 }
             }
         }
-        if let Ok(entries) = fs::read_dir(self.home.join("state/cycles")) {
+        if let Ok(entries) = fs::read_dir(home.cycles_dir()) {
             for e in entries.flatten() {
                 let f = e.file_name().to_string_lossy().into_owned();
                 if f.ends_with(".history.jsonl")
                     && f.starts_with(|c: char| ('1'..='9').contains(&c))
                 {
-                    left.push(format!("state/cycles/{f}"));
+                    left.push(home.cycles_dir().join(f));
                 }
             }
         }
@@ -1899,78 +1923,6 @@ pub fn epoch(when: &str) -> i64 {
         .unwrap();
     assert!(out.status.success(), "date -d {when}");
     String::from_utf8_lossy(&out.stdout).trim().parse().unwrap()
-}
-
-// --- The readers of a docker call's words (test/docker_args.sh) -------------
-
-#[allow(dead_code)] // each test file uses a part of this module
-/// The mount of the tmpfs and its options: the word after --tmpfs.
-pub fn security_tmpfs() -> String {
-    let w: Vec<&str> = SECURITY_OPTS.split(' ').collect();
-    let i = w.iter().position(|x| *x == "--tmpfs").unwrap();
-    w[i + 1].to_string()
-}
-
-#[allow(dead_code)] // each test file uses a part of this module
-/// The words after each `flag`, as docker reads them.
-pub fn security_of(args: &[String], flag: &str) -> Vec<String> {
-    args.windows(2)
-        .filter(|p| p[0] == flag)
-        .map(|p| p[1].clone())
-        .collect()
-}
-
-#[allow(dead_code)] // each test file uses a part of this module
-/// The documented options in order, each followed by a space, from their
-/// first full run in `args`; "" when they are not there in one run.
-pub fn security_line(args: &[String]) -> String {
-    let doc: Vec<&str> = SECURITY_OPTS.split(' ').collect();
-    args.windows(doc.len())
-        .find(|w| w.iter().zip(&doc).all(|(a, d)| a == d))
-        .map(|w| w.iter().map(|a| format!("{a} ")).collect())
-        .unwrap_or_default()
-}
-
-#[allow(dead_code)] // each test file uses a part of this module
-/// How many times an option stands in `args`, `--flag=<value>` among them.
-pub fn count_of(args: &[String], flag: &str) -> usize {
-    args.iter()
-        .filter(|a| a.split_once('=').map_or(a.as_str(), |(t, _)| t) == flag)
-        .count()
-}
-
-#[allow(dead_code)] // each test file uses a part of this module
-/// Every option of a docker run that is not one the command is known to
-/// pass, up to the image: `valued` names the options that take a value,
-/// `plain` those that take none, each list words split by spaces.
-pub fn unknown_options(args: &[String], image: &str, valued: &str, plain: &str) -> Vec<String> {
-    let valued: Vec<&str> = valued.split_whitespace().collect();
-    let plain: Vec<&str> = plain.split_whitespace().collect();
-    let host = regex::Regex::new(r"^--add-host=[A-Za-z0-9.-]+:[0-9a-fA-F.:]+$").unwrap();
-    let mut out = vec![];
-    let mut skip = false;
-    for (i, a) in args.iter().enumerate() {
-        if i == 0 || (i == 1 && a == "--pull=never") {
-            continue;
-        }
-        if skip {
-            skip = false;
-            continue;
-        }
-        if a == image {
-            break;
-        }
-        let t = a.split_once('=').map_or(a.as_str(), |(t, _)| t);
-        if valued.contains(&t) {
-            skip = t == a;
-            continue;
-        }
-        if plain.contains(&t) || host.is_match(a) {
-            continue;
-        }
-        out.push(a.clone());
-    }
-    out
 }
 
 #[allow(dead_code)] // each test file uses a part of this module

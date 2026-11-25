@@ -100,7 +100,7 @@ import { DEFAULT_KW, LINE, STAGES, ago, finishingIssues, normalize } from "./gam
       : (failure ? `Last cycle failed: #${failure.issue} ended as ${failure.status}. ` : "") +
         pauseNote +
         `${open.length} open: ${n("ready")} in line, ${n("running")} building, ${n("review")} in review, ` +
-        `${n("stopped")} stopped` + (state.live ? "." : `, ${n("backlog")} not on the line.`) +
+        `${n("stopped")} stopped` + (state.live ? "." : `, ${n("idea")} at idea.`) +
         (state.live && queue.readAt ? ` Queue read ${ago(queue.readAt, Date.now())}.` : "");
     // The summary is a line of the head panel, and the panel is part of the
     // first screen: when its text changes, so does the fold. It asks for one
@@ -125,17 +125,12 @@ import { DEFAULT_KW, LINE, STAGES, ago, finishingIssues, normalize } from "./gam
 
     setCount("door-open", open.length);
     setCount("door-stopped", n("stopped"));
-    setCount("door-backlog", state.live ? null : n("backlog"));
-    $("door-backlog-note").textContent = state.live ? "NOT IN THE LIVE QUEUE" : "OPEN, NOT QUEUED";
+    setCount("door-idea", state.live ? null : n("idea"));
+    $("door-idea-note").textContent = state.live ? "NOT IN THE LIVE QUEUE" : "OPEN, NO STATE LABEL";
     $("door-stopped-link").classList.toggle("is-alert", n("stopped") > 0);
     $("door-stopped-note").textContent = n("stopped") ? "NEEDS A HUMAN" : "NOTHING STOPPED";
     if (moved) refitFold();
   }
-
-  // The lab is not a stage. A prototype is a ticket with this label, wherever it stands on the line.
-  const LAB_LABEL = "tehas:prototype";
-  const inLab = () => state.tickets.filter((t) => t.stage !== "shipped" && t.labels.includes(LAB_LABEL))
-    .sort((a, b) => b.number - a.number);
 
   function rowFor(ticket) {
     const row = el("button", "row");
@@ -150,87 +145,6 @@ import { DEFAULT_KW, LINE, STAGES, ago, finishingIssues, normalize } from "./gam
     const notes = notesOf(ticket.number);
     if (notes) li.append(notes);
     return li;
-  }
-
-  // The lab is the quick way to a prototype, so its rows also link straight to the ticket.
-  function labRowFor(ticket) {
-    const li = rowFor(ticket);
-    if (ticket.url) {
-      const a = el("a", "row-open", "OPEN");
-      point(a, ticket.url);
-      a.setAttribute("aria-label", `Open ticket ${ticket.number}`);
-      li.classList.add("has-link");
-      li.firstChild.after(a);
-    }
-    return li;
-  }
-
-  // The Protolab's own list, /live/protolab.json, written by tehasbot protolab: every
-  // ticket at the prototype stage and how much is attached to it. The live queue
-  // does not carry prototypes, so with the live queue the lab is filled from this.
-  // The lab is another server. A ticket is at the address the file gives it
-  // when the host has a domain for the edge; otherwise under the address the
-  // file names, or else at port 8081 of this host when the page came over
-  // plain HTTP.
-  const lab = { tickets: null, base: null, signature: "" };
-
-  function hostedRowFor(item) {
-    const li = el("li", "has-link");
-    const row = el("a", "row");
-    row.href = item.address || `${lab.base}/${item.number}/`;
-    row.target = "_blank";
-    row.rel = "noopener";
-    row.setAttribute("aria-label", `Ticket ${item.number} in the Protolab: ${item.title}`);
-    row.append(el("b", null, "#" + item.number), el("span", "row-title", item.title),
-      el("span", "row-stage", item.files ? `${item.files} ${item.files === 1 ? "FILE" : "FILES"}` : "NO FILES"));
-    li.append(row);
-    if (item.url) {
-      const host = hostHref(item.url);
-      const a = el("a", "row-open", host ? "OPEN" : "GITHUB");
-      point(a, item.url);
-      a.setAttribute("aria-label", host ? `Open ticket ${item.number}` : `Open ticket ${item.number} on GitHub`);
-      li.append(a);
-    }
-    const notes = notesOf(item.number);
-    if (notes) li.append(notes);
-    return li;
-  }
-
-  async function refreshLab() {
-    if (document.hidden) return;
-    let s = null;
-    try {
-      const r = await fetch("/live/protolab.json", { cache: "no-store" });
-      if (r.ok) s = await r.json();
-    } catch { /* unreachable, or no Protolab on this host */ }
-    const ok = s && typeof s === "object" && Array.isArray(s.tickets);
-    const tickets = !ok ? null : s.tickets.filter((t) => t && Number.isSafeInteger(t.number) && t.number > 0 && typeof t.title === "string")
-      .map((t) => ({ number: t.number, title: t.title.slice(0, 180), files: Number.isSafeInteger(t.files) ? t.files : 0,
-        address: typeof t.address === "string" && /^https:\/\/lab-[1-9][0-9]{0,8}[.-][a-z0-9.-]+\/$/.test(t.address) ? t.address : null,
-        url: typeof t.url === "string" && t.url.startsWith("https://github.com/") ? t.url : null }));
-    const base = !ok ? null : /^https?:\/\/[A-Za-z0-9.-]+(:[0-9]+)?$/.test(s.url) ? s.url
-      : location.protocol === "http:" ? `http://${location.hostname}:8081` : null;
-    const signature = JSON.stringify([base, tickets]);
-    if (signature === lab.signature) return;
-    Object.assign(lab, { tickets: base ? tickets : null, base, signature });
-    renderLab();
-  }
-
-  function renderLab() {
-    if (state.live && lab.tickets) {
-      setCount("door-lab", lab.tickets.length);
-      $("lab-count").textContent = `${lab.tickets.length} OPEN`;
-      $("lab-rows").replaceChildren(...(lab.tickets.length ? lab.tickets.map(hostedRowFor)
-        : [el("li", "rows-note", `Nothing in the lab. An allowed account labels an open ticket ${LAB_LABEL} to put it here.`)]));
-      return;
-    }
-    const list = inLab();
-    setCount("door-lab", state.live ? null : list.length);
-    $("lab-count").textContent = state.loaded && !state.live ? `${list.length} OPEN` : "";
-    if (list.length) { $("lab-rows").replaceChildren(...list.map(labRowFor)); return; }
-    $("lab-rows").replaceChildren(el("li", "rows-note", !state.loaded ? "No ticket data loaded."
-      : state.live ? "The live queue lists only tickets on the line, and this host runs no Protolab. Load an export to see the prototypes."
-      : `Nothing in the lab. An allowed account labels an open ticket ${LAB_LABEL} to put it here.`));
   }
 
   // Work order facts. null means the data does not say, or nothing was spent
@@ -322,7 +236,8 @@ import { DEFAULT_KW, LINE, STAGES, ago, finishingIssues, normalize } from "./gam
         ? "No ticket data loaded. Use the sample or load an export at the foot of the page."
         : state.query
           ? `Nothing matches "${state.query}". Clear the search to see every ticket.`
-          : state.live && state.filter === "backlog" ? "The live queue lists only tickets on the line. Load an export to see the rest."
+          : state.live && state.filter === "idea" ? "The live queue lists only tickets on the line. Load an export to see the rest."
+          : state.filter === "idea" ? "No tickets are at idea."
           : `No tickets are ${state.filter === "open" ? "open" : STAGES[state.filter].toLowerCase()}.`;
       rows.replaceChildren(el("li", "rows-note", text));
       return;
@@ -503,7 +418,6 @@ import { DEFAULT_KW, LINE, STAGES, ago, finishingIssues, normalize } from "./gam
     $("board-search").value = "";
     renderFloor();
     renderBoard();
-    renderLab();
     renderOrder();
     printOrder();
     resetGame();
@@ -550,7 +464,7 @@ import { DEFAULT_KW, LINE, STAGES, ago, finishingIssues, normalize } from "./gam
     source.textContent = stale ? "QUEUE STALE" : "LIVE QUEUE";
     source.dataset.kind = stale ? "stale" : "live";
     const text = `Showing the factory's live queue, read ${ago(queue.readAt, Date.now()) || "at an unknown time"}: ${state.tickets.length} tickets on the line. ` +
-      "Prototypes and tickets not on the line are not in the queue snapshot.";
+      "Tickets at idea are not in the queue snapshot.";
     source.title = text;
     $("data-status").textContent = text;
   }
@@ -592,8 +506,7 @@ import { DEFAULT_KW, LINE, STAGES, ago, finishingIssues, normalize } from "./gam
       }
       renderFloor();
       renderBoard();
-      renderLab();
-      renderOrder();
+        renderOrder();
       if (game.mode === "ready") resetGame();
       if (keep && keep.list) {
         const again = keep.list.querySelector(`[data-number="${keep.number}"]`);
@@ -980,13 +893,11 @@ import { DEFAULT_KW, LINE, STAGES, ago, finishingIssues, normalize } from "./gam
     }
     useSample();
   };
-  renderFloor(); renderBoard(); renderLab(); renderOrder(); resetGame();
-  globalThis.TEHAS_HOST_BRIDGE?.onChange(() => { renderFloor(); renderBoard(); renderLab(); renderOrder(); });
+  renderFloor(); renderBoard(); renderOrder(); resetGame();
+  globalThis.TEHAS_HOST_BRIDGE?.onChange(() => { renderFloor(); renderBoard(); renderOrder(); });
   if (queue.mode === "manual") fallback();
   else refreshQueue().then((ok) => { if (!ok && !state.loaded) fallback(); });
   setInterval(refreshQueue, 10000);
-  refreshLab();
-  setInterval(refreshLab, 60000);
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) { refreshQueue(); refreshLab(); } });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { refreshQueue(); } });
   requestAnimationFrame(frame);
 })();

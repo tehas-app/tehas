@@ -630,7 +630,7 @@ app = { path = "app" }
         assert!(ws["attach"].deps.contains(&"core".to_string()));
         assert_eq!(
             ws["console"].deps,
-            ["attach", "store", "core", "cycle", "ops"]
+            ["attach", "store", "core", "cycle", "github", "ops", "ports"]
         );
     }
 }

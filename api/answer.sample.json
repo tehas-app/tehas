@@ -1,0 +1,16 @@
+{
+  "answer": {
+    "at": "2026-10-17T14:00:20Z",
+    "by": "alice",
+    "choice": "retry",
+    "how": "answer",
+    "option": null
+  },
+  "api": 1,
+  "issue": 12,
+  "question": {
+    "id": 1,
+    "kind": "park"
+  },
+  "replaced": false
+}

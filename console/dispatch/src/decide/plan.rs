@@ -5,107 +5,67 @@
 
 use super::clean::iso;
 
-/// Why the fixer may not answer this session's question, empty when it may.
-fn fixer_answer_why(c: &Settings, view: &Value) -> String {
+/// Why the millwright may not answer this session's question, empty when it may.
+fn millwright_why(c: &Settings, view: Option<&PlanView>) -> String {
     if c.millwright.is_empty() {
-        return "there is no fixer".into();
+        return "there is no millwright".into();
     }
-    if !view.is_object() {
+    let Some(view) = view else {
         return "the session has no record on this host".into();
-    }
-    let by = view.get("by").and_then(Value::as_str).unwrap_or("");
+    };
+    let by = view.by.as_str();
     if by.is_empty() || !c.allowed(by) {
         return "no person's tehas:plan started this session, as far as its record says".into();
     }
-    let answers = match view.get("answers") {
-        None | Some(Value::Null) => Some(Vec::new()),
-        Some(Value::Array(a)) => a
-            .iter()
-            .map(|x| x.get("fixer").and_then(Value::as_bool))
-            .collect::<Option<Vec<bool>>>(),
-        Some(_) => None,
-    };
-    let Some(answers) = answers else {
+    let Some(answers) = &view.millwrights else {
         return "its record does not say who answered its turns".into();
     };
     let had = answers.iter().filter(|f| **f).count();
     if answers.last() == Some(&true) {
-        return "the fixer answered the question before this one; a person answers this one".into();
+        return "the millwright answered the question before this one; a person answers this one"
+            .into();
     }
-    if had as i64 >= c.fixer_max_plan_answers {
-        return format!("the fixer has answered {had} questions in this session, the limit");
+    if had as i64 >= c.millwright_max_plan_answers {
+        return format!("the millwright has answered {had} questions in this session, the limit");
     }
     String::new()
 }
-use super::{has, or_unknown, End, Poll, Room, Step};
+/// millwright_why of a session in `shape`'s JSON.
+#[cfg(test)]
+fn millwright_answer_why(c: &Settings, view: &Value) -> String {
+    millwright_why(c, crate::snapshot::plan_view(view).as_ref())
+}
+use super::{has, or_unknown, Action, End, NoteKind, Poll, Room, Spend, Step, Turn};
+use crate::questions::Asked;
 use crate::settings::Settings;
+#[cfg(test)]
+use crate::snapshot::shape;
+use crate::snapshot::{Given, PlanList, PlanRow, PlanView, View};
 use crate::text;
-use serde_json::{json, Value};
+use serde_json::json;
+#[cfg(test)]
+use serde_json::Value;
 
 /// The largest issue number and the latest cycle start (epoch seconds) a
 /// park owed a refine is read with.
 const ISSUE_MAX: u64 = 9_999_999_999;
 const TIME_MAX: u64 = 99_999_999_999;
 
-fn digits(v: &Value) -> Option<String> {
-    let s = match v {
-        Value::Number(n) => n.to_string(),
-        Value::String(s) => s.clone(),
-        _ => return None,
+fn digits(v: Option<&Given>) -> Option<String> {
+    let s = match v? {
+        Given::Number(n) => n.to_string(),
+        Given::Text(s) => s.clone(),
+        Given::Other(_) => return None,
     };
     (!s.is_empty() && s.len() <= 16 && !s.starts_with('0') && s.bytes().all(|b| b.is_ascii_digit()))
         .then_some(s)
 }
 
-/// The shape of `store plan-view`: the session as plan_view gives it, from plan-show's
-/// `.planning`: the refused replies of both names and the held ticks from
-/// the notes, and an answer's millwright as fixer.
-pub(crate) fn shape(row: &Value) -> Value {
-    if !row.is_object() {
-        return Value::Null;
-    }
-    let notes = |k: &str| {
-        row.pointer(&format!("/notes/{k}"))
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default()
-    };
-    let mut refused = notes("millwright_refused");
-    refused.extend(notes("fixer_refused"));
-    let answers: Vec<Value> = row
-        .get("answers")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .map(|a| match a.get("millwright") {
-            Some(Value::Bool(m)) => json!({"turn": a.get("turn"), "by": a.get("by"), "fixer": m}),
-            _ => a,
-        })
-        .collect();
-    let mut v = json!({"answers": answers});
-    for k in ["by", "label"] {
-        if let Some(x) = row.get(k).filter(|x| !x.is_null()) {
-            v[k] = x.clone();
-        }
-    }
-    if !refused.is_empty() {
-        v["fixer_refused"] = json!(refused);
-    }
-    let held = notes("held");
-    if !held.is_empty() {
-        v["held"] = json!(held);
-    }
-    v
-}
-
 /// Whether a list of the record holds the id, a number as jq's index finds
-/// it.
-fn listed(v: &Value, key: &str, id: &str) -> bool {
-    v.get(key).and_then(Value::as_array).is_some_and(|a| {
-        a.iter()
-            .any(|x| x.as_u64().is_some_and(|v| v.to_string() == id))
-    })
+/// it. A list that is not one holds every id.
+fn listed(ids: &Option<Vec<u64>>, id: &str) -> bool {
+    ids.as_ref()
+        .is_none_or(|a| a.iter().any(|v| v.to_string() == id))
 }
 
 impl Poll<'_> {
@@ -124,7 +84,7 @@ impl Poll<'_> {
                     self.log(format!("would report the cut-off planning turn of #{n}"));
                 }
             } else {
-                self.act(json!({"plan_collect": n}));
+                self.act(Action::PlanCollect(n));
             }
             fresh.push(n);
         }
@@ -136,7 +96,7 @@ impl Poll<'_> {
             if self.dry {
                 self.log(format!("would post the waiting planning turn of #{n}"));
             } else {
-                self.act(json!({"plan_post": n}));
+                self.act(Action::PlanPost(n));
             }
             fresh.push(n);
         }
@@ -153,73 +113,43 @@ impl Poll<'_> {
             // A dry run closes nothing: the session stays open for the rules
             // after this one.
             if !self.dry {
-                self.act(json!({"plan_close": n}));
+                self.act(Action::PlanClose(n));
                 self.plan_closed.push(n);
             }
         }
     }
 
     fn plan_end(&mut self, n: u64, text: &str) {
-        self.act(json!({"plan_end": n, "say": text}));
+        self.act(Action::PlanEnd {
+            issue: n,
+            say: text.to_string(),
+        });
     }
 
-    /// fixer_answer_ok: whether the fixer's tick or reply may run the turn.
-    fn fixer_answer_ok(&mut self, n: u64, view: &Value, ans: &Value, said: &str) -> bool {
-        let boxes = ans["boxes"].as_u64().unwrap_or(0);
-        let why = if ans["tick"]["status"] == "fixer"
-            && ans["tick"]["index"].as_u64().map(|i| i + 1) == Some(boxes)
-        {
-            "it ticked End this planning session, which only a person may".to_string()
-        } else {
-            fixer_answer_why(self.c, view)
-        };
+    /// millwright_answer_ok: whether the millwright's reply may run the turn.
+    fn millwright_answer_ok(&mut self, n: u64, view: &PlanView, ans: &Asked) -> bool {
+        let why = millwright_why(self.c, Some(view));
         if why.is_empty() {
             return true;
         }
-        if said == "tick" {
-            self.log(format!("skip #{n}: the fixer's answer runs no turn: {why}"));
-            if !self.dry {
-                let note = format!("The fixer's tick was not taken as an answer: {why}. It was unticked. A person answers this question.");
-                self.untick(n, ans, Some(&note));
-            }
-            return false;
-        }
-        let Some(id) = digits(&ans["fixer_reply"]["id"]) else {
+        let Some(id) = digits(ans.millwright_reply.as_ref().and_then(|f| f.id.as_ref())) else {
             return false;
         };
-        if view
-            .get("fixer_refused")
-            .is_some_and(|v| !v.is_array() && !v.is_null())
-            || listed(view, "fixer_refused", &id)
-        {
+        if listed(&view.refused, &id) {
             return false;
         }
-        self.log(format!("skip #{n}: the fixer's answer runs no turn: {why}"));
+        self.log(format!(
+            "skip #{n}: the millwright's answer runs no turn: {why}"
+        ));
         if !self.dry {
-            self.act(json!({"plan_note": n, "kind": "millwright-refused", "id": id,
-                "say": format!("Tehas did not take the fixer's reply as an answer: {why}. A person answers this question.")}));
+            self.act(Action::PlanNote {
+                issue: n,
+                kind: NoteKind::MillwrightRefused,
+                id,
+                say: format!("Tehas did not take the millwright's reply as an answer: {why}. A person answers this question."),
+            });
         }
         false
-    }
-
-    /// fixer_held: a tick the fixer saved after someone else edited the
-    /// question is neither used nor undone. Said once a question.
-    fn fixer_held(&mut self, n: u64, view: &Value, ans: &Value) {
-        let Some(id) = digits(&ans["comment"]) else {
-            return;
-        };
-        if view
-            .get("held")
-            .is_some_and(|v| !v.is_array() && !v.is_null())
-            || listed(view, "held", &id)
-        {
-            return;
-        }
-        self.log(format!("skip #{n}: the fixer saved the question after another account did, so who ticked it is not known"));
-        if !self.dry {
-            self.act(json!({"plan_note": n, "kind": "held", "id": id,
-                "say": "Tehas did not take the box ticked in this question as an answer: the fixer saved the comment after another account did, and GitHub does not say who ticked it. A person ticks the box again or replies."}));
-        }
     }
 
     /// The answer to a planning question: the next turn runs with it, and
@@ -227,58 +157,44 @@ impl Poll<'_> {
     pub(super) fn plan_answer(
         &mut self,
         n: u64,
-        ans: &Value,
+        ans: &Asked,
         tick: &str,
-        row: &Value,
+        row: &PlanRow,
         room: &Room,
     ) -> Step {
-        let mut by = ans["tick"]["by"].as_str().unwrap_or("").to_string();
-        let mut reply = ans["reply"]["text"]
-            .as_str()
+        let mut by = ans.tick.by.clone();
+        let mut reply = ans
+            .reply
+            .as_ref()
+            .and_then(|r| r.text.as_ref())
+            .and_then(Given::text)
             .unwrap_or("")
             .trim_end_matches('\n')
             .to_string();
         let mut reply_id = String::new();
-        let mut fixer_said = "";
+        let mut millwright_said = "";
         if !reply.is_empty() {
-            by = ans["reply"]["by"].as_str().unwrap_or("").to_string();
-            reply_id = digits(&ans["reply"]["id"]).unwrap_or_default();
+            let r = ans.reply.as_ref();
+            by = r.map(|r| r.by.clone()).unwrap_or_default();
+            reply_id = digits(r.and_then(|r| r.id.as_ref())).unwrap_or_default();
         } else if tick == "one" {
-        } else if tick == "held" {
-            if row.is_object() {
-                self.fixer_held(n, &shape(row), ans);
-            }
-            return Ok(());
-        } else if tick == "unread" {
-            // The question's edit history could not be read this poll: who
-            // saved it is not known, so nothing is said or done, and the next
-            // poll reads it again.
-            self.log(format!(
-                "skip #{n}: the edit history of its question could not be read; it waits for the next poll"
-            ));
-            return Ok(());
-        } else if !ans["fixer_reply"].is_null() {
-            fixer_said = "reply";
-        } else if tick == "fixer" {
-            fixer_said = "tick";
+        } else if ans.millwright_reply.is_some() {
+            millwright_said = "reply";
         } else {
             return Ok(());
         }
-        if row.is_null() {
+        if *row == PlanRow::None {
             if !self.dry {
                 self.plan_end(n, "The record of this planning session is gone from the host, so it cannot continue. Apply `tehas:plan` to start a new one.");
             }
             return Ok(());
         }
-        let wanted = match row.get("comment_id") {
-            None | Some(Value::Null) => String::new(),
-            Some(Value::String(s)) => s.clone(),
-            Some(v) => v.to_string(),
+        let open = match row {
+            PlanRow::Open(p) => Some(&**p),
+            _ => None,
         };
-        let answered = match &ans["comment"] {
-            Value::String(s) => s.clone(),
-            v => v.to_string(),
-        };
+        let wanted = open.map_or("", |p| p.comment_id.as_str());
+        let answered = Given::said(ans.comment.as_ref());
         if wanted != answered {
             self.log(format!(
                 "skip #{n}: the question answered is not the one this session is waiting on"
@@ -286,58 +202,49 @@ impl Poll<'_> {
             return Ok(());
         }
         let mut speaker = "The operator";
-        if !fixer_said.is_empty() {
-            if !row.is_object() {
+        if !millwright_said.is_empty() {
+            let Some(p) = open else {
                 self.log(format!(
                     "skip #{n}: its planning session on record could not be read"
                 ));
                 return Ok(());
-            }
-            if !self.fixer_answer_ok(n, &shape(row), ans, fixer_said) {
+            };
+            if !self.millwright_answer_ok(n, &p.view, ans) {
                 return Ok(());
             }
-            speaker = "The fixer";
+            speaker = "The millwright";
             by = self.c.millwright.clone();
-            if fixer_said == "reply" {
-                reply = ans["fixer_reply"]["text"]
-                    .as_str()
-                    .unwrap_or("")
+            if millwright_said == "reply" {
+                let f = ans.millwright_reply.as_ref();
+                reply = f
+                    .map_or("", |f| f.text.as_str())
                     .trim_end_matches('\n')
                     .to_string();
-                reply_id = digits(&ans["fixer_reply"]["id"]).unwrap_or_default();
+                reply_id = digits(f.and_then(|f| f.id.as_ref())).unwrap_or_default();
             }
         }
-        let boxes = ans["boxes"].as_u64().unwrap_or(0);
-        let index = ans["tick"]["index"].as_u64();
+        let boxes = ans.boxes as u64;
+        let mut index = ans.tick.index.map(|i| i as u64);
+        // The millwright's reply that names a choice makes it, as a person's does.
+        if millwright_said == "reply" {
+            if let Some(i) = crate::questions::choice_of(&reply, "plan", &ans.labels) {
+                index = Some(i as u64);
+                reply.clear();
+            }
+        }
         // As `$(jq -r ...)` leaves it: no final newlines.
         let option = |i: u64| {
-            row.get("options")
-                .and_then(|o| o.get(i as usize))
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .trim_end_matches('\n')
-                .to_string()
+            open.and_then(|p| p.options.get(i as usize))
+                .cloned()
+                .unwrap_or_default()
         };
         let text = if !reply.is_empty() {
-            let mut text = format!("{speaker} replied on the issue:\n\n{reply}");
-            if tick == "one" {
-                let i = index.unwrap_or(u64::MAX);
-                let choice = if i.checked_add(1) == Some(boxes) {
-                    "End this planning session".to_string()
-                } else {
-                    Some(option(i))
-                        .filter(|c| !c.is_empty())
-                        .unwrap_or_else(|| "a box that matches no option on record".into())
-                };
-                let ticker = ans["tick"]["by"].as_str().unwrap_or("");
-                text = format!("{text}\n\nA box was also ticked, by {ticker}: {choice}");
-            }
-            text
+            format!("{speaker} replied on the issue:\n\n{reply}")
         } else {
             let i = index.unwrap_or(u64::MAX);
             if i.checked_add(1) == Some(boxes) {
-                if !fixer_said.is_empty() {
-                    self.log(format!("skip #{n}: the fixer's answer runs no turn: it would end the session, which only a person may"));
+                if !millwright_said.is_empty() {
+                    self.log(format!("skip #{n}: the millwright's answer runs no turn: it would end the session, which only a person may"));
                     return Ok(());
                 }
                 if !self.dry {
@@ -348,7 +255,7 @@ impl Poll<'_> {
             let choice = option(i);
             if choice.is_empty() {
                 self.log(format!(
-                    "skip #{n}: the ticked box matches no option on record"
+                    "skip #{n}: the choice made matches no option on record"
                 ));
                 return Ok(());
             }
@@ -364,10 +271,10 @@ impl Poll<'_> {
             return Ok(());
         }
         self.mesh_ok()?;
-        let from = if fixer_said.is_empty() {
+        let from = if millwright_said.is_empty() {
             by.clone()
         } else {
-            format!("{by}, the fixer")
+            format!("{by}, the millwright")
         };
         if self.dry {
             self.log(format!(
@@ -376,28 +283,25 @@ impl Poll<'_> {
             return Err(End(0));
         }
         // Its line is logged once the answer is written, as the bash does.
-        let mut a = json!({"plan_turn": n, "kind": "next", "answer": text, "by": by,
-            "log": format!("planning #{n} continues (answer from {from})")});
-        if !reply_id.is_empty() {
-            a["reply"] = json!(reply_id);
-        }
-        self.act(a);
+        self.act(Action::PlanTurn {
+            issue: n,
+            turn: Turn::Next {
+                answer: text,
+                by,
+                log: format!("planning #{n} continues (answer from {from})"),
+                reply: (!reply_id.is_empty()).then_some(reply_id),
+            },
+        });
         Err(End(0))
     }
 
     /// The title and body of the view the poll read, which a first turn's
     /// brief is written from.
-    fn brief_text(&self, n: u64) -> (Value, Value) {
-        let v = self
-            .s
-            .issues
-            .get(&n)
-            .and_then(|i| i.view.clone())
-            .unwrap_or(Value::Null);
-        (
-            v.get("title").cloned().unwrap_or(Value::Null),
-            v.get("body").cloned().unwrap_or(Value::Null),
-        )
+    fn brief_text(&self, n: u64) -> (Option<String>, Option<String>) {
+        match self.s.issues.get(&n).and_then(|i| i.view.clone()) {
+            Some(View::Read(v)) => (v.title, v.body),
+            _ => (None, None),
+        }
     }
 
     fn refine_path(&self) -> String {
@@ -412,13 +316,13 @@ impl Poll<'_> {
         let mut lists = Vec::new();
         let mut unreadable = false;
         for l in [self.s.plans.clone(), self.s.refines.clone()] {
-            let Some(l) = l else {
-                self.need("plans");
-                return Ok(());
-            };
-            match l.as_array() {
-                Some(a) => lists.extend(a.clone()),
-                None => unreadable = true,
+            match l {
+                None => {
+                    self.need("plans");
+                    return Ok(());
+                }
+                Some(PlanList::Read(a)) => lists.extend(a),
+                Some(PlanList::Unreadable) => unreadable = true,
             }
         }
         if unreadable {
@@ -430,22 +334,14 @@ impl Poll<'_> {
         }
         let mut entries: Vec<(u64, &'static str)> = Vec::new();
         for i in &lists {
-            let names: Vec<String> = i
-                .get("labels")
-                .and_then(Value::as_array)
-                .map(|a| {
-                    a.iter()
-                        .filter_map(|l| l.get("name").and_then(Value::as_str).map(str::to_string))
-                        .collect()
-                })
-                .unwrap_or_default();
-            if has(&names, "tehas:planning") || has(&names, "tehas:running") {
+            let names = &i.labels;
+            if has(names, "tehas:planning") || has(names, "tehas:running") {
                 continue;
             }
-            let Some(n) = i.get("number").and_then(Value::as_u64) else {
+            let Some(n) = i.number else {
                 return Err(self.fail("ERROR: unreadable list of issues to plan", 1));
             };
-            let label = if has(&names, "tehas:plan") {
+            let label = if has(names, "tehas:plan") {
                 "tehas:plan"
             } else {
                 "tehas:refine"
@@ -484,10 +380,10 @@ impl Poll<'_> {
                     self.need("view");
                     return Ok(());
                 }
-                Some(v) if v.get("failed") == Some(&json!(true)) => {
+                Some(View::Failed) => {
                     return Err(self.fail("ERROR: gh issue view failed", 1));
                 }
-                Some(_) => {}
+                Some(View::Read(_)) => {}
             }
             let mut on_epic = String::new();
             let mut epic = None;
@@ -532,15 +428,21 @@ impl Poll<'_> {
             // The text the label approved goes in the brief; the line is
             // logged once the brief is written, as the bash does.
             let (title, body) = self.brief_text(n);
-            let mut a = json!({"plan_turn": n, "kind": "first", "label": label, "by": who, "refine": refine,
-                "title": title, "body": body, "log": format!("start planning #{n} (labelled by {who}{to})")});
-            if refine {
-                a["brief_extra"] = json!(self.refine_path());
-            }
-            if let Some(e) = epic {
-                a["epic"] = json!(e);
-            }
-            self.act(a);
+            let log = format!("start planning #{n} (labelled by {who}{to})");
+            self.act(Action::PlanTurn {
+                issue: n,
+                turn: Turn::First {
+                    label: label.to_string(),
+                    by: who,
+                    refine,
+                    title,
+                    body,
+                    log,
+                    brief_extra: refine.then(|| self.refine_path()),
+                    epic,
+                    auto: None,
+                },
+            });
             return Err(End(0));
         }
         Ok(())
@@ -556,7 +458,7 @@ impl Poll<'_> {
         &mut self,
         n: u64,
         label: &str,
-        fixer: &str,
+        millwright: &str,
     ) -> Step<Option<(String, String, u64)>> {
         match self.epic_part(n)? {
             super::EpicPart::Granted(g) => {
@@ -566,27 +468,27 @@ impl Poll<'_> {
                     n,
                     &at,
                     &who,
-                    &format!("the fixer applied {label}"),
-                    "the fixer or a person applies it again",
+                    &format!("the millwright applied {label}"),
+                    "the millwright or a person applies it again",
                 )? {
                     return Ok(None);
                 }
                 let said = format!(
-                    " as the fixer, on {}'s `tehas:ready` on epic #{} at {}",
+                    " as the millwright, on {}'s `tehas:ready` on epic #{} at {}",
                     g.by, g.epic, g.at
                 );
                 Ok(Some((g.by, said, g.epic)))
             }
             super::EpicPart::Refused(why) => {
                 self.log(format!(
-                    "skip #{n}: {label} from the fixer starts nothing: {why}"
+                    "skip #{n}: {label} from the millwright starts nothing: {why}"
                 ));
-                self.clear_unauthorised(n, label, fixer);
+                self.clear_unauthorised(n, label, millwright);
                 Ok(None)
             }
             super::EpicPart::None => {
-                self.deny("skip", n, label, fixer);
-                self.clear_unauthorised(n, label, fixer);
+                self.deny("skip", n, label, millwright);
+                self.clear_unauthorised(n, label, millwright);
                 Ok(None)
             }
         }
@@ -616,31 +518,19 @@ impl Poll<'_> {
             // A row the store gave of a shape it never writes is said, every
             // poll: one with no issue number cannot be spent, and the rest of
             // the list still runs.
-            let Some(n) = p
-                .get("issue")
-                .and_then(Value::as_u64)
-                .filter(|n| (1..=ISSUE_MAX).contains(n))
-            else {
+            let Some(n) = p.issue.filter(|n| (1..=ISSUE_MAX).contains(n)) else {
                 self.log(format!(
                     "WARN: a park owed a refine names no issue tehas can read (issue={})",
-                    p.get("issue").unwrap_or(&Value::Null)
+                    p.issue_said
                 ));
                 continue;
             };
-            let started = p
-                .get("started_at")
-                .and_then(Value::as_u64)
-                .filter(|t| *t <= TIME_MAX);
-            let field = |k: &str| match p.get(k) {
-                None | Some(Value::Null) | Some(Value::Bool(false)) => "-".to_string(),
-                Some(Value::String(s)) => s.clone(),
-                Some(v) => v.to_string(),
-            };
+            let started = p.started_at.filter(|t| *t <= TIME_MAX);
             let (by, reason, qid, sum) = (
-                field("started_by"),
-                field("park_reason"),
-                field("question"),
-                field("body_sha256"),
+                p.started_by.dash(),
+                p.park_reason.dash(),
+                p.question.dash(),
+                p.body_sha256.dash(),
             );
             if let Some(busy) = self.plan_busy {
                 self.log(format!(
@@ -662,7 +552,7 @@ impl Poll<'_> {
             self.mesh_ok()?;
             if self.park_ticked.contains(&n) {
                 self.log(format!(
-                    "skip #{n}: not refined: a box of its park question is ticked"
+                    "skip #{n}: not refined: a choice was made on its park question"
                 ));
                 continue;
             }
@@ -670,10 +560,13 @@ impl Poll<'_> {
                 // Spent like any other refusal, or it is owed every poll.
                 self.log(format!(
                     "skip #{n}: not refined: its park record has no time its cycle began (started_at={})",
-                    p.get("started_at").unwrap_or(&Value::Null)
+                    p.started_said
                 ));
                 if !self.dry {
-                    self.act(json!({"park_retry": n, "how": "skipped"}));
+                    self.act(Action::ParkRetry {
+                        issue: n,
+                        how: Spend::Skipped,
+                    });
                 }
                 continue;
             };
@@ -684,24 +577,17 @@ impl Poll<'_> {
             ) {
                 why = "it is the control issue".into();
             } else {
-                let Some(view) = self.s.issues.get(&n).and_then(|i| i.view.clone()) else {
-                    self.need("view");
-                    return Ok(());
+                let view = match self.s.issues.get(&n).and_then(|i| i.view.clone()) {
+                    None => {
+                        self.need("view");
+                        return Ok(());
+                    }
+                    Some(View::Failed) => {
+                        return Err(self.fail("ERROR: gh issue view failed", 1));
+                    }
+                    Some(View::Read(v)) => v,
                 };
-                if view.get("failed") == Some(&json!(true)) {
-                    return Err(self.fail("ERROR: gh issue view failed", 1));
-                }
-                let have: Vec<String> = view
-                    .get("labels")
-                    .and_then(Value::as_array)
-                    .map(|a| {
-                        a.iter()
-                            .filter_map(|l| {
-                                l.get("name").and_then(Value::as_str).map(str::to_string)
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
+                let have = &view.labels;
                 for l in [
                     "tehas:ready",
                     "tehas:running",
@@ -711,19 +597,19 @@ impl Poll<'_> {
                     "tehas:refined",
                     "tehas:replaced",
                 ] {
-                    if has(&have, l) {
+                    if has(have, l) {
                         why = format!("it carries {l}");
                     }
                 }
-                if !(has(&have, "needs-human-attention") && has(&have, "tehas:question")) {
+                if !(has(have, "needs-human-attention") && has(have, "tehas:question")) {
                     why = "it is no longer parked".into();
                 }
                 if qid == "-" {
                     why = "its park question was answered".into();
                 }
                 let line = view
-                    .get("body")
-                    .and_then(Value::as_str)
+                    .body
+                    .as_deref()
                     .unwrap_or("")
                     .split('\n')
                     .next()
@@ -739,12 +625,12 @@ impl Poll<'_> {
                 if !self.c.allowed(&by) {
                     why = format!("its cycle was not started by an account that may label ({by})");
                 }
-                if sum != "-" && sum != text::body_sha256(&view) {
+                if sum != "-" && sum != text::body_sha256(&json!({"body": view.body})) {
                     why = "its text changed since its cycle began".into();
                 }
                 // Last: a closed issue is not in the page, so nothing else of
                 // it is known.
-                if view.get("state").and_then(Value::as_str) != Some("OPEN") {
+                if view.state.as_deref() != Some("OPEN") {
                     why = "it is closed".into();
                 }
                 if why.is_empty()
@@ -762,7 +648,10 @@ impl Poll<'_> {
             if !why.is_empty() {
                 self.log(format!("skip #{n}: not refined: {why}"));
                 if !self.dry {
-                    self.act(json!({"park_retry": n, "how": "skipped"}));
+                    self.act(Action::ParkRetry {
+                        issue: n,
+                        how: Spend::Skipped,
+                    });
                 }
                 continue;
             }
@@ -780,13 +669,25 @@ impl Poll<'_> {
             }
             // Spent once its brief is written, before the session begins: a
             // poll that fails after it never starts a second session.
-            self.act(json!({"park_retry": n, "how": "refine"}));
+            self.act(Action::ParkRetry {
+                issue: n,
+                how: Spend::Refine,
+            });
             let (title, body) = self.brief_text(n);
-            self.act(
-                json!({"plan_turn": n, "kind": "first", "label": "tehas:refine", "by": by,
-                "refine": true, "auto": reason, "title": title, "body": body,
-                "brief_extra": self.refine_path(), "log": format!("start {line}")}),
-            );
+            self.act(Action::PlanTurn {
+                issue: n,
+                turn: Turn::First {
+                    label: "tehas:refine".into(),
+                    by,
+                    refine: true,
+                    title,
+                    body,
+                    log: format!("start {line}"),
+                    brief_extra: Some(self.refine_path()),
+                    epic: None,
+                    auto: Some(reason),
+                },
+            });
             return Err(End(0));
         }
         Ok(())
@@ -797,73 +698,73 @@ impl Poll<'_> {
 mod tests {
     use super::*;
 
-    fn with_fixer(max: &str) -> Settings {
+    fn with_millwright(max: &str) -> Settings {
         Settings::parse(&json!({
             "TEHAS_ALLOWED_LABELERS": "alice bob",
-            "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+            "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
             "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS": max,
         }))
     }
 
-    /// A session alice started, with the fixer flags of its answers, oldest
+    /// A session alice started, with the millwright flags of its answers, oldest
     /// first.
     fn turns(flags: &[bool]) -> Value {
         let answers: Vec<Value> = flags
             .iter()
             .enumerate()
             .map(|(i, f)| {
-                json!({"turn": i + 2, "by": if *f { "tehas-fixer" } else { "alice" }, "fixer": f})
+                json!({"turn": i + 2, "by": if *f { "tehas-millwright" } else { "alice" }, "millwright": f})
             })
             .collect();
         json!({"session": "s", "turns": flags.len() + 1, "by": "alice", "answers": answers})
     }
 
     #[test]
-    fn the_fixer_may_answer_in_a_session_a_person_started() {
-        let c = with_fixer("3");
+    fn the_millwright_may_answer_in_a_session_a_person_started() {
+        let c = with_millwright("3");
         let (p, f) = (false, true);
         let one = json!({"session": "s", "turns": 1, "by": "alice"});
-        assert_eq!(fixer_answer_why(&c, &one), "");
-        assert_eq!(fixer_answer_why(&c, &turns(&[p, f, p])), "");
+        assert_eq!(millwright_answer_why(&c, &one), "");
+        assert_eq!(millwright_answer_why(&c, &turns(&[p, f, p])), "");
     }
 
     #[test]
-    fn a_session_no_allowed_account_started_takes_no_fixer_answer() {
-        let c = with_fixer("3");
+    fn a_session_no_allowed_account_started_takes_no_millwright_answer() {
+        let c = with_millwright("3");
         for bad in [
             json!({"session": "s", "turns": 1}),
             json!({"session": "s", "turns": 1, "by": "mallory"}),
             json!({"session": "s", "turns": 1, "by": 7}),
         ] {
             assert_eq!(
-                fixer_answer_why(&c, &bad),
+                millwright_answer_why(&c, &bad),
                 "no person's tehas:plan started this session, as far as its record says"
             );
         }
     }
 
     #[test]
-    fn the_fixer_never_answers_two_turns_in_a_row() {
+    fn the_millwright_never_answers_two_turns_in_a_row() {
         assert_eq!(
-            fixer_answer_why(&with_fixer("3"), &turns(&[false, true])),
-            "the fixer answered the question before this one; a person answers this one"
+            millwright_answer_why(&with_millwright("3"), &turns(&[false, true])),
+            "the millwright answered the question before this one; a person answers this one"
         );
     }
 
     #[test]
-    fn at_the_limit_the_fixer_answers_no_more_in_the_session() {
+    fn at_the_limit_the_millwright_answers_no_more_in_the_session() {
         let (p, f) = (false, true);
         let view = turns(&[f, p, f, p, f, p]);
         assert_eq!(
-            fixer_answer_why(&with_fixer("3"), &view),
-            "the fixer has answered 3 questions in this session, the limit"
+            millwright_answer_why(&with_millwright("3"), &view),
+            "the millwright has answered 3 questions in this session, the limit"
         );
-        assert_eq!(fixer_answer_why(&with_fixer("4"), &view), "");
+        assert_eq!(millwright_answer_why(&with_millwright("4"), &view), "");
     }
 
     #[test]
-    fn answers_of_a_shape_tehas_does_not_know_take_no_fixer_answer() {
-        let c = with_fixer("3");
+    fn answers_of_a_shape_tehas_does_not_know_take_no_millwright_answer() {
+        let c = with_millwright("3");
         for bad in [
             json!("lots"),
             json!([{"turn": 2, "by": "alice"}]),
@@ -872,34 +773,34 @@ mod tests {
         ] {
             let view = json!({"session": "s", "turns": 1, "by": "alice", "answers": bad});
             assert_eq!(
-                fixer_answer_why(&c, &view),
+                millwright_answer_why(&c, &view),
                 "its record does not say who answered its turns"
             );
         }
     }
 
     #[test]
-    fn no_record_or_no_fixer_takes_no_fixer_answer() {
+    fn no_record_or_no_millwright_takes_no_millwright_answer() {
         assert_eq!(
-            fixer_answer_why(&with_fixer("3"), &Value::Null),
+            millwright_answer_why(&with_millwright("3"), &Value::Null),
             "the session has no record on this host"
         );
         let none = Settings::parse(&json!({"TEHAS_ALLOWED_LABELERS": "alice bob"}));
         assert_eq!(
-            fixer_answer_why(&none, &json!({"session": "s", "turns": 1, "by": "alice"})),
-            "there is no fixer"
+            millwright_answer_why(&none, &json!({"session": "s", "turns": 1, "by": "alice"})),
+            "there is no millwright"
         );
     }
 
     #[test]
-    fn a_mark_that_is_no_boolean_is_not_read_as_the_fixers() {
+    fn a_mark_that_is_no_boolean_is_not_read_as_the_millwrights() {
         assert_eq!(
             shape(&json!({"answers": [{"turn": 1, "by": "alice", "millwright": "yes"}]})),
             json!({"answers": [{"turn": 1, "by": "alice", "millwright": "yes"}]})
         );
         assert_eq!(
-            shape(&json!({"answers": [{"turn": 2, "by": "tehas-fixer", "millwright": true}]})),
-            json!({"answers": [{"turn": 2, "by": "tehas-fixer", "fixer": true}]})
+            shape(&json!({"answers": [{"turn": 2, "by": "tehas-millwright", "millwright": true}]})),
+            json!({"answers": [{"turn": 2, "by": "tehas-millwright", "millwright": true}]})
         );
     }
 }

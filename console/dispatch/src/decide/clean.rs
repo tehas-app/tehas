@@ -3,12 +3,18 @@
 //! mark with no cycle, a tehas:refreshing with no refresh, and what an old
 //! cycle left on this host.
 
-use super::{has, or_unknown, Poll, Step};
-use crate::snapshot::Cycle;
+use super::{has, or_unknown, Action, LabelChange, Poll, QuietDue, Step};
+#[cfg(test)]
+use crate::snapshot::own_branch;
+use crate::snapshot::{BotPr, Cycle, Labels, Marked, Work};
 use regex::Regex;
-use serde_json::{json, Value};
+#[cfg(test)]
+use serde_json::json;
 use tehas_core::accounts::account;
 use tehas_core::events::label_actor;
+
+const RUNNING: &str = "tehas:running";
+const PLANNING: &str = "tehas:planning";
 
 pub(crate) const QUIET_BOUND: u64 = 1200;
 const QUIET_RETRY: u64 = 600;
@@ -66,15 +72,6 @@ pub(crate) fn quiet_why(n: u64, heard: u64) -> String {
     format!("the cycle for #{n} holds its lock but has not been heard from since {}, more than {QUIET_BOUND}s", iso(heard))
 }
 
-/// A pull request of issue `n`'s own branch, `feature/issue-<n>` or
-/// `feature/issue-<n>-*`. Its body does not count: any cycle can write
-/// `Fixes #<n>` in a pull request of its own.
-fn own_branch(pr: &Value, n: u64) -> bool {
-    let head = pr.get("headRefName").and_then(Value::as_str).unwrap_or("");
-    let branch = format!("feature/issue-{n}");
-    head == branch || head.starts_with(&format!("{branch}-"))
-}
-
 impl Poll<'_> {
     pub(super) fn clean_up(&mut self, bot: &str) -> Step {
         let running: Vec<u64> = self.s.running.iter().map(|(n, _)| *n).collect();
@@ -89,6 +86,7 @@ impl Poll<'_> {
             }
         }
         self.quiet(&running);
+        self.lost();
         self.finished(&running)?;
         self.marked()?;
         self.planning();
@@ -104,6 +102,21 @@ impl Poll<'_> {
             .ok()
             .and_then(|c| c.get(&n).cloned())
             .unwrap_or_default()
+    }
+
+    /// An open record whose lock no process holds: the cycle died without a
+    /// word. The store ends it as lost, with its line of history, and only
+    /// while the lock is still free (T11.3).
+    fn lost(&mut self) {
+        for (n, attempt) in self.s.lost.clone() {
+            if self.dry {
+                self.log(format!(
+                    "would end #{n} as lost: its record is open and no cycle holds its lock"
+                ));
+                continue;
+            }
+            self.act(Action::Lost { issue: n, attempt });
+        }
     }
 
     /// A cycle that holds its lock and has not been heard from for 20
@@ -148,24 +161,25 @@ impl Poll<'_> {
             // The line is the one the store's answer is expected to give:
             // apply decides from the answer, as the bash does, and logs that,
             // on this poll's clock.
-            let mut a = json!({"quiet": n, "said_for": heard, "now": now});
-            match due {
-                Due::Stop => {
-                    a["log"] = json!(format!("WARN: {why}: stopping {unit}"));
-                    a["stop"] = json!(true);
-                }
-                Due::Again => {
-                    a["log"] = json!(format!("WARN: {why}: the poll asks {unit} to stop again"));
-                    a["stop"] = json!(true);
-                }
-                Due::Line => {
-                    a["log"] = json!(format!("WARN: {why}: the poll asked {QUIET_ASKS} times to stop {unit} and asks no more: it needs a person, who can stop it with systemctl --user stop {unit}"));
-                    a["asked"] = json!(true);
-                    a["said_only"] = json!(asks != QUIET_ASKS);
-                }
-                Due::Wait => {}
-            }
-            self.act(a);
+            let due = match due {
+                Due::Stop => QuietDue::Stop {
+                    log: format!("WARN: {why}: stopping {unit}"),
+                },
+                Due::Again => QuietDue::Again {
+                    log: format!("WARN: {why}: the poll asks {unit} to stop again"),
+                },
+                Due::Line => QuietDue::Line {
+                    log: format!("WARN: {why}: the poll asked {QUIET_ASKS} times to stop {unit} and asks no more: it needs a person, who can stop it with systemctl --user stop {unit}"),
+                    said_only: asks != QUIET_ASKS,
+                },
+                Due::Wait => QuietDue::Wait,
+            };
+            self.act(Action::Quiet {
+                issue: n,
+                said_for: heard,
+                now,
+                due,
+            });
         }
     }
 
@@ -174,14 +188,14 @@ impl Poll<'_> {
     /// list is said once and the poll goes on, as a failed history of
     /// refreshes is in `refreshing`. The words of the failed call are left out:
     /// the poll says them at its end, and would say them twice here.
-    fn bot_prs(&mut self) -> Vec<Value> {
+    fn bot_prs(&mut self) -> Vec<BotPr> {
         match &self.s.bot_prs {
             None => {
                 self.need("bot_prs");
                 Vec::new()
             }
-            Some(Value::Array(a)) => a.clone(),
-            Some(_) => {
+            Some(Some(a)) => a.clone(),
+            Some(None) => {
                 self.log("WARN: the bot's pull requests could not be read, so no cycle is stopped for its pull request this poll".to_string());
                 Vec::new()
             }
@@ -206,36 +220,25 @@ impl Poll<'_> {
                 let repo = self.c.repo.clone();
                 return Err(self.fail(format!("ERROR: gh api repos/{repo}/issues/{n} failed"), 1));
             };
-            let state = work
-                .get("state")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_ascii_lowercase();
+            let state = match &work {
+                Work::Issue(w) => w.state.as_deref().unwrap_or("").to_ascii_lowercase(),
+                Work::Unreadable => String::new(),
+            };
             let (why, text) = if state == "closed" {
                 ("closed", "its issue is closed".to_string())
             } else {
                 let since = iso(took);
-                let created = |p: &Value| {
-                    p.get("createdAt")
-                        .and_then(Value::as_str)
-                        .unwrap_or("")
-                        .to_string()
-                };
-                let mut mine: Vec<&Value> = prs
+                let mut mine: Vec<&BotPr> = prs
                     .iter()
-                    .filter(|p| p.is_object() && created(p) >= since && own_branch(p, n))
+                    .filter(|p| p.created >= since && p.own_branch(n))
                     .collect();
-                mine.sort_by_key(|p| created(p));
+                mine.sort_by_key(|p| &p.created);
                 let last = mine.last();
-                let field = |k: &str| {
-                    last.and_then(|p| p.get(k))
-                        .and_then(Value::as_str)
-                        .unwrap_or("")
-                };
-                let url = Some(field("url"))
+                let url = last
+                    .map(|p| p.url.as_str())
                     .filter(|u| url_ok.is_match(u))
                     .unwrap_or("");
-                match field("state") {
+                match last.map_or("", |p| p.state.as_str()) {
                     "MERGED" => ("merged", format!("its pull request {url} is merged")),
                     "CLOSED" => (
                         "pr-closed",
@@ -249,7 +252,10 @@ impl Poll<'_> {
                 continue;
             }
             self.log(format!("stop #{n}: {text}"));
-            self.act(json!({"stop_done": n, "why": why}));
+            self.act(Action::StopDone {
+                issue: n,
+                why: why.to_string(),
+            });
             self.stopped.push(n);
         }
         Ok(())
@@ -262,32 +268,26 @@ impl Poll<'_> {
             self.need("marked");
             return Ok(());
         };
-        let list = match marked {
-            v if v.get("failed") == Some(&json!(true)) => {
-                return Err(self.fail("ERROR: gh issue list failed", 1))
+        let mut list = match marked {
+            Marked::Failed => return Err(self.fail("ERROR: gh issue list failed", 1)),
+            Marked::Listed(a) => a.clone(),
+            Marked::Unreadable => {
+                return Err(self.fail("ERROR: unreadable list of issues marked as running", 1))
             }
-            Value::Array(a) => a.clone(),
-            _ => return Err(self.fail("ERROR: unreadable list of issues marked as running", 1)),
         };
-        let mut numbers = Vec::new();
-        for i in &list {
-            match i.get("number").and_then(Value::as_u64) {
-                Some(n) => numbers.push((n, i.clone())),
-                None => {
-                    return Err(self.fail("ERROR: unreadable list of issues marked as running", 1))
-                }
-            }
-        }
-        numbers.sort_by_key(|(n, _)| *n);
-        for (n, i) in numbers {
+        list.sort_by_key(|i| i.number);
+        for i in list {
+            let n = i.number;
             if self.running(n) || self.stopped.contains(&n) {
                 continue;
             }
             if !self.dry {
-                self.act(json!({"reap": format!("tehas-work-{n}"),
-                    "why": format!("no cycle holds the lock of #{n}")}));
+                self.act(Action::Reap {
+                    name: format!("tehas-work-{n}"),
+                    why: format!("no cycle holds the lock of #{n}"),
+                });
             }
-            if i.get("state").and_then(Value::as_str) == Some("CLOSED") {
+            if i.closed {
                 let line = format!(
                     "clear #{n}: it is closed, marked tehas:running, and no cycle holds its lock"
                 );
@@ -295,8 +295,11 @@ impl Poll<'_> {
                     self.log(format!("would {line}"));
                 } else {
                     self.log(line);
-                    self.act(json!({"issue": n, "remove": ["tehas:running"],
-                        "fail": format!("WARN: label change on #{n} failed")}));
+                    self.act(Action::Label(LabelChange::new(
+                        n,
+                        &[RUNNING],
+                        format!("WARN: label change on #{n} failed"),
+                    )));
                 }
                 continue;
             }
@@ -304,15 +307,13 @@ impl Poll<'_> {
                 let repo = self.c.repo.clone();
                 return Err(self.fail(format!("ERROR: gh api repos/{repo}/issues/{n} failed"), 1));
             };
-            let labels = match work.get("labels") {
-                _ if !work.is_object() => None,
-                None | Some(Value::Null) => Some(Vec::new()),
-                Some(Value::Array(a)) => Some(
-                    a.iter()
-                        .filter_map(|l| l.get("name").and_then(Value::as_str).map(str::to_string))
-                        .collect(),
-                ),
-                Some(_) => None,
+            let labels = match &work {
+                Work::Unreadable => None,
+                Work::Issue(w) => match &w.labels {
+                    Labels::Absent | Labels::Null => Some(Vec::new()),
+                    Labels::Names(a) => Some(a.clone()),
+                    Labels::Unreadable => None,
+                },
             };
             let Some(labels) = labels else {
                 return Err(self.fail(
@@ -320,7 +321,7 @@ impl Poll<'_> {
                     1,
                 ));
             };
-            if !has(&labels, "tehas:running") {
+            if !has(&labels, RUNNING) {
                 self.log(format!(
                     "skip #{n}: tehas:running is gone from it since the list was read"
                 ));
@@ -338,12 +339,12 @@ impl Poll<'_> {
             // The issue is read again just before the park: a cycle that
             // ended since the list was read took tehas:running off. The line
             // is logged once that read says the park is still due.
-            self.act(json!({
-                "issue": n, "remove": ["tehas:running"], "add": ["needs-human-attention"],
-                "reread": "tehas:running", "first": line,
-                "fail": format!("WARN: label change on #{n} failed"),
-                "say": format!("Tehas found this issue marked `tehas:running` with no cycle behind it on `{host}`: the cycle ended without changing the label, or never started. Look for a pull request it may have opened. The run log is `~/tehas/logs/dispatch-work-{n}.log` there. To retry, apply `tehas:ready`. If it is on the issue already, nothing more is needed."),
-            }));
+            self.act(Action::Label(
+                LabelChange::new(n, &[RUNNING], format!("WARN: label change on #{n} failed"))
+                    .put_on(&["needs-human-attention"])
+                    .reread(RUNNING, Some(line))
+                    .say(format!("Tehas found this issue marked `tehas:running` with no cycle behind it on `{host}`: the cycle ended without changing the label, or never started. Look for a pull request it may have opened. The run log is `~/tehas/logs/dispatch-work-{n}.log` there. To retry, apply `tehas:ready`. If it is on the issue already, nothing more is needed.")),
+            ));
         }
         Ok(())
     }
@@ -371,12 +372,12 @@ impl Poll<'_> {
                 self.need("hostname");
                 continue;
             };
-            self.act(json!({
-                "issue": n, "remove": ["tehas:planning"], "add": ["needs-human-attention"],
-                "reread": "tehas:planning", "first": line,
-                "fail": format!("WARN: label change on #{n} failed"),
-                "say": format!("Tehas found this issue marked `tehas:planning` with no planning session behind it on `{host}`: the session never started, or it ended without taking the label off. The log is `~/tehas/logs/dispatch.log` there. To plan it, apply `tehas:plan`."),
-            }));
+            self.act(Action::Label(
+                LabelChange::new(n, &[PLANNING], format!("WARN: label change on #{n} failed"))
+                    .put_on(&["needs-human-attention"])
+                    .reread(PLANNING, Some(line))
+                    .say(format!("Tehas found this issue marked `tehas:planning` with no planning session behind it on `{host}`: the session never started, or it ended without taking the label off. The log is `~/tehas/logs/dispatch.log` there. To plan it, apply `tehas:plan`.")),
+            ));
         }
     }
 
@@ -412,27 +413,17 @@ impl Poll<'_> {
         if from.is_empty() && !self.refresh_waits() {
             return Ok(());
         }
-        let list = match &self.s.refreshing {
+        let mut prs = match &self.s.refreshing {
             None => {
                 self.need("refreshing");
                 return Ok(());
             }
-            Some(Value::Array(a)) => a.clone(),
-            Some(_) => {
+            Some(Some(a)) => a.clone(),
+            Some(None) => {
                 self.log("WARN: the pull requests marked tehas:refreshing could not be read, so no pull request is cleared of tehas:refreshing this poll".to_string());
                 return Ok(());
             }
         };
-        let mut prs: Vec<u64> = list
-            .iter()
-            .filter(|p| {
-                p.get("labels").and_then(Value::as_array).is_some_and(|l| {
-                    l.iter()
-                        .any(|x| x.get("name").and_then(Value::as_str) == Some("tehas:refreshing"))
-                })
-            })
-            .filter_map(|p| p.get("number").and_then(Value::as_u64))
-            .collect();
         let mut owner = std::collections::BTreeMap::new();
         if !prs.is_empty() {
             for &n in &from {
@@ -446,21 +437,10 @@ impl Poll<'_> {
                         prs.clear();
                         break;
                     }
-                    Ok(Some(c)) if c.get("how").and_then(Value::as_str) == Some("refresh") => {
-                        let pr = match c.get("refresh_pr") {
-                            Some(Value::Number(x)) => x.to_string(),
-                            Some(Value::String(x)) => x.clone(),
-                            _ => String::new(),
-                        };
-                        let ok = !pr.is_empty()
-                            && pr.len() <= 10
-                            && !pr.starts_with('0')
-                            && pr.bytes().all(|b| b.is_ascii_digit());
-                        if ok {
-                            owner.insert(pr.parse::<u64>().unwrap_or(0), n);
-                        }
+                    Ok(Some(pr)) => {
+                        owner.insert(pr, n);
                     }
-                    Ok(_) => {}
+                    Ok(None) => {}
                 }
             }
         }
@@ -483,10 +463,10 @@ impl Poll<'_> {
                 ));
                 continue;
             }
-            self.act(json!({
-                "pr": pr, "remove": ["tehas:refreshing"],
-                "log": format!("clear pull request #{pr}: tehas:refreshing off, {why}"),
-            }));
+            self.act(Action::Unmark {
+                pr,
+                log: format!("clear pull request #{pr}: tehas:refreshing off, {why}"),
+            });
         }
         Ok(())
     }
@@ -532,7 +512,10 @@ impl Poll<'_> {
             if self.dry {
                 self.log(format!("would remove {line}"));
             } else {
-                self.act(json!({"sweep": n, "log": format!("removed {line}")}));
+                self.act(Action::Sweep {
+                    issue: n,
+                    log: format!("removed {line}"),
+                });
             }
         }
     }

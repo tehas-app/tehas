@@ -5,6 +5,7 @@ use crate::verbs_tests::*;
 use serde_json::Value;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
+use tehas_core::home::{Home, Live, State};
 
 fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/live")
@@ -37,13 +38,13 @@ fn end_at(home: &Path, at: i64, issue: i64, attempt: i64, status: &str, step: Op
 }
 
 fn read(home: &Path, name: &str) -> String {
-    fs::read_to_string(home.join("live").join(name)).unwrap()
+    fs::read_to_string(Home::new(home).live_dir().join(name)).unwrap()
 }
 
 /// The names under `live/<dir>`, temp files and all: what a publish left
 /// behind is part of what its tests judge.
 fn left(home: &Path, dir: &str) -> Vec<String> {
-    let mut v: Vec<String> = fs::read_dir(home.join("live").join(dir))
+    let mut v: Vec<String> = fs::read_dir(Home::new(home).live_dir().join(dir))
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
         .collect();
@@ -81,7 +82,7 @@ fn fixture_home() -> (TestDir, Vec<Held>) {
             4_102_439_000,
         ),
     ] {
-        let (lock, attempt) = start_by(&home, issue, "alice", "label", started);
+        let (lock, attempt) = start_by(&home, issue, "alice", "approved", started);
         beat(&home, started + 10, issue, true, "running", step, text);
         drop(lock);
         end_at(&home, ended, issue, attempt, status, Some(step));
@@ -96,7 +97,7 @@ fn fixture_home() -> (TestDir, Vec<Held>) {
         ),
         (7, 4_102_441_000, "review", "", 4_102_444_790),
     ] {
-        let (lock, _) = start_by(&home, issue, "alice", "label", started);
+        let (lock, _) = start_by(&home, issue, "alice", "approved", started);
         beat(&home, at, issue, true, "running", step, text);
         locks.push(lock);
     }
@@ -106,7 +107,7 @@ fn fixture_home() -> (TestDir, Vec<Held>) {
 #[test]
 fn publish_writes_the_views_tehas_live_assemble_wrote() {
     let (home, _locks) = fixture_home();
-    let cycles = home.join("live/cycles");
+    let cycles = Home::new(home.path()).live_dir().join("cycles");
     fs::create_dir_all(&cycles).unwrap();
     // A view of an earlier cycle, and a file that is no cycle's.
     fs::write(cycles.join("44.json"), "{}\n").unwrap();
@@ -153,7 +154,7 @@ fn publish_writes_the_views_tehas_live_assemble_wrote() {
 #[test]
 fn a_quiet_cycle_whose_lock_is_free_is_lost() {
     let home = home("publish-lost");
-    let (lock, _) = start_by(&home, 20, "alice", "label", 1000);
+    let (lock, _) = start_by(&home, 20, "alice", "approved", 1000);
     beat(&home, 1010, 20, true, "running", "build", "Building");
     // Held: still running, however quiet.
     let later = 1010 + LOST_AFTER + 60;
@@ -188,10 +189,10 @@ fn a_quiet_cycle_whose_lock_is_free_is_lost() {
 #[test]
 fn a_quiet_cycle_whose_lock_file_is_gone_is_not_lost() {
     let home = home("publish-lock-gone");
-    let (lock, _) = start_by(&home, 22, "alice", "label", 1000);
+    let (lock, _) = start_by(&home, 22, "alice", "approved", 1000);
     beat(&home, 1010, 22, true, "running", "build", "Building");
     let later = 1010 + LOST_AFTER + 60;
-    let cycles = home.join("state").join("cycles");
+    let cycles = Home::new(home.path()).cycles_dir();
     fs::remove_file(cycles.join("22.lock")).unwrap();
     publish(&home, later, &[]).unwrap();
     let v: Value = serde_json::from_str(&read(&home, "running.json")).unwrap();
@@ -219,7 +220,7 @@ fn a_short_end_publishes_the_cycle_as_ended(
     reason: Value,
 ) {
     let home = home(name);
-    let (lock, attempt) = start_by(&home, issue, "alice", "label", 1000);
+    let (lock, attempt) = start_by(&home, issue, "alice", "approved", 1000);
     let (n, a) = (issue.to_string(), attempt.to_string());
     beat(
         &home,
@@ -275,8 +276,13 @@ fn a_short_end_publishes_the_cycle_as_ended(
     assert_eq!(e[0]["status"], word, "{mode}");
     assert_eq!(e[0]["startedAt"], 1000, "{mode}");
     assert_eq!(e[0]["updatedAt"], 1020, "{mode}");
-    // The short ends write no cycle_history row, as they never did.
-    assert_eq!(count(&home, "cycle_history"), 0, "{mode}");
+    // The short end writes its line of history, with the word of the end
+    // (T11.3).
+    assert_eq!(
+        one::<String>(&home, "SELECT group_concat(status) FROM cycle_history"),
+        word,
+        "{mode}"
+    );
 }
 
 #[test]
@@ -311,7 +317,7 @@ fn a_refused_start_is_published_as_refused_and_never_as_lost() {
 #[test]
 fn the_closing_heartbeat_is_never_the_second_the_cycle_was_last_heard_from() {
     let home = home("publish-heard");
-    let (lock, attempt) = start_by(&home, 24, "alice", "label", 1000);
+    let (lock, attempt) = start_by(&home, 24, "alice", "approved", 1000);
     let (n, a) = (24.to_string(), attempt.to_string());
     beat(
         &home,
@@ -337,7 +343,7 @@ fn the_closing_heartbeat_is_never_the_second_the_cycle_was_last_heard_from() {
     // stays where the last heartbeat of the attempt put it.
     // A cycle that never sent a heartbeat: its closing row is the only one the
     // attempt has, and it is no word from the cycle either.
-    let (_lock, attempt) = start_by(&home, 25, "alice", "label", 2000);
+    let (_lock, attempt) = start_by(&home, 25, "alice", "approved", 2000);
     let (n, a) = (25.to_string(), attempt.to_string());
     drop(_lock);
     ok_at(
@@ -352,10 +358,55 @@ fn the_closing_heartbeat_is_never_the_second_the_cycle_was_last_heard_from() {
     );
 }
 
+/// A running cycle's view names its attempt, how and by (T11.5), so `tehas
+/// status` can print its cycle id; a cycle run by hand names no by. Its
+/// start is the one its line of history prints as `started`, and the line
+/// has the same attempt, how and by.
+#[test]
+fn a_running_view_names_the_cycle_its_line_of_history_names() {
+    let home = home("publish-ids");
+    let (lock, a) = start_by(&home, 23, "alice", "approved", 1000);
+    beat(&home, 1010, 23, true, "running", "build", "");
+    let hand = hold(&home, 24);
+    ok_at(&home, 1005, &["cycle-start", "24", "--by-hand"]);
+    beat(&home, 1012, 24, true, "running", "build", "");
+    publish(&home, 1020, &[]).unwrap();
+    let v: Value = serde_json::from_str(&read(&home, "running.json")).unwrap();
+    let c = &v["cycles"];
+    assert_eq!(
+        (&c[0]["issue"], &c[0]["attempt"], &c[0]["how"], &c[0]["by"]),
+        (
+            &Value::from(23),
+            &Value::from(a),
+            &Value::from("approved"),
+            &Value::from("alice")
+        )
+    );
+    assert_eq!(
+        (&c[1]["issue"], &c[1]["how"]),
+        (&Value::from(24), &Value::from("hand"))
+    );
+    assert!(c[1].get("by").is_none(), "{}", c[1]);
+    let since = c[0]["startedAt"].clone();
+    drop(lock);
+    end_at(&home, 1030, 23, a, "merged", None);
+    drop(hand);
+    let rows = ok(&home, &["history-show", "23"])["rows"].clone();
+    assert_eq!(
+        (
+            &rows[0]["started_at"],
+            &rows[0]["attempt"],
+            &rows[0]["how"],
+            &rows[0]["by"]
+        ),
+        (&since, &c[0]["attempt"], &c[0]["how"], &c[0]["by"])
+    );
+}
+
 #[test]
 fn a_fresh_running_cycle_with_a_free_lock_is_running() {
     let home = home("publish-fresh");
-    let (lock, _) = start_by(&home, 21, "alice", "label", 1000);
+    let (lock, _) = start_by(&home, 21, "alice", "approved", 1000);
     drop(lock);
     beat(&home, 1010, 21, true, "running", "build", "");
     publish(&home, 1010 + LOST_AFTER, &[]).unwrap();
@@ -377,7 +428,7 @@ fn an_empty_store_publishes_empty_views() {
         serde_json::json!(["endings.json", "running.json"])
     );
     assert_eq!(v["down"], Value::Null);
-    assert!(!home.join("live/health.json").exists());
+    assert!(!Home::new(home.path()).live(Live::Health).exists());
 }
 
 #[test]
@@ -401,11 +452,17 @@ fn health_down_goes_with_the_report_that_failed() {
     assert_eq!(v["down"], true);
     assert_eq!(read(&home, "health.json"), "{\n  \"status\": \"fail\"\n}\n");
     assert_eq!(read(&home, "dispatch.json"), "{\"why\":\"idle\"}\n");
-    assert!(home.join("live/health.down").exists());
+    assert!(Home::new(home.path())
+        .live_dir()
+        .join("health.down")
+        .exists());
     let v = publish(&home, NOW, &["--health", fine.to_str().unwrap()]).unwrap();
     assert_eq!(v["down"], false);
     assert_eq!(read(&home, "health.json"), "{\"status\":\"ok\"}\n");
-    assert!(!home.join("live/health.down").exists());
+    assert!(!Home::new(home.path())
+        .live_dir()
+        .join("health.down")
+        .exists());
     // The dispatch report is left as it was.
     assert_eq!(read(&home, "dispatch.json"), "{\"why\":\"idle\"}\n");
 }
@@ -425,7 +482,10 @@ fn a_failed_report_that_cannot_be_written_leaves_no_marker() {
     assert_eq!(code, 1);
     assert_eq!(line, "write live/health.json: no space left on device");
     assert_eq!(read(&home, "health.json"), "{\"status\":\"ok\"}\n");
-    assert!(!home.join("live/health.down").exists());
+    assert!(!Home::new(home.path())
+        .live_dir()
+        .join("health.down")
+        .exists());
 }
 
 /// A marker made by an earlier "fail" report stays when the next "fail"
@@ -438,7 +498,10 @@ fn a_failed_report_that_cannot_be_written_keeps_an_earlier_marker() {
     publish(&home, NOW, &["--health", fail.to_str().unwrap()]).unwrap();
     fail_writes(Some(3));
     publish(&home, NOW, &["--health", fail.to_str().unwrap()]).unwrap_err();
-    assert!(home.join("live/health.down").exists());
+    assert!(Home::new(home.path())
+        .live_dir()
+        .join("health.down")
+        .exists());
 }
 
 /// A marker that cannot be removed is named as a removal, not a write.
@@ -448,7 +511,7 @@ fn a_marker_that_cannot_be_removed_is_named_as_a_removal() {
     let files = scratch("publish-health-stuck-files");
     let fine = write_file(&files, "ok.json", b"{\"status\":\"ok\"}\n");
     // A directory where the marker is: unlink refuses it, as root too.
-    fs::create_dir_all(home.join("live/health.down/x")).unwrap();
+    fs::create_dir_all(Home::new(home.path()).live_dir().join("health.down/x")).unwrap();
     let (code, line) = publish(&home, NOW, &["--health", fine.to_str().unwrap()]).unwrap_err();
     assert_eq!(code, 1);
     assert!(line.starts_with("remove live/health.down: "), "{line}");
@@ -471,7 +534,7 @@ fn a_report_that_is_not_an_object_writes_nothing() {
     let p = write_file(&files, "list2.json", b"[]");
     let (code, _) = publish(&home, NOW, &["--dispatch", p.to_str().unwrap()]).unwrap_err();
     assert_eq!(code, 1);
-    assert!(!home.join("live/running.json").exists());
+    assert!(!Home::new(home.path()).live(Live::Running).exists());
 }
 
 #[test]
@@ -480,18 +543,18 @@ fn a_held_publish_lock_is_busy() {
     // the holder, so this thread asks for the short pair.
     short_bounds();
     let home = home("publish-busy");
-    let f = File::create(home.join("state/publish.lock")).unwrap();
+    let f = File::create(Home::new(home.path()).state(State::PublishLock)).unwrap();
     f.lock().unwrap();
     let (code, line) = publish(&home, NOW, &[]).unwrap_err();
     assert_eq!(code, 1);
     assert!(line.starts_with("busy"), "{line}");
-    assert!(!home.join("live/running.json").exists());
+    assert!(!Home::new(home.path()).live(Live::Running).exists());
 }
 
 #[test]
 fn a_rename_that_fails_fails_the_call_and_leaves_no_temp_file() {
     let home = home("publish-rename");
-    fs::create_dir_all(home.join("live/running.json/x")).unwrap();
+    fs::create_dir_all(Home::new(home.path()).live_dir().join("running.json/x")).unwrap();
     let (code, line) = publish(&home, NOW, &[]).unwrap_err();
     assert_eq!(code, 1);
     assert!(line.starts_with("write live/running.json"), "{line}");
@@ -513,17 +576,23 @@ fn ends_of_a_finished_cycle_are_gone_when_a_write_fails() {
     // only through a heartbeat of its open attempt: with none, it is no view at
     // all, and its file is one publish must remove. The lock is what cycle-start
     // asks for, and it is given up at once.
-    approve(&home, 60, "alice", "label");
+    approve(&home, 60, "alice", "approved");
     let lock = hold(&home, 60);
     ok_at(&home, 1_000_000, &["cycle-start", "60"]);
     drop(lock);
     // #62 is the running cycle, its lock held to the end of the test.
-    let (_held, _) = start_by(&home, 62, "alice", "label", 1_000_200);
+    let (_held, _) = start_by(&home, 62, "alice", "approved", 1_000_200);
     beat(&home, 1_000_250, 62, true, "running", "build", "");
     // The views a running cycle's publish left behind.
-    fs::create_dir_all(home.join("live/cycles")).unwrap();
+    fs::create_dir_all(Home::new(home.path()).live_dir().join("cycles")).unwrap();
     for n in ["60", "62", "99"] {
-        fs::write(home.join(format!("live/cycles/{n}.json")), "{}\n").unwrap();
+        fs::write(
+            Home::new(home.path())
+                .live_dir()
+                .join(format!("cycles/{n}.json")),
+            "{}\n",
+        )
+        .unwrap();
     }
     // The first write of the call is the report given with --dispatch, and it
     // does not happen, so the call stops there. Were the removals still after
@@ -549,7 +618,10 @@ fn ends_of_a_finished_cycle_are_gone_when_a_write_fails() {
     assert_eq!(left(&home, "cycles"), vec!["62.json".to_string()]);
     assert!(read(&home, "cycles/62.json").starts_with("{}"));
     for name in ["dispatch.json", "endings.json", "running.json"] {
-        assert!(!home.join("live").join(name).exists(), "{name}");
+        assert!(
+            !Home::new(home.path()).live_dir().join(name).exists(),
+            "{name}"
+        );
     }
     // No temp of any write is left in live/ or in live/cycles/.
     assert!(left(&home, "").iter().all(|n| !n.starts_with('.')));
@@ -571,15 +643,21 @@ fn ends_of_a_finished_cycle_are_gone_when_a_write_fails() {
 /// attempt, and a view under live/cycles/ for each of 60, 62 and 99.
 fn partial_home(name: &str) -> (TestDir, Held) {
     let home = home(name);
-    approve(&home, 60, "alice", "label");
+    approve(&home, 60, "alice", "approved");
     let lock = hold(&home, 60);
     ok_at(&home, 1_000_000, &["cycle-start", "60"]);
     drop(lock);
-    let (held, _) = start_by(&home, 62, "alice", "label", 1_000_200);
+    let (held, _) = start_by(&home, 62, "alice", "approved", 1_000_200);
     beat(&home, 1_000_250, 62, true, "running", "build", "");
-    fs::create_dir_all(home.join("live/cycles")).unwrap();
+    fs::create_dir_all(Home::new(home.path()).live_dir().join("cycles")).unwrap();
     for n in ["60", "62", "99"] {
-        fs::write(home.join(format!("live/cycles/{n}.json")), "{}\n").unwrap();
+        fs::write(
+            Home::new(home.path())
+                .live_dir()
+                .join(format!("cycles/{n}.json")),
+            "{}\n",
+        )
+        .unwrap();
     }
     (home, held)
 }
@@ -604,7 +682,10 @@ fn a_publish_whose_second_write_fails_keeps_the_first_and_the_removals() {
     assert_eq!(left(&home, "cycles"), vec!["62.json".to_string()]);
     assert_eq!(read(&home, "cycles/62.json"), "{}\n");
     for name in ["endings.json", "running.json"] {
-        assert!(!home.join("live").join(name).exists(), "{name}");
+        assert!(
+            !Home::new(home.path()).live_dir().join(name).exists(),
+            "{name}"
+        );
     }
     assert!(left(&home, "").iter().all(|n| !n.starts_with('.')));
     assert!(left(&home, "cycles").iter().all(|n| !n.starts_with('.')));
@@ -616,8 +697,8 @@ fn a_publish_whose_second_write_fails_keeps_the_first_and_the_removals() {
 fn a_removal_that_fails_fails_the_call_before_any_write() {
     let (home, _held) = partial_home("publish-remove-fails");
     // A directory where a view is: unlink refuses it, as root too.
-    fs::remove_file(home.join("live/cycles/99.json")).unwrap();
-    fs::create_dir_all(home.join("live/cycles/99.json/x")).unwrap();
+    fs::remove_file(Home::new(home.path()).live_dir().join("cycles/99.json")).unwrap();
+    fs::create_dir_all(Home::new(home.path()).live_dir().join("cycles/99.json/x")).unwrap();
     let files = scratch("publish-remove-fails-files");
     let dispatch = write_file(&files, "dispatch.json", b"{\"why\":\"idle\"}\n");
     fail_writes(Some(1));
@@ -630,10 +711,13 @@ fn a_removal_that_fails_fails_the_call_before_any_write() {
     assert_eq!(code, 1);
     assert!(line.starts_with("remove live/cycles/99.json: "), "{line}");
     for name in ["dispatch.json", "endings.json", "running.json"] {
-        assert!(!home.join("live").join(name).exists(), "{name}");
+        assert!(
+            !Home::new(home.path()).live_dir().join(name).exists(),
+            "{name}"
+        );
     }
     assert_eq!(read(&home, "cycles/62.json"), "{}\n");
-    fs::remove_dir_all(home.join("live/cycles/99.json")).unwrap();
+    fs::remove_dir_all(Home::new(home.path()).live_dir().join("cycles/99.json")).unwrap();
     let v = publish(
         &home,
         1_000_400,
@@ -693,7 +777,7 @@ fn heartbeats_keep_the_newest_of_an_issue() {
     // met contention elsewhere does not push this one into the installed seconds.
     short_bounds();
     let home = home("beat-keep");
-    let (_lock, _) = start_by(&home, 31, "alice", "label", 1000);
+    let (_lock, _) = start_by(&home, 31, "alice", "approved", 1000);
     for i in 0..(KEEP + 5) {
         beat(&home, 1001 + i, 31, true, "running", "build", "");
     }
@@ -714,7 +798,7 @@ fn the_notice_loses_control_characters_and_is_cut() {
 #[test]
 fn cycle_show_says_when_the_cycle_was_last_heard_from() {
     let home = home("beat-heard");
-    let (_lock, _) = start_by(&home, 32, "alice", "label", 1000);
+    let (_lock, _) = start_by(&home, 32, "alice", "approved", 1000);
     assert_eq!(
         ok(&home, &["cycle-show", "32"])["cycle"]["heard_at"],
         Value::Null
@@ -729,11 +813,11 @@ fn cycle_show_says_when_the_cycle_was_last_heard_from() {
 #[test]
 fn a_heartbeat_of_an_earlier_attempt_is_not_heard_from() {
     let home = home("beat-earlier");
-    let (lock, attempt) = start_by(&home, 33, "alice", "label", 1000);
+    let (lock, attempt) = start_by(&home, 33, "alice", "approved", 1000);
     beat(&home, 1010, 33, true, "running", "build", "");
     drop(lock);
     end_at(&home, 1020, 33, attempt, "failed", None);
-    let (_lock, _) = start_by(&home, 33, "alice", "label", 2000);
+    let (_lock, _) = start_by(&home, 33, "alice", "approved", 2000);
     assert_eq!(
         ok(&home, &["cycle-show", "33"])["cycle"]["heard_at"],
         Value::Null
@@ -743,7 +827,7 @@ fn a_heartbeat_of_an_earlier_attempt_is_not_heard_from() {
 #[test]
 fn cycle_end_keeps_the_last_notice_and_step() {
     let home = home("beat-end");
-    let (lock, attempt) = start_by(&home, 34, "alice", "label", 1000);
+    let (lock, attempt) = start_by(&home, 34, "alice", "approved", 1000);
     beat(
         &home,
         1010,
@@ -768,11 +852,11 @@ fn cycle_end_keeps_the_last_notice_and_step() {
 #[test]
 fn a_restarted_issue_does_not_show_its_earlier_attempt() {
     let home = home("publish-restart");
-    let (lock, _) = start_by(&home, 40, "alice", "label", 1000);
+    let (lock, _) = start_by(&home, 40, "alice", "approved", 1000);
     beat(&home, 1010, 40, true, "running", "build", "Old notice");
     drop(lock);
     // The attempt died without an end; the next start replaces it.
-    let (_lock, attempt) = start_by(&home, 40, "alice", "label", 2000);
+    let (_lock, attempt) = start_by(&home, 40, "alice", "approved", 2000);
     publish(&home, 2000, &[]).unwrap();
     let v: Value = serde_json::from_str(&read(&home, "running.json")).unwrap();
     assert_eq!(v, serde_json::json!({"cycles": [], "last": null}));
@@ -795,7 +879,7 @@ fn a_restarted_issue_does_not_show_its_earlier_attempt() {
 fn ends_of_the_same_second_stay_in_the_order_they_ended() {
     let home = home("publish-ties");
     for issue in [51, 50] {
-        let (lock, attempt) = start_by(&home, issue, "alice", "label", 1000);
+        let (lock, attempt) = start_by(&home, issue, "alice", "approved", 1000);
         drop(lock);
         end_at(&home, 1100, issue, attempt, "merged", None);
     }
@@ -808,7 +892,7 @@ fn ends_of_the_same_second_stay_in_the_order_they_ended() {
 #[test]
 fn where_the_step_is_goes_to_the_view_the_end_and_the_history() {
     let home = home("beat-progress");
-    let (lock, attempt) = start_by(&home, 35, "alice", "label", 1000);
+    let (lock, attempt) = start_by(&home, 35, "alice", "approved", 1000);
     ok_at(
         &home,
         1010,
@@ -891,7 +975,7 @@ fn where_the_step_is_goes_to_the_view_the_end_and_the_history() {
         [7, 9, 3]
     );
     // An end at another step than the last heartbeat's does not borrow it.
-    let (lock, attempt) = start_by(&home, 35, "alice", "label", 2000);
+    let (lock, attempt) = start_by(&home, 35, "alice", "approved", 2000);
     ok_at(
         &home,
         2010,
@@ -926,7 +1010,7 @@ fn where_the_step_is_goes_to_the_view_the_end_and_the_history() {
 #[test]
 fn a_heartbeat_refuses_a_step_number_out_of_bounds() {
     let home = home("beat-progress-bounds");
-    let (_lock, _) = start_by(&home, 36, "alice", "label", 1000);
+    let (_lock, _) = start_by(&home, 36, "alice", "approved", 1000);
     for (flag, v) in [
         ("--step-number", "0"),
         ("--round", "1001"),

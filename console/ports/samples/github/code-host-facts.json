@@ -1,0 +1,119 @@
+[
+  {
+    "op": "CodeHost::facts",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/widget",
+    "fixture": "acme/widget is public, its tracker on, not archived, its default branch main.",
+    "answer": {
+      "Ok": {
+        "name": "acme/widget",
+        "public": true,
+        "tracker_on": true,
+        "archived": false,
+        "default_branch": "main"
+      }
+    }
+  },
+  {
+    "op": "CodeHost::facts",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/vault",
+    "fixture": "acme/vault is private, its tracker off, archived, its default branch trunk.",
+    "answer": {
+      "Ok": {
+        "name": "acme/vault",
+        "public": false,
+        "tracker_on": false,
+        "archived": true,
+        "default_branch": "trunk"
+      }
+    }
+  },
+  {
+    "op": "CodeHost::facts",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/gone",
+    "fixture": "acme/gone is not there, or not visible to the actor.",
+    "answer": {
+      "Err": "NotFound"
+    }
+  },
+  {
+    "op": "CodeHost::facts",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/forbidden",
+    "fixture": "The actor may not read acme/forbidden.",
+    "answer": {
+      "Err": "Forbidden"
+    }
+  },
+  {
+    "op": "CodeHost::facts",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/spent",
+    "fixture": "The site answers that too many requests came.",
+    "answer": {
+      "Err": {
+        "Spent": {
+          "pool": "Calls",
+          "until": 1767225600
+        }
+      }
+    }
+  },
+  {
+    "op": "CodeHost::facts",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/down",
+    "fixture": "The site fails on its side.",
+    "answer": {
+      "Err": {
+        "Unavailable": {
+          "why": "Server",
+          "sent": "Maybe"
+        }
+      }
+    }
+  },
+  {
+    "op": "CodeHost::facts",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/slow",
+    "fixture": "The site does not answer within the time limit.",
+    "answer": {
+      "Err": {
+        "Unavailable": {
+          "why": "Timeout",
+          "sent": "Maybe"
+        }
+      }
+    }
+  },
+  {
+    "op": "CodeHost::facts",
+    "actor": {
+      "Ours": "Full"
+    },
+    "project": "acme/garbled",
+    "fixture": "The answer is cut off in transit.",
+    "answer": {
+      "Err": {
+        "Unread": "Malformed"
+      }
+    }
+  }
+]

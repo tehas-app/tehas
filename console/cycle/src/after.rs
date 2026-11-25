@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
+use tehas_core::home::{Home, State};
 use tehas_core::jq::{obj, J};
 use tehas_core::time::{iso, now};
 
@@ -23,9 +24,33 @@ use tehas_core::time::{iso, now};
 /// TimeoutStopSec for its whole report, and two calls are part of it.
 const ANALYTICS_LIMIT: u32 = 5;
 
+thread_local! {
+    /// This thread's log lines while a caller holds them (`holding`), in place
+    /// of standard output.
+    static HELD: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
 /// A line of the cycle's log, as its bash writes one.
 pub fn log(line: &str) {
-    let _ = writeln!(std::io::stdout(), "{} {line}", iso(now()));
+    let text = format!("{} {line}", iso(now()));
+    let held = HELD.with(|h| {
+        h.borrow_mut().as_mut().map(|held| {
+            held.push_str(&text);
+            held.push('\n');
+        })
+    });
+    if held.is_none() {
+        let _ = writeln!(std::io::stdout(), "{text}");
+    }
+}
+
+/// `f`'s answer and the lines it logged on this thread, held rather than
+/// written: so a report run in process, beside others, says what it logged.
+pub fn holding<R>(f: impl FnOnce() -> R) -> (R, String) {
+    HELD.with(|h| *h.borrow_mut() = Some(String::new()));
+    let r = f();
+    let said = HELD.with(|h| h.borrow_mut().take()).unwrap_or_default();
+    (r, said)
 }
 
 /// What one cycle ended with, as its report says it.
@@ -119,8 +144,6 @@ pub struct After {
     pub console: String,
     pub status_cmd: String,
     pub status_args: Vec<String>,
-    /// The contractor that ran the cycle, empty in-house or with outsource off.
-    pub contractor: String,
 }
 
 fn env(name: &str) -> String {
@@ -174,7 +197,7 @@ fn analytics(home: &Path, args: &[&str]) {
 }
 
 /// `{at, how, driver}` of the store's approval-view, null when it has none.
-pub fn approval_of(answer: &Value) -> J {
+fn approval_of(answer: &Value) -> J {
     let view = answer.get("view").filter(|v| v.is_object());
     let Some(view) = view else {
         return J::Null;
@@ -237,7 +260,7 @@ pub fn history_line(a: &After, at: &str) -> J {
 /// The facts of a run: {line, attempt, approval, settings, rukas}. The
 /// settings and the commit are the store's settings-view of this attempt,
 /// null when it has none or could not answer.
-pub fn run_facts(line: &J, attempt: Option<u64>, approved: &str, view: Option<&Value>) -> J {
+fn run_facts(line: &J, attempt: Option<u64>, approved: &str, view: Option<&Value>) -> J {
     let view = view.filter(|_| attempt.is_some());
     let settings = view.and_then(|v| v.get("view")).filter(|v| v.is_object());
     let rukas = view.and_then(|v| v.get("rukas_commit"));
@@ -264,14 +287,11 @@ fn analytics_run(home: &Path, a: &After) {
     let at = iso(now());
     let (n, attempt) = (e.issue.to_string(), a.attempt.to_string());
     let view = host::store(home, &["settings-view", &n, "--attempt", &attempt]);
-    let facts = crate::stamp::with_contractor(
-        run_facts(
-            &history_line(a, &at),
-            Some(a.attempt),
-            &a.approved,
-            view.as_ref().ok(),
-        ),
-        &a.contractor,
+    let facts = run_facts(
+        &history_line(a, &at),
+        Some(a.attempt),
+        &a.approved,
+        view.as_ref().ok(),
     );
     let dir = home.join("tmp");
     if !dir.exists() {
@@ -355,7 +375,7 @@ fn clean(home: &Path, a: &After) {
 /// is not on. systemctl does not get the cycle's lock, fd 9: closing a
 /// descriptor Rust did not open is unsafe, so sh does it.
 fn next_poll(home: &Path) {
-    let again = home.join("state/dispatch.again");
+    let again = Home::new(home).state(State::DispatchAgain);
     if fs::write(&again, "").is_err() {
         log(&format!("WARN: could not write {}", again.display()));
     }
@@ -378,15 +398,15 @@ mod tests {
 
     #[test]
     fn the_approval_of_a_run_is_three_fields_of_the_view() {
-        let a = json!({"view": {"at": "T", "by": "alice", "how": "label", "links": [], "driver": "lean"}});
+        let a = json!({"view": {"at": "T", "by": "alice", "how": "approved", "links": [], "driver": "lean"}});
         assert_eq!(
             approval_of(&a).dump(),
-            r#"{"at":"T","how":"label","driver":"lean"}"#
+            r#"{"at":"T","how":"approved","driver":"lean"}"#
         );
-        let b = json!({"view": {"at": "T", "how": "label"}});
+        let b = json!({"view": {"at": "T", "how": "approved"}});
         assert_eq!(
             approval_of(&b).dump(),
-            r#"{"at":"T","how":"label","driver":null}"#
+            r#"{"at":"T","how":"approved","driver":null}"#
         );
         assert_eq!(approval_of(&json!({"view": null})), J::Null);
     }

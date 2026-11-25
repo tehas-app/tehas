@@ -16,8 +16,7 @@
 //! tickets it does list.
 //!
 //! The run also writes live/platform.json (src/platform.rs), live/rukas.json
-//! (ops/src/rukas.rs), live/contractors.json with outsource on, taken away
-//! with it off (src/outsource.rs), live/epics.json
+//! (ops/src/rukas.rs), live/epics.json
 //! (src/epics.rs) and what the analytics program publishes (src/publish.rs),
 //! and it refreshes the health file unless the poll ran it: the poll sets
 //! TEHAS_FROM_POLL and runs health a moment later. Those last two happen at
@@ -29,9 +28,7 @@
 //! label, lifted}`, where `flag` is {at, reason} written by tehas pause or null,
 //! `label` is tehas:pause on the control issue, and `lifted` says the label is
 //! off but the account that took it off may not authorise work, which holds this
-//! host paused just as much. `allHands` is true while tehas:all-hands on the
-//! control issue was applied by an allowed account, null when that could not be
-//! read. The flag is read from this host, so pausing needs no answer from
+//! host paused just as much. The flag is read from this host, so pausing needs no answer from
 //! GitHub. `by`, the account that set the flag, stays out of the file: the page
 //! that reads it can be public.
 //!
@@ -64,15 +61,13 @@
 //! events could be read, `pause.label` and `pause.lifted` are. `stale` names
 //! each part kept so: `queue`, `completed` or `pause`.
 //!
-//! Prints nothing but an ignored all-hands label, once, analytics warnings and
-//! WARN lines, on standard error. Exit 0 even when GitHub is down. Exit 78, before
+//! Prints nothing but analytics warnings and WARN lines, on standard error. Exit 0 even when GitHub is down. Exit 78, before
 //! GitHub is asked or anything is written, when a setting it needs is not set,
 //! however it was started.
 
 use crate::commands;
 use crate::holds::{epoch, REASON};
 use crate::jq::{obj, J};
-use crate::outsource;
 use crate::platform;
 use crate::publish::{log, Analytics};
 use crate::rukas;
@@ -82,18 +77,21 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use std::env;
 use std::fs;
+use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tehas_core::call;
-use tehas_core::events::{label_actor, pause_holds, Event, Events};
+use tehas_core::events::{pause_holds, Event, Events};
 use tehas_core::file::{write_atomic, Temp};
 use tehas_core::github_fails;
+use tehas_core::home::{Home, State};
 use tehas_core::queue_lists::{AWAITING, COMPLETED, PLANNED, QUEUED, RUNNING, STOPPED};
 use tehas_core::retry::{retry_with, Budget};
 use tehas_core::time;
+use tehas_ports::{Mark, TicketKey, TicketWrites};
 
 /// A read that has a bound: it hangs this long, then it failed.
 const SEARCH_WAIT: Duration = Duration::from_secs(60);
@@ -163,16 +161,83 @@ impl Reads {
         if outcome.attempts > 1 {
             line.push_str(&format!(" (tried {} times)", outcome.attempts));
         }
-        let line = call::trim(&line);
+        let line = tehas_core::text::trim(&line);
         log(&line);
         github_fails::note(&self.home, time::now(), &line);
         None
     }
 }
 
-/// A write of gh: tried once, as the next run decides it again.
-fn gh_write(args: &[&str]) -> bool {
-    call::run_full("gh", &words(args), None, READ_WAIT, SEARCH_GRACE, &[]).ok()
+/// Puts the shipped mark on each ticket of `lacking`, in order, each asked
+/// once: a mark that could not be put on is left for the next run, which
+/// decides it again while the ticket is in its read.
+fn mark_shipped(tickets: &mut dyn TicketWrites, lacking: &[TicketKey]) {
+    let mark = Mark::State(tehas_ports::State::Shipped);
+    for key in lacking {
+        let _ = tickets.mark(key, &mark);
+    }
+}
+
+/// How far before the last completed read a read starts again, so a ticket
+/// closed while that read ran, or a mark that failed then, is read again.
+const SHIPPED_MARGIN: i64 = 3600;
+
+/// Where a read of the shipped tickets starts with no usable read before:
+/// a day back, so a busy factory's first read is not cut. Older shipped
+/// tickets get their mark from tidy's own read.
+const SHIPPED_FIRST: i64 = 24 * 3600;
+
+/// The most tickets `completed` holds.
+const COMPLETED_MOST: usize = shipped::PAGE;
+
+/// Where this run's read of the shipped tickets starts: `SHIPPED_MARGIN`
+/// before the `completedAt` of the file before, which a stale read keeps,
+/// so a read that failed or was cut is asked again from the same time. With
+/// no such time, or one after `now`, `SHIPPED_FIRST` before `now`.
+fn shipped_since(previous: &J, now: i64) -> tehas_ports::At {
+    let before = previous
+        .get("completedAt")
+        .as_str()
+        .and_then(time::from_iso)
+        .filter(|t| *t <= now);
+    tehas_ports::At::new(match before {
+        Some(t) => t - SHIPPED_MARGIN,
+        None => now - SHIPPED_FIRST,
+    })
+}
+
+/// `{number, title, url, createdAt, updatedAt, closedAt}` of a shipped
+/// ticket, as `completed` lists it. None for a ticket with no number.
+fn completed_item(t: &tehas_ports::ClosedTicket) -> Option<J> {
+    let TicketKey::Number(n) = &t.digest.key else {
+        return None;
+    };
+    let at = |a: tehas_ports::At| J::str(time::iso(a.secs()));
+    Some(listed([
+        J::num(n.get() as f64),
+        J::str(t.digest.title.as_str()),
+        J::str(t.digest.link.as_str()),
+        at(t.digest.created),
+        at(t.digest.updated),
+        at(t.closed),
+    ]))
+}
+
+/// `completed`: this read's shipped tickets, and the file before's that
+/// this read does not name, newest closed first, at most `COMPLETED_MOST`.
+/// A ticket stays listed after it is reopened until newer ones push it out.
+fn completed_of(shipped: &[tehas_ports::ClosedTicket], previous: &J) -> Vec<J> {
+    let mut list: Vec<J> = shipped.iter().filter_map(completed_item).collect();
+    let named = |n: &J| list.iter().any(|m| m.get("number") == n.get("number"));
+    let kept: Vec<J> = match previous.get(COMPLETED) {
+        J::Arr(before) => before.iter().filter(|n| !named(n)).map(slim).collect(),
+        _ => Vec::new(),
+    };
+    list.extend(kept);
+    let closed = LISTED[5];
+    list.sort_by(|a, b| b.get(closed).cmp(a.get(closed)));
+    list.truncate(COMPLETED_MOST);
+    list
 }
 
 /// The keys of the snapshot that rest on the list of issues, and on the read
@@ -269,7 +334,6 @@ fn events_of(text: &str) -> Option<Vec<Event>> {
 struct Control {
     label: bool,
     lifted: bool,
-    all_hands: Option<bool>,
     /// False when neither the labels nor the events could be read, so
     /// `label` and `lifted` say nothing.
     read: bool,
@@ -298,17 +362,10 @@ fn kept(mut c: Control, previous: &J) -> (Control, bool) {
 /// it cannot read the events. When the labels could not be read, the events
 /// say whether the label is on: it is when its last event applied it. When
 /// neither answered, `read` is false.
-///
-/// tehas:all-hands holds while it is on the issue and the account that applied
-/// it is allowed. It is reported and changes nothing in the factory. A label
-/// anyone else applied is said once, on standard error; `ignored` remembers
-/// which application was said. None is a label that could not be read.
 fn control(
     labels: Option<&str>,
     read_events: &mut dyn FnMut() -> String,
     allowed: &dyn Fn(&str) -> bool,
-    ignored: &Path,
-    issue: &str,
 ) -> Control {
     let joined = format!(" {} ", labels.unwrap_or_default().trim_end_matches('\n'));
     let mut label = joined.contains(" tehas:pause ");
@@ -326,41 +383,9 @@ fn control(
             None => known = labels.is_some(),
         }
     }
-    let all_hands = if labels.is_none() {
-        None
-    } else if joined.contains(" tehas:all-hands ") {
-        let text = read.get_or_insert_with(&mut *read_events);
-        let applied = (!text.trim_end_matches('\n').is_empty())
-            .then(|| events_of(text))
-            .flatten()
-            .map(|e| label_actor(&e, "tehas:all-hands"));
-        match applied {
-            None => None,
-            Some((who, _)) if allowed(&who) => {
-                let _ = fs::remove_file(ignored);
-                Some(true)
-            }
-            Some((who, at)) => {
-                let line = format!("{who}\t{at}");
-                let said = fs::read_to_string(ignored).unwrap_or_default();
-                if !ignored.exists() || said.trim_end_matches('\n') != line {
-                    eprintln!("tehasbot status: tehas:all-hands on #{issue} was applied by '{who}', not an allowed account: ignored");
-                    if let Some(dir) = ignored.parent() {
-                        let _ = fs::create_dir_all(dir);
-                    }
-                    let _ = fs::write(ignored, format!("{line}\n"));
-                }
-                Some(false)
-            }
-        }
-    } else {
-        let _ = fs::remove_file(ignored);
-        Some(false)
-    };
     Control {
         label,
         lifted,
-        all_hands,
         read: known,
     }
 }
@@ -432,7 +457,7 @@ fn before(file: &Path, now: i64) -> J {
 
 /// The figure of the Shipped stage, published only as a whole number of
 /// issues: nothing negative, fractional or beyond what a JavaScript number
-/// holds exactly, 2^53 - 1 the largest. The reader, host/fun/business-view.js,
+/// holds exactly, 2^53 - 1 the largest. A reader, the business plugin's page,
 /// shows what this publishes and rejects the rest, so the bound is stated once.
 fn count(answer: &str) -> Option<J> {
     let doc = J::parse(answer)?;
@@ -514,17 +539,24 @@ fn scan(text: &str, found: &mut dyn FnMut(&str)) {
     }
 }
 
-/// `{number, title, url, createdAt, updatedAt, closedAt}`
+/// The fields of an issue in the snapshot's lists, in their order.
+const LISTED: [&str; 6] = [
+    "number",
+    "title",
+    "url",
+    "createdAt",
+    "updatedAt",
+    "closedAt",
+];
+
+/// An issue of the snapshot's lists, its fields of [`LISTED`] in order.
+fn listed(values: [J; 6]) -> J {
+    obj(LISTED.into_iter().zip(values).collect())
+}
+
+/// `{number, title, url, createdAt, updatedAt, closedAt}` of `issue`.
 fn slim(issue: &J) -> J {
-    let field = |k| issue.get(k).clone();
-    obj(vec![
-        ("number", field("number")),
-        ("title", field("title")),
-        ("url", field("url")),
-        ("createdAt", field("createdAt")),
-        ("updatedAt", field("updatedAt")),
-        ("closedAt", field("closedAt")),
-    ])
+    listed(LISTED.map(|k| issue.get(k).clone()))
 }
 
 /// `sort_by(.key)`, which keeps the order of equal keys.
@@ -613,7 +645,6 @@ fn snapshot(f: &Facts) -> Result<J, String> {
                 ("lifted", J::Bool(f.switches.lifted)),
             ]),
         ),
-        ("allHands", f.switches.all_hands.map_or(J::Null, J::Bool)),
         ("noResources", J::Bool(f.no_resources)),
         (RUNNING, J::Arr(with(&|h| h.contains(&"tehas:running")))),
         (
@@ -856,15 +887,15 @@ fn queue(home: &Path, live: &Path, analytics: &Analytics, stop: &AtomicBool) {
     let repo = repo.as_str();
     let issue = env::var("TEHAS_CONTROL_ISSUE").unwrap_or_default();
     let issue = issue.as_str();
-    let controls = [issue.to_string()];
+    let controls: Vec<TicketKey> = issue
+        .parse::<u64>()
+        .ok()
+        .and_then(NonZeroU64::new)
+        .map(TicketKey::Number)
+        .into_iter()
+        .collect();
     platform::write(home, live);
     rukas::write(home, live);
-    if let Err(why) = outsource::publish(home, live) {
-        log(&format!(
-            "WARN contractors.json not written: {}",
-            oneline(&why)
-        ));
-    }
 
     let mut reads = Reads::new(home);
     let mut stale: Vec<&str> = Vec::new();
@@ -902,7 +933,7 @@ fn queue(home: &Path, live: &Path, analytics: &Analytics, stop: &AtomicBool) {
         .ok()
         .and_then(|t| J::parse(&t))
         .unwrap_or(J::Null);
-    let words_at = home.join("state/buzzwords.at");
+    let words_at = Home::new(home).state(State::Buzzwords);
     let read_at = fs::read_to_string(&words_at)
         .ok()
         .and_then(|t| t.trim().parse().ok());
@@ -934,31 +965,32 @@ fn queue(home: &Path, live: &Path, analytics: &Analytics, stop: &AtomicBool) {
             },
         }
     });
-    // The closing pull request is only in the issue's closed event, so this one
-    // is GraphQL. The query and the acceptance rule are shipped.rs's, the same
-    // ones tehas tidy reads, so the two commands cannot disagree on what a merge
-    // closed.
+    // The shipped tickets closed since the last read, on the tickets port, by
+    // shipped.rs's rule, the one tehas tidy reads too. A read that named none
+    // is a whole answer; one that failed or was cut is none, and `completed`
+    // is kept from the file before, its `completedAt` with it, so the next
+    // run asks from the same time.
     if stopped() {
         return;
     }
-    let closed_query = format!("q=repo:{repo} is:issue is:closed linked:pr sort:updated-desc");
-    let the_query = format!("query={}", shipped::QUERY);
-    let closers = reads.read(&["api", "graphql", "-f", &closed_query, "-f", &the_query]);
-    // A read that named issues and found no merged closer is a whole answer and
-    // a snapshot of no completed work; only a reply with no list of nodes in it
-    // is no answer.
-    let nodes: Option<Vec<J>> = closers.as_deref().and_then(|closers| {
-        let Some(nodes) = shipped::list(closers, &controls) else {
-            log("WARN status: the answer of what closed these issues was no list, its part of the snapshot is stale");
-            return None;
-        };
-        Some(
-            nodes
-                .iter()
-                .filter_map(|n| J::parse(&n.to_string()))
-                .collect(),
-        )
-    });
+    let mut handle = crate::wiring::tickets(repo, "gh", READ_WAIT);
+    let since = shipped_since(&previous, time::now());
+    let read = shipped::since(&mut *handle, since, &controls);
+    let nodes: Option<Vec<J>> = match &read {
+        Ok(shipped) => Some(completed_of(shipped, &previous)),
+        Err(outcome) => {
+            let line = format!(
+                "WARN status: the shipped issues closed since {} were not read: {}, its part of the snapshot is stale",
+                time::iso(since.secs()),
+                outcome.line()
+            );
+            log(&line);
+            if matches!(outcome, tehas_ports::Outcome::Unavailable { .. }) {
+                github_fails::note(home, time::now(), &line);
+            }
+            None
+        }
+    };
     if nodes.is_none() {
         stale.push("completed");
     }
@@ -995,13 +1027,11 @@ fn queue(home: &Path, live: &Path, analytics: &Analytics, stop: &AtomicBool) {
                 .unwrap_or_default()
         },
         &allowed,
-        &home.join("state/all-hands.ignored"),
-        issue,
     );
     if stopped() {
         return;
     }
-    let (flag, flag_paused) = host_pause_flag(&home.join("state/pause.json"));
+    let (flag, flag_paused) = host_pause_flag(&Home::new(home).state(State::Pause));
     let now = time::now();
     let on = env::var("TEHAS_ANALYTICS").as_deref() == Ok("on");
     let was = if on && stale.is_empty() {
@@ -1054,23 +1084,11 @@ fn queue(home: &Path, live: &Path, analytics: &Analytics, stop: &AtomicBool) {
         return;
     }
 
-    // An issue this read finds shipped carries the label whatever the reason,
-    // and the read names its labels, so an issue that already holds it is not
-    // asked for it: `gh issue edit` reads the issue and sends a mutation every
-    // time. The labels the read did not answer count as missing.
-    if let Some(closers) = &closers {
-        for n in shipped::lacking(closers, &controls, shipped::SHIPPED) {
-            let n = n.to_string();
-            gh_write(&[
-                "issue",
-                "edit",
-                &n,
-                "--repo",
-                repo,
-                "--add-label",
-                shipped::SHIPPED,
-            ]);
-        }
+    // A ticket this read finds shipped carries the mark whatever the reason,
+    // and the read names its marks, so one that already holds it is not
+    // asked for it: each mark is a request.
+    if let Ok(shipped) = &read {
+        mark_shipped(&mut *handle, &shipped::lacking_mark(shipped));
     }
 
     if stopped() {
@@ -1099,7 +1117,7 @@ pub fn main() -> u8 {
     }
     let from_poll = env::var_os("TEHAS_FROM_POLL").is_some_and(|v| !v.is_empty());
     let home = PathBuf::from(env::var_os("TEHAS_HOME").unwrap_or_default());
-    let live = home.join("live");
+    let live = Home::new(&home).live_dir();
     let _ = fs::create_dir_all(&live);
     let analytics = Analytics::new(&home);
     let stop = Arc::new(AtomicBool::new(false));
@@ -1122,6 +1140,8 @@ pub fn main() -> u8 {
 mod tests {
     use super::*;
     use std::cell::Cell;
+    use tehas_ports::fake::{FakeSite, Fault, Faulty, Op, TicketsOp, World};
+    use tehas_ports::{Actor, At, Caller, ChangeState, CloseReason, Scope, Site, Write};
 
     #[test]
     fn a_read_only_snapshot_says_so_with_its_starts_and_another_has_no_key() {
@@ -1163,7 +1183,6 @@ mod tests {
             switches: Control {
                 label: false,
                 lifted: false,
-                all_hands: Some(false),
                 read: true,
             },
             flag: J::Null,
@@ -1380,7 +1399,6 @@ mod tests {
                 "repo",
                 "paused",
                 "pause",
-                "allHands",
                 "noResources",
                 "running",
                 "queued",
@@ -1396,9 +1414,9 @@ mod tests {
         f.count = Some(J::num(3.0));
         let s = snapshot(&f).unwrap();
         let J::Obj(o) = &s else { panic!() };
-        assert_eq!(o[15].0, "completedCount");
-        assert_eq!(o[16].0, "links");
-        assert_eq!(o[17].0, "buzzwords");
+        assert_eq!(o[14].0, "completedCount");
+        assert_eq!(o[15].0, "links");
+        assert_eq!(o[16].0, "buzzwords");
         assert_eq!(
             s.at(&["links", "completed"]).as_str().unwrap(),
             "https://github.com/acme/widget/issues?q=is%3Aissue%20is%3Aclosed%20label%3Atehas%3Ashipped"
@@ -1479,13 +1497,7 @@ mod tests {
         )
     }
 
-    fn hands(who: &str) -> String {
-        format!(
-            r#"[{{"event":"labeled","label":{{"name":"tehas:all-hands"}},"actor":{{"login":"{who}"}},"created_at":"2026-10-17T10:00:00Z"}}]"#
-        )
-    }
-
-    fn switches(labels: Option<&str>, events: &str, ignored: &Path) -> (Control, u32) {
+    fn switches(labels: Option<&str>, events: &str) -> (Control, u32) {
         let asked = Cell::new(0);
         let c = control(
             labels,
@@ -1494,17 +1506,13 @@ mod tests {
                 events.to_string()
             },
             &|l| l == "alice",
-            ignored,
-            "1",
         );
         (c, asked.get())
     }
 
     #[test]
     fn a_pause_only_an_allowed_account_took_off_is_no_pause() {
-        let dir = temp("lifted");
-        let f = dir.join("ignored");
-        let lifted = |events: &str| switches(Some(""), events, &f).0.lifted;
+        let lifted = |events: &str| switches(Some(""), events).0.lifted;
         assert!(!lifted(&pause("unlabeled", "alice")));
         assert!(lifted(&pause("unlabeled", "mallory")));
         assert!(lifted(&pause("unlabeled", "")));
@@ -1516,7 +1524,7 @@ mod tests {
         assert!(!lifted("{}"));
         assert!(!lifted(r#"{"message":"no"}"#));
         // A label on the issue needs no events.
-        let (c, asked) = switches(Some("tehas:pause"), "", &f);
+        let (c, asked) = switches(Some("tehas:pause"), "");
         assert!(c.label && !c.lifted);
         assert_eq!(asked, 0);
         // Two pages are one list, and of two events in one second the
@@ -1531,9 +1539,7 @@ mod tests {
 
     #[test]
     fn labels_that_could_not_be_read_take_the_pause_from_its_events() {
-        let dir = temp("unread");
-        let f = dir.join("ignored");
-        let unread = |events: &str| switches(None, events, &f).0;
+        let unread = |events: &str| switches(None, events).0;
         // The last event put the label on: it is on, and nobody lifted it.
         let c = unread(&pause("labeled", "mallory"));
         assert!(c.label && !c.lifted && c.read);
@@ -1547,7 +1553,7 @@ mod tests {
         for bad in ["", "not json", "{}"] {
             assert!(!unread(bad).read, "{bad}");
         }
-        assert!(switches(Some(""), "", &f).0.read);
+        assert!(switches(Some(""), "").0.read);
     }
 
     #[test]
@@ -1555,7 +1561,6 @@ mod tests {
         let read = Control {
             label: false,
             lifted: false,
-            all_hands: None,
             read: true,
         };
         let before = j(r#"{"pause":{"flag":null,"label":true,"lifted":false}}"#);
@@ -1564,7 +1569,6 @@ mod tests {
         let unread = || Control {
             label: false,
             lifted: false,
-            all_hands: None,
             read: false,
         };
         let (c, stale) = kept(unread(), &before);
@@ -1582,36 +1586,6 @@ mod tests {
         assert_eq!(s.get("stale").dump(), r#"["pause"]"#);
         assert_eq!(s.get("completed").dump(), "[]");
         assert_eq!(s.get("queueAt").as_str(), Some("2026-11-01T00:00:00Z"));
-    }
-
-    #[test]
-    fn all_hands_holds_only_by_an_allowed_account() {
-        let dir = temp("hands");
-        let f = dir.join("state/ignored");
-        let on = Some("tehas:all-hands");
-        assert_eq!(switches(on, &hands("alice"), &f).0.all_hands, Some(true));
-        assert_eq!(switches(on, &hands("mallory"), &f).0.all_hands, Some(false));
-        assert_eq!(
-            fs::read_to_string(&f).unwrap(),
-            "mallory\t2026-10-17T10:00:00Z\n"
-        );
-        // An allowed application takes the memory of the ignored one away.
-        assert_eq!(switches(on, &hands("alice"), &f).0.all_hands, Some(true));
-        assert!(!f.exists());
-        switches(on, &hands("mallory"), &f);
-        // Off the issue is off, whatever the events say, and the events are read
-        // once for the two switches.
-        let (c, asked) = switches(Some(""), &hands("alice"), &f);
-        assert_eq!(c.all_hands, Some(false));
-        assert_eq!(asked, 1);
-        assert!(!f.exists());
-        // Unknown: events that cannot be read, or labels that could not.
-        assert_eq!(switches(on, "", &f).0.all_hands, None);
-        assert_eq!(switches(on, "not json", &f).0.all_hands, None);
-        assert_eq!(switches(None, &hands("alice"), &f).0.all_hands, None);
-        // No event applied it: nobody did.
-        assert_eq!(switches(on, "[]", &f).0.all_hands, Some(false));
-        assert_eq!(fs::read_to_string(&f).unwrap(), "\t\n");
     }
 
     #[test]
@@ -1757,5 +1731,140 @@ mod tests {
         assert!(events_of("[[]]").is_none());
         assert!(events_of("[7]").is_none());
         assert!(events_of("{}").is_none());
+    }
+
+    fn writes(site: &impl Site) -> Box<dyn TicketWrites + Send> {
+        site.ticket_writes(&Actor::Ours(Scope::Full), Caller::new("status"))
+            .unwrap()
+    }
+
+    fn key(n: u64) -> TicketKey {
+        TicketKey::Number(NonZeroU64::new(n).unwrap())
+    }
+
+    fn shipped_on(n: u64) -> Write {
+        Write::Mark {
+            ticket: key(n),
+            mark: Mark::State(tehas_ports::State::Shipped),
+        }
+    }
+
+    fn issues(numbers: &[u64]) -> World {
+        numbers
+            .iter()
+            .fold(World::new(), |w, n| w.ticket(*n, |t| t))
+    }
+
+    #[test]
+    fn each_issue_that_lacks_the_shipped_mark_is_given_it_once_in_order() {
+        let world = issues(&[20, 21, 22]);
+        mark_shipped(&mut *writes(&FakeSite::new(&world)), &[key(22), key(20)]);
+        let wrote: Vec<Write> = world.wrote().into_iter().map(|w| w.what).collect();
+        assert_eq!(wrote, [shipped_on(22), shipped_on(20)]);
+    }
+
+    #[test]
+    fn no_issue_lacking_it_is_no_request() {
+        let world = issues(&[20]);
+        mark_shipped(&mut *writes(&FakeSite::new(&world)), &[]);
+        assert!(world.wrote().is_empty());
+        assert_eq!(world.sent(), 0);
+    }
+
+    #[test]
+    fn a_mark_that_fails_leaves_the_others_asked() {
+        let world = issues(&[20, 21]);
+        let site = Faulty::new(FakeSite::new(&world))
+            .on(
+                Op::Tickets(TicketsOp::Mark),
+                Fault::Server { applied: false },
+            )
+            .times(1);
+        mark_shipped(&mut *writes(&site), &[key(20), key(21)]);
+        let wrote: Vec<Write> = world.wrote().into_iter().map(|w| w.what).collect();
+        assert_eq!(wrote, [shipped_on(21)]);
+    }
+
+    #[test]
+    fn a_read_starts_an_hour_before_the_last_completed_read_or_a_day_back() {
+        let now = time::from_iso("2026-03-02T12:00:00Z").unwrap();
+        let at = |prev: &str| shipped_since(&j(prev), now).secs();
+        assert_eq!(
+            at(r#"{"completedAt":"2026-03-02T11:00:00Z"}"#),
+            now - 2 * 3600
+        );
+        for none in [
+            "null",
+            "{}",
+            r#"{"completedAt":"yesterday"}"#,
+            r#"{"completedAt":7}"#,
+            r#"{"completedAt":"2026-03-02T12:00:01Z"}"#,
+        ] {
+            assert_eq!(at(none), now - 24 * 3600, "{none}");
+        }
+    }
+
+    /// Tickets `numbers`, each closed with a change of this project merged
+    /// that closes it, read as tehasbot status reads them.
+    fn shipped_now(numbers: &[u64]) -> Vec<tehas_ports::ClosedTicket> {
+        let mut w = World::new();
+        w.clock().set(At::new(1_800_000_000));
+        for n in numbers {
+            let merged = ChangeState::Merged {
+                at: w.now(),
+                by: None,
+                commit: None,
+            };
+            w = w.ticket(*n, |t| t.closed(CloseReason::Done)).change(
+                n + 1000,
+                &format!("work/{n}"),
+                |c| c.closes(*n).state(merged),
+            );
+        }
+        let site = FakeSite::new(&w);
+        let mut t = site
+            .tickets(&Actor::Operator, Caller::new("status"))
+            .unwrap();
+        shipped::since(&mut *t, At::new(0), &[]).unwrap()
+    }
+
+    #[test]
+    fn completed_is_this_reads_shipped_and_the_ones_before_newest_first() {
+        let read = shipped_now(&[20, 21]);
+        let closed = time::iso(read[0].closed.secs());
+        let before = j(r#"{"completed":[
+            {"number":21,"title":"old","url":"u","createdAt":"2000-01-01T00:00:00Z","updatedAt":"2000-01-01T00:00:00Z","closedAt":"2000-01-01T00:00:00Z","extra":1},
+            {"number":5,"title":"five","url":"u5","createdAt":"2000-01-01T00:00:00Z","updatedAt":"2000-01-02T00:00:00Z","closedAt":"2000-01-02T00:00:00Z"}]}"#);
+        let got = completed_of(&read, &before);
+        let numbers: Vec<String> = got.iter().map(|n| n.get("number").text()).collect();
+        assert_eq!(numbers.len(), 3, "{got:?}");
+        assert!(
+            numbers[..2].contains(&"20".to_string()) && numbers[..2].contains(&"21".to_string())
+        );
+        assert_eq!(numbers[2], "5", "the one before, older, after");
+        // This read's own fields, not the file's: and only the six fields.
+        let n21 = got.iter().find(|n| n.get("number").text() == "21").unwrap();
+        assert_eq!(n21.get("closedAt").as_str(), Some(closed.as_str()));
+        assert_ne!(n21.get("title").as_str(), Some("old"));
+        assert!(got[2].get("extra").is_null());
+        assert_eq!(got[2].get("url").as_str(), Some("u5"));
+    }
+
+    #[test]
+    fn completed_holds_at_most_a_hundred_and_drops_the_oldest() {
+        let items: Vec<String> = (1..=150)
+            .map(|n| {
+                format!(
+                    r#"{{"number":{n},"closedAt":"{}"}}"#,
+                    time::iso(1_700_000_000 + n)
+                )
+            })
+            .collect();
+        let before = j(&format!(r#"{{"completed":[{}]}}"#, items.join(",")));
+        let got = completed_of(&shipped_now(&[]), &before);
+        assert_eq!(got.len(), 100);
+        assert_eq!(got[0].get("number").text(), "150");
+        assert_eq!(got[99].get("number").text(), "51");
+        assert!(completed_of(&[], &j("null")).is_empty());
     }
 }

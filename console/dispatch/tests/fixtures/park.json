@@ -69,7 +69,7 @@
      {
       "issue": 7,
       "park_told": true,
-      "say": "Not started: the last cycle parked on `intent-park` and the issue text has not changed since. Edit the body, or tick Retry in the park comment."
+      "say": "Not started: the last cycle parked on `intent-park` and the issue text has not changed since. Edit the body, or reply to the park comment with the word of one of its retries."
      }
     ],
     "no_actions": [
@@ -138,7 +138,7 @@
      7
     ],
     "log": [
-     "lift #7: its last cycle parked on intent-park and the body has not changed since, lifted as its park has no question on record to tick"
+     "lift #7: its last cycle parked on intent-park and the body has not changed since, lifted as its park has no question on record to answer"
     ],
     "log_lacks": [
      "hold #7: its last cycle parked on intent-park and the body has not changed since"
@@ -760,7 +760,7 @@
    }
   },
   {
-   "case": "a retry ticked by an allowed account starts a cycle",
+   "case": "a retry answered by an allowed account starts a cycle",
    "world": "parked",
    "park_q": [
     "x",
@@ -777,34 +777,113 @@
      {
       "start": 7,
       "by": "alice",
-      "how": "retry tick",
+      "how": "reply",
       "at": "2026-01-01T01:00:00Z",
-      "given": "retry-tick",
+      "given": "reply",
       "comment": 4001,
       "remove": [
        "tehas:question"
       ]
-     },
-     {
-      "untick": 7,
-      "comment": 4001,
-      "body": "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->"
      }
     ]
    }
   },
-  {"case": "with the limit at 0, a retry ticked by an allowed account is demand: it waits as a ready issue does",
-   "world": "parked", "park_q": ["x", " ", " ", "alice"], "snapshot": {"limit": {"state": "ok", "cycles": 0, "plan": true}},
-   "expect": {"exit": 0, "picked": [], "demand_is": {"waiting": 1, "oldest": "2026-01-01T01:00:00Z"}}},
-  {"case": "with the limit at 0, an unticked park question is no demand",
-   "world": "parked", "park_q": [" ", " ", " ", ""], "snapshot": {"limit": {"state": "ok", "cycles": 0, "plan": true}},
-   "expect": {"exit": 0, "picked": [], "demand_is": {"waiting": 0}}},
-  {"case": "with the limit at 0, a retry ticked by a stranger is no demand",
-   "world": "parked", "park_q": ["x", " ", " ", "mallory"], "snapshot": {"limit": {"state": "ok", "cycles": 0, "plan": true}},
-   "expect": {"picked": [], "demand_is": {"waiting": 0}}},
-  {"case": "with the limit at 0, Leave it parked is no demand",
-   "world": "parked", "park_q": [" ", " ", "x", "alice"], "snapshot": {"limit": {"state": "ok", "cycles": 0, "plan": true}},
-   "expect": {"exit": 0, "picked": [], "demand_is": {"waiting": 0}}},
+  {
+   "case": "with the limit at 0, a retry answered by an allowed account is demand: it waits as a ready issue does",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    " ",
+    "alice"
+   ],
+   "snapshot": {
+    "limit": {
+     "state": "ok",
+     "cycles": 0,
+     "plan": true
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "demand_is": {
+     "waiting": 1,
+     "oldest": "2026-01-01T01:00:00Z"
+    }
+   }
+  },
+  {
+   "case": "with the limit at 0, an unticked park question is no demand",
+   "world": "parked",
+   "park_q": [
+    " ",
+    " ",
+    " ",
+    ""
+   ],
+   "snapshot": {
+    "limit": {
+     "state": "ok",
+     "cycles": 0,
+     "plan": true
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "demand_is": {
+     "waiting": 0
+    }
+   }
+  },
+  {
+   "case": "with the limit at 0, a retry answered by a stranger is no demand",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    " ",
+    "mallory"
+   ],
+   "snapshot": {
+    "limit": {
+     "state": "ok",
+     "cycles": 0,
+     "plan": true
+    }
+   },
+   "expect": {
+    "picked": [],
+    "demand_is": {
+     "waiting": 0
+    }
+   }
+  },
+  {
+   "case": "with the limit at 0, Leave it parked is no demand",
+   "world": "parked",
+   "park_q": [
+    " ",
+    " ",
+    "x",
+    "alice"
+   ],
+   "snapshot": {
+    "limit": {
+     "state": "ok",
+     "cycles": 0,
+     "plan": true
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "demand_is": {
+     "waiting": 0
+    }
+   }
+  },
   {
    "case": "the tick of the issue alone starts a cycle whose record names no comment",
    "world": "parked",
@@ -823,19 +902,14 @@
      {
       "start": 7,
       "by": "alice",
-      "how": "retry tick",
+      "how": "reply",
       "at": "2026-01-01T01:00:00Z",
-      "given": "retry-tick",
+      "given": "reply",
       "comment": 4001,
       "issue_alone": true,
       "remove": [
        "tehas:question"
       ]
-     },
-     {
-      "untick": 7,
-      "comment": 4001,
-      "body": "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->"
      }
     ]
    }
@@ -858,20 +932,15 @@
      {
       "start": 7,
       "by": "alice",
-      "how": "retry tick",
+      "how": "reply",
       "at": "2026-01-01T01:00:00Z",
-      "given": "retry-tick",
+      "given": "reply",
       "comment": 4001,
       "remove": [
        "tehas:question",
        "tehas:ready",
        "tehas:millwright-escalated"
       ]
-     },
-     {
-      "untick": 7,
-      "comment": 4001,
-      "body": "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->"
      }
     ]
    },
@@ -942,10 +1011,8 @@
     ],
     "actions": [
      {
-      "untick": 7,
-      "comment": 4001,
-      "body": "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
-      "say": "Retry was ticked and nothing was started: https://github.com/acme/widget/pull/90 is open and closes this issue. Merge or close that pull request, then tick Retry."
+      "issue": 7,
+      "say": "Retry was asked for and nothing was started: https://github.com/acme/widget/pull/90 is open and closes this issue. Merge or close that pull request, then answer retry again.", "markers": [{"type": "Declined", "value": {"question": "4001"}}]
      }
     ],
     "no_actions": [
@@ -1028,8 +1095,8 @@
      {
       "start": 7,
       "by": "alice",
-      "how": "retry tick",
-      "given": "retry-tick"
+      "how": "reply",
+      "given": "reply"
      }
     ]
    }
@@ -1059,9 +1126,8 @@
     ],
     "actions": [
      {
-      "untick": 7,
-      "comment": 4001,
-      "say": "Retry was ticked and nothing was started: https://github.com/acme/widget/pull/90 is open and closes this issue. Merge or close that pull request, then tick Retry."
+      "issue": 7,
+      "say": "Retry was asked for and nothing was started: https://github.com/acme/widget/pull/90 is open and closes this issue. Merge or close that pull request, then answer retry again.", "markers": [{"type": "Declined", "value": {"question": "4001"}}]
      }
     ],
     "no_actions": [
@@ -1099,8 +1165,8 @@
      {
       "start": 7,
       "by": "alice",
-      "how": "retry tick",
-      "given": "retry-tick"
+      "how": "reply",
+      "given": "reply"
      }
     ]
    }
@@ -1156,7 +1222,7 @@
    ],
    "expect": {
     "log": [
-     "would run a cycle for #7 (retry ticked by alice)"
+     "would run a cycle for #7 (retry answered by alice)"
     ],
     "nothing": true,
     "picked": [],
@@ -1164,7 +1230,7 @@
    }
   },
   {
-   "case": "a retry ticked by the bot or a stranger starts nothing and is undone: 'tehas-bot'",
+   "case": "a retry answered by the bot or a stranger starts nothing and is undone: 'tehas-bot'",
    "world": "parked",
    "park_q": [
     "x",
@@ -1174,22 +1240,16 @@
    ],
    "expect": {
     "picked": [],
-    "actions": [
+    "exit": 0,
+    "no_actions": [
      {
-      "untick": 7,
-      "comment": 4001,
-      "body": "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
-      "say": "A box was ticked by an account that may not answer for this factory (tehas-bot). It was unticked."
+      "start": 7
      }
-    ],
-    "log": [
-     "skip #7: boxes ticked by 'tehas-bot' are no answer (stranger)"
-    ],
-    "exit": 0
+    ]
    }
   },
   {
-   "case": "a retry ticked by the bot or a stranger starts nothing and is undone: 'mallory'",
+   "case": "a retry answered by the bot or a stranger starts nothing and is undone: 'mallory'",
    "world": "parked",
    "park_q": [
     "x",
@@ -1199,22 +1259,16 @@
    ],
    "expect": {
     "picked": [],
-    "actions": [
+    "exit": 0,
+    "no_actions": [
      {
-      "untick": 7,
-      "comment": 4001,
-      "body": "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
-      "say": "A box was ticked by an account that may not answer for this factory (mallory). It was unticked."
+      "start": 7
      }
-    ],
-    "log": [
-     "skip #7: boxes ticked by 'mallory' are no answer (stranger)"
-    ],
-    "exit": 0
+    ]
    }
   },
   {
-   "case": "a retry ticked by the bot or a stranger starts nothing and is undone: ''",
+   "case": "a retry answered by the bot or a stranger starts nothing and is undone: ''",
    "world": "parked",
    "park_q": [
     "x",
@@ -1224,22 +1278,16 @@
    ],
    "expect": {
     "picked": [],
-    "actions": [
+    "exit": 0,
+    "no_actions": [
      {
-      "untick": 7,
-      "comment": 4001,
-      "body": "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
-      "say": "A box was ticked by an account that may not answer for this factory (unknown). It was unticked."
+      "start": 7
      }
-    ],
-    "log": [
-     "skip #7: boxes ticked by 'unknown' are no answer (stranger)"
-    ],
-    "exit": 0
+    ]
    }
   },
   {
-   "case": "both boxes ticked is no choice: nothing starts, the boxes are emptied, one note",
+   "case": "both boxes ticked is no choice: nothing starts and nothing is said",
    "world": "parked",
    "park_q": [
     "x",
@@ -1249,13 +1297,15 @@
    ],
    "expect": {
     "picked": [],
-    "actions": [
+    "exit": 0,
+    "no_actions": [
      {
-      "untick": 7,
-      "say": "More than one box was ticked, so nothing was chosen. Tick one."
+      "start": 7
+     },
+     {
+      "issue": 7
      }
-    ],
-    "exit": 0
+    ]
    }
   },
   {
@@ -1381,12 +1431,40 @@
    "expect": {
     "picked": [],
     "log": [
-     "its text was changed by 'mallory' after alice ticked retry; untick the box and tick it again to approve it"
+     "its text was changed by 'mallory' after alice answered retry; answer again to approve it"
     ],
     "exit": 0
    }
   },
-  {"case": "the issue-alone tick does not approve text changed after it", "world": "parked", "park_q": [" ", "x", " ", "alice"], "snapshot": {"issues": {"7": {"edit": {"lastEditedAt": "2026-01-01T03:00:00Z", "editor": {"login": "mallory"}}}}}, "expect": {"picked": [], "log": ["its text was changed by 'mallory' after alice ticked retry; untick the box and tick it again to approve it"], "exit": 0}},
+  {
+   "case": "the issue-alone tick does not approve text changed after it",
+   "world": "parked",
+   "park_q": [
+    " ",
+    "x",
+    " ",
+    "alice"
+   ],
+   "snapshot": {
+    "issues": {
+     "7": {
+      "edit": {
+       "lastEditedAt": "2026-01-01T03:00:00Z",
+       "editor": {
+        "login": "mallory"
+       }
+      }
+     }
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "its text was changed by 'mallory' after alice answered retry; answer again to approve it"
+    ],
+    "exit": 0
+   }
+  },
   {
    "case": "a retry waits while too many pull requests await a merge",
    "world": "parked",
@@ -1438,7 +1516,29 @@
     "exit": 0
    }
   },
-  {"case": "the pause label stops an issue-alone tick too", "world": "parked", "park_q": [" ", "x", " ", "alice"], "snapshot": {"control": {"labels": [{"name": "tehas:pause"}]}}, "expect": {"picked": [], "exit": 0}},
+  {
+   "case": "the pause label stops an issue-alone tick too",
+   "world": "parked",
+   "park_q": [
+    " ",
+    "x",
+    " ",
+    "alice"
+   ],
+   "snapshot": {
+    "control": {
+     "labels": [
+      {
+       "name": "tehas:pause"
+      }
+     ]
+    }
+   },
+   "expect": {
+    "picked": [],
+    "exit": 0
+   }
+  },
   {
    "case": "a marker in somebody else's comment is not a question",
    "world": "parked",
@@ -1518,11 +1618,7 @@
     "log_count": {
      "the issues with a question could not be read": 1
     },
-    "no_actions": [
-     {
-      "untick": 7
-     }
-    ]
+    "no_actions": []
    }
   },
   {
@@ -1542,11 +1638,7 @@
     "log_count": {
      "the issues with a question could not be read": 1
     },
-    "no_actions": [
-     {
-      "untick": 7
-     }
-    ]
+    "no_actions": []
    }
   },
   {
@@ -1730,18 +1822,17 @@
    "expect": {
     "picked": [],
     "log": [
-     "skip #7: a retry was ticked but the issue is not parked"
+     "skip #7: a retry was answered but the issue is not parked"
     ],
     "actions": [
      {
-      "untick": 7,
-      "comment": 4001,
-      "say": "Retry was ticked, but this issue is not parked, so nothing was started."
+      "issue": 7,
+      "say": "Retry was asked for, but this issue is not parked, so nothing was started.", "markers": [{"type": "Declined", "value": {"question": "4001"}}]
      }
     ],
     "no_actions": [
      {
-      "issue": 7
+      "start": 7
      }
     ],
     "exit": 0
@@ -1777,18 +1868,17 @@
    "expect": {
     "picked": [],
     "log": [
-     "skip #7: a retry was ticked but the issue is not parked"
+     "skip #7: a retry was answered but the issue is not parked"
     ],
     "actions": [
      {
-      "untick": 7,
-      "comment": 4001,
-      "say": "Retry was ticked, but this issue is not parked, so nothing was started."
+      "issue": 7,
+      "say": "Retry was asked for, but this issue is not parked, so nothing was started.", "markers": [{"type": "Declined", "value": {"question": "4001"}}]
      }
     ],
     "no_actions": [
      {
-      "issue": 7
+      "start": 7
      }
     ],
     "exit": 0
@@ -1824,18 +1914,17 @@
    "expect": {
     "picked": [],
     "log": [
-     "skip #7: a retry was ticked but the issue is not parked"
+     "skip #7: a retry was answered but the issue is not parked"
     ],
     "actions": [
      {
-      "untick": 7,
-      "comment": 4001,
-      "say": "Retry was ticked, but this issue is not parked, so nothing was started."
+      "issue": 7,
+      "say": "Retry was asked for, but this issue is not parked, so nothing was started.", "markers": [{"type": "Declined", "value": {"question": "4001"}}]
      }
     ],
     "no_actions": [
      {
-      "issue": 7
+      "start": 7
      }
     ],
     "exit": 0
@@ -1865,7 +1954,7 @@
    },
    "expect": {
     "log": [
-     "skip #7: a retry was ticked but the issue is not parked"
+     "skip #7: a retry was answered but the issue is not parked"
     ],
     "nothing": true,
     "exit": 0
@@ -1992,19 +2081,17 @@
     "exit": 0,
     "picked": [],
     "log": [
-     "skip #9: a box was ticked in a question this host has no record of"
+     "skip #9: a choice was made in a question this host has no record of"
     ],
     "actions": [
      {
-      "untick": 9,
-      "comment": 4001,
-      "body": "Please confirm you have seen this.\n\n- [ ] Retry from a clean start\n\n<!-- tehas:question kind=park issue=3 turn=1 -->",
-      "say": "This question is not one the factory is waiting on. To retry, apply `tehas:ready`."
+      "issue": 9,
+      "say": "This question is not one the factory is waiting on. To retry, apply `tehas:ready`.", "markers": [{"type": "Declined", "value": {"question": "4001"}}]
      }
     ],
     "no_actions": [
      {
-      "issue": 9
+      "start": 7
      }
     ]
    }
@@ -2110,12 +2197,12 @@
    "expect": {
     "picked": [],
     "log": [
-     "skip #7: a box was ticked in a question this host has no record of"
+     "skip #7: a choice was made in a question this host has no record of"
     ],
     "actions": [
      {
-      "untick": 7,
-      "say": "This question is not one the factory is waiting on. To retry, apply `tehas:ready`."
+      "issue": 7,
+      "say": "This question is not one the factory is waiting on. To retry, apply `tehas:ready`.", "markers": [{"type": "Declined", "value": {"question": "4001"}}]
      }
     ],
     "exit": 0
@@ -2482,25 +2569,124 @@
     ]
    }
   },
-  {"case": "an outage retry whose park has no time its cycle began is said and spent, and starts nothing",
-   "world": "parked", "park_q": [" ", " ", " ", ""], "body": {"7": "Words."},
-   "snapshot": {"endpoint": {"end": "main"},
-    "owed": [{"issue": 7, "started_at": null, "started_by": "alice"}],
-    "issues": {"7": {"view": {"state": "OPEN", "labels": [{"name": "needs-human-attention"}, {"name": "tehas:question"}]}}}},
-   "parked": {"7": {"reason": "provider-outage", "body": "Words."}},
-   "expect": {"exit": 0, "picked": [],
-    "log": ["skip #7: its retry after a provider outage is not started: its park record has no time its cycle began (started_at=null)"],
-    "actions": [{"park_retry": 7, "how": "outage"}],
-    "no_actions": [{"start": 7}]}},
-  {"case": "an outage retry whose park names no issue is warned of and acts nothing",
-   "world": "parked", "park_q": [" ", " ", " ", ""], "body": {"7": "Words."},
-   "snapshot": {"endpoint": {"end": "main"},
-    "owed": [{"issue": null, "started_at": 1767232800, "started_by": "alice"}],
-    "issues": {"7": {"view": {"state": "OPEN", "labels": [{"name": "needs-human-attention"}, {"name": "tehas:question"}]}}}},
-   "parked": {"7": {"reason": "provider-outage", "body": "Words."}},
-   "expect": {"exit": 0, "picked": [],
-    "log": ["WARN: a park owed a retry after a provider outage names no issue tehas can read (issue=null)"],
-    "nothing": true}},
+  {
+   "case": "an outage retry whose park has no time its cycle began is said and spent, and starts nothing",
+   "world": "parked",
+   "park_q": [
+    " ",
+    " ",
+    " ",
+    ""
+   ],
+   "body": {
+    "7": "Words."
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    },
+    "owed": [
+     {
+      "issue": 7,
+      "started_at": null,
+      "started_by": "alice"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      }
+     }
+    }
+   },
+   "parked": {
+    "7": {
+     "reason": "provider-outage",
+     "body": "Words."
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "skip #7: its retry after a provider outage is not started: its park record has no time its cycle began (started_at=null)"
+    ],
+    "actions": [
+     {
+      "park_retry": 7,
+      "how": "outage"
+     }
+    ],
+    "no_actions": [
+     {
+      "start": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "an outage retry whose park names no issue is warned of and acts nothing",
+   "world": "parked",
+   "park_q": [
+    " ",
+    " ",
+    " ",
+    ""
+   ],
+   "body": {
+    "7": "Words."
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    },
+    "owed": [
+     {
+      "issue": null,
+      "started_at": 1767232800,
+      "started_by": "alice"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      }
+     }
+    }
+   },
+   "parked": {
+    "7": {
+     "reason": "provider-outage",
+     "body": "Words."
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "WARN: a park owed a retry after a provider outage names no issue tehas can read (issue=null)"
+    ],
+    "nothing": true
+   }
+  },
   {
    "case": "the retry rests on who started the parked cycle, not on a later approval of another account",
    "world": "parked",
@@ -3139,145 +3325,13 @@
     "exit": 0,
     "picked": [
      7
-    ],
-    "log": [
-     "skip #5: a box was ticked in a question this host has no record of"
     ]
    }
   },
   {
-   "case": "the millwright's action=change comment of the ten minutes before its label lifts the hold, and the record says so",
+   "case": "a person's tehas:ready on the parked body is held whatever comments exist",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
-    "TEHAS_WORK_FILES": "1"
-   },
-   "snapshot": {
-    "ready": [
-     {
-      "number": 7,
-      "labels": [
-       {
-        "name": "tehas:ready"
-       },
-       {
-        "name": "needs-human-attention"
-       },
-       {
-        "name": "tehas:question"
-       }
-      ]
-     }
-    ],
-    "endpoint": {
-     "end": "main"
-    },
-    "issues": {
-     "7": {
-      "comments": {
-       "data": {
-        "repository": {
-         "issue": {
-          "comments": {
-           "nodes": [
-            {
-             "databaseId": 81,
-             "author": {
-              "login": "tehas-fixer"
-             },
-             "body": "<!-- tehas:millwright issue=7 action=change -->\nDo not run the whole suite.",
-             "createdAt": "2026-10-30T23:55:00Z",
-             "lastEditedAt": null,
-             "editor": null,
-             "userContentEdits": {
-              "totalCount": 0,
-              "nodes": []
-             }
-            }
-           ]
-          }
-         }
-        }
-       }
-      }
-     }
-    }
-   },
-   "ready_at": {
-    "7": [
-     "tehas-fixer",
-     "2026-10-30T23:58:00Z"
-    ]
-   },
-   "body": {
-    "7": "Words."
-   },
-   "work": {
-    "7": {
-     "body": "Words.",
-     "labels": [
-      {
-       "name": "needs-human-attention"
-      },
-      {
-       "name": "tehas:question"
-      },
-      {
-       "name": "tehas:ready"
-      }
-     ]
-    }
-   },
-   "parked": {
-    "7": {
-     "reason": "intent-park",
-     "body": "Words.",
-     "told": true,
-     "retries": 0
-    }
-   },
-   "approved": {
-    "7": {
-     "by": "alice",
-     "at": "2026-10-01T00:00:00Z",
-     "body": "Words.",
-     "fixer_starts": 0
-    }
-   },
-   "expect": {
-    "exit": 0,
-    "picked": [
-     7
-    ],
-    "log": [
-     "lift #7: its last cycle parked on intent-park and the body has not changed since, lifted on the fixer's guidance comment",
-     "start #7 (labelled by the fixer by tehas-fixer)"
-    ],
-    "log_lacks": [
-     "hold #7: its last cycle parked on intent-park and the body has not changed since"
-    ],
-    "actions": [
-     {
-      "start": 7,
-      "given": "millwright",
-      "fixer_starts": 1,
-      "rests_on": {
-       "by": "alice",
-       "how": "label"
-      },
-      "park_lifted": {
-       "source": "millwright:81",
-       "by": "tehas-fixer",
-       "at": "2026-10-30T23:55:00Z",
-       "text": "<!-- tehas:millwright issue=7 action=change -->\nDo not run the whole suite."
-      }
-     }
-    ]
-   }
-  },
-  {
-   "case": "the lift needs the instance to give a cycle the note: images lift it too",
-   "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_WORK_IMAGES": "1"
    },
    "snapshot": {
@@ -3311,586 +3365,7 @@
             {
              "databaseId": 81,
              "author": {
-              "login": "tehas-fixer"
-             },
-             "body": "<!-- tehas:millwright issue=7 action=change -->\nDo not run the whole suite.",
-             "createdAt": "2026-10-30T23:55:00Z",
-             "lastEditedAt": null,
-             "editor": null,
-             "userContentEdits": {
-              "totalCount": 0,
-              "nodes": []
-             }
-            }
-           ]
-          }
-         }
-        }
-       }
-      }
-     }
-    }
-   },
-   "ready_at": {
-    "7": [
-     "tehas-fixer",
-     "2026-10-30T23:58:00Z"
-    ]
-   },
-   "body": {
-    "7": "Words."
-   },
-   "work": {
-    "7": {
-     "body": "Words.",
-     "labels": [
-      {
-       "name": "needs-human-attention"
-      },
-      {
-       "name": "tehas:question"
-      },
-      {
-       "name": "tehas:ready"
-      }
-     ]
-    }
-   },
-   "parked": {
-    "7": {
-     "reason": "intent-park",
-     "body": "Words.",
-     "told": true,
-     "retries": 0
-    }
-   },
-   "approved": {
-    "7": {
-     "by": "alice",
-     "at": "2026-10-01T00:00:00Z",
-     "body": "Words.",
-     "fixer_starts": 0
-    }
-   },
-   "expect": {
-    "exit": 0,
-    "picked": [
-     7
-    ],
-    "log": [
-     "lift #7: its last cycle parked on intent-park and the body has not changed since, lifted on the fixer's guidance comment"
-    ]
-   }
-  },
-  {
-   "case": "with neither images nor files the note reaches no cycle, so the hold stays",
-   "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
-    "TEHAS_WORK_IMAGES": "0",
-    "TEHAS_WORK_FILES": "0"
-   },
-   "snapshot": {
-    "ready": [
-     {
-      "number": 7,
-      "labels": [
-       {
-        "name": "tehas:ready"
-       },
-       {
-        "name": "needs-human-attention"
-       },
-       {
-        "name": "tehas:question"
-       }
-      ]
-     }
-    ],
-    "endpoint": {
-     "end": "main"
-    },
-    "issues": {
-     "7": {
-      "comments": {
-       "data": {
-        "repository": {
-         "issue": {
-          "comments": {
-           "nodes": [
-            {
-             "databaseId": 81,
-             "author": {
-              "login": "tehas-fixer"
-             },
-             "body": "<!-- tehas:millwright issue=7 action=change -->\nDo not run the whole suite.",
-             "createdAt": "2026-10-30T23:55:00Z",
-             "lastEditedAt": null,
-             "editor": null,
-             "userContentEdits": {
-              "totalCount": 0,
-              "nodes": []
-             }
-            }
-           ]
-          }
-         }
-        }
-       }
-      }
-     }
-    }
-   },
-   "ready_at": {
-    "7": [
-     "tehas-fixer",
-     "2026-10-30T23:58:00Z"
-    ]
-   },
-   "body": {
-    "7": "Words."
-   },
-   "work": {
-    "7": {
-     "body": "Words.",
-     "labels": [
-      {
-       "name": "needs-human-attention"
-      },
-      {
-       "name": "tehas:question"
-      },
-      {
-       "name": "tehas:ready"
-      }
-     ]
-    }
-   },
-   "parked": {
-    "7": {
-     "reason": "intent-park",
-     "body": "Words.",
-     "told": true,
-     "retries": 0
-    }
-   },
-   "approved": {
-    "7": {
-     "by": "alice",
-     "at": "2026-10-01T00:00:00Z",
-     "body": "Words.",
-     "fixer_starts": 0
-    }
-   },
-   "expect": {
-    "picked": [],
-    "log": [
-     "hold #7: its last cycle parked on intent-park and the body has not changed since"
-    ],
-    "log_lacks": [
-     "lift #7"
-    ]
-   }
-  },
-  {
-   "case": "an action=retry comment of the same window lifts nothing: that ask is the run again",
-   "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
-    "TEHAS_WORK_FILES": "1"
-   },
-   "snapshot": {
-    "ready": [
-     {
-      "number": 7,
-      "labels": [
-       {
-        "name": "tehas:ready"
-       },
-       {
-        "name": "needs-human-attention"
-       },
-       {
-        "name": "tehas:question"
-       }
-      ]
-     }
-    ],
-    "endpoint": {
-     "end": "main"
-    },
-    "issues": {
-     "7": {
-      "comments": {
-       "data": {
-        "repository": {
-         "issue": {
-          "comments": {
-           "nodes": [
-            {
-             "databaseId": 81,
-             "author": {
-              "login": "tehas-fixer"
-             },
-             "body": "<!-- tehas:millwright issue=7 action=retry -->\nOnce more, the same.",
-             "createdAt": "2026-10-30T23:55:00Z",
-             "lastEditedAt": null,
-             "editor": null,
-             "userContentEdits": {
-              "totalCount": 0,
-              "nodes": []
-             }
-            }
-           ]
-          }
-         }
-        }
-       }
-      }
-     }
-    }
-   },
-   "ready_at": {
-    "7": [
-     "tehas-fixer",
-     "2026-10-30T23:58:00Z"
-    ]
-   },
-   "body": {
-    "7": "Words."
-   },
-   "work": {
-    "7": {
-     "body": "Words.",
-     "labels": [
-      {
-       "name": "needs-human-attention"
-      },
-      {
-       "name": "tehas:question"
-      },
-      {
-       "name": "tehas:ready"
-      }
-     ]
-    }
-   },
-   "parked": {
-    "7": {
-     "reason": "intent-park",
-     "body": "Words.",
-     "told": true,
-     "retries": 0
-    }
-   },
-   "approved": {
-    "7": {
-     "by": "alice",
-     "at": "2026-10-01T00:00:00Z",
-     "body": "Words.",
-     "fixer_starts": 0
-    }
-   },
-   "expect": {
-    "picked": [],
-    "log": [
-     "hold #7: its last cycle parked on intent-park and the body has not changed since"
-    ],
-    "log_lacks": [
-     "lift #7"
-    ]
-   }
-  },
-  {
-   "case": "two change notes of the window: the newest of them is the one the record names",
-   "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
-    "TEHAS_WORK_FILES": "1"
-   },
-   "snapshot": {
-    "ready": [
-     {
-      "number": 7,
-      "labels": [
-       {
-        "name": "tehas:ready"
-       },
-       {
-        "name": "needs-human-attention"
-       },
-       {
-        "name": "tehas:question"
-       }
-      ]
-     }
-    ],
-    "endpoint": {
-     "end": "main"
-    },
-    "issues": {
-     "7": {
-      "comments": {
-       "data": {
-        "repository": {
-         "issue": {
-          "comments": {
-           "nodes": [
-            {
-             "databaseId": 81,
-             "author": {
-              "login": "tehas-fixer"
-             },
-             "body": "<!-- tehas:millwright issue=7 action=change -->\nDo not run the whole suite.",
-             "createdAt": "2026-10-30T23:55:00Z",
-             "lastEditedAt": null,
-             "editor": null,
-             "userContentEdits": {
-              "totalCount": 0,
-              "nodes": []
-             }
-            },
-            {
-             "databaseId": 82,
-             "author": {
-              "login": "tehas-fixer"
-             },
-             "body": "<!-- tehas:millwright issue=7 action=change -->\nRun only the named tests.",
-             "createdAt": "2026-10-30T23:57:00Z",
-             "lastEditedAt": null,
-             "editor": null,
-             "userContentEdits": {
-              "totalCount": 0,
-              "nodes": []
-             }
-            }
-           ]
-          }
-         }
-        }
-       }
-      }
-     }
-    }
-   },
-   "ready_at": {
-    "7": [
-     "tehas-fixer",
-     "2026-10-30T23:58:00Z"
-    ]
-   },
-   "body": {
-    "7": "Words."
-   },
-   "work": {
-    "7": {
-     "body": "Words.",
-     "labels": [
-      {
-       "name": "needs-human-attention"
-      },
-      {
-       "name": "tehas:question"
-      },
-      {
-       "name": "tehas:ready"
-      }
-     ]
-    }
-   },
-   "parked": {
-    "7": {
-     "reason": "intent-park",
-     "body": "Words.",
-     "told": true,
-     "retries": 0
-    }
-   },
-   "approved": {
-    "7": {
-     "by": "alice",
-     "at": "2026-10-01T00:00:00Z",
-     "body": "Words.",
-     "fixer_starts": 0
-    }
-   },
-   "expect": {
-    "exit": 0,
-    "picked": [
-     7
-    ],
-    "log": [
-     "lift #7: its last cycle parked on intent-park and the body has not changed since, lifted on the fixer's guidance comment"
-    ],
-    "actions": [
-     {
-      "start": 7,
-      "park_lifted": {
-       "source": "millwright:82",
-       "by": "tehas-fixer",
-       "at": "2026-10-30T23:57:00Z",
-       "text": "<!-- tehas:millwright issue=7 action=change -->\nRun only the named tests."
-      }
-     }
-    ]
-   }
-  },
-  {
-   "case": "a change note of another account, or one saved after the label, lifts nothing",
-   "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
-    "TEHAS_WORK_FILES": "1"
-   },
-   "snapshot": {
-    "ready": [
-     {
-      "number": 7,
-      "labels": [
-       {
-        "name": "tehas:ready"
-       },
-       {
-        "name": "needs-human-attention"
-       },
-       {
-        "name": "tehas:question"
-       }
-      ]
-     }
-    ],
-    "endpoint": {
-     "end": "main"
-    },
-    "issues": {
-     "7": {
-      "comments": {
-       "data": {
-        "repository": {
-         "issue": {
-          "comments": {
-           "nodes": [
-            {
-             "databaseId": 81,
-             "author": {
-              "login": "mallory"
-             },
-             "body": "<!-- tehas:millwright issue=7 action=change -->\nDo not run the whole suite.",
-             "createdAt": "2026-10-30T23:55:00Z",
-             "lastEditedAt": null,
-             "editor": null,
-             "userContentEdits": {
-              "totalCount": 0,
-              "nodes": []
-             }
-            },
-            {
-             "databaseId": 82,
-             "author": {
-              "login": "tehas-fixer"
-             },
-             "body": "<!-- tehas:millwright issue=7 action=change -->\nDo not run the whole suite.",
-             "createdAt": "2026-10-30T23:56:00Z",
-             "lastEditedAt": "2026-10-31T01:00:00Z",
-             "editor": {
-              "login": "tehas-fixer"
-             },
-             "userContentEdits": {
-              "totalCount": 0,
-              "nodes": []
-             }
-            }
-           ]
-          }
-         }
-        }
-       }
-      }
-     }
-    }
-   },
-   "ready_at": {
-    "7": [
-     "tehas-fixer",
-     "2026-10-30T23:58:00Z"
-    ]
-   },
-   "body": {
-    "7": "Words."
-   },
-   "work": {
-    "7": {
-     "body": "Words.",
-     "labels": [
-      {
-       "name": "needs-human-attention"
-      },
-      {
-       "name": "tehas:question"
-      },
-      {
-       "name": "tehas:ready"
-      }
-     ]
-    }
-   },
-   "parked": {
-    "7": {
-     "reason": "intent-park",
-     "body": "Words.",
-     "told": true,
-     "retries": 0
-    }
-   },
-   "approved": {
-    "7": {
-     "by": "alice",
-     "at": "2026-10-01T00:00:00Z",
-     "body": "Words.",
-     "fixer_starts": 0
-    }
-   },
-   "expect": {
-    "picked": [],
-    "log": [
-     "hold #7: its last cycle parked on intent-park and the body has not changed since"
-    ]
-   }
-  },
-  {
-   "case": "a person's tehas:ready on the parked body is held whatever comments exist",
-   "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
-    "TEHAS_WORK_FILES": "1"
-   },
-   "snapshot": {
-    "ready": [
-     {
-      "number": 7,
-      "labels": [
-       {
-        "name": "tehas:ready"
-       },
-       {
-        "name": "needs-human-attention"
-       },
-       {
-        "name": "tehas:question"
-       }
-      ]
-     }
-    ],
-    "endpoint": {
-     "end": "main"
-    },
-    "issues": {
-     "7": {
-      "comments": {
-       "data": {
-        "repository": {
-         "issue": {
-          "comments": {
-           "nodes": [
-            {
-             "databaseId": 81,
-             "author": {
-              "login": "tehas-fixer"
+              "login": "tehas-millwright"
              },
              "body": "<!-- tehas:millwright issue=7 action=change -->\nDo not run the whole suite.",
              "createdAt": "2026-10-30T23:55:00Z",
@@ -3947,8 +3422,7 @@
     "7": {
      "by": "alice",
      "at": "2026-10-01T00:00:00Z",
-     "body": "Words.",
-     "fixer_starts": 0
+     "body": "Words."
     }
    },
    "expect": {
@@ -3960,1207 +3434,6 @@
      "lift #7"
     ]
    }
-  },
-  {
-   "case": "with no person's approval behind the park the grant refuses, so no note lifts the hold",
-   "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
-    "TEHAS_WORK_FILES": "1"
-   },
-   "snapshot": {
-    "ready": [
-     {
-      "number": 7,
-      "labels": [
-       {
-        "name": "tehas:ready"
-       },
-       {
-        "name": "needs-human-attention"
-       },
-       {
-        "name": "tehas:question"
-       }
-      ]
-     }
-    ],
-    "endpoint": {
-     "end": "main"
-    },
-    "issues": {
-     "7": {
-      "comments": {
-       "data": {
-        "repository": {
-         "issue": {
-          "comments": {
-           "nodes": [
-            {
-             "databaseId": 81,
-             "author": {
-              "login": "tehas-fixer"
-             },
-             "body": "<!-- tehas:millwright issue=7 action=change -->\nDo not run the whole suite.",
-             "createdAt": "2026-10-30T23:55:00Z",
-             "lastEditedAt": null,
-             "editor": null,
-             "userContentEdits": {
-              "totalCount": 0,
-              "nodes": []
-             }
-            }
-           ]
-          }
-         }
-        }
-       }
-      }
-     }
-    }
-   },
-   "ready_at": {
-    "7": [
-     "tehas-fixer",
-     "2026-10-30T23:58:00Z"
-    ]
-   },
-   "body": {
-    "7": "Words."
-   },
-   "work": {
-    "7": {
-     "body": "Words.",
-     "labels": [
-      {
-       "name": "needs-human-attention"
-      },
-      {
-       "name": "tehas:question"
-      },
-      {
-       "name": "tehas:ready"
-      }
-     ]
-    }
-   },
-   "parked": {
-    "7": {
-     "reason": "intent-park",
-     "body": "Words.",
-     "told": true,
-     "retries": 0
-    }
-   },
-   "approved": {},
-   "expect": {
-    "picked": [],
-    "log": [
-     "no person approved an earlier cycle of it"
-    ],
-    "log_lacks": [
-     "lift #7"
-    ]
-   }
-  },
-  {
-   "case": "at the cap of retries the grant refuses the start, so no note lifts the hold",
-   "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
-    "TEHAS_WORK_FILES": "1"
-   },
-   "snapshot": {
-    "ready": [
-     {
-      "number": 7,
-      "labels": [
-       {
-        "name": "tehas:ready"
-       },
-       {
-        "name": "needs-human-attention"
-       },
-       {
-        "name": "tehas:question"
-       }
-      ]
-     }
-    ],
-    "endpoint": {
-     "end": "main"
-    },
-    "issues": {
-     "7": {
-      "comments": {
-       "data": {
-        "repository": {
-         "issue": {
-          "comments": {
-           "nodes": [
-            {
-             "databaseId": 81,
-             "author": {
-              "login": "tehas-fixer"
-             },
-             "body": "<!-- tehas:millwright issue=7 action=change -->\nDo not run the whole suite.",
-             "createdAt": "2026-10-30T23:55:00Z",
-             "lastEditedAt": null,
-             "editor": null,
-             "userContentEdits": {
-              "totalCount": 0,
-              "nodes": []
-             }
-            }
-           ]
-          }
-         }
-        }
-       }
-      }
-     }
-    }
-   },
-   "ready_at": {
-    "7": [
-     "tehas-fixer",
-     "2026-10-30T23:58:00Z"
-    ]
-   },
-   "body": {
-    "7": "Words."
-   },
-   "work": {
-    "7": {
-     "body": "Words.",
-     "labels": [
-      {
-       "name": "needs-human-attention"
-      },
-      {
-       "name": "tehas:question"
-      },
-      {
-       "name": "tehas:ready"
-      }
-     ]
-    }
-   },
-   "parked": {
-    "7": {
-     "reason": "intent-park",
-     "body": "Words.",
-     "told": true,
-     "retries": 0
-    }
-   },
-   "approved": {
-    "7": {
-     "by": "alice",
-     "at": "2026-10-01T00:00:00Z",
-     "body": "Words.",
-     "fixer_starts": 2
-    }
-   },
-   "expect": {
-    "exit": 0,
-    "picked": [],
-    "log": [
-     "the fixer has started 2 cycles on it since alice approved it, the limit"
-    ],
-    "log_lacks": [
-     "lift #7"
-    ]
-   }
-  },
-  {
-   "case": "comments that cannot be read hold the issue, as an unreadable park does",
-   "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
-    "TEHAS_WORK_FILES": "1"
-   },
-   "snapshot": {
-    "ready": [
-     {
-      "number": 7,
-      "labels": [
-       {
-        "name": "tehas:ready"
-       },
-       {
-        "name": "needs-human-attention"
-       },
-       {
-        "name": "tehas:question"
-       }
-      ]
-     }
-    ],
-    "endpoint": {
-     "end": "main"
-    },
-    "issues": {
-     "7": {
-      "comments": {
-       "failed": true
-      }
-     }
-    }
-   },
-   "ready_at": {
-    "7": [
-     "tehas-fixer",
-     "2026-10-30T23:58:00Z"
-    ]
-   },
-   "body": {
-    "7": "Words."
-   },
-   "work": {
-    "7": {
-     "body": "Words.",
-     "labels": [
-      {
-       "name": "needs-human-attention"
-      },
-      {
-       "name": "tehas:question"
-      },
-      {
-       "name": "tehas:ready"
-      }
-     ]
-    }
-   },
-   "parked": {
-    "7": {
-     "reason": "intent-park",
-     "body": "Words.",
-     "told": false,
-     "retries": 0
-    }
-   },
-   "approved": {
-    "7": {
-     "by": "alice",
-     "at": "2026-10-01T00:00:00Z",
-     "body": "Words.",
-     "fixer_starts": 0
-    }
-   },
-   "expect": {
-    "exit": 0,
-    "picked": [],
-    "log": [
-     "hold #7: its last cycle parked on intent-park and the body has not changed since, and the fixer's comments could not be read"
-    ],
-    "no_actions": [
-     {
-      "park_told": true
-     }
-    ]
-   }
-  },
-  {
-   "case": "an answer that is no list of comments holds the issue too, untold",
-   "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
-    "TEHAS_WORK_FILES": "1"
-   },
-   "snapshot": {
-    "ready": [
-     {
-      "number": 7,
-      "labels": [
-       {
-        "name": "tehas:ready"
-       },
-       {
-        "name": "needs-human-attention"
-       },
-       {
-        "name": "tehas:question"
-       }
-      ]
-     }
-    ],
-    "endpoint": {
-     "end": "main"
-    },
-    "issues": {
-     "7": {
-      "comments": {
-       "data": {
-        "repository": {
-         "issue": null
-        }
-       }
-      }
-     }
-    }
-   },
-   "ready_at": {
-    "7": [
-     "tehas-fixer",
-     "2026-10-30T23:58:00Z"
-    ]
-   },
-   "body": {
-    "7": "Words."
-   },
-   "work": {
-    "7": {
-     "body": "Words.",
-     "labels": [
-      {
-       "name": "needs-human-attention"
-      },
-      {
-       "name": "tehas:question"
-      },
-      {
-       "name": "tehas:ready"
-      }
-     ]
-    }
-   },
-   "parked": {
-    "7": {
-     "reason": "intent-park",
-     "body": "Words.",
-     "told": false,
-     "retries": 0
-    }
-   },
-   "approved": {
-    "7": {
-     "by": "alice",
-     "at": "2026-10-01T00:00:00Z",
-     "body": "Words.",
-     "fixer_starts": 0
-    }
-   },
-   "expect": {
-    "exit": 0,
-    "picked": [],
-    "log": [
-     "hold #7: its last cycle parked on intent-park and the body has not changed since, and the fixer's comments could not be read"
-    ],
-    "no_actions": [
-     {
-      "park_told": true
-     }
-    ]
-   }
-  },
-  {
-   "case": "a newer action=retry comment takes the lift away: the note on the record would ask for the same run",
-   "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
-    "TEHAS_WORK_FILES": "1"
-   },
-   "snapshot": {
-    "ready": [
-     {
-      "number": 7,
-      "labels": [
-       {
-        "name": "tehas:ready"
-       },
-       {
-        "name": "needs-human-attention"
-       },
-       {
-        "name": "tehas:question"
-       }
-      ]
-     }
-    ],
-    "endpoint": {
-     "end": "main"
-    },
-    "issues": {
-     "7": {
-      "comments": {
-       "data": {
-        "repository": {
-         "issue": {
-          "comments": {
-           "nodes": [
-            {
-             "databaseId": 81,
-             "author": {
-              "login": "tehas-fixer"
-             },
-             "body": "<!-- tehas:millwright issue=7 action=change -->\nGuidance.",
-             "createdAt": "2026-10-30T23:53:00Z",
-             "lastEditedAt": null,
-             "editor": null,
-             "userContentEdits": {
-              "totalCount": 0,
-              "nodes": []
-             }
-            },
-            {
-             "databaseId": 82,
-             "author": {
-              "login": "tehas-fixer"
-             },
-             "body": "<!-- tehas:millwright issue=7 action=retry -->\nOnce more.",
-             "createdAt": "2026-10-30T23:56:00Z",
-             "lastEditedAt": null,
-             "editor": null,
-             "userContentEdits": {
-              "totalCount": 0,
-              "nodes": []
-             }
-            }
-           ]
-          }
-         }
-        }
-       }
-      }
-     }
-    }
-   },
-   "ready_at": {
-    "7": [
-     "tehas-fixer",
-     "2026-10-30T23:58:00Z"
-    ]
-   },
-   "body": {
-    "7": "Words."
-   },
-   "work": {
-    "7": {
-     "body": "Words.",
-     "labels": [
-      {
-       "name": "needs-human-attention"
-      },
-      {
-       "name": "tehas:question"
-      },
-      {
-       "name": "tehas:ready"
-      }
-     ]
-    }
-   },
-   "parked": {
-    "7": {
-     "reason": "intent-park",
-     "body": "Words.",
-     "told": false,
-     "retries": 0
-    }
-   },
-   "approved": {
-    "7": {
-     "by": "alice",
-     "at": "2026-10-01T00:00:00Z",
-     "body": "Words.",
-     "fixer_starts": 0
-    }
-   },
-   "expect": {
-    "exit": 0,
-    "picked": [],
-    "log": [
-     "hold #7: its last cycle parked on intent-park and the body has not changed since"
-    ],
-    "log_lacks": [
-     "lift #7"
-    ],
-    "actions": [
-     {
-      "issue": 7,
-      "park_told": true
-     }
-    ]
-   }
-  },
-  {
-   "case": "a change note whose marker names another issue lifts nothing",
-   "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
-    "TEHAS_WORK_FILES": "1"
-   },
-   "snapshot": {
-    "ready": [
-     {
-      "number": 7,
-      "labels": [
-       {
-        "name": "tehas:ready"
-       },
-       {
-        "name": "needs-human-attention"
-       },
-       {
-        "name": "tehas:question"
-       }
-      ]
-     }
-    ],
-    "endpoint": {
-     "end": "main"
-    },
-    "issues": {
-     "7": {
-      "comments": {
-       "data": {
-        "repository": {
-         "issue": {
-          "comments": {
-           "nodes": [
-            {
-             "databaseId": 81,
-             "author": {
-              "login": "tehas-fixer"
-             },
-             "body": "<!-- tehas:millwright issue=77 action=change -->\nGuidance.",
-             "createdAt": "2026-10-30T23:55:00Z",
-             "lastEditedAt": null,
-             "editor": null,
-             "userContentEdits": {
-              "totalCount": 0,
-              "nodes": []
-             }
-            }
-           ]
-          }
-         }
-        }
-       }
-      }
-     }
-    }
-   },
-   "ready_at": {
-    "7": [
-     "tehas-fixer",
-     "2026-10-30T23:58:00Z"
-    ]
-   },
-   "body": {
-    "7": "Words."
-   },
-   "work": {
-    "7": {
-     "body": "Words.",
-     "labels": [
-      {
-       "name": "needs-human-attention"
-      },
-      {
-       "name": "tehas:question"
-      },
-      {
-       "name": "tehas:ready"
-      }
-     ]
-    }
-   },
-   "parked": {
-    "7": {
-     "reason": "intent-park",
-     "body": "Words.",
-     "told": false,
-     "retries": 0
-    }
-   },
-   "approved": {
-    "7": {
-     "by": "alice",
-     "at": "2026-10-01T00:00:00Z",
-     "body": "Words.",
-     "fixer_starts": 0
-    }
-   },
-   "expect": {
-    "exit": 0,
-    "picked": [],
-    "log": [
-     "hold #7: its last cycle parked on intent-park and the body has not changed since"
-    ],
-    "log_lacks": [
-     "lift #7"
-    ],
-    "actions": [
-     {
-      "issue": 7,
-      "park_told": true
-     }
-    ]
-   }
-  },
-  {
-   "case": "a change note older than the ten minutes before the label lifts nothing",
-   "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
-    "TEHAS_WORK_FILES": "1"
-   },
-   "snapshot": {
-    "ready": [
-     {
-      "number": 7,
-      "labels": [
-       {
-        "name": "tehas:ready"
-       },
-       {
-        "name": "needs-human-attention"
-       },
-       {
-        "name": "tehas:question"
-       }
-      ]
-     }
-    ],
-    "endpoint": {
-     "end": "main"
-    },
-    "issues": {
-     "7": {
-      "comments": {
-       "data": {
-        "repository": {
-         "issue": {
-          "comments": {
-           "nodes": [
-            {
-             "databaseId": 81,
-             "author": {
-              "login": "tehas-fixer"
-             },
-             "body": "<!-- tehas:millwright issue=7 action=change -->\nOut of its time.",
-             "createdAt": "2026-10-30T23:47:59Z",
-             "lastEditedAt": null,
-             "editor": null,
-             "userContentEdits": {
-              "totalCount": 0,
-              "nodes": []
-             }
-            }
-           ]
-          }
-         }
-        }
-       }
-      }
-     }
-    }
-   },
-   "ready_at": {
-    "7": [
-     "tehas-fixer",
-     "2026-10-30T23:58:00Z"
-    ]
-   },
-   "body": {
-    "7": "Words."
-   },
-   "work": {
-    "7": {
-     "body": "Words.",
-     "labels": [
-      {
-       "name": "needs-human-attention"
-      },
-      {
-       "name": "tehas:question"
-      },
-      {
-       "name": "tehas:ready"
-      }
-     ]
-    }
-   },
-   "parked": {
-    "7": {
-     "reason": "intent-park",
-     "body": "Words.",
-     "told": false,
-     "retries": 0
-    }
-   },
-   "approved": {
-    "7": {
-     "by": "alice",
-     "at": "2026-10-01T00:00:00Z",
-     "body": "Words.",
-     "fixer_starts": 0
-    }
-   },
-   "expect": {
-    "exit": 0,
-    "picked": [],
-    "log": [
-     "hold #7: its last cycle parked on intent-park and the body has not changed since"
-    ],
-    "log_lacks": [
-     "lift #7"
-    ],
-    "actions": [
-     {
-      "issue": 7,
-      "park_told": true
-     }
-    ]
-   }
-  },
-  {
-   "case": "a change note another account saved before the label lifts nothing",
-   "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
-    "TEHAS_WORK_FILES": "1"
-   },
-   "snapshot": {
-    "ready": [
-     {
-      "number": 7,
-      "labels": [
-       {
-        "name": "tehas:ready"
-       },
-       {
-        "name": "needs-human-attention"
-       },
-       {
-        "name": "tehas:question"
-       }
-      ]
-     }
-    ],
-    "endpoint": {
-     "end": "main"
-    },
-    "issues": {
-     "7": {
-      "comments": {
-       "data": {
-        "repository": {
-         "issue": {
-          "comments": {
-           "nodes": [
-            {
-             "databaseId": 81,
-             "author": {
-              "login": "tehas-fixer"
-             },
-             "body": "<!-- tehas:millwright issue=7 action=change -->\nWords of mallory.",
-             "createdAt": "2026-10-30T23:55:00Z",
-             "lastEditedAt": "2026-10-30T23:56:00Z",
-             "editor": {
-              "login": "mallory"
-             },
-             "userContentEdits": {
-              "totalCount": 0,
-              "nodes": []
-             }
-            }
-           ]
-          }
-         }
-        }
-       }
-      }
-     }
-    }
-   },
-   "ready_at": {
-    "7": [
-     "tehas-fixer",
-     "2026-10-30T23:58:00Z"
-    ]
-   },
-   "body": {
-    "7": "Words."
-   },
-   "work": {
-    "7": {
-     "body": "Words.",
-     "labels": [
-      {
-       "name": "needs-human-attention"
-      },
-      {
-       "name": "tehas:question"
-      },
-      {
-       "name": "tehas:ready"
-      }
-     ]
-    }
-   },
-   "parked": {
-    "7": {
-     "reason": "intent-park",
-     "body": "Words.",
-     "told": false,
-     "retries": 0
-    }
-   },
-   "approved": {
-    "7": {
-     "by": "alice",
-     "at": "2026-10-01T00:00:00Z",
-     "body": "Words.",
-     "fixer_starts": 0
-    }
-   },
-   "expect": {
-    "exit": 0,
-    "picked": [],
-    "log": [
-     "hold #7: its last cycle parked on intent-park and the body has not changed since"
-    ],
-    "log_lacks": [
-     "lift #7"
-    ],
-    "actions": [
-     {
-      "issue": 7,
-      "park_told": true
-     }
-    ]
-   }
-  },
-  {
-   "case": "a change note its own account saved again before the label lifts the hold",
-   "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
-    "TEHAS_WORK_FILES": "1"
-   },
-   "snapshot": {
-    "ready": [
-     {
-      "number": 7,
-      "labels": [
-       {
-        "name": "tehas:ready"
-       },
-       {
-        "name": "needs-human-attention"
-       },
-       {
-        "name": "tehas:question"
-       }
-      ]
-     }
-    ],
-    "endpoint": {
-     "end": "main"
-    },
-    "issues": {
-     "7": {
-      "comments": {
-       "data": {
-        "repository": {
-         "issue": {
-          "comments": {
-           "nodes": [
-            {
-             "databaseId": 81,
-             "author": {
-              "login": "tehas-fixer"
-             },
-             "body": "<!-- tehas:millwright issue=7 action=change -->\nSecond thoughts.",
-             "createdAt": "2026-10-30T23:55:00Z",
-             "lastEditedAt": "2026-10-30T23:56:00Z",
-             "editor": {
-              "login": "tehas-fixer"
-             },
-             "userContentEdits": {
-              "totalCount": 0,
-              "nodes": []
-             }
-            }
-           ]
-          }
-         }
-        }
-       }
-      }
-     }
-    }
-   },
-   "ready_at": {
-    "7": [
-     "tehas-fixer",
-     "2026-10-30T23:58:00Z"
-    ]
-   },
-   "body": {
-    "7": "Words."
-   },
-   "work": {
-    "7": {
-     "body": "Words.",
-     "labels": [
-      {
-       "name": "needs-human-attention"
-      },
-      {
-       "name": "tehas:question"
-      },
-      {
-       "name": "tehas:ready"
-      }
-     ]
-    }
-   },
-   "parked": {
-    "7": {
-     "reason": "intent-park",
-     "body": "Words.",
-     "told": false,
-     "retries": 0
-    }
-   },
-   "approved": {
-    "7": {
-     "by": "alice",
-     "at": "2026-10-01T00:00:00Z",
-     "body": "Words.",
-     "fixer_starts": 0
-    }
-   },
-   "expect": {
-    "exit": 0,
-    "picked": [
-     7
-    ],
-    "log": [
-     "lift #7: its last cycle parked on intent-park and the body has not changed since, lifted on the fixer's guidance comment"
-    ]
-   }
-  },
-  {
-   "case": "a marker past what a cycle is given lifts nothing",
-   "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
-    "TEHAS_WORK_FILES": "1"
-   },
-   "snapshot": {
-    "ready": [
-     {
-      "number": 7,
-      "labels": [
-       {
-        "name": "tehas:ready"
-       },
-       {
-        "name": "needs-human-attention"
-       },
-       {
-        "name": "tehas:question"
-       }
-      ]
-     }
-    ],
-    "endpoint": {
-     "end": "main"
-    },
-    "issues": {
-     "7": {
-      "comments": {
-       "data": {
-        "repository": {
-         "issue": {
-          "comments": {
-           "nodes": [
-            {
-             "databaseId": 81,
-             "author": {
-              "login": "tehas-fixer"
-             },
-             "body": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx<!-- tehas:millwright issue=7 action=change -->\nGuidance.",
-             "createdAt": "2026-10-30T23:55:00Z",
-             "lastEditedAt": null,
-             "editor": null,
-             "userContentEdits": {
-              "totalCount": 0,
-              "nodes": []
-             }
-            }
-           ]
-          }
-         }
-        }
-       }
-      }
-     }
-    }
-   },
-   "ready_at": {
-    "7": [
-     "tehas-fixer",
-     "2026-10-30T23:58:00Z"
-    ]
-   },
-   "body": {
-    "7": "Words."
-   },
-   "work": {
-    "7": {
-     "body": "Words.",
-     "labels": [
-      {
-       "name": "needs-human-attention"
-      },
-      {
-       "name": "tehas:question"
-      },
-      {
-       "name": "tehas:ready"
-      }
-     ]
-    }
-   },
-   "parked": {
-    "7": {
-     "reason": "intent-park",
-     "body": "Words.",
-     "told": false,
-     "retries": 0
-    }
-   },
-   "approved": {
-    "7": {
-     "by": "alice",
-     "at": "2026-10-01T00:00:00Z",
-     "body": "Words.",
-     "fixer_starts": 0
-    }
-   },
-   "expect": {
-    "exit": 0,
-    "picked": [],
-    "log": [
-     "hold #7: its last cycle parked on intent-park and the body has not changed since"
-    ],
-    "log_lacks": [
-     "lift #7"
-    ],
-    "actions": [
-     {
-      "issue": 7,
-      "park_told": true
-     }
-    ]
-   }
-  },
-  {
-   "case": "a dry run of the lift says it, starts nothing and writes nothing",
-   "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
-    "TEHAS_WORK_FILES": "1"
-   },
-   "snapshot": {
-    "ready": [
-     {
-      "number": 7,
-      "labels": [
-       {
-        "name": "tehas:ready"
-       },
-       {
-        "name": "needs-human-attention"
-       },
-       {
-        "name": "tehas:question"
-       }
-      ]
-     }
-    ],
-    "endpoint": {
-     "end": "main"
-    },
-    "issues": {
-     "7": {
-      "comments": {
-       "data": {
-        "repository": {
-         "issue": {
-          "comments": {
-           "nodes": [
-            {
-             "databaseId": 81,
-             "author": {
-              "login": "tehas-fixer"
-             },
-             "body": "<!-- tehas:millwright issue=7 action=change -->\nDo not run the whole suite.",
-             "createdAt": "2026-10-30T23:55:00Z",
-             "lastEditedAt": null,
-             "editor": null,
-             "userContentEdits": {
-              "totalCount": 0,
-              "nodes": []
-             }
-            }
-           ]
-          }
-         }
-        }
-       }
-      }
-     }
-    }
-   },
-   "ready_at": {
-    "7": [
-     "tehas-fixer",
-     "2026-10-30T23:58:00Z"
-    ]
-   },
-   "body": {
-    "7": "Words."
-   },
-   "work": {
-    "7": {
-     "body": "Words.",
-     "labels": [
-      {
-       "name": "needs-human-attention"
-      },
-      {
-       "name": "tehas:question"
-      },
-      {
-       "name": "tehas:ready"
-      }
-     ]
-    }
-   },
-   "parked": {
-    "7": {
-     "reason": "intent-park",
-     "body": "Words.",
-     "told": true,
-     "retries": 0
-    }
-   },
-   "approved": {
-    "7": {
-     "by": "alice",
-     "at": "2026-10-01T00:00:00Z",
-     "body": "Words.",
-     "fixer_starts": 0
-    }
-   },
-   "expect": {
-    "exit": 0,
-    "picked": [
-     7
-    ],
-    "log": [
-     "lift #7: its last cycle parked on intent-park and the body has not changed since, lifted on the fixer's guidance comment",
-     "would run a cycle for #7"
-    ]
-   },
-   "dry": true
   },
   {
    "case": "a Retry ticked in the park comment lifts the hold of a relabelled start, with the question label off and an empty step and kind (#1829)",
@@ -5207,7 +3480,7 @@
      7
     ],
     "log": [
-     "lift #7: its last cycle parked on unknown and the body has not changed since, lifted on the Retry alice ticked"
+     "lift #7: its last cycle parked on unknown and the body has not changed since, lifted on the retry alice answered"
     ],
     "log_lacks": [
      "hold #7: its last cycle parked on unknown and the body has not changed since"
@@ -5215,7 +3488,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "label"
+      "given": "approved"
      }
     ]
    },
@@ -5378,6 +3651,60 @@
      "hold #7: its last cycle parked on unknown and the body has not changed since, and its park question could not be read"
     ],
     "nothing": true
+   }
+  },
+  {
+   "case": "an answer whose how is plugin is no person's: the question still waits, nothing starts, and the answer is taken away",
+   "world": "parked",
+   "park_q": [
+    " ",
+    " ",
+    " ",
+    ""
+   ],
+   "after": {
+    "issues": {
+     "7": {
+      "park": {
+       "answer": {
+        "question": 1,
+        "comment": 4001,
+        "issue": 7,
+        "kind": "park",
+        "choice": "retry",
+        "option": null,
+        "by": "tehas-bot",
+        "at": 1767229200,
+        "text": null,
+        "how": "plugin"
+       }
+      }
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "skip #7: the answer of tehas-bot is a plugin's, and no plugin answers a question in this release"
+    ],
+    "no_actions": [
+     {
+      "start": 7
+     },
+     {
+      "remove": [
+       "tehas:question"
+      ]
+     }
+    ],
+    "actions": [
+     {
+      "answer_drop": 7,
+      "id": 4001,
+      "say": "The answer given for this question was not taken: the answer of tehas-bot is a plugin's, and no plugin answers a question in this release."
+     }
+    ]
    }
   }
  ]

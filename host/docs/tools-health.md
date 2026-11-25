@@ -1,9 +1,9 @@
 ---
-title: The console, health, energy and top
-description: "The files that feed the dashboard, and what watches the host's health, its models and its load."
+title: The console and health
+description: "The files that feed the dashboard, and what watches the host's health and its models."
 ---
 
-# The console, health, energy and top
+# The console and health
 
 ## tehasbot status and the console
 
@@ -34,30 +34,39 @@ of the fixed list, and goes on the host's record of failed GitHub calls that
 with what was read: when the list of issues failed, the lists of work
 (`running`, `queued`, `awaiting`, `stopped`, `planned`, `planning`) and
 `queueAt`, the time they were read, are the file's of the run before; when the
-read of what closed them failed or answered no list, `completed`,
-`completedCount` and `completedAt` are. When the read of the control issue's
+read of the shipped issues failed, or named more than a hundred closed since
+it started, `completed`, `completedCount` and `completedAt` are, with a line
+`WARN status: the shipped issues closed since <time> were not read: <why>`. When the read of the control issue's
 labels failed, its events say whether `tehas:pause` is on: it is when the last
 event of the label applied it. When that read failed too, `pause.label` and
 `pause.lifted` are the file's of the run before, and `paused` follows them.
 `stale` names each part kept so, `queue`, `completed` or `pause`, and is absent
 when every read answered. A part the file before did not hold is left out. The
-pause flag, all-hands and the words are this run's. `planned` lists the open issues labelled `tehas:plan` or
+pause flag and the words are this run's. `planned` lists the open issues labelled `tehas:plan` or
 `tehas:planning`, found by the same search as the lists, and `planning` counts
-them. `completedCount` is a count, not a list: a whole number from 0 of the closed issues that
+them. `completed` lists the shipped issues, newest closed first, at most a hundred:
+an issue is shipped when a merged pull request of this repository closed it
+(one closed only by another repository's pull request is not). Each run reads
+the issues closed since an hour before the last read that answered, or since
+a day back when there was none, and adds them to the list the file held, so
+the list fills over a few polls after an update; an issue reopened stays
+listed until a hundred newer ones push it out. Because a stale part keeps its
+`completedAt`, a run after a failed or cut read asks from the same time again.
+`completedCount` is a count, not a list: a whole number from 0 of the closed issues that
 carry `tehas:shipped`, counted by a search of its own, so it keeps rising past
 the hundred `completed` holds. The figure of the Shipped stage of the business
-layout is that count where the file has one, and the length of the list where
+plugin's page is that count where the file has one, and the length of the list where
 it has none. The call for that count may take 60 seconds, the same limit the
 platform reads go under; a call that fails or runs out of time leaves the key
 out of the snapshot. The key is absent whenever the search gave no such number, so
 absence is not zero: a reader cannot tell a factory that shipped nothing from
-one whose search could not be read. `tehasbot status` gives each such issue `tehas:shipped`, so GitHub
-lists the same issues, and `console tidy run` gives it too, from the same read; run `tehas labels` once so the label exists. The control
+one whose search could not be read. `tehasbot status` gives each issue of its read that lacks it `tehas:shipped`, so GitHub
+lists the same issues, and `console tidy run` gives it too, by the same rule; run `tehas labels` once so the label exists. The control
 issue, the one `TEHAS_CONTROL_ISSUE` names, is left out of every list and every
 count: it holds the pause label and is not work, whatever label it carries.
 
 `tehasbot status` also writes `~/tehas/live/epics.json`, the epics panel of
-both front pages: every open issue with sub-issues, GitHub's own links, newest
+the front page: every open issue with sub-issues, GitHub's own links, newest
 first, with GitHub's count of its sub-issues and how many are closed, and its
 sub-issues in their order with their state. Only sub-issues of the instance's
 repository are named; one elsewhere is counted in `more` and not named. A closed
@@ -123,7 +132,7 @@ turns are only counted.
 | `from`, `to` | The window |
 | `shipped` | `n`: issues whose merge is in the window, by their `merged` event or a run that merged |
 | `planned` | Work to do, from the latest sample: `n` is `inLine` plus `planning`; `trend` is one `{day, n}` per day, the day's last sample, `n` left out on a day with none. Left out with no sample |
-| `runs` | `n` work runs, and how many ended as `pr`, `merged`, `handoff`, `parked`, `failed`, `refused` and `stopped` |
+| `runs` | `n` work runs, and how many ended as `offered`, `merged`, `handoff`, `parked`, `failed`, `refused` and `stopped` |
 | `planningTurns` | `n` planning turns that ended |
 | `handoffRate` | `share` of the `n` runs that ended needing a person: handed off or parked |
 | `firstPassYield` | `share` of the `n` shipped issues with a run here that took exactly one work run |
@@ -132,11 +141,10 @@ turns are only counted.
 | `machineTime` | `seconds` of all `n` runs, and `perShipped` |
 | `tokens` | `total`, `input`, `output` and `cacheRead` of the `n` runs that reported usage, and `perShipped`: the total over the `shipped` issues it counts. A shipped issue whose runs all reported no usage is not one of them: an empty count is no zero |
 | `availability` | `share` of the `seconds` since the first sample in the window that the factory could take work, from `n` samples. A sample counts for the time to the next, at most ten minutes, and only when it says not paused and either no hold or cycles running (slots that are full are not down time); a stretch with no samples counts as not available |
-| `energy` | `kwh` and `perShipped`, from the `n` samples with the mesh's draw: each draw over the time to the next sample, at most ten minutes. Left out where no sample has one |
 | `daily` | Ten `{day, shipped, runs, failed, minutes}`, oldest first: issues shipped, runs ended and of them failed, and their minutes |
 | `stopReasons` | `top`: the five most common `{reason, n}` among the `n` runs that ended without a pull request, not counting those a person stopped. The reason is the failure kind, the cap for a failure that is a cap, else the park reason, else how the run ended |
 | `stations` | `steps`: per step, in the order runs reach it, the `n` runs that reached it, how many `passed` and the `share`. A run that reached a pull request passed every step it ran; one handed off, parked or failed stopped in its failed step, else its last. `n` is the runs counted: refused and stopped runs are not |
-| `versions` | One `{tehas, rukas, n}` per version pair, the pair that ran last first, at most ten. With three runs or more also `prShare` (reached a pull request) and `medianSeconds`; with three that reported usage also `medianTokens` (input, output and cache read, of those runs) and their count `tokensN`. A version that is not known is left out |
+| `versions` | One `{tehas, rukas, n}` per version pair, the pair that ran last first, at most ten. With three runs or more also `changeShare` (reached a pull request) and `medianSeconds`; with three that reported usage also `medianTokens` (input, output and cache read, of those runs) and their count `tokensN`. A version that is not known is left out |
 
 `tehasbot status` also writes `~/tehas/live/platform.json`: what platform the
 host runs. On a host with the platform checkout `~/tehas/platform` that is the
@@ -279,7 +287,12 @@ the age of its lists, so lists kept through ten minutes of failed reads warn as
 an old snapshot does. `checks.github` is `{failed, windowSeconds, lastAt, last}`:
 the GitHub reads the poll, `tehasbot status` and `console tidy run` could not make
 in the last ten minutes, from `~/tehas/state/github-failures`, and the newest
-of their log lines. A read cleared by its retry is not on it. `checks.cycles` has the
+of them. `last` is a fixed line in tehas's words for the kind of failure, not
+gh's text: `GitHub's rate limit was reached`, `GitHub failed with a server
+error`, `GitHub refused the call`, `GitHub did not answer in time`, `GitHub
+could not be reached`, `GitHub's answer could not be read`, or `a call to
+GitHub failed`. The log line of the poll, status or tidy still names gh's
+words. A read cleared by its retry is not on it. `checks.cycles` has the
 issue, status, step and times of every running cycle; `checks.cycle` is the
 first of them, or the cycle that finished last when none is running.
 `checks.plans` has the issue, the turn, `startedAt` and `state` of every
@@ -409,14 +422,10 @@ refused writes it, and the poll holds new cycles while it stands (see
 [the sandbox cannot push](/troubleshooting#the-sandbox-cannot-push)). `output`
 then says `The sandbox cannot push: <line> (<login>).`
 
-`checks.allHands` is the snapshot's `allHands`: true while
-[`tehas:all-hands`](/operating#all-hands) holds, false when it does not, and
-`null` when the snapshot is older than ten minutes or could not read it.
-
 `checks.demand` is what the dispatcher's last poll wrote to
 `live/demand.json`: `{time, waiting, oldest}`, the issues that would start if
-there were room (a Retry ticked on a park among them) and when the oldest was
-labelled or ticked. An issue held only by a planning session is left out,
+there were room (a retry answered on a park among them) and when the oldest was
+labelled or answered. An issue held only by a planning session is left out,
 and a poll that ends that session writes the file again at its end with the
 issue counted. It is `null` when no poll
 wrote it in the last ten minutes. `checks.slice` also carries `free`, the free
@@ -486,148 +495,3 @@ minutes old. `tehasbot health` calls neither `systemctl` nor `docker`.
 A stopped dispatcher cannot report itself: the file simply stops changing and
 the endpoint keeps answering with the last state. A monitor should also treat
 a `time` older than about ten minutes as down.
-
-## tehasbot energy
-
-Optional. It feeds the Energy use section of the factory floor and nothing
-else: no command reads its file, and a factory without it dispatches and works
-the same. It is useful only when the model backend is a
-[viiwork](https://github.com/janit/viiwork) mesh. The
-command and its unit are installed on every instance, but the service runs
-only if you enable it.
-
-```
-tehasbot energy            # one sample; prints nothing; writes ~/tehas/live/energy.json
-tehasbot energy --every    # one sample at every 15-second mark; what the service runs
-systemctl --user enable --now tehas-energy.service
-```
-
-Asks the model mesh for its cluster snapshot and keeps what the Energy use
-section shows: per machine the draw, kWh and RAM; per model the slots, how
-many are busy and what serves it; and the last 30 minutes of draw, with the
-mesh's running count of tokens for the factory's models where it reports one. Only machines that are alive
-and serve a model the factory uses are kept, and only those models. The
-factory's models are the ones named by `PI_ENSEMBLE_SUBAGENT_MODEL` and
-`PI_ENSEMBLE_MODEL_*`; with none set, the file has no machines. It works only against a viiwork
-mesh, which it recognises by the answer.
-
-| The mesh answers                       | The file                                   |
-| -------------------------------------- | ------------------------------------------ |
-| A cluster snapshot                     | Rewritten                                  |
-| Nothing, a timeout, a server error or a busy answer (408, 429) | Left as it is; the page calls it stale |
-| Anything else                          | Removed, and the section with it           |
-
-The mesh is the endpoint the factory's cycles are on. The dispatcher settles
-that endpoint every poll and writes `"endpoint": "main"` or `"endpoint":
-"backup"` in `~/tehas/live/dispatch.json`; the sampler asks only that one,
-with its token. With no such word in the file, because the dispatcher has not
-settled one yet, it asks the main endpoint and then the backup, each with its
-token, and samples the first that answers. The file is removed only when the
-endpoint it asks is not a mesh and was not just down or busy. Set
-`TEHAS_ENERGY_URL` in `~/.config/tehas/env` to ask another
-cluster URL, which is asked with no token, and
-`TEHAS_ENERGY=off` (or `0`) to remove the file. With neither,
-`PI_ENSEMBLE_SUBAGENT_PROVIDER` has to be set: without it the command says so
-and exits 78, asks nobody and leaves the file as it is, and `--every` stops
-with it. The file is readable by anyone who can
-open the dashboard and names the machines, their draw and their models. It
-also holds the version of the mesh software and, for each model, the name and
-the version of the engine behind it. Addresses, node ids and GPUs are not in it.
-
-Each entry of `models` carries an `engines` array: one element per distinct
-set of values among the machines that serve the model, sorted.
-
-```json
-{ "name": "model-small", "hosts": ["node-a", "node-b"],
-  "engines": [{ "version": "2.9.2", "engine": "llamacpp",
-                "engineName": "llama.cpp", "engineVersion": "b11371" }],
-  "slots": 6, "busy": 2, "queued": 0 }
-```
-
-| Field           | What it is                                                              |
-| --------------- | ----------------------------------------------------------------------- |
-| `version`       | The mesh's version on that machine, without its leading `v`             |
-| `engine`        | The mesh's own id for the engine                                        |
-| `engineName`    | The engine's name for people. Reported from viiwork v2.9.2              |
-| `engineVersion` | The engine's own version on that machine. Reported from viiwork v2.9.2, and not by every engine |
-
-A value the machine does not report is `null`. `engineVersion` is also `null`
-when it is not a plain version: only letters, digits and `. + _ -`, at most 40
-characters, are copied. An element with no mesh version and no engine is left
-out. A mesh in the middle of an upgrade, or a model served by two engines,
-gives more than one element.
-
-The model table shows them in its `ENGINES` column: the engine's name, or its
-id where the mesh gives no name, then its version where there is one. So
-`viiwork 2.9.2 (llama.cpp b11371)` from a machine on v2.9.2 and
-`viiwork 2.9.0 (llamacpp)` from an older one. A model with no element shows a
-dash.
-
-The file's `source` names the mesh software. The section ends with a line that
-says so, `DATA SOURCE: viiwork`. `TEHAS_ENERGY_SOURCE_URL` in
-`~/.config/tehas/env` gives the address that name links; the sampler copies it
-into the file's `sourceUrl` only when it is an `https://` address, and the page
-shows the name as plain text with no `sourceUrl` in the file. The address is
-the operator's to give: the sampler holds none of its own, so an adopter who
-wants no link sets nothing.
-
-The service reads its settings when it starts: run
-`systemctl --user restart tehas-energy.service` after changing one of them.
-Stopping the service does not hide the section; the last file stays and the
-page calls it stale. To hide it, set `TEHAS_ENERGY=off` and restart, or stop the
-service and delete `~/tehas/live/energy.json`.
-
-Against a backend that is not viiwork the service still asks
-`<provider>/v1/cluster` every 15 seconds and writes nothing. On such a host
-leave the service disabled, or set `TEHAS_ENERGY=off`.
-
-## tehasbot top
-
-Optional. It publishes what `tehas top` draws, so that the factory floor and the
-plain dashboard can show the same numbers a person sees on the host. Nothing on
-the host reads its file.
-
-```
-tehasbot top                 # one snapshot; prints nothing; writes ~/tehas/live/top.json
-tehasbot top --every         # one snapshot at every 5-second mark; what the service runs
-systemctl --user enable --now tehas-top.service
-```
-
-It builds the snapshot with the same code the terminal view uses, in the
-console (`console/src/top.rs`), and writes it as one line of JSON holding the keys the pages draw and nothing else:
-`generatedAt`, `factory`, `queue`, `cycle`, `host`, `units` and `energy`. The
-list is `PUBLISHED` in `console/src/top.rs`. A key added to the snapshot
-later is not in the file until someone puts it on that list, which is how the
-console of a cycle and the raw reading a host section was computed from stay
-out. The command reads the instance settings, so a setting that is missing or
-malformed stops it with 78;
-with `--every` the same 78 ends the loop, and systemd shows the failing service.
-It writes the file only when `TEHAS_TOP` is `1`; with `0`, which is the default,
-it removes the file and exits 0. It writes to `top.json.new` and moves it into
-place, so a reader never sees half a file, and a snapshot it cannot write leaves
-the one that is there in place.
-
-`TEHAS_TOP` is set in the instance directory. The unit is installed on every
-instance and starts only when you enable it; nothing enables it for you. The
-service reads its settings when it starts, so run `systemctl --user restart
-tehas-top.service` after changing the setting. Stopping the service does not hide
-the section: the last file stays until the page calls it stale, and the way to
-remove it is `TEHAS_TOP=off` with one run of `tehasbot top`, or deleting the file.
-
-The file is readable by anyone who can open the dashboard. It names the host's
-cpu count, load averages, memory, its units, and up to fifteen processes by pid
-and short name. It holds no command line, no path outside `/proc`, no token and
-nothing about the sandbox: a cycle's container is one process among those rows,
-and the console of a cycle is not in it.
-
-The factory floor reads it every 5 seconds, the plain dashboard on its own
-10-second refresh. Neither asks while the page is hidden, and both show no host
-section where the file is not there: a host that publishes nothing is asked again
-once a minute rather than at every period. Both pages work out what the file
-means with one module, `host/fun/host-data.js` - the figures, the words for how
-old a reading is, and the rule for when to ask again - so the panel and the plain
-list cannot say different things about the same file. The panel gives the
-readings, then the processes, then the units as `tehas top` lists them: name,
-whether systemd has it installed, its state, and when a timer next fires; the
-plain dashboard gives the same as a list. A snapshot older than 30 seconds is
-called stale rather than live.

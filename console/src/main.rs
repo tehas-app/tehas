@@ -60,10 +60,8 @@
 //! The lines and the object of tehas status, see src/status.rs.
 //!
 //!   console dev table
-//!   console review main|table
 //!
-//! The row of the table of runs of a manual session, see src/dev.rs, and what
-//! tehasbot review decides and how it runs its container, see src/review.rs.
+//! The row of the table of runs of a manual session, see src/dev.rs.
 //!
 //!   console clean run ...
 //!
@@ -84,11 +82,6 @@
 //!
 //! How full this host is and what fills it, for tehas disk and the MCP tool
 //! factory_disk, see ops/src/disk.rs.
-//!
-//!   console energy [--every]
-//!
-//! One sample of what the model mesh draws, live/energy.json, for tehasbot
-//! energy, see src/energy.rs.
 //!
 //!   console disk free <path> [<seconds>]
 //!
@@ -118,10 +111,6 @@
 //!
 //! A stopped factory's state as one tar, and the store's check, see
 //! src/state.rs.
-//!
-//!   console protolab run
-//!
-//! One pass of the Protolab, for tehasbot protolab, see src/protolab.rs.
 //!
 //!   console settings load <euid> [<bash>] | valid [<name> <value>] | words <name> | rules --json | required
 //!
@@ -156,7 +145,7 @@
 //! pull request, see src/product.rs.
 //!
 //!   console tehas status|disk|state|limit|pause|analytics|top|api|labels|resume|drain|history|export|stop|dev|dev-login|mcp ...
-//!   console tehasbot health|status|top|mcp
+//!   console tehasbot health|status|mcp
 //!   console usage <command>
 //!
 //! The commands of bin/tehas and bin/tehasbot that are verbs of this program,
@@ -185,15 +174,15 @@
 //! output cannot be written, 2 usage.
 
 use tehas_ops::{
-    account, clean, disk, edge, forge, freeze, github, health, holds, host_message, ids, mcp,
-    panel, pins, rukas, sandbox, settings, setup, shipped, size, slice, stop, store, tidy, update,
+    account, clean, disk, edge, forge, freeze, github, health, holds, host_message, ids, mcp, pins,
+    rukas, sandbox, settings, setup, shipped, size, slice, stop, store, tidy, update,
 };
+mod answer;
 mod api;
 mod attach;
 mod blockers;
 mod commands;
 mod dev;
-mod energy;
 mod epics;
 mod export;
 mod frame;
@@ -206,14 +195,12 @@ mod labels;
 mod notice;
 mod now;
 mod order;
-mod outsource;
 mod plan;
 mod platform;
 mod preview;
 mod product;
-mod protolab;
-mod prototype;
 mod publish;
+mod question;
 mod queue;
 mod render;
 mod review;
@@ -226,7 +213,6 @@ mod tail;
 mod tickets;
 mod top;
 mod wake;
-mod wiki;
 
 use render::Entry;
 use std::collections::HashSet;
@@ -417,6 +403,124 @@ fn complain(message: &str) {
     let _ = writeln!(io::stderr(), "{message}");
 }
 
+/// The console's wiring: the one module of the program that names the
+/// adapter. A command that reads or writes tickets takes its handle from
+/// here, and its own code and tests know the port alone.
+mod wiring {
+    use std::time::Duration;
+    use tehas_core::forge::Bounded;
+    use tehas_ports::{Mark, MarkName, TicketWrites};
+
+    /// A tickets handle on `repo`, asking the site through `program`, each
+    /// call in `bound`.
+    pub(crate) fn tickets(repo: &str, program: &str, bound: Duration) -> Box<dyn TicketWrites> {
+        let runner = Box::new(Bounded::new(program, bound));
+        Box::new(tehas_github::GitHub::new(repo, runner))
+    }
+
+    /// The board handle of `tehas plugin hook`, from the adapter's site
+    /// acting as the factory's account, which the adapter answers `Ours` by
+    /// the bot's recorded id. The gh it runs is the one the command names.
+    pub(crate) fn board(
+        a: &tehas_ops::plugin::HandleAsk,
+    ) -> tehas_ports::Got<Box<dyn tehas_ports::Board + Send>> {
+        use tehas_ports::{Actor, Caller, Scope, Site};
+        let (program, bound) = (a.program.to_string(), a.bound);
+        let make: tehas_github::MakeRunner = std::sync::Arc::new(move |_| {
+            Ok(Box::new(Bounded::new(&program, bound)) as Box<dyn tehas_core::forge::GhRunner>)
+        });
+        let site = tehas_github::GitHubSite::new(a.repo, a.bot, Some(a.bot_id), make);
+        site.board(&Actor::Ours(Scope::Full), Caller::new("plugin-hook"))
+    }
+
+    /// The plugins' access questions on `repo` through the adapter's
+    /// authorised curl, asked with the installation token `console`
+    /// prints. No client for people: a call checks a login, it signs no one
+    /// in. None for a repository that is not `owner/name`.
+    pub(crate) fn access(
+        repo: &str,
+        console: &std::path::Path,
+    ) -> Option<Box<dyn tehas_core::access::GitHub>> {
+        let console = console.to_path_buf();
+        let a = tehas_github::Access::new(tehas_github::AuthorisedCurl::default(), repo)?
+            .with_installation(move || tehas_core::access::installation_token(&console));
+        Some(Box::new(a))
+    }
+
+    /// The blueprints handles on `repo` as the factory, asking the site
+    /// through `program`, each call in `bound`: the site knows the factory's
+    /// account by what `home` records of its bot.
+    pub(crate) fn blueprints(
+        repo: &str,
+        program: &str,
+        bound: Duration,
+        home: &std::path::Path,
+    ) -> tehas_ports::Got<(
+        Box<dyn tehas_ports::Blueprints>,
+        Box<dyn tehas_ports::BlueprintWrites>,
+    )> {
+        use tehas_ports::{Actor, Caller, Scope, Site};
+        let (login, id) = tehas_core::accounts::bot(home);
+        let program = program.to_string();
+        let make: tehas_github::MakeRunner = std::sync::Arc::new(move |_| {
+            Ok(Box::new(Bounded::new(program.clone(), bound))
+                as Box<dyn tehas_core::forge::GhRunner>)
+        });
+        let site = tehas_github::GitHubSite::new(repo, &login, id, make);
+        let (by, c) = (Actor::Ours(Scope::Full), Caller::new("plan"));
+        Ok((site.blueprints(&by, c)?, site.blueprint_writes(&by, c)?))
+    }
+
+    /// The code host handle of `tehas update` on tehas's own release
+    /// project `repo`, a site of its own (Decided 23), acting as `by`:
+    /// `Actor::Operator` asks through gh as the operator's gh is signed in,
+    /// each call in `bound`; `Actor::Anonymous` through curl with no
+    /// credential, its budget kept in the home's ledger. No account of that
+    /// project is the factory's.
+    pub(crate) fn releases(
+        by: &tehas_ports::Actor,
+        repo: &str,
+        bound: Duration,
+    ) -> tehas_ports::Got<Box<dyn tehas_ports::CodeHost + Send>> {
+        use tehas_ports::{Actor, Caller, Outcome, Refusal, Site};
+        let make: tehas_github::MakeRunner = std::sync::Arc::new(move |_| {
+            Ok(Box::new(Bounded::new("gh", bound)) as Box<dyn tehas_core::forge::GhRunner>)
+        });
+        let site = tehas_github::GitHubSite::new(repo, "", None, make);
+        let caller = Caller::new("update");
+        if *by != Actor::Anonymous {
+            return site.code_host(by, caller);
+        }
+        let Some(home) = tehas_core::home::Home::from_env() else {
+            return Err(Outcome::Refused(Refusal::Unsupported));
+        };
+        let ledger = std::sync::Arc::new(tehas_core::ledger::FileLedger::new(&home));
+        site.with_anonymous_curl(curl(), ledger)
+            .code_host(by, caller)
+    }
+
+    /// curl as the operator's PATH finds it, as gh is found, else as the
+    /// adapter finds it: in /usr/bin or /bin. It runs with the adapter's
+    /// own environment either way.
+    fn curl() -> tehas_github::Curl {
+        let path = std::env::var_os("PATH").unwrap_or_default();
+        std::env::split_paths(&path)
+            .map(|d| d.join("curl"))
+            .find(|p| {
+                use std::os::unix::fs::PermissionsExt;
+                p.metadata()
+                    .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+            })
+            .map_or_else(tehas_github::Curl::new, tehas_github::Curl::at)
+    }
+
+    /// The mark a label name given on a command line is: one of tehas's
+    /// words, or a project's own mark. None for a name no mark can have.
+    pub(crate) fn mark_of(label: &str) -> Option<Mark> {
+        tehas_github::table::word(label).or_else(|| MarkName::new(label).ok().map(Mark::Project))
+    }
+}
+
 fn mask_stdin() -> io::Result<()> {
     let mut given = Vec::new();
     io::stdin().read_to_end(&mut given)?;
@@ -451,7 +555,6 @@ fn main() -> ExitCode {
             Some("check-product") => return ExitCode::from(product::check(&given[1..])),
             Some("clean") => return ExitCode::from(clean::main(&given[1..])),
             Some("disk") => return ExitCode::from(disk::main(&given[1..])),
-            Some("energy") => return ExitCode::from(energy::main(&given[1..])),
             Some("epics") => return ExitCode::from(epics::main(&given[1..])),
             Some("tickets") => return ExitCode::from(tickets::main(&given[1..])),
             Some("flags") => return ExitCode::from(holds::main(&given[1..])),
@@ -459,7 +562,6 @@ fn main() -> ExitCode {
             Some("dev") => return ExitCode::from(dev::main(&given[1..])),
             Some("rukas") => return ExitCode::from(rukas::main(&given[1..])),
             Some("sandbox") => return ExitCode::from(sandbox::main(&given[1..])),
-            Some("review") => return ExitCode::from(review::main(&given[1..])),
             Some("preview") => return ExitCode::from(preview::main(&given[1..])),
             Some("settings") => return ExitCode::from(settings::main(&given[1..])),
             Some("setup") => return ExitCode::from(setup::main(&given[1..])),
@@ -474,11 +576,10 @@ fn main() -> ExitCode {
             Some("tidy") => return ExitCode::from(tidy::main(&given[1..])),
             Some("pins") => return ExitCode::from(pins::main(&given[1..])),
             Some("plan") => return ExitCode::from(plan::main(&given[1..])),
-            Some("protolab") => return ExitCode::from(protolab::main(&given[1..])),
             Some("tehas") => return ExitCode::from(commands::tehas(&given[1..])),
             Some("tehasbot") => return ExitCode::from(commands::tehasbot(&given[1..])),
             Some("top") => return ExitCode::from(top::main(&given[1..])),
-            Some("update") => return ExitCode::from(update::main(&given[1..])),
+            Some("update") => return ExitCode::from(update::main(&given[1..], &wiring::releases)),
             Some("usage") => return ExitCode::from(commands::usage(&given[1..])),
             _ => {}
         }

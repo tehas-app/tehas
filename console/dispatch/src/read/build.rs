@@ -4,7 +4,7 @@
 //! and locks. Nothing is written.
 
 use super::run::{Calls, GhFail};
-use super::{github, host, models, outsource, store};
+use super::{github, host, models, store};
 use crate::apply::{said_file, SAID_MAX};
 use crate::decide::has;
 use crate::settings::Settings;
@@ -14,6 +14,7 @@ use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use tehas_core::events::{pause_holds, Events};
+use tehas_core::home::{Home, State};
 
 /// Where the snapshot reads from, and with what.
 pub struct Sources<'a> {
@@ -24,6 +25,12 @@ pub struct Sources<'a> {
     pub models: models::Models,
     /// The subagent provider's endpoint, url and key, as the probe found it.
     pub endpoint: (String, String),
+    /// The code host's read handle, from the program's wiring: None when
+    /// it made none, and a read through it is then unreadable.
+    pub code_host: Option<Box<dyn tehas_ports::CodeHost>>,
+    /// Lines the reads leave for the poll to say once, each once: the code
+    /// host's refusal of the branch's checks (`read::checks::refused`).
+    pub said: Vec<String>,
 }
 
 /// The facts a decision names in needs that are read only when it asks:
@@ -76,10 +83,10 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     s["limit"] = host::limit(home, src.now);
     s["last_why"] = json!(host::last_why(home));
     // As $(head -c 1000) leaves it: no final newlines.
-    s["branch_note"] = json!(host::head(&home.join("state/branch-check"), 1000)
+    s["branch_note"] = json!(host::head(&Home::new(home).state(State::BranchCheck), 1000)
         .trim_end_matches('\n')
         .to_string());
-    s["refresh_held"] = json!(host::head(&home.join("state/refresh/.held"), 300));
+    s["refresh_held"] = json!(host::head(&Home::new(home).state(State::RefreshHeld), 300));
     s["push_fault"] = host::push_fault(home);
     if c.read_only {
         s["read_only_ran"] = json!(tehas_core::read_only::recorded(home));
@@ -111,9 +118,10 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     s["user"] = json!({"login": c.bot_login});
     // A file that cannot be read gives no id: the bot is then known by its
     // login, as before the first record. Its questions authorise nothing.
-    s["bot_id"] = json!(tehas_core::accounts::read(home)
-        .get(tehas_core::accounts::account(&c.bot_login))
-        .copied());
+    s["bot_id"] = json!(tehas_core::accounts::id_of(
+        &tehas_core::accounts::read(home),
+        &tehas_core::accounts::bot_key(&c.bot_login)
+    ));
     // What rule 6 holds an issue on out of an open pull request's body:
     // every open pull request of `own_pull` that names it with a closing
     // keyword, by number, whatever base it targets. GitHub's own links are
@@ -257,8 +265,21 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
         .map(|n| json!({"issue": n, "how": ""}))
         .collect();
     let mut refresh_rows: Vec<u64> = Vec::new();
+    // The open records no process holds the lock of: cycles that died without
+    // a word, which the poll ends as lost (T11.3). Asked on every poll, as a
+    // lost cycle holds no lock to list. A failure with no lock held stops
+    // nothing: the next poll asks again.
+    let records = store::cycles(calls);
+    if let Ok(r) = &records {
+        let lost: Vec<Value> = r
+            .iter()
+            .filter(|x| x["lost"] == json!(true) && x["attempt"].as_u64().is_some_and(|a| a > 0))
+            .map(|x| json!({"issue": x["issue"], "attempt": x["attempt"]}))
+            .collect();
+        s["lost"] = Value::Array(lost);
+    }
     if !locks.is_empty() {
-        match store::cycles(calls) {
+        match records {
             Ok(records) => {
                 // took_how holds every row the store lists, held or not.
                 refresh_rows = records
@@ -331,14 +352,6 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     // a closure cannot name its type parameter.
     fn want<I: IntoIterator<Item = store::Read>>(per_issue: &mut Vec<store::Read>, reads: I) {
         per_issue.extend(reads);
-    }
-
-    // The running cycles a fed start began count against the feed's cap.
-    if c.millwright_feed {
-        want(
-            &mut per_issue,
-            locks.iter().copied().map(store::Read::Approval),
-        );
     }
 
     // Refreshes: the history, the marks, the requests and what they read.
@@ -426,9 +439,6 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
         };
     }
     let candidates: Vec<u64> = candidates.into_iter().collect();
-    if c.outsource.is_some() {
-        s["outsource"] = outsource::read(calls, &c.image, &candidates, &locks);
-    }
     for n in &candidates {
         if let Some(record) = host::plan_start(home, *n) {
             entry(&mut issues, *n)["plan_start"] = record;
@@ -467,9 +477,6 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     for n in lean {
         entry(&mut issues, n)["approval"] = store::approval(&asked, n).0;
     }
-    if c.millwright_feed {
-        s["fed"] = store::fed(&asked, &locks);
-    }
     s["refresh_requests"] = json!(requests.iter().map(|(n, _)| n).collect::<Vec<_>>());
     for (n, req) in &requests {
         if !open.contains(n) {
@@ -504,7 +511,7 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     let blocked = blocked_list(&q, &candidates, &asking);
     // The list is built from the park answers the batch above already holds, so
     // it is planned after that run and before this one.
-    let lifting = lifting_parks(&asked, &q, &candidates, &asking, c);
+    let lifting = lifting_parks(&asked, &q, &candidates, &asking);
     let wanted: Vec<u64> = asking
         .iter()
         .chain(&blocked)
@@ -604,15 +611,12 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     }
 
     if !c.branch_check.is_empty() {
-        let path = format!(
-            "repos/{}/commits/{}/check-runs?check_name={}&filter=latest",
-            c.repo,
-            c.branch,
-            uri(&c.branch_check)
-        );
-        s["checks"] = calls
-            .gh(&["api", &path])
-            .unwrap_or_else(|_| json!({"failed": true}));
+        let host = src
+            .code_host
+            .as_mut()
+            .map(|h| h.as_mut() as &mut dyn tehas_ports::CodeHost);
+        let check = super::checks::read(host, &c.branch, &c.branch_check, &mut src.said);
+        s["checks"] = json!({"state": check.word(), "head": check.head()});
     }
     edit_histories(calls, c, &mut issues, &edit_wanted(&s, &q, &candidates));
     s["issues"] = Value::Object(issues);
@@ -698,15 +702,13 @@ fn blocked_list(q: &github::Queue, candidates: &[u64], asking: &[u64]) -> Vec<u6
         .collect()
 }
 
-/// Whether the millwright's note, or a Retry ticked in the park's question, may
-/// lift `park`'s hold: the test rule 6 applies to a candidate, held here so the
+/// Whether a Retry ticked in the park's question may lift `park`'s hold: the test rule 6 applies to a candidate, held here so the
 /// batch of comment reads and the rule ask the same issues (#1773). The read
 /// says nothing either way, so a park whose read failed is no park to lift on.
-fn park_lifts(park: &Value, c: &Settings) -> bool {
+fn park_lifts(park: &Value) -> bool {
     park.is_object()
         && park.get("failed").is_none()
-        && ((!c.millwright.is_empty() && (c.work_images || c.work_files))
-            || park.get("question").is_some_and(|q| !q.is_null()))
+        && park.get("question").is_some_and(|q| !q.is_null())
 }
 
 /// The unblocked candidates of rule 6 whose comments the poll reads beside the
@@ -719,13 +721,12 @@ fn lifting_parks(
     q: &github::Queue,
     candidates: &[u64],
     asking: &[u64],
-    c: &Settings,
 ) -> Vec<u64> {
     candidates
         .iter()
         .copied()
         .filter(|n| {
-            !is_blocked(q, *n) && !asking.contains(n) && park_lifts(&store::park(asked, *n), c)
+            !is_blocked(q, *n) && !asking.contains(n) && park_lifts(&store::park(asked, *n))
         })
         .collect()
 }
@@ -924,18 +925,6 @@ fn entry(issues: &mut Map<String, Value>, n: u64) -> &mut Value {
     issues.entry(n.to_string()).or_insert_with(|| json!({}))
 }
 
-/// jq's @uri.
-fn uri(s: &str) -> String {
-    s.bytes()
-        .map(|b| match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                (b as char).to_string()
-            }
-            _ => format!("%{b:02X}"),
-        })
-        .collect()
-}
-
 /// The lists of each author as one, or the first that failed or is no list.
 fn joined_lists(lists: Vec<Value>) -> Value {
     let mut all = Vec::new();
@@ -958,9 +947,12 @@ fn joined_lists(lists: Vec<Value>) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::read::board;
     use crate::read::models::Models;
     use crate::read::run;
     use std::time::Duration;
+    use tehas_ports::fake::World;
+    use tehas_ports::TicketKey;
 
     #[test]
     fn the_bots_pull_requests_are_the_lists_of_both_authors() {
@@ -978,26 +970,33 @@ mod tests {
     /// a question whose Retry box may be ticked among them.
     #[test]
     fn the_edit_history_is_asked_of_the_edited_issues_that_may_start() {
-        let open = |n: u64, label: &str, edited: bool, parent: Option<u64>| github::Open {
-            number: n,
-            labels: vec![label.to_string()],
-            node: json!({"number": n,
-                "lastEditedAt": if edited { json!("2026-10-01T00:00:00Z") } else { json!(null) },
-                "parent": parent.map(|p| json!({"number": p}))}),
-        };
+        use tehas_ports::{Act, Mark, MarkName, State};
+        let marks = [
+            (3, Mark::Act(Act::Approve), true),
+            (4, Mark::Act(Act::Approve), false),
+            (5, Mark::Project(MarkName::new("bug").unwrap()), true),
+            (6, Mark::Act(Act::Plan), true),
+            (7, Mark::Act(Act::Finish), true),
+            (8, Mark::State(State::NeedsPerson), true),
+            (9, Mark::Epic, true),
+            (10, Mark::State(State::AwaitingMerge), true),
+            (11, Mark::State(State::Question), true),
+        ];
+        let mut world = World::new();
+        for (n, mark, _) in &marks {
+            world = world.ticket(*n, |t| t.mark(mark.clone()));
+        }
+        // #9 is the parent of #3.
+        let world = world.ticket(9, |t| t.part(TicketKey::Number(3.try_into().unwrap())));
+        world.advance(60);
+        for (n, _, edited) in &marks {
+            if *edited {
+                world.edit_elsewhere(&world.key(*n), "edited", "alice");
+            }
+        }
         let q = github::Queue {
             repo: None,
-            open: vec![
-                open(3, "tehas:ready", true, Some(9)),
-                open(4, "tehas:ready", false, None),
-                open(5, "bug", true, None),
-                open(6, "tehas:plan", true, None),
-                open(7, crate::finish::LABEL, true, None),
-                open(8, "needs-human-attention", true, None),
-                open(9, "epic", true, None),
-                open(10, "tehas:awaiting-merge", true, None),
-                open(11, "tehas:question", true, None),
-            ],
+            open: board::fake::page(&world),
             closed_running: Vec::new(),
             open_pulls: None,
             issue_types: None,
@@ -1007,7 +1006,7 @@ mod tests {
             "owed": [{"issue": 8}], "refines_owed": [], "asking": [{"number": 11}]});
         assert_eq!(edit_wanted(&s, &q, &[3, 4]), [3, 6, 7, 8, 9, 11]);
     }
-    use crate::snapshot::Snapshot;
+    use crate::snapshot::{ClosingPr, Snapshot};
 
     /// What separates two calls in a stub's record: a word of nothing that no
     /// argument of a real gh or store call contains, named once so that neither
@@ -1027,6 +1026,34 @@ mod tests {
     const BLOCKER_MARK: &str = "issueOrPullRequest";
     const EDITS_MARK: &str = "nodes(ids:";
 
+    /// The tickets of the blocked world on the ports' fake: #21, #22 and #23,
+    /// filed by alice and blocked by her. The page's timeline holds the
+    /// label's event, so the poll trusts the page: no read by name is paid
+    /// for these issues.
+    fn blocked() -> World {
+        use tehas_ports::{Act, At};
+        let blocked = World::new();
+        blocked.set_now(At::new(
+            tehas_core::time::from_iso("2026-10-02T00:00:00Z").unwrap(),
+        ));
+        [21, 22, 23].into_iter().fold(blocked, |w, n| {
+            w.ticket(n, |t| {
+                t.title(&format!("issue {n}"))
+                    .text("a body")
+                    .author("alice")
+                    .act(Act::Block, "alice")
+            })
+        })
+    }
+
+    /// The open pull requests of `fake` mapped, their nodes the page's
+    /// `openPulls`, each digest changed by `edit` first.
+    fn pulls_of(fake: &World, edit: impl Fn(&mut tehas_ports::ChangeDigest)) -> board::Mapped {
+        let mut pulls = board::fake::pulls(fake);
+        pulls.iter_mut().for_each(edit);
+        board::fake::mapped(&tehas_ports::OpenWork::default(), Some(&pulls))
+    }
+
     /// The blocked world of a poll: issues #21, #22 and #23, open on the queue's
     /// page and all carrying `tehas:blocked`, each held by the marker of its own
     /// newest comment. #21 names #11, #22 names #11 and #12, and #23 names #13
@@ -1034,22 +1061,11 @@ mod tests {
     /// calls that a merged one does not. The page gives the label's event, so
     /// the poll trusts the page and pays no read by name for these issues.
     fn world() -> Value {
-        let node = |n: u64| {
-            json!({
-                "number": n, "title": format!("issue {n}"), "body": "a body",
-                "createdAt": "2026-10-01T00:00:00Z", "author": {"login": "alice"},
-                "lastEditedAt": null, "editor": null,
-                "labels": {"nodes": [{"name": crate::decide::BLOCKED}]},
-                // The page's timeline holds the label's event, so the poll
-                // trusts the page: no read by name is paid for these issues.
-                "timelineItems": {"nodes": [
-                    {"__typename": "LabeledEvent",
-                     "createdAt": "2026-10-02T00:00:00Z",
-                     "actor": {"login": "alice"}, "label": {"name": crate::decide::BLOCKED}}
-                ]},
-                "closedByPullRequestsReferences": {"nodes": []}
-            })
-        };
+        let blocked = blocked();
+        let nodes: Vec<Value> = board::fake::page(&blocked)
+            .into_iter()
+            .map(|o| o.node)
+            .collect();
         // The page answers no open pull request here, so a world's poll holds
         // nothing on a body; `openPulls` is written beside the nodes below.
         let comment = |body: &str| {
@@ -1067,7 +1083,7 @@ mod tests {
             "queue": {"data": {"repository": {
                 "nameWithOwner": "acme/widget",
                 "issues": {"pageInfo": {"hasNextPage": false, "endCursor": null},
-                           "nodes": [node(21), node(22), node(23)]},
+                           "nodes": nodes},
                 "closedRunning": {"nodes": []},
                 // The page's own list of open pull requests, empty here so a
                 // world's poll holds nothing on a body. A case that wants one
@@ -1170,8 +1186,8 @@ mod tests {
     fn host(world: &Value, broken: &[u64]) -> tehas_core::testdir::TestDir {
         let dir = tehas_core::testdir::TestDir::new("build-poll");
         std::fs::create_dir_all(dir.join("bin")).unwrap();
-        std::fs::create_dir_all(dir.join("state/cycles")).unwrap();
-        std::fs::create_dir_all(dir.join("state/refresh")).unwrap();
+        std::fs::create_dir_all(Home::new(&*dir).cycles_dir()).unwrap();
+        std::fs::create_dir_all(Home::new(&*dir).state(State::Refreshes)).unwrap();
         std::fs::create_dir_all(dir.join("logs")).unwrap();
 
         // The stub's own list of words is held in w-10.. and asked of the table
@@ -1189,24 +1205,6 @@ mod tests {
             ["plan-show", "history-show", "park-show"].join("\n"),
         )
         .unwrap();
-        // A world whose issues are parked names them in `parks`, and the store
-        // answers their `park-show` and `approval-current` with the records of
-        // the lifted-park case rather than the quiet ones. The answer of each
-        // issue is the single line the store itself writes for the verb, held in
-        // a file beside the programs named for the call and its number.
-        for n in world["parks"].as_array().into_iter().flatten() {
-            let Some(n) = n.as_u64() else {
-                continue;
-            };
-            let sum = tehas_core::approval::body_sha256(&json!({"body": "Words."}));
-            let at = world["ready_at"].as_str().unwrap_or("2026-10-30T23:58:00Z");
-            std::fs::write(dir.join(format!(".park-show-{n}")), park_answer(&sum)).unwrap();
-            std::fs::write(
-                dir.join(format!(".approval-current-{n}")),
-                approval_answer(at, &sum),
-            )
-            .unwrap();
-        }
         // `approvals`: the store's answer of `approval-current <n>`, as its line.
         for (n, said) in world["approvals"].as_object().into_iter().flatten() {
             std::fs::write(
@@ -1502,93 +1500,6 @@ esac"#,
         w
     }
 
-    /// The world of the lifted-park case: #21 to #23 sit open on the queue's
-    /// page with `tehas:ready` and no other flow, so rule 6 reads each of them
-    /// and none of them is in the blocked or the asking batch. `at` is when the
-    /// millwright applied the label, and `note_at` ten minutes before it is when
-    /// its guidance comment was written.
-    fn parked_world(count: u64, at: &str, note_at: &str) -> Value {
-        let mut w = world();
-        let numbers: Vec<u64> = (21..21 + count).collect();
-        let node = |n: u64| {
-            json!({
-                "number": n, "title": format!("issue {n}"), "body": "Words.",
-                "createdAt": "2026-10-01T00:00:00Z", "author": {"login": "alice"},
-                "lastEditedAt": null, "editor": null,
-                "labels": {"nodes": [{"name": "tehas:ready"}]},
-                // The page's timeline holds the label's event, so the poll
-                // trusts the page and pays no read by name for these issues.
-                "timelineItems": {"nodes": [
-                    {"__typename": "LabeledEvent",
-                     "createdAt": at,
-                     "actor": {"login": "tehas-fixer"}, "label": {"name": "tehas:ready"}}
-                ]},
-                "closedByPullRequestsReferences": {"nodes": []}
-            })
-        };
-        // The millwright's comment of guidance for the issue: what `change_note`
-        // lifts the park's hold on, and the read the batch now pays once.
-        let note = |n: u64| {
-            json!({"data": {"repository": {"issue": {"comments": {"nodes": [
-                {"databaseId": 600 + n, "author": {"login": "tehas-fixer"},
-                 "body": format!("<!-- tehas:millwright issue={n} action=change -->\\nDo not run the whole suite."),
-                 "createdAt": note_at, "lastEditedAt": null, "editor": null,
-                 "userContentEdits": {"totalCount": 0, "nodes": []}}
-            ]}}}}})
-        };
-        w["queue"]["data"]["repository"]["issues"]["nodes"] =
-            Value::Array(numbers.iter().map(|n| node(*n)).collect());
-        w["ready"] = numbers
-            .iter()
-            .map(|n| json!({"number": n, "labels": [{"name": "tehas:ready"}]}))
-            .collect();
-        w["blocked"] = json!([]);
-        w["states"] = json!({"data": {"repository": {}}});
-        w["comments"] = numbers
-            .iter()
-            .map(|n| (n.to_string(), note(*n)))
-            .collect::<serde_json::Map<String, Value>>()
-            .into();
-        // The events of the control issue are read by name, so its answer is
-        // the empty list rather than the blocked world's label events.
-        w["events"] = json!({"1": []});
-        w["parks"] = Value::Array(numbers.iter().map(|n| json!(n)).collect());
-        w["ready_at"] = json!(at);
-        w
-    }
-
-    /// The settings of the lifted-park case: the millwright has an account, and
-    /// a cycle is given the files its issue links, which is what makes the
-    /// millwright's comment of guidance able to lift a park's hold.
-    fn millwright_settings() -> Settings {
-        let mut c = settings();
-        c.millwright = "tehas-fixer".into();
-        c.work_files = true;
-        c
-    }
-
-    /// The store's answer of one `park-show <n>`: a park of the issue's own,
-    /// told, with no retries and its question off, so only the millwright's
-    /// comment of guidance can lift its hold.
-    fn park_answer(sum: &str) -> String {
-        format!(
-            "{{\"api\":1,\"ok\":true,\"verb\":\"park-show\",\"park\":{{\"reason\":\"intent-park\",\"body_sha256\":\"{sum}\",\"retries\":0,\"question\":null,\"told_at\":\"2026-10-01T03:00:00Z\"}}}}"
-        )
-    }
-
-    /// The store's answer of one `approval-current <n>`: the fixer's start on
-    /// the text `sum` of the issue, resting on alice's approval of the same
-    /// text, with a start left to the fixer. `at` is the instant the millwright
-    /// applied the label again, an hour after that start, so the label and the
-    /// approval cover one text and the label is newer than the start that took
-    /// the last one off.
-    fn approval_answer(at: &str, sum: &str) -> String {
-        let at = tehas_core::time::from_iso(at).unwrap_or_default() - 3600;
-        format!(
-"{{\"api\":1,\"ok\":true,\"verb\":\"approval-current\",\"current\":{{\"at\":{at},\"by\":\"tehas-fixer\",\"how\":\"millwright\",\"body_sha256\":\"{sum}\",\"input\":{{}}}},\"rests_on\":{{\"at\":{at},\"by\":\"alice\",\"how\":\"label\",\"body_sha256\":\"{sum}\"}},\"millwright_starts\":1,\"fixer_starts\":1}}"
-        )
-    }
-
     /// A snapshot given the room of a quiet host, as the fixtures' world has it:
     /// a slice with nothing in it and disk to spare, so what the rules decide
     /// rests on the issues alone.
@@ -1723,6 +1634,8 @@ esac"#,
                 model: String::new(),
             },
             endpoint: (String::new(), String::new()),
+            code_host: None,
+            said: Vec::new(),
         }
     }
 
@@ -1856,18 +1769,16 @@ esac"#,
     #[test]
     fn an_issue_of_the_improvement_type_carries_the_label_and_costs_no_read() {
         let mut w = world();
-        let typed = |n: u64, t: &str| {
-            json!({"number": n, "title": format!("issue {n}"), "body": "",
-                "createdAt": "2026-10-01T00:00:00Z", "author": {"login": "alice"},
-                "lastEditedAt": null, "editor": null, "labels": {"nodes": []},
-                "issueType": {"name": t}, "timelineItems": {"nodes": []},
-                "closedByPullRequestsReferences": {"nodes": []}})
-        };
+        let typed = World::new()
+            .ticket(40, |t| {
+                t.title("issue 40")
+                    .kind(tehas_ports::Kind::named("Improvement"))
+            })
+            .ticket(41, |t| t.title("issue 41").kind(tehas_ports::Kind::Task));
         let repo = &mut w["queue"]["data"]["repository"];
         repo["issueTypes"] = json!({"nodes": [{"name": "Task"}, {"name": "Improvement"}]});
         let nodes = repo["issues"]["nodes"].as_array_mut().unwrap();
-        nodes.push(typed(40, "Improvement"));
-        nodes.push(typed(41, "Task"));
+        nodes.extend(board::fake::page(&typed).into_iter().map(|o| o.node));
         let mut c = settings();
         c.improvement_type = Some("Improvement".into());
         let (snap, calls, _, _) = poll_with(&w, &[], &c);
@@ -1894,27 +1805,26 @@ esac"#,
     /// show, and an issue that carries the label, cost no read.
     #[test]
     fn an_epic_titled_issue_is_listed_and_its_events_read_whole_when_the_page_shows_none() {
+        use tehas_ports::{At, Happened, Mark};
         let mut w = world();
-        let epic = |n: u64, labels: Value, timeline: Value| {
-            json!({"number": n, "title": "EPIC: Billing rework", "body": "",
-                "createdAt": "2026-10-01T00:00:00Z", "author": {"login": "alice"},
-                "lastEditedAt": null, "editor": null, "labels": {"nodes": labels},
-                "timelineItems": {"nodes": timeline},
-                "closedByPullRequestsReferences": {"nodes": []}})
-        };
-        let removed = json!([{"__typename": "UnlabeledEvent", "createdAt": "2026-10-02T00:00:00Z",
-            "actor": {"login": "alice"}, "label": {"name": "epic"}}]);
-        let carried = json!([{"__typename": "LabeledEvent", "createdAt": "2026-10-02T00:00:00Z",
-            "actor": {"login": "alice"}, "label": {"name": "epic"}}]);
-        let nodes = w["queue"]["data"]["repository"]["issues"]["nodes"]
+        let epics = World::new();
+        epics.set_now(At::new(
+            tehas_core::time::from_iso("2026-10-02T00:00:00Z").unwrap(),
+        ));
+        let at = Some(epics.now());
+        let epic = "EPIC: Billing rework";
+        let epics = epics
+            .ticket(30, |t| t.title(epic))
+            .ticket(31, |t| {
+                t.title(epic)
+                    .event(Happened::Unmarked(Mark::Epic), Some("alice"), at)
+            })
+            .ticket(32, |t| t.title(epic).marked(Mark::Epic, "alice"))
+            .ticket(33, |t| t.title("feat: a part of epic 30"));
+        w["queue"]["data"]["repository"]["issues"]["nodes"]
             .as_array_mut()
-            .unwrap();
-        nodes.push(epic(30, json!([]), json!([])));
-        nodes.push(epic(31, json!([]), removed));
-        nodes.push(epic(32, json!([{"name": "epic"}]), carried));
-        let mut title = epic(33, json!([]), json!([]));
-        title["title"] = json!("feat: a part of epic 30");
-        nodes.push(title);
+            .unwrap()
+            .extend(board::fake::page(&epics).into_iter().map(|o| o.node));
         w["events"]["30"] = json!([{"event": "unlabeled", "label": {"name": "epic"},
             "actor": {"login": "bob"}, "created_at": "2026-09-01T00:00:00Z"}]);
         let (snap, calls, _, _) = poll(&w, &[]);
@@ -1937,76 +1847,54 @@ esac"#,
     /// page shows a label newer than its last start costs no read.
     #[test]
     fn a_ready_label_no_newer_than_the_last_start_reads_the_events_whole() {
+        use tehas_ports::{Act, At, Happened, Mark, State};
         let mut w = world();
-        let ev = |kind: &str, at: &str, label: &str, who: &str| {
-            json!({"__typename": kind, "createdAt": at, "actor": {"login": who},
-                "label": {"name": label}})
+        let ready = Mark::Act(Act::Approve);
+        let question = Mark::State(State::Question);
+        let whole = [
+            (true, "2026-10-02T22:13:03Z", &ready, "alice"),
+            (false, "2026-10-03T02:30:05Z", &ready, "tehas-bot"),
+            (true, "2026-10-03T03:00:07Z", &question, "tehas-bot"),
+            (false, "2026-10-03T12:26:07Z", &question, "alice"),
+            (true, "2026-10-03T12:26:07Z", &ready, "alice"),
+        ];
+        let at = |iso: &str| Some(At::new(tehas_core::time::from_iso(iso).unwrap()));
+        let issue = |t: tehas_ports::fake::TicketSpec, n: u64, events: usize| {
+            whole[..events].iter().fold(
+                t.title(&format!("issue {n}"))
+                    .text("Words.")
+                    .mark(ready.clone()),
+                |t, (on, iso, mark, who)| {
+                    let what = match on {
+                        true => Happened::Marked((*mark).clone()),
+                        false => Happened::Unmarked((*mark).clone()),
+                    };
+                    t.event(what, Some(who), at(iso))
+                },
+            )
         };
-        let rest = |e: &Value| {
-            let kind = if e["__typename"] == "LabeledEvent" {
-                "labeled"
-            } else {
-                "unlabeled"
-            };
-            json!({"event": kind, "label": {"name": e["label"]["name"]},
-                "actor": e["actor"], "created_at": e["createdAt"]})
-        };
-        let whole: Vec<Value> = [
-            (
-                "LabeledEvent",
-                "2026-10-02T22:13:03Z",
-                "tehas:ready",
-                "alice",
-            ),
-            (
-                "UnlabeledEvent",
-                "2026-10-03T02:30:05Z",
-                "tehas:ready",
-                "tehas-bot",
-            ),
-            (
-                "LabeledEvent",
-                "2026-10-03T03:00:07Z",
-                "tehas:question",
-                "tehas-bot",
-            ),
-            (
-                "UnlabeledEvent",
-                "2026-10-03T12:26:07Z",
-                "tehas:question",
-                "alice",
-            ),
-            (
-                "LabeledEvent",
-                "2026-10-03T12:26:07Z",
-                "tehas:ready",
-                "alice",
-            ),
-        ]
-        .iter()
-        .map(|(k, at, l, who)| ev(k, at, l, who))
-        .collect();
-        let issue = |n: u64, timeline: &[Value]| {
-            json!({"number": n, "title": format!("issue {n}"), "body": "Words.",
-                "createdAt": "2026-10-01T00:00:00Z", "author": {"login": "alice"},
-                "lastEditedAt": null, "editor": null,
-                "labels": {"nodes": [{"name": "tehas:ready"}]},
-                "timelineItems": {"nodes": timeline},
-                "closedByPullRequestsReferences": {"nodes": []}})
-        };
-        let nodes = w["queue"]["data"]["repository"]["issues"]["nodes"]
-            .as_array_mut()
-            .unwrap();
         // #50 is cut after its first event, #51 is whole.
-        nodes.push(issue(50, &whole[..1]));
-        nodes.push(issue(51, &whole));
+        let ready_world = World::new()
+            .ticket(50, |t| issue(t, 50, 1))
+            .ticket(51, |t| issue(t, 51, whole.len()));
+        w["queue"]["data"]["repository"]["issues"]["nodes"]
+            .as_array_mut()
+            .unwrap()
+            .extend(board::fake::page(&ready_world).into_iter().map(|o| o.node));
+        let full: Vec<Value> = whole
+            .iter()
+            .map(|(on, iso, mark, who)| {
+                json!({"event": if *on { "labeled" } else { "unlabeled" },
+                    "label": {"name": board::fake::label(mark)},
+                    "actor": {"login": who}, "created_at": iso})
+            })
+            .collect();
         let sum = tehas_core::approval::body_sha256(&json!({"body": "Words."}));
         let at = tehas_core::time::from_iso("2026-10-02T22:13:03Z").unwrap();
         let said = format!(
-            "{{\"api\":1,\"ok\":true,\"verb\":\"approval-current\",\"approval\":null,\"current\":{{\"at\":{at},\"by\":\"alice\",\"how\":\"label\",\"body_sha256\":\"{sum}\",\"input\":{{}}}},\"rests_on\":null,\"millwright_starts\":0,\"fixer_starts\":0}}"
+            "{{\"api\":1,\"ok\":true,\"verb\":\"approval-current\",\"approval\":null,\"current\":{{\"at\":{at},\"by\":\"alice\",\"how\":\"approved\",\"body_sha256\":\"{sum}\",\"input\":{{}}}},\"rests_on\":null}}"
         );
         w["approvals"] = json!({"50": said, "51": said});
-        let full: Vec<Value> = whole.iter().map(rest).collect();
         w["events"]["50"] = json!(full);
         w["events"]["51"] = json!(full);
         let (snap, calls, _, _) = poll(&w, &[]);
@@ -2046,7 +1934,7 @@ esac"#,
         // request is what has the list read.
         let _clock = crate::read::run::no_case_clock();
         let dir = host(&w, &[]);
-        std::fs::write(dir.join("state/refresh/40.json"), r#"{"asked":"pr"}"#).unwrap();
+        std::fs::write(Home::new(&*dir).refresh_request(40), r#"{"asked":"pr"}"#).unwrap();
         let mut src = sources(&dir);
         let snap = match snapshot(&mut src, &settings()) {
             Ok(s) => s,
@@ -2091,7 +1979,7 @@ esac"#,
             w["refreshing"] = json!([]);
             let dir = host(&w, &[]);
             if let Some(body) = body {
-                std::fs::write(dir.join("state/refresh/40.json"), body).unwrap();
+                std::fs::write(Home::new(&*dir).refresh_request(40), body).unwrap();
             }
             let mut src = sources(&dir);
             let s = settings();
@@ -2121,7 +2009,7 @@ esac"#,
     fn the_said_record_is_read_where_and_as_far_as_its_writer_keeps_it() {
         let _clock = crate::read::run::no_case_clock();
         let dir = host(&world(), &[]);
-        std::fs::write(dir.join("state/refresh/40.json"), r#"{"at":"x"}"#).unwrap();
+        std::fs::write(Home::new(&*dir).refresh_request(40), r#"{"at":"x"}"#).unwrap();
         let key = "k".repeat(SAID_MAX + 50);
         std::fs::write(said_file(&dir, 40), &key).unwrap();
         let mut src = sources(&dir);
@@ -2143,7 +2031,7 @@ esac"#,
         // every poll of these cases.
         let _clock = crate::read::run::no_case_clock();
         let dir = host(&world(), &[]);
-        std::fs::create_dir_all(dir.join("state/plan-start")).unwrap();
+        std::fs::create_dir_all(Home::new(&*dir).plan_starts()).unwrap();
         for n in [21, 99] {
             let body = format!(r#"{{"by":"alice","sum":"{n}"}}"#);
             std::fs::write(host::plan_start_file(&dir, n), body).unwrap();
@@ -2156,10 +2044,33 @@ esac"#,
         let parsed = Snapshot::parse(&snap);
         assert_eq!(
             parsed.issues[&21].plan_start,
-            Some(json!({"by": "alice", "sum": "21"}))
+            Some(crate::snapshot::PlanStart::Record {
+                by: "alice".into(),
+                sum: Some("21".into())
+            })
         );
         assert_eq!(parsed.issues[&22].plan_start, None);
         assert!(!parsed.issues.contains_key(&99), "no candidate, no read");
+    }
+
+    /// The last poll's two notes are read where the writer leaves them.
+    #[test]
+    fn the_notes_of_the_last_poll_are_read_from_their_files() {
+        let _clock = crate::read::run::no_case_clock();
+        let dir = host(&world(), &[]);
+        std::fs::write(
+            Home::new(&*dir).state(State::BranchCheck),
+            "main is gone\n\n",
+        )
+        .unwrap();
+        std::fs::write(Home::new(&*dir).state(State::RefreshHeld), "no continue-pr").unwrap();
+        let mut src = sources(&dir);
+        let snap = match snapshot(&mut src, &settings()) {
+            Ok(s) => s,
+            Err(f) => panic!("the stubs answer: {}", f.line),
+        };
+        assert_eq!(snap["branch_note"], json!("main is gone"));
+        assert_eq!(snap["refresh_held"], json!("no continue-pr"));
     }
 
     /// The host's approvals reach the rules only for the issues open on the
@@ -2195,7 +2106,7 @@ esac"#,
             .host_starts
             .unwrap_or_default()
             .iter()
-            .filter_map(|h| h["issue"].as_u64())
+            .filter_map(|h| h.issue)
             .collect();
         assert_eq!(hosts, vec![21]);
     }
@@ -2506,150 +2417,6 @@ esac"#,
         );
     }
 
-    /// Three parked issues whose park may lift read their comments in the one
-    /// batched call the asking and the blocked issues are read in: three of them
-    /// cost the same gh calls as one, and the poll pays no read of one issue at a
-    /// time (#1773). Each keeps its own answer, and what the rule lifts on is the
-    /// comment the batch read, so the hold lets the issue start.
-    ///
-    /// The count is the contract, not the snapshot's shape: a read that went back
-    /// to one comment read of a single issue per lifted park pays one gh process for
-    /// each, and `calls.gh_count` moves with the number of issues.
-    #[test]
-    fn the_lifted_parks_read_their_comments_in_the_one_batched_call() {
-        // The millwright applied `tehas:ready` at 23:58 and wrote its comment of
-        // guidance in the ten minutes before, which is what `change_note` lifts
-        // the park's hold on.
-        let at = "2026-10-30T23:58:00Z";
-        let note_at = "2026-10-30T23:55:00Z";
-        let mut counts: Vec<(u32, usize, Vec<usize>)> = Vec::new();
-        // The runs of `store batch` one poll of this host asks, counted once here
-        // and asserted again for every width of the park list: three parks pay
-        // what one does, and neither number is read from the world.
-        let mut one_batch_runs: Vec<String> = Vec::new();
-        for count in [1u64, 3] {
-            let w = parked_world(count, at, note_at);
-            let (snap, calls, gh_count, store) = poll_with(&w, &[], &millwright_settings());
-            if count == 1 {
-                one_batch_runs = batch_runs(&store);
-                assert!(
-                    !one_batch_runs.is_empty(),
-                    "the poll asks the store's batch: {store:?}"
-                );
-            }
-            let comment_calls = queries(&calls, COMMENT_MARK);
-            let parks: Vec<Value> = (21..21 + count)
-                .map(|n| snap["issues"][n.to_string()]["park"].clone())
-                .collect();
-            assert_eq!(
-                parks.iter().filter(|p| p.is_object()).count(),
-                count as usize,
-                "{count} parks are read from the store: {parks:?}"
-            );
-            counts.push((
-                gh_count,
-                comment_calls.len(),
-                comment_calls
-                    .iter()
-                    .map(|c| c.matches(": issue(number:").count())
-                    .collect::<Vec<usize>>(),
-            ));
-
-            // One call of the chunked read, not one per issue, and it asked each
-            // of the parked issues exactly once.
-            assert_eq!(
-                comment_calls.len(),
-                1,
-                "{count} lifted parks are one comment call: {calls:?}"
-            );
-            assert_eq!(
-                comment_calls[0].matches(": issue(number:").count(),
-                count as usize,
-                "the query asks of the lifted parks and of no other: {}",
-                comment_calls[0]
-            );
-            for n in 21..21 + count {
-                assert!(
-                    asks(&comment_calls[0], n),
-                    "issue {n} is asked for its comments: {}",
-                    comment_calls[0]
-                );
-                assert_eq!(
-                    snap["issues"][n.to_string()]["comments"],
-                    w["comments"][n.to_string()],
-                    "issue {n} keeps the answer the batch gave"
-                );
-            }
-            // The per-issue read is gone: no call asks one issue by the single
-            // query's own argument, only the aliased chunk of the batch.
-            assert!(
-                !calls.iter().any(|c| c.contains("number=2")),
-                "no per-issue comment read is paid: {calls:?}"
-            );
-            // The parks and the approvals are asked in the batch, not one call
-            // apiece, and the runs the store was asked in do not move with the
-            // number of issues.
-            let calls_of_runs = batched_calls(&store);
-            for n in 21..21 + count {
-                assert!(
-                    calls_of_runs
-                        .iter()
-                        .any(|c| c == &["park-show".to_string(), n.to_string()]),
-                    "issue {n}'s park is asked in the batch: {store:?}"
-                );
-                assert!(
-                    calls_of_runs
-                        .iter()
-                        .any(|c| c == &["approval-current".to_string(), n.to_string()]),
-                    "issue {n}'s approval is asked in the batch: {store:?}"
-                );
-            }
-            // The runs are the same shape whatever the width of the park list:
-            // the parks go in the run that asks the candidates, so three pay what
-            // one does. Only the request of each run differs, by its calls.
-            let shape = |runs: &Vec<String>| {
-                runs.iter()
-                    .map(|c| {
-                        c.split_once(REQUEST_SEP)
-                            .map_or_else(|| c.clone(), |(v, _)| format!("{v}{REQUEST_SEP}"))
-                    })
-                    .collect::<Vec<String>>()
-            };
-            assert_eq!(
-                shape(&batch_runs(&store)),
-                shape(&one_batch_runs),
-                "{count} lifted parks pay the runs one does: {store:?}"
-            );
-
-            // The decision the comments carry: the hold lifts and the issue starts.
-            let d = crate::decide::decide(
-                &Snapshot::parse(&roomy(snap.clone())),
-                &millwright_settings(),
-                true,
-            );
-            let picked: Vec<u64> = (21..21 + count).collect();
-            assert_eq!(d.picked, picked, "every lifted park starts: {:?}", d.log);
-            for n in 21..21 + count {
-                assert!(
-                    d.log.iter().any(|l| l
-                        == &format!("lift #{n}: its last cycle parked on intent-park and the body has not changed since, lifted on the fixer's guidance comment")),
-                    "issue {n} says what lifted it: {:?}",
-                    d.log
-                );
-            }
-        }
-        // Three parks cost what one does: the poll's own count, the number of
-        // comment calls and the width of that one query all held still.
-        let (one, one_calls, _) = &counts[0];
-        let (three, three_calls, three_sizes) = &counts[1];
-        assert_eq!(
-            three, one,
-            "three lifted parks pay the gh calls one does: {counts:?}"
-        );
-        assert_eq!(three_calls, one_calls, "{counts:?}");
-        assert_eq!(three_sizes, &vec![3], "{counts:?}");
-    }
-
     /// An issue the blocked list carries but the queue's page left out is not a
     /// blocked candidate: the batch and rule 6 test the same predicate, so an
     /// issue one of them holds is never written as blocked by the other. The
@@ -2715,20 +2482,38 @@ esac"#,
     /// neither issue is held.
     #[test]
     fn a_pull_request_not_of_the_repository_names_nothing() {
+        let held = |what: &str, nodes: Value| {
+            let mut w = world();
+            w["queue"]["data"]["repository"]["openPulls"]["nodes"] = nodes;
+            let (snap, _, _, _) = poll(&w, &[]);
+            assert_eq!(snap.get("pulls_name"), None, "{what} names nothing");
+            assert!(
+                Snapshot::parse(&snap).pulls_name.is_empty(),
+                "{what} holds nothing"
+            );
+        };
+        // On the ports' fake: a change from a fork, or one by an account
+        // neither the factory nor allowed.
+        let cases: [(&str, &str, bool); 3] = [
+            ("an outsider's fork", "mallory", true),
+            ("an allowed account's fork", "alice", true),
+            (
+                "an outsider on a branch of the repository",
+                "mallory",
+                false,
+            ),
+        ];
+        for (what, author, fork) in cases {
+            let fake = blocked().change(90, "feature/other-90", |c| {
+                c.body("Closes #21, #22").author(author)
+            });
+            let m = pulls_of(&fake, |d| d.from_fork = fork);
+            held(what, m.queue.open_pulls.unwrap());
+        }
+        // GitHub's own shapes, which the port does not carry: they go with
+        // the page's parse.
         type Change = fn(&mut Value);
-        let cases: [(&str, Change); 6] = [
-            ("an outsider's fork", |p| {
-                p["isCrossRepository"] = json!(true);
-                p["headRepository"] = json!({"nameWithOwner": "mallory/widget"});
-                p["author"] = json!({"login": "mallory"});
-            }),
-            ("an allowed account's fork", |p| {
-                p["isCrossRepository"] = json!(true);
-                p["headRepository"] = json!({"nameWithOwner": "alice/widget"});
-            }),
-            ("an outsider on a branch of the repository", |p| {
-                p["author"] = json!({"login": "mallory"});
-            }),
+        let shapes: [(&str, Change); 3] = [
             ("a head of another repository", |p| {
                 p["headRepository"] = json!({"nameWithOwner": "acme/other"});
             }),
@@ -2739,17 +2524,10 @@ esac"#,
                 p.as_object_mut().unwrap().remove("isCrossRepository");
             }),
         ];
-        for (what, change) in cases {
-            let mut w = world();
+        for (what, change) in shapes {
             let mut p = pull(90, "Closes #21, #22");
             change(&mut p);
-            w["queue"]["data"]["repository"]["openPulls"]["nodes"] = json!([p]);
-            let (snap, _, _, _) = poll(&w, &[]);
-            assert_eq!(snap.get("pulls_name"), None, "{what} names nothing");
-            assert!(
-                Snapshot::parse(&snap).pulls_name.is_empty(),
-                "{what} holds nothing"
-            );
+            held(what, json!([p]));
         }
     }
 
@@ -2758,11 +2536,17 @@ esac"#,
     #[test]
     fn the_factorys_and_an_allowed_accounts_pull_requests_name_their_issues() {
         let mut w = world();
-        let mut bot = pull(90, "Closes #21");
-        bot["author"] = json!({"login": "app/tehas-bot"});
-        let mut person = pull(91, "Fixes #22");
-        person["headRepository"] = json!({"nameWithOwner": "Acme/Widget"});
-        w["queue"]["data"]["repository"]["openPulls"]["nodes"] = json!([bot, person]);
+        let fake = blocked()
+            .change(90, "feature/other-90", |c| {
+                c.body("Closes #21").author("app/tehas-bot")
+            })
+            .change(91, "feature/other-91", |c| {
+                c.body("Fixes #22").author("alice")
+            });
+        let mut nodes = pulls_of(&fake, |_| ()).queue.open_pulls.unwrap();
+        // GitHub writes the head's owner as the repository's own spelling.
+        nodes[1]["headRepository"] = json!({"nameWithOwner": "Acme/Widget"});
+        w["queue"]["data"]["repository"]["openPulls"]["nodes"] = nodes;
         let (snap, _, _, _) = poll(&w, &[]);
         assert_eq!(snap["pulls_name"], json!({"21": [90], "22": [91]}));
     }
@@ -2772,19 +2556,33 @@ esac"#,
     #[test]
     fn a_linked_pull_request_not_of_the_repository_is_left_out() {
         let mut w = world();
-        let own = json!({"url": "https://github.com/acme/widget/pull/90", "state": "OPEN",
-            "isCrossRepository": false, "author": {"login": "tehas-bot"},
-            "headRepository": {"nameWithOwner": "acme/widget"}});
-        let fork = json!({"url": "https://github.com/acme/widget/pull/91", "state": "OPEN",
-            "isCrossRepository": true, "author": {"login": "mallory"},
-            "headRepository": {"nameWithOwner": "mallory/widget"}});
-        let nodes = w["queue"]["data"]["repository"]["issues"]["nodes"]
-            .as_array_mut()
-            .unwrap();
-        nodes[0]["closedByPullRequestsReferences"]["nodes"] = json!([fork, own]);
-        nodes[1]["closedByPullRequestsReferences"]["nodes"] = json!([fork]);
+        let fake = blocked()
+            .change(90, "work-21", |c| c.closes(21).author("tehas-bot"))
+            .change(91, "fork-21", |c| c.closes(21).closes(22).author("mallory"));
+        let mut work = board::fake::work(&fake);
+        let mut items = std::mem::take(&mut work.items).into_items();
+        for (_, item) in &mut items {
+            for c in &mut item.as_mut().unwrap().changes.items {
+                c.from_fork = c.no.get() == 91;
+            }
+        }
+        work.items = tehas_ports::Whole::new(items);
+        let page = board::fake::page_of(&work);
+        let own = page[0].node["closedByPullRequestsReferences"]["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["isCrossRepository"] == json!(false))
+            .unwrap()["url"]
+            .clone();
+        w["queue"]["data"]["repository"]["issues"]["nodes"] =
+            page.into_iter().map(|o| o.node).collect();
         let (snap, _, _, _) = poll(&w, &[]);
         let parsed = Snapshot::parse(&snap);
+        let own = ClosingPr {
+            url: own.as_str().unwrap().to_string(),
+            open: true,
+        };
         assert_eq!(parsed.issues[&21].prs, Some(vec![own]));
         assert_eq!(parsed.issues[&22].prs, Some(vec![]));
     }
@@ -2797,16 +2595,23 @@ esac"#,
     #[test]
     fn an_open_pull_request_naming_the_issue_in_its_body_is_written_as_holding_it() {
         let mut w = world();
-        w["queue"]["data"]["repository"]["openPulls"]["nodes"] = json!([
-            pull(90, "Closes #21. Fixes #22."),
-            // A body that names no keyword, one that names a number with a
-            // colon but is not one of the closing words, one that names a
-            // longer number, and one of no body at all: none holds anything.
-            pull(91, "See #21 and issue 22 for background"),
-            pull(92, "Resolves #212, which is not #21"),
-            {"number": 93, "title": "no body", "headRefName": "x",
-             "author": {"login": "alice"}, "labels": {"nodes": []}},
-        ]);
+        // A body that names no keyword, one that names a number with a colon
+        // but is not one of the closing words, one that names a longer
+        // number, and none at all: none holds anything.
+        let fake = blocked()
+            .change(90, "feature/other-90", |c| {
+                c.body("Closes #21. Fixes #22.").author("alice")
+            })
+            .change(91, "feature/other-91", |c| {
+                c.body("See #21 and issue 22 for background")
+                    .author("alice")
+            })
+            .change(92, "feature/other-92", |c| {
+                c.body("Resolves #212, which is not #21").author("alice")
+            })
+            .change(93, "x", |c| c.author("alice"));
+        w["queue"]["data"]["repository"]["openPulls"]["nodes"] =
+            pulls_of(&fake, |_| ()).queue.open_pulls.unwrap();
         let (snap, _, _, _) = poll(&w, &[]);
         assert_eq!(
             snap["pulls_name"],
@@ -2938,8 +2743,8 @@ esac"#,
             Err(f) => panic!("the stubs answer: {}", f.line),
         };
         assert_eq!(snap.get("running_unlisted"), None, "a listed directory");
-        std::fs::remove_dir_all(dir.join("state/cycles")).unwrap();
-        std::fs::write(dir.join("state/cycles"), "not a directory").unwrap();
+        std::fs::remove_dir_all(Home::new(&*dir).cycles_dir()).unwrap();
+        std::fs::write(Home::new(&*dir).cycles_dir(), "not a directory").unwrap();
         let mut src = sources(&dir);
         let snap = match snapshot(&mut src, &settings()) {
             Ok(s) => s,

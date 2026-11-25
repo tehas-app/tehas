@@ -5,6 +5,27 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
 fn record(home: &Path, issue: i64, at: i64, by: &str, how: &str) -> Value {
+    let refresh: &[&str] = if how == "refresh" {
+        &[
+            "--refresh-pr",
+            "40",
+            "--refresh-head",
+            "0123456789abcdef0123456789abcdef01234567",
+        ]
+    } else {
+        &[]
+    };
+    let args = record_args(issue, at, by, how, refresh);
+    ok(home, &args.iter().map(String::as_str).collect::<Vec<_>>())
+}
+
+/// `record` with the caller's own extra arguments, and no refresh of its own.
+fn record_extra(home: &Path, issue: i64, at: i64, by: &str, how: &str, extra: &[&str]) {
+    let args = record_args(issue, at, by, how, extra);
+    ok(home, &args.iter().map(String::as_str).collect::<Vec<_>>());
+}
+
+fn record_args(issue: i64, at: i64, by: &str, how: &str, extra: &[&str]) -> Vec<String> {
     let (n, a) = (issue.to_string(), at.to_string());
     let mut args = vec![
         "approval-record",
@@ -18,18 +39,11 @@ fn record(home: &Path, issue: i64, at: i64, by: &str, how: &str) -> Value {
         "--body-sha",
         SHA,
     ];
-    if how == "label" || crate::approval::is_millwright(how) {
+    if how == "approved" || crate::approval::is_millwright(how) {
         args.extend(["--label", "tehas:ready"]);
     }
-    if how == "refresh" {
-        args.extend([
-            "--refresh-pr",
-            "40",
-            "--refresh-head",
-            "0123456789abcdef0123456789abcdef01234567",
-        ]);
-    }
-    ok(home, &args)
+    args.extend(extra);
+    strings(&args)
 }
 
 fn current(home: &Path, issue: i64) -> Value {
@@ -49,7 +63,7 @@ fn a_plan_with_no_open_points_is_recorded_as_the_tehas_plan_that_approved_it() {
             "--by",
             "alice",
             "--how",
-            "label",
+            "approved",
             "--label",
             "tehas:plan",
             "--body-sha",
@@ -58,7 +72,7 @@ fn a_plan_with_no_open_points_is_recorded_as_the_tehas_plan_that_approved_it() {
     );
     assert_eq!(v["approval"]["label"], "tehas:plan");
     assert_eq!(v["approval"]["by"], "alice");
-    assert_eq!(v["approval"]["how"], "label");
+    assert_eq!(v["approval"]["how"], "approved");
 }
 
 #[test]
@@ -74,7 +88,7 @@ fn approval_record_stores_every_field() {
             "--by",
             "alice",
             "--how",
-            "label",
+            "approved",
             "--label",
             "tehas:ready",
             "--body-sha",
@@ -87,7 +101,7 @@ fn approval_record_stores_every_field() {
     );
     assert_eq!(
         v["approval"],
-        json!({"issue":10,"at":1791000000,"by":"alice","how":"label","label":"tehas:ready",
+        json!({"issue":10,"at":1791000000,"by":"alice","how":"approved","label":"tehas:ready",
                "body_sha256":SHA,"title_sha256":SHA_B,"comment_id":123456,"refresh_pr":null,
                "refresh_head":null,"used_at":null,"used_by":null,"input":null,"easy":false})
     );
@@ -95,91 +109,54 @@ fn approval_record_stores_every_field() {
     assert_eq!(v["approval"]["refresh_pr"], 40);
     assert_eq!(v["approval"]["label"], "refresh");
     assert_eq!(
-        record(&home, 12, 5, "bob", "retry-tick")["approval"]["label"],
-        "retry-tick"
+        record(&home, 12, 5, "bob", "reply")["approval"]["label"],
+        "reply"
     );
     assert_eq!(
         record(&home, 13, 5, "bob", "outage-retry")["approval"]["label"],
         "outage-retry"
     );
     assert_eq!(
-        record(&home, 14, 5, "bob", "fixer")["approval"]["label"],
+        record(&home, 14, 5, "bob", "millwright")["approval"]["label"],
         "tehas:ready"
     );
     assert_eq!(count(&home, "issues"), 5);
 }
 
 #[test]
-fn a_millwright_start_is_written_under_the_new_word_and_counted_by_both() {
+fn a_millwright_start_is_written_under_its_word_and_the_old_one_is_refused() {
     let home = home("approval-millwright");
-    // The dispatcher of this release still sends the old word; part 5 sends the
-    // new one. Both rows say `millwright`, and both need the person's label.
-    let v = record(&home, 40, 5, "tehas-fixer", "fixer");
+    let v = record(&home, 41, 5, "tehas-millwright", "millwright");
     assert_eq!(v["approval"]["how"], "millwright");
     assert_eq!(v["approval"]["label"], "tehas:ready");
-    let v = record(&home, 41, 5, "tehas-fixer", "millwright");
-    assert_eq!(v["approval"]["how"], "millwright");
-    assert_eq!(v["approval"]["label"], "tehas:ready");
-    // A row written before the rename still counts toward the starts.
-    ok(
+    let (rc, line) = call(
         &home,
         &[
             "approval-record",
             "42",
             "--at",
-            "4",
+            "5",
             "--by",
-            "oldbot",
+            "tehas-millwright",
             "--how",
-            "label",
-            "--label",
-            "tehas:ready",
+            "fixer",
             "--body-sha",
             SHA,
         ],
-    );
-    let c = conn(&home);
-    c.execute(
-        "UPDATE approvals SET how = 'fixer', used_at = at, used_by = 1
-         WHERE issue = 42",
-        [],
     )
-    .unwrap();
-    drop(c);
-    let v = current(&home, 42);
-    assert_eq!(v["millwright_starts"], 1, "an old fixer row is a start");
-    assert_eq!(v["fixer_starts"], 1, "the answer keeps the old key too");
-}
-
-#[test]
-fn the_two_spellings_of_the_millwright_are_the_same_starts() {
-    // The starts of both spellings count together, above the base.
-    let counted = home("approval-millwright-counts");
-    let (l, a) = start_by(&counted, 43, "alice", "label", NOW);
-    end(&counted, 43, a, "failed");
-    drop(l);
-    let (l, b) = start_by(&counted, 43, "tehas-fixer", "fixer", NOW);
-    end(&counted, 43, b, "failed");
-    drop(l);
-    let (_l, c) = start_by(&counted, 43, "tehas-fixer", "millwright", NOW);
-    end(&counted, 43, c, "failed");
-    let v = current(&counted, 43);
-    assert_eq!(
-        (v["millwright_starts"].clone(), v["fixer_starts"].clone()),
-        (json!(2), json!(2)),
-        "the two spellings are the same starts"
-    );
-    assert_eq!(v["rests_on"]["by"], "alice");
+    .unwrap_err();
+    assert_eq!(rc, 64);
+    assert!(line.contains("--how is not one of millwright,"), "{line}");
 }
 
 #[test]
 fn a_millwright_start_rests_on_the_person_and_is_a_base_of_its_own() {
     // The row's own word is the new one, so rests_on still steps over it.
     let home = home("approval-millwright-base");
-    let (l, a) = start_by(&home, 44, "alice", "label", NOW);
+    let (l, a) = start_by(&home, 44, "alice", "approved", NOW);
     end(&home, 44, a, "failed");
     drop(l);
-    let (l, b) = start_by(&home, 44, "tehas-fixer", "millwright", NOW);
+    let (l, b) = start_by(&home, 44, "tehas-millwright", "millwright", NOW);
     end(&home, 44, b, "failed");
     drop(l);
     let (_l, _) = start_by(&home, 44, "alice", "refresh", NOW);
@@ -187,7 +164,6 @@ fn a_millwright_start_rests_on_the_person_and_is_a_base_of_its_own() {
     assert_eq!(v["current"]["how"], "refresh");
     assert_eq!(v["rests_on"]["by"], "alice");
     assert_eq!(v["rests_on"]["used_by"], a);
-    assert_eq!(v["millwright_starts"], 1);
     assert_eq!(b, a + 1);
 }
 
@@ -208,18 +184,16 @@ fn approval_record_refuses_bad_arguments() {
         v.extend(extra);
         usage(&v)
     };
-    assert!(with(&["--how", "label"]).contains("--label is required with --how label"));
+    assert!(with(&["--how", "approved"]).contains("--label is required with --how approved"));
+    assert!(with(&["--how", "reply", "--label", "tehas:ready"]).contains("--label is not taken"));
     assert!(
-        with(&["--how", "retry-tick", "--label", "tehas:ready"]).contains("--label is not taken")
-    );
-    assert!(
-        with(&["--how", "label", "--label", "ready"]).contains("--label is not a tehas:* label")
+        with(&["--how", "approved", "--label", "ready"]).contains("--label is not a tehas:* label")
     );
     assert!(with(&["--how", "refresh"]).contains("--refresh-pr and --refresh-head"));
     assert!(with(&["--how", "refresh", "--refresh-pr", "4"]).contains("--refresh-head is required"));
     assert!(with(&[
         "--how",
-        "label",
+        "approved",
         "--label",
         "tehas:ready",
         "--refresh-pr",
@@ -230,7 +204,7 @@ fn approval_record_refuses_bad_arguments() {
     .contains("exactly with --how refresh"));
     assert!(with(&[
         "--how",
-        "fixer",
+        "millwright",
         "--label",
         "tehas:ready",
         "--comment-id",
@@ -239,7 +213,7 @@ fn approval_record_refuses_bad_arguments() {
     .contains("--comment-id"));
     assert!(with(&[
         "--how",
-        "fixer",
+        "millwright",
         "--label",
         "tehas:ready",
         "--title-sha",
@@ -253,7 +227,7 @@ fn approval_record_refuses_bad_arguments() {
             "--by",
             "a",
             "--how",
-            "label",
+            "approved",
             "--label",
             "tehas:ready",
             "--body-sha",
@@ -265,7 +239,7 @@ fn approval_record_refuses_bad_arguments() {
             "--at",
             "5",
             "--how",
-            "label",
+            "approved",
             "--label",
             "tehas:ready",
             "--body-sha",
@@ -279,7 +253,7 @@ fn approval_record_refuses_bad_arguments() {
             "--by",
             "a",
             "--how",
-            "label",
+            "approved",
             "--label",
             "tehas:ready",
         ][..],
@@ -307,15 +281,15 @@ fn approval_record_refuses_bad_arguments() {
 #[test]
 fn approval_record_keeps_one_unused_row() {
     let home = home("approval-one");
-    record(&home, 20, 5, "alice", "label");
-    record(&home, 20, 9, "bob", "label");
+    record(&home, 20, 5, "alice", "approved");
+    record(&home, 20, 9, "bob", "approved");
     assert_eq!(count(&home, "approvals WHERE issue = 20"), 1);
     assert_eq!(
         one::<String>(&home, "SELECT by_account FROM approvals"),
         "bob"
     );
     // The same at again replaces its fields.
-    record(&home, 20, 9, "carol", "label");
+    record(&home, 20, 9, "carol", "approved");
     assert_eq!(
         one::<String>(&home, "SELECT by_account FROM approvals"),
         "carol"
@@ -338,7 +312,7 @@ fn approval_record_over_a_used_approval_is_refused() {
                 "--by",
                 "bob",
                 "--how",
-                "label",
+                "approved",
                 "--label",
                 "tehas:ready",
                 "--body-sha",
@@ -358,7 +332,7 @@ fn approval_undo_removes_only_the_unused_row() {
     let home = home("approval-undo");
     let (_l, _) = start(&home, 22);
     let used_at = one::<i64>(&home, "SELECT at FROM approvals WHERE issue = 22");
-    record(&home, 22, 5, "bob", "label");
+    record(&home, 22, 5, "bob", "approved");
     assert_eq!(
         ok(
             &home,
@@ -390,9 +364,9 @@ fn approval_current_approval_is_null_once_used() {
     assert_eq!(
         current(&home, 23),
         json!({"api":1,"verb":"approval-current","ok":true,"approval":null,"current":null,
-               "rests_on":null,"millwright_starts":0,"fixer_starts":0,"refreshes":0,"easy":false})
+               "rests_on":null,"refreshes":0,"easy":false})
     );
-    approve(&home, 23, "alice", "label");
+    approve(&home, 23, "alice", "approved");
     let v = current(&home, 23);
     assert_eq!(v["approval"]["by"], "alice");
     assert_eq!(v["current"], Value::Null);
@@ -408,33 +382,31 @@ fn approval_current_approval_is_null_once_used() {
 #[test]
 fn approval_current_rests_only_on_used_rows() {
     let home = home("approval-rests");
-    let (l, a) = start_by(&home, 24, "alice", "label", NOW);
+    let (l, a) = start_by(&home, 24, "alice", "approved", NOW);
     end(&home, 24, a, "failed");
     drop(l);
-    let (l, b) = start_by(&home, 24, "fixerbot", "fixer", NOW);
+    let (l, b) = start_by(&home, 24, "millbot", "millwright", NOW);
     end(&home, 24, b, "failed");
     drop(l);
     let (_l, c) = start_by(&home, 24, "alice", "refresh", NOW);
     let v = current(&home, 24);
     assert_eq!(v["current"]["how"], "refresh");
     assert_eq!(v["current"]["used_by"], c);
-    assert_eq!(v["rests_on"]["how"], "label");
+    assert_eq!(v["rests_on"]["how"], "approved");
     assert_eq!(v["rests_on"]["used_by"], a);
-    assert_eq!(v["fixer_starts"], 1);
     assert_eq!(v["refreshes"], 1);
 }
 
 #[test]
 fn an_unused_label_approval_is_never_a_base() {
     let home = home("approval-unused-base");
-    let (l, a) = start_by(&home, 25, "fixerbot", "fixer", NOW);
+    let (l, a) = start_by(&home, 25, "millbot", "millwright", NOW);
     end(&home, 25, a, "failed");
     drop(l);
-    approve(&home, 25, "mallory", "label");
+    approve(&home, 25, "mallory", "approved");
     let v = current(&home, 25);
     assert_eq!(v["rests_on"], Value::Null);
     assert_eq!(v["approval"]["by"], "mallory");
-    assert_eq!(v["fixer_starts"], 1);
 }
 
 #[test]
@@ -452,9 +424,9 @@ fn a_start_taken_by_the_unit_but_not_yet_ended_still_names_its_base() {
     drop(l);
     let (l, tick) = {
         let lock = hold(&home, 34);
-        approve(&home, 34, "alice", "retry-tick");
+        approve(&home, 34, "alice", "reply");
         let v = ok(&home, &["cycle-start", "34"]);
-        assert_eq!(v["how"], "retry-tick", "the start ran on the tick: {v}");
+        assert_eq!(v["how"], "reply", "the start ran on the tick: {v}");
         (lock, v["attempt"].as_i64().unwrap())
     };
     // The row of the tick's cycle is the one the record does not hold: the row of the
@@ -473,7 +445,7 @@ fn a_start_taken_by_the_unit_but_not_yet_ended_still_names_its_base() {
         "the tick is the current approval, its cycle not on the history: {v}"
     );
     assert_eq!(
-        v["rests_on"]["how"], "label",
+        v["rests_on"]["how"], "approved",
         "and the start the tick made rests on the person's approval, read before the row          of its own cycle exists: {v}"
     );
     assert_eq!(
@@ -488,7 +460,7 @@ fn a_start_taken_by_the_unit_but_not_yet_ended_still_names_its_base() {
     // before it, and not no base at all (#1751).
     let v = current(&home, 34);
     assert_eq!(
-        v["rests_on"]["how"], "retry-tick",
+        v["rests_on"]["how"], "reply",
         "with the row of the tick on record the tick is itself the base: {v}"
     );
 }
@@ -505,7 +477,7 @@ fn a_refresh_after_a_tick_that_is_not_yet_taken_rests_on_that_tick() {
     end(&home, 35, a, "handoff");
     drop(l);
     // The tick of the merge, and the cycle of the merge that ran on it.
-    approve(&home, 35, "alice", "retry-tick");
+    approve(&home, 35, "alice", "reply");
     let (l, a) = {
         let lock = hold(&home, 35);
         let v = ok(&home, &["cycle-start", "35"]);
@@ -528,7 +500,7 @@ fn a_refresh_after_a_tick_that_is_not_yet_taken_rests_on_that_tick() {
         "no start has taken it: {v}"
     );
     assert_eq!(
-        v["rests_on"]["how"], "retry-tick",
+        v["rests_on"]["how"], "reply",
         "and the refresh rests on the tick of the merge, not on the label before it: {v}"
     );
 }
@@ -537,17 +509,17 @@ fn a_refresh_after_a_tick_that_is_not_yet_taken_rests_on_that_tick() {
 fn approvals_keep_only_the_base_and_its_starts() {
     let home = home("approval-retain");
     for (by, how) in [
-        ("alice", "label"),
-        ("fixerbot", "fixer"),
-        ("bob", "label"),
-        ("fixerbot", "fixer"),
+        ("alice", "approved"),
+        ("millbot", "millwright"),
+        ("bob", "approved"),
+        ("millbot", "millwright"),
         ("alice", "refresh"),
     ] {
         let (l, a) = start_by(&home, 26, by, how, NOW);
         end(&home, 26, a, "failed");
         drop(l);
     }
-    // What stays: bob's label (used_by 3) and the fixer and refresh on it.
+    // What stays: bob's label (used_by 3) and the millwright's and refresh on it.
     let rows: Vec<(i64, String)> = {
         let c = conn(&home);
         let mut q = c
@@ -561,28 +533,25 @@ fn approvals_keep_only_the_base_and_its_starts() {
     assert_eq!(
         rows,
         vec![
-            (3, "label".into()),
+            (3, "approved".into()),
             (4, "millwright".into()),
             (5, "refresh".into())
         ]
     );
     let v = current(&home, 26);
     assert_eq!(v["rests_on"]["by"], "bob");
-    assert_eq!(
-        (v["fixer_starts"].clone(), v["refreshes"].clone()),
-        (json!(1), json!(1))
-    );
+    assert_eq!(v["refreshes"], 1);
     // A start with no base keeps only itself.
-    let (l, a) = start_by(&home, 27, "fixerbot", "fixer", NOW);
+    let (l, a) = start_by(&home, 27, "millbot", "millwright", NOW);
     end(&home, 27, a, "failed");
     drop(l);
-    let (_l, _) = start_by(&home, 27, "fixerbot", "fixer", NOW);
+    let (_l, _) = start_by(&home, 27, "millbot", "millwright", NOW);
     assert_eq!(count(&home, "approvals WHERE issue = 27"), 1);
 }
 
 // --- inputs ----------------------------------------------------------------------
 
-const INPUT: &str = r#"{"links":["https://github.com/user-attachments/assets/1"],"comment_links":[{"link":"https://example.test/a","source":"comment:5","by":"alice"}],"retry_context":[{"source":"pr-comment:9","text":"fix the test"}],"refresh_of":{"pr":40,"head_sha":"0123456789abcdef0123456789abcdef01234567","base_sha":"89abcdef0123456789abcdef0123456789abcdef","branch":"feature/issue-30"}}"#;
+const INPUT: &str = r#"{"links":["https://github.com/user-attachments/assets/1"],"retry_context":[{"source":"pr-comment:9","text":"fix the test"}],"refresh_of":{"pr":40,"head_sha":"0123456789abcdef0123456789abcdef01234567","base_sha":"89abcdef0123456789abcdef0123456789abcdef","branch":"feature/issue-30"}}"#;
 
 fn record_with(home: &Path, issue: i64, at: i64, input: &Path) -> Result<Value, (u8, String)> {
     call(
@@ -595,7 +564,7 @@ fn record_with(home: &Path, issue: i64, at: i64, input: &Path) -> Result<Value, 
             "--by",
             "alice",
             "--how",
-            "label",
+            "approved",
             "--label",
             "tehas:ready",
             "--body-sha",
@@ -622,13 +591,13 @@ fn approval_record_keeps_its_inputs_and_current_returns_them() {
     assert_eq!(v["current"]["input"], want);
     // An approval given without inputs has none, and the next one replaces
     // the unused row with its own.
-    let v = record(&home, 30, 6, "bob", "label");
+    let v = record(&home, 30, 6, "bob", "approved");
     assert_eq!(v["approval"]["input"], Value::Null);
     assert_eq!(current(&home, 30)["current"]["input"], want);
     // A record made again at the same time takes the inputs it is given now.
     record_with(&home, 31, 7, &file).unwrap();
     assert_eq!(
-        record(&home, 31, 7, "alice", "label")["approval"]["input"],
+        record(&home, 31, 7, "alice", "approved")["approval"]["input"],
         Value::Null
     );
     let empty = write_file(&home, "empty.json", b"{}");
@@ -665,6 +634,14 @@ fn approval_record_refuses_an_input_file_it_cannot_take() {
             "holds a key it may not: \"branch\"",
         ),
         (
+            write_file(
+                &home,
+                "comments.json",
+                br#"{"links":[],"comment_links":[]}"#,
+            ),
+            "holds a key it may not: \"comment_links\"",
+        ),
+        (
             write_file(&home, "type.json", br#"{"links":"a"}"#),
             "holds links of another type",
         ),
@@ -673,56 +650,12 @@ fn approval_record_refuses_an_input_file_it_cannot_take() {
             "holds refresh_of of another type",
         ),
         (
-            write_file(&home, "lift-list.json", br#"{"park_lifted":[]}"#),
-            "holds park_lifted of another type",
-        ),
-        (
-            write_file(&home, "lift-null.json", br#"{"park_lifted":null}"#),
-            "holds park_lifted of another type",
-        ),
-        (
-            write_file(&home, "lift-empty.json", br#"{"park_lifted":{}}"#),
-            "holds park_lifted of another type",
-        ),
-        (
-            write_file(
-                &home,
-                "lift-source.json",
-                br#"{"park_lifted":{"source":"comment:9","by":"a","at":"b","text":"c"}}"#,
-            ),
-            "holds park_lifted of another type",
-        ),
-        (
-            write_file(
-                &home,
-                "lift-more.json",
-                br#"{"park_lifted":{"source":"millwright:9","by":"a","at":"b","text":"c","x":1}}"#,
-            ),
-            "holds park_lifted of another type",
-        ),
-        (
-            write_file(
-                &home,
-                "lift-text.json",
-                br#"{"park_lifted":{"source":"millwright:9","by":"a","at":"b","text":1}}"#,
-            ),
-            "holds park_lifted of another type",
-        ),
-        (
             write_file(&home, "driver.json", br#"{"driver":"classic"}"#),
             "holds driver of another type",
         ),
         (
             write_file(&home, "number.json", br#"{"driver":1}"#),
             "holds driver of another type",
-        ),
-        (
-            write_file(&home, "contractor.json", br#"{"contractor":"-box"}"#),
-            "holds contractor of another type",
-        ),
-        (
-            write_file(&home, "contractor-n.json", br#"{"contractor":7}"#),
-            "holds contractor of another type",
         ),
     ];
     for (file, says) in cases {
@@ -738,64 +671,12 @@ fn approval_record_refuses_an_input_file_it_cannot_take() {
     let note =
         json!({"park_lifted": {"source": "millwright:9", "by": "a", "at": "b", "text": "c"}});
     let lifted = write_file(&home, "lifted.json", note.to_string().as_bytes());
-    assert_eq!(
-        record_with(&home, 42, 5, &lifted).unwrap()["approval"]["input"],
-        note
+    let (code, line) = record_with(&home, 42, 5, &lifted).unwrap_err();
+    assert_eq!(code, 1);
+    assert!(
+        line.contains(r#"holds a key it may not: "park_lifted""#),
+        "{line}"
     );
-}
-
-// sha256 of "spec".
-const SPEC_SHA: &str = "d4f02eaafd1a9e9de7d10972ca8e47fa7a985825c3c9c1e249c72683cb3e4f19";
-
-#[test]
-fn approval_record_keeps_the_pin_of_a_spec() {
-    let home = home("approval-spec");
-    let spec = json!({"spec": {"link": "https://github.com/user-attachments/files/1/spec.md", "sha256": SPEC_SHA}});
-    let file = write_file(&home, "spec.json", spec.to_string().as_bytes());
-    assert_eq!(
-        record_with(&home, 43, 5, &file).unwrap()["approval"]["input"],
-        spec
-    );
-    used(&home, 43);
-    assert_eq!(view(&home, 43)["spec"], spec["spec"]);
-    let link = "https://github.com/user-attachments/files/1/spec.md";
-    for (name, bad) in [
-        ("list", json!([])),
-        ("null", Value::Null),
-        ("empty", json!({})),
-        ("no-sum", json!({"link": link})),
-        ("no-link", json!({"sha256": SPEC_SHA})),
-        (
-            "more",
-            json!({"link": link, "sha256": SPEC_SHA, "bytes": 4}),
-        ),
-        ("short", json!({"link": link, "sha256": &SPEC_SHA[1..]})),
-        (
-            "upper",
-            json!({"link": link, "sha256": SPEC_SHA.to_uppercase()}),
-        ),
-        ("number", json!({"link": 1, "sha256": SPEC_SHA})),
-        (
-            "http",
-            json!({"link": "http://github.com/user-attachments/files/1/s.md", "sha256": SPEC_SHA}),
-        ),
-        (
-            "space",
-            json!({"link": "https://github.com/a b", "sha256": SPEC_SHA}),
-        ),
-    ] {
-        let file = write_file(
-            &home,
-            &format!("{name}.json"),
-            json!({"spec": bad}).to_string().as_bytes(),
-        );
-        let (code, line) = record_with(&home, 44, 5, &file).unwrap_err();
-        assert_eq!(code, 1, "{name}: {line}");
-        assert!(
-            line.contains("holds spec of another type"),
-            "{name}: {line}"
-        );
-    }
 }
 
 #[test]
@@ -808,7 +689,7 @@ fn approval_record_input_file_usage() {
         "--by",
         "a",
         "--how",
-        "label",
+        "approved",
         "--label",
         "tehas:ready",
         "--body-sha",
@@ -847,21 +728,8 @@ fn the_driver_is_kept_with_the_inputs_and_a_record_without_one_names_none() {
     let classic = write_file(&home, "classic.json", br#"{"links":[]}"#);
     record_with(&home, 44, 5, &classic).unwrap();
     assert_eq!(current(&home, 44)["approval"]["input"].get("driver"), None);
-    record(&home, 45, 5, "alice", "label");
+    record(&home, 45, 5, "alice", "approved");
     assert_eq!(current(&home, 45)["approval"]["input"], Value::Null);
-}
-
-/// The contractor an outsourced start was placed on lives in the inputs too,
-/// as the driver does.
-#[test]
-fn the_contractor_is_kept_with_the_inputs() {
-    let home = home("approval-contractor");
-    let out = write_file(&home, "out.json", br#"{"links":[],"contractor":"box-1"}"#);
-    record_with(&home, 43, 5, &out).unwrap();
-    assert_eq!(
-        current(&home, 43)["approval"]["input"]["contractor"],
-        "box-1"
-    );
 }
 
 #[test]
@@ -893,7 +761,7 @@ fn an_easy_refresh_start_is_marked_and_counted() {
             "--by",
             "alice",
             "--how",
-            "label",
+            "approved",
             "--label",
             "tehas:ready",
             "--body-sha",
@@ -945,7 +813,7 @@ fn an_easy_refresh_start_is_marked_and_counted() {
 #[test]
 fn the_easy_mark_is_a_refresh_switch_and_defaults_to_no() {
     let home = home("approval-easy-usage");
-    approve(&home, 52, "alice", "label");
+    approve(&home, 52, "alice", "approved");
     let v = current(&home, 52);
     assert_eq!(v["approval"]["easy"], false);
 
@@ -958,7 +826,7 @@ fn the_easy_mark_is_a_refresh_switch_and_defaults_to_no() {
         "--by",
         "alice",
         "--how",
-        "label",
+        "approved",
         "--label",
         "tehas:ready",
         "--body-sha",
@@ -982,8 +850,14 @@ fn the_easy_mark_is_a_refresh_switch_and_defaults_to_no() {
     assert_eq!(v["easy"], false, "{v}");
 }
 
-fn view(home: &Path, issue: i64) -> Value {
-    ok(home, &["approval-view", &issue.to_string()])["view"].clone()
+/// The view of the start `attempt`, or of the newest when none is given.
+fn view(home: &Path, issue: i64, attempt: Option<i64>) -> Value {
+    let (n, a) = (issue.to_string(), attempt.map(|a| a.to_string()));
+    let mut args = vec!["approval-view", &n];
+    if let Some(a) = &a {
+        args.extend(["--attempt", a]);
+    }
+    ok(home, &args)["view"].clone()
 }
 
 /// The approval on record used by a start, and that start's attempt.
@@ -1004,18 +878,18 @@ fn input(home: &Path, text: &str) -> String {
 #[test]
 fn a_view_is_the_record_file_key_for_key_and_in_its_order() {
     let answer = json!({
-        "current": {"at": 1792497600, "by": "alice", "how": "label", "body_sha256": "s",
+        "current": {"at": 1792497600, "by": "alice", "how": "approved", "body_sha256": "s",
             "title_sha256": "t", "used_by": 1,
             "input": {"links": ["l"], "comment_links": null, "driver": "lean",
-                "retry_context": ["r"], "park_lifted": {"id": 1}}},
-        "rests_on": null, "millwright_starts": 0, "fixer_starts": 0, "refreshes": 0
+                "retry_context": ["r"]}},
+        "rests_on": null, "refreshes": 0
     });
     assert_eq!(
         crate::approval::view_of(&answer, None).unwrap(),
         concat!(
-            r#"{"at":"2026-10-20T12:00:00Z","by":"alice","how":"label","body_sha256":"s","#,
-            r#""links":["l"],"title_sha256":"t","comment_links":null,"driver":"lean","#,
-            r#""retry_context":["r"],"park_lifted":{"id":1}}"#
+            r#"{"at":"2026-10-20T12:00:00Z","by":"alice","how":"approved","body_sha256":"s","#,
+            r#""links":["l"],"title_sha256":"t","driver":"lean","#,
+            r#""retry_context":["r"]}"#
         )
     );
 }
@@ -1023,14 +897,14 @@ fn a_view_is_the_record_file_key_for_key_and_in_its_order() {
 #[test]
 fn a_view_leaves_out_what_is_not_on_record() {
     let home = home("approval-view-empty");
-    assert_eq!(view(&home, 7), Value::Null);
-    record(&home, 7, 1792497600, "alice", "label");
+    assert_eq!(view(&home, 7, None), Value::Null);
+    record(&home, 7, 1792497600, "alice", "approved");
     // Recorded, and started nothing yet.
-    assert_eq!(view(&home, 7), Value::Null);
+    assert_eq!(view(&home, 7, None), Value::Null);
     used(&home, 7);
     assert_eq!(
-        view(&home, 7),
-        json!({"at": "2026-10-20T12:00:00Z", "by": "alice", "how": "label",
+        view(&home, 7, None),
+        json!({"at": "2026-10-20T12:00:00Z", "by": "alice", "how": "approved",
             "body_sha256": SHA, "links": []})
     );
 }
@@ -1038,7 +912,7 @@ fn a_view_leaves_out_what_is_not_on_record() {
 #[test]
 fn a_view_with_an_attempt_is_the_approval_of_that_start_only() {
     let home = home("approval-view-attempt");
-    record(&home, 7, 1792497600, "alice", "label");
+    record(&home, 7, 1792497600, "alice", "approved");
     used(&home, 7);
     let asked =
         |attempt: &str| ok(&home, &["approval-view", "7", "--attempt", attempt])["view"].clone();
@@ -1057,21 +931,20 @@ fn a_view_takes_only_the_number_of_a_start() {
 }
 
 #[test]
-fn a_millwright_start_in_a_view_says_fixer_and_rests_on_the_person() {
+fn a_millwright_start_in_a_view_says_millwright_and_rests_on_the_person() {
     let home = home("approval-view-millwright");
-    record(&home, 7, 1792497600, "alice", "label");
+    record(&home, 7, 1792497600, "alice", "approved");
     let first = used(&home, 7);
     end(&home, 7, first, "merged");
-    record(&home, 7, 1792584000, "tehas-fixer", "millwright");
+    record(&home, 7, 1792584000, "tehas-millwright", "millwright");
     used(&home, 7);
-    let v = view(&home, 7);
-    assert_eq!(v["how"], "fixer");
-    assert_eq!(v["by"], "tehas-fixer");
+    let v = view(&home, 7, None);
+    assert_eq!(v["how"], "millwright");
+    assert_eq!(v["by"], "tehas-millwright");
     assert_eq!(v["at"], "2026-10-21T12:00:00Z");
-    assert_eq!(v["fixer_starts"], 1);
     assert_eq!(
         v["rests_on"],
-        json!({"at": "2026-10-20T12:00:00Z", "by": "alice", "how": "label", "body_sha256": SHA})
+        json!({"at": "2026-10-20T12:00:00Z", "by": "alice", "how": "approved", "body_sha256": SHA})
     );
 }
 
@@ -1080,16 +953,16 @@ fn a_refresh_in_a_view_names_the_person_s_approval() {
     let answer = json!({
         "current": {"at": 1792584000, "by": "tehas-bot", "how": "refresh", "body_sha256": "s",
             "used_by": 2, "input": {"links": []}},
-        "rests_on": {"at": 1792497600, "by": "alice", "how": "label", "body_sha256": "p",
+        "rests_on": {"at": 1792497600, "by": "alice", "how": "approved", "body_sha256": "p",
             "used_by": 1},
-        "millwright_starts": 0, "fixer_starts": 0, "refreshes": 1
+        "refreshes": 1
     });
     assert_eq!(
         crate::approval::view_of(&answer, None).unwrap(),
         concat!(
             r#"{"at":"2026-10-20T12:00:00Z","by":"alice","how":"refresh","body_sha256":"s","#,
-            r#""links":[],"rests_on":{"at":"2026-10-20T12:00:00Z","by":"alice","how":"label","#,
-            r#""body_sha256":"p"},"fixer_starts":0,"refreshes":1,"refresh_of":null}"#
+            r#""links":[],"rests_on":{"at":"2026-10-20T12:00:00Z","by":"alice","how":"approved","#,
+            r#""body_sha256":"p"},"refreshes":1,"refresh_of":null}"#
         )
     );
 }
@@ -1099,9 +972,9 @@ fn a_refresh_in_a_view_names_the_person_s_approval() {
 #[test]
 fn a_view_refuses_what_is_no_approval() {
     for current in [
-        json!({"at": "soon", "how": "label"}),
-        json!({"at": 1792497600, "how": "label", "input": ["a"]}),
-        json!({"at": 1792497600, "how": "label", "input": {"retry_context": true}}),
+        json!({"at": "soon", "how": "approved"}),
+        json!({"at": 1792497600, "how": "approved", "input": ["a"]}),
+        json!({"at": 1792497600, "how": "approved", "input": {"retry_context": true}}),
         json!({"at": 1792497600}),
         json!("an approval"),
     ] {
@@ -1126,7 +999,7 @@ fn a_retry_context_with_nothing_in_it_is_no_key_of_a_view() {
             "--by",
             "alice",
             "--how",
-            "label",
+            "approved",
             "--label",
             "tehas:ready",
             "--body-sha",
@@ -1136,7 +1009,7 @@ fn a_retry_context_with_nothing_in_it_is_no_key_of_a_view() {
         ],
     );
     used(&home, 7);
-    assert_eq!(view(&home, 7).get("retry_context"), None);
+    assert_eq!(view(&home, 7, None).get("retry_context"), None);
 }
 
 /// #1967: the host's approval is a kind of its own. It takes no label, the
@@ -1211,4 +1084,151 @@ fn a_host_start_whose_cycle_was_killed_is_listed_with_its_lock_free() {
     let v = ok(&home, &["approval-hosts"]);
     assert_eq!(v["running"][0]["issue"], 33);
     assert_eq!(v["running"][0]["lock"], "free");
+}
+
+// --- moved from test/store_approval_test.sh ------------------------------------
+
+#[test]
+fn a_view_names_the_driver_on_record_and_no_driver_when_none() {
+    let home = home("approval-view-driver");
+    let lean = input(&home, r#"{"links":[],"driver":"lean"}"#);
+    record_extra(
+        &home,
+        7,
+        1760000000,
+        "alice",
+        "approved",
+        &["--input-file", &lean],
+    );
+    record(&home, 8, 1760000000, "alice", "approved");
+    used(&home, 7);
+    used(&home, 8);
+    let v = view(&home, 7, None);
+    assert_eq!(
+        (v["how"].clone(), v["driver"].clone()),
+        (json!("approved"), json!("lean"))
+    );
+    let v8 = view(&home, 8, None);
+    assert!(v8.is_object(), "no view of issue 8: {v8}");
+    assert_eq!(v8.get("driver"), None);
+}
+
+#[test]
+fn a_view_of_a_person_s_label_is_field_for_field_what_the_dispatcher_wrote() {
+    let home = home("approval-view-label");
+    let file = input(
+        &home,
+        r#"{"links":["https://github.com/user-attachments/assets/1"]}"#,
+    );
+    record_extra(
+        &home,
+        7,
+        1792497600,
+        "alice",
+        "approved",
+        &["--title-sha", SHA_B, "--input-file", &file],
+    );
+    used(&home, 7);
+    let v = view(&home, 7, None);
+    assert_eq!(
+        v,
+        json!({"at":"2026-10-20T12:00:00Z","by":"alice","how":"approved","body_sha256":SHA,
+            "links":["https://github.com/user-attachments/assets/1"],"title_sha256":SHA_B})
+    );
+    assert_eq!(v.get("driver"), None);
+
+    // The millwright's start rests on the person's approval.
+    let file = input(
+        &home,
+        r#"{"links":[],"retry_context":[{"source":"comment:9","by":"tehas-millwright","at":"2026-10-21T11:59:00Z","text":"Try the other way."}]}"#,
+    );
+    record_extra(
+        &home,
+        7,
+        1792584000,
+        "tehas-millwright",
+        "millwright",
+        &["--input-file", &file],
+    );
+    assert_eq!(used(&home, 7), 2);
+    assert_eq!(
+        view(&home, 7, Some(2)),
+        json!({"at":"2026-10-21T12:00:00Z","by":"tehas-millwright","how":"millwright","body_sha256":SHA,
+            "links":[],"retry_context":[{"source":"comment:9","by":"tehas-millwright","at":"2026-10-21T11:59:00Z","text":"Try the other way."}],
+            "rests_on":{"at":"2026-10-20T12:00:00Z","by":"alice","how":"approved","body_sha256":SHA}})
+    );
+}
+
+/// A start the store ended with no report (a refused start, `tehas stop`, a
+/// lost cycle) writes a line of history since T11.3, and that line is no start
+/// to the record: `approval-current` and the keeping of the next start read
+/// the last line a report wrote, as they did before 2.0. The base stays the
+/// earlier real start's, a refresh on it still counts, and the keeping leaves
+/// the base's row. That start's report ended `stopped` with a signal, a word a
+/// short end also writes, so the line is told by who wrote it, not by its
+/// word: read by its word, the base would fall back to the start before it.
+#[test]
+fn a_start_with_no_report_is_no_start_to_the_record() {
+    for (i, short) in ["--refused", "--stopped", "--lost"].into_iter().enumerate() {
+        let issue = 81 + i as i64;
+        let n = issue.to_string();
+        let home = home(&format!("approval-short{i}"));
+        let (l, a) = start_by(&home, issue, "alice", "approved", NOW);
+        end(&home, issue, a, "handoff");
+        drop(l);
+        // Bob's start, the base, ended by its report: stopped by a signal.
+        let (l, a) = start_by(&home, issue, "bob", "approved", NOW);
+        drop(l);
+        let at = a.to_string();
+        let args = [
+            "cycle-end",
+            &n,
+            "--attempt",
+            &at,
+            "--status",
+            "stopped",
+            "--signalled",
+        ];
+        ok(&home, &args);
+        let want = current(&home, issue);
+        assert_eq!(
+            (&want["rests_on"]["by"], &want["rests_on"]["used_by"]),
+            (&json!("bob"), &json!(2)),
+            "{short}: {want}"
+        );
+        // Carol's approval starts a cycle the store ends with no report.
+        let (l, b) = start_by(&home, issue, "carol", "approved", NOW);
+        let at = b.to_string();
+        let args = ["cycle-end", &n, "--attempt", &at, short];
+        if short == "--refused" {
+            ok(&home, &args);
+            drop(l);
+        } else {
+            drop(l);
+            ok_at(&home, NOW + 1000, &args);
+        }
+        assert_eq!(
+            count(
+                &home,
+                &format!("cycle_history WHERE issue = {issue} AND reported = 0")
+            ),
+            1,
+            "{short}"
+        );
+        let v = current(&home, issue);
+        for k in ["rests_on", "refreshes", "easy"] {
+            assert_eq!(v[k], want[k], "{short} {k}: {v}");
+        }
+        // A refresh starts on bob's base, which a record reading carol's start
+        // as the last would have let go, and counts on it.
+        let (_l, _) = start_by(&home, issue, "bob", "refresh", NOW + 2000);
+        assert_eq!(
+            count(
+                &home,
+                &format!("approvals WHERE issue = {issue} AND used_by = 2")
+            ),
+            1,
+            "{short}"
+        );
+    }
 }

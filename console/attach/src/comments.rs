@@ -3,8 +3,8 @@
 //! dispatcher chose them at the tick (console/dispatch/src/apply/start.rs):
 //! allowed accounts that may write, up to the tick, not edited after it, not
 //! the bot's. This takes from the record only what fits that shape, and only
-//! for the start that may carry it: a comments retry's comments, the fixer's
-//! note on a millwright's start, the task of a refresh.
+//! for the start that may carry it: a comments retry's comments, the task of
+//! a refresh.
 
 use regex::Regex;
 use serde_json::{json, Map, Value};
@@ -18,10 +18,8 @@ pub const FILE: &str = "comments.json";
 
 static AT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[0-9T:.Z-]+\z").unwrap());
 static BY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Za-z0-9-]+(\[bot\])?\z").unwrap());
-/// A record written before #1492 names a comment `pr-comment:<id>`, and the
-/// fixer's note `millwright:<id>` or `fixer:<id>`.
-static OLD: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^(pr-comment|millwright|fixer):([0-9]{1,20})\z").unwrap());
+/// A record written before #1492 names a comment `pr-comment:<id>`.
+static OLD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^pr-comment:([0-9]{1,20})\z").unwrap());
 
 /// The blob, and what it holds.
 #[derive(Debug, PartialEq)]
@@ -31,12 +29,6 @@ pub struct Blob {
     pub sha256: String,
     pub count: usize,
     pub dropped: usize,
-}
-
-/// The three spellings of an app's login are one account, so `""` and
-/// `"[bot]"` are kept whole and match no millwright.
-fn no_bot(login: &str) -> &str {
-    tehas_core::accounts::account(login)
 }
 
 fn is(v: &Value, re: &Regex) -> bool {
@@ -49,10 +41,9 @@ fn cut(text: &str) -> String {
 
 /// One entry of the record as an item of the blob, or None when it is of no
 /// shape this start may be given.
-fn item(e: &Value, how: &str, issue: u64, repo: &str, millwright: &str) -> Option<Value> {
+fn item(e: &Value, how: &str, issue: u64, repo: &str) -> Option<Value> {
     let (by, at, text) = (e.get("by")?, e.get("at")?, e.get("text")?.as_str()?);
     let source = e.get("source")?.as_str()?;
-    let issue_url = format!("https://github.com/{repo}/issues/{issue}");
     let mut m = Map::new();
     if source == "refresh" {
         // The dispatcher's own words, on a refresh only.
@@ -63,7 +54,10 @@ fn item(e: &Value, how: &str, issue: u64, repo: &str, millwright: &str) -> Optio
         m.insert("id".into(), json!(0));
         m.insert("by".into(), json!("tehas"));
         m.insert("at".into(), at.clone());
-        m.insert("url".into(), json!(issue_url));
+        m.insert(
+            "url".into(),
+            json!(format!("https://github.com/{repo}/issues/{issue}")),
+        );
         m.insert("text".into(), json!(cut(text)));
         return Some(Value::Object(m));
     }
@@ -71,31 +65,15 @@ fn item(e: &Value, how: &str, issue: u64, repo: &str, millwright: &str) -> Optio
         return None;
     }
     if let Some(c) = OLD.captures(source) {
-        let id: u64 = c[2].parse().ok()?;
-        let fixer = &c[1] != "pr-comment";
-        if fixer {
-            let mine = !millwright.is_empty()
-                && no_bot(by.as_str()?) == no_bot(millwright)
-                && matches!(how, "millwright" | "fixer");
-            if !mine {
-                return None;
-            }
-        } else if how != "retry-tick" {
+        let id: u64 = c[1].parse().ok()?;
+        if !matches!(how, "answer" | "reply") {
             return None;
         }
-        m.insert(
-            "source".into(),
-            json!(if fixer { "fixer" } else { "pr-comment" }),
-        );
+        m.insert("source".into(), json!("pr-comment"));
         m.insert("id".into(), json!(id));
         m.insert("by".into(), by.clone());
         m.insert("at".into(), at.clone());
-        let url = if fixer {
-            format!("{issue_url}#issuecomment-{id}")
-        } else {
-            String::new()
-        };
-        m.insert("url".into(), json!(url));
+        m.insert("url".into(), json!(""));
         m.insert("text".into(), json!(cut(text)));
         return Some(Value::Object(m));
     }
@@ -105,7 +83,7 @@ fn item(e: &Value, how: &str, issue: u64, repo: &str, millwright: &str) -> Optio
         "pr-comment" | "review" | "review-comment" => true,
         _ => return None,
     };
-    if how != "retry-tick" {
+    if !matches!(how, "answer" | "reply") {
         return None;
     }
     let id = e.get("id").filter(|i| i.is_u64())?;
@@ -131,26 +109,21 @@ fn item(e: &Value, how: &str, issue: u64, repo: &str, millwright: &str) -> Optio
 }
 
 /// The blob of an approval record, or None when it gives nothing. Items are
-/// oldest first; past `BLOB_MAX` the oldest are dropped and counted. The fixer's
-/// note is its one comment by `millwright`.
-pub fn blob(record: &Value, issue: u64, repo: &str, millwright: &str) -> Option<Blob> {
+/// oldest first; past `BLOB_MAX` the oldest are dropped and counted.
+pub fn blob(record: &Value, issue: u64, repo: &str) -> Option<Blob> {
     let how = record.get("how").and_then(Value::as_str).unwrap_or("");
     let mut items: Vec<Value> = Vec::new();
-    let mut fixer = false;
     for e in record
         .get("retry_context")
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
     {
-        let Some(i) = item(e, how, issue, repo, millwright) else {
+        let Some(i) = item(e, how, issue, repo) else {
             continue;
         };
-        match i["source"].as_str() {
-            Some("fixer") if fixer => continue,
-            Some("fixer") => fixer = true,
-            Some("refresh") if items.iter().any(|x| x["source"] == "refresh") => continue,
-            _ => {}
+        if i["source"] == "refresh" && items.iter().any(|x| x["source"] == "refresh") {
+            continue;
         }
         items.push(i);
     }
@@ -200,7 +173,6 @@ mod tests {
             &json!({"how": how, "at": "2026-11-04T10:12:00Z", "retry_context": ctx}),
             42,
             "acme/widget",
-            "mw[bot]",
         )
     }
 
@@ -220,7 +192,7 @@ mod tests {
         let mut talk = said("pr-comment", 124, "2026-11-03T09:01:00Z", "talk\r\nmore");
         talk["pr"] = json!(57);
         let b = of(
-            "retry-tick",
+            "reply",
             json!([
                 inline,
                 said("issue-comment", 123, "2026-11-03T09:00:00Z", "one"),
@@ -254,7 +226,7 @@ mod tests {
     #[test]
     fn comments_go_only_with_a_comments_retry() {
         let ctx = json!([said("issue-comment", 1, "2026-11-03T09:00:00Z", "x")]);
-        for how in ["label", "refresh", "millwright", "outage-retry"] {
+        for how in ["approved", "refresh", "millwright", "outage-retry"] {
             assert_eq!(of(how, ctx.clone()), None, "{how}");
         }
     }
@@ -271,26 +243,8 @@ mod tests {
             json!({"source": "other", "id": 1, "by": "alice", "at": "2026", "url": "u", "text": "x"}),
             no_pr,
         ] {
-            assert_eq!(of("retry-tick", json!([bad])), None, "{bad}");
+            assert_eq!(of("reply", json!([bad])), None, "{bad}");
         }
-    }
-
-    #[test]
-    fn the_fixer_note_is_its_one_comment_by_the_millwright() {
-        let note = |id: u64, by: &str| json!({"source": format!("millwright:{id}"), "by": by, "at": "2026-11-03T09:00:00Z", "text": format!("n{id}")});
-        let b = of(
-            "millwright",
-            json!([note(1, "alice"), note(2, "mw"), note(3, "mw[bot]")]),
-        )
-        .unwrap();
-        assert_eq!(
-            items(&b),
-            [
-                json!({"source": "fixer", "id": 2, "by": "mw", "at": "2026-11-03T09:00:00Z",
-                "url": "https://github.com/acme/widget/issues/42#issuecomment-2", "text": "n2"})
-            ]
-        );
-        assert_eq!(of("retry-tick", json!([note(2, "mw")])), None);
     }
 
     #[test]
@@ -299,13 +253,13 @@ mod tests {
         let b = of("refresh", json!([task])).unwrap();
         assert_eq!(items(&b)[0]["source"], "refresh");
         assert_eq!(items(&b)[0]["text"], "Merge it.");
-        assert_eq!(of("label", json!([task])), None);
+        assert_eq!(of("approved", json!([task])), None);
     }
 
     #[test]
     fn a_record_of_before_names_its_pull_request_comments_by_source() {
         let old = json!({"source": "pr-comment:7", "by": "alice", "at": "2026-11-03T09:00:00Z", "text": "x"});
-        let b = of("retry-tick", json!([old])).unwrap();
+        let b = of("reply", json!([old])).unwrap();
         assert_eq!(items(&b)[0]["source"], "pr-comment");
         assert_eq!(items(&b)[0]["id"], 7);
     }
@@ -323,7 +277,7 @@ mod tests {
                 )
             })
             .collect();
-        let b = of("retry-tick", json!(ctx)).unwrap();
+        let b = of("reply", json!(ctx)).unwrap();
         assert!(b.bytes <= BLOB_MAX);
         let v: Value = serde_json::from_str(&b.text).unwrap();
         let got = items(&b);
@@ -337,7 +291,7 @@ mod tests {
 
     #[test]
     fn a_record_that_gives_nothing_has_no_blob() {
-        assert_eq!(of("retry-tick", json!([])), None);
-        assert_eq!(of("retry-tick", Value::Null), None);
+        assert_eq!(of("reply", json!([])), None);
+        assert_eq!(of("reply", Value::Null), None);
     }
 }

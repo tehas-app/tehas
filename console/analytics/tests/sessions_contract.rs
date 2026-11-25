@@ -7,15 +7,18 @@
 
 use serde_json::{json, Value};
 use std::fs;
-use std::path::PathBuf;
+use std::path::Path;
 use std::process::Command;
+use tehas_core::home::{Home, State};
+use tehas_core::testdir::TestDir;
 
 const ANALYTICS: &str = env!("CARGO_BIN_EXE_analytics");
 
-fn scratch(name: &str) -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(name);
-    let _ = fs::remove_dir_all(&dir);
-    for sub in ["state/cycles", "logs", "docs"] {
+/// A home of this test process's own, so two runs at once never share one.
+fn scratch(name: &str) -> TestDir {
+    let dir = TestDir::new(&format!("analytics-{name}"));
+    fs::create_dir_all(Home::new(dir.path()).cycles_dir()).unwrap();
+    for sub in ["logs", "docs"] {
         fs::create_dir_all(dir.join(sub)).unwrap();
     }
     dir
@@ -45,19 +48,20 @@ fn json_type(v: &Value) -> &'static str {
 // A home with one run that has every column of a session, its step, its role,
 // the build time of its image and one log: as much of the contract as a row
 // can hold. The database is made by the program itself, then filled here.
-fn home_with_a_run(name: &str) -> (PathBuf, String) {
+fn home_with_a_run(name: &str) -> (TestDir, String) {
     let home = scratch(name);
     let now = tehas_core::time::now();
     let started = now - 3600;
     let id = format!("work-7-{started}");
     let run = Command::new(ANALYTICS)
         .args(["event", "7", "started"])
-        .env("TEHAS_HOME", &home)
+        .env("TEHAS_HOME", home.path())
         .output()
         .unwrap();
     assert_eq!(run.status.code(), Some(0), "{run:?}");
 
-    let conn = rusqlite::Connection::open(home.join("state/analytics.db")).unwrap();
+    let conn =
+        rusqlite::Connection::open(Home::new(home.path()).state(State::AnalyticsDb)).unwrap();
     conn.execute(
         &format!(
             "INSERT INTO runs (id, kind, issue, attempt, how, started, ended, seconds,
@@ -66,7 +70,7 @@ fn home_with_a_run(name: &str) -> (PathBuf, String) {
                 endpoint, pr, tehas_version, tehas_commit, rukas_version, rukas_commit,
                 image, input, output, cache_read, cache_write, turns, dispatches, cost,
                 runner_ms, oom_kills, forks_refused, concurrent, result_schema)
-             VALUES ('{id}', 'work', 7, 2, 'label', {started}, {started} + 600, 600,
+             VALUES ('{id}', 'work', 7, 2, 'approved', {started}, {started} + 600, 600,
                 5, 'failed', 'failed', 3, 'review', 'review', 'time', 'loop', 1,
                 'model', 'the model said no', 0, 'main', 8, 'v0.7.31', 'c1', 'v0.14.0',
                 'c2', 'sha256:ab', 1, 2, 3, 4, 9, 6, 0.5, 700, 0, 1, 2, 4)"
@@ -95,12 +99,12 @@ fn home_with_a_run(name: &str) -> (PathBuf, String) {
         "abc",
     )
     .unwrap();
-    fs::create_dir_all(home.join("live")).unwrap();
+    fs::create_dir_all(Home::new(home.path()).live_dir()).unwrap();
     (home, id)
 }
 
 // The snapshot of that home, as `tehasbot status` asks for it.
-fn write_snapshot(home: &PathBuf) {
+fn write_snapshot(home: &Path) {
     let out = Command::new(ANALYTICS)
         .args(["sessions", "--out", home.join("mcp").to_str().unwrap()])
         .env("TEHAS_HOME", home)
@@ -111,7 +115,7 @@ fn write_snapshot(home: &PathBuf) {
 }
 
 fn answer(dirs: &mcp::tools::Dirs, name: &str, args: Value) -> Value {
-    match mcp::tools::call(dirs, name, &args).unwrap() {
+    match mcp::tools::call(dirs, name, &args.into()).unwrap() {
         mcp::tools::Output::Json(v) => v,
         other => panic!("{name} gave {other:?}"),
     }
@@ -122,9 +126,10 @@ fn the_mcp_reader_copies_every_field_the_sessions_writer_emits() {
     let (home, id) = home_with_a_run("sessions-contract");
     write_snapshot(&home);
     let dirs = mcp::tools::Dirs {
-        live: home.join("live"),
+        live: Home::new(home.path()).live_dir(),
         sessions: home.join("mcp"),
         logs: home.join("logs"),
+        links: mcp::tools::no_links,
     };
 
     let session = answer(&dirs, "factory_session", json!({"id": id}))["session"].clone();

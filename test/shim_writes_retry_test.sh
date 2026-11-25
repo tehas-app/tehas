@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
-# Tests for the gh shim's write log: the rate-limit back-off. A write GitHub
-# refused for a rate limit is sent once more and holds up no other call. The
-# real gh is a stub (t_stub) that answers what GH_OUT, GH_ERR and GH_RC name:
-# no network, and no GitHub asked of anything.
-# shellcheck disable=SC2016,SC2154  # stub bodies are expanded when they run; log and t_err come from shim_writes_lib.sh
+# Tests for the gh shim's rate-limit back-off (#649 part 2): a refused write is
+# sent once more after TEHAS_GH_RETRY_WAIT seconds, unless TEHAS_GH_RETRY=0,
+# and holds up no other call. The real gh is a stub (t_stub) that answers
+# what GH_OUT, GH_ERR and GH_RC name: no network, no GitHub asked.
 # shellcheck disable=SC2016,SC2154  # stub bodies are expanded when they run; log and t_err come from shim_writes_lib.sh
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
@@ -21,8 +20,6 @@ t_eq "$(t_calls gh | wc -l)" 2
 t_eq "$(lines | wc -l)" 2
 t_eq "$(lines | cut -f5,6 | sort -u)" "1	429"
 
-# Back-off (#649 part 2): a write GitHub refused for a rate limit is sent once
-# more after TEHAS_GH_RETRY_WAIT seconds, and only that call.
 t_case "a write refused with 429 once is sent again and succeeds, with the second answer only"
 reset
 t_gh_fail 1 1 "HTTP 429: Too Many Requests"
@@ -55,7 +52,7 @@ T_ENV=(GH_ERR="HTTP 403: Resource not accessible by integration" GH_RC=1 TEHAS_G
 shim issue comment 3 -R o/r --body x
 t_eq "$(t_calls gh | wc -l)" 2
 
-t_case "a write that reads standard input is sent once, even after a 429"
+t_case "a write that reads standard input, or of a caller with TEHAS_GH_RETRY=0, is sent once after a 429"
 reset
 T_ENV=(GH_ERR="HTTP 429: Too Many Requests" GH_RC=1 TEHAS_GH_RETRY_WAIT=0)
 t_run "echo words | $T/home/tehas/shim/gh issue comment 3 -R o/r --body-file -"
@@ -63,6 +60,9 @@ t_eq "$t_rc" 1
 t_lacks "$t_out" "rate limited"
 t_eq "$(t_calls gh | wc -l)" 1
 t_eq "$(field 6)" "429"
+T_ENV=(GH_ERR="HTTP 429: Too Many Requests" GH_RC=1 TEHAS_GH_RETRY_WAIT=0 TEHAS_GH_RETRY=0)
+shim issue comment 3 -R o/r --body x
+t_eq "$t_rc:$(t_calls gh | wc -l):$(lines | wc -l)" "1:2:2"
 
 # A write at a terminal (#649 review): gh's output stays the terminal, so gh
 # can still prompt, and the call is sent once. script(1) gives the shim a
@@ -94,7 +94,7 @@ reset
 t_gh_fail 1 1 "HTTP 429: Too Many Requests"
 (
   T_ENV=(TEHAS_GH_RETRY_WAIT=60)
-  t_run "$T/home/tehas/shim/gh issue comment 777 -R o/r --body waits"
+  t_run "$T/home/tehas/shim/gh issue comment 777 -R o/r --body waits-$$"
 ) >/dev/null 2>&1 &
 waiter=$!
 for _ in $(seq 600); do
@@ -111,7 +111,7 @@ t_eq "$(lines | cut -f4,6)" "777	429
 12	-"
 # The waiting call is still in its wait: it has made one attempt only.
 t_eq "$(t_calls gh | grep -c 777)" 1
-pkill -f "issue comment 777" 2>/dev/null
+pkill -f "issue comment 777 -R o/r --body waits-$$\$" 2>/dev/null # this run's waiter, not another run's
 wait "$waiter" 2>/dev/null
 
 t_done

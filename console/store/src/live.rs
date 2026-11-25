@@ -39,6 +39,7 @@ use std::io::{ErrorKind, Write};
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
+use tehas_core::home::{Home, Live, State};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Call {
@@ -239,6 +240,11 @@ struct View {
     started_at: i64,
     updated_at: i64,
     at: StepAt,
+    /// The start's attempt, how and account, `None` for a cycle run by hand:
+    /// what `tehas status` prints as the cycle's id, `how` and `by`.
+    attempt: i64,
+    how: String,
+    by: Option<String>,
 }
 
 impl View {
@@ -253,7 +259,12 @@ impl View {
             ("startedAt", j(self.started_at)),
             ("updatedAt", j(self.updated_at)),
             ("console", j(format!("console-{}.txt", self.issue))),
+            ("attempt", j(self.attempt)),
+            ("how", j(self.how.as_str())),
         ];
+        if let Some(by) = &self.by {
+            pairs.push(("by", j(by.as_str())));
+        }
         for (k, v) in [
             ("stepNumber", self.at.number),
             ("stepTotal", self.at.total),
@@ -319,7 +330,8 @@ fn read(home: &Path, c: &Connection, now: i64) -> Result<Read, Fail> {
     let mut q = c
         .prepare(
             "SELECT h.issue, h.running, h.status, h.step, h.text, c.started_at, h.at,
-               h.step_number, h.step_total, h.round, h.round_limit, h.step_since
+               h.step_number, h.step_total, h.round, h.round_limit, h.step_since,
+               c.attempt, c.how, c.started_by
              FROM heartbeats h JOIN cycles c ON c.issue = h.issue
              WHERE h.at = (SELECT max(at) FROM heartbeats WHERE issue = h.issue)
                AND h.at >= c.started_at",
@@ -342,6 +354,9 @@ fn read(home: &Path, c: &Connection, now: i64) -> Result<Read, Fail> {
                     limit: r.get(10)?,
                     since: r.get(11)?,
                 },
+                attempt: r.get(12)?,
+                how: r.get(13)?,
+                by: r.get(14)?,
             })
         })
         .q()?
@@ -520,7 +535,7 @@ fn remove_failed(name: &str, e: std::io::Error) -> Fail {
 /// state/publish.lock, held until the returned file is dropped. None when
 /// there is no state/: the store is missing too, and the read says so.
 fn take_lock(home: &Path) -> Result<Option<File>, Fail> {
-    let path = home.join("state").join("publish.lock");
+    let path = Home::new(home).state(State::PublishLock);
     let f = match OpenOptions::new()
         .read(true)
         .write(true)
@@ -531,7 +546,7 @@ fn take_lock(home: &Path) -> Result<Option<File>, Fail> {
     {
         Ok(f) => f,
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err((1, format!("lock state/publish.lock: {e}"))),
+        Err(e) => return Err((1, format!("lock {}: {e}", State::PublishLock.relative()))),
     };
     let start = Instant::now();
     // Read on every pass of the retry loop: the bound publish waits is the one
@@ -545,10 +560,13 @@ fn take_lock(home: &Path) -> Result<Option<File>, Fail> {
                 std::thread::sleep(Duration::from_millis(10));
             }
             Err(TryLockError::WouldBlock) => {
-                return Err((1, "busy: state/publish.lock is held".to_string()))
+                return Err((
+                    1,
+                    format!("busy: {} is held", State::PublishLock.relative()),
+                ))
             }
             Err(TryLockError::Error(e)) => {
-                return Err((1, format!("lock state/publish.lock: {e}")))
+                return Err((1, format!("lock {}: {e}", State::PublishLock.relative())))
             }
         }
     }
@@ -593,7 +611,7 @@ fn publish(
         .transpose()?;
     let _lock = take_lock(home)?;
     let got = verbs::look(home, |c| read(home, c, now))?;
-    let live = home.join("live");
+    let live = Home::new(home).live_dir();
     mkdir(&live)?;
     mkdir(&live.join("cycles"))?;
     let mut n = 0;
@@ -609,8 +627,8 @@ fn publish(
         .collect();
     let removed = prune_cycles(&live, &keep)?;
     if let Some((bytes, _)) = &dispatch {
-        put(&live, "dispatch.json", bytes, &mut n)?;
-        written.push(j("dispatch.json"));
+        put(&live, Live::Dispatch.name(), bytes, &mut n)?;
+        written.push(j(Live::Dispatch.name()));
     }
     for v in got.running.iter().chain(got.last.iter()) {
         let name = format!("cycles/{}.json", v.issue);
@@ -620,11 +638,11 @@ fn publish(
     let endings: Vec<String> = got.endings.iter().map(Ending::json).collect();
     put(
         &live,
-        "endings.json",
+        Live::Endings.name(),
         format!("{}\n", list(&endings)).as_bytes(),
         &mut n,
     )?;
-    written.push(j("endings.json"));
+    written.push(j(Live::Endings.name()));
     let cycles: Vec<String> = got.running.iter().map(|v| obj(&v.pairs())).collect();
     let last = got
         .last
@@ -633,11 +651,11 @@ fn publish(
     let view = obj(&[("cycles", list(&cycles)), ("last", last)]);
     put(
         &live,
-        "running.json",
+        Live::Running.name(),
         format!("{view}\n").as_bytes(),
         &mut n,
     )?;
-    written.push(j("running.json"));
+    written.push(j(Live::Running.name()));
     let mut down = Value::Null;
     if let Some((bytes, fail)) = &health {
         let marker = live.join("health.down");
@@ -647,13 +665,13 @@ fn publish(
         if *fail {
             File::create(&marker).map_err(|e| write_failed("health.down", e))?;
         }
-        if let Err(e) = put(&live, "health.json", bytes, &mut n) {
+        if let Err(e) = put(&live, Live::Health.name(), bytes, &mut n) {
             if made {
                 let _ = fs::remove_file(&marker);
             }
             return Err(e);
         }
-        written.push(j("health.json"));
+        written.push(j(Live::Health.name()));
         if !*fail {
             match fs::remove_file(&marker) {
                 Ok(()) => {}

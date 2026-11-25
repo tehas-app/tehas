@@ -33,8 +33,7 @@ prompt. Setup turns the code into the app, writes the key to
 `~/.config/tehas/github-app.pem` (mode 600) and the app's ID to `instance.env`
 as `TEHAS_GITHUB_APP_ID`, keeps the app's client id and client secret beside
 the key for the plugins' sign-in, and prints the install link. Install the app on the
-product repository, and on the repository review findings go to if it is
-another one. Setup waits up to 10 minutes for that, then goes on.
+product repository. Setup waits up to 10 minutes for that, then goes on.
 
 `--app-owner <login>` sets the organisation or user that owns the app (the
 repository's owner by default) and `--app-name <name>` its name
@@ -117,8 +116,7 @@ subscribe to no events.
 Create the app. On its **General** page note the **App ID**, and under
 **Private keys** generate one: a `.pem` file downloads. Keep it secret; it is
 the app's only credential. Install the app (**Install App**, then **Install**
-next to the organisation) on the product repository, and on the repository
-review findings go to if it is another one.
+next to the organisation) on the product repository.
 
 Then give the app to the host with `tehas setup --app-id <App ID>
 --app-key-file <key>`, or by hand as the tehas user:
@@ -159,6 +157,43 @@ tehas github check
 It prints the app, the installation, the bot's login, when the token runs out
 and whether the installation reaches `TEHAS_REPO`, and never the token itself.
 `command -v gh` now answers `~/tehas/shim/gh`.
+
+## The permission to read the checks
+
+With `TEHAS_BRANCH_CHECK` set, each poll reads that check on the branch's
+head commit: its check runs, the commit's statuses and the workflow runs of
+GitHub Actions that the check runs belong to. GitHub needs these repository
+permissions on the app for it:
+
+| Permission | Access | What the poll reads with it |
+| --- | --- | --- |
+| Actions | Read-only | The workflow runs of the commit |
+| Checks | Read-only | The check runs of the commit |
+| Commit statuses | Read-only or more | The commit's statuses |
+
+When GitHub refuses the read, the poll says so once each poll:
+
+```text
+WARN: the code host refused to say the checks of main; the factory's account may lack a permission (host/docs/github-app.md#the-permission-to-read-the-checks)
+```
+
+The check is then unreadable, never passed: the poll also says `the check
+<name> on main could not be read: cycles start`.
+
+To add the permission to an app made before:
+
+1. On GitHub, open the app's settings: **Settings**, **Developer settings**,
+   **GitHub Apps**, then **Edit** next to the app.
+2. Under **Permissions and events**, **Repository permissions**, set
+   **Actions** to "Read-only" (and **Checks**, if it is not), then **Save
+   changes**.
+3. The owner of the installation accepts the new permission: GitHub asks
+   them by mail, or on the account's **Settings**, **GitHub Apps**,
+   **Configure** next to the app, **Review request**, then **Accept new
+   permissions**. Until they accept, the installation keeps the old ones.
+
+The next poll's token carries it; nothing on the host changes. An app made
+with `tehas setup --new-app` asks for all three.
 
 ## Moving a host that used a token
 
@@ -219,10 +254,10 @@ line that sets one stops every command with exit 78; take them out too.
   `tehas-cycle renew` (`console/cycle/src/renew.rs`). It ends within a second
   of a `tehas work` that was killed outright, so it does not keep the issue's
   lock after its cycle is gone.
-- The dispatcher, the refresh and the Protolab take the bot's login from
+- The dispatcher and the refresh take the bot's login from
   `~/tehas/state/github/login`, because an installation token cannot ask
   GitHub who it is. The millwright is that same login (see
-  [the millwright's grant](/operating#the-millwrights-grant)).
+  [the millwright](/operating#the-millwright)).
 - When a new token finds the app renamed (see
   [the commands page](/tools-github)), the bot's user id in
   `~/tehas/state/account-ids` is recorded under the new login before
@@ -327,19 +362,14 @@ GraphQL carry the id of their label:
   state/labels cannot be read (<why>)`, no application of a granting label
   counts, and the poll writes nothing to the file. `tehas labels` stops with
   exit 78 and the same line, before it asks GitHub anything, and leaves the
-  file as it is. The Protolab publishes no ticket. Only a file that is not
-  there at all is pinned at first sight. Blank lines, CRLF line ends and
-  spaces or tabs after an id are read past: the pins count as written, the
-  poll leaves the file as it is, and the next `tehas labels` writes it plain.
+  file as it is. Only a file that is not there at all is pinned at first
+  sight. Blank lines, CRLF line ends and spaces or tabs after an id are
+  read past: the pins count as written, the poll leaves the file as it is,
+  and the next `tehas labels` writes it plain.
 - A refused `tehas:blocked` starts nothing, but it still holds: an issue
   that carries it waits as it would for an allowed account's, on the marked
   comment or on the label alone. A refused pin never lets an issue start
   sooner.
-
-`tehas labels` pins `tehas:prototype` the same way, and the
-[Protolab](/tools-protolab#tehasbot-protolab) publishes no ticket while the
-label under that name is not the pinned one. The dispatcher does not act on
-it.
 
 A label renamed into a granting name, for example a person's `bug` renamed to
 `tehas:ready`, therefore grants nothing: its old applications carry the id of
@@ -355,9 +385,9 @@ applications count for nothing.
 
 To repair a file that cannot be read, make `~/tehas/state/labels` a regular
 file owned by and readable by the tehas user, of `<name><tab><id>` lines, one
-per label. If it cannot be repaired, check on GitHub that each `tehas:` label
-is the one it should be, remove the file and run `tehas labels`: with no file
-it pins each of those labels it finds.
+per label. If it cannot be repaired, check on GitHub that each granting
+`tehas:` label is the one it should be, remove the file and run
+`tehas labels`: with no file it pins every granting label it finds.
 
 ## The relay is a security channel
 
@@ -367,7 +397,9 @@ nothing may widen what a container is given (the mounts and variables of
 `tehas work` are pinned by `console/cycle/tests/work_container.rs`). The container gets a
 directory to leave requests in. It gets no token for it and no way to ask for
 anything but the three commands. The host reads each request, checks it and
-runs it. It refuses, with the reason written back to the cycle:
+makes the write itself through the GitHub adapter, with no word of the
+request given to gh as an argument. It refuses, with the reason written back
+to the cycle:
 
 - a command other than `gh issue create`, `gh issue edit` and `gh issue comment`;
 - a label, an assignee, a milestone, a project, a state change and another
@@ -376,7 +408,19 @@ runs it. It refuses, with the reason written back to the cycle:
 - an edit of an issue the cycle did not create during that cycle;
 - a body over 1 MiB, a link in place of a file, and any text containing
   `<!-- tehas:`, in any letter case and with any white space after `<!--`;
+- a create without a title and a body, a comment without a body or with a
+  title, and an edit with neither;
 - the 51st write of a cycle.
+
+Before an edit the host reads the issue twice, and it edits only if the
+title and body are the same in both reads. If another account changed them
+in between, the cycle's `gh` fails with one line that says so, and the agent
+reads the issue again. GitHub cannot make the write itself conditional, so
+this covers the moment of the edit only, not an edit made before it.
+
+A write that is made answers the cycle's `gh` with its link, as gh prints
+one. A write GitHub refuses or that cannot reach it answers with one line in
+tehas's words, never GitHub's own error text.
 
 A title and a body that pass are posted masked as the console masks a log:
 tokens, keys, passwords, private addresses and the host's names are taken

@@ -1,15 +1,15 @@
 //! The program as the bash commands call it: its exit statuses.
 
-use std::path::PathBuf;
 use std::process::Command;
+use tehas_core::home::{Home, State};
+use tehas_core::testdir::TestDir;
 
 const ANALYTICS: &str = env!("CARGO_BIN_EXE_analytics");
 
-fn scratch(name: &str) -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(name);
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+/// A home of this test process's own: two runs of the tests at once, as a
+/// loaded gate makes, never share one.
+fn scratch(name: &str) -> TestDir {
+    TestDir::new(&format!("analytics-cli-{name}"))
 }
 
 fn status(home: Option<&str>, args: &[&str]) -> (i32, String) {
@@ -53,7 +53,7 @@ fn a_wrong_argument_is_a_usage_error() {
         assert_eq!(code, 64, "{args:?}");
         assert!(err.starts_with("usage: analytics"), "{args:?}");
     }
-    assert!(!home.join("state").exists());
+    assert!(!Home::new(home.path()).state_dir().exists());
 }
 
 #[test]
@@ -64,7 +64,7 @@ fn an_event_makes_the_database_and_a_run_without_history_is_65() {
         status(Some(h), &["event", "3", "ready"]),
         (0, String::new())
     );
-    assert!(home.join("state/analytics.db").is_file());
+    assert!(Home::new(home.path()).state(State::AnalyticsDb).is_file());
     let facts = home.join("facts.json");
     std::fs::write(&facts, r#"{"line":null,"attempt":0}"#).unwrap();
     let f = facts.to_str().unwrap();
@@ -88,7 +88,7 @@ fn report_prints_one_line_of_json_with_its_version() {
     let home = scratch("report");
     let out = Command::new(ANALYTICS)
         .args(["report", "--json"])
-        .env("TEHAS_HOME", &home)
+        .env("TEHAS_HOME", home.path())
         .output()
         .unwrap();
     assert_eq!(out.status.code(), Some(0));

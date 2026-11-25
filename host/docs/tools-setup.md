@@ -8,7 +8,7 @@ description: "Writing this host's instance and starting the factory, and the che
 ## tehas setup
 
 ```
-tehas setup --repo tehas-app/tehas --labelers janit --new-app \
+tehas setup --repo tehas-app/tehas-factory --labelers janit --new-app \
   --endpoint http://gb1:8086/v1
 ```
 
@@ -89,8 +89,8 @@ In order, stopping at the first step that fails:
    token from the key and checks that the token's permissions have
    `contents`, `issues` and `pull_requests` at `write`. It reads the app's
    slug (`GET /app`) and the ID of its bot, `<slug>[bot]`
-   (`GET /users/<slug>[bot]`). Each other repository `instance.env` names
-   (`TEHAS_REVIEW_REPO`, `TEHAS_RELEASE_REPO`) that the app does not reach is named with the install
+   (`GET /users/<slug>[bot]`). Another repository `instance.env` names
+   (`TEHAS_RELEASE_REPO`) that the app does not reach is named with the install
    link, and the run goes on. Then it makes the control issue. A check that
    fails stops the run with 1 and nothing written, except the key and the ID
    `--new-app` wrote. The token is kept in no file.
@@ -163,28 +163,29 @@ console and no checkout to build one from.
 ## tehas labels
 
 ```
-tehas labels        # one line per label
+tehas labels        # one line for the labels, one per label pinned
 ```
 
-Creates the twenty-two labels tehas uses in the product repository: `tehas:ready`,
+Creates the twenty labels tehas uses in the product repository: `tehas:ready`,
 `tehas:running`, `tehas:awaiting-merge`, `tehas:shipped`, `tehas:pause`,
 `needs-human-attention`, `tehas:question`, `tehas:plan`, `tehas:refine`, `tehas:planning`,
 `tehas:replaced` and `tehas:refined` (an issue a [refine](/operating#refining-a-request)
 filed a ticket for), `tehas:millwright-escalated`, `tehas:blocked`, `tehas:refreshing` (on a
-pull request a [refresh](/operating#refreshes) works on), `tehas:all-hands`,
+pull request a [refresh](/operating#refreshes) works on),
 `tehas:lean` and `tehas:classic` (see [choosing the driver](/operating#choosing-the-driver)),
 `epic` (see [epics](/operating#3-what-happens-next)), `tehas:finish` (see
 [finishing a stopped cycle](/operating#finishing-a-stopped-cycle)),
-`tehas:prototype` (see [the Protolab](/tools-protolab#tehasbot-protolab)), and
-`tehas:improvement` (a proposal the factory files, such as a review's).
+and `tehas:improvement` (a proposal the factory files).
 Run it once for a new product, and again after pulling a version that adds a
 label. Run again, it puts their colours and descriptions back. The labels are
-the lines of `~/tehas/lib/labels.tsv`, which `install.sh` copies from
-`host/labels.tsv`: a change to that file owes the `labels` step of an update, and
-a new console does not. It needs `TEHAS_REPO` and no other setting. Exit 0 when
-every label is there, 1 when one could not be made, 64 on any argument, 78 when
-the repository is not set or the table is missing or holds a line that is no
-label, before any label is made.
+the rows of `host/labels.tsv`, compiled into the console: the copy that
+`install.sh` puts in `~/tehas/lib/labels.tsv` is not read. A change to that
+file comes with a new console, and owes the `labels` step of the same update.
+It says `made the tehas labels`, or names the first label it could not make
+and why, and a label that cannot be made stops none of the others. Its words
+are not contract; its exit status is. It needs `TEHAS_REPO` and no other
+setting. Exit 0 when every label is there, 1 when one could not be made, 64 on
+any argument, 78 when the repository is not set, before any label is made.
 
 ## tehas check-product
 

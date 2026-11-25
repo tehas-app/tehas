@@ -2,7 +2,7 @@
 //! fetches holds no token, no URL with a host and no address, and the command
 //! calls nothing outside the host. The real bin/tehas runs it. The console this
 //! crate cannot build stands in for the load of the settings and for its verb,
-//! which test/analytics_cmd_test.sh runs.
+//! which console/tests/analytics_cmd.rs runs.
 
 use rusqlite::{Connection, OpenFlags};
 use serde_json::{json, Value};
@@ -11,6 +11,8 @@ use std::os::unix::fs::{symlink, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tehas_core::home::{Home, Live};
+use tehas_core::testdir::TestDir;
 
 const ANALYTICS: &str = env!("CARGO_BIN_EXE_analytics");
 
@@ -18,13 +20,13 @@ const ANALYTICS: &str = env!("CARGO_BIN_EXE_analytics");
 /// rather than written here, so the version is named in one place: an export
 /// of an empty home prints `PRAGMA user_version` of a database it just made.
 fn schema_version() -> i64 {
-    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("command-schema");
-    let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(dir.join("state")).unwrap();
+    let scratch = TestDir::new("analytics-command-schema");
+    let dir = scratch.path();
+    fs::create_dir_all(Home::new(dir).state_dir()).unwrap();
     let copy = dir.join("copy.db");
     let out = Command::new(ANALYTICS)
         .args(["copy", "--to", copy.to_str().unwrap(), "--json"])
-        .env("TEHAS_HOME", &dir)
+        .env("TEHAS_HOME", dir)
         .output()
         .unwrap();
     assert_eq!(out.status.code(), Some(0), "{out:?}");
@@ -56,6 +58,8 @@ fn iso(t: i64) -> String {
 }
 
 struct Host {
+    /// Removed when the host drops.
+    _scratch: TestDir,
     dir: PathBuf,
     home: PathBuf,
     instance: PathBuf,
@@ -66,10 +70,11 @@ impl Host {
     // A scratch host: TEHAS_HOME with this program as libexec/analytics, an
     // instance, and gh, docker, git and curl that record a call and fail.
     fn new(name: &str) -> Host {
-        let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("command-{name}"));
-        let _ = fs::remove_dir_all(&dir);
+        let scratch = TestDir::new(&format!("analytics-command-{name}"));
+        let dir = scratch.path().to_path_buf();
         let home = dir.join("tehas");
-        for sub in ["state/cycles", "logs", "docs", "libexec"] {
+        fs::create_dir_all(Home::new(&home).cycles_dir()).unwrap();
+        for sub in ["logs", "docs", "libexec"] {
             fs::create_dir_all(home.join(sub)).unwrap();
         }
         symlink(ANALYTICS, home.join("libexec/analytics")).unwrap();
@@ -84,7 +89,7 @@ impl Host {
         .unwrap();
         let bin = dir.join("bin");
         fs::create_dir_all(&bin).unwrap();
-        for tool in ["gh", "docker", "git", "curl"] {
+        for tool in tehas_core::testing::UNREACHED.into_iter().chain(["curl"]) {
             let stub = bin.join(tool);
             tehas_core::testing::write_exe(
                 &stub,
@@ -103,6 +108,7 @@ impl Host {
         )
         .unwrap();
         Host {
+            _scratch: scratch,
             dir,
             home,
             instance,
@@ -112,6 +118,14 @@ impl Host {
 
     fn put(&self, name: &str, text: &str) {
         fs::write(self.home.join(name), text).unwrap();
+    }
+
+    fn put_at(&self, p: PathBuf, text: &str) {
+        fs::write(p, text).unwrap();
+    }
+
+    fn layout(&self) -> Home {
+        Home::new(&self.home)
     }
 
     // The person's command, with the environment a login gives it and no other.
@@ -171,14 +185,17 @@ impl Host {
                 connect ECONNREFUSED models.example:8000; git@host.tld:org/repo; token=ghp_abcdefghijklmnopqrstuvwxyz123456; \
                 Incorrect API key provided: sk-abc123def456ghi789jkl0; dial fe80::1%eth0 and 2001:db8::7",
                 ip([10, 0, 0, 7]), ip([203, 0, 113, 9]))});
-        self.put("state/cycles/7.result.json", &result.to_string());
+        self.put_at(
+            self.layout().cycle_note(7, "result.json"),
+            &result.to_string(),
+        );
         fs::copy(
             fixture.join("progress.jsonl"),
             self.home.join("logs/work-7-261015-183834.jsonl"),
         )
         .unwrap();
-        self.put(
-            "state/cycles/7.progress.json",
+        self.put_at(
+            self.layout().cycle_note(7, "progress.json"),
             &json!({"roles": [{"role": "ops", "dispatches": 1, "turns": 3, "input": 100,
                                "output": 10, "cacheRead": 5},
                               {"role": "explore", "dispatches": 1, "turns": 2, "input": 50,
@@ -191,26 +208,22 @@ impl Host {
             "Everything up-to-date\n",
         );
         // The live files of a poll that was held.
-        fs::create_dir_all(self.home.join("live")).unwrap();
-        self.put(
-            "live/status.json",
+        fs::create_dir_all(self.layout().live_dir()).unwrap();
+        self.put_at(
+            self.layout().live(Live::Status),
             &json!({"generatedAt": iso(now), "paused": false, "queued": [{"number": 8}],
                     "running": [], "awaiting": [], "stopped": [], "planning": 0})
             .to_string(),
         );
-        self.put(
-            "live/dispatch.json",
+        self.put_at(
+            self.layout().live(Live::Dispatch),
             &json!({"time": iso(now), "why": "resources", "count": 0, "free": 2}).to_string(),
-        );
-        self.put(
-            "live/energy.json",
-            &json!({"generatedAt": iso(now), "totals": {"watts": 250.0}}).to_string(),
         );
         self.put("docs/version.txt", "v0.7.22+1234abc\n");
         // The run's facts as tehas-cycle gives them: the history line,
         // the approval, the settings snapshot as tehas-cycle writes it (a
         // model with dots, a provider word, and a host value it withheld), the
-        // image's commit and the contractor that ran it.
+        // and the image's commit.
         fs::create_dir_all(self.home.join("tmp")).unwrap();
         self.put(
             "tmp/facts.json",
@@ -218,14 +231,13 @@ impl Host {
                              "status": "handoff", "parked": true,
                              "pr": "https://github.com/o/r/pull/3"},
                     "attempt": 1,
-                    "approval": {"at": iso(started - 90), "how": "label", "driver": "lean"},
+                    "approval": {"at": iso(started - 90), "how": "approved", "driver": "lean"},
                     "settings": {"container": {"PI_ENSEMBLE_SUBAGENT_MODEL": "qwen3.5-coder-32b",
                                                "PI_ENSEMBLE_SUBAGENT_PROVIDER": "fleet",
                                                "PI_ENSEMBLE_MODEL_OPS": "[withheld]"},
                                  "host": {"TEHAS_WORK_TIMEOUT": "21600"},
                                  "concurrentCycles": 2},
-                    "rukas": "abcdef1",
-                    "contractor": "box-1"})
+                    "rukas": "abcdef1"})
             .to_string(),
         );
         let facts = self.home.join("tmp/facts.json");
@@ -327,11 +339,6 @@ fn a_copy_through_tehas_analytics_holds_no_token_host_or_address() {
         )
         .unwrap();
     assert_eq!(gate, (2, 2, 600_000));
-    // The contractor that ran the cycle goes with the copy.
-    let by: String = db
-        .query_row("SELECT contractor_id FROM runs", [], |r| r.get(0))
-        .unwrap();
-    assert_eq!(by, "box-1");
     // Every text column holds a value, so every one is scanned.
     for t in &tables {
         let cols: Vec<String> = db
@@ -420,13 +427,13 @@ fn the_copy_prints_the_object_its_schema_and_samples_describe() {
     assert_eq!(code, 0, "{err}");
     let ran: Value = serde_json::from_str(&out).unwrap();
 
-    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("command-copy-schema-new");
-    let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(dir.join("state")).unwrap();
+    let scratch = TestDir::new("analytics-command-copy-schema-new");
+    let dir = scratch.path();
+    fs::create_dir_all(Home::new(dir).state_dir()).unwrap();
     let copy = dir.join("copy.db");
     let new = Command::new(ANALYTICS)
         .args(["copy", "--to", copy.to_str().unwrap(), "--json"])
-        .env("TEHAS_HOME", &dir)
+        .env("TEHAS_HOME", dir)
         .output()
         .unwrap();
     assert_eq!(new.status.code(), Some(0), "{new:?}");

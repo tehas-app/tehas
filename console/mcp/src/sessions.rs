@@ -3,13 +3,15 @@
 //! time and copy only the fields of the contract in `tehas_core::snapshot`,
 //! which the analytics writer reads too. A log's file name is never returned.
 
+use crate::args::{Arg, Args};
 use crate::snapshot::Snapshot;
-use crate::tools::{self, Dirs, ToolError};
+use crate::tools::{self, Dirs, Links, ToolError};
 use regex::Regex;
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
 use tehas_core::queue_lists::{AWAITING, COMPLETED, QUEUED, RUNNING, STOPPED};
+use tehas_ports::{BlueprintNo, ChangeNo, Cite, Cites, Ref};
 
 // The words an answer may give for an outcome or a kind, and the words the
 // filters of `factory_sessions` accept. The outcomes are the core's one
@@ -18,20 +20,18 @@ use tehas_core::queue_lists::{AWAITING, COMPLETED, QUEUED, RUNNING, STOPPED};
 pub const OUTCOMES: [&str; 7] = tehas_core::outcome::OUTCOMES;
 pub const KINDS: [&str; 2] = ["work", "plan"];
 // Every word a record's `how` can hold, work and plan words alike: the words
-// the store's verbs take and the plan words analytics' `plan::how` writes. An
-// old record that says `fixer` is read as `millwright` (`Snapshot::sessions`),
-// so the tool answers and filters one word for the millwright. The tool's
+// the store's verbs take and the plan words analytics' `plan::how` writes. The tool's
 // schema enum and its filter both read this list, and nothing else in the
 // crate names it; the test of the filter reads it here, so it pins the tool to
 // what it says rather than to a list written twice.
 pub const HOWS: [&str; 9] = [
-    "label",
+    "approved",
     "refresh",
-    "retry-tick",
     "outage-retry",
     "millwright",
     "host",
     "answer",
+    "reply",
     "refine",
     "hand",
 ];
@@ -49,8 +49,6 @@ pub use tools::WORD;
 static IMAGE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(sha256:)?[0-9a-f]{12,64}$").unwrap());
 const GROUPS: [&str; 2] = ["version", "image"];
-static REPO: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$").unwrap());
 
 /// The snapshot's fields as this crate names them: key, JSON type,
 /// description. All three come from `tehas_core::snapshot`, in its order, so
@@ -359,16 +357,32 @@ pub fn tools() -> Vec<Value> {
     ]
 }
 
-/// Links to an issue and its pull request. A repo that is not `owner/name`
-/// gives none.
-pub fn links(repo: Option<&str>, issue: i64, pr: Option<i64>) -> (Option<String>, Option<String>) {
-    let Some(repo) = repo.filter(|r| REPO.is_match(r) && !r.contains("..")) else {
-        return (None, None);
-    };
-    (
-        Some(format!("https://github.com/{repo}/issues/{issue}")),
-        pr.map(|n| format!("https://github.com/{repo}/pull/{n}")),
-    )
+/// Where a person opens an issue and its pull request, as the code host
+/// links them (`Cites::link`). With no code host for the repository, or a
+/// number that is no item's, nothing is linked.
+pub struct Linker(Option<Box<dyn Cites + Send>>);
+
+impl Linker {
+    /// The links of the repository `repo` names, made by `links`.
+    pub fn of(links: Links, repo: Option<&str>) -> Linker {
+        Linker(repo.and_then(links))
+    }
+
+    fn link(&self, what: Cite) -> Option<String> {
+        Some(self.0.as_ref()?.link(&what)?.as_str().to_string())
+    }
+
+    /// The link of issue `issue`.
+    pub fn issue(&self, issue: i64) -> Option<String> {
+        let no = BlueprintNo::new(u64::try_from(issue).ok()?)?;
+        self.link(Cite::Blueprint(Ref::Here(no)))
+    }
+
+    /// The link of pull request `pr`.
+    pub fn pr(&self, pr: i64) -> Option<String> {
+        let no = ChangeNo::new(u64::try_from(pr).ok()?)?;
+        self.link(Cite::Change(Ref::Here(no)))
+    }
 }
 
 fn bad(why: &str) -> ToolError {
@@ -400,29 +414,31 @@ fn repo_of(status: &Option<Value>) -> Option<String> {
     status.as_ref()?["repo"].as_str().map(str::to_string)
 }
 
-fn repo(dirs: &Dirs) -> Result<Option<String>, ToolError> {
-    Ok(repo_of(&published(dirs, "status.json")?))
+/// The links of the repository the published status names.
+fn linker(dirs: &Dirs) -> Result<Linker, ToolError> {
+    let repo = repo_of(&published(dirs, "status.json")?);
+    Ok(Linker::of(dirs.links, repo.as_deref()))
 }
 
-fn session_links(repo: &Option<String>, s: &Value) -> (Option<String>, Option<String>) {
+fn session_links(links: &Linker, s: &Value) -> (Option<String>, Option<String>) {
     match s["issue"].as_i64() {
-        Some(n) => links(repo.as_deref(), n, s["pr"].as_i64()),
+        Some(n) => (links.issue(n), s["pr"].as_i64().and_then(|p| links.pr(p))),
         None => (None, None),
     }
 }
 
-fn word(args: &Value, key: &str) -> Result<Option<String>, ToolError> {
-    match &args[key] {
-        Value::Null => Ok(None),
-        Value::String(s) if WORD.is_match(s) => Ok(Some(s.clone())),
+fn word(args: &Args, key: &str) -> Result<Option<String>, ToolError> {
+    match args.get(key) {
+        Arg::Absent => Ok(None),
+        Arg::Text(s) if WORD.is_match(s) => Ok(Some(s.to_string())),
         _ => Err(bad(&format!("{key} is 1 to 64 of A-Za-z0-9._+-"))),
     }
 }
 
-fn one_of(args: &Value, key: &str, allowed: &[&str]) -> Result<Option<String>, ToolError> {
-    match &args[key] {
-        Value::Null => Ok(None),
-        Value::String(s) if allowed.contains(&s.as_str()) => Ok(Some(s.clone())),
+fn one_of(args: &Args, key: &str, allowed: &[&str]) -> Result<Option<String>, ToolError> {
+    match args.get(key) {
+        Arg::Absent => Ok(None),
+        Arg::Text(s) if allowed.contains(&s) => Ok(Some(s.to_string())),
         _ => Err(bad(&format!("{key} is one of {}", allowed.join(", ")))),
     }
 }
@@ -435,43 +451,90 @@ fn open(dirs: &Dirs) -> Result<Snapshot, ToolError> {
     Snapshot::open(&dirs.sessions, tools::now())
 }
 
-pub(crate) fn list(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, ToolError> {
-    let outcome = one_of(args, "outcome", &OUTCOMES)?;
-    let kind = one_of(args, "kind", &KINDS)?;
-    let how = one_of(args, "how", &HOWS)?;
-    let failure_kind = word(args, "failureKind")?;
-    let tehas = word(args, "tehasVersion")?;
-    let rukas = word(args, "rukasVersion")?;
-    let image = match &args["image"] {
-        Value::Null => None,
-        Value::String(s) if IMAGE.is_match(s) => {
-            Some(s.strip_prefix("sha256:").unwrap_or(s).to_string())
-        }
-        _ => {
-            return Err(bad(
-                "image is an image id sha256:<hex>, or 12 to 64 of its hex",
-            ))
-        }
-    };
-    let issue = match &args["issue"] {
-        Value::Null => None,
-        v => Some(i64::from(tools::issue_arg(v)?)),
-    };
-    let limit = match &args["limit"] {
-        Value::Null => DEFAULT_LIMIT,
-        v => v
-            .as_u64()
-            .filter(|n| (1..=MAX_LIMIT).contains(n))
-            .ok_or_else(|| bad(&format!("limit is from 1 to {MAX_LIMIT}")))?,
-    } as usize;
-    let before = match &args["before"] {
-        Value::Null => None,
-        Value::String(s) if ID.is_match(s) => Some(s.as_str()),
-        _ => return Err(bad("before is a session id")),
-    };
+/// What `factory_sessions` takes: the filters, each given or not, the most
+/// sessions of a page and the session the page comes after.
+#[derive(Debug)]
+pub struct ListArgs {
+    outcome: Option<String>,
+    kind: Option<String>,
+    how: Option<String>,
+    failure_kind: Option<String>,
+    tehas: Option<String>,
+    rukas: Option<String>,
+    /// The image id's hex, without `sha256:`.
+    image: Option<String>,
+    issue: Option<i64>,
+    limit: usize,
+    before: Option<String>,
+}
+
+impl ListArgs {
+    pub(crate) fn read(args: &Args) -> Result<Self, ToolError> {
+        let outcome = one_of(args, "outcome", &OUTCOMES)?;
+        let kind = one_of(args, "kind", &KINDS)?;
+        let how = one_of(args, "how", &HOWS)?;
+        let failure_kind = word(args, "failureKind")?;
+        let tehas = word(args, "tehasVersion")?;
+        let rukas = word(args, "rukasVersion")?;
+        let image = match args.get("image") {
+            Arg::Absent => None,
+            Arg::Text(s) if IMAGE.is_match(s) => {
+                Some(s.strip_prefix("sha256:").unwrap_or(s).to_string())
+            }
+            _ => {
+                return Err(bad(
+                    "image is an image id sha256:<hex>, or 12 to 64 of its hex",
+                ))
+            }
+        };
+        let issue = match args.get("issue") {
+            Arg::Absent => None,
+            v => Some(i64::from(tools::issue_arg(&v)?)),
+        };
+        let limit = match args.get("limit") {
+            Arg::Absent => DEFAULT_LIMIT,
+            v => v
+                .whole()
+                .filter(|n| (1..=MAX_LIMIT).contains(n))
+                .ok_or_else(|| bad(&format!("limit is from 1 to {MAX_LIMIT}")))?,
+        } as usize;
+        let before = match args.get("before") {
+            Arg::Absent => None,
+            Arg::Text(s) if ID.is_match(s) => Some(s.to_string()),
+            _ => return Err(bad("before is a session id")),
+        };
+        Ok(ListArgs {
+            outcome,
+            kind,
+            how,
+            failure_kind,
+            tehas,
+            rukas,
+            image,
+            issue,
+            limit,
+            before,
+        })
+    }
+}
+
+pub(crate) fn list(dirs: &Dirs, asked: &ListArgs) -> Result<Map<String, Value>, ToolError> {
+    let ListArgs {
+        outcome,
+        kind,
+        how,
+        failure_kind,
+        tehas,
+        rukas,
+        image,
+        issue,
+        limit,
+        before,
+    } = asked;
+    let (limit, before) = (*limit, before.as_deref());
 
     let snap = open(dirs)?;
-    let repo = repo(dirs)?;
+    let links = linker(dirs)?;
     let eq = |s: &Value, key: &str, want: &Option<String>| {
         want.as_deref().is_none_or(|w| s[key].as_str() == Some(w))
     };
@@ -479,7 +542,7 @@ pub(crate) fn list(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, Tool
     let item = summary_schema();
     let summary = |s: &Value| {
         let mut o = pick_object(s, &keys);
-        let (i, p) = session_links(&repo, s);
+        let (i, p) = session_links(&links, s);
         insert_opt(&mut o, "issueUrl", i);
         insert_opt(&mut o, "prUrl", p);
         Value::Object(o)
@@ -492,11 +555,11 @@ pub(crate) fn list(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, Tool
             passed = s["id"].as_str() == before;
             continue;
         }
-        let keep = eq(&s, "outcome", &outcome)
-            && eq(&s, "kind", &kind)
-            && eq(&s, "how", &how)
-            && eq(&s, "failureKind", &failure_kind)
-            && eq(&s, "tehasVersion", &tehas)
+        let keep = eq(&s, "outcome", outcome)
+            && eq(&s, "kind", kind)
+            && eq(&s, "how", how)
+            && eq(&s, "failureKind", failure_kind)
+            && eq(&s, "tehasVersion", tehas)
             && rukas.as_deref().is_none_or(|w| {
                 s["rukasVersion"].as_str() == Some(w) || s["rukasCommit"].as_str() == Some(w)
             })
@@ -573,13 +636,27 @@ fn pick_object(src: &Value, spec: &Value) -> Map<String, Value> {
     }
 }
 
-pub(crate) fn one(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, ToolError> {
-    let id = args["id"]
-        .as_str()
-        .ok_or_else(|| bad("id is a string like work-12-1792485967"))?;
-    if !ID.is_match(id) {
-        return Err(bad("id is like work-12-1792485967"));
+/// What `factory_session` takes: the id of one session.
+#[derive(Debug)]
+pub struct OneArgs {
+    id: String,
+}
+
+impl OneArgs {
+    pub(crate) fn read(args: &Args) -> Result<Self, ToolError> {
+        let id = args
+            .get("id")
+            .text()
+            .ok_or_else(|| bad("id is a string like work-12-1792485967"))?;
+        if !ID.is_match(id) {
+            return Err(bad("id is like work-12-1792485967"));
+        }
+        Ok(OneArgs { id: id.to_string() })
     }
+}
+
+pub(crate) fn one(dirs: &Dirs, asked: &OneArgs) -> Result<Map<String, Value>, ToolError> {
+    let id = asked.id.as_str();
     let snap = open(dirs)?;
     let raw = find(&snap, id)?;
     let keys: Vec<&str> = FIELDS.iter().map(|f| f.0).collect();
@@ -598,7 +675,7 @@ pub(crate) fn one(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, ToolE
         })
         .collect();
     s.insert("logs".into(), Value::Array(logs));
-    let (i, p) = session_links(&repo(dirs)?, &raw);
+    let (i, p) = session_links(&linker(dirs)?, &raw);
     insert_opt(&mut s, "issueUrl", i);
     insert_opt(&mut s, "prUrl", p);
     let s = Value::Object(s);
@@ -632,11 +709,26 @@ struct Cause {
     issues: Vec<i64>,
 }
 
-pub(crate) fn failures(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, ToolError> {
-    let by_image = one_of(args, "by", &GROUPS)?.as_deref() == Some("image");
-    let only = word(args, "rukasVersion")?;
+/// What `factory_failures` takes: whether to group by image, and the one
+/// rukas version to count.
+#[derive(Debug)]
+pub struct FailuresArgs {
+    by_image: bool,
+    only: Option<String>,
+}
+
+impl FailuresArgs {
+    pub(crate) fn read(args: &Args) -> Result<Self, ToolError> {
+        let by_image = one_of(args, "by", &GROUPS)?.as_deref() == Some("image");
+        let only = word(args, "rukasVersion")?;
+        Ok(FailuresArgs { by_image, only })
+    }
+}
+
+pub(crate) fn failures(dirs: &Dirs, asked: &FailuresArgs) -> Result<Map<String, Value>, ToolError> {
+    let (by_image, only) = (asked.by_image, &asked.only);
     let snap = open(dirs)?;
-    let repo = repo(dirs)?;
+    let links = linker(dirs)?;
     let mut pairs: BTreeMap<(Option<String>, Option<String>, String), Pair> = BTreeMap::new();
     for s in snap.sessions().filter(|s| s["kind"] == "work") {
         let text = |k: &str| s[k].as_str().map(str::to_string);
@@ -686,11 +778,8 @@ pub(crate) fn failures(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, 
                 .into_iter()
                 .take(TOP_CAUSES)
                 .map(|((cause, kind), c)| {
-                    let issues: Vec<String> = c
-                        .issues
-                        .iter()
-                        .filter_map(|i| links(repo.as_deref(), *i, None).0)
-                        .collect();
+                    let issues: Vec<String> =
+                        c.issues.iter().filter_map(|i| links.issue(*i)).collect();
                     let mut o = Map::new();
                     o.insert("cause".into(), json!(cause));
                     insert_opt(&mut o, "kind", kind);
@@ -772,16 +861,29 @@ pub(crate) fn issue_spec() -> Value {
     Value::Object(s)
 }
 
+/// What `factory_issue` takes: the issue's number.
+#[derive(Debug)]
+pub struct IssueArgs {
+    issue: i64,
+}
+
+impl IssueArgs {
+    pub(crate) fn read(args: &Args) -> Result<Self, ToolError> {
+        let issue = i64::from(tools::issue_arg(&args.get("issue"))?);
+        Ok(IssueArgs { issue })
+    }
+}
+
 /// One issue's story: the stage the dashboard lists it under, the cycle that
 /// owns it now, and its runs of the snapshot's window. The caller does not
 /// join `factory_issues`, `factory_sessions` and `factory_session`.
-pub(crate) fn issue(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, ToolError> {
-    let issue = i64::from(tools::issue_arg(&args["issue"])?);
+pub(crate) fn issue(dirs: &Dirs, asked: &IssueArgs) -> Result<Map<String, Value>, ToolError> {
+    let issue = asked.issue;
     // The snapshot first: its header is the one file this tool must read, and
     // a host without it has nothing to answer with.
     let snap = open(dirs)?;
     let status = published(dirs, "status.json")?;
-    let repo = repo_of(&status);
+    let links = Linker::of(dirs.links, repo_of(&status).as_deref());
     let st = status.unwrap_or(Value::Null);
 
     // The first list that holds the number, as the dashboard shows it. The
@@ -849,11 +951,7 @@ pub(crate) fn issue(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, Too
         .map(|s| {
             let mut o = pick_object(&s, &keys);
             o.retain(|_, v| scalar(v));
-            insert_opt(
-                &mut o,
-                "prUrl",
-                links(repo.as_deref(), issue, s["pr"].as_i64()).1,
-            );
+            insert_opt(&mut o, "prUrl", s["pr"].as_i64().and_then(|p| links.pr(p)));
             Value::Object(o)
         })
         .collect();
@@ -862,7 +960,7 @@ pub(crate) fn issue(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, Too
 
     let mut out = Map::new();
     out.insert("issue".into(), json!(issue));
-    insert_opt(&mut out, "issueUrl", links(repo.as_deref(), issue, None).0);
+    insert_opt(&mut out, "issueUrl", links.issue(issue));
     if let Some(s) = stage {
         out.insert("stage".into(), json!(s));
     }

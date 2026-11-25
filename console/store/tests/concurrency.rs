@@ -17,6 +17,8 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
+use tehas_core::home::{Home, State};
+use tehas_core::testdir::TestDir;
 
 const STORE: &str = env!("CARGO_BIN_EXE_store");
 const WRITERS: u32 = 8;
@@ -58,10 +60,8 @@ const ROWS_PER_WRITE: u32 = 3;
 const HELD_ISSUE: i64 = 0;
 
 /// A home with a store `init` made, as install.sh will leave it.
-fn home(name: &str) -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("store-{name}"));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+fn home(name: &str) -> TestDir {
+    let dir = TestDir::new(&format!("store-{name}"));
     let out = run(
         &dir,
         &[
@@ -176,7 +176,7 @@ fn said(out: &Output) -> String {
 }
 
 fn db(home: &Path) -> PathBuf {
-    home.join("state").join("tehas.db")
+    Home::new(home).state(State::StoreDb)
 }
 
 /// The rows of `sweep_log` by issue and `what`, read by this process. The
@@ -252,7 +252,7 @@ fn eight_writers_and_eight_readers_meet_no_busy_and_lose_no_write() {
     };
     let writers: Vec<_> = (0..WRITERS)
         .map(|w| {
-            let home = home.clone();
+            let home = home.to_path_buf();
             thread::spawn(move || {
                 let (mut written, mut failed) = (Vec::new(), Vec::new());
                 let mut n = 0;
@@ -291,7 +291,7 @@ fn eight_writers_and_eight_readers_meet_no_busy_and_lose_no_write() {
         .collect();
     let readers: Vec<_> = (0..READERS)
         .map(|r| {
-            let home = home.clone();
+            let home = home.to_path_buf();
             thread::spawn(move || {
                 let (mut reads, mut failed) = (0, Vec::new());
                 while load_goes_on(end, starved, short) {
@@ -378,7 +378,6 @@ fn eight_writers_and_eight_readers_meet_no_busy_and_lose_no_write() {
     let out = run(&home, &["check"]);
     assert!(out.status.success(), "check: {}", said(&out));
     assert!(String::from_utf8_lossy(&out.stdout).contains("\"integrity\":\"ok\""));
-    let _ = std::fs::remove_dir_all(&home);
 }
 
 #[test]
@@ -419,7 +418,6 @@ fn three_batches_of_rows_keep_their_own_keys_and_check_counts_them() {
     assert_eq!(counts.get("sweep_log"), Some(&9), "{answer}");
     let others = tables_with_other_rows(&counts);
     assert!(others.is_empty(), "rows outside sweep_log: {others:?}");
-    let _ = std::fs::remove_dir_all(&home);
 }
 
 #[test]
@@ -485,8 +483,6 @@ fn a_call_kept_out_by_a_held_lock_reports_its_wait() {
     assert!(out.status.success(), "check: {}", said(&out));
     let out = run(&reader_home, &["check"]);
     assert!(out.status.success(), "check: {}", said(&out));
-    let _ = std::fs::remove_dir_all(&reader_home);
-    let _ = std::fs::remove_dir_all(&held);
 }
 
 /// The rows of the writer this case kills. A `sweep_log` row is small: about
@@ -569,5 +565,4 @@ fn a_writer_killed_mid_transaction_leaves_a_whole_store_and_none_of_its_rows() {
     // The lock died with the process: the next writer is not kept waiting.
     let out = run(&home, &["test-write", "--batch", "3", "--rows", "1"]);
     assert!(out.status.success(), "{}", said(&out));
-    let _ = std::fs::remove_dir_all(&home);
 }

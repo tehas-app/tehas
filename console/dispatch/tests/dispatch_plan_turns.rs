@@ -3,10 +3,12 @@
 
 mod common;
 
+use common::Part::{Off, On};
 use common::*;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::Path;
+use tehas_ports::{Act, Mark, State};
 
 /// `filter` of #7's session on record, through jq.
 fn rec_jq(w: &World, filter: &str) -> Value {
@@ -57,7 +59,7 @@ fn a_session_does_not_start_when_the_issue_cannot_be_marked_as_planning() {
     let r = w.poll();
     assert_eq!(r.rc, 1, "{}", r.out);
     assert_eq!(w.plan_calls(), "");
-    lacks(&w.gh(), "issue comment");
+    assert_eq!(w.notes_any(), 0);
     has(
         &r.out,
         "ERROR: could not mark #7 as planning, not starting a turn",
@@ -112,8 +114,9 @@ fn a_session_does_not_start_when_its_record_cannot_be_written_and_the_issue_is_n
             );
         }
         assert_eq!(w.plan_calls(), "");
-        lacks(&w.gh(), "issue edit");
-        lacks(&w.gh(), "issue comment");
+        assert!(w.untouched(), "{:?}", w.writes_of(7));
+        assert_eq!(w.marks(None), 0);
+        assert_eq!(w.notes_any(), 0);
     }
 }
 
@@ -173,14 +176,14 @@ fn who_started_a_session_and_who_answered_each_turn_stay_on_record_after_the_tur
     w.t_plan(
         7,
         json!({"by": "alice", "turns": 2, "options": ["Adopt all", "Change some"], "comment": 4001,
-            "answers": [{"turn": 2, "by": "bob", "fixer": false}]}),
+            "answers": [{"turn": 2, "by": "bob", "millwright": false}]}),
     );
     w.comments(7, &plan_body(" ", "x", " ", 2, ""), "alice", json!([]));
     w.poll();
     assert_eq!(
         rec_jq(&w, "[.turns, .by, .answers]"),
         v(
-            r#"[3,"alice",[{"turn":2,"by":"bob","fixer":false},{"turn":3,"by":"alice","fixer":false}]]"#
+            r#"[3,"alice",[{"turn":2,"by":"bob","millwright":false},{"turn":3,"by":"alice","millwright":false}]]"#
         )
     );
 }
@@ -194,7 +197,7 @@ fn a_turn_that_fails_keeps_them_too() {
     w.poll();
     assert_eq!(
         rec_jq(&w, "[.failed, .by, .answers]"),
-        v(r#"[true,"alice",[{"turn":2,"by":"alice","fixer":false}]]"#)
+        v(r#"[true,"alice",[{"turn":2,"by":"alice","millwright":false}]]"#)
     );
 }
 
@@ -210,9 +213,17 @@ fn a_turn_cut_off_before_the_issue_was_marked_is_reported_like_any_cut_off_turn(
     w.comments(7, &plan_body(" ", "x", " ", 1, ""), "alice", json!([]));
     w.poll();
     has(&w.gh(), "This planning turn did not finish: it was cut off");
-    has(
-        &w.gh(),
-        "--remove-label tehas:planning --add-label tehas:question --add-label needs-human-attention",
+    assert!(
+        w.changes(
+            7,
+            &[
+                Off(Mark::State(State::Planning)),
+                On(Mark::State(State::Question)),
+                On(Mark::State(State::NeedsPerson))
+            ]
+        ),
+        "{:?}",
+        w.writes_of(7)
     );
     assert_eq!(
         rec_jq(
@@ -232,9 +243,17 @@ fn a_first_turn_cut_off_before_the_issue_was_marked_ends_visibly_and_takes_the_p
     // What GitHub answers once the label is off.
     w.fx("plans.json", "[]");
     w.poll();
-    has(
-        &w.gh(),
-        "issue edit 7 --repo acme/widget --remove-label tehas:plan --remove-label tehas:planning --add-label needs-human-attention",
+    assert!(
+        w.changes(
+            7,
+            &[
+                Off(Mark::Act(Act::Plan)),
+                Off(Mark::State(State::Planning)),
+                On(Mark::State(State::NeedsPerson))
+            ]
+        ),
+        "{:?}",
+        w.writes_of(7)
     );
     has(&w.gh(), "could not start");
     assert_eq!(w.rec_open(), "none");
@@ -247,9 +266,16 @@ fn a_first_turn_that_fails_parks_the_issue_and_leaves_no_session_open() {
     w.to_plan();
     w.touch("plan-fails");
     w.poll();
-    has(
-        &w.gh(),
-        "--remove-label tehas:planning --add-label needs-human-attention",
+    assert!(
+        w.changes(
+            7,
+            &[
+                Off(Mark::State(State::Planning)),
+                On(Mark::State(State::NeedsPerson))
+            ]
+        ),
+        "{:?}",
+        w.writes_of(7)
     );
     has(&w.gh(), "could not start");
     assert_eq!(w.rec_open(), "none");
@@ -309,9 +335,17 @@ fn a_first_turn_that_fails_after_its_session_came_into_being_keeps_the_session()
     );
     has(&w.gh(), "Reply in a comment to run the turn again");
     lacks(&w.gh(), "could not start");
-    has(
-        &w.gh(),
-        "--remove-label tehas:planning --add-label tehas:question --add-label needs-human-attention",
+    assert!(
+        w.changes(
+            7,
+            &[
+                Off(Mark::State(State::Planning)),
+                On(Mark::State(State::Question)),
+                On(Mark::State(State::NeedsPerson))
+            ]
+        ),
+        "{:?}",
+        w.writes_of(7)
     );
     assert_eq!(
         rec_jq(&w, "del(.startedAt)"),

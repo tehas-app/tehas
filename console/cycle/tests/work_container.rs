@@ -3,7 +3,7 @@
 //! and security words are the documented ones is decided in Rust:
 //! tehas_core::slice::limits makes them and misshaped in
 //! console/cycle/src/work.rs refuses a list that is not it, both tested beside
-//! themselves. The words are pinned by test/slice_test.sh, the readers of
+//! themselves. The words are pinned by console/tests/slice.rs, the readers of
 //! work/mod.rs and the goldens of test/sandbox_argv_test.sh, and read off the
 //! docker line here. The mounts and variables are compared whole, sorted, as
 //! AGENTS.md rule 4 asks.
@@ -15,6 +15,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::Command;
+use tehas_core::home::{Home, TokenDir};
 use work::{
     absent, count_of, git_out, has, lacks, security_line, security_of, security_tmpfs,
     unknown_options, Run, World, DOCKER_OPTS, GONE, HOLD, RUNNER, SECURITY_OPTS, WANT,
@@ -129,11 +130,11 @@ fn progress_line(w: &World) -> String {
 }
 
 fn cycle_file(w: &World, rel: &str) -> String {
-    out(&fs::read_to_string(w.home.join("state/cycles").join(rel)).unwrap_or_default())
+    out(&fs::read_to_string(Home::new(&w.home).cycles_dir().join(rel)).unwrap_or_default())
 }
 
 fn cycle_exists(w: &World, rel: &str) -> bool {
-    w.home.join("state/cycles").join(rel).exists()
+    Home::new(&w.home).cycles_dir().join(rel).exists()
 }
 
 /// The cycle's words from the image on, each followed by a space.
@@ -177,7 +178,7 @@ fn a_work_directory_tehas_did_not_make_is_left_alone() {
     assert_eq!(r.rc, 78, "{}", r.out);
     has(&r.out, "was not made by tehas");
     assert_eq!(cycle_file(&w, "7.refused"), "tree-not-ours");
-    let _ = fs::remove_file(w.home.join("state/cycles/7.refused"));
+    let _ = fs::remove_file(Home::new(&w.home).cycle_note(7, "refused"));
     assert_eq!(
         fs::read_to_string(w.home.join("work/widget/notes.txt")).unwrap(),
         "keep\n"
@@ -327,12 +328,23 @@ fn the_console_is_the_program_beside_this_one_given_the_cycles_log_the_transcrip
 
 #[test]
 fn a_console_that_fails_is_named_with_its_exit_status_and_where_it_wrote_why() {
-    let (w, r) = ran("console-fails");
+    let w = World::new("console-fails");
+    // The container ends only once the console stands ready for the end's TERM.
+    w.docker_runs_until(&w.path("console.up"));
+    let r = w.work7();
+    ok2(&r);
     lacks(&r.out, "the console ended");
+    // The console ends with 1 on its own: TERM is caught first, and the
+    // container ends only once the console has said why.
+    let said = w.path("console.said");
     w.fs(
         "tree/libexec/console",
-        "#!/usr/bin/env bash\necho \"cannot write\" >&2\nexit 1\n",
+        format!(
+            "#!/usr/bin/env bash\ntrap 'exit 1' TERM\necho \"cannot write\" >&2\n: >'{}'\nexit 1\n",
+            said.display()
+        ),
     );
+    w.docker_runs_until(&said);
     let r = w.work7();
     ok2(&r);
     has(
@@ -445,7 +457,7 @@ fn the_status_line_is_read_from_the_consoles_now_file_and_a_stale_one_is_taken_a
     w.fs("tree/libexec/console", NOW_CONSOLE);
     fs::set_permissions(&console, fs::Permissions::from_mode(0o755)).unwrap();
     // The file of a cycle before this one, which the start takes away.
-    w.home_file("live/console-7.txt.now", "stale\n");
+    w.home_file(Home::new(&w.home).live_console_now(7), "stale\n");
     w.fs("now.step", "develop");
     w.fs("now.text", "step 3 of the cycle");
     w.clear_calls();
@@ -464,7 +476,7 @@ fn the_status_line_is_read_from_the_consoles_now_file_and_a_stale_one_is_taken_a
         "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >>\"$T/calls/console\"\nexit 0\n",
     );
     fs::set_permissions(&console, fs::Permissions::from_mode(0o755)).unwrap();
-    w.home_file("live/console-7.txt.now", "stale\n");
+    w.home_file(Home::new(&w.home).live_console_now(7), "stale\n");
     w.clear_calls();
     w.rm("now.step");
     w.work7();
@@ -536,6 +548,29 @@ fn the_product_checkout_is_not_mounted_anywhere() {
 fn exactly_the_documented_paths_are_mounted() {
     let (w, _) = ran("mounts");
     assert_eq!(mounts(&w), sorted(lines(&w.mounts_off())));
+}
+
+// The eleventh mount of host/docs/contract.md: a cycle given files gets the
+// issue's directory, read-only, and its variable, and nothing more.
+#[test]
+fn with_files_given_exactly_the_documented_paths_and_the_issues_directory_are_mounted() {
+    let w = World::new("mounts-files");
+    w.stub_github();
+    w.images_on(&[]);
+    w.issue_is("Words only.", "", "");
+    ok2(&w.work7());
+    let mut want = lines(&w.mounts_off());
+    want.push(format!(
+        "{}:{}.images:ro",
+        w.imgs.display(),
+        w.inside.display()
+    ));
+    assert_eq!(mounts(&w), sorted(want));
+    assert_eq!(env_names(&w), want_and(&["PI_ENSEMBLE_EXTRA_IMAGE_DIRS"]));
+    assert_eq!(
+        given_value(&w, "PI_ENSEMBLE_EXTRA_IMAGE_DIRS"),
+        format!("{}.images", w.inside.display())
+    );
 }
 
 #[test]
@@ -645,51 +680,6 @@ fn exactly_the_documented_variables_are_passed_in() {
 }
 
 #[test]
-fn the_remote_path_on_a_contractor_the_container_gets_exactly_the_same_mounts_and_variables() {
-    // A cycle run for a contractor (outsource on, TEHAS_CONTRACTOR named)
-    // renews its token and relays its issue writes through the contractor
-    // program, and gives its container nothing more and nothing else
-    // (AGENTS.md rule 4).
-    let (w, _) = ran("contractor");
-    let local_mounts = mounts(&w);
-    w.stub(
-        "contractor",
-        r#"case $1 in token) echo ghs_from_factory ;; relay) printf %s "{\"out\":\"\",\"err\":\"\",\"rc\":0}" ;; own) printf %s "$3" >"$T/calls/contractor.own.as"; shift 3; printf "%s\n" "$@" >"$T/calls/contractor.own" ;; esac"#,
-    );
-    w.minimal(&[ALIAS, "TEHAS_OUTSOURCE=on"]);
-    w.env("TEHAS_TEST_FEATURES", "outsource");
-    let contractor = w.path("bin/contractor").to_string_lossy().into_owned();
-    w.env("TEHAS_CONTRACTOR", &contractor);
-    w.clear_calls();
-    let r = w.work7();
-    ok2(&r);
-    assert_eq!(mounts(&w), local_mounts);
-    assert_eq!(env_names(&w), want_and(&[]));
-    let renew = w.read("renew.calls");
-    has(
-        renew.lines().last().unwrap_or_default(),
-        &format!("renew --cmd {contractor} --arg token "),
-    );
-    // A contractor holds no app token: the container's token is the cycle
-    // token the factory made, and no app token was asked for.
-    assert_eq!(out(&w.calls("docker.token")), "ghs_from_factory");
-    lacks(&cat_calls(&w, "docker.args."), "ghs_from_factory");
-    lacks(&w.calls("docker.token"), "ghs_app");
-    // Before the container starts, the program is asked to hand the factory's
-    // account every folder the container writes: the sources of its
-    // read-write mounts, no more.
-    let written: Vec<String> = w
-        .after("-v")
-        .into_iter()
-        .filter(|m| !m.ends_with(":ro"))
-        .map(|m| m.split(':').next().unwrap().to_string())
-        .collect();
-    assert_eq!(sorted(lines(&w.calls("contractor.own"))), sorted(written));
-    // They go only to the account the container runs as: its --user.
-    assert_eq!(w.calls("contractor.own.as"), w.after("--user").join("\n"));
-}
-
-#[test]
 fn read_only_a_kept_cycle_token_made_before_the_setting_which_may_write_reaches_no_container() {
     let w = World::new("read-only-kept");
     w.minimal(&[ALIAS, "TEHAS_READ_ONLY=1"]);
@@ -705,7 +695,12 @@ fn read_only_the_container_is_told_so_and_its_git_pushes_to_origin_land_in_the_w
     let w = World::new("read-only");
     w.minimal(&[ALIAS, "TEHAS_READ_ONLY=1"]);
     // The mark of a token made on a read-only instance (console/ops/src/github.rs).
-    w.home_file("state/github-cycle/token.read-only", "");
+    w.home_file(
+        Home::new(&w.home)
+            .token_dir(TokenDir::Cycle)
+            .join("token.read-only"),
+        "",
+    );
     w.clear_calls();
     w.work7();
     assert_eq!(
@@ -1054,8 +1049,8 @@ fn a_checkout_of_another_repository_starts_no_container() {
 fn no_token_to_be_had_starts_no_container() {
     let w = World::new("no-token");
     w.clear_calls();
-    let _ = fs::remove_dir_all(w.home.join("state/github"));
-    let _ = fs::remove_dir_all(w.home.join("state/github-cycle"));
+    let _ = fs::remove_dir_all(Home::new(&w.home).token_dir(TokenDir::App));
+    let _ = fs::remove_dir_all(Home::new(&w.home).token_dir(TokenDir::Cycle));
     let key = w.path("no-such-key.pem").to_string_lossy().into_owned();
     w.env("TEHAS_GITHUB_APP_KEY", &key);
     let r = w.work7();
@@ -1088,11 +1083,11 @@ fn with_a_github_app_the_container_is_given_the_apps_narrowed_cycle_token_never_
     has(
         &run_args,
         &format!(
-            "{}/state/github-cycle:/run/tehas/github:ro",
-            w.home.display()
+            "{}:/run/tehas/github:ro",
+            Home::new(&w.home).token_dir(TokenDir::Cycle).display()
         ),
     );
-    lacks(&run_args, "state/github:");
+    lacks(&run_args, &format!("{}:", TokenDir::App.relative()));
     lacks(&run_args, "ghs_app");
     lacks(&run_args, "user-token");
     lacks(&run_args, "github-app.pem");
@@ -1103,8 +1098,12 @@ fn with_a_github_app_the_container_is_given_the_apps_narrowed_cycle_token_never_
 fn with_a_github_app_and_no_cycle_token_to_be_had_no_cycle_starts() {
     let w = World::new("no-cycle-token");
     w.clear_calls();
-    let _ = fs::remove_file(w.home.join("state/github-cycle/token"));
-    let _ = fs::remove_file(w.home.join("state/github-cycle/token.expires"));
+    let _ = fs::remove_file(Home::new(&w.home).token_dir(TokenDir::Cycle).join("token"));
+    let _ = fs::remove_file(
+        Home::new(&w.home)
+            .token_dir(TokenDir::Cycle)
+            .join("token.expires"),
+    );
     // No key to make one with: tehasbot github-token --cycle fails.
     let key = w.path("no-such-key.pem").to_string_lossy().into_owned();
     w.env("TEHAS_GITHUB_APP_KEY", &key);
@@ -1217,7 +1216,7 @@ fn logs_that_stand_still_do_not_move_the_stalls_mark_and_the_mark_is_a_clock_rea
 #[test]
 fn the_cycle_clock_saying_stalled_stops_the_cycle_as_stalled() {
     let w = clocked("clock-stalled");
-    let _ = fs::remove_file(w.home.join("state/cycles/7.stalled"));
+    let _ = fs::remove_file(Home::new(&w.home).cycle_note(7, "stalled"));
     w.fs("clock.check", "stalled\n");
     w.container(&format!("{HOLD}; {GONE}"));
     let r = w.work7();
@@ -1255,7 +1254,7 @@ fn a_cycle_clock_that_answers_unknown_stops_nothing_the_cycle_ends_on_its_own() 
 }
 
 fn freeze_left(w: &World, names: &[&str]) -> Vec<String> {
-    fs::read_dir(w.home.join("state/cycles"))
+    fs::read_dir(Home::new(&w.home).cycles_dir())
         .unwrap()
         .flatten()
         .map(|e| e.file_name().to_string_lossy().into_owned())
@@ -1267,7 +1266,7 @@ fn freeze_left(w: &World, names: &[&str]) -> Vec<String> {
 fn a_frozen_cycle_is_paused_is_not_stopped_as_stalled_and_its_freeze_ends_with_it() {
     let w = clocked("frozen");
     w.fs("clock.check", "stalled\n");
-    w.home_file("state/cycles/7.freeze", "{}\n");
+    w.home_file(Home::new(&w.home).cycle_note(7, "freeze"), "{}\n");
     w.container(r#""$nap" 1; says handoff; exit 10"#);
     let r = w.work7();
     assert_eq!(r.rc, 10, "{}", r.out);
@@ -1281,11 +1280,11 @@ fn a_frozen_cycle_is_paused_is_not_stopped_as_stalled_and_its_freeze_ends_with_i
 fn a_thaw_unpauses_the_container_moves_its_start_and_its_clocks_count_again() {
     let w = clocked("thaw");
     w.fs("clock.check", "stalled\n");
-    w.home_file("state/cycles/7.freeze", "{}\n");
+    w.home_file(Home::new(&w.home).cycle_note(7, "freeze"), "{}\n");
     // The container thaws itself a second in, as tehas thaw would, and is
     // then stopped as stalled: the clock's answer counts once it is thawed.
     w.container(&format!(
-        r#""$nap" 1; rm -f "$T/home/tehas/state/cycles/7.freeze"; {HOLD}; {GONE}"#
+        r#""$nap" 1; rm -f "$T_CYCLES/7.freeze"; {HOLD}; {GONE}"#
     ));
     let r = w.work7();
     ok2(&r);
@@ -1340,8 +1339,8 @@ fn lean_fresh(w: &World) {
     for d in [w.ws.clone(), w.state.clone(), retry.into()] {
         let _ = fs::remove_dir_all(d);
     }
-    let _ = fs::remove_file(w.home.join("state/cycles/7.lean-refused"));
-    let _ = fs::remove_file(w.home.join("state/cycles/7.refused"));
+    let _ = fs::remove_file(Home::new(&w.home).cycle_note(7, "lean-refused"));
+    let _ = fs::remove_file(Home::new(&w.home).cycle_note(7, "refused"));
     fs::create_dir_all(w.fx.join("net")).unwrap();
     w.issue_is("Words only.", "", "");
 }
@@ -1512,6 +1511,9 @@ fn the_cycle_starts_the_token_renewer_and_one_that_cannot_start_refuses_the_cycl
     w.minimal(&[]);
     w.clear_calls();
     w.rm("renew.calls");
+    // The cycle ends only once the renewer has said how it was started: the
+    // end stops it, and a slow start would otherwise say nothing.
+    w.docker_runs_until(&w.path("renew.calls"));
     let r = w.work7();
     ok2(&r);
     has(

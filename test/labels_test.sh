@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests for tehas labels against a stub gh: which labels it makes, where,
-# and that it needs the repository and nothing else. And for console label
-# allowed: who applied a label, asked of GitHub.
+# and that it needs the repository and nothing else, not even the installed
+# table. And for console label allowed: who applied a label, asked of GitHub.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
@@ -9,19 +9,16 @@
 labels="$T_ROOT/bin/tehas labels"
 t_console || t_bad "$t_console_why"
 T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")
-table=$T/home/tehas/lib/labels.tsv
 # With GH_MADE set, a label exists only once a label create made it there.
 t_stub gh 'case "$*" in *"${FAIL_ON:-no label fails}"*) exit 1 ;;
   "label create "*) [ -z "${GH_MADE:-}" ] || touch "$GH_MADE/$3" ;;
   "api repos/"*/labels/*) n=${2##*/}; [ -z "${GH_MADE:-}" ] || [ -e "$GH_MADE/$n" ] || exit 1; echo "LA_${n#tehas:}" ;;
-  "api graphql "*) [ -z "${GH_CREATED:-}" ] || cat "$GH_CREATED" ;; esac'
+  *"nodes { name color description }"*) cat "$T_ROOT/test/fixtures/labels-none.json" ;; "api graphql "*) [ -z "${GH_CREATED:-}" ] || cat "$GH_CREATED" ;; esac'
 reset() {
   rm -f "$T"/calls/*
   T_ENV=()
   t_instance TEHAS_GITHUB_APP_ID=1 TEHAS_REPO=acme/widget
   t_ids "$T/home/tehas"
-  mkdir -p "${table%/*}"
-  cp "$T_ROOT/host/labels.tsv" "$table"
 }
 
 t_case "it needs only the repository, and makes every label of the table there"
@@ -31,19 +28,19 @@ t_run "$labels"
 t_eq "$t_rc" 0
 t_eq "$(t_calls gh | grep -c 'label create')" "$rows"
 t_eq "$(t_calls gh | grep -c -e '--repo acme/widget .*--force')" "$rows"
+t_contains "$t_out" "made the tehas labels"
 while IFS=$'\t' read -r name _; do
   t_contains "$(t_calls gh)" "label create $name --repo acme/widget"
-  t_contains "$t_out" "label $name"
 done <"$T_ROOT/host/labels.tsv"
 
-t_case "it pins each granting label and the prototype label to its id once the labels are made"
+t_case "it pins each granting label to its id once the labels are made"
 pins=$T/home/tehas/state/labels
-for name in ready plan refine finish blocked lean classic prototype; do
+for name in ready plan refine finish blocked lean classic; do
   t_contains "$(t_calls gh)" "api repos/acme/widget/labels/tehas:$name --jq .node_id"
   t_contains "$t_out" "pinned the label tehas:$name as LA_$name in state/labels"
   t_contains "$(cat "$pins")" "$(printf 'tehas:%s\tLA_%s' "$name" "$name")"
 done
-t_eq "$(wc -l <"$pins")" 8
+t_eq "$(wc -l <"$pins")" 7
 t_lacks "$(cat "$pins")" "tehas:running"
 
 t_case "once the file exists, a label that was there with no pin is named and not pinned, exit 1"
@@ -65,12 +62,12 @@ rm -f "$T"/calls/*
 t_run "$labels"
 t_eq "$t_rc" 0
 t_contains "$t_out" "pinned the label tehas:plan as LA_plan in state/labels"
-t_eq "$(wc -l <"$pins")" 8
+t_eq "$(wc -l <"$pins")" 7
 T_ENV=()
 rm -f "$pins"
 
 t_case "a label there with no pin is pinned when GitHub says it was made with a pinned one"
-for name in ready plan refine finish lean classic prototype; do
+for name in ready plan refine finish lean classic; do
   printf 'tehas:%s\tLA_%s\n' "$name" "$name"
 done >"$pins"
 printf 'LA_ready\t2026-10-19T18:16:01Z\nLA_blocked\t2026-10-19T18:16:09Z\n' >"$T/created"
@@ -81,7 +78,7 @@ t_eq "$t_rc" 0
 t_contains "$(t_calls gh)" "api graphql -f query="
 t_contains "$(t_calls gh)" "-f owner=acme -f name=widget"
 t_contains "$t_out" "pinned the label tehas:blocked as LA_blocked in state/labels: it was made with the pinned labels"
-t_eq "$(wc -l <"$pins")" 8
+t_eq "$(wc -l <"$pins")" 7
 
 t_case "one made long after the pinned ones is still refused, exit 1"
 grep -v '^tehas:blocked' "$pins" >"$pins.new" && mv "$pins.new" "$pins"
@@ -93,9 +90,6 @@ t_contains "$t_out" "not pinned: the label tehas:blocked (LA_blocked) was there 
 t_lacks "$(cat "$pins")" "tehas:blocked"
 T_ENV=()
 rm -f "$pins"
-
-t_case "it creates the all-hands label"
-t_contains "$(t_calls gh)" "label create tehas:all-hands "
 
 t_case "it creates the question label"
 t_contains "$(t_calls gh)" "label create tehas:question "
@@ -109,8 +103,7 @@ reset
 T_ENV=(FAIL_ON=tehas:lean)
 t_run "$labels"
 t_eq "$t_rc" 1
-t_contains "$t_out" "tehas labels: could not make tehas:lean"
-t_contains "$t_out" "label tehas:pause"
+t_contains "$t_out" "tehas labels: could not make the label tehas:lean: "
 t_eq "$(t_calls gh | grep -c 'label create')" "$rows"
 
 t_case "without the repository nothing is called, exit 78"
@@ -128,20 +121,6 @@ t_run "$labels --force"
 t_eq "$t_rc" 64
 t_contains "$t_out" "usage: tehas labels"
 t_lacks "$t_out" "TEHAS_REPO"
-t_eq "$(t_calls gh)" ""
-
-t_case "a table that is missing or wrong makes nothing, exit 78"
-reset
-rm "$table"
-t_run "$labels"
-t_eq "$t_rc" 78
-t_contains "$t_out" "no table of labels at $table: run install.sh"
-t_eq "$(t_calls gh)" ""
-reset
-printf 'tehas:ready\t0e8a16\tfine\nno colour here\n' >"$table"
-t_run "$labels"
-t_eq "$t_rc" 78
-t_contains "$t_out" "$table line 2 is no label"
 t_eq "$(t_calls gh)" ""
 
 t_case "a label's description reaches gh as one argument, as the table has it"
@@ -178,10 +157,10 @@ t_eq "$t_rc" 1
 echo '[]' >"$T/events.json"
 t_run "$allowed"
 t_eq "$t_rc" 1
-t_case "it does not when the allowed login comes with another user id, or none"
-for id in 99 null; do
-  labelled bob
-  jq --argjson id "$id" '.[0].actor.id = $id' "$T/events.json" >"$T/events.new" && mv "$T/events.new" "$T/events.json"
+t_case "it does not when the allowed login, in any case, comes with another user id, or none"
+for who in bob:99 bob:null Bob:99 BOB:null; do
+  labelled "${who%:*}"
+  jq --argjson id "${who#*:}" '.[0].actor.id = $id' "$T/events.json" >"$T/events.new" && mv "$T/events.new" "$T/events.json"
   t_run "$allowed"
   t_eq "$t_rc" 1
   t_contains "$t_out" "does not count"

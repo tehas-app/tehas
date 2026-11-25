@@ -45,7 +45,7 @@
   box-shadow: var(--shadow-sign);
 }
 
-/* The title is the panel's head, as on the console and the energy panel. */
+/* The title is the panel's head, as on the console. */
 .page h1 {
   margin: 0 -32px 32px;
   padding: 16px 32px;
@@ -172,7 +172,7 @@
 }
 
 /* A host's notes on a ticket (host-bridge.js): small chips beside its title,
-   as on the front pages (panels.css). */
+   as on the front pages (dock.css). */
 .page .host-notes { display: inline-flex; flex-wrap: wrap; gap: 4px; vertical-align: baseline; }
 .page .host-note { display: inline-block; max-width: 100%; padding: 0 6px; font-size: var(--type-small); line-height: 1.6; color: var(--text-quiet); background: var(--surface-quiet); border: var(--frame); border-radius: var(--radius); overflow-wrap: anywhere; text-decoration: none; }
 .page a.host-note { color: var(--text-cool); text-decoration: underline; text-underline-offset: 2px; }

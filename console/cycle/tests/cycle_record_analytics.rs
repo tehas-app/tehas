@@ -67,7 +67,7 @@ fn the_cycle_records_its_run_and_its_end_in_analytics_after_the_history_line_wit
     let id = image_id();
     w.work(&format!(
         r#""$T/store-bin" cycle-image 7 --attempt "$TEHAS_CYCLE_ATTEMPT" --image {id} --rukas {RUKAS} >/dev/null
-echo 3 >"$TEHAS_HOME/state/cycles/7.oom"; echo 2 >"$TEHAS_HOME/state/cycles/7.forks"; exit 2"#
+echo 3 >"$T_CYCLES/7.oom"; echo 2 >"$T_CYCLES/7.forks"; exit 2"#
     ));
     let r = w.run7();
     assert_eq!(r.rc, 0);
@@ -128,14 +128,14 @@ fn a_start_that_never_ran_gives_analytics_the_approval_it_used_though_the_record
     w.env("TEHAS_CYCLE_FROM", "unit");
     analytics_stub(&w, "");
     // 2026-01-01T00:00:00Z
-    w.approve("alice", "label", 1_767_225_600, &[]);
+    w.approve("alice", "approved", 1_767_225_600, &[]);
     w.work("exit 4");
     let r = w.run7();
     assert_eq!(r.rc, 0);
     let f = facts(&w);
     assert_eq!(
         json!([f["approval"]["at"], f["approval"]["how"]]),
-        json!(["2026-01-01T00:00:00Z", "label"])
+        json!(["2026-01-01T00:00:00Z", "approved"])
     );
     assert_eq!(w.row(&["approval-current", "7"])["current"], Value::Null);
 }

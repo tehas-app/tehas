@@ -1,31 +1,25 @@
 ---
 title: The contract
-description: "What of tehas is public and stays compatible through every 1.x release, what is internal and may change, the rules for settings and a cycle's inputs, and the exit statuses of every public command."
+description: "What of tehas is public and stays compatible through every 2.x release, what is internal and may change, how a program starts work for a person, what changed in 2.0 and for whom, and the exit statuses of every public command."
 ---
 
 # The contract
 
-This page says what a person or a program may rely on. What it names public
-stays compatible through every 1.x release: within 1.x a public name is only
-added, never renamed, removed or given a new meaning. Everything it does not
-name public is internal and may change in any release.
+This page says what a person or a program may rely on in tehas 2.x. What it
+names public stays compatible through every 2.x release: within 2.x a public
+name is only added, never renamed, removed or given a new meaning. Everything
+it does not name public is internal and may change in any release.
 
-The freeze started at v1.0.0-beta.1. From then on nothing public is renamed,
-reshaped or removed; a beta or a release candidate only fixes, adds tests and
-docs, or promotes a feature to shipped. The renames 1.0 made came in the
-alphas. Each is a row of `api/renames-1.0.tsv`, and
-[tehas update](/tools-update#tehas-update) lists every one an instance still
-uses.
-
-The rules 1.x keeps are in [the rules for 1.x](#the-rules-for-1x).
+2.0 is a major release. What it changed is listed once, in
+[Changed in 2.0](#changed-in-20), each change with its readers and what an
+adopter does. What is still to land before 2.0 is tagged is in
+[Pending for 2.0](#pending-for-20), and moves to the first list as it lands.
 
 ## Public and internal
 
 Public:
 
-- the `tehas` commands, their flags and their [exit statuses](#exit-statuses).
-  `tehasbot refresh --pr N` is kept as the old name of `tehas refresh --pr N`
-  through 1.x;
+- the `tehas` commands, their flags and their [exit statuses](#exit-statuses);
 - the settings of `api/settings-rules.json`, by the [knob rule](#settings-and-the-knob-rule);
 - the labels of `host/labels.tsv`, and what the dispatcher does with each;
 - the `--json` objects that have a schema in `api/` (`api/<name>.schema.json`),
@@ -36,25 +30,21 @@ Public:
   `TEHAS_MANAGER_VERSION` in `~/.config/tehas/env` is the version of the
   program that manages the factory, written by that program and shown by
   health;
-- the update from any 0.30.x, 0.31.x or 0.32.x release by `tehas update`,
-  with the state store and analytics migrated;
+- [the upgrade to 2.0](#upgrading-to-20) by `tehas update`, with the state
+  store and analytics migrated;
 - [the cycle inputs rule](#cycle-inputs);
 - the host namespace `/host/` and [the host bridge](/api#the-host-bridge);
-- [analytics.db at schema 4](#analyticsdb);
+- [analytics.db at schema 7](#analyticsdb);
 - [the commands of other parts](#the-commands-of-other-parts): the rule by
-  which `tehas <part>` runs `tehas-<part>`, the words kept for the family,
+  which `tehas <part>` runs `tehas-<part>`, the words kept for the parts,
   and the front asset of a release.
-
-[The pull request spec block](#the-pull-request-spec-block) is defined
-below as part of `spec-pipe`, a feature still being built: it becomes public
-with the release that ships that feature.
 
 Internal:
 
-- `tehasbot`, the units' command, but for the old name above;
+- `tehasbot`, the units' command, every verb of it;
 - the `console` program and its subcommands;
-- `store`, `attach`, `analytics`, `tehas-dispatch`, `tehas-cycle`, `tehas-mcp`
-  and `tehas-proxy` as programs, and their verbs and statuses;
+- `store`, `attach`, `analytics`, `tehas-dispatch`, `tehas-cycle` and
+  `tehas-mcp` as programs, and their verbs and statuses;
 - everything under `~/tehas/live/`, `~/tehas/state/` and `~/tehas/logs/`. The
   dashboard reads `live/`; a program asks a command;
 - the environment names the settings load keeps for the units and the tests
@@ -62,14 +52,37 @@ Internal:
   test hook;
 - `install.sh` and `bootstrap.sh` and their statuses: `tehas update` and
   `tehas setup` are the commands;
-- the `Forge` trait of [the forge page](/forge): tehas 1.0 promises no forge
-  interface;
+- the tickets port and the GitHub adapter of [the forge page](/forge): tehas
+  2.0 promises no forge interface;
 - `tehas top --json`, a snapshot for the screen;
 - the flags of `tehas plan`, which the dispatcher writes for a planning turn,
   `tehas index --before-cycle`, the dispatcher's, and `tehas disk --publish`,
   the cleaner's. `api/commands.txt` marks them and `tehas top --json`
   `internal`;
-- every feature still being built, below.
+- every [feature still being built](#features-still-being-built).
+
+## Starting work for a person
+
+A program on the host starts work for a person in one way: `tehas start
+<issue>`, called for a person who is signed in to that program. The program
+answers for who the person is and that they may approve work; tehas records
+the approval as the host's (`how: host`), binds the issue's title and text,
+and the next poll starts it under the rules every start passes. [tehas
+start](/api#tehas-start) has the command and its object.
+
+A person who is not working through such a program approves on the issue,
+with `tehas:ready` from an account of `TEHAS_ALLOWED_LABELERS`. Authorisation
+is who applied the label: the dispatcher reads the label events and compares
+the account with the list.
+
+A program answers a question an issue waits on for a person with
+[tehas answer](/api#tehas-answer) `--by <login>`, which must be an account of
+`TEHAS_ALLOWED_LABELERS`, and reads the question and its choices with
+[tehas question](/api#tehas-question).
+
+No other path starts work for a person. The millwright's own `tehas:ready`
+starts only an epic's sub-issues under `TEHAS_MILLWRIGHT_EPICS=on`; on any
+other issue the poll takes it off, as it does an outsider's.
 
 ## What is frozen and how
 
@@ -78,121 +91,180 @@ Internal:
 | Settings | Each row of `api/settings-rules.json`: its name, its meaning, and what a missing or malformed value does (exit 78) | `test/settings_rules_test.sh` |
 | Switch grammar | Every switch takes `on`, `off`, `1` and `0`. The manual writes `on` and `off` | The Rust tests of the settings rules |
 | Commands | The `tehas` commands, their subcommands and the flags of each, but the flags marked `internal` | `api/commands.txt`, held to the commands tehas knows and to the synopsis lines of each command's text by the tests of `console/src/front.rs` |
-| Exit statuses | One meaning per status, and [one table per command](#exit-statuses) | `console/core/src/exit.rs`, the shell tests of each command, and `console/tests/surface.rs`, which fails when a public command of `api/commands.txt` has no table below |
-| Labels | The rows of `host/labels.tsv`: the name and what the dispatcher does with it | The dispatcher's and the tidy's tests |
-| Store | The store opens any store from schema 12 (v0.30.0) and brings it to its own schema. An older store is refused with a message that names v0.30 | The store's migration tests |
-| analytics.db | `user_version` 4, tables and columns only added | `console/analytics/src/schema.pinned` |
+| Exit statuses | One meaning per status, and [one table per command](#exit-statuses) | `console/core/src/exit.rs`, the tests of each command, and `console/tests/surface.rs`, which fails when a public command of `api/commands.txt` has no table below |
+| Labels | The rows of `host/labels.tsv`: the name, what the dispatcher does with it, and the word of the ports it is (the fourth column, such as `State::Running`) | The dispatcher's and the tidy's tests, and the table's own test in `console/github/tests/table.rs` |
+| Store | `tehas update` brings a store of 1.4.x (schema 23) to 2.0's schema, 32 | The store's migration tests |
+| analytics.db | `user_version` 7, tables and columns only added | `console/analytics/src/schema.pinned` |
 | Factory API | `tehas api --json`: `api`, `features` (words only added), `flags`, `millwright`, `poll` | `api/api.schema.json` and its samples, and `api/features.txt`, the words of `features` in order, held by `test/api_test.sh` |
 | `--json` objects | Each object with a schema and samples in `api/`. Fields are only added | `test/json_contract_test.sh`, which lists every schema in `api/` and the test that holds each one's samples to what its command prints, and the tests of `console/src/front.rs`, which fail when a public `--json` row of `api/commands.txt` has no schema |
 | MCP | The tools, their input and output schemas | The MCP server's tests: every answer they read is checked against its tool's output schema, and the cycle status enum against the core's vocabulary |
-| `tehas update` | From any 0.30.x, 0.31.x or 0.32.x release. A 0.30.x host can name an rc or the release, not an alpha or a beta. From 1.0 on, the release repository and the signing key are built into tehas: the `TEHAS_RELEASE_REPO` line of `host/versions.env` and `host/release/minisign.pub` when the release was built. An instance may name another repository with `TEHAS_RELEASE_REPO` in `instance.env`; the key stays the built-in one | The update's shell tests, and the tests of `console/core/src/release.rs` |
-| Cycle inputs | [The rule below](#cycle-inputs), with the names as pi-rukas has them while it is 0.x; a renamed name is taken under both names through 1.x | `console/cycle/tests/work_container.rs` |
-| Host namespace | `/host/` on the factory's origin belongs to the host that fronts the factory's domain: tehas never serves a path under it, and its docs server answers 404 there, which the dashboard reads as no host. The host bridge, `/host/bridge.json`, is `bridge: 1`, by `api/host-bridge.schema.json` and [its rules](/api#the-host-bridge) | `test/host_bridge_test.sh` (the 404 under `/host/`, the schema and its samples), `test/json_contract_test.sh`, `test/host_bridge_test.mjs` (what the dashboard keeps of an answer) and `test/panels_dock_test.mjs` (a menu item opens in the dock, and a page item in a new tab with no dock) |
+| `tehas update` | From 1.4.x to 2.0 ([Upgrading to 2.0](#upgrading-to-20)). The release repository and the signing key are built into tehas: the `TEHAS_RELEASE_REPO` line of `host/versions.env` and `host/release/minisign.pub` when the release was built. An instance may name another repository with `TEHAS_RELEASE_REPO` in `instance.env`; the key stays the built-in one | The update's tests, and the tests of `console/core/src/release.rs` |
+| Cycle inputs | [The rule below](#cycle-inputs), with the names as pi-rukas has them while it is 0.x; a renamed name is taken under both names through 2.x | `console/cycle/tests/work_container.rs` |
+| Events | The envelope's `api` 1, the names in `api/events.txt`, and the fields of the envelope and of each payload in `api/event*.schema.json`: names and fields only added in 2.x | `console/tests/events_contract.rs`, which writes the samples from the code and holds them to the schemas, and `test/kit_events_test.mjs`, which holds the kit's names to `api/events.txt` |
+| Host namespace | `/host/` on the factory's origin belongs to the host that fronts the factory's domain: tehas never serves a path under it, and its docs server answers 404 there, which the dashboard reads as no host. The host bridge, `/host/bridge.json`, is `bridge: 1`, by `api/host-bridge.schema.json` and [its rules](/api#the-host-bridge) | `console/tests/host_bridge.rs` (the 404 under `/host/`, the schema and its samples), `test/json_contract_test.sh`, `test/host_bridge_test.mjs` (what the dashboard keeps of an answer) and `test/dock_test.mjs` (a menu item opens in the dock, and a page item in a new tab with no dock) |
+| Plugin pages namespace | `/pages` and every path under `/pages/` on the factory's origin are reserved for plugins from 2.1. tehas 2.0 serves nothing there and answers 404, and tehas adds no manual page, route or file there in 2.x, and a host that fronts the factory's domain claims none of it | `console/tests/host_bridge.rs` (the 404 under `/host/`, extended to `/pages` and `/pages/`) |
+| Plugin names | Under the factory's domain, a host name that starts (case-insensitive) with `plugins`, or with `plugin-`, a letter and up to 11 more letters or digits, and then a `.` or `-`, belongs to tehas's plugins in every 2.x release: the edge router sends it to the plugins' gate, which answers 503 when it is not running. Any other host name starting `plugin` (case-insensitive) answers 404, as no plugin can have it. tehas gives no other name there in 2.x, and a host that fronts the factory's domain claims none of these names. A plugin's name is a letter and up to 11 more letters or digits, `a` to `z` and `0` to `9`, through 2.x | `test/edge_test.sh` (the plugins' names go to the gate before anything else, and a name with no plugin and the gate down say so), and the tests of `console/core/src/plugin/manifest.rs` (the name a manifest may give) |
+| Item and preview names | Under the factory's domain, through 2.x: a host name that starts with `item-`, a number of one to nine digits with no leading zero, and then a `.`, is that item's page and its files, as the item store wrote them under `~/tehas/items/<number>`; one that starts `uat-` and such a number and a `.` is the preview of that pull request, the container `tehas-preview-<number>`; and one that starts `uat-main.` is the preview of the default branch, the container `tehas-preview-main`. Any other host name starting `item-` or `uat-` answers 404. tehas gives these names no other meaning in 2.x, and a host that fronts the factory's domain claims none of these names | `test/edge_test.sh` (the router's file names no domain and takes numbers only; the router keeps its protections) |
 
-`api/surface-1.0.txt` lists the names of the frozen surface in one place:
-each public command, subcommand and flag, setting, role, label and `--json`
-field, read from the files in the table above. Lines are only added.
-`console/tests/surface.rs` fails when one of its names goes, and when the
-surface gains a name the list does not have yet. What a building feature
-adds is not in it. A name that was on the list before its feature became
-building stays on it: the list is only added to. Such a name is refused
-while the feature is building, as every building feature's name is
-([review](#review)).
+The surface list in `api/` names the frozen surface in one place: each
+public command, subcommand and flag, setting, role, label and `--json`
+field, read from the files in the table above. Within 2.x lines are only
+added. `console/tests/surface.rs` fails when one of its names goes, and when
+the surface gains a name the list does not have yet. What a building feature
+adds is not in it.
 
-In `tehas status --json` the fields of `running[].progress` and `prototypes`
-describe one driver's steps and the Protolab, and may change. The fields of
-`contractors` may change while outsource is still being built, and so may
-`api/status.outsourced.json`, the sample that shows them.
+In `tehas status --json` the fields of `running[].progress` describe one
+driver's steps and may change.
 
-`testFeatures` in `tehas status --json` stays, with `read`, `features` and
-`lab`, through 1.x. It has been on the surface since 1.0.0-beta.7. It reports
-a lab build, and that a release reads no `TEHAS_TEST_FEATURES`, so a person
-can tell a lab host from a release host. A release prints it only while the
-variable is set. If 1.x replaces the lab mechanism, the field and its
-subfields keep their meaning.
+`testFeatures` in `tehas status --json`, with `read`, `features` and `lab`,
+reports a lab build, and that a release reads no `TEHAS_TEST_FEATURES`, so a
+person can tell a lab host from a release host. A release prints it only
+while the variable is set.
 
 The keys of `rows` in `tehas state check --json` are the store's table names.
 They are internal: a later release may add, rename or drop a table, and with it
 a key. `rows` itself is public.
 
-## The rules for 1.x
-
-Decided for 1.0 on 2026-11-18.
+## The rules for 2.x
 
 - **Readers.** A program that reads a `--json` object, `tehas api --json`,
   `api/settings-rules.json` or an MCP answer ignores a field it does not know.
-  A schema in `api/` describes the release that ships it: a later 1.x release
-  may add to it.
-- **What 1.x may add.** Within 1.x a field, an enum value or an exit status
+  A schema in `api/` describes the release that ships it: a later 2.x release
+  may add to it. Every object still carries `"api": 1`; what 2.0 took out of
+  an object is listed in [Changed in 2.0](#changed-in-20).
+- **What 2.x may add.** Within 2.x a field, an enum value or an exit status
   may be added. An existing field, value or exit status keeps its meaning and
   is never removed. A reader treats an enum value it does not know as
   unknown, not as an error.
+- **Events.** A new event name, a new gate or a new optional field of a
+  payload is added in 2.x. A reader treats an event name it does not know
+  as unknown and skips it, as `tehas-ports` reads it as `Unknown`.
+- **A gate's answer.** The gate's answer may gain values and fields in
+  2.x; a reader that meets one it does not know holds the act. This is the
+  one place where a field or a value a reader does not know is not skipped:
+  a gate fails closed, as `GateAnswer` and `Verdict` of `tehas-ports` do
+  (ports spec, Decided 123). `api/gate-answer.schema.json` describes the
+  answer of `api` 1 and gains such an addition as a later 2.x release
+  makes it.
+- **The flow's states.** The states of the status flow and the `why` of a
+  held ticket may gain values in 2.x, plugin phases among them. A reader
+  treats a state or a `why` it does not know as unknown.
+- **Plugin phase labels.** Labels starting `tehas:p-` belong to plugin
+  phases. In 2.x tehas may write them, for display only; the dispatcher
+  never acts on them and they never authorise anything (hard rule 5). No
+  other core label takes the prefix, and 2.0 neither writes nor reads
+  them: the tidy and `tehas labels` leave them as they are. The prefix
+  matches the `p-` that named a plugin's panel
+  ([Panels leave core](#changed-in-20)).
+- **Plugin tool names.** An MCP tool whose name starts `plugin_` is a
+  plugin's. The server's own tools are named `factory_*`, and in 2.x core
+  adds no tool whose name starts `plugin_`.
+- **The merge is a person's.** The merge is a gate whose only policy in 2.x
+  is a person. The grant word `merge` is reserved and refused with 78 as not
+  in this release; a later release may open it behind an explicit owner
+  setting. Approval, `tehas:ready` applied by an account of
+  `TEHAS_ALLOWED_LABELERS` (hard rule 5), is never removed by a plugin.
+- **A plugin's answer.** From 2.1 a plugin may answer a question, or skip
+  it, under a grant `answer:<kind>`, one plugin per kind, and a person's
+  answer always wins. Its answer has `how` `plugin`, `by` the bot account,
+  and `plugin` naming the plugin and its commit. A reader never takes a
+  plugin's answer for a person's act. 2.0 refuses `answer:<kind>` as
+  reserved, and nothing in it writes `how` `plugin`. A question waits until
+  a person answers it: an answer whose `how` is `plugin` never stops it
+  waiting, [tehas question](/api#tehas-question) still prints it, and exit 3
+  keeps meaning that no question waits for a person.
 - **Building features.** A feature still being built is outside the contract:
   its rows in `api/settings-rules.json` (each marked `"building": true`), its
-  key in the `flags` object of `tehas api --json`, its `--json` fields (such
-  as `contractors` in `tehas status --json` and `api/status.outsourced.json`),
-  its commands and its MCP tools may change or go until the release that ships
+  key in the `flags` object of `tehas api --json`, its `--json` fields, its
+  commands and its MCP tools may change or go until the release that ships
   it. Only a shipped feature's key is guaranteed in `flags`, and
-  `api/api.schema.json` requires only those. A name that was on `api/surface-1.0.txt`
-  before its feature became building stays on it and keeps its meaning,
-  though its row is marked `"building": true` and the release refuses it:
-  `TEHAS_REVIEW` and `TEHAS_REVIEW_REPO` of [review](#review).
-- **The building features of 1.0 come in 1.1.** outsource, spec-pipe,
-  protolab-zip-url, prototype-file, lean and review are planned for 1.1
-  (decided 2026-11-19). The names [listed for each below](#names-reserved-for-11) are
-  the ones 1.1 adds to the frozen surface: no other feature takes them, and
-  1.1 ships each under the same name. Their shapes may still be settled
-  before 1.1; once shipped, they are only added to.
+  `api/api.schema.json` requires only those.
 - **MCP protocol revisions.** The revisions [the MCP server](/mcp-server)
-  accepts at 1.0, 2026-07-28 and 2025-11-25, stay accepted through 1.x. Newer
+  accepts at 2.0, 2026-07-28 and 2025-11-25, stay accepted through 2.x. Newer
   ones may be added.
 - **pi-rukas names.** When pi-rukas renames a `PI_ENSEMBLE_*` input, tehas
-  takes both the old and the new name through 1.x.
+  takes both the old and the new name through 2.x.
 - **Driver labels and settings.** The labels `tehas:lean` and `tehas:classic`
-  and `TEHAS_DRIVER=lean` stay accepted through 1.x, whatever lean becomes.
-- **Update sources.** `tehas update` reaches 1.0 from 0.30.x, 0.31.x and
-  0.32.x. A 0.30.x host can name only an rc or the release with `--to`, not
-  an alpha or a beta: that is what v0.30.6 accepts as a tag.
-- **Release repository and key.** From 1.0 the update reads releases from the
+  and the words `lean` and `classic` of `TEHAS_DRIVER` are kept, not
+  renamed, through 2.x. Today `TEHAS_DRIVER=lean` stops with 78 and
+  `tehas:lean` starts nothing, while lean is building.
+- **The default driver.** Which driver is the default is not contract; a
+  2.x release may make lean the default once it is proven, without a new
+  major.
+- **No levers for older APIs.** 2.x keeps no alias, renamed command,
+  deprecated flag or setting that brings back a behaviour of 1.x.
+- **Release repository and key.** The update reads releases from the
   repository built into tehas and checks them with the key built into tehas,
   as [tehas update](/tools-update#from-a-release) says.
 
-## The commands of other parts
+## Upgrading to 2.0
 
-`tehas <part> [words]` runs `tehas-<part>` from `PATH`, by
-[the rule of the commands page](/tools#the-commands-of-other-parts). Through
-1.x:
+A host upgrades its factories and the programs that run them together.
 
-- a command of tehas wins over a part of the same word;
-- `industry`, `kaizen`, `kata`, `monozukuri` and `yokoten` are kept for the
-  family and never become a command of tehas; the list is only added to;
-- a part's word is a lowercase letter, then lowercase letters and digits in
-  groups joined by one hyphen, at most 32 bytes;
-- the part runs in place of tehas with the remaining words as given, no
-  settings loaded; its output and its exit status are its own, and are that
-  part's contract, not tehas's;
-- a word that is no command and no part is exit 64, as before; a part that is
-  found but cannot be run is exit 1;
-- each release carries the front, `tehas-front-vX.Y.Z-linux-x86_64`, with
-  `.sha256` and `.minisig` beside it, signed with the release key. It exits
-  with a part's status, 0 for its usage, 64 for a word no part has, 1 for a
-  part that cannot be run and 141 when standard output closes.
+A factory moves from 1.4.x to 2.0 with `tehas update`:
 
-A command tehas adds in 1.x may take a word that is not kept for the family,
-and then wins over a part of that word. A part that wants its word for good
-asks for it to be kept.
+1. **Check the settings first.** 2.0 rewrites no setting. Each line of
+   `instance.env` is kept, dropped with one warning, or refused with 78, as
+   [what 2.0 does with a setting](#what-20-does-with-a-setting) lists.
+   `cargo xtask config-check --settings <instance dir>`, run in a checkout
+   of the 2.0 release, says which before anyone updates the host. With
+   `--env <file>` it reads a file in the form of `~/.config/tehas/env` as
+   the host's, where `NAME=<redacted>`, unquoted, counts as set
+   ([config-check](/tools-update#before-updating-to-20-check-the-settings)).
+   Fix every refused line before the update. Every setting 2.0 refuses was already
+   refused by 1.4.0: `RETIRED` holds the same twelve names, and
+   `api/renames-1.0.tsv` is unchanged. Every setting that left
+   `api/settings-rules.json` since 1.4.0 is dropped with a warning, not
+   refused: twenty-seven of its instance settings and two of its host settings,
+   `TEHAS_ENERGY` and `TEHAS_ENERGY_URL`, which `~/.config/tehas/env`
+   held. `api/settings-1.4.0.txt` lists every setting 1.4.0 accepted, 101
+   instance and 10 host settings, and the test
+   `every_setting_v1_4_0_accepted_is_kept_or_dropped_with_a_warning_never_refused`
+   in `console/core/src/settings/load.rs` holds each to today's load: in
+   its table or dropped with a warning, never refused. The names it drops
+   are exactly those `IGNORED` holds.
+2. **Run `tehas update`.** It stops and removes the units and files of the
+   features 2.0 took out of core, and migrates the state store and analytics.
+3. **The state store** (`state/tehas.db`) goes from schema 23, 1.4.x's, to
+   33 in one run, step by step: 24 adds the answers of `tehas answer`, 25
+   keeps a stop's question with its choices, 26 lets a cycle's `how` say
+   `reply`, 27 rewrites every `retry-tick` to `reply` and marks a question
+   open at the upgrade to be asked again, 28 rewrites `fixer` to
+   `millwright` and drops `comment_links` from an approval's input, 29 drops
+   the tables of outsource and keeps every other row, 30 rewrites the how
+   `label` to `approved`, gives each question the store's own number and
+   keeps a withdrawn question with when it was withdrawn instead of deleting
+   it, keeps when each history line was written and whether a signal stopped
+   the cycle, and gives the store its id (`store` of `tehas api`; the step
+   is `STEP_30` in `console/store/src/db.rs`), 31 adds
+   `cycle_history.reported`, 1 on every row there, as a report wrote each,
+   32 adds the table `links`, empty: the links of a ticket to its
+   blueprints, which only a split setup writes, and 33 adds
+   `questions.body_form`, what a question's sum sums: `rendered` on every
+   sum of before, the comment as it was posted with its markers in, which
+   the first poll adopts in place as the sum of the question's visible text
+   when the comment reads as it was posted, and as no sum when it was
+   ticked or edited since, asking nothing again and writing nothing to the
+   code host.
+   The analytics' own step at the same update says `offered` where its
+   `runs.outcome` said `pr`.
+   `tehas state check --json` prints the schema.
+4. **Analytics** (`state/analytics.db`) goes from schema 4 to 7 the first
+   time it is opened after the update: it drops `samples.watts` and
+   `runs.contractor_id`, keeps every other column and row, rewrites `retry-tick` to `reply` and `fixer` to
+   `millwright` in `runs.how`, and with 7 rewrites `label` to `approved` in
+   `runs.how` and `pr` to `offered` in `runs.outcome`.
+5. **pi-rukas.** A checkout follows pi-rukas's 0.15 line
+   (`PI_RUKAS_FOLLOW=release:0.15`). 2.0 needs pi-rukas v0.15.9 or later.
 
-`tehas <part>` is an addition beside each part's own command, which keeps
-working through 1.x (v1.2.0 included) as it did before: `industry <words>`
-on the host runs as it always has, and nothing warns that it is old. 2.0 may
-retire the separate commands, leaving `tehas <part>` the one way in, and take
-them out of the code and the docs.
+The update to 2.0 is supported from 1.4.x only. A host on an older release
+updates to the newest 1.4.x first.
 
 ## Settings and the knob rule
 
-A ruled setting keeps its name and its meaning through 1.x, and a missing or
+A ruled setting keeps its name and its meaning through 2.x, and a missing or
 malformed value always stops the command with exit 78 before it calls GitHub,
-Docker or git. A setting is only added in 1.x.
+Docker or git. A setting is only added in 2.x.
 
 A tuning knob is a setting that sizes or times something: seconds, bytes,
 counts, retries, such as `TEHAS_WORK_TIMEOUT` or `TEHAS_MAX_AWAITING`. Its
@@ -203,6 +275,77 @@ its default stays.
 
 A `TEHAS_*` name the rules do not hold is internal, and an instance that sets
 one is not covered by this page.
+
+### What 2.0 does with a setting
+
+2.0 rewrites no setting, in `instance.env` or in `~/.config/tehas/env`. Each
+line is one of three:
+
+- **Kept.** Every row of `api/settings-rules.json` not marked
+  `"building": true` loads as in 1.4.x.
+- **Dropped with a warning.** A setting of a feature 2.0 took out of core
+  loads, every command warns of it once on standard error, and nothing reads
+  it (`IGNORED` in `console/core/src/settings/load.rs`). A 1.4.x instance
+  never fails to load for one. Take the line out when it suits you:
+  - `TEHAS_REVIEW`, `TEHAS_REVIEW_REPO` (the review loop);
+  - `TEHAS_ENERGY`, `TEHAS_ENERGY_URL`, `TEHAS_ENERGY_SOURCE_URL` (energy
+    use);
+  - `TEHAS_WIKI` (the product wiki);
+  - `TEHAS_PROTOLAB_URL`, `TEHAS_PROTOLAB_ZIP_URL`, `TEHAS_PROTOLAB_ZIP_HOSTS`,
+    `TEHAS_PROTOTYPE_FILE` (the Protolab);
+  - `TEHAS_WORK_DESCRIBE`, `TEHAS_WORK_FILES`, `TEHAS_WORK_ZIPS`,
+    `TEHAS_WORK_COMMENTS` (a cycle's describe, text files, zips and
+    comments);
+  - `TEHAS_OUTSOURCE`, `TEHAS_OUTSOURCE_TIMEOUT`, `TEHAS_OUTSOURCE_GRACE`,
+    `TEHAS_OUTSOURCE_RETRIES`, `TEHAS_OUTSOURCE_REST`,
+    `TEHAS_OUTSOURCE_REPOS`, `TEHAS_OUTSOURCE_CONTRACTORS`,
+    `TEHAS_OUTSOURCE_JOIN_TTL`, `TEHAS_OUTSOURCE_PROXY_ADDR`,
+    `TEHAS_OUTSOURCE_PROXY_IDLE` (outsource);
+  - `TEHAS_MILLWRIGHT_MAX_RETRIES`, `TEHAS_MILLWRIGHT_FEED`,
+    `TEHAS_MILLWRIGHT_MAX_FEEDS` (the millwright's grant);
+  - `TEHAS_TOP` (the host panel);
+  - `TEHAS_SPEC_PIPE` (the spec mark);
+  - a `prototype=` pair of `TEHAS_ISSUE_TYPES` (the Protolab): the pair is
+    dropped and the rest of the value kept.
+- **Refused.** The line stops every command with 78 and says what to do:
+  - a name an earlier release retired (`RETIRED` in the same file):
+    `TEHAS_FIXER_LOGIN`, `TEHAS_FIXER_MAX_RETRIES`,
+    `TEHAS_FIXER_MAX_PLAN_ANSWERS`, `TEHAS_CLONES`, `TEHAS_WORK_CPUS`,
+    `TEHAS_WORK_MEMORY`, `TEHAS_DISPATCHER`, `TEHAS_THEME`, `TEHAS_LAYOUT`,
+    `TEHAS_LOW_GATE`, `TEHAS_LOW_GATE_WAIT`, `TEHAS_PRIORITY_FIELD`;
+  - a `setting` row of `api/renames-1.0.tsv`, which names the key that
+    replaced it or why it went;
+  - a value for a setting of a feature still being built, which names the
+    feature.
+
+Settings of features removed in 2.0 stay dropped with a warning
+(`IGNORED`) through 2.x, never refused (`RETIRED`), so 2.1 can move them
+into plugin grants and a 2.0 `instance.env` loads under 2.1 unchanged.
+
+## The commands of other parts
+
+`tehas <part> [words]` runs `tehas-<part>` from `PATH`, by
+[the rule of the commands page](/tools#the-commands-of-other-parts). Through
+2.x:
+
+- a command of tehas wins over a part of the same word;
+- `industry`, `kaizen`, `kata`, `monozukuri` and `yokoten` are kept for the
+  parts and never become a command of tehas; the list is only added to;
+- a part's word is a lowercase letter, then lowercase letters and digits in
+  groups joined by one hyphen, at most 32 bytes;
+- the part runs in place of tehas with the remaining words as given, no
+  settings loaded; its output and its exit status are its own, and are that
+  part's contract, not tehas's;
+- a word that is no command and no part is exit 64; a part that is found but
+  cannot be run is exit 1;
+- each release carries the front, `tehas-front-vX.Y.Z-linux-x86_64`, with
+  `.sha256` and `.minisig` beside it, signed with the release key. It exits
+  with a part's status, 0 for its usage, 64 for a word no part has, 1 for a
+  part that cannot be run and 141 when standard output closes.
+
+A command tehas adds in 2.x may take a word that is not kept for the parts,
+and then wins over a part of that word. A part that wants its word for good
+asks for it to be kept.
 
 ## Cycle inputs
 
@@ -221,8 +364,9 @@ What a cycle's container is given, as `tehas work` gives it:
 - **Capabilities.** An input the image does not list in its `--capabilities`
   answer refuses the cycle with exit 78 and says why in
   `state/cycles/<issue>.refused`.
-- **Mounts.** Exactly these ten, and no Docker socket, no SSH key and nothing
-  of `~/.config/tehas`:
+- **Mounts.** Exactly these ten, and the eleventh of the table only when the
+  cycle is given files. No Docker socket, no SSH key and nothing of
+  `~/.config/tehas`:
 
 | Host | In the container |
 | --- | --- |
@@ -236,203 +380,819 @@ What a cycle's container is given, as `tehas work` gives it:
 | `~/.pi/agent/settings.json` | `/home/vscode/.pi/agent/settings.json`, read-only |
 | `~/tehas/state/github-cycle` | `/run/tehas/github`, read-only |
 | `<workspace>.state/relay` | `/run/tehas/relay` |
+| `<workspace>.images`, only when the cycle is given files: with `TEHAS_WORK_IMAGES=1` always, holding the issue's images, a retry's comments and the files a plugin filed for the issue, and with `TEHAS_WORK_IMAGES=0` only for a retry's comments. Each time with its `manifest.json` | The workspace's path inside with `.images` added, read-only, named in `PI_ENSEMBLE_EXTRA_IMAGE_DIRS` |
 
 The `PI_ENSEMBLE_*` names, and what each means, follow pi-rukas while pi-rukas
 is 0.x: a name pi-rukas renames is taken under the new name in the release
-that follows it, the old name stays accepted through 1.x, and the release
+that follows it, the old name stays accepted through 2.x, and the release
 notes say so. The rule itself, which names pass and what
 is mounted, is frozen. `console/cycle/tests/work_container.rs` pins the mounts and the variables,
 and a change to them is a security change.
 
 ## analytics.db
 
-`~/tehas/state/analytics.db` is at `user_version` 4. Within it tables and
-columns are only added, never renamed, retyped or removed, and a file of
-schema 4 that a 0.30.x release wrote opens and gains what was added. A new
-version comes only with a major release. [Analytics](/analytics) has the
-schema; [`tehas analytics copy`](/api#tehas-analytics-copy) is how a program
-takes a consistent copy.
+`~/tehas/state/analytics.db` is at `user_version` 7. Within it tables and
+columns are only added, never renamed, retyped or removed. A file of schema 4,
+from 1.4.x, is migrated to 7 in place as it is opened: it loses
+`samples.watts` and `runs.contractor_id`, takes the events' words in
+`runs.how` and `runs.outcome`, and keeps every row. A new version
+comes only with a major release. [Analytics](/analytics) has the schema;
+[`tehas analytics copy`](/api#tehas-analytics-copy) is how a program takes a
+consistent copy.
 
-## The pull request spec block
+## Changed in 2.0
 
-Part of `spec-pipe`, a feature still being built, so it is not part of the
-frozen surface until the release that ships it. A pull request built from an
-approved spec answers it with this block in its body, version 1:
+Every change 2.0 makes to what a program, an operator or a plugin sees, once.
+Each names its pull request, what changed, its readers, and what an adopter
+does after `tehas update`. No old name is kept beside a new one. The readers
+are named by role: adopters (who run a factory), people on an issue, the
+consumer that runs many factories, the consumer that reads
+the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
 
-```
-<!-- tehas:spec v1 -->
-Spec: <link> sha256:<64 lower-case hex>
-- <id> met: <where>
-- <id> not met: <why>
-<!-- /tehas:spec -->
-```
+- **`tehas answer`, a question answered for a person.**
+  #2794, #2808, #2813.
+  `tehas answer <issue> <choice> --by <login> [--json]`, or
+  `tehas answer <issue> --text <file> --by <login> [--json]`, never both,
+  answers the question a stopped ticket or a planning session waits on:
+  `retry`, `retry-text` or `park` for a stop, `option:<k>`, `update`, `end`
+  or `--text` for a planning question. `--by` must be an account of
+  `TEHAS_ALLOWED_LABELERS`, or the command stops with 78. `--text -` reads
+  the words from standard input, at most 1 MiB. The object is
+  `api/answer.schema.json`, the feature word `answer`.
+  Readers: the consumer that runs many factories, Obeya, the end-to-end
+  suite.
+  Adopter action: a program that answered for a person by ticking a box
+  calls `tehas answer`.
+- **`tehas question`, the question an issue waits on.**
+  #2830, #2929.
+  `tehas question <issue> [--json]` prints the question and its choices, each
+  in the words `tehas answer` takes. The object is
+  `api/question.schema.json`, the feature word `question`. `question.comment`
+  is the id of the comment on the issue that asked the question, left out
+  when the store has no comment for it and never null. With no issue it
+  lists the question each issue waits on, and with `--after <id>` every
+  question after that number, answered and withdrawn ones too: the object is
+  `api/questions.schema.json`, the feature word `questions`.
+  Readers: the consumer that runs many factories, Obeya, the end-to-end
+  suite.
+  Adopter action: none.
+- **Questions are answered in words; no tick changes anything.**
+  #2843.
+  A stop's comment and a planning question list their choices as plain
+  lines and ask a reply: a stop's by the word of a choice it offers, a
+  planning question's by an option's number, `end`, or the person's own
+  words. A ticked box does nothing, and tehas says nothing of it.
+  Readers: people on an issue, the consumer that runs many factories.
+  Adopter action: answer by a reply from an allowed account or through
+  `tehas answer`. A program that ticked boxes moves to `tehas answer` and
+  reads the choices with `tehas question`.
+- **A stop that offers no retry asks nothing.**
+  #2843.
+  Its comment says to split the issue or edit the body, and its hold's
+  `held.clear` says "edit the body, or split the issue with `tehas:plan`".
+  A park's hold says "edit the body, or reply to the park comment with the
+  word of one of its retries".
+  Readers: people on an issue, readers of `tehas status` and
+  `tehas blockers`, the consumer that runs many factories, which shows
+  `held.clear` and does not parse it.
+  Adopter action: none.
+- **A retry a reply asked for is `how: reply`; `retry-tick` is gone.**
+  #2843, #2867.
+  `reply` is the `how` of a retry a person's reply asked for, and `answer`
+  is only for `tehas answer`. Every stored `retry-tick` becomes `reply`: in
+  the state store at schema 27, in `runs.how` of analytics at each open.
+  `tehas history`, `tehas export`, the MCP tool `factory_sessions` (its
+  `how` filter) and the approval record take `retry-tick` no more.
+  Readers: the consumer that runs many factories, the consumer that reads
+  the analytics copies, MCP clients, the end-to-end suite.
+  Adopter action: a program that filters or counts runs by `retry-tick`
+  reads `reply`.
+- **A question open at the upgrade is asked again.**
+  #2867.
+  The first poll after the update posts it once more in 2.0's words, adds a
+  line to the old comment that links the new one, and records the new
+  one's choices. A stop of before 2.0 that offered no retry is not asked
+  again.
+  Readers: people on an issue, the consumer that runs many factories
+  (`tehas question` lists the new choices).
+  Adopter action: none.
+- **The millwright's old name, the fixer, is gone.**
+  #2889.
+  A cycle's `how` never says `fixer`, and a planning note never
+  `fixer-refused`: the state store at schema 28 writes `millwright` and
+  `millwright-refused` in their place. The approval record given to a cycle
+  says `how: "millwright"`, and a cycle refuses one that says `fixer`.
+  Analytics rewrites `fixer` to `millwright` in `runs.how` at each open, and
+  `factory_sessions` answers `millwright`. The dispatcher's log and its
+  comments name the millwright. `millwright` of `tehas api --json` is
+  unchanged.
+  Readers: the consumer that runs many factories, where it reads a cycle's
+  record, the consumer that reads the analytics copies, MCP clients, the
+  end-to-end suite.
+  Adopter action: a program that reads `fixer` reads `millwright`.
+- **The Protolab is removed.**
+  #2877.
+  Gone: the verb `protolab` of tehasbot, `tehas-protolab.timer` and
+  `tehas-protolab.service`, `live/protolab.json`, `~/tehas/protolab`,
+  the command `prototype file` of tehas, the page `/tools-protolab`, the keys
+  `protolab-zip-url` and `prototype-file` of `flags` in `tehas api --json`,
+  and `prototypes` in `tehas status --json`. Its settings are dropped with a
+  warning. What stays for the lab plugin is listed under
+  [plugins](#plugins).
+  Readers: adopters, the consumer that runs many factories, the end-to-end
+  suite, plugins, and parts whose skills tell people to attach
+  `prototype.zip` and apply `tehas:prototype`.
+  Adopter action: `tehas update` removes the units, the directory,
+  `live/protolab.json` and `logs/protolab.log`. Take
+  `TEHAS_PROTOLAB_URL`, `TEHAS_PROTOLAB_ZIP_URL`, `TEHAS_PROTOLAB_ZIP_HOSTS`
+  and `TEHAS_PROTOTYPE_FILE` out of `instance.env`.
+- **An item is served at `item-<n>.<domain>`.**
+  #2877.
+  The kept store of an item's files is served by the edge router from
+  `~/tehas/items` at `item-<n>.<domain>`, where the Protolab used
+  `lab-<n>.<domain>`.
+  Readers: adopters with an edge domain.
+  Adopter action: a DNS name `lab-<n>.<domain>` becomes
+  `item-<n>.<domain>`; a proxy in front of the host can drop `lab` from the
+  names it sends to the edge router.
+- **The first stage is Idea.**
+  #2877.
+  A ticket's line on the factory floor reads Idea, In line, Building,
+  Review, Stopped, Shipped. Idea is an open ticket that is not in line: it
+  carries none of `tehas:ready`, `tehas:running`, `tehas:awaiting-merge` and
+  `needs-human-attention`, and is not closed. Nothing on the pages is called
+  Prototype.
+  Readers: people on the dashboard, the consumer that runs many factories
+  where it shows a ticket's stage.
+  Adopter action: none.
+- **The review loop leaves core.**
+  #2857.
+  Gone: the verb `review` of tehasbot, `tehas-review.service` and
+  `tehas-review.timer`, the key `review` of `flags` in `tehas api --json`,
+  and the review's sandbox kind with its argument list, so a container can
+  be started in one way fewer. `TEHAS_REVIEW` and `TEHAS_REVIEW_REPO` are
+  dropped with a warning. It returns as a plugin in 2.1.
+  Readers: adopters, the consumer that runs many factories (`flags`), the
+  end-to-end suite, plugins.
+  Adopter action: `tehas update` removes the units. Take the two settings
+  out of `instance.env`.
+- **The product wiki leaves core.**
+  #2862.
+  It was still being built. Gone: the command `wiki` of tehas and the verb
+  `wiki` of tehasbot, the `/wiki` page and the dashboard's link,
+  `live/wiki.json`, `tehas-wiki.service`, `tehas-wiki.timer`, `tehas-wiki.path`, `tehas-wiki-status.service` and
+  `tehas-wiki-status.timer`, the sandbox kind `wiki` and the key `wiki` of
+  `flags`. `TEHAS_WIKI` is dropped with a warning. It returns as a plugin in
+  2.1.
+  Readers: adopters, the consumer that runs many factories (`flags`), the
+  end-to-end suite, plugins.
+  Adopter action: `tehas update` removes the units. Take `TEHAS_WIKI` out of
+  `instance.env`. `~/tehas/wiki` is left in place and read by nothing.
+- **Energy use leaves core.**
+  #2864.
+  Gone: the verb `energy` of tehasbot, `tehas-energy.service`, `live/energy.json`, the
+  energy section and live meter of the factory floor, the business page's
+  live strip, `energy` in `tehas top` and `live/top.json`, and the `energy`
+  object of the MCP tool `factory_stats`. `TEHAS_ENERGY`,
+  `TEHAS_ENERGY_URL` and `TEHAS_ENERGY_SOURCE_URL` are dropped with a
+  warning. It returns in 2.1 as a plugin fed by the host's mesh feed.
+  Readers: adopters, the consumer that runs many factories, MCP clients,
+  plugins.
+  Adopter action: `tehas update` removes the unit and `live/energy.json`.
+  Take the three settings out of `instance.env` and `~/.config/tehas/env`.
+  A program that stops `tehas-energy.service` when it adopts a factory, or
+  starts it when it creates or restores one, drops the unit from both
+  lists.
+- **The business page leaves core.**
+  #2904.
+  Gone: the page at `/business`, `fun/business.html`, `business-view.js`,
+  `business.css` and `mode.js`. The front page `/` is the factory floor in
+  both designs, as `/floor` is; `TEHAS_DESIGN=beesknees26` draws it in the
+  beesknees26 theme. `TEHAS_DESIGN` keeps both values. The rules other pages
+  pick from `business.css` by selector, the base, the top bar, the mark, the
+  panels and the foot, are in `fun/pages.css`, the same 17 rules with the same
+  text. The page's Planning column went with it: the floor has none. It
+  returns in 2.1 as the plugin `business` over `live:`.
+  Readers: adopters, visitors with a link to `/business`, Obeya and
+  industry's workshop (they take `pages.css` in place of `business.css`),
+  plugins.
+  Adopter action: none. `/` shows the factory floor; a link to `/business`
+  answers 404.
+- **analytics.db is at schema 7.**
+  #2869, #2886, #2911.
+  The migration drops `samples.watts`, which nothing writes since energy
+  use left core, and `runs.contractor_id`, which no release wrote a value
+  in, and keeps every other column and row. Step 7 rewrites the how
+  `label` to `approved` and the end `pr` to `offered`, and the view
+  `v_versions` names `pr_share` `change_share`. A file of schema 4, 5 or 6
+  is migrated in place. `tehas analytics copy --json` reports schema 7.
+  Readers: the consumer that reads the analytics copies.
+  Adopter action: a program that reads the copies pins `user_version` 7 and
+  `console/analytics/src/schema.pinned` of this release.
+- **A cycle is given the issue's images alone.**
+  #2875, #2888.
+  Describe, the text files an issue links, unpacked zips and the
+  attachments of comments leave core. `TEHAS_WORK_DESCRIBE`,
+  `TEHAS_WORK_FILES`, `TEHAS_WORK_ZIPS` and `TEHAS_WORK_COMMENTS` are dropped
+  with a warning. The approval record no longer carries `comment_links`:
+  the state store refuses the key on a new approval, and an approval stored
+  before 2.0 that holds it loads with the key ignored; the step to schema 28
+  removes it from stored approvals. `tehas dev --issue` needs `TEHAS_WORK_IMAGES=on`. The four return in 2.1 as
+  the `given` plugin.
+  Readers: adopters, plugins, readers of the approval record, among them
+  the consumer that runs many factories.
+  Adopter action: take the four settings out of the instance. A program
+  that writes an approval record leaves out `comment_links`. An instance
+  that set `TEHAS_WORK_FILES=on` without `TEHAS_WORK_IMAGES=on` now gives a
+  cycle no directory unless a retry has comments.
+- **The settings of a removed feature load, warn once and are dropped.**
+  #2846.
+  A 1.4.x instance never fails to load for a setting of a feature 2.0 took
+  out of core; the list is under
+  [what 2.0 does with a setting](#what-20-does-with-a-setting).
+  Readers: adopters, the consumer that runs many factories where it writes
+  an instance's settings.
+  Adopter action: take the lines out when it suits you.
+- **`cargo xtask config-check`, the settings checked before the update.**
+  #2885, #2949.
+  `cargo xtask config-check --settings <instance dir>`, in a checkout of the
+  release, runs on an instance directory the checks `tehas update` runs on
+  the settings before it installs. It prints `dropped <NAME>: <reason>` for
+  each setting 2.0 drops and `fail <NAME>: <why>` for each finding, then
+  `pass` or `fail`, and exits 0 or 78. It reads only the instance directory:
+  not `~/.config/tehas/env`, no GitHub, Docker or git, and it writes
+  nothing. `--env <file>` gives it a file in the form of
+  `~/.config/tehas/env` to stand for the host's, so a model key that
+  `models.json` names can be set. A line `NAME=<redacted>`, unquoted, counts
+  as set with its value unchecked; any other value is checked, and a
+  malformed file or a name the host's file may not set fails with 78.
+  It prints names, never a value.
+  Readers: adopters, the consumer that runs many factories where it keeps
+  an instance's settings.
+  Adopter action: run it before the update, and again after each fix,
+  until it passes.
+- **Outsource is removed, with the model proxy and the contractor.**
+  #2886.
+  It was still being built: no release could turn it on. Gone: the command
+  `outsource` of tehas and the verb `outsource-proxy` of tehasbot, the
+  programs `tehas-proxy` and `tehas-contractor`,
+  `tehas-outsource-proxy.service`, the key `outsource` of `flags` in
+  `tehas api --json`, `contractors` in `tehas status --json` with the sample
+  `api/status.outsourced.json`, the MCP tool `factory_contractors`,
+  `live/contractors.json`, and the vipune stand-in of the sandbox image. Its
+  ten settings are dropped with a warning. The state store's step to 29
+  drops its tables, and analytics 6 drops `runs.contractor_id`.
+  Readers: adopters, the consumer that runs many factories, the consumer
+  that reads the analytics copies, MCP clients, the end-to-end suite.
+  Adopter action: run `tehas update`, which stops and removes
+  `tehas-outsource-proxy.service` and removes `libexec/tehas-proxy`,
+  `libexec/tehas-contractor`, `live/contractors.json` and
+  `sandbox/vipune-shim`. Then take any `TEHAS_OUTSOURCE` and
+  `TEHAS_OUTSOURCE_*` lines out of `instance.env`.
+- **The All hands label is removed.**
+  #2881.
+  `tehas:all-hands` on the control issue is no longer read, and
+  `tehas labels` no longer creates it. `tehas status` prints no `all-hands`
+  line; `tehas status --json`, `live/status.json` and `checks` of the health
+  file have no `allHands`; the dashboard shows no "all hands" mark.
+  `features` in `tehas api --json` no longer lists `all-hands`.
+  Readers: the consumer that runs many factories, Obeya, the end-to-end
+  suite, plugins.
+  Adopter action: none. A `tehas:all-hands` label left on a control issue
+  does nothing; delete it on GitHub if you like, and remove
+  `~/tehas/state/all-hands.ignored` where an earlier version wrote it. A
+  program that read `allHands` or checked `features` for `all-hands` finds
+  them gone.
+- **`host/markers.tsv`, and the word of each label in `host/labels.tsv`.**
+  #2901, #2907.
+  `host/markers.tsv` is new: one row per kind of marker, the machine-read
+  notes tehas writes inside a comment or a body, with its open text, its
+  close text for a block, and its fields and their types. It adds the text
+  of two markers new in 2.0, `tehas:ticket-of` and `tehas:link`, which
+  nothing writes yet. A marker with a field missing, repeated, out of order
+  or not of its row, or a value outside its type, reads as unreadable and
+  is never acted on. No program reads the file at run time: the adapters
+  compile it in. Each row of `host/labels.tsv` now has a fourth field, the
+  word of the ports the label is, such as `Act::Approve` or
+  `State::Running`; `tehas labels` checks it and makes the labels as
+  before.
+  Readers: the consumer that runs many factories, which reads tehas's
+  markers and takes the table with the ports at the tag, and any program
+  that splits `host/labels.tsv` by its fields.
+  Adopter action: none. A program that reads `host/labels.tsv` takes its
+  first three fields as before and the fourth as the label's word.
+- **The `tehas:prototype` label and the `prototype` kind are removed.**
+  #2899.
+  `tehas labels` no longer makes or pins `tehas:prototype`, and nothing
+  reads it. `TEHAS_ISSUE_TYPES` maps only `improvement`; a `prototype=`
+  pair loads, warns once and is dropped. Neither `tehas update` nor
+  `tehas setup` deletes the label from a repository: where it is still
+  there it does nothing. A ticket not yet in line is still an Idea.
+  Readers: adopters, the consumer that runs many factories, whose queue
+  holds the label as a constant and which may write the pair, parts that
+  tell people to apply the label, the end-to-end suite (one label fewer).
+  Adopter action: take any `prototype=` pair out of `TEHAS_ISSUE_TYPES` in
+  `instance.env`. Delete the `tehas:prototype` label from the product
+  repository, or leave it.
+- **The millwright's grant is removed; `tehas start` is the one way a
+  program starts work for a person.**
+  #2894.
+  The bot's `tehas:ready` no longer starts a cycle again on an issue a
+  person approved before, and the feed no longer starts an issue a person
+  wrote: the poll takes the label off as it does an outsider's. The
+  millwright still answers planning questions in a session a person
+  started, asks for a finish on a person's approval of the text as it is,
+  and starts an epic's sub-issues under `TEHAS_MILLWRIGHT_EPICS=on`. Its
+  `action=retry` and `action=change` comments do nothing; `action=answer`
+  and `action=finish` work as before. `TEHAS_MILLWRIGHT_MAX_RETRIES`,
+  `TEHAS_MILLWRIGHT_FEED` and `TEHAS_MILLWRIGHT_MAX_FEEDS` are dropped with a
+  warning. `features` in `tehas api --json` no longer lists
+  `millwright-grant`. The store's approval views no longer give
+  `millwright_starts`, `fixer_starts` or `park_lifted`.
+  Readers: the consumer that runs many factories, Obeya, the end-to-end
+  suite, plugins.
+  Adopter action: take the three settings out of `instance.env` if it sets
+  them. A program that applied `tehas:ready` as the millwright to start or
+  retry work for a person runs `tehas start` for a signed-in person
+  instead; one that checks `features` for `millwright-grant` finds it gone.
+- **Four work-run ends move.**
+  #2903.
+  One function, `tehas_core::outcome::end`, decides a work run's end, and
+  four ends change: a run `tehas stop` stopped ends `stopped` and a lost
+  run `failed`, both `parked` before; a parked run that claimed `merged`,
+  and a parked `closed` or `interrupted` run, end by the later rows
+  (`handoff`, `failed` or `parked`), not `merged` or `stopped`. A parked
+  run never ends `merged`, `stopped` or `pr`. Runs recorded before the
+  update keep their outcome. The words are the same.
+  Readers: the consumer that reads the analytics copies (counts of
+  `runs.outcome`, the report's `runs`), the consumer that runs many
+  factories, MCP clients (the counts of `factory_sessions`,
+  `factory_outcomes` and `factory_stats`).
+  Adopter action: a program that compares counts of `runs.outcome` across
+  the update allows for the four moves: runs that counted as `parked` now
+  count as `stopped` or `failed`, and parked runs that counted as `merged`
+  or `stopped` now count as `handoff`, `failed` or `parked`.
+- **The host panel leaves core.**
+  #2898.
+  Gone: the verb `top` of tehasbot, `tehas-top.service` and `live/top.json`,
+  and with them the Host section, menu link and head chip of the factory
+  floor and the host section of the plain dashboard. `tehas top` in a
+  terminal stays as it was. `TEHAS_TOP` is dropped with a warning. It
+  returns in 2.1 as the `hoststats` plugin, fed by the host's host feed.
+  Readers: adopters, people on the factory's pages, the consumer that runs
+  many factories, which provisions `tehas-top.service`.
+  Adopter action: run `tehas update`, which stops and removes
+  `tehas-top.service` and the last `live/top.json`, then take `TEHAS_TOP` out
+  of `instance.env`. A program that provisions `tehas-top.service` drops it.
+- **Panels leave core; the dock stays.**
+  #2900.
+  Gone: the command `panel` of tehas, `live/panels.json` and
+  `/panels.json` on the docs server, and the feature word `panels` in
+  `tehas api --json`. The dock stays and is renamed: `host/fun/panels.js`
+  and `panels.css` are `host/fun/dock.js` and `dock.css`, the page's
+  global `TEHAS_PANELS` is `TEHAS_DOCK`, and the classes `panel-*` are
+  `dock-*`. A plugin granted only v1's `view` is listed in the plugins
+  menu in place of a panel `p-<name>`. Outside pages return in 2.1 as the plugin `panels`.
+  The label prefix `tehas:p-` is the plugins' too
+  ([the rules for 2.x](#the-rules-for-2x)).
+  Readers: the consumer that runs many factories, Obeya (it vendors
+  `host/fun` and the dock, so the file and global renames reach it),
+  plugins.
+  Adopter action: `tehas update` removes the last `live/panels.json`.
+  Leave `~/tehas/state/panels.json` in place: 2.0 no longer reads it, and
+  the 2.1 `panels` plugin migrates its pages into its grant.
+- **The state store is at schema 33.**
+  #2794, #2830, #2843, #2867, #2889, #2886, #2911, #2926, #3164.
+  The steps 24 to 33 are listed under [Upgrading to 2.0](#upgrading-to-20).
+  `tehas state check --json` prints `schema` 33, and `rows` counts the new
+  tables `answers` and `links` and no longer the tables of outsource. Later 2.x releases
+  migrate the store forward by numbered steps in the same way, so a new
+  table in 2.1 is an ordinary step.
+  Readers: `tehas update`, readers of `tehas state check` and of a state
+  copy, the end-to-end suite.
+  Adopter action: `tehas update` migrates the store.
+- **Labels starting `tehas:p-` belong to plugin phases.**
+  #2930.
+  No core label takes the prefix. 2.0 neither writes nor reads them: the
+  dispatcher, the tidy and `tehas labels` leave a `tehas:p-` label as it
+  is, and it authorises nothing. In 2.x tehas may write them, for display
+  only, as [the rules for 2.x](#the-rules-for-2x) say.
+  Readers: plugins, adopters, the consumer that runs many factories.
+  Adopter action: none.
+- **The flow may gain states, and no plugin removes approval or the merge.**
+  #2930.
+  The states of the status flow and a held ticket's `why` may gain values
+  in 2.x, plugin phases among them, and a reader treats an unknown one as
+  unknown. A plugin may add phases and skip or hide an optional one under a
+  grant shown in review, but no plugin can remove approval or the human
+  merge ([plugins](#plugins)).
+  Readers: plugins, adopters, the consumer that runs many factories.
+  Adopter action: none. A program that reads the flow's states or a `why`
+  treats a value it does not know as unknown.
+- **The spec mark goes.** #2892. The building feature `spec-pipe` is
+  removed. A `Spec:` line in an issue body is plain text, no pull request
+  is checked for a spec block, the key `spec-pipe` leaves `flags`, and
+  `TEHAS_SPEC_PIPE` is dropped with a warning. Lean's `pi-spec v1` block
+  stays.
+  Readers: adopters, the consumer that runs many factories (`flags`).
+  Adopter action: take `TEHAS_SPEC_PIPE` out of `instance.env`.
+- **The how `label` is `approved`, the end `pr` is `offered`, and a
+  question has the store's number.** #2911.
+  A cycle started by an approval has the `how` `approved`, no longer
+  `label`: in `tehas history`, `tehas export`, the approval record,
+  `libexec/store approval-record --how` and `history-show --how`, and the
+  MCP tool `factory_sessions`, which take `approved` and no longer `label`.
+  The end word `pr` is `offered` in analytics, the stats report's `runs`
+  and the MCP tools `factory_stats`, `factory_sessions` and
+  `factory_outcomes`, as under analytics.db's schema 7 above.
+  `id` in `tehas question --json` and `question.id` in `tehas answer --json`
+  are the state store's own number, given in order and never reused, not
+  the comment's id. No old word is kept as an alias.
+  Readers: the consumer that runs many factories, the consumer that reads
+  the analytics copies, MCP clients, the end-to-end suite, plugins.
+  Adopter action: a program that reads or filters `how` by `label` reads
+  `approved`; one that kept a question's `id` as a comment id keys it as
+  the store's number.
+- **Every start has its line in the history.** #2926.
+  A start the cycle refused writes a work line with the outcome `refused`
+  and the exit status its unit left, `tehas stop` one with `stopped`, and a
+  cycle that died without a word one with `lost`, ended when it was last
+  heard from; 1.x wrote these three only to the short list of ends the
+  dashboard shows. The poll ends a lost cycle too, through the store's
+  `cycle-end --lost`, once its lock is free and it has not been heard from
+  for two minutes. A work line may have no `status`; one written after its
+  end has `recorded`, and `--after` lists it once, in the order the lines
+  were written; one a signal stopped has `signalled: true`. The 50 lines
+  kept per issue are the newest written, not the newest ended. The record
+  of an approval reads only the lines a report wrote, so these lines move
+  no refresh base, refresh count or easy merge. `tehas stop` says the
+  record was already ended, and how, when the poll ended it as lost first.
+  Readers: the consumer that runs many factories (`tehas history` and
+  `tehas export`), the end-to-end suite.
+  Adopter action: a program that reads `tehas history` or `tehas export`
+  takes a line for each refused, stopped and lost start and a work line
+  with no `status`; one that counts runs from the history counts them; one
+  that keys lines on their cursor reads `recorded` on a lost line and takes
+  it in the order it was written.
+- **The cycle id, its end and its change are in the factory API.** #2932.
+  `tehas api --json` prints `store`, the id of the factory's state store,
+  and `features` gains `cycle-ids`. `tehas status --json` prints on each
+  running cycle `cycle`, the cycle id `<issue>-<attempt>` such as `12-3`,
+  with `how` and `by`, and the health file's cycles carry `attempt`, `how`
+  and `by`; `since` is the second the cycle's history line prints as
+  `started`. `tehas history --json` and `tehas export` print on every work
+  line `cycle`, `end` (one of `offered`, `merged`, `handoff`, `parked`,
+  `failed`, `refused`, `stopped`), `change` (the pull request's number,
+  beside its address in `pr`) and always `started`: a line the store holds
+  no start for started when it ended. `tehas state pack`, `unpack` and
+  `load` keep the store's id and its attempts, so a moved factory never
+  gives a cycle id twice.
+  Readers: the consumer that runs many factories, the consumer that reads
+  the analytics copies (`end` says the words of `runs.outcome`), MCP
+  clients, the end-to-end suite.
+  Adopter action: none. A program that reads many factories keys a cycle
+  on `cycle` with the factory and its `store`, and decides on `end` in
+  place of `outcome`, once `features` lists `cycle-ids`.
+- **A limit has the time it was set.** #2925.
+  `tehas limit --json`, and the `limit` of `tehas drain --json`, print
+  `set`, when the limit was written, kept in `state/limit.json`. Setting
+  the same limit again (the same `cycles`, `plan` and `reason`, whatever
+  its expiry) keeps it; another limit takes the time it is written at, the
+  next second when one was written in the same second; after
+  `tehas limit clear` there is none. A limit set before the update prints
+  no `set` until it changes. `tehas limit set` takes `--json` and then
+  prints that object in place of its words.
+  Readers: the consumer that runs many factories, any program that checks
+  the two objects against a closed copy of their schemas.
+  Adopter action: none.
+- **The events have their schemas, and the kit raises them on a page.**
+  #2936.
+  In `api/`: `events.txt`, the names; `event.schema.json`, the envelope
+  with `when`; `event-page.schema.json`, the envelope a page takes;
+  `event-<name>.schema.json` with a `.full.json` and a `.bare.json` sample
+  per name; `event-cycle-started-before.schema.json`, the ask of the start
+  gate, and `gate-answer.schema.json`, `{"api": 1, "answer": "allow" |
+  "refuse", "why": "..."}`, why at most 140 characters, both for 2.1. The
+  kit gains `events.js`: `raise(envelope)` dispatches an event on a page
+  as `tehas:<event>`, such as `tehas:cycle.ended` ([Events](/api#events)).
+  Which events 2.0 raises is in the next entry, and which it does not under
+  [Pending for 2.0](#pending-for-20).
+  Readers: the consumer that runs many factories, Obeya, plugins, the
+  end-to-end suite.
+  Adopter action: none. A page that shows many factories may raise the
+  events it builds from its own stream with `events.js`.
+- **A cycle raises its events.** #2937, #2940.
+  `tehas-cycle` raises `cycle.started` once a start is on record, and after
+  the report `cycle.parked` (a parked line), `question.asked` (a park's
+  question), `cycle.ended` and `change.offered` (a line that names a change,
+  was not signalled, and did not end `refused` or `merged`), in that order.
+  Each payload is built from what the state store holds after the record,
+  so it is what `tehas status`, `tehas history` and `tehas question` then
+  print. The cycle's log has one line per event: `event` and the envelope as
+  JSON. Nothing is pushed to another program. `features` in
+  `tehas api --json` gains `events`. The plugins' hook after a cycle is
+  asked by a listener of `change.offered`, the plugins' bridge, in place of
+  the cycle's own call; its request and the hook's `/run/context.json` carry
+  the envelope as `event` (plugins stay off in 2.0). The end of a start is
+  raised by the process that wrote its line (T11.9, #2940): the cycle for a
+  start it refused before its runner and for an open record its start
+  ended as lost, `tehas stop` for a record it ended, and the poll for a
+  cycle it ended as lost. One that finds the line written raises nothing,
+  so a late report, stop or poll raises no second end. The poll raises
+  `question.asked` for each question it records, a planning turn's, one
+  asked again and a park's question a start puts back. Each end and each
+  question is raised at most once: a writer whose store answer was lost
+  raises nothing, and a consumer reads `tehas history` and `tehas question
+  --after`, the record, for what it missed. `tehas stop` writes its event
+  lines to `logs/dispatch.log`.
+  A line that ends `refused` by its exit status alone (64, 78 and the
+  rest) is not offered, where the 1.x hook asked on it. `repeat` on a line of
+  `tehas history --json` is counted over every line the store keeps,
+  before `--after` takes its page, so a page shows the same count as the
+  whole history and as the event.
+  Readers: the consumer that runs many factories, the end-to-end suite,
+  plugins.
+  Adopter action: none. A program that reads a cycle's log, or
+  `logs/dispatch.log`, sees the `event` lines.
+- **The plugin hook is named by its event.** #2939.
+  The grant and the ask `hook:after:work` are `hook:after:change.offered`,
+  and a manifest's hook `at` is `after:change.offered`, not `after:work`.
+  No alias is kept: `hook:after:work` in a manifest or a grants line is
+  refused, saying the word is now `hook:after:change.offered`, and so is a
+  hook at `after:work`. Every other `hook:` word stays reserved until 2.1.
+  `tehas plugin review` lists the grant under its new word. The hook still
+  runs on each change a cycle offers for review, as before.
+  Readers: plugins.
+  Adopter action: a plugin that asks `hook:after:work` asks
+  `hook:after:change.offered` and puts its hook at `after:change.offered`;
+  a `TEHAS_PLUGIN_GRANTS_<NAME>` line that grants `hook:after:work` grants
+  `hook:after:change.offered` for the plugin's commit.
+- **The relay's edit is conditional.** #2958. A cycle's `gh issue edit`
+  through the relay reads the issue's title and body twice and edits only
+  if the reads agree. Otherwise its `gh` exits 1 with one line asking it to
+  read the issue again. It guards the moment of the edit, not an earlier
+  edit by a person.
+  Readers: the agents of a cycle.
+- **The relay answers in tehas's words.** #3072. A write the relay makes
+  answers the cycle's `gh` with its link, as before. A write GitHub refuses
+  or cannot take answers with status 1 and one line of tehas's words,
+  `gh-shim: the relay could not <verb> #<n>: <reason>`, never GitHub's own
+  error text. A create without both a title and a body, a comment without a
+  body or with a title, and an edit with neither are refused before any call.
+  An edit of an issue whose body holds a tehas marker is not made: 1.x
+  overwrote the marker, and the answer now says why. A create GitHub may
+  have taken without answering is looked for first: found, it answers its
+  link and the cycle may edit it; not found, it failed; when no read can
+  tell, the answer asks the agent to list the cycle's issues before it
+  creates one again.
+  Readers: the agents of a cycle.
+- **The merge is no plugin's grant.** #2943.
+  The grant and the ask `merge` are refused with 78, saying the merge is a
+  person's and no plugin is granted it in this release, where before they
+  were refused as no capability. The merge is a gate whose only policy in
+  2.x is a person; a later release may open it behind an explicit owner
+  setting. Approval is never removed by a plugin.
+  Readers: plugins, the consumer that runs many factories.
+  Adopter action: none.
+- **A plugin's answer is reserved.** #2943.
+  The grant and the ask `answer:<kind>` are refused as reserved for plugins
+  v2, for 2.1, where a plugin may answer a question or skip it, one plugin
+  per kind, and a person's answer wins. In `api/answer.schema.json`, `how`
+  may be `plugin`, with `by` the bot account and an optional `plugin`,
+  `{name, commit}`, naming the plugin; `api/answer.plugin.json` is its
+  shape. Nothing in 2.0 writes it, and the dispatcher refuses such an
+  answer and takes it away: it is never a person's tick or reply.
+  Readers: plugins, the consumer that runs many factories.
+  Adopter action: none. A program that reads an answer takes `how`
+  `plugin` for no person's act.
+- **The health check's `github.last` is in tehas's words.** #2954.
+  `checks.github.last` in the health check, and the `github` line of
+  `tehas status`, name the newest failed GitHub call by a fixed line for its
+  kind: `GitHub's rate limit was reached`, `GitHub failed with a server
+  error`, `GitHub refused the call`, `GitHub did not answer in time`,
+  `GitHub could not be reached`, `GitHub's answer could not be read`, or `a
+  call to GitHub failed`. They no longer show the logged line with gh's
+  words. The other fields keep their meaning.
+  Readers: adopters, the consumer that runs many factories, the end-to-end
+  suite.
+  Adopter action: a program that read gh's words in `last` reads the fixed
+  lines. A line written before the update shows until it leaves the
+  ten-minute window.
+- **`tehas start`, the preview's notice and `tehas init-product` name a
+  failed GitHub call in tehas's words.** #3149. Each error line names what
+  failed in its own words, then the kind of failure as one fixed line of the
+  ports' outcomes: `not found, or not visible to this actor`, `this actor
+  may not do this`, `the budget is spent until later`, `the site failed`,
+  and the like. They no longer pass on gh's words or `HTTP <status>`. The
+  notice's log lines change from `no such pull request (HTTP 404)` and
+  `GitHub refused the call (HTTP 403)` to these.
+  Readers: adopters, the end-to-end suite.
+  Adopter action: a script that matched gh's words or `HTTP <status>` in
+  those lines matches the fixed lines.
+- **`tehas setup`, `tehasbot github-token` and `console pins` name a failed
+  call in tehas's words.** #3140. An error line of each names what failed
+  in its own words, then the kind of failure as one fixed line of the
+  ports' outcomes: `not found, or not visible to this actor`, `the
+  credential is no longer good`, `this actor may not do this`, `the site
+  could not be reached`, `the site failed`, `timed out before sending`, and
+  the like. They no longer pass on curl's words or `HTTP <status>`.
+  Readers: adopters, the end-to-end suite.
+  Adopter action: a script that matched curl's words or `HTTP <status>` in
+  those lines matches the fixed lines.
+- **The repository is tehas-app/tehas-factory.** #2980. Only the
+  repository's name changes: the commands, the crates, the paths, the event
+  names and the kit keep theirs. The release repository built into tehas
+  (`TEHAS_RELEASE_REPO` of `host/versions.env`), the installer's address and
+  the `$id` of every schema in `api/` name `tehas-app/tehas-factory`. The old
+  name, `tehas-app/tehas`, is still accepted wherever a repository is named:
+  GitHub redirects it until the name is reused. An instance whose
+  `TEHAS_RELEASE_REPO` names it loads and updates from it, and `tehas update`
+  says `release: the repository tehas-app/tehas is now
+  tehas-app/tehas-factory` on each run, `--check` included. A host that
+  updates from its checkout (`TEHAS_UPDATE_FROM=git`) whose `origin` names
+  it fetches from it as it is, and `tehas update` says the same line with
+  `checkout:` in place of `release:`. A 1.4.x host, whose built-in
+  repository is the old name, reaches 2.0 through the redirect.
+  Readers: adopters, the consumer that runs many factories, Obeya and
+  plugins where they compare a schema's `$id`, the end-to-end suite.
+  Adopter action: remove `TEHAS_RELEASE_REPO=tehas-app/tehas` from
+  `instance.env` or name `tehas-app/tehas-factory`, and point clones, links
+  and a pinned `$id` at the new name before the redirect ends.
+- **2.0 is supported from 1.4.x.** This page. The update to 2.0 is
+  supported from 1.4.x only, and a host upgrades its factories and the
+  programs that run them together.
+  Readers: adopters, the consumer that runs many factories.
+  Adopter action: update a host on an older release to the newest 1.4.x
+  first.
+- **The allowed labellers are matched ignoring ASCII case.** #2962, #3142.
+  1.4.x matched a login of `TEHAS_ALLOWED_LABELERS` in exact case. In 2.0
+  the dispatcher and the checks of `tehas resume`, `tehas plan`, `tehas dev`
+  and a cycle started by hand match it ignoring ASCII case, as GitHub
+  logins are one account in any case, and the checks print the login in
+  lower case. The user id check folds case too: every case variant of a
+  listed login must carry the id recorded in `state/account-ids`, or it
+  does not count.
+  Readers: adopters, the end-to-end suite.
+  Adopter action: none.
+- **`state/account-ids` names each pair's realm.** #3164. A line is
+  `<realm> <login> <id>`, the realm `code-host` or `tickets`; 1.x wrote
+  `<login> <id>`. 2.0 reads a 1.x line as the code host's, writes every
+  line in the new form, and `tehas update` rewrites the file once. Any
+  other shape cannot be read: no listed login counts, and `tehas update`
+  stops with 78 naming the line and how to fix it. A later 2.x may stop
+  reading the 1.x form, never before a release that rewrote the file.
+  Readers: adopters and tools that read or write the file by hand, the
+  end-to-end suite.
+  Adopter action: none; edit the file by hand only in the new form.
+- **`tehas labels` reads no installed table, and its output text is not
+  contract.** #2962. It makes the labels from the table compiled into the
+  console, so a missing or malformed `~/tehas/lib/labels.tsv` no longer
+  stops it with 78. It prints `made the tehas labels` once, not a line per
+  label, and a label it cannot make is named with the reason. Its exit
+  statuses are the contract; the words it prints may change in 2.x.
+  Readers: adopters, `tehas update`, `tehas setup` and `install.sh`, which
+  read only its status.
+  Adopter action: none. A program that read its lines reads its status.
+- **`tehasbot refresh --pr N` is not public.** This page. `tehasbot` is
+  internal, every verb of it.
+  Readers: adopters, the consumer that runs many factories.
+  Adopter action: call `tehas refresh --pr N`.
+- **`tehas stop` says a number that is not an issue is not one.** #3039.
+  `tehas stop` on a pull request's number, or a number with no issue, that
+  has leftovers on this host says `#12 is not an issue; tehas stops only
+  issues` and exits 1, where it said the labels could not be read: 1.x
+  read a pull request's number as an issue's. With nothing on the host it
+  says there is nothing to stop and exits 0, as before.
+  Readers: adopters, the consumer that runs many factories, the end-to-end
+  suite.
+  Adopter action: none. A script that stops by number reads status 1 and
+  this line for a number that is not an issue.
+- **A pull request's checks hold the newest run of each workflow.** #3179.
+  The checks are read with every run on the commit and keep the newest of
+  each App, check suite and name, not only of each check name. A workflow
+  triggered again on the same commit by another event no longer hides the
+  older run's failure: the checks stay failed until the workflow that
+  failed is re-run and passes. Two workflows with a job of the same name
+  are both counted.
+  Readers: adopters, people on a pull request, the end-to-end suite.
+  Adopter action: re-run a failed workflow itself, not only another
+  trigger of it, for its pull request's checks to pass.
+- **A label counts only while its application stands.** #3150.
+  A cycle started by hand fetches an issue's images and links only while
+  `tehas:ready` is on and an allowed account applied it. A label taken off
+  since counts for nobody; 1.4.x counted its newest application, removed
+  or not. The approvals already read the application that stands.
+  Readers: adopters, people on an issue, the end-to-end suite.
+  Adopter action: none.
+- **The claim of an issue is three writes.** #3214.
+  The dispatcher claims an issue by the `tehas:running` mark, then takes
+  off the label it takes the place of, then assigns `TEHAS_ASSIGNEE`: one
+  more GitHub request per claim than 1.x's one edit. A poll stopped
+  between them leaves the issue marked running, so it is never started
+  twice. An assignee login that cannot be resolved is said once in
+  `logs/dispatch.log`, and that poll's claims go without one.
+  Readers: adopters (the GitHub budget), people on an issue, the
+  end-to-end suite.
+  Adopter action: none.
+- **tehas's own `gh` writes are sent once.** #2946.
+  A rate-limited write that tehas's programs send themselves, the poll's,
+  those of `tehasbot status` and the tidy, the console's commands, and the
+  cycle's report, hooks, finish and the files it fetches, fails at once:
+  the host's gh shim no longer sends it again after a minute. The cycle's
+  calls under `timeout`, the container's `gh`, the relay's calls for it and
+  a `gh` an operator runs on the host keep the retry.
+  Readers: adopters, the end-to-end suite.
+  Adopter action: none.
+- **The host files a drafted plan.** #3158.
+  **File as a new issue** in a refine session files the drafted plan
+  again: it ran `plan --confirm` inside the planner's container, whose token
+  reads issues alone, and GitHub refused it. The host now files the plan as
+  the factory's account, exactly as the question showed it. A plan too long
+  for its comment is not filed, and a try that may have filed it is looked
+  for before the next try files, so a plan is never filed twice.
+  Readers: people on an issue, the end-to-end suite.
+  Adopter action: none.
+- **The surface list is `api/surface-2.0.txt`.** This page.
+  `api/surface-1.0.txt` is renamed `api/surface-2.0.txt`, the public
+  surface of 2.x from 2.0, without the names 2.0 took out. From 2.0.0 its
+  lines are only added; an alpha of 2.0 may still drop one.
+  Readers: the consumer that runs many factories and plugins, where they
+  read the list.
+  Adopter action: a program that read `api/surface-1.0.txt` reads
+  `api/surface-2.0.txt`.
 
-For example:
+## Pending for 2.0
 
-```
-<!-- tehas:spec v1 -->
-Spec: https://github.com/user-attachments/files/123/spec.md sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
-- R1 met: src/search.rs, search() with tests in tests/search.rs
-- R2 not met: the export needs an API the backend does not have yet
-<!-- /tehas:spec -->
-```
+Planned or in review, not merged. Each moves to
+[Changed in 2.0](#changed-in-20) when it lands, with its readers and
+adopter action as the pull request states them.
 
-The rules (`spec_block` in `console/core/src/grammar.rs`):
+- **Events.** T11, spec `docs/specs/2026-11-22-events.md`
+  (#2878, merged). 2.0 raises the cycle's five only, `cycle.started`,
+  `cycle.parked`, `question.asked`, `cycle.ended` and `change.offered`
+  (#2937 and #2940, under [Changed in 2.0](#changed-in-20); the raisers
+  are `console/core/src/raise.rs`). Four more have their names in
+  `api/events.txt` and their schemas and samples in `api/` (#2936), and
+  nothing raises them:
 
-- The open line is exactly `<!-- tehas:spec v1 -->` and the close line exactly
-  `<!-- /tehas:spec -->`, each on a line of its own. Spaces around a line do
-  not count, and LF and CRLF line ends are both read.
-- Only lines outside fenced code blocks count, as for the issue's `Spec:` line.
-  A block quoted inside a fence is text.
-- The first line inside that is not blank is the `Spec:` line, in the form of
-  the issue's: the link of the spec, not its file name, and the sha256 of the
-  manifest's `spec` entry.
-- One or more requirement lines follow, blank lines allowed between them:
-  `- <id> met: <text>` or `- <id> not met: <text>`. A line splits at its first
-  `:`. What comes before must end in ` not met` or ` met`, and what precedes
-  that is the id. The id is not empty and holds no `:` and no backtick. The
-  text is not empty.
-- The id is the spec's own requirement id, such as `R1` or `FR-3`. A spec
-  with no ids uses the text of each top heading instead, without the `#`s and
-  any `:`.
+  | Event | Raised when | Key |
+  | --- | --- | --- |
+  | `factory.limit-changed` | `tehas limit` or `tehas drain` writes another limit | the limit's `set` |
+  | `ticket.acted` | an allowed account's act is recorded | `<ticket>@<act>@<at>` |
+  | `ticket.closed` | a ticket tehas follows is recorded closed | `<ticket>@<at>` |
+  | `change.merged` | a change linked to a blueprint is recorded merged | the change's number |
 
-A body with no block has none. A body tehas cannot read: no close line, a
-second block, an open line of another version (named) or one that starts
-`<!-- tehas:spec v` and is not exactly the open line, a missing or malformed
-`Spec:` line, a line inside of neither form, no requirement line, or an id
-named twice. The manifest's `spec` entry says in `block` which version the
-cycle writes.
-
-What tehas checks (`spec_answered`, and the cycle's report): with the feature
-on, a start not run by hand whose approval pins a spec, a pull request waits
-only for a merge when its body holds one block tehas can read and the block's
-`Spec:` line names the sha256 of that pin. The link is not compared. A body
-with no block, a block of another sha256 or one tehas cannot read parks the
-issue with `needs-human-attention` and the park reason `spec-block`; so does an
-approval that cannot be read. The pull request stays open and gets no
-comment.
-
-The lines are for the person who reviews. This block is not lean's `pi-spec v1`
-block, which goes in an issue body.
+  They are raised after the first alpha, before the beta.
+  Until then a program reads their witnesses as the spec names them: a
+  change of `tehas limit --json`, and the ticket's and the change's own
+  history on the code host.
+  Readers: the consumer that runs many factories, MCP clients, the
+  end-to-end suite, plugins.
+- **The store's migration from 1.4.x alone.** T16. The store still
+  migrates from schema 12, the one v0.30.0 wrote (`OLDEST` in
+  `console/store/src/db.rs`), not only from 1.4.x's 23: its steps 13 to 23
+  are still in it, though 2.0 is supported from 1.4.x only. Taking them
+  out leaves a store of 1.4.x migrated as now.
+  Readers: `tehas update`, the end-to-end suite.
+- **The ports.** T4, spec `docs/specs/2026-11-22-ports.md`.
+  The ports themselves. Two settings choose the adapters:
+  `TEHAS_CODE_HOST` and `TEHAS_TICKETS`. In 2.0 each accepts only
+  `github`; a missing setting means `github`, so a 1.4.x instance still
+  loads, and any other value is refused with 78. Two names stay for now as GitHub's word for a pull
+  request, on the list of supplier words still to go: `pullRequests` in the
+  analytics report and the dashboard's internal `pr` key.
+  Readers: adopters, the consumer that runs many factories where it keeps
+  an instance's settings.
 
 ## Features still being built
 
 A feature is `building` or `shipped` in a release (`console/core/src/features.rs`).
-Only a shipped feature can be on. A building feature leaves nothing in the
-frozen surface ([the rules for 1.x](#the-rules-for-1x)): its switch set to `on`, or a line that gives one of its own
-settings a value, stops every command with exit 78 and names the feature, it
-adds no command, no label, no `--json` field and no MCP
-tool, and its settings, its key in `flags`, its commands, fields and MCP tools
-are not contract until the release that ships it, except a name that was
-public before the feature became building, which stays on
-`api/surface-1.0.txt` ([review](#review)). `tehas api --json` lists
-every feature in `flags`, `false` while it is building, and a shipped
-feature's word in `features`. `api/settings-rules.json` marks the rows of a
-building feature `"building": true`. `api/commands.txt` marks a command of a
-building feature `building=<feature>` at the end of its row, and a flag of
-one that a public command gains `--flag:building=<feature>`: neither is on
-the surface until the feature ships. Promoting a
-feature to shipped only adds. A lab host proves a building feature on a build
-that reads `TEHAS_TEST_FEATURES`, which no release does: see [proving a
-building feature on a lab host](/tools-update#proving-a-building-feature-on-a-lab-host).
-
-### Names reserved for 1.1
-
-Each building feature of 1.0 is planned for 1.1, and these are the names it
-adds when it ships. The names marked frozen are in `api/surface-1.0.txt`
-already and keep their meaning in 1.0.
-
-| Feature | Settings | Commands | Fields, tools and text | Labels | Programs and units |
-| --- | --- | --- | --- | --- | --- |
-| outsource | `TEHAS_OUTSOURCE` and `TEHAS_OUTSOURCE_TIMEOUT`, `_GRACE`, `_RETRIES`, `_REST`, `_REPOS`, `_CONTRACTORS`, `_JOIN_TTL`, `_PROXY_ADDR`, `_PROXY_IDLE` | `tehas outsource invite [--name NAME]`, `list`, `status`, `revoke <contractor>`, `drain <contractor>`, each with `--json` | `contractors` in `tehas status --json` (`api/status.outsourced.json`), the MCP tool `factory_contractors`, the job channel `/outsource/v1/<call>`, the column `runs.contractor_id` of `analytics.db` (frozen) | none | `tehas-proxy`, `tehas-contractor`, `tehas-outsource-proxy.service` |
-| spec-pipe | `TEHAS_SPEC_PIPE` | none | the issue line `Spec: <link> sha256:<hex>`, [the pull request spec block](#the-pull-request-spec-block) version 1, the cycle's `spec` and `approved.json` and their manifest keys `spec` and `approvedText`, the runner capability `issueSpec` | none | none |
-| protolab-zip-url | `TEHAS_PROTOLAB_ZIP_URL`, `TEHAS_PROTOLAB_ZIP_HOSTS` | none | the ticket line `Zip: <address> sha256:<hex>` | `tehas:prototype` (frozen) | none |
-| prototype-file | `TEHAS_PROTOTYPE_FILE` | `tehas prototype file` with `--title`, `--body-file`, `--spec`, `--spec-sha256`, `--zip`, `--zip-sha256` | none | `tehas:prototype` (frozen) | none |
-| lean | `TEHAS_LEAN`, and the word `lean` of `TEHAS_DRIVER` (frozen) | `tehas work --driver lean` (the flag is frozen) | the issue's `pi-spec v1` block, the `driver` columns of `analytics.db` (frozen) | `tehas:lean`, `tehas:classic` (frozen) | none |
-| review | `TEHAS_REVIEW`, `TEHAS_REVIEW_REPO` (both frozen) | none | none | `tehas:improvement` (frozen) | `tehas-review.service`, `tehas-review.timer` |
-
-Each feature's name is its key in `flags` and the word 1.1 appends to
-`features`. None of them adds a `/health` field.
+Only a shipped feature can be on. A building feature leaves nothing on the
+frozen surface ([the rules for 2.x](#the-rules-for-2x)): its switch set to
+`on`, or a line that gives one of its own settings a value, stops every
+command with exit 78 and names the feature; it adds no command, no label, no
+`--json` field and no MCP tool; and its settings, its key in `flags`, its
+commands, fields and MCP tools are not contract until the release that ships
+it. `tehas api --json` lists every feature in `flags`, `false` while it is
+building, and a shipped feature's word in `features`.
+`api/settings-rules.json` marks the rows of a building feature
+`"building": true`. `api/commands.txt` marks a command of a building feature
+`building=<feature>` at the end of its row, and a flag of one that a public
+command gains `--flag:building=<feature>`: neither is on the surface until
+the feature ships. Promoting a feature to shipped only adds. A lab host
+proves a building feature on a build that reads `TEHAS_TEST_FEATURES`, which
+no release does: see [proving a building feature on a lab
+host](/tools-update#proving-a-building-feature-on-a-lab-host).
 
 What each registered feature leaves visible while its flag is off:
 
-### outsource
-
-Building, planned for 2.1. Off by default; `TEHAS_OUTSOURCE=on` stops every command with exit
-78 and says `outsource` is still being built.
-
-- `tehas api --json` has `"outsource": false` in `flags`, and no word
-  `outsource` in `features`.
-- The settings `TEHAS_OUTSOURCE_*` are in `api/settings-rules.json`, but they
-  are not contract: a line that gives one a value stops every command with
-  exit 78 and names `outsource`.
-- `tehas-proxy` ends at once with exit 0 and opens no port.
-- No command, no label, no `contractors` in `tehas status --json`, no MCP
-  tool, nothing in `live/`.
-- The state store has its tables for contractors and jobs, which are internal.
-  `tehas state check --json` counts them under `rows`, whose keys are the
-  store's table names and internal.
-- `analytics.db` has the column `contractor_id` of `runs`, the name of the
-  contractor that ran the cycle, NULL on every run while outsource is off. It
-  is part of schema 4, which is frozen: 1.1 keeps its name, its type and its
-  meaning.
-
-[Outsource](/outsource) says what the feature does once it ships.
-
-### spec-pipe
-
-Building, planned for 1.1. Off by default; `TEHAS_SPEC_PIPE=on` stops every command with exit
-78 and says `spec-pipe` is still being built.
-
-- `tehas api --json` has `"spec-pipe": false` in `flags`, and no word
-  `spec-pipe` in `features`.
-- The poll asks an issue's body nothing more: a `Spec:` line is text, and a
-  body with one starts as any other.
-- A start fetches no spec and its approval keeps no pin. The approval record
-  in the state store has room for one, which is internal.
-- A cycle is given no `spec` and no `approved.json`, and its manifest names
-  neither.
-- No pull request is checked for a spec block: a handoff waits for a merge as
-  before.
-- No command, no label, no `--json` field, no MCP tool.
-
-[tehas work](/tools-work) says what the feature gives a cycle once it ships.
-
-### protolab-zip-url
-
-Building, planned for 1.1. Off by default; `TEHAS_PROTOLAB_ZIP_URL=on` stops every command with
-exit 78 and says `protolab-zip-url` is still being built.
-
-- `tehas api --json` has `"protolab-zip-url": false` in `flags`, and no word
-  `protolab-zip-url` in `features`.
-- The setting `TEHAS_PROTOLAB_ZIP_HOSTS` is in `api/settings-rules.json`, but
-  it is not contract: a line that gives it a value stops every command with
-  exit 78 and names `protolab-zip-url`.
-- A `Zip:` line in a ticket is text on the Protolab page, as it always was.
-- No command, no label, no `--json` field, no MCP tool.
-
-[A zip by address](/tools-protolab#a-zip-by-address) says what the feature
-does once it ships.
-
-### prototype-file
-
-Building, planned for 1.1. Off by default; `TEHAS_PROTOTYPE_FILE=on` stops every command with
-exit 78 and says `prototype-file` is still being built.
-
-- `tehas api --json` has `"prototype-file": false` in `flags`, and no word
-  `prototype-file` in `features`.
-- `tehas prototype file` exits 78 and files nothing. `tehas help prototype`
-  prints its text, and the list of `tehas help` does not name it.
-- No label, no `--json` field, no MCP tool.
-
-[`tehas prototype file`](/tools-protolab#tehas-prototype-file) says what the
-feature does once it ships.
-
 ### lean
 
-Building, planned for 1.1. Off by default; `TEHAS_LEAN=on` stops every command with exit 78
-and says `lean` is still being built, and so does `TEHAS_DRIVER=lean`, which
-names the feature it needs.
+Building, and experimental. It stays building in 2.0: classic is 2.0's
+driver, and lean runs only on a lab host (T13). Off by
+default; `TEHAS_LEAN=on` stops every command with exit 78 and says `lean` is
+still being built, and so does `TEHAS_DRIVER=lean`, which names the feature
+it needs.
 
 - `tehas api --json` has `"lean": false` in `flags`, and no word `lean` in
   `features`.
@@ -440,46 +1200,27 @@ names the feature it needs.
 - `tehas work --driver lean` exits 78 and starts no cycle. `--driver classic`
   works as before.
 - The labels `tehas:lean` and `tehas:classic` stay in the label set, so
-  `tehas labels` does not remove them, and they and `TEHAS_DRIVER=lean` stay
-  accepted through 1.x whatever lean becomes. `tehas:lean` is inert: a start that
+  `tehas labels` does not remove them. `tehas:lean` is inert: a start that
   would run lean starts nothing, the label that asked comes off and the issue
   says once that lean is still being built. Classic never runs in its place.
   `tehas:classic` and an issue with no driver label run classic.
-- An approval record that names driver `lean`, kept from before, is refused
-  with 78 by `tehas work`; it does not run as classic.
+- An approval record that names driver `lean` is refused with 78 by
+  `tehas work`; it does not run as classic.
 - No command, no `--json` field, no MCP tool.
 
 [Choosing the driver](/operating#choosing-the-driver) says what the feature
 does once it ships.
 
-### review
-
-Building since v1.0.0-rc.1, planned for 1.1. It shipped as a setting before the registry, but
-no run was seen on a host, so it became building (decided 2026-11-19). Off by
-default; `TEHAS_REVIEW=on` stops every command with exit 78 and says `review`
-is still being built.
-
-- `tehas api --json` has `"review": false` in `flags`, and no word `review`
-  in `features`.
-- The settings `TEHAS_REVIEW` and `TEHAS_REVIEW_REPO` were public before
-  review became building, so they stay on `api/surface-1.0.txt` and keep
-  their meaning. While review is building they are refused: a line that
-  gives `TEHAS_REVIEW_REPO` a value stops every command with exit 78 and
-  names `review`.
-- `tehasbot review` exits 0 at once and calls nothing.
-- `install.sh` does not install `tehas-review.service` or
-  `tehas-review.timer`, does not enable the timer and an update does not
-  restart it. A host that had them from an earlier release keeps the files,
-  and `install.sh` stops and disables the timer if it is enabled.
-- No command, no label, no `--json` field, no MCP tool.
-
-[The review loop](/operating#the-review-loop) says what the feature does once
-it ships.
-
 ### plugins
 
-Building since v1.2.0. Off by default; `TEHAS_PLUGIN=on` stops every command
-with exit 78 and says `plugins` is still being built.
+Building since v1.2.0, and off in 2.0. 2.1 builds the plugin
+specification that is current at 2.1. Plugins stay outside 2.0's frozen
+surface, and the mechanisms of the 1.x plugin specifications are not
+promised: a plugin's build and container, its settings, the gate, the
+manifest and its grants may change or go in 2.1. What 2.x promises plugins
+is in [the rules for 2.x](#the-rules-for-2x) and in what 2.0 holds for
+2.1, below. Off by default; `TEHAS_PLUGIN=on` stops every command with exit 78 and says
+`plugins` is still being built.
 
 - `tehas api --json` has `"plugins": false` in `flags`, and no word `plugins`
   in `features`.
@@ -506,31 +1247,65 @@ with exit 78 and says `plugins` is still being built.
   `tehas-plugin-gate.service` are installed only while the feature is on, so
   a release installs neither. The edge router sends the names `plugin-*` and
   `plugins*` to the gate in every release; with no gate they answer 503.
-- A panel id starting `p-` is a plugin's view, which `tehas panel set`
-  refuses with 64 whether the feature is on or not. The flags
-  `--app-client-id` and `--app-secret-file` of `tehas setup` belong to the
+- The flags `--app-client-id` and `--app-secret-file` of `tehas setup` belong to the
   feature and are not contract until it ships.
 - No label, no `--json` field of another command, no MCP tool, no file under
   `live/`.
 
-### wiki
+What 2.0 holds for 2.1's plugins:
 
-Building since v1.3.0. Off by default; `TEHAS_WIKI=on` stops every command
-with exit 78 and says `wiki` is still being built.
+- **What no plugin removes.** A plugin may add phases anywhere in the
+  status flow, and may skip or hide an optional phase under a grant a
+  person gives. Approval, `tehas:ready` applied by an account
+  of `TEHAS_ALLOWED_LABELERS` (hard rule 5), is never removed by a plugin.
+  The merge is a gate whose only policy in 2.x is a person. The grant word
+  `merge` is reserved and refused with 78 as not in this release; a later
+  release may open it behind an explicit owner setting. Its phase labels
+  are `tehas:p-` ([the rules for 2.x](#the-rules-for-2x)).
+- **Questions.** A plugin may answer a question, or skip it, under
+  `answer:<kind>` from 2.1: one plugin per kind, and a person's answer
+  wins. 2.0 refuses the word as reserved, like the other words of 2.1, and
+  reserves `how` `plugin` and the field `plugin` in `api/answer.schema.json`
+  ([the rules for 2.x](#the-rules-for-2x)).
+- **The events a plugin can see.** The events of the
+  [list under Pending](#pending-for-20) and their gates, by the names and
+  schemas in `api/` ([the rules for 2.x](#the-rules-for-2x)). A listener's
+  answer to a gate is an answer by `api/gate-answer.schema.json`; where a
+  listener writes it, and how a plugin is granted an event, are 2.1's
+  plugin specification. The first gate, the `before` side of
+  `cycle.started`, comes in 2.1.
+- **The grants in 2.0's code**, not promised: a plugin asks in its
+  manifest and a person grants for the plugin's commit. The one hook
+  grant the code takes is `hook:after:change.offered`; every other `hook:`
+  word is refused as not in this release, and 1.x's `hook:after:work` is
+  refused, with no alias.
+- **What plugins read of an approved body.** `start.approval.bodySha256`
+  of `tehas start --json` and the reader of lean's `pi-spec v1` block,
+  `spec_block` in `console/core/src/plan.rs`, stay through 2.x: the
+  `goldfish` plugin reads the spec from the approved body through them.
+  `bodySha256` is the sha256 of the body with its carriage returns dropped,
+  as `body_sum` in `console/core/src/approval.rs` takes it, so a reader that
+  hashes the body itself drops them too.
+- **A tool's typed blocks.** A tool's answer may carry typed blocks from
+  2.1; their schema will live in `api/`, so the block vocabulary has one
+  owner, as the events have.
 
-- `tehas api --json` has `"wiki": false` in `flags`, and no word `wiki` in
-  `features`.
-- `tehas wiki` exits 78 and reads nothing more. `tehas help wiki` prints its
-  text, and the list of `tehas help` does not name it.
-- `tehas wiki build` exits 78 too, and `tehasbot wiki` and
-  `tehasbot wiki build` exit 0 and write nothing. `install.sh` installs none
-  of `tehas-wiki-status.service`, `tehas-wiki.service` and their timers, and
-  not `tehas-wiki.path`.
-- The sandbox kind `wiki` and its argument list are not contract.
-- `/wiki` and every address under it answer 404, because no `live/wiki.json`
-  is written, and the dashboard's `wiki` link stays hidden.
-- No label, no `--json` field of another command, no MCP tool and no file
-  under `live/`.
+What 2.0 keeps for the plugins that take over the features it removed.
+Some of it is live in core: the edge routes `item-<n>.<domain>` to
+`~/tehas/items`, and `console/attach` fetches the images a cycle is given.
+The rest is library code that nothing in core calls yet:
+
+| Kept | Where | For |
+| --- | --- | --- |
+| The store of an item's files and the page writer | `console/items` | the lab plugin |
+| Which open issues carry a mark from an allowed account | `console/core/src/issue_feed.rs` | the lab plugin |
+| The edge's static serving of an item at `item-<n>.<domain>`, from `~/tehas/items` | `host/edge/router.Caddyfile` | the lab plugin |
+| Fetch, limits, sniff, zip unpack and manifest; zip by address | `console/attach` | the lab and `given` plugins |
+| The describe prompt and its quoting | `console/describe` | the `given` plugin |
+| The review's renderer | `console/review-render` | the `review` plugin |
+| The wiki's collector, check and render | `console/wiki-collect`, `console/wiki-render` | the `wiki` plugin |
+| The mesh read | `console/mesh-feed` | the `energy` plugin |
+| The cut of `tehas top`'s snapshot | `console/host-feed` | the `hoststats` plugin (`feed:host`) |
 
 ## Exit statuses
 
@@ -661,6 +1436,26 @@ error, when its reader goes away, as in `tehas status | head -1`.
 | 64 | A bad argument; nothing is written |
 | 78 | The settings are missing or malformed; nothing is written |
 
+### tehas answer
+
+| Status | When |
+| --- | --- |
+| 0 | The answer is recorded |
+| 1 | The state store refused or is not installed |
+| 3 | No question of that kind waits on the issue, or the question does not offer that option. Nothing is recorded |
+| 64 | A bad argument; nothing is written |
+| 78 | `--by` may not authorise work, or the settings are missing or malformed; nothing is written |
+
+### tehas question
+
+| Status | When |
+| --- | --- |
+| 0 | A question waits, and it is printed; or, with no issue, the list is printed, an empty one too |
+| 1 | The state store refused or is not installed |
+| 3 | No question waits on the issue |
+| 64 | A bad argument |
+| 78 | The settings are missing or malformed |
+
 ### tehas refresh
 
 | Status | When |
@@ -713,17 +1508,17 @@ error, when its reader goes away, as in `tehas status | head -1`.
 | Status | When |
 | --- | --- |
 | 0 | The cycle is stopped and its leftovers are gone, or there was nothing to do |
-| 1 | The cycle still holds its lock, a stop or a removal failed, the label could not be read or taken off, or the state store could not be read or written |
+| 1 | The cycle still holds its lock, a stop or a removal failed, the number is not an issue (a pull request's, or no item's), the label could not be read or taken off, or the state store could not be read or written |
 | 64 | No issue number, one that is not a positive number, or an argument it does not know |
 | 78 | The settings are missing or malformed, or the state store is not installed or cannot be used |
 
-### tehas panel and tehas host-message
+### tehas host-message
 
 | Status | When |
 | --- | --- |
 | 0 | Done |
 | 1 | The list could not be read or written, or another run held the lock |
-| 64 | A bad argument, one item over the limit, or for a panel a url on `TEHAS_DOMAIN`; nothing is written |
+| 64 | A bad argument, or one item over the limit; nothing is written |
 | 78 | The settings are missing or malformed; nothing is written |
 
 ### tehas dispatch
@@ -807,7 +1602,7 @@ its result, and has statuses of its own beside them. Here 3 is tehas's own
 | 1 | The update failed: another update holds the lock, the checkout or the release cannot be moved, a step or `install.sh` failed or timed out, systemd did not reload the units, the image could not be moved; or `--check` found something an update does not fix (the host's tools, the slice, root's copy of the command, the tests), or the sandbox build's own check failed |
 | 3 | `--check` found something to update and nothing an update does not fix: a checkout behind, a release to switch to, files that differ, steps left over, or a pi-rukas commit the image is not on |
 | 64 | A bad argument or a combination it refuses |
-| 78 | The settings are missing or malformed (a setting tehas 1.0 renamed or removed among them), a login cannot be resolved or its id changed, or there is no console or no platform to update from |
+| 78 | The settings are missing or malformed (a setting 2.0 refuses among them), a login cannot be resolved or its id changed, or there is no console or no platform to update from |
 
 ### tehas labels
 

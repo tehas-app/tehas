@@ -20,8 +20,6 @@
 //!   with them.
 //! - rukas: the pi-rukas commit of the image's tehas.rukas label as the cycle
 //!   started, or null.
-//! - contractor: the name of the contractor that ran the cycle, absent or null
-//!   for a cycle run in-house. Only an instance with outsource on gives one.
 //!
 //! Every file is read as tehas wrote it, and none through a link. Where a
 //! file is missing its columns are NULL. Under $TEHAS_HOME:
@@ -72,7 +70,9 @@ use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 use std::time::UNIX_EPOCH;
 use tehas_core::grammar::is_hex;
+use tehas_core::home::{Home, State};
 use tehas_core::mask;
+use tehas_core::outcome::{end, Line};
 use tehas_core::time::days_from_civil;
 
 // A file bigger than this is not read: none that tehas writes comes near it.
@@ -143,8 +143,6 @@ pub struct Run {
     /// The driver the result says ran the issue, beside `driver`, the one the
     /// approval bound.
     pub result_driver: Option<String>,
-    /// The contractor that ran the cycle, from the facts; None in-house.
-    pub contractor_id: Option<String>,
     pub steps: Vec<Step>,
     pub roles: Vec<Role>,
     pub gates: Vec<GateRun>,
@@ -235,7 +233,7 @@ const MAX_LEAN_FILE: u64 = 256 << 10;
 /// as it starts, so what is there when the run is recorded is this run's. None
 /// when there is no file, or one this reads no step from.
 pub fn lean_steps(home: &Path, issue: i64) -> Option<Vec<String>> {
-    let p = home.join(format!("state/cycles/{issue}.lean-state.json"));
+    let p = Home::new(home).cycle_note(issue as u64, "lean-state.json");
     let v = read_json_of(&p, MAX_LEAN_FILE)?;
     let out: Vec<String> = v
         .get("steps")?
@@ -257,8 +255,8 @@ pub(crate) fn read_facts(given: Option<&Path>) -> Option<Value> {
 /// Reads the run of `issue` that ended last. Err when its facts cannot be
 /// read or hold no history line.
 pub fn read(home: &Path, issue: i64, given: &Given) -> Result<Run, String> {
-    let cycles = home.join("state").join("cycles");
-    let note = |ext: &str| cycles.join(format!("{issue}.{ext}"));
+    let cycles = Home::new(home);
+    let note = |ext: &str| cycles.cycle_note(issue as u64, ext);
 
     let facts = read_facts(given.facts.as_deref())
         .and_then(|f| match f {
@@ -284,11 +282,6 @@ pub fn read(home: &Path, issue: i64, given: &Given) -> Result<Run, String> {
             .get("attempt")
             .and_then(Value::as_i64)
             .filter(|n| *n > 0),
-        contractor_id: facts
-            .get("contractor")
-            .and_then(Value::as_str)
-            .and_then(tehas_core::stamp::name)
-            .map(str::to_string),
         ..Run::default()
     };
     run.ended = text(last, "at")
@@ -470,7 +463,7 @@ pub fn read(home: &Path, issue: i64, given: &Given) -> Result<Run, String> {
         }
     }
 
-    run.outcome = Some(outcome(&run, parked).to_string());
+    run.outcome = Some(end(&run.line(parked)).to_string());
     Ok(run)
 }
 
@@ -585,43 +578,17 @@ fn role(name: String, r: &Map<String, Value>) -> Option<Role> {
     })
 }
 
-/// The statuses of a cycle that ended in failure.
-pub(crate) const FAILED: [&str; 6] = [
-    "killed", "stalled", "timeout", "aborted", "unknown", "failed",
-];
-
-/// How the run ended, in the words of the runs table:
-/// merged    the issue's pull request was merged
-/// stopped   the issue was closed while it ran, or it was interrupted
-/// refused   no cycle ran: the runner refused (40), or tehas work started
-///           none (3 cannot push, 4 attachments, 5 already running, 64, 78)
-/// pr        it left an open pull request and was not parked
-/// handoff   the runner handed off to a person
-/// failed    tehas stopped it (killed, stalled, timeout), the runner
-///           aborted, or a failure other than a cap stopped it
-/// parked    any other end that needs a person, such as a cap
-pub(crate) fn outcome(run: &Run, parked: bool) -> &'static str {
-    let status = run.status.as_deref().unwrap_or("unknown");
-    let kind = run.failure_kind.as_deref().unwrap_or("");
-    match status {
-        "merged" => return "merged",
-        "closed" | "interrupted" => return "stopped",
-        "refused" => return "refused",
-        _ => {}
+impl Run {
+    /// The fields of the run that decide its end, for `tehas_core::outcome::end`.
+    pub(crate) fn line(&self, parked: bool) -> Line<'_> {
+        Line {
+            outcome: self.status.as_deref(),
+            status: self.exit_code,
+            change: self.pr.is_some(),
+            parked,
+            failure_kind: self.failure_kind.as_deref(),
+        }
     }
-    if matches!(run.exit_code, Some(3 | 4 | 5 | 40 | 64 | 78)) {
-        return "refused";
-    }
-    if run.pr.is_some() && !parked {
-        return "pr";
-    }
-    if status == "handoff" {
-        return "handoff";
-    }
-    if FAILED.contains(&status) || (!kind.is_empty() && kind != "cap") {
-        return "failed";
-    }
-    "parked"
 }
 
 /// Inserts the run with its steps and roles, in one transaction. A run
@@ -636,10 +603,10 @@ pub fn insert(conn: &Connection, run: &Run) -> rusqlite::Result<()> {
            tehas_commit, rukas_version, rukas_commit, image, input, output, cache_read,
            cache_write, turns, dispatches, cost, oom_kills, forks_refused, concurrent,
            runner_ms, result_schema, gate_runs, gate_ms, driver, tool_calls, tool_errors,
-           result_driver, contractor_id)
+           result_driver)
          VALUES (?1, 'work', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
            ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32,
-           ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45)",
+           ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44)",
         params![
             run.id,
             run.issue,
@@ -685,7 +652,6 @@ pub fn insert(conn: &Connection, run: &Run) -> rusqlite::Result<()> {
             run.tool_calls,
             run.tool_errors,
             run.result_driver,
-            run.contractor_id,
         ],
     )?;
     crate::db::image_built(&tx, run.image.as_deref(), run.image_built)?;
@@ -861,12 +827,12 @@ fn plain_file(p: &Path) -> Option<File> {
     File::open(p).ok()
 }
 
-/// A ledger beside the database: `state/<name>`, read by the one rule this
+/// A ledger beside the database, under `state/`, read by the one rule this
 /// program has for a host file it did not write -- never through a link, never
 /// a device or a fifo, and none over `limit` bytes. Both state ledgers are read
 /// here, so "a ledger is a bounded plain file" is held in one place.
-pub(crate) fn read_ledger(home: &Path, name: &str, limit: u64) -> Option<String> {
-    read_plain(&home.join("state").join(name), limit)
+pub(crate) fn read_ledger(home: &Path, ledger: State, limit: u64) -> Option<String> {
+    read_plain(&Home::new(home).state(ledger), limit)
 }
 
 /// A plain file's text, never through a link, and none over `limit` bytes. The

@@ -40,6 +40,125 @@ pub struct Reading {
     pub cids: Vec<String>,
 }
 
+/// What `usable` reads of `systemctl show tehas.slice`. A field the answer
+/// left out, or gave as no string, is empty.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Show {
+    pub fragment_path: String,
+    pub active_state: String,
+    pub memory_max: String,
+}
+
+/// A reading with systemctl's answer typed, as the dispatcher's snapshot
+/// holds it. The fields are a [`Reading`]'s; `show` is None when systemctl
+/// gave no answer or an empty one.
+#[derive(Clone, Debug, Default)]
+pub struct Probed {
+    pub show: Option<Show>,
+    pub docker: Option<String>,
+    pub controllers: Option<String>,
+    pub cpus: Option<String>,
+    pub root: String,
+    pub scopes: Option<Vec<Scope>>,
+    pub pressure: Option<String>,
+    pub cids: Vec<String>,
+}
+
+impl Probed {
+    /// The reading with its answer typed.
+    pub fn of(r: Reading) -> Probed {
+        Probed {
+            show: typed(&r),
+            docker: r.docker,
+            controllers: r.controllers,
+            cpus: r.cpus,
+            root: r.root,
+            scopes: r.scopes,
+            pressure: r.pressure,
+            cids: r.cids,
+        }
+    }
+
+    /// `usable` of this reading, from its typed answer.
+    pub fn usable(&self, reserve: &str, containers: &str) -> Result<Usable, String> {
+        checked(self.show.as_ref(), self, reserve, containers)
+    }
+
+    /// `room` of this reading.
+    pub fn room(&self, s: &Usable, reserve: &str, count: u64) -> Room {
+        measured(&self.facts(), s, reserve, count)
+    }
+
+    fn facts(&self) -> Facts<'_> {
+        Facts {
+            root: &self.root,
+            scopes: self.scopes.as_deref(),
+            pressure: self.pressure.as_deref(),
+            cids: &self.cids,
+        }
+    }
+}
+
+/// systemctl's answer typed: an empty one is none.
+fn typed(r: &Reading) -> Option<Show> {
+    r.show.as_ref().filter(|m| !m.is_empty()).map(|m| {
+        let field = |k: &str| m.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+        Show {
+            fragment_path: field("FragmentPath"),
+            active_state: field("ActiveState"),
+            memory_max: field("MemoryMax"),
+        }
+    })
+}
+
+/// What `room` reads of a reading.
+struct Facts<'a> {
+    root: &'a str,
+    scopes: Option<&'a [Scope]>,
+    pressure: Option<&'a str>,
+    cids: &'a [String],
+}
+
+/// What `usable` asks past systemctl, asked only when a check needs it.
+trait Asked {
+    fn docker(&self) -> Option<String>;
+    fn controllers(&self) -> Option<String>;
+    fn cpus(&self) -> Option<String>;
+    fn root(&self) -> &str;
+}
+
+struct Asking<'a, P>(&'a P);
+
+impl<P: Probe> Asked for Asking<'_, P> {
+    fn docker(&self) -> Option<String> {
+        self.0.docker()
+    }
+    fn controllers(&self) -> Option<String> {
+        self.0.controllers()
+    }
+    fn cpus(&self) -> Option<String> {
+        self.0.cpus()
+    }
+    fn root(&self) -> &str {
+        self.0.root()
+    }
+}
+
+impl Asked for Probed {
+    fn docker(&self) -> Option<String> {
+        self.docker.clone()
+    }
+    fn controllers(&self) -> Option<String> {
+        self.controllers.clone()
+    }
+    fn cpus(&self) -> Option<String> {
+        self.cpus.clone()
+    }
+    fn root(&self) -> &str {
+        &self.root
+    }
+}
+
 /// The host calls `usable` makes. It stops at the first check that fails, so
 /// `docker` and `cpus` are asked only of a slice that got that far.
 pub trait Probe {
@@ -346,20 +465,28 @@ pub fn bytes(s: &str) -> Option<u64> {
 
 /// The slice, or the line a person can act on.
 pub fn usable(r: &impl Probe, reserve: &str, containers: &str) -> Result<Usable, String> {
-    let Some(show) = r.show().filter(|m| !m.is_empty()) else {
+    let show = typed(&Reading {
+        show: r.show(),
+        ..Reading::default()
+    });
+    checked(show.as_ref(), &Asking(r), reserve, containers)
+}
+
+/// `usable` past the call to systemctl, whose answer is `show`.
+fn checked(
+    show: Option<&Show>,
+    r: &impl Asked,
+    reserve: &str,
+    containers: &str,
+) -> Result<Usable, String> {
+    let Some(show) = show else {
         return Err("systemctl gave no answer".into());
     };
-    let field = |k: &str| {
-        show.get(k)
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string()
-    };
     // A slice that is only a name has no file and no limit. It is never used.
-    if field("FragmentPath").is_empty() {
+    if show.fragment_path.is_empty() {
         return Err("no slice file on this host (sudo ./bootstrap.sh slice)".into());
     }
-    let Some(max) = num(&field("MemoryMax")) else {
+    let Some(max) = num(&show.memory_max) else {
         return Err("tehas.slice has no memory limit (sudo ./bootstrap.sh slice)".into());
     };
     let docker = r.docker().unwrap_or_default();
@@ -420,7 +547,7 @@ pub fn usable(r: &impl Probe, reserve: &str, containers: &str) -> Result<Usable,
         .filter(|n| *n > 0);
     Ok(Usable {
         max,
-        active: field("ActiveState"),
+        active: show.active_state.clone(),
         ceiling_mb: ceiling,
         cpus: counted.map_or(nproc, |n| n.min(nproc)),
         nproc,
@@ -674,6 +801,16 @@ pub fn full_avg60(text: &str) -> Option<String> {
 /// slice that is full, and an operator chasing it reads the slice; a bad
 /// setting is nothing in the slice to read.
 pub fn room(r: &Reading, s: &Usable, reserve: &str, count: u64) -> Room {
+    let facts = Facts {
+        root: &r.root,
+        scopes: r.scopes.as_deref(),
+        pressure: r.pressure.as_deref(),
+        cids: &r.cids,
+    };
+    measured(&facts, s, reserve, count)
+}
+
+fn measured(r: &Facts, s: &Usable, reserve: &str, count: u64) -> Room {
     let Some(reserve) = bytes(reserve) else {
         return unreadable(
             0,
@@ -686,7 +823,7 @@ pub fn room(r: &Reading, s: &Usable, reserve: &str, count: u64) -> Room {
         return unreadable(0, max, "the slice was not probed".into());
     }
     let dir = format!("{}/tehas.slice", r.root);
-    let Some(scopes) = &r.scopes else {
+    let Some(scopes) = r.scopes else {
         // systemd removes the directory of a slice that is not active. A cycle
         // holds its lock also while it has no container in the slice (the
         // clone, the end), so each one is promised a reserve and nothing is
@@ -739,7 +876,7 @@ pub fn room(r: &Reading, s: &Usable, reserve: &str, count: u64) -> Room {
         committed += (count - scoped) * reserve;
         containers += count - scoped;
     }
-    let pressure = match &r.pressure {
+    let pressure = match r.pressure {
         None => {
             return unreadable(
                 committed,

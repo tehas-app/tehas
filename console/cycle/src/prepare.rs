@@ -34,6 +34,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use tehas_core::driver::Driver;
 use tehas_core::exit::work::{NOT_STARTED, NO_PUSH};
+use tehas_core::home::{Home, State};
 use tehas_core::install::{self, Step};
 use tehas_core::models;
 use tehas_core::sandbox::{self, Identity, Kind, Paths, HANDOFF_SECONDS};
@@ -173,7 +174,7 @@ pub fn deadline(now: i64, limit: u64) -> Option<i64> {
 /// gate, and every cycle is a fresh clone, so a lean run never finds a state
 /// file to discard. The dispatcher takes needs-human-attention off a lean start
 /// itself; on classic the cycle takes it off before the runner starts.
-pub fn run_flags(limit: u64, restart: bool, refresh: bool, driver: Driver) -> Vec<String> {
+fn run_flags(limit: u64, restart: bool, refresh: bool, driver: Driver) -> Vec<String> {
     let mut flags = vec![
         "--timeout".to_string(),
         limit.div_ceil(60).to_string(),
@@ -248,7 +249,7 @@ const NEVER_TAKEN: &str = "never-taken ";
 
 /// The lines of an unsupported answer, each flag the driver never takes marked
 /// with [`NEVER_TAKEN`].
-pub fn mark_never_taken(lacking: &str, driver: Driver) -> String {
+fn mark_never_taken(lacking: &str, driver: Driver) -> String {
     lacking
         .lines()
         .map(|l| match l.strip_prefix("the flag ") {
@@ -554,17 +555,8 @@ pub fn check(c: &Check) -> i32 {
         names.push(' ');
         names.push_str(word.split('=').next().unwrap_or(word));
     }
-    if env("TEHAS_WORK_IMAGES") == "1"
-        || env("TEHAS_WORK_FILES") == "1"
-        || crate::gives::comments_given(&c.record)
-        || crate::gives::hands_over(&c.record)
-    {
+    if env("TEHAS_WORK_IMAGES") == "1" || crate::gives::comments_given(&c.record) {
         names.push_str(" PI_ENSEMBLE_EXTRA_IMAGE_DIRS");
-    }
-    // A spec the runner does not read would be dropped without a word.
-    if crate::gives::hands_over(&c.record) && crate::gives::spec_pin(&c.record).is_some() {
-        features.push(' ');
-        features.push_str(caps::READS_SPEC);
     }
     let mut lacking = (caps_rc == 0)
         .then(|| caps::unsupported(&answer, verb, &flags.join(" "), &names, &features))
@@ -820,7 +812,7 @@ fn make_tree(tree: &str, state_dir: &str, branch: &str, depth: u32, set: &mut As
 
 /// The first line that is no comment and not empty: what a product names as its
 /// gate in .pi/verify-cmd.
-pub fn gate_line(text: &str) -> Option<&str> {
+fn gate_line(text: &str) -> Option<&str> {
     text.lines()
         .find(|l| !l.trim().is_empty() && !l.trim_start().starts_with('#'))
 }
@@ -1145,37 +1137,9 @@ fn mounts(tree: &str, state_dir: &str, runs: &str) -> Option<Vec<String>> {
         .map(|()| words)
 }
 
-/// The host folders the container writes: the sources of its read-write
-/// mounts ([`sandbox::mount_options`]).
-pub fn writable(tree: &str, state_dir: &str, runs: &str) -> Vec<String> {
-    let state = |d: &str| format!("{state_dir}/{d}");
-    vec![
-        tree.to_string(),
-        state("cache"),
-        state("memory"),
-        state("sessions"),
-        runs.to_string(),
-        state("relay"),
-    ]
-}
-
 /// The account the cycle's container runs as, its `--user`.
 fn container_user() -> String {
     sandbox::user()
-}
-
-/// On a contractor, the container must own what it writes: the code index
-/// refuses a cache folder it does not own, even one anyone may write. The
-/// contractor program hands the folders to the factory's account the job
-/// names, only when it is `user`, the account the container runs as.
-fn handed(program: &Path, user: &str, dirs: &[String]) -> bool {
-    Command::new(program)
-        .args(["own", "--as", user])
-        .args(dirs)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .status()
-        .is_ok_and(|s| s.success())
 }
 
 /// What to say of a refresh whose read of the conflict check cannot be judged:
@@ -1200,7 +1164,7 @@ pub fn unjudged(head: &str, pr: u64, said: Option<&str>) -> Option<String> {
 }
 
 /// Whether `head` is the 40 hexadecimal digits of a commit.
-pub fn is_commit(head: &str) -> bool {
+fn is_commit(head: &str) -> bool {
     tehas_core::grammar::commit_id(head)
 }
 
@@ -1244,7 +1208,7 @@ fn refresh_conflict(home: &Path, t: &Tree, state: &Value, tree: &str) -> Option<
         }
         return None;
     }
-    let file = home.join(format!("state/cycles/{}.{}", t.issue, conflict::NOTE));
+    let file = Home::new(home).cycle_note(t.issue, conflict::NOTE);
     if fs::write(&file, conflict::note(pr, &t.branch, &paths)).is_err() {
         eprintln!(
             "tehas work: could not write {}, not starting a cycle",
@@ -1356,7 +1320,7 @@ pub fn tree(home: &Path, t: &Tree, set: &mut Aside) -> i32 {
             to_preflight(&preflight, &line);
             say(&format!("tehas work: {line}"));
         }
-        let note = home.join(format!("state/cycles/{}.refused", t.issue));
+        let note = Home::new(home).cycle_note(t.issue, "refused");
         if let Some(rc) = install(&state, &tree, &steps, &preflight, &note) {
             return rc;
         }
@@ -1369,7 +1333,7 @@ pub fn tree(home: &Path, t: &Tree, set: &mut Aside) -> i32 {
     say(&format!("tehas work: {retry}"));
     // Asked for only once this cycle can start: a cycle that never began leaves
     // no copy behind. A copy that fails is not worth stopping a cycle for.
-    let index = home.join("state/index");
+    let index = Home::new(home).state(State::CodeIndex);
     if !sandbox::seed(&state_dir, &index.to_string_lossy()) {
         say(&format!(
             "tehas work: the code index could not be copied into {state_dir}/cache, this cycle searches without one"
@@ -1383,16 +1347,6 @@ pub fn tree(home: &Path, t: &Tree, set: &mut Aside) -> i32 {
         eprintln!("tehas work: could not prepare the sandbox, not starting a cycle");
         return 78;
     };
-    if let Some(program) = crate::work::contractor() {
-        if !handed(
-            &program,
-            &container_user(),
-            &writable(&tree, &state_dir, &runs),
-        ) {
-            eprintln!("tehas work: the cycle's folders could not be handed to the factory's account, not starting a cycle");
-            return 78;
-        }
-    }
     state["mounts"] = json!(words);
     let endpoints = fs::read_to_string(format!("{state_dir}/endpoints")).unwrap_or_default();
     for provider in endpoints
@@ -1434,7 +1388,7 @@ fn running(home: &Path) -> usize {
     let held = held
         .as_ref()
         .and_then(|v| v.get("held")?.as_array().map(Vec::len));
-    held.unwrap_or_else(|| lock::held_in(&home.join("state/cycles")).len())
+    held.unwrap_or_else(|| lock::held_in(&Home::new(home).cycles_dir()).len())
 }
 
 /// The id of the image, and the pi-rukas commit of its label when it has one.
@@ -1549,8 +1503,7 @@ pub fn record(home: &Path, r: &Record) -> Result<Vec<String>, i32> {
         eprintln!("tehas work: could not prepare the sandbox, not starting a cycle");
         return Err(78);
     };
-    let cycles = home.join("state/cycles");
-    let file = |name: &str| cycles.join(format!("{}.{name}", r.issue));
+    let file = |name: &str| Home::new(home).cycle_note(r.issue, name);
     if r.stop.came() {
         return Err(STOPPED);
     }
@@ -1735,23 +1688,6 @@ fn run_words(
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
-
-    #[test]
-    fn the_folders_handed_over_are_every_read_write_mount_source_of_the_cycle() {
-        let paths = Paths {
-            tree: "/in/work/widget",
-            host: "/h/work/widget-7",
-            state: "/h/work/widget-7.state",
-            runs: "/u/.pi/agent/ensemble-runs/issue-7",
-        };
-        let words = sandbox::mount_options(Kind::Cycle, &paths, "/u/.pi/agent", Some("/h/app"));
-        let rw: Vec<String> = words
-            .chunks(2)
-            .filter(|w| w[0] == "-v" && !w[1].ends_with(":ro"))
-            .map(|w| w[1].split(':').next().unwrap().to_string())
-            .collect();
-        assert_eq!(writable(paths.host, paths.state, paths.runs), rw);
-    }
 
     /// The tests that call `push_fault` read and set the process's
     /// `TEHAS_CYCLE_ATTEMPT`, `TEHAS_FAULT_CALLS` and `TEHAS_REPO`: one at a time,
@@ -2287,7 +2223,7 @@ mod tests {
         // no file is left to make the host look unable to push.
         assert_eq!(preflight_line(nowhere), "");
         let d = tehas_core::testdir::TestDir::new("push-fault-unmade");
-        fs::create_dir_all(d.join("state")).unwrap();
+        fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
         fs::write(d.join(PUSH_FAULT), "a fault of an earlier start\n").unwrap();
         push_fault(d.path(), 7, &preflight_line(nowhere));
         assert_eq!(
@@ -2343,8 +2279,12 @@ mod tests {
         let d = tehas_core::testdir::TestDir::new("push-fault");
         let preflight = d.join("logs/work-7.preflight");
         fs::create_dir_all(d.join("logs")).unwrap();
-        fs::create_dir_all(d.join("state/github")).unwrap();
-        fs::write(d.join("state/github/login"), "acme-app[bot]\n").unwrap();
+        fs::create_dir_all(Home::new(d.path()).token_dir(tehas_core::home::TokenDir::App)).unwrap();
+        fs::write(
+            Home::new(d.path()).state(State::BotLogin),
+            "acme-app[bot]\n",
+        )
+        .unwrap();
         fs::write(
             &preflight,
             "\nremote: Permission to acme/widget denied to acme-app[bot].\n",
@@ -2386,7 +2326,7 @@ mod tests {
             serde_json::from_str(fs::read_to_string(d.join(PUSH_FAULT)).unwrap().trim_end())
                 .unwrap();
         assert_eq!(v["line"], "fatal: could not read from remote repository");
-        assert!(!d.join("state/cycles").exists());
+        assert!(!Home::new(d.path()).cycles_dir().exists());
         std::env::remove_var("TEHAS_REPO");
     }
 

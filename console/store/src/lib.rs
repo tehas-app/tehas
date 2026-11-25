@@ -3,6 +3,7 @@
 //! (src/main.rs) and the console both go through `call`; src/main.rs says
 //! what each verb does.
 
+mod answer;
 mod approval;
 mod batch;
 mod call;
@@ -12,21 +13,22 @@ mod db;
 mod exercise;
 mod history;
 mod journal;
+mod link;
 mod live;
 mod load;
 mod lock;
 mod order;
-pub mod outsource;
 mod park;
 mod plan;
 mod plugin;
 mod poll;
 mod record;
-mod review_issue;
 mod say;
 mod upkeep;
 mod verbs;
 
+#[cfg(test)]
+mod answer_tests;
 #[cfg(test)]
 mod approval_tests;
 #[cfg(test)]
@@ -38,13 +40,13 @@ mod history_tests;
 #[cfg(test)]
 mod journal_tests;
 #[cfg(test)]
+mod link_tests;
+#[cfg(test)]
 mod live_tests;
 #[cfg(test)]
 mod load_tests;
 #[cfg(test)]
 mod lock_tests;
-#[cfg(test)]
-mod outsource_tests;
 #[cfg(test)]
 mod park_tests;
 #[cfg(test)]
@@ -89,43 +91,13 @@ use std::collections::BTreeMap;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
-const USAGE: &str = "usage: store init [--force] [--outsource] [--version <v> --commit <sha> --instance <name> --repo <owner/name>] [--json|--say] | migrate --backup <dir> [--outsource] [--json|--say] | migrate --dry-run [--backup <dir>] [--json] | check [--json] | review-issue <path> <branch> <commit> | review-file --repo <owner/name> --doc <path> --branch <b> --commit <sha> [--ask <line>] [--private <name>]... [--gh <program>] | batch | cycle-start | cycle-image | cycle-end | cycle-show | settings-view | cycle-note | cycle-stop-asked | cycle-heartbeat | publish | park | park-show | park-retry | park-told | question-asked | question-known | question-answered | approval-record | approval-current | approval-view | plan-begin | plan-answer | plan-end | plan-note | plan-show | plan-view | history-show | backup | copy | prune | sweep-locks | locks-held | upkeep | poll-record | poll-show | poll-idle | poll-begin | contractor-add | contractor-list | contractor-seen | contractor-rest | contractor-drain | contractor-revoke | invite-new | invite-list | invite-use | invite-expire | job-offer | job-check-in | job-finish | job-release | job-lose | job-stop | job-show | jobs-sweep | job-attempts | contractor-auth | job-offered | job-stamp | job-token | job-by-token";
+const USAGE: &str = "usage: store init [--force] [--version <v> --commit <sha> --instance <name> --repo <owner/name>] [--json|--say] | migrate --backup <dir> [--json|--say] | migrate --dry-run [--backup <dir>] [--json] | check [--json] | batch | cycle-start | cycle-image | cycle-end | cycle-show | settings-view | cycle-note | cycle-stop-asked | cycle-heartbeat | publish | park | park-show | park-retry | park-told | question-asked | question-known | question-adopt | question-answered | answer-record | answer-drop | question-show | question-list | approval-record | approval-current | approval-view | plan-begin | plan-answer | plan-end | plan-note | plan-show | plan-view | history-show | backup | copy | prune | sweep-locks | locks-held | upkeep | poll-record | poll-show | poll-idle | poll-begin | link-record";
 
 /// The longest a value the caller passes may be. The four come from an
 /// instance's settings and a checkout's git, not from a container.
 const MAX_PLAIN: usize = 64;
 const MAX_REPO: usize = 200;
 const MAX_COMMIT: usize = 40;
-
-/// What the review verb was given: the document of one run, and the two names
-/// the title of the issue is built from. `<branch>` and `<commit>` are refused
-/// by `parse` when they are outside their grammar, so a call that stops at its
-/// arguments never reads the file.
-#[derive(Debug, PartialEq, Eq)]
-pub struct ReviewIssue {
-    pub path: PathBuf,
-    pub branch: String,
-    pub commit: String,
-}
-
-/// What the filing verb was given: the document of one run, the repository the
-/// instance named, the two names of the title, the command's own last line of
-/// the body, and the host's names for the masking. Every one of them is
-/// refused by `parse` when it is outside the grammar its setting has, so a
-/// filing that stops at its arguments asks GitHub nothing.
-#[derive(Debug, PartialEq, Eq)]
-pub struct ReviewFile {
-    pub repo: String,
-    pub doc: PathBuf,
-    pub branch: String,
-    pub commit: String,
-    pub ask: String,
-    pub private: Vec<String>,
-    /// The program that speaks to GitHub, named by `--gh`. A command that
-    /// files names none and gets `gh`, the factory's own shim on the path of a
-    /// host (host/shim/gh), which gives the call the App's token.
-    pub gh: PathBuf,
-}
 
 /// What a call to the command asked for. `--json` is accepted on every verb
 /// and is what the verbs print anyway: one object on stdout, `"api": 1` first,
@@ -135,17 +107,10 @@ pub enum Verb {
     Init {
         force: bool,
         settings: Settings,
-        /// Whether the instance has the feature on, as the command that loaded
-        /// its settings said: `--outsource`, which the store cannot read for
-        /// itself. It decides whether the verbs of the feature write; see
-        /// `db::has_outsource`.
-        outsource: bool,
     },
     Migrate {
         backup: PathBuf,
         settings: Settings,
-        /// As `Init`'s.
-        outsource: bool,
     },
     /// `migrate --dry-run`: whether this store would migrate the database,
     /// read only. install.sh asks it before it copies anything. With
@@ -158,8 +123,6 @@ pub enum Verb {
     Check,
     #[cfg(debug_assertions)]
     TestWrite(exercise::Write),
-    ReviewIssue(ReviewIssue),
-    ReviewFile(ReviewFile),
     /// The calls of one `store batch`, already read from standard input and
     /// judged by `batch::parse`: built by `batch::Request::of` and by nothing
     /// else, so a caller of `execute` cannot name a verb the batch would run.
@@ -183,126 +146,6 @@ fn parse(args: &[String]) -> Option<Verb> {
         [verb, rest @ ..] if verb == "check" => {
             flags(rest, &["--json"])?;
             Some(Verb::Check)
-        }
-        // The review issue of one run's document. The two names are checked
-        // here and not in the verb, so a call that stops at its arguments is
-        // the usage error it is: nothing was read and nothing was written.
-        // A review's branch is the branch of the default checkout, not of an
-        // issue, so the name is held to the generic arm of the grammar of a
-        // branch: word characters and `/`, at most 80 of them, and the first
-        // one alphanumeric. `feature/issue-<n>` is a name of that shape, and
-        // belongs to no issue here.
-        [verb, path, branch, commit] if verb == "review-issue" => {
-            let generic = |b: &str| {
-                let bytes = b.as_bytes();
-                !bytes.is_empty()
-                    && bytes.len() <= 80
-                    && bytes[0].is_ascii_alphanumeric()
-                    && bytes.iter().all(|&c| verbs::word_char(c) || c == b'/')
-            };
-            if !generic(branch) {
-                return None;
-            }
-            Some(Verb::ReviewIssue(ReviewIssue {
-                path: PathBuf::from(path),
-                branch: branch.to_string(),
-                commit: verbs::commit(commit)?,
-            }))
-        }
-        // The filing of one run's document: the render above, and the calls of
-        // GitHub that go with it. Its arguments are checked here, as the
-        // render's are, so a filing that stops at them has asked GitHub
-        // nothing. `--repo` is the shape lib/config.sh holds TEHAS_REVIEW_REPO
-        // to; the store reads no settings of a host itself. `--ask` is the
-        // command's own line of the body: one line, of no control characters,
-        // and of the same reach as the other text the verb takes -- it goes to
-        // GitHub as it stands, after the masking of the findings, and a name
-        // of the host's own is refused rather than posted.
-        [verb, rest @ ..] if verb == "review-file" => {
-            let generic = |b: &str| {
-                let bytes = b.as_bytes();
-                !bytes.is_empty()
-                    && bytes.len() <= 80
-                    && bytes[0].is_ascii_alphanumeric()
-                    && bytes.iter().all(|&c| verbs::word_char(c) || c == b'/')
-            };
-            let one_line = |s: &str| {
-                !s.is_empty() && s.len() <= 512 && !s.bytes().any(|b| b.is_ascii_control())
-            };
-            let mut repo: Option<String> = None;
-            let mut doc: Option<String> = None;
-            let mut branch: Option<String> = None;
-            let mut commit: Option<String> = None;
-            let mut ask: Option<String> = None;
-            let mut gh: Option<String> = None;
-            let mut private: Vec<String> = Vec::new();
-            let mut seen: Vec<&str> = Vec::new();
-            let mut i = 0;
-            while i < rest.len() {
-                // The flag and its value as one pair, or nothing to say the
-                // flag was there with no value after it, which is a call that
-                // names a line the command did not write.
-                let pair = |flag: &str, i: usize| -> Option<(String, usize)> {
-                    if rest[i] != flag {
-                        return None;
-                    }
-                    let v = rest.get(i + 1)?.clone();
-                    Some((v, i + 2))
-                };
-                match rest[i].as_str() {
-                    "--json" if !seen.contains(&"--json") => {
-                        seen.push("--json");
-                        i += 1;
-                    }
-                    "--private" => {
-                        let (v, at) = pair("--private", i)?;
-                        if !one_line(&v) {
-                            return None;
-                        }
-                        private.push(v);
-                        i = at;
-                    }
-                    flag if flag.starts_with("--") => {
-                        let slot = match flag {
-                            "--repo" => &mut repo,
-                            "--doc" => &mut doc,
-                            "--branch" => &mut branch,
-                            "--commit" => &mut commit,
-                            "--ask" => &mut ask,
-                            "--gh" => &mut gh,
-                            _ => return None,
-                        };
-                        // A flag of the verb, twice, is two answers and no
-                        // filing: the value of the second is not the line the
-                        // command wrote.
-                        if slot.is_some() || seen.contains(&flag) {
-                            return None;
-                        }
-                        seen.push(flag);
-                        let (v, at) = pair(flag, i)?;
-                        *slot = Some(v);
-                        i = at;
-                    }
-                    _ => return None,
-                }
-            }
-            let repo = repo?;
-            if !repo_within(&repo, 100) {
-                return None;
-            }
-            let branch = branch?;
-            if !generic(&branch) {
-                return None;
-            }
-            Some(Verb::ReviewFile(ReviewFile {
-                repo,
-                doc: PathBuf::from(doc?),
-                branch,
-                commit: verbs::commit(&commit?)?,
-                ask: ask?,
-                private,
-                gh: PathBuf::from(gh.unwrap_or_else(|| "gh".to_string())),
-            }))
         }
         [verb, rest @ ..] if verb == "migrate" && rest.iter().any(|a| a == "--dry-run") => {
             let mut backup: Option<PathBuf> = None;
@@ -330,19 +173,11 @@ fn parse(args: &[String]) -> Option<Verb> {
         }
         [verb, rest @ ..] if verb == "migrate" => {
             let mut backup: Option<String> = None;
-            let mut outsource = false;
             let mut given: BTreeMap<&str, &str> = BTreeMap::new();
             let mut i = 0;
             while i < rest.len() {
                 match rest[i].as_str() {
                     "--json" => i += 1,
-                    // The feature as the command that loaded the instance's
-                    // settings said it, once for the two verbs that make the
-                    // store. The store reads no setting of a host itself.
-                    "--outsource" if !outsource => {
-                        outsource = true;
-                        i += 1;
-                    }
                     "--backup" => {
                         // Twice is two answers, and the verb writes one file.
                         if backup.is_some() {
@@ -374,12 +209,10 @@ fn parse(args: &[String]) -> Option<Verb> {
             Some(Verb::Migrate {
                 backup: dir,
                 settings: settings(given)?,
-                outsource,
             })
         }
         [verb, rest @ ..] if verb == "init" => {
             let mut force = false;
-            let mut outsource = false;
             let mut given: BTreeMap<&str, &str> = BTreeMap::new();
             let mut i = 0;
             while i < rest.len() {
@@ -387,10 +220,6 @@ fn parse(args: &[String]) -> Option<Verb> {
                     "--json" => i += 1,
                     "--force" if !force => {
                         force = true;
-                        i += 1;
-                    }
-                    "--outsource" if !outsource => {
-                        outsource = true;
                         i += 1;
                     }
                     flag if flag.starts_with("--") => {
@@ -406,7 +235,6 @@ fn parse(args: &[String]) -> Option<Verb> {
             Some(Verb::Init {
                 force,
                 settings: settings(given)?,
-                outsource,
             })
         }
         #[cfg(debug_assertions)]
@@ -577,16 +405,8 @@ pub fn execute(home: &Path, verb: &Verb, now: i64) -> Result<String, (u8, String
                 report.schema
             ))
         }
-        Verb::Init {
-            force,
-            settings,
-            outsource,
-        } => init(&file, *force, settings, *outsource, now),
-        Verb::Migrate {
-            backup,
-            settings,
-            outsource,
-        } => migrate(&file, backup, settings, *outsource, now),
+        Verb::Init { force, settings } => init(&file, *force, settings, now),
+        Verb::Migrate { backup, settings } => migrate(&file, backup, settings, now),
         Verb::MigrateDry { backup: Some(dir) } => rehearse(&file, dir, now),
         Verb::MigrateDry { backup: None } => {
             let conn = db::open_read_only(&file).map_err(line)?;
@@ -602,29 +422,6 @@ pub fn execute(home: &Path, verb: &Verb, now: i64) -> Result<String, (u8, String
         }
         #[cfg(debug_assertions)]
         Verb::TestWrite(w) => exercise::write(&file, w, now),
-        Verb::ReviewIssue(r) => review_issue::run(&r.path, &r.branch, &r.commit),
-        // The names of the host go to the mask once, before the first call of
-        // it, as the console's `review run` sets them before it masks the two
-        // files of its one run (console/src/review.rs). The mask keeps them for
-        // the process, so a program sets them once: one review files one issue.
-        Verb::ReviewFile(r) => {
-            let ask = review_issue::Ask {
-                repo: r.repo.clone(),
-                doc: r.doc.clone(),
-                branch: r.branch.clone(),
-                commit: r.commit.clone(),
-                ask: r.ask.clone(),
-                private: r.private.clone(),
-                gh: r.gh.clone(),
-            };
-            // The names of the host go to the mask once, before the first call
-            // of it, as the console's `review run` sets them before it masks
-            // the two files of its one run (console/src/review.rs).
-            if !ask.private_names().is_empty() {
-                let _ = tehas_core::mask::set_private(ask.private_names());
-            }
-            review_issue::file(&ask, home)
-        }
         Verb::Batch(asked) => batch::run(home, asked),
         Verb::Record(call) => verbs::run(home, call, now),
     }
@@ -656,13 +453,7 @@ pub fn execute(home: &Path, verb: &Verb, now: i64) -> Result<String, (u8, String
 /// of itself there. So the answer a wrong `<dir>` gets is the same refusal
 /// whatever it names, and it comes before the copy: the verb cannot be made to
 /// put a copy of the store in a place the host did not agree to read.
-fn migrate(
-    file: &Path,
-    dir: &Path,
-    settings: &Settings,
-    outsource: bool,
-    now: i64,
-) -> Result<String, (u8, String)> {
+fn migrate(file: &Path, dir: &Path, settings: &Settings, now: i64) -> Result<String, (u8, String)> {
     // The write lock first, before the version is read: a verb that writes the
     // store meets a lock another verb holds before it has decided anything, and
     // SQLite will not answer `busy` for a read-only open. Then it is given back,
@@ -719,18 +510,13 @@ fn migrate(
         db::backup(&conn, &copies, from, now).map_err(line)?;
     }
     // The step is its own transaction and its own lock: a database already at
-    // the version this binary writes has no step to run. Every migrate then
-    // writes the feature row of meta in a transaction of its own, so a store
-    // can reach the new version and fail to set it, which leaves it off. Both
+    // the version this binary writes has no step to run. Both
     // copies are on disk by now, so a step that fails halfway
     // leaves a store nobody was told to open and a copy a person can restore
     // from, rather than a migrated store behind a name that was never written.
     if from < db::SCHEMA_VERSION {
         db::migrate(&mut conn, file, from, now, settings).map_err(line)?;
     }
-    // Every migrate says the feature, so the store follows the setting of the
-    // install that ran it.
-    db::set_outsource(&mut conn, outsource).map_err(line)?;
     // Read back, not assumed: the answer reports the version the file holds,
     // and a step that left it anywhere else is reported as what it did.
     let to: i64 = conn
@@ -828,13 +614,7 @@ fn rehearse(file: &Path, dir: &Path, now: i64) -> Result<String, (u8, String)> {
 /// where a person can read it, which is why the refusal is made on the header
 /// bytes and not by handing the file to SQLite, whose answer for one of the
 /// two is the same word.
-fn init(
-    file: &Path,
-    force: bool,
-    settings: &Settings,
-    outsource: bool,
-    now: i64,
-) -> Result<String, (u8, String)> {
+fn init(file: &Path, force: bool, settings: &Settings, now: i64) -> Result<String, (u8, String)> {
     let existed = match std::fs::symlink_metadata(file) {
         Ok(m) if m.is_file() => true,
         Ok(_) => return Err(line(db::guard(file))),
@@ -912,14 +692,7 @@ fn init(
         &settings.commit,
         &settings.instance,
         &settings.repo,
-    )
-    .and_then(|()| {
-        if outsource {
-            db::set_outsource(&mut conn, true)
-        } else {
-            Ok(())
-        }
-    });
+    );
     // Named both before and after the transaction ends: SQLite may make the
     // siblings at the first write or only as the commit closes it.
     let settled = match written {
@@ -951,7 +724,7 @@ pub fn line(e: db::DbError) -> (u8, String) {
 
 fn name(e: &db::DbError) -> &'static str {
     match e {
-        db::DbError::Missing => "state/tehas.db",
+        db::DbError::Missing => tehas_core::home::State::StoreDb.relative(),
         _ => "the database",
     }
 }

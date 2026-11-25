@@ -1,6 +1,9 @@
-//! The one vocabulary of how a cycle stands and how a run ended. The store
-//! keeps a cycle's status and end reason in these words, the MCP server
-//! promises them in its schemas, and analytics counts runs by the outcomes.
+//! The one vocabulary of how a cycle stands and how a run ended, and the one
+//! decision of a work line's end. The store keeps a cycle's status and end
+//! reason in these words, the MCP server promises them in its schemas, and
+//! analytics counts runs by the ends `end` decides.
+
+use crate::exit;
 
 /// The word for a status no writer of this vocabulary said.
 pub const UNKNOWN: &str = "unknown";
@@ -80,17 +83,146 @@ pub fn end_reason(word: &str) -> &str {
     }
 }
 
-/// How a run ended, in the words of the runs table:
-/// `pr` an open pull request, not parked; `merged`; `handoff` to a person;
-/// `parked`; `failed`; `refused`, no cycle ran; `stopped`, closed or
-/// interrupted.
+/// How a run ended, in the words of the runs table: `offered` an open
+/// change, not parked; `merged`; `handoff` to a person; `parked`; `failed`;
+/// `refused`, no cycle ran; `stopped`, closed, interrupted or stopped. `end`
+/// decides which. The set is closed: a new word is a major change.
 pub const OUTCOMES: [&str; 7] = [
-    "pr", "merged", "handoff", "parked", "failed", "refused", "stopped",
+    "offered", "merged", "handoff", "parked", "failed", "refused", "stopped",
 ];
 
 /// The outcomes of a run that stopped for a person: the ones a park comment
 /// follows.
 pub const STOPS: [&str; 4] = ["handoff", "parked", "failed", "refused"];
+
+/// The runner's exit status when it refused the issue.
+pub const RUNNER_REFUSED: u8 = 40;
+
+/// The exit statuses of a start that ran no cycle: the runner refused, or
+/// `tehas work` started none.
+pub const REFUSED_EXITS: [u8; 6] = [
+    exit::work::NO_PUSH,
+    exit::work::NOT_STARTED,
+    exit::work::BUSY,
+    RUNNER_REFUSED,
+    exit::USAGE,
+    exit::SETTINGS,
+];
+
+/// The status words of a cycle that failed: tehas stopped it (`killed`,
+/// `stalled`, `timeout`), the runner aborted, it said nothing readable, or
+/// it died without a word (`lost`).
+pub const FAILED: [&str; 7] = [
+    "killed", "stalled", "timeout", "aborted", UNKNOWN, "failed", "lost",
+];
+
+/// What decides a work line's end. `outcome` is the status word, `None`
+/// when the line has none, which counts as `unknown`; `status` the exit
+/// status; `change` whether the line names a change.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Line<'a> {
+    pub outcome: Option<&'a str>,
+    pub status: Option<i64>,
+    pub change: bool,
+    pub parked: bool,
+    pub failure_kind: Option<&'a str>,
+}
+
+/// The end of a work line, a word of `OUTCOMES`: the first row that
+/// matches.
+///
+/// 1. `merged`, not parked: `merged`
+/// 2. `closed`, `interrupted` or `stopped`, not parked: `stopped`
+/// 3. `refused`: `refused`
+/// 4. an exit status of `REFUSED_EXITS`: `refused`
+/// 5. a change, not parked: `offered`
+/// 6. `handoff`: `handoff`
+/// 7. a word of `FAILED`, or a failure kind other than `cap`: `failed`
+/// 8. any other line: `parked`
+///
+/// A parked line never ends `merged`, `stopped` or `offered`, so every
+/// parked line ends with a word of `STOPS`.
+pub fn end(line: &Line) -> &'static str {
+    let outcome = line.outcome.unwrap_or(UNKNOWN);
+    let free = !line.parked;
+    if outcome == "merged" && free {
+        "merged"
+    } else if matches!(outcome, "closed" | "interrupted" | "stopped") && free {
+        "stopped"
+    } else if outcome == "refused"
+        || line
+            .status
+            .is_some_and(|s| REFUSED_EXITS.iter().any(|&r| i64::from(r) == s))
+    {
+        "refused"
+    } else if line.change && free {
+        "offered"
+    } else if outcome == "handoff" {
+        "handoff"
+    } else if FAILED.contains(&outcome)
+        || line
+            .failure_kind
+            .is_some_and(|k| !k.is_empty() && k != "cap")
+    {
+        "failed"
+    } else {
+        "parked"
+    }
+}
+
+/// A history line as far as a run of the same parks goes. `how` is the step,
+/// the cap, the park's reason and the failure's kind and cause, each `None`
+/// when the line has none.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ParkLine<'a> {
+    pub issue: u64,
+    pub work: bool,
+    pub parked: bool,
+    pub provider: bool,
+    pub how: [Option<&'a str>; 5],
+}
+
+impl ParkLine<'_> {
+    // A park, and not the park of a provider outage, which has its own rule
+    // of retries.
+    fn park(&self) -> bool {
+        self.parked && !self.provider
+    }
+}
+
+/// The count of the parks in a row that stopped exactly as each line did, 0
+/// on a line that has none. `lines` are in the order the store wrote them. A
+/// run is the parks of one issue with all of `how` equal, each the end
+/// written just after the other, the parks of an outage skipped. A merge, a
+/// handoff or any other end breaks a run. Only these lines count: a list
+/// that begins partway through a run gives its first line no count.
+pub fn repeats(lines: &[ParkLine]) -> Vec<u64> {
+    use std::collections::HashMap;
+    let mut counts = vec![0u64; lines.len()];
+    // By issue: its end written last, outages skipped, and its park seen last.
+    let (mut end, mut park): (HashMap<u64, usize>, HashMap<u64, usize>) = Default::default();
+    for (i, line) in lines.iter().enumerate() {
+        if line.park() {
+            let run = end
+                .get(&line.issue)
+                .map(|&e| &lines[e])
+                .is_some_and(|before| before.park() && before.how == line.how);
+            if run {
+                counts[i] = park.get(&line.issue).map_or(0, |&p| counts[p]) + 1;
+            }
+            park.insert(line.issue, i);
+        } else if line.work && !line.parked {
+            park.remove(&line.issue);
+        }
+        if line.work && !line.provider {
+            end.insert(line.issue, i);
+        }
+    }
+    counts
+}
+
+#[cfg(test)]
+mod end_tests;
 
 #[cfg(test)]
 mod tests {
@@ -144,8 +276,45 @@ mod tests {
     // A new outcome word is a stop or not by a decision, not by being left out
     // of the stops: the outcomes that are no stop are exactly these three.
     #[test]
-    fn the_outcomes_that_are_no_stop_are_a_pull_request_a_merge_and_stopped() {
+    fn the_outcomes_that_are_no_stop_are_an_offer_a_merge_and_stopped() {
         let rest: BTreeSet<_> = set(&OUTCOMES).difference(&set(&STOPS)).copied().collect();
-        assert_eq!(rest, set(&["pr", "merged", "stopped"]));
+        assert_eq!(rest, set(&["offered", "merged", "stopped"]));
+    }
+
+    #[test]
+    fn a_run_of_the_same_parks_counts_from_its_second() {
+        let park = |issue, cap| ParkLine {
+            issue,
+            work: true,
+            parked: true,
+            provider: false,
+            how: [Some("develop"), Some(cap), None, None, None],
+        };
+        let outage = ParkLine {
+            provider: true,
+            ..park(7, "x")
+        };
+        let offered = ParkLine {
+            parked: false,
+            ..park(7, "x")
+        };
+        let lines = [
+            park(7, "a"),
+            park(8, "a"),
+            outage,
+            park(7, "a"),
+            park(7, "a"),
+            park(7, "b"),
+            offered,
+            park(7, "b"),
+        ];
+        assert_eq!(repeats(&lines), [0, 0, 0, 1, 2, 0, 0, 0]);
+    }
+
+    #[test]
+    fn every_failed_word_is_a_status() {
+        for w in set(&FAILED) {
+            assert!(STATUSES.contains(&w), "{w}");
+        }
     }
 }

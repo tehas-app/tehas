@@ -24,24 +24,23 @@ on [the contract](/contract).
 | `~/tehas/lib/paths.sh`               | The home of each tool this host installs, and the `PATH` that finds them. `env.sh`, `bootstrap.sh` and `install.sh` all take the list from here |
 | `~/tehas/lib/github-app.sh`          | With a GitHub App: puts the `gh` shim first on `PATH` and gives git its credential helper; sourced by `env.sh` |
 | `~/tehas/bin/`                       | The two commands on `PATH`: `tehas` for a person, `tehasbot` for the units, each a few lines that run the console's front (`console/src/front.rs`), which chooses the command. Without a console both stop with exit 78, except `tehas setup`, which builds one. Plus `gh` |
-| `~/tehas/libexec/`                   | The scripts behind the two commands, and the programs they run. Three bash scripts (`dev-login`, `setup` and `update`) and the Rust programs `install.sh` builds: the console, analytics, the MCP server, the state store, the attachment checker, the dispatcher and the cycle supervisor, and while outsource is on the model proxy and the contractor program. Every other command is a verb of one of those programs. Not on `PATH` |
+| `~/tehas/libexec/`                   | The scripts behind the two commands, and the programs they run. Three bash scripts (`dev-login`, `setup` and `update`) and the Rust programs `install.sh` builds: the console, analytics, the MCP server, the state store, the attachment checker, the dispatcher and the cycle supervisor. Every other command is a verb of one of those programs. Not on `PATH` |
 | `~/tehas/run/`                       | One copy of `bin/`, `libexec/` and `lib/` for each running cycle (`cycle-<issue>-<pid>`) and planning turn (`plan-<issue>-<pid>`), as hardlinks, so an update leaves the code of what runs as it started. The next start removes the copies whose process has ended |
 | `~/tehas/platform`                   | Checkout of this repository; `install.sh` runs from it and `tehas update` pulls it |
 | `~/tehas/repos/tehas`                | The product checkout, on the default branch. Cycles are cloned from it; no container is given it |
 | `~/tehas/work/tehas-<issue>`         | The cycle's workspace: a fresh clone made for each cycle, of the default branch alone and `TEHAS_CLONE_DEPTH` commits of its history. Removed after a cycle that merged or left a pull request, otherwise kept, and moved to `tehas-<issue>.before-retry` when that issue is retried. A start that stopped before the container ran keeps the clone it made, as does the one it moved aside. The `.before-retry` goes when the retry it was kept for ends. A kept workspace and what else is left beside it go at once when its issue is closed, and otherwise once no cycle has run on the issue for `TEHAS_WORKSPACE_KEEP_DAYS` days (7 by default). Its build output goes sooner: `tehasbot clean` removes what it names as build output once nothing of the issue has been touched for `TEHAS_CLEAN_AFTER` hours, in this tree, in the one a retry moved aside, and in the worktrees of a cycle under either at the depth the runner lays them out, and the 7-day sweep still takes the rest. `~/tehas/work/tehas` is only its path inside the container |
 | `~/tehas/work/tehas-<issue>.state`   | The cycle's own: `cache`, a copy of the code index the host built; `memory`, what its agents learn; `sessions`, Pi's session files. Made fresh for each cycle, mounted in its container, removed with the workspace. A cycle reads no memory an earlier cycle wrote, even one of the same issue, so a `vipune search` at its start answers `{"results": []}`. `~/tehas/work/tehas-plan-<issue>.state` is a planning turn's, removed after the turn. Of these, only `cache` is build output: `tehasbot clean` removes it when the issue has been idle for `TEHAS_CLEAN_AFTER` hours, and `memory` and `sessions` stay |
-| `~/tehas/work/tehas-<issue>.images`  | With `TEHAS_WORK_IMAGES=on`, the images of the cycle's issue and their `manifest.json`, and with `TEHAS_WORK_DESCRIBE=on` the model's descriptions of them, `images.md`. With `TEHAS_WORK_FILES=on`, the issue's text files too, `file-<n>.<ext>`, with or without the images. Made for each cycle, read-only in its container at `~/tehas/work/tehas.images`, removed when the cycle is over |
-| `~/tehas/work/tehas-plan-<issue>.images` | With `TEHAS_WORK_IMAGES=on` or `TEHAS_WORK_FILES=on`, a copy of a planning session's images and files for one turn, read-only in its container at `~/tehas/work/tehas.images`, removed after the turn |
+| `~/tehas/work/tehas-<issue>.images`  | With `TEHAS_WORK_IMAGES=on`, the images of the cycle's issue and their `manifest.json`. Made for each cycle, read-only in its container at `~/tehas/work/tehas.images`, removed when the cycle is over |
+| `~/tehas/work/tehas-plan-<issue>.images` | With `TEHAS_WORK_IMAGES=on`, a copy of a planning session's images for one turn, read-only in its container at `~/tehas/work/tehas.images`, removed after the turn |
 | `~/tehas/work/tehas-plan-<issue>.keep` | What a planning session carries from one turn to the next: the approved text, the commit it began at, pi-rukas's record of the session, the last turn's exit status, the issue's images, and a later turn's answer as `answer.md`. Removed when the session ends. No container is given it; each turn copies what it needs into its workspace |
-| `~/tehas/dev/<name>`                 | A person's clone for working by hand, named after their account, made and used by `tehas dev`, never removed. `<name>.author` next to it holds whose name its commits carry, `<name>.state` its memory, sessions, transcripts, code index and cargo build output (`target`, kept so a later session of that clone builds on what an earlier one built; see [tehas dev](/tools-dev#tehas-dev)), and `<name>.images` the images and files of the issue named by `--issue`, read-only in the session's container |
+| `~/tehas/dev/<name>`                 | A person's clone for working by hand, named after their account, made and used by `tehas dev`, never removed. `<name>.author` next to it holds whose name its commits carry, `<name>.state` its memory, sessions, transcripts, code index and cargo build output (`target`, kept so a later session of that clone builds on what an earlier one built; see [tehas dev](/tools-dev#tehas-dev)), and `<name>.images` the images of the issue named by `--issue`, read-only in the session's container |
 | `~/tehas/repos/pi-rukas`             | pi-rukas, at the commit `PI_RUKAS_FOLLOW` names                         |
 | `~/tehas/docs/`, `~/tehas/fun/`      | This site's pages and the front page, installed from `host/`            |
 | `~/tehas/sandbox/`, `versions.env`   | Sandbox image definition, build script, the Playwright npm pin, and the pinned tool versions |
 | `~/tehas/edge/`                      | The docs server (`docs.compose.yaml`) and the edge router (`router.compose.yaml`) |
-| `~/tehas/protolab/`                  | The Protolab's pages and the files of each prototype, written by `tehasbot protolab` |
-| `~/tehas/wiki/`                      | The product wiki's builds, one directory each named `<date>-<8 hex of the commit>`, and `current`, a link to the current one. The docs server serves a build at `/wiki/<id>/` while the wiki is on |
+| `~/tehas/items/`                     | A page and the files of each item, which the edge router serves on port 8081. Nothing in this version writes them, and `tehas update` removes the `protolab/` directory an earlier version left |
 | `~/tehas/preview/`                   | The state of each preview, and a bare clone the pull requests' commits are fetched into, written by `tehasbot preview` |
-| `~/tehas/logs/`, `state/`, `live/`, `tmp/` | Logs, state, dashboard data, scratch. `state/` holds the dispatch lock, status files, the files a planning turn passes on (`plan-<issue>.json.out`, `.json.rc`, `.json.lock` and `.json.image`), the state store (`tehas.db`), which holds what each start rests on, each cycle's record and its history, each park and the id of its question, each planning session and the history of its turns, and the manifest of each start's images (`cycles/<issue>.manifest.json`, with `cycles/<issue>.images.md` and `cycles/<issue>.comments.json` when the cycle had them). What each approved start measured is kept in `state/sizes.jsonl`, one line per start, mode 600: when, which issue, and the four counts of its approved body, the last 500 lines. The report's size figures read it. What each refining session filed is kept beside it in `state/refined.jsonl`, likewise the last 500 lines. What the last real poll decided of each issue it could start, and the holds between issues it read, is `state/starts.json`, mode 600, which [`tehas order --json`](/api#start-reasons) and [`tehas blockers`](/api#tehas-blockers) read. No cycle, planning or manual container is given it; the indexing container is given `state/index` to write |
+| `~/tehas/logs/`, `state/`, `live/`, `tmp/` | Logs, state, dashboard data, scratch. `state/` holds the dispatch lock, status files, the files a planning turn passes on (`plan-<issue>.json.out`, `.json.rc`, `.json.lock` and `.json.image`), the state store (`tehas.db`), which holds what each start rests on, each cycle's record and its history, each park and the id of its question, each planning session and the history of its turns, and the manifest of each start's images (`cycles/<issue>.manifest.json`, with `cycles/<issue>.comments.json` when the cycle had it). What each approved start measured is kept in `state/sizes.jsonl`, one line per start, mode 600: when, which issue, and the four counts of its approved body, the last 500 lines. The report's size figures read it. What each refining session filed is kept beside it in `state/refined.jsonl`, likewise the last 500 lines. What the last real poll decided of each issue it could start, and the holds between issues it read, is `state/starts.json`, mode 600, which [`tehas order --json`](/api#start-reasons) and [`tehas blockers`](/api#tehas-blockers) read. No cycle, planning or manual container is given it; the indexing container is given `state/index` to write |
 | `~/tehas/mcp/`                       | The two files `tehasbot status` asks `analytics` to write for the MCP server: the sessions snapshot `sessions.jsonl` and the outcomes counts `outcomes.jsonl`, each with a `.stamp` line beside it that says why it need not be written again. Mode 700: the snapshot holds what the agents saw, and neither is published |
 | `~/tehas/state/tehas.db`, `state/backup/` | The state store's database and the copies made of it before each migration. See [The state store](#the-state-store) |
 | `~/tehas/state/imported-<YYYYMMDD>/` | The record files of an older tehas that a v0.30 `install.sh` imported into the state store that day, each under its path in `state/`. Nothing reads them, and this release imports nothing; remove the directory once satisfied. See [The state store](#the-state-store) |
@@ -135,7 +134,7 @@ sandbox recipe - `~/tehas/sandbox/sandbox-uid.Dockerfile`, or its
 `sandbox-uid.Dockerfile.XXXXXX` temporary - of that age a build killed before its
 cleanup ran left beside the build script. Nothing else under `~/tehas` outside
 those directories is touched, and nothing outside `~/tehas`: not
-`state`, `logs`, `dev`, `repos`, `preview` or `protolab`. One line per removal and
+`state`, `logs`, `dev`, `repos`, `preview` or `items`. One line per removal and
 a closing line with the bytes freed go to `~/tehas/logs/clean.log`; `tehasbot
 clean --dry-run` logs what it would remove and removes nothing. The cleaner starts
 no work, so the pause label does not hold it.
@@ -158,12 +157,10 @@ commands a person does.
 | A Docker daemon of its own                     | Every cycle, planning turn and index run is a container here. Sharing a daemon with another factory would put its containers in this factory's slice, and let one factory stop another's cycles |
 | The published ports to itself                  | The docs server answers on port 8080 of `TEHAS_HOST_ADDR` and the edge router on 8081. Two factories on one host would want the same ports |
 | One Unix user who is in the `docker` group     | Everything tehas runs belongs to that user. The group makes it root-equivalent on this host, which is why the host is not shared |
-| `~/.config/tehas/env`, mode 600                | The bot's GitHub token, the model endpoints' tokens, and the energy switches. Never in git. See [Secrets and trust](#secrets-and-trust) |
+| `~/.config/tehas/env`, mode 600                | The model endpoints' tokens and the MCP server's settings. Never in git. See [Secrets and trust](#secrets-and-trust) |
 | An instance directory of its own               | `instance.env` and `models.json`, found through `~/.config/tehas/instance-dir`. See [Instance settings](#instance-settings) |
-| Its own `TEHAS_DOMAIN`                         | The edge makes `uat-<pr>.` and `lab-<issue>.` names under it. Two factories under one domain answer each other's previews |
+| Its own `TEHAS_DOMAIN`                         | The edge makes `uat-<pr>.` and `item-<issue>.` names under it. Two factories under one domain answer each other's previews |
 | The model gateway's `baseUrl` and key, when it uses one | `baseUrl` of the provider in `models.json`, with the token as `$TEHAS_MODEL_KEY_<NAME>` in `~/.config/tehas/env`. See [A backup model endpoint](#a-backup-model-endpoint) |
-| `TEHAS_ENERGY_URL`, when the model is behind a gateway | The energy sampler asks `<baseUrl>/v1/cluster` with the model's token. A gateway that does not pass that path through needs the cluster URL named here, asked with no token. See [`tehasbot energy`](/tools-health#tehasbot-energy) |
-| `TEHAS_ENERGY_SOURCE_URL`, when the energy page should link a source | The energy page ends with `DATA SOURCE: <name>`. This setting names the address that line links, and the page shows the name as plain text without it. Only an `https://` address is used. See [`tehasbot energy`](/tools-health#tehasbot-energy) |
 | Disk for the sandbox image                     | What `docker image inspect --format '{{.Size}}' tehas/pi-rukas:uid$(id -u)` reports for the host's image, with room above that for the base a build makes and the layers it writes, and room for one image of a rollback. Before the first build the image is not there to be measured, and its size is upstream's base plus these steps: [Bootstrap](/bootstrap#what-the-machine-needs). A second instance user of one host builds its own image for its own uid and shares the layers of the first: [What two instance users of one host share](#what-two-instance-users-of-one-host-share) |
 | Room to grow into, when the machine is a VM     | The host runs as one virtual machine on a hypervisor, so its CPUs and memory are set at its maximum once, with room above what the factory needs today: `<vcpu current='N'>MAX</vcpu>` and memory as a `virtio-mem` device. Everything under the maximum then changes while the machine runs, and a restart of the hypervisor saves the VM with its cycles in it. No tehas command takes part in any of it. See [Resize or restart the host](/resize). The other shape is a factory that is a container on another project's machine, as tehas-tehas is: it gains that room, and loses the live resize and the save, so a restart of the machine under it needs a drain first |
 
@@ -257,9 +254,9 @@ cat ~/.config/tehas/instance-dir
 Rules that hold for every command:
 
 - `instance.env` wins. A setting of the same name in the environment is
-  dropped. Only `TEHAS_HOME`, `TEHAS_INSTANCE_DIR`, the energy switches
-  `TEHAS_ENERGY` and `TEHAS_ENERGY_URL`, and the hooks the tests use are
-  taken from the environment.
+  dropped. Only `TEHAS_HOME`, `TEHAS_INSTANCE_DIR`, the host settings of
+  [Commands](/tools) and the hooks the tests use are taken from the
+  environment.
 - A missing or malformed setting stops the command with exit 78 and one line
   naming the setting, before it calls GitHub, Docker or git.
 - Loading settings runs no git command, makes no network call and writes
@@ -379,7 +376,7 @@ cd ~/tehas/platform && git pull
 
 A version that adds labels needs `tehas labels` run again after the install.
 The labels `tehas:plan`, `tehas:planning` and `tehas:question`, for planning on
-an issue and the retry tick, are not in a repository until it has been.
+an issue and the retry's answer, are not in a repository until it has been.
 
 `--check` prints one line each for the home itself, the instance settings, the
 host's tools, the
@@ -505,8 +502,8 @@ The manual and the front page are not copied from `host/` as they stand.
 `install.sh` first asks the console to stage them (`console update assets`,
 `console/ops/src/update/assets.rs`), which copies `host/fun` and `host/docs` to a
 scratch directory and, for each `<script src="/fun/X.js">` and each
-`<link rel="stylesheet" href="/fun/X.css">` of `fun/index.html`,
-`fun/business.html` and `docs/dashboard.frag`, puts a copy of that file beside
+`<link rel="stylesheet" href="/fun/X.css">` of `fun/index.html` and
+`docs/dashboard.frag`, puts a copy of that file beside
 it under the name `X.<hash>.<ext>`, where `<hash>` is the first 12 hex digits
 of the sha256 of its bytes, and rewrites the tag to name it. A file in a
 subfolder is copied and named in that subfolder: `/fun/factory/X.js` becomes
@@ -571,12 +568,12 @@ One file is written, not copied: `version.txt`, beside the pages in
 `~/tehas/docs` and `~/tehas/fun`. It holds the newest tag of the checkout and
 the commit it was at when `install.sh` last ran, as `v0.1.1+11b669d`, and the
 footer of every manual page shows it. `--check` does not look at it. The
-footers of the two front pages read their versions from the factory's health
+footer of the front page reads its versions from the factory's health
 instead (`/live/health.json`, by `fun/versions.js`): tehas from
 `checks.platform`, the pi-rukas the sandbox image runs from `checks.rukas`, and
 the program that manages the factory from `checks.manager` when there is
 one, as `tehas v0.24.6 · pi-rukas v0.14.54 · manager v0.9.0`. The same
-module shows a banner at the top of both pages while a host message is set
+module shows a banner at the top of the page while a host message is set
 (`checks.hostMessages`, from [`tehas host-message`](/api#tehas-host-message)):
 each message's level as a word (Alert, Warning or Notice), its text, when it
 was set and its link. With no message there is no banner. A
@@ -595,12 +592,7 @@ A real run builds each with `cargo` in the checkout and installs them as
 `~/tehas/libexec/console`, `~/tehas/libexec/analytics`,
 `~/tehas/libexec/tehas-mcp`, `~/tehas/libexec/store`,
 `~/tehas/libexec/attach`, `~/tehas/libexec/tehas-dispatch`,
-and `~/tehas/libexec/tehas-cycle`. While [outsource](/outsource) is on,
-two more are built and installed: the model proxy, `console/proxy/`, as
-`~/tehas/libexec/tehas-proxy`, with its unit `tehas-outsource-proxy.service`,
-and the contractor program, `console/contractor/`, as
-`~/tehas/libexec/tehas-contractor`. With it off none of the three is built,
-copied or compared. The attachment checker fetches the files of an issue
+and `~/tehas/libexec/tehas-cycle`. The attachment checker fetches the files of an issue
 and of a planning reply, judges who may attach them and how much is given,
 reads their bytes, unpacks their zips, and composes what a cycle is told it was
 given (see [Tools](/tools)). It holds `GH_TOKEN` only to pass it to `gh` and to
@@ -608,7 +600,7 @@ given (see [Tools](/tools)). It holds `GH_TOKEN` only to pass it to `gh` and to
 run as a child with no environment but `PATH`. Without it a start or a planning
 reply that links a file stops, with a reason that names no host path, one that
 links nothing goes on with a manifest that gives nothing, a cycle given none says
-it could not read the record, and the Protolab leaves a zip out. A host installed from a release tarball has neither
+it could not read the record. A host installed from a release tarball has neither
 `cargo` nor `console/`: its programs are the ones the release packed
 ([Releases](/tools-releases#releases)), and a release without a store installs only on a
 host that has one. On a host with none, `--check` says so on a `Store: REFUSED`
@@ -658,8 +650,7 @@ has ended`. The units systemd holds name them too, so this is the one case
 where the install asks systemd to reload, and it leaves the files and prints a
 `later:` line when the reload did not happen. A `later:` line is for a person
 and is not a step: `tehas update` prints it and finds the files again on its
-next run. Removing the old energy sampler asks for the `units` step, which
-restarts a running one from the new file. An old command that cannot be
+next run. An old command that cannot be
 removed fails the install.
 
 One thing it does besides copying, on a real run only: the product checkout's
@@ -771,13 +762,14 @@ No container is given it. Only one program writes it: the store,
 `~/tehas/libexec/store`, which `install.sh` builds and installs with the
 console, or takes from the release.
 
-What is in it today: the schema, version 23 (`PRAGMA user_version`); `meta`,
+What is in it today: the schema, version 29 (`PRAGMA user_version`); `meta`,
 which says when the database was made, by which version and commit of tehas,
 and for which instance and repository; and the cycles' records: the approval
 each start rests on (the dispatcher's), each cycle's start and end with its
 image, settings, branch, result and progress (`tehasbot cycle`, `tehas work`,
 `tehas stop`), and the last 50 lines of history of each issue; each park and
-its question (`tehasbot cycle`, the dispatcher); and each planning session,
+its question (`tehasbot cycle`, the dispatcher), and the answer `tehas answer`
+gave to a question on record; and each planning session,
 with its brief, its answers, the issues it filed, its open question and the
 last 50 lines of history of its turns (the dispatcher); and the records
 plugins keep, such as a prototype and the issue it was filed in (the store's
@@ -818,11 +810,11 @@ JSON answer:
   v0.32.0 wrote 17. The step to 13 keeps on
   each approval what its start was, the step to 14 rebuilds `cycles` so its
   `how` may say `host`, a start [`tehas start`](/api#tehas-start) approved,
-  the step to 15 adds the five outsource tables, empty, the step to 16
+  the step to 16
   lets the action journal keep a write as `unknown` and writes `millwright`
-  in every row that still said `fixer`, and the step to 17 adds to the
-  outsource tables, empty, the hash of a job's token and a contractor's last
-  report. Every step keeps every row.
+  in every row that still said `fixer`, and the step to 29 drops the five
+  tables schemas 15 to 28 held for outsource, which 2.0 dropped and no
+  release wrote a row of. Every other step keeps every row.
 - A store older than that, from a release before v0.30, is refused and left
   as it was, with no backup written: `store: unreadable ... is at schema <n>,
   older than v0.30.0 wrote: update to a v0.30 release first, then to this
@@ -942,9 +934,8 @@ models, and a token for each:
   set. `./install.sh --check` reports both. It reads the tokens from
   `~/.config/tehas/env` itself, so a first install, or an update from a
   version that did not know them, finds them there.
-- A running service keeps the tokens it started with. After you change one
-  in `~/.config/tehas/env`, run `systemctl --user restart tehas-energy`; the
-  dispatcher and each cycle read the file afresh. An update that changes
+- The dispatcher and each cycle read `~/.config/tehas/env` afresh. A running
+  service keeps the tokens it started with, and an update that changes
   `env.sh` restarts the running units itself.
 - `backupApiKey` defaults to `apiKey`.
 - Either endpoint can be any OpenAI-compatible endpoint, a
@@ -965,22 +956,12 @@ While the backup is in use, each poll logs
 `tehas work`, `tehas plan` and `tehas dev` ask again when they start a
 container. They give it a `models.json` of its own,
 `<state directory>/models.json`, on the endpoint that answered and without
-the backup keys, and the tokens it names as variables, by name. A contractor's container of [outsource](/outsource) gets the same file
-with every provider on the model proxy and its key named as
-`${PI_ENSEMBLE_API_KEY_<PROVIDER>}`; no endpoint is asked for it. `tehas work`
+the backup keys, and the tokens it names as variables, by name. `tehas work`
 prints `tehas work: model endpoint: provider fleet is on its backup` and writes
 it to the preflight log. A container stays on its endpoint: when the main one
 fails mid-cycle, Pi retries it as [Provider retry](#provider-retry) says, and
 the next cycle starts on the backup. The image descriptions pick the same
 way.
-
-The energy sampler asks the endpoint the dispatcher settled on for the
-subagent provider, the one word in `~/tehas/live/dispatch.json`, and samples
-it only when it is a viiwork mesh. The cycles and the meter are then the same
-endpoint. With no word in that file, because the dispatcher has not settled
-one yet, it asks the main endpoint and then the backup as before, so an update
-of the dispatcher never blanks the floor. An endpoint that is not viiwork gives
-no meter, even when the backup is one: the section hides.
 
 ## Provider retry
 
@@ -1203,7 +1184,7 @@ as that user it skips the drop. The image is built with the tehas user's uid
 
 Every container tehas starts from the sandbox image or its base has
 `--pull=never`: a cycle and its capabilities check, push check and install, a
-planning turn, a review, a `tehas dev` session, the indexer, the memory's
+planning turn, a `tehas dev` session, the indexer, the memory's
 vipune, the product check, the build's smoke runs and the questions the
 dispatcher and `tehasbot status` ask the image. The image is built on the
 host, and its name is also a name on Docker Hub. When the local image is gone, for example after
@@ -1462,7 +1443,7 @@ Cycles that run side by side know nothing of each other:
 
 By default a container is on Docker's default bridge and can connect to any
 address: the host's own ports, the local network and the internet. With
-`TEHAS_EGRESS=on` in `instance.env`, a cycle, a planning turn, a review and a
+`TEHAS_EGRESS=on` in `instance.env`, a cycle, a planning turn and a
 `tehas dev` session are put on `tehas-egress` instead, and so are the two
 containers before a cycle, the push check and the install of the product's
 dependencies, an internal Docker
@@ -1743,8 +1724,8 @@ label `tehas.layer`: the SHA-256 of that file and of the files of the instance
 directory its `COPY` and `ADD` lines name. A file changed, added or taken away
 makes the sum differ, and so the next `--if-moved` builds. The
 factory's health reports the same comparison of the commit and the layer
-(`checks.rukas.behind` and `checks.rukas.layerMoved`), and the footers
-of the front pages show the version the image runs from there. The
+(`checks.rukas.behind` and `checks.rukas.layerMoved`), and the footer
+of the front page shows the version the image runs from there. The
 contract test proves the product's gates run inside the image, as the unprivileged user,
 with nothing mounted but a clone:
 
@@ -1996,9 +1977,6 @@ release of tehas.
 | Dispatcher  | systemd user timer `tehas-dispatch.timer`, every 2 minutes, and `tehas-dispatch.path`, a poll as soon as a cycle, a planning turn or an index run ends | `tail ~/tehas/logs/dispatch.log`                       |
 | Planning turn | a unit the poll starts, `tehas-plan-<issue>.service`, one at a time. systemd stops it a quarter of an hour after `TEHAS_PLAN_TIMEOUT` | `tail ~/tehas/logs/dispatch-plan-<issue>.log` |
 | Code index | a unit the poll starts, `tehas-index.service`, before cycles start on an idle host. systemd stops it after 40 minutes | `tail ~/tehas/logs/dispatch-index.log` |
-| Energy use sampler, optional | systemd user service `tehas-energy.service`, every 15 s. It asks the endpoint the dispatcher settled on, the word in `~/tehas/live/dispatch.json`. Enable it only when the model backend is a [viiwork](https://github.com/janit/viiwork) mesh | `jq .generatedAt ~/tehas/live/energy.json` |
-| Host snapshot publisher, optional | systemd user service `tehas-top.service`, every 5 s. It writes nothing unless `TEHAS_TOP=on` | `jq '.host.cpus, .host.load' ~/tehas/live/top.json` |
-| Protolab pages | systemd user timer `tehas-protolab.timer`, every 5 minutes | `tail ~/tehas/logs/protolab.log` |
 | Cleaner | systemd user timer `tehas-clean.timer`, every hour, the first time 15 minutes after boot. It removes build output, Docker's build cache, host scratch, the sandbox image's old dated tags and the old `sha-` tags of the base repository, each removed by its own name. `install.sh` copies the unit; a person enables it. The unit prints; `tehasbot clean` writes `clean.log` | `tail ~/tehas/logs/clean.log`, and `journalctl --user -u tehas-clean` for a run that wrote nothing there |
 | Edge router | `. ~/tehas/env.sh && docker compose -f ~/tehas/edge/router.compose.yaml up -d` | `curl -i http://tehas-tehas:8081/` |
 | Previews | systemd user timer `tehas-preview.timer`, every 5 minutes | `tail ~/tehas/logs/preview.log`, `jq . ~/tehas/live/previews.json` |
@@ -2006,8 +1984,8 @@ release of tehas.
 | One preview | a container `tehas-preview-<pr>` | `docker ps --filter label=tehas.preview` |
 
 Every service in `host/systemd` sets `NoNewPrivileges=yes`: nothing a unit
-runs gains rights through a setuid program. The three that never end,
-`tehas-mcp`, `tehas-top` and `tehas-energy`, also have `MemoryMax=256M`. The
+runs gains rights through a setuid program. The MCP server, which never
+ends, also has `MemoryMax=256M`. The
 ceiling holds where the user's systemd is given the memory controller, as
 current systemd does by default.
 
@@ -2031,8 +2009,8 @@ label of the name it is asked for:
 | Name asked for | Answer |
 | --- | --- |
 | `uat-<pr>.` and anything after it | The preview of that pull request, the container `tehas-preview-<pr>`. With no such container, a 404 that says no preview is running |
-| `lab-<issue>.` and anything after it | That ticket's page in the Protolab, from `~/tehas/protolab/<issue>/` |
-| Any other name | The Protolab by path: the list at `/`, a ticket at `/<issue>/` |
+| `item-<issue>.` and anything after it | That item's page, from `~/tehas/items/<issue>/`. Nothing in this version writes one |
+| Any other name | The items by path: the list at `/`, an item at `/<issue>/` |
 
 The number is one to nine digits and does not start with a zero. Another `uat-` or
 `lab-` name is a 404. Every answer of the router says `noindex`. Its
@@ -2090,8 +2068,8 @@ The live console of a running cycle shows what its agents did, the commands
 they ran and the start of each result. It is masked, but it is still the
 factory's logs, and the docs server has no sign-in. So by default the server
 does not serve it: `/live/console-<n>.txt` and `/live/console-<n>.txt.now`
-answer 404, and the console panels of the dashboard, the business page and
-the factory floor stay empty; the dashboard and the floor still mark the
+answer 404, and the console panels of the dashboard and the factory floor
+stay empty; the dashboard and the floor still mark the
 cycle live or ended. Everything else under `/live/` is served as before.
 `TEHAS_SITE_CONSOLE=on` in `instance.env` serves the console to anyone who can
 reach the site, for an instance whose site is also its demo. A full key of
@@ -2103,26 +2081,24 @@ applies after a change.
 
 The site has two designs, and the instance picks one for all of it with
 `TEHAS_DESIGN`. A page's colours, typefaces, sizes, outlines and shadows come
-from the design's theme file, and the design also picks the page at `/`:
+from the design's theme file. The front page, `/`, is the factory floor in
+both, and so is `/floor`:
 
-| `TEHAS_DESIGN`             | The front page, `/` | Every page names        | Logo and share card             |
-| -------------------------- | ------------------- | ----------------------- | ------------------------------- |
-| `beesknees26`, the default | The business page   | `theme-beesknees26.css` | `favicon.svg`, `tehas-logotype.svg`, `share-logo.png` |
-| `pixel`                    | The factory floor   | `theme-pixel.css`       | `factory.svg`, `share.png`      |
+| `TEHAS_DESIGN`             | Every page names        | Logo and share card             |
+| -------------------------- | ----------------------- | ------------------------------- |
+| `beesknees26`, the default | `theme-beesknees26.css` | `favicon.svg`, `tehas-logotype.svg`, `share-logo.png` |
+| `pixel`                    | `theme-pixel.css`       | `factory.svg`, `share.png`      |
 
 `beesknees26` is ink and one muted green on a near-white ground, white panels
-with soft shadows, IBM Plex, and no motion: light, with a dark set only where
-the viewer picks it with the business page's mode button, kept in their browser.
-`pixel` is the factory as a 16-bit game, in the Topaz bitmap typeface. It is
-meant for a factory whose site is also its demo; a factory that sets nothing is
-drawn in `beesknees26` everywhere, `/` included.
+with soft shadows, IBM Plex, and no motion. It has a dark set for a page that
+lets the viewer pick it; no page of tehas does. `pixel` is the factory as a
+16-bit game, in the Topaz bitmap typeface. It is meant for a factory whose site
+is also its demo; a factory that sets nothing is drawn in `beesknees26`
+everywhere, `/` included.
 
-The design draws every page: `/`, `/floor`, `/business`, `/dashboard`, every
-manual page and the Protolab. The docs server reads `TEHAS_DESIGN` when its
-container is created, so run its `docker compose ... up -d` line again after a
-change. `tehasbot protolab` writes the Protolab's pages in the design, and
-builds every page again at its next pass when the design changes. The edge
-router is given no setting about looks: it serves the files the pages name.
+The design draws every page: `/`, `/floor`, `/dashboard`, every manual page.
+The docs server reads `TEHAS_DESIGN` when its container is created, so run its
+`docker compose ... up -d` line again after a change. The edge router is given no setting about looks: it serves the files the pages name.
 
 Any value but `beesknees26` or `pixel` stops every tehas command with 78.
 `TEHAS_THEME` and `TEHAS_LAYOUT` are retired. A line that asks for the default
@@ -2131,19 +2107,14 @@ loads and is dropped. Any other value, `TEHAS_THEME=pixel` and
 `TEHAS_LAYOUT=floor` among them, stops every command with 78 and names the line
 to take out of `instance.env`: set `TEHAS_DESIGN=pixel` instead.
 
-Both pages are always there, at `/floor` and `/business`. The business page
-reads the
-same files as the floor: `live/status.json`, `live/running.json` and the
-cycles' consoles, `live/protolab.json`, `live/analytics.json`,
-`live/epics.json` and `live/energy.json`. Its console follows the running cycle's output, with a tab
-for each cycle when there are several, as on the floor. Its live strip shows
-only where the host publishes power, and its 10 days only once there is a
-report. With no queue file it shows the floor's sample tickets and says so.
-Both pages list the open epics from `live/epics.json`, one row each with a
+The business page of 1.x at `/business`, a summary over the live files, left
+core in 2.0 and returns in 2.1 as the plugin `business`. `/business` is no
+longer served.
+
+The floor lists the open epics from `live/epics.json`, one row each with a
 block per sub-issue, filled when it is closed; a row opens to list the
 sub-issues, open or closed, each linked, and a link to the epic. The panel
 shows only where the file is there.
-Its live charts cover the last 30 minutes, which is what `energy.json` holds.
 
 A page asks for its theme by name, `~/tehas/fun/theme-<name>.css`, and the docs
 server and the edge router answer with that file: nothing is rewritten. The
@@ -2166,10 +2137,7 @@ named and how big they may grow is on [The front end](/frontend).
   in it stop every command with 78, since the factory acts as a GitHub App.
   It holds the model
   endpoints' tokens (`TEHAS_MODEL_KEY_*`, see
-  [A backup model endpoint](#a-backup-model-endpoint)), mode 600. The
-  energy switches `TEHAS_ENERGY` and `TEHAS_ENERGY_URL` go here too
-  (see `tehasbot energy` in [Commands](/tools)); loading the instance keeps
-  them.
+  [A backup model endpoint](#a-backup-model-endpoint)), mode 600.
 - `~/.config/tehas/deploy_key`: the read-only deploy key the platform checkout
   is pulled with.
 
@@ -2179,9 +2147,8 @@ Both are outside the repository and the tehas tree.
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | Who can start a cycle                  | Only an account in `TEHAS_ALLOWED_LABELERS`. The dispatcher checks who most recently applied `tehas:ready`, not just that it is there   |
 | What the label approves                | The title and body as they were when it was applied. An issue whose text was changed afterwards by any other account, or by one GitHub no longer names, is skipped until the label is applied again. GitHub's times count whole seconds, so a change by another account in the second the label went on counts as afterwards. An approval of `tehas start` is by no account, so every change in its second counts as afterwards, even one by an account called `host` |
-| What else starts a cycle               | The retry box of a parked issue, ticked by one of those accounts. It counts once, and only in the question whose comment id the host has on record for that issue. Like the label, the tick approves the text as it was at that moment |
-| Who can start or continue planning     | The same accounts. A session starts when one of them applied `tehas:plan`. A turn runs on a tick or a reply from one of them to the question the session is waiting on |
-| Who can put a ticket in the Protolab   | The same accounts. `tehasbot protolab` checks who most recently applied `tehas:prototype`, and that the label is the pinned one, as the dispatcher checks `tehas:ready`. A title changed since by anyone else is not published. A label from anyone else counts as no label, and a page it had is removed. The pass stops with an error when `TEHAS_ALLOWED_LABELERS` names the bot's own login. The files beside a ticket are taken only from an owner, member or collaborator |
+| What else starts a cycle               | A reply of one of those accounts that answers `retry` (or `retry-text`) to a parked issue's question, or the same answer through `tehas answer`. It counts once, and only to the question whose comment id the host has on record for that issue. Like the label, the answer approves the text as it was at that moment. A box ticked in a comment of before 2.0 counts for nothing |
+| Who can start or continue planning     | The same accounts. A session starts when one of them applied `tehas:plan`. A turn runs on a reply from one of them to the question the session is waiting on, or on an answer through `tehas answer` |
 | What a planning container is given     | A token narrowed to the product repository, with Contents and Pull requests write and Issues read, from `~/tehas/state/github-session` (read-only), renewed every 5 minutes while the turn runs. Otherwise the same mounts and the same approve-everything mode as a work cycle's. The agent is asked to plan and file issues. Nothing in the container holds it to that |
 | What an agent can do as the bot        | With the narrowed token: push the branch, open and edit pull requests, and read issues. Its `gh issue create`, `edit` and `comment` go through the host's relay, which comments only on the cycle's own issue and on issues the cycle created, edits only issues it created during that cycle, never sets labels, assignees or state, refuses any text with `<!-- tehas:` in it, and allows 50 writes a cycle. The relay is a host channel under the rule that a container's mounts and variables are not widened ([the relay](/github-app#the-relay-is-a-security-channel)). So a comment is the factory's question only if the host has its id on record in `~/tehas/state`, which no cycle or planning container is given, and an answer counts only by who gave it |
 | Where an agent's conversation is kept  | In the container's own sessions directory: `~/tehas/work/<name>-<issue>.state/sessions` for a cycle, `~/tehas/dev/<name>.state/sessions` for a manual session. No other container reads or writes it, and a cycle's goes with its workspace |
@@ -2253,7 +2220,7 @@ What a member of the group gets, and does not:
 | The environment                  | `sudo` clears it. `dev-login` loads the tehas user's own, as the timers do. `TERM` and `COLORTERM` are kept |
 
 `gpasswd -d alice tehas` takes an account out. `test/login_test.sh` and
-`test/bootstrap_test.sh` hold the rule and the two scripts to this.
+`test/bootstrap_system_test.sh` hold the rule and the two scripts to this.
 
 `/usr/local/bin/tehas` is a copy of `host/login/tehas`, so an update of the
 platform can leave the accounts typing an older command. No tehas command runs as
@@ -2269,6 +2236,6 @@ nothing an earlier cycle could have left in it remains:
 
 ```
 mv ~/tehas/repos/tehas ~/tehas/repos/tehas.old
-git clone https://github.com/tehas-app/tehas.git ~/tehas/repos/tehas
+git clone https://github.com/tehas-app/tehas-factory.git ~/tehas/repos/tehas
 ./install.sh
 ```

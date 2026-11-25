@@ -13,6 +13,8 @@ use serde_json::Value;
 use std::collections::HashMap;
 use tehas_core::driver::Driver;
 
+use crate::last_attempt::WorkState;
+use crate::loose::Node;
 use crate::runner::LOG_TAIL;
 
 /// A file of the cycle's protocol, as `[ -f ] && [ ! -L ]` sees it.
@@ -98,8 +100,6 @@ pub struct Facts {
     pub requeued: bool,
     /// TEHAS_DRIVER: the driver of a start no label chose.
     pub driver_default: Driver,
-    /// The spec pipe is on for the host. A missing key reads as off.
-    pub spec_pipe: bool,
     files: HashMap<String, File>,
     pub run_log: Option<RunLog>,
     /// The store's answer to cycle-show, or the word of its failure.
@@ -110,8 +110,9 @@ pub struct Facts {
     pub image_built: String,
     /// The store's answer to history-show, or the word of its failure.
     pub history: Result<Value, String>,
-    /// The run's state in the workspace, .pi/work-state/<issue>.json.
-    pub work_state: Option<Value>,
+    /// The run's state in the workspace, .pi/work-state/<issue>.json. One
+    /// that is no object says nothing.
+    pub work_state: Option<WorkState>,
 }
 
 fn st(v: &Value, k: &str) -> String {
@@ -212,14 +213,18 @@ impl Facts {
                     .and_then(Value::as_str)
                     .unwrap_or(""),
             ),
-            spec_pipe: flag("spec_pipe"),
             files,
             run_log,
             record: answer(v.get("record")),
             approval: answer(v.get("approval")),
             image_built: st(v, "image_built"),
             history: answer(v.get("history")),
-            work_state: v.get("work_state").filter(|s| !s.is_null()).cloned(),
+            work_state: v.get("work_state").filter(|s| !s.is_null()).map(|s| {
+                serde_json::from_value::<Node<WorkState>>(s.clone())
+                    .ok()
+                    .and_then(Node::into_object)
+                    .unwrap_or_default()
+            }),
         })
     }
 

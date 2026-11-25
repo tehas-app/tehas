@@ -1,0 +1,21 @@
+# The product wiki's rules, kept from core when the wiki left it in 2.0: the
+# check of what the model wrote, the render to HTML and the keep of builds,
+# with the layout, stylesheet and schema in assets/. The wiki plugin of 2.1
+# vendors it. A library member of the workspace in ../Cargo.toml.
+[package]
+name = "tehas-wiki-render"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89"
+publish = false
+
+[dependencies]
+# Any HTML in a page is shown as text (src/render.rs).
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
+regex = "1"
+# build.json as it is written (src/publish.rs).
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+tehas-core = { path = "../core" }

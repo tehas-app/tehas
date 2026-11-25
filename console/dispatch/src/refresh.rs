@@ -3,9 +3,10 @@
 //! under state/refresh. What a run does and its statuses are in
 //! src/usage/refresh.txt, this command's --help.
 
-use crate::decide::{hex40, iso_now, refresh_why};
+use crate::decide::{iso_now, refresh_why};
 use crate::read::github;
 use crate::read::run::Calls;
+use crate::snapshot::{hex40, pull_read};
 use serde_json::{json, Value};
 use std::fs;
 use std::io::Write;
@@ -69,7 +70,7 @@ fn asked(node: &Value, bot: &str, repo: &str, control: u64) -> Result<Conflict, 
     if node.get("state").and_then(Value::as_str) != Some("OPEN") {
         return Err("it is not open".into());
     }
-    let why = refresh_why(node, bot, repo, control);
+    let why = refresh_why(&pull_read(node), bot, repo, control);
     if !why.is_empty() {
         return Err(why);
     }
@@ -260,7 +261,7 @@ pub fn main(args: &[&str]) -> i32 {
     };
     let home = PathBuf::from(home);
     let run = Run {
-        dir: home.join("state/refresh"),
+        dir: tehas_core::home::Home::new(&home).state(tehas_core::home::State::Refreshes),
         log: PathBuf::from(log),
         repo,
         control,
@@ -274,6 +275,7 @@ pub fn main(args: &[&str]) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tehas_core::home::{Home, State};
     use tehas_core::testdir::TestDir;
 
     const HEAD: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -321,7 +323,7 @@ mod tests {
     fn a_pull_request_read_with_no_gh_to_run_says_gh_not_found() {
         let d = scratch("no-gh");
         let run = Run {
-            dir: d.join("state/refresh"),
+            dir: Home::new(&*d).state(State::Refreshes),
             log: d.join("logs/refresh.log"),
             repo: "a/b".into(),
             control: 1,

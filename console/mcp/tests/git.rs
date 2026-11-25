@@ -1,7 +1,8 @@
 // The shared checkout: factory_git_log, factory_git_show and
 // factory_git_blame over a repository each test makes with git.
 
-use mcp::git::{ask, call_in, fetch_report, open, BLAME, FETCH_FILE, LOG, SHOW};
+use mcp::args::Args;
+use mcp::git::{ask, call_in, fetch_report, open, FetchReport, BLAME, FETCH_FILE, LOG, SHOW};
 use serde_json::{json, Value};
 use std::path::Path;
 use std::process::Command;
@@ -59,7 +60,7 @@ fn fixture(name: &str) -> (TestDir, Vec<String>) {
 
 fn ask_tool(dir: &Path, tool: &str, args: Value) -> Result<Value, String> {
     let repo = open(dir).unwrap();
-    call_in(&repo, tool, &args)
+    call_in(&repo, tool, &Args::from(args)).map(|a| serde_json::to_value(a).unwrap())
 }
 
 fn ids(v: &Value) -> Vec<String> {
@@ -325,9 +326,11 @@ fn the_report_of_the_fetch_is_copied_by_its_own_keys() {
     .unwrap();
     assert_eq!(
         fetch_report(&d),
-        Some(
-            json!({"time": "2026-11-21T10:00:00Z", "ok": false, "error": "origin said no to ghp_***"})
-        )
+        Some(FetchReport {
+            time: "2026-11-21T10:00:00Z".into(),
+            ok: false,
+            error: Some("origin said no to ghp_***".into()),
+        })
     );
     for bad in [
         r#"{"time":"soon","ok":true}"#,
@@ -342,7 +345,7 @@ fn the_report_of_the_fetch_is_copied_by_its_own_keys() {
 #[test]
 fn a_request_for_a_fetch_is_a_connection_and_nothing_written() {
     use std::io::Read;
-    let d = TestDir::new("mcp-git-ask");
+    let d = TestDir::short();
     let socket = d.join("fetch.sock");
     assert!(!ask(&socket), "no socket takes no request");
     let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();

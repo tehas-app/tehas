@@ -1,0 +1,1 @@
+| 2026-11-24 | T4.10a: `tehas update`'s signed-in release list and download through `CodeHost` on its release project's own site as the operator; the anonymous curl list and download and `gh auth status` stay until the anonymous download adapter PR | v2/t4-10-update-consumer |

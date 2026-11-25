@@ -3,10 +3,13 @@
 
 mod common;
 
+use common::Part::{Off, On};
 use common::*;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::Path;
+use tehas_core::home::{self, Home};
+use tehas_ports::{Act, Mark, State};
 
 fn v(text: &str) -> Value {
     serde_json::from_str(text).unwrap_or_else(|e| panic!("{e}: {text}"))
@@ -43,10 +46,6 @@ fn found(dir: &Path, start: &str) -> usize {
 
 fn holding(text: &str, want: &str) -> usize {
     text.lines().filter(|l| l.contains(want)).count()
-}
-
-fn exactly(text: &str, want: &str) -> usize {
-    text.lines().filter(|l| *l == want).count()
 }
 
 fn brief_line(w: &World) -> String {
@@ -92,11 +91,28 @@ fn a_turn_that_hands_back_a_plan_for_its_issue_writes_it_there_and_ends_the_sess
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
     let gh = w.gh();
-    has(
-        &gh,
-        "issue edit 7 --repo acme/widget --title feat: faster search --body ## Outcome\n\nSearch returns results faster.",
+    assert!(
+        w.wrote(
+            7,
+            Some("feat: faster search"),
+            "## Outcome\n\nSearch returns results faster."
+        ),
+        "{:?}",
+        w.patched(7)
     );
-    has(&gh, "--remove-label tehas:question --remove-label tehas:planning --remove-label tehas:plan --remove-label needs-human-attention");
+    assert!(
+        w.changes(
+            7,
+            &[
+                Off(Mark::State(State::Question)),
+                Off(Mark::State(State::Planning)),
+                Off(Mark::Act(Act::Plan)),
+                Off(Mark::State(State::NeedsPerson))
+            ]
+        ),
+        "{:?}",
+        w.writes_of(7)
+    );
     assert_eq!(holding(&gh, "This issue now holds the plan."), 1);
     lacks(&gh, "tehas:question kind=plan");
     assert_eq!(w.rec_open(), "none");
@@ -126,9 +142,14 @@ fn a_plan_that_cannot_be_written_onto_its_issue_is_written_by_the_next_poll_and_
     w.rm_fx("edit-fails-on");
     let _ = fs::remove_file(w.t().join("calls/gh"));
     w.poll();
-    has(
-        &w.gh(),
-        "issue edit 7 --repo acme/widget --title feat: faster search --body Search returns results faster.",
+    assert!(
+        w.wrote(
+            7,
+            Some("feat: faster search"),
+            "Search returns results faster."
+        ),
+        "{:?}",
+        w.patched(7)
     );
     assert_eq!(holding(&w.gh(), "This issue now holds the plan."), 1);
     assert_eq!(w.rec_open(), "none");
@@ -170,7 +191,19 @@ fn tehas_refine_on_a_parked_issue_starts_a_session_with_the_refine_brief_and_tak
         &r.out,
         "start planning #7 (labelled by alice, to refine it)",
     );
-    has(&w.gh(), "issue edit 7 --repo acme/widget --add-label tehas:planning --remove-label tehas:refine --remove-label tehas:question --remove-label needs-human-attention");
+    assert!(
+        w.changes(
+            7,
+            &[
+                On(Mark::State(State::Planning)),
+                Off(Mark::Act(Act::Refine)),
+                Off(Mark::State(State::Question)),
+                Off(Mark::State(State::NeedsPerson))
+            ]
+        ),
+        "{:?}",
+        w.writes_of(7)
+    );
     // A retry that was not ticked answers for nothing, and the park's id goes with
     // the label: the boxes of the old park must not answer for the new session.
     assert_eq!(w.park_q(7), "none");
@@ -194,7 +227,19 @@ fn tehas_plan_on_a_parked_issue_starts_a_session_from_the_issue_s_text_and_needs
         .collect();
     lacks(&brief, &head);
     lacks(&brief, "is not a duplicate of this plan");
-    has(&w.gh(), "issue edit 7 --repo acme/widget --add-label tehas:planning --remove-label tehas:plan --remove-label tehas:question --remove-label needs-human-attention");
+    assert!(
+        w.changes(
+            7,
+            &[
+                On(Mark::State(State::Planning)),
+                Off(Mark::Act(Act::Plan)),
+                Off(Mark::State(State::Question)),
+                Off(Mark::State(State::NeedsPerson))
+            ]
+        ),
+        "{:?}",
+        w.writes_of(7)
+    );
     has(&w.gh(), "authorized by @alice's `tehas:plan` label");
     assert_eq!(w.park_q(7), "none");
 }
@@ -212,7 +257,8 @@ fn a_session_whose_start_the_store_will_not_take_does_not_start_and_its_park_s_q
     );
     assert_eq!(found(&w.home.join("tmp"), "plan-7.brief."), 0);
     assert_eq!(w.plan_calls(), "");
-    lacks(&w.gh(), "issue edit");
+    assert!(w.untouched(), "{:?}", w.writes_of(7));
+    assert_eq!(w.marks(None), 0);
     assert_eq!(w.park_q(7), "4001");
 }
 
@@ -220,7 +266,7 @@ fn a_session_whose_start_the_store_will_not_take_does_not_start_and_its_park_s_q
 fn a_refining_turn_that_files_an_issue_notes_it_in_the_ledger_of_refined_issues_a_planning_one_does_not(
 ) {
     let w = World::new("plan");
-    let ledger = w.home.join("state/refined.jsonl");
+    let ledger = Home::new(&w.home).state(home::State::Refined);
     w.to_refine();
     w.plan_files(&["https://github.com/acme/widget/issues/41"]);
     let r = w.poll();
@@ -249,7 +295,7 @@ fn a_refining_turn_that_files_an_issue_notes_it_in_the_ledger_of_refined_issues_
 fn the_ledger_of_refined_issues_keeps_its_last_500_lines_as_the_ledger_of_sizes_does() {
     let w = World::new("plan");
     w.to_refine();
-    let ledger = w.home.join("state/refined.jsonl");
+    let ledger = Home::new(&w.home).state(home::State::Refined);
     let lines: String = (1..=500)
         .map(|i| format!("{{\"at\":\"x\",\"source\":0,\"filed\":{i},\"url\":\"u\"}}\n"))
         .collect();
@@ -310,14 +356,15 @@ fn without_the_refine_brief_on_the_host_no_session_starts_and_it_is_logged() {
         }
     }
     for e in fs::read_dir(root().join("libexec")).unwrap().flatten() {
-        fs::copy(e.path(), short.join("libexec").join(e.file_name())).unwrap();
+        tehas_core::testing::copy_exe(e.path(), short.join("libexec").join(e.file_name())).unwrap();
     }
     for verb in ["tehas", "tehasbot"] {
-        fs::copy(root().join("bin").join(verb), short.join("bin").join(verb)).unwrap();
+        tehas_core::testing::copy_exe(root().join("bin").join(verb), short.join("bin").join(verb))
+            .unwrap();
     }
-    fs::copy(w.console(), short.join("libexec/console")).unwrap();
+    tehas_core::testing::copy_exe(w.console(), short.join("libexec/console")).unwrap();
     // The Rust poll finds the brief beside its own program, as on a host.
-    fs::copy(w.dispatcher(), short.join("libexec/tehas-dispatch")).unwrap();
+    tehas_core::testing::copy_exe(w.dispatcher(), short.join("libexec/tehas-dispatch")).unwrap();
     let r =
         w.sh("unset TEHAS_DISPATCH_CMD TEHAS_HEALTH_CMD; \"$T/norefine/bin/tehasbot\" dispatch");
     assert_eq!(w.plan_calls(), "");
@@ -351,14 +398,8 @@ fn a_plan_label_from_the_bot_or_a_stranger_starts_nothing_and_is_taken_off_the_i
                 "clear #7: tehas:plan off, applied by '{other}' who may not authorise work here"
             ),
         );
-        assert_eq!(
-            exactly(
-                &w.gh(),
-                "issue edit 7 --repo acme/widget --remove-label tehas:plan"
-            ),
-            1
-        );
-        assert_eq!(count_lines(&w.gh(), "issue comment "), 1);
+        assert_eq!(w.offs(7, Mark::Act(Act::Plan)), 1);
+        assert_eq!(w.notes_any(), 1);
     }
 }
 
@@ -387,16 +428,28 @@ fn a_plan_label_from_an_allowed_account_starts_a_session_from_the_issue_s_text()
     lacks(&w.plan_calls(), "--kind refine");
     assert_eq!(w.rec_brief(), "# Faster search\n\nMake it fast.");
     let gh = w.gh();
-    has(
-        &gh,
-        "issue edit 7 --repo acme/widget --add-label tehas:planning --remove-label tehas:plan",
+    assert!(
+        w.changes(
+            7,
+            &[On(Mark::State(State::Planning)), Off(Mark::Act(Act::Plan))]
+        ),
+        "{:?}",
+        w.writes_of(7)
     );
     has(&gh, "authorized by @alice's `tehas:plan` label");
-    has(&gh, "- [ ] Adopt all");
+    has(&gh, "1. Adopt all");
+    lacks(&gh, "- [ ]");
     has(&gh, "<!-- tehas:question kind=plan issue=7 turn=1 -->");
-    has(
-        &gh,
-        "--remove-label tehas:planning --add-label tehas:question",
+    assert!(
+        w.changes(
+            7,
+            &[
+                Off(Mark::State(State::Planning)),
+                On(Mark::State(State::Question))
+            ]
+        ),
+        "{:?}",
+        w.writes_of(7)
     );
     assert_eq!(
         rec_jq(&w, "del(.startedAt)"),
@@ -429,11 +482,22 @@ fn a_refine_label_from_an_allowed_account_starts_a_session_with_the_refine_brief
         &r.out,
         "start planning #7 (labelled by alice, to refine it)",
     );
-    has(
-        &w.gh(),
-        "issue edit 7 --repo acme/widget --add-label tehas:planning --remove-label tehas:refine",
+    assert!(
+        w.changes(
+            7,
+            &[
+                On(Mark::State(State::Planning)),
+                Off(Mark::Act(Act::Refine))
+            ]
+        ),
+        "{:?}",
+        w.writes_of(7)
     );
-    lacks(&w.gh(), "--remove-label tehas:plan ");
+    assert!(
+        !w.changes(7, &[Off(Mark::Act(Act::Plan))]),
+        "{:?}",
+        w.writes_of(7)
+    );
     has(&w.gh(), "authorized by @alice's `tehas:refine` label");
 }
 
@@ -449,13 +513,17 @@ fn a_ticked_retry_of_a_parked_issue_starts_its_cycle_whatever_planning_label_it_
     assert_eq!(w.plan_calls(), "");
     assert_eq!(w.park_q(7), "none");
     let gh = w.gh();
-    has(
-        &gh,
-        "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:question",
+    assert!(
+        w.on(7, Mark::State(State::Running)) && w.off(7, Mark::State(State::Question)),
+        "{:?}",
+        w.writes_of(7)
     );
-    // The tick is undone with the start, so it cannot fire again later.
-    has(&gh, "api -X PATCH repos/acme/widget/issues/comments/4001");
-    has(&gh, "- [ ] Retry from a clean start");
+    // Nothing edits the question: the start took it off the record.
+    lacks(&gh, "api -X PATCH");
     // The ask for a session waits for the poll after the cycle: its label stays.
-    lacks(&gh, "--remove-label tehas:refine");
+    assert!(
+        !w.changes(7, &[Off(Mark::Act(Act::Refine))]),
+        "{:?}",
+        w.writes_of(7)
+    );
 }

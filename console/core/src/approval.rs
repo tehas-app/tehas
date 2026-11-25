@@ -14,20 +14,23 @@ fn sum(text: &str) -> String {
 /// reads the body from GraphQL and tehas work from REST, and only line ends may
 /// differ.
 pub fn body_sha256(issue: &Value) -> String {
-    sum(&issue
-        .get("body")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .replace('\r', ""))
+    body_sum(issue.get("body").and_then(Value::as_str).unwrap_or(""))
+}
+
+/// [`body_sha256`] of a body read as text.
+pub fn body_sum(body: &str) -> String {
+    sum(&body.replace('\r', ""))
 }
 
 /// The sha256 of an issue's title, without its line ends. None when the answer
 /// names no title.
 pub fn title_sha256(issue: &Value) -> Option<String> {
-    Some(sum(&issue
-        .get("title")?
-        .as_str()?
-        .replace(['\r', '\n'], "")))
+    title_sum(issue.get("title").and_then(Value::as_str))
+}
+
+/// [`title_sha256`] of a title read as text, None for none.
+pub fn title_sum(title: Option<&str>) -> Option<String> {
+    Some(sum(&title?.replace(['\r', '\n'], "")))
 }
 
 fn all_of(s: &str, ok: fn(u8) -> bool) -> bool {
@@ -53,11 +56,15 @@ fn record_ok(r: &Value) -> bool {
         && text("by").is_some_and(|s| all_of(s, |b| b.is_ascii_alphanumeric() || b == b'-'))
         && matches!(
             text("how"),
-            Some("label" | "retry-tick" | "outage-retry" | "fixer" | "refresh" | "host")
-        )
-        && matches!(
-            r.get("comment_links"),
-            None | Some(Value::Null) | Some(Value::Array(_))
+            Some(
+                "approved"
+                    | "outage-retry"
+                    | "millwright"
+                    | "refresh"
+                    | "host"
+                    | "answer"
+                    | "reply"
+            )
         )
         && hex64(r.get("body_sha256"))
         && (matches!(r.get("title_sha256"), None | Some(Value::Null))
@@ -130,7 +137,7 @@ mod tests {
     const WORDS: &str = "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f";
 
     fn approved(body: &str, title: Option<&str>) -> Value {
-        let mut r = json!({"at": "2026-10-14T00:00:00Z", "by": "alice", "how": "label", "links": [],
+        let mut r = json!({"at": "2026-10-14T00:00:00Z", "by": "alice", "how": "approved", "links": [],
             "body_sha256": body_sha256(&json!({"body": body}))});
         if let Some(t) = title {
             r["title_sha256"] = json!(title_sha256(&json!({"title": t})).unwrap());
@@ -193,13 +200,12 @@ mod tests {
         let good = approved("Words.", None);
         let issue = json!({"body": "Words."});
         assert_eq!(hold(None, &issue), Err(Refusal::Record));
-        let bad: [(&str, Value); 9] = [
+        let bad: [(&str, Value); 8] = [
             ("at", json!("2026\n")),
             ("by", json!("two words")),
             ("by", json!("alice\n")),
             ("how", json!("nobody")),
             ("links", json!("x")),
-            ("comment_links", json!("x")),
             ("body_sha256", json!("abc")),
             ("body_sha256", json!(format!("{}\n", "a".repeat(64)))),
             ("title_sha256", json!(7)),
@@ -213,12 +219,21 @@ mod tests {
     }
 
     #[test]
+    fn a_record_s_comment_links_are_ignored() {
+        for held in [json!([{"link": "L"}]), json!("x")] {
+            let mut r = approved("Words.", None);
+            r["comment_links"] = held;
+            assert_eq!(hold(Some(&r), &json!({"body": "Words."})), Ok(()));
+        }
+    }
+
+    #[test]
     fn every_way_of_approving_is_a_shape_it_reads() {
         for how in [
-            "label",
-            "retry-tick",
+            "approved",
+            "reply",
             "outage-retry",
-            "fixer",
+            "millwright",
             "refresh",
             "host",
         ] {
@@ -226,5 +241,12 @@ mod tests {
             r["how"] = json!(how);
             assert_eq!(hold(Some(&r), &json!({"body": "Words."})), Ok(()));
         }
+        // The millwright's old name is no way of approving.
+        let mut r = approved("Words.", None);
+        r["how"] = json!("fixer");
+        assert_eq!(
+            hold(Some(&r), &json!({"body": "Words."})),
+            Err(Refusal::Record)
+        );
     }
 }

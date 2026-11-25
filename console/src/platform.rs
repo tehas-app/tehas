@@ -21,6 +21,7 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 use tehas_core::call;
 use tehas_core::file::{write_atomic, Temp};
+use tehas_core::home::{Home, State};
 use tehas_core::time;
 
 const FETCH_EVERY: i64 = 3600;
@@ -150,8 +151,9 @@ fn put(live: &Path, file: &J) {
 /// commit is the one the release was built from, from its COMMIT file, and is
 /// left out when the release has none.
 fn release(home: &Path, live: &Path, installed: &str) {
-    let stamp = home.join("state/platform-fetch");
-    let cache = home.join("state/platform-newest");
+    let at = Home::new(home);
+    let stamp = at.state(State::PlatformFetch);
+    let cache = at.state(State::PlatformNewest);
     let now = time::now();
     let (last, mut fetched) = stamp_read(&stamp);
     let cached = fs::read_to_string(&cache).unwrap_or_default();
@@ -241,7 +243,7 @@ fn checkout(home: &Path, live: &Path) {
         let _ = fs::remove_file(live.join("platform.json"));
         return;
     }
-    let stamp = home.join("state/platform-fetch");
+    let stamp = Home::new(home).state(State::PlatformFetch);
     let now = time::now();
     let (last, mut fetched) = stamp_read(&stamp);
     if now - last >= FETCH_EVERY {
@@ -344,12 +346,13 @@ mod tests {
     #[test]
     fn a_candidate_keeps_an_older_cached_newest() {
         let home = tehas_core::testdir::TestDir::new("rc");
-        let live = home.join("live");
-        fs::create_dir_all(home.join("state")).unwrap();
+        let at = Home::new(home.to_path_buf());
+        let live = at.live_dir();
+        fs::create_dir_all(at.state_dir()).unwrap();
         fs::create_dir_all(&live).unwrap();
         let now = time::now();
-        fs::write(home.join("state/platform-fetch"), format!("{now} {now}\n")).unwrap();
-        fs::write(home.join("state/platform-newest"), "v0.22.1\n").unwrap();
+        fs::write(at.state(State::PlatformFetch), format!("{now} {now}\n")).unwrap();
+        fs::write(at.state(State::PlatformNewest), "v0.22.1\n").unwrap();
         release(&home, &live, "v0.23.0-rc.2");
         let file = J::parse(&fs::read_to_string(live.join("platform.json")).unwrap()).unwrap();
         assert_eq!(file.get("newest").as_str(), Some("v0.22.1"));
@@ -361,13 +364,14 @@ mod tests {
     #[test]
     fn a_release_names_the_commit_it_was_built_from() {
         let home = tehas_core::testdir::TestDir::new("commit");
-        let live = home.join("live");
-        fs::create_dir_all(home.join("state")).unwrap();
+        let at = Home::new(home.to_path_buf());
+        let live = at.live_dir();
+        fs::create_dir_all(at.state_dir()).unwrap();
         fs::create_dir_all(home.join("versions/v1.0.0-alpha.1")).unwrap();
         fs::create_dir_all(&live).unwrap();
         std::os::unix::fs::symlink("versions/v1.0.0-alpha.1", home.join("current")).unwrap();
         let now = time::now();
-        fs::write(home.join("state/platform-fetch"), format!("{now} {now}\n")).unwrap();
+        fs::write(at.state(State::PlatformFetch), format!("{now} {now}\n")).unwrap();
         let commit = |text: &str| {
             fs::write(home.join("current/COMMIT"), text).unwrap();
             release(&home, &live, "v1.0.0-alpha.1");

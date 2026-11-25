@@ -14,18 +14,19 @@ use std::io::Read;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
+use tehas_core::home::{Home, State};
 
 use crate::live;
 
 /// PRAGMA user_version of the schema in schema.sql.
-pub const SCHEMA_VERSION: i64 = 23;
+pub const SCHEMA_VERSION: i64 = 33;
 pub const SCHEMA: &str = include_str!("schema.sql");
 
-/// The five tables of section 3.15, the outsource state. Every store of this
-/// schema holds them: `write_schema` and `step_15` lay them whether or not the
-/// instance outsources. What the feature decides is whether a verb writes a
-/// row of them; see [`has_outsource`].
-pub const OUTSOURCE_TABLES: [&str; 5] = [
+/// The five tables schemas 15 to 28 held for outsource, which 2.0 dropped:
+/// the step to 15 lays them, the steps to 17 and 18 add to them, and
+/// [`DROP_OUTSOURCE`] drops them.
+#[cfg(test)]
+pub const DROPPED_TABLES: [&str; 5] = [
     "contractors",
     "join_codes",
     "jobs",
@@ -33,57 +34,8 @@ pub const OUTSOURCE_TABLES: [&str; 5] = [
     "issue_attempts",
 ];
 
-/// The DDL of the five outsource tables, kept in `outsource.sql` beside
-/// schema.sql. It is the DDL of the step to 15 as well, so `init` and
-/// `migrate` lay the same tables. The columns schemas 17 and 18 add to them
-/// are [`STEP_17`]'s and [`STEP_18`]'s, which `init` runs after it.
-pub const OUTSOURCE_SCHEMA: &str = include_str!("outsource.sql");
-
-/// The key of `meta` whose value `1` says the instance outsources.
-const OUTSOURCE_KEY: &str = "outsource";
-
-/// Whether the instance has the feature on, as the last `init` or `migrate`
-/// was told by `--outsource`. The store reads no setting of a host
-/// (src/main.rs), so the command that loaded the instance's settings passes the
-/// word down and the store keeps it in `meta`. A store with no such row has the
-/// feature off, which is the safe answer: its verbs write nothing.
-pub fn has_outsource(conn: &Connection) -> Result<bool, DbError> {
-    let n: i64 = conn
-        .query_row(
-            "SELECT count(*) FROM meta WHERE key = ?1 AND value = '1'",
-            [OUTSOURCE_KEY],
-            |r| r.get(0),
-        )
-        .map_err(classify)?;
-    Ok(n == 1)
-}
-
-/// [`has_outsource`] on a connection whose write lock is held and whose
-/// transaction has begun, so the answer is the one the write of the same
-/// transaction sees.
-pub fn has_outsource_held(conn: &Connection) -> Result<bool, DbError> {
-    has_outsource(conn)
-}
-
-/// Writes the feature as the caller said it: the row of `meta` when on, no row
-/// when off. Turning it off keeps every row of the five tables; the verbs stop
-/// writing them until a later call says on again.
-pub fn set_outsource(conn: &mut Connection, on: bool) -> Result<(), DbError> {
-    let tx = conn
-        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-        .map_err(classify)?;
-    if on {
-        tx.execute(
-            "INSERT INTO meta (key, value) VALUES (?1, '1') \
-             ON CONFLICT (key) DO UPDATE SET value = '1'",
-            [OUTSOURCE_KEY],
-        )
-    } else {
-        tx.execute("DELETE FROM meta WHERE key = ?1", [OUTSOURCE_KEY])
-    }
-    .map_err(classify)?;
-    tx.commit().map_err(classify)
-}
+/// The DDL of the step to 15, as schema 15 wrote it.
+pub const STEP_15: &str = include_str!("step_15.sql");
 
 /// The step from 12 to 13: what a start was, kept on the approval it ran on (#1751).
 /// The keeping after a start deletes the approvals of the starts the base no longer
@@ -138,14 +90,6 @@ ALTER TABLE cycles_new RENAME TO cycles;
 CREATE INDEX cycles_running ON cycles (ended_at, started_at);
 ";
 
-/// The step from 14 to 15: the five outsource tables of section 3.15. It
-/// creates them on every store, empty; whether a verb writes them is the
-/// feature's, which the step does not decide. Nothing is rebuilt, so no row can
-/// be lost.
-fn step_15(c: &mut Connection) -> Result<(), DbError> {
-    step(c, 15, OUTSOURCE_SCHEMA)
-}
-
 /// The step from 15 to 16: an action may be `unknown`, a write GitHub may have
 /// taken that a read has still to settle (#1754). `actions` is rebuilt as
 /// schema.sql writes it, with foreign keys off (`step_16`): `journal` refers to
@@ -181,13 +125,8 @@ UPDATE OR IGNORE planning_notes SET kind = 'millwright-refused' WHERE kind = 'fi
 DELETE FROM planning_notes WHERE kind = 'fixer-refused';
 ";
 
-/// The step from 16 to 17: what outsource keeps across a restart of the model
-/// proxy and what a contractor last said it has. `jobs.token_sha256` is the
-/// sha256 of the token the proxy issued for the job, never the token: a proxy
-/// that restarts checks a presented token against it. The `report_*` columns
-/// of `contractors` are its last report (image id, pi-rukas version, free
-/// memory and disk) and the second the factory took it. Every column is added
-/// null, so no row changes, and only a verb of the feature writes one.
+/// The step from 16 to 17, as it was written: columns on two of the tables
+/// [`DROP_OUTSOURCE`] drops, every one added null.
 pub const STEP_17: &str = "
 ALTER TABLE jobs ADD COLUMN token_sha256 TEXT;
 CREATE INDEX jobs_token ON jobs (token_sha256);
@@ -198,13 +137,8 @@ ALTER TABLE contractors ADD COLUMN report_disk_kb INTEGER;
 ALTER TABLE contractors ADD COLUMN report_at INTEGER;
 ";
 
-/// The step from 17 to 18: a job's tokens in two scopes, one row per job. The
-/// job scope is the contractor program's token, which may call only the job
-/// channel and the job's downloads; the model scope is the token in the
-/// container's models.json, which may call only the model paths and the
-/// egress tunnel. `token_sha256` is renamed `job_token_sha256` and keeps its
-/// value, and `model_token_sha256` is added null. Each holds a sha256, never
-/// a token.
+/// The step from 17 to 18, as it was written: a rename and a column on
+/// `jobs`, which [`DROP_OUTSOURCE`] drops.
 pub const STEP_18: &str = "
 ALTER TABLE jobs RENAME COLUMN token_sha256 TO job_token_sha256;
 DROP INDEX jobs_token;
@@ -301,6 +235,297 @@ DROP TABLE plugin_runs;
 ALTER TABLE plugin_runs_new RENAME TO plugin_runs;
 CREATE INDEX plugin_runs_last ON plugin_runs (plugin, kind, started_at);
 ";
+
+/// The `questions` table of schema 30, named `$name`, as schema.sql lays it
+/// (a test holds the two to one shape): the store's own number as `id`,
+/// never reused, and the comment's id beside it, which only the store and the
+/// code host's side of the dispatcher read.
+macro_rules! questions_table {
+    ($name:literal) => {
+        concat!(
+            "
+CREATE TABLE ",
+            $name,
+            " (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  comment_id  INTEGER,
+  issue       INTEGER NOT NULL REFERENCES issues (issue) ON DELETE CASCADE,
+  attempt     INTEGER NOT NULL,
+  kind        TEXT NOT NULL CHECK (kind IN ('park','plan')),
+  posted_at   INTEGER NOT NULL,
+  body_sha256 TEXT,
+  answered_at INTEGER,
+  answered_by TEXT,
+  offers      TEXT,
+  reask       INTEGER NOT NULL DEFAULT 0,
+  withdrawn_at INTEGER
+);
+"
+        )
+    };
+}
+
+/// The table schema 24 adds: an answer given through `tehas answer` (#2782),
+/// one row per question, which goes with its question. `choice` is a word of
+/// `tehas_core::question::ANSWERS` (a test holds the CHECK to that list),
+/// `option_key` the number of a planning option, `text` a reply in words.
+macro_rules! answers_table {
+    () => {
+        "
+CREATE TABLE answers (
+  question   INTEGER PRIMARY KEY REFERENCES questions (id) ON DELETE CASCADE,
+  issue      INTEGER NOT NULL,
+  at         INTEGER NOT NULL,
+  by_account TEXT NOT NULL,
+  choice     TEXT NOT NULL CHECK (choice IN ('retry','retry-text','park','option','update','end','text')),
+  option_key INTEGER,
+  text       TEXT
+);
+"
+    };
+}
+
+/// What init lays for schema 24 after schema.sql, whose `cycles` already
+/// takes `answer`.
+pub const STEP_24_INIT: &str = answers_table!();
+
+/// The step from 24 to 25: the choices a park's question offers (#2782),
+/// the words of `tehas_core::question::Choice` joined with commas, which
+/// `tehas question` reads. A question asked before it has none on record.
+pub const STEP_25: &str = "
+ALTER TABLE questions ADD COLUMN offers TEXT;
+";
+
+/// The rebuild of `cycles` with `cycles.how` taking the words `$hows`, every
+/// row copied: SQLite cannot change a CHECK in place. With `$select`, the rows
+/// are copied through that list of columns, so a word the new CHECK refuses is
+/// rewritten as it is copied.
+macro_rules! cycles_with_hows {
+    ($hows:literal) => {
+        cycles_with_hows!($hows, "*")
+    };
+    ($hows:literal, $select:literal) => {
+        concat!(
+            "
+CREATE TABLE cycles_new (
+  issue          INTEGER PRIMARY KEY REFERENCES issues (issue) ON DELETE CASCADE,
+  attempt        INTEGER NOT NULL DEFAULT 1,
+  started_at     INTEGER NOT NULL,
+  started_by     TEXT,
+  how            TEXT NOT NULL CHECK (how IN (",
+        $hows,
+        ")),
+  requeued       INTEGER NOT NULL DEFAULT 0,
+  rukas_commit   TEXT,
+  image          TEXT,
+  branch         TEXT,
+  end_reason     TEXT CHECK (end_reason IN ('closed','merged','handoff','parked','failed','stopped','timeout','killed','lost','interrupted','stalled','unknown')),
+  ended_at       INTEGER,
+  oom_kills      INTEGER,
+  forks_refused  INTEGER,
+  stalled_seconds INTEGER,
+  timed_out      INTEGER NOT NULL DEFAULT 0,
+  runner_exit    INTEGER,
+  watched        INTEGER NOT NULL DEFAULT 0,
+  host_saw       TEXT CHECK (host_saw IN ('killed')),
+  stop_asked_at  INTEGER,
+  stop_said_times INTEGER NOT NULL DEFAULT 0
+);
+INSERT INTO cycles_new SELECT ",
+            $select,
+            " FROM cycles;
+DROP TABLE cycles;
+ALTER TABLE cycles_new RENAME TO cycles;
+CREATE INDEX cycles_running ON cycles (ended_at, started_at);
+"
+        )
+    };
+}
+
+/// The step from 23 to 24: the answers, and `cycles.how` takes `answer`, a
+/// retry an answer of `tehas answer` asked for. SQLite cannot change a CHECK in
+/// place, so `cycles` is rebuilt as `STEP_14` rebuilt it, with foreign keys off
+/// (`step_24`), and every row is copied.
+pub const STEP_24: &str = concat!(
+    cycles_with_hows!(
+        "'label','refresh','retry-tick','outage-retry','fixer','millwright','hand','host','answer'"
+    ),
+    answers_table!()
+);
+
+/// The step from 25 to 26: `cycles.how` takes `reply`, a retry a person's
+/// reply asked for, so `answer` stays the how of `tehas answer` alone (#2782).
+/// Run as the step to 24 is, with foreign keys off (`step_26`).
+pub const STEP_26: &str = cycles_with_hows!("'label','refresh','retry-tick','outage-retry','fixer','millwright','hand','host','answer','reply'");
+
+/// The step from 26 to 27 (#2782): a retry ticked before 2.0 is a retry a
+/// person's reply asked for, so every stored `retry-tick` how becomes `reply`
+/// and `cycles.how` no longer takes `retry-tick`; and every question still
+/// open is marked to be asked again in 2.0's words, which the first poll does
+/// once. Run as the step to 24 is, with foreign keys off (`step_27`).
+pub const STEP_27: &str = concat!(
+    "
+UPDATE cycles SET how = 'reply' WHERE how = 'retry-tick';
+UPDATE approvals SET how = 'reply' WHERE how = 'retry-tick';
+UPDATE approvals SET label = 'reply' WHERE label = 'retry-tick';
+UPDATE approvals SET started_how = 'reply' WHERE started_how = 'retry-tick';
+UPDATE cycle_history SET how = 'reply' WHERE how = 'retry-tick';
+",
+    cycles_with_hows!(
+        "'label','refresh','outage-retry','fixer','millwright','hand','host','answer','reply'"
+    ),
+    "
+ALTER TABLE questions ADD COLUMN reask INTEGER NOT NULL DEFAULT 0;
+UPDATE questions SET reask = 1 WHERE answered_at IS NULL;
+"
+);
+
+/// The step from 27 to 28: the millwright's old name goes from the two CHECK
+/// lists that still took it. Any row that still says it is written in the
+/// millwright's word first, a note that would then name a comment twice
+/// dropped. The approvals' inputs lose `comment_links`, whose feature left
+/// core in 2.0; no reader takes the key. Run as the step to 24 is, with
+/// foreign keys off (`step_28`).
+pub const STEP_28: &str = concat!(
+    "
+UPDATE approvals SET input_json = json_remove(input_json, '$.comment_links')
+ WHERE json_type(input_json, '$.comment_links') IS NOT NULL;
+UPDATE cycles SET how = 'millwright' WHERE how = 'fixer';
+UPDATE OR IGNORE planning_notes SET kind = 'millwright-refused' WHERE kind = 'fixer-refused';
+DELETE FROM planning_notes WHERE kind = 'fixer-refused';
+",
+    cycles_with_hows!(
+        "'label','refresh','outage-retry','millwright','hand','host','answer','reply'"
+    ),
+    "
+CREATE TABLE planning_notes_new (
+  issue INTEGER NOT NULL REFERENCES planning (issue) ON DELETE CASCADE,
+  kind  TEXT NOT NULL CHECK (kind IN ('millwright-refused','held')),
+  comment_id INTEGER NOT NULL,
+  at INTEGER NOT NULL,
+  PRIMARY KEY (issue, kind, comment_id)
+);
+INSERT INTO planning_notes_new SELECT * FROM planning_notes;
+DROP TABLE planning_notes;
+ALTER TABLE planning_notes_new RENAME TO planning_notes;
+"
+);
+
+/// The schema whose step drops outsource. Steps run in number order, so this
+/// one number moves if another step lands first.
+pub const DROP_OUTSOURCE_STEP: i64 = 29;
+
+/// The step to [`DROP_OUTSOURCE_STEP`]: outsource was dropped in 2.0, and its
+/// five tables and its row of `meta` go with it. No release could turn the
+/// feature on, so the tables are empty on a host; the backup `migrate` takes
+/// first holds what a development store had. The children go before their
+/// parents.
+pub const DROP_OUTSOURCE: &str = "
+DROP TABLE job_history;
+DROP TABLE issue_attempts;
+DROP TABLE jobs;
+DROP TABLE join_codes;
+DROP TABLE contractors;
+DELETE FROM meta WHERE key = 'outsource';
+";
+
+/// The step from 30 to 31 (T11.3): `cycle_history.reported`, 1 on a line a
+/// cycle's report wrote and 0 on one the store wrote for a start with no
+/// report (a refused start, `tehas stop`, a lost cycle). Every row there is
+/// 1: until 2.0 only a report wrote a line. The record of a start reads only
+/// the reported lines, as it did before the others were written.
+pub const STEP_31: &str = "
+ALTER TABLE cycle_history ADD COLUMN reported INTEGER NOT NULL DEFAULT 1 CHECK (reported IN (0, 1));
+";
+
+/// The step from 31 to 32 (ports spec, "The links", T4.8): the table
+/// `links`, empty, one row a blueprint, naming the ticket it was made for,
+/// who made it in which realm, when, and how. Only `link-record` writes it;
+/// on every setup 2.0 runs ticket and blueprint are one item and no row is
+/// written.
+pub const STEP_32: &str = "
+CREATE TABLE links (
+  ticket        TEXT NOT NULL CHECK (length(ticket) BETWEEN 1 AND 128),
+  blueprint     INTEGER NOT NULL UNIQUE CHECK (blueprint > 0),
+  made_by       TEXT NOT NULL CHECK (length(made_by) > 0),
+  made_by_realm TEXT NOT NULL CHECK (made_by_realm IN ('code-host','tickets')),
+  made_at       INTEGER NOT NULL,
+  how           TEXT NOT NULL CHECK (how IN ('opened','linked'))
+);
+CREATE INDEX links_ticket ON links (ticket);
+";
+
+/// The step from 32 to 33 (T4.7, the lead's ruling on the question's sum):
+/// `questions.body_form` says what a question's `body_sha256` sums. 2.0 sums
+/// a question's visible text alone, without our markers (`visible`); every
+/// sum of before is of the comment as it was posted, its markers in
+/// (`rendered`). A `rendered` row is adopted in place on the poll's first
+/// read of its comment (`question-adopt`): `visible` with the sum of its
+/// visible text when the comment reads as it was posted, `visible` with no
+/// sum when it was ticked or edited since. No write to the code host, no
+/// edit and no label change; it is not asked again. The reading of
+/// `rendered` goes once the last 1.x host has updated (contract, R9).
+pub const STEP_33: &str = "
+ALTER TABLE questions ADD COLUMN body_form TEXT CHECK (body_form IN ('rendered','visible'));
+UPDATE questions SET body_form = 'rendered' WHERE body_sha256 IS NOT NULL;
+";
+
+/// The step from 29 to 30 (docs/specs/2026-11-22-events.md, T11.2), in the
+/// words 2.0 uses for one fact everywhere:
+///
+/// - the how `label` is `approved`, in `cycles.how` (whose CHECK takes
+///   `approved` and no longer `label`, so `cycles` is rebuilt and each row
+///   rewritten as it is copied), `cycle_history.how`, `approvals.how`,
+///   `approvals.label` and `approvals.started_how`;
+/// - `cycle_history.recorded_at`, when the line was written, is the row's
+///   `at` on every row there, and a missing `started_at` is the row's `at`
+///   too (a line of the v0.30 ledgers had none);
+/// - `cycle_history.signalled`, whether a signal stopped the cycle, is 0 on
+///   every row there: no release kept it, and history leaves the field out
+///   of a line that says 0 (T11.3 writes it);
+/// - `questions` is rebuilt with the store's own number as `id`, given in
+///   order and never reused (AUTOINCREMENT), the existing rows numbered in
+///   `posted_at` order, the comment's id in `comment_id`, and `withdrawn_at`:
+///   a withdrawn question is kept with the time it was withdrawn. The answers
+///   move with their questions, through the negative numbers so that no two
+///   rows of `answers` hold one number on the way.
+///
+/// The store's id in `meta` is written by `step_30`, which reads the host's
+/// random source. Run as the step to 24 is, with foreign keys off.
+pub const STEP_30: &str = concat!(
+    "
+UPDATE cycle_history SET how = 'approved' WHERE how = 'label';
+UPDATE approvals SET how = 'approved' WHERE how = 'label';
+UPDATE approvals SET label = 'approved' WHERE label = 'label';
+UPDATE approvals SET started_how = 'approved' WHERE started_how = 'label';
+",
+    cycles_with_hows!(
+        "'approved','refresh','outage-retry','millwright','hand','host','answer','reply'",
+        "issue, attempt, started_at, started_by,
+  CASE how WHEN 'label' THEN 'approved' ELSE how END,
+  requeued, rukas_commit, image, branch, end_reason, ended_at, oom_kills, forks_refused,
+  stalled_seconds, timed_out, runner_exit, watched, host_saw, stop_asked_at, stop_said_times"
+    ),
+    "
+ALTER TABLE cycle_history ADD COLUMN recorded_at INTEGER;
+UPDATE cycle_history SET recorded_at = at;
+UPDATE cycle_history SET started_at = at WHERE started_at IS NULL;
+ALTER TABLE cycle_history ADD COLUMN signalled INTEGER NOT NULL DEFAULT 0 CHECK (signalled IN (0, 1));
+",
+    questions_table!("questions_new"),
+    "
+INSERT INTO questions_new (comment_id, issue, attempt, kind, posted_at, body_sha256,
+    answered_at, answered_by, offers, reask)
+  SELECT id, issue, attempt, kind, posted_at, body_sha256, answered_at, answered_by, offers, reask
+  FROM questions ORDER BY posted_at, id;
+UPDATE answers SET question = -question;
+UPDATE answers SET question = (SELECT n.id FROM questions_new n WHERE n.comment_id = -answers.question);
+DROP TABLE questions;
+ALTER TABLE questions_new RENAME TO questions;
+CREATE INDEX questions_issue ON questions (issue, posted_at);
+CREATE UNIQUE INDEX questions_comment ON questions (comment_id) WHERE withdrawn_at IS NULL;
+"
+);
 
 /// How long SQLite waits for a lock another connection holds before giving
 /// up, as the spec's section 4 states it. A database still busy then is exit
@@ -587,13 +812,14 @@ pub fn install_test_bounds() -> (Duration, Duration) {
 /// them. Every CREATE INDEX of schema.sql appears here exactly once, which that
 /// test is what checks.
 #[cfg(test)]
-pub const COUNTED_INDEXES: [&str; 23] = [
+pub const COUNTED_INDEXES: [&str; 18] = [
     "issues_checked",
     "cycles_running",
     "heartbeats_at",
     "endings_recent",
     "approvals_open",
     "questions_issue",
+    "questions_comment",
     "cycle_history_issue",
     "plan_history_issue",
     "cycle_history_seq",
@@ -602,23 +828,18 @@ pub const COUNTED_INDEXES: [&str; 23] = [
     "poll_cost_at",
     "actions_open",
     "journal_action",
-    "join_codes_code",
-    "jobs_issue",
-    "jobs_open",
-    "jobs_check_in",
-    "job_history_job",
-    "jobs_model_token",
-    "jobs_job_token",
     "plugin_runs_last",
     "plugin_records_issue",
+    "links_ticket",
 ];
 
 /// The tables of schema.sql, each exactly once, which the test
 /// every_counted_table_exists pins, so a table that goes missing from the
-/// schema cannot go missing from the report too. `check` counts these and
-/// [`OUTSOURCE_TABLES`], and `copy` counts and `load` moves both.
-pub const COUNTED_TABLES: [&str; 26] = [
+/// schema cannot go missing from the report too. `check` and `copy` count
+/// these, and `load` moves them.
+pub const COUNTED_TABLES: [&str; 28] = [
     "actions",
+    "answers",
     "approvals",
     "cycle_history",
     "cycle_notes",
@@ -630,6 +851,7 @@ pub const COUNTED_TABLES: [&str; 26] = [
     "heartbeats",
     "issues",
     "journal",
+    "links",
     "meta",
     "parks",
     "plan_history",
@@ -692,7 +914,7 @@ impl DbError {
 /// The path of the store: `$TEHAS_HOME/state/tehas.db`. Never under `live/`
 /// and never under `state/index`, which `guard` refuses.
 pub fn path(home: &Path) -> PathBuf {
-    home.join("state").join("tehas.db")
+    Home::new(home).state(State::StoreDb)
 }
 
 /// What the caller said about the installation, for the rows of `meta` that a
@@ -1220,16 +1442,15 @@ pub fn write_schema(
         ));
     }
     tx.execute_batch(SCHEMA).map_err(classify)?;
-    tx.execute_batch(OUTSOURCE_SCHEMA).map_err(classify)?;
-    tx.execute_batch(STEP_17).map_err(classify)?;
-    tx.execute_batch(STEP_18).map_err(classify)?;
     tx.execute_batch(STEP_19).map_err(classify)?;
     tx.execute_batch(STEP_20).map_err(classify)?;
     tx.execute_batch(STEP_21).map_err(classify)?;
     tx.execute_batch(STEP_22).map_err(classify)?;
     tx.execute_batch(STEP_23).map_err(classify)?;
+    tx.execute_batch(STEP_24_INIT).map_err(classify)?;
     let rows = [
         ("schema", SCHEMA_VERSION.to_string()),
+        ("store", store_id()?),
         ("created_at", now.to_string()),
         ("tehas_version", version.to_string()),
         ("tehas_commit", commit.to_string()),
@@ -1357,15 +1578,13 @@ pub(crate) const STEPS: &[(i64, Step)] = &[
     // v0.30.1 wrote 13.
     (14, step_14),
     // v0.30.2 to v0.30.6 wrote 14.
-    (15, step_15),
+    (15, |c| step(c, 15, STEP_15)),
     // A store at 15 is one this binary wrote before an action could be
     // unknown.
     (16, step_16),
-    // A store at 16 is one this binary wrote before a job token or a
-    // contractor's report outlived the proxy.
+    // A store at 16 is one this binary wrote before the step to 17.
     (17, |c| step(c, 17, STEP_17)),
-    // A store at 17 is one this binary wrote before a job's token had a
-    // scope.
+    // A store at 17 is one this binary wrote before the step to 18.
     (18, |c| step(c, 18, STEP_18)),
     // A store at 18 is one this binary wrote before a plugin ran.
     (19, |c| step(c, 19, STEP_19)),
@@ -1377,6 +1596,37 @@ pub(crate) const STEPS: &[(i64, Step)] = &[
     (22, |c| step(c, 22, STEP_22)),
     // A store at 22 is one this binary wrote before a tool was called.
     (23, |c| step(c, 23, STEP_23)),
+    // A store at 23 is one this binary wrote before a question took an answer
+    // of a program.
+    (24, step_24),
+    // A store at 24 is one this binary wrote before a question kept its
+    // choices.
+    (25, |c| step(c, 25, STEP_25)),
+    // A store at 25 is one this binary wrote before a reply's retry had a how
+    // of its own.
+    (26, step_26),
+    // A store at 26 is one this binary wrote before retry-tick was gone and
+    // an open question was asked again in 2.0's words.
+    (27, step_27),
+    // A store at 27 is one this binary wrote before the millwright's old name
+    // was gone from its CHECK lists.
+    (28, step_28),
+    // A store at 28 is one this binary wrote while outsource was being built.
+    (DROP_OUTSOURCE_STEP, |c| {
+        step(c, DROP_OUTSOURCE_STEP, DROP_OUTSOURCE)
+    }),
+    // A store at 29 is one this binary wrote before the words of the events
+    // and the store's own numbers (T11.2).
+    (30, step_30),
+    // A store at 30 is one this binary wrote before a line said whether a
+    // report wrote it (T11.3).
+    (31, |c| step(c, 31, STEP_31)),
+    // A store at 31 is one this binary wrote before tehas kept the links
+    // of a ticket to its blueprints (T4.8).
+    (32, |c| step(c, 32, STEP_32)),
+    // A store at 32 is one this binary wrote before a question's sum said
+    // what it sums (T4.7).
+    (33, |c| step(c, 33, STEP_33)),
 ];
 
 /// One schema step to `to`, in one transaction with `meta.schema` and
@@ -1436,6 +1686,82 @@ fn step_14(conn: &mut Connection) -> Result<(), DbError> {
         .map_err(classify)?;
     stepped?;
     conn.execute_batch("VACUUM").map_err(classify)
+}
+
+/// The step to 24, run as `step_14` runs its rebuild of `cycles`.
+fn step_24(conn: &mut Connection) -> Result<(), DbError> {
+    conn.pragma_update(None, "foreign_keys", "OFF")
+        .map_err(classify)?;
+    let stepped = step(conn, 24, STEP_24);
+    conn.pragma_update(None, "foreign_keys", "ON")
+        .map_err(classify)?;
+    stepped?;
+    conn.execute_batch("VACUUM").map_err(classify)
+}
+
+/// The step to 26, run as `step_14` runs its rebuild of `cycles`.
+fn step_26(conn: &mut Connection) -> Result<(), DbError> {
+    conn.pragma_update(None, "foreign_keys", "OFF")
+        .map_err(classify)?;
+    let stepped = step(conn, 26, STEP_26);
+    conn.pragma_update(None, "foreign_keys", "ON")
+        .map_err(classify)?;
+    stepped?;
+    conn.execute_batch("VACUUM").map_err(classify)
+}
+
+/// The step to 27, run as `step_14` runs its rebuild of `cycles`.
+fn step_27(conn: &mut Connection) -> Result<(), DbError> {
+    conn.pragma_update(None, "foreign_keys", "OFF")
+        .map_err(classify)?;
+    let stepped = step(conn, 27, STEP_27);
+    conn.pragma_update(None, "foreign_keys", "ON")
+        .map_err(classify)?;
+    stepped?;
+    conn.execute_batch("VACUUM").map_err(classify)
+}
+
+/// The step to 28, run as `step_14` runs its rebuild of `cycles`.
+fn step_28(conn: &mut Connection) -> Result<(), DbError> {
+    conn.pragma_update(None, "foreign_keys", "OFF")
+        .map_err(classify)?;
+    let stepped = step(conn, 28, STEP_28);
+    conn.pragma_update(None, "foreign_keys", "ON")
+        .map_err(classify)?;
+    stepped?;
+    conn.execute_batch("VACUUM").map_err(classify)
+}
+
+/// The step to 30, run as `step_14` runs its rebuild of `cycles`, with the
+/// store's id written in `meta` when it has none.
+fn step_30(conn: &mut Connection) -> Result<(), DbError> {
+    let sql = format!(
+        "{STEP_30}\nINSERT OR IGNORE INTO meta (key, value) VALUES ('store', '{}');",
+        store_id()?
+    );
+    conn.pragma_update(None, "foreign_keys", "OFF")
+        .map_err(classify)?;
+    let stepped = step(conn, 30, &sql);
+    conn.pragma_update(None, "foreign_keys", "ON")
+        .map_err(classify)?;
+    stepped?;
+    conn.execute_batch("VACUUM").map_err(classify)
+}
+
+/// The store's id: 32 lower-case hex digits from the host's random source,
+/// made once when the store is first laid (or given by the step to 30) and
+/// kept in `meta` under `store`. A copy moved by pack and unpack keeps it.
+pub fn store_id() -> Result<String, DbError> {
+    let mut bytes = [0u8; 16];
+    File::open("/dev/urandom")
+        .and_then(|mut f| f.read_exact(&mut bytes))
+        .map_err(|e| DbError::Unreadable(format!("cannot read /dev/urandom: {e}")))?;
+    Ok(hex(&bytes))
+}
+
+/// Bytes as lower-case hex, two digits each.
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// The step to 16, run as `step_14` runs its rebuild of `cycles`.
@@ -1555,11 +1881,7 @@ fn make_copy(conn: &Connection, copy: &Path, what: &str) -> Result<Copied, DbErr
         let wal = c.query_row("PRAGMA journal_mode = WAL", [], |r| r.get::<_, String>(0))?;
         let schema = c.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))?;
         let mut rows = 0;
-        for table in COUNTED_TABLES
-            .iter()
-            .chain(&OUTSOURCE_TABLES)
-            .filter(|t| **t != "meta")
-        {
+        for table in COUNTED_TABLES.iter().filter(|t| **t != "meta") {
             let there: bool = c.query_row(
                 "SELECT count(*) > 0 FROM sqlite_master WHERE type = 'table' AND name = ?1",
                 [table],
@@ -1606,7 +1928,7 @@ fn make_copy(conn: &Connection, copy: &Path, what: &str) -> Result<Copied, DbErr
 /// there, and kept 0700 when it is, so the copies `install.sh` asks for stay
 /// out of the way of the files beside the store without leaving its directory.
 pub fn backup_dir(home: &Path, dir: &Path) -> Result<PathBuf, DbError> {
-    let own = home.join("state").join("backup");
+    let own = Home::new(home).state(State::Backups);
     if dir == own {
         match fs::symlink_metadata(dir) {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -1624,12 +1946,12 @@ pub fn backup_dir(home: &Path, dir: &Path) -> Result<PathBuf, DbError> {
     let home = home
         .canonicalize()
         .map_err(|e| DbError::Unreadable(format!("the home {}: {e}", home.display())))?;
-    let own = home.join("state").join("backup");
+    let own = Home::new(&home).state(State::Backups);
     if state == own {
         set_mode(&state, 0o700)?;
         return Ok(state);
     }
-    if state != home.join("state") {
+    if state != Home::new(&home).state_dir() {
         return Err(DbError::Unreadable(format!(
             "the backup goes in the state/ or state/backup/ of the store's home, not {}",
             state.display()
@@ -1685,8 +2007,8 @@ pub fn check(conn: &Connection) -> Result<Report, DbError> {
         [only] if only == "ok" => "ok".to_string(),
         others => others.join("; "),
     };
-    let mut counts = Vec::with_capacity(COUNTED_TABLES.len() + OUTSOURCE_TABLES.len());
-    for table in COUNTED_TABLES.iter().chain(&OUTSOURCE_TABLES).copied() {
+    let mut counts = Vec::with_capacity(COUNTED_TABLES.len());
+    for table in COUNTED_TABLES.iter().copied() {
         // A store not yet migrated lacks the tables of the later versions; it
         // is reported as it is. At the version this binary writes, a missing
         // table is the error the count below gives.

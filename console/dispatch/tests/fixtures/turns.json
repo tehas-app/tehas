@@ -51,7 +51,7 @@
      {
       "start": 7,
       "by": "alice",
-      "given": "label",
+      "given": "approved",
       "remove": [
        "tehas:ready",
        "tehas:question"
@@ -67,7 +67,7 @@
      {
       "start": 7,
       "by": "alice",
-      "given": "label",
+      "given": "approved",
       "remove": [
        "tehas:ready"
       ]
@@ -101,7 +101,7 @@
      {
       "start": 7,
       "by": "alice",
-      "given": "label",
+      "given": "approved",
       "remove": [
        "tehas:ready"
       ]
@@ -134,7 +134,7 @@
      {
       "start": 7,
       "by": "alice",
-      "given": "label",
+      "given": "approved",
       "remove": [
        "tehas:ready",
        "tehas:awaiting-merge"
@@ -171,7 +171,7 @@
      {
       "start": 7,
       "by": "alice",
-      "given": "label",
+      "given": "approved",
       "remove": [
        "tehas:ready",
        "tehas:awaiting-merge",
@@ -206,7 +206,7 @@
      {
       "start": 7,
       "by": "alice",
-      "given": "label",
+      "given": "approved",
       "remove": [
        "tehas:ready"
       ]
@@ -318,7 +318,7 @@
      {
       "start": 7,
       "by": "alice",
-      "given": "label",
+      "given": "approved",
       "remove": [
        "tehas:ready",
        "tehas:awaiting-merge"
@@ -379,7 +379,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "retry-tick",
+      "given": "reply",
       "remove": [
        "tehas:question",
        "tehas:ready"

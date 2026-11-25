@@ -23,7 +23,7 @@ shim pr merge 5 --repo o/r
 t_eq "$t_rc" 1
 t_eq "$(field 6)" "403"
 T_ENV=(GH_ERR="HTTP 403: forbidden
-HTTP 429: too many" GH_RC=1)
+HTTP 429: too many" GH_RC=1 TEHAS_GH_RETRY_WAIT=0)
 shim issue close 9 -R o/r
 t_eq "$(field 6)" "403"
 

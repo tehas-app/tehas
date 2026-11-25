@@ -8,7 +8,9 @@ use common::*;
 use serde_json::{json, Value};
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
+use std::path::Path;
 use std::process::{Command, Stdio};
+use tehas_core::home::{Live, State};
 use tehas_core::time::{iso, now};
 
 /// jq -r `filter` of `input`, its standard output without the last newline.
@@ -56,6 +58,9 @@ fn hc(w: &World, filter: &str) -> String {
     jq(filter, &live_text(w, "health.json"))
 }
 
+/// What every request of the shipped mark holds, whatever the issue.
+const MARKS: &str = "/labels -f labels[]=";
+
 /// The gh calls that hold `pat`.
 fn gh_count(w: &World, pat: &str) -> usize {
     w.gh().lines().filter(|l| l.contains(pat)).count()
@@ -84,10 +89,10 @@ fn issues(w: &World, list: &[String]) {
     w.fx("issues.json", &format!("[{}]\n", list.join(",")));
 }
 
-/// A merged closer of issue `n`, with no labels field, as jq -n wrote them.
-fn merged_node(n: u64) -> Value {
-    json!({"number": n, "title": "t", "url": "u", "updatedAt": "2026-01-02T00:00:00Z",
-        "closedAt": "2026-01-02T00:00:00Z", "timelineItems": {"nodes": [{"closer": {"merged": true}}]}})
+/// Issue `n`, closed by a merged pull request of this project, with
+/// `label` (none when empty).
+fn merged_node(n: u64, label: &str) -> String {
+    closed(n, "2099-01-02T00:00:00Z", r#"{"merged":true}"#, label)
 }
 
 /// The count answer as text, whatever it is.
@@ -136,90 +141,15 @@ fn pause_events(w: &World, event: &str, login: &str) {
 }
 
 /// A lock file under the state, held until the File is dropped.
-fn hold(w: &World, rel: &str) -> File {
-    let p = w.home.join("state").join(rel);
+fn hold(p: &Path) -> File {
     fs::create_dir_all(p.parent().unwrap()).unwrap();
     let f = OpenOptions::new()
         .create(true)
         .append(true)
-        .open(&p)
+        .open(p)
         .unwrap();
     f.try_lock().unwrap();
     f
-}
-
-#[track_caller]
-fn store_must(w: &World, args: &[&str]) {
-    let r = w.store(args);
-    assert_eq!(r.rc, 0, "the store refused {args:?}: {}", r.out);
-}
-
-/// A planning turn in flight (t_plan): its session running on the state
-/// store after `before` turns, the turn started `ago` seconds back, and its
-/// lock held until the File is dropped, as the turn's unit holds it.
-fn turn(w: &World, n: u64, before: u32, ago: i64) -> File {
-    let brief = w.t().join("plan-brief.md");
-    fs::write(&brief, "# Faster search\n\nMake it fast.\n").unwrap();
-    let brief = brief.to_string_lossy().into_owned();
-    let n_s = n.to_string();
-    store_must(
-        w,
-        &[
-            "plan-begin",
-            &n_s,
-            "--by",
-            "alice",
-            "--label",
-            "tehas:plan",
-            "--brief-file",
-            &brief,
-        ],
-    );
-    let answer = |t: u32, at: Option<i64>| {
-        let t = t.to_string();
-        let args = [
-            "plan-answer",
-            &n_s,
-            "--turn",
-            &t,
-            "--by",
-            "alice",
-            "--text-file",
-            &brief,
-        ];
-        let r = match at {
-            Some(e) => w.store_at(e, &args),
-            None => w.store(&args),
-        };
-        assert_eq!(r.rc, 0, "the store refused {args:?}: {}", r.out);
-    };
-    for t in 1..=before {
-        if t > 1 {
-            answer(t, None);
-        }
-        let ts = t.to_string();
-        let end = [
-            "plan-end",
-            &n_s,
-            "--turn",
-            &ts,
-            "--outcome",
-            "finished",
-            "--rc",
-            "0",
-            "--session",
-            "abc",
-        ];
-        store_must(w, &end);
-        if t < before {
-            store_must(w, &["plan-end", &n_s, "--posted"]);
-        }
-    }
-    if before > 0 {
-        store_must(w, &["plan-end", &n_s, "--posted"]);
-        answer(before + 1, Some(now() - ago));
-    }
-    hold(w, &format!("plan-{n}.json.lock"))
 }
 
 /// A cycle of issue `n` that ended as `status`, started and ended so many
@@ -335,7 +265,7 @@ fn an_open_issue_labelled_epic_with_no_sub_issues_is_listed_apart_and_the_health
 #[test]
 fn a_read_of_the_epics_that_fails_leaves_the_file_as_it_was_and_the_snapshot_is_still_written() {
     let w = World::new("epics-down");
-    w.home_file("live/epics.json", "{\"epics\":\"before\"}\n");
+    w.home_file(w.at().live(Live::Epics), "{\"epics\":\"before\"}\n");
     w.touch("epics-down");
     let r = w.status();
     ok(&r);
@@ -371,7 +301,7 @@ fn the_tickets_are_written_for_the_mcp_server_only_while_it_is_on() {
     ok(&r);
     let dir = w.home.join("mcp/tickets");
     assert!(!dir.exists(), "tickets read with the MCP server off");
-    assert!(!w.gh().contains("closingIssuesReferences"), "{}", w.gh());
+    assert!(!w.gh().contains("comments(first: 50)"), "{}", w.gh());
     w.env("TEHAS_MCP", "1");
     let r = w.status();
     ok(&r);
@@ -650,7 +580,10 @@ fn without_the_list_of_every_issue_the_snapshot_is_written_with_no_words() {
 fn every_issue_is_read_for_the_words_at_most_once_an_hour_the_words_before_kept_between_reads() {
     let w = World::new("buzzwords-hourly");
     let an_hour_ago = || {
-        w.home_file("state/buzzwords.at", &format!("{}\n", now() - 3600));
+        w.home_file(
+            w.at().state(State::Buzzwords),
+            &format!("{}\n", now() - 3600),
+        );
     };
     w.fx(
         "all.json",
@@ -683,16 +616,16 @@ fn every_issue_is_read_for_the_words_at_most_once_an_hour_the_words_before_kept_
 fn completed_is_the_closed_issues_a_merged_pull_request_closed_newest_first() {
     let w = World::new("completed");
     w.shipped(&[
-        closed(20, "2026-01-02T00:00:00Z", r#"{"merged":true}"#, ""),
+        closed(20, "2099-01-02T00:00:00Z", r#"{"merged":true}"#, ""),
         closed(
             21,
-            "2026-01-03T00:00:00Z",
+            "2099-01-03T00:00:00Z",
             r#"{"merged":true}"#,
             "tehas:shipped",
         ),
-        closed(22, "2026-01-04T00:00:00Z", r#"{"merged":false}"#, ""),
-        closed(23, "2026-01-05T00:00:00Z", "null", ""),
-        closed(24, "2026-01-06T00:00:00Z", "{}", ""),
+        closed(22, "2099-01-04T00:00:00Z", r#"{"merged":false}"#, ""),
+        closed(23, "2099-01-05T00:00:00Z", "null", ""),
+        closed(24, "2099-01-06T00:00:00Z", "{}", ""),
     ]);
     ok(&w.status());
     assert_eq!(sc(&w, "[.completed[].number]"), "[21,20]");
@@ -702,20 +635,18 @@ fn completed_is_the_closed_issues_a_merged_pull_request_closed_newest_first() {
     );
     assert_eq!(
         sc(&w, ".completed[0] | [.title, .url, .createdAt]"),
-        r#"["t","u","2025-12-01T00:00:00Z"]"#
+        r#"["t","https://github.com/acme/widget/issues/21","2025-12-01T00:00:00Z"]"#
     );
-    // The stub answers whatever it is asked, so the fields must be asked for.
     let gh = w.gh();
-    has(&gh, "number title url createdAt updatedAt closedAt labels(");
     has(
         &gh,
         "--json number,title,url,state,labels,createdAt,updatedAt,closedAt",
     );
     has(&sr(&w, ".links.completed"), "label%3Atehas%3Ashipped");
-    has(
-        &gh,
-        "q=repo:acme/widget is:issue is:closed linked:pr sort:updated-desc",
-    );
+    // The closed tickets come from the tickets port, since a day back on a
+    // first run.
+    has(&gh, "filterBy: {states: [CLOSED], since: $since}");
+    has(&gh, "-F owner=acme -F name=widget -f since=");
     // The count comes from the search for the label, whose answer says 0 here.
     has(
         &gh,
@@ -729,32 +660,24 @@ fn completed_is_the_closed_issues_a_merged_pull_request_closed_newest_first() {
 fn completed_count_is_every_closed_issue_labelled_tehas_shipped_though_the_list_holds_only_the_latest_hundred(
 ) {
     let w = World::new("completed-count");
-    let nodes: Vec<Value> = (0..50)
-        .map(|i| {
-            let mut n = merged_node(i + 100);
-            n["labels"] = json!({"nodes": []});
-            n
-        })
-        .collect();
-    write_json(
-        &w,
-        "shipped.json",
-        &json!({"data": {"search": {"nodes": nodes}}}),
-    );
+    let nodes: Vec<String> = (0..50).map(|i| merged_node(i + 100, "")).collect();
+    w.shipped(&nodes);
     w.shipped_count(138);
     ok(&w.status());
     assert_eq!(sr(&w, ".completed | length"), "50");
     assert_eq!(sr(&w, ".completedCount"), "138");
-    // The two reads of shipped work, and the read of the epics beside them.
-    assert_eq!(gh_count(&w, "api graphql -f q="), 2);
+    // The count's search, the tickets port's read of the closed tickets, and
+    // the read of the epics beside them.
+    assert_eq!(gh_count(&w, "api graphql -f q="), 1);
+    assert_eq!(gh_count(&w, "filterBy: {states: [CLOSED], since: "), 1);
     assert_eq!(gh_count(&w, "api graphql"), 3);
 }
 
 // The figure is published as a whole number of issues, or no key at all: an
 // answer that is not one is dropped rather than published for a reader to
 // judge, and 0 is a published answer, not an absent one. The bounds are the
-// ones host/fun/business-view.js accepts, so both sides of the pair are
-// pinned here.
+// ones a JavaScript reader holds exactly, the business plugin's page among
+// them.
 #[test]
 fn completed_count_is_published_only_as_a_whole_number_of_issues() {
     let w = World::new("count-whole");
@@ -816,10 +739,10 @@ fn a_shipped_issue_without_the_label_is_given_it_once() {
     let w = World::new("label-once");
     w.one_shipped();
     w.status();
-    assert_eq!(gh_count(&w, "issue edit"), 1);
+    assert_eq!(gh_count(&w, MARKS), 1);
     has(
         &w.gh(),
-        "issue edit 20 --repo acme/widget --add-label tehas:shipped",
+        "api -X POST repos/acme/widget/issues/20/labels -f labels[]=tehas:shipped",
     );
 }
 
@@ -829,40 +752,29 @@ fn a_shipped_issue_is_given_the_label_whatever_else_it_carries_and_once() {
     // carries another label is shipped and edited like one that carries none:
     // three issues, three edits, the label itself absent from all of them.
     let w = World::new("label-other");
-    let nodes: Vec<Value> = (6..9)
-        .map(|i| {
-            let mut n = merged_node(i);
-            n["labels"] = json!({"nodes": [{"name": "bug"}]});
-            n
-        })
-        .collect();
-    write_json(
-        &w,
-        "shipped.json",
-        &json!({"data": {"search": {"nodes": nodes}}}),
-    );
+    let nodes: Vec<String> = (6..9).map(|i| merged_node(i, "bug")).collect();
+    w.shipped(&nodes);
     w.status();
     assert_eq!(sc(&w, "[.completed[].number] | sort"), "[6,7,8]");
-    assert_eq!(gh_count(&w, "issue edit"), 3);
+    assert_eq!(gh_count(&w, MARKS), 3);
 }
 
 #[test]
 fn an_issue_already_labelled_tehas_shipped_is_not_asked_for_it_whatever_the_poll() {
-    // The read names the labels of every issue it lists, so the edit is asked
-    // for only an issue that does not carry the label. gh issue edit is no
-    // no-op: it reads the issue and sends a mutation every time, and one poll
-    // used to pay 45 of them for issues that all held the label already
-    // (#731).
+    // The read names the labels of every issue it lists, so the mark is asked
+    // for only an issue that does not carry the label. Each mark is a
+    // request, and one poll used to pay 45 of them for issues that all held
+    // the label already (#731).
     let w = World::new("label-held");
     w.shipped(&[closed(
         20,
-        "2026-01-02T00:00:00Z",
+        "2099-01-02T00:00:00Z",
         r#"{"merged":true}"#,
         "tehas:shipped",
     )]);
     ok(&w.status());
     assert_eq!(sc(&w, "[.completed[].number]"), "[20]");
-    assert_eq!(gh_count(&w, "issue edit"), 0);
+    assert_eq!(gh_count(&w, MARKS), 0);
 }
 
 // One of three that shipped without it is the issue the poll edits, and the
@@ -873,73 +785,75 @@ fn of_three_shipped_issues_only_the_one_that_lacks_the_label_is_edited() {
     w.shipped(&[
         closed(
             20,
-            "2026-01-02T00:00:00Z",
+            "2099-01-02T00:00:00Z",
             r#"{"merged":true}"#,
             "tehas:shipped",
         ),
-        closed(21, "2026-01-03T00:00:00Z", r#"{"merged":true}"#, ""),
+        closed(21, "2099-01-03T00:00:00Z", r#"{"merged":true}"#, ""),
         closed(
             22,
-            "2026-01-04T00:00:00Z",
+            "2099-01-04T00:00:00Z",
             r#"{"merged":true}"#,
             "tehas:shipped",
         ),
     ]);
     ok(&w.status());
     assert_eq!(sc(&w, "[.completed[].number] | sort"), "[20,21,22]");
-    assert_eq!(gh_count(&w, "issue edit"), 1);
+    assert_eq!(gh_count(&w, MARKS), 1);
     let gh = w.gh();
     has(
         &gh,
-        "issue edit 21 --repo acme/widget --add-label tehas:shipped",
+        "api -X POST repos/acme/widget/issues/21/labels -f labels[]=tehas:shipped",
     );
-    lacks(&gh, "issue edit 20 --repo");
-    lacks(&gh, "issue edit 22 --repo");
+    lacks(&gh, "issues/20/labels");
+    lacks(&gh, "issues/22/labels");
 }
 
-// Of three shipped issues the poll edits the two that lack the label and the
-// one whose labels are no list (issue #1083).
+// Of three shipped issues the poll edits the two that lack the label.
 #[test]
 fn the_issues_to_label_are_the_ones_the_read_says_lack_the_label() {
     let w = World::new("label-lacking");
     w.shipped(&[
         closed(
             20,
-            "2026-01-02T00:00:00Z",
+            "2099-01-02T00:00:00Z",
             r#"{"merged":true}"#,
             "tehas:shipped",
         ),
-        closed(21, "2026-01-03T00:00:00Z", r#"{"merged":true}"#, ""),
-        no_labels(22, "2026-01-04T00:00:00Z", r#"{"merged":true}"#),
+        closed(21, "2099-01-03T00:00:00Z", r#"{"merged":true}"#, ""),
+        closed(22, "2099-01-04T00:00:00Z", r#"{"merged":true}"#, "bug"),
     ]);
     ok(&w.status());
     assert_eq!(sc(&w, "[.completed[].number] | sort"), "[20,21,22]");
-    assert_eq!(gh_count(&w, "issue edit"), 2);
+    assert_eq!(gh_count(&w, MARKS), 2);
     let gh = w.gh();
     has(
         &gh,
-        "issue edit 21 --repo acme/widget --add-label tehas:shipped",
+        "api -X POST repos/acme/widget/issues/21/labels -f labels[]=tehas:shipped",
     );
     has(
         &gh,
-        "issue edit 22 --repo acme/widget --add-label tehas:shipped",
+        "api -X POST repos/acme/widget/issues/22/labels -f labels[]=tehas:shipped",
     );
-    lacks(&gh, "issue edit 20 --repo");
+    lacks(&gh, "issues/20/labels");
 }
 
-// A label the read could not read is a missing label: the edit is sent, as
-// it was before the query read the labels at all.
+// The tickets port reads a ticket whole or not at all: an issue whose labels
+// the answer does not give is no answer, so nothing is marked and the
+// completed part is kept and said stale (it was a missing label, #1083,
+// before the read went onto the port).
 #[test]
-fn a_shipped_issue_whose_labels_the_read_did_not_answer_is_edited() {
+fn an_answer_that_does_not_give_an_issues_labels_marks_nothing_and_keeps_the_completed_part() {
     let w = World::new("label-unread");
-    w.shipped(&[no_labels(20, "2026-01-02T00:00:00Z", r#"{"merged":true}"#)]);
+    w.status();
+    let done_before = done_part(&w);
+    let mut node: Value = serde_json::from_str(&merged_node(20, "")).unwrap();
+    node.as_object_mut().unwrap().remove("labels");
+    w.shipped(&[node.to_string()]);
     ok(&w.status());
-    assert_eq!(sc(&w, "[.completed[].number]"), "[20]");
-    assert_eq!(gh_count(&w, "issue edit"), 1);
-    has(
-        &w.gh(),
-        "issue edit 20 --repo acme/widget --add-label tehas:shipped",
-    );
+    assert_eq!(done_part(&w), done_before);
+    assert_eq!(sc(&w, ".stale"), r#"["completed"]"#);
+    assert_eq!(gh_count(&w, MARKS), 0);
 }
 
 #[test]
@@ -948,15 +862,11 @@ fn the_control_issue_is_not_listed_as_shipped_and_not_given_the_label_whatever_t
     // number TEHAS_CONTROL_ISSUE names out of every list and every count, and
     // tehas tidy follows the same rule when it puts the label on.
     let w = World::new("label-control");
-    write_json(
-        &w,
-        "shipped.json",
-        &json!({"data": {"search": {"nodes": [merged_node(1), merged_node(20)]}}}),
-    );
+    w.shipped(&[merged_node(1, ""), merged_node(20, "")]);
     w.status();
     assert_eq!(sc(&w, "[.completed[].number]"), "[20]");
-    assert_eq!(gh_count(&w, "issue edit"), 1);
-    lacks(&w.gh(), "issue edit 1 --repo");
+    assert_eq!(gh_count(&w, MARKS), 1);
+    lacks(&w.gh(), "issues/1/labels");
 }
 
 #[test]
@@ -968,14 +878,12 @@ fn an_answer_that_carries_errors_is_no_snapshot_even_where_it_holds_a_merged_clo
     let w = World::new("errors");
     w.status();
     let before = sc(&w, ".completed");
-    write_json(
-        &w,
-        "shipped.json",
-        &json!({"errors": [{"message": "declined"}], "data": {"search": {"nodes": [merged_node(20)]}}}),
-    );
+    let mut answer: Value = serde_json::from_str(&closed_page(&[merged_node(20, "")])).unwrap();
+    answer["errors"] = json!([{"message": "declined"}]);
+    write_json(&w, "shipped.json", &answer);
     w.status();
     assert_eq!(sc(&w, ".completed"), before);
-    assert_eq!(gh_count(&w, "issue edit"), 0);
+    assert_eq!(gh_count(&w, MARKS), 0);
 }
 
 #[test]
@@ -990,8 +898,8 @@ fn an_issue_closed_with_its_label_still_on_is_not_counted_as_shipped_for_the_lab
 #[test]
 fn a_label_that_cannot_be_given_leaves_the_snapshot_written() {
     let w = World::new("edit-fails");
-    w.shipped(&[closed(20, "2026-01-02T00:00:00Z", r#"{"merged":true}"#, "")]);
-    w.set_env(&["GH_EDIT_FAILS=1"]);
+    w.shipped(&[closed(20, "2099-01-02T00:00:00Z", r#"{"merged":true}"#, "")]);
+    w.set_env(&["GH_MARK_FAILS=1"]);
     ok(&w.status());
     assert_eq!(sc(&w, "[.completed[].number]"), "[20]");
 }
@@ -1008,7 +916,7 @@ fn without_the_search_for_shipped_work_the_completed_part_is_kept_and_said_stale
     assert_eq!(lists(&w), lists_before);
     assert_eq!(done_part(&w), done_before);
     assert_eq!(sc(&w, ".stale"), r#"["completed"]"#);
-    has(&r.out, "WARN status: gh api graphql failed");
+    has(&r.out, "WARN status: the shipped issues closed since ");
     w.fx(
         "shipped.json",
         "{\"errors\": [{\"message\": \"rate limited\"}]}\n",
@@ -1048,11 +956,11 @@ fn a_list_of_issues_that_cannot_be_read_keeps_the_lists_of_work_and_says_why() {
     // What was read is fresh: the pause on the control issue.
     assert_eq!(sr(&w, ".paused"), "true");
     let failures: Vec<String> = w
-        .read_home("state/github-failures")
+        .read_home(w.at().state(State::GithubFailures))
         .lines()
         .map(|l| l.split('\t').nth(1).unwrap_or(l).to_string())
         .collect();
-    assert_eq!(failures.join("\n"), "WARN status: gh issue list failed");
+    assert_eq!(failures.join("\n"), "a call to GitHub failed");
     assert_eq!(hr(&w, ".checks.github.failed"), "1");
 }
 
@@ -1066,7 +974,7 @@ fn an_answer_of_what_closed_these_issues_that_is_no_list_keeps_the_completed_par
     ok(&r);
     has(
         &r.out,
-        "WARN status: the answer of what closed these issues was no list, its part of the snapshot is stale",
+        "were not read: the answer does not read, its part of the snapshot is stale",
     );
     assert_eq!(done_part(&w), done_before);
     assert_eq!(sc(&w, ".stale"), r#"["completed"]"#);
@@ -1086,7 +994,7 @@ fn a_read_on_a_bad_minute_is_tried_once_more_and_the_snapshot_is_whole() {
     assert_eq!(gh_count(&w, "--limit 200"), 2);
     assert_eq!(sc(&w, ".stale"), "null");
     lacks(&r.out, "WARN status");
-    assert!(!w.home.join("state/github-failures").exists());
+    assert!(!w.at().state(State::GithubFailures).exists());
 }
 
 #[test]
@@ -1096,7 +1004,7 @@ fn with_github_down_the_lists_are_kept_and_health_names_the_failed_calls() {
     let lists_before = lists(&w);
     // And when the word list was read, so this run asks for it too.
     fs::remove_file(w.live_file("health.json")).unwrap();
-    fs::remove_file(w.home.join("state/buzzwords.at")).unwrap();
+    fs::remove_file(w.at().state(State::Buzzwords)).unwrap();
     w.touch("gh-down");
     let r = status_and_summary(&w);
     ok(&r);
@@ -1105,7 +1013,7 @@ fn with_github_down_the_lists_are_kept_and_health_names_the_failed_calls() {
     assert_eq!(hr(&w, ".status"), "warn");
     has(
         &hr(&w, ".output"),
-        "GitHub failed 6 calls in the last 10 min, the last: WARN status: gh ",
+        "GitHub failed 6 calls in the last 10 min, the last: a call to GitHub failed",
     );
     has(
         &r.out,
@@ -1257,15 +1165,14 @@ fn summary_the_last_tehas_check_product_when_one_ran() {
     lacks(&status_and_summary(&w).out, "product");
     let at = iso(now() - 300);
     w.home_file(
-        "state/check-product.json",
+        w.at().state(State::CheckProduct),
         &format!(r#"{{"v":1,"at":"{at}","ok":true,"failures":[],"sandbox":null}}"#),
     );
     has(
         &w.summary(&[]).out,
         "product   keeps the contract, checked 5 min ago",
     );
-    w.home_file(
-        "state/check-product.json",
+    w.home_file(w.at().state(State::CheckProduct),
         &format!(
             r#"{{"v":1,"at":"{at}","ok":false,"failures":["no AGENTS.md","no gate"],"sandbox":null}}"#
         ),
@@ -1314,7 +1221,7 @@ fn summary_a_paused_factory_says_so_exit_0() {
 fn status_writes_the_pause_switch_the_flag_with_its_time_and_reason_never_who_wrote_it() {
     let w = World::new("pause-flag");
     w.home_file(
-        "state/pause.json",
+        w.at().state(State::Pause),
         "{\"by\":\"boss\",\"at\":\"2026-10-15T10:00:00Z\",\"reason\":\"waiting for the gate\"}\n",
     );
     let r = status_and_summary(&w);
@@ -1449,7 +1356,7 @@ fn labels_that_cannot_be_read_take_the_pause_from_its_events_then_from_the_file_
 #[test]
 fn a_flag_that_cannot_be_read_still_holds_the_factory_paused() {
     let w = World::new("pause-bad-flag");
-    w.home_file("state/pause.json", "not a flag\n");
+    w.home_file(w.at().state(State::Pause), "not a flag\n");
     let r = status_and_summary(&w);
     assert_eq!(sr(&w, ".paused"), "true");
     assert_eq!(sc(&w, ".pause.flag"), r#"{"at":null,"reason":null}"#);
@@ -1489,7 +1396,7 @@ fn summary_two_running_cycles_are_both_named_each_on_a_line() {
 #[test]
 fn summary_a_planning_turn_in_flight_has_its_own_line() {
     let w = World::new("plan-turn");
-    let lock = turn(&w, 7, 1, 720);
+    let lock = w.plan_turn(7, 1, 720);
     let r = status_and_summary(&w);
     ok(&r);
     has(&r.out, "plan      #7 turn 2 running, started 12 min ago");
@@ -1505,11 +1412,11 @@ fn summary_a_planning_turn_in_flight_has_its_own_line() {
 #[test]
 fn summary_a_turn_whose_lock_is_free_or_that_left_its_status_is_not_shown_as_running() {
     let w = World::new("plan-free");
-    drop(turn(&w, 7, 1, 720));
+    drop(w.plan_turn(7, 1, 720));
     lacks(&status_and_summary(&w).out, "plan      ");
     assert_eq!(jq(".planning", &w.summary(&["--json"]).out), "[]");
-    let lock = hold(&w, "plan-7.json.lock");
-    w.home_file("state/plan-7.json.rc", "0\n");
+    let lock = hold(&w.at().plan_file(7, ".lock"));
+    w.home_file(w.at().plan_file(7, ".rc"), "0\n");
     lacks(&status_and_summary(&w).out, "plan      ");
     drop(lock);
     // A session that runs no turn on record, whatever holds the lock.
@@ -1525,8 +1432,8 @@ fn summary_a_turn_whose_lock_is_free_or_that_left_its_status_is_not_shown_as_run
         "--session",
         "abc",
     ]);
-    let _ = fs::remove_file(w.home.join("state/plan-7.json.rc"));
-    let lock = hold(&w, "plan-7.json.lock");
+    let _ = fs::remove_file(w.at().plan_file(7, ".rc"));
+    let lock = hold(&w.at().plan_file(7, ".lock"));
     lacks(&status_and_summary(&w).out, "plan      ");
     drop(lock);
 }
@@ -1574,7 +1481,7 @@ fn health_no_console_beside_the_command_is_78_and_says_to_install() {
     let dir = w.t().join("no-console");
     fs::create_dir_all(dir.join("bin")).unwrap();
     fs::create_dir_all(dir.join("libexec")).unwrap();
-    fs::copy(root().join("bin/tehasbot"), dir.join("bin/tehasbot")).unwrap();
+    tehas_core::testing::copy_exe(root().join("bin/tehasbot"), dir.join("bin/tehasbot")).unwrap();
     let _ = fs::remove_file(w.t().join("bin/console"));
     w.set_env(&["TEHAS_CONSOLE=", "TEHAS_CONSOLE=", "PATH=/usr/bin:/bin"]);
     let r = w.sh(&format!(
@@ -1636,7 +1543,7 @@ fn a_cycle_that_stopped_writing_is_lost_and_the_factory_says_so() {
 fn a_cycle_that_stopped_writing_while_its_lock_is_held_stays_running_a_free_lock_is_lost() {
     let w = World::new("lost-locked");
     w.one(9, true, "running", "develop", Some(900), Some(300));
-    let lock = hold(&w, "cycles/9.lock");
+    let lock = hold(&w.at().cycle_note(9, "lock"));
     let r = status_then_summary(&w);
     ok(&r);
     has(&r.out, "factory   pass: Working on #9.");

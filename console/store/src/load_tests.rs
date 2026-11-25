@@ -7,6 +7,7 @@ use rusqlite::Connection;
 use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
+use tehas_core::home::Home;
 
 /// A copy of a store with a cycle that ended and one that runs no more.
 fn a_copy(name: &str) -> (TestDir, PathBuf) {
@@ -26,7 +27,7 @@ fn load(home: &Path, from: &Path) -> Result<Value, (u8, String)> {
 
 /// The store's own file, byte for byte, and no file left beside it.
 fn store(home: &Path) -> (Vec<u8>, Vec<String>) {
-    let mut beside: Vec<String> = fs::read_dir(home.join("state"))
+    let mut beside: Vec<String> = fs::read_dir(Home::new(home).state_dir())
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
         .filter(|n| n.contains("load"))
@@ -186,7 +187,7 @@ fn an_unreadable_copy_leaves_the_store_untouched() {
     assert!(refused(&gone).starts_with("no-copy: "));
     let text = write_file(&from, "text.db", b"not a store");
     assert!(refused(&text).starts_with("bad-copy: "));
-    assert!(refused(&from.join("state")).starts_with("bad-copy: "));
+    assert!(refused(&Home::new(from.path()).state_dir()).starts_with("bad-copy: "));
     // A copy cut short, and one with a page of its rows overwritten.
     let bytes = fs::read(&copy).unwrap();
     let short = write_file(&from, "short.db", &bytes[..bytes.len() / 2]);
@@ -208,4 +209,21 @@ fn an_unreadable_copy_leaves_the_store_untouched() {
 fn load_needs_an_absolute_name() {
     assert!(usage(&["load"]).contains("--from"));
     assert!(usage(&["load", "--from", "copy.db"]).contains("absolute"));
+}
+
+/// The loaded store takes the copy's `store` (T11.5): the copy's cycle ids
+/// come with it, and its attempts go on from the copy's, so no id is given
+/// twice within one `store`.
+#[test]
+fn load_takes_the_copy_s_store_and_its_attempts_go_on() {
+    let (from, copy) = a_copy("load-store-from");
+    let into = home("load-store-new");
+    let id = |h: &Path| one::<String>(h, "SELECT value FROM meta WHERE key = 'store'");
+    let theirs = id(&from);
+    assert_ne!(id(&into), theirs);
+    load(&into, &copy).unwrap();
+    assert_eq!(id(&into), theirs);
+    let before: i64 = one(&from, "SELECT attempt FROM cycles WHERE issue = 7");
+    let (_lock, next) = start(&into, 7);
+    assert_eq!(next, before + 1);
 }

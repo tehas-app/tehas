@@ -322,7 +322,7 @@ tagged tree it checks that the tagged commit is on the default branch `main`
 and that the account that pushed the tag is an admin of the repository, not a
 bot; a tag that fails either check publishes nothing. It builds the console, the
 analytics program, the store, the attachment checker, `tehas-dispatch`,
-`tehas-cycle`, outsource's `tehas-proxy` and `tehas-contractor`, and the MCP
+`tehas-cycle` and the MCP
 server (static, musl) with `cargo build --release --locked`, resolves the pins, runs
 the pack command above (which refuses any program whose e_machine is not the
 one its `--arch` promises), signs the tarball and `host/release/install` (when the
@@ -373,7 +373,7 @@ its `.sha256` and its `.minisig`, which are the three names `tehas update`
 downloads:
 
 ```
-curl -fsSL https://github.com/tehas-app/tehas/releases/latest/download/install | sudo sh -s -- boss
+curl -fsSL https://github.com/tehas-app/tehas-factory/releases/latest/download/install | sudo sh -s -- boss
 ```
 
 It downloads the newest release (or the release or prerelease `--version` names) of this machine: the

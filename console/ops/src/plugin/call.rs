@@ -18,12 +18,12 @@ use super::ready::{ready, Ready};
 use super::runs;
 use serde::de::{self, Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde_json::{json, Value};
-use std::fs::{self, File};
+use std::fs;
 use std::path::Path;
 use std::time::Duration;
-use tehas_core::access::{GitHub, Level};
+use tehas_core::access::{AccountId, GitHub, Level};
 use tehas_core::file::{write_atomic, Temp};
-use tehas_core::lock::try_lock;
+use tehas_core::lock::{try_lock, Held};
 use tehas_core::plugin::manifest::Tool;
 use tehas_core::plugin::run::{context, Kind, Run, Trigger};
 use tehas_core::plugin::{self, params, Cap};
@@ -35,6 +35,10 @@ pub const ANSWER_MAX: usize = 16 << 10;
 /// The refusal of a login without access, or one GitHub's answer does not
 /// let in.
 pub const NO_ACCESS: &str = "the login has no access to the repository";
+
+/// The refusal of a login when the code host cannot be asked: TEHAS_REPO
+/// names no `owner/name`.
+const NO_HOST: &str = "TEHAS_REPO names no repository to check the login's access on";
 
 /// Who asks for a call.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -59,11 +63,12 @@ pub enum Failed {
 }
 
 impl Caller {
-    /// The name of its lock, `by-<this>.lock`: a person's by GitHub's user
-    /// id, so a renamed login is the same person.
-    fn lock(&self, user: Option<u64>) -> String {
+    /// The name of its lock, `by-<this>.lock`: a person's by their account's
+    /// id, so a renamed login is the same person. The id is one
+    /// [`lock_safe`] passed.
+    fn lock(&self, user: Option<&AccountId>) -> String {
         match (self, user) {
-            (Caller::Login(_), Some(id)) => format!("login-{id}"),
+            (Caller::Login(_), Some(id)) => format!("login-{}", id.as_str()),
             (Caller::Login(_), None) => "login".into(),
             (Caller::Mcp(key), _) => format!("mcp-{key}"),
             (Caller::Host, _) => "host".into(),
@@ -94,27 +99,48 @@ fn is_key_id(s: &str) -> bool {
     s.len() == 8 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
-/// The GitHub user id of a login with access, asked of GitHub on every
-/// call: a verdict kept for a login could pass for whoever holds that login
-/// next. GitHub's error is a refusal: a login it could not check gets no
-/// answer.
-fn login_access(get: &dyn Fn(&str) -> String, gh: &dyn GitHub, login: &str) -> Result<u64, Failed> {
+/// Whether an account's id may name a file: 1 to 64 letters, digits, `-`
+/// and `_`.
+fn lock_safe(id: &AccountId) -> bool {
+    let s = id.as_str();
+    (1..=64).contains(&s.len())
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+/// The account of a login with access, asked of GitHub on every call: a
+/// verdict kept for a login could pass for whoever holds that login next.
+/// GitHub's error is a refusal: a login it could not check gets no answer,
+/// and nor does one whose id cannot name its lock.
+fn login_access(
+    get: &dyn Fn(&str) -> String,
+    gh: &dyn GitHub,
+    login: &str,
+) -> Result<AccountId, Failed> {
     let access = Level::of_setting(&get("TEHAS_PLUGIN_ACCESS"))
         .ok_or_else(|| Failed::Refused("TEHAS_PLUGIN_ACCESS is not set".into()))?;
     match tehas_core::access::check(gh, access, login, None) {
-        Ok(v) => v.user.ok_or_else(|| Failed::Refused(NO_ACCESS.into())),
+        Ok(v) => match v.user {
+            Some(id) if lock_safe(&id) => Ok(id),
+            Some(_) => Err(Failed::Refused(
+                "GitHub's id of the login cannot name a lock".into(),
+            )),
+            None => Err(Failed::Refused(NO_ACCESS.into())),
+        },
         Err(why) => Err(Failed::Refused(format!(
-            "GitHub could not say whether the login has access: {why}"
+            "GitHub could not say whether the login has access: {}",
+            why.line()
         ))),
     }
 }
 
 /// One call of `tool` of `plugin` with `args`: its answer, one JSON object.
-/// `gh` checks a login's access; a host or the MCP broker never asks it.
+/// `gh` checks a login's access, and with none a login is refused; a host
+/// or the MCP broker never asks it.
 #[allow(clippy::too_many_arguments)]
 pub fn call(
     x: &mut dyn Exec,
-    gh: &dyn GitHub,
+    gh: Option<&dyn GitHub>,
     home: &Path,
     get: &dyn Fn(&str) -> String,
     plugin: &str,
@@ -138,7 +164,10 @@ pub fn call(
         .ok_or_else(|| Failed::Refused(format!("no tool {tool} is granted at the pin")))?
         .clone();
     let user = match caller {
-        Caller::Login(login) => Some(login_access(get, gh, login)?),
+        Caller::Login(login) => {
+            let gh = gh.ok_or_else(|| Failed::Refused(NO_HOST.into()))?;
+            Some(login_access(get, gh, login)?)
+        }
         _ => None,
     };
     params::check(args, &t.params).map_err(Failed::Args)?;
@@ -148,7 +177,7 @@ pub fn call(
         .image
         .clone()
         .ok_or_else(|| Failed::Refused("it has no build".into()))?;
-    let _held = locks(home, plugin, &caller.lock(user))?;
+    let _held = locks(home, plugin, &caller.lock(user.as_ref()))?;
     let id = begin(home, &r, caller)?;
     let dir = prepare::dir(home, plugin).join(format!("run-{id}"));
     let dir_text = dir.display().to_string();
@@ -166,6 +195,7 @@ pub fn call(
         model: "",
         pr: None,
         tool: Some(&t.id),
+        event: None,
     };
     let (got, result, size) = run_in(x, &run, &t, args);
     // A row left open keeps its directory, for a sweep to find.
@@ -179,7 +209,7 @@ pub fn call(
 }
 
 /// A slot of two and the caller's lock, taken now, or busy.
-fn locks(home: &Path, name: &str, by: &str) -> Result<[File; 2], Failed> {
+fn locks(home: &Path, name: &str, by: &str) -> Result<[Held; 2], Failed> {
     let dir = runs::calls(home, name);
     let no = |e: String| Failed::Refused(e);
     fs::create_dir_all(&dir).map_err(|e| no(format!("{}: {e}", dir.display())))?;
@@ -237,7 +267,8 @@ fn run_in(
     args: &Value,
 ) -> (Result<Value, Failed>, &'static str, Option<usize>) {
     let failed = |why: String| (Err(Failed::Tool(why)), "failed", None);
-    let (ctx, argv) = match (context(run), sandbox::plugin_run(run)) {
+    let ctx = context(run).and_then(|c| serde_json::to_string(&c).map_err(|e| e.to_string()));
+    let (ctx, argv) = match (ctx, sandbox::plugin_run(run)) {
         (Ok(c), Ok(a)) => (c, a),
         (Err(why), _) | (_, Err(why)) => return (Err(Failed::Refused(why)), "failed", None),
     };
@@ -246,7 +277,7 @@ fn run_in(
     }
     let files = [
         ("context.json", ctx),
-        ("call.json", json!({"tool": t.id, "args": args})),
+        ("call.json", json!({"tool": t.id, "args": args}).to_string()),
     ];
     for (file, v) in files {
         let wrote = write_atomic(

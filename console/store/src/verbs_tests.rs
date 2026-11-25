@@ -10,6 +10,7 @@ use std::fs::{self, File, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Duration;
+use tehas_core::home::Home;
 pub use tehas_core::testdir::TestDir;
 
 pub const NOW: i64 = 1_792_000_000;
@@ -38,7 +39,6 @@ pub fn home(name: &str) -> TestDir {
                 instance: "tehas-tehas".to_string(),
                 repo: "example-owner/example-product".to_string(),
             },
-            outsource: false,
         },
         NOW,
     )
@@ -55,15 +55,8 @@ pub fn call_at(home: &Path, now: i64, args: &[&str]) -> Result<Value, (u8, Strin
     call_word_at(home, now, args, args[0])
 }
 
-/// `call_at` where the answer names its own verb, which the outsource verbs do:
-/// the word of what happened (`added`, `offered`, `stale`) is what the caller
-/// reads, and the argument's verb says only what was asked.
-pub fn call_word_at(
-    home: &Path,
-    now: i64,
-    args: &[&str],
-    word: &str,
-) -> Result<Value, (u8, String)> {
+/// `call_at` where the answer names `word` in place of the verb asked.
+fn call_word_at(home: &Path, now: i64, args: &[&str], word: &str) -> Result<Value, (u8, String)> {
     match verbs::parse(&strings(args)) {
         Some(Ok(c)) => execute(home, &Verb::Record(c), now).map(|line| {
             assert_eq!(line.lines().count(), 1, "{line}");
@@ -148,7 +141,7 @@ impl Drop for Held {
 
 /// The cycle lock of an issue, held by this process until the guard is dropped.
 pub fn hold(home: &Path, issue: i64) -> Held {
-    let dir = home.join("state").join("cycles");
+    let dir = Home::new(home).cycles_dir();
     fs::create_dir_all(&dir).unwrap();
     let f = OpenOptions::new()
         .create(true)
@@ -182,7 +175,7 @@ pub fn approve(home: &Path, issue: i64, by: &str, how: &str) -> i64 {
         "--body-sha",
         SHA,
     ];
-    if how == "label" || crate::approval::is_millwright(how) {
+    if how == "approved" || crate::approval::is_millwright(how) {
         args.extend(["--label", "tehas:ready"]);
     }
     if how == "refresh" {
@@ -206,7 +199,7 @@ pub fn start_by(home: &Path, issue: i64, by: &str, how: &str, now: i64) -> (Held
 }
 
 pub fn start(home: &Path, issue: i64) -> (Held, i64) {
-    start_by(home, issue, "alice", "label", NOW)
+    start_by(home, issue, "alice", "approved", NOW)
 }
 
 /// Ends the cycle of `issue` with `status`.
@@ -324,13 +317,11 @@ fn every_64_names_the_flag_and_an_enumerated_word() {
             &[
                 "approval-record", "1", "--at", "5", "--by", "a", "--how", "bogus", "--body-sha", SHA,
             ][..],
-            // The old `fixer` is taken but not advertised: the refusal names
-            // only the words of this release.
-            "usage approval-record: --how is not one of millwright, label, refresh, retry-tick, outage-retry, host: \"bogus\"",
+            "usage approval-record: --how is not one of millwright, approved, refresh, outage-retry, host, answer, reply: \"bogus\"",
         ),
         (
             &[
-                "approval-record", "1", "--at", "5", "--by", "a", "--how", "label", "--label",
+                "approval-record", "1", "--at", "5", "--by", "a", "--how", "approved", "--label",
                 "Bad Word", "--body-sha", SHA,
             ][..],
             "usage approval-record: --label is not a tehas:* label: \"Bad Word\"",
@@ -378,7 +369,7 @@ fn the_main_parse_takes_record_verbs_and_refuses_their_usage_errors() {
     // A usage error opens nothing: no store is made where there was none.
     let empty = scratch("usage-opens-nothing");
     assert!(verbs::parse(&strings(&["park", "1"])).unwrap().is_err());
-    assert!(!empty.join("state").exists());
+    assert!(!Home::new(empty.path()).state_dir().exists());
 }
 
 #[test]
@@ -468,7 +459,7 @@ fn samples(brief: &str, input: &str) -> Vec<Vec<String>> {
             "--by",
             "alice",
             "--how",
-            "label",
+            "approved",
             "--label",
             "tehas:ready",
             "--body-sha",
@@ -482,7 +473,7 @@ fn samples(brief: &str, input: &str) -> Vec<Vec<String>> {
             "--by",
             "alice",
             "--how",
-            "retry-tick",
+            "reply",
             "--body-sha",
             SHA,
             "--input-file",
@@ -525,7 +516,7 @@ fn samples(brief: &str, input: &str) -> Vec<Vec<String>> {
         vec!["prune", "--days", "90"],
         vec!["sweep-locks"],
         vec!["upkeep"],
-        vec!["history-show", "1", "--kind", "cycle", "--how", "label"],
+        vec!["history-show", "1", "--kind", "cycle", "--how", "approved"],
     ];
     raw.into_iter().map(|v| strings(&v)).collect()
 }
@@ -558,15 +549,15 @@ fn every_verb_says_78_and_its_word_when_the_store_cannot_be_used() {
     let input = input.to_str().unwrap();
     let missing = scratch("78-missing");
     let corrupt = scratch("78-corrupt");
-    fs::create_dir_all(corrupt.join("state")).unwrap();
+    fs::create_dir_all(Home::new(corrupt.path()).state_dir()).unwrap();
     fs::write(db::path(&corrupt), vec![b'x'; 8192]).unwrap();
     // A file a touch made, never migrated.
     let touched = scratch("78-touched");
-    fs::create_dir_all(touched.join("state")).unwrap();
+    fs::create_dir_all(Home::new(touched.path()).state_dir()).unwrap();
     fs::write(db::path(&touched), b"").unwrap();
     // An SQLite file with no schema.
     let bare = scratch("78-bare");
-    fs::create_dir_all(bare.join("state")).unwrap();
+    fs::create_dir_all(Home::new(bare.path()).state_dir()).unwrap();
     {
         let c = Connection::open(db::path(&bare)).unwrap();
         c.execute_batch("PRAGMA journal_mode = WAL; CREATE TABLE t (a); DROP TABLE t;")
@@ -706,7 +697,7 @@ fn a_refused_verb_leaves_no_issues_row() {
                 "--by",
                 "bob",
                 "--how",
-                "label",
+                "approved",
                 "--label",
                 "tehas:ready",
                 "--body-sha",

@@ -1,7 +1,6 @@
-//! The kinds of an issue that are not states: a proposal the factory files,
-//! and a ticket at the prototype stage. Each is a label unless
-//! `TEHAS_ISSUE_TYPES` maps it to one of the owner's issue types, written as
-//! `improvement=Improvement prototype=Prototype`. A kind left out of the
+//! The kinds of an issue that are not states: a proposal the factory files.
+//! Each is a label unless `TEHAS_ISSUE_TYPES` maps it to one of the owner's
+//! issue types, written as `improvement=Improvement`. A kind left out of the
 //! setting stays its label.
 
 /// The setting that maps a kind to an issue type.
@@ -10,17 +9,15 @@ pub const SETTING: &str = "TEHAS_ISSUE_TYPES";
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
     Improvement,
-    Prototype,
 }
 
 impl Kind {
-    const ALL: [Kind; 2] = [Kind::Improvement, Kind::Prototype];
+    const ALL: [Kind; 1] = [Kind::Improvement];
 
     /// The word the setting names the kind by.
     pub fn word(self) -> &'static str {
         match self {
             Kind::Improvement => "improvement",
-            Kind::Prototype => "prototype",
         }
     }
 
@@ -29,7 +26,6 @@ impl Kind {
     pub const fn label(self) -> &'static str {
         match self {
             Kind::Improvement => "tehas:improvement",
-            Kind::Prototype => "tehas:prototype",
         }
     }
 }
@@ -49,12 +45,12 @@ pub fn parse(value: &str) -> Result<Vec<(Kind, String)>, String> {
     let mut out: Vec<(Kind, String)> = Vec::new();
     for pair in value.split(' ').filter(|p| !p.is_empty()) {
         let Some((word, name)) = pair.split_once('=') else {
-            return Err(format!("expected kind=Type pairs, such as improvement=Improvement prototype=Prototype, not {pair}"));
+            return Err(format!(
+                "expected kind=Type pairs, such as improvement=Improvement, not {pair}"
+            ));
         };
         let Some(kind) = Kind::ALL.into_iter().find(|k| k.word() == word) else {
-            return Err(format!(
-                "{word} is no kind: expected improvement or prototype"
-            ));
+            return Err(format!("{word} is no kind: expected improvement"));
         };
         if !is_type(name) {
             return Err(format!(
@@ -91,21 +87,18 @@ mod tests {
 
     #[test]
     fn a_kind_maps_to_its_type_and_one_left_out_stays_a_label() {
-        let v = "improvement=Improvement prototype=Proto_type-2";
+        let v = "improvement=Improve_ment-2";
         assert_eq!(
             type_of(v, Kind::Improvement).as_deref(),
-            Some("Improvement")
+            Some("Improve_ment-2")
         );
-        assert_eq!(type_of(v, Kind::Prototype).as_deref(), Some("Proto_type-2"));
-        assert_eq!(type_of("prototype=Prototype", Kind::Improvement), None);
-        assert_eq!(type_of("", Kind::Prototype), None);
+        assert_eq!(type_of("", Kind::Improvement), None);
         assert_eq!(parse("").unwrap(), vec![]);
     }
 
     #[test]
     fn the_label_of_each_kind_keeps_its_spelling() {
         assert_eq!(Kind::Improvement.label(), "tehas:improvement");
-        assert_eq!(Kind::Prototype.label(), "tehas:prototype");
     }
 
     #[test]
@@ -114,6 +107,7 @@ mod tests {
             "Improvement",
             "improvement=",
             "bug=Bug",
+            "prototype=Prototype",
             "improvement=Two words",
             "improvement=A,B",
             "improvement=A improvement=B",

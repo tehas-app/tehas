@@ -402,7 +402,7 @@ test("parse text gives the body as it came", async () => {
 
 test("meta gives the status, the headers asked for and the server's Date", async () => {
   answer = { ok: true, body: '{"n":1}', headers: { Date: DATE, "X-Session": "s1", "X-Other": "no" } };
-  const live = createRoot(() => feed("/live/top.json", { expose: ["X-Session", "X-Missing"] }));
+  const live = createRoot(() => feed("/live/disk.json", { expose: ["X-Session", "X-Missing"] }));
   let got;
   createRoot(() =>
     createEffect(
@@ -421,7 +421,7 @@ test("meta gives the status, the headers asked for and the server's Date", async
 
 test("a new Date with the same bytes moves meta and leaves the data's readers be", async () => {
   answer = { ok: true, body: '{"n":1}', headers: { Date: DATE } };
-  const live = createRoot(() => feed("/live/top.json", { every: 1000 }));
+  const live = createRoot(() => feed("/live/disk.json", { every: 1000 }));
   let dataRuns = 0;
   const dates = [];
   createRoot(() => {
@@ -558,7 +558,7 @@ test("put gives every reader the value with no fetch, and the poll goes on", asy
 });
 
 test("a poll that brings the data a put gave leaves the readers be", async () => {
-  const live = createRoot(() => feed("/live/top.json", { every: 1000 }));
+  const live = createRoot(() => feed("/live/disk.json", { every: 1000 }));
   let runs = 0;
   createRoot(() =>
     createEffect(

@@ -2,12 +2,14 @@
 
 use crate::common;
 
-use mcp::sessions::{find, links};
+use common::fake_links;
+use mcp::sessions::{find, Linker};
 use mcp::snapshot::Snapshot;
 use mcp::tools::{list_scoped, Dirs, Output, Scope, ToolError};
 use serde_json::{json, Map, Value};
 use std::collections::BTreeSet;
 use tehas_core::file::READ_BOUND_LEN;
+use tehas_core::home::Home;
 use tehas_core::testdir::TestDir;
 use tehas_core::time::{iso, now};
 
@@ -31,7 +33,7 @@ impl Env {
         running: Option<&[Value]>,
     ) -> Env {
         let root = TestDir::new(&format!("mcp-sess-{name}"));
-        let (live, snap) = (root.join("live"), root.join("mcp"));
+        let (live, snap) = (Home::new(&*root).live_dir(), root.join("mcp"));
         std::fs::create_dir_all(&live).unwrap();
         std::fs::create_dir_all(&snap).unwrap();
         if let Some(r) = repo {
@@ -60,12 +62,13 @@ impl Env {
             live,
             sessions: snap.clone(),
             logs: root.join("no-logs"),
+            links: fake_links,
         };
         Env { _root: root, dirs }
     }
 
     fn call(&self, name: &str, args: Value) -> Result<Value, ToolError> {
-        match mcp::tools::call(&self.dirs, name, &args)? {
+        match mcp::tools::call(&self.dirs, name, &args.into())? {
             Output::Json(v) => Ok(common::conforms(name, v)),
             other => panic!("{name} gave {other:?}"),
         }
@@ -199,47 +202,29 @@ fn filters_combine() {
 }
 
 #[test]
-fn an_old_record_that_says_fixer_answers_millwright() {
+fn the_millwright_has_one_word_and_its_filter_takes_only_its_own() {
     let all = [
         sess("work", 1, 100, json!({"how": "millwright"})),
-        sess("work", 2, 200, json!({"how": "fixer"})),
-        sess("work", 3, 300, json!({"how": "label"})),
-        // A run of a word outside the class is not swept into it by a filter
-        // of the class: `hand` is a cycle run by hand, `refresh` a restart on
-        // a person's request.
+        sess("work", 3, 300, json!({"how": "approved"})),
+        // A run of another word is not swept in by the millwright's filter:
+        // `hand` is a cycle run by hand, `refresh` a restart on a person's
+        // request.
         sess("work", 7, 700, json!({"how": "hand"})),
         sess("work", 8, 800, json!({"how": "refresh"})),
     ];
     let env = Env::new("how", Some("a/b"), &all);
-    let both = [
-        all[0]["id"].as_str().unwrap(),
-        all[1]["id"].as_str().unwrap(),
-    ];
     let out = env
         .call("factory_sessions", json!({"how": "millwright"}))
         .unwrap();
-    assert_eq!(ids(&out), both);
-    // The old word is never answered: one word names the millwright.
-    let returned: BTreeSet<&str> = out["sessions"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|s| s["how"].as_str().unwrap())
-        .collect();
-    assert_eq!(returned, ["millwright"].into_iter().collect());
-    let one = env
-        .call("factory_session", json!({"id": all[1]["id"]}))
-        .unwrap();
-    assert_eq!(one["session"]["how"], "millwright", "{one}");
+    assert_eq!(ids(&out), [all[0]["id"].as_str().unwrap()]);
     // The old word is no filter of the tool.
     assert!(env
         .call("factory_sessions", json!({"how": "fixer"}))
         .is_err());
     let label = env
-        .call("factory_sessions", json!({"how": "label"}))
+        .call("factory_sessions", json!({"how": "approved"}))
         .unwrap();
-    assert_eq!(ids(&label), [all[2]["id"].as_str().unwrap()]);
-    // A word outside the class is not swept into it.
+    assert_eq!(ids(&label), [all[1]["id"].as_str().unwrap()]);
     for w in ["hand", "refresh"] {
         let out = env.call("factory_sessions", json!({"how": w})).unwrap();
         assert_eq!(ids(&out).len(), 1, "{w}");
@@ -389,9 +374,10 @@ fn bad_ids() {
         live: "/nonexistent/live".into(),
         sessions: "/nonexistent/mcp".into(),
         logs: "/nonexistent/logs".into(),
+        links: fake_links,
     };
     for id in ["work-1-1/../x", "work-01-123456789", "plan-1-12", ""] {
-        match mcp::tools::call(&dirs, "factory_session", &json!({"id": id})) {
+        match mcp::tools::call(&dirs, "factory_session", &json!({"id": id}).into()) {
             Err(ToolError::BadArgs(_)) => {}
             other => panic!("{id:?}: {other:?}"),
         }
@@ -402,25 +388,27 @@ fn bad_ids() {
 }
 
 #[test]
-fn links_and_odd_repos() {
+fn links_are_the_code_hosts_and_none_without_a_repo_or_an_item() {
+    let links = Linker::of(fake_links, Some("tehas-app/tehas-factory"));
     assert_eq!(
-        links(Some("tehas-app/tehas"), 12, Some(34)),
+        (links.issue(12), links.pr(34)),
         (
-            Some("https://github.com/tehas-app/tehas/issues/12".into()),
-            Some("https://github.com/tehas-app/tehas/pull/34".into())
+            Some("https://fake.test/tehas-app/tehas-factory/b/12".into()),
+            Some("https://fake.test/tehas-app/tehas-factory/c/34".into())
         )
     );
-    assert_eq!(links(Some("tehas-app/tehas"), 12, None).1, None);
-    for r in ["a/b/c", "../x", "a b/c", "a/..", "a/b..c", "", "/b"] {
-        assert_eq!(links(Some(r), 1, Some(2)), (None, None), "{r:?}");
+    for n in [0, -1] {
+        assert_eq!((links.issue(n), links.pr(n)), (None, None), "{n}");
     }
-    assert_eq!(links(None, 1, Some(2)), (None, None));
+    let none = Linker::of(fake_links, None);
+    assert_eq!((none.issue(1), none.pr(2)), (None, None));
+    let nothing = Linker::of(mcp::tools::no_links, Some("a/b"));
+    assert_eq!((nothing.issue(1), nothing.pr(2)), (None, None));
 
     let s = sess("work", 7, 60, json!({"pr": 8}));
     let bare = sess("work", 9, 120, json!({}));
     for (name, repo, linked) in [
-        ("good", Some("tehas-app/tehas"), true),
-        ("odd", Some("a/b/c"), false),
+        ("good", Some("tehas-app/tehas-factory"), true),
         ("none", None, false),
     ] {
         let env = Env::new(name, repo, &[s.clone(), bare.clone()]);
@@ -767,7 +755,7 @@ fn failures_per_version_pair() {
             "work",
             5,
             50,
-            json!({"outcome": "pr", "tehasVersion": "v0.7.30", "rukasVersion": null, "rukasCommit": "abc"}),
+            json!({"outcome": "offered", "tehasVersion": "v0.7.30", "rukasVersion": null, "rukasCommit": "abc"}),
         ),
         s(
             "plan",
@@ -776,7 +764,7 @@ fn failures_per_version_pair() {
             json!({"outcome": "failed", "failureKind": "model", "failureCause": "c1"}),
         ),
     ];
-    let env = Env::new("pairs", Some("tehas-app/tehas"), &rows);
+    let env = Env::new("pairs", Some("tehas-app/tehas-factory"), &rows);
     let out = env.call("factory_failures", json!({})).unwrap();
     assert_eq!(out["days"], 30);
     assert_eq!(out["stale"], false);
@@ -793,14 +781,14 @@ fn failures_per_version_pair() {
     assert_eq!(
         v[0]["causes"][0]["issues"],
         json!([
-            "https://github.com/tehas-app/tehas/issues/1",
-            "https://github.com/tehas-app/tehas/issues/3"
+            "https://fake.test/tehas-app/tehas-factory/b/1",
+            "https://fake.test/tehas-app/tehas-factory/b/3"
         ])
     );
     assert_eq!(v[1]["tehasVersion"], "v0.7.30");
     assert_eq!(v[1]["rukasVersion"], "abc");
     assert_eq!(v[1]["runs"], 2);
-    assert_eq!(v[1]["outcomes"], json!({"failed": 1, "pr": 1}));
+    assert_eq!(v[1]["outcomes"], json!({"failed": 1, "offered": 1}));
 }
 
 #[test]
@@ -838,7 +826,7 @@ fn top_causes_bounded() {
     assert_eq!(causes[0]["n"], 13);
     let issues = causes[0]["issues"].as_array().unwrap();
     assert_eq!(issues.len(), 10);
-    assert_eq!(issues[0], "https://github.com/a/b/issues/100");
+    assert_eq!(issues[0], "https://fake.test/a/b/b/100");
     let unique: BTreeSet<&str> = issues.iter().map(|i| i.as_str().unwrap()).collect();
     assert_eq!(unique.len(), 10);
 }
@@ -854,7 +842,8 @@ fn failures_without_repo() {
         ),
         sess("work", 2, 20, json!({"outcome": "merged"})),
     ];
-    for repo in [None, Some("a/b/c")] {
+    {
+        let repo: Option<&str> = None;
         let env = Env::new("norepo", repo, &rows);
         let out = env.call("factory_failures", json!({})).unwrap();
         let v = &out["versions"][0];
@@ -903,13 +892,13 @@ fn an_issue_with_several_attempts() {
             "work",
             7,
             t - 200,
-            json!({"attempt": 2, "how": "retry-tick", "outcome": "pr", "pr": 21}),
+            json!({"attempt": 2, "how": "reply", "outcome": "offered", "pr": 21}),
         ),
         sess_at(
             "work",
             7,
             t - 300,
-            json!({"attempt": 1, "how": "label", "outcome": "failed",
+            json!({"attempt": 1, "how": "approved", "outcome": "failed",
                    "failedStep": "develop", "failureKind": "model",
                    "failureCause": "the cause of a failure", "seconds": 300}),
         ),
@@ -928,7 +917,7 @@ fn an_issue_with_several_attempts() {
     assert_eq!(out["api"], 1);
     assert_eq!(out["issue"], 7);
     assert_eq!(
-        out["issueUrl"], "https://github.com/a/b/issues/7",
+        out["issueUrl"], "https://fake.test/a/b/b/7",
         "{:?}",
         out["issueUrl"]
     );
@@ -950,7 +939,7 @@ fn an_issue_with_several_attempts() {
     // The seconds the run took are its own, not the gap to the next one.
     assert_eq!(attempts[0]["seconds"], 300);
     assert_eq!(attempts[0]["kind"], "work");
-    assert_eq!(attempts[0]["how"], "label");
+    assert_eq!(attempts[0]["how"], "approved");
     assert_eq!(attempts[0]["outcome"], "failed");
     assert_eq!(attempts[0]["seconds"], 300);
     assert_eq!(attempts[0]["failedStep"], "develop");
@@ -989,7 +978,7 @@ fn an_issue_with_several_attempts() {
     );
     assert_eq!(keys(&attempts[1]), named(&["prUrl"]));
     assert_eq!(keys(&attempts[2]), named(&["parkReason"]));
-    assert_eq!(attempts[1]["prUrl"], "https://github.com/a/b/pull/21");
+    assert_eq!(attempts[1]["prUrl"], "https://fake.test/a/b/c/21");
     assert_eq!(out["firstSeen"], attempts[0]["started"]);
     assert_eq!(out["lastSeen"], attempts[2]["started"]);
     assert_eq!(out["outcome"], "handoff");
@@ -1063,7 +1052,7 @@ fn an_issue_with_only_runs() {
 #[test]
 fn an_issue_being_planned() {
     let root = TestDir::new("mcp-plan");
-    let (live, snap) = (root.join("live"), root.join("mcp"));
+    let (live, snap) = (Home::new(&*root).live_dir(), root.join("mcp"));
     std::fs::create_dir_all(&live).unwrap();
     std::fs::create_dir_all(&snap).unwrap();
     std::fs::write(
@@ -1088,8 +1077,9 @@ fn an_issue_being_planned() {
         live,
         sessions: snap,
         logs: root.join("no-logs"),
+        links: fake_links,
     };
-    let out = match mcp::tools::call(&dirs, "factory_issue", &json!({"issue": 6})) {
+    let out = match mcp::tools::call(&dirs, "factory_issue", &json!({"issue": 6}).into()) {
         Ok(Output::Json(v)) => common::conforms("factory_issue", v),
         other => panic!("not JSON: {other:?}"),
     };
@@ -1157,9 +1147,10 @@ fn the_issue_argument_is_checked() {
         live: "/nonexistent/live".into(),
         sessions: "/nonexistent/mcp".into(),
         logs: "/nonexistent/logs".into(),
+        links: fake_links,
     };
     assert!(matches!(
-        mcp::tools::call(&dirs, "factory_delete", &json!({})),
+        mcp::tools::call(&dirs, "factory_delete", &json!({}).into()),
         Err(ToolError::Unknown(_))
     ));
 }
@@ -1182,12 +1173,13 @@ fn no_snapshot_is_a_tool_error_for_the_story() {
     }
 }
 
-// A repository the dashboard does not publish well leaves the answer with no
-// links, and a run of an issue whose pull request is none has no prUrl.
+// A dashboard that publishes no repository leaves the answer with no links,
+// and a run of an issue whose pull request is none has no prUrl.
 #[test]
 fn without_a_valid_repo_the_story_has_no_links() {
     let rows = [sess("work", 7, 60, json!({"pr": 21}))];
-    for repo in [None, Some("a/b/c")] {
+    {
+        let repo: Option<&str> = None;
         let env = Env::built(
             "nolinks",
             repo,
@@ -1246,7 +1238,7 @@ fn a_composite_value_in_a_run_is_left_out_of_the_answer() {
             "id": {"nested": "SECRET-ID"},
             "kind": ["work"],
             "attempt": {"n": 1},
-            "how": ["label"],
+            "how": ["approved"],
             "outcome": {"word": "failed"},
             "failedStep": ["develop"],
             "failureKind": {"k": "model"},
@@ -1303,7 +1295,7 @@ fn the_storys_schema_names_every_field_of_an_answer() {
         7,
         120,
         json!({
-            "attempt": 1, "how": "fixer", "outcome": "failed", "failedStep": "plan",
+            "attempt": 1, "how": "millwright", "outcome": "failed", "failedStep": "plan",
             "failureKind": "model", "failureCause": "c", "parkReason": "loop", "pr": 8,
         }),
     );
@@ -1722,4 +1714,27 @@ fn a_session_that_does_not_match_its_schema_is_not_served() {
         Err(ToolError::File { why, .. }) => assert!(why.contains("round"), "{why}"),
         other => panic!("{other:?}"),
     }
+}
+
+/// A run a ticked retry started before 2.0 reaches the tools as analytics
+/// rewrote it on open, `how` `reply` (#2782): `factory_sessions` lists and
+/// filters it, and `factory_session` shows it. The old word is no filter.
+#[test]
+fn a_run_of_a_retry_of_before_2_0_is_listed_as_reply() {
+    let all = [
+        sess("work", 1, 100, json!({"how": "reply"})),
+        sess("work", 2, 200, json!({"how": "approved"})),
+    ];
+    let env = Env::new("reply", Some("a/b"), &all);
+    let out = env
+        .call("factory_sessions", json!({"how": "reply"}))
+        .unwrap();
+    assert_eq!(ids(&out), [all[0]["id"].as_str().unwrap()]);
+    let one = env
+        .call("factory_session", json!({"id": all[0]["id"]}))
+        .unwrap();
+    assert_eq!(one["session"]["how"], "reply", "{one}");
+    assert!(env
+        .call("factory_sessions", json!({"how": "retry-tick"}))
+        .is_err());
 }

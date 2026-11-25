@@ -7,13 +7,10 @@ use common::*;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::fs;
+use tehas_ports::{Act, Mark};
 
 const A: &str = "https://github.com/user-attachments/assets";
-const COMMENTS: &[&str] = &[
-    "TEHAS_MAX_CYCLES=1",
-    "TEHAS_WORK_IMAGES=1",
-    "TEHAS_WORK_COMMENTS=1",
-];
+const IMAGES: &[&str] = &["TEHAS_MAX_CYCLES=1", "TEHAS_WORK_IMAGES=1"];
 
 fn sha(text: &str) -> String {
     format!("{:x}", Sha256::digest(text.as_bytes()))
@@ -65,7 +62,7 @@ fn while_the_label_cannot_be_taken_off_nothing_is_said_on_the_issue_and_it_is_sa
     w.touch("edit-fails");
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
-    assert_eq!(count_lines(&w.gh(), "issue comment "), 0);
+    assert_eq!(w.notes_any(), 0);
     has(
         &r.out,
         "WARN: label change on #7 failed: --remove-label tehas:ready",
@@ -73,7 +70,7 @@ fn while_the_label_cannot_be_taken_off_nothing_is_said_on_the_issue_and_it_is_sa
     w.rm_fx("edit-fails");
     let _ = fs::remove_file(w.t().join("calls/gh"));
     w.poll();
-    assert_eq!(count_lines(&w.gh(), "issue comment "), 1);
+    assert_eq!(w.notes_any(), 1);
 }
 
 #[test]
@@ -106,6 +103,36 @@ fn a_label_from_a_listed_login_with_another_user_id_does_not_count_and_is_warned
     lacks(&r.out, "would run a cycle");
 }
 
+/// The dispatcher matches the allowed list in any ASCII case, as
+/// `console label allowed` does: a case variant of a listed login with the
+/// recorded id counts, and names the login as GitHub gave it.
+#[test]
+fn a_case_variant_of_a_listed_login_with_the_recorded_user_id_counts() {
+    let w = World::new("ap-uid-case");
+    ready_by(&w, json!({"login": "Alice", "id": uid("alice")}));
+    let r = w.dispatch(&["--dry-run"]);
+    lacks(&r.out, "does not count");
+    lacks(&r.out, "not an allowed account");
+    has(&r.out, "would run a cycle for #7 (labelled by Alice)");
+}
+
+/// The vouch folds case: a case variant with another id is doubted.
+#[test]
+fn a_case_variant_of_a_listed_login_with_another_user_id_is_warned_about() {
+    let w = World::new("ap-uid-case-other");
+    ready_by(&w, json!({"login": "Alice", "id": 99}));
+    let r = w.dispatch(&["--dry-run"]);
+    has(
+        &r.out,
+        &format!(
+            "tehas: Alice acted with the user id 99, not the recorded {}, so it does not count",
+            uid("alice")
+        ),
+    );
+    has(&r.out, "was applied by 'Alice#99', not an allowed account");
+    lacks(&r.out, "would run a cycle");
+}
+
 #[test]
 fn a_label_event_whose_account_carries_no_user_id_does_not_count() {
     let w = World::new("ap-uid-none");
@@ -135,6 +162,44 @@ fn with_no_user_id_recorded_a_listed_login_authorises_nothing_until_tehas_update
         ),
     );
     lacks(&r.out, "would run a cycle");
+}
+
+/// A file of before bots were keyed whole keeps the bot under its bare slug,
+/// which may be an account of that name: the poll stops with 78 and names
+/// the record, in 1.x lines and in realm lines alike.
+#[test]
+fn a_bot_kept_only_under_its_bare_slug_stops_the_poll_until_the_ids_are_recorded() {
+    let w = World::new("ap-uid-bare-bot");
+    for text in [
+        format!("alice {}\ntehas-bot {}\n", uid("alice"), uid("tehas-bot")),
+        format!(
+            "code-host alice {}\ncode-host tehas-bot {}\n",
+            uid("alice"),
+            uid("tehas-bot")
+        ),
+    ] {
+        w.home_file(tehas_core::accounts::FILE, &text);
+        let r = w.dispatch(&["--dry-run"]);
+        assert_eq!(r.rc, 78, "{text:?}: {}", r.out);
+        has(
+            &r.out,
+            "may be the bot tehas-bot[bot] or another account of that name",
+        );
+        has(&r.out, "Run console ids record");
+        lacks(&r.out, "would run a cycle");
+    }
+    // Both kept side by side, each by its whole login, the poll runs.
+    w.home_file(
+        tehas_core::accounts::FILE,
+        &format!(
+            "code-host alice {}\ncode-host tehas-bot 5\ncode-host tehas-bot[bot] {}\n",
+            uid("alice"),
+            uid("tehas-bot")
+        ),
+    );
+    let r = w.dispatch(&["--dry-run"]);
+    assert_ne!(r.rc, 78, "{}", r.out);
+    lacks(&r.out, "Run console ids record");
 }
 
 #[test]
@@ -182,7 +247,7 @@ fn a_start_writes_the_approval_record_before_the_label_changes_who_when_how_the_
     let filter = "{at, by, how, body_sha256, links, title_sha256}";
     assert_eq!(
         val(&w.at_mark(filter)),
-        json!({"at": "2026-01-01T00:00:00Z", "by": "alice", "how": "label", "body_sha256": sum,
+        json!({"at": "2026-01-01T00:00:00Z", "by": "alice", "how": "approved", "body_sha256": sum,
             "links": [format!("{A}/1111"), format!("{A}/2222")], "title_sha256": sha("Faster search")})
     );
     // The start used the approval it found: the same one, now its readers'.
@@ -204,17 +269,20 @@ fn the_titles_hash_drops_line_ends_as_the_bodys_does() {
 }
 
 #[test]
-fn without_the_comments_setting_the_record_names_no_comment_and_none_are_read() {
+fn the_record_names_no_comment_and_none_are_read() {
     let w = World::new("ap-no-comments");
     title_world(&w);
     assert_eq!(w.approval(r#"has("comment_links")"#, 7), "false");
     lacks(&w.gh(), "comments?per_page");
 }
 
-/// Comments on: alice's two before the label, an outsider's, one after the
-/// label and one edited after it, and a poll.
+/// An instance that still sets TEHAS_WORK_COMMENTS: alice's two comments
+/// before the label, an outsider's, one after the label and one edited after
+/// it, and a poll.
 fn comments_world(w: &World) -> Run {
-    instance(w, COMMENTS);
+    let mut lines = IMAGES.to_vec();
+    lines.push("TEHAS_WORK_COMMENTS=1");
+    instance(w, &lines);
     w.fx(
         "events-7.json",
         r#"[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"},"created_at":"2026-01-01T00:00:00Z"}]"#,
@@ -265,19 +333,16 @@ fn comments_world(w: &World) -> Run {
 }
 
 #[test]
-fn with_comments_on_the_record_takes_the_links_of_comments_an_allowed_account_wrote_before_the_label(
-) {
+fn an_instance_that_still_sets_comments_records_no_link_of_a_comment() {
     let w = World::new("ap-comments");
     let r = comments_world(&w);
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(w.started(), "7 ");
     assert_eq!(
-        val(&w.at_mark("[.links, .comment_links]")),
-        json!([[format!("{A}/1111")], [
-            {"link": format!("{A}/4444"), "source": "comment:51", "by": "alice"},
-            {"link": format!("{A}/5555"), "source": "comment:52", "by": "alice"},
-            {"link": format!("{A}/1111"), "source": "comment:52", "by": "alice"}]])
+        val(&w.at_mark(r#"[.links, has("comment_links")]"#)),
+        json!([[format!("{A}/1111")], false])
     );
+    lacks(&w.gh(), "issues/7/comments?per_page");
 }
 
 #[test]
@@ -292,11 +357,11 @@ fn an_outsiders_comment_one_written_after_the_label_and_one_edited_after_it_are_
 }
 
 /// #7 parked on alice's label, its clean-start box ticked by alice, with
-/// comments on unless `off`.
+/// images on unless `off`.
 fn retry_world(w: &World, off: bool, boxes: &[&str]) {
     w.parked("failed", "alice");
     if !off {
-        instance(w, COMMENTS);
+        instance(w, IMAGES);
     }
     w.comments(7, &park_body(boxes), "alice", json!([]));
 }
@@ -328,16 +393,15 @@ fn a_retry_ticks_record_takes_the_comments_written_before_the_tick() {
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(
-        w.at_mark("[.how, (.comment_links | map(.source))]"),
-        r#"["retry-tick",["comment:61"]]"#
+        w.at_mark(r#"[.how, (.retry_context | map(.id)), has("comment_links")]"#),
+        r#"["reply",[61],false]"#
     );
 }
 
-// The box of the issue alone, on an instance that reads comments: the start
-// names neither the issue's comments nor its pull request's, so neither read
-// is asked for.
+// The box of the issue alone: the start names neither the issue's comments
+// nor its pull request's, so neither read is asked for.
 #[test]
-fn a_retry_tick_of_the_issue_alone_reads_no_comment_with_the_comments_setting_on() {
+fn a_retry_tick_of_the_issue_alone_reads_no_comment() {
     let w = World::new("ap-retry-alone");
     retry_world(&w, false, &[" ", "x", " "]);
     issue_comments(&w, 7, &[]);
@@ -361,7 +425,7 @@ fn a_retry_tick_of_the_issue_alone_reads_no_comment_with_the_comments_setting_on
     assert_eq!(w.started(), "7 ");
     assert_eq!(
         w.at_mark("[.by, .how, .comment_id] | tostring"),
-        r#"["alice","retry-tick",4001]"#
+        r#"["alice","reply",4001]"#
     );
     assert_eq!(
         w.at_mark(r#"[has("comment_links"), has("retry_context")]"#),
@@ -371,7 +435,7 @@ fn a_retry_tick_of_the_issue_alone_reads_no_comment_with_the_comments_setting_on
     lacks(&w.gh(), "issues/7/comments?per_page");
 }
 
-/// A retry tick with comments on, the cycle's pull request #30 commented on
+/// A retry tick, the cycle's pull request #30 commented on
 /// by alice, mallory and bob, another issue's #31 and a second of #7's, #32.
 fn pr_world(w: &World) -> Run {
     retry_world(w, false, &["x", " "]);
@@ -436,7 +500,7 @@ fn pr_world(w: &World) -> Run {
             "second PR",
         )],
     );
-    let mut more = COMMENTS.to_vec();
+    let mut more = IMAGES.to_vec();
     more.push(r#"TEHAS_ALLOWED_LABELERS="alice bob""#);
     instance(w, &more);
     w.poll()
@@ -448,11 +512,7 @@ fn a_retry_tick_takes_what_allowed_accounts_wrote_on_the_cycles_pull_request_up_
     let r = pr_world(&w);
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(w.started(), "7 ");
-    assert_eq!(
-        val(&w.at_mark(".comment_links")),
-        json!([{"link": format!("{A}/7373"), "source": "pr-comment:73", "by": "alice"},
-            {"link": format!("{A}/7171"), "source": "pr-comment:71", "by": "alice"}])
-    );
+    assert_eq!(w.at_mark(r#"has("comment_links")"#), "false");
     assert_eq!(
         val(&w.at_mark(".retry_context | map([.source, .id, .pr, .by, .text])")),
         json!([
@@ -495,7 +555,7 @@ fn an_outsiders_pull_request_comment_and_one_after_the_tick_are_not_taken_nor_an
 #[test]
 fn a_start_by_label_reads_no_pull_request() {
     let w = World::new("ap-label-no-pr");
-    instance(&w, COMMENTS);
+    instance(&w, IMAGES);
     issue_comments(&w, 7, &[]);
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
@@ -504,7 +564,7 @@ fn a_start_by_label_reads_no_pull_request() {
 }
 
 #[test]
-fn with_comments_off_a_retry_tick_still_takes_the_comments_text_and_no_link() {
+fn with_images_off_a_retry_tick_still_takes_the_comments_text_and_no_link() {
     let w = World::new("ap-retry-off");
     retry_world(&w, true, &["x", " "]);
     issue_comments(
@@ -543,13 +603,14 @@ fn pull_requests_that_cannot_be_listed_start_no_retry_and_change_no_label_exit_1
         "ERROR: the comments on the pull request of #7 could not be read",
     );
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     assert_eq!(w.started(), "");
 }
 
 #[test]
 fn comments_that_cannot_be_read_start_nothing_and_change_no_label_exit_1() {
     let w = World::new("ap-comments-fail");
-    instance(&w, COMMENTS);
+    retry_world(&w, false, &["x", " "]);
     w.touch("icomments-fails");
     let r = w.poll();
     assert_eq!(r.rc, 1, "{}", r.out);
@@ -559,11 +620,13 @@ fn comments_that_cannot_be_read_start_nothing_and_change_no_label_exit_1() {
         "ERROR: could not write the approval record of #7, not starting a cycle",
     );
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     assert_eq!(w.started(), "");
     w.fx("icomments-7.json", r#"{"not": "a list"}"#);
     let r = w.poll();
     assert_eq!(r.rc, 1, "{}", r.out);
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
 }
 
 #[test]
@@ -599,6 +662,7 @@ fn an_approval_the_store_does_not_take_starts_nothing_and_changes_no_label_exit_
         "ERROR: could not write the approval record of #7 (busy), not starting a cycle",
     );
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     assert_eq!(w.started(), "");
 }
 
@@ -617,6 +681,7 @@ fn a_store_that_cannot_be_used_stops_the_poll_at_78_before_the_first_start_chang
         "ERROR: the state store cannot be used, not starting a cycle for #7",
     );
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     assert_eq!(w.started(), "");
 }
 
@@ -638,6 +703,7 @@ fn after_a_start_a_store_that_cannot_be_used_ends_the_poll_with_exit_1_and_start
         "ERROR: the state store cannot be used, not starting a cycle for #8",
     );
     lacks(&w.gh(), "issue edit 8");
+    assert_eq!(w.marks(Some(8)), 0);
 }
 
 // The seam between the two commands. A cycle the poll started can find its
@@ -846,10 +912,6 @@ fn the_account_unknown_on_the_list_grants_with_the_pinned_label() {
     lacks(&r.out, "refused");
 }
 
-fn count_exact(text: &str, line: &str) -> usize {
-    text.lines().filter(|l| *l == line).count()
-}
-
 #[test]
 fn a_tehas_ready_applied_by_mallory_is_taken_off_the_issue_and_said_once() {
     let w = World::new("ap-outsider");
@@ -866,20 +928,13 @@ fn a_tehas_ready_applied_by_mallory_is_taken_off_the_issue_and_said_once() {
         "clear #7: tehas:ready off, applied by 'mallory' who may not authorise work here",
     );
     let gh = w.gh();
-    assert_eq!(
-        count_exact(
-            &gh,
-            "issue edit 7 --repo acme/widget --remove-label tehas:ready"
-        ),
-        1,
-        "{gh}"
-    );
-    has(&gh, "issue comment 7 --repo acme/widget --body Tehas took");
+    assert_eq!(w.offs(7, Mark::Act(Act::Approve)), 1, "{gh}");
+    assert!(w.said_on(7, "Tehas took"), "{:?}", w.said(7));
     has(
         &gh,
         "It was applied by `mallory`, an account that may not authorise work in this factory",
     );
-    assert_eq!(count_lines(&gh, "issue comment "), 1, "{gh}");
+    assert_eq!(w.notes_any(), 1, "{gh}");
 }
 
 #[test]
@@ -892,7 +947,8 @@ fn a_dry_run_says_the_label_would_come_off_and_changes_nothing() {
         "would take tehas:ready off #7: it was applied by 'mallory'",
     );
     lacks(&w.gh(), "issue edit");
-    lacks(&w.gh(), "issue comment");
+    assert_eq!(w.marks(None), 0);
+    assert_eq!(w.notes_any(), 0);
 }
 
 #[test]
@@ -916,5 +972,6 @@ fn an_approval_taken_off_after_it_was_given_starts_nothing_while_the_labels_stil
     );
     lacks(&r.out, "not an allowed account");
     lacks(&w.gh(), "issue edit 7");
-    lacks(&w.gh(), "issue comment 7");
+    assert_eq!(w.marks(Some(7)), 0);
+    assert_eq!(w.notes(7), 0);
 }

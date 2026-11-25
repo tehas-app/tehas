@@ -327,7 +327,7 @@ and `/data` in memory, every capability dropped but the one to bind a port,
 network has the router and the other previews on it, and neither the internet
 nor the host. What it prints is kept by Docker in at most two files of 10 MB
 (`--log-opt max-size=10m --log-opt max-file=2`).
-`test/preview_build_test.sh` pins these arguments.
+`console/tests/preview_build.rs` pins these arguments.
 
 It writes nothing else to the host's disk. A `VOLUME` line in a recipe would
 have Docker make a volume there, which a read-only root does not stop and the
@@ -391,9 +391,10 @@ read, writes nothing and says nothing. A record with no time on it is looked at
 again too.
 
 A call that
-failed is tried at the next run: `#<pr>: the description could not be read (no
-such pull request (HTTP 404)), tried again at the next run`, with
-`GitHub refused the call (HTTP 403)` when GitHub refuses the token, and
+failed is tried at the next run: `#<pr>: the description could not be read (not
+found, or not visible to this actor), tried again at the next run`, with
+`this actor may not do this` when GitHub refuses the token, `the budget is
+spent until later` for a rate limit, and
 `#<pr>: the answer about this pull request was not understood ...` when it
 answered with something that is not that pull request's description. Three
 writes GitHub did not take are said once, with the third of them, as

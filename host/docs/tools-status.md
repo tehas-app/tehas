@@ -45,7 +45,7 @@ failed in the last ten minutes (`checks.github`):
 
 ```
 queue     stale: queue and completed kept from an earlier read, GitHub did not answer
-github    4 failed calls in the last 10 min, the last 40 s ago: ERROR: gh api graphql failed: HTTP 502
+github    4 failed calls in the last 10 min, the last 40 s ago: GitHub failed with a server error
 ```
 
 While [refreshes](/operating#refreshes) are held on this host, with requests
@@ -59,14 +59,14 @@ For each ready issue the last poll held on its own while it had room, such as
 one whose last cycle parked on the body it still has:
 
 ```
-held      #21: its last cycle parked on `intent-park` and the body has not changed since; edit the body, or tick Retry in the park comment
+held      #21: its last cycle parked on `intent-park` and the body has not changed since; edit the body, or reply to the park comment with the word of one of its retries
 ```
 
 When every issue in line is held that way and no cycle runs, the factory line
 is a `warn` that names them instead of `Idle, taking work.`:
 
 ```
-factory   warn: #21 is held: its last cycle parked on `intent-park` and the body has not changed since. Edit the body, or tick Retry in the park comment. (40 s ago)
+factory   warn: #21 is held: its last cycle parked on `intent-park` and the body has not changed since. Edit the body, or reply to the park comment with the word of one of its retries. (40 s ago)
 ```
 
 While [`tehas:blocked`](/operating#3-what-happens-next) holds issues by the
@@ -76,18 +76,12 @@ label alone, with no comment that names their blockers (up to 50 numbers):
 blocked   by the label alone, no blockers named: #7, #9. Each waits until an allowed account comments a `<!-- tehas:blocked by=N -->` marker on it or a person takes tehas:blocked off
 ```
 
-And while [`tehas:all-hands`](/operating#all-hands) holds:
-
-```
-all-hands tehas:all-hands is on the control issue, applied by an allowed account
-```
-
 On a lab build, and wherever `TEHAS_TEST_FEATURES` is set (see [proving a
 building feature on a lab host](/tools-update#proving-a-building-feature-on-a-lab-host)).
 A lab build with the variable unset names no building feature:
 
 ```
-features  a lab build: TEHAS_TEST_FEATURES names outsource, still being built
+features  a lab build: TEHAS_TEST_FEATURES names plugins, still being built
 features  a lab build: TEHAS_TEST_FEATURES names no building feature
 features  TEHAS_TEST_FEATURES is set and this build does not read it: take it out
 ```
@@ -105,21 +99,8 @@ platform  v0.10.0-alpha.1, newest v0.9.0, the prerelease is newer, fetched 20 mi
 A host on a prerelease (an alpha, a beta or a release candidate) keeps the
 newest release it last read, even though it is older than the prerelease.
 
-With [outsource](/outsource) on, each running cycle says where it is built,
-and an `outsource:` line counts the contractors:
-
-```
-cycle     #15 running, step develop, started 2 min ago, outsourced to box1
-cycle     #12 running, step review, started 40 min ago, in-house
-outsource: 1 idle, 1 working, 1 resting; 1 cycle(s) outsourced
-```
-
-Both come from `live/contractors.json`, which the factory writes only while
-outsource is on. Outsource is still being built in this release, so no
-factory prints them yet.
-
 It reads
-that one file, and `contractors.json` beside it when it is there, and nothing
+that one file and nothing
 else: no GitHub call, no instance settings, and it writes nothing. So it is as fresh as the dispatcher's last poll, and the first
 line says how old that is.
 
@@ -144,9 +125,9 @@ tehas api [--json]
 ```
 api         1
 tehas       v0.8.0 (cb6912a)
-repo        tehas-app/tehas
-features    status millwright-grant all-hands limit drain history export analytics state-move mcp-dashboard-keys clean disk state-check finish
-flags       outsource=off
+repo        tehas-app/tehas-factory
+features    status limit drain history export analytics state-move mcp-dashboard-keys clean disk state-check finish
+flags       plugins=off
 millwright  none
 poll        last 24 s wall, 1.5 s CPU, 12 gh; last hour 14 polls, 41 s CPU
 ```
@@ -159,50 +140,6 @@ instance settings, the version file `install.sh` writes and the state store, a
 store that cannot answer being no poll on record; no network, no git, and it
 writes nothing. Exit 0, 64 on an argument it does not know, 78 when the
 settings are missing or malformed.
-
-## tehas wiki
-
-```
-tehas wiki [--json]
-tehas wiki build [--full] [--json]
-tehasbot wiki
-tehasbot wiki build [--full]
-```
-
-```
-wiki: 2026-11-21-68ffab1d from 68ffab1d (v1.2.0-5-g68ffab1d), built 2026-11-21T03:04:10Z
-wiki: 5 commits and 2 days behind main
-```
-
-The state of the product wiki: the current build, the commit it was built
-from, and how far it is behind main, the commits since that commit and the
-age between the two commit dates, in days, or in months from 60 days. With
-no build yet it says `wiki: no build yet`. It reads `~/tehas/wiki/current/build.json`
-and the product checkout; no model, no GitHub call, and it writes nothing.
-`tehasbot wiki` writes the same object to `~/tehas/live/wiki.json`, and
-`tehas-wiki-status.timer` runs it every five minutes.
-
-`tehas wiki build` asks for a build and returns at once: it writes
-`~/tehas/state/wiki.ask`, and `tehas-wiki.path` starts `tehasbot wiki build`.
-`tehas-wiki.timer` asks every night at 03:00. A build of a commit already
-built does nothing; `--full` builds it again and lets every page change.
-
-A build runs pi-rukas's `wiki` verb, from pi-rukas v0.14.99,
-in a container of its own kind: the code at the head of the default branch
-and the raw sources read-only, the pages it writes, no GitHub token, no relay,
-and a CPU weight of 64 against a cycle's 1024. The model has no time limit.
-The host then checks the pages (front matter, every changed page checked at
-this commit, links that land, every page in `index.md`, one new entry in
-`log.md`, sizes, credentials), renders them to HTML with any HTML in them
-shown as text, and moves the build into place under
-`~/tehas/wiki/<date>-<8 hex>/`. A build that fails changes nothing that is
-served and says why in `~/tehas/wiki/failure.json`. The last ten builds and
-the last of each release are kept. An image whose `--capabilities` lists no
-`wiki` verb is refused with 78.
-
-The wiki is still being built: with `TEHAS_WIKI` off, or in a release, it
-exits 78 and says so. Exit 0, 64 on an argument but `--json`, 78 when the
-wiki is off or the settings are missing or malformed.
 
 ## tehas disk
 
@@ -277,13 +214,13 @@ tehas top --every 10     # redraw every 10 seconds
 
 One screen for a person, in the manner of `top`: is the factory taking work,
 what is in the queue and which issues are behind the counts, what the cycles are
-doing, which units run, what the model mesh draws, and the tail of a cycle's
+doing, which units run, and the tail of a cycle's
 console. It draws again every 2 seconds unless `--every` says otherwise; `q` or
 Ctrl-C ends it and leaves the terminal as it was. Without a terminal on standard
 output, and with `--once`, it prints one frame as plain text: no escape codes.
 
 It reads what the factory already writes under `~/tehas/live/` - the [health
-file](/tools-health#tehasbot-health), the queue snapshot, the cycles, the energy sample and
+file](/tools-health#tehasbot-health), the queue snapshot, the cycles and
 the console of a cycle - asks `systemctl --user` about its units, and reads the
 host's own numbers from `/proc`, through the console beside the commands
 (`~/tehas/libexec/console top`, which also puts the snapshot together;
@@ -295,14 +232,14 @@ minutes is not believed, the same rule `tehas status` uses.
 
 The frame is drawn from one snapshot and from nothing else. `--json` prints that
 snapshot: `generatedAt`, one key per section (`factory`, `queue`, `cycle`,
-`host`, `units`, `energy`, `console`) and `reading`, the raw reading of `/proc`
+`host`, `units`, `console`) and `reading`, the raw reading of `/proc`
 the host section was computed from. A section whose source is missing,
 unreadable or too old to believe is `null`; the frame says so in one line and
 draws the rest. The factory line and the queue counts are the ones `tehas status`
 prints: both commands take them from the console (`console/src/status.rs`), so
 they cannot drift apart.
 A section added to the snapshot appears in `--json` without anything else
-changing. The snapshot is not public: it is the dashboard's own, has no schema
+changing. The snapshot is not public: it has no schema
 in `api/` and may change in any release. A program reads
 [`tehas status --json`](/api#tehas-status---json) instead.
 
@@ -312,10 +249,9 @@ them, and up to fifteen processes with their pid, their short name from
 `/proc/<pid>/stat`, their share of a cpu, their share of memory and how long they
 have been running. A view that redraws hands the reading of one frame to the
 next, so a redraw measures the seconds since that frame instead of waiting; only
-a first frame, and `--json`, `--once` and `tehasbot top`, take a second reading a
-second after the first. The reading a snapshot was computed from is in it under
-`reading`, which is how it is handed on; no frame draws it and the published file
-does not hold it. A process is named by that short name only: the command line,
+a first frame, `--json` and `--once` take a second reading a second after the
+first. The reading a snapshot was computed from is in it under `reading`, which
+is how it is handed on; no frame draws it. A process is named by that short name only: the command line,
 and everything else under `/proc/<pid>/`, is never opened. A pid that was reused
 between the two readings is not shown. The figures are what changed between the
 readings, not the average since a process began. They sit between the cycle rows

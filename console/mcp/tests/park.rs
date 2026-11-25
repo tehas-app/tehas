@@ -6,6 +6,7 @@ use mcp::tools::{list_scoped, Dirs, Output, Scope, ToolError};
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use tehas_core::home::Home;
 use tehas_core::question::park_sig;
 use tehas_core::testdir::TestDir;
 use tehas_core::time::{iso, now};
@@ -28,7 +29,11 @@ struct Env {
 impl Env {
     fn new(name: &str, sessions: &[Value]) -> Env {
         let root = TestDir::new(&format!("mcp-park-{name}"));
-        let (live, snap, logs) = (root.join("live"), root.join("mcp"), root.join("logs"));
+        let (live, snap, logs) = (
+            Home::new(&*root).live_dir(),
+            root.join("mcp"),
+            root.join("logs"),
+        );
         for d in [&live, &snap, &logs] {
             std::fs::create_dir_all(d).unwrap();
         }
@@ -49,12 +54,13 @@ impl Env {
                 live,
                 sessions: snap,
                 logs,
+                links: mcp::tools::no_links,
             },
         }
     }
 
     fn call(&self, args: Value) -> Result<Value, ToolError> {
-        match mcp::tools::call(&self.dirs, "factory_park", &args)? {
+        match mcp::tools::call(&self.dirs, "factory_park", &args.into())? {
             Output::Json(v) => Ok(common::conforms("factory_park", v)),
             other => panic!("factory_park gave {other:?}"),
         }
@@ -70,7 +76,7 @@ impl Env {
 fn parked(started: i64) -> Value {
     json!({
         "id": format!("work-7-{started}"), "kind": "work", "issue": 7, "attempt": 2,
-        "how": "label", "started": iso(started), "ended": iso(started + 600),
+        "how": "approved", "started": iso(started), "ended": iso(started + 600),
         "seconds": 600, "outcome": "handoff", "status": "handoff", "exitCode": 10,
         "lastStep": "develop", "cap": "verify-failed:develop", "failureKind": "verify",
         "providerOutage": false,
@@ -244,7 +250,7 @@ fn every_stop_outcome_counts_and_the_others_do_not() {
         assert!(out.get("checks").is_none());
         assert_eq!(out["sig"], park_sig("lens-review", "", "", "", ""));
     }
-    for outcome in ["merged", "pr", "stopped"] {
+    for outcome in ["merged", "offered", "stopped"] {
         let env = Env::new(&format!("go-{outcome}"), &[run("work", 7, t, outcome)]);
         let e = err_text(env.call(json!({"issue": 7})).unwrap_err());
         assert!(e.contains("issue 7"), "{e}");

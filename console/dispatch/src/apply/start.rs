@@ -10,7 +10,7 @@
 //! the checkout) is the poll's, part 4 of #254.
 
 use super::{text, word, Writer, Wrote};
-use crate::decide::iso;
+use crate::decide::{in_window, iso, window_order};
 use crate::read::host::{epoch, held};
 use crate::read::run::{gh_env, run_grace_env, run_quiet};
 use crate::settings::account;
@@ -19,7 +19,13 @@ use std::io::Write as _;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use tehas_core::home::{Home, State};
 use tehas_core::issue_pull::names_issue;
+use tehas_ports::{TicketKey, Write};
+
+/// What a claim answers when a poll before T4.7 made it whole: its parts
+/// after the mark are done already.
+const CLAIMED_1X: &str = "claimed whole";
 
 /// The name the status reads to know the poll ran it, and the value that means
 /// so. It is one of the names the load of the settings keeps.
@@ -29,9 +35,6 @@ const FROM_POLL: (&str, &str) = ("TEHAS_FROM_POLL", "1");
 pub struct Host {
     /// hostname, for the comments.
     pub name: String,
-    /// TEHAS_WORK_COMMENTS is 1: the approval names the comments' links. The
-    /// text of the comments a comments retry is given does not depend on it.
-    pub comments: bool,
     /// TEHAS_ALLOWED_LABELERS.
     pub allowed: Vec<String>,
     /// TEHAS_MILLWRIGHT_LOGIN, as `settings::account` has it.
@@ -43,8 +46,6 @@ pub struct Host {
     pub bot: String,
     /// TEHAS_ASSIGNEE: the person a claimed issue is assigned to, or empty.
     pub owner: String,
-    /// The outsource feature is on: the start comment says who builds it.
-    pub outsource: bool,
     pub systemctl: String,
     /// TEHAS_CYCLE_START_CMD and TEHAS_CYCLE_STOP_CMD, which a test sets.
     pub start_cmd: Option<String>,
@@ -224,12 +225,7 @@ pub(crate) fn window(
                 .unwrap_or("");
             c.get("id").is_some_and(Value::is_number)
                 && c.get("body").is_some_and(Value::is_string)
-                && !login.is_empty()
-                && who(login)
-                && !at.is_empty()
-                && created.as_str() >= since
-                && created.as_str() <= at
-                && updated.as_str() <= at
+                && in_window(login, &created, &updated, since, at, who)
         })
         .cloned()
         .collect();
@@ -241,41 +237,9 @@ pub(crate) fn window(
             )
         };
         let (x, y) = (k(a), k(b));
-        x.0.cmp(&y.0).then(x.1.total_cmp(&y.1))
+        window_order((&x.0, x.1), (&y.0, y.1))
     });
     Some(out)
-}
-
-/// The links of the comments, each link once, with where it came from.
-fn comment_links(comments: &[Value], source: &str) -> Vec<Value> {
-    let mut out: Vec<Value> = Vec::new();
-    for c in comments {
-        let body = c.get("body").and_then(Value::as_str).unwrap_or("");
-        for link in crate::text::link_list(body) {
-            if !out.iter().any(|x| x["link"] == json!(link)) {
-                out.push(
-                    json!({"link": link, "source": format!("{source}:{}", c["id"]),
-                    "by": c.pointer("/user/login").cloned().unwrap_or(Value::Null)}),
-                );
-            }
-        }
-    }
-    out
-}
-
-/// A comment as retry_context has it: its first 4000 characters, without
-/// carriage returns.
-pub(crate) fn context(c: &Value, source: &str) -> Value {
-    let body: String = c
-        .get("body")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .replace('\r', "")
-        .chars()
-        .take(4000)
-        .collect();
-    json!({"source": format!("{source}:{}", c["id"]), "by": c.pointer("/user/login").cloned().unwrap_or(Value::Null),
-        "at": c.get("created_at").cloned().unwrap_or(Value::Null), "text": body})
 }
 
 /// The most text of comments a record holds, in bytes of their text: the
@@ -372,84 +336,6 @@ fn bounded(items: Vec<Value>) -> (Vec<Value>, usize) {
     (items.into_iter().skip(dropped).collect(), dropped)
 }
 
-/// The comment that lifts a park's hold off the millwright's `tehas:ready` at
-/// `at`: the note `fixer_note` would put on the record, when it carries the
-/// `action=change` marker within the text a cycle is given and no other
-/// account saved it. `action=retry` asks for the same run again, so a newer
-/// one of those takes the lift away (#1130).
-///
-/// <list> is the poll's GraphQL read of the issue's comments, put here in the
-/// REST shape `window` and `context` read. None when that read or `at` is no
-/// answer, so a failed read is never taken for no note.
-pub(crate) fn change_note(list: &Value, n: u64, fixer: &str, at: &str) -> Option<Option<Value>> {
-    let nodes = list
-        .pointer("/data/repository/issue/comments/nodes")
-        .and_then(Value::as_array)
-        .or_else(|| list.as_array())?;
-    let since = iso(u64::try_from(epoch(at)? - 600).ok()?);
-    let marker = regex::Regex::new(&format!(
-        "<!-- tehas:millwright issue={n} action=(retry|change) -->"
-    ))
-    .ok()?;
-    let rest: Vec<Value> = nodes
-        .iter()
-        .filter_map(|x| {
-            let id = x
-                .get("databaseId")
-                .or_else(|| x.get("id"))
-                .cloned()
-                .unwrap_or(Value::Null);
-            let login = x
-                .pointer("/author/login")
-                .or_else(|| x.pointer("/user/login"))
-                .and_then(Value::as_str)
-                .unwrap_or("");
-            let (body, created) = (
-                x.get("body").and_then(Value::as_str)?,
-                x.get("createdAt")
-                    .or_else(|| x.get("created_at"))
-                    .and_then(Value::as_str)?,
-            );
-            // GitHub answers a comment nobody saved after it with no stamp at
-            // all, and REST with a stamp equal to the first: either is the
-            // comment as its author wrote it.
-            let edited = x
-                .get("lastEditedAt")
-                .or_else(|| x.get("updated_at"))
-                .cloned()
-                .unwrap_or(Value::Null);
-            let editor = x
-                .pointer("/editor/login")
-                .and_then(Value::as_str)
-                .unwrap_or(login);
-            let mut c = json!({"id": id, "body": body, "user": {"login": login},
-                "created_at": created});
-            c["updated_at"] = if edited.is_null() {
-                json!(created)
-            } else {
-                edited
-            };
-            c["outsider"] = json!(account(editor) != account(login));
-            Some(c)
-        })
-        .collect();
-    let who = |l: &str| !fixer.is_empty() && account(l) == fixer;
-    let Some(newest) = window(&Value::Array(rest), &since, at, &who)?
-        .into_iter()
-        .rfind(|c| marker.is_match(c.get("body").and_then(Value::as_str).unwrap_or("")))
-    else {
-        return Some(None);
-    };
-    let note = context(&newest, "millwright");
-    let change = format!("<!-- tehas:millwright issue={n} action=change -->");
-    let lifts = newest["outsider"] == json!(false)
-        && note["text"].as_str().is_some_and(|t| t.contains(&change));
-    Some(lifts.then_some(note))
-}
-
-/// Where the probe copies the checkout for its one check, under the home.
-const PROBE_TREE: &str = "state/push-probe";
-
 impl Writer {
     /// Ask the sandbox whether it can push, when the fault of
     /// `state/push-fault.json` has aged out: the dry-run container a cycle's
@@ -470,7 +356,7 @@ impl Writer {
         if dry {
             return (Vec::new(), true);
         }
-        let tree = self.home.join(PROBE_TREE);
+        let tree = Home::new(&self.home).state(State::PushProbe);
         let said = self.push_probe_in(&tree);
         let _ = std::fs::remove_dir_all(&tree);
         said
@@ -709,26 +595,28 @@ impl Writer {
         let n = a.get("start").and_then(Value::as_u64).unwrap_or(0);
         let by = text(a, "by").to_string();
         let given = text(a, "given").to_string();
-        if let Some(spec) = a.get("spec") {
-            if let Some(then) = self.spec_holds(n, a, spec, log) {
-                return then;
-            }
-        }
         log.push(match a.get("log").and_then(Value::as_str) {
             Some(line) => line.to_string(),
             None => format!("start #{n} ({} by {by})", text(a, "verb")),
         });
         let refresh_pr = a.get("refresh_pr").and_then(Value::as_u64);
         if let Some(pr) = refresh_pr {
+            let word = "tehas:refreshing";
             let args = vec![
                 "api".into(),
                 "-X".into(),
                 "POST".into(),
                 format!("repos/{}/issues/{pr}/labels", self.repo),
                 "-f".into(),
-                "labels[]=tehas:refreshing".into(),
+                format!("labels[]={word}"),
             ];
-            let why = match self.write(pr, "refresh-begin", args, None, None) {
+            let mark = tehas_ports::ChangeNo::new(pr).zip((self.mark_of)(word));
+            let wrote = match (self.looked_1x(pr, "change-mark", &args, None), mark) {
+                (Some(wrote), _) => wrote,
+                (None, Some((no, mark))) => self.send(pr, &Write::MarkChange { no, mark }),
+                (None, None) => Wrote::Failed(format!(": {word} is no mark this poll knows")),
+            };
+            let why = match wrote {
                 Wrote::Done(_) => None,
                 Wrote::Failed(why) | Wrote::Unknown(why) => Some(why),
                 Wrote::Unrecorded => {
@@ -816,46 +704,15 @@ impl Writer {
         }
         self.analytics(&event, log);
         // A1: the issue is marked as taken before anything starts; a mark
-        // that fails leaves it in its queue for the next poll. A mark GitHub
-        // did not answer is read back: one that was made is not undone.
-        let mut args: Vec<String> = vec![
-            "issue".into(),
-            "edit".into(),
-            n.to_string(),
-            "--repo".into(),
-            self.repo.clone(),
-            "--add-label".into(),
-            "tehas:running".into(),
-        ];
+        // that fails leaves it in its queue for the next poll. The claim is
+        // parts, one write each (B5): the running mark first, then each word
+        // it takes the place of off, then the owner assigned. A stop between
+        // two parts leaves the issue held, never startable twice, and the
+        // next poll's settle reads what landed.
         let removed = super::strings(a, "remove");
-        for l in &removed {
-            args.extend(["--remove-label".into(), l.clone()]);
-        }
-        // #806: the owner is assigned in the same call, so GitHub shows the
-        // issue as taken. A refresh's issue was assigned when it was first
-        // claimed. An assign GitHub refuses fails the whole edit, so the mark
-        // is made again without it: the claim never fails on the assign.
         let owner = self.host.owner.clone();
         let assign = !owner.is_empty() && refresh_pr.is_none();
-        let mut wrote = if assign {
-            let mut with = args.clone();
-            with.extend(["--add-assignee".into(), owner.clone()]);
-            self.write(n, "label-add", with, None, None)
-        } else {
-            self.write(n, "label-add", args.clone(), None, None)
-        };
-        if assign && matches!(wrote, Wrote::Failed(_)) {
-            log.push(format!(
-                "WARN: could not assign #{n} to {owner}, marking it running without an assignee"
-            ));
-            wrote = self.write(n, "label-add", args, None, None);
-        }
-        if matches!(wrote, Wrote::Unknown(_)) && self.marked_now(n, &removed) {
-            log.push(format!(
-                "#{n} is marked tehas:running: the mark GitHub did not answer was made"
-            ));
-            wrote = Wrote::Done(String::new());
-        }
+        let wrote = self.claim_mark(n, &removed, assign.then_some(owner.as_str()), log);
         match wrote {
             Wrote::Done(_) => {}
             other => {
@@ -872,6 +729,12 @@ impl Writer {
         }
         *marked = true;
         self.starts += 1;
+        if let (Wrote::Done(ref out), Some(key)) = (&wrote, super::ticket(n)) {
+            // A claim a poll before T4.7 made whole is done whole.
+            if out != CLAIMED_1X {
+                self.claim_rest(n, &key, &removed, assign, log);
+            }
+        }
         // A record starts one cycle, and any start of the issue spends it.
         self.plan_start_drop(n);
         if park_now {
@@ -900,10 +763,9 @@ impl Writer {
             .and_then(Value::as_str)
             .unwrap_or("");
         if refresh_pr.is_some() {
-            let _ = std::fs::remove_file(self.home.join(format!("state/refresh/{n}.json")));
+            let _ = std::fs::remove_file(Home::new(&self.home).refresh_request(n));
             let url = text(a, "refresh_url");
             let said = format!("Tehas refresh started on `{host}` at {when} UTC: {url} conflicts with `{branch}`. This cycle merges that branch into it, resolves the conflicts and pushes to the same pull request. It rests on {whose} {how}. This issue is owned by the cycle until `tehas:running` is removed.");
-            let said = self.stamped(n, recorded, said, log);
             self.say(n, &said, log);
         } else {
             let left = if left_out.is_empty() {
@@ -913,7 +775,6 @@ impl Writer {
                 format!(" The comments of {} are left out: their permission on the repository could not be read.", names.join(", "))
             };
             let said = format!("Tehas cycle started on `{host}` at {when} UTC (authorized by {whose} {how}). This issue is owned by the cycle until `tehas:running` is removed.{left}");
-            let said = self.stamped(n, recorded, said, log);
             self.say(n, &said, log);
         }
         if let Some(say) = self.say_now {
@@ -936,19 +797,15 @@ impl Writer {
             ));
         }
         log.push(format!("ERROR: the cycle for #{n} did not start: {why}"));
-        let args = vec![
-            "issue".into(),
-            "edit".into(),
-            n.to_string(),
-            "--repo".into(),
-            self.repo.clone(),
-            "--remove-label".into(),
-            "tehas:running".into(),
-            "--add-label".into(),
-            "needs-human-attention".into(),
-        ];
-        if !matches!(self.write(n, "label-add", args, None, None), Wrote::Done(_)) {
-            log.push(format!("WARN: label change on #{n} failed"));
+        // The person's mark goes on before the running one comes off, so a
+        // stop between leaves the issue held.
+        let fail = format!("WARN: label change on #{n} failed");
+        let relabelled = super::ticket(n).is_some_and(|key| {
+            self.mark_part(n, &key, "needs-human-attention", true, &fail, log)
+                && self.mark_part(n, &key, "tehas:running", false, &fail, log)
+        });
+        if !relabelled && super::ticket(n).is_none() {
+            log.push(fail);
         }
         // The restore above took the host's approval too, and no label asked.
         let retry = if given == crate::decide::HOST {
@@ -958,132 +815,6 @@ impl Writer {
         };
         self.say(n, &format!("Tehas could not start the cycle for this issue on `{host}`: `tehas-cycle@{n}.service` did not come up: {why}. See `journalctl --user -u tehas-cycle@{n}` and `~/tehas/logs/dispatch.log` there. To retry, {retry}."), log);
         Then::Failed
-    }
-
-    /// The start comment with the line of who builds the cycle, where
-    /// outsource is on: the contractor of the issue's job open since the
-    /// approval at `since`, or in-house. Placement gives the job out before
-    /// this comment, so the comment names the hand that holds it; a job of an
-    /// earlier attempt, lost or ended, is not this start's. A store that
-    /// cannot say leaves the comment as it was rather than guess.
-    fn stamped(&mut self, n: u64, since: i64, said: String, log: &mut Vec<String>) -> String {
-        if !self.host.outsource {
-            return said;
-        }
-        let (issue, since) = (n.to_string(), since.to_string());
-        match self.store_try(
-            3,
-            &["job-stamp", "--issue", &issue, "--since", &since, "--open"],
-        ) {
-            Ok(v) => format!(
-                "{said}\n\n{}",
-                tehas_core::stamp::Built::of_answer(&v).line()
-            ),
-            Err(f) => {
-                log.push(format!(
-                    "WARN: #{n}: the store did not say who builds it ({}): its start comment carries no stamp",
-                    word(&f)
-                ));
-                said
-            }
-        }
-    }
-
-    /// spec_holds: with the spec-pipe feature on, a start whose body marks a
-    /// spec fetches it, pinned to the sha256 the `Spec:` line names, before
-    /// anything of the start is changed. None when its bytes are the ones
-    /// named: the approval then keeps the pin. A spec of other bytes, a link
-    /// GitHub refuses or a line tehas cannot read starts nothing, and what
-    /// asked for the start is used up, so the next poll does not pick it
-    /// again: the labels that asked come off, the host's approval comes off
-    /// the record, an outage's retry is spent and a refresh request dropped.
-    /// The issue is told why, except for a start of the host's, which is
-    /// logged. A fetch that may work later ends the poll with 1 and changes
-    /// nothing.
-    fn spec_holds(
-        &mut self,
-        n: u64,
-        a: &Value,
-        spec: &Value,
-        log: &mut Vec<String>,
-    ) -> Option<Then> {
-        let given = text(a, "given").to_string();
-        let why = match spec.get("why").and_then(Value::as_str) {
-            Some(why) => why.to_string(),
-            None => {
-                let Some(file) = self.scratch("spec") else {
-                    log.push(format!(
-                        "ERROR: #{n}: no file in $TEHAS_HOME/tmp to fetch its spec into, not starting a cycle"
-                    ));
-                    return Some(Then::Failed);
-                };
-                let pin = attach::fetch::Pin {
-                    link: text(spec, "link"),
-                    sha256: text(spec, "sha256"),
-                    most: crate::text::SPEC_MOST,
-                };
-                let token = self.calls.gh_token.clone().unwrap_or_default();
-                let got = attach::fetch::fetch_pinned(&pin, &file, &token);
-                let _ = std::fs::remove_file(&file);
-                let unpinned = match got {
-                    Ok(_) => return None,
-                    Err(u) => u,
-                };
-                match crate::text::spec_unpinned(&unpinned) {
-                    Some(why) => why,
-                    None => {
-                        let said = match unpinned {
-                            attach::fetch::Unpinned::Fetch(f) if f.http > 0 => {
-                                format!("curl exited {}, HTTP {}", f.code, f.http)
-                            }
-                            attach::fetch::Unpinned::Fetch(f) => format!("curl exited {}", f.code),
-                            attach::fetch::Unpinned::Unreadable(e) => e,
-                            attach::fetch::Unpinned::Other(sum) => sum,
-                        };
-                        log.push(format!(
-                            "ERROR: the spec of #{n} could not be fetched ({said}), not starting a cycle"
-                        ));
-                        return Some(Then::Failed);
-                    }
-                }
-            }
-        };
-        log.push(format!("skip #{n}: {why}"));
-        match given.as_str() {
-            crate::decide::HOST => {
-                let at = text(a, "at");
-                if let Some(t) = epoch(at) {
-                    if self.restore(n, t, log) {
-                        log.push(format!("the host's approval of #{n} of {at} is off the record: run `tehas start {n}` again once its `{}` line is right", tehas_core::grammar::SPEC_MARK));
-                    }
-                }
-            }
-            "outage-retry" => {
-                self.park_retry(n, &json!({"how": "outage"}), log);
-            }
-            "refresh" => self.refresh_drop(n, log),
-            _ => {}
-        }
-        let off = super::strings(spec, "off");
-        if off.is_empty() && given == crate::decide::HOST {
-            return Some(Then::Skipped);
-        }
-        let names: Vec<&str> = off.iter().map(String::as_str).collect();
-        let fail = format!(
-            "WARN: label change on #{n} failed: {}",
-            names
-                .iter()
-                .map(|l| format!("--remove-label {l}"))
-                .collect::<Vec<_>>()
-                .join(" ")
-        );
-        let say = crate::text::spec_refused_said(&off, &why);
-        if off.is_empty() {
-            self.say(n, &say, log);
-        } else {
-            self.label(n, &json!({"remove": off, "fail": fail, "say": say}), log);
-        }
-        Some(Then::Skipped)
     }
 
     /// approved_record: the approval on record with its inputs. Its time,
@@ -1105,53 +836,17 @@ impl Writer {
         let given_at = text(a, "at").to_string();
         let mut input = Map::new();
         input.insert("links".into(), a.get("links").cloned().unwrap_or(json!([])));
-        for k in ["driver", "contractor"] {
-            if let Some(v) = a.get(k) {
-                input.insert(k.into(), v.clone());
-            }
-        }
-        // The pin spec_holds fetched the spec's bytes to.
-        if let Some(s) = a.get("spec").filter(|s| s.get("sha256").is_some()) {
-            input.insert(
-                "spec".into(),
-                json!({"link": s["link"], "sha256": s["sha256"]}),
-            );
+        if let Some(v) = a.get("driver") {
+            input.insert("driver".into(), v.clone());
         }
         let mut retry = Value::Null;
-        let mut from: Vec<Value> = Vec::new();
         let alone = issue_alone(a, log, n);
-        // The comment policy of the links, derived once: the host fetches what
-        // comments link, and the tick of the issue text only asks for none of
-        // them, so its record reads as the one of an instance with comments off.
-        let comments = self.host.comments && !alone;
-        let mut list = None;
-        if comments {
-            let Some(l) = self.comments(n) else {
-                log.push(format!("ERROR: the comments of #{n} could not be read"));
-                return Err(none());
-            };
-            let allowed = self.host.allowed.clone();
-            let who = |l: &str| allowed.iter().any(|x| x == l);
-            let Some(w) = window(&l, "", &given_at, &who) else {
-                log.push(format!("ERROR: the comments of #{n} could not be read"));
-                return Err(none());
-            };
-            from = comment_links(&w, "comment");
-            list = Some(l);
-        }
         // The tick of the comments retry is its own opt-in: what allowed
-        // accounts wrote up to it goes on the record whatever
-        // TEHAS_WORK_COMMENTS says.
-        if given == "retry-tick" && !alone {
-            let list = match list.take() {
-                Some(l) => l,
-                None => match self.comments(n) {
-                    Some(l) => l,
-                    None => {
-                        log.push(format!("ERROR: the comments of #{n} could not be read"));
-                        return Err(none());
-                    }
-                },
+        // accounts wrote up to it goes on the record.
+        if matches!(given.as_str(), "answer" | "reply") && !alone {
+            let Some(list) = self.comments(n) else {
+                log.push(format!("ERROR: the comments of #{n} could not be read"));
+                return Err(none());
             };
             let Some(r) = self.retry_comments(n, &list, &given_at, log) else {
                 log.push(format!(
@@ -1170,37 +865,14 @@ impl Writer {
         }
         // A start of the issue text only names no comment of an issue or a
         // pull request, so nothing of the earlier cycle goes with it: the note
-        // of the fixer or of a refresh stays out of its record whatever asks.
-        if !alone {
-            if let Some(note) = a.get("park_lifted").filter(|_| given == "millwright") {
-                retry = json!({"links": [], "context": [note]});
-            } else if given == "millwright" {
-                let Some(r) = self.fixer_note(n, &given_at) else {
-                    log.push(format!(
-                        "ERROR: the comments of #{n} could not be read for the fixer's"
-                    ));
-                    return Err(none());
-                };
-                retry = r;
-            }
-            if given == "refresh" {
-                let b = a
-                    .pointer("/refresh_of/branch")
-                    .and_then(Value::as_str)
-                    .unwrap_or("");
-                retry = json!({"links": [], "context": [{"source": "refresh", "by": "tehas", "at": iso(tehas_core::time::now() as u64),
-                    "text": format!("This pull request conflicts with `{b}`. Merge `{b}` into its branch, resolve the conflicts so the change still does what the issue asks, run the gate in `.pi/verify-cmd`, and push to the same branch. Do no other work.")}]});
-            }
-        }
-        if comments {
-            from.extend(
-                retry
-                    .get("links")
-                    .and_then(Value::as_array)
-                    .cloned()
-                    .unwrap_or_default(),
-            );
-            input.insert("comment_links".into(), Value::Array(from));
+        // of a refresh stays out of its record whatever asks.
+        if !alone && given == "refresh" {
+            let b = a
+                .pointer("/refresh_of/branch")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            retry = json!({"context": [{"source": "refresh", "by": "tehas", "at": iso(tehas_core::time::now() as u64),
+                "text": format!("This pull request conflicts with `{b}`. Merge `{b}` into its branch, resolve the conflicts so the change still does what the issue asks, run the gate in `.pi/verify-cmd`, and push to the same branch. Do no other work.")}]});
         }
         if retry
             .get("context")
@@ -1214,11 +886,6 @@ impl Writer {
                 "refresh_of".into(),
                 a.get("refresh_of").cloned().unwrap_or(Value::Null),
             );
-        }
-        // Why a park's hold let this start through. `rests_on` keeps naming
-        // the person's approval (#1130).
-        if let Some(note) = a.get("park_lifted") {
-            input.insert("park_lifted".into(), note.clone());
         }
         let at = match given.as_str() {
             "refresh" | "outage-retry" => None,
@@ -1245,7 +912,7 @@ impl Writer {
             "--input-file".into(),
             f,
         ];
-        if matches!(given.as_str(), "label" | "millwright") {
+        if given == "approved" {
             let label = a
                 .get("approved_label")
                 .and_then(Value::as_str)
@@ -1348,7 +1015,8 @@ impl Writer {
     /// review comments - written at or before the tick `at` and not edited
     /// after it, by an account of TEHAS_ALLOWED_LABELERS that may write to the
     /// repository at the tick. The bot's own comments are left out. `links`
-    /// are those of the pull requests' conversation comments; `left_out` the
+    /// are those of the pull requests' conversation comments, which no record
+    /// names in 2.0; `left_out` the
     /// authors whose permission could not be read, said in the log here. None
     /// when a list could not be read.
     fn retry_comments(
@@ -1396,11 +1064,8 @@ impl Writer {
         }
         mine.sort_unstable();
         mine.dedup();
-        let mut said = Vec::new();
         for pr in mine {
-            let talk = window(&self.comments(pr)?, "", at, &who)?;
-            said.extend(talk.iter().cloned());
-            for c in talk {
+            for c in window(&self.comments(pr)?, "", at, &who)? {
                 items.push(item(&c, "pr-comment", Some(pr)));
             }
             let path = format!("repos/{repo}/pulls/{pr}/reviews?per_page=100");
@@ -1467,42 +1132,7 @@ impl Writer {
         if dropped > 0 {
             log.push(format!("WARN: #{n}: {dropped} older comments are left out of the retry's record, which holds {RECORD_TEXT} bytes of their text"));
         }
-        let said: Vec<Value> = said
-            .into_iter()
-            .filter(|c| {
-                c.pointer("/user/login")
-                    .and_then(Value::as_str)
-                    .is_some_and(|b| keep.iter().any(|k| k == b))
-            })
-            .collect();
-        Some(
-            json!({"links": comment_links(&said, "pr-comment"), "context": given, "left_out": left_out}),
-        )
-    }
-
-    /// fixer_note: the millwright's comment behind its tehas:ready, written
-    /// in the ten minutes before the label and edited by nobody after it.
-    fn fixer_note(&mut self, n: u64, at: &str) -> Option<Value> {
-        let list = self.comments(n)?;
-        let since = iso(u64::try_from(epoch(at)? - 600).ok()?);
-        let marker = regex::Regex::new(&format!(
-            "<!-- tehas:millwright issue={n} action=(retry|change) -->"
-        ))
-        .ok()?;
-        let fixer = self.host.millwright.clone();
-        let who = |l: &str| !fixer.is_empty() && account(l) == fixer;
-        let w = window(&list, &since, at, &who)?;
-        let last: Vec<Value> = w
-            .iter()
-            .rfind(|c| {
-                c.get("body")
-                    .and_then(Value::as_str)
-                    .is_some_and(|b| marker.is_match(b))
-            })
-            .map(|c| context(c, "millwright"))
-            .into_iter()
-            .collect();
-        Some(json!({"links": [], "context": last}))
+        Some(json!({"context": given, "left_out": left_out}))
     }
 
     /// park_unask: the question of the issue's park off the record. Whether
@@ -1559,7 +1189,10 @@ impl Writer {
                 "park",
             ],
         ) {
-            Ok(_) => true,
+            Ok(v) => {
+                self.raise_asked(n, &v.to_string(), log);
+                true
+            }
             Err(f) => {
                 log.push(format!(
                     "WARN: could not put the park question of #{n} back on the record ({}): its boxes start nothing now",
@@ -1585,21 +1218,98 @@ impl Writer {
         self.restore(n, recorded, log);
     }
 
-    /// Whether GitHub says issue `n` carries `tehas:running` and none of
-    /// `removed` now. A read that fails says no.
-    fn marked_now(&mut self, n: u64, removed: &[String]) -> bool {
-        let path = format!("repos/{}/issues/{n}", self.repo);
-        let Ok(v) = self.calls.gh(&["api", &path]) else {
+    /// The claim's running mark, as a write of the tickets port. A 1.x
+    /// claim this poll's settle read gates it: one done is the whole claim
+    /// done (`CLAIMED_1X`). A mark the site did not answer is read back by
+    /// its settle rule: one that landed is not undone.
+    fn claim_mark(
+        &mut self,
+        n: u64,
+        removed: &[String],
+        owner: Option<&str>,
+        log: &mut Vec<String>,
+    ) -> Wrote {
+        let mut args: Vec<String> = ["issue", "edit", &n.to_string(), "--repo", &self.repo]
+            .map(str::to_string)
+            .to_vec();
+        args.extend(["--add-label".into(), "tehas:running".into()]);
+        for l in removed {
+            args.extend(["--remove-label".into(), l.clone()]);
+        }
+        let mut with = args.clone();
+        if let Some(owner) = owner {
+            with.extend(["--add-assignee".into(), owner.to_string()]);
+        }
+        for args in [with, args] {
+            match self.looked_1x(n, "label-add", &args, None) {
+                Some(Wrote::Done(_)) => return Wrote::Done(CLAIMED_1X.into()),
+                Some(wrote) => return wrote,
+                None => {}
+            }
+        }
+        let (Some(key), Some(mark)) = (super::ticket(n), (self.mark_of)("tehas:running")) else {
+            return Wrote::Failed(String::new());
+        };
+        let write = Write::Mark { ticket: key, mark };
+        match self.send(n, &write) {
+            Wrote::Unknown(_) if self.landed(&write) => {
+                log.push(format!(
+                    "#{n} is marked tehas:running: the mark GitHub did not answer was made"
+                ));
+                Wrote::Done(String::new())
+            }
+            wrote => wrote,
+        }
+    }
+
+    /// The claim after its running mark: each word it takes the place of
+    /// off, then the owner assigned. Neither undoes the claim: a part that
+    /// fails is said, and the next poll's settle and rules see to it.
+    fn claim_rest(
+        &mut self,
+        n: u64,
+        key: &TicketKey,
+        removed: &[String],
+        assign: bool,
+        log: &mut Vec<String>,
+    ) {
+        for word in removed {
+            let fail = format!("WARN: label change on #{n} failed: --remove-label {word}");
+            if !self.mark_part(n, key, word, false, &fail, log) {
+                break;
+            }
+        }
+        let who = match (assign, self.assignee.clone()) {
+            (true, Some(who)) => who,
+            _ => return,
+        };
+        let owner = self.host.owner.clone();
+        match self.send(
+            n,
+            &Write::Assign {
+                ticket: key.clone(),
+                who,
+            },
+        ) {
+            Wrote::Done(_) => {}
+            Wrote::Failed(_) => log.push(format!(
+                "WARN: could not assign #{n} to {owner}, marking it running without an assignee"
+            )),
+            Wrote::Unknown(why) => log.push(Writer::unknown(n, "assignee", &why)),
+            Wrote::Unrecorded => log.push(Writer::unrecorded(n)),
+        }
+    }
+
+    /// Whether a write the site did not answer is there, by the settle rule
+    /// of its kind read through the ports now. False when no read can tell.
+    fn landed(&mut self, write: &Write) -> bool {
+        use tehas_core::journal::{settle, Found};
+        let Some(h) = self.ports.as_mut() else {
             return false;
         };
-        let have: Vec<&str> = v
-            .get("labels")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(|l| l.get("name").and_then(Value::as_str))
-            .collect();
-        have.contains(&"tehas:running") && !removed.iter().any(|l| have.contains(&l.as_str()))
+        let since = tehas_ports::At::new(tehas_core::time::now() - 60);
+        let bound = tehas_ports::Bound::new(100).expect("100 is a bound");
+        settle::read(write, h, since, bound) == Some(Found::Landed)
     }
 
     /// restore_record: the approval this poll recorded, off the record again.
@@ -1681,7 +1391,7 @@ impl Writer {
             }
             std::thread::sleep(Duration::from_millis(500));
         }
-        if held(&self.home.join(format!("state/cycles/{n}.lock"))) {
+        if held(&Home::new(&self.home).cycle_note(n, "lock")) {
             log.push(format!(
                 "WARN: the cycle for #{n} holds its lock but did not say so in {wait}s; taking it as started"
             ));
@@ -1726,43 +1436,5 @@ impl Writer {
                 rc.unwrap_or(124)
             ));
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const AT: &str = "2026-11-10T10:00:00Z";
-
-    /// The poll's GraphQL read of one comment.
-    fn comment(by: &str, body: &str) -> Value {
-        json!({"databaseId": 5, "author": {"login": by}, "body": body,
-            "createdAt": "2026-11-10T09:59:00Z", "lastEditedAt": null})
-    }
-
-    fn list(by: &str, body: &str) -> Value {
-        json!({"data": {"repository": {"issue": {"comments": {"nodes": [comment(by, body)]}}}}})
-    }
-
-    const CHANGE: &str = "<!-- tehas:millwright issue=5 action=change -->\nTry the other branch.";
-
-    /// The millwright is the factory's own app account, so a marker the bot
-    /// wrote lifts a hold, and one another account wrote does not.
-    #[test]
-    fn a_bot_marker_lifts_a_hold() {
-        let lifted = change_note(&list("acme-factory", CHANGE), 5, "acme-factory", AT);
-        let note = lifted.expect("the read is an answer").expect("a note");
-        assert!(note["text"].as_str().unwrap().contains("action=change"));
-        // REST names the same app `<slug>[bot]`: one account.
-        let rest = json!([{"id": 5, "user": {"login": "acme-factory[bot]"}, "body": CHANGE,
-            "created_at": "2026-11-10T09:59:00Z", "updated_at": "2026-11-10T09:59:00Z"}]);
-        assert!(change_note(&rest, 5, "acme-factory", AT).unwrap().is_some());
-        // Another account's marker lifts nothing, and a retry marker is no change.
-        let other = change_note(&list("mallory", CHANGE), 5, "acme-factory", AT);
-        assert_eq!(other, Some(None));
-        let retry = CHANGE.replace("action=change", "action=retry");
-        let retried = change_note(&list("acme-factory", &retry), 5, "acme-factory", AT);
-        assert_eq!(retried, Some(None));
     }
 }

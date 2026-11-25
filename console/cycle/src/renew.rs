@@ -62,7 +62,7 @@ pub fn every(setting: &str) -> u64 {
 
 /// When the next ask is made after one that ended `ok`: the whole of `every`
 /// seconds after a success, `retry` after a failure.
-pub fn next_wait(ok: bool, every: u64, retry: u64) -> u64 {
+fn next_wait(ok: bool, every: u64, retry: u64) -> u64 {
     if ok {
         every
     } else {
@@ -170,7 +170,7 @@ fn renew_bounded(
 
 /// Stands still for `seconds` of the clock, a step at a time, and ends at
 /// once when `stop` is set. A wait of nothing asks nothing of the clock.
-fn stand_still(seconds: u64, stop: &AtomicBool, now: Now) {
+pub fn stand_still(seconds: u64, stop: &AtomicBool, now: Now) {
     if seconds == 0 {
         return;
     }

@@ -6,6 +6,7 @@ use std::net::TcpStream;
 use std::path::Path;
 use std::process::{Child, ChildStderr, Command, Stdio};
 use std::time::Duration;
+use tehas_core::home::Home;
 use tehas_core::testdir::TestDir;
 use tehas_core::time::iso;
 
@@ -25,6 +26,31 @@ fn fixture(name: &str) -> String {
 
 fn run_once(keys: Option<&str>, args: &[&str]) -> (i32, String) {
     run_once_with(keys, None, args)
+}
+
+/// Outsource was dropped in 2.0: the server has no `--outsource` to start
+/// with, and says so by name.
+#[test]
+fn the_outsource_flag_is_an_unknown_argument() {
+    let (rc, err) = run_once(
+        Some(K1),
+        &[
+            "--live",
+            "/x",
+            "--sessions",
+            "/s",
+            "--logs",
+            "/l",
+            "--listen",
+            "127.0.0.1:0",
+            "--server-version",
+            "v1",
+            "--outsource",
+        ],
+    );
+    assert_eq!(rc, 78, "{err}");
+    assert!(err.contains("unknown argument --outsource"), "{err}");
+    assert!(!err.contains("[--outsource]"), "{err}");
 }
 
 /// The binary with the two key settings: `keys` for TEHAS_MCP_KEYS and
@@ -1029,7 +1055,11 @@ fn served_transcript(name: &str, extra: &[&str]) -> String {
 
 fn served_text(name: &str, text: &str, extra: &[&str], set: Option<(&str, &str)>) -> String {
     let root = TestDir::new(&format!("mcp-serve-{name}"));
-    let (live, snap, logs) = (root.join("live"), root.join("mcp"), root.join("logs"));
+    let (live, snap, logs) = (
+        Home::new(&*root).live_dir(),
+        root.join("mcp"),
+        root.join("logs"),
+    );
     for d in [&live, &snap, &logs] {
         std::fs::create_dir_all(d).unwrap();
     }
@@ -1145,7 +1175,11 @@ fn served_park(name: &str, extra: &[&str], issue: u64) -> Value {
 
 fn served_park_of(name: &str, extra: &[&str], issue: u64, result: Option<&str>) -> Value {
     let root = TestDir::new(&format!("mcp-serve-park-{name}"));
-    let (live, snap, logs) = (root.join("live"), root.join("mcp"), root.join("logs"));
+    let (live, snap, logs) = (
+        Home::new(&*root).live_dir(),
+        root.join("mcp"),
+        root.join("logs"),
+    );
     for d in [&live, &snap, &logs] {
         std::fs::create_dir_all(d).unwrap();
     }
@@ -1257,7 +1291,11 @@ fn private_needs_a_name() {
 // fixtures/images, each started a minute apart before now.
 fn served_images(tool: &str, args: Value) -> Value {
     let root = TestDir::new(&format!("mcp-serve-images-{tool}"));
-    let (live, snap, logs) = (root.join("live"), root.join("mcp"), root.join("logs"));
+    let (live, snap, logs) = (
+        Home::new(&*root).live_dir(),
+        root.join("mcp"),
+        root.join("logs"),
+    );
     for d in [&live, &snap, &logs] {
         std::fs::create_dir_all(d).unwrap();
     }
@@ -1334,7 +1372,11 @@ fn served_sessions_name_their_image_and_failures_split_by_it() {
 #[test]
 fn served_decisions_mask_the_private_names_given() {
     let root = TestDir::new("mcp-serve-decisions");
-    let (live, snap, logs) = (root.join("live"), root.join("mcp"), root.join("logs"));
+    let (live, snap, logs) = (
+        Home::new(&*root).live_dir(),
+        root.join("mcp"),
+        root.join("logs"),
+    );
     for d in [&live, &snap, &logs] {
         std::fs::create_dir_all(d).unwrap();
     }
@@ -1375,77 +1417,6 @@ fn served_decisions_mask_the_private_names_given() {
         "[private name]:8086 does not answer",
         "{v}"
     );
-}
-
-// factory_contractors is served only by a server started with --outsource,
-// which `tehasbot mcp serve` passes while outsource is on: then to a full key
-// and to a dashboard key alike, and without it to neither.
-#[test]
-fn the_contractors_tool_is_served_only_with_outsource_on() {
-    let root = TestDir::new("mcp-serve-contractors");
-    let live = root.join("live");
-    std::fs::create_dir_all(&live).unwrap();
-    for e in std::fs::read_dir(fixture("live")).unwrap() {
-        let e = e.unwrap();
-        std::fs::copy(e.path(), live.join(e.file_name())).unwrap();
-    }
-    std::fs::write(
-        live.join("contractors.json"),
-        format!(
-            r#"{{"api":1,"time":"{}","counts":{{"idle":0,"working":1,"stopping":0,"silent":0,"resting":0,"draining":0,"revoked":0,"outsourced":1}},"contractors":[{{"name":"box1","status":"working","issue":12,"jobsDone":2,"jobsLost":0}}]}}"#,
-            iso(tehas_core::time::now())
-        ),
-    )
-    .unwrap();
-    let d = "qwertyuiopasdfghjklzxcvbnm012345";
-    let legacy = [("MCP-Protocol-Version", "2025-11-25")];
-    let list = br#"{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}"#;
-    let call = br#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"factory_contractors","arguments":{}}}"#;
-    let body = |out: &str| -> Value {
-        serde_json::from_str(out.split_once("\r\n\r\n").map_or("", |(_, b)| b)).unwrap()
-    };
-    let names = |v: &Value| -> Vec<String> {
-        v["result"]["tools"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|t| t["name"].as_str().unwrap().to_string())
-            .collect()
-    };
-    let path = live.display().to_string();
-    for (extra, on) in [(&["--outsource"][..], true), (&[][..], false)] {
-        let s = Server::start_env(
-            &path,
-            &fixture("sessions"),
-            &fixture("logs"),
-            extra,
-            K1,
-            Some(d),
-        );
-        for key in [K1, d] {
-            let auth = format!("Bearer {key}");
-            let (status, out) = s.post_with(Some(&auth), &legacy, list);
-            assert_eq!(status, 200, "{out}");
-            let listed = names(&body(&out));
-            assert_eq!(
-                listed.iter().any(|n| n == "factory_contractors"),
-                on,
-                "{listed:?}"
-            );
-            let (status, out) = s.post_with(Some(&auth), &legacy, call);
-            assert_eq!(status, 200, "{out}");
-            let v = body(&out);
-            if on {
-                let got = &v["result"]["structuredContent"];
-                assert_eq!(got["contractors"][0]["name"], "box1", "{v}");
-                assert_eq!(got["counts"]["outsourced"], 1, "{v}");
-                assert_eq!(got["stale"], false, "{v}");
-            } else {
-                assert!(v["error"].is_object(), "{v}");
-            }
-        }
-        s.stop();
-    }
 }
 
 // The git tools are served by a server started with --checkout, to a full key
@@ -1589,7 +1560,7 @@ fn a_handshake_asks_the_fetch_socket_for_a_fetch() {
             .unwrap()
             .success();
     assert!(ok);
-    let sock_dir = TestDir::new("mcp-serve-fetch-sock");
+    let sock_dir = TestDir::short();
     let socket = sock_dir.join("fetch.sock");
     let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
     let dir = repo.display().to_string();

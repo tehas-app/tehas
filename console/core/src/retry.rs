@@ -10,6 +10,7 @@
 //! before the retry is made.
 
 use crate::call::Ran;
+use tehas_ports::Sent;
 
 /// The clock a call is measured against: seconds on a host, and a reading of
 /// the case's own in its tests, so no case of the rule sleeps. The shape
@@ -48,7 +49,7 @@ const WAITS: [u64; 2] = [1, 2];
 /// three-digit run of gh's own says what a call got, so a body that merely
 /// carries `"502"` is no server failure and a malformed run is not read as
 /// one. Whether the number is a status at all is `class_of`'s question, not
-/// this one. The scan is the one `console/core/src/forge/gh.rs`'s `find_http`
+/// this one. The scan is the one `console/core/src/forge.rs`'s `find_http`
 /// makes and `read/run.rs`'s `gh_why` reports, and
 /// `status_agrees_with_what_the_poll_logs` pins the two reads against each
 /// other so the rule cannot drift from what the poll logs. Promoting the one
@@ -257,24 +258,100 @@ pub fn owed_a_retry(r: &Ran) -> bool {
 /// own, and wins over a 5xx on another line, as `owed_a_retry` reads it. A
 /// failure that says none of these is not GitHub's.
 pub fn githubs_fault(err: &str) -> bool {
-    let low = err.to_ascii_lowercase();
+    matches!(
+        fault_of(err),
+        Fault::Limit | Fault::Server | Fault::Slow | Fault::Down
+    )
+}
+
+/// The words of a call that took too long, and of one whose connection
+/// failed, as gh and git say them.
+const SLOW: [&str; 3] = ["timed out", "timeout", "time out"];
+const DOWN: [&str; 6] = [
+    "connection reset",
+    "connection refused",
+    "connection closed",
+    "could not resolve host",
+    "no such host",
+    "unexpected eof",
+];
+
+/// The kind of failure an error names, as the classes above read it: what
+/// the health check's fixed line is chosen by (`github_fails`). It decides
+/// no retry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Fault {
+    /// A rate limit, plain or secondary.
+    Limit,
+    /// A server's own failure.
+    Server,
+    /// A 4xx: GitHub would not do it.
+    Refused,
+    /// No answer in time.
+    Slow,
+    /// No connection, or one that broke.
+    Down,
+    /// An answer that could not be read.
+    Unread,
+    /// None of these.
+    Other,
+}
+
+/// The kind of failure `err` names, as gh or git said it. A status
+/// outranks the words.
+pub fn fault_of(err: &str) -> Fault {
     // git says its status as `The requested URL returned error: 502`.
-    let said = read_of(&low.replace("returned error: ", "http "));
-    match said.class {
-        Class::Limit | Class::Server => true,
-        Class::State | Class::Unknown403 => false,
-        Class::Nothing => [
-            "timed out",
-            "timeout",
-            "connection reset",
-            "connection refused",
-            "connection closed",
-            "could not resolve host",
-            "no such host",
-            "unexpected eof",
-        ]
-        .iter()
-        .any(|w| low.contains(w)),
+    let low = err
+        .to_ascii_lowercase()
+        .replace("returned error: ", "http ");
+    let has = |words: &[&str]| words.iter().any(|w| low.contains(w));
+    match read_of(&low).class {
+        Class::Limit => Fault::Limit,
+        Class::Server => Fault::Server,
+        Class::State | Class::Unknown403 => Fault::Refused,
+        Class::Nothing if has(&SLOW) => Fault::Slow,
+        Class::Nothing if has(&DOWN) => Fault::Down,
+        Class::Nothing if low.contains("could not be read") => Fault::Unread,
+        Class::Nothing => Fault::Other,
+    }
+}
+
+/// The ports' outcome of a failed gh or git call, from what it said, so the
+/// line a command prints is its own context and `Outcome::line()`, never gh's
+/// words (the ports spec, Decided 69, B7a). `sent` is whether a request that
+/// got no answer may have reached the site: `Sent::Maybe` for a write.
+pub fn outcome_of(err: &str, sent: Sent) -> tehas_ports::Outcome {
+    use tehas_ports::{At, Outcome, Passing, Pool, Refusal, Unread};
+    let low = err
+        .to_ascii_lowercase()
+        .replace("returned error: ", "http ");
+    let said = read_of(&low);
+    match (said.class, said.code) {
+        // When the budget is back is not read here; only the line is.
+        (Class::Limit, _) => Outcome::Spent {
+            pool: Pool::Unknown,
+            until: At::new(0),
+        },
+        (_, Some(401)) => Outcome::SignedOut,
+        (Class::Unknown403, _) => Outcome::Forbidden,
+        (_, Some(404 | 410)) => Outcome::NotFound,
+        (Class::State, _) => Outcome::Refused(Refusal::Unknown),
+        (Class::Server, _) => Outcome::Unavailable {
+            why: Passing::Server,
+            sent,
+        },
+        (Class::Nothing, _) => match fault_of(err) {
+            Fault::Slow => Outcome::Unavailable {
+                why: Passing::Timeout,
+                sent,
+            },
+            Fault::Down => Outcome::Unavailable {
+                why: Passing::Unreachable,
+                sent,
+            },
+            Fault::Unread => Outcome::Unread(Unread::Malformed),
+            _ => Outcome::Unread(Unread::Unknown),
+        },
     }
 }
 
@@ -466,6 +543,52 @@ pub fn retry_with(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // gh's own form of a status is read by `read_of`, whose cases are below;
+    // these give git's, which reads the same.
+    #[test]
+    fn a_failed_call_is_an_outcome_in_our_words() {
+        use tehas_ports::{Outcome, Passing, Refusal, Unread};
+        let status = |n: u32| format!("fatal: The requested URL returned error: {n}");
+        let read = |n| outcome_of(&status(n), Sent::No);
+        assert_eq!(read(401), Outcome::SignedOut);
+        assert_eq!(read(403), Outcome::Forbidden);
+        assert_eq!(read(404), Outcome::NotFound);
+        assert_eq!(read(422), Outcome::Refused(Refusal::Unknown));
+        assert!(matches!(read(429), Outcome::Spent { .. }));
+        assert!(matches!(
+            outcome_of("API rate limit exceeded for 203.0.113.5", Sent::No),
+            Outcome::Spent { .. }
+        ));
+        assert_eq!(
+            outcome_of(&status(502), Sent::Maybe),
+            Outcome::Unavailable {
+                why: Passing::Server,
+                sent: Sent::Maybe
+            }
+        );
+        assert_eq!(
+            outcome_of("Post \"https://api.example.test\": i/o timeout", Sent::No),
+            Outcome::Unavailable {
+                why: Passing::Timeout,
+                sent: Sent::No
+            }
+        );
+        let down = outcome_of("dial tcp: lookup api.example.test: no such host", Sent::No);
+        assert_eq!(
+            down,
+            Outcome::Unavailable {
+                why: Passing::Unreachable,
+                sent: Sent::No
+            }
+        );
+        assert!(!down.line().contains("example"));
+        assert_eq!(
+            outcome_of("something else", Sent::No),
+            Outcome::Unread(Unread::Unknown)
+        );
+        assert_eq!(outcome_of("", Sent::No), Outcome::Unread(Unread::Unknown));
+    }
 
     /// The clock every case is measured against: a fixed second, so none of
     /// them waits for anything.

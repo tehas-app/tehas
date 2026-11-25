@@ -55,6 +55,7 @@ use tehas_core::features::Tested;
 use tehas_core::github_fails;
 use tehas_core::grammar::an_end;
 use tehas_core::hold;
+use tehas_core::home::{Home, Live, State};
 use tehas_core::queue_lists;
 use tehas_core::time;
 
@@ -105,21 +106,27 @@ struct Given {
     test_features: Option<Tested>,
 }
 
-/// Where the run looks for the MCP server: `TEHAS_MCP` and `TEHAS_HOST_ADDR`
-/// as the settings gave them, and the port, which a case names for itself.
-struct Mcp {
+/// What the run reads of its environment, read once here so a case names its
+/// own and not the host's: where it looks for the MCP server (`TEHAS_MCP`,
+/// `TEHAS_HOST_ADDR` and the port), the manager's version and
+/// TEHAS_TEST_FEATURES.
+struct Settings {
     on: String,
     addr: String,
     port: u16,
+    manager: Option<String>,
+    tested: Option<Tested>,
 }
 
-impl Mcp {
-    fn of_settings() -> Self {
+impl Settings {
+    fn of_env() -> Self {
         let var = |name| env::var(name).unwrap_or_default();
         Self {
             on: var("TEHAS_MCP"),
             addr: var("TEHAS_HOST_ADDR"),
             port: crate::mcp::PORT,
+            manager: env::var("TEHAS_MANAGER_VERSION").ok(),
+            tested: tested(),
         }
     }
 }
@@ -308,7 +315,7 @@ fn publish_health(home: &Path, file: &Path, budget: Duration) -> Result<(), Refu
 /// left out rather than passed. Both say so with a WARN line: the units, the
 /// backup and the polls are the checks a run goes without, and a home that
 /// passes with three of them missing is a home whose store did not answer.
-fn checks(home: &Path, budget: &str, systemctl: &Path, mcp: &Mcp) -> Result<Given, u8> {
+fn checks(home: &Path, budget: &str, systemctl: &Path, settings: &Settings) -> Result<Given, u8> {
     // Each ask ends the run with the status of its refusal, which is the
     // status of the step and not of a later one.
     let ask = |step: Step, args: &[&str]| -> Result<Option<Value>, u8> {
@@ -356,7 +363,7 @@ fn checks(home: &Path, budget: &str, systemctl: &Path, mcp: &Mcp) -> Result<Give
     let poll_budget = over.as_ref().map(|_| budget.to_string());
     // systemd, bounded at 10 s; None leaves the units out of the file.
     let units = failed_units_of(systemctl);
-    let mcp = liveness(home, &mcp.on, &mcp.addr, mcp.port, MCP_BOUND);
+    let mcp = liveness(home, &settings.on, &settings.addr, settings.port, MCP_BOUND);
     Ok(Given {
         sessions: Some(sessions),
         units,
@@ -365,8 +372,8 @@ fn checks(home: &Path, budget: &str, systemctl: &Path, mcp: &Mcp) -> Result<Give
         poll_budget,
         poll_idle: idle.map(|v| v.to_string()),
         mcp: Some(mcp_check(&mcp).dump()),
-        manager: env::var("TEHAS_MANAGER_VERSION").ok(),
-        test_features: tested(),
+        manager: settings.manager.clone(),
+        test_features: settings.tested.clone(),
     })
 }
 
@@ -443,7 +450,7 @@ pub fn run(given: &[String]) -> u8 {
         Path::new(home),
         budget.unwrap_or_else(|| POLL_BUDGET.to_string()),
         Path::new("systemctl"),
-        &Mcp::of_settings(),
+        &Settings::of_env(),
     )
 }
 
@@ -462,7 +469,7 @@ pub fn loaded() -> u8 {
         Path::new(&home),
         budget,
         Path::new("systemctl"),
-        &Mcp::of_settings(),
+        &Settings::of_env(),
     )
 }
 
@@ -470,11 +477,11 @@ pub fn loaded() -> u8 {
 /// names a budget of its own does not reach over the environment of the
 /// process the tests of the workspace share. The units read is the read of
 /// systemd, which a case of the units names for itself.
-fn run_with(home: &Path, budget: String, systemctl: &Path, mcp: &Mcp) -> u8 {
+fn run_with(home: &Path, budget: String, systemctl: &Path, settings: &Settings) -> u8 {
     if !store::ready(home) {
         return not_installed();
     }
-    let given = match checks(home, &budget, systemctl, mcp) {
+    let given = match checks(home, &budget, systemctl, settings) {
         Ok(gathered) => gathered,
         Err(rc) => return rc,
     };
@@ -515,9 +522,9 @@ mod run_tests {
 
     struct Store {
         home: TestDir,
-        /// Where the run looks for the MCP server: off unless a case turns
-        /// it on.
-        mcp: Mcp,
+        /// The run's settings: the MCP server off unless a case turns it on,
+        /// and no manager or TEHAS_TEST_FEATURES whatever the host has.
+        settings: Settings,
     }
 
     impl Store {
@@ -554,10 +561,12 @@ mod run_tests {
             store::testing::plant(&home, &home.join("answers"));
             Store {
                 home,
-                mcp: Mcp {
+                settings: Settings {
                     on: String::new(),
                     addr: String::new(),
                     port: 0,
+                    manager: None,
+                    tested: None,
                 },
             }
         }
@@ -608,9 +617,9 @@ mod run_tests {
         /// A fresh queue snapshot and nothing else: the home a run of this
         /// build passes with.
         fn queue(&self) {
-            fs::create_dir_all(self.home.join("live")).unwrap();
+            fs::create_dir_all(Home::new(self.home.path()).live_dir()).unwrap();
             fs::write(
-                self.home.join("live/status.json"),
+                Home::new(self.home.path()).live(Live::Status),
                 format!(
                     "{{\"generatedAt\":\"{}\",\"queued\":[1,2],\"running\":[],\"awaiting\":[],\"stopped\":[]}}",
                     tehas_core::time::iso(time::now() - 5)
@@ -620,12 +629,12 @@ mod run_tests {
         }
 
         fn health(&self) -> Value {
-            let text = fs::read_to_string(self.home.join("live/health.json")).unwrap();
+            let text = fs::read_to_string(Home::new(self.home.path()).live(Live::Health)).unwrap();
             serde_json::from_str(&text).unwrap()
         }
 
         fn written(&self) -> bool {
-            self.home.join("live/health.json").exists()
+            Home::new(self.home.path()).live(Live::Health).exists()
         }
 
         /// The units read of a host whose systemd answers <text>. The case of
@@ -650,7 +659,7 @@ mod run_tests {
         fn run_with(&mut self, budget: &str) -> u8 {
             self.units("");
             let program = self.systemctl();
-            run_with(&self.home, budget.to_string(), &program, &self.mcp)
+            run_with(&self.home, budget.to_string(), &program, &self.settings)
         }
 
         /// The whole of `run` for a home whose settings named <budget> as its
@@ -673,7 +682,7 @@ mod run_tests {
                 &self.home,
                 POLL_BUDGET.to_string(),
                 &self.systemctl(),
-                &self.mcp,
+                &self.settings,
             )
         }
 
@@ -737,7 +746,7 @@ mod run_tests {
         let mut s = Store::new("no-db");
         s.queue();
         s.plain();
-        fs::remove_file(s.home.join("state/tehas.db")).unwrap();
+        fs::remove_file(Home::new(s.home.path()).state(State::StoreDb)).unwrap();
         assert_eq!(s.run(), 78);
         assert!(!s.written());
     }
@@ -854,10 +863,12 @@ mod run_tests {
             .local_addr()
             .unwrap()
             .port();
-        s.mcp = Mcp {
+        s.settings = Settings {
             on: "1".into(),
             addr: "127.0.0.1".into(),
             port,
+            manager: None,
+            tested: None,
         };
         assert_eq!(s.run(), 0);
         let h = s.health();
@@ -1019,7 +1030,7 @@ fn get_fields(v: &J, keys: &[&str]) -> Vec<(String, J)> {
 /// The free space of the host as tehasbot preview measured it, with the time
 /// of the measure.
 fn disk(live: &Path, now: i64) -> J {
-    let p = read(&live.join("previews.json")).unwrap_or(J::Null);
+    let p = read(&live.join(Live::Previews.name())).unwrap_or(J::Null);
     let fresh = age_of(p.get("generatedAt"), now).is_some_and(|a| a < DISK_MAX_AGE);
     match p.get("disk") {
         J::Obj(d) if fresh => {
@@ -1044,7 +1055,7 @@ fn set(o: &mut Vec<(String, J)>, key: &str, v: J) {
 /// is too old or the file is not one it wrote: a read that failed leaves the
 /// file as it was, so an old file says nothing about the issues now.
 fn epics(live: &Path, now: i64) -> J {
-    let e = read(&live.join("epics.json")).unwrap_or(J::Null);
+    let e = read(&live.join(Live::Epics.name())).unwrap_or(J::Null);
     let fresh = age_of(e.get("generatedAt"), now).is_some_and(|a| a < EPICS_MAX_AGE);
     match e.get("unlinked") {
         J::Arr(a) if fresh && a.iter().all(|n| matches!(n, J::Num(_))) => obj(vec![
@@ -1057,7 +1068,7 @@ fn epics(live: &Path, now: i64) -> J {
 
 /// The platform checkout against origin, as tehasbot status last read it.
 fn platform(live: &Path) -> J {
-    match read(&live.join("platform.json")) {
+    match read(&live.join(Live::Platform.name())) {
         Some(p @ J::Obj(_)) if matches!(p.get("behind"), J::Num(_)) => p,
         _ => J::Null,
     }
@@ -1067,7 +1078,7 @@ fn platform(live: &Path) -> J {
 /// its instance layer against the instance's sandbox.Dockerfile, as tehasbot
 /// status last read them (src/rukas.rs).
 fn rukas(live: &Path) -> J {
-    match read(&live.join("rukas.json")) {
+    match read(&live.join(Live::Rukas.name())) {
         Some(r @ J::Obj(_)) if matches!(r.get("behind"), J::Bool(_)) => J::Obj(get_fields(
             &r,
             &[
@@ -1138,14 +1149,14 @@ fn test_features(given: Option<&Tested>) -> Option<(J, String)> {
 }
 
 /// Where `tehas host-message` keeps the factory's messages.
-const HOST_MESSAGES_FILE: &str = "state/host-messages.json";
+const HOST_MESSAGES_FILE: &str = State::HostMessages.relative();
 
 /// `checks.hostMessages`, and the messages it lists: `{"list": [...]}`, empty
 /// with no file, and `{"list": null, "unreadable": true}` with None for a file
 /// that is not what `tehas host-message` writes.
 fn host_messages(home: &Path) -> (J, Option<Vec<host_message::Message>>) {
     let read = match tehas_core::file::read_regular(
-        &home.join(HOST_MESSAGES_FILE),
+        &Home::new(home).state(State::HostMessages),
         tehas_core::file::READ_BOUND,
     ) {
         Ok((bytes, _)) => String::from_utf8(bytes)
@@ -1202,7 +1213,7 @@ fn host_message_line(list: &[host_message::Message]) -> Option<String> {
 /// keys are tehas-core's: the dispatcher writes the file through `hold::Report`,
 /// so a key named here is a key that type declares.
 fn slice(live: &Path, now: i64) -> J {
-    let d = poll_file(&live.join("dispatch.json"));
+    let d = poll_file(&live.join(Live::Dispatch.name()));
     let young = age_of(d.get(hold::KEY_TIME), now).is_some_and(|a| a < POLL_MAX_AGE);
     if !matches!(d, J::Obj(_)) || d.get(hold::KEY_WHY).as_str().is_none() || !young {
         return J::Null;
@@ -1296,7 +1307,7 @@ fn all_held(slice: &J, queue: &J) -> Option<String> {
 
 /// The demand as the last poll left it, when that poll is young enough.
 fn demand(live: &Path, now: i64) -> J {
-    let d = snapshot(&live.join("demand.json"));
+    let d = snapshot(&live.join(Live::Demand.name()));
     let young = age_of(d.get("time"), now).is_some_and(|a| a < POLL_MAX_AGE);
     if !matches!(d, J::Obj(_)) || !matches!(d.get("waiting"), J::Num(_)) || !young {
         return J::Null;
@@ -1352,7 +1363,7 @@ fn held(lock: &Path) -> bool {
 /// other than 0 that the next poll will post. A session that is over is not in
 /// `plan-show --open`, and one whose turn finished or was cut off is left out.
 fn plans(home: &Path, sessions: &J) -> J {
-    let state = home.join("state");
+    let home = Home::new(home);
     let mut out = Vec::new();
     for s in sessions.get("sessions").items() {
         if !matches!(s.get("issue"), J::Num(_)) || !s.get("ended_at").is_null() {
@@ -1370,8 +1381,11 @@ fn plans(home: &Path, sessions: &J) -> J {
             t @ J::Num(_) => t.as_f64().unwrap_or(0.0),
             _ => 0.0,
         };
-        let lock = state.join(format!("plan-{n}.json.lock"));
-        let rc = state.join(format!("plan-{n}.json.rc"));
+        let Ok(issue) = n.parse::<u64>() else {
+            continue;
+        };
+        let lock = home.plan_file(issue, ".lock");
+        let rc = home.plan_file(issue, ".rc");
         let (turn, word) = if s.get("running").is_true() {
             match exit_status(&rc) {
                 Some(t) if t.trim_end_matches('\n') == "0" => continue,
@@ -1410,7 +1424,7 @@ fn exit_status(rc: &Path) -> Option<String> {
 /// The pause flag of this host: null with none, {at, reason} with one, and
 /// both null for a file that is no flag, which holds the factory all the same.
 fn pause_flag(home: &Path) -> J {
-    let r = holds::read_pause(&home.join("state/pause.json"));
+    let r = holds::read_pause(&Home::new(home).state(State::Pause));
     let field = |k: &str| r.json_of(k).and_then(J::parse);
     match r.state() {
         "none" => J::Null,
@@ -1505,6 +1519,14 @@ fn brief(c: &J) -> J {
     if matches!(c.get("stepSince"), J::Num(_)) {
         f.push(("stepSince", iso(c.get("stepSince"))));
     }
+    if matches!(c.get("attempt"), J::Num(_)) {
+        f.push(("attempt", c.get("attempt").clone()));
+    }
+    for k in ["how", "by"] {
+        if matches!(c.get(k), J::Str(_)) {
+            f.push((k, c.get(k).clone()));
+        }
+    }
     obj(f)
 }
 
@@ -1585,7 +1607,7 @@ fn budget_of(spec: &str, name: &str) -> Option<String> {
 /// The limit as `holds::read` reads it. A reading the page cannot parse is
 /// unreadable, as it is to every other reader, never nothing.
 fn limit(home: &Path, now: i64) -> J {
-    J::parse(&holds::read(&home.join("state/limit.json"), now).json())
+    J::parse(&holds::read(&Home::new(home).state(State::Limit), now).json())
         .unwrap_or_else(|| obj(vec![("state", J::Str("unreadable".to_string()))]))
 }
 
@@ -1652,13 +1674,13 @@ fn order(home: &Path) -> J {
 }
 
 fn report(home: &Path, g: &Given, now: i64) -> J {
-    let live = home.join("live");
-    let endings = match read(&live.join("endings.json")) {
+    let live = Home::new(home).live_dir();
+    let endings = match read(&live.join(Live::Endings.name())) {
         Some(e @ J::Arr(_)) => e,
         _ => J::Arr(vec![]),
     };
-    let queue = snapshot(&live.join("status.json"));
-    let view = snapshot(&live.join("running.json"));
+    let queue = snapshot(&live.join(Live::Status.name()));
+    let view = snapshot(&live.join(Live::Running.name()));
     let disk = disk(&live, now);
     let platform = platform(&live);
     let rukas = rukas(&live);
@@ -1715,7 +1737,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
     let mcp = g.mcp.as_deref().and_then(J::parse).unwrap_or(J::Null);
     let mcp_silent = mcp.get("on").is_true() && !mcp.get("answers").is_true();
     // The cleaner's record of its last upkeep, which is what makes the backup.
-    let upkeep = match read(&home.join("state/upkeep.json")) {
+    let upkeep = match read(&Home::new(home).state(State::Upkeep)) {
         Some(u) if matches!(u.get("ok"), J::Bool(_)) => obj(vec![
             ("time", iso(u.get("at"))),
             ("ok", u.get("ok").clone()),
@@ -2082,11 +2104,6 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
             &["time", "freeBytes", "minFreeBytes", "low"],
         ))
     };
-    let all_hands = if queue.is_null() || old_queue {
-        J::Null
-    } else {
-        queue.get("allHands").clone()
-    };
     let backup_check = if backup.is_null() {
         J::Null
     } else {
@@ -2107,7 +2124,6 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
         ("demand", demand),
         ("limit", limit),
         ("order", order),
-        ("allHands", all_hands),
         ("pause", pause),
         ("platform", platform),
         ("rukas", rukas),
@@ -2158,19 +2174,47 @@ mod tests {
     /// A home with a fresh queue snapshot and nothing else.
     fn home(name: &str) -> Home {
         let dir = TestDir::new(&format!("health-{name}"));
-        fs::create_dir_all(dir.join("live")).unwrap();
-        fs::create_dir_all(dir.join("state")).unwrap();
         let h = Home(dir);
+        fs::create_dir_all(h.at().live_dir()).unwrap();
+        fs::create_dir_all(h.at().state_dir()).unwrap();
         h.write(
-            "live/status.json",
-            r#"{"generatedAt":"2026-10-17T14:00:10Z","queued":[1,2],"running":[3],"awaiting":[],"stopped":[],"allHands":false}"#,
+            Live::Status,
+            r#"{"generatedAt":"2026-10-17T14:00:10Z","queued":[1,2],"running":[3],"awaiting":[],"stopped":[]}"#,
         );
         h
     }
 
+    /// A file of the layout a test writes: a name of `state/` or `live/`, or
+    /// a path Home gave.
+    trait Place {
+        fn under(self, h: &tehas_core::home::Home) -> PathBuf;
+    }
+
+    impl Place for Live {
+        fn under(self, h: &tehas_core::home::Home) -> PathBuf {
+            h.live(self)
+        }
+    }
+
+    impl Place for State {
+        fn under(self, h: &tehas_core::home::Home) -> PathBuf {
+            h.state(self)
+        }
+    }
+
+    impl Place for PathBuf {
+        fn under(self, _: &tehas_core::home::Home) -> PathBuf {
+            self
+        }
+    }
+
     impl Home {
-        fn write(&self, path: &str, text: &str) {
-            fs::write(self.0.join(path), text).unwrap();
+        fn at(&self) -> tehas_core::home::Home {
+            tehas_core::home::Home::new(self.0.path())
+        }
+
+        fn write(&self, at: impl Place, text: &str) {
+            fs::write(at.under(&self.at()), text).unwrap();
         }
 
         fn report(&self, g: &Given) -> J {
@@ -2213,9 +2257,9 @@ mod tests {
         ];
         let value = |text: &str| serde_json::from_str::<Value>(text).unwrap();
         for (file, want) in cases {
-            h.write("state/limit.json", file);
+            h.write(State::Limit, file);
             let want = value(want);
-            let console = value(&holds::read(&h.0.join("state/limit.json"), NOW).json());
+            let console = value(&holds::read(&h.at().state(State::Limit), NOW).json());
             let page = value(&h.report(&Given::default()).at(&["checks", "limit"]).dump());
             let dispatch = tehas_dispatch::read::host::limit(&h.0, NOW);
             assert_eq!(console, want, "console: {file}");
@@ -2233,7 +2277,6 @@ mod tests {
             r.get("checks").get("queue").dump(),
             r#"{"time":"2026-10-17T14:00:10Z","paused":false,"inLine":2,"building":1,"review":0,"stopped":0}"#
         );
-        assert_eq!(r.at(&["checks", "allHands"]).dump(), "false");
         assert_eq!(r.at(&["checks", "limit"]).dump(), r#"{"state":"none"}"#);
     }
 
@@ -2245,7 +2288,7 @@ mod tests {
                 r#"{{"generatedAt":"{at}","repo":"acme/widget","epics":[],"unlinked":{unlinked}}}"#
             )
         };
-        h.write("live/epics.json", &epics("2026-10-17T14:00:00Z", "[12,4]"));
+        h.write(Live::Epics, &epics("2026-10-17T14:00:00Z", "[12,4]"));
         let r = h.report(&Given::default());
         assert_eq!(
             said(&r),
@@ -2260,7 +2303,7 @@ mod tests {
             r#"{"time":"2026-10-17T14:00:00Z","unlinked":[12,4]}"#
         );
         h.write(
-            "live/epics.json",
+            Live::Epics,
             &epics("2026-10-17T14:00:00Z", "[9,8,7,6,5,4,3]"),
         );
         assert_eq!(
@@ -2269,7 +2312,7 @@ mod tests {
         );
         // None unlinked, a read too old to believe, a file of another shape and
         // no file at all: no warning, and the check is there only for the first.
-        h.write("live/epics.json", &epics("2026-10-17T14:00:00Z", "[]"));
+        h.write(Live::Epics, &epics("2026-10-17T14:00:00Z", "[]"));
         let r = h.report(&Given::default());
         assert_eq!(said(&r), ("pass".into(), "Idle, taking work.".into()));
         assert_eq!(r.at(&["checks", "epics", "unlinked"]).dump(), "[]");
@@ -2278,7 +2321,7 @@ mod tests {
             epics("2026-10-17T14:00:00Z", r#"["12"]"#),
             r#"{"epics":"before"}"#.to_string(),
         ] {
-            h.write("live/epics.json", &file);
+            h.write(Live::Epics, &file);
             let r = h.report(&Given::default());
             assert_eq!(
                 said(&r),
@@ -2287,14 +2330,14 @@ mod tests {
             );
             assert_eq!(r.at(&["checks", "epics"]), &J::Null, "{file}");
         }
-        fs::remove_file(h.0.join("live/epics.json")).unwrap();
+        fs::remove_file(h.at().live(Live::Epics)).unwrap();
         assert_eq!(h.report(&Given::default()).get("status").text(), "pass");
     }
 
     #[test]
     fn no_queue_snapshot_fails() {
         let h = home("noqueue");
-        fs::remove_file(h.0.join("live/status.json")).unwrap();
+        fs::remove_file(h.at().live(Live::Status)).unwrap();
         let r = h.report(&Given::default());
         assert_eq!(r.get("status").text(), "fail");
         assert_eq!(r.at(&["checks", "queue"]), &J::Null);
@@ -2304,7 +2347,7 @@ mod tests {
     fn a_last_cycle_that_failed_fails_until_one_starts_after_it() {
         let h = home("failed");
         h.write(
-            "live/running.json",
+            Live::Running,
             r#"{"cycles":[],"last":{"issue":7,"running":false,"status":"aborted","step":"develop","startedAt":100,"updatedAt":200}}"#,
         );
         let r = h.report(&Given::default());
@@ -2317,7 +2360,7 @@ mod tests {
         );
         assert_eq!(r.at(&["checks", "failed"]).len(), 1);
         h.write(
-            "live/running.json",
+            Live::Running,
             r#"{"cycles":[{"issue":8,"running":true,"startedAt":300}],"last":{"issue":7,"status":"aborted","startedAt":100,"updatedAt":200}}"#,
         );
         let r = h.report(&Given::default());
@@ -2332,7 +2375,7 @@ mod tests {
     fn a_running_cycle_keeps_where_its_step_is() {
         let h = home("step-at");
         h.write(
-            "live/running.json",
+            Live::Running,
             r#"{"cycles":[{"issue":8,"running":true,"step":"ci","startedAt":300,"stepNumber":8,"stepTotal":9,"round":2,"stepSince":360},{"issue":9,"running":true,"startedAt":300,"round":"2"}],"last":null}"#,
         );
         let r = h.report(&Given::default());
@@ -2351,11 +2394,32 @@ mod tests {
         assert!(c[1].get("round").is_null());
     }
 
+    /// The start's attempt, how and account go into the health file, so
+    /// `tehas status` prints the cycle's id with them (T11.5); a value of
+    /// another shape is left out, and a cycle run by hand has no `by`.
+    #[test]
+    fn a_running_cycle_keeps_its_attempt_how_and_by() {
+        let h = home("ids");
+        h.write(
+            Live::Running,
+            r#"{"cycles":[{"issue":8,"running":true,"startedAt":300,"attempt":3,"how":"approved","by":"alice"},{"issue":9,"running":true,"startedAt":300,"attempt":"3","how":"hand"}],"last":null}"#,
+        );
+        let r = h.report(&Given::default());
+        let c = r.at(&["checks", "cycles"]).items();
+        assert_eq!(
+            [c[0].get("attempt"), c[0].get("how"), c[0].get("by")].map(J::text),
+            ["3", "approved", "alice"]
+        );
+        assert!(c[1].get("attempt").is_null());
+        assert_eq!(c[1].get("how").text(), "hand");
+        assert!(c[1].get("by").is_null());
+    }
+
     #[test]
     fn a_last_cycle_that_ended_closed_is_not_a_failure() {
         let h = home("closed");
         h.write(
-            "live/running.json",
+            Live::Running,
             r#"{"cycles":[],"last":{"issue":1106,"running":false,"status":"closed","step":"review","startedAt":100,"updatedAt":200}}"#,
         );
         let r = h.report(&Given::default());
@@ -2373,10 +2437,7 @@ mod tests {
             (r#"{"issue":14,"running":true,"updatedAt":700}"#, false),
             (r#"{"issue":14,"running":true,"startedAt":null}"#, false),
         ] {
-            h.write(
-                "live/running.json",
-                &format!(r#"{{"cycles":[{cycle}],{last}}}"#),
-            );
+            h.write(Live::Running, &format!(r#"{{"cycles":[{cycle}],{last}}}"#));
             let r = h.report(&Given::default());
             assert_eq!(r.get("status").text() == "fail", failed, "{cycle}");
         }
@@ -2385,10 +2446,7 @@ mod tests {
     #[test]
     fn an_old_queue_snapshot_warns() {
         let h = home("old");
-        h.write(
-            "live/status.json",
-            r#"{"generatedAt":"2026-10-17T13:40:20Z","allHands":true}"#,
-        );
+        h.write(Live::Status, r#"{"generatedAt":"2026-10-17T13:40:20Z"}"#);
         let r = h.report(&Given::default());
         assert_eq!(
             said(&r),
@@ -2397,14 +2455,13 @@ mod tests {
                 "The queue snapshot is 20 min old: GitHub did not answer the last polls.".into()
             )
         );
-        assert_eq!(r.at(&["checks", "allHands"]), &J::Null);
     }
 
     #[test]
     fn lists_kept_from_an_earlier_read_are_as_old_as_that_read() {
         let h = home("stale-lists");
         h.write(
-            "live/status.json",
+            Live::Status,
             r#"{"generatedAt":"2026-10-17T14:00:10Z","queueAt":"2026-10-17T13:40:20Z","stale":["queue"],"queued":[],"running":[],"awaiting":[],"stopped":[]}"#,
         );
         let r = h.report(&Given::default());
@@ -2423,14 +2480,14 @@ mod tests {
 
         // Stale with nothing kept: no time to trust, so old.
         h.write(
-            "live/status.json",
+            Live::Status,
             r#"{"generatedAt":"2026-10-17T14:00:10Z","stale":["queue"]}"#,
         );
         assert_eq!(h.report(&Given::default()).get("status").text(), "warn");
 
         // Only the completed work stale: the lists are fresh.
         h.write(
-            "live/status.json",
+            Live::Status,
             r#"{"generatedAt":"2026-10-17T14:00:10Z","queueAt":"2026-10-17T14:00:10Z","stale":["completed"],"queued":[],"running":[],"awaiting":[],"stopped":[]}"#,
         );
         assert_eq!(h.report(&Given::default()).get("status").text(), "pass");
@@ -2468,7 +2525,7 @@ mod tests {
             said(&r),
             (
                 "warn".into(),
-                "GitHub failed 3 calls in the last 10 min, the last: ERROR: gh api graphql failed: HTTP 504 (tried 2 times)".into()
+                "GitHub failed 3 calls in the last 10 min, the last: GitHub failed with a server error".into()
             )
         );
         assert_eq!(
@@ -2481,7 +2538,7 @@ mod tests {
     fn a_pause_flag_or_label_warns() {
         let h = home("pause");
         h.write(
-            "state/pause.json",
+            State::Pause,
             r#"{"by":"someone","at":"2026-10-17T13:00:00Z","reason":"weekend"}"#,
         );
         let r = h.report(&Given::default());
@@ -2490,15 +2547,15 @@ mod tests {
             r.at(&["checks", "pause"]).dump(),
             r#"{"flag":{"at":"2026-10-17T13:00:00Z","reason":"weekend"},"label":false,"lifted":false}"#
         );
-        h.write("state/pause.json", "not a flag");
+        h.write(State::Pause, "not a flag");
         let r = h.report(&Given::default());
         assert_eq!(
             r.at(&["checks", "pause", "flag"]).dump(),
             r#"{"at":null,"reason":null}"#
         );
-        fs::remove_file(h.0.join("state/pause.json")).unwrap();
+        fs::remove_file(h.at().state(State::Pause)).unwrap();
         h.write(
-            "live/status.json",
+            Live::Status,
             r#"{"generatedAt":"2026-10-17T14:00:10Z","pause":{"label":false,"lifted":true}}"#,
         );
         assert_eq!(h.report(&Given::default()).get("status").text(), "warn");
@@ -2517,7 +2574,7 @@ mod tests {
             "no file"
         );
         h.write(
-            "state/push-fault.json",
+            State::PushFault,
             r#"{"at":"2026-10-17T13:00:00Z","login":"tehas-bot","line":"remote: Permission to acme/widget denied to tehas-bot"}"#,
         );
         let r = h.report(&Given::default());
@@ -2532,7 +2589,7 @@ mod tests {
         );
         // A fault that says nothing still fails, with a line of the host's own
         // and no login in brackets.
-        h.write("state/push-fault.json", "not json");
+        h.write(State::PushFault, "not json");
         let r = h.report(&Given::default());
         assert_eq!(said(&r).0, "fail");
         assert_eq!(
@@ -2540,7 +2597,7 @@ mod tests {
             "The sandbox cannot push: the sandbox cannot push to origin. The App's install needs Contents write on the product repository."
         );
         // The fault off: the page passes again.
-        fs::remove_file(h.0.join("state/push-fault.json")).unwrap();
+        fs::remove_file(h.at().state(State::PushFault)).unwrap();
         assert_eq!(said(&h.report(&Given::default())).0, "pass");
     }
 
@@ -2555,11 +2612,11 @@ mod tests {
         // A link at the name is not the host's own record: the page reads no
         // file through it, and says the host cannot push rather than nothing.
         fs::write(
-            h.0.join("state/elsewhere.json"),
+            h.at().state_dir().join("elsewhere.json"),
             "{\"line\":\"not the fault\"}",
         )
         .unwrap();
-        symlink("elsewhere.json", h.0.join("state/push-fault.json")).unwrap();
+        symlink("elsewhere.json", h.at().state(State::PushFault)).unwrap();
         let r = h.report(&Given::default());
         assert_eq!(said(&r).0, "fail");
         assert_eq!(
@@ -2568,19 +2625,19 @@ mod tests {
         );
         // A file over the bound is no fault the page can parse, and still a
         // fault the host has.
-        fs::remove_file(h.0.join("state/push-fault.json")).unwrap();
+        fs::remove_file(h.at().state(State::PushFault)).unwrap();
         fs::write(
-            h.0.join("state/push-fault.json"),
+            h.at().state(State::PushFault),
             "x".repeat(tehas_core::file::READ_BOUND_LEN),
         )
         .unwrap();
         assert_eq!(said(&h.report(&Given::default())).0, "fail");
         // A directory of that name, which the old reader opened and read as no
         // fault at all, is a fault too.
-        fs::remove_file(h.0.join("state/push-fault.json")).unwrap();
-        fs::create_dir(h.0.join("state/push-fault.json")).unwrap();
+        fs::remove_file(h.at().state(State::PushFault)).unwrap();
+        fs::create_dir(h.at().state(State::PushFault)).unwrap();
         assert_eq!(said(&h.report(&Given::default())).0, "fail");
-        fs::remove_dir(h.0.join("state/push-fault.json")).unwrap();
+        fs::remove_dir(h.at().state(State::PushFault)).unwrap();
         // Nothing at the name is the only thing that is no fault.
         assert_eq!(said(&h.report(&Given::default())).0, "pass");
     }
@@ -2591,11 +2648,11 @@ mod tests {
     fn a_push_fault_is_said_before_a_limit_or_a_pause() {
         let h = home("push-fault-first");
         h.write(
-            "state/push-fault.json",
+            State::PushFault,
             r#"{"at":"2026-10-17T13:00:00Z","login":"tehas-bot","line":"denied"}"#,
         );
         h.write(
-            "state/limit.json",
+            State::Limit,
             r#"{"v":1,"cycles":2,"plan":true,"until":"2020-01-01T00:00:00Z","reason":""}"#,
         );
         assert!(h
@@ -2604,7 +2661,7 @@ mod tests {
             .text()
             .starts_with("The sandbox cannot push: denied"));
         h.write(
-            "state/pause.json",
+            State::Pause,
             r#"{"by":"someone","at":"2026-10-17T13:00:00Z","reason":"weekend"}"#,
         );
         assert_eq!(
@@ -2618,7 +2675,7 @@ mod tests {
     fn an_expired_limit_warns() {
         let h = home("limit");
         h.write(
-            "state/limit.json",
+            State::Limit,
             r#"{"v":1,"cycles":2,"plan":true,"until":"2026-10-17T13:00:00Z"}"#,
         );
         let r = h.report(&Given::default());
@@ -2632,7 +2689,7 @@ mod tests {
     fn a_slice_that_holds_every_start_warns() {
         let h = home("slice");
         h.write(
-            "live/dispatch.json",
+            Live::Dispatch,
             r#"{"time":"2026-10-17T14:00:00Z","why":"resources","hold":"holding: no resources: memory","room":0,"free":0}"#,
         );
         let r = h.report(&Given::default());
@@ -2642,12 +2699,12 @@ mod tests {
             r#"{"time":"2026-10-17T14:00:00Z","why":"resources","hold":"holding: no resources: memory","count":null,"room":0,"committed":null,"max":null,"reserve":null,"free":0}"#
         );
         h.write(
-            "live/dispatch.json",
+            Live::Dispatch,
             r#"{"time":"2026-10-17T14:00:00Z","why":"count","hold":"holding: two running"}"#,
         );
         assert_eq!(said(&h.report(&Given::default())).0, "pass");
         h.write(
-            "live/dispatch.json",
+            Live::Dispatch,
             r#"{"time":"2026-10-17T13:00:00Z","why":"disk"}"#,
         );
         assert_eq!(
@@ -2663,7 +2720,7 @@ mod tests {
         // minutes on a hand-written file refuses it and says so.
         let h = home("big");
         h.write(
-            "live/dispatch.json",
+            Live::Dispatch,
             &format!(
                 "{{\"time\":\"2026-10-17T14:00:00Z\",\"why\":\"\",\"fill\":\"{}\"}}",
                 "x".repeat(tehas_core::file::READ_BOUND_LEN)
@@ -2674,7 +2731,7 @@ mod tests {
         assert_eq!(said(&r), ("pass".into(), "Idle, taking work.".into()));
         // The demand check is read by the same function and is bounded too.
         h.write(
-            "live/demand.json",
+            Live::Demand,
             &format!(
                 "{{\"waiting\":1,\"fill\":\"{}\"}}",
                 "y".repeat(tehas_core::file::READ_BOUND_LEN)
@@ -2704,7 +2761,7 @@ mod tests {
     fn poll_report(h: &Home, at: &str, r: &hold::Report) {
         let mut v = r.to_value();
         v[hold::KEY_TIME] = serde_json::json!(at);
-        h.write("live/dispatch.json", &v.to_string());
+        h.write(Live::Dispatch, &v.to_string());
     }
 
     /// A poll with room that held the issues given by the park's rule.
@@ -2718,7 +2775,7 @@ mod tests {
                     why: hold::HELD_PARKED,
                     text: "its last cycle parked on `gate` and the body has not changed since"
                         .into(),
-                    clear: "edit the body, or tick Retry in the park comment".into(),
+                    clear: "edit the body, or reply to the park comment with the word of one of its retries".into(),
                 })
                 .collect(),
             ..hold::Report::default()
@@ -2728,7 +2785,7 @@ mod tests {
 
     fn queued(h: &Home, issues: &str) {
         h.write(
-            "live/status.json",
+            Live::Status,
             &format!(
                 r#"{{"generatedAt":"2026-10-17T14:00:10Z","queued":{issues},"running":[],"awaiting":[],"stopped":[]}}"#
             ),
@@ -2745,12 +2802,12 @@ mod tests {
             said(&r),
             (
                 "warn".into(),
-                "#7 is held: its last cycle parked on `gate` and the body has not changed since. Edit the body, or tick Retry in the park comment.".into()
+                "#7 is held: its last cycle parked on `gate` and the body has not changed since. Edit the body, or reply to the park comment with the word of one of its retries.".into()
             )
         );
         assert_eq!(
             r.at(&["checks", "slice", "held"]).dump(),
-            r#"[{"issue":7,"why":"parked","text":"its last cycle parked on `gate` and the body has not changed since","clear":"edit the body, or tick Retry in the park comment"}]"#
+            r#"[{"issue":7,"why":"parked","text":"its last cycle parked on `gate` and the body has not changed since","clear":"edit the body, or reply to the park comment with the word of one of its retries"}]"#
         );
     }
 
@@ -2783,7 +2840,7 @@ mod tests {
         let h = home("held-bad");
         queued(&h, r#"[{"number":7}]"#);
         h.write(
-            "live/dispatch.json",
+            Live::Dispatch,
             r#"{"time":"2026-10-17T14:00:00Z","why":"","hold":"","held":[{"issue":"7","why":"parked","text":"x","clear":"y"},{"issue":7,"why":"parked","text":"x"}]}"#,
         );
         let r = h.report(&Given::default());
@@ -2871,14 +2928,14 @@ mod tests {
             ..Given::default()
         };
         assert_eq!(h.report(&g).at(&["checks", "units"]).dump(), "[]");
-        h.write("live/previews.json", r#"{"generatedAt":"2026-10-17T14:00:00Z","disk":{"freeBytes":1,"minFreeBytes":2,"low":true}}"#);
+        h.write(Live::Previews, r#"{"generatedAt":"2026-10-17T14:00:00Z","disk":{"freeBytes":1,"minFreeBytes":2,"low":true}}"#);
         assert_eq!(
             said(&h.report(&Given::default())).1,
             "The host is low on disk: previews are not being built."
         );
-        fs::remove_file(h.0.join("live/previews.json")).unwrap();
+        fs::remove_file(h.at().live(Live::Previews)).unwrap();
         h.write(
-            "live/platform.json",
+            Live::Platform,
             r#"{"commit":"abc","behind":3,"upstream":"origin/main","behindSince":"2026-10-15T00:00:00Z"}"#,
         );
         assert_eq!(
@@ -2893,7 +2950,7 @@ mod tests {
         let a = "a".repeat(40);
         let b = "b".repeat(40);
         h.write(
-            "live/rukas.json",
+            Live::Rukas,
             &format!(
                 r#"{{"follow":"release:0","target":"{b}","targetVersion":"v0.14.54","image":"{a}","imageVersion":"v0.14.53","clone":"{b}","behind":true,"generatedAt":"x"}}"#
             ),
@@ -2912,7 +2969,7 @@ mod tests {
         assert!(c.get("generatedAt").is_null());
         // No version known: the commits are named.
         h.write(
-            "live/rukas.json",
+            Live::Rukas,
             &format!(r#"{{"target":"{b}","image":"{a}","behind":true}}"#),
         );
         assert_eq!(
@@ -2921,7 +2978,7 @@ mod tests {
         );
         // Current: a pass, the block still there.
         h.write(
-            "live/rukas.json",
+            Live::Rukas,
             &format!(
                 r#"{{"target":"{b}","imageVersion":"v0.14.54","image":"{b}","behind":false}}"#
             ),
@@ -2935,7 +2992,7 @@ mod tests {
         // The image on the commit followed, its instance layer not the one
         // sandbox.Dockerfile is now.
         h.write(
-            "live/rukas.json",
+            Live::Rukas,
             &format!(
                 r#"{{"target":"{b}","image":"{b}","behind":false,"layer":"sha256:1","instanceLayer":"sha256:2","layerMoved":true}}"#
             ),
@@ -2953,7 +3010,7 @@ mod tests {
         assert_eq!(c.get("instanceLayer").text(), "sha256:2");
         assert!(c.get("layerMoved").is_true());
         // A file of another shape is no check.
-        h.write("live/rukas.json", r#"{"behind":"yes"}"#);
+        h.write(Live::Rukas, r#"{"behind":"yes"}"#);
         let r = h.report(&Given::default());
         assert!(r.at(&["checks", "rukas"]).is_null());
         assert_eq!(said(&r).0, "pass");
@@ -2967,7 +3024,7 @@ mod tests {
 
     fn with_messages(h: &Home, messages: &[String]) -> J {
         h.write(
-            "state/host-messages.json",
+            State::HostMessages,
             &format!(r#"{{"api":1,"messages":[{}]}}"#, messages.join(",")),
         );
         h.report(&Given::default())
@@ -3004,7 +3061,7 @@ mod tests {
     fn an_info_message_is_listed_and_changes_no_status() {
         let h = home("messages-info");
         h.write(
-            "state/host-messages.json",
+            State::HostMessages,
             r#"{"api":1,"messages":[{"id":"note","level":"info","text":"Read the notes.","link":"https://example.com/notes","at":"2026-10-17T13:00:00Z"}]}"#,
         );
         let r = h.report(&Given::default());
@@ -3022,7 +3079,7 @@ mod tests {
             "{",
             r#"{"api":1,"messages":[{"id":"x","level":"loud","text":"t","link":null,"at":"2026-10-17T13:00:00Z"}]}"#,
         ] {
-            h.write("state/host-messages.json", text);
+            h.write(State::HostMessages, text);
             let r = h.report(&Given::default());
             assert_eq!(
                 r.at(&["checks", "hostMessages"]).dump(),
@@ -3068,17 +3125,17 @@ mod tests {
         assert!(r.at(&["checks", "testFeatures"]).is_null());
         assert_eq!(said(&r), ("pass".into(), "Idle, taking work.".into()));
 
-        let r = with(Some((true, &["outsource", "lean"])));
+        let r = with(Some((true, &["plugins", "lean"])));
         assert_eq!(r.at(&["checks", "testFeatures", "read"]), &J::Bool(true));
         assert_eq!(
             r.at(&["checks", "testFeatures", "features"]),
-            &J::Arr(vec![J::str("outsource"), J::str("lean")])
+            &J::Arr(vec![J::str("plugins"), J::str("lean")])
         );
         assert_eq!(
             said(&r),
             (
                 "warn".into(),
-                "A lab build: TEHAS_TEST_FEATURES names outsource, lean, still being built. No release reads it.".into()
+                "A lab build: TEHAS_TEST_FEATURES names plugins, lean, still being built. No release reads it.".into()
             )
         );
         assert_eq!(
@@ -3086,7 +3143,7 @@ mod tests {
             "A lab build: TEHAS_TEST_FEATURES is set and names no building feature."
         );
 
-        let r = with(Some((false, &["outsource"])));
+        let r = with(Some((false, &["plugins"])));
         assert_eq!(r.at(&["checks", "testFeatures", "read"]), &J::Bool(false));
         assert_eq!(
             said(&r),
@@ -3123,11 +3180,11 @@ mod tests {
                 "A lab build: TEHAS_TEST_FEATURES is unset, so no building feature is on. ./install.sh without --lab-build goes back.".into()
             )
         );
-        let r = lab(true, &["outsource"]);
+        let r = lab(true, &["plugins"]);
         assert_eq!(r.at(&["checks", "testFeatures", "lab"]), &J::Bool(true));
         assert_eq!(
             said(&r).1,
-            "A lab build: TEHAS_TEST_FEATURES names outsource, still being built. No release reads it."
+            "A lab build: TEHAS_TEST_FEATURES names plugins, still being built. No release reads it."
         );
     }
 
@@ -3204,7 +3261,7 @@ mod tests {
         // A failed upkeep is why there is none, and the line says when and
         // what the store said rather than to wait for the cleaner.
         h.write(
-            "state/upkeep.json",
+            State::Upkeep,
             r#"{"at":1792242000,"ok":false,"word":"busy","line":"store: busy: the lock is held"}"#,
         );
         let g = Given {
@@ -3238,12 +3295,12 @@ mod tests {
         assert_eq!(said(&r), ("pass".into(), "Idle, taking work.".into()));
         assert_eq!(r.at(&["checks", "upkeep", "word"]).as_str(), Some("busy"));
         // An upkeep that went well keeps the plain wording.
-        h.write("state/upkeep.json", r#"{"at":1792242000,"ok":true}"#);
+        h.write(State::Upkeep, r#"{"at":1792242000,"ok":true}"#);
         assert_eq!(
             said(&h.report(&g)).1,
             "The newest backup of the state store is 55 h old."
         );
-        fs::remove_file(h.0.join("state/upkeep.json")).unwrap();
+        fs::remove_file(h.at().state(State::Upkeep)).unwrap();
         assert_eq!(h.report(&g).at(&["checks", "upkeep"]), &J::Null);
         let g = Given {
             poll_over: Some(r#"["cpu","wall"]"#.into()),
@@ -3344,7 +3401,7 @@ mod tests {
     #[test]
     fn a_planning_turn_counts_while_its_lock_is_held() {
         let h = home("plans");
-        h.write("state/plan-7.json.lock", "");
+        h.write(h.at().plan_file(7, ".lock"), "");
         let g = Given {
             sessions: Some(
                 r#"{"sessions":[{"issue":7,"running":true,"turns":1,"started_at":1792245000}]}"#
@@ -3353,13 +3410,13 @@ mod tests {
             ..Given::default()
         };
         assert_eq!(h.report(&g).at(&["checks", "plans"]).len(), 0);
-        let lock = File::open(h.0.join("state/plan-7.json.lock")).unwrap();
+        let lock = File::open(h.at().plan_file(7, ".lock")).unwrap();
         lock.lock().unwrap();
         assert_eq!(
             h.report(&g).at(&["checks", "plans"]).dump(),
             r#"[{"issue":7,"turn":2,"startedAt":"2026-10-17T13:50:00Z","state":"running"}]"#
         );
-        h.write("state/plan-7.json.rc", "0");
+        h.write(h.at().plan_file(7, ".rc"), "0");
         assert_eq!(h.report(&g).at(&["checks", "plans"]).len(), 0);
     }
 
@@ -3383,21 +3440,21 @@ mod tests {
         // An exit status left beside a session still running on record: the
         // turn ended in error and the next poll posts it.
         let running = r#"{"sessions":[{"issue":7,"running":true,"failed":false,"turns":1,"started_at":1792245000,"ended_at":null}]}"#;
-        h.write("state/plan-7.json.rc", "2\n");
+        h.write(h.at().plan_file(7, ".rc"), "2\n");
         assert_eq!(
             plans(&h, running),
             r#"[{"issue":7,"turn":2,"startedAt":"2026-10-17T13:50:00Z","state":"failed"}]"#
         );
-        h.write("state/plan-7.json.rc", "x");
+        h.write(h.at().plan_file(7, ".rc"), "x");
         assert_eq!(
             plans(&h, running),
             r#"[{"issue":7,"turn":2,"startedAt":"2026-10-17T13:50:00Z","state":"failed"}]"#
         );
         // A turn that finished is no failure, and neither is one whose
         // session is over, lost, or waits on an answer to a turn that finished.
-        h.write("state/plan-7.json.rc", "0\n");
+        h.write(h.at().plan_file(7, ".rc"), "0\n");
         assert_eq!(plans(&h, running), "[]");
-        fs::remove_file(h.0.join("state/plan-7.json.rc")).unwrap();
+        fs::remove_file(h.at().plan_file(7, ".rc")).unwrap();
         for s in [
             r#"{"sessions":[{"issue":7,"running":false,"failed":true,"turns":2,"started_at":1792245000,"ended_at":1792246000}]}"#,
             r#"{"sessions":[{"issue":7,"running":false,"failed":true,"lost":true,"turns":2,"started_at":1792245000,"ended_at":null}]}"#,
@@ -3421,23 +3478,23 @@ mod tests {
         // A lock no one can open is not a turn that ended: the page says the
         // turn is in flight rather than read a probe it could not make as free.
         let h = home("plans-mode");
-        h.write("state/plan-7.json.lock", "");
+        h.write(h.at().plan_file(7, ".lock"), "");
         fs::set_permissions(
-            h.0.join("state/plan-7.json.lock"),
+            h.at().plan_file(7, ".lock"),
             fs::Permissions::from_mode(0o000),
         )
         .unwrap();
-        if File::open(h.0.join("state/plan-7.json.lock")).is_ok() {
+        if File::open(h.at().plan_file(7, ".lock")).is_ok() {
             // Root, or a mode that binds nobody: the case cannot be made here.
             fs::set_permissions(
-                h.0.join("state/plan-7.json.lock"),
+                h.at().plan_file(7, ".lock"),
                 fs::Permissions::from_mode(0o600),
             )
             .unwrap();
         } else {
             assert_eq!(h.report(&g).at(&["checks", "plans"]).dump(), in_flight);
             fs::set_permissions(
-                h.0.join("state/plan-7.json.lock"),
+                h.at().plan_file(7, ".lock"),
                 fs::Permissions::from_mode(0o600),
             )
             .unwrap();
@@ -3446,24 +3503,24 @@ mod tests {
         // A name at the lock path that is no lock file says nothing of the
         // turn, which is the worse thing to read as an ended one.
         let h = home("plans-shapes");
-        fs::create_dir(h.0.join("state/plan-7.json.lock")).unwrap();
+        fs::create_dir(h.at().plan_file(7, ".lock")).unwrap();
         assert_eq!(h.report(&g).at(&["checks", "plans"]).dump(), in_flight);
-        fs::remove_dir(h.0.join("state/plan-7.json.lock")).unwrap();
+        fs::remove_dir(h.at().plan_file(7, ".lock")).unwrap();
         std::os::unix::fs::symlink(
-            h.0.join("state/elsewhere.lock"),
-            h.0.join("state/plan-7.json.lock"),
+            h.at().state_dir().join("elsewhere.lock"),
+            h.at().plan_file(7, ".lock"),
         )
         .unwrap();
         assert_eq!(h.report(&g).at(&["checks", "plans"]).dump(), in_flight);
         // No lock at all is the one shape that is not in flight, and so is the
         // exit status a turn left beside a lock that is held.
-        fs::remove_file(h.0.join("state/plan-7.json.lock")).unwrap();
+        fs::remove_file(h.at().plan_file(7, ".lock")).unwrap();
         assert_eq!(h.report(&g).at(&["checks", "plans"]).len(), 0);
-        h.write("state/plan-7.json.lock", "");
-        let lock = File::open(h.0.join("state/plan-7.json.lock")).unwrap();
+        h.write(h.at().plan_file(7, ".lock"), "");
+        let lock = File::open(h.at().plan_file(7, ".lock")).unwrap();
         lock.lock().unwrap();
         assert_eq!(h.report(&g).at(&["checks", "plans"]).dump(), in_flight);
-        h.write("state/plan-7.json.rc", "0");
+        h.write(h.at().plan_file(7, ".rc"), "0");
         assert_eq!(h.report(&g).at(&["checks", "plans"]).len(), 0);
     }
 
@@ -3473,7 +3530,7 @@ mod tests {
         // Each row carries the word it must answer with, or none at all: the
         // two words of the set, and the row with no key, are `not an end`.
         h.write(
-            "live/endings.json",
+            Live::Endings,
             r#"[{"issue":1,"status":"running","startedAt":10,"updatedAt":20},
                {"issue":2,"status":"","startedAt":10,"updatedAt":20},
                {"issue":3,"startedAt":10,"updatedAt":20},
@@ -3522,13 +3579,13 @@ mod tests {
         for (word, in_list, line) in cases {
             let h = home(&format!("failed-{word}"));
             h.write(
-                "live/running.json",
+                Live::Running,
                 &format!(
                     r#"{{"cycles":[],"last":{{"issue":7,"running":false,"status":"{word}","step":"-","startedAt":100,"updatedAt":200}}}}"#
                 ),
             );
             h.write(
-                "live/endings.json",
+                Live::Endings,
                 &format!(
                     r#"[{{"issue":7,"status":"{word}","step":"-","startedAt":100,"endedAt":200}}]"#
                 ),
@@ -3553,7 +3610,7 @@ mod tests {
     fn a_refused_last_start_is_said_as_refused_with_why() {
         let h = home("refused-why");
         h.write(
-            "live/running.json",
+            Live::Running,
             r#"{"cycles":[],"last":{"issue":7,"running":false,"status":"refused","step":"-","statusText":"the sandbox image lacks what it was given","startedAt":100,"updatedAt":200}}"#,
         );
         let r = h.report(&Given::default());
@@ -3565,7 +3622,7 @@ mod tests {
         );
         // An end of before the notice was kept says where to look.
         h.write(
-            "live/running.json",
+            Live::Running,
             r#"{"cycles":[],"last":{"issue":7,"running":false,"status":"refused","step":"-","startedAt":100,"updatedAt":200}}"#,
         );
         assert_eq!(
@@ -3574,7 +3631,7 @@ mod tests {
         );
         // A cycle started since is what the line says.
         h.write(
-            "live/running.json",
+            Live::Running,
             r#"{"cycles":[{"issue":8,"running":true,"startedAt":300}],"last":{"issue":7,"running":false,"status":"refused","step":"-","startedAt":100,"updatedAt":200}}"#,
         );
         assert_eq!(said(&h.report(&Given::default())).1, "Working on #8.");
@@ -3584,7 +3641,7 @@ mod tests {
     fn a_last_cycle_still_running_is_not_reported_as_ended_as_running() {
         let h = home("last-running");
         h.write(
-            "live/running.json",
+            Live::Running,
             r#"{"cycles":[],"last":{"issue":9,"running":false,"status":"running","step":"develop","startedAt":100,"updatedAt":200}}"#,
         );
         let r = h.report(&Given::default());
@@ -3610,7 +3667,7 @@ mod tests {
         // key: edge and MCP both copy `checks.failed` out as it is.
         let h = home("status-not-a-word");
         h.write(
-            "live/endings.json",
+            Live::Endings,
             r#"[{"issue":1,"status":{"secret":"a-very-long-value"},"startedAt":10,"updatedAt":20},
                {"issue":2,"status":null,"startedAt":10,"updatedAt":20},
                {"issue":3,"status":7,"startedAt":10,"updatedAt":20}]"#,
@@ -3629,7 +3686,7 @@ mod tests {
     fn the_failed_list_has_each_cycle_once_newest_first() {
         let h = home("endings");
         h.write(
-            "live/endings.json",
+            Live::Endings,
             r#"[{"issue":1,"status":"aborted","startedAt":10,"updatedAt":20},{"issue":2,"status":"merged","startedAt":5,"updatedAt":30},
                {"issue":1,"status":"aborted","startedAt":10,"updatedAt":20},{"issue":3,"status":"failed","startedAt":40,"updatedAt":50}, "x"]"#,
         );

@@ -21,7 +21,6 @@
     "limit": {
       "state": "none"
     },
-    "allHands": null,
     "pause": {
       "flag": null,
       "label": false,

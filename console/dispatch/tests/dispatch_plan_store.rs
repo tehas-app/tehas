@@ -5,10 +5,13 @@
 
 mod common;
 
+use common::Part::On;
 use common::*;
 use serde_json::{json, Value};
 use std::fs::{self, OpenOptions};
 use std::path::Path;
+use tehas_core::home::Home;
+use tehas_ports::{Mark, State};
 
 fn v(text: &str) -> Value {
     serde_json::from_str(text).unwrap_or_else(|e| panic!("{e}: {text}"))
@@ -134,10 +137,7 @@ fn b8_a_session_pi_rukas_lost_ends_with_outcome_lost_and_stays_open_until_its_la
     w.planning();
     w.comments(7, &plan_body("x", " ", " ", 1, ""), "alice", json!([]));
     w.fx("plan-fails", "{\"session\":\"abc-123\",\"lost\":true}\n");
-    w.fx(
-        "edit-fails-on",
-        "--remove-label tehas:question --remove-label tehas:planning\n",
-    );
+    w.fx("edit-fails-on", "--remove-label tehas:planning\n");
     w.poll();
     let history = ["history-show", "7", "--kind", "plan"];
     assert_eq!(
@@ -240,7 +240,11 @@ fn a13_a_turn_running_on_record_is_not_begun_again_by_a_new_tehas_plan_and_the_p
         "skip #7: its planning session could not begin: store: running",
     );
     assert_eq!(w.plan_calls(), "");
-    lacks(&w.gh(), "--add-label tehas:planning");
+    assert!(
+        !w.changes(7, &[On(Mark::State(State::Planning))]),
+        "{:?}",
+        w.writes_of(7)
+    );
     assert_eq!(w.calls("fake-start"), "");
     assert_eq!(w.rec()["running"], json!(true));
     assert_eq!(
@@ -266,7 +270,8 @@ fn a13_open_sessions_that_cannot_be_read_hold_every_start_busy_is_exit_1_a_store
             "ERROR: the state store could not list the open planning sessions",
         );
         assert_eq!(w.calls("fake-start"), "");
-        lacks(&w.gh(), "issue edit");
+        assert!(w.untouched(), "{:?}", w.writes_of(7));
+        assert_eq!(w.marks(None), 0);
     }
 }
 
@@ -291,7 +296,10 @@ fn the_keep_directory_a_turn_is_given_is_beside_the_workspace_not_in_the_state_d
         &format!("--keep {}/work/widget-plan-7.keep ", w.home.display()),
     );
     lacks(&w.plan_calls(), "/state/plan-7.json.keep");
-    assert_eq!(found(&w.home.join("state"), &|f| f.ends_with(".keep")), 0);
+    assert_eq!(
+        found(&Home::new(&w.home).state_dir(), &|f| f.ends_with(".keep")),
+        0
+    );
 }
 
 #[test]
@@ -325,14 +333,14 @@ fn b4_a_new_tehas_plan_replaces_a_session_with_its_answers_what_it_filed_and_its
     w.t_plan(
         7,
         json!({"turns": 2, "options": ["Adopt all"], "comment": 4001,
-            "answers": [{"turn": 2, "by": "bob", "fixer": false}],
+            "answers": [{"turn": 2, "by": "bob", "millwright": false}],
             "filed": ["https://github.com/acme/widget/issues/41"], "held": [4001],
-            "fixer_refused": [4003]}),
+            "millwright_refused": [4003]}),
     );
     assert_eq!(
         rec_jq(
             &w,
-            "[.held, .fixer_refused, (.filed | length), (.answers | length)]"
+            "[.held, .millwright_refused, (.filed | length), (.answers | length)]"
         ),
         json!([[4001], [4003], 1, 1])
     );
@@ -341,7 +349,7 @@ fn b4_a_new_tehas_plan_replaces_a_session_with_its_answers_what_it_filed_and_its
     assert_eq!(
         rec_jq(
             &w,
-            "[.turns, .answers, .filed, .held, .fixer_refused, .comment]"
+            "[.turns, .answers, .filed, .held, .millwright_refused, .comment]"
         ),
         json!([1, [], null, null, null, 4002])
     );
@@ -441,7 +449,11 @@ fn d2_an_answer_whose_turn_the_store_will_not_begin_marks_nothing_and_leaves_the
         "ERROR: could not write the record of #7, not starting a turn (busy)",
     );
     assert_eq!(w.plan_calls(), "");
-    lacks(&w.gh(), "--add-label tehas:planning");
+    assert!(
+        !w.changes(7, &[On(Mark::State(State::Planning))]),
+        "{:?}",
+        w.writes_of(7)
+    );
     assert_eq!(
         found(&w.home.join("tmp"), &|f| f.starts_with("plan-answer.")),
         0

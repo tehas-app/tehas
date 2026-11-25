@@ -25,7 +25,7 @@ New code goes in new files, so the #595 change to `src/tests.rs` merges cleanly:
 | `src/verbs.rs` | argument parsing, value grammars and cleaning, the output line, the store open for data verbs, the issues stub, the error mapping |
 | `src/lock.rs` | the cycle lock probe |
 | `src/cycle.rs` | `cycle-start`, `cycle-image`, `cycle-end`, `cycle-show`, `cycle-note`, `cycle-stop-asked` |
-| `src/park.rs` | `park`, `park-show`, `park-retry`, `park-told`, `question-asked`, `question-known`, `question-answered` |
+| `src/park.rs` | `park`, `park-show`, `park-retry`, `park-told`, `question-asked`, `question-known`, `question-adopt`, `question-answered` |
 | `src/approval.rs` | `approval-record`, `approval-current` |
 | `src/plan.rs` | `plan-begin`, `plan-answer`, `plan-end`, `plan-note`, `plan-show` |
 | `src/history.rs` | `history-show` |
@@ -613,6 +613,10 @@ Called by `park()` in `libexec/cycle` (`:1041`).
   and kind already there: exit 0, unchanged); for `plan`,
   `planning.comment_id = id` too.
 - JSON: `"question":<question>`.
+- `--body-sha` is the sum of the question's visible text, without our
+  markers (`tehas_core::question::question_sum`), and the row's
+  `body_form` is `visible` (schema 33, T4.7). `park --comment-id
+  --body-sha`, 1.x's form, writes `rendered`.
 - Replaces: `libexec/cycle:1060` (`park-<n>.id`), `lib/planning.sh:133`
   (`.comment = $c`).
 - Invariants: F5, G4.
@@ -628,7 +632,32 @@ Called by `park()` in `libexec/cycle` (`:1041`).
   `answered_at`. An id on another issue is `known:false`, `recorded:false`.
 - Replaces the id comparison the poll makes before it honours a tick
   (`dispatch:2529-2565`).
+- `sum_form`: the row's `body_form`, `rendered`, `visible` or null (schema
+  33, T4.7).
 - Invariants: F5 (only the comment this host has on record counts), G4.
+
+### question-adopt
+
+`store question-adopt <issue> --id <id> --posted-sha <sha256> [--body-sha <sha256>] [--json]`
+
+T4.7, the lead's ruling on the question's sum. A question whose sum is
+1.x's (`body_form` `rendered`: the comment as it was posted, its markers
+in) takes `visible`, in place. `--posted-sha` is the sum of the comment as
+the poll reads it now: when it is the sum on record, the comment is
+unchanged since it was posted, and the row takes `--body-sha`, the sum of
+its visible text. Otherwise (ticked or edited since, or no `--body-sha`)
+the row keeps no sum; a question with no sum is nothing to compare, never
+a reason to ask again. The poll calls it on its first read of the
+question's comment; nothing is written to the code host, no comment is
+edited, no label changes, and the question is not asked again.
+
+- 64: grammars.
+- One transaction: a row of another form, a withdrawn one, or none is left
+  as it is (exit 0).
+- JSON: `"issue":N,"adopted":bool,"summed":bool`: `summed` is whether the
+  row kept a sum.
+- Goes, with the `rendered` form, once the last 1.x host has updated
+  (contract, R9).
 
 ### question-answered
 

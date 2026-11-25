@@ -15,10 +15,11 @@
 //! of it is written, `gives` fetches what the issue links, `prepare` makes what
 //! a container starts from, `conflict` reads whether a refresh's pull request
 //! conflicts before one starts, and `watch` starts a cycle's container and sees it
-//! to its end. `progress` summarises what the runner wrote.
+//! to its end. `progress` summarises what the runner wrote; `runner` reads
+//! the runner's result and stream into types, by the rules of `loose`.
 //! `supervise` starts a cycle, runs tehas work and sees to its report, and
-//! `hook` then asks for the plugins' hooks on the pull request it left.
-//! `memory` answers a cycle's vipune calls that come through the relay.
+//! `events` raises what it recorded: `hook`, the plugins' bridge, asks for
+//! the plugins' hooks on the change it offered.
 //! `lock` takes the locks of a cycle, tehas work and the index, and hands them
 //! down to what they start.
 
@@ -27,8 +28,8 @@ pub mod apply;
 pub mod caps;
 pub mod clock;
 pub mod conflict;
-pub mod describe;
 pub mod end_failed;
+pub mod events;
 pub mod facts;
 pub mod finish;
 pub mod freeze;
@@ -38,7 +39,7 @@ pub mod host;
 pub mod index;
 pub mod last_attempt;
 pub mod lock;
-pub mod memory;
+pub mod loose;
 pub mod pin;
 pub mod prepare;
 pub mod progress;
@@ -49,7 +50,6 @@ pub mod report;
 pub mod runner;
 pub mod sandbox;
 pub mod scratch;
-pub mod stamp;
 pub mod start;
 pub mod supervise;
 pub mod watch;

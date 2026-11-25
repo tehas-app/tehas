@@ -4,6 +4,7 @@
 pub mod account;
 pub mod checkout;
 pub mod clean;
+pub mod curl;
 pub mod disk;
 pub mod edge;
 pub mod forge;
@@ -14,7 +15,6 @@ pub mod holds;
 pub mod host_message;
 pub mod ids;
 pub mod mcp;
-pub mod panel;
 pub mod pins;
 pub mod plugin;
 pub mod poll_timer;

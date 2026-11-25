@@ -3,54 +3,89 @@
 //! one JSON object: anything else, or a value of the wrong type on a path this
 //! must walk, is an answer that cannot be read.
 
-use crate::runner::{num, values, RESULT_SCHEMA};
+use crate::loose::{values, Field, Loose, Many, Node};
+use crate::runner::{num, RESULT_SCHEMA};
 use regex::Regex;
-use serde_json::Value;
+use serde::Deserialize;
+use std::collections::BTreeMap;
 use std::path::Path;
 use tehas_core::driver::Driver;
-
-/// The feature of a runner that reads the `spec` and `approvedText` entries
-/// of the manifest and writes the pull request spec block of the version the
-/// `spec` entry names in `block`: a cycle handed a spec starts only on a
-/// runner that sets it to true. One that sets it and writes no block is
-/// parked when its pull request is read.
-pub const READS_SPEC: &str = "issueSpec";
 
 const EXIT_CODES: u64 = 1;
 const NDJSON_STABLE: u64 = 1;
 
-static NULL: Value = Value::Null;
+static ABSENT: Field = Field::Absent;
 
-fn answer(text: &str) -> Option<Value> {
-    let mut all = values(text)?;
-    (all.len() == 1 && all[0].is_object()).then(|| all.remove(0))
+/// The answer, the fields of it this reads.
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct Caps {
+    contracts: Node<Contracts>,
+    features: Node<BTreeMap<String, Field>>,
+    verbs: Node<BTreeMap<String, Node<Verb>>>,
+    inputs: Many<Node<Input>>,
+    version: Loose<String>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+struct Contracts {
+    exit_codes: Node<Versioned>,
+    result_schema: Node<Versioned>,
+    ndjson: Node<Ndjson>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct Ndjson {
+    stable: Node<Versioned>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct Versioned {
+    version: Field,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct Verb {
+    flags: Many<Loose<String>>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+struct Input {
+    scope: Loose<String>,
+    name: Loose<String>,
+    members: Many<Loose<String>>,
+    manifest_version: Loose<f64>,
+}
+
+fn answer(text: &str) -> Option<Caps> {
+    let mut all = values::<Node<Caps>>(text)?;
+    if all.len() != 1 {
+        return None;
+    }
+    all.pop()?.into_object()
 }
 
 fn words(s: &str) -> impl Iterator<Item = &str> {
     s.split(' ').filter(|w| !w.is_empty())
 }
 
-/// `.[]?`: the members of an array or an object, nothing of anything else.
-fn items(v: Option<&Value>) -> Vec<&Value> {
-    match v {
-        Some(Value::Array(a)) => a.iter().collect(),
-        Some(Value::Object(o)) => o.values().collect(),
-        _ => vec![],
+/// One step of a path through an object or null: Some(None) past nothing or
+/// null, None where it runs through anything else.
+fn step<T>(n: Option<&Node<T>>) -> Option<Option<&T>> {
+    match n {
+        None | Some(Node::Absent | Node::Null) => Some(None),
+        Some(Node::Object(t)) => Some(Some(t)),
+        Some(Node::False | Node::Other) => None,
     }
 }
 
-/// A path that runs through an object or null, or None when it runs through
-/// anything else.
-fn dig<'a>(v: &'a Value, path: &[&str]) -> Option<&'a Value> {
-    path.iter().try_fold(v, |cur, k| match cur {
-        Value::Object(o) => Some(o.get(*k).unwrap_or(&NULL)),
-        Value::Null => Some(&NULL),
-        _ => None,
-    })
-}
-
-fn is_num(v: Option<&Value>, want: u64) -> bool {
-    v.and_then(Value::as_f64) == Some(want as f64)
+fn is_num(v: &Field, want: u64) -> bool {
+    matches!(v, Field::Num(x) if x.as_f64() == Some(want as f64))
 }
 
 fn name_chars(s: &str, extra: &str) -> bool {
@@ -62,10 +97,11 @@ fn name_chars(s: &str, extra: &str) -> bool {
 /// The pattern of one input name. A family such as PI_ENSEMBLE_MODEL_<ROLE>
 /// takes its listed members, or any suffix of name characters when the build
 /// lists none.
-fn family(name: &str, members: Option<&Value>) -> Option<Regex> {
-    let ids: Vec<&str> = items(members)
-        .into_iter()
-        .filter_map(Value::as_str)
+fn family(name: &str, members: &Many<Loose<String>>) -> Option<Regex> {
+    let ids: Vec<&str> = members
+        .items()
+        .iter()
+        .filter_map(|m| m.get().map(String::as_str))
         .filter(|m| name_chars(m, ""))
         .collect();
     let with = if ids.is_empty() {
@@ -81,26 +117,22 @@ fn family(name: &str, members: Option<&Value>) -> Option<Regex> {
 }
 
 /// The inputs a host may set, or with `any` every input of any scope.
-fn inputs_of(caps: &Value, any: bool) -> Vec<Regex> {
-    items(caps.get("inputs"))
-        .into_iter()
-        .filter(|i| i.is_object())
-        .filter(|i| {
-            any || matches!(
-                i.get("scope").and_then(Value::as_str),
-                Some("cycle" | "sandbox")
-            )
-        })
+fn inputs_of(caps: &Caps, any: bool) -> Vec<Regex> {
+    caps.inputs
+        .items()
+        .iter()
+        .filter_map(Node::object)
+        .filter(|i| any || matches!(i.scope.str(), "cycle" | "sandbox"))
         .filter_map(|i| {
-            let name = i.get("name")?.as_str()?;
+            let name = i.name.get()?;
             name_chars(name, "<>")
-                .then(|| family(name, i.get("members")))
+                .then(|| family(name, &i.members))
                 .flatten()
         })
         .collect()
 }
 
-fn inputs(caps: &Value) -> Vec<Regex> {
+fn inputs(caps: &Caps) -> Vec<Regex> {
     inputs_of(caps, false)
 }
 
@@ -138,15 +170,18 @@ pub fn polyfill_inputs(text: &str, labels: &str) -> Vec<(String, String)> {
     let Some(caps) = answer(text) else {
         return vec![];
     };
-    let Ok(Value::Object(labels)) = serde_json::from_str::<Value>(labels.trim()) else {
+    let Ok(Node::Object(labels)) =
+        serde_json::from_str::<Node<BTreeMap<String, Loose<String>>>>(labels.trim())
+    else {
         return vec![];
     };
+    let label = |k: &str| labels.get(k).map_or("", Loose::str);
     let known = inputs_of(&caps, true);
-    let list = labels.get(POLYFILLS).and_then(Value::as_str).unwrap_or("");
+    let list = label(POLYFILLS);
     let mut out = vec![];
     for p in polyfills(list) {
         let key = format!("tehas.rukas.polyfill.{p}.inputs");
-        let declared = labels.get(&key).and_then(Value::as_str).unwrap_or("");
+        let declared = label(&key);
         for n in declared.split([' ', ',', '\n']) {
             let ok = n.len() > "PI_ENSEMBLE_".len()
                 && n.starts_with("PI_ENSEMBLE_")
@@ -160,28 +195,33 @@ pub fn polyfill_inputs(text: &str, labels: &str) -> Vec<(String, String)> {
     out
 }
 
-/// The names in `names` that are no input a host may set, families matched as
-/// `unsupported` matches them. Every name when the answer cannot be read.
-pub fn not_inputs<'a>(text: &str, names: &[&'a str]) -> Vec<&'a str> {
-    let ok = answer(text).map(|caps| inputs(&caps)).unwrap_or_default();
-    names
-        .iter()
-        .filter(|n| !ok.iter().any(|re| re.is_match(n)))
-        .copied()
-        .collect()
-}
-
-fn version(caps: &Value, path: &[&str], want: u64, what: &str) -> Option<Option<String>> {
-    let got = dig(caps, path)?;
-    if is_num(Some(got), want) {
+/// What a contract's version says when it is not `want`, of the version a
+/// path came to (None where it ran through a value of another type).
+fn version(got: Option<&Field>, want: u64, what: &str) -> Option<Option<String>> {
+    let got = got?;
+    if is_num(got, want) {
         return Some(None);
     }
     let shown = match got {
-        Value::String(s) => s.clone(),
-        Value::Number(_) => num(got),
-        v => v.to_string(),
+        Field::Str(s) => s.clone(),
+        Field::Num(x) => num(x),
+        v => v.json(),
     };
     Some(Some(format!("{what} version {shown}, not {want}")))
+}
+
+/// The version at the end of a path of the contracts: Field::Absent past
+/// nothing or null, None through a value of another type.
+fn contract<'a>(
+    caps: &'a Caps,
+    path: impl Fn(&'a Contracts) -> Option<Option<&'a Versioned>>,
+) -> Option<&'a Field> {
+    let c = step(Some(&caps.contracts))?;
+    let v = match c {
+        Some(c) => path(c)?,
+        None => None,
+    };
+    Some(v.map_or(&ABSENT, |v| &v.version))
 }
 
 /// What the answer does not support, one line each, in plain characters: a
@@ -198,36 +238,46 @@ pub fn unsupported(
     features: &str,
 ) -> Option<String> {
     let caps = answer(text)?;
-    let flags_taken = dig(&caps, &["verbs", verb, "flags"])?;
-    let have: Vec<&str> = items(Some(flags_taken))
-        .into_iter()
-        .filter_map(Value::as_str)
+    let verbs = step(Some(&caps.verbs))?;
+    let this = step(verbs.and_then(|v| v.get(verb)))?;
+    let have: Vec<&str> = this
+        .map(|v| v.flags.items())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|f| f.get().map(String::as_str))
         .collect();
     let ok = inputs(&caps);
     let mut lines: Vec<String> = [
         (
-            &["contracts", "exitCodes", "version"][..],
+            contract(&caps, |c| step(Some(&c.exit_codes))),
             EXIT_CODES,
             "exit codes",
         ),
         (
-            &["contracts", "resultSchema", "version"][..],
+            contract(&caps, |c| step(Some(&c.result_schema))),
             RESULT_SCHEMA,
             "result schema",
         ),
         (
-            &["contracts", "ndjson", "stable", "version"][..],
+            contract(&caps, |c| match step(Some(&c.ndjson))? {
+                Some(n) => step(Some(&n.stable)),
+                None => Some(None),
+            }),
             NDJSON_STABLE,
             "stable NDJSON",
         ),
     ]
     .into_iter()
-    .map(|(path, want, what)| version(&caps, path, want, what))
+    .map(|(got, want, what)| version(got, want, what))
     .collect::<Option<Vec<_>>>()?
     .into_iter()
     .flatten()
     .collect();
-    let lean_schema = dig(&caps, &["features", "workLeanResultSchema"]);
+    let lean_schema = caps
+        .features
+        .object()
+        .and_then(|f| f.get("workLeanResultSchema"))
+        .unwrap_or(&ABSENT);
     if verb == Driver::Lean.verb() && !is_num(lean_schema, RESULT_SCHEMA) {
         lines.push(format!("the feature workLeanResultSchema {RESULT_SCHEMA}"));
     }
@@ -241,10 +291,10 @@ pub fn unsupported(
             .filter(|n| !ok.iter().any(|re| re.is_match(n)))
             .map(|n| format!("the input {n}")),
     );
-    let set = caps.get("features");
+    let set = caps.features.object();
     lines.extend(
         words(features)
-            .filter(|f| set.and_then(|s| s.get(f)) != Some(&Value::Bool(true)))
+            .filter(|f| set.and_then(|s| s.get(*f)) != Some(&Field::Bool(true)))
             .map(|f| format!("the feature {f}")),
     );
     Some(
@@ -286,8 +336,8 @@ pub fn expired(text: &str, workarounds: &str) -> Vec<String> {
     let caps = answer(text);
     let have = caps
         .as_ref()
-        .and_then(|c| c.get("version"))
-        .and_then(Value::as_str)
+        .and_then(|c| c.version.get())
+        .map(String::as_str)
         .filter(|v| readable_version(v));
     let Some(have) = have else {
         return vec![format!(
@@ -327,11 +377,12 @@ pub fn mode(text: &str, feature: &str, lib: Option<&Path>) -> (&'static str, i32
     let Some(caps) = answer(text) else {
         return ("error", 1);
     };
-    let features = caps.get("features");
-    if features.is_some_and(|f| !f.is_object()) {
-        return ("error", 1);
-    }
-    if features.and_then(|f| f.get(feature)) == Some(&Value::Bool(true)) {
+    let features = match &caps.features {
+        Node::Absent => None,
+        Node::Object(f) => Some(f),
+        _ => return ("error", 1),
+    };
+    if features.and_then(|f| f.get(feature)) == Some(&Field::Bool(true)) {
         ("native", 0)
     } else if lib.is_some_and(|l| l.join(format!("polyfill-{feature}.sh")).is_file()) {
         ("polyfill", 0)
@@ -346,15 +397,18 @@ pub fn verb(text: &str, verb: &str, flags: &str) -> bool {
     let Some(caps) = answer(text) else {
         return false;
     };
-    let Some(v) = caps.get("verbs").and_then(|o| o.get(verb)) else {
+    let Some(v) = caps.verbs.object().and_then(|o| o.get(verb)) else {
         return false;
     };
-    if !v.is_object() {
+    let Some(v) = v.object() else {
         return false;
-    }
-    let have: Vec<&str> = match v.get("flags") {
-        None | Some(Value::Null) | Some(Value::Bool(false)) => vec![],
-        Some(Value::Array(a)) => a.iter().filter_map(Value::as_str).collect(),
+    };
+    let have: Vec<&str> = match &v.flags {
+        Many::Absent | Many::Null | Many::False => vec![],
+        Many::List(a) => a
+            .iter()
+            .filter_map(|f| f.get().map(String::as_str))
+            .collect(),
         _ => return false,
     };
     words(flags).all(|f| have.contains(&f))
@@ -364,11 +418,13 @@ pub fn verb(text: &str, verb: &str, flags: &str) -> bool {
 /// tehas writes (manifestVersion 1).
 pub fn reads_images(text: &str) -> bool {
     answer(text).is_some_and(|caps| {
-        items(caps.get("inputs")).into_iter().any(|i| {
-            i.is_object()
-                && i.get("name").and_then(Value::as_str) == Some("PI_ENSEMBLE_ISSUE_IMAGES")
-                && is_num(i.get("manifestVersion"), 1)
-        })
+        caps.inputs
+            .items()
+            .iter()
+            .filter_map(Node::object)
+            .any(|i| {
+                i.name.str() == "PI_ENSEMBLE_ISSUE_IMAGES" && i.manifest_version.get() == Some(&1.0)
+            })
     })
 }
 

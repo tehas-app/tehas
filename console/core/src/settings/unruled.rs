@@ -4,21 +4,13 @@
 //! [`super::rules::HOST`] for the host. The load's `KEPT` list says only which
 //! names survive its sweep of the environment, so each of them is ruled or
 //! listed here too. The test below holds every name the installed source
-//! reads to a rule, to this list, to the load's retired names, or to a row of
+//! reads to a rule, to this list, to the load's retired or ignored names, or to a row of
 //! api/renames-1.0.tsv, so a new knob cannot go in without a rule.
 
 use super::{load, renamed, rules};
 
 /// One name each.
 pub const UNRULED: &[(&str, &str)] = &[
-    (
-        "TEHAS_VIPUNE_BIN",
-        "the vipune stand-in's path to the real vipune, inside the image",
-    ),
-    (
-        "TEHAS_VIPUNE_WAIT",
-        "the vipune stand-in's wait for the relay's answer, inside the image",
-    ),
     ("TEHAS_WORK_DIR", "set by the load: where a cycle works"),
     (
         "TEHAS_CYCLE_LOGIN",
@@ -36,19 +28,21 @@ pub const UNRULED: &[(&str, &str)] = &[
         "TEHAS_UPDATE_LOCK_FD",
         "handed by tehas update to install.sh",
     ),
-    ("TEHAS_ENERGY_NOW", "a test's clock"),
     ("TEHAS_FLAGS_TEST_NOW", "a test's clock"),
     ("TEHAS_STORE_TEST_NOW", "a test's clock"),
     (
         "TEHAS_STORE_TEST_BUSY_REPORT",
         "a test's view of the store's retries",
     ),
-    ("TEHAS_MODELS_FILE", "a test's model list"),
     (
         "TEHAS_GH_BIN",
         "the sandbox's gh shim: the real gh, for tests",
     ),
     ("TEHAS_GH_RETRY_WAIT", "the gh shims' pause, for tests"),
+    (
+        "TEHAS_GH_RETRY",
+        "set by tehas's own gh calls: the host shim sends a write once",
+    ),
     (
         "TEHAS_RELAY_DIR",
         "the sandbox's gh shim: the relay, for tests",
@@ -130,14 +124,6 @@ pub const UNRULED: &[(&str, &str)] = &[
         "TEHAS_CYCLE_ATTEMPT",
         "handed by tehasbot cycle to tehas work",
     ),
-    (
-        "TEHAS_CONTRACTOR",
-        "handed by the contractor program to the cycle it runs",
-    ),
-    (
-        "TEHAS_CONTRACTOR_GIT",
-        "a test's clone source for tehas-contractor",
-    ),
     ("TEHAS_TIDY_CMD", "a test's tidy"),
     ("TEHAS_FINISH_CMD", "a test's finish"),
     ("TEHAS_DISPATCH_CMD", "a test's dispatcher"),
@@ -209,6 +195,7 @@ pub fn known(name: &str) -> bool {
     ruled(name)
         || derived
         || load::retired(name)
+        || load::ignored(name)
         || renamed::rows().iter().any(|r| r.old == name)
         || UNRULED.iter().any(|(n, _)| *n == name)
         || FAMILIES.iter().any(|(f, _)| name.starts_with(f))

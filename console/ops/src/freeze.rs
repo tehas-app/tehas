@@ -19,6 +19,7 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tehas_core::file::{write_atomic, Temp};
+use tehas_core::home::Home;
 use tehas_core::lock::{probe, Probe};
 use tehas_core::time;
 
@@ -128,11 +129,7 @@ fn cycles_dir() -> Option<PathBuf> {
         Some(v) if !v.is_empty() => Some(PathBuf::from(v)),
         _ => None,
     };
-    Some(
-        from("TEHAS_HOME")
-            .or_else(|| from("HOME"))?
-            .join("state/cycles"),
-    )
+    Some(Home::new(from("TEHAS_HOME").or_else(|| from("HOME"))?).cycles_dir())
 }
 
 /// `tehas freeze` in `cycles`.

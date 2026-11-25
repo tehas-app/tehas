@@ -5,6 +5,7 @@
 //! The container is given what a cycle's is given, by the builder of
 //! tehas_core::sandbox, and the goldens of test/sandbox_argv_test.sh pin it.
 
+use super::file::{self, Filed};
 use super::turn::{self, Turn};
 use super::{descriptor, update};
 use crate::{account, attach, github, label, review};
@@ -13,10 +14,12 @@ use std::fs;
 use std::io::Read;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use tehas_core::home::{Home, State};
 use tehas_core::sandbox::{self, Identity, Kind, Misshaped, Paths};
 use tehas_core::text::disarm;
 use tehas_core::{call, models};
 use tehas_core::{settings, slice, time};
+use tehas_ports::{Act, Mark};
 
 const RUNNER: &str = "/opt/pi-rukas/bin/pi-rukas-headless";
 const USAGE: &str = "usage: tehas plan <issue-number> --out <file> --keep <dir> (--brief <file> | --session <id> --answer <file> [--comment <id>]) [--kind refine]";
@@ -107,16 +110,16 @@ fn refuse(line: impl AsRef<str>) -> u8 {
 
 /// The three comments below quote what an issue or a reply links, which a
 /// person wrote, so a marker in it is broken (text::disarm).
-fn no_session(why: &str, kinds: &str) -> String {
-    format!("Tehas started no planning session: {}. This instance gives a session the {kinds} an issue links, and a plan made without one of them may be the wrong plan. To retry, apply `tehas:plan`.", disarm(why))
+fn no_session(why: &str) -> String {
+    format!("Tehas started no planning session: {}. This instance gives a session the images an issue links, and a plan made without one of them may be the wrong plan. To retry, apply `tehas:plan`.", disarm(why))
 }
 
 fn left_out(left: &str) -> String {
     format!("Tehas left out of your reply:\n{}", disarm(left))
 }
 
-fn no_turn(why: &str, kinds: &str) -> String {
-    format!("Tehas ran no planning turn: {}. This instance gives a session the {kinds} a reply links, and a plan made without one of them may be the wrong plan. Reply again to run the turn.", disarm(why))
+fn no_turn(why: &str) -> String {
+    format!("Tehas ran no planning turn: {}. This instance gives a session the images a reply links, and a plan made without one of them may be the wrong plan. Reply again to run the turn.", disarm(why))
 }
 
 /// A comment on the issue, its output dropped. A failure is said and changes
@@ -149,7 +152,73 @@ fn chose_update(keep: &str, answer: &str) -> bool {
     captured(&format!("{keep}/exit")) == "12"
         && answer
             .split(|b| *b == b'\n')
-            .any(|line| line.ends_with(b" chose: Update this issue"))
+            .any(|line| line.ends_with(format!(" chose: {}", tehas_core::plan::UPDATE).as_bytes()))
+}
+
+/// After a drafted plan, an answer that ticked "File as a new issue" runs no
+/// container either: the host files the plan the turn showed (file.rs).
+fn chose_file(keep: &str, answer: &str) -> bool {
+    captured(&format!("{keep}/exit")) == "12"
+        && turn::chose_to_file(&fs::read(answer).unwrap_or_default())
+}
+
+/// Files the drafted plan as the factory and writes the document a turn
+/// that filed it writes: 0 filed, 2 not, with why.
+fn file_plan(w: &Words) -> u8 {
+    let home = var("TEHAS_HOME");
+    let path = var("PATH");
+    let ports = crate::forge::gh_program(Some(&home), &path).and_then(|program| {
+        crate::wiring::blueprints(
+            &var("TEHAS_REPO"),
+            &program,
+            call::GH_BOUND,
+            Path::new(&home),
+        )
+        .ok()
+    });
+    let filed = match ports {
+        Some((mut read, mut write)) => {
+            file::file(Path::new(&w.keep), &w.session, &mut *read, &mut *write)
+        }
+        None => Filed::Not("the code host could not be asked, so nothing was filed".into()),
+    };
+    let (doc, rc) = match filed {
+        Filed::At { link, title } => {
+            let ran = serde_json::json!({"url": link.as_str(), "title": title}).to_string();
+            match super::outcome(0, &w.session, Path::new(&w.keep), &ran, false) {
+                Ok(doc) => (doc, 0),
+                Err(why) => (failed(&w.session, &why), 2),
+            }
+        }
+        Filed::Not(why) => (failed(&w.session, &why), 2),
+    };
+    let new = format!("{}.new", w.out);
+    let written = fs::write(&new, format!("{doc}\n")).and_then(|()| fs::rename(&new, &w.out));
+    if written.is_err() {
+        let _ = fs::remove_file(&new);
+        eprintln!("tehas plan: could not write {}", w.out);
+        return 2;
+    }
+    if rc == 0 {
+        tehas_core::outln!(
+            "tehas plan: issue={} session={} filed=yes",
+            w.issue,
+            w.session
+        );
+    } else {
+        eprintln!("tehas plan: issue={} the plan was not filed", w.issue);
+    }
+    rc
+}
+
+/// The document of a turn that failed with its session known, as
+/// `turn::give_up` writes it.
+fn failed(session: &str, why: &str) -> String {
+    serde_json::json!({
+        "session": session,
+        "why": tehas_core::jq::first(why, tehas_core::plan::WHY_MAX),
+    })
+    .to_string()
 }
 
 /// The issue's {title, body}, as gh issue view gives them.
@@ -224,23 +293,12 @@ fn token() -> Result<(), u8> {
     Ok(())
 }
 
-/// The images and the text files share one directory, given to the container
-/// when the instance gives either kind. The second word names them.
-fn kinds(images: bool, files: bool) -> (bool, &'static str) {
-    match (images, files) {
-        (true, true) => (true, "images and files"),
-        (false, true) => (true, "files"),
-        (true, false) => (true, "images"),
-        (false, false) => (false, "images"),
-    }
-}
-
-/// Whether an allowed account applied tehas:plan or tehas:refine: it approved
-/// the text, links and all, as tehas:ready does a cycle's (rule 5). Err when
-/// the label events could not be read.
+/// Whether an allowed account asked for a plan or a refine: it approved the
+/// text, links and all, as an approval does a cycle's (rule 5). Err when the
+/// label events could not be read.
 fn approved(issue: &str) -> Result<&'static str, ()> {
-    for name in ["tehas:plan", "tehas:refine"] {
-        match label::allowed_issue(issue, name) {
+    for act in [Act::Plan, Act::Refine] {
+        match label::allowed_issue(issue, Some(&Mark::Act(act))) {
             0 => return Ok("approved"),
             2 => return Err(()),
             _ => {}
@@ -251,20 +309,15 @@ fn approved(issue: &str) -> Result<&'static str, ()> {
 
 /// The issue's images, once per session, from the first turn. Err is the
 /// status that ends the turn.
-fn first_images(w: &Words, images: &str, kinds: &str) -> Result<(), u8> {
+fn first_images(w: &Words, images: &str) -> Result<(), u8> {
     let got = approved(&w.issue)
         .map_err(|()| UNREAD.to_string())
         .and_then(|word| attach::issue_images(&w.issue, images, word));
     if let Err(why) = got {
         let _ = fs::remove_dir_all(images);
         eprintln!("tehas plan: {why}, not starting a turn");
-        comment(&w.issue, &no_session(&why, kinds));
+        comment(&w.issue, &no_session(&why));
         return Err(tehas_core::exit::plan::NOT_FETCHED);
-    }
-    if var("TEHAS_WORK_DESCRIBE") == "1"
-        && tehas_cycle::describe::describe(Path::new(images), &w.issue).is_err()
-    {
-        eprintln!("tehas plan: the descriptions of the images could not be written, the session goes on without them");
     }
     let reads = attach::reads_images(&var("PI_ENSEMBLE_IMAGE"));
     if let Some(said) = attach::said(images, "planning session", &reads) {
@@ -275,7 +328,7 @@ fn first_images(w: &Words, images: &str, kinds: &str) -> Result<(), u8> {
 
 /// What a reply links, added to the session's images. Ok holds the new files.
 /// A session that began without the directory goes on without it.
-fn reply_images(w: &Words, images: &str, kinds: &str) -> Result<String, u8> {
+fn reply_images(w: &Words, images: &str) -> Result<String, u8> {
     if w.comment.is_empty() || !Path::new(images).join("manifest.json").is_file() {
         return Ok(String::new());
     }
@@ -288,7 +341,7 @@ fn reply_images(w: &Words, images: &str, kinds: &str) -> Result<String, u8> {
         }
         Err(why) => {
             eprintln!("tehas plan: {why}, not starting a turn");
-            comment(&w.issue, &no_turn(&why, kinds));
+            comment(&w.issue, &no_turn(&why));
             Err(tehas_core::exit::plan::NOT_FETCHED)
         }
     }
@@ -436,6 +489,9 @@ fn turn_of(libexec: &str, w: &Words) -> Result<u8, u8> {
     if w.brief.is_empty() && chose_update(&w.keep, &w.answer) {
         return Ok(update_issue(w));
     }
+    if w.brief.is_empty() && chose_file(&w.keep, &w.answer) {
+        return Ok(file_plan(w));
+    }
 
     // The bot's identity is the tehas user's own.
     let (bot_name, bot_email) = (
@@ -449,10 +505,7 @@ fn turn_of(libexec: &str, w: &Words) -> Result<u8, u8> {
         );
         return Err(64);
     }
-    let (give, kinds) = kinds(
-        var("TEHAS_WORK_IMAGES") == "1",
-        var("TEHAS_WORK_FILES") == "1",
-    );
+    let give = var("TEHAS_WORK_IMAGES") == "1";
     // Their paths are this command's to give, not the instance's: dropped
     // whether or not this turn is given attachments, so no container names a
     // directory tehas did not mount. So is the issue, and so is where the
@@ -481,7 +534,7 @@ fn turn_of(libexec: &str, w: &Words) -> Result<u8, u8> {
 
     // An image whose runner does not take planning turns runs none, before
     // anything is fetched or cloned.
-    let caps = review::capabilities(&image).unwrap_or_default();
+    let caps = review::capabilities(&image);
     let lib = Path::new(libexec).join("../lib");
     if tehas_cycle::caps::mode(&caps, "planTurns", Some(&lib)).0 != "native" {
         return Err(refuse(format!("tehas plan: {image} runs no planning turns (its --capabilities has no features.planTurns), not starting a turn")));
@@ -499,9 +552,9 @@ fn turn_of(libexec: &str, w: &Words) -> Result<u8, u8> {
     let mut new = String::new();
     if give {
         if w.brief.is_empty() {
-            new = reply_images(w, &images, kinds)?;
+            new = reply_images(w, &images)?;
         } else {
-            first_images(w, &images, kinds)?;
+            first_images(w, &images)?;
         }
     }
     status(turn::give(&works, &images, &images_given, give))?;
@@ -551,12 +604,18 @@ fn turn_of(libexec: &str, w: &Words) -> Result<u8, u8> {
         };
         turn::first(&w.keep, &what, kind, named)
     } else {
-        turn::later(&w.keep, &w.session, &w.answer, &tree, &repo, &new)?
+        turn::later(&w.session, &w.answer, &tree, &repo, &new)?
     };
 
     // The turn's own copy of the host's code index, asked for only once this
     // turn will start: a turn that never began leaves no copy behind.
-    if !sandbox::seed(&container, &format!("{home}/state/index")) {
+    if !sandbox::seed(
+        &container,
+        &Home::of_text(&home)
+            .state(State::CodeIndex)
+            .display()
+            .to_string(),
+    ) {
         tehas_core::outln!("tehas plan: the code index could not be copied into {container}/cache, this turn searches without one");
     }
     // The mounts name directories that only exist now.
@@ -607,11 +666,7 @@ mod tests {
     fn the_planning_comments_disarm_the_text_they_quote() {
         let agent = "<!-- tehas:millwright issue=5 action=retry -->";
         let quoted = format!("the link {agent} is gone");
-        for body in [
-            no_session(&quoted, "images"),
-            left_out(&quoted),
-            no_turn(&quoted, "images"),
-        ] {
+        for body in [no_session(&quoted), left_out(&quoted), no_turn(&quoted)] {
             assert!(!has_marker(&body), "{body}");
             assert!(body.contains("is gone"), "{body}");
         }
@@ -708,14 +763,6 @@ mod tests {
     }
 
     #[test]
-    fn the_images_and_the_files_share_one_directory_named_by_what_it_holds() {
-        assert_eq!(kinds(true, false), (true, "images"));
-        assert_eq!(kinds(false, true), (true, "files"));
-        assert_eq!(kinds(true, true), (true, "images and files"));
-        assert_eq!(kinds(false, false), (false, "images"));
-    }
-
-    #[test]
     fn only_a_tick_of_update_after_a_drafted_plan_updates_the_issue() {
         let dir = tehas_core::testdir::TestDir::new("plan-start-update");
         let keep = dir.display().to_string();
@@ -728,5 +775,30 @@ mod tests {
         fs::write(dir.join("exit"), "12\n").unwrap();
         fs::write(&answer, "alice chose: Update this issue, but\n").unwrap();
         assert!(!chose_update(&keep, &answer));
+    }
+
+    /// A tick to file after a drafted plan is the host's to file: no turn
+    /// runs for it. Before a plan was shown, it is an answer like any other.
+    #[test]
+    fn only_a_tick_to_file_after_a_drafted_plan_files_it_on_the_host() {
+        let dir = tehas_core::testdir::TestDir::new("plan-start-file");
+        let keep = dir.display().to_string();
+        let answer = dir.join("answer.md").display().to_string();
+        fs::write(&answer, "note\nalice chose: File as a new issue\n").unwrap();
+        fs::write(dir.join("exit"), "12\n").unwrap();
+        assert!(chose_file(&keep, &answer));
+        assert!(!chose_update(&keep, &answer));
+        fs::write(dir.join("exit"), "11\n").unwrap();
+        assert!(!chose_file(&keep, &answer));
+    }
+
+    /// What a host's filing writes for the dispatcher: the turn's document of
+    /// a filed plan, or the session with why, as a failed turn's.
+    #[test]
+    fn a_failed_filing_writes_the_session_and_why() {
+        let doc: serde_json::Value =
+            serde_json::from_str(&failed("abc", "the plan was not filed: refused")).unwrap();
+        assert_eq!(doc["session"], "abc");
+        assert_eq!(doc["why"], "the plan was not filed: refused");
     }
 }

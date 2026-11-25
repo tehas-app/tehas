@@ -5,7 +5,8 @@
 //!   console update notes <root> <options>
 //!
 //! `retired` prints the files an older tehas installed and this one removes,
-//! one path under $TEHAS_HOME a line, from src/update/retired.list.
+//! one path under $TEHAS_HOME a line, from src/update/retired.list. A path
+//! that ends with a slash is a directory.
 //!
 //! `report` prints the --check report, one finding a line, and exits 1 when it
 //! found something to do, 0 otherwise. `notes` prints the "note:" lines a real
@@ -44,6 +45,7 @@ use serde_json::Value;
 
 use super::push::{self, Proof};
 use super::{code, output, say, tell};
+use tehas_core::home::{Home, Live, State};
 
 const RETIRED: &str = include_str!("retired.list");
 
@@ -289,7 +291,7 @@ enum Sandbox {
 /// label of the image now, asked only when the health says behind: an image
 /// the health did not read is not called behind on its word.
 fn behind(home: &Path, label: impl FnOnce() -> Option<String>) -> Option<Sandbox> {
-    let health = json(&home.join("live/health.json"))?;
+    let health = json(&Home::new(home).live(Live::Health))?;
     let rukas = health.get("checks")?.get("rukas")?;
     if rukas.get("behind") != Some(&Value::Bool(true)) {
         return None;
@@ -387,7 +389,7 @@ pub(crate) fn report(a: &Asked, o: &mut impl Outside) -> (Vec<String>, bool) {
     }
 
     // The product is not this host's install: it does not count as found.
-    let checked = a.home.join("state/check-product.json");
+    let checked = Home::new(&a.home).state(State::CheckProduct);
     if fs::File::open(&checked).is_ok() {
         match product(&checked) {
             Some(said) => lines.extend(said),
@@ -413,7 +415,7 @@ pub(crate) fn report(a: &Asked, o: &mut impl Outside) -> (Vec<String>, bool) {
     } else {
         lines.push("Shell:        OK".into());
     }
-    if a.home.join("state/first-install").is_file() {
+    if Home::new(&a.home).state(State::FirstInstall).is_file() {
         lines
             .push("First install: NOT DONE (labels and core units; ./install.sh does them)".into());
         found = true;
@@ -440,7 +442,7 @@ pub(crate) fn report(a: &Asked, o: &mut impl Outside) -> (Vec<String>, bool) {
 
     // A follow-up an earlier run never finished is still owed, and a record
     // this account cannot read is no answer of "nothing owed".
-    let owed = a.home.join("state/update-pending");
+    let owed = Home::new(&a.home).state(State::UpdatePending);
     if owed.exists() {
         let (rc, said) = match &a.steps {
             Some(steps) => o.output(steps, &["update", "steps", "owed"]),
@@ -577,8 +579,10 @@ mod tests {
         let mut seen = HashSet::new();
         for path in retired() {
             assert!(seen.insert(path), "{path} is listed twice");
+            // One slash at the end marks a directory.
+            let plain = path.strip_suffix('/').unwrap_or(path);
             assert!(
-                !path.starts_with('/') && !path.split('/').any(|p| p == ".." || p.is_empty()),
+                !plain.starts_with('/') && !plain.split('/').any(|p| p == ".." || p.is_empty()),
                 "{path} is not a plain path under the home"
             );
             // An installed file comes from the top of the tree or from host/.
@@ -593,6 +597,34 @@ mod tests {
         assert!(seen.len() > 60);
         assert_eq!(retired().next(), Some("bin/tehas-console.ts"));
         assert!(seen.contains("libexec/github-token"));
+        let home = Home::new("");
+        let state = |rest: &str| format!("{}/{rest}", home.state_dir().display());
+        // What outsource left: its programs, its files and its directories.
+        for gone in [
+            "libexec/tehas-proxy".to_string(),
+            "libexec/tehas-proxy.stamp".to_string(),
+            "libexec/tehas-contractor".to_string(),
+            "libexec/tehas-contractor.stamp".to_string(),
+            format!("{}/contractors.json", home.live_dir().display()),
+            "sandbox/vipune-shim".to_string(),
+            state("outsource/"),
+            state("memory/cycles/"),
+        ] {
+            assert!(seen.contains(gone.as_str()), "{gone} is not retired");
+        }
+        // Not outsource's alone to remove: left where they are.
+        for kept in [state("memory/"), state("images/")] {
+            assert!(!seen.contains(kept.as_str()), "{kept} is retired");
+        }
+        // The Protolab's list and log, which nothing writes or rotates now.
+        let list = Home::new(Path::new("")).live_dir().join("protolab.json");
+        for parked in [
+            list.to_str().unwrap(),
+            "logs/protolab.log",
+            "logs/protolab.log.1",
+        ] {
+            assert!(seen.contains(parked), "{parked} is not retired");
+        }
     }
 
     #[test]

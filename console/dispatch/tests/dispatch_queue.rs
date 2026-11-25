@@ -7,6 +7,7 @@ mod common;
 
 use common::*;
 use serde_json::{json, Value};
+use tehas_ports::{Act, Mark, State};
 
 /// One comment, written at second `id` (10-59), edited by `editor` when
 /// one is named (bnote).
@@ -242,8 +243,8 @@ fn a_blocked_issue_that_starts_is_recorded_as_the_ready_labels_not_the_blocked_l
 }
 
 #[test]
-fn the_fixers_tehas_blocked_and_its_comment_count() {
-    let w = World::new("queue-fixer");
+fn the_millwrights_tehas_blocked_and_its_comment_count() {
+    let w = World::new("queue-millwright");
     w.slots(1, &[]);
     blocked(&w, "tehas-bot", "tehas-bot", "<!-- tehas:blocked by=12 -->");
     states(&w, &[(12, "OPEN")]);
@@ -252,12 +253,12 @@ fn the_fixers_tehas_blocked_and_its_comment_count() {
     has(&r.out, "wait #7: tehas:blocked holds it: #12 is open");
 }
 
-// A GitHub App as the fixer: its label events are REST's, <slug>[bot], and
+// A GitHub App as the millwright: its label events are REST's, <slug>[bot], and
 // its comments GraphQL's, <slug>. Either form of the setting is that one
 // account.
 #[test]
-fn the_app_as_the_fixer_its_tehas_blocked_and_its_comment_count() {
-    let w = World::new("queue-app-fixer");
+fn the_app_as_the_millwright_its_tehas_blocked_and_its_comment_count() {
+    let w = World::new("queue-app-millwright");
     w.slots(1, &[]);
     blocked(
         &w,
@@ -272,7 +273,7 @@ fn the_app_as_the_fixer_its_tehas_blocked_and_its_comment_count() {
 }
 
 #[test]
-fn the_app_as_the_fixer_a_comment_by_a_name_like_its_own_names_no_blockers() {
+fn the_app_as_the_millwright_a_comment_by_a_name_like_its_own_names_no_blockers() {
     let w = World::new("queue-app-like");
     w.slots(1, &[]);
     blocked(
@@ -301,9 +302,10 @@ fn tehas_blocked_alone_starts_the_issue_once_its_blockers_close_and_comes_off() 
     assert_eq!(w.poll().rc, 0);
     assert_eq!(w.started(), "7 ");
     let gh = w.gh();
-    has(
-        &gh,
-        "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:blocked",
+    assert!(
+        w.on(7, Mark::State(State::Running)) && w.off(7, Mark::Act(Act::Block)),
+        "{:?}",
+        w.writes_of(7)
     );
     lacks(&gh, "--remove-label tehas:ready");
     has(&gh, "authorized by @alice's `tehas:blocked` label");
@@ -314,8 +316,8 @@ fn tehas_blocked_alone_starts_the_issue_once_its_blockers_close_and_comes_off() 
 }
 
 #[test]
-fn tehas_blocked_alone_from_the_fixer_holds_the_issue_but_does_not_start_it() {
-    let w = World::new("queue-alone-fixer");
+fn tehas_blocked_alone_from_the_millwright_holds_the_issue_but_does_not_start_it() {
+    let w = World::new("queue-alone-millwright");
     w.slots(1, &[]);
     alone(&w, 7, &[]);
     blocked_by(&w, 7, "tehas-bot");
@@ -389,8 +391,8 @@ fn demand_counts_a_ready_issue_whose_planning_session_the_poll_ended() {
 }
 
 #[test]
-fn demand_the_fixers_label_waits_like_a_persons() {
-    let w = World::new("queue-demand-fixer");
+fn demand_the_millwrights_label_waits_like_a_persons() {
+    let w = World::new("queue-demand-millwright");
     w.slots(1, &[]);
     ready_at(&w, 7, "tehas-bot", "2026-10-17T10:00:00Z");
     w.hold(5);
@@ -486,7 +488,9 @@ fn a_push_fault_older_than_ten_minutes_and_a_probe_that_is_refused_holds_and_ren
         "probe-bad",
         &format!("printf '%s\\n' '{DENIED}' >&2\nexit 1"),
     );
+    let before = epoch("now");
     let r = w.poll();
+    let after = epoch("now");
     assert_eq!(r.rc, 0);
     assert_eq!(w.calls("fake-start"), "");
     has(
@@ -510,10 +514,13 @@ fn a_push_fault_older_than_ten_minutes_and_a_probe_that_is_refused_holds_and_ren
     );
     assert_eq!(why(&w), json!("lane"));
     assert_eq!(w.calls("probe-bad").lines().count(), 1);
-    // The time is the probe's own: the next poll waits the wait out.
-    let now = epoch("now");
+    // The time is the probe's own, taken during the poll: the next poll
+    // waits the wait out.
     let at = epoch(f["at"].as_str().unwrap());
-    assert!((at - now).abs() <= 2, "stale: {}", at - now);
+    assert!(
+        (before..=after).contains(&at),
+        "the renewed time {at} lies outside the poll, {before}..={after}"
+    );
 }
 
 #[test]

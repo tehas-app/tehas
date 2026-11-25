@@ -132,10 +132,10 @@ fn history_show_with_nothing_is_an_empty_list() {
 #[test]
 fn history_show_lists_every_column_in_the_order_written() {
     let home = home("history-order");
-    cycle(&home, 11, "label", NOW + 30);
+    cycle(&home, 11, "approved", NOW + 30);
     turn(&home, 10, NOW + 20);
-    cycle(&home, 10, "label", NOW + 20);
-    cycle(&home, 10, "fixer", NOW + 40);
+    cycle(&home, 10, "approved", NOW + 20);
+    cycle(&home, 10, "millwright", NOW + 40);
     let all = rows(&home, &[]);
     // In the order the ends were written, whatever their times and issues:
     // one sequence across both tables.
@@ -155,7 +155,7 @@ fn history_show_lists_every_column_in_the_order_written() {
     assert_eq!(
         c,
         json!({"kind":"cycle","id":id,"issue":10,"attempt":1,"at":NOW + 20,"status":"failed",
-               "step":"review","by":"alice","how":"label","pr":40,"started_at":NOW + 10,"rc":3,
+               "step":"review","by":"alice","how":"approved","pr":40,"started_at":NOW + 10,"rc":3,
                "cap":null,"park_reason":null,"failure_kind":null,"failure_cause":null,
                "provider":true,"parked":false,"easy":false,"seq":3})
     );
@@ -172,7 +172,7 @@ fn history_show_lists_every_column_in_the_order_written() {
 #[test]
 fn history_show_takes_an_issue_a_kind_and_a_how() {
     let home = home("history-filter");
-    cycle(&home, 10, "label", NOW + 20);
+    cycle(&home, 10, "approved", NOW + 20);
     cycle(&home, 10, "refresh", NOW + 30);
     cycle(&home, 11, "refresh", NOW + 35);
     turn(&home, 10, NOW + 25);
@@ -201,130 +201,37 @@ fn history_show_takes_an_issue_a_kind_and_a_how() {
         keys(&rows(&home, &["10", "--kind", "cycle", "--how", "refresh"])),
         vec![("cycle".to_string(), 10, NOW + 30)]
     );
-    assert_eq!(rows(&home, &["10", "--how", "fixer"]), Vec::<Value>::new());
+    assert_eq!(rows(&home, &["10", "--how", "hand"]), Vec::<Value>::new());
 }
 
 #[test]
-fn history_show_takes_the_millwright_under_both_words() {
-    let home = home("history-millwright-both");
-    // Three rows, each at a time of its own: a person's label, a start of this
-    // release's word, and a third made as a millwright's start and then read
-    // back as the row a host wrote before the rename, which still says `fixer`.
-    // A read for either millwright word keeps the last two and no other; a read
-    // of another word keeps its own alone.
-    cycle(&home, 12, "label", NOW);
+fn history_show_takes_the_millwright_under_its_word() {
+    let home = home("history-millwright");
+    // A person's label and two millwright starts: a read of the millwright's
+    // word keeps the two and no other, and the old word is no filter.
+    cycle(&home, 12, "approved", NOW);
     cycle(&home, 12, "millwright", NOW + 30);
-    let (l, a) = start_by(&home, 12, "tehas-fixer", "millwright", NOW + 50);
-    ok_at(
-        &home,
-        NOW + 60,
-        &[
-            "cycle-end",
-            "12",
-            "--attempt",
-            &a.to_string(),
-            "--status",
-            "failed",
-            "--step",
-            "review",
-        ],
-    );
-    drop(l);
-    // The UPDATE names that one row by the time `cycle-end` wrote it: two rows
-    // already share `at` NOW + 30, so the attempt alone is not enough.
-    let c = conn(&home);
-    c.execute(
-        "UPDATE cycle_history SET how = 'fixer' WHERE issue = 12 AND at = ?1",
-        [NOW + 60],
-    )
-    .unwrap();
-    drop(c);
-    for word in ["millwright", "fixer"] {
-        assert_eq!(
-            keys(&rows(&home, &["12", "--kind", "cycle", "--how", word])),
-            vec![
-                ("cycle".to_string(), 12, NOW + 30),
-                ("cycle".to_string(), 12, NOW + 60),
-            ],
-            "--how {word}"
-        );
-    }
-    // A row of another word is kept by its own filter and not by the pair's:
-    // the refresh row is there for `--how refresh` to find, and neither
-    // millwright word above took it.
-    cycle(&home, 12, "refresh", NOW + 90);
+    cycle(&home, 12, "millwright", NOW + 60);
     assert_eq!(
-        keys(&rows(&home, &["12", "--kind", "cycle", "--how", "refresh"])),
-        vec![("cycle".to_string(), 12, NOW + 90)],
-        "the refresh row is its own, and no millwright word reaches it"
-    );
-    assert_eq!(
-        keys(&rows(&home, &["12", "--kind", "cycle", "--how", "hand"])),
-        Vec::<(String, i64, i64)>::new(),
-        "a word with no row of its own keeps none"
-    );
-    // The label row is there, and a filter of `label` keeps it alone: the pair
-    // did not take it.
-    assert_eq!(
-        keys(&rows(&home, &["12", "--kind", "cycle", "--how", "label"])),
-        vec![("cycle".to_string(), 12, NOW)]
-    );
-    assert_eq!(
-        keys(&rows(&home, &["12", "--kind", "cycle"])),
+        keys(&rows(
+            &home,
+            &["12", "--kind", "cycle", "--how", "millwright"]
+        )),
         vec![
-            ("cycle".to_string(), 12, NOW),
             ("cycle".to_string(), 12, NOW + 30),
             ("cycle".to_string(), 12, NOW + 60),
-            ("cycle".to_string(), 12, NOW + 90),
         ]
-    );
-}
-
-#[test]
-fn history_show_answers_the_old_word_alone_when_only_that_word_was_written() {
-    // The one case the pair's filter must answer on its own: a row whose `how`
-    // is only the old word, and no row of the new one. Were the alias bound to
-    // another word, the read of `fixer` here would come back empty.
-    let home = home("history-fixer-only");
-    cycle(&home, 13, "label", NOW);
-    let (l, a) = start_by(&home, 13, "tehas-fixer", "millwright", NOW + 50);
-    ok_at(
-        &home,
-        NOW + 60,
-        &[
-            "cycle-end",
-            "13",
-            "--attempt",
-            &a.to_string(),
-            "--status",
-            "failed",
-            "--step",
-            "review",
-        ],
-    );
-    drop(l);
-    let c = conn(&home);
-    c.execute(
-        "UPDATE cycle_history SET how = 'fixer' WHERE issue = 13 AND at = ?1",
-        [NOW + 60],
-    )
-    .unwrap();
-    drop(c);
-    assert_eq!(
-        keys(&rows(&home, &["13", "--kind", "cycle", "--how", "fixer"])),
-        vec![("cycle".to_string(), 13, NOW + 60)]
     );
     assert_eq!(
         keys(&rows(
             &home,
-            &["13", "--kind", "cycle", "--how", "millwright"]
+            &["12", "--kind", "cycle", "--how", "approved"]
         )),
-        vec![("cycle".to_string(), 13, NOW + 60)]
+        vec![("cycle".to_string(), 12, NOW)]
     );
-    assert_eq!(
-        keys(&rows(&home, &["13", "--kind", "cycle", "--how", "label"])),
-        vec![("cycle".to_string(), 13, NOW)]
-    );
+    let (rc, line) = call(&home, &["history-show", "12", "--how", "fixer"]).unwrap_err();
+    assert_eq!(rc, 64);
+    assert!(line.contains("--how is not one of millwright,"), "{line}");
 }
 
 #[test]
@@ -342,7 +249,7 @@ fn history_show_refuses_bad_arguments() {
             "--how is not one of",
         ),
         (
-            &["history-show", "--kind", "plan", "--how", "label"][..],
+            &["history-show", "--kind", "plan", "--how", "approved"][..],
             "--how is not taken with --kind plan",
         ),
         (&["history-show", "--kind"][..], "--kind needs a value"),

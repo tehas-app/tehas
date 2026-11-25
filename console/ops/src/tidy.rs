@@ -35,9 +35,10 @@ use std::env;
 use std::io::Write as _;
 use std::path::Path;
 use std::time::Duration;
-use tehas_core::call::{self, Ran};
+use tehas_core::call::Ran;
 use tehas_core::forge::{Bounded, GhRunner};
 use tehas_core::github_fails;
+use tehas_core::home::Home;
 use tehas_core::lock::{probe, Probe};
 use tehas_core::retry::{retry_with, Budget};
 use tehas_core::time;
@@ -118,8 +119,9 @@ fn run(given: &[String]) -> u8 {
         program: program.unwrap_or_else(|| "gh".to_string()),
         bound: Duration::from_secs(settings.wait),
         grace: GRACE,
+        token: None,
     };
-    let cycles = Path::new(&settings.home).join("state").join("cycles");
+    let cycles = Home::new(&settings.home).cycles_dir();
     // A lock that cannot be read is no free lock: the issue waits for a later poll.
     let running = |n: u64| {
         !matches!(
@@ -187,7 +189,7 @@ fn read(
     if outcome.attempts > 1 {
         why.push_str(&format!(" (tried {} times)", outcome.attempts));
     }
-    Err(call::trim(&why))
+    Err(tehas_core::text::trim(&why))
 }
 
 /// `--dry-run` or not, None for help, and the first word `run` does not know.
@@ -547,7 +549,7 @@ mod tests {
 
     /// The labels of the table a closed issue keeps, each with why. Together
     /// with `STATES` they are the whole table, and no name is in both.
-    const KEPT: [(&str, &str); 13] = [
+    const KEPT: [(&str, &str); 11] = [
         (SHIPPED, "the mark of a merge, given by tidy itself"),
         ("tehas:pause", "a setting of the control issue, not of work"),
         (
@@ -565,21 +567,13 @@ mod tests {
         ),
         ("tehas:lean", "a choice of driver, not a state of work"),
         ("tehas:classic", "a choice of driver, not a state of work"),
-        (
-            "tehas:all-hands",
-            "a setting of the control issue, not of work",
-        ),
         ("epic", "a kind of issue, not a state of work"),
         (
             "tehas:finish",
             "a request a person applies; the finish reads it, not tidy",
         ),
         (
-            "tehas:prototype",
-            "a stage of the product, not a state of work",
-        ),
-        (
-            "tehas:improvement",
+            tehas_core::kinds::Kind::Improvement.label(),
             "a mark the factory puts on a proposal it files",
         ),
     ];
@@ -751,6 +745,39 @@ mod tests {
                 .to_string(),
         ];
         assert_eq!(rows(&items, 100)[0].off, ["tehas:running"]);
+    }
+
+    /// A plugin phase's label: the tidy never takes one off, never searches
+    /// for one, and an issue that carries only one is no work.
+    #[test]
+    fn a_plugin_phase_label_is_never_taken_off_or_searched_for() {
+        use tehas_core::label_pins::PLUGIN_PHASE;
+        let phase = format!("{PLUGIN_PHASE}x");
+        assert!(STATES.iter().all(|s| !s.starts_with(PLUGIN_PHASE)));
+        assert!(!search().contains(PLUGIN_PHASE));
+        let items = [
+            issue(60, "CLOSED", &[STATES[0], &phase]),
+            issue(61, "CLOSED", &[&phase]),
+        ];
+        let rows = rows(&items, 100);
+        assert_eq!(numbers(&rows), [60]);
+        assert_eq!(rows[0].off, [STATES[0]]);
+        let mut gh = Stub::new(&items, &closed(&[60, 61], &[]));
+        let (rc, log) = poll(&mut gh, false, &[]);
+        assert_eq!(rc, 0);
+        assert_eq!(
+            gh.edits(),
+            [format!(
+                "issue edit 60 --repo acme/widget --remove-label {} --add-label {SHIPPED}",
+                STATES[0]
+            )]
+        );
+        assert!(log.iter().all(|l| !l.contains(PLUGIN_PHASE)), "{log:?}");
+        assert!(
+            gh.calls.iter().all(|c| !c.contains(PLUGIN_PHASE)),
+            "{:?}",
+            gh.calls
+        );
     }
 
     #[test]

@@ -8,6 +8,7 @@ use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use tehas_core::home::Home;
 use work::{
     body_sha256, commit, count_of, epoch, git_out, git_rc, has, lacks, root, security_doc_rows,
     security_line, security_of, unknown_options, Run, World, RUNNER, SECURITY_OPTS, WANT,
@@ -50,7 +51,7 @@ fn docker_runs(w: &World) -> usize {
 
 /// The note a refused start leaves for the park.
 fn refused(w: &World) -> String {
-    fs::read_to_string(w.home.join("state/cycles/7.refused"))
+    fs::read_to_string(Home::new(&w.home).cycle_note(7, "refused"))
         .unwrap_or_default()
         .trim_end_matches('\n')
         .to_string()
@@ -561,7 +562,7 @@ fn record_input(w: &World, name: &str, v: &Value) -> String {
 /// which merges cleanly with main.
 fn refresh_record(w: &World, how: &str) {
     fs::create_dir_all(w.fx.join("net")).unwrap();
-    fs::create_dir_all(w.home.join("state/cycles")).unwrap();
+    fs::create_dir_all(Home::new(&w.home).cycles_dir()).unwrap();
     w.issue_is("", "NONE", "");
     w.store_db();
     let sum = body_sha256("");
@@ -654,7 +655,7 @@ fn a_lean_refresh_is_78_before_anything_moves_though_the_image_takes_continue_pr
         f.insert("leanHandoffHost".into(), json!(true));
     });
     fs::create_dir_all(w.fx.join("net")).unwrap();
-    fs::create_dir_all(w.home.join("state/cycles")).unwrap();
+    fs::create_dir_all(Home::new(&w.home).cycles_dir()).unwrap();
     w.issue_is("", "NONE", "");
     w.store_db();
     let input = record_input(
@@ -692,7 +693,7 @@ fn a_lean_refresh_is_78_before_anything_moves_though_the_image_takes_continue_pr
 /// writes it.
 fn refresh_at(w: &World, head: &str) {
     fs::create_dir_all(w.fx.join("net")).unwrap();
-    fs::create_dir_all(w.home.join("state/cycles")).unwrap();
+    fs::create_dir_all(Home::new(&w.home).cycles_dir()).unwrap();
     w.issue_is("", "NONE", "");
     w.store_db();
     let input = record_input(
@@ -735,7 +736,7 @@ fn pr_branch(w: &World, branch: &str, file: &str, line: &str, conflict: bool) ->
 }
 
 fn note7(w: &World) -> PathBuf {
-    w.home.join("state/cycles/7.refresh-conflict")
+    Home::new(&w.home).cycle_note(7, "refresh-conflict")
 }
 
 #[test]
@@ -822,12 +823,12 @@ fn never_continues(how: &str) {
 
 #[test]
 fn a_start_of_how_label_never_passes_continue_pr_also_when_the_image_takes_it() {
-    never_continues("label");
+    never_continues("approved");
 }
 
 #[test]
 fn a_start_of_how_retry_tick_never_passes_continue_pr_also_when_the_image_takes_it() {
-    never_continues("retry-tick");
+    never_continues("reply");
 }
 
 #[test]
@@ -836,8 +837,8 @@ fn a_start_of_how_outage_retry_never_passes_continue_pr_also_when_the_image_take
 }
 
 #[test]
-fn a_start_of_how_fixer_never_passes_continue_pr_also_when_the_image_takes_it() {
-    never_continues("fixer");
+fn a_start_of_how_millwright_never_passes_continue_pr_also_when_the_image_takes_it() {
+    never_continues("millwright");
 }
 
 #[test]

@@ -96,7 +96,7 @@ for name in $body; do
 done
 [ -z "$missing_body" ] || t_bad "a name of the table's body this parse did not read:$missing_body"
 t_contains "$loader" TEHAS_REPO
-t_contains "$loader" TEHAS_REVIEW_REPO
+t_contains "$loader" TEHAS_RELEASE_REPO
 t_contains "$loader" TEHAS_UPDATE_FROM
 t_contains "$loader" TEHAS_MAX_CYCLES
 
@@ -161,8 +161,8 @@ has TEHAS_MILLWRIGHT_LOGIN "$manual" &&
 has TEHAS_GITHUB_APP_INSTALLATION "$manual" &&
   t_bad "TEHAS_GITHUB_APP_INSTALLATION is a row again: the installation is looked up"
 
-t_case "the five settings #1698 found have rows"
-for name in TEHAS_CYCLE_LOGIN TEHAS_SCRATCH_DIR TEHAS_TOP TEHAS_UPDATE_FROM TEHAS_RELEASE_REPO; do
+t_case "the settings #1698 found that 2.0 keeps have rows"
+for name in TEHAS_CYCLE_LOGIN TEHAS_SCRATCH_DIR TEHAS_UPDATE_FROM TEHAS_RELEASE_REPO; do
   has "$name" "$manual" || t_bad "no row for $name"
 done
 

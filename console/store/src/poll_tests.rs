@@ -5,6 +5,7 @@ use crate::verbs_tests::*;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::Path;
+use tehas_core::home::Home;
 use tehas_core::time::iso;
 
 /// The CPU of every poll these tests record.
@@ -12,7 +13,7 @@ const CPU_MS: i64 = 1500;
 
 /// A poll of `gh` calls and 1.5 s of CPU, and its write log when `log` is given.
 fn files(home: &Path, gh: i64, log: Option<&str>) -> Record {
-    let state = home.join("state");
+    let state = Home::new(home).state_dir();
     let writes_log = state.join("github-writes.log");
     if let Some(l) = log {
         fs::write(&writes_log, l).unwrap();
@@ -69,7 +70,7 @@ fn record(
 /// One row written through the verb, which is how `--starts` arrives. The
 /// write log is the one `files` wrote.
 fn record_verb(home: &Path, at: i64, started: &str, starts: &str) -> Value {
-    let state = home.join("state");
+    let state = Home::new(home).state_dir();
     let path = |n: &str| state.join(n).to_string_lossy().into_owned();
     ok_at(
         home,
@@ -222,6 +223,18 @@ fn api(home: &Path, now: i64) -> Value {
         now,
         &["poll-show", "--api", "--now", &now.to_string()],
     )
+}
+
+/// The API shape names the store's id from `meta` (T11.5), whether or not
+/// a poll is on record: `tehas api` prints it as `store`.
+#[test]
+fn the_api_shape_names_the_store() {
+    let home = home("poll-store");
+    let v = api(&home, NOW);
+    let id = one::<String>(&home, "SELECT value FROM meta WHERE key = 'store'");
+    assert_eq!(v["store"], Value::from(id.clone()));
+    assert_eq!(v["last"], Value::Null);
+    assert_eq!(id.len(), 32);
 }
 
 #[test]

@@ -3,10 +3,12 @@
 
 mod common;
 
+use common::Part::{Off, On};
 use common::*;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::Path;
+use tehas_ports::{Act, Mark, State};
 
 fn v(text: &str) -> Value {
     serde_json::from_str(text).unwrap_or_else(|e| panic!("{e}: {text}"))
@@ -86,7 +88,15 @@ fn the_record_lists_the_options_that_were_posted_so_a_box_and_its_option_keep_th
         rec_jq(&w, "[(.options | length), .options[0], .options[19]]"),
         json!([20, "Way 0", "Way 19"])
     );
-    assert_eq!(gh_lines(&w, "- [ ] Way "), 20);
+    let numbered = w
+        .gh()
+        .lines()
+        .filter(|l| {
+            l.split_once(". Way ")
+                .is_some_and(|(k, _)| k.parse::<u32>().is_ok())
+        })
+        .count();
+    assert_eq!(numbered, 20);
     has(&w.gh(), "Options left out: 10.");
 }
 
@@ -104,8 +114,8 @@ fn questions_posted_as_one_have_no_option_boxes_so_a_tick_answers_none_of_them()
     assert_eq!(w.rec()["options"], json!([]));
     has(&w.gh(), "1. Which?");
     has(&w.gh(), "2. Where?");
-    assert_eq!(gh_lines(&w, "- [ ] "), 1);
-    has(&w.gh(), "- [ ] End this planning session");
+    assert_eq!(gh_lines(&w, "- [ ] "), 0);
+    has(&w.gh(), "1. End this planning session");
 }
 
 #[test]
@@ -224,7 +234,7 @@ fn a_reply_s_turn_is_given_the_reply_s_comment_id_so_its_attachments_go_with_it(
 }
 
 #[test]
-fn a_reply_and_a_tick_from_a_listed_login_with_another_user_id_run_no_turn() {
+fn replies_from_a_listed_login_with_another_user_id_run_no_turn() {
     // The login alice changed hands: the account that answers is not the one listed.
     let w = World::new("plan-answer");
     w.planning();
@@ -233,7 +243,8 @@ fn a_reply_and_a_tick_from_a_listed_login_with_another_user_id_run_no_turn() {
     w.comments(7, &plan_body("x", " ", " ", 1, ""), "alice", after);
     let path = w.fx.join("comments-7.json");
     let mut c = v(&fs::read_to_string(&path).unwrap());
-    c["data"]["repository"]["issue"]["comments"]["nodes"][0]["editor"]["databaseId"] = json!(99);
+    // The box is answered by alice's reply now, under the same id.
+    c["data"]["repository"]["issue"]["comments"]["nodes"][1]["author"]["databaseId"] = json!(99);
     w.fx_json("comments-7.json", &c);
     let r = w.poll();
     assert_eq!(w.plan_calls(), "");
@@ -244,7 +255,7 @@ fn a_reply_and_a_tick_from_a_listed_login_with_another_user_id_run_no_turn() {
             uid("alice")
         ),
     );
-    has(&w.gh(), "api -X PATCH");
+    lacks(&w.gh(), "api -X PATCH");
 }
 
 #[test]
@@ -272,9 +283,16 @@ fn a_later_turn_that_fails_asks_again_and_keeps_the_session() {
     w.touch("plan-fails");
     w.poll();
     has(&w.gh(), "This planning turn did not finish");
-    has(
-        &w.gh(),
-        "--add-label tehas:question --add-label needs-human-attention",
+    assert!(
+        w.changes(
+            7,
+            &[
+                On(Mark::State(State::Question)),
+                On(Mark::State(State::NeedsPerson))
+            ]
+        ),
+        "{:?}",
+        w.writes_of(7)
     );
     assert_eq!(
         rec_jq(&w, "[.session, .turns, .failed]"),
@@ -295,7 +313,19 @@ fn a_later_turn_whose_session_pi_rukas_no_longer_has_ends_the_session_and_says_t
     has(&w.plan_calls(), "--session abc-123");
     has(&r.out, "planning #7: Pi no longer has session abc-123");
     let gh = w.gh();
-    has(&gh, "--remove-label tehas:question --remove-label tehas:planning --remove-label tehas:plan --remove-label needs-human-attention");
+    assert!(
+        w.changes(
+            7,
+            &[
+                Off(Mark::State(State::Question)),
+                Off(Mark::State(State::Planning)),
+                Off(Mark::Act(Act::Plan)),
+                Off(Mark::State(State::NeedsPerson))
+            ]
+        ),
+        "{:?}",
+        w.writes_of(7)
+    );
     has(&gh, "pi-rukas has no record of it on");
     has(&gh, "Apply `tehas:plan` again to start a new session.");
     lacks(&gh, "This planning turn did not finish");
@@ -334,9 +364,16 @@ fn a_refine_the_poll_started_on_its_own_hands_the_issue_back_when_it_ends_withou
     w.comments(7, &plan_body("x", " ", " ", 2, ""), "alice", json!([]));
     w.poll();
     has(&w.gh(), "reached its limit of 2 turns");
-    has(
-        &w.gh(),
-        "--remove-label tehas:plan --add-label needs-human-attention",
+    assert!(
+        w.changes(
+            7,
+            &[
+                Off(Mark::Act(Act::Plan)),
+                On(Mark::State(State::NeedsPerson))
+            ]
+        ),
+        "{:?}",
+        w.writes_of(7)
     );
     assert_eq!(w.rec_open(), "none");
 
@@ -350,9 +387,16 @@ fn a_refine_the_poll_started_on_its_own_hands_the_issue_back_when_it_ends_withou
     w.fx("plan-fails", "{\"session\":\"abc-123\",\"lost\":true}\n");
     w.poll();
     has(&w.gh(), "pi-rukas has no record of it on");
-    has(
-        &w.gh(),
-        "--remove-label tehas:plan --add-label needs-human-attention",
+    assert!(
+        w.changes(
+            7,
+            &[
+                Off(Mark::Act(Act::Plan)),
+                On(Mark::State(State::NeedsPerson))
+            ]
+        ),
+        "{:?}",
+        w.writes_of(7)
     );
 
     // A refine a label started ends as a plan does.
@@ -365,9 +409,16 @@ fn a_refine_the_poll_started_on_its_own_hands_the_issue_back_when_it_ends_withou
     );
     w.comments(7, &plan_body("x", " ", " ", 2, ""), "alice", json!([]));
     w.poll();
-    has(
-        &w.gh(),
-        "--remove-label tehas:plan --remove-label needs-human-attention",
+    assert!(
+        w.changes(
+            7,
+            &[
+                Off(Mark::Act(Act::Plan)),
+                Off(Mark::State(State::NeedsPerson))
+            ]
+        ),
+        "{:?}",
+        w.writes_of(7)
     );
 }
 
@@ -377,10 +428,7 @@ fn a_lost_session_whose_labels_cannot_be_taken_off_is_ended_by_the_next_poll() {
     w.planning();
     w.comments(7, &plan_body("x", " ", " ", 1, ""), "alice", json!([]));
     w.fx("plan-fails", "{\"session\":\"abc-123\",\"lost\":true}\n");
-    w.fx(
-        "edit-fails-on",
-        "--remove-label tehas:question --remove-label tehas:planning\n",
-    );
+    w.fx("edit-fails-on", "--remove-label tehas:planning\n");
     w.poll();
     assert_eq!(rec_jq(&w, "[.lost, .running]"), json!([true, true]));
     lacks(&w.gh(), "pi-rukas has no record of it on");
@@ -426,7 +474,11 @@ fn the_way_out_ends_the_session_labels_off_record_gone_one_comment() {
     w.comments(7, &plan_body(" ", " ", "x", 1, ""), "alice", json!([]));
     w.poll();
     assert_eq!(w.plan_calls(), "");
-    has(&w.gh(), "--remove-label tehas:question");
+    assert!(
+        w.changes(7, &[Off(Mark::State(State::Question))]),
+        "{:?}",
+        w.writes_of(7)
+    );
     has(&w.gh(), "Planning session ended by alice.");
     assert_eq!(w.rec_open(), "none");
     assert!(!w.keep().exists());
@@ -446,16 +498,27 @@ fn an_outcome_that_could_not_be_posted_is_posted_by_the_next_poll_before_anythin
     let mut out = w.record().into_os_string();
     out.push(".out");
     assert!(fs::metadata(&out).map(|m| m.len() > 0).unwrap_or(false));
-    lacks(&w.gh(), "--add-label tehas:question");
+    assert!(
+        !w.changes(7, &[On(Mark::State(State::Question))]),
+        "{:?}",
+        w.writes_of(7)
+    );
     w.clear_calls();
     w.rm_fx("post-fails");
     w.fx("asking.json", "[]");
     w.poll();
     assert_eq!(w.plan_calls(), "");
     has(&w.gh(), "<!-- tehas:question kind=plan issue=7 turn=2 -->");
-    has(
-        &w.gh(),
-        "--remove-label tehas:planning --add-label tehas:question",
+    assert!(
+        w.changes(
+            7,
+            &[
+                Off(Mark::State(State::Planning)),
+                On(Mark::State(State::Question))
+            ]
+        ),
+        "{:?}",
+        w.writes_of(7)
     );
     assert_eq!(w.rec()["pending"], json!(false));
 }
@@ -477,5 +540,5 @@ fn the_record_of_a_session_whose_issue_no_longer_asks_is_removed() {
     w.fx("asking.json", "[]");
     w.poll();
     assert_eq!(w.rec_open(), "none");
-    lacks(&w.gh(), "issue comment");
+    assert_eq!(w.notes_any(), 0);
 }

@@ -8,10 +8,6 @@
 //!   instance.env that sets a token is refused: it is in a repository.
 //! - PI_RUKAS_FOLLOW may be set in instance.env, over the line of versions.env.
 //! - Loading runs no git command, makes no network call and writes nothing.
-//! - TEHAS_REVIEW is the switch of review, a feature still being built: on
-//!   stops the load, and so does a TEHAS_REVIEW_REPO line (features.rs). Off,
-//!   tehasbot review exits at once and calls nothing. TEHAS_REVIEW_REPO is
-//!   never TEHAS_REPO: a person triages findings before they are tickets.
 //! - TEHAS_GITHUB_APP_ID names the GitHub App the factory acts as, and is the
 //!   only setting that does; the load refuses without it. The app's login is
 //!   not a setting: state/github/login holds it, one line, `<slug>[bot]`, and
@@ -32,6 +28,7 @@ use super::renamed;
 use super::rules::{self, When, HOST, ROLES, SWITCH_WORDS, TABLE};
 use crate::driver::Driver;
 use crate::features;
+use crate::home::State;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The names of the two families the environment may give: the home, the
@@ -73,10 +70,6 @@ pub(super) const KEPT: &[&str] = &[
     "TEHAS_CYCLE_STOP_GH_WAIT",
     "TEHAS_CYCLE_FROM",
     "TEHAS_CYCLE_ATTEMPT",
-    // The contractor program a cycle on a contractor relays through
-    // (cycle/src/work.rs), named by that program and read only with outsource
-    // on.
-    "TEHAS_CONTRACTOR",
     "TEHAS_TIDY_CMD",
     "TEHAS_FINISH_CMD",
     "TEHAS_PUSH_PROBE_CMD",
@@ -89,9 +82,6 @@ pub(super) const KEPT: &[&str] = &[
     "TEHAS_GITHUB_API",
     "TEHAS_GITHUB_APP_KEY",
     "TEHAS_GITHUB_RENEW_EVERY",
-    "TEHAS_ENERGY",
-    "TEHAS_ENERGY_URL",
-    "TEHAS_ENERGY_SOURCE_URL",
     "TEHAS_MANAGER_VERSION",
     "TEHAS_MCP",
     "TEHAS_MCP_KEYS",
@@ -128,6 +118,120 @@ const RETIRED: [&str; 12] = [
 /// Whether `name` is one an earlier version read, refused now (`RETIRED`).
 pub(super) fn retired(name: &str) -> bool {
     RETIRED.contains(&name)
+}
+
+const PROTOLAB: &str = "the Protolab was removed in 2.0";
+
+/// The names of features 2.0 took out, each with why. Unlike `RETIRED`, a
+/// line of one loads: a 1.4.x instance must never fail to load (the owner,
+/// 2026-11-22). The load warns once and drops the name, so nothing reads it.
+pub(super) const IGNORED: &[(&str, &str)] = &[
+    (
+        "TEHAS_REVIEW",
+        "the review loop left core in 2.0 and returns as a plugin",
+    ),
+    (
+        "TEHAS_REVIEW_REPO",
+        "the review loop left core in 2.0 and returns as a plugin",
+    ),
+    (
+        "TEHAS_ENERGY",
+        "energy use left core in 2.0 and returns as a plugin",
+    ),
+    (
+        "TEHAS_ENERGY_URL",
+        "energy use left core in 2.0 and returns as a plugin",
+    ),
+    (
+        "TEHAS_ENERGY_SOURCE_URL",
+        "energy use left core in 2.0 and returns as a plugin",
+    ),
+    (
+        "TEHAS_WIKI",
+        "the product wiki left core in 2.0 and returns as a plugin",
+    ),
+    (
+        "TEHAS_SPEC_PIPE",
+        "the spec mark, an issue's `Spec:` line, was dropped in 2.0",
+    ),
+    ("TEHAS_OUTSOURCE", "outsource was dropped in 2.0"),
+    ("TEHAS_OUTSOURCE_TIMEOUT", "outsource was dropped in 2.0"),
+    ("TEHAS_OUTSOURCE_GRACE", "outsource was dropped in 2.0"),
+    ("TEHAS_OUTSOURCE_RETRIES", "outsource was dropped in 2.0"),
+    ("TEHAS_OUTSOURCE_REST", "outsource was dropped in 2.0"),
+    ("TEHAS_OUTSOURCE_REPOS", "outsource was dropped in 2.0"),
+    (
+        "TEHAS_OUTSOURCE_CONTRACTORS",
+        "outsource was dropped in 2.0",
+    ),
+    ("TEHAS_OUTSOURCE_JOIN_TTL", "outsource was dropped in 2.0"),
+    ("TEHAS_OUTSOURCE_PROXY_ADDR", "outsource was dropped in 2.0"),
+    ("TEHAS_OUTSOURCE_PROXY_IDLE", "outsource was dropped in 2.0"),
+    (
+        "TEHAS_TOP",
+        "the host panel left core in 2.0 and returns as a plugin; tehas top stays",
+    ),
+    ("TEHAS_PROTOLAB_URL", PROTOLAB),
+    ("TEHAS_PROTOLAB_ZIP_URL", PROTOLAB),
+    ("TEHAS_PROTOLAB_ZIP_HOSTS", PROTOLAB),
+    ("TEHAS_PROTOTYPE_FILE", PROTOLAB),
+    ("TEHAS_WORK_DESCRIBE", GIVEN),
+    ("TEHAS_WORK_FILES", GIVEN),
+    ("TEHAS_WORK_ZIPS", GIVEN),
+    ("TEHAS_WORK_COMMENTS", GIVEN),
+    (
+        "TEHAS_MILLWRIGHT_MAX_RETRIES",
+        "the millwright's grant left in 2.0: a program starts work for a person only through tehas start",
+    ),
+    (
+        "TEHAS_MILLWRIGHT_FEED",
+        "the millwright's grant left in 2.0: a program starts work for a person only through tehas start",
+    ),
+    (
+        "TEHAS_MILLWRIGHT_MAX_FEEDS",
+        "the millwright's grant left in 2.0: a program starts work for a person only through tehas start",
+    ),
+];
+
+const GIVEN: &str = "this kind of attachment left core in 2.0 and returns as the given plugin";
+
+/// The kinds of `TEHAS_ISSUE_TYPES` 2.0 took out, each with why. A pair of
+/// one loads, warned of once and dropped, like a name of `IGNORED`.
+const IGNORED_KINDS: &[(&str, &str)] = &[("prototype", PROTOLAB)];
+
+/// Whether `name` is one the load warns of and drops (`IGNORED`).
+pub(super) fn ignored(name: &str) -> bool {
+    IGNORED.iter().any(|(n, _)| *n == name)
+}
+
+/// Why the load drops `name`, when it is one of `IGNORED`.
+pub fn ignored_why(name: &str) -> Option<&'static str> {
+    IGNORED
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map(|(_, why)| *why)
+}
+
+/// The names of `IGNORED`, for a check that every one is covered.
+pub fn ignored_list() -> impl Iterator<Item = &'static str> {
+    IGNORED.iter().map(|(n, _)| *n)
+}
+
+/// The names the lines of `text` set, each once, in the order of their first
+/// line. The lines are read as text, not run.
+pub fn names_in(text: &[u8]) -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    for line in text.split(|b| *b == b'\n') {
+        let line = bare_line(line);
+        let Some(at) = line.iter().position(|b| *b == b'=') else {
+            continue;
+        };
+        let name = String::from_utf8_lossy(&line[..at]).into_owned();
+        if is_name(name.as_bytes()) && !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    names
 }
 
 /// What the shell of the source sets for itself. BASH_ENV is not given to it:
@@ -401,7 +505,9 @@ fn tokens(vars: &Vars, host: &dyn Host, instance: &[u8]) -> Result<(), String> {
 /// millwright. Without the file neither is set. TEHAS_MILLWRIGHT_APP, when the
 /// instance sets it, is the millwright, with or without the file.
 fn app_login(vars: &mut Vars, host: &mut dyn Host) {
-    let path = format!("{}/state/github/login", vars.text("TEHAS_HOME"));
+    // Joined as text, not as a Path: an empty home that instance.env set
+    // still names /state/github/login, not a path under the cwd.
+    let path = format!("{}/{}", vars.text("TEHAS_HOME"), State::BotLogin.relative());
     if let Some(login) = host.read(&path).as_deref().and_then(super::login_of) {
         vars.set("TEHAS_BOT_LOGIN", login.clone());
         vars.set("TEHAS_MILLWRIGHT_LOGIN", login);
@@ -421,7 +527,7 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
         }
         // The values that ask for what this version does: an earlier version
         // read 0 and a blank line alike as no clones, rust or a blank line as
-        // the Rust poll, and beesknees26 and business are the default design,
+        // the Rust poll, and beesknees26 and business were the default design,
         // so the line stays loadable.
         let value = vars.text(name);
         if matches!(
@@ -450,8 +556,9 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
             "TEHAS_DISPATCHER" => "is set and this version of tehas has no bash poll: every poll is tehas-dispatch, so take the line out".to_string(),
             "TEHAS_THEME" => "is no longer read: TEHAS_DESIGN draws the whole site, beesknees26 by default or pixel, so take the line out".to_string(),
             "TEHAS_LOW_GATE" | "TEHAS_LOW_GATE_WAIT" | "TEHAS_PRIORITY_FIELD" => "is no longer read: tehas order sets the order ready issues start in, so take the line out".to_string(),
-            "TEHAS_LAYOUT" => "is no longer read: the front page follows TEHAS_DESIGN, the business page for beesknees26 and the factory floor for pixel, so take the line out".to_string(),
+            "TEHAS_LAYOUT" => "is no longer read: the front page is the factory floor, drawn in the design TEHAS_DESIGN names, so take the line out".to_string(),
             "TEHAS_FIXER_LOGIN" => "is no longer read: the millwright is the GitHub App's login, or the app TEHAS_MILLWRIGHT_APP names, so take the line out".to_string(),
+            "TEHAS_FIXER_MAX_RETRIES" => "is no longer read: the millwright's grant left in 2.0, so take the line out".to_string(),
             _ => format!(
                 "is no longer read: rename it TEHAS_MILLWRIGHT_{}",
                 name.strip_prefix("TEHAS_FIXER_").unwrap_or(name)
@@ -460,6 +567,61 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
         return Err(format!("{name} {reason} (see {file})"));
     }
     Ok(())
+}
+
+/// One warning for each name of `list` the instance set, and every one of
+/// them dropped, set or not.
+fn ignored_names(vars: &mut Vars, host: &mut dyn Host, list: &[(&str, &str)]) {
+    for (name, why) in list {
+        if vars.is_set(name) {
+            host.warn(&format!(
+                "{name} is no longer read: {why}; remove it from the instance"
+            ));
+        }
+        vars.unset(name.as_bytes());
+    }
+}
+
+/// The names tehas gives its own children, which an instance may not set:
+/// the sweep has dropped them from the environment, so one set here came
+/// from instance.env. Each is warned of once and dropped.
+fn internal_names(vars: &mut Vars, host: &mut dyn Host) {
+    let name = crate::forge::GH_NO_RETRY.0;
+    if vars.is_set(name) {
+        host.warn(&format!(
+            "{name} is no setting: tehas's own gh calls set it; remove it from the instance"
+        ));
+    }
+    vars.unset(name.as_bytes());
+}
+
+/// Each pair of `TEHAS_ISSUE_TYPES` that maps a kind of `list` warned of once
+/// and dropped. A value left with no pair is unset.
+fn ignored_kinds(vars: &mut Vars, host: &mut dyn Host, list: &[(&str, &str)]) {
+    let name = crate::kinds::SETTING;
+    if !vars.is_set(name) {
+        return;
+    }
+    let value = vars.text(name);
+    let mut kept: Vec<&str> = Vec::new();
+    let mut dropped = false;
+    for pair in value.split(' ').filter(|p| !p.is_empty()) {
+        let word = pair.split_once('=').map_or("", |(w, _)| w);
+        match list.iter().find(|(k, _)| *k == word) {
+            Some((kind, why)) => {
+                host.warn(&format!(
+                    "{name} maps {kind}, which is no longer read: {why}; remove the pair from the instance"
+                ));
+                dropped = true;
+            }
+            None => kept.push(pair),
+        }
+    }
+    match (dropped, kept.is_empty()) {
+        (false, _) => {}
+        (true, true) => vars.unset(name.as_bytes()),
+        (true, false) => vars.set(name, kept.join(" ")),
+    }
 }
 
 /// A row of api/renames-1.0.tsv still set stops the load, the instance's
@@ -646,18 +808,13 @@ fn host_values(vars: &Vars, text: &[u8], file: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// The two switches of the host, checked already, in the words their readers
-/// compare with. TEHAS_ENERGY: `off` takes the energy section away, `on` asks
-/// for it, and unset or empty leaves it to the sampler; tehasbot energy and
-/// the first install read `on` and `off`. TEHAS_MCP: the MCP server reads `1`
-/// and `0`.
+/// The switch of the host, checked already, in the words its reader compares
+/// with: the MCP server reads TEHAS_MCP as `1` or `0`.
 fn host_switches(vars: &mut Vars) {
-    for (name, words) in [("TEHAS_ENERGY", ("on", "off")), ("TEHAS_MCP", ("1", "0"))] {
-        if let Some(on) = rules::switch(&vars.text(name)) {
-            let word = if on { words.0 } else { words.1 };
-            if vars.text(name) != word {
-                vars.set(name, word);
-            }
+    if let Some(on) = rules::switch(&vars.text("TEHAS_MCP")) {
+        let word = if on { "1" } else { "0" };
+        if vars.text("TEHAS_MCP") != word {
+            vars.set("TEHAS_MCP", word);
         }
     }
 }
@@ -757,31 +914,6 @@ fn together(vars: &Vars, file: &str) -> Result<(), String> {
             "TEHAS_SITE_ANALYTICS_NAME is not set and TEHAS_SITE_ANALYTICS_SRC is (see {file})"
         ));
     }
-    // A model's findings go to a repository of their own, where a person
-    // triages them into tickets of the product: filing them in the product is
-    // the one setting that cannot be allowed.
-    let repo = vars.text("TEHAS_REPO");
-    if !repo.is_empty() && vars.text("TEHAS_REVIEW_REPO").to_lowercase() == repo.to_lowercase() {
-        return Err(format!(
-            "the review files in {repo}, the product repository: a model writes its findings, so they go to a repository of their own where a person triages them (see {file})"
-        ));
-    }
-    if on("TEHAS_WORK_DESCRIBE") && !on("TEHAS_WORK_IMAGES") {
-        return Err(format!(
-            "TEHAS_WORK_DESCRIBE is on and TEHAS_WORK_IMAGES is off: there are no images to describe (see {file})"
-        ));
-    }
-    let taken = on("TEHAS_WORK_IMAGES") || on("TEHAS_WORK_FILES");
-    if on("TEHAS_WORK_COMMENTS") && !taken {
-        return Err(format!(
-            "TEHAS_WORK_COMMENTS is on and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is: nothing is taken from comments (see {file})"
-        ));
-    }
-    if on("TEHAS_WORK_ZIPS") && !taken {
-        return Err(format!(
-            "TEHAS_WORK_ZIPS is on and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is: an unpacked file goes to the directory of one of them (see {file})"
-        ));
-    }
     // One axis of parallelism: several cycles of one workstream, or one cycle
     // of several. Both would multiply the agents and the gates on the same
     // CPUs.
@@ -840,19 +972,6 @@ fn together(vars: &Vars, file: &str) -> Result<(), String> {
             "TEHAS_PREVIEWS is on and TEHAS_DOMAIN is not set: a preview has no address without it (see {file})"
         ));
     }
-    // The model proxy of outsource (#2273) is the one place a contractor's
-    // cycle waits on the factory. Its idle bound must outlast the check-in
-    // timeout, or a job is lost while its stream is still alive. With outsource
-    // off nothing listens, so the bound is not checked.
-    let (check_in, idle) = (
-        number(vars, "TEHAS_OUTSOURCE_TIMEOUT"),
-        number(vars, "TEHAS_OUTSOURCE_PROXY_IDLE"),
-    );
-    if features::on_in("outsource", &|name| vars.text(name)) && idle <= check_in {
-        return Err(format!(
-            "TEHAS_OUTSOURCE_PROXY_IDLE ({idle}) is not longer than TEHAS_OUTSOURCE_TIMEOUT ({check_in}): a model stream would be cut off before the job that waits on it is lost (see {file})"
-        ));
-    }
     Ok(())
 }
 
@@ -869,14 +988,6 @@ fn last(vars: &mut Vars) {
     ] {
         let mb = rules::mem_mb(&vars.text(name)).unwrap_or_default();
         vars.set(&format!("{name}_MB"), mb);
-    }
-    if has(vars, "TEHAS_DOMAIN") && !has(vars, "TEHAS_PROTOLAB_URL") {
-        let one_level = vars.text("TEHAS_EDGE_ONE_LEVEL") == "1";
-        let lab = format!(
-            "https://{}",
-            crate::settings::edge_name("lab", &vars.text("TEHAS_DOMAIN"), one_level)
-        );
-        vars.set("TEHAS_PROTOLAB_URL", lab);
     }
 }
 
@@ -906,6 +1017,9 @@ pub fn load(vars: &mut Vars, host: &mut dyn Host, uid: &str) -> Result<(), Strin
     role_models(vars, &file)?;
     tokens(vars, host, &text)?;
     retired_names(vars, &file)?;
+    ignored_names(vars, host, IGNORED);
+    ignored_kinds(vars, host, IGNORED_KINDS);
+    internal_names(vars, host);
     renamed(vars, host, &file)?;
     app_login(vars, host);
     let gave = given(vars);
@@ -1081,7 +1195,7 @@ mod tests {
             if path.ends_with("instance-dir") {
                 return self.pointer.clone();
             }
-            if path.ends_with("/env") || path.ends_with("/state/github/login") {
+            if path.ends_with("/env") || path.ends_with(State::BotLogin.relative()) {
                 return self.files.get(path).cloned();
             }
             self.text.clone()
@@ -1138,13 +1252,6 @@ mod tests {
     fn refused(extra: &[&str]) -> String {
         run(&mut Fake::with(extra)).1.unwrap_err()
     }
-    /// A load whose environment names outsource and review in the test
-    /// variable, as a test of a building feature starts a program.
-    fn tested(extra: &[&str]) -> (Vars, Result<(), String>) {
-        let mut vars = start(&[(crate::features::TEST_VAR, "outsource review")]);
-        let got = load(&mut vars, &mut Fake::with(extra), "1000");
-        (vars, got)
-    }
 
     #[test]
     fn the_checkout_is_checked_as_the_instance_gave_it_and_not_as_derived() {
@@ -1174,11 +1281,6 @@ mod tests {
             ),
             ("TEHAS_MCP", "yes", "expected on or off"),
             (
-                "TEHAS_ENERGY_URL",
-                "gateway.lan/v1",
-                "expected an http or https address such as http://models.example:8080/v1/cluster",
-            ),
-            (
                 "TEHAS_MODEL_KEY_MAIN",
                 "sk-one two",
                 "expected one word of printable characters, with no quote, backslash, $ or backtick",
@@ -1202,7 +1304,6 @@ mod tests {
             ("TEHAS_MCP", "on"),
             ("TEHAS_MCP_KEYS", key),
             ("TEHAS_MODEL_KEY_MAIN", "sk-abc+/="),
-            ("TEHAS_ENERGY_URL", "http://gateway.lan:8080/v1/cluster"),
         ]);
         assert_eq!(load(&mut vars, &mut Fake::with(&[]), "1000"), Ok(()));
         assert_eq!(vars.text("TEHAS_MCP"), "1");
@@ -1239,7 +1340,6 @@ mod tests {
             assert_eq!(vars.text(name), value, "{name}");
         }
         assert!(vars.is_set("TEHAS_SIZE_MAX_FILES"));
-        assert!(!vars.is_set("TEHAS_PROTOLAB_URL"));
     }
 
     #[test]
@@ -1252,142 +1352,6 @@ mod tests {
         assert_eq!(vars.text("TEHAS_PLAN_TIMEOUT"), "7200");
         assert_eq!(vars.text("TEHAS_CHILD_TIMEOUT"), "7200");
         assert_eq!(vars.text("TEHAS_SITE_INDEXING"), "0");
-    }
-
-    #[test]
-    fn the_model_proxy_listens_on_its_address_with_a_longer_idle_bound() {
-        let vars = loads(&[]);
-        assert_eq!(vars.text("TEHAS_OUTSOURCE_PROXY_ADDR"), "127.0.0.1:8090");
-        assert_eq!(vars.text("TEHAS_OUTSOURCE_PROXY_IDLE"), "900");
-        let (vars, got) = tested(&[
-            "TEHAS_OUTSOURCE=1",
-            "TEHAS_OUTSOURCE_PROXY_ADDR=192.0.2.7:8091",
-            "TEHAS_OUTSOURCE_TIMEOUT=1800",
-            "TEHAS_OUTSOURCE_PROXY_IDLE=7200",
-        ]);
-        assert_eq!(got, Ok(()));
-        assert_eq!(vars.text("TEHAS_OUTSOURCE_PROXY_ADDR"), "192.0.2.7:8091");
-        assert_eq!(vars.text("TEHAS_OUTSOURCE_PROXY_IDLE"), "7200");
-        // With outsource off nothing listens, and the bound is not checked.
-        let (vars, got) = tested(&["TEHAS_OUTSOURCE_TIMEOUT=1800"]);
-        assert_eq!(got, Ok(()));
-        assert_eq!(vars.text("TEHAS_OUTSOURCE_TIMEOUT"), "1800");
-    }
-
-    #[test]
-    fn a_building_features_own_setting_stops_the_load() {
-        for (line, feature) in [
-            ("TEHAS_OUTSOURCE_TIMEOUT=1800", "outsource"),
-            ("TEHAS_OUTSOURCE_REPOS=acme/widget", "outsource"),
-            (
-                "TEHAS_PROTOLAB_ZIP_HOSTS=files.example.org",
-                "protolab-zip-url",
-            ),
-        ] {
-            let name = line.split('=').next().unwrap();
-            assert_eq!(
-                refused(&[line]),
-                format!("{name} is set and {feature} is still being built in this release: take the line out (see {FILE})")
-            );
-        }
-        // An empty line sets nothing, and a malformed value is named as such.
-        loads(&["TEHAS_OUTSOURCE_REPOS=", "TEHAS_PROTOLAB_ZIP_HOSTS="]);
-        assert!(refused(&["TEHAS_OUTSOURCE_TIMEOUT=soon"])
-            .starts_with("TEHAS_OUTSOURCE_TIMEOUT is not valid"));
-    }
-
-    #[test]
-    fn outsource_is_off_with_its_figures_at_the_defaults_and_writes_nothing() {
-        let vars = loads(&[]);
-        for (name, value) in [
-            ("TEHAS_OUTSOURCE", "0"),
-            ("TEHAS_OUTSOURCE_TIMEOUT", "600"),
-            ("TEHAS_OUTSOURCE_GRACE", "120"),
-            ("TEHAS_OUTSOURCE_RETRIES", "2"),
-            ("TEHAS_OUTSOURCE_REST", "1800"),
-            ("TEHAS_OUTSOURCE_REPOS", ""),
-            ("TEHAS_OUTSOURCE_CONTRACTORS", ""),
-            ("TEHAS_OUTSOURCE_JOIN_TTL", "3600"),
-        ] {
-            assert_eq!(vars.text(name), value, "{name}");
-        }
-        // A line left empty takes the default, as every Always setting does.
-        let vars = loads(&["TEHAS_OUTSOURCE=", "TEHAS_OUTSOURCE_REPOS="]);
-        assert_eq!(vars.text("TEHAS_OUTSOURCE"), "0");
-        assert_eq!(vars.text("TEHAS_OUTSOURCE_REPOS"), "");
-        let (vars, got) = tested(&[
-            "TEHAS_OUTSOURCE=1",
-            "TEHAS_OUTSOURCE_REPOS=acme/widget other/widget",
-        ]);
-        assert_eq!(got, Ok(()));
-        assert_eq!(vars.text("TEHAS_OUTSOURCE"), "1");
-        assert_eq!(
-            vars.text("TEHAS_OUTSOURCE_REPOS"),
-            "acme/widget other/widget"
-        );
-    }
-
-    #[test]
-    fn a_building_feature_set_on_stops_the_load() {
-        for value in ["1", "on"] {
-            let got = refused(&[&format!("TEHAS_OUTSOURCE={value}")]);
-            assert_eq!(
-                got,
-                format!("TEHAS_OUTSOURCE is on and outsource is still being built in this release: set it to off or take the line out (see {FILE})")
-            );
-        }
-        for value in ["0", "off", ""] {
-            loads(&[&format!("TEHAS_OUTSOURCE={value}")]);
-        }
-    }
-
-    #[test]
-    fn the_spec_pipe_set_on_stops_the_load_and_off_is_the_default() {
-        let got = refused(&["TEHAS_SPEC_PIPE=on"]);
-        assert_eq!(
-            got,
-            format!("TEHAS_SPEC_PIPE is on and spec-pipe is still being built in this release: set it to off or take the line out (see {FILE})")
-        );
-        assert_eq!(loads(&[]).text("TEHAS_SPEC_PIPE"), "0");
-        assert_eq!(loads(&["TEHAS_SPEC_PIPE=off"]).text("TEHAS_SPEC_PIPE"), "0");
-        let mut vars = start(&[(crate::features::TEST_VAR, "spec-pipe")]);
-        let mut host = Fake::with(&["TEHAS_SPEC_PIPE=on"]);
-        assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
-        assert_eq!(vars.text("TEHAS_SPEC_PIPE"), "1");
-    }
-
-    #[test]
-    fn the_protolab_zip_url_set_on_stops_the_load_and_off_is_the_default() {
-        let got = refused(&["TEHAS_PROTOLAB_ZIP_URL=on"]);
-        assert_eq!(
-            got,
-            format!("TEHAS_PROTOLAB_ZIP_URL is on and protolab-zip-url is still being built in this release: set it to off or take the line out (see {FILE})")
-        );
-        let vars = loads(&[]);
-        assert_eq!(vars.text("TEHAS_PROTOLAB_ZIP_URL"), "0");
-        assert_eq!(vars.text("TEHAS_PROTOLAB_ZIP_HOSTS"), "");
-        let mut vars = start(&[(crate::features::TEST_VAR, "protolab-zip-url")]);
-        let mut host = Fake::with(&[
-            "TEHAS_PROTOLAB_ZIP_URL=on",
-            "TEHAS_PROTOLAB_ZIP_HOSTS=files.example.org",
-        ]);
-        assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
-        assert_eq!(vars.text("TEHAS_PROTOLAB_ZIP_URL"), "1");
-        assert_eq!(vars.text("TEHAS_PROTOLAB_ZIP_HOSTS"), "files.example.org");
-    }
-
-    #[test]
-    fn the_prototype_file_switch_set_on_stops_the_load_and_off_is_the_default() {
-        let got = refused(&["TEHAS_PROTOTYPE_FILE=on"]);
-        assert_eq!(
-            got,
-            format!("TEHAS_PROTOTYPE_FILE is on and prototype-file is still being built in this release: set it to off or take the line out (see {FILE})")
-        );
-        assert_eq!(loads(&[]).text("TEHAS_PROTOTYPE_FILE"), "0");
-        let mut vars = start(&[(crate::features::TEST_VAR, "prototype-file")]);
-        let mut host = Fake::with(&["TEHAS_PROTOTYPE_FILE=on"]);
-        assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
-        assert_eq!(vars.text("TEHAS_PROTOTYPE_FILE"), "1");
     }
 
     #[test]
@@ -1418,24 +1382,21 @@ mod tests {
     }
 
     #[test]
-    fn the_review_switch_set_on_and_a_review_repo_stop_the_load() {
-        assert_eq!(
-            refused(&["TEHAS_REVIEW=on"]),
-            format!("TEHAS_REVIEW is on and review is still being built in this release: set it to off or take the line out (see {FILE})")
-        );
-        assert_eq!(
-            refused(&["TEHAS_REVIEW=1", "TEHAS_REVIEW_REPO=acme/backlog"]),
-            format!("TEHAS_REVIEW is on and review is still being built in this release: set it to off or take the line out (see {FILE})")
-        );
-        assert_eq!(
-            refused(&["TEHAS_REVIEW_REPO=acme/backlog"]),
-            format!("TEHAS_REVIEW_REPO is set and review is still being built in this release: take the line out (see {FILE})")
-        );
-        assert_eq!(loads(&["TEHAS_REVIEW=off"]).text("TEHAS_REVIEW"), "0");
-        let (vars, got) = tested(&["TEHAS_REVIEW=on", "TEHAS_REVIEW_REPO=acme/backlog"]);
-        assert_eq!(got, Ok(()));
-        assert_eq!(vars.text("TEHAS_REVIEW"), "1");
-        assert_eq!(vars.text("TEHAS_REVIEW_REPO"), "acme/backlog");
+    fn the_review_loops_settings_load_with_a_warning_and_are_dropped() {
+        let mut vars = start(&[]);
+        let mut host = Fake::with(&["TEHAS_REVIEW=on", "TEHAS_REVIEW_REPO=acme/backlog"]);
+        assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
+        assert!(!vars.is_set("TEHAS_REVIEW"));
+        assert!(!vars.is_set("TEHAS_REVIEW_REPO"));
+        for name in ["TEHAS_REVIEW", "TEHAS_REVIEW_REPO"] {
+            assert!(
+                host.warned.iter().any(|w| w.starts_with(&format!(
+                    "{name} is no longer read: the review loop left core in 2.0"
+                ))),
+                "{:?}",
+                host.warned
+            );
+        }
     }
 
     const PIN: &str = "0123456789abcdef0123456789abcdef01234567";
@@ -1489,7 +1450,7 @@ mod tests {
     #[test]
     fn plugins_load_with_their_lines_where_a_test_turns_them_on() {
         let line = plugins_line();
-        let grants = format!("TEHAS_PLUGIN_GRANTS_FLOORPLAN={PIN} view product model:2000000 action:refresh hook:after:work");
+        let grants = format!("TEHAS_PLUGIN_GRANTS_FLOORPLAN={PIN} view product model:2000000 action:refresh hook:after:change.offered");
         let (vars, got) = plugged(&[
             "TEHAS_PLUGIN=on",
             &line,
@@ -1542,6 +1503,16 @@ mod tests {
     }
 
     #[test]
+    fn a_grant_of_the_merge_stops_the_load() {
+        let line = plugins_line();
+        let grants = format!("TEHAS_PLUGIN_GRANTS_FLOORPLAN={PIN} product merge");
+        assert_eq!(
+            plugged_refused(&[&line, &grants]),
+            format!("TEHAS_PLUGIN_GRANTS_FLOORPLAN is not valid: merge is reserved: the merge is a person's, and no plugin is granted it in this release (see {FILE})")
+        );
+    }
+
+    #[test]
     fn a_view_or_an_action_needs_the_domain_and_the_access() {
         let line = plugins_line();
         for cap in ["view", "action:refresh"] {
@@ -1570,15 +1541,13 @@ mod tests {
 
     #[test]
     fn a_file_that_sets_the_test_variable_stops_the_load() {
-        let got = refused(&["TEHAS_OUTSOURCE=on", "TEHAS_TEST_FEATURES=outsource"]);
+        let got = refused(&["TEHAS_LEAN=on", "TEHAS_TEST_FEATURES=lean"]);
         assert_eq!(
             got,
             format!("{FILE} sets TEHAS_TEST_FEATURES: it is for the tests only, take the line out")
         );
-        let mut host = Fake::with(&[]).file(
-            "/h/.config/tehas/env",
-            "export TEHAS_TEST_FEATURES=outsource\n",
-        );
+        let mut host =
+            Fake::with(&[]).file("/h/.config/tehas/env", "export TEHAS_TEST_FEATURES=lean\n");
         let got = load(&mut start(&[]), &mut host, "1000").unwrap_err();
         assert_eq!(
             got,
@@ -1588,11 +1557,11 @@ mod tests {
 
     #[test]
     fn the_test_variable_comes_from_the_environment_and_turns_it_on() {
-        let mut vars = start(&[(crate::features::TEST_VAR, "outsource")]);
-        let mut host = Fake::with(&["TEHAS_OUTSOURCE=on"]);
+        let mut vars = start(&[(crate::features::TEST_VAR, "lean")]);
+        let mut host = Fake::with(&["TEHAS_LEAN=on"]);
         assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
-        assert_eq!(vars.text("TEHAS_OUTSOURCE"), "1");
-        assert_eq!(vars.text(crate::features::TEST_VAR), "outsource");
+        assert_eq!(vars.text("TEHAS_LEAN"), "1");
+        assert_eq!(vars.text(crate::features::TEST_VAR), "lean");
     }
 
     #[test]
@@ -1600,7 +1569,6 @@ mod tests {
         let vars = loads(&[
             "TEHAS_SITE_INDEXING=on",
             "TEHAS_PREVIEWS=off",
-            "TEHAS_TOP=1",
             "TEHAS_ANALYTICS=0",
         ]);
         assert_eq!(vars.text("TEHAS_SITE_INDEXING"), "1");
@@ -1611,87 +1579,101 @@ mod tests {
             "1"
         );
         assert_eq!(vars.text("TEHAS_PREVIEWS"), "0");
-        assert_eq!(vars.text("TEHAS_TOP"), "1");
         assert_eq!(vars.text("TEHAS_ANALYTICS"), "off");
         assert_eq!(loads(&["TEHAS_ANALYTICS=1"]).text("TEHAS_ANALYTICS"), "on");
         assert_eq!(loads(&[]).text("TEHAS_ANALYTICS"), "on");
-        assert_eq!(loads(&[]).text("TEHAS_REVIEW"), "0");
         // The rules between switches read the value after it is brought to form.
-        let got = refused(&["TEHAS_WORK_DESCRIBE=on", "TEHAS_WORK_IMAGES=off"]);
+        let got = refused(&["TEHAS_PREVIEWS=on"]);
         assert!(
-            got.starts_with("TEHAS_WORK_DESCRIBE is on and TEHAS_WORK_IMAGES is off"),
+            got.starts_with("TEHAS_PREVIEWS is on and TEHAS_DOMAIN is not set"),
             "{got}"
         );
-        loads(&["TEHAS_WORK_DESCRIBE=on", "TEHAS_WORK_IMAGES=1"]);
+        loads(&["TEHAS_PREVIEWS=off"]);
     }
 
     #[test]
-    fn the_energy_switch_takes_the_switch_words_from_the_host_file() {
-        for (value, want) in [
-            ("on", "on"),
-            ("1", "on"),
-            ("off", "off"),
-            ("0", "off"),
-            ("", ""),
+    fn the_energy_settings_of_a_1_4_host_load_and_are_not_read() {
+        // Energy use left core in 2.0: any value, from the host or the
+        // instance, loads, and nothing reads it.
+        for name in [
+            "TEHAS_ENERGY",
+            "TEHAS_ENERGY_URL",
+            "TEHAS_ENERGY_SOURCE_URL",
         ] {
-            let mut vars = start(&[("TEHAS_ENERGY", value)]);
+            for value in ["on", "off", "viiwork", "gateway.lan/v1", ""] {
+                let mut vars = start(&[(name, value)]);
+                assert_eq!(
+                    load(&mut vars, &mut Fake::with(&[]), "1000"),
+                    Ok(()),
+                    "{name}={value}"
+                );
+                assert!(!vars.is_set(name), "{name}={value}");
+            }
+            let mut host = Fake::with(&[]).file("/h/.config/tehas/env", &format!("{name}=solar\n"));
+            assert_eq!(load(&mut start(&[]), &mut host, "1000"), Ok(()), "{name}");
+            let mut host = Fake::with(&[&format!("{name}=solar")]);
+            let mut vars = start(&[]);
+            assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()), "{name}");
+            assert!(!vars.is_set(name), "{name}");
             assert_eq!(
-                load(&mut vars, &mut Fake::with(&[]), "1000"),
-                Ok(()),
-                "{value}"
+                host.warned,
+                [format!(
+                    "{name} is no longer read: energy use left core in 2.0 and returns as a plugin; remove it from the instance"
+                )]
             );
-            assert_eq!(vars.text("TEHAS_ENERGY"), want, "{value}");
         }
-        let mut vars = start(&[]);
-        assert_eq!(load(&mut vars, &mut Fake::with(&[]), "1000"), Ok(()));
-        assert!(!vars.is_set("TEHAS_ENERGY"));
-        let mut vars = start(&[("TEHAS_ENERGY", "viiwork")]);
         assert_eq!(
-            load(&mut vars, &mut Fake::with(&[]), "1000"),
-            Err(
-                "TEHAS_ENERGY is not valid: expected on or off (see /h/.config/tehas/env)"
-                    .to_string()
-            )
+            refused(&["TEHAS_MCP=yes"]),
+            format!("TEHAS_MCP is not valid: expected on or off (see {FILE})")
         );
-        // instance.env that sets it is the file named.
-        for line in ["TEHAS_ENERGY=solar", "TEHAS_MCP=yes"] {
-            let name = line.split('=').next().unwrap();
-            assert_eq!(
-                refused(&[line]),
-                format!("{name} is not valid: expected on or off (see {FILE})")
-            );
-        }
     }
 
     #[test]
-    fn a_malformed_outsource_setting_stops_the_load_before_any_write() {
-        for (name, value) in [
-            ("TEHAS_OUTSOURCE", "yes"),
-            ("TEHAS_OUTSOURCE_TIMEOUT", "0"),
-            ("TEHAS_OUTSOURCE_GRACE", "2m"),
-            ("TEHAS_OUTSOURCE_RETRIES", "-1"),
-            ("TEHAS_OUTSOURCE_REST", "two"),
-            ("TEHAS_OUTSOURCE_REPOS", "acme"),
-            ("TEHAS_OUTSOURCE_CONTRACTORS", "box1  box2"),
-            ("TEHAS_OUTSOURCE_JOIN_TTL", "0"),
+    fn the_outsource_settings_of_a_1_4_instance_load_and_are_not_read() {
+        // Outsource was dropped in 2.0: any value, on included, from the
+        // instance or the environment, loads, and nothing reads it.
+        for name in [
+            "TEHAS_OUTSOURCE",
+            "TEHAS_OUTSOURCE_TIMEOUT",
+            "TEHAS_OUTSOURCE_GRACE",
+            "TEHAS_OUTSOURCE_RETRIES",
+            "TEHAS_OUTSOURCE_REST",
+            "TEHAS_OUTSOURCE_REPOS",
+            "TEHAS_OUTSOURCE_CONTRACTORS",
+            "TEHAS_OUTSOURCE_JOIN_TTL",
+            "TEHAS_OUTSOURCE_PROXY_ADDR",
+            "TEHAS_OUTSOURCE_PROXY_IDLE",
         ] {
-            let why = run(&mut Fake::with(&[&format!("{name}={value}")]))
-                .1
-                .unwrap_err();
-            assert_eq!(
-                why,
-                format!(
-                    "{name} is not valid: {} (see {FILE})",
-                    reason_of(name, value)
-                )
-            );
+            for value in ["on", "off", "0", "600", "acme/widget", "127.0.0.1:8090", ""] {
+                let mut vars = start(&[(name, value)]);
+                assert_eq!(
+                    load(&mut vars, &mut Fake::with(&[]), "1000"),
+                    Ok(()),
+                    "{name}={value}"
+                );
+                assert!(!vars.is_set(name), "{name}={value}");
+                let mut host = Fake::with(&[&format!("{name}={value}")]);
+                let mut vars = start(&[]);
+                assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()), "{name}={value}");
+                assert!(!vars.is_set(name), "{name}={value}");
+                assert_eq!(
+                    host.warned,
+                    [format!(
+                        "{name} is no longer read: outsource was dropped in 2.0; remove it from the instance"
+                    )],
+                    "{name}={value}"
+                );
+            }
         }
-    }
-
-    /// The reason the rule of `name` gives `value`, read off the rule itself so
-    /// the test above names no copy of it.
-    fn reason_of(name: &str, value: &str) -> String {
-        rules::check(name, value).unwrap_err()
+        // All of them in one instance: one warning each, and the load holds.
+        let mut host = Fake::with(&[
+            "TEHAS_OUTSOURCE=off",
+            "TEHAS_OUTSOURCE_REPOS=",
+            "TEHAS_OUTSOURCE_PROXY_IDLE=60",
+            "TEHAS_OUTSOURCE_TIMEOUT=61",
+        ]);
+        assert_eq!(load(&mut start(&[]), &mut host, "1000"), Ok(()));
+        assert_eq!(host.warned.len(), 4);
     }
 
     #[test]
@@ -1967,6 +1949,10 @@ mod tests {
             format!("TEHAS_FIXER_LOGIN is no longer read: the millwright is the GitHub App's login, or the app TEHAS_MILLWRIGHT_APP names, so take the line out (see {FILE})")
         );
         assert_eq!(
+            refused(&["TEHAS_FIXER_MAX_RETRIES=3"]),
+            format!("TEHAS_FIXER_MAX_RETRIES is no longer read: the millwright's grant left in 2.0, so take the line out (see {FILE})")
+        );
+        assert_eq!(
             refused(&["TEHAS_WORK_MEMORY=8g", "TEHAS_CLONES=1"]),
             format!(
                 "TEHAS_CLONES is set and this version of tehas has no database clones (see {FILE})"
@@ -2034,7 +2020,7 @@ mod tests {
             ),
             (
                 "TEHAS_LAYOUT=floor",
-                "is no longer read: the front page follows TEHAS_DESIGN, the business page for beesknees26 and the factory floor for pixel, so take the line out",
+                "is no longer read: the front page is the factory floor, drawn in the design TEHAS_DESIGN names, so take the line out",
             ),
         ] {
             assert_eq!(
@@ -2046,26 +2032,21 @@ mod tests {
 
     #[test]
     fn the_first_setting_of_the_table_is_the_one_told() {
-        assert!(
-            refused(&["TEHAS_SITE_INDEXING=2", "TEHAS_TOP=9"]).starts_with("TEHAS_SITE_INDEXING")
-        );
-        assert!(refused(&["TEHAS_TOP=9", "TEHAS_BRANCH=a b"]).starts_with("TEHAS_TOP"));
+        assert!(refused(&["TEHAS_SITE_INDEXING=2", "TEHAS_READ_ONLY=9"])
+            .starts_with("TEHAS_SITE_INDEXING"));
+        assert!(refused(&["TEHAS_READ_ONLY=9", "TEHAS_BRANCH=a b"]).starts_with("TEHAS_READ_ONLY"));
     }
 
     #[test]
     fn what_a_load_requires_later_does_not_refuse_it() {
-        let (vars, got) = tested(&[
+        let (vars, got) = run(&mut Fake::with(&[
             "TEHAS_REPO=widget",
             "TEHAS_ALLOWED_LABELERS=alice ",
-            "TEHAS_REVIEW_REPO=acme",
-        ]);
+        ]));
         assert_eq!(got, Ok(()));
         let found: Vec<(String, String)> = bad(&vars);
         let names: Vec<&str> = found.iter().map(|(n, _)| n.as_str()).collect();
-        assert_eq!(
-            names,
-            ["TEHAS_REPO", "TEHAS_ALLOWED_LABELERS", "TEHAS_REVIEW_REPO"]
-        );
+        assert_eq!(names, ["TEHAS_REPO", "TEHAS_ALLOWED_LABELERS"]);
         assert_eq!(found[0].1, "expected owner/name");
     }
 
@@ -2096,22 +2077,6 @@ mod tests {
                 "TEHAS_SITE_ANALYTICS_NAME is not set and TEHAS_SITE_ANALYTICS_SRC is",
             ),
             (
-                &["TEHAS_REVIEW_REPO=Acme/Widget"][..],
-                "the review files in acme/widget, the product repository",
-            ),
-            (
-                &["TEHAS_WORK_DESCRIBE=1"][..],
-                "TEHAS_WORK_DESCRIBE is on and TEHAS_WORK_IMAGES is off",
-            ),
-            (
-                &["TEHAS_WORK_COMMENTS=1"][..],
-                "TEHAS_WORK_COMMENTS is on and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is",
-            ),
-            (
-                &["TEHAS_WORK_ZIPS=1"][..],
-                "TEHAS_WORK_ZIPS is on and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is",
-            ),
-            (
                 &["TEHAS_WORKSTREAMS=2", "TEHAS_MAX_CYCLES=3"][..],
                 "TEHAS_WORKSTREAMS (2) and TEHAS_MAX_CYCLES (3) are both above 1",
             ),
@@ -2139,20 +2104,8 @@ mod tests {
                 &["TEHAS_DOMAIN=example.org", "TEHAS_EDGE_ONE_LEVEL=1"][..],
                 "TEHAS_EDGE_ONE_LEVEL is on and TEHAS_DOMAIN is not a subdomain",
             ),
-            (
-                &["TEHAS_OUTSOURCE=1", "TEHAS_OUTSOURCE_PROXY_IDLE=600"][..],
-                "TEHAS_OUTSOURCE_PROXY_IDLE (600) is not longer than TEHAS_OUTSOURCE_TIMEOUT (600)",
-            ),
-            (
-                &[
-                    "TEHAS_OUTSOURCE=1",
-                    "TEHAS_OUTSOURCE_PROXY_IDLE=60",
-                    "TEHAS_OUTSOURCE_TIMEOUT=61",
-                ][..],
-                "TEHAS_OUTSOURCE_PROXY_IDLE (60) is not longer than TEHAS_OUTSOURCE_TIMEOUT (61)",
-            ),
         ] {
-            let got = tested(lines).1.unwrap_err();
+            let got = refused(lines);
             assert!(got.starts_with(want), "{got}");
             assert!(got.ends_with(&format!("(see {FILE})")), "{got}");
         }
@@ -2167,7 +2120,9 @@ mod tests {
     }
 
     const REFUSAL: &str = "is no longer used: the factory acts as a GitHub App. Run tehas setup --new-app or give --app-id and --app-key-file.";
-    const LOGIN: &str = "/h/tehas/state/github/login";
+    fn login() -> String {
+        format!("/h/tehas/{}", State::BotLogin.relative())
+    }
 
     #[test]
     fn every_setting_row_of_the_renames_file_is_refused() {
@@ -2245,7 +2200,7 @@ mod tests {
 
     #[test]
     fn the_app_names_the_bot_and_the_millwright() {
-        let mut host = Fake::with(&[]).file(LOGIN, "new[bot]\n");
+        let mut host = Fake::with(&[]).file(&login(), "new[bot]\n");
         let (vars, got) = run(&mut host);
         assert_eq!(got, Ok(()));
         assert!(host.warned.is_empty(), "{:?}", host.warned);
@@ -2254,9 +2209,18 @@ mod tests {
     }
 
     #[test]
+    fn an_empty_home_from_the_instance_reads_the_login_from_the_root() {
+        let mut host = Fake::with(&["TEHAS_HOME="])
+            .file(&format!("/{}", State::BotLogin.relative()), "new[bot]\n");
+        let (vars, got) = run(&mut host);
+        assert_eq!(got, Ok(()));
+        assert_eq!(vars.text("TEHAS_BOT_LOGIN"), "new[bot]");
+    }
+
+    #[test]
     fn a_second_app_is_the_millwright_and_the_bot_stays_the_factorys() {
         let mut host =
-            Fake::with(&["TEHAS_MILLWRIGHT_APP=acme-mill[bot]"]).file(LOGIN, "acme-app[bot]\n");
+            Fake::with(&["TEHAS_MILLWRIGHT_APP=acme-mill[bot]"]).file(&login(), "acme-app[bot]\n");
         let (vars, got) = run(&mut host);
         assert_eq!(got, Ok(()));
         assert!(host.warned.is_empty(), "{:?}", host.warned);
@@ -2290,7 +2254,7 @@ mod tests {
         assert!(!vars.is_set("TEHAS_BOT_LOGIN"));
         assert!(!vars.is_set("TEHAS_MILLWRIGHT_LOGIN"));
         assert!(host.warned.is_empty());
-        let mut host = Fake::with(&[]).file(LOGIN, "\n");
+        let mut host = Fake::with(&[]).file(&login(), "\n");
         let (vars, _) = run(&mut host);
         assert!(!vars.is_set("TEHAS_BOT_LOGIN"));
     }
@@ -2340,7 +2304,7 @@ mod tests {
 
     #[test]
     fn millwright_may_be_the_bot() {
-        let vars = Fake::with(&["TEHAS_ALLOWED_LABELERS=alice"]).file(LOGIN, "acme-app[bot]\n");
+        let vars = Fake::with(&["TEHAS_ALLOWED_LABELERS=alice"]).file(&login(), "acme-app[bot]\n");
         let (vars, got) = run(&mut { vars });
         assert_eq!(got, Ok(()));
         assert_eq!(
@@ -2370,23 +2334,6 @@ mod tests {
         // Every address is no address for the gate: it keeps to the loopback.
         let vars = loads(&["TEHAS_HOST_ADDR=0.0.0.0"]);
         assert_eq!(vars.text("TEHAS_PLUGIN_GATE_ADDR"), "127.0.0.1:8095");
-    }
-
-    #[test]
-    fn a_domain_gives_the_lab_its_address_and_a_written_one_is_kept() {
-        let vars = loads(&["TEHAS_DOMAIN=example.org"]);
-        assert_eq!(vars.text("TEHAS_PROTOLAB_URL"), "https://lab.example.org");
-        let vars = loads(&[
-            "TEHAS_DOMAIN=example.org",
-            "TEHAS_PROTOLAB_URL=https://p.example",
-        ]);
-        assert_eq!(vars.text("TEHAS_PROTOLAB_URL"), "https://p.example");
-        // One level deep: the list's name is lab-<domain>.
-        let vars = loads(&["TEHAS_DOMAIN=demo.example.org", "TEHAS_EDGE_ONE_LEVEL=on"]);
-        assert_eq!(
-            vars.text("TEHAS_PROTOLAB_URL"),
-            "https://lab-demo.example.org"
-        );
     }
 
     #[test]
@@ -2526,6 +2473,268 @@ mod tests {
                 names.contains(name),
                 "{name} is no longer in instances/example"
             );
+        }
+    }
+
+    const GONE: &[(&str, &str)] = &[("TEHAS_GONE", "the gone feature left core in 2.0")];
+
+    /// `ignored_names` returns nothing to refuse with, and the rest of the
+    /// load passes a name no row rules.
+    #[test]
+    fn an_ignored_name_loads() {
+        let mut vars = start(&[]);
+        let mut host = Fake::with(&["TEHAS_GONE=on"]);
+        assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
+    }
+
+    #[test]
+    fn the_attachment_kinds_that_left_core_load_with_a_warning() {
+        let given = [
+            "TEHAS_WORK_IMAGES=1",
+            "TEHAS_WORK_DESCRIBE=1",
+            "TEHAS_WORK_FILES=1",
+            "TEHAS_WORK_ZIPS=1",
+            "TEHAS_WORK_COMMENTS=1",
+        ];
+        let mut host = Fake::with(&given);
+        let (vars, got) = run(&mut host);
+        assert_eq!(got, Ok(()));
+        assert_eq!(vars.text("TEHAS_WORK_IMAGES"), "1");
+        assert_eq!(host.warned.len(), 4, "{:?}", host.warned);
+        for name in &given[1..] {
+            let name = name.split('=').next().unwrap();
+            assert!(!vars.is_set(name), "{name}");
+            assert!(
+                host.warned
+                    .iter()
+                    .any(|w| w.starts_with(&format!("{name} is no longer read: {GIVEN}"))),
+                "{name}: {:?}",
+                host.warned
+            );
+        }
+    }
+
+    #[test]
+    fn a_line_of_the_product_wiki_loads_warns_and_is_not_read() {
+        let mut vars = start(&[]);
+        let mut host = Fake::with(&["TEHAS_WIKI=on"]);
+        assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
+        assert_eq!(
+            host.warned,
+            ["TEHAS_WIKI is no longer read: the product wiki left core in 2.0 and returns as a plugin; remove it from the instance"]
+        );
+        assert!(!vars.is_set("TEHAS_WIKI"));
+    }
+
+    #[test]
+    fn a_line_of_the_spec_pipe_loads_warns_and_is_not_read() {
+        let mut vars = start(&[]);
+        let mut host = Fake::with(&["TEHAS_SPEC_PIPE=on"]);
+        assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
+        assert_eq!(
+            host.warned,
+            ["TEHAS_SPEC_PIPE is no longer read: the spec mark, an issue's `Spec:` line, was dropped in 2.0; remove it from the instance"]
+        );
+        assert!(!vars.is_set("TEHAS_SPEC_PIPE"));
+    }
+
+    #[test]
+    fn a_line_of_the_host_panel_loads_warns_and_is_not_read() {
+        for value in ["1", "on", "0", "9"] {
+            let mut vars = start(&[]);
+            let mut host = Fake::with(&[&format!("TEHAS_TOP={value}")]);
+            assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()), "{value}");
+            assert_eq!(
+                host.warned,
+                ["TEHAS_TOP is no longer read: the host panel left core in 2.0 and returns as a plugin; tehas top stays; remove it from the instance"]
+            );
+            assert!(!vars.is_set("TEHAS_TOP"), "{value}");
+        }
+    }
+
+    #[test]
+    fn the_protolabs_lines_load_warn_each_once_and_are_not_read() {
+        let lines = [
+            "TEHAS_DOMAIN=example.org",
+            "TEHAS_PROTOLAB_URL=https://lab.example",
+            "TEHAS_PROTOLAB_ZIP_URL=on",
+            "TEHAS_PROTOLAB_ZIP_HOSTS=files.example.org",
+            "TEHAS_PROTOTYPE_FILE=on",
+        ];
+        let mut vars = start(&[]);
+        let mut host = Fake::with(&lines);
+        assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
+        let names: Vec<&str> = lines[1..]
+            .iter()
+            .map(|l| l.split('=').next().unwrap())
+            .collect();
+        let warned: Vec<String> = names
+            .iter()
+            .map(|n| {
+                format!("{n} is no longer read: the Protolab was removed in 2.0; remove it from the instance")
+            })
+            .collect();
+        assert_eq!(host.warned, warned);
+        for name in names {
+            assert!(!vars.is_set(name), "{name}");
+        }
+    }
+
+    #[test]
+    fn a_pair_of_the_prototype_kind_loads_warns_once_and_is_dropped() {
+        let warning = "TEHAS_ISSUE_TYPES maps prototype, which is no longer read: the Protolab was removed in 2.0; remove the pair from the instance";
+        let mut vars = start(&[]);
+        let mut host =
+            Fake::with(&["TEHAS_ISSUE_TYPES=improvement=Improvement prototype=Prototype"]);
+        assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
+        assert_eq!(host.warned, [warning]);
+        assert_eq!(vars.text("TEHAS_ISSUE_TYPES"), "improvement=Improvement");
+
+        let mut vars = start(&[]);
+        let mut host = Fake::with(&["TEHAS_ISSUE_TYPES=prototype=Prototype"]);
+        assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
+        assert_eq!(host.warned, [warning]);
+        assert!(!vars.is_set("TEHAS_ISSUE_TYPES"));
+
+        let mut vars = start(&[]);
+        let mut host = Fake::with(&["TEHAS_ISSUE_TYPES=improvement=Improvement"]);
+        assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
+        assert!(host.warned.is_empty(), "{:?}", host.warned);
+        assert_eq!(vars.text("TEHAS_ISSUE_TYPES"), "improvement=Improvement");
+    }
+
+    #[test]
+    fn an_ignored_name_warns_once() {
+        let mut vars = start(&[("TEHAS_GONE", "on")]);
+        let mut host = Fake::new(&[]);
+        ignored_names(&mut vars, &mut host, GONE);
+        assert_eq!(
+            host.warned,
+            ["TEHAS_GONE is no longer read: the gone feature left core in 2.0; remove it from the instance"]
+        );
+        let mut quiet = start(&[]);
+        let mut host = Fake::new(&[]);
+        ignored_names(&mut quiet, &mut host, GONE);
+        assert!(host.warned.is_empty(), "{:?}", host.warned);
+    }
+
+    #[test]
+    fn an_instance_that_sets_the_shims_retry_is_warned_and_the_line_is_dropped() {
+        let mut host = Fake::with(&["TEHAS_GH_RETRY=0"]);
+        let (vars, got) = run(&mut host);
+        assert_eq!(got, Ok(()));
+        assert!(!vars.is_set("TEHAS_GH_RETRY"));
+        assert_eq!(
+            host.warned,
+            ["TEHAS_GH_RETRY is no setting: tehas's own gh calls set it; remove it from the instance"]
+        );
+        let mut from_env = start(&[("TEHAS_GH_RETRY", "0")]);
+        let mut host = Fake::with(&[]);
+        assert_eq!(load(&mut from_env, &mut host, "1000"), Ok(()));
+        assert!(!from_env.is_set("TEHAS_GH_RETRY"));
+        assert!(host.warned.is_empty(), "{:?}", host.warned);
+    }
+
+    #[test]
+    fn an_ignored_name_is_not_read() {
+        let mut vars = start(&[("TEHAS_GONE", "on")]);
+        let mut host = Fake::new(&[]);
+        ignored_names(&mut vars, &mut host, GONE);
+        assert!(!vars.is_set("TEHAS_GONE"));
+        assert!(!String::from_utf8_lossy(&script(&start(&[]), &vars)).contains("TEHAS_GONE"));
+    }
+
+    /// A 1.4.x instance that set the millwright's grant loads on 2.0: each
+    /// line is said once and dropped.
+    #[test]
+    fn the_millwrights_grant_settings_load_warn_and_are_dropped() {
+        for line in [
+            "TEHAS_MILLWRIGHT_MAX_RETRIES=3",
+            "TEHAS_MILLWRIGHT_FEED=on",
+            "TEHAS_MILLWRIGHT_MAX_FEEDS=4",
+        ] {
+            let name = line.split('=').next().unwrap();
+            let mut vars = start(&[]);
+            let mut host = Fake::with(&[line]);
+            assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()), "{line}");
+            assert!(!vars.is_set(name), "{line}");
+            assert_eq!(
+                host.warned,
+                [format!("{name} is no longer read: the millwright's grant left in 2.0: a program starts work for a person only through tehas start; remove it from the instance")],
+                "{line}"
+            );
+        }
+    }
+
+    #[test]
+    fn names_in_reads_each_name_a_line_sets_once_in_order() {
+        let text = b"# TEHAS_COMMENT=1\nTEHAS_REPO=a/b\n  export TEHAS_MCP=1\nnot a line\nTEHAS_REPO=c/d\n1BAD=x\n";
+        assert_eq!(names_in(text), ["TEHAS_REPO", "TEHAS_MCP"]);
+    }
+
+    /// The names v1.4.0's rules table accepted (api/settings-1.4.0.txt).
+    const V1_4_0: &str = include_str!("../../../../api/settings-1.4.0.txt");
+
+    #[test]
+    fn every_setting_v1_4_0_accepted_is_kept_or_dropped_with_a_warning_never_refused() {
+        let rows: Vec<&str> = V1_4_0
+            .lines()
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            .collect();
+        let (mut instance, mut host, mut dropped) = (0, 0, Vec::new());
+        for row in rows {
+            let (name, table) = match row.strip_prefix("host ") {
+                Some(name) => {
+                    host += 1;
+                    (name, HOST)
+                }
+                None => {
+                    instance += 1;
+                    (row, TABLE)
+                }
+            };
+            if !table.iter().any(|s| s.name == name) {
+                assert!(
+                    ignored(name),
+                    "{name} loaded on v1.4.0 and is neither in its table nor IGNORED"
+                );
+                dropped.push(name);
+            }
+            assert!(!retired(name), "{name} loaded on v1.4.0 and is refused now");
+            assert!(
+                !renamed::rows().iter().any(|r| r.old == name),
+                "{name} loaded on v1.4.0 and is a renamed row now"
+            );
+        }
+        assert_eq!((instance, host), (101, 10));
+        // What 2.0 dropped of v1.4.0's is all of IGNORED: a name on it that
+        // v1.4.0 never read would be a warning for a line no config holds.
+        dropped.sort_unstable();
+        let mut all: Vec<&str> = IGNORED.iter().map(|(n, _)| *n).collect();
+        all.sort_unstable();
+        assert_eq!(dropped, all);
+    }
+
+    #[test]
+    fn ignored_why_gives_the_tables_reason_and_nothing_for_another_name() {
+        for (name, why) in IGNORED {
+            assert_eq!(ignored_why(name), Some(*why));
+        }
+        assert_eq!(ignored_list().count(), IGNORED.len());
+        assert_eq!(ignored_why("TEHAS_REPO"), None);
+    }
+
+    #[test]
+    fn an_ignored_name_is_neither_a_setting_nor_kept_nor_retired() {
+        for (name, why) in IGNORED {
+            assert!(!why.is_empty(), "{name} gives no reason");
+            assert!(
+                !TABLE.iter().any(|s| s.name == *name),
+                "{name} is ignored and in TABLE"
+            );
+            assert!(!KEPT.contains(name), "{name} is ignored and in KEPT");
+            assert!(!RETIRED.contains(name), "{name} is ignored and retired");
+            assert!(!RULED_ELSEWHERE.contains(name), "{name} is ignored");
         }
     }
 

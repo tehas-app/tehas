@@ -49,9 +49,7 @@ t_eq "$(jq -r 'has("fixer")' <<<"$t_out")" false
 t_eq "$(jq -r '.features | type' <<<"$t_out")" array
 t_eq "$(jq -r '.features | all(type == "string")' <<<"$t_out")" true
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "status"
-t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "millwright-grant"
 t_eq "$(jq -r '.features | index("fixer-grant")' <<<"$t_out")" null
-t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "all-hands"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "limit"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "drain"
 t_eq "$(jq '.features | index("refresh-conflicts")' <<<"$t_out")" "null"
@@ -59,7 +57,6 @@ t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "analytics"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "state-move"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "clean"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "mcp-dashboard-keys"
-t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "panels"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "state-check"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "finish"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "status-versions"
@@ -74,20 +71,16 @@ t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "refresh-pr"
 for gone in store-copy host-message-health refresh-pr-starts refresh-pr-lane refresh-pr-json; do
   t_eq "$gone $(jq --arg w "$gone" '.features | index($w)' <<<"$t_out")" "$gone null"
 done
-t_eq "$(jq -r '.features | last' <<<"$t_out")" "blockers"
-t_eq "$(jq -r '.features | length' <<<"$t_out")" 31
+t_eq "$(jq -r '.features | last' <<<"$t_out")" "events"
+t_eq "$(jq -r '.features | length' <<<"$t_out")" 33
 t_eq "$(jq -r '.features | index("host-bridge-tokens")' <<<"$t_out")" null
-t_contains "$(cat "$T_ROOT/host/docs/api.md")" '"refresh-pr"'
-t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`refresh-pr` ('
-t_contains "$(cat "$T_ROOT/host/docs/api.md")" '"host-start"'
-t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`host-start` ('
-t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`flags` ('
-t_contains "$(cat "$T_ROOT/host/docs/api.md")" '"status-previews"'
-t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`status-previews` ('
-t_contains "$(cat "$T_ROOT/host/docs/api.md")" '"wake"'
-t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`wake` ('
-t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`start-reasons` ('
-t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`blockers` ('
+# Every word of features is in the manual's example and has its own entry,
+# with what it is, in the manual's row of features.
+row=$(grep '^| `features` |' "$T_ROOT/host/docs/api.md")
+for word in $(jq -r '.features[]' <<<"$t_out"); do
+  t_contains "$(cat "$T_ROOT/host/docs/api.md")" "\"$word\""
+  t_contains "$row" "\`$word\` ("
+done
 # The guide to updating from 0.30.x names the old words to say what replaced
 # them; the rest of the manual names only the new ones.
 manual=$(awk '/^### Updating from 0\.30\.x to 1\.0$/ {skip = 1; next} skip && /^##/ {skip = 0} !skip' "$T_ROOT"/host/docs/*.md)
@@ -104,8 +97,9 @@ t_run "$api --json"
 t_eq "$t_rc" 0
 renames=$T_ROOT/api/renames-1.0.tsv
 # What v0.30.6, the last 0.30 release, printed: the base 1.0 updates from.
-for word in status millwright-grant fixer-grant all-hands limit drain history export \
-  refresh-conflicts analytics state-move mcp-dashboard-keys clean disk panels state-check \
+# panels left core in 2.0, with no renames row, so it is not here.
+for word in status limit drain history export \
+  refresh-conflicts analytics state-move mcp-dashboard-keys clean disk state-check \
   finish status-versions store-copy state-load freeze host-bridge cycle-writes settings-rules \
   start-order host-message refresh-pr host-message-health refresh-pr-starts refresh-pr-lane \
   refresh-pr-sweep refresh-pr-json host-start; do
@@ -131,33 +125,29 @@ reset
 installed v0.8.0+cb6912a
 t_run "$api --json"
 t_eq "$t_rc" 0
-t_eq "$(jq -c '.flags' <<<"$t_out")" '{"outsource":false,"spec-pipe":false,"protolab-zip-url":false,"prototype-file":false,"lean":false,"review":false,"plugins":false,"wiki":false}'
-t_eq "$(jq -r '.features | index("outsource")' <<<"$t_out")" null
-t_eq "$(jq -r '.features | index("spec-pipe")' <<<"$t_out")" null
-t_eq "$(jq -r '.features | index("protolab-zip-url")' <<<"$t_out")" null
-t_eq "$(jq -r '.features | index("prototype-file")' <<<"$t_out")" null
+t_eq "$(jq -c '.flags' <<<"$t_out")" '{"lean":false,"plugins":false}'
 t_eq "$(jq -r '.features | index("lean")' <<<"$t_out")" null
-t_eq "$(jq -r 'keys_unsorted | join(" ")' <<<"$t_out")" "api tehas commit repo features flags millwright poll"
+t_eq "$(jq -r 'keys_unsorted | join(" ")' <<<"$t_out")" "api tehas commit repo features flags millwright poll store"
 t_run "$api"
-t_contains "$t_out" "flags       outsource=off spec-pipe=off protolab-zip-url=off prototype-file=off lean=off review=off"
+t_contains "$t_out" "flags       lean=off plugins=off"
 
 t_case "api --json: a test that turns a building feature on sees it on in flags only"
 reset
 installed v0.8.0+cb6912a
-t_instance "${T_MINIMAL[@]}" TEHAS_OUTSOURCE=on
-T_ENV=(TEHAS_TEST_FEATURES=outsource)
+t_instance "${T_MINIMAL[@]}" TEHAS_LEAN=on
+T_ENV=(TEHAS_TEST_FEATURES=lean)
 t_run "$api --json"
 t_eq "$t_rc" 0
-t_eq "$(jq -c '.flags' <<<"$t_out")" '{"outsource":true,"spec-pipe":false,"protolab-zip-url":false,"prototype-file":false,"lean":false,"review":false,"plugins":false,"wiki":false}'
-t_eq "$(jq -r '.features | index("outsource")' <<<"$t_out")" null
+t_eq "$(jq -c '.flags' <<<"$t_out")" '{"lean":true,"plugins":false}'
+t_eq "$(jq -r '.features | index("lean")' <<<"$t_out")" null
 
 t_case "api: a building feature switched on is refused with 78 and its name"
 reset
 installed v0.8.0+cb6912a
-t_instance "${T_MINIMAL[@]}" TEHAS_OUTSOURCE=on
+t_instance "${T_MINIMAL[@]}" TEHAS_LEAN=on
 t_run "$api --json"
 t_eq "$t_rc" 78
-t_contains "$t_out" "outsource is still being built"
+t_contains "$t_out" "lean is still being built"
 
 t_case "api --json: the millwright is the app's login when the factory has one"
 reset
@@ -339,13 +329,13 @@ t_eq "$(jq -c '.flags | keys_unsorted' "$T_ROOT/api/api.sample.json")" "$(jq -c 
 t_case "api.schema.json refuses a field it does not name, a flag that is no boolean and a word of another form"
 reset
 t_eq "$(jq '.zz = 1 | .flags.lean = "on" | .features += ["Two words"]' "$T_ROOT/api/api.sample.json" | fits_text "$(cat)")" \
-  "$(printf '%s\n' '.zz: not in the schema' '.features[31]: "Two words" does not match "^[a-z][a-z0-9-]*$"' '.flags.lean: string, not boolean')"
+  "$(printf '%s\n' '.zz: not in the schema' '.features[33]: "Two words" does not match "^[a-z][a-z0-9-]*$"' '.flags.lean: string, not boolean')"
 t_eq "$(jq 'del(.poll.last.ageMin) | .poll.hour.polls = -1' "$T_ROOT/api/api.sample.json" | fits_text "$(cat)")" \
   "$(printf '%s\n' '.poll.last: ageMin is missing' '.poll.hour.polls: -1 is under 0')"
 
 t_case "api.schema.json: a building feature's key is not required in flags"
 reset
-t_eq "$(jq 'del(.flags.outsource, .flags.lean)' "$T_ROOT/api/api.sample.json" | fits_text "$(cat)")" ""
+t_eq "$(jq 'del(.flags.plugins, .flags.lean)' "$T_ROOT/api/api.sample.json" | fits_text "$(cat)")" ""
 
 t_case "api --json: features is api/features.txt, word for word and in its order"
 reset
@@ -362,8 +352,8 @@ t_case "api --json prints the samples: no poll on record, a poll with no writes 
 # The clock and the wall time of the last poll are the run's, so the samples
 # keep their own; every other value is what the command printed.
 # TEHAS_SAMPLES_WRITE=1 writes the samples from the command instead.
-steady() { # <json text>: the object with the clock of its poll as the samples hold it
-  jq 'if .poll then .poll.last |= (.at = 1761400000 | .wallMs = 24000 | .ageMin = 0) else . end' <<<"$1"
+steady() { # <json text>: the object with the clock of its poll and its store's random id as the samples hold them
+  jq 'if .poll then .poll.last |= (.at = 1761400000 | .wallMs = 24000 | .ageMin = 0) else . end | .store |= if . then "8f14e45fceea167a5a36dedd4bea2543" else . end' <<<"$1"
 }
 sample_is() { # <name> <json text>: the object is api/api.<name>.json, but for the clock
   t_eq "$(fits_text "$2")" ""

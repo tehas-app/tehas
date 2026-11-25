@@ -1,23 +1,16 @@
 # shellcheck shell=bash
 # What the tests of install.sh share: the scratch host, the stubs for Docker,
-# systemctl and cargo, an instance that is valid, and the files a fresh
-# install puts. Source this from an install_*_test.sh file.
+# systemctl and cargo, a valid instance, and the files a fresh install puts.
+# Source this from an install_*_test.sh file, after test/lib.sh.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck disable=SC2034  # the variables here are read by the test files
-# The part has sourced test/lib.sh before this.
 
-# install_fixture <checkout> <dir>: a fixture of <checkout> made of its tracked
-# files and nothing else, so an untracked file in a working tree cannot change
-# what an install sees. Uncommitted edits to a tracked file are in it, because
-# the files are copied from the working tree; files removed from it are left
-# out, as a release leaves them. The fixture has no .git, so it names itself as
-# a release tree does: COMMIT, and VERSION as <newest tag>+<short hash>, the
-# hash alone where there is no tag, which is what install.sh reads from git.
+# install_fixture <checkout> <dir>: the tracked files as the tree holds them. With
+# no .git it names itself as a release does: COMMIT, and VERSION <tag>+<hash>.
 install_fixture() { # <checkout> <dir>
   local from=$1 to=$2 kept=$T/ls-files deleted=$T/ls-deleted tag hash
-  # What a run of this takes is the result of the last copy, so a tree whose
-  # tracked files cannot be read says so instead of leaving a fixture of part
-  # of them behind.
+  # A tree whose tracked files cannot be read fails here, not as a fixture of
+  # part of them.
   rm -rf "$to"
   mkdir -p "$to"
   git -C "$from" ls-files -z >"$kept" || return 1
@@ -30,17 +23,15 @@ install_fixture() { # <checkout> <dir>
   tag=$(git -C "$from" describe --tags --abbrev=0 2>/dev/null) || tag=""
   printf '%s\n' "${tag:+$tag+}$hash" >"$to/VERSION"
 }
-# The tree every install of this file runs: built once here from this checkout,
-# in $T, so no case writes into the checkout and none reads an untracked file.
-# A case that changes the tree copies it first.
+# The tree every install here runs, built once in $T so no case writes into the
+# checkout. A case that changes the tree copies it first.
 fixture=$T/tree
 install_fixture "$T_ROOT" "$fixture"
 install="$fixture/install.sh"
 home=$T/home
 th=$home/tehas
-# bootstrap.sh dev writes two files outside any home, and install.sh reads them to
-# know whether this host lets other accounts start a session. Pointed at scratch
-# in every run here, so no test reads or writes the real /etc or /usr/local/bin.
+# The two files of bootstrap.sh dev that install.sh reads, outside any home: in
+# scratch, so no test touches the real /etc or /usr/local/bin.
 dev_etc=$T/etc
 dev_bin=$T/usr-local-bin
 console_env=()
@@ -65,8 +56,7 @@ t_stub systemctl
 # A first install makes the labels in the product repository.
 t_stub gh
 t_stub_cargo
-# What cargo stands in for is no program, and the labels and tehas api are verbs
-# of the console: these run the console of this checkout.
+# The labels and tehas api are verbs of the console: run this checkout's.
 # shellcheck disable=SC2154  # t_console_why is set by test/lib.sh
 t_console || t_bad "$t_console_why"
 T_APP_WORLD=0
@@ -82,9 +72,7 @@ EOF
 }
 # Everything install.sh put on the host, relative to the scratch home.
 installed_files() { (cd "$home" && find . -type f ! -name '*.prev' | LC_ALL=C sort); }
-# The host facts a program reads back after an install, as one JSON object: the
-# same answer `tehas api --json` gives, from the files install.sh put there.
-# Read in a clean environment, as the factory's user would run it.
+# The host facts after an install: `tehas api --json` in a clean environment.
 # shellcheck disable=SC2154  # t_out is set by test/lib.sh, which the part sources first
 api_json() { t_run "'$th/bin/tehas' api --json"; printf '%s\n' "$t_out"; }
 
@@ -100,7 +88,6 @@ files="./.bashrc
 ./.config/systemd/user/tehas-dispatch.path
 ./.config/systemd/user/tehas-dispatch.service
 ./.config/systemd/user/tehas-dispatch.timer
-./.config/systemd/user/tehas-energy.service
 ./.config/systemd/user/tehas-mcp-fetch.socket
 ./.config/systemd/user/tehas-mcp-fetch@.service
 ./.config/systemd/user/tehas-mcp.service
@@ -108,9 +95,6 @@ files="./.bashrc
 ./.config/systemd/user/tehas-preview-sweep.timer
 ./.config/systemd/user/tehas-preview.service
 ./.config/systemd/user/tehas-preview.timer
-./.config/systemd/user/tehas-protolab.service
-./.config/systemd/user/tehas-protolab.timer
-./.config/systemd/user/tehas-top.service
 ./.pi/agent/mcp.json
 ./.pi/agent/models.json
 ./.pi/agent/settings.json
@@ -158,17 +142,10 @@ files="./.bashrc
 ./tehas/sandbox/gh-shim
 ./tehas/sandbox/npm/playwright/package-lock.json
 ./tehas/sandbox/npm/playwright/package.json
-./tehas/sandbox/vipune-shim
 ./tehas/shim/gh
 ./tehas/versions.env"
-# The manual and the front page are whole directories; leave them out of the
-# exact comparison and check them separately. So is state/, which is what the host
-# keeps for itself - the record of follow-ups owed among it - not a file install.sh
-# puts.
-# The marker that says the home is tehas's: the host's own, like state/, so it
-# is left out of the exact comparison and checked by its own cases. Nothing
-# removes it, so a host installed before the marker keeps it once a run gave it
-# one.
+# Checked on their own: the manual, the front page, whole directories, state/
+# and the marker that says the home is tehas's.
 install_marker=.tehas-home
 core_files() {
   installed_files | grep -v -e '^./tehas/docs/' -e '^./tehas/fun/' -e '^./tehas/state/' -e "^./tehas/$install_marker"
@@ -183,9 +160,8 @@ host_files() { find "$home" -type f ! -path "$th/state/update.lock"; }
 next_steps() {
   "$T_CONSOLE" update steps for systemd/tehas-cycle@.service systemd/tehas-clean.service systemd/tehas-clean.timer \
     systemd/tehas-dispatch.path systemd/tehas-dispatch.service systemd/tehas-dispatch.timer \
-    systemd/tehas-energy.service \
     systemd/tehas-preview.service \
-    systemd/tehas-preview.timer systemd/tehas-preview-sweep.service systemd/tehas-preview-sweep.timer systemd/tehas-protolab.service systemd/tehas-protolab.timer systemd/tehas-top.service sandbox/Dockerfile sandbox/base.Dockerfile sandbox/build.sh \
+    systemd/tehas-preview.timer systemd/tehas-preview-sweep.service systemd/tehas-preview-sweep.timer sandbox/Dockerfile sandbox/base.Dockerfile sandbox/build.sh \
     sandbox/npm/playwright/package.json sandbox/npm/playwright/package-lock.json \
     npm/pi/package.json npm/pi/package-lock.json npm/ctx7/package.json npm/ctx7/package-lock.json \
     npm/parallel-web-cli/package.json npm/parallel-web-cli/package-lock.json versions.env \
@@ -201,4 +177,64 @@ checkout() {
   cp -R "$fixture/install.sh" "$fixture/lib" "$fixture/host" "$fixture/bin" \
     "$fixture/libexec" "$part/"
   t_console_source "$part" "$fixture"
+}
+# A home installed from such a checkout, which owes no build.
+installed_checkout() { fresh; instance; checkout; t_run "$part/install.sh"; }
+
+# install_list_report: the names a home holds that files= lacks, and the reverse,
+# one line each; a side that names nothing is refused.
+install_list_report() { # <names the list promises> <names the home holds>
+  local expected installed one
+  if [ "$#" != 2 ]; then
+    printf 'install_list_report wants two arguments, got %s\n' "$#" >&2
+    return 2
+  fi
+  expected=$1
+  installed=$2
+  # A name that is nothing but blank is refused too.
+  if [ -z "${expected//[$' \t\r\n']}" ] || [ -z "${installed//[$' \t\r\n']}" ]; then
+    echo 'install_list_report: a side names no file at all' >&2
+    return 2
+  fi
+  # comm's complaint about order would be lost, read as an empty report.
+  expected=$(printf '%s\n' "$expected" | LC_ALL=C sort)
+  installed=$(printf '%s\n' "$installed" | LC_ALL=C sort)
+  if ! LC_ALL=C sort -c <<<"$expected" ||
+    ! LC_ALL=C sort -c <<<"$installed"; then
+    echo 'install_list_report: a side does not sort' >&2
+    return 2
+  fi
+  expected=$expected$'\n'
+  installed=$installed$'\n'
+  while read -r one; do
+    printf 'new installed file %s: add it to the files= list of install.sh and of test/install_lib.sh, or stop shipping it\n' "$one"
+  done < <(comm -13 <(printf '%s' "$expected") <(printf '%s' "$installed"))
+  while read -r one; do
+    printf 'missing installed file %s: install.sh does not copy it into the home\n' "$one"
+  done < <(comm -23 <(printf '%s' "$expected") <(printf '%s' "$installed"))
+}
+
+# The labels of the sandbox image, as docker image inspect answers them
+# (install_images_*_test.sh).
+docker_labels() { # <label value, blank for an image with no label, absent for no image>
+  case "$1" in
+    absent)
+      t_stub docker 'case "$1 $2" in "version --format") echo 29.1.3 ;; "network inspect") echo "true bridge false isolated" ;; "image inspect") exit 1 ;; esac'
+      ;;
+    blank)
+      t_stub docker 'case "$1 $2" in "version --format") echo 29.1.3 ;; "network inspect") echo "true bridge false isolated" ;; "image inspect") exit 0 ;; esac'
+      ;;
+    *)
+      t_stub docker "case \"\$1 \$2\" in \"version --format\") echo 29.1.3 ;; \"network inspect\") echo \"true bridge false isolated\" ;; \"image inspect\") echo \"$1\" ;; esac"
+      ;;
+  esac
+}
+img_commit=$(printf 'c%.0s' {1..40})
+img_name=tehas/pi-rukas:uid$(id -u)
+
+# Before bin/tehas there was one file for each command in ~/tehas/bin.
+old_layout() {
+  for f in tehas-console.ts tehas-dispatch tehas-energy tehas-health tehas-index tehas-protolab \
+    tehas-status tehas-test tehas-work; do echo "# old" >"$th/bin/$f"; done
+  echo "# older" >"$th/bin/tehas-dispatch.prev"
 }

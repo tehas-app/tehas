@@ -18,7 +18,6 @@ use super::{
     fault, first_line, host_or_refuse, output, quiet, say, tell, temp_dir, timed, Host, Mode, Plan,
     Undo,
 };
-use serde_json::Value;
 use std::cmp::Ordering;
 use std::env;
 use std::fs;
@@ -26,11 +25,25 @@ use std::io::ErrorKind;
 use std::os::unix::fs as unix_fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::Duration;
+use tehas_core::home::{Home, State};
 use tehas_core::{release, version};
+use tehas_ports::{
+    Actor, CodeHost, FileName, Got, Outcome, Passing, Release, Sent, TagName, ALL_MAX,
+};
 
 /// Seconds for each call out: a remote that stops answering fails the update.
 const API_LIMIT: u32 = 60;
 const DOWNLOAD_LIMIT: u32 = 600;
+/// The most bytes one release file may hold: a release's tarball is far
+/// smaller, so a larger one is refused before it is fetched.
+const DOWNLOAD_MAX: u64 = 1 << 30;
+/// A code host handle on tehas's own release project, a site of its own
+/// (Decided 23), acting as `Actor::Operator`, the operator's gh as it is
+/// signed in, or as `Actor::Anonymous`, with no credential: the console's
+/// wiring makes it from the actor, the project and the bound of each call,
+/// so this module knows the port alone.
+pub type Releases<'a> = &'a dyn Fn(&Actor, &str, Duration) -> Got<Box<dyn CodeHost + Send>>;
 /// docker image inspect and docker tag.
 const DOCKER_LIMIT: u32 = 180;
 /// The target's own settings check, and how much of what it says is read.
@@ -142,48 +155,25 @@ pub(crate) struct Published {
     pub body: String,
 }
 
-fn truthy(v: &Value) -> bool {
-    !matches!(v, Value::Null | Value::Bool(false))
+/// Whether a release is listed: published, and a prerelease only when its tag
+/// says it is one.
+fn listed(tag: &str, draft: bool, pre: bool) -> bool {
+    !draft && (!pre || prerelease(tag)) && tag_ok(tag)
 }
 
-/// Published releases only, newest first by version, not by date: vX.Y.Z,
-/// and the alphas, betas and release candidates, which GitHub holds as
-/// prereleases. An answer that is not a list of releases is an error, and no
-/// answer is none.
-fn published(text: &str) -> Result<Vec<Published>, ()> {
-    let mut found = Vec::new();
-    for answer in serde_json::Deserializer::from_str(text).into_iter::<Value>() {
-        let answer = answer.map_err(|_| ())?;
-        let items: Vec<&Value> = match &answer {
-            Value::Array(items) => items.iter().collect(),
-            Value::Object(items) => items.values().collect(),
-            _ => return Err(()),
-        };
-        for item in items {
-            let release = item.as_object().ok_or(())?;
-            let held = |name: &str| release.get(name).is_some_and(truthy);
-            let tag = release.get("tag_name").and_then(Value::as_str);
-            if held("draft") || (held("prerelease") && !tag.is_some_and(prerelease)) {
-                continue;
-            }
-            let tag = tag.ok_or(())?;
-            if !tag_ok(tag) {
-                continue;
-            }
-            let body = match release.get("body") {
-                Some(Value::String(body)) => body.clone(),
-                Some(v) if truthy(v) => v.to_string(),
-                _ => String::new(),
-            };
-            found.push(Published {
-                tag: tag.to_string(),
-                body,
-            });
-        }
-    }
+/// The releases the code host answered, as `published` keeps them.
+fn published_of(all: Vec<Release>) -> Vec<Published> {
+    let mut found: Vec<Published> = all
+        .into_iter()
+        .filter(|r| listed(r.tag.as_str(), r.draft, r.prerelease))
+        .map(|r| Published {
+            tag: r.tag.as_str().to_string(),
+            body: r.notes,
+        })
+        .collect();
     found.sort_by(|a, b| version_order(&a.tag, &b.tag));
     found.reverse();
-    Ok(found)
+    found
 }
 
 /// The newest release that is no prerelease.
@@ -328,9 +318,9 @@ pub(crate) fn installed(host: &Host) -> String {
 /// does, so a host installed before the setting existed keeps updating the way
 /// it did. A host with neither is not guessed at.
 pub(crate) fn source(host: &Host) -> Result<&'static str, u8> {
-    match env::var("TEHAS_UPDATE_FROM").as_deref() {
-        Ok("git") => return Ok("git"),
-        Ok("release") => return Ok("release"),
+    match host.from.as_str() {
+        "git" => return Ok("git"),
+        "release" => return Ok("release"),
         _ => {}
     }
     if fs::symlink_metadata(host.current()).is_ok_and(|m| m.file_type().is_symlink()) {
@@ -364,46 +354,88 @@ fn repo() -> Result<String, u8> {
     Err(78)
 }
 
-/// gh when it is signed in, which reaches a private repository with the bot's
-/// token; the public address otherwise.
-fn signed_in() -> bool {
-    quiet(timed(API_LIMIT, "gh").args(["auth", "status"]))
+/// Whether the operator's answer, to the handle's making or to its first
+/// call, sends the update to the anonymous handle: a gh with no
+/// credential or one no longer good (`SignedOut`), one that may not read
+/// the project (`Forbidden`), or no gh to run, nothing sent
+/// (`Unavailable { Unreachable, No }`). Never a failure of the site's or
+/// one that may have been sent: those fail the update as they are
+/// (tehas-68, 2026-11-25).
+fn anonymous_instead(o: &Outcome) -> bool {
+    matches!(
+        o,
+        Outcome::SignedOut
+            | Outcome::Forbidden
+            | Outcome::Unavailable {
+                why: Passing::Unreachable,
+                sent: Sent::No,
+            }
+    )
+}
+
+/// What stopped the first call: whether the anonymous handle answered it,
+/// and its outcome.
+struct Stopped {
+    anonymous: bool,
+    why: Outcome,
+}
+
+impl Stopped {
+    /// The outcome as a person reads it. The anonymous handle refuses a
+    /// project that is private or not there.
+    fn line(&self) -> String {
+        let line = self.why.line();
+        if self.anonymous && matches!(self.why, Outcome::Refused(_) | Outcome::NotFound) {
+            format!("{line} (a private repository needs gh signed in)")
+        } else {
+            line.to_string()
+        }
+    }
+}
+
+/// The handle that answered `ask`, and its answer: the operator's, or the
+/// anonymous one when the operator's says so (`anonymous_instead`).
+fn first<T>(
+    site: Releases,
+    repo: &str,
+    limit: Duration,
+    mut ask: impl FnMut(&mut dyn CodeHost) -> Got<T>,
+) -> Result<(Box<dyn CodeHost + Send>, T), Stopped> {
+    let mut on = |by: &Actor| {
+        site(by, repo, limit).and_then(|mut h| {
+            let got = ask(&mut *h)?;
+            Ok((h, got))
+        })
+    };
+    match on(&Actor::Operator) {
+        Err(o) if anonymous_instead(&o) => on(&Actor::Anonymous).map_err(|why| Stopped {
+            anonymous: true,
+            why,
+        }),
+        got => got.map_err(|why| Stopped {
+            anonymous: false,
+            why,
+        }),
+    }
+}
+
+fn bound(seconds: u32) -> Duration {
+    Duration::from_secs(seconds.into())
 }
 
 /// The published releases, newest first.
-pub(crate) fn list() -> Result<Vec<Published>, u8> {
+pub(crate) fn list(site: Releases) -> Result<Vec<Published>, u8> {
     let repo = repo()?;
-    let answer = if signed_in() {
-        let (rc, out) = output(timed(API_LIMIT, "gh").args([
-            "api".to_string(),
-            format!("repos/{repo}/releases?per_page=100"),
-        ]));
-        if rc != 0 {
-            fault(&format!("gh could not list the releases of {repo}"));
-            return Err(1);
-        }
-        out
-    } else {
-        let (rc, out) = output(timed(API_LIMIT, "curl").args([
-            "-fsSL".to_string(),
-            "-H".to_string(),
-            "Accept: application/vnd.github+json".to_string(),
-            format!("https://api.github.com/repos/{repo}/releases?per_page=100"),
-        ]));
-        if rc != 0 {
+    match first(site, &repo, bound(API_LIMIT), |h| h.releases(ALL_MAX)) {
+        Ok((_, all)) => Ok(published_of(all.into_items())),
+        Err(stopped) => {
             fault(&format!(
-                "could not list the releases of {repo} (a private repository needs gh signed in)"
+                "could not list the releases of {repo}: {}",
+                stopped.line()
             ));
-            return Err(1);
+            Err(1)
         }
-        out
-    };
-    published(&answer).map_err(|()| {
-        fault(&format!(
-            "the release list of {repo} is not what GitHub answers"
-        ));
-        1
-    })
+    }
 }
 
 /// The newest vX.Y.Z tag that is an ancestor of the checkout's HEAD: describe
@@ -433,7 +465,7 @@ fn checkout_tag(dir: &Path) -> String {
     }
 }
 
-fn fetch(tag: &str, dir: &Path, tarball: &str) -> bool {
+fn fetch(site: Releases, tag: &str, dir: &Path, tarball: &str) -> bool {
     let Ok(repo) = repo() else {
         return false;
     };
@@ -442,34 +474,66 @@ fn fetch(tag: &str, dir: &Path, tarball: &str) -> bool {
         format!("{tarball}.sha256"),
         format!("{tarball}.minisig"),
     ];
-    if signed_in() {
-        let mut cmd = timed(DOWNLOAD_LIMIT, "gh");
-        cmd.args(["release", "download", tag, "--repo", &repo, "--dir"])
-            .arg(dir);
-        for name in &names {
-            cmd.args(["--pattern", name]);
-        }
-        let done = cmd
-            .stdout(Stdio::null())
-            .status()
-            .is_ok_and(|s| s.success());
-        if !done {
-            fault(&format!("gh could not download {tag} of {repo}"));
-        }
-        return done;
-    }
-    for name in &names {
-        let done = timed(DOWNLOAD_LIMIT, "curl")
-            .args(["-fsSL", "-o"])
-            .arg(dir.join(name))
-            .arg(format!(
-                "https://github.com/{repo}/releases/download/{tag}/{name}"
-            ))
-            .status()
-            .is_ok_and(|s| s.success());
-        if !done {
-            fault(&format!("could not download {name} of {repo}"));
+    download(site, &repo, tag, dir, &names)
+}
+
+/// Each of `names` of the release `tag` into `dir` through the code host,
+/// on the handle that answered the first (`first`); false, said, at the
+/// first that is not downloaded whole.
+fn download(site: Releases, repo: &str, tag: &str, dir: &Path, names: &[String]) -> bool {
+    let Ok(at) = TagName::new(tag) else {
+        fault(&format!("could not download {tag} of {repo}: not a tag"));
+        return false;
+    };
+    let mut files = Vec::new();
+    for name in names {
+        let Ok(file) = FileName::new(name.as_str()) else {
+            fault(&format!(
+                "could not download {name} of {repo}: not a file name"
+            ));
             return false;
+        };
+        files.push((name, file));
+    }
+    let Some(((name, file), rest)) = files.split_first() else {
+        return true;
+    };
+    // Each attempt writes its file anew: false when it cannot be written.
+    let one = |h: &mut dyn CodeHost, name: &str, file: &FileName| -> Got<bool> {
+        let Ok(mut into) = fs::File::create(dir.join(name)) else {
+            return Ok(false);
+        };
+        h.download(&at, file, DOWNLOAD_MAX, &mut into)
+            .map(|()| true)
+    };
+    let unwritten = |name: &str| {
+        fault(&format!(
+            "could not download {name} of {repo}: could not write it here"
+        ));
+        false
+    };
+    let mut handle = match first(site, repo, bound(DOWNLOAD_LIMIT), |h| one(h, name, file)) {
+        Ok((_, false)) => return unwritten(name),
+        Ok((handle, true)) => handle,
+        Err(stopped) => {
+            fault(&format!(
+                "could not download {name} of {repo}: {}",
+                stopped.line()
+            ));
+            return false;
+        }
+    };
+    for (name, file) in rest {
+        match one(&mut *handle, name, file) {
+            Ok(true) => {}
+            Ok(false) => return unwritten(name),
+            Err(why) => {
+                fault(&format!(
+                    "could not download {name} of {repo}: {}",
+                    why.line()
+                ));
+                return false;
+            }
         }
     }
     true
@@ -737,7 +801,7 @@ fn unknown_keys(tree: &Path, env_file: &Path) -> (Vec<String>, Vec<String>) {
 /// history is what prune reads: the versions in the order they were switched to.
 fn switch(host: &Host, tag: &str) -> bool {
     // The history goes first, so a failed append leaves `current` where it was.
-    let state = host.home.join("state");
+    let state = Home::new(&host.home).state_dir();
     if fs::create_dir_all(&state).is_err() {
         return false;
     }
@@ -745,7 +809,7 @@ fn switch(host: &Host, tag: &str) -> bool {
     if fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(state.join("release-history"))
+        .open(Home::new(&host.home).state(State::ReleaseHistory))
         .and_then(|mut f| writeln!(f, "{tag}"))
         .is_err()
     {
@@ -785,7 +849,7 @@ fn same_file(a: &Path, b: &Path) -> bool {
 /// The version current names and the two switched to before it stay, with the
 /// sandbox image each was tagged with. Anything older goes.
 fn prune(host: &Host) {
-    let history = fs::read(host.home.join("state/release-history")).unwrap_or_default();
+    let history = fs::read(Home::new(&host.home).state(State::ReleaseHistory)).unwrap_or_default();
     let history = String::from_utf8_lossy(&history);
     let keep = last_three(&history);
     let versions = host.home.join("versions");
@@ -924,7 +988,7 @@ fn notes(target: &str, installed: &str, from_note: &str, list: &[Published]) {
 }
 
 /// Download, check and unpack a version that is not on the host yet.
-fn bring(host: &Host, target: &str, tree: &Path, arch: &str) -> u8 {
+fn bring(site: Releases, host: &Host, target: &str, tree: &Path, arch: &str) -> u8 {
     let tmp = host.home.join("tmp");
     let _ = fs::create_dir_all(&tmp);
     let Ok(download) = temp_dir(&tmp, "release.") else {
@@ -932,7 +996,7 @@ fn bring(host: &Host, target: &str, tree: &Path, arch: &str) -> u8 {
         return 1;
     };
     let tarball = tarball_of(target, arch);
-    let brought = fetch(target, &download, &tarball)
+    let brought = fetch(site, target, &download, &tarball)
         && verify(&download, &tarball)
         && unpack(host, target, &download, &tarball);
     let _ = fs::remove_dir_all(&download);
@@ -952,10 +1016,14 @@ fn bring(host: &Host, target: &str, tree: &Path, arch: &str) -> u8 {
 /// The version to run, unpacked beside the others and checked before current is
 /// moved to it, so a download that fails a check, or a release that asks for a
 /// setting this instance lacks, leaves the host on the version it runs.
-pub(crate) fn go(host: &Host, to: Option<&str>, plan: &mut Plan) -> u8 {
+pub(crate) fn go(site: Releases, host: &Host, to: Option<&str>, plan: &mut Plan) -> u8 {
     let check = plan.mode == Mode::Check;
     let installed = installed(host);
-    let list = match list() {
+    if let Some(moved) = release::repo().and_then(|r| release::moved(&r, release::Holder::Setting))
+    {
+        say(&format!("release: {moved}"));
+    }
+    let list = match list(site) {
         Ok(list) => list,
         Err(rc) => return rc,
     };
@@ -1074,7 +1142,7 @@ pub(crate) fn go(host: &Host, to: Option<&str>, plan: &mut Plan) -> u8 {
             "release: {target} is on this host from before; it is not downloaded again"
         ));
     } else {
-        let rc = bring(host, &target, &tree, arch);
+        let rc = bring(site, host, &target, &tree, arch);
         if rc != 0 {
             return rc;
         }
@@ -1179,7 +1247,7 @@ pub(crate) fn undo(host: &Host, undo: &Undo) {
 
 /// `console update release <question>`. The two that compare answer by status
 /// alone: 0 yes, 1 no.
-pub fn verb(given: &[String]) -> u8 {
+pub fn verb(given: &[String], site: Releases) -> u8 {
     let words: Vec<&str> = given.iter().map(String::as_str).collect();
     match words[..] {
         ["older", a, b] => return u8::from(!older(a, b)),
@@ -1205,7 +1273,7 @@ pub fn verb(given: &[String]) -> u8 {
             }
             0
         }
-        ["newest"] => match list() {
+        ["newest"] => match list(site) {
             Ok(list) => {
                 if let Some(tag) = newest(&list) {
                     say(tag);
@@ -1235,7 +1303,27 @@ mod tests {
         Host {
             home: home.to_path_buf(),
             image: "tehas/pi-rukas:uid1000".to_string(),
+            from: String::new(),
         }
+    }
+
+    /// A list as GitHub's answer gives it, read the way the code host's
+    /// releases are kept: what `published_of` keeps of it.
+    fn of(answer: &serde_json::Value) -> Vec<Published> {
+        let all = answer.as_array().unwrap().iter().map(|r| {
+            let tag = r["tag_name"].as_str().unwrap();
+            let link = tehas_ports::WebLink::new(format!("https://example.test/{tag}")).unwrap();
+            let mut got = Release::new(
+                tehas_ports::ReleaseId::new(tag.to_string()),
+                TagName::new(tag).unwrap(),
+                link,
+            );
+            got.draft = r["draft"].as_bool().unwrap_or(false);
+            got.prerelease = r["prerelease"].as_bool().unwrap_or(false);
+            got.notes = r["body"].as_str().unwrap_or_default().to_string();
+            got
+        });
+        published_of(all.collect())
     }
 
     fn rel(tag: &str) -> Published {
@@ -1378,7 +1466,7 @@ mod tests {
             {"tag_name": "nightly", "body": "no version"},
             {"tag_name": "v1.8.0"},
         ]);
-        let list = published(&answer.to_string()).unwrap();
+        let list = of(&answer);
         let tags: Vec<&str> = list.iter().map(|r| r.tag.as_str()).collect();
         assert_eq!(tags, ["v1.10.0", "v1.9.0", "v1.8.0"]);
         assert_eq!(list[1].body, "nine");
@@ -1394,7 +1482,7 @@ mod tests {
             {"tag_name": "v1.0.0-alpha.2", "prerelease": true},
             {"tag_name": "v1.0.0-rc.1", "prerelease": true},
         ]);
-        let list = published(&answer.to_string()).unwrap();
+        let list = of(&answer);
         let tags: Vec<&str> = list.iter().map(|r| r.tag.as_str()).collect();
         assert_eq!(
             tags,
@@ -1479,7 +1567,7 @@ mod tests {
             {"tag_name": "v0.23.0", "prerelease": true},
             {"tag_name": "v0.22.0-rc.10", "prerelease": true},
         ]);
-        let list = published(&answer.to_string()).unwrap();
+        let list = of(&answer);
         let tags: Vec<&str> = list.iter().map(|r| r.tag.as_str()).collect();
         assert_eq!(tags, ["v0.22.0-rc.10", "v0.22.0-rc.1", "v0.21.0"]);
         assert_eq!(newest(&list), Some("v0.21.0"));
@@ -1488,13 +1576,20 @@ mod tests {
 
     #[test]
     fn an_answer_that_is_no_list_is_an_error_and_no_answer_is_none() {
-        assert_eq!(published("").unwrap(), vec![]);
-        assert_eq!(published("[]").unwrap(), vec![]);
-        assert!(published("not json").is_err());
-        assert!(published("7").is_err());
-        assert!(published(r#"{"message": "Not Found"}"#).is_err());
-        assert!(published(r#"[{"tag_name": 7}]"#).is_err());
-        assert!(published(r#"[{"body": "no tag"}]"#).is_err());
+        use tehas_ports::fake::{CodeHostOp, FakeSite, Fault, Faulty, Op, World};
+        use tehas_ports::{Caller, Site};
+        assert_eq!(of(&json!([])), vec![]);
+        // An answer the adapter cannot read whole is `Unread`, on either
+        // handle: the list fails, never reads as empty.
+        let site = Faulty::new(FakeSite::new(&World::new()))
+            .on(Op::CodeHost(CodeHostOp::Releases), Fault::Malformed);
+        let site =
+            move |by: &Actor, _: &str, _: Duration| site.code_host(by, Caller::new("update"));
+        assert_eq!(list(&site), Err(1));
+        let none = FakeSite::new(&World::new());
+        let none =
+            move |by: &Actor, _: &str, _: Duration| none.code_host(by, Caller::new("update"));
+        assert_eq!(list(&none), Ok(vec![]));
     }
 
     #[test]
@@ -1589,14 +1684,14 @@ mod tests {
     // built into tehas and 1 for any other.
     fn signed(d: &super::super::testing::Dir, rc: u8) -> (String, PathBuf) {
         let t = "tehas-v1.2.0-linux-x86_64.tar.gz".to_string();
-        d.file(&format!("dl/{t}"), "a release\n");
+        d.file(format!("dl/{t}"), "a release\n");
         let (_, sum) = output(
             Command::new("sha256sum")
                 .arg(&t)
                 .current_dir(d.0.join("dl")),
         );
-        d.file(&format!("dl/{t}.sha256"), &format!("{sum}\n"));
-        d.file(&format!("dl/{t}.minisig"), "signed\n");
+        d.file(format!("dl/{t}.sha256"), &format!("{sum}\n"));
+        d.file(format!("dl/{t}.minisig"), "signed\n");
         d.file("home/release/minisign.pub", "a key a release left\n");
         d.file("built-in.pub", release::KEY);
         let stub = d.0.join("minisign");
@@ -1633,7 +1728,7 @@ mod tests {
     fn a_sum_that_does_not_match_stops_before_the_signature() {
         let d = dir("verify-bad-sum");
         let (t, stub) = signed(&d, 0);
-        d.file(&format!("dl/{t}"), "tampered\n");
+        d.file(format!("dl/{t}"), "tampered\n");
         assert!(!verify_with(&d.0.join("dl"), &t, stub.to_str().unwrap()));
     }
 
@@ -1668,10 +1763,13 @@ mod tests {
     fn prune_removes_what_is_not_kept_and_never_current() {
         let d = dir("prune");
         for v in ["v1.0.0", "v1.1.0", "v1.2.0", "v1.3.0", "v1.4.0", "vault"] {
-            d.file(&format!("versions/{v}/VERSION"), v);
+            d.file(format!("versions/{v}/VERSION"), v);
         }
         d.file("versions/.unpack-abc/x", "");
-        d.file("state/release-history", "v1.0.0\nv1.1.0\nv1.2.0\nv1.3.0\n");
+        d.file(
+            Home::new(d.0.path()).state(State::ReleaseHistory),
+            "v1.0.0\nv1.1.0\nv1.2.0\nv1.3.0\n",
+        );
         unix_fs::symlink("versions/v1.0.0", d.0.join("current")).unwrap();
         prune(&host(&d.0));
         let mut left: Vec<String> = fs::read_dir(d.0.join("versions"))
@@ -1693,7 +1791,10 @@ mod tests {
         d.file("versions/v1.0.0/VERSION", "v1.0.0");
         d.file("versions/v1.0.0/stuck/file", "");
         d.file("versions/v1.1.0/VERSION", "v1.1.0");
-        d.file("state/release-history", "v1.1.0\n");
+        d.file(
+            Home::new(d.0.path()).state(State::ReleaseHistory),
+            "v1.1.0\n",
+        );
         unix_fs::symlink("versions/v1.1.0", d.0.join("current")).unwrap();
         let stuck = d.0.join("versions/v1.0.0/stuck");
         fs::set_permissions(&stuck, fs::Permissions::from_mode(0o500)).unwrap();
@@ -1732,7 +1833,7 @@ mod tests {
         );
         assert!(!d.0.join("current.new").exists());
         assert_eq!(
-            fs::read_to_string(d.0.join("state/release-history")).unwrap(),
+            fs::read_to_string(Home::new(d.0.path()).state(State::ReleaseHistory)).unwrap(),
             "v1.1.0\n"
         );
     }
@@ -1744,7 +1845,7 @@ mod tests {
         d.file("versions/v1.0.0/VERSION", "v1.0.0\n");
         d.file("versions/v1.1.0/VERSION", "v1.1.0\n");
         unix_fs::symlink("versions/v1.0.0", d.0.join("current")).unwrap();
-        fs::create_dir_all(d.0.join("state/release-history")).unwrap();
+        fs::create_dir_all(Home::new(d.0.path()).state(State::ReleaseHistory)).unwrap();
         assert!(!switch(&h, "v1.1.0"));
         assert_eq!(
             fs::read_link(d.0.join("current")).unwrap(),
@@ -1838,5 +1939,292 @@ mod tests {
         // The host's versions.env, which a release writes, is not an input.
         assert_eq!(release::repo_of(""), release::pinned_repo());
         assert_eq!(release::repo_of("o/n"), "o/n");
+    }
+
+    mod on_the_code_host {
+        //! The signed-in list and download, on the ports' fake.
+
+        use super::*;
+        use tehas_ports::fake::{CodeHostOp, FakeSite, Fault, Faulty, Op, World};
+        use tehas_ports::{Actor, Caller, ReleaseId, Site, WebLink};
+
+        fn release(tag: &str, draft: bool, pre: bool, notes: &str) -> Release {
+            let link = WebLink::new(format!("https://example.test/{tag}")).unwrap();
+            let mut r = Release::new(
+                ReleaseId::new(tag.to_string()),
+                TagName::new(tag).unwrap(),
+                link,
+            );
+            (r.draft, r.prerelease, r.notes) = (draft, pre, notes.to_string());
+            r
+        }
+
+        #[test]
+        fn the_list_keeps_what_the_public_list_keeps_newest_by_version_first() {
+            let all = vec![
+                release("v1.0.0", false, false, "one"),
+                release("v1.2.0", true, false, "a draft"),
+                release("v1.1.0", false, false, ""),
+                release("v1.1.1-rc.1", false, true, "rc"),
+                release("v1.1.2", false, true, "a prerelease with a plain tag"),
+                release("nightly", false, false, "no version"),
+            ];
+            let got = published_of(all);
+            let tags: Vec<&str> = got.iter().map(|r| r.tag.as_str()).collect();
+            assert_eq!(tags, ["v1.1.1-rc.1", "v1.1.0", "v1.0.0"]);
+            assert_eq!(got[2].body, "one");
+            assert_eq!(got[1].body, "");
+        }
+
+        const NAMES: [&str; 3] = ["t.tar.gz", "t.tar.gz.sha256", "t.tar.gz.minisig"];
+
+        fn names() -> Vec<String> {
+            NAMES.iter().map(|n| n.to_string()).collect()
+        }
+
+        /// A handle maker on `site` for the operator, that asserts the
+        /// project asked and that the anonymous handle is never made.
+        fn on(
+            site: impl Site + 'static,
+        ) -> impl Fn(&Actor, &str, Duration) -> Got<Box<dyn CodeHost + Send>> {
+            move |by, repo, _| {
+                assert_eq!((by, repo), (&Actor::Operator, "o/r"));
+                site.code_host(by, Caller::new("update"))
+            }
+        }
+
+        fn world() -> World {
+            World::new().release(
+                "v1.2.0",
+                &[
+                    (NAMES[0], b"tarball".as_slice()),
+                    (NAMES[1], b"sum"),
+                    (NAMES[2], b"signed"),
+                ],
+            )
+        }
+
+        #[test]
+        fn each_file_of_the_release_is_written_whole_into_the_directory() {
+            let d = dir("release-download");
+            let site = on(FakeSite::new(&world()));
+            assert!(download(&site, "o/r", "v1.2.0", &d.0, &names()));
+            for (name, bytes) in [
+                (NAMES[0], "tarball"),
+                (NAMES[1], "sum"),
+                (NAMES[2], "signed"),
+            ] {
+                assert_eq!(fs::read_to_string(d.0.join(name)).unwrap(), bytes);
+            }
+        }
+
+        #[test]
+        fn a_file_the_release_does_not_hold_stops_the_download() {
+            let d = dir("release-download-missing");
+            let world = World::new().release("v1.2.0", &[(NAMES[0], b"tarball".as_slice())]);
+            let site = on(FakeSite::new(&world));
+            assert!(!download(&site, "o/r", "v1.2.0", &d.0, &names()));
+            assert!(!download(&site, "o/r", "v9.9.9", &d.0, &names()));
+        }
+
+        #[test]
+        fn a_code_host_that_times_out_stops_the_list_and_the_download() {
+            let d = dir("release-download-late");
+            let late =
+                |op| on(Faulty::new(FakeSite::new(&world())).on(Op::CodeHost(op), Fault::Timeout));
+            let site = late(CodeHostOp::Download);
+            assert!(!download(&site, "o/r", "v1.2.0", &d.0, &names()));
+            let site = late(CodeHostOp::Releases);
+            let read =
+                site(&Actor::Operator, "o/r", Duration::ZERO).and_then(|mut h| h.releases(ALL_MAX));
+            assert!(read.is_err());
+        }
+    }
+
+    mod the_fallback {
+        //! The anonymous handle in the operator's place, on the ports' fake:
+        //! when the operator's handle, made or asked first, is signed out,
+        //! forbidden or has no gh to run, and never on a failure of the
+        //! site's (tehas-68, 2026-11-25).
+
+        use super::*;
+        use std::cell::RefCell;
+        use tehas_ports::fake::{CodeHostOp, FakeSite, Fault, Faulty, Op, World};
+        use tehas_ports::{Caller, Site};
+
+        const NAMES: [&str; 3] = ["t.tar.gz", "t.tar.gz.sha256", "t.tar.gz.minisig"];
+
+        fn names() -> Vec<String> {
+            NAMES.iter().map(|n| n.to_string()).collect()
+        }
+
+        fn world() -> World {
+            World::new().release(
+                "v1.2.0",
+                &[
+                    (NAMES[0], b"tarball".as_slice()),
+                    (NAMES[1], b"sum"),
+                    (NAMES[2], b"signed"),
+                ],
+            )
+        }
+
+        /// How the operator's handle answers.
+        enum Operator {
+            /// Its making fails with this.
+            Made(Outcome),
+            /// Its first call of `op` fails with `fault`, and so does each.
+            Asked(CodeHostOp, Fault),
+        }
+
+        /// A handle maker: the operator's as `operator` says, the anonymous
+        /// one on the whole fake; `asked` keeps each actor a handle was made
+        /// for, in order.
+        fn maker(
+            operator: Operator,
+            asked: &RefCell<Vec<Actor>>,
+        ) -> impl Fn(&Actor, &str, Duration) -> Got<Box<dyn CodeHost + Send>> + '_ {
+            move |by, repo, _| {
+                assert_eq!(repo, "o/r");
+                asked.borrow_mut().push(by.clone());
+                let caller = Caller::new("update");
+                match (by, &operator) {
+                    (Actor::Operator, Operator::Made(o)) => Err(o.clone()),
+                    (Actor::Operator, Operator::Asked(op, fault)) => {
+                        Faulty::new(FakeSite::new(&world()))
+                            .on(Op::CodeHost(*op), *fault)
+                            .code_host(by, caller)
+                    }
+                    (Actor::Anonymous, _) => FakeSite::new(&world()).code_host(by, caller),
+                    (other, _) => panic!("no handle is made as {other:?}"),
+                }
+            }
+        }
+
+        fn written(d: &Path) -> bool {
+            [
+                (NAMES[0], "tarball"),
+                (NAMES[1], "sum"),
+                (NAMES[2], "signed"),
+            ]
+            .iter()
+            .all(|(name, bytes)| fs::read_to_string(d.join(name)).is_ok_and(|b| b == *bytes))
+        }
+
+        #[test]
+        fn a_signed_out_operator_handle_reads_and_downloads_anonymously() {
+            let d = dir("release-fallback-signed-out");
+            let asked = RefCell::new(Vec::new());
+            let site = maker(Operator::Made(Outcome::SignedOut), &asked);
+            assert!(download(&site, "o/r", "v1.2.0", &d.0, &names()));
+            assert!(written(&d.0));
+            assert_eq!(*asked.borrow(), [Actor::Operator, Actor::Anonymous]);
+            // The list too, when its first call answers signed out.
+            let asked = RefCell::new(Vec::new());
+            let site = maker(
+                Operator::Asked(CodeHostOp::Releases, Fault::SignedOut),
+                &asked,
+            );
+            let got = first(&site, "o/r", Duration::ZERO, |h| h.releases(ALL_MAX));
+            assert!(got.is_ok());
+            assert_eq!(*asked.borrow(), [Actor::Operator, Actor::Anonymous]);
+        }
+
+        #[test]
+        fn a_forbidden_first_call_downloads_every_file_anonymously() {
+            let d = dir("release-fallback-forbidden");
+            let asked = RefCell::new(Vec::new());
+            let site = maker(
+                Operator::Asked(CodeHostOp::Download, Fault::Forbidden),
+                &asked,
+            );
+            assert!(download(&site, "o/r", "v1.2.0", &d.0, &names()));
+            assert!(written(&d.0));
+            // One anonymous handle for all three files.
+            assert_eq!(*asked.borrow(), [Actor::Operator, Actor::Anonymous]);
+        }
+
+        #[test]
+        fn no_gh_to_run_sends_nothing_and_downloads_anonymously() {
+            let d = dir("release-fallback-unreachable");
+            let asked = RefCell::new(Vec::new());
+            let no_gh = Outcome::Unavailable {
+                why: Passing::Unreachable,
+                sent: Sent::No,
+            };
+            let site = maker(Operator::Made(no_gh), &asked);
+            assert!(download(&site, "o/r", "v1.2.0", &d.0, &names()));
+            assert!(written(&d.0));
+            assert_eq!(*asked.borrow(), [Actor::Operator, Actor::Anonymous]);
+            // Asked first, the same.
+            let d = dir("release-fallback-unreachable-asked");
+            let asked = RefCell::new(Vec::new());
+            let site = maker(
+                Operator::Asked(CodeHostOp::Download, Fault::Unreachable),
+                &asked,
+            );
+            assert!(download(&site, "o/r", "v1.2.0", &d.0, &names()));
+            assert_eq!(*asked.borrow(), [Actor::Operator, Actor::Anonymous]);
+        }
+
+        #[test]
+        fn a_failure_of_the_site_or_one_that_may_have_been_sent_never_falls_back() {
+            for (op, fault) in [
+                (CodeHostOp::Download, Fault::Server { applied: false }),
+                (CodeHostOp::Download, Fault::TimeoutMaybe { applied: false }),
+                (CodeHostOp::Releases, Fault::Server { applied: false }),
+            ] {
+                let d = dir("release-fallback-server");
+                let asked = RefCell::new(Vec::new());
+                let site = maker(Operator::Asked(op, fault), &asked);
+                let got = if op == CodeHostOp::Download {
+                    download(&site, "o/r", "v1.2.0", &d.0, &names())
+                } else {
+                    first(&site, "o/r", Duration::ZERO, |h| h.releases(ALL_MAX)).is_ok()
+                };
+                assert!(!got, "{fault:?}");
+                assert_eq!(*asked.borrow(), [Actor::Operator], "{fault:?}");
+            }
+            // Made with a server's failure, the same.
+            let asked = RefCell::new(Vec::new());
+            let server = Outcome::Unavailable {
+                why: Passing::Server,
+                sent: Sent::Maybe,
+            };
+            let site = maker(Operator::Made(server), &asked);
+            let d = dir("release-fallback-server-made");
+            assert!(!download(&site, "o/r", "v1.2.0", &d.0, &names()));
+            assert_eq!(*asked.borrow(), [Actor::Operator]);
+        }
+
+        #[test]
+        fn a_refusal_after_the_first_file_does_not_change_the_handle() {
+            // The first call decides: a later file's answer fails the update.
+            let d = dir("release-fallback-later");
+            let asked = RefCell::new(Vec::new());
+            let world = World::new().release("v1.2.0", &[(NAMES[0], b"tarball".as_slice())]);
+            let site = |by: &Actor, _: &str, _: Duration| {
+                asked.borrow_mut().push(by.clone());
+                FakeSite::new(&world).code_host(by, Caller::new("update"))
+            };
+            assert!(!download(&site, "o/r", "v1.2.0", &d.0, &names()));
+            assert_eq!(*asked.borrow(), [Actor::Operator]);
+        }
+
+        #[test]
+        fn the_anonymous_refusal_of_a_private_project_says_gh_is_needed() {
+            let stopped = Stopped {
+                anonymous: true,
+                why: Outcome::Refused(tehas_ports::Refusal::Unsupported),
+            };
+            assert!(stopped
+                .line()
+                .ends_with("(a private repository needs gh signed in)"));
+            let signed = Stopped {
+                anonymous: false,
+                why: Outcome::Refused(tehas_ports::Refusal::Unsupported),
+            };
+            assert!(!signed.line().contains("gh signed in"));
+        }
     }
 }

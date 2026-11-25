@@ -100,9 +100,9 @@ in line, building, review, shipped. Each station is a signboard with a small
 animated scene of the work done there.
 
 The first screen is the whole status at a glance: the four stations side by
-side, six doors beneath them in three columns and two rows, and the work order
-monitor on the right. The doors lead to everything else, and four of them
-carry a count (open, stopped, not on the line, prototypes); the console door
+side, five doors beneath them in three columns and two rows, and the work order
+monitor on the right. The doors lead to everything else, and three of them
+carry a count (open, stopped, not on the line); the console door
 turns Brass while a cycle is running. The issue board, the break
 room and the data source follow below.
 
@@ -126,8 +126,7 @@ the issue board starts under the fold.
 
 Motion is stepped, like sprite frames. One-shot moves answer something the
 viewer did or mark data arriving: signs and doors pop in on load, a changed
-count latches with a two-frame flash, a changed meter reading counts up or
-down to the new one in eight frames with its gauge, a selected ticket's number flies from where
+count latches with a two-frame flash, a selected ticket's number flies from where
 it was pressed to the monitor (blank and ringed in Brass while it waits), which
 then prints the ticket at 1200 bps, and a newly chosen stage prints its rows
 in. The only loops
@@ -150,10 +149,9 @@ colours the original chipset could show.
 
 The site has two designs, and the instance's `TEHAS_DESIGN` picks one for every
 page. `beesknees26`, the default, names `host/fun/theme-beesknees26.css` on
-every page and puts the business page at `/`. `pixel` names
-`host/fun/theme-pixel.css` on every page and puts the factory floor at `/`; it
-is for a site that is also the factory's demo. `/floor` and `/business` are
-always there. Neither server rewrites a stylesheet path: the pages are
+every page. `pixel` names `host/fun/theme-pixel.css` on every page; it is for
+a site that is also the factory's demo. In both the factory floor is at `/`
+and `/floor`. Neither server rewrites a stylesheet path: the pages are
 templates that name the design's file, logo and share card.
 
 This file describes the pixel design, and the rules below it bind that design.
@@ -164,15 +162,15 @@ page to the theme of the instance's design.
 
 Beesknees26 is the business look: ink and one muted green on a near-white
 ground, white panels with soft shadows, IBM Plex (bundled, under the OFL), a
-light top bar, no motion, and a dark set only where the viewer picks it with
-the business page's mode button (`--modes` names the sets a theme has). The
-business page takes its colours from the theme (`--text-faint` is the third
-text level, `--bar-*` the top bar, `--stage-*` the stages), and its sizes and
-corners too: the drawing's sizes raised to `--type-small` and `--type-big`,
-corners in multiples of `--radius`. The manual, the plain dashboard and the
-Protolab still draw their header and footer from `game-view.css`, which is the
-floor's drawing of a page; redrawing that chrome from the business drawing is
-the open follow-up.
+light top bar, no motion, and a dark set only where a page lets the viewer
+pick it (`--modes` names the sets a theme has). `host/fun/pages.css` takes its
+colours from the theme (`--text-faint` is the third text level, `--bar-*` the
+top bar), and its sizes and corners too: the drawing's sizes raised to
+`--type-small` and `--type-big`, corners in multiples of `--radius`; the
+`--stage-*` tokens are for a page that draws the line. No page of tehas links
+`pages.css`: Obeya and industry's workshop take its rules. The manual and the
+plain dashboard draw their header and footer from `game-view.css`, which is the
+floor's drawing of a page.
 
 The colours below by the role token that carries them:
 
@@ -184,7 +182,7 @@ The colours below by the role token that carries them:
 | Steel | `--surface-head` | Rust | `--text-warm` |
 | Brass | `--accent` | Outline | `--line` (outlines are `--frame`, `--edge` wide) |
 | Brass Light | `--accent-soft` | Hairline | `--rule` |
-| CRT Black, Amber, Dim | `--screen`, `--screen-text`, `--screen-quiet`, and the business bar's `--bar-*` | Green, red tag | `--good`, `--bad` |
+| CRT Black, Amber, Dim | `--screen`, `--screen-text`, `--screen-quiet`, and the top bar's `--bar-*` | Green, red tag | `--good`, `--bad` |
 
 The canvases cannot use `var()`: `host/fun/theme.js` reads their tokens
 (`--band-*`, `--piece-*`, `--game-*`) from the theme.
@@ -221,8 +219,8 @@ tokens below are the ones the interface uses; the sprites draw on the rest.
 - **Slate** (`slate`): captions and secondary text.
 - **Hairline** (`hairline`): dividers inside a panel.
 - **CRT Black** (`crt-black`), **CRT Amber** (`crt-amber`) and **CRT Dim**
-  (`crt-dim`): the monitor screen, the console, the energy chart and the game
-  canvas. The only dark surfaces.
+  (`crt-dim`): the monitor screen, the console and the game canvas. The only
+  dark surfaces.
 
 ### Named Rules
 **The Twelve Bit Rule.** Every colour, in the stylesheet, the canvas and the
@@ -314,25 +312,6 @@ station, counting stopped and not on the line) and says when no ticket data is
 loaded, when the factory is paused, or when the last cycle failed. The room
 above the panel belongs to the field, not to its face.
 
-At the head panel stands the live meter, there only while the model
-mesh reports (see Energy Use): the draw now in watts and the tokens of the last
-minute, each in display type over a gauge of ten blocks, Brass for the filled
-ones. The power gauge is read against the chart's scale, the token gauge against
-the busiest minute of the last half hour. Where the mesh counts no tokens the
-meter shows power alone. It leads to Energy Use.
-The meter costs width and is given a column of its own, 336px where the stage
-has its monitor column. From 1440px it stands in that column as a card of its
-own beside the panel, over the work order monitor: Bone Shade, a 4px Outline,
-the sign shadow, the same left and right edges as the monitor column below it,
-its top and bottom edges the panel's own whatever rows the panel holds, and the
-field in the 24px between them. The panel gives up that room, so its
-face ends at the stage's first column. Below 1440px the meter is a Bone Shade
-band inside the panel again, over the height of the Steel head and the lines
-under it, closed off from the text by a 4px Outline rule in a column of 240px;
-below 900px the panel is one column and the meter lies across its foot at full
-width. Where the two do not fit side by side it is the meter that moves, never
-the text.
-
 ### Station Sign
 A signboard: the station's scene, the name and count in display type, one
 ticket (next up, in work, needs review, latest) with its title held to two
@@ -353,8 +332,7 @@ else on the page.
 Six Steel tiles in three columns (two on narrow screens): a name, a line of
 status beneath it, and a count in display type where there is one. The stopped
 door turns Brass when anything is stopped. A pressed door moves onto its
-shadow. The live meter is not one of the doors: it stands at the head panel,
-as a card beside it where the stage has its monitor column.
+shadow.
 
 ### Monitor
 The selected work order on a cream-cased screen: number in display type, then
@@ -376,49 +354,16 @@ latches in Brass for a beat instead, wherever it stands.
 - **Tools:** a labelled search field and stage select, 48px tall with a 4px
   outline, and a clear button that appears only when something is narrowed.
 
-### Protolab
-A panel in the board's style: tickets at the prototype stage (open, labelled
-`tehas:prototype`) on the left and the lab scene on a Bone Shade ground on the
-right. With the live queue a row opens the ticket's Protolab page and says how
-many files it holds, with a "GITHUB" link beside it; from an export or the
-sample a row selects the ticket and has an "OPEN" link when the data has one. The lab is not a stage, so its rows still
-show each ticket's stage. The scene is a 20 second loop: an idea, a sketch, the
-notebook handed over, read and set down. It carries no verdict.
-
-### Protolab Page
-The Protolab's own site wears the header and footer of the factory floor; its
-wordmark reads PROTOLAB. The front page is the Protolab panel alone. A
-ticket's page is two objects on the field:
-
-- **The ticket:** a Bone sign with a Steel head, "PROTOTYPE" and the number in
-  Rust, both in display type. Under it the title in display type (body size
-  on a phone), who opened it and when it changed, and one Brass button to the
-  issue.
-- **The box:** a Bone Shade panel with a Steel head, "ASSETS", the count and
-  how much of the 10 megabytes is used, as a figure and as ten blocks, Slate
-  for each started tenth. Everything attached to the ticket is inside it.
-- **A file in its frame:** a 4px Outline frame with a card shadow, the picture
-  or video on CRT Black, a Bone plate under it with the name, the type and
-  size in Slate, and a Verdigris "OPEN". Frames stand two abreast when there
-  is room. An HTML prototype takes the whole row at 560px and keeps a page's
-  white ground, the one colour here that is not the system's, because it is
-  the prototype's own.
-- **Lists:** the files an HTML page uses, and what was left out with the
-  reason, as Bone lists with a Steel head and Hairline rules.
-
-Nothing on these pages moves, and they carry no script.
-
 ### Header
 A Steel band that stays at the top of the window: the factory sprite and
 wordmark, the data source tag (Brass for sample data or a stale queue, Bone
 for a loaded export, absent while the page shows the fresh live queue), the
 section menu ending in an underlined link to the project on GitHub, over a
-Brass stripe. The floor shows the animated factory sprite; the manual and the
-Protolab show the logo.
+Brass stripe. The floor shows the animated factory sprite; the manual shows the logo.
 Below 1280px the
 menu takes a row of its own: on the factory floor its links wrap into as many
-rows as they need, where the manual and Protolab headers, which hold four
-links, keep one row that scrolls sideways; on phones the wordmark gives way
+rows as they need, where the manual's header, which holds four
+links, keeps one row that scrolls sideways; on phones the wordmark gives way
 to the sprite alone. Everything that sticks or scrolls to an anchor clears the
 header's height, so the clearance a page uses is the band that page really
 makes: `--header` in game-view.css, per width band, and taller on the factory
@@ -427,8 +372,8 @@ floor where the menu wraps.
 ### Production Console
 A Bone Shade panel holding a CRT Black screen with CRT Amber text: the running
 cycle's output, followed as it grows. A tag in the panel head says LIVE (Brass),
-ENDED or NO CONSOLE, and its door says the same in words. It and the Factory
-Energy panel are the only live parts of the page, and both are labelled as such.
+ENDED or NO CONSOLE, and its door says the same in words. It is the only live
+part of the page, and is labelled as such.
 
 When more than one cycle can be shown, a row of tabs stands above the screen:
 one per running cycle, named by its issue number, and one for the cycle that
@@ -436,33 +381,6 @@ finished last, marked ENDED. A tab is a Bone button with the 4px outline; the
 selected one is Brass. The tag in the panel head describes the selected cycle.
 The door and the lamp say LIVE while any cycle runs. The plain dashboard has
 the same row.
-
-### Energy Use
-A Bone Shade panel in the console's style, shown only when the model backend
-reports power: a Steel head with the count of hosts reporting and a tag that
-says LIVE (Brass) or STALE; the mesh's draw now and its kWh in display type; a
-CRT Black screen with the last 30 minutes as a stack of columns; a table of
-machines and a table of models. From 1280px the models stand beside the screen
-and the machines run beneath both; below that the three stack. It spans the
-stage under the monitor's column.
-
-- **Chart:** a 480 by 136 canvas at its native size. 120 columns
-  of 4 pixels, one per 15 seconds. Each column is flat blocks, one per machine,
-  in the order of the rows beneath. No lines, no curves, nothing translucent.
-  A missed sample is an empty column. Scale labels are page text beside the
-  canvas, in CRT Dim.
-- **Band colours** (`--band-1` to `--band-8`): `#ea3`, `#4a9`, `#c53`, `#7cb`, `#ccd`, `#b97`, `#694`,
-  `#fc6`, in that order. From the ninth machine the list starts again as a
-  one-pixel checker with CRT Black. A row's swatch is drawn the same way.
-- **Tables:** 1px Hairline between rows, figures right-aligned, a missing
-  figure a dash. Only machines serving the factory and the models it uses are
-  listed, so no row carries a mark. RAM is ten blocks, Slate for each started tenth in use.
-  A model's engines follow its hosts, and leave the table with them on narrow
-  screens.
-- **Data source:** one line of small print at the foot of the panel, Slate
-  with the name an Ink link, as in the page's footer.
-- **Stillness:** nothing here animates and no figure flashes. The figures
-  change every 15 seconds, and motion that often would say nothing.
 
 ### Manual Page
 The manual and the plain dashboard wear the same header and footer as the
@@ -477,7 +395,8 @@ list lies across the top.
 - **Emphasis:** Topaz has one weight and no italic. Strong text is Rust,
   emphasised text has a dotted rule under it.
 - **Code:** inline on Bone Shade; a block is a CRT Black screen in CRT Amber.
-- **Tables:** as in Energy Use, and they scroll sideways before they squeeze.
+- **Tables:** 1px Hairline between rows, figures right-aligned, a missing
+  figure a dash. They scroll sideways before they squeeze.
 
 ### Breakroom
 A full-width panel on a Bone Shade ground with a Steel head, like the other

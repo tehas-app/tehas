@@ -17,7 +17,6 @@ export const mount = view((props, ctx) => {
   </div>`;
   return html`<${Errored} fallback=${none}><${Loading} fallback=${() => ctx.first}><div class="dash-top">
     <${Errored} fallback=${() => pill(m)}><${Loading} fallback=${() => pill(m)}>${() => pill(withRunning)}<//><//>
-    <span id="allhands" class="pill pause" title="tehas:all-hands is on the control issue" hidden=${() => !m().allHands}>all hands</span>
     <span id="readonly" class="pill pause" title="TEHAS_READ_ONLY=1: this factory writes nothing to GitHub" hidden=${() => !m().readOnly}>read-only</span>
     <span id="fresh" class="muted">${() => m().fresh}</span>
     <a id="all" class="muted" href=${() => m().all}>all issues on GitHub</a>

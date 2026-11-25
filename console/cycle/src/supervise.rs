@@ -17,18 +17,18 @@
 //!
 //! The report is `apply`, in this process. It goes by the settings of this
 //! environment and loads none: instance.env may have changed during the cycle.
-//! After it, a cycle that was not stopped and left an open pull request asks
-//! for the plugins' hooks on it (src/hook.rs), and waits for none of them.
+//! The start once on record raises `cycle.started`, and the end once on record
+//! raises the events of its line (src/events.rs): the plugins' hooks are asked
+//! on `change.offered` (src/hook.rs), and none is waited for. A start that
+//! ended an open record as lost raises that end first, and a start refused
+//! after it is on record raises its `cycle.ended` here: this process wrote
+//! both lines.
 //!
-//! The --work program is the runner seam. tehas work runs the cycle on this
-//! host. A job waiter (`--runner job`) waits on a cycle run on a contractor and
-//! leaves the same notes and exit status; the start and the report then read
-//! no image and no workspace of this host.
+//! The --work program is tehas work, which runs the cycle on this host.
 
 use crate::after::log;
 use crate::apply;
-use crate::host::{self, Refused, Runner, Start};
-use crate::runner;
+use crate::host::{self, Refused, Start};
 use crate::start::attempt_shaped;
 use serde_json::Value;
 use std::fs::{self, OpenOptions};
@@ -39,8 +39,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tehas_core::call::{gh_why, run_full, GRACE};
-use tehas_core::plugin::hook::Ending;
+use tehas_core::home::Home;
+use tehas_core::raise::{EndAnswer, StartRow, Writer};
 use tehas_core::{cycle_notes, time};
+use tehas_ports::events::Dispatcher;
 
 /// What tehasbot cycle gives this.
 pub struct Given {
@@ -48,10 +50,11 @@ pub struct Given {
     /// tehas work: the program and the words before the issue's number.
     pub work: String,
     pub work_args: Vec<String>,
-    pub runner: Runner,
     pub status_cmd: String,
     pub status_args: Vec<String>,
     pub console: String,
+    /// The handles the report's writes go through.
+    pub handles: crate::apply::HandlesOf,
 }
 
 /// What a number is, as GitHub answers for it. The factory works on open issues
@@ -66,7 +69,7 @@ pub enum Number {
 }
 
 pub fn number(answer: &str) -> Number {
-    let values = runner::values(answer).unwrap_or_default();
+    let values = crate::loose::values::<Value>(answer).unwrap_or_default();
     let [one] = values.as_slice() else {
         return Number::Unreadable;
     };
@@ -91,8 +94,8 @@ pub fn number(answer: &str) -> Number {
 /// An issue a handoff left with needs-human-attention starts again only on a
 /// person's answer: --restart tells the runner so, and the cycle takes the
 /// label off before the runner starts.
-pub fn wants_restart(answer: &str) -> bool {
-    let Some(v) = runner::first_value(answer) else {
+fn wants_restart(answer: &str) -> bool {
+    let Some(v) = crate::loose::first_value::<Value>(answer) else {
         return false;
     };
     let is_it = |l: &Value| l.get("name").and_then(Value::as_str) == Some("needs-human-attention");
@@ -105,7 +108,7 @@ pub fn wants_restart(answer: &str) -> bool {
 
 /// The attempt of a start the store took after it timed out: one on record since
 /// this one began, under this lock, is its own.
-pub fn took_late(shown: &Value, began: i64) -> Option<String> {
+fn took_late(shown: &Value, began: i64) -> Option<String> {
     let c = shown.get("cycle").filter(|c| c.is_object())?;
     let open = matches!(c.get("ended_at"), None | Some(Value::Null));
     let since = c.get("started_at").and_then(Value::as_f64)? >= began as f64;
@@ -167,8 +170,8 @@ fn commit_of(cmd: &[&str], image: &str, bound: Duration) -> Option<String> {
 }
 
 /// The start on record, or the status to exit with.
-fn start_on_record(home: &Path, n: &str, runner: Runner) -> Result<Value, i32> {
-    let rukas = runner.on_host().then(rukas_commit).flatten();
+fn start_on_record(home: &Path, n: &str, events: &Dispatcher) -> Result<Value, i32> {
+    let rukas = rukas_commit();
     let mut args = vec!["cycle-start", n];
     if let Some(r) = &rukas {
         args.extend(["--rukas", r]);
@@ -196,9 +199,28 @@ fn start_on_record(home: &Path, n: &str, runner: Runner) -> Result<Value, i32> {
                 }
                 Ok(shown) => {
                     if let Some(took) = took_late(&shown, began) {
-                        let end = ["cycle-end", n, "--attempt", &took, "--refused"];
-                        if let Err(r) = host::store_try(home, 5, &end) {
-                            log(&format!("ERROR: the start of #{n} the store took late is not ended ({}): cycle-end {n} --attempt {took} --refused", r.word));
+                        // On record, so started; its answer was lost, so a
+                        // record it ended as lost raises nothing.
+                        let start = shown.get("cycle").cloned().unwrap_or_default();
+                        if let Some(p) = serde_json::from_value::<StartRow>(start)
+                            .ok()
+                            .as_ref()
+                            .and_then(tehas_core::raise::started)
+                        {
+                            crate::events::raise(events, p);
+                        }
+                        let end = [
+                            "cycle-end",
+                            n,
+                            "--attempt",
+                            &took,
+                            "--refused",
+                            "--rc",
+                            "75",
+                        ];
+                        match host::store_try(home, 5, &end) {
+                            Ok(v) => raise_short(home, n, &took, &v.to_string(), events),
+                            Err(r) => log(&format!("ERROR: the start of #{n} the store took late is not ended ({}): cycle-end {n} --attempt {took} --refused --rc 75", r.word)),
                         }
                         log(&format!(
                             "refuse #{n}: the state store took the start only after it timed out: {}",
@@ -244,15 +266,35 @@ fn start_on_record(home: &Path, n: &str, runner: Runner) -> Result<Value, i32> {
     }
 }
 
+/// The end of a line this process wrote with no report: raised when the
+/// store's answer says this call wrote it.
+fn raise_short(home: &Path, n: &str, attempt: &str, answer: &str, events: &Dispatcher) {
+    let wrote = serde_json::from_str::<EndAnswer>(answer).is_ok_and(|a| !a.already);
+    if let (true, Ok(issue), Ok(attempt)) = (wrote, n.parse(), attempt.parse()) {
+        crate::events::raise_ended(events, home, issue, attempt, Writer::Short);
+    }
+}
+
 /// A start that refuses its number ends its record, so the next start of the
-/// issue is not one that replaces an open row.
-fn end_refused(home: &Path, n: &str, attempt: &str) {
-    let end = ["cycle-end", n, "--attempt", attempt, "--refused"];
-    if let Err(r) = host::store_try(home, 5, &end) {
-        log(&format!(
-            "ERROR: the refused start of #{n} is not on record ({}): cycle-end {n} --attempt {attempt} --refused",
+/// issue is not one that replaces an open row, and its line of history keeps
+/// the exit status the unit leaves. Its `cycle.ended` is raised here.
+fn end_refused(home: &Path, n: &str, attempt: &str, rc: u8, events: &Dispatcher) {
+    let rc = rc.to_string();
+    let end = [
+        "cycle-end",
+        n,
+        "--attempt",
+        attempt,
+        "--refused",
+        "--rc",
+        &rc,
+    ];
+    match host::store_try(home, 5, &end) {
+        Ok(v) => raise_short(home, n, attempt, &v.to_string(), events),
+        Err(r) => log(&format!(
+            "ERROR: the refused start of #{n} is not on record ({}): cycle-end {n} --attempt {attempt} --refused --rc {rc}",
             r.word
-        ));
+        )),
     }
 }
 
@@ -379,10 +421,11 @@ fn supervise(
     }
 }
 
-/// A cycle's start, its supervision and its report. Its exit status.
-pub fn run(home: &Path, g: &Given) -> i32 {
+/// A cycle's start, its supervision and its report, and their events raised
+/// on `events`. Its exit status.
+pub fn run(home: &Path, g: &Given, events: &Dispatcher) -> i32 {
     let n = g.issue.to_string();
-    let answer = match start_on_record(home, &n, g.runner) {
+    let answer = match start_on_record(home, &n, events) {
         Ok(a) => a,
         Err(rc) => return rc,
     };
@@ -402,6 +445,17 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         ));
         return 78;
     }
+    let start: Option<StartRow> = serde_json::from_value(answer.clone()).ok();
+    // The record this start ended as lost: its line is this start's.
+    if let Some(lost) = start.as_ref().and_then(|s| s.replaced) {
+        crate::events::raise_ended(events, home, g.issue, lost, Writer::Short);
+    }
+    match start.as_ref().and_then(tehas_core::raise::started) {
+        Some(p) => crate::events::raise(events, p),
+        None => log(&format!(
+            "WARN: #{n}: the start on record could not be read, so it raises no event"
+        )),
+    }
     let approval_at = match answer.get("approval_at") {
         Some(Value::Number(x)) => x.to_string(),
         _ => String::new(),
@@ -413,7 +467,7 @@ pub fn run(home: &Path, g: &Given) -> i32 {
             log(&format!(
                 "refuse #{n}: GitHub could not be asked what the number is (3 tries, the last: {why})"
             ));
-            end_refused(home, &n, &attempt);
+            end_refused(home, &n, &attempt, 65, events);
             return 65;
         }
     };
@@ -427,13 +481,13 @@ pub fn run(home: &Path, g: &Given) -> i32 {
                 Number::Closed => format!("refuse #{n}: the issue is closed"),
                 _ => format!("refuse #{n}: GitHub's answer for it could not be read"),
             });
-            end_refused(home, &n, &attempt);
+            end_refused(home, &n, &attempt, 65, events);
             return 65;
         }
     }
     let started = time::now();
     let restart = wants_restart(&issue);
-    let cycles = home.join("state/cycles");
+    let cycles = Home::new(home).cycles_dir();
     // The notes of an earlier cycle, killed outright before it could report. A
     // freeze left by one would pause this cycle the moment it starts.
     for note in cycle_notes::started() {
@@ -454,14 +508,9 @@ pub fn run(home: &Path, g: &Given) -> i32 {
     ] {
         if signal_hook::flag::register(sig, Arc::clone(&stop)).is_err() {
             log(&format!("ERROR: #{n}: cannot listen for signal {sig}"));
-            end_refused(home, &n, &attempt);
+            end_refused(home, &n, &attempt, 78, events);
             return 78;
         }
-    }
-    // A contractor pushes to the branch: the report checks the trailers of
-    // only what it added over the heads as they are now.
-    if g.runner == Runner::Job {
-        crate::stamp::note_heads(home, g.issue, &repo);
     }
     // The container cannot take the label off: the relay refuses a label
     // change. Left on, the report would park a pull request that waits only
@@ -488,17 +537,10 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         console: g.console.clone(),
         status_cmd: g.status_cmd.clone(),
         status_args: g.status_args.clone(),
-        runner: g.runner,
     };
-    let reported = apply::reported(home, &start);
-    let ending = Ending {
-        signalled,
-        refused: reported.refused,
-        pr: reported.pr,
-    };
-    crate::hook::ask(home, g.issue, &ending, &|name: &str| {
-        std::env::var(name).unwrap_or_default()
-    });
+    let reported = apply::reported(home, &start, g.handles);
+    let attempt = u32::try_from(start.attempt).unwrap_or(0);
+    crate::events::raise_ended(events, home, g.issue, attempt, Writer::Report);
     reported.rc
 }
 

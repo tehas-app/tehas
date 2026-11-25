@@ -1,10 +1,8 @@
 # The words of `features` in `tehas api --json`, in the order it prints them.
 # A word is only added, at the end, in the release that brings it; none is
-# taken out within 1.x. A feature still being built is in `flags` only, never
+# taken out within 2.x. A feature still being built is in `flags` only, never
 # here. test/api_test.sh holds what the command prints to this list.
 status
-millwright-grant
-all-hands
 limit
 drain
 history
@@ -14,7 +12,6 @@ state-move
 mcp-dashboard-keys
 clean
 disk
-panels
 state-check
 finish
 status-versions
@@ -33,3 +30,8 @@ status-previews
 wake
 start-reasons
 blockers
+answer
+question
+cycle-ids
+questions
+events

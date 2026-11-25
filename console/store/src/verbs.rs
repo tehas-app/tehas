@@ -4,7 +4,7 @@
 //! mapping of an error to its exit.
 
 use crate::{
-    approval, cycle, db, history, journal, live, order, outsource, park, plan, plugin, poll,
+    answer, approval, cycle, db, history, journal, link, live, order, park, plan, plugin, poll,
     record, upkeep,
 };
 use rusqlite::Connection;
@@ -22,6 +22,7 @@ pub type Fail = (u8, String);
 pub enum Call {
     Cycle(cycle::Call),
     Park(park::Call),
+    Answer(answer::Call),
     Approval(approval::Call),
     Plan(plan::Call),
     History(history::Call),
@@ -30,9 +31,9 @@ pub enum Call {
     Poll(poll::Call),
     Journal(journal::Call),
     Order(order::Call),
-    Outsource(outsource::Call),
     Plugin(plugin::Call),
     Record(record::Call),
+    Link(link::Call),
 }
 
 /// None for a verb name this part does not know; else the call or the line of
@@ -45,6 +46,9 @@ pub fn parse(args: &[String]) -> Option<Result<Call, String>> {
     }
     if let Some(r) = park::parse(name, rest) {
         return Some(r.map(Call::Park));
+    }
+    if let Some(r) = answer::parse(name, rest) {
+        return Some(r.map(Call::Answer));
     }
     if let Some(r) = approval::parse(name, rest) {
         return Some(r.map(Call::Approval));
@@ -67,14 +71,14 @@ pub fn parse(args: &[String]) -> Option<Result<Call, String>> {
     if let Some(r) = order::parse(name, rest) {
         return Some(r.map(Call::Order));
     }
-    if let Some(r) = outsource::parse(name, rest) {
-        return Some(r.map(Call::Outsource));
-    }
     if let Some(r) = plugin::parse(name, rest) {
         return Some(r.map(Call::Plugin));
     }
     if let Some(r) = record::parse(name, rest) {
         return Some(r.map(Call::Record));
+    }
+    if let Some(r) = link::parse(name, rest) {
+        return Some(r.map(Call::Link));
     }
     history::parse(name, rest).map(|r| r.map(Call::History))
 }
@@ -83,6 +87,7 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
     match call {
         Call::Cycle(c) => cycle::run(home, c, now),
         Call::Park(c) => park::run(home, c, now),
+        Call::Answer(c) => answer::run(home, c, now),
         Call::Approval(c) => approval::run(home, c),
         Call::Plan(c) => plan::run(home, c, now),
         Call::History(c) => history::run(home, c),
@@ -91,9 +96,9 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
         Call::Poll(c) => poll::run(home, c, now),
         Call::Journal(c) => journal::run(home, c, now),
         Call::Order(c) => order::run(home, c, now),
-        Call::Outsource(c) => outsource::run(home, c, now),
         Call::Plugin(c) => plugin::run(home, c, now),
         Call::Record(c) => record::run(home, c, now),
+        Call::Link(c) => link::run(home, c, now),
     }
 }
 

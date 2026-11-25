@@ -12,5 +12,6 @@ for the publisher's tests to compare against. Captured from these inputs:
   live/endings.json    [{"issue":3,"status":"timeout","step":"build",
                          "startedAt":4102400000,"updatedAt":4102410000}]
 
-Each cycle file was written with tehas work's jq -n expression. kept.txt is
+Each cycle file was written with tehas work's jq -n expression; `attempt`,
+`how` and `by`, the start's, came after it (T11.5). kept.txt is
 what was left in live/cycles/ afterwards.

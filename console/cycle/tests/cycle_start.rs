@@ -8,6 +8,7 @@ use common::{count_lines, has, lacks, World};
 use serde_json::{json, Value};
 use std::fs::{self, File};
 use std::path::Path;
+use tehas_core::home::{Home, State};
 use tehas_core::testing::write_exe;
 
 /// What tehas work was called with.
@@ -29,6 +30,49 @@ fn cycle(w: &World, n: &str) -> Value {
 fn attempt_ended(w: &World, n: &str) -> Value {
     let c = cycle(w, n);
     json!([c["attempt"], !c["ended_at"].is_null()])
+}
+
+/// Outsource was dropped in 2.0 and the runner seam with it: `--runner`, with
+/// either of its old words, is an argument tehas-cycle does not know.
+#[test]
+fn the_runner_flag_is_refused_as_an_unknown_argument_and_nothing_runs() {
+    for runner in ["job", "work"] {
+        let w = World::new("no-runner-flag");
+        let r = w.cycle(&["7", "--runner", runner]);
+        assert_eq!(r.rc, 64, "{runner}: {}", r.out);
+        has(&r.out, "tehas-cycle: unknown invocation: cycle 7 --runner");
+        lacks(&r.out, "[--runner");
+        nothing_ran(&w);
+        let r = w.exec(&[
+            "report",
+            "7",
+            "--attempt",
+            "1",
+            "--rc",
+            "0",
+            "--started",
+            "1",
+            "--signalled",
+            "0",
+            "--by",
+            "alice",
+            "--how",
+            "approved",
+            "--approval-at",
+            "1",
+            "--requeued",
+            "0",
+            "--console",
+            "fake-console",
+            "--status-cmd",
+            "true",
+            "--runner",
+            runner,
+        ]);
+        assert_eq!(r.rc, 64, "{runner}: {}", r.out);
+        has(&r.out, "tehas-cycle: unknown invocation: report 7");
+        nothing_ran(&w);
+    }
 }
 
 /// `path` locked, as another cycle holds it, until the file drops.
@@ -76,12 +120,16 @@ fn a_closed_issue_is_asked_for_and_refused_no_cycle_no_label_no_comment() {
             json!([c["attempt"], !c["ended_at"].is_null(), c["end_reason"]]),
             json!([1, true, null])
         );
+        // Its line of history says it was refused, with the unit's exit
+        // status (T11.3).
+        let rows = w.row(&["history-show", "7"])["rows"].clone();
         assert_eq!(
-            w.row(&["history-show", "7"])["rows"]
-                .as_array()
-                .unwrap()
-                .len(),
-            0
+            json!([
+                rows.as_array().unwrap().len(),
+                rows[0]["status"],
+                rows[0]["rc"]
+            ]),
+            json!([1, "refused", 65])
         );
     }
 }
@@ -154,13 +202,12 @@ fn an_answer_that_cannot_be_read_is_a_refusal_not_a_guess() {
         "refuse #7: GitHub could not be asked what the number is (3 tries, the last: exit 1)",
     );
     lacks(&r.out, "could not be read");
-    let asks = |w: &World| {
-        w.gh()
-            .lines()
+    let asks = |gh: &str| {
+        gh.lines()
             .filter(|l| *l == "api repos/acme/widget/issues/7")
             .count()
     };
-    assert_eq!(asks(&w), 3);
+    assert_eq!(asks(&w.gh()), 3);
     assert_eq!(work_calls(&w), "");
     lacks(&w.gh(), "issue edit");
     assert_eq!(attempt_ended(&w, "7"), json!([1, true]));
@@ -169,9 +216,14 @@ fn an_answer_that_cannot_be_read_is_a_refusal_not_a_guess() {
     // authorized still starts.
     let w = World::new("start-retried");
     w.fx("issue-fails-times", "2\n");
+    // The calls made before tehas work ran are the start's: the report's
+    // writes and reads come after.
+    w.work(r#"wc -l <"$T/calls/gh" >"$T/calls/gh-before-work""#);
     let r = w.run7();
     assert_eq!(r.rc, 0);
-    assert_eq!(asks(&w), 3);
+    let before: usize = w.calls("gh-before-work").trim().parse().unwrap();
+    let start = w.gh().lines().take(before).collect::<Vec<_>>().join("\n");
+    assert_eq!(asks(&start), 3);
     assert_eq!(work_calls(&w), "7");
     lacks(&r.out, "refuse #7");
 }
@@ -239,7 +291,8 @@ fn a_start_of_an_issue_without_needs_human_attention_takes_no_label_off() {
     let w = World::new("start-no-label");
     w.run7();
     assert_eq!(work_calls(&w), "7");
-    lacks(&w.gh(), "DELETE");
+    // The report's own writes are asserted on the ports' fake in its tests.
+    assert_eq!(deletes(&w), 0);
 }
 
 #[test]
@@ -286,7 +339,7 @@ fn a_second_cycle_for_the_same_issue_runs_nothing_exit_3() {
 #[test]
 fn a_cycle_run_by_hand_is_on_record_as_one_uses_no_approval_and_runs_work_with_its_attempt() {
     let w = World::new("start-hand");
-    w.approve("alice", "label", 1_760_000_000, &[]);
+    w.approve("alice", "approved", 1_760_000_000, &[]);
     let r = w.run7();
     assert_eq!(r.rc, 0);
     let c = cycle(&w, "7");
@@ -318,14 +371,14 @@ fn work_is_given_the_attempt_of_the_start_and_nothing_new_reaches_it() {
 fn from_the_unit_a_start_uses_the_approval_the_dispatcher_recorded_and_the_account_is_on_record() {
     let mut w = World::new("start-unit");
     w.env("TEHAS_CYCLE_FROM", "unit");
-    w.approve("alice", "label", 1_760_000_000, &[]);
+    w.approve("alice", "approved", 1_760_000_000, &[]);
     let r = w.run7();
     assert_eq!(r.rc, 0);
     assert_eq!(work_calls(&w), "7");
     let c = cycle(&w, "7");
     assert_eq!(
         json!([c["how"], c["started_by"]]),
-        json!(["label", "alice"])
+        json!(["approved", "alice"])
     );
     let a = w.row(&["approval-current", "7"]);
     assert_eq!(
@@ -333,7 +386,7 @@ fn from_the_unit_a_start_uses_the_approval_the_dispatcher_recorded_and_the_accou
         json!([null, 1])
     );
     let h = w.history0();
-    assert_eq!(json!([h["by"], h["how"]]), json!(["alice", "label"]));
+    assert_eq!(json!([h["by"], h["how"]]), json!(["alice", "approved"]));
 }
 
 #[test]
@@ -358,7 +411,7 @@ fn from_the_unit_no_approval_waiting_starts_nothing_exit_77_before_any_label_com
     nothing_ran(&w);
     assert_eq!(cycle(&w, "7"), Value::Null);
     // A used approval is no approval for a second start (A3).
-    w.approve("alice", "label", 1_760_000_000, &[]);
+    w.approve("alice", "approved", 1_760_000_000, &[]);
     assert_eq!(w.run7().rc, 0);
     w.clear_calls();
     assert_eq!(w.run7().rc, 77);
@@ -370,7 +423,7 @@ fn from_the_unit_no_approval_waiting_starts_nothing_exit_77_before_any_label_com
 fn a_busy_store_is_asked_three_times_then_the_cycle_exits_75_and_changes_nothing() {
     let mut w = World::new("start-busy");
     w.env("TEHAS_CYCLE_FROM", "unit");
-    w.approve("alice", "label", 1_760_000_000, &[]);
+    w.approve("alice", "approved", 1_760_000_000, &[]);
     w.store_answers(
         "cycle-start",
         1,
@@ -415,7 +468,7 @@ fn starts(w: &World) -> usize {
 fn a_start_the_store_took_before_it_timed_out_is_not_asked_again_it_is_ended_as_refused_exit_75() {
     let mut w = World::new("start-took");
     w.env("TEHAS_CYCLE_FROM", "unit");
-    w.approve("alice", "label", 1_760_000_000, &[]);
+    w.approve("alice", "approved", 1_760_000_000, &[]);
     start_times_out(&w, true);
     let r = w.run7();
     assert_eq!(r.rc, 75);
@@ -436,7 +489,7 @@ fn a_start_the_store_took_before_it_timed_out_is_not_asked_again_it_is_ended_as_
 fn a_start_that_timed_out_before_the_store_took_it_is_asked_again() {
     let mut w = World::new("start-again");
     w.env("TEHAS_CYCLE_FROM", "unit");
-    w.approve("alice", "label", 1_760_000_000, &[]);
+    w.approve("alice", "approved", 1_760_000_000, &[]);
     start_times_out(&w, false);
     let r = w.run7();
     assert_eq!(r.rc, 0);
@@ -470,7 +523,7 @@ fn a_store_that_cannot_be_used_or_is_not_installed_stops_the_cycle_at_78_before_
     // A database that is a link or a directory is no store either.
     for link in [true, false] {
         let w = World::new("start-db");
-        let db = w.home.join("state/tehas.db");
+        let db = Home::new(&w.home).state(State::StoreDb);
         let kept = w.t().join("tehas.db.kept");
         fs::rename(&db, &kept).unwrap();
         if link {
@@ -498,9 +551,9 @@ fn a_store_that_cannot_be_used_or_is_not_installed_stops_the_cycle_at_78_before_
 fn the_account_on_record_is_the_approvals_whatever_is_approved_after_the_start() {
     let mut w = World::new("start-account");
     w.env("TEHAS_CYCLE_FROM", "unit");
-    w.approve("alice", "label", 1_760_000_000, &[]);
+    w.approve("alice", "approved", 1_760_000_000, &[]);
     // While the cycle runs, a poll records bob's approval of a later label.
-    w.work(r#"TEHAS_HOME=$T/home/tehas "$T/store-bin" approval-record 7 --at 1760000100 --by bob --how label --label tehas:ready --body-sha "$(printf a%.0s {1..64})" >/dev/null"#);
+    w.work(r#"TEHAS_HOME=$T/home/tehas "$T/store-bin" approval-record 7 --at 1760000100 --by bob --how approved --label tehas:ready --body-sha "$(printf a%.0s {1..64})" >/dev/null"#);
     let r = w.run7();
     assert_eq!(r.rc, 0);
     assert_eq!(cycle(&w, "7")["started_by"], "alice");

@@ -9,9 +9,10 @@
 use super::manifest::Manifest;
 use super::{compare, is_name, Cap, Grants, Limits};
 use crate::grammar::{commit_id, is_image};
-use serde_json::{json, Value};
+use serde::Serialize;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use tehas_ports::events::Envelope;
 
 /// The container's own uid and gid, which own the image's /work, /out and
 /// /state.
@@ -68,7 +69,7 @@ impl Trigger {
 
 /// The pull request of a hook: its number and the commits of its base and
 /// head.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Pr {
     pub number: u64,
     pub base: String,
@@ -99,6 +100,9 @@ pub struct Run<'a> {
     pub pr: Option<Pr>,
     /// A call's tool, by id.
     pub tool: Option<&'a str>,
+    /// The envelope of the event that asked for a hook: none for a person's
+    /// run.
+    pub event: Option<&'a Envelope>,
 }
 
 /// What a run is given beyond what every run has.
@@ -163,8 +167,8 @@ impl Run<'_> {
             }
             _ => {}
         }
-        if self.kind == Kind::Hook && !has(Cap::HookAfterWork) {
-            return Err("a hook without hook:after:work".to_string());
+        if self.kind == Kind::Hook && !has(Cap::HOOK) {
+            return Err("a hook without hook:after:change.offered".to_string());
         }
         match (self.tool, self.kind) {
             (None, Kind::Call) => return Err("a call without its tool".to_string()),
@@ -233,26 +237,54 @@ fn cid_of(text: &str) -> Option<&str> {
 
 /// `/run/context.json` of a run, api/plugin-context.schema.json. Nothing of
 /// a person, and nothing of a capability the run is not given.
-pub fn context(run: &Run) -> Result<Value, String> {
+#[derive(Debug, Serialize)]
+pub struct Context<'a> {
+    pub kind: &'static str,
+    pub trigger: &'static str,
+    pub commit: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub head: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<ContextModel<'a>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pr: Option<&'a Pr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event: Option<&'a Envelope>,
+}
+
+/// The model a run is given: its id at the run's socket and its tokens.
+#[derive(Debug, Serialize)]
+pub struct ContextModel<'a> {
+    pub id: &'a str,
+    pub tokens: u64,
+}
+
+/// The context of `run`, or why the run may not have one.
+pub fn context<'a>(run: &'a Run<'a>) -> Result<Context<'a>, String> {
     let given = run.given()?;
-    let mut c = json!({
-        "kind": run.kind.word(),
-        "trigger": run.trigger.word(),
-        "commit": run.commit,
-    });
-    if given.product {
-        c["head"] = json!(run.head);
-    }
-    if let Some(tokens) = given.tokens {
-        c["model"] = json!({"id": run.model, "tokens": tokens});
-    }
-    if let Some(pr) = &run.pr {
-        c["pr"] = json!({"number": pr.number, "base": pr.base, "head": pr.head});
-    }
-    if let Some(tool) = run.tool {
-        c["tool"] = json!(tool);
-    }
-    Ok(c)
+    let event = match (run.event, run.kind) {
+        (None, _) => None,
+        (Some(e), Kind::Hook) if super::hook::asks(e) => Some(e),
+        (Some(e), Kind::Hook) => {
+            return Err(format!("a hook is not asked on {}", e.name().as_str()))
+        }
+        (Some(_), _) => return Err(format!("a {} with an event", run.kind.word())),
+    };
+    Ok(Context {
+        kind: run.kind.word(),
+        trigger: run.trigger.word(),
+        commit: run.commit,
+        head: given.product.then_some(run.head),
+        model: given.tokens.map(|tokens| ContextModel {
+            id: run.model,
+            tokens,
+        }),
+        pr: run.pr.as_ref(),
+        tool: run.tool,
+        event,
+    })
 }
 
 #[cfg(test)]
@@ -260,6 +292,8 @@ pub(crate) mod tests {
     use super::*;
     use crate::plugin::grants;
     use crate::plugin::manifest::Tool;
+    use serde_json::json;
+    use tehas_ports::events::{samples, Name};
 
     pub const C: &str = "0123456789abcdef0123456789abcdef01234567";
     pub const H: &str = "89abcdef0123456789abcdef0123456789abcdef";
@@ -281,7 +315,7 @@ pub(crate) mod tests {
             view: None,
             views: vec![],
             actions: vec![],
-            hook: asks.contains(&"hook:after:work").then_some(300),
+            hook: asks.contains(&"hook:after:change.offered").then_some(300),
             skills: vec![],
             tools: asks
                 .iter()
@@ -330,6 +364,7 @@ pub(crate) mod tests {
                 head: H.into(),
             }),
             tool: (kind == Kind::Call).then_some("find-doc"),
+            event: None,
         }
     }
 
@@ -386,10 +421,10 @@ pub(crate) mod tests {
         let g = granted("");
         assert_eq!(
             run(&m, &g, Kind::Hook).given().unwrap_err(),
-            "a hook without hook:after:work"
+            "a hook without hook:after:change.offered"
         );
-        let m = manifest(&["hook:after:work"]);
-        let g = granted("hook:after:work");
+        let m = manifest(&["hook:after:change.offered"]);
+        let g = granted("hook:after:change.offered");
         let mut r = run(&m, &g, Kind::Hook);
         assert!(r.given().is_ok());
         r.pr = None;
@@ -421,7 +456,7 @@ pub(crate) mod tests {
         let m = manifest(&[]);
         let g = granted("");
         assert_eq!(
-            context(&run(&m, &g, Kind::Refresh)).unwrap(),
+            serde_json::to_value(context(&run(&m, &g, Kind::Refresh)).unwrap()).unwrap(),
             json!({"kind": "refresh", "trigger": "timer", "commit": C})
         );
         let m = manifest(&[
@@ -429,11 +464,11 @@ pub(crate) mod tests {
             "product",
             "model",
             "action:refresh",
-            "hook:after:work",
+            "hook:after:change.offered",
         ]);
-        let g = granted("view product model:2000000 action:refresh hook:after:work");
+        let g = granted("view product model:2000000 action:refresh hook:after:change.offered");
         assert_eq!(
-            context(&run(&m, &g, Kind::Hook)).unwrap(),
+            serde_json::to_value(context(&run(&m, &g, Kind::Hook)).unwrap()).unwrap(),
             json!({
                 "kind": "hook",
                 "trigger": "cycle",
@@ -443,15 +478,33 @@ pub(crate) mod tests {
             })
         );
         assert_eq!(
-            context(&run(&m, &g, Kind::Refresh)).unwrap()["model"],
+            serde_json::to_value(context(&run(&m, &g, Kind::Refresh)).unwrap()).unwrap()["model"],
             json!({"id": "plugin", "tokens": 2000000})
         );
+        let sample = |name: Name| samples().into_iter().find(|s| s.name == name).unwrap().full;
+        let offered = sample(Name::ChangeOffered);
+        let asked = Run {
+            event: Some(&offered),
+            ..run(&m, &g, Kind::Hook)
+        };
+        assert_eq!(
+            serde_json::to_value(context(&asked).unwrap()).unwrap()["event"],
+            serde_json::to_value(&offered).unwrap()
+        );
+        let ended = sample(Name::CycleEnded);
+        for (kind, event) in [(Kind::Hook, &ended), (Kind::Refresh, &offered)] {
+            let r = Run {
+                event: Some(event),
+                ..run(&m, &g, kind)
+            };
+            assert!(context(&r).is_err(), "{kind:?} {}", event.name().as_str());
+        }
     }
 
     #[test]
     fn a_hook_has_no_model_whatever_is_granted() {
-        let m = manifest(&["model", "hook:after:work"]);
-        let g = granted("model:2000 hook:after:work");
+        let m = manifest(&["model", "hook:after:change.offered"]);
+        let g = granted("model:2000 hook:after:change.offered");
         assert_eq!(run(&m, &g, Kind::Hook).given().unwrap().tokens, None);
         assert_eq!(
             run(&m, &g, Kind::Refresh).given().unwrap().tokens,
@@ -515,8 +568,8 @@ pub(crate) mod tests {
         }
         for kind in [Kind::Refresh, Kind::Hook] {
             for t in [Trigger::Chat, Trigger::Mcp] {
-                let m = manifest(&["hook:after:work"]);
-                let g = granted("hook:after:work");
+                let m = manifest(&["hook:after:change.offered"]);
+                let g = granted("hook:after:change.offered");
                 let mut r = run(&m, &g, kind);
                 r.trigger = t;
                 assert!(r.given().is_err(), "{kind:?} {t:?}");
@@ -536,7 +589,7 @@ pub(crate) mod tests {
             })
         );
         assert_eq!(
-            context(&run(&m, &g, Kind::Call)).unwrap(),
+            serde_json::to_value(context(&run(&m, &g, Kind::Call)).unwrap()).unwrap(),
             json!({"kind": "call", "trigger": "chat", "commit": C, "tool": "find-doc"})
         );
     }
@@ -547,7 +600,7 @@ pub(crate) mod tests {
         let s = api("plugin-context.schema.json");
         assert_eq!(
             s["$id"],
-            "https://github.com/tehas-app/tehas/api/plugin-context.schema.json"
+            "https://github.com/tehas-app/tehas-factory/api/plugin-context.schema.json"
         );
         closed(&s);
         for name in ["refresh", "hook", "call"] {
@@ -561,8 +614,8 @@ pub(crate) mod tests {
             (&["product"], "product"),
             (&["model"], "model:5"),
             (
-                &["product", "model", "hook:after:work"],
-                "product model:5 hook:after:work",
+                &["product", "model", "hook:after:change.offered"],
+                "product model:5 hook:after:change.offered",
             ),
             (
                 &["product", "model", "tool:find-doc"],
@@ -574,6 +627,7 @@ pub(crate) mod tests {
             let g = granted(words);
             for kind in [Kind::Refresh, Kind::Hook, Kind::Call] {
                 if let Ok(c) = context(&run(&m, &g, kind)) {
+                    let c = serde_json::to_value(c).unwrap();
                     assert!(fits(&c, &s), "{c}");
                 }
             }

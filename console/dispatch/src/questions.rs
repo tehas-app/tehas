@@ -1,16 +1,10 @@
 //! The bot's questions on an issue and the answers it takes.
 
-use crate::snapshot::number;
+use crate::snapshot::{Account, Comment, Comments, Given};
 use regex::Regex;
 use serde_json::{json, Value};
 use std::sync::OnceLock;
-
-fn login(v: &Value, path: &str) -> String {
-    v.pointer(path)
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string()
-}
+use tehas_ports::Revision;
 
 /// The newest question of the bot among the comments (the one
 /// with id `id` when it is given), what was ticked in it and the replies
@@ -23,15 +17,15 @@ fn login(v: &Value, path: &str) -> String {
 /// tell a person something, never to start work. The marker's issue number
 /// is reported for the caller to compare.
 ///
-/// A tick the fixer saved has the status "fixer", or "held" when anyone but
-/// the bot and the fixer edited the question too, or the edits read are not
+/// A tick the millwright saved has the status "millwright", or "held" when anyone but
+/// the bot and the millwright edited the question too, or the edits read are not
 /// all of them: GitHub names who saved a comment, not who ticked which box,
 /// so the tick may be a person's. It is "unread" when the question's edit
 /// history could not be read this poll: the rules wait for the next poll
-/// without acting. The fixer's newest reply, edited by nobody
-/// else, is fixer_reply, and only a comment whose first line is
-/// <!-- tehas:millwright issue=<n> action=answer --> is a reply: the fixer is
-/// the bot, so every note the host writes is the fixer's comment too, and none
+/// without acting. The millwright's newest reply, edited by nobody
+/// else, is millwright_reply, and only a comment whose first line is
+/// <!-- tehas:millwright issue=<n> action=answer --> is a reply: the millwright is
+/// the bot, so every note the host writes is the millwright's comment too, and none
 /// starts with that line. Its text leaves the marker out; a reply with nothing
 /// after the marker is none. Whether either counts is the caller's to decide.
 ///
@@ -46,116 +40,16 @@ pub fn answer(
     bot_id: Option<u64>,
     allowed: &[String],
     id: &str,
-    fixer: &str,
+    millwright: &str,
 ) -> Option<Value> {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    let re = RE.get_or_init(|| {
-        Regex::new(r"<!-- tehas:question kind=(?<kind>[a-z]+) issue=(?<issue>[0-9]+) turn=(?<turn>[0-9]+) -->").unwrap()
-    });
-    let bot = bot.strip_suffix("[bot]").unwrap_or(bot);
-    let c = match comments.pointer("/data/repository/issue/comments/nodes") {
-        None | Some(Value::Null) => Vec::new(),
-        Some(Value::Array(a)) => a.clone(),
-        Some(_) => return None,
-    };
-    let listed = |l: &str| allowed.iter().any(|a| a == l);
-    // Whether the account at `who` of `x` is the bot.
-    let bots = |x: &Value, who: &str| match bot_id {
-        Some(i) => x.pointer(&format!("{who}/databaseId")).and_then(number) == Some(i),
-        None => login(x, &format!("{who}/login")) == bot,
-    };
-    let mut q = None;
-    let mut stranger = None;
-    for (k, x) in c.iter().enumerate() {
-        if !bots(x, "/author") {
-            if !id.is_empty()
-                && x.get("databaseId").and_then(number).map(|d| d.to_string())
-                    == Some(id.to_string())
-            {
-                stranger = Some(login(x, "/author/login"));
-            }
-            continue;
-        }
-        // A bot comment with no text is an answer jq cannot read.
-        let body = x.get("body").and_then(Value::as_str)?;
-        let did = match x.get("databaseId") {
-            Some(Value::String(s)) => s.clone(),
-            Some(v) => v.to_string(),
-            None => "null".into(),
-        };
-        if re.is_match(body) && (id.is_empty() || did == id) {
-            q = Some(k);
-        }
-    }
-    let Some(k) = q else {
-        return Some(match stranger {
-            Some(by) => json!({"asked": false, "written_by": by}),
-            None => json!({"asked": false}),
-        });
-    };
-    let qv = &c[k];
-    let body = qv["body"].as_str().unwrap_or("");
-    let m = re.captures(body)?;
-    let boxes: Vec<bool> = body
-        .split('\n')
-        .filter(|l| l.starts_with("- [") && matches!(l.get(3..6), Some(" ] " | "x] " | "X] ")))
-        .map(|l| matches!(l.get(3..4), Some("x" | "X")))
-        .collect();
-    // The label of each box, the text after its box: jq's `.[6:]` of the same
-    // lines. A poll reads what was ticked from these, so the comment and its
-    // readers parse a line one way, in either language.
-    let labels: Vec<Value> = body
-        .split('\n')
-        .filter(|l| l.starts_with("- [") && matches!(l.get(3..6), Some(" ] " | "x] " | "X] ")))
-        .map(|l| json!(l.get(6..).unwrap_or("")))
-        .collect();
-    let ticks: Vec<usize> = boxes
-        .iter()
-        .enumerate()
-        .filter(|(_, t)| **t)
-        .map(|(i, _)| i)
-        .collect();
-    let ed = login(qv, "/editor/login");
-    let edited_at = qv.get("lastEditedAt").and_then(Value::as_str).unwrap_or("");
-    let after = &c[k + 1..];
-    let reply = after.iter().rfind(|x| {
-        let a = login(x, "/author/login");
-        let e = login(x, "/editor/login");
-        listed(&a) && (e.is_empty() || listed(&e))
-    });
-    let tick = if ticks.is_empty() {
-        json!({"status": "none"})
-    } else if !fixer.is_empty() && ed == fixer && ticks.len() == 1 {
-        let h = qv.get("userContentEdits").cloned().unwrap_or(json!({}));
-        // A history whose read failed says nothing of who saved the question:
-        // the tick is "unread", and the rules wait for the next poll without
-        // acting. The poll's read
-        // gives every comment a history: read, none for an unedited one, or
-        // failed.
-        let failed = h.get("failed") == Some(&Value::Bool(true));
-        let nodes = h
-            .get("nodes")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        let total = h.get("totalCount").and_then(Value::as_f64).unwrap_or(0.0);
-        if failed {
-            json!({"status": "unread", "by": ed})
-        } else if total > nodes.len() as f64
-            || nodes
-                .iter()
-                .any(|x| login(x, "/editor/login") != fixer && !bots(x, "/editor"))
-        {
-            json!({"status": "held", "by": ed})
-        } else {
-            json!({"status": "fixer", "by": ed, "index": ticks[0], "at": edited_at})
-        }
-    } else if !listed(&ed) && (fixer.is_empty() || ed != fixer) {
-        json!({"status": "stranger", "by": ed})
-    } else if ticks.len() > 1 {
-        json!({"status": "many", "by": ed})
-    } else {
-        json!({"status": "one", "by": ed, "index": ticks[0], "at": edited_at})
+    let c = Comments::parse(comments);
+    let a = answer_of(c.or_none()?, bot, bot_id, allowed, id, millwright)?;
+    let q = match a {
+        Answer::NotAsked {
+            written_by: Some(by),
+        } => return Some(json!({"asked": false, "written_by": by})),
+        Answer::NotAsked { written_by: None } => return Some(json!({"asked": false})),
+        Answer::Asked(q) => q,
     };
     // jq's tonumber: digits too many for an integer are a float, never an
     // error.
@@ -164,68 +58,388 @@ pub fn answer(
             .map(Value::from)
             .unwrap_or_else(|_| json!(d.parse::<f64>().unwrap_or(f64::MAX)))
     };
-    let issue = &m["issue"];
+    let t = &q.tick;
+    let tick = match t.status {
+        Status::None => json!({"status": "none"}),
+        Status::One | Status::Unoffered => {
+            json!({"status": t.status.word(), "by": t.by, "index": t.index, "at": t.at})
+        }
+    };
     let mut out = json!({
-        "asked": true, "comment": qv.get("databaseId").cloned().unwrap_or(Value::Null),
-        "asked_at": qv.get("createdAt").and_then(Value::as_str).unwrap_or(""),
-        "body": body, "kind": &m["kind"], "issue": num(issue),
-        "turn": num(&m["turn"]),
-        "boxes": boxes.len(), "labels": labels, "tick": tick,
-        "reply": reply.map(|r| json!({"by": login(r, "/author/login"), "text": r.get("body"),
-            "at": r.get("createdAt"), "id": r.get("databaseId")})),
+        "asked": true, "comment": Given::json(q.comment.as_ref()),
+        "asked_at": q.asked_at,
+        "body": q.body, "kind": q.kind, "issue": num(&q.issue),
+        "turn": num(&q.turn),
+        "boxes": q.boxes, "labels": q.labels, "tick": tick,
+        "reply": q.reply.map(|r| json!({"by": r.by, "text": Given::json(r.text.as_ref()),
+            "at": Given::json(r.at.as_ref()), "id": Given::json(r.id.as_ref())})),
     });
-    if !fixer.is_empty() {
-        let mark = format!("<!-- tehas:millwright issue={issue} action=answer -->");
-        let marked = |b: &str| {
-            let first = b.split('\n').next().unwrap_or("");
-            first.strip_suffix('\r').unwrap_or(first) == mark
-        };
-        let f = after.iter().rfind(|x| {
-            let e = login(x, "/editor/login");
-            login(x, "/author/login") == fixer
-                && (e.is_empty() || e == fixer)
-                && marked(x.get("body").and_then(Value::as_str).unwrap_or(""))
-        });
-        out["fixer_reply"] = match f {
+    if !millwright.is_empty() {
+        out["millwright_reply"] = match q.millwright_reply {
             None => Value::Null,
-            Some(f) => {
-                let b = f.get("body").and_then(Value::as_str).unwrap_or("");
-                let text = b.split_once('\n').map_or("", |(_, rest)| rest);
-                if text.trim().is_empty() {
-                    Value::Null
-                } else {
-                    json!({"by": login(f, "/author/login"), "text": text, "at": f.get("createdAt"),
-                        "id": f.get("databaseId"), "marked": true})
-                }
-            }
+            Some(f) => json!({"by": f.by, "text": f.text, "at": Given::json(f.at.as_ref()),
+                "id": Given::json(f.id.as_ref()), "marked": true}),
         };
     }
     Some(out)
 }
 
-/// A body with every box empty, read with no final newlines.
-pub fn untick(body: &str) -> String {
-    body.trim_end_matches('\n')
-        .split('\n')
-        .map(|l| match l.get(..6) {
-            Some("- [x] " | "- [X] ") => format!("- [ ] {}", &l[6..]),
-            _ => l.to_string(),
+/// What `answer` reads of the comments.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Answer {
+    /// No question of the bot's is there; `written_by` names who wrote the
+    /// comment with the id asked for, when another account did.
+    NotAsked {
+        written_by: Option<String>,
+    },
+    Asked(Box<Asked>),
+}
+
+/// The bot's question and what was answered to it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Asked {
+    /// The question's databaseId as GitHub gave it.
+    pub comment: Option<Given>,
+    /// createdAt, empty when it is not text.
+    pub asked_at: String,
+    pub body: String,
+    /// The question comment's revision as the code host's edit of a comment
+    /// compares it: the sum of `body` as read, markers in.
+    pub revision: Revision,
+    pub kind: String,
+    /// The marker's issue and turn, as digits.
+    pub issue: String,
+    pub turn: String,
+    pub boxes: usize,
+    /// The label of each box.
+    pub labels: Vec<String>,
+    pub tick: Tick,
+    pub reply: Option<Reply>,
+    /// None also when no millwright was named.
+    pub millwright_reply: Option<MillwrightReply>,
+}
+
+impl Asked {
+    /// The marker's issue as a number, None when it is too big for one.
+    pub fn issue_number(&self) -> Option<u64> {
+        self.issue.parse().ok()
+    }
+
+    /// The label of the choice made, when one was.
+    pub fn ticked_label(&self) -> Option<&str> {
+        self.labels.get(self.tick.index?).map(String::as_str)
+    }
+}
+
+/// The choice made of the question: its index among the choices, who made
+/// it and when.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Tick {
+    pub status: Status,
+    /// Who chose, empty for none.
+    pub by: String,
+    /// The choice, counted from the top, for One.
+    pub index: Option<usize>,
+    /// When it was chosen, for One; empty otherwise.
+    pub at: String,
+    /// The tick is an answer of `tehas answer`, written in by
+    /// `answer::overlay`.
+    pub answered: bool,
+}
+
+impl Tick {
+    /// No box ticked.
+    pub fn none() -> Tick {
+        Tick {
+            status: Status::None,
+            by: String::new(),
+            index: None,
+            at: String::new(),
+            answered: false,
+        }
+    }
+}
+
+/// Whether a choice was made: by a reply that names one of the question's
+/// choices, or by an answer of `tehas answer` (`answer::overlay`). A box
+/// ticked in a comment is no choice.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Status {
+    None,
+    One,
+    /// A stop's newest choosing reply names a choice its question does not
+    /// offer: it is declined, and acts on nothing.
+    Unoffered,
+}
+
+impl Status {
+    /// The status as the answer writes it.
+    pub fn word(self) -> &'static str {
+        match self {
+            Status::None => "none",
+            Status::One => "one",
+            Status::Unoffered => "unoffered",
+        }
+    }
+}
+
+/// The newest reply of an allowed account, its values as GitHub gave them.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Reply {
+    pub by: String,
+    pub text: Option<Given>,
+    pub at: Option<Given>,
+    pub id: Option<Given>,
+}
+
+/// The millwright's marked reply: its text leaves the marker out.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MillwrightReply {
+    pub by: String,
+    pub text: String,
+    pub at: Option<Given>,
+    pub id: Option<Given>,
+}
+
+/// `answer` of comments already read.
+pub fn answer_of(
+    c: &[Comment],
+    bot: &str,
+    bot_id: Option<u64>,
+    allowed: &[String],
+    id: &str,
+    millwright: &str,
+) -> Option<Answer> {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    let re = RE.get_or_init(|| {
+        Regex::new(r"<!-- tehas:question kind=(?<kind>[a-z]+) issue=(?<issue>[0-9]+) turn=(?<turn>[0-9]+) -->").unwrap()
+    });
+    let bot = bot.strip_suffix("[bot]").unwrap_or(bot);
+    let listed = |l: &str| allowed.iter().any(|a| a == l);
+    let bots = |a: &Account| match bot_id {
+        Some(i) => a.id == Some(i),
+        None => a.login == bot,
+    };
+    let mut q = None;
+    let mut stranger = None;
+    for (k, x) in c.iter().enumerate() {
+        if !bots(&x.author) {
+            if !id.is_empty()
+                && x.id.as_ref().and_then(Given::number).map(|d| d.to_string())
+                    == Some(id.to_string())
+            {
+                stranger = Some(x.author.login.clone());
+            }
+            continue;
+        }
+        // A bot comment with no text is an answer jq cannot read.
+        let body = x.body_text()?;
+        let did = Given::said(x.id.as_ref());
+        if re.is_match(body) && (id.is_empty() || did == id) {
+            q = Some(k);
+        }
+    }
+    let Some(k) = q else {
+        return Some(Answer::NotAsked {
+            written_by: stranger,
+        });
+    };
+    let qv = &c[k];
+    let body = qv.body_text().unwrap_or("");
+    let m = re.captures(body)?;
+    // A comment of before 2.0 lists its choices as boxes, one now as plain
+    // lines (`listed`). Either names the choices an answer may pick by its
+    // label. Whether a box is ticked is not read: a tick is no answer. Lines
+    // are read as `lines` reads them, so a body GitHub's web editor saved with
+    // CRLF reads as one saved with LF.
+    let box_lines: Vec<&str> = body
+        .lines()
+        .filter(|l| l.starts_with("- [") && matches!(l.get(3..6), Some(" ] " | "x] " | "X] ")))
+        .collect();
+    let labels: Vec<String> = if box_lines.is_empty() {
+        tehas_core::question::listed(body).unwrap_or_default()
+    } else {
+        box_lines
+            .iter()
+            .map(|l| l.get(6..).unwrap_or("").to_string())
+            .collect()
+    };
+    let after = &c[k + 1..];
+    let allowed = |x: &Comment| {
+        let e = x.editor_login();
+        listed(&x.author.login) && (e.is_empty() || listed(e))
+    };
+    let reply_at = after.iter().rposition(allowed);
+    let reply = reply_at.map(|i| &after[i]);
+    let kind = &m["kind"];
+    let chose = |i: usize, index: usize| Tick {
+        status: Status::One,
+        by: after[i].author.login.clone(),
+        index: Some(index),
+        at: after[i].created_text().unwrap_or("").to_string(),
+        answered: false,
+    };
+    // A reply that names one of the choices makes that choice. A planning
+    // question's is its newest reply: other words are the answer as they
+    // are. A park's is its newest reply that names a choice, so a later
+    // comment in other words takes nothing away; and once this rule's own
+    // note declined it, it is read no more, so the note is said once. No
+    // other comment of the bot's takes it away.
+    let mark = declined_marker(&Given::said(qv.id.as_ref()));
+    let declined = |i: usize| {
+        after[i + 1..]
+            .iter()
+            .any(|x| bots(&x.author) && x.body_text().is_some_and(|b| b.contains(&mark)))
+    };
+    let chosen = if kind == "park" {
+        after
+            .iter()
+            .enumerate()
+            .rev()
+            .filter(|(_, x)| allowed(x))
+            .find_map(|(i, r)| Some((i, park_named(r.body_text()?, &labels)?)))
+            .filter(|(i, _)| !declined(*i))
+            .map(|(i, named)| match named {
+                Some(index) => chose(i, index),
+                // The newest choice names one not offered: the older replies
+                // do not act in its place.
+                None => Tick {
+                    status: Status::Unoffered,
+                    index: None,
+                    ..chose(i, 0)
+                },
+            })
+    } else {
+        reply_at.and_then(|i| {
+            let text = after[i].body_text()?;
+            choice_of(text, kind, &labels).map(|index| chose(i, index))
         })
-        .collect::<Vec<_>>()
-        .join("\n")
+    };
+    let reply = if chosen.is_some() || kind == "park" {
+        None
+    } else {
+        reply
+    };
+    let tick = chosen.unwrap_or_else(Tick::none);
+    let issue = &m["issue"];
+    let millwright_reply = if millwright.is_empty() {
+        None
+    } else {
+        let mark = format!("<!-- tehas:millwright issue={issue} action=answer -->");
+        let marked = |b: &str| {
+            let first = b.split('\n').next().unwrap_or("");
+            first.strip_suffix('\r').unwrap_or(first) == mark
+        };
+        after
+            .iter()
+            .rfind(|x| {
+                let e = x.editor_login();
+                x.author.login == millwright
+                    && (e.is_empty() || e == millwright)
+                    && marked(x.body_text().unwrap_or(""))
+            })
+            .and_then(|f| {
+                let b = f.body_text().unwrap_or("");
+                let text = b.split_once('\n').map_or("", |(_, rest)| rest);
+                (!text.trim().is_empty()).then(|| MillwrightReply {
+                    by: f.author.login.clone(),
+                    text: text.to_string(),
+                    at: f.created_at.clone(),
+                    id: f.id.clone(),
+                })
+            })
+    };
+    Some(Answer::Asked(Box::new(Asked {
+        comment: qv.id.clone(),
+        asked_at: qv.created_text().unwrap_or("").to_string(),
+        body: body.to_string(),
+        revision: Revision::new(crate::text::body_sum(body)),
+        kind: m["kind"].to_string(),
+        issue: issue.to_string(),
+        turn: m["turn"].to_string(),
+        boxes: labels.len(),
+        labels,
+        tick,
+        reply: reply.map(|r| Reply {
+            by: r.author.login.clone(),
+            text: r.body.clone(),
+            at: r.created_at.clone(),
+            id: r.id.clone(),
+        }),
+        millwright_reply,
+    })))
+}
+
+/// The index of the choice a reply names: a planning option by its number
+/// (or `option:<k>`), a park's choice by its word, or either by its label,
+/// the case and a closing full stop aside. None for a reply in other words.
+/// The choice a reply's text names among `labels`, for a question of `kind`.
+pub fn choice_of(text: &str, kind: &str, labels: &[String]) -> Option<usize> {
+    let t = text.trim().trim_end_matches('.').trim();
+    let lower = t.to_lowercase();
+    if kind == "plan" {
+        // The end of the session is the last choice, named by `end` or by
+        // its `option:<k>`; a bare number names an option of the question's
+        // own, and a question with none takes it as words.
+        let end = labels.len().checked_sub(1)?;
+        if lower == "end" || lower == labels[end].to_lowercase() {
+            return Some(end);
+        }
+        if let Some(k) = lower.strip_prefix("option:") {
+            let k: usize = k.trim().parse().ok()?;
+            return (1..=labels.len()).contains(&k).then(|| k - 1);
+        }
+        if let Ok(k) = lower.parse::<usize>() {
+            return (1..=end).contains(&k).then(|| k - 1);
+        }
+        return labels[..end].iter().position(|l| l.to_lowercase() == lower);
+    }
+    if let Some(i) = labels.iter().position(|l| l.to_lowercase() == lower) {
+        return Some(i);
+    }
+    // A park's choice by its word, among the labels of either shape.
+    use tehas_core::question::{retry_of, Choice, BOX_PARKED};
+    let c = Choice::of(&lower)?;
+    labels.iter().position(|l| match c {
+        Choice::Retry => retry_of(l) == Some(true),
+        Choice::RetryText => retry_of(l) == Some(false),
+        Choice::Park => l == BOX_PARKED,
+        _ => false,
+    })
+}
+
+/// What a stop's reply names: Some(Some(index)) a choice its question
+/// offers, Some(None) a stop's choice it does not offer, None no choice.
+fn park_named(text: &str, labels: &[String]) -> Option<Option<usize>> {
+    if let Some(i) = choice_of(text, "park", labels) {
+        return Some(Some(i));
+    }
+    use tehas_core::question::{park_label, Choice, CHOICES};
+    let lower = text.trim().trim_end_matches('.').trim().to_lowercase();
+    let named = Choice::of(&lower).is_some()
+        || CHOICES
+            .iter()
+            .any(|c| !park_label(*c).is_empty() && park_label(*c).to_lowercase() == lower);
+    named.then_some(None)
+}
+
+/// The marker of the note that declines a reply's choice to the question
+/// `question`: a reply the note follows is read no more.
+pub fn declined_marker(question: &str) -> String {
+    format!("<!-- tehas:declined question={question} -->")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tehas_core::question::{q_render, Kind, BOX_ALONE, BOX_COMMENTS};
+    use tehas_core::question::{q_render, Kind, BOX_ALONE, BOX_COMMENTS, BOX_END, BOX_PARKED};
 
     fn nodes(list: Value) -> Value {
         json!({"data": {"repository": {"issue": {"comments": {"nodes": list}}}}})
     }
 
     const BOT: &str = "tehas-bot";
-    const FIXER: &str = "tehas-fixer";
+    const MILLWRIGHT: &str = "tehas-millwright";
     const MARK: &str = "<!-- tehas:millwright issue=7 action=answer -->";
     const BODY: &str = "Adopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\nTick one box, or reply in a comment. Only an answer from an account that may authorise work counts.\n\n<!-- tehas:question kind=plan issue=7 turn=2 -->";
     const TURN_3: &str =
@@ -259,24 +473,19 @@ mod tests {
         answer(c, BOT, None, &people(), "", "").unwrap()
     }
 
-    fn read_with_fixer(c: &Value) -> Value {
-        answer(c, BOT, None, &people(), "", FIXER).unwrap()
+    fn read_with_millwright(c: &Value) -> Value {
+        answer(c, BOT, None, &people(), "", MILLWRIGHT).unwrap()
     }
 
-    /// The question's edit history, oldest first, as GitHub lists it.
-    fn edited(mut c: Value, logins: &[&str], total: usize) -> Value {
-        let list: Vec<Value> = logins
-            .iter()
-            .map(|l| json!({"editor": {"login": l}}))
-            .collect();
-        c["data"]["repository"]["issue"]["comments"]["nodes"][1]["userContentEdits"] =
-            json!({"totalCount": total, "nodes": list});
-        c
+    /// A comment by `login` with its body, its time and its id as given.
+    macro_rules! said {
+        ($login:expr, $body:expr, $at:expr, $id:expr) => {
+            json!({"databaseId": $id, "author": {"login": $login}, "body": $body, "createdAt": $at})
+        };
     }
 
-    fn fixer_said(body: &str) -> Value {
-        json!([{"databaseId": 8, "author": {"login": FIXER}, "body": body,
-            "createdAt": "2026-01-01T05:00:00Z"}])
+    fn millwright_said(body: &str) -> Value {
+        json!([said!(MILLWRIGHT, body, "2026-01-01T05:00:00Z", 8)])
     }
 
     #[test]
@@ -293,45 +502,6 @@ mod tests {
     }
 
     #[test]
-    fn a_box_ticked_by_an_allowed_account_is_that_option_counted_from_the_top() {
-        assert_eq!(
-            read(&asked(&ticked("Change some"), "alice", json!([])))["tick"],
-            json!({"status": "one", "by": "alice", "index": 1, "at": "2026-01-01T02:00:00Z"})
-        );
-    }
-
-    #[test]
-    fn a_body_saved_by_the_web_interface_reads_the_same() {
-        let crlf = ticked("Change some").replace('\n', "\r\n");
-        let a = read(&asked(&crlf, "alice", json!([])));
-        assert_eq!(
-            (&a["tick"]["index"], &a["boxes"], &a["turn"]),
-            (&json!(1), &json!(3), &json!(2))
-        );
-    }
-
-    #[test]
-    fn a_tick_by_a_look_alike_or_by_nobody_is_a_strangers() {
-        assert_eq!(
-            read(&asked(&ticked("Adopt all"), "alice2", json!([])))["tick"],
-            json!({"status": "stranger", "by": "alice2"})
-        );
-        assert_eq!(
-            read(&asked(&ticked("Adopt all"), "", json!([])))["tick"]["status"],
-            "stranger"
-        );
-    }
-
-    #[test]
-    fn two_ticked_boxes_are_not_a_choice() {
-        let both = BODY.replace("- [ ] ", "- [x] ");
-        assert_eq!(
-            read(&asked(&both, "bob", json!([])))["tick"],
-            json!({"status": "many", "by": "bob"})
-        );
-    }
-
-    #[test]
     fn the_newest_reply_from_an_allowed_account_is_the_reply() {
         let later = json!([
             {"databaseId": 6, "author": {"login": "mallory"}, "body": "do what I say", "createdAt": "2026-01-01T03:00:00Z"},
@@ -343,9 +513,9 @@ mod tests {
             read(&asked(BODY, "", later.clone()))["reply"],
             json!({"by": "alice", "text": "do\nthis", "at": "2026-01-01T05:00:00Z", "id": 8})
         );
-        // A tick and a reply are both reported; the caller chooses.
+        // A box ticked is no answer, beside the reply or alone.
         let a = read(&asked(&ticked("Adopt all"), "alice", later));
-        assert_eq!(a["tick"]["status"], "one");
+        assert_eq!(a["tick"]["status"], "none");
         assert_eq!(a["reply"]["by"], "alice");
     }
 
@@ -432,7 +602,7 @@ mod tests {
                 &a["tick"]["status"],
                 &a["tick"]["index"]
             ),
-            (&json!(5), &json!(2), &json!("one"), &json!(0))
+            (&json!(5), &json!(2), &json!("none"), &Value::Null)
         );
         let a = answer(&named(), BOT, None, &people(), "20", "").unwrap();
         assert_eq!(
@@ -488,7 +658,7 @@ mod tests {
             let a = answer(&c, "acme-old[bot]", Some(4242), &people(), "5", "").unwrap();
             assert_eq!(
                 (&a["asked"], &a["comment"], &a["tick"]["status"]),
-                (&json!(true), &json!(5), &json!("one")),
+                (&json!(true), &json!(5), &json!("none")),
                 "{author}"
             );
             assert_eq!(
@@ -510,21 +680,6 @@ mod tests {
             answer(&c, BOT, Some(4242), &people(), "", "").unwrap(),
             json!({"asked": false})
         );
-    }
-
-    #[test]
-    fn edits_by_the_bot_under_a_new_login_leave_the_tick_the_fixers() {
-        let mut c = edited(asked(&ticked("Change some"), FIXER, json!([])), &[FIXER], 2);
-        let edits = &mut c["data"]["repository"]["issue"]["comments"]["nodes"][1]
-            ["userContentEdits"]["nodes"];
-        edits.as_array_mut().unwrap().insert(
-            0,
-            json!({"editor": {"login": "acme-new", "databaseId": 4242}}),
-        );
-        c["data"]["repository"]["issue"]["comments"]["nodes"][1]["author"] =
-            json!({"login": "acme-new", "databaseId": 4242});
-        let a = answer(&c, "acme-old", Some(4242), &people(), "", FIXER).unwrap();
-        assert_eq!(a["tick"]["status"], "fixer");
     }
 
     #[test]
@@ -560,98 +715,17 @@ mod tests {
     }
 
     #[test]
-    fn without_a_fixer_named_nothing_is_said_of_one_and_its_tick_is_a_strangers() {
-        let a = read(&asked(&ticked("Adopt all"), FIXER, json!([])));
-        assert_eq!(a["tick"]["status"], "stranger");
-        assert!(a.get("fixer_reply").is_none());
-    }
-
-    #[test]
-    fn a_box_ticked_by_the_fixer_is_the_fixers_tick_never_a_persons() {
-        assert_eq!(
-            read_with_fixer(&asked(&ticked("Change some"), FIXER, json!([])))["tick"],
-            json!({"status": "fixer", "by": FIXER, "index": 1, "at": "2026-01-01T02:00:00Z"})
-        );
-        let both = BODY.replace("- [ ] ", "- [x] ");
-        assert_eq!(
-            read_with_fixer(&asked(&both, FIXER, json!([])))["tick"],
-            json!({"status": "many", "by": FIXER})
-        );
-    }
-
-    #[test]
-    fn a_tick_saved_by_the_fixer_after_a_person_edited_the_question_is_held() {
-        let c = edited(
-            asked(&ticked("Change some"), FIXER, json!([])),
-            &[BOT, "alice", FIXER],
-            3,
-        );
-        assert_eq!(
-            read_with_fixer(&c)["tick"],
-            json!({"status": "held", "by": FIXER})
-        );
-    }
-
-    #[test]
-    fn a_tick_the_fixer_saved_whose_history_read_failed_is_unread() {
-        // A history whose read failed says neither that only the fixer saved
-        // the question nor that someone else did: the tick waits, unread.
-        let mut c = asked(&ticked("Change some"), FIXER, json!([]));
-        c["data"]["repository"]["issue"]["comments"]["nodes"][1]["userContentEdits"] =
-            json!({"failed": true, "line": "ERROR: gh api graphql failed"});
-        assert_eq!(
-            read_with_fixer(&c)["tick"],
-            json!({"status": "unread", "by": FIXER})
-        );
-        c["data"]["repository"]["issue"]["comments"]["nodes"][1]["userContentEdits"] =
-            json!({"failed": true});
-        assert_eq!(read_with_fixer(&c)["tick"]["status"], "unread");
-    }
-
-    #[test]
-    fn edits_by_the_bot_and_the_fixer_alone_leave_the_tick_the_fixers() {
-        let c = edited(
-            asked(&ticked("Change some"), FIXER, json!([])),
-            &[BOT, FIXER, BOT, FIXER],
-            4,
-        );
-        assert_eq!(read_with_fixer(&c)["tick"]["status"], "fixer");
-    }
-
-    #[test]
-    fn an_edit_history_longer_than_what_was_read_is_held() {
-        let c = edited(
-            asked(&ticked("Change some"), FIXER, json!([])),
-            &[FIXER],
-            101,
-        );
-        assert_eq!(read_with_fixer(&c)["tick"]["status"], "held");
-    }
-
-    #[test]
-    fn a_persons_tick_stays_a_persons_with_a_fixer_named() {
-        let c = edited(
-            asked(&ticked("Change some"), "alice", json!([])),
-            &[FIXER, "alice"],
-            2,
-        );
-        assert_eq!(read_with_fixer(&c)["tick"]["status"], "one");
-        let c = asked(&ticked("Change some"), "alice", json!([]));
-        assert_eq!(read_with_fixer(&c)["tick"]["status"], "one");
-    }
-
-    #[test]
-    fn the_fixers_newest_reply_is_reported_apart_with_its_marker_taken_off() {
+    fn the_millwrights_newest_reply_is_reported_apart_with_its_marker_taken_off() {
         let later = json!([
-            {"databaseId": 6, "author": {"login": FIXER}, "body": format!("{MARK}\nolder"), "createdAt": "2026-01-01T03:00:00Z"},
+            {"databaseId": 6, "author": {"login": MILLWRIGHT}, "body": format!("{MARK}\nolder"), "createdAt": "2026-01-01T03:00:00Z"},
             {"databaseId": 7, "author": {"login": "alice"}, "body": "mine", "createdAt": "2026-01-01T04:00:00Z"},
-            {"databaseId": 8, "author": {"login": FIXER}, "body": format!("{MARK}\nAdopt all, as in #12."), "createdAt": "2026-01-01T05:00:00Z"},
+            {"databaseId": 8, "author": {"login": MILLWRIGHT}, "body": format!("{MARK}\nAdopt all, as in #12."), "createdAt": "2026-01-01T05:00:00Z"},
         ]);
-        let a = read_with_fixer(&asked(BODY, "", later));
+        let a = read_with_millwright(&asked(BODY, "", later));
         assert_eq!(a["reply"]["by"], "alice");
         assert_eq!(
-            a["fixer_reply"],
-            json!({"by": FIXER, "text": "Adopt all, as in #12.", "at": "2026-01-01T05:00:00Z",
+            a["millwright_reply"],
+            json!({"by": MILLWRIGHT, "text": "Adopt all, as in #12.", "at": "2026-01-01T05:00:00Z",
                 "id": 8, "marked": true})
         );
     }
@@ -664,14 +738,14 @@ mod tests {
             format!("{MARK}\n  \n\t"),
         ] {
             assert_eq!(
-                read_with_fixer(&asked(BODY, "", fixer_said(&b)))["fixer_reply"],
+                read_with_millwright(&asked(BODY, "", millwright_said(&b)))["millwright_reply"],
                 Value::Null
             );
         }
     }
 
     #[test]
-    fn a_fixer_comment_without_the_marker_of_this_issue_at_its_top_is_no_reply() {
+    fn a_millwright_comment_without_the_marker_of_this_issue_at_its_top_is_no_reply() {
         for b in [
             "Adopt all.".to_string(),
             "<!-- tehas:millwright issue=8 action=answer -->\nAdopt all.".to_string(),
@@ -680,90 +754,326 @@ mod tests {
             "<!-- tehas:millwrightx issue=7 action=answer -->\nAdopt all.".to_string(),
             "<!-- tehas:fixer issue=7 action=answer -->\nAdopt all.".to_string(),
         ] {
-            let a = read_with_fixer(&asked(BODY, "", fixer_said(&b)));
-            assert_eq!(a["fixer_reply"], Value::Null, "{b}");
+            let a = read_with_millwright(&asked(BODY, "", millwright_said(&b)));
+            assert_eq!(a["millwright_reply"], Value::Null, "{b}");
         }
     }
 
     #[test]
-    fn a_host_note_after_the_fixers_reply_leaves_the_reply_as_it_was() {
+    fn a_host_note_after_the_millwrights_reply_leaves_the_reply_as_it_was() {
         let later = json!([
-            {"databaseId": 8, "author": {"login": FIXER}, "body": format!("{MARK}\nAdopt all."), "createdAt": "2026-01-01T05:00:00Z"},
-            {"databaseId": 9, "author": {"login": FIXER}, "body": "Tehas did not take the fixer's reply as an answer.", "createdAt": "2026-01-01T06:00:00Z"},
+            {"databaseId": 8, "author": {"login": MILLWRIGHT}, "body": format!("{MARK}\nAdopt all."), "createdAt": "2026-01-01T05:00:00Z"},
+            {"databaseId": 9, "author": {"login": MILLWRIGHT}, "body": "Tehas did not take the millwright's reply as an answer.", "createdAt": "2026-01-01T06:00:00Z"},
         ]);
-        let a = read_with_fixer(&asked(BODY, "", later));
-        assert_eq!(a["fixer_reply"]["id"], 8);
+        let a = read_with_millwright(&asked(BODY, "", later));
+        assert_eq!(a["millwright_reply"]["id"], 8);
     }
 
     #[test]
-    fn a_fixer_reply_edited_by_anyone_but_the_fixer_is_not_the_fixers() {
+    fn a_millwright_reply_edited_by_anyone_but_the_millwright_is_not_the_millwrights() {
         let reply = |editor: &str| {
-            json!([{"databaseId": 8, "author": {"login": FIXER}, "body": format!("{MARK}\nx"),
+            json!([{"databaseId": 8, "author": {"login": MILLWRIGHT}, "body": format!("{MARK}\nx"),
                 "createdAt": "t", "editor": {"login": editor}}])
         };
         assert_eq!(
-            read_with_fixer(&asked(BODY, "", reply("alice")))["fixer_reply"],
+            read_with_millwright(&asked(BODY, "", reply("alice")))["millwright_reply"],
             Value::Null
         );
-        let a = read_with_fixer(&asked(BODY, "", reply(FIXER)));
-        assert_eq!(a["fixer_reply"]["id"], 8);
+        let a = read_with_millwright(&asked(BODY, "", reply(MILLWRIGHT)));
+        assert_eq!(a["millwright_reply"]["id"], 8);
         // And it is not a person's reply.
         assert_eq!(a["reply"], Value::Null);
     }
 
     #[test]
-    fn the_box_a_poll_reads_is_the_box_the_park_prints() {
-        let out = json!({"text": "Tehas cycle stopped.", "question": null, "comments": true});
-        let body = q_render(Kind::Park, 7, 1, &out, "");
-        for (want, other) in [(BOX_ALONE, BOX_COMMENTS), (BOX_COMMENTS, BOX_ALONE)] {
-            let box_line = format!("- [ ] {want}");
-            assert!(body.contains(&box_line));
-            let ticked = body.replace(&box_line, &format!("- [x] {want}"));
-            let c = nodes(
-                json!([{"databaseId": 5, "author": {"login": BOT}, "body": ticked,
-                "createdAt": "2026-01-01T01:00:00Z", "lastEditedAt": "2026-01-01T02:00:00Z",
-                "editor": {"login": "alice"}}]),
-            );
-            let a = answer(&c, BOT, None, &["alice".into()], "", "").unwrap();
-            assert_eq!(a["tick"]["status"], "one");
-            let what = &a["labels"][a["tick"]["index"].as_u64().unwrap() as usize];
-            assert_eq!(what, want);
-            assert_ne!(what, other);
+    fn ids_texts_and_stamps_of_other_types_pass_through_as_given() {
+        let c = nodes(json!([
+            {"author": {"login": BOT}, "databaseId": true, "body": TURN_3},
+            said!("alice", 7, 12345, json!({"x": 1})),
+            said!(MILLWRIGHT, format!("{MARK}\nyes"), [1], false),
+        ]));
+        let a = answer(&c, BOT, None, &people(), "", MILLWRIGHT).unwrap();
+        assert_eq!(a["comment"], json!(true));
+        assert_eq!(
+            a["reply"],
+            json!({"by": "alice", "text": 7, "at": 12345, "id": {"x": 1}})
+        );
+        assert_eq!(a["millwright_reply"]["at"], json!([1]));
+        assert_eq!(a["millwright_reply"]["id"], json!(false));
+    }
+
+    #[test]
+    fn a_question_id_of_another_type_is_matched_by_its_json() {
+        let c = nodes(json!([{"author": {"login": BOT}, "databaseId": true, "body": TURN_3}]));
+        let read = |id| answer(&c, BOT, None, &people(), id, "").unwrap()["asked"].clone();
+        assert_eq!(read("true"), json!(true));
+        assert_eq!(read("null"), json!(false));
+    }
+
+    /// The typed read, for the fields the JSON form does not carry.
+    macro_rules! typed {
+        ($c:expr) => {{
+            let c = Comments::parse(&$c);
+            match answer_of(c.or_none().unwrap(), BOT, None, &people(), "", "").unwrap() {
+                Answer::Asked(a) => *a,
+                Answer::NotAsked { .. } => panic!("no question"),
+            }
+        }};
+    }
+
+    macro_rules! reply {
+        ($id:expr, $by:expr, $body:expr, $at:expr) => {
+            json!({"databaseId": $id, "author": {"login": $by}, "body": $body, "createdAt": $at})
+        };
+    }
+
+    /// A box ticked in a comment of before 2.0 is no answer, and nothing of
+    /// it is read.
+    #[test]
+    fn a_ticked_box_is_no_choice() {
+        let a = typed!(asked(&ticked("Change some"), "alice", json!([])));
+        assert_eq!(a.tick, Tick::none());
+        assert_eq!(a.reply, None);
+    }
+
+    /// A reply names a planning option by its number or its label, and the
+    /// end of the session too; other words stay a reply.
+    #[test]
+    fn a_reply_that_names_a_choice_makes_it() {
+        let body = q_render(
+            Kind::Plan,
+            7,
+            2,
+            &json!({"question": {"question": "Adopt?", "options": [{"label": "Adopt all"}, {"label": "Change some"}]}}),
+            "",
+        );
+        for (said, index) in [
+            ("2", 1),
+            ("option:1", 0),
+            ("change some.", 1),
+            ("end", 2),
+            ("option:3", 2),
+            (BOX_END, 2),
+        ] {
+            let a = typed!(asked(
+                &body,
+                "",
+                json!([reply!(7, "alice", said, "2026-01-01T04:00:00Z")]),
+            ));
+            assert_eq!(a.tick.status, Status::One, "{said}");
+            assert_eq!(a.tick.index, Some(index), "{said}");
+            assert_eq!(a.tick.by, "alice");
+            assert_eq!(a.tick.at, "2026-01-01T04:00:00Z");
+            assert_eq!(a.reply, None, "{said}");
+        }
+        // A bare number names one of the planner's own options, never the end.
+        for words in ["3", "4", "split it in two", "0"] {
+            let a = typed!(asked(
+                &body,
+                "",
+                json!([reply!(7, "alice", words, "2026-01-01T04:00:00Z")]),
+            ));
+            assert_eq!(a.tick.status, Status::None, "{words}");
+            assert!(a.reply.is_some(), "{words}");
+        }
+        // A stranger's reply chooses nothing.
+        let a = typed!(asked(
+            &body,
+            "",
+            json!([reply!(7, "mallory", "1", "2026-01-01T04:00:00Z")]),
+        ));
+        assert_eq!(a.tick.status, Status::None);
+    }
+
+    /// A newer reply in words replaces an earlier choice another person made:
+    /// the answer is the words, and no choice stands beside them. The end
+    /// chosen before a reply in words goes the same way.
+    #[test]
+    fn a_newer_reply_in_words_replaces_an_earlier_choice() {
+        for (chose, words) in [("1", "actually, wait"), ("end", "one more thing")] {
+            let a = typed!(asked(
+                BODY,
+                "",
+                json!([
+                    reply!(7, "alice", chose, "2026-01-01T01:00:00Z"),
+                    reply!(8, "bob", words, "2026-01-01T02:00:00Z")
+                ]),
+            ));
+            assert_eq!(a.tick, Tick::none(), "{chose}");
+            let r = a.reply.expect("the words are the answer");
+            assert_eq!(r.by, "bob");
+            assert_eq!(r.text.as_ref().and_then(Given::text), Some(words));
         }
     }
 
+    /// A planning question with no options of its own takes a bare number as
+    /// words: "how many threads?" answered `1` goes on, and only `end` ends.
     #[test]
-    fn unticking_empties_every_box_and_nothing_else() {
-        assert_eq!(untick(&BODY.replace("- [ ] ", "- [x] ")), BODY);
+    fn a_number_answers_a_question_with_no_options_in_words() {
+        let body = q_render(
+            Kind::Plan,
+            7,
+            2,
+            &json!({"question": {"question": "How many threads?", "options": []}}),
+            "",
+        );
+        let a = typed!(asked(
+            &body,
+            "",
+            json!([reply!(7, "alice", "1", "2026-01-01T04:00:00Z")]),
+        ));
+        assert_eq!(a.tick.status, Status::None);
+        assert_eq!(a.reply.map(|r| r.by), Some("alice".to_string()));
+        for end in ["end", "option:1"] {
+            let a = typed!(asked(
+                &body,
+                "",
+                json!([reply!(7, "alice", end, "2026-01-01T04:00:00Z")]),
+            ));
+            assert_eq!(
+                (a.tick.status, a.tick.index),
+                (Status::One, Some(0)),
+                "{end}"
+            );
+        }
     }
 
+    /// An agent's option worded as the end of the session is listed as an
+    /// option: `End this planning session` still ends it.
     #[test]
-    fn a_tick_of_an_allowed_account_is_one_answer() {
-        let q = "<!-- tehas:question kind=park issue=7 turn=1 -->\nStuck.\n\n- [x] Retry from a clean start\n- [ ] Leave it";
-        let c = nodes(json!([
-            {"databaseId": 4001, "author": {"login": "tehas-bot"}, "body": q, "createdAt": "2026-10-01T00:00:00Z",
-             "lastEditedAt": "2026-10-01T01:00:00Z", "editor": {"login": "alice"}},
-        ]));
-        let a = answer(&c, "tehas-bot", None, &["alice".into()], "", "").unwrap();
-        assert_eq!(a["kind"], "park");
-        assert_eq!(a["boxes"], 2);
-        assert_eq!(
-            a["tick"],
-            json!({"status": "one", "by": "alice", "index": 0, "at": "2026-10-01T01:00:00Z"})
+    fn an_option_worded_as_the_end_does_not_take_its_place() {
+        let body = q_render(
+            Kind::Plan,
+            7,
+            2,
+            &json!({"question": {"question": "Done?", "options": [{"label": "End this planning session and file the rest"}]}}),
+            "",
         );
-        let b = answer(&c, "tehas-bot", None, &["bob".into()], "", "").unwrap();
-        assert_eq!(b["tick"]["status"], "stranger");
-        assert_eq!(
-            answer(&c, "tehas-bot", None, &[], "99", "").unwrap(),
-            json!({"asked": false})
-        );
+        assert!(body.contains("1. Option 1, End this planning session and file the rest\n"));
+        let a = typed!(asked(
+            &body,
+            "",
+            json!([reply!(7, "alice", BOX_END, "2026-01-01T04:00:00Z")]),
+        ));
+        assert_eq!(a.tick.index, Some(1));
+        assert_eq!(a.labels.last().map(String::as_str), Some(BOX_END));
     }
 
+    /// A question saved by GitHub's web editor, with CRLF line ends, is read
+    /// as one saved with LF: a reply chooses the same.
     #[test]
-    fn untick_empties_every_box() {
-        assert_eq!(
-            untick("a\n- [x] One\n- [X] Two\n- [ ] Three"),
-            "a\n- [ ] One\n- [ ] Two\n- [ ] Three"
+    fn a_body_saved_by_the_web_interface_reads_the_same() {
+        for (body, said) in [
+            (BODY.to_string(), "2"),
+            (
+                q_render(
+                    Kind::Park,
+                    7,
+                    1,
+                    &json!({"text": "Parked.", "comments": true}),
+                    "",
+                ),
+                "retry",
+            ),
+        ] {
+            let lf = typed!(asked(
+                &body,
+                "",
+                json!([reply!(7, "alice", said, "2026-01-01T04:00:00Z")])
+            ));
+            let crlf = typed!(asked(
+                &body.replace('\n', "\r\n"),
+                "",
+                json!([reply!(7, "alice", said, "2026-01-01T04:00:00Z")]),
+            ));
+            assert_eq!(crlf.tick.status, Status::One, "{said}");
+            assert_eq!(
+                (crlf.tick.index, crlf.boxes, crlf.labels),
+                (lf.tick.index, lf.boxes, lf.labels),
+                "{said}"
+            );
+            assert_eq!(crlf.turn, lf.turn);
+        }
+    }
+
+    /// A park's choice is named by its word or its label. It stands until
+    /// this rule's own note declines it, or a newer reply chooses again: no
+    /// other comment, of the bot's or of a person, takes it away.
+    #[test]
+    fn a_parks_reply_names_its_choice_once() {
+        let body = q_render(
+            Kind::Park,
+            7,
+            1,
+            &json!({"text": "Parked.", "comments": true}),
+            "",
         );
+        for (said, label) in [
+            ("retry-text", BOX_ALONE),
+            ("Retry", BOX_COMMENTS),
+            ("leave it parked", BOX_PARKED),
+        ] {
+            let a = typed!(asked(
+                &body.replace("issue=7 turn=1", "issue=7 turn=2"),
+                "",
+                json!([reply!(7, "alice", said, "2026-01-01T04:00:00Z")]),
+            ));
+            assert_eq!(a.ticked_label(), Some(label), "{said}");
+        }
+        let declined = format!(
+            "Retry was asked for, but nothing was started.\n\n{}",
+            declined_marker("5")
+        );
+        let a = typed!(asked(
+            &body,
+            "",
+            json!([
+                reply!(7, "alice", "retry", "2026-01-01T04:00:00Z"),
+                reply!(8, BOT, declined, "2026-01-01T05:00:00Z")
+            ])
+        ));
+        assert_eq!(a.tick.status, Status::None);
+        // The millwright's guidance, the note that clears a stranger's
+        // label, the note of a cleared `tehas:blocked` hold, a decline of
+        // another question, and a person's words after it leave the choice
+        // standing.
+        for (by, later) in [
+            (BOT, format!("{MARK}\nTry a smaller change.")),
+            (BOT, "Tehas took the label off this issue. It was applied by `mallory`, an account that may not authorise work in this factory, so nothing was started and the issue is not queued.".to_string()),
+            (BOT, "Every issue the blocked marker names is closed, so the hold has cleared.".to_string()),
+            (BOT, format!("Retry was asked for on another question.\n\n{}", declined_marker("4"))),
+            ("bob", "I see this on main too".to_string()),
+        ] {
+            let a = typed!(asked(
+                &body,
+                "",
+                json!([
+                    reply!(7, "alice", "retry", "2026-01-01T04:00:00Z"),
+                    reply!(8, by, later, "2026-01-01T05:00:00Z")
+                ])
+            ));
+            assert_eq!(a.ticked_label(), Some(BOX_COMMENTS), "{later}");
+            assert_eq!(a.tick.by, "alice");
+        }
+        // A newer reply that chooses again is the choice.
+        let a = typed!(asked(
+            &body,
+            "",
+            json!([
+                reply!(7, "alice", "retry", "2026-01-01T04:00:00Z"),
+                reply!(9, "bob", "park", "2026-01-01T05:00:00Z")
+            ])
+        ));
+        assert_eq!(
+            (a.ticked_label(), a.tick.by.as_str()),
+            (Some(BOX_PARKED), "bob")
+        );
+        // Words that name no choice are no answer to a park.
+        let a = typed!(asked(
+            &body,
+            "",
+            json!([reply!(7, "alice", "please look", "2026-01-01T04:00:00Z")]),
+        ));
+        assert_eq!((a.tick.status, a.reply), (Status::None, None));
     }
 }

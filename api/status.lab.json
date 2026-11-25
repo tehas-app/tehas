@@ -5,7 +5,7 @@
   "stale": false,
   "state": "warn",
   "reasons": [
-    "A lab build: TEHAS_TEST_FEATURES names outsource, still being built. No release reads it."
+    "A lab build: TEHAS_TEST_FEATURES names plugins, still being built. No release reads it."
   ],
   "paused": {
     "local": false,
@@ -36,7 +36,7 @@
   "testFeatures": {
     "read": true,
     "features": [
-      "outsource"
+      "plugins"
     ],
     "lab": true
   }

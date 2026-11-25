@@ -124,11 +124,11 @@ Agents can start from [`host/docs/llms.txt`](host/docs/llms.txt).
 
 ## State of the project
 
-Tehas is experimental. One instance runs it, the one that works on this repository, and
-nothing has run for long. Its first unattended cycle took 61 minutes and about
-8.5 million tokens for a 172-line change. The
+Tehas 2.0 is in alpha: its alpha releases are for trying it out, not for
+production. The
 [features page](host/docs/features.md) says for each part whether it was seen
-working on a host, covered by tests only, or not built.
+working on a host, covered by tests only, or not built. A part still being
+built, such as the lean driver, is off in a release.
 
 A running preview of every pull request has been seen working on the example
 instance, but not every part of it yet. One thing tehas does not do: serve

@@ -15,15 +15,18 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Once;
+use tehas_core::home::{Home, State, TokenDir};
 use tehas_core::testdir::TestDir;
 use tehas_core::testing::{copy_exe, write_exe};
 
 /// The answers of the stub gh. One answer per search: the count is the only
 /// call that asks for a total and no nodes, so that shape tells the two apart.
-/// A file `<x>-down` makes its read fail; GH_EDIT_FAILS fails an edit and
+/// A file `<x>-down` makes its read fail; GH_MARK_FAILS fails a mark put on an issue and
 /// GH_AUTH is what `gh auth status` exits with.
 const GH: &str = r####"gh_graphql() {
   case "$1" in
+    *"filterBy: {states: [CLOSED], since: "*) [ ! -e "$T/shipped-down" ] || exit 1
+      cat "$T/shipped.json" ;;
     *closingIssuesReferences*) cat "$T/tickets-page.json" 2>/dev/null || exit 1 ;;
     *subIssues*) [ ! -e "$T/epics-down" ] || exit 1; cat "$T/epics-page.json" ;;
     *"first: 0) { issueCount }"*) [ ! -e "$T/count-down" ] || exit 1
@@ -37,8 +40,8 @@ case "$*" in
   "issue list"*) [ ! -e "$T/all-down" ] || exit 1; cat "$T/all.json" ;;
   # The names of the labels of the control issue, as --jq joins them.
   "issue view"*) [ ! -e "$T/control-down" ] || exit 1
-    { [ "$(cat "$T/paused")" != true ] || echo tehas:pause; [ ! -e "$T/allhands" ] || echo tehas:all-hands; } | paste -sd " " ;;
-  "issue edit"*) [ -z "${GH_EDIT_FAILS:-}" ] || exit 1 ;;
+    { [ "$(cat "$T/paused")" != true ] || echo tehas:pause; } | paste -sd " " ;;
+  "api -X POST repos/acme/widget/issues/"*"/labels "*) [ -z "${GH_MARK_FAILS:-}" ] || exit 1 ;;
   "auth status") exit "${GH_AUTH:-0}" ;;
   "api repos/acme/widget/issues/"*"/events"*) cat "$T/events.json" 2>/dev/null || exit 1 ;;
   "api graphql"*) [ ! -e "$T/shipped-down" ] || exit 1; gh_graphql "$*" ;;
@@ -78,13 +81,13 @@ pub const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
 
 /// The logins whose user ids install.sh records, as the shell tests list them.
 const LOGINS: &[&str] = &[
-    "tehas-bot",
+    "tehas-bot[bot]",
     "alice",
     "bob",
     "bob-2",
     "carol",
     "boss",
-    "tehas-fixer",
+    "tehas-millwright",
     "tehas-mill",
     "millbot",
     "mill-bot",
@@ -99,7 +102,6 @@ const RESET: &[&str] = &[
     "shipped-down",
     "count-down",
     "control-down",
-    "allhands",
     "epics-down",
     "tickets-page.json",
     "rel.json",
@@ -120,21 +122,26 @@ pub fn root() -> PathBuf {
         .to_path_buf()
 }
 
-/// The store of this build: above the harness when the workspace built it,
-/// built once here otherwise.
+/// The store of this build.
 fn store_binary() -> PathBuf {
-    fn above() -> Option<PathBuf> {
+    static BUILT: Once = Once::new();
+    built("store", &BUILT)
+}
+
+/// The program of a package of the workspace, named as the package: above the
+/// harness when the workspace built it, built once here otherwise.
+pub fn built(package: &str, once: &Once) -> PathBuf {
+    let above = || {
         let exe = std::env::current_exe().unwrap();
         exe.ancestors()
             .skip(1)
-            .map(|dir| dir.join("store"))
+            .map(|dir| dir.join(package))
             .find(|p| p.is_file())
-    }
+    };
     if let Some(found) = above() {
         return found;
     }
-    static BUILT: Once = Once::new();
-    BUILT.call_once(|| {
+    once.call_once(|| {
         let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
         let target = std::env::var_os("CARGO_TARGET_DIR")
             .map(PathBuf::from)
@@ -150,17 +157,17 @@ fn store_binary() -> PathBuf {
             .arg(&manifest)
             .arg("--target-dir")
             .arg(&target)
-            .args(["-p", "store"])
+            .args(["-p", package])
             .args((!cfg!(debug_assertions)).then_some("--release"))
             .output()
             .expect("cargo");
         assert!(
             out.status.success(),
-            "the store did not build: {}",
+            "{package} did not build: {}",
             String::from_utf8_lossy(&out.stderr)
         );
     });
-    above().expect("the store of this build is above the test binary")
+    above().unwrap_or_else(|| panic!("{package} of this build is above the test binary"))
 }
 
 /// A program on the PATH of the tests, by its path.
@@ -222,7 +229,7 @@ impl World {
         std::os::unix::fs::symlink(root().join("bin/tehasbot"), t.join("tree/bin/tehasbot"))
             .unwrap();
         let w = World {
-            live: home.join("live"),
+            live: Home::new(&home).live_dir(),
             home,
             bash: which("bash"),
             console,
@@ -231,7 +238,7 @@ impl World {
             env: RefCell::new(vec![]),
             always: RefCell::new(vec![]),
         };
-        for name in ["docker", "gh", "systemctl", "curl", "ssh"] {
+        for name in tehas_core::testing::DENIED {
             write_exe(
                 w.t.join("deny").join(name),
                 format!(
@@ -293,20 +300,20 @@ impl World {
         place(&self.t.join("store-bin"), &self.home.join("libexec/store"));
         self.store_db();
         let ids: String = LOGINS.iter().map(|l| format!("{l} {}\n", uid(l))).collect();
-        fs::write(self.home.join("state/account-ids"), ids).unwrap();
+        fs::write(self.at().state(State::AccountIds), ids).unwrap();
     }
 
     /// The database is gone, with its journal files.
     pub fn no_db(&self) {
         for f in ["tehas.db", "tehas.db-wal", "tehas.db-shm"] {
-            let _ = fs::remove_file(self.home.join("state").join(f));
+            let _ = fs::remove_file(self.at().state_dir().join(f));
         }
     }
 
     /// A fresh database, made by the store's own init (t_store_db).
     pub fn store_db(&self) {
         self.no_db();
-        fs::create_dir_all(self.home.join("state")).unwrap();
+        fs::create_dir_all(self.at().state_dir()).unwrap();
         self.store_ok(&[
             "init",
             "--version",
@@ -377,8 +384,13 @@ impl World {
 
     /// tehas status with these words.
     pub fn summary(&self, words: &[&str]) -> Run {
+        self.tehas("status", words)
+    }
+
+    /// bin/tehas of the checkout: `verb` with these words.
+    pub fn tehas(&self, verb: &str, words: &[&str]) -> Run {
         let mut c = self.command(&root().join("bin/tehas").to_string_lossy());
-        c.arg("status").args(words);
+        c.arg(verb).args(words);
         run(c)
     }
 
@@ -465,6 +477,7 @@ impl World {
             "#!{}\nprintf '%s\\n' \"$*\" >>\"$T/calls/analytics\"\n{body}\n",
             self.bash
         );
+        fs::create_dir_all(self.home.join("libexec")).unwrap();
         write_exe(self.home.join("libexec/analytics"), text).unwrap();
     }
 
@@ -480,7 +493,7 @@ impl World {
         }
         fs::write(dir.join("instance.env"), text).unwrap();
         *self.instance.borrow_mut() = true;
-        if !self.home.join("state/github/login").exists() {
+        if !self.at().state(State::BotLogin).exists() {
             self.app_world("tehas-bot");
         }
     }
@@ -504,20 +517,16 @@ impl World {
     pub fn app_world(&self, slug: &str) {
         let until = tehas_core::time::now() + 86400;
         for (dir, token) in [
-            ("github", "app"),
-            ("github-cycle", "cycle"),
-            ("github-session", "session"),
+            (TokenDir::App, "app"),
+            (TokenDir::Cycle, "cycle"),
+            (TokenDir::Session, "session"),
         ] {
-            let d = self.home.join("state").join(dir);
+            let d = self.at().token_dir(dir);
             fs::create_dir_all(&d).unwrap();
             fs::write(d.join("token"), format!("ghs_{token}\n")).unwrap();
             fs::write(d.join("token.expires"), format!("{until}\n")).unwrap();
         }
-        fs::write(
-            self.home.join("state/github/login"),
-            format!("{slug}[bot]\n"),
-        )
-        .unwrap();
+        fs::write(self.at().state(State::BotLogin), format!("{slug}[bot]\n")).unwrap();
     }
 
     /// The variables of every later run until reset(), in place of those
@@ -561,8 +570,14 @@ impl World {
         let _ = fs::remove_file(self.t.join(rel));
     }
 
-    /// A file under the home, with these bytes.
-    pub fn home_file(&self, rel: &str, text: &str) {
+    /// The home's layout.
+    pub fn at(&self) -> Home {
+        Home::new(&self.home)
+    }
+
+    /// A file under the home, with these bytes: `rel` is relative to the
+    /// home, or a path `at` gives.
+    pub fn home_file(&self, rel: impl AsRef<Path>, text: &str) {
         let p = self.home.join(rel);
         if let Some(d) = p.parent() {
             fs::create_dir_all(d).unwrap();
@@ -571,19 +586,15 @@ impl World {
     }
 
     /// What a file under the home holds, "" when there is none.
-    pub fn read_home(&self, rel: &str) -> String {
+    pub fn read_home(&self, rel: impl AsRef<Path>) -> String {
         fs::read_to_string(self.home.join(rel)).unwrap_or_default()
     }
 
-    /// The closed issues the search for shipped work answers.
+    /// The closed issues the tickets port's read of the closed tickets
+    /// answers: one page of the adapter's question, in the project
+    /// `acme/widget` (GitHub's id 7001).
     pub fn shipped(&self, nodes: &[String]) {
-        self.fx(
-            "shipped.json",
-            &format!(
-                r#"{{"data":{{"search":{{"nodes":[{}]}}}}}}"#,
-                nodes.join(",")
-            ),
-        );
+        self.fx("shipped.json", &closed_page(nodes));
     }
 
     /// The one page of open issues the read of the epics answers.
@@ -609,7 +620,7 @@ impl World {
     /// request closed, and the count still saying 0.
     pub fn one_shipped(&self) {
         self.reset();
-        self.shipped(&[closed(20, "2026-01-02T00:00:00Z", r#"{"merged":true}"#, "")]);
+        self.shipped(&[closed(20, "2099-01-02T00:00:00Z", r#"{"merged":true}"#, "")]);
     }
 
     /// One cycle of issue `n` on the store, as the live view shows it (t_live):
@@ -684,6 +695,84 @@ impl World {
         fs::write(self.live.join("dispatch.json"), v.to_string()).unwrap();
     }
 
+    /// A planning turn in flight (t_plan): its session running on the state
+    /// store after `before` turns, the turn started `ago` seconds back, and its
+    /// lock held until the File is dropped, as the turn's unit holds it.
+    pub fn plan_turn(&self, n: u64, before: u32, ago: i64) -> fs::File {
+        let w = self;
+        let brief = w.t().join("plan-brief.md");
+        fs::write(&brief, "# Faster search\n\nMake it fast.\n").unwrap();
+        let brief = brief.to_string_lossy().into_owned();
+        let n_s = n.to_string();
+        w.store_must(
+            &[
+                "plan-begin",
+                &n_s,
+                "--by",
+                "alice",
+                "--label",
+                "tehas:plan",
+                "--brief-file",
+                &brief,
+            ],
+            None,
+            None,
+        );
+        let answer = |t: u32, at: Option<i64>| {
+            let t = t.to_string();
+            let args = [
+                "plan-answer",
+                &n_s,
+                "--turn",
+                &t,
+                "--by",
+                "alice",
+                "--text-file",
+                &brief,
+            ];
+            let r = match at {
+                Some(e) => w.store_at(e, &args),
+                None => w.store(&args),
+            };
+            assert_eq!(r.rc, 0, "the store refused {args:?}: {}", r.out);
+        };
+        for t in 1..=before {
+            if t > 1 {
+                answer(t, None);
+            }
+            let ts = t.to_string();
+            let end = [
+                "plan-end",
+                &n_s,
+                "--turn",
+                &ts,
+                "--outcome",
+                "finished",
+                "--rc",
+                "0",
+                "--session",
+                "abc",
+            ];
+            w.store_must(&end, None, None);
+            if t < before {
+                w.store_must(&["plan-end", &n_s, "--posted"], None, None);
+            }
+        }
+        if before > 0 {
+            w.store_must(&["plan-end", &n_s, "--posted"], None, None);
+            answer(before + 1, Some(tehas_core::time::now() - ago));
+        }
+        let p = w.at().plan_file(n, ".lock");
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        let f = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(p)
+            .unwrap();
+        f.try_lock().unwrap();
+        f
+    }
+
     /// What a stub was called with, one call per line.
     pub fn calls(&self, name: &str) -> String {
         fs::read_to_string(self.t.join("calls").join(name)).unwrap_or_default()
@@ -707,7 +796,7 @@ impl World {
     fn store_cmd(&self, args: &[&str], now: Option<i64>, lock: Option<u64>) -> Run {
         let mut c = match lock {
             Some(n) => {
-                let cycles = self.home.join("state/cycles");
+                let cycles = self.at().cycles_dir();
                 fs::create_dir_all(&cycles).unwrap();
                 let mut c = Command::new("flock");
                 c.args(["-w", "5"])
@@ -792,6 +881,144 @@ impl World {
             .and_then(|s| s.trim().parse().ok())
             .unwrap_or(0)
     }
+
+    /// One end of a cycle of issue `n` at epoch `e` on the store, as tehasbot
+    /// cycle records it (t_history_end). `fields` is a JSON object: `started`
+    /// [e - 60], `by` and `how` [approved] for an approved start, else by
+    /// hand, and the end's `status` [unknown], `rc`, `step`, `cap`,
+    /// `park_reason`, `failure_kind`, `failure_cause`, `provider`, `parked`
+    /// and `pr`, a pull request's address. Any other field is not recorded.
+    pub fn history_end(&self, n: u64, e: i64, fields: &str) {
+        let x: Value = serde_json::from_str(fields).unwrap();
+        let text = |k: &str| x[k].as_str().map(str::to_string);
+        let started = x["started"].as_i64().unwrap_or(e - 60);
+        let a = self.attempt(n);
+        let n_s = n.to_string();
+        match text("by").filter(|b| !b.is_empty()) {
+            Some(by) => {
+                let how = text("how").unwrap_or_else(|| "approved".into());
+                let at = (started - 1 - a as i64).to_string();
+                let mut args = vec![
+                    "approval-record".to_string(),
+                    n_s.clone(),
+                    "--at".into(),
+                    at,
+                    "--by".into(),
+                    by,
+                    "--how".into(),
+                    how.clone(),
+                    "--body-sha".into(),
+                    WORDS_SUM.into(),
+                ];
+                if how == "approved" || how == "millwright" {
+                    args.extend(["--label".into(), label_of("Act::Approve")]);
+                }
+                let args: Vec<&str> = args.iter().map(String::as_str).collect();
+                self.store_must(&args, None, None);
+                self.store_must(&["cycle-start", &n_s], Some(started), Some(n));
+            }
+            None => self.store_must(&["cycle-start", &n_s, "--by-hand"], Some(started), Some(n)),
+        }
+        let attempt = (a + 1).to_string();
+        let mut end = vec![
+            "cycle-end".to_string(),
+            n_s,
+            "--attempt".into(),
+            attempt,
+            "--status".into(),
+            text("status").unwrap_or_else(|| "unknown".into()),
+        ];
+        if let Some(rc) = x["rc"].as_i64() {
+            end.extend(["--rc".into(), rc.to_string()]);
+        }
+        for (k, flag) in [
+            ("step", "--step"),
+            ("cap", "--cap"),
+            ("park_reason", "--park-reason"),
+            ("failure_kind", "--failure-kind"),
+            ("failure_cause", "--failure-cause"),
+        ] {
+            if let Some(v) = text(k) {
+                end.extend([flag.into(), v]);
+            }
+        }
+        for (k, flag) in [("provider", "--provider"), ("parked", "--parked")] {
+            if x[k] == Value::Bool(true) {
+                end.push(flag.into());
+            }
+        }
+        if let Some(pr) = text("pr") {
+            end.extend(["--pr".into(), pr.rsplit('/').next().unwrap().into()]);
+        }
+        let end: Vec<&str> = end.iter().map(String::as_str).collect();
+        self.store_must(&end, Some(e), Some(n));
+    }
+
+    /// The end at epoch `e` of the first planning turn of issue `n` on the
+    /// store, as the dispatcher records it (t_plan_end). `fields` is a JSON
+    /// object: `started` [e - 60], `by` [alice], `label` [the plan's],
+    /// `auto`, `status` [finished], `rc` of a failed turn [2] and `filed`.
+    /// A finished turn has the session abc-123; any other field is not
+    /// recorded.
+    pub fn plan_end(&self, n: u64, e: i64, fields: &str) {
+        let x: Value = serde_json::from_str(fields).unwrap();
+        let text = |k: &str| x[k].as_str().map(str::to_string);
+        let started = x["started"].as_i64().unwrap_or(e - 60);
+        let brief = self.t.join("plan-brief.md");
+        fs::write(&brief, "# Faster search\n").unwrap();
+        let n_s = n.to_string();
+        let mut begin = vec![
+            "plan-begin".to_string(),
+            n_s.clone(),
+            "--by".into(),
+            text("by").unwrap_or_else(|| "alice".into()),
+            "--label".into(),
+            text("label").unwrap_or_else(|| label_of("Act::Plan")),
+            "--brief-file".into(),
+            brief.to_string_lossy().into_owned(),
+        ];
+        if x["auto"] == Value::Bool(true) {
+            begin.push("--auto".into());
+        }
+        let begin: Vec<&str> = begin.iter().map(String::as_str).collect();
+        self.store_must(&begin, Some(started), None);
+        let outcome = text("status").unwrap_or_else(|| "finished".into());
+        let mut end = vec![
+            "plan-end".to_string(),
+            n_s,
+            "--turn".into(),
+            "1".into(),
+            "--outcome".into(),
+            outcome.clone(),
+        ];
+        match outcome.as_str() {
+            "finished" => end.extend(["--rc", "0", "--session", "abc-123"].map(String::from)),
+            "failed" => end.extend(["--rc".into(), x["rc"].as_i64().unwrap_or(2).to_string()]),
+            _ => {}
+        }
+        for f in x["filed"].as_array().into_iter().flatten() {
+            end.extend(["--filed".into(), f.as_str().unwrap().into()]);
+        }
+        let end: Vec<&str> = end.iter().map(String::as_str).collect();
+        self.store_must(&end, Some(e), None);
+    }
+}
+
+/// The sha256 of the body "Words.", which an approval records (T_WSUM).
+const WORDS_SUM: &str = "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f";
+
+#[allow(dead_code)] // each test file uses a part of this module
+/// The label of one of tehas's words (`Act::Plan`), as host/labels.tsv, the
+/// table's one owner, names it.
+pub fn label_of(word: &str) -> String {
+    let table = fs::read_to_string(root().join("host/labels.tsv")).unwrap();
+    table
+        .lines()
+        .find_map(|l| {
+            let cols: Vec<&str> = l.split('\t').collect();
+            (cols.get(3) == Some(&word)).then(|| cols[0].to_string())
+        })
+        .unwrap_or_else(|| panic!("no label for {word} in host/labels.tsv"))
 }
 
 impl Drop for World {
@@ -860,25 +1087,57 @@ exit "$t_rc"
 "####;
 
 #[allow(dead_code)] // each test file uses a part of this module
-/// A closed issue as the search for shipped work returns it; `closer` is
-/// JSON, and an empty `label` gives it none.
-pub fn closed(n: u64, closed_at: &str, closer: &str, label: &str) -> String {
-    let labels = if label.is_empty() {
-        String::new()
-    } else {
-        json!({"name": label}).to_string()
-    };
-    format!(
-        r#"{{"number":{n},"title":"t","url":"u","createdAt":"2025-12-01T00:00:00Z","updatedAt":"{closed_at}","closedAt":"{closed_at}","labels":{{"nodes":[{labels}]}},"timelineItems":{{"nodes":[{{"closer":{closer}}}]}}}}"#
-    )
+/// One page of the adapter's read of the closed tickets of `acme/widget`
+/// (GitHub's id 7001), from `tests/fixtures/closed-page.json`.
+pub fn closed_page(nodes: &[String]) -> String {
+    include_str!("../fixtures/closed-page.json")
+        .trim_end()
+        .replace("@NODES@", &nodes.join(","))
 }
 
 #[allow(dead_code)] // each test file uses a part of this module
-/// As `closed`, with no labels field at all: a read that said nothing of them.
-pub fn no_labels(n: u64, closed_at: &str, closer: &str) -> String {
-    format!(
-        r#"{{"number":{n},"title":"t","url":"u","updatedAt":"{closed_at}","closedAt":"{closed_at}","timelineItems":{{"nodes":[{{"closer":{closer}}}]}}}}"#
-    )
+/// A closed issue as the adapter's read of the closed tickets returns it,
+/// from the templates in `tests/fixtures/`. `closer` says what closed it:
+/// `{"merged":true}` a pull request of this project, merged, which GitHub
+/// also lists as closing it; `{"merged":false}` one not merged; anything
+/// else no closer. An empty `label` gives it none.
+pub fn closed(n: u64, closed_at: &str, closer: &str, label: &str) -> String {
+    let (labels, count) = if label.is_empty() {
+        (String::new(), 0)
+    } else {
+        (json!({"name": label}).to_string(), 1)
+    };
+    let pr = (n + 1000).to_string();
+    let merged = match closer {
+        r#"{"merged":true}"# => Some("true"),
+        r#"{"merged":false}"# => Some("false"),
+        _ => None,
+    };
+    let by = match merged {
+        Some(m) => include_str!("../fixtures/closer-pull.json")
+            .trim_end()
+            .replace("@PR@", &pr)
+            .replace("@MERGED@", m),
+        None => "null".to_string(),
+    };
+    let refs = match merged {
+        Some("true") => include_str!("../fixtures/merged-change.json")
+            .trim_end()
+            .replace("@HEAD@", &format!("{:040x}", n + 1000))
+            .replace("@COMMIT@", &format!("{:040x}", n + 1001))
+            .replace("@PR@", &pr),
+        _ => String::new(),
+    };
+    let refs_count = if refs.is_empty() { "0" } else { "1" };
+    include_str!("../fixtures/closed-node.json")
+        .trim_end()
+        .replace("@CLOSER@", &by)
+        .replace("@REFS@", &refs)
+        .replace("@REFS_COUNT@", refs_count)
+        .replace("@LABELS@", &labels)
+        .replace("@LABELS_COUNT@", &count.to_string())
+        .replace("@N@", &n.to_string())
+        .replace("@AT@", closed_at)
 }
 
 #[allow(dead_code)] // each test file uses a part of this module
@@ -911,6 +1170,24 @@ pub fn schema_errors(schema: &str, value: &str) -> String {
             "--slurpfile",
             "schema",
             &file.to_string_lossy(),
+            "-f",
+            &filter.to_string_lossy(),
+        ],
+        value,
+    )
+}
+
+#[allow(dead_code)] // each test file uses a part of this module
+/// The ways `value` breaks the schema whose JSON text is `schema`, as
+/// test/schema.jq prints them: "" when it fits.
+pub fn schema_value_errors(schema: &str, value: &str) -> String {
+    let filter = root().join("test/schema.jq");
+    jq_with(
+        &[
+            "-r",
+            "--argjson",
+            "schema",
+            &format!("[{schema}]"),
             "-f",
             &filter.to_string_lossy(),
         ],
@@ -972,6 +1249,26 @@ pub fn run(mut c: Command) -> Run {
         rc: status.code().unwrap_or(-1),
         out: out.trim_end_matches('\n').to_string(),
     }
+}
+
+#[allow(dead_code)] // each test file uses a part of this module
+/// The JSON text at `pointer` in the JSON `text`, "null" where there is none.
+#[track_caller]
+pub fn json_at(text: &str, pointer: &str) -> String {
+    let doc: Value = serde_json::from_str(text).unwrap_or_else(|e| panic!("{e}: {text}"));
+    doc.pointer(pointer).unwrap_or(&Value::Null).to_string()
+}
+
+#[allow(dead_code)] // each test file uses a part of this module
+/// The JSON `text` without the key at `pointer`, its keys in order.
+#[track_caller]
+pub fn json_without(text: &str, pointer: &str) -> String {
+    let mut doc: Value = serde_json::from_str(text).unwrap_or_else(|e| panic!("{e}: {text}"));
+    let (parent, key) = pointer.rsplit_once('/').unwrap();
+    if let Some(Value::Object(m)) = doc.pointer_mut(parent) {
+        m.remove(key);
+    }
+    doc.to_string()
 }
 
 #[allow(dead_code)] // each test file uses a part of this module

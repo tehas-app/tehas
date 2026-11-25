@@ -11,6 +11,7 @@ use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
+use tehas_core::home::Home;
 use tehas_core::testdir::TestDir;
 
 fn fixtures() -> PathBuf {
@@ -19,11 +20,12 @@ fn fixtures() -> PathBuf {
 
 fn call_in(logs: &Path, args: &Value) -> Result<Value, ToolError> {
     let dirs = Dirs {
-        live: fixtures().join("live"),
+        live: Home::new(fixtures()).live_dir(),
         sessions: fixtures().join("sessions"),
         logs: logs.to_path_buf(),
+        links: mcp::tools::no_links,
     };
-    match mcp::tools::call(&dirs, "factory_decisions", args)? {
+    match mcp::tools::call(&dirs, "factory_decisions", &args.clone().into())? {
         Output::Json(v) => Ok(common::conforms("factory_decisions", v)),
         other => panic!("factory_decisions gave {other:?}"),
     }

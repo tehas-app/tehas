@@ -83,10 +83,11 @@ fn instance_of(h: &mut Host, extra: &[String]) {
 }
 
 #[test]
-fn a_0_30_x_host_lists_releases_where_this_release_is_published_and_checks_them_with_its_key() {
+fn a_0_30_x_host_lists_releases_under_the_former_name_github_redirects_and_checks_them_with_its_key(
+) {
     assert_eq!(
         setting(&old().join("versions.env"), "TEHAS_RELEASE_REPO"),
-        pinned()
+        tehas_core::release::FORMER_REPO
     );
     assert_eq!(
         fs::read_to_string(old().join("release/minisign.pub")).unwrap(),
@@ -115,7 +116,7 @@ fn this_releases_settings_check_lists_every_renamed_removed_or_building_line_of_
     home_030(&h);
     let mut extra = lines(&old().join("instance.env"));
     extra.push("TEHAS_OVERLAP_HOLD=1".into());
-    extra.push("TEHAS_REVIEW_REPO=acme/backlog".into());
+    extra.push("TEHAS_PLUGINS=floorplan".into());
     instance_of(&mut h, &extra);
     let env = h.join("home/.config/tehas/env");
     fs::create_dir_all(env.parent().unwrap()).unwrap();
@@ -135,7 +136,7 @@ fn this_releases_settings_check_lists_every_renamed_removed_or_building_line_of_
         has(&r.out, &format!("tehas: {name} is no longer read: "));
     }
     let dir = h.instance_dir().display().to_string();
-    has(&r.out, &format!("tehas: TEHAS_REVIEW_REPO is set and review is still being built in this release: take the line out (see {dir}/instance.env)"));
+    has(&r.out, &format!("tehas: TEHAS_PLUGINS is set and plugins is still being built in this release: take the line out (see {dir}/instance.env)"));
     has(&r.out, &format!("tehas: TEHAS_BOT_LOGIN is no longer read: the bot is the GitHub App's login, kept in state/github/login, so take the line out (see {})", env.display()));
     assert_eq!(
         r.out.lines().filter(|l| l.starts_with("tehas: ")).count(),
@@ -190,12 +191,9 @@ fn this_release_updates_the_home_0_30_x_left_from_the_built_in_repository_and_ke
     has(&r.out, "release: current is v1.0.0, was v0.30.6");
     assert_eq!(current(&h), "versions/v1.0.0");
     let pinned = pinned();
-    has(&h.calls("gh"), &format!("api repos/{pinned}/releases"));
-    has(
-        &h.calls("gh"),
-        &format!("release download v1.0.0 --repo {pinned}"),
-    );
-    lacks(&h.calls("gh"), "someone/else");
+    assert_eq!(listed(&h), std::slice::from_ref(&pinned));
+    assert!(downloaded(&h, &pinned, "v1.0.0"), "{:?}", downloads(&h));
+    lacks(&downloads(&h).join("\n"), "someone/else");
     assert_eq!(
         h.calls("minisign-key"),
         fs::read_to_string(root().join("host/release/minisign.pub"))

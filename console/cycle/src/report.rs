@@ -11,11 +11,13 @@
 use crate::after::{After, Ended};
 use crate::facts::{first_bytes, line, two_lines, words, Facts, File};
 use crate::last_attempt;
+use crate::loose::Node;
 use crate::runner::{self, cut, kept, names_issue};
 use serde_json::{json, Map, Value};
 use tehas_core::driver::Driver;
 use tehas_core::question::{q_clean, q_render, Kind};
 use tehas_core::text::disarm;
+use tehas_ports::{BlueprintNo, Mark, Marker, MarkerWord, ParkMarker, Sha256, State};
 
 /// What a report asks GitHub, as the bash asks it: each with its tries and
 /// bounds, which are the caller's.
@@ -38,9 +40,22 @@ pub trait Ask {
 pub struct Given(pub Value);
 
 impl Ask for Given {
-    fn prs(&mut self, _branch: &str) -> Option<Vec<Value>> {
+    /// A pull request with no head of its own is on the branch asked, as gh's
+    /// list by head answers.
+    fn prs(&mut self, branch: &str) -> Option<Vec<Value>> {
         match self.0.get("prs") {
-            Some(Value::Array(a)) => Some(a.clone()),
+            Some(Value::Array(a)) => Some(
+                a.iter()
+                    .cloned()
+                    .map(|mut p| {
+                        let head = Value::String(branch.to_string());
+                        if let Some(o) = p.as_object_mut() {
+                            o.entry("headRefName").or_insert(head);
+                        }
+                        p
+                    })
+                    .collect(),
+            ),
             None => Some(vec![]),
             _ => None,
         }
@@ -79,7 +94,10 @@ pub fn comments_said(f: &Facts) -> String {
         .and_then(|a| a.get("current"))
         .is_some_and(|c| {
             c.get("used_by").and_then(Value::as_u64) == Some(f.attempt)
-                && c.get("how").and_then(Value::as_str) == Some("retry-tick")
+                && matches!(
+                    c.get("how").and_then(Value::as_str),
+                    Some("answer" | "reply")
+                )
                 && c.pointer("/input/retry_context")
                     .and_then(Value::as_array)
                     .is_some_and(|a| !a.is_empty())
@@ -97,33 +115,34 @@ pub fn comments_said(f: &Facts) -> String {
     let read = f
         .file("result.json")
         .text()
-        .and_then(runner::values)
+        .and_then(runner::results)
         .and_then(|all| {
             all.iter().rev().find_map(|r| {
-                let per_issue = runner::issue_entry(r, f.issue).and_then(|e| e.get("comments"));
+                let per_issue = runner::issue_entry(r, f.issue)
+                    .map(|e| &e.comments)
+                    .filter(|c| !matches!(c, Node::Absent));
                 per_issue
-                    .or_else(|| r.get("comments"))
-                    .filter(|c| c.is_object())
+                    .or_else(|| r.object().map(|r| &r.comments))
+                    .and_then(Node::object)
                     .cloned()
             })
         });
     let Some(c) = read else {
         return " The cycle's runner did not say whether it read the comments it was given.".into();
     };
-    let n = |k: &str| c.get(k).and_then(Value::as_u64).unwrap_or(0);
-    if c.get("read") == Some(&Value::Bool(true)) {
-        let dropped = match n("dropped") {
+    if c.read.get() == Some(&true) {
+        let dropped = match c.dropped.get().copied().unwrap_or(0) {
             0 => String::new(),
             d => format!(", {d} older ones left out for room"),
         };
         return format!(
             " The cycle was given {} comments of the issue and its pull requests{dropped}.",
-            n("count")
+            c.count.get().copied().unwrap_or(0)
         );
     }
     let reason = c
-        .get("reason")
-        .and_then(Value::as_str)
+        .reason
+        .get()
         .map(|r| {
             kept(&first_bytes(r, 200), |ch| {
                 ch.is_ascii_alphanumeric() || " _.,:-".contains(ch)
@@ -135,7 +154,7 @@ pub fn comments_said(f: &Facts) -> String {
 }
 
 /// The caps tehas sets for a stop of its own, and no other command does.
-pub const OWN_CAPS: [&str; 5] = [
+const OWN_CAPS: [&str; 5] = [
     "wall-clock",
     "stall",
     "disk",
@@ -161,6 +180,9 @@ pub struct Park {
     /// pi-rukas's handoff marker and tehas's park marker.
     pub marker: String,
     pub park_marker: String,
+    /// The park's marker typed, for a write of the ports. The text above
+    /// stays for q_render until T4.7.
+    pub park: Option<ParkMarker>,
     /// The host's line when this park repeats the one before it.
     pub repeat: String,
     /// It ended at child-timeout:develop with no stop: once it is on record
@@ -198,6 +220,13 @@ impl Park {
         p + &self.repeat
     }
 
+    /// Whether the park asks a person anything: not when it has nothing to
+    /// decide, a park that offers no retry, whose only choice would be to
+    /// leave it parked. Its comment says what happens instead.
+    pub fn asks(&self) -> bool {
+        !self.no_retry
+    }
+
     /// The question of a park on record: the text the question file holds,
     /// and the body posted.
     pub fn question(&self, issue: u64, stuck: bool) -> (String, String) {
@@ -214,6 +243,21 @@ impl Park {
         (text, body)
     }
 
+    /// [`Park::question`] as a write of the ports takes it: the body as
+    /// q_render writes it, whose sum goes on record, then its text without
+    /// our markers and the markers beside it.
+    pub fn question_parts(&self, issue: u64, stuck: bool) -> Option<(String, String, Vec<Marker>)> {
+        let (_, full) = self.question(issue, stuck);
+        let bare = Park {
+            park_marker: String::new(),
+            ..self.clone()
+        };
+        let (_, rendered) = bare.question(issue, stuck);
+        let (text, markers) =
+            tehas_core::question::q_parts(&rendered, Kind::Park, issue, 1, self.park.clone())?;
+        Some((full, text, markers))
+    }
+
     /// The comment of a park that asks no question: one not on record, or
     /// one whose question could not be posted. It has no boxes.
     pub fn comment(&self, stuck: bool, on_record: bool) -> String {
@@ -222,9 +266,15 @@ impl Park {
         } else {
             format!("{}\n", self.marker)
         };
+        // A park that offers no retry says what to do instead.
+        let retry = if self.no_retry {
+            ""
+        } else {
+            " To retry, apply `tehas:ready`."
+        };
         let words = q_clean(
             &format!(
-                "{} To retry, apply `tehas:ready`.{}\n\n{}",
+                "{}{retry}{}\n\n{}",
                 self.parked(stuck, on_record),
                 self.handoff_part(),
                 self.usage
@@ -237,6 +287,22 @@ impl Park {
             format!("\n\n{}", self.park_marker)
         };
         format!("{marker}{words}{park}")
+    }
+
+    /// [`Park::comment`] as a write of the ports takes it: the text without
+    /// the park's marker, and the marker beside it. A write refuses a text
+    /// with a marker in it, so a park with no typed marker posts its comment
+    /// with none.
+    pub fn comment_parts(&self, stuck: bool, on_record: bool) -> (String, Vec<Marker>) {
+        let said = Park {
+            park_marker: String::new(),
+            ..self.clone()
+        }
+        .comment(stuck, on_record);
+        (
+            said,
+            self.park.clone().map(Marker::Park).into_iter().collect(),
+        )
     }
 
     fn handoff_part(&self) -> String {
@@ -259,6 +325,10 @@ impl Park {
             return;
         };
         let result = f.file("result.json").text();
+        let issue = serde_json::from_value::<Node<last_attempt::IssueBody>>(issue)
+            .ok()
+            .and_then(Node::into_object)
+            .unwrap_or_default();
         match last_attempt::of_issue(f.issue, &issue, result, f.work_state.as_ref()) {
             Some(last_attempt::Action::Repeat) => {
                 self.no_retry = true;
@@ -283,7 +353,7 @@ pub fn last_attempts(r: &mut Report, f: &Facts, ask: &mut dyn Ask) {
 /// cycle's record, its log and the pull requests found, so a tehas marker in
 /// it is broken: the host's own markers are in the park and the question
 /// comments, which are not built here.
-pub(crate) fn comment_of(body: &dyn Fn(&str) -> String) -> Action {
+fn comment_of(body: &dyn Fn(&str) -> String) -> Action {
     Action::Comment {
         ok: disarm(&body("")).into_owned(),
         stuck: disarm(&body(STUCK)).into_owned(),
@@ -292,16 +362,16 @@ pub(crate) fn comment_of(body: &dyn Fn(&str) -> String) -> Action {
 
 /// How pi-rukas's handoff marker begins: a comment with it carries the
 /// handoff.
-pub const HANDOFF_MARK: &str = "<!-- pi-rukas:handoff ";
+const HANDOFF_MARK: &str = "<!-- pi-rukas:handoff ";
 
 /// One write of the report, in its order.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Action {
-    /// A label change on the issue, tried three times (once after a stop).
+    /// A change of the issue's marks, tried three times (once after a stop).
     /// One that works takes the stuck words out of what follows.
     Relabel {
-        remove: Vec<String>,
-        add: Vec<String>,
+        remove: Vec<Mark>,
+        add: Vec<Mark>,
     },
     /// A comment on the issue: `ok` after a label change that worked,
     /// `stuck` after one that did not.
@@ -440,6 +510,29 @@ fn text(o: &Value, k: &str) -> String {
     }
 }
 
+/// The fields of a park's marker: its step and kind, cut to the marker's
+/// words, whether the model provider failed, and its sig, its free text in
+/// the hash only.
+fn park_fields(
+    step: &str,
+    cap: &str,
+    park_reason: &str,
+    kind: &str,
+    cause: &str,
+) -> (String, String, String) {
+    let low = |s: &str| {
+        cut(
+            &kept(s, |c| {
+                c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'
+            }),
+            40,
+        )
+    };
+    let s = if step == "-" { "" } else { step };
+    let sig = tehas_core::question::park_sig(step, cap, park_reason, kind, cause);
+    (low(s), low(kind), sig)
+}
+
 /// tehas_park_marker: the fields of a park for the millwright, its free
 /// text in the hash only.
 pub fn park_marker(
@@ -451,22 +544,30 @@ pub fn park_marker(
     cause: &str,
     provider: bool,
 ) -> String {
-    let low = |s: &str| {
-        cut(
-            &kept(s, |c| {
-                c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'
-            }),
-            40,
-        )
-    };
-    let s = if step == "-" { "" } else { step };
-    let sig = tehas_core::question::park_sig(step, cap, park_reason, kind, cause);
+    let (s, k, sig) = park_fields(step, cap, park_reason, kind, cause);
     format!(
-        "<!-- tehas:park issue={issue} step={} kind={} provider={} sig={sig} -->",
-        low(s),
-        low(kind),
+        "<!-- tehas:park issue={issue} step={s} kind={k} provider={} sig={sig} -->",
         u8::from(provider)
     )
+}
+
+/// The park's marker as a write of the ports carries it beside the body:
+/// the same fields as [`park_marker`]'s text.
+fn park_typed(
+    issue: u64,
+    step: &str,
+    cap: &str,
+    park_reason: &str,
+    kind: &str,
+    cause: &str,
+    provider: bool,
+) -> Option<ParkMarker> {
+    let (s, k, sig) = park_fields(step, cap, park_reason, kind, cause);
+    let mut m = ParkMarker::new(BlueprintNo::new(issue)?, Sha256::new(sig).ok()?);
+    m.step = MarkerWord::new(s).ok()?;
+    m.kind = MarkerWord::new(k).ok()?;
+    m.provider = provider;
+    Some(m)
 }
 
 /// q_park_repeat: the line a repeating park says of itself, in the host's
@@ -561,7 +662,7 @@ pub fn record_image(rec: &Value, attempt: u64) -> (String, String) {
 /// Where the manual explains `.pi/work.json`, for a comment on a product's
 /// issue, which a relative link would not reach.
 const LEAN_SETTINGS_DOC: &str =
-    "https://github.com/tehas-app/tehas/blob/main/host/docs/new-project.md#the-lean-drivers-settings";
+    "https://github.com/tehas-app/tehas-factory/blob/main/host/docs/new-project.md#the-lean-drivers-settings";
 
 /// What the repository must change, when every rule lean declined with is
 /// about the repository's `.pi/work.json` rather than the issue. The result
@@ -617,31 +718,22 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             format!("the result of #{issue} holds nothing, so its step is read from its run log"),
         );
     }
-    let outcome = result
-        .text()
-        .and_then(|t| runner::outcome(t, issue))
-        .unwrap_or_else(|| json!({}));
+    let outcome = result.text().and_then(|t| runner::outcome(t, issue));
+    let said = outcome.clone().unwrap_or_default();
     let w = |s: &str| kept(s, |c| c.is_ascii_alphanumeric() || "_.-".contains(c));
-    let mut status = {
-        let s = match outcome.get("status") {
-            None | Some(Value::Null) | Some(Value::Bool(false)) => "unknown".to_string(),
-            Some(x) => text(&json!({"x": x}), "x"),
-        };
-        v(&w(&s))
-    };
-    let mut step = v(&w([outcome.get("failedStep"), outcome.get("lastStep")]
-        .iter()
-        .filter_map(|x| x.and_then(Value::as_str))
+    let mut status = v(&w(outcome.as_ref().map_or("unknown", |o| &o.status)));
+    let mut step = v(&w([&said.failed_step, &said.last_step]
+        .into_iter()
         .find(|s| !s.is_empty())
-        .unwrap_or("-")));
-    let result_branch = v(&text(&outcome, "branch"));
+        .map_or("-", String::as_str)));
+    let result_branch = v(&said.branch);
     let (handoff, lean_posted, repo_setting) = {
-        let b = text(&outcome, "handoffBody");
+        let b = said.handoff_body.clone();
         let marker = regex::Regex::new(r"\A<!-- pi-rukas:handoff [^\n]*-->\n*").unwrap();
-        let b = for_host(&v(&marker.replace(&b, "")));
+        let b = for_host(&v(&marker.replace(&b, "")), comments_box(f));
         let repo_setting = lean_repo_setting(&b);
         // Lean on the forge channel posted this itself: one comment, not two.
-        let posted = lean && !b.is_empty() && text(&outcome, "handoffChannel") == "forge";
+        let posted = lean && !b.is_empty() && said.handoff_channel == "forge";
         if posted {
             (
                 "Lean posted its report on this issue itself, so it is not repeated here.".into(),
@@ -652,15 +744,13 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             (b, false, repo_setting)
         }
     };
-    let pr_state = text(&outcome, "prState");
+    let pr_state = said.pr_state.clone();
     let mut park_reason = v(&cut(
-        &kept(&text(&outcome, "parkReason"), |c| {
-            c.is_ascii_lowercase() || c == '-'
-        }),
+        &kept(&said.park_reason, |c| c.is_ascii_lowercase() || c == '-'),
         40,
     ));
     let mut cap = v(&cut(
-        &kept(&text(&outcome, "cap"), |c| {
+        &kept(&said.cap, |c| {
             c.is_ascii_alphanumeric() || "_.:-".contains(c)
         }),
         80,
@@ -1143,7 +1233,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             format!("{bad} of {of} lines of the stream of #{issue} could not be parsed, so what the report says of the run leaves them out"),
         );
     }
-    let (usage, unreadable) = runner::usage(&outcome, progress);
+    let (usage, unreadable) = runner::usage(outcome.as_ref(), progress);
     if unreadable && !before_runner {
         warn(
             &mut r,
@@ -1347,6 +1437,15 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         &failure_cause,
         provider,
     );
+    let typed = park_typed(
+        issue,
+        &step,
+        &cap,
+        &park_reason,
+        &failure_kind,
+        &failure_cause,
+        provider,
+    );
     let sig =
         tehas_core::question::park_sig(&step, &cap, &park_reason, &failure_kind, &failure_cause);
     let base = Park {
@@ -1354,6 +1453,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         usage: usage.clone(),
         marker: marker.clone(),
         park_marker: pm,
+        park: typed,
         repeat: if !provider && repeats(f, &sig, &step) {
             repeat_line(&step, &cap)
         } else {
@@ -1397,12 +1497,12 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         }))
     };
     let running = || Action::Relabel {
-        remove: vec!["tehas:running".into()],
+        remove: vec![Mark::State(State::Running)],
         add: vec![],
     };
-    let to = |label: &str| Action::Relabel {
-        remove: vec!["tehas:running".into()],
-        add: vec![label.into()],
+    let to = |state: State| Action::Relabel {
+        remove: vec![Mark::State(State::Running)],
+        add: vec![Mark::State(state)],
     };
     let comment = |body: &dyn Fn(&str) -> String| comment_of(body);
     let log_where = format!(
@@ -1509,7 +1609,6 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         format!(" Its branch has an open pull request: {pr}")
     };
 
-    let spec_why = spec_unanswered(f, &prs, &pr);
     if !merged_pr.is_empty() {
         r.actions.push(running());
         if rc == 0 && status == "merged" {
@@ -1555,7 +1654,6 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         && waits_only_for_a_merge(&cap)
         && review_held == "false"
         && !(lean && (pr_draft || pr_state != "ready"))
-        && spec_why.is_none()
         && {
             r.asked.push("attention".into());
             match ask.attention() {
@@ -1568,7 +1666,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         }
     {
         r.arm = "awaiting-merge";
-        r.actions.push(to("tehas:awaiting-merge"));
+        r.actions.push(to(State::AwaitingMerge));
         r.actions.push(comment(&|s| {
             format!("Tehas cycle finished: {summary}. Pull request waiting for a human: {pr}{killed}{s}")
         }));
@@ -1607,21 +1705,9 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         } else if cap.is_empty() {
             why = " The result names no cap, so it is not taken for a pull request that waits only for a merge.".into();
         }
-        // The block is the reason word only when nothing else held the pull
-        // request back from waiting for a merge.
-        let mut word = "";
-        if let Some(reason) = &spec_why {
-            why = format!("{why} Its pull request does not answer to the approved spec: {reason}, so it does not wait only for a merge.");
-            if waits_only_for_a_merge(&cap)
-                && review_held == "false"
-                && !(lean && (pr_draft || pr_state != "ready"))
-            {
-                word = SPEC_BLOCK_PARK;
-            }
-        }
         r.arm = "handoff-parked";
         parked_now = true;
-        r.actions.push(park(park_args(word, &cap, &status, &step, &pr), format!(
+        r.actions.push(park(park_args("", &cap, &status, &step, &pr), format!(
             "Tehas cycle handed off with its pull request open: {summary} (runner exit {runner_rc}).{why}{held} Read the pull request before you retry: {pr}. {kept_said}; {log_where}.{killed}{foreign}"
         ), String::new()));
     } else if done_why == "closed" {
@@ -1633,7 +1719,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         status = "closed".into();
     } else if pr.is_empty() && !closed_pr.is_empty() && !never_started {
         r.arm = "pr-closed";
-        r.actions.push(to("needs-human-attention"));
+        r.actions.push(to(State::NeedsPerson));
         r.actions.push(comment(&|s| {
             format!(
                 "{marker_line}{}",
@@ -1642,7 +1728,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         }));
     } else if died_with_open_pr {
         r.arm = "died-with-pr";
-        r.actions.push(to("needs-human-attention"));
+        r.actions.push(to(State::NeedsPerson));
         r.actions.push(comment(&|s| {
             format!(
                 "{marker_line}{}",
@@ -1776,7 +1862,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
                 };
                 parked = format!("Tehas started no cycle: this start's driver is `lean`, and the sandbox image cannot run it as this start asks (runner exit {runner_rc}). It does not run classic in its place, and nothing of it ran. {lacks} To keep it on lean, rebuild the sandbox image on a pi-rukas that supports this, then apply `tehas:ready` again. To run it on classic instead, which changes its driver, {how}, then retry; {log_where}.");
                 park_why = tehas_core::question::LEAN_REFUSED;
-                lead = format!("To run it on classic instead, {step} this issue, then tick a box.");
+                lead = format!("To run it on classic instead, {step} this issue, then reply with one of the choices.");
             }
         } else if let Some(said) = &conflicted {
             r.arm = "refresh-conflict";
@@ -1883,6 +1969,10 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     }
     if never_ran {
         end.push("--never-ran".into());
+    }
+    // A signal stopped the cycle: its line of history says so (T11.3).
+    if f.signalled {
+        end.push("--signalled".into());
     }
     r.end = end;
     let mut h = Map::new();
@@ -2031,41 +2121,6 @@ fn approved_driver(f: &Facts) -> Option<Driver> {
         .and_then(Driver::of_record)
 }
 
-/// The park reason of a pull request that does not answer to the approved spec.
-const SPEC_BLOCK_PARK: &str = "spec-block";
-
-/// Why the open pull request `pr` does not answer to the spec this start's
-/// approval pinned, or None when it does or is not checked. It is checked when
-/// the spec pipe is on, the start was not by hand, and the approval row this
-/// attempt used pins a spec. An approval that cannot be read fails closed.
-fn spec_unanswered(f: &Facts, prs: &[Value], pr: &str) -> Option<String> {
-    if !f.spec_pipe || f.start_how == "hand" || pr.is_empty() {
-        return None;
-    }
-    let unread = || {
-        Some(
-            "the approval of this start could not be read, so its spec block could not be checked"
-                .to_string(),
-        )
-    };
-    let Some(used) = approval_used(f) else {
-        return unread();
-    };
-    let pinned = match used.pointer("/input/spec") {
-        None | Some(Value::Null) => return None,
-        Some(spec) => match spec.get("sha256").and_then(Value::as_str) {
-            Some(h) => h,
-            None => return unread(),
-        },
-    };
-    let body = prs
-        .iter()
-        .find(|p| p.get("url").and_then(Value::as_str) == Some(pr))
-        .and_then(|p| p.get("body"))
-        .and_then(Value::as_str);
-    tehas_core::grammar::spec_answered(body, pinned).err()
-}
-
 /// The caps of a handoff whose open pull request waits only for a merge.
 /// `lens-fix-reposition` is a second review round whose fix could not be laid
 /// on the branch: the branch already holds the first round's fix, reviewed and
@@ -2077,8 +2132,11 @@ fn waits_only_for_a_merge(cap: &str) -> bool {
 
 /// pi-rukas's handoff names its interactive `/work <n> --restart` command,
 /// which a tehas host has no way to run. The comment says what a person does
-/// here instead: change a protected path themselves, then tick a retry box.
-pub fn for_host(body: &str) -> String {
+/// here instead: change a protected path themselves, then reply with the word
+/// of a retry the park offers: `retry` when the image gives a cycle the
+/// comments (`comments`), else `retry-text`.
+fn for_host(body: &str, comments: bool) -> String {
+    let word = if comments { "retry" } else { "retry-text" };
     let cmd = regex::Regex::new(
         r"(?i:(re-?run|run)\s+)?`/work \d+ --restart(?: --allow-protected ([^`]*))?[^`]*`",
     )
@@ -2086,9 +2144,9 @@ pub fn for_host(body: &str) -> String {
     cmd.replace_all(body, |c: &regex::Captures| {
         let said = match c.get(2).map(|m| m.as_str().trim()).filter(|p| !p.is_empty()) {
             Some(paths) => format!(
-                "make the change to `{paths}` yourself, since a cycle may not change a protected path, then tick a retry box on this comment"
+                "make the change to `{paths}` yourself, since a cycle may not change a protected path, then reply `{word}` to this comment"
             ),
-            None => "tick a retry box on this comment".to_string(),
+            None => format!("reply `{word}` to this comment"),
         };
         let upper = c
             .get(1)
@@ -2113,20 +2171,51 @@ mod tests {
     #[test]
     fn a_handoff_s_work_command_is_said_as_the_host_s_way() {
         assert_eq!(
-            super::for_host("Run `/work 1435 --restart --allow-protected .pi/verify-cmd` once it is right."),
-            "Make the change to `.pi/verify-cmd` yourself, since a cycle may not change a protected path, then tick a retry box on this comment once it is right."
+            super::for_host("Run `/work 1435 --restart --allow-protected .pi/verify-cmd` once it is right.", true),
+            "Make the change to `.pi/verify-cmd` yourself, since a cycle may not change a protected path, then reply `retry` to this comment once it is right."
         );
         assert_eq!(
-            super::for_host("fix the change the evidence names, then re-run `/work 7 --restart`"),
-            "fix the change the evidence names, then tick a retry box on this comment"
+            super::for_host(
+                "fix the change the evidence names, then re-run `/work 7 --restart`",
+                true
+            ),
+            "fix the change the evidence names, then reply `retry` to this comment"
+        );
+        // A park that does not offer the comments retry names the one it does.
+        assert_eq!(
+            super::for_host(
+                "fix the change the evidence names, then re-run `/work 7 --restart`",
+                false
+            ),
+            "fix the change the evidence names, then reply `retry-text` to this comment"
         );
         let plain = "Nothing to run here; `tehas work 7` and `/work` alone stay.";
-        assert_eq!(super::for_host(plain), plain);
+        assert_eq!(super::for_host(plain, false), plain);
     }
 
     use super::*;
     use serde_json::json;
     use tehas_core::text::has_marker;
+
+    #[test]
+    fn a_park_comment_carries_its_marker_beside_the_text_and_never_in_it() {
+        let p = Park {
+            text: "Stopped.".into(),
+            park_marker: park_marker(7, "develop", "cap", "why", "kind", "cause", false),
+            park: park_typed(7, "develop", "cap", "why", "kind", "cause", false),
+            ..Park::default()
+        };
+        assert!(has_marker(&p.comment(false, true)));
+        let (said, markers) = p.comment_parts(false, true);
+        assert!(!has_marker(&said), "{said}");
+        assert_eq!(markers.len(), 1);
+        // No typed marker: the comment goes without one, not with the text's.
+        let p = Park { park: None, ..p };
+        let (said, markers) = p.comment_parts(false, true);
+        assert!(!has_marker(&said), "{said}");
+        assert!(markers.is_empty());
+        assert!(!said.is_empty());
+    }
 
     #[test]
     fn the_pr_number_is_read_whatever_the_case_and_a_trailing_slash() {
@@ -2681,189 +2770,6 @@ mod tests {
             let said = comments(&r).join("\n");
             assert!(said.contains("ran out of rounds"), "{cap}: {said}");
         }
-    }
-
-    const PIN: &str = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
-
-    fn spec_block_of(sha: &str) -> String {
-        format!(
-            "Fixes #7\n\n<!-- tehas:spec v1 -->\nSpec: https://github.com/user-attachments/files/123/spec.md sha256:{sha}\n- R1 met: src/search.rs\n<!-- /tehas:spec -->\n"
-        )
-    }
-
-    /// The approval row attempt 1 used, its driver `driver`, pinning `pin`.
-    fn approval_of(driver: &str, pin: Option<&str>) -> Value {
-        let mut input = json!({"driver": driver});
-        if let Some(h) = pin {
-            input["spec"] = json!({"link": "https://github.com/user-attachments/files/123/spec.md", "sha256": h});
-        }
-        json!({"current": {"used_by": 1, "how": "label", "input": input}})
-    }
-
-    /// A start that handed off at `awaiting-human-merge` with a review that
-    /// held nothing and a ready pull request whose body is `body`.
-    fn spec_handed(spec_pipe: bool, approval: Value, body: Option<&str>, lean: bool) -> Report {
-        spec_handed_as("label", spec_pipe, approval, body, lean.then_some("ready"))
-    }
-
-    /// spec_handed of a start `how`, whose result names lean's `pr_state`.
-    fn spec_handed_as(
-        how: &str,
-        spec_pipe: bool,
-        approval: Value,
-        body: Option<&str>,
-        pr_state: Option<&str>,
-    ) -> Report {
-        let mut entry = json!({"issue": 7, "status": "handoff", "branch": "feature/issue-7", "cap": "awaiting-human-merge"});
-        if let Some(s) = pr_state {
-            entry["prState"] = json!(s);
-        }
-        let result = json!({"schemaVersion": runner::RESULT_SCHEMA, "issues": [entry]});
-        let mut pr = json!({"url": "https://github.com/acme/widget/pull/9", "state": "OPEN", "isDraft": false,
-                            "title": "x", "headRefName": "feature/issue-7"});
-        if let Some(b) = body {
-            pr["body"] = json!(b);
-        }
-        let facts = json!({
-            "issue": 7,
-            "repo": "acme/widget",
-            "signalled": false,
-            "home": "/home/tehas",
-            "rc": 10,
-            "started": 1000,
-            "now": 2620,
-            "start": { "attempt": 1, "how": how },
-            "spec_pipe": spec_pipe,
-            "files": {
-                "result.json": result.to_string(),
-                "runner_exit": "10\n",
-                "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n",
-            },
-            "record": { "cycle": { "attempt": 1 } },
-            "approval": approval,
-            "github": { "prs": [pr], "attention": false },
-        });
-        let f = Facts::from_json(&facts).expect("the facts read");
-        report(&f, &mut Given(facts["github"].clone()))
-    }
-
-    fn park_reason(r: &Report) -> Option<String> {
-        r.actions.iter().find_map(|a| match a {
-            Action::Park(p) => p
-                .args
-                .windows(2)
-                .find(|w| w[0] == "--reason")
-                .map(|w| w[1].clone()),
-            _ => None,
-        })
-    }
-
-    fn unanswered(why: &str) -> String {
-        format!(" Its pull request does not answer to the approved spec: {why}, so it does not wait only for a merge.")
-    }
-
-    #[test]
-    fn a_pull_request_whose_block_names_the_pin_waits_for_a_merge() {
-        let body = spec_block_of(PIN);
-        let r = spec_handed(true, approval_of("classic", Some(PIN)), Some(&body), false);
-        assert_eq!(r.arm, "awaiting-merge", "{:?}", r.log);
-    }
-
-    #[test]
-    fn a_pull_request_that_does_not_answer_to_the_pin_parks() {
-        let other = "0".repeat(64);
-        let open = "Fixes #7\n\n<!-- tehas:spec v1 -->\n";
-        for (case, body, why) in [
-            ("no body", None, "its body has no spec block".to_string()),
-            ("no block", Some("Fixes #7".to_string()), "its body has no spec block".to_string()),
-            (
-                "other sha",
-                Some(spec_block_of(&other)),
-                format!("its spec block names sha256 {other}, not {PIN}, the one approved"),
-            ),
-            (
-                "unreadable",
-                Some(open.to_string()),
-                "its spec block cannot be read: its spec block has no close line `<!-- /tehas:spec -->`".to_string(),
-            ),
-        ] {
-            let r = spec_handed(true, approval_of("classic", Some(PIN)), body.as_deref(), false);
-            assert_eq!(r.arm, "handoff-parked", "{case}: {:?}", r.log);
-            assert_eq!(park_reason(&r).as_deref(), Some("spec-block"), "{case}");
-            let said = comments(&r).join("\n");
-            assert!(said.contains(&unanswered(&why)), "{case}: {said}");
-            // No GitHub read is spent on a pull request that parks anyway.
-            assert!(!r.asked.iter().any(|a| a == "attention"), "{case}: {:?}", r.asked);
-        }
-    }
-
-    #[test]
-    fn a_start_with_no_pin_or_with_the_feature_off_is_not_checked() {
-        let r = spec_handed(true, approval_of("classic", None), Some("Fixes #7"), false);
-        assert_eq!(r.arm, "awaiting-merge", "no pin: {:?}", r.log);
-        let r = spec_handed(
-            false,
-            approval_of("classic", Some(PIN)),
-            Some("Fixes #7"),
-            false,
-        );
-        assert_eq!(r.arm, "awaiting-merge", "feature off: {:?}", r.log);
-    }
-
-    #[test]
-    fn an_approval_that_cannot_be_read_parks_with_the_feature_on() {
-        let why =
-            "the approval of this start could not be read, so its spec block could not be checked";
-        let body = spec_block_of(PIN);
-        for (case, approval) in [
-            ("store error", json!({"error": "busy"})),
-            (
-                "used by another",
-                json!({"current": {"used_by": 2, "input": {"spec": {"sha256": PIN}}}}),
-            ),
-        ] {
-            let r = spec_handed(true, approval, Some(&body), false);
-            assert_eq!(r.arm, "handoff-parked", "{case}: {:?}", r.log);
-            assert_eq!(park_reason(&r).as_deref(), Some("spec-block"), "{case}");
-            let said = comments(&r).join("\n");
-            assert!(said.contains(&unanswered(why)), "{case}: {said}");
-        }
-    }
-
-    #[test]
-    fn a_ready_lean_pull_request_with_no_block_parks() {
-        let r = spec_handed(true, approval_of("lean", Some(PIN)), Some("Fixes #7"), true);
-        assert_eq!(r.arm, "handoff-parked", "{:?}", r.log);
-        assert_eq!(park_reason(&r).as_deref(), Some("spec-block"));
-        let body = spec_block_of(PIN);
-        let r = spec_handed(true, approval_of("lean", Some(PIN)), Some(&body), true);
-        assert_eq!(r.arm, "awaiting-merge", "{:?}", r.log);
-    }
-
-    #[test]
-    fn a_start_by_hand_is_not_checked_even_with_no_approval() {
-        let r = spec_handed_as(
-            "hand",
-            true,
-            json!({"error": "busy"}),
-            Some("Fixes #7"),
-            None,
-        );
-        assert_eq!(r.arm, "awaiting-merge", "{:?}", r.log);
-    }
-
-    #[test]
-    fn a_pull_request_held_back_for_another_reason_keeps_that_reason_word() {
-        let approval = approval_of("lean", Some(PIN));
-        let r = spec_handed_as("label", true, approval, Some("Fixes #7"), Some("blocked"));
-        assert_eq!(r.arm, "handoff-parked", "{:?}", r.log);
-        assert_eq!(park_reason(&r).as_deref(), Some("awaiting-human-merge"));
-        let said = comments(&r).join("\n");
-        assert!(said.contains("not `ready`"), "{said}");
-        assert!(
-            said.contains(&unanswered("its body has no spec block")),
-            "{said}"
-        );
     }
 
     fn end_cap(r: &Report) -> Option<&str> {

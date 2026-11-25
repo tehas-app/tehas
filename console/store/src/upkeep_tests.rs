@@ -9,6 +9,7 @@ use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::time::{Duration, UNIX_EPOCH};
+use tehas_core::home::{Home, State};
 
 const DAY: i64 = 86_400;
 
@@ -45,7 +46,7 @@ fn backup_makes_one_copy_a_day_that_reads_as_the_store() {
     let (_lock, _) = start(&home, 7);
     let v = ok(&home, &["backup"]);
     assert_eq!(v["made"], true);
-    let dir = home.join("state/backup");
+    let dir = Home::new(home.path()).state(State::Backups);
     let copy = dir.join("tehas-20261014.db");
     assert_eq!(v["newest"]["file"], copy.to_str().unwrap());
     assert_eq!(mode(&dir), 0o700);
@@ -72,7 +73,7 @@ fn backup_makes_one_copy_a_day_that_reads_as_the_store() {
 #[test]
 fn backup_keeps_the_newest_seven_and_no_other_name_is_touched() {
     let home = home("backup-keep");
-    let dir = home.join("state/backup");
+    let dir = Home::new(home.path()).state(State::Backups);
     fs::create_dir_all(&dir).unwrap();
     fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap(); // a directory
     for d in 1..=8 {
@@ -93,9 +94,11 @@ fn backup_keeps_the_newest_seven_and_no_other_name_is_touched() {
 fn backup_show_reads_the_newest_and_its_age() {
     let home = home("backup-show");
     assert_eq!(ok(&home, &["backup", "--show"])["newest"], Value::Null);
-    assert!(!home.join("state/backup").exists());
+    assert!(!Home::new(home.path()).state(State::Backups).exists());
     ok(&home, &["backup"]);
-    let copy = home.join("state/backup/tehas-20261014.db");
+    let copy = Home::new(home.path())
+        .state(State::Backups)
+        .join("tehas-20261014.db");
     aged(&copy, NOW - 3 * DAY);
     let v = ok(&home, &["backup", "--show"]);
     assert_eq!(v["newest"]["at"], NOW - 3 * DAY);
@@ -108,7 +111,7 @@ fn backup_show_reads_the_newest_and_its_age() {
 fn a_heartbeat_runs_no_quick_check_and_poll_begin_upkeep_and_prune_do() {
     let home = home("quick-check");
     let checks = || crate::db::QUICK_CHECKS.with(|n| n.get());
-    let (_lock, _) = start_by(&home, 8, "alice", "label", NOW - 10);
+    let (_lock, _) = start_by(&home, 8, "alice", "approved", NOW - 10);
     let before = checks();
     ok(
         &home,
@@ -128,7 +131,7 @@ fn prune_removes_old_ends_settled_actions_and_old_heartbeats_of_ended_cycles() {
     let home = home("prune");
     let old = NOW - 100 * DAY;
     let recent = NOW - DAY;
-    let (lock, attempt) = start_by(&home, 8, "alice", "label", old);
+    let (lock, attempt) = start_by(&home, 8, "alice", "approved", old);
     ok_at(
         &home,
         old + 10,
@@ -148,7 +151,7 @@ fn prune_removes_old_ends_settled_actions_and_old_heartbeats_of_ended_cycles() {
         ],
     );
     // A running cycle keeps every heartbeat, however old.
-    let (_lock, _) = start_by(&home, 9, "alice", "label", old);
+    let (_lock, _) = start_by(&home, 9, "alice", "approved", old);
     ok_at(
         &home,
         old + 10,
@@ -245,7 +248,7 @@ fn history(home: &Path, issue: i64, cycle: Option<Cycle>, plan: Plan) {
                         "--by",
                         "alice",
                         "--how",
-                        "label",
+                        "approved",
                         "--label",
                         "tehas:ready",
                         "--body-sha",
@@ -568,6 +571,39 @@ fn prune_keeps_every_plan_row_of_an_issue_whose_cycle_wrote_no_history() {
     assert_eq!(rows(&home, HistoryTable::PlanHistory, 31), 4);
 }
 
+/// Since 2.0 `cycle-end --stopped` and `--refused` write a line of history, one
+/// no report wrote (`reported` 0). The guard reads only reported lines, so the
+/// plan rows of such an issue are kept, as 1.4.0 kept them with no line at all:
+/// without it, three of the four would go.
+#[test]
+fn prune_keeps_every_plan_row_of_an_issue_whose_only_line_is_unreported() {
+    let home = home("prune-unreported");
+    ended_without_history(&home, 31, 4);
+    // Its cycle, started and ended by `tehas stop` long ago: the one line of
+    // history it has is the store's own.
+    let end = NOW - WINDOW - 10;
+    let (lock, a) = start_by(&home, 31, "alice", "approved", end - 45);
+    drop(lock);
+    let a = a.to_string();
+    ok_at(
+        &home,
+        end,
+        &["cycle-end", "31", "--attempt", &a, "--stopped"],
+    );
+    assert_eq!(
+        count(&home, "cycle_history WHERE issue = 31 AND reported = 0"),
+        1
+    );
+    // Another issue of the same store, ended long ago with its history on
+    // record, so the delete has rows to take.
+    ended_long_ago(&home, 30, 10, 5, 3);
+
+    let (cycle_history, plan_history) = pruned_rows(&home);
+    assert_eq!((cycle_history, plan_history), (4, 2));
+    assert_eq!(rows(&home, HistoryTable::CycleHistory, 31), 1);
+    assert_eq!(rows(&home, HistoryTable::PlanHistory, 31), 4);
+}
+
 /// The plan rows of an issue whose cycle ended long ago with no cycle history
 /// of its own, and one cycle history row of another issue: the guard is the only
 /// thing between those rows and the delete, so it is asked about with the rest
@@ -695,7 +731,7 @@ fn prune_and_sweep_locks_refuse_bad_numbers() {
 
 /// A cycle of `issue` that ended `ago` seconds ago, its lock file left.
 fn ended(home: &Path, issue: i64, ago: i64) {
-    let (lock, attempt) = start_by(home, issue, "alice", "label", NOW - ago - 60);
+    let (lock, attempt) = start_by(home, issue, "alice", "approved", NOW - ago - 60);
     drop(lock);
     ok_at(
         home,
@@ -711,18 +747,18 @@ fn ended(home: &Path, issue: i64, ago: i64) {
     );
     // The file as old as its cycle: one touched in the last minute may have a
     // waiter on it.
-    aged(&home.join(format!("state/cycles/{issue}.lock")), NOW - ago);
+    aged(&Home::new(home).cycle_note(issue, "lock"), NOW - ago);
 }
 
 #[test]
 fn sweep_locks_removes_the_free_locks_of_issues_unused_for_its_days() {
     let home = home("sweep-locks");
-    let locks = home.join("state/cycles");
+    let locks = Home::new(home.path()).cycles_dir();
     ended(&home, 1, 40 * DAY);
     ended(&home, 2, 10 * DAY);
     ended(&home, 3, 40 * DAY);
     let _held = hold(&home, 3);
-    let (_open, _) = start_by(&home, 4, "alice", "label", NOW - 40 * DAY);
+    let (_open, _) = start_by(&home, 4, "alice", "approved", NOW - 40 * DAY);
     // A lock with no cycle on record, old and young.
     File::create(locks.join("5.lock")).unwrap();
     aged(&locks.join("5.lock"), NOW - 40 * DAY);
@@ -761,17 +797,17 @@ fn sweep_locks_leaves_a_lock_touched_in_the_last_minute() {
     let home = home("sweep-touched");
     ended(&home, 1, 40 * DAY);
     // tehasbot cycle opens its lock with `exec 9>` before it waits for it.
-    File::create(home.join("state/cycles/1.lock")).unwrap();
+    File::create(Home::new(home.path()).cycle_note(1, "lock")).unwrap();
     let v = ok(&home, &["sweep-locks"]);
     assert_eq!(v["removed"], serde_json::json!([]));
     assert_eq!(v["kept"], serde_json::json!([1]));
-    assert!(home.join("state/cycles/1.lock").exists());
+    assert!(Home::new(home.path()).cycle_note(1, "lock").exists());
 }
 
 #[test]
 fn a_copy_cut_short_is_no_copy_of_the_day() {
     let home = home("backup-part");
-    let dir = home.join("state/backup");
+    let dir = Home::new(home.path()).state(State::Backups);
     fs::create_dir_all(&dir).unwrap();
     fs::write(dir.join("tehas-20261014.db.part"), b"half").unwrap();
     let v = ok(&home, &["backup"]);
@@ -807,7 +843,7 @@ fn upkeep_removes_old_logs_backs_up_and_prunes() {
     assert_eq!(v["logs"].as_array().unwrap().len(), 9);
     assert_eq!(v.get("backup"), None);
     assert_eq!(names(&logs).len(), 13);
-    assert!(!home.join("state/backup").exists());
+    assert!(!Home::new(home.path()).state(State::Backups).exists());
     let v = ok(&home, &["upkeep"]);
     assert_eq!(v["logs"].as_array().unwrap().len(), 9);
     assert_eq!(v["backup"]["made"], true);
@@ -826,7 +862,10 @@ fn upkeep_removes_old_logs_backs_up_and_prunes() {
     assert_eq!(v["rolled"], serde_json::json!([]));
     assert_eq!(fs::read_to_string(logs.join("dispatch.log")).unwrap(), "x");
     assert!(!logs.join("dispatch.log.1").exists());
-    assert!(!home.join("state/github-writes.log.1").exists());
+    assert!(!Home::new(home.path())
+        .state_dir()
+        .join("github-writes.log.1")
+        .exists());
 }
 
 // --- the long-lived logs -------------------------------------------------------
@@ -886,8 +925,8 @@ fn log_len(name: &str, lines: usize) -> u64 {
 // The logs of the timers that run every few minutes or every hour are cut too,
 // or they grow for as long as the host runs.
 #[test]
-fn the_logs_of_the_previews_the_protolab_and_the_cleaner_are_long_lived() {
-    for name in ["logs/preview.log", "logs/protolab.log", "logs/clean.log"] {
+fn the_logs_of_the_previews_and_the_cleaner_are_long_lived() {
+    for name in ["logs/preview.log", "logs/clean.log"] {
         assert!(LONG_LIVED.contains(&name), "{name}");
     }
 }
@@ -973,7 +1012,7 @@ fn a_link_a_directory_or_an_empty_log_is_left_alone() {
     let home = home("roll-odd");
     let cap = TEST_CAP;
     fs::create_dir_all(home.join("logs")).unwrap();
-    fs::create_dir_all(home.join("state")).unwrap();
+    fs::create_dir_all(Home::new(home.path()).state_dir()).unwrap();
     // A log that is a link: its target keeps every byte, and no `.1` is made.
     // The target is named for none of the four, so nothing else can cut it.
     let target = home.join("elsewhere.log");
@@ -1007,15 +1046,19 @@ fn upkeep_touches_no_name_but_the_four() {
     let cap = TEST_CAP;
     assert!(log_len("logs/other.log", 600) > cap);
     fs::create_dir_all(home.join("logs")).unwrap();
-    fs::create_dir_all(home.join("state")).unwrap();
+    fs::create_dir_all(Home::new(home.path()).state_dir()).unwrap();
     // The four are opened by their fixed names, so no other name of `logs/` or
     // `state/` is ever cut, however big it is: a log of another program, one of
     // the four with a suffix, and a name of the whole directory upkeep never
     // names. The four's own `.1` is the exception: the next roll replaces it.
-    let others = ["logs/other.log", "logs/dispatch.log.old", "state/other.log"];
+    let others = [
+        home.join("logs/other.log"),
+        home.join("logs/dispatch.log.old"),
+        Home::new(home.path()).state_dir().join("other.log"),
+    ];
     long_lived(&home, 600);
     for other in &others {
-        fs::write(home.join(other), log_text("a line of its own", 600)).unwrap();
+        fs::write(other, log_text("a line of its own", 600)).unwrap();
     }
     assert_eq!(
         upkeep(&home, cap, &[])["rolled"],
@@ -1023,9 +1066,10 @@ fn upkeep_touches_no_name_but_the_four() {
     );
     for other in &others {
         assert_eq!(
-            fs::read_to_string(home.join(other)).unwrap(),
+            fs::read_to_string(other).unwrap(),
             log_text("a line of its own", 600),
-            "{other}"
+            "{}",
+            other.display()
         );
     }
 }
@@ -1080,7 +1124,7 @@ fn upkeep_of_a_home_with_no_logs_at_all_rolls_nothing() {
 fn locks_held_names_the_held_locks_among_a_thousand_old_ones() {
     // No database: whether a cycle runs is the lock's to say.
     let home = scratch("locks-held");
-    let locks = home.join("state/cycles");
+    let locks = Home::new(home.path()).cycles_dir();
     fs::create_dir_all(&locks).unwrap();
     for n in 1..=1000 {
         File::create(locks.join(format!("{n}.lock"))).unwrap();
@@ -1097,7 +1141,7 @@ fn locks_held_names_the_held_locks_among_a_thousand_old_ones() {
 fn locks_held_counts_a_lock_it_cannot_probe_and_reads_no_directory_as_none() {
     let home = scratch("locks-held-odd");
     assert_eq!(ok(&home, &["locks-held"])["held"], serde_json::json!([]));
-    let locks = home.join("state/cycles");
+    let locks = Home::new(home.path()).cycles_dir();
     fs::create_dir_all(locks.join("4.lock")).unwrap();
     assert_eq!(ok(&home, &["locks-held"])["held"], serde_json::json!([4]));
     assert!(usage(&["locks-held", "--all"]).contains("locks-held"));
@@ -1118,7 +1162,17 @@ fn copy_writes_the_store_to_the_named_file_and_changes_nothing_else() {
         })
         .unwrap();
     assert_eq!(n, 1);
-    assert!(!home.join("state/backup").exists());
+    // The copy `tehas state pack` packs keeps the store's id and its
+    // attempts, so an unpacked factory keeps its `store` and gives no cycle
+    // id twice (T11.5).
+    for sql in [
+        "SELECT value FROM meta WHERE key = 'store'",
+        "SELECT attempt FROM cycles WHERE issue = 7",
+    ] {
+        let theirs: rusqlite::types::Value = c.query_row(sql, [], |r| r.get(0)).unwrap();
+        assert_eq!(theirs, one::<rusqlite::types::Value>(&home, sql), "{sql}");
+    }
+    assert!(!Home::new(home.path()).state(State::Backups).exists());
     // A name that is taken is not overwritten.
     let (code, _) = refused(&home, &["copy", "--to", to.to_str().unwrap()]);
     assert_ne!(code, 0);
@@ -1189,8 +1243,8 @@ fn copy_refuses_a_missing_directory_and_one_caddy_serves() {
     let (code, word) = refused(&home, &["copy", "--to", gone.to_str().unwrap()]);
     assert_eq!((code, word.as_str()), (1, "no-directory"));
     assert!(!home.join("gone").exists());
-    fs::create_dir_all(home.join("live/sub")).unwrap();
-    let served = home.join("live/sub/x.db");
+    fs::create_dir_all(Home::new(home.path()).live_dir().join("sub")).unwrap();
+    let served = Home::new(home.path()).live_dir().join("sub/x.db");
     let (code, word) = refused(&home, &["copy", "--to", served.to_str().unwrap()]);
     assert_eq!((code, word.as_str()), (1, "served"));
     assert!(!served.exists());
@@ -1221,7 +1275,7 @@ fn copy_writes_nothing_but_the_target_and_reads_a_store_it_cannot_write() {
         .iter()
         .any(|(_, p, _, _)| p.ends_with("tehas.db-wal")));
     // The store's own file is read only: a copy that wrote to it would fail.
-    let db = home.join("state/tehas.db");
+    let db = Home::new(home.path()).state(State::StoreDb);
     fs::set_permissions(&db, fs::Permissions::from_mode(0o400)).unwrap();
     let to = out.join("copy.db");
     let v = ok(&home, &["copy", "--to", to.to_str().unwrap()]);
@@ -1299,15 +1353,17 @@ fn copy_needs_an_absolute_name() {
 fn copy_holds_a_row_that_is_still_in_the_wal() {
     let home = home("copy-wal");
     // A reader of its own keeps SQLite from folding the WAL into the file.
-    let db = home.join("state/tehas.db");
+    let db = Home::new(home.path()).state(State::StoreDb);
     let reader = Connection::open(&db).unwrap();
     reader
         .query_row("SELECT count(*) FROM cycles", [], |r| r.get::<_, i64>(0))
         .unwrap();
     let (_lock, _) = start(&home, 9);
-    let wal = fs::metadata(home.join("state/tehas.db-wal")).unwrap().len();
+    let wal = fs::metadata(Home::new(home.path()).state_dir().join("tehas.db-wal"))
+        .unwrap()
+        .len();
     assert!(wal > 0, "the row is in the WAL");
-    let to = home.join("state/wal-copy.db");
+    let to = Home::new(home.path()).state_dir().join("wal-copy.db");
     ok(&home, &["copy", "--to", to.to_str().unwrap()]);
     let c = Connection::open(&to).unwrap();
     let n: i64 = c
@@ -1324,7 +1380,7 @@ fn copy_holds_a_row_that_is_still_in_the_wal() {
 /// `park-show` reads that reason from the issue's newest cycle history row and
 /// derives `refine` from it.
 fn intent_parked(home: &Path, issue: i64, start: i64) {
-    let (_lock, attempt) = start_by(home, issue, "alice", "label", start);
+    let (_lock, attempt) = start_by(home, issue, "alice", "approved", start);
     let n = issue.to_string();
     let a = attempt.to_string();
     ok_at(
@@ -1363,9 +1419,10 @@ fn the_prune_delete_names_its_table_and_its_four_clauses() {
         let said = |what: &str| assert!(sql.contains(what), "{name}: no {what} in\n{sql}");
         said(&format!("DELETE FROM {name} WHERE"));
         said("issue IN (SELECT issue FROM cycles WHERE ended_at < ?1)");
-        // `cycle-end --stopped` and `--refused` write no cycle_history row, so
-        // this guard is the only thing keeping those issues' plan rows.
-        said("issue IN (SELECT issue FROM cycle_history)");
+        // `cycle-end --stopped` and `--refused` write no reported
+        // cycle_history row, so this guard is the only thing keeping those
+        // issues' plan rows.
+        said("issue IN (SELECT issue FROM cycle_history WHERE reported = 1)");
         said(&format!(
             "(at, id) NOT IN\n             (SELECT at, id FROM {name} h WHERE h.issue = {name}.issue\n                ORDER BY at DESC, id DESC LIMIT 1)"
         ));

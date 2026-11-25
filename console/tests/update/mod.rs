@@ -11,6 +11,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use tehas_core::home::{Home, State};
 use tehas_core::testdir::TestDir;
 use tehas_core::testing::{copy_exe, write_exe};
 
@@ -26,13 +27,13 @@ pub const MINIMAL: &[&str] = &[
 
 /// The logins whose user ids an install records (T_LOGINS).
 pub const LOGINS: &[&str] = &[
-    "tehas-bot",
+    "tehas-bot[bot]",
     "alice",
     "bob",
     "bob-2",
     "carol",
     "boss",
-    "tehas-fixer",
+    "tehas-millwright",
     "tehas-mill",
     "millbot",
     "mill-bot",
@@ -42,9 +43,6 @@ pub const LOGINS: &[&str] = &[
 
 /// The commit a scratch tree names in COMMIT (T_COMMIT).
 pub const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
-
-/// The programs no case may reach without a stub of its own.
-const DENIED: &[&str] = &["docker", "gh", "systemctl", "curl", "ssh"];
 
 /// The gh stub's head: the call's number under a lock, and the call recorded
 /// with a body from standard input written as an argument.
@@ -96,6 +94,7 @@ if [ "$t_rc" = 0 ] && [ ! -s "$t_got" ]; then
   case "$1 $2 $3 $4" in
     "api users/"*" --jq .id") jq -rn --arg l "${2#users/}" '$l | sub("\\[bot\\]$"; "") | explode | add' >"$t_got" ;;
     "api repos/"*/labels/*" --jq .node_id") t_l=${2##*/}; echo "LA_${t_l#tehas:}" >"$t_got" ;;
+    "api "*) case "$*" in *"nodes { name color description }"*) cat "$T_ROOT/test/fixtures/labels-none.json" >"$t_got" ;; esac ;;
   esac
 fi
 if command -p grep -q '"login"' "$t_got" &&
@@ -184,8 +183,8 @@ const STORE_STAND_IN: &str = r##"#!/usr/bin/env bash
 printf '%s\n' "$*" >>"$T/calls/store"
 if [ "${STORE_RC:-0}" != 0 ]; then echo "store: corrupt the database: a stand-in" >&2; exit "$STORE_RC"; fi
 case $1 in
-  init) echo "store: made $TEHAS_HOME/state/tehas.db" ;;
-  migrate) echo "store: $TEHAS_HOME/state/tehas.db at schema 1, backup $3/tehas-1-0.db" ;;
+  init) echo "store: made $TEHAS_HOME/@DB@" ;;
+  migrate) echo "store: $TEHAS_HOME/@DB@ at schema 1, backup $3/tehas-1-0.db" ;;
 esac
 "##;
 
@@ -248,7 +247,7 @@ impl Host {
             fs::create_dir_all(t.join(d)).unwrap();
         }
         let denied = t.join("denied");
-        for d in DENIED {
+        for d in tehas_core::testing::DENIED {
             write_exe(
                 t.join("deny").join(d),
                 format!(
@@ -263,7 +262,7 @@ impl Host {
         let home = t.join("home/tehas");
         let h = Host {
             checkout: home.join("platform"),
-            owed: home.join("state/update-pending"),
+            owed: Home::new(&home).state(State::UpdatePending),
             dev_etc: t.join("etc"),
             dev_bin: t.join("usr-local-bin"),
             home,
@@ -391,11 +390,16 @@ impl Host {
         let _ = fs::remove_dir_all(dir);
     }
 
-    /// The user ids an install records, of every login of `LOGINS` (t_ids).
+    /// The user ids an install records, of every login of `LOGINS` (t_ids),
+    /// in the form 2.0 writes: a 1.x file would be rewritten first.
     pub fn ids(&self, home: &Path) {
-        fs::create_dir_all(home.join("state")).unwrap();
-        let ids: String = LOGINS.iter().map(|l| format!("{l} {}\n", uid(l))).collect();
-        fs::write(home.join("state/account-ids"), ids).unwrap();
+        let at = Home::new(home);
+        fs::create_dir_all(at.state_dir()).unwrap();
+        let ids: String = LOGINS
+            .iter()
+            .map(|l| format!("code-host {l} {}\n", uid(l)))
+            .collect();
+        fs::write(at.state(State::AccountIds), ids).unwrap();
     }
 
     /// docker of a host whose containers run.
@@ -768,7 +772,8 @@ exec '{}' "$@""#,
     /// cargo as install.sh runs it, and the store stand-in it builds.
     pub fn stub_cargo(&self) {
         self.stub("cargo", CARGO);
-        fs::write(self.t.join("store-stand-in"), STORE_STAND_IN).unwrap();
+        let text = STORE_STAND_IN.replace("@DB@", State::StoreDb.relative());
+        fs::write(self.t.join("store-stand-in"), text).unwrap();
     }
 
     /// The workspace's source in `dir/console`, without its build, and the

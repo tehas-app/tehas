@@ -19,13 +19,13 @@
   --font: Topaz, "Courier New", monospace;
   --font-code: Topaz, "Courier New", monospace;
   --font-smoothing: none;
-  /* The business page's sizes. Pixel keeps Topaz at its two sizes. */
+  /* The sizes of pages.css. Pixel keeps Topaz at its two sizes. */
   --type-small: 16px;
   --type-body: 16px;
   --type-big: 32px;
   --radius: 0;
-  /* light, or "light dark" where the theme has a dark set the business page's
-     mode button can switch to. */
+  /* light, or "light dark" where the theme has a dark set a page's mode
+     button can switch to. */
   --modes: light;
 
   /* The ground everything stands on. */
@@ -60,7 +60,7 @@
   --screen: #111;
   --screen-text: #fc6;
   --screen-quiet: #aab;
-  /* The business page's top bar. Pixel draws it as a screen. */
+  /* The top bar of pages.css. Pixel draws it as a screen. */
   --bar: var(--screen);
   --bar-text: var(--screen-text);
   --bar-quiet: var(--screen-quiet);
@@ -83,7 +83,7 @@
   --press: translate(4px, 4px);
   --press-sign: translate(8px, 8px);
 
-  /* The stages of the line on the business page, each with a pale face
+  /* The stages of the line on a page that draws it, each with a pale face
      for the ticket box behind text. */
   --stage-proto: #758;
   --stage-proto-soft: #dcd;
@@ -97,9 +97,6 @@
   --stage-stop-soft: #ecb;
   --stage-ship: #357;
   --stage-ship-soft: #bce;
-
-  /* A prototype keeps a page's white ground: it is the prototype's own. */
-  --prototype-ground: #fff;
 
   /* Canvas colours. A canvas cannot read var(), so theme.js reads these. */
   --band-1: #ea3;

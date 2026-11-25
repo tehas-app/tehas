@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tehas-app/tehas-factory/api/question.schema.json",
+  "title": "tehas question --json",
+  "description": "What tehas question <issue> --json prints, version 1: the question the issue waits on and the choices it offers, each in the words tehas answer takes. host/docs/api.md says what each field means. Every object is closed, so a field tehas adds must be added here too; a program that reads the object still accepts fields it does not know. console/tests/answer.rs checks that the command prints the samples beside this file, and test/json_contract_test.sh that they fit it.",
+  "type": "object",
+  "required": ["api", "issue", "question"],
+  "additionalProperties": false,
+  "properties": {
+    "api": {"const": 1},
+    "issue": {"type": "integer", "minimum": 1},
+    "question": {
+      "type": "object",
+      "required": ["id", "kind", "askedAt", "choices"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"description": "The state store's own number of the question, given in order and never reused: not the id of the comment that asked it, as before 2.0.", "type": "integer", "minimum": 1},
+        "kind": {"enum": ["park", "plan"]},
+        "comment": {"description": "The id of the comment on the issue that asked the question. Left out when the store has no comment for it; never null.", "type": "integer", "minimum": 1},
+        "askedAt": {"description": "When it was asked. Before 2.0 the field was asked_at.", "type": "string", "format": "date-time"},
+        "choices": {
+          "description": "Exactly the choices the question offers, in the order it lists them.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["label", "choice"],
+            "additionalProperties": false,
+            "properties": {
+              "label": {"type": "string", "minLength": 1},
+              "choice": {"type": "string", "pattern": "^(retry|retry-text|park|update|end|option:([1-9]|1[0-9]|20))$"}
+            }
+          }
+        }
+      }
+    }
+  }
+}

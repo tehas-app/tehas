@@ -15,6 +15,10 @@
 # Read before test/lib.sh is sourced: the sweep it makes of the environment
 # takes every TEHAS_ name the settings hold no value for, this with them.
 samples_write=${TEHAS_SAMPLES_WRITE:-}
+# The disk samples hold the home and /tmp as one file system, so the run's tree
+# is made under /tmp whatever TMPDIR names: on another disk they are two. sort
+# and comm agree on the order of the field paths only in one collation.
+TMPDIR=/tmp; export LC_ALL=C
 
 # shellcheck disable=SC2016  # the jq programs are matched as text
 # shellcheck source=test/lib.sh
@@ -221,49 +225,6 @@ surfaces=(
   'bound	runs[3].filed[0]	.runs[3].filed = []	.runs[3].filed = [1]	integer, not string'
   'required	["api","runs","next"]'
 
-  # The list `tehas panel --json` prints: the pages of the project the dashboard
-  # links, and the same object as state/panels.json and live/panels.json. The two
-  # samples are the two readings a person reaches: one panel set, and none. The
-  # surface prints no state of its own, so it has no `state` lines and no enum to
-  # compare them with: the samples are still held to the schema, to what the
-  # command prints and to the walk of its fields. `panels` of the empty reading
-  # is an empty array, which the walk of the fields asks of the sample that holds
-  # a panel: an array of no item holds no path of its own.
-  'surface	panel'
-  'sample	sample'
-  'sample	empty'
-  # The one object of the surface, bent one way at a time: a field the schema
-  # does not know, the list given a word, and each of the three fields an item
-  # holds that every reading must print. Five lines, the shape of every check of
-  # the table. `panels` cannot be taken from the object the way `next` or `asked`
-  # are from theirs: the only reading of it that the command leaves out of an
-  # object is the whole array, and `del(.panels) | .panels = "1"` puts it back as
-  # a word, so its absence is reported as `.panels: string, not array`.
-  'check	del(.panels[0].label) | .zz = 1 | .panels = "1"	.zz: not in the schema'
-  'check	del(.panels[0].label) | .zz = 1 | .panels = "1"	.panels: string, not array'
-  'check	del(.panels[0].label)	.panels[0]: label is missing'
-  'check	del(.panels[0].label) | .panels[0].zz = 1	.panels[0].zz: not in the schema'
-  'check	del(.panels[0].label) | del(.panels[0].id) | del(.panels[0].url)	.panels[0]: id is missing'
-  'check	del(.panels[0].label) | del(.panels[0].id) | del(.panels[0].url)	.panels[0]: url is missing'
-  # The bounds of the schema, each the least value the command keeps and one
-  # step past it, as `set` takes it or refuses it: an id of 32 characters, the
-  # most console/ops/src/panel.rs lets an `id` have, and 33, which it refuses with 64;
-  # a label of 24 characters, the most it keeps, and 25; a URL of 512 bytes, the
-  # longest it takes - the 28 of `https://support.example.org/` and 484 of the
-  # path after it - and 513, which `url_host` refuses before it looks at its
-  # host; and the list of four panels, which `set` answers, against a fifth, which
-  # it refuses as `at most 4 panels`. The id and the url of the two readings of a
-  # bound are both set, as well as the one field of it the line bends: a bound of
-  # `id` takes the whole list because the sample's `support` would not do for an
-  # id of 32 `a`, and a bound of `label` names the other two fields so the object
-  # the check is asked about stays an object of the surface and reports only the
-  # bound of the line.
-  'bound	panels[0].id	.panels = [{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","label":"Ask us","url":"https://support.example.org/f/acme"}]	.panels = [{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","label":"Ask us","url":"https://support.example.org/f/acme"}]	does not match'
-  'bound	panels[0].label	.panels[0].label = "aaaaaaaaaaaaaaaaaaaaaaaa" | .panels[0].id = "support" | .panels[0].url = "https://support.example.org/f/acme"	.panels[0].label = "aaaaaaaaaaaaaaaaaaaaaaaaa" | .panels[0].id = "support" | .panels[0].url = "https://support.example.org/f/acme"	longer than 24'
-  'bound	panels[0].url	.panels[0].url = "https://support.example.org/" + ("a" * 484)	.panels[0].url = "https://support.example.org/" + ("a" * 485)	longer than 512'
-  'bound	panels	.panels = ["a","b","c","d"]	.panels = ["a","b","c","d","e"]	more than 4 items'
-  'required	["api","panels"]'
-
   # The answer `tehas disk --json` and `tehas disk --full --json` print: how
   # full this host is, and with the flag what fills it. The two samples are the
   # two readings a person or a host program reaches: the plain answer, and the
@@ -275,7 +236,7 @@ surfaces=(
   # the command prints and to the walk of its fields. The shape of the answer is
   # the host's - how many file systems the watched paths fold into, and which
   # places the home holds - so the reading each sample is made of plants its own
-  # home and says what `df` and the daemon answer, as test/disk_test.sh does.
+  # home and says what `df` and the daemon answer, as console/tests/disk.rs does.
   # `time` is the clock of the run that made the answer, which no name in
   # the environment bounds: the case of the clock below compares the two samples
   # with what the command prints now with that one field taken out of both sides,
@@ -293,7 +254,7 @@ surfaces=(
   # The same three of the reading that carries `full`, bent on the object of that
   # name: the sample of the third word of the row is read and bent, as the rows of
   # the surface's own `sample` are. It cannot be taken out of the object the way
-  # `state` or `panels` are from theirs: the one reading of it that the command
+  # `state` is from its own: the one reading of it that the command
   # leaves out is the whole object, and `del(.full) | .full = "1"` puts it back as
   # a word, so its absence is reported as `.full: string, not object`.
   'check	del(.full) | .zz = 1 | .full = "1"	.zz: not in the schema	full'
@@ -396,12 +357,12 @@ limit_now() { # <name>
 }
 
 # The two samples of `drain` differ only by the lock below: an issue's cycle
-# that holds it for a minute, as test/drain_test.sh holds one. The drain takes
+# that holds it for a minute, as console/tests/drain.rs holds one. The drain takes
 # no lock of its own, so 0 is a wait long enough for the lock to be tried and
 # not one the case waits through, and `running` is the list made at once.
 drain_hold=0
-# 12, the issue of test/drain_test.sh whose cycle holds its lock for the
-# `running` sample: 12.lock is the file drain finds and names.
+# 12, the issue whose cycle holds its lock for the `running` sample: 12.lock
+# is the file drain finds and names.
 drain_issue=12
 
 # <name>: the world that sample is a reading of. Both of them are drained by
@@ -424,18 +385,17 @@ drain_world() { # <name>
   done
 }
 
-# <name>: the reading a drain sample holds, as the command prints it. The wait
-# is named on the command line, and so is --json: the object is the whole of
-# standard output, since every word the command says to a person goes to
-# standard error.
+# <name>: the reading a drain sample holds, as the console prints it at the
+# test's clock, which the settings load behind bin/tehas drops: `set` is then
+# the samples'. The wait and --json are named on the command line: the object
+# is the whole of standard output, the words for a person go to standard error.
 drain_reading() { # <name>
-  t_run "'$T_ROOT/bin/tehas' drain --wait $drain_hold --json"
+  t_run "TEHAS_FLAGS_TEST_NOW=$limit_written '$T_CONSOLE' tehas drain --wait $drain_hold --json"
 }
 
 # The seconds of the ends the history samples are read from, as the cursors of
-# api/history.sample.json name them: four ends of three issues, the first at
-# 2025-10-17T11:20:00Z and the last five minutes on. Named here so the writing
-# of the ends and the words of the samples say the same moments.
+# api/history.sample.json name them: the first at 2025-10-17T11:20:00Z and the
+# last five minutes on. Named so the ends and the samples say the same moments.
 history_end=1760700000
 
 # <name>: the world that sample is a reading of. `empty` is a store with no end
@@ -475,7 +435,7 @@ history_world() { # <name>
   # instance names, so the sample is one of acme/widget.
   started=$((history_end - 60))
   a=$(TEHAS_HOME=$home "$T_STORE" cycle-show 12 | jq '.cycle.attempt // 0')
-  t_approve "$home" 12 alice label $((started - 1 - a))
+  t_approve "$home" 12 alice approved $((started - 1 - a))
   TEHAS_STORE_TEST_NOW=$started t_started "$home" 12
   TEHAS_HOME=$home TEHAS_STORE_TEST_NOW=$((started + 30)) "$T_STORE" \
     cycle-heartbeat 12 --running --status running --step develop \
@@ -504,7 +464,8 @@ history_world() { # <name>
   # the line says nothing of a repeat, and it names no pull request either, so
   # `pr` is the field of the first line alone.
   t_history_end "$home" 9 "$((history_end + 120))" \
-    '{"kind":"work","rc":10,"status":"failed","step":"develop","cap":"step-failed:develop","park_reason":"findings-open","failure_kind":"review","failure_cause":"findings-open","provider":false,"parked":true}'
+    '{"kind":"work","rc":10,"status":"failed","step":"develop","cap":"step-failed:develop","park_reason":"findings-open","failure_kind":"review","failure_cause":"findings-open","provider":false,"parked":true,"signalled":true}'
+  t_history_end "$home" 5 "$((history_end + 180))" '{"by":"alice","started":1760699900,"lost":true}' # lost, ended 120 s after its start, so it has `recorded`
   # The plan end: a refine the factory started on its own, whose turn filed an
   # issue, so `label`, `auto` and `filed` are the fields of a line of that kind.
   # Its turn began with the minute the park of #12 ended, so the two lines of
@@ -518,33 +479,6 @@ history_world() { # <name>
 # written.
 history_reading() { # <name>
   t_run "'$T_ROOT/bin/tehas' history --json | jq ."
-}
-
-# The domain the panel samples are set and read under: `set` refuses a URL whose
-# host is the factory's own, so the sample names another one and the reading of
-# it is asked under the same name it was written under. `empty` prints nothing
-# beyond `api` and `panels`, so the name makes no difference to it.
-panel_domain=example.org
-
-# <name>: the world that sample is a reading of: the one panel of
-# api/panel.sample.json, or none. `set` prints the list as it then is to
-# standard error and standard output alike, so the words of the write are sent
-# away: the object a caller takes from `panel_reading` is the reading alone.
-panel_world() { # <name>
-  case $1 in
-    sample) t_run "TEHAS_DOMAIN=$panel_domain '$T_ROOT/bin/tehas' panel set support \
-        --label 'Ask us' --url https://support.example.org/f/acme 2>&1 >/dev/null" ||
-      t_bad "setting the panel failed: $t_out" ;;
-    empty) ;;
-  esac
-}
-
-# <name>: the reading a panel sample holds, as the command prints it. `--json`
-# goes with the show form only, and the domain goes with the reading for the
-# same reason it goes with the write above: the console reads TEHAS_DOMAIN from
-# its own environment, not from the instance file.
-panel_reading() { # <name>
-  t_run "TEHAS_DOMAIN=$panel_domain '$T_ROOT/bin/tehas' panel --json"
 }
 
 # The order of the `order` samples, on the state store: issues 12 and 8 first,
@@ -618,8 +552,7 @@ limit_reading() { # <name>
 # it, so the holder must be alive while a reading is made and gone when the case
 # is done. It is a child of this shell, and a run of t_run waits for the children
 # of the shell it runs in, so the holder is made of its own session: adopted, not
-# waited for (test/lib.sh holds a lock the same way in t_hold, and test/drain_test
-# .sh holds a cycle's lock as a poll's child for the same reason).
+# waited for (test/lib.sh holds a lock the same way in t_hold).
 freeze_home=$T/home/tehas/state/cycles
 freeze_holder=
 
@@ -649,7 +582,7 @@ freeze_holder_start() { # <file>
 # behind when it ends says nothing on its own either (console/ops/src/freeze.rs, and
 # the one probe of console/core/src/lock.rs that `tehas drain` reads the same
 # way). So `idle` is no lock, no request and no pause. `asked` is the lock held,
-# as test/drain_test.sh holds a running cycle's lock, with no request yet, and is
+# as console/tests/drain.rs holds a running cycle's lock, with no request yet, and is
 # read by the freeze that asks for one. `frozen` adds the two files the watch
 # leaves, and is read by `tehas freeze` again, which answers it is frozen already.
 # `thaw` is that same world read by `tehas thaw`, which removes the request and
@@ -693,16 +626,12 @@ t_after='freeze_holder_end'
 # answer for, and `df` is stubbed to say nothing of it.
 disk_scratch=/mnt/scratch
 
-# The one `df` answer every disk sample wants: the 40 GiB free of a host with
-# room on it, which is what the reading prints for every path but the scratch
-# disk. The stub answers nothing at all for the path of the scratch disk, which
-# is the reading's "df answered nothing": the entry of that file system is the
-# one of these samples with no figure and a `why`, the shape the disk tests'
-# own stub gives a figure a case does not plant (test/disk_test.sh). The path is
-# named here and not under the scratch tree of the run: two paths of one file
-# system are one entry (console/ops/src/disk.rs, same_dev), so a scratch under
-# `$T` would be folded into the entry of the home and print no entry of its own
-# at all, and no figure of its own to carry a `why`.
+# The one `df` answer every disk sample wants: 40 GiB free, for every path but
+# the scratch disk, of which it says nothing: that entry is the sample's "df
+# answered nothing", with no figure and a `why`, as console/tests/disk.rs plants
+# it. The path is not under `$T`: two paths of one file system are one entry
+# (console/ops/src/disk.rs, same_dev), so a scratch under `$T` would be folded
+# into the home's entry. The same rule folds the home and /tmp (TMPDIR above).
 t_stub df 'case "$*" in
   *scratch) exit 1 ;;
 esac
@@ -711,13 +640,13 @@ printf "%s\n" \
   "/dev/x 60000000 1 41943040 1% /"
 '
 
-# The daemon of every disk sample: the directory of the images, the four lines
-# of `docker system df` that the sample with `full` holds, and the two containers
-# it still holds back. The listing is the `ps` question a `--full` reading asks
-# without `--publish`, which is the whole of why the answer of that form carries
-# them: a reader that must not write the host can still ask for both figures.
+# The daemon of every disk sample: the directory of the images, one no host has
+# so it is a file system of its own whatever a real /var/lib/docker shares, the
+# lines of `docker system df` the sample with `full` holds, and the two
+# containers it holds back, which the `ps` of a `--full` reading without
+# `--publish` asks for: a reader that must not write can still ask for both.
 t_stub docker 'case "$*" in
-  *DockerRootDir*) echo /var/lib/docker ;;
+  *DockerRootDir*) echo /nonexistent/docker ;;
   "system df"*) printf "TYPE\tTOTAL\tACTIVE\tSIZE\tRECLAIMABLE\nImages\t2\t1\t1.2GB\t0B (0%%)\n" ;;
   "ps "*) printf "ab12c34d5e6f\ttehas-sandbox:latest\t/bin/sh -c sleep\n0123456789ab\tubuntu:24.04\n" ;;
 esac
@@ -854,11 +783,6 @@ printed() { # <surface> <name>
       # reading, so nothing later waits for a cycle that has ended.
       freeze_holder_end
       printf '%s\n' "$t_out"
-      ;;
-    panel)
-      panel_world "$name"
-      panel_reading "$name"
-      printf '%s\n' "$t_out" | jq .
       ;;
     disk)
       # The reading of the world this file stubs, as the command prints it, with
@@ -1107,7 +1031,7 @@ while [ "$i" -lt "${#surfaces[@]}" ]; do
     t_bad "the required of the schema is $(jq -c '.required' "$schema" 2>&1), the table says $required_json"
   fi
   t_eq "$(jq -r '."$schema"' "$schema")" "https://json-schema.org/draft/2020-12/schema"
-  t_eq "$(jq -r '."$id"' "$schema")" "https://github.com/tehas-app/tehas/api/$surface.schema.json"
+  t_eq "$(jq -r '."$id"' "$schema")" "https://github.com/tehas-app/tehas-factory/api/$surface.schema.json"
   t_eq "$(jq '.additionalProperties' "$schema")" "false"
   # The description is kept to what a keyword of this file or a case below
   # carries: version 1 (`api` is the const 1), that objects are closed
@@ -1437,23 +1361,25 @@ $changes"
   done
 done
 
-# The objects whose samples the test of their own command holds to what it
-# prints, and that test: here each schema is held to the rules of the table's,
-# and its samples to the schema. A third word `open` is a file the docs server
-# serves rather than a --json object, which the schema leaves open; `own` is
-# an object whose own test walks its fields and the manual's names for them.
+# The objects whose samples their own command's test holds to what it prints,
+# and that test: here each schema is held to the table's rules and its samples
+# to the schema. A third word `open` is a file the docs server serves, whose
+# schema is left open; `own` is an object whose own test walks its fields.
 pinned=(
   'status	console/tests/status_contract.rs	own'
   'refresh	test/refresh_test.sh'
   'analytics-copy	console/analytics/tests/command.rs'
-  'state-copy	test/state_test.sh'
-  'state-load	test/state_test.sh'
-  'disk-cycles	test/disk_test.sh	own'
-  'host-messages	test/host_message_test.sh'
+  'state-copy	console/tests/state.rs'
+  'state-load	console/tests/state.rs'
+  'disk-cycles	console/tests/disk.rs	own'
+  'host-messages	console/tests/host_message.rs'
   'wake	console/src/wake.rs'
   'blockers	console/src/blockers.rs'
   'settings-rules	test/settings_rules_test.sh	own'
-  'host-bridge	test/host_bridge_test.sh	open'
+  'host-bridge	console/tests/host_bridge.rs	open'
+  'answer	console/tests/answer.rs	'
+  'question	console/tests/answer.rs	'
+  'questions	console/tests/answer.rs	'
 )
 
 t_case "every schema in api/ is a surface of the table or pinned by its own test"
@@ -1462,12 +1388,12 @@ for line in "${surfaces[@]}"; do
   [ "$(surface_line "$line" 1)" = surface ] && known+="$(surface_line "$line" 2) "
 done
 for line in "${pinned[@]}"; do known+="$(surface_line "$line" 1) "; done
-# test/api_test.sh holds api.schema.json itself. Plugins, still being built, are
-# held in Rust: console/core/src/plugin/ and console/ops/src/plugin.rs.
-known+="api plugin plugin-manifest plugin-context plugin-review plugin-skills plugin-verdict "
+# test/api_test.sh holds api.schema.json itself. Plugins and events are held in
+# Rust: console/core/src/plugin/, console/ops/src/plugin.rs, console/tests/events_contract.rs.
+known+="api plugin plugin-manifest plugin-context plugin-review plugin-skills plugin-verdict event gate-answer "
 for file in "$api"/*.schema.json; do
   name=$(basename "$file" .schema.json)
-  case $known in *" $name "*) ;; *) t_bad "api/$name.schema.json is held by no test of this file" ;; esac
+  [[ $name == event-* ]] || case $known in *" $name "*) ;; *) t_bad "api/$name.schema.json is held by no test of this file" ;; esac
 done
 
 manual_all=$(cat "$T_ROOT"/host/docs/*.md)
@@ -1483,7 +1409,7 @@ for line in "${pinned[@]}"; do
 
   t_case "api/$surface.schema.json is 2020-12, names its test, and $owner reads it"
   t_eq "$(jq -r '."$schema"' "$schema")" "https://json-schema.org/draft/2020-12/schema"
-  t_eq "$(jq -r '."$id"' "$schema")" "https://github.com/tehas-app/tehas/api/$surface.schema.json"
+  t_eq "$(jq -r '."$id"' "$schema")" "https://github.com/tehas-app/tehas-factory/api/$surface.schema.json"
   t_contains "$(jq -r '.description' "$schema")" "$owner"
   t_contains "$(cat "$T_ROOT/$owner")" "api/$surface."
   [ "$how" = open ] || t_eq "$(jq '.additionalProperties' "$schema")" "false"

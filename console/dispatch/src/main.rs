@@ -13,7 +13,8 @@
 //! docker and $TEHAS_HOME/libexec/store from the PATH and the home.
 //!
 //! Exit: poll ends as tehasbot dispatch does; 64 an argument it does not know;
-//! 78 a setting tehas_load always leaves set is not set.
+//! 78 a setting tehas_load always leaves set is not set, or state/account-ids
+//! keeps a bot only under its bare name (run console ids record).
 //! refresh has its own text and statuses: tehas refresh --help.
 
 use serde_json::{json, Map, Value};
@@ -92,6 +93,12 @@ fn main() {
         eprintln!("tehas-dispatch: {why}");
         std::process::exit(78);
     }
+    // A bot kept only under its bare name may be another account of that
+    // name: no id is guessed, and the poll does not run until it is settled.
+    if let Some(line) = tehas_core::accounts::unsettled(Path::new(&home)) {
+        eprintln!("{line}");
+        std::process::exit(78);
+    }
     // tehas_branch: the setting, or the checkout's origin/HEAD. tehas_core
     // holds the rule, with the bound on the git read and the line lib/config.sh
     // and tehas work give.
@@ -111,5 +118,91 @@ fn main() {
         &PathBuf::from(&home),
         &settings,
         dry,
+        tehas_dispatch::events::wiring(),
+        tehas_dispatch::apply::Wiring {
+            handles,
+            mark_of,
+            assignee: assignee(&PathBuf::from(&home), &settings.repo),
+        },
     ));
+}
+
+/// A label word of an action as a mark: one of tehas's words by the
+/// adapter's table, None for any other, which is refused at the send.
+/// Temporary: the T4.6 pull request that types decide's actions onto `Mark`
+/// removes it.
+fn mark_of(label: &str) -> Option<tehas_ports::Mark> {
+    tehas_github::table::word(label)
+}
+
+/// `TEHAS_ASSIGNEE`'s account through the site's identity, once a poll:
+/// None with no such setting, Err with why when it cannot be resolved.
+fn assignee(home: &Path, repo: &str) -> Option<Result<tehas_ports::AccountId, String>> {
+    use std::sync::Arc;
+    use tehas_ports::{Actor, Caller, Login, Scope, Site};
+    let login = std::env::var("TEHAS_ASSIGNEE").unwrap_or_default();
+    if login.trim().is_empty() {
+        return None;
+    }
+    let (bot, id) = tehas_core::accounts::bot(home);
+    let make: tehas_github::MakeRunner = Arc::new(move |_| {
+        Ok(Box::new(tehas_core::forge::Bounded::new(
+            "gh",
+            std::time::Duration::from_secs(30),
+        )) as Box<dyn tehas_core::forge::GhRunner>)
+    });
+    let site = tehas_github::GitHubSite::new(repo, &bot, id, make);
+    let found = site
+        .identity(&Actor::Ours(Scope::Full), Caller::new("poll"))
+        .and_then(|mut i| i.account_by_login(&Login::new(login.trim())));
+    Some(match found {
+        Ok(account) => account
+            .id
+            .ok_or_else(|| "the site gives the account no id".to_string()),
+        Err(o) => Err(o.line().to_string()),
+    })
+}
+
+/// The handles a poll writes and settles through, from the GitHub adapter's
+/// site acting as the factory's account. Its gh is the host's own, given the
+/// poll's token so the shim asks for none, under the poll's bound: the site
+/// is handed that runner and holds no token of its own.
+fn handles(
+    home: &Path,
+    repo: &str,
+    gh: &str,
+    token: Option<&str>,
+    bound: std::time::Duration,
+    calls: std::sync::Arc<std::sync::atomic::AtomicU64>,
+) -> tehas_ports::Got<tehas_dispatch::apply::Handles> {
+    use std::sync::Arc;
+    use tehas_ports::{Actor, Caller, Scope, Site};
+    let (login, id) = tehas_core::accounts::bot(home);
+    let (gh, token) = (gh.to_string(), token.map(str::to_string));
+    let make: tehas_github::MakeRunner = Arc::new(move |_| {
+        let mut b = tehas_core::forge::Bounded::new(gh.clone(), bound);
+        b.token = token.clone();
+        let counted = tehas_core::forge::Counted {
+            inner: Box::new(b),
+            count: calls.clone(),
+        };
+        Ok(Box::new(counted) as Box<dyn tehas_core::forge::GhRunner>)
+    });
+    let site = tehas_github::GitHubSite::new(repo, &login, id, make);
+    let (by, c) = (Actor::Ours(Scope::Full), Caller::new("poll"));
+    let writes: Box<dyn tehas_ports::Writes> = if tehas_core::read_only::on() {
+        Box::new(tehas_ports::ReadOnly)
+    } else {
+        Box::new(tehas_ports::Writer {
+            tickets: site.ticket_writes(&by, c)?,
+            blueprints: site.blueprint_writes(&by, c)?,
+            code_host: site.code_host_writes(&by, c)?,
+        })
+    };
+    Ok(tehas_dispatch::apply::Handles {
+        writes,
+        tickets: site.tickets(&by, c)?,
+        blueprints: site.blueprints(&by, c)?,
+        code_host: site.code_host(&by, c)?,
+    })
 }

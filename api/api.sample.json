@@ -5,8 +5,6 @@
   "repo": "acme/widget",
   "features": [
     "status",
-    "millwright-grant",
-    "all-hands",
     "limit",
     "drain",
     "history",
@@ -16,7 +14,6 @@
     "mcp-dashboard-keys",
     "clean",
     "disk",
-    "panels",
     "state-check",
     "finish",
     "status-versions",
@@ -34,17 +31,16 @@
     "status-previews",
     "wake",
     "start-reasons",
-    "blockers"
+    "blockers",
+    "answer",
+    "question",
+    "cycle-ids",
+    "questions",
+    "events"
   ],
   "flags": {
-    "outsource": false,
-    "spec-pipe": false,
-    "protolab-zip-url": false,
-    "prototype-file": false,
     "lean": false,
-    "review": false,
-    "plugins": false,
-    "wiki": false
+    "plugins": false
   },
   "millwright": "millbot[bot]",
   "poll": {
@@ -68,5 +64,6 @@
       "cpuMs": 6200,
       "writes": 1
     }
-  }
+  },
+  "store": "8f14e45fceea167a5a36dedd4bea2543"
 }

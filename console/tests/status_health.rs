@@ -11,6 +11,7 @@ use serde_json::{json, Value};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
+use tehas_core::home::{Live, State};
 
 /// tehasbot status, then tehas status with `words`, joined by `sep`.
 fn then_summary(w: &World, sep: &str, words: &str) -> Run {
@@ -69,13 +70,13 @@ fn my_uid() -> String {
 
 /// The limit tehas limit sets, as health reads it from state/limit.json.
 fn set_limit(w: &World, text: &str) {
-    w.home_file("state/limit.json", &format!("{text}\n"));
+    w.home_file(w.at().state(State::Limit), &format!("{text}\n"));
 }
 
 /// The fault of a sandbox that cannot push, as the start whose push check was
 /// refused leaves it (console/cycle/src/prepare.rs).
 fn set_push_fault(w: &World, text: &str) {
-    w.home_file("state/push-fault.json", &format!("{text}\n"));
+    w.home_file(w.at().state(State::PushFault), &format!("{text}\n"));
 }
 
 /// live/previews.json with its disk figures, written `age` seconds ago.
@@ -85,7 +86,7 @@ fn disk(w: &World, low: bool, age: i64) {
         "disk": {"freeBytes": 1073741824u64, "minFreeBytes": 5368709120u64, "low": low},
         "previews": [],
     });
-    w.home_file("live/previews.json", &format!("{v}\n"));
+    w.home_file(w.at().live(Live::Previews), &format!("{v}\n"));
 }
 
 /// What the dispatcher's last poll wrote about the slice, `age` seconds ago.
@@ -96,7 +97,7 @@ fn poll(w: &World, why: &str, hold: &str, age: i64) {
         "why": why, "hold": hold, "count": 1, "room": 8,
         "committed": 4294967296u64, "max": 21474836480u64, "reserve": "2g",
     });
-    w.home_file("live/dispatch.json", &format!("{v}\n"));
+    w.home_file(w.at().live(Live::Dispatch), &format!("{v}\n"));
 }
 
 #[test]
@@ -197,7 +198,7 @@ fn push_a_sandbox_that_cannot_push_is_a_fail_in_the_lines_the_file_and_json() {
     w.status();
     assert_eq!(health_status(&w), "fail");
     // The fault off again, and the host passes as it did before.
-    fs::remove_file(w.home.join("state/push-fault.json")).unwrap();
+    fs::remove_file(w.at().state(State::PushFault)).unwrap();
     let r = w.status();
     assert_eq!(health_status(&w), "pass");
     lacks(&r.out, "the sandbox cannot push");
@@ -385,7 +386,7 @@ fn health_a_previews_json_of_bad_gives_no_disk_check_and_no_warning() {
         r#"{"generatedAt":7,"disk":"full"}"#,
     ] {
         w.reset();
-        w.home_file("live/previews.json", &format!("{bad}\n"));
+        w.home_file(w.at().live(Live::Previews), &format!("{bad}\n"));
         w.status();
         assert_eq!(health_status(&w), "pass", "{bad}");
         assert!(health_file(&w)["checks"]["disk"].is_null(), "{bad}");
@@ -585,7 +586,7 @@ fn health_a_dispatch_json_of_bad_does_not_break_the_health_write() {
         "{} {}",
     ] {
         w.reset();
-        w.home_file("live/dispatch.json", &format!("{bad}\n"));
+        w.home_file(w.at().live(Live::Dispatch), &format!("{bad}\n"));
         let r = and_summary(&w);
         assert_eq!(r.rc, 0, "{bad}: {}", r.out);
         assert_eq!(health_status(&w), "pass", "{bad}");
@@ -781,8 +782,7 @@ fn an_image_built_from_a_release_newer_than_the_target_cached_is_current_and_one
     let (b, c) = ("b".repeat(40), "c".repeat(40));
     // The target was asked a minute ago, at v0.14.54; v0.14.55 came out since
     // and the image was built from it.
-    w.home_file(
-        "state/rukas-target",
+    w.home_file(w.at().state(State::RukasTarget),
         &format!(
             "{{\"at\":{},\"follow\":\"release:0\",\"repo\":\"https://github.com/up/pi-rukas.git\",\"commit\":\"{b}\",\"what\":\"release v0.14.54\"}}\n",
             tehas_core::time::now() - 60
@@ -846,7 +846,7 @@ fn health_warns_when_the_state_store_has_no_backup_or_only_one_more_than_two_day
     assert_eq!(health_status(&w), "pass");
     let age = health_file(&w)["checks"]["backup"]["ageSeconds"].as_f64();
     assert!(age.is_some_and(|a| a < 60.0), "{age:?}");
-    let backup = w.home.join("state/backup");
+    let backup = w.at().state(State::Backups);
     fs::remove_dir_all(&backup).unwrap();
     w.health();
     assert_eq!(health_status(&w), "warn");
@@ -1020,15 +1020,15 @@ fn the_stores_refusal_is_no_warning_and_the_health_file_says_there_was_no_check(
 #[test]
 fn test_features_the_variable_set_is_a_warning_a_line_and_a_field_and_unset_is_none() {
     let w = World::new("test-features");
-    w.set_env(&["TEHAS_TEST_FEATURES=outsource nothing"]);
+    w.set_env(&["TEHAS_TEST_FEATURES=plugins nothing"]);
     let r = and_summary(&w);
     assert_eq!(r.rc, 0, "{}", r.out);
     has(
         &r.out,
-        "features  a lab build: TEHAS_TEST_FEATURES names outsource, still being built",
+        "features  a lab build: TEHAS_TEST_FEATURES names plugins, still being built",
     );
     let h = health_file(&w);
-    let want = json!({"read":true,"features":["outsource"],"lab":false});
+    let want = json!({"read":true,"features":["plugins"],"lab":false});
     assert_eq!(
         json!([h["status"], h["checks"]["testFeatures"]]),
         json!(["warn", want])

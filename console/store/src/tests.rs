@@ -4,14 +4,14 @@
 
 use crate::db;
 use crate::live;
-use crate::review_issue;
-use crate::{execute, parse, ReviewFile, ReviewIssue, Settings, Verb};
+use crate::{execute, parse, Settings, Verb};
 use rusqlite::Connection;
 use serde_json::{json, Value};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use tehas_core::home::{Home, State};
 use tehas_core::testdir::TestDir;
 
 fn scratch(name: &str) -> TestDir {
@@ -33,7 +33,6 @@ fn init(home: &Path, force: bool) -> Result<String, (u8, String)> {
         &Verb::Init {
             force,
             settings: settings(),
-            outsource: false,
         },
         1_792_000_000,
     )
@@ -62,7 +61,7 @@ fn init_makes_a_0600_file_in_a_0700_state_with_its_side_files() {
     assert_eq!(mode(&file), 0o600);
     // state/ is 0700 whatever the umask of the caller was: the store made the
     // directory itself and set the mode on it.
-    assert_eq!(mode(&home.join("state")), 0o700);
+    assert_eq!(mode(&Home::new(home.path()).state_dir()), 0o700);
     // The two siblings SQLite makes beside the file are the store's data until
     // the next checkpoint, so they carry the file's mode too. A database with
     // no rows to checkpoint has no -wal and no -shm at all once its last
@@ -100,8 +99,9 @@ fn init_writes_the_row_of_meta_and_the_caller_s_settings() {
     let conn = Connection::open(db::path(&home)).unwrap();
     let got = one::<String>(
         &conn,
-        "SELECT group_concat(key || '=' || value, ' ') FROM (SELECT * FROM meta ORDER BY key)",
+        "SELECT group_concat(key || '=' || value, ' ') FROM (SELECT * FROM meta WHERE key <> 'store' ORDER BY key)",
     );
+    assert_store_id(&conn);
     let schema = format!("schema={}", db::SCHEMA_VERSION);
     let mut want = [
         "created_at=1792000000",
@@ -114,6 +114,17 @@ fn init_writes_the_row_of_meta_and_the_caller_s_settings() {
     .to_vec();
     want.sort_unstable();
     assert_eq!(got.split(' ').collect::<Vec<_>>(), want);
+}
+
+/// The store's id in meta: 32 lower-case hex digits.
+pub(crate) fn assert_store_id(conn: &Connection) {
+    let id = one::<String>(conn, "SELECT value FROM meta WHERE key = 'store'");
+    assert_eq!(id.len(), 32, "{id}");
+    assert!(
+        id.bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
+        "{id}"
+    );
 }
 
 #[test]
@@ -133,14 +144,19 @@ fn init_refuses_an_existing_file_and_writes_nothing() {
     );
     assert_eq!(fs::read(&file).unwrap(), before);
     // Nothing was added beside it either.
-    assert_eq!(fs::read_dir(home.join("state")).unwrap().count(), 1);
+    assert_eq!(
+        fs::read_dir(Home::new(home.path()).state_dir())
+            .unwrap()
+            .count(),
+        1
+    );
 }
 
 #[test]
 fn force_replaces_an_empty_file_and_refuses_one_with_rows() {
     let home = scratch("force");
     let file = db::path(&home);
-    fs::create_dir_all(home.join("state")).unwrap();
+    fs::create_dir_all(Home::new(home.path()).state_dir()).unwrap();
     // An empty file is the store's to fill.
     fs::write(&file, b"").unwrap();
     fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).unwrap();
@@ -170,7 +186,7 @@ fn force_replaces_an_empty_file_and_refuses_one_with_rows() {
 fn force_refuses_a_file_that_is_not_a_database_and_keeps_it() {
     let home = scratch("force-garbage");
     let file = db::path(&home);
-    fs::create_dir_all(home.join("state")).unwrap();
+    fs::create_dir_all(Home::new(home.path()).state_dir()).unwrap();
     let garbage = b"not a database, and long enough to be read as a header. ".repeat(20);
     fs::write(&file, &garbage).unwrap();
     let (code, err) = init(&home, true).unwrap_err();
@@ -178,9 +194,20 @@ fn force_refuses_a_file_that_is_not_a_database_and_keeps_it() {
     assert!(err.starts_with("corrupt "), "{err}");
     // ADR 0003: the damaged file stays exactly where a person can read it.
     assert_eq!(fs::read(&file).unwrap(), garbage);
-    assert!(!home.join("state/tehas.db.broken").exists());
-    assert!(!home.join("state/tehas.db.schema-1").exists());
-    assert_eq!(fs::read_dir(home.join("state")).unwrap().count(), 1);
+    assert!(!Home::new(home.path())
+        .state_dir()
+        .join("tehas.db.broken")
+        .exists());
+    assert!(!Home::new(home.path())
+        .state_dir()
+        .join("tehas.db.schema-1")
+        .exists());
+    assert_eq!(
+        fs::read_dir(Home::new(home.path()).state_dir())
+            .unwrap()
+            .count(),
+        1
+    );
 }
 
 #[test]
@@ -189,7 +216,7 @@ fn a_link_at_the_path_is_refused_and_its_target_untouched() {
     let elsewhere = scratch("link-target");
     let real = elsewhere.join("elsewhere.db");
     fs::write(&real, b"somebody else's file").unwrap();
-    fs::create_dir_all(home.join("state")).unwrap();
+    fs::create_dir_all(Home::new(home.path()).state_dir()).unwrap();
     std::os::unix::fs::symlink(&real, db::path(&home)).unwrap();
     for force in [false, true] {
         let (code, err) = init(&home, force).unwrap_err();
@@ -204,7 +231,7 @@ fn a_link_at_the_path_is_refused_and_its_target_untouched() {
     // A link for state/ itself moves the store outside the home.
     let moved = scratch("link-dir");
     let elsewhere = scratch("link-dir-target");
-    std::os::unix::fs::symlink(&elsewhere, moved.join("state")).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, Home::new(moved.path()).state_dir()).unwrap();
     let (code, err) = init(&moved, true).unwrap_err();
     assert_eq!(code, 78);
     assert!(err.starts_with("unreadable "), "{err}");
@@ -224,24 +251,30 @@ fn guard_path(home: &Path, rel: &str, said: &str) {
 #[test]
 fn a_path_under_live_or_state_index_is_refused() {
     let served = scratch("under-live");
-    fs::create_dir_all(served.join("live")).unwrap();
+    fs::create_dir_all(Home::new(served.path()).live_dir()).unwrap();
     guard_path(
         &served,
         "live",
         "the path is under live/, which Caddy serves",
     );
     let indexed = scratch("under-index");
-    fs::create_dir_all(indexed.join("state/index")).unwrap();
+    fs::create_dir_all(Home::new(indexed.path()).state(State::CodeIndex)).unwrap();
     guard_path(
         &indexed,
-        "state/index",
+        State::CodeIndex.relative(),
         "the path is under state/index, which the indexing container writes",
     );
     // A directory that merely has the name is not the tree the rule is about.
     let named = scratch("named-live");
-    fs::create_dir_all(named.join("state/livelier")).unwrap();
+    fs::create_dir_all(Home::new(named.path()).state_dir().join("livelier")).unwrap();
     assert_eq!(
-        db::open(&named.join("state/livelier/tehas.db"), db::Purpose::Read).unwrap_err(),
+        db::open(
+            &Home::new(named.path())
+                .state_dir()
+                .join("livelier/tehas.db"),
+            db::Purpose::Read
+        )
+        .unwrap_err(),
         db::DbError::Missing
     );
 }
@@ -256,7 +289,7 @@ fn each_of_the_four_classes_exits_78_with_its_word() {
 
     // corrupt: a file whose bytes are not a database.
     let home = scratch("corrupt");
-    fs::create_dir_all(home.join("state")).unwrap();
+    fs::create_dir_all(Home::new(home.path()).state_dir()).unwrap();
     fs::write(
         db::path(&home),
         b"not a database, and long enough to be read as a header. ".repeat(20),
@@ -295,7 +328,7 @@ fn each_of_the_four_classes_exits_78_with_its_word() {
 
     // unreadable: a directory where the file should be.
     let home = scratch("directory");
-    fs::create_dir_all(home.join("state/tehas.db")).unwrap();
+    fs::create_dir_all(Home::new(home.path()).state(State::StoreDb)).unwrap();
     let (code, err) = check(&home).unwrap_err();
     assert_eq!(code, 78);
     assert!(err.starts_with("unreadable the database"), "{err}");
@@ -345,7 +378,7 @@ fn check_reports_its_schema_and_an_integrity_of_ok() {
         "{line}"
     );
     assert!(line.contains("\"integrity\":\"ok\""), "{line}");
-    assert!(line.contains("\"meta\":6"), "{line}");
+    assert!(line.contains("\"meta\":7"), "{line}");
     assert!(line.contains("\"issues\":0"), "{line}");
     assert!(line.ends_with('}'), "{line}");
     // One object on stdout, one line, valid JSON.
@@ -355,12 +388,9 @@ fn check_reports_its_schema_and_an_integrity_of_ok() {
     assert_eq!(value["verb"], "check");
     assert_eq!(value["ok"], true);
     let rows = value["rows"].as_object().unwrap();
-    assert_eq!(
-        rows.len(),
-        db::COUNTED_TABLES.len() + db::OUTSOURCE_TABLES.len()
-    );
-    for table in db::COUNTED_TABLES.iter().chain(&db::OUTSOURCE_TABLES) {
-        assert!(rows.contains_key(*table), "{table} is not counted");
+    assert_eq!(rows.len(), db::COUNTED_TABLES.len());
+    for table in db::COUNTED_TABLES {
+        assert!(rows.contains_key(table), "{table} is not counted");
     }
 }
 
@@ -378,14 +408,13 @@ fn every_counted_table_exists_and_every_table_of_the_schema_is_counted() {
         .map(|r| r.unwrap())
         .collect();
     let mut counted: Vec<&str> = db::COUNTED_TABLES.to_vec();
-    counted.extend(db::OUTSOURCE_TABLES);
     counted.sort_unstable();
     let mut counted: Vec<String> = counted.iter().map(|s| s.to_string()).collect();
     counted.sort_unstable();
     assert_eq!(names, counted, "the schema and the counts have diverged");
     assert_eq!(
         counted.len(),
-        db::COUNTED_TABLES.len() + db::OUTSOURCE_TABLES.len(),
+        db::COUNTED_TABLES.len(),
         "a table is counted twice"
     );
     // The indexes by name too, so the test that damages one of them names a
@@ -516,7 +545,7 @@ fn check_names_a_failed_integrity_check_corrupt_and_exits_78_without_moving_the_
     // with a log are allowed beside it, and no third -- a `.broken` of the
     // analytics program's habit would be one, and so is any copy of the file
     // under another name.
-    let mut kept = fs::read_dir(home.join("state"))
+    let mut kept = fs::read_dir(Home::new(home.path()).state_dir())
         .unwrap()
         .map(|e| e.unwrap().file_name())
         .collect::<Vec<_>>();
@@ -526,7 +555,7 @@ fn check_names_a_failed_integrity_check_corrupt_and_exits_78_without_moving_the_
     for name in &kept {
         assert!(
             allowed.contains(name),
-            "state/ holds {name:?}, which the verb put there"
+            "the state dir holds {name:?}, which the verb put there"
         );
     }
     assert!(
@@ -1378,7 +1407,7 @@ fn migrate_writes_its_backup_before_it_changes_anything() {
     // What the file holds once its log is in it: the bytes the verb is not
     // allowed to change, taken now and asked of again after every call below.
     let before = fs::read(&file).unwrap();
-    let state = home.join("state");
+    let state = Home::new(home.path()).state_dir();
 
     // The copy itself: beside the file it came from, at the store's mode, and a
     // database a reader can open.
@@ -1402,7 +1431,7 @@ fn migrate_writes_its_backup_before_it_changes_anything() {
         db::SCHEMA_VERSION,
         "the copy is of the database as it was"
     );
-    assert_eq!(one::<i64>(&copy_conn, "SELECT count(*) FROM meta"), 6);
+    assert_eq!(one::<i64>(&copy_conn, "SELECT count(*) FROM meta"), 7);
     drop(copy_conn);
     assert_eq!(
         fs::read(&file).unwrap(),
@@ -1469,7 +1498,7 @@ fn migrate_writes_its_backup_before_it_changes_anything() {
     }
     for e in fs::read_dir(&state).unwrap() {
         let name = e.unwrap().file_name();
-        assert!(allowed.contains(&name), "state/ holds {name:?}");
+        assert!(allowed.contains(&name), "the state dir holds {name:?}");
     }
     assert_eq!(
         fs::read(&copy).unwrap(),
@@ -1499,7 +1528,7 @@ fn migrate_writes_its_backup_before_it_changes_anything() {
     let (code, err) = migrate(&home, &elsewhere).unwrap_err();
     assert_eq!(code, 78, "{err}");
     assert!(err.starts_with("unreadable "), "{err}");
-    assert!(err.contains("state/"), "{err}");
+    assert!(err.contains("the state/"), "{err}");
     assert_eq!(fs::read(&file).unwrap(), before, "a refused backup wrote");
     assert!(fs::read_dir(&elsewhere).unwrap().next().is_none());
 }
@@ -1511,7 +1540,7 @@ fn migrate_writes_into_state_backup_made_0700_and_refuses_a_link_there() {
     // the store.
     let home = scratch("migrate-backup-dir");
     init(&home, false).unwrap();
-    let own = home.join("state").join("backup");
+    let own = Home::new(home.path()).state(State::Backups);
     let line = migrate(&home, &own).unwrap();
     let copy = PathBuf::from(
         serde_json::from_str::<serde_json::Value>(&line).unwrap()["backup"]
@@ -1531,8 +1560,8 @@ fn migrate_writes_into_state_backup_made_0700_and_refuses_a_link_there() {
     let home = scratch("migrate-backup-link");
     init(&home, false).unwrap();
     let elsewhere = scratch("migrate-backup-elsewhere");
-    std::os::unix::fs::symlink(&elsewhere, home.join("state").join("backup")).unwrap();
-    let (code, err) = migrate(&home, &home.join("state").join("backup")).unwrap_err();
+    std::os::unix::fs::symlink(&elsewhere, Home::new(home.path()).state(State::Backups)).unwrap();
+    let (code, err) = migrate(&home, &Home::new(home.path()).state(State::Backups)).unwrap_err();
     assert_eq!(code, 78, "{err}");
     assert!(err.starts_with("unreadable "), "{err}");
     assert!(fs::read_dir(&elsewhere).unwrap().next().is_none());
@@ -1547,7 +1576,7 @@ fn migrate_names_its_backup_in_json_whatever_its_path_holds() {
     let home = odd.join("ho\u{1b}me \"x\" \u{e4}");
     fs::create_dir(&home).unwrap();
     init(&home, false).unwrap();
-    let state = home.join("state");
+    let state = Home::new(&home).state_dir();
     let line = migrate(&home, &state).unwrap();
     let value: serde_json::Value = serde_json::from_str(&line).expect(&line);
     let copy = PathBuf::from(value["backup"].as_str().unwrap());
@@ -1564,16 +1593,19 @@ fn migrate_takes_a_backup_dir_in_a_home_reached_through_a_link() {
     let home = linked.join("tehas");
     std::os::unix::fs::symlink(&real, &home).unwrap();
     init(&home, false).unwrap();
-    let own = home.join("state").join("backup");
+    let own = Home::new(&home).state(State::Backups);
     let line = migrate(&home, &own).unwrap();
     let copy = PathBuf::from(
         serde_json::from_str::<serde_json::Value>(&line).unwrap()["backup"]
             .as_str()
             .unwrap(),
     );
-    assert_eq!(copy.parent().unwrap(), real.join("state").join("backup"));
-    assert_eq!(mode(&real.join("state").join("backup")), 0o700);
-    migrate_at(&home, &home.join("state"), 1_792_000_060).unwrap();
+    assert_eq!(
+        copy.parent().unwrap(),
+        Home::new(real.path()).state(State::Backups)
+    );
+    assert_eq!(mode(&Home::new(real.path()).state(State::Backups)), 0o700);
+    migrate_at(&home, &Home::new(&home).state_dir(), 1_792_000_060).unwrap();
 }
 
 #[test]
@@ -1585,11 +1617,15 @@ fn migrate_brings_an_empty_file_to_the_schema_and_the_rows_it_lacks() {
     // on the directory, which is the state `install.sh` and `libexec/update`
     // leave behind and the reason a migration settles both modes on the way in.
     let home = scratch("migrate-zero");
-    fs::create_dir_all(home.join("state")).unwrap();
+    fs::create_dir_all(Home::new(home.path()).state_dir()).unwrap();
     fs::write(db::path(&home), b"").unwrap();
     fs::set_permissions(db::path(&home), fs::Permissions::from_mode(0o644)).unwrap();
-    fs::set_permissions(home.join("state"), fs::Permissions::from_mode(0o755)).unwrap(); // a directory
-    let line = migrate(&home, &home.join("state")).unwrap();
+    fs::set_permissions(
+        Home::new(home.path()).state_dir(),
+        fs::Permissions::from_mode(0o755),
+    )
+    .unwrap(); // a directory
+    let line = migrate(&home, &Home::new(home.path()).state_dir()).unwrap();
     let value: serde_json::Value = serde_json::from_str(&line).unwrap();
     assert_eq!(value["from"], 0, "{line}");
     assert_eq!(value["to"], db::SCHEMA_VERSION, "{line}");
@@ -1601,11 +1637,12 @@ fn migrate_brings_an_empty_file_to_the_schema_and_the_rows_it_lacks() {
         db::SCHEMA_VERSION.to_string()
     );
     // The migration writes the rows a database at 1 holds and has no way to
-    // get: the four the caller gave, and the instant.
+    // get: the four the caller gave, and the instant, and the store's id.
     let got = one::<String>(
         &conn,
-        "SELECT group_concat(key || '=' || value, ' ') FROM (SELECT * FROM meta ORDER BY key)",
+        "SELECT group_concat(key || '=' || value, ' ') FROM (SELECT * FROM meta WHERE key <> 'store' ORDER BY key)",
     );
+    assert_store_id(&conn);
     let schema = format!("schema={}", db::SCHEMA_VERSION);
     assert_eq!(
         got.split(' ').collect::<Vec<_>>(),
@@ -1632,7 +1669,11 @@ fn migrate_brings_an_empty_file_to_the_schema_and_the_rows_it_lacks() {
     // holds a connection open to ask is `the_wal_and_shm_siblings_take_the_file_s_mode`.
     drop(conn);
     assert_eq!(mode(&file), 0o600, "the migrated file");
-    assert_eq!(mode(&home.join("state")), 0o700, "state/");
+    assert_eq!(
+        mode(&Home::new(home.path()).state_dir()),
+        0o700,
+        "the state dir"
+    );
     // Every table of the schema is there, so the migrated file is one the other
     // verbs read. The count is what the schema holds, counted from the schema
     // the store was given rather than from a number written here: the schema of
@@ -1644,7 +1685,7 @@ fn migrate_brings_an_empty_file_to_the_schema_and_the_rows_it_lacks() {
     assert_eq!(report["integrity"], "ok");
     assert_eq!(
         report["rows"].as_object().unwrap().len(),
-        db::COUNTED_TABLES.len() + db::OUTSOURCE_TABLES.len()
+        db::COUNTED_TABLES.len()
     );
     let conn = db::open_read_only(&file).unwrap();
     let tables: i64 = one(
@@ -1656,10 +1697,7 @@ fn migrate_brings_an_empty_file_to_the_schema_and_the_rows_it_lacks() {
         "SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name NOT LIKE 'sqlite_%'",
     );
     drop(conn);
-    assert_eq!(
-        tables,
-        (db::COUNTED_TABLES.len() + db::OUTSOURCE_TABLES.len()) as i64
-    );
+    assert_eq!(tables, db::COUNTED_TABLES.len() as i64);
     assert_eq!(indexes, db::COUNTED_INDEXES.len() as i64);
     // What a migration leaves in `state/`, and what each of the two copies
     // holds. A verb that changed the version leaves two files: the copy the
@@ -1668,7 +1706,7 @@ fn migrate_brings_an_empty_file_to_the_schema_and_the_rows_it_lacks() {
     // under the version it came with, which is its twin. The reported name is
     // the one a person reaches for, so it is the one taken first: a verb that
     // could not write it has run nothing.
-    let state = home.join("state");
+    let state = Home::new(home.path()).state_dir();
     let copies: Vec<String> = fs::read_dir(&state)
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
@@ -1738,9 +1776,9 @@ fn a_reported_copy_that_cannot_be_written_leaves_the_step_unrun() {
     // Every name of `tehas-<schema>-<now>` held by a file the verb did not make is the
     // copy it cannot write, and the verb must then change nothing at all.
     let home = scratch("migrate-after");
-    fs::create_dir_all(home.join("state")).unwrap();
+    fs::create_dir_all(Home::new(home.path()).state_dir()).unwrap();
     fs::write(db::path(&home), b"").unwrap();
-    let state = home.join("state");
+    let state = Home::new(home.path()).state_dir();
     for n in 0..db::BACKUP_NAMES {
         fs::write(
             db::backup_name_at(&state, db::SCHEMA_VERSION, 1_792_000_000, n),
@@ -1782,7 +1820,7 @@ fn a_reported_copy_that_cannot_be_written_leaves_the_step_unrun() {
 fn migrate_reports_the_three_fields_and_a_store_at_the_written_schema_stays_there() {
     let home = scratch("migrate-json");
     init(&home, false).unwrap();
-    let state = home.join("state");
+    let state = Home::new(home.path()).state_dir();
     let line = migrate(&home, &state).unwrap();
     // One object, one line, valid JSON, and the fields the verb states: api
     // first as every answer of tehas writes it, then the verb and its ok, then
@@ -1860,7 +1898,7 @@ fn migrate_refuses_a_schema_it_has_no_step_for_and_a_future_one() {
     let home = scratch("migrate-unknown");
     init(&home, false).unwrap();
     let file = db::path(&home);
-    let state = home.join("state");
+    let state = Home::new(home.path()).state_dir();
     {
         let conn = Connection::open(&file).unwrap();
         conn.pragma_update(None, "user_version", db::SCHEMA_VERSION + 1)
@@ -1939,7 +1977,7 @@ fn migrate_refuses_a_schema_it_has_no_step_for_and_a_future_one() {
     }
     checkpoint(&file);
     let before = fs::read(&file).unwrap();
-    let (code, err) = migrate(&home, &home.join("state")).unwrap_err();
+    let (code, err) = migrate(&home, &Home::new(home.path()).state_dir()).unwrap_err();
     assert_eq!(code, 78, "{err}");
     assert!(err.starts_with("corrupt "), "{err}");
     assert_eq!(fs::read(&file).unwrap(), before);
@@ -1955,7 +1993,7 @@ fn migrate_waits_on_a_lock_the_way_a_write_verb_does() {
     // race and must report it: `busy` is exit 1, and no copy was made.
     let home = scratch("migrate-busy");
     init(&home, false).unwrap();
-    let state = home.join("state");
+    let state = Home::new(home.path()).state_dir();
     let mut holder = Connection::open(db::path(&home)).unwrap();
     holder.pragma_update(None, "busy_timeout", 0).unwrap();
     let tx = holder
@@ -2009,7 +2047,6 @@ fn the_arguments_migrate_accepts_are_the_ones_it_states() {
         Some(Verb::Migrate {
             backup: PathBuf::from(dir),
             settings: settings(),
-            outsource: false,
         })
     );
     let mut jsoned = vec!["--json"];
@@ -2052,7 +2089,6 @@ fn migrate_at(home: &Path, dir: &Path, now: i64) -> Result<String, (u8, String)>
         &Verb::Migrate {
             backup: dir.to_path_buf(),
             settings: settings(),
-            outsource: false,
         },
         now,
     )
@@ -2085,7 +2121,7 @@ fn an_unknown_verb_or_argument_is_64() {
         );
     }
     // Nothing was written by a call that stopped at its arguments.
-    assert!(!home.join("state").exists());
+    assert!(!Home::new(home.path()).state_dir().exists());
 }
 
 /// The arguments of init, with these settings.
@@ -2118,7 +2154,6 @@ fn the_arguments_init_accepts_are_the_ones_it_states() {
         Some(Verb::Init {
             force: false,
             settings: settings(),
-            outsource: false,
         })
     );
     let mut forced = vec!["--force", "--json"];
@@ -2128,7 +2163,6 @@ fn the_arguments_init_accepts_are_the_ones_it_states() {
         Some(Verb::Init {
             force: true,
             settings: settings(),
-            outsource: false,
         })
     );
     assert_eq!(parse(&init_args(&["--json"])), None);
@@ -2136,6 +2170,46 @@ fn the_arguments_init_accepts_are_the_ones_it_states() {
         parse(&["check".to_string(), "--json".to_string()]),
         Some(Verb::Check)
     );
+}
+
+/// Outsource was dropped in 2.0, and `--outsource` with it: wherever it
+/// stands, init and migrate answer their usage and write nothing.
+#[test]
+fn the_outsource_flag_of_init_and_migrate_is_refused_with_the_usage() {
+    let home = scratch("no-outsource-flag");
+    let full = [
+        "--version",
+        "v0.10.2",
+        "--commit",
+        "cb6912a",
+        "--instance",
+        "tehas-tehas",
+        "--repo",
+        "example-owner/example-product",
+    ];
+    for verb in ["init", "migrate"] {
+        let backup: &[&str] = if verb == "migrate" {
+            &["--backup", "/b"]
+        } else {
+            &[]
+        };
+        for at in [0, 2, full.len()] {
+            let mut args = vec![verb];
+            args.extend_from_slice(backup);
+            args.extend_from_slice(&full[..at]);
+            args.push("--outsource");
+            args.extend_from_slice(&full[at..]);
+            let (code, said) = crate::call(&home, &args, &mut std::io::empty()).unwrap_err();
+            assert_eq!(code, 64, "{args:?}: {said}");
+            assert!(
+                said.starts_with("usage: store init [--force] [--version"),
+                "{said}"
+            );
+            assert!(!said.contains("--outsource"), "{said}");
+        }
+    }
+    assert!(!Home::new(home.path()).state_dir().exists());
+    assert!(!crate::USAGE.contains("contractor") && !crate::USAGE.contains("job-"));
 }
 
 #[test]
@@ -2154,7 +2228,7 @@ fn the_schema_holds_every_table_of_the_spec_with_its_checks() {
             "cycles.how",
         ),
         (
-            "INSERT INTO questions (id, issue, attempt, kind, posted_at) VALUES (1, 1, 1, 'blockers', 1)",
+            "INSERT INTO questions (comment_id, issue, attempt, kind, posted_at) VALUES (1, 1, 1, 'blockers', 1)",
             "questions.kind",
         ),
         (
@@ -2168,7 +2242,7 @@ fn the_schema_holds_every_table_of_the_spec_with_its_checks() {
     // further than the key.
     assert!(conn
         .execute(
-            "INSERT INTO cycles (issue, started_at, started_by, how) VALUES (7, 1, 'a', 'label')",
+            "INSERT INTO cycles (issue, started_at, started_by, how) VALUES (7, 1, 'a', 'approved')",
             []
         )
         .is_err());
@@ -2178,7 +2252,7 @@ fn the_schema_holds_every_table_of_the_spec_with_its_checks() {
     )
     .unwrap();
     conn.execute(
-        "INSERT INTO cycles (issue, started_at, started_by, how) VALUES (7, 1, 'a', 'label')",
+        "INSERT INTO cycles (issue, started_at, started_by, how) VALUES (7, 1, 'a', 'approved')",
         [],
     )
     .unwrap();
@@ -2229,7 +2303,7 @@ fn an_open_refuses_a_file_that_is_not_a_database_at_all() {
     // `corrupt`: a file that is not a database is refused before any verb reads
     // a byte of it, and is left where it is.
     let home = scratch("not-a-database");
-    fs::create_dir_all(home.join("state")).unwrap();
+    fs::create_dir_all(Home::new(home.path()).state_dir()).unwrap();
     let file = db::path(&home);
     fs::write(&file, b"#!/bin/sh\necho not a database\n".repeat(60)).unwrap();
     for purpose in [db::Purpose::Read, db::Purpose::Write] {
@@ -2390,852 +2464,6 @@ fn paths_overlap_is_no_verb_any_more() {
     }
 }
 
-// --- the review issue -------------------------------------------------------
-// The title and body of the issue tehasbot review files for triage, rendered
-// from the document of one run (tehas_core::review).
-
-/// The verb's three arguments, given as words.
-fn review_args(args: &[&str]) -> Vec<String> {
-    let mut v = vec!["review-issue".to_string()];
-    v.extend(args.iter().map(|s| s.to_string()));
-    v
-}
-
-/// The document of a run, written to a file of its own and handed to the verb
-/// with the two names the title is built from.
-fn review_issue(home: &Path, name: &str, document: &str) -> Result<String, (u8, String)> {
-    let dir = scratch(name);
-    let given = dir.join("review-2026-10-27.json");
-    fs::write(&given, document).unwrap();
-    execute(
-        home,
-        &Verb::ReviewIssue(ReviewIssue {
-            path: given,
-            branch: "main".to_string(),
-            commit: "cb6912a".to_string(),
-        }),
-        1_792_000_000,
-    )
-}
-
-/// The same verb at a file the caller names, for the refusals that are about
-/// the file rather than its contents.
-fn review_at(path: PathBuf) -> Result<String, (u8, String)> {
-    execute(
-        &scratch("review-at"),
-        &Verb::ReviewIssue(ReviewIssue {
-            path,
-            branch: "main".to_string(),
-            commit: "cb6912a".to_string(),
-        }),
-        1_792_000_000,
-    )
-}
-
-#[test]
-fn review_issue_answers_the_title_and_body_as_one_line() {
-    let home = scratch("review-home");
-    let document = concat!(
-        "{\"exitCode\":0,\"verdict\":\"ISSUES_FOUND\",\"noReview\":false,\"findings\":[",
-        "{\"severity\":\"CRITICAL\",\"lens\":\"security\",\"path\":\"lib/config.sh\",\"line\":4,",
-        "\"title\":\"a token is printed\",\"description\":\"at length\",\"suggestion\":\"hide it\"},",
-        "{\"severity\":\"MEDIUM\",\"lens\":\"simplicity\",\"path\":\"console/src/render.rs\",\"line\":2,",
-        "\"title\":\"a branch that repeats\"},",
-        "{\"severity\":\"LOW\",\"lens\":\"performance\",\"path\":\"console/core/src/slow.rs\",\"line\":9,",
-        "\"title\":\"a read of the whole file\"}]}",
-    );
-    let answer = review_issue(&home, "review-answered", document).unwrap();
-    assert_eq!(
-        answer.lines().count(),
-        1,
-        "one object is one line: {answer}"
-    );
-    assert!(
-        answer.starts_with("{\"api\":1,\"verb\":\"review-issue\",\"ok\":true,"),
-        "{answer}"
-    );
-    // The body is model text with newlines and quotes in it, so the test of
-    // what the answer means is the parser the shell's reader uses.
-    let line: serde_json::Value = serde_json::from_str(&answer).unwrap();
-    assert_eq!(
-        line["title"],
-        "Six-lens review: 3 findings on main since cb6912a"
-    );
-    assert_eq!(
-        line["body"],
-        "### Critical\n- [security] lib/config.sh:4: a token is printed\n\n\
-         ### Medium\n- [simplicity] console/src/render.rs:2: a branch that repeats\n\n\
-         Low: 1 more findings not listed."
-    );
-    // What a finding says at length stays in the log of the run.
-    assert!(!answer.contains("at length"), "{answer}");
-}
-
-#[test]
-fn review_issue_escapes_an_answer_whose_body_holds_newlines_and_quotes() {
-    // The words of a finding are the model's. The answer is still one line,
-    // and parses back with the newlines and the quotes of the body preserved:
-    // what every reader of the store requires of every verb.
-    let home = scratch("review-escaped");
-    let document = "{\"findings\":[{\"severity\":\"HIGH\",\"lens\":\"security\",\
-                    \"path\":\"a\\\"b.rs\",\"line\":7,\"title\":\"says \\\"no\\\" and \\\\n more\"}]}";
-    let answer = review_issue(&home, "review-escape", document).unwrap();
-    assert_eq!(
-        answer.lines().count(),
-        1,
-        "one object is one line: {answer}"
-    );
-    let line: serde_json::Value = serde_json::from_str(&answer).unwrap();
-    assert_eq!(
-        line["body"],
-        "### High\n- [security] a\"b.rs:7: says \"no\" and \\n more"
-    );
-    assert!(line["body"].as_str().unwrap().contains('\n'));
-}
-
-#[test]
-fn review_issue_answers_a_title_that_quotes_a_token_masked_and_as_one_line() {
-    // The words of a finding are the model's and may hold a secret it saw. The
-    // verb answers with the body masked -- the same tehas_core::mask the
-    // console's log of the run goes through -- and one line the store's reader
-    // parses back: what reaches the half that files it is safe to post.
-    let home = scratch("review-token");
-    // Synthetic filler, the shape the workspace uses for token fixtures
-    // (console/src/export.rs): a real token pattern with no token in it, so no
-    // secret scan fires on this file.
-    let secret = format!("ghp_{}", "A".repeat(36));
-    let document = format!(
-        concat!(
-            "{{\"findings\":[{{\"severity\":\"CRITICAL\",\"lens\":\"security\",",
-            "\"path\":\"instances/example/settings.sh\",\"line\":7,",
-            "\"title\":\"a token is printed: {}\"}}]}}",
-        ),
-        secret
-    );
-    let answer = review_issue(&home, "review-token-file", &document).unwrap();
-    assert_eq!(
-        answer.lines().count(),
-        1,
-        "one object is one line: {answer}"
-    );
-    let line: serde_json::Value = serde_json::from_str(&answer).unwrap();
-    assert_eq!(
-        line["body"],
-        "### Critical\n- [security] instances/example/settings.sh:7: a token is printed: ghp_***"
-    );
-}
-
-#[test]
-fn review_issue_of_no_findings_answers_the_empty_body() {
-    let home = scratch("review-none");
-    let answer = review_issue(
-        &home,
-        "review-no-findings",
-        "{\"exitCode\":0,\"findings\":[]}",
-    )
-    .unwrap();
-    let line: serde_json::Value = serde_json::from_str(&answer).unwrap();
-    assert_eq!(line["body"], "");
-    assert_eq!(
-        line["title"],
-        "Six-lens review: 0 findings on main since cb6912a"
-    );
-}
-
-#[test]
-fn the_empty_document_of_a_run_that_wrote_nothing_is_a_filing_of_nothing() {
-    // The console makes the document before the container fills it, so a run
-    // whose container said nothing leaves a file of no bytes. It is no JSON,
-    // and it is not a refusal either: it is the document of a run that left no
-    // findings, and the verb that files renders it as one. GitHub is asked
-    // nothing, the answer is the line of a filing of nothing, and the record
-    // of the range moves on as it does for a run that found none.
-    let dir = scratch("file-empty-doc");
-    let gh = stub_gh(&dir);
-    let f = filing("empty-doc", EMPTY_DOC, &[]);
-    fs::write(&f.doc, "").unwrap();
-    let line = filed(&f, &gh);
-    assert_eq!(line["action"], "nothing");
-    assert_eq!(line["findings"], 0);
-    assert_eq!(line["cost"], 0);
-    assert!(
-        line["said"]
-            .as_str()
-            .unwrap()
-            .starts_with("nothing to file:"),
-        "{line}"
-    );
-    assert!(
-        gh_calls(&gh).is_empty(),
-        "GitHub was asked: {:?}",
-        gh_calls(&gh)
-    );
-}
-
-#[test]
-fn review_issue_refuses_a_document_that_is_not_json() {
-    let home = scratch("review-malformed");
-    // An array, a string and a number are JSON but no document of a run, and
-    // bytes that are no UTF-8 are no JSON: all of them are refused. An empty
-    // file is not among them: it is a run whose container wrote nothing, and
-    // `the_empty_document_of_a_run_that_wrote_nothing` holds what it answers.
-    for document in [
-        "not json at all",
-        "{\"findings\":",
-        "\u{ff}\u{fe} bytes no UTF-8 decoder takes",
-        "[]",
-        "\"a string\"",
-        "42",
-    ] {
-        let (code, why) = review_issue(&home, "review-bad", document).unwrap_err();
-        assert_eq!(code, 64, "{document:?} answered {why}");
-        assert!(why.starts_with("review-issue: "), "{document:?} said {why}");
-    }
-}
-
-#[test]
-fn review_issue_refuses_a_file_it_cannot_read() {
-    // A link, a file over the bound and a file that is not there: each is
-    // refused at 64 with the name of the argument that was refused, and the
-    // line main prints carries the verb's own word first.
-    let dir = scratch("review-file-args");
-
-    let real = dir.join("elsewhere.json");
-    fs::write(&real, "{\"findings\":[]}").unwrap();
-    let link = dir.join("review.json");
-    std::os::unix::fs::symlink(&real, &link).unwrap();
-    let (code, why) = review_at(link).unwrap_err();
-    assert_eq!(code, 64, "{why}");
-    assert!(
-        why.starts_with("review-issue: ") && why.ends_with(" is not a plain file"),
-        "{why}"
-    );
-
-    let over = dir.join("over.json");
-    fs::write(&over, vec![b'x'; tehas_core::file::READ_BOUND_LEN + 1]).unwrap();
-    let (code, why) = review_at(over).unwrap_err();
-    assert_eq!(code, 64, "{why}");
-    assert!(
-        why.starts_with("review-issue: ") && why.ends_with(" is over 1 MiB"),
-        "{why}"
-    );
-
-    let missing = dir.join("gone.json");
-    let (code, why) = review_at(missing).unwrap_err();
-    assert_eq!(code, 64, "{why}");
-    assert!(
-        why.starts_with("review-issue: ") && why.ends_with(" is not a plain file"),
-        "{why}"
-    );
-    // The document of the same directory that is a plain file is read: the
-    // refusals above are about the file, not about where it sits.
-    review_at(real).unwrap();
-}
-
-#[test]
-fn review_issue_names_three_arguments_and_refuses_any_other_shape() {
-    assert_eq!(
-        parse(&review_args(&["/a.json", "main", "cb6912a"])),
-        Some(Verb::ReviewIssue(ReviewIssue {
-            path: PathBuf::from("/a.json"),
-            branch: "main".to_string(),
-            commit: "cb6912a".to_string(),
-        }))
-    );
-    assert_eq!(
-        parse(&review_args(&[
-            "/a.json",
-            "feature/issue-883-review",
-            &"a".repeat(40)
-        ])),
-        Some(Verb::ReviewIssue(ReviewIssue {
-            path: PathBuf::from("/a.json"),
-            branch: "feature/issue-883-review".to_string(),
-            commit: "a".repeat(40),
-        })),
-        "the branch of a worktree is a name the verb takes"
-    );
-    // Any other shape, and either name outside its grammar, is refused by
-    // parse: main prints the usage and exits 64 without reading the document.
-    for bad in [
-        vec![],
-        vec!["/a.json"],
-        vec!["/a.json", "main"],
-        vec!["/a.json", "main", "cb6912a", "extra"],
-        vec!["/a.json", "", "cb6912a"],
-        vec!["/a.json", " main", "cb6912a"],
-        vec!["/a.json", "-main", "cb6912a"],
-        vec!["/a.json", &format!("a{}", "b".repeat(80)), "cb6912a"],
-        vec!["/a.json", "main;rm", "cb6912a"],
-        vec!["/a.json", "main", "cb6912"],
-        vec!["/a.json", "main", "cb6912z"],
-        vec!["/a.json", "main", "CB6912A"],
-        vec!["/a.json", "main", ""],
-        vec!["--json", "/a.json", "main", "cb6912a"],
-    ] {
-        assert_eq!(parse(&review_args(&bad)), None, "{bad:?}");
-    }
-}
-
-#[test]
-fn review_issue_writes_nothing_to_the_home() {
-    // The verb reads the document it was given and answers: it is not one of
-    // the verbs that open the store, so the home of a call is left as it was.
-    let home = scratch("review-quiet");
-    let before: Vec<String> = names(&home);
-    review_issue(&home, "review-kept", "{\"findings\":[]}").unwrap();
-    assert_eq!(names(&home), before, "the verb wrote into the home");
-    assert!(!home.join("state").exists(), "no database was opened");
-}
-
-fn names(home: &Path) -> Vec<String> {
-    let mut v: Vec<String> = fs::read_dir(home)
-        .unwrap()
-        .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
-        .collect();
-    v.sort();
-    v
-}
-
-// --- store review-file ------------------------------------------------------
-
-/// The findings of one run, as the document of a run that found two holds
-/// them, with one word of a finding that the mask takes out and one that the
-/// host's own name is meant to.
-const REVIEW_DOC: &str = concat!(
-    "{\"exitCode\":10,\"verdict\":\"ISSUES_FOUND\",\"noReview\":false,\"findings\":[",
-    "{\"severity\":\"CRITICAL\",\"lens\":\"security\",\"path\":\"lib/config.sh\",\"line\":4,",
-    "\"title\":\"a token is printed\"},",
-    "{\"severity\":\"MEDIUM\",\"lens\":\"simplicity\",\"path\":\"libexec/review\",\"line\":2,",
-    "\"title\":\"a branch that repeats\"}]}",
-);
-
-/// What one filing was given, written to a document of its own, with the two
-/// names of the title and the command's own line. `gh` is looked for on the
-/// path of the call, which is where the cases of the filing put a stub of
-/// their own; `private` is the host's names, one per entry.
-struct Filing {
-    home: TestDir,
-    _doc_dir: TestDir,
-    doc: PathBuf,
-    ask: review_issue::Ask,
-}
-
-fn filing(name: &str, document: &str, private: &[&str]) -> Filing {
-    let home = scratch(&format!("file-{name}-home"));
-    // A home of the store's own shape, so the verb's own guard on TEHAS_HOME is
-    // met as it is on a host: the filing writes its body under state/.
-    fs::create_dir_all(home.join("state")).unwrap();
-    fs::write(home.join(".tehas-home"), "tehas\n").unwrap();
-    let dir = scratch(&format!("file-{name}-doc"));
-    let doc = dir.join("review-2026-10-28.json");
-    fs::write(&doc, document).unwrap();
-    Filing {
-        home,
-        _doc_dir: dir,
-        doc: doc.clone(),
-        ask: review_issue::Ask {
-            repo: "acme/backlog".to_string(),
-            doc,
-            branch: "main".to_string(),
-            commit: "cb6912a".repeat(6),
-            ask: "Apply `tehas:refine` to plan this into parts.".to_string(),
-            private: private.iter().map(|s| s.to_string()).collect(),
-            gh: PathBuf::from("gh"),
-        },
-    }
-}
-
-/// The filing of a case, asked of the `gh` of the case: the verb is given the
-/// stub by name, so a case of the filing runs no GitHub and needs no token. The
-/// stub answers each kind of call from a file of the case and records the call,
-/// which the case reads back with `gh_calls`. The answer is the store's line.
-fn filed(f: &Filing, gh: &Path) -> Value {
-    let mut ask = f.ask.clone();
-    ask.gh = gh.to_path_buf();
-    let body = review_issue::file(&ask, &f.home).expect("the filing answered");
-    assert_eq!(body.lines().count(), 1, "one object is one line: {body}");
-    // The body of the filing is gone when the verb ends: what gh was given was
-    // the run's words, not a record of the host.
-    assert!(
-        !review_issue::body_file(&f.home).exists(),
-        "the body of the filing was left in the home"
-    );
-    let line: Value = serde_json::from_str(&body).unwrap();
-    assert_eq!(line["verb"], "review-file");
-    assert_eq!(line["ok"], true);
-    line
-}
-
-/// The calls the stub recorded, one per line, each ending with the kind the
-/// stub read out of it.
-fn gh_calls(gh: &Path) -> Vec<String> {
-    fs::read_to_string(gh.with_extension("calls"))
-        .unwrap_or_default()
-        .lines()
-        .map(str::to_string)
-        .collect()
-}
-
-/// The `gh` of a case: a program of the case's own, which the verb finds on
-/// the path. One line per call goes into `<gh>.calls`; the arguments after the
-/// verb's two words are written as flags, so a body file is not mistaken for a
-/// call. A call of no kind the case named, and a kind with no file, answer as
-/// GitHub does when there is nothing of it; a file holding `fail` refuses.
-fn stub_gh(dir: &Path) -> PathBuf {
-    let bin = dir.join("gh");
-    let body = r#"#!/bin/sh
-# The gh of the store's own tests: one line per call in gh.calls, each ending
-# with the kind read from the arguments, and an answer for the list and for the
-# two calls of the filing from a file of the case (list.answer, create.answer,
-# comment.answer). A kind with no file answers as GitHub does when there is
-# nothing of it; a file that holds the word fail refuses the call.
-set -u
-dir=$(dirname "$0")
-args="$*"
-kind=other
-i=0
-for a in "$@"; do
-  i=$((i + 1))
-  case "$a" in
-    --body-file)
-      # The third word of a comment and the fifth of a create: the number of
-      # the issue tells them apart, not a guess at the position.
-      [ "$2" = comment ] && kind=comment || kind=create
-      j=0
-      for b in "$@"; do
-        j=$((j + 1))
-        [ "$b" = --body-file ] || continue
-        k=$((j + 1))
-        n=0
-        for c in "$@"; do
-          n=$((n + 1))
-          [ "$n" = "$k" ] && cp "$c" "$dir/last.body" 2>/dev/null
-        done
-      done
-      ;;
-    --state) kind=list ;;
-    --json) [ "$kind" = other ] && kind=list ;;
-    --title) kind=create ;;
-    --label) ;;
-  esac
-done
-case "$args" in
-  "issue list "*) kind=list ;;
-  "issue create "*) kind=create ;;
-  "issue comment "*) kind=comment ;;
-esac
-printf '%s %s\n' "$args" "$kind" >>"$dir/gh.calls"
-ans=$dir/$kind.answer
-if [ -f "$ans" ]; then
-  [ "$(cat "$ans")" != fail ] || exit 1
-  [ "$kind" = list ] && { cat "$ans"; exit 0; }
-  rm -f "$dir/last.body"
-  exit 0
-fi
-[ "$kind" = list ] && { echo '[]'; exit 0; }
-exit 0
-"#;
-    tehas_core::testing::write_exe(&bin, body).unwrap();
-    bin
-}
-
-/// The answer a case gives for one kind of call, in the directory of the stub.
-fn gh_answer(dir: &Path, kind: &str, answer: &str) {
-    fs::write(dir.join(format!("{kind}.answer")), format!("{answer}\n")).unwrap();
-}
-
-/// The findings of a run that found none: the document answers a body of
-/// nothing, and a filing of nothing asks GitHub nothing.
-const EMPTY_DOC: &str = "{\"exitCode\":0,\"findings\":[]}";
-
-#[test]
-fn review_file_files_the_findings_as_one_issue_of_the_label() {
-    let dir = scratch("file-new");
-    let gh = stub_gh(&dir);
-    let f = filing("new", REVIEW_DOC, &[]);
-    let line = filed(&f, &gh);
-    assert_eq!(line["findings"], 2);
-    assert_eq!(line["action"], "issue");
-    assert_eq!(line["number"], Value::Null);
-    assert_eq!(
-        line["said"], "2 findings are filed in acme/backlog",
-        "{line}"
-    );
-    assert_eq!(line["why"], Value::Null);
-    assert_eq!(line["cost"], 2, "the list, then the issue: {line}");
-    let calls = gh_calls(&gh);
-    assert_eq!(calls.len(), 2, "{calls:?}");
-    assert!(calls[0].ends_with(" list"), "{}", calls[0]);
-    assert!(
-        calls[0].contains("--label tehas:improvement"),
-        "{}",
-        calls[0]
-    );
-    assert!(calls[0].contains("--json number,title"), "{}", calls[0]);
-    assert!(calls[1].ends_with(" create"), "{}", calls[1]);
-    assert!(
-        calls[1].contains("Six-lens review: 2 findings on main since cb6912a"),
-        "{}",
-        calls[1]
-    );
-    assert!(
-        calls[1].contains("--label tehas:improvement"),
-        "{}",
-        calls[1]
-    );
-    // The body gh was given: the two findings, masked, and the line of the
-    // command last of all, as the command wrote it and not as a finding.
-    let body = fs::read_to_string(dir.join("last.body")).expect("the body file");
-    assert_eq!(
-        body,
-        "### Critical\n- [security] lib/config.sh:4: a token is printed\n\n\
-         ### Medium\n- [simplicity] libexec/review:2: a branch that repeats\n\
-         Apply `tehas:refine` to plan this into parts.",
-        "{body}"
-    );
-}
-
-#[test]
-fn review_file_comments_on_the_open_issue_of_the_review_and_files_no_other() {
-    let dir = scratch("file-comment");
-    let gh = stub_gh(&dir);
-    gh_answer(
-        &dir,
-        "list",
-        "[{\"number\":41,\"title\":\"Six-lens review: 2 findings on main since 1111111\"}]",
-    );
-    let f = filing("comment", REVIEW_DOC, &[]);
-    let line = filed(&f, &gh);
-    assert_eq!(line["action"], "comment");
-    assert_eq!(line["number"], 41);
-    assert_eq!(line["findings"], 2);
-    assert_eq!(
-        line["said"],
-        "2 findings are a comment on #41 of acme/backlog"
-    );
-    assert_eq!(line["cost"], 2, "{line}");
-    let calls = gh_calls(&gh);
-    assert_eq!(calls.len(), 2, "{calls:?}");
-    assert!(calls[1].starts_with("issue comment 41"), "{}", calls[1]);
-    assert!(!calls.iter().any(|c| c.contains("create")), "{calls:?}");
-}
-
-#[test]
-fn review_file_of_an_open_issue_of_another_kind_files_a_new_one() {
-    let dir = scratch("file-other");
-    let gh = stub_gh(&dir);
-    gh_answer(&dir, "list", "[{\"number\":41,\"title\":\"Slow tests\"}]");
-    let f = filing("other", REVIEW_DOC, &[]);
-    let line = filed(&f, &gh);
-    assert_eq!(line["action"], "issue");
-    assert_eq!(line["number"], Value::Null);
-    let calls = gh_calls(&gh);
-    assert!(calls.iter().any(|c| c.ends_with(" create")), "{calls:?}");
-    assert!(!calls.iter().any(|c| c.ends_with(" comment")), "{calls:?}");
-}
-
-#[test]
-fn review_file_of_nothing_to_file_asks_the_host_nothing() {
-    // The two shapes of a run that left no findings: a document of no findings
-    // at all, and one the store will not read as a review document. The first
-    // files nothing and asks nothing; the second is refused at 64 and the
-    // command's own line says the run filed nothing.
-    let dir = scratch("file-none");
-    let gh = stub_gh(&dir);
-    let f = filing("none", EMPTY_DOC, &[]);
-    let line = filed(&f, &gh);
-    assert_eq!(line["findings"], 0);
-    assert_eq!(line["action"], "nothing");
-    assert_eq!(line["cost"], 0, "{line}");
-    assert_eq!(
-        line["said"], "nothing to file: cb6912a left no findings",
-        "{line}"
-    );
-    assert!(
-        gh_calls(&gh).is_empty(),
-        "GitHub was asked: {:?}",
-        gh_calls(&gh)
-    );
-
-    // A document that is no document: the filing is refused before GitHub is
-    // asked anything, with the store's own word for the file.
-    let dir = scratch("file-bad");
-    let gh = stub_gh(&dir);
-    let f = filing("bad", "{\"findings\":\"not an array\"}", &[]);
-    // The findings of such a document are none, so the filing asks nothing and
-    // says the run left none, as the command has always said it.
-    let line = review_issue::file(&f.ask, &f.home).unwrap();
-    let line: Value = serde_json::from_str(&line).unwrap();
-    assert_eq!(line["findings"], 0);
-    assert!(
-        gh_calls(&gh).is_empty(),
-        "GitHub was asked: {:?}",
-        gh_calls(&gh)
-    );
-}
-
-#[test]
-fn review_file_refuses_a_document_it_cannot_read_and_asks_nothing() {
-    let dir = scratch("file-unreadable");
-    let gh = stub_gh(&dir);
-    let f = filing("unreadable", EMPTY_DOC, &[]);
-    fs::write(&f.doc, "not json at all").unwrap();
-    let (code, why) = review_issue::file(&f.ask, &f.home).unwrap_err();
-    assert_eq!(code, 64, "{why}");
-    assert!(why.starts_with("review-file: "), "{why}");
-    assert!(
-        gh_calls(&gh).is_empty(),
-        "GitHub was asked: {:?}",
-        gh_calls(&gh)
-    );
-}
-
-#[test]
-fn review_file_asks_no_list_of_a_run_that_will_not_be_filed() {
-    // The list is the first call of a filing that has something to file, and
-    // never the first of one that has nothing: the order is what cost 0 and
-    // cost 2 tell apart.
-    let dir = scratch("file-order");
-    let gh = stub_gh(&dir);
-    let f = filing("order", REVIEW_DOC, &[]);
-    filed(&f, &gh);
-    assert_eq!(gh_calls(&gh).len(), 2);
-}
-
-#[test]
-fn review_file_says_why_a_filing_github_refused_did_not_happen() {
-    let dir = scratch("file-refused");
-    let gh = stub_gh(&dir);
-    gh_answer(&dir, "create", "fail");
-    let f = filing("refused", REVIEW_DOC, &[]);
-    let line = filed(&f, &gh);
-    assert_eq!(line["action"], "nothing");
-    assert_eq!(line["said"], "");
-    assert_eq!(line["why"], "GitHub refused the issue in acme/backlog");
-    assert_eq!(line["cost"], 2, "{line}");
-
-    // The comment of an open issue, refused, names the issue it tried.
-    let dir = scratch("file-comment-refused");
-    let gh = stub_gh(&dir);
-    gh_answer(
-        &dir,
-        "list",
-        "[{\"number\":41,\"title\":\"Six-lens review: 1 findings on main since cb6912a\"}]",
-    );
-    gh_answer(&dir, "comment", "fail");
-    let f = filing("comment-refused", REVIEW_DOC, &[]);
-    let line = filed(&f, &gh);
-    assert_eq!(line["action"], "nothing");
-    assert_eq!(line["number"], 41);
-    assert_eq!(
-        line["why"], "GitHub refused the comment on #41 of acme/backlog",
-        "{line}"
-    );
-}
-
-#[test]
-fn review_file_of_a_list_that_will_not_answer_files_the_findings_anyway() {
-    // A gh that refuses the list is asked nothing more than the list would
-    // have decided: the findings are filed as new, because a duplicate is read
-    // by a person and a lost finding is not.
-    let dir = scratch("file-list-refused");
-    let gh = stub_gh(&dir);
-    gh_answer(&dir, "list", "fail");
-    let f = filing("list-refused", REVIEW_DOC, &[]);
-    let line = filed(&f, &gh);
-    assert_eq!(line["action"], "issue");
-    assert_eq!(line["cost"], 2, "{line}");
-    let calls = gh_calls(&gh);
-    assert_eq!(calls.len(), 2, "{calls:?}");
-    assert!(calls[1].ends_with(" create"), "{}", calls[1]);
-}
-
-#[test]
-fn review_file_masks_the_words_of_a_finding_before_gh_sees_them() {
-    // The third finding of the fixture holds a comment marker and a
-    // token-shaped string. The mask is tehas_core::mask, the one the console's
-    // log of the same run goes through; the title of the issue is the
-    // renderer's and holds no word of a finding that the mask would take.
-    let dir = scratch("file-mask");
-    let gh = stub_gh(&dir);
-    let token = format!("ghp_{}", "A".repeat(36));
-    let document = format!(
-        "{{\"findings\":[{{\"severity\":\"HIGH\",\"lens\":\"security\",\"path\":\"a.rs\",\"line\":1,\"title\":\"gives <!-- sly --> and {token}\"}}]}}"
-    );
-    let f = filing("mask", &document, &[]);
-    filed(&f, &gh);
-    let body = fs::read_to_string(dir.join("last.body")).expect("the body file");
-    assert!(!body.contains("<!-- sly -->"), "{body}");
-    assert!(body.contains("<\\!-- sly"), "{body}");
-    assert!(!body.contains(&format!("ghp_{}", "A".repeat(36))), "{body}");
-    assert!(body.contains("ghp_***"), "{body}");
-    // The command's own line, put on after the masking, is there as written.
-    assert!(body.ends_with("Apply `tehas:refine` to plan this into parts."));
-}
-
-/// The names of the host, among the findings. The mask keeps the first call's
-/// names for the process (the OnceLock of tehas_core::mask), and a program
-/// that masks two runs with two lists would keep the first; the console sets
-/// the names once, before its one run writes either of its two files, and the
-/// filing does the same. So this is the one case of the filing that names any,
-/// and the one above gives none.
-#[test]
-fn review_file_hides_the_names_the_command_gave_it() {
-    // What belongs to the host and nobody else: the aliases, the endpoints,
-    // the bot's email. The command hands the list to the verb, which masks them
-    // among the findings as the console masks them in the log of the run. The
-    // names are a OnceLock of the process, the first call's, as in the console,
-    // so this is the one case of the filing that names any.
-    let dir = scratch("file-private");
-    let gh = stub_gh(&dir);
-    let document = "{\"findings\":[{\"severity\":\"HIGH\",\"lens\":\"security\",\"path\":\"a.rs\",\"line\":1,\"title\":\"the host is tehas-host-alias\"}]}";
-    let f = filing("private", document, &["tehas-host-alias"]);
-    let mut ask = f.ask.clone();
-    ask.gh = gh.clone();
-    // The names go to the mask as the command's own entry does: once, before
-    // the verb is run (main.rs's ReviewFile).
-    tehas_core::mask::set_private(ask.private_names()).unwrap();
-    review_issue::file(&ask, &f.home).unwrap();
-    let body = fs::read_to_string(dir.join("last.body")).expect("the body file");
-    // The name is a name of the host as the mask sees one: four characters at
-    // the least, and not a word the mask's own output writes.
-    assert!(
-        body.contains("[private name]"),
-        "the name of the host is hidden: {body}"
-    );
-    assert!(!body.contains("tehas-host-alias"), "{body}");
-}
-
-#[test]
-fn review_file_writes_the_body_where_no_other_account_reads_it() {
-    // The body is the model's words, and gh, a program of the host, is given
-    // the file. It is written 0600 in the directory of 0700 the store's own
-    // file lives in, and it goes when the verb ends.
-    let dir = scratch("file-mode");
-    let gh = stub_gh(&dir);
-    let f = filing("mode", REVIEW_DOC, &[]);
-    let mut ask = f.ask.clone();
-    ask.gh = gh.clone();
-    let line = review_issue::file(&ask, &f.home).unwrap();
-    assert!(line.contains("review-file"), "{line}");
-    assert!(!review_issue::body_file(&f.home).exists());
-    // The body the stub was handed is the run's words, and no file of the
-    // filing is left in the home: what gh read is gone with the verb.
-    let body = fs::read_to_string(dir.join("last.body")).expect("the body file");
-    assert!(body.contains("a branch that repeats"), "{body}");
-    assert!(
-        !review_issue::body_file(&f.home).exists(),
-        "state/ holds no body of the filing"
-    );
-}
-
-#[test]
-fn review_file_writes_nothing_else_to_the_home() {
-    let dir = scratch("file-quiet");
-    let gh = stub_gh(&dir);
-    let f = filing("quiet", REVIEW_DOC, &[]);
-    let before: Vec<String> = names(&f.home.join("state"));
-    filed(&f, &gh);
-    // The body the calls were made with is gone, and nothing else was written:
-    // the filing opens no database and keeps no record of its own.
-    assert_eq!(names(&f.home.join("state")), before, "{:?}", before);
-    assert!(!review_issue::body_file(&f.home).exists());
-    assert!(
-        !f.home.join("state").join("tehas.db").exists(),
-        "the filing opened the database"
-    );
-}
-
-#[test]
-fn review_file_names_its_arguments_and_refuses_any_other_shape() {
-    let good = |extra: &[&str]| {
-        let mut v = vec![
-            "review-file".to_string(),
-            "--repo".to_string(),
-            "acme/backlog".to_string(),
-            "--doc".to_string(),
-            "/a.json".to_string(),
-            "--branch".to_string(),
-            "main".to_string(),
-            "--commit".to_string(),
-            "cb6912a".to_string(),
-            "--ask".to_string(),
-            "Apply it.".to_string(),
-        ];
-        v.extend(extra.iter().map(|s| s.to_string()));
-        v
-    };
-    assert_eq!(
-        parse(&good(&[])),
-        Some(Verb::ReviewFile(ReviewFile {
-            repo: "acme/backlog".to_string(),
-            doc: PathBuf::from("/a.json"),
-            branch: "main".to_string(),
-            commit: "cb6912a".to_string(),
-            ask: "Apply it.".to_string(),
-            private: vec![],
-            gh: PathBuf::from("gh"),
-        }))
-    );
-    assert_eq!(
-        parse(&good(&["--json", "--private", "tehas-host"])).map(|v| match v {
-            Verb::ReviewFile(r) => r.private,
-            _ => panic!("not a filing"),
-        }),
-        Some(vec!["tehas-host".to_string()])
-    );
-    // Any name outside its grammar, a flag twice, a flag of no value, a flag
-    // the verb does not know, or a name the command did not write: all refused
-    // by parse, so main prints the usage and GitHub is asked nothing.
-    for bad in [
-        vec![],
-        good(&["--ask", "twice"]),
-        good(&["--repo", "other/backlog"]),
-        good(&["--private"]),
-        good(&["--repo"]),
-        good(&["--other", "x"]),
-        good(&["/extra"]),
-        good(&["--ask", "two\nlines"]),
-        good(&["--ask", ""]),
-        good(&["--private", "short\u{1}name"]),
-        good(&["--repo", "acme/"]),
-        good(&["--repo", "/backlog"]),
-        good(&["--repo", "acme/backlog/extra"]),
-        good(&["--repo", "acme/back\u{e5}log"]),
-        good(&["--branch", " main"]),
-        good(&["--branch", "main;rm"]),
-        good(&["--commit", "cb6912"]),
-        good(&["--commit", "CB6912A"]),
-    ] {
-        assert_eq!(parse(&bad), None, "{bad:?}");
-    }
-}
-
-#[test]
-fn the_title_prefix_is_the_renderers() {
-    // The filing recognises its own issues by the prefix of the title, and the
-    // renderer makes the title: the two are one string, and a change to either
-    // alone would file a second issue for a range that is already filed.
-    let dir = scratch("file-prefix");
-    let answer = review_issue(
-        &dir,
-        "file-prefix",
-        "{\"findings\":[{\"severity\":\"HIGH\",\"lens\":\"security\",\"path\":\"a.rs\",\"line\":1,\"title\":\"t\"}]}",
-    )
-    .unwrap();
-    let line: Value = serde_json::from_str(&answer).unwrap();
-    assert!(
-        line["title"]
-            .as_str()
-            .unwrap()
-            .starts_with(review_issue::TITLE_PREFIX),
-        "{}",
-        line["title"]
-    );
-    assert_eq!(review_issue::TITLE_PREFIX, "Six-lens review:");
-}
-
 // --- store batch ------------------------------------------------------------
 
 /// The rows of every table, as one number each, so a batch that wrote is seen
@@ -3345,7 +2573,7 @@ fn asked(home: &Path, issue: i64, id: i64) {
             "--by",
             "alice",
             "--how",
-            "label",
+            "approved",
             "--label",
             "tehas:ready",
             "--body-sha",
@@ -3543,7 +2771,7 @@ fn a_batch_refuses_every_write_the_store_has() {
         "plan-end 12 --close",
         "plan-show --open",
         "plan-note 12 --kind brief --id 1",
-        "approval-record 12 --at 1 --by alice --how label --label r --body-sha aaaaaaaa",
+        "approval-record 12 --at 1 --by alice --how approved --label r --body-sha aaaaaaaa",
         "approval-undo 12 --at 1",
         "live-open 12",
         "upkeep-backup",
@@ -3843,7 +3071,7 @@ fn a_batch_of_13_issues_answers_each_issue_it_was_asked_about() {
 #[test]
 fn a_repository_flag_is_owner_and_name_within_the_bound_of_each_half() {
     let long = "a".repeat(100);
-    assert!(super::repo_within("tehas-app/tehas", 100));
+    assert!(super::repo_within("tehas-app/tehas-factory", 100));
     assert!(super::repo_within(&format!("{long}/{long}"), 100));
     assert!(!super::repo_within(&format!("{long}a/b"), 100));
     assert!(!super::repo_within(&format!("a/{long}a"), 100));

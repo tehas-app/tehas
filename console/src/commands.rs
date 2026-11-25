@@ -11,7 +11,6 @@
 //!   console tehas top [--once | --json] [--every <seconds>]
 //!   console tehas api [--json]
 //!   console tehas labels
-//!   console tehas panel [--json] | set <id> ... | clear <id>
 //!   console tehas host-message [list] [--json] | set <id> ... | clear <id>
 //!   console tehas resume
 //!   console tehas drain [--wait SECONDS] [--json]
@@ -21,17 +20,13 @@
 //!   console tehas freeze <issue> [--reason TEXT] [--json]
 //!   console tehas thaw <issue> [--json]
 //!   console tehas wake [--json]
-//!   console tehas wiki [--json] | build [--full] [--json]
 //!   console tehas dev <arguments>
 //!   console tehas dev-login "Name <email>" [-- <pi arguments>]
 //!   console tehas github writes
-//!   console tehas outsource invite|list|status|revoke|drain [...] [--json]
-//!   console tehas prototype file ...
 //!   console tehas plugin [--json]
 //!   console tehas|tehasbot mcp serve|key
 //!   console tehasbot health
 //!   console tehasbot status
-//!   console tehasbot top [--every]
 //!   console tehasbot github-token [--cycle | --session] [--check]
 //!   console tehasbot github-writes
 //!
@@ -48,8 +43,8 @@
 //! Exit: the status of the command; 64 usage.
 
 use crate::{
-    api, blockers, clean, dev, disk, export, freeze, github, health, history, holds, host_message,
-    labels, mcp, order, panel, queue, review, start, state, status, stop, top, wake,
+    answer, api, blockers, clean, dev, disk, export, freeze, github, health, history, holds,
+    host_message, labels, mcp, order, question, queue, start, state, status, stop, top, wake,
 };
 use std::env;
 use std::os::unix::fs::PermissionsExt;
@@ -75,7 +70,7 @@ fn limit_words(given: &[String]) -> Result<Vec<String>, u8> {
         (Some("clear"), 1) => Ok(strings(&["limit", "clear"], &[])),
         (Some("set"), _) => Ok(strings(&["limit", "set"], &given[1..])),
         _ => {
-            eprintln!("usage: tehas limit [--json] | set --cycles N [--plan on|off] [--for SECONDS | --until TIME] [--reason TEXT] | clear");
+            eprintln!("usage: tehas limit [--json] | set --cycles N [--plan on|off] [--for SECONDS | --until TIME] [--reason TEXT] [--json] | clear");
             Err(64)
         }
     }
@@ -192,29 +187,27 @@ pub fn tehas(given: &[String]) -> u8 {
         "order" => order::main(rest),
         "blockers" => blockers::main(rest),
         "start" => start::main(rest),
+        "answer" => answer::main(rest),
+        "question" => question::main(rest),
         "pause" => flag(pause_words(rest)),
         "analytics" => analytics(rest),
         "top" => top::view(rest),
         "api" => api::main(rest),
         "labels" => labels::main(rest),
-        "panel" => panel::main(rest),
-        "plugin" => tehas_ops::plugin::main(rest),
+        "plugin" => tehas_ops::plugin::main(rest, &crate::wiring::board, &crate::wiring::access),
         "host-message" => host_message::main(rest),
-        "resume" => holds::resume(rest),
+        "resume" => holds::resume(rest, &mut *control_tickets()),
         "drain" => holds::drain(rest),
         "history" => history::main(rest),
         "export" => export::main(rest),
-        "stop" => stop::main(rest),
+        "stop" => stop::main(rest, path_tickets),
         "freeze" => freeze::freeze(rest),
         "thaw" => freeze::thaw(rest),
         "dev" => dev::start(rest),
         "dev-login" => dev::login(rest),
         "mcp" => mcp::main(rest),
         "github" => github_verb(rest),
-        "outsource" => crate::outsource::main(rest),
-        "prototype" => crate::prototype::main(rest),
         "wake" => wake::main(rest),
-        "wiki" => crate::wiki::main(rest),
         _ => {
             eprintln!("console tehas: no such command: {command}");
             64
@@ -240,13 +233,12 @@ pub fn tehasbot(given: &[String]) -> u8 {
     match given.first().map(String::as_str) {
         Some("health") => health::loaded(),
         Some("status") => queue::main(),
-        Some("top") => top::publish(&given[1..]),
         Some("mcp") => mcp::main(&given[1..]),
         Some("github-token") => github::main(&given[1..]),
         Some("github-writes") => crate::gh_writes::main(&given[1..]),
         _ => {
             eprintln!(
-                "console tehasbot: usage: health | status | top [--every] | mcp | github-token [--cycle | --session] [--check] | github-writes"
+                "console tehasbot: usage: health | status | mcp | github-token [--cycle | --session] [--check] | github-writes"
             );
             64
         }
@@ -326,21 +318,13 @@ pub fn check(given: &[String]) -> u8 {
         ["tehas", "blockers"] => blockers::words(rest).map(|_| ()),
         ["tehas" | "tehasbot", "mcp"] => mcp::words(rest).map(|_| ()),
         ["tehas", "start"] => start::words(rest).map(|_| ()),
+        ["tehas", "answer"] => answer::words(rest).map(|_| ()),
+        ["tehas", "question"] => question::words(rest).map(|_| ()),
         ["tehas", "pause"] => pause_words(rest).map(|_| ()),
         ["tehas", "analytics"] => analytics_words(rest),
         ["tehas", "api"] => api::words(rest).map(|_| ()),
         ["tehas", "wake"] => wake::words(rest).map(|_| ()),
-        ["tehas", "wiki"] => crate::wiki::words(rest).map(|_| ()),
         ["tehas", "labels"] => labels::words(rest),
-        ["tehas", "outsource"] => match crate::outsource::words(rest) {
-            Ok(None) => {
-                say(crate::outsource::USAGE);
-                Err(ANSWERED)
-            }
-            Ok(Some(_)) => Ok(()),
-            Err(rc) => Err(rc),
-        },
-        ["tehas", "panel"] => panel::words(rest).map(|_| ()),
         ["tehas", "plugin"] => tehas_ops::plugin::words(rest).map(|_| ()),
         ["tehas", "host-message"] => host_message::words(rest).map(|_| ()),
         ["tehas", "resume"] => holds::resume_words(rest),
@@ -384,7 +368,6 @@ pub fn check(given: &[String]) -> u8 {
         ["tehasbot", "dispatch"] => dispatch_words(rest),
         ["tehasbot", "github-token"] => github::words(rest).map(|_| ()),
         ["tehasbot", "preview"] => preview_words(rest),
-        ["tehasbot", "review"] => review::words(rest, include_str!("usage/review.txt")),
         _ => Ok(()),
     };
     said.err().unwrap_or(0)
@@ -406,29 +389,24 @@ fn issue_words(word: Option<&String>, usage: &str) -> Result<(), u8> {
 pub fn required(given: &[String]) -> &'static [&'static str] {
     let words: Vec<&str> = given.iter().take(2).map(String::as_str).collect();
     match words[..] {
-        ["tehas", "api" | "check-product" | "export" | "history" | "index" | "init-product" | "labels"]
+        ["tehas", "api" | "check-product" | "export" | "history" | "index" | "init-product" | "labels"
+        | "question"]
         | ["tehasbot", "cycle" | "preview"] => &["TEHAS_REPO"],
         // What writes or calls GitHub stops on the three before it does.
         ["tehas", "resume"]
         | ["tehasbot", "status"]
-        | ["tehas", "start" | "limit" | "order" | "blockers" | "panel" | "host-message" | "freeze" | "thaw"
-        | "pause" | "drain" | "wake"] => &[
+        | ["tehas", "start" | "answer" | "limit" | "order" | "blockers" | "host-message" | "freeze"
+        | "thaw" | "pause" | "drain" | "wake"] => &[
             "TEHAS_REPO",
             "TEHAS_CONTROL_ISSUE",
             "TEHAS_ALLOWED_LABELERS",
         ],
-        ["tehasbot", "clean" | "dispatch" | "refresh" | "review" | "outsource-proxy" | "plugin-gate"] => {
-            &INSTANCE_SETTINGS
-        }
+        ["tehasbot", "clean" | "dispatch" | "refresh" | "plugin-gate"] => &INSTANCE_SETTINGS,
         ["tehas", "plan" | "work"] => &[
             "TEHAS_REPO",
             "PI_ENSEMBLE_SUBAGENT_MODEL",
             "PI_ENSEMBLE_SUBAGENT_PROVIDER",
         ],
-        ["tehas", "wiki"] | ["tehasbot", "wiki"] => &["TEHAS_REPO"],
-        ["tehasbot", "protolab"] | ["tehas", "prototype"] => {
-            &["TEHAS_REPO", "TEHAS_ALLOWED_LABELERS"]
-        }
         _ => &[],
     }
 }
@@ -458,17 +436,15 @@ pub fn text(command: &str) -> Option<&'static str> {
         "limit" => include_str!("usage/limit.txt"),
         "mcp" => include_str!("usage/mcp.txt"),
         "order" => include_str!("usage/order.txt"),
-        "outsource" => crate::outsource::USAGE,
         "start" => include_str!("usage/start.txt"),
+        "answer" => include_str!("usage/answer.txt"),
+        "question" => include_str!("usage/question.txt"),
         "dev" => dev::USAGE,
-        "panel" => include_str!("usage/panel.txt"),
         "plugin" => include_str!("usage/plugin.txt"),
         "pause" => include_str!("usage/pause.txt"),
         "plan" => include_str!("usage/plan.txt"),
-        "prototype" => include_str!("usage/prototype.txt"),
         // The dispatcher's own text, which `tehasbot refresh --help` prints.
         "refresh" => include_str!("../dispatch/src/usage/refresh.txt"),
-        "review" => include_str!("usage/review.txt"),
         "resume" => include_str!("usage/resume.txt"),
         "setup" => include_str!("usage/setup.txt"),
         "state" => include_str!("usage/state.txt"),
@@ -478,7 +454,6 @@ pub fn text(command: &str) -> Option<&'static str> {
         "top" => include_str!("usage/top.txt"),
         "update" => include_str!("usage/update.txt"),
         "wake" => include_str!("usage/wake.txt"),
-        "wiki" => include_str!("usage/wiki.txt"),
         "work" => include_str!("usage/work.txt"),
         _ => return None,
     })
@@ -495,6 +470,19 @@ pub fn usage(given: &[String]) -> u8 {
             64
         }
     }
+}
+
+/// The handle `tehas resume` reads the control issue with.
+fn control_tickets() -> Box<dyn tehas_ports::TicketWrites> {
+    let repo = env::var("TEHAS_REPO").unwrap_or_default();
+    path_tickets(&repo, crate::forge::CALL_BOUND)
+}
+
+/// A tickets handle on `repo` that asks with gh of `PATH`, each call in
+/// `bound`. `host/env.sh` puts the shim first there where the instance has
+/// one, and a person's shell without it asks with their own gh.
+fn path_tickets(repo: &str, bound: std::time::Duration) -> Box<dyn tehas_ports::TicketWrites> {
+    crate::wiring::tickets(repo, "gh", bound)
 }
 
 #[cfg(test)]
@@ -635,8 +623,6 @@ mod tests {
         assert_eq!(check(&words(&["tehas", "api", "--jsn"])), 64);
         assert_eq!(check(&words(&["tehas", "api", "--json"])), 0);
         assert_eq!(check(&words(&["tehas", "labels", "--force"])), 64);
-        assert_eq!(check(&words(&["tehas", "panel", "show"])), 64);
-        assert_eq!(check(&words(&["tehas", "panel", "--json"])), 0);
         assert_eq!(check(&words(&["tehas", "host-message", "show"])), 64);
         assert_eq!(
             check(&words(&["tehas", "host-message", "list", "--json"])),
@@ -682,7 +668,6 @@ mod tests {
             &["tehasbot", "preview", ""],
             &["tehasbot", "preview", "--sweep"],
             &["tehasbot", "preview", "--sweep", "kept"],
-            &["tehasbot", "protolab", "ignored"],
             &["tehasbot", "refresh", "--help"],
         ] {
             assert_eq!(says(good), 0, "{good:?}");
@@ -736,9 +721,9 @@ mod tests {
         );
         for writer in [
             "start",
+            "answer",
             "limit",
             "order",
-            "panel",
             "host-message",
             "freeze",
             "thaw",
@@ -761,24 +746,13 @@ mod tests {
         ] {
             assert_eq!(required(&words(repo)), ["TEHAS_REPO"], "{repo:?}");
         }
-        for all in [
-            "clean",
-            "dispatch",
-            "refresh",
-            "review",
-            "outsource-proxy",
-            "plugin-gate",
-        ] {
+        for all in ["clean", "dispatch", "refresh", "plugin-gate"] {
             assert_eq!(
                 required(&words(&["tehasbot", all])),
                 INSTANCE_SETTINGS,
                 "{all}"
             );
         }
-        assert_eq!(
-            required(&words(&["tehasbot", "protolab"])),
-            ["TEHAS_REPO", "TEHAS_ALLOWED_LABELERS"]
-        );
     }
 
     #[test]
@@ -836,7 +810,6 @@ mod tests {
             "init-product",
             "labels",
             "limit",
-            "panel",
             "pause",
             "resume",
             "setup",

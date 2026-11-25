@@ -8,6 +8,7 @@ use common::{has, lacks, park_body, World};
 use serde_json::{json, Value};
 use std::fs;
 use std::process::{Command, Stdio};
+use tehas_ports::{Act, Mark, State};
 
 /// The issues a cycle was started for, one per line.
 fn started(w: &World) -> String {
@@ -53,14 +54,15 @@ fn a_retry_ticked_by_an_allowed_account_starts_a_cycle() {
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(started(&w), "7");
-    has(
-        &w.gh(),
-        "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:question",
+    assert!(
+        w.on(7, Mark::State(State::Running)) && w.off(7, Mark::State(State::Question)),
+        "{:?}",
+        w.writes_of(7)
     );
     // The cycle's --restart takes it off, through pi-rukas.
     lacks(&w.gh(), "--remove-label needs-human-attention");
-    has(&w.gh(), "authorized by @alice's retry tick");
-    has(&r.out, "start #7 (retry ticked by alice)");
+    has(&w.gh(), "authorized by @alice's reply");
+    has(&r.out, "start #7 (retry answered by alice)");
 }
 
 /// A retry tick on an issue that also carries tehas:ready and the escalation
@@ -80,9 +82,12 @@ fn a_retry_tick_takes_tehas_ready_and_the_escalation_label_off() {
     let w = World::new("park-labels");
     retry_with_labels(&w);
     assert_eq!(started(&w), "7");
-    has(
-        &w.gh(),
-        "--remove-label tehas:question --remove-label tehas:ready --remove-label tehas:millwright-escalated",
+    assert!(
+        w.off(7, Mark::State(State::Question))
+            && w.off(7, Mark::Act(Act::Approve))
+            && w.off(7, Mark::State(State::Escalated)),
+        "{:?}",
+        w.writes_of(7)
     );
 }
 
@@ -92,7 +97,7 @@ fn a_retry_tick_writes_the_approval_record_with_the_ticks_time_before_the_label_
     retry_with_labels(&w);
     assert_eq!(
         w.at_mark("[.by, .how, .at, .comment_id] | tostring"),
-        r#"["alice","retry-tick","2026-01-01T01:00:00Z",4001]"#
+        r#"["alice","reply","2026-01-01T01:00:00Z",4001]"#
     );
 }
 
@@ -123,7 +128,7 @@ fn a_tick_counts_once_the_next_poll_finds_its_question_off_the_record_and_starts
     assert_eq!(started(&w), "");
     has(
         &r.out,
-        "skip #7: a box was ticked in a question this host has no record of",
+        "skip #7: a choice was made in a question this host has no record of",
     );
     assert_eq!(row(&w, &["cycle-show", "7"], ".cycle.attempt"), "2");
 }
@@ -137,6 +142,7 @@ fn a_retry_waits_while_every_slot_is_taken_and_the_tick_stays() {
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(started(&w), "");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     lacks(&w.gh(), "api -X PATCH");
     assert_eq!(w.park_q(7), "4001");
     let r = w.dispatch(&["--dry-run"]);
@@ -156,9 +162,10 @@ fn a_retry_whose_cycle_does_not_start_is_handed_back_exit_1() {
     let w = World::new("park-start-fails");
     let r = start_fails(&w);
     assert_eq!(r.rc, 1, "{}", r.out);
-    has(
-        &w.gh(),
-        "issue edit 7 --repo acme/widget --remove-label tehas:running --add-label needs-human-attention",
+    assert!(
+        w.off(7, Mark::State(State::Running)) && w.on(7, Mark::State(State::NeedsPerson)),
+        "{:?}",
+        w.writes_of(7)
     );
     has(&w.gh(), "Tehas could not start the cycle for this issue");
     // The start took the question off the record and spent the park's retry
@@ -178,73 +185,72 @@ fn a_dry_run_says_what_the_tick_would_do_and_changes_nothing() {
     let w = World::new("park-dry");
     ticked(&w, &["x", " "], "alice");
     let r = w.dispatch(&["--dry-run"]);
-    has(&r.out, "would run a cycle for #7 (retry ticked by alice)");
+    has(&r.out, "would run a cycle for #7 (retry answered by alice)");
     assert_eq!(started(&w), "");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     lacks(&w.gh(), "api -X PATCH");
     assert_eq!(w.park_q(7), "4001");
 }
 
 #[test]
-fn a_retry_ticked_by_the_bot_or_a_stranger_starts_nothing_and_is_undone() {
+fn a_retry_answered_by_the_bot_or_a_stranger_starts_nothing() {
     let w = World::new("park-stranger");
-    for other in ["tehas-bot", "mallory", ""] {
+    for other in ["tehas-bot", "mallory"] {
         ticked(&w, &["x", " "], other);
         w.poll();
         assert_eq!(started(&w), "", "{other}");
-        has(
-            &w.gh(),
-            "api -X PATCH repos/acme/widget/issues/comments/4001",
-        );
-        has(&w.gh(), "- [ ] Retry from a clean start");
-        has(&w.gh(), "may not answer for this factory");
+        lacks(&w.gh(), "api -X PATCH");
     }
 }
 
 #[test]
-fn a_retry_ticked_by_a_listed_login_with_another_user_id_starts_nothing_and_is_undone() {
+fn a_retry_answered_by_a_listed_login_with_another_user_id_starts_nothing() {
     let w = World::new("park-user-id");
     for id in [json!(99), Value::Null] {
         ticked(&w, &["x", " "], "alice");
         let path = w.fx.join("comments-7.json");
         let mut v: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
-        v["data"]["repository"]["issue"]["comments"]["nodes"][0]["editor"]["databaseId"] =
+        v["data"]["repository"]["issue"]["comments"]["nodes"][1]["author"]["databaseId"] =
             id.clone();
         w.fx_json("comments-7.json", &v);
         let r = w.poll();
         assert_eq!(started(&w), "", "{id}");
         has(&r.out, "does not count");
-        has(&w.gh(), "- [ ] Retry from a clean start");
-        has(&w.gh(), "may not answer for this factory");
+    }
+}
+
+/// #2782: a box ticked in a comment of before 2.0 does nothing at all: no
+/// cycle starts, no answer is recorded, and nothing is posted.
+#[test]
+fn a_box_ticked_on_an_old_comment_does_nothing() {
+    let w = World::new("park-tick");
+    // Two boxes ticked, or one with nobody's reply: neither is an answer.
+    for boxes in [&["x", " ", "x"][..], &["x", " ", " "]] {
+        w.parked("failed", "alice");
+        w.comments(7, &park_body(boxes), "", json!([]));
+        let r = w.poll();
+        assert_eq!(r.rc, 0, "{}", r.out);
+        assert_eq!(started(&w), "", "{boxes:?}");
+        let gh = w.gh();
+        assert_eq!(w.notes_any(), 0);
+        lacks(&gh, "issue edit");
+        assert_eq!(w.marks(None), 0);
+        lacks(&gh, "api -X PATCH");
+        assert_eq!(w.park_q(7), "4001");
+        assert_eq!(
+            row(
+                &w,
+                &["question-known", "7", "--id", "4001"],
+                "[.answered, .answer] | tostring"
+            ),
+            "[false,null]"
+        );
     }
 }
 
 #[test]
-fn when_a_refused_tick_cannot_be_undone_the_note_is_not_repeated_every_poll() {
-    let w = World::new("park-refused-stays");
-    ticked(&w, &["x", " "], "mallory");
-    w.touch("patch-fails");
-    let r = w.poll();
-    assert_eq!(started(&w), "");
-    has(&w.gh(), "api -X PATCH");
-    lacks(&w.gh(), "may not answer for this factory");
-    has(&r.out, "could not untick the question on #7");
-}
-
-#[test]
-fn both_boxes_ticked_is_no_choice_nothing_starts_the_boxes_are_emptied_one_note() {
-    let w = World::new("park-both");
-    ticked(&w, &["x", " ", "x"], "alice");
-    w.poll();
-    assert_eq!(started(&w), "");
-    has(&w.gh(), "api -X PATCH");
-    has(&w.gh(), "Tick one");
-}
-
-// The third box is a retry as the first one is: the same rules, and only the
-// record is smaller.
-#[test]
-fn the_issue_alone_tick_by_an_allowed_account_starts_a_cycle_with_how_retry_tick() {
+fn the_issue_alone_reply_by_an_allowed_account_starts_a_cycle_with_how_reply() {
     let w = World::new("park-alone");
     ticked(&w, &[" ", "x", " "], "alice");
     let r = w.poll();
@@ -252,41 +258,37 @@ fn the_issue_alone_tick_by_an_allowed_account_starts_a_cycle_with_how_retry_tick
     assert_eq!(started(&w), "7");
     assert_eq!(
         w.at_mark("[.by, .how, .at, .comment_id] | tostring"),
-        r#"["alice","retry-tick","2026-01-01T01:00:00Z",4001]"#
+        r#"["alice","reply","2026-01-01T01:00:00Z",4001]"#
     );
-    has(
-        &w.gh(),
-        "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:question",
+    assert!(
+        w.on(7, Mark::State(State::Running)) && w.off(7, Mark::State(State::Question)),
+        "{:?}",
+        w.writes_of(7)
     );
-    has(&w.gh(), "authorized by @alice's retry tick");
-    has(&r.out, "start #7 (retry ticked by alice)");
+    has(&w.gh(), "authorized by @alice's reply");
+    has(&r.out, "start #7 (retry answered by alice)");
     assert_eq!(w.park_q(7), "none");
 }
 
 #[test]
-fn the_issue_alone_tick_by_the_bot_or_a_stranger_starts_nothing_and_is_undone() {
+fn the_issue_alone_answer_by_the_bot_or_a_stranger_starts_nothing() {
     let w = World::new("park-alone-stranger");
-    for other in ["tehas-bot", "mallory", ""] {
+    for other in ["tehas-bot", "mallory"] {
         ticked(&w, &[" ", "x", " "], other);
         w.poll();
         assert_eq!(started(&w), "", "{other}");
-        has(
-            &w.gh(),
-            "api -X PATCH repos/acme/widget/issues/comments/4001",
-        );
-        has(&w.gh(), "- [ ] Retry with the issue text only");
-        has(&w.gh(), "may not answer for this factory");
+        lacks(&w.gh(), "api -X PATCH");
     }
 }
 
 #[test]
-fn both_retry_boxes_ticked_is_no_choice_nothing_starts_and_the_boxes_are_emptied() {
+fn both_retry_boxes_ticked_answer_nothing() {
     let w = World::new("park-both-retry");
     ticked(&w, &["x", "x"], "alice");
     w.poll();
     assert_eq!(started(&w), "");
-    has(&w.gh(), "api -X PATCH");
-    has(&w.gh(), "Tick one");
+    assert_eq!(w.notes_any(), 0);
+    lacks(&w.gh(), "api -X PATCH");
 }
 
 #[test]
@@ -297,6 +299,7 @@ fn a_retry_tick_of_the_issue_alone_waits_while_every_slot_is_taken_and_the_tick_
     w.poll();
     assert_eq!(started(&w), "");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     assert_eq!(w.park_q(7), "4001");
     w.release();
 }
@@ -306,9 +309,10 @@ fn a_dry_run_says_what_the_issue_alone_tick_would_do_and_changes_nothing() {
     let w = World::new("park-alone-dry");
     ticked(&w, &[" ", "x", " "], "alice");
     let r = w.dispatch(&["--dry-run"]);
-    has(&r.out, "would run a cycle for #7 (retry ticked by alice)");
+    has(&r.out, "would run a cycle for #7 (retry answered by alice)");
     assert_eq!(started(&w), "");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     assert_eq!(w.park_q(7), "4001");
 }
 
@@ -318,7 +322,7 @@ fn a_park_comment_of_the_old_two_boxes_still_starts_a_clean_start_when_it_is_tic
     ticked(&w, &["x", " "], "alice");
     w.poll();
     assert_eq!(started(&w), "7");
-    assert_eq!(w.at_mark(".how"), "retry-tick");
+    assert_eq!(w.at_mark(".how"), "reply");
 }
 
 #[test]
@@ -327,9 +331,10 @@ fn and_its_leave_box_still_takes_the_question_away() {
     ticked(&w, &[" ", "x"], "alice");
     w.poll();
     assert_eq!(started(&w), "");
-    has(
-        &w.gh(),
-        "issue edit 7 --repo acme/widget --remove-label tehas:question",
+    assert!(
+        w.off(7, Mark::State(State::Question)),
+        "{:?}",
+        w.writes_of(7)
     );
     assert_eq!(w.park_q(7), "none");
 }
@@ -340,9 +345,10 @@ fn leave_it_parked_takes_the_question_away_and_keeps_the_issue_parked() {
     ticked(&w, &[" ", " ", "x"], "alice");
     w.poll();
     assert_eq!(started(&w), "");
-    has(
-        &w.gh(),
-        "issue edit 7 --repo acme/widget --remove-label tehas:question",
+    assert!(
+        w.off(7, Mark::State(State::Question)),
+        "{:?}",
+        w.writes_of(7)
     );
     lacks(&w.gh(), "needs-human-attention");
     assert_eq!(w.park_q(7), "none");
@@ -380,9 +386,10 @@ fn a_leave_it_parked_whose_answer_the_store_would_not_take_is_said_in_the_log() 
         "store: busy #7: the database is locked",
     );
     let r = w.poll();
-    has(
-        &w.gh(),
-        "issue edit 7 --repo acme/widget --remove-label tehas:question",
+    assert!(
+        w.off(7, Mark::State(State::Question)),
+        "{:?}",
+        w.writes_of(7)
     );
     has(
         &r.out,
@@ -396,5 +403,135 @@ fn a_dry_run_of_leave_it_parked_changes_nothing() {
     ticked(&w, &[" ", " ", "x"], "alice");
     w.dispatch(&["--dry-run"]);
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     assert_eq!(w.park_q(7), "4001");
+}
+
+/// One comment after the question, as GitHub's GraphQL gives it.
+macro_rules! later_comment {
+    ($id:expr, $by:expr, $body:expr, $at:expr $(,)?) => {{
+        let mut c = json!({"databaseId": $id, "author": {"login": $by, "databaseId": common::uid($by)},
+            "body": $body, "lastEditedAt": null, "editor": null,
+            "userContentEdits": {"totalCount": 0, "nodes": []}});
+        c[common::replies::CREATED] = json!($at);
+        c
+    }};
+}
+
+/// A newer reply that names a choice the stop does not offer (`retry`, where
+/// only the text-only retry is offered) is declined with the note and acts
+/// on nothing; the older reply's choice does not act in its place. Once the
+/// note follows them, neither is read again.
+#[test]
+fn a_reply_naming_a_choice_the_stop_does_not_offer_is_declined_and_nothing_starts() {
+    let w = World::new("park-unoffered");
+    w.parked("failed", "alice");
+    let body = tehas_core::question::q_render(
+        tehas_core::question::Kind::Park,
+        7,
+        1,
+        &json!({"text": "Tehas cycle stopped.", "comments": false}),
+        "",
+    );
+    let replies = vec![
+        later_comment!(4002, "alice", "retry-text", "2026-01-01T01:00:00Z"),
+        later_comment!(4003, "alice", "retry", "2026-01-01T02:00:00Z"),
+    ];
+    w.comments(7, &body, "", json!(replies));
+    let r = w.poll();
+    assert_eq!(r.rc, 0, "{}", r.out);
+    assert_eq!(started(&w), "");
+    has(
+        &r.out,
+        "skip #7: alice answered a choice its question does not offer",
+    );
+    let note = "The reply names a choice this question does not offer, so nothing was started.";
+    has(&w.gh(), note);
+    let mark = tehas_dispatch::questions::declined_marker("4001");
+    has(&w.gh(), &mark);
+    assert_eq!(w.park_q(7), "4001");
+    // The next poll finds the note after both replies: nothing is said again.
+    let mut replies = replies;
+    replies.push(later_comment!(
+        4004,
+        "tehas-bot",
+        &format!("{note}\n\n{mark}"),
+        "2026-01-01T03:00:00Z",
+    ));
+    w.comments(7, &body, "", json!(replies));
+    w.clear_calls();
+    let r = w.poll();
+    assert_eq!(r.rc, 0, "{}", r.out);
+    assert_eq!(started(&w), "");
+    assert_eq!(w.notes(7), 0);
+    lacks(&r.out, "does not offer");
+}
+
+/// A park question whose sum on record is of before T4.7, the comment as it
+/// was posted with its markers in, is adopted on the poll's first read (the
+/// lead's ruling). A comment that reads as it was posted keeps the sum of
+/// its visible text; one ticked or edited since keeps no sum. Either way the
+/// poll says so once, nothing is written to the code host, nothing is asked
+/// again, and the answer in it is read as it is.
+#[test]
+fn a_question_summed_before_2_0_is_adopted_on_its_first_read() {
+    use tehas_core::question::{q_text, question_sum};
+    let w = World::new("park-adopt");
+    let posted = park_body(&[" ", " "]);
+    let edited = posted.replace("Tehas cycle stopped.", "Tehas cycle stopped, said again.");
+    // A box a person ticked reads as their reply, the comment as posted; a
+    // tick no one is named for stays in the comment, which then sums
+    // another way, as an edit of its text does.
+    let cases = [
+        (park_body(&["x", " "]), "alice", true),
+        (posted.clone(), "alice", false),
+        (park_body(&["x", " "]), "", false),
+        (edited, "alice", false),
+    ];
+    for (body, editor, replied) in cases {
+        // 1.x's park records its question with the sum of its comment.
+        let raw = tehas_core::approval::body_sum(&posted);
+        let args = ["--comment-id", "4001", "--body-sha", &raw];
+        w.parked_with("failed", "alice", "-", &args);
+        let known = || w.row(&["question-known", "7", "--id", "4001"]);
+        assert_eq!(known()["sum_form"], "rendered");
+        w.comments(7, &body, editor, json!([]));
+        let r = w.poll();
+        assert_eq!(r.rc, 0, "{}", r.out);
+        lacks(&w.gh(), "api -X PATCH");
+        if body == posted || replied {
+            has(
+                &r.out,
+                "INFO: the question of #7 (comment 4001) had its sum of before 2.0, of the comment with its markers",
+            );
+            let sum = question_sum(&q_text(&posted, 7).unwrap());
+            assert_eq!(
+                w.question_sum(4001),
+                Some((Some(sum), Some("visible".to_string())))
+            );
+        } else {
+            has(
+                &r.out,
+                "INFO: the question of #7 (comment 4001) had its sum of before 2.0, and its comment changed since it was posted",
+            );
+            assert_eq!(
+                w.question_sum(4001),
+                Some((None, Some("visible".to_string())))
+            );
+        }
+        if replied {
+            // The tick counts in the same poll, which uses the question up.
+            assert_eq!(started(&w), "7");
+            continue;
+        }
+        assert_eq!(started(&w), "");
+        assert_eq!(w.notes(7), 0, "nothing asked again");
+        assert!(w.writes_of(7).is_empty(), "{:?}", w.writes_of(7));
+        // The next poll finds it adopted and says nothing.
+        w.clear_calls();
+        let r = w.poll();
+        assert_eq!(r.rc, 0, "{}", r.out);
+        lacks(&r.out, "had its sum of before 2.0");
+        assert!(w.writes_of(7).is_empty(), "{:?}", w.writes_of(7));
+    }
 }

@@ -18,11 +18,12 @@ use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tehas_core::file::{write_atomic, Temp};
+use tehas_core::home::{Home, State};
+use tehas_core::lock::Held;
 use tehas_core::{call, mask, time};
 
 /// The report, under the home.
 pub const REPORT: &str = "mcp/checkout.json";
-const LOCK: &str = "state/mcp-fetch.lock";
 /// Seconds after a fetch in which a request does nothing.
 pub const QUIET: i64 = 60;
 const BOUND: Duration = Duration::from_secs(120);
@@ -40,12 +41,13 @@ pub enum Done {
 
 /// One run for the checkout at `dir`, its report under `home`, at `now`.
 pub fn fetch(home: &Path, dir: &Path, now: i64) -> Done {
-    let Ok(lock) = File::create(home.join(LOCK)) else {
-        return Done::Failed(format!("{} cannot be made", home.join(LOCK).display()));
+    let path = Home::new(home).state(State::McpFetchLock);
+    let Ok(lock) = File::create(&path) else {
+        return Done::Failed(format!("{} cannot be made", path.display()));
     };
-    if lock.try_lock().is_err() {
+    let Ok(_held) = Held::try_take(lock) else {
         return Done::Quiet;
-    }
+    };
     let report = home.join(REPORT);
     if last(&report).is_some_and(|t| now - t < QUIET) {
         return Done::Quiet;
@@ -164,7 +166,7 @@ mod tests {
         commit(&up, "one");
         let home = t.join("home");
         fs::create_dir_all(home.join("mcp")).unwrap();
-        fs::create_dir_all(home.join("state")).unwrap();
+        fs::create_dir_all(Home::new(&home).state_dir()).unwrap();
         git(&t, &["clone", "-q", "up", "clone"]);
         let clone = t.join("clone");
         (t, home, clone)
@@ -200,7 +202,7 @@ mod tests {
     #[test]
     fn a_fetch_while_another_runs_does_nothing() {
         let (_t, home, clone) = setup("ops-checkout-locked");
-        let held = File::create(home.join(LOCK)).unwrap();
+        let held = File::create(Home::new(&home).state(State::McpFetchLock)).unwrap();
         held.lock().unwrap();
         assert_eq!(fetch(&home, &clone, 1000), Done::Quiet);
         assert!(!home.join(REPORT).exists());

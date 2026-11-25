@@ -9,6 +9,7 @@ use common::*;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::PathBuf;
+use tehas_ports::{FinishResult, Marker, Write};
 
 fn record(w: &World) -> PathBuf {
     w.cycles_dir().join("7.end-failed.json")
@@ -61,6 +62,26 @@ fn later(w: &World) {
     fs::write(record(w), format!("{r}\n")).unwrap();
 }
 
+/// The poll's finish replies on #7, by the result of the marker typed
+/// beside each text.
+fn replies(w: &World) -> Vec<FinishResult> {
+    w.writes_of(7)
+        .into_iter()
+        .filter_map(|write| match write {
+            Write::TicketNote { markers, .. } => match markers.as_slice() {
+                [Marker::Finish(m)] if m.by_poll => Some(m.result),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect()
+}
+
+/// Whether a text the site was given for #7 holds `text`.
+fn said(w: &World, text: &str) -> bool {
+    w.said(7).iter().any(|b| b.contains(text))
+}
+
 fn finishes(w: &World) -> usize {
     count_lines(&w.calls("fake-finish"), "finish 7 ")
 }
@@ -77,14 +98,30 @@ fn a_push_that_failed_502_once_is_finished_on_the_next_poll() {
             w.home.display()
         ),
     );
-    has(
-        &w.gh(),
-        "<!-- tehas:finish issue=7 result=opened by=poll -->",
+    assert_eq!(replies(&w), [FinishResult::Opened]);
+    assert!(
+        said(&w, "https://github.com/acme/widget/pull/90"),
+        "{:?}",
+        w.said(7)
     );
-    has(&w.gh(), "https://github.com/acme/widget/pull/90");
     has(&r.out, "auto-finish #7: opened https://github.com/acme/widget/pull/90, try 1 of 3: its push failed on GitHub's side (HTTP 502)");
     assert!(!record(&w).exists());
     assert_eq!(w.calls("fake-start"), "");
+    // The wiring: one POST of the issue's comments through the adapter, and
+    // one note of the ports, done. Methods and counts only.
+    let posts = w
+        .gh()
+        .lines()
+        .filter(|l| l.starts_with("api -X POST") && l.contains("/issues/7/comments"))
+        .count();
+    assert_eq!(posts, 1, "{}", w.gh());
+    let notes: Vec<_> = w
+        .sent(7)
+        .into_iter()
+        .filter(|(write, _)| matches!(write, Write::TicketNote { .. }))
+        .collect();
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    assert_eq!(notes[0].1, "done");
 }
 
 #[test]
@@ -106,7 +143,7 @@ fn a_pull_request_that_fails_429_three_times_stops_after_3_tries_and_is_left_for
     later(&w);
     w.poll();
     assert_eq!(finishes(&w), 2);
-    lacks(&w.gh(), "result=stopped");
+    assert!(replies(&w).is_empty(), "{:?}", replies(&w));
     later(&w);
     let r = w.poll();
     assert_eq!(finishes(&w), 3);
@@ -118,13 +155,13 @@ fn a_pull_request_that_fails_429_three_times_stops_after_3_tries_and_is_left_for
         .unwrap()
         .starts_with("3 tries failed"));
     let stopped_once = |w: &World| {
-        w.gh()
-            .lines()
-            .filter(|l| l.contains("result=stopped by=poll"))
+        replies(w)
+            .iter()
+            .filter(|r| **r == FinishResult::Stopped)
             .count()
     };
     assert_eq!(stopped_once(&w), 1);
-    has(&w.gh(), "It waits for `tehas:finish`");
+    assert!(said(&w, "It waits for `tehas:finish`"), "{:?}", w.said(7));
     has(&r.out, "auto-finish #7: stopped: 3 tries failed");
     later(&w);
     w.poll();
@@ -138,7 +175,7 @@ fn a_push_only_the_cycle_s_own_result_names_is_not_finished_and_nothing_is_said(
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(w.calls("fake-finish"), "");
-    lacks(&w.gh(), "tehas:finish issue=7");
+    assert!(replies(&w).is_empty(), "{:?}", replies(&w));
     let rec = read_record(&w);
     assert_eq!(
         json!([rec["tries"], rec["stopped"], rec["said"]]),
@@ -155,11 +192,16 @@ fn a_refusal_tells_the_issue_the_rule_s_words_and_the_log_what_the_command_said(
         "error: could not apply 1a2b... @alice look here\n",
     );
     let r = w.poll();
-    has(
-        &w.gh(),
-        "its finish was refused: the rebase onto origin/main conflicts",
+    assert_eq!(replies(&w), [FinishResult::Stopped]);
+    assert!(
+        said(
+            &w,
+            "its finish was refused: the rebase onto origin/main conflicts"
+        ),
+        "{:?}",
+        w.said(7)
     );
-    lacks(&w.gh(), "@alice");
+    assert!(!said(&w, "@alice"), "{:?}", w.said(7));
     has(
         &r.out,
         "the finish of #7 was refused, the command said: error: could not apply 1a2b... @alice look here",
@@ -172,7 +214,7 @@ fn a_422_is_not_retried() {
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(w.calls("fake-finish"), "");
-    lacks(&w.gh(), "tehas:finish issue=7");
+    assert!(replies(&w).is_empty(), "{:?}", replies(&w));
     let rec = read_record(&w);
     assert_eq!(json!([rec["tries"], rec["stopped"]]), json!([[], ""]));
 }
@@ -204,7 +246,7 @@ fn a_finish_already_asked_for_is_not_run_twice() {
             "<!-- tehas:millwright issue=7 action=finish -->\nGitHub failed the push."
         )]),
     );
-    w.past(7, "alice", "label", "2026-10-01T00:00:00Z", &[]);
+    w.past(7, "alice", "approved", "2026-10-01T00:00:00Z", &[]);
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(finishes(&w), 1);

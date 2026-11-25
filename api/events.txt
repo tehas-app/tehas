@@ -1,0 +1,9 @@
+cycle.started
+cycle.parked
+question.asked
+cycle.ended
+change.offered
+factory.limit-changed
+ticket.acted
+ticket.closed
+change.merged

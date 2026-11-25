@@ -1,4 +1,4 @@
-//! The public surface of 1.x, held to api/surface-1.0.txt.
+//! The public surface of 2.x, held to api/surface-2.0.txt.
 //!
 //! The surface is read from the files that already pin each part:
 //! api/commands.txt for commands and flags, api/settings-rules.json for
@@ -9,7 +9,7 @@
 //! api/commands.txt marks internal and the fields host/docs/contract.md says
 //! may change.
 //!
-//! Within 1.x the surface is only added to. A name of the baseline that the
+//! Within 2.x the surface is only added to. A name of the baseline that the
 //! surface no longer has fails; a name the surface has and the baseline does
 //! not fails until it is appended to the baseline. A second test holds every
 //! public command to an exit table in host/docs/contract.md.
@@ -21,11 +21,11 @@ use std::path::PathBuf;
 use serde_json::Value;
 use tehas_core::features::{Feature, Stage, FEATURES};
 
-const BASELINE: &str = "api/surface-1.0.txt";
+const BASELINE: &str = "api/surface-2.0.txt";
 
 /// Fields of a building feature's `--json` output, with the feature. When the
 /// feature ships its row goes and the field joins the surface.
-const BUILDING_FIELDS: &[(&str, &str)] = &[("status.contractors", "outsource")];
+const BUILDING_FIELDS: &[(&str, &str)] = &[];
 
 /// Schemas of api/ that are a building feature's whole, with the feature:
 /// none of their fields is on the surface until it ships.
@@ -38,13 +38,12 @@ const BUILDING_SCHEMAS: &[(&str, &str)] = &[
     ("plugin-verdict", "plugins"),
 ];
 
-/// Fields whose own fields may change: one driver's steps and the Protolab.
+/// Fields whose own fields may change: one driver's steps.
 /// The field itself is public, what is under it is not.
 const OPEN_FIELDS: &[&str] = &[
     "status.running[].progress",
     "history.runs[].progress",
     "export.runs[].progress",
-    "status.prototypes",
 ];
 
 fn repo(rel: &str) -> PathBuf {
@@ -233,17 +232,10 @@ fn baseline() -> Vec<String> {
 }
 
 #[test]
-fn a_building_features_settings_stay_when_the_baseline_had_them() {
-    assert!(building_setting("TEHAS_REVIEW"));
-    assert!(building_setting("TEHAS_REVIEW_REPO"));
+fn a_building_features_setting_the_baseline_never_had_stays_out() {
+    assert!(building_setting("TEHAS_LEAN"));
     assert!(!building_setting("TEHAS_REPO"));
-    let surface = surface();
-    for name in ["setting TEHAS_REVIEW", "setting TEHAS_REVIEW_REPO"] {
-        assert!(baseline().iter().any(|n| n == name), "{name}");
-        assert!(surface.contains(name), "{name}");
-    }
-    // A building feature's setting the baseline never had stays out.
-    assert!(!surface.contains("setting TEHAS_LEAN"));
+    assert!(!surface().contains("setting TEHAS_LEAN"));
 }
 
 #[test]
@@ -255,7 +247,7 @@ fn no_name_of_the_baseline_is_gone() {
         .collect();
     assert!(
         gone.is_empty(),
-        "{BASELINE}: within 1.x a public name is never removed, renamed or made \
+        "{BASELINE}: within 2.x a public name is never removed, renamed or made \
          internal, and a building feature's is not public. Gone:\n{}",
         gone.join("\n")
     );
@@ -442,7 +434,7 @@ fn the_read_refuses_a_flag_of_no_feature() {
 fn the_reads_leave_out_what_is_not_public() {
     let mut out = BTreeSet::new();
     commands(
-        "# c\nplan --kind --out internal=--kind\noutsource list --json building=outsource\n",
+        "# c\nplan --kind --out internal=--kind\nplugin runs --json building=plugins\n",
         &mut out,
     );
     let got: Vec<&str> = out.iter().map(String::as_str).collect();
@@ -451,9 +443,7 @@ fn the_reads_leave_out_what_is_not_public() {
     let mut out = BTreeSet::new();
     let schema: Value = serde_json::from_str(
         r#"{"properties": {
-            "contractors": {"type": "array"},
-            "running": {"items": {"properties": {"progress": {"properties": {"step": {}}}}}},
-            "prototypes": {"properties": {"x": {}}}
+            "running": {"items": {"properties": {"progress": {"properties": {"step": {}}}}}}
         }}"#,
     )
     .unwrap();
@@ -461,17 +451,13 @@ fn the_reads_leave_out_what_is_not_public() {
     let got: Vec<&str> = out.iter().map(String::as_str).collect();
     assert_eq!(
         got,
-        [
-            "field status.prototypes",
-            "field status.running",
-            "field status.running[].progress",
-        ]
+        ["field status.running", "field status.running[].progress"]
     );
 
     let mut out = BTreeSet::new();
     settings(
         r#"{"required": ["TEHAS_REPO"], "roles": ["OPS"],
-            "settings": [{"name": "TEHAS_OUTSOURCE_REPOS"}, {"name": "TEHAS_LEAN"}],
+            "settings": [{"name": "TEHAS_PLUGINS"}, {"name": "TEHAS_LEAN"}],
             "host": [{"name": "TEHAS_HOME"}]}"#,
         &mut out,
     );

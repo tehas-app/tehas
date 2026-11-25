@@ -1,44 +1,28 @@
 //! `tehas-cycle finish` against real git repositories in a scratch directory and
-//! a stub `gh`: the case says what the remote holds and what GitHub answers, and
-//! reads what the run did to the branch, to the remote, to the tree beside it,
-//! and to the calls. No case reaches GitHub, a token or the network.
+//! the ports' fake code host: the case says what the remote holds and what the
+//! code host answers, and reads what the run did to the branch, to the remote,
+//! to the tree beside it, to the calls of the host and to the fake's writes. No
+//! case reaches GitHub, a token or the network.
 
 use super::cmd::Scratch;
 use super::plan::{body, title, Plan};
-use super::run::{has_commits, issue_branch_of, own_pulls, pull_for_issue, pull_named, Why};
-use super::{finish, Finished};
+use super::run::{has_commits, issue_branch_of, Why};
+use super::{finish, Finished, Ports};
 use crate::finish::cmd::{asked, asked_of_git, within, Done, Live};
 use crate::finish::Host;
-use serde_json::{json, Value};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use tehas_core::accounts::Accounts;
 use tehas_core::testdir::TestDir;
 use tehas_core::testing::write_exe;
-
-/// An open pull request as GraphQL answers it: on a branch of the case's
-/// repository, opened by the factory's bot.
-fn pr(n: u64, head: &str, text: &str) -> Value {
-    json!({"url": format!("https://github.com/acme/widget/pull/{n}"),
-        "headRefName": head, "body": text, "isCrossRepository": false,
-        "headRepository": {"nameWithOwner": "acme/widget"},
-        "author": {"login": "tehas-bot"}})
-}
-
-/// The GraphQL answer that holds `nodes`, a JSON list, or the text itself as
-/// the list when it is no JSON, and is the last page.
-fn pulls(nodes: &str) -> String {
-    page(nodes, None)
-}
-
-/// One page of the GraphQL answer: `nodes` as [`pulls`] reads them, and the
-/// cursor of the page after it when one follows.
-fn page(nodes: &str, next: Option<&str>) -> String {
-    let nodes: Value = serde_json::from_str(nodes).unwrap_or_else(|_| json!(nodes));
-    let info = json!({"hasNextPage": next.is_some(), "endCursor": next});
-    json!({"data": {"repository": {"pullRequests": {"pageInfo": info, "nodes": nodes}}}})
-        .to_string()
-}
+use tehas_ports::fake::{
+    ChangeSpec, CodeHostOp, FakeSite, Fault, Faulty, Op, World as FakeWorld, FACTORY,
+};
+use tehas_ports::{
+    Actor, Body, Bound, Caller, ChangeFilter, ChangeStates, NewChange, Scope, Site, Write,
+};
 
 /// The scratch root of one case.
 fn root(name: &str) -> TestDir {
@@ -96,7 +80,7 @@ fn git_s(args: &[String]) -> String {
 }
 
 /// The world of a case: the bare origin, the clone that makes the origin's
-/// branches, the home, and the kept workspace of issue 7.
+/// branches, the home, the kept workspace of issue 7, and the fake code host.
 struct World {
     dir: TestDir,
     origin: PathBuf,
@@ -104,7 +88,7 @@ struct World {
     home: PathBuf,
     work_dir: PathBuf,
     workspace: PathBuf,
-    gh: PathBuf,
+    site: FakeWorld,
 }
 
 impl World {
@@ -151,7 +135,7 @@ impl World {
         fs::create_dir_all(&work_dir).unwrap();
         World {
             workspace: home.join("work/widget-7"),
-            gh: dir.join("gh"),
+            site: pushed_site(),
             origin,
             seed,
             work_dir,
@@ -355,64 +339,57 @@ impl World {
         }
     }
 
-    /// The `gh` of a case: one line per call in `gh.calls`; the GraphQL list of
-    /// open pull requests answers from `list.answer` and `pr create` from
-    /// `create.answer`, an absent file being GitHub's nothing and a file of
-    /// `fail` a refusal of the call. The page after cursor `c` answers from
-    /// `list.c.answer` when there is one. A list answer is the nodes alone, as
-    /// [`pulls`] wraps them. The body file of a create is copied so a case can
-    /// read what the draft said.
-    fn stub(&self, list: &str, create: &str) {
-        write_exe(
-            &self.gh,
-            r#"#!/bin/sh
-# The gh of finish's cases. It records every call and answers the list of open
-# pull requests and pr create from a file of the case; a file of fail refuses its
-# call. The body file of a create is copied, so a case can read what the draft
-# said.
-set -u
-dir=$(dirname "$0")
-kind=other
-prev=
-page=
-for a in "$@"; do
-  case "$a" in
-    cursor=*) page=.${a#cursor=} ;;
-    pr) kind=pr ;;
-    api) kind=api ;;
-    graphql) [ "$kind" = api ] && kind=list ;;
-    create) [ "$kind" = pr ] && kind=create ;;
-  esac
-  if [ "$kind" = create ] && [ "$prev" = --body-file ]; then
-    cp "$a" "$dir/body.text" 2>/dev/null
-  fi
-  prev=$a
-done
-case "$kind" in pr|api) kind=other ;; esac
-printf '%s %s\n' "$*" "$kind" >>"$dir/gh.calls"
-ans=$dir/$kind.answer
-[ -f "$dir/$kind$page.answer" ] && ans=$dir/$kind$page.answer
-if [ -f "$ans" ]; then
-  [ "$(cat "$ans")" != fail ] || exit 1
-  [ "$kind" = other ] || { cat "$ans"; exit 0; }
-  exit 0
-fi
-[ "$kind" = list ] && { echo '{"data":{"repository":{"pullRequests":{"pageInfo":{"hasNextPage":false},"nodes":[]}}}}'; exit 0; }
-exit 0
-"#,
-        )
-        .unwrap();
-        if !list.is_empty() {
-            let answer = if list == "fail" {
-                list.to_string()
-            } else {
-                pulls(list)
-            };
-            fs::write(self.dir.join("list.answer"), format!("{answer}\n")).unwrap();
-        }
-        if !create.is_empty() {
-            fs::write(self.dir.join("create.answer"), format!("{create}\n")).unwrap();
-        }
+    /// The ports of a run over the case's fake code host, acting as the
+    /// factory. `alice` and `bob` are allowed, with no recorded id.
+    fn ports(&self) -> Ports {
+        ports_of(&FakeSite::new(&self.site))
+    }
+
+    /// The same ports, with every call of `op` answered by `fault`.
+    fn faulty(&self, op: Op, fault: Fault) -> Ports {
+        ports_of(&Faulty::new(FakeSite::new(&self.site)).on(op, fault))
+    }
+
+    /// An open change of the fake code host.
+    fn change(&self, n: u64, head: &str, f: impl FnOnce(ChangeSpec) -> ChangeSpec) {
+        let _ = self.site.clone().change(n, head, f);
+    }
+
+    /// The drafts the run opened on the code host, in the order it opened them.
+    fn drafts(&self) -> Vec<NewChange> {
+        self.site
+            .wrote()
+            .into_iter()
+            .filter_map(|w| match w.what {
+                Write::OpenChange(new) => Some(new),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Where a person opens the open change of `finish/issue-7` on the code host.
+    fn draft_link(&self) -> String {
+        self.draft_link_of("finish/issue-7")
+    }
+
+    /// Where a person opens the open change of `head` on the code host.
+    fn draft_link_of(&self, head: &str) -> String {
+        let mut ports = self.ports();
+        let all = ports
+            .code_host
+            .changes(
+                &ChangeFilter {
+                    states: ChangeStates::Open,
+                    ..Default::default()
+                },
+                Bound::new(1000).unwrap(),
+            )
+            .unwrap();
+        all.items()
+            .iter()
+            .find(|c| c.head.as_str() == head)
+            .map(|c| c.link.as_str().to_string())
+            .unwrap_or_default()
     }
 
     /// A hook of the kept workspace, as an agent that wrote the tree leaves one:
@@ -430,30 +407,39 @@ exit 0
         .unwrap();
     }
 
-    /// What the stub was asked, one call per line.
-    fn calls(&self) -> Vec<String> {
-        fs::read_to_string(self.dir.join("gh.calls"))
-            .unwrap_or_default()
-            .lines()
-            .map(str::to_string)
-            .collect()
-    }
-
-    fn asked(&self, what: &str) -> bool {
-        self.calls().iter().any(|c| c.contains(what))
-    }
-
-    /// The body the draft was opened with.
-    fn body(&self) -> String {
-        fs::read_to_string(self.dir.join("body.text")).unwrap_or_default()
-    }
-
-    /// The host of a case: the host's git, and the case's own `gh` by its path.
+    /// The host of a case: the host's git, and no gh.
     fn host(&self) -> Case {
         Case {
             git: git_program(),
-            gh: self.gh.clone(),
+            calls: Vec::new(),
         }
+    }
+
+    /// The host a run is really given, aimed at the host's git, or at `git`,
+    /// and at a gh that is not there: a run asks no gh.
+    fn live(&self, git: &Path) -> Live {
+        live(git, &self.dir.join("gh"))
+    }
+}
+
+/// The fake code host of a case. The run pushes to the case's own bare
+/// repository and not to the fake, so the fake is given the branch the run
+/// pushes, `finish/issue-7`, up front: it opens a change only from a branch it
+/// holds.
+fn pushed_site() -> FakeWorld {
+    let site = FakeWorld::new();
+    site.push("finish/issue-7", "the change", FACTORY);
+    site
+}
+
+/// A finish's ports from `site`, acting as the factory.
+fn ports_of(site: &dyn Site) -> Ports {
+    let (by, c) = (Actor::Ours(Scope::Full), Caller::new("finish"));
+    Ports {
+        code_host: site.code_host(&by, c).unwrap(),
+        writes: site.code_host_writes(&by, c).unwrap(),
+        accounts: Accounts::new(vec!["alice".into(), "bob".into()], BTreeMap::new()),
+        bot_id: Some(1),
     }
 }
 
@@ -468,16 +454,25 @@ fn git_program() -> String {
         .expect("git is on PATH")
 }
 
-/// The host of a case: the real git, and the case's own stub of gh. The run asks
-/// the names `git` and `gh` and the host decides where they are, which is the
-/// only way a case can stand in for GitHub.
+/// The host of a case: the real git, and every call it was asked, program and
+/// words. The run asks the name `git` and the host decides where it is.
 struct Case {
     git: String,
-    gh: PathBuf,
+    calls: Vec<(String, Vec<String>)>,
+}
+
+impl Case {
+    /// Whether a call of `program` had `word` among its words.
+    fn asked(&self, program: &str, word: &str) -> bool {
+        self.calls
+            .iter()
+            .any(|(p, args)| p == program && args.iter().any(|a| a == word))
+    }
 }
 
 impl Host for Case {
     fn run(&mut self, program: &str, args: &[String], dir: &Path) -> Done {
+        self.calls.push((program.to_string(), args.to_vec()));
         // The pins are part of the ask and not of the host, so a case reads them
         // the way the host does and answers a git call made without them the way
         // `Live` does. A rule that built one is a rule that would let the
@@ -491,7 +486,6 @@ impl Host for Case {
         }
         let program = match program {
             "git" => &self.git,
-            "gh" => &self.gh.to_string_lossy().into_owned(),
             other => {
                 return Done {
                     status: None,
@@ -535,6 +529,9 @@ impl Host for Case {
             // A host's identity is in its user's config; a rebase needs one.
             .env("GIT_COMMITTER_NAME", "tehas")
             .env("GIT_COMMITTER_EMAIL", "tehas@invalid")
+            // A remote the code host names is a URL of a site: git refuses
+            // its transport rather than reach the network.
+            .env("GIT_ALLOW_PROTOCOL", "file")
             .env_remove("GH_TOKEN")
             .env_remove("GITHUB_TOKEN")
             .output()
@@ -560,11 +557,10 @@ fn the_work_a_stopped_cycle_left_is_pushed_and_opened_as_a_draft() {
     // The remote moved on while the cycle stopped: the rebase is what makes the
     // draft something a reviewer can merge.
     w.remote_commit("other.md", "later\n", "later");
-    w.stub("", "https://github.com/acme/widget/pull/41");
     let mut h = w.host();
-    let got = finish(&w.plan(), &mut h);
+    let got = finish(&w.plan(), &mut h, &mut w.ports());
     assert_eq!(got.why, "", "the run refused: {}", got.why);
-    assert_eq!(got.url, "https://github.com/acme/widget/pull/41");
+    assert_eq!(got.url, w.draft_link());
     // The new branch holds the cycle's commit over the remote's main; the
     // cycle's own branch stands where the cycle left it.
     assert_eq!(
@@ -576,18 +572,30 @@ fn the_work_a_stopped_cycle_left_is_pushed_and_opened_as_a_draft() {
         Some("the change")
     );
     assert_eq!(w.left(), Vec::<String>::new(), "the run left a tree behind");
-    assert!(w.asked("pr create"), "{:?}", w.calls());
-    assert!(w.asked("--draft"));
-    assert!(w.asked("--head finish/issue-7"));
-    assert!(w.asked("--base main"));
-    assert!(w.asked("--repo acme/widget"));
-    let body = w.body();
+    // One draft, of the pushed branch into the default branch, that closes
+    // the issue, with the run's own title and body. No gh is asked.
+    let drafts = w.drafts();
+    assert_eq!(drafts.len(), 1, "{drafts:?}");
+    let d = &drafts[0];
+    assert!(d.draft);
+    assert_eq!(d.head.as_str(), "finish/issue-7");
+    assert_eq!(d.base.as_str(), "main");
+    assert_eq!(
+        d.closes.iter().map(|n| n.get()).collect::<Vec<_>>(),
+        vec![7]
+    );
+    assert_eq!(d.title, title(7));
+    let Body::Text(body) = &d.body else {
+        panic!("the body is no text: {:?}", d.body)
+    };
     assert!(body.contains("Fixes #7."), "{body}");
     assert!(
         body.contains("a flaky test"),
         "the reason is the asker's: {body}"
     );
     assert!(body.contains("gate did not pass"), "{body}");
+    assert!(!got.url.is_empty());
+    assert!(!h.calls.iter().any(|(p, _)| p == "gh"), "{:?}", h.calls);
 }
 
 #[test]
@@ -634,9 +642,8 @@ fn a_shallow_workspace_is_rebased_onto_a_default_branch_that_moved_past_its_dept
     for n in 0..5 {
         w.remote_commit(&format!("new-{n}.md"), "new\n", &format!("new {n}"));
     }
-    w.stub("", "https://github.com/acme/widget/pull/41");
     let mut h = w.host();
-    let got = finish(&w.plan(), &mut h);
+    let got = finish(&w.plan(), &mut h, &mut w.ports());
     assert_eq!(got.why, "", "the run refused: {}", got.why);
     let mut want = vec!["one".to_string()];
     want.extend((0..4).map(|n| format!("old {n}")));
@@ -649,22 +656,20 @@ fn a_shallow_workspace_is_rebased_onto_a_default_branch_that_moved_past_its_dept
 #[test]
 fn a_workspace_that_is_not_there_is_refused() {
     let w = World::new("no-workspace");
-    w.stub("", "");
     let mut h = w.host();
-    let got = finish(&w.plan(), &mut h);
+    let got = finish(&w.plan(), &mut h, &mut w.ports());
     assert_eq!(got.url, "");
     assert!(got.why.contains("is not a directory"), "{}", got.why);
     assert!(w.left().is_empty());
-    assert!(w.calls().is_empty(), "nothing was asked of GitHub");
+    assert_eq!(w.site.sent(), 0, "nothing was asked of the code host");
 }
 
 #[test]
 fn a_workspace_of_no_repository_is_refused() {
     let w = World::new("not-a-repository");
     fs::create_dir_all(&w.workspace).unwrap();
-    w.stub("", "");
     let mut h = w.host();
-    let got = finish(&w.plan(), &mut h);
+    let got = finish(&w.plan(), &mut h, &mut w.ports());
     assert!(got.why.contains("no git repository"), "{}", got.why);
 }
 
@@ -679,9 +684,8 @@ fn a_workspace_that_holds_no_branch_of_the_issue_is_refused() {
         &w.origin.display().to_string(),
         &w.workspace.display().to_string(),
     ]);
-    w.stub("", "");
     let mut h = w.host();
-    let got = finish(&w.plan(), &mut h);
+    let got = finish(&w.plan(), &mut h, &mut w.ports());
     assert!(
         got.why.contains("holds no branch of issue #7"),
         "{}",
@@ -694,9 +698,8 @@ fn a_workspace_that_holds_no_branch_of_the_issue_is_refused() {
 fn a_branch_of_another_issue_is_not_this_issue_s_branch() {
     let w = World::new("wrong-issue");
     w.kept("feature/issue-8-default", &[("a.txt", "x\n")]);
-    w.stub("", "https://github.com/acme/widget/pull/1");
     let mut h = w.host();
-    let got = finish(&w.plan(), &mut h);
+    let got = finish(&w.plan(), &mut h, &mut w.ports());
     assert!(
         got.why.contains("holds no branch of issue #7"),
         "{}",
@@ -709,9 +712,8 @@ fn a_branch_of_another_issue_is_not_this_issue_s_branch() {
 fn a_branch_named_without_a_slug_is_still_the_issue_s() {
     let w = World::new("no-slug");
     w.kept("feature/issue-7", &[("a.txt", "x\n")]);
-    w.stub("", "https://github.com/acme/widget/pull/42");
     let mut h = w.host();
-    let got = finish(&w.plan(), &mut h);
+    let got = finish(&w.plan(), &mut h, &mut w.ports());
     assert_eq!(got.why, "", "{}", got.why);
     assert!(w.remote_has("finish/issue-7"));
 }
@@ -721,16 +723,15 @@ fn work_that_was_never_committed_is_refused() {
     let w = World::new("uncommitted");
     w.kept("feature/issue-7-default", &[("a.txt", "x\n")]);
     fs::write(w.workspace.join("unseen.txt"), "nobody looked at this\n").unwrap();
-    w.stub("", "https://github.com/acme/widget/pull/1");
     let mut h = w.host();
-    let got = finish(&w.plan(), &mut h);
+    let got = finish(&w.plan(), &mut h, &mut w.ports());
     assert!(
         got.why.contains("never committed"),
         "uncommitted work is refused: {}",
         got.why
     );
     assert!(!w.remote_has("finish/issue-7"));
-    assert!(!w.asked("pr create"));
+    assert!(w.drafts().is_empty(), "a draft was opened");
     assert!(w.left().is_empty());
 }
 
@@ -743,56 +744,56 @@ fn a_branch_with_no_commit_over_the_default_branch_is_refused() {
     w.share_branch_with_the_remote("feature/issue-7-default");
     let head = git_in(&w.workspace, &["rev-parse", "feature/issue-7-default"]);
     w.remote_main_at(head.trim());
-    w.stub("", "https://github.com/acme/widget/pull/1");
     let mut h = w.host();
-    let got = finish(&w.plan(), &mut h);
+    let got = finish(&w.plan(), &mut h, &mut w.ports());
     assert!(
         got.why.contains("no commit over"),
         "a branch of nothing is refused: {}",
         got.why
     );
     assert!(!w.remote_has("finish/issue-7"));
-    assert!(!w.asked("pr create"));
+    assert!(w.drafts().is_empty(), "a draft was opened");
 }
 
 #[test]
 fn an_issue_that_already_has_an_open_pull_request_is_refused() {
-    let mut by_alice = pr(13, "someone-else", "Fixes #7");
-    by_alice["author"] = json!({"login": "alice"});
-    for (what, answer) in [
+    // Each change is the factory's own, the fake's account of ours. An allowed
+    // account's change counts only with its recorded id, which the fake's
+    // accounts cannot carry: core's `own_change` tests hold that case.
+    for (what, n, head, text) in [
         (
             "its-head-is-the-issue-s-branch",
-            pr(9, "feature/issue-7-default", ""),
+            9,
+            "feature/issue-7-default",
+            "",
         ),
         (
             "its-body-closes-the-issue",
-            pr(10, "someone-else", "Closes #7 and nothing else."),
+            10,
+            "someone-else",
+            "Closes #7 and nothing else.",
         ),
         (
             "its-head-is-the-branch-this-run-would-push",
-            pr(12, "finish/issue-7", ""),
+            12,
+            "finish/issue-7",
+            "",
         ),
-        ("an-allowed-account-opened-it", by_alice),
     ] {
         let w = World::new(what);
         w.kept("feature/issue-7-default", &[("a.txt", "x\n")]);
-        w.stub(
-            &json!([answer]).to_string(),
-            "https://github.com/acme/widget/pull/1",
-        );
+        w.change(n, head, |c| c.body(text));
+        let link = w.draft_link_of(head);
+        assert!(!link.is_empty(), "{what}");
         let mut h = w.host();
-        let got = finish(&w.plan(), &mut h);
-        assert!(
-            got.why.contains("already has an open pull request"),
-            "{what}: {}",
-            got.why
-        );
-        assert!(
-            got.why.contains("pull/"),
-            "{what}: the url is not named: {}",
-            got.why
+        let got = finish(&w.plan(), &mut h, &mut w.ports());
+        assert_eq!(
+            got.why,
+            format!("the issue already has an open pull request, {link}"),
+            "{what}"
         );
         assert!(!w.remote_has("finish/issue-7"), "{what}");
+        assert!(w.drafts().is_empty(), "{what}");
         assert!(w.left().is_empty(), "{what}");
     }
 }
@@ -802,118 +803,109 @@ fn a_pull_request_that_names_nothing_is_not_the_issue_s() {
     let w = World::new("other-pr");
     w.kept("feature/issue-7-default", &[("a.txt", "x\n")]);
     // `#70` and `#7x` name no issue, and a head of the wrong number names none.
-    w.stub(
-        &json!([pr(11, "feature/issue-70-x", "see issue #70 and fix #7x")]).to_string(),
-        "https://github.com/acme/widget/pull/12",
-    );
+    w.change(11, "feature/issue-70-x", |c| {
+        c.body("see issue #70 and fix #7x")
+    });
     let mut h = w.host();
-    let got = finish(&w.plan(), &mut h);
+    let got = finish(&w.plan(), &mut h, &mut w.ports());
     assert_eq!(got.why, "", "{}", got.why);
     assert!(w.remote_has("finish/issue-7"));
 }
 
 #[test]
 fn a_pull_request_the_factory_did_not_open_does_not_stop_the_run() {
-    type Change = fn(&mut Value);
-    let cases: [(&str, Change); 6] = [
-        ("an-outsider-s-fork", |p| {
-            p["isCrossRepository"] = json!(true);
-            p["headRepository"] = json!({"nameWithOwner": "mallory/widget"});
-            p["author"] = json!({"login": "mallory"});
-        }),
-        ("an-allowed-account-s-fork", |p| {
-            p["isCrossRepository"] = json!(true);
-            p["headRepository"] = json!({"nameWithOwner": "alice/widget"});
-            p["author"] = json!({"login": "alice"});
-        }),
-        ("an-outsider-on-a-branch-of-the-repository", |p| {
-            p["author"] = json!({"login": "mallory"});
-        }),
-        ("a-head-of-another-repository", |p| {
-            p["headRepository"] = json!({"nameWithOwner": "acme/other"});
-        }),
-        ("no-author", |p| {
-            p["author"] = Value::Null;
-        }),
-        ("no-cross-repository-answer", |p| {
-            p.as_object_mut().unwrap().remove("isCrossRepository");
-        }),
-    ];
-    for (what, change) in cases {
-        let w = World::new(what);
-        w.kept("feature/issue-7-default", &[("a.txt", "x\n")]);
-        // Each names the issue every way a run reads: its head is the issue's
-        // branch, its body closes it, and another's head is the pushed name.
-        let mut named = pr(20, "feature/issue-7-default", "Fixes #7.");
-        let mut pushed = pr(21, "finish/issue-7", "");
-        change(&mut named);
-        change(&mut pushed);
-        w.stub(
-            &json!([named, pushed]).to_string(),
-            "https://github.com/acme/widget/pull/22",
-        );
-        let mut h = w.host();
-        let got = finish(&w.plan(), &mut h);
-        assert_eq!(got.why, "", "{what}: {}", got.why);
-        assert!(w.remote_has("finish/issue-7"), "{what}");
-    }
+    // An outsider's change on a branch of the repository, naming the issue by
+    // its head and its body. Forks, a missing author and an allowed login
+    // without its recorded id are `own_change`'s, tested in core; the fake
+    // opens no fork.
+    let w = World::new("outsider-named");
+    w.kept("feature/issue-7-default", &[("a.txt", "x\n")]);
+    w.change(20, "feature/issue-7-default", |c| {
+        c.body("Fixes #7.").author("mallory")
+    });
+    let mut h = w.host();
+    let got = finish(&w.plan(), &mut h, &mut w.ports());
+    assert_eq!(got.why, "", "{}", got.why);
+    assert!(w.remote_has("finish/issue-7"));
+    assert_eq!(w.drafts().len(), 1);
+    // An outsider's change whose head is the name the run pushes, and an
+    // allowed login's that names the issue with no recorded id: neither stops
+    // the push. The fake then refuses a second open change of one head.
+    let w = World::new("outsider-pushed");
+    w.kept("feature/issue-7-default", &[("a.txt", "x\n")]);
+    w.change(21, "finish/issue-7", |c| c.author("mallory"));
+    w.change(22, "other", |c| c.body("Fixes #7.").author("alice"));
+    let mut h = w.host();
+    let got = finish(&w.plan(), &mut h, &mut w.ports());
+    assert!(
+        !got.why.contains("already has an open pull request"),
+        "{}",
+        got.why
+    );
+    assert!(w.remote_has("finish/issue-7"));
 }
 
 #[test]
 fn a_list_that_cannot_be_read_is_a_refusal() {
-    let w = World::new("list-fails");
-    w.kept("feature/issue-7-default", &[("a.txt", "x\n")]);
-    w.stub("fail", "https://github.com/acme/widget/pull/1");
-    let mut h = w.host();
-    let got = finish(&w.plan(), &mut h);
-    assert!(got.why.contains("could not be read"), "{}", got.why);
-    assert!(!w.remote_has("finish/issue-7"));
-    assert!(w.left().is_empty());
-}
-
-#[test]
-fn the_issues_pull_request_on_a_later_page_is_found() {
-    let w = World::new("list-paged");
-    w.kept("feature/issue-7-default", &[("a.txt", "x\n")]);
-    w.stub("", "https://github.com/acme/widget/pull/1");
-    let first: Vec<Value> = (100..200)
-        .map(|n| pr(n, &format!("other-{n}"), ""))
-        .collect();
-    let first = page(&json!(first).to_string(), Some("c2"));
-    fs::write(w.dir.join("list.answer"), format!("{first}\n")).unwrap();
-    let second = pulls(&json!([pr(9, "x", "Fixes #7.")]).to_string());
-    fs::write(w.dir.join("list.c2.answer"), format!("{second}\n")).unwrap();
-    let mut h = w.host();
-    let got = finish(&w.plan(), &mut h);
-    assert!(got.why.contains("/pull/9"), "{}", got.why);
-    assert!(w.asked("cursor=c2"));
-    assert!(!w.remote_has("finish/issue-7"));
-    assert!(!w.asked("pr create"));
-}
-
-#[test]
-fn a_list_that_cannot_be_read_whole_is_a_refusal() {
-    let no_cursor = json!({"data": {"repository": {"pullRequests":
-        {"pageInfo": {"hasNextPage": true}, "nodes": []}}}})
-    .to_string();
-    for (i, (what, answer)) in [
-        ("not json", "not json".to_string()),
-        ("no word on more pages", no_cursor),
-        ("pages without end", page("[]", Some("again"))),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        let w = World::new(&format!("list-partial-{i}"));
+    // Every failure of the list but a cut one is the one refusal, and the log
+    // keeps the code host's line. Paging, and an answer that does not parse
+    // or that says more pages follow and names none, are the adapter's: they
+    // reach the run as one of these.
+    for fault in [
+        Fault::Unreachable,
+        Fault::Timeout,
+        Fault::SignedOut,
+        Fault::Malformed,
+        Fault::Inconsistent,
+    ] {
+        let w = World::new(&format!("list-fails-{fault:?}"));
         w.kept("feature/issue-7-default", &[("a.txt", "x\n")]);
-        w.stub("", "https://github.com/acme/widget/pull/1");
-        fs::write(w.dir.join("list.answer"), format!("{answer}\n")).unwrap();
         let mut h = w.host();
-        let got = finish(&w.plan(), &mut h);
-        assert!(got.why.contains("could not be read"), "{what}: {}", got.why);
-        assert!(!w.remote_has("finish/issue-7"), "{what}");
-        assert!(!w.asked("pr create"), "{what}");
+        let mut ports = w.faulty(Op::CodeHost(CodeHostOp::Changes), fault);
+        let got = finish(&w.plan(), &mut h, &mut ports);
+        assert_eq!(
+            got.why, "the open pull requests could not be read",
+            "{fault:?}"
+        );
+        assert_eq!(got.said, fault.outcome().line(), "{fault:?}");
+        assert!(!w.remote_has("finish/issue-7"), "{fault:?}");
+        assert!(w.drafts().is_empty(), "{fault:?}");
+        assert!(w.left().is_empty(), "{fault:?}");
     }
+}
+
+#[test]
+fn the_issues_pull_request_past_the_first_hundred_is_found() {
+    // A hundred changes of other names before the issue's: the code host gives
+    // the list whole, its pages being the adapter's.
+    let w = World::new("list-long");
+    w.kept("feature/issue-7-default", &[("a.txt", "x\n")]);
+    for n in 100..200 {
+        w.change(n, &format!("other-{n}"), |c| c);
+    }
+    w.change(300, "x", |c| c.body("Fixes #7."));
+    let link = w.draft_link_of("x");
+    assert!(!link.is_empty());
+    let mut h = w.host();
+    let got = finish(&w.plan(), &mut h, &mut w.ports());
+    assert!(got.why.ends_with(&link), "{}", got.why);
+    assert!(!w.remote_has("finish/issue-7"));
+    assert!(w.drafts().is_empty(), "a draft was opened");
+}
+
+#[test]
+fn a_list_longer_than_the_pages_a_run_reads_is_a_refusal() {
+    let w = World::new("list-cut");
+    w.kept("feature/issue-7-default", &[("a.txt", "x\n")]);
+    let mut h = w.host();
+    let mut ports = w.faulty(Op::CodeHost(CodeHostOp::Changes), Fault::Cut);
+    let got = finish(&w.plan(), &mut h, &mut ports);
+    assert_eq!(
+        got.why,
+        "the open pull requests could not be read: more than 10 pages of them"
+    );
+    assert!(!w.remote_has("finish/issue-7"));
+    assert!(w.drafts().is_empty(), "a draft was opened");
 }
 
 #[test]
@@ -926,15 +918,14 @@ fn a_name_already_on_the_remote_is_refused() {
         "the name is taken\n",
         "a branch of that name",
     );
-    w.stub("", "https://github.com/acme/widget/pull/1");
     let mut h = w.host();
-    let got = finish(&w.plan(), &mut h);
+    let got = finish(&w.plan(), &mut h, &mut w.ports());
     assert!(
         got.why.contains("already a branch of the remote"),
         "{}",
         got.why
     );
-    assert!(!w.asked("pr create"));
+    assert!(w.drafts().is_empty(), "a draft was opened");
     assert!(w.left().is_empty());
 }
 
@@ -947,9 +938,8 @@ fn a_rebase_that_conflicts_leaves_no_tree_and_no_branch() {
     );
     // The same line, changed on both sides: the rebase cannot settle it.
     w.remote_commit("a.txt", "the remote's line\n", "other side");
-    w.stub("", "https://github.com/acme/widget/pull/1");
     let mut h = w.host();
-    let got = finish(&w.plan(), &mut h);
+    let got = finish(&w.plan(), &mut h, &mut w.ports());
     assert_eq!(got.why, "the rebase onto origin/main conflicts");
     // git quotes the cycle's commit subject: the log keeps it, the rule does not.
     assert!(got.said.contains("the change"), "{}", got.said);
@@ -965,7 +955,7 @@ fn a_rebase_that_conflicts_leaves_no_tree_and_no_branch() {
     // only itself.
     let listed = git_in(&w.workspace, &["worktree", "list"]);
     assert_eq!(listed.lines().count(), 1, "{listed}");
-    assert!(!w.asked("pr create"));
+    assert!(w.drafts().is_empty(), "a draft was opened");
 }
 
 #[test]
@@ -975,12 +965,11 @@ fn a_push_the_remote_refuses_is_not_tried_again() {
     // The remote's own answer to a push, its hook: the run cannot know why.
     let hook = w.origin.join("hooks/pre-receive");
     write_exe(&hook, "#!/bin/sh\nexit 1\n").unwrap();
-    w.stub("", "https://github.com/acme/widget/pull/1");
     let mut h = w.host();
-    let got = finish(&w.plan(), &mut h);
+    let got = finish(&w.plan(), &mut h, &mut w.ports());
     assert!(got.why.contains("could not be pushed"), "{}", got.why);
     assert!(!w.remote_has("finish/issue-7"));
-    assert!(!w.asked("pr create"));
+    assert!(w.drafts().is_empty(), "a draft was opened");
     assert_eq!(w.left(), Vec::<String>::new());
 }
 
@@ -988,17 +977,20 @@ fn a_push_the_remote_refuses_is_not_tried_again() {
 fn a_draft_that_cannot_be_opened_keeps_its_branch_for_the_next_ask() {
     let w = World::new("create-fails");
     w.kept("feature/issue-7-default", &[("a.txt", "x\n")]);
-    w.stub("", "fail");
     let mut h = w.host();
-    let got = finish(&w.plan(), &mut h);
+    let fault = Fault::Unreachable;
+    let mut ports = w.faulty(Op::CodeHost(CodeHostOp::OpenChange), fault);
+    let got = finish(&w.plan(), &mut h, &mut ports);
     assert!(
         got.why.contains("pull request could not be opened"),
         "{}",
         got.why
     );
+    assert_eq!(got.said, fault.outcome().line());
     assert_eq!(got.url, "");
+    assert!(w.drafts().is_empty());
     // The push is the half that cannot be undone here and it stands: the branch is
-    // there for a reviewer, and no body file is left in the work directory.
+    // there for a reviewer, and nothing is left in the work directory.
     assert!(w.remote_has("finish/issue-7"));
     assert_eq!(w.left(), Vec::<String>::new());
     // The refusal says so, because the next ask is refused by that branch: it
@@ -1013,7 +1005,7 @@ fn a_draft_that_cannot_be_opened_keeps_its_branch_for_the_next_ask() {
     // The next ask finds the name on the remote and refuses rather than pushing
     // the same commits a second time.
     let mut h = w.host();
-    let again = finish(&w.plan(), &mut h);
+    let again = finish(&w.plan(), &mut h, &mut w.ports());
     assert!(
         again.why.contains("already a branch of the remote"),
         "{}",
@@ -1022,40 +1014,174 @@ fn a_draft_that_cannot_be_opened_keeps_its_branch_for_the_next_ask() {
 }
 
 #[test]
-fn a_draft_that_said_no_url_is_a_refusal() {
-    let w = World::new("no-url");
+fn a_draft_whose_answer_was_lost_but_was_opened_is_found_on_its_head() {
+    // The answer was lost after the ask went out and the code host opened it:
+    // one list of the pushed head finds it, and the run reports its link.
+    let w = World::new("answer-lost-opened");
     w.kept("feature/issue-7-default", &[("a.txt", "x\n")]);
-    w.stub("", "opened, but it said nothing");
     let mut h = w.host();
-    let got = finish(&w.plan(), &mut h);
-    assert!(got.why.contains("no url"), "{}", got.why);
-    assert_eq!(got.url, "");
-    // gh may have opened it or not; either way the branch stands, and the
-    // refusal names it, since the next ask is refused while it is there.
+    let fault = Fault::TimeoutMaybe { applied: true };
+    let mut ports = w.faulty(Op::CodeHost(CodeHostOp::OpenChange), fault);
+    let got = finish(&w.plan(), &mut h, &mut ports);
+    assert_eq!(got.why, "");
+    assert_eq!(w.drafts().len(), 1);
+    assert!(got.url.ends_with("/1"), "{}", got.url);
     assert!(w.remote_has("finish/issue-7"));
+    assert_eq!(w.left(), Vec::<String>::new());
+}
+
+#[test]
+fn a_draft_whose_answer_was_lost_and_is_not_there_may_have_been_opened() {
+    // The list of the head finds none: the run cannot say the open failed,
+    // only that it may have been opened, and the branch stands.
+    let w = World::new("answer-lost");
+    w.kept("feature/issue-7-default", &[("a.txt", "x\n")]);
+    let mut h = w.host();
+    let fault = Fault::TimeoutMaybe { applied: false };
+    let mut ports = w.faulty(Op::CodeHost(CodeHostOp::OpenChange), fault);
+    let got = finish(&w.plan(), &mut h, &mut ports);
     assert!(
         got.why
-            .contains("finish/issue-7 was pushed and stands on the remote"),
+            .starts_with("the pull request may have been opened; finish/issue-7 was pushed and stands on the remote"),
         "{}",
         got.why
     );
+    assert_eq!(got.said, fault.outcome().line());
+    assert_eq!(got.url, "");
+    assert!(w.drafts().is_empty());
+    assert!(w.remote_has("finish/issue-7"));
     let mut h = w.host();
-    let again = finish(&w.plan(), &mut h);
+    let again = finish(&w.plan(), &mut h, &mut w.ports());
     assert!(
         again.why.contains("already a branch of the remote"),
         "{}",
         again.why
     );
+}
+
+#[test]
+fn a_finish_with_no_bot_id_refuses_before_it_reads_anything() {
+    // With no recorded id, no change counts as the factory's own: an open
+    // draft of the issue would go unseen and a second one opened.
+    let w = World::new("no-bot-id");
+    w.kept("feature/issue-7-default", &[("a.txt", "x\n")]);
+    let mut h = w.host();
+    let mut ports = Ports {
+        bot_id: None,
+        ..w.ports()
+    };
+    let got = finish(&w.plan(), &mut h, &mut ports);
+    assert_eq!(
+        got.why,
+        "the factory's own pull requests cannot be told: \
+         no user id is recorded for the bot's account in state/account-ids"
+    );
+    assert!(h.calls.is_empty(), "{:?}", h.calls);
+    assert!(!w.remote_has("finish/issue-7"));
+    assert!(w.drafts().is_empty());
+}
+
+#[test]
+fn a_finish_whose_account_ids_cannot_be_read_refuses_before_it_reads_anything() {
+    let w = World::new("ids-unread");
+    w.kept("feature/issue-7-default", &[("a.txt", "x\n")]);
+    let u = tehas_core::accounts::parse_bytes(b"alice 5\nAlice 99\n").unwrap_err();
+    let accounts = Accounts::unreadable(vec!["alice".into()], &u);
+    let line = accounts.unread().unwrap().to_string();
+    let mut h = w.host();
+    let mut ports = Ports {
+        accounts,
+        ..w.ports()
+    };
+    let got = finish(&w.plan(), &mut h, &mut ports);
+    assert_eq!(
+        got.why,
+        format!("the factory's own pull requests cannot be told: {line}")
+    );
+    assert!(h.calls.is_empty(), "{:?}", h.calls);
+    assert!(!w.remote_has("finish/issue-7"));
+    assert!(w.drafts().is_empty());
+}
+
+#[test]
+fn a_plan_with_no_remote_pushes_to_the_code_host_s_remote() {
+    let w = World::new("host-remote");
+    w.kept("feature/issue-7-default", &[("a.txt", "x\n")]);
+    let plan = Plan {
+        remote: None,
+        ..w.plan()
+    };
+    let want = w
+        .ports()
+        .code_host
+        .remote(tehas_ports::Access::Push)
+        .unwrap()
+        .url
+        .as_str()
+        .to_string();
+    let mut h = w.host();
+    let got = finish(&plan, &mut h, &mut w.ports());
+    // The case's git may not reach a site, so the fetch of that remote fails:
+    // what matters is that it was the one named.
+    assert!(
+        got.why.contains("origin/main could not be fetched"),
+        "{}",
+        got.why
+    );
+    assert!(
+        h.calls.iter().any(|(_, a)| a.ends_with(&[
+            "remote".into(),
+            "add".into(),
+            "origin".into(),
+            want.clone()
+        ])),
+        "{:?}",
+        h.calls
+    );
+    assert!(!w.remote_has("finish/issue-7"));
+}
+
+#[test]
+fn a_code_host_that_names_no_remote_stops_the_run_before_a_push() {
+    let w = World::new("no-remote");
+    w.kept("feature/issue-7-default", &[("a.txt", "x\n")]);
+    let plan = Plan {
+        remote: None,
+        ..w.plan()
+    };
+    let before = git(&[
+        "--git-dir",
+        &w.origin.display().to_string(),
+        "for-each-ref",
+        "refs/heads/",
+    ]);
+    let mut h = w.host();
+    let fault = Fault::Forbidden;
+    let mut ports = w.faulty(Op::CodeHost(CodeHostOp::Remote), fault);
+    let got = finish(&plan, &mut h, &mut ports);
+    assert_eq!(got.why, "the remote could not be named");
+    assert_eq!(got.said, fault.outcome().line());
+    assert_eq!(got.url, "");
+    let after = git(&[
+        "--git-dir",
+        &w.origin.display().to_string(),
+        "for-each-ref",
+        "refs/heads/",
+    ]);
+    assert_eq!(before, after);
+    assert!(!h.asked("git", "push"), "{:?}", h.calls);
+    assert!(!h.asked("git", "remote"), "{:?}", h.calls);
+    assert!(w.drafts().is_empty());
+    assert!(w.left().is_empty());
 }
 
 #[test]
 fn a_word_that_is_no_word_stops_the_run_before_a_call() {
     let w = World::new("bad-words");
     w.kept("feature/issue-7-default", &[("a.txt", "x\n")]);
-    w.stub("", "https://github.com/acme/widget/pull/1");
     let bad = |why: Plan, what: &str| {
         let mut h = w.host();
-        let got = finish(&why, &mut h);
+        let got = finish(&why, &mut h, &mut w.ports());
         assert!(got.why.contains(what), "{what} was not named: {}", got.why);
         assert!(!w.remote_has("finish/issue-7"), "{what} pushed");
     };
@@ -1133,7 +1259,6 @@ fn the_words_of_a_run_name_its_workspace_its_scratch_and_its_branch() {
         allowed: vec!["alice".to_string()],
     };
     assert_eq!(p.check(), Ok(()));
-    assert_eq!(p.remote(), "https://github.com/acme/widget.git");
     assert_eq!(p.workspace(), PathBuf::from("/home/t/tehas/work/widget-7"));
     assert_eq!(p.scratch_parent(), PathBuf::from("/home/t/tehas/work"));
     assert_eq!(p.branch(), "finish/issue-7");
@@ -1162,112 +1287,6 @@ fn the_issue_s_branch_among_the_names_git_answers() {
         "a name ending in a dash is no branch name"
     );
     assert_eq!(issue_branch_of("", 7), None);
-}
-
-#[test]
-fn the_open_pull_request_of_an_issue_among_the_answers() {
-    let url = "https://github.com/acme/widget/pull/3";
-    let one = |head: &str, text: &str| {
-        let mut p = pr(3, head, text);
-        p["url"] = json!(url);
-        vec![p]
-    };
-    assert_eq!(
-        pull_for_issue(&one("feature/issue-7", ""), 7).as_deref(),
-        Some(url)
-    );
-    assert_eq!(
-        pull_for_issue(&one("feature/issue-7-abc", ""), 7).as_deref(),
-        Some(url)
-    );
-    assert_eq!(
-        pull_for_issue(&one("anything", "Fixes #7."), 7).as_deref(),
-        Some(url)
-    );
-    assert_eq!(pull_for_issue(&one("anything", ""), 7), None);
-    assert_eq!(pull_for_issue(&[], 7), None);
-    // A pull request with no URL of its own is no pull request to name.
-    assert_eq!(
-        pull_for_issue(&[json!({"headRefName": "feature/issue-7"})], 7),
-        None
-    );
-    assert_eq!(
-        pull_named(&one("finish/issue-7", ""), "finish/issue-7").as_deref(),
-        Some(url)
-    );
-    assert_eq!(
-        pull_named(&one("feature/issue-7", ""), "finish/issue-7"),
-        None
-    );
-}
-
-#[test]
-fn only_the_factorys_own_pull_requests_of_an_answer_are_read() {
-    let plan = Plan {
-        issue: 7,
-        repo: "acme/widget".to_string(),
-        home: PathBuf::from("/home/t/tehas"),
-        work_dir: PathBuf::from("/home/t/tehas/work/widget"),
-        default: "main".to_string(),
-        reason: "the gate's time bound".to_string(),
-        remote: None,
-        bot: "tehas-bot[bot]".to_string(),
-        allowed: vec!["alice".to_string()],
-    };
-    let own = pr(1, "feature/issue-7", "");
-    let mut fork = pr(2, "feature/issue-7", "");
-    fork["isCrossRepository"] = json!(true);
-    let mut alice = pr(3, "x", "");
-    alice["author"] = json!({"login": "alice"});
-    let mut bob = pr(4, "y", "");
-    bob["author"] = json!({"login": "bob"});
-    let answer = pulls(&json!([own.clone(), fork, alice.clone(), bob]).to_string());
-    assert_eq!(
-        own_pulls(&answer, &plan),
-        Some((vec![own.clone(), alice], None))
-    );
-    assert_eq!(
-        own_pulls(&page(&json!([own.clone()]).to_string(), Some("c2")), &plan),
-        Some((vec![own], Some("c2".to_string())))
-    );
-    assert_eq!(own_pulls(&pulls("[]"), &plan), Some((vec![], None)));
-    // An answer that cannot be read is no answer, never an empty list.
-    assert_eq!(own_pulls("not json", &plan), None);
-    assert_eq!(own_pulls("[]", &plan), None);
-    assert_eq!(own_pulls(r#"{"url":"x"}"#, &plan), None);
-    assert_eq!(own_pulls(&pulls("{}"), &plan), None);
-    let no_word = json!({"data": {"repository": {"pullRequests": {"nodes": []}}}});
-    assert_eq!(own_pulls(&no_word.to_string(), &plan), None);
-    let no_cursor = json!({"data": {"repository": {"pullRequests":
-        {"pageInfo": {"hasNextPage": true, "endCursor": null}, "nodes": []}}}});
-    assert_eq!(own_pulls(&no_cursor.to_string(), &plan), None);
-}
-
-#[test]
-fn finish_and_the_runner_take_the_same_pull_requests_for_an_issue() {
-    // Bodies and heads the two used to read differently. Each is the issue's
-    // pull request for both or for neither.
-    let url = "https://github.com/acme/widget/pull/3";
-    for (head, text, yes) in [
-        ("x", "Fixes #7", true),
-        ("x", "Resolved #7", true),
-        ("x", "some textfixes #7", false),
-        ("x", "This does not fix #7.", false),
-        ("x", "Fixes #7x", false),
-        ("x", "fixes:#7", true),
-        ("feature/issue-7-a+b", "", true),
-        ("feature/issue-70", "", false),
-    ] {
-        let mut p = pr(3, head, text);
-        p["url"] = json!(url);
-        let runner = crate::runner::names_issue(&p, 7);
-        assert_eq!(runner, yes, "runner: {head:?} {text:?}");
-        assert_eq!(
-            pull_for_issue(&[p], 7).is_some(),
-            yes,
-            "finish: {head:?} {text:?}"
-        );
-    }
 }
 
 #[test]
@@ -1352,7 +1371,7 @@ fn the_pins_of_a_call_are_its_own_words_and_no_call_of_git_goes_without_them() {
 }
 
 #[test]
-fn the_scratch_of_a_run_is_its_own_directory_and_its_body() {
+fn the_scratch_of_a_run_is_its_own_directory() {
     let dir = root("scratch");
     let s = Scratch::new(dir.to_path_buf(), "widget-7".to_string());
     let tree = s.dir().unwrap();
@@ -1362,29 +1381,19 @@ fn the_scratch_of_a_run_is_its_own_directory_and_its_body() {
         .unwrap()
         .to_string_lossy()
         .starts_with("widget-7.finish."));
-    let file = s.write_body("the words").unwrap();
-    assert_eq!(fs::read_to_string(&file).unwrap(), "the words");
-    // The body is the run's to take back, and its absence is not an error.
-    s.drop_body();
-    assert!(!file.exists());
-    s.drop_body();
-    // A body that cannot be written is a refusal and not a partial file.
-    let where_it_cannot = Scratch::new(PathBuf::from("/proc/tehas-nothing"), "x".to_string());
-    assert!(where_it_cannot.write_body("x").is_err());
 }
 
 #[test]
 fn a_run_that_refused_left_nothing_and_a_run_that_finished_left_nothing() {
     // Both paths of the run end the same way for the work directory: the tree
-    // and the body of the run are gone, and the workspace is untouched.
+    // of the run is gone, and the workspace is untouched.
     let w = World::new("clean-both");
     w.kept("feature/issue-7-default", &[("a.txt", "x\n")]);
-    w.stub("", "https://github.com/acme/widget/pull/5");
     let mut h = w.host();
     assert_eq!(
-        finish(&w.plan(), &mut h),
+        finish(&w.plan(), &mut h, &mut w.ports()),
         Finished {
-            url: "https://github.com/acme/widget/pull/5".to_string(),
+            url: w.draft_link_of("finish/issue-7"),
             why: String::new(),
             said: String::new(),
         }
@@ -1639,12 +1648,11 @@ fn a_hook_of_the_workspace_outside_the_tree_is_not_run_either() {
         &w.workspace,
         &["config", "core.hooksPath", &outside.display().to_string()],
     );
-    w.stub("", "https://github.com/acme/widget/pull/33");
     let git = PathBuf::from(git_program());
-    let mut h = live(&git, &w.gh);
-    let got = finish(&w.plan(), &mut h);
+    let mut h = w.live(&git);
+    let got = finish(&w.plan(), &mut h, &mut w.ports());
     assert_eq!(got.why, "", "the run refused: {}", got.why);
-    assert_eq!(got.url, "https://github.com/acme/widget/pull/33");
+    assert_eq!(got.url, w.draft_link());
     assert!(
         w.remote_has("finish/issue-7"),
         "a hook of the workspace stopped the push"
@@ -1662,7 +1670,7 @@ fn a_hook_of_the_workspace_outside_the_tree_is_not_run_either() {
 fn the_hooks_of_the_workspace_are_asked_of_nobody_and_the_push_goes() {
     // The kept workspace of a real host is a clone, so the hooks git would run
     // for it live under its own `.git`, as the cleaner's case plants its
-    // `core.fsmonitor` (`test/clean_test.sh`): the file is container-writable,
+    // `core.fsmonitor` (`console/tests/clean_workspaces.rs`): the file is container-writable,
     // so anything of the tree's git settings is. A `pre-push` of the workspace
     // that refuses is the shape that matters most, because it lets a script
     // somebody left answer for whether the factory's push goes through. The
@@ -1675,12 +1683,11 @@ fn the_hooks_of_the_workspace_are_asked_of_nobody_and_the_push_goes() {
     // The tree's own config, pointed at a program of it as well: the default
     // path of the hooks and the path the config gives are two different doors.
     git_in(&w.workspace, &["config", "core.hooksPath", ".git/hooks"]);
-    w.stub("", "https://github.com/acme/widget/pull/33");
     let git = PathBuf::from(git_program());
-    let mut h = live(&git, &w.gh);
-    let got = finish(&w.plan(), &mut h);
+    let mut h = w.live(&git);
+    let got = finish(&w.plan(), &mut h, &mut w.ports());
     assert_eq!(got.why, "", "the run refused: {}", got.why);
-    assert_eq!(got.url, "https://github.com/acme/widget/pull/33");
+    assert_eq!(got.url, w.draft_link());
     assert!(
         w.remote_has("finish/issue-7"),
         "a hook of the workspace stopped the push"
@@ -1783,12 +1790,11 @@ fn a_run_of_the_real_host_finishes_a_repository_of_its_own() {
     let w = World::new("live-host");
     w.kept("feature/issue-7-default", &[("a.txt", "the change\n")]);
     w.remote_commit("other.md", "later\n", "later");
-    w.stub("", "https://github.com/acme/widget/pull/77");
     let git = identified_git(&w.dir);
-    let mut h = live(&git, &w.gh);
-    let got = finish(&w.plan(), &mut h);
+    let mut h = w.live(&git);
+    let got = finish(&w.plan(), &mut h, &mut w.ports());
     assert_eq!(got.why, "", "the run refused: {}", got.why);
-    assert_eq!(got.url, "https://github.com/acme/widget/pull/77");
+    assert_eq!(got.url, w.draft_link());
     // The branch the run pushed stands on the remote over the remote's own main,
     // and the cycle's branch did not move.
     assert!(w.remote_has("finish/issue-7"));
@@ -1843,10 +1849,9 @@ fn the_workspace_s_git_config_runs_nothing_on_the_host_and_names_no_remote() {
     }
     fs::create_dir_all(w.workspace.join(".git/info")).unwrap();
     fs::write(w.workspace.join(".git/info/attributes"), "* filter=x\n").unwrap();
-    w.stub("", "https://github.com/acme/widget/pull/9");
     let git = identified_git(&w.dir);
-    let mut h = live(&git, &w.gh);
-    let got = finish(&w.plan(), &mut h);
+    let mut h = w.live(&git);
+    let got = finish(&w.plan(), &mut h, &mut w.ports());
     assert_eq!(got.why, "", "the run refused: {}", got.why);
     assert!(
         !w.dir.join("ran-prog").exists(),
@@ -1880,9 +1885,8 @@ fn a_file_the_workspace_excludes_is_not_uncommitted_work() {
     fs::create_dir_all(w.workspace.join(".git/info")).unwrap();
     fs::write(w.workspace.join(".git/info/exclude"), "scratch.log\n").unwrap();
     fs::write(w.workspace.join("scratch.log"), "noise\n").unwrap();
-    w.stub("", "https://github.com/acme/widget/pull/3");
     let mut h = w.host();
-    let got = finish(&w.plan(), &mut h);
+    let got = finish(&w.plan(), &mut h, &mut w.ports());
     assert_eq!(got.why, "", "the run refused: {}", got.why);
 }
 
@@ -1898,9 +1902,8 @@ fn an_exclude_that_is_a_link_is_not_followed() {
     let _ = fs::remove_file(w.workspace.join(".git/info/exclude"));
     std::os::unix::fs::symlink(&elsewhere, w.workspace.join(".git/info/exclude")).unwrap();
     fs::write(w.workspace.join("scratch.log"), "noise\n").unwrap();
-    w.stub("", "https://github.com/acme/widget/pull/3");
     let mut h = w.host();
-    let got = finish(&w.plan(), &mut h);
+    let got = finish(&w.plan(), &mut h, &mut w.ports());
     assert!(got.why.contains("never committed"), "{}", got.why);
 }
 

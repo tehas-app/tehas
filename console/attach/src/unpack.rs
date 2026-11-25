@@ -9,9 +9,9 @@
 //!      any other kind is left out, and so is an encrypted file
 //!   2. no path that starts with /, has a .. part, has a backslash, or is more
 //!      than six levels deep
-//!   3. each part of the path cleaned as protolab cleans a name; a part that
-//!      ends up empty leaves the entry out
-//!   4. only the types protolab hosts, and md
+//!   3. each part of the path cleaned as the item store cleans a name; a part
+//!      that ends up empty leaves the entry out
+//!   4. only the types the item store keeps, and md
 //!   5. at most --max-files files
 //!   6. at most --max-bytes in all, counted on what is inflated and not on
 //!      what the archive says, a damaged entry's bytes included; after the
@@ -25,20 +25,20 @@
 //!
 //! Files are made new, mode 644; no link is ever made.
 
-use crate::sniff::Sniffer;
+use crate::sniff::{Sniffed, Sniffer};
 use crate::zip::{Archive, Entry, ReadError, MAX_ENTRIES};
-use serde_json::{json, Value};
+use serde::ser::{Serialize, SerializeMap, Serializer};
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 const OUTSIDE: &str = "A path outside the archive.";
-const UNUSABLE: &str = "A name the lab cannot use.";
+const UNUSABLE: &str = "A name the host cannot use.";
 const FULL: &str = "Over the 10 MB limit of a ticket.";
 
-/// The kind protolab hosts a file of this extension as; None for one it does
-/// not. The same table as `kind_of` in console/src/protolab/build.rs, and md.
+/// The kind the item store keeps a file of this extension as; None for one it
+/// does not. The same table as `kind_of` in console/items/src/store.rs, and md.
 pub fn kind(ext: &str) -> Option<&'static str> {
     match ext {
         "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "avif" => Some("image"),
@@ -49,8 +49,8 @@ pub fn kind(ext: &str) -> Option<&'static str> {
     }
 }
 
-/// One part of a path as protolab cleans a name: every byte but A-Z a-z 0-9
-/// . _ - made '-', leading dots and dashes dropped, at most 80 bytes.
+/// One part of a path as the item store cleans a name: every byte but A-Z
+/// a-z 0-9 . _ - made '-', leading dots and dashes dropped, at most 80 bytes.
 pub fn clean_part(part: &[u8]) -> String {
     clean_bytes(part).into_iter().map(char::from).collect()
 }
@@ -79,8 +79,63 @@ fn said(name: &[u8]) -> String {
     String::from_utf8_lossy(name).chars().take(200).collect()
 }
 
-fn skip(name: &str, reason: &str) -> Value {
-    json!({"skip": name, "reason": reason})
+/// One entry of an archive, as `unpack` answers it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Unpacked {
+    /// A file written under the destination.
+    File {
+        /// Its path under the destination.
+        name: String,
+        /// The word of `kind` for its extension.
+        kind: &'static str,
+        bytes: u64,
+        sha256: String,
+        /// The image format its bytes are, if they are one.
+        image: Option<&'static str>,
+        text: bool,
+    },
+    /// An entry left out, by the name the archive gives it, and why.
+    Skip { name: String, reason: String },
+}
+
+/// The entry as the answer of `attach unpack` holds it:
+/// {"name","kind","bytes","sha256","image","text"} for a file written,
+/// {"skip","reason"} for one left out.
+impl Serialize for Unpacked {
+    fn serialize<S: Serializer>(&self, to: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Unpacked::File {
+                name,
+                kind,
+                bytes,
+                sha256,
+                image,
+                text,
+            } => {
+                let mut map = to.serialize_map(Some(6))?;
+                map.serialize_entry("bytes", bytes)?;
+                map.serialize_entry("image", image)?;
+                map.serialize_entry("kind", kind)?;
+                map.serialize_entry("name", name)?;
+                map.serialize_entry("sha256", sha256)?;
+                map.serialize_entry("text", text)?;
+                map.end()
+            }
+            Unpacked::Skip { name, reason } => {
+                let mut map = to.serialize_map(Some(2))?;
+                map.serialize_entry("reason", reason)?;
+                map.serialize_entry("skip", name)?;
+                map.end()
+            }
+        }
+    }
+}
+
+fn skip(name: &str, reason: &str) -> Unpacked {
+    Unpacked::Skip {
+        name: name.to_string(),
+        reason: reason.to_string(),
+    }
 }
 
 // The first `n` spans of the array, as (start, end) in the name.
@@ -175,7 +230,7 @@ impl Write for Tee<'_> {
 }
 
 enum Written {
-    File(Value),
+    File(Sniffed),
     Full,
     // What it inflated before it failed.
     Bad(u64),
@@ -207,15 +262,7 @@ fn write_entry(archive: &Archive, entry: &Entry, path: &Path, left: u64) -> Writ
         && fs::set_permissions(path, fs::Permissions::from_mode(0o644)).is_ok();
     drop(file);
     match got {
-        Ok(_) if ok => {
-            let s = sniff.finish();
-            Written::File(json!({
-                "bytes": s.bytes,
-                "sha256": s.sha256,
-                "image": s.image,
-                "text": s.text,
-            }))
-        }
+        Ok(_) if ok => Written::File(sniff.finish()),
         Err(ReadError::Over) => {
             let _ = fs::remove_file(path);
             Written::Full
@@ -227,16 +274,15 @@ fn write_entry(archive: &Archive, entry: &Entry, path: &Path, left: u64) -> Writ
     }
 }
 
-/// Unpack `archive` into `dest`, which is made when it is not there. One value
-/// per entry, in the archive's order: {"name","kind","bytes","sha256","image",
-/// "text"} for a file written, {"skip","reason"} for one left out. Err when
-/// `dest` cannot be made.
+/// Unpack `archive` into `dest`, which is made when it is not there. One
+/// `Unpacked` per entry, in the archive's order. Err when `dest` cannot be
+/// made.
 pub fn unpack(
     archive: &Archive,
     dest: &Path,
     max_bytes: u64,
     max_files: i64,
-) -> io::Result<Vec<Value>> {
+) -> io::Result<Vec<Unpacked>> {
     fs::create_dir_all(dest)?;
     let mut out = Vec::new();
     let mut left = max_bytes;
@@ -268,7 +314,7 @@ pub fn unpack(
             .map(|(_, e)| e.to_ascii_lowercase())
             .unwrap_or_default();
         let Some(kind) = kind(&ext) else {
-            out.push(skip(&name, "Not a type the lab hosts."));
+            out.push(skip(&name, "Not a type the host serves."));
             continue;
         };
         if files <= 0 {
@@ -299,13 +345,17 @@ pub fn unpack(
             continue;
         }
         match write_entry(archive, entry, &path, left) {
-            Written::File(mut v) => {
-                let bytes = v["bytes"].as_u64().unwrap_or(0);
-                left -= bytes.min(left);
+            Written::File(s) => {
+                left -= s.bytes.min(left);
                 files -= 1;
-                v["name"] = json!(rel);
-                v["kind"] = json!(kind);
-                out.push(v);
+                out.push(Unpacked::File {
+                    name: rel,
+                    kind,
+                    bytes: s.bytes,
+                    sha256: s.sha256,
+                    image: s.image,
+                    text: s.text,
+                });
             }
             Written::Full => {
                 full = true;

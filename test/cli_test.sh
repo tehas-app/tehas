@@ -23,7 +23,7 @@ cp "$T_ROOT/lib/config.sh" "$tree/lib/config.sh"
 # One line per call: the name, then each argument after a "|".
 # tehas-cycle stands for itself: tehasbot cycle, tehas work and tehas index are
 # its verbs, which the console runs under the settings.
-for name in cycle work index setup update dispatch plan dev review check-product github-token tehas-cycle; do
+for name in cycle work index setup update dispatch plan dev check-product github-token tehas-cycle; do
   printf '%s\n' '#!/usr/bin/env bash' "# The text of $name." '#' "# Usage: $name" 'set -u' 'IFS="|"' \
     "printf '%s\\n' \"$name\${*:+|\$*}\" >>\"\$T/calls/libexec\"" 'exit "${RC:-0}"' >"$tree/libexec/$name"
   chmod +x "$tree/libexec/$name"
@@ -90,7 +90,7 @@ t_no_instance
 t_case "the commands the console runs itself run no script of libexec"
 reset
 for words in "tehas dispatch --dry-run" "tehas plan 7 --out /tmp/o" "tehas check-product --sandbox" \
-  "tehasbot dispatch" "tehasbot review" "tehasbot github-token --check" "tehas github check" \
+  "tehasbot dispatch" "tehasbot github-token --check" "tehas github check" \
   "tehas github writes" "tehas refresh --pr 7"; do
   t_run "$tree/bin/$words"
 done
@@ -165,7 +165,7 @@ t_eq "$(ran)" ""
 
 t_case "what only the units run is not a tehas command"
 reset
-for name in health energy protolab preview improve summary console cycle ../bin/tehasbot; do
+for name in health energy preview improve summary console cycle ../bin/tehasbot; do
   t_run "$tehas $name"
   t_eq "$t_rc" 64
 done
@@ -176,10 +176,9 @@ reset
 for arg in "" help -h --help; do
   t_run "$bot $arg"
   t_eq "$t_rc" 0
-  t_contains "$t_out" "tehasbot energy [--every]"
-  t_contains "$t_out" "tehasbot top [--every]"
+  t_contains "$t_out" "tehasbot health"
 done
-for name in work plan dev index update labels summary bogus "''"; do
+for name in work plan dev index update labels summary top bogus "''"; do
   t_run "$bot $name 2>/dev/null"
   t_eq "$t_rc" 64
   t_eq "$t_out" ""
@@ -193,11 +192,11 @@ reset
 t_instance 'echo "settings were read" >&2; exit 9'
 t_run "$tehas github writes"
 t_eq "$t_rc" 0
-public=$t_out
+public=${t_out#*Z:}
 t_lacks "$t_out" "settings were read"
 t_run "$bot github-writes"
 t_eq "$t_rc" 0
-t_eq "$t_out" "$public"
+t_eq "${t_out#*Z:}" "$public"
 t_eq "$(ran)" ""
 
 t_case "tehas github with no verb, another verb or another word is 64 with its text"
@@ -234,7 +233,7 @@ for words in "status" "help" "update --help" "work 7" "top --once"; do
   t_eq "$t_rc" 78
   t_eq "$t_out" "tehas: no console at $T/no-console: run install.sh"
 done
-for words in "dispatch" "help" "protolab"; do
+for words in "dispatch" "help"; do
   t_run "$bot $words"
   t_eq "$t_rc" 78
   t_eq "$t_out" "tehasbot: no console at $T/no-console: run install.sh"
@@ -263,7 +262,7 @@ t_case "every command in the usage of tehas has a text that says how to use it"
 reset
 T_ENV=(TEHAS_CONSOLE="$T_CONSOLE")
 names=$(TEHAS_CONSOLE=$T_CONSOLE "$T_ROOT/bin/tehas" help | sed -n 's/^  tehas \([a-z-]*\).*/\1/p' | grep -v -x help | tr '\n' ' ')
-t_eq "$names" "dispatch work plan dev index setup update labels panel host-message check-product init-product status api disk limit order blockers start refresh wake drain history export state top analytics mcp github pause resume stop freeze thaw "
+t_eq "$names" "dispatch work plan dev index setup update labels host-message check-product init-product status api disk limit order blockers start answer question refresh wake drain history export state top analytics mcp github pause resume stop freeze thaw "
 for name in $names; do
   t_run "$T_ROOT/bin/tehas help $name"
   t_eq "$t_rc" 0
@@ -315,8 +314,8 @@ done <"$T_ROOT/api/renames-1.0.tsv"
 
 t_case "each tehasbot verb of 0.30 is still one, or a command row of the renames file"
 bot_help=$(TEHAS_CONSOLE=$T_CONSOLE "$T_ROOT/bin/tehasbot" help)
-for verb in clean cycle dispatch energy github-token github-writes health help improve mcp \
-  preview protolab refresh review status top; do
+for verb in clean cycle dispatch github-token github-writes health help improve mcp \
+  preview refresh status; do
   row=$(awk -F '\t' -v v="tehasbot $verb" '$1 == "command" && $2 == v && $3 == ""' "$T_ROOT/api/renames-1.0.tsv")
   if [ -n "$row" ]; then
     t_lacks "$bot_help" "  tehasbot $verb"

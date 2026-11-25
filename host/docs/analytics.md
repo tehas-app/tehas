@@ -31,9 +31,9 @@ Each event is stored once per issue, the first time. A second run of an issue
 adds no event; every run is in `runs`.
 
 Samples are the clock of the ten-day report: `availability` credits each row
-with the time to the next one, at most ten minutes, and `energy` with the same
-span, so a stretch with no row - a paused or held factory, an idle week -
-counts as not available and as no draw rather than as one reading held. A fall
+with the time to the next one, at most ten minutes, so a stretch with no row -
+a paused or held factory, an idle week - counts as not available rather than
+as one reading held. A fall
 in `availability` or in a report's `n` after a long pause means the factory did
 no work, not that the dispatcher is down.
 
@@ -76,23 +76,35 @@ beside it. It is not under `live/` and is not served. Times are UTC Unix
 seconds and durations are seconds, as integers, except `runner_ms` and
 `run_roles.ms`, which are milliseconds.
 
-`PRAGMA user_version` is the schema version, today 4. Within one version
-columns are only added. A change of a column's meaning raises the version.
-v0.30.0 wrote 4 already, so this release migrates no older file: a file at 1, 2
-or 3 is kept aside under its version, as any other version is, and a new one is
-made. A file at 4 that lacks a column added within 4 since, `runs.contractor_id`
-from v1.0.0, gains it, empty, the first time it is opened; nothing else in it
-changes.
+`PRAGMA user_version` is the schema version, today 7. Within one version
+columns are only added. A change of a column's meaning, or a column removed,
+raises the version. Schema 5 removed `samples.watts`, which nothing writes
+since energy use left core in 2.0. Schema 6 removes `runs.contractor_id`:
+outsource was dropped in 2.0, and no release ever wrote a value there.
+Schema 7 takes the words of 2.0 for one fact everywhere: `runs.outcome`
+says `offered` where it said `pr`, in its CHECK and in every row, `runs.how`
+says `approved` where it said `label`, and `v_versions` counts `offered` and
+names its share of the runs that reached a change `change_share` (it was
+`pr_share`). A program that reads a
+copy reads the new words; there is no alias.
+
+A file at 4, 5 or 6 is migrated in place the first time it is opened:
+`samples.watts` and `runs.contractor_id` are dropped where the file has them,
+and `runs` is laid again with the words of schema 7, its views with it;
+every other column and row stays. Two programs
+that open it at once do not both migrate it. v0.30.0 wrote 4 already, so this
+release migrates no older file: a file at 1, 2 or 3 is kept aside under its
+version, as any other version is, and a new one is made.
 
 - **A file that is not a database**, or fails SQLite's check, is moved to
   `analytics.db.broken` and a new one is made. The data is at most 365 days deep.
 - **A database of another schema version** is moved, with its side files, to
   `analytics.db.schema-<version>`, where a reader can still fetch it, and a new
   one is made. It is deleted 365 days after its last write. That goes for a
-  version newer than the program too: after a rollback to a release of schema 3,
-  the file at 4 goes aside whole. Move it back by hand before going forward again:
-  nothing says it is still aside, and a second rollback renames the file then at 4
-  over it, which loses the runs it held.
+  version newer than the program too: after a rollback to a 1.x release, of
+  schema 4, the file at 6 goes aside whole. Move it back by hand before going
+  forward again: nothing says it is still aside, and a second rollback renames
+  the file then at 6 over it, which loses the runs it held.
 - Any other failure, a full disk or a lock held too long, leaves the file as
   it is.
 
@@ -116,8 +128,7 @@ the cycle, which gathers them into a private file for the call
 attempt the state store gave its start, and from the state store `at`, `how`
 and `driver` of the approval that start used, read before the end goes on record
 because a start that never ran takes its approval with it, the run's `settings`
-snapshot, the image's pi-rukas commit and, for a cycle run on a contractor, the
-contractor's name. It reads the rest from the host: the
+snapshot and the image's pi-rukas commit. It reads the rest from the host: the
 headless runner's result, `progress.json`, the preflight log,
 `state/cycles/<n>.lean-state.json` for a lean run, and `docs/version.txt`. The
 lean note is the cycle's copy of the driver's own record of its steps, and its
@@ -141,10 +152,10 @@ call; one that a caller killed during the call leaves is removed by
 | `kind` | `work` or `plan` | 1 |
 | `issue` | The issue number | 1 |
 | `attempt` | The run's number for this issue: the attempt the state store gave its start, counting from 1, a start refused or by hand included. Work runs only | 1 |
-| `how` | What started it: `label`, `retry-tick`, `outage-retry`, `millwright` (`fixer` on a run recorded before the rename), `host` (an approval of `tehas start`) or `refresh`, from the approval the start used, else the history line, which says `hand` for a cycle run by hand. A planning turn: `label` for the first turn, `refine` for the first turn of a session `tehas:refine` started, `answer` or `millwright` for a later one | 1 |
+| `how` | What started it: `approved` (a label an allowed account applied), `reply` (a retry a person's reply answered), `answer` (a retry `tehas answer` gave), `outage-retry`, `millwright`, `host` (an approval of `tehas start`) or `refresh`, from the approval the start used, else the history line, which says `hand` for a cycle run by hand. A planning turn: `approved` for the first turn, `refine` for the first turn of a session `tehas:refine` started, `answer` or `millwright` for a later one. A run a retry ticked before 2.0 started said `retry-tick`: analytics rewrites it to `reply` in `runs.how` of `state/analytics.db` each time it opens the file, and the state store's step to schema 27 does the same in `state/tehas.db`. A run recorded under the millwright's old name said `fixer`: analytics rewrites it to `millwright` the same way, and the state store's step to schema 28 takes `fixer` from what its rows may say. A start a label approved said `label` before 2.0: the step to schema 7 rewrites it to `approved` in `runs.how`, and the state store's step to schema 30 in `state/tehas.db` | 1 |
 | `started`, `ended`, `seconds` | The run's start, its end and the wall time between: the history line's `started` and `at`. A planning turn ends when the poll collects it | 1 |
 | `queue_wait` | `started` less when `tehas:ready` was accepted (the approval the start used) | 1 |
-| `outcome` | `pr`, `merged`, `handoff`, `parked`, `failed`, `refused` or `stopped`, below | 1 |
+| `outcome` | `offered`, `merged`, `handoff`, `parked`, `failed`, `refused` or `stopped`, below | 1 |
 | `status`, `exit_code` | The runner's status and exit code, or tehas's own (`killed`, `stalled`, `timeout`), from the history and the result | 1 |
 | `last_step`, `failed_step` | The step it was in last, and the step that failed, from the result and the history | 1 |
 | `cap` | The cap that stopped it, from the result or the history | 1 |
@@ -168,19 +179,21 @@ call; one that a caller killed during the call leaves is removed by
 | `driver` | The driver the start's approval bound: `classic` or `lean`. NULL where the approval holds no driver or another word, on every run from before the column, and on a planning turn. NULL reads as classic | 3 |
 | `tool_calls`, `tool_errors` | The result's `usage.toolCalls` and `usage.toolErrors`: the tool calls the run's children started, a codemode script's nested calls included, and those that ended in an error. NULL where the result has none: a pi-rukas before v0.14.66 (`features.usageTools`), a result that could not count them, a planning turn | 4 |
 | `result_driver` | The result's `driver`: the engine that ran the issue, `classic` or `lean`, beside `driver`, the one the approval bound. NULL where the result names none or another word | 4 |
-| `contractor_id` | The name of the contractor that ran the cycle, from the facts the cycle gives. NULL for a cycle run in-house, on every run of an instance with outsource off, on a planning turn and on every run from before the column. Outsource is still being built, so no instance writes one yet. The column is frozen with schema 4 | 4, v1.0.0 |
 
-The outcome of a work run:
+The outcome of a work run, the first row that matches, top to bottom.
+`tehas_core::outcome::end` decides it:
 
 | Outcome | Meaning |
 | --- | --- |
-| `merged` | The issue's pull request was merged |
-| `stopped` | The issue was closed while it ran, or it was interrupted |
+| `merged` | The issue's pull request was merged within the run, and the run did not park. A runner that claimed a merge the report did not find parks, and ends by a later row |
+| `stopped` | The issue was closed while it ran, it was interrupted, or `tehas stop` stopped it, and the run did not park |
 | `refused` | No cycle ran: the runner refused, or `tehas work` started none |
-| `pr` | It left an open pull request and was not parked |
+| `offered` | It left an open change (a pull request) and was not parked. Before 2.0 the word was `pr`: the step to schema 7 rewrites it |
 | `handoff` | The runner handed off to a person |
-| `failed` | tehas stopped it, the runner aborted, or a failure other than a cap stopped it |
+| `failed` | tehas stopped it, the runner aborted, it was lost (it died without a word), or a failure other than a cap stopped it |
 | `parked` | Any other end that needs a person, such as a cap |
+
+A run that parked never has `merged`, `stopped` or `offered`.
 
 A planning turn is `handoff` when it asked its question, `stopped` when Pi no
 longer had the session, `refused` when no turn ran, and `failed` otherwise.
@@ -258,9 +271,8 @@ further ahead is refused and nothing is stored.
 
 ### samples
 
-One row per poll, from the live files the poll wrote: `live/status.json`,
-`live/dispatch.json` and `live/energy.json`. A file that is missing or older
-than its poll gives NULL.
+One row per poll, from the live files the poll wrote: `live/status.json` and
+`live/dispatch.json`. A file that is missing or older than its poll gives NULL.
 
 | Column | Source | Since |
 | --- | --- | --- |
@@ -270,7 +282,9 @@ than its poll gives NULL.
 | `cycle_limit` | The cycles allowed at once, from `dispatch.json`: the concurrency, or the room under `tehas limit` where that is lower | 1 |
 | `paused` | 1 when the factory was paused | 1 |
 | `held` | The one word of the dispatcher's hold, empty when nothing held | 1 |
-| `watts` | The model mesh's draw, from `energy.json`, where the mesh reports one | 1 |
+
+Schema 1 to 4 had `watts` too, the model mesh's draw until energy use left core
+in 2.0. Schema 5 drops it.
 
 ### meta
 
@@ -289,7 +303,7 @@ So that a reader does not have to work out the common figures again:
 | --- | --- | --- |
 | `v_lead` | Per shipped issue: `issue`, `merged`, `ready`, `lead_seconds` and `runs`, the work runs it took. Shipped is a `merged` event, or a work run whose outcome was `merged` | 1 |
 | `v_daily` | Per UTC day: `day`, `shipped`, `runs` ended, of them `failed`, their `minutes` and `tokens` (input, output and cache read) | 1 |
-| `v_versions` | Per tehas and pi-rukas version pair of work runs that ended: `tehas_version`, `rukas_version` (its commit where it has no version), `runs`, `pr_share`, `handoff_share`, `parked_share`, `failed_share`, `median_minutes` and `median_tokens`, the last of the runs that reported usage, NULL where none did | 1 |
+| `v_versions` | Per tehas and pi-rukas version pair of work runs that ended: `tehas_version`, `rukas_version` (its commit where it has no version), `runs`, `change_share` (offered or merged), `handoff_share`, `parked_share`, `failed_share`, `median_minutes` and `median_tokens`, the last of the runs that reported usage, NULL where none did | 1 |
 
 ## The report
 
@@ -352,15 +366,15 @@ apart. A run with no driver on record is classic. Each entry gives:
 | --- | --- |
 | `n` | The work runs of the pair, refused and stopped ones with them |
 | `ran` | Those of `n` that ran: not refused, not stopped. Neither says anything of the driver |
-| `prShare` | The share of `ran` that ended in a pull request a person could merge: outcome `pr` or `merged` |
+| `changeShare` | The share of `ran` that ended in a pull request a person could merge: outcome `offered` or `merged` |
 | `parkedShare` | The share of `ran` handed to a person: outcome `handoff` or `parked`, as `handoffRate` counts them, since a run tehas parks with its pull request open has outcome `handoff` |
 | `minutes` | `n` runs of `ran` with a length, their `total` and `median`, whole minutes |
 | `tokens` | `n` runs that reported usage, their `total` and `median` (input, output and cache read) |
 | `pullRequests` | `n` issues whose runs reached a pull request, how many of them `merged`, and that `share` |
-| `oneAttempt` | Of the runs of `ran` that were their issue's first attempt (`attempt` 1, so a resumed or follow-up run is not one), `n`, the `pr` of them that reached a pull request, and that `share`: the one-attempt success. Left out when no such run is in the entry |
+| `oneAttempt` | Of the runs of `ran` that were their issue's first attempt (`attempt` 1, so a resumed or follow-up run is not one), `n`, the `change` of them that reached a pull request, and that `share`: the one-attempt success. Left out when no such run is in the entry |
 | `handBack` | The step funnel of the entry's runs, by the rule and from the steps of the report's [`stations`](/tools-status#tehas-analytics) key: `n` runs, and per step the runs that reached it, `passed` of them that went on, and that `share`. A lean run's steps are the driver's own record (see [what is recorded, and when](#what-is-recorded-and-when)). Left out when no run of the entry recorded a step |
 
-`prShare`, `parkedShare`, `pullRequests.share` and `oneAttempt.share` are left
+`changeShare`, `parkedShare`, `pullRequests.share` and `oneAttempt.share` are left
 out under `VERSION_FLOOR` (3) runs behind them, as in the `versions` table. The
 terminal prints the pair's version in its own column, the one-attempt success as
 `pr/n`, and under each entry one line per step of its hand-back.
@@ -393,7 +407,7 @@ and the lead time of those that shipped, from their `ready` event. Beside them
 are the other issues made ready in the window, how many started and shipped,
 to compare. The issues a refining session filed are listed in
 `~/tehas/state/refined.jsonl`, one line each, `{at, source, filed, url}`,
-written when the confirm files them. The file keeps its last 500 lines, as
+written when the host files them. The file keeps its last 500 lines, as
 `sizes.jsonl` does. Like the rest of the report it holds counts only.
 
 ### Size

@@ -5,9 +5,8 @@
 //! `host/fun` and `host/docs` are copied to `<stage dir>/fun` and
 //! `<stage dir>/docs` as 644, but for the `.d.ts` type files, which no page
 //! loads. Then each `<script src="/fun/X.js">` and each
-//! `<link rel="stylesheet" href="/fun/X.css">` of `fun/index.html`,
-//! `fun/business.html` and `docs/dashboard.frag` is named by the bytes it asks
-//! for: `fun/X.<hex>.js` holds a copy of `fun/X.js` and the tag names that
+//! `<link rel="stylesheet" href="/fun/X.css">` of `fun/index.html` and
+//! `docs/dashboard.frag` is named by the bytes it asks for: `fun/X.<hex>.js` holds a copy of `fun/X.js` and the tag names that
 //! file, where `<hex>` is the first 12 hex digits of the sha256 of the bytes.
 //! A file in a subfolder is copied in that subfolder and named there:
 //! `/fun/factory/X.js` becomes `/fun/factory/X.<hex>.js`.
@@ -43,12 +42,7 @@ use std::path::{Path, PathBuf};
 const DIRS: [&str; 2] = ["fun", "docs"];
 
 /// The pages that name a script or a stylesheet by tag, from the stage.
-pub(super) const PAGES: [&str; 4] = [
-    "fun/index.html",
-    "fun/business.html",
-    "docs/dashboard.frag",
-    "docs/wiki.frag",
-];
+pub(super) const PAGES: [&str; 2] = ["fun/index.html", "docs/dashboard.frag"];
 
 /// The extensions a page may name by tag and the server may cache for ever.
 /// Nothing else is given a hashed name: an image, a font or a document keeps
@@ -358,17 +352,10 @@ mod tests {
         put(&d, "host/fun/.hidden.js", "// not staged\n");
         put(
             &d,
-            "host/fun/business.html",
-            "<link rel=\"stylesheet\" href=\"/fun/panels.css\">\n\
-             <script src=\"/fun/panels.js\"></script>\n",
-        );
-        put(
-            &d,
             "host/docs/dashboard.frag",
             "<script src=\"/fun/panels.js\"></script>\n",
         );
         put(&d, "host/docs/host.md", "# The host\n");
-        put(&d, "host/docs/wiki.frag", "<p>wiki</p>\n");
         d
     }
 
@@ -440,9 +427,6 @@ mod tests {
         );
         let frag = fs::read_to_string(staged(&d, "docs/dashboard.frag")).unwrap();
         assert!(frag.contains(&format!("/fun/{js_name}")), "{frag}");
-        let business = fs::read_to_string(staged(&d, "fun/business.html")).unwrap();
-        assert!(business.contains(&format!("/fun/{js_name}")), "{business}");
-        assert!(business.contains(&format!("/fun/{css_name}")), "{business}");
     }
 
     #[test]
@@ -764,13 +748,11 @@ mod tests {
              <link rel=\"icon\" href=\"/fun/favicon.svg\">\n\
              <link rel=\"stylesheet\" href=\"/fun/manual.css\">\n",
         );
-        put(&d, "host/fun/business.html", "<p>nothing</p>\n");
         put(&d, "host/fun/dashboard-view.js", "import \"./dom.js\";\n");
         put(&d, "host/fun/favicon.svg", "<svg></svg>\n");
         put(&d, "host/fun/manual.css", "body { margin: 0 }\n");
         put(&d, "host/docs/dashboard.frag", "<p>nothing</p>\n");
         put(&d, "host/docs/host.md", "# The host\n");
-        put(&d, "host/docs/wiki.frag", "<p>wiki</p>\n");
         assert_eq!(run(&d), 0);
         let page = fs::read_to_string(staged(&d, "fun/index.html")).unwrap();
         // A file the stage does not hold, and a relative address a module names
@@ -827,12 +809,10 @@ mod tests {
     fn a_missing_directory_or_page_is_refused_with_1() {
         let d = dir("assets-nofun");
         put(&d, "host/docs/host.md", "# The host\n");
-        put(&d, "host/docs/wiki.frag", "<p>wiki</p>\n");
         assert_eq!(run(&d), 1);
         let d = dir("assets-nopage");
         put(&d, "host/fun/panels.js", "// the panel\n");
         put(&d, "host/docs/host.md", "# The host\n");
-        put(&d, "host/docs/wiki.frag", "<p>wiki</p>\n");
         assert_eq!(run(&d), 1);
     }
 
@@ -910,7 +890,7 @@ mod tests {
         // A relative address, an address of another page's, a tag with no
         // address, and a tag that is no script or link.
         assert_eq!(address("<script type=\"module\" src=\"./dom.js\">"), None);
-        assert_eq!(address("<link rel=\"canonical\" href=\"/business\">"), None);
+        assert_eq!(address("<link rel=\"canonical\" href=\"/floor\">"), None);
         assert_eq!(address("<link rel=\"stylesheet\">"), None);
         assert_eq!(address("<p>hello</p>"), None);
         // src= is the address a script runs, so it is the one rewritten where a

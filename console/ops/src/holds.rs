@@ -22,14 +22,18 @@
 //! - `until`: when it expires, `2026-10-17T14:05:00Z`, or null while it lasts
 //!   until cleared
 //! - `reason`: one line of at most 200 characters, shown as the hold's reason
+//! - `set`: when the limit was written, `2026-10-17T14:05:00Z`. A file
+//!   written before tehas kept the time has none
 //!
 //! `show` prints the limit as it then is, in the words `tehas status` prints,
 //! or with `--json` the object `tehas limit --json` prints:
 //!
 //!   limit     1 cycle at once, planning off, until 2026-10-17T14:05:00Z: held for alpha
-//!   {"api":1,"state":"ok","cycles":1,"plan":false,"until":"...","reason":"..."}
+//!   {"api":1,"state":"ok","cycles":1,"plan":false,"until":"...","reason":"...","set":"..."}
 //!
-//! `read` prints the same reading as one object with no `api`: the object
+//! `tehas drain --json` prints the limit with its `set` too, and so does
+//! `set --json`, in place of its words.
+//! `read` prints the same reading as one object with no `api` and no `set`: the object
 //! `tehas status --json` publishes, so it keeps
 //! exactly the fields it has today; with `--line` it prints the words of that
 //! reading instead, which is how the shell prints the line of a limit it has
@@ -41,7 +45,11 @@
 //!
 //! `set` replaces the whole limit and `clear` takes it off; each prints the
 //! limit as it then is. Setting the same limit twice leaves the same file, so
-//! a program which sets it on every poll changes nothing. A limit is written
+//! a program which sets it on every poll changes nothing. The same limit is
+//! the same `cycles`, `plan` and `reason`: it keeps its `set`, also when
+//! `until` moves, and any other limit takes the moment it is written at, or
+//! the second after the `set` there when that is no earlier
+//! (`tehas_core::limit`). A limit is written
 //! through `limit.json.new`, mode 0600, and put in place by a rename: what is
 //! there is always a whole limit, never the half of one.
 //!
@@ -84,21 +92,22 @@
 //! 64 a bad argument, which writes nothing.
 
 use crate::account;
-use crate::forge::CALL_BOUND;
 use serde_json::Value;
 use std::env;
 use std::fs::{self, OpenOptions, TryLockError};
+use std::num::NonZeroU64;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
-use tehas_core::events::{pause_holds, UNKNOWN_ACTOR};
+use tehas_core::events::{pause_holds_marks, UNKNOWN_ACTOR};
 use tehas_core::file::Temp;
-use tehas_core::forge::{Bounded, Forge, GitHub};
+use tehas_core::home::{Home, Live, State};
 use tehas_core::limit::{self as limit_file, leading_number};
 pub use tehas_core::limit::{epoch, oneline, REASON};
 use tehas_core::lock::{self, Probe};
 use tehas_core::time;
+use tehas_ports::{Act, HappenedKind, Mark, TicketKey, Tickets, Window, ALL_MAX};
 
 /// The clock a run reads: the host's, or the whole number of seconds in
 /// `TEHAS_FLAGS_TEST_NOW` when that names one, which is how a shell test reads
@@ -126,9 +135,10 @@ const MAX_FOR: u64 = 999_999_999;
 /// The limit as every command which honours it reads it: the reading of
 /// `tehas_core::limit`, which the dispatcher and the health file take too.
 pub fn read(file: &Path, now: i64) -> Reading {
-    let limit_file::Limit { state, fields } = limit_file::read(file, now);
+    let limit_file::Limit { state, fields, set } = limit_file::read(file, now);
     Reading {
         fields,
+        set,
         ..Reading::of(state)
     }
 }
@@ -147,6 +157,9 @@ pub struct Reading {
     /// The fields in the order they print, with the number already printed as
     /// jq prints it. `state` is not in here: it prints first, always.
     fields: Vec<(String, String)>,
+    /// When the limit was written. `tehas limit --json` and `tehas drain
+    /// --json` print it; `read`, the health file and `tehas status` do not.
+    set: Option<String>,
     /// The words of the reading, whole: the line of the flag as its command
     /// and its readers print it, and the name of the flag in front of them.
     line: String,
@@ -159,6 +172,7 @@ impl Reading {
         Reading {
             state: state.to_string(),
             fields: Vec::new(),
+            set: None,
             line: String::new(),
             flag: "limit",
         }
@@ -231,6 +245,20 @@ impl Reading {
         );
         format!("{{{}}}", parts.join(","))
     }
+
+    /// The reading with `set` last: the limit as `tehas limit --json` and
+    /// `tehas drain --json` print it.
+    fn with_set(&self) -> String {
+        let text = self.text();
+        match &self.set {
+            Some(set) => format!(
+                "{},\"set\":{}}}",
+                &text[..text.len() - 1],
+                Value::String(set.clone())
+            ),
+            None => text,
+        }
+    }
 }
 
 impl Reading {
@@ -281,7 +309,7 @@ const PAUSE_USAGE: &str = "       console flags pause set [--reason TEXT] | clea
 
 fn usage(why: &str) -> u8 {
     eprintln!("console flags: {why}");
-    eprintln!("usage: console flags limit show [--json] | set --cycles N [--plan on|off] [--for SECONDS | --until TIME] [--reason TEXT] | clear | read [--now <epoch seconds>]");
+    eprintln!("usage: console flags limit show [--json] | set --cycles N [--plan on|off] [--for SECONDS | --until TIME] [--reason TEXT] [--json] | clear | read [--now <epoch seconds>]");
     eprintln!("{PAUSE_USAGE}");
     64
 }
@@ -307,7 +335,7 @@ fn limit(given: &[String]) -> u8 {
         Some((verb, rest)) => (verb.as_str(), rest),
         None => return usage("show, set, clear or read is wanted"),
     };
-    let file = here.join("state/limit.json");
+    let file = Home::new(&here).state(State::Limit);
     match verb {
         // --json prints the object tehas limit --json promises, api first;
         // read prints the same reading without it, which is what tehas status
@@ -317,7 +345,7 @@ fn limit(given: &[String]) -> u8 {
         "show" => {
             let mut words = false;
             for arg in rest {
-                if arg != "--json" || words {
+                if arg != JSON || words {
                     return usage("--json, once, after show");
                 }
                 words = true;
@@ -359,8 +387,8 @@ fn limit(given: &[String]) -> u8 {
             tehas_core::outln!("{}", if line { out.said() } else { out.text() });
             0
         }
-        // set and clear print the limit as it then is, in words: the object is
-        // `tehas limit --json`'s.
+        // set and clear print the limit as it then is, in words; set with
+        // --json prints the object `tehas limit --json` prints.
         "set" => match set_args(rest) {
             Ok(want) => set(&file, &want),
             Err(bad) => usage(bad),
@@ -389,7 +417,7 @@ fn pause(given: &[String]) -> u8 {
         Some((verb, rest)) => (verb.as_str(), rest),
         None => return usage("set or clear is wanted"),
     };
-    let file = here.join("state/pause.json");
+    let file = Home::new(&here).state(State::Pause);
     match verb {
         "set" => match pause_args(rest) {
             Ok(reason) => pause_set(&file, &reason),
@@ -540,32 +568,39 @@ pub fn resume_words(given: &[String]) -> Result<(), u8> {
     Err(64)
 }
 
-/// What the other switch, tehas:pause on the control issue, says once the
+/// What the other switch, the pause mark on the control issue, says once the
 /// host's own is off: a line for standard output, one for standard error, or
-/// nothing when it holds nothing. Only an allowed account can lift the label
+/// nothing when it holds nothing. Only an allowed account can lift it
 /// (AGENTS.md rule 5).
-fn other_switch(
-    forge: &mut dyn Forge,
+pub fn other_switch(
+    tickets: &mut dyn Tickets,
     control: u64,
     allowed: &dyn Fn(&str) -> bool,
 ) -> Option<Result<String, String>> {
-    let Ok(labels) = forge.labels(control) else {
+    let pause = Mark::Act(Act::Pause);
+    let key = NonZeroU64::new(control).map(TicketKey::Number);
+    let marks = key
+        .as_ref()
+        .and_then(|k| tickets.several(std::slice::from_ref(k)).pop())
+        .and_then(|(_, d)| d.ok());
+    let (Some(key), Some(digest)) = (key, marks) else {
         return Some(Err(format!(
             "tehas resume: the labels of issue #{control} could not be read: check tehas:pause there yourself"
         )));
     };
-    if labels.iter().any(|l| l == "tehas:pause") {
+    if digest.marks.contains(&pause) {
         return Some(Ok(format!(
             "the factory stays paused: tehas:pause is still on issue #{control}"
         )));
     }
-    let Ok(events) = forge.label_events(control) else {
+    let kinds = [HappenedKind::Marked, HappenedKind::Unmarked];
+    let Ok(read) = tickets.history(&key, Window::Whole(ALL_MAX), Some(&kinds)) else {
         return Some(Err(format!(
             "tehas resume: the label events of issue #{control} could not be read"
         )));
     };
-    let (kind, by) = pause_holds(&events, allowed)?;
-    Some(Ok(if kind == "unlabeled" {
+    let (lifted, by) = pause_holds_marks(&read.items, allowed)?;
+    Some(Ok(if lifted {
         let by = if by.is_empty() { UNKNOWN_ACTOR } else { &by };
         format!(
             "the factory stays paused: tehas:pause was taken off #{control} by '{by}', who may not authorise work here"
@@ -578,8 +613,9 @@ fn other_switch(
 }
 
 /// `tehas resume`: the host's own switch comes off first, whatever GitHub then
-/// says, and the exit status is that of the flag alone.
-pub fn resume(given: &[String]) -> u8 {
+/// says, and the exit status is that of the flag alone. `tickets` reads the
+/// control issue; the console's wiring makes it.
+pub fn resume(given: &[String], tickets: &mut dyn Tickets) -> u8 {
     if let Err(rc) = resume_words(given) {
         return rc;
     }
@@ -591,15 +627,9 @@ pub fn resume(given: &[String]) -> u8 {
     if pause(&["clear".to_string()]) != 0 {
         return 1;
     }
-    // gh of `PATH`: `host/env.sh` puts the shim first there where the instance
-    // has one, and a person's shell without it reads with their own gh.
-    let mut forge = GitHub::new(
-        setting("TEHAS_REPO"),
-        Box::new(Bounded::new("gh", CALL_BOUND)),
-    );
     let list = setting("TEHAS_ALLOWED_LABELERS");
     let allowed = |who: &str| tehas_core::events::allowed_in(&list, who);
-    match other_switch(&mut forge, control, &allowed) {
+    match other_switch(tickets, control, &allowed) {
         Some(Ok(line)) => tehas_core::outln!("{line}"),
         Some(Err(line)) => eprintln!("{line}"),
         None => {}
@@ -737,6 +767,9 @@ fn drain_report(said: &str, running: &[u64], passed: bool, limit: &str, json: bo
     out
 }
 
+/// The limit `tehas drain` sets, in the words of `tehas limit set`.
+const DRAIN: [&str; 6] = ["--cycles", "0", "--plan", "off", "--reason", "draining"];
+
 /// `tehas drain`: the limit of no new work, then the count of what still runs.
 pub fn drain(given: &[String]) -> u8 {
     let asked = match drain_words(given) {
@@ -747,9 +780,9 @@ pub fn drain(given: &[String]) -> u8 {
         eprintln!("console flags: neither TEHAS_HOME nor HOME is set");
         return 64;
     };
-    let state = here.join("state");
-    let file = state.join("limit.json");
-    let words = ["--cycles", "0", "--plan", "off", "--reason", "draining"].map(String::from);
+    let here = Home::new(here);
+    let file = here.state(State::Limit);
+    let words = DRAIN.map(String::from);
     let Ok(want) = set_args(&words) else {
         return 64;
     };
@@ -758,18 +791,18 @@ pub fn drain(given: &[String]) -> u8 {
     }
     let said = read(&file, now()).said();
     let passed = poll_passed(
-        &state.join("dispatch.lock"),
+        &here.state(State::DispatchLock),
         asked.wait.unwrap_or(POLL_WAIT),
     );
     let deadline = Instant::now() + Duration::from_secs(asked.wait.unwrap_or(0));
     let running = loop {
-        let running = cycles_running(&state.join("cycles"));
+        let running = cycles_running(&here.cycles_dir());
         if !passed || running.is_empty() || Instant::now() >= deadline {
             break running;
         }
         sleep(Duration::from_secs(1));
     };
-    let limit = read(&file, now()).text();
+    let limit = read(&file, now()).with_set();
     tehas_core::outln!(
         "{}",
         drain_report(&said, &running, passed, &limit, asked.json)
@@ -783,7 +816,7 @@ pub fn drain(given: &[String]) -> u8 {
 
 /// The name the commands which honour a limit read it by: what `tehas drain`
 /// writes and what every reader of the drained state opens.
-pub const LIMIT_FILE: &str = "state/limit.json";
+pub const LIMIT_FILE: &str = State::Limit.relative();
 
 /// Whether the limit in force holds every start, as `tehas drain` set it: no
 /// cycle at once and planning off.
@@ -878,6 +911,9 @@ fn reading_of_pause(p: tehas_core::pause::Pause) -> Reading {
     out
 }
 
+/// The word that asks `show` or `set` for the object in place of the words.
+const JSON: &str = "--json";
+
 /// What `tehas limit set` was asked for, in the words it was asked in.
 #[derive(Default)]
 struct Wanted {
@@ -886,6 +922,8 @@ struct Wanted {
     for_: Option<String>,
     until: Option<String>,
     reason: Option<String>,
+    /// Print the object `tehas limit --json` prints, not the words.
+    json: bool,
 }
 
 fn set_args(rest: &[String]) -> Result<Wanted, &'static str> {
@@ -899,6 +937,15 @@ fn set_args(rest: &[String]) -> Result<Wanted, &'static str> {
     };
     let mut i = 0;
     while i < rest.len() {
+        // The one word with no value: after --reason it is the reason.
+        if rest[i] == JSON {
+            if want.json {
+                return Err("an option given twice");
+            }
+            want.json = true;
+            i += 1;
+            continue;
+        }
         let Some(value) = rest.get(i + 1) else {
             return Err("an option without its value");
         };
@@ -955,7 +1002,7 @@ fn whole(s: &str, min: u64, max: u64) -> bool {
 
 /// The reading with `api` first: the object `tehas limit --json` prints.
 fn api(out: Reading) -> String {
-    let printed = out.text();
+    let printed = out.with_set();
     format!("{{\"api\":1,{}", &printed[1..])
 }
 
@@ -965,7 +1012,7 @@ fn set(file: &Path, want: &Wanted) -> u8 {
         Ok(()) => {
             let out = read(file, now());
             poll_if_raised(file, &before, &out);
-            tehas_core::outln!("{}", out.said());
+            tehas_core::outln!("{}", if want.json { api(out) } else { out.said() });
             0
         }
         Err(rc) => rc,
@@ -1002,36 +1049,46 @@ fn poll_if_raised(file: &Path, before: &Reading, after: &Reading) {
     if cycles_let(after) <= cycles_let(before) {
         return;
     }
-    let Some(state) = file.parent() else { return };
-    let Some(home) = state.parent() else { return };
-    let waits = fs::read_to_string(home.join("live/demand.json")).is_ok_and(|t| demand_waits(&t));
+    let Some(home) = file.parent().and_then(Path::parent) else {
+        return;
+    };
+    let home = Home::new(home);
+    let waits = fs::read_to_string(home.live(Live::Demand)).is_ok_and(|t| demand_waits(&t));
     if waits {
-        let _ = fs::File::create(state.join("dispatch.again"));
+        let _ = fs::File::create(home.state(State::DispatchAgain));
     }
 }
 
 fn write_limit(file: &Path, want: &Wanted) -> Result<(), u8> {
+    // One moment for the whole write: the `until` of a `--for` counts from
+    // the `set` beside it.
+    let now = now();
     let cycles = want.cycles.clone().unwrap_or_else(|| String::from("0"));
     let until = match (want.for_.as_deref(), want.until.as_deref()) {
         (Some(secs), _) => {
             let secs: u64 = secs.parse().unwrap_or(0);
-            time::iso(now().saturating_add(secs as i64))
+            time::iso(now.saturating_add(secs as i64))
         }
         (None, Some(u)) => u.to_string(),
         (None, None) => String::new(),
     };
+    let plan = want.plan.as_deref() != Some("off");
+    let reason = oneline(want.reason.as_deref().unwrap_or(""));
     // The three values are what a JSON document holds them as: a boolean, a
     // string or null, and a string with its escapes.
     let held = |text: &str| Value::String(text.to_string()).to_string();
+    let set = match limit_file::read(file, now).set_of(&cycles, plan, &reason, now) {
+        Some(set) => format!(",\"set\":{}", held(&set)),
+        None => String::new(),
+    };
     let doc = format!(
-        "{{\"v\":1,\"cycles\":{cycles},\"plan\":{},\"until\":{},\"reason\":{}}}\n",
-        want.plan.as_deref() != Some("off"),
+        "{{\"v\":1,\"cycles\":{cycles},\"plan\":{plan},\"until\":{},\"reason\":{}{set}}}\n",
         if until.is_empty() {
             "null".to_string()
         } else {
             held(&until)
         },
-        held(&oneline(want.reason.as_deref().unwrap_or("")).to_string()),
+        held(&reason),
     );
     let dir = match file.parent() {
         Some(d) => d,
@@ -1084,7 +1141,6 @@ fn owned_regular(path: &Path, me: Option<u32>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
     use std::fs::File;
     use std::os::unix::fs::{symlink, PermissionsExt};
     use tehas_core::testdir::TestDir;
@@ -1095,8 +1151,8 @@ mod tests {
 
     // The file of a home, with its state/ directory made.
     fn written(d: &TestDir) -> PathBuf {
-        fs::create_dir_all(d.join("state")).unwrap();
-        d.join("state/limit.json")
+        fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
+        Home::new(d.path()).state(State::Limit)
     }
 
     fn args(given: &[&str]) -> Vec<String> {
@@ -1149,13 +1205,13 @@ mod tests {
 
     /// A home whose last poll left `waiting` issues in its demand.
     fn demand_of(d: &TestDir, waiting: u64) -> PathBuf {
-        fs::create_dir_all(d.join("live")).unwrap();
+        fs::create_dir_all(Home::new(d.path()).live_dir()).unwrap();
         fs::write(
-            d.join("live/demand.json"),
+            Home::new(d.path()).live(Live::Demand),
             format!("{{\"waiting\":{waiting},\"time\":\"2026-11-21T15:23:01Z\"}}\n"),
         )
         .unwrap();
-        d.join("state/dispatch.again")
+        Home::new(d.path()).state(State::DispatchAgain)
     }
 
     #[test]
@@ -1188,7 +1244,7 @@ mod tests {
         set_in(&d, &["--cycles", "2"]);
         assert!(!again.exists());
         // No demand on record is none waiting.
-        fs::remove_file(d.join("live/demand.json")).unwrap();
+        fs::remove_file(Home::new(d.path()).live(Live::Demand)).unwrap();
         set_in(&d, &["--cycles", "0"]);
         set_in(&d, &["--cycles", "2"]);
         assert!(!again.exists());
@@ -1214,13 +1270,19 @@ mod tests {
     #[test]
     fn a_set_writes_the_file_and_reads_back_as_ok() {
         let d = dir("set");
+        let before = now();
         let (rc, out) = set_in(&d, &["--cycles", "2"]);
+        let after = now();
         assert_eq!(rc, 0);
         assert_eq!(out, r#"{"state":"ok","cycles":2,"plan":true}"#);
         let file = written(&d);
+        let doc = fs::read_to_string(&file).unwrap();
         assert_eq!(
-            fs::read_to_string(&file).unwrap(),
-            "{\"v\":1,\"cycles\":2,\"plan\":true,\"until\":null,\"reason\":\"\"}\n"
+            doc,
+            format!(
+                "{{\"v\":1,\"cycles\":2,\"plan\":true,\"until\":null,\"reason\":\"\",\"set\":\"{}\"}}\n",
+                iso_in(time_of(&doc, "set"), before, after),
+            )
         );
         assert_eq!(
             fs::metadata(&file).unwrap().permissions().mode() & 0o777,
@@ -1325,14 +1387,198 @@ mod tests {
         // comes from the file, not from `read` at `NOW`, which would make any
         // `until` agree with itself.
         let doc = fs::read_to_string(written(&d)).unwrap();
-        let until = until_of(&doc);
+        let until = time_of(&doc, "until");
         assert_eq!(
             doc,
             format!(
-                "{{\"v\":1,\"cycles\":1,\"plan\":true,\"until\":\"{}\",\"reason\":\"\"}}\n",
+                "{{\"v\":1,\"cycles\":1,\"plan\":true,\"until\":\"{}\",\"reason\":\"\",\"set\":\"{}\"}}\n",
                 iso_in(until, before + 300, after + 300),
+                iso_in(time_of(&doc, "set"), before, after),
             )
         );
+    }
+
+    /// A limit as tehas wrote it at `SET`, long before these tests run.
+    const SET: &str = "2026-10-01T00:00:00Z";
+    const HELD: &[&str] = &["--cycles", "3", "--plan", "off", "--reason", "r"];
+
+    fn held_since_set(d: &TestDir, until: &str) -> PathBuf {
+        let file = written(d);
+        let doc = format!(
+            "{{\"v\":1,\"cycles\":3,\"plan\":false,\"until\":{until},\"reason\":\"r\",\"set\":\"{SET}\"}}\n"
+        );
+        fs::write(&file, doc).unwrap();
+        file
+    }
+
+    fn set_of(file: &Path) -> Option<String> {
+        limit_file::read(file, NOW).set
+    }
+
+    #[test]
+    fn the_same_limit_set_again_keeps_its_set() {
+        let d = dir("set-kept");
+        let file = held_since_set(&d, "null");
+        let first = fs::read_to_string(&file).unwrap();
+        assert_eq!(set_in(&d, HELD).0, 0);
+        assert_eq!(fs::read_to_string(&file).unwrap(), first);
+    }
+
+    #[test]
+    fn a_renewal_that_only_moves_until_keeps_set() {
+        let d = dir("set-renewed");
+        let file = held_since_set(&d, "\"2036-01-01T14:05:00Z\"");
+        for until in [
+            &["--until", "2037-01-01T14:05:00Z"][..],
+            &["--for", "60"],
+            &[],
+        ] {
+            set_in(&d, &[HELD, until].concat());
+            assert_eq!(set_of(&file).as_deref(), Some(SET), "{until:?}");
+        }
+        // An expired limit set again is renewed too.
+        let file = held_since_set(&d, "\"2026-10-02T00:00:00Z\"");
+        assert_eq!(read(&file, now()).state(), "expired");
+        set_in(&d, HELD);
+        assert_eq!(read(&file, now()).state(), "ok");
+        assert_eq!(set_of(&file).as_deref(), Some(SET));
+    }
+
+    #[test]
+    fn another_cycles_plan_or_reason_takes_the_moment_it_is_written_at() {
+        for other in [
+            &["--cycles", "4", "--plan", "off", "--reason", "r"][..],
+            &["--cycles", "3", "--plan", "on", "--reason", "r"],
+            &["--cycles", "3", "--plan", "off", "--reason", "other"],
+            &["--cycles", "3", "--plan", "off"],
+        ] {
+            let d = dir("set-moved");
+            let file = held_since_set(&d, "null");
+            let before = now();
+            set_in(&d, other);
+            let after = now();
+            let doc = fs::read_to_string(&file).unwrap();
+            let set = iso_in(time_of(&doc, "set"), before, after);
+            assert_eq!(set_of(&file), Some(set), "{other:?}");
+        }
+    }
+
+    #[test]
+    fn a_limit_over_one_that_cannot_be_read_takes_the_moment() {
+        let d = dir("set-unreadable");
+        let file = written(&d);
+        fs::write(&file, format!("{{\"v\":2,\"set\":\"{SET}\"}}")).unwrap();
+        let before = now();
+        set_in(&d, HELD);
+        let doc = fs::read_to_string(&file).unwrap();
+        let set = iso_in(time_of(&doc, "set"), before, now());
+        assert_eq!(set_of(&file), Some(set));
+    }
+
+    #[test]
+    fn a_file_of_1_4_loads_and_stays_as_it_is_until_the_limit_changes() {
+        let d = dir("set-1-4");
+        let file = written(&d);
+        let old = "{\"v\":1,\"cycles\":3,\"plan\":false,\"until\":null,\"reason\":\"r\"}\n";
+        fs::write(&file, old).unwrap();
+        assert_eq!(
+            api(read(&file, NOW)),
+            r#"{"api":1,"state":"ok","cycles":3,"plan":false,"reason":"r"}"#
+        );
+        // The same limit again is the same bytes: no set appears on a limit
+        // nobody changed.
+        set_in(&d, HELD);
+        assert_eq!(fs::read_to_string(&file).unwrap(), old);
+        let before = now();
+        set_in(&d, &["--cycles", "1"]);
+        let doc = fs::read_to_string(&file).unwrap();
+        let set = iso_in(time_of(&doc, "set"), before, now());
+        assert_eq!(set_of(&file), Some(set));
+    }
+
+    #[test]
+    fn set_is_printed_last_and_not_by_read() {
+        let d = dir("set-printed");
+        let file = held_since_set(&d, "\"2036-01-01T14:05:00Z\"");
+        assert_eq!(
+            api(read(&file, NOW)),
+            format!(
+                r#"{{"api":1,"state":"ok","cycles":3,"plan":false,"until":"2036-01-01T14:05:00Z","reason":"r","set":"{SET}"}}"#
+            )
+        );
+        assert_eq!(
+            read(&file, NOW).with_set(),
+            format!(
+                r#"{{"state":"ok","cycles":3,"plan":false,"until":"2036-01-01T14:05:00Z","reason":"r","set":"{SET}"}}"#
+            )
+        );
+        assert_eq!(
+            read(&file, NOW).text(),
+            r#"{"state":"ok","cycles":3,"plan":false,"until":"2036-01-01T14:05:00Z","reason":"r"}"#
+        );
+    }
+
+    #[test]
+    fn set_takes_json_anywhere_but_as_the_value_of_another_option() {
+        for given in [
+            &["--json", "--cycles", "2"][..],
+            &["--cycles", "2", "--json"],
+        ] {
+            let want = set_args(&args(given)).unwrap();
+            assert!(want.json, "{given:?}");
+            assert_eq!(want.cycles.as_deref(), Some("2"));
+        }
+        let want = set_args(&args(&["--cycles", "2", "--reason", JSON])).unwrap();
+        assert!(!want.json);
+        assert_eq!(want.reason.as_deref(), Some(JSON));
+        assert!(!set_args(&args(&["--cycles", "2"])).unwrap().json);
+    }
+
+    #[test]
+    fn two_different_limits_written_in_one_second_do_not_share_a_set() {
+        let d = dir("set-second");
+        let file = written(&d);
+        // The limit there was written a second from now, as a write in this
+        // second would look to the next whatever second the test crosses.
+        let there = now() + 1;
+        fs::write(
+            &file,
+            format!(
+                "{{\"v\":1,\"cycles\":3,\"plan\":false,\"until\":null,\"reason\":\"r\",\"set\":\"{}\"}}\n",
+                time::iso(there)
+            ),
+        )
+        .unwrap();
+        set_in(&d, &["--cycles", "4"]);
+        assert_eq!(set_of(&file), Some(time::iso(there + 1)));
+        set_in(&d, &["--cycles", "5"]);
+        assert_eq!(set_of(&file), Some(time::iso(there + 2)));
+        // The same limit again stays where it is.
+        set_in(&d, &["--cycles", "5"]);
+        assert_eq!(set_of(&file), Some(time::iso(there + 2)));
+    }
+
+    #[test]
+    fn a_clear_and_an_unreadable_limit_print_no_set() {
+        let d = dir("set-cleared");
+        let file = held_since_set(&d, "null");
+        assert_eq!(clear(&file), 0);
+        assert_eq!(api(read(&file, NOW)), r#"{"api":1,"state":"none"}"#);
+        fs::write(&file, format!("{{\"v\":2,\"set\":\"{SET}\"}}")).unwrap();
+        assert_eq!(api(read(&file, NOW)), r#"{"api":1,"state":"unreadable"}"#);
+    }
+
+    #[test]
+    fn the_limit_of_a_drain_written_over_a_drain_keeps_its_set() {
+        let d = dir("set-drain");
+        let file = written(&d);
+        fs::write(
+            &file,
+            format!("{{\"v\":1,\"cycles\":0,\"plan\":false,\"until\":null,\"reason\":\"draining\",\"set\":\"{SET}\"}}\n"),
+        )
+        .unwrap();
+        set_in(&d, &DRAIN);
+        assert_eq!(set_of(&file).as_deref(), Some(SET));
     }
 
     #[test]
@@ -1367,13 +1613,13 @@ mod tests {
             args(&["--cycles", "1", "extra", "x"]),
             args(&["--cycles", "1", "--reason"]),
             args(&["--reason", "said without a limit"]),
-            args(&["--json", "--cycles", "2"]),
-            args(&["--cycles", "2", "--json"]),
+            args(&["--cycles", "2", JSON, JSON]),
+            args(&["--cycles", "2", JSON, "x"]),
         ] {
             assert!(set_args(&bad).is_err(), "{bad:?} was taken");
         }
         // A refused set never reaches the file, so nothing of it is written.
-        assert!(!d.join("state").exists());
+        assert!(!Home::new(d.path()).state_dir().exists());
     }
 
     #[test]
@@ -1449,15 +1695,12 @@ mod tests {
     fn no_file_is_none_and_a_directory_is_unreadable() {
         let d = dir("none");
         assert_eq!(
-            read(&d.join("state/limit.json"), NOW).text(),
+            read(&Home::new(d.path()).state(State::Limit), NOW).text(),
             r#"{"state":"none"}"#
         );
-        let state = d.join("state");
-        fs::create_dir_all(state.join("limit.json")).unwrap();
-        assert_eq!(
-            read(&state.join("limit.json"), NOW).text(),
-            r#"{"state":"unreadable"}"#
-        );
+        let file = Home::new(d.path()).state(State::Limit);
+        fs::create_dir_all(&file).unwrap();
+        assert_eq!(read(&file, NOW).text(), r#"{"state":"unreadable"}"#);
     }
 
     #[test]
@@ -1554,7 +1797,7 @@ mod tests {
     #[test]
     fn what_a_reader_is_given_at_a_moment_of_its_own() {
         let d = dir("reader");
-        let file = d.join("state/limit.json");
+        let file = Home::new(d.path()).state(State::Limit);
         assert_eq!(read(&file, NOW).text(), r#"{"state":"none"}"#);
         set_in(
             &d,
@@ -1655,8 +1898,8 @@ mod tests {
     #[test]
     fn set_refuses_a_directory_in_its_way() {
         let d = dir("dirblock");
-        fs::create_dir_all(d.join("state/limit.json")).unwrap();
-        let file = d.join("state/limit.json");
+        fs::create_dir_all(Home::new(d.path()).state(State::Limit)).unwrap();
+        let file = Home::new(d.path()).state(State::Limit);
         assert_eq!(set(&file, &set_args(&args(&["--cycles", "1"])).unwrap()), 1);
     }
 
@@ -1683,107 +1926,6 @@ mod tests {
         assert_eq!(
             read(&file, NOW).text(),
             r#"{"state":"ok","cycles":1,"plan":true}"#
-        );
-    }
-
-    struct Answers {
-        labels: Result<String, String>,
-        events: Result<String, String>,
-    }
-
-    impl tehas_core::forge::GhRunner for Answers {
-        fn run(&mut self, args: &[&str]) -> Result<String, String> {
-            if args[1].contains("/events") {
-                self.events.clone()
-            } else {
-                self.labels.clone()
-            }
-        }
-    }
-
-    fn other(
-        labels: Result<&str, &str>,
-        events: Result<&str, &str>,
-    ) -> Option<Result<String, String>> {
-        let owned = |r: Result<&str, &str>| r.map(String::from).map_err(String::from);
-        let runner = Answers {
-            labels: owned(labels),
-            events: owned(events),
-        };
-        let mut forge = GitHub::new("acme/widget", Box::new(runner));
-        other_switch(&mut forge, 1, &|who| who == "alice")
-    }
-
-    const NONE: &str = r#"{"labels":[]}"#;
-
-    fn pause_event(kind: &str, by: &str) -> String {
-        json!([{"event": kind, "label": {"name": "tehas:pause"}, "actor": {"login": by},
-                "created_at": "2026-01-02T00:00:00Z"}])
-        .to_string()
-    }
-
-    #[test]
-    fn the_label_on_the_issue_holds_the_factory() {
-        let on = r#"{"labels":[{"name":"bug"},{"name":"tehas:pause"}]}"#;
-        assert_eq!(
-            other(Ok(on), Err("not asked")),
-            Some(Ok(
-                "the factory stays paused: tehas:pause is still on issue #1".to_string()
-            ))
-        );
-    }
-
-    #[test]
-    fn who_took_the_label_off_decides() {
-        let stranger = pause_event("unlabeled", "mallory");
-        assert_eq!(
-            other(Ok(NONE), Ok(&stranger)),
-            Some(Ok("the factory stays paused: tehas:pause was taken off #1 by 'mallory', who may not authorise work here".to_string()))
-        );
-        let nobody =
-            json!([{"event": "unlabeled", "label": {"name": "tehas:pause"}, "actor": null}]);
-        assert_eq!(
-            other(Ok(NONE), Ok(&nobody.to_string())),
-            Some(Ok("the factory stays paused: tehas:pause was taken off #1 by 'unknown', who may not authorise work here".to_string()))
-        );
-        assert_eq!(
-            other(Ok(NONE), Ok(&pause_event("unlabeled", "alice"))),
-            None
-        );
-        assert_eq!(other(Ok(NONE), Ok("[]")), None);
-    }
-
-    #[test]
-    fn an_application_nothing_took_back_holds_the_factory_whoever_made_it() {
-        for by in ["mallory", "alice"] {
-            assert_eq!(
-                other(Ok(NONE), Ok(&pause_event("labeled", by))),
-                Some(Ok("the factory stays paused: tehas:pause is not on issue #1, but its last tehas:pause event only applied it".to_string()))
-            );
-        }
-    }
-
-    #[test]
-    fn an_answer_that_cannot_be_read_is_said_on_standard_error() {
-        assert_eq!(
-            other(Err("HTTP 502"), Ok("[]")),
-            Some(Err("tehas resume: the labels of issue #1 could not be read: check tehas:pause there yourself".to_string()))
-        );
-        assert_eq!(
-            other(Ok("{}"), Ok("[]")),
-            Some(Err("tehas resume: the labels of issue #1 could not be read: check tehas:pause there yourself".to_string()))
-        );
-        assert_eq!(
-            other(Ok(NONE), Err("HTTP 502")),
-            Some(Err(
-                "tehas resume: the label events of issue #1 could not be read".to_string()
-            ))
-        );
-        assert_eq!(
-            other(Ok(NONE), Ok("{}")),
-            Some(Err(
-                "tehas resume: the label events of issue #1 could not be read".to_string()
-            ))
         );
     }
 
@@ -1955,8 +2097,15 @@ mod tests {
             text,
             r#"{"state":"ok","cycles":1,"plan":false,"reason":"r"}"#
         );
+        let d = dir("shown");
+        let file = written(&d);
+        fs::write(
+            &file,
+            r#"{"v":1,"cycles":1,"plan":false,"until":null,"reason":"r"}"#,
+        )
+        .unwrap();
         assert_eq!(
-            &format!("{{\"api\":1,{}", &text[1..]),
+            api(read(&file, NOW)),
             r#"{"api":1,"state":"ok","cycles":1,"plan":false,"reason":"r"}"#
         );
     }
@@ -1978,16 +2127,16 @@ mod tests {
         read_pause_bytes(doc.as_bytes()).said()
     }
 
-    /// The `until` of a written limit document as the seconds since the epoch
-    /// it names.
-    fn until_of(doc: &str) -> i64 {
-        let until = serde_json::from_str::<Value>(doc)
+    /// The `until` or the `set` of a written limit document as the seconds
+    /// since the epoch it names.
+    fn time_of(doc: &str, key: &str) -> i64 {
+        let time = serde_json::from_str::<Value>(doc)
             .unwrap()
-            .get("until")
+            .get(key)
             .and_then(Value::as_str)
-            .expect("the limit document holds no until")
+            .expect("the limit document holds no such time")
             .to_string();
-        epoch(&until).expect("the until of a limit is no time")
+        epoch(&time).expect("the time of a limit is no time")
     }
 
     /// The `at` of a pause document as the seconds since the epoch it names.
@@ -2002,8 +2151,8 @@ mod tests {
     }
 
     fn pause_file(d: &TestDir) -> PathBuf {
-        fs::create_dir_all(d.join("state")).unwrap();
-        d.join("state/pause.json")
+        fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
+        Home::new(d.path()).state(State::Pause)
     }
 
     #[test]
@@ -2095,7 +2244,7 @@ mod tests {
     #[test]
     fn no_flag_is_none() {
         let d = dir("pause-none");
-        let file = d.join("state/pause.json");
+        let file = Home::new(d.path()).state(State::Pause);
         assert_eq!(read_pause(&file).text(), r#"{"state":"none"}"#);
         assert_eq!(read_pause(&file).said(), "pause     none");
     }
@@ -2205,7 +2354,7 @@ mod tests {
         // A directory in the way is reported and nothing is written: the one
         // case where the command names the file rather than the flag in it.
         let d = dir("pause-dir");
-        let file = d.join("state/pause.json");
+        let file = Home::new(d.path()).state(State::Pause);
         fs::create_dir_all(&file).unwrap();
         assert_eq!(pause_set(&file, "x"), 1);
         assert!(file.is_dir());
@@ -2259,10 +2408,18 @@ mod tests {
         let file = pause_file(&d);
         assert_eq!(pause_set(&file, "x"), 0);
         fs::write(file.with_extension("json.new"), "half a flag").unwrap();
-        fs::set_permissions(d.join("state"), fs::Permissions::from_mode(0o500)).unwrap();
+        fs::set_permissions(
+            Home::new(d.path()).state_dir(),
+            fs::Permissions::from_mode(0o500),
+        )
+        .unwrap();
         assert_eq!(pause_clear(&file, account::uid()), 1);
         // The state directory, given back its mode.
-        fs::set_permissions(d.join("state"), fs::Permissions::from_mode(0o700)).unwrap();
+        fs::set_permissions(
+            Home::new(d.path()).state_dir(),
+            fs::Permissions::from_mode(0o700),
+        )
+        .unwrap();
         assert!(file.exists() || file.with_extension("json.new").exists());
     }
 
@@ -2330,7 +2487,7 @@ mod tests {
         // The verbs of the pause flag, as the operator of a stale host or a
         // carried-over script is told them before the 64: the two which are
         // there, and neither of the two which are not. The limit's line keeps
-        // its own verbs, `read` among them, which test/limit_test.sh runs.
+        // its own verbs, `read` among them, which console/tests/limit.rs runs.
         assert_eq!(
             PAUSE_USAGE,
             "       console flags pause set [--reason TEXT] | clear"
@@ -2354,27 +2511,30 @@ mod tests {
     #[test]
     fn only_a_regular_file_of_this_run_is_ours_to_remove() {
         let home = dir("owned-regular");
-        fs::create_dir_all(home.join("state")).unwrap();
-        let mine = home.join("state/pause.json");
+        fs::create_dir_all(Home::new(home.path()).state_dir()).unwrap();
+        let mine = Home::new(home.path()).state(State::Pause);
         fs::write(&mine, "{}").unwrap();
         assert!(owned_regular(&mine, account::uid()));
         // A directory is no flag to take off, a link is not ours whoever
         // owns what it points at, and an absent name is nothing to remove.
-        assert!(!owned_regular(&home.join("state"), account::uid()));
-        symlink(&mine, home.join("state/link.json")).unwrap();
         assert!(!owned_regular(
-            &home.join("state/link.json"),
+            &Home::new(home.path()).state_dir(),
+            account::uid()
+        ));
+        symlink(&mine, Home::new(home.path()).state_dir().join("link.json")).unwrap();
+        assert!(!owned_regular(
+            &Home::new(home.path()).state_dir().join("link.json"),
             account::uid()
         ));
         assert!(!owned_regular(
-            &home.join("state/gone.json"),
+            &Home::new(home.path()).state_dir().join("gone.json"),
             account::uid()
         ));
         // A file of another account is not ours to remove. The file is made
         // here, so the case does not lean on what the host happens to hold.
         // Only a run under uid 0 can hand a file to another account, and the
         // rest are told the case was skipped instead of left to pass unseen.
-        let other = home.join("state/other.json");
+        let other = Home::new(home.path()).state_dir().join("other.json");
         fs::write(&other, "x").unwrap();
         if account::uid() == Some(0) {
             let said = std::process::Command::new("chown")

@@ -3,11 +3,13 @@
 //! cycle's files ([`manifest`]). The attach program (src/main.rs), the
 //! dispatcher, the console and the cycle supervisor read links, fetch them and
 //! write manifests through it.
+//!
+//! Kept for the 2.1 plugins as well: the lab and `given` plugins take it
+//! (host/docs/contract.md, the Kept table).
 
 pub mod comments;
 pub mod fetch;
 pub mod given;
-pub mod handoff;
 pub mod link;
 pub mod manifest;
 pub mod plugin_files;

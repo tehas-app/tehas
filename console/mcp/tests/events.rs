@@ -10,6 +10,7 @@ use mcp::tools::{call, Dirs, Output, ToolError};
 use serde_json::{json, Value};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use tehas_core::home::Home;
 use tehas_core::testdir::TestDir;
 use tehas_core::time::iso;
 
@@ -22,9 +23,10 @@ fn token() -> String {
 fn fixture_dirs() -> Dirs {
     let f = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
     Dirs {
-        live: f.join("live"),
+        live: Home::new(&f).live_dir(),
         sessions: f.join("sessions"),
         logs: f.join("logs"),
+        links: mcp::tools::no_links,
     }
 }
 
@@ -37,9 +39,10 @@ impl Env {
     fn new(name: &str) -> Env {
         let root = TestDir::new(&format!("mcp-events-{name}"));
         let dirs = Dirs {
-            live: root.join("live"),
+            live: Home::new(&*root).live_dir(),
             sessions: root.join("mcp"),
             logs: root.join("logs"),
+            links: mcp::tools::no_links,
         };
         for d in [&dirs.live, &dirs.sessions, &dirs.logs] {
             std::fs::create_dir_all(d).unwrap();
@@ -66,7 +69,7 @@ fn line(t: i64, text: &str) -> String {
 }
 
 fn events_call(dirs: &Dirs, args: Value) -> Result<Value, ToolError> {
-    match call(dirs, "factory_events", &args)? {
+    match call(dirs, "factory_events", &args.into())? {
         Output::Json(v) => Ok(common::conforms("factory_events", v)),
         other => panic!("not JSON: {other:?}"),
     }

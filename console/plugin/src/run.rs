@@ -24,7 +24,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tehas_core::file::{read_regular, write_atomic, Temp};
 use tehas_core::grammar::commit_id;
-use tehas_core::lock::try_lock;
+use tehas_core::lock::{try_lock, Held};
 use tehas_core::plugin::manifest::Manifest;
 use tehas_core::plugin::run::{context, Kind, Pr, Run, Trigger};
 use tehas_core::plugin::state::{State, Word};
@@ -33,6 +33,7 @@ use tehas_core::{exit, features, sandbox};
 use tehas_ops::plugin::exec::{Cmd, Exec, Git};
 use tehas_ops::plugin::prepare;
 use tehas_ops::plugin::runs::{self, Asked, HookAsk, DISK_REFUSAL, LOG_MAX};
+use tehas_ports::events::Envelope;
 
 /// `TEHAS_PLUGIN_LIMITS` when it is not set.
 pub const LIMITS: Limits = Limits {
@@ -178,11 +179,14 @@ fn plugin_of(h: &mut dyn Host, s: &Setup, name: &str, person: bool) -> Result<Pl
     })
 }
 
-fn lock_with(path: &Path, shared: bool) -> Result<File, String> {
+fn lock_with(path: &Path, shared: bool) -> Result<Held, String> {
     let f = File::create(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    let got = if shared { f.lock_shared() } else { f.lock() };
-    got.map(|()| f)
-        .map_err(|e| format!("{}: {e}", path.display()))
+    let got = if shared {
+        Held::take_shared(f)
+    } else {
+        Held::take(f)
+    };
+    got.map_err(|e| format!("{}: {e}", path.display()))
 }
 
 fn git(x: &mut dyn Exec, how: Git, dir: &str, args: &[&str]) -> Result<String, String> {
@@ -433,6 +437,9 @@ struct Started<'a> {
     trigger: Trigger,
     head: String,
     pr: Option<Pr>,
+    /// The envelope of the event that asked for a hook. A person's run has
+    /// none.
+    event: Option<Envelope>,
 }
 
 fn by_of(trigger: Trigger, by: Option<&str>) -> String {
@@ -525,6 +532,7 @@ fn run_in(
         model: &model_id,
         pr: st.pr.clone(),
         tool: None,
+        event: st.event.as_ref(),
     };
     let given = match run.given() {
         Ok(g) => g,
@@ -533,7 +541,8 @@ fn run_in(
     if let Err(e) = fs::create_dir(dir) {
         return Came::Failed(format!("{}: {e}", dir.display()));
     }
-    let ctx = match context(&run) {
+    let ctx = match context(&run).and_then(|c| serde_json::to_string(&c).map_err(|e| e.to_string()))
+    {
         Ok(c) => c,
         Err(why) => return Came::Failed(why),
     };
@@ -822,6 +831,7 @@ fn refresh(h: &mut dyn Host, s: &Setup, ask: &Ask) -> u8 {
         trigger,
         head,
         pr: None,
+        event: None,
     };
     let came = one_run(h, s, &st, &by_of(trigger, by.as_deref()));
     drop(lock);
@@ -833,7 +843,7 @@ fn refresh(h: &mut dyn Host, s: &Setup, ask: &Ask) -> u8 {
 }
 
 /// A place among the hooks that run at once, waited for.
-fn hook_place(s: &Setup) -> Result<File, String> {
+fn hook_place(s: &Setup) -> Result<Held, String> {
     loop {
         for n in 1..=HOOKS_AT_ONCE {
             let at = prepare::root(s.home).join(format!("hook-{n}.lock"));
@@ -846,12 +856,12 @@ fn hook_place(s: &Setup) -> Result<File, String> {
 }
 
 /// The plugin as a hook takes it now: ready at its pin and granted
-/// `hook:after:work` there.
+/// `hook:after:change.offered` there.
 fn hooked(h: &mut dyn Host, s: &Setup, name: &str) -> Result<Plugin, u8> {
     let p = plugin_of(h, s, name, false)?;
-    if !p.has(Cap::HookAfterWork) {
+    if !p.has(Cap::HOOK) {
         say(&format!(
-            "plugin {name}: not run: it is not granted hook:after:work"
+            "plugin {name}: not run: it is not granted hook:after:change.offered"
         ));
         return Err(exit::NO);
     }
@@ -976,7 +986,7 @@ fn hook_at(h: &mut dyn Host, s: &Setup, p: &Plugin, ask: &Ask, req: &HookAsk) ->
                     req.pr
                 ));
                 // The base of the new head, which the request does not know.
-                let why = match status::pull(h, s, req.pr) {
+                let why = match status::pull(h, req.pr) {
                     Ok(Some((at, b))) if at == c => {
                         base = b;
                         None
@@ -1007,6 +1017,7 @@ fn hook_at(h: &mut dyn Host, s: &Setup, p: &Plugin, ask: &Ask, req: &HookAsk) ->
             base,
             head: head.clone(),
         }),
+        event: req.event.clone().filter(|_| trigger == Trigger::Cycle),
     };
     (one_run(h, s, &st, &by_of(trigger, None)), head)
 }

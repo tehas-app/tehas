@@ -1,5 +1,5 @@
-//! park, park-show, park-retry, question-asked, question-known and
-//! question-answered.
+//! park, park-show, park-retry, question-asked, question-known,
+//! question-adopt and question-answered.
 
 use crate::verbs_tests::*;
 use serde_json::{json, Value};
@@ -40,6 +40,11 @@ fn parked(home: &Path, issue: i64, by: &str, how: &str, reason: &str) -> i64 {
 
 /// A planning session in its second turn, waiting for an answer.
 fn planned(home: &Path, issue: i64) {
+    planned_with(home, issue, &[]);
+}
+
+/// The same, its first turn having offered `options`.
+pub(crate) fn planned_with(home: &Path, issue: i64, options: &[&str]) {
     let brief = write_file(home, &format!("brief-{issue}.md"), b"brief");
     let n = issue.to_string();
     ok(
@@ -55,21 +60,22 @@ fn planned(home: &Path, issue: i64) {
             brief.to_str().unwrap(),
         ],
     );
-    ok(
-        home,
-        &[
-            "plan-end",
-            &n,
-            "--turn",
-            "1",
-            "--outcome",
-            "finished",
-            "--rc",
-            "0",
-            "--session",
-            "s1",
-        ],
-    );
+    let mut end = vec![
+        "plan-end",
+        &n,
+        "--turn",
+        "1",
+        "--outcome",
+        "finished",
+        "--rc",
+        "0",
+        "--session",
+        "s1",
+    ];
+    for o in options {
+        end.extend(["--option", o]);
+    }
+    ok(home, &end);
 }
 
 #[test]
@@ -100,12 +106,12 @@ fn park_records_the_park_and_its_question() {
         v["park"],
         json!({"issue":10,"attempt":1,"at":NOW,"reason":"provider-outage","step":"review","pr":12,
                "retries":0,"started_at":NOW,"started_by":"alice","automatic":true,"question":5001,
-               "told_at":null,"body_sha256":SHA,"park_reason":null,"refine":false,"cap":null})
+               "told_at":null,"body_sha256":SHA,"park_reason":null,"refine":false,"cap":null,"answer":null})
     );
     assert_eq!(
         one::<String>(
             &home,
-            "SELECT id || issue || attempt || kind || posted_at || body_sha256 FROM questions"
+            "SELECT comment_id || issue || attempt || kind || posted_at || body_sha256 FROM questions"
         ),
         format!("5001101park{NOW}{SHA}")
     );
@@ -252,8 +258,8 @@ fn park_show_with_nothing_is_null_and_0() {
 #[test]
 fn park_show_names_the_account_that_started_the_parked_cycle() {
     let home = home("park-f6");
-    parked(&home, 18, "alice", "label", "provider-outage");
-    approve(&home, 18, "bob", "label");
+    parked(&home, 18, "alice", "approved", "provider-outage");
+    approve(&home, 18, "bob", "approved");
     let v = ok(&home, &["park-show", "18"]);
     assert_eq!(v["park"]["started_by"], "alice");
     assert_eq!(v["park"]["automatic"], true);
@@ -262,7 +268,7 @@ fn park_show_names_the_account_that_started_the_parked_cycle() {
 #[test]
 fn park_retry_spends_the_automatic_retry_once() {
     let home = home("park-retry");
-    parked(&home, 19, "alice", "label", "provider-outage");
+    parked(&home, 19, "alice", "approved", "provider-outage");
     let v = ok(&home, &["park-retry", "19"]);
     assert_eq!(
         (v["retries"].clone(), v["automatic"].clone()),
@@ -303,11 +309,11 @@ fn a_run_by_hand_owes_no_automatic_retry() {
 #[test]
 fn park_show_automatic_lists_only_owed_retries() {
     let home = home("park-auto");
-    parked(&home, 23, "alice", "label", "provider-outage");
-    parked(&home, 24, "alice", "label", "failed");
-    parked(&home, 25, "alice", "label", "provider-outage");
+    parked(&home, 23, "alice", "approved", "provider-outage");
+    parked(&home, 24, "alice", "approved", "failed");
+    parked(&home, 25, "alice", "approved", "provider-outage");
     ok(&home, &["park-retry", "25"]);
-    parked(&home, 26, "alice", "label", "provider-outage");
+    parked(&home, 26, "alice", "approved", "provider-outage");
     // A new start leaves the old park behind.
     let (_l, _) = start(&home, 26);
     let v = ok(&home, &["park-show", "--automatic"]);
@@ -360,10 +366,10 @@ fn refine_due(home: &Path) -> Vec<i64> {
 #[test]
 fn park_show_refine_lists_the_intent_parks_a_refine_is_owed() {
     let home = home("park-refine");
-    intent_parked(&home, 60, "label", "underspecified");
-    intent_parked(&home, 61, "retry-tick", "too-large");
-    intent_parked(&home, 62, "label", "premise-unsound");
-    parked(&home, 63, "alice", "label", "failed");
+    intent_parked(&home, 60, "approved", "underspecified");
+    intent_parked(&home, 61, "reply", "too-large");
+    intent_parked(&home, 62, "approved", "premise-unsound");
+    parked(&home, 63, "alice", "approved", "failed");
     assert_eq!(refine_due(&home), vec![60, 61]);
     let v = ok(&home, &["park-show", "60"]);
     assert_eq!(v["park"]["refine"], true);
@@ -380,7 +386,7 @@ fn park_show_refine_lists_the_intent_parks_a_refine_is_owed() {
 #[test]
 fn park_show_answers_the_cap_of_the_parked_run() {
     let home = home("park-cap");
-    let (_l, a) = start_by(&home, 71, "alice", "label", NOW);
+    let (_l, a) = start_by(&home, 71, "alice", "approved", NOW);
     let (n, at) = (71.to_string(), a.to_string());
     ok(
         &home,
@@ -416,11 +422,11 @@ fn park_show_answers_the_cap_of_the_parked_run() {
 #[test]
 fn a_refine_is_owed_once_and_never_to_an_issue_that_was_planned() {
     let home = home("park-refine-once");
-    intent_parked(&home, 64, "label", "underspecified");
-    intent_parked(&home, 65, "label", "underspecified");
-    intent_parked(&home, 66, "fixer", "underspecified");
+    intent_parked(&home, 64, "approved", "underspecified");
+    intent_parked(&home, 65, "approved", "underspecified");
+    intent_parked(&home, 66, "millwright", "underspecified");
     // A session whose first turn still runs has no history yet.
-    intent_parked(&home, 69, "label", "too-large");
+    intent_parked(&home, 69, "approved", "too-large");
     let brief = write_file(&home, "brief-69.md", b"brief");
     ok(
         &home,
@@ -485,7 +491,7 @@ fn park_show_refine_usage() {
 #[test]
 fn question_asked_records_park_and_plan_questions() {
     let home = home("asked");
-    let a = parked(&home, 30, "alice", "label", "failed");
+    let a = parked(&home, 30, "alice", "approved", "failed");
     let v = ok(
         &home,
         &[
@@ -501,8 +507,8 @@ fn question_asked_records_park_and_plan_questions() {
     );
     assert_eq!(
         v["question"],
-        json!({"id":900,"issue":30,"attempt":a,"kind":"park","posted_at":NOW,"body_sha256":SHA,
-               "answered_at":null,"answered_by":null})
+        json!({"id":1,"comment_id":900,"issue":30,"attempt":a,"kind":"park","posted_at":NOW,
+               "body_sha256":SHA,"answered_at":null,"answered_by":null,"withdrawn_at":null})
     );
     assert_eq!(ok(&home, &["park-show", "30"])["park"]["question"], 900);
     // The same again is unchanged.
@@ -512,6 +518,11 @@ fn question_asked_records_park_and_plan_questions() {
         &["question-asked", "30", "--id", "900", "--kind", "park"],
     );
     assert_eq!(again["question"], v["question"]);
+    // The call that recorded it says so; a replay does not (T11.9).
+    assert_eq!(
+        (v["already"].clone(), again["already"].clone()),
+        (json!(false), json!(true))
+    );
     planned(&home, 31);
     let v = ok(
         &home,
@@ -550,7 +561,7 @@ fn question_asked_states_its_preconditions_and_arguments() {
         ),
         (1, "noplan".into())
     );
-    parked(&home, 32, "alice", "label", "failed");
+    parked(&home, 32, "alice", "approved", "failed");
     assert_eq!(
         refused(
             &home,
@@ -616,14 +627,14 @@ fn question_asked_states_its_preconditions_and_arguments() {
 #[test]
 fn question_known_is_true_only_for_the_question_on_record() {
     let home = home("known");
-    parked(&home, 40, "alice", "label", "failed");
+    parked(&home, 40, "alice", "approved", "failed");
     ok(
         &home,
         &["question-asked", "40", "--id", "41", "--kind", "park"],
     );
     assert_eq!(
         known(&home, 40, 41),
-        json!({"api":1,"verb":"question-known","ok":true,"known":true,"kind":"park","recorded":true,"answered":false})
+        json!({"api":1,"verb":"question-known","ok":true,"known":true,"kind":"park","recorded":true,"answered":false,"reask":false,"sum_form":null,"answer":null})
     );
     planned(&home, 42);
     ok(
@@ -638,7 +649,7 @@ fn question_known_is_true_only_for_the_question_on_record() {
 #[test]
 fn question_known_is_false_for_an_id_never_asked() {
     let home = home("known-never");
-    parked(&home, 44, "alice", "label", "failed");
+    parked(&home, 44, "alice", "approved", "failed");
     let v = known(&home, 44, 45);
     assert_eq!(
         (v["known"].clone(), v["recorded"].clone(), v["kind"].clone()),
@@ -649,12 +660,12 @@ fn question_known_is_false_for_an_id_never_asked() {
 #[test]
 fn question_known_is_false_for_an_id_of_another_issue() {
     let home = home("known-other");
-    parked(&home, 46, "alice", "label", "failed");
+    parked(&home, 46, "alice", "approved", "failed");
     ok(
         &home,
         &["question-asked", "46", "--id", "47", "--kind", "park"],
     );
-    parked(&home, 48, "alice", "label", "failed");
+    parked(&home, 48, "alice", "approved", "failed");
     let v = known(&home, 48, 47);
     assert_eq!(
         (v["known"].clone(), v["recorded"].clone()),
@@ -665,7 +676,7 @@ fn question_known_is_false_for_an_id_of_another_issue() {
 #[test]
 fn question_known_is_false_for_an_answered_question() {
     let home = home("known-answered");
-    parked(&home, 49, "alice", "label", "failed");
+    parked(&home, 49, "alice", "approved", "failed");
     ok(
         &home,
         &["question-asked", "49", "--id", "50", "--kind", "park"],
@@ -697,7 +708,7 @@ fn question_known_is_false_for_an_answered_question() {
 #[test]
 fn a_park_question_is_not_known_after_a_new_cycle_start() {
     let home = home("known-new-start");
-    parked(&home, 51, "alice", "label", "failed");
+    parked(&home, 51, "alice", "approved", "failed");
     ok(
         &home,
         &["question-asked", "51", "--id", "52", "--kind", "park"],
@@ -713,7 +724,7 @@ fn a_park_question_is_not_known_after_a_new_cycle_start() {
 #[test]
 fn a_withdrawn_question_is_not_known() {
     let home = home("known-withdrawn");
-    parked(&home, 53, "alice", "label", "failed");
+    parked(&home, 53, "alice", "approved", "failed");
     ok(
         &home,
         &["question-asked", "53", "--id", "54", "--kind", "park"],
@@ -747,6 +758,88 @@ fn a_withdrawn_question_is_not_known() {
     assert_eq!(known(&home, 55, 56)["known"], false);
 }
 
+/// A withdrawal (schema 30) sets `withdrawn_at` and deletes nothing: the
+/// question keeps its row and its number, its answer stays, it is withdrawn
+/// once, and the next question asked takes the next number.
+#[test]
+fn a_withdrawal_sets_withdrawn_at_and_deletes_nothing() {
+    let home = home("withdraw-keeps");
+    parked(&home, 60, "alice", "approved", "failed");
+    ok(
+        &home,
+        &["question-asked", "60", "--id", "61", "--kind", "park"],
+    );
+    ok(
+        &home,
+        &["answer-record", "60", "--by", "bob", "--choice", "retry"],
+    );
+    let (questions, answers) = (count(&home, "questions"), count(&home, "answers"));
+    let v = ok_at(
+        &home,
+        NOW + 7,
+        &["question-answered", "60", "--id", "61", "--withdraw"],
+    );
+    assert_eq!(v["withdrawn"], true);
+    assert_eq!(v["question"]["id"], 1);
+    assert_eq!(v["question"]["comment_id"], 61);
+    assert_eq!(v["question"]["withdrawn_at"], NOW + 7);
+    assert_eq!(
+        (count(&home, "questions"), count(&home, "answers")),
+        (questions, answers)
+    );
+    assert_eq!(
+        ok(&home, &["park-show", "60"])["park"]["question"],
+        Value::Null
+    );
+    // Withdrawn once: a second withdrawal, or an answer, finds no question.
+    assert_eq!(
+        refused(
+            &home,
+            &["question-answered", "60", "--id", "61", "--withdraw"]
+        ),
+        (1, "unknown".into())
+    );
+    assert_eq!(
+        refused(
+            &home,
+            &["question-answered", "60", "--id", "61", "--by", "bob"]
+        ),
+        (1, "unknown".into())
+    );
+    assert_eq!(
+        one::<i64>(
+            &home,
+            "SELECT withdrawn_at FROM questions WHERE comment_id = 61"
+        ),
+        NOW + 7
+    );
+    // Its comment asked again is a new question, with the next number, and
+    // the withdrawn one stays as it was.
+    let again = ok(
+        &home,
+        &["question-asked", "60", "--id", "61", "--kind", "park"],
+    );
+    assert_eq!(again["question"]["id"], 2);
+    assert_eq!(count(&home, "questions WHERE comment_id = 61"), 2);
+    assert_eq!(
+        count(
+            &home,
+            &format!("questions WHERE id = 1 AND withdrawn_at = {}", NOW + 7)
+        ),
+        1
+    );
+    ok(
+        &home,
+        &["question-answered", "60", "--id", "61", "--withdraw"],
+    );
+    let next = ok(
+        &home,
+        &["question-asked", "60", "--id", "62", "--kind", "park"],
+    );
+    assert_eq!(next["question"]["id"], 3);
+    assert_eq!(ok(&home, &["park-show", "60"])["park"]["question"], 62);
+}
+
 #[test]
 fn question_answered_states_its_preconditions_and_arguments() {
     let home = home("answered-pre");
@@ -757,7 +850,7 @@ fn question_answered_states_its_preconditions_and_arguments() {
         ),
         (1, "unknown".into())
     );
-    parked(&home, 57, "alice", "label", "failed");
+    parked(&home, 57, "alice", "approved", "failed");
     ok(
         &home,
         &["question-asked", "57", "--id", "58", "--kind", "park"],
@@ -831,7 +924,10 @@ fn park_refuses_an_id_of_an_older_attempt() {
     assert!(line.starts_with("attempt #18: "), "{line}");
     assert_eq!(count(&home, &format!("parks WHERE attempt = {b}")), 0);
     assert_eq!(
-        one::<i64>(&home, "SELECT attempt FROM questions WHERE id = 5201"),
+        one::<i64>(
+            &home,
+            "SELECT attempt FROM questions WHERE comment_id = 5201"
+        ),
         a
     );
 }
@@ -839,7 +935,7 @@ fn park_refuses_an_id_of_an_older_attempt() {
 #[test]
 fn only_the_newest_park_question_is_on_record() {
     let home = home("park-newest");
-    parked(&home, 70, "alice", "label", "failed");
+    parked(&home, 70, "alice", "approved", "failed");
     ok_at(
         &home,
         NOW,
@@ -864,7 +960,7 @@ fn only_the_newest_park_question_is_on_record() {
 #[test]
 fn park_told_says_once() {
     let home = home("park-told");
-    let a = parked(&home, 50, "alice", "label", "too-large");
+    let a = parked(&home, 50, "alice", "approved", "too-large");
     assert_eq!(
         ok(&home, &["park-show", "50"])["park"]["told_at"],
         Value::Null
@@ -913,7 +1009,7 @@ fn park_told_usage() {
 #[test]
 fn park_show_names_the_body_the_parked_attempt_was_approved_on() {
     let home = home("park-body");
-    parked(&home, 52, "alice", "label", "too-large");
+    parked(&home, 52, "alice", "approved", "too-large");
     // A later approval of another text is not the one the park rests on.
     ok(
         &home,
@@ -925,7 +1021,7 @@ fn park_show_names_the_body_the_parked_attempt_was_approved_on() {
             "--by",
             "bob",
             "--how",
-            "label",
+            "approved",
             "--label",
             "tehas:ready",
             "--body-sha",
@@ -944,4 +1040,160 @@ fn park_show_names_the_body_the_parked_attempt_was_approved_on() {
         ok(&home, &["park-show", "53"])["park"]["body_sha256"],
         Value::Null
     );
+}
+
+/// A question's sum says what it sums (schema 33, T4.7): 2.0's
+/// `question-asked --body-sha` sums the visible text, 1.x's `park
+/// --comment-id` the comment as posted. `question-adopt` gives a 1.x row the
+/// sum of its visible text once, in place, when the comment reads as it was
+/// posted, and no sum when it was ticked or edited since; it leaves every
+/// other row as it is: one of 2.0, one with no sum, a withdrawn one and an
+/// unknown id.
+#[test]
+fn question_adopt_takes_a_1x_sum_into_the_visible_form_once() {
+    let home = home("adopt");
+    let visible = "b".repeat(64);
+    let form = |id: i64| {
+        one::<String>(
+            &home,
+            &format!(
+                "SELECT coalesce(body_form, '-') || ' ' || coalesce(body_sha256, '-')
+                 FROM questions WHERE comment_id = {id}"
+            ),
+        )
+    };
+    // The comment unchanged since it was posted: its sum now is the one on
+    // record.
+    let adopt_as = |issue: &str, id: &str, posted: &str| {
+        let v = ok(
+            &home,
+            &[
+                "question-adopt",
+                issue,
+                "--id",
+                id,
+                "--posted-sha",
+                posted,
+                "--body-sha",
+                visible.as_str(),
+            ],
+        );
+        (v["adopted"].clone(), v["summed"].clone())
+    };
+    let adopt = |issue: &str, id: &str| adopt_as(issue, id, SHA).0;
+    // 1.x's: the park's question, summed as posted.
+    let (_l, a) = start(&home, 60);
+    end(&home, 60, a, "failed");
+    park(
+        &home,
+        60,
+        a,
+        "failed",
+        &["--comment-id", "6001", "--body-sha", SHA],
+    )
+    .unwrap();
+    assert_eq!(form(6001), format!("rendered {SHA}"));
+    assert_eq!(known(&home, 60, 6001)["sum_form"], "rendered");
+    // 2.0's: the visible text's; and a question with no sum.
+    parked(&home, 61, "alice", "approved", "failed");
+    let asked = ["question-asked", "61", "--id", "6101", "--kind", "park"];
+    ok(&home, &[&asked[..], &["--body-sha", SHA]].concat());
+    assert_eq!(form(6101), format!("visible {SHA}"));
+    assert_eq!(known(&home, 61, 6101)["sum_form"], "visible");
+    planned(&home, 62);
+    ok(
+        &home,
+        &["question-asked", "62", "--id", "6201", "--kind", "plan"],
+    );
+    assert_eq!(form(6201), "- -");
+    assert_eq!(known(&home, 62, 6201)["sum_form"], Value::Null);
+    // Adopted once, in place; the rest are left as they are.
+    assert_eq!(adopt_as("60", "6001", SHA), (json!(true), json!(true)));
+    assert_eq!(form(6001), format!("visible {visible}"));
+    assert_eq!(known(&home, 60, 6001)["known"], true);
+    assert_eq!(adopt("60", "6001"), false);
+    assert_eq!(adopt("61", "6101"), false);
+    assert_eq!(form(6101), format!("visible {SHA}"));
+    assert_eq!(adopt("62", "6201"), false);
+    assert_eq!(form(6201), "- -");
+    assert_eq!(adopt("61", "6001"), false);
+    assert_eq!(adopt("60", "9999"), false);
+    // A withdrawn question of 1.x is not adopted.
+    let (_l, a) = start(&home, 63);
+    end(&home, 63, a, "failed");
+    park(
+        &home,
+        63,
+        a,
+        "failed",
+        &["--comment-id", "6301", "--body-sha", SHA],
+    )
+    .unwrap();
+    ok(
+        &home,
+        &["question-answered", "63", "--id", "6301", "--withdraw"],
+    );
+    assert_eq!(adopt("63", "6301"), false);
+    assert_eq!(form(6301), format!("rendered {SHA}"));
+    // A comment ticked or edited since it was posted sums another way: the
+    // row takes 2.0's form and keeps no sum. So does one with no visible
+    // text to sum.
+    let (_l, a) = start(&home, 64);
+    end(&home, 64, a, "failed");
+    park(
+        &home,
+        64,
+        a,
+        "failed",
+        &["--comment-id", "6401", "--body-sha", SHA],
+    )
+    .unwrap();
+    let other = "c".repeat(64);
+    assert_eq!(adopt_as("64", "6401", &other), (json!(true), json!(false)));
+    assert_eq!(form(6401), "visible -");
+    assert_eq!(known(&home, 64, 6401)["sum_form"], "visible");
+    assert_eq!(adopt_as("64", "6401", SHA), (json!(false), json!(false)));
+    let (_l, a) = start(&home, 65);
+    end(&home, 65, a, "failed");
+    park(
+        &home,
+        65,
+        a,
+        "failed",
+        &["--comment-id", "6501", "--body-sha", SHA],
+    )
+    .unwrap();
+    let v = ok(
+        &home,
+        &["question-adopt", "65", "--id", "6501", "--posted-sha", SHA],
+    );
+    assert_eq!((&v["adopted"], &v["summed"]), (&json!(true), &json!(false)));
+    assert_eq!(form(6501), "visible -");
+    for args in [
+        &["question-adopt", "60", "--id", "6001"][..],
+        &["question-adopt", "60", "--posted-sha", SHA],
+        &[
+            "question-adopt",
+            "60",
+            "--id",
+            "6001",
+            "--posted-sha",
+            "nope",
+        ],
+        &[
+            "question-adopt",
+            "60",
+            "--id",
+            "6001",
+            "--posted-sha",
+            SHA,
+            "--body-sha",
+            "nope",
+        ],
+    ] {
+        assert!(
+            usage(args).starts_with("usage question-adopt: "),
+            "{args:?}"
+        );
+    }
 }

@@ -2,13 +2,11 @@
 <tehas-factory-state data-tehas-island="contents" src="/live/status.json" running="/live/running.json">
 <div class="dash-top">
   <span id="state" class="pill idle">loading</span>
-  <span id="allhands" class="pill pause" title="tehas:all-hands is on the control issue" hidden>all hands</span>
   <span id="readonly" class="pill pause" title="TEHAS_READ_ONLY=1: this factory writes nothing to GitHub" hidden>read-only</span>
   <span id="fresh" class="muted"></span>
   <a id="all" class="muted" href="#">all issues on GitHub</a>
 </div>
 </tehas-factory-state>
-<tehas-factory-wikilink data-tehas-island="contents" src="/live/wiki.json"><a id="wiki" class="muted" hidden>wiki</a></tehas-factory-wikilink>
 
 <tehas-factory-console data-tehas-island="contents" src="/live/running.json" status="/live/status.json">
 <section class="now" id="now" hidden></section>
@@ -33,10 +31,6 @@
 <section id="previews" hidden></section>
 </tehas-factory-previews>
 
-<tehas-factory-host data-tehas-island="contents" src="/live/top.json">
-<section id="host" hidden></section>
-</tehas-factory-host>
-
 <link rel="stylesheet" href="/fun/kit/kit.css">
 <link rel="stylesheet" href="/fun/factory/factory.css">
 <script src="/fun/host-bridge.js"></script>
@@ -46,5 +40,3 @@
 <script type="module" src="/fun/factory/tehas-factory-readonly.js"></script>
 <script type="module" src="/fun/factory/tehas-factory-days.js"></script>
 <script type="module" src="/fun/factory/tehas-factory-previews.js"></script>
-<script type="module" src="/fun/factory/tehas-factory-host.js"></script>
-<script type="module" src="/fun/factory/tehas-factory-wikilink.js"></script>

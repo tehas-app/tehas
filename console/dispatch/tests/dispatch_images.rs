@@ -8,6 +8,7 @@ mod common;
 use common::*;
 use serde_json::{json, Value};
 use std::time::Instant;
+use tehas_core::home::{Home, Live};
 
 /// The storage the images of these cases link.
 const A: &str = "https://github.com/user-attachments/assets";
@@ -46,7 +47,7 @@ fn imaging(w: &World, input: Value) {
 /// An instance that gives a cycle nothing of what an issue attaches.
 fn offline(w: &World) {
     w.reset();
-    inst(w, &["TEHAS_WORK_IMAGES=0", "TEHAS_WORK_FILES=0"]);
+    inst(w, &["TEHAS_WORK_IMAGES=0"]);
     w.mesh(Some(MODELS));
 }
 
@@ -136,7 +137,7 @@ fn reviewed(w: &World, ticked: &str, login: &str) {
     };
     w.comments(7, &body, "alice", json!([]));
     pictured(w, 7);
-    inst(w, &["TEHAS_WORK_IMAGES=1", "TEHAS_WORK_COMMENTS=1"]);
+    inst(w, &["TEHAS_WORK_IMAGES=1"]);
 }
 
 fn mark(w: &World, filter: &str) -> Value {
@@ -175,6 +176,7 @@ fn an_issue_that_links_an_image_waits_while_the_model_does_not_answer_an_image()
     assert_eq!(r.rc, 0);
     assert_eq!(started(&w), "");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     has(
         &r.out,
         "hold #7: its text links an attachment and TEHAS_WORK_IMAGES is 1, but test-model does not answer an image",
@@ -250,6 +252,7 @@ fn an_issue_that_links_an_image_waits_while_the_model_does_not_declare_image_inp
         assert_eq!(r.rc, 0);
         assert_eq!(started(&w), "");
         lacks(&w.gh(), "issue edit");
+        assert_eq!(w.marks(None), 0);
         has(&r.out, "hold #7: its text links an attachment and TEHAS_WORK_IMAGES is 1, but test-model does not declare image input in models.json");
         assert_eq!(image_asks(&w), 0);
         assert_eq!(why(&w), json!(""));
@@ -297,6 +300,7 @@ fn a_retry_of_an_issue_that_links_an_image_waits_for_a_model_that_reads_one_and_
     assert_eq!(r.rc, 0);
     assert_eq!(started(&w), "");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     lacks(&w.gh(), "api -X PATCH");
     has(&r.out, "hold #7: its text links an attachment");
 }
@@ -328,6 +332,7 @@ fn the_hold_needs_neither_images_for_a_cycle_nor_a_model_that_reads_one() {
     let r = w.poll();
     assert_eq!(started(&w), "");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     assert_eq!(image_asks(&w), 0);
     has(
         &r.out,
@@ -366,10 +371,7 @@ fn a_start_by_the_clean_start_box_carries_the_comment_an_allowed_account_wrote_a
         &w.gh(),
         "pr list --repo acme/widget --author tehas-bot[bot] --state all",
     );
-    assert_eq!(
-        mark(&w, ".comment_links"),
-        json!([{"link": format!("{A}/7171"), "source": "pr-comment:71", "by": "alice"}])
-    );
+    assert_eq!(w.at_mark(r#"has("comment_links")"#), "false");
     assert_eq!(w.at_mark(".retry_context | length"), "1");
     has(&w.at_mark(".retry_context[0].text"), "The button goes here");
 }
@@ -395,7 +397,7 @@ fn a_comment_by_a_listed_login_with_another_user_id_is_not_carried() {
             uid("alice")
         ),
     );
-    assert_eq!(w.at_mark(".comment_links | length"), "0");
+    assert_eq!(w.at_mark(r#"has("comment_links")"#), "false");
     assert_eq!(w.at_mark(".retry_context | length"), "0");
 }
 
@@ -407,7 +409,7 @@ fn a_start_by_the_issue_alone_box_names_no_comment_link_and_no_retry_context() {
     reviewed(&w, "alone", "alice");
     assert_eq!(w.poll().rc, 0);
     assert_eq!(started(&w), "7");
-    assert_eq!(w.at_mark(".how"), "retry-tick");
+    assert_eq!(w.at_mark(".how"), "reply");
     lacks(&w.gh(), "pr list");
     assert_eq!(
         w.at_mark(r#"[has("comment_links"), has("retry_context")]"#),
@@ -473,10 +475,7 @@ fn a_park_of_the_old_two_boxes_still_gives_the_clean_start_its_pull_requests_com
         &w.gh(),
         "pr list --repo acme/widget --author tehas-bot[bot] --state all",
     );
-    assert_eq!(
-        mark(&w, ".comment_links"),
-        json!([{"link": format!("{A}/7171"), "source": "pr-comment:71", "by": "alice"}])
-    );
+    assert_eq!(w.at_mark(r#"has("comment_links")"#), "false");
     assert_eq!(w.at_mark(".retry_context | length"), "1");
 }
 
@@ -486,7 +485,7 @@ fn under_the_issue_alone_box_a_start_reads_neither_the_issues_comments_nor_the_p
     commented(&w);
     w.parked("failed", "alice");
     reviewed(&w, "alone", "alice");
-    inst(&w, &["TEHAS_WORK_IMAGES=1", "TEHAS_WORK_COMMENTS=0"]);
+    inst(&w, &["TEHAS_WORK_IMAGES=1"]);
     assert_eq!(w.poll().rc, 0);
     assert_eq!(started(&w), "7");
     lacks(&w.gh(), "pr list");
@@ -516,6 +515,7 @@ fn an_issue_that_links_an_attachment_waits_for_a_model_that_reads_one_under_eith
         let r = w.poll();
         assert_eq!(started(&w), "", "{ticked}");
         lacks(&w.gh(), "issue edit");
+        assert_eq!(w.marks(None), 0);
         lacks(&w.gh(), "api -X PATCH");
         has(&r.out, "hold #7: its text links an attachment");
     }
@@ -535,6 +535,7 @@ fn a_retry_of_an_issue_whose_text_promises_a_file_waits_and_the_tick_stays() {
     assert_eq!(r.rc, 0);
     assert_eq!(started(&w), "");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     lacks(&w.gh(), "api -X PATCH");
     has(&r.out, "hold #7: its text says SCREENSHOT GOES HERE");
 }
@@ -557,6 +558,7 @@ fn an_issue_that_links_an_image_waits_while_the_sandbox_image_says_its_pi_rukas_
     let r = w.poll();
     assert_eq!(started(&w), "");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     assert_eq!(image_asks(&w), 0);
     has(&r.out, "hold #7: its text links an attachment and TEHAS_WORK_IMAGES is 1, but the pi-rukas in the sandbox image cccccccccccc does not read them");
     assert_eq!(why(&w), json!(""));
@@ -577,10 +579,24 @@ fn an_image_that_reads_them_is_held_for_nothing_and_the_model_is_still_asked() {
 #[test]
 fn a_dispatch_json_that_cannot_be_read_does_not_stop_the_poll() {
     let w = world("images-bad-state");
-    w.home_file("live/dispatch.json", "{\"time\":\n");
+    w.home_file(Home::new(&w.home).live(Live::Dispatch), "{\"time\":\n");
     assert_eq!(w.poll().rc, 0);
     assert_eq!(started(&w), "7");
     assert_eq!(why(&w), json!(""));
+}
+
+#[test]
+fn a_dispatch_json_that_cannot_be_written_is_said_with_its_path() {
+    let w = world("images-report-dir");
+    std::fs::create_dir_all(Home::new(&w.home).live(Live::Dispatch).join("x")).unwrap();
+    let r = w.poll();
+    has(
+        &r.out,
+        &format!(
+            "WARN: could not write {}/live/dispatch.json (",
+            w.home.display()
+        ),
+    );
 }
 
 /// The harness's systemctl, with a slice probe that hangs for 120 seconds.
@@ -607,4 +623,5 @@ fn a_slice_probe_that_hangs_holds_within_its_bound() {
     has(&r.out, "holding: systemctl gave no answer");
     assert_eq!(started(&w), "");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
 }

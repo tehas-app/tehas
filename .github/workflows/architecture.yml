@@ -1,0 +1,50 @@
+# The architecture test of coding standard v2: scripts/architecture.py
+# checks what architecture.toml lists, and scripts/architecture_test.py tests
+# the script. The script is one file, the same in every repository of the
+# tehas system; it changes in all of them together, never in one copy.
+#
+# The script runs only where .tehas/coding-standard says v2 and skips at v1,
+# except on pull requests into refactor/coding-standard-v2, the branch that
+# moves the code to v2 for 2.0.0, where it runs with --force. On a pull
+# request it also compares with the base, so a limit is not raised or a check
+# narrowed without its reason. Main is unchanged: where the script is not in
+# the tree yet, this job says so and passes, and at v1 the script itself
+# skips. Pushes to the branch get no run of their own: everything reaches it
+# through a pull request, which is checked here first.
+name: architecture
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: architecture-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  architecture:
+    # It reads the repository and git only: no build, no network.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # --base reads the base's architecture.toml from git.
+          fetch-depth: 0
+      - name: the architecture test
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ ! -f scripts/architecture.py ]; then
+            echo "No scripts/architecture.py in this tree: nothing to check."
+            exit 0
+          fi
+          python3 -I scripts/architecture_test.py
+          if [ "$BASE_REF" = "refactor/coding-standard-v2" ]; then
+            python3 -I scripts/architecture.py --force --base "origin/$BASE_REF"
+          elif [ -n "$BASE_REF" ]; then
+            python3 -I scripts/architecture.py --base "origin/$BASE_REF"
+          else
+            python3 -I scripts/architecture.py
+          fi

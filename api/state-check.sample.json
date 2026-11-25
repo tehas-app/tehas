@@ -2,10 +2,11 @@
   "api": 1,
   "verb": "check",
   "ok": true,
-  "schema": 23,
+  "schema": 33,
   "integrity": "ok",
   "rows": {
     "actions": 0,
+    "answers": 0,
     "approvals": 0,
     "cycle_history": 0,
     "cycle_notes": 0,
@@ -17,7 +18,8 @@
     "heartbeats": 0,
     "issues": 0,
     "journal": 0,
-    "meta": 6,
+    "links": 0,
+    "meta": 7,
     "parks": 0,
     "plan_history": 0,
     "planning": 0,
@@ -30,11 +32,6 @@
     "polls": 0,
     "questions": 0,
     "start_order": 0,
-    "sweep_log": 0,
-    "contractors": 0,
-    "join_codes": 0,
-    "jobs": 0,
-    "job_history": 0,
-    "issue_attempts": 0
+    "sweep_log": 0
   }
 }

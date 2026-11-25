@@ -9,6 +9,7 @@ use crate::read::run::run_quiet;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use tehas_core::home::Home;
 
 /// What a stop does next.
 pub(super) enum Then {
@@ -111,7 +112,7 @@ impl Writer {
         }
         // The reason the dispatcher stopped it, for the cycle to put in its
         // comment and its end record; as stop_done leaves its own.
-        let done = self.home.join(format!("state/cycles/{n}.done"));
+        let done = Home::new(&self.home).cycle_note(n, "done");
         if std::fs::write(&done, "quiet\n").is_err() {
             log.push(format!("WARN: could not write the reason for #{n}"));
         }
@@ -144,7 +145,7 @@ impl Writer {
     /// waited for until it lets its lock go.
     pub(super) fn stop_done(&mut self, n: u64, a: &Value, log: &mut Vec<String>) {
         self.changed = true;
-        let done = self.home.join(format!("state/cycles/{n}.done"));
+        let done = Home::new(&self.home).cycle_note(n, "done");
         if std::fs::write(&done, format!("{}\n", text(a, "why"))).is_err() {
             log.push(format!("WARN: could not write the reason for #{n}"));
         }
@@ -161,7 +162,7 @@ impl Writer {
         if rc != Some(0) {
             log.push(format!("WARN: could not stop {unit}"));
         }
-        let lock = self.home.join(format!("state/cycles/{n}.lock"));
+        let lock = Home::new(&self.home).cycle_note(n, "lock");
         for _ in 0..20 {
             if !held(&lock) {
                 return;
@@ -190,14 +191,14 @@ impl Writer {
         let runs = Path::new(&self.host.user_home).join(".pi/agent/ensemble-runs");
         out.push(runs.join(format!("issue-{n}")));
         out.push(runs.join(format!("plan-{n}")));
-        out.push(self.home.join(format!("live/console-{n}.txt")));
+        out.push(Home::new(&self.home).live_console(n));
         out
     }
 
     /// sweep_workspaces for one issue the decision found unused: its names
     /// removed under its lock, the first that cannot be ending it.
     pub(super) fn sweep(&mut self, n: u64, a: &Value, log: &mut Vec<String>) {
-        let lock = self.home.join(format!("state/cycles/{n}.lock"));
+        let lock = Home::new(&self.home).cycle_note(n, "lock");
         let taken = std::fs::OpenOptions::new()
             .create(true)
             .append(true)

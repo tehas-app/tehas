@@ -37,7 +37,7 @@ pub const ROLES: [&str; 5] = [
 /// The directory names tehasbot clean removes when the instance names none:
 /// the build output of the toolchains tehas hosts, none of which a product
 /// keeps in source. instances/example and the manual quote them, and
-/// test/config_test.sh pins the copies against this.
+/// test/config_defaults_test.sh pins the copies against this.
 pub const CLEAN_DIRS: &str =
     "target node_modules __pycache__ .venv .pytest_cache .mypy_cache .next .turbo .gradle";
 
@@ -79,18 +79,13 @@ pub enum Rule {
     /// Both analytics settings end up in an HTML attribute of every page, so
     /// no quote, space or angle bracket may get through.
     ScriptAddress,
-    /// An https address of a site, path included, with no space, control
-    /// character or quote: the energy page's source link is published.
-    SiteAddress,
     SiteName,
     /// The shape tehas_core::slice reads at every start: no leading zero, at most
     /// twelve digits of bytes or nine with a unit, and a size Docker takes:
     /// it refuses a memory value under 6m.
     ContainerSize,
     HostAddress,
-    /// The dashboard puts a ticket's number straight after it.
-    LabAddress,
-    /// A name is made by putting uat-<n>. or lab-<n>. in front of it.
+    /// A name is made by putting uat-<n>. or item-<n>. in front of it.
     Domain,
     PreviewMax,
     FreeDisk,
@@ -122,27 +117,10 @@ pub enum Rule {
     Follow,
     /// A check run's name goes into a URL and into the log.
     BranchCheck,
-    /// Which repositories may outsource a cycle, as `Rule::Logins` separates
-    /// them: one space between entries and none around them, each entry the
-    /// shape of [`Rule::Repo`]. The empty value is no repository, which is the
-    /// default of TEHAS_OUTSOURCE_REPOS.
-    Repos,
-    /// The contractors the job channel answers: names as a join gives them
-    /// (a letter or digit, then letters, digits and `._-`, at most 64), one
-    /// space apart. The empty value refuses every contractor, the default of
-    /// TEHAS_OUTSOURCE_CONTRACTORS.
-    Contractors,
     OneWord,
     /// Host names, each with `:<port>` if not 443, one space apart: the
     /// egress proxy's own list takes nothing else.
     EgressHosts,
-    /// Domains as [`Rule::Domain`] reads them, one space apart, none around
-    /// them. The empty value is no domain at all.
-    Domains,
-    /// `address:<port>`, the address as [`Rule::HostAddress`] reads it. The
-    /// outsource model proxy listens on exactly this: no port means a proxy
-    /// with no port to listen on, which is no proxy.
-    ListenAddress,
     /// kind=Type pairs: [`crate::kinds::parse`].
     IssueTypes,
     /// An absolute path of letters, digits and `._-`, with no `..`.
@@ -156,9 +134,6 @@ pub enum Rule {
     /// The MCP server's keys, as [`crate::grammar::mcp_keys`] reads them. A
     /// refusal names a key by its place, never by its text.
     McpKeys,
-    /// An http or https address with a path, the energy sampler's cluster
-    /// address, which it asks with no token.
-    Address,
     /// Whole seconds from 0 to the bound: 0 refuses at once.
     Seconds(u64),
     /// `<name>=<url>@<commit>` entries, [`crate::plugin::pins`].
@@ -167,7 +142,7 @@ pub enum Rule {
     PluginGrants,
     /// `memory=<GiB> cpus=<n> disk=<GiB>`, all three in this order.
     PluginLimits,
-    /// The plugins' gate: [`Rule::ListenAddress`] with a private or loopback
+    /// The plugins' gate: `address:<port>`, with a private or loopback
     /// address literal and a port that is not the dashboard's or the
     /// router's.
     GateAddress,
@@ -188,11 +163,9 @@ impl Rule {
             Rule::AppLogin => "app-login",
             Rule::OneOf(_, _) => "one-of",
             Rule::ScriptAddress => "script-address",
-            Rule::SiteAddress => "site-address",
             Rule::SiteName => "site-name",
             Rule::ContainerSize => "container-size",
             Rule::HostAddress => "host-address",
-            Rule::LabAddress => "lab-address",
             Rule::Domain => "domain",
             Rule::PreviewMax => "preview-max",
             Rule::FreeDisk => "free-disk",
@@ -209,18 +182,13 @@ impl Rule {
             Rule::CleanDirs => "clean-dirs",
             Rule::Follow => "follow",
             Rule::BranchCheck => "branch-check",
-            Rule::Repos => "repos",
-            Rule::Contractors => "contractors",
             Rule::OneWord => "one-word",
             Rule::EgressHosts => "egress-hosts",
-            Rule::Domains => "domains",
-            Rule::ListenAddress => "listen-address",
             Rule::IssueTypes => "issue-types",
             Rule::Path => "path",
             Rule::HostAliases => "host-aliases",
             Rule::Token => "token",
             Rule::McpKeys => "mcp-keys",
-            Rule::Address => "address",
             Rule::Seconds(_) => "seconds",
             Rule::Plugins => "plugins",
             Rule::PluginGrants => "plugin-grants",
@@ -244,11 +212,9 @@ impl Rule {
             // No list of words holds a space.
             Rule::OneOf(_, _) => "no such word",
             Rule::ScriptAddress => "http://a.example/x.js",
-            Rule::SiteAddress => "http://example.com/mesh",
             Rule::SiteName => "two words",
             Rule::ContainerSize => "5m",
             Rule::HostAddress => "not an address",
-            Rule::LabAddress => "https://lab.example/",
             Rule::Domain => "localhost",
             Rule::PreviewMax => "100",
             Rule::FreeDisk => "0",
@@ -265,18 +231,13 @@ impl Rule {
             Rule::CleanDirs => "a/target",
             Rule::Follow => "main",
             Rule::BranchCheck => "verify&x=1",
-            Rule::Repos => "acme/widget  other/widget",
-            Rule::Contractors => "box1  box2",
             Rule::OneWord => "two words",
             Rule::EgressHosts => "localhost",
-            Rule::Domains => "localhost",
-            Rule::ListenAddress => "127.0.0.1:0",
             Rule::IssueTypes => "improvement",
             Rule::Path => "repos/app",
             Rule::HostAliases => "models:192.0.2.8 extra",
             Rule::Token => "two words",
             Rule::McpKeys => "short",
-            Rule::Address => "ftp://example.com",
             Rule::Seconds(_) => "-1",
             Rule::Plugins => "floorplan",
             Rule::PluginGrants => "view",
@@ -337,10 +298,6 @@ pub const TABLE: &[Setting] = &[
     always("TEHAS_SITE_INDEXING", SWITCH, "0"),
     always("TEHAS_SITE_CONSOLE", SWITCH, "0"),
     always("TEHAS_WORK_IMAGES", SWITCH, "0"),
-    always("TEHAS_WORK_DESCRIBE", SWITCH, "0"),
-    always("TEHAS_WORK_FILES", SWITCH, "0"),
-    always("TEHAS_WORK_COMMENTS", SWITCH, "0"),
-    always("TEHAS_WORK_ZIPS", SWITCH, "0"),
     always("TEHAS_ANALYTICS", SWITCH, "on"),
     always("TEHAS_SITE_ANALYTICS_COOKIE", SWITCH, "0"),
     always(
@@ -348,7 +305,6 @@ pub const TABLE: &[Setting] = &[
         Rule::OneOf(&["beesknees26", "pixel"], "expected beesknees26 or pixel"),
         "beesknees26",
     ),
-    always("TEHAS_TOP", SWITCH, "0"),
     always(
         "TEHAS_DRIVER",
         Rule::OneOf(&["classic", "lean"], "expected classic or lean"),
@@ -356,24 +312,6 @@ pub const TABLE: &[Setting] = &[
     ),
     always("TEHAS_LEAN", SWITCH, "0"),
     always("TEHAS_READ_ONLY", SWITCH, "0"),
-    always("TEHAS_OUTSOURCE", SWITCH, "0"),
-    always("TEHAS_OUTSOURCE_TIMEOUT", Rule::Count, "600"),
-    always("TEHAS_OUTSOURCE_GRACE", Rule::Count, "120"),
-    always("TEHAS_OUTSOURCE_RETRIES", Rule::Count, "2"),
-    always("TEHAS_OUTSOURCE_REST", Rule::Count, "1800"),
-    given_or("TEHAS_OUTSOURCE_REPOS", Rule::Repos, ""),
-    given_or("TEHAS_OUTSOURCE_CONTRACTORS", Rule::Contractors, ""),
-    always("TEHAS_OUTSOURCE_JOIN_TTL", Rule::Count, "3600"),
-    // The model proxy. Its idle bound is checked against the check-in timeout
-    // by the load: a stream must outlive the job that waits on it.
-    always(
-        "TEHAS_OUTSOURCE_PROXY_ADDR",
-        Rule::ListenAddress,
-        "127.0.0.1:8090",
-    ),
-    always("TEHAS_OUTSOURCE_PROXY_IDLE", Rule::Count, "900"),
-    always("TEHAS_SPEC_PIPE", SWITCH, "0"),
-    always("TEHAS_REVIEW", SWITCH, "0"),
     // Plugins. TEHAS_PLUGIN_GRANTS_<NAME> is a family, one per plugin of
     // TEHAS_PLUGINS: every name with the front plugin::GRANTS takes its rule,
     // and the load checks what the lines mean together.
@@ -400,7 +338,6 @@ pub const TABLE: &[Setting] = &[
         When::Always,
         None,
     ),
-    always("TEHAS_WIKI", SWITCH, "0"),
     always("TEHAS_WORKSTREAMS", Rule::Count, "1"),
     row("TEHAS_MAX_CYCLES", Rule::Cycles, When::Always, None),
     always("TEHAS_HOST_ADDR", Rule::HostAddress, "127.0.0.1"),
@@ -411,10 +348,7 @@ pub const TABLE: &[Setting] = &[
     row("TEHAS_CHILD_TIMEOUT", Rule::Count, When::Always, None),
     always("TEHAS_PLAN_MAX_TURNS", Rule::Count, "20"),
     row("TEHAS_PLAN_TIMEOUT", Rule::Count, When::Always, None),
-    always("TEHAS_MILLWRIGHT_MAX_RETRIES", Rule::Count, "2"),
     always("TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS", Rule::Count, "3"),
-    always("TEHAS_MILLWRIGHT_FEED", SWITCH, "0"),
-    always("TEHAS_MILLWRIGHT_MAX_FEEDS", Rule::Count, "2"),
     always("TEHAS_MILLWRIGHT_EPICS", SWITCH, "0"),
     always("TEHAS_REFRESH_MAX_PER_PR", Rule::Count, "2"),
     always("TEHAS_REFRESH_SLOTS", Rule::RefreshSlots, "1"),
@@ -445,11 +379,6 @@ pub const TABLE: &[Setting] = &[
     given("TEHAS_BRANCH", Rule::OneWord),
     given_or("TEHAS_DOMAIN", Rule::Domain, ""),
     always("TEHAS_EDGE_ONE_LEVEL", SWITCH, "0"),
-    given("TEHAS_PROTOLAB_URL", Rule::LabAddress),
-    always("TEHAS_PROTOLAB_ZIP_URL", SWITCH, "0"),
-    given_or("TEHAS_PROTOLAB_ZIP_HOSTS", Rule::Domains, ""),
-    always("TEHAS_PROTOTYPE_FILE", SWITCH, "0"),
-    given("TEHAS_ENERGY_SOURCE_URL", Rule::SiteAddress),
     given(
         "TEHAS_UPDATE_FROM",
         Rule::OneOf(&["git", "release"], "expected git or release"),
@@ -474,7 +403,6 @@ pub const TABLE: &[Setting] = &[
     required("TEHAS_ALLOWED_LABELERS", Rule::Logins),
     required("PI_ENSEMBLE_SUBAGENT_MODEL", Rule::OneWord),
     required("PI_ENSEMBLE_SUBAGENT_PROVIDER", Rule::OneWord),
-    row("TEHAS_REVIEW_REPO", Rule::Repo, When::Required, Some("")),
 ];
 
 /// What ends the name of a row that stands for a family of settings, such as
@@ -499,10 +427,21 @@ pub const HOST: &[Setting] = &[
     given("TEHAS_MCP_KEYS", Rule::McpKeys),
     given("TEHAS_MCP_DASHBOARD_KEYS", Rule::McpKeys),
     given("TEHAS_MCP_CHECKOUT", Rule::Checkout),
-    given("TEHAS_ENERGY", SWITCH),
-    given("TEHAS_ENERGY_URL", Rule::Address),
     given_or("TEHAS_UPDATE_LOCK_WAIT", Rule::Seconds(300), "10"),
 ];
+
+/// Whether ~/.config/tehas/env may set `name`: a setting of [`HOST`], or
+/// TEHAS_MANAGER_VERSION, which the program that manages the factory writes
+/// there.
+pub fn in_host_env(name: &str) -> bool {
+    name == "TEHAS_MANAGER_VERSION"
+        || (name.starts_with(MODEL_KEY)
+            && name.len() > MODEL_KEY.len()
+            && super::load::is_name(name.as_bytes()))
+        || HOST
+            .iter()
+            .any(|s| s.name == name && !s.name.ends_with(FAMILY))
+}
 
 /// The words a setting takes, when it takes a list of them.
 pub fn words(name: &str) -> Option<&'static [&'static str]> {
@@ -576,17 +515,6 @@ fn verdict(rule: Rule, v: &str) -> Result<(), String> {
                 "expected the https address of a script",
             )
         }
-        // The energy page's source link: an https host, then a path of the
-        // ordinary characters of a URL. The sampler's own https check is the
-        // second gate; this one speaks at the load, where an operator hears it.
-        Rule::SiteAddress => {
-            let rest = v.strip_prefix("https://").unwrap_or("");
-            let (host, path) = rest.split_once('/').unwrap_or((rest, ""));
-            refuse(
-                is_host(host) && path.chars().all(class("_~+?#=")),
-                "expected an https address such as https://example.com/mesh",
-            )
-        }
         Rule::SiteName => refuse(
             all(v, class("._-")),
             "expected one word of letters, digits, dots and dashes",
@@ -596,16 +524,6 @@ fn verdict(rule: Rule, v: &str) -> Result<(), String> {
             "expected a size of at least 6m, such as 512m or 2g",
         ),
         Rule::HostAddress => refuse(all(v, class(".:-")), "expected an address or host name"),
-        Rule::ListenAddress => refuse(listen_address(v), LISTEN_WHY),
-        Rule::LabAddress => {
-            let rest = v
-                .strip_prefix("https://")
-                .or_else(|| v.strip_prefix("http://"));
-            refuse(
-                rest.is_some_and(is_host),
-                "expected an address such as https://lab.example, with no path and no slash at the end",
-            )
-        }
         Rule::Domain => refuse(
             is_domain(v),
             "expected a domain such as example.org, in lower case, with no scheme and no path",
@@ -653,16 +571,6 @@ fn verdict(rule: Rule, v: &str) -> Result<(), String> {
             v.split(' ').all(|w| all(w, class("._()/-"))),
             "expected the name of a check, words of letters, digits and ._()/- separated by single spaces",
         ),
-        // The empty value is the default: no repository may outsource. An
-        // entry is a repository of the same shape TEHAS_REPO takes.
-        Rule::Repos => refuse(
-            v.is_empty() || v.split(' ').all(is_repo),
-            "expected owner/name repositories separated by single spaces",
-        ),
-        Rule::Contractors => refuse(
-            v.is_empty() || v.split(' ').all(is_contractor),
-            "expected contractor names separated by single spaces",
-        ),
         Rule::OneWord => refuse(
             !v.is_empty() && !v.bytes().any(is_space),
             "expected one word",
@@ -670,10 +578,6 @@ fn verdict(rule: Rule, v: &str) -> Result<(), String> {
         Rule::EgressHosts => refuse(
             v.split(' ').all(|w| crate::egress::host_pair(w).is_some()),
             "expected host names such as pypi.org or host:port, separated by single spaces",
-        ),
-        Rule::Domains => refuse(
-            v.is_empty() || v.split(' ').all(is_named_domain),
-            "expected domains such as files.example.org, in lower case, separated by single spaces",
         ),
         Rule::IssueTypes => crate::kinds::parse(v).map(|_| ()),
         Rule::HostAliases => crate::sandbox::hosts(v).map(|_| ()),
@@ -684,17 +588,6 @@ fn verdict(rule: Rule, v: &str) -> Result<(), String> {
         Rule::McpKeys => crate::grammar::mcp_keys(v, "")
             .map(|_| ())
             .map_err(|why| why.trim_start_matches(": ").to_string()),
-        Rule::Address => {
-            let rest = v
-                .strip_prefix("https://")
-                .or_else(|| v.strip_prefix("http://"))
-                .unwrap_or("");
-            let (host, path) = rest.split_once('/').unwrap_or((rest, ""));
-            refuse(
-                is_host(host) && path.chars().all(class("._~+?#=&%/:-")),
-                ADDRESS_WHY,
-            )
-        }
         Rule::Seconds(max) => refuse(
             is_count(v) && v.parse::<u64>().is_ok_and(|n| n <= max),
             &format!("expected a whole number of seconds from 0 to {max}"),
@@ -711,8 +604,6 @@ fn verdict(rule: Rule, v: &str) -> Result<(), String> {
 
 const TOKEN_WHY: &str =
     "expected one word of printable characters, with no quote, backslash, $ or backtick";
-const ADDRESS_WHY: &str =
-    "expected an http or https address such as http://models.example:8080/v1/cluster";
 
 const AUTO_GONE: &str = "expected a whole number: auto sizing is removed";
 const SLICE_AUTO_GONE: &str = "expected a whole number from 2 to 16: auto sizing is removed";
@@ -734,18 +625,6 @@ fn class(more: &'static str) -> impl Fn(char) -> bool + Copy {
 fn digits(s: &str) -> bool {
     all(s, |c| c.is_ascii_digit())
 }
-/// The address the outsource model proxy listens on: an address of
-/// [`Rule::HostAddress`] and a port, split at the last colon. A port is a
-/// number from 1 to 65535 with no leading zero; an IPv6 address keeps its own
-/// colons, so the last one is the only separator.
-fn listen_address(v: &str) -> bool {
-    let Some((addr, port)) = v.rsplit_once(':') else {
-        return false;
-    };
-    all(addr, class(".:-")) && leading(port, 5) && port.parse::<u32>().is_ok_and(|p| p <= 65535)
-}
-
-const LISTEN_WHY: &str = "expected an address or host name and a port, as 127.0.0.1:8090";
 
 /// The ports of the dashboard (host/edge/docs.compose.yaml) and the router
 /// (host/edge/router.compose.yaml).
@@ -814,12 +693,6 @@ fn is_space(b: u8) -> bool {
 pub fn is_login(s: &str) -> bool {
     all(s, class("-")) && !s.starts_with('-')
 }
-/// A contractor's name, the shape the state store takes at a join.
-fn is_contractor(s: &str) -> bool {
-    s.len() <= 64
-        && s.as_bytes().first().is_some_and(u8::is_ascii_alphanumeric)
-        && all(s, class("._-"))
-}
 /// A repository as `owner/name`: one `/`, each half ASCII letters, digits and
 /// `_.-`. The one rule of the workspace for that shape; a caller with a
 /// length bound of its own adds it.
@@ -844,13 +717,6 @@ pub(crate) fn is_domain(s: &str) -> bool {
             && !l.ends_with('-')
     };
     s.contains('.') && s.split('.').all(label)
-}
-/// A domain whose last label is not all digits, so no IPv4 address passes.
-fn is_named_domain(s: &str) -> bool {
-    is_domain(s)
-        && s.rsplit('.')
-            .next()
-            .is_some_and(|l| !l.bytes().all(|b| b.is_ascii_digit()))
 }
 fn is_workaround(entry: &str) -> bool {
     let Some((name, version)) = entry.split_once('@') else {
@@ -998,7 +864,7 @@ mod tests {
 
     #[test]
     fn a_repository_is_owner_and_name_of_safe_characters() {
-        for good in ["tehas-app/tehas", "a/b", "A_1.x/y-z.git", "-/."] {
+        for good in ["tehas-app/tehas-factory", "a/b", "A_1.x/y-z.git", "-/."] {
             assert!(is_repo(good), "{good}");
         }
         for bad in [
@@ -1095,6 +961,28 @@ mod tests {
     }
 
     #[test]
+    fn the_host_env_file_sets_the_host_settings_and_the_managers_version() {
+        for name in [
+            "TEHAS_HOME",
+            "TEHAS_MODEL_KEY_FLEET",
+            "TEHAS_MCP_KEYS",
+            "TEHAS_UPDATE_LOCK_WAIT",
+            "TEHAS_MANAGER_VERSION",
+        ] {
+            assert!(in_host_env(name), "{name}");
+        }
+        for name in [
+            "TEHAS_MODEL_KEY_",
+            "TEHAS_MODEL_KEY_<NAME>",
+            "TEHAS_REPO",
+            "GH_TOKEN",
+            "PATH",
+        ] {
+            assert!(!in_host_env(name), "{name}");
+        }
+    }
+
+    #[test]
     fn the_millwright_app_is_an_apps_login() {
         takes("TEHAS_MILLWRIGHT_APP", "acme-mill[bot]");
         let why = "expected the login of a GitHub App, <slug>[bot]";
@@ -1133,20 +1021,14 @@ mod tests {
             "TEHAS_SITE_CONSOLE",
             "TEHAS_PREVIEWS",
             "TEHAS_EDGE_ONE_LEVEL",
-            "TEHAS_MILLWRIGHT_FEED",
             "TEHAS_MILLWRIGHT_EPICS",
             "TEHAS_ANALYTICS",
-            "TEHAS_OUTSOURCE",
-            "TEHAS_SPEC_PIPE",
-            "TEHAS_PROTOLAB_ZIP_URL",
-            "TEHAS_PROTOTYPE_FILE",
             "TEHAS_LEAN",
             "TEHAS_PLUGIN",
-            "TEHAS_WIKI",
         ] {
             assert!(switches.contains(&name), "{name}");
         }
-        assert_eq!(switches.len(), 24);
+        assert_eq!(switches.len(), 12);
         for name in switches {
             for v in ["on", "off", "1", "0"] {
                 takes(name, v);
@@ -1182,42 +1064,6 @@ mod tests {
         ] {
             refuses("TEHAS_SITE_ANALYTICS_SRC", bad, why);
         }
-    }
-
-    #[test]
-    fn the_energy_source_address_is_https_and_one_word() {
-        takes("TEHAS_ENERGY_SOURCE_URL", "https://example.com/mesh");
-        takes("TEHAS_ENERGY_SOURCE_URL", "https://example.com");
-        takes(
-            "TEHAS_ENERGY_SOURCE_URL",
-            "https://example.com:8443/a_b~c+d#top",
-        );
-        let why = "expected an https address such as https://example.com/mesh";
-        refuses("TEHAS_ENERGY_SOURCE_URL", "", why);
-        refuses("TEHAS_ENERGY_SOURCE_URL", "   ", why);
-        // A value the sampler would turn down is refused here as well: the two
-        // gates say the same thing about an address.
-        for weak in [
-            "http://LEAKMARK.example",
-            "https:/LEAKMARK",
-            "HTTPS://LEAKMARK",
-            "https://a.example/x?a=1&b=2",
-            "https://a.example/x y",
-        ] {
-            refuses("TEHAS_ENERGY_SOURCE_URL", weak, why);
-        }
-        // The value reaches an <a href> of the dashboard, so no quote, space or
-        // control character gets through.
-        refuses(
-            "TEHAS_ENERGY_SOURCE_URL",
-            "https://a.example/x\" onload=\"x",
-            why,
-        );
-        refuses(
-            "TEHAS_ENERGY_SOURCE_URL",
-            &format!("https://a.example/x{}User-Agent: x", '\r'),
-            why,
-        );
     }
 
     #[test]
@@ -1258,78 +1104,6 @@ mod tests {
             "not an address",
             "expected an address or host name",
         );
-    }
-
-    #[test]
-    fn a_listen_address_is_an_address_and_a_port() {
-        takes("TEHAS_OUTSOURCE_PROXY_ADDR", "127.0.0.1:8090");
-        takes("TEHAS_OUTSOURCE_PROXY_ADDR", "0.0.0.0:1");
-        takes("TEHAS_OUTSOURCE_PROXY_ADDR", "tehas.example:8090");
-        takes("TEHAS_OUTSOURCE_PROXY_ADDR", "192.0.2.7:65535");
-        // An IPv6 address keeps its own colons: the last one is the port's.
-        takes("TEHAS_OUTSOURCE_PROXY_ADDR", "fe80::1:8090");
-        let why = "expected an address or host name and a port, as 127.0.0.1:8090";
-        for bad in [
-            "127.0.0.1",
-            "127.0.0.1:",
-            ":8090",
-            "127.0.0.1:0",
-            "127.0.0.1:08090",
-            "127.0.0.1:65536",
-            "127.0.0.1:8090 ",
-            "127.0.0.1:8090/x",
-            "127.0.0.1:notaport",
-            "not an address:8090",
-            "",
-        ] {
-            refuses("TEHAS_OUTSOURCE_PROXY_ADDR", bad, why);
-        }
-    }
-
-    #[test]
-    fn the_outsource_switch_takes_the_switch_words() {
-        for v in ["on", "off", "1", "0"] {
-            takes("TEHAS_OUTSOURCE", v);
-        }
-        refuses("TEHAS_OUTSOURCE", "yes", "expected on or off");
-    }
-
-    #[test]
-    fn the_lab_address_has_no_path() {
-        takes("TEHAS_PROTOLAB_URL", "http://lab.example:8080");
-        let why =
-            "expected an address such as https://lab.example, with no path and no slash at the end";
-        refuses("TEHAS_PROTOLAB_URL", "https://lab.example/", why);
-        refuses("TEHAS_PROTOLAB_URL", "lab.example", why);
-    }
-
-    #[test]
-    fn the_zip_hosts_are_domains_in_lower_case_or_none() {
-        takes("TEHAS_PROTOLAB_ZIP_HOSTS", "");
-        takes("TEHAS_PROTOLAB_ZIP_HOSTS", "files.example.org");
-        takes(
-            "TEHAS_PROTOLAB_ZIP_HOSTS",
-            "files.example.org cdn.example.net",
-        );
-        let why =
-            "expected domains such as files.example.org, in lower case, separated by single spaces";
-        for bad in [
-            "localhost",
-            "Files.example.org",
-            "files.example.org  cdn.example.net",
-            " files.example.org",
-            "files.example.org ",
-            "files.example.org:443",
-            "https://files.example.org",
-            "*.example.org",
-            "files..example.org",
-            "files.example.org.",
-            "127.0.0.1",
-            "192.0.2.10",
-            "files.example.org 198.51.100.7",
-        ] {
-            refuses("TEHAS_PROTOLAB_ZIP_HOSTS", bad, why);
-        }
     }
 
     #[test]
@@ -1617,68 +1391,6 @@ mod tests {
     }
 
     #[test]
-    fn the_outsource_settings_take_their_shape() {
-        for name in [
-            "TEHAS_OUTSOURCE_TIMEOUT",
-            "TEHAS_OUTSOURCE_GRACE",
-            "TEHAS_OUTSOURCE_RETRIES",
-            "TEHAS_OUTSOURCE_REST",
-            "TEHAS_OUTSOURCE_JOIN_TTL",
-        ] {
-            takes(name, "600");
-            for bad in ["0", "05", "10m", "-1", "two", ""] {
-                refuses(name, bad, POSITIVE);
-            }
-            refuses(name, "1000000000", "expected at most 9 digits");
-        }
-        for v in ["yes", "2", "On"] {
-            refuses("TEHAS_OUTSOURCE", v, "expected on or off");
-        }
-    }
-
-    #[test]
-    fn the_outsource_repositories_are_owner_and_name_one_space_apart() {
-        takes("TEHAS_OUTSOURCE_REPOS", "");
-        takes("TEHAS_OUTSOURCE_REPOS", "acme/widget");
-        takes("TEHAS_OUTSOURCE_REPOS", "acme/widget other/widget.js_2");
-        let why = "expected owner/name repositories separated by single spaces";
-        for bad in [
-            "acme/widget  other/widget",
-            " acme/widget",
-            "acme/widget ",
-            "acme",
-            "a/b/c",
-            "/b",
-            "acme/widget not-a-repo",
-        ] {
-            refuses("TEHAS_OUTSOURCE_REPOS", bad, why);
-        }
-    }
-
-    #[test]
-    fn the_outsource_contractors_are_names_one_space_apart() {
-        takes("TEHAS_OUTSOURCE_CONTRACTORS", "");
-        takes("TEHAS_OUTSOURCE_CONTRACTORS", "box1");
-        takes(
-            "TEHAS_OUTSOURCE_CONTRACTORS",
-            "box1 contractor-1a2b3c4d my.box_2",
-        );
-        let why = "expected contractor names separated by single spaces";
-        let long = "b".repeat(65);
-        for bad in [
-            "box1  box2",
-            " box1",
-            "box1 ",
-            "-box",
-            "box/1",
-            "box;rm",
-            long.as_str(),
-        ] {
-            refuses("TEHAS_OUTSOURCE_CONTRACTORS", bad, why);
-        }
-    }
-
-    #[test]
     fn a_model_is_one_word() {
         for name in [
             "PI_ENSEMBLE_SUBAGENT_MODEL",
@@ -1802,28 +1514,11 @@ mod tests {
     }
 
     #[test]
-    fn the_host_switches_take_the_switch_words() {
-        for name in ["TEHAS_MCP", "TEHAS_ENERGY"] {
-            for v in SWITCH_WORDS {
-                takes(name, v);
-            }
-            refuses(name, "yes", "expected on or off");
+    fn the_host_switch_takes_the_switch_words() {
+        for v in SWITCH_WORDS {
+            takes("TEHAS_MCP", v);
         }
-    }
-
-    #[test]
-    fn the_energy_address_is_http_or_https() {
-        takes("TEHAS_ENERGY_URL", "http://gateway.lan:8080/v1/cluster");
-        takes("TEHAS_ENERGY_URL", "https://models.example/v1/cluster?x=1");
-        for bad in [
-            "gateway.lan/v1",
-            "ftp://a.example",
-            "http://a b",
-            "http://a.example/\"x\"",
-            "http://",
-        ] {
-            refuses("TEHAS_ENERGY_URL", bad, ADDRESS_WHY);
-        }
+        refuses("TEHAS_MCP", "yes", "expected on or off");
     }
 
     #[test]
@@ -1891,7 +1586,9 @@ mod tests {
             takes(name, PIN);
             takes(
                 name,
-                &format!("{PIN} view product model:2000000 action:refresh hook:after:work"),
+                &format!(
+                    "{PIN} view product model:2000000 action:refresh hook:after:change.offered"
+                ),
             );
             refuses(
                 name,

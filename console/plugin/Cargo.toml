@@ -26,6 +26,11 @@ serde_json = "1"
 sha2 = "0.10"
 # The mask, for the description of a hook's status (src/status.rs).
 tehas-core = { path = "../core", features = ["mask"] }
+# The envelope of the event that asked for a hook (src/run.rs), and the code
+# host a hook's status is read and written through (src/status.rs).
+tehas-ports = { path = "../ports" }
+# The code host the program's wiring gives (src/main.rs alone).
+tehas-github = { path = "../github" }
 # The fetch's seam, the plugin's state and the store (ops/src/plugin).
 tehas-ops = { path = "../ops" }
 

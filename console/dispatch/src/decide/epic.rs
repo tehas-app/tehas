@@ -3,9 +3,8 @@
 //! dispatcher and the epics panel stays GitHub's sub-issue links. tehas only
 //! adds it, and a removal by any account but the bot's is final.
 
-use super::Poll;
+use super::{Action, LabelChange, Poll};
 use crate::text::EPIC;
-use serde_json::json;
 use tehas_core::accounts::account;
 use tehas_core::events::{label_state, Events, LabelState};
 
@@ -35,9 +34,11 @@ impl Poll<'_> {
                 self.log(format!("would label #{n} {EPIC}: {WHY}"));
                 continue;
             }
-            self.act(json!({"issue": n, "remove": [], "add": [EPIC],
-                "log": format!("label #{n} {EPIC}: {WHY}"),
-                "fail": Self::label_fail(n, &[], &[EPIC])}));
+            self.act(Action::Label(
+                LabelChange::new(n, &[], Self::label_fail(n, &[], &[EPIC]))
+                    .put_on(&[EPIC])
+                    .log(format!("label #{n} {EPIC}: {WHY}")),
+            ));
         }
     }
 }

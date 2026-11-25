@@ -11,9 +11,11 @@
 //! TEHAS_WATCH_CLOCK (a program that answers the `clock` verbs).
 
 use crate::clock;
+use crate::loose::{Loose, Node};
+use crate::runner::Outcome;
 use crate::start::attempt_shaped;
 use crate::{freeze, host, progress, runner, scratch};
-use serde_json::Value;
+use serde::Deserialize;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::os::unix::fs::MetadataExt;
@@ -24,6 +26,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tehas_core::exit::work;
+use tehas_core::home::Home;
 use tehas_core::sandbox;
 use tehas_core::{call, time};
 
@@ -310,7 +313,7 @@ pub fn event(text: &str, key: &str) -> Option<u32> {
 }
 
 /// The number of a cgroup's pids.max. None for `max`, no limit.
-pub fn pids_max(text: &str) -> Option<u32> {
+fn pids_max(text: &str) -> Option<u32> {
     let v = text.trim();
     (!v.is_empty() && v.len() < 10 && v.bytes().all(|b| b.is_ascii_digit()))
         .then(|| v.parse().ok())
@@ -319,7 +322,7 @@ pub fn pids_max(text: &str) -> Option<u32> {
 }
 
 /// The kills of the kernel log named for this container.
-pub fn kills_in(log: &str, id: &str) -> u32 {
+fn kills_in(log: &str, id: &str) -> u32 {
     let scope = format!("task_memcg=/tehas.slice/docker-{id}.scope,");
     let lines = log.lines();
     lines
@@ -329,7 +332,7 @@ pub fn kills_in(log: &str, id: &str) -> u32 {
 
 /// The names of the processes the kernel log says were killed for memory in
 /// this container, each once, in the order they were killed.
-pub fn killed_names(log: &str, id: &str) -> Vec<String> {
+fn killed_names(log: &str, id: &str) -> Vec<String> {
     let scope = format!("task_memcg=/tehas.slice/docker-{id}.scope,");
     let mut names: Vec<String> = vec![];
     for l in log.lines() {
@@ -352,7 +355,7 @@ pub fn killed_names(log: &str, id: &str) -> Vec<String> {
 /// the warning, kill, failure and cancellation lines. The last 20, each cut to
 /// 1000 bytes, for a line of a stream can carry an error tail of any size and
 /// this goes into the cycle's $log.err. Empty when there is none.
-pub fn diag(stream: &[u8]) -> Vec<u8> {
+fn diag(stream: &[u8]) -> Vec<u8> {
     let has = |l: &[u8], w: &[u8]| l.windows(w.len()).any(|x| x == w);
     let lines: Vec<&[u8]> = stream
         .split(|b| *b == b'\n')
@@ -382,30 +385,43 @@ fn signal_name(n: usize) -> &'static str {
     }
 }
 
+/// A line of the stream that may start or end a run of the gate.
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct GateLine {
+    v: Loose<i64>,
+    issue: Loose<u64>,
+    kind: Loose<String>,
+    event: Node<GateEvent>,
+}
+
+#[derive(Clone, Default, Deserialize)]
+#[serde(default)]
+struct GateEvent {
+    step: Loose<String>,
+    command: Loose<String>,
+}
+
 /// The runs of the gate the stream started and did not end, oldest first: the
 /// step and the command of each.
-pub fn open_gates(stream: &[u8], issue: u64) -> Vec<(String, String)> {
+fn open_gates(stream: &[u8], issue: u64) -> Vec<(String, String)> {
     let mut open: Vec<(String, String)> = vec![];
     for line in stream.split(|b| *b == b'\n') {
         if !line.windows(7).any(|w| w == b"verify-") {
             continue;
         }
-        let Ok(Value::Object(o)) = serde_json::from_slice::<Value>(line) else {
+        let Ok(Node::Object(o)) = serde_json::from_slice::<Node<GateLine>>(line) else {
             continue;
         };
-        let other = o
-            .get("issue")
-            .and_then(Value::as_u64)
-            .is_some_and(|n| n != issue);
-        if o.get("v").and_then(Value::as_i64) != Some(1) || other {
+        let other = o.issue.get().is_some_and(|n| *n != issue);
+        if o.v.get() != Some(&1) || other {
             continue;
         }
-        let event = o.get("event");
-        let word = |k: &str| text(event, k);
-        match o.get("kind").and_then(Value::as_str) {
-            Some("verify-started") => open.push((word("step"), word("command"))),
-            Some("verify-completed" | "verify-aborted") => {
-                let step = word("step");
+        let event = o.event.object().cloned().unwrap_or_default();
+        match o.kind.str() {
+            "verify-started" => open.push((event.step.str().into(), event.command.str().into())),
+            "verify-completed" | "verify-aborted" => {
+                let step = event.step.str();
                 // An end that matches no start says nothing of the gates still open.
                 if let Some(i) = open.iter().rposition(|(s, _)| *s == step) {
                     open.remove(i);
@@ -419,7 +435,7 @@ pub fn open_gates(stream: &[u8], issue: u64) -> Vec<(String, String)> {
 
 /// The line that closes a run of the gate a signal cut short. tehas writes it,
 /// not the driver: `by` says so.
-pub fn aborted_line(issue: u64, step: &str, command: &str, sig: &str, at_ms: i64) -> String {
+fn aborted_line(issue: u64, step: &str, command: &str, sig: &str, at_ms: i64) -> String {
     let line = serde_json::json!({
         "v": 1, "kind": "verify-aborted", "issue": issue, "by": "tehas",
         "event": {
@@ -434,7 +450,7 @@ pub fn aborted_line(issue: u64, step: &str, command: &str, sig: &str, at_ms: i64
 pub struct Seen<'a> {
     pub rc: i32,
     /// The issue's entry of the result; None when the runner wrote none.
-    pub outcome: Option<&'a Value>,
+    pub outcome: Option<&'a Outcome>,
     pub error_only: bool,
     pub interrupted: bool,
     pub stalled: bool,
@@ -454,7 +470,7 @@ pub struct Seen<'a> {
 
 /// Whether the stream at `log` holds nothing. A failure to look is an error,
 /// not an empty stream: tehas work created the file before the container ran.
-pub fn stream_empty(log: &Path) -> std::io::Result<bool> {
+fn stream_empty(log: &Path) -> std::io::Result<bool> {
     fs::metadata(log).map(|m| m.len() == 0)
 }
 
@@ -469,11 +485,6 @@ pub struct Decided {
     pub nostart: bool,
 }
 
-fn text(v: Option<&Value>, key: &str) -> String {
-    let got = v.and_then(|v| v.get(key)).and_then(Value::as_str);
-    got.unwrap_or("").to_string()
-}
-
 fn stopped_word(status: &str) -> bool {
     matches!(status, "running" | "unknown" | "interrupted")
 }
@@ -482,7 +493,7 @@ pub fn decide(s: &Seen) -> Decided {
     let mut status = "running".to_string();
     match s.outcome {
         Some(_) => {
-            status = text(s.outcome, "status");
+            status = s.outcome.map(|o| o.status.clone()).unwrap_or_default();
             if status.is_empty() {
                 status = "unknown".to_string();
             }
@@ -521,7 +532,7 @@ pub fn decide(s: &Seen) -> Decided {
         && !s.interrupted
         && s.rc != 137
         && s.at_limit
-        && text(s.outcome, "cap").is_empty()
+        && s.outcome.is_none_or(|o| o.cap.is_empty())
         && stopped_word(&status)
     {
         ran_out = true;
@@ -555,7 +566,7 @@ pub fn decide(s: &Seen) -> Decided {
 
 /// The command's exit status. The kill is what this command saw of the
 /// container; a runner that wrote its result says how the cycle ended.
-pub fn exit_of(s: &Seen, d: &Decided) -> i32 {
+fn exit_of(s: &Seen, d: &Decided) -> i32 {
     if d.killed {
         return i32::from(work::KILLED);
     }
@@ -564,7 +575,7 @@ pub fn exit_of(s: &Seen, d: &Decided) -> i32 {
     }
     let own = s.rc.to_string();
     let mut codes = vec![own];
-    if let Some(Value::Number(n)) = s.outcome.and_then(|o| o.get("exitCode")) {
+    if let Some(n) = s.outcome.and_then(|o| o.exit_code.as_ref()) {
         codes.push(n.to_string());
     }
     if s.outcome.is_none() {
@@ -581,18 +592,20 @@ pub fn exit_of(s: &Seen, d: &Decided) -> i32 {
 }
 
 /// The step the result names, or nothing.
-fn result_step(outcome: Option<&Value>) -> String {
-    let step = text(outcome, "failedStep");
-    if step.is_empty() {
-        text(outcome, "lastStep")
+fn result_step(outcome: Option<&Outcome>) -> String {
+    let Some(o) = outcome else {
+        return String::new();
+    };
+    if o.failed_step.is_empty() {
+        o.last_step.clone()
     } else {
-        step
+        o.failed_step.clone()
     }
 }
 
 /// The step said for a stop: the result's, else the console's first line, as
 /// plain characters. "-" when neither names one.
-fn inflight(outcome: Option<&Value>, now: &Path) -> String {
+fn inflight(outcome: Option<&Outcome>, now: &Path) -> String {
     let mut step = result_step(outcome);
     if step.is_empty() {
         if let Ok(bytes) = fs::read(now) {
@@ -632,7 +645,7 @@ struct Files {
 
 impl Files {
     fn of(home: &Path, issue: u64) -> Files {
-        let f = |name: &str| home.join(format!("state/cycles/{issue}.{name}"));
+        let f = |name: &str| Home::new(home).cycle_note(issue, name);
         Files {
             cid: f("cid"),
             oom: f("oom"),
@@ -1024,8 +1037,7 @@ fn start_container(g: &Given, files: &Files) -> Running {
     }
 }
 
-fn start_console(g: &Given, live: &Path, started: i64, console_now: &Path) -> Option<Child> {
-    let out = live.join(format!("console-{}.txt", g.issue));
+fn start_console(g: &Given, out: &Path, started: i64, console_now: &Path) -> Option<Child> {
     let mut args: Vec<String> = vec![
         "--progress".into(),
         g.log.to_string_lossy().into_owned(),
@@ -1054,8 +1066,8 @@ fn start_console(g: &Given, live: &Path, started: i64, console_now: &Path) -> Op
 /// A cycle's whole watch, its exit status at the end. `stop` is the flag the
 /// handlers of TERM, INT and HUP set, which tehas work took before its start.
 pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
-    let live = home.join("live");
-    let console_now = live.join(format!("console-{}.txt.now", g.issue));
+    let layout = Home::new(home);
+    let console_now = layout.live_console_now(g.issue);
     let mut w = Watch {
         home,
         g,
@@ -1099,10 +1111,11 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
 
     // The console's file and the step it keeps beside it start empty: stale
     // lines of a cycle before this one are no better than none.
-    let _ = fs::create_dir_all(&live);
-    let _ = File::create(live.join(format!("console-{}.txt", g.issue)));
+    let console = layout.live_console(g.issue);
+    let _ = fs::create_dir_all(layout.live_dir());
+    let _ = File::create(&console);
     let _ = fs::remove_file(&w.console_now);
-    w.console = start_console(g, &live, started, &w.console_now);
+    w.console = start_console(g, &console, started, &w.console_now);
     w.live_on = true;
     w.now_file(true, "running");
 
@@ -1315,15 +1328,15 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
         tail += &signal_line(w.sig, &step_in_flight, &cut_gates);
     }
     if !tail.is_empty() {
-        let out = live.join(format!("console-{}.txt", g.issue));
-        if !append(&out, tail.as_bytes()) {
+        let out = &console;
+        if !append(out, tail.as_bytes()) {
             eprintln!("tehas work: could not write {}", out.display());
         }
     }
     if decided.killed {
         let line = killed_line(&step_in_flight, w.ooms);
-        let out = live.join(format!("console-{}.txt", g.issue));
-        if !append(&out, line.as_bytes()) {
+        let out = &console;
+        if !append(out, line.as_bytes()) {
             eprintln!("tehas work: could not write {}", out.display());
         }
         w.append_or_say(line.as_bytes());
@@ -1342,7 +1355,7 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
     let summary = progress::summary(&g.log, Some((&w.files.result, g.issue)));
     let wrote_progress = w.write_or_say(&w.files.progress, &format!("{summary}\n"));
     // A stop this command made is its own cap, unless the runner had ended first.
-    let mut cap = text(outcome.as_ref(), "cap");
+    let mut cap = outcome.as_ref().map(|o| o.cap.clone()).unwrap_or_default();
     match status.as_str() {
         "timeout" => cap = "wall-clock".to_string(),
         "stalled" => cap = "stall".to_string(),
@@ -1549,7 +1562,7 @@ mod tests {
     fn the_end_line_reads_only_the_tail_of_a_run_log_past_the_bound() {
         let d = dir("end-tail");
         let home = d.join("home");
-        fs::create_dir_all(home.join("state/cycles")).unwrap();
+        fs::create_dir_all(Home::new(&home).cycles_dir()).unwrap();
         let g = given(&d);
         let w = a_watch(&d, &home, &g);
         // A log past LOG_TAIL whose diagnostics are in its last bytes. The
@@ -1579,7 +1592,7 @@ mod tests {
     fn the_end_line_of_a_cap_the_driver_only_named_says_no_evidence_and_the_memory_kills() {
         let d = dir("end-echo");
         let home = d.join("home");
-        fs::create_dir_all(home.join("state/cycles")).unwrap();
+        fs::create_dir_all(Home::new(&home).cycles_dir()).unwrap();
         let g = given(&d);
         let mut w = a_watch(&d, &home, &g);
         fs::write(&g.log, "").unwrap();
@@ -1620,7 +1633,7 @@ mod tests {
     fn the_end_line_says_when_its_reason_or_diagnostics_could_not_be_carried() {
         let d = dir("end-line");
         let home = d.join("home");
-        fs::create_dir_all(home.join("state/cycles")).unwrap();
+        fs::create_dir_all(Home::new(&home).cycles_dir()).unwrap();
         let g = given(&d);
         let w = a_watch(&d, &home, &g);
         let err = || fs::read_to_string(&w.err).unwrap_or_default();
@@ -1680,7 +1693,10 @@ mod tests {
             (30, 30),
             (40, 40),
         ] {
-            let o = json!({"status": "handoff"});
+            let o = Outcome {
+                status: "handoff".into(),
+                ..Outcome::default()
+            };
             let s = Seen {
                 outcome: Some(&o),
                 ..seen(rc)
@@ -1691,13 +1707,21 @@ mod tests {
 
     #[test]
     fn an_exit_of_no_end_falls_to_the_results_own_then_to_2() {
-        let o = json!({"status": "handoff", "exitCode": 10});
+        let o = Outcome {
+            status: "handoff".into(),
+            exit_code: Some(10.into()),
+            ..Outcome::default()
+        };
         let s = Seen {
             outcome: Some(&o),
             ..seen(1)
         };
         assert_eq!(exit_of(&s, &decide(&s)), 10);
-        let o = json!({"status": "handoff", "exitCode": null});
+        let o = Outcome {
+            status: "handoff".into(),
+            exit_code: None,
+            ..Outcome::default()
+        };
         let s = Seen {
             outcome: Some(&o),
             ..seen(1)
@@ -1723,7 +1747,11 @@ mod tests {
 
     #[test]
     fn a_disk_stop_is_stopped_and_2() {
-        let o = json!({"status": "interrupted", "exitCode": 21});
+        let o = Outcome {
+            status: "interrupted".into(),
+            exit_code: Some(21.into()),
+            ..Outcome::default()
+        };
         for s in [
             Seen {
                 outcome: Some(&o),
@@ -1742,7 +1770,10 @@ mod tests {
             assert!(!d.killed && !d.ran_out && !d.nostart);
             assert_eq!(exit_of(&s, &d), 2);
         }
-        let o = json!({"status": "merged"});
+        let o = Outcome {
+            status: "merged".into(),
+            ..Outcome::default()
+        };
         let s = Seen {
             outcome: Some(&o),
             disk: true,
@@ -1753,7 +1784,11 @@ mod tests {
 
     #[test]
     fn a_stop_of_this_command_is_2_whatever_the_runner_exits() {
-        let o = json!({"status": "interrupted", "exitCode": 21});
+        let o = Outcome {
+            status: "interrupted".into(),
+            exit_code: Some(21.into()),
+            ..Outcome::default()
+        };
         for s in [
             Seen {
                 outcome: Some(&o),
@@ -1784,7 +1819,10 @@ mod tests {
 
     #[test]
     fn a_stop_names_the_status_unless_the_runner_ended_first() {
-        let i = json!({"status": "interrupted"});
+        let i = Outcome {
+            status: "interrupted".into(),
+            ..Outcome::default()
+        };
         let s = Seen {
             outcome: Some(&i),
             stalled: true,
@@ -1797,7 +1835,10 @@ mod tests {
             ..seen(21)
         };
         assert_eq!(decide(&s).status, "timeout");
-        let h = json!({"status": "handoff"});
+        let h = Outcome {
+            status: "handoff".into(),
+            ..Outcome::default()
+        };
         let s = Seen {
             outcome: Some(&h),
             timed: true,
@@ -1814,7 +1855,10 @@ mod tests {
 
     #[test]
     fn a_result_with_no_status_is_unknown() {
-        let o = json!({"status": ""});
+        let o = Outcome {
+            status: "".into(),
+            ..Outcome::default()
+        };
         let s = Seen {
             outcome: Some(&o),
             ..seen(0)
@@ -1824,7 +1868,10 @@ mod tests {
 
     #[test]
     fn a_runner_at_the_limit_with_no_end_ran_out() {
-        let r = json!({"status": "running"});
+        let r = Outcome {
+            status: "running".into(),
+            ..Outcome::default()
+        };
         let s = Seen {
             outcome: Some(&r),
             at_limit: true,
@@ -1839,7 +1886,11 @@ mod tests {
         };
         assert!(decide(&s).ran_out);
         // A cap of its own, an end, a kill or a stop here is no running out.
-        let c = json!({"status": "running", "cap": "deadline"});
+        let c = Outcome {
+            status: "running".into(),
+            cap: "deadline".into(),
+            ..Outcome::default()
+        };
         assert!(
             !decide(&Seen {
                 outcome: Some(&c),
@@ -1848,7 +1899,10 @@ mod tests {
             })
             .ran_out
         );
-        let e = json!({"status": "merged"});
+        let e = Outcome {
+            status: "merged".into(),
+            ..Outcome::default()
+        };
         assert!(
             !decide(&Seen {
                 outcome: Some(&e),
@@ -1900,7 +1954,10 @@ mod tests {
             })
             .killed
         );
-        let o = json!({"status": "handoff"});
+        let o = Outcome {
+            status: "handoff".into(),
+            ..Outcome::default()
+        };
         assert!(
             !decide(&Seen {
                 outcome: Some(&o),
@@ -1986,9 +2043,17 @@ mod tests {
         let d = dir("inflight");
         let now = d.join("now");
         fs::write(&now, "lens review!\nnotice\n").unwrap();
-        let o = json!({"failedStep": "", "lastStep": "develop"});
+        let o = Outcome {
+            failed_step: "".into(),
+            last_step: "develop".into(),
+            ..Outcome::default()
+        };
         assert_eq!(inflight(Some(&o), &now), "develop");
-        let o = json!({"failedStep": "gate", "lastStep": "develop"});
+        let o = Outcome {
+            failed_step: "gate".into(),
+            last_step: "develop".into(),
+            ..Outcome::default()
+        };
         assert_eq!(inflight(Some(&o), &now), "gate");
         assert_eq!(inflight(None, &now), "lensreview");
         assert_eq!(inflight(None, &d.join("none")), "-");
@@ -2040,7 +2105,7 @@ mod tests {
     fn the_aborted_line_is_one_stable_line_of_tehas() {
         let l = aborted_line(7, "verify", "make test", "TERM", 5000);
         assert!(l.ends_with('\n') && l.lines().count() == 1);
-        let v: Value = serde_json::from_str(l.trim_end()).unwrap();
+        let v: serde_json::Value = serde_json::from_str(l.trim_end()).unwrap();
         assert_eq!(v["v"], 1);
         assert_eq!(v["kind"], "verify-aborted");
         assert_eq!(v["by"], "tehas");
@@ -2263,7 +2328,7 @@ mod tests {
     fn a_note_is_written_whole_or_not_at_all() {
         let d = dir("note");
         let home = d.join("home");
-        fs::create_dir_all(home.join("state/cycles")).unwrap();
+        fs::create_dir_all(Home::new(&home).cycles_dir()).unwrap();
         let g = given(&d);
         let w = a_watch(&d, &home, &g);
         assert!(w.write_note(&w.files.runner_exit, "10"));

@@ -6,10 +6,9 @@
 //! `<!-- tehas:millwright issue=<n> action=finish -->`, the reason after it,
 //! and then the label `tehas:finish`, applied by the comment's author within
 //! ten minutes of it. An allowed labeller may ask. The millwright may ask
-//! within its grant: a person approved a cycle of the issue, the text is the
-//! text they approved, nobody outside the list changed it since, and the
-//! millwright's starts on it are within `TEHAS_MILLWRIGHT_MAX_RETRIES`. An ask
-//! from anyone else is ignored and the label stays.
+//! when a person approved a cycle of the issue, the text is the text they
+//! approved, and nobody outside the list changed it since. An ask from anyone
+//! else is ignored and the label stays.
 //!
 //! The step takes no slot and starts no agent and no cycle. Whatever the
 //! answer, the label comes off first, so a finish is run once for one ask, and
@@ -17,7 +16,7 @@
 //! poll logs is the record: `finish #<n>: ...` in `dispatch.log`, which
 //! `factory_decisions` answers.
 
-use crate::decide::{base_approver, base_stands, fixer_base, fixer_starts};
+use crate::decide::{base_approver, base_stands, record_base};
 use crate::read::host::epoch;
 use crate::settings::account;
 use crate::text::body_sha256;
@@ -29,6 +28,7 @@ use tehas_core::events::{
     Events, LabelState,
 };
 use tehas_core::text::disarm;
+use tehas_ports::{BlueprintNo, FinishMarker, FinishResult, Marker};
 
 /// The label of the ask.
 pub const LABEL: &str = "tehas:finish";
@@ -190,10 +190,9 @@ fn reason_of(a: &Ask, who: &str, at: &str) -> Result<String, String> {
     Ok(reason.chars().take(REASON_MAX).collect())
 }
 
-/// The millwright's grant, as its `tehas:ready` has it, with one difference:
-/// a finish starts no cycle, so the last start the cap allowed may still be
-/// finished. None when the grant holds.
-fn grant(c: &Settings, a: &Ask) -> Result<Option<String>, String> {
+/// What the millwright's ask rests on: a person's approval of the text as it
+/// is. None when it holds.
+fn approval_holds(c: &Settings, a: &Ask) -> Result<Option<String>, String> {
     let record = match &a.approval {
         Err(()) => return Err("its approvals on the state store could not be read".into()),
         Ok(r) => r,
@@ -202,7 +201,7 @@ fn grant(c: &Settings, a: &Ask) -> Result<Option<String>, String> {
     let Some(record) = record else {
         return Ok(none());
     };
-    let Some(base) = fixer_base(record).filter(|b| base_stands(c, b)) else {
+    let Some(base) = record_base(record).filter(|b| base_stands(c, b)) else {
         return Ok(none());
     };
     let by = base["by"].as_str().unwrap_or("");
@@ -210,16 +209,6 @@ fn grant(c: &Settings, a: &Ask) -> Result<Option<String>, String> {
     let approver = base_approver(&base);
     if body_sha256(&a.edit) != base["body_sha256"].as_str().unwrap_or("") {
         return Ok(Some(format!("its text is not the text {by} approved")));
-    }
-    let Some(had) = fixer_starts(record) else {
-        return Ok(Some(
-            "its approval record does not say how many cycles the millwright started".into(),
-        ));
-    };
-    if had as i64 > c.fixer_max_retries {
-        return Ok(Some(format!(
-            "the millwright has started {had} cycles on it since {by} approved it, more than TEHAS_MILLWRIGHT_MAX_RETRIES"
-        )));
     }
     if edit_holds(&a.edit, since, approver, &|w| c.allowed(w)).is_some() {
         if edit_history_unread(&a.edit, &|w| c.allowed(w)) {
@@ -271,7 +260,7 @@ pub fn judge(c: &Settings, a: &Ask) -> Verdict {
         Err(why) => return refuse(why),
     };
     if how == "millwright" {
-        match grant(c, a) {
+        match approval_holds(c, a) {
             Err(why) => return Verdict::Wait(format!("wait #{n}: {LABEL} waits: {why}")),
             Ok(Some(why)) => return refuse(format!("the millwright may not ask it: {why}")),
             Ok(None) => {}
@@ -291,9 +280,38 @@ pub trait Hands {
     fn unlabel(&mut self, n: u64) -> bool;
     /// The draft's URL, or the one line of why not.
     fn finish(&mut self, n: u64, reason: &str) -> Result<String, String>;
-    fn say(&mut self, n: u64, body: &str);
+    fn say(&mut self, n: u64, reply: Reply);
     fn log(&mut self, line: String);
 }
+
+/// A reply of the finish: its text, and its marker typed beside it, never
+/// in the text (Decided 74).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Reply {
+    pub text: String,
+    pub markers: Vec<Marker>,
+}
+
+impl Reply {
+    /// `text` with the finish's marker of issue `n`: what came of it, and
+    /// whether the poll finished it with no one's ask.
+    pub fn new(n: u64, result: FinishResult, by_poll: bool, text: String) -> Reply {
+        let markers = BlueprintNo::new(n)
+            .map(|no| {
+                let mut m = FinishMarker::new(no, result);
+                m.by_poll = by_poll;
+                Marker::Finish(m)
+            })
+            .into_iter()
+            .collect();
+        Reply { text, markers }
+    }
+}
+
+/// Where the manual gives the ask's marked comment. A reply points there and
+/// does not quote the marker, which a 1.x reader would read as live even in
+/// code (Decided 83, until T2).
+pub const ASK_FORM: &str = "the tehas manual gives its first line under Finishing a stopped cycle, `/operating#finishing-a-stopped-cycle` on the factory's docs server";
 
 fn one_line(t: &str) -> String {
     let flat: String = t
@@ -309,21 +327,22 @@ fn one_line(t: &str) -> String {
 }
 
 /// The reply of a finish that opened its pull request.
-pub fn opened(n: u64, by: &str, url: &str) -> String {
-    format!(
-        "<!-- tehas:finish issue={n} result=opened -->\nTehas took `{LABEL}` off this issue and opened a draft pull request from what its stopped cycle left, as {} asked: {}\n\nIts gate did not pass. The checks and the review decide on it as on any other pull request.",
+pub fn opened(n: u64, by: &str, url: &str) -> Reply {
+    let text = format!(
+        "Tehas took `{LABEL}` off this issue and opened a draft pull request from what its stopped cycle left, as {} asked: {}\n\nIts gate did not pass. The checks and the review decide on it as on any other pull request.",
         disarm(by),
         disarm(url)
-    )
+    );
+    Reply::new(n, FinishResult::Opened, false, text)
 }
 
 /// The reply of a finish refused.
-pub fn refused(n: u64, why: &str) -> String {
-    format!(
-        "<!-- tehas:finish issue={n} result=refused -->\nTehas took `{LABEL}` off this issue and finished nothing: {}. To ask again, write a new comment that starts with `{}` and apply `{LABEL}`.",
-        disarm(why),
-        marker(n)
-    )
+pub fn refused(n: u64, why: &str) -> Reply {
+    let text = format!(
+        "Tehas took `{LABEL}` off this issue and finished nothing: {}. To ask again, write a new comment that starts with the millwright's finish marker for this issue, the reason after it, and apply `{LABEL}`: {ASK_FORM}.",
+        disarm(why)
+    );
+    Reply::new(n, FinishResult::Refused, false, text)
 }
 
 /// The step over the asks, in order.
@@ -338,7 +357,7 @@ pub fn step(c: &Settings, asks: &[Ask], hands: &mut dyn Hands) {
                         "finish #{n}: refused, asked by {by}: {}",
                         one_line(&why)
                     ));
-                    hands.say(n, &refused(n, &why));
+                    hands.say(n, refused(n, &why));
                 }
             }
             Verdict::Finish { by, how, reason } => {
@@ -351,14 +370,14 @@ pub fn step(c: &Settings, asks: &[Ask], hands: &mut dyn Hands) {
                             "finish #{n}: opened {url}, asked by {by} ({how}): {}",
                             one_line(&reason)
                         ));
-                        hands.say(n, &opened(n, &by, &url));
+                        hands.say(n, opened(n, &by, &url));
                     }
                     Err(why) => {
                         hands.log(format!(
                             "finish #{n}: refused, asked by {by} ({how}): {}",
                             one_line(&why)
                         ));
-                        hands.say(n, &refused(n, &why));
+                        hands.say(n, refused(n, &why));
                     }
                 }
             }

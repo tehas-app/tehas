@@ -9,6 +9,7 @@
 //! be asked this stops with exit 1 rather than report the service as absent.
 //! Each step comes off the record only after it has run.
 
+use super::leftovers;
 use super::push;
 use super::release;
 use super::steps::{self, read_record, record_file, sorted, write_record};
@@ -30,7 +31,7 @@ const COMPOSE_LIMIT: u32 = 180;
 const SYSTEMD_LIMIT: u32 = 60;
 /// The sandbox image build.
 const BUILD_LIMIT: u32 = 1800;
-/// tehas labels: one gh label create per label of this version.
+/// tehas labels: one label made per label of this version.
 const LABELS_LIMIT: u32 = 120;
 
 /// The state words of `systemctl is-active` that mean this unit runs.
@@ -598,6 +599,11 @@ fn follow_ups(run: &mut Run, plan: &Plan, out: &str) -> u8 {
             status = 1;
             break;
         }
+    }
+    if plan.mode == Mode::Update {
+        leftovers::retired_dirs(&run.host.home)
+            .iter()
+            .for_each(|l| say(l));
     }
     // A refused plugin is skipped, not fatal: the rest of the update goes
     // on, and it exits 1 at the end.

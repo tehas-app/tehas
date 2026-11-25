@@ -16,6 +16,7 @@ use std::fs;
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 use tehas_core::grammar::commit_id;
+use tehas_core::home::{Home, State};
 use tehas_core::lock::{probe, Probe};
 use tehas_core::plugin::state::Word;
 use tehas_core::plugin::{self, is_name};
@@ -33,7 +34,7 @@ pub fn held(home: &Path, get: &dyn Fn(&str) -> String) -> Option<String> {
     if get(tehas_core::read_only::NAME) == "1" {
         return Some("the factory is read-only (TEHAS_READ_ONLY)".into());
     }
-    let flag = pause::read(&home.join("state/pause.json"));
+    let flag = pause::read(&Home::new(home).state(State::Pause));
     if flag.state != "none" {
         return Some("the factory is paused (state/pause.json)".into());
     }
@@ -41,7 +42,7 @@ pub fn held(home: &Path, get: &dyn Fn(&str) -> String) -> Option<String> {
         return Some("the factory is drained (tehas drain)".into());
     }
     if matches!(
-        probe(&home.join("state/update.lock")),
+        probe(&Home::new(home).state(State::UpdateLock)),
         Probe::Held | Probe::Unknown(_)
     ) {
         return Some("tehas update runs".into());
@@ -352,16 +353,17 @@ mod tests {
     fn nothing_starts_while_the_factory_is_held_back() {
         let mut h = Fake::new();
         let mut w = world("plugin-tick-held", &mut h, "", "");
-        fs::create_dir_all(w.home.join("state")).unwrap();
-        fs::write(w.home.join("state/pause.json"), "not a flag").unwrap();
+        let home = Home::new(&*w.home);
+        fs::create_dir_all(home.state_dir()).unwrap();
+        fs::write(home.state(State::Pause), "not a flag").unwrap();
         assert_eq!(go(&mut h, &w), 0);
         assert!(h
             .x
             .ran
             .iter()
             .all(|l| !l.starts_with("docker") && !l.starts_with("systemctl")));
-        fs::remove_file(w.home.join("state/pause.json")).unwrap();
-        let lock = std::fs::File::create(w.home.join("state/update.lock")).unwrap();
+        fs::remove_file(home.state(State::Pause)).unwrap();
+        let lock = std::fs::File::create(home.state(State::UpdateLock)).unwrap();
         lock.lock().unwrap();
         assert_eq!(
             held(&w.home, &w.get()).as_deref(),
@@ -372,12 +374,12 @@ mod tests {
         assert!(held(&w.home, &w.get()).unwrap().contains("read-only"));
         w.set("TEHAS_READ_ONLY", "");
         fs::write(
-            w.home.join("state/limit.json"),
+            home.state(State::Limit),
             r#"{"v":1,"cycles":0,"plan":false,"until":null,"reason":"move"}"#,
         )
         .unwrap();
         assert!(held(&w.home, &w.get()).unwrap().contains("drained"));
-        fs::remove_file(w.home.join("state/limit.json")).unwrap();
+        fs::remove_file(home.state(State::Limit)).unwrap();
         // The update's lock, given back above, may still be held a moment by
         // another test's child between its fork and its exec.
         let mut free = held(&w.home, &w.get());
@@ -417,7 +419,12 @@ mod tests {
     #[test]
     fn a_verdict_whose_head_is_merged_goes_with_its_request() {
         let mut h = Fake::new();
-        let w = world("plugin-tick-merged", &mut h, "", "hook:after:work");
+        let w = world(
+            "plugin-tick-merged",
+            &mut h,
+            "",
+            "hook:after:change.offered",
+        );
         let v = left(&w, H2, 0);
         assert_eq!(go(&mut h, &w), 0);
         assert!(h.x.ran_any(&format!(
@@ -430,7 +437,7 @@ mod tests {
     #[test]
     fn a_verdict_older_than_its_days_goes_and_a_newer_one_stays() {
         let mut h = Fake::new();
-        let w = world("plugin-tick-old", &mut h, "", "hook:after:work");
+        let w = world("plugin-tick-old", &mut h, "", "hook:after:change.offered");
         h.x.on("merge-base", fails(""));
         let v = left(&w, H2, VERDICT_DAYS - 1);
         assert_eq!(go(&mut h, &w), 0);

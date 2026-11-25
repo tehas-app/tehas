@@ -4,12 +4,14 @@
 use serde_json::{json, Value};
 
 /// Whether `v` fits `s`. A keyword this does not know fails the test, so
-/// none is passed over.
+/// none is passed over. `$ref` names another file of api/, which
+/// console/tests/events_contract.rs resolves: here it adds nothing.
 pub fn fits(v: &Value, s: &Value) -> bool {
     let s = s.as_object().unwrap();
     let known = [
         "$schema",
         "$id",
+        "$ref",
         "title",
         "description",
         "type",
@@ -147,7 +149,8 @@ pub fn api(name: &str) -> Value {
 
 /// Every object of a schema is closed.
 pub fn closed(s: &Value) {
-    if s["type"] == "object" {
+    // An object of another file is closed there.
+    if s["type"] == "object" && s.get("$ref").is_none() {
         assert_eq!(s["additionalProperties"], json!(false), "{s}");
     }
     for key in ["properties", "dependentSchemas"] {
@@ -166,7 +169,7 @@ fn the_samples_of_tehas_plugin_fit_its_schema() {
     assert_eq!(s["$schema"], "https://json-schema.org/draft/2020-12/schema");
     assert_eq!(
         s["$id"],
-        "https://github.com/tehas-app/tehas/api/plugin.schema.json"
+        "https://github.com/tehas-app/tehas-factory/api/plugin.schema.json"
     );
     closed(&s);
     for name in ["sample", "empty", "refused", "ready"] {
@@ -188,7 +191,7 @@ fn the_samples_of_tehas_plugin_review_fit_its_schema() {
     let s = api("plugin-review.schema.json");
     assert_eq!(
         s["$id"],
-        "https://github.com/tehas-app/tehas/api/plugin-review.schema.json"
+        "https://github.com/tehas-app/tehas-factory/api/plugin-review.schema.json"
     );
     closed(&s);
     for name in ["sample", "refused"] {
@@ -211,7 +214,7 @@ fn the_samples_of_tehas_plugin_skills_fit_its_schema() {
     assert_eq!(s["$schema"], "https://json-schema.org/draft/2020-12/schema");
     assert_eq!(
         s["$id"],
-        "https://github.com/tehas-app/tehas/api/plugin-skills.schema.json"
+        "https://github.com/tehas-app/tehas-factory/api/plugin-skills.schema.json"
     );
     closed(&s);
     let sample = api("plugin-skills.sample.json");

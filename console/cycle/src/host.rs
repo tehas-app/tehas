@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 use tehas_core::call;
+use tehas_core::home::Home;
 
 use crate::runner;
 
@@ -77,32 +78,6 @@ pub const FILES: [&str; 17] = [
     "done",
 ];
 
-/// What ran the cycle for the supervisor, its --work program.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Runner {
-    /// tehas work: the workspace and the image are on this host.
-    #[default]
-    Work,
-    /// A job waiter: the cycle ran on a contractor. This host has the notes,
-    /// the run log and the exit status the waiter left, and no workspace and
-    /// no image of the cycle.
-    Job,
-}
-
-impl Runner {
-    pub fn named(word: &str) -> Option<Runner> {
-        match word {
-            "work" => Some(Runner::Work),
-            "job" => Some(Runner::Job),
-            _ => None,
-        }
-    }
-
-    pub fn on_host(self) -> bool {
-        self == Runner::Work
-    }
-}
-
 /// What the start of the cycle put on record, as tehas-cycle holds it.
 pub struct Start {
     pub issue: u64,
@@ -120,7 +95,6 @@ pub struct Start {
     pub console: String,
     pub status_cmd: String,
     pub status_args: Vec<String>,
-    pub runner: Runner,
 }
 
 /// A file as the facts hold it: its text, {"link": true}, {"unreadable": true}
@@ -196,10 +170,11 @@ pub fn store_try(home: &Path, tries: u32, args: &[&str]) -> Result<Value, Refuse
     call::store_try(tries, Duration::from_secs(1), || store_value(home, args)).map_err(refused)
 }
 
-/// The facts of the cycle `s`, read from the host under `home`.
-pub fn facts(home: &Path, s: &Start) -> Value {
-    let env = |k: &str| std::env::var(k).unwrap_or_default();
-    let cycles = home.join("state/cycles");
+/// The facts of the cycle `s`, read from the host under `home`, with the
+/// settings it reads given by `env`: this process's environment, or a test's
+/// own, so a test reads a home's facts in process, beside others.
+pub fn facts_with(home: &Path, s: &Start, env: &dyn Fn(&str) -> String) -> Value {
+    let cycles = Home::new(home).cycles_dir();
     let issue = s.issue;
     let mut files = Map::new();
     for name in FILES {
@@ -207,15 +182,12 @@ pub fn facts(home: &Path, s: &Start) -> Value {
             files.insert(name.to_string(), v);
         }
     }
-    let workdir = workdir(s);
+    let workdir = workdir_with(s, env);
     let parent = Path::new(&workdir)
         .parent()
         .map(Path::to_path_buf)
         .unwrap_or_default();
-    // An empty path is no workspace, and a relative parent would be the
-    // current directory's.
-    let on_host = !workdir.is_empty();
-    let is_dir = |p: &str| on_host && fs::metadata(p).is_ok_and(|m| m.is_dir());
+    let is_dir = |p: &str| fs::metadata(p).is_ok_and(|m| m.is_dir());
     let host = fs::read_to_string("/proc/sys/kernel/hostname")
         .unwrap_or_default()
         .trim()
@@ -223,7 +195,7 @@ pub fn facts(home: &Path, s: &Start) -> Value {
     let mut f = json!({
         "issue": issue, "repo": env("TEHAS_REPO"), "home": env("HOME"), "hostname": host,
         "workdir": workdir,
-        "workspaces_marked": on_host && parent.join(".tehas-workspaces").is_file(),
+        "workspaces_marked": parent.join(".tehas-workspaces").is_file(),
         "workdir_dir": is_dir(&workdir),
         "before_retry_dir": is_dir(&format!("{workdir}.before-retry")),
         "rc": s.rc, "signalled": s.signalled, "started": s.started,
@@ -232,7 +204,6 @@ pub fn facts(home: &Path, s: &Start) -> Value {
                   "approval_at": s.approval_at.parse::<i64>().ok(), "requeued": s.requeued},
         "files": files,
         "driver_default": env("TEHAS_DRIVER"),
-        "spec_pipe": tehas_core::features::on(crate::gives::SPEC_PIPE),
     });
     if let Some(log) = newest_log(&home.join("logs"), issue) {
         f["run_log"] = run_log(&log);
@@ -245,23 +216,20 @@ pub fn facts(home: &Path, s: &Start) -> Value {
         f["work_state"] = state;
     }
     let (id, _) = crate::report::record_image(&f["record"], s.attempt);
-    if s.runner.on_host() && !id.is_empty() {
+    if !id.is_empty() {
         f["image_built"] = json!(built(&id));
     }
     f
 }
 
-/// The cycle's workspace, $TEHAS_WORK_DIR-<issue>, or "" for a cycle that ran
-/// elsewhere.
+/// The cycle's workspace, $TEHAS_WORK_DIR-<issue>.
 pub fn workdir(s: &Start) -> String {
-    if !s.runner.on_host() {
-        return String::new();
-    }
-    format!(
-        "{}-{}",
-        std::env::var("TEHAS_WORK_DIR").unwrap_or_default(),
-        s.issue
-    )
+    workdir_with(s, &|k: &str| std::env::var(k).unwrap_or_default())
+}
+
+/// [`workdir`] with the settings it reads given by `env`.
+pub fn workdir_with(s: &Start, env: &dyn Fn(&str) -> String) -> String {
+    format!("{}-{}", env("TEHAS_WORK_DIR"), s.issue)
 }
 
 /// The work state of the issue in the workspace `workdir`, read only when it
@@ -272,7 +240,7 @@ fn work_state(workdir: &str, issue: u64) -> Option<Value> {
     if !w.is_absolute() {
         return None;
     }
-    crate::last_attempt::state(w, issue)
+    crate::last_attempt::state::<Value>(w, issue)
 }
 
 /// The newest run log as the facts hold it: its name and its text, of a log
@@ -353,52 +321,6 @@ mod tests {
         let ups = base.components().count() - 1;
         let back = "../".repeat(ups);
         format!("{back}{}", p.strip_prefix("/").unwrap().display())
-    }
-
-    fn start(runner: Runner) -> Start {
-        Start {
-            issue: 7,
-            attempt: 1,
-            rc: 0,
-            started: 0,
-            signalled: false,
-            by: String::new(),
-            how: String::new(),
-            approval_at: String::new(),
-            requeued: false,
-            now: Some(1),
-            console: String::new(),
-            status_cmd: String::new(),
-            status_args: Vec::new(),
-            runner,
-        }
-    }
-
-    #[test]
-    fn a_runner_is_named_work_or_job() {
-        assert_eq!(Runner::named("work"), Some(Runner::Work));
-        assert_eq!(Runner::named("job"), Some(Runner::Job));
-        for bad in ["", "Job", "remote", "work "] {
-            assert_eq!(Runner::named(bad), None, "{bad}");
-        }
-        assert_eq!(Runner::default(), Runner::Work);
-        assert!(Runner::Work.on_host() && !Runner::Job.on_host());
-    }
-
-    #[test]
-    fn a_cycle_run_elsewhere_has_its_notes_and_no_workspace_here() {
-        let d = TestDir::new("host-job-facts");
-        fs::create_dir_all(d.join("state/cycles")).unwrap();
-        fs::write(d.join("state/cycles/7.runner_exit"), "0\n").unwrap();
-        let f = facts(&d, &start(Runner::Job));
-        assert_eq!(f["workdir"], "");
-        assert_eq!(f["workspaces_marked"], false);
-        assert_eq!(f["workdir_dir"], false);
-        assert_eq!(f["before_retry_dir"], false);
-        assert!(f.get("work_state").is_none());
-        assert!(f.get("image_built").is_none());
-        assert_eq!(f["files"]["runner_exit"], "0\n");
-        assert_eq!(workdir(&start(Runner::Job)), "");
     }
 
     #[test]

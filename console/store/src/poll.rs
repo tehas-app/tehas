@@ -20,6 +20,7 @@
 //!     `last` is null when no poll is on record, and `writes` is null when
 //!     neither the poll nor the hour has a write on it: no write log, so no
 //!     count. An hour with no poll is {polls: 0, cpuMs: 0, writes: null}.
+//!     `store` is the store's id from `meta`.
 //!   store poll-idle --since <seconds> [--budget <spec>]
 //!     The median wall, CPU and write cost of the polls of the last
 //!     <seconds> that started no cycle, as one object: {"polls": n, "cpu_ms":
@@ -509,12 +510,20 @@ fn show(home: &Path, s: &Show, now: i64) -> Result<String, Fail> {
             )
             .q()?;
         if s.api {
+            // The store's id, which `tehas api` prints as `store`.
+            let store: Option<String> = c
+                .query_row("SELECT value FROM meta WHERE key = 'store'", [], |r| {
+                    r.get(0)
+                })
+                .optional()
+                .q()?;
             // The names of host/docs/api.md, counted from the caller's --now.
             // One `writes` for the whole object: null when neither the poll
             // nor the hour has a write, which is a host with no write log.
             return Ok(line(
                 "poll-show",
                 &[
+                    ("store", j(store)),
                     (
                         "last",
                         last.as_ref().map_or_else(

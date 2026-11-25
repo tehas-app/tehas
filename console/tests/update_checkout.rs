@@ -8,6 +8,7 @@ use common::{git, has, lacks, s, uid, Host, Run};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
+use tehas_core::home::{Home, State};
 
 /// A host with the minimal instance and a platform `behind` commits behind.
 fn host(behind: u32, body: &str) -> Host {
@@ -115,8 +116,8 @@ fn asking(behind: u32) -> Host {
 fn held() -> (Host, String) {
     let h = asking(1);
     let before = h.state();
-    fs::create_dir_all(h.home.join("state")).unwrap();
-    fs::write(h.home.join("state/update-hold"), "").unwrap();
+    fs::create_dir_all(Home::new(&h.home).state_dir()).unwrap();
+    fs::write(Home::new(&h.home).state(State::UpdateHold), "").unwrap();
     (h, before)
 }
 
@@ -280,7 +281,7 @@ fn a_pulled_checkout_has_no_console_beside_it_so_install_sh_checks_the_settings(
     let h = host(1, "echo \"installed: nothing\"");
     h.push_settings_change();
     fs::create_dir_all(h.home.join("libexec")).unwrap();
-    fs::copy(h.console(), h.home.join("libexec/console")).unwrap();
+    tehas_core::testing::copy_exe(h.console(), h.home.join("libexec/console")).unwrap();
     let r = h.sh(r#"unset TEHAS_SETTINGS_CMD; "$TEHAS_CONSOLE" update run "$TEHAS_CONSOLE""#);
     has(
         &r.out,
@@ -608,8 +609,11 @@ fn a_follow_up_record_that_cannot_be_read_stops_the_update_before_anything_runs(
 fn a_record_that_turned_unreadable_after_install_sh_stops_the_follow_ups() {
     let h = host(
         1,
-        r#"echo "next: sandbox"
-chmod 000 "$TEHAS_HOME/state/update-pending""#,
+        &format!(
+            r#"echo "next: sandbox"
+chmod 000 "$TEHAS_HOME/{}""#,
+            State::UpdatePending.relative()
+        ),
     );
     h.record(&["docs --force-recreate"]);
     let r = h.update(&[]);
@@ -624,7 +628,7 @@ chmod 000 "$TEHAS_HOME/state/update-pending""#,
 #[test]
 fn a_record_that_cannot_be_written_stops_the_run_before_any_step() {
     let h = host(1, r#"echo "next: sandbox""#);
-    let state = h.home.join("state");
+    let state = Home::new(&h.home).state_dir();
     fs::create_dir_all(&state).unwrap();
     // The lock is there from an earlier run; only the record cannot be written.
     fs::write(state.join("update.lock"), "").unwrap();
@@ -641,7 +645,7 @@ fn a_record_that_cannot_be_written_stops_the_run_before_any_step() {
 fn a_state_directory_where_the_lock_cannot_be_made_stops_the_run_before_git() {
     let h = host(1, r#"echo "next: sandbox""#);
     let before = h.state();
-    let state = h.home.join("state");
+    let state = Home::new(&h.home).state_dir();
     fs::create_dir_all(&state).unwrap();
     let r = run_with_mode(&h, &state, 0o500, 0o755);
     assert_eq!(r.rc, 1, "{}", r.out);
@@ -665,7 +669,7 @@ fn a_failed_run_leaves_the_record_and_nothing_else_in_state() {
     has(&r.out, "2 of 4 follow-up(s) are not done");
     // Each rewrite goes through a temporary file moved over the record, and
     // the lock is kept. The ids are what the install recorded.
-    let mut names: Vec<String> = fs::read_dir(h.home.join("state"))
+    let mut names: Vec<String> = fs::read_dir(Home::new(&h.home).state_dir())
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
         .collect();
@@ -690,7 +694,7 @@ fn an_update_asks_github_for_the_ids_and_runs_on_when_they_are_the_recorded_ones
 fn an_id_that_changed_stops_the_update_with_78_before_anything_moves_and_accept_id_records_it() {
     let h = host(1, "echo \"installed: nothing\"");
     let before = h.head_sha();
-    let ids = h.home.join("state/account-ids");
+    let ids = Home::new(&h.home).state(State::AccountIds);
     fs::write(&ids, "alice 7\n").unwrap();
     let r = h.update(&[]);
     assert_eq!(r.rc, 78, "{}", r.out);
@@ -712,10 +716,10 @@ fn an_id_that_changed_stops_the_update_with_78_before_anything_moves_and_accept_
     let line: Vec<String> = fs::read_to_string(&ids)
         .unwrap()
         .lines()
-        .filter(|l| l.starts_with("alice "))
+        .filter(|l| l.starts_with("code-host alice "))
         .map(str::to_string)
         .collect();
-    assert_eq!(line, [format!("alice {alice}")]);
+    assert_eq!(line, [format!("code-host alice {alice}")]);
     assert_eq!(h.calls("install"), "install ");
 }
 
@@ -742,4 +746,75 @@ fn a_login_that_no_longer_resolves_stops_the_update_with_78_and_is_named() {
         "tehas: the login alice does not resolve to a GitHub account",
     );
     assert_eq!(h.calls("install"), "");
+}
+
+/// origin named `url`, which git's insteadOf turns back into the scratch
+/// remote, so the update fetches with no network and the name stays as given.
+fn origin_named(h: &Host, url: &str) {
+    let c = Some(h.checkout.as_path());
+    let path = git(c, &["config", "--get", "remote.origin.url"]);
+    git(c, &["config", "remote.origin.url", url]);
+    git(c, &["config", &format!("url.{path}.insteadOf"), url]);
+}
+
+fn moved_line(h: &Host) -> String {
+    tehas_core::release::moved(
+        tehas_core::release::FORMER_REPO,
+        tehas_core::release::Holder::Origin(&s(&h.checkout)),
+    )
+    .map(|m| format!("checkout: {m}"))
+    .unwrap()
+}
+
+#[test]
+fn a_remote_naming_the_former_repository_still_updates_and_says_it_moved_once() {
+    let h = host(1, "echo \"installed: nothing\"");
+    let url = format!(
+        "https://github.com/{}.git",
+        tehas_core::release::FORMER_REPO.to_uppercase()
+    );
+    origin_named(&h, &url);
+    let before = h.head_sha();
+    let line = moved_line(&h);
+    has(
+        &line,
+        "still names the old one, which works only while GitHub redirects it: set its URL to the new one",
+    );
+    has(
+        &line,
+        &format!("the remote origin of {} still", s(&h.checkout)),
+    );
+
+    let r = h.update(&["--check"]);
+    assert_eq!(r.rc, 3, "{}", r.out);
+    assert_eq!(r.out.matches(&line).count(), 1, "{}", r.out);
+    assert_eq!(h.head_sha(), before);
+
+    let r = h.update(&[]);
+    assert_eq!(r.rc, 0, "{}", r.out);
+    assert_eq!(r.out.matches(&line).count(), 1, "{}", r.out);
+    has(&r.out, "checkout: fast-forwarded");
+    assert_ne!(h.head_sha(), before);
+    assert_eq!(
+        git(Some(&h.checkout), &["config", "--get", "remote.origin.url"]),
+        url
+    );
+}
+
+#[test]
+fn a_remote_naming_the_new_repository_or_another_says_nothing_of_a_move() {
+    for url in [
+        format!("git@github.com:{}.git", tehas_core::release::pinned_repo()),
+        "https://github.com/someone/tehas.git".to_string(),
+    ] {
+        let h = host(1, "echo \"installed: nothing\"");
+        origin_named(&h, &url);
+        let r = h.update(&["--check"]);
+        assert_eq!(r.rc, 3, "{url}: {}", r.out);
+        lacks(&r.out, "is now");
+        let r = h.update(&[]);
+        assert_eq!(r.rc, 0, "{url}: {}", r.out);
+        has(&r.out, "checkout: fast-forwarded");
+        lacks(&r.out, "is now");
+    }
 }

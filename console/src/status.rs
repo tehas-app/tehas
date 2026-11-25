@@ -18,10 +18,8 @@
 //!     nothing.
 //!
 //! The files of live/ beside the health file are read when they are there:
-//! protolab.json as `prototypes`, previews.json, which the factory writes only
-//! with previews on, as `previews`, and contractors.json, which the factory
-//! writes only with outsource on, as `contractors`, the `outsource:` line and
-//! where each running cycle is built.
+//! previews.json, which the factory writes only with previews on, as
+//! `previews`.
 //!
 //! <now> is epoch seconds. A health file older than ten minutes is not
 //! believed: its first line says stale.
@@ -32,13 +30,13 @@
 
 use crate::holds::epoch;
 use crate::jq::{first, obj, J};
-use crate::outsource;
 use crate::store;
 use crate::update::release::{older, prerelease, tag_ok};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tehas_core::exit;
+use tehas_core::home::{Home, Live, State};
 
 /// The age after which a health file is not believed.
 pub const MAX_AGE: i64 = 600;
@@ -87,7 +85,7 @@ pub fn print(given: &[String]) -> u8 {
         eprintln!("tehas status: neither TEHAS_HOME nor HOME is set");
         return 1;
     };
-    let file = home.join("live/health.json").display().to_string();
+    let file = Home::new(&home).live(Live::Health).display().to_string();
     let now = tehas_core::time::now();
     if json {
         return answer(&file, now, None, &[]);
@@ -95,7 +93,7 @@ pub fn print(given: &[String]) -> u8 {
     let every = tehas_ops::poll_timer::user_units()
         .and_then(|units| tehas_ops::poll_timer::written(&units));
     let poll = with_interval(poll_line(&home), every);
-    let product = home.join("state/check-product.json");
+    let product = Home::new(&home).state(State::CheckProduct);
     let mut ends = host_lines(&home, now);
     ends.extend(end_lines(&tehas_core::end_fault::all(&home), now));
     answer(&file, now, Some((&poll, product.to_str())), &ends)
@@ -211,19 +209,10 @@ fn answer(file: &str, now: i64, lines: Option<(&str, Option<&str>)>, ends: &[Str
         }
     };
     let stale = stale(&health, now);
-    let hands = fs::read_to_string(beside(file, outsource::LIVE_FILE))
-        .ok()
-        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
-        .filter(|v| v["contractors"].is_array());
     match lines {
         Some((poll, product)) => {
             let mut lines = state_lines(&health, now, stale, poll);
-            lines.extend(
-                cycles(&health)
-                    .iter()
-                    .map(|c| cycle_line(c, now) + &built_where(c, hands.as_ref())),
-            );
-            lines.extend(hands.as_ref().map(|h| outsource::status_line(&h["counts"])));
+            lines.extend(cycles(&health).iter().map(|c| cycle_line(c, now)));
             lines.extend(ends.iter().cloned());
             lines.extend(plan_lines(&health, now));
             lines.push(slice_line(&health, now));
@@ -235,20 +224,11 @@ fn answer(file: &str, now: i64, lines: Option<(&str, Option<&str>)>, ends: &[Str
         }
         None => {
             let mut said = status_json(&health, now, stale);
-            let list = fs::read_to_string(beside(file, "protolab.json"))
-                .ok()
-                .and_then(|t| J::parse(&t));
-            if let (J::Obj(o), Some(p)) = (&mut said, list.as_ref().and_then(prototypes)) {
-                o.push(("prototypes".to_string(), p));
-            }
             let shown = fs::read_to_string(beside(file, "previews.json"))
                 .ok()
                 .and_then(|t| J::parse(&t));
             if let (J::Obj(o), Some(p)) = (&mut said, shown.as_ref().and_then(previews)) {
                 o.push(("previews".to_string(), p));
-            }
-            if let (J::Obj(o), Some(c)) = (&mut said, hands.as_ref().and_then(contractors)) {
-                o.push(("contractors".to_string(), c));
             }
             tehas_core::outln!("{}", said.dump())
         }
@@ -260,52 +240,13 @@ fn answer(file: &str, now: i64, lines: Option<(&str, Option<&str>)>, ends: &[Str
     }
 }
 
-/// A file of live/ beside the health file: live/protolab.json for
+/// A file of live/ beside the health file: live/previews.json for
 /// live/health.json, and so for a sample's <name>.health.json.
 fn beside(file: &str, name: &str) -> String {
     match file.strip_suffix("health.json") {
         Some(stem) => format!("{stem}{name}"),
         None => Path::new(file).with_file_name(name).display().to_string(),
     }
-}
-
-/// Where a running cycle is built, when live/contractors.json is there, which
-/// it is only with outsource on: on the contractor whose job is the issue's,
-/// or in-house.
-fn built_where(c: &J, hands: Option<&serde_json::Value>) -> String {
-    let (Some(hands), true) = (hands, c.get("running").truthy()) else {
-        return String::new();
-    };
-    let issue = c.get("issue").as_f64().unwrap_or_default() as i64;
-    match outsource::contractor_on(hands, issue) {
-        Some(name) => format!(", outsourced to {}", oneline(name)),
-        None => ", in-house".to_string(),
-    }
-}
-
-/// The `contractors` of the object: the counts of live/contractors.json and
-/// its list as `list`.
-pub fn contractors(hands: &serde_json::Value) -> Option<J> {
-    let counts = hands["counts"].as_object()?;
-    let of = |v: &serde_json::Value| J::parse(&v.to_string()).unwrap_or(J::Null);
-    let mut fields: Vec<(String, J)> = outsource::COUNTED
-        .iter()
-        .map(|w| Some((w.to_string(), J::int(counts.get(*w)?.as_i64()?))))
-        .collect::<Option<_>>()?;
-    let list = hands["contractors"]
-        .as_array()?
-        .iter()
-        .map(|c| {
-            let kept: Vec<(String, J)> = outsource::SHOWN
-                .iter()
-                .filter(|k| !c[**k].is_null())
-                .map(|k| (k.to_string(), of(&c[*k])))
-                .collect();
-            J::Obj(kept)
-        })
-        .collect();
-    fields.push(("list".to_string(), J::Arr(list)));
-    Some(J::Obj(fields))
 }
 
 /// Older than the rule, or written at a time that cannot be read.
@@ -372,7 +313,7 @@ fn oneline_of(v: &J) -> String {
 }
 
 /// The factory line, the poll line, the queue, each switch that holds the
-/// factory, the limit, a held refresh and all-hands.
+/// factory, the limit and a held refresh.
 pub fn state_lines(h: &J, now: i64, stale: bool, poll: &str) -> Vec<String> {
     let mut lines = Vec::new();
     let output = h.get("output").text_or_empty();
@@ -487,12 +428,6 @@ pub fn state_lines(h: &J, now: i64, stale: bool, poll: &str) -> Vec<String> {
             "blocked   by the label alone, no blockers named: {}. Each waits until an allowed account comments a `<!-- tehas:blocked by=N -->` marker on it or a person takes tehas:blocked off",
             list.join(", ")
         ));
-    }
-    if checks.get("allHands").is_true() {
-        lines.push(
-            "all-hands tehas:all-hands is on the control issue, applied by an allowed account"
-                .to_string(),
-        );
     }
     lines
 }
@@ -894,10 +829,20 @@ pub fn status_json(h: &J, now: i64, stale: bool) -> J {
         .items()
         .iter()
         .map(|c| {
-            let mut f = vec![
-                ("issue", c.get("issue").clone()),
-                ("since", c.get("startedAt").clone()),
-            ];
+            let mut f = vec![("issue", c.get("issue").clone())];
+            let part = |k: &str| c.get(k).as_f64().filter(|n| n.fract() == 0.0);
+            if let Some(id) = part("issue")
+                .zip(part("attempt"))
+                .and_then(|(i, a)| crate::history::cycle_id(i as i64, a as i64))
+            {
+                f.push(("cycle", J::Str(id)));
+            }
+            f.push(("since", c.get("startedAt").clone()));
+            for k in ["how", "by"] {
+                if matches!(c.get(k), J::Str(_)) {
+                    f.push((k, c.get(k).clone()));
+                }
+            }
             // Where the step is, each only when known. Driver-specific, so it
             // is one object the contract marks "may change".
             let mut p = Vec::new();
@@ -1020,7 +965,6 @@ pub fn status_json(h: &J, now: i64, stale: bool) -> J {
                 ("label", J::Bool(label || lifted)),
             ]),
         ),
-        ("allHands", checks.get("allHands").clone()),
         // The fault of a sandbox that cannot push, as health read it off the
         // host's file: the panel asks the same question of it as of `limit`.
         ("pushFault", checks.get("pushFault").clone()),
@@ -1034,9 +978,7 @@ pub fn status_json(h: &J, now: i64, stale: bool) -> J {
         ("room", room),
         ("versions", versions(checks)),
     ];
-    fields.retain(|(k, v)| {
-        !matches!(*k, "allHands" | "limit" | "order" | "pushFault") || !v.is_null()
-    });
+    fields.retain(|(k, v)| !matches!(*k, "limit" | "order" | "pushFault") || !v.is_null());
     // A read-only instance (#608) says so; any other leaves the key out.
     if checks.get("readOnly").is_true() {
         fields.push(("readOnly", J::Bool(true)));
@@ -1054,32 +996,6 @@ pub fn status_json(h: &J, now: i64, stale: bool) -> J {
         ));
     }
     obj(fields)
-}
-
-/// The tickets with a Protolab page, from the list the Protolab writes beside
-/// the health file: each issue, and when its page was built where that is
-/// known. None when there is no list to read, as on a host without the lab.
-pub fn prototypes(list: &J) -> Option<J> {
-    let J::Arr(tickets) = list.get("tickets") else {
-        return None;
-    };
-    Some(J::Arr(
-        tickets
-            .iter()
-            .filter(|t| {
-                t.get("number")
-                    .as_f64()
-                    .is_some_and(|n| n >= 1.0 && n.fract() == 0.0)
-            })
-            .map(|t| {
-                let mut f = vec![("issue", t.get("number").clone())];
-                if t.get("builtAt").as_str().and_then(epoch).is_some() {
-                    f.push(("builtAt", t.get("builtAt").clone()));
-                }
-                obj(f)
-            })
-            .collect(),
-    ))
 }
 
 /// The previews of the open pull requests, from the list the previews write
@@ -1278,7 +1194,7 @@ mod tests {
           "checks":{"queue":{"inLine":2,"building":0,"review":1,"stopped":0,"paused":true,"time":"2026-10-17T14:00:00Z"},
           "pause":{"flag":{"at":"2026-10-17T13:00:20Z","reason":"a\nb"},"label":true,"lifted":false},
           "limit":{"state":"ok","cycles":1,"plan":false,"reason":"night"},
-          "demand":{"refreshHold":"two in review"},"allHands":true,
+          "demand":{"refreshHold":"two in review"},
           "slice":{"why":"","held":[{"issue":7,"why":"parked","text":"its last cycle parked on `gate`","clear":"edit the body"}]}}}"#,
         );
         assert_eq!(
@@ -1292,7 +1208,6 @@ mod tests {
                 "limit     1 cycle at once, planning off, until cleared: night",
                 "refresh   held: two in review",
                 "held      #7: its last cycle parked on `gate`; edit the body",
-                "all-hands tehas:all-hands is on the control issue, applied by an allowed account",
             ]
         );
         assert_eq!(
@@ -1323,7 +1238,7 @@ mod tests {
     #[test]
     fn stale_lists_and_failed_github_calls_have_their_lines() {
         let health = h(
-            r#"{"status":"warn","output":"x","time":"2026-10-17T14:00:00Z","checks":{"queue":{"time":"2026-10-17T13:40:20Z","inLine":0,"building":0,"review":0,"stopped":0,"stale":["queue","completed"]},"github":{"failed":3,"windowSeconds":600,"lastAt":"2026-10-17T13:59:20Z","last":"ERROR: gh api graphql failed: HTTP 502"}}}"#,
+            r#"{"status":"warn","output":"x","time":"2026-10-17T14:00:00Z","checks":{"queue":{"time":"2026-10-17T13:40:20Z","inLine":0,"building":0,"review":0,"stopped":0,"stale":["queue","completed"]},"github":{"failed":3,"windowSeconds":600,"lastAt":"2026-10-17T13:59:20Z","last":"GitHub failed with a server error"}}}"#,
         );
         let lines = state_lines(&health, NOW, false, "");
         assert_eq!(
@@ -1331,7 +1246,7 @@ mod tests {
             [
                 "queue     0 in line, 0 building, 0 in review, 0 stopped (20 min ago)",
                 "queue     stale: queue and completed kept from an earlier read, GitHub did not answer",
-                "github    3 failed calls in the last 10 min, the last 60 s ago: ERROR: gh api graphql failed: HTTP 502",
+                "github    3 failed calls in the last 10 min, the last 60 s ago: GitHub failed with a server error",
             ]
         );
         let quiet = h(
@@ -1508,14 +1423,14 @@ mod tests {
     #[test]
     fn the_test_variable_is_a_line_and_a_field_only_where_health_says_it() {
         let lab = h(
-            r#"{"status":"warn","output":"A lab build.","time":"2026-10-17T14:00:00Z","checks":{"testFeatures":{"read":true,"features":["outsource","lean",7]}}}"#,
+            r#"{"status":"warn","output":"A lab build.","time":"2026-10-17T14:00:00Z","checks":{"testFeatures":{"read":true,"features":["plugins","lean",7]}}}"#,
         );
         assert_eq!(
             status_json(&lab, NOW, false).get("testFeatures").dump(),
-            r#"{"read":true,"features":["outsource","lean"],"lab":false}"#
+            r#"{"read":true,"features":["plugins","lean"],"lab":false}"#
         );
         assert!(state_lines(&lab, NOW, false, "").contains(
-            &"features  a lab build: TEHAS_TEST_FEATURES names outsource, lean, still being built"
+            &"features  a lab build: TEHAS_TEST_FEATURES names plugins, lean, still being built"
                 .to_string()
         ));
         let release = h(
@@ -1574,16 +1489,19 @@ mod tests {
         );
     }
 
+    /// A running cycle's id, how and by (T11.5), from the health file's
+    /// attempt, how and by; an attempt the file does not hold gives no id,
+    /// and a cycle run by hand no `by`.
     #[test]
-    fn the_prototypes_are_the_tickets_of_the_lab_s_list() {
-        let list = h(
-            r#"{"generatedAt":"2026-10-17T14:00:00Z","tickets":[{"number":7,"builtAt":"2026-10-17T12:00:00Z","files":2},{"number":9},{"number":"x"}]}"#,
-        );
+    fn a_running_cycle_says_its_id_how_and_by() {
+        let health = h(r#"{"status":"pass","checks":{"cycles":[
+              {"issue":12,"startedAt":"2026-10-17T13:50:20Z","attempt":3,"how":"approved","by":"alice"},
+              {"issue":13,"startedAt":"2026-10-17T13:50:20Z","attempt":1,"how":"hand"},
+              {"issue":14,"startedAt":"2026-10-17T13:50:20Z","attempt":"2","how":7}]}}"#);
         assert_eq!(
-            prototypes(&list).unwrap().dump(),
-            r#"[{"issue":7,"builtAt":"2026-10-17T12:00:00Z"},{"issue":9}]"#
+            status_json(&health, NOW, false).get("running").dump(),
+            r#"[{"issue":12,"cycle":"12-3","since":"2026-10-17T13:50:20Z","how":"approved","by":"alice"},{"issue":13,"cycle":"13-1","since":"2026-10-17T13:50:20Z","how":"hand"},{"issue":14,"since":"2026-10-17T13:50:20Z"}]"#
         );
-        assert!(prototypes(&h("{}")).is_none());
     }
 
     #[test]
@@ -1602,24 +1520,5 @@ mod tests {
         );
         assert_eq!(previews(&h(r#"{"previews":[]}"#)).unwrap().dump(), "[]");
         assert!(previews(&h("{}")).is_none());
-    }
-
-    #[test]
-    fn with_the_contractors_file_a_running_cycle_says_where_it_is_built() {
-        let hands = serde_json::json!({"counts": {"idle": 1, "working": 1, "stopping": 0, "silent": 0,
-                                                  "resting": 0, "draining": 0, "revoked": 0, "outsourced": 1},
-            "contractors": [{"name": "box1", "status": "working", "issue": 12, "jobsDone": 0, "jobsLost": 0}]});
-        let on = h(r#"{"issue":12,"running":true}"#);
-        let home = h(r#"{"issue":13,"running":true}"#);
-        let ended = h(r#"{"issue":12,"running":false}"#);
-        assert_eq!(built_where(&on, Some(&hands)), ", outsourced to box1");
-        assert_eq!(built_where(&home, Some(&hands)), ", in-house");
-        assert_eq!(built_where(&ended, Some(&hands)), "");
-        assert_eq!(built_where(&on, None), "");
-        assert_eq!(
-            contractors(&hands).unwrap().dump(),
-            r#"{"idle":1,"working":1,"stopping":0,"silent":0,"resting":0,"draining":0,"revoked":0,"outsourced":1,"list":[{"name":"box1","status":"working","issue":12,"jobsDone":0,"jobsLost":0}]}"#
-        );
-        assert!(contractors(&serde_json::json!({})).is_none());
     }
 }

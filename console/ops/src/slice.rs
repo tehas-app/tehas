@@ -2,7 +2,7 @@
 //! same the commands that start a container ask through `tehas-cycle sandbox`.
 //! Every verb only reads, and both outside calls run under `timeout` so a
 //! silent one cannot block a command. No verb has a caller on a host:
-//! test/slice_test.sh reaches the rules through them.
+//! console/tests/slice.rs reaches the rules through them.
 //!
 //!   console slice ok
 //!

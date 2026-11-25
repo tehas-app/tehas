@@ -18,12 +18,14 @@ case "$*" in
   "issue list"*) echo "[]" ;;
   "issue view"*) echo "" ;;
   "api repos/"*) echo "[]" ;;
+  "api graphql"*"filterBy: {states: [CLOSED], since: "*) echo "{\"data\":{\"repository\":{\"databaseId\":7001,\"issues\":{\"pageInfo\":{\"hasNextPage\":false,\"endCursor\":null},\"nodes\":[]}}}}" ;;
   "api graphql"*subIssues*) echo "{\"data\":{\"repository\":{\"issues\":{\"nodes\":[]}}}}" ;;
   "api graphql"*) echo "{\"data\":{\"search\":{\"nodes\":[]}}}" ;;
 esac"#;
 
-/// A report with every key the program prints, the optional planned and
-/// energy among them, and two it never prints: neither reaches the page.
+/// A report with every key the program prints, the optional planned among
+/// them, the energy a 1.4 program printed, and two it never prints: none of
+/// those three reaches the page.
 const REPORT: &str = r#"{"report":1,"from":1792022400,"to":1792843200,"shipped":{"n":3},
  "planned":{"n":6,"inLine":5,"planning":1,"trend":[]},
  "runs":{"n":6,"pr":1,"merged":1,"handoff":1,"parked":0,"failed":2,"refused":1,"stopped":0},
@@ -46,7 +48,7 @@ const REPORT: &str = r#"{"report":1,"from":1792022400,"to":1792843200,"shipped":
 /// The report of the snapshot and counts cases.
 const SMALL: &str = "{\"report\":1,\"from\":1,\"to\":2}\n";
 
-const KEYS: &str = "availability,cycleTime,daily,energy,firstPassYield,from,handoffRate,leadTime,machineTime,planned,planningTurns,refine,report,runs,shipped,stations,stopReasons,to,tokens,versions";
+const KEYS: &str = "availability,cycleTime,daily,firstPassYield,from,handoffRate,leadTime,machineTime,planned,planningTurns,refine,report,runs,shipped,stations,stopReasons,to,tokens,versions";
 
 const SESSIONS: &str = "{\"api\":1,\"days\":30,\"generatedAt\":\"2026-10-21T00:00:00Z\",\"sessions\":1}\n{\"id\":\"a\"}\n";
 
@@ -212,6 +214,7 @@ fn the_report_is_asked_for_after_the_runs_events_so_it_holds_them() {
   "issue list"*) echo "[]" ;;
   "issue view"*) echo "" ;;
   "api repos/"*) echo "[]" ;;
+  "api graphql"*"filterBy: {states: [CLOSED], since: "*) echo "{\"data\":{\"repository\":{\"databaseId\":7001,\"issues\":{\"pageInfo\":{\"hasNextPage\":false,\"endCursor\":null},\"nodes\":[]}}}}" ;;
   "api graphql"*subIssues*) echo "{\"data\":{\"repository\":{\"issues\":{\"nodes\":[]}}}}" ;;
   "api graphql"*) echo "{\"data\":{\"search\":{\"nodes\":[]}}}" ;;
 esac"#,

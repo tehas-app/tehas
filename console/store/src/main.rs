@@ -3,7 +3,7 @@
 //! database. `docs/specs/2026-10-21-state-store.md` is the design; section 3
 //! is the schema (src/schema.sql) and section 4 this command.
 //!
-//!   store init [--force] [--outsource] [--version <v>] [--commit <sha>]
+//!   store init [--force] [--version <v>] [--commit <sha>]
 //!                [--instance <name>] [--repo <owner/name>] [--json]
 //!     Makes the database: schema v2 in an empty file and PRAGMA
 //!     user_version 2, and the row of meta that says when it was made, by
@@ -17,12 +17,7 @@
 //!     Answers
 //!     {"api":1,"verb":"init","ok":true,"schema":2,"created":true}, or
 //!     "created":false with --force over a file the store then filled.
-//!     --outsource turns the outsource feature on. The store reads no setting
-//!     of a host, so the command that loaded the instance's settings says
-//!     whether TEHAS_OUTSOURCE is 1, and the store keeps the word in meta.
-//!     The five tables are laid either way; without the flag the verbs of
-//!     outsource.rs answer `refused` and write nothing.
-//!   store migrate --backup <dir> [--outsource] [--json]
+//!   store migrate --backup <dir> [--json]
 //!     Backs the database up and then brings it forward, in that order: a
 //!     consistent copy of the store as it stands is written to
 //!     <dir>/tehas-<to>-<time>.db with VACUUM INTO before a byte of the store is
@@ -70,7 +65,8 @@
 //!
 //!   store cycle-start <issue> [--rukas <commit>] [--by-hand]
 //!   store cycle-image <issue> --attempt N --image <id> [--rukas <commit>] [--settings <file>]
-//!   store cycle-end <issue> --attempt N --status <word> [...] | --refused | --stopped
+//!   store cycle-end <issue> --attempt N --status <word> [...] [--signalled]
+//!                | --refused [--rc N] | --stopped | --lost
 //!   store cycle-show <issue> | --running
 //!   store settings-view <issue> [--attempt N]
 //!   store cycle-note <issue> --kind quiet --said-for <key>
@@ -94,13 +90,21 @@
 //!   store park-retry <issue>
 //!   store park-told <issue>
 //!   store question-asked <issue> --id <id> --kind park|plan [--attempt N] [--body-sha <sha256>]
+//!                [--offers <choice>,...]   (a park's: retry, retry-text, park)
 //!   store question-known <issue> --id <id>
+//!   store question-adopt <issue> --id <id> --posted-sha <sha256> [--body-sha <sha256>]
 //!   store question-answered <issue> --id <id> --by <account> | --withdraw
+//!   store answer-record <issue> --by <account> --choice <choice> [--option N]
+//!                [--text-file <file>]
+//!                (park: retry, retry-text, park; plan: option with --option,
+//!                update, end, text with --text-file)
+//!   store answer-drop <issue> --id <id>
+//!   store question-show <issue>
+//!   store question-list [--after <id>]
 //!   store approval-record <issue> --at <unix> --by <account> --how <how> ...
 //!                [--input-file <file>] | --undo --at <unix>
-//!                (the hows are label, refresh, retry-tick, outage-retry,
-//!                millwright and host; the old `fixer` is taken too, and is
-//!                written as `millwright` until the shell stops sending it)
+//!                (the hows are approved, refresh, outage-retry, answer, reply,
+//!                millwright and host)
 //!   store approval-current <issue>
 //!   store approval-hosts
 //!   store approval-view <issue> [--attempt N]
@@ -110,8 +114,6 @@
 //!                | --turn N --undo
 //!   store plan-end <issue> --turn N --outcome <o> [...] | --posted | --close
 //!   store plan-note <issue> --kind millwright-refused|held --id <id>
-//!                (the old `fixer-refused` is taken too, and is written as
-//!                `millwright-refused`)
 //!   store plan-show <issue> | --open
 //!   store plan-view <issue> [--open]
 //!   store history-show [<issue>] [--kind cycle|plan] [--how <how>]
@@ -137,16 +139,12 @@
 //!   store poll-idle --since <seconds> [--budget <spec>]
 //!                (what each poll cost, and the cost of the idle ones: src/poll.rs)
 //!   store poll-begin
-//!   store review-issue <path> <branch> <commit>
-//!                (the review issue's title and body, masked, and the count of
-//!                its findings, from the document of one review run:
-//!                tehas_core::review, src/review_issue.rs)
-//!   store review-file --repo <owner/name> --doc <path> --branch <b> --commit <sha>
-//!                [--ask <line>] [--private <name>]... [--gh <program>]
-//!                (the filing of one run: the render above and the GitHub
-//!                calls that go with it, src/review_issue.rs)
+//!   store link-record <blueprint> --ticket <key> --by <account>
+//!                --realm code-host|tickets (--how opened|linked | --remove)
+//!                (the link of a ticket to a blueprint: src/link.rs)
 //!   store journal-record --poll <at> --kind <kind> --issue <n> --args <json>
 //!                --before <at>
+//!   store journal-record --poll <at> --write <json> --args <json> --before <at>
 //!   store journal-attempt --action N
 //!   store journal-settle --action N (--result <result> | --abandoned)
 //!                [--evidence <json>]

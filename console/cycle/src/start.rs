@@ -18,7 +18,6 @@
 //! approval of the issue's latest start counts, and none is a run by hand.
 
 use crate::host;
-use crate::runner;
 use serde_json::Value;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -29,6 +28,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tehas_core::approval::{self, Refusal};
 use tehas_core::call;
 use tehas_core::driver::Driver;
+use tehas_core::home::{Home, State};
 use tehas_core::text::disarm;
 
 /// `[1-9][0-9]{0,8}`: an attempt as the store gives it.
@@ -135,7 +135,7 @@ fn read_record(home: &Path, issue: &str, attempt: &str) -> (Option<PathBuf>, &'s
 
 pub fn record_value(file: &Path) -> Option<Value> {
     let text = fs::read_to_string(file).ok()?;
-    runner::values(&text)?.pop()
+    crate::loose::values::<Value>(&text)?.pop()
 }
 
 pub fn is_record(p: &str) -> bool {
@@ -255,7 +255,7 @@ fn held(t: &Text, answer: &[u8]) -> Result<Value, (String, bool)> {
         )
     };
     let text = String::from_utf8_lossy(answer);
-    let mut values = runner::values(&text).ok_or_else(unread)?;
+    let mut values = crate::loose::values::<Value>(&text).ok_or_else(unread)?;
     if values.len() != 1 {
         return Err(unread());
     }
@@ -289,8 +289,8 @@ fn held(t: &Text, answer: &[u8]) -> Result<Value, (String, bool)> {
 /// line on the error stream: the measure is a record of the start, never a
 /// reason to stop one.
 fn measure(home: &Path, t: &Text, issue: &Value) {
-    let ledger = home.join("state/sizes.jsonl");
-    let _ = fs::create_dir_all(home.join("state"));
+    let ledger = Home::new(home).state(State::Sizes);
+    let _ = fs::create_dir_all(Home::new(home).state_dir());
     let body = issue.get("body").and_then(Value::as_str).unwrap_or("");
     let input = format!("{}\n", body.trim_end_matches('\n'));
     let args = vec![
@@ -316,7 +316,7 @@ fn measure(home: &Path, t: &Text, issue: &Value) {
 
 /// The words of that comment. `why` can quote an issue, a comment or a
 /// record, so a marker in it is broken (tehas_core::text::disarm).
-pub fn no_cycle_body(why: &str) -> String {
+fn no_cycle_body(why: &str) -> String {
     format!(
         "Tehas started no cycle: {}. To retry, apply `tehas:ready`.",
         disarm(why)

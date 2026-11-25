@@ -16,7 +16,9 @@
 //! binary or its image changed. Without `TEHAS_EGRESS=1` nothing here runs and
 //! a container has Docker's default bridge, as before.
 
+use crate::home::{Home, State};
 use crate::hostnet;
+use crate::lock::Held;
 use crate::models::ModelFile;
 use crate::sandbox;
 use std::fs;
@@ -93,8 +95,7 @@ pub fn host_pair(word: &str) -> Option<String> {
 }
 
 /// The pairs of the factory's list, sorted and each once: the base and the
-/// words of <extra>, which is `TEHAS_EGRESS_HOSTS`. No model endpoint: the
-/// outsource tunnel takes this list, and model traffic stays on its route.
+/// words of <extra>, which is `TEHAS_EGRESS_HOSTS`. No model endpoint.
 pub fn listed(extra: &str) -> Vec<String> {
     let mut pairs: Vec<String> = BASE.iter().map(|h| format!("{h}:443")).collect();
     pairs.extend(extra.split_whitespace().filter_map(host_pair));
@@ -356,22 +357,26 @@ fn bounded(program: &str, args: &[String], wait: Duration) -> Option<String> {
         .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
-/// Take <file>'s lock within <wait>, or say that it is still held.
-fn lock_within(file: &fs::File, path: &str, wait: Duration) -> Result<(), String> {
+/// Take <file>'s lock within <wait>, held until the value drops, or say that
+/// it is still held.
+fn lock_within(mut file: fs::File, path: &str, wait: Duration) -> Result<Held, String> {
     let began = Instant::now();
     loop {
-        match file.try_lock() {
-            Ok(()) => return Ok(()),
-            Err(fs::TryLockError::WouldBlock) if began.elapsed() < wait => {
+        match Held::try_take(file) {
+            Ok(held) => return Ok(held),
+            Err((fs::TryLockError::WouldBlock, back)) if began.elapsed() < wait => {
+                file = back;
                 std::thread::sleep(Duration::from_millis(200));
             }
-            Err(fs::TryLockError::WouldBlock) => {
+            Err((fs::TryLockError::WouldBlock, _)) => {
                 return Err(format!(
                     "{path} is still held after {}s: another start is making the proxy",
                     wait.as_secs()
                 ))
             }
-            Err(fs::TryLockError::Error(e)) => return Err(format!("could not lock {path}: {e}")),
+            Err((fs::TryLockError::Error(e), _)) => {
+                return Err(format!("could not lock {path}: {e}"))
+            }
         }
     }
 }
@@ -404,14 +409,17 @@ pub fn ensure(aliases: &str) -> Result<(), String> {
         ),
         binary,
     };
-    let path = format!("{home}/state/egress.lock");
+    let path = Home::new(&home)
+        .state(State::EgressLock)
+        .display()
+        .to_string();
     let lock = fs::OpenOptions::new()
         .create(true)
         .truncate(false)
         .write(true)
         .open(&path)
         .map_err(|e| format!("could not open {path}: {e}"))?;
-    lock_within(&lock, &path, LOCK_WAIT)?;
+    let _held = lock_within(lock, &path, LOCK_WAIT)?;
     ensure_with(&mut docker, &run)
 }
 
@@ -445,14 +453,12 @@ mod tests {
                 .open(&path)
                 .unwrap()
         };
-        let held = open();
-        held.lock().unwrap();
-        let other = open();
+        let held = Held::take(open()).unwrap();
         let name = path.to_string_lossy();
-        let why = lock_within(&other, &name, Duration::from_millis(500)).unwrap_err();
+        let why = lock_within(open(), &name, Duration::from_millis(500)).unwrap_err();
         assert!(why.contains("is still held after 0s"), "{why}");
         drop(held);
-        assert_eq!(lock_within(&other, &name, Duration::from_secs(5)), Ok(()));
+        assert!(lock_within(open(), &name, Duration::from_secs(5)).is_ok());
     }
 
     fn run() -> Run {

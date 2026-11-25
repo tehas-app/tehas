@@ -3,12 +3,12 @@
 //! is left of `tehas_require` is whether the name is set: a command that needs
 //! a setting stops with 78 before it does anything else.
 
+use crate::home::{Home, State};
 use std::env;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-pub mod carried;
 pub mod load;
 pub mod renamed;
 pub mod rules;
@@ -74,7 +74,7 @@ pub fn edge_suffix(domain: &str, one_level: bool) -> String {
     }
 }
 
-/// The public name of an edge label (`uat-12`, `uat-main`, `lab-7`, `lab`).
+/// The public name of an edge label (`uat-12`, `uat-main`, `item-7`, `lab`).
 pub fn edge_name(label: &str, domain: &str, one_level: bool) -> String {
     format!("{label}{}", edge_suffix(domain, one_level))
 }
@@ -90,7 +90,7 @@ pub fn login_of(text: &[u8]) -> Option<String> {
 /// The login of the app the factory acts as, which the lookup of the app's
 /// installation wrote under `home`; None before it has.
 pub fn bot_login(home: &Path) -> Option<String> {
-    login_of(&std::fs::read(home.join("state/github/login")).ok()?)
+    login_of(&std::fs::read(Home::new(home).state(State::BotLogin)).ok()?)
 }
 
 /// tehas_checkout: the product checkout is a clone of TEHAS_REPO. Err is the
@@ -216,8 +216,8 @@ mod tests {
             "uat-12-demo.example.org"
         );
         assert_eq!(
-            edge_name("lab", "demo.example.org", true),
-            "lab-demo.example.org"
+            edge_name("item-7", "demo.example.org", true),
+            "item-7-demo.example.org"
         );
         assert_eq!(
             edge_name("uat-main", "demo.example.org", false),

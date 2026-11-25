@@ -20,8 +20,7 @@ retry or a refresh uses it up, as a start from it does. A tehas:ready on
 the issue comes off when the host's approval starts it.
 
 The start comment, `tehas history` and `tehas status` say the cycle was started
-from the host. The millwright may retry a cycle the host started, as it may
-one a person's label started.
+from the host.
 
 Usage:
   tehas start <issue>           approve the issue for the next poll

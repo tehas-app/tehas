@@ -25,7 +25,7 @@
 //! Exit: the command's, a part's its own; 64 a command this does not know
 //! and no part has; 1 a part that could not be run.
 
-use crate::{commands, energy, run};
+use crate::{commands, run};
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::os::unix::process::CommandExt;
@@ -51,8 +51,6 @@ enum Go {
     Verb,
     /// `console run`: the words under the settings.
     Run,
-    /// `console energy` with the words after the first.
-    Energy,
 }
 
 /// The commands of `tehas` that run a script in libexec.
@@ -68,7 +66,7 @@ fn script(which: &str, command: &str) -> Option<&'static str> {
 
 /// The verbs of `tehas`. work and index are tehas-cycle's, which takes their
 /// lock (src/run.rs).
-const VERBS: [&str; 36] = [
+const VERBS: [&str; 34] = [
     "work",
     "index",
     "dispatch",
@@ -81,7 +79,6 @@ const VERBS: [&str; 36] = [
     "limit",
     "order",
     "start",
-    "panel",
     "host-message",
     "pause",
     "analytics",
@@ -99,12 +96,11 @@ const VERBS: [&str; 36] = [
     "init-product",
     "refresh",
     "github",
-    "outsource",
-    "prototype",
     "plugin",
     "wake",
     "blockers",
-    "wiki",
+    "answer",
+    "question",
 ];
 
 fn tehas(words: &[String]) -> Go {
@@ -140,13 +136,11 @@ fn tehasbot(words: &[String]) -> Go {
     match words.first().map(String::as_str) {
         None | Some("help" | "-h" | "--help") => Go::Usage,
         Some(
-            "health" | "status" | "top" | "refresh" | "clean" | "preview" | "protolab" | "dispatch"
-            | "review" | "github-token" | "cycle" | "outsource-proxy" | "plugin" | "plugin-gate"
-            | "wiki",
+            "health" | "status" | "refresh" | "clean" | "preview" | "dispatch" | "github-token"
+            | "cycle" | "plugin" | "plugin-gate",
         ) => Go::Run,
         Some("mcp") if words.get(1).map(String::as_str) == Some("serve") => Go::Run,
         Some("mcp" | "github-writes") => Go::Verb,
-        Some("energy") => Go::Energy,
         Some(c) => script("tehasbot", c).map_or_else(|| Go::Unknown(c.to_string()), Go::Script),
     }
 }
@@ -258,7 +252,6 @@ pub fn main(given: &[OsString]) -> u8 {
             return 64;
         }
     };
-    let rest = || words.get(1..).unwrap_or_default();
     match go {
         Go::Usage if which == "tehas" => {
             say(&usage_with_parts(libexec));
@@ -281,7 +274,6 @@ pub fn main(given: &[OsString]) -> u8 {
         }
         Go::Verb if which == "tehas" => commands::tehas(words),
         Go::Verb => commands::tehasbot(words),
-        Go::Energy => energy::main(rest()),
         Go::Run => {
             let text = given.iter().all(|w| w.to_str().is_some());
             run::main(&as_run(lossy), text)
@@ -322,7 +314,7 @@ mod tests {
         assert_eq!(t(&["plugin", "check", "."]), Go::Verb);
         assert_eq!(t(&["plugin", "review", "floorplan"]), Go::Run);
         assert_eq!(t(&["plugin"]), Go::Run);
-        for c in ["dispatch", "review", "github-token"] {
+        for c in ["dispatch", "github-token"] {
             assert_eq!(b(&[c]), Go::Run, "{c}");
         }
         for c in [
@@ -358,7 +350,8 @@ mod tests {
             "limit",
             "order",
             "start",
-            "panel",
+            "answer",
+            "question",
             "host-message",
             "pause",
             "analytics",
@@ -425,13 +418,10 @@ mod tests {
         for c in [
             "health",
             "status",
-            "top",
             "refresh",
             "clean",
             "preview",
-            "protolab",
             "dispatch",
-            "review",
             "github-token",
             "cycle",
         ] {
@@ -439,18 +429,30 @@ mod tests {
         }
         // The improvement loop is gone, and so is its command.
         assert_eq!(b(&["improve"]), Go::Unknown("improve".into()));
+        // The review loop, the product wiki and the host panel's publisher
+        // left core in 2.0.
+        assert_eq!(b(&["review"]), Go::Unknown("review".into()));
+        assert_eq!(b(&["top"]), Go::Unknown("top".into()));
+        assert_eq!(t(&["wiki"]), Go::Unknown("wiki".into()));
+        assert_eq!(b(&["wiki"]), Go::Unknown("wiki".into()));
+        // The Protolab is parked (docs/specs/parked-protolab.md), and so is its command.
+        assert_eq!(b(&["protolab"]), Go::Unknown("protolab".into()));
         assert_eq!(b(&["mcp", "serve"]), Go::Run);
-        assert_eq!(b(&["outsource-proxy"]), Go::Run);
         assert_eq!(b(&["plugin", "tick"]), Go::Run);
         assert_eq!(b(&["plugin-gate"]), Go::Run);
         assert_eq!(t(&["plugin-gate"]), Go::Unknown("plugin-gate".into()));
+        // Outsource was dropped in 2.0.
+        assert_eq!(t(&["outsource"]), Go::Unknown("outsource".into()));
         assert_eq!(
-            t(&["outsource-proxy"]),
+            b(&["outsource-proxy"]),
             Go::Unknown("outsource-proxy".into())
         );
         assert_eq!(b(&["mcp", "key"]), Go::Verb);
         assert_eq!(b(&["github-writes"]), Go::Verb);
-        assert_eq!(b(&["energy", "--every"]), Go::Energy);
+        // Energy use left core in 2.0, and so did its sampler.
+        assert_eq!(b(&["energy", "--every"]), Go::Unknown("energy".into()));
+        // Panels left core in 2.0, and so did their command.
+        assert_eq!(t(&["panel"]), Go::Unknown("panel".into()));
         for w in [&[][..], &["help"], &["-h"], &["--help"]] {
             assert_eq!(b(w), Go::Usage, "{w:?}");
         }
@@ -817,15 +819,7 @@ mod tests {
             marked.push((r.command.as_str(), name));
         }
         marked.dedup();
-        assert_eq!(
-            marked,
-            [
-                ("outsource", "outsource"),
-                ("plugin", "plugins"),
-                ("prototype", "prototype-file"),
-                ("wiki", "wiki")
-            ]
-        );
+        assert_eq!(marked, [("plugin", "plugins")]);
         for (command, name) in marked {
             for r in pinned.iter().filter(|r| r.command == command) {
                 assert_eq!(r.building.as_deref(), Some(name), "{r:?}");
@@ -835,8 +829,9 @@ mod tests {
 
     /// Each public `--json` row of api/commands.txt and the schemas in api/ of
     /// the objects it prints.
-    const JSON_SCHEMAS: [(&str, Option<&str>, &[&str]); 23] = [
+    const JSON_SCHEMAS: [(&str, Option<&str>, &[&str]); 25] = [
         ("analytics", Some("copy"), &["analytics-copy"]),
+        ("answer", None, &["answer"]),
         ("api", None, &["api"]),
         ("blockers", None, &["blockers"]),
         ("disk", None, &["disk", "disk-cycles"]),
@@ -847,10 +842,11 @@ mod tests {
         ("host-message", None, &["host-messages"]),
         ("host-message", Some("list"), &["host-messages"]),
         ("limit", None, &["limit"]),
+        ("limit", Some("set"), &["limit"]),
         ("order", None, &["order"]),
         ("order", Some("clear"), &["order"]),
         ("order", Some("set"), &["order"]),
-        ("panel", None, &["panel"]),
+        ("question", None, &["question", "questions"]),
         ("refresh", None, &["refresh"]),
         ("start", None, &["start"]),
         ("state", Some("check"), &["state-check"]),
@@ -900,7 +896,10 @@ mod tests {
         let mut found = Vec::new();
         for e in fs::read_dir(api).unwrap() {
             let name = e.unwrap().file_name().to_string_lossy().into_owned();
-            if let Some(name) = name.strip_suffix(".schema.json") {
+            // The events' schemas are no command's output: tests/events_contract.rs
+            // holds them.
+            let event = |n: &str| n == "event" || n.starts_with("event-") || n == "gate-answer";
+            if let Some(name) = name.strip_suffix(".schema.json").filter(|n| !event(n)) {
                 found.push(name.to_string());
             }
         }

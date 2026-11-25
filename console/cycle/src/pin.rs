@@ -8,13 +8,14 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use tehas_core::home::Home;
 
 /// The directories of the install a cycle runs from.
-pub const TREES: [&str; 3] = ["bin", "libexec", "lib"];
+const TREES: [&str; 3] = ["bin", "libexec", "lib"];
 
 /// Where the copies are, under the home.
-pub fn run_dir(home: &Path) -> PathBuf {
-    home.join("run")
+fn run_dir(home: &Path) -> PathBuf {
+    Home::new(home).code_copies()
 }
 
 /// What runs from a copy: a cycle or a planning turn.
@@ -133,7 +134,7 @@ mod tests {
     fn the_copy_is_hardlinks_of_the_install() {
         let h = home("links");
         let dir = make(&h, "cycle", 7, 42).unwrap();
-        assert_eq!(dir, h.join("run/cycle-7-42"));
+        assert_eq!(dir, run_dir(&h).join("cycle-7-42"));
         let ino = |p: &Path| fs::metadata(p).unwrap().ino();
         assert_eq!(ino(&h.join("libexec/work")), ino(&dir.join("libexec/work")));
         assert_eq!(ino(&h.join("lib/sub/x.sh")), ino(&dir.join("lib/sub/x.sh")));
@@ -142,7 +143,7 @@ mod tests {
             Path::new("x.sh")
         );
         assert!(!dir.join("libexec/cycle.new").exists());
-        let mode = fs::metadata(h.join("run")).unwrap().mode() & 0o777;
+        let mode = fs::metadata(run_dir(&h)).unwrap().mode() & 0o777;
         assert_eq!(mode, 0o700);
     }
 
@@ -169,16 +170,19 @@ mod tests {
         make(&h, "cycle", 7, 41).unwrap();
         make(&h, "plan", 8, 42).unwrap();
         make(&h, "plan", 9, 43).unwrap();
-        fs::create_dir_all(h.join("run/other")).unwrap();
+        fs::create_dir_all(run_dir(&h).join("other")).unwrap();
         let gone = sweep(&h, |pid| pid == 42);
         let mut gone = gone;
         gone.sort();
         assert_eq!(
             gone,
-            vec![h.join("run/cycle-7-41"), h.join("run/plan-9-43")]
+            vec![
+                run_dir(&h).join("cycle-7-41"),
+                run_dir(&h).join("plan-9-43")
+            ]
         );
-        assert!(h.join("run/plan-8-42").is_dir());
-        assert!(h.join("run/other").is_dir());
+        assert!(run_dir(&h).join("plan-8-42").is_dir());
+        assert!(run_dir(&h).join("other").is_dir());
     }
 
     #[test]
@@ -187,7 +191,7 @@ mod tests {
         fs::remove_dir_all(h.join("lib")).unwrap();
         let e = make(&h, "cycle", 7, 42).unwrap_err();
         assert!(e.contains("lib is not a directory"), "{e}");
-        assert!(!h.join("run/cycle-7-42").exists());
+        assert!(!run_dir(&h).join("cycle-7-42").exists());
     }
 
     #[test]

@@ -31,6 +31,7 @@ use std::fs;
 use std::io::{ErrorKind, Read};
 use std::path::{Path, PathBuf};
 use tehas_core::file::Temp;
+use tehas_core::home::{Home, State};
 
 /// The units install.sh names when a unit file changed: the timers and services
 /// tehas runs, not only the changed one, since an update restarts the ones that
@@ -38,27 +39,36 @@ use tehas_core::file::Temp;
 /// restarted, because that would run its job off schedule; the reload reaches it.
 pub(crate) const UNITS: &[&str] = &[
     "tehas-dispatch.timer",
-    "tehas-energy.service",
-    "tehas-top.service",
     "tehas-mcp.service",
     "tehas-mcp-fetch.socket",
     "tehas-preview.timer",
     "tehas-preview-sweep.timer",
-    "tehas-protolab.timer",
     "tehas-clean.timer",
 ];
 
 /// The programs a long-running unit runs, and that unit.
 const SERVERS: &[(&str, &str)] = &[
     ("tehas-mcp", "tehas-mcp.service"),
-    ("tehas-proxy", "tehas-outsource-proxy.service"),
     ("tehas-plugin-gate", "tehas-plugin-gate.service"),
 ];
 
 /// Units an earlier version named and this one no longer installs. A record
 /// written before the update may still name them on its `units` line; that line
 /// is owed work, not a stranger, so the names are dropped rather than the line.
-pub(crate) const RETIRED_UNITS: &[&str] = &["tehas-refresh.timer", "tehas-improve.timer"];
+pub(crate) const RETIRED_UNITS: &[&str] = &[
+    "tehas-refresh.timer",
+    "tehas-improve.timer",
+    "tehas-review.timer",
+    "tehas-energy.service",
+    "tehas-top.service",
+    "tehas-outsource-proxy.service",
+    "tehas-wiki-status.service",
+    "tehas-wiki-status.timer",
+    "tehas-wiki.service",
+    "tehas-wiki.timer",
+    "tehas-wiki.path",
+    "tehas-protolab.timer",
+];
 
 /// The ids, in the order they run: systemd first, because a unit file is not in
 /// effect until it is reloaded and its unit restarted, and the containers last.
@@ -117,22 +127,8 @@ fn steps_for_in(sources: &[String], get: &dyn Fn(&str) -> String) -> Vec<String>
         .filter(|(program, _)| any(&|s| s.ends_with(&format!("/{program}"))))
         .map(|(_, unit)| *unit)
         .collect();
-    // bin/tehas-energy and the energy and top-publish scripts an older install
-    // left in libexec are loops of before the console: a running one moves on
-    // only when restarted. So is a tehasbot top that still runs the old
-    // with-settings script each mark. A running
-    // service keeps the environment env.sh gave it at its start.
-    if any(&|s| {
-        s.starts_with("systemd/")
-            || matches!(
-                s,
-                "bin/tehas-energy"
-                    | "libexec/energy"
-                    | "libexec/top-publish"
-                    | "libexec/with-settings"
-                    | "env.sh"
-            )
-    }) {
+    // A running service keeps the environment env.sh gave it at its start.
+    if any(&|s| s.starts_with("systemd/") || s == "env.sh") {
         // A feature's unit while the feature is on, as the others. While it
         // is off, only when its own file or its program changed, so the line
         // stays as it was. A service its timer starts is the timer's: the
@@ -231,7 +227,7 @@ pub(crate) fn sorted(lines: &[String]) -> Vec<String> {
 /// changed is spent by the run that made the copies, so without this file a run
 /// that stopped partway would leave the host half updated with nothing owed.
 pub(crate) fn record_file(home: &Path) -> PathBuf {
-    home.join("state/update-pending")
+    Home::new(home).state(State::UpdatePending)
 }
 
 /// The lines of the record, without blank ones. No record is an empty answer. A
@@ -432,18 +428,6 @@ mod tests {
         steps_for_in(&lines(sources), &|_| String::new())
     }
 
-    /// With outsource on, as a test turns a building feature on.
-    fn asked_on(sources: &[&str]) -> Vec<String> {
-        steps_for_in(&lines(sources), &|name| {
-            match name {
-                "TEHAS_OUTSOURCE" => "on",
-                "TEHAS_TEST_FEATURES" => "outsource",
-                _ => "",
-            }
-            .to_string()
-        })
-    }
-
     #[test]
     fn the_changed_sources_ask_for_the_steps_systemd_first() {
         let units = format!("units {}", UNITS.join(" "));
@@ -476,42 +460,10 @@ mod tests {
         );
         assert_eq!(asked(&["libexec/tehas-mcp"]), one);
         assert_eq!(
-            asked(&["systemd/tehas-top.service", "libexec/tehas-mcp"]),
+            asked(&["systemd/tehas-clean.timer", "libexec/tehas-mcp"]),
             [format!("units {}", UNITS.join(" "))]
         );
         assert!(asked(&["libexec/dispatch"]).is_empty());
-    }
-
-    #[test]
-    fn a_new_model_proxy_or_its_unit_restarts_the_proxy_and_the_line_is_unchanged_without_them() {
-        let one = ["units tehas-outsource-proxy.service"];
-        assert_eq!(asked(&["/src/console/target/release/tehas-proxy"]), one);
-        assert_eq!(asked(&["libexec/tehas-proxy"]), one);
-        assert_eq!(
-            asked(&["libexec/tehas-mcp", "libexec/tehas-proxy"]),
-            ["units tehas-mcp.service tehas-outsource-proxy.service"]
-        );
-        let all = format!("units {}", UNITS.join(" "));
-        assert_eq!(asked(&["systemd/tehas-top.service"]), [all.as_str()]);
-        assert_eq!(
-            asked(&[
-                "systemd/tehas-top.service",
-                "systemd/tehas-outsource-proxy.service"
-            ]),
-            [format!("{all} tehas-outsource-proxy.service")]
-        );
-        assert_eq!(
-            asked(&["systemd/tehas-top.service", "libexec/tehas-proxy"]),
-            [format!("{all} tehas-outsource-proxy.service")]
-        );
-        // The contractor program runs on another host: no unit here.
-        assert!(asked(&["libexec/tehas-contractor"]).is_empty());
-        for step in asked(&[
-            "systemd/tehas-outsource-proxy.service",
-            "libexec/tehas-proxy",
-        ]) {
-            assert!(valid(&step), "{step}");
-        }
     }
 
     #[test]
@@ -521,7 +473,7 @@ mod tests {
         let all = format!("units {}", UNITS.join(" "));
         assert_eq!(
             asked(&[
-                "systemd/tehas-top.service",
+                "systemd/tehas-clean.timer",
                 "systemd/tehas-plugin-gate.service"
             ]),
             [format!("{all} tehas-plugin-gate.service")]
@@ -547,73 +499,11 @@ mod tests {
     }
 
     #[test]
-    fn the_loops_of_before_and_env_sh_ask_for_the_units() {
-        for source in [
-            "bin/tehas-energy",
-            "libexec/energy",
-            "libexec/top-publish",
-            "libexec/with-settings",
-            "env.sh",
-        ] {
-            assert_eq!(
-                asked(&[source]),
-                [format!("units {}", UNITS.join(" "))],
-                "{source}"
-            );
-        }
-    }
-
-    #[test]
-    fn with_outsource_on_env_sh_and_the_unit_files_restart_the_proxy_too() {
-        let all = format!("units {}", UNITS.join(" "));
-        let with_proxy = format!("{all} tehas-outsource-proxy.service");
-        for source in [
-            "env.sh",
-            "systemd/tehas-top.service",
-            "libexec/with-settings",
-        ] {
-            assert_eq!(asked_on(&[source]), [with_proxy.as_str()], "{source}");
-            assert_eq!(asked(&[source]), [all.as_str()], "{source}");
-        }
-        assert_eq!(
-            asked_on(&["libexec/tehas-proxy"]),
-            ["units tehas-outsource-proxy.service"]
-        );
-        assert!(asked_on(&["libexec/dispatch"]).is_empty());
-        assert!(valid(&with_proxy));
-    }
-
-    #[test]
-    fn the_review_timer_stands_for_its_service_in_the_units_step() {
-        let on = |name: &str| {
-            match name {
-                "TEHAS_REVIEW" => "on",
-                "TEHAS_TEST_FEATURES" => "review",
-                _ => "",
-            }
-            .to_string()
-        };
-        let all = format!("units {}", UNITS.join(" "));
-        assert!(!UNITS.contains(&"tehas-review.timer"));
-        assert_eq!(asked(&["env.sh"]), [all.as_str()]);
-        let with_timer = format!("{all} tehas-review.timer");
-        assert_eq!(
-            steps_for_in(&lines(&["env.sh"]), &on),
-            [with_timer.as_str()]
-        );
-        assert_eq!(
-            steps_for_in(
-                &lines(&["systemd/tehas-review.service", "systemd/tehas-review.timer"]),
-                &on
-            ),
-            [with_timer.as_str()]
-        );
-        // Off, a change to either file restarts the timer where it runs.
-        for file in ["systemd/tehas-review.service", "systemd/tehas-review.timer"] {
-            assert_eq!(asked(&[file]), [with_timer.as_str()], "{file}");
-        }
-        // A line an older version recorded with the timer still runs.
-        assert!(valid(&with_timer));
+    fn env_sh_asks_for_the_units_and_the_loops_of_before_do_not() {
+        assert_eq!(asked(&["env.sh"]), [format!("units {}", UNITS.join(" "))]);
+        // The host panel's publisher and its loops left core in 2.0, and its
+        // unit is retired.
+        assert!(asked(&["libexec/top-publish", "libexec/with-settings"]).is_empty());
     }
 
     #[test]
@@ -651,7 +541,7 @@ mod tests {
             }
         };
         let all = format!("units {}", UNITS.join(" "));
-        for source in ["env.sh", "systemd/tehas-top.service"] {
+        for source in ["env.sh", "systemd/tehas-clean.timer"] {
             assert_eq!(steps_for_in(&lines(&[source]), &get), [all.as_str()]);
         }
     }
@@ -742,7 +632,7 @@ mod tests {
             lines(&["units tehas-dispatch.timer tehas-mcp.service", "sandbox"])
         );
         let d = dir("record-units-2");
-        let two = lines(&["units tehas-mcp.service", "units tehas-top.service"]);
+        let two = lines(&["units tehas-mcp.service", "units tehas-clean.timer"]);
         record_lines(&d.0, &two).unwrap();
         assert_eq!(read_record(&d.0).unwrap(), two);
     }
@@ -822,7 +712,6 @@ mod tests {
         for good in [
             all.as_str(),
             "units tehas-mcp.service",
-            "units tehas-outsource-proxy.service",
             "sandbox",
             "docs --force-recreate",
             "edge --force-recreate",
@@ -835,7 +724,7 @@ mod tests {
 
     #[test]
     fn a_unit_name_is_one_word_with_a_unit_suffix() {
-        assert!(is_unit("tehas-energy@1.service"));
+        assert!(is_unit("tehas-cycle@1.service"));
         assert!(is_unit("socket-2.socket"));
         assert!(!is_unit("--force-recreate"));
         assert!(!is_unit("-x.service"));
@@ -906,14 +795,24 @@ mod tests {
         );
         assert_eq!(read_record(&d.0).unwrap(), owed);
         write_record(&d.0, &[]).unwrap();
-        assert_eq!(fs::read_dir(d.0.join("state")).unwrap().count(), 0);
+        assert_eq!(
+            fs::read_dir(Home::new(d.0.path()).state_dir())
+                .unwrap()
+                .count(),
+            0
+        );
     }
 
     #[test]
     fn a_record_that_cannot_be_cleared_is_a_failure_and_stays() {
         let d = dir("record-stuck");
         assert!(write_record(&d.0, &[]).is_ok());
-        d.file("state/update-pending/held", "sandbox\n");
+        d.file(
+            Home::new(d.0.path())
+                .state(State::UpdatePending)
+                .join("held"),
+            "sandbox\n",
+        );
         assert!(write_record(&d.0, &[]).is_err());
         assert!(record_file(&d.0).exists());
     }
@@ -921,7 +820,10 @@ mod tests {
     #[test]
     fn a_line_is_read_without_a_closing_newline_and_blank_ones_are_not() {
         let d = dir("record-newline");
-        d.file("state/update-pending", "sandbox\n\nlabels");
+        d.file(
+            Home::new(d.0.path()).state(State::UpdatePending),
+            "sandbox\n\nlabels",
+        );
         assert_eq!(read_record(&d.0).unwrap(), lines(&["sandbox", "labels"]));
     }
 
@@ -931,7 +833,7 @@ mod tests {
         let mut old: Vec<&str> = UNITS.to_vec();
         old.insert(1, "tehas-refresh.timer");
         d.file(
-            "state/update-pending",
+            Home::new(d.0.path()).state(State::UpdatePending),
             &format!(
                 "units {}\nunits tehas-refresh.timer\nlabels\n",
                 old.join(" ")
@@ -944,8 +846,21 @@ mod tests {
         assert_eq!(current("sandbox").as_deref(), Some("sandbox"));
         assert_eq!(current("units tehas-refresh.timer"), None);
         assert_eq!(current("units tehas-improve.timer"), None);
+        assert_eq!(current("units tehas-energy.service"), None);
+        assert_eq!(current("units tehas-top.service"), None);
+        assert_eq!(current("units tehas-outsource-proxy.service"), None);
+        assert_eq!(
+            current("units tehas-review.timer tehas-clean.timer").as_deref(),
+            Some("units tehas-clean.timer")
+        );
+        assert_eq!(current("units tehas-protolab.timer"), None);
+        assert!(!UNITS.contains(&"tehas-protolab.timer"));
         assert_eq!(
             current("units tehas-improve.timer tehas-clean.timer").as_deref(),
+            Some("units tehas-clean.timer")
+        );
+        assert_eq!(
+            current("units tehas-wiki.timer tehas-wiki.path tehas-clean.timer").as_deref(),
             Some("units tehas-clean.timer")
         );
     }
@@ -962,7 +877,12 @@ mod tests {
         let d = dir("record-whole");
         write_record(&d.0, &lines(&["sandbox"])).unwrap();
         write_record(&d.0, &lines(&["labels"])).unwrap();
-        assert_eq!(fs::read_dir(d.0.join("state")).unwrap().count(), 1);
+        assert_eq!(
+            fs::read_dir(Home::new(d.0.path()).state_dir())
+                .unwrap()
+                .count(),
+            1
+        );
         assert_eq!(fs::read_to_string(record_file(&d.0)).unwrap(), "labels\n");
     }
 }

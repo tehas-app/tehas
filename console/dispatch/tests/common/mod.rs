@@ -8,6 +8,7 @@
 //! files in `fx/`, named as the stubs read them (the comments of GH and PAGE
 //! say which); every stub records its calls in `calls/<name>`.
 
+pub mod replies;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::cell::RefCell;
@@ -16,6 +17,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Once;
+use tehas_core::home::{Home, Live, State, TokenDir};
 use tehas_core::testdir::TestDir;
 use tehas_core::testing::{copy_exe, link_exe, write_exe};
 
@@ -29,6 +31,21 @@ const GH: &str = r####"# rest_verb, rest_path: the verb and the path of a call o
 # directly.
 rest_verb=$3
 rest_path=$4
+# edit_fails <the change as gh issue edit would say it>: GitHub refuses a
+# label change of the tickets port as $fx/edit-fails and $fx/edit-fails-on
+# refuse the same change made with gh issue edit, so a case names it once.
+edit_fails() {
+  local on
+  if [ -e "$T/fx/edit-fails" ]; then refuse; fi
+  [ -s "$T/fx/edit-fails-on" ] || return 0
+  on=$(<"$T/fx/edit-fails-on")
+  case "$1" in *"$on"*) refuse ;; esac
+}
+# refuse: GitHub answers that this account may not make the change.
+refuse() {
+  echo "gh: Forbidden (HTTP 403)" >&2
+  exit 1
+}
 # fails <fixture> [<fixture of a countdown>]: exit 1 when the first names an
 # outage, or while the second holds a count above 0, which it lowers.
 fails() {
@@ -37,15 +54,15 @@ fails() {
     left=$(<"$T/fx/$2")
     [ "$left" -gt 0 ] || return 0
     echo $((left - 1)) >"$T/fx/$2"
-    exit 1
+    refuse
   fi
-  [ ! -e "$T/fx/$1" ] || exit 1
+  [ ! -e "$T/fx/$1" ] || refuse
 }
 # The write log of the host shim (host/shim/gh), when a case keeps one: a line for
 # each write, in the format of the shim.
-if [ -e "$T/home/tehas/state/github-writes.log" ]; then
+if [ -e "$T_GITHUB_WRITES" ]; then
   case "$1 $2" in
-    "issue edit" | "issue comment" | "api -X") printf "%s\t%s %s\tacme/widget\t-\t0\t-\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" >>"$T/home/tehas/state/github-writes.log" ;;
+    "issue edit" | "issue comment" | "api -X") printf "%s\t%s %s\tacme/widget\t-\t0\t-\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" >>"$T_GITHUB_WRITES" ;;
   esac
 fi
 # comments_json <n>: the comments of #n as the GraphQL comment read gives them,
@@ -108,6 +125,12 @@ case "$1 $2" in
       *) echo "[]" ;;
     esac ;;
   "api user") cat "$T/fx/user.json" || exit 1 ;;
+  # An account by its login, and by its id: a person, carol unless a case
+  # names another for the id. The tail gives each login its id.
+  "api users/"*) [ ! -e "$T/fx/users-fails" ] || refuse
+    case " $* " in *" --jq "*) ;; *) printf '{"login":"%s","type":"User"}\n' "${2#users/}" ;; esac ;;
+  "api user/"*) id=${2#user/}
+    printf '{"login":"%s","type":"User","id":%s}\n' "$(cat "$T/fx/user-$id" 2>/dev/null || echo carol)" "$id" ;;
   # The label of a pull request, through the REST issues endpoint: a mark adds
   # it, an unmark takes it off. A mark fails while $fx/mark-fails-times counts
   # down, or at once when the file is there but holds nothing, so a case can
@@ -125,22 +148,95 @@ case "$1 $2" in
   # answer 404, as GitHub does for a label the repository has not got.
   "api -X")
     case "$rest_verb ${rest_path%%:*}" in
+      "POST repos/acme/widget/issues/"*/assignees)
+        n=${rest_path#repos/acme/widget/issues/}
+        who=$(jq -r '.assignees[0] // empty' <<<"$input" 2>/dev/null)
+        edit_fails "issue edit ${n%%/*} --repo acme/widget --add-assignee $who"
+        jq -cn --argjson n "${n%%/*}" --arg who "$who" \
+          '{number: $n, html_url: "https://github.com/acme/widget/issues/\($n)", assignees: [{login: $who, type: "User"}]}' ;;
       "POST repos/acme/widget/issues/"*/labels)
         [ ! -e "$T/fx/label-missing" ] || not_found
+        n=${rest_path#repos/acme/widget/issues/}
+        # The approval on record as the claim's mark goes on, as for gh
+        # issue edit below.
+        case "${6#*=}" in *:running) TEHAS_HOME=$T/home/tehas "$T/store-bin" approval-current "${n%%/*}" >"$T/calls/approved.at-mark" 2>/dev/null ;; esac
+        # The planning record as the issue is marked as planning.
+        case "${6#*=}" in tehas:planning) TEHAS_HOME=$T/home/tehas "$T/store-bin" plan-show "${n%%/*}" >"$T/calls/record.at-mark" 2>/dev/null ;; esac
+        edit_fails "issue edit ${n%%/*} --repo acme/widget --add-label ${6#*=}"
         fails mark-fails mark-fails-times ;;
       "DELETE repos/acme/widget/issues/"*/labels/*)
         [ ! -e "$T/fx/label-missing" ] || not_found
-        fails unmark-fails ;;
-      # A question as the Rust poll posts it, with its method said.
-      "POST repos/acme/widget/issues/"*/comments) [ ! -e "$T/fx/post-fails" ] || exit 1; echo 4002 ;;
+        n=${rest_path#repos/acme/widget/issues/}
+        label=${rest_path##*/}
+        edit_fails "issue edit ${n%%/*} --repo acme/widget --remove-label $(printf '%b' "${label//%/\\x}")"
+        [ ! -e "$T/fx/unmark-fails" ] || refuse ;;
+      # A comment as the Rust poll posts it, with its method said. Its id
+      # is 4002, or what $fx/post-id-<n> holds for issue n: alone when the
+      # poll asks for the id alone, else as the comment GitHub made.
+      # $fx/post-fails: GitHub refuses it, so it was not made.
+      "POST repos/acme/widget/issues/"*/comments)
+        [ ! -e "$T/fx/post-fails" ] || { echo "gh: Validation Failed (HTTP 422)" >&2; exit 1; }
+        n=${rest_path#repos/acme/widget/issues/}
+        n=${n%%/*}
+        # What was said, kept apart for `World::said`.
+        printf '%s\0' "$body" >>"$T/calls/said-$n"
+        id=$(cat "$T/fx/post-id-$n" 2>/dev/null || echo 4002)
+        case " $* " in *" .id "*) echo "$id" ;;
+          *) printf '{"id":%s,"html_url":"https://github.com/acme/widget/issues/%s#issuecomment-%s"}\n' "$id" "$n" "$id" ;;
+        esac ;;
+      # A comment's edit as the code host's adapter sends it, after its read
+      # below: the text sent is kept for `World::edited`, and the answer is
+      # $fx/rcomment-<id>.json with that text. $fx/patch-fails fails it.
+      "PATCH repos/acme/widget/issues/comments/"*)
+        fails patch-fails
+        printf '%s\0' "$body" >>"$T/calls/edited-${rest_path##*/}"
+        jq -c --arg b "$body" '.body = $b' "$T/fx/rcomment-${rest_path##*/}.json" || exit 1 ;;
+      # An edit of an issue's own text or state, as the tickets port sends
+      # it: kept in calls/patched-<n> for `World::patched`, answered as the
+      # issue it made. $fx/patch-fails refuses it.
+      "PATCH repos/acme/widget/issues/"[0-9]*)
+        n=${rest_path#repos/acme/widget/issues/}
+        case "$n" in */*) fails patch-fails ;; *)
+          fails patch-fails
+          # The edit in gh's words, so edit_fails names it as a case does.
+          if [ "$(jq -r '.state // empty' <<<"$input")" = closed ]; then
+            edit_fails "issue close $n --repo acme/widget"
+          else
+            edit_fails "issue edit $n --repo acme/widget $(jq -r '[if .title then "--title \(.title)" else empty end,
+              if .body then "--body \(.body)" else empty end] | join(" ")' <<<"$input")"
+          fi
+          printf '%s\0' "$input" >>"$T/calls/patched-$n"
+          jq -c --argjson n "$n" '{number: $n, html_url: "https://github.com/acme/widget/issues/\($n)",
+            title: "an issue", body: "", state: "open"} + .' <<<"$input" ;;
+        esac ;;
+      # A part linked under its parent. $fx/part-fails refuses it.
+      "POST repos/acme/widget/issues/"*/sub_issues)
+        fails part-fails
+        n=${rest_path#repos/acme/widget/issues/}
+        printf '%s\n' "$input" >>"$T/calls/parts-${n%%/*}"
+        echo "{}" ;;
       *) fails patch-fails ;;
     esac ;;
+  # The parent of an issue: none, unless a case writes $fx/parent-<n>.json.
+  "api repos/acme/widget/issues/"*/parent)
+    n=${2#repos/acme/widget/issues/}
+    cat "$T/fx/parent-${n%%/*}.json" 2>/dev/null || not_found ;;
   # The reviews and inline comments of a pull request, as REST lists them.
   "api repos/acme/widget/pulls/"*"/reviews?per_page=100" | "api repos/acme/widget/pulls/"*"/comments?per_page=100")
     n=${2#repos/acme/widget/pulls/}
     case "$2" in */reviews*) f=reviews ;; *) f=inline ;; esac
     cat "$T/fx/$f-${n%%/*}.json" 2>/dev/null || echo "[]" ;;
-  "api repos/acme/widget/pulls/"*) cat "$T/fx/pull-${2##*/}.json" 2>/dev/null || echo "{}" ;;
+  # A pull request as a case wrote it, open with its address when the case
+  # did not say, and with the labels $fx/refreshing.json lists for it when
+  # the case named none of its own.
+  "api repos/acme/widget/pulls/"*) n=${2##*/}
+    rf=$(cat "$T/fx/refreshing.json" 2>/dev/null || echo '[]')
+    pr=$(cat "$T/fx/pull-$n.json" 2>/dev/null || echo '{}')
+    jq -c --argjson n "$n" --argjson rf "$rf" 'if type == "object" then
+        . + {number: (.number // $n), state: (.state // "open"),
+          html_url: (.html_url // "https://github.com/acme/widget/pull/\($n)"),
+          labels: (.labels // [$rf[]? | select(.number == $n) | .labels[]?])}
+      else . end' <<<"$pr" 2>/dev/null || printf '%s\n' "$pr" ;;
   # Who may write: everyone, unless a case writes $fx/perm-<login>.json.
   "api repos/acme/widget/collaborators/"*"/permission")
     n=${2#repos/acme/widget/collaborators/}
@@ -151,6 +247,10 @@ case "$1 $2" in
     # None written is none at all; $fx/icomments-fails makes the read fail.
     [ ! -e "$T/fx/icomments-fails" ] || exit 1
     cat "$T/fx/icomments-${n%%/*}.json" 2>/dev/null || echo "[]" ;;
+  # One comment, as the code host's adapter reads it before its edit: what
+  # `World::comments_of` wrote, else not there.
+  "api repos/acme/widget/issues/comments/"*)
+    cat "$T/fx/rcomment-${2##*/}.json" 2>/dev/null || not_found ;;
   "api repos/acme/widget/issues/"*)
     n=${2#repos/acme/widget/issues/}
     case "$n" in
@@ -161,19 +261,45 @@ case "$1 $2" in
         [ ! -e "$T/fx/work-fails" ] || exit 1
         # One number alone, for a poll that cannot read that issue.
         [ ! -e "$T/fx/work-$n-fails" ] || exit 1
-        if [ -e "$T/fx/work-$n.json" ]; then cat "$T/fx/work-$n.json"; else
-          jq -c --argjson n "$n" "{number: \$n, state: \"open\", labels: (if any(.[]?; type == \"object\" and .number == \$n)
-            then [{name: \"tehas:running\"}] else [] end)}" "$T/fx/marked.json" 2>/dev/null || echo "{\"number\":$n,\"state\":\"open\"}"
+        url="https://github.com/acme/widget/issues/$n"
+        # A case's issue, with the address and text a write's read of it
+        # needs when the case wrote none.
+        # The fields of an issue every read of the tickets port needs, where
+        # the case wrote none: its title, times and id (1000 past its number).
+        if [ -e "$T/fx/work-$n.json" ]; then
+          jq -c --arg url "$url" --argjson n "$n" 'if type == "object" then {number: $n, state: "open", title: "an issue",
+            created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z", labels: [], id: (1000 + $n)}
+            + . + {html_url: (.html_url // $url), body: (.body // "")} else . end' \
+            "$T/fx/work-$n.json" 2>/dev/null || cat "$T/fx/work-$n.json"
+        else
+          jq -c --argjson n "$n" --arg url "$url" "{number: \$n, state: \"open\", html_url: \$url, body: \"\", title: \"an issue\", id: (1000 + \$n),
+            created_at: \"2026-01-01T00:00:00Z\", updated_at: \"2026-01-01T00:00:00Z\", labels: (if any(.[]?; type == \"object\" and .number == \$n)
+            then [{name: \"tehas:running\"}] else [] end)}" "$T/fx/marked.json" 2>/dev/null || echo "{\"number\":$n,\"state\":\"open\",\"html_url\":\"$url\",\"body\":\"\",\"title\":\"an issue\",\"id\":$((1000 + n)),\"created_at\":\"2026-01-01T00:00:00Z\",\"updated_at\":\"2026-01-01T00:00:00Z\",\"labels\":[]}"
         fi ;;
     esac ;;
-  # The check runs of a name on the head commit of the branch.
+  # The check runs of a name on the head commit of the branch, and the
+  # commit's statuses, as the code host adapter reads them.
+  # The workflow runs of the head commit, as the code host adapter folds the
+  # check runs by workflow (#3251): none, so each suite keeps its own key.
+  "api repos/acme/widget/actions/runs?"*)
+    [ ! -e "$T/fx/runs-refused" ] || { cat "$T/fx/runs-refused" >&2; exit 1; }
+    cat "$T/fx/runs.json" 2>/dev/null || echo "{\"total_count\":0,\"workflow_runs\":[]}" ;;
   "api repos/acme/widget/commits/"*)
-    [ ! -e "$T/fx/checks-fails" ] || exit 1
-    [ ! -e "$T/fx/checks-hangs" ] || exec sleep 20
-    cat "$T/fx/checks.json" 2>/dev/null || echo "{\"total_count\":0,\"check_runs\":[]}" ;;
+    case "$2" in
+      */status\?*) cat "$T/fx/statuses.json" 2>/dev/null || echo "{\"total_count\":0,\"statuses\":[]}" ;;
+      *)
+        [ ! -e "$T/fx/checks-fails" ] || exit 1
+        [ ! -e "$T/fx/checks-refused" ] || { cat "$T/fx/checks-refused" >&2; exit 1; }
+        [ ! -e "$T/fx/checks-hangs" ] || exec sleep 20
+        cat "$T/fx/checks.json" 2>/dev/null || echo "{\"total_count\":0,\"check_runs\":[]}" ;;
+    esac ;;
   "api graphql")
     n=$(printf "%s\n" "$@" | sed -n "s/^number=//p")
     case "$*" in
+      # The head commit of a branch, as the code host adapter asks it.
+      *"qualifiedName"*) b=$(printf "%s\n" "$@" | sed -n "s|^ref=refs/heads/||p")
+        cat "$T/fx/branch.json" 2>/dev/null ||
+          echo "{\"data\":{\"repository\":{\"ref\":{\"name\":\"$b\",\"prefix\":\"refs/heads/\",\"target\":{\"__typename\":\"Commit\",\"oid\":\"0123456789abcdef0123456789abcdef01234567\"}}}}}" ;;
       # The open issues in one page, as tehas-dispatch asks for them.
       *"issues(states: OPEN"*) if [ -e "$T/fx/gh-stderr-fails" ]; then
           cat "$T/fx/gh-stderr" >&2 2>/dev/null; exit 1; fi
@@ -217,6 +343,9 @@ case "$1 $2" in
       *closedByPullRequestsReferences*)
         [ ! -e "$T/fx/prs-fails" ] || exit 1
         cat "$T/fx/prs-$n.json" 2>/dev/null || cat "$T/fx/prs.json" || exit 1 ;;
+      # The ticket an issue is a part of, as the GitHub adapter asks it
+      # beside an issue's REST read: none.
+      *"parent { number repository"*) echo "{\"data\":{\"repository\":{\"issue\":{\"number\":$n,\"parent\":null}}}}" ;;
       *) cat "$T/fx/edit-$n.json" 2>/dev/null || cat "$T/fx/edit.json" || exit 1 ;;
     esac ;;
   "issue edit")
@@ -272,7 +401,7 @@ nums=$(jq -r '[.[][] | select((.state // "OPEN") != "CLOSED") | .number | tonumb
 # command: a case may count the flock and true it stubs. /proc/locks does not
 # do, as in a container its inodes are not the ones ls -i gives.
 fl=$(command -pv flock)
-locked=$(for f in "$T"/home/tehas/state/cycles/[0-9]*.lock; do
+locked=$(for f in "$T_CYCLES"/[0-9]*.lock; do
   [ -e "$f" ] || continue
   { "$fl" -n 3 || { f=${f##*/}; echo "${f%.lock}"; }; } 3<"$f"
 done | jq -Rcs 'split("\n") | map(select(. != "") | tonumber)')
@@ -350,9 +479,9 @@ const STUBS: &[(&str, &str)] = &[
         r####"[ ! -e "$T/fx/start-fails" ] || exit 1
 [ ! -e "/proc/$$/fd/8" ] || : >"$T/calls/start.fd8"
 [ ! -e "$T/fx/start-silent" ] || exit 0
-flock -w 5 "$TEHAS_HOME/state/cycles/$1.lock" "$T/store-bin" cycle-start "$1" >>"$T/calls/cycle-start" 2>&1 || exit 0
+flock -w 5 "$T_CYCLES/$1.lock" "$T/store-bin" cycle-start "$1" >>"$T/calls/cycle-start" 2>&1 || exit 0
 [ ! -e "$T/fx/start-refused" ] ||
-  flock -w 5 "$TEHAS_HOME/state/cycles/$1.lock" "$T/store-bin" cycle-end "$1" --attempt "$(TEHAS_HOME=$TEHAS_HOME "$T/store-bin" cycle-show "$1" | jq .cycle.attempt)" --refused >/dev/null 2>&1"####,
+  flock -w 5 "$T_CYCLES/$1.lock" "$T/store-bin" cycle-end "$1" --attempt "$(TEHAS_HOME=$TEHAS_HOME "$T/store-bin" cycle-show "$1" | jq .cycle.attempt)" --refused >/dev/null 2>&1"####,
     ),
     ("fake-status", ""),
     (
@@ -507,13 +636,13 @@ pub const MINIMAL: &[&str] = &[
 
 /// The logins whose user ids install.sh records, as the shell tests list them.
 const LOGINS: &[&str] = &[
-    "tehas-bot",
+    "tehas-bot[bot]",
     "alice",
     "bob",
     "bob-2",
     "carol",
     "boss",
-    "tehas-fixer",
+    "tehas-millwright",
     "tehas-mill",
     "millbot",
     "mill-bot",
@@ -528,33 +657,49 @@ const PROC_NAMES: &[&str] = &[
     "timeout", "tr", "uname", "wc", "whoami",
 ];
 
+/// Where an old record was kept: `state/` or `state/cycles/`.
+#[derive(Clone, Copy)]
+enum Under {
+    State,
+    Cycles,
+}
+
+impl Under {
+    fn dir(self, home: &Home) -> PathBuf {
+        match self {
+            Under::State => home.state_dir(),
+            Under::Cycles => home.cycles_dir(),
+        }
+    }
+}
+
 /// Files of records that live on the store now, as (directory, start, end):
 /// no poll leaves one. A start of "1" is any digit 1 to 9.
-const OLD_STATE: &[(&str, &str, &str)] = &[
-    ("state/cycles", "", ".taken"),
-    ("state/cycles", "", ".by"),
-    ("state/cycles", "", ".requeued"),
-    ("state/cycles", "", ".rukas"),
-    ("state/cycles", "", ".image"),
-    ("state/cycles", "", ".settings"),
-    ("state/cycles", "", ".branch"),
-    ("state/cycles", "", ".approved.json"),
-    ("state/cycles", "", ".approved.json.new"),
-    ("state/cycles", "1", ".history.jsonl"),
-    ("state/cycles", "", ".park"),
-    ("state/cycles", "", ".park.new"),
-    ("state", "park-", ".id"),
-    ("state", "park-", ".json"),
-    ("state/cycles", "", ".quiet"),
-    ("state", "plan-", ".json"),
-    ("state", "plan-", ".json.new"),
-    ("state", "plan-", ".json.brief"),
-    ("state", "plan-", ".json.answer"),
-    ("state", "plan-", ".json.answer.new"),
-    ("state", "plan-", ".json.keep"),
-    ("state", "plan-", ".turn"),
-    ("state/cycles", "plan-", ".history.jsonl"),
-    ("state", "plan-", ".history.jsonl"),
+const OLD_STATE: &[(Under, &str, &str)] = &[
+    (Under::Cycles, "", ".taken"),
+    (Under::Cycles, "", ".by"),
+    (Under::Cycles, "", ".requeued"),
+    (Under::Cycles, "", ".rukas"),
+    (Under::Cycles, "", ".image"),
+    (Under::Cycles, "", ".settings"),
+    (Under::Cycles, "", ".branch"),
+    (Under::Cycles, "", ".approved.json"),
+    (Under::Cycles, "", ".approved.json.new"),
+    (Under::Cycles, "1", ".history.jsonl"),
+    (Under::Cycles, "", ".park"),
+    (Under::Cycles, "", ".park.new"),
+    (Under::State, "park-", ".id"),
+    (Under::State, "park-", ".json"),
+    (Under::Cycles, "", ".quiet"),
+    (Under::State, "plan-", ".json"),
+    (Under::State, "plan-", ".json.new"),
+    (Under::State, "plan-", ".json.brief"),
+    (Under::State, "plan-", ".json.answer"),
+    (Under::State, "plan-", ".json.answer.new"),
+    (Under::State, "plan-", ".json.keep"),
+    (Under::State, "plan-", ".turn"),
+    (Under::Cycles, "plan-", ".history.jsonl"),
+    (Under::State, "plan-", ".history.jsonl"),
 ];
 
 /// The fixtures reset() takes away, by exact name or, ending in `*`, by start.
@@ -596,21 +741,25 @@ const RESET_FX: &[&str] = &[
     "labels.json",
 ];
 
-/// The paths under the home reset() takes away, `*` as in RESET_FX.
-const RESET_HOME: &[&str] = &[
-    "libexec",
-    "state/labels",
-    "state/cycles",
-    "state/plan-*",
-    "live",
-    "state/pause.json",
-    "state/limit.json",
-    "state/branch-check",
-    "state/github-failures",
-    "state/push-fault.json",
-    "work/widget-plan-*",
-    "tmp/plan-*",
-];
+/// The paths under the home reset() takes away, `*` in the last name as in
+/// RESET_FX.
+fn reset_home(root: &Path) -> Vec<PathBuf> {
+    let home = Home::new(root);
+    vec![
+        root.join("libexec"),
+        home.state(State::LabelPins),
+        home.cycles_dir(),
+        home.state_dir().join("plan-*"),
+        home.live_dir(),
+        home.state(State::Pause),
+        home.state(State::Limit),
+        home.state(State::BranchCheck),
+        home.state(State::GithubFailures),
+        home.state(State::PushFault),
+        root.join("work/widget-plan-*"),
+        root.join("tmp/plan-*"),
+    ]
+}
 
 pub const GIB: u64 = 1_073_741_824;
 
@@ -750,7 +899,7 @@ impl World {
             std::os::unix::fs::symlink(&lib, t.join(tree).join("lib")).unwrap();
         }
         for verb in ["tehas", "tehasbot"] {
-            fs::copy(
+            tehas_core::testing::copy_exe(
                 root().join("bin").join(verb),
                 t.join("front/bin").join(verb),
             )
@@ -771,7 +920,7 @@ impl World {
             always: RefCell::new(vec![]),
             held: RefCell::new(vec![]),
         };
-        for name in ["docker", "gh", "systemctl", "curl", "ssh"] {
+        for name in tehas_core::testing::DENIED {
             write_exe(
                 w.t.join("deny").join(name),
                 format!(
@@ -824,9 +973,9 @@ impl World {
         for name in RESET_FX {
             remove_like(&self.fx, name);
         }
-        for path in RESET_HOME {
-            let (dir, name) = path.rsplit_once('/').unwrap_or(("", path));
-            remove_like(&self.home.join(dir), name);
+        for path in reset_home(&self.home) {
+            let name = path.file_name().unwrap().to_str().unwrap();
+            remove_like(path.parent().unwrap(), name);
         }
         self.store_home();
         self.slice_show(&(20 * GIB).to_string(), "");
@@ -897,10 +1046,14 @@ impl World {
         }
         relink(&self.t.join("store-bin"), &libexec.join("store"));
         relink(&self.t.join("attach-bin"), &libexec.join("attach"));
-        let state = self.home.join("state");
-        for f in ["tehas.db", "tehas.db-wal", "tehas.db-shm"] {
-            let _ = fs::remove_file(state.join(f));
+        let db = Home::new(&self.home).state(State::StoreDb);
+        for end in ["", "-wal", "-shm"] {
+            let mut f = db.clone().into_os_string();
+            f.push(end);
+            let _ = fs::remove_file(f);
         }
+        // A new store: its rows are all read.
+        let _ = fs::remove_file(self.t.join("journal-from"));
         self.store_ok(&[
             "init",
             "--version",
@@ -913,7 +1066,7 @@ impl World {
             "acme/widget",
         ]);
         let ids: String = LOGINS.iter().map(|l| format!("{l} {}\n", uid(l))).collect();
-        fs::write(state.join("account-ids"), ids).unwrap();
+        fs::write(Home::new(&self.home).state(State::AccountIds), ids).unwrap();
     }
 
     /// The scratch root, `$T` of the stubs.
@@ -933,27 +1086,27 @@ impl World {
 
     /// What every poll writes for tehas status.
     pub fn dispatch_json(&self) -> PathBuf {
-        self.home.join("live/dispatch.json")
+        Home::new(&self.home).live(Live::Dispatch)
     }
 
     /// The demand, written on every poll.
     pub fn demand_file(&self) -> PathBuf {
-        self.home.join("live/demand.json")
+        Home::new(&self.home).live(Live::Demand)
     }
 
     /// The limit tehas limit writes.
     pub fn limit_file(&self) -> PathBuf {
-        self.home.join("state/limit.json")
+        Home::new(&self.home).state(State::Limit)
     }
 
     /// Where a cycle's files are kept.
     pub fn cycles_dir(&self) -> PathBuf {
-        self.home.join("state/cycles")
+        Home::new(&self.home).cycles_dir()
     }
 
     /// The files of #7's planning turn are named after this.
     pub fn record(&self) -> PathBuf {
-        self.home.join("state/plan-7.json")
+        Home::new(&self.home).plan_file(7, "")
     }
 
     /// What #7's session carries from one turn to the next.
@@ -1050,7 +1203,7 @@ impl World {
             text.push('\n');
         }
         fs::write(dir.join("instance.env"), text).unwrap();
-        if !self.home.join("state/github/login").exists() {
+        if !Home::new(&self.home).state(State::BotLogin).exists() {
             self.app_world("tehas-bot");
         }
     }
@@ -1059,21 +1212,18 @@ impl World {
     /// hours left (t_app_world).
     pub fn app_world(&self, slug: &str) {
         let until = tehas_core::time::now() + 86400;
+        let home = Home::new(&self.home);
         for (dir, token) in [
-            ("github", "app"),
-            ("github-cycle", "cycle"),
-            ("github-session", "session"),
+            (TokenDir::App, "app"),
+            (TokenDir::Cycle, "cycle"),
+            (TokenDir::Session, "session"),
         ] {
-            let d = self.home.join("state").join(dir);
+            let d = home.token_dir(dir);
             fs::create_dir_all(&d).unwrap();
             fs::write(d.join("token"), format!("ghs_{token}\n")).unwrap();
             fs::write(d.join("token.expires"), format!("{until}\n")).unwrap();
         }
-        fs::write(
-            self.home.join("state/github/login"),
-            format!("{slug}[bot]\n"),
-        )
-        .unwrap();
+        fs::write(home.state(State::BotLogin), format!("{slug}[bot]\n")).unwrap();
     }
 
     /// An instance that works on at most `n` issues side by side, with more
@@ -1102,7 +1252,8 @@ impl World {
         fs::create_dir_all(tree.join("libexec")).unwrap();
         fs::create_dir_all(tree.join("bin")).unwrap();
         let _ = std::os::unix::fs::symlink(root().join("lib"), tree.join("lib"));
-        fs::copy(root().join("bin/tehasbot"), tree.join("bin/tehasbot")).unwrap();
+        tehas_core::testing::copy_exe(root().join("bin/tehasbot"), tree.join("bin/tehasbot"))
+            .unwrap();
         place(&self.console, &tree.join("libexec/console"));
         let health = tree.join("libexec/health");
         write_exe(
@@ -1142,8 +1293,9 @@ impl World {
         fs::write(p, text).unwrap();
     }
 
-    /// A file under the home, with these bytes.
-    pub fn home_file(&self, rel: &str, text: &str) {
+    /// A file under the home, with these bytes. `rel` is relative to the home,
+    /// or a path Home gave.
+    pub fn home_file(&self, rel: impl AsRef<Path>, text: &str) {
         let p = self.home.join(rel);
         if let Some(d) = p.parent() {
             fs::create_dir_all(d).unwrap();
@@ -1152,18 +1304,18 @@ impl World {
     }
 
     /// What a file under the home holds, "" when there is none.
-    pub fn read_home(&self, rel: &str) -> String {
+    pub fn read_home(&self, rel: impl AsRef<Path>) -> String {
         fs::read_to_string(self.home.join(rel)).unwrap_or_default()
     }
 
     /// A JSON file under the home, Null when there is none.
-    pub fn json_home(&self, rel: &str) -> Value {
+    pub fn json_home(&self, rel: impl AsRef<Path>) -> Value {
         serde_json::from_str(&self.read_home(rel)).unwrap_or(Value::Null)
     }
 
     /// live/dispatch.json.
     pub fn dispatch_state(&self) -> Value {
-        self.json_home("live/dispatch.json")
+        self.json_home(Home::new(&self.home).live(Live::Dispatch))
     }
 
     fn command(&self, program: &str) -> Command {
@@ -1178,6 +1330,11 @@ impl World {
             .env("PATH", path)
             .env("HOME", self.t.join("home"))
             .env("TEHAS_HOME", &self.home)
+            .env("T_CYCLES", Home::new(&self.home).cycles_dir())
+            .env(
+                "T_GITHUB_WRITES",
+                Home::new(&self.home).state(State::GithubWrites),
+            )
             .env("T", self.t.path())
             .env("T_ROOT", root())
             .env("CARGO_TARGET_DIR", self.t.join("target"))
@@ -1236,7 +1393,54 @@ impl World {
     pub fn clear_calls(&self) {
         let d = self.t.join("calls");
         let _ = fs::remove_dir_all(&d);
-        fs::create_dir_all(d).unwrap();
+        fs::create_dir_all(&d).unwrap();
+        // The journal keeps its rows: the writes read after this are the
+        // ones after its last row now.
+        let last = self
+            .journal()
+            .query_row("SELECT coalesce(max(id), 0) FROM actions", [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .unwrap_or(0);
+        fs::write(self.t.join("journal-from"), last.to_string()).unwrap();
+    }
+
+    /// The store's database, as the store keeps it, read only: one not made
+    /// yet is opened as an empty one in memory, never made here.
+    fn journal(&self) -> rusqlite::Connection {
+        let db = tehas_core::home::Home::new(&self.home)
+            .state_dir()
+            .join("tehas.db");
+        if !db.exists() {
+            return rusqlite::Connection::open_in_memory().unwrap();
+        }
+        rusqlite::Connection::open_with_flags(db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .unwrap()
+    }
+
+    /// The sum on record of the question comment `id` asked, and its form, as
+    /// the store keeps them; None when no such question is kept.
+    #[allow(dead_code)] // each test file uses a part of this module
+    pub fn question_sum(&self, id: u64) -> Option<(Option<String>, Option<String>)> {
+        use rusqlite::OptionalExtension;
+        self.journal()
+            .query_row(
+                "SELECT body_sha256, body_form FROM questions WHERE comment_id = ?1
+                 ORDER BY id DESC LIMIT 1",
+                [i64::try_from(id).unwrap()],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .unwrap()
+    }
+
+    /// The row of the journal the writes are read after: the last one when
+    /// the calls were last cleared.
+    fn journal_from(&self) -> i64 {
+        fs::read_to_string(self.t.join("journal-from"))
+            .ok()
+            .and_then(|s| s.trim().parse().ok())
+            .unwrap_or(0)
     }
 
     fn store_cmd(&self, args: &[&str], now: Option<i64>, lock: Option<&str>) -> Run {
@@ -1279,6 +1483,206 @@ impl World {
         serde_json::from_str(&out.out).unwrap_or(Value::Null)
     }
 
+    /// The writes of the ports the journal holds for issue `n`, oldest
+    /// first, each with its row's state: what the poll decided to write, in
+    /// tehas's words, read from the store as the store keeps them (bodies
+    /// by their sum, `tehas_core::journal::kept`). A call of gh's own rows is
+    /// not one.
+    pub fn sent(&self, n: u64) -> Vec<(tehas_ports::Write, String)> {
+        let c = self.journal();
+        let Ok(mut q) = c.prepare(
+            "SELECT args_json, state FROM actions WHERE issue = ?1 AND id > ?2 ORDER BY id",
+        ) else {
+            return Vec::new();
+        };
+        q.query_map([n as i64, self.journal_from()], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })
+        .unwrap()
+        .filter_map(|r| {
+            let (args, state) = r.unwrap();
+            let args: Value = serde_json::from_str(&args).ok()?;
+            Some((
+                serde_json::from_value(args.get("write")?.clone()).ok()?,
+                state,
+            ))
+        })
+        .collect()
+    }
+
+    /// The notes the poll wrote on any issue.
+    pub fn notes_any(&self) -> usize {
+        self.comments_where("?2 = ?2", 0)
+    }
+
+    /// The texts of the comments posted on issue `n`, in their order, as the
+    /// site was given them.
+    pub fn said(&self, n: u64) -> Vec<String> {
+        fs::read_to_string(self.t.join(format!("calls/said-{n}")))
+            .unwrap_or_default()
+            .split('\0')
+            .filter(|b| !b.is_empty())
+            .map(str::to_string)
+            .collect()
+    }
+
+    /// Whether a comment posted on issue `n` begins with `text`.
+    pub fn said_on(&self, n: u64, text: &str) -> bool {
+        self.said(n).iter().any(|b| b.starts_with(text))
+    }
+
+    /// Whether the poll put `mark` on issue `n`, as a write of the ports.
+    pub fn on(&self, n: u64, mark: tehas_ports::Mark) -> bool {
+        self.writes_of(n).contains(&tehas_ports::Write::Mark {
+            ticket: tehas_ports::TicketKey::Number(std::num::NonZeroU64::new(n).unwrap()),
+            mark,
+        })
+    }
+
+    /// Whether the poll took `mark` off issue `n`, as a write of the ports.
+    pub fn off(&self, n: u64, mark: tehas_ports::Mark) -> bool {
+        self.writes_of(n).contains(&tehas_ports::Write::Unmark {
+            ticket: tehas_ports::TicketKey::Number(std::num::NonZeroU64::new(n).unwrap()),
+            mark,
+        })
+    }
+
+    /// Whether the poll made each change of `parts` on issue `n`, a write
+    /// of the ports a part.
+    pub fn changes(&self, n: u64, parts: &[Part]) -> bool {
+        parts.iter().all(|p| match p {
+            Part::On(m) => self.on(n, m.clone()),
+            Part::Off(m) => self.off(n, m.clone()),
+        })
+    }
+
+    /// The edits of issue `n`'s own text or state the site was sent.
+    pub fn patched(&self, n: u64) -> Vec<Patched> {
+        fs::read_to_string(self.t.join(format!("calls/patched-{n}")))
+            .unwrap_or_default()
+            .split('\0')
+            .filter_map(|b| serde_json::from_str::<Value>(b).ok())
+            .map(|v| {
+                let field = |k: &str| v[k].as_str().map(str::to_string);
+                Patched {
+                    title: field("title"),
+                    body: field("body"),
+                }
+            })
+            .collect()
+    }
+
+    /// Whether issue `n`'s text was written starting with `text`.
+    pub fn body_of(&self, n: u64, text: &str) -> bool {
+        self.patched(n)
+            .iter()
+            .any(|p| p.body.as_deref().is_some_and(|b| b.starts_with(text)))
+    }
+
+    /// Whether the poll changed no issue: no mark, no edit of a text.
+    pub fn untouched(&self) -> bool {
+        let edited = fs::read_dir(self.t.join("calls")).is_ok_and(|d| {
+            d.flatten()
+                .any(|e| e.file_name().to_string_lossy().starts_with("patched-"))
+        });
+        self.marks(None) == 0 && !edited
+    }
+
+    /// Whether issue `n` was written with `title` and a text that starts
+    /// with `text`.
+    pub fn wrote(&self, n: u64, title: Option<&str>, text: &str) -> bool {
+        self.patched(n).iter().any(|p| {
+            p.title.as_deref() == title && p.body.as_deref().is_some_and(|b| b.starts_with(text))
+        })
+    }
+
+    /// Whether the poll closed issue `n` as not planned.
+    pub fn closed(&self, n: u64) -> bool {
+        self.writes_of(n).contains(&tehas_ports::Write::Close {
+            ticket: tehas_ports::TicketKey::Number(std::num::NonZeroU64::new(n).unwrap()),
+            reason: tehas_ports::CloseReason::NotPlanned,
+        })
+    }
+
+    /// Whether the poll linked issue `child` as a part of `parent`.
+    pub fn parted(&self, parent: u64, child: u64) -> bool {
+        let key = |n| tehas_ports::TicketKey::Number(std::num::NonZeroU64::new(n).unwrap());
+        self.writes_of(parent)
+            .contains(&tehas_ports::Write::AddPart {
+                parent: key(parent),
+                child: key(child),
+            })
+    }
+
+    /// How often the poll took `mark` off issue `n`.
+    pub fn offs(&self, n: u64, mark: tehas_ports::Mark) -> usize {
+        let off = tehas_ports::Write::Unmark {
+            ticket: tehas_ports::TicketKey::Number(std::num::NonZeroU64::new(n).unwrap()),
+            mark,
+        };
+        self.writes_of(n).iter().filter(|w| **w == off).count()
+    }
+
+    /// Whether the poll assigned issue `n` to anyone, as a write of the
+    /// ports.
+    pub fn assigned(&self, n: u64) -> bool {
+        self.writes_of(n)
+            .iter()
+            .any(|w| matches!(w, tehas_ports::Write::Assign { .. }))
+    }
+
+    /// The marks the poll put on or took off issue `n`, or any issue with
+    /// None, as writes of the ports.
+    pub fn marks(&self, n: Option<u64>) -> usize {
+        self.writes_like(n, "Mark") + self.writes_like(n, "Unmark")
+    }
+
+    fn writes_like(&self, n: Option<u64>, kind: &str) -> usize {
+        let q = format!(
+            "SELECT count(*) FROM actions WHERE id > ?1 AND (?2 = 0 OR issue = ?2) AND \
+             args_json LIKE '%\"write\":{{\"type\":\"{kind}\"%'"
+        );
+        self.journal()
+            .query_row(&q, [self.journal_from(), n.unwrap_or(0) as i64], |r| {
+                r.get::<_, i64>(0)
+            })
+            .unwrap_or(0) as usize
+    }
+
+    /// The writes of the ports for issue `n`, without their states.
+    pub fn writes_of(&self, n: u64) -> Vec<tehas_ports::Write> {
+        self.sent(n).into_iter().map(|(w, _)| w).collect()
+    }
+
+    /// The comments the poll wrote on issue `n`: notes of the ports, and the
+    /// calls of gh a comment whose text holds a marker still makes.
+    pub fn notes(&self, n: u64) -> usize {
+        self.comments_where("issue = ?2", n as i64)
+    }
+
+    fn comments_where(&self, which: &str, n: i64) -> usize {
+        let q = format!(
+            "SELECT count(*) FROM actions WHERE id > ?1 AND {which} AND \
+             (args_json LIKE '%\"write\":{{\"type\":\"TicketNote\"%' \
+              OR args_json LIKE '%\"gh\":[\"issue\",\"comment\"%')"
+        );
+        self.journal()
+            .query_row(&q, [self.journal_from(), n], |r| r.get::<_, i64>(0))
+            .unwrap_or(0) as usize
+    }
+
+    /// Whether the poll wrote the note `body` on issue `n`, by the body's sum
+    /// as the journal keeps it.
+    pub fn noted(&self, n: u64, body: &str) -> bool {
+        let note = tehas_ports::Write::TicketNote {
+            ticket: tehas_ports::TicketKey::Number(std::num::NonZeroU64::new(n).unwrap()),
+            body: tehas_ports::Body::Text(body.into()),
+            markers: Vec::new(),
+        };
+        let kept = tehas_core::journal::kept(&note).unwrap();
+        self.writes_of(n).contains(&kept)
+    }
+
     /// What the store has on record, through a read verb (t_row).
     pub fn row(&self, args: &[&str]) -> Value {
         self.store_ok(args)
@@ -1317,11 +1721,11 @@ impl World {
 
     /// An approval of issue `n` on record, as the dispatcher records one: the
     /// body of "Words." unless `extra` names one, tehas:ready for label and
-    /// fixer (t_approve).
+    /// millwright (t_approve).
     pub fn t_approve(&self, n: u64, by: &str, how: &str, at: i64, extra: &[&str]) {
         let (n, at, sum) = (n.to_string(), at.to_string(), wsum());
         let mut a = vec!["approval-record", &n, "--at", &at, "--by", by, "--how", how];
-        if matches!(how, "label" | "fixer") {
+        if matches!(how, "approved" | "millwright") {
             a.extend(["--label", "tehas:ready"]);
         }
         if !extra.contains(&"--body-sha") {
@@ -1386,7 +1790,7 @@ impl World {
     /// On a fresh session of issue `n`, the planning session `j` describes in
     /// the shape its record file had (t_plan): by [alice], label
     /// [tehas:plan], turns, session [abc-123], options and filed of the last
-    /// turn, failed, pending, comment, running, lost, answers, fixer_refused,
+    /// turn, failed, pending, comment, running, lost, answers, millwright_refused,
     /// held, auto and startedAt.
     pub fn t_plan(&self, n: u64, j: Value) {
         let ns = n.to_string();
@@ -1419,7 +1823,7 @@ impl World {
                 "--text-file",
                 &brief,
             ];
-            if a["fixer"].as_bool() == Some(true) {
+            if a["millwright"].as_bool() == Some(true) {
                 args.push("--millwright");
             }
             self.store_must(&args, when, None);
@@ -1509,7 +1913,10 @@ impl World {
                 "2",
             ]);
         }
-        for (k, kind) in [("fixer_refused", "fixer-refused"), ("held", "held")] {
+        for (k, kind) in [
+            ("millwright_refused", "millwright-refused"),
+            ("held", "held"),
+        ] {
             for v in j[k].as_array().into_iter().flatten() {
                 s(&["plan-note", &ns, "--kind", kind, "--id", &text_of(v)]);
             }
@@ -1609,6 +2016,19 @@ impl World {
     /// The comments of an issue: the bot's question (comment 4001), who
     /// edited it last ("" for none), and the comments written after it.
     pub fn comments(&self, n: u64, body: &str, editor: &str, after: Value) {
+        // A box ticked is answered now by a reply of its editor (#2782).
+        let (unticked, later, answered) = replies::as_reply(
+            body,
+            editor,
+            Some(uid(editor)),
+            after.as_array().cloned().unwrap_or_default(),
+        );
+        let (body, editor) = if answered {
+            (unticked.as_str(), "")
+        } else {
+            (body, editor)
+        };
+        let after = Value::Array(later);
         let ed = !editor.is_empty();
         let mut nodes = vec![json!({
             "databaseId": 4001,
@@ -1638,6 +2058,28 @@ impl World {
             serde_json::from_str(&fs::read_to_string(self.fx.join(&name)).unwrap()).unwrap();
         v["data"]["repository"]["issue"]["comments"]["nodes"][0]["databaseId"] = json!(id);
         self.fx_json(&name, &v);
+        self.fx_json(
+            &format!("rcomment-{id}.json"),
+            &json!({
+                "id": id,
+                "html_url": format!("{}/{n}#issuecomment-{id}", "https://github.com/acme/widget/issues"),
+                "body": body,
+                // The factory's bot, by the user id state/account-ids
+                // records: `edit_comment` edits only its comments.
+                "user": {"login": "tehas-bot[bot]", "id": uid("tehas-bot[bot]"), "type": "Bot"},
+            }),
+        );
+    }
+
+    /// The texts the code host's adapter sent as comment `id`'s edits, in
+    /// their order.
+    pub fn edited(&self, id: u64) -> Vec<String> {
+        fs::read_to_string(self.t.join(format!("calls/edited-{id}")))
+            .unwrap_or_default()
+            .split('\0')
+            .filter(|b| !b.is_empty())
+            .map(str::to_string)
+            .collect()
     }
 
     /// The park of #7's current cycle on record, Null without one.
@@ -1657,14 +2099,20 @@ impl World {
     /// else is queued. Its last cycle started on `by`'s label, or by hand for
     /// "-", and parked on `reason`.
     pub fn parked(&self, reason: &str, by: &str) {
+        self.parked_with(reason, by, "4001", &[]);
+    }
+
+    /// The same, the park recorded with `args` and its question `question`
+    /// (t_park's).
+    pub fn parked_with(&self, reason: &str, by: &str, question: &str, args: &[&str]) {
         self.reset();
         self.fx("ready.json", "[]");
         self.fx(
             "asking.json",
             r#"[{"number":7,"labels":[{"name":"needs-human-attention"},{"name":"tehas:question"}]}]"#,
         );
-        self.t_ended(7, by, "label", &["--parked"]);
-        self.t_park(7, reason, "4001", &[]);
+        self.t_ended(7, by, "approved", &["--parked"]);
+        self.t_park(7, reason, question, args);
     }
 
     /// Issue 7's session as the store has it, in the shape of plan-view; Null
@@ -1818,7 +2266,10 @@ impl World {
 
     /// The flag tehas pause writes, with this JSON.
     pub fn pause_flag(&self, text: &str) {
-        self.home_file("state/pause.json", &format!("{text}\n"));
+        self.home_file(
+            Home::new(&self.home).state(State::Pause),
+            &format!("{text}\n"),
+        );
     }
 
     /// The limit tehas limit writes: `cycles`, whether planning runs, until
@@ -1830,7 +2281,7 @@ impl World {
             json!(until)
         };
         let v = json!({"v": 1, "cycles": cycles, "plan": plan, "until": until, "reason": reason});
-        self.home_file("state/limit.json", &format!("{v}\n"));
+        self.home_file(Home::new(&self.home).state(State::Limit), &format!("{v}\n"));
     }
 
     /// The open planning sessions are read once, and every read after that
@@ -2056,7 +2507,7 @@ impl World {
 
     /// The writes the host's shim of gh logged.
     pub fn writes(&self) -> usize {
-        self.read_home("state/github-writes.log")
+        self.read_home(Home::new(&self.home).state(State::GithubWrites))
             .lines()
             .filter(|l| !l.is_empty())
             .count()
@@ -2084,14 +2535,16 @@ impl Drop for World {
         let denied = fs::read_to_string(self.t.join("denied")).unwrap_or_default();
         assert!(denied.is_empty(), "no stub stands in for:\n{denied}");
         let mut left = vec![];
-        for (dir, start, end) in OLD_STATE {
-            for f in self.files(&self.home.join(dir)) {
+        let home = Home::new(&self.home);
+        for (under, start, end) in OLD_STATE {
+            let dir = under.dir(&home);
+            for f in self.files(&dir) {
                 let starts = match *start {
                     "1" => f.starts_with(|c: char| ('1'..='9').contains(&c)),
                     s => f.starts_with(s),
                 };
                 if starts && f.ends_with(end) {
-                    left.push(format!("{dir}/{f}"));
+                    left.push(dir.join(f).display().to_string());
                 }
             }
         }
@@ -2111,7 +2564,7 @@ exec 6<&-
 call="$*"
 case " $* " in
   *" --body-file - "*) body=$(cat); call=${call/--body-file -/--body $body} ;;
-  *" --input - "*) body=$(cat); body=$(jq -r '.body // empty' <<<"$body" 2>/dev/null); call=${call/--input -/-f body=$body} ;;
+  *" --input - "*) input=$(cat); body=$(jq -r '.body // empty' <<<"$input" 2>/dev/null); call=${call/--input -/-f body=$body} ;;
 esac
 printf '%s\n' "$call" >>"$T/calls/gh"
 f_rc=
@@ -2359,4 +2812,19 @@ pub fn lacks(got: &str, want: &str) {
 /// The lines of `text` that start with `prefix`.
 pub fn count_lines(text: &str, prefix: &str) -> usize {
     text.lines().filter(|l| l.starts_with(prefix)).count()
+}
+
+/// A change of one mark: put on, or taken off.
+#[allow(dead_code)] // each test file uses a part of this module
+pub enum Part {
+    On(tehas_ports::Mark),
+    Off(tehas_ports::Mark),
+}
+
+/// An edit of an issue the site was sent: the title and text it set.
+#[allow(dead_code)] // each test file uses a part of this module
+#[derive(Debug)]
+pub struct Patched {
+    pub title: Option<String>,
+    pub body: Option<String>,
 }

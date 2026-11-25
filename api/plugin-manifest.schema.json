@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/tehas-app/tehas/api/plugin-manifest.schema.json",
+  "$id": "https://github.com/tehas-app/tehas-factory/api/plugin-manifest.schema.json",
   "title": "tehas-plugin.json",
-  "description": "A plugin's manifest, version 1: tehas-plugin.json at the root of the plugin's repository, at the pinned commit. Plugins are a feature still being built, so this is not contract until the release that ships them. Every object is closed: a field this does not name is refused, so a manifest made for a later tehas never runs half read. The reader is console/core/src/plugin/manifest.rs; its tests hold it and this schema to the same verdict on the samples beside this file and on each field broken one way. A plugin with a build has an image and runs; one with none is text alone, such as skills, and never runs. Some rules are the reader's alone: the name equals the one TEHAS_PLUGINS gives, each action's, skill's and tool's id is asked as action:<id>, skill:<id> or tool:<id>, no two actions, skills or tools share an id, a tool's params keeps to the closed part of JSON schema that console/core/src/plugin/params.rs names, and a plugin with no build asks for nothing that needs a run (anything but skill: and needs:). An ask of a later tehas (gate:, another hook point, net:, factory-read, factory-sessions) and a kind other than batch are refused by the reader as reserved for plugins v2.",
+  "description": "A plugin's manifest, version 1: tehas-plugin.json at the root of the plugin's repository, at the pinned commit. Plugins are a feature still being built, so this is not contract until the release that ships them. Every object is closed: a field this does not name is refused, so a manifest made for a later tehas never runs half read. The reader is console/core/src/plugin/manifest.rs; its tests hold it and this schema to the same verdict on the samples beside this file and on each field broken one way. A plugin with a build has an image and runs; one with none is text alone, such as skills, and never runs. Some rules are the reader's alone: the name equals the one TEHAS_PLUGINS gives, each action's, skill's and tool's id is asked as action:<id>, skill:<id> or tool:<id>, no two actions, skills or tools share an id, a tool's params keeps to the closed part of JSON schema that console/core/src/plugin/params.rs names, and a plugin with no build asks for nothing that needs a run (anything but skill: and needs:). An ask of a later tehas (gate:, another hook point, net:, answer:<kind>, factory-read, factory-sessions) and a kind other than batch are refused by the reader as reserved for plugins v2, and an ask of merge as not in this release.",
   "type": "object",
   "required": ["plugin", "name", "label", "asks"],
   "additionalProperties": false,
@@ -17,7 +17,7 @@
       "type": "array",
       "maxItems": 32,
       "uniqueItems": true,
-      "items": {"type": "string", "pattern": "^(view|menu|product|model|hook:after:work|action:[a-z-]{1,16}|skill:[a-z-]{1,16}|tool:[a-z-]{1,16}|view:[a-z-]{1,16}|needs:[a-z][a-z0-9]{0,11}|model:images)$"}
+      "items": {"type": "string", "pattern": "^(view|menu|product|model|hook:after:change\\.offered|action:[a-z-]{1,16}|skill:[a-z-]{1,16}|tool:[a-z-]{1,16}|view:[a-z-]{1,16}|needs:[a-z][a-z0-9]{0,11}|model:images)$"}
     },
     "timeout": {"type": "integer", "minimum": 60, "maximum": 14400},
     "ui": {
@@ -73,7 +73,7 @@
         "required": ["at", "timeout"],
         "additionalProperties": false,
         "properties": {
-          "at": {"const": "after:work"},
+          "at": {"const": "after:change.offered"},
           "timeout": {"type": "integer", "minimum": 60, "maximum": 1800}
         }
       }
@@ -141,7 +141,7 @@
   "dependentSchemas": {
     "view": {"properties": {"asks": {"contains": {"const": "view"}}}},
     "views": {"not": {"required": ["view"]}},
-    "hooks": {"properties": {"asks": {"contains": {"const": "hook:after:work"}}}},
+    "hooks": {"properties": {"asks": {"contains": {"const": "hook:after:change.offered"}}}},
     "build": {"required": ["kind", "timeout"]},
     "timeout": {"required": ["build"]},
     "tools": {"required": ["build"]}

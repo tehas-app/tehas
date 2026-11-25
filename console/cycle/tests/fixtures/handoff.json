@@ -68,8 +68,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -126,7 +124,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\nReply in a comment with the word of one of these:\n\n- retry-text: Retry with the issue text only. A new cycle starts over in a new workspace, given the title and body and nothing else.\n- park: Leave it parked. Nothing more happens until someone answers.\n\nOnly an answer from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -204,8 +202,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -262,7 +258,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\nReply in a comment with the word of one of these:\n\n- retry-text: Retry with the issue text only. A new cycle starts over in a new workspace, given the title and body and nothing else.\n- park: Leave it parked. Nothing more happens until someone answers.\n\nOnly an answer from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -340,8 +336,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -398,7 +392,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 3). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 3). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\nReply in a comment with the word of one of these:\n\n- retry-text: Retry with the issue text only. A new cycle starts over in a new workspace, given the title and body and nothing else.\n- park: Leave it parked. Nothing more happens until someone answers.\n\nOnly an answer from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -476,8 +470,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -535,7 +527,7 @@
     ],
     [
      "question",
-     "Tehas started no cycle: tehas work refused the start before its runner ran (runner exit 4). It refuses one, for example, when the issue changed after its approval, when the approval or the issue cannot be read, or when an image or file the issue links cannot be given to the cycle. Nothing of it ran: no workspace, no container, no step, no usage. No approval of this start is recorded on this host: a fresh `tehas:ready` is needed. The comment before this one names it; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas started no cycle: tehas work refused the start before its runner ran (runner exit 4). It refuses one, for example, when the issue changed after its approval, when the approval or the issue cannot be read, or when an image or file the issue links cannot be given to the cycle. Nothing of it ran: no workspace, no container, no step, no usage. No approval of this start is recorded on this host: a fresh `tehas:ready` is needed. The comment before this one names it; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\nReply in a comment with the word of one of these:\n\n- retry-text: Retry with the issue text only. A new cycle starts over in a new workspace, given the title and body and nothing else.\n- park: Leave it parked. Nothing more happens until someone answers.\n\nOnly an answer from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -562,7 +554,7 @@
    "start": {
     "attempt": 1,
     "by": "alice",
-    "how": "label",
+    "how": "approved",
     "approval_at": 1767225600,
     "requeued": false
    },
@@ -585,7 +577,7 @@
      "attempt": 1,
      "started_at": 1793525980,
      "started_by": "alice",
-     "how": "label",
+     "how": "approved",
      "requeued": false,
      "rukas_commit": null,
      "image": null,
@@ -615,7 +607,7 @@
      "issue": 7,
      "at": 1767225600,
      "by": "alice",
-     "how": "label",
+     "how": "approved",
      "label": "tehas:ready",
      "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
      "title_sha256": null,
@@ -630,12 +622,10 @@
     "rests_on": {
      "at": 1767225600,
      "by": "alice",
-     "how": "label",
+     "how": "approved",
      "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
      "used_by": 1
     },
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -693,7 +683,7 @@
     ],
     [
      "question",
-     "Tehas started no cycle: tehas work refused the start before its runner ran (runner exit 4). It refuses one, for example, when the issue changed after its approval, when the approval or the issue cannot be read, or when an image or file the issue links cannot be given to the cycle. Nothing of it ran: no workspace, no container, no step, no usage. @​alice approved this start at 2026-01-01T00:00:00Z; tehas keeps no record of an approval that started nothing, so a fresh `tehas:ready` asks for another start. The comment before this one names it; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas started no cycle: tehas work refused the start before its runner ran (runner exit 4). It refuses one, for example, when the issue changed after its approval, when the approval or the issue cannot be read, or when an image or file the issue links cannot be given to the cycle. Nothing of it ran: no workspace, no container, no step, no usage. @​alice approved this start at 2026-01-01T00:00:00Z; tehas keeps no record of an approval that started nothing, so a fresh `tehas:ready` asks for another start. The comment before this one names it; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\nReply in a comment with the word of one of these:\n\n- retry-text: Retry with the issue text only. A new cycle starts over in a new workspace, given the title and body and nothing else.\n- park: Leave it parked. Nothing more happens until someone answers.\n\nOnly an answer from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -771,8 +761,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -830,7 +818,7 @@
     ],
     [
      "question",
-     "Tehas started no cycle: tehas work refused the start before its runner ran (runner exit 4). It refuses one, for example, when the issue changed after its approval, when the approval or the issue cannot be read, or when an image or file the issue links cannot be given to the cycle. Nothing of it ran: no workspace, no container, no step, no usage. No approval of this start is recorded on this host: a fresh `tehas:ready` is needed. The comment before this one names it; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas started no cycle: tehas work refused the start before its runner ran (runner exit 4). It refuses one, for example, when the issue changed after its approval, when the approval or the issue cannot be read, or when an image or file the issue links cannot be given to the cycle. Nothing of it ran: no workspace, no container, no step, no usage. No approval of this start is recorded on this host: a fresh `tehas:ready` is needed. The comment before this one names it; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\nReply in a comment with the word of one of these:\n\n- retry-text: Retry with the issue text only. A new cycle starts over in a new workspace, given the title and body and nothing else.\n- park: Leave it parked. Nothing more happens until someone answers.\n\nOnly an answer from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -909,8 +897,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -1045,8 +1031,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -1117,7 +1101,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped with pull request #9 open: status `aborted`, last step `develop`, 0 min (runner exit 20). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Its branch has an open pull request: https://github.com/acme/widget/pull/9\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=f25ff331a7f9960c458526d7b95b14f9fedd00ddfe504a1800921c36c4c7908c -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped with pull request #9 open: status `aborted`, last step `develop`, 0 min (runner exit 20). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Its branch has an open pull request: https://github.com/acme/widget/pull/9\n\nReply in a comment with the word of one of these:\n\n- retry-text: Retry with the issue text only. A new cycle starts over in a new workspace, given the title and body and nothing else.\n- park: Leave it parked. Nothing more happens until someone answers.\n\nOnly an answer from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=f25ff331a7f9960c458526d7b95b14f9fedd00ddfe504a1800921c36c4c7908c -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -1196,8 +1180,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -1325,8 +1307,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -1461,8 +1441,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -1533,7 +1511,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped with pull request #9 open: status `aborted`, last step `develop`, 0 min (runner exit 20). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Its branch has an open pull request: https://github.com/acme/widget/pull/9\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=f25ff331a7f9960c458526d7b95b14f9fedd00ddfe504a1800921c36c4c7908c -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped with pull request #9 open: status `aborted`, last step `develop`, 0 min (runner exit 20). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Its branch has an open pull request: https://github.com/acme/widget/pull/9\n\nReply in a comment with the word of one of these:\n\n- retry-text: Retry with the issue text only. A new cycle starts over in a new workspace, given the title and body and nothing else.\n- park: Leave it parked. Nothing more happens until someone answers.\n\nOnly an answer from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=f25ff331a7f9960c458526d7b95b14f9fedd00ddfe504a1800921c36c4c7908c -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -1612,8 +1590,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -1672,7 +1648,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped: its state says `merged`, but the bot has no merged pull request for this issue on `feature/x` (status `merged`, last step `done`, 0 min). Nothing was removed; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=done kind= provider=0 sig=0c39b8f47f0e645fa8481c9d6bd5c17880503b99e32f42a13c476ba251fefc36 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped: its state says `merged`, but the bot has no merged pull request for this issue on `feature/x` (status `merged`, last step `done`, 0 min). Nothing was removed; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\nReply in a comment with the word of one of these:\n\n- retry-text: Retry with the issue text only. A new cycle starts over in a new workspace, given the title and body and nothing else.\n- park: Leave it parked. Nothing more happens until someone answers.\n\nOnly an answer from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=done kind= provider=0 sig=0c39b8f47f0e645fa8481c9d6bd5c17880503b99e32f42a13c476ba251fefc36 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -1751,8 +1727,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -1887,8 +1861,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -1961,7 +1933,7 @@
     ],
     [
      "question",
-     "Tehas cycle handed off with its pull request open: status `handoff`, last step `lens-review`, 0 min (runner exit 10). pi-rukas stopped on the cap `review-incomplete`. Read the pull request before you retry: https://github.com/acme/widget/pull/9. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=lens-review kind= provider=0 sig=45112f80b8e4c44b88bcd47712c53e963e773771e719a5330521b62fa8f43bbf -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle handed off with its pull request open: status `handoff`, last step `lens-review`, 0 min (runner exit 10). pi-rukas stopped on the cap `review-incomplete`. Read the pull request before you retry: https://github.com/acme/widget/pull/9. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\nReply in a comment with the word of one of these:\n\n- retry-text: Retry with the issue text only. A new cycle starts over in a new workspace, given the title and body and nothing else.\n- park: Leave it parked. Nothing more happens until someone answers.\n\nOnly an answer from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=lens-review kind= provider=0 sig=45112f80b8e4c44b88bcd47712c53e963e773771e719a5330521b62fa8f43bbf -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -2040,8 +2012,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -2112,7 +2082,7 @@
     ],
     [
      "question",
-     "Tehas cycle handed off with its pull request open: status `handoff`, last step `commit-pr`, 0 min (runner exit 10). The result names no cap, so it is not taken for a pull request that waits only for a merge. Read the pull request before you retry: https://github.com/acme/widget/pull/9. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=commit-pr kind= provider=0 sig=dd89f8445ad582d93b571556a98fdcb24cc7d1a90e4b31363e6ec72fc64eff13 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle handed off with its pull request open: status `handoff`, last step `commit-pr`, 0 min (runner exit 10). The result names no cap, so it is not taken for a pull request that waits only for a merge. Read the pull request before you retry: https://github.com/acme/widget/pull/9. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\nReply in a comment with the word of one of these:\n\n- retry-text: Retry with the issue text only. A new cycle starts over in a new workspace, given the title and body and nothing else.\n- park: Leave it parked. Nothing more happens until someone answers.\n\nOnly an answer from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=commit-pr kind= provider=0 sig=dd89f8445ad582d93b571556a98fdcb24cc7d1a90e4b31363e6ec72fc64eff13 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -2191,8 +2161,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -2265,7 +2233,7 @@
     ],
     [
      "question",
-     "Tehas cycle handed off with its pull request open: status `handoff`, last step `ci`, 0 min (runner exit 10). pi-rukas stopped on the cap `awaiting-human-merge`. Its review ran out of rounds with findings still open, so it is not waiting only for a merge. Read the pull request before you retry: https://github.com/acme/widget/pull/9. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=ci kind= provider=0 sig=a11236985fced9d6efd259c83c3830a4b01fb2767382c0dbcbf8159abde106fe -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle handed off with its pull request open: status `handoff`, last step `ci`, 0 min (runner exit 10). pi-rukas stopped on the cap `awaiting-human-merge`. Its review ran out of rounds with findings still open, so it is not waiting only for a merge. Read the pull request before you retry: https://github.com/acme/widget/pull/9. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\nReply in a comment with the word of one of these:\n\n- retry-text: Retry with the issue text only. A new cycle starts over in a new workspace, given the title and body and nothing else.\n- park: Leave it parked. Nothing more happens until someone answers.\n\nOnly an answer from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=ci kind= provider=0 sig=a11236985fced9d6efd259c83c3830a4b01fb2767382c0dbcbf8159abde106fe -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -2343,8 +2311,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -2420,7 +2386,7 @@
     ],
     [
      "question",
-     "Tehas cycle handed off with its pull request open: status `handoff`, last step `ci`, 0 min (runner exit 10). pi-rukas stopped on the cap `awaiting-human-merge`. Its progress does not say whether its review left findings open, so it is not taken for a pull request that waits only for a merge. Read the pull request before you retry: https://github.com/acme/widget/pull/9. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=ci kind= provider=0 sig=a11236985fced9d6efd259c83c3830a4b01fb2767382c0dbcbf8159abde106fe -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle handed off with its pull request open: status `handoff`, last step `ci`, 0 min (runner exit 10). pi-rukas stopped on the cap `awaiting-human-merge`. Its progress does not say whether its review left findings open, so it is not taken for a pull request that waits only for a merge. Read the pull request before you retry: https://github.com/acme/widget/pull/9. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\nReply in a comment with the word of one of these:\n\n- retry-text: Retry with the issue text only. A new cycle starts over in a new workspace, given the title and body and nothing else.\n- park: Leave it parked. Nothing more happens until someone answers.\n\nOnly an answer from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=ci kind= provider=0 sig=a11236985fced9d6efd259c83c3830a4b01fb2767382c0dbcbf8159abde106fe -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -2499,8 +2465,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -2574,7 +2538,7 @@
     ],
     [
      "question",
-     "Tehas cycle handed off with its pull request open: status `handoff`, last step `ci`, 0 min (runner exit 10). pi-rukas stopped on the cap `awaiting-human-merge`. Read the pull request before you retry: https://github.com/acme/widget/pull/9. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=ci kind= provider=0 sig=a11236985fced9d6efd259c83c3830a4b01fb2767382c0dbcbf8159abde106fe -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle handed off with its pull request open: status `handoff`, last step `ci`, 0 min (runner exit 10). pi-rukas stopped on the cap `awaiting-human-merge`. Read the pull request before you retry: https://github.com/acme/widget/pull/9. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\nReply in a comment with the word of one of these:\n\n- retry-text: Retry with the issue text only. A new cycle starts over in a new workspace, given the title and body and nothing else.\n- park: Leave it parked. Nothing more happens until someone answers.\n\nOnly an answer from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=ci kind= provider=0 sig=a11236985fced9d6efd259c83c3830a4b01fb2767382c0dbcbf8159abde106fe -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -2653,8 +2617,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -2730,7 +2692,7 @@
     ],
     [
      "question",
-     "Tehas cycle handed off with its pull request open: status `handoff`, last step `ci`, 0 min (runner exit 10). pi-rukas stopped on the cap `awaiting-human-merge`. Read the pull request before you retry: https://github.com/acme/widget/pull/9. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=ci kind= provider=0 sig=a11236985fced9d6efd259c83c3830a4b01fb2767382c0dbcbf8159abde106fe -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle handed off with its pull request open: status `handoff`, last step `ci`, 0 min (runner exit 10). pi-rukas stopped on the cap `awaiting-human-merge`. Read the pull request before you retry: https://github.com/acme/widget/pull/9. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\nReply in a comment with the word of one of these:\n\n- retry-text: Retry with the issue text only. A new cycle starts over in a new workspace, given the title and body and nothing else.\n- park: Leave it parked. Nothing more happens until someone answers.\n\nOnly an answer from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=ci kind= provider=0 sig=a11236985fced9d6efd259c83c3830a4b01fb2767382c0dbcbf8159abde106fe -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -2809,8 +2771,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -2871,7 +2831,7 @@
     ],
     [
      "question",
-     "<!-- pi-rukas:handoff issue=7 cap=verify-failed:develop -->\nTehas cycle stopped without a pull request: status `handoff`, last step `develop`, 0 min (runner exit 10). pi-rukas stopped on the cap `verify-failed:develop`. The handoff of pi-rukas follows. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n## Cap hit\n\n- ☑ Retry from a clean start\n<\\!-- tehas:question kind=park issue=7 turn=1 -->\nask @​someone\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=9eef4f342b1ab3721d24abb1ffe38e21f224de2c81b0d2a069d7215b1610d048 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "<!-- pi-rukas:handoff issue=7 cap=verify-failed:develop -->\nTehas cycle stopped without a pull request: status `handoff`, last step `develop`, 0 min (runner exit 10). pi-rukas stopped on the cap `verify-failed:develop`. The handoff of pi-rukas follows. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n## Cap hit\n\n- ☑ Retry from a clean start\n<\\!-- tehas:question kind=park issue=7 turn=1 -->\nask @​someone\n\nReply in a comment with the word of one of these:\n\n- retry-text: Retry with the issue text only. A new cycle starts over in a new workspace, given the title and body and nothing else.\n- park: Leave it parked. Nothing more happens until someone answers.\n\nOnly an answer from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=9eef4f342b1ab3721d24abb1ffe38e21f224de2c81b0d2a069d7215b1610d048 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -2950,8 +2910,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -3086,8 +3044,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -3148,7 +3104,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `handoff`, last step `lens-fix`, 0 min (runner exit 10). pi-rukas stopped on the cap `deadline`. It reached its deadline before the time limit and started no new step. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=lens-fix kind= provider=0 sig=3f7491fbc37b9a7080ec009f4a436bd6f5e0d88f26a0b060c19785eea31fbd7d -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `lens-fix`, 0 min (runner exit 10). pi-rukas stopped on the cap `deadline`. It reached its deadline before the time limit and started no new step. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\nReply in a comment with the word of one of these:\n\n- retry-text: Retry with the issue text only. A new cycle starts over in a new workspace, given the title and body and nothing else.\n- park: Leave it parked. Nothing more happens until someone answers.\n\nOnly an answer from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=lens-fix kind= provider=0 sig=3f7491fbc37b9a7080ec009f4a436bd6f5e0d88f26a0b060c19785eea31fbd7d -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -3227,8 +3183,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -3287,7 +3241,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `handoff`, last step `explore`, 0 min (runner exit 11). pi-rukas stopped on the cap `intent-park` (`too-large`). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=explore kind= provider=0 sig=60a8fa22807dc3bd5520f25646d3d378753503e09e6d57cf9f0a1efd64ce870f -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `explore`, 0 min (runner exit 11). pi-rukas stopped on the cap `intent-park` (`too-large`). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\nReply in a comment with the word of one of these:\n\n- retry-text: Retry with the issue text only. A new cycle starts over in a new workspace, given the title and body and nothing else.\n- park: Leave it parked. Nothing more happens until someone answers.\n\nOnly an answer from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=explore kind= provider=0 sig=60a8fa22807dc3bd5520f25646d3d378753503e09e6d57cf9f0a1efd64ce870f -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -3297,7 +3251,7 @@
   }
  },
  {
-  "case": "each end of a cycle leaves a line of history for the fixer: a park and its reason, a waiting merge",
+  "case": "each end of a cycle leaves a line of history for the millwright: a park and its reason, a waiting merge",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -3314,7 +3268,7 @@
    "start": {
     "attempt": 1,
     "by": "alice",
-    "how": "label",
+    "how": "approved",
     "approval_at": 1760000000,
     "requeued": false
    },
@@ -3338,7 +3292,7 @@
      "attempt": 1,
      "started_at": 1793526088,
      "started_by": "alice",
-     "how": "label",
+     "how": "approved",
      "requeued": false,
      "rukas_commit": null,
      "image": null,
@@ -3368,7 +3322,7 @@
      "issue": 7,
      "at": 1760000000,
      "by": "alice",
-     "how": "label",
+     "how": "approved",
      "label": "tehas:ready",
      "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
      "title_sha256": null,
@@ -3383,12 +3337,10 @@
     "rests_on": {
      "at": 1760000000,
      "by": "alice",
-     "how": "label",
+     "how": "approved",
      "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
      "used_by": 1
     },
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -3447,7 +3399,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `handoff`, last step `explore`, 0 min (runner exit 11). pi-rukas stopped on the cap `intent-park` (`too-large`). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=explore kind= provider=0 sig=60a8fa22807dc3bd5520f25646d3d378753503e09e6d57cf9f0a1efd64ce870f -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `explore`, 0 min (runner exit 11). pi-rukas stopped on the cap `intent-park` (`too-large`). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\nReply in a comment with the word of one of these:\n\n- retry-text: Retry with the issue text only. A new cycle starts over in a new workspace, given the title and body and nothing else.\n- park: Leave it parked. Nothing more happens until someone answers.\n\nOnly an answer from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=explore kind= provider=0 sig=60a8fa22807dc3bd5520f25646d3d378753503e09e6d57cf9f0a1efd64ce870f -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -3457,7 +3409,7 @@
   }
  },
  {
-  "case": "each end of a cycle leaves a line of history for the fixer: a park and its reason, a waiting merge (2)",
+  "case": "each end of a cycle leaves a line of history for the millwright: a park and its reason, a waiting merge (2)",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -3474,7 +3426,7 @@
    "start": {
     "attempt": 2,
     "by": "alice",
-    "how": "label",
+    "how": "approved",
     "approval_at": 1760000100,
     "requeued": false
    },
@@ -3498,7 +3450,7 @@
      "attempt": 2,
      "started_at": 1793526093,
      "started_by": "alice",
-     "how": "label",
+     "how": "approved",
      "requeued": false,
      "rukas_commit": null,
      "image": null,
@@ -3528,7 +3480,7 @@
      "issue": 7,
      "at": 1760000100,
      "by": "alice",
-     "how": "label",
+     "how": "approved",
      "label": "tehas:ready",
      "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
      "title_sha256": null,
@@ -3543,12 +3495,10 @@
     "rests_on": {
      "at": 1760000100,
      "by": "alice",
-     "how": "label",
+     "how": "approved",
      "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
      "used_by": 2
     },
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -3683,8 +3633,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -3834,8 +3782,6 @@
      "easy": false
     },
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 1,
     "easy": false
    },
@@ -3989,8 +3935,6 @@
      "easy": false
     },
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 1,
     "easy": false
    },
@@ -4051,7 +3995,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `handoff`, last step `develop`, 0 min (runner exit 10). pi-rukas stopped on the cap `verify-failed:develop`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=9eef4f342b1ab3721d24abb1ffe38e21f224de2c81b0d2a069d7215b1610d048 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `develop`, 0 min (runner exit 10). pi-rukas stopped on the cap `verify-failed:develop`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\nReply in a comment with the word of one of these:\n\n- retry-text: Retry with the issue text only. A new cycle starts over in a new workspace, given the title and body and nothing else.\n- park: Leave it parked. Nothing more happens until someone answers.\n\nOnly an answer from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=9eef4f342b1ab3721d24abb1ffe38e21f224de2c81b0d2a069d7215b1610d048 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -4149,8 +4093,6 @@
      "easy": false
     },
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 1,
     "easy": false
    },
@@ -4205,7 +4147,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `crash`, last step `develop`, 0 min (runner exit 30). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=f25ff331a7f9960c458526d7b95b14f9fedd00ddfe504a1800921c36c4c7908c -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `crash`, last step `develop`, 0 min (runner exit 30). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\nReply in a comment with the word of one of these:\n\n- retry-text: Retry with the issue text only. A new cycle starts over in a new workspace, given the title and body and nothing else.\n- park: Leave it parked. Nothing more happens until someone answers.\n\nOnly an answer from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=f25ff331a7f9960c458526d7b95b14f9fedd00ddfe504a1800921c36c4c7908c -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -4288,8 +4230,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -4438,8 +4378,6 @@
      "easy": false
     },
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 1,
     "easy": false
    },
@@ -4496,7 +4434,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\nReply in a comment with the word of one of these:\n\n- retry-text: Retry with the issue text only. A new cycle starts over in a new workspace, given the title and body and nothing else.\n- park: Leave it parked. Nothing more happens until someone answers.\n\nOnly an answer from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -4593,8 +4531,6 @@
      "easy": false
     },
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 1,
     "easy": false
    },
@@ -4651,7 +4587,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\nReply in a comment with the word of one of these:\n\n- retry-text: Retry with the issue text only. A new cycle starts over in a new workspace, given the title and body and nothing else.\n- park: Leave it parked. Nothing more happens until someone answers.\n\nOnly an answer from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",

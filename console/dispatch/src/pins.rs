@@ -246,6 +246,7 @@ pub fn settle(home: &Path, snap: &mut Value, dry: bool) -> (Vec<String>, Vec<Str
 mod tests {
     use super::*;
     use std::fs;
+    use tehas_core::home::Home;
     use tehas_core::testdir::TestDir;
 
     fn snap(labels: Value, events: Value) -> Value {
@@ -273,6 +274,30 @@ mod tests {
         let j = judge(&mut pins, true, &mut s);
         assert_eq!(actor(&s), "alice");
         assert!(j.said.is_empty() && j.pinned.is_empty() && j.refused.is_empty());
+    }
+
+    // A plugin phase's label. The read of the repository's `tehas:` labels
+    // names one, and its application by an allowed account is in the
+    // events: it is not pinned, not refused, not said, and the application
+    // keeps its account, as any person's label does.
+    #[test]
+    fn a_plugin_phase_label_is_neither_pinned_nor_judged() {
+        use tehas_core::label_pins::PLUGIN_PHASE;
+        assert!(!GRANTING.iter().any(|n| n.starts_with(PLUGIN_PHASE)));
+        let name = format!("{PLUGIN_PHASE}x");
+        let applied = json!({"event": "labeled", "label": {"name": name, "id": "LA_px"},
+            "actor": {"login": "alice"}, "created_at": "2026-10-02T00:00:00Z"});
+        for kept in [false, true] {
+            let mut pins = Pins::new();
+            let mut s = snap(
+                json!([{"name": name, "id": "LA_px"}]),
+                json!([applied.clone()]),
+            );
+            let j = judge(&mut pins, kept, &mut s);
+            assert_eq!(actor(&s), "alice");
+            assert!(pins.is_empty(), "{pins:?}");
+            assert!(j.said.is_empty() && j.pinned.is_empty() && j.refused.is_empty());
+        }
     }
 
     // A person's `bug` renamed to tehas:ready: its events name tehas:ready
@@ -464,7 +489,7 @@ mod tests {
     #[test]
     fn settle_keeps_new_pins_unless_dry_and_reads_them_back() {
         let d = TestDir::new("pins");
-        fs::create_dir_all(d.path().join("state")).unwrap();
+        fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
         let mut s = snap(json!([{"name": "tehas:ready", "id": "LA_real"}]), json!([]));
         let (said, _) = settle(d.path(), &mut s.clone(), true);
         assert!(said[0].starts_with("would pin the label tehas:ready as LA_real"));
@@ -489,7 +514,7 @@ mod tests {
     #[test]
     fn with_no_file_a_poll_that_read_the_labels_writes_it_even_empty() {
         let d = TestDir::new("pins-empty");
-        fs::create_dir_all(d.path().join("state")).unwrap();
+        fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
         // Labels not read: nothing is written.
         settle(d.path(), &mut json!({}), false);
         assert!(!d.path().join(FILE).exists());

@@ -4,7 +4,7 @@
 # still being built, which is not public until that feature ships, and
 # `--flag:building=<feature>` marks one flag of such a feature the same way.
 # `internal=<flag>,...` marks flags that a unit or the dashboard writes, not a
-# person or a program; they are not public. Within 1.x a public command,
+# person or a program; they are not public. Within 2.x a public command,
 # subcommand or flag is only added. The tests of console/src/front.rs hold
 # this list to the commands tehas knows and to the synopsis lines of each
 # command's text, so a row or a flag added or taken out without this file
@@ -12,6 +12,7 @@
 analytics
 analytics copy --json --to
 analytics report
+answer --by --json --text
 api --json
 blockers --json
 check-product --sandbox
@@ -35,21 +36,12 @@ init-product --dry-run
 labels
 limit --json
 limit clear
-limit set --cycles --for --plan --reason --until
+limit set --cycles --for --json --plan --reason --until
 mcp
 mcp key
 order --json
 order clear --json
 order set --for --issues --json --only --reason --until
-outsource building=outsource
-outsource drain --json building=outsource
-outsource invite --json --name building=outsource
-outsource list --json building=outsource
-outsource revoke --json building=outsource
-outsource status --json building=outsource
-panel --json
-panel clear
-panel set --label --url
 pause --reason
 plan --answer --brief --comment --keep --kind --out --session internal=--answer,--brief,--comment,--keep,--kind,--out,--session
 plugin --json building=plugins
@@ -60,8 +52,7 @@ plugin log --hook building=plugins
 plugin review --json building=plugins
 plugin run building=plugins
 plugin skills --chat --json building=plugins
-prototype building=prototype-file
-prototype file --body-file --spec --spec-sha256 --title --zip --zip-sha256 building=prototype-file
+question --after --json
 refresh --json --pr
 resume
 setup --app-client-id:building=plugins --app-id --app-key-file --app-name --app-owner --app-secret-file:building=plugins --control-issue --endpoint --force --labelers --model --model-key-file --new-app --no-build --provider --repo
@@ -78,6 +69,4 @@ thaw --json
 top --every --json --once internal=--json
 update --accept-id --check --pending --to
 wake --json
-wiki --json building=wiki
-wiki build --full --json building=wiki
 work --driver --restart

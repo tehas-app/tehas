@@ -15,11 +15,15 @@ use serde_json::{json, Value};
 use std::fs;
 use std::path::Path;
 use tehas_core::file::{write_atomic, Temp};
-use tehas_core::plugin::hook::{open_bot_pull, HookAsk};
+use tehas_core::plugin::hook::HookAsk;
 use tehas_core::question::q_clean;
 use tehas_core::settings::edge_name;
 use tehas_core::settings::rules::switch;
 use tehas_ops::plugin::runs;
+use tehas_ports::{
+    AccountKind, Actor, Bound, Caller, ChangeFilter, ChangeNo, ChangeState, ChangeStates, CommitId,
+    Outcome, Scope, Status, StatusState, WebLink,
+};
 
 /// The most characters of a description GitHub keeps.
 pub const DESCRIPTION_MAX: usize = 140;
@@ -27,12 +31,12 @@ pub const DESCRIPTION_MAX: usize = 140;
 /// that breaks the schema.
 pub const NOT_FINISHED: &str = "the plugin's hook did not finish";
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Status {
-    pub context: String,
-    pub state: &'static str,
-    pub description: String,
-    pub target_url: Option<String>,
+/// The factory's account, which reads the pull request and writes its status.
+const OURS: Actor = Actor::Ours(Scope::Full);
+const CALLER: Caller = Caller::new("plugin.status");
+/// The one change a read by its number asks for.
+fn one() -> Bound {
+    Bound::new(1).unwrap_or(tehas_ports::ALL_MAX)
 }
 
 /// The gate's page of the hook's findings, with `view` granted and a domain
@@ -48,7 +52,7 @@ pub fn target(name: &str, pr: u64, view: bool, get: &dyn Fn(&str) -> String) -> 
 }
 
 /// The status of a hook's end, `end` as `hooks/<pr>.verdict.json` holds it:
-/// `success` for a verdict read, `pass` or `note`, and `error` for anything
+/// passed for a verdict read, `pass` or `note`, and errored for anything
 /// else. v1 never fails a status.
 pub fn of(name: &str, end: &Value, target_url: Option<String>) -> Status {
     let word = end.pointer("/verdict/verdict").and_then(Value::as_str);
@@ -56,62 +60,50 @@ pub fn of(name: &str, end: &Value, target_url: Option<String>) -> Status {
     let read = end.get("result").and_then(Value::as_str) == Some("done")
         && matches!(word, Some("pass" | "note"));
     let (state, description) = match summary.filter(|_| read) {
-        Some(s) => ("success", q_clean(s, DESCRIPTION_MAX)),
-        None => ("error", NOT_FINISHED.to_string()),
+        Some(s) => (StatusState::Passed, q_clean(s, DESCRIPTION_MAX)),
+        None => (StatusState::Errored, NOT_FINISHED.to_string()),
     };
     Status {
-        context: format!("tehas/plugin/{name}"),
+        name: format!("tehas/plugin/{name}"),
         state,
-        description,
-        target_url,
+        about: description,
+        link: target_url.and_then(|u| WebLink::new(u).ok()),
     }
-}
-
-/// The words of gh that post `s` on `head`. Each field goes with `-f`, which
-/// gh takes as text and never as a file to read.
-pub fn post_args(repo: &str, head: &str, s: &Status) -> Vec<String> {
-    let mut a: Vec<String> = vec![
-        "api".into(),
-        "-X".into(),
-        "POST".into(),
-        format!("repos/{repo}/statuses/{head}"),
-        "-f".into(),
-        format!("state={}", s.state),
-        "-f".into(),
-        format!("context={}", s.context),
-        "-f".into(),
-        format!("description={}", s.description),
-    ];
-    if let Some(u) = &s.target_url {
-        a.extend(["-f".into(), format!("target_url={u}")]);
-    }
-    a
 }
 
 /// What became of a post.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Posted {
     Written,
-    /// GitHub refused the App the write: why, as gh said it.
+    /// The code host refused the factory the write: why, in our words.
     Refused(String),
     /// Two tries failed: the last one's reason.
     Failed(String),
 }
 
-/// A 403 on a status is the App without "Commit statuses: Read and write".
-/// A rate limit's 403 is said as a rate limit, not as the status.
-fn lacks_permission(why: &str) -> bool {
-    why.contains("HTTP 403") || why.contains("Resource not accessible by integration")
+/// A status's state in our words, for the log.
+fn state_word(state: StatusState) -> &'static str {
+    match state {
+        StatusState::Pending => "pending",
+        StatusState::Passed => "passed",
+        StatusState::Failed => "failed",
+        StatusState::Errored => "errored",
+    }
 }
 
-pub fn post(h: &mut dyn Host, args: &[String]) -> Posted {
-    let words: Vec<&str> = args.iter().map(String::as_str).collect();
+/// One status on `head`, written as the factory: tried once more unless
+/// the code host refused it, as a status written twice is the same status.
+pub fn post(h: &mut dyn Host, head: &CommitId, status: &Status) -> Posted {
+    let mut writes = match h.site().code_host_writes(&OURS, CALLER) {
+        Ok(w) => w,
+        Err(o) => return Posted::Failed(o.line().to_string()),
+    };
     let mut last = String::new();
     for _ in 0..2 {
-        match h.github(&words) {
-            Ok(_) => return Posted::Written,
-            Err(why) if lacks_permission(&why) => return Posted::Refused(why),
-            Err(why) => last = why,
+        match writes.set_status(head, status) {
+            Ok(()) => return Posted::Written,
+            Err(o @ Outcome::Forbidden) => return Posted::Refused(o.line().to_string()),
+            Err(o) => last = o.line().to_string(),
         }
     }
     Posted::Failed(last)
@@ -133,8 +125,8 @@ fn say(line: &str) {
     tehas_core::outln!("{line}");
 }
 
-/// A reason after the words it follows: gh's reasons start with `: `, the
-/// runner's own do not.
+/// A reason after the words it follows: `: ` and the reason, unless it
+/// starts with one.
 pub(crate) fn said(why: &str) -> String {
     if why.starts_with(": ") {
         why.to_string()
@@ -143,20 +135,43 @@ pub(crate) fn said(why: &str) -> String {
     }
 }
 
-/// The head and base of `pr` as GitHub gives them now, both from one
-/// answer. None: it is no open pull request of the bot's.
-pub fn pull(h: &mut dyn Host, s: &Setup, pr: u64) -> Result<Option<(String, String)>, String> {
-    let repo = (s.get)("TEHAS_REPO");
-    if !tehas_ops::forge::repo_shaped(&repo) {
-        return Err("TEHAS_REPO names no repository".into());
-    }
-    let mut bot = (s.get)("TEHAS_BOT_LOGIN");
-    if bot.is_empty() {
-        bot = tehas_core::settings::bot_login(s.home).unwrap_or_default();
-    }
-    let out = h.github(&["api", &format!("repos/{repo}/pulls/{pr}")])?;
-    let pull = serde_json::from_str::<Value>(&out).unwrap_or(Value::Null);
-    Ok(open_bot_pull(&pull, &repo, &bot))
+/// The head and base of `pr` as the code host gives them now, both from one
+/// read. None: it is no open pull request of the factory's, from a branch of
+/// the repository itself.
+pub fn pull(h: &mut dyn Host, pr: u64) -> Result<Option<(String, String)>, String> {
+    let Some(no) = ChangeNo::new(pr) else {
+        return Ok(None);
+    };
+    // Its digest alone, by its number: the whole change is `Cut` past a
+    // bound of its files, comments or reviews.
+    let filter = ChangeFilter {
+        states: ChangeStates::All,
+        numbers: vec![no],
+        ..Default::default()
+    };
+    let read = h
+        .site()
+        .code_host(&OURS, CALLER)
+        .and_then(|mut c| c.changes(&filter, one()));
+    let digest = match read {
+        Ok(found) => match found.items().iter().find(|d| d.no == no) {
+            Some(d) => d.clone(),
+            None => return Ok(None),
+        },
+        Err(Outcome::NotFound) => return Ok(None),
+        Err(o) => return Err(o.line().to_string()),
+    };
+    let ours = digest
+        .author
+        .as_ref()
+        .is_some_and(|a| a.kind == AccountKind::Ours);
+    let open = digest.state == ChangeState::Open && ours && !digest.from_fork;
+    Ok(open.then(|| {
+        (
+            digest.head_commit.as_str().to_string(),
+            digest.base_commit.as_str().to_string(),
+        )
+    }))
 }
 
 /// After the hook of `name` on `req.pr` ended, having read `head`: GitHub
@@ -166,14 +181,19 @@ pub fn pull(h: &mut dyn Host, s: &Setup, pr: u64) -> Result<Option<(String, Stri
 pub fn after(h: &mut dyn Host, s: &Setup, name: &str, view: bool, req: &HookAsk, head: &str) {
     let get = s.get;
     let pr = req.pr;
-    let repo = get("TEHAS_REPO");
-    if !tehas_ops::forge::repo_shaped(&repo) {
+    if tehas_core::settings::rules::check("TEHAS_REPO", &get("TEHAS_REPO")).is_err() {
         say(&format!(
             "plugin {name}: no status on #{pr}: TEHAS_REPO names no repository"
         ));
         return;
     }
-    let now = match pull(h, s, pr) {
+    let Ok(at) = CommitId::new(head) else {
+        say(&format!(
+            "plugin {name}: no status on #{pr}: {head} is no commit"
+        ));
+        return;
+    };
+    let now = match pull(h, pr) {
         Ok(now) => now,
         Err(why) => {
             say(&format!(
@@ -186,12 +206,12 @@ pub fn after(h: &mut dyn Host, s: &Setup, name: &str, view: bool, req: &HookAsk,
     let end = end_of(s.home, name, pr, head);
     let status = of(name, &end, target(name, pr, view, get));
     let unwritten = runs::unwritten(s.home, name);
-    match post(h, &post_args(&repo, head, &status)) {
+    match post(h, &at, &status) {
         Posted::Written => {
             let _ = fs::remove_file(&unwritten);
             say(&format!(
                 "plugin {name}: status {} on {head} of #{pr}",
-                status.state
+                state_word(status.state)
             ));
         }
         Posted::Refused(why) => {
@@ -226,6 +246,7 @@ pub fn after(h: &mut dyn Host, s: &Setup, name: &str, view: bool, req: &HookAsk,
         base,
         issue: req.issue,
         trigger: req.trigger,
+        event: req.event.clone(),
     };
     if let Err(why) = runs::ask_hook(h.exec(), s.home, name, &again) {
         say(&format!("plugin {name}: #{pr} was not asked again: {why}"));
@@ -256,10 +277,10 @@ mod tests {
         assert_eq!(
             pass,
             Status {
-                context: "tehas/plugin/floorplan".into(),
-                state: "success",
-                description: "Nothing new.".into(),
-                target_url: None,
+                name: "tehas/plugin/floorplan".into(),
+                state: StatusState::Passed,
+                about: "Nothing new.".into(),
+                link: None,
             }
         );
         let note = of(
@@ -271,8 +292,8 @@ mod tests {
             None,
         );
         assert_eq!(
-            (note.state, note.description.as_str()),
-            ("success", "One new finding.")
+            (note.state, note.about.as_str()),
+            (StatusState::Passed, "One new finding.")
         );
         for e in [
             end("failed", Value::Null),
@@ -283,8 +304,8 @@ mod tests {
         ] {
             let s = of("floorplan", &e, None);
             assert_eq!(
-                (s.state, s.description.as_str()),
-                ("error", NOT_FINISHED),
+                (s.state, s.about.as_str()),
+                (StatusState::Errored, NOT_FINISHED),
                 "{e}"
             );
         }
@@ -304,11 +325,11 @@ mod tests {
             ),
             None,
         );
-        assert_eq!(s.description, q_clean(&summary, DESCRIPTION_MAX));
-        assert_eq!(s.description.chars().count(), DESCRIPTION_MAX);
-        assert!(!s.description.contains("@octocat"));
-        assert!(!s.description.contains("<!--"));
-        assert!(!s.description.contains("[ ]"));
+        assert_eq!(s.about, q_clean(&summary, DESCRIPTION_MAX));
+        assert_eq!(s.about.chars().count(), DESCRIPTION_MAX);
+        assert!(!s.about.contains("@octocat"));
+        assert!(!s.about.contains("<!--"));
+        assert!(!s.about.contains("[ ]"));
     }
 
     fn vars(pairs: &[(&str, &str)]) -> impl Fn(&str) -> String {
@@ -339,40 +360,13 @@ mod tests {
     }
 
     #[test]
-    fn a_status_is_posted_with_its_fields_and_a_target_only_when_it_has_one() {
-        let mut s = of(
-            "floorplan",
-            &end("done", json!({"verdict": "pass", "summary": "ok"})),
-            None,
-        );
-        let statuses = format!("repos/acme/widget/statuses/{H}");
+    fn a_status_links_the_target_only_when_it_has_one() {
+        let end = end("done", json!({"verdict": "pass", "summary": "ok"}));
+        assert_eq!(of("floorplan", &end, None).link, None);
+        let target = "https://plugin-floorplan.example.org/_hooks/42";
         assert_eq!(
-            post_args("acme/widget", H, &s),
-            [
-                "api",
-                "-X",
-                "POST",
-                statuses.as_str(),
-                "-f",
-                "state=success",
-                "-f",
-                "context=tehas/plugin/floorplan",
-                "-f",
-                "description=ok",
-            ]
+            of("floorplan", &end, Some(target.into())).link,
+            Some(WebLink::new(target).unwrap())
         );
-        s.target_url = Some("https://plugin-floorplan.example.org/_hooks/42".into());
-        let a = post_args("acme/widget", H, &s);
-        assert_eq!(
-            a[a.len() - 2..],
-            [
-                "-f",
-                "target_url=https://plugin-floorplan.example.org/_hooks/42"
-            ]
-        );
-        assert!(lacks_permission(
-            ": HTTP 403: Resource not accessible by integration"
-        ));
-        assert!(!lacks_permission(": rate limit"));
     }
 }
