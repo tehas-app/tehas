@@ -296,6 +296,34 @@ case "$1 $2" in
   "api graphql")
     n=$(printf "%s\n" "$@" | sed -n "s/^number=//p")
     case "$*" in
+      # The head commit of a branch and the checks of a name on it, in the
+      # one question the code host adapter asks: checks.json, statuses.json
+      # and runs.json in GraphQL's shape. A refused read answers GitHub's
+      # FORBIDDEN, and the adapter asks the long way, the REST reads below.
+      *"checkSuites"*) b=$(printf "%s\n" "$@" | sed -n "s|^ref=refs/heads/||p")
+        [ ! -e "$T/fx/checks-fails" ] || exit 1
+        [ ! -e "$T/fx/checks-hangs" ] || exec sleep 20
+        if [ -e "$T/fx/checks-refused" ] || [ -e "$T/fx/runs-refused" ]; then
+          echo "{\"data\":null,\"errors\":[{\"type\":\"FORBIDDEN\"}]}"
+          cat "$T/fx/checks-refused" "$T/fx/runs-refused" >&2 2>/dev/null; exit 1
+        fi
+        c=$(cat "$T/fx/checks.json" 2>/dev/null || echo "{\"check_runs\":[]}")
+        s=$(cat "$T/fx/statuses.json" 2>/dev/null || echo "{\"statuses\":[]}")
+        r=$(cat "$T/fx/runs.json" 2>/dev/null || echo "{\"workflow_runs\":[]}")
+        jq -cn --arg b "$b" --argjson c "$c" --argjson s "$s" --argjson r "$r" '
+          def up: if . then ascii_upcase else null end;
+          ($r.workflow_runs // []) as $wf
+          | {data: {repository: {ref: {name: $b, prefix: "refs/heads/", target: {__typename: "Commit",
+              oid: "0123456789abcdef0123456789abcdef01234567",
+              checkSuites: (($c.check_runs // []) | group_by(.check_suite.id) | map(.[0] as $f | {
+                databaseId: $f.check_suite.id,
+                app: (if $f.app then {databaseId: $f.app.id, slug: $f.app.slug} else null end),
+                workflowRun: ([$wf[] | select(.check_suite_id == $f.check_suite.id)][0]
+                  | if . then {event, workflow: {databaseId: .workflow_id}} else null end),
+                checkRuns: {totalCount: length, nodes: map({databaseId: .id, name,
+                  status: (.status | up), conclusion: (.conclusion | up), startedAt: .started_at})}})
+                | {totalCount: length, nodes: .}),
+              status: {contexts: [($s.statuses // [])[] | {context, state: (.state | up)}]}}}}}}' || exit 1 ;;
       # The head commit of a branch, as the code host adapter asks it.
       *"qualifiedName"*) b=$(printf "%s\n" "$@" | sed -n "s|^ref=refs/heads/||p")
         cat "$T/fx/branch.json" 2>/dev/null ||

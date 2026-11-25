@@ -3,16 +3,23 @@
 //! name for any other (Decided 129, as amended 2026-11-25), then its status
 //! contexts, each one's newest state held as a run named by its context,
 //! and `Overall::of` all of them. A failure of any read fails the whole:
-//! the runs alone are never an answer.
+//! the runs alone are never an answer. `CodeHost::branch_checks`: the
+//! branch's head and its checks of a name in one GraphQL question, folded
+//! the same way.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::forge::uri;
-use crate::{ForgeError, GitHub};
+use crate::{graphql, ForgeError, GitHub};
+use serde::Deserialize;
 use serde_json::Value;
 use tehas_ports::{
-    Check, CheckStatus, Checks, CommitId, Conclusion, Got, Outcome, Overall, Unread, ALL_MAX,
+    Branch, Check, CheckStatus, Checks, CommitId, Conclusion, Got, Outcome, Overall, Unread,
+    ALL_MAX,
 };
+
+const MALFORMED: Outcome = Outcome::Unread(Unread::Malformed);
+const INCONSISTENT: Outcome = Outcome::Unread(Unread::Inconsistent);
 
 /// One page of a list the site counts: its count, and each item with the
 /// key that names it once in the list.
@@ -72,6 +79,261 @@ enum Fold {
         suite: u64,
         name: String,
     },
+}
+
+/// The one question of `branch_checks_of`: the branch's ref, exactly, as
+/// `BRANCH` asks it, and on its commit the check suites with a run of the
+/// name, each with its App, its workflow run and every run of the name
+/// (`checkType: ALL`, as REST's `filter=all`), and the combined status.
+const BRANCH_CHECKS: &str = "query($owner: String!, $name: String!, $ref: String!, $check: String!) { repository(owner: $owner, name: $name) { ref(qualifiedName: $ref) { name prefix target { __typename oid ... on Commit { checkSuites(first: 100, filterBy: {checkName: $check}) { totalCount nodes { databaseId app { databaseId slug } workflowRun { event workflow { databaseId } } checkRuns(first: 100, filterBy: {checkName: $check, checkType: ALL}) { totalCount nodes { databaseId name status conclusion startedAt } } } } status { contexts { context state } } } } } } }";
+
+/// The most of a list the one question takes as whole: a list this long
+/// may hold more than it gives, so the read is asked the long way.
+const ONE_PAGE: usize = 100;
+
+/// What the one question answers: the head and its checks, or that the
+/// answer is no whole one and the long way is asked.
+enum Asked {
+    Whole(Option<(CommitId, Checks)>),
+    Long,
+}
+
+#[derive(Deserialize)]
+struct Data {
+    repository: Option<Repo>,
+}
+
+#[derive(Deserialize)]
+struct Repo {
+    #[serde(rename = "ref")]
+    at: Option<Ref>,
+}
+
+#[derive(Deserialize)]
+struct Ref {
+    name: Option<String>,
+    prefix: Option<String>,
+    target: Option<Target>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Target {
+    #[serde(rename = "__typename")]
+    is: Option<String>,
+    oid: Option<String>,
+    check_suites: Option<Conn<Suite>>,
+    status: Option<Combined>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Conn<T> {
+    total_count: Option<u64>,
+    nodes: Option<Vec<Option<T>>>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Suite {
+    database_id: Option<u64>,
+    app: Option<App>,
+    workflow_run: Option<WorkflowRun>,
+    check_runs: Option<Conn<RunNode>>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct App {
+    database_id: Option<u64>,
+    slug: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct WorkflowRun {
+    event: Option<String>,
+    workflow: Option<Workflow>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Workflow {
+    database_id: Option<u64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RunNode {
+    database_id: Option<u64>,
+    name: Option<String>,
+    status: Option<String>,
+    conclusion: Option<String>,
+    started_at: Option<Value>,
+}
+
+#[derive(Deserialize)]
+struct Combined {
+    contexts: Option<Vec<Option<Context>>>,
+}
+
+#[derive(Deserialize)]
+struct Context {
+    context: Option<String>,
+    state: Option<String>,
+}
+
+impl GitHub {
+    /// `CodeHost::branch_checks` asked by name: one GraphQL question for
+    /// the branch's head and its checks of the name, folded as `checks_of`
+    /// folds them. An answer that may not be whole (a list of
+    /// `ONE_PAGE` or more, or a count past what it gives) or that GitHub
+    /// answers with errors, as where the App may not read the workflow
+    /// runs, is asked the long way: `branch_at`, then `checks_of`, whose
+    /// outcomes and lines it then gives. A rate-limited answer is the
+    /// priced budget spent; a call that fails without an answer fails as
+    /// `branch_at`'s does. Asked for every check, the long way.
+    pub(super) fn branch_checks_of(
+        &mut self,
+        branch: &Branch,
+        name: Option<&str>,
+    ) -> Got<Option<(CommitId, Checks)>> {
+        let Some(check) = name else {
+            return self.branch_checks_long(branch, None);
+        };
+        match self.branch_checks_asked(branch, check)? {
+            Asked::Whole(got) => Ok(got),
+            Asked::Long => self.branch_checks_long(branch, name),
+        }
+    }
+
+    fn branch_checks_long(
+        &mut self,
+        branch: &Branch,
+        name: Option<&str>,
+    ) -> Got<Option<(CommitId, Checks)>> {
+        let Some(head) = self.branch_at(branch)? else {
+            return Ok(None);
+        };
+        let checks = self.checks_of(&head, name)?;
+        Ok(Some((head, checks)))
+    }
+
+    fn branch_checks_asked(&mut self, branch: &Branch, check: &str) -> Got<Asked> {
+        let (owner, project) = self.owner_name();
+        let full = format!("ref=refs/heads/{}", branch.as_str());
+        let named = format!("check={check}");
+        let query = format!("query={BRANCH_CHECKS}");
+        let args = [
+            "api", "graphql", "-F", &owner, "-F", &project, "-f", &full, "-f", &named, "-f", &query,
+        ];
+        let now = (self.now)();
+        let out = match self.call_answer("the branch's checks", &args) {
+            Ok(out) => out,
+            Err((e, said)) => {
+                return match said.as_deref().and_then(|s| graphql::refusal(s, now)) {
+                    Some(spent @ Outcome::Spent { .. }) => Err(spent),
+                    Some(_) => Ok(Asked::Long),
+                    None => {
+                        let path = format!("repos/{}", self.repo);
+                        Err(self.question_outcome(&e, said.as_deref(), &path))
+                    }
+                };
+            }
+        };
+        match graphql::refusal(&out, now) {
+            Some(spent @ Outcome::Spent { .. }) => return Err(spent),
+            Some(_) => return Ok(Asked::Long),
+            None => {}
+        }
+        let data: Data = graphql::part(&out, "/data", now)?;
+        read_branch_checks(data, branch, check)
+    }
+}
+
+/// The one question's answer, read: see `branch_checks_of`.
+fn read_branch_checks(data: Data, branch: &Branch, check: &str) -> Got<Asked> {
+    let Some(at) = data.repository.ok_or(Outcome::NotFound)?.at else {
+        return Ok(Asked::Whole(None));
+    };
+    if at.name.as_deref() != Some(branch.as_str()) || at.prefix.as_deref() != Some("refs/heads/") {
+        return Err(INCONSISTENT);
+    }
+    let target = at.target.ok_or(MALFORMED)?;
+    if target.is.as_deref() != Some("Commit") {
+        return Err(MALFORMED);
+    }
+    let head = CommitId::new(target.oid.ok_or(MALFORMED)?).map_err(|_| MALFORMED)?;
+    let Some(suites) = whole(target.check_suites.ok_or(MALFORMED)?)? else {
+        return Ok(Asked::Long);
+    };
+    let contexts = match target.status {
+        None => Vec::new(),
+        Some(c) => c.contexts.ok_or(MALFORMED)?,
+    };
+    if contexts.len() >= ONE_PAGE {
+        return Ok(Asked::Long);
+    }
+    let mut runs = Vec::new();
+    let mut workflows = BTreeMap::new();
+    for suite in suites {
+        let id = suite.database_id.ok_or(MALFORMED)?;
+        let app = suite.app.ok_or(MALFORMED)?;
+        let app_id = app.database_id.ok_or(MALFORMED)?;
+        let actions = app.slug.as_deref() == Some(ACTIONS);
+        if let Some(ran) = suite.workflow_run {
+            let workflow = ran.workflow.and_then(|w| w.database_id).ok_or(MALFORMED)?;
+            workflows.insert(id, (workflow, ran.event.ok_or(MALFORMED)?));
+        }
+        let Some(nodes) = whole(suite.check_runs.ok_or(MALFORMED)?)? else {
+            return Ok(Asked::Long);
+        };
+        for r in nodes {
+            let status = run_status(
+                &r.status.ok_or(MALFORMED)?.to_ascii_lowercase(),
+                r.conclusion.map(|c| c.to_ascii_lowercase()).as_deref(),
+            );
+            let name = r.name.ok_or(MALFORMED)?;
+            let run = Run {
+                id: r.database_id.ok_or(MALFORMED)?,
+                app: app_id,
+                actions,
+                suite: id,
+                started: started(r.started_at.as_ref()),
+            };
+            if name == check {
+                runs.push((run, Check::new(name, status)));
+            }
+        }
+    }
+    if runs.len().saturating_add(contexts.len()) > ALL_MAX.get() as usize {
+        return Err(Outcome::Unread(Unread::Cut));
+    }
+    let mut statuses = Vec::new();
+    for c in contexts {
+        let c = c.ok_or(MALFORMED)?;
+        let state = c.state.ok_or(MALFORMED)?.to_ascii_lowercase();
+        statuses.push(Check::new(
+            c.context.ok_or(MALFORMED)?,
+            status_state(&state),
+        ));
+    }
+    let checks = folded(runs, &workflows, statuses, Some(check))?;
+    Ok(Asked::Whole(Some((head, checks))))
+}
+
+/// The items of a list the one question gave, None where it may not be
+/// whole: `ONE_PAGE` or more, or a count past them.
+fn whole<T>(conn: Conn<T>) -> Got<Option<Vec<T>>> {
+    let total = conn.total_count.ok_or(MALFORMED)?;
+    let nodes = conn.nodes.ok_or(MALFORMED)?;
+    if nodes.len() >= ONE_PAGE || total != nodes.len() as u64 {
+        return Ok(None);
+    }
+    nodes
+        .into_iter()
+        .map(|n| n.ok_or(MALFORMED))
+        .collect::<Got<Vec<T>>>()
+        .map(Some)
 }
 
 impl GitHub {

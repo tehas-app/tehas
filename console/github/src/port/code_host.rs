@@ -180,6 +180,16 @@ impl CodeHost for GitHub {
         self.checks_of(at, name)
     }
 
+    /// The branch's head and its checks of a name, one GraphQL question,
+    /// else the long way: see `checks.rs`.
+    fn branch_checks(
+        &mut self,
+        branch: &Branch,
+        name: Option<&str>,
+    ) -> Got<Option<(CommitId, Checks)>> {
+        self.branch_checks_of(branch, name)
+    }
+
     /// The tags, GraphQL's `refs/tags/`, an annotated tag peeled and timed
     /// by its tagger: see `releases.rs`.
     fn tags(&mut self, bound: Bound) -> Got<Whole<Tag>> {

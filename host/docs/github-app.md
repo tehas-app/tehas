@@ -162,8 +162,8 @@ and whether the installation reaches `TEHAS_REPO`, and never the token itself.
 
 With `TEHAS_BRANCH_CHECK` set, each poll reads that check on the branch's
 head commit: its check runs, the commit's statuses and the workflow runs of
-GitHub Actions that the check runs belong to. GitHub needs these repository
-permissions on the app for it:
+GitHub Actions that the check runs belong to, in one GraphQL question. GitHub
+needs these repository permissions on the app for it:
 
 | Permission | Access | What the poll reads with it |
 | --- | --- | --- |

@@ -111,6 +111,28 @@ fn a_poll_that_starts_no_cycle_says_0_starts_and_is_one_of_the_idle_polls() {
     assert_eq!(idle_at(&w, 1, "3600")["polls"].as_u64(), Some(0));
 }
 
+/// The branch's check costs an idle poll one gh call: the code host's one
+/// question for the branch's head and the check on it (was 3, then 4).
+#[test]
+fn a_branch_check_costs_an_idle_poll_one_call() {
+    let calls = |more: &[&str]| {
+        let w = World::new("cost");
+        w.slots(1, more);
+        // Nothing ready: the poll reads the whole snapshot and starts nothing.
+        w.ready(&[]);
+        let r = w.poll();
+        assert_eq!(r.rc, 0, "{}", r.out);
+        assert_eq!(w.started(), "");
+        assert_eq!(cost(&w)["last"]["gh"].as_u64(), Some(gh_calls(&w)));
+        for long in ["/check-runs?", "/status?", "/actions/runs?"] {
+            lacks(&w.gh(), long);
+        }
+        gh_calls(&w)
+    };
+    let without = calls(&[]);
+    assert_eq!(calls(&["TEHAS_BRANCH_CHECK=verify"]), without + 1);
+}
+
 #[test]
 fn without_a_write_log_the_writes_are_not_on_record_and_the_calls_still_are() {
     let w = World::new("cost");
