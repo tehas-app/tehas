@@ -63,67 +63,6 @@ pub(crate) struct ItemRec {
     pub attachments: Vec<(Attachment, Vec<u8>)>,
 }
 
-/// One label name as the site compares them: whatever the case.
-fn same_label(a: &str, b: &str) -> bool {
-    a.to_lowercase() == b.to_lowercase()
-}
-
-impl ItemRec {
-    /// Whether the ticket holds a label of this name, by a mark or by
-    /// name alone. The site holds a name once.
-    pub(crate) fn holds_label(&self, name: &str) -> bool {
-        let marks = self.marks.iter().map(super::site::mark_name);
-        (self.labels.iter().map(|(_, n)| n.clone()))
-            .chain(marks)
-            .any(|n| same_label(&n, name))
-    }
-
-    /// Put a label on by name alone, after the marks the ticket carries
-    /// now. An empty name or one held already changes nothing.
-    pub(crate) fn label(&mut self, name: &str) {
-        if !name.is_empty() && !self.holds_label(name) {
-            self.labels.push((self.marks.len(), name.to_string()));
-        }
-    }
-
-    /// Put a mark on, once: whether it was not on before. A label of its
-    /// name put on by name alone becomes the mark, where it stood.
-    pub(crate) fn put_mark(&mut self, m: &Mark) -> bool {
-        if self.marks.contains(m) {
-            return false;
-        }
-        let name = super::site::mark_name(m);
-        let raw = (self.labels.iter()).position(|(_, n)| !name.is_empty() && same_label(n, &name));
-        let Some(r) = raw else {
-            self.marks.push(m.clone());
-            return true;
-        };
-        let (k, _) = self.labels.remove(r);
-        self.marks.insert(k, m.clone());
-        for (i, (after, _)) in self.labels.iter_mut().enumerate() {
-            if *after > k || (*after == k && i >= r) {
-                *after += 1;
-            }
-        }
-        true
-    }
-
-    /// Take a mark off: whether it was on. The labels put on by name
-    /// alone keep their places.
-    pub(crate) fn take_mark(&mut self, m: &Mark) -> bool {
-        let Some(i) = self.marks.iter().position(|x| x == m) else {
-            return false;
-        };
-        self.marks.remove(i);
-        for (after, _) in &mut self.labels {
-            if *after > i {
-                *after -= 1;
-            }
-        }
-        true
-    }
-}
-
 /// A comment on a blueprint, a note on a ticket, or a comment on a change.
 #[derive(Debug, Clone)]
 pub(crate) struct CommentRec {
@@ -320,7 +259,7 @@ impl State {
         for item in &mut self.items {
             item.marks.iter_mut().for_each(rename);
             if item.marks.contains(to) {
-                item.labels.retain(|(_, n)| !same_label(n, &new));
+                item.labels.retain(|(_, n)| !super::same_label(n, &new));
             }
             for e in &mut item.history {
                 if let crate::Happened::Marked(m) | crate::Happened::Unmarked(m) = &mut e.what {
