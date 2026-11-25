@@ -81,10 +81,18 @@ class Repo:
         return code, out.getvalue() + err.getvalue()
 
 
+def pointer(standard):
+    """`tehas.toml` naming `standard`, or the text as given when it
+    is already TOML (it holds a table)."""
+    if "[" in standard:
+        return standard + "\n"
+    return f'[standard]\nurl = "https://github.com/tehas-app/tehas-standard"\nversion = "{standard}"\n'
+
+
 def base_repo(standard="v2", **kw):
     r = Repo()
     if standard:
-        r.write(".tehas/coding-standard", standard + "\n")
+        r.write("tehas.toml", pointer(standard))
     r.write("architecture.toml", config(**kw))
     r.write("src/adapter.rs", 'fn get() { call("/api/a"); call("/api/b") }\n')
     r.write("src/web.rs", '// a comment naming /api/x is not counted\nfn page(v: Value) {\n  call("/api/c")\n}\n')
@@ -123,7 +131,7 @@ class Checks(unittest.TestCase):
 
     def test_a_blank_why_is_no_why(self):
         r = Repo()
-        r.write(".tehas/coding-standard", "v2\n")
+        r.write("tehas.toml", pointer("v2"))
         r.write("architecture.toml", config().replace('why = "the page, until step 4"', 'why = "  "'))
         r.write("src/adapter.rs", 'fn get() { call("/api/a") }\n')
         r.write("src/web.rs", 'fn page(v: Value) { call("/api/c") }\n')
@@ -310,7 +318,7 @@ class Base(unittest.TestCase):
 
     def test_a_base_without_the_file_is_noted(self):
         r = Repo()
-        r.write(".tehas/coding-standard", "v2\n")
+        r.write("tehas.toml", pointer("v2"))
         r.write("readme", "x\n")
         r.commit()
         r.write("architecture.toml", config(routes=0, untyped=0))
@@ -333,12 +341,12 @@ class Standard(unittest.TestCase):
     def test_v1_is_skipped(self):
         code, out = self.breaking("v1").run()
         self.assertEqual(code, 0, out)
-        self.assertIn("Skipped: this repository's coding standard is v1", out)
+        self.assertIn("Skipped: this repository's standard is v1", out)
 
     def test_no_file_is_skipped(self):
         code, out = self.breaking(None).run()
         self.assertEqual(code, 0, out)
-        self.assertIn("is not set (.tehas/coding-standard is missing)", out)
+        self.assertIn("is not set (no tehas.toml)", out)
 
     def test_force_runs_the_checks_at_v1(self):
         code, out = self.breaking("v1").run("--force")
@@ -346,21 +354,270 @@ class Standard(unittest.TestCase):
         self.assertIn("routes (R1): 2 places, 1 allowed", out)
 
     def test_comments_and_blank_lines_before_the_value(self):
-        code, _ = self.breaking("# the architecture method\n\nv2").run()
+        code, _ = self.breaking('# the architecture method\n\n[standard]\n# the version\nurl = "https://github.com/tehas-app/tehas-standard"\nversion = "v2"').run()
         self.assertEqual(code, 1)
 
     def test_a_later_standard_needs_a_later_script(self):
         code, out = self.breaking("v3").run()
         self.assertEqual(code, 2)
-        self.assertIn("coding standard v3 is newer than this script", out)
+        self.assertIn("standard v3 is newer than this script", out)
 
     def test_another_value_is_refused(self):
         code, out = self.breaking("strict").run()
         self.assertEqual(code, 2)
-        self.assertIn("'strict' is not a coding standard", out)
+        self.assertIn("'strict' is not a standard", out)
+
+    def test_a_table_without_a_version_is_refused(self):
+        code, out = self.breaking("[standard]").run()
+        self.assertEqual(code, 2)
+        self.assertIn("[standard] has no version", out)
+
+    def test_an_unknown_key_in_the_table_is_refused(self):
+        code, out = self.breaking('[standard]\nurl = "https://github.com/tehas-app/tehas-standard"\nversion = "v2"\nstrict = true').run()
+        self.assertEqual(code, 2)
+        self.assertIn("keys this script does not know: strict", out)
+
+    def test_other_tables_are_left_to_their_owners(self):
+        code, out = self.breaking('[standard]\nurl = "https://github.com/tehas-app/tehas-standard"\nversion = "v2"\n\n[kit]\nversion = "3"').run()
+        self.assertEqual(code, 1, out)
+
+    def test_a_file_without_the_table_is_refused(self):
+        for text in ['[kit]\nversion = "3"', '[Standard]\nversion = "v2"', '[standards]\nversion = "v2"', 'version = "v2"\n[x]', "# empty\n[x]"]:
+            with self.subTest(text=text):
+                code, out = self.breaking(text).run()
+                self.assertEqual(code, 2, out)
+                self.assertIn("no [standard] table", out)
+
+    def test_standard_that_is_not_a_table_is_refused(self):
+        for text in ['standard = "v2"\n[x]', '[[standard]]\nversion = "v2"']:
+            with self.subTest(text=text):
+                code, out = self.breaking(text).run()
+                self.assertEqual(code, 2, out)
+                self.assertIn("[standard] must be a table", out)
+
+    def test_an_old_file_that_is_not_utf8_is_refused(self):
+        r = self.breaking(None)
+        os.makedirs(os.path.join(r.root, ".tehas"), exist_ok=True)
+        with open(os.path.join(r.root, ".tehas/coding-standard"), "wb") as f:
+            f.write(b"v\xff\n")
+        code, out = r.run()
+        self.assertEqual(code, 2, out)
+        self.assertIn("not UTF-8", out)
+
+    def test_a_symlink_is_refused_even_dangling(self):
+        r = self.breaking(None)
+        r.write(".tehas/coding-standard", "v1\n")
+        os.symlink("nowhere.toml", os.path.join(r.root, "tehas.toml"))
+        code, out = r.run()
+        self.assertEqual(code, 2, out)
+        self.assertIn("a symlink", out)
+
+    def downgrade(self, before, after):
+        r = base_repo(standard=None)
+        if before:
+            r.write(*before)
+        r.commit()
+        for name in ("tehas.toml", ".tehas/coding-standard"):
+            path = os.path.join(r.root, name)
+            if os.path.lexists(path):
+                os.remove(path)
+        if after:
+            r.write(*after)
+        return r.run("--base", "main")
+
+    def test_a_lower_standard_than_the_base_is_refused(self):
+        code, out = self.downgrade(("tehas.toml", pointer("v2")), ("tehas.toml", pointer("v1")))
+        self.assertEqual(code, 2, out)
+        self.assertIn("the standard goes down from v2 at main to v1", out)
+
+    def test_removing_the_file_the_base_has_is_refused(self):
+        code, out = self.downgrade(("tehas.toml", pointer("v2")), None)
+        self.assertEqual(code, 2, out)
+        self.assertIn("goes down from v2 at main to none", out)
+
+    def test_the_move_from_the_old_file_is_not_a_downgrade(self):
+        code, out = self.downgrade((".tehas/coding-standard", "v2\n"), ("tehas.toml", pointer("v2")))
+        self.assertNotIn("goes down", out)
+        self.assertNotEqual(code, 2, out)
+
+    def test_going_up_is_fine(self):
+        code, out = self.downgrade(("tehas.toml", pointer("v1")), ("tehas.toml", pointer("v2")))
+        self.assertNotIn("goes down", out)
+        self.assertNotEqual(code, 2, out)
+
+    def test_platform_names_the_toolchains(self):
+        code, out = self.breaking('[standard]\nurl = "https://github.com/tehas-app/tehas-standard"\nversion = "v2"\n\n[platform]\nrust = "1.x"\ntypescript = "7.x"').run()
+        self.assertEqual(code, 1, out)
+
+    def test_platform_refuses_an_unknown_key(self):
+        code, out = self.breaking('[standard]\nurl = "https://github.com/tehas-app/tehas-standard"\nversion = "v2"\n\n[platform]\nos = "linux"').run()
+        self.assertEqual(code, 2, out)
+        self.assertIn("[platform] has a key this script does not know: os", out)
+
+    def test_platform_refuses_a_major_the_standard_does_not_allow(self):
+        code, out = self.breaking('[standard]\nurl = "https://github.com/tehas-app/tehas-standard"\nversion = "v2"\n\n[platform]\nrust = "2.x"').run()
+        self.assertEqual(code, 2, out)
+        self.assertIn("[platform] rust = '2.x'; this standard allows 1.x", out)
+
+    def test_platform_must_be_a_table(self):
+        code, out = self.breaking('platform = "rust"\n[standard]\nurl = \"https://github.com/tehas-app/tehas-standard\"\nversion = "v2"').run()
+        self.assertEqual(code, 2, out)
+        self.assertIn("[platform] must be a table", out)
+
+    def test_platform_is_checked_at_v1_too(self):
+        code, out = self.breaking('[standard]\nurl = "https://github.com/tehas-app/tehas-standard"\nversion = "v1"\n\n[platform]\nrust = "0.x"').run()
+        self.assertEqual(code, 2, out)
+
+    def test_an_unresolvable_base_is_refused(self):
+        r = base_repo(standard="v1")
+        r.commit()
+        code, out = r.run("--base", "no-such-ref")
+        self.assertEqual(code, 2, out)
+        self.assertIn("--base no-such-ref: not a commit", out)
+
+    def test_a_base_outside_a_repository_is_refused(self):
+        with tempfile.TemporaryDirectory() as root:
+            out, err = io.StringIO(), io.StringIO()
+            with redirect_stdout(out), redirect_stderr(err):
+                code = architecture.main(["--root", root, "--summary", os.devnull, "--base", "main"])
+            self.assertEqual(code, 2, out.getvalue() + err.getvalue())
+
+    def test_a_directory_is_refused_at_either_name(self):
+        for name in ("tehas.toml", ".tehas/coding-standard"):
+            with self.subTest(name=name):
+                r = self.breaking(None)
+                os.makedirs(os.path.join(r.root, name))
+                code, out = r.run()
+                self.assertEqual(code, 2, out)
+
+    def test_a_symlink_is_refused_at_the_old_name(self):
+        r = self.breaking(None)
+        r.write(".tehas/v1.txt", "v1\n")
+        os.symlink("v1.txt", os.path.join(r.root, ".tehas/coding-standard"))
+        code, out = r.run()
+        self.assertEqual(code, 2, out)
+        self.assertIn("a symlink", out)
+
+    def test_a_symlink_to_a_good_file_is_refused(self):
+        r = self.breaking(None)
+        r.write("real.toml", pointer("v2"))
+        os.symlink("real.toml", os.path.join(r.root, "tehas.toml"))
+        code, out = r.run()
+        self.assertEqual(code, 2, out)
+        self.assertIn("a symlink", out)
+
+    def test_a_symlink_at_the_base_is_named(self):
+        r = base_repo(standard=None)
+        r.write("real.toml", pointer("v2"))
+        os.symlink("real.toml", os.path.join(r.root, "tehas.toml"))
+        r.git("add", "tehas.toml")
+        r.commit()
+        os.remove(os.path.join(r.root, "tehas.toml"))
+        r.write("tehas.toml", pointer("v2"))
+        code, out = r.run("--base", "main")
+        self.assertEqual(code, 2, out)
+        self.assertIn("not a regular file (mode 120000)", out)
+
+    def test_a_table_without_a_url_is_refused(self):
+        code, out = self.breaking('[standard]\nversion = "v2"').run()
+        self.assertEqual(code, 2, out)
+        self.assertIn("[standard] has no url", out)
+
+    def test_another_standard_is_refused(self):
+        code, out = self.breaking('[standard]\nurl = "https://example.org/other-standard"\nversion = "v2"').run()
+        self.assertEqual(code, 2, out)
+        self.assertIn("another standard brings its own script", out)
+
+    def test_removing_a_platform_key_the_base_has_is_refused(self):
+        code, out = self.downgrade(("tehas.toml", pointer("v2") + '\n[platform]\nrust = "1.x"\ntypescript = "7.x"\n'),
+                                   ("tehas.toml", pointer("v2") + '\n[platform]\nrust = "1.x"\n'))
+        self.assertEqual(code, 2, out)
+        self.assertIn("[platform] loses typescript", out)
+
+    def test_a_platform_value_that_is_not_a_string_is_refused(self):
+        for extra in ['rust = ["1.x"]', '[platform.rust]\nmajor = "1"']:
+            with self.subTest(extra=extra):
+                text = pointer("v2") + ("\n[platform]\n" + extra if not extra.startswith("[") else "\n" + extra)
+                code, out = self.breaking(text).run()
+                self.assertEqual(code, 2, out)
+                self.assertIn("this standard allows", out)
+
+    def test_a_symlinked_tehas_directory_is_refused(self):
+        r = self.breaking(None)
+        r.write("real/coding-standard", "v1\n")
+        os.symlink("real", os.path.join(r.root, ".tehas"))
+        code, out = r.run()
+        self.assertEqual(code, 2, out)
+        self.assertIn("a symlink, or under one", out)
+
+    def test_a_symlinked_tehas_directory_at_the_base_is_refused(self):
+        r = base_repo(standard=None)
+        r.write("real/coding-standard", "v2\n")
+        os.symlink("real", os.path.join(r.root, ".tehas"))
+        r.git("add", ".tehas")
+        r.commit()
+        os.remove(os.path.join(r.root, ".tehas"))
+        r.write("tehas.toml", pointer("v1"))
+        code, out = r.run("--base", "main")
+        self.assertEqual(code, 2, out)
+        self.assertIn(":.tehas: a symlink", out)
 
     def test_an_empty_file_is_refused(self):
-        code, out = self.breaking("# nothing").run()
+        r = self.breaking(None)
+        r.write("tehas.toml", "")
+        code, out = r.run()
+        self.assertEqual(code, 2, out)
+        self.assertIn("no [standard] table", out)
+
+    def test_a_version_that_is_not_a_string_is_refused(self):
+        code, out = self.breaking("[standard]\nurl = \"https://github.com/tehas-app/tehas-standard\"\nversion = 2").run()
+        self.assertEqual(code, 2)
+        self.assertIn("the version must be a string", out)
+
+    def test_a_minor_needs_a_later_script(self):
+        code, out = self.breaking("v2.1").run()
+        self.assertEqual(code, 2)
+        self.assertIn("standard v2.1 is newer than this script", out)
+
+    def test_a_file_that_is_not_utf8_is_refused(self):
+        r = self.breaking(None)
+        os.makedirs(os.path.join(r.root, ".tehas"), exist_ok=True)
+        with open(os.path.join(r.root, "tehas.toml"), "wb") as f:
+            f.write(b"[standard]\nurl = \"https://github.com/tehas-app/tehas-standard\"\nversion = \"\xff\"\n")
+        code, out = r.run()
+        self.assertEqual(code, 2, out)
+        self.assertIn("not UTF-8", out)
+
+    def test_bad_toml_is_refused(self):
+        code, out = self.breaking("[standard\nversion = v2").run()
+        self.assertEqual(code, 2)
+        self.assertIn("not valid TOML", out)
+
+    def test_the_old_name_is_read_for_v1(self):
+        r = self.breaking(None)
+        r.write(".tehas/coding-standard", "v1\n")
+        code, out = r.run()
+        self.assertEqual(code, 0, out)
+        self.assertIn("Skipped: this repository's standard is v1", out)
+
+    def test_the_old_name_with_v2_asks_for_the_move(self):
+        r = self.breaking(None)
+        r.write(".tehas/coding-standard", "v2\n")
+        code, out = r.run()
+        self.assertEqual(code, 2, out)
+        self.assertIn('.tehas/coding-standard says v2; move it to tehas.toml as [standard] url = "https://github.com/tehas-app/tehas-standard", version = "v2"', out)
+
+    def test_both_files_at_once_are_refused(self):
+        r = self.breaking("v2")
+        r.write(".tehas/coding-standard", "v1\n")
+        code, out = r.run()
+        self.assertEqual(code, 2, out)
+        self.assertIn("are both here; keep tehas.toml alone", out)
+
+    def test_an_empty_old_file_is_refused(self):
+        r = self.breaking(None)
+        r.write(".tehas/coding-standard", "# nothing\n")
+        code, out = r.run()
         self.assertEqual(code, 2)
         self.assertIn("empty", out)
 
@@ -368,7 +625,7 @@ class Standard(unittest.TestCase):
 class Config(unittest.TestCase):
     def test_every_problem_at_once_and_exit_2(self):
         r = Repo()
-        r.write(".tehas/coding-standard", "v2\n")
+        r.write("tehas.toml", pointer("v2"))
         r.write("architecture.toml", 'version = 1\nextra = 1\n[[check]]\nid = "a"\nrule = "R11"\nmode = "spans"\npattern = "("\n')
         code, out = r.run()
         self.assertEqual(code, 2)
@@ -378,7 +635,7 @@ class Config(unittest.TestCase):
 
     def test_the_wrong_version_is_refused(self):
         r = Repo()
-        r.write(".tehas/coding-standard", "v2\n")
+        r.write("tehas.toml", pointer("v2"))
         r.write("architecture.toml", "version = 2\n")
         code, out = r.run()
         self.assertEqual(code, 2)
@@ -386,7 +643,7 @@ class Config(unittest.TestCase):
 
     def test_start_and_end_belong_to_spans(self):
         r = Repo()
-        r.write(".tehas/coding-standard", "v2\n")
+        r.write("tehas.toml", pointer("v2"))
         r.write("architecture.toml", config().replace('mode = "spans"\n', ""))
         code, out = r.run()
         self.assertEqual(code, 2)
