@@ -988,6 +988,46 @@ fn every_reason_bounded_gives_maps_as_before_the_relays_runner() {
     }
 }
 
+/// A connection that broke after the request went out may have carried
+/// it; one never made carried nothing. These are the cases the journal
+/// read from gh's words until T4.7 took that reading out of it.
+#[test]
+fn a_broken_connection_may_have_carried_the_write_and_one_never_made_did_not() {
+    let maybe = |why| Outcome::Unavailable {
+        why,
+        sent: Sent::Maybe,
+    };
+    let never = Outcome::Unavailable {
+        why: Passing::Unreachable,
+        sent: Sent::No,
+    };
+    let cases = [
+        (": connection reset by peer", maybe(Passing::Unreachable)),
+        (": unexpected EOF", maybe(Passing::Unreachable)),
+        (": EOF", maybe(Passing::Server)),
+        (
+            ": http2: server sent GOAWAY and closed the connection",
+            maybe(Passing::Server),
+        ),
+        (": http2: client connection closed", maybe(Passing::Server)),
+        (
+            ": write tcp: use of closed network connection",
+            maybe(Passing::Server),
+        ),
+        (
+            ": http: server closed idle connection",
+            maybe(Passing::Server),
+        ),
+        (": HTTP 503", maybe(Passing::Server)),
+        (": HTTP 504", maybe(Passing::Server)),
+        (": dial tcp: connect: connection refused", never.clone()),
+        (": dial tcp: lookup: no such host", never),
+    ];
+    for (why, want) in cases {
+        assert_eq!(read_outcome(why), want, "{why}");
+    }
+}
+
 /// A body holding a marker that reads and one that does not (a field with
 /// a leading zero).
 const MARKED: &str = "The plan.\n<!-- tehas:hold-cleared -->\n<!-- tehas:park issue=07 step=work kind=stopped provider=0 sig=0000000000000000000000000000000000000000000000000000000000000000 -->";
