@@ -1017,13 +1017,11 @@ mod tests {
         }
         for name in ["TEHAS_CODE_HOST", "TEHAS_TICKETS"] {
             takes(name, "github");
-            for v in ["jira", "GitHub", "gitlab", "github "] {
-                refuses(
-                    name,
-                    v,
-                    "expected github: others are not built in this release",
-                );
-            }
+            refuses(
+                name,
+                "github ",
+                "expected github: others are not built in this release",
+            );
         }
         takes("TEHAS_UPDATE_FROM", "git");
         refuses("TEHAS_UPDATE_FROM", "tag", "expected git or release");

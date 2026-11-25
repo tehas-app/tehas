@@ -1,6 +1,6 @@
 ### Changes
 
-- Two settings name the adapters a factory works with: `TEHAS_CODE_HOST` for the code host and `TEHAS_TICKETS` for the ticket tracker. This release builds `github` alone for both, and a missing setting means `github`. Any other value, `jira` among them, stops every command with 78.
+- Two settings name the adapters a factory works with: `TEHAS_CODE_HOST` for the code host and `TEHAS_TICKETS` for the ticket tracker. This release builds `github` alone for both, and a missing or empty setting means `github`. Any other value, `jira` among them, stops every command with 78.
 
 ### Adopter action
 
