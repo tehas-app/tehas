@@ -794,6 +794,37 @@ fn code_host_two_suites_runs_of_one_name_are_both_held() {
 }
 
 #[test]
+fn code_host_branch_checks_are_the_branch_then_its_checks() {
+    let run = |status: CheckStatus| Check::new("gate".into(), status);
+    let main = Branch::new("main").unwrap();
+    let gone = Branch::new("gone").unwrap();
+    for w in both() {
+        let at = w.head("main").unwrap();
+        let w = w
+            .check(&at, run(CheckStatus::Done(Conclusion::Failed)))
+            .check_by("other", &at, run(CheckStatus::Done(Conclusion::Passed)));
+        let site = FakeSite::new(&w);
+        let mut h = site.code_host(&full(), C).unwrap();
+        ok(laws::code_host::branch_checks_are_the_branch_then_its_checks(
+            h.as_mut(),
+            &main,
+            &gone,
+            "gate",
+        ));
+        let (head, checks) = h.branch_checks(&main, Some("gate")).unwrap().unwrap();
+        assert_eq!(head, at);
+        assert_eq!(checks.overall, Overall::Fail);
+        // A failure of either read fails the whole: never a head without
+        // its checks.
+        for op in [CodeHostOp::Branch, CodeHostOp::Checks] {
+            let faulty = Faulty::new(FakeSite::new(&w)).on(Op::CodeHost(op), Fault::Timeout);
+            let mut h = faulty.code_host(&full(), C).unwrap();
+            assert!(h.branch_checks(&main, Some("gate")).is_err(), "{op:?}");
+        }
+    }
+}
+
+#[test]
 fn code_host_a_failed_status_beside_a_passing_run_fails() {
     let status = |name: &str, state: StatusState| Status {
         name: name.into(),
