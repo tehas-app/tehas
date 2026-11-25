@@ -158,6 +158,43 @@ It prints the app, the installation, the bot's login, when the token runs out
 and whether the installation reaches `TEHAS_REPO`, and never the token itself.
 `command -v gh` now answers `~/tehas/shim/gh`.
 
+## The permission to read the checks
+
+With `TEHAS_BRANCH_CHECK` set, each poll reads that check on the branch's
+head commit: its check runs, the commit's statuses and the workflow runs of
+GitHub Actions that the check runs belong to. GitHub needs these repository
+permissions on the app for it:
+
+| Permission | Access | What the poll reads with it |
+| --- | --- | --- |
+| Actions | Read-only | The workflow runs of the commit |
+| Checks | Read-only | The check runs of the commit |
+| Commit statuses | Read-only or more | The commit's statuses |
+
+When GitHub refuses the read, the poll says so once each poll:
+
+```text
+WARN: the code host refused to say the checks of main; the factory's account may lack a permission (host/docs/github-app.md#the-permission-to-read-the-checks)
+```
+
+The check is then unreadable, never passed: the poll also says `the check
+<name> on main could not be read: cycles start`.
+
+To add the permission to an app made before:
+
+1. On GitHub, open the app's settings: **Settings**, **Developer settings**,
+   **GitHub Apps**, then **Edit** next to the app.
+2. Under **Permissions and events**, **Repository permissions**, set
+   **Actions** to "Read-only" (and **Checks**, if it is not), then **Save
+   changes**.
+3. The owner of the installation accepts the new permission: GitHub asks
+   them by mail, or on the account's **Settings**, **GitHub Apps**,
+   **Configure** next to the app, **Review request**, then **Accept new
+   permissions**. Until they accept, the installation keeps the old ones.
+
+The next poll's token carries it; nothing on the host changes. An app made
+with `tehas setup --new-app` asks for all three.
+
 ## Moving a host that used a token
 
 `GH_TOKEN` in `~/.config/tehas/env`, `GH_CYCLE_TOKEN` and `TEHAS_CYCLE_LOGIN`

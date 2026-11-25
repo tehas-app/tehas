@@ -580,28 +580,7 @@ fn one<K>(mut several: Vec<(K, Got<Whole<Edit>>)>) -> Got<Whole<Edit>> {
 /// GitHub says the rate is limited, `Unread(Inconsistent)` for any other
 /// (a comment deleted since its page was read among them).
 fn answer<T: serde::de::DeserializeOwned>(out: &str, at: &str, now: i64) -> Got<T> {
-    let malformed = Outcome::Unread(Unread::Malformed);
-    let mut v: Value = serde_json::from_str(out.trim()).map_err(|_| malformed.clone())?;
-    if let Some(errors) = v.get("errors").filter(|e| !e.is_null()) {
-        let limited = errors.as_array().is_some_and(|all| {
-            all.iter()
-                .any(|e| e.get("type").and_then(Value::as_str) == Some("RATE_LIMITED"))
-        });
-        return Err(if limited {
-            Outcome::Spent {
-                pool: Pool::Priced,
-                until: At::new(now),
-            }
-        } else {
-            Outcome::Unread(Unread::Inconsistent)
-        });
-    }
-    tehas_core::accounts::vouch(&mut v);
-    let part = v
-        .pointer_mut(at)
-        .map(std::mem::take)
-        .ok_or(malformed.clone())?;
-    serde_json::from_value(part).map_err(|_| malformed)
+    crate::graphql::part(out, at, now)
 }
 
 /// A spent budget of a GraphQL call is the priced pool's.
