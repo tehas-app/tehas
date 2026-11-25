@@ -425,7 +425,10 @@ floors: the open T4 adapter pull requests land first, and what is still
 written outside the adapter is written down as T4's alpha.1 floors, per
 area, in
 [docs/architecture.md, "T4's alpha.1 floors"](../architecture.md#t4s-alpha1-floors).
-Moving it is T4's remaining lane, before the beta.
+Moving it is T4's remaining lane, before the beta. The same ruling
+writes the rest of label-words, home-layout, raw-statuses and
+tests-stub-gh as alpha.1 floors, in
+[docs/architecture.md, "alpha.1 floors"](../architecture.md#alpha1-floors).
 
 T4's Done also needs, before T4 is done, one live read-only recording
 per GraphQL question of the adapter, made with a real token: among them

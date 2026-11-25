@@ -1,1 +1,1 @@
-| 2026-11-25 | T4: alpha.1 closes T4 on written floors (the trio PM): the rest of github-rest and gh-argv, 730 and 230 per area, beside the floors of 4 and 7, in docs/architecture.md | v2/t4-written-floors |
+| 2026-11-25 | alpha.1 closes on written floors, T4 and the rest (the trio PM): github-rest 730 and gh-argv 217 per area beside the floors of 4 and 7, and label-words 1483, home-layout 303, raw-statuses 203 and tests-stub-gh 151 per area, in docs/architecture.md | v2/t4-written-floors |
