@@ -200,9 +200,7 @@ impl TicketSpec {
                 e.mark_id = s.mark_id(&mark);
                 s.items[at].history.push(e);
             }
-            if !s.items[at].marks.contains(&mark) {
-                s.items[at].marks.push(mark);
-            }
+            s.items[at].put_mark(&mark);
         }
         for (what, by, when) in self.events {
             let by = by.map(|l| s.account(&l, realm));
