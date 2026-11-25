@@ -140,14 +140,36 @@ impl GitHub {
         Ok(took(all.into_iter().map(|r| r.release).collect(), first))
     }
 
-    /// The newest published release that is neither a draft nor a
-    /// prerelease, by when it was published; None when there is none.
+    /// GitHub's own latest release, REST's `releases/latest`, as the
+    /// anonymous reader asks it: the release a person marked latest, else
+    /// the one the site picks among the published that are neither a draft
+    /// nor a prerelease. When it answers with none, the project is read: one
+    /// that is there has no latest release (None); one that is not is that
+    /// read's own outcome. A draft or a prerelease in the answer is
+    /// `Unread(Inconsistent)`.
     pub(super) fn latest_release_of(&mut self) -> Got<Option<Release>> {
-        let all = self.releases_of(ALL_MAX)?.into_items();
-        Ok(all
-            .into_iter()
-            .filter(|r| !r.draft && !r.prerelease && r.published.is_some())
-            .max_by_key(|r| r.published))
+        let path = format!("repos/{}/releases/latest", self.repo);
+        let out = match self.call("the latest release", &["api", &path]) {
+            Ok(out) => out,
+            Err(e) => {
+                return match self.outcome(&e) {
+                    Outcome::NotFound => {
+                        let project = format!("repos/{}", self.repo);
+                        match self.call("the project", &["api", &project]) {
+                            Ok(_) => Ok(None),
+                            Err(e) => Err(self.outcome(&e)),
+                        }
+                    }
+                    other => Err(other),
+                };
+            }
+        };
+        let raw: Raw = serde_json::from_str(out.trim()).map_err(|_| MALFORMED)?;
+        let release = raw.read()?.release;
+        if release.draft || release.prerelease {
+            return Err(Outcome::Unread(Unread::Inconsistent));
+        }
+        Ok(Some(release))
     }
 
     /// The release of a tag, REST's `releases/tags/<tag>`. `NotFound` when
