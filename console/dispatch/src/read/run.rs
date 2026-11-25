@@ -251,7 +251,7 @@ fn line(word: &str, note: &Note) -> String {
         }
         out.push(')');
     }
-    tehas_core::call::trim(&out)
+    tehas_core::text::trim(&out)
 }
 
 /// The reads of a poll that no single `Calls` made: the budget of retries the
