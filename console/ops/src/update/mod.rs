@@ -100,7 +100,6 @@ use std::os::unix::fs::DirBuilderExt;
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
-use std::time::{SystemTime, UNIX_EPOCH};
 use tehas_core::home::{Home, State};
 
 /// What `console update api` answers. `run` passes this plan and these
@@ -308,22 +307,9 @@ pub(crate) fn first_line(file: &Path) -> String {
 
 /// A new directory of this account's alone, `<parent>/<prefix>XXXXXX`.
 pub(crate) fn temp_dir(parent: &Path, prefix: &str) -> io::Result<PathBuf> {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.subsec_nanos());
-    let seed = u64::from(std::process::id()) << 32 | u64::from(nanos);
-    for n in 0..64u64 {
-        let dir = parent.join(format!(
-            "{prefix}{:06x}",
-            seed.wrapping_add(n).wrapping_mul(0x9e37_79b9_7f4a_7c15) >> 40
-        ));
-        match fs::DirBuilder::new().mode(0o700).create(&dir) {
-            Ok(()) => return Ok(dir),
-            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(e) => return Err(e),
-        }
-    }
-    Err(io::ErrorKind::AlreadyExists.into())
+    tehas_core::file::fresh(parent, prefix, |dir| {
+        fs::DirBuilder::new().mode(0o700).create(dir)
+    })
 }
 
 /// The settings an update reads. `TEHAS_HOME` is what the script's `tehas_load`

@@ -14,8 +14,6 @@ use std::io::Write;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
 use tehas_core::home::{Home, State};
 use tehas_core::jq::{obj, J};
 use tehas_core::time::{iso, now};
@@ -72,41 +70,10 @@ pub struct Ended {
     pub handoff_delivered: Option<bool>,
 }
 
-/// A file or directory of `prefix` and six more characters, made new.
-fn fresh(
-    dir: &Path,
-    prefix: &str,
-    mut make: impl FnMut(&Path) -> std::io::Result<()>,
-) -> Option<PathBuf> {
-    static N: AtomicU32 = AtomicU32::new(0);
-    for _ in 0..100 {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |d| d.subsec_nanos());
-        let mut seed = nanos
-            ^ std::process::id().rotate_left(13)
-            ^ N.fetch_add(1, Ordering::Relaxed).wrapping_mul(0x9e37_79b9);
-        let tail: String = (0..6)
-            .map(|_| {
-                let c = b"abcdefghijklmnopqrstuvwxyz0123456789"[(seed % 36) as usize];
-                seed = seed / 36 + 0x2f1b_3c4d;
-                c as char
-            })
-            .collect();
-        let p = dir.join(format!("{prefix}{tail}"));
-        match make(&p) {
-            Ok(()) => return Some(p),
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(_) => return None,
-        }
-    }
-    None
-}
-
 /// A file made new with mode 0600 under `dir`, holding `text`.
 fn private_file(dir: &Path, prefix: &str, text: &str) -> Option<PathBuf> {
     let mut opened = None;
-    let p = fresh(dir, prefix, |p| {
+    let p = tehas_core::file::fresh(dir, prefix, |p| {
         opened = Some(
             fs::OpenOptions::new()
                 .write(true)
@@ -115,7 +82,8 @@ fn private_file(dir: &Path, prefix: &str, text: &str) -> Option<PathBuf> {
                 .open(p)?,
         );
         Ok(())
-    })?;
+    })
+    .ok()?;
     let wrote = opened.as_mut().map(|f| writeln!(f, "{text}"));
     if !matches!(wrote, Some(Ok(()))) {
         let _ = fs::remove_file(&p);
