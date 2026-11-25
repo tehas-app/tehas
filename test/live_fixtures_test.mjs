@@ -12,9 +12,7 @@ import { test } from "node:test";
 import "../host/fun/console-tabs.js";
 import "../host/fun/epics-view.js";
 import "../host/fun/versions.js";
-import { analyticsView } from "../host/fun/analytics-data.js";
 import { consoleModel } from "../host/fun/factory/tehas-factory-console.model.js";
-import { daysModel } from "../host/fun/factory/tehas-factory-days.model.js";
 import { issuesModel } from "../host/fun/factory/tehas-factory-issues.model.js";
 import { previewsModel } from "../host/fun/factory/tehas-factory-previews.model.js";
 import { readonlyModel } from "../host/fun/factory/tehas-factory-readonly.model.js";
@@ -58,14 +56,6 @@ test("running.json draws the console tabs", () => {
   assert.equal(v.shown.cycle.issue, 41);
 });
 
-test("analytics.json draws the ten-day report", () => {
-  const v = analyticsView(read("analytics.json"));
-  assert.equal(v.present, true);
-  assert.equal(v.chart.length, 10);
-  assert.ok(v.figures.length >= 8);
-  assert.equal(v.versions.length, 2);
-});
-
 test("epics.json and health.json draw their parts", () => {
   const epics = globalThis.TEHAS_EPICS.view(read("epics.json"));
   assert.equal(epics.epics.length, 1);
@@ -89,6 +79,4 @@ test("the plain dashboard's islands make every section from the samples", () => 
   assert.deepEqual([c.tabs.length, c.title, c.file], [2, "Working on #41  Export the report as CSV", "console-41.txt"]);
   const previews = previewsModel(read("previews.json"), NOW);
   assert.deepEqual([previews.present, previews.rows.length], [true, 3]);
-  const days = daysModel(read("analytics.json"));
-  assert.deepEqual([days.present, days.chart.length, days.versions.length > 0], [true, 10, true]);
 });

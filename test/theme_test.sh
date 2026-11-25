@@ -123,7 +123,7 @@ t_eq "$(grep -cE 'href="/floor"|href="/dashboard"|href="/"' <<<"$foot")" 0
 t_case "the plain dashboard loads the host bridge before its islands and the dock after them"
 frag=$T_ROOT/host/docs/dashboard.frag
 order=$(grep -oE 'src="/fun/[a-z/-]+\.js"' "$frag" | sed 's/src="\/fun\///; s/"//' | xargs)
-t_eq "$order" "host-bridge.js factory/tehas-factory-state.js factory/tehas-factory-console.js factory/tehas-factory-issues.js factory/tehas-factory-readonly.js factory/tehas-factory-days.js factory/tehas-factory-previews.js dom.js epics-view.js versions.js dock.js"
+t_eq "$order" "host-bridge.js factory/tehas-factory-state.js factory/tehas-factory-console.js factory/tehas-factory-issues.js factory/tehas-factory-readonly.js factory/tehas-factory-previews.js dom.js epics-view.js versions.js dock.js"
 t_contains "$(cat "$frag")" '<script type="module" src="/fun/factory/tehas-factory-state.js"></script>'
 t_eq "$(grep -c '<script type="module">' "$frag")" 0
 

@@ -939,11 +939,11 @@ fn the_poll_s_token_alone_does_not_leave_the_health_file_to_the_poll() {
 #[test]
 fn the_poll_s_name_leaves_the_analytics_of_the_trap_alone() {
     let w = World::new("poll-analytics");
-    w.stub_analytics(r#"printf "%s\n" "{\"report\":1}""#);
+    w.stub_analytics("");
     let st = w.status_cmd();
     w.set_env(&[&format!("TEHAS_STATUS_CMD={st}"), "TEHAS_ANALYTICS=on"]);
     ok(&w.sh(&format!("export TEHAS_FROM_POLL=1; {st}")));
-    assert_eq!(w.calls("analytics").lines().count(), 3);
+    assert_eq!(w.calls("analytics").lines().count(), 2);
 }
 
 #[test]

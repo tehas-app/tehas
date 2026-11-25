@@ -812,13 +812,12 @@ reads "loading", the lists are empty and the optional sections are hidden.
 | `tehas-factory-console` | `running.json`, `status.json` | The tabs of the cycles, the shown cycle's title and step, and the console |
 | `tehas-factory-issues` | `status.json` | One list, named by `list`: `queued`, `awaiting`, `stopped` or `completed` |
 | `tehas-factory-readonly` | `status.json` | What a read-only factory's starts left |
-| `tehas-factory-days` | `analytics.json` | Last 10 days |
 | `tehas-factory-previews` | `previews.json` | The previews |
 
 - Seven islands read `status.json` through one feed, polled every ten seconds;
-  `running.json` the same. `analytics.json` is read once a minute.
+  `running.json` the same.
 - A file that is not there leaves its island's server HTML: a host with no
-  previews or no report has those sections hidden, as before.
+  previews has that section hidden, as before.
   The section comes when the file does.
 - The host bridge's answer (`fun/host-bridge.js`) reaches the islands that
   draw tickets through the page store of `factory/bridge.state.js`.
@@ -834,8 +833,6 @@ reads "loading", the lists are empty and the optional sections are hidden.
   replaces its data, two equal answers in a row are one to a feed, the
   offset counts bytes where a text feed gives characters, and a 206, a 200
   and a 416 each mean something else to it.
-- A bar's length in "Last 10 days" is the custom property
-  `--tehas-factory-share`, which `factory/factory.css` reads.
 
 ## The live files and the pages
 

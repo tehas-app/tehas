@@ -142,10 +142,10 @@ t_case "the dashboard's canonical address is /, the one the sitemap lists, at / 
 t_contains "$(cat "$T_ROOT/host/docs/_layout.html")" '<link rel="canonical" href="{{ $base }}/{{ if not $isFrag }}{{ $path }}{{ end }}">'
 t_contains "$(cat "$T_ROOT/host/docs/_layout.html")" '<meta property="og:url" content="{{ $base }}/{{ if not $isFrag }}{{ $path }}{{ end }}">'
 
-t_case "the live list holds the 16 names the dashboard, the console and the server read"
-t_eq "$(printf '%s\n' "$table" | wc -l)" 16
+t_case "the live list holds the 15 names the dashboard, the console and the server read"
+t_eq "$(printf '%s\n' "$table" | wc -l)" 15
 for want in /status.json /running.json /endings.json /epics.json /health.json /health.down \
-  /dispatch.json /demand.json /analytics.json \
+  /dispatch.json /demand.json \
   /disk.json /platform.json /rukas.json /previews.json \
   /cycles/*.json /console-*.txt /console-*.txt.now; do
   grep -qxF -- "$want" <<<"$table" || t_bad "the list does not name $want"

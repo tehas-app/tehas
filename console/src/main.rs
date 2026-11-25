@@ -87,11 +87,6 @@
 //!
 //! The free kilobytes a command holds work on, see ops/src/disk.rs.
 //!
-//!   console size measure | record <issue> <ledger>
-//!
-//! The measure of an issue body and the ledger of what approved starts
-//! measured, see ops/src/size.rs.
-//!
 //!   console epics <owner/name> <out>
 //!
 //! The open epics and their sub-issues, live/epics.json, for tehasbot status,
@@ -175,7 +170,7 @@
 
 use tehas_ops::{
     account, clean, disk, edge, forge, freeze, github, health, holds, host_message, ids, mcp, pins,
-    rukas, sandbox, settings, setup, shipped, size, slice, stop, store, tidy, update,
+    rukas, sandbox, settings, setup, shipped, slice, stop, store, tidy, update,
 };
 mod answer;
 mod api;
@@ -565,7 +560,6 @@ fn main() -> ExitCode {
             Some("preview") => return ExitCode::from(preview::main(&given[1..])),
             Some("settings") => return ExitCode::from(settings::main(&given[1..])),
             Some("setup") => return ExitCode::from(setup::main(&given[1..])),
-            Some("size") => return ExitCode::from(size::main(&given[1..])),
             Some("slice") => return ExitCode::from(slice::main(&given[1..])),
             Some("health") => return ExitCode::from(health::main(&given[1..])),
             Some("ids") => return ExitCode::from(ids::main(&given[1..])),

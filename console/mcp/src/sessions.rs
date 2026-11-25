@@ -67,7 +67,7 @@ const fn contract<const N: usize>(
 
 /// The scalar fields of a session, `concurrent` last. A summary and an attempt
 /// answer a subset of them, named below.
-const FIELDS: [(&str, &str, &str); 40] = contract(tehas_core::snapshot::RUN_FIELDS);
+const FIELDS: [(&str, &str, &str); 39] = contract(tehas_core::snapshot::RUN_FIELDS);
 /// What a summary of a session answers: a subset of `FIELDS`. A name here
 /// that is not a field of the contract would answer nothing for it, so the
 /// tests check these names against the contract.
@@ -91,7 +91,7 @@ pub const SUMMARY: [&str; 17] = [
     "imageBuilt",
 ];
 const STEP: [(&str, &str, &str); 5] = contract(tehas_core::snapshot::STEP_FIELDS);
-const ROLE: [(&str, &str, &str); 11] = contract(tehas_core::snapshot::ROLE_FIELDS);
+const ROLE: [(&str, &str, &str); 10] = contract(tehas_core::snapshot::ROLE_FIELDS);
 
 fn field(f: (&str, &str, &str)) -> (String, Value) {
     (f.0.to_string(), json!({"type": f.1, "description": f.2}))

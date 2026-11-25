@@ -65,7 +65,7 @@
   --bar-text: var(--screen-text);
   --bar-quiet: var(--screen-quiet);
 
-  /* State, used only by the factory state tag and the analytics bars. */
+  /* State: the manual's run pill and closed epics, the kit's error edge. */
   --good: #8a5;
   --bad: #a32;
 
