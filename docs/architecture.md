@@ -79,9 +79,8 @@ owned read handles and the links, each ticket answered alone.
 
 The core today is the dispatcher's `decide` and the modules it decides
 from: `decide.rs`, `decide/`, `snapshot.rs`, `text.rs`,
-`settings.rs`, `questions.rs`, `starts.rs`, `answer.rs`. `core-effects`
-holds it at 0: no file, network, process, environment or clock,
-tehas-core's `time::now` among them. `core-inward` holds it at
+`settings.rs`, `questions.rs`, `starts.rs`. `core-effects` holds it at 0:
+no file, network, process, environment or clock. `core-inward` holds it at
 0 too: nothing of the shell or of tehas-core's effects. At the fork it
 counted 3 in `decide.rs` (the push fault's hold from `read::host`,
 `call::trim`, `apply::start::change_note`); `trim`, a pure cut of a log
