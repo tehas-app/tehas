@@ -593,6 +593,7 @@ impl Writer {
             log.push(format!("WARN: comment on #{n} failed"));
             return false;
         };
+        let markers_empty = markers.is_empty();
         let note = Write::TicketNote {
             ticket,
             body: Body::Text(body.to_string()),
@@ -603,11 +604,11 @@ impl Writer {
             .chain(["--body-file", "-"])
             .map(str::to_string)
             .collect();
-        // A text that still holds our marker inside it goes as 1.x wrote
-        // it, through gh, until its site gives the marker typed beside the
-        // text (the finish's at T4.7's step 5): a write of the ports
-        // refuses it.
-        let wrote = if tehas_core::text::has_marker(body) {
+        // A text that holds our marker inside it, with none typed beside
+        // it, goes as 1.x wrote it, through gh: a write of the ports refuses
+        // it. One given its markers typed never goes through gh: the port
+        // refuses a marker in its text, and no gh call writes it there.
+        let wrote = if markers_empty && tehas_core::text::has_marker(body) {
             self.write(n, "comment-post", args, Some(body), None)
         } else {
             match self.looked_1x(n, "comment-post", &args, Some(body)) {
