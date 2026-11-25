@@ -10,6 +10,7 @@ mod common;
 use common::{has, root, World};
 use serde_json::{json, Value};
 use std::fs;
+use tehas_core::home::{Home, State};
 use tehas_core::testing::write_exe;
 
 /// The most processes one idle poll may start, its gh calls included. The
@@ -65,7 +66,7 @@ fn world(w: &World, locks: u64, shipped: u64, blocked: u64) {
             &json!([label("tehas:ready"), label("tehas:blocked")]),
         );
     }
-    let _ = fs::remove_file(w.home.join("state/github-writes.log"));
+    let _ = fs::remove_file(Home::new(&w.home).state(State::GithubWrites));
 }
 
 /// One poll of that world as a host runs it: the real status and the real
@@ -132,7 +133,7 @@ fn an_idle_poll_of_a_full_host_makes_no_write_to_github() {
         })
         .count();
     assert_eq!(writes, 0, "{}", w.gh());
-    assert!(!w.home.join("state/github-writes.log").exists());
+    assert!(!Home::new(&w.home).state(State::GithubWrites).exists());
     // The poll said so to the store too: 0 starts and no writes on its row.
     let r = w.store_at(now(), &["poll-show"]);
     let c: Value = serde_json::from_str(&r.out).unwrap();
