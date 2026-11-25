@@ -271,7 +271,17 @@ impl Writer {
     }
 
     /// A label change on an issue, journaled; false when it did not land.
-    pub(crate) fn edit_labels(&mut self, n: u64, flags: &[(&str, &str)]) -> bool {
+    /// One write of the tickets port a part: every mark that goes on first,
+    /// then each that comes off, so a stop between leaves the issue more
+    /// held, never unflagged. A 1.x call of the same change that this
+    /// poll's settle read gates it. A part that failed, or may have been
+    /// posted, leaves its line in the poll's log.
+    pub(crate) fn edit_labels(
+        &mut self,
+        n: u64,
+        flags: &[(&str, &str)],
+        log: &mut Vec<String>,
+    ) -> bool {
         let mut args: Vec<String> = vec![
             "issue".into(),
             "edit".into(),
@@ -287,7 +297,56 @@ impl Writer {
         } else {
             "label-remove"
         };
-        matches!(self.write(n, kind, args, None, None), Wrote::Done(_))
+        let fail = format!("WARN: a label change of #{n} failed");
+        if let Some(wrote) = self.looked_1x(n, kind, &args, None) {
+            return Self::label_landed(n, wrote, &fail, log);
+        }
+        let Some(key) = super::ticket(n) else {
+            return false;
+        };
+        let on = flags.iter().filter(|(f, _)| *f == "--add-label");
+        let off = flags.iter().filter(|(f, _)| *f != "--add-label");
+        on.map(|(_, l)| (*l, true))
+            .chain(off.map(|(_, l)| (*l, false)))
+            .all(|(label, on)| self.mark_part(n, &key, label, on, &fail, log))
+    }
+
+    /// The ticket's own text written, at the revision it is read at now: a
+    /// write of the tickets port. One another account changed since the
+    /// read is a conflict, and the next poll writes it again. A 1.x call of
+    /// the same edit that this poll's settle read gates it.
+    fn edit_ticket(
+        &mut self,
+        n: u64,
+        title: Option<String>,
+        body: &str,
+        args: Vec<String>,
+    ) -> Wrote {
+        if let Some(wrote) = self.looked_1x(n, "issue-edit", &args, Some(body)) {
+            return wrote;
+        }
+        let Some(key) = super::ticket(n) else {
+            return Wrote::Failed(String::new());
+        };
+        let Some(h) = self.ports.as_mut() else {
+            return Wrote::Failed(": the poll has no handles of the code host".into());
+        };
+        // One REST read of the issue: the plan is written over what is there.
+        let since = match h.tickets.several(std::slice::from_ref(&key)).pop() {
+            Some((_, Ok(d))) => d.revision,
+            Some((_, Err(o))) => return Wrote::Failed(format!(": {}", o.line())),
+            None => return Wrote::Failed(String::new()),
+        };
+        self.send(
+            n,
+            &tehas_ports::Write::EditTicket {
+                ticket: key,
+                title,
+                text: Some(tehas_ports::Body::Text(body.to_string())),
+                markers: tehas_ports::MarkerEdit::default(),
+                since,
+            },
+        )
     }
 
     /// The plan_collect action: a turn that left its exit status is
@@ -603,6 +662,7 @@ impl Writer {
                 ("--remove-label", "tehas:planning"),
                 ("--add-label", "needs-human-attention"),
             ],
+            log,
         ) {
             log.push(format!("WARN: could not hand #{n} to a person after a planning turn that left no session; the next poll tries again"));
             return false;
@@ -896,7 +956,7 @@ impl Writer {
         if failed {
             flags.push(("--add-label", "needs-human-attention"));
         }
-        if !self.edit_labels(n, &flags) {
+        if !self.edit_labels(n, &flags, log) {
             log.push(format!("WARN: the labels of #{n} could not be changed after its question was posted; the next poll tries again"));
             return false;
         }
@@ -1106,12 +1166,12 @@ impl Writer {
             "--repo".into(),
             self.repo.clone(),
             "--title".into(),
-            title,
+            title.clone(),
             "--body-file".into(),
             "-".into(),
         ];
         if !matches!(
-            self.write(n, "issue-edit", args, Some(&body), None),
+            self.edit_ticket(n, Some(title), &body, args),
             Wrote::Done(_)
         ) {
             log.push(format!(
@@ -1295,34 +1355,22 @@ impl Writer {
                 "-".into(),
             ];
             let text = replaces_text(n, &body);
-            if !matches!(
-                self.write(mn, "issue-edit", args, Some(&text), None),
-                Wrote::Done(_)
-            ) {
+            if !matches!(self.edit_ticket(mn, None, &text, args), Wrote::Done(_)) {
                 log.push(format!(
                     "WARN: could not say on #{m} that it replaces #{n}; the next poll replaces it"
                 ));
                 return false;
             }
-            let id = self
-                .calls
-                .gh(&["api", &format!("repos/{repo}/issues/{m}")])
-                .ok()
-                .and_then(|v| v.get("id").and_then(Value::as_u64));
-            let linked = id.is_some_and(|id| {
-                let args = vec![
-                    "api".into(),
-                    "-X".into(),
-                    "POST".into(),
-                    format!("repos/{repo}/issues/{n}/sub_issues"),
-                    "-F".into(),
-                    format!("sub_issue_id={id}"),
-                ];
-                matches!(
-                    self.write(n, "sub-issue-add", args, None, None),
+            // The new issue a part of the one it replaces (Decided 25). A 1.x
+            // row of the link names the child by an id no read gives back, so
+            // a person settles one of those; none gates this.
+            let linked = match (super::ticket(n), super::ticket(mn)) {
+                (Some(parent), Some(child)) => matches!(
+                    self.send(n, &tehas_ports::Write::AddPart { parent, child }),
                     Wrote::Done(_)
-                )
-            });
+                ),
+                _ => false,
+            };
             if !linked {
                 log.push(format!("WARN: could not link #{m} as a sub-issue of #{n}"));
             }
@@ -1353,6 +1401,7 @@ impl Writer {
                     ("--remove-label", other),
                     ("--add-label", mark),
                 ],
+                log,
             ) {
                 log.push(format!(
                     "WARN: could not mark #{n} {mark}; the next poll replaces it"
@@ -1372,10 +1421,20 @@ impl Writer {
                 "--reason".into(),
                 "not planned".into(),
             ];
-            if !matches!(
-                self.write(n, "issue-close", args, None, None),
-                Wrote::Done(_)
-            ) {
+            let wrote = match self.looked_1x(n, "issue-close", &args, None) {
+                Some(wrote) => wrote,
+                None => match super::ticket(n) {
+                    Some(ticket) => self.send(
+                        n,
+                        &tehas_ports::Write::Close {
+                            ticket,
+                            reason: tehas_ports::CloseReason::NotPlanned,
+                        },
+                    ),
+                    None => Wrote::Failed(String::new()),
+                },
+            };
+            if !matches!(wrote, Wrote::Done(_)) {
                 log.push(format!("WARN: could not close #{n}"));
             }
         }
@@ -1423,7 +1482,7 @@ impl Writer {
         if ready {
             flags.push(("--add-label", "tehas:ready"));
         }
-        if !self.edit_labels(n, &flags) {
+        if !self.edit_labels(n, &flags, log) {
             log.push(format!(
                 "WARN: could not take the planning labels off #{n}, so its session is not ended yet"
             ));

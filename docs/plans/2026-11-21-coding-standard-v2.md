@@ -840,6 +840,8 @@ its note to adopters.
 
 ### T10. The rename
 
+The checklist, item by item: [docs/plans/2026-11-24-t10-rename-checklist.md](2026-11-24-t10-rename-checklist.md).
+
 tehas becomes tehas-factory in 2.0.0, and `tehas-app/tehas` is later
 reused for a get-started repository, which ends GitHub's redirect. Every
 reference here moves before that. After T9:

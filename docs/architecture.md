@@ -220,14 +220,14 @@ answers, crate by crate before the calls move.
 ## Contract
 
 What 1.x froze is `host/docs/contract.md` with the `api/` files
-(`surface-1.0.txt`, `commands.txt`, `features.txt`, the schemas and
-samples) and `api/renames-1.0.tsv`. This work changes it only where the
+(the surface list, `surface-2.0.txt` since T9, `commands.txt`,
+`features.txt`, the schemas and samples) and `api/renames-1.0.tsv`. This work changes it only where the
 refactoring needs to, each change named in its pull request, added beside
 the old term and removed at T9, and agreed with the owner first.
 
 | Part | Where frozen | Expected to change in 2.0 |
 | --- | --- | --- |
-| Commands and flags | `api/commands.txt`, `surface-1.0.txt`; frozen since v1.0.0-beta.1 | `tehas github check` and `tehas github writes` name a supplier; to be named for the ports |
+| Commands and flags | `api/commands.txt`, `surface-2.0.txt`; frozen since v1.0.0-beta.1 | `tehas github check` and `tehas github writes` name a supplier; to be named for the ports |
 | Exit statuses | contract, "Exit statuses"; since v1.0.0-beta.1 | no |
 | Settings | contract, "Settings and the knob rule"; `api/settings-rules.json`; since v1.0.0-beta.1 | settings that choose the adapters; the release repository at the rename (T10) |
 | Labels | `host/labels.tsv`; since v1.0.0-beta.1 | the contract names the act (approve, block, plan, refine); labels become the GitHub adapter's answer |
