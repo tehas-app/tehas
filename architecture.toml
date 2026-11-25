@@ -152,7 +152,7 @@ pattern = 'std::(fs|net|process|env)\b|\bfs::|Command::new|SystemTime::now|Insta
 files = ["console/dispatch/src/decide.rs", "console/dispatch/src/decide/**", "console/dispatch/src/snapshot.rs", "console/dispatch/src/text.rs", "console/dispatch/src/settings.rs", "console/dispatch/src/questions.rs", "console/dispatch/src/starts.rs", "console/dispatch/src/answer.rs"]
 comment = "//"
 max = 0
-why = "The core's files, and since T12.1 the reading of an answer of tehas answer (dispatch/src/answer.rs), which decide and the snapshot use: it reads nothing either."
+why = "The core's files, and since T12.1 the reading of an answer of tehas answer (dispatch/src/answer.rs), which decide and the snapshot use: it reads nothing either. place.rs, gone from the crate, is out of the files; the scope counts the same."
 
 [[check]]
 id = "core-inward"
@@ -162,7 +162,7 @@ pattern = '\b(crate::(read|apply|poll|finish|auto_finish|refresh|pins|usage)|teh
 files = ["console/dispatch/src/decide.rs", "console/dispatch/src/decide/**", "console/dispatch/src/snapshot.rs", "console/dispatch/src/text.rs", "console/dispatch/src/settings.rs", "console/dispatch/src/questions.rs", "console/dispatch/src/starts.rs", "console/dispatch/src/answer.rs"]
 comment = "//"
 max = 0
-why = "The map at T0 had three; T3 moved the push fault's hold into snapshot.rs and change_note out of decide. The last, call::trim, a pure cut of a log line, moved from the process runner to core's text module. T12.1 adds dispatch/src/answer.rs to the files, which decide and the snapshot use; it uses nothing of the shell."
+why = "The map at T0 had three; T3 moved the push fault's hold into snapshot.rs and change_note out of decide. The last, call::trim, a pure cut of a log line, moved from the process runner to core's text module. T12.1 adds dispatch/src/answer.rs to the files, which decide and the snapshot use; it uses nothing of the shell. place.rs, gone from the crate, is out of the files; the scope counts the same."
 
 # R6: a supplier's failure reaches a caller as a named outcome, not a raw
 # HTTP status the caller must read.
