@@ -1,13 +1,13 @@
 //! Files: a host file read by the store's rule, a database's side files, a
 //! file's bytes as base64, the one write through a temporary name, and the
-//! one way a new name is made in a directory.
+//! one loop that makes a new name in a directory.
 
 use std::fs::{self, File, Metadata, OpenOptions, Permissions};
 use std::io::{self, Read, Write};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -247,31 +247,18 @@ pub fn write_atomic(path: &Path, bytes: &[u8], mode: u32, temp: &Temp) -> io::Re
     Ok(())
 }
 
-/// A new name in `dir`, `prefix` and six of `[a-z0-9]`, made by `make`: a
-/// file or a directory, which `make` creates new so that it fails with
-/// `AlreadyExists` on a name that is taken. That name is tried again with
-/// another; any other error is the answer.
+/// The first of `tries` names that `make` could create new in `dir`, the
+/// `i`th asked of `name(i)`. `make` creates a file or a directory new, so a
+/// name that is taken fails with `AlreadyExists` and the next is tried. An
+/// error of `name`, or any other error of `make`, is the answer.
 pub fn fresh(
     dir: &Path,
-    prefix: &str,
+    tries: u32,
+    mut name: impl FnMut(u32) -> io::Result<String>,
     mut make: impl FnMut(&Path) -> io::Result<()>,
 ) -> io::Result<PathBuf> {
-    static N: AtomicU32 = AtomicU32::new(0);
-    for _ in 0..100 {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |d| d.subsec_nanos());
-        let mut seed = nanos
-            ^ std::process::id().rotate_left(13)
-            ^ N.fetch_add(1, Ordering::Relaxed).wrapping_mul(0x9e37_79b9);
-        let tail: String = (0..6)
-            .map(|_| {
-                let c = b"abcdefghijklmnopqrstuvwxyz0123456789"[(seed % 36) as usize];
-                seed = seed / 36 + 0x2f1b_3c4d;
-                c as char
-            })
-            .collect();
-        let p = dir.join(format!("{prefix}{tail}"));
+    for i in 0..tries {
+        let p = dir.join(name(i)?);
         match make(&p) {
             Ok(()) => return Ok(p),
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,

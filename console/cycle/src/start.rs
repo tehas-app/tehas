@@ -24,7 +24,7 @@ use std::io::Write;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tehas_core::approval::{self, Refusal};
 use tehas_core::call;
 use tehas_core::driver::Driver;
@@ -46,8 +46,15 @@ pub fn private_file(home: &Path, name: &str, text: &[u8]) -> Option<PathBuf> {
     if !m.is_dir() {
         return None;
     }
+    let next = |i| {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| std::io::ErrorKind::Other)?
+            .subsec_nanos();
+        Ok(format!("{name}.{}{nanos}{i}", std::process::id()))
+    };
     let mut opened = None;
-    let file = tehas_core::file::fresh(&dir, &format!("{name}."), |p| {
+    let file = tehas_core::file::fresh(&dir, 100, next, |p| {
         opened = Some(
             OpenOptions::new()
                 .write(true)

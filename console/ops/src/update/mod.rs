@@ -100,6 +100,7 @@ use std::os::unix::fs::DirBuilderExt;
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tehas_core::home::{Home, State};
 
 /// What `console update api` answers. `run` passes this plan and these
@@ -307,7 +308,18 @@ pub(crate) fn first_line(file: &Path) -> String {
 
 /// A new directory of this account's alone, `<parent>/<prefix>XXXXXX`.
 pub(crate) fn temp_dir(parent: &Path, prefix: &str) -> io::Result<PathBuf> {
-    tehas_core::file::fresh(parent, prefix, |dir| {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.subsec_nanos());
+    let seed = u64::from(std::process::id()) << 32 | u64::from(nanos);
+    let next = |n| {
+        let n = u64::from(n);
+        Ok(format!(
+            "{prefix}{:06x}",
+            seed.wrapping_add(n).wrapping_mul(0x9e37_79b9_7f4a_7c15) >> 40
+        ))
+    };
+    tehas_core::file::fresh(parent, 64, next, |dir| {
         fs::DirBuilder::new().mode(0o700).create(dir)
     })
 }
