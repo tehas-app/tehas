@@ -1,0 +1,13 @@
+{"baseRepository": {"databaseId": 7001, "nameWithOwner": "acme/widget"},
+ "number": @PR@, "title": "Change @PR@", "url": "https://github.com/acme/widget/pull/@PR@",
+ "state": "MERGED", "isDraft": false, "isCrossRepository": false,
+ "headRefName": "feature/issue-@N@", "headRefOid": "@HEAD@", "baseRefName": "main",
+ "baseRefOid": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0", "mergeable": "UNKNOWN", "mergeStateStatus": "UNKNOWN",
+ "createdAt": "2025-12-01T00:00:00Z", "updatedAt": "@AT@", "lastEditedAt": null,
+ "mergedAt": "@AT@", "closedAt": "@AT@", "additions": 1, "deletions": 0, "changedFiles": 1,
+ "author": {"__typename": "Bot", "login": "tehas-bot", "databaseId": 900}, "editor": null,
+ "mergedBy": {"__typename": "Bot", "login": "tehas-bot", "databaseId": 900},
+ "mergeCommit": {"oid": "@COMMIT@"},
+ "renames": {"nodes": []}, "labels": {"totalCount": 0, "nodes": []},
+ "closingIssuesReferences": {"totalCount": 1, "nodes": [{"number": @N@,
+   "repository": {"databaseId": 7001, "nameWithOwner": "acme/widget"}}]}}

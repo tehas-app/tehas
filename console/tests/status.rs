@@ -58,6 +58,9 @@ fn hc(w: &World, filter: &str) -> String {
     jq(filter, &live_text(w, "health.json"))
 }
 
+/// What every request of the shipped mark holds, whatever the issue.
+const MARKS: &str = "/labels -f labels[]=";
+
 /// The gh calls that hold `pat`.
 fn gh_count(w: &World, pat: &str) -> usize {
     w.gh().lines().filter(|l| l.contains(pat)).count()
@@ -86,10 +89,10 @@ fn issues(w: &World, list: &[String]) {
     w.fx("issues.json", &format!("[{}]\n", list.join(",")));
 }
 
-/// A merged closer of issue `n`, with no labels field, as jq -n wrote them.
-fn merged_node(n: u64) -> Value {
-    json!({"number": n, "title": "t", "url": "u", "updatedAt": "2026-01-02T00:00:00Z",
-        "closedAt": "2026-01-02T00:00:00Z", "timelineItems": {"nodes": [{"closer": {"merged": true}}]}})
+/// Issue `n`, closed by a merged pull request of this project, with
+/// `label` (none when empty).
+fn merged_node(n: u64, label: &str) -> String {
+    closed(n, "2099-01-02T00:00:00Z", r#"{"merged":true}"#, label)
 }
 
 /// The count answer as text, whatever it is.
@@ -298,7 +301,7 @@ fn the_tickets_are_written_for_the_mcp_server_only_while_it_is_on() {
     ok(&r);
     let dir = w.home.join("mcp/tickets");
     assert!(!dir.exists(), "tickets read with the MCP server off");
-    assert!(!w.gh().contains("closingIssuesReferences"), "{}", w.gh());
+    assert!(!w.gh().contains("comments(first: 50)"), "{}", w.gh());
     w.env("TEHAS_MCP", "1");
     let r = w.status();
     ok(&r);
@@ -502,16 +505,16 @@ fn a_queue_snapshot_past_the_limit_of_one_argument_still_gives_a_health_file() {
 fn completed_is_the_closed_issues_a_merged_pull_request_closed_newest_first() {
     let w = World::new("completed");
     w.shipped(&[
-        closed(20, "2026-01-02T00:00:00Z", r#"{"merged":true}"#, ""),
+        closed(20, "2099-01-02T00:00:00Z", r#"{"merged":true}"#, ""),
         closed(
             21,
-            "2026-01-03T00:00:00Z",
+            "2099-01-03T00:00:00Z",
             r#"{"merged":true}"#,
             "tehas:shipped",
         ),
-        closed(22, "2026-01-04T00:00:00Z", r#"{"merged":false}"#, ""),
-        closed(23, "2026-01-05T00:00:00Z", "null", ""),
-        closed(24, "2026-01-06T00:00:00Z", "{}", ""),
+        closed(22, "2099-01-04T00:00:00Z", r#"{"merged":false}"#, ""),
+        closed(23, "2099-01-05T00:00:00Z", "null", ""),
+        closed(24, "2099-01-06T00:00:00Z", "{}", ""),
     ]);
     ok(&w.status());
     assert_eq!(sc(&w, "[.completed[].number]"), "[21,20]");
@@ -521,20 +524,18 @@ fn completed_is_the_closed_issues_a_merged_pull_request_closed_newest_first() {
     );
     assert_eq!(
         sc(&w, ".completed[0] | [.title, .url, .createdAt]"),
-        r#"["t","u","2025-12-01T00:00:00Z"]"#
+        r#"["t","https://github.com/acme/widget/issues/21","2025-12-01T00:00:00Z"]"#
     );
-    // The stub answers whatever it is asked, so the fields must be asked for.
     let gh = w.gh();
-    has(&gh, "number title url createdAt updatedAt closedAt labels(");
     has(
         &gh,
         "--json number,title,url,state,labels,createdAt,updatedAt,closedAt",
     );
     has(&sr(&w, ".links.completed"), "label%3Atehas%3Ashipped");
-    has(
-        &gh,
-        "q=repo:acme/widget is:issue is:closed linked:pr sort:updated-desc",
-    );
+    // The closed tickets come from the tickets port, since a day back on a
+    // first run.
+    has(&gh, "filterBy: {states: [CLOSED], since: $since}");
+    has(&gh, "-F owner=acme -F name=widget -f since=");
     // The count comes from the search for the label, whose answer says 0 here.
     has(
         &gh,
@@ -548,24 +549,16 @@ fn completed_is_the_closed_issues_a_merged_pull_request_closed_newest_first() {
 fn completed_count_is_every_closed_issue_labelled_tehas_shipped_though_the_list_holds_only_the_latest_hundred(
 ) {
     let w = World::new("completed-count");
-    let nodes: Vec<Value> = (0..50)
-        .map(|i| {
-            let mut n = merged_node(i + 100);
-            n["labels"] = json!({"nodes": []});
-            n
-        })
-        .collect();
-    write_json(
-        &w,
-        "shipped.json",
-        &json!({"data": {"search": {"nodes": nodes}}}),
-    );
+    let nodes: Vec<String> = (0..50).map(|i| merged_node(i + 100, "")).collect();
+    w.shipped(&nodes);
     w.shipped_count(138);
     ok(&w.status());
     assert_eq!(sr(&w, ".completed | length"), "50");
     assert_eq!(sr(&w, ".completedCount"), "138");
-    // The two reads of shipped work, and the read of the epics beside them.
-    assert_eq!(gh_count(&w, "api graphql -f q="), 2);
+    // The count's search, the tickets port's read of the closed tickets, and
+    // the read of the epics beside them.
+    assert_eq!(gh_count(&w, "api graphql -f q="), 1);
+    assert_eq!(gh_count(&w, "filterBy: {states: [CLOSED], since: "), 1);
     assert_eq!(gh_count(&w, "api graphql"), 3);
 }
 
@@ -635,10 +628,10 @@ fn a_shipped_issue_without_the_label_is_given_it_once() {
     let w = World::new("label-once");
     w.one_shipped();
     w.status();
-    assert_eq!(gh_count(&w, "issue edit"), 1);
+    assert_eq!(gh_count(&w, MARKS), 1);
     has(
         &w.gh(),
-        "issue edit 20 --repo acme/widget --add-label tehas:shipped",
+        "api -X POST repos/acme/widget/issues/20/labels -f labels[]=tehas:shipped",
     );
 }
 
@@ -648,40 +641,29 @@ fn a_shipped_issue_is_given_the_label_whatever_else_it_carries_and_once() {
     // carries another label is shipped and edited like one that carries none:
     // three issues, three edits, the label itself absent from all of them.
     let w = World::new("label-other");
-    let nodes: Vec<Value> = (6..9)
-        .map(|i| {
-            let mut n = merged_node(i);
-            n["labels"] = json!({"nodes": [{"name": "bug"}]});
-            n
-        })
-        .collect();
-    write_json(
-        &w,
-        "shipped.json",
-        &json!({"data": {"search": {"nodes": nodes}}}),
-    );
+    let nodes: Vec<String> = (6..9).map(|i| merged_node(i, "bug")).collect();
+    w.shipped(&nodes);
     w.status();
     assert_eq!(sc(&w, "[.completed[].number] | sort"), "[6,7,8]");
-    assert_eq!(gh_count(&w, "issue edit"), 3);
+    assert_eq!(gh_count(&w, MARKS), 3);
 }
 
 #[test]
 fn an_issue_already_labelled_tehas_shipped_is_not_asked_for_it_whatever_the_poll() {
-    // The read names the labels of every issue it lists, so the edit is asked
-    // for only an issue that does not carry the label. gh issue edit is no
-    // no-op: it reads the issue and sends a mutation every time, and one poll
-    // used to pay 45 of them for issues that all held the label already
-    // (#731).
+    // The read names the labels of every issue it lists, so the mark is asked
+    // for only an issue that does not carry the label. Each mark is a
+    // request, and one poll used to pay 45 of them for issues that all held
+    // the label already (#731).
     let w = World::new("label-held");
     w.shipped(&[closed(
         20,
-        "2026-01-02T00:00:00Z",
+        "2099-01-02T00:00:00Z",
         r#"{"merged":true}"#,
         "tehas:shipped",
     )]);
     ok(&w.status());
     assert_eq!(sc(&w, "[.completed[].number]"), "[20]");
-    assert_eq!(gh_count(&w, "issue edit"), 0);
+    assert_eq!(gh_count(&w, MARKS), 0);
 }
 
 // One of three that shipped without it is the issue the poll edits, and the
@@ -692,73 +674,75 @@ fn of_three_shipped_issues_only_the_one_that_lacks_the_label_is_edited() {
     w.shipped(&[
         closed(
             20,
-            "2026-01-02T00:00:00Z",
+            "2099-01-02T00:00:00Z",
             r#"{"merged":true}"#,
             "tehas:shipped",
         ),
-        closed(21, "2026-01-03T00:00:00Z", r#"{"merged":true}"#, ""),
+        closed(21, "2099-01-03T00:00:00Z", r#"{"merged":true}"#, ""),
         closed(
             22,
-            "2026-01-04T00:00:00Z",
+            "2099-01-04T00:00:00Z",
             r#"{"merged":true}"#,
             "tehas:shipped",
         ),
     ]);
     ok(&w.status());
     assert_eq!(sc(&w, "[.completed[].number] | sort"), "[20,21,22]");
-    assert_eq!(gh_count(&w, "issue edit"), 1);
+    assert_eq!(gh_count(&w, MARKS), 1);
     let gh = w.gh();
     has(
         &gh,
-        "issue edit 21 --repo acme/widget --add-label tehas:shipped",
+        "api -X POST repos/acme/widget/issues/21/labels -f labels[]=tehas:shipped",
     );
-    lacks(&gh, "issue edit 20 --repo");
-    lacks(&gh, "issue edit 22 --repo");
+    lacks(&gh, "issues/20/labels");
+    lacks(&gh, "issues/22/labels");
 }
 
-// Of three shipped issues the poll edits the two that lack the label and the
-// one whose labels are no list (issue #1083).
+// Of three shipped issues the poll edits the two that lack the label.
 #[test]
 fn the_issues_to_label_are_the_ones_the_read_says_lack_the_label() {
     let w = World::new("label-lacking");
     w.shipped(&[
         closed(
             20,
-            "2026-01-02T00:00:00Z",
+            "2099-01-02T00:00:00Z",
             r#"{"merged":true}"#,
             "tehas:shipped",
         ),
-        closed(21, "2026-01-03T00:00:00Z", r#"{"merged":true}"#, ""),
-        no_labels(22, "2026-01-04T00:00:00Z", r#"{"merged":true}"#),
+        closed(21, "2099-01-03T00:00:00Z", r#"{"merged":true}"#, ""),
+        closed(22, "2099-01-04T00:00:00Z", r#"{"merged":true}"#, "bug"),
     ]);
     ok(&w.status());
     assert_eq!(sc(&w, "[.completed[].number] | sort"), "[20,21,22]");
-    assert_eq!(gh_count(&w, "issue edit"), 2);
+    assert_eq!(gh_count(&w, MARKS), 2);
     let gh = w.gh();
     has(
         &gh,
-        "issue edit 21 --repo acme/widget --add-label tehas:shipped",
+        "api -X POST repos/acme/widget/issues/21/labels -f labels[]=tehas:shipped",
     );
     has(
         &gh,
-        "issue edit 22 --repo acme/widget --add-label tehas:shipped",
+        "api -X POST repos/acme/widget/issues/22/labels -f labels[]=tehas:shipped",
     );
-    lacks(&gh, "issue edit 20 --repo");
+    lacks(&gh, "issues/20/labels");
 }
 
-// A label the read could not read is a missing label: the edit is sent, as
-// it was before the query read the labels at all.
+// The tickets port reads a ticket whole or not at all: an issue whose labels
+// the answer does not give is no answer, so nothing is marked and the
+// completed part is kept and said stale (it was a missing label, #1083,
+// before the read went onto the port).
 #[test]
-fn a_shipped_issue_whose_labels_the_read_did_not_answer_is_edited() {
+fn an_answer_that_does_not_give_an_issues_labels_marks_nothing_and_keeps_the_completed_part() {
     let w = World::new("label-unread");
-    w.shipped(&[no_labels(20, "2026-01-02T00:00:00Z", r#"{"merged":true}"#)]);
+    w.status();
+    let done_before = done_part(&w);
+    let mut node: Value = serde_json::from_str(&merged_node(20, "")).unwrap();
+    node.as_object_mut().unwrap().remove("labels");
+    w.shipped(&[node.to_string()]);
     ok(&w.status());
-    assert_eq!(sc(&w, "[.completed[].number]"), "[20]");
-    assert_eq!(gh_count(&w, "issue edit"), 1);
-    has(
-        &w.gh(),
-        "issue edit 20 --repo acme/widget --add-label tehas:shipped",
-    );
+    assert_eq!(done_part(&w), done_before);
+    assert_eq!(sc(&w, ".stale"), r#"["completed"]"#);
+    assert_eq!(gh_count(&w, MARKS), 0);
 }
 
 #[test]
@@ -767,15 +751,11 @@ fn the_control_issue_is_not_listed_as_shipped_and_not_given_the_label_whatever_t
     // number TEHAS_CONTROL_ISSUE names out of every list and every count, and
     // tehas tidy follows the same rule when it puts the label on.
     let w = World::new("label-control");
-    write_json(
-        &w,
-        "shipped.json",
-        &json!({"data": {"search": {"nodes": [merged_node(1), merged_node(20)]}}}),
-    );
+    w.shipped(&[merged_node(1, ""), merged_node(20, "")]);
     w.status();
     assert_eq!(sc(&w, "[.completed[].number]"), "[20]");
-    assert_eq!(gh_count(&w, "issue edit"), 1);
-    lacks(&w.gh(), "issue edit 1 --repo");
+    assert_eq!(gh_count(&w, MARKS), 1);
+    lacks(&w.gh(), "issues/1/labels");
 }
 
 #[test]
@@ -787,14 +767,12 @@ fn an_answer_that_carries_errors_is_no_snapshot_even_where_it_holds_a_merged_clo
     let w = World::new("errors");
     w.status();
     let before = sc(&w, ".completed");
-    write_json(
-        &w,
-        "shipped.json",
-        &json!({"errors": [{"message": "declined"}], "data": {"search": {"nodes": [merged_node(20)]}}}),
-    );
+    let mut answer: Value = serde_json::from_str(&closed_page(&[merged_node(20, "")])).unwrap();
+    answer["errors"] = json!([{"message": "declined"}]);
+    write_json(&w, "shipped.json", &answer);
     w.status();
     assert_eq!(sc(&w, ".completed"), before);
-    assert_eq!(gh_count(&w, "issue edit"), 0);
+    assert_eq!(gh_count(&w, MARKS), 0);
 }
 
 #[test]
@@ -809,8 +787,8 @@ fn an_issue_closed_with_its_label_still_on_is_not_counted_as_shipped_for_the_lab
 #[test]
 fn a_label_that_cannot_be_given_leaves_the_snapshot_written() {
     let w = World::new("edit-fails");
-    w.shipped(&[closed(20, "2026-01-02T00:00:00Z", r#"{"merged":true}"#, "")]);
-    w.set_env(&["GH_EDIT_FAILS=1"]);
+    w.shipped(&[closed(20, "2099-01-02T00:00:00Z", r#"{"merged":true}"#, "")]);
+    w.set_env(&["GH_MARK_FAILS=1"]);
     ok(&w.status());
     assert_eq!(sc(&w, "[.completed[].number]"), "[20]");
 }
@@ -827,7 +805,7 @@ fn without_the_search_for_shipped_work_the_completed_part_is_kept_and_said_stale
     assert_eq!(lists(&w), lists_before);
     assert_eq!(done_part(&w), done_before);
     assert_eq!(sc(&w, ".stale"), r#"["completed"]"#);
-    has(&r.out, "WARN status: gh api graphql failed");
+    has(&r.out, "WARN status: the shipped issues closed since ");
     w.fx(
         "shipped.json",
         "{\"errors\": [{\"message\": \"rate limited\"}]}\n",
@@ -883,7 +861,7 @@ fn an_answer_of_what_closed_these_issues_that_is_no_list_keeps_the_completed_par
     ok(&r);
     has(
         &r.out,
-        "WARN status: the answer of what closed these issues was no list, its part of the snapshot is stale",
+        "were not read: the answer does not read, its part of the snapshot is stale",
     );
     assert_eq!(done_part(&w), done_before);
     assert_eq!(sc(&w, ".stale"), r#"["completed"]"#);
