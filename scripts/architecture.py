@@ -38,7 +38,7 @@ opens on a line matching `start` and closes on the first line matching
 text from the `end` match on is left out. Lines whose first characters are
 the check's `comment` prefix are skipped.
 
-The repository says which standard it follows in `.tehas/repository.toml`,
+The repository says which standard it follows in `tehas.toml`,
 table `[standard]`, key `version` (before v2 the one line of
 `.tehas/coding-standard`, read only for `v1`): `v1` (the code as it was,
 before its first refactoring runs) or `v2` (the architecture method as the
@@ -70,9 +70,10 @@ SCOPE_DEFAULTS = {"allowed": [], "mode": "lines", "top": 10}
 REPORT_KEYS = {"id", "rule", "what", "pattern", "files", "allowed", "top", "mode", "comment", "start", "end", "why"}
 REPORT_REQUIRED = {"id", "rule", "what", "pattern", "files"}
 TOP_KEYS = {"version", "method", "review", "check", "report"}
-STANDARD_FILE = ".tehas/repository.toml"  # its [standard] table; other tables have other owners
+STANDARD_FILE = "tehas.toml"  # its [standard] table; other tables have other owners
 OLD_STANDARD_FILE = ".tehas/coding-standard"  # the pointer's name before v2; read only for v1
-STANDARD_KEYS = {"version"}
+STANDARD_KEYS = {"url", "version"}
+STANDARD_URL = "https://github.com/tehas-app/tehas-standard"  # the standard this script checks
 STANDARDS = {"v1", "v2"}
 ENFORCED = "v2"
 MODES = {"lines", "spans"}
@@ -349,27 +350,44 @@ def run(root, config_path, base, summary):
 
 def standard(root):
     """The repository's standard: `v1`, `v2`, or None when it names none.
-    Read from `.tehas/repository.toml`, table `[standard]`, key `version`.
-    This script owns that table only: an unknown key in it is refused, other
-    tables are left to their owners. The old one-line `.tehas/coding-standard`
-    is read only for `v1`. Both at once, or either as a symlink, is refused."""
-    new_path = os.path.join(root, STANDARD_FILE)
+    Read from `tehas.toml` at the root, table `[standard]` (`url`, `version`).
+    This script owns `[standard]` and, for now, `[platform]`: an unknown key in
+    them is refused, other tables are left to their owners. The old one-line
+    `.tehas/coding-standard` is read only for `v1`. Both at once, or either as
+    a symlink (or through a symlinked `.tehas`), is refused."""
+    doc = load(root)
     old_path = os.path.join(root, OLD_STANDARD_FILE)
-    for path, name in ((new_path, STANDARD_FILE), (old_path, OLD_STANDARD_FILE)):
-        if os.path.islink(path):
-            raise ConfigError(f"{name}: a symlink; write the file itself")
-    new, old = os.path.lexists(new_path), os.path.lexists(old_path)
-    if new and old:
+    if os.path.islink(os.path.join(root, ".tehas")) or os.path.islink(old_path):
+        raise ConfigError(f"{OLD_STANDARD_FILE}: a symlink, or under one; write the file itself")
+    old = os.path.lexists(old_path)
+    if doc is not None and old:
         raise ConfigError(f"{OLD_STANDARD_FILE} and {STANDARD_FILE} are both here; keep {STANDARD_FILE} alone")
     if old:
         found = standard_in_line(read_text(old_path, OLD_STANDARD_FILE), OLD_STANDARD_FILE)
         if found != "v1":
-            raise ConfigError(f"{OLD_STANDARD_FILE} says {found}; move it to {STANDARD_FILE} as "
-                              f"[standard] version = \"{found}\"")
+            raise ConfigError(f"{OLD_STANDARD_FILE} says {found}; move it to {STANDARD_FILE} as [standard] "
+                              f"url = \"{STANDARD_URL}\", version = \"{found}\"")
         return found
-    if not new:
+    if doc is None:
         return None
-    return standard_in_toml(read_text(new_path, STANDARD_FILE), STANDARD_FILE)
+    return standard_in_doc(doc, STANDARD_FILE)
+
+
+def load(root):
+    """`tehas.toml` parsed, or None with no file. A symlink is refused."""
+    path = os.path.join(root, STANDARD_FILE)
+    if os.path.islink(path):
+        raise ConfigError(f"{STANDARD_FILE}: a symlink; write the file itself")
+    if not os.path.lexists(path):
+        return None
+    return parse_toml(read_text(path, STANDARD_FILE), STANDARD_FILE)
+
+
+def parse_toml(text, name):
+    try:
+        return tomllib.loads(text)
+    except tomllib.TOMLDecodeError as e:
+        raise ConfigError(f"{name}: not valid TOML: {e}")
 
 
 def verify_base(root, base):
@@ -382,30 +400,58 @@ def verify_base(root, base):
         raise ConfigError(f"--base {base}: not a commit in {root}; fetch it, or pass a ref that exists")
 
 
+def base_file(root, base, name):
+    """The text of `name` at the base, or None when the base has no such path.
+    Anything but a regular file there, or a symlinked directory on the way, is
+    refused, so it can't hide the base's standard."""
+    parts = name.split("/")
+    for i in range(1, len(parts)):
+        entry = git("ls-tree", base, "--", "/".join(parts[:i]), cwd=root).strip()
+        if entry and entry.split()[0] == "120000":
+            raise ConfigError(f"{base}:{'/'.join(parts[:i])}: a symlink")
+    entry = git("ls-tree", base, "--", name, cwd=root).strip()
+    if not entry:
+        return None
+    mode = entry.split()[0]
+    if mode not in ("100644", "100755"):
+        raise ConfigError(f"{base}:{name}: not a regular file (mode {mode})")
+    return git("show", f"{base}:{name}", cwd=root)
+
+
+def base_doc(root, base):
+    text = base_file(root, base, STANDARD_FILE)
+    return None if text is None else parse_toml(text, f"{base}:{STANDARD_FILE}")
+
+
 def base_standard(root, base):
-    """The standard the base names, by either file name, or None when the base
-    has neither. The base is history: it may hold the old file saying `v2`
-    (main does, until the move lands), so the old-name rule of standard() is
-    deliberately not applied here. With both files at the base, the new one
-    counts."""
-    for name, parse_ in ((STANDARD_FILE, standard_in_toml), (OLD_STANDARD_FILE, standard_in_line)):
-        entry = git("ls-tree", base, "--", name, cwd=root).strip()
-        if not entry:
-            continue
-        mode = entry.split()[0]
-        if mode not in ("100644", "100755"):
-            raise ConfigError(f"{base}:{name}: not a regular file (mode {mode})")
-        return parse_(git("show", f"{base}:{name}", cwd=root), f"{base}:{name}")
+    """The standard the base names, by either file, or None when it has
+    neither. The base is history: it may hold the old file saying `v2` (main
+    does, until the move lands), so the old-name rule of standard() is
+    deliberately not applied here. With both at the base, the new one counts."""
+    doc = base_doc(root, base)
+    if doc is not None:
+        return standard_in_doc(doc, f"{base}:{STANDARD_FILE}")
+    text = base_file(root, base, OLD_STANDARD_FILE)
+    if text is not None:
+        return standard_in_line(text, f"{base}:{OLD_STANDARD_FILE}")
     return None
 
 
 def no_downgrade(root, base, found):
     """Adopted standards only go up: refuse a head that names a lower standard
-    than its base, or none where the base names one."""
+    than its base, or none where the base names one. The same for
+    `[platform]`: a toolchain the base names may not disappear."""
     was = base_standard(root, base)
     if was is not None and (found is None or rank(found) < rank(was)):
         raise ConfigError(f"the standard goes down from {was} at {base} to {found or 'none'}; "
                           f"an adopted standard only goes up")
+    before = (base_doc(root, base) or {}).get("platform")
+    if isinstance(before, dict):
+        after = (load(root) or {}).get("platform") or {}
+        gone = sorted(set(before) - set(after))
+        if gone:
+            raise ConfigError(f"[platform] loses {', '.join(gone)} against {base}; "
+                              f"a declared toolchain only moves forward")
 
 
 def rank(version):
@@ -422,18 +468,14 @@ def read_text(path, name):
         raise ConfigError(f"{name}: a directory, not a file")
 
 
-def standard_in_toml(text, name):
-    try:
-        doc = tomllib.loads(text)
-    except tomllib.TOMLDecodeError as e:
-        raise ConfigError(f"{name}: not valid TOML: {e}")
+def standard_in_doc(doc, name):
     table = doc.get("standard")
     if table is None:
         # Fail closed: a file that exists names its standard. A near miss
         # ([Standard], [standards], a top-level version) must not read as
         # "no standard" and switch the checks off.
-        raise ConfigError(f"{name}: no [standard] table; write [standard] version = \"{ENFORCED}\" "
-                          f"(a repository that names no standard has no {STANDARD_FILE})")
+        raise ConfigError(f"{name}: no [standard] table; write [standard] url = \"{STANDARD_URL}\", "
+                          f"version = \"{ENFORCED}\" (a repository that names no standard has no {STANDARD_FILE})")
     if not isinstance(table, dict):
         raise ConfigError(f"{name}: [standard] must be a table")
     extra = sorted(set(table) - STANDARD_KEYS)
@@ -441,7 +483,14 @@ def standard_in_toml(text, name):
         raise ConfigError(f"{name}: [standard] has keys this script does not know: {', '.join(extra)}")
     if "version" not in table:
         raise ConfigError(f"{name}: [standard] has no version; write one of {known()}")
-    return checked_version(table["version"], name)
+    version = checked_version(table["version"], name)
+    url = table.get("url")
+    if url is None:
+        raise ConfigError(f"{name}: [standard] has no url; write url = \"{STANDARD_URL}\"")
+    if url != STANDARD_URL:
+        raise ConfigError(f"{name}: [standard] url is {url!r}; this script checks {STANDARD_URL} only, "
+                          f"and another standard brings its own script")
+    return version
 
 
 def standard_in_line(text, name):
@@ -472,15 +521,11 @@ PLATFORM_ALLOWED = {"rust": {"1.x"}, "typescript": {"7.x"}}
 
 
 def platform(root):
-    """The `[platform]` table of `.tehas/repository.toml`, checked: the
-    toolchains the repository builds with, each at a major this standard
-    allows. This script owns the table for now; an unknown key or a value
-    the standard does not allow is refused. None with no file or no table."""
-    path = os.path.join(root, STANDARD_FILE)
-    if not os.path.lexists(path) or os.path.islink(path):
-        return None
-    doc = tomllib.loads(read_text(path, STANDARD_FILE))
-    table = doc.get("platform")
+    """The `[platform]` table of `tehas.toml`, checked: the toolchains the
+    repository builds or checks with, each at a major this standard allows.
+    None with no file or no table."""
+    doc = load(root)
+    table = None if doc is None else doc.get("platform")
     if table is None:
         return None
     if not isinstance(table, dict):
@@ -490,14 +535,15 @@ def platform(root):
         if allowed is None:
             raise ConfigError(f"{STANDARD_FILE}: [platform] has a key this script does not know: {key} "
                               f"(it knows {', '.join(sorted(PLATFORM_ALLOWED))})")
-        if table[key] not in allowed:
-            raise ConfigError(f"{STANDARD_FILE}: [platform] {key} = {table[key]!r}; this standard allows "
+        value = table[key]
+        if not isinstance(value, str) or value not in allowed:
+            raise ConfigError(f"{STANDARD_FILE}: [platform] {key} = {value!r}; this standard allows "
                               f"{', '.join(sorted(allowed))}")
     return table
 
 
 def skipped(found, summary):
-    said = f"is {found}" if found else f"is not set (no [standard] version in {STANDARD_FILE})"
+    said = f"is {found}" if found else f"is not set (no {STANDARD_FILE})"
     text = (f"## Architecture test\n\nSkipped: this repository's standard {said}. "
             f"The checks are enforced at {ENFORCED}; write `[standard] version = \"{ENFORCED}\"` in `{STANDARD_FILE}` "
             f"once the first refactoring runs are done. `--force` shows the counts now.\n")

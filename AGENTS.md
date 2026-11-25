@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This repository follows tehas-standard v2 (`.tehas/repository.toml`):
+This repository follows tehas-standard v2 (`tehas.toml`):
 https://github.com/tehas-app/tehas-standard/tree/main/v2
 
 Rules for agents working in this repository. Read `README.md` for the map of
@@ -120,7 +120,7 @@ when a person pulls and runs `install.sh` there.
 
 ## Coding standard
 
-The `[standard] version` of `.tehas/repository.toml` says which standard
+The `[standard] version` of `tehas.toml` says which standard
 this repository follows. It says `v1` until the refactoring on
 `refactor/coding-standard-v2` is done
 (`docs/plans/2026-11-21-coding-standard-v2.md`); then `v2`, the rules of
