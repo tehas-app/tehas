@@ -4,7 +4,7 @@
 //! src/usage/refresh.txt, this command's --help.
 
 use crate::decide::refresh_why;
-use crate::poll::iso_now;
+use crate::clock::iso_now;
 use crate::read::github;
 use crate::read::run::Calls;
 use crate::snapshot::{hex40, pull_read};

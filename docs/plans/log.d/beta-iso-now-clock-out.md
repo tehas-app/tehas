@@ -1,1 +1,1 @@
-| 2026-11-25 | R3 polish from the T4 grade: `iso_now`, the time now, is read in the dispatcher's shell (`poll.rs`), and `decide` only formats a time it is given; the core's checks no longer name the removed `place.rs` | beta/iso-now-clock-out |
+| 2026-11-25 | R3 polish from the T4 grade: `iso_now`, the time now, is read in the dispatcher's shell (`clock.rs`), and `decide` only formats a time it is given; the core's checks no longer name the removed `place.rs` | beta/iso-now-clock-out |

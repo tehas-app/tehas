@@ -496,7 +496,7 @@ impl Writer {
         } else {
             "cycle"
         };
-        if tehas_core::read_only::record(&self.home, n, how, &crate::poll::iso_now()).is_err() {
+        if tehas_core::read_only::record(&self.home, n, how, &crate::clock::iso_now()).is_err() {
             log.push(format!(
                 "WARN: read-only: the record of the start of #{n} could not be written"
             ));
