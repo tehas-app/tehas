@@ -176,7 +176,13 @@ fn check_main(dir: &str, json_out: bool) -> u8 {
         }
     };
     if json_out {
-        outln!("{}", c.json());
+        match c.json() {
+            Ok(j) => outln!("{j}"),
+            Err(why) => {
+                eprintln!("tehas plugin check: the answer could not be written: {why}");
+                return exit::FAILED;
+            }
+        }
     } else {
         for line in c.text() {
             outln!("{line}");
@@ -392,7 +398,13 @@ fn review_main(
         }
     };
     if json_out {
-        outln!("{}", r.json());
+        match r.json() {
+            Ok(j) => outln!("{j}"),
+            Err(why) => {
+                eprintln!("tehas plugin review: the answer could not be written: {why}");
+                return exit::FAILED;
+            }
+        }
     } else {
         for line in r.text() {
             outln!("{line}");
@@ -417,9 +429,16 @@ pub struct HandleAsk<'a> {
     pub bot_id: u64,
 }
 
+/// What a call with `--login` asks the code host through, from the
+/// wiring: for a repository and the console that prints the installation
+/// token, or None for a repository it cannot ask.
+type AccessOf = dyn Fn(&str, &Path) -> Option<Box<dyn tehas_core::access::GitHub>>;
+
+/// `tehas plugin`.
 pub fn main(
     given: &[String],
     board: &dyn Fn(&HandleAsk) -> tehas_ports::Got<Box<dyn tehas_ports::Board + Send>>,
+    access: &AccessOf,
 ) -> u8 {
     let asked = match words(given) {
         Ok(w) => w,
@@ -510,13 +529,18 @@ pub fn main(
             args,
             login,
             json,
-        } => call_main(&home, &get, &name, &tool, &args, login, json),
+        } => {
+            let gh = access(&get("TEHAS_REPO"), &home.join("libexec/console"));
+            call_main(&home, &get, gh.as_deref(), &name, &tool, &args, login, json)
+        }
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn call_main(
     home: &Path,
     get: &dyn Fn(&str) -> String,
+    gh: Option<&dyn tehas_core::access::GitHub>,
     name: &str,
     tool: &str,
     args: &Value,
@@ -526,20 +550,7 @@ fn call_main(
     let pins = plugin::pins(&get("TEHAS_PLUGINS")).unwrap_or_default();
     let got = if pins.iter().any(|p| p.name == name) {
         let caller = login.map_or(call::Caller::Host, call::Caller::Login);
-        let api = Some(get("TEHAS_GITHUB_API"))
-            .filter(|a| !a.is_empty())
-            .unwrap_or_else(|| "https://api.github.com".to_string());
-        // Only the permission is asked, with the installation token: the
-        // App's client is the gate's, for its web flow.
-        let gh = tehas_core::access::Curl {
-            api,
-            web: "https://github.com".into(),
-            repo: get("TEHAS_REPO"),
-            client_id: String::new(),
-            client_secret: String::new(),
-            console: home.join("libexec/console"),
-        };
-        call::call(&mut exec::Host, &gh, home, get, name, tool, args, &caller)
+        call::call(&mut exec::Host, gh, home, get, name, tool, args, &caller)
     } else {
         Err(call::Failed::Args(format!(
             "TEHAS_PLUGINS names no plugin {name}"

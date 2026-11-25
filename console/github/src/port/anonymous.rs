@@ -1,8 +1,9 @@
 //! The code host handle of `Actor::Anonymous` (Decided 76): a public
 //! project's releases and tags, read through [`Curl`] with no credential
-//! and never through gh. It answers `releases`, `latest_release`, `tags`
-//! and `resolve_tag`; every other read is `Refused(Unsupported)` before any
-//! request, and a write handle is never made (`site.rs`).
+//! and never through gh. It answers `releases`, `latest_release`, `tags`,
+//! `resolve_tag` and `download`; every other read is
+//! `Refused(Unsupported)` before any request, and a write handle is never
+//! made (`site.rs`).
 //!
 //! GitHub answers 404 alike for a project that is not there and for one
 //! that is private, so either is `Refused(Unsupported)`, never `NotFound`.
@@ -14,16 +15,37 @@
 //! caller, `Holder::Anonymous`, in the `Calls` pool: a spent budget is kept
 //! in the ledger, and a call while it is spent answers `Spent` with no
 //! request. The factory's budget is never asked.
+//!
+//! `download` fetches one public release file: the release of the tag is
+//! read first, and a file it does not list is `NotFound`, one it lists as
+//! larger than the limit `Unread(TooLarge)`, both before any fetch. The
+//! file is asked of the API by its id, and at most `curl::REDIRECTS` redirects
+//! are followed, each to one of `curl::HOSTS` exactly over `https`; any
+//! other is `Refused(Unsupported)` with nothing written. The bytes go to a
+//! file in a directory of the adapter's own, held to the limit on the
+//! stream (no more than `limit` bytes ever reach the temporary directory)
+//! and to the listed size after, then streamed into the caller's writer, so
+//! `limit` bounds the disk a download takes, not its memory;
+//! the directory is removed whatever happens. The whole call is bound by
+//! `curl::DOWNLOAD_LIMIT` and the deadline. `archive` stays
+//! `Refused(Unsupported)`.
+//!
+//! Only the API's answers touch the ledger: a redirect's or a file's
+//! answer from another host neither spends nor heals the anonymous
+//! budget. A 2xx from the API that ignored `Accept` and sent the asset's
+//! JSON in place of its bytes fails on its size as `Unread(Inconsistent)`,
+//! on purpose: it is never parsed.
 
 use std::num::NonZeroU32;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 
+use super::code_host::download::Scratch;
 use super::{site::count, unsupported};
-use crate::curl::{self, Answer, Curl};
+use crate::curl::{self, Answer, Curl, API, DOWNLOAD_LIMIT, REDIRECTS};
 use crate::markers;
 use tehas_ports::{
     Access, At, Bound, Branch, Caller, Change, ChangeDelta, ChangeDigest, ChangeEvent,
@@ -102,6 +124,24 @@ impl Anonymous {
     }
 
     fn once(&mut self, path: &str) -> Got<Option<Answer>> {
+        let curl = self.curl.clone();
+        self.ask(Duration::MAX, true, |left| curl.get(path, left))
+    }
+
+    /// One request by `run`, given the time left of `bound` and the
+    /// deadline. At or past the deadline `run` is not called. The call is
+    /// metered. An `api` call, one to the API's host, draws on the anonymous
+    /// budget: while the ledger holds it spent `run` is not called, and its
+    /// answer is given to the ledger. Any other host's answer (a download's
+    /// redirect or file) never touches the ledger: its rate headers and
+    /// refusals are not the API's, so they neither spend nor heal its
+    /// budget, and are read by [`read_other`].
+    fn ask(
+        &mut self,
+        bound: Duration,
+        api: bool,
+        run: impl FnOnce(Duration) -> Result<Answer, Outcome>,
+    ) -> Got<Option<Answer>> {
         let now = (self.now)();
         let left = match self.deadline {
             Some(d) if now >= d.secs() => {
@@ -113,11 +153,15 @@ impl Anonymous {
             Some(d) => Duration::from_secs((d.secs() - now) as u64),
             None => Duration::MAX,
         };
+        if !api {
+            count(&self.meter, self.caller, PortName::CodeHost, Pool::Calls);
+            return run(left.min(bound)).and_then(read_other);
+        }
         if let Some(spent) = self.spent(now) {
             return Err(spent);
         }
         count(&self.meter, self.caller, PortName::CodeHost, Pool::Calls);
-        let answer = self.curl.get(path, left).and_then(|a| read_status(a, now));
+        let answer = run(left.min(bound)).and_then(|a| read_status(a, now));
         self.observe(now, &answer);
         answer
     }
@@ -218,6 +262,38 @@ impl Anonymous {
     }
 }
 
+fn is_redirect(status: u16) -> bool {
+    matches!(status, 301 | 302 | 307 | 308)
+}
+
+/// A tag's name as a path, each segment escaped.
+fn segments(tag: &TagName) -> String {
+    tag.as_str()
+        .split('/')
+        .map(curl::escape)
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+/// The fetched file, `size` bytes, streamed into `into`: it is never read
+/// whole, so the memory a download takes does not grow with `limit`. Its
+/// size was held to the listed one before, so a short file here is
+/// `Unread(Inconsistent)`; one that cannot be read, or a writer that fails,
+/// `Unread(Malformed)`, as the ports' fake answers a writer that fails.
+fn copy(path: &std::path::Path, size: u64, into: &mut dyn std::io::Write) -> Did {
+    use std::io::Read;
+    let malformed = Outcome::Unread(Unread::Malformed);
+    let f = std::fs::File::open(path).map_err(|_| malformed.clone())?;
+    if f.metadata().map_err(|_| malformed.clone())?.len() != size {
+        return Err(Outcome::Unread(Unread::Inconsistent));
+    }
+    let copied = std::io::copy(&mut f.take(size), into).map_err(|_| malformed)?;
+    if copied != size {
+        return Err(Outcome::Unread(Unread::Inconsistent));
+    }
+    Ok(())
+}
+
 /// A private or missing project, alike.
 fn refused<T>() -> Got<T> {
     Err(Outcome::Refused(Refusal::Unsupported))
@@ -243,6 +319,24 @@ fn read_status(a: Answer, now: i64) -> Got<Option<Answer>> {
         }
         401 => Err(Outcome::Forbidden),
         500..=599 => Err(Outcome::Unavailable {
+            why: Passing::Server,
+            sent: Sent::Maybe,
+        }),
+        _ => Err(Outcome::Unread(Unread::Malformed)),
+    }
+}
+
+/// An answer of a host other than the API's, by its status: a body or a
+/// redirect to read, None for a 404, else the outcome. Its rate headers are
+/// not the API's budget: a 429 or a `retry-after` is the site's failure for
+/// this call alone, and a 401 or 403 (a storage refusal, an expired
+/// signature) is `Forbidden`.
+fn read_other(a: Answer) -> Got<Option<Answer>> {
+    match a.status {
+        200..=299 | 301 | 302 | 307 | 308 => Ok(Some(a)),
+        404 => Ok(None),
+        401 | 403 if a.header("retry-after").is_none() => Err(Outcome::Forbidden),
+        401 | 403 | 429 | 500..=599 => Err(Outcome::Unavailable {
             why: Passing::Server,
             sent: Sent::Maybe,
         }),
@@ -295,6 +389,7 @@ struct RestRelease {
 
 #[derive(Deserialize)]
 struct RestAsset {
+    id: u64,
     name: String,
     size: u64,
 }
@@ -425,14 +520,7 @@ impl CodeHost for Anonymous {
     /// The tag's ref, and an annotated tag's object peeled to its commit.
     fn resolve_tag(&mut self, name: &TagName) -> Got<CommitId> {
         let repo = self.repo_path()?.to_string();
-        let path = format!(
-            "repos/{repo}/git/ref/tags/{}",
-            name.as_str()
-                .split('/')
-                .map(curl::escape)
-                .collect::<Vec<_>>()
-                .join("/")
-        );
+        let path = format!("repos/{repo}/git/ref/tags/{}", segments(name));
         let Some(found) = self.get(&path)? else {
             return self.missing(Outcome::NotFound);
         };
@@ -471,10 +559,18 @@ impl CodeHost for Anonymous {
     }
 
     /// GitHub's latest release; a project that answers with none has none.
+    /// A draft or a prerelease in the answer is `Unread(Inconsistent)`, as
+    /// the token's reader has it.
     fn latest_release(&mut self) -> Got<Option<Release>> {
         let repo = self.repo_path()?.to_string();
         match self.get(&format!("repos/{repo}/releases/latest"))? {
-            Some(a) => json::<RestRelease>(&a)?.release().map(Some),
+            Some(a) => {
+                let r = json::<RestRelease>(&a)?.release()?;
+                if r.draft || r.prerelease {
+                    return Err(Outcome::Unread(Unread::Inconsistent));
+                }
+                Ok(Some(r))
+            }
             None => match self.get(&format!("repos/{repo}"))? {
                 Some(_) => Ok(None),
                 None => refused(),
@@ -486,8 +582,70 @@ impl CodeHost for Anonymous {
         unsupported()
     }
 
-    fn download(&mut self, _: &TagName, _: &FileName, _: u64, _: &mut dyn std::io::Write) -> Did {
-        unsupported()
+    /// See the module: the release, then the file by its id.
+    fn download(
+        &mut self,
+        tag: &TagName,
+        file: &FileName,
+        limit: u64,
+        into: &mut dyn std::io::Write,
+    ) -> Did {
+        let started = Instant::now();
+        let repo = self.repo_path()?.to_string();
+        let Some(found) = self.get(&format!("repos/{repo}/releases/tags/{}", segments(tag)))?
+        else {
+            return self.missing(Outcome::NotFound);
+        };
+        let release: RestRelease = json(&found)?;
+        let asset = release
+            .assets
+            .into_iter()
+            .find(|a| a.name == file.as_str())
+            .ok_or(Outcome::NotFound)?;
+        if asset.size > limit {
+            return Err(Outcome::Unread(Unread::TooLarge));
+        }
+        let scratch = Scratch::new().ok_or(Outcome::Unread(Unread::Unknown))?;
+        let path = scratch.file();
+        let mut address = format!("{API}repos/{repo}/releases/assets/{}", asset.id);
+        for hop in 0..=REDIRECTS {
+            let bound = DOWNLOAD_LIMIT.saturating_sub(started.elapsed());
+            if bound.is_zero() {
+                return Err(Outcome::Unavailable {
+                    why: Passing::Timeout,
+                    sent: Sent::Maybe,
+                });
+            }
+            let curl = self.curl.clone();
+            let api = curl::parse_address(&address).is_some_and(|p| p.host == curl::API_HOST);
+            let answer = self
+                .ask(bound, api, |left| curl.fetch(&address, left, limit, &path))?
+                .ok_or(Outcome::NotFound)?;
+            // A 2xx is the file's bytes. One from the API that ignored
+            // `Accept` and sent the asset's JSON is held to the listed size
+            // and fails as `Inconsistent`, on purpose: it is never parsed.
+            if (200..300).contains(&answer.status) {
+                if answer.written != asset.size {
+                    return Err(Outcome::Unread(Unread::Inconsistent));
+                }
+                return copy(&path, asset.size, into);
+            }
+            if !is_redirect(answer.status) {
+                return Err(Outcome::Unread(Unread::Malformed));
+            }
+            // A redirect with no place to go is not GitHub's answer.
+            let to = answer
+                .header("location")
+                .filter(|to| !to.is_empty())
+                .ok_or(Outcome::Unread(Unread::Malformed))?;
+            // Every redirect is held to the hosts and https again, and
+            // only two are followed.
+            if hop == REDIRECTS || !curl::address_ok(to) {
+                return Err(Outcome::Refused(Refusal::Unsupported));
+            }
+            address = to.to_string();
+        }
+        Err(Outcome::Refused(Refusal::Unsupported))
     }
 
     fn archive(&mut self, _: &CommitId, _: u64, _: &mut dyn std::io::Write) -> Did {

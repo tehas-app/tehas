@@ -272,19 +272,48 @@ form. `install.sh` does the same before its first copy. The pair of a login
 taken off the list stays, so the login, listed again, must still be the same
 account.
 
+A GitHub App's bot is recorded under its whole login, `<slug>[bot]`, and a
+person or an organisation under its login. An organisation and the bot of an
+app with its name are two accounts, each with its own pair. A file written by
+an older tehas keeps a bot under its bare slug, which is also the login of an
+account of that name, so tehas does not read that pair as either:
+
+- When the factory's bot, the millwright or a listed bot has no pair of its
+  own and its bare slug has one, the dispatcher stops with 78 and names
+  `console ids record`, no listed login counts, and no account is the
+  factory's own. `tehas update` runs the record.
+- The record writes the bare pair under the bot's whole login when it holds
+  the id GitHub gives the bot. A bare pair with another id stops it with 78
+  and names both ids, unless the id is the one GitHub gives a listed login of
+  that name. If the bare pair was the bot,
+  `tehas update --accept-id <slug>[bot]` records the bot's id; the bare pair
+  stays.
+
 From then on a label, an answer to a question and a
 comment count only when the account that made them carries the recorded id
 (`user.id`, `actor.id`, or GraphQL's `databaseId`). An account with the
 login and another id, or with no id at all, does not count: the dispatcher
 reads it as `<login>#<id>`, which no list matches, and says why on standard
 error. With no id recorded for a login, nothing of it counts until
-`tehas update` records one. GitHub logins are one account in any case, so
-the check ignores ASCII case: `Alice` is checked against the id recorded for
+`tehas update` records one. An account counts as a listed login of its own
+kind only: a person or an organisation is not the listed bot of its name,
+nor a bot the listed person. GitHub logins are one account in any case, so
+within a kind the check ignores ASCII case: `Alice` is checked against the id recorded for
 `alice`, and does not count with another id. A file that gives one login
 two different ids in two cases cannot be read, as below. `tehas update`
 records ignoring case too: a pair of the login in another case is its pair, so a change of
 case in the settings meets the check below, and the recorded pair is kept
 under the login as the settings write it, in place of every other case.
+
+A bot listed in `TEHAS_ALLOWED_LABELERS` no longer counts in 2.0: only the
+millwright (the factory's own app, or the app `TEHAS_MILLWRIGHT_APP` names) is
+a listed bot. A bot listed bare there loses its approvals, with only doubted
+lines (`<login>#<id>`) in the log. The list takes logins only (a `[` is
+refused), and a bare name is now the key of a person or an organisation of
+that name, so a bot app's label events do not count for it, where 1.x folded
+the bot onto the bare name. This narrows who counts and fails closed. If that
+bot should approve, it can only as the millwright (`TEHAS_MILLWRIGHT_APP`, in
+`host/docs/operating.md`); otherwise take it out of the list.
 
 Which logins are allowed is matched ignoring ASCII case, by the dispatcher
 as by `tehas resume`, `tehas plan`, `tehas dev` and a cycle started by hand.

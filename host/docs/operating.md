@@ -940,6 +940,8 @@ What comes back on the issue is one comment of the bot's:
   pull request of the issue, a rebase that conflicts, a cycle still running,
   no marked comment, or a rule above not met. The label comes off here
   too. To ask again, write a new marked comment and apply the label again.
+  The reply points to this section for the marked comment's first line and
+  does not quote it.
   The line is the rule's own words, with at most the HTTP status, limit,
   timeout or connection words of what git or gh said. What the command said
   can quote a commit subject of the cycle, so it goes to the log only.
@@ -988,7 +990,8 @@ no ask:
 - A try that GitHub fails again is counted. A refusal of anything else, the
   third try failed, or the hour over, stops the tries. The issue is told once,
   with `<!-- tehas:finish issue=<n> result=stopped by=poll -->`, and the cycle
-  waits for an ask with `tehas:finish`.
+  waits for an ask with `tehas:finish`. The reply points to [Finishing a
+  stopped cycle](#finishing-a-stopped-cycle) for the ask's marked comment.
 - An issue that carries `tehas:finish` is the ask's: the ask runs its finish
   and removes the record, so the finish runs once. A running issue waits. An
   issue that is closed, carries `tehas:ready`, `tehas:running` or
@@ -1395,7 +1398,7 @@ not published.
 
 With `TEHAS_READ_ONLY=on` in `instance.env` the instance reads its product's issues and code and runs cycles as usual, but writes nothing to GitHub: no label, comment, reaction, issue edit, pushed branch or pull request. It is meant for a factory on a developer's laptop that points at a repository a shared factory also serves. Off unless the instance turns it on; an instance that does not set it is unchanged.
 
-One guard decides every write. On the host each `gh` goes through the shim in `~/tehas/shim`, which `env.sh` puts first on `PATH` for a read-only instance whether or not it names a GitHub App, and its console runs no call that writes. It prints `read-only: would gh issue edit acme/widget#7` instead, exits 0 so the command goes on as if the write was made, and keeps the line in `state/read-only.log`. A read goes to GitHub as before. A shim with no console to ask runs nothing at all. `tehas-cycle finish` and `tehas init-product` say what they would have pushed and push nothing. The line in `state/github-writes.log` is only for a write that reached GitHub, so none is written.
+One setting decides every write. On the host each `gh` goes through the shim in `~/tehas/shim`, which `env.sh` puts first on `PATH` for a read-only instance whether or not it names a GitHub App, and its console runs no call that writes. It prints `read-only: would gh issue edit acme/widget#7` instead, exits 0 so the command goes on as if the write was made, and keeps the line in `state/read-only.log`. A read goes to GitHub as before. A shim with no console to ask runs nothing at all. The dispatcher's and a cycle's own writes to GitHub do not reach the shim: their writer is read-only, so each one prints `read-only: would send TicketNote`, keeps the line in `state/read-only.log`, records no row in the journal and goes on as if the write was made. `tehas-cycle finish` and `tehas init-product` say what they would have pushed and push nothing. The line in `state/github-writes.log` is only for a write that reached GitHub, so none is written.
 
 A cycle's container is told so too (`TEHAS_READ_ONLY=1` in its environment). Its git pushes to `origin` land in the workspace's own repository, so the push check before a cycle and the cycle's own pushes succeed and the branch stays in `~/tehas/work/<name>-<issue>`; a push that names a URL of github.com fails. The image's `gh` refuses every call that may write, by the same rule: what reads is a short list (`issue view`, `pr list`, `api` with no method and no field, a graphql query that names no mutation, and a few more), and anything else is a write. A `gh pr create` it refuses leaves the title, the branch and the body in `.git/tehas-read-only-pr.md` of the workspace. The image's `gh` has this only from the release that brought the setting: rebuild the image with `install.sh` before you turn it on. The token the container is given writes nothing either: its Contents, Pull requests and Issues are read, so a request that passes neither guard, a `curl` to the API or a push to a URL with a user name in it, is refused by GitHub. A token kept from before the instance turned read-only is not handed on: the next ask makes a new one. `tehas update` makes the cycle token and asks it for no push, and says `Cycle token:  OK (read-only: ...)`.
 

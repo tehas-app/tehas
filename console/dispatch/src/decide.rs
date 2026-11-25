@@ -27,7 +27,7 @@ mod epic;
 mod flow;
 mod note;
 mod plan;
-mod retry;
+pub(crate) mod retry;
 mod starts;
 
 pub(crate) use crate::snapshot::{base_approver, base_stands, named_blockers, record_base, shape};
@@ -468,7 +468,7 @@ impl<'a> Poll<'a> {
             ),
             None => format!("ERROR: unreadable {what}"),
         };
-        self.fail(tehas_core::call::trim(&line), 1)
+        self.fail(tehas_core::text::trim(&line), 1)
     }
 
     /// The end of a poll on comments of `n` that were not read.

@@ -8,8 +8,8 @@ use std::sync::{Arc, Mutex};
 use tehas_core::access::{self, Permission, Person};
 use tehas_github::{GitHubSite, MakeRunner, PeopleClient};
 use tehas_ports::{
-    AccountKind, Actor, Caller, Outcome, Passing, Refusal, Scope, Secret, Sent, SignInCode,
-    SignInState, Site, WebLink,
+    AccountKind, Actor, Caller, Got, Outcome, Passing, Refusal, Scope, Secret, Sent, SignInCode,
+    SignInState, Site, Unread, WebLink,
 };
 
 const CALLER: Caller = Caller::new("test.sign-in");
@@ -30,7 +30,6 @@ fn client() -> PeopleClient {
     PeopleClient {
         id: "Iv1.client".into(),
         secret: Secret::new("s3cret"),
-        api: None,
         callback: WebLink::new("https://plugins.example.org/_auth/callback").unwrap(),
     }
 }
@@ -38,23 +37,23 @@ fn client() -> PeopleClient {
 /// GitHub trading `code` for `token`, which is the person 4021 `Carol`.
 struct Trade {
     took: Mutex<Vec<String>>,
-    token: Result<String, String>,
-    user: Result<Person, String>,
+    token: Got<String>,
+    user: Got<Person>,
 }
 
 impl access::GitHub for Trade {
-    fn token(&self, code: &str) -> Result<String, String> {
+    fn token(&self, code: &str) -> Got<String> {
         self.took.lock().unwrap().push(format!("code {code}"));
         self.token.clone()
     }
-    fn user(&self, token: &str) -> Result<Person, String> {
+    fn user(&self, token: &str) -> Got<Person> {
         self.took.lock().unwrap().push(format!("user {token}"));
         self.user.clone()
     }
-    fn permission(&self, _: &str) -> Result<Permission, String> {
+    fn permission(&self, _: &str) -> Got<Permission> {
         panic!("a sign-in reads no permission")
     }
-    fn public(&self) -> Result<bool, String> {
+    fn public(&self) -> Got<bool> {
         panic!("a sign-in reads no repository")
     }
 }
@@ -64,7 +63,7 @@ fn carol() -> Trade {
         took: Mutex::new(Vec::new()),
         token: Ok("gho_person".into()),
         user: Ok(Person {
-            id: 4021,
+            id: access::AccountId::new("4021"),
             login: "Carol".into(),
         }),
     }
@@ -115,7 +114,7 @@ fn a_code_is_traded_for_the_person_and_their_token() {
 #[test]
 fn a_code_github_does_not_take_is_forbidden_and_a_person_unread_is_unavailable() {
     let mut refused = carol();
-    refused.token = Err("GitHub did not take the sign-in's code".into());
+    refused.token = Err(Outcome::Forbidden);
     let (site, trade, _) = site_with(refused);
     let mut id = site.identity(&READ, CALLER).unwrap();
     assert_eq!(
@@ -125,7 +124,10 @@ fn a_code_github_does_not_take_is_forbidden_and_a_person_unread_is_unavailable()
     assert_eq!(*trade.took.lock().unwrap(), ["code old"]);
 
     let mut unread = carol();
-    unread.user = Err("GitHub answered 502 for the person".into());
+    unread.user = Err(Outcome::Unavailable {
+        why: Passing::Server,
+        sent: Sent::Maybe,
+    });
     let (site, _, _) = site_with(unread);
     let mut id = site.identity(&READ, CALLER).unwrap();
     assert_eq!(
@@ -166,35 +168,40 @@ fn a_code_that_is_not_githubs_shape_is_invalid_and_trades_nothing() {
 
 #[test]
 fn a_trade_that_failed_but_for_a_refusal_may_have_spent_the_code() {
-    for why in [
-        "GitHub could not be reached",
-        "curl cannot run",
-        "curl did not finish",
+    // What passed is kept; any other failure is GitHub's own. Each may
+    // have spent the code.
+    for (failed, why) in [
+        (
+            Outcome::Unavailable {
+                why: Passing::Unreachable,
+                sent: Sent::No,
+            },
+            Passing::Unreachable,
+        ),
+        (
+            Outcome::Unavailable {
+                why: Passing::Timeout,
+                sent: Sent::Maybe,
+            },
+            Passing::Timeout,
+        ),
+        (Outcome::Unread(Unread::Malformed), Passing::Server),
+        (Outcome::SignedOut, Passing::Server),
+        (Outcome::NotFound, Passing::Server),
     ] {
         let mut lost = carol();
-        lost.token = Err(why.into());
+        lost.token = Err(failed.clone());
         let (site, _, _) = site_with(lost);
         let mut id = site.identity(&READ, CALLER).unwrap();
         assert_eq!(
             id.signed_in(&SignInCode::new("c0de")).err(),
             Some(Outcome::Unavailable {
-                why: Passing::Unreachable,
+                why,
                 sent: Sent::Maybe,
             }),
-            "{why}"
+            "{failed:?}"
         );
     }
-    let mut garbled = carol();
-    garbled.token = Err("GitHub's answer was not JSON".into());
-    let (site, _, _) = site_with(garbled);
-    let mut id = site.identity(&READ, CALLER).unwrap();
-    assert_eq!(
-        id.signed_in(&SignInCode::new("c0de")).err(),
-        Some(Outcome::Unavailable {
-            why: Passing::Server,
-            sent: Sent::Maybe,
-        })
-    );
 }
 
 #[test]

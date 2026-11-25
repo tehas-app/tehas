@@ -68,7 +68,7 @@ fn got<T>(law: &str, what: &str, answer: crate::Got<T>) -> Result<T, Broken> {
 
 /// Laws of the tickets port.
 pub mod tickets {
-    use super::{got, hold, Law};
+    use super::{got, hold, Broken, Law};
     use std::num::NonZeroU32;
 
     use crate::{
@@ -416,6 +416,46 @@ pub mod tickets {
         Ok(())
     }
 
+    /// `labels` holds every label the site holds on a ticket, by the
+    /// site's own name and in the site's order, a name no mark can have
+    /// among them, and nothing else: in the digest `several` gives, and in
+    /// the one `list` gives with the default filter within `bound` for each
+    /// ticket of `held` it lists. The fixture's `held` names tickets with
+    /// the labels the site holds on each. `labels` is for display alone,
+    /// never a decision input (Decided 130).
+    pub fn every_label_is_in_labels_in_order(
+        h: &mut dyn Tickets,
+        held: &[(TicketKey, Vec<String>)],
+        bound: Bound,
+    ) -> Law {
+        const LAW: &str = "tickets::every_label_is_in_labels_in_order";
+        let keys: Vec<TicketKey> = held.iter().map(|(k, _)| k.clone()).collect();
+        let listed = got(LAW, "the list", h.list(&Filter::default(), bound))?.into_items();
+        let several = h.several(&keys);
+        for (k, want) in held {
+            let (_, answer) = several.iter().find(|(s, _)| s == k).ok_or_else(|| Broken {
+                law: LAW.to_string(),
+                what: format!("several left {k:?} out"),
+            })?;
+            let d = got(LAW, "several", answer.clone())?;
+            hold(d.labels == *want, LAW, || {
+                format!(
+                    "several gave {k:?} labels {:?}, the site holds {want:?}",
+                    d.labels
+                )
+            })?;
+            for d in listed.iter().filter(|d| d.key == *k) {
+                hold(d.labels == *want, LAW, || {
+                    format!(
+                        "list gave {k:?} labels {:?}, the site holds {want:?}",
+                        d.labels
+                    )
+                })?;
+            }
+        }
+        Ok(())
+    }
+
     /// `kinds` never holds `Kind::Unknown`: a type this copy cannot name
     /// is left out (Decided 120). The fixture's site has a type of a name
     /// no kind can be.
@@ -703,6 +743,34 @@ pub mod code_host {
                 )
             },
         )
+    }
+
+    /// The latest release is the one the site marks latest, though a newer
+    /// one is published, and it is neither a draft nor a prerelease. The
+    /// fixture marks the release of `marked` latest and publishes a newer
+    /// one after it.
+    pub fn the_marked_release_is_the_latest(
+        h: &mut dyn crate::CodeHost,
+        marked: &crate::TagName,
+    ) -> Law {
+        const LAW: &str = "code_host::the_marked_release_is_the_latest";
+        let latest = got(LAW, "latest_release", h.latest_release())?;
+        let Some(r) = latest else {
+            return broken(
+                LAW,
+                format!("no latest release, {} is marked", marked.as_str()),
+            );
+        };
+        hold(&r.tag == marked, LAW, || {
+            format!(
+                "{} is the latest, {} is marked",
+                r.tag.as_str(),
+                marked.as_str()
+            )
+        })?;
+        hold(!r.draft && !r.prerelease, LAW, || {
+            format!("{r:?} is a draft or a prerelease")
+        })
     }
 
     /// A release made with notes reads them back, and one made without
@@ -1489,8 +1557,8 @@ pub mod history {
 pub mod blueprints {
     use super::{got, hold, Law};
     use crate::{
-        BlueprintNo, BlueprintWrites, Blueprints, Bound, ChangeNo, CodeHost, CommentId, Depth,
-        Lost, MarkerEdit, Outcome, Relation,
+        AccountKind, BlueprintNo, BlueprintWrites, Blueprints, Bound, ChangeNo, CodeHost,
+        CommentId, Depth, Lost, MarkerEdit, Outcome, Relation,
     };
 
     /// `attachments_in` over a blueprint's text gives the ids
@@ -1633,6 +1701,117 @@ pub mod blueprints {
         hold(links.len() == all.len(), LAW, || {
             format!("{} links for {} attachments", links.len(), all.len())
         })
+    }
+
+    /// `edit_comment` edits only the factory's own comment, and only
+    /// through the factory's own handle (`Actor::Ours`), at every standing.
+    /// `h` is the factory's handle and `not_ours` a handle of the same site
+    /// for another actor, the operator's or a person's. The fixture's
+    /// blueprint `no` holds the comment `ours`, written by the factory's
+    /// account, and `theirs`, written by other accounts: among them a
+    /// comment of another bot, and one of an account that holds the
+    /// factory's login under another id, so an implementation that knows
+    /// the factory by its login, or by any bot, breaks the law.
+    ///
+    /// Through `not_ours` every one of them, the factory's own as well, is
+    /// `Forbidden` and is not written. Through `h` each of `theirs` is
+    /// `Forbidden` and is not written, its text and revision as they were;
+    /// the factory's own comment is edited and its revision moves.
+    pub fn only_its_own_comment_is_edited(
+        h: &mut dyn BlueprintWrites,
+        not_ours: &mut dyn BlueprintWrites,
+        no: BlueprintNo,
+        ours: &CommentId,
+        theirs: &[CommentId],
+    ) -> Law {
+        const LAW: &str = "blueprints::only_its_own_comment_is_edited";
+        fn find(
+            h: &mut dyn BlueprintWrites,
+            no: BlueprintNo,
+            id: &CommentId,
+        ) -> Result<crate::Comment, super::Broken> {
+            let bound = Bound::new(100).expect("a bound above zero");
+            let all = got(LAW, "the comments", h.comments(no, bound))?.into_items();
+            all.into_iter()
+                .find(|c| c.id == *id)
+                .ok_or_else(|| super::Broken {
+                    law: LAW.into(),
+                    what: format!("the fixture holds no comment {id:?}"),
+                })
+        }
+        fn fixture(what: &str) -> super::Broken {
+            super::Broken {
+                law: LAW.into(),
+                what: format!("the fixture holds no {what}"),
+            }
+        }
+        /// `by` edits `id`, or `h` where `by` is None, and is `Forbidden`;
+        /// `h` then reads it unchanged.
+        fn refused(
+            h: &mut dyn BlueprintWrites,
+            by: Option<&mut dyn BlueprintWrites>,
+            no: BlueprintNo,
+            id: &CommentId,
+            whose: &str,
+        ) -> Law {
+            let before = find(h, no, id)?;
+            let (body, keep) = ("Taken over.", MarkerEdit::default());
+            let got = match by {
+                Some(other) => other.edit_comment(id, body, &keep, &before.revision),
+                None => h.edit_comment(id, body, &keep, &before.revision),
+            };
+            hold(got == Err(Outcome::Forbidden), LAW, || {
+                format!("editing {whose} {id:?} answered {got:?}")
+            })?;
+            let after = find(h, no, id)?;
+            hold(
+                after.revision == before.revision && after.body == before.body,
+                LAW,
+                || format!("a refused edit wrote {whose} {id:?}"),
+            )
+        }
+        let mine = find(h, no, ours)?;
+        let me = mine
+            .author
+            .clone()
+            .filter(|a| a.id.is_some())
+            .ok_or_else(|| fixture("author with an id on the factory's comment"))?;
+        let mut authors = Vec::new();
+        for id in theirs {
+            authors.push(find(h, no, id)?.author);
+        }
+        let others = || authors.iter().flatten().filter(|a| a.id != me.id);
+        if !others().any(|a| a.kind == AccountKind::Bot && a.login != me.login) {
+            return Err(fixture("comment of another bot"));
+        }
+        if !others().any(|a| a.login == me.login && a.id.is_some()) {
+            return Err(fixture(
+                "comment of another account under the factory's login",
+            ));
+        }
+        let not_ours_comment = "through a handle not the factory's, the factory's comment";
+        refused(h, Some(&mut *not_ours), no, ours, not_ours_comment)?;
+        for id in theirs {
+            let whose = "through a handle not the factory's, another account's comment";
+            refused(h, Some(&mut *not_ours), no, id, whose)?;
+            refused(h, None, no, id, "another account's comment")?;
+        }
+        got(
+            LAW,
+            "the edit of our own",
+            h.edit_comment(
+                ours,
+                "Ours, edited.",
+                &MarkerEdit::default(),
+                &mine.revision,
+            ),
+        )?;
+        let edited = find(h, no, ours)?;
+        hold(
+            edited.revision != mine.revision && edited.body == "Ours, edited.",
+            LAW,
+            || "our own comment's edit did not land".into(),
+        )
     }
 
     /// An edit moves the revision, and an edit at the old revision is then

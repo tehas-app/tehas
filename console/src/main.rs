@@ -433,6 +433,20 @@ mod wiring {
         site.board(&Actor::Ours(Scope::Full), Caller::new("plugin-hook"))
     }
 
+    /// The plugins' access questions on `repo` through the adapter's
+    /// authorised curl, asked with the installation token `console`
+    /// prints. No client for people: a call checks a login, it signs no one
+    /// in. None for a repository that is not `owner/name`.
+    pub(crate) fn access(
+        repo: &str,
+        console: &std::path::Path,
+    ) -> Option<Box<dyn tehas_core::access::GitHub>> {
+        let console = console.to_path_buf();
+        let a = tehas_github::Access::new(tehas_github::AuthorisedCurl::default(), repo)?
+            .with_installation(move || tehas_core::access::installation_token(&console));
+        Some(Box::new(a))
+    }
+
     /// The blueprints handles on `repo` as the factory, asking the site
     /// through `program`, each call in `bound`: the site knows the factory's
     /// account by what `home` records of its bot.

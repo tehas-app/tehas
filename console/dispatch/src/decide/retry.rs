@@ -144,7 +144,7 @@ fn parked(history: &[Value], at: &str) -> (bool, bool) {
 }
 
 /// The label of an issue that waits on its question.
-const ASKS: [&str; 1] = ["tehas:question"];
+pub(crate) const ASKS: [&str; 1] = ["tehas:question"];
 impl Poll<'_> {
     /// control_ask: the control issue is never worked on; said once a poll.
     pub(super) fn control_ask(&mut self, n: u64, what: &str) -> bool {
@@ -188,6 +188,29 @@ impl Poll<'_> {
         }
     }
 
+    /// The question `id` on record of `n`, its sum of before T4.7 (the
+    /// comment as posted, its markers in), takes 2.0's form (the lead's
+    /// ruling). The store compares the sum of the comment as `ans` reads it
+    /// now with the sum on record: the same, the comment is unchanged since
+    /// it was posted and its sum becomes its visible text's; another, or no
+    /// visible text, and it keeps no sum. A question with no sum is nothing
+    /// to compare, never a reason to ask again.
+    fn adopt(&mut self, n: u64, id: &str, ans: &Asked) {
+        use tehas_core::question::{q_text, question_sum};
+        if self.dry {
+            self.log(format!(
+                "would adopt the sum of #{n}'s question as its visible text's"
+            ));
+            return;
+        }
+        self.act(Action::Adopt {
+            issue: n,
+            id: id.to_string(),
+            posted: tehas_core::approval::body_sum(&ans.body),
+            sum: q_text(&ans.body, n).map(|t| question_sum(&t)),
+        });
+    }
+
     /// The question of before 2.0 in `ans` asked again in 2.0's words.
     fn reask(&mut self, n: u64, ans: &Asked) {
         use tehas_core::question::{reasked, Kind};
@@ -218,6 +241,7 @@ impl Poll<'_> {
             kind: ans.kind.clone(),
             old: Given::said(ans.comment.as_ref()),
             old_body: ans.body.clone(),
+            since: ans.revision.clone(),
             body: r.body,
             offers: offers.join(","),
         });
@@ -364,6 +388,13 @@ impl Poll<'_> {
             if q.reask && !qid.is_empty() && ans.kind == qkind && ans.issue_number() == Some(n) {
                 self.reask(n, &ans);
                 continue;
+            }
+            // A sum on record of the comment as posted (before T4.7) is
+            // adopted as its visible text's, in place, on this first read:
+            // nothing is written to the code host and nothing asked again,
+            // and the answer is read as it is.
+            if q.old_sum && !qid.is_empty() && ans.kind == qkind && ans.issue_number() == Some(n) {
+                self.adopt(n, &qid, &ans);
             }
             // An answer `tehas answer` gave reads as the box it stands for.
             // One the question does not offer is taken away, and said.

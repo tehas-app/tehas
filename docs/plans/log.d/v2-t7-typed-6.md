@@ -1,0 +1,1 @@
+| 2026-11-24 | T7: the MCP server's JSON-RPC envelope is typed (rpc's Id, Success, Failure, ServerInfo, ToolFailure); an id that is an object, a list, true or false is an Invalid Request; untyped-signatures 1194 to 1186 | v2/t7-typed-6 |

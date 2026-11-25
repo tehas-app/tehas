@@ -1,19 +1,21 @@
 //! The blueprints port's writes, `BlueprintWrites`. Answered: a new
-//! blueprint (`open`), its title and body edited at a revision (`edit`) and
-//! a comment (`comment`). Each write is one request, sent once, never
-//! again: its title and body go as JSON on gh's standard input, never in an
-//! argument, which holds at most 128 KiB and is seen by every process on
-//! the host. `edit` and `comment` read the issue first.
+//! blueprint (`open`), its title and body edited at a revision (`edit`), a
+//! comment (`comment`) and a comment's text edited at its revision
+//! (`edit_comment`). Each write is one request, sent once, never again: its
+//! title and body go as JSON on gh's standard input, never in an argument,
+//! which holds at most 128 KiB and is seen by every process on the host.
+//! `edit` and `comment` read the issue first, `edit_comment` the comment.
 //!
 //! Every write goes to this adapter's own repository, named by its typed
-//! number, and carries no marker: this adapter has no writer of markers
-//! yet, so a write that names one, or whose text holds one, is refused
-//! before any request, and an edit that would drop one is refused too.
+//! number or id. `open`, `edit` and `comment` carry no marker: a write that
+//! names one, or whose text holds one, is refused before any request, and
+//! an edit that would drop one is refused too. `edit_comment` keeps the
+//! comment's markers and changes them as `markers::edit` says, and edits
+//! only a comment the factory's own account wrote, known by its id.
 
 use super::unsupported;
-use crate::{gh, GitHub};
+use crate::{gh, markers, GitHub};
 use serde_json::Value;
-use tehas_core::text::has_marker;
 use tehas_ports::{
     BlueprintNo, BlueprintWrites, Body, CommentId, Did, Got, Lost, Marker, MarkerEdit,
     NewBlueprint, Outcome, Pool, Posted, Refusal, Revision, Sent, Unread, WebLink,
@@ -68,8 +70,9 @@ impl BlueprintWrites for GitHub {
             return Err(Outcome::Conflict(Lost::Changed));
         }
         // The body's markers cannot be read apart yet, so a new body would
-        // lose them.
-        if body.is_some() && has_marker(&now.body) {
+        // lose them: any the reader finds, bare too, and our wrapper,
+        // opening or closing, as 1.x's readers find it.
+        if body.is_some() && markers::foreign_text(&now.body) {
             return unsupported();
         }
         let mut fields = serde_json::Map::new();
@@ -131,14 +134,90 @@ impl BlueprintWrites for GitHub {
         read_comment(&out, &self.repo, no)
     }
 
+    /// The comment read, its revision compared with `since`, then one
+    /// `PATCH` of its body. The revision is [`comment_revision`] of its raw
+    /// body, markers in, as `Blueprints::comments` gives it. GitHub has no
+    /// conditional update of a comment, so the moment between the read and
+    /// the `PATCH` stays open: another account's edit in it is overwritten.
+    /// A caller that cares reads again after.
+    ///
+    /// Only the factory's own comment is edited, through the factory's own
+    /// handle (the tehas ports owner's ruling). A handle a site made for
+    /// any actor but `Actor::Ours`, the operator's gh, a person's or a
+    /// given token's, is `Forbidden` before any request, the bot's comment
+    /// as well, once the body is checked. Through the factory's handle the read's author must carry
+    /// the user id of the site's bot account and be typed a bot, as
+    /// `Bot::is` decides. Any other author, a person's, another bot's, or
+    /// an author missing or unread, is `Forbidden` with nothing sent, and
+    /// so is every comment through a handle that knows no bot id, one made
+    /// with [`GitHub::new`]. The login decides nothing: a renamed App
+    /// changes it and another account may hold it.
+    ///
+    /// `body` takes the place of the comment's text and its markers change
+    /// as [`markers::edit`] says, the ones not named kept where they stand;
+    /// the whole is read back before it is sent (Decided 116). A body that
+    /// holds our wrapper anywhere, or a bare marker, is `Refused(Invalid)`
+    /// before any request. A comment that is not there, or not on an issue
+    /// of this project, is `NotFound` with nothing sent; one deleted
+    /// between the read and the `PATCH` is `Conflict(Gone)`. A body that
+    /// would not change is not sent: the answer is the comment's link.
+    ///
+    /// A `PATCH` that may have landed is settled by one read, never sent
+    /// again: at the revision of what was sent it is done, still at `since`
+    /// it was not sent, else it stays `sent: Maybe`.
     fn edit_comment(
         &mut self,
-        _: &CommentId,
-        _: &str,
-        _: &MarkerEdit,
-        _: &Revision,
+        id: &CommentId,
+        body: &str,
+        edit: &MarkerEdit,
+        since: &Revision,
     ) -> Got<WebLink> {
-        unsupported()
+        edit.check()?;
+        if markers::foreign_text(body) {
+            return Err(Outcome::Refused(Refusal::Invalid));
+        }
+        if !self.as_bot {
+            return Err(Outcome::Forbidden);
+        }
+        let n = comment_number(id)?;
+        let path = format!("{}/issues/comments/{n}", self.issues()?);
+        let now = self.comment_before(&path, n)?;
+        if !self.bot.as_ref().is_some_and(|b| b.is(&now.author)) {
+            return Err(Outcome::Forbidden);
+        }
+        if now.revision != *since {
+            return Err(Outcome::Conflict(Lost::Changed));
+        }
+        let Some(new) = markers::edit(&now.body, Some(body), edit, Some(now.no))? else {
+            return Ok(now.link);
+        };
+        let input = serde_json::json!({ "body": new }).to_string();
+        let failed = match self.send("PATCH", &path, &input) {
+            Ok(out) => {
+                let edited = read_comment(&out, &self.repo, now.no)?;
+                if edited.id != *id {
+                    return Err(Outcome::Unread(Unread::Inconsistent));
+                }
+                return Ok(edited.link);
+            }
+            Err(Outcome::NotFound) => return Err(Outcome::Conflict(Lost::Gone)),
+            Err(o) => o,
+        };
+        let Outcome::Unavailable {
+            why,
+            sent: Sent::Maybe,
+        } = failed
+        else {
+            return Err(failed);
+        };
+        match self.comment_before(&path, n) {
+            Ok(again) if again.revision == comment_revision(&new) => Ok(again.link),
+            Ok(again) if again.revision == *since => Err(Outcome::Unavailable {
+                why,
+                sent: Sent::No,
+            }),
+            _ => Err(failed),
+        }
     }
 
     fn close(&mut self, _: BlueprintNo, _: bool) -> Did {
@@ -210,6 +289,17 @@ impl GitHub {
     }
 }
 
+impl GitHub {
+    /// The comment `n` at `path`, read before a write or to settle one. A
+    /// failure of the read is its outcome, with nothing sent.
+    fn comment_before(&mut self, path: &str, n: u64) -> Got<Held> {
+        let out = self
+            .call("the comment", &["api", path])
+            .map_err(|e| unsent(self.outcome(&e)))?;
+        held(&out, &self.repo, n)
+    }
+}
+
 /// The revision of an issue's REST read: its title and body, as the
 /// relay's read before an edit has it (`GitHub::text_revision`). None for
 /// an answer with no title.
@@ -229,6 +319,12 @@ pub(super) fn text_revision(title: &str, body: &str) -> Option<Revision> {
     revision(&serde_json::json!({ "title": title, "body": body }).to_string())
 }
 
+/// The revision of a comment: the sum of its raw body, markers in, as
+/// every read of comments gives it.
+pub(super) fn comment_revision(raw: &str) -> Revision {
+    Revision::new(tehas_core::approval::body_sum(raw))
+}
+
 /// A failure of the read before a write: the write was not sent.
 pub(super) fn unsent(o: Outcome) -> Outcome {
     match o {
@@ -241,9 +337,10 @@ pub(super) fn unsent(o: Outcome) -> Outcome {
 }
 
 /// `Refused(Invalid)` when a text holds one of our markers: a body never
-/// does, they travel beside it.
+/// does, they travel beside it. As [`markers::foreign_text`] finds one: our
+/// wrapper, opening or closing, or a marker the reader reads, bare too.
 fn unmarked(texts: &[&str]) -> Did {
-    if texts.iter().any(|t| has_marker(t)) {
+    if texts.iter().any(|t| markers::foreign_text(t)) {
         Err(Outcome::Refused(Refusal::Invalid))
     } else {
         Ok(())
@@ -330,4 +427,92 @@ pub(super) fn ends_with_folded(text: &str, tail: &str) -> bool {
     text.len() >= tail.len()
         && text.is_char_boundary(text.len() - tail.len())
         && text[text.len() - tail.len()..].eq_ignore_ascii_case(tail)
+}
+
+/// The REST id a comment's id is. Any other id names no comment here:
+/// `NotFound`, with no request.
+fn comment_number(id: &CommentId) -> Got<u64> {
+    let text = id.as_str();
+    match !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit()) {
+        true => text
+            .parse()
+            .ok()
+            .filter(|n| *n > 0)
+            .ok_or(Outcome::NotFound),
+        false => Err(Outcome::NotFound),
+    }
+}
+
+/// A comment of this project's issue `no` as its REST read answers it.
+struct Held {
+    no: BlueprintNo,
+    /// Its author's user id and type as GitHub gives them, each None where
+    /// the answer names none or not as GitHub writes it.
+    author: gh::Facts,
+    body: String,
+    link: WebLink,
+    revision: Revision,
+}
+
+/// The comment `n` in gh's answer. An answer that does not parse or lacks
+/// a field every comment has is `Unread(Malformed)`; a comment on a pull
+/// request is `NotFound`, no blueprint's; another comment, or one of
+/// another project, is `Unread(Inconsistent)`.
+fn held(out: &str, repo: &str, n: u64) -> Got<Held> {
+    let malformed = Outcome::Unread(Unread::Malformed);
+    let v: Value = serde_json::from_str(out.trim()).map_err(|_| malformed.clone())?;
+    if v.get("id").and_then(Value::as_u64) != Some(n) {
+        return Err(match v.get("id") {
+            Some(Value::Number(_)) => Outcome::Unread(Unread::Inconsistent),
+            _ => malformed,
+        });
+    }
+    let url = v
+        .get("html_url")
+        .and_then(Value::as_str)
+        .ok_or(malformed.clone())?;
+    let body = match v.get("body") {
+        None | Some(Value::Null) => String::new(),
+        Some(Value::String(s)) => s.clone(),
+        Some(_) => return Err(malformed),
+    };
+    let no = comment_issue(repo, url, n)?;
+    let user = v.get("user");
+    let author = gh::Facts {
+        id: user.and_then(|u| u.get("id")).and_then(Value::as_u64),
+        kind: user
+            .and_then(|u| u.get("type"))
+            .and_then(Value::as_str)
+            .map(str::to_string),
+    };
+    Ok(Held {
+        no,
+        author,
+        revision: comment_revision(&body),
+        body,
+        link: WebLink::new(url).map_err(|_| malformed)?,
+    })
+}
+
+/// The issue of this project a comment's link `url` names, the comment
+/// `n`: `NotFound` for a comment on a pull request, `Unread(Inconsistent)`
+/// for one of another project or another comment.
+pub(super) fn comment_issue(repo: &str, url: &str, n: u64) -> Got<BlueprintNo> {
+    let inconsistent = Outcome::Unread(Unread::Inconsistent);
+    let head = url
+        .strip_suffix(&format!("#issuecomment-{n}"))
+        .ok_or(inconsistent.clone())?;
+    let (at, no) = head.rsplit_once('/').ok_or(inconsistent.clone())?;
+    let no = no
+        .parse()
+        .ok()
+        .and_then(BlueprintNo::new)
+        .ok_or(inconsistent.clone())?;
+    if ends_with_folded(at, &format!("/{repo}/pull")) {
+        return Err(Outcome::NotFound);
+    }
+    if !ends_with_folded(at, &format!("/{repo}/issues")) {
+        return Err(inconsistent);
+    }
+    Ok(no)
 }

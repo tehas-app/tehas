@@ -1,0 +1,32 @@
+{
+ "total_count": 3,
+ "workflow_runs": [
+  {
+   "id": 80050009,
+   "name": "CI",
+   "event": "pull_request",
+   "workflow_id": 7001,
+   "check_suite_id": 70050009,
+   "run_attempt": 1,
+   "run_started_at": "2026-01-02T09:00:00Z"
+  },
+  {
+   "id": 80050010,
+   "name": "CI",
+   "event": "pull_request",
+   "workflow_id": 7001,
+   "check_suite_id": 70050010,
+   "run_attempt": 1,
+   "run_started_at": "2026-01-02T09:00:00Z"
+  },
+  {
+   "id": 80050011,
+   "name": "CI",
+   "event": "pull_request",
+   "workflow_id": 7001,
+   "check_suite_id": 70050011,
+   "run_attempt": 1,
+   "run_started_at": "2026-01-02T09:00:00Z"
+  }
+ ]
+}

@@ -14,7 +14,7 @@ use tehas_github::{Curl, GitHubSite, MakeRunner, CURL_ENV};
 use tehas_ports::fake::MemoryLedger;
 use tehas_ports::{
     Actor, At, Caller, CommitId, HealthState, Holder, HolderId, HostId, Ledger, Outcome, Pool,
-    Refusal, Site, TagName, Whose, ALL_MAX,
+    Refusal, Site, TagName, Unread, Whose, ALL_MAX,
 };
 
 const CALLER: Caller = Caller::new("test.anonymous");
@@ -255,12 +255,8 @@ fn an_anonymous_read_outside_the_release_reads_is_unsupported_with_no_request() 
     let mut h = site.code_host(&by, CALLER).unwrap();
     assert_eq!(h.facts().err(), Some(UNSUPPORTED));
     assert_eq!(h.release(&tag("v1.4.1")).err(), Some(UNSUPPORTED));
+    // `download` is answered: tests/anonymous_download.rs.
     let mut into = Vec::new();
-    let file = tehas_ports::FileName::new("install").unwrap();
-    assert_eq!(
-        h.download(&tag("v1.4.1"), &file, 1 << 20, &mut into).err(),
-        Some(UNSUPPORTED)
-    );
     let at = CommitId::new(V141).unwrap();
     assert_eq!(h.archive(&at, 1 << 20, &mut into).err(), Some(UNSUPPORTED));
     assert_eq!(
@@ -288,6 +284,17 @@ fn a_private_or_missing_project_is_refused_never_not_found() {
     assert_eq!(h.tags(ALL_MAX).err(), Some(UNSUPPORTED));
     assert_eq!(h.latest_release().err(), Some(UNSUPPORTED));
     assert_eq!(h.resolve_tag(&tag("v1.4.1")).err(), Some(UNSUPPORTED));
+}
+
+#[test]
+fn a_prerelease_answered_as_the_latest_is_inconsistent_as_on_the_tokens_path() {
+    let stub = Stub::new("github-anonymous-pre");
+    let site = site("acme/pre", &stub, Arc::new(MemoryLedger::new()));
+    let mut h = site.code_host(&Actor::Anonymous, CALLER).unwrap();
+    assert_eq!(
+        h.latest_release(),
+        Err(Outcome::Unread(Unread::Inconsistent))
+    );
 }
 
 #[test]
