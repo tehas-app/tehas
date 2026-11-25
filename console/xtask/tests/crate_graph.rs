@@ -7,6 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::OnceLock;
 
 /// The layers of the graph, inner to outer (the T6 cut, section 7, for the
 /// crates there are today). A normal edge points to an earlier layer.
@@ -67,7 +68,12 @@ fn console() -> PathBuf {
 
 /// The workspace's crates from `cargo metadata`, with their edges to each
 /// other and the outside crates of their normal edges.
-fn workspace() -> BTreeMap<String, Crate> {
+fn workspace() -> &'static BTreeMap<String, Crate> {
+    static CRATES: OnceLock<BTreeMap<String, Crate>> = OnceLock::new();
+    CRATES.get_or_init(metadata)
+}
+
+fn metadata() -> BTreeMap<String, Crate> {
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
     let out = Command::new(cargo)
         .args([
@@ -168,8 +174,13 @@ fn written() -> BTreeMap<String, Edges> {
         .expect("docs/architecture.md has no section \"Crate graph\"");
     let section = section.split("\n## ").next().unwrap_or("");
     let mut rows = BTreeMap::new();
-    let lines = section.lines().filter(|l| l.starts_with('|'));
-    for line in lines.skip(2) {
+    let lines: Vec<&str> = section.lines().filter(|l| l.starts_with('|')).collect();
+    assert_eq!(
+        lines.iter().take(2).copied().collect::<Vec<_>>().join("\n"),
+        HEADER,
+        "the table starts with its header row and separator"
+    );
+    for line in &lines[2..] {
         let cells: Vec<&str> = line.split('|').collect();
         assert_eq!(cells.len(), 5, "a row of three cells: {line}");
         let edges = Edges {
@@ -202,7 +213,7 @@ fn the_architecture_page_holds_the_crate_graph() {
         actual == page,
         "docs/architecture.md's \"Crate graph\" table differs from cargo metadata. \
          The table as it should be:\n\n{}\n",
-        table(&crates)
+        table(crates)
     );
 }
 
@@ -228,7 +239,7 @@ fn a_normal_edge_points_inward() {
     for (name, krate) in workspace() {
         for to in &krate.edges.normal {
             assert!(
-                layer(to) < layer(&name),
+                layer(to) < layer(name),
                 "{name} -> {to} points outward or across its layer (R8)"
             );
         }
