@@ -931,6 +931,27 @@ fn code_host_recent_tags_and_releases_are_newest_first() {
 }
 
 #[test]
+fn code_host_the_marked_release_is_the_latest() {
+    for w in both() {
+        let at = w.head("main").unwrap();
+        let w = w.tag("v1.0.0", &at).release("v1.0.0", &[]);
+        w.advance(60);
+        let w = w.tag("v1.1.0", &at).release("v1.1.0", &[]);
+        let site = FakeSite::new(&w);
+        let mut h = site.code_host(&full(), C).unwrap();
+        // With no marking, the newest published is the latest.
+        assert_eq!(h.latest_release().unwrap().unwrap().tag.as_str(), "v1.1.0");
+        let w = w.mark_latest("v1.0.0");
+        w.advance(60);
+        let _w = w.tag("v1.2.0", &at).release("v1.2.0", &[]);
+        ok(laws::code_host::the_marked_release_is_the_latest(
+            h.as_mut(),
+            &TagName::new("v1.0.0").unwrap(),
+        ));
+    }
+}
+
+#[test]
 fn code_host_a_release_gives_its_notes() {
     for w in both() {
         let at = w.head("main").unwrap();

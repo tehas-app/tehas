@@ -236,8 +236,8 @@ fn the_latest_release_is_the_one_github_names_latest() {
     // A release marked latest by hand is the latest, though a newer one is
     // published: the token's reader answers as the anonymous one does.
     let (mut gh, _) = adapter("marked");
-    let latest = gh.latest_release().unwrap().unwrap();
-    assert_eq!(latest.tag.as_str(), "v1.0.0");
+    tehas_ports::laws::code_host::the_marked_release_is_the_latest(&mut gh, &tag("v1.0.0"))
+        .unwrap();
     // None answered, the project is there: it has no latest release.
     let (mut gh, asked) = adapter("none");
     assert_eq!(gh.latest_release(), Ok(None));
