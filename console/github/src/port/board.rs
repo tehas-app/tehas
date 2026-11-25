@@ -3,13 +3,15 @@
 //! states and branch takes, each with its files and the other open changes
 //! that close the same blueprints, in one GraphQL question a page; for an
 //! ask of numbers, with the blueprints each closes, in `numbers.rs`; and
-//! `open_work` for the queue's ask, in `work.rs`. The rest is
+//! `open_work` for the queue's ask, in `work.rs`; and `as_blockers`, in
+//! one aliased question as `items.rs` asks it. The rest is
 //! `Refused(Unsupported)` before any request.
 
 mod numbers;
 mod work;
 
 use std::collections::HashSet;
+use std::num::NonZeroU64;
 
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
@@ -18,7 +20,7 @@ use super::mergeable::mergeable;
 use super::unsupported;
 use crate::{gh, GitHub};
 use tehas_ports::{
-    Account, At, BlueprintNo, Board, BoardAsk, Bound, Branch, ChangeAsk, ChangeDigest,
+    Account, At, Blocker, BlueprintNo, Board, BoardAsk, Bound, Branch, ChangeAsk, ChangeDigest,
     ChangeFilter, ChangeItem, ChangeNo, ChangeState, ChangeStates, ChangedFile, CommitId, Got,
     ItemName, OpenWork, Outcome, ProjectName, Ref, RepoPath, Size, TargetId, TicketKey, Unread,
     WebLink, Whole, WorkItem,
@@ -109,6 +111,12 @@ impl Board for GitHub {
     /// `Refused(Unsupported)` before any request.
     fn open_work(&mut self, ask: &BoardAsk, bound: Bound) -> Got<OpenWork> {
         self.open_work_pages(ask, bound)
+    }
+
+    /// Each number with its state, an issue's or a pull request's, in one
+    /// question a hundred numbers.
+    fn as_blockers(&mut self, numbers: &[NonZeroU64]) -> Vec<(NonZeroU64, Got<Blocker>)> {
+        GitHub::as_blockers(self, numbers)
     }
 
     fn work_item(&mut self, _: &TicketKey, _: &BoardAsk) -> Got<WorkItem> {

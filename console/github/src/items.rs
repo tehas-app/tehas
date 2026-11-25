@@ -1,8 +1,7 @@
 //! What a number names where issues and pull requests share one number
 //! space: a ticket or a change, as `Tickets::what_is` and
-//! `Tickets::what_are` answer. Several numbers go in one GraphQL question,
-//! an alias a number, as the dispatcher's read of a blocker's state asks
-//! today.
+//! `Tickets::what_are` answer, and with its state, as `Board::as_blockers`
+//! answers. Several numbers go in one GraphQL question, an alias a number.
 //!
 //! GitHub answers a number it does not know with a null node and a
 //! `NOT_FOUND` error at that alias, and gh then exits 1, so the question is
@@ -18,7 +17,9 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::GitHub;
-use tehas_ports::{ChangeNo, Got, Item, Outcome, TicketKey, Unread, ALL_MAX};
+use tehas_ports::{
+    Blocker, BlockerState, ChangeNo, Got, Item, Outcome, Ref, TicketKey, Unread, ALL_MAX,
+};
 
 const MALFORMED: Outcome = Outcome::Unread(Unread::Malformed);
 const INCONSISTENT: Outcome = Outcome::Unread(Unread::Inconsistent);
@@ -86,6 +87,9 @@ struct Node {
     #[serde(rename = "__typename")]
     is: String,
     number: Option<u64>,
+    /// Where the question asks it.
+    #[serde(default)]
+    state: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -121,6 +125,20 @@ impl GitHub {
             gh.ask_items(chunk, "")
                 .into_iter()
                 .map(|(n, node)| node.and_then(|node| item(n, &node)))
+                .collect()
+        })
+    }
+
+    /// What each number names with its state, as `what_are` asks, in one
+    /// question a hundred numbers.
+    pub(crate) fn as_blockers(
+        &mut self,
+        numbers: &[NonZeroU64],
+    ) -> Vec<(NonZeroU64, Got<Blocker>)> {
+        self.each_number(numbers, |gh, chunk| {
+            gh.ask_items(chunk, " state")
+                .into_iter()
+                .map(|(n, node)| node.and_then(|node| blocker(n, &node)))
                 .collect()
         })
     }
@@ -277,6 +295,19 @@ fn item(asked: u64, node: &Node) -> Got<Item> {
         "PullRequest" => Ok(Item::Change(ChangeNo::from(n))),
         _ => Err(INCONSISTENT),
     }
+}
+
+/// A node as a blocker: what it names, and its state. A state GitHub does
+/// not give that kind of item is `Unread(Malformed)`.
+fn blocker(asked: u64, node: &Node) -> Got<Blocker> {
+    let item = item(asked, node)?;
+    let state = match (&item, node.state.as_deref()) {
+        (_, Some("OPEN")) => BlockerState::Open,
+        (_, Some("CLOSED")) => BlockerState::Closed,
+        (Item::Change(_), Some("MERGED")) => BlockerState::Merged,
+        _ => return Err(MALFORMED),
+    };
+    Ok(Blocker::new(Ref::Here(item), state))
 }
 
 #[cfg(test)]
