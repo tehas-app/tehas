@@ -364,12 +364,17 @@ fn step_7(tx: &Transaction) -> rusqlite::Result<()> {
         let names = q.query_map([], |r| r.get::<_, String>(0))?;
         names.collect()
     };
-    let old_columns = runs_columns(tx)?;
-    let read: Vec<String> = old_columns
-        .iter()
-        .map(|c| match STEP_7_WORDS.iter().find(|(col, _, _)| col == c) {
-            Some((col, old, new)) => format!("CASE {col} WHEN '{old}' THEN '{new}' ELSE {col} END"),
-            None => c.clone(),
+    // Each old column with what it is read back as.
+    let read: Vec<(String, String)> = runs_columns(tx)?
+        .into_iter()
+        .map(|c| {
+            let r = match STEP_7_WORDS.iter().find(|(col, _, _)| *col == c) {
+                Some((col, old, new)) => {
+                    format!("CASE {col} WHEN '{old}' THEN '{new}' ELSE {col} END")
+                }
+                None => c.clone(),
+            };
+            (c, r)
         })
         .collect();
     let mut rewritten = 0i64;
@@ -397,24 +402,17 @@ fn step_7(tx: &Transaction) -> rusqlite::Result<()> {
         &SCHEMA[table..indexed],
     ))?;
     let new_columns = runs_columns(tx)?;
-    let (columns, read): (Vec<&String>, Vec<&String>) = old_columns
+    let (columns, read): (Vec<&str>, Vec<&str>) = read
         .iter()
-        .zip(read.iter())
         .filter(|(c, _)| new_columns.contains(c))
+        .map(|(c, r)| (c.as_str(), r.as_str()))
         .unzip();
     tx.execute_batch(&format!(
         "INSERT INTO runs ({}) SELECT {} FROM temp.runs_6;
          DROP TABLE temp.runs_6;
          {back}",
-        columns
-            .iter()
-            .map(|c| c.as_str())
-            .collect::<Vec<_>>()
-            .join(", "),
-        read.iter()
-            .map(|c| c.as_str())
-            .collect::<Vec<_>>()
-            .join(", "),
+        columns.join(", "),
+        read.join(", "),
     ))?;
     if rewritten > 0 {
         tx.execute(
