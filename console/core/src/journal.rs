@@ -7,27 +7,22 @@
 
 pub mod settle;
 
-use crate::call::{gh_why, run_full, Ran};
 use crate::read_only;
-use regex::Regex;
 use serde_json::{json, Value};
-use std::sync::OnceLock;
-use std::time::Duration;
 use tehas_ports::{
     Blobs, Blueprints, CodeHost, Got, Outcome, Passing, Receipt, Refusal, Sent, Sha256, Tickets,
     Write, Writes,
 };
 
-/// How a journaled call ended.
+/// How a poll's journaled write ended, as its caller logs it.
 #[derive(Debug, PartialEq)]
 pub enum Wrote {
-    /// What gh printed: a comment posted names its id there.
+    /// Done: a comment posted names its id here.
     Done(String),
-    /// What gh gave as its reason, as `gh_why` has it.
+    /// Why it failed, as a line of the log ends.
     Failed(String),
-    /// GitHub may have taken it: the call timed out or GitHub answered 5xx.
-    /// Never sent again on this answer: a read settles it first (#1754). The
-    /// reason as `Failed` has it.
+    /// The site may have taken it. Never sent again on this answer: a read
+    /// settles it first (#1754). The reason as `Failed` has it.
     Unknown(String),
     /// Not made: the journal could not record it.
     Unrecorded,
@@ -87,14 +82,8 @@ pub type Store<'a> = &'a mut dyn FnMut(&[&str]) -> Result<Value, Value>;
 /// What one write goes by.
 pub struct Journal<'a> {
     pub repo: &'a str,
-    pub gh: &'a str,
     /// The read the action rests on.
     pub before: i64,
-    /// A write's bound, and the grace of TERM after it.
-    pub bound: Duration,
-    pub grace: Duration,
-    /// The token the poll took, so the shim asks for none.
-    pub token: Option<&'a str>,
     /// The row every action names, from poll-begin; 0 until the first write
     /// begins it.
     pub poll_at: &'a mut i64,
@@ -106,48 +95,10 @@ pub struct Journal<'a> {
 }
 
 impl Journal<'_> {
-    /// A write to GitHub, journaled: recorded before it is made, settled
-    /// after. `input` goes to gh on standard input. `done_if`: words in a
-    /// failed call's answer that mean the change is there already, settled
-    /// empty.
-    pub fn write(
-        &mut self,
-        store: Store,
-        issue: u64,
-        kind: &str,
-        args: Vec<String>,
-        input: Option<&str>,
-        done_if: Option<&str>,
-    ) -> Wrote {
-        let body = input;
-        let mut call = json!({"repo": self.repo, "gh": args, "input": summed(&args, input)});
-        if let Some((n, attempt)) = self.cycle {
-            call["cycle"] = json!({"issue": n, "attempt": attempt});
-        }
-        let issue = issue.to_string();
-        let what = ["--kind", kind, "--issue", &issue];
-        let Some(id) = self.intend(store, &call.to_string(), &what) else {
-            return Wrote::Unrecorded;
-        };
-        let r = self.gh(&args, body);
-        let there = there(&r, done_if);
-        let result = match r.status {
-            Some(0) => "ok",
-            Some(_) if there => "empty",
-            _ if self.maybe_taken(&r) => "unknown",
-            None => "timed-out",
-            Some(_) => "read-failed",
-        };
-        // A settle that fails leaves the action attempted, and an unknown one
-        // open: the next poll settles it from a fresh read.
-        let _ = store(&["journal-settle", "--action", &id, "--result", result]);
-        self.wrote(r, there)
-    }
-
-    /// A write of the ports, journaled as `write` journals a call of gh: its
-    /// row keeps the write with its bodies summed, and `writes` is sent the
-    /// write as given. A read-only writer is sent nothing and no row is
-    /// recorded.
+    /// A write of the ports, journaled: recorded before it is sent, settled
+    /// after. Its row keeps the write with its bodies summed, and `writes`
+    /// is sent the write as given. A read-only writer is sent nothing and
+    /// no row is recorded.
     ///
     /// The row settles by the answer: `ok`; `unknown` for one the site may
     /// have taken, `Unavailable { sent: Maybe }` (a time-out too) or an
@@ -279,68 +230,11 @@ impl Journal<'_> {
         store(&["journal-attempt", "--action", &id]).ok()?;
         Some(id)
     }
-
-    /// Whether GitHub may have taken a call that did not answer as done: it
-    /// timed out after gh started, GitHub answered 5xx, which it does for a
-    /// write it went on to commit, or the connection broke after it was made.
-    /// A gh that never ran, or never connected (`connection refused`, `no such
-    /// host`), sent nothing.
-    fn maybe_taken(&self, r: &Ran) -> bool {
-        static TAKEN: OnceLock<Regex> = OnceLock::new();
-        let taken = TAKEN.get_or_init(|| {
-            Regex::new(
-                r"(?i)HTTP 5[0-9]{2}\b|connection reset|\bEOF\b|GOAWAY|connection closed|closed network connection|server closed",
-            )
-            .expect("a regex")
-        });
-        match r.status {
-            None => r.err != format!("{} could not be run", self.gh),
-            Some(0) => false,
-            Some(_) => taken.is_match(&r.err),
-        }
-    }
-
-    fn wrote(&self, r: Ran, there: bool) -> Wrote {
-        if r.ok() || (there && r.status.is_some()) {
-            Wrote::Done(r.out)
-        } else if self.maybe_taken(&r) {
-            Wrote::Unknown(gh_why(&r.err))
-        } else {
-            Wrote::Failed(gh_why(&r.err))
-        }
-    }
-
-    /// A write the journal could not record, made with no row. For a writer
-    /// that nothing decides again: a row it left open is safe, as a settling
-    /// poll replays nothing.
-    pub fn unrecorded(
-        &self,
-        args: Vec<String>,
-        input: Option<&str>,
-        done_if: Option<&str>,
-    ) -> Wrote {
-        let r = self.gh(&args, input);
-        let there = there(&r, done_if);
-        self.wrote(r, there)
-    }
-
-    fn gh(&self, args: &[String], input: Option<&str>) -> Ran {
-        let extra: Vec<(&str, &str)> = match self.token {
-            Some(t) => vec![("TEHAS_GH_TOKEN", t)],
-            None => Vec::new(),
-        };
-        run_full(self.gh, args, input, self.bound, self.grace, &extra)
-    }
 }
 
-fn there(r: &Ran, done_if: Option<&str>) -> bool {
-    done_if.is_some_and(|w| r.out.contains(w) || r.err.contains(w))
-}
-
-/// The body of a write by its sum and length, as an action keeps it: the
-/// settling poll finds a comment by them, and the store's arguments stay short
-/// and hold no text. Given as JSON (--input -), the body is its field: the text
-/// GitHub keeps. A caller that looks for an earlier action of the same write
+/// The body of a 1.x row's call of gh by its sum and length, as the row
+/// keeps it. Given as JSON (--input -), the body is its field: the text
+/// GitHub keeps. A poll that looks for a 1.x row of a write of the ports
 /// compares this.
 pub fn summed(args: &[String], input: Option<&str>) -> Option<Value> {
     let json = args.iter().any(|a| a == "--input");
@@ -366,22 +260,16 @@ fn sha256(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::call::GRACE;
     use tehas_ports::{Body, NoBlobs, Passing, Sent, Sha256, Sum, TicketKey, Unread};
 
     fn journal<'a>(
         poll_at: &'a mut i64,
         begun: &'a mut bool,
-        gh: &'a str,
         cycle: Option<(u64, u64)>,
     ) -> Journal<'a> {
         Journal {
             repo: "a/b",
-            gh,
             before: 5,
-            bound: Duration::from_secs(5),
-            grace: GRACE,
-            token: None,
             poll_at,
             row_not_begun: begun,
             cycle,
@@ -398,183 +286,14 @@ mod tests {
         })
     }
 
-    #[test]
-    fn a_write_goes_begin_record_attempt_call_settle() {
-        let (mut at, mut no_row, mut asked) = (0, false, vec![]);
-        let mut j = journal(&mut at, &mut no_row, "true", None);
-        let w = j.write(
-            &mut |a| taken(&mut asked, a),
-            7,
-            "label-add",
-            vec!["issue".into()],
-            None,
-            None,
-        );
-        assert_eq!(w, Wrote::Done(String::new()));
-        let verbs: Vec<&str> = asked.iter().map(|a| a[0].as_str()).collect();
-        assert_eq!(
-            verbs,
-            [
-                "poll-begin",
-                "journal-record",
-                "journal-attempt",
-                "journal-settle"
-            ]
-        );
-        assert_eq!(at, 100);
-    }
-
-    #[test]
-    fn a_cycle_names_itself_in_the_action() {
-        let (mut at, mut no_row, mut asked) = (9, false, vec![]);
-        let mut j = journal(&mut at, &mut no_row, "true", Some((7, 2)));
-        j.write(
-            &mut |a| taken(&mut asked, a),
-            7,
-            "comment-post",
-            vec!["--body-file".into(), "-".into()],
-            Some("text"),
-            None,
-        );
-        let args: Value = serde_json::from_str(&asked[0][8]).unwrap();
-        assert_eq!(args["cycle"], json!({"issue": 7, "attempt": 2}));
-        assert_eq!(args["input"]["bytes"], json!(4));
-        assert_eq!(args["gh"], json!(["--body-file", "-"]));
-    }
-
-    #[test]
-    fn a_write_the_journal_cannot_record_is_not_made() {
-        let (mut at, mut no_row) = (9, false);
-        let mut j = journal(&mut at, &mut no_row, "/nonexistent/gh", None);
-        let w = j.write(
-            &mut |_| Err(json!({"failed": true})),
-            7,
-            "label-add",
-            vec![],
-            None,
-            None,
-        );
-        assert_eq!(w, Wrote::Unrecorded);
-    }
-
-    fn sh(script: &str) -> Vec<String> {
-        vec!["-c".into(), script.into()]
-    }
-
-    #[test]
-    fn a_write_with_no_row_says_as_a_journaled_one_does() {
-        let (mut at, mut no_row) = (0, false);
-        let j = journal(&mut at, &mut no_row, "sh", None);
-        assert_eq!(
-            j.unrecorded(sh("cat"), Some("text"), None),
-            Wrote::Done("text".into())
-        );
-        assert_eq!(
-            j.unrecorded(sh("echo Not Found >&2; exit 1"), None, Some("Not Found")),
-            Wrote::Done(String::new())
-        );
-        assert!(matches!(
-            j.unrecorded(sh("exit 1"), None, Some("Not Found")),
-            Wrote::Failed(_)
-        ));
-    }
-
-    /// The settle each answer of gh is given, and what the caller hears.
-    fn settled(gh: &str, args: Vec<String>, bound: Duration) -> (Wrote, String) {
-        let (mut at, mut no_row, mut asked) = (9, false, vec![]);
-        let mut j = journal(&mut at, &mut no_row, gh, None);
-        j.bound = bound;
-        j.grace = Duration::from_millis(100);
-        let w = j.write(
-            &mut |a| taken(&mut asked, a),
-            7,
-            "comment-post",
-            args,
-            Some("text"),
-            None,
-        );
-        let settle = asked.iter().find(|a| a[0] == "journal-settle").unwrap();
-        (w, settle[4].clone())
-    }
-
-    /// #1754: a write GitHub may have taken is unknown, never failed: the
-    /// caller does not send it again, and the row stays open for a read.
-    #[test]
-    fn a_write_that_timed_out_or_got_a_5xx_is_unknown() {
-        let long = Duration::from_secs(5);
-        let (w, result) = settled("sh", sh("sleep 5"), Duration::from_millis(300));
-        assert!(matches!(w, Wrote::Unknown(_)), "{w:?}");
-        assert_eq!(result, "unknown");
-        for code in ["500", "502", "503", "504"] {
-            let script = format!("cat >/dev/null; echo 'HTTP {code}: Bad Gateway' >&2; exit 1");
-            let (w, result) = settled("sh", sh(&script), long);
-            assert_eq!(w, Wrote::Unknown(format!(": HTTP {code}")));
-            assert_eq!(result, "unknown");
-        }
-        let (w, result) = settled("sh", sh("echo 'HTTP 422: Unprocessable' >&2; exit 1"), long);
-        assert_eq!(w, Wrote::Failed(": HTTP 422".into()));
-        assert_eq!(result, "read-failed");
-        // A gh that never ran sent nothing.
-        let (w, result) = settled("/nonexistent/gh", vec![], long);
-        assert!(matches!(w, Wrote::Failed(_)), "{w:?}");
-        assert_eq!(result, "timed-out");
-    }
-
-    /// A connection that broke after the request went out may have carried
-    /// it; one that was never made carried nothing.
-    #[test]
-    fn a_write_whose_connection_broke_is_unknown() {
-        let long = Duration::from_secs(5);
-        for said in [
-            "read tcp: read: connection reset by peer",
-            "Post \"https://api.github.com/graphql\": unexpected EOF",
-            "Post \"https://api.github.com/graphql\": EOF",
-            "http2: server sent GOAWAY and closed the connection",
-            "http2: client connection closed",
-            "write tcp: use of closed network connection",
-            "http: server closed idle connection",
-        ] {
-            let script = format!("cat >/dev/null; echo '{said}' >&2; exit 1");
-            let (w, result) = settled("sh", sh(&script), long);
-            assert!(matches!(w, Wrote::Unknown(_)), "{said}: {w:?}");
-            assert_eq!(result, "unknown", "{said}");
-        }
-        for said in [
-            "dial tcp: connect: connection refused",
-            "dial tcp: lookup api.github.com: no such host",
-            "GraphQL: Could not add label: issue is closed",
-        ] {
-            let script = format!("cat >/dev/null; echo '{said}' >&2; exit 1");
-            let (w, result) = settled("sh", sh(&script), long);
-            assert!(matches!(w, Wrote::Failed(_)), "{said}: {w:?}");
-            assert_eq!(result, "read-failed", "{said}");
-        }
-    }
-
-    #[test]
-    fn a_write_with_no_row_that_got_a_5xx_is_unknown_too() {
-        let (mut at, mut no_row) = (0, false);
-        let j = journal(&mut at, &mut no_row, "sh", None);
-        assert_eq!(
-            j.unrecorded(sh("echo 'HTTP 502: Bad Gateway' >&2; exit 1"), None, None),
-            Wrote::Unknown(": HTTP 502".into())
-        );
-    }
-
+    /// A body given as JSON (`--input -`) is summed by its field, the text
+    /// GitHub keeps, as a 1.x row of it was.
     #[test]
     fn a_body_given_as_json_is_summed_by_its_field() {
-        let (mut at, mut no_row, mut asked) = (9, false, vec![]);
-        let mut j = journal(&mut at, &mut no_row, "true", None);
-        j.write(
-            &mut |a| taken(&mut asked, a),
-            7,
-            "issue-edit",
-            vec!["--input".into(), "-".into()],
-            Some(r#"{"body":"text"}"#),
-            None,
-        );
-        let args: Value = serde_json::from_str(&asked[0][8]).unwrap();
-        assert_eq!(args["input"]["bytes"], json!(4));
+        let args = vec!["--input".to_string(), "-".to_string()];
+        let sum = summed(&args, Some(r#"{"body":"text"}"#)).unwrap();
+        assert_eq!(sum["bytes"], json!(4));
+        assert_eq!(summed(&[], Some("text")), Some(sum));
     }
 
     /// A `Writes` that answers from a script and keeps what it was sent.
@@ -629,7 +348,7 @@ mod tests {
         };
         for (write, issue) in [(edit, Some("21")), (note(), None)] {
             let (mut at, mut no_row, mut asked) = (0, false, vec![]);
-            let mut j = journal(&mut at, &mut no_row, "true", None);
+            let mut j = journal(&mut at, &mut no_row, None);
             let mut w = script(vec![Ok(Receipt::Done)]);
             j.send_on(
                 &mut |a| taken(&mut asked, a),
@@ -651,7 +370,7 @@ mod tests {
     #[test]
     fn a_sent_write_goes_begin_record_attempt_send_settle() {
         let (mut at, mut no_row, mut asked) = (0, false, vec![]);
-        let mut j = journal(&mut at, &mut no_row, "true", Some((7, 2)));
+        let mut j = journal(&mut at, &mut no_row, Some((7, 2)));
         let mut w = script(vec![Ok(Receipt::Done)]);
         let got = j.send(&mut |a| taken(&mut asked, a), &note(), &mut w, &NoBlobs);
         assert_eq!(got, Journaled::Answered(Ok(Receipt::Done)));
@@ -717,7 +436,7 @@ mod tests {
             (Err(Outcome::NotFound), "read-failed"),
         ] {
             let (mut at, mut no_row, mut asked) = (9, false, vec![]);
-            let mut j = journal(&mut at, &mut no_row, "true", None);
+            let mut j = journal(&mut at, &mut no_row, None);
             let mut w = script(vec![answer.clone()]);
             let got = j.send(&mut |a| taken(&mut asked, a), &note(), &mut w, &NoBlobs);
             let settle = asked.iter().find(|a| a[0] == "journal-settle").unwrap();
@@ -749,7 +468,7 @@ mod tests {
             (Found::NotSent, vec!["--abandoned"]),
         ] {
             let (mut at, mut no_row, mut asked) = (9, false, vec![]);
-            let mut j = journal(&mut at, &mut no_row, "true", Some((7, 1)));
+            let mut j = journal(&mut at, &mut no_row, Some((7, 1)));
             let mut w = script(vec![Err(maybe.clone())]);
             let got = j.send(&mut |a| taken(&mut asked, a), &note(), &mut w, &NoBlobs);
             let Journaled::Unknown { row, .. } = got else {
@@ -774,7 +493,7 @@ mod tests {
     fn only_a_row_left_unknown_can_be_settled_again() {
         for answer in [Ok(Receipt::Done), Err(Outcome::Refused(Refusal::Invalid))] {
             let (mut at, mut no_row, mut asked) = (9, false, vec![]);
-            let mut j = journal(&mut at, &mut no_row, "true", None);
+            let mut j = journal(&mut at, &mut no_row, None);
             let mut w = script(vec![answer.clone()]);
             let got = j.send(&mut |a| taken(&mut asked, a), &note(), &mut w, &NoBlobs);
             assert_eq!(got, Journaled::Answered(answer));
@@ -790,7 +509,7 @@ mod tests {
     #[test]
     fn a_write_the_journal_cannot_record_is_not_sent() {
         let (mut at, mut no_row) = (9, false);
-        let mut j = journal(&mut at, &mut no_row, "true", None);
+        let mut j = journal(&mut at, &mut no_row, None);
         let mut w = script(vec![]);
         let got = j.send(
             &mut |_| Err(json!({"failed": true})),
@@ -810,7 +529,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&home);
         read_only::TEST_HOME.with(|t| *t.borrow_mut() = Some(home.clone()));
         let (mut at, mut no_row, mut asked) = (0, false, vec![]);
-        let mut j = journal(&mut at, &mut no_row, "true", None);
+        let mut j = journal(&mut at, &mut no_row, None);
         let mut w = script(vec![]);
         w.read_only = true;
         let got = j.send(&mut |a| taken(&mut asked, a), &note(), &mut w, &NoBlobs);

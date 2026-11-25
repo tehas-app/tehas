@@ -80,9 +80,11 @@ owned read handles and the links, each ticket answered alone.
 The core today is the dispatcher's `decide` and the modules it decides
 from: `decide.rs`, `decide/`, `place.rs`, `snapshot.rs`, `text.rs`,
 `settings.rs`, `questions.rs`, `starts.rs`. `core-effects` holds it at 0:
-no file, network, process, environment or clock. `core-inward` counts 3
-uses of the shell in `decide.rs` (the push fault's hold from
-`read::host`, `call::trim`, `apply::start::change_note`), which T3 moves.
+no file, network, process, environment or clock. `core-inward` holds it at
+0 too: nothing of the shell or of tehas-core's effects. At the fork it
+counted 3 in `decide.rs` (the push fault's hold from `read::host`,
+`call::trim`, `apply::start::change_note`); `trim`, a pure cut of a log
+line, is in tehas-core's `text` now.
 tehas-core is not the core: it holds the forge, the sandbox and the
 process runner. T6 settles where the core ends.
 
