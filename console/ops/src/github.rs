@@ -1654,7 +1654,7 @@ mod tests {
         fs::create_dir_all(&lookup).unwrap();
         fs::write(lookup.join("login"), "acme-old[bot]\n").unwrap();
         let ids = d.join(tehas_core::accounts::FILE);
-        fs::write(&ids, "acme-old 4242\n").unwrap();
+        fs::write(&ids, "acme-old[bot] 4242\n").unwrap();
         // A pair that cannot be written leaves the old login kept: here a
         // directory stands where the new file is written first.
         let tmp = ids.with_extension(format!("tmp{}", std::process::id()));
@@ -1662,7 +1662,7 @@ mod tests {
         let f = fake(&[SLUG]);
         let got = against(&f, || app.login_now(&lookup));
         assert_eq!(got.as_deref(), Some("acme-factory[bot]"));
-        assert_eq!(fs::read_to_string(&ids).unwrap(), "acme-old 4242\n");
+        assert_eq!(fs::read_to_string(&ids).unwrap(), "acme-old[bot] 4242\n");
         assert_eq!(
             fs::read_to_string(lookup.join("login")).unwrap(),
             "acme-old[bot]\n"
@@ -1673,7 +1673,7 @@ mod tests {
         assert_eq!(got.as_deref(), Some("acme-factory[bot]"));
         assert_eq!(
             fs::read_to_string(&ids).unwrap(),
-            "code-host acme-factory 4242\ncode-host acme-old 4242\n"
+            "code-host acme-factory[bot] 4242\ncode-host acme-old[bot] 4242\n"
         );
         assert_eq!(
             fs::read_to_string(lookup.join("login")).unwrap(),

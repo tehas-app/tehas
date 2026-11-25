@@ -1,4 +1,4 @@
-# The public surface of tehas 1.x, one name per line, from 1.0 on: the
+# The public surface of tehas 2.x, from 2.0, one name per line: the
 # commands and subcommands of api/commands.txt and their public flags, the
 # settings and roles of api/settings-rules.json, the labels of
 # host/labels.tsv and the fields of the --json objects of api/*.schema.json,
@@ -6,19 +6,12 @@
 # are the flags api/commands.txt marks internal or the fields under those
 # host/docs/contract.md says may change. A name that was here before its
 # feature became building stays, and a release refuses it while the feature
-# is building. The settings of the review loop went in 2.0, and so did
-# `tehas panel` and its fields; `question.question.asked_at` became
-# `askedAt`.
+# is building.
 #
 # Lines are only added, at the end, in the release that brings the name.
-# None is taken out or changed within 1.x. console/tests/surface.rs fails
-# when the surface loses a name of this file, and when it has one this file
-# does not list yet. The settings of energy use went in 2.0, and so did
-# the Protolab's setting and its status field, TEHAS_WORK_DESCRIBE,
-# TEHAS_WORK_FILES, TEHAS_WORK_ZIPS and TEHAS_WORK_COMMENTS, and so did
-# the label tehas:all-hands and status.allHands, and so did the
-# millwright's grant: TEHAS_MILLWRIGHT_FEED, TEHAS_MILLWRIGHT_MAX_FEEDS and
-# TEHAS_MILLWRIGHT_MAX_RETRIES, and so did the host panel's TEHAS_TOP.
+# None is taken out or changed within 2.x from 2.0.0 on; an alpha of 2.0 may
+# still drop a line. console/tests/surface.rs fails when the surface loses a
+# name of this file, and when it has one this file does not list yet.
 
 command analytics
 command analytics copy

@@ -236,6 +236,7 @@ mod tests {
             Asked {
                 comment: Some(Given::Number(4001.into())),
                 asked_at: String::new(),
+                revision: tehas_ports::Revision::new(crate::text::body_sum(&body)),
                 body,
                 kind: if kind == Kind::Park { "park" } else { "plan" }.into(),
                 issue: "7".into(),

@@ -1,0 +1,1 @@
+| 2026-11-24 | Ports: `TicketDigest.labels`, the site's label names in its order, display only, never a decision input (Decided 130). The fake and the GitHub adapter fill it; the law `tickets::every_label_is_in_labels_in_order` runs on both; the check `digest-labels` and the dispatcher's test keep it out of decisions | v2/ports-digest-labels |

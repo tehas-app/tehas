@@ -50,6 +50,13 @@ pub struct TicketDigest {
     pub priority: Priority,
     /// The marks it carries now.
     pub marks: Vec<Mark>,
+    /// The site's own names of the labels the ticket carries now, every
+    /// one, in the site's order: a name no mark can have among them. For
+    /// display alone, never a decision input: a caller decides on `marks`
+    /// (Decided 130). Empty where the read gave none. Missing, it reads as
+    /// empty.
+    #[serde(default)]
+    pub labels: Vec<String>,
     /// The target, with its title as the site names it now.
     pub target: Option<TargetName>,
     /// Who filed it; None where the site names nobody.
@@ -85,6 +92,7 @@ new!(
     kind,
     priority,
     marks,
+    labels,
     target,
     author,
     parent

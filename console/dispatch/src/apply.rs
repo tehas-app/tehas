@@ -194,6 +194,8 @@ struct Reask<'a> {
     kind: &'a str,
     old: &'a str,
     old_body: &'a str,
+    /// The old comment's revision as decide read it.
+    since: &'a str,
     body: Option<&'a str>,
     offers: &'a str,
     unlabel: Option<&'a str>,
@@ -327,6 +329,7 @@ impl Writer {
                 kind: text(a, "kind"),
                 old: text(a, "old"),
                 old_body: text(a, "old_body"),
+                since: text(a, "since"),
                 body: a.get("body").and_then(Value::as_str),
                 offers: text(a, "offers"),
                 unlabel: a.get("unlabel").and_then(Value::as_str),
@@ -507,8 +510,9 @@ impl Writer {
             cycle: None,
         };
         let calls = &mut self.calls;
-        let sent = journal.send(
+        let sent = journal.send_on(
             &mut |a: &[&str]| calls.store(a),
+            Some(n),
             write,
             &mut *ports.writes,
             &NoBlobs,
@@ -589,6 +593,7 @@ impl Writer {
             log.push(format!("WARN: comment on #{n} failed"));
             return false;
         };
+        let markers_empty = markers.is_empty();
         let note = Write::TicketNote {
             ticket,
             body: Body::Text(body.to_string()),
@@ -599,11 +604,11 @@ impl Writer {
             .chain(["--body-file", "-"])
             .map(str::to_string)
             .collect();
-        // A text that still holds our marker inside it goes as 1.x wrote
-        // it, through gh, until its site gives the marker typed beside the
-        // text (the finish's at T4.7's step 5): a write of the ports
-        // refuses it.
-        let wrote = if tehas_core::text::has_marker(body) {
+        // A text that holds our marker inside it, with none typed beside
+        // it, goes as 1.x wrote it, through gh: a write of the ports refuses
+        // it. One given its markers typed never goes through gh: the port
+        // refuses a marker in its text, and no gh call writes it there.
+        let wrote = if markers_empty && tehas_core::text::has_marker(body) {
             self.write(n, "comment-post", args, Some(body), None)
         } else {
             match self.looked_1x(n, "comment-post", &args, Some(body)) {
@@ -764,10 +769,17 @@ impl Writer {
         } else {
             Write::Unmark { ticket, mark }
         };
-        match self.send(n, &write) {
+        let wrote = self.send(n, &write);
+        Self::label_landed(n, wrote, fail, log)
+    }
+
+    /// Whether a part of a label change went: true when done, else false with
+    /// its line said, after `fail` when it failed.
+    fn label_landed(n: u64, wrote: Wrote, fail: &str, log: &mut Vec<String>) -> bool {
+        match wrote {
             Wrote::Done(_) => true,
             Wrote::Failed(why) => {
-                log.push(format!("{}{why}", fail));
+                log.push(format!("{fail}{why}"));
                 false
             }
             Wrote::Unknown(why) => {
@@ -894,7 +906,7 @@ impl Writer {
         }
         // A stop closed with nothing to ask no longer waits on a question.
         if let Some(label) = r.unlabel {
-            if !self.edit_labels(n, &[("--remove-label", label)]) {
+            if !self.edit_labels(n, &[("--remove-label", label)], log) {
                 log.push(format!(
                     "WARN: the question's label could not be taken off #{n}"
                 ));
@@ -902,22 +914,9 @@ impl Writer {
         }
         let line = tehas_core::question::superseded(new);
         if !r.old_body.trim_end().ends_with(&line) {
-            let edited = format!("{}\n\n{line}", r.old_body.trim_end());
-            let args = vec![
-                "api".into(),
-                "-X".into(),
-                "PATCH".into(),
-                self.issues_path(&format!("comments/{}", r.old)),
-                "--input".into(),
-                "-".into(),
-            ];
-            let input = json!({"body": edited}).to_string();
-            if !matches!(
-                self.write(n, "comment-edit", args, Some(&input), None),
-                Wrote::Done(_)
-            ) {
+            if let Err(why) = self.supersede(n, r, &line) {
                 log.push(format!(
-                    "WARN: the old question of #{n} could not be told it is superseded"
+                    "WARN: the old question of #{n} could not be told it is superseded{why}"
                 ));
             }
         }
@@ -925,6 +924,50 @@ impl Writer {
             "asked #{n}'s question again in the words of 2.0 (comment {} superseded)",
             r.old
         ));
+    }
+
+    /// The old question of a re-ask told it is superseded: `line` added
+    /// below its text, an edit of the comment at the revision decide read
+    /// (`Write::EditComment`), its markers kept. A comment changed since is
+    /// a conflict and is not edited. The 1.x row of the same edit, written
+    /// before T4.7, still gates it (`looked_1x`), so an edit in flight at
+    /// the upgrade is never sent twice. Why it was not made, as ": " and
+    /// a line in tehas's words.
+    fn supersede(&mut self, n: u64, r: &Reask, line: &str) -> Result<(), String> {
+        let edited = format!("{}\n\n{line}", r.old_body.trim_end());
+        let args = vec![
+            "api".into(),
+            "-X".into(),
+            "PATCH".into(),
+            self.issues_path(&format!("comments/{}", r.old)),
+            "--input".into(),
+            "-".into(),
+        ];
+        let input = json!({"body": edited}).to_string();
+        let wrote = match self.looked_1x(n, "comment-edit", &args, Some(&input)) {
+            Some(wrote) => wrote,
+            None => {
+                // A text that is not a question of before 2.0 ending in its
+                // marker is not edited: it may hold a marker of ours.
+                let Some(text) = tehas_core::question::q_text(r.old_body, n) else {
+                    return Err(": its text does not end with its question's marker".into());
+                };
+                let edit = Write::EditComment {
+                    id: tehas_ports::CommentId::new(r.old),
+                    body: Body::Text(format!("{text}\n\n{line}")),
+                    markers: tehas_ports::MarkerEdit::default(),
+                    since: tehas_ports::Revision::new(r.since),
+                };
+                self.send(n, &edit)
+            }
+        };
+        match wrote {
+            Wrote::Done(_) => Ok(()),
+            Wrote::Failed(why) | Wrote::Unknown(why) => Err(why),
+            Wrote::Unrecorded => {
+                Err(": the journal could not record it, so it was not made".into())
+            }
+        }
     }
 
     /// refresh_unmark: tehas:refreshing off a pull request; one already
