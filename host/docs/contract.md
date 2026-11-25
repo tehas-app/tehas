@@ -1096,6 +1096,37 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Readers: adopters (the GitHub budget), people on an issue, the
   end-to-end suite.
   Adopter action: none.
+- **The plan written onto its issue keeps the issue's markers.** #3223.
+  A planning or refine session that writes the plan onto its issue, and
+  the "Replaces #n" line on a filed issue, replace the issue's text and
+  leave tehas's markers in it where they stand. 1.x replaced the whole
+  body, so a restraint marker on the issue was lost with the old text.
+  Readers: people on an issue, the end-to-end suite.
+  Adopter action: none.
+- **A sub-issue of another issue is not moved.** #3202, #3220.
+  A refine links its new issue as a part of the original after one read
+  of the new issue's parent. A part already under that parent is done
+  with nothing sent. A part of another issue, in this repository or in
+  another, is never moved: the link fails before any write and the poll
+  says so in `logs/dispatch.log`.
+  Readers: adopters, people on an issue.
+  Adopter action: none.
+- **A bot listed in `TEHAS_ALLOWED_LABELERS` no longer counts.** #3204.
+  `state/account-ids` keys a GitHub App's bot by its whole login,
+  `<slug>[bot]`, and a person or an organisation by its login. The list
+  takes logins only, so a bare name there is a person's or an
+  organisation's, and the label events of a bot app of that name do not
+  count for it, where 1.x folded the bot onto the bare name. The only bot
+  that counts is the millwright (the factory's own app, or the one
+  `TEHAS_MILLWRIGHT_APP` names). A file that keeps a known bot under a
+  bare name alone is not read: the dispatcher exits 78 naming
+  `console ids record`, which `tehas update` runs.
+  Readers: adopters, the consumer that runs many factories, the end-to-end
+  suite.
+  Adopter action: a factory that relied on a bot listed bare to approve
+  makes it the millwright or takes it off the list. If `tehas update`
+  stops because a bare pair holds another id and that pair was the bot,
+  run `tehas update --accept-id <slug>[bot]`.
 - **tehas's own `gh` writes are sent once.** #2946.
   A rate-limited write that tehas's programs send themselves, the poll's,
   those of `tehasbot status` and the tidy, the console's commands, and the
