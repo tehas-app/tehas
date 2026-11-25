@@ -1,87 +1,139 @@
 # Plugin specification: a view's network
 
-**Status**: DRAFT, 2026-11-25, split out of the plugin specification
-2.0.0 (`2026-11-25-plugins-2.0.0-operator.md`) at its revision 7. It waits
-for the browser spike (H8, that spec's part 9). Nothing here is built, and
-nothing here is part of 2.1. Until this spec lands, every view's frame is
-`connect-src 'none'`.
+**Status**: DRAFT, 2026-11-25. Split out of the plugin specification
+2.0.0 (`2026-11-25-plugins-2.0.0-operator.md`, "the operator spec") at its
+revision 7 (decision 65). It waits for the browser spike (H8, the operator
+spec's part 9). Nothing here is built, and nothing here is part of 2.1.
+Until this spec lands, every view's frame is `connect-src 'none'` and no
+view has `net:`.
 
-## 1. A view's network
+**Normative**: tehas-standard v3, `v3/plugins.md` at main 4525c40: a
+view's network only through the host, over its port, with `connect-src
+'none'` always (§14); `parent`, with reach apart from authority (§6);
+destination patterns, which a host may leave out until it has `net:`
+(§6). Where the two differ, the standard holds and this spec is fixed.
 
-### 6.4 A view's network: normal HTTPS, always through the host's proxy
+**Why it's apart.** Three reviews of revision 6 found that its view proxy
+couldn't work as written: an opaque-origin frame can't read a
+cross-origin answer without a CORS answer, a load token can't be bound to
+a session when no cookie travels, and `Sec-Fetch-*` headers describe a
+request, not a frame. The owner chose to carry a view's requests over
+the port instead (decision 68), and to build none of it in 2.1.
+
+## 1. Requests over the port
 
 The owner: "can we limit client side https access to be via the proxy
 too? via the web component or some other encapsulation", then "requests
 should be normal https, but be proxied" (decision 60).
 
-**Built only after H8's browser spike** (part 9) shows the frame, the CSP
-and the proxy work as written. Until then 6.4 is specified and floats.
-
-- **Normal HTTPS, to the proxy only.** The browser makes real HTTPS
-  requests, but only to the host's proxy:
-  `https://<dashboard>/_proxy/<load-token>/<origin-id>/<path>`. The frame's
-  CSP sets `connect-src`, and `img-src`, `media-src` and `font-src` beyond
-  the per-load file path, to exactly that prefix and nothing else, with
-  `base-uri 'none'`. The browser blocks any other destination.
-- **The kit's `fetch` shim.** Authors write
-  `fetch("https://api.example.com/x")`. The shim maps the URL to an origin
-  id through the plugin's destinations, and a same-origin or relative URL
-  to `parent` (5.1), rewrites it to the proxy path, and calls the
-  browser's own `fetch`. An unmapped URL throws a named error. Code that
-  goes around the shim meets the CSP. There's no `XMLHttpRequest` or
-  WebSocket shim in 2.x, and the CSP blocks both.
-- **What a view holds can leave.** The CSP stops requests, not every
-  channel: a frame can still navigate itself, use a meta refresh or a
-  link, or try WebRTC, STUN or DNS prefetch. So anything a view holds may
-  leave the browser. Hence:
+- **The frame never connects anywhere.** Its CSP keeps `connect-src
+  'none'`, and `img-src`, `media-src` and `font-src` stay at the per-load
+  file path. There's no proxy address in the frame's policy, no load
+  token and no CORS answer.
+- **Authors still write `fetch("https://...")`.** The kit's `fetch` shim
+  maps the URL to an origin id through the plugin's destinations, and a
+  relative URL to `parent` (3). An unmapped URL throws a named error. The
+  shim sends the request over the load's `MessagePort` as a typed
+  `request` message (its origin id, method, path, query, allowed headers
+  and body), and turns the host's `response` messages back into a
+  `Response`. Code that goes around the shim meets `connect-src 'none'`.
+  There's no `XMLHttpRequest` or WebSocket shim.
+- **The host element makes the request.** `<tehas-plugin-view>` is core's
+  code in the dashboard's own origin. It sends each request to the
+  dashboard's request gate endpoint with the dashboard's own session and
+  its CSRF token, as any dashboard request. The gate checks the session's
+  current standing and the plugin's grants, then relays the request to
+  the view egress process (4), which runs the request gate of the
+  operator spec's 5.1 and makes it.
+- **What comes back.** The answer's status, the answer headers the
+  allow-list keeps, and the body, streamed back over the port in chunks
+  under the operator spec's 10.2 caps. No `Set-Cookie`, `WWW-Authenticate`
+  or `Location` reaches the frame, and a redirect is followed on the
+  server side within the routes, or refused.
+- **No cookie and no `Authorization` from the view.** The view can't name
+  a header outside the allow-list. The dashboard's own cookie is
+  `SameSite=Strict`, its state changes need the CSRF token and never use
+  `GET`, and its `frame-ancestors` names only the hosting apps.
+- **What a view holds can leave.** `connect-src 'none'` stops requests,
+  not every channel: a frame can still navigate itself, use a meta
+  refresh or a link, or try WebRTC, STUN or DNS prefetch. Hence:
   - the sandbox has no `allow-top-navigation`, `allow-popups` or
-    `allow-forms` (H8);
+    `allow-forms`;
   - the host element destroys the frame on its second `load` event, so a
     navigation away ends the view;
-  - a view credential (`github-read`, below) is granted only to our own
-    signed plugins, never to a third-party view.
-- **The load token.**
-  - It's minted for each load of the frame, scoped to the instance, the
-    plugin, that load and its allowed origins.
-  - It lives 5 minutes. The host element renews it with a heartbeat over
-    the dashboard's own session.
-  - It's bound to that session's id, and the proxy checks
-    `Sec-Fetch-Site`, `Sec-Fetch-Mode` and `Sec-Fetch-Dest` on each
-    request.
-  - It's revoked on reload, or when the load's port is revoked (6.3), and
-    it's never in a cookie. The frame sends `Referrer-Policy:
-    no-referrer`, and its opaque origin means no cookie travels.
-  - No `Access-Control-Allow-Origin` answer helps another origin. None is
-    needed, since the frame is the only client.
-- **No cookies, no CSRF.** The proxy refuses any request that carries a
-  cookie. The dashboard's cookies are `SameSite=Strict`, its state changes
-  need a CSRF token and never use `GET`, and its `frame-ancestors` names
-  only the hosting apps.
-- **The proxy calls the request gate** (5.1), on the plugin's one list of
-  destinations. The proxy adds: no `Cookie` or `Authorization` from the
-  view and no `Set-Cookie` back; never a 3xx or a `Location` to the frame,
-  so a redirect is followed on the server side within the routes, or
-  refused; records that never keep the path's load-token segment; and the
-  view's budgets (below).
-
-  The plugin gate relays the request over its socket to the view egress
-  process, `tehas-vx-<instance>` (10.5), which runs the request gate and
-  forwards through the upstream when one is set, and directly otherwise.
-  The plugin gate never connects out, the adapter host never carries a
-  view's request, and the operator has no network.
-- **Budgets per plugin and person-session,** not per load, in a rate pool
-  apart from the core's, so a view that reloads can't drain the
-  installation's limit.
-- **No credentials for a view,** with one exception below. A view reaches
-  only origins whose `credential` is false. Attaching any other credential
-  for a view is out of 2.x without a new decision.
-- **Answers are streamed,** with the answer-header allow-list and the caps
-  enforced while streaming.
+  - a view credential (5) is granted only to our own signed plugins, never
+    to a third-party view;
+  - the spike tests WebRTC and DNS prefetch under the frame's policy, and
+    this spec lists what each browser lets through.
+- **Budgets per plugin and person-session,** in a rate pool apart from the
+  core's, so a view that reloads can't drain the installation's limit.
 - **The grant is `net:`.** This re-scopes tehas-factory#2761 to this
-  design. It's specified now and built when a plugin needs it: it floats.
-  The GitHub adapter doesn't depend on it.
+  design. It floats: it's built when a plugin needs it.
 
-#### GitHub GraphQL reads from a view
+## 2. Destinations for `net:`: patterns and the Public Suffix List
+
+The operator spec's 5.1 allows exact origins only in 2.1. With `net:`:
+
+- **Patterns only in host configuration,** in
+  `TEHAS_PLUGIN_ORIGINS_<NAME>`. The one form is a leftmost `*.` label, as
+  in `https://*.example.com`. Never a bare `*`, never a pattern in the
+  scheme or the port, and never one whose rest is a public suffix
+  (`https://*.com` and `https://*.co.uk` are refused).
+  - Public suffixes are read from a copy of the Public Suffix List pinned
+    in the release by its upstream commit and sha256, both sections, ICANN
+    and private. It changes only by a pull request that moves the pin.
+  - The settings load checks the value's form and stops with 78 on a bad
+    one (hard rule 3: it reads no list and makes no call). The programs
+    check patterns against the pinned list before any request, and stop
+    with 78 on a public-suffix pattern.
+- **Matching** is on the IDNA-normalised host, compared whole, and a
+  pattern matches exactly one or more labels to the left of its rest. The
+  address checks of the operator spec's 10.3 still run on every
+  connection.
+- **Widening.** For an ordinary plugin under `net:` and an annex plant,
+  the person may add origins beyond the vetted ones, as their recorded
+  choice, shown in `tehas status`. An added origin takes only `GET` and
+  `HEAD` with no body, and never a credential.
+- **One list for both sides.** A plugin's destinations govern its
+  driver's requests under `net:` and its view's alike, and narrowing
+  closes an origin for both.
+
+## 3. The parent
+
+The owner: "the hosting parent should always be allowed (e.g. calling
+internal apis from the obeya/industry/factory or other annexes)"
+(decision 63).
+
+- The reserved origin id `parent` is the app the plugin runs in: the
+  factory's dashboard, a managing system, Obeya or an annex. It needs no
+  manifest entry, a manifest may not declare it, and the host's
+  configuration can't narrow it away.
+- **Reach is not authority** (the standard's §6). `parent` is always
+  reachable, but each route the hosting app publishes for plugins names
+  the grant it needs, and a route not on the list is refused. A request
+  runs at the lesser of the person's standing and the plugin's grants.
+- **No writes by request in 2.x.** A view writes to the parent only
+  through a persisted `action` with the person's confirm (the operator
+  spec's 6.3). A `parent` request by `fetch` is a read.
+- The plugin gate serves `parent` from a canonicalised route list: a path
+  is decoded exactly once, and `..`, `%2e`, `%2f` and `%5c` are refused
+  before matching. It never goes through an egress host. An adapter's
+  `http.request` to `parent` is refused.
+- On the server side, a driver reaches the parent through the core's
+  sockets (its host functions and surfaces), never by network.
+
+## 4. The view egress user
+
+- A view's requests leave through a process of their own, run as
+  `tehas-vx-<id>` (named as the operator spec's 10.5 says), never through
+  the adapter host. It holds no write token and no adapter credential. Its
+  own client certificate is scoped by the upstream to the classes `none`
+  and `github-read`. It runs the same request gate, with the operator
+  spec's 5.3 fences.
+- The plugin gate only relays to its socket, and never connects out
+  itself.
+
+## 5. GitHub GraphQL reads from a view
 
 The owner: "the client might want to do some direct graphql requests to
 github and that should be fine" (decision 61). This is the one exception
@@ -89,134 +141,93 @@ to "no credentials for a view", and only for our own signed plugins.
 
 - **The view credential.** The vetted entry marks `api.github.com` with
   `view_credential: "github-read"`. No other origin may carry a view
-  credential in 2.x. The proxy attaches the factory's installation token,
-  minted read-only (`contents`, `issues`, `pull_requests` and `metadata`
-  read) and narrowed to the instance's one repository, so GitHub itself
-  lets only that repository, and public data, be read. The token never
-  reaches the browser, and no record keeps it.
+  credential in 2.x. The view egress process attaches the factory's
+  installation token, minted read-only (`contents`, `issues`,
+  `pull_requests` and `metadata` read) and narrowed to the instance's one
+  repository. The token never reaches the browser, and no record keeps it.
   - On the direct path, `github-read` needs core's narrowed mint
-    (tehas-factory#3338): the mint's test is a precondition of building it.
-  - On the upstream path, free-form view GraphQL is refused until the
-    upstream's own spec pins a read-only, one-repository credential for
-    the class `github-read`.
+    (tehas-factory#3338).
+  - On the upstream path, `github-read` is a class the upstream must
+    define in a later protocol version; until then free-form view GraphQL
+    is refused there.
 - **Free-form reads only, through one gate.** A view may send its own
-  GraphQL to `https://api.github.com/graphql` through the shim, by `POST`
-  only. The proxy parses each document and requires exactly one operation,
-  of type `query`. Mutations, subscriptions, batches and `GET` are refused.
-  - It re-serialises the document canonically, and costs and sends that
-    same text.
-  - A client's own `rateLimit` field, and aliases that collide, are
-    refused.
-  - Limits: depth 10, 5,000 nodes, a cost of 500 for each request, and a
-    budget for each person-session. The proxy first asks GitHub for the
-    canonical query's cost with `rateLimit(dryRun: true) { cost }`, and
-    refuses one over the cap without running it.
+  GraphQL to `https://api.github.com/graphql`, by `POST` only. The gate
+  parses each document and requires exactly one operation, of type
+  `query`. Mutations, subscriptions, batches and `GET` are refused. It
+  re-serialises the document canonically and sends that text. A client's
+  own `rateLimit` field, and aliases that collide, are refused. Limits:
+  depth 10, 5,000 nodes, a cost of 500 for each request by a
+  `rateLimit(dryRun: true)` check first, and a budget for each
+  person-session.
 - **REST under this credential** is limited to `GET` on the routes the
-  vetted entry lists for views, each with its allowed query keys (10.10).
-- **A view writes nothing to GitHub in 2.1.** A view's writes are only
-  6.3's persisted actions, each carried out by a fixed call of the
-  console's closed list (10.5). In 2.1 that list holds no write to GitHub
-  for a view, and adding one is a change to this spec.
+  vetted entry lists for views, each with its allowed query keys.
+- **A view writes nothing to GitHub in 2.x** except through the persisted
+  actions of the operator spec's 6.3.
 
-#### Laws
+## 6. WebAssembly workers
 
-- a direct fetch from the frame is blocked;
-- an unmapped URL is refused;
-- an origin that takes the credential is refused, `api.github.com`'s
-  view credential for our own signed plugins aside;
-- a third-party view never gets `github-read`;
+An opaque-origin frame can't start a module worker from the gate's URL
+the way revision 6 said; only a `blob:` worker starts, and it inherits the
+frame's CSP (R2 H1). The spike decides the worker's box. Until then a
+worker runs under the frame's own CSP, `connect-src 'none'` included, and
+gets a module's bytes by `postMessage`.
+
+## 7. Laws
+
+- a direct fetch from the frame is blocked by `connect-src 'none'`;
+- an unmapped URL is refused by the shim;
+- a request with no dashboard session, or without its CSRF token, is
+  refused by the gate, and so is one after the person signs out or loses
+  standing;
+- a sibling load's port can't send a request for another load;
+- an origin that takes a credential is refused, `github-read` for our own
+  signed plugins aside, and a third-party view never gets it;
 - a private address is refused;
-- an expired load token, another load's, and one replayed from another
-  session or with the wrong `Sec-Fetch-*` values are refused;
-- a request that carries a cookie is refused;
 - a `Set-Cookie`, a 3xx or a `Location` never reaches the frame;
 - the frame is destroyed on its second `load`;
-- a load token in a record is redacted;
-- a free-form mutation from a view, a batch and a `GET` to `/graphql` are
-  refused;
+- a free-form mutation, a batch and a `GET` to `/graphql` are refused;
 - a client `rateLimit` field and colliding aliases are refused;
-- a query over the cost, depth or node limit is refused, and the text
-  costed is the text sent;
-- reading another private repository fails, because GitHub refuses it
-  under the narrowed token;
+- a query over the cost, depth or node limit is refused;
+- the mint for `github-read` names exactly the one repository and the
+  read permissions (a law of the mint, not of GitHub);
 - the token never appears in the frame or in a record;
-- a view that reloads draws on the same person-session budget.
+- a view that reloads draws on the same person-session budget;
+- a pattern in a manifest is refused; `*` and `https://*.com` in the
+  setting are refused; a widened origin shows in `tehas status` with no
+  credential;
+- an unexposed parent route, a route whose grant the plugin lacks, and a
+  path with `..`, `%2e`, `%2f` or `%5c` are refused; a `parent` write by
+  request is refused;
+- a view's request never reaches the adapter host or takes the class
+  `adapter`.
 
+## 8. Threats
 
-## 2. Destinations for `net:`: globs and the Public Suffix List
+| Threat | Rule (section) | Law or test | Evidence |
+| --- | --- | --- | --- |
+| A view sends data out directly | `connect-src 'none'`, requests over the port (1) | 7's direct-fetch law | proposed |
+| A view uses the dashboard's session beyond its grants | The host element makes requests; the gate checks standing and grants (1, 3) | 7's session and grant laws | proposed |
+| A sibling frame speaks for another load | Requests only on the load's own port (1) | 7's sibling law | proposed |
+| A view leaks what it holds by navigation, a link, WebRTC or DNS prefetch | No top navigation, popups or forms; the frame destroyed on its second load; view credentials for our own plugins only (1) | 7's laws; the spike's WebRTC and DNS prefetch test | proposed |
+| A CSRF-style request rides the person's cookies | The frame has no cookie; the gate needs the CSRF token; `SameSite=Strict` (1) | 7's CSRF law | proposed |
+| The plugin gate's relay is used as a deputy | It relays only to the view egress process, which holds no write token or adapter credential (4) | 7's adapter-host law | proposed |
+| The plugin gate reaches the network | It only relays (4) | **OPEN**: a test that its unit can't connect out | proposed |
+| A view reaches an intranet or metadata address | The request gate's address checks (1) | 7's private-address law | proposed |
+| A token lands in the frame or a record | The token stays in the egress process (5) | 7's token law | proposed |
+| A view writes to GitHub free-form | Reads only, one `query` (5) | 7's GraphQL laws | proposed |
+| A view's query exhausts the rate limit | Depth, nodes, cost by dry run, a budget (5) | 7's cost law | proposed |
+| A plugin calls a parent route it has no grant for | Each route names its grant; the lesser of standing and grants (3) | 7's parent laws | proposed |
+| A write to the parent as the person | No writes by request; actions with a confirm only (3) | 7's parent-write law | proposed |
+| An annex parent's API is abused | The annex's own route list and grants (3) | **OPEN**: a law run against each annex's published list | proposed |
+| A view reads another private repository | The token narrowed to one repository (5) | 7's mint law | proposed |
+| A pattern opens a public suffix | Patterns only in host configuration, checked against the pinned list (2) | 7's pattern laws | proposed |
 
-- **Globs only in host configuration.** The one form is a leftmost `*.`
-  label, as in `https://*.example.com`. Never a bare `*`, never a glob in
-  the scheme or the port, and never a glob whose rest is a public suffix
-  (`https://*.com` and `https://*.co.uk` are refused).
-  - Public suffixes are read from a copy of the Public Suffix List pinned in
-    the release by its upstream commit and sha256, both sections, ICANN
-    and private. It changes only by a pull request that moves the pin.
-  - The settings load checks the value's form and stops with 78 on a bad
-    one (hard rule 3: it reads no list and makes no call). The programs
-    check globs against the pinned list before any request, and stop with
-    78 on a public-suffix glob.
-- **Matching** is on the IDNA-normalised host, compared whole, and a glob
-  matches exactly one or more labels to the left of its rest. The address
-  checks of 10.3 still run on every connection.
+## 9. For the spike to settle
 
-## 3. The parent
-
-- **The parent is always allowed** (decision 63: "the hosting parent
-  should always be allowed"). The reserved origin id `parent` is the app
-  the plugin runs in: the factory's dashboard, a managing system, Obeya or
-  an annex.
-  - It needs no manifest entry, and the person's host configuration can't
-    narrow it away. A manifest may not declare an origin named `parent`.
-  - The parent decides what's exposed. Each hosting app publishes its
-    plugin-facing route list: for the factory, the factory API's read
-    routes and the surfaces; for any other, the hosting app's
-    plugin-facing routes. A route not on the list is refused. "Always
-    allowed" is the destination, not every endpoint.
-  - On the client side, the kit's `fetch` shim maps a same-origin or
-    relative URL (`fetch("/api/...")`) to `parent`, through the same proxy
-    and the same request gate (6.4).
-  - On the server side, a driver or an adapter reaches the parent through
-    the core's sockets (its host functions and surfaces), never by
-    network. That's the same `parent` destination.
-  - The plugin gate serves `parent`, from a canonicalised route list: a
-    path is decoded exactly once, and `..`, `%2e`, `%2f` and `%5c` are
-    refused before matching. It never goes through the adapter host or the
-    view egress process. An adapter's `http.request` to `parent` is
-    refused.
-  - The person's session cookie never travels. The gate authorises a read
-    on an exposed route as the signed-in person's standing, with no cookie
-    forwarded. A write needs a single-use confirm token that the host
-    element mints after its confirm (6.3), bound to the method, the route
-    and the body's hash.
-  - View and `parent` traffic has its own load scope. 10.3's "no port call
-    in flight" rule binds an adapter's requests only.
-
-## 4. The view egress user
-
-- **Views leave through an egress user of their own.** A view's proxied
-  requests (6.4) are relayed to a separate egress process run as
-  `tehas-vx-<instance>`, never to the adapter host. It holds no write
-  token and no adapter upstream key. Its own client certificate is scoped
-  by the upstream to the classes `none` and `github-read`. It runs the same
-  request gate (5.1), with 5.3's fences.
-
-## 5. Threats
-
-| Threat | Rule (section) | Law or test |
-| --- | --- | --- |
-| A view sends data out directly | The frame's CSP holds it to the proxy prefix (6.4) | 6.4's law: a direct fetch from the frame is blocked |
-| A load token is stolen or replayed from elsewhere | Scope, 5 minutes, bound to the session, `Sec-Fetch-*`, `no-referrer`, revocation (6.4) | 6.4's law: an expired, other-load, other-session or wrong `Sec-Fetch-*` token is refused |
-| A view leaks what it holds by navigation, a link, WebRTC or DNS prefetch | No top navigation, popups or forms; the frame destroyed on its second load; view credentials for our own plugins only (6.4) | 6.4's laws: the second load destroys the frame; a third-party view never gets `github-read`; **OPEN**: a browser test of WebRTC and DNS prefetch under H8's spike |
-| A CSRF-style request rides the person's cookies | The proxy refuses cookies; `SameSite=Strict`, a CSRF token, no `GET` for state changes, `frame-ancestors` (6.4) | 6.4's law: a request with a cookie is refused; **OPEN**: a test of the dashboard's cookie and CSRF rules |
-| The plugin gate's relay is used as a deputy | It relays only to the view egress process, which holds no write token or adapter key, with a certificate scoped to `none` and `github-read` (6.4, 10.5) | **OPEN**: a law that a view's request can't reach the adapter host or take the class `adapter` |
-| The plugin gate is used to reach the network | The egress hosts; the gate only relays (5.1, 6.4) | **OPEN**: a test that the plugin gate's unit can't connect out |
-| A view reaches an intranet or metadata address | The proxy's address checks (6.4, 10.3) | 6.4's law: a private address is refused |
-| A view uses the person's session | The opaque origin, no cookies, no credentials (6.4) | 6.4's laws: a credential origin is refused, and `Set-Cookie` never reaches the frame |
-| A token lands in a log | Records never keep the load-token segment or the view credential (6.4) | 6.4's laws: a load token in a record is redacted; the token never appears in the frame or a record |
-| A view writes to GitHub free-form | Reads only, one `query`; writes only through persisted actions with a confirm (6.4) | 6.4's laws: a free-form mutation is refused; a persisted write without a confirm is refused |
-| A view's query exhausts the rate limit | Depth limit, cost cap by dry run, budget per load (6.4) | 6.4's law: a query over the cost cap is refused |
-| A plugin calls a parent route that isn't exposed | The parent's plugin-facing route list (5.1) | 5.1's law: an unexposed parent route is refused |
-| A CSRF-style write to the parent as the person | No session cookie; writes only after a host-drawn confirm (5.1, 6.3) | 5.1's laws: a parent write without a confirm is refused; a cookie never travels to the parent |
-| An annex parent's API is abused | The annex's own plugin-facing route list and rules (5.1) | **OPEN**: a law run against each annex's published list |
-| A view reads another private repository | The token read-only and narrowed to one repository (6.4) | 6.4's law: GitHub refuses the read under the narrowed token |
+- that a request over the port and its streamed answer work in Chromium,
+  Firefox and Safari, with the frame at `connect-src 'none'`;
+- what a `blob:` worker inherits, and whether a worker can have a policy
+  of its own;
+- which leaks (WebRTC, STUN, DNS prefetch) each browser allows from the
+  frame;
+- whether a browser delegates a device to an opaque-origin frame (H10).
