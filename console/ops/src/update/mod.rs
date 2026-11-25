@@ -546,7 +546,7 @@ fn leftover(host: &Host, plan: &mut Plan) -> u8 {
 
 /// Under the lock: what the run does next, with the plan written to `file`, or
 /// the status it ends with.
-fn prepare(file: &Path, asked: &Asked) -> Result<Prepared, u8> {
+fn prepare(file: &Path, asked: &Asked, site: release::Releases) -> Result<Prepared, u8> {
     let host = host_or_refuse()?;
     let mut plan = Plan {
         mode: asked.mode,
@@ -561,7 +561,7 @@ fn prepare(file: &Path, asked: &Asked) -> Result<Prepared, u8> {
         ok(if plan.from == "git" {
             checkout::pull(&host, &mut plan)
         } else {
-            release::go(&host, asked.to.as_deref(), &mut plan)
+            release::go(site, &host, asked.to.as_deref(), &mut plan)
         })?;
     }
     if plan.over {
@@ -580,15 +580,16 @@ fn prepare(file: &Path, asked: &Asked) -> Result<Prepared, u8> {
     Ok(Prepared::Planned(plan.undo.take()))
 }
 
-pub fn main(given: &[String]) -> u8 {
+/// `site` makes the code host handle on tehas's release project.
+pub fn main(given: &[String], site: release::Releases) -> u8 {
     match given.split_first() {
-        Some((verb, rest)) if verb == "run" => run::main(rest),
+        Some((verb, rest)) if verb == "run" => run::main(rest, site),
         Some((verb, [])) if verb == "api" => {
             say(&API.to_string());
             0
         }
         Some((verb, rest)) if verb == "finish" => finish::main(rest),
-        Some((verb, rest)) if verb == "release" => release::verb(rest),
+        Some((verb, rest)) if verb == "release" => release::verb(rest, site),
         Some((verb, rest)) if verb == "files" => files::verb(rest),
         Some((verb, rest)) if verb == "findings" => findings::verb(rest),
         Some((verb, rest)) if verb == "keeps" => host::keeps_verb(rest),

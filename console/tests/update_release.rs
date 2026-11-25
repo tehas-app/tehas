@@ -216,7 +216,7 @@ fn check_names_the_installed_and_the_newest_version_and_the_notes_between_and_ch
     lacks(&r.out, "== v1.0.0");
     has(&r.out, "release: would switch to v1.2.0");
     assert_eq!(current(&h), "versions/v1.0.0");
-    lacks(&h.calls("gh"), "release download");
+    assert_eq!(downloads(&h), Vec::<String>::new());
     assert_eq!(h.calls("install"), "install v1.0.0 --check");
     assert_eq!(versions(&h), "v1.0.0");
 }
@@ -245,9 +245,10 @@ fn an_update_downloads_the_newest_checks_it_switches_current_and_installs_from_i
         "v1.2.0\n"
     );
     assert_eq!(h.calls("install"), "install v1.2.0 ");
-    has(
-        &h.calls("gh"),
-        "release download v1.2.0 --repo tehas-app/tehas-factory",
+    assert!(
+        downloaded(&h, "tehas-app/tehas-factory", "v1.2.0"),
+        "{:?}",
+        downloads(&h)
     );
     has(
         &h.calls("docker"),
@@ -270,9 +271,9 @@ fn the_same_version_again_downloads_nothing_and_installs_from_current() {
     assert_eq!(r.rc, 0, "{}", r.out);
     has(&r.out, "release: v1.2.0 is the version installed");
     assert_eq!(
-        h.calls("gh")
-            .lines()
-            .filter(|l| l.contains("release download"))
+        downloads(&h)
+            .iter()
+            .filter(|d| d.ends_with(".tar.gz"))
             .count(),
         1
     );
@@ -436,7 +437,7 @@ fn to_goes_back_to_a_version_on_disk_without_a_download_and_reuses_its_image() {
     );
     has(&r.out, "sandbox: the image v1.0.0 ran with is in use again");
     assert_eq!(current(&h), "versions/v1.0.0");
-    lacks(&h.calls("gh"), "release download");
+    assert_eq!(downloads(&h), Vec::<String>::new());
     has(
         &h.calls("docker"),
         &format!(
@@ -674,7 +675,7 @@ fn tehas_release_repo_in_the_instance_names_where_releases_come_from() {
     instance_rel(&mut h, &["TEHAS_RELEASE_REPO=someone/fork"]);
     host_at(&h, "v1.0.0");
     h.update(&["--check"]);
-    has(&h.calls("gh"), "api repos/someone/fork/releases");
+    assert_eq!(listed(&h), ["someone/fork"]);
 }
 
 #[test]
@@ -718,16 +719,13 @@ fn a_versions_env_on_the_host_does_not_name_where_releases_come_from() {
         .collect();
     fs::write(&venv, text).unwrap();
     h.update(&["--check"]);
-    lacks(&h.calls("gh"), "someone/else");
+    lacks(&listed(&h).join("\n"), "someone/else");
     let named: Vec<String> = fs::read_to_string(root().join("host/versions.env"))
         .unwrap()
         .lines()
         .filter_map(|l| l.strip_prefix("TEHAS_RELEASE_REPO=").map(str::to_string))
         .collect();
-    has(
-        &h.calls("gh"),
-        &format!("api repos/{}/releases", named.join("\n")),
-    );
+    assert_eq!(listed(&h), named);
     fs::remove_file(&venv).unwrap();
     let r = h.update(&["--check"]);
     assert_eq!(r.rc, 3, "{}", r.out);
@@ -815,7 +813,7 @@ fn a_host_on_a_prerelease_ahead_of_the_newest_release_is_not_offered_the_older_r
     let r = h.update(&[]);
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(current(&h), "versions/v1.3.0-beta.1");
-    lacks(&h.calls("gh"), "release download");
+    assert_eq!(downloads(&h), Vec::<String>::new());
 }
 
 #[test]
@@ -826,7 +824,7 @@ fn a_checkout_tagged_newer_than_any_release_and_not_published_changes_nothing() 
     let r = h.update(&[]);
     assert_eq!(r.rc, 1, "{}", r.out);
     has(&r.out, "release: the checkout's v1.5.0 is newer than the newest release v1.2.0 and is not published");
-    lacks(&h.calls("gh"), "release download");
+    assert_eq!(downloads(&h), Vec::<String>::new());
     assert!(!is_link(&h.home.join("current")));
 }
 
@@ -875,7 +873,7 @@ fn an_update_from_a_tagged_checkout_at_the_newest_release_still_downloads_and_sw
         "release: current is v1.2.0, was the platform checkout",
     );
     assert_eq!(current(&h), "versions/v1.2.0");
-    has(&h.calls("gh"), "release download v1.2.0");
+    assert!(downloaded(&h, "tehas-app/tehas-factory", "v1.2.0"));
     assert_eq!(h.calls("install"), "install v1.2.0 ");
 }
 
@@ -894,7 +892,7 @@ fn unsupported(machine: &str) {
     lacks(&r.out, "downloaded, checked");
     // No directory to download into was made.
     lacks(&r.out, &s(&h.home.join("tmp")));
-    lacks(&h.calls("gh"), "release download");
+    assert_eq!(downloads(&h), Vec::<String>::new());
     lacks(&h.calls("curl"), "releases/download");
     assert_eq!(h.calls("install"), "");
     assert_eq!(current(&h), "versions/v1.0.0");
@@ -924,13 +922,11 @@ fn supported(machine: &str) {
     h.stub("uname", &format!("echo {machine}"));
     let r = h.update(&[]);
     assert_eq!(r.rc, 0, "{}", r.out);
-    has(
-        &h.calls("gh"),
-        "release download v1.2.0 --repo tehas-app/tehas-factory",
-    );
-    has(
-        &h.calls("gh"),
-        &format!("tehas-v1.2.0-linux-{}.tar.gz", arch_of(machine).unwrap()),
+    let asset = format!("tehas-v1.2.0-linux-{}.tar.gz", arch_of(machine).unwrap());
+    assert!(
+        downloads(&h).contains(&format!("tehas-app/tehas-factory v1.2.0 {asset}")),
+        "{:?}",
+        downloads(&h)
     );
     assert_eq!(current(&h), "versions/v1.2.0");
     assert_eq!(
@@ -958,7 +954,7 @@ fn a_machine_whose_uname_answers_nothing_asks_for_nothing_and_stops_with_the_rea
     let r = h.update(&[]);
     assert_eq!(r.rc, 1, "{}", r.out);
     has(&r.out, "uname -m says nothing");
-    lacks(&h.calls("gh"), "release download");
+    assert_eq!(downloads(&h), Vec::<String>::new());
     assert_eq!(current(&h), "versions/v1.0.0");
 }
 
