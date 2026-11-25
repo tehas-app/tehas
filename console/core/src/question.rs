@@ -529,6 +529,38 @@ pub fn question_marker(kind: &str, issue: u64, turn: u64) -> String {
     format!("<!-- tehas:question kind={kind} issue={issue} turn={turn} -->")
 }
 
+/// The text of a question of before 2.0 without our markers, as a write of
+/// the ports takes it: `old` without its last line, the question's marker of
+/// `issue`, nor the park's marker of `issue` on the line before it, and
+/// without the white space at its end. None when `old` does not end with a
+/// question's marker of `issue`: a text that may still hold one is never
+/// given to a write.
+pub fn q_text(old: &str, issue: u64) -> Option<String> {
+    let marker = |line: &str| {
+        ["park", "plan"].iter().any(|kind| {
+            let head = question_marker(kind, issue, 1);
+            let head = head.strip_suffix("1 -->").unwrap_or(&head);
+            line.strip_prefix(head)
+                .and_then(|rest| rest.strip_suffix(" -->"))
+                .is_some_and(|turn| {
+                    (1..=9).contains(&turn.len())
+                        && !turn.starts_with('0')
+                        && turn.bytes().all(|b| b.is_ascii_digit())
+                })
+        })
+    };
+    let lines: Vec<&str> = old.trim_end().lines().collect();
+    let (last, rest) = lines.split_last()?;
+    if !marker(last) {
+        return None;
+    }
+    let rest = match rest.split_last() {
+        Some((park, above)) if is_park_marker(park, issue) => above,
+        _ => rest,
+    };
+    Some(rest.join("\n").trim_end().to_string())
+}
+
 /// A question asked before 2.0, asked again in 2.0's words (#2782): what the
 /// poll posts in its place.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -641,6 +673,25 @@ pub fn superseded(id: Option<u64>) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn q_text_is_a_question_of_before_2_0_without_our_markers() {
+        let q = question_marker("park", 21, 1);
+        let park = park_marker_7().replace("issue=7", "issue=21");
+        assert_eq!(
+            q_text(&format!("Stopped.\n\n- [ ] Retry\n\n{q}\n"), 21).as_deref(),
+            Some("Stopped.\n\n- [ ] Retry")
+        );
+        assert_eq!(
+            q_text(&format!("Stopped.\r\n\r\n{park}\r\n{q}"), 21).as_deref(),
+            Some("Stopped.")
+        );
+        // Another issue's marker, a marker that is not last, and none.
+        assert_eq!(q_text(&format!("Stopped.\n\n{q}"), 22), None);
+        assert_eq!(q_text(&format!("{q}\n\nStopped."), 21), None);
+        assert_eq!(q_text("Stopped.", 21), None);
+        assert_eq!(q_text("", 21), None);
+    }
 
     /// The park marker of #7 that the tests below render.
     fn park_marker_7() -> String {
