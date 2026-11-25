@@ -299,7 +299,7 @@ fn an_old_comment_changed_since_the_read_is_not_edited_and_the_decision_stands()
             "id": 2101,
             "html_url": "https://github.com/acme/widget/issues/21#issuecomment-2101",
             "body": changed,
-            "user": common::bot_user(),
+            "user": {"login": "tehas-bot[bot]", "id": common::uid("tehas-bot[bot]"), "type": "Bot"},
         }),
     );
     let r = w.poll();

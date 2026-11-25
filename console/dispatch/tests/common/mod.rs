@@ -2007,7 +2007,9 @@ impl World {
                 "id": id,
                 "html_url": format!("{}/{n}#issuecomment-{id}", "https://github.com/acme/widget/issues"),
                 "body": body,
-                "user": bot_user(),
+                // The factory's bot, by the user id state/account-ids
+                // records: `edit_comment` edits only its comments.
+                "user": {"login": "tehas-bot[bot]", "id": uid("tehas-bot[bot]"), "type": "Bot"},
             }),
         );
     }
@@ -2625,14 +2627,6 @@ fn jq_with(args: &[&str], input: &str) -> String {
 /// The sha256 of the body `Words.`, which an approval is recorded against.
 pub fn wsum() -> String {
     format!("{:x}", Sha256::digest(b"Words."))
-}
-
-#[allow(dead_code)] // each test file uses a part of this module
-/// The factory's bot as a REST read names a comment's author: its user id
-/// as state/account-ids records it, typed a bot. `edit_comment` edits only
-/// a comment of this author.
-pub fn bot_user() -> Value {
-    json!({"login": "tehas-bot[bot]", "id": uid("tehas-bot[bot]"), "type": "Bot"})
 }
 
 #[allow(dead_code)] // each test file uses a part of this module
