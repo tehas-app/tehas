@@ -12,6 +12,7 @@ mod change;
 mod checks;
 mod numbers;
 mod remote;
+pub use checks::WORKFLOW_RUNS_FORBIDDEN;
 pub(super) use remote::parts;
 pub use remote::project_of;
 

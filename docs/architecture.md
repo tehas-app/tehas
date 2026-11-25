@@ -126,6 +126,13 @@ once, in `console/attach/src/link.rs`, and the adapter takes it from there
 for `Blueprints::attachments` and `attachments_in`. It is 1, a written
 floor (above): core, dispatch, items and cycle read the rule as well.
 
+`digest-labels` (R1, ports Decided 130) holds a ticket digest's label
+names, `TicketDigest.labels`, to display: a line that reads `digest.labels`
+or `d.labels` counts anywhere in `console/` but the ports and the adapter
+that fills it. A caller decides on `marks`. A module that shows the names
+joins `allowed` with a comment saying what it shows. It is 2, a written
+floor (below): the dispatcher's test that pins the rule.
+
 ## Write guards
 
 Each of these decides whether a GitHub call writes. They are kept
@@ -213,14 +220,14 @@ answers, crate by crate before the calls move.
 ## Contract
 
 What 1.x froze is `host/docs/contract.md` with the `api/` files
-(`surface-1.0.txt`, `commands.txt`, `features.txt`, the schemas and
-samples) and `api/renames-1.0.tsv`. This work changes it only where the
+(the surface list, `surface-2.0.txt` since T9, `commands.txt`,
+`features.txt`, the schemas and samples) and `api/renames-1.0.tsv`. This work changes it only where the
 refactoring needs to, each change named in its pull request, added beside
 the old term and removed at T9, and agreed with the owner first.
 
 | Part | Where frozen | Expected to change in 2.0 |
 | --- | --- | --- |
-| Commands and flags | `api/commands.txt`, `surface-1.0.txt`; frozen since v1.0.0-beta.1 | `tehas github check` and `tehas github writes` name a supplier; to be named for the ports |
+| Commands and flags | `api/commands.txt`, `surface-2.0.txt`; frozen since v1.0.0-beta.1 | `tehas github check` and `tehas github writes` name a supplier; to be named for the ports |
 | Exit statuses | contract, "Exit statuses"; since v1.0.0-beta.1 | no |
 | Settings | contract, "Settings and the knob rule"; `api/settings-rules.json`; since v1.0.0-beta.1 | settings that choose the adapters; the release repository at the rename (T10) |
 | Labels | `host/labels.tsv`; since v1.0.0-beta.1 | the contract names the act (approve, block, plan, refine); labels become the GitHub adapter's answer |
@@ -237,6 +244,7 @@ its reason, as a floor; a departure from a should rule (R5) likewise.
 | --- | --- | --- | --- |
 | gh-argv, tests-stub-gh | 1 each | `console/tests/top_snapshot.rs` | the short name "gh" of a process in a fixture of /proc (`"name":"gh"`, #2859), which tehas top shows. Nothing runs gh. A pattern that skipped it would be fragile and allowing the file would hide a later gh call there, so it stays counted as a floor |
 | gh-argv, tests-stub-gh | 3 and 2 | gh-argv: `console/ops/src/pins/tools.rs` 1 and `console/ops/src/pins/tests.rs` 2; tests-stub-gh: `console/ops/src/pins/tests.rs` 2 | the pinned tool named "gh" in the release's list of pinned tools (`host/versions.env`) and its tests (ports spec, Decided 71). Nothing runs gh there; the name is the tool's |
+| digest-labels | 2 | `console/dispatch/src/read/board.rs`, the test `the_label_names_of_a_digest_are_never_read` | the test writes label names into a digest and finds the page `decide` reads unchanged (ports spec, Decided 130). The names are display only, never a decision input |
 | adapter-link-rule | 1 | `console/github/Cargo.toml`, its `attach` line | the link rule of GitHub's store stays in `console/attach/src/link.rs`, written once, and the adapter takes it from there for `Blueprints::attachments` and `attachments_in` (the tehas lead's ruling for the alpha, 2026-11-24; ports spec, T4.8). core, dispatch, items and cycle read the rule as well and may not name the adapter; moving them onto the ports is not in the plan |
 | home-layout | 16, in the bash and the units | `install.sh` 12, `host/systemd/` 4 | T8's freeze, below |
 | T5's typed store client (no check counts it) | every caller of the store's verbs | the console and ops through `ops::store::call` and `line` (about 37 calls in 15 files), dispatch's `read/run.rs` `store()`, cycle's `host.rs` `store()` | a written floor for alpha.1 (tehas-84, 2026-11-24): the callers still pass a verb string and read `Value`. Many of them are in files other T4 lanes are changing, so typing them now would collide; the typed client is the series right after the alpha, and this row goes when it lands |
@@ -244,6 +252,7 @@ its reason, as a floor; a departure from a should rule (R5) likewise.
 | github-rest | 4, in the bash | `host/sandbox/gh-shim` 4 | T8's freeze, below |
 | tests-stub-gh | 83, in the shell tests that stay shell | 18 files of `test/` | T8's freeze, below |
 | untyped-signatures, untyped-fields | 147 and 2 | four causes, file by file | T7's floors, below |
+| untyped-signatures, untyped-fields | 963 and 21, for alpha.1 | the rest, per crate | T7's alpha.1 floor, below |
 
 ### The bash that stays (T8)
 
@@ -340,6 +349,45 @@ Not in this floor: the rest of these files. The MCP tools' answers
 plugin's tools and the JSON-RPC request's id and params are typeable and
 are typed in T7's series; so are the dispatcher's, the cycle's, the
 console's, ops' and the store client's, as T3 to T5 leave them.
+
+#### The alpha.1 floor
+
+The trio PM's ruling for alpha.1: T7 closes alpha.1 on written floors.
+The open T7 pull requests land first, and what is still untyped is
+written down here. There is no typing lane before the tag.
+
+Cause: typing them is T7's remaining lane, which collides with the T4/T5
+moves. End: T7's remaining lane, before the beta.
+
+Measured on 491a63264, after #3201, #3215 and #3221 landed, by `scripts/architecture.py`'s own count
+(`count()` with the checks' pattern, files and `allowed` from
+`architecture.toml`), per crate, with the floor above taken out file by
+file. "The console" is `console/src` and `console/tests`.
+
+| Area | untyped-signatures | untyped-fields |
+| --- | --- | --- |
+| dispatch | 314 | 9 |
+| mcp | 137 (215, less 78 above) | 1 |
+| cycle | 121 | 5 |
+| the console | 116 (118, less 2 above) | 0 |
+| core | 79 (112, less 33 above) | 1 (3, less 2 above) |
+| ops | 64 (74, less 10 above) | 3 |
+| store | 59 | 1 |
+| attach | 36 | 1 |
+| analytics | 22 (23, less 1 above) | 0 |
+| plugin | 10 (33, less 23 above) | 0 |
+| github | 4 | 0 |
+| items | 1 | 0 |
+| **alpha.1 floor** | **963** | **21** |
+| the floor above | 147 | 2 |
+| **the check's count** | **1110** | **23** |
+
+The two parts add up to the check's count and its `max`: 963 and 147 is
+1110, 21 and 2 is 23. A count here may only fall, as above.
+
+#3201, #3215 and #3221, the T7 pull requests open at the ruling, have
+landed, and the floor is measured after them: they took untyped-signatures
+from 1124 to 1110, 12 in mcp and 2 in ops. untyped-fields did not move.
 
 ### Temporary rises
 

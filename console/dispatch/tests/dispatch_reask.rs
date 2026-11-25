@@ -8,7 +8,19 @@ use common::{count_lines, has, Part::Off, World};
 use serde_json::json;
 use std::fs;
 use tehas_core::question::{q_text, question_marker, reasked, superseded, Kind};
-use tehas_ports::{Body, CommentId, Mark, MarkerEdit, Revision, State, Write};
+use tehas_ports::{Body, CommentId, Mark, Marker, MarkerEdit, Revision, State, Write};
+
+/// The questions the poll asked on issue `n`: notes with the question's
+/// marker typed beside their text.
+fn questions(w: &World, n: u64) -> usize {
+    w.writes_of(n)
+        .iter()
+        .filter(|x| {
+            matches!(x, Write::TicketNote { markers, .. }
+                if markers.iter().any(|m| matches!(m, Marker::Question { .. })))
+        })
+        .count()
+}
 
 /// #21's park question as tehas v1.4.0 posted it.
 fn old_park() -> String {
@@ -110,11 +122,7 @@ fn a_stop_that_offered_no_retry_is_closed_and_not_asked_again() {
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
     let gh = w.gh();
-    assert_eq!(
-        count_lines(&gh, "api -X POST repos/acme/widget/issues/21/comments"),
-        0,
-        "{gh}"
-    );
+    assert_eq!(questions(&w, 21), 0, "{:?}", w.writes_of(21));
     has(
         &gh,
         &format!("\n\n{}", tehas_core::question::superseded(None)),
@@ -139,9 +147,9 @@ fn a_stop_that_offered_no_retry_is_closed_and_not_asked_again() {
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
     let gh = w.gh();
-    assert_eq!(count_lines(&gh, "api -X POST"), 0, "{gh}");
+    assert_eq!(w.notes(21), 0, "{:?}", w.writes_of(21));
     assert_eq!(count_lines(&gh, "api -X PATCH"), 0, "{gh}");
-    assert_eq!(w.marks(Some(21)), 0, "{gh}");
+    assert!(w.writes_of(21).is_empty(), "{:?}", w.writes_of(21));
 }
 
 /// The old question goes off the record before its comment is edited: a
@@ -195,23 +203,21 @@ fn the_first_poll_asks_each_open_question_again_once_and_tells_the_old_comment()
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
     let gh = w.gh();
-    for (n, old, post, patch, new) in [
+    for (n, old, patch, new) in [
         (
             21,
             2101,
-            "api -X POST repos/acme/widget/issues/21/comments",
             "api -X PATCH repos/acme/widget/issues/comments/2101",
             4121,
         ),
         (
             22,
             2201,
-            "api -X POST repos/acme/widget/issues/22/comments",
             "api -X PATCH repos/acme/widget/issues/comments/2201",
             4122,
         ),
     ] {
-        assert_eq!(count_lines(&gh, post), 1, "{gh}");
+        assert_eq!(questions(&w, n), 1, "{:?}", w.writes_of(n));
         assert_eq!(count_lines(&gh, patch), 1, "{gh}");
         has(
             &r.out,
@@ -243,11 +249,15 @@ fn the_first_poll_asks_each_open_question_again_once_and_tells_the_old_comment()
         let k = w.row(&["question-known", &n.to_string(), "--id", &old.to_string()]);
         assert_eq!(k["recorded"], json!(false), "{k}");
     }
-    has(&gh, "Reply in a comment with the word of one of these:");
-    has(
-        &gh,
-        "Reply in a comment with the number of one of these, or answer in your own words:",
-    );
+    let said = |n: u64, text: &str| w.said(n).iter().any(|b| b.contains(text));
+    assert!(said(
+        21,
+        "Reply in a comment with the word of one of these:"
+    ));
+    assert!(said(
+        22,
+        "Reply in a comment with the number of one of these, or answer in your own words:"
+    ));
     // The new ones are on record, unmarked, the stop's with what it offers,
     // each with a number of the store's after those of the old ones.
     let q = w.row(&["question-show", "21"])["question"].clone();
@@ -280,7 +290,7 @@ fn the_first_poll_asks_each_open_question_again_once_and_tells_the_old_comment()
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
     let gh = w.gh();
-    assert_eq!(count_lines(&gh, "api -X POST"), 0, "{gh}");
+    assert_eq!(w.notes(21) + w.notes(22), 0);
     assert_eq!(count_lines(&gh, "api -X PATCH"), 0, "{gh}");
     assert!(!r.out.contains("asked #"), "{}", r.out);
 }
