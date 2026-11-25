@@ -69,6 +69,7 @@ use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 use std::time::UNIX_EPOCH;
+use tehas_core::cycle_notes::Note;
 use tehas_core::grammar::is_hex;
 use tehas_core::home::{Home, State};
 use tehas_core::mask;
@@ -233,7 +234,7 @@ const MAX_LEAN_FILE: u64 = 256 << 10;
 /// as it starts, so what is there when the run is recorded is this run's. None
 /// when there is no file, or one this reads no step from.
 pub fn lean_steps(home: &Path, issue: i64) -> Option<Vec<String>> {
-    let p = Home::new(home).cycle_note(issue as u64, "lean-state.json");
+    let p = Home::new(home).cycle_note(issue as u64, Note::LeanState);
     let v = read_json_of(&p, MAX_LEAN_FILE)?;
     let out: Vec<String> = v
         .get("steps")?
@@ -256,7 +257,7 @@ pub(crate) fn read_facts(given: Option<&Path>) -> Option<Value> {
 /// read or hold no history line.
 pub fn read(home: &Path, issue: i64, given: &Given) -> Result<Run, String> {
     let cycles = Home::new(home);
-    let note = |ext: &str| cycles.cycle_note(issue as u64, ext);
+    let note = |n: Note| cycles.cycle_note(issue as u64, n);
 
     let facts = read_facts(given.facts.as_deref())
         .and_then(|f| match f {
@@ -316,7 +317,7 @@ pub fn read(home: &Path, issue: i64, given: &Given) -> Result<Run, String> {
             .map(str::to_string);
     }
 
-    let result = read_json(&note("result.json"));
+    let result = read_json(&note(Note::Result));
     let schema = result
         .as_ref()
         .and_then(|r| r.get("schemaVersion"))
@@ -348,7 +349,7 @@ pub fn read(home: &Path, issue: i64, given: &Given) -> Result<Run, String> {
         read_entry(&mut run, e);
     }
 
-    let progress = read_json(&note("progress.json"));
+    let progress = read_json(&note(Note::Progress));
     if let Some(p) = &progress {
         run.review_held = p.get("reviewHeld").and_then(Value::as_bool);
     }

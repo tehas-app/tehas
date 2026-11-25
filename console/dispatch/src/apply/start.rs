@@ -19,6 +19,7 @@ use std::io::Write as _;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use tehas_core::cycle_notes::Note;
 use tehas_core::home::{Home, State};
 use tehas_core::issue_pull::names_issue;
 use tehas_ports::{TicketKey, Write};
@@ -1391,7 +1392,7 @@ impl Writer {
             }
             std::thread::sleep(Duration::from_millis(500));
         }
-        if held(&Home::new(&self.home).cycle_note(n, "lock")) {
+        if held(&Home::new(&self.home).cycle_note(n, Note::Lock)) {
             log.push(format!(
                 "WARN: the cycle for #{n} holds its lock but did not say so in {wait}s; taking it as started"
             ));

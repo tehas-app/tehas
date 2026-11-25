@@ -36,6 +36,7 @@ use std::io::Write as _;
 use std::path::Path;
 use std::time::Duration;
 use tehas_core::call::Ran;
+use tehas_core::cycle_notes::Note;
 use tehas_core::forge::{Bounded, GhRunner};
 use tehas_core::github_fails;
 use tehas_core::home::Home;
@@ -125,7 +126,7 @@ fn run(given: &[String]) -> u8 {
     // A lock that cannot be read is no free lock: the issue waits for a later poll.
     let running = |n: u64| {
         !matches!(
-            probe(&at.cycle_note(n, "lock")),
+            probe(&at.cycle_note(n, Note::Lock)),
             Probe::Absent | Probe::Free
         )
     };

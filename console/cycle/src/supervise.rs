@@ -499,7 +499,7 @@ pub fn run(home: &Path, g: &Given, events: &Dispatcher) -> i32 {
     // this is where the note goes. Left behind it would be read as this
     // cycle's own steps, the analytics read the file by its issue alone, and
     // it would hold the place this cycle's copy needs.
-    let _ = fs::remove_file(at.cycle_note(g.issue, apply::LEAN_STATE));
+    let _ = fs::remove_file(at.cycle_note(g.issue, cycle_notes::Note::LeanState));
     let stop = Arc::new(AtomicBool::new(false));
     for sig in [
         signal_hook::consts::SIGTERM,

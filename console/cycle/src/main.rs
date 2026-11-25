@@ -240,6 +240,7 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
+use tehas_core::cycle_notes::Note;
 use tehas_core::driver::Driver;
 use tehas_core::home::{Home, State};
 use tehas_cycle::after::{self, After};
@@ -479,7 +480,7 @@ fn cycle_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
     let _ = std::fs::create_dir_all(home.join("logs"));
     // tehas work and the docker client it starts inherit this lock. If this
     // process is killed outright the place stays taken until they are gone too.
-    let lock = Home::new(home).cycle_note(n, "lock");
+    let lock = Home::new(home).cycle_note(n, Note::Lock);
     let held = match lock::take(&lock, Duration::from_secs(5)) {
         Ok(Some(f)) => f,
         Ok(None) => {
@@ -609,7 +610,7 @@ fn work_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
     // Under tehasbot cycle the lock comes down already held. Taken here, it is
     // handed down: every program of the cycle, the docker client among them,
     // holds it, so a run by hand and the unit's cycle never share a workspace.
-    let path = Home::new(home).cycle_note(n, "lock");
+    let path = Home::new(home).cycle_note(n, Note::Lock);
     let _ = std::fs::create_dir_all(Home::new(home).cycles_dir());
     let _held = if lock::held_here(&path) {
         None
