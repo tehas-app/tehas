@@ -313,6 +313,28 @@ fn tickets_a_parent_holds_its_parts() {
 }
 
 #[test]
+fn tickets_every_digest_answers_parent_or_refuses() {
+    for w in both() {
+        let w = w
+            .target("t1", "the target", None)
+            .ticket(2, |t| t.title("a part").target("t1"))
+            .ticket(3, |t| t.title("another part").closed(CloseReason::Done))
+            .ticket(4, |t| t.title("alone").closed(CloseReason::Done));
+        let (k2, k3) = (w.key(2), w.key(3));
+        let w = w.ticket(1, |t| t.title("the whole").part(k2.clone()).part(k3.clone()));
+        let site = FakeSite::new(&w);
+        let mut h = site.tickets(&full(), C).unwrap();
+        let keys = [w.key(1), k2, k3, w.key(4)];
+        ok(laws::tickets::every_digest_answers_parent_or_refuses(
+            h.as_mut(),
+            &keys,
+            At::new(0),
+            b(100),
+        ));
+    }
+}
+
+#[test]
 fn tickets_every_label_is_in_labels_in_order() {
     for w in both() {
         let bug = Mark::Project(MarkName::new("bug").unwrap());

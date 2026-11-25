@@ -73,7 +73,7 @@ pub mod tickets {
 
     use crate::{
         AccountId, At, Bound, CloseReason, Depth, Filter, Mark, MarkHeld, Outcome, Ref, Refusal,
-        TicketDigest, TicketKey, TicketState, TicketWrites, Tickets, Took, WithCloser,
+        TicketDigest, TicketKey, TicketState, TicketWrites, Tickets, Took, WithCloser, Within,
     };
 
     /// A newest-first page against the whole list it is cut from: each
@@ -414,6 +414,102 @@ pub mod tickets {
             })?;
         }
         Ok(())
+    }
+
+    /// Every read that builds a ticket's digest names its `parent` as
+    /// `parts` does, or refuses: `ticket` at every depth, `several`,
+    /// `several_with_closers`, `list` with the default filter within
+    /// `bound`, `recent` and `recently_closed` of `bound`'s size,
+    /// `closed_since(since)`, `search` of each ticket's title and
+    /// `members` of each target a ticket names. A read answered
+    /// `Refused(_)` holds nothing to check; any other failure breaks the
+    /// law. The fixture's `keys` hold the parent of every ticket among
+    /// them; a digest of a ticket outside them is not checked.
+    pub fn every_digest_answers_parent_or_refuses(
+        h: &mut dyn Tickets,
+        keys: &[TicketKey],
+        since: At,
+        bound: Bound,
+    ) -> Law {
+        const LAW: &str = "tickets::every_digest_answers_parent_or_refuses";
+        let first = NonZeroU32::new(bound.get()).unwrap_or(NonZeroU32::MIN);
+        let mut parts_of = Vec::new();
+        for k in keys {
+            parts_of.push((k.clone(), got(LAW, "parts", h.parts(k))?.into_items()));
+        }
+        let mut digests: Vec<(&str, TicketDigest)> = Vec::new();
+        for k in keys {
+            for depth in [Depth::Cut { notes: 0 }, Depth::All] {
+                if let Some(t) = answered(LAW, "ticket", h.ticket(k, depth, None))? {
+                    digests.push(("ticket", t.digest));
+                }
+            }
+        }
+        for (_, a) in h.several(keys) {
+            if let Some(d) = answered(LAW, "several", a)? {
+                digests.push(("several", d));
+            }
+        }
+        for (_, a) in h.several_with_closers(keys) {
+            if let Some(w) = answered(LAW, "several_with_closers", a)? {
+                digests.push(("several_with_closers", w.digest));
+            }
+        }
+        if let Some(l) = answered(LAW, "list", h.list(&Filter::default(), bound))? {
+            digests.extend(l.into_items().into_iter().map(|d| ("list", d)));
+        }
+        if let Some(t) = answered(LAW, "recent", h.recent(&Filter::default(), first))? {
+            digests.extend(t.items.into_iter().map(|d| ("recent", d)));
+        }
+        if let Some(t) = answered(LAW, "recently_closed", h.recently_closed(first))? {
+            digests.extend(t.items.into_iter().map(|c| ("recently_closed", c.digest)));
+        }
+        if let Some(w) = answered(LAW, "closed_since", h.closed_since(since, bound))? {
+            digests.extend(w.into_items().into_iter().map(|c| ("closed_since", c.digest)));
+        }
+        let mut titles = Vec::new();
+        let mut targets = Vec::new();
+        for (_, d) in &digests {
+            if keys.contains(&d.key) && !titles.contains(&d.title) {
+                titles.push(d.title.clone());
+            }
+            if let Some(t) = d.target.as_ref().filter(|t| !targets.contains(&t.id)) {
+                targets.push(t.id.clone());
+            }
+        }
+        for title in titles {
+            let hits = h.search(&title, Within::Titles, None, first);
+            if let Some(t) = answered(LAW, "search", hits)? {
+                digests.extend(t.items.into_iter().map(|d| ("search", d)));
+            }
+        }
+        for id in targets {
+            if let Some(w) = answered(LAW, "members", h.members(&id, bound))? {
+                digests.extend(w.into_items().into_iter().map(|d| ("members", d)));
+            }
+        }
+        for (read, d) in digests.iter().filter(|(_, d)| keys.contains(&d.key)) {
+            let want = parts_of
+                .iter()
+                .find(|(_, parts)| parts.iter().any(|p| p.key == Ref::Here(d.key.clone())))
+                .map(|(p, _)| Ref::Here(p.clone()));
+            hold(d.parent == want, LAW, || {
+                format!(
+                    "{read} gave {:?} the parent {:?}, the parts say {want:?}",
+                    d.key, d.parent
+                )
+            })?;
+        }
+        Ok(())
+    }
+
+    /// The value of an answer, None where it was refused, or the law
+    /// broken by any other outcome.
+    fn answered<T>(law: &str, what: &str, answer: crate::Got<T>) -> Result<Option<T>, Broken> {
+        match answer {
+            Err(Outcome::Refused(_)) => Ok(None),
+            other => got(law, what, other).map(Some),
+        }
     }
 
     /// `labels` holds every label the site holds on a ticket, by the
