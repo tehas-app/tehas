@@ -4,6 +4,7 @@
 pub mod answer;
 pub mod apply;
 pub mod auto_finish;
+mod clock;
 pub mod decide;
 pub mod events;
 pub mod finish;

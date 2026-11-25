@@ -18,7 +18,8 @@
 
 use crate::apply::start::Host;
 use crate::apply::Writer;
-use crate::decide::{iso, iso_now, Action, LabelChange, PlanStep};
+use crate::clock::iso_now;
+use crate::decide::{iso, Action, LabelChange, PlanStep};
 use crate::read::build::{fill, may_start, snapshot, Sources};
 use crate::read::host::{hostname, push_fault, push_fault_aged_out};
 use crate::read::run::{read_gh_token, Calls, RetryPolicy};
