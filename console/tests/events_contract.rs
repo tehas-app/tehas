@@ -452,7 +452,7 @@ fn well_formed(name: &str) -> bool {
 
 #[test]
 fn well_formed_reads_the_rule() {
-    for good in ["cycle.ended", "factory.limit-changed", "a.b"] {
+    for good in ["thing.happened", "thing.got-done", "a.b"] {
         assert!(well_formed(good), "{good}");
     }
     for bad in [
