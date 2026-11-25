@@ -1063,14 +1063,28 @@ fn question_adopt_takes_a_1x_sum_into_the_visible_form_once() {
     let adopt = |issue: &str, id: &str| {
         ok(
             &home,
-            &["question-adopt", issue, "--id", id, "--body-sha", visible.as_str()],
+            &[
+                "question-adopt",
+                issue,
+                "--id",
+                id,
+                "--body-sha",
+                visible.as_str(),
+            ],
         )["adopted"]
             .clone()
     };
     // 1.x's: the park's question, summed as posted.
     let (_l, a) = start(&home, 60);
     end(&home, 60, a, "failed");
-    park(&home, 60, a, "failed", &["--comment-id", "6001", "--body-sha", SHA]).unwrap();
+    park(
+        &home,
+        60,
+        a,
+        "failed",
+        &["--comment-id", "6001", "--body-sha", SHA],
+    )
+    .unwrap();
     assert_eq!(form(6001), format!("rendered {SHA}"));
     assert_eq!(known(&home, 60, 6001)["sum_form"], "rendered");
     // 2.0's: the visible text's; and a question with no sum.
@@ -1080,7 +1094,10 @@ fn question_adopt_takes_a_1x_sum_into_the_visible_form_once() {
     assert_eq!(form(6101), format!("visible {SHA}"));
     assert_eq!(known(&home, 61, 6101)["sum_form"], "visible");
     planned(&home, 62);
-    ok(&home, &["question-asked", "62", "--id", "6201", "--kind", "plan"]);
+    ok(
+        &home,
+        &["question-asked", "62", "--id", "6201", "--kind", "plan"],
+    );
     assert_eq!(form(6201), "- -");
     assert_eq!(known(&home, 62, 6201)["sum_form"], Value::Null);
     // Adopted once, in place; the rest are left as they are.
@@ -1097,8 +1114,18 @@ fn question_adopt_takes_a_1x_sum_into_the_visible_form_once() {
     // A withdrawn question of 1.x is not adopted.
     let (_l, a) = start(&home, 63);
     end(&home, 63, a, "failed");
-    park(&home, 63, a, "failed", &["--comment-id", "6301", "--body-sha", SHA]).unwrap();
-    ok(&home, &["question-answered", "63", "--id", "6301", "--withdraw"]);
+    park(
+        &home,
+        63,
+        a,
+        "failed",
+        &["--comment-id", "6301", "--body-sha", SHA],
+    )
+    .unwrap();
+    ok(
+        &home,
+        &["question-answered", "63", "--id", "6301", "--withdraw"],
+    );
     assert_eq!(adopt("63", "6301"), false);
     assert_eq!(form(6301), format!("rendered {SHA}"));
     for args in [

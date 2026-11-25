@@ -711,12 +711,17 @@ pub fn on_record(c: &Connection, issue: i64, id: i64) -> Result<bool, Fail> {
     Ok(plan)
 }
 
+/// A question's row as `question-known` reads it: its kind, when it was
+/// answered, whether it is asked again, the store's number, and what its sum
+/// sums.
+type KnownRow = (String, Option<i64>, bool, i64, Option<String>);
+
 /// `question-known <issue> --id <id>`: whether the comment is the question the
 /// host has on record for the issue. A withdrawn question is not recorded:
 /// its row is kept, and it asks nothing. The single call reads it through
 /// `verbs::look`; `verbs::look_many` hands it the connection of the batch.
 pub(crate) fn known(c: &Connection, issue: i64, id: i64) -> Result<String, Fail> {
-    let row: Option<(String, Option<i64>, bool, i64, Option<String>)> = c
+    let row: Option<KnownRow> = c
         .query_row(
             "SELECT kind, answered_at, reask, id, body_form FROM questions
              WHERE comment_id = ?1 AND issue = ?2 AND withdrawn_at IS NULL",

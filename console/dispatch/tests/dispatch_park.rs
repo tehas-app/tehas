@@ -498,8 +498,8 @@ fn a_question_summed_before_2_0_is_adopted_on_its_first_read() {
             assert_eq!(known()["sum_form"], "visible");
             let sum = question_sum(&q_text(&body, 7).unwrap());
             assert_eq!(
-                w.row(&["question-show", "7"])["question"]["body_sha256"],
-                json!(sum)
+                w.question_sum(4001),
+                Some((Some(sum), Some("visible".to_string())))
             );
             lacks(&w.gh(), "api -X PATCH");
             assert_eq!(started(&w), "");

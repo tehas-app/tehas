@@ -1377,6 +1377,22 @@ impl World {
             .unwrap()
     }
 
+    /// The sum on record of the question comment `id` asked, and its form, as
+    /// the store keeps them; None when no such question is kept.
+    #[allow(dead_code)] // each test file uses a part of this module
+    pub fn question_sum(&self, id: u64) -> Option<(Option<String>, Option<String>)> {
+        use rusqlite::OptionalExtension;
+        self.journal()
+            .query_row(
+                "SELECT body_sha256, body_form FROM questions WHERE comment_id = ?1
+                 ORDER BY id DESC LIMIT 1",
+                [i64::try_from(id).unwrap()],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .unwrap()
+    }
+
     /// The row of the journal the writes are read after: the last one when
     /// the calls were last cleared.
     fn journal_from(&self) -> i64 {

@@ -312,7 +312,9 @@ fn init_writes_schema_33() {
     );
     // Schema 33: what a question's sum sums.
     assert_eq!(
-        columns(&conn(&home), "questions").last().map(String::as_str),
+        columns(&conn(&home), "questions")
+            .last()
+            .map(String::as_str),
         Some("body_form")
     );
     // Schema 32: the links of a ticket to its blueprints, empty.
@@ -354,7 +356,8 @@ fn init_writes_schema_33() {
             "answered_by",
             "offers",
             "reask",
-            "withdrawn_at"
+            "withdrawn_at",
+            "body_form"
         ]
     );
     // Schema 28: the millwright's old name is no word of a CHECK.
@@ -1424,15 +1427,19 @@ fn the_step_to_33_marks_every_sum_of_before_as_rendered() {
             run(&mut c).unwrap();
         }
     }
+    // Two questions of an issue the store has: one with a sum, one without.
+    let issue: i64 = c
+        .query_row("SELECT issue FROM issues ORDER BY issue LIMIT 1", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
     c.execute_batch(&format!(
-        "INSERT INTO issues (issue, kind, kind_at) VALUES (91, 'issue', 1790000000)
-           ON CONFLICT DO NOTHING;
-         INSERT INTO questions (comment_id, issue, attempt, kind, posted_at, body_sha256)
-           VALUES (9101, 91, 1, 'park', 1790000000, '{}'),
-                  (9102, 91, 1, 'plan', 1790000001, NULL);",
+        "INSERT INTO questions (comment_id, issue, attempt, kind, posted_at, body_sha256)
+           VALUES (9101, {issue}, 1, 'park', 1790000000, '{}'),
+                  (9102, {issue}, 1, 'plan', 1790000001, NULL);",
         "c".repeat(64)
     ))
-    .unwrap();
+    .unwrap_or_else(|e| panic!("{e}"));
     drop(c);
     assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 32);
     let rows = host_rows(&conn(&home));
@@ -1440,7 +1447,10 @@ fn the_step_to_33_marks_every_sum_of_before_as_rendered() {
     migrate(&home).unwrap();
     assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 33);
     assert_eq!(host_rows(&conn(&home)), rows);
-    assert_eq!(count(&home, "questions WHERE body_form = 'rendered'"), summed);
+    assert_eq!(
+        count(&home, "questions WHERE body_form = 'rendered'"),
+        summed
+    );
     assert_eq!(
         count(&home, "questions WHERE body_form IS NULL"),
         count(&home, "questions WHERE body_sha256 IS NULL")

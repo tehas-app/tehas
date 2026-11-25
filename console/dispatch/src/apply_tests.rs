@@ -6253,9 +6253,10 @@ fn an_old_sum_is_adopted_in_the_store_alone() {
         "{w:?}"
     );
     assert!(
-        a.log.iter().any(|l| l.starts_with(
-            "INFO: the question of #7 (comment 2101) had its sum of before 2.0"
-        )),
+        a.log
+            .iter()
+            .any(|l| l
+                .starts_with("INFO: the question of #7 (comment 2101) had its sum of before 2.0")),
         "{:?}",
         a.log
     );
@@ -6271,9 +6272,10 @@ fn an_old_sum_is_adopted_in_the_store_alone() {
     t.fail("store", "question-adopt");
     let a = t.apply(adopt);
     assert!(
-        a.log.iter().any(|l| l.starts_with(
-            "WARN: the sum of the question of #7 could not be adopted (busy)"
-        )),
+        a.log
+            .iter()
+            .any(|l| l
+                .starts_with("WARN: the sum of the question of #7 could not be adopted (busy)")),
         "{:?}",
         a.log
     );
