@@ -682,8 +682,17 @@ rewritten.
 | Date | Commit | R1 | R2 | R3 | R4 | R5 | R6 | R7 | R8 | R9 | R10 | Pass line |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 2026-11-22 | 0538004d (baseline) | partial | partial | partial | partial | partial | partial | partial | mostly | mostly | baseline: no pull requests since a grade | below adopting: the test is not in CI yet |
+| 2026-11-25 | 4efcb956 (T4) | partial | partial | partial | partial | partial | partial | partial | mostly | mostly | partial | adopting |
 
 The baseline was graded by the overseer's three fresh graders on a
 one-commit export of 0538004d, with `docs/plans/` and this section cut.
 All three agree on R1 to R8. On R9 two read `mostly` and one `met`; the
 lower band stands. A person confirms the grade.
+
+The T4 row was graded by three fresh graders on a one-commit export of
+4efcb956, with `docs/plans/` and this section cut, each blind to the
+others. The bands are combined by the lower band per rule. They differed
+on two rules: on R3 one read `partial` and two `mostly`, and on R8 two
+read `mostly` and one `met`; the lower band stands for both. All three
+read the pass line as adopting. The grade was confirmed by the owner,
+2026-11-25.
