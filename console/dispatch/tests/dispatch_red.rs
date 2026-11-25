@@ -10,14 +10,24 @@ use std::process::Command;
 
 const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
 
-/// The one run of the check on the head.
+/// The one run of the check on the head, as GitHub lists every run.
 fn checks(w: &World, status: &str, conclusion: Option<&str>) {
     w.fx_json(
         "checks.json",
-        &json!({"total_count": 1, "check_runs": [{"name": "verify", "head_sha": SHA,
-            "status": status, "conclusion": conclusion}]}),
+        &json!({"total_count": 1, "check_runs": [run(1, 1, status, conclusion)]}),
     );
 }
+
+/// A run of `verify` on the head, by GitHub Actions in check suite `suite`.
+fn run(id: u64, suite: u64, status: &str, conclusion: Option<&str>) -> serde_json::Value {
+    json!({"id": id, "name": "verify", "head_sha": SHA, "status": status,
+        "conclusion": conclusion, "app": {"id": 15368, "slug": "github-actions"}, "check_suite": {"id": suite}})
+}
+
+/// The read of the check's runs, as the code host adapter asks it: every
+/// run of the name on the branch's head commit.
+const RUNS: &str =
+    "api repos/acme/widget/commits/0123456789abcdef0123456789abcdef01234567/check-runs?filter=all&per_page=100&page=1&check_name=verify";
 
 fn red_instance(w: &World) {
     w.slots(2, &["TEHAS_BRANCH_CHECK=verify"]);
@@ -26,7 +36,7 @@ fn red_instance(w: &World) {
 fn check_calls(w: &World) -> usize {
     w.gh()
         .lines()
-        .filter(|l| l.contains("commits/main/check-runs"))
+        .filter(|l| l.contains("/check-runs?"))
         .count()
 }
 
@@ -68,11 +78,28 @@ fn red_a_failed_check_on_the_head_starts_nothing_and_says_so() {
     assert_eq!(d["hold"], "holding: main is red at 0123456789ab");
     has(&r.out, "holding: main is red at 0123456789ab");
     assert_eq!(check_calls(&w), 1);
-    has(
-        &w.gh(),
-        "api repos/acme/widget/commits/main/check-runs?check_name=verify&filter=latest",
-    );
+    has(&w.gh(), RUNS);
     lacks(&w.gh(), "--add-label tehas:running");
+}
+
+/// Two workflows' jobs of one name on the head: the failed one is not hidden
+/// behind the newer pass of the other, and the poll holds (Decided 129).
+#[test]
+fn red_two_workflows_jobs_of_one_name_are_both_read_and_the_failed_one_holds() {
+    let w = World::new("red-two-workflows");
+    red_instance(&w);
+    w.ready(&[7, 8]);
+    w.fx_json(
+        "checks.json",
+        &json!({"total_count": 2, "check_runs": [
+            run(2, 20, "completed", Some("success")),
+            run(1, 10, "completed", Some("failure")),
+        ]}),
+    );
+    let r = w.poll();
+    assert_eq!(r.rc, 0, "{}", r.out);
+    assert_eq!(w.calls("fake-start"), "");
+    assert_eq!(w.dispatch_state()["why"], "red");
 }
 
 #[test]
@@ -87,8 +114,19 @@ fn red_said_on_every_poll_while_a_runs_conclusion_says_nothing_at_the_cost_of_on
     has(&r.out, &unknown_hold("verify"));
     assert_eq!(w.dispatch_state()["why"], "unknown-gate");
     // A poll held by an unknown conclusion is an idle poll: one read of the
-    // check, no start. More is the signal to keep the answer by head commit.
+    // check's runs, beside one of the branch's head and one of the commit's
+    // statuses, no start. More is the signal to keep the answer by head commit.
     assert_eq!(check_calls(&w), 1);
+    let gh = w.gh();
+    assert_eq!(
+        gh.lines().filter(|l| l.contains("qualifiedName")).count(),
+        1
+    );
+    assert_eq!(gh.lines().filter(|l| l.contains("/status?")).count(), 1);
+    assert_eq!(
+        gh.lines().filter(|l| l.contains("/actions/runs?")).count(),
+        1
+    );
     let cost = w.store_at(now(), &["poll-show"]);
     assert_eq!(jqr(".last.starts", &cost.out), "0");
 }
@@ -117,6 +155,43 @@ fn red_a_call_that_fails_hangs_or_answers_nonsense_starts_cycles_and_says_why() 
                 .contains("the check verify on main could not be read: cycles start"),
             "{kind}: the log does not say why: {}",
             r.out
+        );
+        // A read that failed but was not refused keeps its own line alone.
+        lacks(&r.out, "the code host refused");
+    }
+}
+
+/// The code host refusing the read (the site's own words, in
+/// tests/common/refused.txt), of the workflow runs as for an App without
+/// actions: read, or of the check runs: the check is unreadable, never the
+/// pass the runs would read as, and the poll says once, of the branch, that
+/// the factory's account may lack a permission and where the setup page
+/// says which.
+#[test]
+fn red_a_refused_read_is_unreadable_and_says_the_permission_once() {
+    let w = World::new("red-refused");
+    let line = "the code host refused to say the checks of main; the factory's account may lack a permission (host/docs/github-app.md#the-permission-to-read-the-checks)";
+    for refused in ["runs-refused", "checks-refused"] {
+        w.reset();
+        red_instance(&w);
+        w.ready(&[7, 8]);
+        checks(&w, "completed", Some("success"));
+        w.fx(refused, include_str!("common/refused.txt"));
+        let r = w.poll();
+        assert_eq!(r.rc, 0, "{refused}: {}", r.out);
+        assert_eq!(r.out.matches(line).count(), 1, "{refused}: {}", r.out);
+        has(
+            &r.out,
+            "the check verify on main could not be read: cycles start",
+        );
+        assert_ne!(w.dispatch_state()["why"], "red");
+        // The next poll says it again, once: once for each poll and branch.
+        let again = w.poll();
+        assert_eq!(
+            again.out.matches(line).count(),
+            1,
+            "{refused}: {}",
+            again.out
         );
     }
 }
