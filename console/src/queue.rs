@@ -213,13 +213,13 @@ fn completed_item(t: &tehas_ports::ClosedTicket) -> Option<J> {
         return None;
     };
     let at = |a: tehas_ports::At| J::str(time::iso(a.secs()));
-    Some(obj(vec![
-        ("number", J::num(n.get() as f64)),
-        ("title", J::str(t.digest.title.as_str())),
-        ("url", J::str(t.digest.link.as_str())),
-        ("createdAt", at(t.digest.created)),
-        ("updatedAt", at(t.digest.updated)),
-        ("closedAt", at(t.closed)),
+    Some(listed([
+        J::num(n.get() as f64),
+        J::str(t.digest.title.as_str()),
+        J::str(t.digest.link.as_str()),
+        at(t.digest.created),
+        at(t.digest.updated),
+        at(t.closed),
     ]))
 }
 
@@ -234,7 +234,8 @@ fn completed_of(shipped: &[tehas_ports::ClosedTicket], previous: &J) -> Vec<J> {
         _ => Vec::new(),
     };
     list.extend(kept);
-    list.sort_by(|a, b| b.get("closedAt").cmp(a.get("closedAt")));
+    let closed = LISTED[5];
+    list.sort_by(|a, b| b.get(closed).cmp(a.get(closed)));
     list.truncate(COMPLETED_MOST);
     list
 }
@@ -538,17 +539,24 @@ fn scan(text: &str, found: &mut dyn FnMut(&str)) {
     }
 }
 
-/// `{number, title, url, createdAt, updatedAt, closedAt}`
+/// The fields of an issue in the snapshot's lists, in their order.
+const LISTED: [&str; 6] = [
+    "number",
+    "title",
+    "url",
+    "createdAt",
+    "updatedAt",
+    "closedAt",
+];
+
+/// An issue of the snapshot's lists, its fields of [`LISTED`] in order.
+fn listed(values: [J; 6]) -> J {
+    obj(LISTED.into_iter().zip(values).collect())
+}
+
+/// `{number, title, url, createdAt, updatedAt, closedAt}` of `issue`.
 fn slim(issue: &J) -> J {
-    let field = |k| issue.get(k).clone();
-    obj(vec![
-        ("number", field("number")),
-        ("title", field("title")),
-        ("url", field("url")),
-        ("createdAt", field("createdAt")),
-        ("updatedAt", field("updatedAt")),
-        ("closedAt", field("closedAt")),
-    ])
+    listed(LISTED.map(|k| issue.get(k).clone()))
 }
 
 /// `sort_by(.key)`, which keeps the order of equal keys.

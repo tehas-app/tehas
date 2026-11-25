@@ -166,10 +166,11 @@ fn an_unchanged_snapshot_records_nothing() {
 fn a_merge_is_recorded_at_the_time_the_issue_was_closed_the_first_time_it_is_completed() {
     let e = Ev::new("merge");
     e.w.status();
-    e.w.shipped(&[e.merged(20, 3600)]);
+    // Closed after the run before, within the hour each read goes back.
+    e.w.shipped(&[e.merged(20, 600)]);
     e.again();
-    assert_eq!(e.events(), format!("event 20 merged --at {}", e.at(3600)));
-    e.w.shipped(&[e.merged(21, 60), e.merged(20, 3600)]);
+    assert_eq!(e.events(), format!("event 20 merged --at {}", e.at(600)));
+    e.w.shipped(&[e.merged(21, 60), e.merged(20, 600)]);
     e.again();
     assert_eq!(e.events(), format!("event 21 merged --at {}", e.at(60)));
 }
