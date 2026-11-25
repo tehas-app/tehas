@@ -313,6 +313,140 @@ fn tickets_a_parent_holds_its_parts() {
 }
 
 #[test]
+fn tickets_every_label_is_in_labels_in_order() {
+    for w in both() {
+        let bug = Mark::Project(MarkName::new("bug").unwrap());
+        let w = w
+            .ticket(1, |t| {
+                t.title("marked")
+                    .mark(Mark::Epic)
+                    .mark(bug.clone())
+                    .mark(Mark::State(State::Running))
+            })
+            .ticket(2, |t| t.title("plain"))
+            .ticket(3, |t| {
+                t.title("closed")
+                    .mark(Mark::Act(Act::Approve))
+                    .closed(CloseReason::Done)
+            });
+        let site = FakeSite::new(&w);
+        let mut h = site.tickets(&full(), C).unwrap();
+        let names = |n: &[&str]| n.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let held = [
+            (w.key(1), names(&["mark:epic", "bug", "state:running"])),
+            (w.key(2), names(&[])),
+            (w.key(3), names(&["act:approve"])),
+        ];
+        ok(laws::tickets::every_label_is_in_labels_in_order(
+            h.as_mut(),
+            &held,
+            b(50),
+        ));
+        // Out of the site's order, the law is broken.
+        let wrong = [(w.key(1), names(&["bug", "mark:epic", "state:running"]))];
+        assert!(
+            laws::tickets::every_label_is_in_labels_in_order(h.as_mut(), &wrong, b(50)).is_err()
+        );
+    }
+}
+
+#[test]
+fn tickets_every_label_is_in_labels_in_order_with_names_no_mark_gives() {
+    for w in both() {
+        let bug = Mark::Project(MarkName::new("bug").unwrap());
+        let w = w
+            .ticket(4, |t| t.title("labelled").mark(Mark::Epic))
+            .ticket(5, |t| t.title("labels alone"));
+        w.label(&w.key(4), "won't fix");
+        w.label(&w.key(4), "c++");
+        let w = w.ticket(4, |t| t.mark(bug.clone()));
+        w.label(&w.key(4), "🚀 launch");
+        w.label(&w.key(4), "c++");
+        w.label(&w.key(5), "won't fix");
+        let site = FakeSite::new(&w);
+        let mut h = site.tickets(&full(), C).unwrap();
+        let names = |n: &[&str]| n.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        // In the order put on, marks and names alike; a name held once.
+        let held = [
+            (
+                w.key(4),
+                names(&["mark:epic", "won't fix", "c++", "bug", "🚀 launch"]),
+            ),
+            (w.key(5), names(&["won't fix"])),
+        ];
+        ok(laws::tickets::every_label_is_in_labels_in_order(
+            h.as_mut(),
+            &held,
+            b(50),
+        ));
+        // Marks leave the names out.
+        let d = h.several(&[w.key(4)]).remove(0).1.unwrap();
+        assert_eq!(d.marks, vec![Mark::Epic, bug.clone()]);
+        // A mark taken off leaves the names where they stood.
+        let mut wr = site.ticket_writes(&full(), C).unwrap();
+        wr.unmark(&w.key(4), &Mark::Epic).unwrap();
+        let held = [(w.key(4), names(&["won't fix", "c++", "bug", "🚀 launch"]))];
+        ok(laws::tickets::every_label_is_in_labels_in_order(
+            h.as_mut(),
+            &held,
+            b(50),
+        ));
+    }
+}
+
+#[test]
+fn tickets_a_name_a_mark_gives_is_one_label() {
+    for w in both() {
+        let bug = Mark::Project(MarkName::new("bug").unwrap());
+        let w = w
+            .ticket(6, |t| t.title("marked first").mark(bug.clone()))
+            .ticket(7, |t| t.title("named first"));
+        // A name a mark gives already, in any case, and an empty name
+        // add nothing.
+        for name in ["bug", "BUG", ""] {
+            w.label(&w.key(6), name);
+        }
+        w.label(&w.key(7), "won't fix");
+        w.label(&w.key(7), "Bug");
+        w.label(&w.key(7), "c++");
+        w.label(&w.key(7), "C++");
+        let site = FakeSite::new(&w);
+        let mut h = site.tickets(&full(), C).unwrap();
+        let mut wr = site.ticket_writes(&full(), C).unwrap();
+        let names = |n: &[&str]| n.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let held = [
+            (w.key(6), names(&["bug"])),
+            (w.key(7), names(&["won't fix", "Bug", "c++"])),
+        ];
+        ok(laws::tickets::every_label_is_in_labels_in_order(
+            h.as_mut(),
+            &held,
+            b(50),
+        ));
+        // The mark of a name held takes the name's place.
+        wr.mark(&w.key(7), &bug).unwrap();
+        let held = [(w.key(7), names(&["won't fix", "bug", "c++"]))];
+        ok(laws::tickets::every_label_is_in_labels_in_order(
+            h.as_mut(),
+            &held,
+            b(50),
+        ));
+        // Taking the mark off takes the label off.
+        wr.unmark(&w.key(6), &bug).unwrap();
+        wr.unmark(&w.key(7), &bug).unwrap();
+        let held = [
+            (w.key(6), names(&[])),
+            (w.key(7), names(&["won't fix", "c++"])),
+        ];
+        ok(laws::tickets::every_label_is_in_labels_in_order(
+            h.as_mut(),
+            &held,
+            b(50),
+        ));
+    }
+}
+
+#[test]
 fn tickets_recent_and_recently_closed_are_newest_updated_first() {
     for w in both() {
         let w = w.ticket(1, |t| t.title("oldest").mark(Mark::Epic));
@@ -927,6 +1061,27 @@ fn code_host_recent_tags_and_releases_are_newest_first() {
         let one = h.recent_tags(n32(1)).unwrap();
         assert_eq!(one.items[0].name.as_str(), "v2.0.0");
         assert!(one.more);
+    }
+}
+
+#[test]
+fn code_host_the_marked_release_is_the_latest() {
+    for w in both() {
+        let at = w.head("main").unwrap();
+        let w = w.tag("v1.0.0", &at).release("v1.0.0", &[]);
+        w.advance(60);
+        let w = w.tag("v1.1.0", &at).release("v1.1.0", &[]);
+        let site = FakeSite::new(&w);
+        let mut h = site.code_host(&full(), C).unwrap();
+        // With no marking, the newest published is the latest.
+        assert_eq!(h.latest_release().unwrap().unwrap().tag.as_str(), "v1.1.0");
+        let w = w.mark_latest("v1.0.0");
+        w.advance(60);
+        let _w = w.tag("v1.2.0", &at).release("v1.2.0", &[]);
+        ok(laws::code_host::the_marked_release_is_the_latest(
+            h.as_mut(),
+            &TagName::new("v1.0.0").unwrap(),
+        ));
     }
 }
 
@@ -2930,7 +3085,8 @@ fn the_writer_sends_each_write_to_its_port_and_answers_its_receipt() {
     let head = w.head("work").unwrap();
     let w = w
         .tag("v1.0.0", &head)
-        .blueprint(1, |b| b.comment("alice", "hello"));
+        // The factory's own comment: `edit_comment` edits no other.
+        .blueprint(1, |b| b.comment(FACTORY, "hello"));
     let site = FakeSite::new(&w);
     let mut writer = Writer {
         tickets: site.ticket_writes(&full(), C).unwrap(),
@@ -4648,6 +4804,118 @@ fn triage_is_below_write_and_maintain_is_not() {
 }
 
 #[test]
+fn blueprints_only_its_own_comment_is_edited_at_every_standing() {
+    let people = [
+        ("bob", Some(Standing::Admin)),
+        ("max", Some(Standing::Maintain)),
+        ("wes", Some(Standing::Write)),
+        ("tia", Some(Standing::Triage)),
+        ("ned", None),
+    ];
+    // Every handle not the factory's: the operator's and a person's at
+    // each standing. A given token's is the factory's account narrowed,
+    // and edits no comment either.
+    let mut actors = vec![(Actor::Operator, OPERATOR)];
+    for (login, _) in people {
+        actors.push((Actor::Person(PersonKey::new(format!("{login}-key"))), login));
+    }
+    for (by, login) in &actors {
+        for mut world in both() {
+            let no = first_blueprint(&world);
+            // The factory's login on a bot account of another id: one the
+            // login alone would take for the factory's.
+            let mut impostor = world.account(FACTORY, Realm::CodeHost);
+            impostor.id = Some(AccountId::new("id-factory-before"));
+            impostor.kind = AccountKind::Bot;
+            for (person, standing) in people {
+                world = world.person(&format!("{person}-key"), person);
+                if let Some(standing) = standing {
+                    world = world.with_account(person, AccountKind::Person, standing);
+                }
+            }
+            let world = world
+                .with_account("helper", AccountKind::Bot, Standing::Write)
+                .blueprint(no, |b| {
+                    b.title("a plan")
+                        .author("alice")
+                        .comment(FACTORY, "the factory's")
+                        .comment(login, "the handle's")
+                        .comment("alice", "a person's")
+                        .comment("helper", "another bot's")
+                        .comment_as(impostor.clone(), "the factory's login's")
+                });
+            let site = FakeSite::new(&world);
+            let mut h = site.blueprint_writes(&full(), C).unwrap();
+            let mut other = site.blueprint_writes(by, C).unwrap();
+            let all = h.comments(bp(no), b(10)).unwrap().into_items();
+            let id = |body: &str| all.iter().find(|c| c.body == body).unwrap().id.clone();
+            let theirs = [
+                id("the handle's"),
+                id("a person's"),
+                id("another bot's"),
+                id("the factory's login's"),
+            ];
+            ok(laws::blueprints::only_its_own_comment_is_edited(
+                h.as_mut(),
+                other.as_mut(),
+                bp(no),
+                &id("the factory's"),
+                &theirs,
+            ));
+            let edits: Vec<_> = site
+                .world()
+                .wrote()
+                .into_iter()
+                .filter_map(|r| match r.what {
+                    Write::EditComment { id, .. } => Some(id),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(
+                edits,
+                [id("the factory's")],
+                "{login}: the factory's own comment alone is written"
+            );
+        }
+    }
+}
+
+/// A given token is the factory's account narrowed, not `Actor::Ours`:
+/// it edits no comment, the factory's neither.
+#[test]
+fn a_given_tokens_handle_edits_no_comment() {
+    let key = PersonKey::new("given-key");
+    for world in both() {
+        let no = first_blueprint(&world);
+        let until = At::new(world.now().secs() + 1200);
+        let world = world
+            .given(
+                "given-key",
+                Scope::Full,
+                Token::new(Secret::new("handed-in"), until),
+            )
+            .blueprint(no, |b| b.title("a plan").comment(FACTORY, "the factory's"));
+        let site = FakeSite::new(&world);
+        let mut h = site.blueprint_writes(&full(), C).unwrap();
+        let ours = h.comments(bp(no), b(10)).unwrap().into_items().remove(0);
+        let mut given = site
+            .blueprint_writes(&Actor::Given(key.clone()), C)
+            .unwrap();
+        assert_eq!(
+            given
+                .edit_comment(
+                    &ours.id,
+                    "Taken over.",
+                    &MarkerEdit::default(),
+                    &ours.revision
+                )
+                .map(drop),
+            Err(Outcome::Forbidden)
+        );
+    }
+}
+
+#[test]
 fn a_person_below_write_comments_files_and_edits_their_own() {
     let w = World::split()
         .person("bob-key", "bob")
@@ -4684,9 +4952,12 @@ fn a_person_below_write_comments_files_and_edits_their_own() {
     );
     let comment = bl.comments_by_id(std::slice::from_ref(&posted.id));
     let rev = comment[0].1.as_ref().unwrap().revision.clone();
-    assert!(bl
-        .edit_comment(&posted.id, "edited", &MarkerEdit::default(), &rev)
-        .is_ok());
+    assert_eq!(
+        bl.edit_comment(&posted.id, "edited", &MarkerEdit::default(), &rev)
+            .map(drop),
+        Err(Outcome::Forbidden),
+        "a person's handle edits no comment, its own neither"
+    );
     assert_eq!(bl.close(bp(102), true), Err(Outcome::Forbidden));
     let mut t = site.ticket_writes(&bob, C).unwrap();
     assert!(t.file(&new_ticket()).is_ok());

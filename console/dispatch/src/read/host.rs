@@ -444,14 +444,14 @@ mod tests {
     /// A home of this case's own, with its `state`.
     fn home(name: &str) -> TestDir {
         let d = TestDir::new(&format!("dispatch-host-{name}"));
-        fs::create_dir_all(d.join("state")).unwrap();
+        fs::create_dir_all(Home::new(&*d).state_dir()).unwrap();
         d
     }
 
     #[test]
     fn a_pause_flag_is_read_as_the_console_reads_it() {
         let h = home("pause");
-        let file = h.join("state/pause.json");
+        let file = Home::new(&*h).state(State::Pause);
         assert_eq!(pause(&h), Value::Null, "no file");
         fs::write(
             &file,
@@ -473,7 +473,7 @@ mod tests {
     #[test]
     fn a_push_fault_is_read_whole_and_one_that_says_nothing_counts_as_present() {
         let h = home("push-fault");
-        let file = h.join("state/push-fault.json");
+        let file = Home::new(&*h).state(State::PushFault);
         assert_eq!(push_fault(&h), Value::Null, "no file");
         fs::write(
             &file,
@@ -587,8 +587,8 @@ mod tests {
     fn the_last_why_is_read_only_from_a_regular_file_under_the_bound() {
         let h = home("last-why");
         assert_eq!(last_why(&h), "");
-        fs::create_dir_all(h.join("live")).unwrap();
-        let file = h.join("live/dispatch.json");
+        fs::create_dir_all(Home::new(&*h).live_dir()).unwrap();
+        let file = Home::new(&*h).live(Live::Dispatch);
         fs::write(&file, r#"{"why":"room"}"#).unwrap();
         assert_eq!(last_why(&h), "room");
         let pad = " ".repeat(READ_BOUND as usize);
@@ -605,7 +605,7 @@ mod tests {
     fn a_plans_record_is_there_or_not_and_what_cannot_be_read_counts_for_nothing() {
         let h = home("plan-start");
         assert_eq!(plan_start(&h, 7), None);
-        fs::create_dir_all(h.join("state/plan-start")).unwrap();
+        fs::create_dir_all(Home::new(&*h).plan_starts()).unwrap();
         assert_eq!(plan_start(&h, 7), None);
         let file = plan_start_file(&h, 7);
         fs::write(&file, r#"{"by":"alice"}"#).unwrap();
@@ -624,7 +624,7 @@ mod tests {
     #[test]
     fn a_refresh_request_over_the_bound_is_not_read_and_is_named() {
         let h = home("requests");
-        let dir = h.join("state/refresh");
+        let dir = Home::new(&*h).state(State::Refreshes);
         fs::create_dir_all(&dir).unwrap();
         fs::write(
             dir.join("7.json"),
@@ -674,7 +674,7 @@ mod tests {
     #[test]
     fn no_lock_and_one_the_probe_took_are_not_held() {
         let h = home("free");
-        let lock = h.join("state/plan-7.json.lock");
+        let lock = Home::new(&*h).plan_file(7, ".lock");
         assert!(!held(&lock), "no lock file");
         fs::write(&lock, "").unwrap();
         assert!(!held(&lock), "a lock no one holds");
@@ -683,7 +683,7 @@ mod tests {
     #[test]
     fn a_directory_at_a_planning_lock_path_is_held() {
         let h = home("directory");
-        let lock = h.join("state/plan-7.json.lock");
+        let lock = Home::new(&*h).plan_file(7, ".lock");
         fs::create_dir(&lock).unwrap();
         assert!(held(&lock), "a name that is no lock file");
     }
@@ -693,7 +693,7 @@ mod tests {
         let h = home("link");
         let target = h.join("elsewhere.lock");
         fs::write(&target, "").unwrap();
-        let lock = h.join("state/plan-7.json.lock");
+        let lock = Home::new(&*h).plan_file(7, ".lock");
         std::os::unix::fs::symlink(&target, &lock).unwrap();
         assert!(held(&lock), "a lock asked by a name of its own");
     }
@@ -701,7 +701,7 @@ mod tests {
     #[test]
     fn a_lock_held_by_another_process_is_held() {
         let h = home("held");
-        let lock = h.join("state/plan-7.json.lock");
+        let lock = Home::new(&*h).plan_file(7, ".lock");
         fs::write(&lock, "").unwrap();
         // The holder is a process of its own, so the probe's open is not the one
         // that already holds the lock. It prints when it holds, waits for a line,
@@ -765,7 +765,7 @@ mod tests {
             (true, false),
             "no program"
         );
-        fs::write(h.join("state/plan-7.json.rc"), "0").unwrap();
+        fs::write(Home::new(&*h).plan_file(7, ".rc"), "0").unwrap();
         assert_eq!(
             turn(&h, 7, gone.to_str().unwrap()),
             (false, true),
@@ -776,7 +776,7 @@ mod tests {
     #[test]
     fn the_container_of_a_running_cycle_is_read_from_its_cid_file() {
         let h = home("cids");
-        let cycles = h.join("state/cycles");
+        let cycles = Home::new(&*h).cycles_dir();
         fs::create_dir(&cycles).unwrap();
         fs::write(cycles.join("7.cid"), "c0ffee\n").unwrap();
         assert_eq!(slice(&h, &[7, 8])["cids"], json!(["c0ffee"]));
@@ -785,12 +785,12 @@ mod tests {
     #[test]
     fn the_sweep_finds_an_issue_by_its_console_and_asks_its_lock() {
         let h = home("leftovers");
-        let live = h.join("live");
+        let live = Home::new(&*h).live_dir();
         fs::create_dir(&live).unwrap();
         fs::write(live.join("console-5.txt"), "").unwrap();
         fs::write(live.join("console-6.txt"), "").unwrap();
         // A directory at the name of #5's lock is no lock file.
-        fs::create_dir_all(h.join("state/cycles/5.lock")).unwrap();
+        fs::create_dir_all(Home::new(&*h).cycle_note(5, "lock")).unwrap();
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -811,12 +811,12 @@ mod tests {
     fn cycles_that_cannot_be_listed_are_not_none() {
         let h = home("cycles");
         assert_eq!(cycles(&h), Some(vec![]), "no directory is no cycle");
-        fs::create_dir(h.join("state/cycles")).unwrap();
-        fs::write(h.join("state/cycles/7.lock"), "").unwrap();
-        fs::write(h.join("state/cycles/notes.txt"), "").unwrap();
+        fs::create_dir(Home::new(&*h).cycles_dir()).unwrap();
+        fs::write(Home::new(&*h).cycle_note(7, "lock"), "").unwrap();
+        fs::write(Home::new(&*h).cycles_dir().join("notes.txt"), "").unwrap();
         assert_eq!(cycles(&h), Some(vec![]), "a lock no one holds");
-        fs::remove_dir_all(h.join("state/cycles")).unwrap();
-        fs::write(h.join("state/cycles"), "").unwrap();
+        fs::remove_dir_all(Home::new(&*h).cycles_dir()).unwrap();
+        fs::write(Home::new(&*h).cycles_dir(), "").unwrap();
         assert_eq!(cycles(&h), None, "a directory that cannot be listed");
     }
 }

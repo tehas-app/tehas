@@ -417,7 +417,7 @@ struct RestUser {
 
 /// The part of an answer at `at`, its accounts vouched, in the type asked.
 /// An answer that is not that is `Unread(Malformed)`.
-pub(crate) fn part<T: DeserializeOwned>(out: &str, at: &str) -> Got<T> {
+fn part<T: DeserializeOwned>(out: &str, at: &str) -> Got<T> {
     let mut all: serde_json::Value = serde_json::from_str(out.trim()).map_err(|_| MALFORMED)?;
     tehas_core::accounts::vouch(&mut all);
     let part = all.pointer_mut(at).map(std::mem::take).ok_or(MALFORMED)?;
@@ -646,7 +646,8 @@ impl GitHub {
             let out = self
                 .ask("the list of issues", &question, None, cursor.as_deref())
                 .map_err(|e| self.outcome(&e))?;
-            let page: Page<Node> = part(&out, "/data/repository/issues")?;
+            let page: Page<Node> =
+                crate::graphql::part(&out, "/data/repository/issues", (self.now)())?;
             for node in page.nodes {
                 let digest = self.digest_from(node.ok_or(INCONSISTENT)?)?;
                 if all.iter().any(|d| d.key == digest.key) {
@@ -744,7 +745,7 @@ impl GitHub {
         settle: bool,
     ) -> Got<Answer> {
         match self.ask("the issue's question", question, Some(issue), cursor) {
-            Ok(out) => part(&out, "/data/repository/issue"),
+            Ok(out) => crate::graphql::part(&out, "/data/repository/issue", (self.now)()),
             Err(e) => {
                 let was = self.outcome(&e);
                 if !settle || !e.why.contains("exited") {
@@ -1115,6 +1116,7 @@ impl GitHub {
         digest.title = n.title;
         digest.kind = n.issue_type.map(|t| tehas_ports::Kind::named(&t.name));
         digest.marks = marks;
+        digest.labels = labels;
         digest.target = n
             .milestone
             .map(|m| TargetName::new(TargetId::new(m.number.to_string()), m.title));

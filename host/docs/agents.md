@@ -37,7 +37,7 @@ to look at is the public dashboard at <https://tehas.app/>.
 | `/<page>.md`                            | Any manual page as Markdown, for example `/new-project.md`     |
 | `/llms-full.txt`                        | `/llms.txt` followed by every manual page as Markdown, each under its address, in one text |
 | `/health`                               | Factory health as JSON; 503 when unhealthy                     |
-| `/live/status.json`                     | The queue snapshot: repository, issues by state, how many are in planning, how many closed issues carry `tehas:shipped`, paused or not, and the most used words of all its issues |
+| `/live/status.json`                     | The queue snapshot: repository, issues by state, how many are in planning, how many closed issues carry `tehas:shipped`, and paused or not |
 | `/live/epics.json`                      | The open epics, issues with sub-issues, newest first: each with its count of sub-issues and how many are closed, and its sub-issues in this repository with their state; `unlinked`, the open issues labelled `epic` with no sub-issues |
 | `/live/running.json`                    | The running cycles and the one that finished last              |
 | `/live/endings.json`                    | The last ten cycles that ended, oldest first                   |
@@ -59,7 +59,6 @@ one. A request without a key gets 401.
 - `factory_issues`: the issues in one stage, such as `queued`, `running` or `stopped`
 - `factory_endings`: the cycles that ended last, and the failed ones among them
 - `factory_console`: the tail of one running cycle's console, masked
-- `factory_stats`: the ten-day report the dashboard shows
 - `factory_issue`: one issue's story: its stage, its title, the running cycle and every run of the last 30 days
 - `factory_sessions`: the runs of the last 30 days, newest first, with filters such as `outcome`
 - `factory_session`: one run in full: steps, roles, logs and links

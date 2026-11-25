@@ -395,6 +395,9 @@ pub(crate) struct Ctx {
     pub below_write: bool,
     /// The scope the handle acts with, if the factory's.
     pub scope: Option<Scope>,
+    /// The handle is the factory's own (`Actor::Ours`): the one handle
+    /// `BlueprintWrites::edit_comment` edits through.
+    pub ours: bool,
 }
 
 impl Ctx {
@@ -405,6 +408,23 @@ impl Ctx {
             return Err(Outcome::Forbidden);
         }
         Ok(())
+    }
+
+    /// `Forbidden` unless the handle is the factory's own (`Actor::Ours`)
+    /// and the factory's account wrote it, known by its id, at every
+    /// standing: what `BlueprintWrites::edit_comment` edits. No author, or
+    /// one with no id, is `Forbidden` too, and so is every comment through
+    /// any other handle (the operator's, a person's, a given token's), the
+    /// factory's comment as well.
+    pub fn authored(&self, s: &State, author: Option<&Account>) -> Got<()> {
+        if !self.ours {
+            return Err(Outcome::Forbidden);
+        }
+        let ours = self.me(s).id;
+        match author.and_then(|a| a.id.as_ref()) {
+            Some(id) if ours.as_ref() == Some(id) => Ok(()),
+            _ => Err(Outcome::Forbidden),
+        }
     }
 
     /// `Forbidden` where a cycle's ticket or blueprint write carries more
@@ -487,6 +507,7 @@ impl Handle {
             me: self.me.clone(),
             below_write,
             scope: self.scope,
+            ours: matches!(self.actor, Actor::Ours(_)),
         }
     }
 
@@ -1099,12 +1120,34 @@ pub(crate) fn digest(s: &State, item: &ItemRec) -> Option<TicketDigest> {
         kind: item.kind.clone(),
         priority: item.priority,
         marks: item.marks.clone(),
+        labels: labels(item),
         target,
         author: item.author.clone(),
         created: item.created,
         updated: item.updated,
         revision: revision(item.revision),
     })
+}
+
+/// A ticket's label names in the order they were put on: each mark by
+/// its name (`mark_name`), and each name `World::label` put on among
+/// them where it was put on. `ItemRec` holds a name once.
+fn labels(item: &ItemRec) -> Vec<String> {
+    let marks: Vec<String> = item.marks.iter().map(mark_name).collect();
+    let raw = |n: usize| {
+        (item.labels.iter())
+            .filter(|(after, _)| *after == n)
+            .map(|(_, name)| name.clone())
+            .collect::<Vec<_>>()
+    };
+    let mut out = raw(0);
+    for (n, name) in marks.iter().enumerate() {
+        if !name.is_empty() {
+            out.push(name.clone());
+        }
+        out.extend(raw(n + 1));
+    }
+    out
 }
 
 /// Tickets in list order: oldest filed first, ties broken by key.

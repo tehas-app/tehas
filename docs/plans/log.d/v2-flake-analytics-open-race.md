@@ -1,0 +1,1 @@
+| 2026-11-25 | A diagnostic for the analytics open race seen once in CI: the concurrent-openers test names each opener's step and time on a failure, and the kept-aside test no longer leaks a WAL connection with `mem::forget`. Not a fix: the race is not reproduced | v2/flake-analytics-open-race |

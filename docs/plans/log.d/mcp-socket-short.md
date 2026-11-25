@@ -1,0 +1,1 @@
+| 2026-11-24 | Test sockets live under a short directory: the MCP tests that bind a Unix socket (the plugins broker in plugins.rs and tests/plugins.rs, the fetch socket in tests/git.rs and tests/serve.rs) make it under `TestDir::short()`, so a long `$TMPDIR` no longer pushes its path past SUN_LEN | v2/mcp-socket-short |

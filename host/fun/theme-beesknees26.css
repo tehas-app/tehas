@@ -6,7 +6,7 @@
    the faint labels about 3.4:1.
 
    Sets the same tokens as pixel.css, which says what each one is for. Every
-   page but the front page names this file. IBM Plex is under the SIL Open Font
+   page names this file unless the instance sets TEHAS_DESIGN=pixel. IBM Plex is under the SIL Open Font
    License, in IBMPlex-OFL.txt beside this file. */
 
 @font-face { font-family: "IBM Plex Sans"; font-weight: 400; font-display: swap; src: url("/fun/IBMPlexSans-400.woff2") format("woff2"); }
@@ -85,7 +85,7 @@
   --stage-ship: #5573aa;
   --stage-ship-soft: #eef3fb;
 
-  /* The canvases draw on the dark screen: light, muted marks. */
+  /* Series colours, drawn on the dark screen: light, muted marks. */
   --band-1: #77ba8d;
   --band-2: #a9bce4;
   --band-3: #e4b777;
@@ -99,12 +99,6 @@
   --piece-3: #e4b777;
   --piece-4: #a0b6d4;
   --piece-text: #20231f;
-  --game-ground: #0f1512;
-  --game-floor: #1b211c;
-  --game-shadow: #060908;
-  --game-ball: #e9ebe6;
-  --game-paddle: #77ba8d;
-  --game-flash: #e9ebe6;
 }
 
 /* The dark set, only where the viewer picked it. */

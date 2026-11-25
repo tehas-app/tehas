@@ -665,6 +665,13 @@ impl World {
         self
     }
 
+    /// Mark the release of `tag` latest, as a person may mark an older one
+    /// on the site.
+    pub fn mark_latest(self, tag: &str) -> Self {
+        self.lock().marked_latest = Some(TagName::new(tag).expect("a tag"));
+        self
+    }
+
     /// Delete a comment, as a person does between a read and a write.
     pub fn delete_comment(&self, id: &CommentId) {
         let mut s = self.lock();
@@ -677,6 +684,21 @@ impl World {
     /// its id, and every ticket and event that named it names `to`.
     pub fn rename_mark(&self, from: &Mark, to: &Mark) {
         self.lock().rename_mark(from, to);
+    }
+
+    /// Put a label on a ticket by the site's own name, one no mark need
+    /// give, such as `won't fix`, as a person does on the site. It stands
+    /// after the marks the ticket carries now, and before any put on
+    /// later. Names are one whatever their case, as on the site: a name
+    /// the ticket holds already, by a mark or by name, is held once, and
+    /// a mark of that name put on later takes its place. An empty name
+    /// is no label. Only `TicketDigest.labels` shows it: `marks` leaves
+    /// it out, and no write, event or revision follows (Decided 130).
+    pub fn label(&self, key: &TicketKey, name: &str) {
+        let mut s = self.lock();
+        if let Some(at) = s.ticket_at(key) {
+            s.items[at].label(name);
+        }
     }
 
     /// Edit an item's text as another account does, between a caller's

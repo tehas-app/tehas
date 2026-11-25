@@ -31,7 +31,7 @@
 
 use std::collections::BTreeSet;
 
-use super::super::blueprint_writes::ends_with_folded;
+use super::super::blueprint_writes::{comment_revision, ends_with_folded};
 use crate::tickets::{account, Bot};
 use crate::{gh, markers, GitHub};
 use serde::Deserialize;
@@ -39,8 +39,8 @@ use serde_json::Value;
 use tehas_ports::{
     Account, AccountKind, At, BlueprintNo, Bound, Branch, Change, ChangeDigest, ChangeNo,
     ChangeState, ChangedFile, Comment, CommentId, CommitId, Got, ItemName, Login, Mergeable,
-    Outcome, Pool, ProjectName, Realm, Ref, Relation, RepoPath, Review, ReviewNote, Revision, Size,
-    Unread, Verdict, WebLink,
+    Outcome, Pool, ProjectName, Realm, Ref, Relation, RepoPath, Review, ReviewNote, Size, Unread,
+    Verdict, WebLink,
 };
 
 /// What one page of a REST list asks for, the most GitHub gives.
@@ -591,7 +591,7 @@ fn read_comments(
         let created = time(c.created_at.as_deref())?;
         let updated = time(c.updated_at.as_deref())?;
         let read = markers::read(raw, Some(item));
-        let sum = Revision::new(tehas_core::approval::body_sum(raw));
+        let sum = comment_revision(raw);
         let link = WebLink::new(url).map_err(|_| MALFORMED)?;
         let mut comment = Comment::new(CommentId::new(id.to_string()), created, sum, link);
         comment.author = author(c.user.as_ref(), bot);
@@ -842,23 +842,7 @@ pub(super) fn says_closes(text: &str) -> Vec<Ref<BlueprintNo>> {
 /// that carries errors is no whole answer: a spent priced budget when
 /// GitHub says the rate is limited, `Unread(Inconsistent)` for any other.
 pub(super) fn answer<T: serde::de::DeserializeOwned>(out: &str, now: i64) -> Got<T> {
-    let mut v: Value = serde_json::from_str(out.trim()).map_err(|_| MALFORMED)?;
-    if let Some(errors) = v.get("errors").filter(|e| !e.is_null()) {
-        let limited = errors.as_array().is_some_and(|all| {
-            all.iter()
-                .any(|e| e.get("type").and_then(Value::as_str) == Some("RATE_LIMITED"))
-        });
-        return Err(match limited {
-            true => Outcome::Spent {
-                pool: Pool::Priced,
-                until: At::new(now),
-            },
-            false => Outcome::Unread(Unread::Inconsistent),
-        });
-    }
-    tehas_core::accounts::vouch(&mut v);
-    let data = v.get_mut("data").map(std::mem::take).ok_or(MALFORMED)?;
-    serde_json::from_value(data).map_err(|_| MALFORMED)
+    crate::graphql::part(out, "/data", now)
 }
 
 /// A REST answer, its logins vouched, or `Unread(Malformed)`.

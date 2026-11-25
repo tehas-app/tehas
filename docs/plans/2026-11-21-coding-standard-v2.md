@@ -164,6 +164,33 @@ python3 -I scripts/architecture.py --force --base origin/refactor/coding-standar
 The pull request that lowers a count lowers its `max`. A `max` is never
 raised without a new `why`.
 
+### Alpha grade and beta grade
+
+The owner, 2026-11-25: work is graded by what it does, and every line of
+work has its grade, set by the program manager.
+
+- **Alpha grade** shapes the code. Much of it is replaced by new work
+  soon, so most validation of it is wasted, and it takes the fast lane:
+  - a pull request whose files are all mechanical (docs, plan and log
+    rows, pins, lock files, pure moves, import-only edits, an
+    `architecture.toml` change that only lowers a `max` or drops an
+    allowance) needs green CI, and the lead merges it;
+  - other code needs green CI and the lead's own read of the diff, with
+    no independent review, and no second reviewer's yes.
+  - Long serial chains go first: one worker each, and a build slot kept
+    free for them whatever the other priorities.
+- **Beta grade** improves the code that alpha work shaped, under the
+  standing rules: an independent review and the tehas reviewer's yes.
+
+At either grade the full review stays for a seam another part reads (`console/ports/`, `api/`, the update and release code, events, and the events, ports and plugins specs), `scripts/architecture.py`,
+`.tehas/`, an `architecture.toml` change that raises a `max` or adds an
+allowance, an added ignore or skip, and tests removed. Gate files still need
+the owner each time; no count rises; a flake is fixed at its cause. A pull
+request may ask for beta grade on an alpha line (`Grade: beta` in its
+body), never the reverse.
+
+This branch is **alpha grade** until v2.0.0-alpha.1 is tagged.
+
 ## What must keep passing
 
 **The gate.** Every pull request passes `scripts/verify.sh`, the whole
@@ -393,6 +420,18 @@ Done when `github-rest` is 0 and `gh-argv` is at 0 or at its written
 floor, and a fake code host that times out or rate-limits leaves the
 dispatcher and a cycle running, with one report.
 
+For alpha.1 (the trio PM's ruling, 2026-11-25), alpha.1 closes on written
+floors: the open T4 adapter pull requests land first, and what is still
+written outside the adapter is written down as T4's alpha.1 floors, per
+area, in
+[docs/architecture.md, "T4's alpha.1 floors"](../architecture.md#t4s-alpha1-floors).
+Moving it is T4's remaining lane, before the beta. T4.6 step 6 and D4
+are a written departure there too, so the resilience test covers the
+parts on the ports only, at alpha.1. The same ruling
+writes the rest of label-words, home-layout, raw-statuses and
+tests-stub-gh as alpha.1 floors, in
+[docs/architecture.md, "alpha.1 floors"](../architecture.md#alpha1-floors).
+
 T4's Done also needs, before T4 is done, one live read-only recording
 per GraphQL question of the adapter, made with a real token: among them
 an issue with an edited comment, a repository rename's 301, and the list
@@ -482,6 +521,25 @@ Findings:
 - A GraphQL error makes gh exit 1. #2993 settles it with a second REST
   read and #2990 with the plain outcome. Both read the error's type from
   `GhRunner::run_answer` (#3018) instead.
+- T4.10a (tehas-68's ruling, option (b)): `tehas update`'s signed-in
+  release list and download go through `CodeHost` on the release
+  project's own site (Decided 23). The anonymous list and download
+  through curl, and the `gh auth status` that chooses between them,
+  stay in `console/ops/src/update/release.rs`, because the adapter
+  answers `Actor::Anonymous` for no release file yet: #3207's `Curl`
+  reaches the API host alone, and #3216 refuses Anonymous before any
+  request. They are removed by the anonymous download adapter PR. The
+  signed-in handle acts as `Actor::Operator`, the operator's own gh,
+  which is what the update used: the adapter's site answers
+  `Actor::Ours(Scope::Read)` only for a sign-in, so a read-scoped
+  factory handle is that adapter PR's too.
+- T4.10b (tehas-68's ruling, 2026-11-25): the anonymous list and
+  download go through #3234's anonymous handle, and the `gh auth status`
+  probe, the curl path and `api.github.com` leave `release.rs`. The
+  update turns to the anonymous handle on the operator's answer alone:
+  `SignedOut`, `Forbidden` or `Unavailable { Unreachable, No }`, made
+  or asked first, never `Server` or `Maybe`. gh's exit 4 is `SignedOut`
+  by an adapter PR of its own (Decided 80).
 
 ### T5. Deep homes for files
 
@@ -516,6 +574,12 @@ floors. A finding #2890 moved here from "Temporary rises", to fix:
   `console/src/preview/choose_tests.rs` (#2866), which edits a row of
   GitHub's list, the untyped value `preview::choose` takes. It goes when
   T7 types that list.
+
+For alpha.1 (the trio PM's ruling, 2026-11-24), T7 closes on written
+floors: the open T7 pull requests land first, and what is still untyped
+is written down as the alpha.1 floor in
+[docs/architecture.md, "The alpha.1 floor"](../architecture.md#the-alpha1-floor).
+Typing it is T7's remaining lane, before the beta.
 
 ### T8. The bash that stays
 
@@ -839,6 +903,8 @@ Done when the 2.0 contract is written, and each change has its row and
 its note to adopters.
 
 ### T10. The rename
+
+The checklist, item by item: [docs/plans/2026-11-24-t10-rename-checklist.md](2026-11-24-t10-rename-checklist.md).
 
 tehas becomes tehas-factory in 2.0.0, and `tehas-app/tehas` is later
 reused for a get-started repository, which ends GitHub's redirect. Every

@@ -1,5 +1,5 @@
 //! The blueprints port's writes as the adapter answers them: `open`,
-//! `edit` and `comment`, over samples of GitHub's answers in
+//! `edit`, `comment` and `edit_comment`, over samples of GitHub's answers in
 //! `tests/samples/blueprint-writes/` (hand-made from GitHub's documented
 //! shapes, no secret and no private name). A failure sample is gh's error
 //! stream, given to the adapter as `Bounded` would give it. No test calls
@@ -81,6 +81,9 @@ impl GhRunner for Script {
     }
 }
 
+/// The user id of the factory's bot account the samples' comments carry.
+const BOT_ID: u64 = 100001;
+
 fn adapter(answers: Vec<Result<String, String>>) -> (GitHub, Calls) {
     let calls = Calls::default();
     let script = Script {
@@ -89,6 +92,47 @@ fn adapter(answers: Vec<Result<String, String>>) -> (GitHub, Calls) {
     };
     let gh = GitHub::new(PROJECT, Box::new(script)).on_clock(now);
     (gh, calls)
+}
+
+/// The factory's handle, as a site that knows the bot's user id makes
+/// it: the one that edits the factory's own comments.
+fn adapter_ours(answers: Vec<Result<String, String>>) -> (Box<dyn BlueprintWrites + Send>, Calls) {
+    let calls = Calls::default();
+    let script = Script {
+        answers: answers.into(),
+        calls: Arc::clone(&calls),
+    };
+    (ours(Box::new(script), Some(BOT_ID)), calls)
+}
+
+/// The blueprints write handle a site makes for the factory's account over
+/// `runner`, the site knowing the bot's user id `bot_id`.
+fn ours(runner: Box<dyn GhRunner>, bot_id: Option<u64>) -> Box<dyn BlueprintWrites + Send> {
+    handle_as(
+        &tehas_ports::Actor::Ours(tehas_ports::Scope::Full),
+        runner,
+        bot_id,
+    )
+}
+
+/// The blueprints write handle a site makes for `by` over `runner`, the
+/// site knowing the bot's user id `bot_id`.
+fn handle_as(
+    by: &tehas_ports::Actor,
+    runner: Box<dyn GhRunner>,
+    bot_id: Option<u64>,
+) -> Box<dyn BlueprintWrites + Send> {
+    let runner = Mutex::new(Some(runner));
+    let make: tehas_github::MakeRunner = Arc::new(move |_: &tehas_ports::Actor| {
+        Ok(runner.lock().unwrap().take().expect("one handle"))
+    });
+    let site = tehas_github::GitHubSite::new(PROJECT, "tehas-bot[bot]", bot_id, make).on_clock(now);
+    tehas_ports::Site::blueprint_writes(
+        &site,
+        by,
+        tehas_ports::Caller::new("test.blueprint-writes"),
+    )
+    .unwrap()
 }
 
 /// A body of 200 KiB, past what one argument may hold, and unlike any
@@ -440,6 +484,26 @@ fn an_edit_that_would_drop_a_marker_is_refused_and_a_title_alone_is_made() {
     );
 }
 
+/// A marker the reader finds bare, or our closing wrapper alone, is kept
+/// as an opening marker is: a new body would lose it.
+#[test]
+fn an_edit_over_a_bare_marker_or_a_closing_wrapper_is_refused() {
+    for kept in [
+        "tehas:park issue=7 step=work kind=stopped provider=0 sig=0000000000000000000000000000000000000000000000000000000000000000",
+        "<!-- /tehas:last-attempt -->",
+    ] {
+        let text = format!("The plan.\n\n{kept}");
+        assert!(!tehas_core::text::has_marker(&text), "{kept}");
+        assert!(tehas_github::markers::foreign_text(&text), "{kept}");
+        let marked = issue_7("Plan", &text);
+        let since = revision_of(&marked);
+        let (mut gh, calls) = adapter(vec![Ok(marked)]);
+        let got = gh.edit(no(7), None, Some("New."), &MarkerEdit::default(), &since);
+        assert_eq!(got, Err(Outcome::Refused(Refusal::Unsupported)), "{kept}");
+        assert_eq!(calls.lock().unwrap().len(), 1, "only the read");
+    }
+}
+
 #[test]
 fn an_edit_with_nothing_to_change_reads_and_writes_nothing() {
     let read = sample("issue-7.json");
@@ -708,9 +772,6 @@ fn a_runner_that_takes_no_input_sends_nothing_and_never_puts_the_text_in_an_argu
 fn the_unbuilt_writes_are_refused_before_any_request() {
     let (mut gh, calls) = adapter(Vec::new());
     let unsupported = Err(Outcome::Refused(Refusal::Unsupported));
-    let id = CommentId::new("1");
-    let edit = gh.edit_comment(&id, "b", &MarkerEdit::default(), &Revision::new("r"));
-    assert_eq!(edit.map(|_| ()), unsupported);
     assert_eq!(gh.close(no(7), true), unsupported);
     assert!(calls.lock().unwrap().is_empty());
 }
@@ -927,6 +988,46 @@ fn every_reason_bounded_gives_maps_as_before_the_relays_runner() {
     }
 }
 
+/// A connection that broke after the request went out may have carried
+/// it; one never made carried nothing. These are the cases the journal
+/// read from gh's words until T4.7 took that reading out of it.
+#[test]
+fn a_broken_connection_may_have_carried_the_write_and_one_never_made_did_not() {
+    let maybe = |why| Outcome::Unavailable {
+        why,
+        sent: Sent::Maybe,
+    };
+    let never = Outcome::Unavailable {
+        why: Passing::Unreachable,
+        sent: Sent::No,
+    };
+    let cases = [
+        (": connection reset by peer", maybe(Passing::Unreachable)),
+        (": unexpected EOF", maybe(Passing::Unreachable)),
+        (": EOF", maybe(Passing::Server)),
+        (
+            ": http2: server sent GOAWAY and closed the connection",
+            maybe(Passing::Server),
+        ),
+        (": http2: client connection closed", maybe(Passing::Server)),
+        (
+            ": write tcp: use of closed network connection",
+            maybe(Passing::Server),
+        ),
+        (
+            ": http: server closed idle connection",
+            maybe(Passing::Server),
+        ),
+        (": HTTP 503", maybe(Passing::Server)),
+        (": HTTP 504", maybe(Passing::Server)),
+        (": dial tcp: connect: connection refused", never.clone()),
+        (": dial tcp: lookup: no such host", never),
+    ];
+    for (why, want) in cases {
+        assert_eq!(read_outcome(why), want, "{why}");
+    }
+}
+
 /// A body holding a marker that reads and one that does not (a field with
 /// a leading zero).
 const MARKED: &str = "The plan.\n<!-- tehas:hold-cleared -->\n<!-- tehas:park issue=07 step=work kind=stopped provider=0 sig=0000000000000000000000000000000000000000000000000000000000000000 -->";
@@ -1088,4 +1189,585 @@ fn what_today_answers_for_the_relays_own_sentence() {
             "{op}"
         );
     }
+}
+
+/// The question comment of issue 7 as GitHub holds it, its marker in.
+const QUESTION: &str = "comment-7-question.json";
+const QUESTION_ID: &str = "2501230002";
+const QUESTION_PATH: &str = "repos/acme/widget/issues/comments/2501230002";
+
+fn question_id() -> CommentId {
+    CommentId::new(QUESTION_ID)
+}
+
+/// A comment's answer with its body set.
+fn comment_with(body: &str) -> String {
+    let mut v: Value = serde_json::from_str(&sample(QUESTION)).unwrap();
+    v["body"] = body.into();
+    v.to_string()
+}
+
+fn raw_body(answer: &str) -> String {
+    let v: Value = serde_json::from_str(answer).unwrap();
+    v["body"].as_str().unwrap().to_string()
+}
+
+/// The revision a read of comments gives the comment of `answer`: the sum
+/// of its raw body, markers in.
+fn comment_revision_of(answer: &str) -> Revision {
+    Revision::new(tehas_core::approval::body_sum(&raw_body(answer)))
+}
+
+fn patch_of(path: &str) -> Vec<String> {
+    args(&["api", "-X", "PATCH", path, "--input", "-"])
+}
+
+/// What a comment's edit sent on standard input: its body alone.
+fn sent_body(c: &Call) -> String {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Only {
+        body: String,
+    }
+    serde_json::from_str::<Only>(c.input.as_deref().unwrap())
+        .unwrap()
+        .body
+}
+
+#[test]
+fn a_comments_edit_reads_it_then_sends_its_body_on_standard_input_keeping_its_marker() {
+    let read = sample(QUESTION);
+    let text = "Which defaults: the shipped ones.";
+    let want = raw_body(&read).replace("Which defaults: the shipped ones or the site's?", text);
+    let (mut gh, calls) = adapter_ours(vec![Ok(read.clone()), Ok(comment_with(&want))]);
+    let link = gh
+        .edit_comment(
+            &question_id(),
+            text,
+            &MarkerEdit::default(),
+            &comment_revision_of(&read),
+        )
+        .unwrap();
+    assert_eq!(
+        link.as_str(),
+        "https://github.com/acme/widget/issues/7#issuecomment-2501230002"
+    );
+    let calls = calls.lock().unwrap().clone();
+    assert_eq!(calls.len(), 2);
+    assert_eq!(calls[0].args, args(&["api", QUESTION_PATH]));
+    assert_eq!(calls[0].input, None);
+    assert_eq!(calls[1].args, patch_of(QUESTION_PATH));
+    assert_eq!(sent_body(&calls[1]), want);
+    let back = tehas_github::markers::read(&want, Some(no(7)));
+    assert_eq!(back.text, text);
+    assert!(matches!(back.markers.as_slice(), [Marker::Question { .. }]));
+}
+
+#[test]
+fn a_comment_changed_since_its_revision_is_a_conflict_and_sends_nothing() {
+    let read = sample(QUESTION);
+    let (mut gh, calls) = adapter_ours(vec![Ok(read)]);
+    let got = gh.edit_comment(
+        &question_id(),
+        "Stale.",
+        &MarkerEdit::default(),
+        &Revision::new("an older revision"),
+    );
+    assert_eq!(got, Err(Outcome::Conflict(Lost::Changed)));
+    assert_eq!(
+        *calls.lock().unwrap(),
+        [Call {
+            args: args(&["api", QUESTION_PATH]),
+            input: None
+        }],
+        "the read alone, no write"
+    );
+}
+
+#[test]
+fn a_missing_comment_is_not_found_and_sends_nothing() {
+    let (mut gh, calls) = adapter_ours(vec![Err(failed("not-found.stderr"))]);
+    let since = comment_revision_of(&sample(QUESTION));
+    let got = gh.edit_comment(&question_id(), "b", &MarkerEdit::default(), &since);
+    assert_eq!(got, Err(Outcome::NotFound));
+    assert_eq!(calls.lock().unwrap().len(), 1);
+    // An id that is no REST id names no comment: no request at all.
+    for id in ["", "0", "IC_kwDOAbCdEf6VFm0002", "12a", "-1"] {
+        let (mut gh, calls) = adapter_ours(Vec::new());
+        let got = gh.edit_comment(&CommentId::new(id), "b", &MarkerEdit::default(), &since);
+        assert_eq!(got, Err(Outcome::NotFound), "{id:?}");
+        assert!(calls.lock().unwrap().is_empty(), "{id:?}");
+    }
+}
+
+#[test]
+fn a_comment_deleted_between_the_read_and_the_write_is_gone() {
+    let read = sample(QUESTION);
+    let since = comment_revision_of(&read);
+    let (mut gh, calls) = adapter_ours(vec![Ok(read), Err(failed("not-found.stderr"))]);
+    let got = gh.edit_comment(&question_id(), "b", &MarkerEdit::default(), &since);
+    assert_eq!(got, Err(Outcome::Conflict(Lost::Gone)));
+    assert_eq!(calls.lock().unwrap().len(), 2, "no settling read");
+}
+
+#[test]
+fn a_comment_on_a_pull_request_or_of_another_comment_is_not_edited() {
+    let read = sample(QUESTION);
+    let since = comment_revision_of(&read);
+    let mut on_pull: Value = serde_json::from_str(&read).unwrap();
+    on_pull["html_url"] = "https://github.com/acme/widget/pull/7#issuecomment-2501230002".into();
+    let mut other: Value = serde_json::from_str(&read).unwrap();
+    other["id"] = 2501230003u64.into();
+    let mut elsewhere: Value = serde_json::from_str(&read).unwrap();
+    elsewhere["html_url"] =
+        "https://github.com/acme/gadget/issues/7#issuecomment-2501230002".into();
+    for (answer, want) in [
+        (on_pull, Outcome::NotFound),
+        (other, Outcome::Unread(Unread::Inconsistent)),
+        (elsewhere, Outcome::Unread(Unread::Inconsistent)),
+        (
+            Value::String("no comment".into()),
+            Outcome::Unread(Unread::Malformed),
+        ),
+    ] {
+        let (mut gh, calls) = adapter_ours(vec![Ok(answer.to_string())]);
+        let got = gh.edit_comment(&question_id(), "b", &MarkerEdit::default(), &since);
+        assert_eq!(got, Err(want.clone()), "{answer}");
+        assert_eq!(calls.lock().unwrap().len(), 1, "no write: {answer}");
+    }
+}
+
+#[test]
+fn a_comments_edit_that_holds_a_marker_is_refused_before_any_request() {
+    let since = comment_revision_of(&sample(QUESTION));
+    let unwritable = MarkerEdit {
+        set: vec![Marker::Unknown],
+        drop: Vec::new(),
+    };
+    for (body, edit) in [
+        (
+            "<!-- tehas:question kind=plan issue=7 turn=2 -->\nAgain?",
+            MarkerEdit::default(),
+        ),
+        (
+            "a closing <!-- /tehas:last-attempt -->",
+            MarkerEdit::default(),
+        ),
+        ("b", unwritable),
+    ] {
+        let (mut gh, calls) = adapter_ours(Vec::new());
+        let got = gh.edit_comment(&question_id(), body, &edit, &since);
+        assert_eq!(got, Err(Outcome::Refused(Refusal::Invalid)), "{body}");
+        assert!(calls.lock().unwrap().is_empty(), "{body}");
+    }
+}
+
+#[test]
+fn a_comments_edit_with_nothing_to_change_reads_and_writes_nothing() {
+    let read = sample(QUESTION);
+    let (mut gh, calls) = adapter_ours(vec![Ok(read.clone())]);
+    let got = gh.edit_comment(
+        &question_id(),
+        "Which defaults: the shipped ones or the site's?",
+        &MarkerEdit::default(),
+        &comment_revision_of(&read),
+    );
+    assert_eq!(
+        got.unwrap().as_str(),
+        "https://github.com/acme/widget/issues/7#issuecomment-2501230002"
+    );
+    assert_eq!(calls.lock().unwrap().len(), 1, "the read alone");
+}
+
+#[test]
+fn the_read_before_a_comments_edit_fails_with_no_write_and_says_it_was_not_sent() {
+    let since = comment_revision_of(&sample(QUESTION));
+    for (why, want) in [
+        (
+            failed("server-error.stderr"),
+            Outcome::Unavailable {
+                why: Passing::Server,
+                sent: Sent::No,
+            },
+        ),
+        (failed("forbidden.stderr"), Outcome::Forbidden),
+        (failed("gone.stderr"), Outcome::NotFound),
+    ] {
+        let (mut gh, calls) = adapter_ours(vec![Err(why.clone())]);
+        let got = gh.edit_comment(&question_id(), "b", &MarkerEdit::default(), &since);
+        assert_eq!(got, Err(want), "{why}");
+        assert_eq!(calls.lock().unwrap().len(), 1, "{why}");
+    }
+}
+
+/// A comment's edit whose `PATCH` failed with `why`, then settled by one
+/// read that answers `again`: what it answered, and its calls.
+fn comment_settled(why: &str, again: Result<String, String>) -> (Got<WebLink>, Vec<Call>) {
+    let read = sample(QUESTION);
+    let since = comment_revision_of(&read);
+    let (mut gh, calls) = adapter_ours(vec![Ok(read), Err(why.to_string()), again]);
+    let got = gh.edit_comment(&question_id(), "New text.", &MarkerEdit::default(), &since);
+    let calls = calls.lock().unwrap().clone();
+    (got, calls)
+}
+
+#[test]
+fn a_comments_edit_that_may_have_landed_is_settled_by_one_read_and_never_sent_again() {
+    let read = sample(QUESTION);
+    let landed = raw_body(&read).replace(
+        "Which defaults: the shipped ones or the site's?",
+        "New text.",
+    );
+    for (why, passing) in [
+        (failed("server-error.stderr"), Passing::Server),
+        (BOUND.to_string(), Passing::Timeout),
+    ] {
+        let (got, calls) = comment_settled(&why, Ok(comment_with(&landed)));
+        assert_eq!(
+            got.unwrap().as_str(),
+            "https://github.com/acme/widget/issues/7#issuecomment-2501230002",
+            "{why}"
+        );
+        assert_eq!(calls.len(), 3, "{why}");
+        assert_eq!(calls[2].args, args(&["api", QUESTION_PATH]));
+        assert_eq!(calls.iter().filter(|c| c.input.is_some()).count(), 1);
+        let (got, _) = comment_settled(&why, Ok(read.clone()));
+        assert_eq!(
+            got,
+            Err(Outcome::Unavailable {
+                why: passing,
+                sent: Sent::No
+            }),
+            "{why}"
+        );
+        let maybe = Err(Outcome::Unavailable {
+            why: passing,
+            sent: Sent::Maybe,
+        });
+        let (got, _) = comment_settled(&why, Ok(comment_with("A third text.")));
+        assert_eq!(got, maybe, "{why}");
+        let (got, _) = comment_settled(&why, Err(failed("not-found.stderr")));
+        assert_eq!(got, maybe, "{why}");
+    }
+    // Refused for sure: no settling read.
+    for why in [failed("forbidden.stderr"), failed("validation.stderr")] {
+        let (got, calls) = comment_settled(&why, Ok(read.clone()));
+        assert!(got.is_err(), "{why}");
+        assert_eq!(calls.len(), 2, "{why}");
+    }
+}
+
+/// Issue 7 and its one comment as a site keeps them: the issue's read and
+/// its page of comments, the comment's read and its `PATCH`. The comment
+/// keeps its times, so a read of comments asks no edit history.
+struct CommentSite {
+    body: Arc<Mutex<String>>,
+    patches: Arc<Mutex<usize>>,
+}
+
+impl GhRunner for CommentSite {
+    fn run(&mut self, args: &[&str]) -> Result<String, String> {
+        let comment = comment_with(&self.body.lock().unwrap());
+        match args {
+            ["api", "repos/acme/widget/issues/7"] => {
+                let mut v: Value = serde_json::from_str(&sample("issue-7.json")).unwrap();
+                v["comments"] = 1.into();
+                Ok(v.to_string())
+            }
+            ["api", "repos/acme/widget/issues/7/comments?per_page=100&page=1"] => {
+                Ok(format!("[{comment}]"))
+            }
+            ["api", p] if *p == QUESTION_PATH => Ok(comment),
+            _ => Err(format!("no recording of {args:?}")),
+        }
+    }
+
+    fn run_input(&mut self, args: &[&str], input: &str) -> Result<String, String> {
+        if args != ["api", "-X", "PATCH", QUESTION_PATH, "--input", "-"] {
+            return Err(format!("no recording of {args:?}"));
+        }
+        let v: Value = serde_json::from_str(input).map_err(|_| "no JSON".to_string())?;
+        let body = v["body"].as_str().ok_or("no body")?.to_string();
+        *self.patches.lock().unwrap() += 1;
+        *self.body.lock().unwrap() = body.clone();
+        Ok(comment_with(&body))
+    }
+}
+
+/// The law the ports' fake keeps for `edit_comment`, over the adapter: an
+/// edit at the revision `Blueprints::comments` gives lands, keeps the
+/// question's marker and moves the revision; an edit at the old revision is
+/// then `Conflict(Changed)` and sends nothing.
+#[test]
+fn the_fakes_law_of_a_comments_edit_holds_over_the_adapter() {
+    use tehas_ports::Bound;
+    let body = Arc::new(Mutex::new(raw_body(&sample(QUESTION))));
+    let patches = Arc::new(Mutex::new(0));
+    let site = CommentSite {
+        body: Arc::clone(&body),
+        patches: Arc::clone(&patches),
+    };
+    let mut h = ours(Box::new(site), Some(BOT_ID));
+    let bound = Bound::new(10).unwrap();
+    let before = h.comments(no(7), bound).unwrap().into_items().remove(0);
+    assert_eq!(before.id, question_id());
+    h.edit_comment(
+        &before.id,
+        "Edited.",
+        &MarkerEdit::default(),
+        &before.revision,
+    )
+    .unwrap();
+    let after = h.comments(no(7), bound).unwrap().into_items().remove(0);
+    assert_ne!(
+        after.revision, before.revision,
+        "the edit moved no revision"
+    );
+    assert_eq!(after.body, "Edited.");
+    assert_eq!(
+        after.markers, before.markers,
+        "the question's marker is kept"
+    );
+    assert_eq!(*patches.lock().unwrap(), 1);
+    let again = h.edit_comment(
+        &before.id,
+        "Stale.",
+        &MarkerEdit::default(),
+        &before.revision,
+    );
+    assert_eq!(again, Err(Outcome::Conflict(Lost::Changed)));
+    assert_eq!(*patches.lock().unwrap(), 1, "a conflict sends nothing");
+}
+
+/// The question's answer with its author set to the JSON `user`, or with
+/// none.
+fn authored_by(user: Option<&str>) -> String {
+    let mut v: Value = serde_json::from_str(&sample(QUESTION)).unwrap();
+    match user {
+        Some(u) => v["user"] = serde_json::from_str(u).unwrap(),
+        None => {
+            v.as_object_mut().unwrap().remove("user");
+        }
+    }
+    v.to_string()
+}
+
+#[test]
+fn a_comment_another_account_wrote_is_forbidden_and_no_patch_is_sent() {
+    for user in [
+        r#"{"login": "alice", "id": 300001, "type": "User"}"#,
+        // The factory's login on another account: the login decides nothing.
+        r#"{"login": "tehas-bot[bot]", "id": 300002, "type": "Bot"}"#,
+        // The bot's id on an account GitHub types no bot.
+        r#"{"login": "tehas-bot[bot]", "id": 100001, "type": "User"}"#,
+        r#"{"login": "helper[bot]", "id": 300003, "type": "Bot"}"#,
+    ] {
+        let read = authored_by(Some(user));
+        let (mut gh, calls) = adapter_ours(vec![Ok(read.clone()), Ok(read.clone())]);
+        let got = gh.edit_comment(
+            &question_id(),
+            "Taken over.",
+            &MarkerEdit::default(),
+            &comment_revision_of(&read),
+        );
+        assert_eq!(got, Err(Outcome::Forbidden), "{user}");
+        let calls = calls.lock().unwrap().clone();
+        assert_eq!(calls.len(), 1, "the read alone: {user}");
+        assert_eq!(calls[0].args, args(&["api", QUESTION_PATH]), "{user}");
+        assert!(calls.iter().all(|c| c.input.is_none()), "no PATCH: {user}");
+    }
+}
+
+#[test]
+fn a_comment_whose_author_is_missing_or_unread_is_forbidden_and_sends_nothing() {
+    for user in [
+        None,
+        Some("null"),
+        Some(r#"{"login": "tehas-bot[bot]", "type": "Bot"}"#),
+        Some(r#"{"login": "tehas-bot[bot]", "id": "100001", "type": "Bot"}"#),
+        Some(r#"{"login": "tehas-bot[bot]", "id": 100001}"#),
+        Some(r#""tehas-bot[bot]""#),
+    ] {
+        let read = authored_by(user);
+        let (mut gh, calls) = adapter_ours(vec![Ok(read.clone()), Ok(read.clone())]);
+        let got = gh.edit_comment(
+            &question_id(),
+            "Taken over.",
+            &MarkerEdit::default(),
+            &comment_revision_of(&read),
+        );
+        assert_eq!(got, Err(Outcome::Forbidden), "{user:?}");
+        assert_eq!(calls.lock().unwrap().len(), 1, "the read alone: {user:?}");
+    }
+}
+
+#[test]
+fn a_handle_that_knows_no_bot_id_edits_no_comment() {
+    let read = sample(QUESTION);
+    let since = comment_revision_of(&read);
+    let calls = Calls::default();
+    let script = || Script {
+        answers: vec![Ok(read.clone()), Ok(read.clone())].into(),
+        calls: Arc::clone(&calls),
+    };
+    let mut site_without = ours(Box::new(script()), None);
+    let mut bare = GitHub::new(PROJECT, Box::new(script())).on_clock(now);
+    for got in [
+        site_without.edit_comment(&question_id(), "b", &MarkerEdit::default(), &since),
+        bare.edit_comment(&question_id(), "b", &MarkerEdit::default(), &since),
+    ] {
+        assert_eq!(got, Err(Outcome::Forbidden));
+    }
+    let calls = calls.lock().unwrap().clone();
+    // The bare handle is no site's handle of the factory: it asks nothing.
+    assert_eq!(calls.len(), 1, "the site's handle's read alone");
+    assert!(calls.iter().all(|c| c.input.is_none()), "no PATCH");
+}
+
+/// The law every adapter keeps, through the factory's handle and the
+/// operator's of one site: the operator's edits no comment, the bot's
+/// neither; through the factory's a person's comment, another bot's and
+/// one of another account under the bot's login are `Forbidden` and not
+/// written; our own is edited.
+#[test]
+fn the_law_of_editing_only_our_own_comment_holds_over_the_adapter() {
+    use tehas_ports::Bound;
+    /// Issue 7 with our question and three comments of other accounts,
+    /// each by its id, the user and the body it was written with.
+    #[derive(Clone)]
+    struct Comments {
+        ours: Arc<Mutex<String>>,
+        patches: Arc<Mutex<Vec<String>>>,
+        theirs: Arc<Vec<(u64, &'static str, &'static str)>>,
+    }
+    impl Comments {
+        fn ours(&self) -> String {
+            comment_with(&self.ours.lock().unwrap())
+        }
+        fn theirs(&self, (id, user, body): &(u64, &str, &str)) -> String {
+            let mut v: Value = serde_json::from_str(&sample(QUESTION)).unwrap();
+            v["id"] = (*id).into();
+            v["node_id"] = format!("IC_kwDOAbCdEf6VFm{id}").into();
+            v["html_url"] =
+                format!("https://github.com/acme/widget/issues/7#issuecomment-{id}").into();
+            v["user"] = serde_json::from_str(user).unwrap();
+            v["body"] = (*body).into();
+            v.to_string()
+        }
+    }
+    impl GhRunner for Comments {
+        fn run(&mut self, args: &[&str]) -> Result<String, String> {
+            let path = |id: u64| format!("repos/acme/widget/issues/comments/{id}");
+            match args {
+                ["api", "repos/acme/widget/issues/7"] => {
+                    let mut v: Value = serde_json::from_str(&sample("issue-7.json")).unwrap();
+                    v["comments"] = (1 + self.theirs.len()).into();
+                    Ok(v.to_string())
+                }
+                ["api", "repos/acme/widget/issues/7/comments?per_page=100&page=1"] => {
+                    let mut all = vec![self.ours()];
+                    all.extend(self.theirs.iter().map(|t| self.theirs(t)));
+                    Ok(format!("[{}]", all.join(",")))
+                }
+                ["api", p] if *p == QUESTION_PATH => Ok(self.ours()),
+                ["api", p] => self
+                    .theirs
+                    .iter()
+                    .find(|t| path(t.0) == *p)
+                    .map(|t| self.theirs(t))
+                    .ok_or_else(|| format!("no recording of {args:?}")),
+                _ => Err(format!("no recording of {args:?}")),
+            }
+        }
+
+        fn run_input(&mut self, args: &[&str], input: &str) -> Result<String, String> {
+            self.patches.lock().unwrap().push(args[3].to_string());
+            if args != ["api", "-X", "PATCH", QUESTION_PATH, "--input", "-"] {
+                return Err(format!("no recording of {args:?}"));
+            }
+            let v: Value = serde_json::from_str(input).map_err(|_| "no JSON".to_string())?;
+            let body = v["body"].as_str().ok_or("no body")?.to_string();
+            *self.ours.lock().unwrap() = body;
+            Ok(self.ours())
+        }
+    }
+    let theirs = vec![
+        (
+            2501230003,
+            r#"{"login": "alice", "id": 300001, "type": "User"}"#,
+            "A person's note.",
+        ),
+        (
+            2501230004,
+            r#"{"login": "helper[bot]", "id": 300003, "type": "Bot"}"#,
+            "Another bot's note.",
+        ),
+        // The bot's login on another account: a law that knew the bot by
+        // its login would edit it.
+        (
+            2501230005,
+            r#"{"login": "tehas-bot[bot]", "id": 300002, "type": "Bot"}"#,
+            "A note under the bot's login.",
+        ),
+    ];
+    let ids: Vec<CommentId> = theirs
+        .iter()
+        .map(|t| CommentId::new(t.0.to_string()))
+        .collect();
+    let patches = Arc::new(Mutex::new(Vec::<String>::new()));
+    let comments = Comments {
+        ours: Arc::new(Mutex::new(raw_body(&sample(QUESTION)))),
+        patches: Arc::clone(&patches),
+        theirs: Arc::new(theirs),
+    };
+    let make: tehas_github::MakeRunner =
+        Arc::new(move |_: &tehas_ports::Actor| Ok(Box::new(comments.clone()) as Box<dyn GhRunner>));
+    let site =
+        tehas_github::GitHubSite::new(PROJECT, "tehas-bot[bot]", Some(BOT_ID), make).on_clock(now);
+    let handle = |by: &tehas_ports::Actor| {
+        tehas_ports::Site::blueprint_writes(&site, by, tehas_ports::Caller::new("test.law"))
+            .unwrap()
+    };
+    let mut h = handle(&tehas_ports::Actor::Ours(tehas_ports::Scope::Full));
+    let mut operator = handle(&tehas_ports::Actor::Operator);
+    let all = h.comments(no(7), Bound::new(10).unwrap()).unwrap();
+    assert_eq!(all.into_items().len(), 4);
+    laws::blueprints::only_its_own_comment_is_edited(
+        h.as_mut(),
+        operator.as_mut(),
+        no(7),
+        &question_id(),
+        &ids,
+    )
+    .unwrap();
+    assert_eq!(
+        *patches.lock().unwrap(),
+        [QUESTION_PATH.to_string()],
+        "one PATCH, of our own comment alone"
+    );
+}
+
+/// The operator's handle, whose gh is not the bot, edits no comment, the
+/// bot's own neither, and asks GitHub nothing.
+#[test]
+fn the_operators_handle_edits_not_even_the_bots_comment() {
+    let read = sample(QUESTION);
+    let calls = Calls::default();
+    let script = Script {
+        answers: vec![Ok(read.clone()), Ok(read.clone())].into(),
+        calls: Arc::clone(&calls),
+    };
+    let mut h = handle_as(
+        &tehas_ports::Actor::Operator,
+        Box::new(script),
+        Some(BOT_ID),
+    );
+    let got = h.edit_comment(
+        &question_id(),
+        "Taken over.",
+        &MarkerEdit::default(),
+        &comment_revision_of(&read),
+    );
+    assert_eq!(got, Err(Outcome::Forbidden));
+    assert!(calls.lock().unwrap().is_empty(), "no request, no PATCH");
 }

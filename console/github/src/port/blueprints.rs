@@ -25,7 +25,7 @@ use std::num::{NonZeroU32, NonZeroU64};
 
 mod edits;
 
-use super::blueprint_writes::{ends_with_folded, read_issue, revision};
+use super::blueprint_writes::{comment_revision, ends_with_folded, read_issue, revision};
 use super::unsupported;
 use crate::ticket::CUT_TEXT;
 use crate::tickets::{account, Bot};
@@ -35,7 +35,7 @@ use serde_json::Value;
 use tehas_ports::{
     At, Attachment, AttachmentId, Blueprint, BlueprintDelta, BlueprintHit, BlueprintNo, Blueprints,
     Bound, ChangeToken, Comment, CommentId, Cursor, Depth, Did, Edit, Got, Outcome, Pool, Refusal,
-    Revision, TicketDigest, TicketKey, Took, Unread, Whole, Within, ALL_MAX,
+    TicketDigest, TicketKey, Took, Unread, Whole, Within, ALL_MAX,
 };
 
 /// The comments one page of an issue's comments asks for, the most GitHub
@@ -580,28 +580,7 @@ fn one<K>(mut several: Vec<(K, Got<Whole<Edit>>)>) -> Got<Whole<Edit>> {
 /// GitHub says the rate is limited, `Unread(Inconsistent)` for any other
 /// (a comment deleted since its page was read among them).
 fn answer<T: serde::de::DeserializeOwned>(out: &str, at: &str, now: i64) -> Got<T> {
-    let malformed = Outcome::Unread(Unread::Malformed);
-    let mut v: Value = serde_json::from_str(out.trim()).map_err(|_| malformed.clone())?;
-    if let Some(errors) = v.get("errors").filter(|e| !e.is_null()) {
-        let limited = errors.as_array().is_some_and(|all| {
-            all.iter()
-                .any(|e| e.get("type").and_then(Value::as_str) == Some("RATE_LIMITED"))
-        });
-        return Err(if limited {
-            Outcome::Spent {
-                pool: Pool::Priced,
-                until: At::new(now),
-            }
-        } else {
-            Outcome::Unread(Unread::Inconsistent)
-        });
-    }
-    tehas_core::accounts::vouch(&mut v);
-    let part = v
-        .pointer_mut(at)
-        .map(std::mem::take)
-        .ok_or(malformed.clone())?;
-    serde_json::from_value(part).map_err(|_| malformed)
+    crate::graphql::part(out, at, now)
 }
 
 /// A spent budget of a GraphQL call is the priced pool's.
@@ -698,7 +677,7 @@ fn read_comments(
         let created = time(c.created_at.as_deref())?;
         let updated = time(c.updated_at.as_deref())?;
         let read = markers::read(raw, Some(no));
-        let sum = Revision::new(tehas_core::approval::body_sum(raw));
+        let sum = comment_revision(raw);
         let mut comment = Comment::new(CommentId::new(id.to_string()), created, sum, link);
         comment.author = author(c.user.as_ref(), bot);
         if updated != created {

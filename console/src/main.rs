@@ -87,11 +87,6 @@
 //!
 //! The free kilobytes a command holds work on, see ops/src/disk.rs.
 //!
-//!   console size measure | record <issue> <ledger>
-//!
-//! The measure of an issue body and the ledger of what approved starts
-//! measured, see ops/src/size.rs.
-//!
 //!   console epics <owner/name> <out>
 //!
 //! The open epics and their sub-issues, live/epics.json, for tehasbot status,
@@ -175,7 +170,7 @@
 
 use tehas_ops::{
     account, clean, disk, edge, forge, freeze, github, health, holds, host_message, ids, mcp, pins,
-    rukas, sandbox, settings, setup, shipped, size, slice, stop, store, tidy, update,
+    rukas, sandbox, settings, setup, shipped, slice, stop, store, tidy, update,
 };
 mod answer;
 mod api;
@@ -433,6 +428,20 @@ mod wiring {
         site.board(&Actor::Ours(Scope::Full), Caller::new("plugin-hook"))
     }
 
+    /// The plugins' access questions on `repo` through the adapter's
+    /// authorised curl, asked with the installation token `console`
+    /// prints. No client for people: a call checks a login, it signs no one
+    /// in. None for a repository that is not `owner/name`.
+    pub(crate) fn access(
+        repo: &str,
+        console: &std::path::Path,
+    ) -> Option<Box<dyn tehas_core::access::GitHub>> {
+        let console = console.to_path_buf();
+        let a = tehas_github::Access::new(tehas_github::AuthorisedCurl::default(), repo)?
+            .with_installation(move || tehas_core::access::installation_token(&console));
+        Some(Box::new(a))
+    }
+
     /// The blueprints handles on `repo` as the factory, asking the site
     /// through `program`, each call in `bound`: the site knows the factory's
     /// account by what `home` records of its bot.
@@ -455,6 +464,49 @@ mod wiring {
         let site = tehas_github::GitHubSite::new(repo, &login, id, make);
         let (by, c) = (Actor::Ours(Scope::Full), Caller::new("plan"));
         Ok((site.blueprints(&by, c)?, site.blueprint_writes(&by, c)?))
+    }
+
+    /// The code host handle of `tehas update` on tehas's own release
+    /// project `repo`, a site of its own (Decided 23), acting as `by`:
+    /// `Actor::Operator` asks through gh as the operator's gh is signed in,
+    /// each call in `bound`; `Actor::Anonymous` through curl with no
+    /// credential, its budget kept in the home's ledger. No account of that
+    /// project is the factory's.
+    pub(crate) fn releases(
+        by: &tehas_ports::Actor,
+        repo: &str,
+        bound: Duration,
+    ) -> tehas_ports::Got<Box<dyn tehas_ports::CodeHost + Send>> {
+        use tehas_ports::{Actor, Caller, Outcome, Refusal, Site};
+        let make: tehas_github::MakeRunner = std::sync::Arc::new(move |_| {
+            Ok(Box::new(Bounded::new("gh", bound)) as Box<dyn tehas_core::forge::GhRunner>)
+        });
+        let site = tehas_github::GitHubSite::new(repo, "", None, make);
+        let caller = Caller::new("update");
+        if *by != Actor::Anonymous {
+            return site.code_host(by, caller);
+        }
+        let Some(home) = tehas_core::home::Home::from_env() else {
+            return Err(Outcome::Refused(Refusal::Unsupported));
+        };
+        let ledger = std::sync::Arc::new(tehas_core::ledger::FileLedger::new(&home));
+        site.with_anonymous_curl(curl(), ledger)
+            .code_host(by, caller)
+    }
+
+    /// curl as the operator's PATH finds it, as gh is found, else as the
+    /// adapter finds it: in /usr/bin or /bin. It runs with the adapter's
+    /// own environment either way.
+    fn curl() -> tehas_github::Curl {
+        let path = std::env::var_os("PATH").unwrap_or_default();
+        std::env::split_paths(&path)
+            .map(|d| d.join("curl"))
+            .find(|p| {
+                use std::os::unix::fs::PermissionsExt;
+                p.metadata()
+                    .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+            })
+            .map_or_else(tehas_github::Curl::new, tehas_github::Curl::at)
     }
 
     /// The mark a label name given on a command line is: one of tehas's
@@ -508,7 +560,6 @@ fn main() -> ExitCode {
             Some("preview") => return ExitCode::from(preview::main(&given[1..])),
             Some("settings") => return ExitCode::from(settings::main(&given[1..])),
             Some("setup") => return ExitCode::from(setup::main(&given[1..])),
-            Some("size") => return ExitCode::from(size::main(&given[1..])),
             Some("slice") => return ExitCode::from(slice::main(&given[1..])),
             Some("health") => return ExitCode::from(health::main(&given[1..])),
             Some("ids") => return ExitCode::from(ids::main(&given[1..])),
@@ -522,7 +573,7 @@ fn main() -> ExitCode {
             Some("tehas") => return ExitCode::from(commands::tehas(&given[1..])),
             Some("tehasbot") => return ExitCode::from(commands::tehasbot(&given[1..])),
             Some("top") => return ExitCode::from(top::main(&given[1..])),
-            Some("update") => return ExitCode::from(update::main(&given[1..])),
+            Some("update") => return ExitCode::from(update::main(&given[1..], &wiring::releases)),
             Some("usage") => return ExitCode::from(commands::usage(&given[1..])),
             _ => {}
         }

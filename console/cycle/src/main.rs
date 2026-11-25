@@ -561,12 +561,17 @@ fn handles(
     });
     let site = tehas_github::GitHubSite::new(repo, &login, id, make);
     let (by, c) = (Actor::Ours(Scope::Full), Caller::new("report"));
-    Ok(tehas_cycle::apply::Handles {
-        writes: Box::new(tehas_ports::Writer {
+    let writes: Box<dyn tehas_ports::Writes> = if tehas_core::read_only::on() {
+        Box::new(tehas_ports::ReadOnly)
+    } else {
+        Box::new(tehas_ports::Writer {
             tickets: site.ticket_writes(&by, c)?,
             blueprints: site.blueprint_writes(&by, c)?,
             code_host: site.code_host_writes(&by, c)?,
-        }),
+        })
+    };
+    Ok(tehas_cycle::apply::Handles {
+        writes,
         tickets: site.tickets(&by, c)?,
         blueprints: site.blueprints(&by, c)?,
         code_host: site.code_host(&by, c)?,

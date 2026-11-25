@@ -1,0 +1,13 @@
+{"number": @N@, "title": "t", "body": "", "state": "CLOSED", "stateReason": "COMPLETED",
+ "url": "https://github.com/acme/widget/issues/@N@",
+ "createdAt": "2025-12-01T00:00:00Z", "updatedAt": "@AT@",
+ "author": {"__typename": "User", "login": "alice", "databaseId": 101},
+ "issueType": null, "milestone": null,
+ "labels": {"totalCount": @LABELS_COUNT@, "nodes": [@LABELS@]},
+ "closedAt": "@AT@",
+ "closes": {"nodes": [{"__typename": "ClosedEvent", "createdAt": "@AT@",
+   "actor": {"__typename": "Bot", "login": "tehas-bot", "databaseId": 900},
+   "stateReason": "COMPLETED", "closer": @CLOSER@}]},
+ "subIssues": {"totalCount": 0},
+ "closedByPullRequestsReferences": {"totalCount": @REFS_COUNT@, "nodes": [@REFS@]},
+ "parent": null}

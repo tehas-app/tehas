@@ -5,8 +5,8 @@
 // each has a console of its own. live/running.json lists the running cycles
 // and the one that finished last. view() turns that file into the tabs. It
 // has no side effects and draws nothing, so it is tested without a browser
-// (test/console_tabs_test.mjs). The floor (game-view.js) draws it with
-// render(), the plain dashboard in Solid (factory/).
+// (test/console_tabs_test.mjs). The plain dashboard draws it in Solid
+// (factory/).
 //
 // The file is read from the network and its text is untrusted: a tab's label
 // is an issue number, set as text.
@@ -48,48 +48,5 @@
   const consoleFile = (cycle) =>
     typeof cycle.console === "string" && /^[\w-][\w.-]*$/.test(cycle.console) ? cycle.console : null;
 
-  // Draws the row. The buttons are made again only when the tabs change, so
-  // a refresh every ten seconds does not take the keyboard's place away.
-  function render(row, v, onSelect) {
-    const key = v.tabs.map((t) => t.issue + (t.running ? "r" : "e")).join(" ");
-    row.hidden = v.tabs.length < 2;
-    if (row.dataset.tabs !== key) {
-      const focused = row.contains(document.activeElement);
-      row.dataset.tabs = key;
-      row.replaceChildren(...v.tabs.map((t) => {
-        const b = document.createElement("button");
-        b.type = "button";
-        b.setAttribute("role", "tab");
-        b.dataset.issue = String(t.issue);
-        b.textContent = "#" + t.issue + (t.running ? "" : " ended");
-        b.addEventListener("click", () => onSelect(t.issue));
-        return b;
-      }));
-      if (focused && v.shown) {
-        const b = [...row.children].find((c) => Number(c.dataset.issue) === v.shown.issue);
-        if (b) b.focus();
-      }
-    }
-    for (const b of row.children) {
-      const on = v.shown !== null && Number(b.dataset.issue) === v.shown.issue;
-      b.setAttribute("aria-selected", String(on));
-      b.tabIndex = on ? 0 : -1;
-    }
-  }
-
-  // The arrow keys move between tabs and select, as in any tab list.
-  function keys(row, onSelect) {
-    row.addEventListener("keydown", (event) => {
-      const tabs = [...row.children], at = tabs.indexOf(document.activeElement);
-      if (at < 0) return;
-      const to = { ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: tabs.length - 1 }[event.key];
-      if (to === undefined) return;
-      event.preventDefault();
-      const next = tabs[(to + tabs.length) % tabs.length];
-      next.focus();
-      onSelect(Number(next.dataset.issue));
-    });
-  }
-
-  globalThis.TEHAS_CONSOLE_TABS = { view, consoleFile, render, keys };
+  globalThis.TEHAS_CONSOLE_TABS = { view, consoleFile };
 })();

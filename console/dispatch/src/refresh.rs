@@ -3,7 +3,8 @@
 //! under state/refresh. What a run does and its statuses are in
 //! src/usage/refresh.txt, this command's --help.
 
-use crate::decide::{iso_now, refresh_why};
+use crate::clock::iso_now;
+use crate::decide::refresh_why;
 use crate::read::github;
 use crate::read::run::Calls;
 use crate::snapshot::{hex40, pull_read};
@@ -275,6 +276,7 @@ pub fn main(args: &[&str]) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tehas_core::home::{Home, State};
     use tehas_core::testdir::TestDir;
 
     const HEAD: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -322,7 +324,7 @@ mod tests {
     fn a_pull_request_read_with_no_gh_to_run_says_gh_not_found() {
         let d = scratch("no-gh");
         let run = Run {
-            dir: d.join("state/refresh"),
+            dir: Home::new(&*d).state(State::Refreshes),
             log: d.join("logs/refresh.log"),
             repo: "a/b".into(),
             control: 1,

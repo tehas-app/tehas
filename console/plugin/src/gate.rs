@@ -26,6 +26,7 @@ use path::Route;
 use serde_json::json;
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
+use tehas_ports::Got;
 
 /// A press within this many seconds of the plugin's last is 429.
 pub const PRESS_GAP: u64 = 10 * 60;
@@ -290,12 +291,12 @@ impl Gate {
 
     /// Whether `person` has access now. Err: GitHub could not say, which is
     /// a refusal.
-    fn access(&self, person: &Person) -> Result<bool, String> {
+    fn access(&self, person: &Person) -> Got<bool> {
         let v = github::check(
             self.github.as_ref(),
             self.settings.access,
             &person.login,
-            Some(person.id),
+            Some(&person.id),
         )?;
         eprintln!("tehas-plugin-gate: {}", v.said);
         Ok(v.user.is_some())
@@ -304,13 +305,7 @@ impl Gate {
     /// The live session of the request's cookie on `site`, checked again if
     /// its last check is older than 10 minutes, or now with `fresh`. Ok(None):
     /// no session. Err: GitHub could not say.
-    fn session(
-        &self,
-        req: &Request,
-        site: &Site,
-        fresh: bool,
-        now: u64,
-    ) -> Result<Option<Session>, String> {
+    fn session(&self, req: &Request, site: &Site, fresh: bool, now: u64) -> Got<Option<Session>> {
         let Some(id) = auth::cookie(&req.headers, auth::SESSION) else {
             return Ok(None);
         };
@@ -321,10 +316,10 @@ impl Gate {
             return Ok(Some(s));
         }
         if self.access(&s.person)? {
-            lock(&self.memory).checked(s.person.id, now);
+            lock(&self.memory).checked(&s.person.id, now);
             Ok(Some(s))
         } else {
-            lock(&self.memory).end(s.person.id);
+            lock(&self.memory).end(&s.person.id);
             Ok(None)
         }
     }
@@ -501,7 +496,7 @@ impl Gate {
         let person = id.and_then(|id| memory.session(&id, site, now));
         let mut r = match person {
             Some(s) => {
-                memory.end(s.person.id);
+                memory.end(&s.person.id);
                 Response::with(200, "application/json", br#"{"signed": false}"#.to_vec())
             }
             None => Response::empty(401),
@@ -648,9 +643,9 @@ impl Gate {
             return Response::empty(403);
         }
         match self.access(&s.person) {
-            Ok(true) => lock(&self.memory).checked(s.person.id, now),
+            Ok(true) => lock(&self.memory).checked(&s.person.id, now),
             Ok(false) => {
-                lock(&self.memory).end(s.person.id);
+                lock(&self.memory).end(&s.person.id);
                 return Response::empty(403);
             }
             Err(_) => return Response::empty(403),

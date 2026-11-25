@@ -1,5 +1,8 @@
 # AGENTS.md
 
+This repository follows tehas-standard v2 (`tehas.toml`):
+https://github.com/tehas-app/tehas-standard/tree/main/v2
+
 Rules for agents working in this repository. Read `README.md` for the map of
 the repository and `host/docs/` for how tehas is operated.
 
@@ -117,11 +120,10 @@ when a person pulls and runs `install.sh` there.
 
 ## Coding standard
 
-`.tehas/coding-standard` says which standard this repository follows. It
-says `v1` until the refactoring on `refactor/coding-standard-v2` is done
-(`docs/plans/2026-11-21-coding-standard-v2.md`); then `v2`, the rules of
-`docs/architecture-rubric.md`. v2 is about where knowledge lives, not the
-code style, which stays as "Style" says. The rules in short:
+This repository follows standard v2, named in `tehas.toml`'s `[standard]`
+(`url` and `version`). Its rules are in `docs/architecture-rubric.md`. v2 is
+about where knowledge lives, not the code style, which stays as "Style"
+says. The rules in short:
 
 - R1 one owner for each piece of knowledge: a supplier's paths, fields and
   documents, a file's layout, a set of state words;
@@ -144,13 +146,12 @@ counts in `architecture.toml`, with its own tests in
 `scripts/architecture_test.py`. The script is the same file in every
 tehas repository: a change to it is made in all of them together, never in
 this copy alone. A count may not rise, the pull request that lowers one
-lowers its `max`, and a `max` above 0 says `why`. At `v1` it is skipped;
-on a pull request into the branch run it with
-`--force --base origin/refactor/coding-standard-v2`. The map of who knows
-what, the contract and the grades are in `docs/architecture.md`. Review
-every pull request into the branch, and every one from `v2` on, against
-the questions in `docs/architecture-review.md`, and answer them in the
-pull request.
+lowers its `max`, and a `max` above 0 says `why`. On a pull request run it
+with `--base` and the branch it goes into, such as
+`--base origin/refactor/coding-standard-v2`. The map of who knows what,
+the contract and the grades are in `docs/architecture.md`. Review every
+pull request against the questions in `docs/architecture-review.md`, and
+answer them in the pull request.
 
 ## Verify
 

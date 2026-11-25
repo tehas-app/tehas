@@ -344,6 +344,7 @@ impl Writer {
                 ("--remove-label", "tehas:question"),
                 ("--remove-label", "needs-human-attention"),
             ],
+            log,
         );
         if !marked {
             self.put_back(n, &undo, log);
@@ -422,7 +423,7 @@ impl Writer {
         }
         if first && self.host.read_only {
             let how = if refine { "refine" } else { "plan" };
-            if tehas_core::read_only::record(&self.home, n, how, &crate::decide::iso_now()).is_err()
+            if tehas_core::read_only::record(&self.home, n, how, &crate::clock::iso_now()).is_err()
             {
                 log.push(format!(
                     "WARN: read-only: the record of the start of #{n} could not be written"

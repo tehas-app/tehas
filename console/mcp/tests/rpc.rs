@@ -138,6 +138,101 @@ fn not_json_rpc_is_invalid_request() {
     }
 }
 
+// The id is text, a number or null, as JSON-RPC 2.0 has it. An object, a list,
+// true or false is no id: the request is an Invalid Request, answered with
+// the null id, as one whose id cannot be read.
+#[test]
+fn an_id_that_is_not_text_a_number_or_null_is_an_invalid_request() {
+    let auth = format!("Bearer {K1}");
+    let h = [
+        ("Authorization", auth.as_str()),
+        ("MCP-Protocol-Version", "2025-11-25"),
+    ];
+    for id in [json!({"a": 1}), json!([1]), json!([]), json!(true)] {
+        let body = json!({"jsonrpc": "2.0", "id": id, "method": "ping", "params": {}});
+        let r = send("POST", &h, body.to_string().as_bytes());
+        assert_eq!(r.status, 400, "{id}");
+        assert_eq!(
+            String::from_utf8(r.body).unwrap(),
+            r#"{"error":{"code":-32600,"message":"Invalid Request"},"id":null,"jsonrpc":"2.0"}"#,
+            "{id}"
+        );
+    }
+}
+
+// An id of text, a number or null comes back as it was sent, and the reply's
+// keys are sorted.
+#[test]
+fn the_id_comes_back_as_it_was_sent() {
+    let auth = format!("Bearer {K1}");
+    let h = [
+        ("Authorization", auth.as_str()),
+        ("MCP-Protocol-Version", "2025-11-25"),
+    ];
+    for (id, sent) in [
+        (json!("a-1"), r#""a-1""#),
+        (json!(7), "7"),
+        (json!(-3), "-3"),
+        (json!(1.5), "1.5"),
+        (json!(null), "null"),
+    ] {
+        let body = json!({"jsonrpc": "2.0", "id": id, "method": "ping", "params": {}});
+        let r = send("POST", &h, body.to_string().as_bytes());
+        assert_eq!(r.status, 200, "{id}");
+        assert_eq!(
+            String::from_utf8(r.body).unwrap(),
+            format!(r#"{{"id":{sent},"jsonrpc":"2.0","result":{{}}}}"#)
+        );
+    }
+}
+
+// The replies' bytes: keys sorted at every level, `_meta` first in a modern
+// result, `data` between `code` and `message` in an error.
+#[test]
+fn replies_keep_their_keys_sorted() {
+    let r = modern("server/discover", json!({}));
+    let text = String::from_utf8(r.body).unwrap();
+    assert!(
+        text.starts_with(concat!(
+            r#"{"id":1,"jsonrpc":"2.0","result":{"_meta":{"io.modelcontextprotocol/serverInfo":"#,
+            r#"{"name":"tehas","version":"v9.9.9"}},"cacheScope":"private","#,
+            r#""capabilities":{"tools":{}},"instructions":"#
+        )),
+        "{text}"
+    );
+    let r = modern(
+        "tools/call",
+        json!({"name": "factory_issues", "arguments": {"stage": "nope"}}),
+    );
+    let text = String::from_utf8(r.body).unwrap();
+    assert!(
+        text.starts_with(r#"{"id":1,"jsonrpc":"2.0","result":{"_meta":{"#),
+        "{text}"
+    );
+    assert!(
+        text.contains(r#"}},"content":[{"text":""#)
+            && text.ends_with(r#"","type":"text"}],"isError":true,"resultType":"complete"}}"#),
+        "{text}"
+    );
+    let auth = format!("Bearer {K1}");
+    let body = json!({"jsonrpc": "2.0", "id": "v", "method": "tools/list",
+        "params": {"_meta": {"io.modelcontextprotocol/protocolVersion": "1900-01-01"}}})
+    .to_string();
+    let h = [
+        ("Authorization", auth.as_str()),
+        ("MCP-Protocol-Version", "1900-01-01"),
+        ("Mcp-Method", "tools/list"),
+    ];
+    assert_eq!(
+        String::from_utf8(send("POST", &h, body.as_bytes()).body).unwrap(),
+        concat!(
+            r#"{"error":{"code":-32022,"data":{"requested":"1900-01-01","#,
+            r#""supported":["2026-07-28","2025-11-25"]},"message":"Unsupported protocol version"},"#,
+            r#""id":"v","jsonrpc":"2.0"}"#
+        )
+    );
+}
+
 #[test]
 fn discover_names_both_versions_and_the_server() {
     let r = modern("server/discover", json!({}));
@@ -169,19 +264,19 @@ fn tools_list_is_cacheable_and_in_order() {
     assert_eq!(res["ttlMs"], 30000);
     assert_eq!(res["cacheScope"], "private");
     assert_eq!(res["tools"][0]["name"], "factory_status");
-    // The sixteen of the catalog, then the two ticket tools.
+    // The fifteen of the catalog, then the two ticket tools.
     let tools = res["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 18);
-    assert_eq!(tools[16]["name"], "factory_ticket");
-    assert_eq!(tools[17]["name"], "factory_tickets");
+    assert_eq!(tools.len(), 17);
+    assert_eq!(tools[15]["name"], "factory_ticket");
+    assert_eq!(tools[16]["name"], "factory_tickets");
 }
 
-// A dashboard key is a key of the second list: it is served the four tools
+// A dashboard key is a key of the second list: it is served the three tools
 // that copy from live/, and every other tool is refused exactly as one the
 // server does not have, so the scope cannot be probed tool by tool. A full key
 // is unchanged.
 #[test]
-fn a_dashboard_key_sees_four_tools_and_no_more() {
+fn a_dashboard_key_sees_three_tools_and_no_more() {
     let d = "0123456789abcdefghijklmnopqrstuvwxyz";
     let keys = parse_keys(of(K1, d)).unwrap();
     let ask = |key: &str, method: &str, params: Value| -> Response {
@@ -217,19 +312,14 @@ fn a_dashboard_key_sees_four_tools_and_no_more() {
             .map(|t| t["name"].as_str().unwrap().to_string())
             .collect()
     };
-    // The four, in the order of the full list, and each described as it is to
+    // The three, in the order of the full list, and each described as it is to
     // a full key.
     assert_eq!(
         names(ask(d, "tools/list", json!({}))),
-        [
-            "factory_status",
-            "factory_issues",
-            "factory_endings",
-            "factory_stats"
-        ]
+        ["factory_status", "factory_issues", "factory_endings"]
     );
     let full = names(ask(K1, "tools/list", json!({})));
-    assert_eq!(full.len(), 18);
+    assert_eq!(full.len(), 17);
     // The same names, in the order the full list gives them, and the same
     // entries: `list_scoped` takes the entries of `list` and does not rewrite
     // a description or a schema for the shorter answer.
@@ -578,7 +668,10 @@ fn headers_must_mirror_the_body() {
                    "_meta": {"io.modelcontextprotocol/protocolVersion": MODERN}}})
     .to_string();
     let cases: [Vec<(&str, &str)>; 4] = [
-        vec![("Mcp-Method", "tools/call"), ("Mcp-Name", "factory_stats")],
+        vec![
+            ("Mcp-Method", "tools/call"),
+            ("Mcp-Name", "factory_endings"),
+        ],
         vec![("Mcp-Method", "tools/list"), ("Mcp-Name", "factory_status")],
         vec![("Mcp-Name", "factory_status")],
         vec![("Mcp-Method", "tools/call")],
@@ -664,7 +757,7 @@ fn a_legacy_client_initializes_and_calls_tools() {
         json!({})
     );
     let list = json_of(&legacy(Some(3), "tools/list", json!({})));
-    assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 18);
+    assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 17);
     let call = json_of(&legacy(
         Some(4),
         "tools/call",

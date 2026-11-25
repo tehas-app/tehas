@@ -21,10 +21,12 @@ use tehas_core::testing::{copy_exe, write_exe};
 
 /// The answers of the stub gh. One answer per search: the count is the only
 /// call that asks for a total and no nodes, so that shape tells the two apart.
-/// A file `<x>-down` makes its read fail; GH_EDIT_FAILS fails an edit and
+/// A file `<x>-down` makes its read fail; GH_MARK_FAILS fails a mark put on an issue and
 /// GH_AUTH is what `gh auth status` exits with.
 const GH: &str = r####"gh_graphql() {
   case "$1" in
+    *"filterBy: {states: [CLOSED], since: "*) [ ! -e "$T/shipped-down" ] || exit 1
+      cat "$T/shipped.json" ;;
     *closingIssuesReferences*) cat "$T/tickets-page.json" 2>/dev/null || exit 1 ;;
     *subIssues*) [ ! -e "$T/epics-down" ] || exit 1; cat "$T/epics-page.json" ;;
     *"first: 0) { issueCount }"*) [ ! -e "$T/count-down" ] || exit 1
@@ -35,11 +37,10 @@ const GH: &str = r####"gh_graphql() {
 [ ! -e "$T/gh-down" ] || exit 1
 case "$*" in
   "issue list"*--search*) cat "$T/issues.json" ;;
-  "issue list"*) [ ! -e "$T/all-down" ] || exit 1; cat "$T/all.json" ;;
   # The names of the labels of the control issue, as --jq joins them.
   "issue view"*) [ ! -e "$T/control-down" ] || exit 1
     { [ "$(cat "$T/paused")" != true ] || echo tehas:pause; } | paste -sd " " ;;
-  "issue edit"*) [ -z "${GH_EDIT_FAILS:-}" ] || exit 1 ;;
+  "api -X POST repos/acme/widget/issues/"*"/labels "*) [ -z "${GH_MARK_FAILS:-}" ] || exit 1 ;;
   "auth status") exit "${GH_AUTH:-0}" ;;
   "api repos/acme/widget/issues/"*"/events"*) cat "$T/events.json" 2>/dev/null || exit 1 ;;
   "api graphql"*) [ ! -e "$T/shipped-down" ] || exit 1; gh_graphql "$*" ;;
@@ -79,7 +80,7 @@ pub const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
 
 /// The logins whose user ids install.sh records, as the shell tests list them.
 const LOGINS: &[&str] = &[
-    "tehas-bot",
+    "tehas-bot[bot]",
     "alice",
     "bob",
     "bob-2",
@@ -96,7 +97,6 @@ const LOGINS: &[&str] = &[
 /// What reset() takes away, under `$T`.
 const RESET: &[&str] = &[
     "gh-down",
-    "all-down",
     "shipped-down",
     "count-down",
     "control-down",
@@ -270,7 +270,6 @@ impl World {
                 let _ = fs::remove_file(&p);
             }
         }
-        self.fx("all.json", "[]\n");
         self.epics_page(&[]);
         self.shipped(&[]);
         self.shipped_count(0);
@@ -588,15 +587,11 @@ impl World {
         fs::read_to_string(self.home.join(rel)).unwrap_or_default()
     }
 
-    /// The closed issues the search for shipped work answers.
+    /// The closed issues the tickets port's read of the closed tickets
+    /// answers: one page of the adapter's question, in the project
+    /// `acme/widget` (GitHub's id 7001).
     pub fn shipped(&self, nodes: &[String]) {
-        self.fx(
-            "shipped.json",
-            &format!(
-                r#"{{"data":{{"search":{{"nodes":[{}]}}}}}}"#,
-                nodes.join(",")
-            ),
-        );
+        self.fx("shipped.json", &closed_page(nodes));
     }
 
     /// The one page of open issues the read of the epics answers.
@@ -622,7 +617,7 @@ impl World {
     /// request closed, and the count still saying 0.
     pub fn one_shipped(&self) {
         self.reset();
-        self.shipped(&[closed(20, "2026-01-02T00:00:00Z", r#"{"merged":true}"#, "")]);
+        self.shipped(&[closed(20, "2099-01-02T00:00:00Z", r#"{"merged":true}"#, "")]);
     }
 
     /// One cycle of issue `n` on the store, as the live view shows it (t_live):
@@ -1089,25 +1084,57 @@ exit "$t_rc"
 "####;
 
 #[allow(dead_code)] // each test file uses a part of this module
-/// A closed issue as the search for shipped work returns it; `closer` is
-/// JSON, and an empty `label` gives it none.
-pub fn closed(n: u64, closed_at: &str, closer: &str, label: &str) -> String {
-    let labels = if label.is_empty() {
-        String::new()
-    } else {
-        json!({"name": label}).to_string()
-    };
-    format!(
-        r#"{{"number":{n},"title":"t","url":"u","createdAt":"2025-12-01T00:00:00Z","updatedAt":"{closed_at}","closedAt":"{closed_at}","labels":{{"nodes":[{labels}]}},"timelineItems":{{"nodes":[{{"closer":{closer}}}]}}}}"#
-    )
+/// One page of the adapter's read of the closed tickets of `acme/widget`
+/// (GitHub's id 7001), from `tests/fixtures/closed-page.json`.
+pub fn closed_page(nodes: &[String]) -> String {
+    include_str!("../fixtures/closed-page.json")
+        .trim_end()
+        .replace("@NODES@", &nodes.join(","))
 }
 
 #[allow(dead_code)] // each test file uses a part of this module
-/// As `closed`, with no labels field at all: a read that said nothing of them.
-pub fn no_labels(n: u64, closed_at: &str, closer: &str) -> String {
-    format!(
-        r#"{{"number":{n},"title":"t","url":"u","updatedAt":"{closed_at}","closedAt":"{closed_at}","timelineItems":{{"nodes":[{{"closer":{closer}}}]}}}}"#
-    )
+/// A closed issue as the adapter's read of the closed tickets returns it,
+/// from the templates in `tests/fixtures/`. `closer` says what closed it:
+/// `{"merged":true}` a pull request of this project, merged, which GitHub
+/// also lists as closing it; `{"merged":false}` one not merged; anything
+/// else no closer. An empty `label` gives it none.
+pub fn closed(n: u64, closed_at: &str, closer: &str, label: &str) -> String {
+    let (labels, count) = if label.is_empty() {
+        (String::new(), 0)
+    } else {
+        (json!({"name": label}).to_string(), 1)
+    };
+    let pr = (n + 1000).to_string();
+    let merged = match closer {
+        r#"{"merged":true}"# => Some("true"),
+        r#"{"merged":false}"# => Some("false"),
+        _ => None,
+    };
+    let by = match merged {
+        Some(m) => include_str!("../fixtures/closer-pull.json")
+            .trim_end()
+            .replace("@PR@", &pr)
+            .replace("@MERGED@", m),
+        None => "null".to_string(),
+    };
+    let refs = match merged {
+        Some("true") => include_str!("../fixtures/merged-change.json")
+            .trim_end()
+            .replace("@HEAD@", &format!("{:040x}", n + 1000))
+            .replace("@COMMIT@", &format!("{:040x}", n + 1001))
+            .replace("@PR@", &pr),
+        _ => String::new(),
+    };
+    let refs_count = if refs.is_empty() { "0" } else { "1" };
+    include_str!("../fixtures/closed-node.json")
+        .trim_end()
+        .replace("@CLOSER@", &by)
+        .replace("@REFS@", &refs)
+        .replace("@REFS_COUNT@", refs_count)
+        .replace("@LABELS@", &labels)
+        .replace("@LABELS_COUNT@", &count.to_string())
+        .replace("@N@", &n.to_string())
+        .replace("@AT@", closed_at)
 }
 
 #[allow(dead_code)] // each test file uses a part of this module

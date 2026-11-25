@@ -45,8 +45,10 @@ impl GitHub {
         }
         let labels = gh::parse_labels(out).ok_or(Outcome::Unread(Unread::Malformed))?;
         let marks = self.read_marks(&labels).into_iter().flatten().collect();
-        read_digest(out, key.clone(), marks, self.bot.as_ref())
-            .ok_or(Outcome::Unread(Unread::Malformed))
+        let mut digest = read_digest(out, key.clone(), marks, self.bot.as_ref())
+            .ok_or(Outcome::Unread(Unread::Malformed))?;
+        digest.labels = labels;
+        Ok(digest)
     }
 
     /// A ticket's history, oldest first, as `Tickets::history` answers. The
@@ -295,6 +297,11 @@ pub(crate) fn take<T>(mut items: Vec<T>, window: Window) -> Got<Took<T>> {
 /// exactly: a runner's own words are never read.
 pub(crate) const NOT_STARTED: &str = "not started: out of time";
 
+/// The reason every runner gives for a gh that exited 4, gh's documented
+/// "authentication required": no credential for the host, and no request
+/// made. `Bounded` says `: gh exited 4`, the relay's runner `gh exited 4`.
+const GH_NO_CREDENTIAL: &str = "gh exited 4";
+
 /// [`GitHub::outcome`] at the time `now`. A 410 is an issue deleted or
 /// issues turned off: `NotFound`, as the ports spec's table says. The
 /// status is found anywhere in the reason: `Bounded` gives `: HTTP 403`,
@@ -314,6 +321,12 @@ fn outcome(e: &ForgeError, now: i64) -> Outcome {
         return Outcome::NotFound;
     }
     let why = e.why.trim_start_matches(": ");
+    // gh's exit 4 is its "authentication required": it holds no credential
+    // for the host and asked nothing. `SignedOut`, so a caller knows nothing
+    // was taken, never `Unavailable { sent: Maybe }` (tehas-68, 2026-11-25).
+    if why == GH_NO_CREDENTIAL {
+        return Outcome::SignedOut;
+    }
     let maybe = |why| Outcome::Unavailable {
         why,
         sent: Sent::Maybe,
@@ -358,5 +371,39 @@ fn outcome(e: &ForgeError, now: i64) -> Outcome {
             sent: Sent::No,
         },
         _ => maybe(Passing::Server),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn of(why: &str) -> Outcome {
+        outcome(&ForgeError::new("gh api", why), 0)
+    }
+
+    #[test]
+    fn a_gh_with_no_credential_is_signed_out() {
+        // gh exits 4 with "To get started with GitHub CLI, please run: gh
+        // auth login" and asks nothing: both runners' forms of it.
+        assert_eq!(of(": gh exited 4"), Outcome::SignedOut);
+        assert_eq!(of("gh exited 4"), Outcome::SignedOut);
+    }
+
+    #[test]
+    fn a_401_is_still_signed_out() {
+        assert_eq!(of(": HTTP 401"), Outcome::SignedOut);
+        assert_eq!(of("gh exited 1: HTTP 401"), Outcome::SignedOut);
+    }
+
+    #[test]
+    fn another_exit_stays_a_server_failure_that_may_have_been_sent() {
+        let maybe = Outcome::Unavailable {
+            why: Passing::Server,
+            sent: Sent::Maybe,
+        };
+        for why in [": gh exited 1", "gh exited 1", ": gh exited 40"] {
+            assert_eq!(of(why), maybe, "{why}");
+        }
     }
 }

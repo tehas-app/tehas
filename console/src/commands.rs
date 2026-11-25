@@ -7,7 +7,7 @@
 //!   console tehas limit [--json] | set ... | clear
 //!   console tehas blockers [--json]
 //!   console tehas pause [--reason TEXT]
-//!   console tehas analytics report | copy --to <file> [--json]
+//!   console tehas analytics copy --to <file> [--json]
 //!   console tehas top [--once | --json] [--every <seconds>]
 //!   console tehas api [--json]
 //!   console tehas labels
@@ -98,7 +98,6 @@ fn analytics_words(given: &[String]) -> Result<(), u8> {
     let words: Vec<&str> = given.iter().map(String::as_str).collect();
     let file_ok = |f: &str| !f.is_empty() && !f.starts_with('-');
     let good = match words[..] {
-        ["report"] => true,
         ["copy", "--to", file]
         | ["copy", "--to", file, "--json"]
         | ["copy", "--json", "--to", file] => file_ok(file),
@@ -111,7 +110,7 @@ fn analytics_words(given: &[String]) -> Result<(), u8> {
         _ => false,
     };
     if !good {
-        eprintln!("usage: tehas analytics report | copy --to <file> [--json]");
+        eprintln!("usage: tehas analytics copy --to <file> [--json]");
         return Err(64);
     }
     Ok(())
@@ -194,7 +193,7 @@ pub fn tehas(given: &[String]) -> u8 {
         "top" => top::view(rest),
         "api" => api::main(rest),
         "labels" => labels::main(rest),
-        "plugin" => tehas_ops::plugin::main(rest, &crate::wiring::board),
+        "plugin" => tehas_ops::plugin::main(rest, &crate::wiring::board, &crate::wiring::access),
         "host-message" => host_message::main(rest),
         "resume" => holds::resume(rest, &mut *control_tickets()),
         "drain" => holds::drain(rest),
@@ -584,10 +583,9 @@ mod tests {
     }
 
     #[test]
-    fn analytics_takes_report_or_copy() {
+    fn analytics_takes_copy_alone() {
         for good in [
-            &["report"][..],
-            &["copy", "--to", "a"],
+            &["copy", "--to", "a"][..],
             &["copy", "--to", "a", "--json"],
             &["copy", "--json", "--to", "a"],
         ] {
@@ -595,6 +593,7 @@ mod tests {
         }
         for bad in [
             &[][..],
+            &["report"],
             &["report", "--json"],
             &["copy"],
             &["copy", "a"],

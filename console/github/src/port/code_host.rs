@@ -4,14 +4,21 @@
 //! (`changes`), one change whole (`change`, in `change.rs`), the check
 //! runs and status contexts on a commit (`checks`, in `checks.rs`), and a
 //! pull request's timeline and the commit a branch points at (`activity`
-//! and `branch`, in `activity.rs`). Every other read answers
-//! `Refused(Unsupported)` before any request.
+//! and `branch`, in `activity.rs`), and the tags and releases (`tags`,
+//! `recent_tags`, `resolve_tag`, `releases`, `recent_releases`,
+//! `latest_release` and `release`, in `releases.rs`), and one release file
+//! (`download`, in `download.rs`). Every other read
+//! answers `Refused(Unsupported)` before any request; `archive` is a floor,
+//! since tehas fetches no commit's tarball.
 
 mod activity;
 mod change;
 mod checks;
+pub(super) mod download;
 mod numbers;
+mod releases;
 mod remote;
+pub use checks::WORKFLOW_RUNS_FORBIDDEN;
 pub(super) use remote::parts;
 pub use remote::project_of;
 
@@ -96,7 +103,7 @@ impl CodeHost for GitHub {
             }
             args.extend(["-f", &query]);
             match gh.call("the pull requests", &args) {
-                Ok(out) => read_page(&out, me, filter, gh.bot.as_ref()),
+                Ok(out) => read_page(&out, me, filter, gh.bot.as_ref(), (gh.now)()),
                 Err(e) => Err(gh.query_outcome(&e)),
             }
         };
@@ -173,38 +180,57 @@ impl CodeHost for GitHub {
         self.checks_of(at, name)
     }
 
-    fn tags(&mut self, _: Bound) -> Got<Whole<Tag>> {
-        unsupported()
+    /// The tags, GraphQL's `refs/tags/`, an annotated tag peeled and timed
+    /// by its tagger: see `releases.rs`.
+    fn tags(&mut self, bound: Bound) -> Got<Whole<Tag>> {
+        self.tags_of(bound)
     }
 
-    fn recent_tags(&mut self, _: NonZeroU32) -> Got<Took<Tag>> {
-        unsupported()
+    /// Every tag, newest made first: see `releases.rs`.
+    fn recent_tags(&mut self, first: NonZeroU32) -> Got<Took<Tag>> {
+        self.recent_tags_of(first)
     }
 
-    fn resolve_tag(&mut self, _: &TagName) -> Got<CommitId> {
-        unsupported()
+    /// The tag's commit, peeled, one GraphQL question: see `releases.rs`.
+    fn resolve_tag(&mut self, name: &TagName) -> Got<CommitId> {
+        self.tag_commit(name)
     }
 
-    fn releases(&mut self, _: Bound) -> Got<Whole<Release>> {
-        unsupported()
+    /// The releases, REST's list: see `releases.rs`.
+    fn releases(&mut self, bound: Bound) -> Got<Whole<Release>> {
+        self.releases_of(bound)
     }
 
-    fn recent_releases(&mut self, _: NonZeroU32) -> Got<Took<Release>> {
-        unsupported()
+    /// Every release, newest made first: see `releases.rs`.
+    fn recent_releases(&mut self, first: NonZeroU32) -> Got<Took<Release>> {
+        self.recent_releases_of(first)
     }
 
+    /// The newest published release, from the whole list: see `releases.rs`.
     fn latest_release(&mut self) -> Got<Option<Release>> {
-        unsupported()
+        self.latest_release_of()
     }
 
-    fn release(&mut self, _: &TagName) -> Got<Release> {
-        unsupported()
+    /// REST's release of the tag: see `releases.rs`.
+    fn release(&mut self, tag: &TagName) -> Got<Release> {
+        self.release_of(tag)
     }
 
-    fn download(&mut self, _: &TagName, _: &FileName, _: u64, _: &mut dyn std::io::Write) -> Did {
-        unsupported()
+    /// gh's `release download` into a directory of the adapter's own, held
+    /// to the size the release lists and to the limit: see `download.rs`.
+    fn download(
+        &mut self,
+        tag: &TagName,
+        file: &FileName,
+        limit: u64,
+        into: &mut dyn std::io::Write,
+    ) -> Did {
+        self.download_to(tag, file, limit, into)
     }
 
+    /// `Refused(Unsupported)`, a floor: tehas fetches no commit's tarball
+    /// (its update downloads release files), and gh has no way to write a
+    /// commit's tarball but as text.
     fn archive(&mut self, _: &CommitId, _: u64, _: &mut dyn std::io::Write) -> Did {
         unsupported()
     }
@@ -430,13 +456,14 @@ fn read_page(
     me: bool,
     f: &ChangeFilter,
     bot: Option<&crate::tickets::Bot>,
+    now: i64,
 ) -> Got<Page> {
     let malformed = Outcome::Unread(Unread::Malformed);
+    if let Some(refused) = crate::graphql::refusal(out, now) {
+        return Err(refused);
+    }
     let mut v: Value = serde_json::from_str(out.trim()).map_err(|_| malformed.clone())?;
     tehas_core::accounts::vouch(&mut v);
-    if v.get("errors").is_some_and(|e| !e.is_null()) {
-        return Err(Outcome::Unread(Unread::Inconsistent));
-    }
     let repo = v.pointer("/data/repository").ok_or(malformed.clone())?;
     let here = repo.get("databaseId").and_then(Value::as_u64);
     let list = repo.get("pullRequests").ok_or(malformed.clone())?;

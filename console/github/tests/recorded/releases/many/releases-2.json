@@ -1,0 +1,15 @@
+[
+ {
+  "id": 1100,
+  "tag_name": "v0.100.0",
+  "name": "v0.100.0",
+  "draft": false,
+  "prerelease": false,
+  "created_at": "2025-04-17T00:00:00Z",
+  "published_at": "2025-04-17T01:00:00Z",
+  "body": null,
+  "html_url": "https://github.com/acme/widget/releases/tag/v0.100.0",
+  "assets": [],
+  "url": "https://api.github.com/repos/acme/widget/releases/1100"
+ }
+]

@@ -1,0 +1,1 @@
+| 2026-11-24 | state/account-ids keys a bot by its whole login, `<slug>[bot]`, and a person or an organisation by its login; a known bot kept only under its bare slug is unrecorded and stops the dispatcher with 78 until `console ids record` settles it (authorisation) | v2/t4-ids-bot-key |

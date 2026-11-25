@@ -14,8 +14,7 @@ Optional. An open issue that carries none of tehas's queue labels
 (`tehas:ready`, `tehas:plan`, `tehas:running` and the others of the
 [line](#3-what-happens-next)) is an idea: it is not in line yet. Work on it can
 happen anywhere, with other tools and systems, for as long as it takes.
-tehas does not act on it. The factory floor counts such tickets as not on
-the line.
+tehas does not act on it, and the dashboard lists it nowhere.
 
 This version has no Protolab: the site that kept a page of the files
 attached to each prototype is parked, to come back as a plugin. tehas 2.0
@@ -220,22 +219,8 @@ line.
 
 ## 3. What happens next
 
-Watch it on the [factory floor](/floor) or the [plain dashboard](/dashboard): the queue, the issue being worked on with its
+Watch it on the [plain dashboard](/dashboard): the queue, the issue being worked on with its
 console streaming live, and what is waiting for you.
-
-Unless `TEHAS_ANALYTICS=off`, the plain dashboard also has a section **Last 10
-days**, from `live/analytics.json` (see [tehasbot status](/tools-health#tehasbot-status-and-the-console)):
-a row of figures (shipped, with a bar a day; planned, with its trend; runs by
-how they ended; first-pass yield; lead time; cycle time; machine time; tokens;
-and availability), a chart
-of shipped issues and failed runs per day with the cycle-minutes as a line, the
-five most common stop reasons, the share of runs that got through each step,
-and one row per tehas and pi-rukas version pair. Every figure says its count as
-`n=`: ten days make small numbers. A pair with fewer than three runs shows its
-count only. The section is hidden where there is no file, and the page reads it
-at most once a minute. What the file means is worked out by one module,
-`host/fun/analytics-data.js`; the plain dashboard's island,
-`host/fun/factory/tehas-factory-days`, draws it.
 
 The dispatcher takes the ready issues of the start order first, in the order given, then [refreshes](#refreshes) of its own pull requests, then the other ready issues, lowest number first. With no order, ready issues start lowest number first. A person sets the order with `tehas order set --issues 12,8`, and it lasts until it is cleared unless `--for` or `--until` gives it an expiry; a program that runs the factory may set it on every poll instead. With `--only`, a ready issue the order does not name waits, and the log says `wait #N: not in the start order (--only)`; refreshes do not wait. An order that expired or cannot be read is no order, and the log says so. The order only sorts: an issue starts only on a `tehas:ready` or `tehas:blocked` from an allowed account, and every hold below applies as without it. [tehas status](/tools-status#tehas-status) prints an `order` line while one is set. See [tehas order](/api#tehas-order). The dispatcher takes issues as many at a time as the host's ceiling and the slice's room allow (see [Limits that hold work back](#limits-that-hold-work-back)). A running cycle is never stopped to make room for one higher in the order. The dashboard lists the queue by issue number, not the order the dispatcher will work it in.
 
@@ -342,7 +327,7 @@ snapshot; where the snapshot has none, the figure is the length of that list.
 When the cycle starts and when it ends, the bot comments on the issue. The token
 usage per agent role is posted on the pull request.
 
-The console on the [factory floor](/floor) and on the [plain dashboard](/dashboard)
+The console on the [plain dashboard](/dashboard)
 shows one cycle at a time. When several are running, or one is running and an
 earlier one can still be read, a row of tabs above it names each by its issue
 number.
@@ -940,6 +925,8 @@ What comes back on the issue is one comment of the bot's:
   pull request of the issue, a rebase that conflicts, a cycle still running,
   no marked comment, or a rule above not met. The label comes off here
   too. To ask again, write a new marked comment and apply the label again.
+  The reply points to this section for the marked comment's first line and
+  does not quote it.
   The line is the rule's own words, with at most the HTTP status, limit,
   timeout or connection words of what git or gh said. What the command said
   can quote a commit subject of the cycle, so it goes to the log only.
@@ -988,7 +975,8 @@ no ask:
 - A try that GitHub fails again is counted. A refusal of anything else, the
   third try failed, or the hour over, stops the tries. The issue is told once,
   with `<!-- tehas:finish issue=<n> result=stopped by=poll -->`, and the cycle
-  waits for an ask with `tehas:finish`.
+  waits for an ask with `tehas:finish`. The reply points to [Finishing a
+  stopped cycle](#finishing-a-stopped-cycle) for the ask's marked comment.
 - An issue that carries `tehas:finish` is the ask's: the ask runs its finish
   and removes the record, so the finish runs once. A running issue waits. An
   issue that is closed, carries `tehas:ready`, `tehas:running` or
@@ -1384,7 +1372,7 @@ whose issue is closed or whose pull request is merged or closed, stops one nobod
 has heard from, and clears an issue marked `tehas:running` with no cycle behind
 it. A paused factory therefore keeps no slot and no model time for work it has
 already done. `tehas status` prints a line for each switch that is set, with when the
-flag was written and why; the dashboard and the front page say the factory is
+flag was written and why; the dashboard says the factory is
 paused and, while a cycle is still running, that it is finishing that issue.
 
 The reason is written to the flag and shown on pages that may be public, so write
@@ -1395,7 +1383,7 @@ not published.
 
 With `TEHAS_READ_ONLY=on` in `instance.env` the instance reads its product's issues and code and runs cycles as usual, but writes nothing to GitHub: no label, comment, reaction, issue edit, pushed branch or pull request. It is meant for a factory on a developer's laptop that points at a repository a shared factory also serves. Off unless the instance turns it on; an instance that does not set it is unchanged.
 
-One guard decides every write. On the host each `gh` goes through the shim in `~/tehas/shim`, which `env.sh` puts first on `PATH` for a read-only instance whether or not it names a GitHub App, and its console runs no call that writes. It prints `read-only: would gh issue edit acme/widget#7` instead, exits 0 so the command goes on as if the write was made, and keeps the line in `state/read-only.log`. A read goes to GitHub as before. A shim with no console to ask runs nothing at all. `tehas-cycle finish` and `tehas init-product` say what they would have pushed and push nothing. The line in `state/github-writes.log` is only for a write that reached GitHub, so none is written.
+One setting decides every write. On the host each `gh` goes through the shim in `~/tehas/shim`, which `env.sh` puts first on `PATH` for a read-only instance whether or not it names a GitHub App, and its console runs no call that writes. It prints `read-only: would gh issue edit acme/widget#7` instead, exits 0 so the command goes on as if the write was made, and keeps the line in `state/read-only.log`. A read goes to GitHub as before. A shim with no console to ask runs nothing at all. The dispatcher's and a cycle's own writes to GitHub do not reach the shim: their writer is read-only, so each one prints `read-only: would send TicketNote`, keeps the line in `state/read-only.log`, records no row in the journal and goes on as if the write was made. `tehas-cycle finish` and `tehas init-product` say what they would have pushed and push nothing. The line in `state/github-writes.log` is only for a write that reached GitHub, so none is written.
 
 A cycle's container is told so too (`TEHAS_READ_ONLY=1` in its environment). Its git pushes to `origin` land in the workspace's own repository, so the push check before a cycle and the cycle's own pushes succeed and the branch stays in `~/tehas/work/<name>-<issue>`; a push that names a URL of github.com fails. The image's `gh` refuses every call that may write, by the same rule: what reads is a short list (`issue view`, `pr list`, `api` with no method and no field, a graphql query that names no mutation, and a few more), and anything else is a write. A `gh pr create` it refuses leaves the title, the branch and the body in `.git/tehas-read-only-pr.md` of the workspace. The image's `gh` has this only from the release that brought the setting: rebuild the image with `install.sh` before you turn it on. The token the container is given writes nothing either: its Contents, Pull requests and Issues are read, so a request that passes neither guard, a `curl` to the API or a push to a URL with a user name in it, is refused by GitHub. A token kept from before the instance turned read-only is not handed on: the next ask makes a new one. `tehas update` makes the cycle token and asks it for no push, and says `Cycle token:  OK (read-only: ...)`.
 
@@ -1475,17 +1463,16 @@ still a decision.
 ## The last 365 days
 
 The factory records every run it makes, with the tehas and pi-rukas versions
-it ran, and keeps 365 days of them. Two commands read them:
+it ran, and keeps 365 days of them. One command reads them:
 
 ```
-tehas analytics report                    # the ten-day report in the terminal
 tehas analytics copy --to copy.db --json  # a copy of the database, to fetch
 ```
 
-The report is the one on the plain dashboard. The copy is for deeper analysis
-elsewhere; it holds no token, host or address. What is in it, column by
-column, is on [Analytics](/analytics). `TEHAS_ANALYTICS=off` stops the
-recording, and both commands then say so and exit 78.
+The copy is for analysis elsewhere; it holds no token, host or address. What
+is in it, column by column, is on [Analytics](/analytics).
+`TEHAS_ANALYTICS=off` stops the recording, and the command then says so and
+exits 78.
 
 ## Limits that hold work back
 
@@ -1633,8 +1620,10 @@ recording, and both commands then say so and exit 78.
   a while; the six-pass review is the slowest part.
 
 - No new cycle while the branch is red, when the instance sets
-  `TEHAS_BRANCH_CHECK`: each poll asks GitHub, in one call that may take 30
-  seconds, for that check on the head commit of the branch work lands on.
+  `TEHAS_BRANCH_CHECK`: each poll asks GitHub for that check on the head
+  commit of the branch work lands on, in four reads: the branch's head, its
+  check runs, the workflow runs they belong to and the commit's statuses
+  ([the permission to read the checks](/github-app#the-permission-to-read-the-checks)).
   When it failed, timed out or could not start, the poll starts no cycle, no
   retry and no refresh, and says `holding: main is red at <sha>`, with the
   branch's name and the first 12 characters of the commit. A cycle started
@@ -2512,7 +2501,7 @@ its one-shot runner, `pi-rukas-headless work <issue>`, with no terminal and no
 Pi session of its own: it starts a Pi process for each agent. There is no prompt to type at and nothing waits for an
 answer.
 
-What you can do is watch it, on the [factory floor](/floor) or on the host:
+What you can do is watch it, on the [plain dashboard](/dashboard) or on the host:
 
 ```
 tail -f ~/tehas/live/console-123.txt     # the console the dashboard shows
@@ -2567,7 +2556,7 @@ your own git configuration. An administrator lets an account in once, with
   approve.
 - **The factory beside you.** Nothing is paused. A session and a cycle share
   the model endpoint, and the command tells you when a cycle is running. Apply
-  `tehas:pause` first if you want the models to yourself. The factory floor
+  `tehas:pause` first if you want the models to yourself. The dashboard
   does not show a session.
 - **Outside the queue.** No labels and no bot comments. The dispatcher does
   not know the session exists.

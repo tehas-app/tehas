@@ -25,6 +25,12 @@ pub struct Sources<'a> {
     pub models: models::Models,
     /// The subagent provider's endpoint, url and key, as the probe found it.
     pub endpoint: (String, String),
+    /// The code host's read handle, from the program's wiring: None when
+    /// it made none, and a read through it is then unreadable.
+    pub code_host: Option<Box<dyn tehas_ports::CodeHost>>,
+    /// Lines the reads leave for the poll to say once, each once: the code
+    /// host's refusal of the branch's checks (`read::checks::refused`).
+    pub said: Vec<String>,
 }
 
 /// The facts a decision names in needs that are read only when it asks:
@@ -112,9 +118,10 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     s["user"] = json!({"login": c.bot_login});
     // A file that cannot be read gives no id: the bot is then known by its
     // login, as before the first record. Its questions authorise nothing.
-    s["bot_id"] = json!(tehas_core::accounts::read(home)
-        .get(tehas_core::accounts::account(&c.bot_login))
-        .copied());
+    s["bot_id"] = json!(tehas_core::accounts::id_of(
+        &tehas_core::accounts::read(home),
+        &tehas_core::accounts::bot_key(&c.bot_login)
+    ));
     // What rule 6 holds an issue on out of an open pull request's body:
     // every open pull request of `own_pull` that names it with a closing
     // keyword, by number, whatever base it targets. GitHub's own links are
@@ -604,15 +611,12 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     }
 
     if !c.branch_check.is_empty() {
-        let path = format!(
-            "repos/{}/commits/{}/check-runs?check_name={}&filter=latest",
-            c.repo,
-            c.branch,
-            uri(&c.branch_check)
-        );
-        s["checks"] = calls
-            .gh(&["api", &path])
-            .unwrap_or_else(|_| json!({"failed": true}));
+        let host = src
+            .code_host
+            .as_mut()
+            .map(|h| h.as_mut() as &mut dyn tehas_ports::CodeHost);
+        let check = super::checks::read(host, &c.branch, &c.branch_check, &mut src.said);
+        s["checks"] = json!({"state": check.word(), "head": check.head()});
     }
     edit_histories(calls, c, &mut issues, &edit_wanted(&s, &q, &candidates));
     s["issues"] = Value::Object(issues);
@@ -921,18 +925,6 @@ fn entry(issues: &mut Map<String, Value>, n: u64) -> &mut Value {
     issues.entry(n.to_string()).or_insert_with(|| json!({}))
 }
 
-/// jq's @uri.
-fn uri(s: &str) -> String {
-    s.bytes()
-        .map(|b| match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                (b as char).to_string()
-            }
-            _ => format!("%{b:02X}"),
-        })
-        .collect()
-}
-
 /// The lists of each author as one, or the first that failed or is no list.
 fn joined_lists(lists: Vec<Value>) -> Value {
     let mut all = Vec::new();
@@ -1194,8 +1186,8 @@ mod tests {
     fn host(world: &Value, broken: &[u64]) -> tehas_core::testdir::TestDir {
         let dir = tehas_core::testdir::TestDir::new("build-poll");
         std::fs::create_dir_all(dir.join("bin")).unwrap();
-        std::fs::create_dir_all(dir.join("state/cycles")).unwrap();
-        std::fs::create_dir_all(dir.join("state/refresh")).unwrap();
+        std::fs::create_dir_all(Home::new(&*dir).cycles_dir()).unwrap();
+        std::fs::create_dir_all(Home::new(&*dir).state(State::Refreshes)).unwrap();
         std::fs::create_dir_all(dir.join("logs")).unwrap();
 
         // The stub's own list of words is held in w-10.. and asked of the table
@@ -1642,6 +1634,8 @@ esac"#,
                 model: String::new(),
             },
             endpoint: (String::new(), String::new()),
+            code_host: None,
+            said: Vec::new(),
         }
     }
 
@@ -1940,7 +1934,7 @@ esac"#,
         // request is what has the list read.
         let _clock = crate::read::run::no_case_clock();
         let dir = host(&w, &[]);
-        std::fs::write(dir.join("state/refresh/40.json"), r#"{"asked":"pr"}"#).unwrap();
+        std::fs::write(Home::new(&*dir).refresh_request(40), r#"{"asked":"pr"}"#).unwrap();
         let mut src = sources(&dir);
         let snap = match snapshot(&mut src, &settings()) {
             Ok(s) => s,
@@ -1985,7 +1979,7 @@ esac"#,
             w["refreshing"] = json!([]);
             let dir = host(&w, &[]);
             if let Some(body) = body {
-                std::fs::write(dir.join("state/refresh/40.json"), body).unwrap();
+                std::fs::write(Home::new(&*dir).refresh_request(40), body).unwrap();
             }
             let mut src = sources(&dir);
             let s = settings();
@@ -2015,7 +2009,7 @@ esac"#,
     fn the_said_record_is_read_where_and_as_far_as_its_writer_keeps_it() {
         let _clock = crate::read::run::no_case_clock();
         let dir = host(&world(), &[]);
-        std::fs::write(dir.join("state/refresh/40.json"), r#"{"at":"x"}"#).unwrap();
+        std::fs::write(Home::new(&*dir).refresh_request(40), r#"{"at":"x"}"#).unwrap();
         let key = "k".repeat(SAID_MAX + 50);
         std::fs::write(said_file(&dir, 40), &key).unwrap();
         let mut src = sources(&dir);
@@ -2037,7 +2031,7 @@ esac"#,
         // every poll of these cases.
         let _clock = crate::read::run::no_case_clock();
         let dir = host(&world(), &[]);
-        std::fs::create_dir_all(dir.join("state/plan-start")).unwrap();
+        std::fs::create_dir_all(Home::new(&*dir).plan_starts()).unwrap();
         for n in [21, 99] {
             let body = format!(r#"{{"by":"alice","sum":"{n}"}}"#);
             std::fs::write(host::plan_start_file(&dir, n), body).unwrap();
@@ -2064,8 +2058,12 @@ esac"#,
     fn the_notes_of_the_last_poll_are_read_from_their_files() {
         let _clock = crate::read::run::no_case_clock();
         let dir = host(&world(), &[]);
-        std::fs::write(dir.join("state/branch-check"), "main is gone\n\n").unwrap();
-        std::fs::write(dir.join("state/refresh/.held"), "no continue-pr").unwrap();
+        std::fs::write(
+            Home::new(&*dir).state(State::BranchCheck),
+            "main is gone\n\n",
+        )
+        .unwrap();
+        std::fs::write(Home::new(&*dir).state(State::RefreshHeld), "no continue-pr").unwrap();
         let mut src = sources(&dir);
         let snap = match snapshot(&mut src, &settings()) {
             Ok(s) => s,
@@ -2745,8 +2743,8 @@ esac"#,
             Err(f) => panic!("the stubs answer: {}", f.line),
         };
         assert_eq!(snap.get("running_unlisted"), None, "a listed directory");
-        std::fs::remove_dir_all(dir.join("state/cycles")).unwrap();
-        std::fs::write(dir.join("state/cycles"), "not a directory").unwrap();
+        std::fs::remove_dir_all(Home::new(&*dir).cycles_dir()).unwrap();
+        std::fs::write(Home::new(&*dir).cycles_dir(), "not a directory").unwrap();
         let mut src = sources(&dir);
         let snap = match snapshot(&mut src, &settings()) {
             Ok(s) => s,
