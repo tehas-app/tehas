@@ -24,8 +24,8 @@ use tehas_core::home::Home;
 use tehas_core::journal::{settle as rules, Found, Journal, Journaled, RowId};
 use tehas_core::question::is_handoff_marker;
 use tehas_ports::{
-    At, Bound, ChangeNo, Depth, Mark, NoBlobs, Outcome, Receipt, Sent as Passed, State, TicketKey,
-    Window, Write,
+    At, Bound, ChangeNo, Depth, Mark, NoBlobs, Outcome, Receipt, Refusal, Sent as Passed, State,
+    TicketKey, Window, Write,
 };
 
 /// The comment a park posts when its question's label could not be added.
@@ -295,6 +295,11 @@ impl Writer<'_> {
             };
             match journal.send(&mut store, write, &mut *self.ports.writes, &NoBlobs) {
                 Journaled::Answered(Ok(r)) => return Sent::Done(r),
+                // A read-only host goes on as after a write that answered
+                // nothing, as its gh shim answers one.
+                Journaled::Answered(Err(Outcome::Refused(Refusal::ReadOnly))) => {
+                    return Sent::Done(Receipt::Done)
+                }
                 Journaled::Answered(Err(e)) => return Sent::Failed(e),
                 Journaled::Unknown { answer, row } => return Sent::Unknown(answer, Some(row)),
                 Journaled::Unrecorded => {}
@@ -307,6 +312,7 @@ impl Writer<'_> {
         }
         match self.ports.writes.send(write, &NoBlobs) {
             Ok(r) => Sent::Done(r),
+            Err(Outcome::Refused(Refusal::ReadOnly)) => Sent::Done(Receipt::Done),
             Err(e) if maybe(&e) => Sent::Unknown(e, None),
             Err(e) => Sent::Failed(e),
         }

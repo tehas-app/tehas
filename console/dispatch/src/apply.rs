@@ -30,7 +30,7 @@ use std::time::Duration;
 use tehas_core::call;
 use tehas_core::home::{Home, State};
 use tehas_core::journal::{Journal, Journaled, Wrote};
-use tehas_ports::{Body, ChangeNo, NoBlobs, Receipt, TicketKey, Write};
+use tehas_ports::{Body, ChangeNo, NoBlobs, Outcome, Receipt, Refusal, TicketKey, Write};
 
 /// The calls of one poll's writes.
 pub struct Writer {
@@ -472,6 +472,12 @@ impl Writer {
                 Wrote::Done(posted.id.as_str().to_string())
             }
             Journaled::Answered(Ok(_)) => Wrote::Done(String::new()),
+            // A read-only host goes on as after a write that answered
+            // nothing, as its gh shim answers one; the journal said what it
+            // did not send.
+            Journaled::Answered(Err(Outcome::Refused(Refusal::ReadOnly))) => {
+                Wrote::Done(String::new())
+            }
             Journaled::Answered(Err(o)) => Wrote::Failed(format!(": {}", o.line())),
             Journaled::Unknown { answer, .. } => Wrote::Unknown(format!(": {}", answer.line())),
             Journaled::Unrecorded => Wrote::Unrecorded,
