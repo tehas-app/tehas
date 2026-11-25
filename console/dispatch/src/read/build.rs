@@ -25,6 +25,12 @@ pub struct Sources<'a> {
     pub models: models::Models,
     /// The subagent provider's endpoint, url and key, as the probe found it.
     pub endpoint: (String, String),
+    /// The code host's read handle, from the program's wiring: None when
+    /// it made none, and a read through it is then unreadable.
+    pub code_host: Option<Box<dyn tehas_ports::CodeHost>>,
+    /// Lines the reads leave for the poll to say once, each once: the code
+    /// host's refusal of the branch's checks (`read::checks::refused`).
+    pub said: Vec<String>,
 }
 
 /// The facts a decision names in needs that are read only when it asks:
@@ -605,15 +611,12 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     }
 
     if !c.branch_check.is_empty() {
-        let path = format!(
-            "repos/{}/commits/{}/check-runs?check_name={}&filter=latest",
-            c.repo,
-            c.branch,
-            uri(&c.branch_check)
-        );
-        s["checks"] = calls
-            .gh(&["api", &path])
-            .unwrap_or_else(|_| json!({"failed": true}));
+        let host = src
+            .code_host
+            .as_mut()
+            .map(|h| h.as_mut() as &mut dyn tehas_ports::CodeHost);
+        let check = super::checks::read(host, &c.branch, &c.branch_check, &mut src.said);
+        s["checks"] = json!({"state": check.word(), "head": check.head()});
     }
     edit_histories(calls, c, &mut issues, &edit_wanted(&s, &q, &candidates));
     s["issues"] = Value::Object(issues);
@@ -920,18 +923,6 @@ fn numbers(list: &Value) -> Vec<u64> {
 
 fn entry(issues: &mut Map<String, Value>, n: u64) -> &mut Value {
     issues.entry(n.to_string()).or_insert_with(|| json!({}))
-}
-
-/// jq's @uri.
-fn uri(s: &str) -> String {
-    s.bytes()
-        .map(|b| match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                (b as char).to_string()
-            }
-            _ => format!("%{b:02X}"),
-        })
-        .collect()
 }
 
 /// The lists of each author as one, or the first that failed or is no list.
@@ -1643,6 +1634,8 @@ esac"#,
                 model: String::new(),
             },
             endpoint: (String::new(), String::new()),
+            code_host: None,
+            said: Vec::new(),
         }
     }
 

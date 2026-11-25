@@ -7261,12 +7261,12 @@ fn an_outcome_over_the_read_bound_reads_as_no_outcome() {
 /// resilience test", 3, 4, 7, 10 and 11), over `Faulty<FakeSite>`.
 mod resilience {
     use super::*;
-    use tehas_ports::fake::{FakeSite, Fault, Faulty, TicketsOp};
+    use tehas_ports::fake::{FakeSite, Fault, Faulty, Op, TicketsOp};
     use tehas_ports::{Actor, Refusal, Scope};
 
     fn faulty(fault: Fault) -> Faulty<FakeSite> {
         Faulty::new(FakeSite::new(&open_issues()))
-            .on(tehas_ports::fake::Op::Tickets(TicketsOp::Note), fault)
+            .on(Op::Tickets(TicketsOp::Note), fault)
             .times(1)
     }
 
@@ -7364,6 +7364,107 @@ mod resilience {
             let a = t.apply(json!([{"issue": 7, "say": "One."}]));
             assert!(a.log.is_empty(), "{applied}: {:?}", a.log);
             assert_eq!(notes_on(&site, 7), 1, "{applied}");
+        }
+    }
+
+    /// The world's writes as they are, its reads from `open_issues` over a
+    /// site that answers `op` with `fault`.
+    fn reads_faulted(t: &mut World, op: Op, fault: Fault) -> Faulty<FakeSite> {
+        let site = Faulty::new(FakeSite::new(&open_issues())).on(op, fault);
+        let writes = t.w.ports.take().unwrap().writes;
+        t.w.ports = Some(Handles {
+            writes,
+            ..site_handles(&site)
+        });
+        site
+    }
+
+    /// Every failure and odd answer of a read.
+    fn read_faults() -> Vec<Fault> {
+        vec![
+            Fault::Timeout,
+            Fault::Unreachable,
+            Fault::SignedOut,
+            Fault::Forbidden,
+            Fault::Spent {
+                pool: tehas_ports::Pool::Calls,
+                until: tehas_ports::At::new(2_000_000_000),
+            },
+            Fault::Cut,
+            Fault::Inconsistent,
+            Fault::Repeated,
+            Fault::Malformed,
+            Fault::TooLarge,
+        ]
+    }
+
+    /// The plan's edit reads the issue's revision first (`Tickets::several`).
+    /// A read that fails or answers oddly writes nothing over the issue,
+    /// takes no label off and keeps the record for the next poll.
+    #[test]
+    fn a_plan_whose_issue_cannot_be_read_is_not_written() {
+        for fault in read_faults() {
+            let mut t = world();
+            reads_faulted(&mut t, Op::Tickets(TicketsOp::Several), fault);
+            clear_plan(&t, alices_session(), "alice");
+            let a = t.apply(json!([{"plan_collect": 7}]));
+            assert!(
+                a.log.iter().any(|l| l.contains("could not be written")),
+                "{fault:?}: {:?}",
+                a.log
+            );
+            let w = t.writes();
+            assert!(!edited(&w, 7), "{fault:?}: {w:?}");
+            assert!(!changed(&w, 7, LABEL_OFF), "{fault:?}");
+            assert!(the_record(&t).exists(), "{fault:?}");
+        }
+    }
+
+    /// A row left unknown whose read fails or answers oddly stays open: it
+    /// is not settled, and its write is not sent this poll.
+    #[test]
+    fn a_row_whose_read_fails_or_answers_oddly_stays_open_and_is_not_sent() {
+        let mark = Write::Mark {
+            ticket: ticket_7(),
+            mark: running(),
+        };
+        let note = Write::TicketNote {
+            ticket: ticket_7(),
+            body: Body::Text("One.".into()),
+            markers: vec![],
+        };
+        let reads = [
+            (mark, "label-add", Op::Tickets(TicketsOp::Several)),
+            (
+                note,
+                "comment-post",
+                Op::Blueprints(tehas_ports::fake::BlueprintsOp::Comments),
+            ),
+        ];
+        for (write, kind, op) in reads {
+            for fault in read_faults() {
+                let mut t = world();
+                reads_faulted(&mut t, op, fault);
+                let kept = tehas_core::journal::kept(&write).unwrap();
+                left_open(&t, json!([open_write!(3, kind, kept)]));
+                let mut log = Vec::new();
+                t.w.settle(1000, &mut log);
+                let want = format!(
+                    "WARN: the journal's action 3 ({kind} on #7, 10s old) could not be settled"
+                );
+                assert_eq!(log.len(), 1, "{kind} {fault:?}: {log:?}");
+                assert!(log[0].starts_with(&want), "{kind} {fault:?}: {log:?}");
+                assert!(settled(&t).is_empty(), "{kind} {fault:?}");
+                let wrote = t.w.send(7, &write);
+                assert!(
+                    matches!(wrote, Wrote::Unknown(_)),
+                    "{kind} {fault:?}: {wrote:?}"
+                );
+                assert!(
+                    !t.calls().iter().any(|c| c.starts_with("send ")),
+                    "{kind} {fault:?}"
+                );
+            }
         }
     }
 
