@@ -176,7 +176,13 @@ fn check_main(dir: &str, json_out: bool) -> u8 {
         }
     };
     if json_out {
-        outln!("{}", c.json());
+        match c.json() {
+            Ok(j) => outln!("{j}"),
+            Err(why) => {
+                eprintln!("tehas plugin check: the answer could not be written: {why}");
+                return exit::FAILED;
+            }
+        }
     } else {
         for line in c.text() {
             outln!("{line}");
@@ -392,7 +398,13 @@ fn review_main(
         }
     };
     if json_out {
-        outln!("{}", r.json());
+        match r.json() {
+            Ok(j) => outln!("{j}"),
+            Err(why) => {
+                eprintln!("tehas plugin review: the answer could not be written: {why}");
+                return exit::FAILED;
+            }
+        }
     } else {
         for line in r.text() {
             outln!("{line}");
