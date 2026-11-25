@@ -28,6 +28,9 @@ pub struct Sources<'a> {
     /// The code host's read handle, from the program's wiring: None when
     /// it made none, and a read through it is then unreadable.
     pub code_host: Option<Box<dyn tehas_ports::CodeHost>>,
+    /// Lines the reads leave for the poll to say once, each once: the code
+    /// host's refusal of the branch's checks (`read::checks::refused`).
+    pub said: Vec<String>,
 }
 
 /// The facts a decision names in needs that are read only when it asks:
@@ -612,7 +615,7 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
             .code_host
             .as_mut()
             .map(|h| h.as_mut() as &mut dyn tehas_ports::CodeHost);
-        let check = super::checks::read(host, &c.branch, &c.branch_check);
+        let check = super::checks::read(host, &c.branch, &c.branch_check, &mut src.said);
         s["checks"] = json!({"state": check.word(), "head": check.head()});
     }
     edit_histories(calls, c, &mut issues, &edit_wanted(&s, &q, &candidates));
@@ -1632,6 +1635,7 @@ esac"#,
             },
             endpoint: (String::new(), String::new()),
             code_host: None,
+            said: Vec::new(),
         }
     }
 

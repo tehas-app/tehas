@@ -1,22 +1,51 @@
 //! The branch's check, through the code host port: the head commit of the
-//! branch, then the checks of that name on it, as the adapter folds them,
-//! the newest of each App, suite and name (Decided 129). The fold is the
-//! adapter's alone; this reads what it adds up to.
+//! branch, then the checks of that name on it, as the adapter folds them.
+//! The fold is the adapter's alone; this reads what it adds up to.
 
 use crate::snapshot::Check;
-use tehas_ports::{Branch, CodeHost, Overall};
+use tehas_ports::{Branch, CodeHost, Outcome, Overall};
+
+/// Where the factory's setup page says what the code host's account needs to
+/// read the checks: the page and the anchor of its heading, which a test
+/// pins.
+pub const PERMISSION_DOC: &str = "host/docs/github-app.md#the-permission-to-read-the-checks";
+
+/// The line the poll says once for `branch` when the code host refuses to
+/// say its checks (`Forbidden`), in tehas's words: the factory's account may
+/// lack a permission, and the setup page says which.
+pub fn refused(branch: &str) -> String {
+    format!(
+        "the code host refused to say the checks of {branch}; the factory's account may lack a permission ({PERMISSION_DOC})"
+    )
+}
 
 /// The state of the check `name` on the head of `branch`. A read that
-/// failed, was cut or could not be read is `Unreadable`, never a pass.
-pub fn read(host: Option<&mut dyn CodeHost>, branch: &str, name: &str) -> Check {
-    let (Some(host), Ok(branch)) = (host, Branch::new(branch)) else {
+/// failed, was cut or could not be read is `Unreadable`, never a pass. A
+/// read the code host refused (`Forbidden`) leaves [`refused`]'s line in
+/// `said`, once for the branch; any other failure leaves none, and keeps
+/// the line of its own the poll says for it.
+pub fn read(
+    host: Option<&mut dyn CodeHost>,
+    branch: &str,
+    name: &str,
+    said: &mut Vec<String>,
+) -> Check {
+    let mut seen = |failed: Option<&Outcome>| {
+        if matches!(failed, Some(Outcome::Forbidden)) && !said.contains(&refused(branch)) {
+            said.push(refused(branch));
+        }
+    };
+    let (Some(host), Ok(at)) = (host, Branch::new(branch)) else {
         return Check::Unreadable;
     };
-    let Ok(Some(head)) = host.branch(&branch) else {
+    let head = host.branch(&at);
+    seen(head.as_ref().err());
+    let Ok(Some(head)) = head else {
         return Check::Unreadable;
     };
-    let (Ok(checks), Some(short)) = (host.checks(&head, Some(name)), head.as_str().get(..12))
-    else {
+    let checks = host.checks(&head, Some(name));
+    seen(checks.as_ref().err());
+    let (Ok(checks), Some(short)) = (checks, head.as_str().get(..12)) else {
         return Check::Unreadable;
     };
     let short = short.to_string();
@@ -55,7 +84,7 @@ mod tests {
         let mut host = site
             .code_host(&Actor::Ours(Scope::Full), Caller::new("test"))
             .unwrap();
-        read(Some(host.as_mut()), "main", "verify")
+        read(Some(host.as_mut()), "main", "verify", &mut Vec::new())
     }
 
     fn head(world: &World) -> String {
@@ -117,19 +146,96 @@ mod tests {
 
     #[test]
     fn no_handle_no_branch_or_a_failed_head_read_is_unreadable() {
-        assert_eq!(read(None, "main", "verify"), Check::Unreadable);
+        assert_eq!(
+            read(None, "main", "verify", &mut Vec::new()),
+            Check::Unreadable
+        );
         let w = world(&[("ci", "verify", done(Conclusion::Passed))]);
         let site = FakeSite::new(&w);
         let mut host = site
             .code_host(&Actor::Ours(Scope::Full), Caller::new("test"))
             .unwrap();
         assert_eq!(
-            read(Some(host.as_mut()), "gone", "verify"),
+            read(Some(host.as_mut()), "gone", "verify", &mut Vec::new()),
             Check::Unreadable
         );
         let site =
             Faulty::new(FakeSite::new(&w)).on(Op::CodeHost(CodeHostOp::Branch), Fault::Unreachable);
         assert_eq!(read_of(&site), Check::Unreadable);
+    }
+
+    /// A read the code host refused, of the head or of the checks, is
+    /// unreadable, never a pass, and leaves the one line for the branch,
+    /// however often it is read in the poll. The setup page's anchor in the
+    /// line is a heading of that page.
+    #[test]
+    fn a_refused_read_is_unreadable_and_said_once_for_the_branch() {
+        let w = world(&[("ci", "verify", done(Conclusion::Passed))]);
+        for op in [CodeHostOp::Checks, CodeHostOp::Branch] {
+            let site = Faulty::new(FakeSite::new(&w)).on(Op::CodeHost(op), Fault::Forbidden);
+            let mut host = site
+                .code_host(&Actor::Ours(Scope::Full), Caller::new("test"))
+                .unwrap();
+            let mut said = Vec::new();
+            for _ in 0..2 {
+                let check = read(Some(host.as_mut()), "main", "verify", &mut said);
+                assert_eq!(check, Check::Unreadable, "{op:?}");
+            }
+            assert_eq!(said, [refused("main")], "{op:?}");
+        }
+        assert_eq!(
+            refused("main"),
+            "the code host refused to say the checks of main; the factory's account may lack a permission (host/docs/github-app.md#the-permission-to-read-the-checks)"
+        );
+    }
+
+    /// Only a refusal says the line: a read cut, malformed, unreachable or
+    /// out of time is unreadable with no line of it, and keeps its own.
+    #[test]
+    fn no_other_failure_says_the_refusal() {
+        let w = world(&[("ci", "verify", done(Conclusion::Passed))]);
+        for fault in [
+            Fault::Cut,
+            Fault::Malformed,
+            Fault::Unreachable,
+            Fault::Timeout,
+        ] {
+            for op in [CodeHostOp::Checks, CodeHostOp::Branch] {
+                let site = Faulty::new(FakeSite::new(&w)).on(Op::CodeHost(op), fault);
+                let mut host = site
+                    .code_host(&Actor::Ours(Scope::Full), Caller::new("test"))
+                    .unwrap();
+                let mut said = Vec::new();
+                let check = read(Some(host.as_mut()), "main", "verify", &mut said);
+                assert_eq!(check, Check::Unreadable, "{fault:?} {op:?}");
+                assert!(said.is_empty(), "{fault:?} {op:?}: {said:?}");
+            }
+        }
+    }
+
+    /// The anchor the line names is a `## ` heading of the setup page, by
+    /// the docs server's rule: lowercase, spaces to dashes, no other
+    /// punctuation (test/manual_test.sh's t_slug).
+    #[test]
+    fn the_line_names_a_heading_of_the_setup_page() {
+        let (page, anchor) = PERMISSION_DOC.split_once('#').unwrap();
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join(page);
+        let text = std::fs::read_to_string(&path).unwrap();
+        let slug = |h: &str| -> String {
+            h.to_lowercase()
+                .replace(' ', "-")
+                .chars()
+                .filter(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '-')
+                .collect()
+        };
+        assert!(
+            text.lines()
+                .filter_map(|l| l.strip_prefix("## ").or_else(|| l.strip_prefix("### ")))
+                .any(|h| slug(h) == anchor),
+            "{page} has no heading #{anchor}"
+        );
     }
 
     /// The snapshot reads only a state it knows, with a head of 12 hex

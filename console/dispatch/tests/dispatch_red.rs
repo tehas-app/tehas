@@ -152,7 +152,36 @@ fn red_a_call_that_fails_hangs_or_answers_nonsense_starts_cycles_and_says_why() 
             "{kind}: the log does not say why: {}",
             r.out
         );
+        // A read that failed but was not refused keeps its own line alone.
+        lacks(&r.out, "the code host refused");
     }
+}
+
+/// The code host refusing the check's runs (the site's own words, in
+/// tests/fixtures/refused.txt): the check is unreadable, never done, so the
+/// poll's hold is not lifted on it, and the poll says once, of the branch,
+/// that the factory's account may lack a permission and where the setup
+/// page says which.
+#[test]
+fn red_a_refused_read_is_unreadable_and_says_the_permission_once() {
+    let w = World::new("red-refused");
+    red_instance(&w);
+    w.ready(&[7, 8]);
+    w.fx("checks-refused", include_str!("fixtures/refused.txt"));
+    let r = w.poll();
+    assert_eq!(r.rc, 0, "{}", r.out);
+    let line = "the code host refused to say the checks of main; the factory's account may lack a permission (host/docs/github-app.md#the-permission-to-read-the-checks)";
+    assert_eq!(r.out.matches(line).count(), 1, "{}", r.out);
+    has(
+        &r.out,
+        "the check verify on main could not be read: cycles start",
+    );
+    let snap = w.dispatch_state();
+    assert_ne!(snap["why"], "red");
+    lacks(&r.out, "is red at");
+    // The next poll says it again, once: once for each poll and branch.
+    let again = w.poll();
+    assert_eq!(again.out.matches(line).count(), 1, "{}", again.out);
 }
 
 #[test]

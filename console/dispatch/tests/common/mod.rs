@@ -283,6 +283,7 @@ case "$1 $2" in
       */status\?*) cat "$T/fx/statuses.json" 2>/dev/null || echo "{\"total_count\":0,\"statuses\":[]}" ;;
       *)
         [ ! -e "$T/fx/checks-fails" ] || exit 1
+        [ ! -e "$T/fx/checks-refused" ] || { cat "$T/fx/checks-refused" >&2; exit 1; }
         [ ! -e "$T/fx/checks-hangs" ] || exec sleep 20
         cat "$T/fx/checks.json" 2>/dev/null || echo "{\"total_count\":0,\"check_runs\":[]}" ;;
     esac ;;
