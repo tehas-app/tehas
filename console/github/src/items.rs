@@ -32,14 +32,15 @@ pub(crate) fn alias(n: u64) -> String {
     format!("n{n}")
 }
 
-/// The question of what each number names, one alias a number.
-fn question(numbers: &[u64]) -> String {
+/// The question of what each number names, one alias a number, each
+/// node asked `fields` beside its number.
+fn question(numbers: &[u64], fields: &str) -> String {
     let mut q = String::from(
         "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) {",
     );
     for n in numbers {
         q.push_str(&format!(
-            " {}: issueOrPullRequest(number: {n}) {{ __typename ... on Issue {{ number }} ... on PullRequest {{ number }} }}",
+            " {}: issueOrPullRequest(number: {n}) {{ __typename ... on Issue {{ number{fields} }} ... on PullRequest {{ number{fields} }} }}",
             alias(*n)
         ));
     }
@@ -116,15 +117,32 @@ impl GitHub {
     /// answered each time from one alias. More distinct numbers than
     /// `ALL_MAX` is `Unread(Cut)` for every one, with no question asked.
     pub(crate) fn what_are(&mut self, numbers: &[NonZeroU64]) -> Vec<(NonZeroU64, Got<Item>)> {
+        self.each_number(numbers, |gh, chunk| {
+            gh.ask_items(chunk, "")
+                .into_iter()
+                .map(|(n, node)| node.and_then(|node| item(n, &node)))
+                .collect()
+        })
+    }
+
+    /// Each number answered in the order asked, a repeated number from one
+    /// answer, the distinct numbers asked `PER_QUESTION` a question by
+    /// `ask`. More distinct numbers than `ALL_MAX` is `Unread(Cut)` for
+    /// every one, with no question asked.
+    fn each_number<T: Clone>(
+        &mut self,
+        numbers: &[NonZeroU64],
+        mut ask: impl FnMut(&mut Self, &[u64]) -> Vec<Got<T>>,
+    ) -> Vec<(NonZeroU64, Got<T>)> {
         let mut distinct: Vec<u64> = numbers.iter().map(|n| n.get()).collect();
         distinct.sort_unstable();
         distinct.dedup();
-        let mut answers: BTreeMap<u64, Got<Item>> = BTreeMap::new();
+        let mut answers: BTreeMap<u64, Got<T>> = BTreeMap::new();
         if distinct.len() > ALL_MAX.get() as usize {
             answers.extend(distinct.iter().map(|n| (*n, Err(CUT))));
         } else {
             for chunk in distinct.chunks(PER_QUESTION) {
-                answers.extend(chunk.iter().copied().zip(self.ask_items(chunk)));
+                answers.extend(chunk.iter().copied().zip(ask(self, chunk)));
             }
         }
         numbers
@@ -138,16 +156,13 @@ impl GitHub {
             .collect()
     }
 
-    /// One question of distinct numbers: an answer for each, in order.
-    fn ask_items(&mut self, numbers: &[u64]) -> Vec<Got<Item>> {
+    /// One question of distinct numbers, each node asked `fields` beside
+    /// what it is: each number with its node, in order.
+    fn ask_items(&mut self, numbers: &[u64], fields: &str) -> Vec<(u64, Got<Node>)> {
         let aliases: Vec<String> = numbers.iter().map(|n| alias(*n)).collect();
         let nodes: Vec<Got<Node>> =
-            self.ask_aliased("the items' question", &question(numbers), &aliases);
-        numbers
-            .iter()
-            .zip(nodes)
-            .map(|(n, node)| node.and_then(|node| item(*n, &node)))
-            .collect()
+            self.ask_aliased("the items' question", &question(numbers, fields), &aliases);
+        numbers.iter().copied().zip(nodes).collect()
     }
 
     /// One aliased question of the repository, read beside gh's failure
@@ -270,7 +285,7 @@ mod tests {
 
     #[test]
     fn each_number_is_asked_under_its_own_alias() {
-        let q = question(&[12, 34]);
+        let q = question(&[12, 34], "");
         assert!(q.contains(" n12: issueOrPullRequest(number: 12) { __typename "));
         assert!(q.contains(" n34: issueOrPullRequest(number: 34) { __typename "));
         assert!(q.ends_with(" } }"));
