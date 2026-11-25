@@ -313,6 +313,44 @@ fn tickets_a_parent_holds_its_parts() {
 }
 
 #[test]
+fn tickets_every_label_is_in_labels_in_order() {
+    for w in both() {
+        let bug = Mark::Project(MarkName::new("bug").unwrap());
+        let w = w
+            .ticket(1, |t| {
+                t.title("marked")
+                    .mark(Mark::Epic)
+                    .mark(bug.clone())
+                    .mark(Mark::State(State::Running))
+            })
+            .ticket(2, |t| t.title("plain"))
+            .ticket(3, |t| {
+                t.title("closed")
+                    .mark(Mark::Act(Act::Approve))
+                    .closed(CloseReason::Done)
+            });
+        let site = FakeSite::new(&w);
+        let mut h = site.tickets(&full(), C).unwrap();
+        let names = |n: &[&str]| n.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let held = [
+            (w.key(1), names(&["mark:epic", "bug", "state:running"])),
+            (w.key(2), names(&[])),
+            (w.key(3), names(&["act:approve"])),
+        ];
+        ok(laws::tickets::every_label_is_in_labels_in_order(
+            h.as_mut(),
+            &held,
+            b(50),
+        ));
+        // Out of the site's order, the law is broken.
+        let wrong = [(w.key(1), names(&["bug", "mark:epic", "state:running"]))];
+        assert!(
+            laws::tickets::every_label_is_in_labels_in_order(h.as_mut(), &wrong, b(50)).is_err()
+        );
+    }
+}
+
+#[test]
 fn tickets_recent_and_recently_closed_are_newest_updated_first() {
     for w in both() {
         let w = w.ticket(1, |t| t.title("oldest").mark(Mark::Epic));
