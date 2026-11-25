@@ -50,48 +50,6 @@ the engine.
   record (`clock`). `at` stays only the manifest key of a hook point or a
   gate point.
 
-## 4. Our own plugins: fetching plugin repositories
-
-- **Fetching plugin repositories.**
-  - A factory fetches over https with no credentials.
-  - A public repository fetches as is. Verified on 2026-11-24: hoststats was
-    made public as the verification plugin (decision 20), and a fetch with
-    no credentials returns its `HEAD`, `4ac3c1c`.
-  - A private repository fails the same fetch, so no factory can fetch the
-    other plugins today.
-  - For private repositories, a lent read token, as the plugins lead proposed on
-    2026-11-24 and the owner accepted (decision 29):
-    - a lent read token in `TEHAS_PLUGIN_FETCH_TOKEN_FILE`, outside the
-      instance directory, read only at fetch time;
-    - sent as a header through `GIT_CONFIG_*`, never on a command line, in a
-      config, an image or a log;
-    - scoped to a URL prefix, with `http.followRedirects=false`.
-  - **A private pin with no token fails that plugin only** (decision 35).
-    `tehas update` never exits non-zero because one plugin couldn't be
-    fetched, and its frozen exit table stays as it is.
-    - `tehas update`: the plugin keeps its last approved commit, or stays
-      not installed. The update reports `fetch: no-token`, or `fetch:
-      failed` for any other error, and exits as it would with no plugins.
-    - `tehas plugin --json`: a `fetch` field on the plugin's entry, with
-      the same word.
-    - `tehas plugin review <name>`, a command about that plugin alone,
-      exits 78 when the remote asks for credentials and no
-      `TEHAS_PLUGIN_FETCH_TOKEN_FILE` prefix covers the URL. It exits 1 for
-      any other fetch failure.
-    - A malformed token setting is still malformed settings: 78 for every
-      command (hard rule 2). That's a file named but unreadable, or
-      readable by group or world, or a bad prefix.
-
-    This matches 1.10's "not granted is not an update failure".
-
-    The host check below still has to pass before any factory relies on
-    it.
-  - The host check is `tehas plugin review hoststats --json` on a
-    tehas-factory 2.1 build. A tehas-factory 2.0 build refuses plugin
-    settings with 78. It checks the fetch path on a real host. It's separate
-    from `vet.yml`'s fixture run, which is what moves an entry from
-    `building` to `vetted`. tehas-plugins#6 lists hoststats as `building`.
-
 ### 1.2 Failure containment
 
 *Floating, not 2.1.* Part 10 cites what binds the adapter (no answer means hold, output rules).
@@ -273,6 +231,48 @@ spec's rules:
   (part 3).
 - **xterm** stops being the draft's named exception (console's terminal)
   and becomes a verified vendor library (part 3).
+
+## 4. Our own plugins: fetching plugin repositories
+
+- **Fetching plugin repositories.**
+  - A factory fetches over https with no credentials.
+  - A public repository fetches as is. Verified on 2026-11-24: hoststats was
+    made public as the verification plugin (decision 20), and a fetch with
+    no credentials returns its `HEAD`, `4ac3c1c`.
+  - A private repository fails the same fetch, so no factory can fetch the
+    other plugins today.
+  - For private repositories, a lent read token, as the plugins lead proposed on
+    2026-11-24 and the owner accepted (decision 29):
+    - a lent read token in `TEHAS_PLUGIN_FETCH_TOKEN_FILE`, outside the
+      instance directory, read only at fetch time;
+    - sent as a header through `GIT_CONFIG_*`, never on a command line, in a
+      config, an image or a log;
+    - scoped to a URL prefix, with `http.followRedirects=false`.
+  - **A private pin with no token fails that plugin only** (decision 35).
+    `tehas update` never exits non-zero because one plugin couldn't be
+    fetched, and its frozen exit table stays as it is.
+    - `tehas update`: the plugin keeps its last approved commit, or stays
+      not installed. The update reports `fetch: no-token`, or `fetch:
+      failed` for any other error, and exits as it would with no plugins.
+    - `tehas plugin --json`: a `fetch` field on the plugin's entry, with
+      the same word.
+    - `tehas plugin review <name>`, a command about that plugin alone,
+      exits 78 when the remote asks for credentials and no
+      `TEHAS_PLUGIN_FETCH_TOKEN_FILE` prefix covers the URL. It exits 1 for
+      any other fetch failure.
+    - A malformed token setting is still malformed settings: 78 for every
+      command (hard rule 2). That's a file named but unreadable, or
+      readable by group or world, or a bad prefix.
+
+    This matches 1.10's "not granted is not an update failure".
+
+    The host check below still has to pass before any factory relies on
+    it.
+  - The host check is `tehas plugin review hoststats --json` on a
+    tehas-factory 2.1 build. A tehas-factory 2.0 build refuses plugin
+    settings with 78. It checks the fetch path on a real host. It's separate
+    from `vet.yml`'s fixture run, which is what moves an entry from
+    `building` to `vetted`. tehas-plugins#6 lists hoststats as `building`.
 
 ## 5. The host API: the `tehas:plugin` WIT world
 

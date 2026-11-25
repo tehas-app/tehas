@@ -7,6 +7,12 @@ spec's part 9). Nothing here is built, and nothing here is part of 2.1.
 Until this spec lands, every view's frame is `connect-src 'none'` and no
 view has `net:`.
 
+**The other files.** "The operator spec" is the normative file for 2.1,
+`2026-11-25-plugins-2.0.0-operator.md`. Its section numbers are kept in
+`2026-11-25-plugins-operator-floating.md`, which holds parts 1.2, 6 to
+6.3 and the other floating parts this spec cites, and the decisions are in
+`2026-11-25-plugins-2.0.0-history.md`.
+
 **Normative**: tehas-standard v3, `v3/plugins.md` at main 66b7577: a
 view's network only through the host, over its port, with `connect-src
 'none'` always (§14); `parent`, with reach apart from authority (§6);
