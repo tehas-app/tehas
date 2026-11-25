@@ -9,18 +9,20 @@ use common::*;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::PathBuf;
+use tehas_core::home::State;
 
 /// gh for `tehas labels`. With GH_MADE set, a label exists only once a label
 /// create made it there; FAIL_ON fails any call that holds it; GH_CREATED
-/// answers the question of when the labels were made.
+/// answers the question of when the labels were made. A label's node id is
+/// the stub's common answer, LA_ and the label's word.
 fn labels_gh() -> String {
     let none = root().join("test/fixtures/labels-none.json");
     format!(
         r#"case "$*" in *"${{FAIL_ON:-no label fails}}"*) exit 1 ;;
   "label create "*) [ -z "${{GH_MADE:-}}" ] || touch "$GH_MADE/$3" ;;
-  "api repos/"*/labels/*) n=${{2##*/}}; [ -z "${{GH_MADE:-}}" ] || [ -e "$GH_MADE/$n" ] || exit 1; echo "LA_${{n#tehas:}}" ;;
+  "api repos/"*/labels/*) n=${{2##*/}}; [ -z "${{GH_MADE:-}}" ] || [ -e "$GH_MADE/$n" ] || exit 1 ;;
   *"nodes {{ name color description }}"*) cat '{}' ;;
-  "api graphql "*) [ -z "${{GH_CREATED:-}}" ] || cat "$GH_CREATED" ;;
+  "api "*" -f owner=acme -f name=widget"*) [ -z "${{GH_CREATED:-}}" ] || cat "$GH_CREATED" ;;
 esac"#,
         none.display()
     )
@@ -53,7 +55,7 @@ fn labels(w: &World, words: &[&str]) -> Run {
 }
 
 fn pins(w: &World) -> PathBuf {
-    w.home.join("state/labels")
+    w.at().state(State::LabelPins)
 }
 
 fn pins_text(w: &World) -> String {
@@ -64,10 +66,21 @@ fn calls_of(w: &World, what: &str) -> usize {
     w.gh().lines().filter(|l| l.contains(what)).count()
 }
 
-/// The seven granting labels, as state/labels pins them.
+/// The words of the seven granting labels, which state/labels pins.
 const GRANTING: &[&str] = &[
-    "ready", "plan", "refine", "finish", "blocked", "lean", "classic",
+    "Act::Approve",
+    "Act::Plan",
+    "Act::Refine",
+    "Act::Finish",
+    "Act::Block",
+    "Choice::Lean",
+    "Choice::Classic",
 ];
+
+/// The node id the stub gives a label: LA_ and the label without its prefix.
+fn id(label: &str) -> String {
+    format!("LA_{}", label.split_once(':').map_or(label, |(_, w)| w))
+}
 
 #[test]
 fn it_needs_only_the_repository_and_makes_every_label_of_the_table_there() {
@@ -89,43 +102,50 @@ fn it_needs_only_the_repository_and_makes_every_label_of_the_table_there() {
         has(&gh, &format!("label create {name} --repo acme/widget"));
     }
     // The question label and the planning labels among them.
-    for name in ["tehas:question", "tehas:plan", "tehas:planning"] {
-        has(&gh, &format!("label create {name} "));
+    for word in ["State::Question", "Act::Plan", "State::Planning"] {
+        has(&gh, &format!("label create {} ", label_of(word)));
     }
-    // Each granting label is pinned to its id once the labels are made.
+    // Each granting label is pinned to its id once the labels are made. The
+    // stub answers the id only to the read of the label's node_id.
     let pinned = pins_text(&w);
-    for name in GRANTING {
-        has(
-            &gh,
-            &format!("api repos/acme/widget/labels/tehas:{name} --jq .node_id"),
-        );
+    for word in GRANTING {
+        let name = label_of(word);
+        let id = id(&name);
+        has(&gh, &["api repos/acme/widget/labels/", &name, " "].concat());
         has(
             &r.out,
-            &format!("pinned the label tehas:{name} as LA_{name} in state/labels"),
+            &format!("pinned the label {name} as {id} in state/labels"),
         );
-        has(&pinned, &format!("tehas:{name}\tLA_{name}"));
+        has(&pinned, &format!("{name}\t{id}"));
     }
     assert_eq!(pinned.lines().count(), 7);
-    lacks(&pinned, "tehas:running");
+    lacks(&pinned, &label_of("State::Running"));
 }
 
 #[test]
 fn once_the_pins_exist_a_label_there_with_no_pin_is_named_and_not_pinned() {
     let w = host("unpinned");
-    fs::create_dir_all(pins(&w).parent().unwrap()).unwrap();
-    fs::write(pins(&w), "tehas:ready\tLA_old\n").unwrap();
+    let (ready, plan) = (label_of("Act::Approve"), label_of("Act::Plan"));
+    let old = format!("{ready}\tLA_old\n");
+    w.home_file(pins(&w), &old);
     let r = labels(&w, &[]);
     assert_eq!(r.rc, 1, "{}", r.out);
     has(
         &r.out,
-        "not pinned: the label tehas:ready is LA_ready, and state/labels pins LA_old",
+        &format!(
+            "not pinned: the label {ready} is {}, and state/labels pins LA_old",
+            id(&ready)
+        ),
     );
     has(
         &r.out,
-        "not pinned: the label tehas:plan (LA_plan) was there before with no pin",
+        &format!(
+            "not pinned: the label {plan} ({}) was there before with no pin",
+            id(&plan)
+        ),
     );
     // Left as it was.
-    assert_eq!(pins_text(&w), "tehas:ready\tLA_old\n");
+    assert_eq!(pins_text(&w), old);
 }
 
 #[test]
@@ -134,32 +154,36 @@ fn once_the_pins_exist_a_label_this_run_made_is_pinned() {
     let made = w.t().join("gh-made");
     fs::create_dir_all(&made).unwrap();
     w.env("GH_MADE", &made.to_string_lossy());
-    fs::create_dir_all(pins(&w).parent().unwrap()).unwrap();
-    fs::write(pins(&w), "tehas:ready\tLA_ready\n").unwrap();
-    fs::write(made.join("tehas:ready"), "").unwrap();
+    let (ready, plan) = (label_of("Act::Approve"), label_of("Act::Plan"));
+    w.home_file(pins(&w), &format!("{ready}\t{}\n", id(&ready)));
+    fs::write(made.join(&ready), "").unwrap();
     let r = labels(&w, &[]);
     assert_eq!(r.rc, 0, "{}", r.out);
     has(
         &r.out,
-        "pinned the label tehas:plan as LA_plan in state/labels",
+        &format!("pinned the label {plan} as {} in state/labels", id(&plan)),
     );
     assert_eq!(pins_text(&w).lines().count(), 7);
 }
 
-/// The pins of every granting label but tehas:blocked, and GitHub's answer of
-/// when tehas:ready and tehas:blocked were made.
+/// The pins of every granting label but the blocked one, and GitHub's answer
+/// of when the ready and the blocked label were made.
 fn blocked_unpinned(w: &World, blocked_made: &str) {
     let text: String = GRANTING
         .iter()
-        .filter(|n| **n != "blocked")
-        .map(|n| format!("tehas:{n}\tLA_{n}\n"))
+        .filter(|w| **w != "Act::Block")
+        .map(|w| label_of(w))
+        .map(|n| format!("{n}\t{}\n", id(&n)))
         .collect();
-    fs::create_dir_all(pins(w).parent().unwrap()).unwrap();
-    fs::write(pins(w), text).unwrap();
+    w.home_file(pins(w), &text);
     let created = w.t().join("created");
     fs::write(
         &created,
-        format!("LA_ready\t2026-10-19T18:16:01Z\nLA_blocked\t{blocked_made}\n"),
+        format!(
+            "{}\t2026-10-19T18:16:01Z\n{}\t{blocked_made}\n",
+            id(&label_of("Act::Approve")),
+            id(&label_of("Act::Block"))
+        ),
     )
     .unwrap();
     w.env("GH_CREATED", &created.to_string_lossy());
@@ -171,11 +195,16 @@ fn a_label_there_with_no_pin_is_pinned_when_github_says_it_was_made_with_a_pinne
     blocked_unpinned(&w, "2026-10-19T18:16:09Z");
     let r = labels(&w, &[]);
     assert_eq!(r.rc, 0, "{}", r.out);
-    has(&w.gh(), "api graphql -f query=");
+    // A question of the repository, by its owner and name.
+    has(&w.gh(), " -f query=");
     has(&w.gh(), "-f owner=acme -f name=widget");
+    let blocked = label_of("Act::Block");
     has(
         &r.out,
-        "pinned the label tehas:blocked as LA_blocked in state/labels: it was made with the pinned labels",
+        &format!(
+            "pinned the label {blocked} as {} in state/labels: it was made with the pinned labels",
+            id(&blocked)
+        ),
     );
     assert_eq!(pins_text(&w).lines().count(), 7);
 }
@@ -186,22 +215,27 @@ fn one_made_long_after_the_pinned_ones_is_still_refused() {
     blocked_unpinned(&w, "2026-11-19T09:00:00Z");
     let r = labels(&w, &[]);
     assert_eq!(r.rc, 1, "{}", r.out);
+    let blocked = label_of("Act::Block");
     has(
         &r.out,
-        "not pinned: the label tehas:blocked (LA_blocked) was there before with no pin",
+        &format!(
+            "not pinned: the label {blocked} ({}) was there before with no pin",
+            id(&blocked)
+        ),
     );
-    lacks(&pins_text(&w), "tehas:blocked");
+    lacks(&pins_text(&w), &blocked);
 }
 
 #[test]
 fn a_label_that_cannot_be_made_is_named_and_the_rest_are_still_made() {
     let w = host("fails");
-    w.env("FAIL_ON", "tehas:lean");
+    let lean = label_of("Choice::Lean");
+    w.env("FAIL_ON", &lean);
     let r = labels(&w, &[]);
     assert_eq!(r.rc, 1, "{}", r.out);
     has(
         &r.out,
-        "tehas labels: could not make the label tehas:lean: ",
+        &format!("tehas labels: could not make the label {lean}: "),
     );
     assert_eq!(calls_of(&w, "label create"), table().len());
 }
@@ -233,7 +267,10 @@ fn a_labels_description_reaches_gh_as_one_argument_as_the_table_has_it() {
     labels(&w, &[]);
     has(
         &w.gh(),
-        "label create tehas:ready --repo acme/widget --color 0e8a16 --description Tehas: eligible for dispatch (apply by hand to authorize a cycle) --force",
+        &format!(
+            "label create {} --repo acme/widget --color 0e8a16 --description Tehas: eligible for dispatch (apply by hand to authorize a cycle) --force",
+            label_of("Act::Approve")
+        ),
     );
 }
 
@@ -257,29 +294,29 @@ esac"#
 
 fn allowed(w: &World) -> Run {
     w.sh(&format!(
-        "TEHAS_REPO=acme/widget TEHAS_ALLOWED_LABELERS='alice bob' '{}' label allowed 7 tehas:ready",
-        w.console().display()
+        "TEHAS_REPO=acme/widget TEHAS_ALLOWED_LABELERS='alice bob' '{}' label allowed 7 {}",
+        w.console().display(),
+        label_of("Act::Approve")
     ))
 }
 
-/// Each of `logins` applies tehas:ready in turn.
-fn labelled(logins: &[&str]) -> Vec<Value> {
+/// Each of `logins` applies the ready label in turn: the events as GitHub's
+/// JSON, one text each.
+fn labelled(logins: &[&str]) -> Vec<String> {
+    let ready = label_of("Act::Approve");
     logins
         .iter()
         .enumerate()
         .map(|(i, login)| {
-            json!({"event": "labeled", "label": {"name": "tehas:ready"},
+            json!({"event": "labeled", "label": {"name": ready},
                 "actor": {"login": login}, "created_at": format!("2026-10-1{}T00:00:00Z", i + 1)})
+            .to_string()
         })
         .collect()
 }
 
-fn events(w: &World, list: &[Value]) {
-    fs::write(
-        w.t().join("events.json"),
-        Value::from(list.to_vec()).to_string(),
-    )
-    .unwrap();
+fn events(w: &World, list: &[String]) {
+    fs::write(w.t().join("events.json"), format!("[{}]", list.join(","))).unwrap();
 }
 
 #[test]
@@ -309,9 +346,9 @@ fn it_does_not_when_the_allowed_login_in_any_case_comes_with_another_user_id_or_
         ("Bob", json!(99)),
         ("BOB", Value::Null),
     ] {
-        let mut list = labelled(&[login]);
-        list[0]["actor"]["id"] = id.clone();
-        events(&w, &list);
+        let mut event: Value = serde_json::from_str(&labelled(&[login])[0]).unwrap();
+        event["actor"]["id"] = id.clone();
+        events(&w, &[event.to_string()]);
         let r = allowed(&w);
         assert_eq!(r.rc, 1, "{login} {id}: {}", r.out);
         has(&r.out, "does not count");
