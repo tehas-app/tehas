@@ -4659,10 +4659,7 @@ fn blueprints_only_its_own_comment_is_edited_at_every_standing() {
     ];
     let mut actors = vec![(full(), FACTORY), (Actor::Operator, OPERATOR)];
     for (login, _) in people {
-        actors.push((
-            Actor::Person(PersonKey::new(&format!("{login}-key"))),
-            login,
-        ));
+        actors.push((Actor::Person(PersonKey::new(format!("{login}-key"))), login));
     }
     for (by, login) in &actors {
         for mut world in both() {
