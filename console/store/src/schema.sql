@@ -292,7 +292,8 @@ CREATE TABLE parks (
 -- question with the next number. body_form (v33) says what body_sha256 sums:
 -- 'visible', the question's text alone, without our markers, as 2.0 asks it;
 -- 'rendered', the comment as 1.x posted it, its markers in, which the poll
--- adopts in place on its first read (question-adopt); NULL with no sum.
+-- adopts in place on its first read (question-adopt), 'visible' with no sum
+-- when its comment changed since it was posted; NULL with no sum.
 CREATE TABLE questions (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   comment_id  INTEGER,

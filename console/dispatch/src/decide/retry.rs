@@ -189,17 +189,14 @@ impl Poll<'_> {
     }
 
     /// The question `id` on record of `n`, its sum of before T4.7 (the
-    /// comment as posted, its markers in), takes the sum of its visible
-    /// text as `ans` reads it (the lead's ruling). A comment that does not
-    /// end with its question's marker keeps its sum, and the poll says why.
+    /// comment as posted, its markers in), takes 2.0's form (the lead's
+    /// ruling). The store compares the sum of the comment as `ans` reads it
+    /// now with the sum on record: the same, the comment is unchanged since
+    /// it was posted and its sum becomes its visible text's; another, or no
+    /// visible text, and it keeps no sum. A question with no sum is nothing
+    /// to compare, never a reason to ask again.
     fn adopt(&mut self, n: u64, id: &str, ans: &Asked) {
         use tehas_core::question::{q_text, question_sum};
-        let Some(text) = q_text(&ans.body, n) else {
-            self.log(format!(
-                "INFO: the question of #{n} keeps its sum of before 2.0: its comment does not end with its question's marker"
-            ));
-            return;
-        };
         if self.dry {
             self.log(format!(
                 "would adopt the sum of #{n}'s question as its visible text's"
@@ -209,7 +206,8 @@ impl Poll<'_> {
         self.act(Action::Adopt {
             issue: n,
             id: id.to_string(),
-            sum: question_sum(&text),
+            posted: tehas_core::approval::body_sum(&ans.body),
+            sum: q_text(&ans.body, n).map(|t| question_sum(&t)),
         });
     }
 

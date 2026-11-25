@@ -638,19 +638,24 @@ Called by `park()` in `libexec/cycle` (`:1041`).
 
 ### question-adopt
 
-`store question-adopt <issue> --id <id> --body-sha <sha256> [--json]`
+`store question-adopt <issue> --id <id> --posted-sha <sha256> [--body-sha <sha256>] [--json]`
 
 T4.7, the lead's ruling on the question's sum. A question whose sum is
 1.x's (`body_form` `rendered`: the comment as it was posted, its markers
-in) takes the sum of its visible text and `visible`, in place. The poll
-calls it on its first read of the question's comment; nothing is written to
-the code host, no comment is edited, no label changes, and the question is
-not asked again.
+in) takes `visible`, in place. `--posted-sha` is the sum of the comment as
+the poll reads it now: when it is the sum on record, the comment is
+unchanged since it was posted, and the row takes `--body-sha`, the sum of
+its visible text. Otherwise (ticked or edited since, or no `--body-sha`)
+the row keeps no sum; a question with no sum is nothing to compare, never
+a reason to ask again. The poll calls it on its first read of the
+question's comment; nothing is written to the code host, no comment is
+edited, no label changes, and the question is not asked again.
 
 - 64: grammars.
-- One statement: a row of another form, a withdrawn one, or none is left as
-  it is (exit 0).
-- JSON: `"issue":N,"adopted":bool`.
+- One transaction: a row of another form, a withdrawn one, or none is left
+  as it is (exit 0).
+- JSON: `"issue":N,"adopted":bool,"summed":bool`: `summed` is whether the
+  row kept a sum.
 - Goes, with the `rendered` form, once the last 1.x host has updated
   (contract, R9).
 

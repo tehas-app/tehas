@@ -242,8 +242,10 @@ A factory moves from 1.4.x to 2.0 with `tehas update`:
    blueprints, which only a split setup writes, and 33 adds
    `questions.body_form`, what a question's sum sums: `rendered` on every
    sum of before, the comment as it was posted with its markers in, which
-   the first poll adopts in place as the sum of the question's visible text,
-   asking nothing again and writing nothing to the code host.
+   the first poll adopts in place as the sum of the question's visible text
+   when the comment reads as it was posted, and as no sum when it was
+   ticked or edited since, asking nothing again and writing nothing to the
+   code host.
    The analytics' own step at the same update says `offered` where its
    `runs.outcome` said `pr`.
    `tehas state check --json` prints the schema.

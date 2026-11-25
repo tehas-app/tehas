@@ -54,12 +54,14 @@ pub enum Action {
         offers: String,
     },
     /// The question `id` on record of `issue`, whose sum is of before T4.7,
-    /// takes `sum`, the sum of its visible text (`question-adopt`). Nothing
-    /// is written to the code host.
+    /// takes `sum`, the sum of its visible text, when `posted`, the sum of
+    /// its comment as read now, is the sum on record; else no sum
+    /// (`question-adopt`). Nothing is written to the code host.
     Adopt {
         issue: u64,
         id: String,
-        sum: String,
+        posted: String,
+        sum: Option<String>,
     },
     /// tehas:refreshing comes off a pull request.
     Unmark {
@@ -403,9 +405,15 @@ impl From<&Action> for Value {
                 put("offers", json!(offers));
                 put("unlabel", json!(unlabel));
             }
-            Action::Adopt { issue, id, sum } => {
+            Action::Adopt {
+                issue,
+                id,
+                posted,
+                sum,
+            } => {
                 put("adopt", json!(issue));
                 put("id", json!(id));
+                put("posted", json!(posted));
                 put("sum", json!(sum));
             }
             Action::Unmark { pr, log } => {

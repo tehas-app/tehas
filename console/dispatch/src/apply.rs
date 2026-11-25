@@ -325,7 +325,8 @@ impl Writer {
             let say = a.get("say").and_then(Value::as_str);
             self.answer_drop(n, &id, say, text(a, "fail"), log);
         } else if let Some(n) = a.get("adopt").and_then(Value::as_u64) {
-            self.adopt(n, text(a, "id"), text(a, "sum"), log);
+            let sum = a.get("sum").and_then(Value::as_str);
+            self.adopt(n, text(a, "id"), text(a, "posted"), sum, log);
         } else if let Some(n) = a.get("reask").and_then(Value::as_u64) {
             let r = Reask {
                 kind: text(a, "kind"),
@@ -890,21 +891,28 @@ impl Writer {
         (args, json!({"body": body}).to_string())
     }
 
-    /// The question `id` on record of `n` takes `sum`, the sum of its
-    /// visible text, in place of its sum of before T4.7 (`question-adopt`,
-    /// the lead's ruling): one line, nothing written to the code host, no
-    /// edit, no label change, and nothing asked again. A store that cannot
-    /// say leaves the row as it was, and the next poll tries again.
-    fn adopt(&mut self, n: u64, id: &str, sum: &str, log: &mut Vec<String>) {
+    /// The question `id` on record of `n` takes 2.0's form in place of its
+    /// sum of before T4.7 (`question-adopt`, the lead's ruling): `sum`, the
+    /// sum of its visible text, when `posted`, the sum of its comment as read
+    /// now, is the sum on record, so the comment is unchanged since it was
+    /// posted; no sum when it was ticked or edited since. One line either
+    /// way, nothing written to the code host, no edit, no label change, and
+    /// nothing asked again. A store that cannot say leaves the row as it
+    /// was, and the next poll tries again.
+    fn adopt(&mut self, n: u64, id: &str, posted: &str, sum: Option<&str>, log: &mut Vec<String>) {
         let issue = n.to_string();
-        match self.store_try(
-            3,
-            &["question-adopt", &issue, "--id", id, "--body-sha", sum],
-        ) {
-            Ok(v) if v.get("adopted") == Some(&Value::Bool(true)) => log.push(format!(
+        let mut args = vec!["question-adopt", &issue, "--id", id, "--posted-sha", posted];
+        if let Some(sum) = sum {
+            args.extend(["--body-sha", sum]);
+        }
+        match self.store_try(3, &args) {
+            Ok(v) if v.get("adopted") != Some(&Value::Bool(true)) => {}
+            Ok(v) if v.get("summed") == Some(&Value::Bool(true)) => log.push(format!(
                 "INFO: the question of #{n} (comment {id}) had its sum of before 2.0, of the comment with its markers; it is kept, summed now by its visible text, and not asked again"
             )),
-            Ok(_) => {}
+            Ok(_) => log.push(format!(
+                "INFO: the question of #{n} (comment {id}) had its sum of before 2.0, and its comment changed since it was posted; it is kept with no sum, not asked again, and its answer read as it is"
+            )),
             Err(f) => log.push(format!(
                 "WARN: the sum of the question of #{n} could not be adopted ({}); the next poll tries again",
                 word(&f)

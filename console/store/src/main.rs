@@ -92,7 +92,7 @@
 //!   store question-asked <issue> --id <id> --kind park|plan [--attempt N] [--body-sha <sha256>]
 //!                [--offers <choice>,...]   (a park's: retry, retry-text, park)
 //!   store question-known <issue> --id <id>
-//!   store question-adopt <issue> --id <id> --body-sha <sha256>
+//!   store question-adopt <issue> --id <id> --posted-sha <sha256> [--body-sha <sha256>]
 //!   store question-answered <issue> --id <id> --by <account> | --withdraw
 //!   store answer-record <issue> --by <account> --choice <choice> [--option N]
 //!                [--text-file <file>]

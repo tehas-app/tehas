@@ -58,11 +58,13 @@ pub enum Call {
         id: i64,
     },
     /// A question whose sum is 1.x's, of the comment as it was posted, takes
-    /// `body_sha`, the sum of its visible text (T4.7).
+    /// `body_sha`, the sum of its visible text, when `posted_sha` (the sum of
+    /// the comment as it reads now) is the sum on record; else no sum (T4.7).
     Adopt {
         issue: i64,
         id: i64,
-        body_sha: String,
+        posted_sha: String,
+        body_sha: Option<String>,
     },
     /// `by` None is a withdrawal.
     Answered {
@@ -143,14 +145,19 @@ pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
         "question-adopt" => Args::parse(
             "question-adopt",
             rest,
-            &[("--id", Kind::Value), ("--body-sha", Kind::Value)],
+            &[
+                ("--id", Kind::Value),
+                ("--posted-sha", Kind::Value),
+                ("--body-sha", Kind::Value),
+            ],
             true,
         )
         .and_then(|a| {
             Ok(Call::Adopt {
                 issue: a.issue()?,
                 id: a.strict_need("--id", "a comment id", verbs::comment_id)?,
-                body_sha: a.strict_need("--body-sha", "a sha256", verbs::sha256)?,
+                posted_sha: a.strict_need("--posted-sha", "a sha256", verbs::sha256)?,
+                body_sha: a.strict("--body-sha", "a sha256", verbs::sha256)?,
             })
         }),
         "question-answered" => answered_args(rest),
@@ -288,8 +295,9 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
         Call::Adopt {
             issue,
             id,
+            posted_sha,
             body_sha,
-        } => adopt(home, *issue, *id, body_sha),
+        } => adopt(home, *issue, *id, posted_sha, body_sha.as_deref()),
         Call::Answered { issue, id, by } => answered(home, *issue, *id, by.as_deref(), now),
     }
 }
@@ -755,26 +763,59 @@ pub(crate) fn known(c: &Connection, issue: i64, id: i64) -> Result<String, Fail>
     ))
 }
 
-/// `question-adopt <issue> --id <id> --body-sha <sha256>`: the question
-/// comment `id` asked on `issue`, whose sum is 1.x's (`rendered`, the comment
-/// as it was posted, its markers in), takes the sum of its visible text, as
-/// 2.0 sums a question (T4.7, the lead's ruling). Done once, in place: a
-/// question of another form, a withdrawn one, or none is left as it is, and
-/// `adopted` says false. Nothing else of the row changes.
-fn adopt(home: &Path, issue: i64, id: i64, body_sha: &str) -> Result<String, Fail> {
+/// `question-adopt <issue> --id <id> --posted-sha <sha256> [--body-sha
+/// <sha256>]`: the question comment `id` asked on `issue`, whose sum is
+/// 1.x's (`rendered`, the comment as it was posted, its markers in), takes
+/// 2.0's form, `visible` (T4.7, the lead's ruling). When `posted_sha`, the
+/// sum of the comment as it reads now, is the sum on record, the comment is
+/// unchanged since it was posted and its sum becomes `body_sha`, the sum of
+/// its visible text (`summed` true). Otherwise, a comment ticked or edited
+/// since, or no `body_sha` given, the row keeps no sum. Done once, in place:
+/// a question of another form, a withdrawn one, or none is left as it is,
+/// and `adopted` says false. Nothing else of the row changes.
+fn adopt(
+    home: &Path,
+    issue: i64,
+    id: i64,
+    posted_sha: &str,
+    body_sha: Option<&str>,
+) -> Result<String, Fail> {
     verbs::write(home, |c| {
-        let adopted = c
-            .execute(
-                "UPDATE questions SET body_sha256 = ?3, body_form = 'visible'
+        let on_record: Option<Option<String>> = c
+            .query_row(
+                "SELECT body_sha256 FROM questions
                  WHERE comment_id = ?2 AND issue = ?1 AND withdrawn_at IS NULL
                    AND body_form = 'rendered'",
-                params![issue, id, body_sha],
+                params![issue, id],
+                |r| r.get(0),
             )
-            .q()?
-            > 0;
+            .optional()
+            .q()?;
+        let Some(on_record) = on_record else {
+            return Ok(line(
+                "question-adopt",
+                &[
+                    ("issue", j(issue)),
+                    ("adopted", j(false)),
+                    ("summed", j(false)),
+                ],
+            ));
+        };
+        let sum = body_sha.filter(|_| on_record.as_deref() == Some(posted_sha));
+        c.execute(
+            "UPDATE questions SET body_sha256 = ?3, body_form = 'visible'
+             WHERE comment_id = ?2 AND issue = ?1 AND withdrawn_at IS NULL
+               AND body_form = 'rendered'",
+            params![issue, id, sum],
+        )
+        .q()?;
         Ok(line(
             "question-adopt",
-            &[("issue", j(issue)), ("adopted", j(adopted))],
+            &[
+                ("issue", j(issue)),
+                ("adopted", j(true)),
+                ("summed", j(sum.is_some())),
+            ],
         ))
     })
 }

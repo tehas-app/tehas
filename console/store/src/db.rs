@@ -460,8 +460,10 @@ CREATE INDEX links_ticket ON links (ticket);
 /// a question's visible text alone, without our markers (`visible`); every
 /// sum of before is of the comment as it was posted, its markers in
 /// (`rendered`). A `rendered` row is adopted in place on the poll's first
-/// read of its comment (`question-adopt`), with no write to the code host,
-/// no edit and no label change; it is not asked again. The reading of
+/// read of its comment (`question-adopt`): `visible` with the sum of its
+/// visible text when the comment reads as it was posted, `visible` with no
+/// sum when it was ticked or edited since. No write to the code host, no
+/// edit and no label change; it is not asked again. The reading of
 /// `rendered` goes once the last 1.x host has updated (contract, R9).
 pub const STEP_33: &str = "
 ALTER TABLE questions ADD COLUMN body_form TEXT CHECK (body_form IN ('rendered','visible'));

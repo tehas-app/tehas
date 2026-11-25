@@ -469,46 +469,69 @@ fn a_reply_naming_a_choice_the_stop_does_not_offer_is_declined_and_nothing_start
 
 /// A park question whose sum on record is of before T4.7, the comment as it
 /// was posted with its markers in, is adopted on the poll's first read (the
-/// lead's ruling): the store keeps the sum of its visible text, the poll says
-/// so once, nothing is written to the code host and nothing asked again,
-/// and the answer in it is read as it is.
+/// lead's ruling). A comment that reads as it was posted keeps the sum of
+/// its visible text; one ticked or edited since keeps no sum. Either way the
+/// poll says so once, nothing is written to the code host, nothing is asked
+/// again, and the answer in it is read as it is.
 #[test]
 fn a_question_summed_before_2_0_is_adopted_on_its_first_read() {
     use tehas_core::question::{q_text, question_sum};
     let w = World::new("park-adopt");
-    for ticks in [[" ", " "], ["x", " "]] {
+    let posted = park_body(&[" ", " "]);
+    let edited = posted.replace("Tehas cycle stopped.", "Tehas cycle stopped, said again.");
+    // A box a person ticked reads as their reply, the comment as posted; a
+    // tick no one is named for stays in the comment, which then sums
+    // another way, as an edit of its text does.
+    let cases = [
+        (park_body(&["x", " "]), "alice", true),
+        (posted.clone(), "alice", false),
+        (park_body(&["x", " "]), "", false),
+        (edited, "alice", false),
+    ];
+    for (body, editor, replied) in cases {
         // 1.x's park records its question with the sum of its comment.
-        let body = park_body(&ticks);
-        let raw = tehas_core::approval::body_sum(&park_body(&[" ", " "]));
+        let raw = tehas_core::approval::body_sum(&posted);
         let args = ["--comment-id", "4001", "--body-sha", &raw];
         w.parked_with("failed", "alice", "-", &args);
         let known = || w.row(&["question-known", "7", "--id", "4001"]);
         assert_eq!(known()["sum_form"], "rendered");
-        w.comments(7, &body, "alice", json!([]));
+        w.comments(7, &body, editor, json!([]));
         let r = w.poll();
         assert_eq!(r.rc, 0, "{}", r.out);
-        has(
-            &r.out,
-            "INFO: the question of #7 (comment 4001) had its sum of before 2.0",
-        );
-        if ticks[0] == "x" {
-            // The tick counts in the same poll, which uses the question up.
-            assert_eq!(started(&w), "7");
-        } else {
-            assert_eq!(known()["sum_form"], "visible");
-            let sum = question_sum(&q_text(&body, 7).unwrap());
+        lacks(&w.gh(), "api -X PATCH");
+        if body == posted || replied {
+            has(
+                &r.out,
+                "INFO: the question of #7 (comment 4001) had its sum of before 2.0, of the comment with its markers",
+            );
+            let sum = question_sum(&q_text(&posted, 7).unwrap());
             assert_eq!(
                 w.question_sum(4001),
                 Some((Some(sum), Some("visible".to_string())))
             );
-            lacks(&w.gh(), "api -X PATCH");
-            assert_eq!(started(&w), "");
-            assert!(w.writes_of(7).is_empty(), "{:?}", w.writes_of(7));
-            // The next poll finds it adopted and says nothing.
-            w.clear_calls();
-            let r = w.poll();
-            assert_eq!(r.rc, 0, "{}", r.out);
-            lacks(&r.out, "had its sum of before 2.0");
+        } else {
+            has(
+                &r.out,
+                "INFO: the question of #7 (comment 4001) had its sum of before 2.0, and its comment changed since it was posted",
+            );
+            assert_eq!(
+                w.question_sum(4001),
+                Some((None, Some("visible".to_string())))
+            );
         }
+        if replied {
+            // The tick counts in the same poll, which uses the question up.
+            assert_eq!(started(&w), "7");
+            continue;
+        }
+        assert_eq!(started(&w), "");
+        assert_eq!(w.notes(7), 0, "nothing asked again");
+        assert!(w.writes_of(7).is_empty(), "{:?}", w.writes_of(7));
+        // The next poll finds it adopted and says nothing.
+        w.clear_calls();
+        let r = w.poll();
+        assert_eq!(r.rc, 0, "{}", r.out);
+        lacks(&r.out, "had its sum of before 2.0");
+        assert!(w.writes_of(7).is_empty(), "{:?}", w.writes_of(7));
     }
 }

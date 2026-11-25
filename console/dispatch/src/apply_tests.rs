@@ -71,7 +71,7 @@ case "$name $1" in
   "store cycle-end") cat "$d/end" 2>/dev/null || echo '{"api":1,"verb":"cycle-end","ok":true}' ;;
   "store history-show") cat "$d/history" 2>/dev/null || echo '{"api":1,"verb":"history-show","ok":true,"rows":[]}' ;;
   "store question-asked") cat "$d/asked" 2>/dev/null || echo '{"api":1,"verb":"question-asked","ok":true}' ;;
-  "store question-adopt") cat "$d/adopted" 2>/dev/null || echo '{"api":1,"verb":"question-adopt","ok":true,"issue":7,"adopted":true}' ;;
+  "store question-adopt") cat "$d/adopted" 2>/dev/null || echo '{"api":1,"verb":"question-adopt","ok":true,"issue":7,"adopted":true,"summed":true}' ;;
   "store question-list") cat "$d/questions" 2>/dev/null || echo '{"api":1,"verb":"question-list","ok":true,"questions":[]}' ;;
   "store cycle-note") cat "$d/note" 2>/dev/null || echo '{"api":1,"verb":"cycle-note","ok":true,"times":0,"stop_asked_at":0}' ;;
   "store plan-note") echo "{\"api\":1,\"verb\":\"plan-note\",\"ok\":true,\"said\":$(cat "$d/said" 2>/dev/null || echo true)}" ;;
@@ -6273,19 +6273,24 @@ fn a_reask_posts_a_typed_question_and_takes_its_label_off_as_a_mark() {
 }
 
 /// A question's sum of before T4.7 adopted (the lead's ruling): one store
-/// call with the sum of its visible text, one INFO line, and nothing
-/// written to the code host. A row the store left as it was says nothing; a
-/// store that cannot say is a WARN, and the next poll tries again.
+/// call with the sum of its comment as read now and of its visible text,
+/// one INFO line, and nothing written to the code host. A comment changed
+/// since it was posted keeps no sum, with its own INFO line; one with no
+/// visible text is asked without one. A row the store left as it was says
+/// nothing; a store that cannot say is a WARN, and the next poll tries
+/// again.
 #[test]
 fn an_old_sum_is_adopted_in_the_store_alone() {
-    let sum = "d".repeat(64);
-    let adopt = json!([{"adopt": 7, "id": "2101", "sum": sum}]);
+    let (posted, sum) = ("e".repeat(64), "d".repeat(64));
+    let adopt = json!([{"adopt": 7, "id": "2101", "posted": posted, "sum": sum}]);
     let mut t = world();
     let a = t.apply(adopt.clone());
     let w = t.writes();
     assert_eq!(
         w,
-        [format!("store question-adopt 7 --id 2101 --body-sha {sum}")],
+        [format!(
+            "store question-adopt 7 --id 2101 --posted-sha {posted} --body-sha {sum}"
+        )],
         "{w:?}"
     );
     assert!(
@@ -6299,7 +6304,26 @@ fn an_old_sum_is_adopted_in_the_store_alone() {
     let mut t = world();
     fs::write(
         t.dir.join("adopted"),
-        r#"{"api":1,"verb":"question-adopt","ok":true,"issue":7,"adopted":false}"#,
+        r#"{"api":1,"verb":"question-adopt","ok":true,"issue":7,"adopted":true,"summed":false}"#,
+    )
+    .unwrap();
+    let a = t.apply(json!([{"adopt": 7, "id": "2101", "posted": posted, "sum": null}]));
+    let w = t.writes();
+    assert_eq!(
+        w,
+        [format!(
+            "store question-adopt 7 --id 2101 --posted-sha {posted}"
+        )],
+        "{w:?}"
+    );
+    assert_eq!(
+        a.log,
+        ["INFO: the question of #7 (comment 2101) had its sum of before 2.0, and its comment changed since it was posted; it is kept with no sum, not asked again, and its answer read as it is"],
+    );
+    let mut t = world();
+    fs::write(
+        t.dir.join("adopted"),
+        r#"{"api":1,"verb":"question-adopt","ok":true,"issue":7,"adopted":false,"summed":false}"#,
     )
     .unwrap();
     let a = t.apply(adopt.clone());
