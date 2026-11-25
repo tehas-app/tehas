@@ -21,7 +21,7 @@ fn checks(w: &World, status: &str, conclusion: Option<&str>) {
 /// A run of `verify` on the head, by GitHub Actions in check suite `suite`.
 fn run(id: u64, suite: u64, status: &str, conclusion: Option<&str>) -> serde_json::Value {
     json!({"id": id, "name": "verify", "head_sha": SHA, "status": status,
-        "conclusion": conclusion, "app": {"id": 15368}, "check_suite": {"id": suite}})
+        "conclusion": conclusion, "app": {"id": 15368, "slug": "github-actions"}, "check_suite": {"id": suite}})
 }
 
 /// The read of the check's runs, as the code host adapter asks it: every
