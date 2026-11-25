@@ -17,6 +17,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 pub use tehas_ports::AccountId;
+use tehas_ports::{Got, Outcome, Passing, Sent, Unread};
 
 /// A permission on a repository, least first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -74,16 +75,18 @@ pub enum Permission {
     Of(AccountId, Option<Level>, String),
 }
 
+/// What is asked of GitHub, each failure an [`Outcome`].
 pub trait GitHub: Send + Sync {
-    /// The person's token for the web flow's `code`.
-    fn token(&self, code: &str) -> Result<String, String>;
+    /// The person's token for the web flow's `code`. `Forbidden`: GitHub
+    /// did not take the code.
+    fn token(&self, code: &str) -> Got<String>;
     /// Who `token` is.
-    fn user(&self, token: &str) -> Result<Person, String>;
+    fn user(&self, token: &str) -> Got<Person>;
     /// `GET /repos/{repo}/collaborators/{login}/permission` with the
     /// installation token.
-    fn permission(&self, login: &str) -> Result<Permission, String>;
+    fn permission(&self, login: &str) -> Got<Permission>;
     /// Whether the repository is public.
-    fn public(&self) -> Result<bool, String>;
+    fn public(&self) -> Got<bool>;
 }
 
 /// GitHub through curl.
@@ -106,7 +109,7 @@ fn quoted(value: &str) -> String {
 }
 
 /// curl with `config` on its standard input: the body and the HTTP status.
-fn curl(config: &str) -> Result<(u16, Vec<u8>), String> {
+fn curl(config: &str) -> Got<(u16, Vec<u8>)> {
     let mut child = Command::new("curl")
         .args([
             "-sS",
@@ -125,15 +128,18 @@ fn curl(config: &str) -> Result<(u16, Vec<u8>), String> {
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
-        .map_err(|_| "curl cannot run".to_string())?;
+        .map_err(|_| unavailable(Passing::Unreachable, Sent::No))?;
     if let Some(mut stdin) = child.stdin.take() {
         let _ = stdin.write_all(config.as_bytes());
     }
     let out = child
         .wait_with_output()
-        .map_err(|_| "curl did not finish".to_string())?;
-    if !out.status.success() {
-        return Err("GitHub could not be reached".to_string());
+        .map_err(|_| unavailable(Passing::Unreachable, Sent::Maybe))?;
+    match out.status.code() {
+        Some(0) => {}
+        Some(28) => return Err(unavailable(Passing::Timeout, Sent::Maybe)),
+        Some(63) => return Err(Outcome::Unread(Unread::TooLarge)),
+        _ => return Err(unavailable(Passing::Unreachable, Sent::Maybe)),
     }
     let text = out.stdout;
     let at = text.iter().rposition(|&b| b == b'\n').unwrap_or(0);
@@ -152,28 +158,50 @@ fn api_config(url: &str, bearer: &str) -> String {
     )
 }
 
-fn json(body: &[u8]) -> Result<Value, String> {
-    serde_json::from_slice(body).map_err(|_| "GitHub's answer was not JSON".to_string())
+fn json(body: &[u8]) -> Got<Value> {
+    serde_json::from_slice(body).map_err(|_| malformed())
+}
+
+fn unavailable(why: Passing, sent: Sent) -> Outcome {
+    Outcome::Unavailable { why, sent }
+}
+
+fn malformed() -> Outcome {
+    Outcome::Unread(Unread::Malformed)
+}
+
+/// A status other than the one asked for: 401 the credential, 403 and 404
+/// the actor's, 429 and 5xx a passing failure, any other an answer that
+/// does not read.
+fn answered(status: u16) -> Outcome {
+    match status {
+        401 => Outcome::SignedOut,
+        403 => Outcome::Forbidden,
+        404 => Outcome::NotFound,
+        429 | 500..=599 => unavailable(Passing::Server, Sent::Maybe),
+        _ => malformed(),
+    }
 }
 
 impl Curl {
-    fn installation(&self) -> Result<String, String> {
+    /// The installation token, or `SignedOut` when there is none.
+    fn installation(&self) -> Got<String> {
         let out = Command::new(&self.console)
             .args(["tehasbot", "github-token"])
             .stdin(Stdio::null())
             .stderr(Stdio::null())
             .output()
-            .map_err(|_| "no installation token".to_string())?;
+            .map_err(|_| Outcome::SignedOut)?;
         let token = String::from_utf8_lossy(&out.stdout).trim().to_string();
         if !out.status.success() || token.is_empty() {
-            return Err("no installation token".to_string());
+            return Err(Outcome::SignedOut);
         }
         Ok(token)
     }
 }
 
 impl GitHub for Curl {
-    fn token(&self, code: &str) -> Result<String, String> {
+    fn token(&self, code: &str) -> Got<String> {
         let config = format!(
             "url = \"{}/login/oauth/access_token\"\nheader = \"Accept: application/json\"\ndata-urlencode = \"client_id={}\"\ndata-urlencode = \"client_secret={}\"\ndata-urlencode = \"code={}\"\n",
             quoted(&self.web),
@@ -182,17 +210,20 @@ impl GitHub for Curl {
             quoted(code)
         );
         let (status, body) = curl(&config)?;
-        let v = json(&body)?;
-        match v["access_token"].as_str() {
-            Some(t) if status == 200 && !t.is_empty() => Ok(t.to_string()),
-            _ => Err("GitHub did not take the sign-in's code".to_string()),
+        if status != 200 {
+            return Err(answered(status));
+        }
+        // GitHub answers 200 with an `error` for a code it does not take.
+        match json(&body)?["access_token"].as_str() {
+            Some(t) if !t.is_empty() => Ok(t.to_string()),
+            _ => Err(Outcome::Forbidden),
         }
     }
 
-    fn user(&self, token: &str) -> Result<Person, String> {
+    fn user(&self, token: &str) -> Got<Person> {
         let (status, body) = curl(&api_config(&format!("{}/user", self.api), token))?;
         if status != 200 {
-            return Err(format!("GitHub answered {status} for the person"));
+            return Err(answered(status));
         }
         let v = json(&body)?;
         match (v["id"].as_u64(), v["login"].as_str()) {
@@ -200,11 +231,11 @@ impl GitHub for Curl {
                 id: id_of(id),
                 login: login.to_string(),
             }),
-            _ => Err("GitHub's answer named no person".to_string()),
+            _ => Err(malformed()),
         }
     }
 
-    fn permission(&self, login: &str) -> Result<Permission, String> {
+    fn permission(&self, login: &str) -> Got<Permission> {
         let token = self.installation()?;
         let url = format!(
             "{}/repos/{}/collaborators/{login}/permission",
@@ -214,31 +245,31 @@ impl GitHub for Curl {
         permission_of(status, &body)
     }
 
-    fn public(&self) -> Result<bool, String> {
+    fn public(&self) -> Got<bool> {
         let token = self.installation()?;
         let url = format!("{}/repos/{}", self.api, self.repo);
         let (status, body) = curl(&api_config(&url, &token))?;
         if status != 200 {
-            return Err(format!("GitHub answered {status} for the repository"));
+            return Err(answered(status));
         }
         match json(&body)?["private"].as_bool() {
             Some(private) => Ok(!private),
-            None => Err("GitHub's answer did not say whether the repository is private".into()),
+            None => Err(malformed()),
         }
     }
 }
 
 /// GitHub's answer for a permission: 404 is no access, any other status but
 /// 200 an error.
-pub fn permission_of(status: u16, body: &[u8]) -> Result<Permission, String> {
+pub fn permission_of(status: u16, body: &[u8]) -> Got<Permission> {
     match status {
         404 => return Ok(Permission::None),
         200 => {}
-        s => return Err(format!("GitHub answered {s} for the permission")),
+        s => return Err(answered(s)),
     }
     let v = json(body)?;
     let Some(id) = v["user"]["id"].as_u64() else {
-        return Err("GitHub's answer named no user".to_string());
+        return Err(malformed());
     };
     let role = v["role_name"].as_str().unwrap_or("").to_string();
     Ok(Permission::Of(
@@ -267,12 +298,7 @@ pub struct Verdict {
 /// at least `access`. On a
 /// public repository read and triage let no one in, since every account has
 /// them. Err: GitHub could not say, which a caller takes as a refusal.
-pub fn check(
-    gh: &dyn GitHub,
-    access: Level,
-    login: &str,
-    id: Option<&AccountId>,
-) -> Result<Verdict, String> {
+pub fn check(gh: &dyn GitHub, access: Level, login: &str, id: Option<&AccountId>) -> Got<Verdict> {
     if access <= Level::Triage && gh.public()? {
         return Ok(Verdict {
             user: None,
@@ -306,31 +332,31 @@ mod tests {
 
     /// GitHub answering `level` for user 7, or an error, and counting asks.
     pub struct Stub {
-        pub level: Result<Option<Level>, String>,
+        pub level: Got<Option<Level>>,
         pub public: bool,
         pub asked: Mutex<u32>,
     }
 
     impl GitHub for Stub {
-        fn token(&self, _: &str) -> Result<String, String> {
-            Err("no".into())
+        fn token(&self, _: &str) -> Got<String> {
+            Err(Outcome::Forbidden)
         }
-        fn user(&self, _: &str) -> Result<Person, String> {
-            Err("no".into())
+        fn user(&self, _: &str) -> Got<Person> {
+            Err(Outcome::Forbidden)
         }
-        fn permission(&self, _: &str) -> Result<Permission, String> {
+        fn permission(&self, _: &str) -> Got<Permission> {
             *self.asked.lock().unwrap() += 1;
             match self.level.clone()? {
                 None => Ok(Permission::None),
                 Some(l) => Ok(Permission::Of(AccountId::new("7"), Some(l), "write".into())),
             }
         }
-        fn public(&self) -> Result<bool, String> {
+        fn public(&self) -> Got<bool> {
             Ok(self.public)
         }
     }
 
-    fn stub(level: Result<Option<Level>, String>) -> Stub {
+    fn stub(level: Got<Option<Level>>) -> Stub {
         Stub {
             level,
             public: false,
@@ -373,7 +399,11 @@ mod tests {
             check(&public, Level::Write, "x", None).unwrap().user,
             Some(id("7"))
         );
-        assert!(check(&stub(Err("down".into())), Level::Write, "x", None).is_err());
+        let down = unavailable(Passing::Unreachable, Sent::Maybe);
+        assert_eq!(
+            check(&stub(Err(down.clone())), Level::Write, "x", None),
+            Err(down)
+        );
     }
 
     /// The id is compared whole: no spelling of another id, nor of the same
@@ -405,6 +435,27 @@ mod tests {
             ))
         );
         assert_eq!(permission_of(404, b""), Ok(Permission::None));
-        assert!(permission_of(200, br#"{"user": {"id": "583231"}}"#).is_err());
+        assert_eq!(
+            permission_of(200, br#"{"user": {"id": "583231"}}"#),
+            Err(malformed())
+        );
+    }
+
+    #[test]
+    fn a_status_not_asked_for_is_an_outcome() {
+        assert_eq!(answered(401), Outcome::SignedOut);
+        assert_eq!(answered(403), Outcome::Forbidden);
+        assert_eq!(answered(404), Outcome::NotFound);
+        for s in [429, 500, 502, 503] {
+            assert_eq!(
+                answered(s),
+                unavailable(Passing::Server, Sent::Maybe),
+                "{s}"
+            );
+        }
+        for s in [0, 201, 301, 418] {
+            assert_eq!(answered(s), malformed(), "{s}");
+        }
+        assert_eq!(permission_of(502, b""), Err(answered(502)));
     }
 }
