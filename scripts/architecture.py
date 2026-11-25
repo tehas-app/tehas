@@ -93,6 +93,7 @@ network.
 
 import argparse
 import os
+import stat
 import posixpath
 import re
 import subprocess
@@ -810,7 +811,16 @@ def reader(root):
     read (its permissions, say) is a ConfigError, never "no text"."""
     def read(path):
         full = os.path.join(root, path)
-        if os.path.isdir(full) or not os.path.isfile(full):
+        try:
+            mode = os.stat(full).st_mode
+        except (FileNotFoundError, NotADirectoryError):
+            return None
+        except OSError as e:
+            # a directory on the way that cannot be searched, say: the file
+            # is there, so it is never counted as empty
+            raise ConfigError(f"{path}: tracked, but cannot be read ({e.strerror or e}); "
+                              f"a file the checks cannot read is never counted as empty")
+        if not stat.S_ISREG(mode):
             return None
         try:
             with open(full, "rb") as f:

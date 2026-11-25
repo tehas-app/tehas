@@ -1168,6 +1168,18 @@ class FollowUps(unittest.TestCase):
         self.assertEqual(code, 2, out)
         self.assertIn("src/web.rs: tracked, but cannot be read", out)
 
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root reads any file")
+    def test_a_tracked_file_under_a_directory_that_cannot_be_read_stops_the_run(self):
+        r = base_repo()
+        src = os.path.join(r.root, "src")
+        os.chmod(src, 0)
+        try:
+            code, out = r.run()
+        finally:
+            os.chmod(src, 0o755)
+        self.assertEqual(code, 2, out)
+        self.assertIn("tracked, but cannot be read", out)
+
     def test_a_bad_byte_on_the_counted_line_prints(self):
         r = base_repo()
         with open(os.path.join(r.root, "src/bin.rs"), "wb") as f:
@@ -1179,12 +1191,19 @@ class FollowUps(unittest.TestCase):
         self.assertIn("\ufffd", out)
 
     def test_a_long_rust_file_is_read_in_linear_time(self):
+        # Four times the text takes about four times as long, not sixteen;
+        # a ratio, so a busy runner slows both sides alike.
         import time
-        text = ('let s = r#"x"#; let c = \'a\'; let t = "y";\n' * 20000)
-        start = time.monotonic()
-        lines = architecture.rust_code(text)
-        self.assertLess(time.monotonic() - start, 2.0)
-        self.assertEqual(len(lines), 20001)
+        line = 'let s = r#"x"#; let c = \'a\'; let t = "y";\n'
+
+        def took(n):
+            start = time.perf_counter()
+            lines = architecture.rust_code(line * n)
+            self.assertEqual(len(lines), n + 1)
+            return time.perf_counter() - start
+        took(500)
+        small, large = min(took(4000) for _ in range(3)), min(took(16000) for _ in range(3))
+        self.assertLess(large, small * 9 + 0.05)
 
 
 def _toml(c):
