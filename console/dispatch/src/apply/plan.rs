@@ -274,8 +274,14 @@ impl Writer {
     /// One write of the tickets port a part: every mark that goes on first,
     /// then each that comes off, so a stop between leaves the issue more
     /// held, never unflagged. A 1.x call of the same change that this
-    /// poll's settle read gates it.
-    pub(crate) fn edit_labels(&mut self, n: u64, flags: &[(&str, &str)]) -> bool {
+    /// poll's settle read gates it. A part that failed, or may have been
+    /// posted, leaves its line in the poll's log.
+    pub(crate) fn edit_labels(
+        &mut self,
+        n: u64,
+        flags: &[(&str, &str)],
+        log: &mut Vec<String>,
+    ) -> bool {
         let mut args: Vec<String> = vec![
             "issue".into(),
             "edit".into(),
@@ -291,18 +297,18 @@ impl Writer {
         } else {
             "label-remove"
         };
+        let fail = format!("WARN: a label change of #{n} failed");
         if let Some(wrote) = self.looked_1x(n, kind, &args, None) {
-            return matches!(wrote, Wrote::Done(_));
+            return Self::label_landed(n, wrote, &fail, log);
         }
         let Some(key) = super::ticket(n) else {
             return false;
         };
         let on = flags.iter().filter(|(f, _)| *f == "--add-label");
         let off = flags.iter().filter(|(f, _)| *f != "--add-label");
-        let mut said = Vec::new();
         on.map(|(_, l)| (*l, true))
             .chain(off.map(|(_, l)| (*l, false)))
-            .all(|(label, on)| self.mark_part(n, &key, label, on, "", &mut said))
+            .all(|(label, on)| self.mark_part(n, &key, label, on, &fail, log))
     }
 
     /// The ticket's own text written, at the revision it is read at now: a
@@ -656,6 +662,7 @@ impl Writer {
                 ("--remove-label", "tehas:planning"),
                 ("--add-label", "needs-human-attention"),
             ],
+            log,
         ) {
             log.push(format!("WARN: could not hand #{n} to a person after a planning turn that left no session; the next poll tries again"));
             return false;
@@ -949,7 +956,7 @@ impl Writer {
         if failed {
             flags.push(("--add-label", "needs-human-attention"));
         }
-        if !self.edit_labels(n, &flags) {
+        if !self.edit_labels(n, &flags, log) {
             log.push(format!("WARN: the labels of #{n} could not be changed after its question was posted; the next poll tries again"));
             return false;
         }
@@ -1394,6 +1401,7 @@ impl Writer {
                     ("--remove-label", other),
                     ("--add-label", mark),
                 ],
+                log,
             ) {
                 log.push(format!(
                     "WARN: could not mark #{n} {mark}; the next poll replaces it"
@@ -1474,7 +1482,7 @@ impl Writer {
         if ready {
             flags.push(("--add-label", "tehas:ready"));
         }
-        if !self.edit_labels(n, &flags) {
+        if !self.edit_labels(n, &flags, log) {
             log.push(format!(
                 "WARN: could not take the planning labels off #{n}, so its session is not ended yet"
             ));

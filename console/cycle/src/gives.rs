@@ -316,7 +316,7 @@ fn takes(
         && !by.is_empty()
         && events::allowed_in(allowed, by)
         && id.is_some()
-        && ids.get(tehas_core::accounts::account(by)).copied() == id
+        && tehas_core::accounts::id_of(ids, &tehas_core::accounts::key(by)) == id
 }
 
 /// A plugin's filed files for the cycle (plugin specification 1.0.0, v3,

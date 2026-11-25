@@ -295,7 +295,7 @@ impl Gate {
             self.github.as_ref(),
             self.settings.access,
             &person.login,
-            Some(person.id),
+            Some(&person.id),
         )?;
         eprintln!("tehas-plugin-gate: {}", v.said);
         Ok(v.user.is_some())
@@ -321,10 +321,10 @@ impl Gate {
             return Ok(Some(s));
         }
         if self.access(&s.person)? {
-            lock(&self.memory).checked(s.person.id, now);
+            lock(&self.memory).checked(&s.person.id, now);
             Ok(Some(s))
         } else {
-            lock(&self.memory).end(s.person.id);
+            lock(&self.memory).end(&s.person.id);
             Ok(None)
         }
     }
@@ -501,7 +501,7 @@ impl Gate {
         let person = id.and_then(|id| memory.session(&id, site, now));
         let mut r = match person {
             Some(s) => {
-                memory.end(s.person.id);
+                memory.end(&s.person.id);
                 Response::with(200, "application/json", br#"{"signed": false}"#.to_vec())
             }
             None => Response::empty(401),
@@ -648,9 +648,9 @@ impl Gate {
             return Response::empty(403);
         }
         match self.access(&s.person) {
-            Ok(true) => lock(&self.memory).checked(s.person.id, now),
+            Ok(true) => lock(&self.memory).checked(&s.person.id, now),
             Ok(false) => {
-                lock(&self.memory).end(s.person.id);
+                lock(&self.memory).end(&s.person.id);
                 return Response::empty(403);
             }
             Err(_) => return Response::empty(403),

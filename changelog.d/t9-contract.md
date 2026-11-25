@@ -4,8 +4,9 @@
 - The contract names `tehas start`, called by a program for a person signed in to it, as the one way a program starts work for a person, now that the millwright's grant is gone (#2894).
 - The update to 2.0 is supported from 1.4.x only, and a host upgrades its factories and the programs that run them together.
 - `tehasbot refresh --pr N` is no longer public: `tehasbot` is internal, every verb of it. `tehas refresh --pr N` is the command.
+- `api/surface-2.0.txt` lists the public surface of 2.x in place of `api/surface-1.0.txt`. From 2.0.0 its lines are only added.
 - 2.0 rewrites no setting. Each line of an instance is kept, dropped with one warning because its feature left core, or refused with 78; the contract lists which.
 
 ### Adopter action
 
-Upgrade a host's factories and the programs that run them together, from 1.4.x. Before the update, check `instance.env` against "What 2.0 does with a setting" in the contract, fix every line 2.0 refuses, then run `tehas update`, which migrates the state store to schema 29 and analytics to schema 6. A program that reads the factory reads "Changed in 2.0" for each change it is named a reader of. A program that starts work for a person runs `tehas start` for that person, and a script that called `tehasbot refresh --pr N` calls `tehas refresh --pr N`.
+Upgrade a host's factories and the programs that run them together, from 1.4.x. Before the update, check `instance.env` against "What 2.0 does with a setting" in the contract, fix every line 2.0 refuses, then run `tehas update`, which migrates the state store to schema 32 and analytics to schema 7. A program that reads the factory reads "Changed in 2.0" for each change it is named a reader of. A program that starts work for a person runs `tehas start` for that person, and a script that called `tehasbot refresh --pr N` calls `tehas refresh --pr N`.

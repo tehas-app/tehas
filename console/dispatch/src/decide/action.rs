@@ -48,6 +48,8 @@ pub enum Action {
         kind: String,
         old: String,
         old_body: String,
+        /// The old comment's revision as it was read: its edit is made at it.
+        since: tehas_ports::Revision,
         body: Option<String>,
         offers: String,
     },
@@ -380,6 +382,7 @@ impl From<&Action> for Value {
                 kind,
                 old,
                 old_body,
+                since,
                 body,
                 offers,
             } => {
@@ -387,6 +390,7 @@ impl From<&Action> for Value {
                 put("kind", json!(kind));
                 put("old", json!(old));
                 put("old_body", json!(old_body));
+                put("since", json!(since.as_str()));
                 put("body", json!(body));
                 put("offers", json!(offers));
                 put("unlabel", json!(unlabel));
