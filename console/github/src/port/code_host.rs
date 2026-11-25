@@ -14,7 +14,7 @@
 mod activity;
 mod change;
 mod checks;
-mod download;
+pub(super) mod download;
 mod numbers;
 mod releases;
 mod remote;
