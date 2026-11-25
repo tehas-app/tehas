@@ -1,7 +1,7 @@
 # Architecture review
 
 The questions every pull request is reviewed against, once the
-repository's `.tehas/coding-standard` says `v2`, and on every pull
+repository's `.tehas/repository.toml` says `v2`, and on every pull
 request into `refactor/coding-standard-v2` before then: one per rule of
 `docs/architecture-rubric.md` (from tehas-docs,
 wiki/decisions/architecture-method.md, section 9.1). The same in every

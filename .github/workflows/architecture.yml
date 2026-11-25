@@ -3,7 +3,7 @@
 # the script. The script is one file, the same in every repository of the
 # tehas system; it changes in all of them together, never in one copy.
 #
-# The script runs only where .tehas/coding-standard says v2 and skips at v1,
+# The script runs only where .tehas/repository.toml says v2 and skips at v1,
 # except on pull requests into refactor/coding-standard-v2, the branch that
 # moves the code to v2 for 2.0.0, where it runs with --force. On a pull
 # request it also compares with the base, so a limit is not raised or a check

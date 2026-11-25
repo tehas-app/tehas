@@ -38,8 +38,10 @@ opens on a line matching `start` and closes on the first line matching
 text from the `end` match on is left out. Lines whose first characters are
 the check's `comment` prefix are skipped.
 
-The repository says which coding standard it follows in
-`.tehas/coding-standard`, one line: `v1` (the code as it was, before its
+The repository says which standard it follows in `.tehas/repository.toml`,
+table `[standard]`, key `version` (before v2 the one line of
+`.tehas/coding-standard`, read only for `v1`): `v1` (the code as it was,
+before its
 first refactoring runs) or `v2` (the architecture method as the wiki page defines it; a
 later standard, v3 or more, comes with the version of this script that
 enforces it, and this one refuses it). The checks are
@@ -68,7 +70,9 @@ SCOPE_DEFAULTS = {"allowed": [], "mode": "lines", "top": 10}
 REPORT_KEYS = {"id", "rule", "what", "pattern", "files", "allowed", "top", "mode", "comment", "start", "end", "why"}
 REPORT_REQUIRED = {"id", "rule", "what", "pattern", "files"}
 TOP_KEYS = {"version", "method", "review", "check", "report"}
-STANDARD_FILE = ".tehas/coding-standard"
+STANDARD_FILE = ".tehas/repository.toml"  # its [standard] table; other tables have other owners
+OLD_STANDARD_FILE = ".tehas/coding-standard"  # the pointer's name before v2; read only for v1
+STANDARD_KEYS = {"version"}
 STANDARDS = {"v1", "v2"}
 ENFORCED = "v2"
 MODES = {"lines", "spans"}
@@ -344,30 +348,82 @@ def run(root, config_path, base, summary):
 
 
 def standard(root):
-    """The repository's coding standard: `v1`, `v2`, or None with no file.
-    The first line that is not empty and not a `#` comment."""
-    path = os.path.join(root, STANDARD_FILE)
-    try:
-        with open(path, encoding="utf-8") as f:
-            text = f.read()
-    except FileNotFoundError:
+    """The repository's standard: `v1`, `v2`, or None when it names none.
+    Read from `.tehas/repository.toml`, table `[standard]`, key `version`.
+    This script owns that table only: an unknown key in it is refused, other
+    tables are left to their owners. The old one-line `.tehas/coding-standard`
+    is read only for `v1`; both at once is refused."""
+    new_path = os.path.join(root, STANDARD_FILE)
+    new = os.path.exists(new_path)
+    old = os.path.exists(os.path.join(root, OLD_STANDARD_FILE))
+    if new and old:
+        raise ConfigError(f"{OLD_STANDARD_FILE} and {STANDARD_FILE} are both here; keep {STANDARD_FILE} alone")
+    if old:
+        found = old_standard(root)
+        if found != "v1":
+            raise ConfigError(f"{OLD_STANDARD_FILE} says {found}; move it to {STANDARD_FILE} as "
+                              f"[standard] version = \"{found}\"")
+        return found
+    if not new:
         return None
+    try:
+        with open(new_path, encoding="utf-8") as f:
+            doc = tomllib.loads(f.read())
+    except UnicodeDecodeError:
+        raise ConfigError(f"{STANDARD_FILE}: not UTF-8")
+    except tomllib.TOMLDecodeError as e:
+        raise ConfigError(f"{STANDARD_FILE}: not valid TOML: {e}")
+    table = doc.get("standard")
+    if table is None:
+        # Fail closed: a file that exists names its standard. A near miss
+        # ([Standard], [standards], a top-level version) must not read as
+        # "no standard" and switch the checks off.
+        raise ConfigError(f"{STANDARD_FILE}: no [standard] table; write [standard] version = \"{ENFORCED}\" "
+                          f"(a repository that names no standard has no {STANDARD_FILE})")
+    if not isinstance(table, dict):
+        raise ConfigError(f"{STANDARD_FILE}: [standard] must be a table")
+    extra = sorted(set(table) - STANDARD_KEYS)
+    if extra:
+        raise ConfigError(f"{STANDARD_FILE}: [standard] has keys this script does not know: {', '.join(extra)}")
+    if "version" not in table:
+        raise ConfigError(f"{STANDARD_FILE}: [standard] has no version; write one of {known()}")
+    return checked_version(table["version"], STANDARD_FILE)
+
+
+def old_standard(root):
+    """The first line of the old `.tehas/coding-standard` that is not empty and
+    not a `#` comment."""
+    try:
+        with open(os.path.join(root, OLD_STANDARD_FILE), encoding="utf-8") as f:
+            text = f.read()
+    except UnicodeDecodeError:
+        raise ConfigError(f"{OLD_STANDARD_FILE}: not UTF-8")
     for line in text.splitlines():
         line = line.strip()
         if line and not line.startswith("#"):
-            if re.fullmatch(r"v[1-9][0-9]*", line) and line not in STANDARDS:
-                raise ConfigError(f"{STANDARD_FILE}: coding standard {line} is newer than this script, "
-                                  f"which knows {', '.join(sorted(STANDARDS))}; take the architecture.py that defines {line}")
-            if line not in STANDARDS:
-                raise ConfigError(f"{STANDARD_FILE}: {line!r} is not a coding standard; write one of {', '.join(sorted(STANDARDS))}")
-            return line
-    raise ConfigError(f"{STANDARD_FILE}: empty; write one of {', '.join(sorted(STANDARDS))}")
+            return checked_version(line, OLD_STANDARD_FILE)
+    raise ConfigError(f"{OLD_STANDARD_FILE}: empty; write one of {known()}")
+
+
+def known():
+    return ", ".join(sorted(STANDARDS))
+
+
+def checked_version(value, name):
+    if not isinstance(value, str):
+        raise ConfigError(f"{name}: the version must be a string such as \"v2\"")
+    if re.fullmatch(r"v[1-9][0-9]*(\.[0-9]+)?", value) and value not in STANDARDS:
+        raise ConfigError(f"{name}: standard {value} is newer than this script, "
+                          f"which knows {known()}; take the architecture.py that defines {value}")
+    if value not in STANDARDS:
+        raise ConfigError(f"{name}: {value!r} is not a standard; write one of {known()}")
+    return value
 
 
 def skipped(found, summary):
-    said = f"is {found}" if found else f"is not set ({STANDARD_FILE} is missing)"
-    text = (f"## Architecture test\n\nSkipped: this repository's coding standard {said}. "
-            f"The checks are enforced at {ENFORCED}; write `{ENFORCED}` in `{STANDARD_FILE}` "
+    said = f"is {found}" if found else f"is not set (no [standard] version in {STANDARD_FILE})"
+    text = (f"## Architecture test\n\nSkipped: this repository's standard {said}. "
+            f"The checks are enforced at {ENFORCED}; write `[standard] version = \"{ENFORCED}\"` in `{STANDARD_FILE}` "
             f"once the first refactoring runs are done. `--force` shows the counts now.\n")
     print(text)
     if summary:
@@ -382,7 +438,7 @@ def main(argv=None):
     ap.add_argument("--base", help="the pull request's base, as a git ref")
     ap.add_argument("--summary", default=os.environ.get("GITHUB_STEP_SUMMARY"), help="a file to append the summary to")
     ap.add_argument("--root", default=".")
-    ap.add_argument("--force", action="store_true", help=f"run the checks below coding standard {ENFORCED}")
+    ap.add_argument("--force", action="store_true", help=f"run the checks below standard {ENFORCED}")
     a = ap.parse_args(argv)
     try:
         found = standard(a.root)

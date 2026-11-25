@@ -117,8 +117,9 @@ when a person pulls and runs `install.sh` there.
 
 ## Coding standard
 
-`.tehas/coding-standard` says which standard this repository follows. It
-says `v1` until the refactoring on `refactor/coding-standard-v2` is done
+The `[standard] version` of `.tehas/repository.toml` says which standard
+this repository follows. It says `v1` until the refactoring on
+`refactor/coding-standard-v2` is done
 (`docs/plans/2026-11-21-coding-standard-v2.md`); then `v2`, the rules of
 `docs/architecture-rubric.md`. v2 is about where knowledge lives, not the
 code style, which stays as "Style" says. The rules in short:

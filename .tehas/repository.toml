@@ -1,0 +1,4 @@
+# How this repository is kept. Each table has one owner: [standard] is
+# scripts/architecture.py's. See github.com/tehas-app/tehas-standard.
+[standard]
+version = "v2"

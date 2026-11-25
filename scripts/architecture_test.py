@@ -81,10 +81,18 @@ class Repo:
         return code, out.getvalue() + err.getvalue()
 
 
+def pointer(standard):
+    """`.tehas/repository.toml` naming `standard`, or the text as given when it
+    is already TOML (it holds a table)."""
+    if "[" in standard:
+        return standard + "\n"
+    return f'[standard]\nversion = "{standard}"\n'
+
+
 def base_repo(standard="v2", **kw):
     r = Repo()
     if standard:
-        r.write(".tehas/coding-standard", standard + "\n")
+        r.write(".tehas/repository.toml", pointer(standard))
     r.write("architecture.toml", config(**kw))
     r.write("src/adapter.rs", 'fn get() { call("/api/a"); call("/api/b") }\n')
     r.write("src/web.rs", '// a comment naming /api/x is not counted\nfn page(v: Value) {\n  call("/api/c")\n}\n')
@@ -123,7 +131,7 @@ class Checks(unittest.TestCase):
 
     def test_a_blank_why_is_no_why(self):
         r = Repo()
-        r.write(".tehas/coding-standard", "v2\n")
+        r.write(".tehas/repository.toml", pointer("v2"))
         r.write("architecture.toml", config().replace('why = "the page, until step 4"', 'why = "  "'))
         r.write("src/adapter.rs", 'fn get() { call("/api/a") }\n')
         r.write("src/web.rs", 'fn page(v: Value) { call("/api/c") }\n')
@@ -310,7 +318,7 @@ class Base(unittest.TestCase):
 
     def test_a_base_without_the_file_is_noted(self):
         r = Repo()
-        r.write(".tehas/coding-standard", "v2\n")
+        r.write(".tehas/repository.toml", pointer("v2"))
         r.write("readme", "x\n")
         r.commit()
         r.write("architecture.toml", config(routes=0, untyped=0))
@@ -333,12 +341,12 @@ class Standard(unittest.TestCase):
     def test_v1_is_skipped(self):
         code, out = self.breaking("v1").run()
         self.assertEqual(code, 0, out)
-        self.assertIn("Skipped: this repository's coding standard is v1", out)
+        self.assertIn("Skipped: this repository's standard is v1", out)
 
     def test_no_file_is_skipped(self):
         code, out = self.breaking(None).run()
         self.assertEqual(code, 0, out)
-        self.assertIn("is not set (.tehas/coding-standard is missing)", out)
+        self.assertIn("is not set (no [standard] version in .tehas/repository.toml)", out)
 
     def test_force_runs_the_checks_at_v1(self):
         code, out = self.breaking("v1").run("--force")
@@ -346,21 +354,96 @@ class Standard(unittest.TestCase):
         self.assertIn("routes (R1): 2 places, 1 allowed", out)
 
     def test_comments_and_blank_lines_before_the_value(self):
-        code, _ = self.breaking("# the architecture method\n\nv2").run()
+        code, _ = self.breaking('# the architecture method\n\n[standard]\n# the version\nversion = "v2"').run()
         self.assertEqual(code, 1)
 
     def test_a_later_standard_needs_a_later_script(self):
         code, out = self.breaking("v3").run()
         self.assertEqual(code, 2)
-        self.assertIn("coding standard v3 is newer than this script", out)
+        self.assertIn("standard v3 is newer than this script", out)
 
     def test_another_value_is_refused(self):
         code, out = self.breaking("strict").run()
         self.assertEqual(code, 2)
-        self.assertIn("'strict' is not a coding standard", out)
+        self.assertIn("'strict' is not a standard", out)
+
+    def test_a_table_without_a_version_is_refused(self):
+        code, out = self.breaking("[standard]").run()
+        self.assertEqual(code, 2)
+        self.assertIn("[standard] has no version", out)
+
+    def test_an_unknown_key_in_the_table_is_refused(self):
+        code, out = self.breaking('[standard]\nversion = "v2"\nstrict = true').run()
+        self.assertEqual(code, 2)
+        self.assertIn("keys this script does not know: strict", out)
+
+    def test_other_tables_are_left_to_their_owners(self):
+        code, out = self.breaking('[standard]\nversion = "v2"\n\n[platform]\nos = "linux"').run()
+        self.assertEqual(code, 1, out)
+
+    def test_a_file_without_the_table_is_refused(self):
+        for text in ['[platform]\nos = "linux"', '[Standard]\nversion = "v2"', '[standards]\nversion = "v2"', 'version = "v2"\n[x]', "# empty\n[x]"]:
+            with self.subTest(text=text):
+                code, out = self.breaking(text).run()
+                self.assertEqual(code, 2, out)
+                self.assertIn("no [standard] table", out)
 
     def test_an_empty_file_is_refused(self):
-        code, out = self.breaking("# nothing").run()
+        r = self.breaking(None)
+        r.write(".tehas/repository.toml", "")
+        code, out = r.run()
+        self.assertEqual(code, 2, out)
+        self.assertIn("no [standard] table", out)
+
+    def test_a_version_that_is_not_a_string_is_refused(self):
+        code, out = self.breaking("[standard]\nversion = 2").run()
+        self.assertEqual(code, 2)
+        self.assertIn("the version must be a string", out)
+
+    def test_a_minor_needs_a_later_script(self):
+        code, out = self.breaking("v2.1").run()
+        self.assertEqual(code, 2)
+        self.assertIn("standard v2.1 is newer than this script", out)
+
+    def test_a_file_that_is_not_utf8_is_refused(self):
+        r = self.breaking(None)
+        os.makedirs(os.path.join(r.root, ".tehas"), exist_ok=True)
+        with open(os.path.join(r.root, ".tehas/repository.toml"), "wb") as f:
+            f.write(b"[standard]\nversion = \"\xff\"\n")
+        code, out = r.run()
+        self.assertEqual(code, 2, out)
+        self.assertIn("not UTF-8", out)
+
+    def test_bad_toml_is_refused(self):
+        code, out = self.breaking("[standard\nversion = v2").run()
+        self.assertEqual(code, 2)
+        self.assertIn("not valid TOML", out)
+
+    def test_the_old_name_is_read_for_v1(self):
+        r = self.breaking(None)
+        r.write(".tehas/coding-standard", "v1\n")
+        code, out = r.run()
+        self.assertEqual(code, 0, out)
+        self.assertIn("Skipped: this repository's standard is v1", out)
+
+    def test_the_old_name_with_v2_asks_for_the_move(self):
+        r = self.breaking(None)
+        r.write(".tehas/coding-standard", "v2\n")
+        code, out = r.run()
+        self.assertEqual(code, 2, out)
+        self.assertIn('.tehas/coding-standard says v2; move it to .tehas/repository.toml as [standard] version = "v2"', out)
+
+    def test_both_files_at_once_are_refused(self):
+        r = self.breaking("v2")
+        r.write(".tehas/coding-standard", "v1\n")
+        code, out = r.run()
+        self.assertEqual(code, 2, out)
+        self.assertIn("are both here; keep .tehas/repository.toml alone", out)
+
+    def test_an_empty_old_file_is_refused(self):
+        r = self.breaking(None)
+        r.write(".tehas/coding-standard", "# nothing\n")
+        code, out = r.run()
         self.assertEqual(code, 2)
         self.assertIn("empty", out)
 
@@ -368,7 +451,7 @@ class Standard(unittest.TestCase):
 class Config(unittest.TestCase):
     def test_every_problem_at_once_and_exit_2(self):
         r = Repo()
-        r.write(".tehas/coding-standard", "v2\n")
+        r.write(".tehas/repository.toml", pointer("v2"))
         r.write("architecture.toml", 'version = 1\nextra = 1\n[[check]]\nid = "a"\nrule = "R11"\nmode = "spans"\npattern = "("\n')
         code, out = r.run()
         self.assertEqual(code, 2)
@@ -378,7 +461,7 @@ class Config(unittest.TestCase):
 
     def test_the_wrong_version_is_refused(self):
         r = Repo()
-        r.write(".tehas/coding-standard", "v2\n")
+        r.write(".tehas/repository.toml", pointer("v2"))
         r.write("architecture.toml", "version = 2\n")
         code, out = r.run()
         self.assertEqual(code, 2)
@@ -386,7 +469,7 @@ class Config(unittest.TestCase):
 
     def test_start_and_end_belong_to_spans(self):
         r = Repo()
-        r.write(".tehas/coding-standard", "v2\n")
+        r.write(".tehas/repository.toml", pointer("v2"))
         r.write("architecture.toml", config().replace('mode = "spans"\n', ""))
         code, out = r.run()
         self.assertEqual(code, 2)
