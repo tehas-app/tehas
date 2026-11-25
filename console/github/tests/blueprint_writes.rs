@@ -1598,19 +1598,19 @@ fn the_law_of_editing_only_our_own_comment_holds_over_the_adapter() {
     struct Comments {
         ours: Arc<Mutex<String>>,
         patches: Arc<Mutex<Vec<String>>>,
-        theirs: Arc<Vec<(u64, Value, &'static str)>>,
+        theirs: Arc<Vec<(u64, &'static str, &'static str)>>,
     }
     impl Comments {
         fn ours(&self) -> String {
             comment_with(&self.ours.lock().unwrap())
         }
-        fn theirs(&self, (id, user, body): &(u64, Value, &str)) -> String {
+        fn theirs(&self, (id, user, body): &(u64, &str, &str)) -> String {
             let mut v: Value = serde_json::from_str(&sample(QUESTION)).unwrap();
             v["id"] = (*id).into();
             v["node_id"] = format!("IC_kwDOAbCdEf6VFm{id}").into();
             v["html_url"] =
                 format!("https://github.com/acme/widget/issues/7#issuecomment-{id}").into();
-            v["user"] = user.clone();
+            v["user"] = serde_json::from_str(user).unwrap();
             v["body"] = (*body).into();
             v.to_string()
         }
@@ -1654,19 +1654,19 @@ fn the_law_of_editing_only_our_own_comment_holds_over_the_adapter() {
     let theirs = vec![
         (
             2501230003,
-            serde_json::json!({"login": "alice", "id": 300001, "type": "User"}),
+            r#"{"login": "alice", "id": 300001, "type": "User"}"#,
             "A person's note.",
         ),
         (
             2501230004,
-            serde_json::json!({"login": "helper[bot]", "id": 300003, "type": "Bot"}),
+            r#"{"login": "helper[bot]", "id": 300003, "type": "Bot"}"#,
             "Another bot's note.",
         ),
         // The bot's login on another account: a law that knew the bot by
         // its login would edit it.
         (
             2501230005,
-            serde_json::json!({"login": "tehas-bot[bot]", "id": 300002, "type": "Bot"}),
+            r#"{"login": "tehas-bot[bot]", "id": 300002, "type": "Bot"}"#,
             "A note under the bot's login.",
         ),
     ];
