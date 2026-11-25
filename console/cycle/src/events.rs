@@ -16,6 +16,7 @@ use crate::host;
 use std::path::Path;
 use std::sync::Arc;
 use tehas_core::raise::{self, Ended, Writer};
+use tehas_core::verb::Verb;
 use tehas_ports::events::{Dispatcher, Payload};
 
 /// The settings the listeners read, as the cycle's environment has them.
@@ -44,8 +45,10 @@ pub fn raise<P: Payload>(d: &Dispatcher, p: P) {
 /// read from the store after its record. A read that fails raises nothing,
 /// and says so.
 pub fn read_ended(home: &Path, issue: u64, attempt: u32, by: Writer) -> Ended {
-    let mut ask = |args: &[&str]| {
-        host::store_try(home, 3, args)
+    let mut ask = |v: &Verb| {
+        let words = v.args();
+        let args: Vec<&str> = words.iter().map(String::as_str).collect();
+        host::store_try(home, 3, &args)
             .map(|v| v.to_string())
             .map_err(|r| r.word)
     };

@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 use tehas_core::grammar;
 use tehas_core::outcome::ParkLine;
 use tehas_core::time;
+use tehas_core::verb::Verb;
 
 /// A cursor of a shape this command can print: at most 10 digits of seconds,
 /// 9 of issue and 15 of place. The shape of v0.13 and before has no place.
@@ -139,10 +140,10 @@ pub fn listing(home: &Path, repo: &str, query: &Query) -> Result<Listing, Unread
             said: "ERROR: the state store is not installed (run install.sh)".to_string(),
         });
     }
-    let issue = query.issue.map(|n| n.to_string());
-    let mut args = vec!["history-show"];
-    args.extend(issue.as_deref());
-    let answer = store::line(home, &args).map_err(|no| Unread {
+    let show = Verb::HistoryShow {
+        issue: query.issue.map(|n| n as u64),
+    };
+    let answer = store::line(home, &show).map_err(|no| Unread {
         rc: if no.rc == 1 { 1 } else { 78 },
         said: format!(
             "ERROR: the history could not be read from the state store: {}",

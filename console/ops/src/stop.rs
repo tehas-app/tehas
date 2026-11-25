@@ -38,6 +38,7 @@ use tehas_core::home::Home;
 use tehas_core::lock::{probe, Held, Probe};
 use tehas_core::raise::{self, Writer};
 use tehas_core::settings::rules::is_repo;
+use tehas_core::verb::{End, Verb};
 use tehas_ports::events::Dispatcher;
 use tehas_ports::{Mark, Outcome, State, TicketKey, TicketWrites};
 
@@ -271,6 +272,11 @@ impl Names {
         }
     }
 
+    /// The issue as a number: `n` passed `is_issue`, ten digits at most.
+    fn issue(&self) -> u64 {
+        self.n.parse().unwrap_or(0)
+    }
+
     fn removed(&self, path: &str) {
         say(&format!("removed {}\n", self.short(path)));
     }
@@ -283,7 +289,12 @@ impl Names {
     /// ended or there is none. Ends the run when the store could not answer.
     fn open_attempt(&self) -> Result<String, u8> {
         let home = Path::new(&self.home);
-        match store::call(home, &["cycle-show", &self.n]) {
+        match store::call(
+            home,
+            &Verb::CycleShow {
+                issue: self.issue(),
+            },
+        ) {
             Ok(v) => {
                 let cycle = &v["cycle"];
                 Ok(if !cycle.is_null() && cycle["ended_at"].is_null() {
@@ -306,7 +317,12 @@ impl Names {
     /// still owed. Ends the run when the store could not answer.
     fn park_owed(&self) -> Result<(String, bool), u8> {
         let home = Path::new(&self.home);
-        match store::call(home, &["park-show", &self.n]) {
+        match store::call(
+            home,
+            &Verb::ParkShow {
+                issue: self.issue(),
+            },
+        ) {
             Ok(v) => Ok((
                 field_or_empty(&v["park"]["question"]),
                 v["park"]["retries"] == 0,
@@ -496,7 +512,11 @@ impl Names {
         // never will.
         let open_at = self.open_attempt()?;
         if !open_at.is_empty() {
-            let end = ["cycle-end", n, "--attempt", &open_at, "--stopped"];
+            let end = Verb::CycleEnd {
+                issue: self.issue(),
+                attempt: open_at.clone(),
+                end: End::Stopped,
+            };
             let ended = store::try_call(home, 3, &end);
             if let Err(no) = &ended {
                 if no.word == "running" {
@@ -526,7 +546,10 @@ impl Names {
         // reported.
         let (question, retry) = self.park_owed()?;
         if !question.is_empty() {
-            let withdraw = ["question-answered", n, "--id", &question, "--withdraw"];
+            let withdraw = Verb::QuestionWithdrawn {
+                issue: self.issue(),
+                id: question.clone(),
+            };
             match store::try_call(home, 3, &withdraw) {
                 Err(no) if no.word != "unknown" => {
                     eprintln!(
@@ -539,7 +562,13 @@ impl Names {
             }
         }
         if retry {
-            match store::try_call(home, 3, &["park-retry", n]) {
+            match store::try_call(
+                home,
+                3,
+                &Verb::ParkRetry {
+                    issue: self.issue(),
+                },
+            ) {
                 Err(no) if no.word != "unparked" => {
                     eprintln!(
                         "tehas stop: the retry of the park of #{n} could not be spent ({}), so nothing was removed. Run this again.",
@@ -688,7 +717,7 @@ fn raise_stopped(home: &Path, n: &str, attempt: &str, answer: &str, events: &Dis
         return;
     };
     let warn = |line: &str| eprintln!("tehas stop: {line}");
-    let mut ask = |args: &[&str]| store::line(home, args).map_err(|r| r.word);
+    let mut ask = |v: &Verb| store::line(home, v).map_err(|r| r.word);
     match raise::read_ended(&mut ask, issue, attempt, Writer::Short) {
         Ok(e) => e.raise(events, &warn),
         Err(why) => warn(&format!(
@@ -731,6 +760,7 @@ mod tests {
     use super::*;
     use std::os::unix::fs::symlink;
     use tehas_core::testdir::TestDir;
+    use tehas_core::verb;
 
     // A home with a store of its own, made by the store's init.
     fn store_home(name: &str) -> TestDir {
@@ -738,17 +768,12 @@ mod tests {
         fs::create_dir_all(Home::new(&*home).cycles_dir()).unwrap();
         fs::create_dir_all(home.join("libexec")).unwrap();
         tehas_core::testing::write_exe(store::program(&home), "#!/bin/sh\nexit 1\n").unwrap();
-        let init = [
-            "init",
-            "--version",
-            "v0.0.0",
-            "--commit",
-            "0123456789abcdef0123456789abcdef01234567",
-            "--instance",
-            "instance",
-            "--repo",
-            "acme/widget",
-        ];
+        let init = Verb::Init {
+            version: "v0.0.0".into(),
+            commit: "0123456789abcdef0123456789abcdef01234567".into(),
+            instance: "instance".into(),
+            repo: "acme/widget".into(),
+        };
         store::call(&home, &init).unwrap();
         home
     }
@@ -759,7 +784,7 @@ mod tests {
     fn started(home: &Path) {
         let lock = File::create(Home::new(home).cycle_note(5, "lock")).unwrap();
         lock.try_lock().unwrap();
-        store::call(home, &["cycle-start", "5", "--by-hand"]).unwrap();
+        store::call(home, &Verb::CycleStartByHand { issue: 5 }).unwrap();
         lock.unlock().unwrap();
     }
 
@@ -773,7 +798,11 @@ mod tests {
         let events = raise::logged(move |l| h.lock().unwrap().push(l.to_string())).build();
         started(&home);
         let stop = |attempt: &str| {
-            let end = ["cycle-end", "5", "--attempt", attempt, "--stopped"];
+            let end = Verb::CycleEnd {
+                issue: 5,
+                attempt: attempt.into(),
+                end: verb::End::Stopped,
+            };
             store::call(&home, &end).unwrap().to_string()
         };
         raise_stopped(&home, "5", "1", &stop("1"), &events);
@@ -786,7 +815,11 @@ mod tests {
         assert_eq!((e.key.as_str(), p.end), ("5-1", End::Stopped));
         // A cycle that reported first wrote the line, and raised it.
         started(&home);
-        let report = ["cycle-end", "5", "--attempt", "2", "--status", "failed"];
+        let report = Verb::CycleEnd {
+            issue: 5,
+            attempt: "2".into(),
+            end: verb::End::Status("failed".into()),
+        };
         store::call(&home, &report).unwrap();
         raise_stopped(&home, "5", "2", &stop("2"), &events);
         assert_eq!(heard.lock().unwrap().len(), 1);
@@ -795,19 +828,16 @@ mod tests {
         // raising it a second time.
         let lock = File::create(Home::new(&*home).cycle_note(5, "lock")).unwrap();
         lock.try_lock().unwrap();
-        store::call(&home, &["cycle-start", "5", "--by-hand"]).unwrap();
-        let refused = [
-            "cycle-end",
-            "5",
-            "--attempt",
-            "3",
-            "--refused",
-            "--rc",
-            "65",
-        ];
+        store::call(&home, &Verb::CycleStartByHand { issue: 5 }).unwrap();
+        let refused = Verb::CycleEnd {
+            issue: 5,
+            attempt: "3".into(),
+            end: verb::End::Refused(65),
+        };
         store::call(&home, &refused).unwrap();
         lock.unlock().unwrap();
-        let rows = store::call(&home, &["history-show", "5"]).unwrap()["rows"].clone();
+        let rows =
+            store::call(&home, &Verb::HistoryShow { issue: Some(5) }).unwrap()["rows"].clone();
         assert_eq!(rows[2]["reported"], false);
         let answer = stop("3");
         assert!(answer.contains("\"already\":true"), "{answer}");

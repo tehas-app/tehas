@@ -78,6 +78,7 @@ use std::process::{Command, ExitStatus, Stdio};
 use std::sync::Mutex;
 use std::time::Duration;
 use tehas_core::home::{Home, State, TokenDir};
+use tehas_core::verb::{Plans, Verb};
 
 const USAGE: &str = "usage: tehas state pack [--rehearse] - | unpack [--rehearse] - | check [--json] | copy --to <file> [--json] | load --from <file> [--json]";
 const MANIFEST: &str = "tehas-state.json";
@@ -157,7 +158,7 @@ fn tag(home: &Path) -> Result<String, Fail> {
 /// came in a tar.
 fn checked(home: &Path, own: bool) -> Result<i64, Fail> {
     let unusable = if own { 78 } else { 1 };
-    let v = match store::call(home, &["check"]) {
+    let v = match store::call(home, &Verb::Check) {
         Ok(v) => v,
         Err(r) if r.rc == 1 => {
             return Err((1, format!("the state store does not check: {}", r.line)))
@@ -182,7 +183,7 @@ fn checked(home: &Path, own: bool) -> Result<i64, Fail> {
 
 /// `tehas state check`: the store's answer, whole or for a person.
 fn check(home: &Path, json: bool) -> Result<(), Fail> {
-    let said = store::line(home, &["check"]).map_err(|r| {
+    let said = store::line(home, &Verb::Check).map_err(|r| {
         if r.rc == 1 {
             (1, format!("the state store does not check: {}", r.line))
         } else {
@@ -208,7 +209,10 @@ fn copy(home: &Path, to: &str, json: bool) -> Result<(), Fail> {
     }
     let target = std::path::absolute(to).map_err(io_fail("could not name the target"))?;
     let target = target.to_string_lossy();
-    let v = store::call(home, &["copy", "--to", &target]).map_err(|r| {
+    let to = Verb::Copy {
+        to: target.to_string(),
+    };
+    let v = store::call(home, &to).map_err(|r| {
         let why = r
             .line
             .strip_prefix("store: ")
@@ -251,7 +255,10 @@ fn load(home: &Path, from: &str, json: bool) -> Result<(), Fail> {
         ));
     }
     no_work_running(home)?;
-    let v = store::call(home, &["load", "--from", &source]).map_err(|r| {
+    let from = Verb::Load {
+        from: source.to_string(),
+    };
+    let v = store::call(home, &from).map_err(|r| {
         let why = r
             .line
             .strip_prefix("store: ")
@@ -351,11 +358,11 @@ fn no_active_unit() -> Result<(), Fail> {
 
 /// An answer of the host's own store: 1 when it refused, 78 when it cannot be
 /// used.
-fn answer(home: &Path, args: &[&str]) -> Result<Value, Fail> {
-    store::call(home, args).map_err(|r| {
+fn answer(home: &Path, verb: &Verb) -> Result<Value, Fail> {
+    store::call(home, verb).map_err(|r| {
         (
             if r.rc == 1 { 1 } else { 78 },
-            format!("the state store did not answer {}: {}", args[0], r.line),
+            format!("the state store did not answer {}: {}", verb.name(), r.line),
         )
     })
 }
@@ -373,7 +380,7 @@ fn numbers(v: &Value, path: &str) -> Vec<i64> {
 
 /// A cycle or a planning turn that runs, as the store has it.
 fn no_work_running(home: &Path) -> Result<(), Fail> {
-    let shown = answer(home, &["cycle-show", "--running"])?;
+    let shown = answer(home, &Verb::CyclesRunning)?;
     // An open record whose lock is free is a cycle killed before it reported.
     let (killed, live): (Vec<&Value>, Vec<&Value>) = shown["cycles"]
         .as_array()
@@ -381,7 +388,7 @@ fn no_work_running(home: &Path) -> Result<(), Fail> {
         .flatten()
         .partition(|c| c["lock"]["state"] == "free");
     let mut cycles: Vec<i64> = live.iter().filter_map(|c| c["issue"].as_i64()).collect();
-    cycles.extend(numbers(&answer(home, &["locks-held"])?, "/held"));
+    cycles.extend(numbers(&answer(home, &Verb::LocksHeld)?, "/held"));
     cycles.sort_unstable();
     cycles.dedup();
     if let Some(n) = cycles.first() {
@@ -402,7 +409,7 @@ fn no_work_running(home: &Path) -> Result<(), Fail> {
             ),
         ));
     }
-    let plans = answer(home, &["plan-show", "--open"])?;
+    let plans = answer(home, &Verb::PlanShow(Plans::Open))?;
     let running = plans["sessions"]
         .as_array()
         .into_iter()
@@ -499,7 +506,10 @@ fn pack(home: &Path, rehearse: bool) -> Result<(), Fail> {
         .map_err(io_fail("could not write the manifest"))?;
     let copy = scratch.dir.join("tehas.db.copy");
     let whole = scratch.dir.join("state.tar");
-    answer(home, &["copy", "--to", &copy.to_string_lossy()])?;
+    let to = Verb::Copy {
+        to: copy.to_string_lossy().into_owned(),
+    };
+    answer(home, &to)?;
     let mut tar = Command::new("tar");
     tar.env("LC_ALL", "C")
         .args(["-c", "--anchored", "--numeric-owner", "-f"])

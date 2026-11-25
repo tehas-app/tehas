@@ -16,6 +16,7 @@ use std::fs;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use tehas_core::home::Home;
+use tehas_core::verb::{Plans, Verb};
 use tehas_core::{mask, models};
 
 const USAGE: &str = "usage: tehas export [--json] --after CURSOR <dir>";
@@ -490,7 +491,9 @@ impl Export {
     /// opened before the turn ended. The store keeps one session an issue, so
     /// one opened after is another turn's. None when the store did not answer.
     fn plan(&self, issue: &str, ended: f64, out: &Path) -> Option<bool> {
-        let answer = match store::call(&self.home, &["plan-show", issue]) {
+        // The history's issue is digits, so it parses.
+        let show = Verb::PlanShow(Plans::Issue(issue.parse().ok()?));
+        let answer = match store::call(&self.home, &show) {
             Ok(v) => v,
             Err(no) => {
                 if no.rc != 1 {

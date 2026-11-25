@@ -163,7 +163,11 @@ fn ask(x: &mut Peek, home: &Path, args: &Value, caller: &Caller) -> Result<Value
 }
 
 fn rows(home: &Path) -> Vec<Value> {
-    let v = crate::store::call(home, &["plugin-runs", "--plugin", "floorplan"]).unwrap();
+    let runs = Verb::PluginRuns {
+        plugin: "floorplan".into(),
+        no_calls: false,
+    };
+    let v = crate::store::call(home, &runs).unwrap();
     v["runs"].as_array().unwrap().clone()
 }
 

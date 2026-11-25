@@ -698,7 +698,11 @@ mod raised {
     // What `by` reads after an end, and the events it makes of it: the
     // read every raiser makes, tehas_core::raise::read_ended.
     fn read_by(w: &World, issue: u64, attempt: u32, by: Writer) -> Ended {
-        let mut ask = |a: &[&str]| Ok(w.store_ok(a).to_string());
+        let mut ask = |v: &tehas_core::verb::Verb| {
+            let words = v.args();
+            let a: Vec<&str> = words.iter().map(String::as_str).collect();
+            Ok(w.store_ok(&a).to_string())
+        };
         read_ended(&mut ask, issue, attempt, by).unwrap()
     }
 
@@ -1066,7 +1070,11 @@ mod raised {
         // #40 asks a planning question; asked again, it is a replay.
         let answer = plan_asked(&w, 40, "4040");
         let id = recorded(&answer).expect("the call recorded it");
-        let mut ask = |a: &[&str]| Ok(w.store_ok(a).to_string());
+        let mut ask = |v: &tehas_core::verb::Verb| {
+            let words = v.args();
+            let a: Vec<&str> = words.iter().map(String::as_str).collect();
+            Ok(w.store_ok(&a).to_string())
+        };
         all.extend(read_asked(&mut ask, id).unwrap().map(Envelope::new));
         let again = w.store_ok(&["question-asked", "40", "--id", "4040", "--kind", "plan"]);
         assert_eq!(recorded(&again.to_string()), None);

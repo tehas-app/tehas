@@ -12,6 +12,7 @@ use crate::apply::Writer;
 use crate::clock::iso_now;
 use std::cell::RefCell;
 use tehas_core::raise::{self, EndAnswer, Ended};
+use tehas_core::verb::Verb;
 use tehas_ports::events::Dispatcher;
 
 /// The dispatcher of a poll: the log.
@@ -40,7 +41,10 @@ impl Writer {
         let Some(attempt) = u32::try_from(attempt).ok().filter(|_| wrote) else {
             return;
         };
-        let mut ask = |args: &[&str]| self.ask(args);
+        let mut ask = |v: &Verb| {
+            let words = v.args();
+            self.ask(&words.iter().map(String::as_str).collect::<Vec<_>>())
+        };
         match raise::read_ended(&mut ask, n, attempt, raise::Writer::Short) {
             Ok(e) => self.raise_ended(e, log),
             Err(why) => log.push(format!(
@@ -55,7 +59,10 @@ impl Writer {
         let Some(id) = raise::recorded(answer) else {
             return;
         };
-        let mut ask = |args: &[&str]| self.ask(args);
+        let mut ask = |v: &Verb| {
+            let words = v.args();
+            self.ask(&words.iter().map(String::as_str).collect::<Vec<_>>())
+        };
         match raise::read_asked(&mut ask, id) {
             Ok(Some(p)) => {
                 let warned = RefCell::new(Vec::new());

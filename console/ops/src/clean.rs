@@ -76,6 +76,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant, SystemTime};
 use tehas_core::home::{Home, State};
 use tehas_core::lock::Held;
+use tehas_core::verb::Verb;
 use tehas_core::{rukas, time};
 
 /// Sandbox builds a host keeps: the current one and the one before it, for a
@@ -1862,12 +1863,8 @@ impl Run {
             self.upkept(Some(("absent", "the state store is not installed")));
             return false;
         }
-        let args: &[&str] = if self.dry {
-            &["upkeep", "--dry-run"]
-        } else {
-            &["upkeep"]
-        };
-        let v = match store::call(&self.home, args) {
+        let upkeep = Verb::Upkeep { dry_run: self.dry };
+        let v = match store::call(&self.home, &upkeep) {
             Ok(v) => v,
             Err(no) => {
                 self.warn(&format!("store upkeep failed ({}): {}", no.word, no.line));
