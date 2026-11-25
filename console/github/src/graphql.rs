@@ -5,9 +5,11 @@
 //! budget when GitHub says the rate is limited, `Unread(Inconsistent)` for
 //! any other. `items.rs`, which reads aliased questions alias by alias,
 //! applies its own form of it, an error naming its alias.
+//!
+//! [`Error`] is the adapter's one reading of an error of GraphQL's.
 
 use serde::de::{DeserializeOwned, IgnoredAny};
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use serde_json::Value;
 use tehas_ports::{At, Got, Outcome, Pool, Unread};
 
@@ -32,10 +34,57 @@ enum Errors {
     Other(IgnoredAny),
 }
 
+/// One of GraphQL's `errors`: its type, and where in the answer it lies.
 #[derive(Deserialize)]
-struct Error {
+pub(crate) struct Error {
     #[serde(rename = "type", default)]
-    kind: Option<String>,
+    pub(crate) kind: Option<String>,
+    #[serde(default, deserialize_with = "steps")]
+    pub(crate) path: Vec<Step>,
+}
+
+/// A step of an error's path: a field or an alias, or a place in a list.
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub(crate) enum Step {
+    At(u64),
+    Name(String),
+    Other(IgnoredAny),
+}
+
+impl Error {
+    /// Whether GitHub gave this error the type `kind`.
+    pub(crate) fn is(&self, kind: &str) -> bool {
+        self.kind.as_deref() == Some(kind)
+    }
+}
+
+/// A path that is no list, null among them, is none.
+fn steps<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Step>, D::Error> {
+    Ok(serde_json::from_value(Value::deserialize(d)?).unwrap_or_default())
+}
+
+/// The errors of the answer `out`, each that is an object: none for an
+/// answer that does not read or has none.
+pub(crate) fn errors(out: &str) -> Vec<Error> {
+    serde_json::from_str::<Value>(out.trim())
+        .ok()
+        .and_then(|v| v.get("errors").and_then(Value::as_array).cloned())
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|e| serde_json::from_value(e).ok())
+        .collect()
+}
+
+/// A spent budget of a GraphQL call is the priced pool's.
+pub(crate) fn priced(o: Outcome) -> Outcome {
+    match o {
+        Outcome::Spent { until, .. } => Outcome::Spent {
+            pool: Pool::Priced,
+            until,
+        },
+        o => o,
+    }
 }
 
 /// The outcome of the answer `out` when it carries errors, at `now`; None
@@ -55,9 +104,7 @@ pub(crate) fn refusal(out: &str, now: i64) -> Option<Outcome> {
         return None;
     }
     let limited = match head.errors {
-        Some(Errors::List(all)) => all
-            .iter()
-            .any(|e| e.kind.as_deref() == Some("RATE_LIMITED")),
+        Some(Errors::List(all)) => all.iter().any(|e| e.is("RATE_LIMITED")),
         _ => false,
     };
     Some(if limited {

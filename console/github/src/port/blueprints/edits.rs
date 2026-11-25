@@ -17,7 +17,8 @@
 
 use std::collections::HashMap;
 
-use super::{editor, is_node_id, priced, time, Actor};
+use super::{editor, is_node_id, time, Actor};
+use crate::graphql::{priced, Error as GraphError, Step};
 use crate::port::blueprint_writes::comment_issue;
 use crate::tickets::Bot;
 use crate::{markers, GitHub};
@@ -387,10 +388,7 @@ impl GitHub {
         };
         let mut failed: Vec<Option<Outcome>> = vec![None; paths.len()];
         for e in errors {
-            let at = e
-                .path
-                .as_ref()
-                .and_then(|p| paths.iter().position(|q| path_is(p, q)));
+            let at = paths.iter().position(|q| path_is(&e.path, q));
             match at {
                 Some(i) if e.kind.as_deref() == Some("NOT_FOUND") => {
                     failed[i] = Some(Outcome::NotFound);
@@ -440,28 +438,13 @@ impl GitHub {
     }
 }
 
-/// One of GraphQL's `errors`.
-#[derive(Deserialize)]
-struct GraphError {
-    #[serde(rename = "type")]
-    kind: Option<String>,
-    path: Option<Vec<Step>>,
-}
-
-/// A step of an error's path: a field or an alias, or a place in a list.
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum Step {
-    Name(String),
-    At(u64),
-}
-
 /// GitHub's path of an error is in the item at `item`.
 fn path_is(path: &[Step], item: &[String]) -> bool {
     path.len() >= item.len()
         && path.iter().zip(item).all(|(p, q)| match p {
             Step::Name(s) => s == q,
             Step::At(n) => n.to_string() == *q,
+            Step::Other(_) => false,
         })
 }
 

@@ -6,9 +6,9 @@
 //! hundred items for each hundred asked.
 
 use serde::Deserialize;
-use serde_json::Value;
 
-use super::change::{answer, priced};
+use super::change::answer;
+use crate::graphql::{self, priced};
 use crate::tickets::{account, take};
 use crate::{gh, ForgeError, GitHub};
 use tehas_ports::{
@@ -400,19 +400,13 @@ impl GitHub {
         path: &str,
     ) -> Outcome {
         if let Some(said) = said.filter(|s| !s.trim().is_empty()) {
-            let types: Vec<String> = serde_json::from_str::<Value>(said.trim())
-                .ok()
-                .and_then(|v| v.get("errors").and_then(Value::as_array).cloned())
-                .unwrap_or_default()
-                .iter()
-                .filter_map(|e| e.get("type").and_then(Value::as_str).map(str::to_string))
-                .collect();
-            return if types.iter().any(|t| t == "RATE_LIMITED") {
+            let errors = graphql::errors(said);
+            return if errors.iter().any(|e| e.is("RATE_LIMITED")) {
                 Outcome::Spent {
                     pool: Pool::Priced,
                     until: At::new((self.now)()),
                 }
-            } else if types.iter().any(|t| t == "NOT_FOUND") {
+            } else if errors.iter().any(|e| e.is("NOT_FOUND")) {
                 Outcome::NotFound
             } else {
                 INCONSISTENT

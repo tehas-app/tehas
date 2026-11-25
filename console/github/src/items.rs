@@ -17,6 +17,7 @@ use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::Value;
 
+use crate::graphql::{Error, Step};
 use crate::GitHub;
 use tehas_ports::{ChangeNo, Got, Item, Outcome, TicketKey, Unread, ALL_MAX};
 
@@ -87,28 +88,18 @@ struct Node {
     number: Option<u64>,
 }
 
-#[derive(Deserialize)]
-struct Error {
-    #[serde(rename = "type")]
-    kind: Option<String>,
-    #[serde(default)]
-    path: Vec<Value>,
+/// The alias an error is about, None for one about the question.
+fn alias_of(e: &Error) -> Option<&str> {
+    match e.path.as_slice() {
+        [Step::Name(r), Step::Name(a), ..] if r == "repository" => Some(a),
+        _ => None,
+    }
 }
 
-impl Error {
-    /// The alias this error is about, None for one about the question.
-    fn alias(&self) -> Option<&str> {
-        match self.path.as_slice() {
-            [Value::String(r), Value::String(a), ..] if r == "repository" => Some(a),
-            _ => None,
-        }
-    }
-
-    /// GitHub's word that the alias names nothing: the alias itself is not
-    /// found, not something inside it (Decided 121).
-    fn not_found(&self) -> bool {
-        self.kind.as_deref() == Some("NOT_FOUND") && self.path.len() == 2
-    }
+/// GitHub's word that the alias names nothing: the alias itself is not
+/// found, not something inside it (Decided 121).
+fn not_found(e: &Error) -> bool {
+    e.is("NOT_FOUND") && e.path.len() == 2
 }
 
 impl GitHub {
@@ -212,7 +203,7 @@ impl GitHub {
             return all(failed.map_or(MALFORMED, |e| self.failed(&e, aliases.len())));
         };
         // An error that names no alias leaves no item sure.
-        if answer.errors.iter().any(|e| e.alias().is_none()) {
+        if answer.errors.iter().any(|e| alias_of(e).is_none()) {
             return all(INCONSISTENT);
         }
         let answered = aliases
@@ -221,11 +212,11 @@ impl GitHub {
                 let errors: Vec<&Error> = answer
                     .errors
                     .iter()
-                    .filter(|e| e.alias() == Some(a))
+                    .filter(|e| alias_of(e) == Some(a))
                     .collect();
                 match (nodes.remove(a), errors.as_slice()) {
                     (None, _) => Err(MALFORMED),
-                    (Some(Value::Null), [e]) if e.not_found() => Err(Outcome::NotFound),
+                    (Some(Value::Null), [e]) if not_found(e) => Err(Outcome::NotFound),
                     (Some(Value::Null), _) => Err(INCONSISTENT),
                     (Some(node), []) => serde_json::from_value(node).map_err(|_| MALFORMED),
                     _ => Err(INCONSISTENT),

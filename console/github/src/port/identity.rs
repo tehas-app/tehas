@@ -21,6 +21,7 @@ use serde_json::Value;
 
 use super::unsupported;
 use crate::forge::uri;
+use crate::graphql::{self, priced};
 use crate::GitHub;
 use tehas_core::accounts;
 use tehas_ports::{
@@ -316,17 +317,6 @@ pub(super) fn id_of(who: &AccountId) -> Got<u64> {
     }
 }
 
-/// A spent budget of a GraphQL call is the priced pool's.
-fn priced(o: Outcome) -> Outcome {
-    match o {
-        Outcome::Spent { until, .. } => Outcome::Spent {
-            pool: Pool::Priced,
-            until,
-        },
-        o => o,
-    }
-}
-
 /// An answer that does not parse.
 const MALFORMED: Outcome = Outcome::Unread(Unread::Malformed);
 
@@ -335,11 +325,8 @@ const MALFORMED: Outcome = Outcome::Unread(Unread::Malformed);
 /// rate is limited, `Unread(Inconsistent)` for any other.
 fn read_me(out: &str, now: i64) -> Got<(Login, u64)> {
     let mut v: Value = serde_json::from_str(out.trim()).map_err(|_| MALFORMED)?;
-    if let Some(errors) = v.get("errors").filter(|e| !e.is_null()) {
-        let limited = errors.as_array().is_some_and(|all| {
-            all.iter()
-                .any(|e| e.get("type").and_then(Value::as_str) == Some("RATE_LIMITED"))
-        });
+    if v.get("errors").is_some_and(|e| !e.is_null()) {
+        let limited = graphql::errors(out).iter().any(|e| e.is("RATE_LIMITED"));
         return Err(if limited {
             Outcome::Spent {
                 pool: Pool::Priced,
