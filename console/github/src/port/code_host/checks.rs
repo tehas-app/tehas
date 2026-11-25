@@ -117,19 +117,10 @@ impl GitHub {
         } else {
             BTreeMap::new()
         };
-        let mut runs = newest_of_each(runs, &workflows)?;
         let statuses =
             self.checks_whole("the statuses", statuses_at, read_statuses, first_statuses)?;
-        runs.extend(
-            statuses
-                .into_iter()
-                .map(|(_, s)| s)
-                .filter(|s| name.is_none_or(|n| s.name == n)),
-        );
-        let mut checks = Checks::default();
-        checks.overall = Overall::of(&runs);
-        checks.runs = runs;
-        Ok(checks)
+        let statuses = statuses.into_iter().map(|(_, s)| s).collect();
+        folded(runs, &workflows, statuses, name)
     }
 
     /// The workflow and event of each check suite of GitHub Actions on the
@@ -238,6 +229,26 @@ impl GitHub {
     }
 }
 
+/// The checks: the newest run of each fold, then the statuses (of `name`
+/// alone where it is given), and `Overall::of` all of them.
+fn folded(
+    runs: Vec<(Run, Check)>,
+    workflows: &BTreeMap<u64, Ran>,
+    statuses: Vec<Check>,
+    name: Option<&str>,
+) -> Got<Checks> {
+    let mut runs = newest_of_each(runs, workflows)?;
+    runs.extend(
+        statuses
+            .into_iter()
+            .filter(|s| name.is_none_or(|n| s.name == n)),
+    );
+    let mut checks = Checks::default();
+    checks.overall = Overall::of(&runs);
+    checks.runs = runs;
+    Ok(checks)
+}
+
 /// The newest run of each fold, in the order the site listed the first of
 /// each. A run of GitHub Actions whose suite `workflows` maps is folded by
 /// App, workflow, event and name, the newest by `started_at`, then the
@@ -306,25 +317,9 @@ fn read_runs(out: &str) -> Option<Counted<Run>> {
     let mut runs = Vec::new();
     for r in v.get("check_runs")?.as_array()? {
         let text = |k: &str| r.get(k).and_then(Value::as_str);
-        let status = match text("status")? {
-            "completed" => CheckStatus::Done(match text("conclusion") {
-                Some("success" | "neutral") => Conclusion::Passed,
-                Some("skipped") => Conclusion::Skipped,
-                Some("failure" | "timed_out" | "startup_failure") => Conclusion::Failed,
-                Some("cancelled") => Conclusion::Cancelled,
-                _ => Conclusion::Unknown,
-            }),
-            "in_progress" => CheckStatus::Running,
-            _ => CheckStatus::Queued,
-        };
+        let status = run_status(text("status")?, text("conclusion"));
         let check = Check::new(text("name")?.to_string(), status);
-        let started = match r.get("started_at") {
-            None | Some(Value::Null) => Started::Not,
-            Some(t) => t
-                .as_str()
-                .and_then(tehas_core::time::from_iso)
-                .map_or(Started::Bad, Started::At),
-        };
+        let started = started(r.get("started_at"));
         let run = Run {
             id: r.get("id")?.as_u64()?,
             app: r.pointer("/app/id")?.as_u64()?,
@@ -335,6 +330,33 @@ fn read_runs(out: &str) -> Option<Counted<Run>> {
         runs.push((run, check));
     }
     Some((count, runs))
+}
+
+/// A check run's status and conclusion, in the site's words, as the
+/// port's: see `read_runs`.
+fn run_status(status: &str, conclusion: Option<&str>) -> CheckStatus {
+    match status {
+        "completed" => CheckStatus::Done(match conclusion {
+            Some("success" | "neutral") => Conclusion::Passed,
+            Some("skipped") => Conclusion::Skipped,
+            Some("failure" | "timed_out" | "startup_failure") => Conclusion::Failed,
+            Some("cancelled") => Conclusion::Cancelled,
+            _ => Conclusion::Unknown,
+        }),
+        "in_progress" => CheckStatus::Running,
+        _ => CheckStatus::Queued,
+    }
+}
+
+/// When a check run started, from its `started_at`: see `read_runs`.
+fn started(at: Option<&Value>) -> Started {
+    match at {
+        None | Some(Value::Null) => Started::Not,
+        Some(t) => t
+            .as_str()
+            .and_then(tehas_core::time::from_iso)
+            .map_or(Started::Bad, Started::At),
+    }
 }
 
 /// A page of the commit's workflow runs: the count the site says it holds,
@@ -366,13 +388,19 @@ fn read_statuses(out: &str) -> Option<Counted<String>> {
     for s in v.get("statuses")?.as_array()? {
         let text = |k: &str| s.get(k).and_then(Value::as_str);
         let context = text("context")?.to_string();
-        let status = match text("state")? {
-            "success" => CheckStatus::Done(Conclusion::Passed),
-            "failure" | "error" => CheckStatus::Done(Conclusion::Failed),
-            "pending" => CheckStatus::Running,
-            _ => CheckStatus::Done(Conclusion::Unknown),
-        };
+        let status = status_state(text("state")?);
         statuses.push((context.clone(), Check::new(context, status)));
     }
     Some((count, statuses))
+}
+
+/// A status context's state, in the site's words, as a run's: see
+/// `read_statuses`.
+fn status_state(state: &str) -> CheckStatus {
+    match state {
+        "success" => CheckStatus::Done(Conclusion::Passed),
+        "failure" | "error" => CheckStatus::Done(Conclusion::Failed),
+        "pending" => CheckStatus::Running,
+        _ => CheckStatus::Done(Conclusion::Unknown),
+    }
 }
