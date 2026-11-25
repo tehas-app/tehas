@@ -91,7 +91,7 @@ const POLL_KEEP: i64 = 600;
 /// A snapshot older than this is no snapshot to compare with: a change it
 /// missed would be dated now.
 const BEFORE_KEEP: i64 = 3600;
-/// The report's window, in seconds: nothing older is an event.
+/// The window of issue events, in seconds: an older close or merge is not one.
 const EVENT_WINDOW: i64 = 864_000;
 const LABELS: &str = "label:\"tehas:ready\",\"tehas:running\",\"tehas:awaiting-merge\",\"needs-human-attention\",\"tehas:plan\",\"tehas:planning\" sort:updated-desc";
 const COUNT_QUERY: &str =
@@ -648,7 +648,7 @@ fn holds(list: &[&J], n: &J) -> bool {
 /// before, closed at that time. One that was awaiting a merge is not closed: the
 /// search for completed work lags, and its merged comes when it catches up. A run
 /// with no snapshot before it records only the merged and closed, which carry
-/// their own time. Nothing older than ten days, the report's window.
+/// their own time. Nothing older than EVENT_WINDOW.
 fn events(now_snapshot: &J, was: &J, issues: &J, issue_control: &str, now: i64) -> Vec<Change> {
     let recent = |issue: &J| {
         issue

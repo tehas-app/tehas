@@ -287,7 +287,7 @@ name before 1.0, exits 64 and names `copy --to`. With `--json` it then prints
 what the copy holds, read from the copy:
 
 ```json
-{"api":1,"schema":1,"from":1792022400,"to":1792800000,"runs":42}
+{"api":1,"schema":8,"from":1792022400,"to":1792800000,"runs":42}
 ```
 
 `schema` is the copy's schema version, `from` and `to` the oldest start and the
