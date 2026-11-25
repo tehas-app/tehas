@@ -6,14 +6,16 @@
 
 use std::sync::{Arc, Mutex};
 
+use super::anonymous::{Anonymous, Public};
 use super::people::{People, PeopleClient};
 use super::unsupported;
 use crate::tickets::{Bot, NOT_STARTED};
-use crate::{table, GitHub};
+use crate::{table, Curl, GitHub};
 use tehas_core::forge::{Failed, GhRunner};
 use tehas_ports::{
     Actor, At, BlueprintWrites, Blueprints, Board, Caller, CodeHost, CodeHostWrites, Got, Identity,
-    Mark, Marker, MeterRow, Outcome, Pool, PortName, Realm, Scope, Site, TicketWrites, Tickets,
+    Ledger, Mark, Marker, MeterRow, Outcome, Pool, PortName, Realm, Scope, Site, TicketWrites,
+    Tickets,
 };
 
 /// What makes a runner of gh for an actor: the wiring's, so the adapter
@@ -33,6 +35,8 @@ pub struct GitHubSite {
     now: fn() -> i64,
     /// The client a person signs in through, if the wiring gave one.
     people: Option<Arc<People>>,
+    /// curl and the ledger of anonymous reads, if the wiring asked for them.
+    public: Option<Public>,
 }
 
 impl GitHubSite {
@@ -61,6 +65,7 @@ impl GitHubSite {
             deadline: None,
             now: tehas_core::time::now,
             people: None,
+            public: None,
         }
     }
 
@@ -89,6 +94,21 @@ impl GitHubSite {
         }
     }
 
+    /// The same site answering `Actor::Anonymous`'s code host reads of a
+    /// public project (Decided 76) through curl, with no credential, its
+    /// budget kept in `ledger` as the anonymous holder's.
+    pub fn with_anonymous_reads(self, ledger: Arc<dyn Ledger>) -> GitHubSite {
+        self.with_anonymous_curl(Curl::new(), ledger)
+    }
+
+    /// The same, through `curl`: a test's stub in curl's place.
+    pub fn with_anonymous_curl(self, curl: Curl, ledger: Arc<dyn Ledger>) -> GitHubSite {
+        GitHubSite {
+            public: Some(Public { curl, ledger }),
+            ..self
+        }
+    }
+
     /// The same site reading the time from `now`: its handles' deadline
     /// and a spent budget's time, so a test answers a fixed time.
     pub fn on_clock(self, now: fn() -> i64) -> GitHubSite {
@@ -104,7 +124,7 @@ impl GitHubSite {
     /// one exception is the identity handle of the factory's account at
     /// read scope, on a site given a client for people: it signs a person
     /// in and runs no gh. Anonymous asking a write handle is `Forbidden`, as
-    /// the trait says.
+    /// the trait says; its code host reads are `code_host`'s, through curl.
     fn handle(&self, by: &Actor, caller: Caller, port: PortName, write: bool) -> Got<GitHub> {
         match by {
             Actor::Ours(Scope::Full) | Actor::Operator => {}
@@ -193,7 +213,22 @@ impl Site for GitHubSite {
         )?))
     }
 
+    /// `Actor::Anonymous` reads through curl, on a site given it, and
+    /// never through a runner of gh.
     fn code_host(&self, by: &Actor, caller: Caller) -> Got<Box<dyn CodeHost + Send>> {
+        if *by == Actor::Anonymous {
+            let Some(public) = &self.public else {
+                return super::unsupported();
+            };
+            return Ok(Box::new(Anonymous::new(
+                &self.repo,
+                public,
+                Arc::clone(&self.meter),
+                caller,
+                self.deadline,
+                self.now,
+            )));
+        }
         Ok(Box::new(self.handle(
             by,
             caller,
@@ -285,21 +320,26 @@ impl Metered {
             (false, args) if args.contains(&"search/issues") => Pool::Search,
             (false, _) => Pool::Calls,
         };
-        let mut meter = lock(&self.meter);
-        let row = meter
-            .iter_mut()
-            .find(|r| r.caller == self.caller && r.port == self.port && r.pool == pool);
-        match row {
-            Some(row) => {
-                row.calls = row.calls.saturating_add(1);
-                row.points = row.points.saturating_add(1);
-            }
-            None => {
-                let mut row = MeterRow::new(self.caller, self.port, pool);
-                row.calls = 1;
-                row.points = 1;
-                meter.push(row);
-            }
+        count(&self.meter, self.caller, self.port, pool);
+    }
+}
+
+/// One call and one point of `pool` in the meter, for `caller`'s `port`.
+pub(super) fn count(meter: &Mutex<Vec<MeterRow>>, caller: Caller, port: PortName, pool: Pool) {
+    let mut meter = lock(meter);
+    let row = meter
+        .iter_mut()
+        .find(|r| r.caller == caller && r.port == port && r.pool == pool);
+    match row {
+        Some(row) => {
+            row.calls = row.calls.saturating_add(1);
+            row.points = row.points.saturating_add(1);
+        }
+        None => {
+            let mut row = MeterRow::new(caller, port, pool);
+            row.calls = 1;
+            row.points = 1;
+            meter.push(row);
         }
     }
 }

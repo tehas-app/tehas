@@ -345,7 +345,7 @@ fn the_report_of_the_fetch_is_copied_by_its_own_keys() {
 #[test]
 fn a_request_for_a_fetch_is_a_connection_and_nothing_written() {
     use std::io::Read;
-    let d = TestDir::new("mcp-git-ask");
+    let d = TestDir::short();
     let socket = d.join("fetch.sock");
     assert!(!ask(&socket), "no socket takes no request");
     let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
