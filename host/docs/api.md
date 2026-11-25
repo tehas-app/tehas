@@ -1648,6 +1648,12 @@ A reader treats a name it does not know as unknown and skips it. A new name
 or a new optional field is a minor change; a renamed or removed name or
 field is a major one.
 
+The subject `plugin-<name>` belongs to the plugin `<name>`, and
+`annex-<name>` to the annex `<name>`, its plant and its plugin. tehas raises
+no event whose subject starts `plugin-` or `annex-` in any 2.x release, and
+`api/events.txt` never holds one. `tehas:` stays only for the names in
+`api/events.txt`. How a plugin declares and raises its events is 2.1.
+
 ### The envelope
 
 ```json

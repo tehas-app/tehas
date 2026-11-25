@@ -426,6 +426,16 @@ fn the_names_are_one_list_that_every_side_reads() {
     }
 }
 
+#[test]
+fn no_name_takes_a_plugin_or_annex_subject() {
+    for line in fs::read_to_string(api("events.txt")).unwrap().lines() {
+        assert!(
+            !line.starts_with("plugin-") && !line.starts_with("annex-"),
+            "{line} takes a reserved subject"
+        );
+    }
+}
+
 // The Events section of the manual: from its heading to the next of its
 // rank.
 fn manual_events() -> String {
