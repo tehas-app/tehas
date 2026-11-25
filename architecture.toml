@@ -246,7 +246,7 @@ allowed = [
 ]
 comment = "//"
 max = 2
-why = "New with ports Decided 130: TicketDigest.labels is for display alone, and a caller decides on marks. A module that shows the names joins `allowed` in the pull request that adds it, with a comment saying what it shows. The 2 are the dispatcher's own test that pins the rule, console/dispatch/src/read/board.rs's the_label_names_of_a_digest_are_never_read: it writes names into a digest and finds the page decide reads unchanged. A read anywhere else is a rise."
+why = "A regex floor; the dispatch test is the pin. The pattern catches only the names `digest` and `d`, so a read through any other name passes it, and the test holds the rule. New with ports Decided 130: TicketDigest.labels is for display alone, and a caller decides on marks. A module that shows the names joins `allowed` in the pull request that adds it, with a comment saying what it shows. The 2 are the dispatcher's own test that pins the rule, console/dispatch/src/read/board.rs's the_label_names_of_a_digest_are_never_read: it writes names into a digest and finds the page decide reads unchanged. A read anywhere else is a rise."
 
 # The events (T11.1): each name is written once, in the events module.
 

@@ -1,0 +1,23 @@
+{
+ "total_count": 2,
+ "workflow_runs": [
+  {
+   "id": 80050007,
+   "name": "CI",
+   "event": "pull_request",
+   "workflow_id": 7001,
+   "check_suite_id": 70050007,
+   "run_attempt": 1,
+   "run_started_at": "2026-01-02T09:00:00Z"
+  },
+  {
+   "id": 80050008,
+   "name": "CI",
+   "event": "pull_request",
+   "workflow_id": 7001,
+   "check_suite_id": 70050008,
+   "run_attempt": 1,
+   "run_started_at": "2026-01-02T09:00:00Z"
+  }
+ ]
+}
