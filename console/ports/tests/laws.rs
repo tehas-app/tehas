@@ -130,6 +130,57 @@ fn tickets_removing_an_absent_mark_is_done() {
 }
 
 #[test]
+fn tickets_closing_a_closed_ticket_is_done() {
+    for w in both() {
+        let w = w.ticket(1, |t| t.title("done").closed(CloseReason::Done));
+        let site = FakeSite::new(&w);
+        let mut h = site.ticket_writes(&full(), C).unwrap();
+        ok(laws::tickets::closing_a_closed_ticket_is_done(
+            h.as_mut(),
+            &w.key(1),
+            &CloseReason::NotPlanned,
+        ));
+    }
+}
+
+#[test]
+fn tickets_a_part_of_another_parent_is_refused() {
+    for w in both() {
+        let w = w
+            .ticket(3, |t| t.title("a part"))
+            .ticket(2, |t| t.title("another whole"));
+        let k3 = w.key(3);
+        let w = w.ticket(1, |t| t.title("the whole").part(k3.clone()));
+        let site = FakeSite::new(&w);
+        let mut h = site.ticket_writes(&full(), C).unwrap();
+        ok(laws::tickets::a_part_of_another_parent_is_refused(
+            h.as_mut(),
+            &w.key(1),
+            &w.key(2),
+            &k3,
+        ));
+    }
+}
+
+#[test]
+fn tickets_an_account_that_cannot_be_assigned_is_refused() {
+    for w in both() {
+        let w = w
+            .with_account("mallory", AccountKind::Person, Standing::None)
+            .ticket(1, |t| t.title("a ticket"));
+        let site = FakeSite::new(&w);
+        let mut h = site.ticket_writes(&full(), C).unwrap();
+        ok(
+            laws::tickets::an_account_that_cannot_be_assigned_is_refused(
+                h.as_mut(),
+                &w.key(1),
+                &AccountId::new("id-mallory"),
+            ),
+        );
+    }
+}
+
+#[test]
 fn tickets_carrying_any_takes_any_of_the_marks() {
     for w in both() {
         let w = w
@@ -258,6 +309,44 @@ fn tickets_a_parent_holds_its_parts() {
         let d = h.several(&[k2, k4]);
         assert_eq!(d[0].1.as_ref().unwrap().parent, Some(Ref::Here(w.key(1))));
         assert_eq!(d[1].1.as_ref().unwrap().parent, None);
+    }
+}
+
+#[test]
+fn tickets_every_label_is_in_labels_in_order() {
+    for w in both() {
+        let bug = Mark::Project(MarkName::new("bug").unwrap());
+        let w = w
+            .ticket(1, |t| {
+                t.title("marked")
+                    .mark(Mark::Epic)
+                    .mark(bug.clone())
+                    .mark(Mark::State(State::Running))
+            })
+            .ticket(2, |t| t.title("plain"))
+            .ticket(3, |t| {
+                t.title("closed")
+                    .mark(Mark::Act(Act::Approve))
+                    .closed(CloseReason::Done)
+            });
+        let site = FakeSite::new(&w);
+        let mut h = site.tickets(&full(), C).unwrap();
+        let names = |n: &[&str]| n.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let held = [
+            (w.key(1), names(&["mark:epic", "bug", "state:running"])),
+            (w.key(2), names(&[])),
+            (w.key(3), names(&["act:approve"])),
+        ];
+        ok(laws::tickets::every_label_is_in_labels_in_order(
+            h.as_mut(),
+            &held,
+            b(50),
+        ));
+        // Out of the site's order, the law is broken.
+        let wrong = [(w.key(1), names(&["bug", "mark:epic", "state:running"]))];
+        assert!(
+            laws::tickets::every_label_is_in_labels_in_order(h.as_mut(), &wrong, b(50)).is_err()
+        );
     }
 }
 

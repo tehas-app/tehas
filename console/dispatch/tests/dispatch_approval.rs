@@ -7,6 +7,7 @@ use common::*;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::fs;
+use tehas_ports::{Act, Mark};
 
 const A: &str = "https://github.com/user-attachments/assets";
 const IMAGES: &[&str] = &["TEHAS_MAX_CYCLES=1", "TEHAS_WORK_IMAGES=1"];
@@ -161,6 +162,44 @@ fn with_no_user_id_recorded_a_listed_login_authorises_nothing_until_tehas_update
         ),
     );
     lacks(&r.out, "would run a cycle");
+}
+
+/// A file of before bots were keyed whole keeps the bot under its bare slug,
+/// which may be an account of that name: the poll stops with 78 and names
+/// the record, in 1.x lines and in realm lines alike.
+#[test]
+fn a_bot_kept_only_under_its_bare_slug_stops_the_poll_until_the_ids_are_recorded() {
+    let w = World::new("ap-uid-bare-bot");
+    for text in [
+        format!("alice {}\ntehas-bot {}\n", uid("alice"), uid("tehas-bot")),
+        format!(
+            "code-host alice {}\ncode-host tehas-bot {}\n",
+            uid("alice"),
+            uid("tehas-bot")
+        ),
+    ] {
+        w.home_file(tehas_core::accounts::FILE, &text);
+        let r = w.dispatch(&["--dry-run"]);
+        assert_eq!(r.rc, 78, "{text:?}: {}", r.out);
+        has(
+            &r.out,
+            "may be the bot tehas-bot[bot] or another account of that name",
+        );
+        has(&r.out, "Run console ids record");
+        lacks(&r.out, "would run a cycle");
+    }
+    // Both kept side by side, each by its whole login, the poll runs.
+    w.home_file(
+        tehas_core::accounts::FILE,
+        &format!(
+            "code-host alice {}\ncode-host tehas-bot 5\ncode-host tehas-bot[bot] {}\n",
+            uid("alice"),
+            uid("tehas-bot")
+        ),
+    );
+    let r = w.dispatch(&["--dry-run"]);
+    assert_ne!(r.rc, 78, "{}", r.out);
+    lacks(&r.out, "Run console ids record");
 }
 
 #[test]
@@ -564,6 +603,7 @@ fn pull_requests_that_cannot_be_listed_start_no_retry_and_change_no_label_exit_1
         "ERROR: the comments on the pull request of #7 could not be read",
     );
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     assert_eq!(w.started(), "");
 }
 
@@ -580,11 +620,13 @@ fn comments_that_cannot_be_read_start_nothing_and_change_no_label_exit_1() {
         "ERROR: could not write the approval record of #7, not starting a cycle",
     );
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     assert_eq!(w.started(), "");
     w.fx("icomments-7.json", r#"{"not": "a list"}"#);
     let r = w.poll();
     assert_eq!(r.rc, 1, "{}", r.out);
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
 }
 
 #[test]
@@ -620,6 +662,7 @@ fn an_approval_the_store_does_not_take_starts_nothing_and_changes_no_label_exit_
         "ERROR: could not write the approval record of #7 (busy), not starting a cycle",
     );
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     assert_eq!(w.started(), "");
 }
 
@@ -638,6 +681,7 @@ fn a_store_that_cannot_be_used_stops_the_poll_at_78_before_the_first_start_chang
         "ERROR: the state store cannot be used, not starting a cycle for #7",
     );
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     assert_eq!(w.started(), "");
 }
 
@@ -659,6 +703,7 @@ fn after_a_start_a_store_that_cannot_be_used_ends_the_poll_with_exit_1_and_start
         "ERROR: the state store cannot be used, not starting a cycle for #8",
     );
     lacks(&w.gh(), "issue edit 8");
+    assert_eq!(w.marks(Some(8)), 0);
 }
 
 // The seam between the two commands. A cycle the poll started can find its
@@ -867,10 +912,6 @@ fn the_account_unknown_on_the_list_grants_with_the_pinned_label() {
     lacks(&r.out, "refused");
 }
 
-fn count_exact(text: &str, line: &str) -> usize {
-    text.lines().filter(|l| *l == line).count()
-}
-
 #[test]
 fn a_tehas_ready_applied_by_mallory_is_taken_off_the_issue_and_said_once() {
     let w = World::new("ap-outsider");
@@ -887,14 +928,7 @@ fn a_tehas_ready_applied_by_mallory_is_taken_off_the_issue_and_said_once() {
         "clear #7: tehas:ready off, applied by 'mallory' who may not authorise work here",
     );
     let gh = w.gh();
-    assert_eq!(
-        count_exact(
-            &gh,
-            "issue edit 7 --repo acme/widget --remove-label tehas:ready"
-        ),
-        1,
-        "{gh}"
-    );
+    assert_eq!(w.offs(7, Mark::Act(Act::Approve)), 1, "{gh}");
     assert!(w.said_on(7, "Tehas took"), "{:?}", w.said(7));
     has(
         &gh,
@@ -913,6 +947,7 @@ fn a_dry_run_says_the_label_would_come_off_and_changes_nothing() {
         "would take tehas:ready off #7: it was applied by 'mallory'",
     );
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     assert_eq!(w.notes_any(), 0);
 }
 
@@ -937,5 +972,6 @@ fn an_approval_taken_off_after_it_was_given_starts_nothing_while_the_labels_stil
     );
     lacks(&r.out, "not an allowed account");
     lacks(&w.gh(), "issue edit 7");
+    assert_eq!(w.marks(Some(7)), 0);
     assert_eq!(w.notes(7), 0);
 }

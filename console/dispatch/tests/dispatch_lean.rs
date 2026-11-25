@@ -5,6 +5,7 @@ mod common;
 
 use common::{has, lacks, park_body, World};
 use serde_json::json;
+use tehas_ports::{Act, Mark};
 
 /// lean is still being built: a test build turns it on, after reset().
 fn lean_on(w: &World) {
@@ -114,10 +115,7 @@ fn a_lean_start_whose_body_holds_no_pi_spec_block_starts_nothing_and_says_why_on
     // The ask comes off, so this is said once, and tehas:lean stays: with it
     // off the next tehas:ready would run classic in lean's place.
     let gh = w.gh();
-    has(
-        &gh,
-        "issue edit 7 --repo acme/widget --remove-label tehas:ready",
-    );
+    assert!(w.off(7, Mark::Act(Act::Approve)), "{:?}", w.writes_of(7));
     assert!(w.said_on(7, "Tehas took `tehas:ready` off this issue and started nothing: its text holds no `pi-spec v1` block for the lean driver to read: it is not there, or it is not the one block of valid JSON lean needs. A person writes that block, and applies `tehas:ready` again."), "{:?}", w.said(7));
     assert_eq!(w.notes(7), 1, "{gh}");
 }
@@ -155,10 +153,7 @@ fn with_lean_off_tehas_lean_starts_nothing_classic_included_and_says_why_once() 
         "skip #7: tehas:lean asks for the lean driver, still being built in this release",
     );
     let gh = w.gh();
-    has(
-        &gh,
-        "issue edit 7 --repo acme/widget --remove-label tehas:ready",
-    );
+    assert!(w.off(7, Mark::Act(Act::Approve)), "{:?}", w.writes_of(7));
     lacks(&gh, "--remove-label tehas:lean");
     assert!(w.said_on(7, "Tehas took `tehas:ready` off this issue and started nothing: `tehas:lean` asks for the lean driver, which is still being built in this release, and tehas does not run classic in its place."), "{:?}", w.said(7));
     assert_eq!(w.notes(7), 1, "{gh}");

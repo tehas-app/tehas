@@ -441,6 +441,9 @@ fn writer(
         events,
         // Made once the poll has its token: run_poll.
         ports: None,
+        // The wiring's, set with the handles: run_poll.
+        mark_of: |_| None,
+        assignee: None,
     }
 }
 
@@ -629,7 +632,7 @@ pub fn run_poll(
     settings: &Settings,
     dry: bool,
     events: tehas_ports::events::Dispatcher,
-    handles: crate::apply::HandlesOf,
+    wiring: crate::apply::Wiring,
 ) -> i32 {
     // The poll hands both bounds to the unit of a turn, so a value it cannot
     // read stops it before the lock, a write or any call.
@@ -725,6 +728,17 @@ pub fn run_poll(
         &retry,
         events,
     );
+    w.mark_of = wiring.mark_of;
+    w.assignee = match wiring.assignee {
+        Some(Ok(id)) => Some(id),
+        Some(Err(why)) => {
+            say(&format!(
+                "WARN: the assignee could not be resolved ({why}), so this poll's claims go without one"
+            ));
+            None
+        }
+        None => None,
+    };
     // The poll's GitHub token, kept in memory from before its first call: the
     // first gh of the poll asks the host's token program once, and every gh
     // process after it is given the token as TEHAS_GH_TOKEN, so the shim of a
@@ -739,7 +753,7 @@ pub fn run_poll(
     // The ports' handles carry the same token, so the adapter's gh asks for
     // none either. A wiring that cannot make them leaves the rows of the
     // ports open: the settle says so of each.
-    w.ports = handles(
+    w.ports = (wiring.handles)(
         home,
         &w.repo,
         &w.gh,
@@ -760,7 +774,7 @@ pub fn run_poll(
     // The poll's one policy is already in both `Calls`: the writer's made above,
     // the snapshot's made by `body` from the value `body` is given.
     let rc = body(
-        home, settings, dry, &token, &mut w, &mut end, &retry, handles,
+        home, settings, dry, &token, &mut w, &mut end, &retry, wiring.handles,
     );
     // The lines the poll's reads left, of both its `Calls`, said once here and
     // nowhere else: `taken` empties the shared queue, so the drain of `body` and
@@ -1009,8 +1023,8 @@ impl crate::finish::Hands for FinishHands<'_> {
         self.run(n, reason)
     }
 
-    fn say(&mut self, n: u64, body: &str) {
-        self.post(n, body);
+    fn say(&mut self, n: u64, reply: crate::finish::Reply) {
+        self.post(n, reply);
     }
 
     fn log(&mut self, line: String) {
@@ -1023,8 +1037,8 @@ impl crate::auto_finish::Hands for FinishHands<'_> {
         self.run(n, reason)
     }
 
-    fn say(&mut self, n: u64, body: &str) {
-        self.post(n, body);
+    fn say(&mut self, n: u64, reply: crate::finish::Reply) {
+        self.post(n, reply);
     }
 
     fn log(&mut self, line: String) {
@@ -1083,11 +1097,12 @@ impl FinishHands<'_> {
         crate::finish::outcome(n, &ran, FINISH_BOUND)
     }
 
-    fn post(&mut self, n: u64, body: &str) {
+    /// A finish's reply, its marker typed beside its text.
+    fn post(&mut self, n: u64, reply: crate::finish::Reply) {
         let post = Action::Say {
             issue: n,
-            say: body.to_string(),
-            markers: Vec::new(),
+            say: reply.text,
+            markers: reply.markers,
         };
         let done = self.w.apply(&[Value::from(&post)]);
         for l in &done.log {
@@ -1607,6 +1622,16 @@ mod tests {
         held
     }
 
+    /// A wiring with no code host and no marks: these polls write nothing of
+    /// the ports.
+    fn no_wiring() -> crate::apply::Wiring {
+        crate::apply::Wiring {
+            handles: no_handles,
+            mark_of: |_| None,
+            assignee: None,
+        }
+    }
+
     /// A wiring with no code host: these polls write nothing of the ports.
     fn no_handles(
         _: &Path,
@@ -1634,7 +1659,7 @@ mod tests {
                 &Settings::parse(&json!({})),
                 false,
                 events,
-                no_handles
+                no_wiring()
             ),
             0
         );
@@ -1655,7 +1680,7 @@ mod tests {
             &Settings::parse(&json!({})),
             false,
             crate::events::wiring(),
-            no_handles,
+            no_wiring(),
         );
         // This poll is the one that was asked for, so the ask is gone.
         assert!(!again.exists(), "the poll that ran left the ask");

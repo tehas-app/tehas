@@ -3,10 +3,12 @@
 
 mod common;
 
+use common::Part::{Off, On};
 use common::*;
 use regex::Regex;
 use serde_json::{json, Value};
 use std::fs;
+use tehas_ports::{Mark, State};
 
 fn v(text: &str) -> Value {
     serde_json::from_str(text).unwrap_or_else(|e| panic!("{e}: {text}"))
@@ -229,9 +231,16 @@ fn with_tehas_analytics_off_a_planning_turn_is_not_recorded() {
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(w.calls("analytics"), "");
-    has(
-        &w.gh(),
-        "--remove-label tehas:planning --add-label tehas:question",
+    assert!(
+        w.changes(
+            7,
+            &[
+                Off(Mark::State(State::Planning)),
+                On(Mark::State(State::Question))
+            ]
+        ),
+        "{:?}",
+        w.writes_of(7)
     );
 }
 
@@ -272,7 +281,8 @@ fn tehas_ready_on_an_issue_with_an_open_planning_session_starts_no_cycle() {
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(w.calls("fake-start"), "");
-    lacks(&w.gh(), "issue edit");
+    assert!(w.untouched(), "{:?}", w.writes_of(7));
+    assert_eq!(w.marks(None), 0);
     has(
         &r.out,
         "skip #7: a planning session is open on it; end it first",

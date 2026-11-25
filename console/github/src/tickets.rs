@@ -45,8 +45,10 @@ impl GitHub {
         }
         let labels = gh::parse_labels(out).ok_or(Outcome::Unread(Unread::Malformed))?;
         let marks = self.read_marks(&labels).into_iter().flatten().collect();
-        read_digest(out, key.clone(), marks, self.bot.as_ref())
-            .ok_or(Outcome::Unread(Unread::Malformed))
+        let mut digest = read_digest(out, key.clone(), marks, self.bot.as_ref())
+            .ok_or(Outcome::Unread(Unread::Malformed))?;
+        digest.labels = labels;
+        Ok(digest)
     }
 
     /// A ticket's history, oldest first, as `Tickets::history` answers. The
@@ -330,6 +332,8 @@ fn outcome(e: &ForgeError, now: i64) -> Outcome {
             until: At::new(now),
         },
         Some("403") => Outcome::Forbidden,
+        // GitHub refusing the input: nothing was made.
+        Some("422") => Outcome::Refused(Refusal::Invalid),
         Some(s) if s.starts_with('5') => maybe(Passing::Server),
         _ if why.contains("rate limit") => Outcome::Spent {
             pool: Pool::Calls,

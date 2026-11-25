@@ -280,16 +280,20 @@ With `TEHAS_SIZE_MAX_FILES` set on the instance, an issue whose own body names m
 | `tehas:refreshing`      | On a pull request: a [refresh](#refreshes) works on it | Do not merge or push to it now; it comes off when the cycle ends |
 | `tehas:finish`          | Asks the factory to open the draft pull request of a stopped cycle. See [Finishing a stopped cycle](#finishing-a-stopped-cycle) | Wait: the next poll takes it off and comments with the URL or why not |
 
-With `TEHAS_ASSIGNEE` set on the instance, the call that marks an issue
-`tehas:running` for a cycle also assigns it to that account, so GitHub shows
-the issue as taken and nobody starts on it by accident. GitHub assigns no
+With `TEHAS_ASSIGNEE` set on the instance, the dispatcher assigns an issue
+it marks `tehas:running` for a cycle to that account, so GitHub shows the
+issue as taken and nobody starts on it by accident. The claim is three
+writes, in this order: the running mark, the label it takes the place of
+off, then the assignee. A poll stopped between them leaves the issue marked
+running, so nothing starts it twice. GitHub assigns no
 app's bot, which is why the owner is a person. The owner is never unassigned:
 a closed issue's assignee does not matter, and a parked one is with the person
 who acts on it. A refresh does not assign again, and neither does a planning
-turn. When GitHub refuses the assign, the dispatcher marks the issue running
-without it, starts the cycle, and says so in `logs/dispatch.log`:
+turn. When GitHub refuses the assign, the issue stays marked running, the
+cycle starts, and `logs/dispatch.log` says so:
 `WARN: could not assign #N to <owner>, marking it running without an assignee`.
-Unset, nobody is assigned.
+When the login cannot be resolved to its account at all, the poll says so
+once and its claims go without an assignee. Unset, nobody is assigned.
 
 `tehas:ready` from an allowed labeller starts a fresh cycle whatever else the
 issue carries. tehas's labels of the earlier outcome go when the cycle starts.
@@ -936,6 +940,8 @@ What comes back on the issue is one comment of the bot's:
   pull request of the issue, a rebase that conflicts, a cycle still running,
   no marked comment, or a rule above not met. The label comes off here
   too. To ask again, write a new marked comment and apply the label again.
+  The reply points to this section for the marked comment's first line and
+  does not quote it.
   The line is the rule's own words, with at most the HTTP status, limit,
   timeout or connection words of what git or gh said. What the command said
   can quote a commit subject of the cycle, so it goes to the log only.
@@ -984,7 +990,8 @@ no ask:
 - A try that GitHub fails again is counted. A refusal of anything else, the
   third try failed, or the hour over, stops the tries. The issue is told once,
   with `<!-- tehas:finish issue=<n> result=stopped by=poll -->`, and the cycle
-  waits for an ask with `tehas:finish`.
+  waits for an ask with `tehas:finish`. The reply points to [Finishing a
+  stopped cycle](#finishing-a-stopped-cycle) for the ask's marked comment.
 - An issue that carries `tehas:finish` is the ask's: the ask runs its finish
   and removes the record, so the finish runs once. A running issue waits. An
   issue that is closed, carries `tehas:ready`, `tehas:running` or

@@ -104,7 +104,7 @@ pub const GONE: &str = "wait; exit 137";
 
 /// The logins whose user ids install.sh records (T_LOGINS).
 const LOGINS: &[&str] = &[
-    "tehas-bot",
+    "tehas-bot[bot]",
     "alice",
     "bob",
     "bob-2",

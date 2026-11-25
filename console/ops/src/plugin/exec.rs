@@ -392,7 +392,10 @@ mod tests {
         let fetch = command(&Cmd::git(Git::Fetch, vec!["version".into()]));
         let envs: Vec<_> = fetch.get_envs().collect();
         assert!(envs.contains(&("GIT_TERMINAL_PROMPT".as_ref(), Some("0".as_ref()))));
-        assert!(!envs.iter().any(|(k, _)| *k == "GIT_CONFIG_GLOBAL"));
+        // Removed (None) when the caller has it set, never given a value.
+        assert!(!envs
+            .iter()
+            .any(|(k, v)| *k == "GIT_CONFIG_GLOBAL" && v.is_some()));
         let read = command(&Cmd::git(Git::Local, vec!["version".into()]));
         let envs: Vec<_> = read.get_envs().collect();
         assert!(envs.contains(&("GIT_CONFIG_GLOBAL".as_ref(), Some("/dev/null".as_ref()))));

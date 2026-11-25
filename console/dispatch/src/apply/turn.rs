@@ -5,7 +5,7 @@
 //! What a poll does before a turn (the checkout's refresh) is the poll's,
 //! part 4 of #254.
 
-use super::{text, word, Writer, Wrote};
+use super::{text, word, Writer};
 use crate::read::host::held;
 use crate::read::run::run_quiet;
 use serde_json::Value;
@@ -336,22 +336,17 @@ impl Writer {
             input = answer;
         }
         // The turn runs only once the issue is marked as taken.
-        let edit = vec![
-            "issue".into(),
-            "edit".into(),
-            n.to_string(),
-            "--repo".into(),
-            self.repo.clone(),
-            "--add-label".into(),
-            "tehas:planning".into(),
-            "--remove-label".into(),
-            label.clone(),
-            "--remove-label".into(),
-            "tehas:question".into(),
-            "--remove-label".into(),
-            "needs-human-attention".into(),
-        ];
-        if !matches!(self.write(n, "label-add", edit, None, None), Wrote::Done(_)) {
+        let marked = self.edit_labels(
+            n,
+            &[
+                ("--add-label", "tehas:planning"),
+                ("--remove-label", label.as_str()),
+                ("--remove-label", "tehas:question"),
+                ("--remove-label", "needs-human-attention"),
+            ],
+            log,
+        );
+        if !marked {
             self.put_back(n, &undo, log);
             if first {
                 let _ = std::fs::remove_file(&input);

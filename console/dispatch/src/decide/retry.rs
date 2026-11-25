@@ -218,6 +218,7 @@ impl Poll<'_> {
             kind: ans.kind.clone(),
             old: Given::said(ans.comment.as_ref()),
             old_body: ans.body.clone(),
+            since: ans.revision.clone(),
             body: r.body,
             offers: offers.join(","),
         });

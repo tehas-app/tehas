@@ -50,6 +50,13 @@ pub struct TicketDigest {
     pub priority: Priority,
     /// The marks it carries now.
     pub marks: Vec<Mark>,
+    /// The site's own names of the labels the ticket carries now, every
+    /// one, in the site's order: a name no mark can have among them. For
+    /// display alone, never a decision input: a caller decides on `marks`
+    /// (Decided 130). Empty where the read gave none. Missing, it reads as
+    /// empty.
+    #[serde(default)]
+    pub labels: Vec<String>,
     /// The target, with its title as the site names it now.
     pub target: Option<TargetName>,
     /// Who filed it; None where the site names nobody.
@@ -85,6 +92,7 @@ new!(
     kind,
     priority,
     marks,
+    labels,
     target,
     author,
     parent
@@ -787,7 +795,8 @@ pub trait TicketWrites: Tickets {
     fn mark(&mut self, key: &TicketKey, mark: &Mark) -> Did;
     /// Take a mark off.
     fn unmark(&mut self, key: &TicketKey, mark: &Mark) -> Did;
-    /// Close the ticket.
+    /// Close the ticket. A closed ticket is done and keeps its reason:
+    /// closed is closed.
     fn close(&mut self, key: &TicketKey, reason: &CloseReason) -> Did;
     /// Write a note on the ticket, its markers beside it.
     fn note(&mut self, key: &TicketKey, body: &str, markers: &[Marker]) -> Got<Posted<CommentId>>;
