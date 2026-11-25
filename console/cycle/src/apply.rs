@@ -288,11 +288,7 @@ impl Writer<'_> {
         if !self.unjournaled {
             let mut journal = Journal {
                 repo: &self.repo,
-                gh: "gh",
                 before: self.before,
-                bound: self.gh.bound,
-                grace: self.gh.grace,
-                token: None,
                 poll_at: &mut self.poll_at,
                 row_not_begun: &mut self.no_row,
                 cycle: Some((self.issue, self.attempt)),

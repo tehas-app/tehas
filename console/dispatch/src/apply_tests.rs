@@ -409,7 +409,6 @@ fn world() -> World {
         spend: None,
         status_due: false,
         changed: false,
-        gh_writes: 0,
         port_calls: Default::default(),
         unposted: 0,
         starts: 0,
@@ -6382,23 +6381,9 @@ fn a_question_posted_as_json_is_found_by_the_sum_of_its_body() {
     .map(String::from)
     .to_vec();
     let input = json!({"body": "Which?"}).to_string();
-    t.w.write(7, "comment-post", args, Some(&input), None);
-    let record = t
-        .calls()
-        .into_iter()
-        .find(|c| c.starts_with("store journal-record"))
-        .unwrap();
-    let call: Value = serde_json::from_str(
-        record
-            .split(" --args ")
-            .nth(1)
-            .unwrap()
-            .split(" --before ")
-            .next()
-            .unwrap(),
-    )
-    .unwrap();
-    let mut t = world();
+    // The call of gh as a 1.x row keeps it.
+    let call = json!({"repo": "r", "gh": args,
+        "input": tehas_core::journal::summed(&args, Some(&input))});
     left_open(
         &t,
         json!([{"id": 6, "kind": "comment-post", "issue": 7, "state": "attempted", "intended_at": 1792000000,

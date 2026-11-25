@@ -27,7 +27,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use std::time::Duration;
-use tehas_core::call::{self, GRACE};
+use tehas_core::call;
 use tehas_core::home::{Home, State};
 use tehas_core::journal::{Journal, Journaled, Wrote};
 use tehas_ports::{Body, ChangeNo, NoBlobs, Receipt, TicketKey, Write};
@@ -63,11 +63,9 @@ pub struct Writer {
     /// The poll changed the queue, so its end refreshes the status and takes
     /// a sample: the poll wrote to GitHub, started or stopped something, or
     /// ended on an action that could not be read. Marked where the change is
-    /// made - write(), the two stops here - or where the poll ends inside a
+    /// made - send(), the two stops here - or where the poll ends inside a
     /// step. An idle poll marks nothing, so it runs neither.
     pub changed: bool,
-    /// The gh calls the writes made, for the poll's cost.
-    pub gh_writes: u32,
     /// The comments this poll did not post for want of handles, said once
     /// at the end of `apply`.
     pub unposted: u32,
@@ -410,51 +408,6 @@ impl Writer {
         true
     }
 
-    /// A write to GitHub, journaled. `input` goes to gh on standard input.
-    /// `done_if`: words in a failed call's answer that mean the change is
-    /// there already. The poll says once that no row stands: apply().
-    fn write(
-        &mut self,
-        issue: u64,
-        kind: &str,
-        args: Vec<String>,
-        input: Option<&str>,
-        done_if: Option<&str>,
-    ) -> Wrote {
-        // The settle read this write's earlier try: done is not sent again,
-        // unread is not sent until a read settles it.
-        if let Some(wrote) = self.looked_1x(issue, kind, &args, input) {
-            return wrote;
-        }
-        let token = self.calls.gh_token.clone();
-        let mut journal = Journal {
-            repo: &self.repo,
-            gh: &self.gh,
-            before: self.before,
-            bound: self.bound,
-            grace: GRACE,
-            token: token.as_deref(),
-            poll_at: &mut self.poll_at,
-            row_not_begun: &mut self.row_not_begun,
-            cycle: None,
-        };
-        let calls = &mut self.calls;
-        let wrote = journal.write(
-            &mut |a: &[&str]| calls.store(a),
-            issue,
-            kind,
-            args,
-            input,
-            done_if,
-        );
-        // The queue changes here: the poll's end owes a status and a sample.
-        if !matches!(wrote, Wrote::Unrecorded) {
-            self.changed = true;
-            self.gh_writes += 1;
-        }
-        wrote
-    }
-
     /// What this poll's settle read of a 1.x row of this write, the call of
     /// gh a poll before T4.7 made for it: done is not sent again, unread is
     /// not sent until a read settles it. A write of the ports asks it too,
@@ -479,8 +432,7 @@ impl Writer {
         }
     }
 
-    /// A write of the ports, journaled, as `write` journals a call of gh:
-    /// one this poll's settle found done is not sent again, one it could not
+    /// A write of the ports, journaled: one this poll's settle found done is not sent again, one it could not
     /// read is not sent at all (`looked`, by the write as its row keeps it).
     /// `Done` holds the id a comment was given, else nothing.
     fn send(&mut self, n: u64, write: &Write) -> Wrote {
@@ -500,14 +452,9 @@ impl Writer {
         let Some(ports) = self.ports.as_mut() else {
             return Wrote::Failed(": the poll has no handles of the code host".into());
         };
-        let token = self.calls.gh_token.clone();
         let mut journal = Journal {
             repo: &self.repo,
-            gh: &self.gh,
             before: self.before,
-            bound: self.bound,
-            grace: GRACE,
-            token: token.as_deref(),
             poll_at: &mut self.poll_at,
             row_not_begun: &mut self.row_not_begun,
             cycle: None,
