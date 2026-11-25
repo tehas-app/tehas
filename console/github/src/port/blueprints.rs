@@ -25,7 +25,7 @@ use std::num::{NonZeroU32, NonZeroU64};
 
 mod edits;
 
-use super::blueprint_writes::{ends_with_folded, read_issue, revision};
+use super::blueprint_writes::{comment_revision, ends_with_folded, read_issue, revision};
 use super::unsupported;
 use crate::ticket::CUT_TEXT;
 use crate::tickets::{account, Bot};
@@ -35,7 +35,7 @@ use serde_json::Value;
 use tehas_ports::{
     At, Attachment, AttachmentId, Blueprint, BlueprintDelta, BlueprintHit, BlueprintNo, Blueprints,
     Bound, ChangeToken, Comment, CommentId, Cursor, Depth, Did, Edit, Got, Outcome, Pool, Refusal,
-    Revision, TicketDigest, TicketKey, Took, Unread, Whole, Within, ALL_MAX,
+    TicketDigest, TicketKey, Took, Unread, Whole, Within, ALL_MAX,
 };
 
 /// The comments one page of an issue's comments asks for, the most GitHub
@@ -698,7 +698,7 @@ fn read_comments(
         let created = time(c.created_at.as_deref())?;
         let updated = time(c.updated_at.as_deref())?;
         let read = markers::read(raw, Some(no));
-        let sum = Revision::new(tehas_core::approval::body_sum(raw));
+        let sum = comment_revision(raw);
         let mut comment = Comment::new(CommentId::new(id.to_string()), created, sum, link);
         comment.author = author(c.user.as_ref(), bot);
         if updated != created {
