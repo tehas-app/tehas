@@ -38,7 +38,7 @@ enum Errors {
 #[derive(Deserialize)]
 pub(crate) struct Error {
     #[serde(rename = "type", default)]
-    pub(crate) kind: Option<String>,
+    kind: Option<String>,
     #[serde(default, deserialize_with = "steps")]
     pub(crate) path: Vec<Step>,
 }

@@ -231,9 +231,9 @@ fn item_of(e: &Error) -> Option<usize> {
 
 /// What an error fails its item with.
 fn failed_by(e: &Error) -> Outcome {
-    match e.kind.as_deref() {
-        Some("FORBIDDEN") => Outcome::Forbidden,
-        _ => INCONSISTENT,
+    match e.is("FORBIDDEN") {
+        true => Outcome::Forbidden,
+        false => INCONSISTENT,
     }
 }
 
