@@ -4,6 +4,7 @@
 - The contract names `tehas start`, called by a program for a person signed in to it, as the one way a program starts work for a person, now that the millwright's grant is gone (#2894).
 - The update to 2.0 is supported from 1.4.x only, and a host upgrades its factories and the programs that run them together.
 - `tehasbot refresh --pr N` is no longer public: `tehasbot` is internal, every verb of it. `tehas refresh --pr N` is the command.
+- `api/surface-2.0.txt` lists the public surface of 2.x in place of `api/surface-1.0.txt`. From 2.0.0 its lines are only added.
 - 2.0 rewrites no setting. Each line of an instance is kept, dropped with one warning because its feature left core, or refused with 78; the contract lists which.
 
 ### Adopter action
