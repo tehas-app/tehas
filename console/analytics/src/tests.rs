@@ -3196,6 +3196,8 @@ fn a_ledger_past_the_whole_file_bound_is_no_ledger_at_all() {
         w
     };
     let file = h(&home).state(State::Refined);
+    assert_eq!(crate::LEDGER_MAX_LINE, 100_000);
+    assert_eq!(crate::LEDGER_MAX_BYTES, 1 << 20);
     let max = crate::LEDGER_MAX_LINE;
     put_at(file.clone(), &text(&[line(1), wide(2, max - 1)]));
     assert_eq!(crate::sessions::ledger_lines(&home).len(), 2);
