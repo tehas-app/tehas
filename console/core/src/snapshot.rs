@@ -95,7 +95,7 @@ pub const RUN_FIELDS: [Field; 39] = [
         "Whether a model provider outage caused it.",
     ),
     ("endpoint", Shape::Text, "The model endpoint it used."),
-    ("pr", Shape::Int, "The pull request number."),
+    ("change", Shape::Int, "The number of the change the run opened."),
     ("tehasVersion", Shape::Text, "The tehas version it ran."),
     ("tehasCommit", Shape::Text, "The tehas commit it ran."),
     ("rukasVersion", Shape::Text, "The pi-rukas version it ran."),

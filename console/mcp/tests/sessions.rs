@@ -405,7 +405,7 @@ fn links_are_the_code_hosts_and_none_without_a_repo_or_an_item() {
     let nothing = Linker::of(mcp::tools::no_links, Some("a/b"));
     assert_eq!((nothing.issue(1), nothing.pr(2)), (None, None));
 
-    let s = sess("work", 7, 60, json!({"pr": 8}));
+    let s = sess("work", 7, 60, json!({"change": 8}));
     let bare = sess("work", 9, 120, json!({}));
     for (name, repo, linked) in [
         ("good", Some("tehas-app/tehas-factory"), true),
@@ -508,7 +508,7 @@ fn full_session(kind: &str, issue: i64, ago: i64) -> Value {
         ("failureCause", json!("the model said no")),
         ("providerOutage", json!(false)),
         ("endpoint", json!("e")),
-        ("pr", json!(8)),
+        ("change", json!(8)),
         ("tehasCommit", json!("abc")),
         ("rukasCommit", json!("def")),
         ("image", json!("i")),
@@ -891,7 +891,7 @@ fn an_issue_with_several_attempts() {
             "work",
             7,
             t - 200,
-            json!({"attempt": 2, "how": "reply", "outcome": "offered", "pr": 21}),
+            json!({"attempt": 2, "how": "reply", "outcome": "offered", "change": 21}),
         ),
         sess_at(
             "work",
@@ -1176,7 +1176,7 @@ fn no_snapshot_is_a_tool_error_for_the_story() {
 // and a run of an issue whose pull request is none has no prUrl.
 #[test]
 fn without_a_valid_repo_the_story_has_no_links() {
-    let rows = [sess("work", 7, 60, json!({"pr": 21}))];
+    let rows = [sess("work", 7, 60, json!({"change": 21}))];
     {
         let repo: Option<&str> = None;
         let env = Env::built(
@@ -1295,7 +1295,7 @@ fn the_storys_schema_names_every_field_of_an_answer() {
         120,
         json!({
             "attempt": 1, "how": "millwright", "outcome": "failed", "failedStep": "plan",
-            "failureKind": "model", "failureCause": "c", "parkReason": "loop", "pr": 8,
+            "failureKind": "model", "failureCause": "c", "parkReason": "loop", "change": 8,
         }),
     );
     let running = sess("work", 7, 60, json!({"attempt": 2, "how": "millwright"}));
