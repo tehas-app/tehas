@@ -148,11 +148,11 @@ top = 20
 id = "core-effects"
 rule = "R3"
 what = "the core reads no file, network, process, environment or clock"
-pattern = 'std::(fs|net|process|env)\b|\bfs::|Command::new|SystemTime::now|Instant::now|Utc::now|Local::now|env::var|reqwest|tokio::(fs|net|process)|thread::sleep'
+pattern = 'std::(fs|net|process|env)\b|\bfs::|Command::new|SystemTime::now|Instant::now|Utc::now|Local::now|env::var|reqwest|tokio::(fs|net|process)|thread::sleep|\btime::now(_ms|_f64)?\b'
 files = ["console/dispatch/src/decide.rs", "console/dispatch/src/decide/**", "console/dispatch/src/snapshot.rs", "console/dispatch/src/text.rs", "console/dispatch/src/settings.rs", "console/dispatch/src/questions.rs", "console/dispatch/src/starts.rs", "console/dispatch/src/answer.rs"]
 comment = "//"
 max = 0
-why = "The core's files, and since T12.1 the reading of an answer of tehas answer (dispatch/src/answer.rs), which decide and the snapshot use: it reads nothing either. place.rs, gone from the crate, is out of the files; the scope counts the same."
+why = "The core's files, and since T12.1 the reading of an answer of tehas answer (dispatch/src/answer.rs), which decide and the snapshot use: it reads nothing either. place.rs, gone from the crate, is out of the files; the scope counts the same. The pattern covers tehas-core's clock (time::now, now_ms, now_f64), the one the core read before the shell took it; it counts 0."
 
 [[check]]
 id = "core-inward"
