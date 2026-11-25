@@ -14,8 +14,8 @@ use super::github::{Open, Queue, CREATED, TIMELINE};
 use serde_json::{json, Value};
 use tehas_core::time::iso;
 use tehas_ports::{
-    At, BlockerState, ChangeDigest, ChangeState, Edit, Got, Happened, Kind, Mark, OpenWork,
-    Outcome, Ref, Refusal, Ticket, TicketKey, Unread, Whole, WorkItem,
+    AccountKind, At, BlockerState, ChangeDigest, ChangeState, Edit, Got, Happened, Kind, Mark,
+    OpenWork, Outcome, Ref, Refusal, Ticket, TicketKey, Unread, Whole, WorkItem,
 };
 
 /// How the site spells what today's shapes name by text.
@@ -211,7 +211,9 @@ fn stamp(at: At) -> String {
 
 /// A body's edits, as the blueprints port answers them, as the history
 /// `edit_holds` reads beside the issue's last edit: its nodes newest
-/// first, each its stamp and editor. A history the port says is cut, or
+/// first, each its stamp and editor. An editor the site gives no id and
+/// no kind for, as a deleted account, is nobody, whatever its login: it
+/// holds whatever the allowed list names. A history the port says is cut, or
 /// whose parts disagree (a version deleted from it among them), has no
 /// nodes: it holds as one by nobody known and the poll goes on, so no
 /// edit of a history stops the poll. Any other failure is a failed read
@@ -220,7 +222,12 @@ pub fn history(edits: &Got<Whole<Edit>>) -> Value {
     match edits {
         Ok(edits) => {
             let nodes: Vec<Value> = (edits.items().iter().rev())
-                .map(|e| json!({"editedAt": stamp(e.at), "editor": account!(&e.by)}))
+                .map(|e| {
+                    let by =
+                        e.by.as_ref()
+                            .filter(|a| a.id.is_some() || a.kind != AccountKind::Unknown);
+                    json!({"editedAt": stamp(e.at), "editor": account!(by)})
+                })
                 .collect();
             json!({"totalCount": nodes.len(), "nodes": nodes})
         }
@@ -691,7 +698,7 @@ mod tests {
     #[test]
     fn a_body_s_edits_read_as_the_history_the_holds_judge() {
         use tehas_core::events::{edit_history_unread, edit_holds};
-        use tehas_ports::{Account, AccountKind, Login, Passing, Realm, Sent};
+        use tehas_ports::{Account, Login, Passing, Realm, Sent};
         let edit = |by: Option<&str>, at: &str| {
             let mut e = Edit::new(At::new(tehas_core::time::from_iso(at).unwrap()));
             e.by = by.map(|l| Account::new(Realm::CodeHost, Login::new(l), AccountKind::Person));
@@ -726,6 +733,19 @@ mod tests {
         let nobody = history(&Ok(Whole::new(vec![edit(None, "2026-01-02T10:05:00Z")])));
         assert_eq!(
             edit_holds(&record(nobody), since, "alice", &ours).as_deref(),
+            Some("unknown")
+        );
+        // The GitHub adapter answers an edit by a deleted account as its
+        // ghost: no id, no kind (console/github/tests/edits.rs). It is
+        // nobody, even to a list that names the login.
+        let ghost = Account::new(Realm::CodeHost, Login::new("ghost"), AccountKind::Unknown);
+        let mut by_ghost = edit(None, "2026-01-02T10:05:00Z");
+        by_ghost.by = Some(ghost);
+        let by_ghost = history(&Ok(Whole::new(vec![by_ghost])));
+        assert_eq!(by_ghost["nodes"][0]["editor"], json!(null));
+        let ghost_too = |w: &str| w == "alice" || w == "ghost";
+        assert_eq!(
+            edit_holds(&record(by_ghost), since, "alice", &ghost_too).as_deref(),
             Some("unknown")
         );
         for why in [Unread::Cut, Unread::Inconsistent] {
