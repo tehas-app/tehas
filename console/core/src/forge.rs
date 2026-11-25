@@ -441,6 +441,28 @@ mod tests {
         assert_eq!(args, "api\nrepos/x/issues\n--input\n-\n");
     }
 
+    /// The GitHub adapter (console/github, `outcome` in `tickets.rs`)
+    /// reads exactly this reason as `SignedOut`: a gh with no credential
+    /// exits 4 with gh's own words on its error stream, and none of them
+    /// reach the reason. Change it there too.
+    #[test]
+    fn a_gh_with_no_credential_is_the_exit_status_alone() {
+        let d = crate::testdir::TestDir::new("forge-no-credential");
+        let mut runner = recording(
+            &d,
+            "echo 'To get started with GitHub CLI, please run:  gh auth login' >&2\n\
+             echo 'Alternatively, populate the GH_TOKEN environment variable with a GitHub API authentication token.' >&2\n\
+             exit 4",
+        );
+        assert_eq!(runner.run(&["api", "x"]), Err(": gh exited 4".to_string()));
+        assert_eq!(
+            runner.run_input(&["api", "x"], "body"),
+            Err(": gh exited 4".to_string())
+        );
+        let failed = runner.run_answer(&["api", "x"]).unwrap_err();
+        assert_eq!(failed.why, ": gh exited 4");
+    }
+
     #[test]
     fn a_failed_call_with_an_input_never_answers_the_input() {
         let d = crate::testdir::TestDir::new("forge-run-input-fails");

@@ -8,6 +8,7 @@ mod common;
 use common::*;
 use serde_json::{json, Value};
 use std::time::Instant;
+use tehas_core::home::{Home, Live};
 
 /// The storage the images of these cases link.
 const A: &str = "https://github.com/user-attachments/assets";
@@ -578,7 +579,7 @@ fn an_image_that_reads_them_is_held_for_nothing_and_the_model_is_still_asked() {
 #[test]
 fn a_dispatch_json_that_cannot_be_read_does_not_stop_the_poll() {
     let w = world("images-bad-state");
-    w.home_file("live/dispatch.json", "{\"time\":\n");
+    w.home_file(Home::new(&w.home).live(Live::Dispatch), "{\"time\":\n");
     assert_eq!(w.poll().rc, 0);
     assert_eq!(started(&w), "7");
     assert_eq!(why(&w), json!(""));
@@ -587,7 +588,7 @@ fn a_dispatch_json_that_cannot_be_read_does_not_stop_the_poll() {
 #[test]
 fn a_dispatch_json_that_cannot_be_written_is_said_with_its_path() {
     let w = world("images-report-dir");
-    std::fs::create_dir_all(w.home.join("live/dispatch.json/x")).unwrap();
+    std::fs::create_dir_all(Home::new(&w.home).live(Live::Dispatch).join("x")).unwrap();
     let r = w.poll();
     has(
         &r.out,
