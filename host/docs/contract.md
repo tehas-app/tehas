@@ -1146,7 +1146,7 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   that read `buzzwords` from `live/status.json` stops: the field is gone.
   `~/tehas/state/buzzwords.at` is read by nothing and may be deleted.
 - **analytics.db is at schema 8.**
-  #PRNUM.
+  #3296.
   `runs.cost` and `run_roles.cost` go, and the views `v_lead`, `v_daily`
   and `v_versions`: the factory collects, a program that reads the copy
   works out its own figures. The raw tables stay as they are, the gate
@@ -1158,7 +1158,7 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   and `console/analytics/src/schema.pinned` of this release, reads no
   `cost` column and works out what the views gave from the tables.
 - **The analytics report leaves core.**
-  #PRNUM.
+  #3296.
   Gone: `tehas analytics report` and the analytics program's
   `report [--json]`, the file `live/analytics.json` that `tehasbot status`
   wrote from it at each poll, the plain dashboard's "Last 10 days" section
