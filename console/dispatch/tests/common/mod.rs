@@ -278,6 +278,11 @@ case "$1 $2" in
     esac ;;
   # The check runs of a name on the head commit of the branch, and the
   # commit's statuses, as the code host adapter reads them.
+  # The workflow runs of the head commit, as the code host adapter folds the
+  # check runs by workflow (#3251): none, so each suite keeps its own key.
+  "api repos/acme/widget/actions/runs?"*)
+    [ ! -e "$T/fx/runs-refused" ] || { cat "$T/fx/runs-refused" >&2; exit 1; }
+    cat "$T/fx/runs.json" 2>/dev/null || echo "{\"total_count\":0,\"workflow_runs\":[]}" ;;
   "api repos/acme/widget/commits/"*)
     case "$2" in
       */status\?*) cat "$T/fx/statuses.json" 2>/dev/null || echo "{\"total_count\":0,\"statuses\":[]}" ;;

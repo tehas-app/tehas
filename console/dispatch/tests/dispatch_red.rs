@@ -123,6 +123,10 @@ fn red_said_on_every_poll_while_a_runs_conclusion_says_nothing_at_the_cost_of_on
         1
     );
     assert_eq!(gh.lines().filter(|l| l.contains("/status?")).count(), 1);
+    assert_eq!(
+        gh.lines().filter(|l| l.contains("/actions/runs?")).count(),
+        1
+    );
     let cost = w.store_at(now(), &["poll-show"]);
     assert_eq!(jqr(".last.starts", &cost.out), "0");
 }
@@ -157,31 +161,39 @@ fn red_a_call_that_fails_hangs_or_answers_nonsense_starts_cycles_and_says_why() 
     }
 }
 
-/// The code host refusing the check's runs (the site's own words, in
-/// tests/common/refused.txt): the check is unreadable, never done, so the
-/// poll's hold is not lifted on it, and the poll says once, of the branch,
-/// that the factory's account may lack a permission and where the setup
-/// page says which.
+/// The code host refusing the read (the site's own words, in
+/// tests/common/refused.txt), of the workflow runs as for an App without
+/// actions: read, or of the check runs: the check is unreadable, never the
+/// pass the runs would read as, and the poll says once, of the branch, that
+/// the factory's account may lack a permission and where the setup page
+/// says which.
 #[test]
 fn red_a_refused_read_is_unreadable_and_says_the_permission_once() {
     let w = World::new("red-refused");
-    red_instance(&w);
-    w.ready(&[7, 8]);
-    w.fx("checks-refused", include_str!("common/refused.txt"));
-    let r = w.poll();
-    assert_eq!(r.rc, 0, "{}", r.out);
     let line = "the code host refused to say the checks of main; the factory's account may lack a permission (host/docs/github-app.md#the-permission-to-read-the-checks)";
-    assert_eq!(r.out.matches(line).count(), 1, "{}", r.out);
-    has(
-        &r.out,
-        "the check verify on main could not be read: cycles start",
-    );
-    let snap = w.dispatch_state();
-    assert_ne!(snap["why"], "red");
-    lacks(&r.out, "is red at");
-    // The next poll says it again, once: once for each poll and branch.
-    let again = w.poll();
-    assert_eq!(again.out.matches(line).count(), 1, "{}", again.out);
+    for refused in ["runs-refused", "checks-refused"] {
+        w.reset();
+        red_instance(&w);
+        w.ready(&[7, 8]);
+        checks(&w, "completed", Some("success"));
+        w.fx(refused, include_str!("common/refused.txt"));
+        let r = w.poll();
+        assert_eq!(r.rc, 0, "{refused}: {}", r.out);
+        assert_eq!(r.out.matches(line).count(), 1, "{refused}: {}", r.out);
+        has(
+            &r.out,
+            "the check verify on main could not be read: cycles start",
+        );
+        assert_ne!(w.dispatch_state()["why"], "red");
+        // The next poll says it again, once: once for each poll and branch.
+        let again = w.poll();
+        assert_eq!(
+            again.out.matches(line).count(),
+            1,
+            "{refused}: {}",
+            again.out
+        );
+    }
 }
 
 #[test]
