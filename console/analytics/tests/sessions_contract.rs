@@ -68,12 +68,12 @@ fn home_with_a_run(name: &str) -> (TestDir, String) {
                 queue_wait, outcome, status, exit_code, last_step, failed_step, cap,
                 park_reason, review_held, failure_kind, failure_cause, provider_outage,
                 endpoint, pr, tehas_version, tehas_commit, rukas_version, rukas_commit,
-                image, input, output, cache_read, cache_write, turns, dispatches, cost,
+                image, input, output, cache_read, cache_write, turns, dispatches,
                 runner_ms, oom_kills, forks_refused, concurrent, result_schema)
              VALUES ('{id}', 'work', 7, 2, 'approved', {started}, {started} + 600, 600,
                 5, 'failed', 'failed', 3, 'review', 'review', 'time', 'loop', 1,
                 'model', 'the model said no', 0, 'main', 8, 'v0.7.31', 'c1', 'v0.14.0',
-                'c2', 'sha256:ab', 1, 2, 3, 4, 9, 6, 0.5, 700, 0, 1, 2, 4)"
+                'c2', 'sha256:ab', 1, 2, 3, 4, 9, 6, 700, 0, 1, 2, 4)"
         ),
         [],
     )
@@ -89,7 +89,7 @@ fn home_with_a_run(name: &str) -> (TestDir, String) {
     )
     .unwrap();
     conn.execute(
-        "INSERT INTO run_roles (run_id, role, model, provider, dispatches, turns, input, output, cache_read, cache_write, cost, ms) VALUES (?1, 'developer', 'm', 'p', 6, 9, 1, 2, 3, 4, 0.5, 700)",
+        "INSERT INTO run_roles (run_id, role, model, provider, dispatches, turns, input, output, cache_read, cache_write, ms) VALUES (?1, 'developer', 'm', 'p', 6, 9, 1, 2, 3, 4, 700)",
         rusqlite::params![id],
     )
     .unwrap();

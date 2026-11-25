@@ -9,7 +9,7 @@
 //! log listener alone, one line per event in the poll's log.
 
 use crate::apply::Writer;
-use crate::decide::iso_now;
+use crate::clock::iso_now;
 use std::cell::RefCell;
 use tehas_core::raise::{self, EndAnswer, Ended};
 use tehas_ports::events::Dispatcher;

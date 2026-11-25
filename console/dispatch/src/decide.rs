@@ -38,11 +38,6 @@ pub(crate) use flow::in_flow;
 pub(crate) use note::{in_window, window_order};
 pub(crate) use retry::refresh_why;
 
-/// The time now as log() writes it.
-pub fn iso_now() -> String {
-    iso(tehas_core::time::now() as u64)
-}
-
 /// The numbers every blocker comment names.
 pub(crate) fn named_blockers_of(nodes: &[Comment]) -> Vec<u64> {
     let mut out: Vec<u64> = nodes

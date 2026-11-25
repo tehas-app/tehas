@@ -47,7 +47,7 @@ fn a_wrong_argument_is_a_usage_error() {
         &["run", "3"],
         &["plan", "3", "--rc", "0"],
         &["event", "3", "shipped"],
-        &["report", "--text"],
+        &["report"],
     ] {
         let (code, err) = status(Some(h), args);
         assert_eq!(code, 64, "{args:?}");
@@ -80,23 +80,5 @@ fn an_event_makes_the_database_and_a_run_without_history_is_65() {
     assert!(
         err.starts_with("analytics: no facts of the run of issue 3"),
         "{err}"
-    );
-}
-
-#[test]
-fn report_prints_one_line_of_json_with_its_version() {
-    let home = scratch("report");
-    let out = Command::new(ANALYTICS)
-        .args(["report", "--json"])
-        .env("TEHAS_HOME", home.path())
-        .output()
-        .unwrap();
-    assert_eq!(out.status.code(), Some(0));
-    assert!(out.stderr.is_empty());
-    let text = String::from_utf8(out.stdout).unwrap();
-    assert_eq!(text.lines().count(), 1);
-    assert!(
-        text.starts_with('{') && text.contains("\"report\":1"),
-        "{text}"
     );
 }

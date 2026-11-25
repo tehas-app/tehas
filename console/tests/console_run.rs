@@ -623,7 +623,7 @@ cases!(with_no_instance_env {
     tehas_resume_with_no_instance_env_is_78_and_calls_and_writes_nothing: "tehas resume";
     tehas_api_with_no_instance_env_is_78_and_calls_and_writes_nothing: "tehas api";
     tehas_labels_with_no_instance_env_is_78_and_calls_and_writes_nothing: "tehas labels";
-    tehas_analytics_report_with_no_instance_env_is_78_and_calls_and_writes_nothing: "tehas analytics report";
+    tehas_analytics_copy_with_no_instance_env_is_78_and_calls_and_writes_nothing: "tehas analytics copy --to copy.db";
     tehas_drain_with_no_instance_env_is_78_and_calls_and_writes_nothing: "tehas drain";
     tehas_history_with_no_instance_env_is_78_and_calls_and_writes_nothing: "tehas history";
     tehas_stop_7_with_no_instance_env_is_78_and_calls_and_writes_nothing: "tehas stop 7";
@@ -648,7 +648,7 @@ cases!(with_a_setting_no_rule_allows {
     tehas_resume_with_a_setting_no_rule_allows_is_78_and_calls_and_writes_nothing: "tehas resume";
     tehas_api_with_a_setting_no_rule_allows_is_78_and_calls_and_writes_nothing: "tehas api";
     tehas_labels_with_a_setting_no_rule_allows_is_78_and_calls_and_writes_nothing: "tehas labels";
-    tehas_analytics_report_with_a_setting_no_rule_allows_is_78_and_calls_and_writes_nothing: "tehas analytics report";
+    tehas_analytics_copy_with_a_setting_no_rule_allows_is_78_and_calls_and_writes_nothing: "tehas analytics copy --to copy.db";
     tehas_drain_with_a_setting_no_rule_allows_is_78_and_calls_and_writes_nothing: "tehas drain";
     tehas_history_with_a_setting_no_rule_allows_is_78_and_calls_and_writes_nothing: "tehas history";
     tehas_stop_7_with_a_setting_no_rule_allows_is_78_and_calls_and_writes_nothing: "tehas stop 7";
@@ -673,7 +673,7 @@ cases!(with_an_instance_file_that_ends_its_shell {
     tehas_resume_with_an_instance_file_that_ends_its_shell_is_78_and_calls_and_writes_nothing: "tehas resume";
     tehas_api_with_an_instance_file_that_ends_its_shell_is_78_and_calls_and_writes_nothing: "tehas api";
     tehas_labels_with_an_instance_file_that_ends_its_shell_is_78_and_calls_and_writes_nothing: "tehas labels";
-    tehas_analytics_report_with_an_instance_file_that_ends_its_shell_is_78_and_calls_and_writes_nothing: "tehas analytics report";
+    tehas_analytics_copy_with_an_instance_file_that_ends_its_shell_is_78_and_calls_and_writes_nothing: "tehas analytics copy --to copy.db";
     tehas_drain_with_an_instance_file_that_ends_its_shell_is_78_and_calls_and_writes_nothing: "tehas drain";
     tehas_history_with_an_instance_file_that_ends_its_shell_is_78_and_calls_and_writes_nothing: "tehas history";
     tehas_stop_7_with_an_instance_file_that_ends_its_shell_is_78_and_calls_and_writes_nothing: "tehas stop 7";

@@ -4,7 +4,7 @@
 {{- $base := printf "%s://%s" (default (placeholder "http.request.scheme") (.Req.Header.Get "X-Forwarded-Proto")) .Req.Host | html -}}
 {{- /* A page is dated by its file: install.sh leaves a page whose bytes did
        not change as it was, so the time is when it last changed on this
-       host. The front page, in another directory, by version.txt, which
+       host. The front page, the dashboard, by version.txt, which
        install.sh rewrites only for a new version. */ -}}
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">

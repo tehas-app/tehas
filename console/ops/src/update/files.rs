@@ -984,10 +984,8 @@ mod tests {
         let d = dir("files-pages-last");
         d.file("stage/docs/dashboard.frag", "names kit.bbb.css\n");
         d.file("stage/docs/a.md", "a\n");
-        d.file("stage/fun/index.html", "names kit.bbb.css\n");
         d.file("stage/fun/kit/kit.bbb.css", "new\n");
         d.file("home/docs/dashboard.frag", "names kit.aaa.css\n");
-        d.file("home/fun/index.html", "names kit.aaa.css\n");
         d.file("home/fun/kit/kit.aaa.css", "old\n");
         let syncs = ["docs".to_string(), "fun".to_string()];
         set_mode(&d.0.join("home/fun/kit"), 0o555);
@@ -997,13 +995,10 @@ mod tests {
         set_mode(&d.0.join("home/fun/kit"), 0o755);
         assert!(failed.is_err());
         assert!(d.0.join("home/docs/a.md").is_file());
-        for page in ["docs/dashboard.frag", "fun/index.html"] {
-            assert_eq!(
-                fs::read_to_string(d.0.join("home").join(page)).unwrap(),
-                "names kit.aaa.css\n",
-                "{page}"
-            );
-        }
+        assert_eq!(
+            fs::read_to_string(d.0.join("home/docs/dashboard.frag")).unwrap(),
+            "names kit.aaa.css\n"
+        );
         assert!(d.0.join("home/fun/kit/kit.aaa.css").is_file());
 
         let mut c = copier(&d, false);
@@ -1016,7 +1011,6 @@ mod tests {
             .collect();
         let at = |name: &str| installed.iter().position(|l| l.ends_with(name)).unwrap();
         assert!(at("kit.bbb.css") < at("dashboard.frag"), "{installed:?}");
-        assert!(at("kit.bbb.css") < at("index.html"), "{installed:?}");
         assert!(!d.0.join("home/fun/kit/kit.aaa.css").exists());
     }
 

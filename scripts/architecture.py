@@ -38,9 +38,11 @@ opens on a line matching `start` and closes on the first line matching
 text from the `end` match on is left out. Lines whose first characters are
 the check's `comment` prefix are skipped.
 
-The repository says which coding standard it follows in
-`.tehas/coding-standard`, one line: `v1` (the code as it was, before its
-first refactoring runs) or `v2` (the architecture method as the wiki page defines it; a
+The repository says which standard it follows in `tehas.toml`,
+table `[standard]`, key `version` (before v2 the one line of
+`.tehas/coding-standard`, read only for `v1`): `v1` (the code as it was,
+before its first refactoring runs) or `v2` (the architecture method as the
+wiki page defines it; a
 later standard, v3 or more, comes with the version of this script that
 enforces it, and this one refuses it). The checks are
 enforced only at `v2`. At `v1`, or with no such file, the test says it is
@@ -68,7 +70,10 @@ SCOPE_DEFAULTS = {"allowed": [], "mode": "lines", "top": 10}
 REPORT_KEYS = {"id", "rule", "what", "pattern", "files", "allowed", "top", "mode", "comment", "start", "end", "why"}
 REPORT_REQUIRED = {"id", "rule", "what", "pattern", "files"}
 TOP_KEYS = {"version", "method", "review", "check", "report"}
-STANDARD_FILE = ".tehas/coding-standard"
+STANDARD_FILE = "tehas.toml"  # its [standard] table; other tables have other owners
+OLD_STANDARD_FILE = ".tehas/coding-standard"  # the pointer's name before v2; read only for v1
+STANDARD_KEYS = {"url", "version"}
+STANDARD_URL = "https://github.com/tehas-app/tehas-standard"  # the standard this script checks
 STANDARDS = {"v1", "v2"}
 ENFORCED = "v2"
 MODES = {"lines", "spans"}
@@ -344,30 +349,203 @@ def run(root, config_path, base, summary):
 
 
 def standard(root):
-    """The repository's coding standard: `v1`, `v2`, or None with no file.
-    The first line that is not empty and not a `#` comment."""
+    """The repository's standard: `v1`, `v2`, or None when it names none.
+    Read from `tehas.toml` at the root, table `[standard]` (`url`, `version`).
+    This script owns `[standard]` and, for now, `[platform]`: an unknown key in
+    them is refused, other tables are left to their owners. The old one-line
+    `.tehas/coding-standard` is read only for `v1`. Both at once, or either as
+    a symlink (or through a symlinked `.tehas`), is refused."""
+    doc = load(root)
+    old_path = os.path.join(root, OLD_STANDARD_FILE)
+    if os.path.islink(os.path.join(root, ".tehas")) or os.path.islink(old_path):
+        raise ConfigError(f"{OLD_STANDARD_FILE}: a symlink, or under one; write the file itself")
+    old = os.path.lexists(old_path)
+    if doc is not None and old:
+        raise ConfigError(f"{OLD_STANDARD_FILE} and {STANDARD_FILE} are both here; keep {STANDARD_FILE} alone")
+    if old:
+        found = standard_in_line(read_text(old_path, OLD_STANDARD_FILE), OLD_STANDARD_FILE)
+        if found != "v1":
+            raise ConfigError(f"{OLD_STANDARD_FILE} says {found}; move it to {STANDARD_FILE} as [standard] "
+                              f"url = \"{STANDARD_URL}\", version = \"{found}\"")
+        return found
+    if doc is None:
+        return None
+    return standard_in_doc(doc, STANDARD_FILE)
+
+
+def load(root):
+    """`tehas.toml` parsed, or None with no file. A symlink is refused."""
     path = os.path.join(root, STANDARD_FILE)
+    if os.path.islink(path):
+        raise ConfigError(f"{STANDARD_FILE}: a symlink; write the file itself")
+    if not os.path.lexists(path):
+        return None
+    return parse_toml(read_text(path, STANDARD_FILE), STANDARD_FILE)
+
+
+def parse_toml(text, name):
+    try:
+        return tomllib.loads(text)
+    except tomllib.TOMLDecodeError as e:
+        raise ConfigError(f"{name}: not valid TOML: {e}")
+
+
+def verify_base(root, base):
+    """Refuse a --base that is not a commit here: an unfetched ref, a typo, a
+    shallow clone or a --root that is not a repository must never read as
+    "a base with no standard"."""
+    try:
+        git("rev-parse", "--verify", "--quiet", f"{base}^{{commit}}", cwd=root)
+    except ConfigError:
+        raise ConfigError(f"--base {base}: not a commit in {root}; fetch it, or pass a ref that exists")
+
+
+def base_file(root, base, name):
+    """The text of `name` at the base, or None when the base has no such path.
+    Anything but a regular file there, or a symlinked directory on the way, is
+    refused, so it can't hide the base's standard."""
+    parts = name.split("/")
+    for i in range(1, len(parts)):
+        entry = git("ls-tree", base, "--", "/".join(parts[:i]), cwd=root).strip()
+        if entry and entry.split()[0] == "120000":
+            raise ConfigError(f"{base}:{'/'.join(parts[:i])}: a symlink")
+    entry = git("ls-tree", base, "--", name, cwd=root).strip()
+    if not entry:
+        return None
+    mode = entry.split()[0]
+    if mode not in ("100644", "100755"):
+        raise ConfigError(f"{base}:{name}: not a regular file (mode {mode})")
+    return git("show", f"{base}:{name}", cwd=root)
+
+
+def base_doc(root, base):
+    text = base_file(root, base, STANDARD_FILE)
+    return None if text is None else parse_toml(text, f"{base}:{STANDARD_FILE}")
+
+
+def base_standard(root, base):
+    """The standard the base names, by either file, or None when it has
+    neither. The base is history: it may hold the old file saying `v2` (main
+    does, until the move lands), so the old-name rule of standard() is
+    deliberately not applied here. With both at the base, the new one counts."""
+    doc = base_doc(root, base)
+    if doc is not None:
+        return standard_in_doc(doc, f"{base}:{STANDARD_FILE}")
+    text = base_file(root, base, OLD_STANDARD_FILE)
+    if text is not None:
+        return standard_in_line(text, f"{base}:{OLD_STANDARD_FILE}")
+    return None
+
+
+def no_downgrade(root, base, found):
+    """Adopted standards only go up: refuse a head that names a lower standard
+    than its base, or none where the base names one. The same for
+    `[platform]`: a toolchain the base names may not disappear."""
+    was = base_standard(root, base)
+    if was is not None and (found is None or rank(found) < rank(was)):
+        raise ConfigError(f"the standard goes down from {was} at {base} to {found or 'none'}; "
+                          f"an adopted standard only goes up")
+    before = (base_doc(root, base) or {}).get("platform")
+    if isinstance(before, dict):
+        after = (load(root) or {}).get("platform") or {}
+        gone = sorted(set(before) - set(after))
+        if gone:
+            raise ConfigError(f"[platform] loses {', '.join(gone)} against {base}; "
+                              f"a declared toolchain only moves forward")
+
+
+def rank(version):
+    return tuple(int(n) for n in version[1:].split("."))
+
+
+def read_text(path, name):
     try:
         with open(path, encoding="utf-8") as f:
-            text = f.read()
-    except FileNotFoundError:
-        return None
+            return f.read()
+    except UnicodeDecodeError:
+        raise ConfigError(f"{name}: not UTF-8")
+    except IsADirectoryError:
+        raise ConfigError(f"{name}: a directory, not a file")
+
+
+def standard_in_doc(doc, name):
+    table = doc.get("standard")
+    if table is None:
+        # Fail closed: a file that exists names its standard. A near miss
+        # ([Standard], [standards], a top-level version) must not read as
+        # "no standard" and switch the checks off.
+        raise ConfigError(f"{name}: no [standard] table; write [standard] url = \"{STANDARD_URL}\", "
+                          f"version = \"{ENFORCED}\" (a repository that names no standard has no {STANDARD_FILE})")
+    if not isinstance(table, dict):
+        raise ConfigError(f"{name}: [standard] must be a table")
+    extra = sorted(set(table) - STANDARD_KEYS)
+    if extra:
+        raise ConfigError(f"{name}: [standard] has keys this script does not know: {', '.join(extra)}")
+    if "version" not in table:
+        raise ConfigError(f"{name}: [standard] has no version; write one of {known()}")
+    version = checked_version(table["version"], name)
+    url = table.get("url")
+    if url is None:
+        raise ConfigError(f"{name}: [standard] has no url; write url = \"{STANDARD_URL}\"")
+    if url != STANDARD_URL:
+        raise ConfigError(f"{name}: [standard] url is {url!r}; this script checks {STANDARD_URL} only, "
+                          f"and another standard brings its own script")
+    return version
+
+
+def standard_in_line(text, name):
+    """The first line that is not empty and not a `#` comment."""
     for line in text.splitlines():
         line = line.strip()
         if line and not line.startswith("#"):
-            if re.fullmatch(r"v[1-9][0-9]*", line) and line not in STANDARDS:
-                raise ConfigError(f"{STANDARD_FILE}: coding standard {line} is newer than this script, "
-                                  f"which knows {', '.join(sorted(STANDARDS))}; take the architecture.py that defines {line}")
-            if line not in STANDARDS:
-                raise ConfigError(f"{STANDARD_FILE}: {line!r} is not a coding standard; write one of {', '.join(sorted(STANDARDS))}")
-            return line
-    raise ConfigError(f"{STANDARD_FILE}: empty; write one of {', '.join(sorted(STANDARDS))}")
+            return checked_version(line, name)
+    raise ConfigError(f"{name}: empty; write one of {known()}")
+
+
+def known():
+    return ", ".join(sorted(STANDARDS))
+
+
+def checked_version(value, name):
+    if not isinstance(value, str):
+        raise ConfigError(f"{name}: the version must be a string such as \"v2\"")
+    if re.fullmatch(r"v[1-9][0-9]*(\.[0-9]+)?", value) and value not in STANDARDS:
+        raise ConfigError(f"{name}: standard {value} is newer than this script, "
+                          f"which knows {known()}; take the architecture.py that defines {value}")
+    if value not in STANDARDS:
+        raise ConfigError(f"{name}: {value!r} is not a standard; write one of {known()}")
+    return value
+
+
+PLATFORM_ALLOWED = {"rust": {"1.x"}, "typescript": {"7.x"}}
+
+
+def platform(root):
+    """The `[platform]` table of `tehas.toml`, checked: the toolchains the
+    repository builds or checks with, each at a major this standard allows.
+    None with no file or no table."""
+    doc = load(root)
+    table = None if doc is None else doc.get("platform")
+    if table is None:
+        return None
+    if not isinstance(table, dict):
+        raise ConfigError(f"{STANDARD_FILE}: [platform] must be a table")
+    for key in sorted(table):
+        allowed = PLATFORM_ALLOWED.get(key)
+        if allowed is None:
+            raise ConfigError(f"{STANDARD_FILE}: [platform] has a key this script does not know: {key} "
+                              f"(it knows {', '.join(sorted(PLATFORM_ALLOWED))})")
+        value = table[key]
+        if not isinstance(value, str) or value not in allowed:
+            raise ConfigError(f"{STANDARD_FILE}: [platform] {key} = {value!r}; this standard allows "
+                              f"{', '.join(sorted(allowed))}")
+    return table
 
 
 def skipped(found, summary):
-    said = f"is {found}" if found else f"is not set ({STANDARD_FILE} is missing)"
-    text = (f"## Architecture test\n\nSkipped: this repository's coding standard {said}. "
-            f"The checks are enforced at {ENFORCED}; write `{ENFORCED}` in `{STANDARD_FILE}` "
+    said = f"is {found}" if found else f"is not set (no {STANDARD_FILE})"
+    text = (f"## Architecture test\n\nSkipped: this repository's standard {said}. "
+            f"The checks are enforced at {ENFORCED}; write `[standard] version = \"{ENFORCED}\"` in `{STANDARD_FILE}` "
             f"once the first refactoring runs are done. `--force` shows the counts now.\n")
     print(text)
     if summary:
@@ -382,10 +560,14 @@ def main(argv=None):
     ap.add_argument("--base", help="the pull request's base, as a git ref")
     ap.add_argument("--summary", default=os.environ.get("GITHUB_STEP_SUMMARY"), help="a file to append the summary to")
     ap.add_argument("--root", default=".")
-    ap.add_argument("--force", action="store_true", help=f"run the checks below coding standard {ENFORCED}")
+    ap.add_argument("--force", action="store_true", help=f"run the checks below standard {ENFORCED}")
     a = ap.parse_args(argv)
     try:
         found = standard(a.root)
+        platform(a.root)
+        if a.base:
+            verify_base(a.root, a.base)
+            no_downgrade(a.root, a.base, found)
         if found != ENFORCED and not a.force:
             return skipped(found, a.summary)
         return run(a.root, a.config, a.base, a.summary)

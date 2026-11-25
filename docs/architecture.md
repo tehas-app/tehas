@@ -78,7 +78,7 @@ owned read handles and the links, each ticket answered alone.
 ## Checks of the core (R3, R8)
 
 The core today is the dispatcher's `decide` and the modules it decides
-from: `decide.rs`, `decide/`, `place.rs`, `snapshot.rs`, `text.rs`,
+from: `decide.rs`, `decide/`, `snapshot.rs`, `text.rs`,
 `settings.rs`, `questions.rs`, `starts.rs`. `core-effects` holds it at 0:
 no file, network, process, environment or clock. `core-inward` holds it at
 0 too: nothing of the shell or of tehas-core's effects. At the fork it
@@ -458,6 +458,12 @@ row: T4's remaining lane, before the beta.
 | the floors above | 4 | 7 |
 | **the check's count** | **717** | **200** |
 
+After alpha.1, TF-B51 took the factory floor out of core: `github-rest`
+is 655 (62 fewer): the front pages hold 7 of it (61 fewer:
+`sample-issues.js` 52, `game-view.js` 8, `game-data.js` 1), and 1 went
+with the console's hourly read of every issue for the floor's words
+(`queue.rs`).
+
 The two parts add up to each check's count and its `max`: 713 and 4 is
 717, 193 and 7 is 200. The floors above are, for `github-rest`, the 4 of
 `host/sandbox/gh-shim` (T8); for `gh-argv`, the /proc fixture of
@@ -496,9 +502,11 @@ The causes, per area:
   moved onto the code host (#3233 and T4.10b).
 - **The front pages.** GitHub's field names (`createdAt`, `updatedAt`,
   `closedAt` and the rest) in the pages that draw the queue's JSON,
-  which copies GitHub's names unchanged: `sample-issues.js` 52,
-  `game-view.js` 8, the factory's issues model 5. They go when T4 or T7
-  renames those names or gives them one owner.
+  which copies GitHub's names unchanged: the factory's issues model 5,
+  the console model 1 and `console-tabs.js` 1. `sample-issues.js` 52,
+  `game-view.js` 8 and `game-data.js` 1 went with the factory floor
+  (TF-B51). They go when T4 or T7 renames those names or gives them one
+  owner.
 - **cycle.** The cycle's own issue, pull request and hook reads
   (`apply.rs`, `gives.rs`, `hook.rs`, `start.rs`, `supervise.rs`), the
   report's reads of the pull request's `createdAt` and `isDraft`
@@ -561,6 +569,11 @@ most of them in tests. `tehas:ready` alone is about 430, then
 | plugin | 1 |
 | **alpha.1 floor** | **1467** |
 
+After alpha.1, TF-B51 took the factory floor out of core: `label-words`
+is 1446 (21 fewer): the front pages hold 2 of it (19 fewer), and 2 went
+with the console's read for the floor's words (`queue.rs` 1) and its status
+test (`console/tests/status.rs` 1).
+
 Cause: the dispatcher's decide still reads the queue page by label names
 (`decide.rs` 73, `decide/flow.rs` 26, `decide/plan.rs` 19,
 `decide/retry.rs` 35, `decide/clean.rs` 16, `pins.rs` 50,
@@ -570,7 +583,7 @@ events, question and text modules (`events.rs` 34, `text.rs` 25,
 `question.rs` 17) and its label pins (`label_pins.rs` 44) read and pin the
 words; ops' tidy (`tidy.rs` 96), the console's queue and status, the
 store's approval and plan records, mcp's decisions and the front pages'
-sample issues name them too. The move is onto the ports' acts and marks,
+issues model and `epics-view.js` name them too. The move is onto the ports' acts and marks,
 with the tests on the ports' fakes. End: T2's remaining lane with T4's,
 before the beta.
 
