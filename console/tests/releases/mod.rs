@@ -15,16 +15,24 @@ use tehas_core::testing::write_exe;
 
 /// gh answering from `$T/releases` as GitHub does the code host's release
 /// reads: the list, one release with its files and their sizes as they are
-/// now, and a file downloaded to `--output`. GH_AUTH is the status of
-/// `auth status`.
-pub const GH: &str = r#"files_of() {
+/// now, and a file downloaded to `--output`. With GH_AUTH set to other than
+/// 0 it is a gh with no credential for the release project: each of those
+/// reads exits 4 and asks nothing, as gh does. The update's other reads of
+/// gh (an account's id) answer as before.
+pub const GH: &str = r#"case "$1 $2" in
+  "api repos/"*/releases* | "release download")
+    if [ "${GH_AUTH:-0}" != 0 ]; then
+      echo "To get started with GitHub CLI, please run:  gh auth login" >&2
+      exit 4
+    fi ;;
+esac
+files_of() {
   for f in "$T/releases/$1"/tehas-*; do
     [ -f "$f" ] && jq -n --arg n "${f##*/}" --argjson s "$(stat -c %s "$f")" '{name: $n, size: $s}'
   done | jq -s .
 }
 one() { jq --argjson a "$(files_of "$1")" '. + {assets: $a}' "$T/releases/$1/release.json"; }
 case "$1 $2" in
-  "auth status") exit "${GH_AUTH:-0}" ;;
   "api repos/"*/releases/tags/*)
     tag=${2##*/}
     [ -f "$T/releases/$tag/release.json" ] || { echo "release not found" >&2; exit 1; }
@@ -42,6 +50,90 @@ case "$1 $2" in
     done
     cp "$T/releases/$tag/$name" "$out" ;;
 esac"#;
+
+/// curl answering from `$T/releases` as GitHub's API does the anonymous
+/// code host's reads: the list, one release by its tag with its files, each
+/// file's id its inode, and a file asked by its id. The adapter runs curl
+/// with an environment of its own, so the stub names `$T` itself. Each
+/// call's arguments are kept in `$T/calls/curl`.
+pub fn curl_stub(h: &Host) {
+    let t = h.join("");
+    let body = format!(
+        r#"#!/usr/bin/env bash
+T='{t}'
+printf '%s\n' "$*" >>"$T/calls/curl"
+url=""; for a in "$@"; do url=$a; done
+files_of() {{
+  for f in "$T/releases/$1"/tehas-*; do
+    [ -f "$f" ] && jq -n --arg n "${{f##*/}}" --argjson s "$(stat -c %s "$f")" \
+      --argjson i "$(stat -c %i "$f")" '{{id: $i, name: $n, size: $s}}'
+  done | jq -s .
+}}
+one() {{ jq --argjson a "$(files_of "$1")" '. + {{assets: $a}}' "$T/releases/$1/release.json"; }}
+found() {{ printf 'HTTP/2 200 \r\ncontent-type: application/json\r\n\r\n'; }}
+none() {{ printf 'HTTP/2 404 \r\n\r\n{{"message":"Not Found"}}'; }}
+case "$url" in
+  https://api.github.com/repos/*/releases\?per_page=100*)
+    found
+    for d in "$T/releases"/*/; do
+      d=${{d%/}}; [ ! -f "$d/release.json" ] || one "${{d##*/}}"
+    done | jq -s . ;;
+  https://api.github.com/repos/*/releases/tags/*)
+    tag=${{url##*/}}
+    if [ -f "$T/releases/$tag/release.json" ]; then found; one "$tag"; else none; fi ;;
+  https://api.github.com/repos/*/releases/assets/*)
+    f=$(find "$T/releases" -type f -inum "${{url##*/}}" | head -n 1)
+    if [ -n "$f" ]; then printf 'HTTP/2 200 \r\n\r\n'; cat "$f"; else none; fi ;;
+  *) none ;;
+esac
+"#,
+        t = t.display().to_string().trim_end_matches('/'),
+    );
+    write_exe(h.join("bin/curl"), body).unwrap();
+}
+
+/// The release files asked of the anonymous handle, by curl, each as
+/// `<project> <tag> <file>`.
+pub fn anonymous_downloads(h: &Host) -> Vec<String> {
+    let calls = h.calls("curl");
+    let asked: Vec<&str> = calls
+        .lines()
+        .filter_map(|l| l.rsplit(' ').next())
+        .collect();
+    let mut got = Vec::new();
+    for (i, url) in asked.iter().enumerate() {
+        let Some(rest) = url.strip_prefix("https://api.github.com/repos/") else {
+            continue;
+        };
+        let Some((project, id)) = rest.split_once("/releases/assets/") else {
+            continue;
+        };
+        // The release read by its tag just before names the tag.
+        let tag = asked[..i]
+            .iter()
+            .rev()
+            .find_map(|u| u.rsplit_once("/releases/tags/").map(|(_, tag)| tag))
+            .unwrap_or_default();
+        let file = inode_name(h, id).unwrap_or_default();
+        got.push(format!("{project} {tag} {file}"));
+    }
+    got
+}
+
+/// The name of the release file whose inode is `id`.
+fn inode_name(h: &Host, id: &str) -> Option<String> {
+    use std::os::unix::fs::MetadataExt;
+    let id: u64 = id.parse().ok()?;
+    for tag in fs::read_dir(rel_dir(h)).ok()? {
+        let tag = tag.ok()?.path();
+        for f in fs::read_dir(&tag).into_iter().flatten().flatten() {
+            if f.metadata().is_ok_and(|m| m.ino() == id) {
+                return Some(f.file_name().to_string_lossy().into_owned());
+            }
+        }
+    }
+    None
+}
 
 /// The program the release stub answers as. Its calls are read here alone.
 const STUB: &str = "gh";
