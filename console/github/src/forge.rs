@@ -112,6 +112,9 @@ pub struct GitHub {
     pub(crate) now: fn() -> i64,
     /// Mark names the site gave that no mark can have, not yet taken.
     pub(crate) left_out: Vec<String>,
+    /// Fixed lines in our words for what a read met that its outcome alone
+    /// does not say, not yet taken: see [`GitHub::take_lines`].
+    pub(crate) lines: Vec<&'static str>,
     /// The factory's own account, given by the site that made this handle:
     /// None for a handle made with [`GitHub::new`], which answers no account
     /// `Ours`.
@@ -152,6 +155,7 @@ impl GitHub {
             runner,
             now: tehas_core::time::now,
             left_out: Vec::new(),
+            lines: Vec::new(),
             bot: None,
             comment_nodes: std::collections::HashMap::new(),
             people: None,
@@ -169,6 +173,22 @@ impl GitHub {
     /// last take: for the caller to report (Decided 61).
     pub fn take_left_out(&mut self) -> Vec<String> {
         std::mem::take(&mut self.left_out)
+    }
+
+    /// The lines a poll logs beside a failed read's outcome, each once, in
+    /// the order met, taken: fixed words, never the site's text. A checks
+    /// read the site refuses its workflow runs gives
+    /// [`crate::WORKFLOW_RUNS_FORBIDDEN`], so the operator of an App without
+    /// `actions: read` sees why it is `Forbidden`.
+    pub fn take_lines(&mut self) -> Vec<&'static str> {
+        std::mem::take(&mut self.lines)
+    }
+
+    /// A line for [`GitHub::take_lines`], once.
+    pub(crate) fn line_once(&mut self, line: &'static str) {
+        if !self.lines.contains(&line) {
+            self.lines.push(line);
+        }
     }
 
     /// Ask gh, keeping the reason a failed call gave. `args` are the words

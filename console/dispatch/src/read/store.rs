@@ -560,6 +560,7 @@ pub fn question(asked: &Asked, n: u64) -> Value {
     let mut kind = String::new();
     let mut answer = Value::Null;
     let mut reask = false;
+    let mut old_sum = false;
     if !qid.is_empty() {
         match asked.know(n) {
             v if v.get("failed") == Some(&json!(true)) => return v,
@@ -571,11 +572,13 @@ pub fn question(asked: &Asked, n: u64) -> Value {
                     .to_string();
                 answer = v.get("answer").cloned().unwrap_or(Value::Null);
                 reask = v.get("reask") == Some(&json!(true));
+                old_sum = v.get("sum_form") == Some(&json!("rendered"));
             }
             _ => qid.clear(),
         }
     }
-    json!({"plan": plan, "id": qid, "kind": kind, "reason": reason, "answer": answer, "reask": reask})
+    json!({"plan": plan, "id": qid, "kind": kind, "reason": reason, "answer": answer, "reask": reask,
+        "old_sum": old_sum})
 }
 
 #[cfg(test)]
