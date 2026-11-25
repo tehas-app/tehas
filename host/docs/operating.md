@@ -940,6 +940,8 @@ What comes back on the issue is one comment of the bot's:
   pull request of the issue, a rebase that conflicts, a cycle still running,
   no marked comment, or a rule above not met. The label comes off here
   too. To ask again, write a new marked comment and apply the label again.
+  The reply points to this section for the marked comment's first line and
+  does not quote it.
   The line is the rule's own words, with at most the HTTP status, limit,
   timeout or connection words of what git or gh said. What the command said
   can quote a commit subject of the cycle, so it goes to the log only.
@@ -988,7 +990,8 @@ no ask:
 - A try that GitHub fails again is counted. A refusal of anything else, the
   third try failed, or the hour over, stops the tries. The issue is told once,
   with `<!-- tehas:finish issue=<n> result=stopped by=poll -->`, and the cycle
-  waits for an ask with `tehas:finish`.
+  waits for an ask with `tehas:finish`. The reply points to [Finishing a
+  stopped cycle](#finishing-a-stopped-cycle) for the ask's marked comment.
 - An issue that carries `tehas:finish` is the ask's: the ask runs its finish
   and removes the record, so the finish runs once. A running issue waits. An
   issue that is closed, carries `tehas:ready`, `tehas:running` or

@@ -159,7 +159,7 @@ t_eq "$(written)" 0
 t_case "the bot is the login the app kept, and GraphQL's login without [bot] is the bot's"
 reset
 printf 'tehas-app-bot[bot]\n' >"$T/home/tehas/state/github/login"
-t_ids "$T/home/tehas" tehas-app-bot
+t_ids "$T/home/tehas" "tehas-app-bot[bot]"
 one "$(pr 50 7 '.author.login = "tehas-app-bot"')"
 t_run "$refresh --pr 50"
 t_eq "$t_rc" 0
