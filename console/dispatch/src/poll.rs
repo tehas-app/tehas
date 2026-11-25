@@ -846,21 +846,21 @@ fn body(
         models: crate::read::models::Models::read(),
         endpoint: (String::new(), String::new()),
         code_host: None,
+        blueprints: None,
         said: Vec::new(),
     };
     // The same token for the poll's reads as for its writes: what the shim of
     // every gh call would ask for anyway, asked once by the poll.
     src.calls.gh_token = w.calls.gh_token.clone().or_else(|| token.get(home));
-    // The code host's reads go through the port, its handle from the same
-    // wiring as the writes', with the same token, its calls counted with
-    // theirs in the poll's cost. Only the branch's check
-    // reads through it yet, so none is made for an instance that names none.
-    if !settings.branch_check.is_empty() {
-        let gh_token = src.calls.gh_token.as_deref();
-        let calls = w.port_calls.clone();
-        src.code_host = handles(home, &w.repo, &w.gh, gh_token, w.bound, calls)
-            .ok()
-            .map(|h| h.code_host);
+    // The reads that go through the ports take their handles from the same
+    // wiring as the writes', with the same token, their calls counted with
+    // theirs in the poll's cost: the branch's check through the code host,
+    // the bodies' edit histories through the blueprints.
+    let gh_token = src.calls.gh_token.as_deref();
+    let calls = w.port_calls.clone();
+    if let Ok(h) = handles(home, &w.repo, &w.gh, gh_token, w.bound, calls) {
+        src.code_host = Some(h.code_host);
+        src.blueprints = Some(h.blueprints);
     }
     let snap = snapshot(&mut src, settings);
     // What the reads met that their outcome alone does not say, once each:

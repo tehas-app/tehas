@@ -403,7 +403,8 @@ not only the last: an outside account's edit holds the issue even when an
 allowed account saves the body after it. For an issue its labels would start
 that was edited, and for an edited issue with a question a person may answer
 `retry` to, the poll reads the body's edit history, the last 100 edits;
-a longer history, or an edit that names no account, holds the issue too
+a longer history, one whose versions do not agree (a version deleted from
+it among them), or an edit that names no account, holds the issue too
 (`skip #N: its text was changed by 'unknown' ...`), and a history GitHub does
 not give ends the poll with exit 1. A closed issue and a pull request are never taken,
 whatever label they carry. The poll's lists are of open issues, so what this

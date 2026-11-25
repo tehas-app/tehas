@@ -275,18 +275,18 @@ fn an_outside_edit_after_the_label_is_not_approved_though_an_allowed_account_edi
     );
     w.fx(
         "edits-7.json",
-        r#"{"totalCount":2,"nodes":[{"editedAt":"2026-01-02T10:01:00Z","editor":{"login":"mallory"}},{"editedAt":"2026-01-02T10:05:00Z","editor":{"login":"alice"}}]}"#,
+        r#"{"totalCount":3,"nodes":[{"editedAt":"2026-01-02T10:05:00Z","editor":{"login":"alice"},"diff":"b"},{"editedAt":"2026-01-02T10:01:00Z","editor":{"login":"mallory"},"diff":"a"},{"editedAt":"2000-01-01T00:00:00Z","editor":null,"diff":""}]}"#,
     );
     let r = w.dispatch(&["--dry-run"]);
     has(
         &r.out,
         "skip #7: its text was changed by 'mallory' after alice applied tehas:ready",
     );
-    has(&w.gh(), "userContentEdits(last: 100)");
+    has(&w.gh(), "userContentEdits(first: 100)");
     // A history longer than the poll read holds it too.
     w.fx(
         "edits-7.json",
-        r#"{"totalCount":101,"nodes":[{"editedAt":"2026-01-02T10:05:00Z","editor":{"login":"alice"}}]}"#,
+        r#"{"totalCount":101,"nodes":[{"editedAt":"2026-01-02T10:05:00Z","editor":{"login":"alice"},"diff":"b"}]}"#,
     );
     let r = w.dispatch(&["--dry-run"]);
     has(
@@ -321,7 +321,7 @@ fn with_the_account_unknown_on_the_list_a_change_by_no_account_is_not_approved_e
     let r = w.dispatch(&["--dry-run"]);
     has(&r.out, "skip #7: its text was changed by 'unknown'");
     lacks(&r.out, "would run a cycle");
-    has(&w.gh(), "userContentEdits(last: 100)");
+    has(&w.gh(), "userContentEdits(first: 100)");
 }
 
 #[test]
@@ -330,10 +330,7 @@ fn an_issue_never_edited_asks_for_no_edit_history() {
     w.fx("events-7.json", LABELLED);
     let r = w.dispatch(&["--dry-run"]);
     has(&r.out, "would run a cycle for #7");
-    lacks(
-        &w.gh(),
-        "userContentEdits(last: 100) { totalCount nodes { editedAt",
-    );
+    lacks(&w.gh(), "userContentEdits(first");
 }
 
 /// The one rename the poll's own read can differ on: no time. No edit record
