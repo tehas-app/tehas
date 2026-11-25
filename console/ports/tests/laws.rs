@@ -805,12 +805,14 @@ fn code_host_branch_checks_are_the_branch_then_its_checks() {
             .check_by("other", &at, run(CheckStatus::Done(Conclusion::Passed)));
         let site = FakeSite::new(&w);
         let mut h = site.code_host(&full(), C).unwrap();
-        ok(laws::code_host::branch_checks_are_the_branch_then_its_checks(
-            h.as_mut(),
-            &main,
-            &gone,
-            "gate",
-        ));
+        ok(
+            laws::code_host::branch_checks_are_the_branch_then_its_checks(
+                h.as_mut(),
+                &main,
+                &gone,
+                "gate",
+            ),
+        );
         let (head, checks) = h.branch_checks(&main, Some("gate")).unwrap().unwrap();
         assert_eq!(head, at);
         assert_eq!(checks.overall, Overall::Fail);

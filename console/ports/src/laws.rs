@@ -948,7 +948,11 @@ pub mod code_host {
             return broken(LAW, "the fixture's branch has no head");
         };
         let checks = got(LAW, "the checks", h.checks(&head, Some(name)))?;
-        let both = got(LAW, "the branch's checks", h.branch_checks(branch, Some(name)))?;
+        let both = got(
+            LAW,
+            "the branch's checks",
+            h.branch_checks(branch, Some(name)),
+        )?;
         hold(both == Some((head, checks)), LAW, || {
             format!("the one read answered {both:?}")
         })?;
