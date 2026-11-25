@@ -333,6 +333,9 @@ fn tickets_every_digest_answers_parent_or_refuses() {
             At::new(0),
             b(100),
         ));
+        let d = h.delta(None, b(100)).unwrap();
+        let part = d.tickets.iter().find(|c| c.digest.key == w.key(2)).unwrap();
+        assert_eq!(part.digest.parent, Some(Ref::Here(w.key(1))));
     }
 }
 

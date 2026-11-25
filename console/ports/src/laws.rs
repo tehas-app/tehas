@@ -420,8 +420,9 @@ pub mod tickets {
     /// `parts` does, or refuses: `ticket` at every depth, `several`,
     /// `several_with_closers`, `list` with the default filter within
     /// `bound`, `recent` and `recently_closed` of `bound`'s size,
-    /// `closed_since(since)`, `search` of each ticket's title and
-    /// `members` of each target a ticket names. A read answered
+    /// `closed_since(since)`, `delta` from the start within `bound`,
+    /// `search` of each ticket's title and `members` of each target a
+    /// ticket names. A read answered
     /// `Refused(_)` holds nothing to check; any other failure breaks the
     /// law. The fixture's `keys` hold the parent of every ticket among
     /// them; a digest of a ticket outside them is not checked.
@@ -470,6 +471,9 @@ pub mod tickets {
                     .into_iter()
                     .map(|c| ("closed_since", c.digest)),
             );
+        }
+        if let Some(d) = answered(LAW, "delta", h.delta(None, bound))? {
+            digests.extend(d.tickets.into_iter().map(|c| ("delta", c.digest)));
         }
         let mut titles = Vec::new();
         let mut targets = Vec::new();
