@@ -21,6 +21,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tehas_core::home::{Home, State};
 use tehas_core::issue_pull::names_issue;
+use tehas_core::units;
 use tehas_ports::{TicketKey, Write};
 
 /// What a claim answers when a poll before T4.7 made it whole: its parts
@@ -1346,11 +1347,7 @@ impl Writer {
             Some(cmd) => run_quiet(cmd, &[n.to_string()], None, bound),
             None => run_quiet(
                 &self.host.systemctl,
-                &[
-                    "--user".into(),
-                    "start".into(),
-                    format!("tehas-cycle@{n}.service"),
-                ],
+                &["--user".into(), "start".into(), units::cycle(n)],
                 None,
                 bound,
             ),
@@ -1410,11 +1407,7 @@ impl Writer {
             Some(cmd) => run_quiet(cmd, &[n.to_string()], None, Duration::from_secs(30)),
             None => run_quiet(
                 &self.host.systemctl,
-                &[
-                    "--user".into(),
-                    "stop".into(),
-                    format!("tehas-cycle@{n}.service"),
-                ],
+                &["--user".into(), "stop".into(), units::cycle(n)],
                 None,
                 Duration::from_secs(30),
             ),
