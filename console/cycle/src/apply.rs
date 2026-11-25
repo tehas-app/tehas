@@ -1798,7 +1798,7 @@ esac
         assert!(asked.contains("--id 4001"), "{asked}");
         // The sum on record is of the text posted, without its markers.
         let text: String = q
-            .strip_prefix("note Text(")
+            .strip_prefix("write note Text(")
             .and_then(|t| t.strip_suffix(") markers [Park, Question]"))
             .and_then(|t| serde_json::from_str(t).ok())
             .unwrap_or_else(|| panic!("{q}"));
