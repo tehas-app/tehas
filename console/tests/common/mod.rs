@@ -25,6 +25,8 @@ use tehas_core::testing::{copy_exe, write_exe};
 /// GH_AUTH is what `gh auth status` exits with.
 const GH: &str = r####"gh_graphql() {
   case "$1" in
+    *"filterBy: {states: [CLOSED], since: "*) [ ! -e "$T/shipped-down" ] || exit 1
+      cat "$T/shipped.json" ;;
     *closingIssuesReferences*) cat "$T/tickets-page.json" 2>/dev/null || exit 1 ;;
     *subIssues*) [ ! -e "$T/epics-down" ] || exit 1; cat "$T/epics-page.json" ;;
     *"first: 0) { issueCount }"*) [ ! -e "$T/count-down" ] || exit 1
@@ -588,15 +590,11 @@ impl World {
         fs::read_to_string(self.home.join(rel)).unwrap_or_default()
     }
 
-    /// The closed issues the search for shipped work answers.
+    /// The closed issues the tickets port's read of the closed tickets
+    /// answers: one page of the adapter's question, in the project
+    /// `acme/widget` (GitHub's id 7001).
     pub fn shipped(&self, nodes: &[String]) {
-        self.fx(
-            "shipped.json",
-            &format!(
-                r#"{{"data":{{"search":{{"nodes":[{}]}}}}}}"#,
-                nodes.join(",")
-            ),
-        );
+        self.fx("shipped.json", &closed_page(nodes));
     }
 
     /// The one page of open issues the read of the epics answers.
@@ -622,7 +620,7 @@ impl World {
     /// request closed, and the count still saying 0.
     pub fn one_shipped(&self) {
         self.reset();
-        self.shipped(&[closed(20, "2026-01-02T00:00:00Z", r#"{"merged":true}"#, "")]);
+        self.shipped(&[closed(20, "2099-01-02T00:00:00Z", r#"{"merged":true}"#, "")]);
     }
 
     /// One cycle of issue `n` on the store, as the live view shows it (t_live):
@@ -1089,25 +1087,79 @@ exit "$t_rc"
 "####;
 
 #[allow(dead_code)] // each test file uses a part of this module
-/// A closed issue as the search for shipped work returns it; `closer` is
-/// JSON, and an empty `label` gives it none.
-pub fn closed(n: u64, closed_at: &str, closer: &str, label: &str) -> String {
-    let labels = if label.is_empty() {
-        String::new()
-    } else {
-        json!({"name": label}).to_string()
-    };
+/// One page of the adapter's read of the closed tickets of `acme/widget`.
+pub fn closed_page(nodes: &[String]) -> String {
     format!(
-        r#"{{"number":{n},"title":"t","url":"u","createdAt":"2025-12-01T00:00:00Z","updatedAt":"{closed_at}","closedAt":"{closed_at}","labels":{{"nodes":[{labels}]}},"timelineItems":{{"nodes":[{{"closer":{closer}}}]}}}}"#
+        r#"{{"data":{{"repository":{{"databaseId":7001,"issues":{{"pageInfo":{{"hasNextPage":false,"endCursor":null}},"nodes":[{}]}}}}}}}}"#,
+        nodes.join(",")
     )
 }
 
 #[allow(dead_code)] // each test file uses a part of this module
-/// As `closed`, with no labels field at all: a read that said nothing of them.
-pub fn no_labels(n: u64, closed_at: &str, closer: &str) -> String {
-    format!(
-        r#"{{"number":{n},"title":"t","url":"u","updatedAt":"{closed_at}","closedAt":"{closed_at}","timelineItems":{{"nodes":[{{"closer":{closer}}}]}}}}"#
-    )
+/// A closed issue as the adapter's read of the closed tickets returns it.
+/// `closer` says what closed it: `{"merged":true}` a pull request of this
+/// project, merged, which GitHub also lists as closing it;
+/// `{"merged":false}` one not merged; anything else no closer. An empty
+/// `label` gives it none.
+pub fn closed(n: u64, closed_at: &str, closer: &str, label: &str) -> String {
+    let labels: Vec<Value> = if label.is_empty() {
+        Vec::new()
+    } else {
+        vec![json!({"name": label})]
+    };
+    let repo = json!({"databaseId": 7001, "nameWithOwner": "acme/widget"});
+    let pr = n + 1000;
+    let merged = match closer {
+        r#"{"merged":true}"# => Some(true),
+        r#"{"merged":false}"# => Some(false),
+        _ => None,
+    };
+    let event_closer = match merged {
+        Some(m) => json!({"__typename": "PullRequest", "number": pr, "merged": m,
+            "url": format!("https://github.com/acme/widget/pull/{pr}"), "repository": repo}),
+        None => Value::Null,
+    };
+    let refs: Vec<Value> = match merged {
+        Some(true) => vec![merged_change(pr, n, closed_at)],
+        _ => Vec::new(),
+    };
+    json!({
+        "number": n, "title": "t", "body": "", "state": "CLOSED", "stateReason": "COMPLETED",
+        "url": format!("https://github.com/acme/widget/issues/{n}"),
+        "createdAt": "2025-12-01T00:00:00Z", "updatedAt": closed_at,
+        "author": {"__typename": "User", "login": "alice", "databaseId": 101},
+        "issueType": null, "milestone": null,
+        "labels": {"totalCount": labels.len(), "nodes": labels},
+        "closedAt": closed_at,
+        "closes": {"nodes": [{"__typename": "ClosedEvent", "createdAt": closed_at,
+            "actor": {"__typename": "Bot", "login": "tehas-bot", "databaseId": 900},
+            "stateReason": "COMPLETED", "closer": event_closer}]},
+        "subIssues": {"totalCount": 0},
+        "closedByPullRequestsReferences": {"totalCount": refs.len(), "nodes": refs},
+        "parent": null
+    })
+    .to_string()
+}
+
+/// Pull request `pr` of `acme/widget`, merged at `at`, closing issue `n`.
+fn merged_change(pr: u64, n: u64, at: &str) -> Value {
+    let account = json!({"__typename": "Bot", "login": "tehas-bot", "databaseId": 900});
+    json!({
+        "baseRepository": {"databaseId": 7001, "nameWithOwner": "acme/widget"},
+        "number": pr, "title": format!("Change {pr}"),
+        "url": format!("https://github.com/acme/widget/pull/{pr}"),
+        "state": "MERGED", "isDraft": false, "isCrossRepository": false,
+        "headRefName": format!("feature/issue-{n}"),
+        "headRefOid": format!("{:040x}", pr), "baseRefName": "main",
+        "baseRefOid": "a0".repeat(20), "mergeable": "UNKNOWN", "mergeStateStatus": "UNKNOWN",
+        "createdAt": "2025-12-01T00:00:00Z", "updatedAt": at, "lastEditedAt": null,
+        "mergedAt": at, "closedAt": at, "additions": 1, "deletions": 0, "changedFiles": 1,
+        "author": account, "editor": null, "mergedBy": account,
+        "mergeCommit": {"oid": format!("{:040x}", pr + 1)},
+        "renames": {"nodes": []}, "labels": {"totalCount": 0, "nodes": []},
+        "closingIssuesReferences": {"totalCount": 1, "nodes": [{"number": n,
+            "repository": {"databaseId": 7001, "nameWithOwner": "acme/widget"}}]}
+    })
 }
 
 #[allow(dead_code)] // each test file uses a part of this module

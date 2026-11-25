@@ -168,14 +168,75 @@ impl Reads {
     }
 }
 
-/// Puts the shipped mark on each issue of `lacking`, in order, each asked
+/// Puts the shipped mark on each ticket of `lacking`, in order, each asked
 /// once: a mark that could not be put on is left for the next run, which
-/// decides it again.
-fn mark_shipped(tickets: &mut dyn TicketWrites, lacking: &[u64]) {
+/// decides it again while the ticket is in its read.
+fn mark_shipped(tickets: &mut dyn TicketWrites, lacking: &[TicketKey]) {
     let mark = Mark::State(tehas_ports::State::Shipped);
-    for n in lacking.iter().copied().filter_map(NonZeroU64::new) {
-        let _ = tickets.mark(&TicketKey::Number(n), &mark);
+    for key in lacking {
+        let _ = tickets.mark(key, &mark);
     }
+}
+
+/// How far before the last completed read a read starts again, so a ticket
+/// closed while that read ran, or a mark that failed then, is read again.
+const SHIPPED_MARGIN: i64 = 3600;
+
+/// Where a read of the shipped tickets starts with no usable read before:
+/// a day back, so a busy factory's first read is not cut. Older shipped
+/// tickets get their mark from tidy's own read.
+const SHIPPED_FIRST: i64 = 24 * 3600;
+
+/// The most tickets `completed` holds.
+const COMPLETED_MOST: usize = shipped::PAGE;
+
+/// Where this run's read of the shipped tickets starts: `SHIPPED_MARGIN`
+/// before the `completedAt` of the file before, which a stale read keeps,
+/// so a read that failed or was cut is asked again from the same time. With
+/// no such time, or one after `now`, `SHIPPED_FIRST` before `now`.
+fn shipped_since(previous: &J, now: i64) -> tehas_ports::At {
+    let before = previous
+        .get("completedAt")
+        .as_str()
+        .and_then(time::from_iso)
+        .filter(|t| *t <= now);
+    tehas_ports::At::new(match before {
+        Some(t) => t - SHIPPED_MARGIN,
+        None => now - SHIPPED_FIRST,
+    })
+}
+
+/// `{number, title, url, createdAt, updatedAt, closedAt}` of a shipped
+/// ticket, as `completed` lists it. None for a ticket with no number.
+fn completed_item(t: &tehas_ports::ClosedTicket) -> Option<J> {
+    let TicketKey::Number(n) = &t.digest.key else {
+        return None;
+    };
+    let at = |a: tehas_ports::At| J::str(time::iso(a.secs()));
+    Some(obj(vec![
+        ("number", J::num(n.get() as f64)),
+        ("title", J::str(t.digest.title.as_str())),
+        ("url", J::str(t.digest.link.as_str())),
+        ("createdAt", at(t.digest.created)),
+        ("updatedAt", at(t.digest.updated)),
+        ("closedAt", at(t.closed)),
+    ]))
+}
+
+/// `completed`: this read's shipped tickets, and the file before's that
+/// this read does not name, newest closed first, at most `COMPLETED_MOST`.
+/// A ticket stays listed after it is reopened until newer ones push it out.
+fn completed_of(shipped: &[tehas_ports::ClosedTicket], previous: &J) -> Vec<J> {
+    let mut list: Vec<J> = shipped.iter().filter_map(completed_item).collect();
+    let named = |n: &J| list.iter().any(|m| m.get("number") == n.get("number"));
+    let kept: Vec<J> = match previous.get(COMPLETED) {
+        J::Arr(before) => before.iter().filter(|n| !named(n)).map(slim).collect(),
+        _ => Vec::new(),
+    };
+    list.extend(kept);
+    list.sort_by(|a, b| b.get("closedAt").cmp(a.get("closedAt")));
+    list.truncate(COMPLETED_MOST);
+    list
 }
 
 /// The keys of the snapshot that rest on the list of issues, and on the read
@@ -818,7 +879,13 @@ fn queue(home: &Path, live: &Path, analytics: &Analytics, stop: &AtomicBool) {
     let repo = repo.as_str();
     let issue = env::var("TEHAS_CONTROL_ISSUE").unwrap_or_default();
     let issue = issue.as_str();
-    let controls = [issue.to_string()];
+    let controls: Vec<TicketKey> = issue
+        .parse::<u64>()
+        .ok()
+        .and_then(NonZeroU64::new)
+        .map(TicketKey::Number)
+        .into_iter()
+        .collect();
     platform::write(home, live);
     rukas::write(home, live);
 
@@ -890,31 +957,32 @@ fn queue(home: &Path, live: &Path, analytics: &Analytics, stop: &AtomicBool) {
             },
         }
     });
-    // The closing pull request is only in the issue's closed event, so this one
-    // is GraphQL. The query and the acceptance rule are shipped.rs's, the same
-    // ones tehas tidy reads, so the two commands cannot disagree on what a merge
-    // closed.
+    // The shipped tickets closed since the last read, on the tickets port, by
+    // shipped.rs's rule, the one tehas tidy reads too. A read that named none
+    // is a whole answer; one that failed or was cut is none, and `completed`
+    // is kept from the file before, its `completedAt` with it, so the next
+    // run asks from the same time.
     if stopped() {
         return;
     }
-    let closed_query = format!("q=repo:{repo} is:issue is:closed linked:pr sort:updated-desc");
-    let the_query = format!("query={}", shipped::QUERY);
-    let closers = reads.read(&["api", "graphql", "-f", &closed_query, "-f", &the_query]);
-    // A read that named issues and found no merged closer is a whole answer and
-    // a snapshot of no completed work; only a reply with no list of nodes in it
-    // is no answer.
-    let nodes: Option<Vec<J>> = closers.as_deref().and_then(|closers| {
-        let Some(nodes) = shipped::list(closers, &controls) else {
-            log("WARN status: the answer of what closed these issues was no list, its part of the snapshot is stale");
-            return None;
-        };
-        Some(
-            nodes
-                .iter()
-                .filter_map(|n| J::parse(&n.to_string()))
-                .collect(),
-        )
-    });
+    let mut handle = crate::wiring::tickets(repo, "gh", READ_WAIT);
+    let since = shipped_since(&previous, time::now());
+    let read = shipped::since(&mut *handle, since, &controls);
+    let nodes: Option<Vec<J>> = match &read {
+        Ok(shipped) => Some(completed_of(shipped, &previous)),
+        Err(outcome) => {
+            let line = format!(
+                "WARN status: the shipped issues closed since {} were not read: {}, its part of the snapshot is stale",
+                time::iso(since.secs()),
+                outcome.line()
+            );
+            log(&line);
+            if matches!(outcome, tehas_ports::Outcome::Unavailable { .. }) {
+                github_fails::note(home, time::now(), &line);
+            }
+            None
+        }
+    };
     if nodes.is_none() {
         stale.push("completed");
     }
@@ -1008,16 +1076,11 @@ fn queue(home: &Path, live: &Path, analytics: &Analytics, stop: &AtomicBool) {
         return;
     }
 
-    // An issue this read finds shipped carries the mark whatever the reason,
-    // and the read names its labels, so an issue that already holds it is not
-    // asked for it: each mark is a request. The labels the read did not
-    // answer count as missing.
-    if let Some(closers) = &closers {
-        let lacking = shipped::lacking(closers, &controls, shipped::SHIPPED);
-        mark_shipped(
-            &mut *crate::wiring::tickets(repo, "gh", READ_WAIT),
-            &lacking,
-        );
+    // A ticket this read finds shipped carries the mark whatever the reason,
+    // and the read names its marks, so one that already holds it is not
+    // asked for it: each mark is a request.
+    if let Ok(shipped) = &read {
+        mark_shipped(&mut *handle, &shipped::lacking_mark(shipped));
     }
 
     if stopped() {
@@ -1070,7 +1133,7 @@ mod tests {
     use super::*;
     use std::cell::Cell;
     use tehas_ports::fake::{FakeSite, Fault, Faulty, Op, TicketsOp, World};
-    use tehas_ports::{Actor, Caller, Scope, Site, Write};
+    use tehas_ports::{Actor, At, Caller, ChangeState, CloseReason, Scope, Site, Write};
 
     #[test]
     fn a_read_only_snapshot_says_so_with_its_starts_and_another_has_no_key() {
@@ -1667,9 +1730,13 @@ mod tests {
             .unwrap()
     }
 
+    fn key(n: u64) -> TicketKey {
+        TicketKey::Number(NonZeroU64::new(n).unwrap())
+    }
+
     fn shipped_on(n: u64) -> Write {
         Write::Mark {
-            ticket: TicketKey::Number(NonZeroU64::new(n).unwrap()),
+            ticket: key(n),
             mark: Mark::State(tehas_ports::State::Shipped),
         }
     }
@@ -1683,7 +1750,7 @@ mod tests {
     #[test]
     fn each_issue_that_lacks_the_shipped_mark_is_given_it_once_in_order() {
         let world = issues(&[20, 21, 22]);
-        mark_shipped(&mut *writes(&FakeSite::new(&world)), &[22, 20]);
+        mark_shipped(&mut *writes(&FakeSite::new(&world)), &[key(22), key(20)]);
         let wrote: Vec<Write> = world.wrote().into_iter().map(|w| w.what).collect();
         assert_eq!(wrote, [shipped_on(22), shipped_on(20)]);
     }
@@ -1705,8 +1772,91 @@ mod tests {
                 Fault::Server { applied: false },
             )
             .times(1);
-        mark_shipped(&mut *writes(&site), &[20, 21]);
+        mark_shipped(&mut *writes(&site), &[key(20), key(21)]);
         let wrote: Vec<Write> = world.wrote().into_iter().map(|w| w.what).collect();
         assert_eq!(wrote, [shipped_on(21)]);
+    }
+
+    #[test]
+    fn a_read_starts_an_hour_before_the_last_completed_read_or_a_day_back() {
+        let now = time::from_iso("2026-03-02T12:00:00Z").unwrap();
+        let at = |prev: &str| shipped_since(&j(prev), now).secs();
+        assert_eq!(
+            at(r#"{"completedAt":"2026-03-02T11:00:00Z"}"#),
+            now - 2 * 3600
+        );
+        for none in [
+            "null",
+            "{}",
+            r#"{"completedAt":"yesterday"}"#,
+            r#"{"completedAt":7}"#,
+            r#"{"completedAt":"2026-03-02T12:00:01Z"}"#,
+        ] {
+            assert_eq!(at(none), now - 24 * 3600, "{none}");
+        }
+    }
+
+    /// Tickets `numbers`, each closed with a change of this project merged
+    /// that closes it, read as tehasbot status reads them.
+    fn shipped_now(numbers: &[u64]) -> Vec<tehas_ports::ClosedTicket> {
+        let mut w = World::new();
+        w.clock().set(At::new(1_800_000_000));
+        for n in numbers {
+            let merged = ChangeState::Merged {
+                at: w.now(),
+                by: None,
+                commit: None,
+            };
+            w = w.ticket(*n, |t| t.closed(CloseReason::Done)).change(
+                n + 1000,
+                &format!("work/{n}"),
+                |c| c.closes(*n).state(merged),
+            );
+        }
+        let site = FakeSite::new(&w);
+        let mut t = site
+            .tickets(&Actor::Operator, Caller::new("status"))
+            .unwrap();
+        shipped::since(&mut *t, At::new(0), &[]).unwrap()
+    }
+
+    #[test]
+    fn completed_is_this_reads_shipped_and_the_ones_before_newest_first() {
+        let read = shipped_now(&[20, 21]);
+        let closed = time::iso(read[0].closed.secs());
+        let before = j(r#"{"completed":[
+            {"number":21,"title":"old","url":"u","createdAt":"2000-01-01T00:00:00Z","updatedAt":"2000-01-01T00:00:00Z","closedAt":"2000-01-01T00:00:00Z","extra":1},
+            {"number":5,"title":"five","url":"u5","createdAt":"2000-01-01T00:00:00Z","updatedAt":"2000-01-02T00:00:00Z","closedAt":"2000-01-02T00:00:00Z"}]}"#);
+        let got = completed_of(&read, &before);
+        let numbers: Vec<String> = got.iter().map(|n| n.get("number").text()).collect();
+        assert_eq!(numbers.len(), 3, "{got:?}");
+        assert!(
+            numbers[..2].contains(&"20".to_string()) && numbers[..2].contains(&"21".to_string())
+        );
+        assert_eq!(numbers[2], "5", "the one before, older, after");
+        // This read's own fields, not the file's: and only the six fields.
+        let n21 = got.iter().find(|n| n.get("number").text() == "21").unwrap();
+        assert_eq!(n21.get("closedAt").as_str(), Some(closed.as_str()));
+        assert_ne!(n21.get("title").as_str(), Some("old"));
+        assert!(got[2].get("extra").is_null());
+        assert_eq!(got[2].get("url").as_str(), Some("u5"));
+    }
+
+    #[test]
+    fn completed_holds_at_most_a_hundred_and_drops_the_oldest() {
+        let items: Vec<String> = (1..=150)
+            .map(|n| {
+                format!(
+                    r#"{{"number":{n},"closedAt":"{}"}}"#,
+                    time::iso(1_700_000_000 + n)
+                )
+            })
+            .collect();
+        let before = j(&format!(r#"{{"completed":[{}]}}"#, items.join(",")));
+        let got = completed_of(&shipped_now(&[]), &before);
+        assert_eq!(got.len(), 100);
+        assert_eq!(got[0].get("number").text(), "150");
+        assert_eq!(got[99].get("number").text(), "51");
+        assert!(completed_of(&[], &j("null")).is_empty());
     }
 }
