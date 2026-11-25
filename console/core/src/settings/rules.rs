@@ -54,6 +54,7 @@ pub fn switch(value: &str) -> Option<bool> {
         _ => None,
     }
 }
+
 /// The adapters built in this release, for TEHAS_CODE_HOST and TEHAS_TICKETS.
 /// `github` as the tickets' adapter is the code host's own tracker.
 const ADAPTER: Rule = Rule::OneOf(
@@ -318,7 +319,7 @@ pub const TABLE: &[Setting] = &[
     ),
     always("TEHAS_LEAN", SWITCH, "0"),
     always("TEHAS_READ_ONLY", SWITCH, "0"),
-    // The adapters a host runs (Decided 33 of the ports spec).
+    // Decided 33 of the ports spec.
     always("TEHAS_CODE_HOST", ADAPTER, "github"),
     always("TEHAS_TICKETS", ADAPTER, "github"),
     // Plugins. TEHAS_PLUGIN_GRANTS_<NAME> is a family, one per plugin of
