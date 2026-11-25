@@ -255,12 +255,8 @@ fn an_anonymous_read_outside_the_release_reads_is_unsupported_with_no_request() 
     let mut h = site.code_host(&by, CALLER).unwrap();
     assert_eq!(h.facts().err(), Some(UNSUPPORTED));
     assert_eq!(h.release(&tag("v1.4.1")).err(), Some(UNSUPPORTED));
+    // `download` is answered: tests/anonymous_download.rs.
     let mut into = Vec::new();
-    let file = tehas_ports::FileName::new("install").unwrap();
-    assert_eq!(
-        h.download(&tag("v1.4.1"), &file, 1 << 20, &mut into).err(),
-        Some(UNSUPPORTED)
-    );
     let at = CommitId::new(V141).unwrap();
     assert_eq!(h.archive(&at, 1 << 20, &mut into).err(), Some(UNSUPPORTED));
     assert_eq!(

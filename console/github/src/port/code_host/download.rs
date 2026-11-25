@@ -21,16 +21,23 @@ use tehas_ports::{Did, FileName, Outcome, TagName, Unread};
 static MADE: AtomicU64 = AtomicU64::new(0);
 
 /// A directory of the adapter's own under the system's temporary directory,
-/// removed when dropped.
-struct Scratch(PathBuf);
+/// readable by this user alone and removed when dropped. The anonymous
+/// handle's download keeps its file in one too.
+pub(in crate::port) struct Scratch(PathBuf);
 
 impl Scratch {
-    fn new() -> Option<Scratch> {
+    pub(in crate::port) fn new() -> Option<Scratch> {
+        use std::os::unix::fs::DirBuilderExt;
         let n = MADE.fetch_add(1, Ordering::Relaxed);
         let dir =
             std::env::temp_dir().join(format!("tehas-github-download-{}-{n}", std::process::id()));
-        fs::create_dir(&dir).ok()?;
+        fs::DirBuilder::new().mode(0o700).create(&dir).ok()?;
         Some(Scratch(dir))
+    }
+
+    /// The one file a download writes in it.
+    pub(in crate::port) fn file(&self) -> PathBuf {
+        self.0.join("file")
     }
 }
 
@@ -71,7 +78,7 @@ impl GitHub {
             return Err(Outcome::Unread(Unread::TooLarge));
         }
         let scratch = Scratch::new().ok_or(Outcome::Unread(Unread::Unknown))?;
-        let out = scratch.0.join("file");
+        let out = scratch.file();
         let (repo, pat, output) = (
             format!("--repo={}", self.repo),
             format!("--pattern={}", pattern(file.as_str())),
