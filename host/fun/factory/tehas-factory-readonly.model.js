@@ -1,6 +1,6 @@
-// A read-only factory (TEHAS_READ_ONLY=1) opens no pull request: what each of
-// its starts left, from live/status.json, the branch in its workspace and the
-// pull request it would have opened. Pure: the clock is nowMs.
+// A read-only factory (TEHAS_READ_ONLY=1) opens no pull request: each start
+// from live/status.json, with its branch and the change it would have opened.
+// Pure: the clock is nowMs.
 import { ago } from "../page-data.js";
 import { MAX, NO_HOST, chips } from "./tehas-factory-issues.model.js";
 
@@ -14,13 +14,13 @@ export function readonlyModel(status, nowMs, host = NO_HOST) {
     on,
     n: starts.length ? "(" + starts.length + ")" : "",
     rows: starts.slice(0, MAX).map((r) => {
-      const change = r.change && typeof r.change === "object" ? r.change : null;
+      const ch = r.change && typeof r.change === "object" ? r.change : null;
       return {
         issue: r.issue,
         notes: chips(host.notes(r.issue)),
-        text: change ? String(change.title ?? "") : r.how + " started, no pull request yet",
-        where: (change && change.branch ? change.branch + " in " : "") + (r.workspace || "") + (r.at ? ", " + ago(r.at, nowMs) : ""),
-        body: change && change.body ? String(change.body) : "",
+        text: ch ? String(ch.title ?? "") : r.how + " started, no pull request yet",
+        where: (ch && ch.branch ? ch.branch + " in " : "") + (r.workspace || "") + (r.at ? ", " + ago(r.at, nowMs) : ""),
+        body: ch && ch.body ? String(ch.body) : "",
       };
     }),
   };
