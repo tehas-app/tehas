@@ -35,11 +35,28 @@
 //!
 //! On the ports (T4.10) the rule is `by_merge`, over the closer the tickets
 //! port names and the merged changes of this project it lists, and the read
-//! is `since`, over `Tickets::closed_since`. A change of another project
-//! has no number here, so it speaks as a closer that names no change. The
-//! search below and its reader stay for their two callers until each moves
-//! onto `since` and `by_merge`: tehasbot status (T4.9, after this) and tidy
-//! (T4.10).
+//! is `since`, over `Tickets::closed_since`. The search below and its reader
+//! stay for their two callers until each moves: tehasbot status (T4.9, after
+//! this) onto `since`, and tidy onto `by_merge` over its read by number.
+//!
+//! The rule on the ports differs from the search's in one place, on purpose:
+//! a change of another project. The search read `merged` of any pull request,
+//! the closer's and the references', whatever its repository. The port names
+//! a closer of another project as `Closer::ChangeElsewhere`, with no `merged`,
+//! and lists only this project's merged changes, so tehas:shipped means a
+//! change of this project merged. A ticket closed by a merged pull request of
+//! another repository, with none of this project's listed, was shipped and is
+//! not; one closed by a pull request of another repository that is not merged,
+//! with a merged one of this project listed, was not shipped and is. A test
+//! below pins both.
+//!
+//! Open (before tidy moves): tidy reads by number with
+//! `Tickets::several_with_closers`, whose `WithCloser` has the closer but no
+//! merged changes listed, so `by_merge(closer, &[])` there drops #947's
+//! fallback (a commit closer while a merged change is listed) and tidy and
+//! tehasbot status would disagree on it. The fallback needs those changes on
+//! `WithCloser`, a field its `#[non_exhaustive]` allows, added by an adapter
+//! pull request first (Decided 80), or tidy reads with `closed_since`.
 //!
 //! Exit: 0, or 2 for usage.
 
@@ -1140,7 +1157,8 @@ mod tests {
         }
 
         /// The two statements of the rule answer alike while both stand: the
-        /// search's reader of GitHub's nodes and `by_merge` of the port.
+        /// search's reader of GitHub's nodes and `by_merge` of the port, for
+        /// every closer but a change of another project (the next test).
         #[test]
         fn the_rule_on_the_ports_answers_as_the_rule_of_the_search() {
             let listed = listed();
@@ -1180,6 +1198,40 @@ mod tests {
                     "{closer} with a merge listed {a_merge_listed}"
                 );
             }
+        }
+
+        /// The one difference, on purpose: a change of another project. The
+        /// search reads its `merged` and the port has none, so the merged
+        /// changes of this project listed decide, and one of another project
+        /// is never listed.
+        #[test]
+        fn a_change_of_another_project_differs_from_the_search_on_purpose() {
+            let listed = listed();
+            let elsewhere = Closer::change_elsewhere(
+                ProjectName::new("acme/other"),
+                ItemName::new("3"),
+                WebLink::new("https://example.test/acme/other/pull/3").unwrap(),
+            );
+            // Merged there, none of this project listed: the search said
+            // shipped, the port says not.
+            let node = refs(7, json!({"merged": true}), vec![]);
+            assert!(shipped(&node));
+            assert!(!by_merge(Some(&elsewhere), &[]));
+            // Not merged there, a merge of this project listed: the search
+            // said not, the port says shipped.
+            let node = refs(7, json!({"merged": false}), vec![merged_ref(json!(true))]);
+            assert!(!shipped(&node));
+            assert!(by_merge(Some(&elsewhere), &listed));
+            // A commit closer with only a merged reference of another
+            // project: the search took the reference, the port lists none.
+            let node = refs(
+                7,
+                json!({"__typename": "Commit"}),
+                vec![merged_ref(json!(true))],
+            );
+            assert!(shipped(&node));
+            let commit = Closer::Commit(CommitId::new("abc1234").unwrap());
+            assert!(!by_merge(Some(&commit), &[]));
         }
 
         #[test]
