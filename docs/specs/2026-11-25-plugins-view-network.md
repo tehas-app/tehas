@@ -7,7 +7,7 @@ spec's part 9). Nothing here is built, and nothing here is part of 2.1.
 Until this spec lands, every view's frame is `connect-src 'none'` and no
 view has `net:`.
 
-**Normative**: tehas-standard v3, `v3/plugins.md` at main 52e299a: a
+**Normative**: tehas-standard v3, `v3/plugins.md` at main 66b7577: a
 view's network only through the host, over its port, with `connect-src
 'none'` always (§14); `parent`, with reach apart from authority (§6);
 destination patterns, which a host may leave out until it has `net:`
