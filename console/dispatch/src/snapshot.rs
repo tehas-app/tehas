@@ -222,6 +222,10 @@ pub struct Question {
     pub plan: PlanRow,
     /// Asked before 2.0 and open at the upgrade: asked again in 2.0's words.
     pub reask: bool,
+    /// Its sum on record is of the comment as it was posted, its markers in
+    /// (`rendered`, before T4.7): the poll adopts it in place on its first
+    /// read, as the sum of its visible text.
+    pub old_sum: bool,
 }
 
 /// plan-show's `.planning`: none, a value that is not an object, or the open
@@ -1635,6 +1639,7 @@ fn issue(v: &Value) -> Issue {
                 kind: q.get("kind").and_then(text).unwrap_or_default(),
                 reason: q.get("reason").and_then(text),
                 reask: q.get("reask") == Some(&Value::Bool(true)),
+                old_sum: q.get("old_sum") == Some(&Value::Bool(true)),
                 plan: match q.get("plan") {
                     None | Some(Value::Null) => PlanRow::None,
                     Some(row) => {
