@@ -1110,6 +1110,10 @@ pub(crate) fn digest(s: &State, item: &ItemRec) -> Option<TicketDigest> {
         kind: item.kind.clone(),
         priority: item.priority,
         marks: item.marks.clone(),
+        labels: (item.marks.iter())
+            .map(mark_name)
+            .filter(|n| !n.is_empty())
+            .collect(),
         target,
         author: item.author.clone(),
         created: item.created,

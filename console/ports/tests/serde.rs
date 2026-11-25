@@ -794,6 +794,7 @@ fn digest() -> TicketDigest {
         ticket_digest.kind = Some(Kind::Bug);
         ticket_digest.priority = Priority::Urgent;
         ticket_digest.marks = vec![Mark::Act(Act::Approve)];
+        ticket_digest.labels = vec!["act:approve".into(), "not a mark?".into()];
         ticket_digest.target = Some(TargetName::new(TargetId::new("t1"), "2.0".into()));
         ticket_digest.author = Some(account());
         ticket_digest.parent = Some(Ref::Here(tkey(9)));
@@ -873,6 +874,23 @@ fn ticket() -> Ticket {
         };
         ticket
     }
+}
+
+/// A digest stored before `labels` reads with none (Decided 130).
+#[test]
+fn a_digest_without_labels_reads_with_none() {
+    let Node::Map(entries) = to_node(&digest()).expect("writes") else {
+        panic!("a digest is a map");
+    };
+    let before = Node::Map(
+        entries
+            .into_iter()
+            .filter(|(k, _)| *k != text("labels"))
+            .collect(),
+    );
+    let back: TicketDigest = from_node(before).expect("reads");
+    assert!(back.labels.is_empty());
+    assert_eq!(back.marks, digest().marks);
 }
 
 #[test]

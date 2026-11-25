@@ -2,7 +2,7 @@ use super::super::exec::fake::Fake;
 use super::super::exec::{Cmd, Done};
 use super::super::prepare::tests::{dockerfile, good, C, ID, URL};
 use super::*;
-use tehas_core::access::{Permission, Person};
+use tehas_core::access::{AccountId, Permission, Person};
 use tehas_core::plugin::state::{State, Word};
 use tehas_core::testdir::TestDir;
 
@@ -121,9 +121,22 @@ impl GitHub for People {
     fn permission(&self, login: &str) -> Result<Permission, String> {
         self.asked.lock().unwrap().push(login.to_string());
         match login {
-            "octocat" => Ok(Permission::Of(7, Some(Level::Write), "write".into())),
-            "hubot" => Ok(Permission::Of(8, Some(Level::Write), "write".into())),
+            "octocat" => Ok(Permission::Of(
+                AccountId::new("7"),
+                Some(Level::Write),
+                "write".into(),
+            )),
+            "hubot" => Ok(Permission::Of(
+                AccountId::new("8"),
+                Some(Level::Write),
+                "write".into(),
+            )),
             "nobody" => Ok(Permission::None),
+            "climber" => Ok(Permission::Of(
+                AccountId::new("../7"),
+                Some(Level::Write),
+                "write".into(),
+            )),
             _ => Err("GitHub answered 502 for the permission".into()),
         }
     }
@@ -427,9 +440,9 @@ impl GitHub for Renamed {
         let mut n = self.asked.lock().unwrap();
         *n += 1;
         Ok(if *n == 1 {
-            Permission::Of(7, Some(Level::Write), "write".into())
+            Permission::Of(AccountId::new("7"), Some(Level::Write), "write".into())
         } else {
-            Permission::Of(9, None, "".into())
+            Permission::Of(AccountId::new("9"), None, "".into())
         })
     }
     fn public(&self) -> Result<bool, String> {
@@ -479,6 +492,36 @@ fn a_login_is_checked_against_the_repositorys_access_on_every_call() {
         (&json!("chat"), &json!("chat"))
     );
     assert!(!home.join("plugins/access.json").exists());
+}
+
+/// An id that could leave the calls' directory, or is no id, names no lock:
+/// the call is refused before any lock or row.
+#[test]
+fn an_account_id_that_cannot_name_a_lock_is_refused() {
+    let (home, mut x) = world("call-climber", out("{}"));
+    let gh = People::default();
+    assert_eq!(
+        as_login(&mut x, &gh, &home, "climber"),
+        Err(Failed::Refused(
+            "GitHub's id of the login cannot name a lock".into()
+        ))
+    );
+    assert_eq!(rows(&home).len(), 0);
+    assert!(!runs::calls(&home, "floorplan")
+        .join("by-login-../7.lock")
+        .exists());
+    for (id, safe) in [
+        ("7", true),
+        ("id-alice_2", true),
+        ("", false),
+        ("../7", false),
+        ("7/8", false),
+        ("7 ", false),
+        ("7.lock", false),
+    ] {
+        assert_eq!(super::lock_safe(&AccountId::new(id)), safe, "{id:?}");
+    }
+    assert!(!super::lock_safe(&AccountId::new("9".repeat(65))));
 }
 
 #[test]

@@ -68,7 +68,7 @@ fn got<T>(law: &str, what: &str, answer: crate::Got<T>) -> Result<T, Broken> {
 
 /// Laws of the tickets port.
 pub mod tickets {
-    use super::{got, hold, Law};
+    use super::{got, hold, Broken, Law};
     use std::num::NonZeroU32;
 
     use crate::{
@@ -412,6 +412,46 @@ pub mod tickets {
                     d.parent
                 )
             })?;
+        }
+        Ok(())
+    }
+
+    /// `labels` holds every label the site holds on a ticket, by the
+    /// site's own name and in the site's order, a name no mark can have
+    /// among them, and nothing else: in the digest `several` gives, and in
+    /// the one `list` gives with the default filter within `bound` for each
+    /// ticket of `held` it lists. The fixture's `held` names tickets with
+    /// the labels the site holds on each. `labels` is for display alone,
+    /// never a decision input (Decided 130).
+    pub fn every_label_is_in_labels_in_order(
+        h: &mut dyn Tickets,
+        held: &[(TicketKey, Vec<String>)],
+        bound: Bound,
+    ) -> Law {
+        const LAW: &str = "tickets::every_label_is_in_labels_in_order";
+        let keys: Vec<TicketKey> = held.iter().map(|(k, _)| k.clone()).collect();
+        let listed = got(LAW, "the list", h.list(&Filter::default(), bound))?.into_items();
+        let several = h.several(&keys);
+        for (k, want) in held {
+            let (_, answer) = several.iter().find(|(s, _)| s == k).ok_or_else(|| Broken {
+                law: LAW.to_string(),
+                what: format!("several left {k:?} out"),
+            })?;
+            let d = got(LAW, "several", answer.clone())?;
+            hold(d.labels == *want, LAW, || {
+                format!(
+                    "several gave {k:?} labels {:?}, the site holds {want:?}",
+                    d.labels
+                )
+            })?;
+            for d in listed.iter().filter(|d| d.key == *k) {
+                hold(d.labels == *want, LAW, || {
+                    format!(
+                        "list gave {k:?} labels {:?}, the site holds {want:?}",
+                        d.labels
+                    )
+                })?;
+            }
         }
         Ok(())
     }
