@@ -33,9 +33,9 @@ t_eq "$(cd "$th/fun" && find . -type f ! -name version.txt -regextype posix-exte
       ! -regex '.*/[A-Za-z0-9_.-]+\.[0-9a-f]{12}\.(js|css)' | LC_ALL=C sort)" \
   "$(cd "$fixture/host/fun" && find . -type f ! -name '*.d.ts' | LC_ALL=C sort)"
 t_eq "$(cd "$th/fun" && find . -name '*.d.ts')" ""
-# Two pages name some of these files, so the copies are fewer than the tags.
+# A copy for each tag of the dashboard.
 t_eq "$(cd "$th/fun" && find . -type f -regextype posix-extended \
-      -regex '.*/[A-Za-z0-9_.-]+\.[0-9a-f]{12}\.(js|css)' | wc -l)" 21
+      -regex '.*/[A-Za-z0-9_.-]+\.[0-9a-f]{12}\.(js|css)' | wc -l)" 14
 
 t_case "a tag of a dashboard page names the hashed copy, which is installed"
 # The name holds the first 12 hex digits of the sha256 of the file's bytes, the
@@ -45,16 +45,16 @@ for name in dock.js dock.css; do
   stem=${name%%.*}
   extension=${name##*.}
   hash=$(sha256sum "$fixture/host/fun/$name" | cut -c1-12)
-  t_contains "$(cat "$th/fun/index.html")" "/fun/$stem.$hash.$extension"
+  t_contains "$(cat "$th/docs/dashboard.frag")" "/fun/$stem.$hash.$extension"
   t_eq "$([ -f "$th/fun/$stem.$hash.$extension" ] && echo there)" "there"
   # The copy holds the bytes the checkout holds, under the new name.
   t_eq "$(cmp -s "$fixture/host/fun/$name" "$th/fun/$stem.$hash.$extension" && echo same)" "same"
   # And the page asks for no other name of it.
-  t_lacks "$(cat "$th/fun/index.html")" "src=\"/fun/$name\""
+  t_lacks "$(cat "$th/docs/dashboard.frag")" "src=\"/fun/$name\""
 done
 # The theme a template names keeps its name: nothing here can hash a name the
 # request makes, and the file is installed as it is.
-t_contains "$(cat "$th/fun/index.html")" 'href="/fun/theme-{{ $design }}.css"'
+t_contains "$(cat "$th/docs/_layout.html")" 'href="/fun/theme-{{ $design }}.css"'
 t_eq "$(cd "$th/fun" && find . -name 'theme-*.css' | wc -l)" 2
 
 t_case "a hashed name of older content is removed, and --check says so"

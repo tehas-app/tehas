@@ -138,6 +138,10 @@ t_contains "$sitemap" '{{- if ne (env "TEHAS_SITE_INDEXING") "1" }}{{ httpError 
 t_contains "$(cat "$T_ROOT/console/ops/src/update/files.rs")" 'if same_content(from, &e.to) {'
 t_contains "$(cat "$T_ROOT/host/docs/host.md")" 'file last changed on this host (an update leaves a page with the same bytes as'
 
+t_case "the dashboard's canonical address is /, the one the sitemap lists, at / and at /dashboard"
+t_contains "$(cat "$T_ROOT/host/docs/_layout.html")" '<link rel="canonical" href="{{ $base }}/{{ if not $isFrag }}{{ $path }}{{ end }}">'
+t_contains "$(cat "$T_ROOT/host/docs/_layout.html")" '<meta property="og:url" content="{{ $base }}/{{ if not $isFrag }}{{ $path }}{{ end }}">'
+
 t_case "the live list holds the 16 names the dashboard, the console and the server read"
 t_eq "$(printf '%s\n' "$table" | wc -l)" 16
 for want in /status.json /running.json /endings.json /epics.json /health.json /health.down \
@@ -293,7 +297,7 @@ t_eq "$(grep -c -F 'STATES[it.state] || "not serving";' "$T_ROOT/host/fun/factor
 t_case "the pages take an address only with a number of one to nine digits and no leading zero"
 # A dot or a dash after the label: TEHAS_EDGE_ONE_LEVEL names uat-12-demo.example.org.
 t_eq "$(grep -c -F 'const ADDRESS = /^https:\/\/uat-([1-9][0-9]{0,8}|main)[.-][a-z0-9.-]+\/$/;' "$T_ROOT/host/fun/factory/tehas-factory-previews.model.js")" 1
-t_eq "$(grep -c -e 'uat-\[0-9\]+' -e 'item-\[0-9\]+' "$T_ROOT/host/fun/factory/tehas-factory-previews.model.js" "$T_ROOT/host/fun/game-view.js" | grep -c -v ':0$')" 0
+t_eq "$(grep -c -e 'uat-\[0-9\]+' -e 'item-\[0-9\]+' "$T_ROOT/host/fun/factory/tehas-factory-previews.model.js")" 0
 
 # The dashboard's files are compressed on their way out and cached by the
 # browser: the scripts and stylesheets under a name that holds their own bytes,
@@ -362,11 +366,6 @@ done
 t_eq "$(printf '%s\n' "$fun" | awk '/respond @backup 404/ {r = NR} /header @hashed / {h = NR} END {print (r && h && r < h) ? "before" : "after"}')" before
 
 t_case "the pages are never cached, so a new install is seen at once"
-handler=@front
-body=$(awk -v want="        handle $handler {" 'index($0, want) == 1 {on = 1}
-  on {print} on && /^        \}$/ {exit}' "$docs_caddy")
-[ -n "$body" ] || t_bad "no handler of $handler in $docs_caddy"
-t_eq "$(printf '%s\n' "$body" | grep -c -F 'header Cache-Control "no-cache"')" 1
 # The closing handler is the layout every manual page is read through, and it
 # answers after the rewrite of the path, where a matcher of the page's own name
 # would no longer match.

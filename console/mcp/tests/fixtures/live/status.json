@@ -5,4 +5,4 @@
 "awaiting":[{"number":5,"title":"Awaiting review","url":"https://github.com/example/demo/pull/5","updatedAt":"2026-10-19T20:00:00Z","closedAt":null}],
 "stopped":[{"number":4,"title":"Stopped issue","url":"https://github.com/example/demo/issues/4","updatedAt":"2026-10-19T19:00:00Z","closedAt":null}],
 "completed":[{"number":3,"title":"Done issue","url":"https://github.com/example/demo/issues/3","updatedAt":"2026-10-19T18:00:00Z","closedAt":"2026-10-19T18:00:00Z"}],
-"buzzwords":[{"word":"cycle","count":3}],"links":{"all":"https://github.com/example/demo/issues"}}
+"strayWords":[{"word":"cycle","count":3}],"links":{"all":"https://github.com/example/demo/issues"}}

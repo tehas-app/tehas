@@ -88,24 +88,12 @@
             header Cache-Control "no-store"
             file_server
         }
-        # The front page is the factory floor, also at /floor, drawn in the
-        # instance's design (TEHAS_DESIGN). Static pages are outside it; their
-        # assets stay under /fun/. The plain dashboard is at /dashboard.
+        # The front page is the plain dashboard, which the layout draws for /
+        # as for /dashboard. The factory floor left in 2.0: its address sends
+        # a link to the front page. Assets stay under /fun/.
         redir /fun /
         redir /fun/ /
-        # The pages keep their names and are revalidated every time: install.sh
-        # may have replaced them, and a page is small enough to ask about. The
-        # scripts and stylesheets it names keep their content under a hashed
-        # name, cached for ever, which is why a page is never cached.
-        @front path / /floor
-        handle @front {
-            root * /srv/fun
-            rewrite * /index.html
-            header Cache-Control "no-cache"
-            # A template only for the absolute address in its share tags.
-            templates
-            file_server
-        }
+        redir /floor / permanent
         # Browsers and crawlers ask for /favicon.ico whatever a page links.
         # They get the icon the pages link, as the SVG it is.
         handle /favicon.ico {

@@ -7,7 +7,7 @@ description: "The files that feed the dashboard, and what watches the host's hea
 
 ## tehasbot status and the console
 
-Feed the [factory floor](/floor) and the [plain dashboard](/dashboard). `tehasbot status` writes the queue snapshot to
+Feed the [plain dashboard](/dashboard). `tehasbot status` writes the queue snapshot to
 `~/tehas/live/status.json`; the dispatcher runs it at the start of a poll only
 when that file is five minutes old or missing, and after any poll that changed
 the queue, and a cycle when it ends. An idle poll whose file the last poll wrote
@@ -66,7 +66,7 @@ issue, the one `TEHAS_CONTROL_ISSUE` names, is left out of every list and every
 count: it holds the pause label and is not work, whatever label it carries.
 
 `tehasbot status` also writes `~/tehas/live/epics.json`, the epics panel of
-the front page: every open issue with sub-issues, GitHub's own links, newest
+the dashboard: every open issue with sub-issues, GitHub's own links, newest
 first, with GitHub's count of its sub-issues and how many are closed, and its
 sub-issues in their order with their state. Only sub-issues of the instance's
 repository are named; one elsewhere is counted in `more` and not named. A closed
@@ -208,21 +208,6 @@ the host knows that an agent can print: each name and address in
 `--private`; a name shorter than 4 characters is left out, as it would mask
 ordinary words. They are names, not secrets: a token is never on a command
 line.
-
-The snapshot also carries the words of the breakroom game, Buzzword Buster.
-They are counted over the titles and labels of every issue of the repository,
-the newest thousand, not only the ones the factory was given: work going on
-beside the factory shows up there. The file holds the hundred most used words
-with their counts, and no title or issue number. On a published dashboard
-those words are public too. The list is read at most once an hour, the time
-of the last read kept in `state/buzzwords.at`; between reads the words of the
-file before are kept. If GitHub does not answer that call, the words before
-are kept and the next run asks again; with none before, the snapshot is
-written without them and the game counts the tickets on the line. A round
-shows at most twelve of the forty most used words, picked by chance, and writes
-them on up to twenty-four tetrominoes: a wall no wider than sixteen cells and no
-taller than six, its cells solid from the top down with no holes in them, so it
-is another one every time.
 
 ## tehasbot health
 

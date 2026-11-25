@@ -2,8 +2,8 @@
    mark, the panels and the foot. Obeya and industry's workshop take them from
    a release by selector, top-level rules only, so a selector here keeps its
    exact text; a rename stops their builds. Every colour, edge and size is the
-   theme's token. No page of tehas links this file: the floor draws its own in
-   game-view.css. */
+   theme's token. No page of tehas links this file: the manual and the
+   dashboard draw their own in manual.css. */
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
