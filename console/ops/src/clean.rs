@@ -1056,8 +1056,7 @@ fn which(name: &str) -> Option<String> {
     let path = std::env::var("PATH").ok()?;
     path.split(':').find_map(|dir| {
         let p = Path::new(dir).join(name);
-        let m = fs::metadata(&p).ok()?;
-        (m.is_file() && m.permissions().mode() & 0o111 != 0).then(|| p.display().to_string())
+        tehas_core::file::runnable(&p).then(|| p.display().to_string())
     })
 }
 
@@ -1855,9 +1854,7 @@ impl Run {
     fn upkeep(&mut self) -> bool {
         let bin = self.home.join("libexec").join("store");
         let db = Home::new(&self.home).state(State::StoreDb);
-        let runnable =
-            fs::metadata(&bin).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0);
-        if !runnable || !plain_file(&db) {
+        if !tehas_core::file::runnable(&bin) || !plain_file(&db) {
             self.warn("the state store is not installed: no logs removed, no backup");
             self.upkept(Some(("absent", "the state store is not installed")));
             return false;

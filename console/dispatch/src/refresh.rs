@@ -41,10 +41,7 @@ fn kept_at(request: &str, pr: u64, head: &str) -> Option<String> {
 /// Whether `program` names a file that can be run: as a path, or found in a
 /// directory of `path`.
 fn found(program: &str, path: Option<&std::ffi::OsStr>) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    let runs = |p: &Path| {
-        fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
-    };
+    let runs = tehas_core::file::runnable;
     if program.contains('/') {
         return runs(Path::new(program));
     }

@@ -506,11 +506,7 @@ mod wiring {
         let path = std::env::var_os("PATH").unwrap_or_default();
         std::env::split_paths(&path)
             .map(|d| d.join("curl"))
-            .find(|p| {
-                use std::os::unix::fs::PermissionsExt;
-                p.metadata()
-                    .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
-            })
+            .find(|p| tehas_core::file::runnable(p))
             .map_or_else(tehas_github::Curl::new, tehas_github::Curl::at)
     }
 

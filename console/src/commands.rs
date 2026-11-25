@@ -47,7 +47,6 @@ use crate::{
     host_message, labels, mcp, order, question, queue, start, state, status, stop, top, wake,
 };
 use std::env;
-use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::ExitStatusExt;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -139,10 +138,7 @@ fn analytics(given: &[String]) -> u8 {
         );
         exit::FAILED
     };
-    if !bin
-        .metadata()
-        .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
-    {
+    if !tehas_core::file::runnable(&bin) {
         return not_installed();
     }
     let ran = Command::new(&bin)

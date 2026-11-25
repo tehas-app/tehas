@@ -215,9 +215,7 @@ fn old_record(home: &Path) -> Option<String> {
 
 /// tehas_store_ready: the store installed and its file a plain one.
 fn store_ready(home: &Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    let bin = std::fs::metadata(home.join("libexec/store"))
-        .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0);
+    let bin = tehas_core::file::runnable(&home.join("libexec/store"));
     let db = std::fs::symlink_metadata(Home::new(home).state(State::StoreDb))
         .is_ok_and(|m| m.file_type().is_file());
     bin && db

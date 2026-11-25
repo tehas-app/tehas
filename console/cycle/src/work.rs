@@ -334,7 +334,6 @@ use crate::start;
 use crate::watch;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -377,10 +376,6 @@ fn short_wait(name: &str, default: u64) -> u64 {
     }
 }
 
-fn executable(path: &str) -> bool {
-    fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
-}
-
 /// What the start leaves until the watch: the approval, the issue's answer and
 /// the plan of the steps. They go however the start ends.
 struct Leftovers(Vec<PathBuf>);
@@ -398,7 +393,7 @@ pub fn store_ready(home: &Path) -> bool {
     let bin = home.join("libexec/store");
     let db = Home::new(home).state(State::StoreDb);
     !home.as_os_str().is_empty()
-        && executable(&bin.to_string_lossy())
+        && tehas_core::file::runnable(Path::new(&*bin.to_string_lossy()))
         && fs::symlink_metadata(&db).is_ok_and(|m| m.is_file())
 }
 
@@ -823,7 +818,7 @@ pub fn run(home: &Path, g: &Given) -> i32 {
     } else {
         cmd
     };
-    if !executable(&console) {
+    if !tehas_core::file::runnable(Path::new(&console)) {
         eprintln!(
             "tehas work: no console beside this command at {}, run install.sh",
             g.console
