@@ -20,7 +20,8 @@ use tehas_ports::{
 
 /// What makes a runner of gh for an actor: the wiring's, so the adapter
 /// never holds a token or a credential. It is asked only for an actor the
-/// site hands handles to, `Actor::Ours(Scope::Full)` and `Actor::Operator`.
+/// site hands handles to, `Actor::Ours(Scope::Full)` and `Actor::Operator`,
+/// and `Actor::Ours(Scope::Read)` for a code host read handle.
 pub type MakeRunner = Arc<dyn Fn(&Actor) -> Got<Box<dyn GhRunner>> + Send + Sync>;
 
 /// GitHub as a `Site`: the code host and its own tracker, both realms.
@@ -118,14 +119,18 @@ impl GitHubSite {
     /// the operator's own gh are run; every other actor is
     /// `Refused(Unsupported)`: a narrower scope, a given token, a person's
     /// or a deploy credential each need a token this adapter does not mint
-    /// or keep yet, and handing them the full runner would widen them. The
-    /// one exception is the identity handle of the factory's account at
-    /// read scope, on a site given a client for people: it signs a person
-    /// in and runs no gh. Anonymous asking a write handle is `Forbidden`, as
-    /// the trait says; its code host reads are `code_host`'s, through curl.
+    /// or keep yet, and handing them the full runner would widen them. Two
+    /// exceptions are the factory's account at read scope. Its code host
+    /// read handle runs the runner the wiring makes for it: the port has no
+    /// write, and its remote fetches alone, so the scope is the handle's.
+    /// Its identity handle, on a site given a client for people, signs a
+    /// person in and runs no gh. A write handle asked at read scope or as
+    /// Anonymous is `Forbidden`, as the trait says; Anonymous's code host
+    /// reads are `code_host`'s, through curl.
     fn handle(&self, by: &Actor, caller: Caller, port: PortName, write: bool) -> Got<GitHub> {
         match by {
             Actor::Ours(Scope::Full) | Actor::Operator => {}
+            Actor::Ours(Scope::Read) if port == PortName::CodeHost && !write => {}
             // A sign-in, the factory's account at read scope (Decided 76):
             // the client for people alone, and no runner of gh, so the
             // handle asks GitHub nothing as the factory.
@@ -138,7 +143,7 @@ impl GitHubSite {
                 gh.people = Some(Arc::clone(people));
                 return Ok(gh);
             }
-            Actor::Anonymous if write => return Err(Outcome::Forbidden),
+            Actor::Ours(Scope::Read) | Actor::Anonymous if write => return Err(Outcome::Forbidden),
             _ => return unsupported(),
         }
         let runner = Metered {
@@ -153,6 +158,7 @@ impl GitHubSite {
         let mut gh = GitHub::new(self.repo.clone(), Box::new(runner)).on_clock(self.now);
         gh.bot = Some(self.bot.clone());
         gh.as_bot = matches!(by, Actor::Ours(_));
+        gh.fetch_only = *by == Actor::Ours(Scope::Read);
         gh.people = self.people.clone();
         Ok(gh)
     }
@@ -411,6 +417,62 @@ mod tests {
     }
 
     const ARGS: [&str; 2] = ["api", "repos/acme/widget/issues/7/comments"];
+
+    /// A site whose wiring makes a runner that counts what reached it, and
+    /// keeps each actor it was asked a runner for.
+    fn recording_site() -> (GitHubSite, Arc<AtomicUsize>, Arc<Mutex<Vec<Actor>>>) {
+        let sent = Arc::new(AtomicUsize::new(0));
+        let asked = Arc::new(Mutex::new(Vec::new()));
+        let (s, a) = (Arc::clone(&sent), Arc::clone(&asked));
+        let make: MakeRunner = Arc::new(move |by: &Actor| {
+            a.lock().unwrap().push(by.clone());
+            Ok(Box::new(Sends(Arc::clone(&s))) as Box<dyn GhRunner>)
+        });
+        (GitHubSite::new("acme/widget", "", None, make), sent, asked)
+    }
+
+    const READ: Actor = Actor::Ours(Scope::Read);
+
+    #[test]
+    fn the_factory_s_read_scope_reads_the_code_host_through_its_own_runner() {
+        let (site, sent, asked) = recording_site();
+        let mut h = site.code_host(&READ, Caller::new("update")).unwrap();
+        let _ = h.releases(tehas_ports::ALL_MAX);
+        assert!(sent.load(Ordering::SeqCst) > 0);
+        assert_eq!(*asked.lock().unwrap(), [READ]);
+        assert!(h.remote(tehas_ports::Access::Fetch).is_ok());
+        assert_eq!(
+            h.remote(tehas_ports::Access::Push).unwrap_err(),
+            Outcome::Forbidden
+        );
+        // The full scope's handle still pushes.
+        let mut full = site
+            .code_host(&Actor::Ours(Scope::Full), Caller::new("update"))
+            .unwrap();
+        assert!(full.remote(tehas_ports::Access::Push).is_ok());
+    }
+
+    #[test]
+    fn the_factory_s_read_scope_writes_nothing_and_reads_no_other_port() {
+        let (site, sent, asked) = recording_site();
+        let c = Caller::new("update");
+        assert_eq!(
+            site.code_host_writes(&READ, c).err(),
+            Some(Outcome::Forbidden)
+        );
+        assert_eq!(site.ticket_writes(&READ, c).err(), Some(Outcome::Forbidden));
+        assert_eq!(
+            site.blueprint_writes(&READ, c).err(),
+            Some(Outcome::Forbidden)
+        );
+        let unsupported = Some(Outcome::Refused(tehas_ports::Refusal::Unsupported));
+        assert_eq!(site.tickets(&READ, c).err(), unsupported);
+        assert_eq!(site.blueprints(&READ, c).err(), unsupported);
+        assert_eq!(site.board(&READ, c).err(), unsupported);
+        assert_eq!(site.identity(&READ, c).err(), unsupported);
+        assert_eq!(sent.load(Ordering::SeqCst), 0);
+        assert!(asked.lock().unwrap().is_empty());
+    }
 
     #[test]
     fn a_write_with_input_past_the_deadline_is_not_sent_nor_counted() {
