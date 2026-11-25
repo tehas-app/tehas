@@ -56,20 +56,15 @@ const DIRS: [&str; 10] = [
 /// the file is not a new one. A seed reads nanoseconds of the host's clock to
 /// tell two names apart, and an mtime age compares a file's time with the
 /// host's clock: no second of the workspace's clock answers either.
-const EXEMPT: [(&str, &str); 10] = [
+const EXEMPT: [(&str, &str); 8] = [
     ("core/src/file.rs", "seed of a temporary's name"),
-    ("cycle/src/after.rs", "seed of a temporary's name"),
-    ("cycle/src/start.rs", "seed of a temporary's name"),
+    ("core/src/file.rs", "seed of a new name in a directory"),
     (
         "dispatch/src/apply/start.rs",
         "seed of a scratch file's name",
     ),
     ("ops/src/clean.rs", "mtime age"),
     ("ops/src/sandbox.rs", "seed of a temporary's name"),
-    (
-        "ops/src/update/mod.rs",
-        "seed of a temporary directory's name",
-    ),
     ("store/src/upkeep.rs", "mtime age"),
     ("xtask/src/pack.rs", "seed of a scratch name"),
     ("xtask/src/run.rs", "seed of a scratch name"),
