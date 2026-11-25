@@ -160,6 +160,8 @@ case "$1 $2" in
         # The approval on record as the claim's mark goes on, as for gh
         # issue edit below.
         case "${6#*=}" in *:running) TEHAS_HOME=$T/home/tehas "$T/store-bin" approval-current "${n%%/*}" >"$T/calls/approved.at-mark" 2>/dev/null ;; esac
+        # The planning record as the issue is marked as planning.
+        case "${6#*=}" in tehas:planning) TEHAS_HOME=$T/home/tehas "$T/store-bin" plan-show "${n%%/*}" >"$T/calls/record.at-mark" 2>/dev/null ;; esac
         edit_fails "issue edit ${n%%/*} --repo acme/widget --add-label ${6#*=}"
         fails mark-fails mark-fails-times ;;
       "DELETE repos/acme/widget/issues/"*/labels/*)
@@ -182,8 +184,36 @@ case "$1 $2" in
         case " $* " in *" .id "*) echo "$id" ;;
           *) printf '{"id":%s,"html_url":"https://github.com/acme/widget/issues/%s#issuecomment-%s"}\n' "$id" "$n" "$id" ;;
         esac ;;
+      # An edit of an issue's own text or state, as the tickets port sends
+      # it: kept in calls/patched-<n> for `World::patched`, answered as the
+      # issue it made. $fx/patch-fails refuses it.
+      "PATCH repos/acme/widget/issues/"[0-9]*)
+        n=${rest_path#repos/acme/widget/issues/}
+        case "$n" in */*) fails patch-fails ;; *)
+          fails patch-fails
+          # The edit in gh's words, so edit_fails names it as a case does.
+          if [ "$(jq -r '.state // empty' <<<"$input")" = closed ]; then
+            edit_fails "issue close $n --repo acme/widget"
+          else
+            edit_fails "issue edit $n --repo acme/widget $(jq -r '[if .title then "--title \(.title)" else empty end,
+              if .body then "--body \(.body)" else empty end] | join(" ")' <<<"$input")"
+          fi
+          printf '%s\0' "$input" >>"$T/calls/patched-$n"
+          jq -c --argjson n "$n" '{number: $n, html_url: "https://github.com/acme/widget/issues/\($n)",
+            title: "an issue", body: "", state: "open"} + .' <<<"$input" ;;
+        esac ;;
+      # A part linked under its parent. $fx/part-fails refuses it.
+      "POST repos/acme/widget/issues/"*/sub_issues)
+        fails part-fails
+        n=${rest_path#repos/acme/widget/issues/}
+        printf '%s\n' "$input" >>"$T/calls/parts-${n%%/*}"
+        echo "{}" ;;
       *) fails patch-fails ;;
     esac ;;
+  # The parent of an issue: none, unless a case writes $fx/parent-<n>.json.
+  "api repos/acme/widget/issues/"*/parent)
+    n=${2#repos/acme/widget/issues/}
+    cat "$T/fx/parent-${n%%/*}.json" 2>/dev/null || not_found ;;
   # The reviews and inline comments of a pull request, as REST lists them.
   "api repos/acme/widget/pulls/"*"/reviews?per_page=100" | "api repos/acme/widget/pulls/"*"/comments?per_page=100")
     n=${2#repos/acme/widget/pulls/}
@@ -223,12 +253,17 @@ case "$1 $2" in
         url="https://github.com/acme/widget/issues/$n"
         # A case's issue, with the address and text a write's read of it
         # needs when the case wrote none.
+        # The fields of an issue every read of the tickets port needs, where
+        # the case wrote none: its title, times and id (1000 past its number).
         if [ -e "$T/fx/work-$n.json" ]; then
-          jq -c --arg url "$url" 'if type == "object" then . + {html_url: (.html_url // $url), body: (.body // "")} else . end' \
+          jq -c --arg url "$url" --argjson n "$n" 'if type == "object" then {number: $n, state: "open", title: "an issue",
+            created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z", labels: [], id: (1000 + $n)}
+            + . + {html_url: (.html_url // $url), body: (.body // "")} else . end' \
             "$T/fx/work-$n.json" 2>/dev/null || cat "$T/fx/work-$n.json"
         else
-          jq -c --argjson n "$n" --arg url "$url" "{number: \$n, state: \"open\", html_url: \$url, body: \"\", labels: (if any(.[]?; type == \"object\" and .number == \$n)
-            then [{name: \"tehas:running\"}] else [] end)}" "$T/fx/marked.json" 2>/dev/null || echo "{\"number\":$n,\"state\":\"open\",\"html_url\":\"$url\",\"body\":\"\"}"
+          jq -c --argjson n "$n" --arg url "$url" "{number: \$n, state: \"open\", html_url: \$url, body: \"\", title: \"an issue\", id: (1000 + \$n),
+            created_at: \"2026-01-01T00:00:00Z\", updated_at: \"2026-01-01T00:00:00Z\", labels: (if any(.[]?; type == \"object\" and .number == \$n)
+            then [{name: \"tehas:running\"}] else [] end)}" "$T/fx/marked.json" 2>/dev/null || echo "{\"number\":$n,\"state\":\"open\",\"html_url\":\"$url\",\"body\":\"\",\"title\":\"an issue\",\"id\":$((1000 + n)),\"created_at\":\"2026-01-01T00:00:00Z\",\"updated_at\":\"2026-01-01T00:00:00Z\",\"labels\":[]}"
         fi ;;
     esac ;;
   # The check runs of a name on the head commit of the branch.
@@ -575,7 +610,7 @@ pub const MINIMAL: &[&str] = &[
 
 /// The logins whose user ids install.sh records, as the shell tests list them.
 const LOGINS: &[&str] = &[
-    "tehas-bot",
+    "tehas-bot[bot]",
     "alice",
     "bob",
     "bob-2",
@@ -1468,6 +1503,73 @@ impl World {
             ticket: tehas_ports::TicketKey::Number(std::num::NonZeroU64::new(n).unwrap()),
             mark,
         })
+    }
+
+    /// Whether the poll made each change of `parts` on issue `n`, a write
+    /// of the ports a part.
+    pub fn changes(&self, n: u64, parts: &[Part]) -> bool {
+        parts.iter().all(|p| match p {
+            Part::On(m) => self.on(n, m.clone()),
+            Part::Off(m) => self.off(n, m.clone()),
+        })
+    }
+
+    /// The edits of issue `n`'s own text or state the site was sent.
+    pub fn patched(&self, n: u64) -> Vec<Patched> {
+        fs::read_to_string(self.t.join(format!("calls/patched-{n}")))
+            .unwrap_or_default()
+            .split('\0')
+            .filter_map(|b| serde_json::from_str::<Value>(b).ok())
+            .map(|v| {
+                let field = |k: &str| v[k].as_str().map(str::to_string);
+                Patched {
+                    title: field("title"),
+                    body: field("body"),
+                }
+            })
+            .collect()
+    }
+
+    /// Whether issue `n`'s text was written starting with `text`.
+    pub fn body_of(&self, n: u64, text: &str) -> bool {
+        self.patched(n)
+            .iter()
+            .any(|p| p.body.as_deref().is_some_and(|b| b.starts_with(text)))
+    }
+
+    /// Whether the poll changed no issue: no mark, no edit of a text.
+    pub fn untouched(&self) -> bool {
+        let edited = fs::read_dir(self.t.join("calls")).is_ok_and(|d| {
+            d.flatten()
+                .any(|e| e.file_name().to_string_lossy().starts_with("patched-"))
+        });
+        self.marks(None) == 0 && !edited
+    }
+
+    /// Whether issue `n` was written with `title` and a text that starts
+    /// with `text`.
+    pub fn wrote(&self, n: u64, title: Option<&str>, text: &str) -> bool {
+        self.patched(n).iter().any(|p| {
+            p.title.as_deref() == title && p.body.as_deref().is_some_and(|b| b.starts_with(text))
+        })
+    }
+
+    /// Whether the poll closed issue `n` as not planned.
+    pub fn closed(&self, n: u64) -> bool {
+        self.writes_of(n).contains(&tehas_ports::Write::Close {
+            ticket: tehas_ports::TicketKey::Number(std::num::NonZeroU64::new(n).unwrap()),
+            reason: tehas_ports::CloseReason::NotPlanned,
+        })
+    }
+
+    /// Whether the poll linked issue `child` as a part of `parent`.
+    pub fn parted(&self, parent: u64, child: u64) -> bool {
+        let key = |n| tehas_ports::TicketKey::Number(std::num::NonZeroU64::new(n).unwrap());
+        self.writes_of(parent)
+            .contains(&tehas_ports::Write::AddPart {
+                parent: key(parent),
+                child: key(child),
+            })
     }
 
     /// How often the poll took `mark` off issue `n`.
@@ -2640,4 +2742,19 @@ pub fn lacks(got: &str, want: &str) {
 /// The lines of `text` that start with `prefix`.
 pub fn count_lines(text: &str, prefix: &str) -> usize {
     text.lines().filter(|l| l.starts_with(prefix)).count()
+}
+
+/// A change of one mark: put on, or taken off.
+#[allow(dead_code)] // each test file uses a part of this module
+pub enum Part {
+    On(tehas_ports::Mark),
+    Off(tehas_ports::Mark),
+}
+
+/// An edit of an issue the site was sent: the title and text it set.
+#[allow(dead_code)] // each test file uses a part of this module
+#[derive(Debug)]
+pub struct Patched {
+    pub title: Option<String>,
+    pub body: Option<String>,
 }

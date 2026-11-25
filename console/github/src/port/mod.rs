@@ -4,10 +4,12 @@
 //! closed tickets, and `writes.rs` its writes;
 //! `identity.rs`, `code_host.rs`, `board.rs` and `blueprints.rs` hold their
 //! ports' answers as each is built. `site.rs` is the `Site` that makes the
-//! handles. What every handle answers, its reports
+//! handles, and `anonymous.rs` the code host handle of `Actor::Anonymous`,
+//! which reaches GitHub through `curl.rs` and never through gh. What every handle answers, its reports
 //! and the names it cites by, is here. A method no caller asks yet answers
 //! `Refused(Unsupported)` before any request.
 
+mod anonymous;
 mod blueprint_writes;
 mod blueprints;
 mod board;
@@ -60,49 +62,57 @@ impl Reports for GitHub {
 
 impl Cites for GitHub {
     fn cite(&self, what: &Cite) -> String {
-        fn named<T>(r: &Ref<T>, here: impl Fn(&T) -> String) -> String {
-            match r {
-                Ref::Here(t) => format!("#{}", here(t)),
-                Ref::Elsewhere { project, item } => {
-                    format!("{}#{}", project.as_str(), item.as_str())
-                }
-            }
-        }
-        match what {
-            Cite::Ticket(r) => named(r, |k| match k {
-                TicketKey::Number(n) => n.get().to_string(),
-                TicketKey::Key(k) => k.as_str().to_string(),
-            }),
-            Cite::Blueprint(r) => named(r, |n| n.get().to_string()),
-            Cite::Change(r) => named(r, |n| n.get().to_string()),
-            Cite::Account(login) => format!("@{}", login.as_str()),
-            Cite::Marker(m) => table::cite_marker(m),
-            Cite::Mark(m) => table::cite_mark(m),
-            // A cite this copy does not know names nothing rather than a
-            // wrong item.
-            _ => String::new(),
-        }
+        cite(what)
     }
 
-    /// The page GitHub shows an item of this repository on, built with no
-    /// request as its read's `html_url` gives it: an issue's for a ticket
-    /// or a blueprint, a pull request's for a change. A key that is no
-    /// number, an item of another project, a mark and a marker link
-    /// nothing, and so does every cite of a repository that is not exactly
-    /// `owner/name`. An account links nothing either: a login does not say
-    /// whether it is a person's or an App's, whose page is
-    /// `apps/<slug>`, so `github.com/<login>` could be another account's,
-    /// until a cite carries the account's kind.
     fn link(&self, what: &Cite) -> Option<tehas_ports::WebLink> {
-        let (owner, name) = code_host::parts(&self.repo)?;
-        let page = match what {
-            Cite::Ticket(Ref::Here(TicketKey::Number(n))) => {
-                format!("{owner}/{name}/issues/{}", n.get())
-            }
-            Cite::Blueprint(Ref::Here(n)) => format!("{owner}/{name}/issues/{}", n.get()),
-            Cite::Change(Ref::Here(n)) => format!("{owner}/{name}/pull/{}", n.get()),
-            _ => return None,
-        };
-        tehas_ports::WebLink::new(format!("https://github.com/{page}")).ok()
+        link(&self.repo, what)
     }
+}
+
+/// The text that names `what` in a body written to GitHub.
+pub(super) fn cite(what: &Cite) -> String {
+    fn named<T>(r: &Ref<T>, here: impl Fn(&T) -> String) -> String {
+        match r {
+            Ref::Here(t) => format!("#{}", here(t)),
+            Ref::Elsewhere { project, item } => {
+                format!("{}#{}", project.as_str(), item.as_str())
+            }
+        }
+    }
+    match what {
+        Cite::Ticket(r) => named(r, |k| match k {
+            TicketKey::Number(n) => n.get().to_string(),
+            TicketKey::Key(k) => k.as_str().to_string(),
+        }),
+        Cite::Blueprint(r) => named(r, |n| n.get().to_string()),
+        Cite::Change(r) => named(r, |n| n.get().to_string()),
+        Cite::Account(login) => format!("@{}", login.as_str()),
+        Cite::Marker(m) => table::cite_marker(m),
+        Cite::Mark(m) => table::cite_mark(m),
+        // A cite this copy does not know names nothing rather than a
+        // wrong item.
+        _ => String::new(),
+    }
+}
+
+/// The page GitHub shows an item of `repo` on, built with no request as
+/// its read's `html_url` gives it: an issue's for a ticket or a blueprint,
+/// a pull request's for a change. A key that is no number, an item of
+/// another project, a mark and a marker link nothing, and so does every
+/// cite of a repository that is not exactly `owner/name`. An account links
+/// nothing either: a login does not say whether it is a person's or an
+/// App's, whose page is `apps/<slug>`, so `github.com/<login>` could be
+/// another account's, until a cite carries the account's kind.
+pub(super) fn link(repo: &str, what: &Cite) -> Option<tehas_ports::WebLink> {
+    let (owner, name) = code_host::parts(repo)?;
+    let page = match what {
+        Cite::Ticket(Ref::Here(TicketKey::Number(n))) => {
+            format!("{owner}/{name}/issues/{}", n.get())
+        }
+        Cite::Blueprint(Ref::Here(n)) => format!("{owner}/{name}/issues/{}", n.get()),
+        Cite::Change(Ref::Here(n)) => format!("{owner}/{name}/pull/{}", n.get()),
+        _ => return None,
+    };
+    tehas_ports::WebLink::new(format!("https://github.com/{page}")).ok()
 }

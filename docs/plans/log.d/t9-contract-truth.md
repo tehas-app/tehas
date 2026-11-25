@@ -1,0 +1,1 @@
+| 2026-11-24 | T9: the contract's truth pass: the store at 32 and analytics at 7, "Changed in 2.0" rows for the T11 and T4 changes that landed with fragments, and "Pending for 2.0" says the four events not raised and the store's migration from v0.30 | v2/t9-contract-truth |

@@ -1,0 +1,1 @@
+| 2026-11-24 | The finish replies go through the tickets port with their marker typed beside the text (Decided 74), and point to the manual for the ask's marker instead of quoting it; a text given its markers never goes through gh (T4.7 step 5) | v2/t4-7-finish |
