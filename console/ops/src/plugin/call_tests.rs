@@ -5,6 +5,7 @@ use super::*;
 use tehas_core::access::{AccountId, Permission, Person};
 use tehas_core::plugin::state::{State, Word};
 use tehas_core::testdir::TestDir;
+use tehas_ports::{Got, Outcome, Passing, Sent};
 
 const KEY: &str = "0a1b2c3d";
 
@@ -112,13 +113,13 @@ struct People {
 }
 
 impl GitHub for People {
-    fn token(&self, _: &str) -> Result<String, String> {
-        Err("not asked".into())
+    fn token(&self, _: &str) -> Got<String> {
+        Err(Outcome::Forbidden)
     }
-    fn user(&self, _: &str) -> Result<Person, String> {
-        Err("not asked".into())
+    fn user(&self, _: &str) -> Got<Person> {
+        Err(Outcome::Forbidden)
     }
-    fn permission(&self, login: &str) -> Result<Permission, String> {
+    fn permission(&self, login: &str) -> Got<Permission> {
         self.asked.lock().unwrap().push(login.to_string());
         match login {
             "octocat" => Ok(Permission::Of(
@@ -137,18 +138,21 @@ impl GitHub for People {
                 Some(Level::Write),
                 "write".into(),
             )),
-            _ => Err("GitHub answered 502 for the permission".into()),
+            _ => Err(Outcome::Unavailable {
+                why: Passing::Server,
+                sent: Sent::Maybe,
+            }),
         }
     }
-    fn public(&self) -> Result<bool, String> {
-        Err("not asked".into())
+    fn public(&self) -> Got<bool> {
+        Err(Outcome::Forbidden)
     }
 }
 
 fn ask(x: &mut Peek, home: &Path, args: &Value, caller: &Caller) -> Result<Value, Failed> {
     call(
         x,
-        &People::default(),
+        Some(&People::default()),
         home,
         &settings("tool:find-doc"),
         "floorplan",
@@ -300,7 +304,7 @@ fn a_call_not_ready_or_granted_is_refused_and_runs_nothing() {
     let (home, mut x) = world("call-refused", out("{}"));
     let other = call(
         &mut x,
-        &People::default(),
+        Some(&People::default()),
         &home,
         &settings("tool:find-doc"),
         "floorplan",
@@ -316,7 +320,7 @@ fn a_call_not_ready_or_granted_is_refused_and_runs_nothing() {
     );
     let ungranted = call(
         &mut x,
-        &People::default(),
+        Some(&People::default()),
         &home,
         &settings(""),
         "floorplan",
@@ -412,7 +416,7 @@ fn an_mcp_key_id_is_8_lower_case_hex_and_the_rows_by() {
 fn as_login(x: &mut Peek, gh: &dyn GitHub, home: &Path, login: &str) -> Result<Value, Failed> {
     call(
         x,
-        gh,
+        Some(gh),
         home,
         &settings("tool:find-doc"),
         "floorplan",
@@ -430,13 +434,13 @@ struct Renamed {
 }
 
 impl GitHub for Renamed {
-    fn token(&self, _: &str) -> Result<String, String> {
-        Err("not asked".into())
+    fn token(&self, _: &str) -> Got<String> {
+        Err(Outcome::Forbidden)
     }
-    fn user(&self, _: &str) -> Result<Person, String> {
-        Err("not asked".into())
+    fn user(&self, _: &str) -> Got<Person> {
+        Err(Outcome::Forbidden)
     }
-    fn permission(&self, _: &str) -> Result<Permission, String> {
+    fn permission(&self, _: &str) -> Got<Permission> {
         let mut n = self.asked.lock().unwrap();
         *n += 1;
         Ok(if *n == 1 {
@@ -445,8 +449,8 @@ impl GitHub for Renamed {
             Permission::Of(AccountId::new("9"), None, "".into())
         })
     }
-    fn public(&self) -> Result<bool, String> {
-        Err("not asked".into())
+    fn public(&self) -> Got<bool> {
+        Err(Outcome::Forbidden)
     }
 }
 
@@ -479,7 +483,7 @@ fn a_login_is_checked_against_the_repositorys_access_on_every_call() {
     assert_eq!(
         down,
         Err(Failed::Refused(
-            "GitHub could not say whether the login has access: GitHub answered 502 for the permission".into()
+            "GitHub could not say whether the login has access: the site failed; it may have been sent".into()
         ))
     );
     // An error is not kept: the next call asks again.
@@ -522,6 +526,25 @@ fn an_account_id_that_cannot_name_a_lock_is_refused() {
         assert_eq!(super::lock_safe(&AccountId::new(id)), safe, "{id:?}");
     }
     assert!(!super::lock_safe(&AccountId::new("9".repeat(65))));
+}
+
+/// With no way to ask the code host, a call for a login is refused before
+/// any row.
+#[test]
+fn a_login_with_nothing_to_ask_is_refused() {
+    let (home, mut x) = world("call-unasked", out("{}"));
+    let got = call(
+        &mut x,
+        None,
+        &home,
+        &settings("tool:find-doc"),
+        "floorplan",
+        "find-doc",
+        &q(),
+        &Caller::Login("octocat".into()),
+    );
+    assert_eq!(got, Err(Failed::Refused(super::NO_HOST.into())));
+    assert_eq!(rows(&home).len(), 0);
 }
 
 #[test]
