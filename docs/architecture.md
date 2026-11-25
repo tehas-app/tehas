@@ -186,8 +186,9 @@ of a manifest changes the table in the same commit.
 
 The same test checks the direction (R8). Each crate has a layer, inner
 to outer as the rows are grouped above, and a normal edge points to an
-earlier layer. tehas-ports, the pure crate, uses serde alone from
-outside. Only a program, a crate with a bin target, depends on
+earlier layer. A pure crate, today tehas-ports alone, takes outside
+crates only from serde, serde_json, regex and sha2; the `ports-deps`
+check holds tehas-ports to serde alone. Only a program, a crate with a bin target, depends on
 tehas-github, for its wiring. A dev edge is held to the table, not to
 the layers: core's tests read links by attach's rule, which the issue
 feed takes as a parameter.
