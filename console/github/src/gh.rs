@@ -248,8 +248,14 @@ pub(crate) const ISSUE_TYPES: &str = "query($owner: String!, $name: String!) { r
 /// account that made it.
 pub(crate) const TYPE_EVENTS: &str = "query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { issue(number: $number) { issueType { name } timelineItems(itemTypes: [ISSUE_TYPE_ADDED_EVENT, ISSUE_TYPE_CHANGED_EVENT, ISSUE_TYPE_REMOVED_EVENT], last: 20) { nodes { __typename ... on IssueTypeAddedEvent { createdAt actor { login ...on User { databaseId } ...on Bot { databaseId } } issueType { name } } ... on IssueTypeChangedEvent { createdAt actor { login ...on User { databaseId } ...on Bot { databaseId } } issueType { name } } ... on IssueTypeRemovedEvent { createdAt actor { login ...on User { databaseId } ...on Bot { databaseId } } issueType { name } } } } } } }";
 
+/// A GraphQL answer, or why it is none: one that carries errors is no whole
+/// answer (`crate::graphql`'s rule, in the forge's words).
 fn graphql(out: &str) -> Result<Value, String> {
-    serde_json::from_str(out).map_err(|_| "the answer is no JSON".to_string())
+    let v: Value = serde_json::from_str(out).map_err(|_| "the answer is no JSON".to_string())?;
+    if crate::graphql::refusal(out, 0).is_some() {
+        return Err("the answer carries errors".to_string());
+    }
+    Ok(v)
 }
 
 /// The names of the owner's issue types. A repository whose owner has none, a

@@ -19,6 +19,7 @@ mod attachments;
 mod curl;
 mod forge;
 pub mod gh;
+mod graphql;
 mod items;
 pub mod markers;
 mod port;
