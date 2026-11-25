@@ -215,16 +215,12 @@ try {
     ["an arrow key moves to the next tab", s.arrowed === "#41" && s.arrowFocus === "#41", [s.arrowed, s.arrowFocus]],
     ["three previews", s.previews === 3 && s.previewsHidden === false, [s.previews, s.previewsHidden]],
     ["a preview that does not serve says why", s.notServing === "unable to create: the build failed", s.notServing],
-    ["the ten days", s.analyticsHidden === false && s.figures >= 8 && s.days === 10 && s.line === true, [s.analyticsHidden, s.figures, s.days, s.line]],
-    ["bar heights set as custom properties", s.barHeight === true, s.barHeight],
-    ["the versions table", s.versions === 2, s.versions],
     ["the seven islands that read the queue share one poller", s.fetches?.["/live/status.json"] <= 2, s.fetches],
     ["with no status yet: no error, no CSP violation", !late.error && late.errors.length === 0 && late.violations.length === 0, [late.error, late.errors, late.violations]],
     ["the lists keep their headings while there is no status", r.headingsAfterFailure === 4, r.headingsAfterFailure],
     ["the page says there is no status yet", r.freshAfterFailure === "no status yet: the dispatcher has not written one", r.freshAfterFailure],
     ["the queue is asked for again and drawn when it comes", r.fetches?.["/live/status.json"] >= 2 && r.queued === 2 && r.headings === 4, [r.fetches?.["/live/status.json"], r.queued, r.headings]],
     ["with no running.json the state is drawn from the queue", r.pill === "idle" && /^queue read /.test(r.fresh ?? ""), [r.pill, r.fresh]],
-    ["the ten days do not wait for the queue", r.analyticsHidden === false, r.analyticsHidden],
   ];
   let failed = 0;
   for (const [name, ok, got] of checks) {

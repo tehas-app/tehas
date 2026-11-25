@@ -89,7 +89,7 @@ fn stages_text(rows: &[(&str, Value)], repo: Option<&str>) -> String {
     // Keys the tool is not given: an answer that holds one of them is caught
     // by the tests that read the whole answer as text.
     m.insert(
-        "buzzwords".into(),
+        "strayWords".into(),
         json!([{"word": "SECRET-WORD", "count": 3}]),
     );
     m.insert("secretKey".into(), json!("SECRET"));
@@ -520,7 +520,6 @@ fn full_session(kind: &str, issue: i64, ago: i64) -> Value {
         ("cacheWrite", json!(4)),
         ("turns", json!(5)),
         ("dispatches", json!(6)),
-        ("cost", json!(0.5)),
         ("runnerMs", json!(7)),
         ("oomKills", json!(0)),
         ("forksRefused", json!(1)),
@@ -535,7 +534,7 @@ fn full_session(kind: &str, issue: i64, ago: i64) -> Value {
             "roles",
             json!([{"role": "r", "model": "m", "provider": "p", "dispatches": 1,
                           "turns": 2, "input": 3, "output": 4, "cacheRead": 5,
-                          "cacheWrite": 6, "cost": 0.1, "ms": 7}]),
+                          "cacheWrite": 6, "ms": 7}]),
         ),
         (
             "logs",
@@ -987,7 +986,7 @@ fn an_issue_with_several_attempts() {
         "SECRET",
         "labels",
         "body",
-        "buzzwords",
+        "strayWords",
         "/home/x",
         "statusText",
         "tehasVersion",

@@ -23,7 +23,6 @@ pub mod sandbox;
 pub mod settings;
 pub mod setup;
 pub mod shipped;
-pub mod size;
 pub mod slice;
 pub mod stop;
 pub mod store;

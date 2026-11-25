@@ -11,7 +11,7 @@ request comes out, built by coding agents in a sandbox on self-hosted models. A
 person decides two things: what to build and what to merge. The factory does
 the rest, and it does it the way a lean factory runs a line.
 
-The [factory floor](/floor) on this host is one such factory at work.
+The [dashboard](/dashboard) on this host shows one such factory at work.
 
 ## What makes it lean
 
@@ -27,7 +27,7 @@ with code.
 | Build quality in         | The repository's own gates decide when a change is done. A second agent attacks the patch before it is committed, and the pull request is reviewed in six passes.               |
 | Stop the line            | A cycle that cannot finish stops, labels the issue `needs-human-attention` and says where it stopped. A cycle that touches `.pi/`, `.github/` or `CODEOWNERS` halts.            |
 | The andon cord           | A pause label on the control issue holds the whole queue: nothing new starts until it comes off.                                                                                |
-| Go and see               | The [factory floor](/floor) and the [plain dashboard](/dashboard) show the queue and the console of every running cycle, live.                                                  |
+| Go and see               | The [plain dashboard](/dashboard) shows the queue and the console of every running cycle, live.                                                                                 |
 | Improve the line         | Every run is recorded. [Analytics](/analytics) and the [MCP server](/mcp-server) say where runs failed, per version, so the next release can fix the cause.                    |
 | No waste in the plant    | One host, one product repository, no GPU on the factory host. Inference runs on a model endpoint you already own. Tehas is shell scripts, Rust programs and a few containers. |
 

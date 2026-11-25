@@ -5,7 +5,7 @@
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
-tools="factory_status factory_issues factory_endings factory_console factory_stats factory_issue factory_sessions factory_session factory_log factory_failures factory_decisions"
+tools="factory_status factory_issues factory_endings factory_console factory_issue factory_sessions factory_session factory_log factory_failures factory_decisions"
 
 # llms.txt is a Caddy template and builds the address from the request.
 # agents.md is plain Markdown, so it holds a placeholder.
@@ -33,36 +33,17 @@ done
 t_case "mcp-server.md: has a client config block"
 t_contains "$(cat "$T_ROOT/host/docs/mcp-server.md")" '"headers"'
 
-# The root is the factory floor, and so is /floor. A manual page names the
-# floor at /floor, the address that has meant it in every version. The rule is
-# about Markdown links; a page's own navigation is HTML and not a link a reader
-# is told to follow.
-root_re='\]\((\{\{ \$base \}\})?/\)'
-
-# The pattern is checked against its samples first: a pattern that matches
-# nothing would pass every page.
-t_case "the root link pattern finds both forms it is for"
-grep -qiE -- "$root_re" <<< 'a [factory floor](/) link' \
-  || t_bad "the pattern finds no Markdown link to the root"
-grep -qiE -- "$root_re" <<< 'a [Factory floor]({{ $base }}/) link in a template' \
-  || t_bad "the pattern finds no template link to the root"
-grep -qiE -- "$root_re" <<< '[factory floor](/floor) and [x]({{ $base }}/health) and [x](/dashboard)' \
-  && t_bad "the pattern matches a link that is not the root"
-
-t_case "no manual page links the root: it names the floor at /floor"
-roots=$(grep -rinE -- "$root_re" "$T_ROOT/host/docs" || true)
-[ -z "$roots" ] || t_bad "links the root: $roots"
-
-t_case "llms.txt links the factory floor at its /floor"
-t_contains "$(cat "$T_ROOT/host/docs/llms.txt")" '[Factory floor]({{ $base }}/floor)'
-
-t_case "the pages that name the floor link it at /floor"
-# tools-health.md is the page that took the two sections of tools.md that link
-# the floor: `tehasbot status and the console` and the live view.
-for page in operating.md overview.md lean-software-factory.md pi-software-factory.md tools-health.md; do
-  grep -qiE -- '\[factory floor\]\(/floor\)' "$T_ROOT/host/docs/$page" \
-    || t_bad "$page has no link to the floor at /floor"
-done
+# The factory floor left core in 2.0: /floor only sends a reader to the front
+# page, so no page links it. The pattern is checked against its samples first:
+# a pattern that matches nothing would pass every page.
+floor_re='\]\((\{\{ \$base \}\})?/floor\)'
+t_case "no page of the manual or for agents links the factory floor"
+grep -qE -- "$floor_re" <<< 'a [x](/floor) and a [y]({{ $base }}/floor) link' \
+  || t_bad "the pattern finds no link to /floor"
+grep -qE -- "$floor_re" <<< '[x](/floorplan) and [y](/dashboard)' \
+  && t_bad "the pattern matches a link that is not /floor"
+floors=$(grep -rnE -- "$floor_re" "$T_ROOT/host/docs" || true)
+[ -z "$floors" ] || t_bad "links /floor: $floors"
 
 t_case "llms-full.txt is llms.txt and then every page's body under its address"
 full=$(cat "$T_ROOT/host/docs/llms-full.txt")

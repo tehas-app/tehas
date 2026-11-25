@@ -556,7 +556,7 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
             "TEHAS_DISPATCHER" => "is set and this version of tehas has no bash poll: every poll is tehas-dispatch, so take the line out".to_string(),
             "TEHAS_THEME" => "is no longer read: TEHAS_DESIGN draws the whole site, beesknees26 by default or pixel, so take the line out".to_string(),
             "TEHAS_LOW_GATE" | "TEHAS_LOW_GATE_WAIT" | "TEHAS_PRIORITY_FIELD" => "is no longer read: tehas order sets the order ready issues start in, so take the line out".to_string(),
-            "TEHAS_LAYOUT" => "is no longer read: the front page is the factory floor, drawn in the design TEHAS_DESIGN names, so take the line out".to_string(),
+            "TEHAS_LAYOUT" => "is no longer read: the front page is the plain dashboard, drawn in the design TEHAS_DESIGN names, so take the line out".to_string(),
             "TEHAS_FIXER_LOGIN" => "is no longer read: the millwright is the GitHub App's login, or the app TEHAS_MILLWRIGHT_APP names, so take the line out".to_string(),
             "TEHAS_FIXER_MAX_RETRIES" => "is no longer read: the millwright's grant left in 2.0, so take the line out".to_string(),
             _ => format!(
@@ -2020,7 +2020,7 @@ mod tests {
             ),
             (
                 "TEHAS_LAYOUT=floor",
-                "is no longer read: the front page is the factory floor, drawn in the design TEHAS_DESIGN names, so take the line out",
+                "is no longer read: the front page is the plain dashboard, drawn in the design TEHAS_DESIGN names, so take the line out",
             ),
         ] {
             assert_eq!(
