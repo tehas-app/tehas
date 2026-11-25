@@ -27,6 +27,9 @@ const NOW: i64 = 1_795_530_000;
 const RELEASE: &str = "https://api.github.com/repos/acme/widget/releases/tags/v1.4.1";
 const ASSET: &str = "https://api.github.com/repos/acme/widget/releases/assets/11";
 const PAGE: &str = "https://github.com/acme/widget/releases/download/v1.4.1/install";
+/// The shape the API's redirect for an asset by id has today: seen on an
+/// anonymous read of a public release on 2026-11-24, its values made up.
+const RELEASE_ASSET: &str = "https://release-assets.githubusercontent.com/github-production-release-asset/1/0d3f6b52-2c1e-4f7a-9d8e-1a2b3c4d5e6f?sp=r&sv=2018-11-09&sr=b&spr=https&se=2026-11-24T12%3A05%3A00Z&rscd=attachment%3B+filename%3Dinstall&rsct=application%2Foctet-stream&skoid=a1&sktid=b2&skt=2026-11-24T11%3A05%3A00Z&ske=2026-11-24T12%3A05%3A00Z&sks=b&skv=2018-11-09&sig=c2lnbmF0dXJl%3D&jwt=eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjF9.c2ln&response-content-disposition=attachment%3B%20filename%3Dinstall&response-content-type=application%2Foctet-stream";
 const OBJECT: &str = "https://objects.githubusercontent.com/github-production-release-asset/1/11?X-Amz-Signature=abc&response-content-disposition=attachment%3B+filename%3Dinstall";
 
 /// The file the release lists as `install`, 98 bytes.
@@ -36,7 +39,8 @@ fn install() -> Vec<u8> {
 
 /// A stub curl in a test directory: it keeps each call's arguments in
 /// `argv` and its environment in `env`, one call a block ended by `--`,
-/// and answers the address it is given from `routes/<address>`, a route
+/// and answers the address it is given from `routes/<address>` (its first
+/// 200 characters, under a file name's limit), a route
 /// with `.sleep` beside it by never answering, and exits with the code in
 /// a route's `.exit`.
 struct Stub {
@@ -62,7 +66,7 @@ printf -- '--\n' >> "$d/argv"
 tr '\0' '\n' < /proc/$$/environ >> "$d/env"
 printf -- '--\n' >> "$d/env"
 for a in "$@"; do url=$a; done
-f="$d/routes/$(printf '%s' "${{url#https://}}" | tr -c 'A-Za-z0-9' '_')"
+f="$d/routes/$(printf '%s' "${{url#https://}}" | tr -c 'A-Za-z0-9' '_' | cut -c1-200)"
 if [ -f "$f.sleep" ]; then exec sleep 30; fi
 if [ -f "$f" ]; then cat "$f"; else printf 'HTTP/2 404 \r\n\r\n{{"message":"Not Found"}}'; fi
 if [ -f "$f.exit" ]; then exit "$(cat "$f.exit")"; fi
@@ -94,6 +98,7 @@ if [ -f "$f.exit" ]; then exit "$(cat "$f.exit")"; fi
             .unwrap_or(address)
             .chars()
             .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+            .take(200)
             .collect();
         self.dir.join("routes").join(name)
     }
@@ -263,13 +268,14 @@ fn assert_no_credential(stub: &Stub) {
 }
 
 #[test]
-fn the_hosts_are_exactly_three() {
+fn the_hosts_are_exactly_four() {
     assert_eq!(
         DOWNLOAD_HOSTS,
         [
             "api.github.com",
             "github.com",
-            "objects.githubusercontent.com"
+            "objects.githubusercontent.com",
+            "release-assets.githubusercontent.com",
         ]
     );
     assert_eq!(DOWNLOAD_LIMIT, Duration::from_secs(600));
@@ -349,6 +355,8 @@ fn a_redirect_to_any_other_host_is_refused_with_nothing_written() {
         "https://api.github.com.evil.example/install",
         "https://evilgithub.com/install",
         "https://evil.objects.githubusercontent.com/install",
+        "https://evil.release-assets.githubusercontent.com/install",
+        "https://release-assets.githubusercontent.com.evil.test/install",
         "https://githubusercontent.com/install",
         "https://github.com:443/install",
         "https://github.com@evil.example/install",
@@ -787,5 +795,21 @@ fn json_from_the_api_in_place_of_the_bytes_is_inconsistent() {
     assert_eq!(got, Err(Outcome::Unread(Unread::Inconsistent)));
     assert!(into.is_empty());
     assert_eq!(stub.asked(), [RELEASE, ASSET], "never followed");
+    assert!(left_behind().is_empty());
+}
+
+/// The API's redirect for an asset by id goes to the release assets host
+/// today: one redirect, followed, with no credential on that hop.
+#[test]
+fn a_redirect_to_the_release_assets_host_is_followed() {
+    let stub = Stub::new("github-anon-dl-release-assets");
+    stub.redirect(ASSET, RELEASE_ASSET);
+    stub.answer(RELEASE_ASSET, 200, &[], &install());
+    let site = site(&stub);
+    let (got, into) = download(handle(&site).as_mut(), "install", 1 << 20);
+    assert_eq!(got, Ok(()));
+    assert_eq!(into, install());
+    assert_eq!(stub.asked(), [RELEASE, ASSET, RELEASE_ASSET]);
+    assert_no_credential(&stub);
     assert!(left_behind().is_empty());
 }

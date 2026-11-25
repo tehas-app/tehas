@@ -28,11 +28,15 @@ pub(crate) const API: &str = "https://api.github.com/";
 pub(crate) const API_HOST: &str = "api.github.com";
 
 /// The hosts a release file's fetch may reach, each whole: an address's
-/// host is one of these exactly, never matched by its end.
-pub const HOSTS: [&str; 3] = [
+/// host is one of these exactly, never matched by its end. The API answers
+/// a release asset asked by its id with a redirect to the release assets
+/// host (seen on an anonymous read of a public release, 2026-11-24); the
+/// objects host is GitHub's older place for the same files.
+pub const HOSTS: [&str; 4] = [
     "api.github.com",
     "github.com",
     "objects.githubusercontent.com",
+    "release-assets.githubusercontent.com",
 ];
 
 /// The most time one release file's fetch takes, its redirects in.
@@ -494,8 +498,9 @@ mod tests {
     }
 
     #[test]
-    fn a_fetch_reaches_exactly_the_three_hosts_over_https() {
+    fn a_fetch_reaches_exactly_the_four_hosts_over_https() {
         for ok in [
+            "https://release-assets.githubusercontent.com/github-production-release-asset/1/0d3f?sp=r&sv=2018-11-09&sr=b&spr=https&se=2026-11-24T12%3A00%3A00Z&rscd=attachment%3B+filename%3Dinstall&sig=a%2Bb%3D&jwt=eyJ.eyJ.sig_-&response-content-type=application%2Foctet-stream",
             "https://api.github.com/repos/acme/widget/releases/assets/11",
             "https://github.com/acme/widget/releases/download/v1/install",
             "https://objects.githubusercontent.com/a/1?X-Amz-Signature=a%2Bb&r=attachment%3B+f",
@@ -508,6 +513,9 @@ mod tests {
             "https://github.com.evil.test/x",
             "https://objects.githubusercontent.com.evil.test/x",
             "https://evil.githubusercontent.com/x",
+            "https://evil.release-assets.githubusercontent.com/x",
+            "https://release-assets.githubusercontent.com.evil.test/x",
+            "https://release-assets.githubusercontent.co/x",
             "https://evilgithub.com/x",
             "https://github.com:443/x",
             "https://github.com@evil.test/x",
