@@ -11,6 +11,11 @@ use serde::Deserialize;
 use serde_json::Value;
 use tehas_ports::{At, Got, Outcome, Pool, Unread};
 
+/// How long a rate-limited answer holds the priced budget out, at the
+/// least: GitHub's reset is not read here, and "until now" would hold
+/// nothing, so a limited host would ask again at once.
+const LIMITED_FLOOR: i64 = 60;
+
 /// The `errors` of an answer, and nothing else of it.
 #[derive(Deserialize)]
 struct Head {
@@ -33,21 +38,32 @@ struct Error {
     kind: Option<String>,
 }
 
-/// The outcome of the answer `out` when its `errors` are there and not
-/// null, at `now`; None for one without errors, or one that is no JSON
-/// (which its reader finds malformed).
+/// The outcome of the answer `out` when it carries errors, at `now`; None
+/// for one without, or one that is no JSON object (which its reader finds
+/// malformed). An object whose `errors` the head cannot read, a key given
+/// twice among them, carries errors too: no reading of it may say none.
 pub(crate) fn refusal(out: &str, now: i64) -> Option<Outcome> {
-    let errors = serde_json::from_str::<Head>(out.trim()).ok()?.errors?;
-    let limited = match errors {
-        Errors::List(all) => all
+    let text = out.trim();
+    let v: Value = serde_json::from_str(text).ok()?;
+    if !v.is_object() {
+        return None;
+    }
+    let Ok(head) = serde_json::from_str::<Head>(text) else {
+        return Some(Outcome::Unread(Unread::Inconsistent));
+    };
+    if head.errors.is_none() && v.get("errors").is_none_or(Value::is_null) {
+        return None;
+    }
+    let limited = match head.errors {
+        Some(Errors::List(all)) => all
             .iter()
             .any(|e| e.kind.as_deref() == Some("RATE_LIMITED")),
-        Errors::Other(_) => false,
+        _ => false,
     };
     Some(if limited {
         Outcome::Spent {
             pool: Pool::Priced,
-            until: At::new(now),
+            until: At::new(now + LIMITED_FLOOR),
         }
     } else {
         Outcome::Unread(Unread::Inconsistent)
@@ -90,7 +106,7 @@ mod tests {
             part::<Value>(limited, "/data", NOW),
             Err(Outcome::Spent {
                 pool: Pool::Priced,
-                until: At::new(NOW)
+                until: At::new(NOW + 60)
             })
         );
         // An empty list of errors still carries errors: the rule is their
@@ -100,6 +116,21 @@ mod tests {
             part::<Value>(empty, "/data/repository", NOW),
             Err(Outcome::Unread(Unread::Inconsistent))
         );
+    }
+
+    #[test]
+    fn errors_given_twice_are_errors_whichever_comes_last() {
+        for twice in [
+            r#"{"errors":[{"message":"no"}],"errors":null,"data":{"repository":{"n":1}}}"#,
+            r#"{"errors":null,"errors":[{"message":"no"}],"data":{"repository":{"n":1}}}"#,
+            r#"{"errors":null,"errors":null,"data":{"repository":{"n":1}}}"#,
+        ] {
+            assert_eq!(
+                part::<Value>(twice, "/data/repository", NOW),
+                Err(Outcome::Unread(Unread::Inconsistent)),
+                "{twice}"
+            );
+        }
     }
 
     #[test]
