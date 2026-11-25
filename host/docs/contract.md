@@ -1121,7 +1121,7 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Adopter action: a program that read `api/surface-1.0.txt` reads
   `api/surface-2.0.txt`.
 - **The factory floor leaves core.**
-  #PRNUM.
+  #3291.
   Gone: the 16-bit game view that was the front page, with its stations,
   work order, issue board, sample tickets and JSON export, and its
   breakroom game Buzzword Buster: `fun/index.html`, `game-view.js`,
