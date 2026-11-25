@@ -222,20 +222,6 @@ line.
 Watch it on the [plain dashboard](/dashboard): the queue, the issue being worked on with its
 console streaming live, and what is waiting for you.
 
-Unless `TEHAS_ANALYTICS=off`, the plain dashboard also has a section **Last 10
-days**, from `live/analytics.json` (see [tehasbot status](/tools-health#tehasbot-status-and-the-console)):
-a row of figures (shipped, with a bar a day; planned, with its trend; runs by
-how they ended; first-pass yield; lead time; cycle time; machine time; tokens;
-and availability), a chart
-of shipped issues and failed runs per day with the cycle-minutes as a line, the
-five most common stop reasons, the share of runs that got through each step,
-and one row per tehas and pi-rukas version pair. Every figure says its count as
-`n=`: ten days make small numbers. A pair with fewer than three runs shows its
-count only. The section is hidden where there is no file, and the page reads it
-at most once a minute. What the file means is worked out by one module,
-`host/fun/analytics-data.js`; the plain dashboard's island,
-`host/fun/factory/tehas-factory-days`, draws it.
-
 The dispatcher takes the ready issues of the start order first, in the order given, then [refreshes](#refreshes) of its own pull requests, then the other ready issues, lowest number first. With no order, ready issues start lowest number first. A person sets the order with `tehas order set --issues 12,8`, and it lasts until it is cleared unless `--for` or `--until` gives it an expiry; a program that runs the factory may set it on every poll instead. With `--only`, a ready issue the order does not name waits, and the log says `wait #N: not in the start order (--only)`; refreshes do not wait. An order that expired or cannot be read is no order, and the log says so. The order only sorts: an issue starts only on a `tehas:ready` or `tehas:blocked` from an allowed account, and every hold below applies as without it. [tehas status](/tools-status#tehas-status) prints an `order` line while one is set. See [tehas order](/api#tehas-order). The dispatcher takes issues as many at a time as the host's ceiling and the slice's room allow (see [Limits that hold work back](#limits-that-hold-work-back)). A running cycle is never stopped to make room for one higher in the order. The dashboard lists the queue by issue number, not the order the dispatcher will work it in.
 
 An issue with an open native blocked-by link is not started, whatever label asks for it: add the link under the issue's **Relationships** on GitHub ("Mark as blocked by"). The page each poll reads carries the count of open blockers (`issueDependenciesSummary`), so the hold costs no call of its own, and the log says `wait #N: a blocked-by link holds it: 1 blocker is open`. A link only holds an issue back. It never starts one: once every blocker is closed the issue starts under the usual approval rules, so `tehas:ready` from an allowed labeller, or a `tehas:blocked` whose marked comment counts, is still needed. Apply `tehas:ready` with the link and the issue starts when its last blocker closes. A link and a marked comment both hold: the issue waits while either names an open blocker. A forge that answers no such field holds nothing by links, and the marked comment below is all that names blockers there.
@@ -1477,17 +1463,16 @@ still a decision.
 ## The last 365 days
 
 The factory records every run it makes, with the tehas and pi-rukas versions
-it ran, and keeps 365 days of them. Two commands read them:
+it ran, and keeps 365 days of them. One command reads them:
 
 ```
-tehas analytics report                    # the ten-day report in the terminal
 tehas analytics copy --to copy.db --json  # a copy of the database, to fetch
 ```
 
-The report is the one on the plain dashboard. The copy is for deeper analysis
-elsewhere; it holds no token, host or address. What is in it, column by
-column, is on [Analytics](/analytics). `TEHAS_ANALYTICS=off` stops the
-recording, and both commands then say so and exit 78.
+The copy is for analysis elsewhere; it holds no token, host or address. What
+is in it, column by column, is on [Analytics](/analytics).
+`TEHAS_ANALYTICS=off` stops the recording, and the command then says so and
+exits 78.
 
 ## Limits that hold work back
 

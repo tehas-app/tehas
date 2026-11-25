@@ -12,7 +12,7 @@ import { test } from "node:test";
 const FRAG = readFileSync(new URL("../host/docs/dashboard.frag", import.meta.url), "utf8");
 const FACTORY = new URL("../host/fun/factory/", import.meta.url);
 const read = (name) => readFileSync(new URL(name, FACTORY), "utf8");
-const ISLANDS = ["state", "console", "issues", "readonly", "days", "previews"];
+const ISLANDS = ["state", "console", "issues", "readonly", "previews"];
 
 test("the fragment loads the host bridge, then each island's element, then the dock and its neighbours, and holds no script of its own", () => {
   const tags = FRAG.split("\n").filter((l) => l.includes("<script"));
@@ -35,7 +35,7 @@ test("each island stands in the fragment with its server HTML, laid out as its c
     assert.ok(FRAG.includes(`src="/live/status.json" list="${list}"><section><h2>`), list);
     assert.ok(FRAG.includes(`<ul class="issues" id="${list}"></ul>`), list);
   }
-  for (const id of ["now", "ro", "analytics", "previews"]) assert.match(FRAG, new RegExp(`<section [^>]*id="${id}" hidden>`), id);
+  for (const id of ["now", "ro", "previews"]) assert.match(FRAG, new RegExp(`<section [^>]*id="${id}" hidden>`), id);
   assert.ok(FRAG.includes('<span id="state" class="pill idle">loading</span>'));
 });
 

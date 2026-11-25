@@ -29,7 +29,7 @@ const wait = async (ok, ms) => {
 const headings = () => [...document.querySelectorAll("tehas-factory-issues h2")].length;
 
 async function run() {
-  await wait(() => fetches["/live/status.json"] >= 1 && fetches["/live/analytics.json"] >= 1, 6000);
+  await wait(() => fetches["/live/status.json"] >= 1, 6000);
   // After the failed first read, before the next poll.
   await new Promise((r) => setTimeout(r, 1000));
   s.headingsAfterFailure = headings();
@@ -39,7 +39,6 @@ async function run() {
   s.pill = text("#state");
   s.fresh = text("#fresh");
   s.queued = document.querySelectorAll("#queued li").length;
-  s.analyticsHidden = $("#analytics").hidden;
   s.fetches = fetches;
 }
 

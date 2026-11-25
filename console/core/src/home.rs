@@ -101,8 +101,6 @@ pub enum State {
     RukasImage,
     /// The pi-rukas commit last asked of upstream.
     RukasTarget,
-    /// The ledger of the sizes of the issues started.
-    Sizes,
     /// The record of the starts.
     Starts,
     /// The state store.
@@ -162,7 +160,6 @@ impl State {
             State::ReleaseHistory => "state/release-history",
             State::RukasImage => "state/rukas-image",
             State::RukasTarget => "state/rukas-target",
-            State::Sizes => "state/sizes.jsonl",
             State::Starts => "state/starts.json",
             State::StoreDb => "state/tehas.db",
             State::UpdateHold => "state/update-hold",
@@ -474,7 +471,6 @@ mod tests {
             (State::ReleaseHistory, "/h/state/release-history"),
             (State::RukasImage, "/h/state/rukas-image"),
             (State::RukasTarget, "/h/state/rukas-target"),
-            (State::Sizes, "/h/state/sizes.jsonl"),
             (State::Starts, "/h/state/starts.json"),
             (State::StoreDb, "/h/state/tehas.db"),
             (State::UpdateHold, "/h/state/update-hold"),

@@ -33,10 +33,12 @@
 # dashboard's script line rises from 78498 to 97072 for dom.js, dock.js,
 # epics-view.js and versions.js, which move to it from the floor; that raise
 # is asked of a person in the pull request.
-page dashboard 97072 33914
-page manual 0 26008
+# The analytics report left core in 2.0 (TF-B50): its island and the
+# "Last 10 days" style went, which lowers the dashboard to 85587 31393 and
+# the manual to 23838.
+page dashboard 85587 31393
+page manual 0 23838
 island factory/tehas-factory-console 4156
-island factory/tehas-factory-days 4684
 island factory/parts 847
 island factory/tehas-factory-issues 3728
 island factory/tehas-factory-previews 4073
