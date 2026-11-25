@@ -124,7 +124,8 @@ esac
 /// calls, as `send <the write in JSON>`, so a case reads their order with
 /// the rest, and answered done, a note with the next id from 4001 on. A
 /// line of fail-send names a part of that line and what the site answers:
-/// `maybe` an answer that may have been sent, anything else a refusal.
+/// `maybe` an answer that may have been sent, `signed-out` a gh with no
+/// credential, anything else a refusal.
 struct Logged {
     dir: PathBuf,
     next: u64,
@@ -152,6 +153,9 @@ impl tehas_ports::Writes for Logged {
                         why: Passing::Server,
                         sent: Sent::Maybe,
                     },
+                    // What the adapter answers for a gh that exits 4, its
+                    // "authentication required" (tehas-68, 2026-11-25).
+                    "signed-out" => Outcome::SignedOut,
                     _ => Outcome::Refused(Refusal::Invalid),
                 });
             }
@@ -525,9 +529,9 @@ fn runs_host_commands(w: &mut Writer, dry: bool, printed: &mut Vec<String>) {
 
 /// The fault of a start whose push check was refused, as the cycle writes it.
 fn push_fault_file(t: &World, at: &str) {
-    fs::create_dir_all(t.w.home.join("state")).unwrap();
+    fs::create_dir_all(Home::new(&t.w.home).state_dir()).unwrap();
     fs::write(
-        t.w.home.join("state/push-fault.json"),
+        Home::new(&t.w.home).state(State::PushFault),
         format!(
             "{{\"at\":\"{at}\",\"login\":\"tehas-bot\",\"line\":\"remote: Permission to acme/widget denied to tehas-bot\"}}\n"
         ),
@@ -537,7 +541,7 @@ fn push_fault_file(t: &World, at: &str) {
 
 /// What the fault says now, or None when the file is off.
 fn push_fault_of(t: &World) -> Option<Value> {
-    let text = fs::read_to_string(t.w.home.join("state/push-fault.json")).ok()?;
+    let text = fs::read_to_string(Home::new(&t.w.home).state(State::PushFault)).ok()?;
     serde_json::from_str(text.trim_end()).ok()
 }
 
@@ -797,7 +801,7 @@ fn a_probe_on_a_host_runs_the_cycles_push_check_with_the_cycle_token() {
     );
     // Every word, in order, as a cycle's push check has them, the poll's own
     // docker aside.
-    let tree = t.w.home.join("state/push-probe");
+    let tree = Home::new(&t.w.home).state(State::PushProbe);
     let tree = tree.to_string_lossy();
     let user = tehas_core::sandbox::user();
     let got: Vec<String> = words[1..]
@@ -871,7 +875,7 @@ fn a_probe_on_a_host_runs_the_cycles_push_check_with_the_cycle_token() {
         "{in_tree}"
     );
     assert!(
-        !t.w.home.join("state/push-probe").exists(),
+        !Home::new(&t.w.home).state(State::PushProbe).exists(),
         "the copy is removed"
     );
 }
@@ -1279,6 +1283,21 @@ fn a_write_the_site_may_have_taken_is_unknown() {
 }
 
 #[test]
+fn a_write_gh_could_not_sign_in_for_is_said_once_and_never_read_again() {
+    // Before tehas-68's ruling of 2026-11-25 a gh with no credential (exit 4)
+    // was answered as one that may have been sent, so every poll read the
+    // row again (the case above). Signed out, nothing was taken: one line,
+    // the row settled, and the next poll has nothing of it to read.
+    let mut t = world();
+    t.fail("send", "no sign-in|signed-out");
+    let a = t.apply(json!([{"issue": 7, "say": "no sign-in"}]));
+    assert_eq!(a.log, vec!["WARN: comment on #7 failed"]);
+    let last = t.calls().last().unwrap().clone();
+    assert!(last.ends_with("--result read-failed"), "{last}");
+    assert!(!t.calls().iter().any(|c| c.ends_with("--result unknown")));
+}
+
+#[test]
 fn a_write_whose_attempt_is_not_recorded_is_not_made() {
     let mut t = world();
     t.fail("store", "journal-attempt");
@@ -1348,7 +1367,7 @@ fn a_record_that_failed_after_a_good_comment_is_said_in_the_log() {
     // record of #3 cannot be made; the tell's call answers 1 with no word of
     // its own, as a store that cannot parse its issue number does.
     t.fail("store", "park-told|");
-    fs::remove_dir_all(t.w.home.join("state/refresh")).unwrap();
+    fs::remove_dir_all(Home::new(&t.w.home).state(State::Refreshes)).unwrap();
     let a = t.apply(said_and_told());
     assert_eq!(a.log.len(), 2, "{:?}", a.log);
     assert_eq!(
@@ -1413,24 +1432,24 @@ fn the_said_file_of_an_issue_is_beside_its_request() {
 fn the_files_of_the_hold_and_the_branch_check() {
     let mut t = world();
     let h = t.w.home.clone();
-    fs::write(h.join("state/refresh/6.json"), "{}").unwrap();
+    fs::write(Home::new(&h).refresh_request(6), "{}").unwrap();
     t.apply(json!([
         {"refresh_drop": 6},
         {"refresh_held": "hold refreshes: busy"},
         {"branch_note": "main is red"},
     ]));
-    assert!(!h.join("state/refresh/6.json").exists());
+    assert!(!Home::new(&h).refresh_request(6).exists());
     assert_eq!(
-        fs::read_to_string(h.join("state/refresh/.held")).unwrap(),
+        fs::read_to_string(Home::new(&h).state(State::RefreshHeld)).unwrap(),
         "hold refreshes: busy"
     );
     assert_eq!(
-        fs::read_to_string(h.join("state/branch-check")).unwrap(),
+        fs::read_to_string(Home::new(&h).state(State::BranchCheck)).unwrap(),
         "main is red\n"
     );
     let a = t.apply(json!([{"refresh_held": ""}]));
     assert!(a.log.is_empty());
-    assert!(!h.join("state/refresh/.held").exists());
+    assert!(!Home::new(&h).state(State::RefreshHeld).exists());
     assert!(t.calls().is_empty());
 }
 
@@ -1748,7 +1767,7 @@ fn a_store_that_cannot_be_used_ends_the_poll_with_78_before_any_mark() {
         "ERROR: the state store cannot be used, not starting a cycle for #7: store: absent"
     ));
     assert!(a.printed.is_empty());
-    assert!(!t.w.home.join("state/branch-check").exists());
+    assert!(!Home::new(&t.w.home).state(State::BranchCheck).exists());
 }
 
 /// B5: the claim's parts in order, the owner assigned last; an assign the
@@ -2055,7 +2074,7 @@ fn a_start_with_no_text_read_records_nothing() {
 fn a_refresh_marks_its_pull_request_first_and_its_approval_names_what_it_refreshes() {
     let mut t = world();
     let h = t.w.home.clone();
-    fs::write(h.join("state/refresh/7.json"), "{}").unwrap();
+    fs::write(Home::new(&h).refresh_request(7), "{}").unwrap();
     let mut a = start_of(7, "refresh");
     a["how"] = json!("approval");
     a["refresh_pr"] = json!(12);
@@ -2076,7 +2095,7 @@ fn a_refresh_marks_its_pull_request_first_and_its_approval_names_what_it_refresh
         "--refresh-pr 12 --refresh-head {}",
         "c".repeat(40)
     )));
-    assert!(!h.join("state/refresh/7.json").exists());
+    assert!(!Home::new(&h).refresh_request(7).exists());
     assert!(w
         .iter()
         .map(|c| note_text(c))
@@ -2125,7 +2144,7 @@ fn a_refresh_start_is_the_full_refresh_even_marked_easy() {
     // an older poll would, is the full refresh and marks nothing.
     let mut t = world();
     let h = t.w.home.clone();
-    fs::write(h.join("state/refresh/7.json"), "{}").unwrap();
+    fs::write(Home::new(&h).refresh_request(7), "{}").unwrap();
     let mut a = start_of(7, "refresh");
     a["easy"] = json!(true);
     a["refresh_pr"] = json!(12);
@@ -2147,7 +2166,7 @@ fn a_refresh_start_is_the_full_refresh_even_marked_easy() {
     assert!(w
         .iter()
         .any(|c| c.contains("Tehas refresh started on `tehas-tehas`")));
-    assert!(!h.join("state/refresh/7.json").exists());
+    assert!(!Home::new(&h).refresh_request(7).exists());
 }
 
 #[test]
@@ -2632,7 +2651,7 @@ fn a_lock_held_without_a_start_on_record_is_taken_as_started() {
     // The start stub makes no record: a unit that holds its lock and has not
     // said so.
     t.w.host.start_cmd = Some(t.dir.join("status").to_string_lossy().into_owned());
-    let cycles = t.w.home.join("state/cycles");
+    let cycles = Home::new(&t.w.home).cycles_dir();
     fs::create_dir_all(&cycles).unwrap();
     let lock = fs::File::create(cycles.join("7.lock")).unwrap();
     lock.lock().unwrap();
@@ -2652,7 +2671,7 @@ fn quiet_of(n: u64) -> Value {
 #[test]
 fn a_quiet_cycle_is_noted_then_stopped_as_the_answer_says() {
     let mut t = world();
-    fs::create_dir_all(t.w.home.join("state/cycles")).unwrap();
+    fs::create_dir_all(Home::new(&t.w.home).cycles_dir()).unwrap();
     let a = t.apply(json!([quiet_of(7)]));
     let line = "WARN: the cycle for #7 holds its lock but has not been heard from since 2026-10-26T07:33:20Z, more than 1200s: stopping tehas-cycle@7.service";
     assert_eq!(a.log, vec![line]);
@@ -2665,7 +2684,7 @@ fn a_quiet_cycle_is_noted_then_stopped_as_the_answer_says() {
         ]
     );
     assert_eq!(
-        fs::read_to_string(t.w.home.join("state/cycles/7.done")).unwrap(),
+        fs::read_to_string(Home::new(&t.w.home).cycle_note(7, "done")).unwrap(),
         "quiet\n"
     );
 }
@@ -2675,7 +2694,7 @@ fn a_quiet_stop_that_cannot_write_its_reason_still_stops_the_unit() {
     let mut t = world();
     // The directory of the cycle's files, but no write for it: a new file
     // there cannot be made. The stop is asked all the same, and said.
-    let cycles = t.w.home.join("state/cycles");
+    let cycles = Home::new(&t.w.home).cycles_dir();
     fs::create_dir_all(&cycles).unwrap();
     fs::set_permissions(&cycles, fs::Permissions::from_mode(0o500)).unwrap();
     let a = t.apply(json!([quiet_of(7)]));
@@ -2742,22 +2761,22 @@ fn a_quiet_cycle_the_store_cannot_note() {
     let a = t.apply(json!([quiet_of(7), {"branch_note": "x"}]));
     assert_eq!(a.exit, Some(78));
     assert!(a.log[0].starts_with("ERROR: the state store cannot be used: store: absent"));
-    assert!(!t.w.home.join("state/branch-check").exists());
+    assert!(!Home::new(&t.w.home).state(State::BranchCheck).exists());
 }
 
 #[test]
 fn a_finished_cycle_is_told_why_and_stopped() {
     let mut t = world();
-    fs::create_dir_all(t.w.home.join("state/cycles")).unwrap();
+    fs::create_dir_all(Home::new(&t.w.home).cycles_dir()).unwrap();
     let a = t.apply(json!([{"stop_done": 7, "why": "merged"}]));
     assert!(a.log.is_empty());
     assert_eq!(
-        fs::read_to_string(t.w.home.join("state/cycles/7.done")).unwrap(),
+        fs::read_to_string(Home::new(&t.w.home).cycle_note(7, "done")).unwrap(),
         "merged\n"
     );
     assert!(t.calls().contains(&"start 7".to_string()));
     let mut t = world();
-    fs::create_dir_all(t.w.home.join("state/cycles")).unwrap();
+    fs::create_dir_all(Home::new(&t.w.home).cycles_dir()).unwrap();
     t.fail("start", "7");
     let a = t.apply(json!([{"stop_done": 7, "why": "closed"}]));
     assert_eq!(a.log, vec!["WARN: could not stop tehas-cycle@7.service"]);
@@ -2773,9 +2792,9 @@ fn a_sweep_removes_an_issues_names_under_its_lock_and_no_other_issues() {
     fs::write(works.join("tehas-work-5.state"), "x").unwrap();
     let runs = t.dir.join("user/.pi/agent/ensemble-runs");
     fs::create_dir_all(runs.join("issue-5")).unwrap();
-    fs::create_dir_all(t.w.home.join("live")).unwrap();
-    fs::write(t.w.home.join("live/console-5.txt"), "x").unwrap();
-    fs::create_dir_all(t.w.home.join("state/cycles")).unwrap();
+    fs::create_dir_all(Home::new(&t.w.home).live_dir()).unwrap();
+    fs::write(Home::new(&t.w.home).live_console(5), "x").unwrap();
+    fs::create_dir_all(Home::new(&t.w.home).cycles_dir()).unwrap();
     let a = t.apply(json!([{"sweep": 5, "log": "removed what #5 left on this host: no cycle has run on it for 7 days"}]));
     assert_eq!(
         a.log,
@@ -2784,7 +2803,7 @@ fn a_sweep_removes_an_issues_names_under_its_lock_and_no_other_issues() {
     assert!(!works.join("tehas-work-5").exists());
     assert!(!works.join("tehas-work-5.state").exists());
     assert!(!runs.join("issue-5").exists());
-    assert!(!t.w.home.join("live/console-5.txt").exists());
+    assert!(!Home::new(&t.w.home).live_console(5).exists());
     assert!(works.join("tehas-work-51").exists());
 }
 
@@ -2794,10 +2813,10 @@ fn a_sweep_that_cannot_remove_a_name_says_so_and_not_that_the_issue_is_gone() {
     let works = t.dir.join("works");
     fs::create_dir_all(works.join("tehas-work-5")).unwrap();
     fs::write(works.join(".tehas-workspaces"), "").unwrap();
-    let live = t.w.home.join("live");
+    let live = Home::new(&t.w.home).live_dir();
     fs::create_dir_all(&live).unwrap();
     fs::write(live.join("console-5.txt"), "x").unwrap();
-    fs::create_dir_all(t.w.home.join("state/cycles")).unwrap();
+    fs::create_dir_all(Home::new(&t.w.home).cycles_dir()).unwrap();
     fs::set_permissions(&live, fs::Permissions::from_mode(0o555)).unwrap();
     // Root is not kept out of a directory by its mode.
     if fs::write(live.join("probe"), "").is_ok() {
@@ -2821,10 +2840,10 @@ fn a_sweep_that_cannot_look_at_a_name_says_so_and_not_that_the_issue_is_gone() {
     let works = t.dir.join("works");
     fs::create_dir_all(works.join("tehas-work-5")).unwrap();
     fs::write(works.join(".tehas-workspaces"), "").unwrap();
-    let live = t.w.home.join("live");
+    let live = Home::new(&t.w.home).live_dir();
     fs::create_dir_all(&live).unwrap();
     fs::write(live.join("console-5.txt"), "x").unwrap();
-    fs::create_dir_all(t.w.home.join("state/cycles")).unwrap();
+    fs::create_dir_all(Home::new(&t.w.home).cycles_dir()).unwrap();
     fs::set_permissions(&live, fs::Permissions::from_mode(0o000)).unwrap();
     // Root is not kept out of a directory by its mode.
     if fs::symlink_metadata(live.join("console-5.txt")).is_ok() {
@@ -2846,17 +2865,17 @@ fn a_sweep_that_cannot_look_at_a_name_says_so_and_not_that_the_issue_is_gone() {
 #[test]
 fn a_sweep_whose_lock_a_cycle_holds_touches_nothing() {
     let mut t = world();
-    fs::create_dir_all(t.w.home.join("state/cycles")).unwrap();
-    fs::create_dir_all(t.w.home.join("live")).unwrap();
-    fs::write(t.w.home.join("live/console-5.txt"), "x").unwrap();
-    let lock = fs::File::create(t.w.home.join("state/cycles/5.lock")).unwrap();
+    fs::create_dir_all(Home::new(&t.w.home).cycles_dir()).unwrap();
+    fs::create_dir_all(Home::new(&t.w.home).live_dir()).unwrap();
+    fs::write(Home::new(&t.w.home).live_console(5), "x").unwrap();
+    let lock = fs::File::create(Home::new(&t.w.home).cycle_note(5, "lock")).unwrap();
     lock.lock().unwrap();
     let a = t.apply(json!([{"sweep": 5, "log": "removed"}]));
     assert_eq!(
         a.log,
         vec!["WARN: could not take the lock of #5, so nothing of it was removed"]
     );
-    assert!(t.w.home.join("live/console-5.txt").exists());
+    assert!(Home::new(&t.w.home).live_console(5).exists());
 }
 
 #[test]
@@ -2899,7 +2918,7 @@ fn a_finished_cycle_that_keeps_its_lock_is_said() {
     let mut t = world();
     // The wait for the lock is the thing under test, not its length.
     t.w.host.lock_poll = Duration::from_millis(200);
-    let cycles = t.w.home.join("state/cycles");
+    let cycles = Home::new(&t.w.home).cycles_dir();
     fs::create_dir_all(&cycles).unwrap();
     let lock = fs::File::create(cycles.join("7.lock")).unwrap();
     lock.lock().unwrap();
@@ -2919,7 +2938,7 @@ fn a_sweep_removes_a_link_and_never_what_it_points_at() {
     fs::create_dir_all(&runs).unwrap();
     std::os::unix::fs::symlink(&keep, runs.join("issue-5")).unwrap();
     std::os::unix::fs::symlink(t.dir.join("nowhere"), runs.join("plan-5")).unwrap();
-    fs::create_dir_all(t.w.home.join("state/cycles")).unwrap();
+    fs::create_dir_all(Home::new(&t.w.home).cycles_dir()).unwrap();
     let a = t.apply(json!([{"sweep": 5, "log": "removed what #5 left"}]));
     assert_eq!(a.log, vec!["removed what #5 left"]);
     assert!(fs::symlink_metadata(runs.join("issue-5")).is_err());
@@ -3002,16 +3021,8 @@ fn plan_row(t: &World, planning: Value) {
 }
 
 fn turn_ended(t: &World, n: u64, rc: &str, out: Value) {
-    fs::write(
-        t.w.home.join(format!("state/plan-{n}.json.rc")),
-        format!("{rc}\n"),
-    )
-    .unwrap();
-    fs::write(
-        t.w.home.join(format!("state/plan-{n}.json.out")),
-        out.to_string(),
-    )
-    .unwrap();
+    fs::write(Home::new(&t.w.home).plan_file(n, ".rc"), format!("{rc}\n")).unwrap();
+    fs::write(Home::new(&t.w.home).plan_file(n, ".out"), out.to_string()).unwrap();
 }
 
 #[test]
@@ -3047,8 +3058,8 @@ fn a_turn_that_ended_is_recorded_and_its_question_posted() {
         "--remove-label tehas:planning --add-label tehas:question"
     ));
     assert!(w.contains(&"store plan-end 7 --posted".to_string()));
-    assert!(!t.w.home.join("state/plan-7.json.rc").exists());
-    assert!(!t.w.home.join("state/plan-7.json.out").exists());
+    assert!(!Home::new(&t.w.home).plan_file(7, ".rc").exists());
+    assert!(!Home::new(&t.w.home).plan_file(7, ".out").exists());
 }
 
 #[test]
@@ -3209,7 +3220,7 @@ fn a_failed_turn_whose_comment_did_not_land_is_posted_by_the_next_poll() {
     ));
     // The comment the turn left is kept for the poll that posts it, and it
     // is a comment, not an outcome a later turn could be read as.
-    let out = t.w.home.join("state/plan-7.json.out");
+    let out = Home::new(&t.w.home).plan_file(7, ".out");
     let kept: Value = serde_json::from_str(&fs::read_to_string(&out).unwrap()).unwrap();
     assert!(kept["text"]
         .as_str()
@@ -3241,7 +3252,7 @@ fn a_next_turn_starts_with_no_outcome_of_an_earlier_one() {
     fs::write(t.dir.join("works/.tehas-workspaces"), "").unwrap();
     // A failed turn's comment that a poll could not post: the next turn's
     // runner may write nothing, and what it left must not be read as its own.
-    let out = t.w.home.join("state/plan-7.json.out");
+    let out = Home::new(&t.w.home).plan_file(7, ".out");
     fs::write(
         &out,
         json!({"text": "This planning turn did not finish", "question": null}).to_string(),
@@ -3293,7 +3304,7 @@ fn a_turn_cut_off_has_no_reason_to_overlay_its_own() {
     // removes it before the turn is finished, so the comment says only that
     // the turn was cut off.
     fs::write(
-        t.w.home.join("state/plan-7.json.out"),
+        Home::new(&t.w.home).plan_file(7, ".out"),
         json!({"session": "s-1", "why": "the runner exited 40"}).to_string(),
     )
     .unwrap();
@@ -3406,13 +3417,13 @@ fn a_refine_that_filed_replaces_its_issue() {
         ticket: key(7),
         reason: tehas_ports::CloseReason::NotPlanned,
     })));
-    let ledger = fs::read_to_string(t.w.home.join("state/refined.jsonl")).unwrap();
+    let ledger = fs::read_to_string(Home::new(&t.w.home).state(State::Refined)).unwrap();
     assert!(ledger.contains(
         r#""source":7,"filed":9,"url":"https://github.com/example-owner/example-product/issues/9"}"#
     ));
     // Its room for planning is free for the next poll, and the issue closed
     // waits for nothing.
-    assert!(t.w.home.join("state/dispatch.again").exists());
+    assert!(Home::new(&t.w.home).state(State::DispatchAgain).exists());
     assert!(t.w.plans_ended.is_empty(), "{:?}", t.w.plans_ended);
 }
 
@@ -3461,7 +3472,7 @@ fn a_plan_chosen_for_its_issue_is_written_onto_it_and_ends_the_session() {
         .iter()
         .any(|c| noted(c, Some(7)) && c.contains("This issue now holds the plan.")));
     assert!(!w.iter().any(|c| asked(c, 7)));
-    assert!(!t.w.home.join("state/plan-7.json.out").exists());
+    assert!(!Home::new(&t.w.home).plan_file(7, ".out").exists());
 }
 
 /// The draft kept for the poll's outcome: a plan of the shape the planner is
@@ -3543,7 +3554,7 @@ fn issue_state(t: &World, state: &str) {
 }
 
 fn the_record(t: &World) -> PathBuf {
-    t.w.home.join("state/plan-start/7.json")
+    Home::new(&t.w.home).plan_start(7)
 }
 
 /// Today's question, and nothing else of the plan.
@@ -3603,8 +3614,8 @@ fn a_plan_with_no_open_points_from_an_allowed_account_updates_and_starts() {
         0o600
     );
     // The poll that starts it comes at once, not at the next timer.
-    assert!(t.w.home.join("state/dispatch.again").exists());
-    assert!(!t.w.home.join("state/plan-7.json.out").exists());
+    assert!(Home::new(&t.w.home).state(State::DispatchAgain).exists());
+    assert!(!Home::new(&t.w.home).plan_file(7, ".out").exists());
 }
 
 /// A secret and a private address the planner wrote, in the shapes the mask
@@ -4025,8 +4036,8 @@ fn a_turn_that_ends_after_its_issue_was_closed_is_dropped_and_its_session_closed
         "{:?}",
         t.writes()
     );
-    assert!(!t.w.home.join("state/plan-7.json.out").exists());
-    assert!(!t.w.home.join("state/plan-7.json.rc").exists());
+    assert!(!Home::new(&t.w.home).plan_file(7, ".out").exists());
+    assert!(!Home::new(&t.w.home).plan_file(7, ".rc").exists());
     // The rc file is taken off by the collect that recorded the turn, before
     // the post read the issue; the keep directory is the post's own to remove.
     assert!(!t.dir.join("works/tehas-work-plan-7.keep").exists());
@@ -4063,7 +4074,7 @@ fn a_waiting_turn_of_a_closed_issue_is_dropped_with_no_line_of_its_own() {
         vec!["planning #7 dropped: the issue is closed, so nothing of its turn was posted"]
     );
     posts_nothing_of_itself(&t);
-    assert!(!t.w.home.join("state/plan-7.json.out").exists());
+    assert!(!Home::new(&t.w.home).plan_file(7, ".out").exists());
 }
 
 #[test]
@@ -4124,7 +4135,7 @@ fn a_turn_waits_when_the_state_of_its_issue_cannot_be_read() {
         "{:?}",
         t.writes()
     );
-    assert!(t.w.home.join("state/plan-7.json.out").exists());
+    assert!(Home::new(&t.w.home).plan_file(7, ".out").exists());
 }
 
 /// The poll a person's tick on Update this issue ends in: the outcome the
@@ -4359,9 +4370,9 @@ fn a_clear_refusal_whose_outcome_cannot_be_kept_posts_it_once() {
         "alice",
         &json!({"title": REFUSED_TITLE, "spec": PLAN_BODY}),
     );
-    let file = t.w.home.join("state/plan-7.json.out");
+    let file = Home::new(&t.w.home).plan_file(7, ".out");
     // A directory of the sibling's name stops the write for any user.
-    let new = t.w.home.join("state/plan-7.json.out.new");
+    let new = Home::new(&t.w.home).plan_file(7, ".out.new");
     fs::create_dir_all(&new).unwrap();
     for a in [
         t.apply(json!([{"plan_collect": 7}])),
@@ -4419,13 +4430,13 @@ fn a_refusal_whose_outcome_cannot_be_kept_ends_the_poll_and_says_it() {
     );
     // The document the failed keep would have replaced: the console's own,
     // with the `update` of the plan the check refused.
-    let file = t.w.home.join("state/plan-7.json.out");
+    let file = Home::new(&t.w.home).plan_file(7, ".out");
     let before: Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
     assert!(before.get("update").is_some(), "{before}");
     // The sibling `outcome_said` writes and renames: a directory of its name
     // stops the write for any user, which a mode of the directory alone does
     // not when the tests run as root.
-    let new = t.w.home.join("state/plan-7.json.out.new");
+    let new = Home::new(&t.w.home).plan_file(7, ".out.new");
     fs::create_dir_all(&new).unwrap();
     let a = t.apply(json!([{"plan_post": 7}]));
     assert!(
@@ -4586,7 +4597,7 @@ fn a_tick_on_update_this_issue_starts_nothing() {
 #[test]
 fn a_start_spends_the_record_and_one_refused_drops_it() {
     let mut t = world();
-    fs::create_dir_all(t.w.home.join("state/plan-start")).unwrap();
+    fs::create_dir_all(Home::new(&t.w.home).plan_starts()).unwrap();
     fs::write(the_record(&t), "{}").unwrap();
     let mut s = start_of(7, "approved");
     s["approved_label"] = json!("tehas:plan");
@@ -4608,7 +4619,7 @@ fn a_start_spends_the_record_and_one_refused_drops_it() {
 #[test]
 fn a_new_session_spends_the_record_of_the_old() {
     let mut t = world();
-    fs::create_dir_all(t.w.home.join("state/plan-start")).unwrap();
+    fs::create_dir_all(Home::new(&t.w.home).plan_starts()).unwrap();
     fs::write(the_record(&t), "{}").unwrap();
     t.apply(json!([first_turn(7)]));
     assert!(!the_record(&t).exists());
@@ -4692,7 +4703,7 @@ fn a_session_ended_by_a_person_is_closed_and_said() {
     assert!(end.is_some() && end < said, "{w:?}");
     // What the session held is free now: the poll after this one comes at
     // once, and the demand counts the issue (#2708).
-    assert!(t.w.home.join("state/dispatch.again").exists());
+    assert!(Home::new(&t.w.home).state(State::DispatchAgain).exists());
     assert!(t.w.asked_again);
     assert_eq!(t.w.plans_ended, vec![7]);
 }
@@ -4702,7 +4713,7 @@ fn a_session_the_poll_finds_over_is_closed_and_asks_for_the_next_poll() {
     let mut t = world();
     t.apply(json!([{"plan_close": 7}]));
     assert!(t.writes().contains(&"store plan-end 7 --close".to_string()));
-    assert!(t.w.home.join("state/dispatch.again").exists());
+    assert!(Home::new(&t.w.home).state(State::DispatchAgain).exists());
     assert_eq!(t.w.plans_ended, vec![7]);
 }
 
@@ -4718,7 +4729,7 @@ fn a_session_the_store_would_not_end_asks_for_no_poll_and_frees_nothing() {
         "{:?}",
         a.log
     );
-    assert!(!t.w.home.join("state/dispatch.again").exists());
+    assert!(!Home::new(&t.w.home).state(State::DispatchAgain).exists());
     assert!(t.w.plans_ended.is_empty());
 }
 
@@ -4850,7 +4861,7 @@ fn a_question_already_posted_is_not_posted_again() {
         json!({"turns": 2, "label": "tehas:plan", "comment_id": 41}),
     );
     fs::write(
-        t.w.home.join("state/plan-7.json.out"),
+        Home::new(&t.w.home).plan_file(7, ".out"),
         json!({"text": "Q"}).to_string(),
     )
     .unwrap();
@@ -4863,7 +4874,7 @@ fn a_question_already_posted_is_not_posted_again() {
     let mut t = world();
     plan_row(&t, json!({"turns": 2, "label": "tehas:plan"}));
     fs::write(
-        t.w.home.join("state/plan-7.json.out"),
+        Home::new(&t.w.home).plan_file(7, ".out"),
         json!({"text": "Q"}).to_string(),
     )
     .unwrap();
@@ -4885,7 +4896,7 @@ fn a_question_already_posted_is_not_posted_again() {
 fn a_plan_is_said_before_its_boxes_and_once() {
     let mut t = world();
     plan_row(&t, json!({"turns": 2, "label": "tehas:plan"}));
-    let path = t.w.home.join("state/plan-7.json.out");
+    let path = Home::new(&t.w.home).plan_file(7, ".out");
     fs::write(
         &path,
         json!({"text": "The plan.", "question": {"question": "Which?", "options": []}}).to_string(),
@@ -4923,7 +4934,7 @@ fn a_plan_not_said_stops_its_boxes_too() {
     let mut t = world();
     plan_row(&t, json!({"turns": 2, "label": "tehas:plan"}));
     fs::write(
-        t.w.home.join("state/plan-7.json.out"),
+        Home::new(&t.w.home).plan_file(7, ".out"),
         json!({"text": "The plan."}).to_string(),
     )
     .unwrap();
@@ -4978,7 +4989,7 @@ fn a_refine_that_filed_elsewhere_or_again_is_refined_once() {
     )
     .unwrap();
     fs::write(
-        t.w.home.join("state/plan-7.json.out"),
+        Home::new(&t.w.home).plan_file(7, ".out"),
         json!({"filed": ["https://github.com/example-owner/example-product/issues/9"]}).to_string(),
     )
     .unwrap();
@@ -5002,7 +5013,7 @@ fn a_repository_named_issues_is_its_own() {
     plan_row(&t, json!({"turns": 1, "label": "tehas:refine"}));
     fs::write(t.dir.join("body-5"), json!({"body": "x"}).to_string()).unwrap();
     fs::write(
-        t.w.home.join("state/plan-7.json.out"),
+        Home::new(&t.w.home).plan_file(7, ".out"),
         json!({"filed": ["https://github.com/owner/issues/issues/5"]}).to_string(),
     )
     .unwrap();
@@ -5013,7 +5024,7 @@ fn a_repository_named_issues_is_its_own() {
 #[test]
 fn the_refined_ledger_keeps_its_last_500_lines() {
     let mut t = world();
-    let ledger = t.w.home.join("state/refined.jsonl");
+    let ledger = Home::new(&t.w.home).state(State::Refined);
     fs::write(
         &ledger,
         (0..500)
@@ -5356,7 +5367,7 @@ fn a_session_at_its_limit_of_turns_is_ended() {
 
 /// The turn's lock of issue `n`, held as a unit's turn holds it while it runs.
 fn turn_holds_its_lock(t: &World, n: u64) -> fs::File {
-    let f = fs::File::create(t.w.home.join(format!("state/plan-{n}.json.lock"))).unwrap();
+    let f = fs::File::create(Home::new(&t.w.home).plan_file(n, ".lock")).unwrap();
     f.lock().unwrap();
     f
 }
@@ -5563,7 +5574,7 @@ fn a_unit_systemd_cannot_load_ends_the_poll_before_any_mark() {
 fn a_running_cycle_leaves_the_index_alone_and_the_start_refreshes_the_checkout() {
     let mut t = world();
     // The cycles counted are the locks held when the gate runs.
-    let cycles = t.w.home.join("state/cycles");
+    let cycles = Home::new(&t.w.home).cycles_dir();
     fs::create_dir_all(&cycles).unwrap();
     let held: Vec<fs::File> = [3, 5]
         .iter()
@@ -5602,8 +5613,8 @@ fn cycles_that_cannot_be_listed_leave_the_index_alone() {
     let mut t = world();
     // A file where the directory should be: the listing fails, and a cycle
     // may be running.
-    fs::create_dir_all(t.w.home.join("state")).unwrap();
-    fs::write(t.w.home.join("state/cycles"), "").unwrap();
+    fs::create_dir_all(Home::new(&t.w.home).state_dir()).unwrap();
+    fs::write(Home::new(&t.w.home).cycles_dir(), "").unwrap();
     let a = t.apply(gates(7, json!([])));
     assert_eq!(a.exit, None);
     assert_eq!(
@@ -5664,19 +5675,19 @@ fn a_due_index_is_launched_and_holds_and_one_that_ran_lets_the_starts_go() {
         &script,
         format!(
             "#!/bin/sh\necho 1 >{}\n",
-            t.w.home.join("state/index.rc").display()
+            Home::new(&t.w.home).state(State::CodeIndexRc).display()
         ),
     )
     .unwrap();
     t.w.host.index_start_cmd = Some(script.to_string_lossy().into_owned());
-    fs::write(t.w.home.join("state/dispatch.again"), "").unwrap();
+    fs::write(Home::new(&t.w.home).state(State::DispatchAgain), "").unwrap();
     let a = t.apply(gates(7, json!([])));
     assert_eq!(a.exit, None);
     assert!(a
         .log
         .iter()
         .any(|l| l.starts_with("WARN: the code index was not refreshed, see ")));
-    assert!(!t.w.home.join("state/dispatch.again").exists());
+    assert!(!Home::new(&t.w.home).state(State::DispatchAgain).exists());
     assert!(t
         .calls()
         .iter()
@@ -5689,7 +5700,7 @@ fn a_due_index_is_launched_and_holds_and_one_that_ran_lets_the_starts_go() {
         &script,
         format!(
             "#!/bin/sh\necho 1 >{}\n",
-            t.w.home.join("state/index.rc").display()
+            Home::new(&t.w.home).state(State::CodeIndexRc).display()
         ),
     )
     .unwrap();
@@ -5698,14 +5709,14 @@ fn a_due_index_is_launched_and_holds_and_one_that_ran_lets_the_starts_go() {
     actions.extend(gates(7, json!([])).as_array().unwrap().iter().cloned());
     let a = t.apply(Value::Array(actions));
     assert_eq!(a.exit, None);
-    assert!(t.w.home.join("state/dispatch.again").exists());
+    assert!(Home::new(&t.w.home).state(State::DispatchAgain).exists());
 }
 
 #[test]
 fn a_current_index_lets_the_starts_go() {
     let mut t = world();
     t.w.host.systemctl = t.dir.join("systemctl").to_string_lossy().into_owned();
-    let state = t.w.home.join("state");
+    let state = Home::new(&t.w.home).state_dir();
     fs::create_dir_all(state.join("index")).unwrap();
     fs::write(state.join("index.json"), r#"{"commit":"abc1234"}"#).unwrap();
     fs::write(state.join("index/code.db"), "x").unwrap();
@@ -5746,7 +5757,11 @@ fn an_index_that_failed_at_the_tip_is_not_launched_again() {
     let mut t = world();
     t.w.host.systemctl = t.dir.join("systemctl").to_string_lossy().into_owned();
     // tehas index writes the commit with its line end.
-    fs::write(t.w.home.join("state/index.failed"), "abc1234\n").unwrap();
+    fs::write(
+        Home::new(&t.w.home).state(State::CodeIndexFailed),
+        "abc1234\n",
+    )
+    .unwrap();
     let a = t.apply(gates(7, json!([])));
     assert_eq!(a.exit, None);
     assert!(!fs::read_to_string(t.dir.join("calls.log"))
@@ -5761,7 +5776,7 @@ fn an_index_that_failed_at_the_tip_is_not_launched_again() {
 #[test]
 fn an_index_that_holds_its_lock_holds_the_starts() {
     let mut t = world();
-    let lock = fs::File::create(t.w.home.join("state/index.lock")).unwrap();
+    let lock = fs::File::create(Home::new(&t.w.home).state(State::CodeIndexLock)).unwrap();
     lock.lock().unwrap();
     let a = t.apply(gates(7, json!([])));
     assert_eq!(a.exit, Some(0));
@@ -6891,7 +6906,7 @@ fn a_plans_issue_edit_is_settled_by_its_body_not_its_title() {
 
 /// A lock of `t`'s home for the issue: held for as long as the file lives.
 fn cycle_lock(t: &World, n: u64) -> fs::File {
-    let dir = t.w.home.join("state/cycles");
+    let dir = Home::new(&t.w.home).cycles_dir();
     fs::create_dir_all(&dir).unwrap();
     let f = fs::File::create(dir.join(format!("{n}.lock"))).unwrap();
     f.try_lock().unwrap();
@@ -6986,8 +7001,8 @@ fn a_note_that_did_not_land_on_a_filed_issue_did_not_happen() {
 /// The outcome file of issue 7 and its sibling, as `outcome_kept` names them.
 fn outcome_files(t: &World) -> (std::path::PathBuf, std::path::PathBuf) {
     (
-        t.w.home.join("state/plan-7.json.out"),
-        t.w.home.join("state/plan-7.json.out.new"),
+        Home::new(&t.w.home).plan_file(7, ".out"),
+        Home::new(&t.w.home).plan_file(7, ".out.new"),
     )
 }
 
@@ -6999,7 +7014,7 @@ fn outcome_files(t: &World) -> (std::path::PathBuf, std::path::PathBuf) {
 /// one box of a session that ended.
 fn turn_of_no_outcome(t: &World) {
     plan_row(t, alices_session());
-    fs::write(t.w.home.join("state/plan-7.json.rc"), "0\n").unwrap();
+    fs::write(Home::new(&t.w.home).plan_file(7, ".rc"), "0\n").unwrap();
 }
 
 #[test]
@@ -7066,7 +7081,7 @@ fn a_leftover_sibling_is_replaced_and_the_new_document_is_read() {
         &json!({"question": "Tick.", "options": [{"label": TICK}]}),
     );
     let (file, new) = outcome_files(&t);
-    let target = t.w.home.join("state/victim.json");
+    let target = Home::new(&t.w.home).state_dir().join("victim.json");
     fs::write(&target, "not the outcome\n").unwrap();
     std::os::unix::fs::symlink(&target, &new).unwrap();
     t.fail("send", r#"{"type":"Mark""#);
@@ -7142,7 +7157,7 @@ fn a_link_at_the_outcome_reads_as_no_outcome() {
     let mut t = world();
     turn_of_no_outcome(&t);
     let (file, new) = outcome_files(&t);
-    let elsewhere = t.w.home.join("state/elsewhere.json");
+    let elsewhere = Home::new(&t.w.home).state_dir().join("elsewhere.json");
     fs::write(&elsewhere, format!("{plan}\n")).unwrap();
     assert!(!file.exists(), "the case asks for a link and nothing else");
     std::os::unix::fs::symlink(&elsewhere, &file).unwrap();
