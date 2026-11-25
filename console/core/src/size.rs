@@ -1,7 +1,5 @@
-//! The measure of one issue body: four counts, read off its own text. `tehas
-//! work` measures the body of an approved start and keeps the answer in
-//! state/sizes.jsonl (console/ops/src/size.rs). The poll's hold on a wide issue
-//! reads the files count.
+//! The measure of one issue body: four counts, read off its own text. The
+//! poll's hold on a wide issue reads the files count.
 //!
 //! The four counts:
 //!
@@ -69,17 +67,6 @@ pub struct Size {
     pub done_when: usize,
 }
 
-impl Size {
-    /// The keys without their braces, always in this order: state/sizes.jsonl
-    /// and `console size measure` both pin it.
-    pub fn fields(&self) -> String {
-        format!(
-            r#""files":{},"tests":{},"deliverables":{},"done_when":{}"#,
-            self.files, self.tests, self.deliverables, self.done_when
-        )
-    }
-}
-
 pub fn measure(body: &[u8], max_bytes: usize, max_lines: usize) -> Size {
     let cut = String::from_utf8_lossy(&body[..body.len().min(max_bytes)]);
     let mut size = Size::default();
@@ -129,14 +116,6 @@ mod tests {
             deliverables,
             done_when,
         }
-    }
-
-    #[test]
-    fn the_keys_stand_in_the_order_the_ledger_pins() {
-        assert_eq!(
-            size(1, 2, 3, 4).fields(),
-            r#""files":1,"tests":2,"deliverables":3,"done_when":4"#
-        );
     }
 
     #[test]
@@ -201,6 +180,21 @@ mod tests {
         assert_eq!(measure(b"`a/b`\n`c/d`\n`e/f`", 131072, 2), size(2, 0, 0, 0));
         assert_eq!(measure(b"`a/b` `c/d`", 6, 1000), size(1, 0, 0, 0));
         assert_eq!(measure(b"`a/b`\n`c/d`\n", 7, 1), size(1, 0, 0, 0));
+    }
+
+    /// A person who pastes a dump into an issue body must not slow the poll
+    /// that measures it. Moved from console/tests/size.rs.
+    #[test]
+    fn a_body_of_forty_thousand_lines_is_measured_from_its_front_in_good_time() {
+        let body: String = (1..=40_000).map(|i| format!("`test/f{i}.sh`\n")).collect();
+        let begun = std::time::Instant::now();
+        let got = measure(body.as_bytes(), MAX_BYTES, MAX_LINES);
+        assert_eq!((got.files, got.tests), (1000, 1000));
+        assert!(
+            begun.elapsed() < std::time::Duration::from_secs(5),
+            "{:?}",
+            begun.elapsed()
+        );
     }
 
     #[test]

@@ -1150,14 +1150,18 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   wrote from it at each poll, the plain dashboard's "Last 10 days" section
   (`tehas-factory-days` and `analytics-data.js`), and the MCP tool
   `factory_stats`, which copied that file. A dashboard key is served three
-  tools. The factory collects its runs; a program that fetches the copy does
-  the analysis. `tehas analytics copy` and the tables stay as they are.
+  tools. `state/sizes.jsonl`, which only the report read, goes with the
+  measure `tehas work` wrote it from and `console size`; the dispatcher's
+  hold on a wide issue measures as before, under the same three
+  `TEHAS_SIZE_MAX_*` settings. The factory collects its runs; a program that
+  fetches the copy does the analysis. `tehas analytics copy` and the tables
+  stay as they are.
   Readers: adopters, MCP clients, the consumer that runs many factories,
   the end-to-end suite.
   Adopter action: a person who read `tehas analytics report` fetches the
   copy with `tehas analytics copy` and reads it elsewhere. An MCP client
-  stops calling `factory_stats`. `~/tehas/live/analytics.json` is read by
-  nothing and may be deleted.
+  stops calling `factory_stats`. `~/tehas/live/analytics.json` and
+  `~/tehas/state/sizes.jsonl` are read by nothing and may be deleted.
 
 ## Pending for 2.0
 

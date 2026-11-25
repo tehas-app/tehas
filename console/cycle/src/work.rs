@@ -931,7 +931,6 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         why: record_why.to_string(),
         log: log.clone(),
         wait: text_wait,
-        console: console.clone(),
     };
     let answer = match start::text(home, &text) {
         Ok(Some(f)) => {
