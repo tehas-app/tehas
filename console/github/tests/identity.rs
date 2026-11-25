@@ -236,7 +236,7 @@ fn an_organisation_and_an_app_are_answered_from_the_account_read_alone() {
 #[test]
 fn a_bot_account_read_that_fails_stays_its_failure() {
     let bot = recorded("user-901.json");
-    let now = At::new(replay_now());
+    let now = At::new(replay_now() + 60);
     for (answer, failure) in [
         (
             Err(": HTTP 429".to_string()),

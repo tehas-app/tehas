@@ -677,7 +677,7 @@ fn a_failed_or_odd_page_fails_the_read_never_a_short_list() {
             "rate-limited",
             Outcome::Spent {
                 pool: tehas_ports::Pool::Calls,
-                until: At::new(replay_now()),
+                until: At::new(replay_now() + 60),
             },
         ),
         ("server-error", maybe(tehas_ports::Passing::Server)),

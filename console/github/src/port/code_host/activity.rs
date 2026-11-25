@@ -408,10 +408,7 @@ impl GitHub {
                 .filter_map(|e| e.get("type").and_then(Value::as_str).map(str::to_string))
                 .collect();
             return if types.iter().any(|t| t == "RATE_LIMITED") {
-                Outcome::Spent {
-                    pool: Pool::Priced,
-                    until: At::new((self.now)()),
-                }
+                crate::graphql::limited(Pool::Priced, (self.now)())
             } else if types.iter().any(|t| t == "NOT_FOUND") {
                 Outcome::NotFound
             } else {

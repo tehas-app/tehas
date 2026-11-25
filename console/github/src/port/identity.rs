@@ -24,7 +24,7 @@ use crate::forge::uri;
 use crate::GitHub;
 use tehas_core::accounts;
 use tehas_ports::{
-    Account, AccountId, AccountKind, At, Got, Identity, Login, Outcome, Pool, ProjectName, Realm,
+    Account, AccountId, AccountKind, Got, Identity, Login, Outcome, Pool, ProjectName, Realm,
     Refusal, Scope, Secret, SignInCode, SignInState, Standing, Token, Unread, WebLink,
 };
 
@@ -341,10 +341,7 @@ fn read_me(out: &str, now: i64) -> Got<(Login, u64)> {
                 .any(|e| e.get("type").and_then(Value::as_str) == Some("RATE_LIMITED"))
         });
         return Err(if limited {
-            Outcome::Spent {
-                pool: Pool::Priced,
-                until: At::new(now),
-            }
+            crate::graphql::limited(Pool::Priced, now)
         } else {
             Outcome::Unread(Unread::Inconsistent)
         });
@@ -485,6 +482,7 @@ fn word_cap(word: Option<&str>) -> Option<Standing> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tehas_ports::At;
 
     #[test]
     fn an_id_is_githubs_whole_number_alone() {

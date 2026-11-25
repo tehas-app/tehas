@@ -11,10 +11,20 @@ use serde::Deserialize;
 use serde_json::Value;
 use tehas_ports::{At, Got, Outcome, Pool, Unread};
 
-/// How long a rate-limited answer holds the priced budget out, at the
-/// least: GitHub's reset is not read here, and "until now" would hold
-/// nothing, so a limited host would ask again at once.
+/// How long a rate-limited answer holds its budget out, at the least: a
+/// GraphQL `RATE_LIMITED` and a limit gh reports on its standard error
+/// alike. GitHub's reset is not read from either, and "until now" would
+/// hold nothing, so a limited host would ask again at once.
 const LIMITED_FLOOR: i64 = 60;
+
+/// The budget of `pool` spent, as a rate limit the adapter reads with no
+/// reset time says it at `now`: held out for [`LIMITED_FLOOR`].
+pub(crate) fn limited(pool: Pool, now: i64) -> Outcome {
+    Outcome::Spent {
+        pool,
+        until: At::new(now + LIMITED_FLOOR),
+    }
+}
 
 /// The `errors` of an answer, and nothing else of it.
 #[derive(Deserialize)]
@@ -61,10 +71,7 @@ pub(crate) fn refusal(out: &str, now: i64) -> Option<Outcome> {
         _ => false,
     };
     Some(if limited {
-        Outcome::Spent {
-            pool: Pool::Priced,
-            until: At::new(now + LIMITED_FLOOR),
-        }
+        self::limited(Pool::Priced, now)
     } else {
         Outcome::Unread(Unread::Inconsistent)
     })

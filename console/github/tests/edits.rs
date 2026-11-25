@@ -505,7 +505,7 @@ fn a_failed_question_fails_each_of_its_items() {
             "rate-limited",
             Outcome::Spent {
                 pool: Pool::Priced,
-                until: At::new(replay_now()),
+                until: At::new(replay_now() + 60),
             },
         ),
         ("error-no-path", Outcome::Unread(Unread::Inconsistent)),

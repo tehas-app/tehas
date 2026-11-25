@@ -228,7 +228,7 @@ fn a_rename_that_fails_is_its_outcome() {
         (
             Err(Outcome::Spent {
                 pool: Pool::Writes,
-                until: At::new(replay_now()),
+                until: At::new(replay_now() + 60),
             }),
             vec!["label", "rename"]
         )
@@ -268,7 +268,7 @@ fn a_failure_is_its_outcome_and_nothing_is_written_after_a_failed_read() {
             "rate-limited",
             Outcome::Spent {
                 pool: Pool::Priced,
-                until: At::new(replay_now()),
+                until: At::new(replay_now() + 60),
             },
         ),
         (

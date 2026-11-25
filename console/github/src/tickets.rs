@@ -2,6 +2,7 @@
 //! reads in the ports' types. The traits are answered in `port/`; the rest
 //! of the tickets port comes with the moves that need it.
 
+use crate::graphql::limited;
 use crate::{gh, table, ForgeError, GitHub};
 use serde_json::Value;
 use tehas_ports::{
@@ -143,8 +144,8 @@ impl GitHub {
 
     /// The named outcome of a call that failed, read from the runner's
     /// reason. gh's reason holds no time a spent budget resets at, so
-    /// `Spent` is until now, by the adapter's clock, and the caller waits by
-    /// its own rule.
+    /// `Spent` holds for the floor past now, by the adapter's clock, as a
+    /// GraphQL `RATE_LIMITED` does (`graphql::limited`).
     pub(crate) fn outcome(&self, e: &ForgeError) -> Outcome {
         outcome(e, (self.now)())
     }
@@ -338,18 +339,12 @@ fn outcome(e: &ForgeError, now: i64) -> Outcome {
     match status {
         Some("401") => Outcome::SignedOut,
         Some("410") => Outcome::NotFound,
-        Some("429") => Outcome::Spent {
-            pool: Pool::Calls,
-            until: At::new(now),
-        },
+        Some("429") => limited(Pool::Calls, now),
         Some("403") => Outcome::Forbidden,
         // GitHub refusing the input: nothing was made.
         Some("422") => Outcome::Refused(Refusal::Invalid),
         Some(s) if s.starts_with('5') => maybe(Passing::Server),
-        _ if why.contains("rate limit") => Outcome::Spent {
-            pool: Pool::Calls,
-            until: At::new(now),
-        },
+        _ if why.contains("rate limit") => limited(Pool::Calls, now),
         _ if why.contains("timed out")
             || why.contains("timeout")
             || why.contains("bound")
@@ -388,6 +383,21 @@ mod tests {
         // auth login" and asks nothing: both runners' forms of it.
         assert_eq!(of(": gh exited 4"), Outcome::SignedOut);
         assert_eq!(of("gh exited 4"), Outcome::SignedOut);
+    }
+
+    /// A limit gh reports, by its words or a 429, holds the budget out for
+    /// the floor past now, as a GraphQL `RATE_LIMITED` does: "until now"
+    /// would hold nothing.
+    #[test]
+    fn a_limit_gh_reports_holds_the_budget_out_for_the_floor() {
+        let spent = Outcome::Spent {
+            pool: Pool::Calls,
+            until: At::new(1_000 + 60),
+        };
+        for why in [": rate limit", ": secondary rate limit", ": HTTP 429"] {
+            let got = outcome(&ForgeError::new("gh api", why), 1_000);
+            assert_eq!(got, spent, "{why}");
+        }
     }
 
     #[test]

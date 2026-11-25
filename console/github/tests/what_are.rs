@@ -234,7 +234,7 @@ fn a_failed_question_is_its_outcome_for_every_number() {
             "rate-limited",
             Outcome::Spent {
                 pool: Pool::Calls,
-                until: At::new(1_767_225_600),
+                until: At::new(1_767_225_660),
             },
         ),
         (

@@ -404,7 +404,7 @@ fn the_read_before_an_edit_or_a_comment_fails_with_no_write_and_says_it_was_not_
             failed("rate-limited.stderr"),
             Outcome::Spent {
                 pool: Pool::Calls,
-                until: At::new(now()),
+                until: At::new(now() + 60),
             },
         ),
     ];
@@ -627,7 +627,7 @@ fn every_failure_of_a_write_is_its_named_outcome_sent_once_and_echoes_no_input()
     };
     let spent = Outcome::Spent {
         pool: Pool::Writes,
-        until: At::new(now()),
+        until: At::new(now() + 60),
     };
     let cases = [
         (failed("not-found.stderr"), Outcome::NotFound),
@@ -949,7 +949,7 @@ fn every_reason_bounded_gives_maps_as_before_the_relays_runner() {
     };
     let spent = Outcome::Spent {
         pool: Pool::Calls,
-        until: At::new(now()),
+        until: At::new(now() + 60),
     };
     let cases = [
         ("not found", Outcome::NotFound),

@@ -397,10 +397,7 @@ impl GitHub {
                 }
                 Some(i) => failed[i] = Some(Outcome::Unread(Unread::Inconsistent)),
                 None if e.kind.as_deref() == Some("RATE_LIMITED") => {
-                    return Err(Outcome::Spent {
-                        pool: Pool::Priced,
-                        until: At::new((self.now)()),
-                    })
+                    return Err(crate::graphql::limited(Pool::Priced, (self.now)()))
                 }
                 None => return Err(Outcome::Unread(Unread::Inconsistent)),
             }
