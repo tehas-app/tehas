@@ -79,7 +79,7 @@ fn copy(file: &Path, to: &mut dyn Write) {
     }
 }
 
-pub(super) fn main(given: &[String]) -> u8 {
+pub(super) fn main(given: &[String], site: release::Releases) -> u8 {
     let Some((console, rest)) = given.split_first() else {
         tell("console update run: usage: run <console> <arguments>");
         return 64;
@@ -121,7 +121,7 @@ pub(super) fn main(given: &[String]) -> u8 {
         return 1;
     };
     let (plan, out, err) = (dir.0.join("plan"), dir.0.join("out"), dir.0.join("err"));
-    let undo = match prepare(&plan, &asked) {
+    let undo = match prepare(&plan, &asked, site) {
         Ok(Prepared::Planned(undo)) => undo,
         Ok(Prepared::Over) => return 0,
         Err(rc) => return rc,
