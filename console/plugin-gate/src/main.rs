@@ -10,6 +10,9 @@
 //! from ~/.config/tehas/github-app.client-id and github-app.client-secret,
 //! which no one but the host's user may read. It is off unless the feature
 //! `plugins` is on: off, it says so and ends 0, and no port is opened.
+//! GitHub is asked through the adapter's authorised curl
+//! (`tehas_github::Access`), with the installation token `tehasbot
+//! github-token` prints.
 //!
 //! A press is not asked of a runner yet: it answers 503 until the runner
 //! implements [`Refresh`].
@@ -24,7 +27,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tehas_core::settings::rules;
 use tehas_plugin::gate::catalog::Installed;
-use tehas_plugin::gate::github::{Curl, Level};
+use tehas_plugin::gate::github::{installation_token, Level};
 use tehas_plugin::gate::{self, Gate, Press, Refresh, Settings};
 
 /// Connections served at once; one more is 503.
@@ -129,9 +132,6 @@ fn main() {
     let user_home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     let client_id = client(&user_home, tehas_core::plugin::CLIENT_ID_FILE);
     let client_secret = client(&user_home, tehas_core::plugin::CLIENT_SECRET_FILE);
-    let api = Some(env("TEHAS_GITHUB_API"))
-        .filter(|a| !a.is_empty())
-        .unwrap_or_else(|| "https://api.github.com".to_string());
     let web = "https://github.com".to_string();
     let settings = Settings {
         domain,
@@ -140,16 +140,16 @@ fn main() {
         access,
         home: home.clone(),
         client_id: client_id.clone(),
-        web: web.clone(),
-    };
-    let github = Curl {
-        api,
         web,
-        repo,
-        client_id,
-        client_secret,
-        console: home.join("libexec/console"),
     };
+    let console = home.join("libexec/console");
+    let Some(github) = tehas_github::Access::new(tehas_github::AuthorisedCurl::default(), &repo)
+    else {
+        stop("TEHAS_REPO is not owner/name");
+    };
+    let github = github
+        .with_client(&client_id, tehas_ports::Secret::new(client_secret))
+        .with_installation(move || installation_token(&console));
     let catalog = Installed::new(home, pins, grants);
     let gate = Arc::new(Gate::new(
         settings,

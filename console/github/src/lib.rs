@@ -14,10 +14,12 @@
 
 #![forbid(unsafe_code)]
 
+mod access;
 mod attachments;
 mod curl;
 mod forge;
 pub mod gh;
+mod graphql;
 mod items;
 pub mod markers;
 mod port;
@@ -26,6 +28,7 @@ mod ticket;
 mod tickets;
 mod vocabulary;
 
-pub use curl::{Curl, ENV as CURL_ENV};
+pub use access::Access;
+pub use curl::{Authorised as AuthorisedCurl, Curl, ENV as CURL_ENV};
 pub use forge::{read_events, Approval, ForgeError, GitHub, LabelEvent};
 pub use port::{project_of, GitHubSite, MakeRunner, PeopleClient, WORKFLOW_RUNS_FORBIDDEN};

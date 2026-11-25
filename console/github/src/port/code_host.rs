@@ -97,7 +97,7 @@ impl CodeHost for GitHub {
             }
             args.extend(["-f", &query]);
             match gh.call("the pull requests", &args) {
-                Ok(out) => read_page(&out, me, filter, gh.bot.as_ref()),
+                Ok(out) => read_page(&out, me, filter, gh.bot.as_ref(), (gh.now)()),
                 Err(e) => Err(gh.query_outcome(&e)),
             }
         };
@@ -431,13 +431,14 @@ fn read_page(
     me: bool,
     f: &ChangeFilter,
     bot: Option<&crate::tickets::Bot>,
+    now: i64,
 ) -> Got<Page> {
     let malformed = Outcome::Unread(Unread::Malformed);
+    if let Some(refused) = crate::graphql::refusal(out, now) {
+        return Err(refused);
+    }
     let mut v: Value = serde_json::from_str(out.trim()).map_err(|_| malformed.clone())?;
     tehas_core::accounts::vouch(&mut v);
-    if v.get("errors").is_some_and(|e| !e.is_null()) {
-        return Err(Outcome::Unread(Unread::Inconsistent));
-    }
     let repo = v.pointer("/data/repository").ok_or(malformed.clone())?;
     let here = repo.get("databaseId").and_then(Value::as_u64);
     let list = repo.get("pullRequests").ok_or(malformed.clone())?;

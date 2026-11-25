@@ -10,7 +10,7 @@ use super::anonymous::{Anonymous, Public};
 use super::people::{People, PeopleClient};
 use super::unsupported;
 use crate::tickets::{Bot, NOT_STARTED};
-use crate::{table, Curl, GitHub};
+use crate::{table, AuthorisedCurl, Curl, GitHub};
 use tehas_core::forge::{Failed, GhRunner};
 use tehas_ports::{
     Actor, At, BlueprintWrites, Blueprints, Board, Caller, CodeHost, CodeHostWrites, Got, Identity,
@@ -71,14 +71,12 @@ impl GitHubSite {
 
     /// The same site with the factory's client for people: its identity
     /// handles sign a person in (`Identity::sign_in_link`, `signed_in`),
-    /// trading the code through curl. The wiring reads the client; the
-    /// adapter reads no file and no variable.
+    /// trading the code through the adapter's authorised curl. The wiring
+    /// reads the client; the adapter reads no file and no variable. A site
+    /// whose project is not `owner/name` signs no one in.
     pub fn with_people_client(self, client: PeopleClient) -> GitHubSite {
-        let people = People::new(client, &self.repo);
-        GitHubSite {
-            people: Some(Arc::new(people)),
-            ..self
-        }
+        let people = People::new(client, &self.repo, AuthorisedCurl::default()).map(Arc::new);
+        GitHubSite { people, ..self }
     }
 
     /// The same site with the client for people trading through `trade`, a
