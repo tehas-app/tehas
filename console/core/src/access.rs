@@ -1,22 +1,18 @@
 //! Who has access to the factory's repository, one check for the plugins'
 //! gate and for a call of a tool with `--login`
 //! (docs/specs/2026-11-21-plugins-web.md, "Who gets in"). What is asked of
-//! GitHub is behind [`GitHub`], so the tests stub it: the person's token for
-//! the web flow's code, who the token is, and the person's permission on the
+//! the code host is behind [`GitHub`], which the adapter answers
+//! (`tehas_github::Access`) and the tests stub: the person's token for the
+//! web flow's code, who the token is, and the person's permission on the
 //! repository with the installation token. [`check`] compares the answer
 //! with `TEHAS_PLUGIN_ACCESS` and the person by their [`AccountId`], whole
 //! and exact. Nothing of it is kept here: the gate keeps a session's last
 //! check in its memory, which a restart empties.
-//!
-//! [`Curl`] asks through curl, as console/ops/src/github.rs does: every token,
-//! secret and code goes on curl's standard input, never on a command line.
-//! The installation token is what `tehasbot github-token` prints.
 
-use serde_json::Value;
-use std::io::Write;
-use std::path::PathBuf;
+use std::path::Path;
 use std::process::{Command, Stdio};
 pub use tehas_ports::AccountId;
+use tehas_ports::{Got, Outcome, Secret};
 
 /// A permission on a repository, least first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -40,21 +36,6 @@ impl Level {
             _ => return None,
         })
     }
-
-    /// The most of GitHub's `permissions` booleans: `pull`, `triage`, `push`,
-    /// `maintain`, `admin`. None when none is true.
-    pub fn of_permissions(p: &Value) -> Option<Level> {
-        [
-            ("admin", Level::Admin),
-            ("maintain", Level::Maintain),
-            ("push", Level::Write),
-            ("triage", Level::Triage),
-            ("pull", Level::Read),
-        ]
-        .into_iter()
-        .find(|(k, _)| p.get(*k) == Some(&Value::Bool(true)))
-        .map(|(_, l)| l)
-    }
 }
 
 /// A person, as GitHub's `GET /user` names them.
@@ -74,184 +55,34 @@ pub enum Permission {
     Of(AccountId, Option<Level>, String),
 }
 
+/// What is asked of GitHub, each failure an [`Outcome`].
 pub trait GitHub: Send + Sync {
-    /// The person's token for the web flow's `code`.
-    fn token(&self, code: &str) -> Result<String, String>;
+    /// The person's token for the web flow's `code`. `Forbidden`: GitHub
+    /// did not take the code.
+    fn token(&self, code: &str) -> Got<String>;
     /// Who `token` is.
-    fn user(&self, token: &str) -> Result<Person, String>;
+    fn user(&self, token: &str) -> Got<Person>;
     /// `GET /repos/{repo}/collaborators/{login}/permission` with the
     /// installation token.
-    fn permission(&self, login: &str) -> Result<Permission, String>;
+    fn permission(&self, login: &str) -> Got<Permission>;
     /// Whether the repository is public.
-    fn public(&self) -> Result<bool, String>;
+    fn public(&self) -> Got<bool>;
 }
 
-/// GitHub through curl.
-pub struct Curl {
-    pub api: String,
-    pub web: String,
-    pub repo: String,
-    pub client_id: String,
-    pub client_secret: String,
-    /// The console, which `tehasbot github-token` runs as.
-    pub console: PathBuf,
-}
-
-fn quoted(value: &str) -> String {
-    value
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n")
-        .replace('\r', "\\r")
-}
-
-/// curl with `config` on its standard input: the body and the HTTP status.
-fn curl(config: &str) -> Result<(u16, Vec<u8>), String> {
-    let mut child = Command::new("curl")
-        .args([
-            "-sS",
-            "--proto",
-            "=https",
-            "--max-time",
-            "20",
-            "--max-filesize",
-            "1048576",
-            "-w",
-            "\n%{response_code}",
-            "-K",
-            "-",
-        ])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
+/// The installation token, as `tehasbot github-token` of `console` prints
+/// it. `SignedOut` when there is none.
+pub fn installation_token(console: &Path) -> Got<Secret> {
+    let out = Command::new(console)
+        .args(["tehasbot", "github-token"])
+        .stdin(Stdio::null())
         .stderr(Stdio::null())
-        .spawn()
-        .map_err(|_| "curl cannot run".to_string())?;
-    if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(config.as_bytes());
+        .output()
+        .map_err(|_| Outcome::SignedOut)?;
+    let token = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if !out.status.success() || token.is_empty() {
+        return Err(Outcome::SignedOut);
     }
-    let out = child
-        .wait_with_output()
-        .map_err(|_| "curl did not finish".to_string())?;
-    if !out.status.success() {
-        return Err("GitHub could not be reached".to_string());
-    }
-    let text = out.stdout;
-    let at = text.iter().rposition(|&b| b == b'\n').unwrap_or(0);
-    let status = String::from_utf8_lossy(&text[at..])
-        .trim()
-        .parse()
-        .unwrap_or(0);
-    Ok((status, text[..at].to_vec()))
-}
-
-fn api_config(url: &str, bearer: &str) -> String {
-    format!(
-        "url = \"{}\"\nheader = \"Accept: application/vnd.github+json\"\nheader = \"Authorization: Bearer {}\"\n",
-        quoted(url),
-        quoted(bearer)
-    )
-}
-
-fn json(body: &[u8]) -> Result<Value, String> {
-    serde_json::from_slice(body).map_err(|_| "GitHub's answer was not JSON".to_string())
-}
-
-impl Curl {
-    fn installation(&self) -> Result<String, String> {
-        let out = Command::new(&self.console)
-            .args(["tehasbot", "github-token"])
-            .stdin(Stdio::null())
-            .stderr(Stdio::null())
-            .output()
-            .map_err(|_| "no installation token".to_string())?;
-        let token = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        if !out.status.success() || token.is_empty() {
-            return Err("no installation token".to_string());
-        }
-        Ok(token)
-    }
-}
-
-impl GitHub for Curl {
-    fn token(&self, code: &str) -> Result<String, String> {
-        let config = format!(
-            "url = \"{}/login/oauth/access_token\"\nheader = \"Accept: application/json\"\ndata-urlencode = \"client_id={}\"\ndata-urlencode = \"client_secret={}\"\ndata-urlencode = \"code={}\"\n",
-            quoted(&self.web),
-            quoted(&self.client_id),
-            quoted(&self.client_secret),
-            quoted(code)
-        );
-        let (status, body) = curl(&config)?;
-        let v = json(&body)?;
-        match v["access_token"].as_str() {
-            Some(t) if status == 200 && !t.is_empty() => Ok(t.to_string()),
-            _ => Err("GitHub did not take the sign-in's code".to_string()),
-        }
-    }
-
-    fn user(&self, token: &str) -> Result<Person, String> {
-        let (status, body) = curl(&api_config(&format!("{}/user", self.api), token))?;
-        if status != 200 {
-            return Err(format!("GitHub answered {status} for the person"));
-        }
-        let v = json(&body)?;
-        match (v["id"].as_u64(), v["login"].as_str()) {
-            (Some(id), Some(login)) if crate::settings::rules::is_login(login) => Ok(Person {
-                id: id_of(id),
-                login: login.to_string(),
-            }),
-            _ => Err("GitHub's answer named no person".to_string()),
-        }
-    }
-
-    fn permission(&self, login: &str) -> Result<Permission, String> {
-        let token = self.installation()?;
-        let url = format!(
-            "{}/repos/{}/collaborators/{login}/permission",
-            self.api, self.repo
-        );
-        let (status, body) = curl(&api_config(&url, &token))?;
-        permission_of(status, &body)
-    }
-
-    fn public(&self) -> Result<bool, String> {
-        let token = self.installation()?;
-        let url = format!("{}/repos/{}", self.api, self.repo);
-        let (status, body) = curl(&api_config(&url, &token))?;
-        if status != 200 {
-            return Err(format!("GitHub answered {status} for the repository"));
-        }
-        match json(&body)?["private"].as_bool() {
-            Some(private) => Ok(!private),
-            None => Err("GitHub's answer did not say whether the repository is private".into()),
-        }
-    }
-}
-
-/// GitHub's answer for a permission: 404 is no access, any other status but
-/// 200 an error.
-pub fn permission_of(status: u16, body: &[u8]) -> Result<Permission, String> {
-    match status {
-        404 => return Ok(Permission::None),
-        200 => {}
-        s => return Err(format!("GitHub answered {s} for the permission")),
-    }
-    let v = json(body)?;
-    let Some(id) = v["user"]["id"].as_u64() else {
-        return Err("GitHub's answer named no user".to_string());
-    };
-    let role = v["role_name"].as_str().unwrap_or("").to_string();
-    Ok(Permission::Of(
-        id_of(id),
-        Level::of_permissions(&v["user"]["permissions"]),
-        role,
-    ))
-}
-
-/// GitHub's user id as the account's id: its number in decimal, as the
-/// adapter writes it.
-fn id_of(id: u64) -> AccountId {
-    AccountId::new(id.to_string())
+    Ok(Secret::new(token))
 }
 
 /// What [`check`] found: the account it lets in, if any, and a line for a
@@ -267,12 +98,7 @@ pub struct Verdict {
 /// at least `access`. On a
 /// public repository read and triage let no one in, since every account has
 /// them. Err: GitHub could not say, which a caller takes as a refusal.
-pub fn check(
-    gh: &dyn GitHub,
-    access: Level,
-    login: &str,
-    id: Option<&AccountId>,
-) -> Result<Verdict, String> {
+pub fn check(gh: &dyn GitHub, access: Level, login: &str, id: Option<&AccountId>) -> Got<Verdict> {
     if access <= Level::Triage && gh.public()? {
         return Ok(Verdict {
             user: None,
@@ -306,31 +132,31 @@ mod tests {
 
     /// GitHub answering `level` for user 7, or an error, and counting asks.
     pub struct Stub {
-        pub level: Result<Option<Level>, String>,
+        pub level: Got<Option<Level>>,
         pub public: bool,
         pub asked: Mutex<u32>,
     }
 
     impl GitHub for Stub {
-        fn token(&self, _: &str) -> Result<String, String> {
-            Err("no".into())
+        fn token(&self, _: &str) -> Got<String> {
+            Err(Outcome::Forbidden)
         }
-        fn user(&self, _: &str) -> Result<Person, String> {
-            Err("no".into())
+        fn user(&self, _: &str) -> Got<Person> {
+            Err(Outcome::Forbidden)
         }
-        fn permission(&self, _: &str) -> Result<Permission, String> {
+        fn permission(&self, _: &str) -> Got<Permission> {
             *self.asked.lock().unwrap() += 1;
             match self.level.clone()? {
                 None => Ok(Permission::None),
                 Some(l) => Ok(Permission::Of(AccountId::new("7"), Some(l), "write".into())),
             }
         }
-        fn public(&self) -> Result<bool, String> {
+        fn public(&self) -> Got<bool> {
             Ok(self.public)
         }
     }
 
-    fn stub(level: Result<Option<Level>, String>) -> Stub {
+    fn stub(level: Got<Option<Level>>) -> Stub {
         Stub {
             level,
             public: false,
@@ -373,7 +199,14 @@ mod tests {
             check(&public, Level::Write, "x", None).unwrap().user,
             Some(id("7"))
         );
-        assert!(check(&stub(Err("down".into())), Level::Write, "x", None).is_err());
+        let down = Outcome::Unavailable {
+            why: tehas_ports::Passing::Unreachable,
+            sent: tehas_ports::Sent::Maybe,
+        };
+        assert_eq!(
+            check(&stub(Err(down.clone())), Level::Write, "x", None),
+            Err(down)
+        );
     }
 
     /// The id is compared whole: no spelling of another id, nor of the same
@@ -390,21 +223,5 @@ mod tests {
                 "{other:?}"
             );
         }
-    }
-
-    #[test]
-    fn a_permission_names_its_user_by_the_decimal_of_its_number() {
-        let body =
-            br#"{"user": {"id": 583231, "permissions": {"push": true}}, "role_name": "write"}"#;
-        assert_eq!(
-            permission_of(200, body),
-            Ok(Permission::Of(
-                id("583231"),
-                Some(Level::Write),
-                "write".into()
-            ))
-        );
-        assert_eq!(permission_of(404, b""), Ok(Permission::None));
-        assert!(permission_of(200, br#"{"user": {"id": "583231"}}"#).is_err());
     }
 }
