@@ -70,8 +70,8 @@ img { display: block; }
   text-decoration: none;
 }
 .menu { display: flex; align-items: center; gap: 0 16px; margin-left: auto; }
-/* A typeface wider than Topaz would push the menu past the edge: it gives way
-   and scrolls instead. */
+/* A wide typeface can push the menu past the edge: it gives way and scrolls
+   instead. */
 .topbar > .menu { min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .topbar > .menu::-webkit-scrollbar { display: none; }
 .menu a, .repo { padding: 12px 0; text-decoration: none; white-space: nowrap; }
@@ -112,8 +112,9 @@ img { display: block; }
   .menu { padding: 0 8px; }
   .brand img { width: auto; height: 40px; }
   .brand span, .brand .wordmark, .brand small { display: none; }
-  /* The logo is 77 columns wide: at half size it fits, and Topaz is at its native 8px. */
-  .ascii pre { font: 8px/8px var(--font-code); }
+  /* The logo is 77 columns wide: at 7px a monospace face draws it in about
+     323px, inside a 375px phone. */
+  .ascii pre { font: 7px/7px var(--font-code); }
   .footer { padding: 24px 16px 32px; }
 }
 

@@ -61,13 +61,13 @@ nav_labels() { # <page file>
   ' "$1"
 }
 
-# How many rows the menu links need in a row of this many pixels. Topaz
-# advances half an em, 8px a character at body size; a link is 24px of type
-# with 12px of padding above and below, so a row of links is 48px. flex-wrap
-# fills a row before it starts the next, so this counts the greedy way.
+# How many rows the menu links need in a row of this many pixels. Pixel's
+# monospace face is about 9.6px a character at body size: count 10px. A link
+# is 24px of type with 12px of padding above and below, a row of links 48px.
+# flex-wrap fills a row before it starts the next: this counts the greedy way.
 menu_rows() { # <labels> <row holds this many px> <gap between links>
   awk -v avail="$2" -v gap="$3" '
-    { wide = length($0) * 8 }
+    { wide = length($0) * 10 }
     !used { used = wide; next }
     used + gap + wide <= avail { used += gap + wide; next }
     { rows++; used = wide }
@@ -91,6 +91,8 @@ t_eq "$(awk '/^ *\.topbar-short/ && /flex-wrap/ { n++ } END { print n + 0 }' <<<
 t_contains "$phone" '.topbar-short > .menu { overflow-x: auto; scrollbar-width: none; }'
 t_eq "$(menu_rows "$short" 652 16)" 1
 t_eq "$(menu_rows "$short" 343 16)" 1
+# From 700px the links sit beside pixel's sprite, a gap and TEHAS at 20px each.
+t_eq "$(menu_rows "$short" $((652 - 100 - 16 - 5 * 20 - 16)) 16)" 1
 t_contains "$phone" ':root { --header: 128px; }'
 t_contains "$phone_small" ':root { --header: 120px; }'
 t_eq "$(fits "$(band 16 50 1)" 128)" fits

@@ -12,7 +12,7 @@
   /* Type. Text is 16px and 32px in every theme: the layout counts on it. */
   --font: "Courier New", monospace;
   --font-code: "Courier New", monospace;
-  --font-smoothing: none;
+  --font-smoothing: auto;
   /* The sizes of pages.css. Pixel keeps one face at two sizes. */
   --type-small: 16px;
   --type-body: 16px;
