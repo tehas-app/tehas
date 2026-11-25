@@ -321,7 +321,7 @@ fn read_status(a: Answer, now: i64) -> Got<Option<Answer>> {
             match (out, reset, after) {
                 (true, Some(reset), _) => Err(spent(reset)),
                 (_, _, Some(after)) => Err(spent(now + after)),
-                _ if a.status == 429 => Err(spent(now + 60)),
+                _ if a.status == 429 => Err(crate::graphql::limited(Pool::Calls, now)),
                 _ => Err(Outcome::Forbidden),
             }
         }

@@ -12,9 +12,10 @@ use serde_json::Value;
 use tehas_ports::{At, Got, Outcome, Pool, Unread};
 
 /// How long a rate-limited answer holds its budget out, at the least: a
-/// GraphQL `RATE_LIMITED` and a limit gh reports on its standard error
-/// alike. GitHub's reset is not read from either, and "until now" would
-/// hold nothing, so a limited host would ask again at once.
+/// GraphQL `RATE_LIMITED`, a limit gh reports on its standard error and a
+/// REST 429 with no reset time alike. No reset is read from these, and
+/// "until now" would hold nothing, so a limited host would ask again at
+/// once.
 const LIMITED_FLOOR: i64 = 60;
 
 /// The budget of `pool` spent, as a rate limit the adapter reads with no
