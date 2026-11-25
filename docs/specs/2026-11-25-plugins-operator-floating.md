@@ -548,6 +548,14 @@ in WebAssembly built from C or Rust.
     worker runs under the frame's own CSP, `connect-src 'none'` included,
     and gets a module's bytes by `postMessage`, so it fetches nothing and
     sends nothing.
+  - **Measured, 2026-11-26, for the spike** (Chromium 159.0.8154.6, the one
+    Playwright 1.65.1 pins): in a `sandbox="allow-scripts"` frame with no
+    CSP at all, a classic `blob:` worker starts and answers, and a `blob:`
+    module worker (`{type: "module"}`) fails with an error event. So the
+    module worker this part asks for doesn't start in that frame today; a
+    classic `blob:` worker does. Which one a view gets is the spike's
+    question, and #3305's if the view code needs module workers. The
+    template's simulator tests the classic one.
   - Inside H8's frame, so the worker inherits the opaque origin.
   - A vendored codec (jSquash, Squoosh) is verified by its upstream hash,
     and still meets the import rule and runs in the same box.
