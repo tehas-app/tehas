@@ -138,6 +138,101 @@ fn not_json_rpc_is_invalid_request() {
     }
 }
 
+// The id is text, a number or null, as JSON-RPC 2.0 has it. An object, a list,
+// true or false is no id: the request is an Invalid Request, answered with
+// the null id, as one whose id cannot be read.
+#[test]
+fn an_id_that_is_not_text_a_number_or_null_is_an_invalid_request() {
+    let auth = format!("Bearer {K1}");
+    let h = [
+        ("Authorization", auth.as_str()),
+        ("MCP-Protocol-Version", "2025-11-25"),
+    ];
+    for id in [json!({"a": 1}), json!([1]), json!([]), json!(true)] {
+        let body = json!({"jsonrpc": "2.0", "id": id, "method": "ping", "params": {}});
+        let r = send("POST", &h, body.to_string().as_bytes());
+        assert_eq!(r.status, 400, "{id}");
+        assert_eq!(
+            String::from_utf8(r.body).unwrap(),
+            r#"{"error":{"code":-32600,"message":"Invalid Request"},"id":null,"jsonrpc":"2.0"}"#,
+            "{id}"
+        );
+    }
+}
+
+// An id of text, a number or null comes back as it was sent, and the reply's
+// keys are sorted.
+#[test]
+fn the_id_comes_back_as_it_was_sent() {
+    let auth = format!("Bearer {K1}");
+    let h = [
+        ("Authorization", auth.as_str()),
+        ("MCP-Protocol-Version", "2025-11-25"),
+    ];
+    for (id, sent) in [
+        (json!("a-1"), r#""a-1""#),
+        (json!(7), "7"),
+        (json!(-3), "-3"),
+        (json!(1.5), "1.5"),
+        (json!(null), "null"),
+    ] {
+        let body = json!({"jsonrpc": "2.0", "id": id, "method": "ping", "params": {}});
+        let r = send("POST", &h, body.to_string().as_bytes());
+        assert_eq!(r.status, 200, "{id}");
+        assert_eq!(
+            String::from_utf8(r.body).unwrap(),
+            format!(r#"{{"id":{sent},"jsonrpc":"2.0","result":{{}}}}"#)
+        );
+    }
+}
+
+// The replies' bytes: keys sorted at every level, `_meta` first in a modern
+// result, `data` between `code` and `message` in an error.
+#[test]
+fn replies_keep_their_keys_sorted() {
+    let r = modern("server/discover", json!({}));
+    let text = String::from_utf8(r.body).unwrap();
+    assert!(
+        text.starts_with(concat!(
+            r#"{"id":1,"jsonrpc":"2.0","result":{"_meta":{"io.modelcontextprotocol/serverInfo":"#,
+            r#"{"name":"tehas","version":"v9.9.9"}},"cacheScope":"private","#,
+            r#""capabilities":{"tools":{}},"instructions":"#
+        )),
+        "{text}"
+    );
+    let r = modern(
+        "tools/call",
+        json!({"name": "factory_issues", "arguments": {"stage": "nope"}}),
+    );
+    let text = String::from_utf8(r.body).unwrap();
+    assert!(
+        text.starts_with(r#"{"id":1,"jsonrpc":"2.0","result":{"_meta":{"#),
+        "{text}"
+    );
+    assert!(
+        text.contains(r#"}},"content":[{"text":""#)
+            && text.ends_with(r#"","type":"text"}],"isError":true,"resultType":"complete"}}"#),
+        "{text}"
+    );
+    let auth = format!("Bearer {K1}");
+    let body = json!({"jsonrpc": "2.0", "id": "v", "method": "tools/list",
+        "params": {"_meta": {"io.modelcontextprotocol/protocolVersion": "1900-01-01"}}})
+    .to_string();
+    let h = [
+        ("Authorization", auth.as_str()),
+        ("MCP-Protocol-Version", "1900-01-01"),
+        ("Mcp-Method", "tools/list"),
+    ];
+    assert_eq!(
+        String::from_utf8(send("POST", &h, body.as_bytes()).body).unwrap(),
+        concat!(
+            r#"{"error":{"code":-32022,"data":{"requested":"1900-01-01","#,
+            r#""supported":["2026-07-28","2025-11-25"]},"message":"Unsupported protocol version"},"#,
+            r#""id":"v","jsonrpc":"2.0"}"#
+        )
+    );
+}
+
 #[test]
 fn discover_names_both_versions_and_the_server() {
     let r = modern("server/discover", json!({}));

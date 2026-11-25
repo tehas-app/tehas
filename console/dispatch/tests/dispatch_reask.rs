@@ -7,8 +7,8 @@ mod common;
 use common::{count_lines, has, Part::Off, World};
 use serde_json::json;
 use std::fs;
-use tehas_core::question::{question_marker, reasked, Kind};
-use tehas_ports::{Mark, State};
+use tehas_core::question::{q_text, question_marker, reasked, superseded, Kind};
+use tehas_ports::{Body, CommentId, Mark, MarkerEdit, Revision, State, Write};
 
 /// #21's park question as tehas v1.4.0 posted it.
 fn old_park() -> String {
@@ -18,6 +18,31 @@ fn old_park() -> String {
 /// #22's planning question as tehas v1.4.0 posted it.
 fn old_plan() -> String {
     format!("Adopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\nTick one box, or reply in a comment.\n\n{}", question_marker("plan", 22, 1))
+}
+
+/// The edit that tells the old comment `old` of #n, whose text was `body`,
+/// that it is superseded by `new`: made at the revision the poll read, its
+/// markers kept, as the journal keeps it.
+fn supersede(n: u64, old: u64, body: &str, new: Option<u64>) -> Write {
+    let edit = Write::EditComment {
+        id: CommentId::new(old.to_string()),
+        body: Body::Text(format!(
+            "{}\n\n{}",
+            q_text(body, n).unwrap(),
+            superseded(new)
+        )),
+        markers: MarkerEdit::default(),
+        since: Revision::new(tehas_core::approval::body_sum(body)),
+    };
+    tehas_core::journal::kept(&edit).unwrap()
+}
+
+/// The edits of comments the journal holds for #n, with their rows' states.
+fn edits(w: &World, n: u64) -> Vec<(Write, String)> {
+    w.sent(n)
+        .into_iter()
+        .filter(|(write, _)| matches!(write, Write::EditComment { .. }))
+        .collect()
 }
 
 /// The home's store made by v1.4.0, with a retry ticked and the two
@@ -94,6 +119,10 @@ fn a_stop_that_offered_no_retry_is_closed_and_not_asked_again() {
         &gh,
         &format!("\n\n{}", tehas_core::question::superseded(None)),
     );
+    assert_eq!(
+        edits(&w, 21),
+        [(supersede(21, 2101, &park, None), "done".to_string())]
+    );
     let k = w.row(&["question-known", "21", "--id", "2101"]);
     assert_eq!(k["recorded"], json!(false), "{k}");
     assert_eq!(w.row(&["question-show", "21"])["question"], json!(null));
@@ -139,6 +168,7 @@ fn a_withdrawal_that_fails_edits_nothing_and_a_closed_comment_is_not_edited_agai
             ),
             0
         );
+        assert_eq!(edits(&w, 21), []);
     }
     let w = World::new("reask-closed");
     let closed = format!("{park}\n\n{}", tehas_core::question::superseded(None));
@@ -192,6 +222,23 @@ fn the_first_poll_asks_each_open_question_again_once_and_tells_the_old_comment()
             &gh,
             &format!("\n\n{}", tehas_core::question::superseded(Some(new))),
         );
+        // Through the code host, at the revision read, its markers kept.
+        let body = if n == 21 { old_park() } else { old_plan() };
+        assert_eq!(
+            edits(&w, n),
+            [(supersede(n, old, &body, Some(new)), "done".to_string())]
+        );
+        let sent = w.edited(old);
+        assert_eq!(sent.len(), 1, "{sent:?}");
+        assert!(
+            sent[0].ends_with(&question_marker(
+                if n == 21 { "park" } else { "plan" },
+                n,
+                1
+            )),
+            "{}",
+            sent[0]
+        );
         // The old one is off the record.
         let k = w.row(&["question-known", &n.to_string(), "--id", &old.to_string()]);
         assert_eq!(k["recorded"], json!(false), "{k}");
@@ -236,4 +283,53 @@ fn the_first_poll_asks_each_open_question_again_once_and_tells_the_old_comment()
     assert_eq!(count_lines(&gh, "api -X POST"), 0, "{gh}");
     assert_eq!(count_lines(&gh, "api -X PATCH"), 0, "{gh}");
     assert!(!r.out.contains("asked #"), "{}", r.out);
+}
+
+/// An old comment changed since the poll read it is a conflict: it is not
+/// edited, the poll says so once, and what was decided stands: the new
+/// question asked and on record, the old one off it.
+#[test]
+fn an_old_comment_changed_since_the_read_is_not_edited_and_the_decision_stands() {
+    let w = World::new("reask-stale");
+    asking(&w, &old_park());
+    let changed = old_park().replace("Leave it parked", "Leave it parked, please");
+    w.fx_json(
+        "rcomment-2101.json",
+        &json!({
+            "id": 2101,
+            "html_url": "https://github.com/acme/widget/issues/21#issuecomment-2101",
+            "body": changed,
+        }),
+    );
+    let r = w.poll();
+    assert_eq!(r.rc, 0, "{}", r.out);
+    has(
+        &r.out,
+        "WARN: the old question of #21 could not be told it is superseded",
+    );
+    assert_eq!(
+        edits(&w, 21),
+        [(
+            supersede(21, 2101, &old_park(), Some(4121)),
+            "failed".to_string()
+        )]
+    );
+    assert!(w.edited(2101).is_empty());
+    assert_eq!(
+        count_lines(
+            &w.gh(),
+            "api -X PATCH repos/acme/widget/issues/comments/2101"
+        ),
+        0
+    );
+    assert_eq!(
+        w.row(&["question-known", "21", "--id", "2101"])["recorded"],
+        json!(false)
+    );
+    assert_eq!(
+        w.row(&["question-known", "21", "--id", "4121"])["known"],
+        json!(true)
+    );
+    // #22's comment, unchanged, is told.
+    assert_eq!(edits(&w, 22).len(), 1);
 }

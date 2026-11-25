@@ -1115,6 +1115,7 @@ impl GitHub {
         digest.title = n.title;
         digest.kind = n.issue_type.map(|t| tehas_ports::Kind::named(&t.name));
         digest.marks = marks;
+        digest.labels = labels;
         digest.target = n
             .milestone
             .map(|m| TargetName::new(TargetId::new(m.number.to_string()), m.title));
