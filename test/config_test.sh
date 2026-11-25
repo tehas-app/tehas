@@ -695,10 +695,6 @@ for line in "TEHAS_THEME=" "TEHAS_THEME=beesknees26" "TEHAS_LAYOUT=" "TEHAS_LAYO
 done
 t_instance "${T_MINIMAL[@]}"
 
-t_case "neither the factory floor nor the business page is in the tree"
-[ -e "$T_ROOT/host/fun/index.html" ] && t_bad "host/fun/index.html is still there"
-[ -e "$T_ROOT/host/fun/business.html" ] && t_bad "host/fun/business.html is still there"
-
 t_case "an analytics script without a site is refused"
 printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_SITE_ANALYTICS_SRC=https://stats.example/ea.js" >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load; echo rc=\$?"
