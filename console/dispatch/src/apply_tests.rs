@@ -1211,20 +1211,23 @@ fn a_comment_whose_markers_cannot_be_read_is_not_posted() {
     assert!(t.writes().is_empty(), "{:?}", t.writes());
 }
 
-/// A text that still holds our marker inside it is posted as 1.x posted it,
-/// through gh, until its site gives the marker typed: a write of the ports
-/// refuses it.
+/// A text that holds our marker inside it, with none typed beside it, is
+/// not posted: a marker that cannot be read is never written (T4.7).
 #[test]
-fn a_comment_whose_text_holds_a_marker_goes_through_gh() {
+fn a_comment_whose_text_holds_an_untyped_marker_is_not_posted() {
     let mut t = world();
     let body = format!("Finished.\n\n{}", crate::finish::marker(7));
-    t.apply(json!([{"issue": 7, "say": body}]));
-    let w = t.writes();
+    let a = t.apply(json!([{"issue": 7, "say": body}]));
     assert_eq!(
-        w[0],
-        "gh issue comment 7 --repo example-owner/example-product --body-file - <<< Finished."
+        a.log,
+        vec!["WARN: the comment on #7 holds a marker of ours with none typed beside it, so it was not posted"]
     );
-    assert!(!w.iter().any(|c| c.starts_with("send ")), "{w:?}");
+    let w = t.writes();
+    assert!(
+        !w.iter()
+            .any(|c| c.starts_with("send ") || c.starts_with("gh ")),
+        "{w:?}"
+    );
 }
 
 /// The finish's reply: its marker typed beside its text, through the port

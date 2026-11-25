@@ -601,20 +601,22 @@ impl Writer {
             .map(str::to_string)
             .collect();
         // A text that holds our marker inside it, with none typed beside
-        // it, goes as 1.x wrote it, through gh: a write of the ports refuses
-        // it. One given its markers typed never goes through gh: the port
-        // refuses a marker in its text, and no gh call writes it there.
-        let wrote = if markers_empty && tehas_core::text::has_marker(body) {
-            self.write(n, "comment-post", args, Some(body), None)
-        } else {
-            match self.looked_1x(n, "comment-post", &args, Some(body)) {
-                Some(wrote) => wrote,
-                None if self.ports.is_none() => {
-                    self.unposted += 1;
-                    return false;
-                }
-                None => self.send(n, &note),
+        // it, is not posted: a marker that cannot be read is never written.
+        // Every site gives its markers typed; a 1.x row of the same post
+        // that this poll's settle read still answers it.
+        let wrote = match self.looked_1x(n, "comment-post", &args, Some(body)) {
+            Some(wrote) => wrote,
+            None if markers_empty && tehas_core::text::has_marker(body) => {
+                log.push(format!(
+                    "WARN: the comment on #{n} holds a marker of ours with none typed beside it, so it was not posted"
+                ));
+                return false;
             }
+            None if self.ports.is_none() => {
+                self.unposted += 1;
+                return false;
+            }
+            None => self.send(n, &note),
         };
         match wrote {
             Wrote::Done(_) => true,
