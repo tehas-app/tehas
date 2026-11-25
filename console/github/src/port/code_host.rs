@@ -33,8 +33,8 @@ use tehas_ports::{
     Access, Account, AccountId, AccountKind, At, Author, BlueprintNo, Bound, Branch, Change,
     ChangeDelta, ChangeDigest, ChangeEvent, ChangeFilter, ChangeNo, ChangeState, ChangeStates,
     ChangeToken, ChangedFile, Checks, CodeHost, CommitId, Compared, Cursor, Did, Facts, FileName,
-    Got, ItemName, Login, Mark, MarkName, Outcome, Pool, ProjectName, Realm, Ref, Release, Remote,
-    RepoPath, Rev, Size, Tag, TagName, Took, Unread, WebLink, Whole, Window,
+    Got, ItemName, Login, Mark, Outcome, Pool, ProjectName, Realm, Ref, Release, Remote, RepoPath,
+    Rev, Size, Tag, TagName, Took, Unread, WebLink, Whole, Window,
 };
 
 impl CodeHost for GitHub {
@@ -277,32 +277,10 @@ impl GitHub {
         }
     }
 
-    /// The marks of a change's labels, in the site's order: a word of the
-    /// table, or the project's own mark. A name no mark can have is left
-    /// out and kept once for the caller to report, as a ticket's are.
+    /// The marks of a change's labels, in the site's order, as
+    /// `read_marks` reads them: a name no mark can have is left out.
     fn marks_of(&mut self, labels: &[String]) -> Vec<Mark> {
-        let theirs = labels
-            .iter()
-            .filter(|l| crate::table::word(l).is_none())
-            .cloned();
-        let read = MarkName::read_list(theirs);
-        for name in read.left_out {
-            if !self.left_out.contains(&name) {
-                self.left_out.push(name);
-            }
-        }
-        labels
-            .iter()
-            .filter_map(|l| {
-                crate::table::word(l).or_else(|| {
-                    read.kept
-                        .iter()
-                        .find(|k| k.as_str() == l)
-                        .cloned()
-                        .map(Mark::Project)
-                })
-            })
-            .collect()
+        self.read_marks(labels).into_iter().flatten().collect()
     }
 }
 
