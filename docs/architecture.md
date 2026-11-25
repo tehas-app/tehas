@@ -254,7 +254,10 @@ its reason, as a floor; a departure from a should rule (R5) likewise.
 | github-rest | 4, in the bash | `host/sandbox/gh-shim` 4 | T8's freeze, below |
 | tests-stub-gh | 83, in the shell tests that stay shell | 18 files of `test/` | T8's freeze, below |
 | untyped-signatures, untyped-fields | 147 and 2 | four causes, file by file | T7's floors, below |
-| untyped-signatures, untyped-fields | 963 and 21, for alpha.1 | the rest, per crate | T7's alpha.1 floor, below |
+| untyped-signatures, untyped-fields | 955 and 21, for alpha.1 | the rest, per crate | T7's alpha.1 floor, below |
+| github-rest, gh-argv | 713 and 193, for alpha.1 | the rest, per area | T4's alpha.1 floors, below |
+| T4.6 step 6 and D4 (no check counts it) | the poll's reads, and the resilience parts no program wires | `console/dispatch/src/read/github.rs`, `read/build.rs`'s `Sources`; the ports' `Watch`, `Ledger`, `Notices` | a written departure for alpha.1, T4's alpha.1 floors below |
+| label-words, home-layout, raw-statuses, tests-stub-gh | 1467, 20, 198 and 131, for alpha.1 | the rest, per area | alpha.1 floors, below |
 
 ### The bash that stays (T8)
 
@@ -361,35 +364,290 @@ written down here. There is no typing lane before the tag.
 Cause: typing them is T7's remaining lane, which collides with the T4/T5
 moves. End: T7's remaining lane, before the beta.
 
-Measured on 491a63264, after #3201, #3215 and #3221 landed, by `scripts/architecture.py`'s own count
+Measured on 491a63264, after #3201, #3215 and #3221 landed, and again
+on ca27f5a18, with the alpha.1 floors below, by `scripts/architecture.py`'s own count
 (`count()` with the checks' pattern, files and `allowed` from
 `architecture.toml`), per crate, with the floor above taken out file by
 file. "The console" is `console/src` and `console/tests`.
 
 | Area | untyped-signatures | untyped-fields |
 | --- | --- | --- |
-| dispatch | 314 | 9 |
+| dispatch | 313 | 9 |
 | mcp | 137 (215, less 78 above) | 1 |
 | cycle | 121 | 5 |
-| the console | 116 (118, less 2 above) | 0 |
-| core | 79 (112, less 33 above) | 1 (3, less 2 above) |
-| ops | 64 (74, less 10 above) | 3 |
+| the console | 115 (117, less 2 above) | 0 |
+| core | 77 (110, less 33 above) | 1 (3, less 2 above) |
+| ops | 60 (70, less 10 above) | 3 |
 | store | 59 | 1 |
 | attach | 36 | 1 |
 | analytics | 22 (23, less 1 above) | 0 |
 | plugin | 10 (33, less 23 above) | 0 |
 | github | 4 | 0 |
 | items | 1 | 0 |
-| **alpha.1 floor** | **963** | **21** |
+| **alpha.1 floor** | **955** | **21** |
 | the floor above | 147 | 2 |
-| **the check's count** | **1110** | **23** |
+| **the check's count** | **1102** | **23** |
 
-The two parts add up to the check's count and its `max`: 963 and 147 is
-1110, 21 and 2 is 23. A count here may only fall, as above.
+The two parts add up to the check's count and its `max`: 955 and 147 is
+1102, 21 and 2 is 23. A count here may only fall, as above.
 
 #3201, #3215 and #3221, the T7 pull requests open at the ruling, have
 landed, and the floor is measured after them: they took untyped-signatures
 from 1124 to 1110, 12 in mcp and 2 in ops. untyped-fields did not move.
+Since then T4's pull requests took it to 1102, none of it in the floor
+above: core's `access.rs` 2, dispatch's `decide.rs` 2, ops' `shipped.rs`
+4, the console's `tests/status.rs` 1, less dispatch's `dispatch_red.rs`
+1 that came in.
+
+### alpha.1 floors
+
+The trio PM's rulings for alpha.1: alpha.1 closes on written floors.
+The plan's Done asks for every count in `architecture.toml` at 0 or at a
+floor written here. Each check whose count is above 0 and not yet
+written down in full has its alpha.1 floor below, per area, with its
+cause. End, for every row: the step that owns the check, before the
+beta. A count here may only fall.
+
+Measured on ca27f5a18 (the branch's tip 7a3f6d2bb merged), after the
+riders it waited for had landed (the T4 adapter pull requests #3208,
+#3216, #3234, #3233, #3261, T4.10b and #3254; the T5 stack #3237 to
+#3239; T4.7's PR 7 (#3265); #3268, which took `core-inward` to 0), by
+`scripts/architecture.py`'s own count (`count()` with the checks'
+pattern, files and `allowed` from `architecture.toml`), per file, then
+per area, with the floors above taken out file by file. A floor of an
+earlier step that is already written in full is not repeated: the
+untyped floors (T7, above), digest-labels 2 and adapter-link-rule 1 (the
+table above). The checks at 0 need none.
+
+| Check | alpha.1 floor | Floors above | The check's count |
+| --- | --- | --- | --- |
+| github-rest | 713 | 4 | 717 |
+| gh-argv | 193 | 7 | 200 |
+| label-words | 1467 | 0 | 1467 |
+| home-layout | 20 | 16 | 36 |
+| raw-statuses | 198 | 0 | 198 |
+| tests-stub-gh | 131 | 82 | 213 |
+
+#### T4's alpha.1 floors
+
+`github-rest` and `gh-argv`, the counts of T4. T4's Done asks for
+`github-rest` at 0 and `gh-argv` at 0 or at its written floor. What is
+still written outside the GitHub adapter after T4's adapter pull
+requests is written down here, per area, with its cause. End, for every
+row: T4's remaining lane, before the beta.
+
+"The console" is `console/src` and `console/tests`; "the front pages" is
+`host/fun`, which `gh-argv` does not read.
+
+| Area | github-rest | gh-argv |
+| --- | --- | --- |
+| the console | 207 | 30 (31, less 1 above) |
+| dispatch | 187 | 91 |
+| ops | 84 | 24 (27, less 3 above) |
+| the front pages | 68 | not read |
+| cycle | 63 | 29 |
+| mcp | 37 | 4 |
+| store | 32 | 7 |
+| core | 20 | 4 |
+| analytics | 8 | 0 |
+| attach | 2 | 2 |
+| items | 2 | 0 |
+| front | 2 | 0 |
+| xtask | 1 | 2 |
+| **alpha.1 floor** | **713** | **193** |
+| the floors above | 4 | 7 |
+| **the check's count** | **717** | **200** |
+
+The two parts add up to each check's count and its `max`: 713 and 4 is
+717, 193 and 7 is 200. The floors above are, for `github-rest`, the 4 of
+`host/sandbox/gh-shim` (T8); for `gh-argv`, the /proc fixture of
+`console/tests/top_snapshot.rs` (1), the pinned tool "gh" in
+`console/ops/src/pins/` (3) and the bash of T8 (3).
+
+The causes, per area:
+
+- **The console.** Reads that no adapter pull request has moved yet:
+  the queue's search, GraphQL counts and events (`queue.rs` 27 and 2),
+  `tehas tickets` and `tehas epics`' GraphQL (`tickets.rs` 19,
+  `epics.rs` 7), the label ids (`labels.rs` 6), the notice's pull
+  request, the preview's pull requests and verdict, the platform's
+  release list, `tehas attach` and `tehas start`'s issue read. The
+  console's own security shim, `gh_shim.rs` (18 and 7), which decides
+  whether a gh call writes: the plan keeps the shims where they are
+  unless the owner agrees to merge them (T4). tehas's own `--json` flag,
+  kept until the end of T4 (Decided 72). And its tests that stub gh with
+  GitHub's JSON, not yet on the ports' fakes (`status_summary.rs` 19,
+  `status.rs` 12, `status_health.rs`, `status_analytics.rs`,
+  `common/mod.rs`).
+- **dispatch.** The queue page's GraphQL question and parse
+  (`read/github.rs` 31, `read/build.rs` 19 and 9, `snapshot.rs` 8),
+  refresh's mergeable and head reads (`refresh.rs` 18 and 5), the
+  start's comments, reviews and collaborator permission
+  (`apply/start.rs` 9), the plan's issue reads (`apply/plan.rs` 4), the
+  questions' test data (`questions.rs` 21), and its tests that stub gh,
+  not yet on the ports' fakes (`apply_tests.rs` 10 and 38,
+  `dispatch/tests/`).
+- **ops.** The App's installation token and the shipped search
+  (`github.rs` 4, `shipped.rs` 15), the pinned tools' release reads
+  (`pins/tools.rs` 2), setup, tidy and ids, and `forge.rs`' finding of
+  the gh program and its shim (14 in `gh-argv`). `health.rs` (26 and 4)
+  is mostly tehas's own `updatedAt` key of `running.json` in its tests
+  and gh's error text. `tehas update`'s release list and download have
+  moved onto the code host (#3233 and T4.10b).
+- **The front pages.** GitHub's field names (`createdAt`, `updatedAt`,
+  `closedAt` and the rest) in the pages that draw the queue's JSON,
+  which copies GitHub's names unchanged: `sample-issues.js` 52,
+  `game-view.js` 8, the factory's issues model 5. They go when T4 or T7
+  renames those names or gives them one owner.
+- **cycle.** The cycle's own issue, pull request and hook reads
+  (`apply.rs`, `gives.rs`, `hook.rs`, `start.rs`, `supervise.rs`), the
+  report's reads of the pull request's `createdAt` and `isDraft`
+  (`report.rs` 12), the gh program its runners start, and its tests not
+  yet on the ports' fakes.
+- **mcp.** The MCP tools' answers keep GitHub's field names
+  (`createdAt`, `updatedAt`, `closedAt`, `mergedAt`) in `tickets.rs` and
+  `tools.rs`, as the queue does; `gh-argv`'s 4 are gh's error lines the
+  events tool reads, in its tests.
+- **store.** tehas's own `--json` flag (22, most of them in tests), the
+  `updatedAt` key of its live rows, and the poll's `gh` call count.
+- **core.** gh's error texts in the fault classifiers' tests
+  (`end_fault.rs`, `call.rs`), api.github.com in the egress list, the
+  issue feed and `issue_pull.rs`' `headRefName` (9, most in tests), and
+  in `gh-argv` the sandbox's credential helper and the token prefix
+  check. The journal's call of gh went in #3265.
+- **The rest.** analytics' 8 are tehas's own `--json`, most of them in
+  its tests; attach's issue link and issue read; items' `updatedAt` key;
+  front's tests' `--json`; xtask's release gate run list in `tag.rs`
+  (the floor T4.11 left with `scripts/tag-release.sh`) and the gh it
+  hands the adapter as the operator's runner.
+
+#### T4.6 step 6 and D4: a written departure
+
+No check counts these; they are written here as a departure for alpha.1
+(the trio PM's ruling). T4.6 step 6 and D4 at alpha.1: the poll's reads
+still go through gh (`console/dispatch/src/read/github.rs`, which
+`read/build.rs` asks for the queue with the gh calls of `read/run.rs`'s
+`Calls`); `Sources` holds no port handles (its fields are the home, the
+calls, systemctl, the time, the models and the endpoint); nothing calls
+`open_work` but the dispatcher's own tests in `read/board.rs` and the
+adapter that answers it; no program wires `Watch`, `Ledger` or
+`NoticeLog` (`Watch` and `NoticeLog` are the ports' fakes, core's
+`FileLedger` is made only in its own tests, and no program implements
+`Notices`), and `health::next` is used only in the fakes. Cause: step 6
+and D4 are days of work after the T4 adapter pull requests. End: before
+the beta. So the resilience test covers the parts on the ports only, at
+alpha.1.
+
+#### label-words
+
+T2 gave the state words their owners: the GitHub adapter's table,
+checked against `host/labels.tsv`, and the acts of the tickets port.
+What is left names a label or marker by its word outside them: 1467,
+most of them in tests. `tehas:ready` alone is about 430, then
+`tehas:plan`, `tehas:running`, `tehas:question` and
+`needs-human-attention`.
+
+| Area | label-words |
+| --- | --- |
+| dispatch | 849 |
+| the console | 153 |
+| core | 145 |
+| ops | 115 |
+| cycle | 97 |
+| store | 61 |
+| mcp | 21 |
+| the front pages | 21 |
+| analytics | 4 |
+| plugin | 1 |
+| **alpha.1 floor** | **1467** |
+
+Cause: the dispatcher's decide still reads the queue page by label names
+(`decide.rs` 73, `decide/flow.rs` 26, `decide/plan.rs` 19,
+`decide/retry.rs` 35, `decide/clean.rs` 16, `pins.rs` 50,
+`read/github.rs` 48, `read/build.rs` 22), and its tests build that page
+from the names (`apply_tests.rs` 139, `dispatch/tests/` 316). Core's
+events, question and text modules (`events.rs` 34, `text.rs` 25,
+`question.rs` 17) and its label pins (`label_pins.rs` 44) read and pin the
+words; ops' tidy (`tidy.rs` 96), the console's queue and status, the
+store's approval and plan records, mcp's decisions and the front pages'
+sample issues name them too. The move is onto the ports' acts and marks,
+with the tests on the ports' fakes. End: T2's remaining lane with T4's,
+before the beta.
+
+#### home-layout
+
+T5 gave the layout one owner, `Home`, and the T5 stack #3237 to #3239
+took the count from 319 to 36. The floor above is T8's 16 (`install.sh`
+12, the units 4). The rest, 20:
+
+| Area | home-layout |
+| --- | --- |
+| dispatch | 17 |
+| ops | 3 |
+| **alpha.1 floor** | **20** |
+
+Cause: of dispatch's 17, 2 are source: the poll's check for an older
+tehas's records names `state/cycles` in its message (`poll.rs` lines 187
+and 205). The other 15 are tests that keep a literal path, not yet
+asking `Home` for the path they expect (`dispatch_approval.rs` 6,
+`dispatch_queue.rs` 9). ops' 3 are the token dirs' test in
+`ops/src/github.rs`. The owner accepted T5's floors (group A3). End:
+T5's last steps, before the beta.
+
+#### raw-statuses
+
+| Area | raw-statuses |
+| --- | --- |
+| core | 88 |
+| dispatch | 43 |
+| the console | 36 |
+| cycle | 14 |
+| ops | 12 |
+| mesh-feed | 3 |
+| mcp | 2 |
+| **alpha.1 floor** | **198** |
+
+Cause: gh's error text, which names GitHub's HTTP statuses, is still
+read outside the adapter to classify a failure, and most of the count is
+the tests of that reading: core's retry and fault classifiers
+(`retry.rs` 53, `end_fault.rs` 27), dispatch's auto finish and its tests
+(`auto_finish.rs` 14, `dispatch_auto_finish.rs` 11), the console's
+security shim (`gh_shim.rs` 15) and status (`status.rs` 8), cycle's
+failed end and supervise. The journal's 5 went in #3265. T4 turns them
+into the ports' named outcomes, read in the adapter. End: T4's
+remaining lane, before the beta.
+
+#### tests-stub-gh
+
+The floors above are 82: T8's shell tests, measured at 79 now (83 at
+the freeze; `tag_release_test.sh` is 2 of its 6), the /proc fixture of
+`console/tests/top_snapshot.rs` (1) and the pinned tool's tests in
+`console/ops/src/pins/tests.rs` (2). The rest, 131:
+
+| Area | tests-stub-gh |
+| --- | --- |
+| dispatch | 71 |
+| the shell tests | 20 (99, less 79 above) |
+| store | 14 |
+| cycle | 10 |
+| the console | 7 (8, less 1 above) |
+| core | 4 |
+| mcp | 4 |
+| attach | 1 |
+| ops | 0 (2, less 2 above) |
+| **alpha.1 floor** | **131** |
+
+Cause: tests that stub gh, or pin a gh argument list, for a behaviour of
+Rust code, not yet on the ports' fakes: dispatch's `apply_tests.rs` 39
+and its JSON fixtures 21 (which give way to builders, T4.6); cycle's
+finish and work tests; the console's 7 in its common harness, status
+and update tests. The update tests' 20 went with #3233 and T4.10b. The
+store's 1.x SQL fixtures 10 and its poll tests 4, core's text samples 4
+and mcp's events tests and log sample 4 are data of the old shapes
+(ports spec T4.4, T4.8, T4.11). The shell tests' 20 stub gh for a
+behaviour of Rust code (`plan_turns_test.sh` 4 and 16 files of 1 or 2):
+ports spec T4.12 moves them into Rust over the fake, and T15 ports the
+shell tests. End: T4's and T15's remaining lanes, before the beta.
 
 ### Temporary rises
 
