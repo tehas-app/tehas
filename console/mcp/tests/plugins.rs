@@ -33,10 +33,11 @@ const TOOLS: &str = r#"{"tools": [{"plugin": "docs", "id": "find-doc", "label": 
   "about": "Find the doc that answers a question",
   "params": {"type": "object", "properties": {"q": {"type": "string", "maxLength": 200}}}}]}"#;
 
-/// A broker that answers every `GET /tools` with TOOLS and every
+/// A broker on a socket in a short directory, so the socket path stays under
+/// SUN_LEN, that answers every `GET /tools` with TOOLS and every
 /// `POST /call` with <call>, and sends each call's body.
-fn broker(name: &str, call: &'static str) -> (TestDir, PathBuf, mpsc::Receiver<Value>) {
-    let dir = TestDir::new(&format!("mcp-plugins-{name}"));
+fn broker(call: &'static str) -> (TestDir, PathBuf, mpsc::Receiver<Value>) {
+    let dir = TestDir::short();
     let sock = dir.join("calls.sock");
     let listener = UnixListener::bind(&sock).unwrap();
     let (tx, rx) = mpsc::channel();
@@ -88,7 +89,7 @@ fn names(r: &Response) -> Vec<String> {
 
 #[test]
 fn a_full_key_is_listed_the_plugin_tool_after_the_servers_own() {
-    let (_d, sock, _) = broker("list", "{}");
+    let (_d, sock, _) = broker("{}");
     let without = names(&ask(FULL, "tools/list", json!({}), None));
     let with = names(&ask(FULL, "tools/list", json!({}), Some(&sock)));
     assert_eq!(with.len(), without.len() + 1);
@@ -115,7 +116,7 @@ fn every_tool_of_the_servers_own_is_factory_and_none_takes_the_plugins_prefix() 
 
 #[test]
 fn a_dashboard_key_is_never_listed_or_served_a_plugin_tool() {
-    let (_d, sock, calls) = broker("dashboard", r#"{"answer": {"doc": "a.md"}}"#);
+    let (_d, sock, calls) = broker(r#"{"answer": {"doc": "a.md"}}"#);
     let listed = names(&ask(DASH, "tools/list", json!({}), Some(&sock)));
     assert!(!listed.iter().any(|n| n.starts_with("plugin_")));
     let r = ask(
@@ -132,7 +133,7 @@ fn a_dashboard_key_is_never_listed_or_served_a_plugin_tool() {
 
 #[test]
 fn a_full_keys_call_reaches_the_broker_and_comes_back_marked() {
-    let (_d, sock, calls) = broker("call", r#"{"answer": {"doc": "a.md"}}"#);
+    let (_d, sock, calls) = broker(r#"{"answer": {"doc": "a.md"}}"#);
     let r = ask(
         FULL,
         "tools/call",
@@ -157,7 +158,7 @@ fn a_full_keys_call_reaches_the_broker_and_comes_back_marked() {
 
 #[test]
 fn a_failed_tool_is_a_tool_error_with_the_brokers_reason() {
-    let (_d, sock, _) = broker("failed", r#"{"reason": "past the timeout"}"#);
+    let (_d, sock, _) = broker(r#"{"reason": "past the timeout"}"#);
     let r = ask(
         FULL,
         "tools/call",
