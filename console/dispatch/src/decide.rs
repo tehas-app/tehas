@@ -468,7 +468,7 @@ impl<'a> Poll<'a> {
             ),
             None => format!("ERROR: unreadable {what}"),
         };
-        self.fail(tehas_core::call::trim(&line), 1)
+        self.fail(tehas_core::text::trim(&line), 1)
     }
 
     /// The end of a poll on comments of `n` that were not read.

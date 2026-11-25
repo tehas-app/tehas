@@ -328,15 +328,19 @@ impl CodeHost for Handle {
         })
     }
 
-    /// The newest published release that is not a prerelease.
+    /// The release marked latest (`World::mark_latest`) while it is
+    /// published and not a prerelease; with no marking, the newest
+    /// published release that is neither a draft nor a prerelease.
     fn latest_release(&mut self) -> Got<Option<Release>> {
         self.run(Pool::Calls, |s, _| {
-            Ok(s.releases
-                .iter()
-                .map(|r| &r.release)
-                .filter(|r| !r.draft && !r.prerelease && r.published.is_some())
-                .max_by_key(|r| r.published)
-                .cloned())
+            let latest = |r: &&Release| !r.draft && !r.prerelease && r.published.is_some();
+            let all = s.releases.iter().map(|r| &r.release).filter(latest);
+            if let Some(tag) = &s.marked_latest {
+                if let Some(r) = all.clone().find(|r| &r.tag == tag) {
+                    return Ok(Some(r.clone()));
+                }
+            }
+            Ok(all.max_by_key(|r| r.published).cloned())
         })
     }
 
