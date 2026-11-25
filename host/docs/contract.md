@@ -1120,6 +1120,16 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   read the list.
   Adopter action: a program that read `api/surface-1.0.txt` reads
   `api/surface-2.0.txt`.
+- **Two settings name the adapters.** This pull request.
+  `TEHAS_CODE_HOST` names the code host and `TEHAS_TICKETS` the ticket
+  tracker. In 2.0 each takes `github` alone, where `TEHAS_TICKETS=github` is
+  the code host's own issues. A missing or empty setting means `github`, so a
+  1.4.x instance loads unchanged. Any other value, `jira` among them, stops
+  every command with 78 before any call: it is not built in this release.
+  Readers: adopters, the consumer that runs many factories where it keeps
+  an instance's settings.
+  Adopter action: none. An instance may write `TEHAS_CODE_HOST=github` and
+  `TEHAS_TICKETS=github`.
 
 ## Pending for 2.0
 
@@ -1155,11 +1165,9 @@ adopter action as the pull request states them.
   out leaves a store of 1.4.x migrated as now.
   Readers: `tehas update`, the end-to-end suite.
 - **The ports.** T4, spec `docs/specs/2026-11-22-ports.md`.
-  The ports themselves. Two settings choose the adapters:
-  `TEHAS_CODE_HOST` and `TEHAS_TICKETS`. In 2.0 each accepts only
-  `github`; a missing setting means `github`, so a 1.4.x instance still
-  loads, and any other value is refused with 78. Two names stay for now as GitHub's word for a pull
-  request, on the list of supplier words still to go: `pullRequests` in the
+  The ports themselves; their two settings are under
+  [Changed in 2.0](#changed-in-20). Two names stay for now as GitHub's word
+  for a pull request, on the list of supplier words still to go: `pullRequests` in the
   analytics report and the dashboard's internal `pr` key.
   Readers: adopters, the consumer that runs many factories where it keeps
   an instance's settings.

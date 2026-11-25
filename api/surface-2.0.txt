@@ -726,3 +726,5 @@ flag limit set --json
 field answer.answer.plugin
 field answer.answer.plugin.commit
 field answer.answer.plugin.name
+setting TEHAS_CODE_HOST
+setting TEHAS_TICKETS
