@@ -1,0 +1,20 @@
+{
+ "data": {
+  "repository": {
+   "ref": {
+    "name": "v1.1.0",
+    "target": {
+     "__typename": "Tag",
+     "oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "tagger": {
+      "date": "2026-01-02T10:00:00Z"
+     },
+     "target": {
+      "__typename": "Commit",
+      "oid": "0000000000000000000000000000000000000002"
+     }
+    }
+   }
+  }
+ }
+}

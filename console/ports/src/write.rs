@@ -626,8 +626,23 @@ impl Writes for Writer {
     }
 
     /// False: a `Writer` sends every write. A read-only host's writer is
-    /// the guard's, above it.
+    /// [`ReadOnly`].
     fn read_only(&self) -> bool {
         false
+    }
+}
+
+/// The writer of a read-only host (`TEHAS_READ_ONLY`, #608): it sends
+/// nothing and answers `Refused(ReadOnly)`. The journal asks it first, so
+/// a write of a read-only host makes no request and records no row.
+pub struct ReadOnly;
+
+impl Writes for ReadOnly {
+    fn send(&mut self, _: &Write, _: &dyn Blobs) -> Got<Receipt> {
+        Err(Outcome::Refused(Refusal::ReadOnly))
+    }
+
+    fn read_only(&self) -> bool {
+        true
     }
 }

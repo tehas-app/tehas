@@ -161,7 +161,7 @@ impl Reads {
         if outcome.attempts > 1 {
             line.push_str(&format!(" (tried {} times)", outcome.attempts));
         }
-        let line = call::trim(&line);
+        let line = tehas_core::text::trim(&line);
         log(&line);
         github_fails::note(&self.home, time::now(), &line);
         None
