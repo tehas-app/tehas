@@ -17,14 +17,6 @@ use tehas_ports::{
     SignInState, WebLink,
 };
 
-/// What `access::Curl` says of a code GitHub answered and did not take.
-const REFUSED: &str = "GitHub did not take the sign-in's code";
-/// What `access::Curl` says when curl did not reach GitHub, or did not run.
-const UNREACHED: [&str; 3] = [
-    "GitHub could not be reached",
-    "curl cannot run",
-    "curl did not finish",
-];
 /// The most characters of a code: GitHub's are 20 hex.
 const CODE_MAX: usize = 64;
 
@@ -37,12 +29,12 @@ fn code_shaped(code: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
 
-/// Why a trade or a read failed: not reached, or GitHub's own failure.
-fn passing(why: &str) -> Passing {
-    if UNREACHED.contains(&why) {
-        Passing::Unreachable
-    } else {
-        Passing::Server
+/// Why a trade or a read failed: what passed, when it was a passing
+/// failure, else GitHub's own failure.
+fn passing(why: &Outcome) -> Passing {
+    match why {
+        Outcome::Unavailable { why, .. } => *why,
+        _ => Passing::Server,
     }
 }
 
@@ -118,15 +110,12 @@ impl GitHub {
         if !code_shaped(code.as_str()) {
             return Err(Outcome::Refused(Refusal::Invalid));
         }
-        let token = people.trade.token(code.as_str()).map_err(|why| {
-            if why == REFUSED {
-                Outcome::Forbidden
-            } else {
-                Outcome::Unavailable {
-                    why: passing(&why),
-                    sent: Sent::Maybe,
-                }
-            }
+        let token = people.trade.token(code.as_str()).map_err(|why| match why {
+            Outcome::Forbidden => Outcome::Forbidden,
+            other => Outcome::Unavailable {
+                why: passing(&other),
+                sent: Sent::Maybe,
+            },
         })?;
         let person = people
             .trade
