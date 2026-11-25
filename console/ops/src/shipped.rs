@@ -341,42 +341,6 @@ pub fn numbers(answer: &str, controls: &[String]) -> Option<Vec<u64>> {
     Some(list(answer, controls)?.iter().filter_map(number).collect())
 }
 
-/// The numbers of the shipped issues that do not carry `label`, for tehasbot
-/// status, which gives it to them. None of them when the answer is no answer.
-pub fn lacking(answer: &str, controls: &[String], label: &str) -> Vec<u64> {
-    let listed = list(answer, controls).unwrap_or_default();
-    listed
-        .iter()
-        .filter(|n| lacks(n, label))
-        .filter_map(number)
-        .collect()
-}
-
-/// The names a read gave under `labels`, or nothing when it named no list of
-/// them: no answer, and not the empty list of an issue that carries none.
-fn names_of(labels: &Value) -> Option<Vec<String>> {
-    let list = labels.as_object()?.get("nodes")?.as_array()?;
-    Some(
-        list.iter()
-            .map(|n| match n.get("name") {
-                Some(Value::String(s)) => s.clone(),
-                Some(other) => other.to_string(),
-                None => "null".to_string(),
-            })
-            .collect(),
-    )
-}
-
-/// Whether the node of the read does not carry `label`. A node whose labels the read did not answer lacks the
-/// label, as a caller has always edited on that answer, so a poll that could
-/// not read them still asks for it.
-fn lacks(node: &Value, label: &str) -> bool {
-    match names_of(node.get("labels").unwrap_or(&Value::Null)) {
-        None => true,
-        Some(held) => !held.iter().any(|n| n == label),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -878,98 +842,6 @@ mod tests {
             .is_empty());
     }
 
-    /// One shipped node closed at `at` that carries `names` as its labels.
-    fn labelled(n: u64, at: &str, names: Value) -> Value {
-        let mut node = by(n, json!(true));
-        {
-            let fields = node.as_object_mut().unwrap();
-            fields.insert("closedAt".into(), json!(at));
-            fields.insert("labels".into(), json!({ "nodes": names }));
-        }
-        node
-    }
-
-    /// The numbers `lacking` keeps of the nodes, in the order of the list.
-    fn lacking(nodes: &[Value], label: &str, controls: &[String]) -> Vec<String> {
-        super::lacking(&answer(nodes), controls, label)
-            .iter()
-            .map(u64::to_string)
-            .collect()
-    }
-
-    #[test]
-    fn the_list_lacking_a_label_leaves_out_the_node_that_carries_it() {
-        let holds = labelled(
-            20,
-            "2026-01-02T00:00:00Z",
-            json!([{"name": "tehas:shipped"}, {"name": "bug"}]),
-        );
-        assert_eq!(
-            lacking(std::slice::from_ref(&holds), "tehas:shipped", &[]),
-            Vec::<String>::new()
-        );
-        // A node that carries other labels lacks the one asked for, and one that
-        // carries none lacks it too.
-        let other = labelled(21, "2026-01-03T00:00:00Z", json!([{"name": "bug"}]));
-        assert_eq!(lacking(&[other], "tehas:shipped", &[]), ["21"]);
-        let none = labelled(22, "2026-01-04T00:00:00Z", json!([]));
-        assert_eq!(lacking(&[none], "tehas:shipped", &[]), ["22"]);
-        // Labels the read did not answer are taken for missing, as every caller
-        // has edited on that answer.
-        let no_labels = json!({"number": 23, "closedAt": "2026-01-05T00:00:00Z",
-          "timelineItems": {"nodes": [{"closer": {"merged": true}}]}});
-        assert_eq!(lacking(&[no_labels], "tehas:shipped", &[]), ["23"]);
-        for shape in [json!([]), json!(null), json!({"nodes": null})] {
-            let mut odd = labelled(24, "2026-01-06T00:00:00Z", json!([]));
-            odd.as_object_mut()
-                .unwrap()
-                .insert("labels".into(), shape.clone());
-            assert_eq!(
-                lacking(&[odd], "tehas:shipped", &[]),
-                ["24"],
-                "labels of {shape} name no list"
-            );
-        }
-        // The name is text and no pattern, so "*" is the name "*" and the node
-        // that carries tehas:shipped lacks it.
-        assert_eq!(lacking(&[holds], "*", &[]), ["20"]);
-    }
-
-    #[test]
-    fn the_list_lacking_a_label_keeps_the_order_and_the_control_rule() {
-        let nodes = [
-            labelled(
-                20,
-                "2026-01-02T00:00:00Z",
-                json!([{"name": "tehas:shipped"}]),
-            ),
-            labelled(21, "2026-01-04T00:00:00Z", json!([])),
-            labelled(22, "2026-01-03T00:00:00Z", json!([{"name": "bug"}])),
-        ];
-        // Most recently closed first, of the ones that lack the label.
-        assert_eq!(lacking(&nodes, "tehas:shipped", &[]), ["21", "22"]);
-        // The control issue is never printed, whether or not it carries it: the
-        // two commands leave it out of every list.
-        assert_eq!(lacking(&nodes, "tehas:shipped", &["21".into()]), ["22"]);
-        assert_eq!(
-            lacking(
-                &[
-                    labelled(1, "2026-01-05T00:00:00Z", json!([])),
-                    nodes[1].clone()
-                ],
-                "tehas:shipped",
-                &["1".into()]
-            ),
-            ["21"]
-        );
-        // Without the flag nothing changes: every shipped node is listed, the
-        // one that carries the label among them.
-        assert_eq!(
-            numbers(&list(&answer(&nodes), &[]).unwrap()),
-            ["21", "22", "20"]
-        );
-    }
-
     #[test]
     fn the_query_closes_every_brace_it_opens() {
         // The tests stub gh, so a query GitHub refuses would pass them all
@@ -1038,28 +910,6 @@ mod tests {
         assert!(QUERY.contains(&format!(
             "closedByPullRequestsReferences(first: {REFERENCES})"
         )));
-    }
-
-    #[test]
-    fn a_name_is_text_and_a_list_with_no_names_lacks_every_label() {
-        let node =
-            json!({"number": 7, "labels": {"nodes": [{"name": "tehas:shipped"}, {"name": "bug"}]}});
-        assert!(!lacks(&node, "tehas:shipped"));
-        assert!(lacks(&node, "tehas:ready"));
-        assert!(lacks(&node, "*"));
-        assert!(lacks(&node, "tehas:shipped bug"));
-        // A name GitHub gave as a number is still a name of a label.
-        assert!(!lacks(&json!({"labels": {"nodes": [{"name": 7}]}}), "7"));
-        for shape in [
-            json!({"number": 7}),
-            json!({"labels": []}),
-            json!({"labels": {}}),
-            json!({"labels": {"nodes": {"name": "x"}}}),
-            json!({"labels": {"nodes": null}}),
-            json!([]),
-        ] {
-            assert!(lacks(&shape, "tehas:shipped"), "{shape} names no list");
-        }
     }
 
     #[test]
