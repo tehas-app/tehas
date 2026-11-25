@@ -33,7 +33,7 @@ the overlap impossible instead of configurable.
 
 tehas.app does three jobs at once: marketing, documentation and demo. Only the
 demo wants the 16-bit identity. `PRODUCT.md` already limits the demoscene
-heritage to the footer and calls the business look "the other view's territory".
+heritage to the footer.
 
 ## The two frontends
 

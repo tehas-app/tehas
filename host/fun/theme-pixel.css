@@ -56,7 +56,7 @@
   --frame: var(--edge) solid var(--line);
   --focus: 4px solid var(--text);
 
-  /* The dark screens: the monitor, the console, the charts and the game. */
+  /* The dark screens: the console and the charts. */
   --screen: #111;
   --screen-text: #fc6;
   --screen-quiet: #aab;
@@ -98,7 +98,7 @@
   --stage-ship: #357;
   --stage-ship-soft: #bce;
 
-  /* Canvas colours. A canvas cannot read var(), so theme.js reads these. */
+  /* Series colours, for a view that draws a chart: bands, then pieces. */
   --band-1: #ea3;
   --band-2: #4a9;
   --band-3: #c53;
@@ -112,10 +112,4 @@
   --piece-3: #7cb;
   --piece-4: #ccd;
   --piece-text: #144;
-  --game-ground: #222;
-  --game-floor: #445;
-  --game-shadow: #111;
-  --game-ball: #eec;
-  --game-paddle: #fc6;
-  --game-flash: #eec;
 }

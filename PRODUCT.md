@@ -7,80 +7,64 @@ brand
 ## Users
 
 A small team on the tailnet: the people who label issues for tehas and wait
-for pull requests to come back. This page is what they see first: the front
-page of the factory's site on port 8080. They open it to see where their work
-is, usually on a desktop browser, sometimes on a phone. The plain dashboard, a
-set of lists, stays at `/dashboard`.
+for pull requests to come back. They open the factory's site on port 8080 to
+see where their work is, usually on a desktop browser, sometimes on a phone.
+The front page is the plain dashboard; the manual is beside it.
 
-Nobody is under pressure when they look at this page. They are checking in,
+Nobody is under pressure when they look at the site. They are checking in,
 waiting on a cycle, or showing a colleague what the factory is doing.
 
 ## Product Purpose
 
 tehas is a software factory: GitHub issues go in, reviewed pull requests come
-out. The game view is its default dashboard. It shows the
-factory (what is open, ready, building, in review, shipped) as a place you can
-look around in, with small games built from the factory's own issues.
+out. The site shows the factory's live queue and the running cycle's console,
+and the manual that says how the factory is run.
 
 It succeeds when the team keeps it open, can tell at a glance what the factory
-is doing, and never has to distrust what it shows. Being the default raises the
-bar on that last point: playful is welcome, vague is not.
-
-The page shows the factory's live queue and the running cycle's console, from
-the same files the plain dashboard reads, and says so in the header. Where the
-queue cannot be reached it falls back to fictional sample data, clearly marked;
-a viewer can also load an export. The queue snapshot lists only tickets on the
-line. The first stage is Idea, the open tickets with no queue label. The live
-queue lists none, so with it Idea is left out: tickets not on the line appear
-only from an export or the sample.
+is doing, and never has to distrust what it shows. The design may be playful;
+the facts may not be vague.
 
 ## Brand Personality
 
-Tehas is serious business, but not a serious personality. Factory sim with a
-16-bit feel. Three words: industrious, playful, precise.
+Tehas is serious business, but not a serious personality. Three words:
+industrious, playful, precise.
 
-The reference for form is Super Mario Bros. 3: its overworld map, its chunky
-outlines and its level of detail. Sprites and scenes should carry about that
-much information and no more. The reference for colour is The Chaos Engine on
-the Amiga: muted and metallic, moss and mud, steel, brass and rust. The world
-should feel like a factory that is busy and satisfying to watch run, as in a
-management game.
+The pixel design (`TEHAS_DESIGN=pixel`) carries that personality: the site
+drawn as a 16-bit machine would draw it, for a factory that is shown and
+demonstrated. The reference for form is Super Mario Bros. 3: its chunky
+outlines and its level of detail. The reference for colour is The Chaos Engine
+on the Amiga: muted and metallic, moss and mud, steel, brass and rust.
 
 The Amiga demoscene heritage (the Tehdas ASCII logo by Squarepusher and its
 credit) belongs in the footer only. It is a signature, not the theme. The Topaz
-typeface is the exception: it sets every word on the front page.
+typeface is the exception: it sets every word of a page in the pixel design.
 
-That identity is the pixel design's, for a site where the factory is shown and
-demonstrated: with `TEHAS_DESIGN=pixel` it draws the whole site. A factory that
-sets nothing is in the business register everywhere: beesknees26, IBM Plex on
-white panels with one muted green, with the factory floor at `/`. Same voice,
-same facts, no 16-bit clothing.
+A factory that sets nothing is in the business register everywhere:
+beesknees26, IBM Plex on white panels with one muted green. Same voice, same
+facts, no 16-bit clothing.
 
-Voice is short and plain, in the manner of game interface text: labels, counts,
-station names. It may be dry. It does not cheer.
+Voice is short and plain, in the manner of game interface text: labels and
+counts. It may be dry. It does not cheer.
 
 ## Anti-references
 
 - Gamified productivity. No points, streaks, badges, leaderboards or confetti
-  that score people or their work. Games are a break; a score never changes or
-  ranks a work order.
-- The dark navy SaaS dashboard with stat tiles and cyan accents. That is the
-  other view's territory and the classic prototype's look.
+  that score people or their work.
+- The dark navy SaaS dashboard with stat tiles and cyan accents.
 - Demoscene styling, other than the typeface, spreading beyond the footer.
 - Detail beyond the SMB3 level: gradients, soft shadows, smooth shading or
-  high-resolution illustration mixed into pixel scenes.
+  high-resolution illustration mixed into pixel art.
 
 ## Design Principles
 
-1. The factory is the game. Every scene, station and sprite stands for
-   something real in the pipeline. Decoration that maps to nothing is cut.
-2. One world, one level of detail. Everything on the page is drawn as if for
+1. Decoration maps to something. A sprite or a lamp stands for something
+   real in the factory, or it is cut.
+2. One world, one level of detail. Everything on a page is drawn as if for
    the same 16-bit machine, at the same pixel scale, from one palette.
-3. Read-only and honest. The view never changes factory state, always says
-   whether it shows sample or real data, and never invents progress.
-4. Play is optional. Status is readable without starting a game, and a game
-   never holds information that is not available elsewhere on the page.
-5. Sign it in the footer. Scene heritage is credited once, at the bottom.
+3. Read-only and honest. The site never changes factory state and never
+   invents progress.
+4. Sign it in the footer. The demoscene heritage is credited once, at the
+   bottom.
 
 ## Accessibility & Inclusion
 

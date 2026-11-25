@@ -186,7 +186,7 @@ fn no_tool_returns_a_planted_key() {
     for name in NAMES {
         let out = call(&live(), name, &args(name)).unwrap();
         let text = out.to_string();
-        for bad in ["SECRET", "/home/x", "labels", "buzzwords", "disk", "slice"] {
+        for bad in ["SECRET", "/home/x", "labels", "strayWords", "disk", "slice"] {
             assert!(!text.contains(bad), "{name} returned {bad}: {text}");
         }
         assert_eq!(out["api"], 1, "{name}");
@@ -201,7 +201,7 @@ fn stats_carry_refine() {
     assert_eq!(out["refine"]["leadTime"]["median"], 43400);
     assert_eq!(out["refine"]["others"]["shipped"], 2);
     let text = out["refine"].to_string();
-    for bad in ["buzzwords", "issues", "filedIssues"] {
+    for bad in ["strayWords", "issues", "filedIssues"] {
         assert!(!text.contains(bad), "{text}");
     }
     assert!(out.get("filedIssues").is_none());

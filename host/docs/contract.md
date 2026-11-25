@@ -1120,6 +1120,37 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   read the list.
   Adopter action: a program that read `api/surface-1.0.txt` reads
   `api/surface-2.0.txt`.
+- **The factory floor leaves core.**
+  #3291.
+  Gone: the 16-bit game view that was the front page, with its stations,
+  work order, issue board, sample tickets and JSON export, and its
+  breakroom game Buzzword Buster: `fun/index.html`, `game-view.js`,
+  `game-view.css`, `game-data.js`, `brick-wall.js`, `fold-fit.js`,
+  `sample-issues.js`, `theme.js`, `stages.js` and the four scene pictures,
+  the themes' `--game-*` tokens, and the `buzzwords` field of
+  `live/status.json` with `state/buzzwords.at` and the hourly read of every
+  issue behind it. The front page `/` is the plain dashboard, as
+  `/dashboard` is, in both designs; `/floor` sends a reader there with a
+  permanent redirect. The dock, the host messages banner, the versions
+  line and the epics list are on the dashboard now. The dashboard's
+  canonical address is `/`, and it carries no structured data: the
+  floor's SoftwareApplication block is gone. This row supersedes the
+  business page's line above that `/` is the factory floor, the row "The
+  first stage is Idea" (#2877) and the Idea line of #2899: no page shows a
+  ticket's stage now. The dashboard lists In line, Waiting for your review,
+  Stopped, needs attention, and Completed.
+  The game lives on outside tehas as tehas-app/buzzword-buster.
+  Readers: adopters, visitors with a link to `/floor`, a reader of
+  `buzzwords` in `live/status.json`, the consumer that runs many factories
+  where it links a factory's floor, plugins that read the `--game-*`
+  tokens.
+  Adopter action: during the update, `/` answers 404 until the docs
+  container is recreated, which `tehas update` does in its
+  `docs --force-recreate` step and a person does by hand with the `docs`
+  line of [Rolling back tehas](/host#rolling-back-tehas). Point a link to `/floor`
+  at `/`. A program
+  that read `buzzwords` from `live/status.json` stops: the field is gone.
+  `~/tehas/state/buzzwords.at` is read by nothing and may be deleted.
 
 ## Pending for 2.0
 

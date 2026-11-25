@@ -14,11 +14,12 @@ const FACTORY = new URL("../host/fun/factory/", import.meta.url);
 const read = (name) => readFileSync(new URL(name, FACTORY), "utf8");
 const ISLANDS = ["state", "console", "issues", "readonly", "days", "previews"];
 
-test("the fragment loads the host bridge, then each island's element, and holds no script of its own", () => {
+test("the fragment loads the host bridge, then each island's element, then the dock and its neighbours, and holds no script of its own", () => {
   const tags = FRAG.split("\n").filter((l) => l.includes("<script"));
   assert.deepEqual(tags, [
     '<script src="/fun/host-bridge.js"></script>',
     ...ISLANDS.map((n) => `<script type="module" src="/fun/factory/tehas-factory-${n}.js"></script>`),
+    ...["dom", "epics-view", "versions", "dock"].map((n) => `<script src="/fun/${n}.js"></script>`),
   ]);
   assert.ok(FRAG.includes('<link rel="stylesheet" href="/fun/kit/kit.css">'));
   assert.ok(!FRAG.includes("style="));
