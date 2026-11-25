@@ -1217,6 +1217,18 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   writes an instance's settings.
   Adopter action: none; a 1.4.x instance sets no such line. The lines
   become usable in the release that ships the adapter.
+- **An unknown `TEHAS_` name warns once and loads.**
+  A name of `instance.env` that starts `TEHAS_` and names no setting
+  this release reads, and that it never read under an older name either,
+  brings one line to standard error on every load: `<NAME> is no setting
+  tehas reads: nothing uses it; remove it from the instance`. The name is
+  kept, not dropped, and the load does not fail: a 1.4.x instance still
+  loads. Names tehas knows stay silent, including the renamed and
+  removed ones that already have their own lines
+  ([troubleshooting](/troubleshooting)).
+  Readers: adopters, the consumer that runs many factories where it
+  writes an instance's settings.
+  Adopter action: none. Take the warned lines out when it suits you.
 
 ## Pending for 2.0
 
