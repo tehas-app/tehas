@@ -13,6 +13,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use tehas_core::home::Home;
 
 fn works(w: &World) -> PathBuf {
     w.home.join("work")
@@ -24,7 +25,7 @@ fn runs(w: &World) -> PathBuf {
 }
 
 fn live(w: &World) -> PathBuf {
-    w.home.join("live")
+    Home::new(&w.home).live_dir()
 }
 
 fn touch_d(age: &str, paths: &[PathBuf]) {

@@ -2989,7 +2989,8 @@ fn the_writer_sends_each_write_to_its_port_and_answers_its_receipt() {
     let head = w.head("work").unwrap();
     let w = w
         .tag("v1.0.0", &head)
-        .blueprint(1, |b| b.comment("alice", "hello"));
+        // The factory's own comment: `edit_comment` edits no other.
+        .blueprint(1, |b| b.comment(FACTORY, "hello"));
     let site = FakeSite::new(&w);
     let mut writer = Writer {
         tickets: site.ticket_writes(&full(), C).unwrap(),
@@ -4707,6 +4708,118 @@ fn triage_is_below_write_and_maintain_is_not() {
 }
 
 #[test]
+fn blueprints_only_its_own_comment_is_edited_at_every_standing() {
+    let people = [
+        ("bob", Some(Standing::Admin)),
+        ("max", Some(Standing::Maintain)),
+        ("wes", Some(Standing::Write)),
+        ("tia", Some(Standing::Triage)),
+        ("ned", None),
+    ];
+    // Every handle not the factory's: the operator's and a person's at
+    // each standing. A given token's is the factory's account narrowed,
+    // and edits no comment either.
+    let mut actors = vec![(Actor::Operator, OPERATOR)];
+    for (login, _) in people {
+        actors.push((Actor::Person(PersonKey::new(format!("{login}-key"))), login));
+    }
+    for (by, login) in &actors {
+        for mut world in both() {
+            let no = first_blueprint(&world);
+            // The factory's login on a bot account of another id: one the
+            // login alone would take for the factory's.
+            let mut impostor = world.account(FACTORY, Realm::CodeHost);
+            impostor.id = Some(AccountId::new("id-factory-before"));
+            impostor.kind = AccountKind::Bot;
+            for (person, standing) in people {
+                world = world.person(&format!("{person}-key"), person);
+                if let Some(standing) = standing {
+                    world = world.with_account(person, AccountKind::Person, standing);
+                }
+            }
+            let world = world
+                .with_account("helper", AccountKind::Bot, Standing::Write)
+                .blueprint(no, |b| {
+                    b.title("a plan")
+                        .author("alice")
+                        .comment(FACTORY, "the factory's")
+                        .comment(login, "the handle's")
+                        .comment("alice", "a person's")
+                        .comment("helper", "another bot's")
+                        .comment_as(impostor.clone(), "the factory's login's")
+                });
+            let site = FakeSite::new(&world);
+            let mut h = site.blueprint_writes(&full(), C).unwrap();
+            let mut other = site.blueprint_writes(by, C).unwrap();
+            let all = h.comments(bp(no), b(10)).unwrap().into_items();
+            let id = |body: &str| all.iter().find(|c| c.body == body).unwrap().id.clone();
+            let theirs = [
+                id("the handle's"),
+                id("a person's"),
+                id("another bot's"),
+                id("the factory's login's"),
+            ];
+            ok(laws::blueprints::only_its_own_comment_is_edited(
+                h.as_mut(),
+                other.as_mut(),
+                bp(no),
+                &id("the factory's"),
+                &theirs,
+            ));
+            let edits: Vec<_> = site
+                .world()
+                .wrote()
+                .into_iter()
+                .filter_map(|r| match r.what {
+                    Write::EditComment { id, .. } => Some(id),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(
+                edits,
+                [id("the factory's")],
+                "{login}: the factory's own comment alone is written"
+            );
+        }
+    }
+}
+
+/// A given token is the factory's account narrowed, not `Actor::Ours`:
+/// it edits no comment, the factory's neither.
+#[test]
+fn a_given_tokens_handle_edits_no_comment() {
+    let key = PersonKey::new("given-key");
+    for world in both() {
+        let no = first_blueprint(&world);
+        let until = At::new(world.now().secs() + 1200);
+        let world = world
+            .given(
+                "given-key",
+                Scope::Full,
+                Token::new(Secret::new("handed-in"), until),
+            )
+            .blueprint(no, |b| b.title("a plan").comment(FACTORY, "the factory's"));
+        let site = FakeSite::new(&world);
+        let mut h = site.blueprint_writes(&full(), C).unwrap();
+        let ours = h.comments(bp(no), b(10)).unwrap().into_items().remove(0);
+        let mut given = site
+            .blueprint_writes(&Actor::Given(key.clone()), C)
+            .unwrap();
+        assert_eq!(
+            given
+                .edit_comment(
+                    &ours.id,
+                    "Taken over.",
+                    &MarkerEdit::default(),
+                    &ours.revision
+                )
+                .map(drop),
+            Err(Outcome::Forbidden)
+        );
+    }
+}
+
+#[test]
 fn a_person_below_write_comments_files_and_edits_their_own() {
     let w = World::split()
         .person("bob-key", "bob")
@@ -4743,9 +4856,12 @@ fn a_person_below_write_comments_files_and_edits_their_own() {
     );
     let comment = bl.comments_by_id(std::slice::from_ref(&posted.id));
     let rev = comment[0].1.as_ref().unwrap().revision.clone();
-    assert!(bl
-        .edit_comment(&posted.id, "edited", &MarkerEdit::default(), &rev)
-        .is_ok());
+    assert_eq!(
+        bl.edit_comment(&posted.id, "edited", &MarkerEdit::default(), &rev)
+            .map(drop),
+        Err(Outcome::Forbidden),
+        "a person's handle edits no comment, its own neither"
+    );
     assert_eq!(bl.close(bp(102), true), Err(Outcome::Forbidden));
     let mut t = site.ticket_writes(&bob, C).unwrap();
     assert!(t.file(&new_ticket()).is_ok());

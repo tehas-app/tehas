@@ -521,6 +521,25 @@ Findings:
 - A GraphQL error makes gh exit 1. #2993 settles it with a second REST
   read and #2990 with the plain outcome. Both read the error's type from
   `GhRunner::run_answer` (#3018) instead.
+- T4.10a (tehas-68's ruling, option (b)): `tehas update`'s signed-in
+  release list and download go through `CodeHost` on the release
+  project's own site (Decided 23). The anonymous list and download
+  through curl, and the `gh auth status` that chooses between them,
+  stay in `console/ops/src/update/release.rs`, because the adapter
+  answers `Actor::Anonymous` for no release file yet: #3207's `Curl`
+  reaches the API host alone, and #3216 refuses Anonymous before any
+  request. They are removed by the anonymous download adapter PR. The
+  signed-in handle acts as `Actor::Operator`, the operator's own gh,
+  which is what the update used: the adapter's site answers
+  `Actor::Ours(Scope::Read)` only for a sign-in, so a read-scoped
+  factory handle is that adapter PR's too.
+- T4.10b (tehas-68's ruling, 2026-11-25): the anonymous list and
+  download go through #3234's anonymous handle, and the `gh auth status`
+  probe, the curl path and `api.github.com` leave `release.rs`. The
+  update turns to the anonymous handle on the operator's answer alone:
+  `SignedOut`, `Forbidden` or `Unavailable { Unreachable, No }`, made
+  or asked first, never `Server` or `Maybe`. gh's exit 4 is `SignedOut`
+  by an adapter PR of its own (Decided 80).
 
 ### T5. Deep homes for files
 

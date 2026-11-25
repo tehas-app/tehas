@@ -18,6 +18,7 @@ case "$*" in
   "issue list"*) echo "[]" ;;
   "issue view"*) echo "" ;;
   "api repos/"*) echo "[]" ;;
+  "api graphql"*"filterBy: {states: [CLOSED], since: "*) echo "{\"data\":{\"repository\":{\"databaseId\":7001,\"issues\":{\"pageInfo\":{\"hasNextPage\":false,\"endCursor\":null},\"nodes\":[]}}}}" ;;
   "api graphql"*subIssues*) echo "{\"data\":{\"repository\":{\"issues\":{\"nodes\":[]}}}}" ;;
   "api graphql"*) echo "{\"data\":{\"search\":{\"nodes\":[]}}}" ;;
 esac"#;
@@ -213,6 +214,7 @@ fn the_report_is_asked_for_after_the_runs_events_so_it_holds_them() {
   "issue list"*) echo "[]" ;;
   "issue view"*) echo "" ;;
   "api repos/"*) echo "[]" ;;
+  "api graphql"*"filterBy: {states: [CLOSED], since: "*) echo "{\"data\":{\"repository\":{\"databaseId\":7001,\"issues\":{\"pageInfo\":{\"hasNextPage\":false,\"endCursor\":null},\"nodes\":[]}}}}" ;;
   "api graphql"*subIssues*) echo "{\"data\":{\"repository\":{\"issues\":{\"nodes\":[]}}}}" ;;
   "api graphql"*) echo "{\"data\":{\"search\":{\"nodes\":[]}}}" ;;
 esac"#,
