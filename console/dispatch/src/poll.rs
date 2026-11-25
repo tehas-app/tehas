@@ -18,7 +18,7 @@
 
 use crate::apply::start::Host;
 use crate::apply::Writer;
-use crate::decide::{iso, iso_now, Action, LabelChange, PlanStep};
+use crate::decide::{iso, Action, LabelChange, PlanStep};
 use crate::read::build::{fill, may_start, snapshot, Sources};
 use crate::read::host::{hostname, push_fault, push_fault_aged_out};
 use crate::read::run::{read_gh_token, Calls, RetryPolicy};
@@ -81,6 +81,12 @@ pub fn here(home: &Path) -> PathBuf {
         .ok()
         .and_then(|e| e.parent().map(Path::to_path_buf))
         .unwrap_or_else(|| home.join("libexec"))
+}
+
+/// The time now as log() writes it. The shell reads the clock; the core
+/// formats a time it is given.
+pub(crate) fn iso_now() -> String {
+    iso(tehas_core::time::now() as u64)
 }
 
 /// A line of the poll's log, as log() prints it.
@@ -1395,6 +1401,13 @@ fn sweep_locks(w: &mut Writer, dry: bool) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_time_now_is_the_clock_of_the_shell_in_the_cores_format() {
+        let before = tehas_core::time::now();
+        let at = tehas_core::time::from_iso(&super::iso_now()).unwrap();
+        assert!(before <= at && at <= tehas_core::time::now());
+    }
+
     #[test]
     fn the_cpu_is_the_four_times_of_the_stat_in_milliseconds() {
         // A command name with a space and a parenthesis, as comm may hold.
