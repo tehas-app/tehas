@@ -22,7 +22,7 @@ use tehas_core::testing::write_exe;
 pub const GH: &str = r#"case "$1 $2" in
   "api repos/"*/releases* | "release download")
     if [ "${GH_AUTH:-0}" != 0 ]; then
-      echo "To get started with GitHub CLI, please run:  gh auth login" >&2
+      echo "Alternatively, populate the GH_TOKEN environment variable with a GitHub API authentication token." >&2
       exit 4
     fi ;;
 esac
@@ -51,6 +51,9 @@ case "$1 $2" in
     cp "$T/releases/$tag/$name" "$out" ;;
 esac"#;
 
+/// GitHub's API, as the anonymous code host asks it through curl.
+const API: &str = "https://api.github.com/";
+
 /// curl answering from `$T/releases` as GitHub's API does the anonymous
 /// code host's reads: the list, one release by its tag with its files, each
 /// file's id its inode, and a file asked by its id. The adapter runs curl
@@ -58,11 +61,14 @@ esac"#;
 /// call's arguments are kept in `$T/calls/curl`.
 pub fn curl_stub(h: &Host) {
     let t = h.join("");
+    let api = API;
     let body = format!(
         r#"#!/usr/bin/env bash
 T='{t}'
 printf '%s\n' "$*" >>"$T/calls/curl"
 url=""; for a in "$@"; do url=$a; done
+path=${{url#{api}}}
+[ "$path" != "$url" ] || path=/
 files_of() {{
   for f in "$T/releases/$1"/tehas-*; do
     [ -f "$f" ] && jq -n --arg n "${{f##*/}}" --argjson s "$(stat -c %s "$f")" \
@@ -72,16 +78,16 @@ files_of() {{
 one() {{ jq --argjson a "$(files_of "$1")" '. + {{assets: $a}}' "$T/releases/$1/release.json"; }}
 found() {{ printf 'HTTP/2 200 \r\ncontent-type: application/json\r\n\r\n'; }}
 none() {{ printf 'HTTP/2 404 \r\n\r\n{{"message":"Not Found"}}'; }}
-case "$url" in
-  https://api.github.com/repos/*/releases\?per_page=100*)
+case "$path" in
+  repos/*/releases\?per_page=100*)
     found
     for d in "$T/releases"/*/; do
       d=${{d%/}}; [ ! -f "$d/release.json" ] || one "${{d##*/}}"
     done | jq -s . ;;
-  https://api.github.com/repos/*/releases/tags/*)
+  repos/*/releases/tags/*)
     tag=${{url##*/}}
     if [ -f "$T/releases/$tag/release.json" ]; then found; one "$tag"; else none; fi ;;
-  https://api.github.com/repos/*/releases/assets/*)
+  repos/*/releases/assets/*)
     f=$(find "$T/releases" -type f -inum "${{url##*/}}" | head -n 1)
     if [ -n "$f" ]; then printf 'HTTP/2 200 \r\n\r\n'; cat "$f"; else none; fi ;;
   *) none ;;
@@ -102,7 +108,7 @@ pub fn anonymous_downloads(h: &Host) -> Vec<String> {
         .collect();
     let mut got = Vec::new();
     for (i, url) in asked.iter().enumerate() {
-        let Some(rest) = url.strip_prefix("https://api.github.com/repos/") else {
+        let Some(rest) = url.strip_prefix(API).and_then(|u| u.strip_prefix("repos/")) else {
             continue;
         };
         let Some((project, id)) = rest.split_once("/releases/assets/") else {

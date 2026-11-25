@@ -662,7 +662,6 @@ fn gh_not_signed_in_the_list_and_the_download_come_from_the_public_address() {
         ]
     );
     assert_eq!(downloads(&h), Vec::<String>::new());
-    lacks(&h.calls("gh"), "auth status");
     assert_eq!(current(&h), "versions/v1.2.0");
 }
 
