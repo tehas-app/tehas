@@ -521,6 +521,13 @@ Findings:
   which is what the update used: the adapter's site answers
   `Actor::Ours(Scope::Read)` only for a sign-in, so a read-scoped
   factory handle is that adapter PR's too.
+- T4.10b (tehas-68's ruling, 2026-11-25): the anonymous list and
+  download go through #3234's anonymous handle, and the `gh auth status`
+  probe, the curl path and `api.github.com` leave `release.rs`. The
+  update turns to the anonymous handle on the operator's answer alone:
+  `SignedOut`, `Forbidden` or `Unavailable { Unreachable, No }`, made
+  or asked first, never `Server` or `Maybe`. gh's exit 4 is `SignedOut`
+  by an adapter PR of its own (Decided 80).
 
 ### T5. Deep homes for files
 

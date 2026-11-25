@@ -146,16 +146,7 @@ fn host() -> Host {
 
 fn stubs(h: &Host) {
     h.gh(GH);
-    h.stub(
-        "curl",
-        r#"out="" url=""; prev=""
-for a in "$@"; do [ "$prev" != -o ] || out=$a; prev=$a; url=$a; done
-case "$url" in
-  https://api.github.com/*) cat "$T/releases/list.json" ;;
-  */releases/download/*) tag=${url%/*}; tag=${tag##*/}; cp "$T/releases/$tag/${url##*/}" "$out" ;;
-  *) exit 22 ;;
-esac"#,
-    );
+    curl_stub(h);
     h.stub("minisign", MINISIGN);
     // IMAGE_LAYER is the tehas.layer label of an image that is there; the uid
     // tag names sha256:before.
@@ -652,6 +643,8 @@ fn tehas_update_from_takes_git_or_release_only() {
 
 #[test]
 fn gh_not_signed_in_the_list_and_the_download_come_from_the_public_address() {
+    // gh with no credential exits 4 and asks nothing: the update reads and
+    // downloads through the anonymous handle, with no credential.
     let h = at_v1();
     let r = update_with(&h, "GH_AUTH=1", "");
     assert_eq!(r.rc, 0, "{}", r.out);
@@ -659,13 +652,16 @@ fn gh_not_signed_in_the_list_and_the_download_come_from_the_public_address() {
         &h.calls("curl"),
         "https://api.github.com/repos/tehas-app/tehas-factory/releases?per_page=100",
     );
-    has(
-        &h.calls("curl"),
-        &format!(
-            "https://github.com/tehas-app/tehas-factory/releases/download/v1.2.0/{}.minisig",
-            asset_of("v1.2.0")
-        ),
+    let asset = asset_of("v1.2.0");
+    assert_eq!(
+        anonymous_downloads(&h),
+        [
+            format!("tehas-app/tehas-factory v1.2.0 {asset}"),
+            format!("tehas-app/tehas-factory v1.2.0 {asset}.sha256"),
+            format!("tehas-app/tehas-factory v1.2.0 {asset}.minisig"),
+        ]
     );
+    assert_eq!(downloads(&h), Vec::<String>::new());
     assert_eq!(current(&h), "versions/v1.2.0");
 }
 
