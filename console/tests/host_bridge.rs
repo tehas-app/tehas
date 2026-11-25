@@ -249,12 +249,8 @@ fn an_answer_that_still_carries_tokens_fits_the_schema_the_field_is_unknown_now_
 }
 
 #[test]
-fn the_front_page_draws_no_token_table() {
-    let pages = at(&[
-        "host/fun/index.html",
-        "host/fun/game-view.css",
-        "host/fun/game-view.js",
-    ]);
+fn the_dashboard_draws_no_token_table() {
+    let pages = at(&["host/docs/dashboard.frag", "host/fun/manual.css"]);
     assert_eq!(
         lines_holding(&pages, &["host-tokens", "token-use", "token-table"]),
         0
@@ -449,25 +445,22 @@ fn the_docs_server_answers_404_for_any_path_under_host_or_pages_even_where_a_fil
 }
 
 #[test]
-fn the_front_page_and_dashboard_load_the_reading_module_before_the_views_and_tehas_registers_no_service_worker(
-) {
-    for page in ["host/fun/index.html", "host/docs/dashboard.frag"] {
-        let body = text(page);
-        has(&body, r#"<script src="/fun/host-bridge.js"></script>"#);
-        let (mut b, mut m) = (0, 0);
-        for (i, line) in body.lines().enumerate() {
-            if line.contains("host-bridge.js") {
-                b = i + 1;
-            }
-            if line.contains(r#"type="module""#) && m == 0 {
-                m = i + 1;
-            }
+fn the_dashboard_loads_the_reading_module_before_the_views_and_tehas_registers_no_service_worker() {
+    let body = text("host/docs/dashboard.frag");
+    has(&body, r#"<script src="/fun/host-bridge.js"></script>"#);
+    let (mut b, mut m) = (0, 0);
+    for (i, line) in body.lines().enumerate() {
+        if line.contains("host-bridge.js") {
+            b = i + 1;
         }
-        assert!(
-            b > 0 && b < m,
-            "{page}: the module comes before the reading module"
-        );
+        if line.contains(r#"type="module""#) && m == 0 {
+            m = i + 1;
+        }
     }
+    assert!(
+        b > 0 && b < m,
+        "dashboard.frag: the module comes before the reading module"
+    );
     let fun = root().join("host/fun");
     let register =
         regex::Regex::new("serviceWorker.register|navigator.serviceWorker.register").unwrap();
@@ -488,7 +481,7 @@ fn an_answer_that_still_carries_notices_fits_the_schema_and_no_page_or_module_dr
         .get("notices")
         .is_none());
     let pages = at(&[
-        "host/fun/index.html",
+        "host/docs/dashboard.frag",
         "host/fun/host-bridge.js",
         "host/fun/dock.css",
     ]);

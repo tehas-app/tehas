@@ -73,13 +73,13 @@ fn last_line(text: &str) -> &str {
 }
 
 #[test]
-fn report_runs_the_programs_report_with_tehas_home_and_prints_what_it_prints() {
-    let w = world("report");
-    w.stub_analytics(r#"echo "$TEHAS_HOME" >"$T/calls/analytics.home"; echo "Last 10 days""#);
-    let r = analytics(&w, "report");
+fn the_program_runs_with_tehas_home_and_its_output_is_printed() {
+    let w = world("home");
+    w.stub_analytics(r#"echo "$TEHAS_HOME" >"$T/calls/analytics.home"; echo printed"#);
+    let r = analytics(&w, "copy --to copy.db");
     assert_eq!(r.rc, 0, "{}", r.out);
-    assert_eq!(r.out, "Last 10 days");
-    assert_eq!(w.calls("analytics").trim_end(), "report");
+    assert_eq!(r.out, "printed");
+    assert_eq!(w.calls("analytics").trim_end(), "copy --to copy.db");
     assert_eq!(
         w.calls("analytics.home").trim_end(),
         w.home.display().to_string()
@@ -127,10 +127,10 @@ fn a_failure_of_the_program_is_exit_1_a_file_that_exists_a_database_that_cannot_
     let r = analytics(&w, "copy --to copy.db --json");
     assert_eq!(r.rc, 1, "{}", r.out);
     has(&r.out, "exists already");
-    w.stub_analytics(r#"echo "analytics: the report failed" >&2; exit 70"#);
-    let r = analytics(&w, "report");
+    w.stub_analytics(r#"echo "analytics: the database could not be read" >&2; exit 70"#);
+    let r = analytics(&w, "copy --to copy.db");
     assert_eq!(r.rc, 1, "{}", r.out);
-    has(&r.out, "the report failed");
+    has(&r.out, "could not be read");
 }
 
 #[test]
@@ -139,7 +139,7 @@ fn the_programs_0_64_78_and_141_are_the_commands() {
     for rc in [0, 64, 78, 141] {
         reset(&w);
         w.stub_analytics(&format!("exit {rc}"));
-        let r = analytics(&w, "report");
+        let r = analytics(&w, "copy --to copy.db");
         assert_eq!(r.rc, rc, "{}", r.out);
     }
 }
@@ -150,7 +150,7 @@ fn with_tehas_analytics_off_it_says_so_exits_78_and_asks_the_program_nothing() {
     w.minimal(&["TEHAS_ANALYTICS=off"]);
     w.stub_analytics("");
     let before = tree(&w);
-    for args in ["report", "copy --to copy.db --json"] {
+    for args in ["copy --to copy.db", "copy --to copy.db --json"] {
         let r = analytics(&w, args);
         assert_eq!(r.rc, 78, "{args}: {}", r.out);
         has(&r.out, "TEHAS_ANALYTICS=off");
@@ -164,7 +164,7 @@ fn with_tehas_analytics_off_it_says_so_exits_78_and_asks_the_program_nothing() {
 #[test]
 fn a_host_without_the_program_is_exit_1_and_says_so() {
     let w = world("missing");
-    let r = analytics(&w, "report");
+    let r = analytics(&w, "copy --to copy.db");
     assert_eq!(r.rc, 1, "{}", r.out);
     has(&r.out, "is not installed");
 }
@@ -174,7 +174,7 @@ fn missing_or_malformed_settings_are_exit_78_and_ask_the_program_nothing() {
     let w = world("settings");
     w.stub_analytics("");
     w.minimal(&["TEHAS_ANALYTICS=sometimes"]);
-    let r = analytics(&w, "report");
+    let r = analytics(&w, "copy --to copy.db");
     assert_eq!(r.rc, 78, "{}", r.out);
     has(&r.out, "TEHAS_ANALYTICS");
     w.no_instance();
@@ -190,8 +190,8 @@ fn a_bad_argument_is_exit_64_with_the_usage_before_the_settings_are_read() {
     w.stub_analytics("");
     for args in [
         "",
+        "report",
         "report --json",
-        "report now",
         "copy",
         "copy a",
         "copy --to",
@@ -216,6 +216,6 @@ fn it_writes_nothing_of_its_own() {
     let w = world("writes");
     w.stub_analytics("");
     let before = tree(&w);
-    analytics(&w, "report");
+    analytics(&w, "copy --to copy.db");
     assert_eq!(tree(&w), before);
 }

@@ -1,14 +1,12 @@
 // The models of the plain dashboard's islands (host/fun/factory/*.model.js):
 // what each makes of the file it is given, with no document and no Solid. The
-// state row, the issue lists, the read-only results, the previews and the
-// last ten days. What the islands draw from them is checked in a
-// browser (test/browser/dashboard-check.mjs).
+// state row, the issue lists, the read-only results and the previews. What
+// the islands draw from them is checked in a browser (test/browser/dashboard-check.mjs).
 //
 //   node --test test/dashboard_host_test.mjs
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { consoleModel, duration } from "../host/fun/factory/tehas-factory-console.model.js";
-import { daysModel } from "../host/fun/factory/tehas-factory-days.model.js";
 import { MAX, chips, emptyText, issuesModel } from "../host/fun/factory/tehas-factory-issues.model.js";
 import { previewWhy, previewsModel } from "../host/fun/factory/tehas-factory-previews.model.js";
 import { readonlyModel } from "../host/fun/factory/tehas-factory-readonly.model.js";
@@ -140,51 +138,6 @@ test("the previews say when the list was written and why one is not serving", ()
     "The host's free disk space could not be read: previews are not being built.");
   assert.equal(previewsModel(null, NOW).present, false);
   assert.equal(previewsModel({ previews: "no" }, NOW).present, false);
-});
-
-// A report as the analytics program prints it, cut short.
-function report() {
-  return {
-    report: 1, from: 1792022400, to: 1792843200,
-    shipped: { n: 2 },
-    runs: { n: 4, pr: 2, merged: 0, handoff: 1, parked: 0, failed: 1, refused: 0, stopped: 0 },
-    firstPassYield: { n: 2, share: 0.5 },
-    leadTime: { n: 2, median: 3600, p90: 7200 },
-    cycleTime: { n: 4, median: 600, p90: 900 },
-    machineTime: { n: 4, seconds: 2400, perShipped: 1200 },
-    tokens: { n: 4, total: 4000, perShipped: 2000 },
-    availability: { n: 10, seconds: 3600, share: 0.9 },
-    daily: [
-      { day: "2026-10-23", shipped: 1, runs: 2, failed: 1, minutes: 20 },
-      { day: "2026-10-24", shipped: 1, runs: 2, failed: 0, minutes: 10 },
-    ],
-    stopReasons: { n: 2, top: [{ reason: "timeout", n: 2 }] },
-    stations: { n: 4, steps: [{ step: "explore", n: 4, passed: 3, share: 0.75 }] },
-    versions: [
-      { tehas: "v0.7.22", rukas: "0.13.0", n: 3, changeShare: 0.667, medianSeconds: 600, medianTokens: 1000 },
-      { tehas: "v0.7.21", rukas: "0.12.80", n: 1 },
-    ],
-  };
-}
-
-test("the last ten days are the report's figures, bars, line, reasons, steps and versions", () => {
-  const m = daysModel(report());
-  assert.equal(m.present, true);
-  assert.equal(m.window, "2026-10-23 to 2026-10-24, UTC");
-  assert.deepEqual(m.figures.map((f) => f.label + " " + f.value), ["Shipped 2", "Runs 4", "First-pass yield 50%",
-    "Lead time 60 min", "Cycle time 10 min", "Machine time 40 min", "Tokens 4k", "Availability 90%"]);
-  assert.deepEqual(m.figures[0].bars, ["100%", "100%"]);
-  assert.deepEqual(m.figures[1].bars, []);
-  assert.deepEqual(m.chart[0].bars, [{ cls: "shipped", height: "100%", text: "1" }, { cls: "failed", height: "100%", text: "1" }]);
-  assert.deepEqual(m.chart[1].bars[1], { cls: "failed", height: "0%", text: "" });
-  assert.equal(m.chart[0].label, "23");
-  assert.equal(m.viewBox, "0 0 20 100");
-  assert.equal(m.points, "5,0.0 15,50.0");
-  assert.deepEqual(m.reasons, [{ reason: "timeout", n: 2 }]);
-  assert.deepEqual(m.steps.map((s) => [s.step, s.width, s.text]), [["explore", "75%", "75%, 3 of 4"]]);
-  assert.deepEqual(m.versions, [["v0.7.22", "0.13.0", "3", "66.7%", "10 min", "1k"], ["v0.7.21", "0.12.80", "1", "", "", ""]]);
-  assert.equal(daysModel(null).present, false);
-  assert.equal(daysModel({ report: 2 }).present, false);
 });
 
 test("the console shows the selected cycle, running or the last, and names its file", () => {

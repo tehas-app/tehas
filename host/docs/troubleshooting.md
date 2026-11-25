@@ -399,7 +399,7 @@ Run `tehas dispatch --dry-run` and read what it prints.
   HTTP 502`. With nothing after the read, no gh call failed: the answer came
   without that issue or that field.
 - `ERROR: <repo> is now <other> on GitHub`: the repository was renamed or
-  moved. Until it is put right the factory floor shows an empty board. Set
+  moved. Until it is put right the dashboard shows empty lists. Set
   `TEHAS_REPO` to the new name. Point the product checkout's `origin` at it, move the
   checkout if its directory was named after the old one, and run
   `install.sh`. When the product is tehas itself, point the platform

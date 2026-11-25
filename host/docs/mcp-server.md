@@ -7,8 +7,7 @@ description: "A read-only MCP server for agents outside the host: what it shows,
 
 Agents outside this host, such as Hermes or OpenClaw agents, can ask a factory
 how it is doing over MCP: whether it is working, what is in line, what ended,
-a running cycle's console and the last ten days, as the dashboard shows them,
-one issue's story, and the sessions of the last 30 days and their logs, masked,
+and a running cycle's console, as the dashboard shows them, one issue's story, and the sessions of the last 30 days and their logs, masked,
 the lines of those logs that hold a string you give, the dispatcher's and
 refresh's events as they are written, why an issue's last stopped run
 stopped, and the dispatcher's last decisions. With a
@@ -35,15 +34,15 @@ else:
 | Setting | Called | May call |
 | --- | --- | --- |
 | `TEHAS_MCP_KEYS` | full | every tool of the [table](#the-tools) |
-| `TEHAS_MCP_DASHBOARD_KEYS` | dashboard | the four that copy from `live/`: `factory_status`, `factory_issues`, `factory_endings`, `factory_stats` |
+| `TEHAS_MCP_DASHBOARD_KEYS` | dashboard | the three that copy from `live/`: `factory_status`, `factory_issues`, `factory_endings` |
 
 A dashboard key is for a program that shows the factory and must not read the
 logs: the sessions of the last 30 days, the lines of their logs and the
 dispatcher's and refresh's events are the private half of what the server
-holds, and those four tools name none of them. A dashboard key that asks for
+holds, and those three tools name none of them. A dashboard key that asks for
 another tool gets what the server gives any name it does not serve, the same
 words a full key gets for a name that is no tool: the scope is no secret, and
-a caller that cannot tell the four from the rest learns nothing it should not
+a caller that cannot tell the three from the rest learns nothing it should not
 know.
 
 The scope is the program's, not the container's. The server is one process
@@ -73,7 +72,7 @@ files. A key the files gain later is not served until a release names it.
 
 On a factory that works on a private repository, a full key gives its holder
 that repository's code, issue text and model output as the agents saw them, in
-the logs. Give one only to someone who may read the repository. The four tools
+the logs. Give one only to someone who may read the repository. The three tools
 of a dashboard key copy the dashboard's own numbers and issue titles, which is
 what the dashboard publishes, and no log line: give one where the logs are what
 you would rather keep on the host. The mask takes
@@ -349,7 +348,6 @@ one; another number is a tool error that says so.
 | `factory_issues` | `stage`, optional: `queued`, `planning`, `running`, `awaiting`, `stopped` or `completed` | Per stage, the issues the dashboard lists: number, title, url, updatedAt, and closedAt when closed. `planning` is a count and issue numbers, without titles |
 | `factory_endings` | none | `endings`, the cycles that ended last (issue, status, step, startedAt, updatedAt), and `failed`, the failed ones among them (issue, status, step, startedAt, time) |
 | `factory_console` | `issue`, and `bytes` from 1 to 65536 | One running cycle's issue, step, status, statusText, startedAt, updatedAt, and the last `bytes` of its console, 64 KB without it, masked as a log is. The lines just before the tail, up to 4 KB, are read and masked with it and then cut, so a secret the cut splits is still masked. Only those bytes are read, however large the console |
-| `factory_stats` | none | The ten-day report the dashboard shows, with `refine`: refining sessions, the issues they filed, how many started and shipped, the lead time of the shipped ones and, to compare, the same counts for the other issues made ready. Counts only. See [Analytics](/analytics) for what each figure means |
 | `factory_sessions` | all optional: `outcome` (`offered`, `merged`, `handoff`, `parked`, `failed`, `refused`, `stopped`), `failureKind`, `tehasVersion`, `rukasVersion` (also matches the commit), `kind` (`work`, `plan`), `how` (`approved`, `refresh`, `outage-retry`, `millwright`, `host`, `answer`, `reply`, `refine`, `hand`), `image` (an image id `sha256:<hex>`, or its first 12 hex or more, with or without `sha256:`), `issue`, `limit` from 1 to 200 (50 without it), `before` | The runs of the last 30 days, newest first, filters combined: id, kind, issue, attempt, how, started, ended, seconds, outcome, failedStep, failureKind, failureCause, parkReason, tehasVersion, rukasVersion, image and imageBuilt, and links to the issue and pull request (`issueUrl`, `prUrl`). `next` is the last id when more remain: pass it as `before`. A session of the snapshot that matched but has a field of another type than the schema names, or an `outcome`, `kind` or `how` outside its words, is left out, and `leftOut` counts the ones skipped while filling this page, not those of later pages. A version or failure kind is matched exactly. `image` is the sandbox image of the run, by its id, which names one build: for a work run the one its container started from, for a planning turn the one the image name pointed at as the turn started. `imageBuilt` is when that image was built, UTC. A run recorded before images were has neither. `imageBuilt` is left out when no run of that image recorded a build time, as when the image was gone from the host each time one of its runs ended |
 | `factory_session` | `id`, like `work-12-1792485967` | One run of the last 30 days: every figure of the session, its `steps`, its `roles` (model, provider, tokens), its `logs` as a word and a size in bytes (never a file name), `filed` for a planning session, and `issueUrl` and `prUrl`. A session whose snapshot line does not match the tool's schema is a tool error that names the session and the field |
 | `factory_log` | `id` or `issue`, `file` (a word below), optional `gzip` (false without it), and for a plain read `offset` (0 without it) and `bytes` from 1 to 1048576 (1 MiB without it) | One log file of the session, masked. With `issue`, the logs of that issue's running cycle, which has no session yet: its `id` is `work-<issue>-<startedAt>`, and that id is taken too while the cycle runs, also before the sessions snapshot is first written. The id names the running cycle only: when the run ends it is a session with an id of its own, a little later than `startedAt`, so find it in `factory_sessions` by its issue. Its logs are the latest ones whose names carry a stamp from its start on; until the cycle writes its own, a log of an earlier run is not served for it. An issue with no running cycle, or a cycle the store marked lost, is a tool error. Plain: `id`, `file`, `offset`, `text`, and `next`, the offset of the rest, when more remains, and `size` when the read got to the end of the file. With `gzip: true`: the whole masked file compressed, as an embedded resource of type `application/gzip` at `tehas://sessions/<id>/<file>.gz`, and `id`, `file`, `size` and `gzipBytes` as the structured content |
@@ -571,8 +569,7 @@ accidents, not a wall: a log can hold a secret in a form the mask does not
 know.
 
 A file that is missing or half written gives a tool error that names it, and
-the server keeps answering. `factory_stats` with analytics off says that
-`analytics.json` is not published.
+the server keeps answering.
 
 ### Following the factory
 

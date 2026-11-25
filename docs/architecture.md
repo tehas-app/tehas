@@ -78,7 +78,7 @@ owned read handles and the links, each ticket answered alone.
 ## Checks of the core (R3, R8)
 
 The core today is the dispatcher's `decide` and the modules it decides
-from: `decide.rs`, `decide/`, `place.rs`, `snapshot.rs`, `text.rs`,
+from: `decide.rs`, `decide/`, `snapshot.rs`, `text.rs`,
 `settings.rs`, `questions.rs`, `starts.rs`. `core-effects` holds it at 0:
 no file, network, process, environment or clock. `core-inward` holds it at
 0 too: nothing of the shell or of tehas-core's effects. At the fork it
@@ -154,29 +154,48 @@ guards".
 
 ## Crate graph
 
-From `cargo metadata`. Tests' own dependencies are in the last column.
+From `cargo metadata`, inner crates first. Tests' own dependencies are in
+the last column. `console/xtask/tests/crate_graph.rs` holds this table to
+the workspace and prints it as it should be when they differ, so a change
+of a manifest changes the table in the same commit.
 
 | Crate | Depends on | Its tests also use |
 | --- | --- | --- |
-| tehas-ports | nothing of the workspace, serde alone | |
-| tehas-core | nothing of the workspace | attach |
-| attach, tehas-front, tehas-mcp, tehas-xtask | tehas-core | |
-| store | tehas-core, tehas-ports | |
+| tehas-describe | nothing of the workspace | |
+| tehas-ports | nothing of the workspace | |
+| tehas-review-render | nothing of the workspace | |
+| tehas-wiki-render | nothing of the workspace | tehas-core |
+| tehas-core | tehas-ports | attach |
+| tehas-wiki-collect | tehas-wiki-render | tehas-core |
+| attach | tehas-core | |
 | analytics | tehas-core | tehas-mcp |
-| tehas-cycle | attach, tehas-core | |
+| store | tehas-core, tehas-ports | |
+| tehas-front | tehas-core | |
+| tehas-github | attach, tehas-core, tehas-ports | |
+| tehas-host-feed | tehas-core | |
 | tehas-items | attach, tehas-core | |
-| tehas-dispatch | attach, tehas-core | |
-| tehas-ops | store, tehas-core, tehas-cycle | tehas-dispatch |
-| tehas-plugin | tehas-core, tehas-ops | |
-| tehas-plugin-gate | tehas-core, tehas-plugin | |
-| console | attach, store, tehas-core, tehas-cycle, tehas-items, tehas-ops | tehas-dispatch |
+| tehas-mesh-feed | tehas-core | |
+| tehas-cycle | attach, tehas-core, tehas-github, tehas-ports | |
+| tehas-dispatch | attach, tehas-core, tehas-github, tehas-ports | |
+| tehas-mcp | tehas-core, tehas-github, tehas-ports | |
+| tehas-ops | store, tehas-core, tehas-cycle, tehas-ports | tehas-dispatch |
+| tehas-plugin | tehas-core, tehas-github, tehas-ops, tehas-ports | tehas-ops |
+| tehas-xtask | tehas-core, tehas-github, tehas-ops, tehas-ports | |
+| console | attach, store, tehas-core, tehas-cycle, tehas-github, tehas-ops, tehas-ports | tehas-dispatch, tehas-ops, tehas-ports |
+| tehas-plugin-gate | tehas-core, tehas-github, tehas-plugin, tehas-ports | |
 
-core depends on nothing, so the graph points inward at the root (R8).
-Its tests read links by attach's rule, which the issue feed takes as a
-parameter.
-The direction is not checked in CI yet. core itself mixes the pure
-rules with effects (`sandbox.rs`, `access.rs`, `call.rs`, `retry.rs`):
-T6 settles where the core ends.
+The same test checks the direction (R8). Each crate has a layer, inner
+to outer as the rows are grouped above, and a normal edge points to an
+earlier layer. A pure crate, today tehas-ports alone, takes outside
+crates only from serde, serde_json, regex and sha2; the `ports-deps`
+check holds tehas-ports to serde alone. Only a program, a crate with a bin target, depends on
+tehas-github, for its wiring. A dev edge is held to the table, not to
+the layers: core's tests read links by attach's rule, which the issue
+feed takes as a parameter.
+
+core is not pure yet: it mixes the rules with effects (`sandbox.rs`,
+`access.rs`, `call.rs`, `retry.rs`) and uses libc. T6 splits it, and
+each step changes this table, the layers and the test together.
 
 ## Kept for the 2.1 plugins
 
@@ -458,6 +477,12 @@ row: T4's remaining lane, before the beta.
 | the floors above | 4 | 7 |
 | **the check's count** | **717** | **200** |
 
+After alpha.1, TF-B51 took the factory floor out of core: `github-rest`
+is 655 (62 fewer): the front pages hold 7 of it (61 fewer:
+`sample-issues.js` 52, `game-view.js` 8, `game-data.js` 1), and 1 went
+with the console's hourly read of every issue for the floor's words
+(`queue.rs`).
+
 The two parts add up to each check's count and its `max`: 713 and 4 is
 717, 193 and 7 is 200. The floors above are, for `github-rest`, the 4 of
 `host/sandbox/gh-shim` (T8); for `gh-argv`, the /proc fixture of
@@ -496,9 +521,11 @@ The causes, per area:
   moved onto the code host (#3233 and T4.10b).
 - **The front pages.** GitHub's field names (`createdAt`, `updatedAt`,
   `closedAt` and the rest) in the pages that draw the queue's JSON,
-  which copies GitHub's names unchanged: `sample-issues.js` 52,
-  `game-view.js` 8, the factory's issues model 5. They go when T4 or T7
-  renames those names or gives them one owner.
+  which copies GitHub's names unchanged: the factory's issues model 5,
+  the console model 1 and `console-tabs.js` 1. `sample-issues.js` 52,
+  `game-view.js` 8 and `game-data.js` 1 went with the factory floor
+  (TF-B51). They go when T4 or T7 renames those names or gives them one
+  owner.
 - **cycle.** The cycle's own issue, pull request and hook reads
   (`apply.rs`, `gives.rs`, `hook.rs`, `start.rs`, `supervise.rs`), the
   report's reads of the pull request's `createdAt` and `isDraft`
@@ -561,6 +588,11 @@ most of them in tests. `tehas:ready` alone is about 430, then
 | plugin | 1 |
 | **alpha.1 floor** | **1467** |
 
+After alpha.1, TF-B51 took the factory floor out of core: `label-words`
+is 1446 (21 fewer): the front pages hold 2 of it (19 fewer), and 2 went
+with the console's read for the floor's words (`queue.rs` 1) and its status
+test (`console/tests/status.rs` 1).
+
 Cause: the dispatcher's decide still reads the queue page by label names
 (`decide.rs` 73, `decide/flow.rs` 26, `decide/plan.rs` 19,
 `decide/retry.rs` 35, `decide/clean.rs` 16, `pins.rs` 50,
@@ -570,7 +602,7 @@ events, question and text modules (`events.rs` 34, `text.rs` 25,
 `question.rs` 17) and its label pins (`label_pins.rs` 44) read and pin the
 words; ops' tidy (`tidy.rs` 96), the console's queue and status, the
 store's approval and plan records, mcp's decisions and the front pages'
-sample issues name them too. The move is onto the ports' acts and marks,
+issues model and `epics-view.js` name them too. The move is onto the ports' acts and marks,
 with the tests on the ports' fakes. End: T2's remaining lane with T4's,
 before the beta.
 
