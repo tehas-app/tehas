@@ -40,6 +40,10 @@ pub(crate) struct ItemRec {
     pub kind: Option<Kind>,
     pub priority: Priority,
     pub marks: Vec<Mark>,
+    /// The label names no mark gives (`World::label`), each with the
+    /// count of `marks` it stands after: the site holds labels in the
+    /// order they were put on, so a mark put on later stands after them.
+    pub labels: Vec<(usize, String)>,
     pub target: Option<TargetId>,
     pub author: Option<Account>,
     pub editor: Option<Account>,
@@ -650,6 +654,7 @@ impl State {
             kind: None,
             priority: Priority::Normal,
             marks: Vec::new(),
+            labels: Vec::new(),
             target: None,
             author,
             editor: None,

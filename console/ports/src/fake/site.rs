@@ -1099,16 +1099,37 @@ pub(crate) fn digest(s: &State, item: &ItemRec) -> Option<TicketDigest> {
         kind: item.kind.clone(),
         priority: item.priority,
         marks: item.marks.clone(),
-        labels: (item.marks.iter())
-            .map(mark_name)
-            .filter(|n| !n.is_empty())
-            .collect(),
+        labels: labels(item),
         target,
         author: item.author.clone(),
         created: item.created,
         updated: item.updated,
         revision: revision(item.revision),
     })
+}
+
+/// A ticket's label names in the site's order, the order they were put
+/// on: each mark by its name (`mark_name`), and each name `World::label`
+/// put on among them where it was put on. That is the order GitHub answers
+/// in the adapter's recordings (ticket 20 of the samples'
+/// `github/tickets-labels.json`), and the adapter keeps the site's order as
+/// it stands. A name a mark gives is held once, where the mark stands.
+fn labels(item: &ItemRec) -> Vec<String> {
+    let marks: Vec<String> = item.marks.iter().map(mark_name).collect();
+    let raw = |n: usize| {
+        (item.labels.iter())
+            .filter(|(after, name)| *after == n && !marks.contains(name))
+            .map(|(_, name)| name.clone())
+            .collect::<Vec<_>>()
+    };
+    let mut out = raw(0);
+    for (n, name) in marks.iter().enumerate() {
+        if !name.is_empty() {
+            out.push(name.clone());
+        }
+        out.extend(raw(n + 1));
+    }
+    out
 }
 
 /// Tickets in list order: oldest filed first, ties broken by key.

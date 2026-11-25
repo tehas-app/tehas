@@ -618,6 +618,12 @@ fn unmark(s: &mut State, ctx: &Ctx, key: &TicketKey, m: &Mark) -> Did {
     let at = at_ticket(s, key)?;
     if let Some(i) = s.items[at].marks.iter().position(|x| x == m) {
         s.items[at].marks.remove(i);
+        // A label that stood after the mark taken off keeps its place.
+        for (after, _) in &mut s.items[at].labels {
+            if *after > i {
+                *after -= 1;
+            }
+        }
         event(s, at, ctx, Happened::Unmarked(m.clone()));
     }
     ctx.wrote(

@@ -351,6 +351,50 @@ fn tickets_every_label_is_in_labels_in_order() {
 }
 
 #[test]
+fn tickets_every_label_is_in_labels_in_order_with_names_no_mark_gives() {
+    for w in both() {
+        let bug = Mark::Project(MarkName::new("bug").unwrap());
+        let w = w
+            .ticket(4, |t| t.title("labelled").mark(Mark::Epic))
+            .ticket(5, |t| t.title("labels alone"));
+        w.label(&w.key(4), "won't fix");
+        w.label(&w.key(4), "c++");
+        let w = w.ticket(4, |t| t.mark(bug.clone()));
+        w.label(&w.key(4), "🚀 launch");
+        w.label(&w.key(4), "c++");
+        w.label(&w.key(5), "won't fix");
+        let site = FakeSite::new(&w);
+        let mut h = site.tickets(&full(), C).unwrap();
+        let names = |n: &[&str]| n.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        // In the order put on, marks and names alike; a name held once.
+        let held = [
+            (
+                w.key(4),
+                names(&["mark:epic", "won't fix", "c++", "bug", "🚀 launch"]),
+            ),
+            (w.key(5), names(&["won't fix"])),
+        ];
+        ok(laws::tickets::every_label_is_in_labels_in_order(
+            h.as_mut(),
+            &held,
+            b(50),
+        ));
+        // Marks leave the names out.
+        let d = h.several(&[w.key(4)]).remove(0).1.unwrap();
+        assert_eq!(d.marks, vec![Mark::Epic, bug.clone()]);
+        // A mark taken off leaves the names where they stood.
+        let mut wr = site.ticket_writes(&full(), C).unwrap();
+        wr.unmark(&w.key(4), &Mark::Epic).unwrap();
+        let held = [(w.key(4), names(&["won't fix", "c++", "bug", "🚀 launch"]))];
+        ok(laws::tickets::every_label_is_in_labels_in_order(
+            h.as_mut(),
+            &held,
+            b(50),
+        ));
+    }
+}
+
+#[test]
 fn tickets_recent_and_recently_closed_are_newest_updated_first() {
     for w in both() {
         let w = w.ticket(1, |t| t.title("oldest").mark(Mark::Epic));
