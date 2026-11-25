@@ -9,6 +9,7 @@ use serde::Deserialize;
 
 use super::change::answer;
 use crate::graphql::{self, priced};
+use crate::ticket::{Info, Pages};
 use crate::tickets::{account, take};
 use crate::{gh, ForgeError, GitHub};
 use tehas_ports::{
@@ -77,15 +78,6 @@ struct Pull {
 struct Timeline {
     page_info: Option<Info>,
     nodes: Option<Vec<Option<Node>>>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Info {
-    has_next_page: Option<bool>,
-    end_cursor: Option<String>,
-    has_previous_page: Option<bool>,
-    start_cursor: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -178,14 +170,14 @@ impl GitHub {
             Window::Whole(_) => None,
             Window::Last(n) => Some(n.get().min(ALL_MAX.get()) as usize),
         };
-        let mut seen: Vec<String> = Vec::new();
+        let mut pages = Pages::new(back);
         let mut all: Vec<Item> = Vec::new();
         let mut cursor: Option<String> = None;
         let mut earlier = false;
         loop {
             let page = self.events_page(no, &question, cursor.as_deref())?;
             let mut read = self.read_items(page.nodes.ok_or(MALFORMED)?)?;
-            let next = next_page(page.page_info, back)?;
+            let next = pages.after(page.page_info)?;
             match (window, want) {
                 (Window::Whole(bound), _) => {
                     all.append(&mut read);
@@ -205,18 +197,15 @@ impl GitHub {
             let Some(c) = next else {
                 break;
             };
-            if seen.contains(&c) {
-                return Err(INCONSISTENT);
-            }
-            if seen.len() + 1 >= PAGES_MAX {
-                if back {
+            // PAGES_MAX pages are read once one cursor short of it is used.
+            match pages.turn(c, PAGES_MAX - 1)? {
+                Some(c) => cursor = Some(c),
+                None if back => {
                     earlier = true;
                     break;
                 }
-                return Err(CUT);
+                None => return Err(CUT),
             }
-            seen.push(c.clone());
-            cursor = Some(c);
         }
         let events = placed(all)?;
         match want {
@@ -455,21 +444,6 @@ fn placed(items: Vec<Item>) -> Got<Vec<ChangeEvent>> {
         events.push(event);
     }
     Ok(events)
-}
-
-/// The cursor of the page after this one, going back for the newest n,
-/// None after the last. A page that does not say whether there is more,
-/// or says so with no cursor, is `Unread(Inconsistent)`.
-fn next_page(info: Option<Info>, back: bool) -> Got<Option<String>> {
-    let info = info.ok_or(INCONSISTENT)?;
-    let (more, cursor) = match back {
-        true => (info.has_previous_page, info.start_cursor),
-        false => (info.has_next_page, info.end_cursor),
-    };
-    match more.ok_or(INCONSISTENT)? {
-        false => Ok(None),
-        true => cursor.map(Some).ok_or(INCONSISTENT),
-    }
 }
 
 #[cfg(test)]
