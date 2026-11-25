@@ -79,7 +79,7 @@ pub const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
 
 /// The logins whose user ids install.sh records, as the shell tests list them.
 const LOGINS: &[&str] = &[
-    "tehas-bot",
+    "tehas-bot[bot]",
     "alice",
     "bob",
     "bob-2",
