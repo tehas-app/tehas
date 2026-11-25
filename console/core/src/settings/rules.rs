@@ -5,6 +5,8 @@
 //! The reasons are the words an operator reads and tests match, so a change
 //! to one is a change to behaviour.
 
+use crate::grammar::all_digits;
+
 /// The ceiling of a planning turn. The unit of a turn gets RuntimeMaxSec = the
 /// limit + 900 (dispatch/src/apply/turn.rs), so 7200 is 2h15, inside the unit's
 /// own bound. The default of TEHAS_PLAN_TIMEOUT is this ceiling.
@@ -622,9 +624,6 @@ fn all(s: &str, ok: impl Fn(char) -> bool) -> bool {
 fn class(more: &'static str) -> impl Fn(char) -> bool + Copy {
     move |c| c.is_ascii_alphanumeric() || more.contains(c)
 }
-fn digits(s: &str) -> bool {
-    all(s, |c| c.is_ascii_digit())
-}
 
 /// The ports of the dashboard (host/edge/docs.compose.yaml) and the router
 /// (host/edge/router.compose.yaml).
@@ -677,7 +676,7 @@ const GATE_WHY: &str = "expected a private address and a port other than the das
 
 /// `[1-9][0-9]*`, at most `max` digits.
 fn leading(s: &str, max: usize) -> bool {
-    digits(s) && !s.starts_with('0') && s.len() <= max
+    all_digits(s) && !s.starts_with('0') && s.len() <= max
 }
 fn is_path(v: &str) -> bool {
     v.strip_prefix('/')
@@ -705,7 +704,7 @@ fn is_host(s: &str) -> bool {
         Some((name, port)) => (name, Some(port)),
         None => (s, None),
     };
-    all(name, class(".-")) && port.is_none_or(digits)
+    all(name, class(".-")) && port.is_none_or(all_digits)
 }
 /// A domain name in lower case: labels of letters, digits and `-`, at least
 /// two of them.
@@ -731,7 +730,7 @@ fn is_workaround(entry: &str) -> bool {
             c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_'
         })
     }) && (2..=4).contains(&parts)
-        && version.split('.').all(|p| digits(p) && p.len() <= 6)
+        && version.split('.').all(|p| all_digits(p) && p.len() <= 6)
 }
 fn is_container_size(v: &str) -> bool {
     let (n, unit) = split_unit(v);
@@ -745,7 +744,7 @@ fn is_container_size(v: &str) -> bool {
 /// A count of the store's own grammar (verbs::count): at most nine digits, and
 /// the only one beginning with 0 is 0 itself.
 pub fn is_count(s: &str) -> bool {
-    digits(s) && s.len() <= 9 && (s == "0" || !s.starts_with('0'))
+    all_digits(s) && s.len() <= 9 && (s == "0" || !s.starts_with('0'))
 }
 
 fn count(v: &str) -> Result<(), String> {
@@ -780,7 +779,7 @@ fn arithmetic(n: &str) -> Option<i64> {
 /// never a number to the shell either.
 pub fn mem_mb(v: &str) -> Option<String> {
     let (n, unit) = split_unit(v);
-    if !digits(n) {
+    if !all_digits(n) {
         return None;
     }
     match unit {
@@ -804,7 +803,7 @@ fn poll_budget(v: &str) -> Result<(), String> {
             | ["wall", "writes"]
             | ["writes"]
     );
-    if !order || !parts.iter().all(|(_, n)| digits(n) && n.len() <= 9) {
+    if !order || !parts.iter().all(|(_, n)| all_digits(n) && n.len() <= 9) {
         return Err("expected cpu=<s>,wall=<s>,writes=<n>, any part left out".to_string());
     }
     if !parts.iter().all(|(_, n)| is_count(n)) {
@@ -837,7 +836,7 @@ fn follow(v: &str) -> Result<(), String> {
     }
     if let Some(line) = v.strip_prefix("release:") {
         let parts = line.split('.').count();
-        if parts <= 2 && line.split('.').all(|p| digits(p) && p.len() <= 6) {
+        if parts <= 2 && line.split('.').all(|p| all_digits(p) && p.len() <= 6) {
             return Ok(());
         }
         return Err("expected release:<line>, a major version or major.minor such as 0.14".into());
