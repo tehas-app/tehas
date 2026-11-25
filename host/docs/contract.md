@@ -1120,7 +1120,7 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   read the list.
   Adopter action: a program that read `api/surface-1.0.txt` reads
   `api/surface-2.0.txt`.
-- **Two settings name the adapters.** This pull request.
+- **Two settings name the adapters.** #3359.
   `TEHAS_CODE_HOST` names the code host and `TEHAS_TICKETS` the ticket
   tracker. In 2.0 each takes `github` alone, where `TEHAS_TICKETS=github` is
   the code host's own issues. A missing or empty setting means `github`, so a
