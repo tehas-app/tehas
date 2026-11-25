@@ -139,8 +139,9 @@ const ISSUE_MAX: i64 = 9_999_999_999;
 /// issue column holds it and a settle reads it: above 0, at most ten
 /// digits. None for a write on no number (a ticket keyed by text, a new
 /// item, a mark, target, commit or release): the store refuses its row, so
-/// it is not sent, until a settle reads a row by its write (T4.7). Every
-/// variant is named, so a new one is decided here.
+/// it is not sent, until a settle reads a row by its write (T4.7); a
+/// comment's edit is keyed by the `--issue` its caller gives (`row_issue`).
+/// Every variant is named, so a new one is decided here.
 fn issue_of(w: &Write) -> Option<i64> {
     let n = match w {
         Write::Mark { ticket, .. }
@@ -330,7 +331,10 @@ pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
 
 /// `journal-record --write`: the write kept in its arguments.
 fn record_write(a: &Args) -> Result<Call, String> {
-    a.only(&["--poll", "--write", "--args", "--before"], "--write")?;
+    a.only(
+        &["--poll", "--write", "--args", "--before", "--issue"],
+        "--write",
+    )?;
     let (write, kind) = a.strict_need("--write", "a write the journal records", a_write)?;
     let args = a.strict_need("--args", "a JSON object", object)?;
     let mut args: serde_json::Map<String, Value> =
@@ -343,11 +347,30 @@ fn record_write(a: &Args) -> Result<Call, String> {
     Ok(Call::Record(Record {
         poll: a.strict_need("--poll", "a Unix time", verbs::unix)?,
         kind,
-        issue: issue_of(&write)
-            .ok_or_else(|| a.usage("--write", "names no issue the journal keys a row by"))?,
+        issue: row_issue(a, &write)?,
         args: Value::Object(args).to_string(),
         before: a.strict_need("--before", "a Unix time", verbs::unix)?,
     }))
+}
+
+/// The issue a write's row is keyed by: the number the write names, or
+/// for a write on a comment, which names none (`EditComment`), the
+/// `--issue` its caller gives, the item the comment is on. `--issue` is
+/// refused beside a write that names its own, and a write that names none
+/// and is given none is refused, so it is not sent.
+fn row_issue(a: &Args, write: &Write) -> Result<i64, String> {
+    let given = a.strict("--issue", "an issue number", |s| {
+        verbs::number(s).filter(|n| (1..=ISSUE_MAX).contains(n))
+    })?;
+    match (issue_of(write), given) {
+        (Some(_), Some(_)) => {
+            Err(a.usage("--issue", "is not taken with a write that names its issue"))
+        }
+        (Some(n), None) => Ok(n),
+        (None, Some(n)) if matches!(write, Write::EditComment { .. }) => Ok(n),
+        (None, Some(_)) => Err(a.usage("--issue", "is taken only with a comment's edit")),
+        (None, None) => Err(a.usage("--write", "names no issue the journal keys a row by")),
+    }
 }
 
 pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {

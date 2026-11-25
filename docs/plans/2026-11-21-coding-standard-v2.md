@@ -517,6 +517,12 @@ floors. A finding #2890 moved here from "Temporary rises", to fix:
   GitHub's list, the untyped value `preview::choose` takes. It goes when
   T7 types that list.
 
+For alpha.1 (the trio PM's ruling, 2026-11-24), T7 closes on written
+floors: the open T7 pull requests land first, and what is still untyped
+is written down as the alpha.1 floor in
+[docs/architecture.md, "The alpha.1 floor"](../architecture.md#the-alpha1-floor).
+Typing it is T7's remaining lane, before the beta.
+
 ### T8. The bash that stays
 
 What is still bash follows the same owners: it asks the Rust programs
