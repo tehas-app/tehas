@@ -1651,8 +1651,8 @@ field is a major one.
 The subject `plugin-<name>` belongs to the plugin `<name>`, and
 `annex-<name>` to the annex `<name>`, its plant and its plugin. tehas raises
 no event whose subject starts `plugin-` or `annex-` in any 2.x release, and
-`api/events.txt` never holds one. `tehas:` stays only for the names in
-`api/events.txt`. How a plugin declares and raises its events is 2.1.
+`api/events.txt` never holds one. How a plugin declares and raises its
+events is 2.1.
 
 ### The envelope
 
