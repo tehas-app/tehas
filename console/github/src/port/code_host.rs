@@ -25,16 +25,17 @@ pub use remote::project_of;
 use std::collections::BTreeSet;
 use std::num::NonZeroU32;
 
+use super::board::{Pull, PullAsk};
 use super::mergeable::mergeable;
 use super::unsupported;
 use crate::{markers, ForgeError, GitHub};
+use serde::Deserialize;
 use serde_json::Value;
 use tehas_ports::{
-    Access, Account, AccountId, AccountKind, At, Author, BlueprintNo, Bound, Branch, Change,
-    ChangeDelta, ChangeDigest, ChangeEvent, ChangeFilter, ChangeNo, ChangeState, ChangeStates,
-    ChangeToken, ChangedFile, Checks, CodeHost, CommitId, Compared, Cursor, Did, Facts, FileName,
-    Got, ItemName, Login, Mark, Outcome, Pool, ProjectName, Realm, Ref, Release, Remote, RepoPath,
-    Rev, Size, Tag, TagName, Took, Unread, WebLink, Whole, Window,
+    Access, AccountId, At, Author, BlueprintNo, Bound, Branch, Change, ChangeDelta, ChangeDigest,
+    ChangeEvent, ChangeFilter, ChangeNo, ChangeStates, ChangeToken, ChangedFile, Checks, CodeHost,
+    CommitId, Compared, Cursor, Did, Facts, FileName, Got, ItemName, Mark, Outcome, Pool,
+    ProjectName, Ref, Release, Remote, RepoPath, Rev, Tag, TagName, Took, Unread, Whole, Window,
 };
 
 impl CodeHost for GitHub {
@@ -103,7 +104,7 @@ impl CodeHost for GitHub {
             }
             args.extend(["-f", &query]);
             match gh.call("the pull requests", &args) {
-                Ok(out) => read_page(&out, me, filter, gh.bot.as_ref(), (gh.now)()),
+                Ok(out) => read_page(gh, &out, me, filter),
                 Err(e) => Err(gh.query_outcome(&e)),
             }
         };
@@ -129,9 +130,7 @@ impl CodeHost for GitHub {
                     return Err(Outcome::Unread(Unread::Inconsistent));
                 }
             }
-            for pull in page.pulls {
-                let mut digest = pull.digest;
-                digest.marks = self.marks_of(&pull.labels);
+            for digest in page.pulls {
                 if !filter.carrying.iter().all(|m| digest.marks.contains(m)) {
                     continue;
                 }
@@ -343,11 +342,19 @@ fn changes_query(
 /// What `PullNode::read` reads of a pull request, its body too when `bodies`:
 /// the same of a page of the list and of a pull request asked by number.
 fn pull_fields(bodies: bool) -> String {
-    let account = "{ __typename login ... on User { databaseId } ... on Bot { databaseId } }";
-    let body = if bodies { " body" } else { "" };
-    format!(
-        "number title state isDraft isCrossRepository headRepository {{ databaseId }} headRefName headRefOid baseRefName baseRefOid createdAt updatedAt mergedAt closedAt lastEditedAt additions deletions changedFiles mergeable mergeStateStatus url author {account} editor {account} mergedBy {account} mergeCommit {{ oid }}{body} labels(first: 100) {{ totalCount nodes {{ name }} }} closingIssuesReferences(first: 100) {{ totalCount nodes {{ number repository {{ databaseId nameWithOwner }} }} }}"
-    )
+    super::board::pull_fields_of(pull_ask(bodies))
+}
+
+/// What the list and the question by number ask of each pull request: its
+/// head repository, so a fork is told by it too, and its body when `bodies`.
+/// Labels or closed issues past one page are `Unread(Cut)`.
+fn pull_ask(bodies: bool) -> PullAsk {
+    PullAsk {
+        retitles: false,
+        head_repo: true,
+        body: bodies,
+        past: Unread::Cut,
+    }
 }
 
 /// The most pages of pull requests one `changes` reads: a thousand pull
@@ -366,14 +373,7 @@ struct Page {
     /// carries a since.
     updated: Vec<At>,
     /// The pull requests the filter takes, each read whole.
-    pulls: Vec<Pull>,
-}
-
-/// One pull request, read: its digest with no marks yet, and its labels to
-/// read them from.
-struct Pull {
-    digest: ChangeDigest,
-    labels: Vec<String>,
+    pulls: Vec<ChangeDigest>,
 }
 
 /// What the filter needs of a pull request to decide, read before the rest
@@ -429,15 +429,9 @@ fn takes(f: &ChangeFilter, me: Option<&AccountId>, l: &Lead) -> bool {
 /// errors, or a page that says more follows and holds none, is
 /// `Unread(Inconsistent)`. A bot's login is written as GraphQL writes it,
 /// `name`, so one account has one login whichever read named it.
-fn read_page(
-    out: &str,
-    me: bool,
-    f: &ChangeFilter,
-    bot: Option<&crate::tickets::Bot>,
-    now: i64,
-) -> Got<Page> {
+fn read_page(gh: &mut GitHub, out: &str, me: bool, f: &ChangeFilter) -> Got<Page> {
     let malformed = Outcome::Unread(Unread::Malformed);
-    if let Some(refused) = crate::graphql::refusal(out, now) {
+    if let Some(refused) = crate::graphql::refusal(out, (gh.now)()) {
         return Err(refused);
     }
     let mut v: Value = serde_json::from_str(out.trim()).map_err(|_| malformed.clone())?;
@@ -476,7 +470,7 @@ fn read_page(
     let mut updated = Vec::new();
     let mut pulls = Vec::new();
     for n in nodes {
-        let read = PullNode { node: n }.read(here, viewer.as_ref(), f, bot)?;
+        let read = PullNode { node: n }.read(gh, here, viewer.as_ref(), f)?;
         numbers.push(read.no);
         updated.extend(read.updated);
         pulls.extend(read.pull);
@@ -496,7 +490,7 @@ fn read_page(
 struct Read {
     no: ChangeNo,
     updated: Option<At>,
-    pull: Option<Pull>,
+    pull: Option<ChangeDigest>,
 }
 
 /// A node of the pull requests question, or of the question by number,
@@ -508,13 +502,13 @@ struct PullNode<'a> {
 impl PullNode<'_> {
     /// The node, `here` the repository's id and `viewer` the account
     /// asking: its lead is read and the filter decides; only a node it
-    /// takes is read whole, as `read_page` says.
+    /// takes is read whole, by the board's `pull_read`, as `read_page` says.
     fn read(
         &self,
+        gh: &mut GitHub,
         here: Option<u64>,
         viewer: Option<&AccountId>,
         f: &ChangeFilter,
-        bot: Option<&crate::tickets::Bot>,
     ) -> Got<Read> {
         let n = self.node;
         let malformed = Outcome::Unread(Unread::Malformed);
@@ -528,63 +522,35 @@ impl PullNode<'_> {
                 Some(_) => Err(malformed.clone()),
             }
         };
-        let account = |x: Option<&Value>| -> Got<Option<Account>> {
-            let o = match x {
-                None | Some(Value::Null) => return Ok(None),
-                Some(Value::Object(o)) => o,
-                Some(_) => return Err(malformed.clone()),
-            };
-            let login = o
-                .get("login")
-                .and_then(Value::as_str)
-                .ok_or(malformed.clone())?;
-            let kind = o.get("__typename").and_then(Value::as_str);
-            let id = match o.get("databaseId") {
-                None | Some(Value::Null) => None,
-                Some(i) => Some(i.as_u64().ok_or(malformed.clone())?),
-            };
-            let login = Login::new(tehas_core::accounts::folded(tehas_core::accounts::account(
-                login,
-            )));
-            let facts = crate::gh::Facts {
-                id,
-                kind: kind.map(str::to_string),
-            };
-            let kind = match kind {
-                _ if bot.is_some_and(|b| b.is(&facts)) => AccountKind::Ours,
-                Some("User") => AccountKind::Person,
-                Some("Bot") => AccountKind::Bot,
-                _ => AccountKind::Unknown,
-            };
-            let mut account = Account::new(Realm::CodeHost, login, kind);
-            account.id = id.map(|i| AccountId::new(i.to_string()));
-            Ok(Some(account))
+        let author = || -> Got<Option<AccountId>> {
+            match n.get("author") {
+                None | Some(Value::Null) => Ok(None),
+                Some(Value::Object(o)) if o.get("login").is_some_and(Value::is_string) => {
+                    match o.get("databaseId") {
+                        None | Some(Value::Null) => Ok(None),
+                        Some(i) => Ok(Some(AccountId::new(
+                            i.as_u64().ok_or(malformed.clone())?.to_string(),
+                        ))),
+                    }
+                }
+                Some(_) => Err(malformed.clone()),
+            }
         };
         let text = |k: &str| n.get(k).and_then(Value::as_str).ok_or(malformed.clone());
-        let flag = |k: &str| n.get(k).and_then(Value::as_bool).ok_or(malformed.clone());
         let at = |k: &str| time(n.get(k));
-        let who = |k: &str| account(n.get(k));
-        let count = |k: &str| {
-            n.get(k)
-                .and_then(Value::as_u64)
-                .and_then(|n| u32::try_from(n).ok())
-                .ok_or(malformed.clone())
-        };
-        let whole = |k: &str| -> Got<Vec<&Value>> {
-            let part = n.get(k).ok_or(malformed.clone())?;
+        let closes = || -> Got<Vec<Ref<BlueprintNo>>> {
+            let part = n.get("closingIssuesReferences").ok_or(malformed.clone())?;
             let nodes = part
                 .get("nodes")
                 .and_then(Value::as_array)
                 .ok_or(malformed.clone())?;
             match part.get("totalCount").and_then(Value::as_u64) {
-                Some(t) if t == nodes.len() as u64 => Ok(nodes.iter().collect()),
-                Some(t) if t > nodes.len() as u64 => Err(Outcome::Unread(Unread::Cut)),
-                _ => Err(Outcome::Unread(Unread::Inconsistent)),
+                Some(t) if t == nodes.len() as u64 => {}
+                Some(t) if t > nodes.len() as u64 => return Err(Outcome::Unread(Unread::Cut)),
+                _ => return Err(Outcome::Unread(Unread::Inconsistent)),
             }
-        };
-        let closes = || -> Got<Vec<Ref<BlueprintNo>>> {
             let mut closes = Vec::new();
-            for issue in whole("closingIssuesReferences")? {
+            for issue in nodes {
                 let number = issue
                     .get("number")
                     .and_then(Value::as_u64)
@@ -626,7 +592,7 @@ impl PullNode<'_> {
                 _ => None,
             },
             author: match f.author {
-                Some(_) => who("author")?.and_then(|a| a.id),
+                Some(_) => author()?,
                 None => None,
             },
             head: match f.head {
@@ -652,87 +618,23 @@ impl PullNode<'_> {
             });
         }
 
-        // Taken: the rest, whole.
-        let state = match state {
-            "OPEN" => ChangeState::Open,
-            "MERGED" => ChangeState::Merged {
-                at: at("mergedAt")?.ok_or(malformed.clone())?,
-                by: who("mergedBy")?,
-                commit: match n.get("mergeCommit") {
-                    Some(Value::Null) => None,
-                    Some(c) => Some(
-                        c.get("oid")
-                            .and_then(Value::as_str)
-                            .and_then(|c| CommitId::new(c).ok())
-                            .ok_or(malformed.clone())?,
-                    ),
-                    None => return Err(malformed),
-                },
-            },
-            _ => ChangeState::Closed {
-                at: at("closedAt")?.ok_or(malformed.clone())?,
-            },
+        // Taken: the rest, whole, as every reader of a pull request reads it.
+        let mut pull = Pull::deserialize(n).map_err(|_| malformed.clone())?;
+        let body = match f.bodies {
+            true => Some(pull.body.take().ok_or(malformed.clone())?),
+            false => None,
         };
-        let merge_state = mergeable(text("mergeable")?, text("mergeStateStatus")?);
-        let labels = whole("labels")?
-            .into_iter()
-            .map(|l| l.get("name").and_then(Value::as_str).map(str::to_string))
-            .collect::<Option<Vec<_>>>()
-            .ok_or(malformed.clone())?;
-        let edited = at("lastEditedAt")?;
-        let mut digest = ChangeDigest::new(
-            no,
-            state,
-            Branch::new(text("headRefName")?).map_err(|_| malformed.clone())?,
-            CommitId::new(text("headRefOid")?).map_err(|_| malformed.clone())?,
-            Branch::new(text("baseRefName")?).map_err(|_| malformed.clone())?,
-            CommitId::new(text("baseRefOid")?).map_err(|_| malformed.clone())?,
-            at("createdAt")?.ok_or(malformed.clone())?,
-            at("updatedAt")?.ok_or(malformed.clone())?,
-            WebLink::new(text("url")?).map_err(|_| malformed.clone())?,
-        );
-        digest.title = text("title")?.to_string();
-        digest.author = who("author")?;
-        // From a fork unless GitHub says it is not and its head repository is
-        // this one: a deleted head repository, or one GitHub does not name,
-        // fails closed.
-        let head_here = match n.get("headRepository") {
-            None => return Err(malformed.clone()),
-            Some(Value::Null) => false,
-            Some(r) => {
-                let id = r.get("databaseId").and_then(Value::as_u64);
-                id.ok_or(malformed.clone())?;
-                here.is_some() && id == here
-            }
-        };
-        digest.from_fork = flag("isCrossRepository")? || !head_here;
-        digest.draft = flag("isDraft")?;
-        digest.merge_state = merge_state;
-        digest.closes = closes()?;
-        let mut size = Size::default();
-        size.files = count("changedFiles")?;
-        size.added = count("additions")?;
-        size.deleted = count("deletions")?;
-        digest.size = Some(size);
-        digest.edited = edited;
-        digest.editor = match edited {
-            Some(_) => who("editor")?,
-            None => None,
-        };
-        if f.bodies {
-            let raw = n
-                .get("body")
-                .and_then(Value::as_str)
-                .ok_or(malformed.clone())?;
-            let item = BlueprintNo::new(no.get()).ok_or(malformed.clone())?;
-            let read = markers::read(raw, Some(item));
+        let mut digest = gh.pull_read(pull, ChangeStates::All, pull_ask(f.bodies))?;
+        if let Some(raw) = body {
+            let item = BlueprintNo::new(no.get()).ok_or(malformed)?;
+            let read = markers::read(&raw, Some(item));
             digest.says_closes = change::says_closes(&read.text);
             digest.body = Some(read.text);
         }
         Ok(Read {
             no,
             updated,
-            pull: Some(Pull { digest, labels }),
+            pull: Some(digest),
         })
     }
 }

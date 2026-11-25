@@ -401,7 +401,7 @@ pub(crate) fn present<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
 }
 
 /// A field that says whether it was there: `Some(None)` for an empty one.
-fn given<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
+pub(crate) fn given<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
     d: D,
 ) -> Result<Option<Option<T>>, D::Error> {
     Option::<T>::deserialize(d).map(Some)

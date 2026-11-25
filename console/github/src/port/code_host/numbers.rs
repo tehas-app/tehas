@@ -69,7 +69,7 @@ impl GitHub {
     }
 
     /// One question of distinct numbers, in order: the pull requests the
-    /// filter takes, with their marks.
+    /// filter takes.
     fn numbers_asked(
         &mut self,
         numbers: &[u64],
@@ -104,16 +104,13 @@ impl GitHub {
             let Ok(node) = node else {
                 continue;
             };
-            let read =
-                PullNode { node: &node }.read(here, viewer.as_ref(), filter, self.bot.as_ref())?;
+            let read = PullNode { node: &node }.read(self, here, viewer.as_ref(), filter)?;
             if read.no.get() != *n {
                 return Err(Outcome::Unread(Unread::Inconsistent));
             }
-            let Some(pull) = read.pull else {
+            let Some(digest) = read.pull else {
                 continue;
             };
-            let mut digest = pull.digest;
-            digest.marks = self.marks_of(&pull.labels);
             if filter.carrying.iter().all(|m| digest.marks.contains(m)) {
                 taken.push(digest);
             }
