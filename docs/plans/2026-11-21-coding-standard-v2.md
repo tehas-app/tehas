@@ -425,7 +425,9 @@ floors: the open T4 adapter pull requests land first, and what is still
 written outside the adapter is written down as T4's alpha.1 floors, per
 area, in
 [docs/architecture.md, "T4's alpha.1 floors"](../architecture.md#t4s-alpha1-floors).
-Moving it is T4's remaining lane, before the beta. The same ruling
+Moving it is T4's remaining lane, before the beta. T4.6 step 6 and D4
+are a written departure there too, so the resilience test covers the
+parts on the ports only, at alpha.1. The same ruling
 writes the rest of label-words, home-layout, raw-statuses and
 tests-stub-gh as alpha.1 floors, in
 [docs/architecture.md, "alpha.1 floors"](../architecture.md#alpha1-floors).

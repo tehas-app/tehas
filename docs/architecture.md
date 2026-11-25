@@ -253,7 +253,8 @@ its reason, as a floor; a departure from a should rule (R5) likewise.
 | tests-stub-gh | 83, in the shell tests that stay shell | 18 files of `test/` | T8's freeze, below |
 | untyped-signatures, untyped-fields | 147 and 2 | four causes, file by file | T7's floors, below |
 | untyped-signatures, untyped-fields | 963 and 21, for alpha.1 | the rest, per crate | T7's alpha.1 floor, below |
-| github-rest, gh-argv | 730 and 217, for alpha.1 | the rest, per area | T4's alpha.1 floors, below |
+| github-rest, gh-argv | 726 and 217, for alpha.1 | the rest, per area | T4's alpha.1 floors, below |
+| T4.6 step 6 and D4 (no check counts it) | the poll's reads, and the resilience parts no program wires | `console/dispatch/src/read/github.rs`, `read/build.rs`'s `Sources`; the ports' `Watch`, `Ledger`, `Notices` | a written departure for alpha.1, T4's alpha.1 floors below |
 | label-words, home-layout, raw-statuses, tests-stub-gh | 1483, 303, 203 and 151, for alpha.1 | the rest, per area | alpha.1 floors, below |
 
 ### The bash that stays (T8)
@@ -400,7 +401,7 @@ written down in full has its alpha.1 floor below, per area, with its
 cause. End, for every row: the step that owns the check, before the
 beta. A count here may only fall.
 
-Measured on 12773b568 (the branch's tip 0a31f94b7 merged) by
+Measured on b82b59e55 (the branch's tip 2198ed9d6 merged) by
 `scripts/architecture.py`'s own count (`count()` with the checks' pattern,
 files and `allowed` from `architecture.toml`), per file, then per area,
 with the floors above taken out file by file. A floor of an earlier step
@@ -411,7 +412,7 @@ pull request, which lands before these floors.
 
 | Check | alpha.1 floor | Floors above | The check's count |
 | --- | --- | --- | --- |
-| github-rest | 730 | 4 | 734 |
+| github-rest | 726 | 4 | 730 |
 | gh-argv | 217 | 7 | 224 |
 | label-words | 1483 | 0 | 1483 |
 | home-layout | 303 | 16 | 319 |
@@ -438,24 +439,23 @@ pages" is `host/fun`, which `gh-argv` does not read.
 | --- | --- | --- |
 | the console | 211 | 48 (49, less 1 above) |
 | dispatch | 188 | 91 |
-| ops | 90 | 27 (30, less 3 above) |
+| ops | 89 | 27 (30, less 3 above) |
 | the front pages | 68 | not read |
 | cycle | 63 | 30 |
 | mcp | 37 | 4 |
 | store | 32 | 7 |
-| core | 25 | 6 |
+| core | 23 | 6 |
 | analytics | 8 | 0 |
 | attach | 2 | 2 |
 | items | 2 | 0 |
 | front | 2 | 0 |
 | xtask | 1 | 2 |
-| plugin-gate | 1 | 0 |
-| **alpha.1 floor** | **730** | **217** |
+| **alpha.1 floor** | **726** | **217** |
 | the floors above | 4 | 7 |
-| **the check's count** | **734** | **224** |
+| **the check's count** | **730** | **224** |
 
-The two parts add up to each check's count and its `max`: 730 and 4 is
-734, 217 and 7 is 224. A count here may only fall, as above. The floors
+The two parts add up to each check's count and its `max`: 726 and 4 is
+730, 217 and 7 is 224. A count here may only fall, as above. The floors
 above are, for `github-rest`, the 4 of `host/sandbox/gh-shim` (T8); for
 `gh-argv`, the /proc fixture of `console/tests/top_snapshot.rs` (1), the
 pinned tool "gh" in `console/ops/src/pins/` (3) and the bash of T8 (3).
@@ -508,7 +508,7 @@ The causes, per area:
   `updatedAt` key of its live rows, and the poll's `gh` call count.
 - **core.** gh's error texts in the fault classifiers' tests
   (`journal.rs`, `end_fault.rs`, `call.rs`), api.github.com in the
-  egress list, the collaborator read in `access.rs`, the issue feed and
+  egress list, the issue feed and
   `issue_pull.rs`' `headRefName` (9, most in tests), and in `gh-argv` the
   journal's `gh` key, the sandbox's credential helper and the token
   prefix check.
@@ -516,7 +516,26 @@ The causes, per area:
   tests; attach's issue link and issue read; items' `updatedAt` key;
   front's tests' `--json`; xtask's release gate run list in `tag.rs`
   (the floor T4.11 left with `scripts/tag-release.sh`) and the gh it
-  hands the adapter as the operator's runner; plugin-gate's API host.
+  hands the adapter as the operator's runner. #3208 and T4.11's access
+  move, landed since the first measure, took out 4: core's `access.rs` 2,
+  ops' plugin API host 1, plugin-gate's API host 1.
+
+#### T4.6 step 6 and D4: a written departure
+
+No check counts these; they are written here as a departure for alpha.1
+(the trio PM's ruling). T4.6 step 6 and D4 at alpha.1: the poll's reads
+still go through gh (`console/dispatch/src/read/github.rs`, which
+`read/build.rs` asks for the queue with the gh calls of `read/run.rs`'s
+`Calls`); `Sources` holds no port handles (its fields are the home, the
+calls, systemctl, the time, the models and the endpoint); nothing calls
+`open_work` but the dispatcher's own tests in `read/board.rs` and the
+adapter that answers it; no program wires `Watch`, `Ledger` or
+`NoticeLog` (`Watch` and `NoticeLog` are the ports' fakes, core's
+`FileLedger` is made only in its own tests, and no program implements
+`Notices`), and `health::next` is used only in the fakes. Cause: step 6
+and D4 are days of work after the T4 adapter pull requests. End: before
+the beta. So the resilience test covers the parts on the ports only, at
+alpha.1.
 
 #### label-words
 
