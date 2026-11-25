@@ -24,14 +24,8 @@ pub enum Plans {
     Issue(u64),
 }
 
-/// A start order to set (`order-set`).
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Order {
-    pub issues: Vec<u64>,
-    pub only: bool,
-    pub until: Option<i64>,
-    pub reason: Option<String>,
-}
+/// A start order to set (`order-set`): the order as kept.
+pub use crate::order::Order;
 
 /// One call of the store.
 #[derive(Clone, Debug, PartialEq, Eq)]

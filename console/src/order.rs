@@ -29,7 +29,7 @@ use tehas_core::limit::{epoch, oneline};
 use tehas_core::order::{list, Order, Reading};
 use tehas_core::starts::{self, code, Reason, Record};
 use tehas_core::time;
-use tehas_core::verb::{Order as SetOrder, Verb};
+use tehas_core::verb::Verb;
 
 const USAGE: &str = "usage: tehas order [--json] | set --issues N[,N...] [--only] [--for SECONDS | --until TIME] [--reason TEXT] [--json] | clear [--json]";
 
@@ -212,7 +212,7 @@ pub fn main(given: &[String]) -> u8 {
         Asked::Clear { json } => (Verb::OrderClear, json),
         Asked::Set { order: want, json } => {
             let until = want.until.or(want.for_.map(|s| now() + s));
-            let set = SetOrder {
+            let set = Order {
                 issues: want.issues,
                 only: want.only,
                 until,
