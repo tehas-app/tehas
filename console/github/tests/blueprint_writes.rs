@@ -1485,11 +1485,12 @@ fn the_fakes_law_of_a_comments_edit_holds_over_the_adapter() {
     assert_eq!(*patches.lock().unwrap(), 1, "a conflict sends nothing");
 }
 
-/// The question's answer with its author set to `user`, or with none.
-fn authored_by(user: Option<Value>) -> String {
+/// The question's answer with its author set to the JSON `user`, or with
+/// none.
+fn authored_by(user: Option<&str>) -> String {
     let mut v: Value = serde_json::from_str(&sample(QUESTION)).unwrap();
     match user {
-        Some(u) => v["user"] = u,
+        Some(u) => v["user"] = serde_json::from_str(u).unwrap(),
         None => {
             v.as_object_mut().unwrap().remove("user");
         }
@@ -1499,14 +1500,15 @@ fn authored_by(user: Option<Value>) -> String {
 
 #[test]
 fn a_comment_another_account_wrote_is_forbidden_and_no_patch_is_sent() {
-    let person = serde_json::json!({"login": "alice", "id": 300001, "type": "User"});
-    // The factory's login on another account: the login decides nothing.
-    let namesake = serde_json::json!({"login": "tehas-bot[bot]", "id": 300002, "type": "Bot"});
-    // The bot's id on an account GitHub types no bot.
-    let untyped = serde_json::json!({"login": "tehas-bot[bot]", "id": BOT_ID, "type": "User"});
-    let other_bot = serde_json::json!({"login": "helper[bot]", "id": 300003, "type": "Bot"});
-    for user in [person, namesake, untyped, other_bot] {
-        let read = authored_by(Some(user.clone()));
+    for user in [
+        r#"{"login": "alice", "id": 300001, "type": "User"}"#,
+        // The factory's login on another account: the login decides nothing.
+        r#"{"login": "tehas-bot[bot]", "id": 300002, "type": "Bot"}"#,
+        // The bot's id on an account GitHub types no bot.
+        r#"{"login": "tehas-bot[bot]", "id": 100001, "type": "User"}"#,
+        r#"{"login": "helper[bot]", "id": 300003, "type": "Bot"}"#,
+    ] {
+        let read = authored_by(Some(user));
         let (mut gh, calls) = adapter_ours(vec![Ok(read.clone()), Ok(read.clone())]);
         let got = gh.edit_comment(
             &question_id(),
@@ -1526,13 +1528,13 @@ fn a_comment_another_account_wrote_is_forbidden_and_no_patch_is_sent() {
 fn a_comment_whose_author_is_missing_or_unread_is_forbidden_and_sends_nothing() {
     for user in [
         None,
-        Some(Value::Null),
-        Some(serde_json::json!({"login": "tehas-bot[bot]", "type": "Bot"})),
-        Some(serde_json::json!({"login": "tehas-bot[bot]", "id": "100001", "type": "Bot"})),
-        Some(serde_json::json!({"login": "tehas-bot[bot]", "id": BOT_ID})),
-        Some(serde_json::json!("tehas-bot[bot]")),
+        Some("null"),
+        Some(r#"{"login": "tehas-bot[bot]", "type": "Bot"}"#),
+        Some(r#"{"login": "tehas-bot[bot]", "id": "100001", "type": "Bot"}"#),
+        Some(r#"{"login": "tehas-bot[bot]", "id": 100001}"#),
+        Some(r#""tehas-bot[bot]""#),
     ] {
-        let read = authored_by(user.clone());
+        let read = authored_by(user);
         let (mut gh, calls) = adapter_ours(vec![Ok(read.clone()), Ok(read.clone())]);
         let got = gh.edit_comment(
             &question_id(),
