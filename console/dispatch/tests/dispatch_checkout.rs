@@ -275,7 +275,7 @@ fn an_outside_edit_after_the_label_is_not_approved_though_an_allowed_account_edi
     );
     w.fx(
         "edits-7.json",
-        r#"{"totalCount":3,"nodes":[{"editedAt":"2026-01-02T10:05:00Z","editor":{"login":"alice"},"diff":"b"},{"editedAt":"2026-01-02T10:01:00Z","editor":{"login":"mallory"},"diff":"a"},{"editedAt":"2000-01-01T00:00:00Z","editor":null,"diff":""}]}"#,
+        r#"{"totalCount":3,"nodes":[{"editedAt":"2026-01-02T10:05:00Z","editor":{"__typename":"User","login":"alice"},"diff":"b"},{"editedAt":"2026-01-02T10:01:00Z","editor":{"__typename":"User","login":"mallory"},"diff":"a"},{"editedAt":"2000-01-01T00:00:00Z","editor":null,"diff":""}]}"#,
     );
     let r = w.dispatch(&["--dry-run"]);
     has(
@@ -322,6 +322,31 @@ fn with_the_account_unknown_on_the_list_a_change_by_no_account_is_not_approved_e
     has(&r.out, "skip #7: its text was changed by 'unknown'");
     lacks(&r.out, "would run a cycle");
     has(&w.gh(), "userContentEdits(first: 100)");
+}
+
+// An edit in the history GitHub names no account for, a deleted one, is
+// nobody's through the adapter too, even to a list that names its ghost.
+#[test]
+fn with_the_ghost_on_the_list_an_edit_by_no_account_in_the_history_is_not_approved() {
+    let w = World::new("co-ghost-edit");
+    let mut lines = MINIMAL.to_vec();
+    lines.extend([
+        "TEHAS_MAX_CYCLES=1",
+        r#"TEHAS_ALLOWED_LABELERS="alice ghost""#,
+    ]);
+    w.instance(&lines);
+    w.fx("events-7.json", LABELLED);
+    w.fx(
+        "edit-7.json",
+        r#"{"data":{"repository":{"issue":{"lastEditedAt":"2026-01-02T10:05:00Z","editor":{"login":"alice"}}}}}"#,
+    );
+    w.fx(
+        "edits-7.json",
+        r#"{"totalCount":3,"nodes":[{"editedAt":"2026-01-02T10:05:00Z","editor":{"__typename":"User","login":"alice"},"diff":"b"},{"editedAt":"2026-01-02T10:01:00Z","editor":null,"diff":"a"},{"editedAt":"2000-01-01T00:00:00Z","editor":null,"diff":""}]}"#,
+    );
+    let r = w.dispatch(&["--dry-run"]);
+    has(&r.out, "skip #7: its text was changed by 'unknown'");
+    lacks(&r.out, "would run a cycle");
 }
 
 #[test]
