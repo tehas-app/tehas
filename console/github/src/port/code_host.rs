@@ -25,7 +25,7 @@ pub use remote::project_of;
 use std::collections::BTreeSet;
 use std::num::NonZeroU32;
 
-use super::board::{Pull, PullAsk};
+use super::board::{Pull, PullAsk, PullCloses};
 use super::mergeable::mergeable;
 use super::unsupported;
 use crate::{markers, ForgeError, GitHub};
@@ -34,8 +34,8 @@ use serde_json::Value;
 use tehas_ports::{
     Access, AccountId, At, Author, BlueprintNo, Bound, Branch, Change, ChangeDelta, ChangeDigest,
     ChangeEvent, ChangeFilter, ChangeNo, ChangeStates, ChangeToken, ChangedFile, Checks, CodeHost,
-    CommitId, Compared, Cursor, Did, Facts, FileName, Got, ItemName, Mark, Outcome, Pool,
-    ProjectName, Ref, Release, Remote, RepoPath, Rev, Tag, TagName, Took, Unread, Whole, Window,
+    CommitId, Compared, Cursor, Did, Facts, FileName, Got, Mark, Outcome, Pool, ProjectName, Ref,
+    Release, Remote, RepoPath, Rev, Tag, TagName, Took, Unread, Whole, Window,
 };
 
 impl CodeHost for GitHub {
@@ -423,7 +423,9 @@ fn takes(f: &ChangeFilter, me: Option<&AccountId>, l: &Lead) -> bool {
 /// has a number, or the page is `Unread(Inconsistent)`. Read whole, an
 /// answer that lacks a field every pull request has, or holds a value
 /// outside its type, is `Unread(Malformed)`; one whose labels or closed
-/// issues are more than one page holds is `Unread(Cut)`. With bodies, a
+/// issues are more than one page holds is `Unread(Cut)`. The lead reads
+/// the closed issues by the board's rule, as the node read whole does,
+/// each issue's repository told by the id the handle learned. With bodies, a
 /// node with no body as text is `Unread(Malformed)`, never an empty body.
 /// A page with
 /// errors, or a page that says more follows and holds none, is
@@ -437,7 +439,6 @@ fn read_page(gh: &mut GitHub, out: &str, me: bool, f: &ChangeFilter) -> Got<Page
     let mut v: Value = serde_json::from_str(out.trim()).map_err(|_| malformed.clone())?;
     tehas_core::accounts::vouch(&mut v);
     let repo = v.pointer("/data/repository").ok_or(malformed.clone())?;
-    let here = repo.get("databaseId").and_then(Value::as_u64);
     let list = repo.get("pullRequests").ok_or(malformed.clone())?;
     let total = list
         .get("totalCount")
@@ -470,7 +471,7 @@ fn read_page(gh: &mut GitHub, out: &str, me: bool, f: &ChangeFilter) -> Got<Page
     let mut updated = Vec::new();
     let mut pulls = Vec::new();
     for n in nodes {
-        let read = PullNode { node: n }.read(gh, here, viewer.as_ref(), f)?;
+        let read = PullNode { node: n }.read(gh, viewer.as_ref(), f)?;
         numbers.push(read.no);
         updated.extend(read.updated);
         pulls.extend(read.pull);
@@ -500,16 +501,9 @@ struct PullNode<'a> {
 }
 
 impl PullNode<'_> {
-    /// The node, `here` the repository's id and `viewer` the account
-    /// asking: its lead is read and the filter decides; only a node it
+    /// The node and `viewer` the account asking: its lead is read and the filter decides; only a node it
     /// takes is read whole, by the board's `pull_read`, as `read_page` says.
-    fn read(
-        &self,
-        gh: &mut GitHub,
-        here: Option<u64>,
-        viewer: Option<&AccountId>,
-        f: &ChangeFilter,
-    ) -> Got<Read> {
+    fn read(&self, gh: &mut GitHub, viewer: Option<&AccountId>, f: &ChangeFilter) -> Got<Read> {
         let n = self.node;
         let malformed = Outcome::Unread(Unread::Malformed);
         let time = |x: Option<&Value>| -> Got<Option<At>> {
@@ -539,39 +533,8 @@ impl PullNode<'_> {
         let text = |k: &str| n.get(k).and_then(Value::as_str).ok_or(malformed.clone());
         let at = |k: &str| time(n.get(k));
         let closes = || -> Got<Vec<Ref<BlueprintNo>>> {
-            let part = n.get("closingIssuesReferences").ok_or(malformed.clone())?;
-            let nodes = part
-                .get("nodes")
-                .and_then(Value::as_array)
-                .ok_or(malformed.clone())?;
-            match part.get("totalCount").and_then(Value::as_u64) {
-                Some(t) if t == nodes.len() as u64 => {}
-                Some(t) if t > nodes.len() as u64 => return Err(Outcome::Unread(Unread::Cut)),
-                _ => return Err(Outcome::Unread(Unread::Inconsistent)),
-            }
-            let mut closes = Vec::new();
-            for issue in nodes {
-                let number = issue
-                    .get("number")
-                    .and_then(Value::as_u64)
-                    .and_then(BlueprintNo::new)
-                    .ok_or(malformed.clone())?;
-                let repo = issue.get("repository").ok_or(malformed.clone())?;
-                let id = repo.get("databaseId").and_then(Value::as_u64);
-                closes.push(match (id, here) {
-                    (Some(id), Some(here)) if id == here => Ref::Here(number),
-                    (Some(_), Some(_)) => Ref::Elsewhere {
-                        project: ProjectName::new(
-                            repo.get("nameWithOwner")
-                                .and_then(Value::as_str)
-                                .ok_or(malformed.clone())?,
-                        ),
-                        item: ItemName::new(number.get().to_string()),
-                    },
-                    _ => return Err(malformed.clone()),
-                });
-            }
-            Ok(closes)
+            let part = PullCloses::deserialize(n).map_err(|_| malformed.clone())?;
+            gh.pull_closes(part, pull_ask(f.bodies).past)
         };
 
         // The lead: the number, the state, and what the filter asks.

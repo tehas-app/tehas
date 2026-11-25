@@ -78,12 +78,10 @@ struct Viewer {
 }
 
 /// What an aliased question answered: each item's node, as
-/// `GitHub::ask_aliased` reads it, and beside them the repository's id and
-/// the account asking's, where the question asked them and GitHub gave
-/// them.
+/// `GitHub::ask_aliased` reads it, and beside them the account asking's
+/// id, where the question asked it and GitHub gave it.
 pub(crate) struct Aliased<T> {
     pub(crate) nodes: Vec<Got<T>>,
-    pub(crate) repository_id: Option<u64>,
     pub(crate) viewer_id: Option<u64>,
 }
 
@@ -199,8 +197,8 @@ impl GitHub {
         self.ask_aliased_beside(call, question, aliases).nodes
     }
 
-    /// [`GitHub::ask_aliased`], with the repository's `databaseId` and the
-    /// `viewer`'s where the question asks them: None where it fails whole.
+    /// [`GitHub::ask_aliased`], with the `viewer`'s `databaseId` where the
+    /// question asks it: None where it fails whole.
     pub(crate) fn ask_aliased_beside<T: DeserializeOwned>(
         &mut self,
         call: &str,
@@ -230,7 +228,6 @@ impl GitHub {
         let asked = items.len();
         let all = |o: Outcome| Aliased {
             nodes: (0..asked).map(|_| Err(o.clone())).collect(),
-            repository_id: None,
             viewer_id: None,
         };
         let (owner, name) = self.owner_name();
@@ -307,10 +304,6 @@ impl GitHub {
             .collect();
         Aliased {
             nodes: answered,
-            repository_id: repository
-                .as_ref()
-                .and_then(|r| r.get("databaseId"))
-                .and_then(Value::as_u64),
             viewer_id,
         }
     }

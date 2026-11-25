@@ -21,7 +21,8 @@ use tehas_ports::{
 const PER_QUESTION: usize = 100;
 
 /// The question of the pull requests `numbers`, an alias each, with the
-/// repository's id, and the account asking when `me`.
+/// repository's id, which the handle learns as this project's, and the
+/// account asking when `me`.
 fn question(numbers: &[u64], me: bool, bodies: bool) -> String {
     let viewer = if me { "viewer { databaseId } " } else { "" };
     let fields = pull_fields(bodies);
@@ -93,7 +94,6 @@ impl GitHub {
                 Err(o) => return Err(o.clone()),
             }
         }
-        let here = asked.repository_id;
         let viewer = match (me, asked.viewer_id) {
             (false, _) => None,
             (true, Some(id)) => Some(AccountId::new(id.to_string())),
@@ -104,7 +104,7 @@ impl GitHub {
             let Ok(node) = node else {
                 continue;
             };
-            let read = PullNode { node: &node }.read(self, here, viewer.as_ref(), filter)?;
+            let read = PullNode { node: &node }.read(self, viewer.as_ref(), filter)?;
             if read.no.get() != *n {
                 return Err(Outcome::Unread(Unread::Inconsistent));
             }

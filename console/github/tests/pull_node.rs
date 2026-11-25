@@ -6,7 +6,8 @@ use std::sync::{Arc, Mutex};
 use tehas_core::forge::GhRunner;
 use tehas_github::GitHub;
 use tehas_ports::{
-    Board, Bound, ChangeAsk, ChangeDigest, ChangeFilter, CodeHost, Got, Outcome, Unread,
+    BlueprintNo, Board, Bound, ChangeAsk, ChangeDigest, ChangeFilter, CodeHost, Got, Outcome,
+    Unread,
 };
 
 /// A runner that answers every question with one page.
@@ -129,4 +130,38 @@ fn the_list_fails_closed_on_a_head_repository_it_asked_and_was_not_given() {
     assert_eq!(listed(&node), Err(Outcome::Unread(Unread::Malformed)));
     // The board asks no head repository, and reads GitHub's word.
     assert!(!boarded(&node).unwrap()[0].from_fork);
+}
+
+fn listed_closing(node: &str) -> Got<Vec<ChangeDigest>> {
+    let (mut gh, _) = adapter(node);
+    let filter = ChangeFilter {
+        closing: vec![BlueprintNo::new(1).unwrap()],
+        ..ChangeFilter::default()
+    };
+    gh.changes(&filter, bound(10)).map(|w| w.items().to_vec())
+}
+
+#[test]
+fn the_filter_reads_closed_issues_by_the_digests_one_rule() {
+    let whole = node(0, 2);
+    assert_eq!(listed_closing(&whole), listed(&whole));
+    let faults = [
+        // A count past the nodes, short of what the question asks.
+        whole.replace(
+            r#""closingIssuesReferences":{"totalCount":2"#,
+            r#""closingIssuesReferences":{"totalCount":3"#,
+        ),
+        // An issue with no number.
+        whole.replace(r#"{"number":2,"#, r#"{"number":null,"#),
+        // A null issue.
+        whole.replace(
+            r#"{"number":2,"repository":{"databaseId":7001,"nameWithOwner":"acme/widget"}}"#,
+            "null",
+        ),
+    ];
+    for node in faults {
+        let digest = listed(&node);
+        assert_eq!(digest, Err(Outcome::Unread(Unread::Inconsistent)), "{node}");
+        assert_eq!(listed_closing(&node), digest, "{node}");
+    }
 }

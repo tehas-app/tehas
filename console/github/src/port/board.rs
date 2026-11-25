@@ -444,15 +444,7 @@ impl GitHub {
         if labels.len() as u64 != p.labels.total_count {
             return Err(Outcome::Unread(Unread::Inconsistent));
         }
-        let closing = p.closing_issues_references;
-        let mut closes = Vec::with_capacity(closing.nodes.len());
-        for c in closing.nodes {
-            let c = c.ok_or(Outcome::Unread(Unread::Inconsistent))?;
-            closes.push(self.closed_ref(c)?);
-        }
-        if closes.len() as u64 != closing.total_count {
-            return Err(Outcome::Unread(Unread::Inconsistent));
-        }
+        let closes = self.closes(p.closing_issues_references, ask.past)?;
         let renamed = match (ask.retitles, p.renames) {
             (true, Some(r)) => r.nodes.into_iter().flatten().last(),
             (true, None) => return Err(malformed()),
@@ -507,6 +499,31 @@ impl GitHub {
         digest.edited = edited;
         digest.editor = editor;
         Ok(digest)
+    }
+
+    /// A pull request node's closed issues read alone, as a lead the
+    /// filter decides on reads them: by the rule [`GitHub::pull_read`]
+    /// reads them with.
+    pub(super) fn pull_closes(&self, c: PullCloses, past: Unread) -> Got<Vec<Ref<BlueprintNo>>> {
+        self.closes(c.closing_issues_references, past)
+    }
+
+    /// The blueprints a change closes, whole: `Unread` as `past` says past
+    /// what one question asks, `Unread(Inconsistent)` for a null issue or a
+    /// count the issues do not add up to.
+    fn closes(&self, closing: Counted<Closing>, past: Unread) -> Got<Vec<Ref<BlueprintNo>>> {
+        if closing.total_count as usize > CLOSES_MAX {
+            return Err(Outcome::Unread(past));
+        }
+        let mut closes = Vec::with_capacity(closing.nodes.len());
+        for c in closing.nodes {
+            let c = c.ok_or(Outcome::Unread(Unread::Inconsistent))?;
+            closes.push(self.closed_ref(c)?);
+        }
+        if closes.len() as u64 != closing.total_count {
+            return Err(Outcome::Unread(Unread::Inconsistent));
+        }
+        Ok(closes)
     }
 
     /// The blueprint a change closes: this project's by its number, another
@@ -702,6 +719,13 @@ pub(super) struct Pull {
     /// The repository it belongs to, where a question asks it.
     #[serde(default)]
     repository: Option<NamedRepo>,
+}
+
+/// The closed issues of a pull request node, and nothing else of it.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct PullCloses {
+    closing_issues_references: Counted<Closing>,
 }
 
 type FileConn = Conn<File>;
