@@ -35,7 +35,7 @@ use std::env;
 use std::io::Write as _;
 use std::path::Path;
 use std::time::Duration;
-use tehas_core::call::{self, Ran};
+use tehas_core::call::Ran;
 use tehas_core::forge::{Bounded, GhRunner};
 use tehas_core::github_fails;
 use tehas_core::home::Home;
@@ -189,7 +189,7 @@ fn read(
     if outcome.attempts > 1 {
         why.push_str(&format!(" (tried {} times)", outcome.attempts));
     }
-    Err(call::trim(&why))
+    Err(tehas_core::text::trim(&why))
 }
 
 /// `--dry-run` or not, None for help, and the first word `run` does not know.

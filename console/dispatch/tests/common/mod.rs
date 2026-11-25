@@ -2023,6 +2023,9 @@ impl World {
                 "id": id,
                 "html_url": format!("{}/{n}#issuecomment-{id}", "https://github.com/acme/widget/issues"),
                 "body": body,
+                // The factory's bot, by the user id state/account-ids
+                // records: `edit_comment` edits only its comments.
+                "user": {"login": "tehas-bot[bot]", "id": uid("tehas-bot[bot]"), "type": "Bot"},
             }),
         );
     }
