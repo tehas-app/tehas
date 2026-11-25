@@ -174,7 +174,7 @@ struct Filed {
 
 /// A line of state/refined.jsonl as the poll writes it.
 #[derive(serde::Deserialize)]
-struct FiledLine {
+pub(crate) struct FiledLine {
     at: String,
     source: i64,
     filed: i64,
@@ -213,7 +213,7 @@ fn ledger_at(at: &str) -> Option<i64> {
 /// The lines of refined.jsonl, each read as a `FiledLine`; a line of another
 /// shape, or of `LEDGER_MAX_LINE` bytes or more, is skipped. What the file is
 /// not (no file, a link, a device, too long, not text) is no lines at all.
-fn ledger_lines(home: &Path) -> Vec<FiledLine> {
+pub(crate) fn ledger_lines(home: &Path) -> Vec<FiledLine> {
     let Some(text) = crate::run::read_ledger(
         home,
         tehas_core::home::State::Refined,

@@ -3176,6 +3176,43 @@ fn plan_sessions_carry_filed() {
     assert!(sessions_output(&home, now)[1].get("filed").is_none());
 }
 
+// refined.jsonl is read under the ledger bounds: a line of LEDGER_MAX_LINE
+// bytes or more costs only itself, and a file one byte past the whole-file
+// bound is no ledger at all.
+#[test]
+fn a_ledger_past_the_whole_file_bound_is_no_ledger_at_all() {
+    let home = scratch("ledger-bounds");
+    fs::create_dir_all(h(&home).state_dir()).unwrap();
+    let at = iso(1_792_000_000);
+    let line = |filed: i64| json!({"at": at, "source": 5, "filed": filed, "url": "https://example.com/i/1"});
+    let text = |lines: &[Value]| lines.iter().map(|l| format!("{l}\n")).collect::<String>();
+    // The width is measured on the printed line, so the filler is solved for.
+    let wide = |filed: i64, len: usize| {
+        let mut w = line(filed);
+        w["filler"] = json!("");
+        let short = w.to_string().len();
+        w["filler"] = json!("x".repeat(len - short));
+        assert_eq!(w.to_string().len(), len);
+        w
+    };
+    let file = h(&home).state(State::Refined);
+    let max = crate::LEDGER_MAX_LINE;
+    put_at(file.clone(), &text(&[line(1), wide(2, max - 1)]));
+    assert_eq!(crate::sessions::ledger_lines(&home).len(), 2);
+    put_at(file.clone(), &text(&[line(1), wide(2, max)]));
+    assert_eq!(crate::sessions::ledger_lines(&home).len(), 1);
+
+    let bound = crate::LEDGER_MAX_BYTES as usize;
+    let mut big = text(&(1..=500).map(line).collect::<Vec<_>>());
+    big.push_str(&"y".repeat(bound - big.len() + 1));
+    assert_eq!(big.len(), bound + 1);
+    put_at(file.clone(), &big);
+    assert!(crate::sessions::ledger_lines(&home).is_empty());
+    // The last byte within the bound is read.
+    put_at(file, &big[..bound]);
+    assert_eq!(crate::sessions::ledger_lines(&home).len(), 500);
+}
+
 // outcomes: the counts behind factory_outcomes, as far back as the database
 // holds. A run is counted on its end, a run that never ended on its start.
 // The dates these tests name are the ones the clock of the host carries: 2026
