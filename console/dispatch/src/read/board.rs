@@ -401,6 +401,55 @@ mod tests {
         })
     }
 
+    /// `TicketDigest.labels` is for display alone, never a decision input
+    /// (ports Decided 130): this seam is the dispatcher's one reader of a
+    /// digest, and `decide` reads only what it maps. A digest whose label
+    /// names say what its marks do not maps the same as one with none.
+    #[test]
+    fn the_label_names_of_a_digest_are_never_read() {
+        let world = blocked();
+        let site = FakeSite::new(&world);
+        let mut board = site
+            .board(&Actor::Ours(Scope::Full), Caller::new("test"))
+            .unwrap();
+        let work = board
+            .open_work(&ask(None), Bound::new(100).unwrap())
+            .unwrap();
+        let name = |m: &Mark| site.mark_name(m);
+        let words = Words {
+            repo: REPO,
+            mark: &name,
+        };
+        let with_labels = |labels: &[&str]| {
+            let items = (work.items.items().iter().cloned())
+                .map(|(k, item)| {
+                    let item = item.map(|mut i| {
+                        i.ticket.digest.labels = labels.iter().map(|l| l.to_string()).collect();
+                        i
+                    });
+                    (k, item)
+                })
+                .collect();
+            let mut w = work.clone();
+            w.items = tehas_ports::Whole::new(items);
+            if let Some(Ok(t)) = w.control.as_mut() {
+                t.digest.labels = labels.iter().map(|l| l.to_string()).collect();
+            }
+            queue(&w, None, None, &words)
+        };
+        let page = |m: &Mapped| {
+            let control = m.control.as_ref().and_then(|c| c.as_ref().ok());
+            (m.queue.open.iter().chain(control))
+                .map(|o| (o.number, o.labels.clone(), o.node.clone()))
+                .collect::<Vec<_>>()
+        };
+        let none = with_labels(&[]);
+        let named = with_labels(&["act:approve", "state:running", "anything"]);
+        assert_eq!(numbers(&none), [1, 21, 22, 23]);
+        assert_eq!(page(&named), page(&none));
+        assert_eq!(named.unread.len(), none.unread.len());
+    }
+
     #[test]
     fn each_open_ticket_is_an_issue_of_the_page_as_the_snapshot_reads_it() {
         let world = blocked();

@@ -1112,6 +1112,14 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   for before the next try files, so a plan is never filed twice.
   Readers: people on an issue, the end-to-end suite.
   Adopter action: none.
+- **The surface list is `api/surface-2.0.txt`.** This page.
+  `api/surface-1.0.txt` is renamed `api/surface-2.0.txt`, the public
+  surface of 2.x from 2.0, without the names 2.0 took out. From 2.0.0 its
+  lines are only added; an alpha of 2.0 may still drop one.
+  Readers: the consumer that runs many factories and plugins, where they
+  read the list.
+  Adopter action: a program that read `api/surface-1.0.txt` reads
+  `api/surface-2.0.txt`.
 
 ## Pending for 2.0
 
@@ -1155,9 +1163,6 @@ adopter action as the pull request states them.
   analytics report and the dashboard's internal `pr` key.
   Readers: adopters, the consumer that runs many factories where it keeps
   an instance's settings.
-- **The surface list for 2.x.** T9's last update: `api/surface-1.0.txt`
-  becomes `api/surface-2.0.txt`, and `console/tests/surface.rs` reads it,
-  once the removals above have landed.
 
 ## Features still being built
 
