@@ -250,6 +250,7 @@ pub struct BlueprintSpec {
     pub(crate) body: Option<String>,
     pub(crate) markers: Vec<Marker>,
     pub(crate) comments: Vec<(String, String, Vec<Marker>)>,
+    pub(crate) comments_as: Vec<(crate::Account, String)>,
     pub(crate) closed: bool,
     pub(crate) author: Option<String>,
     pub(crate) attachments: Vec<(Option<String>, Vec<u8>)>,
@@ -285,6 +286,14 @@ impl BlueprintSpec {
     pub fn comment_marked(mut self, login: &str, body: &str, markers: Vec<Marker>) -> Self {
         self.comments
             .push((login.to_string(), body.to_string(), markers));
+        self
+    }
+
+    /// A comment by `author` as given, after those by login: an account
+    /// whose id is not the world's for its login, as one that holds the
+    /// factory's login under another id.
+    pub fn comment_as(mut self, author: crate::Account, body: &str) -> Self {
+        self.comments_as.push((author, body.to_string()));
         self
     }
 
@@ -328,6 +337,10 @@ impl BlueprintSpec {
         for (login, body, markers) in self.comments {
             let author = Some(s.account(&login, Realm::CodeHost));
             let id = s.new_comment(author, &body, markers, now);
+            s.items[at].comments.push(id);
+        }
+        for (author, body) in self.comments_as {
+            let id = s.new_comment(Some(author), &body, Vec::new(), now);
             s.items[at].comments.push(id);
         }
         for (name, bytes) in self.attachments {

@@ -395,6 +395,9 @@ pub(crate) struct Ctx {
     pub below_write: bool,
     /// The scope the handle acts with, if the factory's.
     pub scope: Option<Scope>,
+    /// The handle is the factory's own (`Actor::Ours`): the one handle
+    /// `BlueprintWrites::edit_comment` edits through.
+    pub ours: bool,
 }
 
 impl Ctx {
@@ -407,13 +410,19 @@ impl Ctx {
         Ok(())
     }
 
-    /// `Forbidden` unless the handle's own account wrote it, known by its
-    /// id, at every standing: what `BlueprintWrites::edit_comment` edits.
-    /// No author, or one with no id, is `Forbidden` too.
+    /// `Forbidden` unless the handle is the factory's own (`Actor::Ours`)
+    /// and the factory's account wrote it, known by its id, at every
+    /// standing: what `BlueprintWrites::edit_comment` edits. No author, or
+    /// one with no id, is `Forbidden` too, and so is every comment through
+    /// any other handle (the operator's, a person's, a given token's), the
+    /// factory's comment as well.
     pub fn authored(&self, s: &State, author: Option<&Account>) -> Got<()> {
-        let mine = self.me(s).id;
+        if !self.ours {
+            return Err(Outcome::Forbidden);
+        }
+        let ours = self.me(s).id;
         match author.and_then(|a| a.id.as_ref()) {
-            Some(id) if mine.as_ref() == Some(id) => Ok(()),
+            Some(id) if ours.as_ref() == Some(id) => Ok(()),
             _ => Err(Outcome::Forbidden),
         }
     }
@@ -498,6 +507,7 @@ impl Handle {
             me: self.me.clone(),
             below_write,
             scope: self.scope,
+            ours: matches!(self.actor, Actor::Ours(_)),
         }
     }
 

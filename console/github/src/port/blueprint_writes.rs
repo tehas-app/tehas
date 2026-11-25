@@ -141,14 +141,17 @@ impl BlueprintWrites for GitHub {
     /// the `PATCH` stays open: another account's edit in it is overwritten.
     /// A caller that cares reads again after.
     ///
-    /// Only the factory's own comment is edited (the tehas ports owner's
-    /// ruling): the read's author must carry the user id of the site's bot
-    /// account and be typed a bot, as `Bot::is` decides. Any other author,
-    /// a person's, another bot's, or an author missing or unread, is
-    /// `Forbidden` with nothing sent, and so is every comment through a
-    /// handle that knows no bot id, one made with [`GitHub::new`]. The
-    /// login decides nothing: a renamed App changes it and another account
-    /// may hold it.
+    /// Only the factory's own comment is edited, through the factory's own
+    /// handle (the tehas ports owner's ruling). A handle a site made for
+    /// any actor but `Actor::Ours`, the operator's gh, a person's or a
+    /// given token's, is `Forbidden` before any request, the bot's comment
+    /// as well, once the body is checked. Through the factory's handle the read's author must carry
+    /// the user id of the site's bot account and be typed a bot, as
+    /// `Bot::is` decides. Any other author, a person's, another bot's, or
+    /// an author missing or unread, is `Forbidden` with nothing sent, and
+    /// so is every comment through a handle that knows no bot id, one made
+    /// with [`GitHub::new`]. The login decides nothing: a renamed App
+    /// changes it and another account may hold it.
     ///
     /// `body` takes the place of the comment's text and its markers change
     /// as [`markers::edit`] says, the ones not named kept where they stand;
@@ -172,6 +175,9 @@ impl BlueprintWrites for GitHub {
         edit.check()?;
         if markers::foreign_text(body) {
             return Err(Outcome::Refused(Refusal::Invalid));
+        }
+        if !self.as_bot {
+            return Err(Outcome::Forbidden);
         }
         let n = comment_number(id)?;
         let path = format!("{}/issues/comments/{n}", self.issues()?);

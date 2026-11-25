@@ -296,8 +296,9 @@ impl BlueprintWrites for Handle {
     }
 
     /// A comment deleted since it was read is `Conflict(Gone)`; one
-    /// another account wrote is `Forbidden` at every standing; one that
-    /// changed, `Conflict(Changed)`.
+    /// another account wrote, or any through a handle not `Actor::Ours`,
+    /// is `Forbidden` at every standing; one that changed,
+    /// `Conflict(Changed)`.
     fn edit_comment(
         &mut self,
         id: &CommentId,

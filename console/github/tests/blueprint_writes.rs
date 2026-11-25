@@ -108,6 +108,20 @@ fn adapter_ours(answers: Vec<Result<String, String>>) -> (Box<dyn BlueprintWrite
 /// The blueprints write handle a site makes for the factory's account over
 /// `runner`, the site knowing the bot's user id `bot_id`.
 fn ours(runner: Box<dyn GhRunner>, bot_id: Option<u64>) -> Box<dyn BlueprintWrites + Send> {
+    handle_as(
+        &tehas_ports::Actor::Ours(tehas_ports::Scope::Full),
+        runner,
+        bot_id,
+    )
+}
+
+/// The blueprints write handle a site makes for `by` over `runner`, the
+/// site knowing the bot's user id `bot_id`.
+fn handle_as(
+    by: &tehas_ports::Actor,
+    runner: Box<dyn GhRunner>,
+    bot_id: Option<u64>,
+) -> Box<dyn BlueprintWrites + Send> {
     let runner = Mutex::new(Some(runner));
     let make: tehas_github::MakeRunner = Arc::new(move |_: &tehas_ports::Actor| {
         Ok(runner.lock().unwrap().take().expect("one handle"))
@@ -115,7 +129,7 @@ fn ours(runner: Box<dyn GhRunner>, bot_id: Option<u64>) -> Box<dyn BlueprintWrit
     let site = tehas_github::GitHubSite::new(PROJECT, "tehas-bot[bot]", bot_id, make).on_clock(now);
     tehas_ports::Site::blueprint_writes(
         &site,
-        &tehas_ports::Actor::Ours(tehas_ports::Scope::Full),
+        by,
         tehas_ports::Caller::new("test.blueprint-writes"),
     )
     .unwrap()
@@ -1565,55 +1579,63 @@ fn a_handle_that_knows_no_bot_id_edits_no_comment() {
         assert_eq!(got, Err(Outcome::Forbidden));
     }
     let calls = calls.lock().unwrap().clone();
-    assert_eq!(calls.len(), 2, "one read each");
+    // The bare handle is no site's handle of the factory: it asks nothing.
+    assert_eq!(calls.len(), 1, "the site's handle's read alone");
     assert!(calls.iter().all(|c| c.input.is_none()), "no PATCH");
 }
 
-/// The law every adapter keeps: a comment another account wrote is
-/// `Forbidden` and not written; our own is edited.
+/// The law every adapter keeps, through the factory's handle and the
+/// operator's of one site: the operator's edits no comment, the bot's
+/// neither; through the factory's a person's comment, another bot's and
+/// one of another account under the bot's login are `Forbidden` and not
+/// written; our own is edited.
 #[test]
 fn the_law_of_editing_only_our_own_comment_holds_over_the_adapter() {
     use tehas_ports::Bound;
-    let theirs_id = 2501230003u64;
-    let ours_body = Arc::new(Mutex::new(raw_body(&sample(QUESTION))));
-    let patches = Arc::new(Mutex::new(Vec::<String>::new()));
-    struct TwoComments {
+    /// Issue 7 with our question and three comments of other accounts,
+    /// each by its id, the user and the body it was written with.
+    #[derive(Clone)]
+    struct Comments {
         ours: Arc<Mutex<String>>,
         patches: Arc<Mutex<Vec<String>>>,
-        theirs_id: u64,
+        theirs: Arc<Vec<(u64, Value, &'static str)>>,
     }
-    impl TwoComments {
+    impl Comments {
         fn ours(&self) -> String {
             comment_with(&self.ours.lock().unwrap())
         }
-        fn theirs(&self) -> String {
+        fn theirs(&self, (id, user, body): &(u64, Value, &str)) -> String {
             let mut v: Value = serde_json::from_str(&sample(QUESTION)).unwrap();
-            v["id"] = self.theirs_id.into();
-            v["node_id"] = "IC_kwDOAbCdEf6VFm0003".into();
-            v["html_url"] = format!(
-                "https://github.com/acme/widget/issues/7#issuecomment-{}",
-                self.theirs_id
-            )
-            .into();
-            v["user"] = serde_json::json!({"login": "alice", "id": 300001, "type": "User"});
-            v["body"] = "A person's note.".into();
+            v["id"] = (*id).into();
+            v["node_id"] = format!("IC_kwDOAbCdEf6VFm{id}").into();
+            v["html_url"] =
+                format!("https://github.com/acme/widget/issues/7#issuecomment-{id}").into();
+            v["user"] = user.clone();
+            v["body"] = (*body).into();
             v.to_string()
         }
     }
-    impl GhRunner for TwoComments {
+    impl GhRunner for Comments {
         fn run(&mut self, args: &[&str]) -> Result<String, String> {
-            let theirs_path = format!("repos/acme/widget/issues/comments/{}", self.theirs_id);
+            let path = |id: u64| format!("repos/acme/widget/issues/comments/{id}");
             match args {
                 ["api", "repos/acme/widget/issues/7"] => {
                     let mut v: Value = serde_json::from_str(&sample("issue-7.json")).unwrap();
-                    v["comments"] = 2.into();
+                    v["comments"] = (1 + self.theirs.len()).into();
                     Ok(v.to_string())
                 }
                 ["api", "repos/acme/widget/issues/7/comments?per_page=100&page=1"] => {
-                    Ok(format!("[{},{}]", self.ours(), self.theirs()))
+                    let mut all = vec![self.ours()];
+                    all.extend(self.theirs.iter().map(|t| self.theirs(t)));
+                    Ok(format!("[{}]", all.join(",")))
                 }
                 ["api", p] if *p == QUESTION_PATH => Ok(self.ours()),
-                ["api", p] if *p == theirs_path => Ok(self.theirs()),
+                ["api", p] => self
+                    .theirs
+                    .iter()
+                    .find(|t| path(t.0) == *p)
+                    .map(|t| self.theirs(t))
+                    .ok_or_else(|| format!("no recording of {args:?}")),
                 _ => Err(format!("no recording of {args:?}")),
             }
         }
@@ -1629,19 +1651,53 @@ fn the_law_of_editing_only_our_own_comment_holds_over_the_adapter() {
             Ok(self.ours())
         }
     }
-    let site = TwoComments {
-        ours: Arc::clone(&ours_body),
+    let theirs = vec![
+        (
+            2501230003,
+            serde_json::json!({"login": "alice", "id": 300001, "type": "User"}),
+            "A person's note.",
+        ),
+        (
+            2501230004,
+            serde_json::json!({"login": "helper[bot]", "id": 300003, "type": "Bot"}),
+            "Another bot's note.",
+        ),
+        // The bot's login on another account: a law that knew the bot by
+        // its login would edit it.
+        (
+            2501230005,
+            serde_json::json!({"login": "tehas-bot[bot]", "id": 300002, "type": "Bot"}),
+            "A note under the bot's login.",
+        ),
+    ];
+    let ids: Vec<CommentId> = theirs
+        .iter()
+        .map(|t| CommentId::new(t.0.to_string()))
+        .collect();
+    let patches = Arc::new(Mutex::new(Vec::<String>::new()));
+    let comments = Comments {
+        ours: Arc::new(Mutex::new(raw_body(&sample(QUESTION)))),
         patches: Arc::clone(&patches),
-        theirs_id,
+        theirs: Arc::new(theirs),
     };
-    let mut h = ours(Box::new(site), Some(BOT_ID));
+    let make: tehas_github::MakeRunner =
+        Arc::new(move |_: &tehas_ports::Actor| Ok(Box::new(comments.clone()) as Box<dyn GhRunner>));
+    let site =
+        tehas_github::GitHubSite::new(PROJECT, "tehas-bot[bot]", Some(BOT_ID), make).on_clock(now);
+    let handle = |by: &tehas_ports::Actor| {
+        tehas_ports::Site::blueprint_writes(&site, by, tehas_ports::Caller::new("test.law"))
+            .unwrap()
+    };
+    let mut h = handle(&tehas_ports::Actor::Ours(tehas_ports::Scope::Full));
+    let mut operator = handle(&tehas_ports::Actor::Operator);
     let all = h.comments(no(7), Bound::new(10).unwrap()).unwrap();
-    assert_eq!(all.into_items().len(), 2);
+    assert_eq!(all.into_items().len(), 4);
     laws::blueprints::only_its_own_comment_is_edited(
         h.as_mut(),
+        operator.as_mut(),
         no(7),
         &question_id(),
-        &CommentId::new(theirs_id.to_string()),
+        &ids,
     )
     .unwrap();
     assert_eq!(
@@ -1649,4 +1705,29 @@ fn the_law_of_editing_only_our_own_comment_holds_over_the_adapter() {
         [QUESTION_PATH.to_string()],
         "one PATCH, of our own comment alone"
     );
+}
+
+/// The operator's handle, whose gh is not the bot, edits no comment, the
+/// bot's own neither, and asks GitHub nothing.
+#[test]
+fn the_operators_handle_edits_not_even_the_bots_comment() {
+    let read = sample(QUESTION);
+    let calls = Calls::default();
+    let script = Script {
+        answers: vec![Ok(read.clone()), Ok(read.clone())].into(),
+        calls: Arc::clone(&calls),
+    };
+    let mut h = handle_as(
+        &tehas_ports::Actor::Operator,
+        Box::new(script),
+        Some(BOT_ID),
+    );
+    let got = h.edit_comment(
+        &question_id(),
+        "Taken over.",
+        &MarkerEdit::default(),
+        &comment_revision_of(&read),
+    );
+    assert_eq!(got, Err(Outcome::Forbidden));
+    assert!(calls.lock().unwrap().is_empty(), "no request, no PATCH");
 }

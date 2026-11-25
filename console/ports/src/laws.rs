@@ -1529,8 +1529,8 @@ pub mod history {
 pub mod blueprints {
     use super::{got, hold, Law};
     use crate::{
-        BlueprintNo, BlueprintWrites, Blueprints, Bound, ChangeNo, CodeHost, CommentId, Depth,
-        Lost, MarkerEdit, Outcome, Relation,
+        AccountKind, BlueprintNo, BlueprintWrites, Blueprints, Bound, ChangeNo, CodeHost,
+        CommentId, Depth, Lost, MarkerEdit, Outcome, Relation,
     };
 
     /// `attachments_in` over a blueprint's text gives the ids
@@ -1675,17 +1675,26 @@ pub mod blueprints {
         })
     }
 
-    /// `edit_comment` edits only a comment the handle's own account wrote,
-    /// at every standing: a comment another account wrote is `Forbidden`
-    /// and is not written, its text and revision as they were; the handle's
-    /// own comment is edited and its revision moves. The fixture's
-    /// blueprint `no` holds the comment `ours`, written by the handle's
-    /// account, and `theirs`, written by another account.
+    /// `edit_comment` edits only the factory's own comment, and only
+    /// through the factory's own handle (`Actor::Ours`), at every standing.
+    /// `h` is the factory's handle and `not_ours` a handle of the same site
+    /// for another actor, the operator's or a person's. The fixture's
+    /// blueprint `no` holds the comment `ours`, written by the factory's
+    /// account, and `theirs`, written by other accounts: among them a
+    /// comment of another bot, and one of an account that holds the
+    /// factory's login under another id, so an implementation that knows
+    /// the factory by its login, or by any bot, breaks the law.
+    ///
+    /// Through `not_ours` every one of them, the factory's own as well, is
+    /// `Forbidden` and is not written. Through `h` each of `theirs` is
+    /// `Forbidden` and is not written, its text and revision as they were;
+    /// the factory's own comment is edited and its revision moves.
     pub fn only_its_own_comment_is_edited(
         h: &mut dyn BlueprintWrites,
+        not_ours: &mut dyn BlueprintWrites,
         no: BlueprintNo,
         ours: &CommentId,
-        theirs: &CommentId,
+        theirs: &[CommentId],
     ) -> Law {
         const LAW: &str = "blueprints::only_its_own_comment_is_edited";
         fn find(
@@ -1702,23 +1711,63 @@ pub mod blueprints {
                     what: format!("the fixture holds no comment {id:?}"),
                 })
         }
-        let before = find(h, no, theirs)?;
-        let refused = h.edit_comment(
-            theirs,
-            "Taken over.",
-            &MarkerEdit::default(),
-            &before.revision,
-        );
-        hold(refused == Err(Outcome::Forbidden), LAW, || {
-            format!("editing another account's comment answered {refused:?}")
-        })?;
-        let after = find(h, no, theirs)?;
-        hold(
-            after.revision == before.revision && after.body == before.body,
-            LAW,
-            || "a refused edit wrote the comment".into(),
-        )?;
+        fn fixture(what: &str) -> super::Broken {
+            super::Broken {
+                law: LAW.into(),
+                what: format!("the fixture holds no {what}"),
+            }
+        }
+        /// `by` edits `id`, or `h` where `by` is None, and is `Forbidden`;
+        /// `h` then reads it unchanged.
+        fn refused(
+            h: &mut dyn BlueprintWrites,
+            by: Option<&mut dyn BlueprintWrites>,
+            no: BlueprintNo,
+            id: &CommentId,
+            whose: &str,
+        ) -> Law {
+            let before = find(h, no, id)?;
+            let (body, keep) = ("Taken over.", MarkerEdit::default());
+            let got = match by {
+                Some(other) => other.edit_comment(id, body, &keep, &before.revision),
+                None => h.edit_comment(id, body, &keep, &before.revision),
+            };
+            hold(got == Err(Outcome::Forbidden), LAW, || {
+                format!("editing {whose} {id:?} answered {got:?}")
+            })?;
+            let after = find(h, no, id)?;
+            hold(
+                after.revision == before.revision && after.body == before.body,
+                LAW,
+                || format!("a refused edit wrote {whose} {id:?}"),
+            )
+        }
         let mine = find(h, no, ours)?;
+        let me = mine
+            .author
+            .clone()
+            .filter(|a| a.id.is_some())
+            .ok_or_else(|| fixture("author with an id on the factory's comment"))?;
+        let mut authors = Vec::new();
+        for id in theirs {
+            authors.push(find(h, no, id)?.author);
+        }
+        let others = || authors.iter().flatten().filter(|a| a.id != me.id);
+        if !others().any(|a| a.kind == AccountKind::Bot && a.login != me.login) {
+            return Err(fixture("comment of another bot"));
+        }
+        if !others().any(|a| a.login == me.login && a.id.is_some()) {
+            return Err(fixture(
+                "comment of another account under the factory's login",
+            ));
+        }
+        let not_ours_comment = "through a handle not the factory's, the factory's comment";
+        refused(h, Some(&mut *not_ours), no, ours, not_ours_comment)?;
+        for id in theirs {
+            let whose = "through a handle not the factory's, another account's comment";
+            refused(h, Some(&mut *not_ours), no, id, whose)?;
+            refused(h, None, no, id, "another account's comment")?;
+        }
         got(
             LAW,
             "the edit of our own",
