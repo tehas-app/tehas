@@ -1,6 +1,7 @@
 //! The seam between the board port's answer and the shapes the snapshot
 //! reads today: `OpenWork` as the queue's page, each `WorkItem` as one open
-//! issue of it, each `ChangeDigest` as a pull request of it. Pure. No read
+//! issue of it, each `ChangeDigest` as a pull request of it, a body's
+//! edits as the history beside its last edit (`history`). Pure. No read
 //! moves here: the poll still reads the page, and each read moves onto the
 //! ports in a pull request of its own, through this mapping.
 //!
@@ -10,11 +11,11 @@
 //! ids (`Tickets::list`, `Tickets::marks`).
 
 use super::github::{Open, Queue, CREATED, TIMELINE};
-use serde_json::json;
+use serde_json::{json, Value};
 use tehas_core::time::iso;
 use tehas_ports::{
-    At, BlockerState, ChangeDigest, ChangeState, Got, Happened, Kind, Mark, OpenWork, Outcome, Ref,
-    Refusal, Ticket, TicketKey, WorkItem,
+    At, BlockerState, ChangeDigest, ChangeState, Edit, Got, Happened, Kind, Mark, OpenWork,
+    Outcome, Ref, Refusal, Ticket, TicketKey, Unread, Whole, WorkItem,
 };
 
 /// How the site spells what today's shapes name by text.
@@ -206,6 +207,26 @@ fn ticket(t: &Ticket, words: &Words) -> Got<Open> {
 /// A time as the page writes it.
 fn stamp(at: At) -> String {
     iso(at.secs())
+}
+
+/// A body's edits, as the blueprints port answers them, as the history
+/// `edit_holds` reads beside the issue's last edit: its nodes newest
+/// first, each its stamp and editor. A history the port says is cut, or
+/// whose parts disagree (a version deleted from it among them), has no
+/// nodes: it holds as one by nobody known and the poll goes on, so no
+/// edit of a history stops the poll. Any other failure is a failed read
+/// with the outcome's line, which ends the poll when the rules need it.
+pub fn history(edits: &Got<Whole<Edit>>) -> Value {
+    match edits {
+        Ok(edits) => {
+            let nodes: Vec<Value> = (edits.items().iter().rev())
+                .map(|e| json!({"editedAt": stamp(e.at), "editor": account!(&e.by)}))
+                .collect();
+            json!({"totalCount": nodes.len(), "nodes": nodes})
+        }
+        Err(Outcome::Unread(Unread::Cut | Unread::Inconsistent)) => json!({"unjudged": true}),
+        Err(o) => json!({"failed": true, "line": o.line()}),
+    }
 }
 
 /// The repository a change's head is in, as far as this project knows: its
@@ -661,5 +682,72 @@ mod tests {
         let kinds = [Kind::Task, Kind::named("Improvement"), Kind::Unknown];
         let m = queue(&OpenWork::default(), None, Some(&kinds), &words);
         assert_eq!(m.queue.issue_types.unwrap(), ["Task", "Improvement"]);
+    }
+
+    /// A body's edits through the port read as the history `edit_holds`
+    /// judges: an outside edit before an allowed one still holds, a cut or
+    /// inconsistent history holds as nobody's and the poll goes on, and a
+    /// failed read is one the rules wait on, with why.
+    #[test]
+    fn a_body_s_edits_read_as_the_history_the_holds_judge() {
+        use tehas_core::events::{edit_history_unread, edit_holds};
+        use tehas_ports::{Account, AccountKind, Login, Passing, Realm, Sent};
+        let edit = |by: Option<&str>, at: &str| {
+            let mut e = Edit::new(At::new(tehas_core::time::from_iso(at).unwrap()));
+            e.by = by.map(|l| Account::new(Realm::CodeHost, Login::new(l), AccountKind::Person));
+            e
+        };
+        let edits = Ok(Whole::new(vec![
+            edit(Some("mallory"), "2026-01-02T10:01:00Z"),
+            edit(Some("alice"), "2026-01-02T10:05:00Z"),
+        ]));
+        let h = history(&edits);
+        assert_eq!(
+            h,
+            json!({"totalCount": 2, "nodes": [
+                {"editedAt": "2026-01-02T10:05:00Z", "editor": {"login": "alice", "databaseId": null}},
+                {"editedAt": "2026-01-02T10:01:00Z", "editor": {"login": "mallory", "databaseId": null}}]})
+        );
+        let ours = |w: &str| w == "alice";
+        let record = |h: Value| {
+            json!({"lastEditedAt": "2026-01-02T10:05:00Z", "editor": {"login": "alice"},
+                "userContentEdits": h})
+        };
+        let since = "2026-01-02T10:00:00Z";
+        assert_eq!(
+            edit_holds(&record(h), since, "alice", &ours).as_deref(),
+            Some("mallory")
+        );
+        let by_alice = history(&Ok(Whole::new(vec![edit(
+            Some("alice"),
+            "2026-01-02T10:05:00Z",
+        )])));
+        assert_eq!(edit_holds(&record(by_alice), since, "alice", &ours), None);
+        let nobody = history(&Ok(Whole::new(vec![edit(None, "2026-01-02T10:05:00Z")])));
+        assert_eq!(
+            edit_holds(&record(nobody), since, "alice", &ours).as_deref(),
+            Some("unknown")
+        );
+        for why in [Unread::Cut, Unread::Inconsistent] {
+            let cut = record(history(&Err(Outcome::Unread(why))));
+            assert_eq!(
+                edit_holds(&cut, since, "alice", &ours).as_deref(),
+                Some("unknown")
+            );
+            assert!(!edit_history_unread(&cut, &ours), "{why:?}");
+        }
+        let malformed = record(history(&Err(Outcome::Unread(Unread::Malformed))));
+        assert!(edit_history_unread(&malformed, &ours));
+        let gone = Outcome::Unavailable {
+            why: Passing::Unreachable,
+            sent: Sent::No,
+        };
+        let failed = record(history(&Err(gone)));
+        assert!(edit_holds(&failed, since, "alice", &ours).is_some());
+        assert!(edit_history_unread(&failed, &ours));
+        assert_eq!(
+            failed["userContentEdits"]["line"],
+            json!("the site could not be reached")
+        );
     }
 }
