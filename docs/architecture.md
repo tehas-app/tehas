@@ -154,29 +154,47 @@ guards".
 
 ## Crate graph
 
-From `cargo metadata`. Tests' own dependencies are in the last column.
+From `cargo metadata`, inner crates first. Tests' own dependencies are in
+the last column. `console/xtask/tests/crate_graph.rs` holds this table to
+the workspace and prints it as it should be when they differ, so a change
+of a manifest changes the table in the same commit.
 
 | Crate | Depends on | Its tests also use |
 | --- | --- | --- |
-| tehas-ports | nothing of the workspace, serde alone | |
-| tehas-core | nothing of the workspace | attach |
-| attach, tehas-front, tehas-mcp, tehas-xtask | tehas-core | |
-| store | tehas-core, tehas-ports | |
+| tehas-describe | nothing of the workspace | |
+| tehas-ports | nothing of the workspace | |
+| tehas-review-render | nothing of the workspace | |
+| tehas-wiki-render | nothing of the workspace | tehas-core |
+| tehas-core | tehas-ports | attach |
+| tehas-wiki-collect | tehas-wiki-render | tehas-core |
+| attach | tehas-core | |
 | analytics | tehas-core | tehas-mcp |
-| tehas-cycle | attach, tehas-core | |
+| store | tehas-core, tehas-ports | |
+| tehas-front | tehas-core | |
+| tehas-github | attach, tehas-core, tehas-ports | |
+| tehas-host-feed | tehas-core | |
 | tehas-items | attach, tehas-core | |
-| tehas-dispatch | attach, tehas-core | |
-| tehas-ops | store, tehas-core, tehas-cycle | tehas-dispatch |
-| tehas-plugin | tehas-core, tehas-ops | |
-| tehas-plugin-gate | tehas-core, tehas-plugin | |
-| console | attach, store, tehas-core, tehas-cycle, tehas-items, tehas-ops | tehas-dispatch |
+| tehas-mesh-feed | tehas-core | |
+| tehas-cycle | attach, tehas-core, tehas-github, tehas-ports | |
+| tehas-dispatch | attach, tehas-core, tehas-github, tehas-ports | |
+| tehas-mcp | tehas-core, tehas-github, tehas-ports | |
+| tehas-ops | store, tehas-core, tehas-cycle, tehas-ports | tehas-dispatch |
+| tehas-plugin | tehas-core, tehas-github, tehas-ops, tehas-ports | tehas-ops |
+| tehas-xtask | tehas-core, tehas-github, tehas-ops, tehas-ports | |
+| console | attach, store, tehas-core, tehas-cycle, tehas-github, tehas-ops, tehas-ports | tehas-dispatch, tehas-ops, tehas-ports |
+| tehas-plugin-gate | tehas-core, tehas-github, tehas-plugin, tehas-ports | |
 
-core depends on nothing, so the graph points inward at the root (R8).
-Its tests read links by attach's rule, which the issue feed takes as a
-parameter.
-The direction is not checked in CI yet. core itself mixes the pure
-rules with effects (`sandbox.rs`, `access.rs`, `call.rs`, `retry.rs`):
-T6 settles where the core ends.
+The same test checks the direction (R8). Each crate has a layer, inner
+to outer as the rows are grouped above, and a normal edge points to an
+earlier layer. tehas-ports, the pure crate, uses serde alone from
+outside. Only a program, a crate with a bin target, depends on
+tehas-github, for its wiring. A dev edge is held to the table, not to
+the layers: core's tests read links by attach's rule, which the issue
+feed takes as a parameter.
+
+core is not pure yet: it mixes the rules with effects (`sandbox.rs`,
+`access.rs`, `call.rs`, `retry.rs`) and uses libc. T6 splits it, and
+each step changes this table, the layers and the test together.
 
 ## Kept for the 2.1 plugins
 
