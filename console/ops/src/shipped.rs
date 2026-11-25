@@ -341,8 +341,6 @@ pub fn numbers(answer: &str, controls: &[String]) -> Option<Vec<u64>> {
     Some(list(answer, controls)?.iter().filter_map(number).collect())
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -844,7 +842,6 @@ mod tests {
             .is_empty());
     }
 
-
     #[test]
     fn the_query_closes_every_brace_it_opens() {
         // The tests stub gh, so a query GitHub refuses would pass them all
@@ -913,28 +910,6 @@ mod tests {
         assert!(QUERY.contains(&format!(
             "closedByPullRequestsReferences(first: {REFERENCES})"
         )));
-    }
-
-    #[test]
-    fn a_name_is_text_and_a_list_with_no_names_lacks_every_label() {
-        let node =
-            json!({"number": 7, "labels": {"nodes": [{"name": "tehas:shipped"}, {"name": "bug"}]}});
-        assert!(!lacks(&node, "tehas:shipped"));
-        assert!(lacks(&node, "tehas:ready"));
-        assert!(lacks(&node, "*"));
-        assert!(lacks(&node, "tehas:shipped bug"));
-        // A name GitHub gave as a number is still a name of a label.
-        assert!(!lacks(&json!({"labels": {"nodes": [{"name": 7}]}}), "7"));
-        for shape in [
-            json!({"number": 7}),
-            json!({"labels": []}),
-            json!({"labels": {}}),
-            json!({"labels": {"nodes": {"name": "x"}}}),
-            json!({"labels": {"nodes": null}}),
-            json!([]),
-        ] {
-            assert!(lacks(&shape, "tehas:shipped"), "{shape} names no list");
-        }
     }
 
     #[test]

@@ -7,7 +7,7 @@ mod common;
 use common::*;
 use tehas_core::home::Live;
 
-/// The answers of gh for these cases: the search and the shipped work from
+/// The answers of gh for these cases: the search and the closed tickets from
 /// the fixtures, nothing else open, the epics read empty.
 const GH: &str = r####"case "$*" in
   "issue list"*--search*) cat "$T/issues.json" ;;
@@ -15,6 +15,7 @@ const GH: &str = r####"case "$*" in
   "issue view"*) echo "" ;;
   "api -X POST repos/"*"/labels "*) ;;
   "api repos/"*) echo "[]" ;;
+  "api graphql"*"filterBy: {states: [CLOSED], since: "*) cat "$T/shipped.json" ;;
   "api graphql"*subIssues*) echo "{\"data\":{\"repository\":{\"issues\":{\"nodes\":[]}}}}" ;;
   "api graphql"*) cat "$T/shipped.json" ;;
 esac"####;
@@ -82,10 +83,7 @@ impl Ev {
 
     /// An issue a merged pull request closed `ago` seconds ago.
     fn merged(&self, n: u64, ago: i64) -> String {
-        let at = self.ago(ago);
-        format!(
-            r#"{{"number":{n},"title":"t","url":"u","updatedAt":"{at}","closedAt":"{at}","labels":{{"nodes":[{{"name":"tehas:shipped"}}]}},"timelineItems":{{"nodes":[{{"closer":{{"merged":true}}}}]}}}}"#
-        )
+        closed(n, &self.ago(ago), r#"{"merged":true}"#, "tehas:shipped")
     }
 
     /// The calls that record events: every run also asks for the report, the
