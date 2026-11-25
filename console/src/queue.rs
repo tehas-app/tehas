@@ -1013,7 +1013,7 @@ pub fn main() -> u8 {
         let _ = signal_hook::flag::register(signal, Arc::clone(&stop));
     }
     queue(&home, &live, &analytics, &stop);
-    analytics.publish(&live);
+    analytics.publish();
     if !from_poll {
         health();
     }

@@ -1143,6 +1143,21 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   files, and no setting changes. Point a link to `/floor` at `/`. A program
   that read `buzzwords` from `live/status.json` stops: the field is gone.
   `~/tehas/state/buzzwords.at` is read by nothing and may be deleted.
+- **The analytics report leaves core.**
+  #PRNUM.
+  Gone: `tehas analytics report` and the analytics program's
+  `report [--json]`, the file `live/analytics.json` that `tehasbot status`
+  wrote from it at each poll, the plain dashboard's "Last 10 days" section
+  (`tehas-factory-days` and `analytics-data.js`), and the MCP tool
+  `factory_stats`, which copied that file. A dashboard key is served three
+  tools. The factory collects its runs; a program that fetches the copy does
+  the analysis. `tehas analytics copy` and the tables stay as they are.
+  Readers: adopters, MCP clients, the consumer that runs many factories,
+  the end-to-end suite.
+  Adopter action: a person who read `tehas analytics report` fetches the
+  copy with `tehas analytics copy` and reads it elsewhere. An MCP client
+  stops calling `factory_stats`. `~/tehas/live/analytics.json` is read by
+  nothing and may be deleted.
 
 ## Pending for 2.0
 
@@ -1181,9 +1196,9 @@ adopter action as the pull request states them.
   The ports themselves. Two settings choose the adapters:
   `TEHAS_CODE_HOST` and `TEHAS_TICKETS`. In 2.0 each accepts only
   `github`; a missing setting means `github`, so a 1.4.x instance still
-  loads, and any other value is refused with 78. Two names stay for now as GitHub's word for a pull
-  request, on the list of supplier words still to go: `pullRequests` in the
-  analytics report and the dashboard's internal `pr` key.
+  loads, and any other value is refused with 78. One name stays for now as GitHub's word for a pull
+  request, on the list of supplier words still to go: the dashboard's
+  internal `pr` key.
   Readers: adopters, the consumer that runs many factories where it keeps
   an instance's settings.
 

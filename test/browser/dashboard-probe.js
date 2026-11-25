@@ -30,7 +30,7 @@ async function run() {
   const islands = () => [...document.querySelectorAll("[data-tehas-island]")];
   await wait(() => islands().every((el) => el.hasAttribute("data-tehas-mounted")));
   s.unmounted = islands().filter((el) => !el.hasAttribute("data-tehas-mounted")).map((el) => el.localName);
-  await wait(() => text("#state") !== "loading" && $("#an-figures") && $(".host-note"));
+  await wait(() => text("#state") !== "loading" && $(".host-note"));
   s.pill = text("#state");
   s.pillClass = $("#state").className;
   s.fresh = text("#fresh");
@@ -60,13 +60,6 @@ async function run() {
   s.previews = document.querySelectorAll("#preview-list li").length;
   s.previewsHidden = $("#previews").hidden;
   s.notServing = text("#preview-list li:last-child .when");
-  s.analyticsHidden = $("#analytics").hidden;
-  s.figures = document.querySelectorAll("#an-figures .an-figure").length;
-  s.days = document.querySelectorAll("#an-chart .an-day").length;
-  s.line = !!$("#an-chart svg.an-line polyline") && $("#an-chart svg").namespaceURI === "http://www.w3.org/2000/svg";
-  const bar = $("#an-chart .an-bars span");
-  s.barHeight = !!bar && /%$/.test(bar.style.getPropertyValue("--tehas-factory-share")) && getComputedStyle(bar).height !== "auto";
-  s.versions = document.querySelectorAll("#an-versions tr").length;
   s.fetches = fetches;
 }
 

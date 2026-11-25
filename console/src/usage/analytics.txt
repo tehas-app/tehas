@@ -6,11 +6,8 @@ command reads them through ~/tehas/libexec/analytics, the program that holds
 all of their SQL.
 
 Usage:
-  tehas analytics report               the ten-day report, for a person
   tehas analytics copy --to <file> [--json]
                                        a consistent copy of the database
-
-report prints what the dashboard's "Last 10 days" shows, as text.
 
 copy writes the copy to <file>, mode 600, and never replaces a file. With
 --json it then prints, read from the copy:

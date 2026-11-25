@@ -15,7 +15,6 @@
 
 command analytics
 command analytics copy
-command analytics report
 command api
 command check-product
 command dev

@@ -8,8 +8,9 @@ description: "The factory's own 365 days of runs in SQLite: what is recorded, ev
 Every factory records each run it makes, with the tehas and pi-rukas versions
 it ran, in one SQLite file: `~/tehas/state/analytics.db`. It keeps 365 days.
 The question it answers first is "was the last release better than the one
-before". The plain dashboard shows a ten-day report from it; a program can
-fetch a copy and do deeper analysis elsewhere.
+before". A program fetches a copy and does the analysis elsewhere; the MCP
+server reads the runs of the last 30 days and the outcomes of the year from
+it.
 
 This is about how the factory works, not about the product: nothing in it says
 what changed in which file. It is not the visitor analytics of
@@ -30,12 +31,8 @@ what changed in which file. It is not the visitor analytics of
 Each event is stored once per issue, the first time. A second run of an issue
 adds no event; every run is in `runs`.
 
-Samples are the clock of the ten-day report: `availability` credits each row
-with the time to the next one, at most ten minutes, so a stretch with no row -
-a paused or held factory, an idle week - counts as not available rather than
-as one reading held. A fall
-in `availability` or in a report's `n` after a long pause means the factory did
-no work, not that the dispatcher is down.
+A stretch with no sample - a paused or held factory, an idle week - is a time
+the factory did no work, not a time the dispatcher was down.
 
 The commands run `~/tehas/libexec/analytics`, a Rust program with SQLite built
 in, which holds all of the SQL; `install.sh` builds it. Each call from a cycle
@@ -253,7 +250,7 @@ the rows are read back in, so the table needs no index of its own. A line the
 reader will not take is no row: one the runner marks `unstable`, one of another
 issue, one that named no milliseconds or milliseconds of more than three runs of
 `TEHAS_VERIFY_TIMEOUT`, or the rows past the 500th of one cycle. A database made
-before schema 2 holds no rows, and the report prints no `Gate` line for it.
+before schema 2 holds no rows.
 
 ### issue_events
 
@@ -264,8 +261,7 @@ before schema 2 holds no rows, and the report prints no `Gate` line for it.
 | `event` | `ready`, `started`, `ended`, `awaiting`, `merged`, `closed` or `stopped` | 1 |
 
 The key is `(issue, event)`: the first time only. Lead time runs from the
-first accepted `ready` to the merge. An issue whose `ready` is older than ten
-days has no lead time here. A recorded time ahead of the host's clock keeps its
+first accepted `ready` to the merge. A recorded time ahead of the host's clock keeps its
 row: within an hour of now it is stored at now, and the command says so; a time
 further ahead is refused and nothing is stored.
 
@@ -305,151 +301,6 @@ So that a reader does not have to work out the common figures again:
 | `v_daily` | Per UTC day: `day`, `shipped`, `runs` ended, of them `failed`, their `minutes` and `tokens` (input, output and cache read) | 1 |
 | `v_versions` | Per tehas and pi-rukas version pair of work runs that ended: `tehas_version`, `rukas_version` (its commit where it has no version), `runs`, `change_share` (offered or merged), `handoff_share`, `parked_share`, `failed_share`, `median_minutes` and `median_tokens`, the last of the runs that reported usage, NULL where none did | 1 |
 
-## The report
-
-`tehasbot status` writes the ten-day report to `~/tehas/live/analytics.json`
-at each poll, and the plain dashboard shows it as "Last 10 days" (see
-[Operating](/operating#3-what-happens-next)). It holds aggregates only: no
-issue number, title, failure cause, account, model or provider. Its keys are
-listed on [Commands](/tools-health#tehasbot-status-and-the-console).
-
-The same report in a terminal:
-
-```
-tehas analytics report
-```
-
-See [tehas analytics](/tools-status#tehas-analytics).
-
-### Gate
-
-`tehas analytics report` has a `gate` key, and the terminal a `Gate` line, that
-say what the runs of the product's gate cost, so the goal of a gate that
-answers in minutes is read from the report and not counted by hand over the
-streams on the host. Of the work runs that recorded the gate it gives `median`
-and `p90` seconds for one run of it, `perRun` -- the mean number of them a run
-made -- and `share`, the mean of the shares of those of them that recorded a
-length of their own (a run that named no time of its own is in `n`, `seconds`,
-`median` and `p90` but in no `share`). `n` is the runs counted and `seconds`
-their gate's whole time; a run
-that recorded no gate is in none of the figures, as a run that reported no
-usage is in no token figure, and with no such run the key is absent altogether
-and the terminal prints no line. The report reads its figures from
-`runs.gate_runs` and `runs.gate_ms`, the two columns `tehasbot cycle` fills from
-the cycle's stream as the run ends; the rows of `run_gate_runs` (see
-[the tables](#run_gate_runs)) are the per-run detail beside them, for a reader
-who fetches a copy of the database and wants one row per run of the gate. The
-terminal prints the same four figures in its seconds format, the whole of them as
-a count: `Gate median 4m30s, p90 9m, 1.667 runs per run, 46.7% of run time  (n=3, 20m)`.
-
-One run of the gate of a run that made several is that run's recorded gate time
-divided across them, because the stream gives no wall time of its own: the
-runner reports the gate's own milliseconds, and a run of it that waited for
-another to free the container's CPU share does not count that wait. A cycle that
-ran the gate once says the same either way.
-
-The line is the report's, not the dashboard's file: `tehasbot status` publishes
-only the top-level keys it names and `gate` is not one of them (see [the keys of
-the published report](/tools-health#tehasbot-status-and-the-console)).
-
-### Drivers
-
-`tehas analytics report` has a `drivers` key, and the terminal a `Drivers` table,
-that compare the drivers over the same ten days of work runs. It has one object
-for `classic` and one for `lean`, both always there, and each holds one entry per
-pi-rukas version its runs recorded, keyed by the version (`0.14.50`) or `none`
-for a run that recorded none. Two releases of one driver never pool into one
-figure, so a comparison of a driver across an upgrade shows the two versions
-apart. A run with no driver on record is classic. Each entry gives:
-
-| Key | What it says |
-| --- | --- |
-| `n` | The work runs of the pair, refused and stopped ones with them |
-| `ran` | Those of `n` that ran: not refused, not stopped. Neither says anything of the driver |
-| `changeShare` | The share of `ran` that ended in a pull request a person could merge: outcome `offered` or `merged` |
-| `parkedShare` | The share of `ran` handed to a person: outcome `handoff` or `parked`, as `handoffRate` counts them, since a run tehas parks with its pull request open has outcome `handoff` |
-| `minutes` | `n` runs of `ran` with a length, their `total` and `median`, whole minutes |
-| `tokens` | `n` runs that reported usage, their `total` and `median` (input, output and cache read) |
-| `pullRequests` | `n` issues whose runs reached a pull request, how many of them `merged`, and that `share` |
-| `oneAttempt` | Of the runs of `ran` that were their issue's first attempt (`attempt` 1, so a resumed or follow-up run is not one), `n`, the `change` of them that reached a pull request, and that `share`: the one-attempt success. Left out when no such run is in the entry |
-| `handBack` | The step funnel of the entry's runs, by the rule and from the steps of the report's [`stations`](/tools-status#tehas-analytics) key: `n` runs, and per step the runs that reached it, `passed` of them that went on, and that `share`. A lean run's steps are the driver's own record (see [what is recorded, and when](#what-is-recorded-and-when)). Left out when no run of the entry recorded a step |
-
-`changeShare`, `parkedShare`, `pullRequests.share` and `oneAttempt.share` are left
-out under `VERSION_FLOOR` (3) runs behind them, as in the `versions` table. The
-terminal prints the pair's version in its own column, the one-attempt success as
-`pr/n`, and under each entry one line per step of its hand-back.
-
-A figure with nothing to work from is left out. An empty token column is not a
-zero: lean reports no usage yet, so its `tokens` is `{"n": 0}` and the terminal
-prints `- (n=0)`. Where the count is short of the runs the terminal adds it after
-the total.
-
-The comparison is on pull requests, not on merges by the driver, because lean
-does not merge. A pull request counts once per issue, however many runs followed
-it up, since a merge is on record per issue. A merge is a `merged` event, or a
-work run that ended merged, at or before the report's `to`. It goes to one
-driver: the one whose run last reached a pull request before it. So when lean's
-pull request is closed and classic's merges, the merge is classic's. Events stay
-once per issue, so the second merge of a reopened issue has no event: a pull
-request lean left there reads as not merged, though a classic run that ended
-merged would count.
-
-The table is the report's, not the dashboard's file: like `gate`, `drivers` is not
-among the keys `tehasbot status` publishes.
-
-### Refine
-
-The report has a `refine` key, and the terminal a `Refine` line, that say how
-much `tehas:refine` is used and whether its issues get built. It counts the
-refining sessions started in the window (planning runs with `how` `refine`) and
-follows the issues they filed: how many started a cycle and how many shipped,
-and the lead time of those that shipped, from their `ready` event. Beside them
-are the other issues made ready in the window, how many started and shipped,
-to compare. The issues a refining session filed are listed in
-`~/tehas/state/refined.jsonl`, one line each, `{at, source, filed, url}`,
-written when the host files them. The file keeps its last 500 lines, as
-`sizes.jsonl` does. Like the rest of the report it holds counts only.
-
-### Size
-
-`tehas analytics report` has a `sizes` key, and the terminal a `Size` line,
-that say how issues of each size fare, so the threshold of the dispatcher's hold
-(`TEHAS_SIZE_MAX_FILES`, see [Instance settings](/host#instance-settings)) can
-be set from outcomes rather than guesswork. It reads what each approved start
-measured of its issue's body from `~/tehas/state/sizes.jsonl` (see the layout
-table of [The host](/host#layout)): one line per start, `{at, issue, files,
-tests, deliverables, done_when}`, the line of an issue with the later `at`
-winning and a line that does not parse being skipped, the file keeping its last
-500 lines. For the starts measured in
-the window it gives three buckets of the `files` count -- 1-2, 3-4 and 5+, and
-`none` for the bodies that named no file at all -- and for each of them how many
-issues there were, how many shipped, and the median lead time of those that
-shipped. No ledger is four buckets of nothing. Of what a line holds only `at`,
-`issue` and `files` are read, so the other counts and anything a hand-written
-line might carry stay in the ledger. A line the reader will not take is no line:
-one of a hundred thousand bytes or more, one whose `at` falls outside 2025 or
-2100, or one whose `files` is not a whole number of at most nine digits, the
-bound `TEHAS_SIZE_MAX_FILES` itself may not pass. A ledger that is not a plain
-file, or one past a MiB, is no ledger, and `sizes.jsonl` keeps only its last 500
-lines so a long-lived host does not reach that. Like the rest of the report it
-holds counts only: no issue number, and nothing of what the issue asked for.
-
-Two windows meet in one bucket. `n` counts the starts the ledger measured in
-the window. A ship is the issue's `v_lead` row, and only a merge at or after
-the measured start counts as one, so an issue reopened and measured again after
-an earlier cycle of it merged is not a ship of this window. The view's own
-window is the wider one, so an issue whose first accepted `ready` lies before
-these ten days ships without a lead time: where a bucket's `leadTime.n` falls
-short of its `shipped`, that many ships brought no lead. A ship whose `merged`
-is stamped before the `ready` behind it brings no lead either: its negative
-seconds are left out, as `refine` leaves them out. Read the median only
-where the two counts agree.
-
-The key belongs to the report a person reads, not to the file the dashboard
-shows: `tehasbot status` publishes only the top-level keys it names, and
-`sizes` is not one of them (see [the keys of the published
-report](/tools-health#tehasbot-status-and-the-console)).
-
 ## Sessions
 
 ```
@@ -468,9 +319,13 @@ and `dispatch` for a work run, `progress`, `result` and `dispatch` for a
 planning turn). A log belongs to a run by the time in its name. The
 failure cause is as stored, which is masked. A planning session also has
 `filed`, `[{"issue":N,"url":"..."}]`, the issues that turn filed, read from
-`~/tehas/state/refined.jsonl` (see [Refine](#refine)): the lines whose `source`
-is the session's issue and whose `at` falls from its start to two minutes after
-its end. It is left out when there are none. The command exits 70 when the
+`~/tehas/state/refined.jsonl`: one line per issue a refining session filed,
+`{at, source, filed, url}`, written when the host files it, the last 500 lines
+kept. A session's are the lines whose `source` is the session's issue and whose
+`at` falls from its start to two minutes after its end. It is left out when
+there are none. A line of another shape, or of a hundred thousand bytes or
+more, is skipped, and a file that is not a plain file, or one past a MiB, is
+no file. The command exits 70 when the
 database cannot be read.
 
 With `--out` the lines go to `<directory>/sessions.jsonl` instead of standard
@@ -551,8 +406,8 @@ takes no lock a cycle holds and makes no network call. It never replaces a
 file. A file name may not start with `-`: write `./-name` for one that does.
 See [the factory API](/api#tehas-analytics-copy) for the fields.
 
-`tehas analytics report` and `copy` open the database as the other
-commands do, so either may make an empty one where there is none, or move a
+`tehas analytics copy` opens the database as the other
+commands do, so it may make an empty one where there is none, or move a
 broken file or one of another schema version aside, as [The file](#the-file)
 says.
 
@@ -593,8 +448,8 @@ In the instance's `instance.env`:
 TEHAS_ANALYTICS=off
 ```
 
-Every command reads it the next time it runs. `off` stops every write, and `tehasbot status` removes
-`live/analytics.json`, so the dashboard's section goes. `tehas analytics` says
+Every command reads it the next time it runs. `off` stops every write, and
+`tehasbot status` removes the MCP server's files under `~/tehas/mcp/`. `tehas analytics` says
 analytics is off and exits 78. The database file is left as it is, and pruning
 stops with it: to have the data gone, delete `~/tehas/state/analytics.db` and
 its `-wal` and `-shm`. `on` is the default; anything else stops every command

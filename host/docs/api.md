@@ -1768,7 +1768,6 @@ the site](/host#the-live-console-on-the-site)).
 | `health.down` | the store's `publish`, which makes it before a `fail` health report (and takes it back when that report cannot be written) and removes it after any other | the docs server's `/health` and `/healthz`, which answer 503 while it is there |
 | `dispatch.json` | `console/dispatch/src/poll.rs` of `tehas dispatch`, published by the store's `publish` ([tehas dispatch](/tools-dispatch#tehas-dispatch)) | `console/ops/src/health.rs`, `console/src/queue.rs`, `console/analytics/src/sample.rs`; the MCP server (`factory_status`) |
 | `demand.json` | `console/dispatch/src/poll.rs` of `tehas dispatch`, at every real poll | `console/ops/src/health.rs` |
-| `analytics.json` | `console/src/publish.rs`, run by `tehasbot status` from the analytics program's `report --json` | `host/fun/factory/tehas-factory-days.*`, `host/fun/analytics-data.js`; the MCP server (`factory_stats`) |
 | `disk.json` | `console/ops/src/disk.rs` with `--publish`, run hourly by `tehasbot clean` ([`tehas disk`](#tehas-disk)) | the MCP server (`factory_disk`) |
 | `platform.json` | `console/src/platform.rs`, run by `tehasbot status` | `console/ops/src/health.rs`, which answers it as `checks.platform` |
 | `rukas.json` | `console/ops/src/rukas.rs`, run by `tehasbot status` | `console/ops/src/health.rs`, which answers it as `checks.rukas` |

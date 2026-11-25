@@ -274,28 +274,12 @@ from 1 to 64.
 ## tehas analytics
 
 ```
-tehas analytics report                    # the ten-day report, for a person
 tehas analytics copy --to <file> [--json] # a copy of the database
 ```
 
 The factory's own record of its last 365 days: runs, their steps and roles,
-issue events and poll samples, in `~/tehas/state/analytics.db`. Both read it
-through `~/tehas/libexec/analytics`, which holds all of its SQL.
-
-`report` prints what the plain dashboard's "Last 10 days" shows, as text: one
-line per figure with its count `n`, a table of the ten days, the five most
-common stop reasons, the share of runs that got through each step, and one row
-per tehas and pi-rukas version pair. A figure that has no value, such as a
-yield of no shipped issues, is `-`.
-
-```
-Last 10 days, 2026-10-09 to 2026-10-18 (UTC)
-
-Shipped            0 issues
-Runs               1: 0 pr, 0 merged, 1 handoff, 0 parked, 0 failed, 0 refused, 0 stopped
-Handoff rate       100%  (n=1)
-Cycle time         median 30s, p90 30s  (n=1)
-```
+issue events and poll samples, in `~/tehas/state/analytics.db`. The command
+reads it through `~/tehas/libexec/analytics`, which holds all of its SQL.
 
 `copy --to` writes a consistent copy of the database to `<file>` with
 SQLite's `VACUUM INTO`, mode 600. It never replaces a file. `export`, the

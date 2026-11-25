@@ -328,7 +328,7 @@ fn carriers() -> Vec<Carrier> {
         carrier(
             r"refined\.jsonl\b",
             r"ledger=$TEHAS_HOME/state/refined.jsonl",
-            &[&an("main.rs"), &an("report.rs"), &an("sessions.rs")],
+            &[&an("main.rs"), &an("sessions.rs")],
             "the ledger of refined issues, which the store does not hold",
         ),
     ]

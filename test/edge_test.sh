@@ -138,10 +138,10 @@ t_contains "$sitemap" '{{- if ne (env "TEHAS_SITE_INDEXING") "1" }}{{ httpError 
 t_contains "$(cat "$T_ROOT/console/ops/src/update/files.rs")" 'if same_content(from, &e.to) {'
 t_contains "$(cat "$T_ROOT/host/docs/host.md")" 'file last changed on this host (an update leaves a page with the same bytes as'
 
-t_case "the live list holds the 16 names the dashboard, the console and the server read"
-t_eq "$(printf '%s\n' "$table" | wc -l)" 16
+t_case "the live list holds the 15 names the dashboard, the console and the server read"
+t_eq "$(printf '%s\n' "$table" | wc -l)" 15
 for want in /status.json /running.json /endings.json /epics.json /health.json /health.down \
-  /dispatch.json /demand.json /analytics.json \
+  /dispatch.json /demand.json \
   /disk.json /platform.json /rukas.json /previews.json \
   /cycles/*.json /console-*.txt /console-*.txt.now; do
   grep -qxF -- "$want" <<<"$table" || t_bad "the list does not name $want"
