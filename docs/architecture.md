@@ -253,6 +253,7 @@ its reason, as a floor; a departure from a should rule (R5) likewise.
 | tests-stub-gh | 83, in the shell tests that stay shell | 18 files of `test/` | T8's freeze, below |
 | untyped-signatures, untyped-fields | 147 and 2 | four causes, file by file | T7's floors, below |
 | untyped-signatures, untyped-fields | 963 and 21, for alpha.1 | the rest, per crate | T7's alpha.1 floor, below |
+| github-rest, gh-argv | 730 and 230, for alpha.1 | the rest, per area | T4's alpha.1 floors, below |
 
 ### The bash that stays (T8)
 
@@ -388,6 +389,108 @@ The two parts add up to the check's count and its `max`: 963 and 147 is
 #3201, #3215 and #3221, the T7 pull requests open at the ruling, have
 landed, and the floor is measured after them: they took untyped-signatures
 from 1124 to 1110, 12 in mcp and 2 in ops. untyped-fields did not move.
+
+### T4's alpha.1 floors
+
+The trio PM's ruling for alpha.1: T4 closes alpha.1 on written floors.
+T4's Done asks for `github-rest` at 0 and `gh-argv` at 0 or at its written
+floor. The open T4 adapter pull requests land first, and what is still
+written outside the GitHub adapter is written down here, per area, with
+its cause. End, for every row: T4's remaining lane, before the beta.
+
+Measured on d5ab12250 by `scripts/architecture.py`'s own count
+(`count()` with the checks' pattern, files and `allowed` from
+`architecture.toml`), per area, with the floors above taken out file by
+file. "The console" is `console/src` and `console/tests`; "the front
+pages" is `host/fun`, which `gh-argv` does not read.
+
+| Area | github-rest | gh-argv |
+| --- | --- | --- |
+| the console | 211 | 48 (49, less 1 above) |
+| dispatch | 188 | 104 |
+| ops | 90 | 27 (30, less 3 above) |
+| the front pages | 68 | not read |
+| cycle | 63 | 30 |
+| mcp | 37 | 4 |
+| store | 32 | 7 |
+| core | 25 | 6 |
+| analytics | 8 | 0 |
+| attach | 2 | 2 |
+| items | 2 | 0 |
+| front | 2 | 0 |
+| xtask | 1 | 2 |
+| plugin-gate | 1 | 0 |
+| **alpha.1 floor** | **730** | **230** |
+| the floors above | 4 | 7 |
+| **the check's count** | **734** | **237** |
+
+The two parts add up to each check's count and its `max`: 730 and 4 is
+734, 230 and 7 is 237. A count here may only fall, as above. The floors
+above are, for `github-rest`, the 4 of `host/sandbox/gh-shim` (T8); for
+`gh-argv`, the /proc fixture of `console/tests/top_snapshot.rs` (1), the
+pinned tool "gh" in `console/ops/src/pins/` (3) and the bash of T8 (3).
+
+The causes, per area:
+
+- **The console.** Reads that no adapter pull request has moved yet:
+  the queue's search, GraphQL counts and events (`queue.rs`, 24 and 2),
+  `tehas tickets` and `tehas epics`' GraphQL (`tickets.rs` 19,
+  `epics.rs` 7), the label ids (`labels.rs` 6), the notice's pull
+  request, the preview's pull requests and verdict, the platform's
+  release list, `tehas attach` and `tehas start`'s issue read. The
+  console's own security shim, `gh_shim.rs` (18 and 7), which decides
+  whether a gh call writes: the plan keeps the shims where they are
+  unless the owner agrees to merge them (T4). tehas's own `--json` flag,
+  kept until the end of T4 (Decided 72). And 139 and 32 in tests that
+  stub gh with GitHub's JSON, not yet on the ports' fakes (`status*.rs`,
+  `update_release.rs`, `common/mod.rs`).
+- **dispatch.** The queue page's GraphQL question and parse
+  (`read/github.rs` 31, `read/build.rs` 20 and 9, `snapshot.rs` 8),
+  refresh's mergeable and head reads (`refresh.rs` 18 and 5), the
+  start's comments, reviews and collaborator permission
+  (`apply/start.rs` 9), the plan's issue reads (`apply/plan.rs` 4) and
+  questions (`questions.rs` 21, test data). Most of it is tests: 142 and
+  101, of which `apply_tests.rs` is 10 and 51, that stub gh and are not
+  yet on the ports' fakes.
+- **ops.** `tehas update`'s release list and download, the signed-in
+  path (#3233) and the anonymous path, until T4.10b (`update/release.rs`
+  2 and 3). The App's installation token and the shipped search
+  (`github.rs` 4, `shipped.rs` 18), the pinned tools' release reads
+  (`pins/tools.rs` 2), setup, tidy and ids, and `forge.rs`' finding of
+  the gh program and its shim (14 in `gh-argv`). `health.rs` (26 and 4)
+  is mostly tehas's own `updatedAt` key of `running.json` in its tests
+  and gh's error text. 66 and 19 are in tests.
+- **The front pages.** GitHub's field names (`createdAt`, `updatedAt`,
+  `closedAt` and the rest) in the pages that draw the queue's JSON,
+  which copies GitHub's names unchanged: `sample-issues.js` 52,
+  `game-view.js` 8, the factory's issues model 5. They go when T4 or T7
+  renames those names or gives them one owner.
+- **cycle.** The cycle's own issue, pull request and hook reads
+  (`apply.rs`, `gives.rs`, `hook.rs`, `start.rs`, `supervise.rs`), the
+  report's reads of the pull request's `createdAt` and `isDraft`, and the
+  gh program its runners start. 51 and 16 are in tests not yet on the
+  ports' fakes.
+- **mcp.** The MCP tools' answers keep GitHub's field names
+  (`createdAt`, `updatedAt`, `closedAt`, `mergedAt`) in `tickets.rs` and
+  `tools.rs`, as the queue does; 21 and 4 are in tests, and `gh-argv`'s
+  4 are gh's error lines the events tool reads.
+- **store.** tehas's own `--json` flag (22, most of them in tests), the
+  `updatedAt` key of its live rows, and the poll's `gh` call count.
+- **core.** gh's error texts in the fault classifiers' tests
+  (`journal.rs`, `end_fault.rs`, `call.rs`), api.github.com in the
+  egress list, the collaborator read in `access.rs`, the issue feed and
+  `issue_pull.rs`' `headRefName` (9, most in tests), and in `gh-argv` the
+  journal's `gh` key, the sandbox's credential helper and the token
+  prefix check.
+- **The rest.** analytics' 8 are tehas's own `--json`, 6 of them in its
+  tests; attach's issue link and issue read; items' `updatedAt` key;
+  front's tests' `--json`; xtask's release gate run list in `tag.rs`
+  (the floor T4.11 left with `scripts/tag-release.sh`) and the gh it
+  hands the adapter as the operator's runner; plugin-gate's API host.
+
+The adapter pull requests open at the ruling, #3208, #3216, #3234, #3233
+and T4.10b, land before this floor rides, and it is measured once more
+after them.
 
 ### Temporary rises
 
