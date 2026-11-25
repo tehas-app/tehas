@@ -3,10 +3,12 @@
 
 mod common;
 
+use common::Part::{Off, On};
 use common::*;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::Path;
+use tehas_ports::{Act, Mark, State};
 
 fn v(text: &str) -> Value {
     serde_json::from_str(text).unwrap_or_else(|e| panic!("{e}: {text}"))
@@ -281,9 +283,16 @@ fn a_later_turn_that_fails_asks_again_and_keeps_the_session() {
     w.touch("plan-fails");
     w.poll();
     has(&w.gh(), "This planning turn did not finish");
-    has(
-        &w.gh(),
-        "--add-label tehas:question --add-label needs-human-attention",
+    assert!(
+        w.changes(
+            7,
+            &[
+                On(Mark::State(State::Question)),
+                On(Mark::State(State::NeedsPerson))
+            ]
+        ),
+        "{:?}",
+        w.writes_of(7)
     );
     assert_eq!(
         rec_jq(&w, "[.session, .turns, .failed]"),
@@ -304,7 +313,19 @@ fn a_later_turn_whose_session_pi_rukas_no_longer_has_ends_the_session_and_says_t
     has(&w.plan_calls(), "--session abc-123");
     has(&r.out, "planning #7: Pi no longer has session abc-123");
     let gh = w.gh();
-    has(&gh, "--remove-label tehas:question --remove-label tehas:planning --remove-label tehas:plan --remove-label needs-human-attention");
+    assert!(
+        w.changes(
+            7,
+            &[
+                Off(Mark::State(State::Question)),
+                Off(Mark::State(State::Planning)),
+                Off(Mark::Act(Act::Plan)),
+                Off(Mark::State(State::NeedsPerson))
+            ]
+        ),
+        "{:?}",
+        w.writes_of(7)
+    );
     has(&gh, "pi-rukas has no record of it on");
     has(&gh, "Apply `tehas:plan` again to start a new session.");
     lacks(&gh, "This planning turn did not finish");
@@ -343,9 +364,16 @@ fn a_refine_the_poll_started_on_its_own_hands_the_issue_back_when_it_ends_withou
     w.comments(7, &plan_body("x", " ", " ", 2, ""), "alice", json!([]));
     w.poll();
     has(&w.gh(), "reached its limit of 2 turns");
-    has(
-        &w.gh(),
-        "--remove-label tehas:plan --add-label needs-human-attention",
+    assert!(
+        w.changes(
+            7,
+            &[
+                Off(Mark::Act(Act::Plan)),
+                On(Mark::State(State::NeedsPerson))
+            ]
+        ),
+        "{:?}",
+        w.writes_of(7)
     );
     assert_eq!(w.rec_open(), "none");
 
@@ -359,9 +387,16 @@ fn a_refine_the_poll_started_on_its_own_hands_the_issue_back_when_it_ends_withou
     w.fx("plan-fails", "{\"session\":\"abc-123\",\"lost\":true}\n");
     w.poll();
     has(&w.gh(), "pi-rukas has no record of it on");
-    has(
-        &w.gh(),
-        "--remove-label tehas:plan --add-label needs-human-attention",
+    assert!(
+        w.changes(
+            7,
+            &[
+                Off(Mark::Act(Act::Plan)),
+                On(Mark::State(State::NeedsPerson))
+            ]
+        ),
+        "{:?}",
+        w.writes_of(7)
     );
 
     // A refine a label started ends as a plan does.
@@ -374,9 +409,16 @@ fn a_refine_the_poll_started_on_its_own_hands_the_issue_back_when_it_ends_withou
     );
     w.comments(7, &plan_body("x", " ", " ", 2, ""), "alice", json!([]));
     w.poll();
-    has(
-        &w.gh(),
-        "--remove-label tehas:plan --remove-label needs-human-attention",
+    assert!(
+        w.changes(
+            7,
+            &[
+                Off(Mark::Act(Act::Plan)),
+                Off(Mark::State(State::NeedsPerson))
+            ]
+        ),
+        "{:?}",
+        w.writes_of(7)
     );
 }
 
@@ -386,10 +428,7 @@ fn a_lost_session_whose_labels_cannot_be_taken_off_is_ended_by_the_next_poll() {
     w.planning();
     w.comments(7, &plan_body("x", " ", " ", 1, ""), "alice", json!([]));
     w.fx("plan-fails", "{\"session\":\"abc-123\",\"lost\":true}\n");
-    w.fx(
-        "edit-fails-on",
-        "--remove-label tehas:question --remove-label tehas:planning\n",
-    );
+    w.fx("edit-fails-on", "--remove-label tehas:planning\n");
     w.poll();
     assert_eq!(rec_jq(&w, "[.lost, .running]"), json!([true, true]));
     lacks(&w.gh(), "pi-rukas has no record of it on");
@@ -435,7 +474,11 @@ fn the_way_out_ends_the_session_labels_off_record_gone_one_comment() {
     w.comments(7, &plan_body(" ", " ", "x", 1, ""), "alice", json!([]));
     w.poll();
     assert_eq!(w.plan_calls(), "");
-    has(&w.gh(), "--remove-label tehas:question");
+    assert!(
+        w.changes(7, &[Off(Mark::State(State::Question))]),
+        "{:?}",
+        w.writes_of(7)
+    );
     has(&w.gh(), "Planning session ended by alice.");
     assert_eq!(w.rec_open(), "none");
     assert!(!w.keep().exists());
@@ -455,16 +498,27 @@ fn an_outcome_that_could_not_be_posted_is_posted_by_the_next_poll_before_anythin
     let mut out = w.record().into_os_string();
     out.push(".out");
     assert!(fs::metadata(&out).map(|m| m.len() > 0).unwrap_or(false));
-    lacks(&w.gh(), "--add-label tehas:question");
+    assert!(
+        !w.changes(7, &[On(Mark::State(State::Question))]),
+        "{:?}",
+        w.writes_of(7)
+    );
     w.clear_calls();
     w.rm_fx("post-fails");
     w.fx("asking.json", "[]");
     w.poll();
     assert_eq!(w.plan_calls(), "");
     has(&w.gh(), "<!-- tehas:question kind=plan issue=7 turn=2 -->");
-    has(
-        &w.gh(),
-        "--remove-label tehas:planning --add-label tehas:question",
+    assert!(
+        w.changes(
+            7,
+            &[
+                Off(Mark::State(State::Planning)),
+                On(Mark::State(State::Question))
+            ]
+        ),
+        "{:?}",
+        w.writes_of(7)
     );
     assert_eq!(w.rec()["pending"], json!(false));
 }
