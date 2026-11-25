@@ -19,9 +19,9 @@
 name: verify
 on:
   pull_request:
-    branches: [main, 'release/**', refactor/coding-standard-v2]
+    branches: [main, 'release/**', refactor/coding-standard-v2, v2.1]
   push:
-    branches: [main, 'release/**', refactor/coding-standard-v2]
+    branches: [main, 'release/**', refactor/coding-standard-v2, v2.1]
 permissions:
   contents: read
 # A new push to a pull request cancels the run it supersedes. Runs on main are
