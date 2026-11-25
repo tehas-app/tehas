@@ -422,13 +422,13 @@ t_calls() { cat "$T/calls/$1" 2>/dev/null || true; }
 t_uid() { jq -rn --arg l "$1" '$l | sub("\\[bot\\]$"; "") | explode | add'; }
 # t_ids <home> [<login>...]: the user ids install.sh and tehas update record,
 # in <home>/state/account-ids, of every login the tests list unless named.
-T_LOGINS=(tehas-bot alice bob bob-2 carol boss tehas-millwright tehas-mill millbot mill-bot acme-millwright acme-app-millwright)
+T_LOGINS=("tehas-bot[bot]" alice bob bob-2 carol boss tehas-millwright tehas-mill millbot mill-bot acme-millwright acme-app-millwright)
 t_ids() {
   local home=$1 l
   shift
   [ "$#" -gt 0 ] || set -- "${T_LOGINS[@]}"
   mkdir -p "$home/state"
-  for l in "$@"; do printf '%s %s\n' "${l%\[bot\]}" "$(t_uid "$l")"; done >"$home/state/account-ids"
+  for l in "$@"; do printf '%s %s\n' "$l" "$(t_uid "$l")"; done >"$home/state/account-ids"
 }
 
 # t_unstub NAME...: take a stub away, and leave nothing for the run to find in

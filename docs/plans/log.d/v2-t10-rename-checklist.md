@@ -1,0 +1,1 @@
+| 2026-11-24 | T10: the rename checklist, item by item (`docs/plans/2026-11-24-t10-rename-checklist.md`): what still names the old repository, what fails at the reuse, and the gates before the alpha and before the reuse | v2/t10-rename-checklist |

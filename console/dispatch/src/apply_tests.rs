@@ -1227,6 +1227,35 @@ fn a_comment_whose_text_holds_a_marker_goes_through_gh() {
     assert!(!w.iter().any(|c| c.starts_with("send ")), "{w:?}");
 }
 
+/// The finish's reply: its marker typed beside its text, through the port
+/// (Decided 74).
+#[test]
+fn a_finish_reply_goes_as_a_note_with_its_marker_beside_it() {
+    let mut t = world();
+    let reply = crate::finish::opened(7, "alice", "https://example.test/pull/9");
+    let a = t.apply(json!([{"issue": 7, "say": reply.text, "markers": reply.markers}]));
+    assert!(a.log.is_empty(), "{:?}", a.log);
+    assert_eq!(
+        t.writes(),
+        vec![note_marked(7, &reply.text, reply.markers.clone())]
+    );
+}
+
+/// A text given its markers typed never reaches gh, even one that holds a
+/// marker inside it: it goes to the port, which refuses it there.
+#[test]
+fn a_marked_text_given_its_markers_never_reaches_gh() {
+    let mut t = world();
+    let reply = crate::finish::refused(7, "no workspace");
+    let body = format!("{}\n\n{}", reply.text, crate::finish::marker(7));
+    t.fail("send", "TicketNote|refused");
+    let a = t.apply(json!([{"issue": 7, "say": body, "markers": reply.markers}]));
+    assert_eq!(a.log, vec!["WARN: comment on #7 failed"]);
+    let w = t.writes();
+    assert_eq!(w, vec![note_marked(7, &body, reply.markers.clone())]);
+    assert!(!t.calls().iter().any(|c| c.starts_with("gh ")), "{w:?}");
+}
+
 #[test]
 fn a_write_the_site_may_have_taken_is_unknown() {
     let mut t = world();

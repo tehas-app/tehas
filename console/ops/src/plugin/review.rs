@@ -6,7 +6,7 @@
 
 use super::exec::Exec;
 use super::prepare::{self, Reading};
-use serde_json::{json, Value};
+use serde::Serialize;
 use std::path::Path;
 use tehas_core::models::ModelFile;
 use tehas_core::plugin::review::{
@@ -39,6 +39,54 @@ pub struct Review {
     pub changes: Option<Vec<String>>,
     /// With `model` asked.
     pub model: Option<Endpoint>,
+}
+
+/// What `tehas plugin review --json` answers
+/// (api/plugin-review.schema.json).
+#[derive(Debug, Serialize)]
+struct Answer<'a> {
+    api: u8,
+    name: &'a str,
+    url: &'a str,
+    commit: &'a str,
+    pin: &'a str,
+    manifest_sha256: &'a str,
+    label: Option<&'a str>,
+    license: Option<&'a str>,
+    build: Option<&'a str>,
+    asks: Vec<Asked<'a>>,
+    unasked: Vec<String>,
+    grants_commit: Option<&'a str>,
+    bases: Vec<Base<'a>>,
+    model: Option<Model<'a>>,
+    warnings: Vec<String>,
+    changes: Option<&'a [String]>,
+    refusals: Vec<String>,
+    settings: Vec<String>,
+}
+
+/// An ask of the manifest: what it does, and whether the line grants it at
+/// this commit.
+#[derive(Debug, Serialize)]
+struct Asked<'a> {
+    ask: &'a str,
+    does: &'static str,
+    granted: bool,
+}
+
+/// A base image and its ONBUILD triggers.
+#[derive(Debug, Serialize)]
+struct Base<'a> {
+    image: &'a str,
+    onbuild: &'a [String],
+}
+
+/// Where the plugin's model runs.
+#[derive(Debug, Serialize)]
+struct Model<'a> {
+    provider: &'a str,
+    host: Option<&'a str>,
+    here: bool,
 }
 
 /// The things a review needs of the host, so a test gives its own.
@@ -108,50 +156,51 @@ impl Review {
         out
     }
 
-    pub fn json(&self) -> Value {
+    /// The answer of `--json` (api/plugin-review.schema.json). It is
+    /// written through a JSON value, so its keys print sorted as they always
+    /// have.
+    pub fn json(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_value(self.answer()).map(|v| v.to_string())
+    }
+
+    fn answer(&self) -> Answer<'_> {
         let m = self.reading.manifest.as_ref();
-        let asks: Vec<Value> = self
-            .asks()
-            .iter()
-            .map(|a| {
-                json!({
-                    "ask": a,
-                    "does": ask(a).map(|c| does(&c)).unwrap_or(""),
-                    "granted": self.granted(a),
+        Answer {
+            api: 1,
+            name: &self.pin.name,
+            url: &self.pin.url,
+            commit: &self.commit,
+            pin: &self.pin.commit,
+            manifest_sha256: &self.reading.sha256,
+            label: m.map(|m| m.label.as_str()),
+            license: m.and_then(|m| m.license.as_deref()),
+            build: m.and_then(|m| m.build.as_deref()),
+            asks: self
+                .asks()
+                .iter()
+                .map(|a| Asked {
+                    ask: a,
+                    does: ask(a).map(|c| does(&c)).unwrap_or(""),
+                    granted: self.granted(a),
                 })
-            })
-            .collect();
-        let bases: Vec<Value> = self
-            .bases
-            .iter()
-            .map(|(b, t)| json!({"image": b, "onbuild": t}))
-            .collect();
-        let model = self
-            .model
-            .as_ref()
-            .map(|e| json!({"provider": e.provider, "host": e.host, "here": e.here}));
-        let grants_commit = self.grants.as_ref().map(|g| g.commit.clone());
-        let lines = self.lines();
-        json!({
-            "api": 1,
-            "name": self.pin.name,
-            "url": self.pin.url,
-            "commit": self.commit,
-            "pin": self.pin.commit,
-            "manifest_sha256": self.reading.sha256,
-            "label": m.map(|m| m.label.clone()),
-            "license": m.and_then(|m| m.license.clone()),
-            "build": m.and_then(|m| m.build.clone()),
-            "asks": asks,
-            "unasked": self.unasked(),
-            "grants_commit": grants_commit,
-            "bases": bases,
-            "model": model,
-            "warnings": warnings(self.asks()),
-            "changes": self.changes,
-            "refusals": self.refusals(),
-            "settings": lines,
-        })
+                .collect(),
+            unasked: self.unasked(),
+            grants_commit: self.grants.as_ref().map(|g| g.commit.as_str()),
+            bases: self
+                .bases
+                .iter()
+                .map(|(image, onbuild)| Base { image, onbuild })
+                .collect(),
+            model: self.model.as_ref().map(|e| Model {
+                provider: &e.provider,
+                host: e.host.as_deref(),
+                here: e.here,
+            }),
+            warnings: warnings(self.asks()),
+            changes: self.changes.as_deref(),
+            refusals: self.refusals(),
+            settings: self.lines(),
+        }
     }
 
     pub fn text(&self) -> Vec<String> {
@@ -306,6 +355,7 @@ mod tests {
     use super::super::exec::fake::{fails, ok};
     use super::super::prepare::tests::{commit_files, dockerfile, good, manifest, pin, C, NODE};
     use super::*;
+    use serde_json::{json, Value};
     use std::collections::BTreeMap;
 
     const D: &str = "89abcdef0123456789abcdef0123456789abcdef";
@@ -364,7 +414,18 @@ mod tests {
         };
         let r = review(&mut x, &g, &pin(C), C).unwrap();
         assert!(r.refusals().is_empty(), "{:?}", r.refusals());
-        let mut j = r.json();
+        let typed = r.answer();
+        assert_eq!(typed.label, Some("Floorplan"));
+        assert_eq!(typed.license, Some("Apache-2.0"));
+        assert_eq!(
+            typed.asks.iter().map(|a| a.ask).collect::<Vec<_>>(),
+            ["view", "product", "model", "action:refresh"]
+        );
+        assert_eq!(typed.unasked, ["hook:after:change.offered"]);
+        let text = r.json().unwrap();
+        let mut j: Value = serde_json::from_str(&text).unwrap();
+        // The keys are sorted, as the value of the answer writes them.
+        assert_eq!(text, j.to_string());
         j["manifest_sha256"] = json!("0".repeat(64));
         assert_eq!(j, sample("sample"));
         let text = r.text();
@@ -423,10 +484,10 @@ mod tests {
             &[("tehas-plugin.json", &none), ("Dockerfile", &d)],
         );
         let g = Given { home: &home, ..g };
-        assert_eq!(
-            review(&mut x, &g, &pin(C), C).unwrap().json()["model"],
-            Value::Null
-        );
+        let r = review(&mut x, &g, &pin(C), C).unwrap();
+        assert!(r.answer().model.is_none());
+        let j: Value = serde_json::from_str(&r.json().unwrap()).unwrap();
+        assert_eq!(j["model"], Value::Null);
     }
 
     #[test]
@@ -468,7 +529,9 @@ mod tests {
         assert!(text.contains(&format!(
             "  TEHAS_PLUGIN_GRANTS_FLOORPLAN=\"{D} product model:<tokens>\""
         )));
-        assert!(r.json()["asks"]
+        assert!(r.answer().asks.iter().all(|a| !a.granted));
+        let j: Value = serde_json::from_str(&r.json().unwrap()).unwrap();
+        assert!(j["asks"]
             .as_array()
             .unwrap()
             .iter()
@@ -497,7 +560,9 @@ mod tests {
             r.refusals(),
             [format!("the base image {NODE} has ONBUILD triggers, which would run in the build: RUN make")]
         );
-        assert_eq!(r.json()["bases"][0]["onbuild"], json!(["RUN make"]));
+        assert_eq!(r.answer().bases[0].onbuild, ["RUN make"]);
+        let j: Value = serde_json::from_str(&r.json().unwrap()).unwrap();
+        assert_eq!(j["bases"][0]["onbuild"], json!(["RUN make"]));
         assert_eq!(
             sample("refused")["refusals"].as_array().map(Vec::len),
             Some(1)
