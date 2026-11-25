@@ -263,7 +263,7 @@ list lies across the top.
 ## 6. Do's and Don'ts
 
 ### Do:
-- **Do** draw every new sprite and scene at the Super Mario Bros. 3 level of
+- **Do** draw every new sprite at the Super Mario Bros. 3 level of
   detail: flat fills, a dark outline, at most one highlight and one shade.
 - **Do** keep corners square and shadows hard (blur 0).
 - **Do** keep sizes and positions on the 8px grid, and show sprites at whole
@@ -281,7 +281,7 @@ list lies across the top.
 - **Don't** let demoscene styling, other than the typeface, spread beyond the
   footer.
 - **Don't** add detail beyond the SMB3 level: gradients, soft shadows, smooth
-  shading or high-resolution illustration mixed into pixel scenes.
+  shading or high-resolution illustration mixed into pixel art.
 - **Don't** use `border-radius`, `filter: blur`, `backdrop-filter`, gradient
   text or a coloured stripe down one side of a box.
 - **Don't** ease, fade or blur a movement. Use `steps()`, and keep one-shot
