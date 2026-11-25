@@ -161,8 +161,8 @@ what = "the core uses nothing of the shell or the adapters"
 pattern = '\b(crate::(read|apply|poll|finish|auto_finish|refresh|pins|usage)|tehas_core::(forge|sandbox|call|retry|access|journal|lock|file|disk|install|tunnel|github_fails|release|rukas))\b'
 files = ["console/dispatch/src/decide.rs", "console/dispatch/src/decide/**", "console/dispatch/src/place.rs", "console/dispatch/src/snapshot.rs", "console/dispatch/src/text.rs", "console/dispatch/src/settings.rs", "console/dispatch/src/questions.rs", "console/dispatch/src/starts.rs", "console/dispatch/src/answer.rs"]
 comment = "//"
-max = 1
-why = "The map at T0 had three; T3 moved the push fault's hold into snapshot.rs. decide.rs reads two things of the shell, call::trim and apply::start::change_note. T3 moves them into the core or passes their answers in the snapshot. T12.1 adds dispatch/src/answer.rs to the files, which decide and the snapshot use; it uses nothing of the shell, so the count holds."
+max = 0
+why = "The map at T0 had three; T3 moved the push fault's hold into snapshot.rs and change_note out of decide. The last, call::trim, a pure cut of a log line, moved from the process runner to core's text module. T12.1 adds dispatch/src/answer.rs to the files, which decide and the snapshot use; it uses nothing of the shell."
 
 # R6: a supplier's failure reaches a caller as a named outcome, not a raw
 # HTTP status the caller must read.
