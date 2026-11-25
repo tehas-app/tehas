@@ -562,7 +562,7 @@ fn with_plugins(own: Value, scope: Scope, broker: Option<&Path>) -> Value {
     all.extend(
         plugins::for_scope(scope, broker)
             .iter()
-            .map(plugins::Tool::entry),
+            .filter_map(|t| serde_json::to_value(t.entry()).ok()),
     );
     Value::Array(all)
 }

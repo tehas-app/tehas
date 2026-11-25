@@ -112,9 +112,10 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     s["user"] = json!({"login": c.bot_login});
     // A file that cannot be read gives no id: the bot is then known by its
     // login, as before the first record. Its questions authorise nothing.
-    s["bot_id"] = json!(tehas_core::accounts::read(home)
-        .get(tehas_core::accounts::account(&c.bot_login))
-        .copied());
+    s["bot_id"] = json!(tehas_core::accounts::id_of(
+        &tehas_core::accounts::read(home),
+        &tehas_core::accounts::bot_key(&c.bot_login)
+    ));
     // What rule 6 holds an issue on out of an open pull request's body:
     // every open pull request of `own_pull` that names it with a closing
     // keyword, by number, whatever base it targets. GitHub's own links are
