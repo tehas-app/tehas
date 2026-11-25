@@ -503,7 +503,8 @@ fn download(site: Releases, repo: &str, tag: &str, dir: &Path, names: &[String])
         let Ok(mut into) = fs::File::create(dir.join(name)) else {
             return Ok(false);
         };
-        h.download(&at, file, DOWNLOAD_MAX, &mut into).map(|()| true)
+        h.download(&at, file, DOWNLOAD_MAX, &mut into)
+            .map(|()| true)
     };
     let unwritten = |name: &str| {
         fault(&format!(
@@ -1582,10 +1583,12 @@ mod tests {
         // handle: the list fails, never reads as empty.
         let site = Faulty::new(FakeSite::new(&World::new()))
             .on(Op::CodeHost(CodeHostOp::Releases), Fault::Malformed);
-        let site = move |by: &Actor, _: &str, _: Duration| site.code_host(by, Caller::new("update"));
+        let site =
+            move |by: &Actor, _: &str, _: Duration| site.code_host(by, Caller::new("update"));
         assert_eq!(list(&site), Err(1));
         let none = FakeSite::new(&World::new());
-        let none = move |by: &Actor, _: &str, _: Duration| none.code_host(by, Caller::new("update"));
+        let none =
+            move |by: &Actor, _: &str, _: Duration| none.code_host(by, Caller::new("update"));
         assert_eq!(list(&none), Ok(vec![]));
     }
 
@@ -2032,8 +2035,8 @@ mod tests {
             let site = late(CodeHostOp::Download);
             assert!(!download(&site, "o/r", "v1.2.0", &d.0, &names()));
             let site = late(CodeHostOp::Releases);
-            let read = site(&Actor::Operator, "o/r", Duration::ZERO)
-                .and_then(|mut h| h.releases(ALL_MAX));
+            let read =
+                site(&Actor::Operator, "o/r", Duration::ZERO).and_then(|mut h| h.releases(ALL_MAX));
             assert!(read.is_err());
         }
     }
@@ -2214,7 +2217,9 @@ mod tests {
                 anonymous: true,
                 why: Outcome::Refused(tehas_ports::Refusal::Unsupported),
             };
-            assert!(stopped.line().ends_with("(a private repository needs gh signed in)"));
+            assert!(stopped
+                .line()
+                .ends_with("(a private repository needs gh signed in)"));
             let signed = Stopped {
                 anonymous: false,
                 why: Outcome::Refused(tehas_ports::Refusal::Unsupported),

@@ -102,10 +102,7 @@ esac
 /// `<project> <tag> <file>`.
 pub fn anonymous_downloads(h: &Host) -> Vec<String> {
     let calls = h.calls("curl");
-    let asked: Vec<&str> = calls
-        .lines()
-        .filter_map(|l| l.rsplit(' ').next())
-        .collect();
+    let asked: Vec<&str> = calls.lines().filter_map(|l| l.rsplit(' ').next()).collect();
     let mut got = Vec::new();
     for (i, url) in asked.iter().enumerate() {
         let Some(rest) = url.strip_prefix(API).and_then(|u| u.strip_prefix("repos/")) else {
