@@ -35,7 +35,7 @@ on [the contract](/contract).
 | `~/tehas/work/tehas-plan-<issue>.keep` | What a planning session carries from one turn to the next: the approved text, the commit it began at, pi-rukas's record of the session, the last turn's exit status, the issue's images, and a later turn's answer as `answer.md`. Removed when the session ends. No container is given it; each turn copies what it needs into its workspace |
 | `~/tehas/dev/<name>`                 | A person's clone for working by hand, named after their account, made and used by `tehas dev`, never removed. `<name>.author` next to it holds whose name its commits carry, `<name>.state` its memory, sessions, transcripts, code index and cargo build output (`target`, kept so a later session of that clone builds on what an earlier one built; see [tehas dev](/tools-dev#tehas-dev)), and `<name>.images` the images of the issue named by `--issue`, read-only in the session's container |
 | `~/tehas/repos/pi-rukas`             | pi-rukas, at the commit `PI_RUKAS_FOLLOW` names                         |
-| `~/tehas/docs/`, `~/tehas/fun/`      | This site's pages and the front page, installed from `host/`            |
+| `~/tehas/docs/`, `~/tehas/fun/`      | This site's pages, installed from `host/`                          |
 | `~/tehas/sandbox/`, `versions.env`   | Sandbox image definition, build script, the Playwright npm pin, and the pinned tool versions |
 | `~/tehas/edge/`                      | The docs server (`docs.compose.yaml`) and the edge router (`router.compose.yaml`) |
 | `~/tehas/items/`                     | A page and the files of each item, which the edge router serves on port 8081. Nothing in this version writes them, and `tehas update` removes the `protolab/` directory an earlier version left |
@@ -498,12 +498,11 @@ file it was copying as it was.
 
 ### How the dashboard's files are named and cached
 
-The manual and the front page are not copied from `host/` as they stand.
+The manual and the dashboard are not copied from `host/` as they stand.
 `install.sh` first asks the console to stage them (`console update assets`,
 `console/ops/src/update/assets.rs`), which copies `host/fun` and `host/docs` to a
 scratch directory and, for each `<script src="/fun/X.js">` and each
-`<link rel="stylesheet" href="/fun/X.css">` of `fun/index.html` and
-`docs/dashboard.frag`, puts a copy of that file beside
+`<link rel="stylesheet" href="/fun/X.css">` of `docs/dashboard.frag`, puts a copy of that file beside
 it under the name `X.<hash>.<ext>`, where `<hash>` is the first 12 hex digits
 of the sha256 of its bytes, and rewrites the tag to name it. A file in a
 subfolder is copied and named in that subfolder: `/fun/factory/X.js` becomes
@@ -568,7 +567,7 @@ One file is written, not copied: `version.txt`, beside the pages in
 `~/tehas/docs` and `~/tehas/fun`. It holds the newest tag of the checkout and
 the commit it was at when `install.sh` last ran, as `v0.1.1+11b669d`, and the
 footer of every manual page shows it. `--check` does not look at it. The
-footer of the front page reads its versions from the factory's health
+foot of the dashboard reads its versions from the factory's health
 instead (`/live/health.json`, by `fun/versions.js`): tehas from
 `checks.platform`, the pi-rukas the sandbox image runs from `checks.rukas`, and
 the program that manages the factory from `checks.manager` when there is
@@ -1724,8 +1723,8 @@ label `tehas.layer`: the SHA-256 of that file and of the files of the instance
 directory its `COPY` and `ADD` lines name. A file changed, added or taken away
 makes the sum differ, and so the next `--if-moved` builds. The
 factory's health reports the same comparison of the commit and the layer
-(`checks.rukas.behind` and `checks.rukas.layerMoved`), and the footer
-of the front page shows the version the image runs from there. The
+(`checks.rukas.behind` and `checks.rukas.layerMoved`), and the foot
+of the dashboard shows the version the image runs from there. The
 contract test proves the product's gates run inside the image, as the unprivileged user,
 with nothing mounted but a clone:
 
@@ -2049,9 +2048,8 @@ container is created, so run the `docker compose ... up -d` line again after
 changing it.
 
 Every page carries structured data (JSON-LD) for search and answer engines,
-whatever `TEHAS_SITE_INDEXING` says: the front page describes tehas as software,
-with its licence, author and source repository; each manual page is an article
-under the front page; and a page whose front matter names a section in `faq:`
+whatever `TEHAS_SITE_INDEXING` says: each manual page is an article under
+the front page; and a page whose front matter names a section in `faq:`
 has the `###` questions of that section as an FAQ, read from the text.
 
 Visitor analytics are optional and off by default. With `TEHAS_SITE_ANALYTICS_SRC`
@@ -2068,9 +2066,8 @@ The live console of a running cycle shows what its agents did, the commands
 they ran and the start of each result. It is masked, but it is still the
 factory's logs, and the docs server has no sign-in. So by default the server
 does not serve it: `/live/console-<n>.txt` and `/live/console-<n>.txt.now`
-answer 404, and the console panels of the dashboard and the factory floor
-stay empty; the dashboard and the floor still mark the
-cycle live or ended. Everything else under `/live/` is served as before.
+answer 404, and the console panel of the dashboard stays empty; the
+dashboard still marks the cycle live or ended. Everything else under `/live/` is served as before.
 `TEHAS_SITE_CONSOLE=on` in `instance.env` serves the console to anyone who can
 reach the site, for an instance whose site is also its demo. A full key of
 [the MCP server](/mcp-server) reads the console either way, with
@@ -2081,8 +2078,8 @@ applies after a change.
 
 The site has two designs, and the instance picks one for all of it with
 `TEHAS_DESIGN`. A page's colours, typefaces, sizes, outlines and shadows come
-from the design's theme file. The front page, `/`, is the factory floor in
-both, and so is `/floor`:
+from the design's theme file. The front page, `/`, is the plain dashboard in
+both, as `/dashboard` is:
 
 | `TEHAS_DESIGN`             | Every page names        | Logo and share card             |
 | -------------------------- | ----------------------- | ------------------------------- |
@@ -2091,12 +2088,12 @@ both, and so is `/floor`:
 
 `beesknees26` is ink and one muted green on a near-white ground, white panels
 with soft shadows, IBM Plex, and no motion. It has a dark set for a page that
-lets the viewer pick it; no page of tehas does. `pixel` is the factory as a
-16-bit game, in the Topaz bitmap typeface. It is meant for a factory whose site
+lets the viewer pick it; no page of tehas does. `pixel` is the 16-bit look, in
+the Topaz bitmap typeface. It is meant for a factory whose site
 is also its demo; a factory that sets nothing is drawn in `beesknees26`
 everywhere, `/` included.
 
-The design draws every page: `/`, `/floor`, `/dashboard`, every manual page.
+The design draws every page: `/`, `/dashboard`, every manual page.
 The docs server reads `TEHAS_DESIGN` when its container is created, so run its
 `docker compose ... up -d` line again after a change. The edge router is given no setting about looks: it serves the files the pages name.
 
@@ -2111,7 +2108,12 @@ The business page of 1.x at `/business`, a summary over the live files, left
 core in 2.0 and returns in 2.1 as the plugin `business`. `/business` is no
 longer served.
 
-The floor lists the open epics from `live/epics.json`, one row each with a
+The factory floor of 1.x, the 16-bit game view with its breakroom game
+Buzzword Buster, left core in 2.0. `/floor` sends a reader to `/` with a
+permanent redirect. The game lives on in its own repository,
+tehas-app/buzzword-buster.
+
+The dashboard lists the open epics from `live/epics.json`, one row each with a
 block per sub-issue, filled when it is closed; a row opens to list the
 sub-issues, open or closed, each linked, and a link to the epic. The panel
 shows only where the file is there.

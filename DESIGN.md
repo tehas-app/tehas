@@ -1,6 +1,6 @@
 ---
-name: Tehas game view
-description: The software factory as a 16-bit overworld you can look around in.
+name: Tehas pixel design
+description: The 16-bit look of a tehas factory's site, TEHAS_DESIGN=pixel.
 colors:
   brass: "#ea3"
   verdigris: "#276"
@@ -53,93 +53,36 @@ components:
     rounded: "{rounded.none}"
     padding: "0 16px"
     height: "48px"
-  floor-head:
-    backgroundColor: "{colors.bone}"
-    textColor: "{colors.ink}"
-    typography: "{typography.body}"
-    rounded: "{rounded.none}"
-    padding: "12px 16px"
-  station-sign:
-    backgroundColor: "{colors.bone}"
-    textColor: "{colors.ink}"
-    rounded: "{rounded.none}"
-    padding: "8px"
-    width: "264px"
-  issue-row:
-    backgroundColor: "{colors.bone}"
-    textColor: "{colors.ink}"
-    typography: "{typography.body}"
-    rounded: "{rounded.none}"
-    padding: "12px 16px"
-  issue-row-selected:
-    backgroundColor: "{colors.brass-light}"
-  input:
-    backgroundColor: "{colors.bone}"
-    textColor: "{colors.ink}"
-    typography: "{typography.body}"
-    rounded: "{rounded.none}"
-    padding: "0 12px"
-    height: "48px"
-  monitor-screen:
-    backgroundColor: "{colors.crt-black}"
-    textColor: "{colors.crt-amber}"
-    typography: "{typography.body}"
-    rounded: "{rounded.none}"
-    padding: "16px"
 ---
 
-# Design System: Tehas game view
+# Design System: Tehas pixel design
 
 ## 1. Overview
 
-**Creative North Star: "The Factory Floor"**
-
-The page is a field with signboards standing on it, drawn as a 16-bit game
-would draw them. The pipeline is four stations in a row, read left to right:
-in line, building, review, shipped. Each station is a signboard with a small
-animated scene of the work done there.
-
-The first screen is the whole status at a glance: the four stations side by
-side, five doors beneath them in three columns and two rows, and the work order
-monitor on the right. The doors lead to everything else, and three of them
-carry a count (open, stopped, not on the line); the console door
-turns Brass while a cycle is running. The issue board, the break
-room and the data source follow below.
+The pixel design draws the manual and the plain dashboard as a 16-bit game
+would draw them: panels standing on a mossy field.
 
 Two references, kept apart. Super Mario Bros. 3 sets the map, the outline
 weight and the level of detail. The Chaos Engine (Bitmap Brothers, Amiga, art
 by Dan Malone) sets the colour: moss, mud, steel, brass, rust and verdigris on
 near-black outlines. Shapes are flat and square. Depth is a hard offset shadow,
-never a blur. One bitmap typeface sets every word. PRODUCT.md calls this
-"factory sim with a 16-bit feel": industrious, playful, precise.
+never a blur. One bitmap typeface sets every word. The register is a factory
+sim with a 16-bit feel: industrious, playful, precise.
 
 This system rejects the dark navy SaaS dashboard with stat tiles and cyan
 accents, gamified productivity (points, streaks, badges, confetti), demoscene
 styling outside the footer, and any detail beyond the SMB3 level: gradients,
 soft shadows, smooth shading.
 
-Everything sits on an 8px grid. Wide screens (1440px and up) set the stations
-in a row with the monitor beside them; below that the page is one column and
-every panel fills it, and below 1280px the stations stack. On wide screens the
-first screen is centred in the window with equal room above and below it, and
-the issue board starts under the fold.
-
-Motion is stepped, like sprite frames. One-shot moves answer something the
-viewer did or mark data arriving: signs and doors pop in on load, a changed
-count latches with a two-frame flash, a selected ticket's number flies from where
-it was pressed to the monitor (blank and ringed in Brass while it waits), which
-then prints the ticket at 1200 bps, and a newly chosen stage prints its rows
-in. The only loops
-are the monitor's cursor, the station scenes, and lamps that blink only while a
-cycle is really running. `prefers-reduced-motion` turns all of it off.
+Everything sits on an 8px grid. Motion is stepped, like sprite frames, and
+`prefers-reduced-motion` turns it off.
 
 Every colour is an Amiga colour: 12 bits, one hex digit per channel, the 4096
 colours the original chipset could show.
 
 **Key Characteristics:**
 
-- A mossy field with bone-faced signs: muted, metallic, never candy-bright.
-- Four stations in pipeline order. Position in the row is the status.
+- A mossy field with bone-faced panels: muted, metallic, never candy-bright.
 - Square corners everywhere. Radius is zero.
 - 4px near-black outlines on anything that is an object in the world.
 - Hard offset shadows with no blur.
@@ -150,8 +93,8 @@ colours the original chipset could show.
 The site has two designs, and the instance's `TEHAS_DESIGN` picks one for every
 page. `beesknees26`, the default, names `host/fun/theme-beesknees26.css` on
 every page. `pixel` names `host/fun/theme-pixel.css` on every page; it is for
-a site that is also the factory's demo. In both the factory floor is at `/`
-and `/floor`. Neither server rewrites a stylesheet path: the pages are
+a site that is also the factory's demo. In both the plain dashboard is at
+`/`. Neither server rewrites a stylesheet path: the pages are
 templates that name the design's file, logo and share card.
 
 This file describes the pixel design, and the rules below it bind that design.
@@ -169,8 +112,7 @@ top bar), and its sizes and corners too: the drawing's sizes raised to
 `--type-small` and `--type-big`, corners in multiples of `--radius`; the
 `--stage-*` tokens are for a page that draws the line. No page of tehas links
 `pages.css`: Obeya and industry's workshop take its rules. The manual and the
-plain dashboard draw their header and footer from `game-view.css`, which is the
-floor's drawing of a page.
+plain dashboard draw their header and footer from `manual.css`.
 
 The colours below by the role token that carries them:
 
@@ -184,9 +126,6 @@ The colours below by the role token that carries them:
 | Brass Light | `--accent-soft` | Hairline | `--rule` |
 | CRT Black, Amber, Dim | `--screen`, `--screen-text`, `--screen-quiet`, and the top bar's `--bar-*` | Green, red tag | `--good`, `--bad` |
 
-The canvases cannot use `var()`: `host/fun/theme.js` reads their tokens
-(`--band-*`, `--piece-*`, `--game-*`) from the theme.
-
 ## 2. Colors
 
 A 32-colour palette in the manner of The Chaos Engine: steel greys, brass,
@@ -195,36 +134,29 @@ tokens below are the ones the interface uses; the sprites draw on the rest.
 
 ### Primary
 - **Brass** (`brass`): the action colour and the "something is
-  here" colour. The primary button, the ring around a station whose tickets
-  the board is showing, the stopped
-  door when something is stopped, the closed gate, the sample marker, the
-  stripe under the header.
+  here" colour. The primary button, the selected tab, the stripe under the
+  header.
 
 ### Secondary
-- **Verdigris** (`verdigris`): counts for the cool ends of the line (in
-  line, shipped), game readouts and inline text buttons.
-- **Rust** (`rust`): ticket numbers, and counts for the warm stages
-  (building, review).
+- **Verdigris** (`verdigris`): quiet links and inline text buttons.
+- **Rust** (`rust`): ticket numbers and strong text.
 
 ### Neutral
 - **Moss** (`moss`) with **Moss Shade** (`moss-shade`): the
   field and its sparse pixel texture.
-- **Steel** (`steel`): the header band, panel heads, doors and row hover.
-- **Bone** (`bone`): sign and panel faces.
-- **Bone Shade** (`bone-shade`): the footer, the monitor case, quiet states.
-- **Brass Light** (`brass-light`): the selected ticket, wherever it
-  appears.
+- **Steel** (`steel`): the header band, panel heads and row hover.
+- **Bone** (`bone`): panel faces.
+- **Bone Shade** (`bone-shade`): the footer and quiet states.
+- **Brass Light** (`brass-light`): an open row.
 - **Ink** (`ink`): all body text.
 - **Outline** (`outline`): object outlines and posts.
 - **Slate** (`slate`): captions and secondary text.
 - **Hairline** (`hairline`): dividers inside a panel.
 - **CRT Black** (`crt-black`), **CRT Amber** (`crt-amber`) and **CRT Dim**
-  (`crt-dim`): the monitor screen, the console and the game canvas. The only
-  dark surfaces.
+  (`crt-dim`): the console and code blocks. The only dark surfaces.
 
 ### Named Rules
-**The Twelve Bit Rule.** Every colour, in the stylesheet, the canvas and the
-sprites, is written as three hex digits (`#RGB`). A six-digit colour is a bug.
+**The Twelve Bit Rule.** Every colour, in the stylesheet and the sprites, is written as three hex digits (`#RGB`). A six-digit colour is a bug.
 The logo, `host/fun/favicon.svg`, is the one exception to this rule and the
 Thirty-Two Rule: it keeps its own colours and rounded corners.
 
@@ -238,9 +170,6 @@ it does not join them.
 **The One Outline Rule.** Outlines are Outline and text is Ink. Nothing is
 outlined in a colour.
 
-**The Position Rule.** Which station a ticket stands at says what state it is
-in. Colour never carries status by itself.
-
 ## 3. Typography
 
 **Display Font:** Topaz (with Courier New, monospace)
@@ -250,8 +179,7 @@ in. Colour never carries status by itself.
 Hierarchy comes from two sizes and from colour.
 
 ### Hierarchy
-- **Display** (400, 32px, 1): the page title, station names, counts, panel
-  titles, the work order number.
+- **Display** (400, 32px, 1): the page title, panel titles and counts.
 - **Body** (400, 16px, 1.5): everything else. Capitals for labels and buttons,
   sentence case for ticket titles and sentences. Cap prose at 65ch.
 
@@ -268,12 +196,10 @@ shadow with zero blur, down and to the right. There is no ambient shadow, no
 glow and no blur anywhere.
 
 ### Shadow Vocabulary
-- **Card** (`box-shadow: 4px 4px 0 #333`, `--shadow-card`): buttons and the
-  gate. Panels standing on the field take the Sign shadow instead.
-- **Sign** (`box-shadow: 8px 8px 0 #352`, `--shadow-sign`): signs and panels
-  standing on grass. The shadow is a darker grass.
-- **Ring** (`box-shadow: 0 0 0 4px #ea3`): the station whose tickets the
-  board is showing, combined with the sign shadow.
+- **Card** (`box-shadow: 4px 4px 0 #333`, `--shadow-card`): buttons and
+  tabs. Panels standing on the field take the Sign shadow instead.
+- **Sign** (`box-shadow: 8px 8px 0 #352`, `--shadow-sign`): panels standing
+  on grass. The shadow is a darker grass.
 
 ### Named Rules
 **The Sprite Frame Rule.** Anything that moves, moves in steps. A lamp blinks
@@ -288,7 +214,7 @@ Objects are chunky and square, like tiles: thick outline, flat face, hard
 shadow. Interactive targets are at least 48px tall.
 
 **The Panel.** One recipe for the panels standing on the field: a Bone face
-(Bone shade for the console and the break room), a 4px Outline border, a Sign
+(Bone Shade for the console), a 4px Outline border, a Sign
 shadow, the title on a Steel head closed by a 4px Outline rule, and gutters on
 the children rather than on the face. Every stylesheet writes it out per panel,
 so changing it means every panel in the file.
@@ -299,93 +225,29 @@ so changing it means every panel in the file.
 - **Hover:** the face changes colour and the button stands 4px further off the
   field. **Active:** it moves 4px down and right onto its shadow. State changes
   snap; nothing eases.
-- **Focus:** a 4px Ink outline, offset 4px. On the monitor screen the
-  outline is CRT Amber.
-- **Text buttons** (a station's "all N" control) are underlined Verdigris.
-
-### Floor Head
-The panel at the head of the floor: one of the field's panels, drawn like the
-board, its title on a Steel head closed by a 4px Outline rule. Under it one line on what the factory
-is, held to 110ch, the one prose measure wider than the 65ch cap, and one
-paragraph in Slate that counts the queue (open, and how many stand at each
-station, counting stopped and not on the line) and says when no ticket data is
-loaded, when the factory is paused, or when the last cycle failed. The room
-above the panel belongs to the field, not to its face.
-
-### Station Sign
-A signboard: the station's scene, the name and count in display type, one
-ticket (next up, in work, needs review, latest) with its title held to two
-lines, and a text button that filters the board to that station. The scene's
-frame sits outside the picture so the art fills it edge to edge. From 1440px
-the four signs share the stage's first column equally; from 1280 they share the
-whole width of the one-column stage; below 1280px the scene sits beside the text
-at its native 240 by 130.
-
-### Factory State Tag
-A tag at the far right of the header that says how the factory is. Green (`#8a5`) and
-"FACTORY RUNNING!" while it takes work; Brass and "FACTORY PAUSED", blinking,
-when it is paused; red (`#a32`, Bone text) and "FACTORY FAILED" when the last
-cycle ended as anything but merged or handoff. Green and red are used nowhere
-else on the page.
-
-### Doors
-Six Steel tiles in three columns (two on narrow screens): a name, a line of
-status beneath it, and a count in display type where there is one. The stopped
-door turns Brass when anything is stopped. A pressed door moves onto its
-shadow.
-
-### Monitor
-The selected work order on a cream-cased screen: number in display type, then
-title, stage, labels, then the ticket's history (created, changed, tokens, time
-and an energy estimate marked with a tilde) and a link when the data has one.
-On wide screens it is as tall as the stations and doors beside it,
-stands to the right of the stations and stays in view while the page scrolls.
-Below 1440px it is a panel in the single column, as wide as the board, and
-scrolls away with the page;
-pressing a row there still marks the row and prints the order, only the flying
-number is skipped when the monitor is off screen. The row that was pressed
-latches in Brass for a beat instead, wherever it stands.
-
-### Issue Board
-- **Rows:** number in Rust, title, stage. 1px Hairline between rows.
-  Hover is Steel; the selected row is Brass Light. The two never match.
-  A row you press latches in Brass for a beat, so the press is answered where
-  it landed even when the monitor is off screen.
-- **Tools:** a labelled search field and stage select, 48px tall with a 4px
-  outline, and a clear button that appears only when something is narrowed.
+- **Focus:** a 4px Ink outline, offset 4px.
 
 ### Header
 A Steel band that stays at the top of the window: the factory sprite and
-wordmark, the data source tag (Brass for sample data or a stale queue, Bone
-for a loaded export, absent while the page shows the fresh live queue), the
-section menu ending in an underlined link to the project on GitHub, over a
-Brass stripe. The floor shows the animated factory sprite; the manual shows the logo.
-Below 1280px the
-menu takes a row of its own: on the factory floor its links wrap into as many
-rows as they need, where the manual's header, which holds four
-links, keeps one row that scrolls sideways; on phones the wordmark gives way
-to the sprite alone. Everything that sticks or scrolls to an anchor clears the
-header's height, so the clearance a page uses is the band that page really
-makes: `--header` in game-view.css, per width band, and taller on the factory
-floor where the menu wraps.
+wordmark, the site menu ending in an underlined link to the project on GitHub,
+over a Brass stripe. Below 1280px the menu takes a row of its own that scrolls
+sideways; on phones the wordmark gives way to the sprite alone. Everything that
+sticks or scrolls to an anchor clears the header's height: `--header` in
+manual.css, per width band.
 
 ### Production Console
 A Bone Shade panel holding a CRT Black screen with CRT Amber text: the running
-cycle's output, followed as it grows. A tag in the panel head says LIVE (Brass),
-ENDED or NO CONSOLE, and its door says the same in words. It is the only live
-part of the page, and is labelled as such.
+cycle's output, followed as it grows. It is the only live part of the page,
+and is labelled as such.
 
 When more than one cycle can be shown, a row of tabs stands above the screen:
 one per running cycle, named by its issue number, and one for the cycle that
 finished last, marked ENDED. A tab is a Bone button with the 4px outline; the
-selected one is Brass. The tag in the panel head describes the selected cycle.
-The door and the lamp say LIVE while any cycle runs. The plain dashboard has
-the same row.
+selected one is Brass.
 
 ### Manual Page
-The manual and the plain dashboard wear the same header and footer as the
-factory floor, around one text block. The header's menu is the site's: Factory
-floor, Dashboard, Manual, GitHub. The text block is a Bone panel with a Sign
+The manual and the plain dashboard wear one header and footer around one text
+block. The header's menu is the site's: Dashboard, Manual, GitHub. The text block is a Bone panel with a Sign
 shadow whose title is a Steel head, as on the console. Beside it stands a Bone
 Shade list of the manual's pages, the current one in Brass; below 900px the
 list lies across the top.
@@ -398,23 +260,6 @@ list lies across the top.
 - **Tables:** 1px Hairline between rows, figures right-aligned, a missing
   figure a dash. They scroll sideways before they squeeze.
 
-### Breakroom
-A full-width panel on a Bone Shade ground with a Steel head, like the other
-panels. Inside it a CRT Black cabinet: the 480 by 272 canvas scaled to fill
-the width, beside a bone panel with the readout and one play button. On a
-narrow screen the bone panel goes below the canvas.
-
-The wall is a grid of 28 by 28 pixel cells, sixteen columns by six rows, one
-letter in each. A word is written on tetrominoes: one of the seven pieces for
-its first four letters, another for the next four, a third for nine or ten. The
-pieces of a word touch one another and share a colour; pieces of words that
-touch differ in colour. With words enough for the wall a round picks the ones
-whose pieces fill it exactly, so it is a packed rectangle with no holes, hanging
-from the top of the canvas, and never bigger than those twenty-four pieces
-however many words there are; with a small pool every word goes on the wall and
-its lower edge may be uneven. A hit takes the one piece it touched, and a word
-scores when its last piece goes.
-
 ## 6. Do's and Don'ts
 
 ### Do:
@@ -426,8 +271,6 @@ scores when its last piece goes.
 - **Do** make each object stand for something real in the pipeline.
 - **Do** take any new colour from the 32-colour list in the Thirty-Two Rule's
   spirit: muted, metallic, The Chaos Engine before Super Mario.
-- **Do** say in the header when the data is not the fresh live queue: sample,
-  a loaded export or a stale queue.
 - **Do** keep the Tehdas ASCII logo and its credit in the footer.
 
 ### Don't:
@@ -446,5 +289,4 @@ scores when its last piece goes.
 - **Don't** invent progress: no fake commands, random verdicts or motion that
   implies work is happening.
 - **Don't** set text at any size other than 16px and 32px.
-- **Don't** let copy cheer. The one exclamation mark on the page is the factory
-  state tag's "FACTORY RUNNING!".
+- **Don't** let copy cheer.

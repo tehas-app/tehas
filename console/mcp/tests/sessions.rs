@@ -89,7 +89,7 @@ fn stages_text(rows: &[(&str, Value)], repo: Option<&str>) -> String {
     // Keys the tool is not given: an answer that holds one of them is caught
     // by the tests that read the whole answer as text.
     m.insert(
-        "buzzwords".into(),
+        "strayWords".into(),
         json!([{"word": "SECRET-WORD", "count": 3}]),
     );
     m.insert("secretKey".into(), json!("SECRET"));
@@ -987,7 +987,7 @@ fn an_issue_with_several_attempts() {
         "SECRET",
         "labels",
         "body",
-        "buzzwords",
+        "strayWords",
         "/home/x",
         "statusText",
         "tehasVersion",

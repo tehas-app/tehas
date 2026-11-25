@@ -28,8 +28,6 @@ pub enum State {
     BotLogin,
     /// What the last poll logged of the branch check.
     BranchCheck,
-    /// When the word list was last read.
-    Buzzwords,
     /// The last result of `tehas check-product`.
     CheckProduct,
     /// Held while `tehas clean` runs.
@@ -128,7 +126,6 @@ impl State {
             State::Backups => "state/backup",
             State::BotLogin => "state/github/login",
             State::BranchCheck => "state/branch-check",
-            State::Buzzwords => "state/buzzwords.at",
             State::CheckProduct => "state/check-product.json",
             State::CleanLock => "state/clean.lock",
             State::CodeIndex => "state/index",
@@ -438,7 +435,6 @@ mod tests {
             (State::Backups, "/h/state/backup"),
             (State::BotLogin, "/h/state/github/login"),
             (State::BranchCheck, "/h/state/branch-check"),
-            (State::Buzzwords, "/h/state/buzzwords.at"),
             (State::CheckProduct, "/h/state/check-product.json"),
             (State::CleanLock, "/h/state/clean.lock"),
             (State::CodeIndex, "/h/state/index"),

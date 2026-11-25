@@ -13,7 +13,6 @@ import "../host/fun/console-tabs.js";
 import "../host/fun/epics-view.js";
 import "../host/fun/versions.js";
 import { analyticsView } from "../host/fun/analytics-data.js";
-import { normalize } from "../host/fun/game-data.js";
 import { consoleModel } from "../host/fun/factory/tehas-factory-console.model.js";
 import { daysModel } from "../host/fun/factory/tehas-factory-days.model.js";
 import { issuesModel } from "../host/fun/factory/tehas-factory-issues.model.js";
@@ -50,21 +49,6 @@ test("the samples are written at one time and name no real repository", () => {
     const at = f.generatedAt ?? f.time;
     if (at !== undefined) assert.equal(Date.parse(at), T * 1000, name);
   }
-});
-
-test("status.json draws the factory floor's tickets", () => {
-  const s = read("status.json");
-  // As the floor's fromSnapshot() hands the queue to normalize().
-  const issues = [];
-  for (const [key, label] of [["queued", "tehas:ready"], ["running", "tehas:running"], ["awaiting", "tehas:awaiting-merge"], ["stopped", "needs-human-attention"]]) {
-    for (const i of s[key]) issues.push({ ...i, state: "OPEN", labels: [label] });
-  }
-  for (const i of s.completed) issues.push({ ...i, state: "CLOSED", labels: [] });
-  const data = normalize({ issues, paused: s.paused, pause: s.pause, noResources: s.noResources, buzzwords: s.buzzwords });
-  assert.equal(data.tickets.length, 7);
-  assert.deepEqual(data.tickets.map((t) => t.stage), ["ready", "ready", "running", "review", "stopped", "shipped", "shipped"]);
-  assert.equal(data.paused, false);
-  assert.ok(data.words.length > 0);
 });
 
 test("running.json draws the console tabs", () => {

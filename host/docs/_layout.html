@@ -91,7 +91,6 @@
     {{- end }}
     <link rel="icon" type="image/svg+xml" href="/fun/favicon.svg">
     <link rel="stylesheet" href="/fun/theme-{{ $design }}.css">
-    <link rel="stylesheet" href="/fun/game-view.css">
     <link rel="stylesheet" href="/fun/manual.css">
     {{- /* Visitor analytics, only on an instance that names a script and a site. */}}
     {{- if and (env "TEHAS_SITE_ANALYTICS_SRC") (env "TEHAS_SITE_ANALYTICS_NAME") }}
@@ -115,7 +114,6 @@
         {{- end }}
       </a>
       <nav class="menu" aria-label="Site">
-        <a href="/floor">FACTORY FLOOR</a>
         <a href="/dashboard">DASHBOARD</a>
         <a href="/overview">MANUAL</a>
         <a class="repo" href="https://github.com/tehas-app/tehas-factory" target="_blank" rel="noopener noreferrer">GITHUB</a>
