@@ -139,7 +139,7 @@ comment = "//"
 top = 20
 
 # R3, R8: the core. Today it is the dispatcher's decide and the modules it
-# reads: what it decides from (snapshot, settings, place, text, questions,
+# reads: what it decides from (snapshot, settings, text, questions,
 # starts). tehas-core
 # is not pure (it holds the forge, the sandbox and the process runner), so
 # it is not the core; T6 settles where the core ends and widens these.
@@ -149,7 +149,7 @@ id = "core-effects"
 rule = "R3"
 what = "the core reads no file, network, process, environment or clock"
 pattern = 'std::(fs|net|process|env)\b|\bfs::|Command::new|SystemTime::now|Instant::now|Utc::now|Local::now|env::var|reqwest|tokio::(fs|net|process)|thread::sleep'
-files = ["console/dispatch/src/decide.rs", "console/dispatch/src/decide/**", "console/dispatch/src/place.rs", "console/dispatch/src/snapshot.rs", "console/dispatch/src/text.rs", "console/dispatch/src/settings.rs", "console/dispatch/src/questions.rs", "console/dispatch/src/starts.rs", "console/dispatch/src/answer.rs"]
+files = ["console/dispatch/src/decide.rs", "console/dispatch/src/decide/**", "console/dispatch/src/snapshot.rs", "console/dispatch/src/text.rs", "console/dispatch/src/settings.rs", "console/dispatch/src/questions.rs", "console/dispatch/src/starts.rs", "console/dispatch/src/answer.rs"]
 comment = "//"
 max = 0
 why = "The core's files, and since T12.1 the reading of an answer of tehas answer (dispatch/src/answer.rs), which decide and the snapshot use: it reads nothing either."
@@ -159,7 +159,7 @@ id = "core-inward"
 rule = "R8"
 what = "the core uses nothing of the shell or the adapters"
 pattern = '\b(crate::(read|apply|poll|finish|auto_finish|refresh|pins|usage)|tehas_core::(forge|sandbox|call|retry|access|journal|lock|file|disk|install|tunnel|github_fails|release|rukas))\b'
-files = ["console/dispatch/src/decide.rs", "console/dispatch/src/decide/**", "console/dispatch/src/place.rs", "console/dispatch/src/snapshot.rs", "console/dispatch/src/text.rs", "console/dispatch/src/settings.rs", "console/dispatch/src/questions.rs", "console/dispatch/src/starts.rs", "console/dispatch/src/answer.rs"]
+files = ["console/dispatch/src/decide.rs", "console/dispatch/src/decide/**", "console/dispatch/src/snapshot.rs", "console/dispatch/src/text.rs", "console/dispatch/src/settings.rs", "console/dispatch/src/questions.rs", "console/dispatch/src/starts.rs", "console/dispatch/src/answer.rs"]
 comment = "//"
 max = 0
 why = "The map at T0 had three; T3 moved the push fault's hold into snapshot.rs and change_note out of decide. The last, call::trim, a pure cut of a log line, moved from the process runner to core's text module. T12.1 adds dispatch/src/answer.rs to the files, which decide and the snapshot use; it uses nothing of the shell."

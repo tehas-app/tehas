@@ -78,7 +78,7 @@ owned read handles and the links, each ticket answered alone.
 ## Checks of the core (R3, R8)
 
 The core today is the dispatcher's `decide` and the modules it decides
-from: `decide.rs`, `decide/`, `place.rs`, `snapshot.rs`, `text.rs`,
+from: `decide.rs`, `decide/`, `snapshot.rs`, `text.rs`,
 `settings.rs`, `questions.rs`, `starts.rs`. `core-effects` holds it at 0:
 no file, network, process, environment or clock. `core-inward` holds it at
 0 too: nothing of the shell or of tehas-core's effects. At the fork it
