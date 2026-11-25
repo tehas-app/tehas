@@ -48,8 +48,20 @@ pub enum Action {
         kind: String,
         old: String,
         old_body: String,
+        /// The old comment's revision as it was read: its edit is made at it.
+        since: tehas_ports::Revision,
         body: Option<String>,
         offers: String,
+    },
+    /// The question `id` on record of `issue`, whose sum is of before T4.7,
+    /// takes `sum`, the sum of its visible text, when `posted`, the sum of
+    /// its comment as read now, is the sum on record; else no sum
+    /// (`question-adopt`). Nothing is written to the code host.
+    Adopt {
+        issue: u64,
+        id: String,
+        posted: String,
+        sum: Option<String>,
     },
     /// tehas:refreshing comes off a pull request.
     Unmark {
@@ -380,6 +392,7 @@ impl From<&Action> for Value {
                 kind,
                 old,
                 old_body,
+                since,
                 body,
                 offers,
             } => {
@@ -387,9 +400,21 @@ impl From<&Action> for Value {
                 put("kind", json!(kind));
                 put("old", json!(old));
                 put("old_body", json!(old_body));
+                put("since", json!(since.as_str()));
                 put("body", json!(body));
                 put("offers", json!(offers));
                 put("unlabel", json!(unlabel));
+            }
+            Action::Adopt {
+                issue,
+                id,
+                posted,
+                sum,
+            } => {
+                put("adopt", json!(issue));
+                put("id", json!(id));
+                put("posted", json!(posted));
+                put("sum", json!(sum));
             }
             Action::Unmark { pr, log } => {
                 put("pr", json!(pr));

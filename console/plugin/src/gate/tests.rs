@@ -2,7 +2,15 @@
 //! stubbed.
 
 use super::catalog::Facts;
-use super::github::Permission;
+use super::github::{AccountId, Permission};
+use tehas_ports::{Got, Outcome, Passing, Sent};
+
+fn down() -> Outcome {
+    Outcome::Unavailable {
+        why: Passing::Unreachable,
+        sent: Sent::Maybe,
+    }
+}
 use super::*;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -17,10 +25,10 @@ const T0: u64 = 1_000_000;
 #[derive(Default)]
 struct Hub {
     // The level GitHub answers, None for 404; Err for an error.
-    level: Option<Result<Option<Level>, String>>,
+    level: Option<Got<Option<Level>>>,
     public: bool,
     // The id the permission answer is about, when not the person's.
-    other_id: Option<u64>,
+    other_id: Option<&'static str>,
     permission_calls: usize,
     token_calls: usize,
 }
@@ -39,31 +47,31 @@ impl Stub {
 }
 
 impl GitHub for Stub {
-    fn token(&self, code: &str) -> Result<String, String> {
+    fn token(&self, code: &str) -> Got<String> {
         lock(&self.0).token_calls += 1;
         (code == "good")
             .then(|| "person-token".to_string())
-            .ok_or("no".into())
+            .ok_or(Outcome::Forbidden)
     }
-    fn user(&self, token: &str) -> Result<Person, String> {
+    fn user(&self, token: &str) -> Got<Person> {
         assert_eq!(token, "person-token");
         Ok(Person {
-            id: 7,
+            id: AccountId::new("7"),
             login: "alice".to_string(),
         })
     }
-    fn permission(&self, login: &str) -> Result<Permission, String> {
+    fn permission(&self, login: &str) -> Got<Permission> {
         assert_eq!(login, "alice");
         let mut h = lock(&self.0);
         h.permission_calls += 1;
-        let id = h.other_id.unwrap_or(7);
+        let id = AccountId::new(h.other_id.unwrap_or("7"));
         match h.level.clone().unwrap_or(Ok(Some(Level::Write))) {
             Err(e) => Err(e),
             Ok(None) => Ok(Permission::None),
             Ok(Some(l)) => Ok(Permission::Of(id, Some(l), "write".into())),
         }
     }
-    fn public(&self) -> Result<bool, String> {
+    fn public(&self) -> Got<bool> {
         Ok(lock(&self.0).public)
     }
 }
@@ -744,16 +752,39 @@ fn access_is_checked_again_every_ten_minutes_by_user_id() {
     assert_eq!(ok(T0 + auth::CHECK), 200);
     assert_eq!(f.hub.calls().1, calls + 1);
     // GitHub's error is a refusal, and the session stays for the next ask.
-    f.hub.set(|h| h.level = Some(Err("down".into())));
+    f.hub.set(|h| h.level = Some(Err(down())));
     assert_eq!(ok(T0 + 2 * auth::CHECK), 503);
     // The login now names someone else: a renamed and reused login.
     f.hub.set(|h| {
         h.level = None;
-        h.other_id = Some(8);
+        h.other_id = Some("8");
     });
     assert_eq!(ok(T0 + 2 * auth::CHECK + 1), 401);
     f.hub.set(|h| h.other_id = None);
     assert_eq!(ok(T0 + 2 * auth::CHECK + 2), 401);
+}
+
+/// The account's id is compared whole: a login that GitHub now says is
+/// another spelling of the number is someone else, and every session ends.
+#[test]
+fn only_the_same_account_id_keeps_a_session() {
+    for other in ["07", "7 ", "", "70"] {
+        let f = fixture();
+        let c = sign_in(&f, P, T0);
+        f.hub.set(|h| h.other_id = Some(other));
+        let at = T0 + auth::CHECK;
+        assert_eq!(
+            f.gate.answer(&fetch(P, "/app.js", &c), at).status,
+            401,
+            "{other:?}"
+        );
+        f.hub.set(|h| h.other_id = None);
+        assert_eq!(
+            f.gate.answer(&fetch(P, "/app.js", &c), at + 1).status,
+            401,
+            "{other:?}"
+        );
+    }
 }
 
 #[test]
@@ -970,7 +1001,7 @@ fn the_persons_token_comes_from_the_flows_code() {
     assert!(set(&cb, auth::SESSION).is_none());
 }
 
-fn level_lets_in(access: Level, has: Result<Option<Level>, String>, public: bool) -> u16 {
+fn level_lets_in(access: Level, has: Got<Option<Level>>, public: bool) -> u16 {
     let f = fixture_with(access, DOMAIN, false);
     f.hub.set(|h| {
         h.level = Some(has);
@@ -1002,7 +1033,7 @@ fn a_person_gets_in_with_at_least_the_access_asked() {
     assert_eq!(level_lets_in(Admin, Ok(Some(Maintain)), false), 403);
     assert_eq!(level_lets_in(Read, Ok(Some(Read)), false), 303);
     assert_eq!(level_lets_in(Write, Ok(None), false), 403);
-    assert_eq!(level_lets_in(Write, Err("down".into()), false), 503);
+    assert_eq!(level_lets_in(Write, Err(down()), false), 503);
     // A public repository gives every account read.
     assert_eq!(level_lets_in(Read, Ok(Some(Admin)), true), 403);
     assert_eq!(level_lets_in(Triage, Ok(Some(Admin)), true), 403);
@@ -1017,7 +1048,7 @@ fn githubs_permission_answer_is_read_from_its_booleans() {
             format!(r#"{{"permission":"write","role_name":"custom","user":{{"id":7,"login":"alice","permissions":{perms}}}}}"#).as_bytes(),
         )
     };
-    let of = |l| Ok(Permission::Of(7, l, "custom".into()));
+    let of = |l| Ok(Permission::Of(AccountId::new("7"), l, "custom".into()));
     assert_eq!(
         answer(r#"{"pull":true,"triage":false,"push":false}"#),
         of(Some(Level::Read))
@@ -1232,7 +1263,7 @@ fn a_press_asks_for_a_refresh_and_answers_by_the_spec() {
     assert_eq!(f.gate.answer(&fetch(Q, "/_session", &d), T0).status, 401);
     f.hub.set(|h| h.level = None);
     let e = sign_in(&f, Q, T0);
-    f.hub.set(|h| h.level = Some(Err("down".into())));
+    f.hub.set(|h| h.level = Some(Err(down())));
     assert_eq!(
         f.gate.answer(&post(Q, "/_actions/refresh", &e), T0).status,
         403

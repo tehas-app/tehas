@@ -164,6 +164,44 @@ fn with_no_user_id_recorded_a_listed_login_authorises_nothing_until_tehas_update
     lacks(&r.out, "would run a cycle");
 }
 
+/// A file of before bots were keyed whole keeps the bot under its bare slug,
+/// which may be an account of that name: the poll stops with 78 and names
+/// the record, in 1.x lines and in realm lines alike.
+#[test]
+fn a_bot_kept_only_under_its_bare_slug_stops_the_poll_until_the_ids_are_recorded() {
+    let w = World::new("ap-uid-bare-bot");
+    for text in [
+        format!("alice {}\ntehas-bot {}\n", uid("alice"), uid("tehas-bot")),
+        format!(
+            "code-host alice {}\ncode-host tehas-bot {}\n",
+            uid("alice"),
+            uid("tehas-bot")
+        ),
+    ] {
+        w.home_file(tehas_core::accounts::FILE, &text);
+        let r = w.dispatch(&["--dry-run"]);
+        assert_eq!(r.rc, 78, "{text:?}: {}", r.out);
+        has(
+            &r.out,
+            "may be the bot tehas-bot[bot] or another account of that name",
+        );
+        has(&r.out, "Run console ids record");
+        lacks(&r.out, "would run a cycle");
+    }
+    // Both kept side by side, each by its whole login, the poll runs.
+    w.home_file(
+        tehas_core::accounts::FILE,
+        &format!(
+            "code-host alice {}\ncode-host tehas-bot 5\ncode-host tehas-bot[bot] {}\n",
+            uid("alice"),
+            uid("tehas-bot")
+        ),
+    );
+    let r = w.dispatch(&["--dry-run"]);
+    assert_ne!(r.rc, 78, "{}", r.out);
+    lacks(&r.out, "Run console ids record");
+}
+
 #[test]
 fn a_labeller_list_with_stray_spaces_is_refused_not_guessed_at() {
     let w = World::new("ap-spaces");

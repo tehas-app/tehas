@@ -2,9 +2,10 @@ use super::super::exec::fake::Fake;
 use super::super::exec::{Cmd, Done};
 use super::super::prepare::tests::{dockerfile, good, C, ID, URL};
 use super::*;
-use tehas_core::access::{Permission, Person};
+use tehas_core::access::{AccountId, Permission, Person};
 use tehas_core::plugin::state::{State, Word};
 use tehas_core::testdir::TestDir;
+use tehas_ports::{Got, Outcome, Passing, Sent};
 
 const KEY: &str = "0a1b2c3d";
 
@@ -112,23 +113,39 @@ struct People {
 }
 
 impl GitHub for People {
-    fn token(&self, _: &str) -> Result<String, String> {
-        Err("not asked".into())
+    fn token(&self, _: &str) -> Got<String> {
+        Err(Outcome::Forbidden)
     }
-    fn user(&self, _: &str) -> Result<Person, String> {
-        Err("not asked".into())
+    fn user(&self, _: &str) -> Got<Person> {
+        Err(Outcome::Forbidden)
     }
-    fn permission(&self, login: &str) -> Result<Permission, String> {
+    fn permission(&self, login: &str) -> Got<Permission> {
         self.asked.lock().unwrap().push(login.to_string());
         match login {
-            "octocat" => Ok(Permission::Of(7, Some(Level::Write), "write".into())),
-            "hubot" => Ok(Permission::Of(8, Some(Level::Write), "write".into())),
+            "octocat" => Ok(Permission::Of(
+                AccountId::new("7"),
+                Some(Level::Write),
+                "write".into(),
+            )),
+            "hubot" => Ok(Permission::Of(
+                AccountId::new("8"),
+                Some(Level::Write),
+                "write".into(),
+            )),
             "nobody" => Ok(Permission::None),
-            _ => Err("GitHub answered 502 for the permission".into()),
+            "climber" => Ok(Permission::Of(
+                AccountId::new("../7"),
+                Some(Level::Write),
+                "write".into(),
+            )),
+            _ => Err(Outcome::Unavailable {
+                why: Passing::Server,
+                sent: Sent::Maybe,
+            }),
         }
     }
-    fn public(&self) -> Result<bool, String> {
-        Err("not asked".into())
+    fn public(&self) -> Got<bool> {
+        Err(Outcome::Forbidden)
     }
 }
 
@@ -417,23 +434,23 @@ struct Renamed {
 }
 
 impl GitHub for Renamed {
-    fn token(&self, _: &str) -> Result<String, String> {
-        Err("not asked".into())
+    fn token(&self, _: &str) -> Got<String> {
+        Err(Outcome::Forbidden)
     }
-    fn user(&self, _: &str) -> Result<Person, String> {
-        Err("not asked".into())
+    fn user(&self, _: &str) -> Got<Person> {
+        Err(Outcome::Forbidden)
     }
-    fn permission(&self, _: &str) -> Result<Permission, String> {
+    fn permission(&self, _: &str) -> Got<Permission> {
         let mut n = self.asked.lock().unwrap();
         *n += 1;
         Ok(if *n == 1 {
-            Permission::Of(7, Some(Level::Write), "write".into())
+            Permission::Of(AccountId::new("7"), Some(Level::Write), "write".into())
         } else {
-            Permission::Of(9, None, "".into())
+            Permission::Of(AccountId::new("9"), None, "".into())
         })
     }
-    fn public(&self) -> Result<bool, String> {
-        Err("not asked".into())
+    fn public(&self) -> Got<bool> {
+        Err(Outcome::Forbidden)
     }
 }
 
@@ -466,7 +483,7 @@ fn a_login_is_checked_against_the_repositorys_access_on_every_call() {
     assert_eq!(
         down,
         Err(Failed::Refused(
-            "GitHub could not say whether the login has access: GitHub answered 502 for the permission".into()
+            "GitHub could not say whether the login has access: the site failed; it may have been sent".into()
         ))
     );
     // An error is not kept: the next call asks again.
@@ -479,6 +496,36 @@ fn a_login_is_checked_against_the_repositorys_access_on_every_call() {
         (&json!("chat"), &json!("chat"))
     );
     assert!(!home.join("plugins/access.json").exists());
+}
+
+/// An id that could leave the calls' directory, or is no id, names no lock:
+/// the call is refused before any lock or row.
+#[test]
+fn an_account_id_that_cannot_name_a_lock_is_refused() {
+    let (home, mut x) = world("call-climber", out("{}"));
+    let gh = People::default();
+    assert_eq!(
+        as_login(&mut x, &gh, &home, "climber"),
+        Err(Failed::Refused(
+            "GitHub's id of the login cannot name a lock".into()
+        ))
+    );
+    assert_eq!(rows(&home).len(), 0);
+    assert!(!runs::calls(&home, "floorplan")
+        .join("by-login-../7.lock")
+        .exists());
+    for (id, safe) in [
+        ("7", true),
+        ("id-alice_2", true),
+        ("", false),
+        ("../7", false),
+        ("7/8", false),
+        ("7 ", false),
+        ("7.lock", false),
+    ] {
+        assert_eq!(super::lock_safe(&AccountId::new(id)), safe, "{id:?}");
+    }
+    assert!(!super::lock_safe(&AccountId::new("9".repeat(65))));
 }
 
 #[test]
