@@ -12,9 +12,9 @@ pub use tehas_core::approval::{body_sha256, body_sum, title_sha256, title_sum};
 /// writer of one both use.
 pub use tehas_core::plan::SPEC_INFO;
 
-/// The files count of the measure of a body.
+/// The files a body names, as the measure counts them.
 pub fn size_files(body: &str, max_bytes: usize, max_lines: usize) -> usize {
-    tehas_core::size::measure(body.as_bytes(), max_bytes, max_lines).files
+    tehas_core::size::files(body.as_bytes(), max_bytes, max_lines)
 }
 
 /// Every attachment link in a text.
