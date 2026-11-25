@@ -694,5 +694,5 @@ The T4 row was graded by three fresh graders on a one-commit export of
 others. The bands are combined by the lower band per rule. They differed
 on two rules: on R3 one read `partial` and two `mostly`, and on R8 two
 read `mostly` and one `met`; the lower band stands for both. All three
-read the pass line as adopting. The grade is awaiting the owner's
-confirmation.
+read the pass line as adopting. The grade was confirmed by the owner,
+2026-11-25.
