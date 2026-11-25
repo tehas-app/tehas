@@ -26,7 +26,8 @@ fn run(id: u64, suite: u64, status: &str, conclusion: Option<&str>) -> serde_jso
 
 /// The read of the check, as the code host adapter asks it: one question
 /// for the branch's head and every run of the name on it.
-const QUESTION: &str = "api graphql -F owner=acme -F name=widget -f ref=refs/heads/main -f check=verify -f query=query(";
+const QUESTION: &str =
+    "-F owner=acme -F name=widget -f ref=refs/heads/main -f check=verify -f query=query(";
 
 fn red_instance(w: &World) {
     w.slots(2, &["TEHAS_BRANCH_CHECK=verify"]);

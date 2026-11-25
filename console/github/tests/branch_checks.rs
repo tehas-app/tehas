@@ -62,7 +62,7 @@ type R<'a> = (u64, &'a str, &'a str, Option<&'a str>, Option<&'a str>);
 
 /// A suite of the question: its id, whether GitHub Actions made it, its
 /// workflow and event, and its runs.
-fn suite(id: u64, actions: bool, workflow: Option<(u64, &str)>, runs: &[R]) -> Value {
+fn suite(id: u64, actions: bool, workflow: Option<(u64, &str)>, runs: &[R]) -> String {
     let app = if actions {
         json!({"databaseId": 15368, "slug": "github-actions"})
     } else {
@@ -78,11 +78,16 @@ fn suite(id: u64, actions: bool, workflow: Option<(u64, &str)>, runs: &[R]) -> V
     json!({"databaseId": id, "app": app,
         "workflowRun": workflow.map(|(w, e)| json!({"event": e, "workflow": {"databaseId": w}})),
         "checkRuns": {"totalCount": nodes.len(), "nodes": nodes}})
+    .to_string()
 }
 
 /// The question's answer: the branch `main` at `SHA` with these suites and
 /// status contexts.
-fn answer(suites: &[Value], contexts: &[(&str, &str)]) -> String {
+fn answer(suites: &[String], contexts: &[(&str, &str)]) -> String {
+    let suites: Vec<Value> = suites
+        .iter()
+        .map(|s| serde_json::from_str(s).unwrap())
+        .collect();
     let contexts: Vec<Value> = contexts
         .iter()
         .map(|(c, s)| json!({"context": c, "state": s}))
@@ -96,7 +101,11 @@ fn answer(suites: &[Value], contexts: &[(&str, &str)]) -> String {
 
 /// The long way's answers: the branch's head, then one page of the runs
 /// and one of the statuses.
-fn long_way(runs: &[Value]) -> Vec<Result<String, (String, Option<String>)>> {
+fn long_way(runs: &[String]) -> Vec<Result<String, (String, Option<String>)>> {
+    let runs: Vec<Value> = runs
+        .iter()
+        .map(|r| serde_json::from_str(r).unwrap())
+        .collect();
     vec![
         Ok(
             json!({"data": {"repository": {"ref": {"name": "main", "prefix": "refs/heads/",
@@ -256,7 +265,8 @@ fn no_such_branch_is_none_in_one_question() {
 fn an_answer_with_errors_is_asked_the_long_way() {
     let refused = json!({"data": null, "errors": [{"type": "FORBIDDEN"}]}).to_string();
     let run = json!({"id": 11, "name": "verify", "status": "completed", "conclusion": "failure",
-        "app": {"id": 9, "slug": "other-ci"}, "check_suite": {"id": 1}});
+        "app": {"id": 9, "slug": "other-ci"}, "check_suite": {"id": 1}})
+    .to_string();
     for first in [
         Ok(refused.clone()),
         Err(("gh exited 1".to_string(), Some(refused.clone()))),
@@ -368,7 +378,8 @@ fn asked_for_every_check_it_is_the_long_way() {
 #[test]
 fn the_one_question_keeps_the_law_of_the_branch_then_its_checks() {
     let rest = json!({"id": 11, "name": "verify", "status": "completed", "conclusion": "failure",
-        "app": {"id": 9, "slug": "other-ci"}, "check_suite": {"id": 1}});
+        "app": {"id": 9, "slug": "other-ci"}, "check_suite": {"id": 1}})
+    .to_string();
     let mut answers = long_way(&[rest]);
     answers.push(Ok(answer(
         &[suite(

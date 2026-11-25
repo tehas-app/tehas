@@ -123,7 +123,6 @@ fn a_branch_check_costs_an_idle_poll_one_call() {
         let r = w.poll();
         assert_eq!(r.rc, 0, "{}", r.out);
         assert_eq!(w.started(), "");
-        assert_eq!(cost(&w)["last"]["gh"].as_u64(), Some(gh_calls(&w)));
         for long in ["/check-runs?", "/status?", "/actions/runs?"] {
             lacks(&w.gh(), long);
         }

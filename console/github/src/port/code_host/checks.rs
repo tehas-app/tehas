@@ -298,7 +298,10 @@ fn read_branch_checks(data: Data, branch: &Branch, check: &str) -> Got<Asked> {
                 app: app_id,
                 actions,
                 suite: id,
-                started: started(r.started_at.as_ref()),
+                started: match r.started_at {
+                    None | Some(Value::Null) => Started::Not,
+                    Some(t) => started(t.as_str()),
+                },
             };
             if name == check {
                 runs.push((run, Check::new(name, status)));
@@ -581,7 +584,10 @@ fn read_runs(out: &str) -> Option<Counted<Run>> {
         let text = |k: &str| r.get(k).and_then(Value::as_str);
         let status = run_status(text("status")?, text("conclusion"));
         let check = Check::new(text("name")?.to_string(), status);
-        let started = started(r.get("started_at"));
+        let started = match r.get("started_at") {
+            None | Some(Value::Null) => Started::Not,
+            Some(t) => started(t.as_str()),
+        };
         let run = Run {
             id: r.get("id")?.as_u64()?,
             app: r.pointer("/app/id")?.as_u64()?,
@@ -610,15 +616,11 @@ fn run_status(status: &str, conclusion: Option<&str>) -> CheckStatus {
     }
 }
 
-/// When a check run started, from its `started_at`: see `read_runs`.
-fn started(at: Option<&Value>) -> Started {
-    match at {
-        None | Some(Value::Null) => Started::Not,
-        Some(t) => t
-            .as_str()
-            .and_then(tehas_core::time::from_iso)
-            .map_or(Started::Bad, Started::At),
-    }
+/// When a check run started, from a `started_at` that is given and not
+/// null: see `read_runs`.
+fn started(at: Option<&str>) -> Started {
+    at.and_then(tehas_core::time::from_iso)
+        .map_or(Started::Bad, Started::At)
 }
 
 /// A page of the commit's workflow runs: the count the site says it holds,
