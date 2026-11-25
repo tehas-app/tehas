@@ -772,7 +772,16 @@ pub fn run_poll(
     };
     // The poll's one policy is already in both `Calls`: the writer's made above,
     // the snapshot's made by `body` from the value `body` is given.
-    let rc = body(home, settings, dry, &token, &mut w, &mut end, &retry);
+    let rc = body(
+        home,
+        settings,
+        dry,
+        &token,
+        &mut w,
+        &mut end,
+        &retry,
+        wiring.handles,
+    );
     // The lines the poll's reads left, of both its `Calls`, said once here and
     // nowhere else: `taken` empties the shared queue, so the drain of `body` and
     // this one read disjoint buckets of the same queue and no line is said twice.
@@ -787,6 +796,8 @@ pub fn run_poll(
     rc
 }
 
+// The poll's own parts, each made once by `run_poll`.
+#[allow(clippy::too_many_arguments)]
 fn body(
     home: &Path,
     settings: &Settings,
@@ -795,6 +806,7 @@ fn body(
     w: &mut Writer,
     end: &mut End,
     retry: &RetryPolicy,
+    handles: crate::apply::HandlesOf,
 ) -> i32 {
     // The journal first, before GitHub is read for the queue: what a poll
     // that died between two writes left is settled from fresh reads. One that
@@ -832,11 +844,30 @@ fn body(
         now,
         models: crate::read::models::Models::read(),
         endpoint: (String::new(), String::new()),
+        code_host: None,
+        said: Vec::new(),
     };
     // The same token for the poll's reads as for its writes: what the shim of
     // every gh call would ask for anyway, asked once by the poll.
     src.calls.gh_token = w.calls.gh_token.clone().or_else(|| token.get(home));
+    // The code host's reads go through the port, its handle from the same
+    // wiring as the writes', with the same token, its calls counted with
+    // theirs in the poll's cost. Only the branch's check
+    // reads through it yet, so none is made for an instance that names none.
+    if !settings.branch_check.is_empty() {
+        let gh_token = src.calls.gh_token.as_deref();
+        let calls = w.port_calls.clone();
+        src.code_host = handles(home, &w.repo, &w.gh, gh_token, w.bound, calls)
+            .ok()
+            .map(|h| h.code_host);
+    }
     let snap = snapshot(&mut src, settings);
+    // What the reads met that their outcome alone does not say, once each:
+    // a code host that refused the branch's checks, and where the setup page
+    // says what its account needs.
+    for line in std::mem::take(&mut src.said) {
+        say(&format!("WARN: {line}"));
+    }
     end.gh = src.calls.gh_count;
     // Every gh read the poll could not make says why, in gh's own words: only the
     // queue's failure reached the log before, because only the rules that cannot
@@ -1502,8 +1533,9 @@ mod tests {
         let home = home_of("adopt");
         let none = Settings::parse(&json!({}));
         assert!(adopt_login(&home, &none).is_none(), "no login is kept yet");
-        std::fs::create_dir_all(home.join("state/github")).unwrap();
-        std::fs::write(home.join("state/github/login"), "acme-app[bot]\n").unwrap();
+        std::fs::create_dir_all(Home::new(&*home).token_dir(tehas_core::home::TokenDir::App))
+            .unwrap();
+        std::fs::write(Home::new(&*home).state(State::BotLogin), "acme-app[bot]\n").unwrap();
         let got = adopt_login(&home, &none).expect("the kept login is adopted");
         assert_eq!(got.bot_login, "acme-app[bot]");
         assert!(got.is_millwright("acme-app[bot]"));
@@ -1515,14 +1547,14 @@ mod tests {
     /// A scratch home of this test, with `live/` in it.
     fn home_of(name: &str) -> tehas_core::testdir::TestDir {
         let dir = tehas_core::testdir::TestDir::new(&format!("poll-{name}"));
-        std::fs::create_dir_all(dir.join("live")).unwrap();
+        std::fs::create_dir_all(Home::new(&*dir).live_dir()).unwrap();
         dir
     }
 
     /// The status file of `home`, written now and then given the time of
     /// `made`: no sleeping, and the age a test asks for.
     fn status_at(home: &Path, made: i64) {
-        let file = home.join("live/status.json");
+        let file = Home::new(home).live(Live::Status);
         std::fs::write(&file, b"{}").unwrap();
         std::fs::OpenOptions::new()
             .write(true)
@@ -1537,7 +1569,7 @@ mod tests {
     #[test]
     fn a_poll_with_no_status_file_runs_the_status() {
         let home = home_of("missing");
-        assert!(!home.join("live/status.json").exists());
+        assert!(!Home::new(&*home).live(Live::Status).exists());
         assert!(status_due(&home, NOW));
     }
 
@@ -1569,7 +1601,7 @@ mod tests {
         let dir = home_of("unreadable");
         // Not a file at all: the time of it cannot be had, and the poll asks
         // the status what it holds rather than trusting a file it cannot read.
-        std::fs::create_dir_all(dir.join("live/status.json")).unwrap();
+        std::fs::create_dir_all(Home::new(&*dir).live(Live::Status)).unwrap();
         assert!(status_due(&dir, NOW));
         let dir = home_of("epoch");
         status_at(&dir, 0);
@@ -1582,10 +1614,10 @@ mod tests {
     fn poll_home(name: &str) -> tehas_core::testdir::TestDir {
         let home = home_of(name);
         std::fs::create_dir_all(home.join("libexec")).unwrap();
-        std::fs::create_dir_all(home.join("state")).unwrap();
+        std::fs::create_dir_all(Home::new(&*home).state_dir()).unwrap();
         let store = home.join("libexec/store");
         tehas_core::testing::write_exe(&store, "#!/bin/sh\nexit 0\n").unwrap();
-        std::fs::write(home.join("state/tehas.db"), "").unwrap();
+        std::fs::write(Home::new(&*home).state(State::StoreDb), "").unwrap();
         home
     }
 
@@ -1595,7 +1627,7 @@ mod tests {
         let held = OpenOptions::new()
             .create(true)
             .append(true)
-            .open(home.join("state/dispatch.lock"))
+            .open(Home::new(home).state(State::DispatchLock))
             .unwrap();
         held.try_lock()
             .expect("nothing else holds this home's lock");
@@ -1629,7 +1661,7 @@ mod tests {
     #[test]
     fn a_poll_that_finds_the_lock_held_leaves_the_ask_for_the_next_poll() {
         let home = poll_home("again-held");
-        let again = home.join("state/dispatch.again");
+        let again = Home::new(&*home).state(State::DispatchAgain);
         std::fs::write(&again, "").unwrap();
         let held = held_lock(&home);
         let events = crate::events::wiring();
@@ -1653,7 +1685,7 @@ mod tests {
     #[test]
     fn a_poll_that_takes_the_lock_takes_the_ask_with_it() {
         let home = poll_home("again-taken");
-        let again = home.join("state/dispatch.again");
+        let again = Home::new(&*home).state(State::DispatchAgain);
         std::fs::write(&again, "").unwrap();
         let _ = run_poll(
             &home,

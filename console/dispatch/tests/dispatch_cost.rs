@@ -7,6 +7,7 @@ use serde_json::Value;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
+use tehas_core::home::{Home, State};
 
 fn now() -> i64 {
     std::time::SystemTime::now()
@@ -48,7 +49,7 @@ fn gh_calls(w: &World) -> u64 {
 }
 
 fn log(w: &World) -> PathBuf {
-    w.home.join("state/github-writes.log")
+    Home::new(&w.home).state(State::GithubWrites)
 }
 
 fn paused(w: &World) {

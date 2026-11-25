@@ -627,13 +627,8 @@
    "snapshot": {
     "disk_kb": 1048576,
     "checks": {
-     "check_runs": [
-      {
-       "head_sha": "0123456789abcdef0123456789abcdef01234567",
-       "status": "completed",
-       "conclusion": "failure"
-      }
-     ]
+     "state": "red",
+     "head": "0123456789ab"
     }
    },
    "expect": {

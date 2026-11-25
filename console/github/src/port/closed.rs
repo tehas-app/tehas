@@ -13,7 +13,7 @@ use serde::Deserialize;
 
 use super::board::Pull;
 use super::number;
-use crate::ticket::{closes, digest_fields, part, present, time, Event, Node, Page, Pages};
+use crate::ticket::{closes, digest_fields, present, time, Event, Node, Page, Pages};
 use crate::GitHub;
 use tehas_ports::{
     At, Bound, ChangeDigest, ChangeState, ChangeStates, ClosedTicket, Got, Outcome, TicketDigest,
@@ -197,7 +197,8 @@ impl GitHub {
             let out = self
                 .call("the closed issues", &args)
                 .map_err(|e| self.outcome(&e))?;
-            let page: Page<ClosedNode> = part(&out, "/data/repository/issues")?;
+            let page: Page<ClosedNode> =
+                crate::graphql::part(&out, "/data/repository/issues", (self.now)())?;
             for node in page.nodes {
                 let closed = self.closed_ticket(node.ok_or(INCONSISTENT)?)?;
                 if all.iter().any(|c| c.digest.key == closed.digest.key) {

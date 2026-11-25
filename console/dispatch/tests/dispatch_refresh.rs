@@ -10,6 +10,7 @@ use common::*;
 use refresh::*;
 use serde_json::{json, Value};
 use std::fs;
+use tehas_core::home::{self, Home};
 use tehas_ports::{Mark, State};
 
 /// The REST call of rule 4b that marks a pull request.
@@ -296,7 +297,10 @@ fn a_request_without_asked_as_the_timed_scan_of_before_wrote_it_starts_too() {
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(w.started(), "7 ");
     lacks(&r.out, "hold refreshes");
-    assert_eq!(w.read_home("state/refresh/.held"), "");
+    assert_eq!(
+        w.read_home(Home::new(&w.home).state(home::State::RefreshHeld)),
+        ""
+    );
 }
 
 #[test]
@@ -314,7 +318,10 @@ fn a_pr_request_counts_in_the_demand_and_nothing_is_held() {
         json!({"waiting": d["waiting"], "oldest": d["oldest"], "refreshHold": d["refreshHold"]}),
         json!({"waiting": 1, "oldest": "2026-10-17T09:00:00Z", "refreshHold": null})
     );
-    assert_eq!(w.read_home("state/refresh/.held"), "");
+    assert_eq!(
+        w.read_home(Home::new(&w.home).state(home::State::RefreshHeld)),
+        ""
+    );
     lacks(&r.out, "hold refreshes");
     assert_eq!(requests(&w), 1);
 }

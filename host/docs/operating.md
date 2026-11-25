@@ -1636,8 +1636,10 @@ recording, and both commands then say so and exit 78.
   a while; the six-pass review is the slowest part.
 
 - No new cycle while the branch is red, when the instance sets
-  `TEHAS_BRANCH_CHECK`: each poll asks GitHub, in one call that may take 30
-  seconds, for that check on the head commit of the branch work lands on.
+  `TEHAS_BRANCH_CHECK`: each poll asks GitHub for that check on the head
+  commit of the branch work lands on, in four reads: the branch's head, its
+  check runs, the workflow runs they belong to and the commit's statuses
+  ([the permission to read the checks](/github-app#the-permission-to-read-the-checks)).
   When it failed, timed out or could not start, the poll starts no cycle, no
   retry and no refresh, and says `holding: main is red at <sha>`, with the
   branch's name and the first 12 characters of the commit. A cycle started

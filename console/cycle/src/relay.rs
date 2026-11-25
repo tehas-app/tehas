@@ -2078,6 +2078,34 @@ mod tests {
         );
     }
 
+    /// The GitHub adapter (console/github, `outcome` in `tickets.rs`)
+    /// reads exactly this reason as `SignedOut`: a gh with no credential
+    /// exits 4, and gh's words on its error stream hold none of
+    /// `gh_why`'s list. Change it there too. The stand-in says the second
+    /// line of gh's words (forge.rs's test says both).
+    #[test]
+    fn the_relays_gh_with_no_credential_is_the_exit_status_alone() {
+        let d = TestDir::new("relay-gh-no-credential");
+        let program = d.join("signed-out");
+        tehas_core::testing::write_exe(
+            &program,
+            "#!/bin/sh\n\
+             echo 'Alternatively, populate the GH_TOKEN environment variable with a GitHub API authentication token.' >&2\n\
+             exit 4\n",
+        )
+        .unwrap();
+        let mut gh = RelayGh {
+            gh: program,
+            token: "ghs_full".to_string(),
+            until: Instant::now() + Duration::from_secs(10),
+        };
+        assert_eq!(gh.run(&["api", "x"]), Err("gh exited 4".to_string()));
+        assert_eq!(
+            gh.run_input(&["api", "x"], "b"),
+            Err("gh exited 4".to_string())
+        );
+    }
+
     #[test]
     fn the_relays_gh_runs_nothing_once_its_time_is_up() {
         let d = TestDir::new("relay-gh-late");

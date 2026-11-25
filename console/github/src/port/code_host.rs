@@ -6,13 +6,15 @@
 //! pull request's timeline and the commit a branch points at (`activity`
 //! and `branch`, in `activity.rs`), and the tags and releases (`tags`,
 //! `recent_tags`, `resolve_tag`, `releases`, `recent_releases`,
-//! `latest_release` and `release`, in `releases.rs`). Every other read
+//! `latest_release` and `release`, in `releases.rs`), and one release file
+//! (`download`, in `download.rs`). Every other read
 //! answers `Refused(Unsupported)` before any request; `archive` is a floor,
 //! since tehas fetches no commit's tarball.
 
 mod activity;
 mod change;
 mod checks;
+mod download;
 mod numbers;
 mod releases;
 mod remote;
@@ -101,7 +103,7 @@ impl CodeHost for GitHub {
             }
             args.extend(["-f", &query]);
             match gh.call("the pull requests", &args) {
-                Ok(out) => read_page(&out, me, filter, gh.bot.as_ref()),
+                Ok(out) => read_page(&out, me, filter, gh.bot.as_ref(), (gh.now)()),
                 Err(e) => Err(gh.query_outcome(&e)),
             }
         };
@@ -214,10 +216,16 @@ impl CodeHost for GitHub {
         self.release_of(tag)
     }
 
-    /// `Refused(Unsupported)` until its own pull request: a release file is
-    /// bytes, and gh's runner gives text.
-    fn download(&mut self, _: &TagName, _: &FileName, _: u64, _: &mut dyn std::io::Write) -> Did {
-        unsupported()
+    /// gh's `release download` into a directory of the adapter's own, held
+    /// to the size the release lists and to the limit: see `download.rs`.
+    fn download(
+        &mut self,
+        tag: &TagName,
+        file: &FileName,
+        limit: u64,
+        into: &mut dyn std::io::Write,
+    ) -> Did {
+        self.download_to(tag, file, limit, into)
     }
 
     /// `Refused(Unsupported)`, a floor: tehas fetches no commit's tarball
@@ -448,13 +456,14 @@ fn read_page(
     me: bool,
     f: &ChangeFilter,
     bot: Option<&crate::tickets::Bot>,
+    now: i64,
 ) -> Got<Page> {
     let malformed = Outcome::Unread(Unread::Malformed);
+    if let Some(refused) = crate::graphql::refusal(out, now) {
+        return Err(refused);
+    }
     let mut v: Value = serde_json::from_str(out.trim()).map_err(|_| malformed.clone())?;
     tehas_core::accounts::vouch(&mut v);
-    if v.get("errors").is_some_and(|e| !e.is_null()) {
-        return Err(Outcome::Unread(Unread::Inconsistent));
-    }
     let repo = v.pointer("/data/repository").ok_or(malformed.clone())?;
     let here = repo.get("databaseId").and_then(Value::as_u64);
     let list = repo.get("pullRequests").ok_or(malformed.clone())?;
