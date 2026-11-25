@@ -780,7 +780,7 @@ it's ready, by going on the signed list from its own repository (decision
 | Plugin | Driver lines | Needs | Under 2.0.0 |
 | --- | ---: | --- | --- |
 | mattpocock-skills (`specs`), tutor | 0 | nothing; skills only | as is |
-| panels | 0 | nothing (`menu`, `frame`) | as is |
+| panels | 0 | `frame`, back as a grant (#3309) | manifest only, once `frame` lands |
 | business, energy, hoststats | 50 each | `fs` | trivial port |
 | console | 379 | `fs`; xterm.js as a verified library | small port |
 | voice | 563 | `fs`; microphone and speech are on the view side, behind `device:microphone` (H10) | small port |
@@ -916,7 +916,13 @@ it's ready, by going on the signed list from its own repository (decision
    `JSX` types, and the import map.
 6. The 13 plugins with drivers float and port to `src/`/`dist/` when
    ready (part 8, decision 50); the 3 with skills or menus only stay as
-   they are. hoststats is the first candidate to prove the ordinary path
+   they are in code: no `src/` or `dist/` port. Their manifests still move
+   to `"plugin": 2` with `"spec": "2.0.0-r8"`, since a manifest that says 1
+   is refused (normative file, header; held by the vetting step in #3301
+   and its fixtures). specs and tutor have done so. panels can't yet: its
+   `frame` ask has no 2.x word until #3309 brings `frame` back as a grant,
+   so until then panels stays at 1.x, off the vetted list, and runs on no
+   2.1 host. hoststats is the first candidate to prove the ordinary path
    (#3328), on no release's schedule. Refuse pageticket on the vetted
    list.
 7. Remove the 1.x image, build and container paths. There's no
