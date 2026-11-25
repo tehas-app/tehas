@@ -249,9 +249,9 @@ fn each_fixture_result_is_stored_with_what_the_outcome_drops() {
             ),
             "{name}"
         );
-        let more: (i64, i64, i64, f64, i64, String, String, String) = conn
+        let more: (i64, i64, i64, i64, String, String, String) = conn
             .query_row(
-                "SELECT runner_ms, cache_write, dispatches, cost, result_schema, last_step,
+                "SELECT runner_ms, cache_write, dispatches, result_schema, last_step,
                         failed_step, endpoint FROM runs",
                 [],
                 |r| {
@@ -263,7 +263,6 @@ fn each_fixture_result_is_stored_with_what_the_outcome_drops() {
                         r.get(4)?,
                         r.get(5)?,
                         r.get(6)?,
-                        r.get(7)?,
                     ))
                 },
             )
@@ -276,7 +275,6 @@ fn each_fixture_result_is_stored_with_what_the_outcome_drops() {
                 ms,
                 0,
                 dispatches,
-                0.0,
                 schema,
                 "handoff".into(),
                 "explore".into(),
@@ -335,7 +333,7 @@ fn each_fixture_result_is_stored_with_what_the_outcome_drops() {
 }
 
 #[test]
-fn cache_write_cost_and_role_usage_are_kept() {
+fn cache_write_and_role_usage_are_kept_and_the_runner_s_cost_is_not() {
     let home = scratch("usage");
     let started = secs("2026-10-18T10:16:39Z");
     cycle(
@@ -355,9 +353,9 @@ fn cache_write_cost_and_role_usage_are_kept() {
                    "cost": 0.125, "turns": 4, "dispatches": 1}}});
     fs::write(&path, r.to_string()).unwrap();
     let conn = record(&home, 7, started + 60);
-    let usage: (i64, i64, i64, i64, i64, i64, f64) = conn
+    let usage: (i64, i64, i64, i64, i64, i64) = conn
         .query_row(
-            "SELECT input, output, cache_read, cache_write, turns, dispatches, cost FROM runs",
+            "SELECT input, output, cache_read, cache_write, turns, dispatches FROM runs",
             [],
             |r| {
                 Ok((
@@ -367,18 +365,18 @@ fn cache_write_cost_and_role_usage_are_kept() {
                     r.get(3)?,
                     r.get(4)?,
                     r.get(5)?,
-                    r.get(6)?,
                 ))
             },
         )
         .unwrap();
-    assert_eq!(usage, (1000, 200, 5000, 300, 9, 3, 0.25));
-    let roles: Vec<(String, String, i64, i64, f64)> = conn
-        .prepare("SELECT role, model, input, cache_write, cost FROM run_roles ORDER BY role")
+    assert_eq!(usage, (1000, 200, 5000, 300, 9, 3));
+    // The runner's cost is read past: no column holds it.
+    assert!(!columns(&conn, "runs").contains(&"cost".to_string()));
+    assert!(!columns(&conn, "run_roles").contains(&"cost".to_string()));
+    let roles: Vec<(String, String, i64, i64)> = conn
+        .prepare("SELECT role, model, input, cache_write FROM run_roles ORDER BY role")
         .unwrap()
-        .query_map([], |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
-        })
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
         .unwrap()
         .map(Result::unwrap)
         .collect();
@@ -390,10 +388,9 @@ fn cache_write_cost_and_role_usage_are_kept() {
                 "code-review-specialist".into(),
                 "sub-model".into(),
                 600,
-                200,
-                0.125
+                200
             ),
-            ("ops".into(), "ops-model".into(), 400, 100, 0.125),
+            ("ops".into(), "ops-model".into(), 400, 100),
         ]
     );
 }
@@ -1596,8 +1593,8 @@ fn a_write_lock_held_past_the_busy_timeout_is_waited_out() {
 /// v0.30.0 wrote schema 4 already, so a database of an older schema is no
 /// 0.30 host's: it is kept aside under its version, as a newer one is.
 #[test]
-fn a_database_of_schema_1_to_3_or_8_is_kept_aside() {
-    for v in [1, 2, 3, 8] {
+fn a_database_of_schema_1_to_3_or_9_is_kept_aside() {
+    for v in [1, 2, 3, 9] {
         let home = scratch(&format!("schema-{v}"));
         let file = db::path(&home);
         {
@@ -1838,98 +1835,6 @@ fn export_writes_a_copy_that_opens_with_the_same_version_mode_0600_and_nothing_p
             db::SCHEMA_VERSION,
             started + 30
         )
-    );
-}
-
-#[test]
-fn the_views_answer_for_a_known_data_set() {
-    let home = scratch("views");
-    let day0 = 1_792_022_400; // 2026-10-15T00:00:00Z
-    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    // Issue 1: two runs, merged on the second. Issue 2: one run, merged.
-    // Issue 3: one failed run. All on one version pair but the last.
-    let runs = [
-        ("a", 1, day0 + 100, 600, "handoff", 1000, "v1"),
-        ("b", 1, day0 + 2000, 1200, "merged", 3000, "v1"),
-        ("c", 2, day0 + 3000, 1800, "merged", 2000, "v1"),
-        ("d", 3, day0 + DAY + 10, 300, "failed", 500, "v2"),
-    ];
-    for (id, issue, started, secs, outcome, tokens, tv) in runs {
-        conn.execute(
-            "INSERT INTO runs (id, kind, issue, started, ended, seconds, outcome, input,
-                               tehas_version, rukas_version)
-             VALUES (?1, 'work', ?2, ?3, ?4, ?5, ?6, ?7, ?8, '0.13.0')",
-            rusqlite::params![
-                id,
-                issue,
-                started,
-                started + secs,
-                secs,
-                outcome,
-                tokens,
-                tv
-            ],
-        )
-        .unwrap();
-    }
-    db::event(&conn, 1, "ready", day0).unwrap();
-    db::event(&conn, 2, "ready", day0 + 2900).unwrap();
-    let lead: Vec<(i64, i64, i64)> = conn
-        .prepare("SELECT issue, lead_seconds, runs FROM v_lead ORDER BY issue")
-        .unwrap()
-        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
-        .unwrap()
-        .map(Result::unwrap)
-        .collect();
-    assert_eq!(lead, vec![(1, 3200, 2), (2, 1900, 1)]);
-    let daily: Vec<(String, i64, i64, i64, i64, i64)> = conn
-        .prepare("SELECT day, shipped, runs, failed, minutes, tokens FROM v_daily ORDER BY day")
-        .unwrap()
-        .query_map([], |r| {
-            Ok((
-                r.get(0)?,
-                r.get(1)?,
-                r.get(2)?,
-                r.get(3)?,
-                r.get(4)?,
-                r.get(5)?,
-            ))
-        })
-        .unwrap()
-        .map(Result::unwrap)
-        .collect();
-    assert_eq!(
-        daily,
-        vec![
-            ("2026-10-15".into(), 2, 3, 0, 60, 6000),
-            ("2026-10-16".into(), 0, 1, 1, 5, 500),
-        ]
-    );
-    let versions: Vec<(String, i64, f64, f64, f64, f64)> = conn
-        .prepare(
-            "SELECT tehas_version, runs, change_share, handoff_share, median_minutes, median_tokens
-             FROM v_versions ORDER BY tehas_version",
-        )
-        .unwrap()
-        .query_map([], |r| {
-            Ok((
-                r.get(0)?,
-                r.get(1)?,
-                r.get(2)?,
-                r.get(3)?,
-                r.get(4)?,
-                r.get(5)?,
-            ))
-        })
-        .unwrap()
-        .map(Result::unwrap)
-        .collect();
-    assert_eq!(
-        versions,
-        vec![
-            ("v1".into(), 3, 0.667, 0.333, 20.0, 2000.0),
-            ("v2".into(), 1, 0.0, 0.0, 5.0, 500.0),
-        ]
     );
 }
 
@@ -2646,7 +2551,7 @@ fn plan_stores_the_turn_with_its_times_turn_and_outcome_and_no_usage() {
     );
     let usage: i64 = one(
         &conn,
-        "SELECT count(*) FROM runs WHERE coalesce(input, output, cache_read, cache_write, dispatches, cost,
+        "SELECT count(*) FROM runs WHERE coalesce(input, output, cache_read, cache_write, dispatches,
            attempt, queue_wait) IS NOT NULL",
     );
     assert_eq!(usage, 0);
@@ -2951,44 +2856,6 @@ fn the_whole_numbers_of_the_arguments_follow_the_shared_rule() {
     }
 }
 
-/// A work run that ended in the report's window, as the columns the drivers
-/// are read from.
-fn driver_run(
-    conn: &Connection,
-    id: &str,
-    issue: i64,
-    started: i64,
-    outcome: &str,
-    tokens: Option<i64>,
-    driver: Option<&str>,
-) {
-    conn.execute(
-        "INSERT INTO runs (id, kind, issue, started, ended, seconds, outcome, input, driver)
-         VALUES (?1, 'work', ?2, ?3, ?3 + 600, 600, ?4, ?5, ?6)",
-        rusqlite::params![id, issue, started, outcome, tokens, driver],
-    )
-    .unwrap();
-}
-
-#[test]
-fn v_versions_leaves_runs_with_no_usage_out_of_its_median_tokens() {
-    let median =
-        |conn: &Connection| one::<Option<f64>>(conn, "SELECT median_tokens FROM v_versions");
-    let new = scratch("view-tokens-new");
-    let (fresh, _) = db::open(&db::path(&new), 1_792_022_400).unwrap();
-    {
-        let conn = &fresh;
-        driver_run(conn, "a", 1, 1_792_022_400, "offered", None, Some("lean"));
-        driver_run(conn, "b", 2, 1_792_022_400, "offered", None, Some("lean"));
-        assert_eq!(median(conn), None);
-        driver_run(conn, "c", 3, 1_792_022_400, "offered", Some(500), None);
-        assert_eq!(median(conn), Some(500.0));
-        // A reported 0 is a figure.
-        driver_run(conn, "d", 4, 1_792_022_400, "offered", Some(0), None);
-        assert_eq!(median(conn), Some(250.0));
-    }
-}
-
 #[test]
 fn an_export_of_no_runs_leaves_out_from_and_to() {
     let home = scratch("export-empty");
@@ -3088,7 +2955,7 @@ fn sessions_carry_steps_roles_and_camel_case() {
     let (conn, _) = db::open(&db::path(&home), now).unwrap();
     add_run(&conn, "work-7-x", 7, now - 3600);
     conn.execute(
-        "UPDATE runs SET failure_kind = 'cap', rukas_version = 'v0.14.0', review_held = 0, provider_outage = 1, cost = 1.5 WHERE id = 'work-7-x'",
+        "UPDATE runs SET failure_kind = 'cap', rukas_version = 'v0.14.0', review_held = 0, provider_outage = 1 WHERE id = 'work-7-x'",
         [],
     )
     .unwrap();
@@ -4885,12 +4752,21 @@ const SCHEMA_4: [(&str, &str); 2] = [
 ];
 
 #[test]
-fn a_new_database_is_schema_7_with_no_watts_and_no_contractor() {
-    let home = scratch("schema-7-new");
+fn a_new_database_is_schema_8_with_no_watts_no_contractor_no_cost_and_no_view() {
+    let home = scratch("schema-8-new");
     let (conn, _) = db::open(&db::path(&home), 0).unwrap();
-    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 7);
+    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 8);
     assert!(!columns(&conn, "samples").contains(&"watts".to_string()));
     assert!(!columns(&conn, "runs").contains(&"contractor_id".to_string()));
+    assert!(!columns(&conn, "runs").contains(&"cost".to_string()));
+    assert!(!columns(&conn, "run_roles").contains(&"cost".to_string()));
+    assert_eq!(
+        one::<i64>(
+            &conn,
+            "SELECT count(*) FROM sqlite_master WHERE type = 'view'"
+        ),
+        0
+    );
 }
 
 /// A file of schema 5 as the 2.0 branch wrote it before schema 6: the
@@ -4918,17 +4794,17 @@ fn schema_5_file(file: &Path) {
 
 #[test]
 fn a_schema_5_file_migrates_in_place_and_keeps_every_row_without_its_contractor() {
-    let fresh = scratch("schema-7-fresh-from-5");
+    let fresh = scratch("schema-8-fresh-from-5");
     let (made, _) = db::open(&db::path(&fresh), 0).unwrap();
     let home = scratch("schema-5");
     let file = db::path(&home);
     schema_5_file(&file);
     let (conn, moved) = db::open(&file, 200).unwrap();
     assert_eq!(moved, None, "a file of schema 5 is not moved aside");
-    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 7);
+    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 8);
     assert_eq!(
         one::<String>(&conn, "SELECT value FROM meta WHERE key = 'schema'"),
-        "7"
+        "8"
     );
     assert_eq!(shape(&conn), shape(&made));
     assert!(!columns(&conn, "runs").contains(&"contractor_id".to_string()));
@@ -4953,7 +4829,7 @@ fn a_schema_5_file_migrates_in_place_and_keeps_every_row_without_its_contractor(
         0
     );
     drop(conn);
-    // Opened again it is a 7 already: nothing is written.
+    // Opened again it is an 8 already: nothing is written.
     let before = fs::read(&file).unwrap();
     let (again, moved) = db::open(&file, 300).unwrap();
     assert_eq!(moved, None);
@@ -4963,7 +4839,7 @@ fn a_schema_5_file_migrates_in_place_and_keeps_every_row_without_its_contractor(
 
 #[test]
 fn a_schema_4_file_of_either_age_migrates_in_place_to_the_shape_of_a_new_one() {
-    let fresh = scratch("schema-7-fresh");
+    let fresh = scratch("schema-8-fresh");
     let (made, _) = db::open(&db::path(&fresh), 0).unwrap();
     for (age, fixture) in SCHEMA_4 {
         let home = scratch(&format!("schema-4-{age}"));
@@ -4971,11 +4847,11 @@ fn a_schema_4_file_of_either_age_migrates_in_place_to_the_shape_of_a_new_one() {
         schema_4_file(&file, fixture);
         let (conn, moved) = db::open(&file, 200).unwrap();
         assert_eq!(moved, None, "{age}: a file of schema 4 is not moved aside");
-        assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 7, "{age}");
+        assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 8, "{age}");
         assert_eq!(shape(&conn), shape(&made), "{age}");
         assert_eq!(
             one::<String>(&conn, "SELECT value FROM meta WHERE key = 'schema'"),
-            "7",
+            "8",
             "{age}"
         );
         assert_eq!(
@@ -5005,7 +4881,7 @@ fn a_schema_4_file_of_either_age_migrates_in_place_to_the_shape_of_a_new_one() {
             "{age}"
         );
         drop(conn);
-        // Opened again it is a 7 already: nothing is written.
+        // Opened again it is an 8 already: nothing is written.
         let before = fs::read(&file).unwrap();
         let (again, moved) = db::open(&file, 300).unwrap();
         assert_eq!(moved, None, "{age}");
@@ -5028,7 +4904,7 @@ fn a_schema_4_file_another_program_migrated_meanwhile_is_not_migrated_again() {
     let mut late = Connection::open(&file).unwrap();
     db::open(&file, 200).unwrap();
     assert!(db::settle(&mut late, 4, 300).is_ok());
-    assert_eq!(one::<i64>(&late, "PRAGMA user_version"), 7);
+    assert_eq!(one::<i64>(&late, "PRAGMA user_version"), 8);
     assert!(!columns(&late, "samples").contains(&"watts".to_string()));
     assert_eq!(one::<i64>(&late, "SELECT count(*) FROM samples"), 2);
 }
@@ -5056,7 +4932,7 @@ fn programs_that_open_a_schema_4_file_at_once_all_get_it_migrated() {
             );
         }
         let conn = Connection::open(&file).unwrap();
-        assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 7);
+        assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 8);
         assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM issue_events"), 8);
         assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM samples"), 2);
     }
@@ -5087,22 +4963,22 @@ fn schema_6_file(file: &Path) {
 
 /// Schema 6 to 7: `runs.outcome` takes `offered` and no longer `pr`, every
 /// `pr` outcome and every `label` how is rewritten, every row of runs and of
-/// its children stays, `v_versions` counts `change_share`, the file has the
+/// its children stays, the file has the
 /// shape of a new one, the rewrite is counted for the published sessions, and
 /// a second open writes nothing. No `pr` outcome and no `label` how is left.
 #[test]
 fn a_schema_6_file_takes_the_words_of_2_0_and_keeps_every_row() {
-    let fresh = scratch("schema-7-fresh-from-6");
+    let fresh = scratch("schema-8-fresh-from-6");
     let (made, _) = db::open(&db::path(&fresh), 0).unwrap();
     let home = scratch("schema-6");
     let file = db::path(&home);
     schema_6_file(&file);
     let (conn, moved) = db::open(&file, 200).unwrap();
     assert_eq!(moved, None, "a file of schema 6 is not moved aside");
-    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 7);
+    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 8);
     assert_eq!(
         one::<String>(&conn, "SELECT value FROM meta WHERE key = 'schema'"),
-        "7"
+        "8"
     );
     assert_eq!(shape(&conn), shape(&made));
     assert_eq!(
@@ -5140,13 +5016,6 @@ fn a_schema_6_file_takes_the_words_of_2_0_and_keeps_every_row() {
     assert_eq!(
         one::<String>(
             &conn,
-            "SELECT runs || ' ' || change_share FROM v_versions WHERE tehas_version = 'v1.4.0'"
-        ),
-        "3 0.667"
-    );
-    assert_eq!(
-        one::<String>(
-            &conn,
             &format!(
                 "SELECT value FROM meta WHERE key = '{}'",
                 db::HOWS_REWRITTEN
@@ -5155,7 +5024,7 @@ fn a_schema_6_file_takes_the_words_of_2_0_and_keeps_every_row() {
         "1"
     );
     drop(conn);
-    // Opened again it is a 7 already: nothing is written.
+    // Opened again it is an 8 already: nothing is written.
     let before = fs::read(&file).unwrap();
     let (again, moved) = db::open(&file, 300).unwrap();
     assert_eq!(moved, None);
@@ -5163,20 +5032,105 @@ fn a_schema_6_file_takes_the_words_of_2_0_and_keeps_every_row() {
     assert!(fs::read(&file).unwrap() == before, "a second open wrote");
 }
 
-/// The view columns and values schema 7 renamed: none of the old words is
-/// left in the schema's views, and the new ones are there.
-#[test]
-fn the_views_of_schema_7_say_offered_and_approved_and_never_pr_or_label() {
-    let home = scratch("schema-7-views");
-    let (conn, _) = db::open(&db::path(&home), 0).unwrap();
-    let views = one::<String>(
-        &conn,
-        "SELECT group_concat(sql, ' ') FROM sqlite_master WHERE type = 'view'",
+/// A file of schema 7 as the 2.0 branch wrote it before schema 8: runs and
+/// roles with a cost, steps and gates, and the three views over them.
+fn schema_7_file(file: &Path) {
+    let old = Connection::open(file).unwrap();
+    old.execute_batch(include_str!("../tests/fixtures/schema-7.sql"))
+        .unwrap();
+    old.execute_batch(
+        "INSERT INTO meta (key, value) VALUES ('schema', '7'), ('retention_days', '365'),
+           ('created', '100');
+         INSERT INTO runs (id, kind, issue, how, started, ended, seconds, outcome, input, cost,
+             tehas_version, gate_runs, gate_ms)
+           VALUES ('work-7-100', 'work', 7, 'approved', 100, 700, 600, 'offered', 40, 0.25,
+                   'v2.0.0', 1, 900),
+                  ('work-8-110', 'work', 8, 'reply', 110, 710, 600, 'merged', NULL, NULL,
+                   'v2.0.0', NULL, NULL);
+         INSERT INTO run_roles (run_id, role, model, input, cost, ms)
+           VALUES ('work-7-100', 'worker', 'm', 12, 0.125, 300);
+         INSERT INTO run_steps (run_id, step, round, seconds) VALUES ('work-7-100', 'develop', 1, 300);
+         INSERT INTO run_gate_runs (run_id, seq, ok, ms) VALUES ('work-7-100', 1, 1, 900);
+         INSERT INTO issue_events (at, issue, event) VALUES (50, 7, 'ready');
+         INSERT INTO samples (at, running, paused, held) VALUES (150, 1, 0, '');
+         PRAGMA user_version = 7;",
+    )
+    .unwrap();
+    assert!(columns(&old, "runs").contains(&"cost".to_string()));
+    assert_eq!(
+        one::<i64>(
+            &old,
+            "SELECT count(*) FROM sqlite_master WHERE type = 'view'"
+        ),
+        3
     );
-    assert!(views.contains("change_share"), "{views}");
-    for old in ["'pr'", " pr,", "pr_share", "'label'"] {
-        assert!(!views.contains(old), "{old} in {views}");
-    }
+}
+
+/// Schema 7 to 8: `runs.cost` and `run_roles.cost` go, and the views
+/// `v_lead`, `v_daily` and `v_versions` with them. Every row of every table
+/// stays with its other columns, the file has the shape of a new one, and a
+/// second open writes nothing.
+#[test]
+fn a_schema_7_file_loses_cost_and_the_views_and_keeps_every_row() {
+    let fresh = scratch("schema-8-fresh-from-7");
+    let (made, _) = db::open(&db::path(&fresh), 0).unwrap();
+    let home = scratch("schema-7");
+    let file = db::path(&home);
+    schema_7_file(&file);
+    let (conn, moved) = db::open(&file, 200).unwrap();
+    assert_eq!(moved, None, "a file of schema 7 is not moved aside");
+    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 8);
+    assert_eq!(
+        one::<String>(&conn, "SELECT value FROM meta WHERE key = 'schema'"),
+        "8"
+    );
+    assert_eq!(shape(&conn), shape(&made));
+    assert!(!columns(&conn, "runs").contains(&"cost".to_string()));
+    assert!(!columns(&conn, "run_roles").contains(&"cost".to_string()));
+    assert_eq!(
+        one::<i64>(
+            &conn,
+            "SELECT count(*) FROM sqlite_master WHERE type = 'view'"
+        ),
+        0
+    );
+    assert_eq!(
+        one::<String>(
+            &conn,
+            "SELECT group_concat(row, ' | ') FROM (SELECT id || ' ' || how || ' ' || outcome
+               || ' ' || coalesce(input, '-') || ' ' || coalesce(gate_ms, '-') AS row
+               FROM runs ORDER BY id)"
+        ),
+        "work-7-100 approved offered 40 900 | work-8-110 reply merged - -"
+    );
+    assert_eq!(
+        one::<String>(
+            &conn,
+            "SELECT o.model || ' ' || o.input || ' ' || o.ms || ' ' || s.step || ' ' || g.ms
+               FROM run_roles o JOIN run_steps s ON s.run_id = o.run_id
+               JOIN run_gate_runs g ON g.run_id = o.run_id WHERE o.run_id = 'work-7-100'"
+        ),
+        "m 12 300 develop 900"
+    );
+    assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM issue_events"), 1);
+    assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM samples"), 1);
+    assert_eq!(
+        one::<i64>(&conn, "SELECT count(*) FROM pragma_foreign_key_check"),
+        0
+    );
+    drop(conn);
+    // Opened again it is an 8 already: nothing is written.
+    let before = fs::read(&file).unwrap();
+    let (again, moved) = db::open(&file, 300).unwrap();
+    assert_eq!(moved, None);
+    drop(again);
+    assert!(fs::read(&file).unwrap() == before, "a second open wrote");
+}
+
+/// The end word of schema 7 on: `offered`, never `pr`, in the schema itself.
+#[test]
+fn the_schema_says_offered_and_never_pr() {
+    assert!(SCHEMA_TEXT.contains("'offered'"));
     assert!(!SCHEMA_TEXT.contains("'pr'"));
 }
 

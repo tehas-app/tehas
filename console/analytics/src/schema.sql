@@ -47,7 +47,6 @@ CREATE TABLE runs (
   cache_write INTEGER,
   turns INTEGER,
   dispatches INTEGER,
-  cost REAL,
   oom_kills INTEGER,
   forks_refused INTEGER,
   concurrent INTEGER,
@@ -109,7 +108,6 @@ CREATE TABLE run_roles (
   output INTEGER,
   cache_read INTEGER,
   cache_write INTEGER,
-  cost REAL,
   ms INTEGER,
   tool_calls INTEGER,
   tool_errors INTEGER,
@@ -153,102 +151,14 @@ CREATE TABLE samples (
 -- schema 7: the words of 2.0's events. runs.outcome says offered where it said
 -- pr (its CHECK and every row), runs.how says approved where it said label,
 -- and v_versions names the share of the runs that reached a change, offered
--- or merged, change_share (it was pr_share). db::open
--- migrates a database of schema 4, 5 or 6 in place, the only versions it
--- migrates.
+-- or merged, change_share (it was pr_share).
+-- schema 8: cost on runs and on run_roles goes, and the views v_lead,
+-- v_daily and v_versions go: the factory collects, the industry analyses.
+-- db::open migrates a database of schema 4, 5, 6 or 7 in place, the only
+-- versions it migrates.
 
 -- schema, retention_days and created. Nothing about the host.
 CREATE TABLE meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
-
--- Per shipped issue: when it merged, when it was first accepted as ready,
--- the lead time between them and the work runs it took. An issue counts as
--- shipped by its merged event, or by a work run whose outcome was merged.
-CREATE VIEW v_lead AS
-WITH shipped AS (
-  SELECT issue, min(at) AS merged FROM (
-    SELECT issue, at FROM issue_events WHERE event = 'merged'
-    UNION ALL
-    SELECT issue, ended FROM runs WHERE kind = 'work' AND outcome = 'merged' AND ended IS NOT NULL
-  ) GROUP BY issue
-)
-SELECT
-  s.issue AS issue,
-  s.merged AS merged,
-  e.at AS ready,
-  s.merged - e.at AS lead_seconds,
-  (SELECT count(*) FROM runs r WHERE r.issue = s.issue AND r.kind = 'work' AND r.started <= s.merged) AS runs
-FROM shipped s
-LEFT JOIN issue_events e ON e.issue = s.issue AND e.event = 'ready';
-
--- Per UTC day: issues shipped, runs ended, of them failed, their minutes, and
--- their tokens (input, output and cache read).
-CREATE VIEW v_daily AS
-WITH days AS (
-  SELECT date(ended, 'unixepoch') AS day FROM runs WHERE ended IS NOT NULL
-  UNION
-  SELECT date(merged, 'unixepoch') FROM v_lead
-)
-SELECT
-  d.day AS day,
-  (SELECT count(*) FROM v_lead l WHERE date(l.merged, 'unixepoch') = d.day) AS shipped,
-  (SELECT count(*) FROM runs r WHERE date(r.ended, 'unixepoch') = d.day) AS runs,
-  (SELECT count(*) FROM runs r WHERE date(r.ended, 'unixepoch') = d.day AND r.outcome = 'failed') AS failed,
-  (SELECT coalesce(sum(r.seconds), 0) / 60 FROM runs r WHERE date(r.ended, 'unixepoch') = d.day) AS minutes,
-  (SELECT coalesce(sum(coalesce(r.input, 0) + coalesce(r.output, 0) + coalesce(r.cache_read, 0)), 0)
-     FROM runs r WHERE date(r.ended, 'unixepoch') = d.day) AS tokens
-FROM days d;
-
--- Per tehas and pi-rukas version pair, of the work runs that ended: how many,
--- the share of each outcome (change_share counts the runs that reached a
--- change, offered or merged), the median minutes, and the median tokens of the
--- runs that reported usage: an empty count is no zero. A pi-rukas without a
--- version is named by its commit. The views are the end of the file: the step
--- to 7 in db.rs lays them again from CREATE VIEW v_lead to the end, so they
--- stay last.
-CREATE VIEW v_versions AS
-WITH r AS (
-  SELECT
-    coalesce(tehas_version, '') AS tv,
-    coalesce(rukas_version, rukas_commit, '') AS rv,
-    outcome,
-    coalesce(seconds, 0) AS seconds,
-    CASE WHEN coalesce(input, output, cache_read) IS NOT NULL
-      THEN coalesce(input, 0) + coalesce(output, 0) + coalesce(cache_read, 0) END AS tokens
-  FROM runs WHERE kind = 'work' AND ended IS NOT NULL
-),
-ms AS (
-  SELECT tv, rv, seconds AS v,
-    row_number() OVER (PARTITION BY tv, rv ORDER BY seconds) AS rn,
-    count(*) OVER (PARTITION BY tv, rv) AS n
-  FROM r
-),
-mt AS (
-  SELECT tv, rv, tokens AS v,
-    row_number() OVER (PARTITION BY tv, rv ORDER BY tokens) AS rn,
-    count(*) OVER (PARTITION BY tv, rv) AS n
-  FROM r WHERE tokens IS NOT NULL
-),
-pairs AS (
-  SELECT tv, rv, count(*) AS runs,
-    sum(outcome IN ('offered', 'merged')) AS reached,
-    sum(outcome = 'handoff') AS handoff,
-    sum(outcome = 'parked') AS parked,
-    sum(outcome = 'failed') AS failed
-  FROM r GROUP BY tv, rv
-)
-SELECT
-  p.tv AS tehas_version,
-  p.rv AS rukas_version,
-  p.runs AS runs,
-  round(1.0 * p.reached / p.runs, 3) AS change_share,
-  round(1.0 * p.handoff / p.runs, 3) AS handoff_share,
-  round(1.0 * p.parked / p.runs, 3) AS parked_share,
-  round(1.0 * p.failed / p.runs, 3) AS failed_share,
-  (SELECT round(avg(v) / 60.0, 1) FROM ms WHERE ms.tv = p.tv AND ms.rv = p.rv
-     AND ms.rn IN ((ms.n + 1) / 2, (ms.n + 2) / 2)) AS median_minutes,
-  (SELECT avg(v) FROM mt WHERE mt.tv = p.tv AND mt.rv = p.rv
-     AND mt.rn IN ((mt.n + 1) / 2, (mt.n + 2) / 2)) AS median_tokens
-FROM pairs p;

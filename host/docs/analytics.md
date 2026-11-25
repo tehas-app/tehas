@@ -73,22 +73,24 @@ beside it. It is not under `live/` and is not served. Times are UTC Unix
 seconds and durations are seconds, as integers, except `runner_ms` and
 `run_roles.ms`, which are milliseconds.
 
-`PRAGMA user_version` is the schema version, today 7. Within one version
+`PRAGMA user_version` is the schema version, today 8. Within one version
 columns are only added. A change of a column's meaning, or a column removed,
 raises the version. Schema 5 removed `samples.watts`, which nothing writes
 since energy use left core in 2.0. Schema 6 removes `runs.contractor_id`:
 outsource was dropped in 2.0, and no release ever wrote a value there.
 Schema 7 takes the words of 2.0 for one fact everywhere: `runs.outcome`
 says `offered` where it said `pr`, in its CHECK and in every row, `runs.how`
-says `approved` where it said `label`, and `v_versions` counts `offered` and
-names its share of the runs that reached a change `change_share` (it was
-`pr_share`). A program that reads a
-copy reads the new words; there is no alias.
+says `approved` where it said `label`. A program that reads a copy reads the
+new words; there is no alias. Schema 8 removes `runs.cost` and
+`run_roles.cost`, and the views `v_lead`, `v_daily` and `v_versions`: the
+factory collects its runs, and a program that reads the copy works out its
+own figures. The runner's `cost` is read past.
 
-A file at 4, 5 or 6 is migrated in place the first time it is opened:
-`samples.watts` and `runs.contractor_id` are dropped where the file has them,
-and `runs` is laid again with the words of schema 7, its views with it;
-every other column and row stays. Two programs
+A file at 4, 5, 6 or 7 is migrated in place the first time it is opened: the
+three views go, `samples.watts`, `runs.contractor_id`, `runs.cost` and
+`run_roles.cost` are dropped where the file has them, and a file before 7 has
+`runs` laid again with the words of schema 7; every other column and row
+stays. Two programs
 that open it at once do not both migrate it. v0.30.0 wrote 4 already, so this
 release migrates no older file: a file at 1, 2 or 3 is kept aside under its
 version, as any other version is, and a new one is made.
@@ -166,7 +168,7 @@ call; one that a caller killed during the call leaves is removed by
 | `tehas_version`, `tehas_commit` | `~/tehas/docs/version.txt` as the run ended, `vX.Y.Z` and the seven-character commit | 1 |
 | `rukas_version`, `rukas_commit` | The result's `buildVersion` and `buildCommit`; else the commit of the sandbox image's `tehas.rukas` label | 1 |
 | `image` | The sandbox image's id, `sha256:<hex>`: for a work run the one its container started from, for a planning turn the one the image name pointed at as the dispatcher started the turn | 1 |
-| `input`, `output`, `cache_read`, `cache_write`, `turns`, `dispatches`, `cost` | The result's `usage`. For a planning turn `turns` is its turn in the session, and the rest is NULL | 1 |
+| `input`, `output`, `cache_read`, `cache_write`, `turns`, `dispatches` | The result's `usage`. For a planning turn `turns` is its turn in the session, and the rest is NULL | 1 |
 | `oom_kills`, `forks_refused` | Processes killed for memory and forks refused in the container, as `tehasbot cycle` reads them | 1 |
 | `concurrent` | How many other cycles ran when it started, from `settings` | 1 |
 | `runner_ms` | The result's `durationMs`, in milliseconds | 1 |
@@ -219,7 +221,7 @@ The usage of each role in a run, and the model it was given.
 | `role` | The role's name | 1 |
 | `model`, `provider` | The role's model and provider in the run's settings snapshot (on the cycle's record in the state store, in the run's facts) | 1 |
 | `dispatches`, `turns`, `input`, `output`, `cache_read` | The result's `usage.byRole`, else `progress.json` | 1 |
-| `cache_write`, `cost` | The result's `usage.byRole` | 1 |
+| `cache_write` | The result's `usage.byRole` | 1 |
 | `ms` | The role's time, in milliseconds, from `usage.byRole` | 1 |
 | `tool_calls`, `tool_errors` | As on `runs`, for the role, from `usage.byRole`. NULL where the role's row has none | 4 |
 
@@ -290,16 +292,6 @@ docker says of the id as the run ends. An id names one build, so the first time
 recorded stands and every run of the image reads it, also one recorded before
 it. A prune drops the key of an image no run names. No host name, address or
 token. Since schema 1; the image keys add no column.
-
-## The views
-
-So that a reader does not have to work out the common figures again:
-
-| View | Columns | Since |
-| --- | --- | --- |
-| `v_lead` | Per shipped issue: `issue`, `merged`, `ready`, `lead_seconds` and `runs`, the work runs it took. Shipped is a `merged` event, or a work run whose outcome was `merged` | 1 |
-| `v_daily` | Per UTC day: `day`, `shipped`, `runs` ended, of them `failed`, their `minutes` and `tokens` (input, output and cache read) | 1 |
-| `v_versions` | Per tehas and pi-rukas version pair of work runs that ended: `tehas_version`, `rukas_version` (its commit where it has no version), `runs`, `change_share` (offered or merged), `handoff_share`, `parked_share`, `failed_share`, `median_minutes` and `median_tokens`, the last of the runs that reported usage, NULL where none did | 1 |
 
 ## Sessions
 
