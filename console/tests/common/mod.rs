@@ -37,7 +37,6 @@ const GH: &str = r####"gh_graphql() {
 [ ! -e "$T/gh-down" ] || exit 1
 case "$*" in
   "issue list"*--search*) cat "$T/issues.json" ;;
-  "issue list"*) [ ! -e "$T/all-down" ] || exit 1; cat "$T/all.json" ;;
   # The names of the labels of the control issue, as --jq joins them.
   "issue view"*) [ ! -e "$T/control-down" ] || exit 1
     { [ "$(cat "$T/paused")" != true ] || echo tehas:pause; } | paste -sd " " ;;
@@ -98,7 +97,6 @@ const LOGINS: &[&str] = &[
 /// What reset() takes away, under `$T`.
 const RESET: &[&str] = &[
     "gh-down",
-    "all-down",
     "shipped-down",
     "count-down",
     "control-down",
@@ -272,7 +270,6 @@ impl World {
                 let _ = fs::remove_file(&p);
             }
         }
-        self.fx("all.json", "[]\n");
         self.epics_page(&[]);
         self.shipped(&[]);
         self.shipped_count(0);

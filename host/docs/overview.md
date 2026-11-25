@@ -86,11 +86,8 @@ the factory works the same without it.
 
 - [Start](/start): what to tell your coding agent to set tehas up for
   your repository, and what you will be asked.
-- [Factory floor](/floor): the factory as a game view: the live queue, the
-  selected work order, the running cycle's console. The front page, in every
-  design.
 - [Plain dashboard](/dashboard): what is in line, being worked on (with its live console),
-  waiting for you and done.
+  waiting for you and done. The front page, in every design.
 - [The Lean Software Factory](/lean-software-factory): what makes tehas lean.
 - [Pi software factory](/pi-software-factory): what tehas is made of, and
   what it adds to running Pi by hand.

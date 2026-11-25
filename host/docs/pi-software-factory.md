@@ -12,8 +12,8 @@ factory. It takes a GitHub issue, runs the
 reviewed pull request. Nobody sits in the agent session. A person writes the
 issue, applies one label, and later reviews and merges.
 
-The [factory floor](/floor) on this host is one such factory at work. This page
-explains what it is made of.
+The [dashboard](/dashboard) on this host shows one such factory at work. This
+page explains what it is made of.
 
 Tehas is its own project. It is built on Pi and is not part of Pi or endorsed
 by its maintainers.
@@ -36,7 +36,7 @@ work is Pi.
 | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Pi             | The coding agent. Tehas runs pi-rukas's one-shot runner, `pi-rukas-headless work <issue>`, in a container, so it needs no terminal; the runner starts Pi for each agent.                                           |
 | pi-rukas       | A Pi extension that provides `/work`. It runs the cycle, starts child Pi processes by role (explore, developer, adversarial developer, code review) and keeps them in git worktrees. |
-| Tehas          | The factory: the dispatcher that reads the queue, the check of who applied the label, the sandbox with its limits, the settings, the factory floor and the live console.            |
+| Tehas          | The factory: the dispatcher that reads the queue, the check of who applied the label, the sandbox with its limits, the settings, the dashboard and the live console.                  |
 | GitHub         | The queue, the state and the results. Issues are the work orders, labels are the state machine, and the outcome is a pull request with comments.                                   |
 | Model endpoint | All inference. A self-hosted, OpenAI-compatible endpoint the operator names, for example a [viiwork](https://github.com/janit/viiwork) mesh. The factory host needs no GPU. |
 | A person       | Writes the issue, authorizes it with a label, reviews the pull request and merges.                                                                                                  |
@@ -78,7 +78,7 @@ short, and [Operating](/operating) covers the day-to-day.
 | Whoever has the terminal decides what runs   | Only a label from an account on the allow list starts work                                                    |
 | The agent runs with your files and your keys | It runs in a container with memory and process limits and one bot token: no Docker socket, no SSH keys            |
 | You decide when it is done                   | The repository's own gates decide, and the cycle halts if its patch touches `.pi/`, `.github/`, `CODEOWNERS` or `agents.json`. An edit to `AGENTS.md` is not halted: it ships, and the cycle is judged against the doctrine at its base commit |
-| Output scrolls past in your terminal         | The console streams to the factory floor with tokens and passwords masked, and usage is posted on the pull request |
+| Output scrolls past in your terminal         | The console streams to the dashboard with tokens and passwords masked, and usage is posted on the pull request |
 | A stalled session waits for you to notice    | A stopped cycle labels the issue and says why; a pause label on the control issue holds the queue             |
 
 Running Pi by hand is still there, on the same host. A person with an account
@@ -88,13 +88,8 @@ cycle's sandbox, on the factory's models, with their own name on the commits.
 
 ## See it run
 
-The [factory floor](/floor) shows the stages as stations: in line, building, review
-and shipped. Beside them are the selected work order with its dates, the issue
-board and the console of the running cycle. The work order leaves out a row it
-has no data for. When
-the live queue cannot be read the page loads sample tickets and says so.
-
-The [plain dashboard](/dashboard) has the same queue as lists.
+The [plain dashboard](/dashboard) shows the queue as lists: in line, waiting
+for review, stopped and completed, with the console of the running cycle.
 
 ## Questions
 

@@ -1,11 +1,9 @@
 //! The calls of the analytics program, $TEHAS_HOME/libexec/analytics, for
-//! tehasbot status: its issue events, and what it publishes.
-//!
-//! live/analytics.json is the ten-day report for the dashboard. It is public,
-//! so only the keys named here reach it. sessions.jsonl, the last
-//! thirty days, and outcomes.jsonl, how the runs ended for a year back, are the
-//! private files of the MCP server under mcp/ (never live/): the program makes
-//! the directory (700) and writes both itself (600, renamed into place).
+//! tehasbot status: its issue events, and the files it writes for the MCP
+//! server. sessions.jsonl, the last thirty days, and outcomes.jsonl, how the
+//! runs ended for a year back, are private files under mcp/ (never live/):
+//! the program makes the directory (700) and writes both itself (600,
+//! renamed into place).
 //!
 //! Every call has a time limit, TEHAS_ANALYTICS_WAIT seconds or five. A call
 //! that fails or runs out of time is one line on standard error, "WARN
@@ -14,14 +12,13 @@
 //! says on standard error goes there too. Nothing runs unless TEHAS_ANALYTICS
 //! is on and the program is installed.
 //!
-//! Off, or no program: none of the files. A report or a private file that
-//! fails keeps the file there while it is younger than KEEP seconds: one poll
-//! that meets a locked database does not empty the section, and a database that
-//! keeps failing does not show old figures for long.
+//! Off, or no program: none of the files. A file whose write fails stays
+//! while it is younger than KEEP seconds: one poll that meets a locked
+//! database does not empty it, and a database that keeps failing does not
+//! show old figures for long.
 
-use crate::jq::J;
 use std::env;
-use std::fs::{self, File};
+use std::fs;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
@@ -31,27 +28,6 @@ use tehas_core::time;
 
 const LIMIT: u64 = 5;
 const KEEP: i64 = 600;
-const PUBLIC: [&str; 19] = [
-    "report",
-    "from",
-    "to",
-    "shipped",
-    "planned",
-    "runs",
-    "planningTurns",
-    "handoffRate",
-    "firstPassYield",
-    "leadTime",
-    "cycleTime",
-    "machineTime",
-    "tokens",
-    "availability",
-    "daily",
-    "stopReasons",
-    "stations",
-    "versions",
-    "refine",
-];
 
 /// A line on standard error, as every line of tehasbot status is.
 pub fn log(line: &str) {
@@ -91,12 +67,6 @@ pub struct Analytics {
     on: bool,
 }
 
-/// Where a call's standard output goes.
-enum To<'a> {
-    Nowhere,
-    File(&'a Path),
-}
-
 impl Analytics {
     pub fn new(home: &Path) -> Analytics {
         let bin = home.join("libexec/analytics");
@@ -123,7 +93,7 @@ impl Analytics {
     /// The program's exit, None where it is not to be called. `private` runs
     /// it under umask 077, the mode of what it writes. A shell sets that:
     /// nothing here sets it between fork and exec.
-    fn call(&self, to: To, args: &[&str], private: bool) -> Option<i32> {
+    fn call(&self, args: &[&str], private: bool) -> Option<i32> {
         if !self.on {
             return None;
         }
@@ -137,20 +107,9 @@ impl Analytics {
         cmd.args(self.timed())
             .args(args)
             .env("TEHAS_HOME", &self.home)
-            .stdin(Stdio::null());
-        let rc = match to {
-            To::Nowhere => {
-                cmd.stdout(Stdio::null());
-                run_status(cmd)
-            }
-            To::File(file) => match File::create(file) {
-                Ok(f) => {
-                    cmd.stdout(f);
-                    run_status(cmd)
-                }
-                Err(_) => 1,
-            },
-        };
+            .stdin(Stdio::null())
+            .stdout(Stdio::null());
+        let rc = run_status(cmd);
         if rc != 0 {
             log(&format!("WARN analytics {}: exit {rc}", args[0]));
         }
@@ -164,62 +123,21 @@ impl Analytics {
         if let Some(at) = &at {
             args.extend(["--at", at]);
         }
-        self.call(To::Nowhere, &args, false);
+        self.call(&args, false);
     }
 
-    /// The report and every other file, in the order a run asks for them.
-    pub fn publish(&self, live: &Path) {
-        self.report(live);
+    /// The MCP server's files, in the order a run asks for them.
+    pub fn publish(&self) {
         let mcp = self.home.join("mcp");
         self.private("sessions", &mcp);
         self.private("outcomes", &mcp);
-    }
-
-    /// Names of this run: a cycle's end and a poll may run status at once.
-    /// The edge serves no *.new, so the unfiltered report is never public.
-    fn report(&self, live: &Path) {
-        let file = live.join("analytics.json");
-        let pid = std::process::id();
-        let raw = live.join(format!("analytics.json.{pid}.raw.new"));
-        let new = live.join(format!("analytics.json.{pid}.new"));
-        let rc = self.call(To::File(&raw), &["report", "--json"], false);
-        let filtered = (rc == Some(0))
-            .then(|| fs::read_to_string(&raw).ok())
-            .flatten()
-            .and_then(|text| public(&text));
-        // The mode is set, as status.json's is, so the docs server reads both
-        // whatever the umask of the unit.
-        let published = filtered.is_some_and(|line| {
-            tehas_core::file::write_atomic(
-                &file,
-                format!("{line}\n").as_bytes(),
-                0o644,
-                &tehas_core::file::Temp::Pid,
-            )
-            .is_ok()
-        });
-        let _ = fs::remove_file(&raw);
-        if published {
-            return;
-        }
-        let _ = fs::remove_file(&new);
-        match rc {
-            None => {
-                let _ = fs::remove_file(&file);
-            }
-            Some(0) => {
-                log("WARN analytics report: not a report");
-                keep_or_remove(&file);
-            }
-            Some(_) => keep_or_remove(&file),
-        }
     }
 
     /// <subcommand> writes <dir>/<subcommand>.jsonl itself.
     fn private(&self, subcommand: &str, dir: &Path) {
         let file = dir.join(format!("{subcommand}.jsonl"));
         let dir = dir.to_string_lossy();
-        match self.call(To::Nowhere, &[subcommand, "--out", &dir], true) {
+        match self.call(&[subcommand, "--out", &dir], true) {
             Some(0) => {}
             None => {
                 let _ = fs::remove_file(&file);
@@ -227,27 +145,6 @@ impl Analytics {
             Some(_) => keep_or_remove(&file),
         }
     }
-}
-
-/// The report as one line of the keys that may be published, or None when
-/// what the program printed is no report.
-fn public(text: &str) -> Option<String> {
-    let J::Obj(fields) = J::parse(text)? else {
-        return None;
-    };
-    if fields
-        .iter()
-        .find(|(k, _)| k == "report")
-        .and_then(|(_, v)| v.as_f64())
-        != Some(1.0)
-    {
-        return None;
-    }
-    let kept = fields
-        .into_iter()
-        .filter(|(k, _)| PUBLIC.contains(&k.as_str()))
-        .collect();
-    Some(J::Obj(kept).dump())
 }
 
 /// A file no run has written lately goes.
@@ -330,17 +227,17 @@ mod tests {
     fn a_failing_program_is_an_exit_and_a_hanging_one_the_limit() {
         let h = Host::new("fail", "exit 70");
         let a = h.analytics(true, 1);
-        assert_eq!(a.call(To::Nowhere, &["sample"], false), Some(70));
+        assert_eq!(a.call(&["sample"], false), Some(70));
         h.program("exec sleep 30");
         let at = std::time::Instant::now();
-        assert_eq!(a.call(To::Nowhere, &["sample"], false), Some(124));
+        assert_eq!(a.call(&["sample"], false), Some(124));
         assert!(at.elapsed() < Duration::from_secs(10));
     }
 
     #[test]
     fn off_or_not_installed_the_program_is_not_called() {
         let h = Host::new("off", "");
-        assert_eq!(h.analytics(false, 5).call(To::Nowhere, &["x"], false), None);
+        assert_eq!(h.analytics(false, 5).call(&["x"], false), None);
         assert_eq!(h.calls(), "");
         let bin = h.0.join("libexec/analytics");
         assert!(installed(&bin));
@@ -353,36 +250,10 @@ mod tests {
     }
 
     #[test]
-    fn a_call_to_a_file_writes_what_the_program_prints() {
-        let h = Host::new("file", r#"echo '{"report":1}'"#);
-        let a = h.analytics(true, 5);
-        let out = h.0.join("out");
-        assert_eq!(a.call(To::File(&out), &["report"], false), Some(0));
-        assert_eq!(fs::read_to_string(&out).unwrap(), "{\"report\":1}\n");
-        h.program("echo partial; exit 70");
-        assert_eq!(a.call(To::File(&out), &["report"], false), Some(70));
-        let off = h.analytics(false, 5);
-        fs::remove_file(&out).unwrap();
-        assert_eq!(off.call(To::File(&out), &["report"], false), None);
-        assert!(!out.exists());
-    }
-
-    #[test]
     fn a_private_call_runs_under_a_closed_umask() {
         let h = Host::new("umask", "umask >>\"$TEHAS_HOME/mask\"");
-        h.analytics(true, 5).call(To::Nowhere, &["sessions"], true);
+        h.analytics(true, 5).call(&["sessions"], true);
         assert_eq!(fs::read_to_string(h.0.join("mask")).unwrap().trim(), "0077");
-    }
-
-    #[test]
-    fn only_the_named_keys_of_a_report_are_public_in_their_order() {
-        assert_eq!(
-            public(r#"{"to":2,"secret":"x","report":1,"from":0.10}"#).unwrap(),
-            r#"{"to":2,"report":1,"from":0.10}"#
-        );
-        for bad in ["not json", "", "[1,2]", r#"{"report":2}"#, r#"{"to":1}"#] {
-            assert_eq!(public(bad), None, "{bad:?}");
-        }
     }
 
     #[test]
@@ -393,7 +264,7 @@ mod tests {
         keep_or_remove(&file);
         assert!(file.exists());
         let old = std::time::SystemTime::now() - Duration::from_secs(KEEP as u64);
-        File::options()
+        fs::File::options()
             .write(true)
             .open(&file)
             .unwrap()

@@ -12,10 +12,7 @@ import { test } from "node:test";
 import "../host/fun/console-tabs.js";
 import "../host/fun/epics-view.js";
 import "../host/fun/versions.js";
-import { analyticsView } from "../host/fun/analytics-data.js";
-import { normalize } from "../host/fun/game-data.js";
 import { consoleModel } from "../host/fun/factory/tehas-factory-console.model.js";
-import { daysModel } from "../host/fun/factory/tehas-factory-days.model.js";
 import { issuesModel } from "../host/fun/factory/tehas-factory-issues.model.js";
 import { previewsModel } from "../host/fun/factory/tehas-factory-previews.model.js";
 import { readonlyModel } from "../host/fun/factory/tehas-factory-readonly.model.js";
@@ -52,34 +49,11 @@ test("the samples are written at one time and name no real repository", () => {
   }
 });
 
-test("status.json draws the factory floor's tickets", () => {
-  const s = read("status.json");
-  // As the floor's fromSnapshot() hands the queue to normalize().
-  const issues = [];
-  for (const [key, label] of [["queued", "tehas:ready"], ["running", "tehas:running"], ["awaiting", "tehas:awaiting-merge"], ["stopped", "needs-human-attention"]]) {
-    for (const i of s[key]) issues.push({ ...i, state: "OPEN", labels: [label] });
-  }
-  for (const i of s.completed) issues.push({ ...i, state: "CLOSED", labels: [] });
-  const data = normalize({ issues, paused: s.paused, pause: s.pause, noResources: s.noResources, buzzwords: s.buzzwords });
-  assert.equal(data.tickets.length, 7);
-  assert.deepEqual(data.tickets.map((t) => t.stage), ["ready", "ready", "running", "review", "stopped", "shipped", "shipped"]);
-  assert.equal(data.paused, false);
-  assert.ok(data.words.length > 0);
-});
-
 test("running.json draws the console tabs", () => {
   const { view } = globalThis.TEHAS_CONSOLE_TABS;
   const v = view(read("running.json"), null);
   assert.equal(v.running, 1);
   assert.equal(v.shown.cycle.issue, 41);
-});
-
-test("analytics.json draws the ten-day report", () => {
-  const v = analyticsView(read("analytics.json"));
-  assert.equal(v.present, true);
-  assert.equal(v.chart.length, 10);
-  assert.ok(v.figures.length >= 8);
-  assert.equal(v.versions.length, 2);
 });
 
 test("epics.json and health.json draw their parts", () => {
@@ -105,6 +79,4 @@ test("the plain dashboard's islands make every section from the samples", () => 
   assert.deepEqual([c.tabs.length, c.title, c.file], [2, "Working on #41  Export the report as CSV", "console-41.txt"]);
   const previews = previewsModel(read("previews.json"), NOW);
   assert.deepEqual([previews.present, previews.rows.length], [true, 3]);
-  const days = daysModel(read("analytics.json"));
-  assert.deepEqual([days.present, days.chart.length, days.versions.length > 0], [true, 10, true]);
 });
