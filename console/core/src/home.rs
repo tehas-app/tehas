@@ -321,11 +321,14 @@ impl Home {
         self.state_dir().join(format!("plan-{issue}.json{end}"))
     }
 
+    /// `state/plan-start`, where the records of the plans' starts are.
+    pub fn plan_starts(&self) -> PathBuf {
+        self.state_dir().join("plan-start")
+    }
+
     /// `state/plan-start/<issue>.json`, the record of a plan's start.
     pub fn plan_start(&self, issue: u64) -> PathBuf {
-        self.state_dir()
-            .join("plan-start")
-            .join(format!("{issue}.json"))
+        self.plan_starts().join(format!("{issue}.json"))
     }
 
     /// `state/refresh/<issue>.json`, the request for a refresh of an issue's
@@ -506,6 +509,7 @@ mod tests {
     fn a_plan_file_is_named_for_its_issue() {
         assert_eq!(at(h().plan_file(7, "")), "/h/state/plan-7.json");
         assert_eq!(at(h().plan_file(7, ".out")), "/h/state/plan-7.json.out");
+        assert_eq!(at(h().plan_starts()), "/h/state/plan-start");
         assert_eq!(at(h().plan_start(7)), "/h/state/plan-start/7.json");
         assert_eq!(at(h().refresh_request(7)), "/h/state/refresh/7.json");
         assert_eq!(at(h().refresh_said(7)), "/h/state/refresh/7.said");
