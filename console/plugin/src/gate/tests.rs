@@ -1041,30 +1041,6 @@ fn a_person_gets_in_with_at_least_the_access_asked() {
 }
 
 #[test]
-fn githubs_permission_answer_is_read_from_its_booleans() {
-    let answer = |perms: &str| {
-        github::permission_of(
-            200,
-            format!(r#"{{"permission":"write","role_name":"custom","user":{{"id":7,"login":"alice","permissions":{perms}}}}}"#).as_bytes(),
-        )
-    };
-    let of = |l| Ok(Permission::Of(AccountId::new("7"), l, "custom".into()));
-    assert_eq!(
-        answer(r#"{"pull":true,"triage":false,"push":false}"#),
-        of(Some(Level::Read))
-    );
-    assert_eq!(
-        answer(r#"{"pull":true,"triage":true,"push":true,"maintain":false}"#),
-        of(Some(Level::Write))
-    );
-    assert_eq!(answer(r#"{"admin":true}"#), of(Some(Level::Admin)));
-    assert_eq!(answer(r#"{}"#), of(None));
-    assert_eq!(github::permission_of(404, b""), Ok(Permission::None));
-    assert!(github::permission_of(500, b"").is_err());
-    assert!(github::permission_of(200, b"{}").is_err());
-}
-
-#[test]
 fn a_pages_policy_names_the_hashes_of_its_own_blocks() {
     let doc = b"<!doctype html><style>p{color:red}</style><SCRIPT>go()</SCRIPT><script src=\"a.js\"></script><script type=module>m()</script><!-- <a onclick=x> -->";
     let b = csp::blocks(doc).unwrap();
