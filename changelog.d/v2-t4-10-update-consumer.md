@@ -1,3 +1,0 @@
-### Changes
-
-- `tehas update` with gh signed in lists tehas's releases and downloads one through the code host port. The list now reads every page of releases, not only the newest 100. The three files of a release are each fetched alone, through a scratch directory under the system's temporary directory, and a file over 1 GiB is refused before it is fetched. When the list or a download fails, the message says why in tehas's words ("could not list the releases of <repository>: timed out before sending"), not gh's. With gh signed out, the list and the download still come from the public address, as before.
