@@ -217,8 +217,12 @@ fn read_scope_is_still_refused_for_every_other_port_and_for_a_write() {
     let (site, _, asked) = site_with(carol());
     let unsupported = Some(Outcome::Refused(Refusal::Unsupported));
     assert_eq!(site.tickets(&READ, CALLER).err(), unsupported);
-    assert_eq!(site.code_host(&READ, CALLER).err(), unsupported);
     assert_eq!(site.board(&READ, CALLER).err(), unsupported);
+    // The code host's reads at read scope are the wiring's runner's (TF-B40),
+    // its writes Forbidden.
+    let forbidden = Some(Outcome::Forbidden);
+    assert_eq!(site.code_host_writes(&READ, CALLER).err(), forbidden);
+    assert_eq!(site.ticket_writes(&READ, CALLER).err(), forbidden);
     assert_eq!(*asked.lock().unwrap(), 0);
 }
 
