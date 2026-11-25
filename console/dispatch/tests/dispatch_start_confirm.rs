@@ -9,6 +9,7 @@ use common::*;
 use serde_json::{json, Value};
 use std::fs;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use tehas_core::home::Home;
 use tehas_ports::{Mark, State};
 
 fn now() -> i64 {
@@ -76,7 +77,7 @@ fn the_container_of_a_cycle_that_holds_its_lock_is_not_touched() {
 #[test]
 fn the_lock_file_of_a_cycle_that_ended_holds_nothing_back() {
     let w = World::new("sc-lock-file");
-    w.home_file("state/cycles/9.lock", "");
+    w.home_file(Home::new(&w.home).cycle_note(9, "lock"), "");
     w.poll();
     assert_eq!(w.started(), "7 ");
 }
@@ -115,7 +116,7 @@ fn a_cycle_that_holds_its_lock_but_wrote_no_marker_in_time_is_taken_as_started()
     // The holder keeps the cycle's lock for a few seconds, its output detached.
     w.stub(
         "fake-late",
-        r#"( exec 9>"$TEHAS_HOME/state/cycles/$1.lock"; flock -n 9; exec sleep 5 ) >/dev/null 2>&1 &
+        r#"( exec 9>"$T_CYCLES/$1.lock"; flock -n 9; exec sleep 5 ) >/dev/null 2>&1 &
 echo $! >"$T/late.pid""#,
     );
     w.env("TEHAS_CYCLE_START_CMD", "fake-late");
