@@ -2047,10 +2047,12 @@ under `/live/` stays unlisted either way. The server reads the setting when its
 container is created, so run the `docker compose ... up -d` line again after
 changing it.
 
-Every page carries structured data (JSON-LD) for search and answer engines,
-whatever `TEHAS_SITE_INDEXING` says: each manual page is an article under
+Every manual page carries structured data (JSON-LD) for search and answer
+engines, whatever `TEHAS_SITE_INDEXING` says: the page is an article under
 the front page; and a page whose front matter names a section in `faq:`
-has the `###` questions of that section as an FAQ, read from the text.
+has the `###` questions of that section as an FAQ, read from the text. The
+front page, the dashboard, carries none since 2.0. Its canonical address is
+`/`, the one the sitemap lists, whether it is read at `/` or `/dashboard`.
 
 Visitor analytics are optional and off by default. With `TEHAS_SITE_ANALYTICS_SRC`
 (the https address of a script) and `TEHAS_SITE_ANALYTICS_NAME` (the name it reports

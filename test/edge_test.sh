@@ -138,6 +138,10 @@ t_contains "$sitemap" '{{- if ne (env "TEHAS_SITE_INDEXING") "1" }}{{ httpError 
 t_contains "$(cat "$T_ROOT/console/ops/src/update/files.rs")" 'if same_content(from, &e.to) {'
 t_contains "$(cat "$T_ROOT/host/docs/host.md")" 'file last changed on this host (an update leaves a page with the same bytes as'
 
+t_case "the dashboard's canonical address is /, the one the sitemap lists, at / and at /dashboard"
+t_contains "$(cat "$T_ROOT/host/docs/_layout.html")" '<link rel="canonical" href="{{ $base }}/{{ if not $isFrag }}{{ $path }}{{ end }}">'
+t_contains "$(cat "$T_ROOT/host/docs/_layout.html")" '<meta property="og:url" content="{{ $base }}/{{ if not $isFrag }}{{ $path }}{{ end }}">'
+
 t_case "the live list holds the 15 names the dashboard, the console and the server read"
 t_eq "$(printf '%s\n' "$table" | wc -l)" 15
 for want in /status.json /running.json /endings.json /epics.json /health.json /health.down \
