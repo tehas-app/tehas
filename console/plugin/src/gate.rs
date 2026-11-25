@@ -26,6 +26,7 @@ use path::Route;
 use serde_json::json;
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
+use tehas_ports::Got;
 
 /// A press within this many seconds of the plugin's last is 429.
 pub const PRESS_GAP: u64 = 10 * 60;
@@ -290,7 +291,7 @@ impl Gate {
 
     /// Whether `person` has access now. Err: GitHub could not say, which is
     /// a refusal.
-    fn access(&self, person: &Person) -> Result<bool, String> {
+    fn access(&self, person: &Person) -> Got<bool> {
         let v = github::check(
             self.github.as_ref(),
             self.settings.access,
@@ -304,13 +305,7 @@ impl Gate {
     /// The live session of the request's cookie on `site`, checked again if
     /// its last check is older than 10 minutes, or now with `fresh`. Ok(None):
     /// no session. Err: GitHub could not say.
-    fn session(
-        &self,
-        req: &Request,
-        site: &Site,
-        fresh: bool,
-        now: u64,
-    ) -> Result<Option<Session>, String> {
+    fn session(&self, req: &Request, site: &Site, fresh: bool, now: u64) -> Got<Option<Session>> {
         let Some(id) = auth::cookie(&req.headers, auth::SESSION) else {
             return Ok(None);
         };

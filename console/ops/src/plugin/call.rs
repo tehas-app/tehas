@@ -124,7 +124,8 @@ fn login_access(
             None => Err(Failed::Refused(NO_ACCESS.into())),
         },
         Err(why) => Err(Failed::Refused(format!(
-            "GitHub could not say whether the login has access: {why}"
+            "GitHub could not say whether the login has access: {}",
+            why.line()
         ))),
     }
 }
