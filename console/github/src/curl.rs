@@ -1,21 +1,38 @@
-//! Plain HTTP to GitHub's API with no credential: the one owner of it in
-//! the adapter. [`Curl`] asks `https://api.github.com/` alone, with GETs
-//! only, and holds no token, header of the caller's or config file: its
-//! arguments are made here whole, it is started with an environment of
-//! [`ENV`] alone, and `-q` keeps curl from reading a `.curlrc`. Its time
-//! limit and its size cap are its own. What an answer means is the
-//! handle's, in `port/anonymous.rs`.
+//! Plain HTTP to GitHub: the one owner of it in the adapter. [`Curl`] asks
+//! `https://api.github.com/` alone, with GETs only, and holds no token,
+//! header of the caller's or config file: its arguments are made here
+//! whole, it is started with an environment of [`ENV`] alone, and `-q`
+//! keeps curl from reading a `.curlrc`. Its time limit and its size cap
+//! are its own. What an answer means is the handle's, in
+//! `port/anonymous.rs`.
+//!
+//! [`Authorised`] is the same curl with a credential: a bearer token on a
+//! GET of the API, or a sign-in's code traded with the App's client at
+//! `https://github.com/login/oauth/access_token`. The same arguments, host
+//! check, limits and cap; the credential goes in a config on curl's
+//! standard input, never on its command line or in its environment, and a
+//! value that could break out of the config's quotes is refused with no
+//! request.
 //!
 //! A public release file is fetched by [`Curl::fetch`]: a GET of one
 //! address on exactly one of [`HOSTS`], `https` alone, curl following no
-//! redirect (the handle follows at most two, each to one of [`HOSTS`]).
-//! The body goes into a file the caller gives, held to a byte cap while it
-//! is read, within a time limit of at most [`DOWNLOAD_LIMIT`].
+//! redirect (the handle follows at most [`REDIRECTS`], each to one of
+//! [`HOSTS`]). The body goes into a file the caller gives, held to a byte
+//! cap while it is read, within a time limit of at most [`DOWNLOAD_LIMIT`].
+//!
+//! This module is the one owner of the host check and of the caps, for
+//! both: every request of either is started by `spawn`, which refuses an
+//! address whose parsed host is not one of [`HOSTS`]; every argument list
+//! is made by `args`, with its time limit and size cap; and every curl
+//! that overruns its time is stopped by the same grace. Each variant then
+//! narrows what it may ask: the anonymous GET the API's paths alone, the
+//! fetch [`address_ok`], the authorised curl the API's paths and
+//! [`TRADE`].
 
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, ChildStdout, Command, Stdio};
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -27,11 +44,12 @@ pub(crate) const API: &str = "https://api.github.com/";
 /// The API's host, whose answers alone carry the anonymous budget.
 pub(crate) const API_HOST: &str = "api.github.com";
 
-/// The hosts a release file's fetch may reach, each whole: an address's
-/// host is one of these exactly, never matched by its end. The API answers
-/// a release asset asked by its id with a redirect to the release assets
-/// host (seen on an anonymous read of a public release, 2026-11-24); the
-/// objects host is GitHub's older place for the same files.
+/// The hosts any request of this module may reach, each whole: an
+/// address's parsed host is one of these exactly, never matched by its
+/// end. The API answers a release asset asked by its id with a redirect to
+/// the release assets host (seen on an anonymous read of a public release,
+/// 2026-11-24); the objects host is GitHub's older place for the same
+/// files; `github.com` is a release's download page and [`TRADE`]'s host.
 pub const HOSTS: [&str; 4] = [
     "api.github.com",
     "github.com",
@@ -39,11 +57,19 @@ pub const HOSTS: [&str; 4] = [
     "release-assets.githubusercontent.com",
 ];
 
+/// The most redirects a release file's fetch follows, each held to
+/// [`address_ok`]. curl itself follows none.
+pub const REDIRECTS: usize = 2;
+
 /// The most time one release file's fetch takes, its redirects in.
 pub const DOWNLOAD_LIMIT: Duration = Duration::from_secs(600);
 
 /// The most bytes of a fetch's headers.
 const HEAD_CAP: u64 = 64 * 1024;
+
+/// Where [`Authorised`] trades a sign-in's code: GitHub's web host, this
+/// one address alone.
+const TRADE: &str = "https://github.com/login/oauth/access_token";
 
 /// The environment curl runs in, whole: nothing of the caller's reaches it,
 /// so no token, no proxy and no config file's place.
@@ -78,14 +104,25 @@ impl Default for Curl {
 }
 
 /// One answer: its status, its headers with their names in lower case, and
-/// its body.
-#[derive(Debug)]
+/// its body. Its `Debug` shows the status and the headers' names alone: a
+/// trade's body holds the person's token.
 pub(crate) struct Answer {
     pub(crate) status: u16,
     headers: Vec<(String, String)>,
     pub(crate) body: Vec<u8>,
     /// The bytes a fetch wrote into its file; 0 for a GET.
     pub(crate) written: u64,
+}
+
+impl std::fmt::Debug for Answer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let names: Vec<&str> = self.headers.iter().map(|(n, _)| n.as_str()).collect();
+        f.debug_struct("Answer")
+            .field("status", &self.status)
+            .field("headers", &names)
+            .field("body", &format_args!("{} bytes", self.body.len()))
+            .finish()
+    }
 }
 
 impl Answer {
@@ -124,8 +161,33 @@ impl Curl {
         if !path_ok(path) {
             return Err(Outcome::Refused(Refusal::Invalid));
         }
-        let secs = limit.min(LIMIT).as_secs().max(1);
-        Ok([
+        Ok(self.args(
+            limit,
+            &[
+                "--header",
+                "Accept: application/vnd.github+json",
+                "--header",
+                "X-GitHub-Api-Version: 2022-11-28",
+            ],
+            &format!("{API}{path}"),
+            LIMIT,
+            self.cap,
+        ))
+    }
+
+    /// The arguments every request has, with `headers` before the user
+    /// agent and the address last: its time limit `limit` held to `most`,
+    /// and its size cap `cap`.
+    fn args(
+        &self,
+        limit: Duration,
+        headers: &[&str],
+        address: &str,
+        most: Duration,
+        cap: u64,
+    ) -> Vec<String> {
+        let secs = limit.min(most).as_secs().max(1);
+        let mut argv: Vec<String> = [
             "-q",
             "--silent",
             "--include",
@@ -138,17 +200,13 @@ impl Curl {
             "--max-time",
             &secs.to_string(),
             "--max-filesize",
-            &self.cap.to_string(),
-            "--header",
-            "Accept: application/vnd.github+json",
-            "--header",
-            "X-GitHub-Api-Version: 2022-11-28",
-            "--user-agent",
-            "tehas",
-            &format!("{API}{path}"),
+            &cap.to_string(),
         ]
         .map(String::from)
-        .to_vec())
+        .to_vec();
+        argv.extend(headers.iter().map(|h| h.to_string()));
+        argv.extend(["--user-agent", "tehas", address].map(String::from));
+        argv
     }
 
     /// One GET of `path` under [`API`], within `limit` and the cap. A
@@ -156,19 +214,19 @@ impl Curl {
     /// the caller's to read.
     pub(crate) fn get(&self, path: &str, limit: Duration) -> Result<Answer, Outcome> {
         let argv = self.argv(path, limit)?;
-        let mut child = Command::new(&self.program)
-            .args(&argv)
-            .env_clear()
-            .envs(ENV)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .map_err(|_| unavailable(Passing::Unreachable))?;
-        let Some(out) = child.stdout.take() else {
-            stop(&mut child);
-            return Err(unavailable(Passing::Unreachable));
-        };
+        self.send(&argv, None, limit)
+    }
+
+    /// curl with `argv`, and `config` on its standard input when given
+    /// (`argv` then reads it with `--config -`), within `limit` and the
+    /// cap.
+    fn send(
+        &self,
+        argv: &[String],
+        config: Option<&str>,
+        limit: Duration,
+    ) -> Result<Answer, Outcome> {
+        let (mut child, out) = self.spawn(argv, config)?;
         let cap = self.cap;
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
@@ -184,14 +242,61 @@ impl Curl {
             stop(&mut child);
             return Err(Outcome::Unread(Unread::TooLarge));
         }
-        let code = child.wait().ok().and_then(|s| s.code());
-        match code {
-            Some(0) if read => parse(&bytes).ok_or(Outcome::Unread(Unread::Malformed)),
-            Some(28) => Err(unavailable(Passing::Timeout)),
-            Some(63) => Err(Outcome::Unread(Unread::TooLarge)),
-            _ => Err(unavailable(Passing::Unreachable)),
-        }
+        finish(&mut child, read)?;
+        parse(&bytes).ok_or(Outcome::Unread(Unread::Malformed))
     }
+
+    /// curl started with `argv`, and `config` written to its standard input
+    /// when given, in an environment of [`ENV`] alone: the one place any
+    /// request of this module starts. An address (`argv`'s last) whose
+    /// parsed host is not one of [`HOSTS`] is `Refused(Invalid)`, and
+    /// nothing runs.
+    fn spawn(
+        &self,
+        argv: &[String],
+        config: Option<&str>,
+    ) -> Result<(Child, ChildStdout), Outcome> {
+        let host_ok = argv
+            .last()
+            .and_then(|a| parse_address(a))
+            .is_some_and(|p| HOSTS.contains(&p.host));
+        if !host_ok {
+            return Err(Outcome::Refused(Refusal::Invalid));
+        }
+        let mut child = Command::new(&self.program)
+            .args(argv)
+            .env_clear()
+            .envs(ENV)
+            .stdin(if config.is_some() {
+                Stdio::piped()
+            } else {
+                Stdio::null()
+            })
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|_| unavailable(Passing::Unreachable))?;
+        if let Some(config) = config {
+            // Dropped once written, so curl reads to its end.
+            let wrote = child
+                .stdin
+                .take()
+                .is_some_and(|mut i| i.write_all(config.as_bytes()).is_ok());
+            if !wrote {
+                stop(&mut child);
+                return Err(Outcome::Unavailable {
+                    why: Passing::Unreachable,
+                    sent: Sent::No,
+                });
+            }
+        }
+        let Some(out) = child.stdout.take() else {
+            stop(&mut child);
+            return Err(unavailable(Passing::Unreachable));
+        };
+        Ok((child, out))
+    }
+
     /// The arguments of a fetch of `address`, one of [`HOSTS`] by
     /// [`address_ok`], within `limit` (at most [`DOWNLOAD_LIMIT`]) and
     /// `cap` bytes, or `Refused(Unsupported)` for any other address. It
@@ -205,40 +310,27 @@ impl Curl {
         if !address_ok(address) {
             return Err(Outcome::Refused(Refusal::Unsupported));
         }
-        let secs = limit.min(DOWNLOAD_LIMIT).as_secs().max(1);
-        Ok([
-            "-q",
-            "--silent",
-            "--include",
-            "--proto",
-            "=https",
-            "--max-redirs",
-            "0",
-            "--connect-timeout",
-            &CONNECT.min(secs).to_string(),
-            "--max-time",
-            &secs.to_string(),
-            "--max-filesize",
-            &cap.to_string(),
-            "--header",
-            "Accept: application/octet-stream",
-            "--header",
-            "X-GitHub-Api-Version: 2022-11-28",
-            "--user-agent",
-            "tehas",
+        Ok(self.args(
+            limit,
+            &[
+                "--header",
+                "Accept: application/octet-stream",
+                "--header",
+                "X-GitHub-Api-Version: 2022-11-28",
+            ],
             address,
-        ]
-        .map(String::from)
-        .to_vec())
+            DOWNLOAD_LIMIT,
+            cap,
+        ))
     }
 
     /// One GET of `address` within `limit` and `cap`. A 2xx answer's body
     /// goes into `file` (made empty first), held to `cap` on the stream:
     /// no more than `cap` bytes are ever written, and a body longer stops
     /// curl and is `Unread(TooLarge)`. `Content-Length` is not trusted;
-    /// curl's `--max-filesize` is a second guard; any other answer's body is not read, and
-    /// nothing is written. The answer's body is empty: its `written` says
-    /// how much the file holds.
+    /// curl's `--max-filesize` is a second guard. Any other answer's body
+    /// is not read, and nothing is written. The answer's body is empty: its
+    /// `written` says how much the file holds.
     pub(crate) fn fetch(
         &self,
         address: &str,
@@ -248,19 +340,7 @@ impl Curl {
     ) -> Result<Answer, Outcome> {
         let argv = self.fetch_argv(address, limit, cap)?;
         let into = File::create(file).map_err(|_| Outcome::Unread(Unread::Unknown))?;
-        let mut child = Command::new(&self.program)
-            .args(&argv)
-            .env_clear()
-            .envs(ENV)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .map_err(|_| unavailable(Passing::Unreachable))?;
-        let Some(out) = child.stdout.take() else {
-            stop(&mut child);
-            return Err(unavailable(Passing::Unreachable));
-        };
+        let (mut child, out) = self.spawn(&argv, None)?;
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
             let _ = tx.send(stream(out, into, cap));
@@ -282,12 +362,20 @@ impl Curl {
             answer.written = 0;
             return Ok(answer);
         }
-        match child.wait().ok().and_then(|s| s.code()) {
-            Some(0) if whole => Ok(answer),
-            Some(28) => Err(unavailable(Passing::Timeout)),
-            Some(63) => Err(Outcome::Unread(Unread::TooLarge)),
-            _ => Err(unavailable(Passing::Unreachable)),
-        }
+        finish(&mut child, whole)?;
+        Ok(answer)
+    }
+}
+
+/// curl's end, once its output is read: 0 with the output whole is the
+/// answer's to read; curl's timeout and size codes are the outcomes they
+/// name; anything else is unreachable.
+fn finish(child: &mut Child, whole: bool) -> Result<(), Outcome> {
+    match child.wait().ok().and_then(|s| s.code()) {
+        Some(0) if whole => Ok(()),
+        Some(28) => Err(unavailable(Passing::Timeout)),
+        Some(63) => Err(Outcome::Unread(Unread::TooLarge)),
+        _ => Err(unavailable(Passing::Unreachable)),
     }
 }
 
@@ -327,6 +415,86 @@ fn stream(out: impl Read, mut into: File, cap: u64) -> Option<(Answer, bool)> {
         answer.written = cap.saturating_add(1);
     }
     Some((answer, whole))
+}
+
+/// curl with a credential, given per request and never kept: see the
+/// module's doc. `Default` is curl as the host has it.
+#[derive(Debug, Clone, Default)]
+pub struct Authorised {
+    curl: Curl,
+}
+
+impl Authorised {
+    /// The program at `program` in curl's place, as a test's stub.
+    pub fn at(program: impl Into<PathBuf>) -> Authorised {
+        Authorised {
+            curl: Curl::at(program),
+        }
+    }
+
+    /// The arguments of a GET of `path` under [`API`] with a credential:
+    /// the anonymous GET's, reading the rest from standard input.
+    fn argv(&self, path: &str, limit: Duration) -> Result<Vec<String>, Outcome> {
+        let mut argv = self.curl.argv(path, limit)?;
+        let address = argv.pop().unwrap_or_default();
+        argv.extend(["--config".to_string(), "-".to_string(), address]);
+        Ok(argv)
+    }
+
+    /// The arguments of a trade at [`TRADE`]: a POST whose form is read
+    /// from standard input.
+    fn trade_argv(&self, limit: Duration) -> Vec<String> {
+        let mut argv = self.curl.args(
+            limit,
+            &["--header", "Accept: application/json"],
+            TRADE,
+            LIMIT,
+            self.curl.cap,
+        );
+        let address = argv.pop().unwrap_or_default();
+        argv.extend(["--config".to_string(), "-".to_string(), address]);
+        argv
+    }
+
+    /// One GET of `path` under [`API`] as `bearer`. `Refused(Invalid)` with
+    /// no request for a path that could leave the host or a token that
+    /// could leave the config's quotes.
+    pub(crate) fn get(&self, path: &str, bearer: &str, limit: Duration) -> Result<Answer, Outcome> {
+        let argv = self.argv(path, limit)?;
+        let header = format!("Authorization: Bearer {}", quotable(bearer)?);
+        let config = format!("header = \"{header}\"\n");
+        self.curl.send(&argv, Some(&config), limit)
+    }
+
+    /// One POST at [`TRADE`] of `form`, its names and values url-encoded by
+    /// curl. `Refused(Invalid)` with no request for a name or value that
+    /// could leave the config's quotes.
+    pub(crate) fn trade(&self, form: &[(&str, &str)], limit: Duration) -> Result<Answer, Outcome> {
+        let mut config = String::new();
+        for (name, value) in form {
+            if !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') || name.is_empty() {
+                return Err(Outcome::Refused(Refusal::Invalid));
+            }
+            config.push_str(&format!(
+                "data-urlencode = \"{name}={}\"\n",
+                quotable(value)?
+            ));
+        }
+        self.curl
+            .send(&self.trade_argv(limit), Some(&config), limit)
+    }
+}
+
+/// `value` when it can sit inside a config's double quotes as it is: one
+/// to 4096 printable ASCII bytes with no `"` and no `\`. Anything else is
+/// `Refused(Invalid)`: no escape is attempted.
+fn quotable(value: &str) -> Result<&str, Outcome> {
+    let ok = (1..=4096).contains(&value.len())
+        && value
+            .bytes()
+            .all(|b| (0x20..0x7f).contains(&b) && b != b'"' && b != b'\\');
+    ok.then_some(value)
+        .ok_or(Outcome::Refused(Refusal::Invalid))
 }
 
 fn unavailable(why: Passing) -> Outcome {
@@ -498,6 +666,50 @@ mod tests {
     }
 
     #[test]
+    fn a_value_that_could_leave_the_configs_quotes_is_refused() {
+        for bad in ["", "a\"b", "a\\b", "a\nb", "a\rb", "a\0b", "é"] {
+            assert_eq!(
+                quotable(bad),
+                Err(Outcome::Refused(Refusal::Invalid)),
+                "{bad:?}"
+            );
+        }
+        assert!(quotable(&"a".repeat(4097)).is_err());
+        assert_eq!(
+            quotable("gho_16C7e42F292c6912E7710c8"),
+            Ok("gho_16C7e42F292c6912E7710c8")
+        );
+        let a = Authorised::default();
+        assert_eq!(
+            a.get("user", "x\"\nurl = \"https://evil.test/", LIMIT)
+                .unwrap_err(),
+            Outcome::Refused(Refusal::Invalid)
+        );
+        assert_eq!(
+            a.trade(&[("code", "x\nurl = https://evil.test/")], LIMIT)
+                .unwrap_err(),
+            Outcome::Refused(Refusal::Invalid)
+        );
+        assert_eq!(
+            a.trade(&[("a=b", "x")], LIMIT).unwrap_err(),
+            Outcome::Refused(Refusal::Invalid)
+        );
+    }
+
+    #[test]
+    fn an_answer_shows_no_header_value_and_no_body() {
+        let a =
+            parse(b"HTTP/2 200 \r\nset-cookie: s3cret\r\n\r\n{\"access_token\":\"gho_s3cret\"}")
+                .unwrap();
+        let shown = format!("{a:?}");
+        assert!(!shown.contains("s3cret"), "{shown}");
+        assert_eq!(
+            shown,
+            r#"Answer { status: 200, headers: ["set-cookie"], body: 29 bytes }"#
+        );
+    }
+
+    #[test]
     fn a_fetch_reaches_exactly_the_four_hosts_over_https() {
         for ok in [
             "https://release-assets.githubusercontent.com/github-production-release-asset/1/0d3f?sp=r&sv=2018-11-09&sr=b&spr=https&se=2026-11-24T12%3A00%3A00Z&rscd=attachment%3B+filename%3Dinstall&sig=a%2Bb%3D&jwt=eyJ.eyJ.sig_-&response-content-type=application%2Foctet-stream",
@@ -613,6 +825,28 @@ mod tests {
         let (answer, _) = stream(&served[..], File::create(&path).unwrap(), 100).unwrap();
         assert_eq!((answer.status, answer.written), (302, 0));
         assert_eq!(std::fs::metadata(&path).unwrap().len(), 0);
+    }
+
+    /// The one host check: a request of either variant to a host not in
+    /// [`HOSTS`] starts nothing, even with arguments made by hand.
+    #[test]
+    fn no_request_starts_to_a_host_outside_the_list() {
+        let curl = Curl::at("/nonexistent/curl-must-not-run");
+        for bad in [
+            "https://evil.test/x",
+            "https://api.github.com.evil.test/x",
+            "https://github.com@evil.test/x",
+            "http://api.github.com/x",
+        ] {
+            let argv = vec!["-q".to_string(), bad.to_string()];
+            assert_eq!(
+                curl.spawn(&argv, None).err(),
+                Some(Outcome::Refused(Refusal::Invalid)),
+                "{bad}"
+            );
+        }
+        // The authorised trade's own address is one of them.
+        assert!(parse_address(TRADE).is_some_and(|p| HOSTS.contains(&p.host)));
     }
 
     #[test]

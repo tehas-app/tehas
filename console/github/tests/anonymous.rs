@@ -14,7 +14,7 @@ use tehas_github::{Curl, GitHubSite, MakeRunner, CURL_ENV};
 use tehas_ports::fake::MemoryLedger;
 use tehas_ports::{
     Actor, At, Caller, CommitId, HealthState, Holder, HolderId, HostId, Ledger, Outcome, Pool,
-    Refusal, Site, TagName, Whose, ALL_MAX,
+    Refusal, Site, TagName, Unread, Whose, ALL_MAX,
 };
 
 const CALLER: Caller = Caller::new("test.anonymous");
@@ -284,6 +284,17 @@ fn a_private_or_missing_project_is_refused_never_not_found() {
     assert_eq!(h.tags(ALL_MAX).err(), Some(UNSUPPORTED));
     assert_eq!(h.latest_release().err(), Some(UNSUPPORTED));
     assert_eq!(h.resolve_tag(&tag("v1.4.1")).err(), Some(UNSUPPORTED));
+}
+
+#[test]
+fn a_prerelease_answered_as_the_latest_is_inconsistent_as_on_the_tokens_path() {
+    let stub = Stub::new("github-anonymous-pre");
+    let site = site("acme/pre", &stub, Arc::new(MemoryLedger::new()));
+    let mut h = site.code_host(&Actor::Anonymous, CALLER).unwrap();
+    assert_eq!(
+        h.latest_release(),
+        Err(Outcome::Unread(Unread::Inconsistent))
+    );
 }
 
 #[test]

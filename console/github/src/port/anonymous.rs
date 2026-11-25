@@ -19,7 +19,7 @@
 //! `download` fetches one public release file: the release of the tag is
 //! read first, and a file it does not list is `NotFound`, one it lists as
 //! larger than the limit `Unread(TooLarge)`, both before any fetch. The
-//! file is asked of the API by its id, and at most [`REDIRECTS`] redirects
+//! file is asked of the API by its id, and at most `curl::REDIRECTS` redirects
 //! are followed, each to one of `curl::HOSTS` exactly over `https`; any
 //! other is `Refused(Unsupported)` with nothing written. The bytes go to a
 //! file in a directory of the adapter's own, held to the limit on the
@@ -45,7 +45,7 @@ use serde::Deserialize;
 
 use super::code_host::download::Scratch;
 use super::{site::count, unsupported};
-use crate::curl::{self, Answer, Curl, API, DOWNLOAD_LIMIT};
+use crate::curl::{self, Answer, Curl, API, DOWNLOAD_LIMIT, REDIRECTS};
 use crate::markers;
 use tehas_ports::{
     Access, At, Bound, Branch, Caller, Change, ChangeDelta, ChangeDigest, ChangeEvent,
@@ -64,9 +64,6 @@ const FAILURES_KEPT: u32 = 600;
 
 /// The most tags a tag object is peeled through.
 const PEELS: usize = 4;
-
-/// The most redirects a download follows.
-pub(crate) const REDIRECTS: usize = 2;
 
 /// What a site needs to make anonymous handles: curl and the ledger.
 #[derive(Clone)]
@@ -562,10 +559,18 @@ impl CodeHost for Anonymous {
     }
 
     /// GitHub's latest release; a project that answers with none has none.
+    /// A draft or a prerelease in the answer is `Unread(Inconsistent)`, as
+    /// the token's reader has it.
     fn latest_release(&mut self) -> Got<Option<Release>> {
         let repo = self.repo_path()?.to_string();
         match self.get(&format!("repos/{repo}/releases/latest"))? {
-            Some(a) => json::<RestRelease>(&a)?.release().map(Some),
+            Some(a) => {
+                let r = json::<RestRelease>(&a)?.release()?;
+                if r.draft || r.prerelease {
+                    return Err(Outcome::Unread(Unread::Inconsistent));
+                }
+                Ok(Some(r))
+            }
             None => match self.get(&format!("repos/{repo}"))? {
                 Some(_) => Ok(None),
                 None => refused(),

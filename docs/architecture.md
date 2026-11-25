@@ -80,9 +80,11 @@ owned read handles and the links, each ticket answered alone.
 The core today is the dispatcher's `decide` and the modules it decides
 from: `decide.rs`, `decide/`, `place.rs`, `snapshot.rs`, `text.rs`,
 `settings.rs`, `questions.rs`, `starts.rs`. `core-effects` holds it at 0:
-no file, network, process, environment or clock. `core-inward` counts 3
-uses of the shell in `decide.rs` (the push fault's hold from
-`read::host`, `call::trim`, `apply::start::change_note`), which T3 moves.
+no file, network, process, environment or clock. `core-inward` holds it at
+0 too: nothing of the shell or of tehas-core's effects. At the fork it
+counted 3 in `decide.rs` (the push fault's hold from `read::host`,
+`call::trim`, `apply::start::change_note`); `trim`, a pure cut of a log
+line, is in tehas-core's `text` now.
 tehas-core is not the core: it holds the forge, the sandbox and the
 process runner. T6 settles where the core ends.
 
@@ -252,6 +254,7 @@ its reason, as a floor; a departure from a should rule (R5) likewise.
 | github-rest | 4, in the bash | `host/sandbox/gh-shim` 4 | T8's freeze, below |
 | tests-stub-gh | 83, in the shell tests that stay shell | 18 files of `test/` | T8's freeze, below |
 | untyped-signatures, untyped-fields | 147 and 2 | four causes, file by file | T7's floors, below |
+| untyped-signatures, untyped-fields | 963 and 21, for alpha.1 | the rest, per crate | T7's alpha.1 floor, below |
 
 ### The bash that stays (T8)
 
@@ -348,6 +351,45 @@ Not in this floor: the rest of these files. The MCP tools' answers
 plugin's tools and the JSON-RPC request's id and params are typeable and
 are typed in T7's series; so are the dispatcher's, the cycle's, the
 console's, ops' and the store client's, as T3 to T5 leave them.
+
+#### The alpha.1 floor
+
+The trio PM's ruling for alpha.1: T7 closes alpha.1 on written floors.
+The open T7 pull requests land first, and what is still untyped is
+written down here. There is no typing lane before the tag.
+
+Cause: typing them is T7's remaining lane, which collides with the T4/T5
+moves. End: T7's remaining lane, before the beta.
+
+Measured on 491a63264, after #3201, #3215 and #3221 landed, by `scripts/architecture.py`'s own count
+(`count()` with the checks' pattern, files and `allowed` from
+`architecture.toml`), per crate, with the floor above taken out file by
+file. "The console" is `console/src` and `console/tests`.
+
+| Area | untyped-signatures | untyped-fields |
+| --- | --- | --- |
+| dispatch | 314 | 9 |
+| mcp | 137 (215, less 78 above) | 1 |
+| cycle | 121 | 5 |
+| the console | 116 (118, less 2 above) | 0 |
+| core | 79 (112, less 33 above) | 1 (3, less 2 above) |
+| ops | 64 (74, less 10 above) | 3 |
+| store | 59 | 1 |
+| attach | 36 | 1 |
+| analytics | 22 (23, less 1 above) | 0 |
+| plugin | 10 (33, less 23 above) | 0 |
+| github | 4 | 0 |
+| items | 1 | 0 |
+| **alpha.1 floor** | **963** | **21** |
+| the floor above | 147 | 2 |
+| **the check's count** | **1110** | **23** |
+
+The two parts add up to the check's count and its `max`: 963 and 147 is
+1110, 21 and 2 is 23. A count here may only fall, as above.
+
+#3201, #3215 and #3221, the T7 pull requests open at the ruling, have
+landed, and the floor is measured after them: they took untyped-signatures
+from 1124 to 1110, 12 in mcp and 2 in ops. untyped-fields did not move.
 
 ### Temporary rises
 
