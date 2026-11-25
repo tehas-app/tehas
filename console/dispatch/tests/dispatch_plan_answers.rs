@@ -8,6 +8,7 @@ use common::*;
 use regex::Regex;
 use serde_json::{json, Value};
 use std::fs;
+use tehas_core::home::Home;
 use tehas_ports::{Mark, State};
 
 fn v(text: &str) -> Value {
@@ -180,7 +181,7 @@ fn the_image_is_the_one_the_turn_started_in_not_the_one_the_image_name_points_at
         )
     );
     assert!(!w
-        .files(&w.home.join("state"))
+        .files(&Home::new(&w.home).state_dir())
         .contains(&"plan-7.json.image".to_string()));
 }
 

@@ -181,8 +181,16 @@ is now tehas-app/tehas-factory`: remove the line or name the new one. An
 update from the checkout says the same of its `origin`, as "From the
 checkout" says.
 The list and the download use `gh` when it is signed in, which
-reaches a private repository with the bot's token, and `curl` from the public
-address otherwise.
+reaches a private repository with the bot's token. When `gh` has no
+credential, its credential is refused, it may not read the repository, or
+there is no `gh` to run, they read GitHub's API with no credential instead,
+through `curl`: a public repository alone. A failure of GitHub's, or one that
+may have reached it, fails the update as it is and never changes the way.
+Either way, the list reads every release, and each of the three files is
+fetched alone through a scratch directory under the system's temporary
+directory; a file over 1 GiB is refused before it is fetched, and one served
+at another size is refused. With no credential, a file is fetched from
+GitHub's API and its file hosts alone, following at most two redirects.
 
 The newest is the newest release, never a prerelease (`vX.Y.Z-alpha.N`,
 `-beta.N` or `-rc.N`): a plain `tehas update` passes over them, and a host

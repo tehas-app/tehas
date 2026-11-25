@@ -234,3 +234,14 @@ fn closed_since_that_github_refused_is_its_outcome() {
         Err(SERVER)
     );
 }
+
+#[test]
+fn closed_since_with_errors_beside_its_data_is_no_answer() {
+    // GraphQL answers 200 with errors beside a data that may be partial:
+    // the tickets it does hold are no whole answer, so none is read.
+    let mut gh = adapter();
+    assert_eq!(
+        gh.closed_since(at("2026-03-05T00:00:00Z"), bound(10)),
+        Err(INCONSISTENT)
+    );
+}

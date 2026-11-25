@@ -275,6 +275,7 @@ pub fn main(args: &[&str]) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tehas_core::home::{Home, State};
     use tehas_core::testdir::TestDir;
 
     const HEAD: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -322,7 +323,7 @@ mod tests {
     fn a_pull_request_read_with_no_gh_to_run_says_gh_not_found() {
         let d = scratch("no-gh");
         let run = Run {
-            dir: d.join("state/refresh"),
+            dir: Home::new(&*d).state(State::Refreshes),
             log: d.join("logs/refresh.log"),
             repo: "a/b".into(),
             control: 1,

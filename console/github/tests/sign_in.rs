@@ -30,7 +30,6 @@ fn client() -> PeopleClient {
     PeopleClient {
         id: "Iv1.client".into(),
         secret: Secret::new("s3cret"),
-        api: None,
         callback: WebLink::new("https://plugins.example.org/_auth/callback").unwrap(),
     }
 }

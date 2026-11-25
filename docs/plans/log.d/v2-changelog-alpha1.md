@@ -1,0 +1,1 @@
+| 2026-11-25 | The changelog is collected for v2.0.0-alpha.1: the 64 fragments of `changelog.d/` are in the Unreleased section of `CHANGELOG.md`, so `scripts/tag-release.sh` tags the merge into main and opens no pull request | v2/changelog-alpha1 |

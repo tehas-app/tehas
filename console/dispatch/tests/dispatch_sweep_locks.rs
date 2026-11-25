@@ -6,6 +6,7 @@ mod common;
 use common::*;
 use std::fs;
 use std::process::Command;
+use tehas_core::home::{Home, State};
 
 /// A cycle of #`n` that ended `days` days ago, its lock file left.
 fn ended_days_ago(w: &World, n: u64, days: i64) {
@@ -63,7 +64,7 @@ fn a_backup_restored_into_a_fresh_home_is_a_store_a_poll_runs_on() {
     ended_days_ago(&w, 33, 1);
     let r = w.store(&["backup"]);
     assert_eq!(r.rc, 0, "the store made no backup: {}", r.out);
-    let backups = w.home.join("state/backup");
+    let backups = Home::new(&w.home).state(State::Backups);
     let copy = w
         .files(&backups)
         .into_iter()
@@ -75,7 +76,7 @@ fn a_backup_restored_into_a_fresh_home_is_a_store_a_poll_runs_on() {
     let restored = w.t().join("restored.db");
     fs::copy(backups.join(copy), &restored).unwrap();
     w.reset();
-    let state = w.home.join("state");
+    let state = Home::new(&w.home).state_dir();
     fs::copy(&restored, state.join("tehas.db")).unwrap();
     for f in ["tehas.db-wal", "tehas.db-shm"] {
         let _ = fs::remove_file(state.join(f));

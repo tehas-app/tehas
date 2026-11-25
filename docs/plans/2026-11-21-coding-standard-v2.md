@@ -420,6 +420,18 @@ Done when `github-rest` is 0 and `gh-argv` is at 0 or at its written
 floor, and a fake code host that times out or rate-limits leaves the
 dispatcher and a cycle running, with one report.
 
+For alpha.1 (the trio PM's ruling, 2026-11-25), alpha.1 closes on written
+floors: the open T4 adapter pull requests land first, and what is still
+written outside the adapter is written down as T4's alpha.1 floors, per
+area, in
+[docs/architecture.md, "T4's alpha.1 floors"](../architecture.md#t4s-alpha1-floors).
+Moving it is T4's remaining lane, before the beta. T4.6 step 6 and D4
+are a written departure there too, so the resilience test covers the
+parts on the ports only, at alpha.1. The same ruling
+writes the rest of label-words, home-layout, raw-statuses and
+tests-stub-gh as alpha.1 floors, in
+[docs/architecture.md, "alpha.1 floors"](../architecture.md#alpha1-floors).
+
 T4's Done also needs, before T4 is done, one live read-only recording
 per GraphQL question of the adapter, made with a real token: among them
 an issue with an edited comment, a repository rename's 301, and the list
@@ -509,6 +521,25 @@ Findings:
 - A GraphQL error makes gh exit 1. #2993 settles it with a second REST
   read and #2990 with the plain outcome. Both read the error's type from
   `GhRunner::run_answer` (#3018) instead.
+- T4.10a (tehas-68's ruling, option (b)): `tehas update`'s signed-in
+  release list and download go through `CodeHost` on the release
+  project's own site (Decided 23). The anonymous list and download
+  through curl, and the `gh auth status` that chooses between them,
+  stay in `console/ops/src/update/release.rs`, because the adapter
+  answers `Actor::Anonymous` for no release file yet: #3207's `Curl`
+  reaches the API host alone, and #3216 refuses Anonymous before any
+  request. They are removed by the anonymous download adapter PR. The
+  signed-in handle acts as `Actor::Operator`, the operator's own gh,
+  which is what the update used: the adapter's site answers
+  `Actor::Ours(Scope::Read)` only for a sign-in, so a read-scoped
+  factory handle is that adapter PR's too.
+- T4.10b (tehas-68's ruling, 2026-11-25): the anonymous list and
+  download go through #3234's anonymous handle, and the `gh auth status`
+  probe, the curl path and `api.github.com` leave `release.rs`. The
+  update turns to the anonymous handle on the operator's answer alone:
+  `SignedOut`, `Forbidden` or `Unavailable { Unreachable, No }`, made
+  or asked first, never `Server` or `Maybe`. gh's exit 4 is `SignedOut`
+  by an adapter PR of its own (Decided 80).
 
 ### T5. Deep homes for files
 

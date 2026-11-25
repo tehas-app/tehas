@@ -31,7 +31,7 @@ const COMPOSE_LIMIT: u32 = 180;
 const SYSTEMD_LIMIT: u32 = 60;
 /// The sandbox image build.
 const BUILD_LIMIT: u32 = 1800;
-/// tehas labels: one gh label create per label of this version.
+/// tehas labels: one label made per label of this version.
 const LABELS_LIMIT: u32 = 120;
 
 /// The state words of `systemctl is-active` that mean this unit runs.

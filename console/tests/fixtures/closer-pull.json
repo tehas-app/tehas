@@ -1,0 +1,3 @@
+{"__typename": "PullRequest", "number": @PR@, "merged": @MERGED@,
+ "url": "https://github.com/acme/widget/pull/@PR@",
+ "repository": {"databaseId": 7001, "nameWithOwner": "acme/widget"}}

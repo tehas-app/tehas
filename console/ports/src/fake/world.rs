@@ -665,6 +665,13 @@ impl World {
         self
     }
 
+    /// Mark the release of `tag` latest, as a person may mark an older one
+    /// on the site.
+    pub fn mark_latest(self, tag: &str) -> Self {
+        self.lock().marked_latest = Some(TagName::new(tag).expect("a tag"));
+        self
+    }
+
     /// Delete a comment, as a person does between a read and a write.
     pub fn delete_comment(&self, id: &CommentId) {
         let mut s = self.lock();
