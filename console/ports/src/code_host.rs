@@ -894,7 +894,9 @@ pub trait CodeHost: Reports + Cites {
     /// first by when the site made each, a draft too, not by when it was
     /// published.
     fn recent_releases(&mut self, first: NonZeroU32) -> Got<Took<Release>>;
-    /// The newest published release, if any.
+    /// The release the site marks latest; on a site with no marking, the
+    /// newest published that is neither a draft nor a prerelease. None when
+    /// there is none. A draft or a prerelease is never the latest.
     fn latest_release(&mut self) -> Got<Option<Release>>;
     /// The release of a tag.
     fn release(&mut self, tag: &TagName) -> Got<Release>;

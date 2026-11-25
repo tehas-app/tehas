@@ -289,7 +289,11 @@ CREATE TABLE parks (
 -- question open at the upgrade to 2.0, and withdrawn_at (v30) is when the host
 -- withdrew it: a withdrawn question is kept, never deleted. A comment names one
 -- question that is not withdrawn; asked again after a withdrawal, it is a new
--- question with the next number.
+-- question with the next number. body_form (v33) says what body_sha256 sums:
+-- 'visible', the question's text alone, without our markers, as 2.0 asks it;
+-- 'rendered', the comment as 1.x posted it, its markers in, which the poll
+-- adopts in place on its first read (question-adopt), 'visible' with no sum
+-- when its comment changed since it was posted; NULL with no sum.
 CREATE TABLE questions (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   comment_id  INTEGER,
@@ -302,7 +306,8 @@ CREATE TABLE questions (
   answered_by TEXT,
   offers      TEXT,
   reask       INTEGER NOT NULL DEFAULT 0,
-  withdrawn_at INTEGER
+  withdrawn_at INTEGER,
+  body_form   TEXT CHECK (body_form IN ('rendered','visible'))
 );
 CREATE INDEX questions_issue ON questions (issue, posted_at);
 CREATE UNIQUE INDEX questions_comment ON questions (comment_id) WHERE withdrawn_at IS NULL;

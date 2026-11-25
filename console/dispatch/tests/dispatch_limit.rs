@@ -5,6 +5,7 @@ mod common;
 
 use common::{has, lacks, park_body, plan_body, World};
 use serde_json::json;
+use tehas_core::home::{Home, State};
 
 #[test]
 fn limit_planning_off_holds_a_new_planning_session_not_an_answer() {
@@ -63,7 +64,7 @@ fn limit_expired_unreadable_or_of_another_version_nothing_starts_and_the_hold_sa
         if file.is_empty() {
             w.limit(3, true, "2020-01-01T00:00:00Z", "");
         } else {
-            w.home_file("state/limit.json", file);
+            w.home_file(Home::new(&w.home).state(State::Limit), file);
         }
         let r = w.poll();
         assert_eq!(r.rc, 0, "{kind}: {}", r.out);

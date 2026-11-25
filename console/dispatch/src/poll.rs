@@ -429,7 +429,6 @@ fn writer(
         spend: None,
         status_due: false,
         changed: false,
-        gh_writes: 0,
         port_calls: Default::default(),
         unposted: 0,
         starts: 0,
@@ -780,9 +779,7 @@ pub fn run_poll(
     for n in w.calls.retry.taken() {
         failed_read(home, dry, &n);
     }
-    end.gh += w.calls.gh_count
-        + w.gh_writes
-        + w.port_calls.load(std::sync::atomic::Ordering::Relaxed) as u32;
+    end.gh += w.calls.gh_count + w.port_calls.load(std::sync::atomic::Ordering::Relaxed) as u32;
     end.starts = w.starts;
     end.changed.queue = w.changed;
     end.run(&mut w);
@@ -1505,8 +1502,9 @@ mod tests {
         let home = home_of("adopt");
         let none = Settings::parse(&json!({}));
         assert!(adopt_login(&home, &none).is_none(), "no login is kept yet");
-        std::fs::create_dir_all(home.join("state/github")).unwrap();
-        std::fs::write(home.join("state/github/login"), "acme-app[bot]\n").unwrap();
+        std::fs::create_dir_all(Home::new(&*home).token_dir(tehas_core::home::TokenDir::App))
+            .unwrap();
+        std::fs::write(Home::new(&*home).state(State::BotLogin), "acme-app[bot]\n").unwrap();
         let got = adopt_login(&home, &none).expect("the kept login is adopted");
         assert_eq!(got.bot_login, "acme-app[bot]");
         assert!(got.is_millwright("acme-app[bot]"));
@@ -1518,14 +1516,14 @@ mod tests {
     /// A scratch home of this test, with `live/` in it.
     fn home_of(name: &str) -> tehas_core::testdir::TestDir {
         let dir = tehas_core::testdir::TestDir::new(&format!("poll-{name}"));
-        std::fs::create_dir_all(dir.join("live")).unwrap();
+        std::fs::create_dir_all(Home::new(&*dir).live_dir()).unwrap();
         dir
     }
 
     /// The status file of `home`, written now and then given the time of
     /// `made`: no sleeping, and the age a test asks for.
     fn status_at(home: &Path, made: i64) {
-        let file = home.join("live/status.json");
+        let file = Home::new(home).live(Live::Status);
         std::fs::write(&file, b"{}").unwrap();
         std::fs::OpenOptions::new()
             .write(true)
@@ -1540,7 +1538,7 @@ mod tests {
     #[test]
     fn a_poll_with_no_status_file_runs_the_status() {
         let home = home_of("missing");
-        assert!(!home.join("live/status.json").exists());
+        assert!(!Home::new(&*home).live(Live::Status).exists());
         assert!(status_due(&home, NOW));
     }
 
@@ -1572,7 +1570,7 @@ mod tests {
         let dir = home_of("unreadable");
         // Not a file at all: the time of it cannot be had, and the poll asks
         // the status what it holds rather than trusting a file it cannot read.
-        std::fs::create_dir_all(dir.join("live/status.json")).unwrap();
+        std::fs::create_dir_all(Home::new(&*dir).live(Live::Status)).unwrap();
         assert!(status_due(&dir, NOW));
         let dir = home_of("epoch");
         status_at(&dir, 0);
@@ -1585,10 +1583,10 @@ mod tests {
     fn poll_home(name: &str) -> tehas_core::testdir::TestDir {
         let home = home_of(name);
         std::fs::create_dir_all(home.join("libexec")).unwrap();
-        std::fs::create_dir_all(home.join("state")).unwrap();
+        std::fs::create_dir_all(Home::new(&*home).state_dir()).unwrap();
         let store = home.join("libexec/store");
         tehas_core::testing::write_exe(&store, "#!/bin/sh\nexit 0\n").unwrap();
-        std::fs::write(home.join("state/tehas.db"), "").unwrap();
+        std::fs::write(Home::new(&*home).state(State::StoreDb), "").unwrap();
         home
     }
 
@@ -1598,7 +1596,7 @@ mod tests {
         let held = OpenOptions::new()
             .create(true)
             .append(true)
-            .open(home.join("state/dispatch.lock"))
+            .open(Home::new(home).state(State::DispatchLock))
             .unwrap();
         held.try_lock()
             .expect("nothing else holds this home's lock");
@@ -1632,7 +1630,7 @@ mod tests {
     #[test]
     fn a_poll_that_finds_the_lock_held_leaves_the_ask_for_the_next_poll() {
         let home = poll_home("again-held");
-        let again = home.join("state/dispatch.again");
+        let again = Home::new(&*home).state(State::DispatchAgain);
         std::fs::write(&again, "").unwrap();
         let held = held_lock(&home);
         let events = crate::events::wiring();
@@ -1656,7 +1654,7 @@ mod tests {
     #[test]
     fn a_poll_that_takes_the_lock_takes_the_ask_with_it() {
         let home = poll_home("again-taken");
-        let again = home.join("state/dispatch.again");
+        let again = Home::new(&*home).state(State::DispatchAgain);
         std::fs::write(&again, "").unwrap();
         let _ = run_poll(
             &home,

@@ -17,6 +17,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Once;
+use tehas_core::home::{Home, Live, State, TokenDir};
 use tehas_core::testdir::TestDir;
 use tehas_core::testing::{copy_exe, link_exe, write_exe};
 
@@ -59,9 +60,9 @@ fails() {
 }
 # The write log of the host shim (host/shim/gh), when a case keeps one: a line for
 # each write, in the format of the shim.
-if [ -e "$T/home/tehas/state/github-writes.log" ]; then
+if [ -e "$T_GITHUB_WRITES" ]; then
   case "$1 $2" in
-    "issue edit" | "issue comment" | "api -X") printf "%s\t%s %s\tacme/widget\t-\t0\t-\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" >>"$T/home/tehas/state/github-writes.log" ;;
+    "issue edit" | "issue comment" | "api -X") printf "%s\t%s %s\tacme/widget\t-\t0\t-\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" >>"$T_GITHUB_WRITES" ;;
   esac
 fi
 # comments_json <n>: the comments of #n as the GraphQL comment read gives them,
@@ -385,7 +386,7 @@ nums=$(jq -r '[.[][] | select((.state // "OPEN") != "CLOSED") | .number | tonumb
 # command: a case may count the flock and true it stubs. /proc/locks does not
 # do, as in a container its inodes are not the ones ls -i gives.
 fl=$(command -pv flock)
-locked=$(for f in "$T"/home/tehas/state/cycles/[0-9]*.lock; do
+locked=$(for f in "$T_CYCLES"/[0-9]*.lock; do
   [ -e "$f" ] || continue
   { "$fl" -n 3 || { f=${f##*/}; echo "${f%.lock}"; }; } 3<"$f"
 done | jq -Rcs 'split("\n") | map(select(. != "") | tonumber)')
@@ -463,9 +464,9 @@ const STUBS: &[(&str, &str)] = &[
         r####"[ ! -e "$T/fx/start-fails" ] || exit 1
 [ ! -e "/proc/$$/fd/8" ] || : >"$T/calls/start.fd8"
 [ ! -e "$T/fx/start-silent" ] || exit 0
-flock -w 5 "$TEHAS_HOME/state/cycles/$1.lock" "$T/store-bin" cycle-start "$1" >>"$T/calls/cycle-start" 2>&1 || exit 0
+flock -w 5 "$T_CYCLES/$1.lock" "$T/store-bin" cycle-start "$1" >>"$T/calls/cycle-start" 2>&1 || exit 0
 [ ! -e "$T/fx/start-refused" ] ||
-  flock -w 5 "$TEHAS_HOME/state/cycles/$1.lock" "$T/store-bin" cycle-end "$1" --attempt "$(TEHAS_HOME=$TEHAS_HOME "$T/store-bin" cycle-show "$1" | jq .cycle.attempt)" --refused >/dev/null 2>&1"####,
+  flock -w 5 "$T_CYCLES/$1.lock" "$T/store-bin" cycle-end "$1" --attempt "$(TEHAS_HOME=$TEHAS_HOME "$T/store-bin" cycle-show "$1" | jq .cycle.attempt)" --refused >/dev/null 2>&1"####,
     ),
     ("fake-status", ""),
     (
@@ -641,33 +642,49 @@ const PROC_NAMES: &[&str] = &[
     "timeout", "tr", "uname", "wc", "whoami",
 ];
 
+/// Where an old record was kept: `state/` or `state/cycles/`.
+#[derive(Clone, Copy)]
+enum Under {
+    State,
+    Cycles,
+}
+
+impl Under {
+    fn dir(self, home: &Home) -> PathBuf {
+        match self {
+            Under::State => home.state_dir(),
+            Under::Cycles => home.cycles_dir(),
+        }
+    }
+}
+
 /// Files of records that live on the store now, as (directory, start, end):
 /// no poll leaves one. A start of "1" is any digit 1 to 9.
-const OLD_STATE: &[(&str, &str, &str)] = &[
-    ("state/cycles", "", ".taken"),
-    ("state/cycles", "", ".by"),
-    ("state/cycles", "", ".requeued"),
-    ("state/cycles", "", ".rukas"),
-    ("state/cycles", "", ".image"),
-    ("state/cycles", "", ".settings"),
-    ("state/cycles", "", ".branch"),
-    ("state/cycles", "", ".approved.json"),
-    ("state/cycles", "", ".approved.json.new"),
-    ("state/cycles", "1", ".history.jsonl"),
-    ("state/cycles", "", ".park"),
-    ("state/cycles", "", ".park.new"),
-    ("state", "park-", ".id"),
-    ("state", "park-", ".json"),
-    ("state/cycles", "", ".quiet"),
-    ("state", "plan-", ".json"),
-    ("state", "plan-", ".json.new"),
-    ("state", "plan-", ".json.brief"),
-    ("state", "plan-", ".json.answer"),
-    ("state", "plan-", ".json.answer.new"),
-    ("state", "plan-", ".json.keep"),
-    ("state", "plan-", ".turn"),
-    ("state/cycles", "plan-", ".history.jsonl"),
-    ("state", "plan-", ".history.jsonl"),
+const OLD_STATE: &[(Under, &str, &str)] = &[
+    (Under::Cycles, "", ".taken"),
+    (Under::Cycles, "", ".by"),
+    (Under::Cycles, "", ".requeued"),
+    (Under::Cycles, "", ".rukas"),
+    (Under::Cycles, "", ".image"),
+    (Under::Cycles, "", ".settings"),
+    (Under::Cycles, "", ".branch"),
+    (Under::Cycles, "", ".approved.json"),
+    (Under::Cycles, "", ".approved.json.new"),
+    (Under::Cycles, "1", ".history.jsonl"),
+    (Under::Cycles, "", ".park"),
+    (Under::Cycles, "", ".park.new"),
+    (Under::State, "park-", ".id"),
+    (Under::State, "park-", ".json"),
+    (Under::Cycles, "", ".quiet"),
+    (Under::State, "plan-", ".json"),
+    (Under::State, "plan-", ".json.new"),
+    (Under::State, "plan-", ".json.brief"),
+    (Under::State, "plan-", ".json.answer"),
+    (Under::State, "plan-", ".json.answer.new"),
+    (Under::State, "plan-", ".json.keep"),
+    (Under::State, "plan-", ".turn"),
+    (Under::Cycles, "plan-", ".history.jsonl"),
+    (Under::State, "plan-", ".history.jsonl"),
 ];
 
 /// The fixtures reset() takes away, by exact name or, ending in `*`, by start.
@@ -709,21 +726,25 @@ const RESET_FX: &[&str] = &[
     "labels.json",
 ];
 
-/// The paths under the home reset() takes away, `*` as in RESET_FX.
-const RESET_HOME: &[&str] = &[
-    "libexec",
-    "state/labels",
-    "state/cycles",
-    "state/plan-*",
-    "live",
-    "state/pause.json",
-    "state/limit.json",
-    "state/branch-check",
-    "state/github-failures",
-    "state/push-fault.json",
-    "work/widget-plan-*",
-    "tmp/plan-*",
-];
+/// The paths under the home reset() takes away, `*` in the last name as in
+/// RESET_FX.
+fn reset_home(root: &Path) -> Vec<PathBuf> {
+    let home = Home::new(root);
+    vec![
+        root.join("libexec"),
+        home.state(State::LabelPins),
+        home.cycles_dir(),
+        home.state_dir().join("plan-*"),
+        home.live_dir(),
+        home.state(State::Pause),
+        home.state(State::Limit),
+        home.state(State::BranchCheck),
+        home.state(State::GithubFailures),
+        home.state(State::PushFault),
+        root.join("work/widget-plan-*"),
+        root.join("tmp/plan-*"),
+    ]
+}
 
 pub const GIB: u64 = 1_073_741_824;
 
@@ -937,9 +958,9 @@ impl World {
         for name in RESET_FX {
             remove_like(&self.fx, name);
         }
-        for path in RESET_HOME {
-            let (dir, name) = path.rsplit_once('/').unwrap_or(("", path));
-            remove_like(&self.home.join(dir), name);
+        for path in reset_home(&self.home) {
+            let name = path.file_name().unwrap().to_str().unwrap();
+            remove_like(path.parent().unwrap(), name);
         }
         self.store_home();
         self.slice_show(&(20 * GIB).to_string(), "");
@@ -1010,9 +1031,11 @@ impl World {
         }
         relink(&self.t.join("store-bin"), &libexec.join("store"));
         relink(&self.t.join("attach-bin"), &libexec.join("attach"));
-        let state = self.home.join("state");
-        for f in ["tehas.db", "tehas.db-wal", "tehas.db-shm"] {
-            let _ = fs::remove_file(state.join(f));
+        let db = Home::new(&self.home).state(State::StoreDb);
+        for end in ["", "-wal", "-shm"] {
+            let mut f = db.clone().into_os_string();
+            f.push(end);
+            let _ = fs::remove_file(f);
         }
         // A new store: its rows are all read.
         let _ = fs::remove_file(self.t.join("journal-from"));
@@ -1028,7 +1051,7 @@ impl World {
             "acme/widget",
         ]);
         let ids: String = LOGINS.iter().map(|l| format!("{l} {}\n", uid(l))).collect();
-        fs::write(state.join("account-ids"), ids).unwrap();
+        fs::write(Home::new(&self.home).state(State::AccountIds), ids).unwrap();
     }
 
     /// The scratch root, `$T` of the stubs.
@@ -1048,27 +1071,27 @@ impl World {
 
     /// What every poll writes for tehas status.
     pub fn dispatch_json(&self) -> PathBuf {
-        self.home.join("live/dispatch.json")
+        Home::new(&self.home).live(Live::Dispatch)
     }
 
     /// The demand, written on every poll.
     pub fn demand_file(&self) -> PathBuf {
-        self.home.join("live/demand.json")
+        Home::new(&self.home).live(Live::Demand)
     }
 
     /// The limit tehas limit writes.
     pub fn limit_file(&self) -> PathBuf {
-        self.home.join("state/limit.json")
+        Home::new(&self.home).state(State::Limit)
     }
 
     /// Where a cycle's files are kept.
     pub fn cycles_dir(&self) -> PathBuf {
-        self.home.join("state/cycles")
+        Home::new(&self.home).cycles_dir()
     }
 
     /// The files of #7's planning turn are named after this.
     pub fn record(&self) -> PathBuf {
-        self.home.join("state/plan-7.json")
+        Home::new(&self.home).plan_file(7, "")
     }
 
     /// What #7's session carries from one turn to the next.
@@ -1165,7 +1188,7 @@ impl World {
             text.push('\n');
         }
         fs::write(dir.join("instance.env"), text).unwrap();
-        if !self.home.join("state/github/login").exists() {
+        if !Home::new(&self.home).state(State::BotLogin).exists() {
             self.app_world("tehas-bot");
         }
     }
@@ -1174,21 +1197,18 @@ impl World {
     /// hours left (t_app_world).
     pub fn app_world(&self, slug: &str) {
         let until = tehas_core::time::now() + 86400;
+        let home = Home::new(&self.home);
         for (dir, token) in [
-            ("github", "app"),
-            ("github-cycle", "cycle"),
-            ("github-session", "session"),
+            (TokenDir::App, "app"),
+            (TokenDir::Cycle, "cycle"),
+            (TokenDir::Session, "session"),
         ] {
-            let d = self.home.join("state").join(dir);
+            let d = home.token_dir(dir);
             fs::create_dir_all(&d).unwrap();
             fs::write(d.join("token"), format!("ghs_{token}\n")).unwrap();
             fs::write(d.join("token.expires"), format!("{until}\n")).unwrap();
         }
-        fs::write(
-            self.home.join("state/github/login"),
-            format!("{slug}[bot]\n"),
-        )
-        .unwrap();
+        fs::write(home.state(State::BotLogin), format!("{slug}[bot]\n")).unwrap();
     }
 
     /// An instance that works on at most `n` issues side by side, with more
@@ -1258,8 +1278,9 @@ impl World {
         fs::write(p, text).unwrap();
     }
 
-    /// A file under the home, with these bytes.
-    pub fn home_file(&self, rel: &str, text: &str) {
+    /// A file under the home, with these bytes. `rel` is relative to the home,
+    /// or a path Home gave.
+    pub fn home_file(&self, rel: impl AsRef<Path>, text: &str) {
         let p = self.home.join(rel);
         if let Some(d) = p.parent() {
             fs::create_dir_all(d).unwrap();
@@ -1268,18 +1289,18 @@ impl World {
     }
 
     /// What a file under the home holds, "" when there is none.
-    pub fn read_home(&self, rel: &str) -> String {
+    pub fn read_home(&self, rel: impl AsRef<Path>) -> String {
         fs::read_to_string(self.home.join(rel)).unwrap_or_default()
     }
 
     /// A JSON file under the home, Null when there is none.
-    pub fn json_home(&self, rel: &str) -> Value {
+    pub fn json_home(&self, rel: impl AsRef<Path>) -> Value {
         serde_json::from_str(&self.read_home(rel)).unwrap_or(Value::Null)
     }
 
     /// live/dispatch.json.
     pub fn dispatch_state(&self) -> Value {
-        self.json_home("live/dispatch.json")
+        self.json_home(Home::new(&self.home).live(Live::Dispatch))
     }
 
     fn command(&self, program: &str) -> Command {
@@ -1294,6 +1315,11 @@ impl World {
             .env("PATH", path)
             .env("HOME", self.t.join("home"))
             .env("TEHAS_HOME", &self.home)
+            .env("T_CYCLES", Home::new(&self.home).cycles_dir())
+            .env(
+                "T_GITHUB_WRITES",
+                Home::new(&self.home).state(State::GithubWrites),
+            )
             .env("T", self.t.path())
             .env("T_ROOT", root())
             .env("CARGO_TARGET_DIR", self.t.join("target"))
@@ -1374,6 +1400,22 @@ impl World {
             return rusqlite::Connection::open_in_memory().unwrap();
         }
         rusqlite::Connection::open_with_flags(db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .unwrap()
+    }
+
+    /// The sum on record of the question comment `id` asked, and its form, as
+    /// the store keeps them; None when no such question is kept.
+    #[allow(dead_code)] // each test file uses a part of this module
+    pub fn question_sum(&self, id: u64) -> Option<(Option<String>, Option<String>)> {
+        use rusqlite::OptionalExtension;
+        self.journal()
+            .query_row(
+                "SELECT body_sha256, body_form FROM questions WHERE comment_id = ?1
+                 ORDER BY id DESC LIMIT 1",
+                [i64::try_from(id).unwrap()],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
             .unwrap()
     }
 
@@ -2007,6 +2049,9 @@ impl World {
                 "id": id,
                 "html_url": format!("{}/{n}#issuecomment-{id}", "https://github.com/acme/widget/issues"),
                 "body": body,
+                // The factory's bot, by the user id state/account-ids
+                // records: `edit_comment` edits only its comments.
+                "user": {"login": "tehas-bot[bot]", "id": uid("tehas-bot[bot]"), "type": "Bot"},
             }),
         );
     }
@@ -2039,6 +2084,12 @@ impl World {
     /// else is queued. Its last cycle started on `by`'s label, or by hand for
     /// "-", and parked on `reason`.
     pub fn parked(&self, reason: &str, by: &str) {
+        self.parked_with(reason, by, "4001", &[]);
+    }
+
+    /// The same, the park recorded with `args` and its question `question`
+    /// (t_park's).
+    pub fn parked_with(&self, reason: &str, by: &str, question: &str, args: &[&str]) {
         self.reset();
         self.fx("ready.json", "[]");
         self.fx(
@@ -2046,7 +2097,7 @@ impl World {
             r#"[{"number":7,"labels":[{"name":"needs-human-attention"},{"name":"tehas:question"}]}]"#,
         );
         self.t_ended(7, by, "approved", &["--parked"]);
-        self.t_park(7, reason, "4001", &[]);
+        self.t_park(7, reason, question, args);
     }
 
     /// Issue 7's session as the store has it, in the shape of plan-view; Null
@@ -2200,7 +2251,10 @@ impl World {
 
     /// The flag tehas pause writes, with this JSON.
     pub fn pause_flag(&self, text: &str) {
-        self.home_file("state/pause.json", &format!("{text}\n"));
+        self.home_file(
+            Home::new(&self.home).state(State::Pause),
+            &format!("{text}\n"),
+        );
     }
 
     /// The limit tehas limit writes: `cycles`, whether planning runs, until
@@ -2212,7 +2266,7 @@ impl World {
             json!(until)
         };
         let v = json!({"v": 1, "cycles": cycles, "plan": plan, "until": until, "reason": reason});
-        self.home_file("state/limit.json", &format!("{v}\n"));
+        self.home_file(Home::new(&self.home).state(State::Limit), &format!("{v}\n"));
     }
 
     /// The open planning sessions are read once, and every read after that
@@ -2438,7 +2492,7 @@ impl World {
 
     /// The writes the host's shim of gh logged.
     pub fn writes(&self) -> usize {
-        self.read_home("state/github-writes.log")
+        self.read_home(Home::new(&self.home).state(State::GithubWrites))
             .lines()
             .filter(|l| !l.is_empty())
             .count()
@@ -2466,14 +2520,16 @@ impl Drop for World {
         let denied = fs::read_to_string(self.t.join("denied")).unwrap_or_default();
         assert!(denied.is_empty(), "no stub stands in for:\n{denied}");
         let mut left = vec![];
-        for (dir, start, end) in OLD_STATE {
-            for f in self.files(&self.home.join(dir)) {
+        let home = Home::new(&self.home);
+        for (under, start, end) in OLD_STATE {
+            let dir = under.dir(&home);
+            for f in self.files(&dir) {
                 let starts = match *start {
                     "1" => f.starts_with(|c: char| ('1'..='9').contains(&c)),
                     s => f.starts_with(s),
                 };
                 if starts && f.ends_with(end) {
-                    left.push(format!("{dir}/{f}"));
+                    left.push(dir.join(f).display().to_string());
                 }
             }
         }

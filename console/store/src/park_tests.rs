@@ -1,5 +1,5 @@
-//! park, park-show, park-retry, question-asked, question-known and
-//! question-answered.
+//! park, park-show, park-retry, question-asked, question-known,
+//! question-adopt and question-answered.
 
 use crate::verbs_tests::*;
 use serde_json::{json, Value};
@@ -634,7 +634,7 @@ fn question_known_is_true_only_for_the_question_on_record() {
     );
     assert_eq!(
         known(&home, 40, 41),
-        json!({"api":1,"verb":"question-known","ok":true,"known":true,"kind":"park","recorded":true,"answered":false,"reask":false,"answer":null})
+        json!({"api":1,"verb":"question-known","ok":true,"known":true,"kind":"park","recorded":true,"answered":false,"reask":false,"sum_form":null,"answer":null})
     );
     planned(&home, 42);
     ok(
@@ -1040,4 +1040,160 @@ fn park_show_names_the_body_the_parked_attempt_was_approved_on() {
         ok(&home, &["park-show", "53"])["park"]["body_sha256"],
         Value::Null
     );
+}
+
+/// A question's sum says what it sums (schema 33, T4.7): 2.0's
+/// `question-asked --body-sha` sums the visible text, 1.x's `park
+/// --comment-id` the comment as posted. `question-adopt` gives a 1.x row the
+/// sum of its visible text once, in place, when the comment reads as it was
+/// posted, and no sum when it was ticked or edited since; it leaves every
+/// other row as it is: one of 2.0, one with no sum, a withdrawn one and an
+/// unknown id.
+#[test]
+fn question_adopt_takes_a_1x_sum_into_the_visible_form_once() {
+    let home = home("adopt");
+    let visible = "b".repeat(64);
+    let form = |id: i64| {
+        one::<String>(
+            &home,
+            &format!(
+                "SELECT coalesce(body_form, '-') || ' ' || coalesce(body_sha256, '-')
+                 FROM questions WHERE comment_id = {id}"
+            ),
+        )
+    };
+    // The comment unchanged since it was posted: its sum now is the one on
+    // record.
+    let adopt_as = |issue: &str, id: &str, posted: &str| {
+        let v = ok(
+            &home,
+            &[
+                "question-adopt",
+                issue,
+                "--id",
+                id,
+                "--posted-sha",
+                posted,
+                "--body-sha",
+                visible.as_str(),
+            ],
+        );
+        (v["adopted"].clone(), v["summed"].clone())
+    };
+    let adopt = |issue: &str, id: &str| adopt_as(issue, id, SHA).0;
+    // 1.x's: the park's question, summed as posted.
+    let (_l, a) = start(&home, 60);
+    end(&home, 60, a, "failed");
+    park(
+        &home,
+        60,
+        a,
+        "failed",
+        &["--comment-id", "6001", "--body-sha", SHA],
+    )
+    .unwrap();
+    assert_eq!(form(6001), format!("rendered {SHA}"));
+    assert_eq!(known(&home, 60, 6001)["sum_form"], "rendered");
+    // 2.0's: the visible text's; and a question with no sum.
+    parked(&home, 61, "alice", "approved", "failed");
+    let asked = ["question-asked", "61", "--id", "6101", "--kind", "park"];
+    ok(&home, &[&asked[..], &["--body-sha", SHA]].concat());
+    assert_eq!(form(6101), format!("visible {SHA}"));
+    assert_eq!(known(&home, 61, 6101)["sum_form"], "visible");
+    planned(&home, 62);
+    ok(
+        &home,
+        &["question-asked", "62", "--id", "6201", "--kind", "plan"],
+    );
+    assert_eq!(form(6201), "- -");
+    assert_eq!(known(&home, 62, 6201)["sum_form"], Value::Null);
+    // Adopted once, in place; the rest are left as they are.
+    assert_eq!(adopt_as("60", "6001", SHA), (json!(true), json!(true)));
+    assert_eq!(form(6001), format!("visible {visible}"));
+    assert_eq!(known(&home, 60, 6001)["known"], true);
+    assert_eq!(adopt("60", "6001"), false);
+    assert_eq!(adopt("61", "6101"), false);
+    assert_eq!(form(6101), format!("visible {SHA}"));
+    assert_eq!(adopt("62", "6201"), false);
+    assert_eq!(form(6201), "- -");
+    assert_eq!(adopt("61", "6001"), false);
+    assert_eq!(adopt("60", "9999"), false);
+    // A withdrawn question of 1.x is not adopted.
+    let (_l, a) = start(&home, 63);
+    end(&home, 63, a, "failed");
+    park(
+        &home,
+        63,
+        a,
+        "failed",
+        &["--comment-id", "6301", "--body-sha", SHA],
+    )
+    .unwrap();
+    ok(
+        &home,
+        &["question-answered", "63", "--id", "6301", "--withdraw"],
+    );
+    assert_eq!(adopt("63", "6301"), false);
+    assert_eq!(form(6301), format!("rendered {SHA}"));
+    // A comment ticked or edited since it was posted sums another way: the
+    // row takes 2.0's form and keeps no sum. So does one with no visible
+    // text to sum.
+    let (_l, a) = start(&home, 64);
+    end(&home, 64, a, "failed");
+    park(
+        &home,
+        64,
+        a,
+        "failed",
+        &["--comment-id", "6401", "--body-sha", SHA],
+    )
+    .unwrap();
+    let other = "c".repeat(64);
+    assert_eq!(adopt_as("64", "6401", &other), (json!(true), json!(false)));
+    assert_eq!(form(6401), "visible -");
+    assert_eq!(known(&home, 64, 6401)["sum_form"], "visible");
+    assert_eq!(adopt_as("64", "6401", SHA), (json!(false), json!(false)));
+    let (_l, a) = start(&home, 65);
+    end(&home, 65, a, "failed");
+    park(
+        &home,
+        65,
+        a,
+        "failed",
+        &["--comment-id", "6501", "--body-sha", SHA],
+    )
+    .unwrap();
+    let v = ok(
+        &home,
+        &["question-adopt", "65", "--id", "6501", "--posted-sha", SHA],
+    );
+    assert_eq!((&v["adopted"], &v["summed"]), (&json!(true), &json!(false)));
+    assert_eq!(form(6501), "visible -");
+    for args in [
+        &["question-adopt", "60", "--id", "6001"][..],
+        &["question-adopt", "60", "--posted-sha", SHA],
+        &[
+            "question-adopt",
+            "60",
+            "--id",
+            "6001",
+            "--posted-sha",
+            "nope",
+        ],
+        &[
+            "question-adopt",
+            "60",
+            "--id",
+            "6001",
+            "--posted-sha",
+            SHA,
+            "--body-sha",
+            "nope",
+        ],
+    ] {
+        assert!(
+            usage(args).starts_with("usage question-adopt: "),
+            "{args:?}"
+        );
+    }
 }

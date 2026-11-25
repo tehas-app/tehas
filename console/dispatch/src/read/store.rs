@@ -560,6 +560,7 @@ pub fn question(asked: &Asked, n: u64) -> Value {
     let mut kind = String::new();
     let mut answer = Value::Null;
     let mut reask = false;
+    let mut old_sum = false;
     if !qid.is_empty() {
         match asked.know(n) {
             v if v.get("failed") == Some(&json!(true)) => return v,
@@ -571,11 +572,13 @@ pub fn question(asked: &Asked, n: u64) -> Value {
                     .to_string();
                 answer = v.get("answer").cloned().unwrap_or(Value::Null);
                 reask = v.get("reask") == Some(&json!(true));
+                old_sum = v.get("sum_form") == Some(&json!("rendered"));
             }
             _ => qid.clear(),
         }
     }
-    json!({"plan": plan, "id": qid, "kind": kind, "reason": reason, "answer": answer, "reask": reask})
+    json!({"plan": plan, "id": qid, "kind": kind, "reason": reason, "answer": answer, "reask": reask,
+        "old_sum": old_sum})
 }
 
 #[cfg(test)]
@@ -609,6 +612,7 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::sync::Once;
     use std::time::Duration;
+    use tehas_core::home::Home;
     use tehas_core::testdir::TestDir;
 
     /// The store of a case: the real store program of this build, so the four
@@ -616,7 +620,7 @@ mod tests {
     /// asks. A home of the test's own, as the store's tests have theirs.
     fn scratch(name: &str) -> TestDir {
         let dir = TestDir::new(&format!("dispatch-store-{name}"));
-        fs::create_dir_all(dir.join("state/cycles")).unwrap();
+        fs::create_dir_all(Home::new(&*dir).cycles_dir()).unwrap();
         dir
     }
 
@@ -696,7 +700,7 @@ mod tests {
         let home = scratch(name);
         // The store's own home: its file, and the mark of a home the store asks
         // for before it opens anything.
-        fs::write(home.join("state/.tehas-home"), "{}\n").unwrap();
+        fs::write(Home::new(&*home).state_dir().join(".tehas-home"), "{}\n").unwrap();
         let bin = store_binary().display().to_string();
 
         let store = home.join("store");
@@ -806,7 +810,7 @@ printf 'store %s %s\\n' \"$*\" \"$(cat \"$0.request\")\" >>\"$0.calls\"\nexec {b
             .create(true)
             .truncate(false)
             .write(true)
-            .open(h.home.join("state/cycles").join(format!("{n}.lock")))
+            .open(Home::new(&*h.home).cycle_note(n, "lock"))
             .unwrap();
         lock.try_lock().unwrap();
         let run = |args: &[&str]| {

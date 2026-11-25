@@ -9,6 +9,7 @@ use common::*;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::fs;
+use tehas_core::home::{self, Home};
 use tehas_ports::{Act, Mark, State};
 
 /// Issue 7's cycle was started on `who`'s tehas:ready of `body` and parked at
@@ -31,7 +32,7 @@ fn refine_park(w: &World, reason: &str, extra: &str, body: &str, who: &str) {
     w.t_approve(7, who, "approved", 1_700_000_001, &["--body-sha", &sum]);
     w.t_started(7, None, &[]);
     let r = w.sh(&format!(
-        "flock -w 5 \"$TEHAS_HOME/state/cycles/7.lock\" \"$T/store-bin\" cycle-end 7 --attempt 1 --status parked \
+        "flock -w 5 \"$T_CYCLES/7.lock\" \"$T/store-bin\" cycle-end 7 --attempt 1 --status parked \
          --cap intent-park --park-reason {reason} --parked"
     ));
     assert_eq!(r.rc, 0, "refine_park: the store refused the end: {}", r.out);
@@ -219,7 +220,7 @@ fn a_paused_factory_refines_nothing_and_refines_once_it_is_resumed() {
     w.poll();
     assert_eq!(w.plan_calls(), "");
     assert_eq!(spent(&w), json!(0));
-    fs::remove_file(w.home.join("state/pause.json")).unwrap();
+    fs::remove_file(Home::new(&w.home).state(home::State::Pause)).unwrap();
     w.clear_calls();
     let r = w.poll();
     has(&r.out, "start refining #7");
