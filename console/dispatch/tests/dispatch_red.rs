@@ -158,7 +158,7 @@ fn red_a_call_that_fails_hangs_or_answers_nonsense_starts_cycles_and_says_why() 
 }
 
 /// The code host refusing the check's runs (the site's own words, in
-/// tests/fixtures/refused.txt): the check is unreadable, never done, so the
+/// tests/common/refused.txt): the check is unreadable, never done, so the
 /// poll's hold is not lifted on it, and the poll says once, of the branch,
 /// that the factory's account may lack a permission and where the setup
 /// page says which.
@@ -167,7 +167,7 @@ fn red_a_refused_read_is_unreadable_and_says_the_permission_once() {
     let w = World::new("red-refused");
     red_instance(&w);
     w.ready(&[7, 8]);
-    w.fx("checks-refused", include_str!("fixtures/refused.txt"));
+    w.fx("checks-refused", include_str!("common/refused.txt"));
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
     let line = "the code host refused to say the checks of main; the factory's account may lack a permission (host/docs/github-app.md#the-permission-to-read-the-checks)";
