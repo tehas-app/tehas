@@ -3176,7 +3176,7 @@ fn plan_sessions_carry_filed() {
     assert!(sessions_output(&home, now)[1].get("filed").is_none());
 }
 
-// refined.jsonl is read under the ledger bounds: a line of LEDGER_MAX_LINE
+// The refined ledger is read under the ledger bounds: a line of LEDGER_MAX_LINE
 // bytes or more costs only itself, and a file one byte past the whole-file
 // bound is no ledger at all.
 #[test]
