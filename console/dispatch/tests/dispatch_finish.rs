@@ -9,6 +9,7 @@ use serde_json::{json, Value};
 use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use tehas_core::home::{self, Home};
 use tehas_ports::{Mark, State};
 
 fn world() -> World {
@@ -119,7 +120,7 @@ fn systemd_loads(w: &World) {
   "--user show") echo loaded ;;
   "--user start") n=${3#tehas-cycle@}
     n=${n%.service}
-    flock -w 5 "$TEHAS_HOME/state/cycles/$n.lock" "$T/store-bin" cycle-start "$n" >/dev/null ;;
+    flock -w 5 "$T_CYCLES/$n.lock" "$T/store-bin" cycle-start "$n" >/dev/null ;;
 esac"#,
     );
 }
@@ -149,7 +150,9 @@ info --format {{.DockerRootDir}}"
         &w.calls("systemd-run"),
         "--user --quiet --collect --unit tehas-index -p RuntimeMaxSec=2400 /bin/bash -c",
     );
-    assert!(!w.home.join("state/dispatch.again").exists());
+    assert!(!Home::new(&w.home)
+        .state(home::State::DispatchAgain)
+        .exists());
     // Three, not four: a poll that starts an index rather than a cycle cannot
     // change the queue (#871).
     assert_eq!(w.calls("fake-status").lines().count(), 3);
@@ -239,7 +242,7 @@ fn a_pi_rukas_no_cycle_has_run_before_starts_as_many_cycles_as_the_slots_allow()
     let r = w.poll();
     assert_eq!(w.started(), "7 8 9 10 ");
     lacks(&r.out, "is new on this host");
-    assert!(!w.home.join("state/rukas-proven").exists());
+    assert!(!Home::new(&w.home).state_dir().join("rukas-proven").exists());
 }
 
 #[test]
