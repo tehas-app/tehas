@@ -256,6 +256,26 @@ pub(crate) fn digest_fields() -> String {
 /// The ticket an issue is a part of, if any.
 const PARENT: &str = "parent { number repository { databaseId nameWithOwner } }";
 
+/// The alias an issue is asked under in the parents' question.
+fn parent_alias(n: u64) -> String {
+    format!("p{n}")
+}
+
+/// The question of the ticket each issue is a part of, one alias a number.
+fn parents_question(numbers: &[u64]) -> String {
+    let mut q = String::from(
+        "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { databaseId",
+    );
+    for n in numbers {
+        q.push_str(&format!(
+            " {}: issue(number: {n}) {{ number {PARENT} }}",
+            parent_alias(*n)
+        ));
+    }
+    q.push_str(" } }");
+    q
+}
+
 #[derive(Deserialize)]
 pub(crate) struct Who {
     #[serde(rename = "__typename")]
@@ -358,6 +378,14 @@ struct Answer {
     blocked_by: Option<Page<Named>>,
     /// None where the question did not ask it; `Some(None)` for a ticket
     /// that is a part of none.
+    #[serde(default, deserialize_with = "given")]
+    parent: Option<Option<Named>>,
+}
+
+/// An issue of the parents' question.
+#[derive(Deserialize)]
+struct Parented {
+    number: Option<u64>,
     #[serde(default, deserialize_with = "given")]
     parent: Option<Option<Named>>,
 }
@@ -578,14 +606,26 @@ impl GitHub {
         asked.ok_or(MALFORMED)?.map(|p| self.named(&p)).transpose()
     }
 
-    /// The ticket an issue is a part of: one question, for a digest read
-    /// over REST, which leaves `parent_issue_url` out of an issue that is a
-    /// part of none, so its absence cannot be told from an answer cut short.
-    pub(crate) fn parent(&mut self, key: &TicketKey) -> Got<Option<Ref<TicketKey>>> {
-        let issue = number(key)?;
-        let question = format!("query($owner: String!, $name: String!, $number: Int!) {{ repository(owner: $owner, name: $name) {{ databaseId issue(number: $number) {{ number {PARENT} }} }} }}");
-        let first = self.ask_issue(issue, &question, None, false)?;
-        self.parent_of(first.parent)
+    /// The ticket each issue is a part of, in the order asked: one aliased
+    /// question for up to a hundred distinct numbers. A digest read over
+    /// REST needs it, since REST leaves `parent_issue_url` out of an issue
+    /// that is a part of none, so its absence cannot be told from an answer
+    /// cut short.
+    pub(crate) fn parents(&mut self, numbers: &[u64]) -> Vec<Got<Option<Ref<TicketKey>>>> {
+        let mut got = Vec::with_capacity(numbers.len());
+        for chunk in numbers.chunks(crate::items::PER_QUESTION) {
+            let aliases: Vec<String> = chunk.iter().map(|n| parent_alias(*n)).collect();
+            let nodes: Vec<Got<Parented>> =
+                self.ask_aliased("the parents' question", &parents_question(chunk), &aliases);
+            got.extend(chunk.iter().zip(nodes).map(|(n, node)| {
+                let node = node?;
+                if node.number != Some(*n) {
+                    return Err(INCONSISTENT);
+                }
+                self.parent_of(node.parent)
+            }));
+        }
+        got
     }
 
     /// A ticket's parts, whole: `Tickets::parts`.

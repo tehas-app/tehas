@@ -460,7 +460,8 @@ fn a_record_that_cannot_be_read_changes_nothing_1_when_busy_78_when_there_is_no_
 /// gh: the issue's REST read answers $T/issue.json, the question of the
 /// ticket it is a part of answers none, and the label's removal answers
 /// nothing.
-const GH: &str = r#"case "$*" in *"parent {"*) echo '{"data":{"repository":{"issue":{"parent":null}}}}'; exit 0 ;; esac
+const GH: &str = r#"case "$*" in *"parent {"*) n=$(printf %s "$*" | sed 's/.* p\([0-9]*\): issue(number.*/\1/')
+  echo "{\"data\":{\"repository\":{\"p$n\":{\"number\":$n,\"parent\":null}}}}"; exit 0 ;; esac
 case "$1 $2" in
   "api repos/"*) cat "$T/issue.json" ;;
 esac"#;

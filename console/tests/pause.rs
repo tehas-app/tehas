@@ -14,7 +14,8 @@ use std::path::PathBuf;
 use tehas_core::home::State;
 
 /// The control issue, #1: its labels and its pause events, from fixtures.
-const GH: &str = r#"case "$*" in *"parent {"*) echo '{"data":{"repository":{"issue":{"parent":null}}}}'; exit 0 ;; esac
+const GH: &str = r#"case "$*" in *"parent {"*) n=$(printf %s "$*" | sed 's/.* p\([0-9]*\): issue(number.*/\1/')
+  echo "{\"data\":{\"repository\":{\"p$n\":{\"number\":$n,\"parent\":null}}}}"; exit 0 ;; esac
 case "$1 $2" in
   "api repos/acme/widget/issues/1") cat "$T/labels.json" ;;
   "api repos/acme/widget/issues/1/events?per_page=100") cat "$T/events.json" ;;

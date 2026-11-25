@@ -25,7 +25,7 @@ const INCONSISTENT: Outcome = Outcome::Unread(Unread::Inconsistent);
 const CUT: Outcome = Outcome::Unread(Unread::Cut);
 
 /// The most numbers one question asks: more go in another question.
-const PER_QUESTION: usize = 100;
+pub(crate) const PER_QUESTION: usize = 100;
 
 /// The alias a number is asked under.
 pub(crate) fn alias(n: u64) -> String {
