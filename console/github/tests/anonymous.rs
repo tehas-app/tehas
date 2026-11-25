@@ -112,11 +112,12 @@ fn anonymous() -> Holder {
 
 #[test]
 fn a_public_project_s_releases_and_tags_are_read_with_no_credential() {
-    // A token in the caller's environment reaches no request.
+    // A token in the caller's environment reaches no request. Set under
+    // the stub's lock, which every test here holds while it starts curl.
+    let stub = Stub::new("github-anonymous-reads");
     std::env::set_var("GH_TOKEN", "a-token-that-must-not-travel");
     std::env::set_var("GITHUB_TOKEN", "a-token-that-must-not-travel");
     std::env::set_var("TEHAS_GH_TOKEN", "a-token-that-must-not-travel");
-    let stub = Stub::new("github-anonymous-reads");
     let ledger = Arc::new(MemoryLedger::new());
     let site = site("acme/widget", &stub, Arc::clone(&ledger));
     let mut h = site.code_host(&Actor::Anonymous, CALLER).unwrap();
