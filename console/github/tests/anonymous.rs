@@ -297,6 +297,20 @@ fn a_prerelease_answered_as_the_latest_is_inconsistent_as_on_the_tokens_path() {
     );
 }
 
+/// A redirect that names no place to go is not GitHub's answer, even with a
+/// body that would read as one.
+#[test]
+fn a_redirect_with_no_location_is_malformed_never_its_body() {
+    let stub = Stub::new("github-anonymous-moved");
+    let site = site("acme/moved", &stub, Arc::new(MemoryLedger::new()));
+    let mut h = site.code_host(&Actor::Anonymous, CALLER).unwrap();
+    assert_eq!(
+        h.latest_release().err(),
+        Some(Outcome::Unread(Unread::Malformed))
+    );
+    assert_eq!(stub.asked(), ["repos/acme/moved/releases/latest"]);
+}
+
 #[test]
 fn a_public_project_with_no_release_or_no_such_tag_says_so() {
     let stub = Stub::new("github-anonymous-none");

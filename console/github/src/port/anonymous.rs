@@ -109,16 +109,24 @@ impl Anonymous {
 
     /// One GET of `path`, the answer None for a 404. At or past the
     /// deadline, or while the ledger holds the budget spent, no request is
-    /// made. A redirect within the API's host is followed once.
+    /// made. A redirect within the API's host is followed once. A redirect
+    /// with no place to go, or a second one, is `Unread(Malformed)`: its
+    /// body is never read as the answer.
     fn get(&mut self, path: &str) -> Got<Option<Answer>> {
+        let malformed = Outcome::Unread(Unread::Malformed);
+        let redirect = |a: &Option<Answer>| a.as_ref().filter(|a| is_redirect(a.status)).is_some();
         let mut answer = self.once(path)?;
-        if let Some(to) = answer
-            .as_ref()
-            .filter(|a| matches!(a.status, 301 | 302 | 307 | 308))
-            .and_then(|a| a.header("location"))
-        {
-            let to = curl::api_path(to).ok_or(Outcome::Unread(Unread::Malformed))?;
-            answer = self.once(to)?;
+        if redirect(&answer) {
+            let to = answer
+                .as_ref()
+                .and_then(|a| a.header("location"))
+                .and_then(curl::api_path)
+                .ok_or(malformed.clone())?
+                .to_string();
+            answer = self.once(&to)?;
+        }
+        if redirect(&answer) {
+            return Err(malformed);
         }
         Ok(answer)
     }
