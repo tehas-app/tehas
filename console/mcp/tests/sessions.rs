@@ -1,5 +1,6 @@
 // The session tools over a snapshot written by the tests.
 
+use common::SESSIONS_SHAPE;
 use crate::common;
 
 use common::fake_links;
@@ -52,7 +53,7 @@ impl Env {
             .unwrap();
         }
         let mut text =
-            json!({"api": 1, "days": 30, "generatedAt": iso(now()), "sessions": 1}).to_string();
+            json!({"api": 1, "days": 30, "generatedAt": iso(now()), "sessions": SESSIONS_SHAPE}).to_string();
         for s in sessions {
             text.push('\n');
             text.push_str(&s.to_string());
@@ -684,13 +685,13 @@ fn no_snapshot_is_a_tool_error() {
 // corrupted file, refused as unreadable too, without the file's name or any of
 // its content in the answer.
 fn shapes_over_the_bound(n: usize) -> Vec<(&'static str, String)> {
-    let mut head = json!({"api": 1, "days": 30, "generatedAt": iso(now()), "sessions": 1});
+    let mut head = json!({"api": 1, "days": 30, "generatedAt": iso(now()), "sessions": SESSIONS_SHAPE});
     head["filler"] = json!("x".repeat(n));
     let padded = head.to_string();
     assert!(padded.len() > n, "the filler did not reach the bound");
     // A character is 2 bytes, so half as many of them are still over a bound
     // counted in bytes: this pins the bound as bytes and not as characters.
-    let mut wide = json!({"api": 1, "days": 30, "generatedAt": iso(now()), "sessions": 1});
+    let mut wide = json!({"api": 1, "days": 30, "generatedAt": iso(now()), "sessions": SESSIONS_SHAPE});
     wide["filler"] = json!("\u{e9}".repeat(n / 2 + 1));
     vec![
         ("invalid", "x".repeat(n)),
@@ -1068,7 +1069,7 @@ fn an_issue_being_planned() {
         snap.join("sessions.jsonl"),
         format!(
             "{}\n",
-            json!({"api": 1, "days": 30, "generatedAt": iso(now()), "sessions": 0})
+            json!({"api": 1, "days": 30, "generatedAt": iso(now()), "sessions": SESSIONS_SHAPE})
         ),
     )
     .unwrap();
@@ -1736,4 +1737,29 @@ fn a_run_of_a_retry_of_before_2_0_is_listed_as_reply() {
     assert!(env
         .call("factory_sessions", json!({"how": "retry-tick"}))
         .is_err());
+}
+
+// The snapshot an earlier release wrote carries shape 1, whose lines named
+// the pull request `pr`. The reader refuses it by name instead of answering
+// with the links silently lost.
+#[test]
+fn a_sessions_file_of_the_old_shape_is_refused_by_name() {
+    let root = TestDir::new("mcp-old-shape");
+    let snap = root.join("mcp");
+    std::fs::create_dir_all(&snap).unwrap();
+    std::fs::write(
+        snap.join("sessions.jsonl"),
+        format!(
+            "{}\n",
+            json!({"api": 1, "days": 30, "generatedAt": iso(now()), "sessions": 1})
+        ),
+    )
+    .unwrap();
+    match Snapshot::open(&snap, now()).err() {
+        Some(ToolError::File { file, why }) => {
+            assert_eq!(file, "sessions.jsonl");
+            assert!(why.contains("another shape"), "{why}");
+        }
+        other => panic!("{other:?}"),
+    }
 }

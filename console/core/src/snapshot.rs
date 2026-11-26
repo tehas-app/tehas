@@ -38,8 +38,11 @@ pub type Field = (&'static str, Shape, &'static str);
 
 /// The api version of a snapshot header and of an answer.
 pub const API: i64 = 1;
-/// The shape number a sessions header carries, and the one its reader expects.
-pub const SESSIONS_SHAPE: i64 = 1;
+/// The shape number a sessions header carries, and the one its reader
+/// expects. Shape 1 is what 1.4.x wrote, whose lines named the pull request
+/// `pr`; 2.x names it `change`, so a file of shape 1 is refused by name
+/// rather than answered without its links.
+pub const SESSIONS_SHAPE: i64 = 2;
 /// The shape number an outcomes header carries, and the one its reader expects.
 pub const OUTCOMES_SHAPE: i64 = 1;
 
