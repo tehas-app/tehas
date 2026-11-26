@@ -1,11 +1,16 @@
 # Synthetic answers
 
-Answers GitHub cannot give on demand, so nobody can record them. Each is
-made by hand from a live recording of the same question, with only the
-fault changed. Everything else (ids, logins, cursors, times, shapes) is
-the recording's.
+Answers GitHub cannot give on demand, so nobody can record them. A test
+reads a file here in place of the recording of the same name under
+`recorded/`.
 
-Source of every file below:
+## One fault in a live recording
+
+Each is made by hand from a live recording of the same question, with
+only the fault changed. Everything else (ids, logins, cursors, times,
+shapes) is the recording's.
+
+Source of every file in this section:
 `console/github/tests/recorded/activity/live/events-whole-first.json`,
 the live answer for pull request 15145 of a public repository. The node
 numbers count from 0 in `data.repository.pullRequest.events.nodes`.
@@ -22,3 +27,23 @@ numbers count from 0 in `data.repository.pullRequest.events.nodes`.
 | `activity/other-number/events-whole-first.json` | `pullRequest.number` is 15146, not the 15145 asked |
 | `activity/no-page-info/events-whole-first.json` | `events` has no `pageInfo` |
 | `activity/no-cursor/events-whole-first.json` | `pageInfo` is `{"hasNextPage": true, "endCursor": null}`: more follows, no cursor to it |
+
+## A body that is not JSON
+
+These are not GitHub's answers: they stand for a body gh hands back that
+does not parse. Source: none, each is made by hand.
+
+| File | Changed: a body that is not JSON |
+| --- | --- |
+| `activity/garbled/events-whole-first.json` | The text `not json` |
+| `activity/branch/branch-garbled.json` | The text `not json` |
+| `code-host/garbled/changes-OPEN.json` | A pull request list cut off inside `pageInfo` |
+| `code-host/garbled/checks-e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1-1.json` | A check run list cut off inside the first run |
+| `code-host/garbled/repo.json` | A repository cut off at `private` |
+| `edits/garbled/bodies.json` | A GraphQL answer cut off after its first alias |
+| `edits/garbled/nodes.json` | A GraphQL answer cut off inside `nodes` |
+| `prepare-one/garbled/label.json` | The text `not json` |
+| `vocabulary/garbled/labels-first.json` | The text `not json` |
+| `vocabulary/garbled/types-first.json` | The text `not json` |
+| `what/garbled/from-3.json` | A GraphQL answer cut off after its first alias |
+| `what/failed-garbled/from-3.answer.json` | An HTML page, `<html>bad gateway</html>`, printed beside the HTTP 502 failure in `from-3.fail` |

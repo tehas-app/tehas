@@ -7,8 +7,12 @@
 //! event, the pages each window asks, and how a failed or odd answer
 //! reads. `live/` holds live read-only answers of a public repository,
 //! one person's login and id replaced; `tests/synthetic/activity/` holds
-//! that answer with one fault each (its README says which); the rest are
-//! made by hand, or made by the runner (`many`, `huge`, `endless`).
+//! that answer with one fault each and the answers that are not JSON (its
+//! README says which), a file there read in place of the recording of the
+//! same name; the rest are made by hand, or made by the runner (`many`,
+//! `huge`, `endless`).
+
+mod answers;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -94,19 +98,15 @@ impl Replay {
                 _ => panic!("no recording answers {args:?}"),
             }
         };
-        let at = here().join("tests/synthetic/activity").join(&self.state);
-        let at = match at.is_dir() {
-            true => at,
-            false => here().join("tests/recorded/activity").join(&self.state),
-        };
-        if let Ok(out) = std::fs::read_to_string(at.join(format!("{name}.json"))) {
+        let read =
+            |file: String| std::fs::read_to_string(answers::at("activity", &self.state, &file));
+        if let Ok(out) = read(format!("{name}.json")) {
             return Ok(out);
         }
-        let text =
-            std::fs::read_to_string(at.join(format!("{name}.fail"))).map_err(|_| Failed {
-                why: format!("no recording of {name} in {}", self.state),
-                answer: None,
-            })?;
+        let text = read(format!("{name}.fail")).map_err(|_| Failed {
+            why: format!("no recording of {name} in {}", self.state),
+            answer: None,
+        })?;
         let (why, said) = text.split_once('\n').unwrap_or((&text, ""));
         Err(Failed {
             why: why.to_string(),
