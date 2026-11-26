@@ -14,9 +14,10 @@ use crate::clock;
 use crate::loose::{Loose, Node};
 use crate::runner::Outcome;
 use crate::start::attempt_shaped;
+use crate::tells::{append, Streams, Tell, Tells};
 use crate::{freeze, host, progress, runner, scratch};
 use serde::Deserialize;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::Write;
 use std::os::unix::fs::MetadataExt;
 use std::os::unix::process::ExitStatusExt;
@@ -142,30 +143,21 @@ fn say(line: &str) {
     let _ = out.flush();
 }
 
-/// The failure to say for a call made every tick: a new one, or one that
-/// differs from the last said. A success ends the run of failures, so the next
-/// one is said again. A store that fails every tick the same way is said once.
-fn say_again(last: &mut Option<String>, now: Result<(), String>) -> Option<String> {
+/// The failure to tell for a call made every tick: a new one, or one that
+/// differs from the last told. A success ends the run of failures, so the next
+/// one is told again. A store that fails every tick the same way is told once.
+fn say_again<T: Clone + PartialEq>(last: &mut Option<T>, now: Result<(), T>) -> Option<T> {
     match now {
         Ok(()) => {
             *last = None;
             None
         }
-        Err(e) if last.as_deref() == Some(e.as_str()) => None,
+        Err(e) if last.as_ref() == Some(&e) => None,
         Err(e) => {
             *last = Some(e.clone());
             Some(e)
         }
     }
-}
-
-fn append(file: &Path, line: &[u8]) -> bool {
-    let done = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(file)
-        .and_then(|mut f| f.write_all(line));
-    done.is_ok()
 }
 
 fn signal(pid: &str, word: &str) {
@@ -685,9 +677,13 @@ struct Watch<'a> {
     sig: &'static str,
     console: Option<Child>,
     live_on: bool,
-    /// The last failure of the heartbeat and of the publish that was said.
-    beat_said: Option<String>,
-    publish_said: Option<String>,
+    /// The word and line of the heartbeat failure last told.
+    beat_said: Option<(String, String)>,
+    /// The word and line of the publish failure last told.
+    publish_said: Option<(String, String)>,
+    /// The seam the reports of things that did not happen enter: words
+    /// to the streams and the record by default, a held list in a test.
+    tells: Box<dyn Tells>,
     ooms: u32,
     /// The processes the kernel log names as killed for memory here.
     oom_names: Vec<String>,
@@ -845,21 +841,22 @@ impl Watch<'_> {
         args.extend(["--status", status, "--step", &step, "--text", &note]);
         let progress = progress_flags(&progress);
         args.extend(progress.iter().map(String::as_str));
-        let beat = host::store_said(self.home, &args).map(drop).map_err(|r| {
-            format!(
-                "the heartbeat of #{n} is not on record ({}): {}",
-                r.word, r.line
-            )
-        });
-        if let Some(said) = say_again(&mut self.beat_said, beat) {
-            eprintln!("tehas work: {said}");
+        let beat = host::store_said(self.home, &args)
+            .map(drop)
+            .map_err(|r| (r.word, r.line));
+        if let Some((word, line)) = say_again(&mut self.beat_said, beat) {
+            self.tells.tell(&Tell::BeatLost {
+                issue: self.g.issue,
+                word,
+                line,
+            });
         }
         // One try: the next tick publishes again, and a stop must not wait on it.
         let publish = host::store_said(self.home, &["publish"])
             .map(drop)
-            .map_err(|r| format!("the live view is not published ({}): {}", r.word, r.line));
-        if let Some(said) = say_again(&mut self.publish_said, publish) {
-            eprintln!("tehas work: {said}");
+            .map_err(|r| (r.word, r.line));
+        if let Some((word, line)) = say_again(&mut self.publish_said, publish) {
+            self.tells.tell(&Tell::PublishLost { word, line });
         }
     }
 
@@ -928,15 +925,10 @@ impl Watch<'_> {
     /// A file of the protocol that could not be written is said in the
     /// cycle's own record, not only on this command's stream.
     fn lost(&self, file: &Path) {
-        let line = format!("tehas work: could not write {}", file.display());
-        eprintln!("{line}");
-        if !append(&self.err, format!("{line}\n").as_bytes()) {
-            eprintln!(
-                "tehas work: could not say of {} that {} was lost",
-                self.err.display(),
-                file.display()
-            );
-        }
+        self.tells.tell(&Tell::FileLost {
+            file: file.to_path_buf(),
+            record: self.err.clone(),
+        });
     }
 
     /// Whether the file was written; a file that was not is said in the record.
@@ -950,7 +942,9 @@ impl Watch<'_> {
 
     fn append_or_say(&self, line: &[u8]) {
         if !append(&self.err, line) {
-            eprintln!("tehas work: could not write {}", self.err.display());
+            self.tells.tell(&Tell::RecordLost {
+                record: self.err.clone(),
+            });
         }
     }
 
@@ -1081,6 +1075,7 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
         live_on: false,
         beat_said: None,
         publish_said: None,
+        tells: Box::new(Streams),
         ooms: 0,
         oom_names: vec![],
         forks: 0,
@@ -1266,7 +1261,9 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
         for (step, command) in &cut_gates {
             let line = aborted_line(g.issue, step, command, w.sig, time::now() * 1000);
             if !append(&g.log, line.as_bytes()) {
-                eprintln!("tehas work: could not write {}", g.log.display());
+                w.tells.tell(&Tell::RecordLost {
+                    record: g.log.clone(),
+                });
             }
         }
     }
@@ -1330,14 +1327,18 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
     if !tail.is_empty() {
         let out = &console;
         if !append(out, tail.as_bytes()) {
-            eprintln!("tehas work: could not write {}", out.display());
+            w.tells.tell(&Tell::RecordLost {
+                record: out.clone(),
+            });
         }
     }
     if decided.killed {
         let line = killed_line(&step_in_flight, w.ooms);
         let out = &console;
         if !append(out, line.as_bytes()) {
-            eprintln!("tehas work: could not write {}", out.display());
+            w.tells.tell(&Tell::RecordLost {
+                record: out.clone(),
+            });
         }
         w.append_or_say(line.as_bytes());
     }
@@ -1468,7 +1469,9 @@ fn tell_the_end(w: &Watch, cap: &str, wrote: bool) {
         Some(stream) => {
             let lines = diag(&stream);
             if !lines.is_empty() && !append(&w.err, &lines) {
-                eprintln!("tehas work: could not write {}", w.err.display());
+                w.tells.tell(&Tell::RecordLost {
+                    record: w.err.clone(),
+                });
             }
             format!("tehas work: the driver's diagnostics are in {name}\n")
         }
@@ -1500,6 +1503,46 @@ mod tests {
             say_again(&mut last, Err("refused".to_string())),
             Some("refused".to_string()),
             "a failure after a success"
+        );
+    }
+
+    /// A sink that keeps what the watcher told it.
+    #[derive(Clone, Default)]
+    struct Held(Arc<std::sync::Mutex<Vec<Tell>>>);
+
+    impl Tells for Held {
+        fn tell(&self, t: &Tell) {
+            self.0.lock().unwrap().push(t.clone());
+        }
+    }
+
+    /// A lost file and a record that took nothing enter the seam as
+    /// typed tells, with the fields the default sink turns into the
+    /// watcher's own words.
+    #[test]
+    fn the_reports_enter_the_seam_typed() {
+        let d = dir("seam");
+        let home = d.join("home");
+        let g = given(&d);
+        let told = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut w = a_watch(&d, &home, &g);
+        let err = w.err.clone();
+        w.tells = Box::new(Held(Arc::clone(&told)));
+        w.lost(&g.log);
+        // A record the append cannot open: its parent is not there.
+        w.err = d.join("gone/log.err");
+        w.append_or_say(b"a line\n");
+        assert_eq!(
+            told.lock().unwrap().as_slice(),
+            [
+                Tell::FileLost {
+                    file: g.log.clone(),
+                    record: err,
+                },
+                Tell::RecordLost {
+                    record: d.join("gone/log.err"),
+                },
+            ]
         );
     }
 
@@ -2311,6 +2354,7 @@ mod tests {
             live_on: false,
             beat_said: None,
             publish_said: None,
+            tells: Box::new(Streams),
             ooms: 0,
             oom_names: vec![],
             forks: 0,
