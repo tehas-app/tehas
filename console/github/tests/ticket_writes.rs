@@ -63,10 +63,13 @@ fn taken(calls: &Calls) -> Vec<Call> {
 }
 
 /// Answers each call from the list in turn and writes every call down. A
-/// call past the list fails.
+/// call past the list fails. With a `site`, the question of the
+/// repository's name is answered from it, as GitHub answers it for the
+/// fixture project, and the list is kept for the other calls.
 struct Script {
     answers: VecDeque<Result<String, String>>,
     calls: Calls,
+    site: Option<&'static str>,
 }
 
 impl Script {
@@ -75,11 +78,26 @@ impl Script {
             args: args.iter().map(|a| a.to_string()).collect(),
             input: input.map(str::to_string),
         });
+        if let Some(site) = self.site.filter(|_| input.is_none() && is_name(args)) {
+            return Ok(site.to_string());
+        }
         self.answers
             .pop_front()
             .unwrap_or_else(|| Err("no answer".into()))
     }
 }
+
+/// The question of the repository's name, as the adapter asks it.
+fn is_name(args: &[&str]) -> bool {
+    args.get(1) == Some(&"graphql")
+        && args
+            .last()
+            .is_some_and(|q| q.ends_with("{ databaseId nameWithOwner } }"))
+}
+
+/// GitHub's answer to the question of the name for the fixture project:
+/// its database id and the name it has.
+const HERE: &str = r#"{"data":{"repository":{"databaseId":7001,"nameWithOwner":"acme/widget"}}}"#;
 
 impl GhRunner for Script {
     fn run(&mut self, args: &[&str]) -> Result<String, String> {
@@ -91,17 +109,28 @@ impl GhRunner for Script {
     }
 }
 
+/// The adapter of `repo` over a script that answers every call from the
+/// list, the question of the name too.
 fn adapter_of(repo: &str, answers: Vec<Result<String, String>>) -> (GitHub, Calls) {
+    script_of(repo, None, answers)
+}
+
+fn script_of(
+    repo: &str,
+    site: Option<&'static str>,
+    answers: Vec<Result<String, String>>,
+) -> (GitHub, Calls) {
     let calls = Calls::default();
     let script = Script {
         answers: answers.into(),
         calls: Arc::clone(&calls),
+        site,
     };
     (GitHub::new(repo, Box::new(script)).on_clock(now), calls)
 }
 
 fn adapter(answers: Vec<Result<String, String>>) -> (GitHub, Calls) {
-    adapter_of(PROJECT, answers)
+    script_of(PROJECT, Some(HERE), answers)
 }
 
 /// A body of 200 KiB, past what one argument may hold, and unlike any
@@ -221,11 +250,11 @@ fn a_note_reads_the_issue_then_posts_a_200_kib_body_on_standard_input_alone() {
         "https://github.com/acme/widget/issues/7#issuecomment-2507654321"
     );
     let calls = taken(&calls);
-    assert_eq!(calls.len(), 2);
+    assert_eq!(kinds(&calls), ["call", "name", "call"]);
     assert_eq!(calls[0], read_7());
-    assert_eq!(calls[1].args, post_7());
+    assert_eq!(calls[2].args, post_7());
     kept_out_of_argv(&calls, &body);
-    assert_eq!(sent_body(&calls[1]), body);
+    assert_eq!(sent_body(&calls[2]), body);
 }
 
 #[test]
@@ -238,7 +267,7 @@ fn a_notes_markers_are_written_after_its_text_and_read_back_as_given() {
     ]);
     gh.note(&key(7), &text, &given).unwrap();
     let calls = taken(&calls);
-    let stored = sent_body(&calls[1]);
+    let stored = sent_body(&calls[2]);
     kept_out_of_argv(&calls, &stored);
     let back = markers::read(&stored, BlueprintNo::new(7));
     assert_eq!(back.markers, given);
@@ -261,7 +290,7 @@ fn a_park_question_with_its_handoff_posts_the_bytes_1x_posted() {
         Ok(sample("comment-posted.json")),
     ]);
     gh.note(&key(7), &text, &[park(), question(1)]).unwrap();
-    assert_eq!(sent_body(&taken(&calls)[1]), posted_1x);
+    assert_eq!(sent_body(&taken(&calls)[2]), posted_1x);
 }
 
 #[test]
@@ -362,7 +391,7 @@ fn every_failure_of_the_post_is_its_named_outcome_sent_once_and_echoes_no_input(
         let (got, calls) = note_against(Err(why.clone()));
         assert_eq!(got, Err(want), "{why}");
         // Sent once, and nothing read or sent after it.
-        assert_eq!(calls.len(), 2, "{why}");
+        assert_eq!(calls.len(), 3, "{why}");
         assert_eq!(calls.iter().filter(|c| c.input.is_some()).count(), 1);
         let said = format!("{got:?} {}", got.as_ref().unwrap_err().line());
         assert!(!said.contains(&body[..64]), "{why}: {said}");
@@ -518,11 +547,14 @@ fn the_name_is_asked_once_a_handle_even_where_the_question_failed() {
 #[test]
 fn a_project_transferred_to_another_owner_is_not_here() {
     let moved = |s: String| s.replace("acme/widget", "mallory/widget");
-    let (mut gh, calls) = adapter(vec![
-        Ok(moved(sample("issue-7.json"))),
-        Ok(moved(RENAMED.into())),
-        Ok(moved(sample("comment-posted.json"))),
-    ]);
+    let (mut gh, calls) = adapter_of(
+        PROJECT,
+        vec![
+            Ok(moved(sample("issue-7.json"))),
+            Ok(moved(RENAMED.into())),
+            Ok(moved(sample("comment-posted.json"))),
+        ],
+    );
     assert_eq!(
         gh.note(&key(7), "b", &[]),
         Err(Outcome::Unread(Unread::Inconsistent))
@@ -551,6 +583,9 @@ impl GhRunner for NoInput {
             args: args.iter().map(|a| a.to_string()).collect(),
             input: None,
         });
+        if is_name(args) {
+            return Ok(HERE.into());
+        }
         Ok(sample("issue-7.json"))
     }
 }
@@ -568,7 +603,8 @@ fn a_runner_that_takes_no_input_posts_nothing_and_never_puts_the_text_in_an_argu
         Err(Outcome::Refused(Refusal::Unsupported))
     );
     let calls = taken(&calls);
-    assert_eq!(calls, [read_7()]);
+    assert_eq!(kinds(&calls), ["call", "name"]);
+    assert_eq!(calls[0], read_7());
     kept_out_of_argv(&calls, &body);
 }
 
@@ -647,7 +683,7 @@ fn another_tools_marker_line_is_text_and_is_posted() {
         Ok(sample("comment-posted.json")),
     ]);
     gh.note(&key(7), text, &[]).unwrap();
-    assert_eq!(sent_body(&taken(&calls)[1]), text);
+    assert_eq!(sent_body(&taken(&calls)[2]), text);
 }
 
 #[test]
@@ -749,7 +785,7 @@ fn edit_of(body: &str, text: Option<&str>, markers: &MarkerEdit) -> Got<Option<S
     let calls = taken(&calls);
     Ok(match calls.len() {
         1 => None,
-        _ => Some(edited(&calls[1]).body.unwrap()),
+        _ => Some(edited(&calls[2]).body.unwrap()),
     })
 }
 
@@ -771,13 +807,13 @@ fn an_edit_reads_the_issue_then_sends_a_200_kib_text_and_its_title_on_standard_i
         .unwrap();
     assert_eq!(got.as_str(), "https://github.com/acme/widget/issues/7");
     let calls = taken(&calls);
-    assert_eq!(calls.len(), 2);
+    assert_eq!(kinds(&calls), ["call", "name", "call"]);
     assert_eq!(calls[0], read_7());
-    assert_eq!(calls[1].args, patch_7());
+    assert_eq!(calls[2].args, patch_7());
     kept_out_of_argv(&calls, &body);
     kept_out_of_argv(&calls, TITLE);
     assert_eq!(
-        edited(&calls[1]),
+        edited(&calls[2]),
         Edited {
             title: Some(TITLE.into()),
             body: Some(body)
@@ -835,7 +871,7 @@ fn a_label_a_comment_or_a_new_time_between_the_read_and_the_edit_is_no_conflict(
     let (mut gh, calls) = adapter(vec![Ok(v.to_string()), Ok(read)]);
     let got = gh.edit(&key(7), Some("x"), None, &MarkerEdit::default(), &since());
     assert!(got.is_ok(), "{got:?}");
-    assert_eq!(taken(&calls).len(), 2);
+    assert_eq!(taken(&calls).len(), 3);
 }
 
 #[test]
@@ -1215,8 +1251,8 @@ fn an_edit_that_may_have_landed_is_settled_by_one_read() {
         got.unwrap().as_str(),
         "https://github.com/acme/widget/issues/7"
     );
-    assert_eq!(calls.len(), 3);
-    assert_eq!(calls[2], read_7());
+    assert_eq!(calls.len(), 4);
+    assert_eq!(calls[3], read_7());
     // Still at its revision: it was not sent.
     let (got, calls) = edit_against(timeout.clone(), Some(Ok(sample("issue-7.json"))));
     assert_eq!(
@@ -1266,7 +1302,8 @@ fn a_runner_that_takes_no_input_edits_nothing() {
     let mut gh = GitHub::new(PROJECT, Box::new(runner));
     let got = gh.edit(&key(7), Some(TITLE), None, &MarkerEdit::default(), &since());
     assert_eq!(got, Err(Outcome::Refused(Refusal::Unsupported)));
-    assert_eq!(taken(&calls), [read_7()]);
+    assert_eq!(kinds(&taken(&calls)), ["call", "name"]);
+    assert_eq!(taken(&calls)[0], read_7());
 }
 
 // The layouts the cycle's writes need, byte for byte: the store keeps the
@@ -1281,7 +1318,7 @@ fn posted(text: &str, markers: &[Marker]) -> String {
         Ok(sample("comment-posted.json")),
     ]);
     gh.note(&key(7), text, markers).unwrap();
-    sent_body(&taken(&calls)[1])
+    sent_body(&taken(&calls)[2])
 }
 
 #[test]
@@ -1405,7 +1442,7 @@ fn a_ticket_read_after_a_last_attempts_edit_gives_the_text_and_the_block_back() 
     ]);
     gh.edit(&k, None, None, &edit, &before.digest.revision)
         .unwrap();
-    let stored = serde_json::from_str::<Edited>(taken(&calls)[1].input.as_deref().unwrap())
+    let stored = serde_json::from_str::<Edited>(taken(&calls)[2].input.as_deref().unwrap())
         .unwrap()
         .body
         .unwrap();
@@ -1559,7 +1596,7 @@ fn a_revision_from_the_list_read_is_held_by_an_edit_of_the_unchanged_issue() {
             &revision,
         );
         assert!(got.is_ok(), "{body:?}: {got:?}");
-        assert_eq!(taken(&calls).len(), 3);
+        assert_eq!(taken(&calls).len(), 4);
     }
 }
 
@@ -1586,10 +1623,10 @@ fn close_reads_the_issue_then_patches_its_state_and_reason() {
     ]);
     gh.close(&key(7), &CloseReason::NotPlanned).unwrap();
     let calls = taken(&calls);
-    assert_eq!(calls.len(), 2);
+    assert_eq!(kinds(&calls), ["call", "name", "call"]);
     assert_eq!(calls[0], read_7());
     assert_eq!(
-        calls[1].args,
+        calls[2].args,
         args(&[
             "api",
             "-X",
@@ -1600,7 +1637,7 @@ fn close_reads_the_issue_then_patches_its_state_and_reason() {
         ])
     );
     assert_eq!(
-        input_of(&calls[1]),
+        input_of(&calls[2]),
         serde_json::json!({"state": "closed", "state_reason": "not_planned"}).to_string()
     );
 }
@@ -1629,7 +1666,7 @@ fn a_close_answers_the_sites_time_of_it() {
         gh.close_at(&key(7), &CloseReason::Done),
         Ok(Some(At::new(1795428000)))
     );
-    assert_eq!(taken(&calls).len(), 2);
+    assert_eq!(taken(&calls).len(), 3);
     // One found closed by its read: the read names it, nothing sent.
     let (mut gh, calls) = adapter(vec![Ok(sample("issue-7-closed.json"))]);
     assert_eq!(
@@ -1675,10 +1712,10 @@ fn assign_posts_the_accounts_login_and_reads_it_back() {
     gh.assign(&key(7), &tehas_ports::AccountId::new("904"))
         .unwrap();
     let calls = taken(&calls);
-    assert_eq!(calls.len(), 2);
+    assert_eq!(kinds(&calls), ["call", "name", "call"]);
     assert_eq!(calls[0], call(&["api", "user/904"]));
     assert_eq!(
-        calls[1].args,
+        calls[2].args,
         args(&[
             "api",
             "-X",
@@ -1689,7 +1726,7 @@ fn assign_posts_the_accounts_login_and_reads_it_back() {
         ])
     );
     assert_eq!(
-        input_of(&calls[1]),
+        input_of(&calls[2]),
         serde_json::json!({"assignees": ["carol"]}).to_string()
     );
 }
@@ -1737,14 +1774,14 @@ fn add_part_reads_the_childs_parent_and_id_then_posts_it() {
     ]);
     gh.add_part(&key(12), &key(13)).unwrap();
     let calls = taken(&calls);
-    assert_eq!(calls.len(), 3);
+    assert_eq!(kinds(&calls), ["call", "call", "name", "call"]);
     assert_eq!(
         calls[0],
         call(&["api", "repos/acme/widget/issues/13/parent"])
     );
     assert_eq!(calls[1], call(&["api", "repos/acme/widget/issues/13"]));
     assert_eq!(
-        calls[2].args,
+        calls[3].args,
         args(&[
             "api",
             "-X",
@@ -1755,7 +1792,7 @@ fn add_part_reads_the_childs_parent_and_id_then_posts_it() {
         ])
     );
     assert_eq!(
-        input_of(&calls[2]),
+        input_of(&calls[3]),
         serde_json::json!({"sub_issue_id": 3001230013u64}).to_string()
     );
 }

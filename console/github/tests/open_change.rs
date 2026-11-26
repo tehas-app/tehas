@@ -42,10 +42,14 @@ struct Call {
 
 type Calls = Arc<Mutex<Vec<Call>>>;
 
-/// Answers each call from the list in turn and writes every call down.
+/// Answers each call from the list in turn and writes every call down. A
+/// call past the list fails. With a `site`, the question of the
+/// repository's name is answered from it, as GitHub answers it for the
+/// fixture project, and the list is kept for the other calls.
 struct Script {
     answers: VecDeque<Result<String, String>>,
     calls: Calls,
+    site: Option<&'static str>,
 }
 
 impl Script {
@@ -54,11 +58,26 @@ impl Script {
             args: args.iter().map(|a| a.to_string()).collect(),
             input: input.map(str::to_string),
         });
+        if let Some(site) = self.site.filter(|_| input.is_none() && is_name(args)) {
+            return Ok(site.to_string());
+        }
         self.answers
             .pop_front()
             .unwrap_or_else(|| Err("no answer".into()))
     }
 }
+
+/// The question of the repository's name, as the adapter asks it.
+fn is_name(args: &[&str]) -> bool {
+    args.get(1) == Some(&"graphql")
+        && args
+            .last()
+            .is_some_and(|q| q.ends_with("{ databaseId nameWithOwner } }"))
+}
+
+/// GitHub's answer to the question of the name for the fixture project:
+/// its database id and the name it has.
+const HERE: &str = r#"{"data":{"repository":{"databaseId":7001,"nameWithOwner":"acme/widget"}}}"#;
 
 impl GhRunner for Script {
     fn run(&mut self, args: &[&str]) -> Result<String, String> {
@@ -70,17 +89,28 @@ impl GhRunner for Script {
     }
 }
 
+/// The adapter of `project` over a script that answers every call from the
+/// list, the question of the name too.
 fn adapter_of(project: &str, answers: Vec<Result<String, String>>) -> (GitHub, Calls) {
+    script_of(project, None, answers)
+}
+
+fn script_of(
+    project: &str,
+    site: Option<&'static str>,
+    answers: Vec<Result<String, String>>,
+) -> (GitHub, Calls) {
     let calls = Calls::default();
     let script = Script {
         answers: answers.into(),
         calls: Arc::clone(&calls),
+        site,
     };
     (GitHub::new(project, Box::new(script)).on_clock(now), calls)
 }
 
 fn adapter(answers: Vec<Result<String, String>>) -> (GitHub, Calls) {
-    adapter_of(PROJECT, answers)
+    script_of(PROJECT, Some(HERE), answers)
 }
 
 /// The factory's bot account, as the site is given it.
@@ -96,6 +126,7 @@ fn ours_of(
     let kept = Arc::new(Mutex::new(Some(Script {
         answers: answers.into(),
         calls: Arc::clone(&calls),
+        site: Some(HERE),
     })));
     let make: MakeRunner = Arc::new(move |_: &Actor| {
         let script = kept.lock().unwrap().take().expect("one handle");
@@ -220,12 +251,13 @@ fn an_open_reads_the_head_then_posts_what_the_finishs_gh_create_sent() {
         "https://github.com/acme/widget/pull/41"
     );
     let calls = taken(&calls);
-    assert_eq!(calls.len(), 2);
+    assert_eq!(calls.len(), 3);
     assert_eq!(calls[0].args, args(&READ));
     assert_eq!(calls[0].input, None);
-    assert_eq!(calls[1].args, args(&POST));
+    assert!(is_name_question(&calls[1]));
+    assert_eq!(calls[2].args, args(&POST));
     assert_eq!(
-        input(&calls[1]),
+        input(&calls[2]),
         Input {
             title: TITLE.into(),
             head: HEAD.into(),
@@ -256,7 +288,7 @@ fn a_200_kib_body_goes_on_standard_input_alone() {
     for a in calls.iter().flat_map(|c| &c.args) {
         assert!(!a.contains("A line only this draft"), "{a:.80}");
     }
-    assert_eq!(input(&calls[1]).body, body);
+    assert_eq!(input(&calls[2]).body, body);
 }
 
 // What the change closes.
@@ -271,7 +303,7 @@ fn closes_is_written_after_the_body_as_1x_wrote_it() {
         .unwrap();
     // `Fixes #7.`, byte for byte the first line of 1.x's finish body.
     assert_eq!(
-        input(&taken(&calls)[1]).body,
+        input(&taken(&calls)[2]).body,
         "The work.\n\nFixes #7.\nFixes #9.\n"
     );
 }
@@ -299,7 +331,7 @@ fn closes_is_never_doubled_nor_dropped() {
         ]);
         gh.open_change(&finish_change(body, closes.clone()))
             .unwrap();
-        assert_eq!(input(&taken(&calls)[1]).body, want, "{body:?} {closes:?}");
+        assert_eq!(input(&taken(&calls)[2]).body, want, "{body:?} {closes:?}");
     }
 }
 
@@ -332,7 +364,7 @@ fn a_pi_rukas_handoff_line_in_the_body_is_no_marker() {
         Ok(sample("pull-41-created.json")),
     ]);
     assert!(gh.open_change(&finish_change(body, vec![])).is_ok());
-    assert_eq!(input(&taken(&calls)[1]).body, body);
+    assert_eq!(input(&taken(&calls)[2]).body, body);
 }
 
 #[test]
@@ -385,7 +417,7 @@ fn a_422_with_a_change_of_the_head_now_there_is_exists_and_any_other_is_invalid(
     );
     let calls = taken(&calls);
     assert_eq!(posts(&calls), 1);
-    assert_eq!(calls[2].args, args(&READ));
+    assert_eq!(calls[3].args, args(&READ));
     // No commits between, a branch not there, or a draft the plan refuses:
     // invalid, and never a ready pull request instead.
     for after in [
@@ -530,7 +562,7 @@ fn each_failure_of_the_post_is_its_outcome_and_it_is_never_sent_again() {
             "{name}"
         );
         let calls = taken(&calls);
-        assert_eq!(calls.len(), 2, "{name}");
+        assert_eq!(calls.len(), 3, "{name}");
         assert_eq!(posts(&calls), 1, "{name}");
     }
 }
@@ -547,7 +579,7 @@ fn a_post_that_may_have_landed_is_settled_by_one_read_of_the_head() {
         let posted = gh.open_change(&finish_change("B", vec![])).unwrap();
         assert_eq!(posted.id.get(), 41);
         let calls = taken(&calls);
-        assert_eq!(calls.len(), 3);
+        assert_eq!(calls.len(), 4);
         assert_eq!(posts(&calls), 1);
     }
     // None, two, or the read fails: it may land yet.
@@ -702,7 +734,7 @@ fn a_closing_word_github_does_not_read_still_gets_the_line() {
             Ok(sample("pull-41-created.json")),
         ]);
         gh.open_change(&finish_change(body, vec![bp(7)])).unwrap();
-        assert_eq!(input(&taken(&calls)[1]).body, want, "{body:?}");
+        assert_eq!(input(&taken(&calls)[2]).body, want, "{body:?}");
     }
 }
 
@@ -779,4 +811,82 @@ fn a_project_name_that_is_not_owner_and_name_has_no_remote() {
         );
         assert!(taken(&calls).is_empty());
     }
+}
+
+/// The question of the name, as the adapter asks it.
+fn is_name_question(c: &Call) -> bool {
+    c.input.is_none()
+        && c.args[..2] == args(&["api", "graphql"])
+        && c.args
+            .iter()
+            .any(|a| a.contains("databaseId nameWithOwner"))
+}
+
+/// With no open pull request of the head, nothing read names the
+/// repository: the open confirms it first, by the question of its name.
+#[test]
+fn an_open_asks_the_repository_once_a_handle_before_its_post() {
+    let (mut gh, calls) = adapter_of(
+        PROJECT,
+        vec![
+            Ok(sample("pulls-of-head-none.json")),
+            Ok(HERE.into()),
+            Ok(sample("pull-41-created.json")),
+            Ok(sample("pulls-of-head-none.json")),
+            Ok(sample("pull-41-created.json")),
+        ],
+    );
+    for _ in 0..2 {
+        let posted = gh
+            .open_change(&finish_change(BODY_1X, vec![bp(7)]))
+            .unwrap();
+        assert_eq!(posted.id.get(), 41);
+    }
+    let calls = taken(&calls);
+    assert_eq!(calls.len(), 5);
+    assert_eq!(calls[0].args, args(&READ));
+    assert!(is_name_question(&calls[1]));
+    assert_eq!(calls[2].args, args(&POST));
+    assert_eq!(calls.iter().filter(|c| is_name_question(c)).count(), 1);
+}
+
+/// A repository moved to another owner gets no pull request: only
+/// GitHub's redirect would decide where the `POST` lands.
+#[test]
+fn an_open_on_a_project_transferred_to_another_owner_is_refused_with_nothing_posted() {
+    let moved = HERE.replace("acme/widget", "mallory/widget");
+    let (mut gh, calls) = adapter_of(
+        PROJECT,
+        vec![
+            Ok(sample("pulls-of-head-none.json")),
+            Ok(moved),
+            Ok(sample("pull-41-created.json")),
+        ],
+    );
+    assert_eq!(
+        gh.open_change(&finish_change(BODY_1X, vec![bp(7)])),
+        Err(Outcome::Unread(Unread::Inconsistent))
+    );
+    let calls = taken(&calls);
+    assert_eq!(calls.len(), 2);
+    assert_eq!(posts(&calls), 0, "nothing posted");
+    assert!(is_name_question(&calls[1]));
+}
+
+/// A failure of the question is its outcome, with nothing sent.
+#[test]
+fn an_open_whose_repository_question_fails_sends_nothing() {
+    let (mut gh, calls) = adapter_of(
+        PROJECT,
+        vec![
+            Ok(sample("pulls-of-head-none.json")),
+            Err(BOUND.into()),
+            Ok(sample("pull-41-created.json")),
+        ],
+    );
+    assert_eq!(
+        gh.open_change(&finish_change(BODY_1X, vec![bp(7)])),
+        Err(not_sent(Passing::Timeout))
+    );
+    assert_eq!(posts(&taken(&calls)), 0, "nothing posted");
 }

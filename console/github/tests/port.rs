@@ -16,28 +16,53 @@ use tehas_ports::{
 
 type Asked = Arc<Mutex<Vec<String>>>;
 
-/// Answers each call from the list in turn; a call past it fails.
+/// GitHub's answer to the question of the name for the fixture project:
+/// its database id and the name it has.
+const HERE: &str = r#"{"data":{"repository":{"databaseId":7001,"nameWithOwner":"acme/widget"}}}"#;
+
+/// Whether a call is the question of the repository's name.
+fn is_name_question(call: &str) -> bool {
+    call.starts_with("api graphql ") && call.ends_with("{ databaseId nameWithOwner } }")
+}
+
+/// Answers each call from the list in turn; a call past it fails. With a
+/// `site`, the question of the repository's name is answered from it, as
+/// GitHub answers it for the fixture project, and the list is kept for the
+/// other calls.
 struct Stub {
-    answers: Vec<Result<String, String>>,
+    answers: std::collections::VecDeque<Result<String, String>>,
     asked: Asked,
+    site: Option<&'static str>,
 }
 
 impl GhRunner for Stub {
     fn run(&mut self, args: &[&str]) -> Result<String, String> {
-        let mut asked = self.asked.lock().unwrap();
-        asked.push(args.join(" "));
+        let call = args.join(" ");
+        self.asked.lock().unwrap().push(call.clone());
+        if let Some(site) = self.site.filter(|_| is_name_question(&call)) {
+            return Ok(site.to_string());
+        }
         self.answers
-            .get(asked.len() - 1)
-            .cloned()
+            .pop_front()
             .unwrap_or_else(|| Err("no fixture".to_string()))
     }
 }
 
 fn adapter(answers: Vec<Result<&str, &str>>) -> (GitHub, Asked) {
-    adapter_in("acme/widget", answers)
+    stub_of("acme/widget", Some(HERE), answers)
 }
 
+/// The adapter of `repo` over a stub that answers every call from the
+/// list, the question of the name too.
 fn adapter_in(repo: &str, answers: Vec<Result<&str, &str>>) -> (GitHub, Asked) {
+    stub_of(repo, None, answers)
+}
+
+fn stub_of(
+    repo: &str,
+    site: Option<&'static str>,
+    answers: Vec<Result<&str, &str>>,
+) -> (GitHub, Asked) {
     let asked = Asked::default();
     let stub = Stub {
         answers: answers
@@ -45,6 +70,7 @@ fn adapter_in(repo: &str, answers: Vec<Result<&str, &str>>) -> (GitHub, Asked) {
             .map(|a| a.map(str::to_string).map_err(str::to_string))
             .collect(),
         asked: Arc::clone(&asked),
+        site,
     };
     (GitHub::new(repo, Box::new(stub)), asked)
 }
@@ -307,13 +333,14 @@ fn prepare_makes_every_label_of_the_table_and_one_that_fails_stops_none() {
         })
     );
     let asked = asked.lock().unwrap();
-    assert_eq!(asked.len(), specs.len() + 1);
+    assert_eq!(asked.len(), specs.len() + 2);
     assert!(asked[0].starts_with("api graphql "), "{}", asked[0]);
+    assert!(is_name_question(&asked[1]), "asked once: {}", asked[1]);
     assert_eq!(
-        asked[1],
+        asked[2],
         "label create tehas:ready --repo acme/widget --color 0e8a16 --description Tehas: eligible for dispatch (apply by hand to authorize a cycle) --force"
     );
-    for (call, spec) in asked[1..].iter().zip(&specs) {
+    for (call, spec) in asked[2..].iter().zip(&specs) {
         assert!(
             call.starts_with(&format!(
                 "label create {} --repo acme/widget --color ",
@@ -341,8 +368,9 @@ fn prepare_whose_read_fails_still_makes_every_label_and_answers_the_read() {
     };
     assert_eq!(gh.prepare(), Err(Unprepared::new(read)));
     let asked = asked.lock().unwrap();
-    assert_eq!(asked.len(), specs.len() + 1);
-    assert!(asked[1..].iter().all(|c| c.starts_with("label create ")));
+    assert_eq!(asked.len(), specs.len() + 2);
+    assert!(is_name_question(&asked[1]), "asked once: {}", asked[1]);
+    assert!(asked[2..].iter().all(|c| c.starts_with("label create ")));
 }
 
 #[test]
@@ -360,8 +388,10 @@ fn ensure_mark_makes_a_projects_label_with_what_its_spec_gives() {
         ..bare
     };
     assert_eq!(gh.ensure_mark(&full), Ok(()));
+    let asked = asked.lock().unwrap();
+    assert!(is_name_question(&asked[0]), "{}", asked[0]);
     assert_eq!(
-        *asked.lock().unwrap(),
+        asked[1..],
         [
             "label create area-ui --repo acme/widget --force",
             "label create area-ui --repo acme/widget --color 00ff00 --description The UI --force"
@@ -389,8 +419,10 @@ fn a_mark_goes_on_and_comes_off_as_its_label() {
     // Not there is the state wanted.
     assert_eq!(gh.unmark(&key(7), &pause), Ok(()));
     assert!(gh.unmark(&key(7), &pause).is_err());
+    let asked = asked.lock().unwrap();
+    assert!(is_name_question(&asked[0]), "{}", asked[0]);
     assert_eq!(
-        *asked.lock().unwrap(),
+        asked[1..],
         [
             "api -X POST repos/acme/widget/issues/7/labels -f labels[]=tehas:pause",
             "api -X DELETE repos/acme/widget/issues/7/labels/tehas%3Apause",
@@ -449,4 +481,69 @@ fn a_cite_is_githubs_reference_and_a_new_ticket_link_its_page() {
         gh.new_ticket_link("A", &long).as_str(),
         "https://github.com/acme/widget/issues/new?title=A"
     );
+}
+
+/// A mark, an unmark and a label made have no read before them that names
+/// the repository: the first write of a handle confirms it, once.
+#[test]
+fn a_handles_first_mark_asks_the_repository_once() {
+    let (mut gh, asked) = adapter_in("acme/widget", vec![Ok(HERE), Ok(""), Ok(""), Ok("")]);
+    let pause = Mark::Act(Act::Pause);
+    assert_eq!(gh.mark(&key(7), &pause), Ok(()));
+    assert_eq!(gh.unmark(&key(7), &pause), Ok(()));
+    let spec = MarkSpec {
+        name: MarkName::new("area-ui").unwrap(),
+        colour: None,
+        about: None,
+    };
+    assert_eq!(gh.ensure_mark(&spec), Ok(()));
+    let asked = asked.lock().unwrap();
+    assert!(is_name_question(&asked[0]), "{}", asked[0]);
+    assert_eq!(
+        asked[1..],
+        [
+            "api -X POST repos/acme/widget/issues/7/labels -f labels[]=tehas:pause",
+            "api -X DELETE repos/acme/widget/issues/7/labels/tehas%3Apause",
+            "label create area-ui --repo acme/widget --force",
+        ]
+    );
+}
+
+/// A repository moved to another owner, or the old name made again as
+/// another repository while the handle lives, gets no mark, no unmark
+/// and no label: only GitHub's redirect would decide where they land.
+#[test]
+fn a_mark_unmark_or_label_on_a_repository_that_is_not_this_projects_is_refused() {
+    let moved = HERE.replace("acme/widget", "mallory/widget");
+    let again = HERE.replace("7001", "7002");
+    let pause = Mark::Act(Act::Pause);
+    let spec = MarkSpec {
+        name: MarkName::new("area-ui").unwrap(),
+        colour: None,
+        about: None,
+    };
+    let refused = Err(Outcome::Unread(Unread::Inconsistent));
+    type Write = fn(&mut GitHub, &Mark, &MarkSpec) -> tehas_ports::Did;
+    let writes: [(&str, Write); 3] = [
+        ("mark", |gh, m, _| gh.mark(&key(7), m)),
+        ("unmark", |gh, m, _| gh.unmark(&key(7), m)),
+        ("label", |gh, _, s| gh.ensure_mark(s)),
+    ];
+    for (what, write) in writes {
+        let (mut gh, asked) = adapter_in("acme/widget", vec![Ok(&moved), Ok("")]);
+        assert_eq!(write(&mut gh, &pause, &spec), refused, "{what} moved");
+        let asked = asked.lock().unwrap();
+        assert_eq!(asked.len(), 1, "{what} moved: nothing written");
+        assert!(is_name_question(&asked[0]));
+        // The handle learned 7001 from a read of the ticket's parent.
+        let (mut gh, asked) = adapter_in(
+            "acme/widget",
+            vec![Ok(ISSUE), Ok(PARENT), Ok(&again), Ok("")],
+        );
+        assert!(gh.several(&[key(7)]).remove(0).1.is_ok());
+        assert_eq!(write(&mut gh, &pause, &spec), refused, "{what} made again");
+        let asked = asked.lock().unwrap();
+        assert_eq!(asked.len(), 3, "{what} made again: nothing written");
+        assert!(is_name_question(&asked[2]));
+    }
 }

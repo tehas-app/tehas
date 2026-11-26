@@ -6,7 +6,11 @@
 //!
 //! Each write to a change reads the pull request first, `repos/<repo>/pulls/<n>`, which
 //! answers 404 for an issue's number: an issue, or a number that is
-//! nothing, is `NotFound` with nothing sent. Each write is then one request
+//! nothing, is `NotFound` with nothing sent. A status has no read before
+//! it. Before every write the handle confirms the repository once
+//! (`GitHub::confirm_here`): one moved to another owner, or the old name
+//! made again as another repository, is `Unread(Inconsistent)` with
+//! nothing sent. Each write is then one request
 //! to this adapter's own repository, sent once, never again. A comment's
 //! body goes as JSON on gh's standard input, never in an argument. A mark is
 //! its label from `table.rs`, written through the issues path as the
@@ -25,7 +29,7 @@
 mod open;
 
 use super::named::Named;
-use super::{label_of, unsupported};
+use super::{label_of, unsent, unsupported};
 use crate::{markers, ForgeError, GitHub};
 use serde_json::Value;
 use tehas_ports::{
@@ -68,6 +72,7 @@ impl CodeHostWrites for GitHub {
         if pull.carries(&label) {
             return Ok(());
         }
+        self.confirm_here()?;
         match self.add_label(no.get(), &label) {
             Ok(()) => Ok(()),
             Err(e) => {
@@ -85,6 +90,7 @@ impl CodeHostWrites for GitHub {
         if !pull.carries(&label) {
             return Ok(());
         }
+        self.confirm_here()?;
         match self.remove_label(no.get(), &label) {
             Ok(()) => Ok(()),
             Err(e) => {
@@ -112,6 +118,7 @@ impl CodeHostWrites for GitHub {
         let path = format!("{}/issues/{}/comments", project(&self.repo)?, no.get());
         let pull = self.pull_before(no)?;
         let input = serde_json::json!({ "body": body }).to_string();
+        self.confirm_here()?;
         let args = ["api", "-X", "POST", &path, "--input", "-"];
         let out = self
             .call_input("the change's comment", &args, &input)
@@ -162,6 +169,7 @@ impl CodeHostWrites for GitHub {
         if let Some(link) = &status.link {
             body["target_url"] = link.as_str().into();
         }
+        self.confirm_here()?;
         let args = ["api", "-X", "POST", &path, "--input", "-"];
         let out = self
             .call_input("the commit's status", &args, &body.to_string())
@@ -250,17 +258,6 @@ fn project(repo: &str) -> Got<String> {
         Ok(format!("repos/{owner}/{name}"))
     } else {
         Err(Outcome::Refused(Refusal::Invalid))
-    }
-}
-
-/// A failure of the read before a write: the write was not sent.
-fn unsent(o: Outcome) -> Outcome {
-    match o {
-        Outcome::Unavailable { why, .. } => Outcome::Unavailable {
-            why,
-            sent: Sent::No,
-        },
-        other => other,
     }
 }
 

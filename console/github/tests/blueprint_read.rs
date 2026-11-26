@@ -184,6 +184,17 @@ impl Site {
         if args.starts_with(&["api", "-X", "GET", "search/issues"]) {
             return Ok(self.search_page(args));
         }
+        // The question of the repository's name, before a write.
+        if args.starts_with(&["api", "graphql"])
+            && args
+                .last()
+                .is_some_and(|q| q.ends_with("{ databaseId nameWithOwner } }"))
+        {
+            return Ok(
+                r#"{"data":{"repository":{"databaseId":7001,"nameWithOwner":"acme/widget"}}}"#
+                    .into(),
+            );
+        }
         if args.starts_with(&["api", "graphql"]) {
             return self.graphql_answer(args);
         }

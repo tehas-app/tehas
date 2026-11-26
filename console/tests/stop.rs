@@ -601,10 +601,11 @@ fn a_running_cycle_is_stopped_its_leftovers_go_its_label_comes_off_and_the_recor
     let off = format!("removed {label} from #5");
     assert_eq!(r.out.lines().last(), Some(off.as_str()));
     assert_eq!(unit_stops(&w), 1);
-    // The issue is read once, with the question of its parent, and its
-    // label taken off once: no other label, no comment. What is asked of the port is on its fake in
-    // console/ops/src/stop.rs.
-    assert_eq!(w.gh().lines().count(), 3, "{}", w.gh());
+    // The issue is read once, with the question of its parent, the
+    // repository's name asked once before the write, and its label taken
+    // off once: no other label, no comment. What is asked of the port is on
+    // its fake in console/ops/src/stop.rs.
+    assert_eq!(w.gh().lines().count(), 4, "{}", w.gh());
 }
 
 #[test]
@@ -702,7 +703,8 @@ fn stopping_5_touches_nothing_of_51_or_55_and_asks_gh_of_5_alone() {
     assert_eq!(leftovers(&w, 51).len(), LEFTOVERS_N);
     assert_eq!(leftovers(&w, 55).len(), LEFTOVERS_N);
     assert_eq!(removed_containers(&w), "tehas-work-5 ");
-    assert_eq!(w.gh().lines().count(), 3, "{}", w.gh());
+    // The issue's read, its parent, the repository's name and the label off.
+    assert_eq!(w.gh().lines().count(), 4, "{}", w.gh());
     for other in ["51", "55"] {
         lacks(&w.gh(), other);
         lacks(&r.out, other);

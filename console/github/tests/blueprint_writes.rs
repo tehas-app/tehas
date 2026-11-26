@@ -53,10 +53,13 @@ struct Call {
 type Calls = Arc<Mutex<Vec<Call>>>;
 
 /// Answers each call from the list in turn and writes every call down. A
-/// call past the list fails.
+/// call past the list fails. With a `site`, the question of the
+/// repository's name is answered from it, as GitHub answers it for the
+/// fixture project, and the list is kept for the other calls.
 struct Script {
     answers: VecDeque<Result<String, String>>,
     calls: Calls,
+    site: Option<&'static str>,
 }
 
 impl Script {
@@ -65,11 +68,26 @@ impl Script {
             args: args.iter().map(|a| a.to_string()).collect(),
             input: input.map(str::to_string),
         });
+        if let Some(site) = self.site.filter(|_| input.is_none() && is_name(args)) {
+            return Ok(site.to_string());
+        }
         self.answers
             .pop_front()
             .unwrap_or_else(|| Err("no answer".into()))
     }
 }
+
+/// The question of the repository's name, as the adapter asks it.
+fn is_name(args: &[&str]) -> bool {
+    args.get(1) == Some(&"graphql")
+        && args
+            .last()
+            .is_some_and(|q| q.ends_with("{ databaseId nameWithOwner } }"))
+}
+
+/// GitHub's answer to the question of the name for the fixture project:
+/// its database id and the name it has.
+const HERE: &str = r#"{"data":{"repository":{"databaseId":7001,"nameWithOwner":"acme/widget"}}}"#;
 
 impl GhRunner for Script {
     fn run(&mut self, args: &[&str]) -> Result<String, String> {
@@ -85,10 +103,21 @@ impl GhRunner for Script {
 const BOT_ID: u64 = 100001;
 
 fn adapter(answers: Vec<Result<String, String>>) -> (GitHub, Calls) {
+    script_of(Some(HERE), answers)
+}
+
+/// The adapter over a script that answers every call from the list, the
+/// question of the name too.
+fn scripted(answers: Vec<Result<String, String>>) -> (GitHub, Calls) {
+    script_of(None, answers)
+}
+
+fn script_of(site: Option<&'static str>, answers: Vec<Result<String, String>>) -> (GitHub, Calls) {
     let calls = Calls::default();
     let script = Script {
         answers: answers.into(),
         calls: Arc::clone(&calls),
+        site,
     };
     let gh = GitHub::new(PROJECT, Box::new(script)).on_clock(now);
     (gh, calls)
@@ -101,6 +130,7 @@ fn adapter_ours(answers: Vec<Result<String, String>>) -> (Box<dyn BlueprintWrite
     let script = Script {
         answers: answers.into(),
         calls: Arc::clone(&calls),
+        site: Some(HERE),
     };
     (ours(Box::new(script), Some(BOT_ID)), calls)
 }
@@ -242,9 +272,9 @@ fn an_open_sends_a_200_kib_body_and_its_title_on_standard_input_alone() {
         "https://github.com/acme/widget/issues/42"
     );
     let calls = calls.lock().unwrap();
-    assert_eq!(calls.len(), 1);
+    assert_eq!(kinds(&calls), ["name", "call"]);
     assert_eq!(
-        calls[0].args,
+        calls[1].args,
         args(&[
             "api",
             "-X",
@@ -256,7 +286,7 @@ fn an_open_sends_a_200_kib_body_and_its_title_on_standard_input_alone() {
     );
     kept_out_of_argv(&calls, &body);
     kept_out_of_argv(&calls, TITLE);
-    assert_eq!(input(&calls[0]), sent(Some(TITLE), Some(&body)));
+    assert_eq!(input(&calls[1]), sent(Some(TITLE), Some(&body)));
 }
 
 #[test]
@@ -274,7 +304,7 @@ fn a_comment_sends_a_200_kib_body_on_standard_input_and_answers_the_comments_lin
         "https://github.com/acme/widget/issues/7#issuecomment-2501234567"
     );
     let calls = calls.lock().unwrap();
-    assert_eq!(calls.len(), 2);
+    assert_eq!(kinds(&calls), ["call", "name", "call"]);
     // The issue is read first, so a pull request's number gets no comment.
     assert_eq!(
         calls[0],
@@ -284,7 +314,7 @@ fn a_comment_sends_a_200_kib_body_on_standard_input_and_answers_the_comments_lin
         }
     );
     assert_eq!(
-        calls[1].args,
+        calls[2].args,
         args(&[
             "api",
             "-X",
@@ -295,7 +325,7 @@ fn a_comment_sends_a_200_kib_body_on_standard_input_and_answers_the_comments_lin
         ])
     );
     kept_out_of_argv(&calls, &body);
-    assert_eq!(input(&calls[1]), sent(None, Some(&body)));
+    assert_eq!(input(&calls[2]), sent(None, Some(&body)));
 }
 
 /// An instance that still names the project's old name comments on it as
@@ -314,6 +344,7 @@ fn a_renamed_project_still_gets_its_comment_by_its_repository_id() {
         ]
         .into(),
         calls: Arc::clone(&calls),
+        site: None,
     };
     let mut gh = GitHub::new("acme/widget-before", Box::new(script)).on_clock(now);
     let got = gh.comment(no(7), "b", &[]).unwrap();
@@ -340,7 +371,7 @@ fn an_edit_reads_the_issue_then_sends_a_200_kib_body_and_title_on_standard_input
         .unwrap();
     assert_eq!(got.as_str(), "https://github.com/acme/widget/issues/7");
     let calls = calls.lock().unwrap();
-    assert_eq!(calls.len(), 2);
+    assert_eq!(kinds(&calls), ["call", "name", "call"]);
     assert_eq!(
         calls[0],
         Call {
@@ -349,7 +380,7 @@ fn an_edit_reads_the_issue_then_sends_a_200_kib_body_and_title_on_standard_input
         }
     );
     assert_eq!(
-        calls[1].args,
+        calls[2].args,
         args(&[
             "api",
             "-X",
@@ -361,7 +392,7 @@ fn an_edit_reads_the_issue_then_sends_a_200_kib_body_and_title_on_standard_input
     );
     kept_out_of_argv(&calls, &body);
     kept_out_of_argv(&calls, TITLE);
-    assert_eq!(input(&calls[1]), sent(Some(TITLE), Some(&body)));
+    assert_eq!(input(&calls[2]), sent(Some(TITLE), Some(&body)));
 }
 
 #[test]
@@ -378,7 +409,7 @@ fn an_edit_sends_only_what_it_is_given() {
     )
     .unwrap();
     assert_eq!(
-        input(&calls.lock().unwrap()[1]),
+        input(&calls.lock().unwrap()[2]),
         sent(None, Some("New body."))
     );
 }
@@ -412,7 +443,7 @@ fn a_label_or_a_comment_does_not_move_the_revision() {
     let (mut gh, calls) = adapter(vec![Ok(v.to_string()), Ok(read)]);
     let got = gh.edit(no(7), Some("x"), None, &MarkerEdit::default(), &since);
     assert!(got.is_ok(), "{got:?}");
-    assert_eq!(calls.lock().unwrap().len(), 2);
+    assert_eq!(calls.lock().unwrap().len(), 3);
 }
 
 #[test]
@@ -528,7 +559,7 @@ fn an_edit_that_would_drop_a_marker_is_refused_and_a_title_alone_is_made() {
     );
     assert!(got.is_ok(), "{got:?}");
     assert_eq!(
-        input(&calls.lock().unwrap()[1]),
+        input(&calls.lock().unwrap()[2]),
         sent(Some("Retitled"), None)
     );
 }
@@ -618,6 +649,7 @@ fn a_repository_that_is_no_owner_and_name_gets_no_write() {
         let script = Script {
             answers: VecDeque::new(),
             calls: Arc::clone(&calls),
+            site: Some(HERE),
         };
         let mut gh = GitHub::new(repo, Box::new(script));
         let invalid = Err(Outcome::Refused(Refusal::Invalid));
@@ -793,6 +825,9 @@ impl GhRunner for NoInput {
             args: args.iter().map(|a| a.to_string()).collect(),
             input: None,
         });
+        if is_name(args) {
+            return Ok(HERE.into());
+        }
         Ok(sample("issue-7.json"))
     }
 }
@@ -807,13 +842,16 @@ fn a_runner_that_takes_no_input_sends_nothing_and_never_puts_the_text_in_an_argu
     let unsupported = Err(Outcome::Refused(Refusal::Unsupported));
     assert_eq!(gh.open(&new_blueprint(TITLE, "b")).map(|_| ()), unsupported);
     assert_eq!(gh.comment(no(7), "b", &[]).map(|_| ()), unsupported);
-    // The comment's read alone: no write went out.
+    // The question of the name and the comment's read alone: no write
+    // went out.
+    let calls = calls.lock().unwrap();
+    assert_eq!(kinds(&calls), ["name", "call"]);
     assert_eq!(
-        *calls.lock().unwrap(),
-        [Call {
+        calls[1],
+        Call {
             args: args(&["api", "repos/acme/widget/issues/7"]),
             input: None
-        }]
+        }
     );
 }
 
@@ -844,6 +882,9 @@ impl GhRunner for Site {
             return Ok(
                 r#"{"data":{"repository":{"issue":{"lastEditedAt":null,"editor":null}}}}"#.into(),
             );
+        }
+        if is_name(args) {
+            return Ok(HERE.into());
         }
         if args != ["api", "repos/acme/widget/issues/7"] {
             return Err(format!("no recording of {args:?}"));
@@ -936,8 +977,8 @@ fn an_edit_that_may_have_landed_is_settled_by_one_read_and_never_sent_again() {
             "https://github.com/acme/widget/issues/7",
             "{why}"
         );
-        assert_eq!(calls.len(), 3, "{why}");
-        assert_eq!(calls[2].args, args(&["api", "repos/acme/widget/issues/7"]));
+        assert_eq!(calls.len(), 4, "{why}");
+        assert_eq!(calls[3].args, args(&["api", "repos/acme/widget/issues/7"]));
         assert_eq!(calls.iter().filter(|c| c.input.is_some()).count(), 1);
         // Still at the old revision: it was not sent.
         let (got, _) = settled(&why, Ok(read.clone()));
@@ -948,7 +989,7 @@ fn an_edit_that_may_have_landed_is_settled_by_one_read_and_never_sent_again() {
         // The settling read fails: still maybe.
         let (got, calls) = settled(&why, Err(failed("server-error.stderr")));
         assert_eq!(got, Err(maybe(passing)), "{why}");
-        assert_eq!(calls.len(), 3, "{why}");
+        assert_eq!(calls.len(), 4, "{why}");
     }
 }
 
@@ -957,7 +998,7 @@ fn an_edit_refused_for_sure_is_not_settled() {
     for why in [failed("forbidden.stderr"), failed("validation.stderr")] {
         let (got, calls) = settled(&why, Ok(sample("issue-7.json")));
         assert!(got.is_err(), "{why}");
-        assert_eq!(calls.len(), 2, "no settling read: {why}");
+        assert_eq!(calls.len(), 3, "no settling read: {why}");
     }
 }
 
@@ -1302,11 +1343,11 @@ fn a_comments_edit_reads_it_then_sends_its_body_on_standard_input_keeping_its_ma
         "https://github.com/acme/widget/issues/7#issuecomment-2501230002"
     );
     let calls = calls.lock().unwrap().clone();
-    assert_eq!(calls.len(), 2);
+    assert_eq!(calls.len(), 3);
     assert_eq!(calls[0].args, args(&["api", QUESTION_PATH]));
     assert_eq!(calls[0].input, None);
-    assert_eq!(calls[1].args, patch_of(QUESTION_PATH));
-    assert_eq!(sent_body(&calls[1]), want);
+    assert_eq!(calls[2].args, patch_of(QUESTION_PATH));
+    assert_eq!(sent_body(&calls[2]), want);
     let back = tehas_github::markers::read(&want, Some(no(7)));
     assert_eq!(back.text, text);
     assert!(matches!(back.markers.as_slice(), [Marker::Question { .. }]));
@@ -1356,7 +1397,7 @@ fn a_comment_deleted_between_the_read_and_the_write_is_gone() {
     let (mut gh, calls) = adapter_ours(vec![Ok(read), Err(failed("not-found.stderr"))]);
     let got = gh.edit_comment(&question_id(), "b", &MarkerEdit::default(), &since);
     assert_eq!(got, Err(Outcome::Conflict(Lost::Gone)));
-    assert_eq!(calls.lock().unwrap().len(), 2, "no settling read");
+    assert_eq!(calls.lock().unwrap().len(), 3, "no settling read");
 }
 
 #[test]
@@ -1482,8 +1523,8 @@ fn a_comments_edit_that_may_have_landed_is_settled_by_one_read_and_never_sent_ag
             "https://github.com/acme/widget/issues/7#issuecomment-2501230002",
             "{why}"
         );
-        assert_eq!(calls.len(), 3, "{why}");
-        assert_eq!(calls[2].args, args(&["api", QUESTION_PATH]));
+        assert_eq!(calls.len(), 4, "{why}");
+        assert_eq!(calls[3].args, args(&["api", QUESTION_PATH]));
         assert_eq!(calls.iter().filter(|c| c.input.is_some()).count(), 1);
         let (got, _) = comment_settled(&why, Ok(read.clone()));
         assert_eq!(
@@ -1507,7 +1548,7 @@ fn a_comments_edit_that_may_have_landed_is_settled_by_one_read_and_never_sent_ag
     for why in [failed("forbidden.stderr"), failed("validation.stderr")] {
         let (got, calls) = comment_settled(&why, Ok(read.clone()));
         assert!(got.is_err(), "{why}");
-        assert_eq!(calls.len(), 2, "{why}");
+        assert_eq!(calls.len(), 3, "{why}");
     }
 }
 
@@ -1521,6 +1562,9 @@ struct CommentSite {
 
 impl GhRunner for CommentSite {
     fn run(&mut self, args: &[&str]) -> Result<String, String> {
+        if is_name(args) {
+            return Ok(HERE.into());
+        }
         let comment = comment_with(&self.body.lock().unwrap());
         match args {
             ["api", "repos/acme/widget/issues/7"] => {
@@ -1663,6 +1707,7 @@ fn a_handle_that_knows_no_bot_id_edits_no_comment() {
     let script = || Script {
         answers: vec![Ok(read.clone()), Ok(read.clone())].into(),
         calls: Arc::clone(&calls),
+        site: Some(HERE),
     };
     let mut site_without = ours(Box::new(script()), None);
     let mut bare = GitHub::new(PROJECT, Box::new(script())).on_clock(now);
@@ -1711,6 +1756,9 @@ fn the_law_of_editing_only_our_own_comment_holds_over_the_adapter() {
     }
     impl GhRunner for Comments {
         fn run(&mut self, args: &[&str]) -> Result<String, String> {
+            if is_name(args) {
+                return Ok(HERE.into());
+            }
             let path = |id: u64| format!("repos/acme/widget/issues/comments/{id}");
             match args {
                 ["api", "repos/acme/widget/issues/7"] => {
@@ -1810,6 +1858,7 @@ fn the_operators_handle_edits_not_even_the_bots_comment() {
     let script = Script {
         answers: vec![Ok(read.clone()), Ok(read.clone())].into(),
         calls: Arc::clone(&calls),
+        site: Some(HERE),
     };
     let mut h = handle_as(
         &tehas_ports::Actor::Operator,
@@ -1824,4 +1873,60 @@ fn the_operators_handle_edits_not_even_the_bots_comment() {
     );
     assert_eq!(got, Err(Outcome::Forbidden));
     assert!(calls.lock().unwrap().is_empty(), "no request, no PATCH");
+}
+
+/// An open reads nothing first that names the repository: it confirms
+/// the repository by the question of its name, once a handle, and
+/// refuses one moved to another owner with nothing posted.
+#[test]
+fn an_open_confirms_the_repository_once_and_refuses_one_moved_to_another_owner() {
+    let (mut gh, calls) = scripted(vec![
+        Ok(HERE.into()),
+        Ok(sample("issue-created.json")),
+        Ok(sample("issue-created.json")),
+    ]);
+    for _ in 0..2 {
+        assert_eq!(gh.open(&new_blueprint(TITLE, "b")).unwrap().id, no(42));
+    }
+    assert_eq!(
+        kinds(&calls.lock().unwrap()),
+        ["name", "call", "call"],
+        "asked once"
+    );
+    let moved = HERE.replace("acme/widget", "mallory/widget");
+    let (mut gh, calls) = scripted(vec![Ok(moved), Ok(sample("issue-created.json"))]);
+    assert_eq!(
+        gh.open(&new_blueprint(TITLE, "b")),
+        Err(Outcome::Unread(Unread::Inconsistent))
+    );
+    assert_eq!(kinds(&calls.lock().unwrap()), ["name"], "nothing posted");
+}
+
+/// A comment's read is held by name alone, a REST answer carrying no
+/// repository id: the old name made again as another repository, while
+/// the handle lives, reads as here. The id the name question answers is
+/// not the one the handle learned, and the comment is refused.
+#[test]
+fn a_comment_on_a_repository_made_again_under_the_old_name_is_refused() {
+    // A read of the open changes, none, with the repository's id.
+    let read = r#"{"data":{"repository":{"databaseId":7001,"pullRequests":{"totalCount":0,"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]}}}}"#;
+    let again = HERE.replace("7001", "7002");
+    let (mut gh, calls) = scripted(vec![
+        Ok(read.into()),
+        Ok(issue_7("t", "b")),
+        Ok(again),
+        Ok(sample("comment-created.json")),
+    ]);
+    let filter = tehas_ports::ChangeFilter::default();
+    let bound = tehas_ports::Bound::new(5).unwrap();
+    assert!(tehas_ports::CodeHost::changes(&mut gh, &filter, bound)
+        .unwrap()
+        .items()
+        .is_empty());
+    assert_eq!(
+        gh.comment(no(7), "b", &[]),
+        Err(Outcome::Unread(Unread::Inconsistent))
+    );
+    let calls = calls.lock().unwrap();
+    assert_eq!(kinds(&calls), ["call", "call", "name"], "nothing posted");
 }

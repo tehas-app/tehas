@@ -392,9 +392,9 @@ command -p cat "$t_got.e" >&2
 if [ "$t_rc" = 0 ] && [ ! -s "$t_got" ]; then
   case "$1 $2 $3 $4" in
     "api users/"*" --jq .id") jq -rn --arg l "${2#users/}" '$l | sub("\\[bot\\]$"; "") | explode | add' >"$t_got" ;;
-    # A label's node id (src/labels.rs) is LA_ and its name after tehas:; the labels read before they are made are none.
+    # A label's node id (src/labels.rs) is LA_ and its name after tehas:; the labels read before they are made are none; the repository asked before a write is the configured one.
     "api repos/"*/labels/*" --jq .node_id") t_l=${2##*/}; echo "LA_${t_l#tehas:}" >"$t_got" ;;
-    "api "*) case "$*" in *"nodes { name color description }"*) cat "$T_ROOT/test/fixtures/labels-none.json" >"$t_got" ;; esac ;;
+    "api "*) case "$*" in *"nodes { name color description }"*) cat "$T_ROOT/test/fixtures/labels-none.json" >"$t_got" ;; *"{ databaseId nameWithOwner } }") jq -cn --arg r "${4#owner=}/${6#name=}" '{data: {repository: {databaseId: 7001, nameWithOwner: $r}}}' >"$t_got" ;; esac ;;
   esac
 fi
 if command -p grep -q '"login"' "$t_got" &&

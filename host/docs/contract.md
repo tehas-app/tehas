@@ -1079,7 +1079,13 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   the adapter reads and writes its issues, comments and pull requests, and
   finds them in a search, as its own. It does so only for a name with the
   configured owner: a repository transferred to another owner is another
-  account's, and its answers stay unread. The dispatcher's poll, the plugin
+  account's, and its answers stay unread. Before its first write a handle
+  asks GitHub once for the id and the name the configured name resolves
+  to, since a REST answer names its repository by name alone and a write
+  sent by name lands where GitHub's redirect takes it. A name under
+  another owner, or an id unlike one the handle learned (the old name made
+  again as another repository), refuses every write of that handle as
+  unread, with nothing sent. The dispatcher's poll, the plugin
   hooks, the preview sweep and the cycle's issue relay still compare a pull
   request's head repository, or a `--repo`, with `TEHAS_REPO` by name: on
   such an instance the factory's own pull request reads as another

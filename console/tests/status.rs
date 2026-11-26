@@ -555,11 +555,18 @@ fn completed_count_is_every_closed_issue_labelled_tehas_shipped_though_the_list_
     ok(&w.status());
     assert_eq!(sr(&w, ".completed | length"), "50");
     assert_eq!(sr(&w, ".completedCount"), "138");
-    // The count's search, the tickets port's read of the closed tickets, and
-    // the read of the epics beside them.
+    // The count's search, the tickets port's read of the closed tickets, the
+    // read of the epics beside them, and the repository's name asked once
+    // before the shipped marks are put on.
     assert_eq!(gh_count(&w, "api graphql -f q="), 1);
     assert_eq!(gh_count(&w, "filterBy: {states: [CLOSED], since: "), 1);
-    assert_eq!(gh_count(&w, "api graphql"), 3);
+    let named = w
+        .gh()
+        .lines()
+        .filter(|l| l.ends_with("{ databaseId nameWithOwner } }"))
+        .count();
+    assert_eq!(named, 1);
+    assert_eq!(gh_count(&w, "api graphql"), 4);
 }
 
 // The figure is published as a whole number of issues, or no key at all: an

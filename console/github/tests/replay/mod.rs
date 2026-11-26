@@ -2,7 +2,10 @@
 //! fixture projects, under `tests/recorded/`: `<item>/<read>.json` is gh's
 //! answer and `<item>/<read>.fail` the reason the call failed, with
 //! `<item>/<read>.answer.json` beside it what gh printed as it failed. A
-//! call with no recording fails. It counts the calls it was asked.
+//! call with no recording fails. The question of the repository's name,
+//! asked before a write, is answered from
+//! `tests/synthetic/repository/here/name.json`. It counts the calls it was
+//! asked.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -133,6 +136,14 @@ impl GhRunner for Replay {
     fn run(&mut self, args: &[&str]) -> Result<String, String> {
         self.asked.0.store(self.asked.get() + 1, Ordering::SeqCst);
         let none = || format!("no recording of {args:?}");
+        if args
+            .last()
+            .is_some_and(|q| q.ends_with("{ databaseId nameWithOwner } }"))
+        {
+            let at = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/synthetic/repository/here/name.json");
+            return std::fs::read_to_string(at).map_err(|_| none());
+        }
         let (dir, name) = match args {
             ["api", "graphql", ..] => question(&self.repo, args),
             ["api", "-X", "DELETE", path] => {

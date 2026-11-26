@@ -16,6 +16,9 @@ use tehas_core::testing::{link_exe, write_exe};
 /// The stub gh. A body given on standard input is written down as an argument,
 /// as the cycle's own calls give it. Its fixtures are named beside each arm.
 const GH: &str = r##"#!/usr/bin/env bash
+# The question of the repository's name, asked before a write: the
+# fixture project's, recorded but kept out of the answers' count.
+case "$*" in *"{ databaseId nameWithOwner } }") printf '%s\n' "$*" >>"$T/calls/gh"; echo '{"data":{"repository":{"databaseId":7001,"nameWithOwner":"acme/widget"}}}'; exit 0 ;; esac
 call="$*"
 body=""
 case " $* " in

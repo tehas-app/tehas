@@ -38,6 +38,17 @@ pub(super) fn unsupported<T>() -> Got<T> {
     Err(Outcome::Refused(Refusal::Unsupported))
 }
 
+/// A failure of the read before a write: the write was not sent.
+pub(crate) fn unsent(o: Outcome) -> Outcome {
+    match o {
+        Outcome::Unavailable { why, .. } => Outcome::Unavailable {
+            why,
+            sent: tehas_ports::Sent::No,
+        },
+        other => other,
+    }
+}
+
 /// The number of a ticket that keeps its rule, or `Refused(Invalid)`.
 pub(super) fn number(key: &TicketKey) -> Got<u64> {
     match key {

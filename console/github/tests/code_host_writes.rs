@@ -66,10 +66,13 @@ struct Call {
 type Calls = Arc<Mutex<Vec<Call>>>;
 
 /// Answers each call from the list in turn and writes every call down. A
-/// call past the list fails.
+/// call past the list fails. With a `site`, the question of the
+/// repository's name is answered from it, as GitHub answers it for the
+/// fixture project, and the list is kept for the other calls.
 struct Script {
     answers: VecDeque<Result<String, String>>,
     calls: Calls,
+    site: Option<&'static str>,
 }
 
 impl Script {
@@ -78,11 +81,26 @@ impl Script {
             args: args.iter().map(|a| a.to_string()).collect(),
             input: input.map(str::to_string),
         });
+        if let Some(site) = self.site.filter(|_| input.is_none() && is_name(args)) {
+            return Ok(site.to_string());
+        }
         self.answers
             .pop_front()
             .unwrap_or_else(|| Err("no answer".into()))
     }
 }
+
+/// The question of the repository's name, as the adapter asks it.
+fn is_name(args: &[&str]) -> bool {
+    args.get(1) == Some(&"graphql")
+        && args
+            .last()
+            .is_some_and(|q| q.ends_with("{ databaseId nameWithOwner } }"))
+}
+
+/// GitHub's answer to the question of the name for the fixture project:
+/// its database id and the name it has.
+const HERE: &str = r#"{"data":{"repository":{"databaseId":7001,"nameWithOwner":"acme/widget"}}}"#;
 
 impl GhRunner for Script {
     fn run(&mut self, args: &[&str]) -> Result<String, String> {
@@ -95,6 +113,7 @@ impl GhRunner for Script {
 }
 
 /// A runner that keeps `GhRunner::run_input`'s default: it takes no input.
+/// It answers the question of the name as the fixture project's GitHub does.
 struct NoInput {
     answers: VecDeque<Result<String, String>>,
     calls: Calls,
@@ -106,6 +125,9 @@ impl GhRunner for NoInput {
             args: args.iter().map(|a| a.to_string()).collect(),
             input: None,
         });
+        if is_name(args) {
+            return Ok(HERE.to_string());
+        }
         self.answers
             .pop_front()
             .unwrap_or_else(|| Err("no answer".into()))
@@ -113,14 +135,25 @@ impl GhRunner for NoInput {
 }
 
 fn adapter(answers: Vec<Result<String, String>>) -> (GitHub, Calls) {
-    adapter_of(PROJECT, answers)
+    script_of(PROJECT, Some(HERE), answers)
 }
 
+/// The adapter of `project` over a script that answers every call from
+/// the list, the question of the name too.
 fn adapter_of(project: &str, answers: Vec<Result<String, String>>) -> (GitHub, Calls) {
+    script_of(project, None, answers)
+}
+
+fn script_of(
+    project: &str,
+    site: Option<&'static str>,
+    answers: Vec<Result<String, String>>,
+) -> (GitHub, Calls) {
     let calls = Calls::default();
     let script = Script {
         answers: answers.into(),
         calls: Arc::clone(&calls),
+        site,
     };
     let gh = GitHub::new(project, Box::new(script)).on_clock(now);
     (gh, calls)
@@ -362,12 +395,12 @@ fn a_comment_sends_a_200_kib_body_on_standard_input_and_answers_its_id_and_link(
         "https://github.com/acme/widget/pull/8#issuecomment-2502345678"
     );
     let calls = taken(&calls);
-    assert_eq!(calls.len(), 2);
+    assert_eq!(kinds(&calls), ["call", "name", "call"]);
     assert_eq!(calls[0].args, args(&READ));
     assert_eq!(calls[0].input, None);
-    assert_eq!(calls[1].args, args(&POST));
+    assert_eq!(calls[2].args, args(&POST));
     kept_out_of_argv(&calls, &body);
-    let sent: Input = serde_json::from_str(calls[1].input.as_deref().unwrap()).unwrap();
+    let sent: Input = serde_json::from_str(calls[2].input.as_deref().unwrap()).unwrap();
     assert_eq!(sent, Input { body });
 }
 
@@ -405,7 +438,7 @@ fn a_comment_on_a_closed_or_merged_change_is_posted() {
         Ok(sample("comment-8-created.json")),
     ]);
     assert!(gh.comment_change(no(8), "Merged.", &[]).is_ok());
-    assert_eq!(taken(&calls).len(), 2);
+    assert_eq!(taken(&calls).len(), 3);
 }
 
 #[test]
@@ -481,7 +514,7 @@ fn each_failure_of_a_comments_post_is_its_outcome_and_it_is_never_sent_again() {
         let body = "The refresh is done; a body this test alone holds.";
         let (mut gh, calls) = adapter(vec![Ok(sample("pull-8-open.json")), Err(why)]);
         assert_eq!(gh.comment_change(no(8), body, &[]), Err(want), "{name}");
-        assert_eq!(kinds(&taken(&calls)), ["call", "call"], "{name}");
+        assert_eq!(kinds(&taken(&calls)), ["call", "name", "call"], "{name}");
     }
 }
 
@@ -497,7 +530,7 @@ fn a_runner_that_takes_no_input_sends_no_comment() {
         gh.comment_change(no(8), "A note.", &[]),
         Err(Outcome::Refused(Refusal::Unsupported))
     );
-    assert_eq!(taken(&calls).len(), 1);
+    assert_eq!(kinds(&taken(&calls)), ["call", "name"]);
 }
 
 #[test]
@@ -556,11 +589,9 @@ fn a_comments_answer_that_does_not_read_is_unread() {
             Err(want),
             "{name}"
         );
-        let want: &[&str] = match name {
-            "another project" => &["call", "call", "name"],
-            _ => &["call", "call"],
-        };
-        assert_eq!(kinds(&taken(&calls)), want, "{name}");
+        // The name the repository question gave is the one the answer is
+        // read against: it is not asked again.
+        assert_eq!(kinds(&taken(&calls)), ["call", "name", "call"], "{name}");
     }
 }
 
@@ -598,10 +629,10 @@ fn a_mark_is_its_tables_label_added_to_the_open_change() {
     ]);
     assert_eq!(gh.mark_change(no(8), &mark), Ok(()));
     let calls = taken(&calls);
-    assert_eq!(calls.len(), 2);
+    assert_eq!(kinds(&calls), ["call", "name", "call"]);
     assert_eq!(calls[0].args, args(&READ));
-    assert_eq!(calls[1].args, add(&label(&mark)));
-    assert_eq!(calls[1].input, None);
+    assert_eq!(calls[2].args, add(&label(&mark)));
+    assert_eq!(calls[2].input, None);
 }
 
 #[test]
@@ -646,7 +677,7 @@ fn a_projects_own_mark_is_its_name() {
     let mark = Mark::Project(MarkName::new("area-ui").unwrap());
     let (mut gh, calls) = adapter(vec![Ok(sample("pull-8-open.json")), Ok("[]".into())]);
     assert_eq!(gh.mark_change(no(8), &mark), Ok(()));
-    assert_eq!(taken(&calls)[1].args, add("area-ui"));
+    assert_eq!(taken(&calls)[2].args, add("area-ui"));
 }
 
 #[test]
@@ -669,9 +700,9 @@ fn an_unmark_takes_the_tables_label_off_the_change_open_or_not() {
         let (mut gh, calls) = adapter(vec![Ok(sample(pull)), Ok(String::new())]);
         assert_eq!(gh.unmark_change(no(8), &refreshing()), Ok(()), "{pull}");
         let calls = taken(&calls);
-        assert_eq!(calls.len(), 2, "{pull}");
+        assert_eq!(kinds(&calls), ["call", "name", "call"], "{pull}");
         let encoded = label(&refreshing()).replace(':', "%3A");
-        assert_eq!(calls[1].args, remove(&encoded), "{pull}");
+        assert_eq!(calls[2].args, remove(&encoded), "{pull}");
     }
 }
 
@@ -687,7 +718,7 @@ fn removing_a_mark_the_change_does_not_carry_is_done() {
         Err(failed("not-found.stderr")),
     ]);
     assert_eq!(gh.unmark_change(no(8), &refreshing()), Ok(()));
-    assert_eq!(taken(&calls).len(), 2);
+    assert_eq!(taken(&calls).len(), 3);
 }
 
 #[test]
@@ -715,7 +746,7 @@ fn each_failure_of_a_marks_write_is_its_outcome_and_it_is_never_sent_again() {
         let calls = taken(&calls);
         let writes = calls.iter().filter(|c| c.args.contains(&"POST".into()));
         assert_eq!(writes.count(), 1, "mark {name}");
-        assert_eq!(calls.len(), 2 + settles as usize, "mark {name}");
+        assert_eq!(calls.len(), 3 + settles as usize, "mark {name}");
 
         if name == "not found" {
             // A removal's 404 is done; above.
@@ -775,8 +806,8 @@ fn a_mark_that_may_have_landed_is_settled_by_one_read_and_never_sent_again() {
     ]);
     assert_eq!(gh.mark_change(no(8), &refreshing()), Ok(()));
     let calls = taken(&calls);
-    assert_eq!(calls.len(), 3);
-    assert_eq!(calls[2].args, args(&READ));
+    assert_eq!(calls.len(), 4);
+    assert_eq!(calls[3].args, args(&READ));
     // Timed out, and the read shows it still off: it may land yet.
     let (mut gh, calls) = adapter(vec![
         Ok(sample("pull-8-open.json")),
@@ -787,7 +818,7 @@ fn a_mark_that_may_have_landed_is_settled_by_one_read_and_never_sent_again() {
         gh.mark_change(no(8), &refreshing()),
         Err(maybe(Passing::Timeout))
     );
-    assert_eq!(taken(&calls).len(), 3);
+    assert_eq!(taken(&calls).len(), 4);
 }
 
 #[test]
@@ -798,7 +829,7 @@ fn an_unmark_that_may_have_landed_is_settled_by_one_read_and_never_sent_again() 
         Ok(sample("pull-8-open.json")),
     ]);
     assert_eq!(gh.unmark_change(no(8), &refreshing()), Ok(()));
-    assert_eq!(taken(&calls).len(), 3);
+    assert_eq!(taken(&calls).len(), 4);
     let (mut gh, calls) = adapter(vec![
         Ok(sample("pull-8-refreshing.json")),
         Err(failed("server-error.stderr")),
@@ -808,7 +839,7 @@ fn an_unmark_that_may_have_landed_is_settled_by_one_read_and_never_sent_again() 
         gh.unmark_change(no(8), &refreshing()),
         Err(maybe(Passing::Server))
     );
-    assert_eq!(taken(&calls).len(), 3);
+    assert_eq!(taken(&calls).len(), 4);
 }
 
 #[test]
@@ -818,7 +849,7 @@ fn a_comment_that_may_have_landed_stays_maybe_with_no_read_and_no_resend() {
         gh.comment_change(no(8), "A note.", &[]),
         Err(maybe(Passing::Timeout))
     );
-    assert_eq!(taken(&calls).len(), 2);
+    assert_eq!(taken(&calls).len(), 3);
 }
 
 #[test]
@@ -899,9 +930,9 @@ fn a_status_is_one_post_to_the_commit_its_state_in_githubs_word_and_its_text_as_
         let (mut gh, calls) = adapter(vec![Ok(created(word))]);
         assert_eq!(gh.set_status(&head(), &status(state, "Passed.")), Ok(()));
         let taken = taken(&calls);
-        assert_eq!(taken.len(), 1, "{word}: sent once");
+        assert_eq!(kinds(&taken), ["name", "call"], "{word}: sent once");
         assert_eq!(
-            taken[0].args,
+            taken[1].args,
             [
                 "api",
                 "-X",
@@ -912,7 +943,7 @@ fn a_status_is_one_post_to_the_commit_its_state_in_githubs_word_and_its_text_as_
             ]
         );
         let sent: serde_json::Value =
-            serde_json::from_str(taken[0].input.as_deref().unwrap()).unwrap();
+            serde_json::from_str(taken[1].input.as_deref().unwrap()).unwrap();
         assert_eq!(
             sent,
             serde_json::json!({
@@ -933,7 +964,7 @@ fn a_status_with_no_link_sends_none_and_its_about_is_cut_to_what_github_keeps() 
     let (mut gh, calls) = adapter(vec![Ok(created("success"))]);
     assert_eq!(gh.set_status(&head(), &s), Ok(()));
     let sent: serde_json::Value =
-        serde_json::from_str(taken(&calls)[0].input.as_deref().unwrap()).unwrap();
+        serde_json::from_str(taken(&calls)[1].input.as_deref().unwrap()).unwrap();
     assert_eq!(sent.get("target_url"), None);
     assert_eq!(sent["description"], "é".repeat(140));
 }
@@ -971,7 +1002,7 @@ fn each_failure_of_the_post_is_its_outcome_and_it_is_never_sent_twice() {
             Err(want),
             "{what}"
         );
-        assert_eq!(taken(&calls).len(), 1, "{what}");
+        assert_eq!(kinds(&taken(&calls)), ["name", "call"], "{what}");
     }
 }
 
@@ -1013,4 +1044,112 @@ fn a_runner_that_takes_no_input_sends_no_status() {
         ),
         Err(Outcome::Refused(Refusal::Unsupported))
     );
+}
+
+/// The same answer once the repository moved to another owner: GitHub
+/// resolves the old name to the new one.
+const MOVED: &str =
+    r#"{"data":{"repository":{"databaseId":7001,"nameWithOwner":"mallory/widget"}}}"#;
+
+/// A status confirms the repository first, by the question of its name:
+/// it has no read before it that names the repository.
+#[test]
+fn a_status_asks_the_repository_once_a_handle_then_posts() {
+    use tehas_ports::StatusState as S;
+    let (mut gh, calls) = adapter_of(
+        PROJECT,
+        vec![
+            Ok(HERE.into()),
+            Ok(created("success")),
+            Ok(created("success")),
+        ],
+    );
+    for _ in 0..2 {
+        assert_eq!(
+            gh.set_status(&head(), &status(S::Passed, "Passed.")),
+            Ok(())
+        );
+    }
+    let calls = taken(&calls);
+    assert_eq!(kinds(&calls), ["name", "call", "call"], "asked once");
+    assert!(calls[1..].iter().all(|c| c.input.is_some()));
+}
+
+/// A repository moved to another owner gets no status: GitHub's redirect
+/// would decide where the `POST` lands.
+#[test]
+fn a_status_on_a_project_transferred_to_another_owner_is_refused_with_nothing_posted() {
+    use tehas_ports::StatusState as S;
+    let (mut gh, calls) = adapter_of(PROJECT, vec![Ok(MOVED.into()), Ok(created("success"))]);
+    assert_eq!(
+        gh.set_status(&head(), &status(S::Passed, "Passed.")),
+        Err(Outcome::Unread(Unread::Inconsistent))
+    );
+    assert_eq!(kinds(&taken(&calls)), ["name"], "nothing posted");
+}
+
+/// A failure of the question is its outcome, with nothing sent.
+#[test]
+fn a_status_whose_repository_question_fails_sends_nothing() {
+    use tehas_ports::StatusState as S;
+    for (what, why, want) in read_failures() {
+        let (mut gh, calls) = adapter_of(PROJECT, vec![Err(why), Ok(created("success"))]);
+        assert_eq!(
+            gh.set_status(&head(), &status(S::Passed, "Passed.")),
+            Err(want),
+            "{what}"
+        );
+        assert_eq!(kinds(&taken(&calls)), ["name"], "{what}: nothing posted");
+    }
+}
+
+/// A comment and a mark are held by name alone, REST answers carrying no
+/// repository id: they confirm the repository too, and refuse one moved
+/// to another owner.
+#[test]
+fn a_comment_or_a_mark_on_a_project_transferred_to_another_owner_is_refused() {
+    let refused = Err(Outcome::Unread(Unread::Inconsistent));
+    let (mut gh, calls) = adapter_of(
+        PROJECT,
+        vec![Ok(sample("pull-8-open.json")), Ok(MOVED.into())],
+    );
+    assert_eq!(gh.comment_change(no(8), "b", &[]).map(|_| ()), refused);
+    assert_eq!(kinds(&taken(&calls)), ["call", "name"], "nothing posted");
+    let (mut gh, calls) = adapter_of(
+        PROJECT,
+        vec![Ok(sample("pull-8-open.json")), Ok(MOVED.into())],
+    );
+    assert_eq!(gh.mark_change(no(8), &refreshing()), refused);
+    assert_eq!(kinds(&taken(&calls)), ["call", "name"], "nothing added");
+    let (mut gh, calls) = adapter_of(
+        PROJECT,
+        vec![Ok(sample("pull-8-refreshing.json")), Ok(MOVED.into())],
+    );
+    assert_eq!(gh.unmark_change(no(8), &refreshing()), refused);
+    assert_eq!(kinds(&taken(&calls)), ["call", "name"], "nothing removed");
+}
+
+/// The old name made again under the same owner, while a handle lives, is
+/// another repository: its id is not the one the handle learned.
+#[test]
+fn a_status_on_a_repository_made_again_under_the_old_name_is_refused() {
+    use tehas_ports::StatusState as S;
+    // A read of the open changes, none, with the repository's id.
+    let read = r#"{"data":{"repository":{"databaseId":7001,"pullRequests":{"totalCount":0,"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]}}}}"#;
+    let again = HERE.replace("7001", "7002");
+    let (mut gh, calls) = adapter_of(
+        PROJECT,
+        vec![Ok(read.into()), Ok(again), Ok(created("success"))],
+    );
+    let filter = tehas_ports::ChangeFilter::default();
+    let bound = tehas_ports::Bound::new(5).unwrap();
+    assert!(tehas_ports::CodeHost::changes(&mut gh, &filter, bound)
+        .unwrap()
+        .items()
+        .is_empty());
+    assert_eq!(
+        gh.set_status(&head(), &status(S::Passed, "Passed.")),
+        Err(Outcome::Unread(Unread::Inconsistent))
+    );
+    assert_eq!(kinds(&taken(&calls)), ["call", "name"], "nothing posted");
 }
