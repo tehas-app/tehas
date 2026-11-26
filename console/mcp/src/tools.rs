@@ -835,6 +835,13 @@ pub fn called() -> &'static [&'static str] {
     &CALLED
 }
 
+/// The published entries, as `tools/list` answers them. The surface guard
+/// reads the tool lines and their argument lines from here, so the input
+/// schemas of `build_entries` are the one owner of what an argument is.
+pub fn published() -> &'static [Value] {
+    entries()
+}
+
 /// The tools of a `tools/list` for a key of this scope: every one of them for
 /// a full key, as it has always been, and the three of `DASHBOARD` in the order
 /// the catalog gives them for a dashboard key. The entries are the same

@@ -2,8 +2,9 @@
 # commands and subcommands of api/commands.txt and their public flags, the
 # settings and roles of api/settings-rules.json, the labels of
 # host/labels.tsv, the fields of the --json objects of api/*.schema.json,
-# an array's items written `[]`, and the tools of the read-only MCP server,
-# written `tool <name>`. A feature still being built is not here, nor
+# an array's items written `[]`, and the tools of the read-only MCP server
+# and their arguments, written `tool <name>` and `tool <name> arg <arg>`,
+# all read from the server's own tool table. A feature still being built is not here, nor
 # are the flags api/commands.txt marks internal or the fields under those
 # host/docs/contract.md says may change. A name that was here before its
 # feature became building stays, and a release refuses it while the feature
@@ -741,3 +742,40 @@ tool factory_outcomes
 tool factory_park
 tool factory_decisions
 tool factory_disk
+tool factory_console arg bytes
+tool factory_console arg issue
+tool factory_decisions arg limit
+tool factory_events arg after
+tool factory_events arg limit
+tool factory_failures arg by
+tool factory_failures arg rukasVersion
+tool factory_issue arg issue
+tool factory_issues arg stage
+tool factory_log arg bytes
+tool factory_log arg file
+tool factory_log arg gzip
+tool factory_log arg id
+tool factory_log arg issue
+tool factory_log arg offset
+tool factory_outcomes arg by
+tool factory_outcomes arg rukasVersion
+tool factory_outcomes arg since
+tool factory_outcomes arg tehasVersion
+tool factory_outcomes arg until
+tool factory_park arg issue
+tool factory_search arg files
+tool factory_search arg ids
+tool factory_search arg issue
+tool factory_search arg limit
+tool factory_search arg text
+tool factory_session arg id
+tool factory_sessions arg before
+tool factory_sessions arg failureKind
+tool factory_sessions arg how
+tool factory_sessions arg image
+tool factory_sessions arg issue
+tool factory_sessions arg kind
+tool factory_sessions arg limit
+tool factory_sessions arg outcome
+tool factory_sessions arg rukasVersion
+tool factory_sessions arg tehasVersion

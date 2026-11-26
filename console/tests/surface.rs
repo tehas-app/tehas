@@ -218,8 +218,17 @@ fn surface() -> BTreeSet<String> {
     commands(&read("api/commands.txt"), &mut out);
     settings(&read("api/settings-rules.json"), &mut out);
     labels(&read("host/labels.tsv"), &mut out);
-    for name in mcp::tools::called() {
+    for entry in mcp::tools::published() {
+        let Some(name) = entry["name"].as_str() else {
+            continue;
+        };
         out.insert(format!("tool {name}"));
+        let Some(args) = entry["inputSchema"]["properties"].as_object() else {
+            continue;
+        };
+        for arg in args.keys() {
+            out.insert(format!("tool {name} arg {arg}"));
+        }
     }
     for (object, schema) in schemas() {
         let whole = BUILDING_SCHEMAS
