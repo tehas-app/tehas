@@ -444,6 +444,7 @@ impl Scratch {
                 for sig in signals.forever() {
                     let held = clean();
                     match &*held {
+                        // A signal during the swap is dropped by design.
                         Clean::Hold => continue,
                         Clean::Remove(d) => remove_all(d),
                         Clean::Exit => {}
