@@ -58,7 +58,7 @@ if real_store "a store older than v1.4 wrote stops the run before anything is co
   else
     t_env STORE_BIN="$T_STORE"
     installed
-    sqlite3 "$th/state/tehas.db" "PRAGMA user_version = 11; UPDATE meta SET value = '11' WHERE key = 'schema';"
+    sqlite3 "$th/state/tehas.db" "PRAGMA user_version = 22; UPDATE meta SET value = '22' WHERE key = 'schema';"
     # A file each copy would put back, gone, and the store as it is now.
     rm -f "$th/bin/tehas"
     before=$(sha256sum "$th/state/tehas.db" "$th/libexec/store")

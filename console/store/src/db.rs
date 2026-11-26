@@ -1413,7 +1413,7 @@ pub fn migrate(
     }
 }
 
-/// The oldest schema `migrate` brings forward: the one v1.4.0 wrote. A store
+/// The oldest schema `migrate` brings forward: the one v1.3.0 and later wrote. A store
 /// of an older release goes through a v1.4 release first.
 pub const OLDEST: i64 = 23;
 
@@ -1460,7 +1460,8 @@ fn at_step(e: DbError, to: i64, from: i64) -> DbError {
 /// each once, so a step out of order or left out fails the build rather than a
 /// host's migration.
 pub(crate) const STEPS: &[(i64, Step)] = &[
-    // The oldest store this release migrates is the one v1.4.0 wrote: 23
+    // The oldest store this release migrates is the one v1.3.0 and later wrote:
+    // 23
     // (`OLDEST`).
     // A store at 23 is one this binary wrote before a question took an answer
     // of a program.

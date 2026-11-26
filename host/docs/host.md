@@ -801,13 +801,14 @@ JSON answer:
   store at an older version is brought forward one step at a time, each step
   a transaction of its own, and the install keeps the database as it was under
   the name of the version it came with, such as `tehas-23-<time>.db`, beside
-  the copy the answer names, `tehas-26-<time>.db`. A run that stopped between
+  the copy the answer names, `tehas-33-<time>.db`. A run that stopped between
   two steps leaves the store at the last one with its rows; the next install
   goes on from there.
-- The oldest store it brings forward is the one v1.4.0 wrote, at schema 23.
+- The oldest store it brings forward is the one v1.3.0 and later wrote,
+  at schema 23.
   The step to 29 drops the five
-  tables schemas 15 to 28 held for outsource, which 2.0 dropped; a 1.4.x
-  store holds them empty. Every step keeps every row.
+  tables schemas 15 to 28 held for outsource, which 2.0 dropped; a store at 23
+  holds them empty. Every step keeps every row.
 - A store older than that, from a release before v1.4, is refused and left
   as it was, with no backup written: `store: unreadable ... is at schema <n>,
   older than v1.4 wrote: update to a v1.4 release first, then to this

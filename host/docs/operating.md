@@ -2210,14 +2210,13 @@ its own copy of the code, so it ends on the version it began on, and the next
 one starts on the new version (see [Updating tehas](/host#updating-tehas)).
 The one exception is the update from 0.30.x to 1.0: see
 [Updating from 0.30.x to 1.0](#updating-from-030x-to-10).
-This release updates a host on v1.4.0 or later.
-A host on an older release
-updates to a v1.4 release first: the store refuses an older database, and the
+This release updates a host on v1.3.0 or later: its store is at schema 23,
+which v1.3.0 and later wrote. An older host installs a v1.4 release first:
+the store refuses an older database, and the
 record files a tehas before the state store kept are no longer imported. While
 such a file is still in `state/`, every poll stops with exit 78 and logs
 `ERROR: records of an older tehas at <path>; this release does not import them`:
-move it out of `state/`. A v0.30 release cannot import it either once this
-release has migrated the store, as it refuses the newer schema. How it works is in
+move it out of `state/`. How it works is in
 [Updating tehas](/host#updating-tehas). A host installed from a checkout keeps
 pulling it until it is moved: see
 [Move a checkout host to releases](/host#move-a-checkout-host-to-releases).

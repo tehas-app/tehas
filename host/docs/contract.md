@@ -1214,15 +1214,16 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   an instance's settings.
   Adopter action: none. An instance may write `TEHAS_CODE_HOST=github` and
   `TEHAS_TICKETS=github`.
-- **The store migrates from 1.4.x only.** T16. The store's migration starts
-  at the schema v1.4.0 wrote, 23 (`OLDEST` in `console/store/src/db.rs`):
-  the steps for older schemas are gone, and a store older than that is
-  refused with exit 78 before any file is copied, with a line that says to
-  update to a v1.4 release first. A 1.4.x store migrates as before: one step
-  at a time, each a transaction, keeping every row.
+- **The store migrates from schema 23 only.** T16. The store's migration
+  starts at schema 23, which v1.3.0 and later wrote (`OLDEST` in
+  `console/store/src/db.rs`): the steps for older schemas are gone, and a
+  store older than that is refused with exit 78 before any file is copied,
+  with a line that says to install a v1.4 release first. A store at 23 or
+  newer migrates as before: one step at a time, each a transaction, keeping
+  every row.
   Readers: `tehas update`, the end-to-end suite, adopters.
-  Adopter action: a host older than v1.4 installs any v1.4 release first,
-  then this one.
+  Adopter action: a host on v1.3.0 or later (store schema 23) updates
+  directly; an older one installs any v1.4 release first, then this one.
 - **The settings of the 2.1 adapter are reserved.**
   The feature `adapter` registers as building: `TEHAS_ADAPTER`,
   `TEHAS_ADAPTER_UPSTREAM`, `TEHAS_ADAPTER_UPSTREAM_SPKI`,
