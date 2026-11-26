@@ -101,6 +101,11 @@ impl Identity for GitHub {
         }
     }
 
+    /// GitHub's account of a numeric id: no program of tehas asks one,
+    /// which asks by login asks [`Identity::account_by_login`]. The fake
+    /// answers it and the laws drive it there; the adapter refuses it
+    /// before any request, as the test holds. The port method stays:
+    /// nothing leaves a port after the freeze of 2026-11-30.
     fn account(&mut self, _: &AccountId) -> Got<Account> {
         unsupported()
     }
@@ -178,10 +183,16 @@ impl Identity for GitHub {
         Err(Outcome::Unread(Unread::Inconsistent))
     }
 
+    /// The minting of a token is the outsource, a building feature: the
+    /// fake models a mint and the laws drive it there, while the adapter
+    /// mints and keeps no token yet and refuses before any request, as
+    /// the test holds. The port methods stay for it: nothing leaves a
+    /// port after the freeze of 2026-11-30.
     fn token(&mut self, _: Scope) -> Got<Token> {
         unsupported()
     }
 
+    /// See [`Identity::token`].
     fn token_over(&mut self, _: Scope, _: &[ProjectName]) -> Got<Token> {
         unsupported()
     }
