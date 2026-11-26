@@ -52,7 +52,7 @@ pub mod sandbox;
 pub mod scratch;
 pub mod start;
 pub mod supervise;
-pub mod tells;
+mod tells;
 pub mod watch;
 pub mod work;
 

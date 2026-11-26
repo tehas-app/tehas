@@ -1546,6 +1546,47 @@ mod tests {
         );
     }
 
+    /// A store that answers nothing enters the seam too: the heartbeat
+    /// and the publish are told once each, with the store's own word and
+    /// line, and said again only when they change.
+    #[test]
+    fn the_beat_and_the_publish_enter_the_seam_typed() {
+        let d = dir("seam-beat");
+        let home = d.join("home");
+        let g = given(&d);
+        let told = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut w = a_watch(&d, &home, &g);
+        w.tells = Box::new(Held(Arc::clone(&told)));
+        w.now_file(true, "running");
+        let first = told.lock().unwrap().clone();
+        assert_eq!(first.len(), 2, "the beat and the publish, once each");
+        match &first[0] {
+            Tell::BeatLost { issue, word, line } => {
+                assert_eq!(*issue, g.issue);
+                assert!(
+                    !word.is_empty() && !line.is_empty(),
+                    "the store's own words"
+                );
+            }
+            other => panic!("expected a BeatLost, got {other:?}"),
+        }
+        match &first[1] {
+            Tell::PublishLost { word, line } => {
+                assert!(
+                    !word.is_empty() && !line.is_empty(),
+                    "the store's own words"
+                );
+            }
+            other => panic!("expected a PublishLost, got {other:?}"),
+        }
+        w.now_file(true, "running");
+        assert_eq!(
+            told.lock().unwrap().len(),
+            2,
+            "the same failures again are not told again"
+        );
+    }
+
     fn seen(rc: i32) -> Seen<'static> {
         Seen {
             rc,
