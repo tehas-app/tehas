@@ -751,15 +751,15 @@ poll that holds the lock longer stops the run with exit 1 and `a poll is running
 ...; nothing was installed`. A home without the marker `.tehas-home` gets it
 here once the home is proved tehas's.
 
-**From v0.30 only.** This release migrates a store that v0.30.0 or a later
-release wrote, at schema 12 or newer. Before its first copy, while it holds
+**From v1.4 only.** This release migrates a store that v1.4.0 or a later
+release wrote, at schema 23 or newer. Before its first copy, while it holds
 the dispatcher's lock, the run asks the store it installs to judge the
 database there with a dry run (`store migrate --dry-run --backup
 state/backup`). The dry run opens the database to write, so it takes the
 store's write lock for a moment, writes the copies the migration would put in
 `state/backup` (two when the schema changes, so the disk needs room for two
 copies of the database) and removes them. An older store stops the run with
-exit 78, the store's line, `... older than v0.30.0 wrote: update to a v0.30
+exit 78, the store's line, `... older than v1.4 wrote: update to a v1.4
 release first, then to this one`, and `this release cannot migrate ...;
 nothing was installed`: no file is copied, the database is left as it was and
 no backup of it is written. A backup directory the store refuses, or a copy it
