@@ -194,6 +194,16 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
   it from the instance`. The load never refuses for it, so a 1.4.x
   instance still loads.
 - The README calls tehas 2.0 a beta, for testing before 2.0.0 and not for production, in place of an alpha.
+- The contract prints the two merge rules it had never printed (a merged
+  change may have no merge commit; shipped is what a merged pull request of
+  this repository closed), says the store's schema as 33, and the tool
+  names of the read-only MCP server, their argument names and the answer
+  fields of their output schemas are pinned on the public surface, read from
+  the server's own tool table.
+- The state store migrates from schema 23 only, which v1.3.0 and later
+  wrote. The steps for older schemas are gone, and a store older than that
+  is refused with a line that says to install a v1.4 release first before
+  anything is copied.
 
 ### Adopter action
 
@@ -279,6 +289,10 @@ A program that read a session line's `pr` number (the sessions snapshot
 or `factory_session`) reads `change`, the same number under its new
 name. `prUrl`, the history line's `pr` address and the analytics copy's
 `pr` column are unchanged.
+
+A host on v1.3.0 or later (store schema 23) updates directly. An older one
+installs any v1.4 release first, and this one after: the store refuses an
+older database and installs nothing.
 
 ## v1.4.1 (2026-11-23)
 
