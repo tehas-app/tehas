@@ -288,7 +288,9 @@ one is not covered by this page.
 line is one of three:
 
 - **Kept.** Every row of `api/settings-rules.json` not marked
-  `"building": true` loads as in 1.4.x.
+  `"building": true` loads as in 1.4.x. `TEHAS_CODE_HOST` and
+  `TEHAS_TICKETS` are new in 2.0 and take `github` alone
+  ([Changed in 2.0](#changed-in-20)).
 - **Dropped with a warning.** A setting of a feature 2.0 took out of core
   loads, every command warns of it once on standard error, and nothing reads
   it (`IGNORED` in `console/core/src/settings/load.rs`). A 1.4.x instance
@@ -1201,6 +1203,17 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   copy with `tehas analytics copy` and reads it elsewhere. An MCP client
   stops calling `factory_stats`. `~/tehas/live/analytics.json` and
   `~/tehas/state/sizes.jsonl` are read by nothing and may be deleted.
+- **Two settings name the adapters.** #3359.
+  `TEHAS_CODE_HOST` names the code host and `TEHAS_TICKETS` the ticket
+  tracker. In 2.0 each takes `github` alone, where `TEHAS_TICKETS=github` is
+  the code host's own issues. A missing or empty setting means `github`, so
+  an instance without the two lines loads unchanged. Any other value, `jira`
+  among them, stops every command with 78 before any call: it is not built
+  in this release.
+  Readers: adopters, the consumer that runs many factories where it keeps
+  an instance's settings.
+  Adopter action: none. An instance may write `TEHAS_CODE_HOST=github` and
+  `TEHAS_TICKETS=github`.
 - **The last GitHub word for a pull request is out of the snapshot and
   the dashboard.**
   T9, the supplier words. The sessions snapshot names the number of the
@@ -1214,14 +1227,15 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   `readOnly.starts[].change`. The `pr` column of analytics.db's `runs`
   table keeps its name, the state store's history lines keep `pr` as the
   change's address, and the GitHub adapter keeps the word in its own
-  language, where it names GitHub's own fields. No old word is kept as an
-  alias.
+  language, where it names GitHub's own fields. The `pr` fields of
+  `api/plugin-context.schema.json`, which the plugins build against, and
+  of `api/refresh.schema.json`, which `tehas refresh --pr` answers with,
+  keep GitHub's word on purpose through 2.x: they are not renamed. No
+  old word is kept as an alias.
   Readers: MCP clients, the end-to-end suite, plugins.
   Adopter action: a program that read a session line's `pr` number reads
   `change`, the same number under its new name; `prUrl`, the history
-  line's `pr` address and the analytics copy's `pr` column are as before.
-
-## Pending for 2.0
+  line's `pr` address and the analytics copy's `pr` column are as before.## Pending for 2.0
 
 Planned or in review, not merged. Each moves to
 [Changed in 2.0](#changed-in-20) when it lands, with its readers and
@@ -1255,10 +1269,8 @@ adopter action as the pull request states them.
   out leaves a store of 1.4.x migrated as now.
   Readers: `tehas update`, the end-to-end suite.
 - **The ports.** T4, spec `docs/specs/2026-11-22-ports.md`.
-  The ports themselves. Two settings choose the adapters:
-  `TEHAS_CODE_HOST` and `TEHAS_TICKETS`. In 2.0 each accepts only
-  `github`; a missing setting means `github`, so a 1.4.x instance still
-  loads, and any other value is refused with 78.
+  The ports themselves; their two settings are under
+  [Changed in 2.0](#changed-in-20).
   Readers: adopters, the consumer that runs many factories where it keeps
   an instance's settings.
 
