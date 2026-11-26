@@ -726,16 +726,19 @@ mod tests {
                 );
             }
         }
-        // Every ruled name under a feature's switch is some feature's
-        // setting: TEHAS_PLUGIN_ORIGINS_<NAME> reads the plugins' names but
-        // belongs to the adapter, which 2.1 builds the read for.
+        // Every ruled name under a feature's switch is one of its settings.
+        // A family's row may belong to another feature: TEHAS_PLUGIN_ORIGINS_
+        // <NAME> reads the plugins' names but belongs to the adapter, which
+        // 2.1 builds the read for.
         for s in crate::settings::rules::TABLE {
-            if FEATURES
+            if let Some(f) = FEATURES
                 .iter()
-                .any(|f| s.name.starts_with(&format!("{}_", f.setting)))
+                .find(|f| s.name.starts_with(&format!("{}_", f.setting)))
             {
+                let family = s.name.ends_with(crate::settings::rules::FAMILY);
                 assert!(
-                    FEATURES.iter().any(|f| f.settings.contains(&s.name)),
+                    f.settings.contains(&s.name)
+                        || (family && FEATURES.iter().any(|f| f.settings.contains(&s.name))),
                     "{} is not listed",
                     s.name
                 );
