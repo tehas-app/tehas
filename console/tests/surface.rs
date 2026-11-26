@@ -4,7 +4,7 @@
 //! api/commands.txt for commands and flags, api/settings-rules.json for
 //! settings and roles, host/labels.tsv for labels, api/*.schema.json for
 //! the fields of the `--json` objects, and the MCP server's own tool table
-//! (mcp::tools::published) for the `tool` lines, their `arg` lines and the
+//! (mcp::tools::surface) for the `tool` lines, their `arg` lines and the
 //! `answer` lines its output schemas name. What a feature still
 //! being built adds
 //! is left out (console/core/src/features.rs), unless the baseline had it
@@ -194,32 +194,6 @@ fn fields(path: &str, schema: &Value, out: &mut BTreeSet<String>) {
     }
 }
 
-/// `tool <name> answer <path>` for every property a tool's outputSchema
-/// names, dotted like the field lines and an array's items as `[]`. The
-/// outputSchema of the server's own table is the one owner of what an
-/// answer holds.
-fn answer(prefix: &str, path: &str, schema: &Value, out: &mut BTreeSet<String>) {
-    if let Some(props) = schema["properties"].as_object() {
-        for (key, sub) in props {
-            let next = if path.is_empty() {
-                format!("{prefix} {key}")
-            } else {
-                format!("{path}.{key}")
-            };
-            out.insert(next.clone());
-            answer(prefix, &next, sub, out);
-        }
-    }
-    if schema["items"].is_object() {
-        let arr = if path.is_empty() {
-            prefix.to_string()
-        } else {
-            format!("{path}[]")
-        };
-        answer(prefix, &arr, &schema["items"], out);
-    }
-}
-
 /// Each schema of api/, with the name of its object: `status` for
 /// status.schema.json.
 fn schemas() -> Vec<(String, Value)> {
@@ -245,22 +219,12 @@ fn surface() -> BTreeSet<String> {
     commands(&read("api/commands.txt"), &mut out);
     settings(&read("api/settings-rules.json"), &mut out);
     labels(&read("host/labels.tsv"), &mut out);
-    for entry in mcp::tools::published() {
-        let Some(name) = entry["name"].as_str() else {
-            continue;
-        };
-        out.insert(format!("tool {name}"));
-        if let Some(args) = entry["inputSchema"]["properties"].as_object() {
-            for arg in args.keys() {
-                out.insert(format!("tool {name} arg {arg}"));
-            }
+    for tool in mcp::tools::surface() {
+        out.insert(format!("tool {}", tool.name));
+        for arg in &tool.args {
+            out.insert(format!("tool {} arg {arg}", tool.name));
         }
-        answer(
-            &format!("tool {name} answer"),
-            "",
-            &entry["outputSchema"],
-            &mut out,
-        );
+        out.extend(tool.answers);
     }
     for (object, schema) in schemas() {
         let whole = BUILDING_SCHEMAS
@@ -320,10 +284,9 @@ fn the_surface_holds_exactly_the_served_tools() {
         .iter()
         .map(|n| format!("tool {n}"))
         .collect();
-    let table: BTreeSet<String> = mcp::tools::published()
+    let table: BTreeSet<String> = mcp::tools::surface()
         .iter()
-        .filter_map(|e| e["name"].as_str())
-        .map(|n| format!("tool {n}"))
+        .map(|t| format!("tool {}", t.name))
         .collect();
     assert_eq!(table, served, "the tool table and CALLED name different tools");
     // The number is pinned like the commands': a tool added or dropped must

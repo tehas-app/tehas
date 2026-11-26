@@ -835,11 +835,61 @@ pub fn called() -> &'static [&'static str] {
     &CALLED
 }
 
-/// The published entries, as `tools/list` answers them. The surface guard
-/// reads the tool lines and their argument lines from here, so the input
-/// schemas of `build_entries` are the one owner of what an argument is.
-pub fn published() -> &'static [Value] {
+/// One tool as the public surface names it: its name, the names of its
+/// arguments, and the answer lines its output schema holds, each a full
+/// `tool <name> answer <path>` line, dotted and an array's items written
+/// `[]`. The surface guard reads these instead of the table's JSON, so no
+/// untyped document leaves this crate.
+#[derive(Debug)]
+pub struct ToolSurface {
+    pub name: &'static str,
+    pub args: Vec<String>,
+    pub answers: Vec<String>,
+}
+
+/// The surface of every served tool, in the order the table holds them. The
+/// input and output schemas of `build_entries` are the one owner of what an
+/// argument and an answer are; this only reads them out.
+pub fn surface() -> Vec<ToolSurface> {
     entries()
+        .iter()
+        .filter_map(|t| {
+            let name = t["name"].as_str()?;
+            let args = t["inputSchema"]["properties"]
+                .as_object()
+                .map(|m| m.keys().cloned().collect())
+                .unwrap_or_default();
+            let prefix = format!("tool {name} answer");
+            let mut answers = Vec::new();
+            let mut stack: Vec<(String, &Value)> = vec![(String::new(), &t["outputSchema"])];
+            while let Some((path, node)) = stack.pop() {
+                if let Some(props) = node["properties"].as_object() {
+                    for (key, sub) in props {
+                        let next = if path.is_empty() {
+                            format!("{prefix} {key}")
+                        } else {
+                            format!("{path}.{key}")
+                        };
+                        answers.push(next.clone());
+                        stack.push((next, sub));
+                    }
+                }
+                if node["items"].is_object() {
+                    let arr = if path.is_empty() {
+                        prefix.clone()
+                    } else {
+                        format!("{path}[]")
+                    };
+                    stack.push((arr, &node["items"]));
+                }
+            }
+            Some(ToolSurface {
+                name,
+                args,
+                answers,
+            })
+        })
+        .collect()
 }
 
 /// The tools of a `tools/list` for a key of this scope: every one of them for
