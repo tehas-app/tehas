@@ -1,0 +1,15 @@
+HTTP/2 301 
+location: https://api.github.com/repositories/1/releases/latest
+content-type: application/json; charset=utf-8
+x-github-api-version-selected: 2022-11-28
+x-ratelimit-limit: 60
+x-ratelimit-remaining: 55
+x-ratelimit-used: 5
+x-ratelimit-resource: core
+x-ratelimit-reset: 1795536548
+
+{
+  "message": "Moved Permanently",
+  "url": "https://api.github.com/repositories/1/releases/latest",
+  "documentation_url": "https://docs.github.com/v3/#http-redirects"
+}

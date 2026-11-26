@@ -1,0 +1,12 @@
+HTTP/2 429 
+content-type: application/json; charset=utf-8
+x-github-api-version-selected: 2022-11-28
+x-ratelimit-limit: 60
+x-ratelimit-remaining: 0
+x-ratelimit-used: 60
+x-ratelimit-resource: core
+
+{
+  "message": "API rate limit exceeded for an address. (But here's the good news: Authenticated requests get a higher rate limit. Check out the documentation for more details.)",
+  "documentation_url": "https://docs.github.com/rest/overview/resources-in-the-rest-api#rate-limiting"
+}

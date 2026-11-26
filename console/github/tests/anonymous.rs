@@ -5,6 +5,8 @@
 //! answers from `tests/recorded/anonymous/`, recordings of a public
 //! project's answers to an anonymous reader, trimmed and renamed
 //! `acme/widget`, and keeps the arguments and the environment it was given.
+//! A case GitHub cannot be made to answer reads a recording edited by hand
+//! from `tests/synthetic/anonymous/<case>/` first; its README says how.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -38,9 +40,18 @@ static SERIAL: Mutex<()> = Mutex::new(());
 
 impl Stub {
     fn new(name: &str) -> Stub {
+        Stub::answering(name, "recorded/anonymous")
+    }
+
+    /// A stub that answers from the synthetic `case` first.
+    fn synthetic(name: &str, case: &str) -> Stub {
+        Stub::answering(name, &format!("synthetic/anonymous/{case}"))
+    }
+
+    fn answering(name: &str, first: &str) -> Stub {
         let serial = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
         let dir = TestDir::new(name);
-        let recorded = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/recorded/anonymous");
+        let tests = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
         let script = format!(
             r#"#!/bin/sh
 d='{dir}'
@@ -50,10 +61,14 @@ tr '\0' '\n' < /proc/$$/environ >> "$d/env"
 printf -- '--\n' >> "$d/env"
 for a in "$@"; do url=$a; done
 f=$(printf '%s' "${{url#https://api.github.com/}}" | tr -c 'A-Za-z0-9' '_')
-if [ -f '{recorded}'/"$f" ]; then cat '{recorded}'/"$f"; else printf 'HTTP/2 404 \r\n\r\n{{"message":"Not Found"}}'; fi
+for r in '{first}' '{recorded}'; do
+  if [ -f "$r/$f" ]; then cat "$r/$f"; exit 0; fi
+done
+printf 'HTTP/2 404 \r\n\r\n{{"message":"Not Found"}}'
 "#,
             dir = dir.path().display(),
-            recorded = recorded.display(),
+            first = tests.join(first).display(),
+            recorded = tests.join("recorded/anonymous").display(),
         );
         let program = dir.join("curl");
         std::fs::write(&program, script).unwrap();
@@ -302,20 +317,22 @@ fn a_prerelease_answered_as_the_latest_is_inconsistent_as_on_the_tokens_path() {
 /// body that would read as one.
 #[test]
 fn a_redirect_with_no_location_is_malformed_never_its_body() {
-    let stub = Stub::new("github-anonymous-moved");
-    let site = site("acme/moved", &stub, Arc::new(MemoryLedger::new()));
+    let stub = Stub::synthetic("github-anonymous-no-location", "no-location");
+    let site = site("acme/widget", &stub, Arc::new(MemoryLedger::new()));
     let mut h = site.code_host(&Actor::Anonymous, CALLER).unwrap();
     assert_eq!(
         h.latest_release().err(),
         Some(Outcome::Unread(Unread::Malformed))
     );
-    assert_eq!(stub.asked(), ["repos/acme/moved/releases/latest"]);
+    assert_eq!(stub.asked(), ["repos/acme/widget/releases/latest"]);
 }
 
-/// A redirect within the API's host is followed once, to the answer.
+/// A redirect within the API's host is followed once, to the answer. The
+/// answer of a renamed project is synthetic until the live recording is
+/// made (the recordings kit's list).
 #[test]
 fn one_redirect_within_the_api_is_followed() {
-    let stub = Stub::new("github-anonymous-renamed");
+    let stub = Stub::synthetic("github-anonymous-renamed", "renamed");
     let site = site("acme/renamed", &stub, Arc::new(MemoryLedger::new()));
     let mut h = site.code_host(&Actor::Anonymous, CALLER).unwrap();
     let latest = h.latest_release().unwrap().unwrap();
@@ -328,7 +345,7 @@ fn one_redirect_within_the_api_is_followed() {
         stub.asked(),
         [
             "repos/acme/renamed/releases/latest",
-            "repos/acme/widget/releases/latest"
+            "repositories/1/releases/latest"
         ]
     );
 }
@@ -337,8 +354,8 @@ fn one_redirect_within_the_api_is_followed() {
 /// release, is never the answer.
 #[test]
 fn a_second_redirect_is_malformed_never_its_body() {
-    let stub = Stub::new("github-anonymous-moving");
-    let site = site("acme/moving", &stub, Arc::new(MemoryLedger::new()));
+    let stub = Stub::synthetic("github-anonymous-chain", "chain");
+    let site = site("acme/widget", &stub, Arc::new(MemoryLedger::new()));
     let mut h = site.code_host(&Actor::Anonymous, CALLER).unwrap();
     assert_eq!(
         h.latest_release().err(),
@@ -347,8 +364,8 @@ fn a_second_redirect_is_malformed_never_its_body() {
     assert_eq!(
         stub.asked(),
         [
-            "repos/acme/moving/releases/latest",
-            "repos/acme/renamed/releases/latest"
+            "repos/acme/widget/releases/latest",
+            "repositories/1/releases/latest"
         ]
     );
 }
@@ -368,8 +385,8 @@ fn a_public_project_with_no_release_or_no_such_tag_says_so() {
 /// minute, the floor of every rate limit the adapter reads with no reset.
 #[test]
 fn a_bare_too_many_requests_holds_the_budget_for_a_minute() {
-    let stub = Stub::new("github-anonymous-busy");
-    let site = site("acme/busy", &stub, Arc::new(MemoryLedger::new()));
+    let stub = Stub::synthetic("github-anonymous-busy", "busy");
+    let site = site("acme/spent", &stub, Arc::new(MemoryLedger::new()));
     let mut h = site.code_host(&Actor::Anonymous, CALLER).unwrap();
     assert_eq!(
         h.releases(ALL_MAX).err(),
