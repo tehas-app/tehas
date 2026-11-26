@@ -128,15 +128,8 @@ pub fn push_fault_aged_out(fault: &Value, now: i64) -> bool {
         && fault
             .get("at")
             .and_then(Value::as_str)
-            .and_then(epoch)
+            .and_then(tehas_core::time::from_iso)
             .is_some_and(|at| now - at >= PUSH_FAULT_HOLD)
-}
-
-/// Seconds since the epoch of an ISO 8601 UTC time as fromdateiso8601 reads
-/// it: YYYY-MM-DDTHH:MM:SSZ. Core's strict reader, kept as the name the other
-/// dispatch modules call.
-pub(crate) fn epoch(s: &str) -> Option<i64> {
-    tehas_core::time::from_iso(s)
 }
 
 /// The limit, as `flags limit read` reads it: the one reader in tehas_core.
@@ -440,6 +433,7 @@ mod tests {
     use super::*;
     use std::io::BufRead;
     use tehas_core::testdir::TestDir;
+    use tehas_core::time::from_iso as epoch;
 
     /// A home of this case's own, with its `state`.
     fn home(name: &str) -> TestDir {
