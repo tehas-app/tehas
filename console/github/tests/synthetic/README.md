@@ -46,4 +46,5 @@ does not parse. Source: none, each is made by hand.
 | `vocabulary/garbled/labels-first.json` | The text `not json` |
 | `vocabulary/garbled/types-first.json` | The text `not json` |
 | `what/garbled/from-3.json` | A GraphQL answer cut off after its first alias |
-| `what/failed-garbled/from-3.answer.json` | An HTML page, `<html>bad gateway</html>`, printed beside the HTTP 502 failure in `from-3.fail` |
+| `what/failed-garbled/from-3.answer.json` | An HTML page, `<html>bad gateway</html>`, printed beside the failure in `from-3.fail` |
+| `what/failed-garbled/from-3.fail` | The failure that HTML page came with, `: HTTP 502` |
