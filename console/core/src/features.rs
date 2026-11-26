@@ -87,7 +87,7 @@ pub const FEATURES: &[Feature] = &[
             "TEHAS_PLUGIN_ORIGINS_<NAME>",
             "TEHAS_ADAPTER_EGRESS_DENY",
         ],
-        since: "v2.0.0-alpha.1",
+        since: "v2.0.0-beta.1",
         programs: &[],
         units: &[],
     },
