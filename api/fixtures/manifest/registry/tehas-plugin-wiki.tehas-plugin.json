@@ -1,0 +1,12 @@
+{
+  "plugin": 1,
+  "kind": "batch",
+  "name": "wiki",
+  "label": "Wiki",
+  "license": "Apache-2.0",
+  "build": "Dockerfile",
+  "timeout": 7200,
+  "asks": ["view", "menu", "product", "history", "model", "every", "action:build", "keep"],
+  "view": {"label": "Wiki"},
+  "actions": [{"id": "build", "label": "Build the wiki"}]
+}

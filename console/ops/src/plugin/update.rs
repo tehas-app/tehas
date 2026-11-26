@@ -252,7 +252,7 @@ fn menued(home: &Path, menu: &[serde_json::Value], said: &mut Said) {
 #[cfg(test)]
 mod tests {
     use super::super::exec::fake::{fails, ok, Fake};
-    use super::super::prepare::tests::{dockerfile, good, manifest, C, ID, URL};
+    use super::super::prepare::tests::{good, manifest, C, URL};
     use super::*;
     use std::collections::BTreeMap;
     use tehas_core::testdir::TestDir;
@@ -283,16 +283,15 @@ mod tests {
         assert!(x.ran.is_empty());
     }
 
+    /// `needs` is a 1.x relation: the 2.2 table has no `needs` field, and a
+    /// `needs:` ask is not a grant the reader knows, so naming one refuses
+    /// the plugin at the read (the v1 weighed branch goes with the R9
+    /// contract step).
     #[test]
-    fn a_plugin_whose_needs_are_not_met_is_refused_after_its_build() {
-        let m = r#"{"plugin": 1, "kind": "batch", "name": "floorplan", "label": "Floorplan", "build": "Dockerfile", "asks": ["product", "needs:specs"], "timeout": 3600, "needs": [{"name": "specs", "skills": ["grill"]}]}"#;
-        let d = dockerfile();
-        let (home, mut x) = good(
-            "plugin-update-needs",
-            &[("tehas-plugin.json", m), ("Dockerfile", &d)],
-        );
+    fn a_manifest_naming_needs_is_refused_at_the_read() {
+        let m = r#"{"plugin": 2, "spec": "2.0.0-r8", "name": "floorplan", "label": "Floorplan", "asks": ["product", "needs:specs"]}"#;
+        let (home, mut x) = good("plugin-update-needs", &[("tehas-plugin.json", m)]);
         x.on("systemctl", ok(""));
-        x.on("{{.Id}}", ok(&format!("{ID}\n")));
         x.on("for-each-ref", ok(""));
         x.on("gc --prune=now", ok(""));
         let get = on(&[
@@ -304,25 +303,21 @@ mod tests {
         ]);
         let said = step(&mut x, &home, &get);
         assert!(said.refused);
-        assert_eq!(
-            said.lines,
-            ["plugin floorplan: refused and left off: needs `specs`, which is not in TEHAS_PLUGINS"]
+        assert!(
+            said.lines[0].contains("needs:specs: is not a grant 2.0 knows"),
+            "{:?}",
+            said.lines
         );
         let s = prepare::read_state(&home, "floorplan").unwrap();
         assert_eq!(s.state, Word::Refused);
-        assert_eq!(s.image.as_deref(), Some(ID));
+        assert_eq!(s.image, None);
     }
 
     #[test]
     fn a_ready_plugin_is_said_and_a_refused_one_skipped_with_why() {
         let m = manifest(r#""product""#);
-        let d = dockerfile();
-        let (home, mut x) = good(
-            "plugin-update",
-            &[("tehas-plugin.json", &m), ("Dockerfile", &d)],
-        );
+        let (home, mut x) = good("plugin-update", &[("tehas-plugin.json", &m)]);
         x.on("systemctl", ok(""));
-        x.on("{{.Id}}", ok(&format!("{ID}\n")));
         let get = on(&[
             ("TEHAS_PLUGINS", format!("floorplan={URL}@{C}")),
             ("TEHAS_PLUGIN_GRANTS_FLOORPLAN", format!("{C} product")),
@@ -336,7 +331,7 @@ mod tests {
         assert_eq!(
             step(&mut x, &home, &get),
             Said {
-                lines: vec![format!("plugin floorplan: ready, image {ID}")],
+                lines: vec!["plugin floorplan: ready, no image".to_string()],
                 refused: false
             }
         );
@@ -401,21 +396,14 @@ mod tests {
 
     #[test]
     fn a_plugin_granted_menu_lists_its_granted_views() {
-        let views = r#""views": [
-            {"id": "map", "label": "Map", "path": "/", "open": "dock"},
-            {"id": "health", "label": "Health", "path": "/health/", "open": "page"},
-            {"id": "debts", "label": "Debts", "path": "/debts/", "open": "page"}]"#;
-        let m = manifest(r#""menu", "view:map", "view:health", "view:debts""#).replace(
-            r#""timeout": 3600}"#,
-            &format!(r#""timeout": 3600, {views}}}"#),
-        );
-        let d = dockerfile();
-        let (home, mut x) = good(
-            "plugin-update-menu",
-            &[("tehas-plugin.json", &m), ("Dockerfile", &d)],
-        );
+        let m = r#"{"plugin": 2, "spec": "2.0.0-r8", "name": "floorplan", "label": "Floorplan",
+            "asks": ["menu", "view:map", "view:health", "view:debts"],
+            "views": [
+              {"id": "map", "entry": "dist/view/map.js", "open": "dock"},
+              {"id": "health", "entry": "dist/view/health.js", "open": "page"},
+              {"id": "debts", "entry": "dist/view/debts.js", "open": "page"}]}"#;
+        let (home, mut x) = good("plugin-update-menu", &[("tehas-plugin.json", m)]);
         x.on("systemctl", ok(""));
-        x.on("{{.Id}}", ok(&format!("{ID}\n")));
         x.on("for-each-ref", ok(&format!("refs/tehas/{C}\n")));
         x.on("gc --prune=now", ok(""));
         let set = |grants: &str| {
@@ -428,14 +416,14 @@ mod tests {
         };
         // The manifest asks for debts too; a grant without it refuses the plugin.
         let said = step(&mut x, &home, &set("menu view:map view:health view:debts"));
-        assert_eq!(said.lines, [format!("plugin floorplan: ready, image {ID}")]);
+        assert_eq!(said.lines, ["plugin floorplan: ready, no image"]);
         let base = "https://plugin-floorplan-demo.example.org";
         assert_eq!(
             menu_file(&home).unwrap(),
             serde_json::json!({"api": 1, "plugins": [{"name": "floorplan", "label": "Floorplan", "views": [
-                {"id": "map", "label": "Map", "url": format!("{base}/"), "open": "dock"},
-                {"id": "health", "label": "Health", "url": format!("{base}/health/"), "open": "page"},
-                {"id": "debts", "label": "Debts", "url": format!("{base}/debts/"), "open": "page"}]}]})
+                {"id": "map", "label": "map", "url": format!("{base}/map"), "open": "dock"},
+                {"id": "health", "label": "health", "url": format!("{base}/health"), "open": "page"},
+                {"id": "debts", "label": "debts", "url": format!("{base}/debts"), "open": "page"}]}]})
         );
         let mode = fs::metadata(Home::new(home.path()).live(Live::Plugins))
             .unwrap()
@@ -455,34 +443,30 @@ mod tests {
         assert_eq!(menu_file(&home), None);
     }
 
+    /// The one-view dock case, as the front page sees it: the 2.2 view is
+    /// named by its id, and the entry goes when the plugin is refused.
     #[test]
-    fn a_ready_v1_view_granted_is_listed_in_the_dock_and_goes_when_it_is_refused() {
-        let m = manifest(r#""view""#).replace(
-            r#""timeout": 3600}"#,
-            r#""timeout": 3600, "view": {"label": "Map"}}"#,
-        );
-        let d = dockerfile();
-        let (home, mut x) = good(
-            "plugin-update-view",
-            &[("tehas-plugin.json", &m), ("Dockerfile", &d)],
-        );
+    fn a_granted_dock_view_is_listed_and_goes_when_the_plugin_is_refused() {
+        let m = r#"{"plugin": 2, "spec": "2.0.0-r8", "name": "floorplan", "label": "Floorplan",
+            "asks": ["view:map"],
+            "views": [{"id": "map", "entry": "dist/view/map.js", "open": "dock"}]}"#;
+        let (home, mut x) = good("plugin-update-view", &[("tehas-plugin.json", m)]);
         x.on("systemctl", ok(""));
-        x.on("{{.Id}}", ok(&format!("{ID}\n")));
         x.on("for-each-ref", ok(&format!("refs/tehas/{C}\n")));
         x.on("gc --prune=now", ok(""));
         let domain = ("TEHAS_DOMAIN", "demo.example.org".to_string());
         let get = on(&[
             ("TEHAS_PLUGINS", format!("floorplan={URL}@{C}")),
-            ("TEHAS_PLUGIN_GRANTS_FLOORPLAN", format!("{C} view")),
+            ("TEHAS_PLUGIN_GRANTS_FLOORPLAN", format!("{C} view:map")),
             domain.clone(),
             ("TEHAS_EDGE_ONE_LEVEL", "1".to_string()),
         ]);
         let said = step(&mut x, &home, &get);
-        assert_eq!(said.lines, [format!("plugin floorplan: ready, image {ID}")]);
+        assert_eq!(said.lines, ["plugin floorplan: ready, no image"]);
         assert_eq!(
             menu_file(&home).unwrap(),
             serde_json::json!({"api": 1, "plugins": [{"name": "floorplan", "label": "Floorplan", "views": [
-                {"id": "view", "label": "Map", "url": "https://plugin-floorplan-demo.example.org/", "open": "dock"}]}]})
+                {"id": "map", "label": "map", "url": "https://plugin-floorplan-demo.example.org/map", "open": "dock"}]}]})
         );
         // Not granted at the pin: refused, and its entry is taken away.
         let get = on(&[
@@ -496,22 +480,16 @@ mod tests {
     #[test]
     fn a_pin_that_moved_takes_the_old_view_and_the_tried_head_away() {
         let old = "1".repeat(40);
-        let m = manifest(r#""view""#).replace(
-            r#""timeout": 3600}"#,
-            r#""timeout": 3600, "view": {"label": "Map"}}"#,
-        );
-        let d = dockerfile();
-        let (home, mut x) = good(
-            "plugin-update-moved",
-            &[("tehas-plugin.json", &m), ("Dockerfile", &d)],
-        );
+        let m = r#"{"plugin": 2, "spec": "2.0.0-r8", "name": "floorplan", "label": "Floorplan",
+            "asks": ["view:map"],
+            "views": [{"id": "map", "entry": "dist/view/map.js", "open": "dock"}]}"#;
+        let (home, mut x) = good("plugin-update-moved", &[("tehas-plugin.json", m)]);
         x.on("systemctl", ok(""));
-        x.on("{{.Id}}", ok(&format!("{ID}\n")));
         x.on("for-each-ref", ok(&format!("refs/tehas/{C}\n")));
         x.on("gc --prune=now", ok(""));
         let get = on(&[
             ("TEHAS_PLUGINS", format!("floorplan={URL}@{C}")),
-            ("TEHAS_PLUGIN_GRANTS_FLOORPLAN", format!("{C} view")),
+            ("TEHAS_PLUGIN_GRANTS_FLOORPLAN", format!("{C} view:map")),
         ]);
         // Built, refreshed and tried at the old pin.
         let made = |at: &str| {
@@ -533,7 +511,7 @@ mod tests {
             said.lines,
             [
                 "plugin floorplan: its view was made at another commit and is removed until a refresh at the pin".to_string(),
-                format!("plugin floorplan: ready, image {ID}"),
+                "plugin floorplan: ready, no image".to_string(),
             ]
         );
         assert!(!runs::view(&home, "floorplan").exists());
@@ -541,7 +519,7 @@ mod tests {
         // A view made at the pin stays, and so does the head it was tried at.
         made(C);
         let said = step(&mut x, &home, &get);
-        assert_eq!(said.lines, [format!("plugin floorplan: ready, image {ID}")]);
+        assert_eq!(said.lines, ["plugin floorplan: ready, no image"]);
         assert_eq!(runs::view_made_at(&home, "floorplan").as_deref(), Some(C));
         assert!(runs::tried(&home, "floorplan").exists());
         // A view that says no commit, from before the record, goes too.

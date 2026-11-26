@@ -17,7 +17,6 @@ pub const H: &str = "89abcdef0123456789abcdef0123456789abcdef";
 pub const H2: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 pub const B: &str = "fedcba9876543210fedcba9876543210fedcba98";
 pub const IMAGE: &str = "sha256:1111111111111111111111111111111111111111111111111111111111111111";
-const NODE: &str = "node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
 type OnRun = Box<dyn FnMut(&[String])>;
 
@@ -142,17 +141,17 @@ pub fn tar(top: &str, files: &[(&str, &str)]) -> Vec<u8> {
 
 pub fn manifest(asks: &str) -> String {
     let hooks = if asks.contains("hook:after:change.offered") {
-        r#", "hooks": [{"at": "after:change.offered", "timeout": 300}]"#
+        r#", "hooks": [{"at": "hook:after:change.offered", "entry": "dist/hook/main.js"}]"#
     } else {
         ""
     };
     let views = if asks.contains("view:map") {
-        r#", "views": [{"id": "map", "label": "Map", "path": "/", "open": "dock"}]"#
+        r#", "views": [{"id": "map", "entry": "dist/view/map.js", "open": "dock"}]"#
     } else {
         ""
     };
     format!(
-        r#"{{"plugin": 1, "kind": "batch", "name": "demo", "label": "Demo", "build": "Dockerfile", "asks": [{asks}], "timeout": 600{hooks}{views}}}"#
+        r#"{{"plugin": 2, "spec": "2.0.0-r8", "name": "demo", "label": "Demo", "driver": "dist/driver/main.js", "timeout": 600, "asks": [{asks}]{hooks}{views}}}"#
     )
 }
 
@@ -219,37 +218,31 @@ pub fn world(name: &str, h: &mut Fake, asks: &str, grants: &str) -> World {
 
 /// [`world`] in `home`: a short one for a run that serves the model socket.
 pub fn world_in(home: TestDir, h: &mut Fake, asks: &str, grants: &str) -> World {
-    let mut asked = Vec::new();
-    for a in grants.split_whitespace() {
-        let word = a.split(':').next().unwrap();
-        let word = if a.starts_with("action:") || a.starts_with("hook:") {
-            a
-        } else {
-            word
-        };
-        asked.push(format!("\"{word}\""));
-    }
+    // A 2.x ask is the grant word itself: `view:map`, `skill:grill`,
+    // `tool:find-doc`, `model:2000000`.
+    let asked: Vec<String> = grants
+        .split_whitespace()
+        .map(|a| format!("\"{a}\""))
+        .collect();
     let m = if asks.is_empty() {
         manifest(&asked.join(", "))
     } else {
         manifest(asks)
     };
-    let d = format!("FROM {NODE}\n");
     h.x.on(
         &format!("ls-tree -r -z --name-only {C}"),
-        ok("tehas-plugin.json\0Dockerfile\0"),
+        ok("tehas-plugin.json\0"),
     );
-    for (path, text) in [("tehas-plugin.json", &m), ("Dockerfile", &d)] {
-        h.x.on(
-            &format!("ls-tree -z {C} -- {path}"),
-            ok(&format!("100644 blob {}\t{path}\0", "e".repeat(40))),
-        );
-        h.x.on(
-            &format!("cat-file -s {C}:{path}"),
-            ok(&format!("{}\n", text.len())),
-        );
-        h.x.on(&format!("cat-file blob {C}:{path}"), ok(text));
-    }
+    let path = "tehas-plugin.json";
+    h.x.on(
+        &format!("ls-tree -z {C} -- {path}"),
+        ok(&format!("100644 blob {}\t{path}\0", "e".repeat(40))),
+    );
+    h.x.on(
+        &format!("cat-file -s {C}:{path}"),
+        ok(&format!("{}\n", m.len())),
+    );
+    h.x.on(&format!("cat-file blob {C}:{path}"), ok(&m));
     h.x.on("refs/remotes/origin/main^{commit}", ok(&format!("{H}\n")));
     h.x.on("rev-parse HEAD", ok(&format!("{H}\n")));
     let r = prepare::read(&mut h.x, &home, "demo", C).unwrap();
@@ -360,7 +353,7 @@ fn a_refresh_with_every_grant_runs_its_container_and_swaps_its_view_in() {
     );
     // The argument list is the pure function's, and the timeout the manifest's.
     let m: Manifest = tehas_core::plugin::manifest::read(
-        manifest(r#""view", "product", "model""#).as_bytes(),
+        manifest(r#""view", "product", "model:2000""#).as_bytes(),
         "demo",
     )
     .unwrap();
@@ -650,7 +643,9 @@ fn a_hook_reads_its_pull_request_and_keeps_its_verdict() {
         h.calls[0],
         format!("plugin-run-begin --plugin demo --commit {C} --kind hook --how cycle --by host --head {H}")
     );
-    assert_eq!(h.limit, Some(Duration::from_secs(300)));
+    // The 2.2 table gives a hook no seconds of its own: the run keeps the
+    // manifest's.
+    assert_eq!(h.limit, Some(Duration::from_secs(600)));
     let argv = &h.argv[0];
     assert!(
         argv.contains(&"type=volume,src=tehas-plugin-demo-state,dst=/state,readonly".to_string())
@@ -976,13 +971,13 @@ fn images_reach_the_model_only_when_asked_and_granted() {
         tehas_core::plugin::manifest::read(manifest(asks).as_bytes(), "demo").unwrap()
     };
     let g = |words: &str| plugin::grants(&format!("{C} {words}")).unwrap();
-    let both = read(r#""model", "model:images""#);
+    let both = read(r#""model:2000", "model:images""#);
     assert_eq!(
         content(&both, &g("model:2000 model:images")),
         Content::TextAndImages
     );
     assert_eq!(content(&both, &g("model:2000")), Content::Text);
-    let text = read(r#""model""#);
+    let text = read(r#""model:2000""#);
     assert_eq!(content(&text, &g("model:2000 model:images")), Content::Text);
 }
 

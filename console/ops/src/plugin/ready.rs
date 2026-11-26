@@ -65,7 +65,7 @@ pub(crate) fn ready(
 
 #[cfg(test)]
 mod tests {
-    use super::super::prepare::tests::{dockerfile, good, manifest, C, ID, URL};
+    use super::super::prepare::tests::{good, manifest, C, URL};
     use super::*;
     use tehas_core::plugin::state::State;
 
@@ -81,8 +81,7 @@ mod tests {
     #[test]
     fn a_plugin_is_ready_only_pinned_granted_built_and_unchanged() {
         let m = manifest(r#""product""#);
-        let d = dockerfile();
-        let (home, mut x) = good("ready", &[("tehas-plugin.json", &m), ("Dockerfile", &d)]);
+        let (home, mut x) = good("ready", &[("tehas-plugin.json", &m)]);
         let get = settings(&format!("{C} product"));
         let why = |x: &mut dyn Exec, get: &dyn Fn(&str) -> String| {
             ready(x, &home, get, "floorplan").err().unwrap_or_default()
@@ -94,14 +93,9 @@ mod tests {
         let mut s = State::new(Word::Ready, C);
         s.manifest_sha256 = Some(prepare::sha256(m.as_bytes()));
         prepare::write_state(&home, "floorplan", &s).unwrap();
-        assert_eq!(
-            why(&mut x, &get),
-            "it has a build and no image: run tehas update"
-        );
-        s.image = Some(ID.into());
-        prepare::write_state(&home, "floorplan", &s).unwrap();
+        // A 2.2 manifest has no build, so a ready state needs no image.
         let r = ready(&mut x, &home, &get, "floorplan").unwrap();
-        assert_eq!((r.pin.commit.as_str(), r.image.as_deref()), (C, Some(ID)));
+        assert_eq!((r.pin.commit.as_str(), r.image.as_deref()), (C, None));
         assert_eq!(r.manifest.label, "Floorplan");
         assert_eq!(
             why(&mut x, &settings(&format!("{} product", "f".repeat(40)))),

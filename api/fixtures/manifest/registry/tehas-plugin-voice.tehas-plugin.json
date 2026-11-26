@@ -1,0 +1,14 @@
+{
+  "plugin": 1,
+  "name": "voice",
+  "label": "Voice",
+  "license": "Apache-2.0",
+  "build": "Dockerfile",
+  "kind": "batch",
+  "timeout": 60,
+  "views": [{"id": "talk", "label": "Voice", "path": "/", "open": "full"}],
+  "chats": ["obeya", "wizard", "assistant"],
+  "button": {"label": "Voice", "view": "talk"},
+  "relays": [{"id": "speech", "concurrent": 1, "setup": "/api/session", "query": "session_id"}],
+  "asks": ["view:talk", "chat:button", "lock", "mic", "relay:speech", "voice:15", "propose"]
+}

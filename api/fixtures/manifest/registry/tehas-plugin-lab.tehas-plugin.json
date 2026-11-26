@@ -1,0 +1,12 @@
+{
+  "plugin": 1,
+  "kind": "batch",
+  "name": "lab",
+  "label": "Lab",
+  "license": "Apache-2.0",
+  "build": "Dockerfile",
+  "labels": [{"name": "lab", "color": "5319e7", "description": "Show this issue's prototype in the lab"}],
+  "asks": ["view", "menu", "issues", "files", "pages", "list", "keep"],
+  "timeout": 600,
+  "view": {"label": "Lab"}
+}

@@ -1,0 +1,27 @@
+{
+  "plugin": 2,
+  "spec": "2.0.0-r8",
+  "name": "noni",
+  "label": "Direction",
+  "runtime": "starlingmonkey",
+  "timeout": 60,
+  "asks": [
+    "view:direction",
+    "menu",
+    "product",
+    "skill:direction"
+  ],
+  "driver": "dist/driver/main.js",
+  "views": [
+    {
+      "id": "direction",
+      "entry": "dist/view/index.html",
+      "open": "page"
+    }
+  ],
+  "skills": [
+    "skills/direction/SKILL.md"
+  ],
+  "vendor": {},
+  "solid": "2.0.3"
+}

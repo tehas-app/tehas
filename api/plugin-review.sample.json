@@ -6,8 +6,8 @@
   "pin": "0123456789abcdef0123456789abcdef01234567",
   "manifest_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
   "label": "Floorplan",
-  "license": "Apache-2.0",
-  "build": "Dockerfile",
+  "license": null,
+  "build": null,
   "asks": [
     {
       "ask": "view",
@@ -20,7 +20,7 @@
       "granted": true
     },
     {
-      "ask": "model",
+      "ask": "model:2000000",
       "does": "chat completions through a socket, up to the tokens of the grant a run",
       "granted": true
     },
@@ -34,12 +34,7 @@
     "hook:after:change.offered"
   ],
   "grants_commit": "0123456789abcdef0123456789abcdef01234567",
-  "bases": [
-    {
-      "image": "node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "onbuild": []
-    }
-  ],
+  "bases": [],
   "model": {
     "provider": "local",
     "host": "127.0.0.1",

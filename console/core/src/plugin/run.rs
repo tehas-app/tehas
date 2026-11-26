@@ -7,7 +7,7 @@
 //! container past its time, by the id docker wrote in its cid file.
 
 use super::manifest::Manifest;
-use super::{compare, is_name, Cap, Grants, Limits};
+use super::{ask_v2, compare, is_name, Cap, Grants, Limits};
 use crate::grammar::{commit_id, is_image};
 use serde::Serialize;
 use std::path::Path;
@@ -143,8 +143,16 @@ impl Run<'_> {
         if !commit_id(self.commit) || !commit_id(self.head) {
             return Err("expected whole commits".to_string());
         }
-        let has =
-            |cap: Cap| self.grants.caps.contains(&cap) && self.manifest.asks.contains(&cap.ask());
+        // A 2.x model ask carries the budget (`model:<tokens>`), so the ask
+        // matches the capability, not the bare word.
+        let has = |cap: Cap| {
+            self.grants.caps.contains(&cap)
+                && self
+                    .manifest
+                    .asks
+                    .iter()
+                    .any(|a| ask_v2(a).as_ref() == Ok(&cap))
+        };
         let triggers: &[Trigger] = match self.kind {
             Kind::Refresh => &[Trigger::Timer, Trigger::Host, Trigger::Action],
             Kind::Hook => &[Trigger::Cycle, Trigger::Host],

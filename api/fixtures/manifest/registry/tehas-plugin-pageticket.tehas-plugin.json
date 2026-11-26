@@ -1,0 +1,15 @@
+{
+  "plugin": 1,
+  "kind": "service",
+  "name": "pageticket",
+  "label": "Visual ticket",
+  "license": "Apache-2.0",
+  "build": "Dockerfile",
+  "asks": ["serve", "view:tickets", "chat", "session", "upload", "keep", "record", "issue:draft", "model", "model:images", "net:app", "net:capture", "needs:specs"],
+  "timeout": 900,
+  "views": [{"id": "tickets", "label": "Visual tickets", "path": "/", "open": "full"}],
+  "net": [{"id": "app", "origin": "https://app.example", "paths": ["/"], "run": true}],
+  "needs": [{"name": "specs", "skills": ["grill", "spec", "brief"]}],
+  "records": [{"kind": "prototype"}],
+  "upload": {"types": ["image/png", "image/jpeg", "image/webp", "text/html"]}
+}

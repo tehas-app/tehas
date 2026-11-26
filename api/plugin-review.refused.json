@@ -5,36 +5,23 @@
   "commit": "89abcdef0123456789abcdef0123456789abcdef",
   "pin": "0123456789abcdef0123456789abcdef01234567",
   "manifest_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
-  "label": "Floorplan",
+  "label": null,
   "license": null,
-  "build": "Dockerfile",
-  "asks": [
-    {
-      "ask": "product",
-      "does": "reads all of the product's code, read only, in every run",
-      "granted": false
-    }
-  ],
+  "build": null,
+  "asks": [],
   "unasked": [],
   "grants_commit": "0123456789abcdef0123456789abcdef01234567",
-  "bases": [
-    {
-      "image": "node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "onbuild": [
-        "RUN make"
-      ]
-    }
-  ],
+  "bases": [],
   "model": null,
   "warnings": [],
   "changes": [
-    "build changed"
+    "asks for weather, which the pin does not"
   ],
   "refusals": [
-    "the base image node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa has ONBUILD triggers, which would run in the build: RUN make"
+    "tehas-plugin.json: asks: weather: is not a grant 2.0 knows, of the standard's \u00a75 and the host's own list"
   ],
   "settings": [
     "TEHAS_PLUGINS: floorplan=https://github.com/tehas-app/tehas-plugin-floorplan@89abcdef0123456789abcdef0123456789abcdef",
-    "TEHAS_PLUGIN_GRANTS_FLOORPLAN=\"89abcdef0123456789abcdef0123456789abcdef product\""
+    "TEHAS_PLUGIN_GRANTS_FLOORPLAN=\"89abcdef0123456789abcdef0123456789abcdef\""
   ]
 }

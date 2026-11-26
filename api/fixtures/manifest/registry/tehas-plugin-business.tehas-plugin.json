@@ -1,0 +1,11 @@
+{
+  "plugin": 1,
+  "kind": "batch",
+  "name": "business",
+  "label": "Business",
+  "license": "Apache-2.0",
+  "build": "Dockerfile",
+  "asks": ["view", "menu", "live:status", "live:running", "live:analytics", "live:plugins"],
+  "timeout": 120,
+  "view": {"label": "Business"}
+}

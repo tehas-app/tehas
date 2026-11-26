@@ -1,0 +1,18 @@
+{
+  "plugin": 2,
+  "spec": "2.0.0-r8",
+  "name": "specs",
+  "label": "Spec interview",
+  "asks": [
+    "skill:grill",
+    "skill:spec",
+    "skill:slice",
+    "skill:brief"
+  ],
+  "skills": [
+    "skills/grill/SKILL.md",
+    "skills/spec/SKILL.md",
+    "skills/slice/SKILL.md",
+    "skills/brief/SKILL.md"
+  ]
+}

@@ -43,9 +43,9 @@ const PLAIN: [&str; 18] = [
     "record",          // :222
     "issue:draft",     // :222
     "issue:advisory",  // :235-239
-    "net:",            // :223, written so by the standard; in 2.1 only an adapter reaches the network (operator :872)
-    "http",            // :227, an adapter's alone; the manifest's kind decides
-    "viewer:login",    // :224-227
+    "net:", // :223, written so by the standard; in 2.1 only an adapter reaches the network (operator :872)
+    "http", // :227, an adapter's alone; the manifest's kind decides
+    "viewer:login", // :224-227
 ];
 
 /// Whether `word` is a grant 2.0 knows. The reason says what a near miss
@@ -179,7 +179,14 @@ mod tests {
     /// to write, so they are named here and not left to the general case.
     #[test]
     fn a_name_the_host_does_not_know_is_refused() {
-        for word in ["weather", "wheather", "feed", "viewer", "gate:verify", "needs:specs"] {
+        for word in [
+            "weather",
+            "wheather",
+            "feed",
+            "viewer",
+            "gate:verify",
+            "needs:specs",
+        ] {
             assert!(
                 refused(word).starts_with("is not a grant"),
                 "{word}: {}",
@@ -195,7 +202,9 @@ mod tests {
     /// accepted.
     #[test]
     fn a_parameterised_name_needs_its_value() {
-        for front in ["feed", "live", "every", "model", "action", "skill", "view", "clock"] {
+        for front in [
+            "feed", "live", "every", "model", "action", "skill", "view", "clock",
+        ] {
             let bare = format!("{front}:");
             assert!(
                 refused(&bare).starts_with(&format!("{front}: wants a value")),
@@ -212,7 +221,13 @@ mod tests {
     /// word does not become a grant by landing after a colon.
     #[test]
     fn a_parameterised_name_wants_its_value_of_the_right_shape() {
-        let not = ["model:many", "action:Refresh", "skill:grill/me", "feed:MEsh", "phase:1"];
+        let not = [
+            "model:many",
+            "action:Refresh",
+            "skill:grill/me",
+            "feed:MEsh",
+            "phase:1",
+        ];
         for word in not {
             assert!(
                 refused(word).starts_with("is not a grant"),

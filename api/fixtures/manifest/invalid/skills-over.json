@@ -1,0 +1,28 @@
+{
+  "plugin": 2,
+  "spec": "2.0.0-r8",
+  "name": "floorplan",
+  "label": "Floorplan",
+  "asks": [
+    "skill:sa",
+    "skill:sb",
+    "skill:sc",
+    "skill:sd",
+    "skill:se",
+    "skill:sf",
+    "skill:sg",
+    "skill:sh",
+    "skill:si"
+  ],
+  "skills": [
+    "skills/sa/SKILL.md",
+    "skills/sb/SKILL.md",
+    "skills/sc/SKILL.md",
+    "skills/sd/SKILL.md",
+    "skills/se/SKILL.md",
+    "skills/sf/SKILL.md",
+    "skills/sg/SKILL.md",
+    "skills/sh/SKILL.md",
+    "skills/si/SKILL.md"
+  ]
+}

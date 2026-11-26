@@ -1,0 +1,40 @@
+{
+  "plugin": 2,
+  "spec": "2.0.0-r8",
+  "name": "floorplan",
+  "label": "Floorplan",
+  "asks": [
+    "view:va",
+    "view:vb",
+    "view:vc",
+    "view:vd",
+    "view:ve"
+  ],
+  "views": [
+    {
+      "id": "va",
+      "entry": "dist/view/va.js",
+      "open": "page"
+    },
+    {
+      "id": "vb",
+      "entry": "dist/view/vb.js",
+      "open": "page"
+    },
+    {
+      "id": "vc",
+      "entry": "dist/view/vc.js",
+      "open": "page"
+    },
+    {
+      "id": "vd",
+      "entry": "dist/view/vd.js",
+      "open": "page"
+    },
+    {
+      "id": "ve",
+      "entry": "dist/view/ve.js",
+      "open": "page"
+    }
+  ]
+}

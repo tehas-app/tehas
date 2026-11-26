@@ -151,8 +151,7 @@ pub fn fits(v: &Value, s: &Value) -> bool {
         }
     }
     if let Some(m) = v.as_object() {
-        if s
-            .get("maxProperties")
+        if s.get("maxProperties")
             .and_then(Value::as_u64)
             .is_some_and(|n| (m.len() as u64) > n)
         {
@@ -332,9 +331,15 @@ fn the_keywords_of_the_manifest_schema_are_checked_both_ways() {
         "else": {"not": {"required": ["block"]}},
     });
     assert!(fits(&json!({"kind": "a", "block": {}}), &arms));
-    assert!(!fits(&json!({"kind": "a"}), &arms), "the then arm does not hold");
+    assert!(
+        !fits(&json!({"kind": "a"}), &arms),
+        "the then arm does not hold"
+    );
     assert!(fits(&json!({"kind": "b"}), &arms));
-    assert!(!fits(&json!({"kind": "b", "block": {}}), &arms), "the else arm does not hold");
+    assert!(
+        !fits(&json!({"kind": "b", "block": {}}), &arms),
+        "the else arm does not hold"
+    );
     // minItems: the bound is inclusive on the floor.
     let some = json!({"type": "array", "minItems": 1});
     assert!(fits(&json!(["x"]), &some));
@@ -342,11 +347,17 @@ fn the_keywords_of_the_manifest_schema_are_checked_both_ways() {
     // A map: any key, values kept to the schema. false is the closed case.
     let map = json!({"type": "object", "additionalProperties": {"type": "string"}});
     assert!(fits(&json!({"left-pad": "x", "ms": "y"}), &map));
-    assert!(!fits(&json!({"left-pad": 1}), &map), "a value of the wrong shape");
+    assert!(
+        !fits(&json!({"left-pad": 1}), &map),
+        "a value of the wrong shape"
+    );
     assert!(!fits(&json!([]), &map), "a map is an object");
     // maxProperties: the count is what is bounded.
     let two = json!({"type": "object", "maxProperties": 2});
     assert!(fits(&json!({"a": 1, "b": 2}), &two));
     assert!(fits(&json!({}), &two));
-    assert!(!fits(&json!({"a": 1, "b": 2, "c": 3}), &two), "over the bound");
+    assert!(
+        !fits(&json!({"a": 1, "b": 2, "c": 3}), &two),
+        "over the bound"
+    );
 }

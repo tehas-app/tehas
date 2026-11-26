@@ -1,0 +1,11 @@
+{
+  "plugin": 1,
+  "kind": "batch",
+  "name": "given",
+  "label": "Given",
+  "license": "Apache-2.0",
+  "build": "Dockerfile",
+  "timeout": 300,
+  "asks": ["hook:before:cycle.started", "files", "model", "model:images"],
+  "hooks": [{"at": "before:cycle.started", "timeout": 300}]
+}

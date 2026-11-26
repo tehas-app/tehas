@@ -63,11 +63,8 @@ pub fn list(
         match skills_of(x, home, get, &name, chat) {
             Ok(entries) => {
                 let bytes: usize = entries.iter().map(|e| e.text.len()).sum();
-                if total + bytes > TOTAL_MAX {
-                    out.left_out.push((
-                        name,
-                        format!("its skills would pass {TOTAL_MAX} bytes of skills in all"),
-                    ));
+                if let Err(why) = fits_total(total, bytes) {
+                    out.left_out.push((name, why));
                 } else {
                     total += bytes;
                     out.entries.extend(entries);
@@ -77,6 +74,18 @@ pub fn list(
         }
     }
     out
+}
+
+/// Whether `bytes` of skill text still fit once `total` of them are taken.
+/// A 2.x manifest cannot reach this through [`list`] until #3371 reads the
+/// frontmatter, so the test calls it directly.
+fn fits_total(total: usize, bytes: usize) -> Result<(), String> {
+    if total + bytes > TOTAL_MAX {
+        return Err(format!(
+            "its skills would pass {TOTAL_MAX} bytes of skills in all"
+        ));
+    }
+    Ok(())
 }
 
 /// One ready plugin's granted skills for `chat`, or why none are listed.
@@ -177,20 +186,19 @@ mod tests {
     use super::super::exec::fake::Fake;
     use super::super::prepare::tests::{good, C, URL};
     use super::*;
-    use tehas_core::plugin::skill;
     use tehas_core::plugin::state::State;
     use tehas_core::testdir::TestDir;
 
     const GRILL: &str = "### Interview\n\nOne question at a time.\n";
-    const SPEC: &str = "### Specify\n\nProblem, solution, criteria.\n";
 
+    /// A 2.2 manifest: the skills are paths, and their about and chats live
+    /// in the file's own frontmatter, which this host does not read yet
+    /// (#3371).
     fn manifest() -> String {
-        r#"{"plugin": 1, "name": "floorplan", "label": "Spec interview", "asks": ["skill:grill", "skill:spec"],
-            "skills": [
-              {"id": "grill", "about": "Interview the person", "path": "skills/grill.md", "chats": ["obeya", "wizard"]},
-              {"id": "spec", "about": "Write the specification", "path": "skills/spec.md", "chats": ["assistant"]}
-            ]}"#
-        .to_string()
+        r#"{"plugin": 2, "spec": "2.0.0-r8", "name": "floorplan", "label": "Spec interview",
+            "asks": ["skill:grill", "skill:spec"],
+            "skills": ["skills/grill/SKILL.md", "skills/spec/SKILL.md"]}"#
+            .to_string()
     }
 
     /// A home with the plugin ready at the pin, as tehas update leaves it.
@@ -213,41 +221,35 @@ mod tests {
         }
     }
 
-    fn ids(l: &Listing) -> Vec<&str> {
-        l.entries.iter().map(|e| e.id.as_str()).collect()
-    }
-
+    /// A 2.2 plugin lists no skill until #3371 reads the frontmatter, and
+    /// says nothing against it either: the skills are there and granted, and
+    /// the host still reads none of them, rather than guessing which chats
+    /// a text belongs to. The counter-assertion is the same run: nothing is
+    /// left out, and no skill blob is read.
     #[test]
-    fn the_granted_skills_are_read_again_from_the_pin_for_each_chat() {
+    fn a_2_x_plugin_lists_no_skill_until_the_frontmatter_is_read() {
         let m = manifest();
-        let files = [("skills/grill.md", GRILL), ("skills/spec.md", SPEC)];
-        let (home, mut x) = ready("skills-list", &m, &files);
+        let files = [
+            ("skills/grill/SKILL.md", GRILL),
+            ("skills/spec/SKILL.md", GRILL),
+        ];
+        let (home, mut x) = ready("skills-2x", &m, &files);
         let get = settings("skill:grill skill:spec");
-        let all = list(&mut x, &home, &get, None);
-        assert_eq!(ids(&all), ["grill", "spec"]);
-        assert_eq!(all.left_out, []);
-        let e = &all.entries[0];
-        assert_eq!(
-            (
-                e.plugin.as_str(),
-                e.label.as_str(),
-                e.commit.as_str(),
-                e.text.as_str()
-            ),
-            ("floorplan", "Spec interview", C, GRILL)
-        );
-        assert_eq!(e.sha256, prepare::sha256(GRILL.as_bytes()));
-        assert!(x.ran_any(&format!("cat-file blob {C}:skills/grill.md")));
-        assert_eq!(ids(&list(&mut x, &home, &get, Some("wizard"))), ["grill"]);
-        assert_eq!(ids(&list(&mut x, &home, &get, Some("assistant"))), ["spec"]);
-        let only = settings("skill:grill");
-        assert_eq!(ids(&list(&mut x, &home, &only, None)), ["grill"]);
+        let l = list(&mut x, &home, &get, None);
+        assert_eq!(l.entries, []);
+        assert_eq!(l.left_out, []);
+        // The plugin's own files are read and checked, as tehas update
+        // checks them; what is missing is only the listing.
+        assert!(l.text()[0].starts_with("no skills:"), "{:?}", l.text());
     }
 
     #[test]
     fn a_plugin_is_left_out_when_what_update_read_is_not_there_now() {
         let m = manifest();
-        let files = [("skills/grill.md", GRILL), ("skills/spec.md", SPEC)];
+        let files = [
+            ("skills/grill/SKILL.md", GRILL),
+            ("skills/spec/SKILL.md", GRILL),
+        ];
         let get = settings("skill:grill skill:spec");
 
         let (home, mut x) = ready("skills-moved", &m, &files);
@@ -255,7 +257,6 @@ mod tests {
         s.manifest_sha256 = Some("0".repeat(64));
         prepare::write_state(&home, "floorplan", &s).unwrap();
         let l = list(&mut x, &home, &get, None);
-        assert_eq!(ids(&l), Vec::<&str>::new());
         assert_eq!(
             l.left_out,
             [(
@@ -264,65 +265,40 @@ mod tests {
             )]
         );
 
-        let bad = [("skills/grill.md", "a\u{1b}[2Jb"), ("skills/spec.md", SPEC)];
-        let (home, mut x) = ready("skills-bad", &m, &bad);
-        let l = list(&mut x, &home, &get, None);
-        assert_eq!(l.entries, []);
-        assert!(l.left_out[0].1.contains("skills/grill.md"), "{l:?}");
-
+        // A skill file that breaks a rule is refused by tehas update, not
+        // here: ops/src/plugin/prepare.rs holds that test, and this host
+        // reads no skill text at all until #3371.
         let (home, mut x) = ready("skills-unready", &m, &files);
         prepare::write_state(&home, "floorplan", &State::new(Word::Building, C)).unwrap();
         assert_eq!(list(&mut x, &home, &get, None), Listing::default());
     }
 
-    /// A manifest of `n` skills `a`, `b`, ... at `<id>.md`, and its grants.
-    fn many(n: u8) -> (String, String) {
-        let ids: Vec<String> = (0..n).map(|i| ((b'a' + i) as char).to_string()).collect();
-        let skills: Vec<String> = ids
-            .iter()
-            .map(|i| {
-                format!(r#"{{"id": "{i}", "about": "A", "path": "{i}.md", "chats": ["obeya"]}}"#)
-            })
-            .collect();
-        let asks: Vec<String> = ids.iter().map(|i| format!(r#""skill:{i}""#)).collect();
-        let m = format!(
-            r#"{{"plugin": 1, "name": "floorplan", "label": "Many", "asks": [{}], "skills": [{}]}}"#,
-            asks.join(", "),
-            skills.join(", ")
-        );
-        let grants = ids
-            .iter()
-            .map(|i| format!("skill:{i}"))
-            .collect::<Vec<_>>()
-            .join(" ");
-        (m, grants)
-    }
-
+    /// The total bound, at the seam a 2.x manifest cannot reach until
+    /// #3371: one byte under is in, one over is out whole.
     #[test]
     fn skills_past_the_total_leave_their_plugin_out_whole() {
-        let full = "x".repeat(skill::BYTES_MAX);
-        let names: Vec<String> = (0..5u8)
-            .map(|i| format!("{}.md", (b'a' + i) as char))
-            .collect();
-        let files: Vec<(&str, &str)> = names.iter().map(|n| (n.as_str(), full.as_str())).collect();
-
-        let (m, g) = many(4);
-        let (home, mut x) = ready("skills-total", &m, &files[..4]);
-        assert_eq!(list(&mut x, &home, &settings(&g), None).entries.len(), 4);
-
-        let (m, g) = many(5);
-        let (home, mut x) = ready("skills-over", &m, &files);
-        let l = list(&mut x, &home, &settings(&g), None);
-        assert_eq!(l.entries, []);
-        assert!(l.left_out[0].1.contains("8192"), "{l:?}");
+        assert_eq!(fits_total(0, 4096), Ok(()));
+        assert_eq!(fits_total(TOTAL_MAX - 1, 1), Ok(()));
+        assert!(fits_total(TOTAL_MAX, 1).unwrap_err().contains("8192"));
+        assert!(fits_total(TOTAL_MAX - 1, 2).unwrap_err().contains("8192"));
     }
 
     #[test]
     fn the_json_has_the_fields_of_the_api_sample() {
-        let m = manifest();
-        let files = [("skills/grill.md", GRILL), ("skills/spec.md", SPEC)];
-        let (home, mut x) = ready("skills-json", &m, &files);
-        let l = list(&mut x, &home, &settings("skill:grill"), Some("wizard"));
+        let l = Listing {
+            chat: Some("wizard".into()),
+            entries: vec![Entry {
+                plugin: "floorplan".into(),
+                label: "Spec interview".into(),
+                commit: C.into(),
+                id: "grill".into(),
+                about: "Interview the person".into(),
+                chats: vec!["obeya".into(), "wizard".into()],
+                text: GRILL.into(),
+                sha256: prepare::sha256(GRILL.as_bytes()),
+            }],
+            left_out: vec![],
+        };
         let got: serde_json::Value = serde_json::from_str(&l.json().dump()).unwrap();
         let sample: serde_json::Value =
             serde_json::from_str(include_str!("../../../../api/plugin-skills.sample.json"))

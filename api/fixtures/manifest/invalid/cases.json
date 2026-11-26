@@ -1,0 +1,87 @@
+{
+  "action-unpaired.json": [
+    "actions[refresh]: the action refresh needs the ask action:refresh"
+  ],
+  "actions-over.json": [
+    "actions: at most 2"
+  ],
+  "ask-twice.json": [
+    "asks: product is asked twice"
+  ],
+  "ask-unknown.json": [
+    "asks: weather: is not a grant 2.0 knows, of the standard's \u00a75 and the host's own list"
+  ],
+  "asks-over.json": [
+    "asks: at most 32"
+  ],
+  "driver-no-timeout.json": [
+    "timeout is missing: a driver runs, and a run has seconds"
+  ],
+  "entry-shared.json": [
+    "views[1]: the entry dist/view/map.js is the view map's too"
+  ],
+  "extra-build.json": [
+    "build: no field of manifest version 2"
+  ],
+  "hook-shape.json": [
+    "hooks[0].at: expected hook:<when>:<event>"
+  ],
+  "hook-unpaired.json": [
+    "hooks[0]: the hook hook:after:change.offered needs the ask hook:after:change.offered"
+  ],
+  "http-plugin.json": [
+    "asks: http: only an adapter reaches the network"
+  ],
+  "label-over.json": [
+    "label: expected 1 to 24 characters"
+  ],
+  "missing-label.json": [
+    "label: required and missing"
+  ],
+  "not-json.json": [
+    "the manifest is not JSON: EOF while parsing a value at line 1 column 21"
+  ],
+  "not-object.json": [
+    "the manifest is not a JSON object"
+  ],
+  "path-trailing.json": [
+    "wasm[m].path \"dist/wasm/m.wasm/\": expected a file under dist/wasm/, of letters, digits and ._-, with no . or .. and no trailing /"
+  ],
+  "plugin-1.json": [
+    "plugin is 1: this tehas reads manifest version 2"
+  ],
+  "skill-outside.json": [
+    "skills[0] \"grill.md\": expected a file under skills/, of letters, digits and ._-, with no . or .. and no trailing /"
+  ],
+  "skills-over.json": [
+    "skills: at most 8"
+  ],
+  "source-bare.json": [
+    "wasm[m].source \"src/\": expected a file or a folder under src/, of letters, digits and ._-, with no . or .."
+  ],
+  "source-outside.json": [
+    "wasm[m].source \"lib/engine\": expected a file or a folder under src/, of letters, digits and ._-, with no . or .."
+  ],
+  "spec-erratum.json": [
+    "spec \"2.0.0-r8.1\": not <major>.<minor>.<patch>-r<revision>"
+  ],
+  "timeout-no-driver.json": [
+    "driver is missing: only a run has seconds to give"
+  ],
+  "timeout-over.json": [
+    "timeout 601: out of the table's bounds, 1 to 600 whole seconds",
+    "timeout is missing: a driver runs, and a run has seconds"
+  ],
+  "view-twice.json": [
+    "views[1]: the view map is there twice"
+  ],
+  "view-unpaired.json": [
+    "views[0]: the view map needs the ask view:map"
+  ],
+  "views-empty.json": [
+    "views: expected 1 to 4 views"
+  ],
+  "views-over.json": [
+    "views: expected 1 to 4 views"
+  ]
+}

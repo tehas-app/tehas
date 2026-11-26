@@ -50,8 +50,25 @@ pub const TOOL_TIMEOUT: (u64, u64) = (1, 10);
 /// The fields of version 2, in the order of the table they come from
 /// (spec 2.2, :415-433). A field outside this is refused.
 pub const FIELDS: [&str; 19] = [
-    "plugin", "spec", "name", "label", "kind", "runtime", "timeout", "asks", "driver", "actions",
-    "views", "skills", "hooks", "wasm", "view_wasm", "vendor", "solid", "origins", "adapter",
+    "plugin",
+    "spec",
+    "name",
+    "label",
+    "kind",
+    "runtime",
+    "timeout",
+    "asks",
+    "driver",
+    "actions",
+    "views",
+    "skills",
+    "hooks",
+    "wasm",
+    "view_wasm",
+    "vendor",
+    "solid",
+    "origins",
+    "adapter",
 ];
 /// The fields every manifest has, in the order a missing one is named.
 pub const REQUIRED: [&str; 5] = ["plugin", "spec", "name", "label", "asks"];
@@ -310,7 +327,12 @@ fn closed(m: &Map<String, Value>, known: &[&str], field: &str, out: &mut Refusal
 }
 
 /// The value of a required key, said when it has none.
-fn need<'a>(m: &'a Map<String, Value>, key: &str, at: &str, out: &mut Refusals) -> Option<&'a Value> {
+fn need<'a>(
+    m: &'a Map<String, Value>,
+    key: &str,
+    at: &str,
+    out: &mut Refusals,
+) -> Option<&'a Value> {
     let v = m.get(key);
     if v.is_none() {
         out.say(format!("{at}.{key} is missing"));
@@ -443,7 +465,9 @@ fn is_origin(s: &str) -> bool {
 
 /// A sha256, lower case, as part 3 writes one.
 fn is_sha256(s: &str) -> bool {
-    s.len() == 64 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    s.len() == 64
+        && s.bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 /// A whole `major.minor.patch`, with the pre-release and build parts a
@@ -486,7 +510,9 @@ fn is_upstream(s: &str) -> bool {
     let parts: Vec<&str> = repo.split('/').collect();
     parts.len() == 3
         && commit.len() == 40
-        && commit.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+        && commit
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
         && parts.iter().all(|p| {
             !p.is_empty()
                 && p.bytes()
@@ -521,11 +547,13 @@ fn is_hook_at(s: &str) -> bool {
     };
     let parts: Vec<&str> = rest.splitn(2, ':').collect();
     parts.len() == 2
-        && parts[0].bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        && parts[0]
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
         && !parts[0].is_empty()
-        && parts[1].bytes().all(|b| {
-            b.is_ascii_lowercase() || b.is_ascii_digit() || b".-_".contains(&b)
-        })
+        && parts[1]
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b".-_".contains(&b))
         && !parts[1].is_empty()
 }
 
@@ -654,8 +682,12 @@ pub fn read(bytes: &[u8], name: &str) -> Result<Manifest, Vec<String>> {
         _ => {}
     }
 
-    let actions = field("actions").map(|v| actions(v, &asks, &mut out)).unwrap_or_default();
-    let views = field("views").map(|v| views(v, &asks, &mut out)).unwrap_or_default();
+    let actions = field("actions")
+        .map(|v| actions(v, &asks, &mut out))
+        .unwrap_or_default();
+    let views = field("views")
+        .map(|v| views(v, &asks, &mut out))
+        .unwrap_or_default();
     let skills = field("skills")
         .map(|v| skills(v, &asks, &mut out))
         .unwrap_or_default();
@@ -668,9 +700,13 @@ pub fn read(bytes: &[u8], name: &str) -> Result<Manifest, Vec<String>> {
     let view_wasm = field("view_wasm")
         .map(|v| modules(v, "view_wasm", "dist/view/wasm/", &mut out))
         .unwrap_or_default();
-    let vendor = field("vendor").map(|v| vendor(v, &mut out)).unwrap_or_default();
+    let vendor = field("vendor")
+        .map(|v| vendor(v, &mut out))
+        .unwrap_or_default();
     let solid = field("solid").and_then(|v| line(v, "solid", SOLID_MAX, &mut out));
-    let origins = field("origins").map(|v| origins(v, &mut out)).unwrap_or_default();
+    let origins = field("origins")
+        .map(|v| origins(v, &mut out))
+        .unwrap_or_default();
     let adapter = field("adapter").and_then(|v| adapter(v, &mut out));
 
     if solid.is_some() && views.is_empty() {
@@ -760,7 +796,10 @@ fn actions(v: &Value, asks: &[String], out: &mut Refusals) -> Vec<Action> {
             continue;
         };
         closed(a, &["label", "args"], &format!("{at}."), out);
-        let Some(label) = a.get("label").map(|v| line(v, &format!("{at}.label"), LABEL_MAX, out)).flatten() else {
+        let Some(label) = a
+            .get("label")
+            .and_then(|v| line(v, &format!("{at}.label"), LABEL_MAX, out))
+        else {
             if !a.contains_key("label") {
                 out.say(format!("{at}.label is missing"));
             }
@@ -831,7 +870,10 @@ fn views(v: &Value, asks: &[String], out: &mut Refusals) -> Vec<View> {
             out.say(format!("{at}: the view {id} is there twice"));
         }
         if let Some(g) = got.iter().find(|g| g.entry == entry) {
-            out.say(format!("{at}: the entry {entry} is the view {}'s too", g.id));
+            out.say(format!(
+                "{at}: the entry {entry} is the view {}'s too",
+                g.id
+            ));
         }
         let ask = format!("view:{id}");
         if !asks.contains(&ask) {
@@ -898,7 +940,8 @@ fn hooks(v: &Value, asks: &[String], out: &mut Refusals) -> Vec<Hook> {
                 None
             }
         });
-        let entry = need(o, "entry", &at, out).and_then(|v| file_path(v, &format!("{at}.entry"), "dist/", out));
+        let entry = need(o, "entry", &at, out)
+            .and_then(|v| file_path(v, &format!("{at}.entry"), "dist/", out));
         if let (Some(at_), Some(entry)) = (at_.clone(), entry) {
             if !asks.iter().any(|a| a == &at_) {
                 out.say(format!("{at}: the hook {at_} needs the ask {at_}"));
@@ -915,14 +958,18 @@ fn hooks(v: &Value, asks: &[String], out: &mut Refusals) -> Vec<Hook> {
 /// rebuild layer, which 1.1 :322 says the manifest `may` name.
 fn modules(v: &Value, field: &str, prefix: &str, out: &mut Refusals) -> Vec<Module> {
     let Some(m) = v.as_object() else {
-        out.say(format!("{field}: expected an object of name to {{path, source, recipe}}"));
+        out.say(format!(
+            "{field}: expected an object of name to {{path, source, recipe}}"
+        ));
         return Vec::new();
     };
     let mut got: Vec<Module> = Vec::new();
     for (name, v) in m {
         let at = format!("{field}[{name}]");
         if !is_word(name) {
-            out.say(format!("{at}: expected a name of a letter, then a-z, 0-9 and -"));
+            out.say(format!(
+                "{at}: expected a name of a letter, then a-z, 0-9 and -"
+            ));
             continue;
         }
         let Some(o) = v.as_object() else {
@@ -930,7 +977,8 @@ fn modules(v: &Value, field: &str, prefix: &str, out: &mut Refusals) -> Vec<Modu
             continue;
         };
         closed(o, &["path", "source", "recipe"], &format!("{at}."), out);
-        let path = need(o, "path", &at, out).and_then(|v| file_path(v, &format!("{at}.path"), prefix, out));
+        let path = need(o, "path", &at, out)
+            .and_then(|v| file_path(v, &format!("{at}.path"), prefix, out));
         let source = match o.get("source") {
             None => None,
             Some(v) => folder_path(v, &format!("{at}.source"), "src/", out),
@@ -958,7 +1006,9 @@ fn vendor(v: &Value, out: &mut Refusals) -> Vec<Vendor> {
     for (name, v) in m {
         let at = format!("vendor[{name}]");
         if !is_word(name) {
-            out.say(format!("{at}: expected a name of a letter, then a-z, 0-9 and -"));
+            out.say(format!(
+                "{at}: expected a name of a letter, then a-z, 0-9 and -"
+            ));
             continue;
         }
         let Some(o) = v.as_object() else {
@@ -1024,7 +1074,9 @@ fn origins(v: &Value, out: &mut Refusals) -> Vec<Origin> {
     for (id, v) in m {
         let at = format!("origins[{id}]");
         if !is_word(id) {
-            out.say(format!("{at}: expected a name of a letter, then a-z, 0-9 and -"));
+            out.say(format!(
+                "{at}: expected a name of a letter, then a-z, 0-9 and -"
+            ));
             continue;
         }
         let Some(o) = v.as_object() else {
@@ -1046,10 +1098,12 @@ fn origins(v: &Value, out: &mut Refusals) -> Vec<Origin> {
                 None
             }
         });
-        let credential = need(o, "credential", &at, out).and_then(|v| v.as_bool().or_else(|| {
-            out.say(format!("{at}.credential: expected true or false"));
-            None
-        }));
+        let credential = need(o, "credential", &at, out).and_then(|v| {
+            v.as_bool().or_else(|| {
+                out.say(format!("{at}.credential: expected true or false"));
+                None
+            })
+        });
         let methods = need(o, "methods", &at, out).and_then(|v| {
             let Some(list) = v.as_array() else {
                 out.say(format!("{at}.methods: expected a list of methods"));
@@ -1062,13 +1116,14 @@ fn origins(v: &Value, out: &mut Refusals) -> Vec<Origin> {
             let kept: Option<Vec<String>> = list
                 .iter()
                 .map(|m| {
-                    m.as_str().filter(|s| {
-                        !s.is_empty() && s.bytes().all(|b| b.is_ascii_uppercase())
-                    })
+                    m.as_str()
+                        .filter(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_uppercase()))
                 })
                 .map(|m| {
                     if m.is_none() {
-                        out.say(format!("{at}.methods: expected a method in capitals, such as GET"));
+                        out.say(format!(
+                            "{at}.methods: expected a method in capitals, such as GET"
+                        ));
                     }
                     m.map(str::to_string)
                 })
@@ -1082,7 +1137,9 @@ fn origins(v: &Value, out: &mut Refusals) -> Vec<Origin> {
                 None
             }
         });
-        if let (Some(url), Some(credential), Some(methods), Some(body)) = (url, credential, methods, b) {
+        if let (Some(url), Some(credential), Some(methods), Some(body)) =
+            (url, credential, methods, b)
+        {
             got.push(Origin {
                 id: id.to_string(),
                 url,
@@ -1098,14 +1155,18 @@ fn origins(v: &Value, out: &mut Refusals) -> Vec<Origin> {
 /// The `adapter` block (spec 2.2 :433, part 10.1).
 fn adapter(v: &Value, out: &mut Refusals) -> Option<Adapter> {
     let at = "adapter";
-    let o = v.as_object().map(|o| {
-        closed(o, &["world", "component", "realms", "ports", "credential"], "adapter.", out);
-        o
+    let o = v.as_object().inspect(|o| {
+        closed(
+            o,
+            &["world", "component", "realms", "ports", "credential"],
+            "adapter.",
+            out,
+        );
     })?;
     let world = need(o, "world", at, out).and_then(|v| match v.as_str() {
         Some(s) if is_world(s) => Some(s.to_string()),
         _ => {
-            out.say(format!("adapter.world: expected tehas:adapter@<major>.<minor>.<patch>"));
+            out.say("adapter.world: expected tehas:adapter@<major>.<minor>.<patch>".to_string());
             None
         }
     });
@@ -1119,8 +1180,8 @@ fn adapter(v: &Value, out: &mut Refusals) -> Option<Adapter> {
     if o.get("ports").is_none() {
         out.say("adapter.ports is missing");
     }
-    let credential = need(o, "credential", at, out)
-        .and_then(|v| line(v, "adapter.credential", WORD_MAX, out));
+    let credential =
+        need(o, "credential", at, out).and_then(|v| line(v, "adapter.credential", WORD_MAX, out));
     // The kind of a credential, never one: 10.1 :1355-1358. A path or a
     // space is a credential-shaped thing, so it is refused by name rather
     // than dropped, which would leave the block "missing".
@@ -1157,7 +1218,9 @@ fn words(v: Option<&Value>, field: &str, out: &mut Refusals) -> Option<Vec<Strin
         match v.as_str() {
             Some(s) if is_word(s) => got.push(s.to_string()),
             _ => {
-                out.say(format!("{field}: expected a name of a letter, then a-z, 0-9 and -"));
+                out.say(format!(
+                    "{field}: expected a name of a letter, then a-z, 0-9 and -"
+                ));
                 whole = false;
             }
         }
@@ -1184,7 +1247,9 @@ mod tests {
     /// The manifest is refused, and one reason says `why`. A refusal is
     /// proven by reaching it, never by the absence of an error.
     fn refuses(m: &Value, why: &str) -> Vec<String> {
-        let errs = value(m).err().unwrap_or_else(|| panic!("{m}\nwas accepted"));
+        let errs = value(m)
+            .err()
+            .unwrap_or_else(|| panic!("{m}\nwas accepted"));
         assert!(
             errs.iter().any(|e| e.contains(why)),
             "{m}\nno reason says {why:?} of {errs:?}"
@@ -1258,9 +1323,22 @@ mod tests {
     /// with token budgets of their own.
     fn asks_of(n: usize) -> Vec<String> {
         let mut a: Vec<String> = [
-            "product", "history", "files", "cycles", "issues", "pages", "keep",
-            "model:images", "feed:advisories", "industry:logs", "view", "menu", "record",
-            "issue:draft", "issue:advisory", "viewer:login",
+            "product",
+            "history",
+            "files",
+            "cycles",
+            "issues",
+            "pages",
+            "keep",
+            "model:images",
+            "feed:advisories",
+            "industry:logs",
+            "view",
+            "menu",
+            "record",
+            "issue:draft",
+            "issue:advisory",
+            "viewer:login",
         ]
         .iter()
         .map(|s| s.to_string())
@@ -1288,7 +1366,11 @@ mod tests {
         assert!(m.hooks.is_empty() && m.wasm.is_empty() && m.view_wasm.is_empty());
         assert!(m.vendor.is_empty() && m.solid.is_none() && m.origins.is_empty());
         assert!(m.adapter.is_none());
-        assert_eq!(m.v1, V1::default(), "a 2.x reader never fills the 1.x block");
+        assert_eq!(
+            m.v1,
+            V1::default(),
+            "a 2.x reader never fills the 1.x block"
+        );
     }
 
     #[test]
@@ -1362,7 +1444,10 @@ mod tests {
             json!(r"^[0-9]+\.[0-9]+\.[0-9]+-r[0-9]+$")
         );
         assert_eq!(s["properties"]["label"]["minLength"], json!(1));
-        assert_eq!(s["properties"]["label"]["maxLength"], json!(super::LABEL_MAX));
+        assert_eq!(
+            s["properties"]["label"]["maxLength"],
+            json!(super::LABEL_MAX)
+        );
         assert_eq!(s["properties"]["asks"]["maxItems"], json!(super::ASKS_MAX));
         assert_eq!(s["properties"]["asks"]["uniqueItems"], json!(true));
         assert_eq!(
@@ -1378,9 +1463,18 @@ mod tests {
             json!(super::ACTIONS_MAX)
         );
         assert_eq!(s["properties"]["views"]["minItems"], json!(1));
-        assert_eq!(s["properties"]["views"]["maxItems"], json!(super::VIEWS_MAX));
-        assert_eq!(s["properties"]["skills"]["maxItems"], json!(super::SKILLS_MAX));
-        assert_eq!(s["properties"]["solid"]["maxLength"], json!(super::SOLID_MAX));
+        assert_eq!(
+            s["properties"]["views"]["maxItems"],
+            json!(super::VIEWS_MAX)
+        );
+        assert_eq!(
+            s["properties"]["skills"]["maxItems"],
+            json!(super::SKILLS_MAX)
+        );
+        assert_eq!(
+            s["properties"]["solid"]["maxLength"],
+            json!(super::SOLID_MAX)
+        );
         assert_eq!(
             s["properties"]["adapter"]["properties"]["realms"]["maxItems"],
             json!(super::REALMS_MAX)
@@ -1409,8 +1503,12 @@ mod tests {
             m
         };
         let skills_n = |m: &Value, n: u8| {
-            let list: Vec<String> = (b'a'..b'a' + n).map(|c| format!("skills/s{}/S.md", c as char)).collect();
-            let asks: Vec<String> = (b'a'..b'a' + n).map(|c| format!("skill:s{}", c as char)).collect();
+            let list: Vec<String> = (b'a'..b'a' + n)
+                .map(|c| format!("skills/s{}/S.md", c as char))
+                .collect();
+            let asks: Vec<String> = (b'a'..b'a' + n)
+                .map(|c| format!("skill:s{}", c as char))
+                .collect();
             let mut m = set(m, "skills", json!(list));
             let mut a = m["asks"].as_array().unwrap().clone();
             a.extend(asks.iter().map(|w| json!(w)));
@@ -1421,79 +1519,287 @@ mod tests {
             ("every field", full(), true),
             ("the bare table row", bare(), true),
             ("an adapter", adapter(), true),
-            ("an adapter without a runtime", without(&adapter(), "runtime"), true),
+            (
+                "an adapter without a runtime",
+                without(&adapter(), "runtime"),
+                true,
+            ),
             ("a major of one", set(&bare(), "plugin", json!(1)), false),
             ("a major of three", set(&bare(), "plugin", json!(3)), false),
             ("a major spelled", set(&bare(), "plugin", json!("2")), false),
-            ("an erratum as a spec", set(&bare(), "spec", json!("2.0.0-r8.1")), false),
-            ("a spec of another major", set(&bare(), "spec", json!("1.9.9-r0")), true),
-            ("a field it does not know", set(&bare(), "license", json!("MIT")), false),
+            (
+                "an erratum as a spec",
+                set(&bare(), "spec", json!("2.0.0-r8.1")),
+                false,
+            ),
+            (
+                "a spec of another major",
+                set(&bare(), "spec", json!("1.9.9-r0")),
+                true,
+            ),
+            (
+                "a field it does not know",
+                set(&bare(), "license", json!("MIT")),
+                false,
+            ),
             ("no asks", without(&bare(), "asks"), false),
-            ("a label of no characters", set(&bare(), "label", json!("")), false),
-            ("a label over 24", set(&bare(), "label", json!("L".repeat(25))), false),
-            ("a driver with no seconds", set(&bare(), "driver", json!("dist/driver/main.js")), false),
-            ("seconds with no driver", set(&bare(), "timeout", json!(60)), false),
+            (
+                "a label of no characters",
+                set(&bare(), "label", json!("")),
+                false,
+            ),
+            (
+                "a label over 24",
+                set(&bare(), "label", json!("L".repeat(25))),
+                false,
+            ),
+            (
+                "a driver with no seconds",
+                set(&bare(), "driver", json!("dist/driver/main.js")),
+                false,
+            ),
+            (
+                "seconds with no driver",
+                set(&bare(), "timeout", json!(60)),
+                false,
+            ),
             ("seconds of no", set(&full(), "timeout", json!(0)), false),
-            ("seconds over the most", set(&full(), "timeout", json!(601)), false),
-            ("a kind of its own", set(&bare(), "kind", json!("worker")), false),
-            ("a runtime of its own", set(&bare(), "runtime", json!("wasmtime")), false),
-            ("component on a plugin", set(&bare(), "runtime", json!("component")), false),
-            ("a plugin reaching the network", set(&bare(), "asks", json!(["http"])), false),
-            ("a block on a plugin", set(&bare(), "adapter", adapter_block()), false),
-            ("an adapter with no block", without(&adapter(), "adapter"), false),
-            ("an adapter with a driver", set(&adapter(), "driver", json!("dist/driver/main.js")), false),
-            ("three actions", set(&full(), "actions", json!({
-                "refresh": {"label": "Refresh"}, "ping": {"label": "Ping"}, "send": {"label": "Send"}})), false),
+            (
+                "seconds over the most",
+                set(&full(), "timeout", json!(601)),
+                false,
+            ),
+            (
+                "a kind of its own",
+                set(&bare(), "kind", json!("worker")),
+                false,
+            ),
+            (
+                "a runtime of its own",
+                set(&bare(), "runtime", json!("wasmtime")),
+                false,
+            ),
+            (
+                "component on a plugin",
+                set(&bare(), "runtime", json!("component")),
+                false,
+            ),
+            (
+                "a plugin reaching the network",
+                set(&bare(), "asks", json!(["http"])),
+                false,
+            ),
+            (
+                "a block on a plugin",
+                set(&bare(), "adapter", adapter_block()),
+                false,
+            ),
+            (
+                "an adapter with no block",
+                without(&adapter(), "adapter"),
+                false,
+            ),
+            (
+                "an adapter with a driver",
+                set(&adapter(), "driver", json!("dist/driver/main.js")),
+                false,
+            ),
+            (
+                "three actions",
+                set(
+                    &full(),
+                    "actions",
+                    json!({
+                "refresh": {"label": "Refresh"}, "ping": {"label": "Ping"}, "send": {"label": "Send"}}),
+                ),
+                false,
+            ),
             ("no views named", set(&full(), "views", json!([])), false),
             ("five views", views5(&full()), false),
             ("nine skills", skills_n(&full(), 9), false),
             ("eight skills", skills_n(&bare(), 8), true),
-            ("thirty-three asks", set(&bare(), "asks", json!(asks_of(33))), false),
-            ("an ask named twice", set(&bare(), "asks", json!(["product", "product"])), false),
-            ("a module's path with a trailing slash", set(&full(), "wasm", json!({
-                "score": {"path": "dist/wasm/score.wasm/"}})), false),
-            ("a module's source with its slash", set(&full(), "wasm", json!({
-                "score": {"path": "dist/wasm/score.wasm", "source": "src/wasm/score/"}})), true),
-            ("a module's source without one", set(&full(), "wasm", json!({
-                "score": {"path": "dist/wasm/score.wasm", "source": "src/wasm/score"}})), true),
-            ("a driver with a trailing slash", set(&full(), "driver", json!("dist/driver/")), false),
-            ("an entry outside dist/view", set(&full(), "views", json!([
-                {"id": "map", "entry": "dist/other/index.html", "open": "dock"}])), false),
-            ("a view id with a capital", set(&full(), "views", json!([
-                {"id": "Map", "entry": "dist/view/index.html", "open": "dock"}])), false),
-            ("a library of a range", set(&full(), "vendor", json!({
+            (
+                "thirty-three asks",
+                set(&bare(), "asks", json!(asks_of(33))),
+                false,
+            ),
+            (
+                "an ask named twice",
+                set(&bare(), "asks", json!(["product", "product"])),
+                false,
+            ),
+            (
+                "a module's path with a trailing slash",
+                set(
+                    &full(),
+                    "wasm",
+                    json!({
+                "score": {"path": "dist/wasm/score.wasm/"}}),
+                ),
+                false,
+            ),
+            (
+                "a module's source with its slash",
+                set(
+                    &full(),
+                    "wasm",
+                    json!({
+                "score": {"path": "dist/wasm/score.wasm", "source": "src/wasm/score/"}}),
+                ),
+                true,
+            ),
+            (
+                "a module's source without one",
+                set(
+                    &full(),
+                    "wasm",
+                    json!({
+                "score": {"path": "dist/wasm/score.wasm", "source": "src/wasm/score"}}),
+                ),
+                true,
+            ),
+            (
+                "a driver with a trailing slash",
+                set(&full(), "driver", json!("dist/driver/")),
+                false,
+            ),
+            (
+                "an entry outside dist/view",
+                set(
+                    &full(),
+                    "views",
+                    json!([
+                {"id": "map", "entry": "dist/other/index.html", "open": "dock"}]),
+                ),
+                false,
+            ),
+            (
+                "a view id with a capital",
+                set(
+                    &full(),
+                    "views",
+                    json!([
+                {"id": "Map", "entry": "dist/view/index.html", "open": "dock"}]),
+                ),
+                false,
+            ),
+            (
+                "a library of a range",
+                set(
+                    &full(),
+                    "vendor",
+                    json!({
                 "left-pad": {"version": "1.3.0", "upstream": "npm:left-pad@^1.3.0",
-                             "files": {"index.js": sha()}}})), false),
-            ("a library with no sha256", set(&full(), "vendor", json!({
+                             "files": {"index.js": sha()}}}),
+                ),
+                false,
+            ),
+            (
+                "a library with no sha256",
+                set(
+                    &full(),
+                    "vendor",
+                    json!({
                 "left-pad": {"version": "1.3.0", "upstream": "npm:left-pad@1.3.0",
-                             "files": {"index.js": "abc"}}})), false),
-            ("an origin with a pattern", set(&full(), "origins", json!({
+                             "files": {"index.js": "abc"}}}),
+                ),
+                false,
+            ),
+            (
+                "an origin with a pattern",
+                set(
+                    &full(),
+                    "origins",
+                    json!({
                 "api": {"url": "https://*.example.com", "credential": false,
-                        "methods": ["GET"], "body": "none"}})), false),
-            ("an origin over http", set(&full(), "origins", json!({
+                        "methods": ["GET"], "body": "none"}}),
+                ),
+                false,
+            ),
+            (
+                "an origin over http",
+                set(
+                    &full(),
+                    "origins",
+                    json!({
                 "api": {"url": "http://api.example.com", "credential": false,
-                        "methods": ["GET"], "body": "none"}})), false),
-            ("an origin with a path", set(&full(), "origins", json!({
+                        "methods": ["GET"], "body": "none"}}),
+                ),
+                false,
+            ),
+            (
+                "an origin with a path",
+                set(
+                    &full(),
+                    "origins",
+                    json!({
                 "api": {"url": "https://api.example.com/x", "credential": false,
-                        "methods": ["GET"], "body": "none"}})), false),
-            ("a method in lower case", set(&full(), "origins", json!({
+                        "methods": ["GET"], "body": "none"}}),
+                ),
+                false,
+            ),
+            (
+                "a method in lower case",
+                set(
+                    &full(),
+                    "origins",
+                    json!({
                 "api": {"url": "https://api.example.com", "credential": false,
-                        "methods": ["get"], "body": "none"}})), false),
-            ("an origin with no method", set(&full(), "origins", json!({
+                        "methods": ["get"], "body": "none"}}),
+                ),
+                false,
+            ),
+            (
+                "an origin with no method",
+                set(
+                    &full(),
+                    "origins",
+                    json!({
                 "api": {"url": "https://api.example.com", "credential": false,
-                        "methods": [], "body": "none"}})), false),
-            ("a body of unbounded", set(&full(), "origins", json!({
+                        "methods": [], "body": "none"}}),
+                ),
+                false,
+            ),
+            (
+                "a body of unbounded",
+                set(
+                    &full(),
+                    "origins",
+                    json!({
                 "api": {"url": "https://api.example.com", "credential": false,
-                        "methods": ["GET"], "body": "unbounded"}})), false),
-            ("a solid with no view", set(&bare(), "solid", json!("2.0.3")), false),
-            ("seventeen realms", set(&adapter(), "adapter", json!({
+                        "methods": ["GET"], "body": "unbounded"}}),
+                ),
+                false,
+            ),
+            (
+                "a solid with no view",
+                set(&bare(), "solid", json!("2.0.3")),
+                false,
+            ),
+            (
+                "seventeen realms",
+                set(
+                    &adapter(),
+                    "adapter",
+                    json!({
                 "world": "tehas:adapter@2.0.0", "component": "dist/wasm/adapter.wasm",
                 "realms": (1..=17).map(|i| format!("r{i}")).collect::<Vec<_>>(),
-                "ports": ["status"], "credential": "github"})), false),
-            ("sixteen realms", set(&adapter(), "adapter", json!({
+                "ports": ["status"], "credential": "github"}),
+                ),
+                false,
+            ),
+            (
+                "sixteen realms",
+                set(
+                    &adapter(),
+                    "adapter",
+                    json!({
                 "world": "tehas:adapter@2.0.0", "component": "dist/wasm/adapter.wasm",
                 "realms": (1..=16).map(|i| format!("r{i}")).collect::<Vec<_>>(),
-                "ports": ["status"], "credential": "github"})), true),
+                "ports": ["status"], "credential": "github"}),
+                ),
+                true,
+            ),
         ];
         for (what, m, accepts) in cases {
             assert_eq!(fits(&m, &s), accepts, "{what}: the schema");
@@ -1534,7 +1840,8 @@ mod tests {
     fn the_major_is_refused_naming_the_major() {
         let errs = refuses(&set(&bare(), "plugin", json!(1)), "plugin is 1");
         assert!(
-            errs.iter().any(|e| e.contains("this tehas reads manifest version 2")),
+            errs.iter()
+                .any(|e| e.contains("this tehas reads manifest version 2")),
             "{errs:?}"
         );
         refuses(&set(&bare(), "plugin", json!(3)), "plugin is 3");
@@ -1562,7 +1869,10 @@ mod tests {
     #[test]
     fn kind_and_runtime_admit_only_the_tables_words() {
         refuses(&set(&bare(), "kind", json!("worker")), "kind \"worker\"");
-        refuses(&set(&bare(), "runtime", json!("wasmtime")), "runtime \"wasmtime\"");
+        refuses(
+            &set(&bare(), "runtime", json!("wasmtime")),
+            "runtime \"wasmtime\"",
+        );
         reads(&set(&bare(), "kind", json!("plugin")));
         reads(&set(&bare(), "runtime", json!("starlingmonkey")));
         let a = reads(&adapter());
@@ -1571,11 +1881,18 @@ mod tests {
         assert!(a.adapter.is_some());
         // An adapter's block, and none of the driver's parts.
         refuses(
-            &set(&adapter(), "views", json!([{"id": "map", "entry": "dist/view/index.html", "open": "dock"}])),
+            &set(
+                &adapter(),
+                "views",
+                json!([{"id": "map", "entry": "dist/view/index.html", "open": "dock"}]),
+            ),
             "views: an adapter has no views",
         );
         refuses(&without(&adapter(), "adapter"), "adapter is missing");
-        refuses(&set(&bare(), "adapter", adapter_block()), "the block is an adapter's");
+        refuses(
+            &set(&bare(), "adapter", adapter_block()),
+            "the block is an adapter's",
+        );
     }
 
     /// A driver and its seconds name each other: one without the other means
@@ -1599,10 +1916,22 @@ mod tests {
     /// The seconds of a run, within the table's bounds both ways.
     #[test]
     fn the_seconds_are_within_the_tables_bounds() {
-        refuses(&set(&full(), "timeout", json!(0)), "out of the table's bounds");
-        refuses(&set(&full(), "timeout", json!(601)), "out of the table's bounds");
-        refuses(&set(&full(), "timeout", json!("600")), "out of the table's bounds");
-        assert_eq!(reads(&set(&full(), "timeout", json!(600))).timeout, Some(600));
+        refuses(
+            &set(&full(), "timeout", json!(0)),
+            "out of the table's bounds",
+        );
+        refuses(
+            &set(&full(), "timeout", json!(601)),
+            "out of the table's bounds",
+        );
+        refuses(
+            &set(&full(), "timeout", json!("600")),
+            "out of the table's bounds",
+        );
+        assert_eq!(
+            reads(&set(&full(), "timeout", json!(600))).timeout,
+            Some(600)
+        );
         assert_eq!(reads(&set(&full(), "timeout", json!(1))).timeout, Some(1));
     }
 
@@ -1610,9 +1939,18 @@ mod tests {
     /// bound is the point: 24 read, 25 refused.
     #[test]
     fn the_label_is_one_line_of_its_bound() {
-        refuses(&set(&bare(), "label", json!("L".repeat(25))), "expected 1 to 24 characters");
-        refuses(&set(&bare(), "label", json!("a\nb")), "a control character or a line break");
-        assert_eq!(reads(&set(&bare(), "label", json!("L".repeat(24)))).label, "L".repeat(24));
+        refuses(
+            &set(&bare(), "label", json!("L".repeat(25))),
+            "expected 1 to 24 characters",
+        );
+        refuses(
+            &set(&bare(), "label", json!("a\nb")),
+            "a control character or a line break",
+        );
+        assert_eq!(
+            reads(&set(&bare(), "label", json!("L".repeat(24)))).label,
+            "L".repeat(24)
+        );
     }
 
     /// Each action's id is asked as `action:<id>`; the pairing is what makes
@@ -1623,7 +1961,11 @@ mod tests {
         let asks = |m: &Value| m["asks"].as_array().unwrap().clone();
         let one = json!({"refresh": {"label": "Refresh"}});
         refuses(
-            &set(&set(&full(), "actions", one.clone()), "asks", json!(["product"])),
+            &set(
+                &set(&full(), "actions", one.clone()),
+                "asks",
+                json!(["product"]),
+            ),
             "the action refresh needs the ask action:refresh",
         );
         reads(&set(&full(), "actions", one));
@@ -1635,7 +1977,10 @@ mod tests {
         let mut k = asks(&full());
         k.push(json!("action:ping"));
         k.push(json!("action:send"));
-        refuses(&set(&set(&full(), "actions", three), "asks", json!(k)), "actions: at most 2");
+        refuses(
+            &set(&set(&full(), "actions", three), "asks", json!(k)),
+            "actions: at most 2",
+        );
         let two = json!({"refresh": {"label": "Refresh"}, "ping": {"label": "Ping"}});
         let mut k = asks(&full());
         k.push(json!("action:ping"));
@@ -1648,7 +1993,11 @@ mod tests {
         k.push(json!("action:re-fresh"));
         refuses(
             &set(
-                &set(&full(), "actions", json!({"re-fresh": {"label": "L".repeat(25)}})),
+                &set(
+                    &full(),
+                    "actions",
+                    json!({"re-fresh": {"label": "L".repeat(25)}}),
+                ),
                 "asks",
                 json!(k.clone()),
             ),
@@ -1668,18 +2017,27 @@ mod tests {
     fn a_view_is_asked_by_name_and_keeps_the_cap() {
         let one = json!([{"id": "map", "entry": "dist/view/map.html", "open": "dock"}]);
         refuses(
-            &set(&set(&full(), "views", one.clone()), "asks", json!(["product"])),
+            &set(
+                &set(&full(), "views", one.clone()),
+                "asks",
+                json!(["product"]),
+            ),
             "the view map needs the ask view:map",
         );
         reads(&set(&full(), "views", one.clone()));
-        refuses(&set(&full(), "views", json!([])), "views: expected 1 to 4 views");
+        refuses(
+            &set(&full(), "views", json!([])),
+            "views: expected 1 to 4 views",
+        );
         let five: Vec<Value> = (b'a'..=b'e')
             .map(|c| {
                 let n = format!("v{}", c as char);
                 json!({"id": n, "entry": format!("dist/view/{n}.html"), "open": "dock"})
             })
             .collect();
-        let mut k: Vec<String> = (b'a'..=b'e').map(|c| format!("view:v{}", c as char)).collect();
+        let mut k: Vec<String> = (b'a'..=b'e')
+            .map(|c| format!("view:v{}", c as char))
+            .collect();
         let mut asks = full()["asks"]
             .as_array()
             .unwrap()
@@ -1687,14 +2045,19 @@ mod tests {
             .map(|v| v.as_str().unwrap().to_string())
             .collect::<Vec<_>>();
         asks.append(&mut k);
-        refuses(&set(&set(&full(), "views", json!(five)), "asks", json!(asks)), "views: expected 1 to 4");
+        refuses(
+            &set(&set(&full(), "views", json!(five)), "asks", json!(asks)),
+            "views: expected 1 to 4",
+        );
         let four: Vec<Value> = (b'a'..=b'd')
             .map(|c| {
                 let n = format!("v{}", c as char);
                 json!({"id": n, "entry": format!("dist/view/{n}.html"), "open": "full"})
             })
             .collect();
-        let mut asks: Vec<String> = (b'a'..=b'd').map(|c| format!("view:v{}", c as char)).collect();
+        let mut asks: Vec<String> = (b'a'..=b'd')
+            .map(|c| format!("view:v{}", c as char))
+            .collect();
         let mut base: Vec<String> = full()["asks"]
             .as_array()
             .unwrap()
@@ -1703,25 +2066,41 @@ mod tests {
             .filter(|w| !w.starts_with("view:"))
             .collect();
         base.append(&mut asks);
-        let m = reads(&set(&set(&full(), "views", json!(four)), "asks", json!(base)));
+        let m = reads(&set(
+            &set(&full(), "views", json!(four)),
+            "asks",
+            json!(base),
+        ));
         assert_eq!(m.views[3].open, Open::Full);
         // The same id twice, and the same entry twice, are said.
         refuses(
-            &set(&full(), "views", json!([
+            &set(
+                &full(),
+                "views",
+                json!([
                 {"id": "map", "entry": "dist/view/a.html", "open": "dock"},
-                {"id": "map", "entry": "dist/view/b.html", "open": "dock"}])),
+                {"id": "map", "entry": "dist/view/b.html", "open": "dock"}]),
+            ),
             "the view map is there twice",
         );
         refuses(
-            &set(&full(), "views", json!([
+            &set(
+                &full(),
+                "views",
+                json!([
                 {"id": "map", "entry": "dist/view/a.html", "open": "dock"},
-                {"id": "notes", "entry": "dist/view/a.html", "open": "dock"}])),
+                {"id": "notes", "entry": "dist/view/a.html", "open": "dock"}]),
+            ),
             "dist/view/a.html is the view map's too",
         );
         // A trailing slash is a folder, and a view's entry is a file.
         refuses(
-            &set(&full(), "views", json!([
-                {"id": "map", "entry": "dist/view/", "open": "dock"}])),
+            &set(
+                &full(),
+                "views",
+                json!([
+                {"id": "map", "entry": "dist/view/", "open": "dock"}]),
+            ),
             "no trailing /",
         );
         let _ = one;
@@ -1732,23 +2111,41 @@ mod tests {
     #[test]
     fn a_skill_is_a_dot_md_in_its_folder_and_needs_its_ask() {
         refuses(
-            &set(&set(&full(), "skills", json!(["skills/grill/GRILL.md"])), "asks", json!(["product"])),
+            &set(
+                &set(&full(), "skills", json!(["skills/grill/GRILL.md"])),
+                "asks",
+                json!(["product"]),
+            ),
             "the skill grill needs the ask skill:grill",
         );
         reads(&set(&full(), "skills", json!(["skills/grill/GRILL.md"])));
-        refuses(&set(&full(), "skills", json!(["skills/grill/GRILL.txt"])), "expected a .md file under skills/");
+        refuses(
+            &set(&full(), "skills", json!(["skills/grill/GRILL.txt"])),
+            "expected a .md file under skills/",
+        );
         // The id is the folder the file is in: a file straight under
         // skills/ would be the skill "skills", and must be asked as that.
         refuses(
             &set(&full(), "skills", json!(["skills/GRILL.md"])),
             "the skill skills needs the ask skill:skills",
         );
-        let nine: Vec<String> = (b'a'..b'a' + 9).map(|c| format!("skills/s{}/S.md", c as char)).collect();
+        let nine: Vec<String> = (b'a'..b'a' + 9)
+            .map(|c| format!("skills/s{}/S.md", c as char))
+            .collect();
         let nine_asks: Vec<String> = (b'a'..b'a' + 9)
             .map(|c| format!("skill:s{}", c as char))
             .collect();
-        refuses(&set(&set(&full(), "skills", json!(nine)), "asks", json!(nine_asks)), "skills: at most 8");
-        let eight: Vec<String> = (b'a'..b'a' + 8).map(|c| format!("skills/s{}/S.md", c as char)).collect();
+        refuses(
+            &set(
+                &set(&full(), "skills", json!(nine)),
+                "asks",
+                json!(nine_asks),
+            ),
+            "skills: at most 8",
+        );
+        let eight: Vec<String> = (b'a'..b'a' + 8)
+            .map(|c| format!("skills/s{}/S.md", c as char))
+            .collect();
         let mut asks: Vec<String> = full()["asks"]
             .as_array()
             .unwrap()
@@ -1756,7 +2153,11 @@ mod tests {
             .map(|v| v.as_str().unwrap().to_string())
             .collect();
         asks.extend((b'a'..b'a' + 8).map(|c| format!("skill:s{}", c as char)));
-        reads(&set(&set(&full(), "skills", json!(eight)), "asks", json!(asks)));
+        reads(&set(
+            &set(&full(), "skills", json!(eight)),
+            "asks",
+            json!(asks),
+        ));
     }
 
     /// A hook's point is asked by the same word it carries, and 1.x's cap of
@@ -1766,14 +2167,22 @@ mod tests {
     fn a_hook_is_asked_by_name_and_no_longer_capped() {
         let one = json!([{"at": "hook:after:change.offered", "entry": "dist/hook/main.js"}]);
         refuses(
-            &set(&set(&full(), "hooks", one.clone()), "asks", json!(["product"])),
+            &set(
+                &set(&full(), "hooks", one.clone()),
+                "asks",
+                json!(["product"]),
+            ),
             "the hook hook:after:change.offered needs the ask hook:after:change.offered",
         );
         reads(&set(&full(), "hooks", one.clone()));
         // The table writes the point as hook:<when>:<event>; the bare form is
         // refused, the prefixed one read — the counter-assertion in the pair.
         refuses(
-            &set(&full(), "hooks", json!([{"at": "after:change.offered", "entry": "dist/hook/main.js"}])),
+            &set(
+                &full(),
+                "hooks",
+                json!([{"at": "after:change.offered", "entry": "dist/hook/main.js"}]),
+            ),
             "expected hook:<when>:<event>",
         );
         let two = json!([
@@ -1789,7 +2198,11 @@ mod tests {
         reads(&set(&set(&full(), "hooks", two), "asks", json!(asks)));
         // An entry it does not ask for is refused naming the ask.
         refuses(
-            &set(&full(), "hooks", json!([{"at": "hook:before:cycle.started", "entry": "dist/hook/before.js"}])),
+            &set(
+                &full(),
+                "hooks",
+                json!([{"at": "hook:before:cycle.started", "entry": "dist/hook/before.js"}]),
+            ),
             "needs the ask hook:before:cycle.started",
         );
         let _ = one;
@@ -1800,26 +2213,63 @@ mod tests {
     /// the boundary is proven at each of the four file-shaped fields.
     #[test]
     fn a_source_is_a_folder_and_a_path_is_a_file() {
-        reads(&set(&full(), "wasm", json!({"score": {"path": "dist/wasm/score.wasm", "source": "src/wasm/score"}})));
-        reads(&set(&full(), "wasm", json!({"score": {"path": "dist/wasm/score.wasm", "source": "src/wasm/score/"}})));
-        refuses(&set(&full(), "wasm", json!({"score": {"path": "dist/wasm/score.wasm/"}})), "no trailing /");
-        refuses(&set(&full(), "view_wasm", json!({"panel": {"path": "dist/view/wasm/panel.wasm/"}})), "no trailing /");
-        refuses(&set(&full(), "driver", json!("dist/driver/")), "no trailing /");
+        reads(&set(
+            &full(),
+            "wasm",
+            json!({"score": {"path": "dist/wasm/score.wasm", "source": "src/wasm/score"}}),
+        ));
+        reads(&set(
+            &full(),
+            "wasm",
+            json!({"score": {"path": "dist/wasm/score.wasm", "source": "src/wasm/score/"}}),
+        ));
         refuses(
-            &set(&full(), "views", json!([{"id": "map", "entry": "dist/view/map/", "open": "dock"}])),
+            &set(
+                &full(),
+                "wasm",
+                json!({"score": {"path": "dist/wasm/score.wasm/"}}),
+            ),
             "no trailing /",
         );
         refuses(
-            &set(&adapter(), "adapter", json!({
+            &set(
+                &full(),
+                "view_wasm",
+                json!({"panel": {"path": "dist/view/wasm/panel.wasm/"}}),
+            ),
+            "no trailing /",
+        );
+        refuses(
+            &set(&full(), "driver", json!("dist/driver/")),
+            "no trailing /",
+        );
+        refuses(
+            &set(
+                &full(),
+                "views",
+                json!([{"id": "map", "entry": "dist/view/map/", "open": "dock"}]),
+            ),
+            "no trailing /",
+        );
+        refuses(
+            &set(
+                &adapter(),
+                "adapter",
+                json!({
                 "world": "tehas:adapter@2.0.0", "component": "dist/wasm/adapter.wasm/",
-                "realms": ["r"], "ports": ["p"], "credential": "github"})),
+                "realms": ["r"], "ports": ["p"], "credential": "github"}),
+            ),
             "no trailing /",
         );
         // And each of those reads without the slash.
         reads(&set(&full(), "driver", json!("dist/driver/main.js")));
-        let a = reads(&set(&adapter(), "adapter", json!({
+        let a = reads(&set(
+            &adapter(),
+            "adapter",
+            json!({
             "world": "tehas:adapter@2.0.0", "component": "dist/wasm/adapter.wasm",
-            "realms": ["r"], "ports": ["p"], "credential": "github"})));
+            "realms": ["r"], "ports": ["p"], "credential": "github"}),
+        ));
         assert_eq!(
             a.adapter,
             Some(Adapter {
@@ -1836,10 +2286,13 @@ mod tests {
     /// it is refused naming the reason.
     #[test]
     fn the_network_is_an_adapters_alone() {
-        refuses(&set(&bare(), "asks", json!(["http"])), "asks: http: only an adapter reaches the network");
+        refuses(
+            &set(&bare(), "asks", json!(["http"])),
+            "asks: http: only an adapter reaches the network",
+        );
         let a = reads(&adapter());
         assert!(a.asks.contains(&"http".to_string()));
-        assert_eq!(a.origins[0].credential, true);
+        assert!(a.origins[0].credential);
     }
 
     /// An origin is an exact name. The three a pattern of that shape cannot
@@ -1848,12 +2301,25 @@ mod tests {
     #[test]
     fn an_origin_is_an_exact_name() {
         let origin = |url: &str| {
-            set(&full(), "origins", json!({"api": {"url": url, "credential": false, "methods": ["GET"], "body": "none"}}))
+            set(
+                &full(),
+                "origins",
+                json!({"api": {"url": url, "credential": false, "methods": ["GET"], "body": "none"}}),
+            )
         };
         refuses(&origin("https://1.2.3.4"), "expected an exact origin");
-        refuses(&origin("https://api.example.com./"), "expected an exact origin");
-        refuses(&origin("https://user@api.example.com"), "expected an exact origin");
-        refuses(&origin("https://API.example.com"), "expected an exact origin");
+        refuses(
+            &origin("https://api.example.com./"),
+            "expected an exact origin",
+        );
+        refuses(
+            &origin("https://user@api.example.com"),
+            "expected an exact origin",
+        );
+        refuses(
+            &origin("https://API.example.com"),
+            "expected an exact origin",
+        );
         let m = reads(&origin("https://api.example.com"));
         assert_eq!(m.origins[0].body, Body::None);
         let m = reads(&origin("https://api.example.gov.uk"));
@@ -1865,14 +2331,29 @@ mod tests {
     #[test]
     fn a_vendor_library_is_named_whole() {
         let lib = |upstream: &str| {
-            set(&full(), "vendor", json!({"left-pad": {"version": "1.3.0", "upstream": upstream, "files": {"index.js": sha()}}}))
+            set(
+                &full(),
+                "vendor",
+                json!({"left-pad": {"version": "1.3.0", "upstream": upstream, "files": {"index.js": sha()}}}),
+            )
         };
         reads(&lib("npm:left-pad@1.3.0"));
         reads(&lib("npm:@scope/pad@1.3.0"));
-        reads(&lib(&format!("git:github.com/owner/repo@{}", "ab".repeat(20))));
-        refuses(&lib("npm:left-pad@1"), "expected npm:<name>@<version> or git:<host>/<owner>/<repo>@<commit>");
-        refuses(&lib("https://github.com/owner/repo"), "expected npm:<name>@<version>");
-        let m = reads(&lib("git:github.com/owner/repo@0000000000000000000000000000000000000000"));
+        reads(&lib(&format!(
+            "git:github.com/owner/repo@{}",
+            "ab".repeat(20)
+        )));
+        refuses(
+            &lib("npm:left-pad@1"),
+            "expected npm:<name>@<version> or git:<host>/<owner>/<repo>@<commit>",
+        );
+        refuses(
+            &lib("https://github.com/owner/repo"),
+            "expected npm:<name>@<version>",
+        );
+        let m = reads(&lib(
+            "git:github.com/owner/repo@0000000000000000000000000000000000000000",
+        ));
         assert_eq!(m.vendor.len(), 1);
     }
 
@@ -1882,13 +2363,28 @@ mod tests {
     /// refused.
     #[test]
     fn the_asks_are_grants_each_given_once() {
-        refuses(&set(&bare(), "asks", json!(["weather"])), "asks: weather: is not a grant");
-        refuses(&set(&bare(), "asks", json!(["feed:"])), "feed: wants a value");
-        refuses(&set(&bare(), "asks", json!(["product", "product"])), "product is asked twice");
+        refuses(
+            &set(&bare(), "asks", json!(["weather"])),
+            "asks: weather: is not a grant",
+        );
+        refuses(
+            &set(&bare(), "asks", json!(["feed:"])),
+            "feed: wants a value",
+        );
+        refuses(
+            &set(&bare(), "asks", json!(["product", "product"])),
+            "product is asked twice",
+        );
         reads(&set(&bare(), "asks", json!(["feed:notes", "history"])));
         reads(&set(&bare(), "asks", json!(asks_of(32))));
-        refuses(&set(&bare(), "asks", json!(asks_of(33))), "asks: at most 32");
-        refuses(&set(&bare(), "asks", json!(["product", 2])), "an array of strings");
+        refuses(
+            &set(&bare(), "asks", json!(asks_of(33))),
+            "asks: at most 32",
+        );
+        refuses(
+            &set(&bare(), "asks", json!(["product", 2])),
+            "an array of strings",
+        );
     }
 
     /// The bytes before the rules: too many, not JSON, or not an object.
@@ -1914,10 +2410,14 @@ mod tests {
         .err()
         .unwrap();
         assert!(
-            errs.iter().any(|e| e == "name is other, and TEHAS_PLUGINS names it demo"),
+            errs.iter()
+                .any(|e| e == "name is other, and TEHAS_PLUGINS names it demo"),
             "{errs:?}"
         );
-        refuses(&set(&bare(), "name", json!("Demo!")), "expected 1 to 12 characters");
+        refuses(
+            &set(&bare(), "name", json!("Demo!")),
+            "expected 1 to 12 characters",
+        );
         reads(&bare());
     }
 }

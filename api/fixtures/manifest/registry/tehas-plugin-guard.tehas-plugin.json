@@ -1,0 +1,13 @@
+{
+  "plugin": 1,
+  "kind": "batch",
+  "name": "guard",
+  "label": "Guard",
+  "license": "Apache-2.0",
+  "build": "Dockerfile",
+  "timeout": 3600,
+  "asks": ["view", "menu", "product", "history", "model", "at", "action:run", "record", "keep"],
+  "view": {"label": "Guard"},
+  "actions": [{"id": "run", "label": "Scan now"}],
+  "records": [{"kind": "scan"}]
+}

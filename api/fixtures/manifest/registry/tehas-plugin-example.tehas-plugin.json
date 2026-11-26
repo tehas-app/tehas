@@ -1,0 +1,54 @@
+{
+  "plugin": 2,
+  "spec": "2.0.0-r8",
+  "name": "example",
+  "label": "Example",
+  "runtime": "starlingmonkey",
+  "timeout": 60,
+  "asks": [
+    "view:hello",
+    "view:notes",
+    "clock:daily@06:00",
+    "keep",
+    "skill:example",
+    "skill:make-a-plugin",
+    "action:hello",
+    "viewer:login"
+  ],
+  "driver": "dist/driver/main.js",
+  "actions": {
+    "hello": {
+      "label": "Say hello",
+      "args": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    }
+  },
+  "views": [
+    {
+      "id": "hello",
+      "entry": "dist/view/index.html",
+      "open": "dock"
+    },
+    {
+      "id": "notes",
+      "entry": "dist/view/notes.html",
+      "open": "page"
+    }
+  ],
+  "skills": [
+    "skills/example/SKILL.md",
+    "skills/make-a-plugin/SKILL.md"
+  ],
+  "wasm": {
+    "score": {
+      "path": "dist/wasm/score.wasm",
+      "source": "src/wasm/score/",
+      "recipe": "bin/build: cargo build --locked --release --target wasm32-wasip1, rustc 1.100.0 (src/wasm/score/rust-toolchain.toml)"
+    }
+  },
+  "vendor": {},
+  "solid": "2.0.3"
+}

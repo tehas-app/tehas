@@ -1,0 +1,23 @@
+{
+  "plugin": 2,
+  "spec": "2.0.0-r8",
+  "name": "relay",
+  "label": "Relay",
+  "kind": "adapter",
+  "runtime": "component",
+  "asks": [
+    "http",
+    "feed:advisories"
+  ],
+  "adapter": {
+    "world": "tehas:adapter@1.0.0",
+    "component": "dist/wasm/relay.wasm",
+    "realms": [
+      "github"
+    ],
+    "ports": [
+      "https"
+    ],
+    "credential": "token"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "plugin": 1,
+  "kind": "batch",
+  "name": "review",
+  "label": "Review",
+  "license": "Apache-2.0",
+  "build": "Dockerfile",
+  "timeout": 3600,
+  "asks": ["view", "menu", "product", "history", "model", "every", "action:run", "record", "keep", "issue:draft"],
+  "view": {"label": "Review"},
+  "actions": [{"id": "run", "label": "Run the review"}],
+  "records": [{"kind": "review"}]
+}

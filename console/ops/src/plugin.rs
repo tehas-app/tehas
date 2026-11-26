@@ -604,6 +604,7 @@ pub fn update_step(home: &Path) -> update::Said {
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+    use tehas_core::testdir::TestDir;
 
     const PIN: &str = "0123456789abcdef0123456789abcdef01234567";
     const URL: &str = "https://github.com/tehas-app/tehas-plugin-floorplan";
@@ -708,6 +709,45 @@ mod tests {
         ] {
             assert_eq!(words_of(bad), Err(64), "{bad:?}");
         }
+    }
+
+    /// A manifest the reader refuses is the command's 3, never 78: 78 is a
+    /// setting's, and a plugin's bad manifest is not a broken host. Both the
+    /// major refusal and a rule refusal reach it, with the counter-assertion
+    /// of a manifest of the table exiting 0.
+    #[test]
+    fn a_refused_manifest_is_no_and_never_the_settings_code() {
+        let dir = TestDir::new("plugin-check-exit");
+        let at = dir.path().to_str().unwrap();
+        std::fs::write(
+            dir.join("tehas-plugin.json"),
+            r#"{"plugin": 1, "spec": "1.0.0-r0", "name": "floorplan", "label": "Floorplan", "asks": []}"#,
+        )
+        .unwrap();
+        let c = check::check(dir.path()).unwrap();
+        assert_eq!(
+            c.refusals(),
+            ["tehas-plugin.json: plugin is 1: this tehas reads manifest version 2"]
+        );
+        assert_eq!(check_main(at, false), exit::NO);
+        assert_ne!(check_main(at, false), exit::SETTINGS);
+        // A rule of the table refused at the ask is the same code.
+        std::fs::write(
+            dir.join("tehas-plugin.json"),
+            r#"{"plugin": 2, "spec": "2.0.0-r8", "name": "floorplan", "label": "Floorplan", "asks": ["weather"]}"#,
+        )
+        .unwrap();
+        assert_eq!(check_main(at, false), exit::NO);
+        // And a manifest of the table is kept.
+        std::fs::write(
+            dir.join("tehas-plugin.json"),
+            r#"{"plugin": 2, "spec": "2.0.0-r8", "name": "floorplan", "label": "Floorplan", "asks": []}"#,
+        )
+        .unwrap();
+        assert_eq!(check_main(at, false), exit::OK);
+        // A folder with no manifest at all is refused too, not a crash.
+        let bare = TestDir::new("plugin-check-bare");
+        assert_eq!(check_main(bare.path().to_str().unwrap(), false), exit::NO);
     }
 
     #[test]

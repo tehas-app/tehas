@@ -196,8 +196,6 @@ mod tests {
     use std::os::unix::fs::symlink;
     use tehas_core::testdir::TestDir;
 
-    const NODE: &str = "FROM node:22-bookworm@sha256:e13726ca604184d7a91fcacab1fc09eefd642dc28e79ac34e85540dd93b78cfb";
-
     fn folder(name: &str, files: &[(&str, &str)]) -> TestDir {
         let d = TestDir::new(&format!("plugin-check-{name}"));
         for (path, text) in files {
@@ -208,37 +206,30 @@ mod tests {
         d
     }
 
+    /// A manifest the 2.2 reader reads. The Dockerfile is gone from the
+    /// table, so a folder of 2.2 brings no build: what the check says now is
+    /// the manifest's rules, the links and the .gitattributes files.
     fn manifest(asks: &str) -> String {
         format!(
-            r#"{{"plugin": 1, "kind": "batch", "name": "demo", "label": "Demo", "build": "Dockerfile", "asks": [{asks}], "timeout": 600}}"#
+            r#"{{"plugin": 2, "spec": "2.0.0-r8", "name": "demo", "label": "Demo", "asks": [{asks}]}}"#
         )
-    }
-
-    fn dockerfile() -> String {
-        format!("{NODE}\nUSER 10001:10001\nENTRYPOINT [\"node\", \"/plugin/main.mjs\"]\n")
     }
 
     #[test]
     fn a_folder_that_keeps_the_rules_is_ok_and_says_what_it_did_not_check() {
-        let d = folder(
-            "ok",
-            &[
-                ("tehas-plugin.json", &manifest(r#""product""#)),
-                ("Dockerfile", &dockerfile()),
-            ],
-        );
+        let d = folder("ok", &[("tehas-plugin.json", &manifest(r#""product""#))]);
         let c = check(&d).unwrap();
         assert!(c.refusals().is_empty(), "{:?}", c.refusals());
         let typed = c.answer();
         assert_eq!(typed.name, Some("demo"));
         assert_eq!(typed.asks, ["product"]);
-        assert_eq!(typed.bases.len(), 1);
+        assert!(typed.bases.is_empty(), "a 2.2 folder builds no image");
         let text = c.json().unwrap();
         let j: serde_json::Value = serde_json::from_str(&text).unwrap();
         // The keys are sorted, as the value of the answer writes them.
         assert_eq!(text, j.to_string());
         assert!(
-            text.starts_with(r#"{"api":1,"asks":["product"],"bases":["#),
+            text.starts_with(r#"{"api":1,"asks":["product"],"bases":[],"#),
             "{text}"
         );
         assert_eq!(j["name"], "demo");
@@ -265,28 +256,27 @@ mod tests {
         assert!(joined.contains("gate:before:work"), "{joined}");
         assert_eq!(r.text().iter().filter(|l| *l == "refused:").count(), 1);
 
-        let d = folder(
-            "dockerfile",
-            &[
-                ("tehas-plugin.json", &manifest(r#""product""#)),
-                ("Dockerfile", "FROM node:22\n"),
-            ],
-        );
+        let d = folder("not-json", &[("tehas-plugin.json", "not json at all")]);
         let r = check(&d).unwrap();
         assert!(
-            r.refusals().iter().all(|w| w.starts_with("Dockerfile: ")),
+            r.refusals()
+                .iter()
+                .all(|w| w.starts_with("tehas-plugin.json: ")),
             "{:?}",
             r.refusals()
         );
         assert!(!r.refusals().is_empty());
 
-        let d = folder(
-            "no-docker",
-            &[("tehas-plugin.json", &manifest(r#""product""#))],
-        );
-        assert_eq!(
-            check(&d).unwrap().refusals(),
-            ["Dockerfile: not in the folder"]
+        let mut with_extra = manifest(r#""product""#);
+        with_extra = with_extra.replace("\"asks\"", "\"kit\": true, \"asks\"");
+        let d = folder("extra-field", &[("tehas-plugin.json", &with_extra)]);
+        let r = check(&d).unwrap();
+        assert!(
+            r.refusals()
+                .iter()
+                .any(|w| w == "tehas-plugin.json: kit: no field of manifest version 2"),
+            "{:?}",
+            r.refusals()
         );
     }
 
@@ -298,14 +288,19 @@ mod tests {
             .unwrap_err()
             .ends_with("is not a folder"));
 
+        // What the reader still reads is what must not be a link: a skill's
+        // text, read through `file` at the pin, is refused as a link.
+        let mut with_skill = manifest(r#""product", "skill:grill""#);
+        with_skill = with_skill.replace(
+            "\"asks\"",
+            "\"skills\": [\"skills/grill/GRILL.md\"], \"asks\"",
+        );
         let d = folder(
             "link",
-            &[
-                ("tehas-plugin.json", &manifest(r#""product""#)),
-                ("real", &dockerfile()),
-            ],
+            &[("tehas-plugin.json", &with_skill), ("real", "# grill")],
         );
-        symlink(d.join("real"), d.join("Dockerfile")).unwrap();
+        fs::create_dir_all(d.join("skills/grill")).unwrap();
+        symlink(d.join("real"), d.join("skills/grill/GRILL.md")).unwrap();
         let r = check(&d).unwrap();
         assert!(
             r.refusals().iter().any(|w| w.contains("a link")),
@@ -316,10 +311,7 @@ mod tests {
 
     #[test]
     fn a_folder_with_a_gitattributes_file_at_any_depth_is_refused() {
-        let files = [
-            ("tehas-plugin.json", manifest(r#""product""#)),
-            ("Dockerfile", format!("{}# $Format:%B$\n", dockerfile())),
-        ];
+        let files = [("tehas-plugin.json", manifest(r#""product""#))];
         for (case, at) in [("top", ".gitattributes"), ("deep", "src/a/.gitattributes")] {
             let mut all: Vec<(&str, &str)> = files.iter().map(|(p, t)| (*p, t.as_str())).collect();
             all.push((at, "Dockerfile export-subst\n"));
