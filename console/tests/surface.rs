@@ -314,6 +314,31 @@ fn every_public_name_is_in_the_baseline() {
 }
 
 #[test]
+fn the_surface_holds_exactly_the_served_tools() {
+    // The table and the list of called names are one owner's two views.
+    let served: BTreeSet<String> = mcp::tools::called()
+        .iter()
+        .map(|n| format!("tool {n}"))
+        .collect();
+    let table: BTreeSet<String> = mcp::tools::published()
+        .iter()
+        .filter_map(|e| e["name"].as_str())
+        .map(|n| format!("tool {n}"))
+        .collect();
+    assert_eq!(table, served, "the tool table and CALLED name different tools");
+    // The number is pinned like the commands': a tool added or dropped must
+    // be felt here and in api/surface-2.0.txt, not only noticed by a client.
+    assert_eq!(served.len(), 15, "the server serves fifteen tools");
+    let on_surface: BTreeSet<String> = surface()
+        .into_iter()
+        .filter(|n| {
+            n.starts_with("tool ") && !n.contains(" arg ") && !n.contains(" answer ")
+        })
+        .collect();
+    assert_eq!(on_surface, served);
+}
+
+#[test]
 fn the_baseline_lists_each_name_once() {
     let mut seen = BTreeSet::new();
     for name in baseline() {
