@@ -828,6 +828,13 @@ pub fn known(name: &str) -> bool {
     CALLED.contains(&name)
 }
 
+/// The served tool names, in the order the table holds them. The surface
+/// guard reads the tool lines of api/surface-2.0.txt from here, so the
+/// table has one owner.
+pub fn called() -> &'static [&'static str] {
+    &CALLED
+}
+
 /// The tools of a `tools/list` for a key of this scope: every one of them for
 /// a full key, as it has always been, and the three of `DASHBOARD` in the order
 /// the catalog gives them for a dashboard key. The entries are the same

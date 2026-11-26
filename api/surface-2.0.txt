@@ -1,8 +1,9 @@
 # The public surface of tehas 2.x, from 2.0, one name per line: the
 # commands and subcommands of api/commands.txt and their public flags, the
 # settings and roles of api/settings-rules.json, the labels of
-# host/labels.tsv and the fields of the --json objects of api/*.schema.json,
-# an array's items written `[]`. A feature still being built is not here, nor
+# host/labels.tsv, the fields of the --json objects of api/*.schema.json,
+# an array's items written `[]`, and the tools of the read-only MCP server,
+# written `tool <name>`. A feature still being built is not here, nor
 # are the flags api/commands.txt marks internal or the fields under those
 # host/docs/contract.md says may change. A name that was here before its
 # feature became building stays, and a release refuses it while the feature
@@ -725,3 +726,18 @@ flag limit set --json
 field answer.answer.plugin
 field answer.answer.plugin.commit
 field answer.answer.plugin.name
+tool factory_status
+tool factory_issues
+tool factory_endings
+tool factory_console
+tool factory_issue
+tool factory_sessions
+tool factory_session
+tool factory_log
+tool factory_search
+tool factory_events
+tool factory_failures
+tool factory_outcomes
+tool factory_park
+tool factory_decisions
+tool factory_disk
