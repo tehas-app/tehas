@@ -52,7 +52,7 @@ does not parse. Source: none, each is made by hand.
 ## anonymous/
 
 Read by `tests/anonymous.rs` through `Stub::synthetic(<case>)`, before
-`recorded/anonymous/`. Each is made from a live answer to an anonymous
+`recorded/anonymous/`, and `json-asset/` by `tests/anonymous_download.rs`. Each is made from a live answer to an anonymous
 reader (kit run #1, 2026-11-26) under
 `console/github/tests/recorded/anonymous/`, named in the second column.
 
@@ -64,3 +64,4 @@ reader (kit run #1, 2026-11-26) under
 | `anonymous/pre/repos_tehas_app_tehas_rec_releases_releases_latest` | `repos_tehas_app_tehas_rec_releases_releases_latest` | GitHub never answers `latest` with a prerelease: `"prerelease":false` is `"prerelease":true` |
 | `anonymous/spent/repos_tehas_app_tehas_rec_releases_releases_per_page_100` | `repos_tehas_app_tehas_rec_releases_releases_per_page_100` | A spent budget, which cannot be made on demand: the status `200` is `403`, `x-ratelimit-remaining` `37` is `0`, `x-ratelimit-used` `23` is `60`, the body is GitHub's rate-limit message and `content-length` its 275 bytes |
 | `anonymous/busy/repos_tehas_app_tehas_rec_releases_releases_per_page_100` | `repos_tehas_app_tehas_rec_releases_releases_per_page_100` | A 429 with no reset time and no `retry-after`, which cannot be made on demand: as `spent/`, with the status `429` and the `x-ratelimit-reset` line taken out |
+| `anonymous/json-asset/repos_tehas_app_tehas_rec_releases_releases_assets_796197977` | `repos_tehas_app_tehas_rec_releases_releases_tags_v1_1_0` | The API's JSON for the asset in place of its bytes, which GitHub cannot be made to send: the release's headers kept, the body only its first asset's object as the release gives it, `content-length` its 1469 bytes |
