@@ -1054,10 +1054,11 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   `ERROR: unreadable edit history of #N` ends with one fixed line of the
   ports' outcomes, such as `the site could not be reached`, not gh's words.
   A body history whose versions do not agree, or that GitHub's answer
-  leaves out or names an error for, holds the issue as changed by
-  `unknown`, as a history longer than the poll reads does; before, an
-  answer with an error ended the poll. A call that fails or an answer
-  that cannot be read still ends it.
+  leaves out or names an error at that issue for, holds that issue as
+  changed by `unknown`, as a history longer than the poll reads does;
+  before, an answer with an error ended the poll. A call that fails, an
+  answer that cannot be read, or an error GitHub names no one issue for
+  (the repository not found or not visible among them) still ends it.
   Readers: adopters, the end-to-end suite.
   Adopter action: a script that matched gh's words in that line matches the
   fixed lines.

@@ -527,3 +527,22 @@ fn a_failed_question_fails_each_of_its_items() {
         }
     }
 }
+
+#[test]
+fn a_failed_question_fails_the_bodies_read_together_whole() {
+    for state in ["error-no-path", "unresolved", "garbled", "server-error"] {
+        let (mut gh, _) = adapter(state);
+        let of = gh.body_edits_of(&[bp(7), bp(8)], ALL_MAX);
+        let (mut gh, _) = adapter(state);
+        let together = gh.body_edits_together(&[bp(7), bp(8)], ALL_MAX);
+        assert_eq!(together, Err(of[0].1.clone().unwrap_err()), "{state}");
+    }
+    // An item's own failure is that item's, the others read beside it.
+    for state in ["item-error", "deleted-version", "null-issue", "too-many"] {
+        let (mut gh, _) = adapter(state);
+        let of = gh.body_edits_of(&[bp(7), bp(9)], ALL_MAX);
+        let (mut gh, _) = adapter(state);
+        let together = gh.body_edits_together(&[bp(7), bp(9)], ALL_MAX);
+        assert_eq!(together, Ok(of), "{state}");
+    }
+}

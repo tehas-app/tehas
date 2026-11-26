@@ -1538,12 +1538,15 @@ fn faulty_passes_the_plural_edit_reads_whole_and_fails_each_item() {
     let site = Faulty::new(FakeSite::new(&w));
     let mut h = site.blueprints(&full(), C).unwrap();
     assert_eq!(h.body_edits_of(&nos, ALL_MAX), want);
+    assert_eq!(h.body_edits_together(&nos, ALL_MAX), Ok(want));
     let site = Faulty::new(FakeSite::new(&w))
         .on(Op::Blueprints(BlueprintsOp::BodyEditsOf), Fault::Timeout);
     let mut h = site.blueprints(&full(), C).unwrap();
     let got = h.body_edits_of(&nos, ALL_MAX);
     assert_eq!(got.len(), 2);
     assert!(got.iter().all(|(_, a)| a.is_err()), "{got:?}");
+    // The read together fails whole.
+    assert!(h.body_edits_together(&nos, ALL_MAX).is_err());
     let ids = [CommentId::new("c1"), CommentId::new("c2")];
     let site = Faulty::new(FakeSite::new(&w))
         .on(Op::Blueprints(BlueprintsOp::CommentEditsOf), Fault::Timeout);

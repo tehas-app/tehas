@@ -14,8 +14,8 @@ use super::github::{Open, Queue, CREATED, TIMELINE};
 use serde_json::{json, Value};
 use tehas_core::time::iso;
 use tehas_ports::{
-    AccountKind, At, BlockerState, ChangeDigest, ChangeState, Edit, Got, Happened, Kind, Mark,
-    OpenWork, Outcome, Ref, Refusal, Ticket, TicketKey, Unread, Whole, WorkItem,
+    AccountKind, At, BlockerState, BlueprintNo, ChangeDigest, ChangeState, Edit, Got, Happened,
+    Kind, Mark, OpenWork, Outcome, Ref, Refusal, Ticket, TicketKey, Unread, Whole, WorkItem,
 };
 
 /// How the site spells what today's shapes name by text.
@@ -209,17 +209,29 @@ fn stamp(at: At) -> String {
     iso(at.secs())
 }
 
-/// A body's edits, as the blueprints port answers them, as the history
+/// The blueprints port's answer of several bodies' edits read together.
+pub type EditsRead = Got<Vec<(BlueprintNo, Got<Whole<Edit>>)>>;
+
+/// Issue `n`'s body edits, from the blueprints port's read of several
+/// together (`Blueprints::body_edits_together`), as the history
 /// `edit_holds` reads beside the issue's last edit: its nodes newest
 /// first, each its stamp and editor. An editor the site gives no id and
 /// no kind for, as a deleted account, is nobody, whatever its login: it
-/// holds whatever the allowed list names. A history the port says is cut, or
-/// whose parts disagree (a version deleted from it among them), has no
-/// nodes: it holds as one by nobody known and the poll goes on, so no
-/// edit of a history stops the poll. Any other failure is a failed read
-/// with the outcome's line, which ends the poll when the rules need it.
-pub fn history(edits: &Got<Whole<Edit>>) -> Value {
-    match edits {
+/// holds whatever the allowed list names. A history the port says is cut,
+/// or whose own parts disagree (a version deleted from it among them), has
+/// no nodes: it holds that issue as one by nobody known and the poll goes
+/// on, so no edit of a history stops the poll. A read the port fails
+/// whole, an `Unread(Inconsistent)` among them, is no issue's own: it is a
+/// failed read of each, as is any other failure and an issue the read
+/// gives no answer for. A failed read carries the outcome's line and ends
+/// the poll when the rules need it.
+pub fn history(read: &EditsRead, n: u64) -> Value {
+    let malformed = Err(Outcome::Unread(Unread::Malformed));
+    let own = match read {
+        Ok(each) => (each.iter().find(|(no, _)| no.get() == n)).map_or(&malformed, |(_, got)| got),
+        Err(whole) => return json!({"failed": true, "line": whole.line()}),
+    };
+    match own {
         Ok(edits) => {
             let nodes: Vec<Value> = (edits.items().iter().rev())
                 .map(|e| {
@@ -695,9 +707,10 @@ mod tests {
     }
 
     /// A body's edits through the port read as the history `edit_holds`
-    /// judges: an outside edit before an allowed one still holds, a cut or
-    /// inconsistent history holds as nobody's and the poll goes on, and a
-    /// failed read is one the rules wait on, with why.
+    /// judges: an outside edit before an allowed one still holds, an
+    /// issue's own cut or inconsistent history holds as nobody's and the
+    /// poll goes on, and a failed read, a read failed whole among them, is
+    /// one the rules wait on, with why.
     #[test]
     fn a_body_s_edits_read_as_the_history_the_holds_judge() {
         use tehas_core::events::{edit_history_unread, edit_holds};
@@ -707,11 +720,13 @@ mod tests {
             e.by = by.map(|l| Account::new(Realm::CodeHost, Login::new(l), AccountKind::Person));
             e
         };
+        let seven = BlueprintNo::new(7).unwrap();
+        let own = |got: Got<Whole<Edit>>| history(&Ok(vec![(seven, got)]), 7);
         let edits = Ok(Whole::new(vec![
             edit(Some("mallory"), "2026-01-02T10:01:00Z"),
             edit(Some("alice"), "2026-01-02T10:05:00Z"),
         ]));
-        let h = history(&edits);
+        let h = own(edits);
         assert_eq!(
             h,
             json!({"totalCount": 2, "nodes": [
@@ -728,12 +743,12 @@ mod tests {
             edit_holds(&record(h), since, "alice", &ours).as_deref(),
             Some("mallory")
         );
-        let by_alice = history(&Ok(Whole::new(vec![edit(
+        let by_alice = own(Ok(Whole::new(vec![edit(
             Some("alice"),
             "2026-01-02T10:05:00Z",
         )])));
         assert_eq!(edit_holds(&record(by_alice), since, "alice", &ours), None);
-        let nobody = history(&Ok(Whole::new(vec![edit(None, "2026-01-02T10:05:00Z")])));
+        let nobody = own(Ok(Whole::new(vec![edit(None, "2026-01-02T10:05:00Z")])));
         assert_eq!(
             edit_holds(&record(nobody), since, "alice", &ours).as_deref(),
             Some("unknown")
@@ -744,7 +759,7 @@ mod tests {
         let ghost = Account::new(Realm::CodeHost, Login::new("ghost"), AccountKind::Unknown);
         let mut by_ghost = edit(None, "2026-01-02T10:05:00Z");
         by_ghost.by = Some(ghost);
-        let by_ghost = history(&Ok(Whole::new(vec![by_ghost])));
+        let by_ghost = own(Ok(Whole::new(vec![by_ghost])));
         assert_eq!(by_ghost["nodes"][0]["editor"], json!(null));
         let ghost_too = |w: &str| w == "alice" || w == "ghost";
         assert_eq!(
@@ -752,25 +767,37 @@ mod tests {
             Some("unknown")
         );
         for why in [Unread::Cut, Unread::Inconsistent] {
-            let cut = record(history(&Err(Outcome::Unread(why))));
+            let cut = record(own(Err(Outcome::Unread(why))));
             assert_eq!(
                 edit_holds(&cut, since, "alice", &ours).as_deref(),
                 Some("unknown")
             );
             assert!(!edit_history_unread(&cut, &ours), "{why:?}");
         }
-        let malformed = record(history(&Err(Outcome::Unread(Unread::Malformed))));
+        let malformed = record(own(Err(Outcome::Unread(Unread::Malformed))));
         assert!(edit_history_unread(&malformed, &ours));
         let gone = Outcome::Unavailable {
             why: Passing::Unreachable,
             sent: Sent::No,
         };
-        let failed = record(history(&Err(gone)));
+        let failed = record(own(Err(gone)));
         assert!(edit_holds(&failed, since, "alice", &ours).is_some());
         assert!(edit_history_unread(&failed, &ours));
         assert_eq!(
             failed["userContentEdits"]["line"],
             json!("the site could not be reached")
         );
+        // A read the port fails whole is no issue's own disagreement: each
+        // issue's history is a failed read, which the rules wait on.
+        let whole = record(history(&Err(Outcome::Unread(Unread::Inconsistent)), 7));
+        assert!(edit_holds(&whole, since, "alice", &ours).is_some());
+        assert!(edit_history_unread(&whole, &ours));
+        assert_eq!(
+            whole["userContentEdits"]["line"],
+            json!("the answer does not agree with itself")
+        );
+        // An issue the read gives no answer for is a failed read too.
+        let left_out = record(history(&Ok(vec![(seven, Ok(Whole::default()))]), 8));
+        assert!(edit_history_unread(&left_out, &ours));
     }
 }

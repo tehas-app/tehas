@@ -15,7 +15,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use tehas_core::events::{pause_holds, Events};
 use tehas_core::home::{Home, State};
-use tehas_ports::{BlueprintNo, Bound, Edit, Got, Outcome, Unread, Whole};
+use tehas_ports::{BlueprintNo, Bound, Outcome, Unread};
 
 /// Where the snapshot reads from, and with what.
 pub struct Sources<'a> {
@@ -677,8 +677,7 @@ const EDITS_MAX: u32 = 99;
 
 /// The body edit history of each issue of `ns`, read through the
 /// blueprints port in one ask and put beside its last edit
-/// (`board::history`). With no handle, or no answer for one, it is a
-/// failed read.
+/// (`board::history`). With no handle, it is a failed read.
 fn edit_histories(
     blueprints: Option<&mut (dyn tehas_ports::Blueprints + 'static)>,
     issues: &mut Map<String, Value>,
@@ -689,15 +688,12 @@ fn edit_histories(
     }
     let nos: Vec<BlueprintNo> = ns.iter().filter_map(|&n| BlueprintNo::new(n)).collect();
     let bound = Bound::new(EDITS_MAX).expect("a bound of no 0");
-    let got: BTreeMap<u64, Got<Whole<Edit>>> = match blueprints {
-        Some(b) => (b.body_edits_of(&nos, bound).into_iter())
-            .map(|(no, got)| (no.get(), got))
-            .collect(),
-        None => BTreeMap::new(),
+    let read = match blueprints {
+        Some(b) => b.body_edits_together(&nos, bound),
+        None => Err(Outcome::Unread(Unread::Malformed)),
     };
     for n in ns {
-        let unread = Err(Outcome::Unread(Unread::Malformed));
-        let h = board::history(got.get(n).unwrap_or(&unread));
+        let h = board::history(&read, *n);
         let i = entry(issues, *n);
         if i["edit"].is_object() {
             i["edit"]["userContentEdits"] = h;

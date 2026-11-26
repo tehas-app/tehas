@@ -129,7 +129,19 @@ impl Blueprints for GitHub {
         nos: &[BlueprintNo],
         bound: Bound,
     ) -> Vec<(BlueprintNo, Got<Whole<Edit>>)> {
-        self.bodies_edits(nos, bound)
+        self.bodies_edits(nos, bound).0
+    }
+
+    /// As `body_edits_of`, a question that fails whole failing the read.
+    fn body_edits_together(
+        &mut self,
+        nos: &[BlueprintNo],
+        bound: Bound,
+    ) -> Got<Vec<(BlueprintNo, Got<Whole<Edit>>)>> {
+        match self.bodies_edits(nos, bound) {
+            (_, Some(o)) => Err(o),
+            (each, None) => Ok(each),
+        }
     }
 
     /// One GraphQL question for each `edits::CHUNK` comments, each asked

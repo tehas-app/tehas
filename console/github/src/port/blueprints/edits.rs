@@ -71,6 +71,9 @@ fn comments_question(nodes: &[String], bound: Bound) -> String {
     )
 }
 
+/// Each body's history, and the first failure of a whole question.
+type BodiesRead = (Vec<(BlueprintNo, Got<Whole<Edit>>)>, Option<Outcome>);
+
 /// A text's history as GraphQL answers it.
 #[derive(Deserialize)]
 struct Text {
@@ -193,14 +196,12 @@ impl Text {
 }
 
 impl GitHub {
-    /// The body histories of `nos`, in the order asked.
-    pub(super) fn bodies_edits(
-        &mut self,
-        nos: &[BlueprintNo],
-        bound: Bound,
-    ) -> Vec<(BlueprintNo, Got<Whole<Edit>>)> {
+    /// The body histories of `nos`, in the order asked, and the first
+    /// failure of a whole question among them: its items each fail with it.
+    pub(super) fn bodies_edits(&mut self, nos: &[BlueprintNo], bound: Bound) -> BodiesRead {
         let asked = once(nos.iter().copied());
         let mut got: HashMap<BlueprintNo, Got<Whole<Edit>>> = HashMap::new();
+        let mut whole = None;
         for chunk in asked.chunks(CHUNK) {
             let paths: Vec<Vec<String>> = chunk
                 .iter()
@@ -213,7 +214,10 @@ impl GitHub {
                 "/data/repository",
             );
             match answer {
-                Err(o) => got.extend(chunk.iter().map(|&no| (no, Err(o.clone())))),
+                Err(o) => {
+                    got.extend(chunk.iter().map(|&no| (no, Err(o.clone()))));
+                    whole.get_or_insert(o);
+                }
                 Ok(parts) => {
                     for (&no, part) in chunk.iter().zip(parts) {
                         let read = part.and_then(|v| self.body_edits_from(v, no, bound));
@@ -222,7 +226,8 @@ impl GitHub {
                 }
             }
         }
-        nos.iter()
+        let each = nos
+            .iter()
             .map(|no| {
                 (
                     *no,
@@ -231,7 +236,8 @@ impl GitHub {
                         .unwrap_or(Err(Outcome::Unread(Unread::Inconsistent))),
                 )
             })
-            .collect()
+            .collect();
+        (each, whole)
     }
 
     fn body_edits_from(&self, issue: IssueNode, no: BlueprintNo, bound: Bound) -> Got<Whole<Edit>> {

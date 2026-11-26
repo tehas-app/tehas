@@ -404,11 +404,13 @@ allowed account saves the body after it. For an issue its labels would start
 that was edited, and for an edited issue with a question a person may answer
 `retry` to, the poll reads the body's edit history, the last 100 edits;
 a longer history, one whose versions do not agree (a version deleted from
-it among them), one GitHub's answer leaves out or names an error for, or an
-edit that names no account (a deleted one among them), holds the issue too
-(`skip #N: its text was changed by 'unknown' ...`). A call that fails, an
-answer that cannot be read, or an issue GitHub cannot find ends the poll
-with exit 1. A closed issue and a pull request are never taken,
+it among them), one GitHub's answer leaves out or names an error at that
+issue for, or an edit that names no account (a deleted one among them),
+holds that issue alone (`skip #N: its text was changed by 'unknown' ...`).
+A call that fails, an answer that cannot be read, an error GitHub names no
+one issue for (the repository not found, or not visible to the token,
+among them), or an issue GitHub cannot find ends the poll with exit 1
+(`ERROR: unreadable edit history of #N: ...`). A closed issue and a pull request are never taken,
 whatever label they carry. The poll's lists are of open issues, so what this
 catches is a number that changed since the list was read. The poll asks GitHub
 what a number is once a poll, and only for an issue its labels would otherwise

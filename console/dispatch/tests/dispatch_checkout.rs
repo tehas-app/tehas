@@ -263,6 +263,9 @@ fn a_cycle_does_not_start_when_the_issue_cannot_be_marked_as_running() {
     assert_eq!(w.started(), "");
 }
 
+/// The label that approves a start, as the pins name it.
+const READY: &str = tehas_core::label_pins::GRANTING[0];
+
 const LABELLED: &str = r#"[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"},"created_at":"2026-01-02T10:00:00Z"}]"#;
 
 #[test]
@@ -347,6 +350,59 @@ fn with_the_ghost_on_the_list_an_edit_by_no_account_in_the_history_is_not_approv
     let r = w.dispatch(&["--dry-run"]);
     has(&r.out, "skip #7: its text was changed by 'unknown'");
     lacks(&r.out, "would run a cycle");
+}
+
+/// Issues 7 and 8 labelled and edited by alice alone, so the poll reads
+/// both histories in one question, GitHub answering it with `errors`.
+fn two_edited_with_errors(w: &World, errors: &str) {
+    let ready = json!([{"number": 7, "labels": [{"name": READY}]},
+        {"number": 8, "labels": [{"name": READY}]}]);
+    w.fx("ready.json", &ready.to_string());
+    let edited = r#"{"data":{"repository":{"issue":{"lastEditedAt":"2026-01-02T10:05:00Z","editor":{"login":"alice"}}}}}"#;
+    let by_alice = r#"{"totalCount":2,"nodes":[{"editedAt":"2026-01-02T10:05:00Z","editor":{"__typename":"User","login":"alice"},"diff":"b"},{"editedAt":"2000-01-01T00:00:00Z","editor":null,"diff":""}]}"#;
+    for n in [7, 8] {
+        w.fx(&format!("events-{n}.json"), LABELLED);
+        w.fx(&format!("edit-{n}.json"), edited);
+        w.fx(&format!("edits-{n}.json"), by_alice);
+    }
+    w.fx("edits-errors.json", errors);
+}
+
+// An error GitHub's answer names no issue for, the repository's among them,
+// is the question's: no history of it is known, and the poll ends.
+#[test]
+fn an_error_of_the_whole_edit_question_ends_the_poll() {
+    for errors in [
+        r#"[{"type":"SERVICE_UNAVAILABLE","message":"try again"}]"#,
+        r#"[{"type":"NOT_FOUND","path":["repository"],"message":"Could not resolve"}]"#,
+    ] {
+        let w = World::new("co-edits-whole");
+        two_edited_with_errors(&w, errors);
+        let r = w.dispatch(&["--dry-run"]);
+        assert_eq!(r.rc, 1, "{errors}: {}", r.out);
+        has(
+            &r.out,
+            "ERROR: unreadable edit history of #7: the answer does not agree with itself",
+        );
+        lacks(&r.out, "would run a cycle");
+        lacks(&r.out, "its text was changed by");
+    }
+}
+
+// An error GitHub names one issue for holds that issue alone.
+#[test]
+fn an_error_at_one_issue_s_edit_history_holds_that_issue_alone() {
+    let w = World::new("co-edits-item");
+    two_edited_with_errors(
+        &w,
+        r#"[{"type":"FORBIDDEN","path":["repository","i7","userContentEdits"],"message":"refused"}]"#,
+    );
+    let r = w.dispatch(&["--dry-run"]);
+    assert_eq!(r.rc, 0, "{}", r.out);
+    let by = "its text was changed by 'unknown' after alice applied";
+    has(&r.out, &format!("skip #7: {by} {READY}"));
+    has(&r.out, "would run a cycle for #8");
+    lacks(&r.out, "ERROR");
 }
 
 #[test]
