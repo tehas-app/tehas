@@ -93,11 +93,11 @@ other issue the poll takes it off, as it does an outsider's.
 | Commands | The `tehas` commands, their subcommands and the flags of each, but the flags marked `internal` | `api/commands.txt`, held to the commands tehas knows and to the synopsis lines of each command's text by the tests of `console/src/front.rs` |
 | Exit statuses | One meaning per status, and [one table per command](#exit-statuses) | `console/core/src/exit.rs`, the tests of each command, and `console/tests/surface.rs`, which fails when a public command of `api/commands.txt` has no table below |
 | Labels | The rows of `host/labels.tsv`: the name, what the dispatcher does with it, and the word of the ports it is (the fourth column, such as `State::Running`) | The dispatcher's and the tidy's tests, and the table's own test in `console/github/tests/table.rs` |
-| Store | `tehas update` brings a store of 1.4.x (schema 23) to 2.0's schema, 32 | The store's migration tests |
+| Store | `tehas update` brings a store of 1.4.x (schema 23) to 2.0's schema, 33 | The store's migration tests |
 | analytics.db | `user_version` 8, tables and columns only added | `console/analytics/src/schema.pinned` |
 | Factory API | `tehas api --json`: `api`, `features` (words only added), `flags`, `millwright`, `poll` | `api/api.schema.json` and its samples, and `api/features.txt`, the words of `features` in order, held by `test/api_test.sh` |
 | `--json` objects | Each object with a schema and samples in `api/`. Fields are only added | `test/json_contract_test.sh`, which lists every schema in `api/` and the test that holds each one's samples to what its command prints, and the tests of `console/src/front.rs`, which fail when a public `--json` row of `api/commands.txt` has no schema |
-| MCP | The tools, their input and output schemas | The MCP server's tests: every answer they read is checked against its tool's output schema, and the cycle status enum against the core's vocabulary |
+| MCP | The tools, their input and output schemas | The MCP server's tests: every answer they read is checked against its tool's output schema, and the cycle status enum against the core's vocabulary; `console/tests/surface.rs` holds each tool, its argument names and the answer fields of its output schema to `api/surface-2.0.txt` |
 | `tehas update` | From 1.4.x to 2.0 ([Upgrading to 2.0](#upgrading-to-20)). The release repository and the signing key are built into tehas: the `TEHAS_RELEASE_REPO` line of `host/versions.env` and `host/release/minisign.pub` when the release was built. An instance may name another repository with `TEHAS_RELEASE_REPO` in `instance.env`; the key stays the built-in one | The update's tests, and the tests of `console/core/src/release.rs` |
 | Cycle inputs | [The rule below](#cycle-inputs), with the names as pi-rukas has them while it is 0.x; a renamed name is taken under both names through 2.x | `console/cycle/tests/work_container.rs` |
 | Events | The envelope's `api` 1, the names in `api/events.txt`, and the fields of the envelope and of each payload in `api/event*.schema.json`: names and fields only added in 2.x | `console/tests/events_contract.rs`, which writes the samples from the code and holds them to the schemas, and `test/kit_events_test.mjs`, which holds the kit's names to `api/events.txt` |
@@ -107,8 +107,9 @@ other issue the poll takes it off, as it does an outsider's.
 | Item and preview names | Under the factory's domain, through 2.x: a host name that starts with `item-`, a number of one to nine digits with no leading zero, and then a `.`, is that item's page and its files, as the item store wrote them under `~/tehas/items/<number>`; one that starts `uat-` and such a number and a `.` is the preview of that pull request, the container `tehas-preview-<number>`; and one that starts `uat-main.` is the preview of the default branch, the container `tehas-preview-main`. Any other host name starting `item-` or `uat-` answers 404. tehas gives these names no other meaning in 2.x, and a host that fronts the factory's domain claims none of these names | `test/edge_test.sh` (the router's file names no domain and takes numbers only; the router keeps its protections) |
 
 The surface list in `api/` names the frozen surface in one place: each
-public command, subcommand and flag, setting, role, label and `--json`
-field, read from the files in the table above. Within 2.x lines are only
+public command, subcommand and flag, setting, role, label, `--json` field,
+and MCP `tool`, its `arg` names and the `answer` fields of its output schema,
+read from the files in the table above. Within 2.x lines are only
 added. `console/tests/surface.rs` fails when one of its names goes, and when
 the surface gains a name the list does not have yet. What a building feature
 adds is not in it.
@@ -1204,6 +1205,27 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   copy with `tehas analytics copy` and reads it elsewhere. An MCP client
   stops calling `factory_stats`. `~/tehas/live/analytics.json` and
   `~/tehas/state/sizes.jsonl` are read by nothing and may be deleted.
+- **A merged change may have no merge commit.** #3092.
+  GitHub can answer a merged pull request with no merge commit, for an old
+  or rewritten history. Such a change is read as merged with no commit
+  given: it is no longer a malformed answer, and one such pull request no
+  longer stops every read of merged changes. A commit that is there and
+  does not read is malformed, as before.
+  Readers: the end-to-end suite, the consumer that runs many factories.
+  Adopter action: none.
+- **Shipped is what a merged pull request of this repository closed.**
+  #2992, #3247. `tehasbot status` reads the shipped issues and gives them
+  `tehas:shipped` through the tickets port, by their close time. An issue
+  closed only by a merged pull request of another repository is no longer
+  shipped, and one closed by another repository's unmerged pull request
+  while a merged one of this repository closes it now is. The list fills
+  over a few polls after the update, a first read going back a day; a
+  read that failed or was cut says so, stays stale, and asks the same
+  window again rather than dropping issues silently; a reopened issue
+  stays listed until newer ones push it out.
+  Readers: adopters, people on an issue.
+  Adopter action: none. After the update the marks fill themselves over a
+  few polls.
 - **Two settings name the adapters.** #3359.
   `TEHAS_CODE_HOST` names the code host and `TEHAS_TICKETS` the ticket
   tracker. In 2.0 each takes `github` alone, where `TEHAS_TICKETS=github` is
@@ -1237,6 +1259,16 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Adopter action: a program that read a session line's `pr` number reads
   `change`, the same number under its new name; `prUrl`, the history
   line's `pr` address and the analytics copy's `pr` column are as before.
+- **The store migrates from schema 23 only.** T16. The store's migration
+  starts at schema 23, which v1.3.0 and later wrote (`OLDEST` in
+  `console/store/src/db.rs`): the steps for older schemas are gone, and a
+  store older than that is refused with exit 78 before any file is copied,
+  with a line that says to install a v1.4 release first. A store at 23 or
+  newer migrates as before: one step at a time, each a transaction, keeping
+  every row.
+  Readers: `tehas update`, the end-to-end suite, adopters.
+  Adopter action: a host on v1.3.0 or later (store schema 23) updates
+  directly; an older one installs any v1.4 release first, then this one.
 - **The settings of the 2.1 adapter are reserved.** #3386.
   The feature `adapter` registers as building: `TEHAS_ADAPTER`,
   `TEHAS_ADAPTER_UPSTREAM`, `TEHAS_ADAPTER_UPSTREAM_SPKI`,
@@ -1308,18 +1340,13 @@ adopter action as the pull request states them.
   | `ticket.closed` | a ticket tehas follows is recorded closed | `<ticket>@<at>` |
   | `change.merged` | a change linked to a blueprint is recorded merged | the change's number |
 
-  They are raised after the first alpha, before the beta.
+  They are raised after the first alpha, before the beta. As of 2026-11-26
+  they land with #3388, or in beta.2 if that slips.
   Until then a program reads their witnesses as the spec names them: a
   change of `tehas limit --json`, and the ticket's and the change's own
   history on the code host.
   Readers: the consumer that runs many factories, MCP clients, the
   end-to-end suite, plugins.
-- **The store's migration from 1.4.x alone.** T16. The store still
-  migrates from schema 12, the one v0.30.0 wrote (`OLDEST` in
-  `console/store/src/db.rs`), not only from 1.4.x's 23: its steps 13 to 23
-  are still in it, though 2.0 is supported from 1.4.x only. Taking them
-  out leaves a store of 1.4.x migrated as now.
-  Readers: `tehas update`, the end-to-end suite.
 - **The ports.** T4, spec `docs/specs/2026-11-22-ports.md`.
   The ports themselves; their two settings are under
   [Changed in 2.0](#changed-in-20).

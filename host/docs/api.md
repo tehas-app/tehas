@@ -1271,10 +1271,10 @@ It refuses, in one line on standard error and with the store as it was:
 - a copy that is not there, is not a store or fails SQLite's
   `PRAGMA integrity_check`;
 - a copy of a newer schema than this release reads, naming both numbers;
-- a copy older than v0.30.0 wrote, below schema 12: load it into a v0.30
+- a copy older than v1.4 wrote, below schema 23: load it into a v1.4
   release first.
 
-A copy of an older schema, 12 or later, is brought forward by the same steps
+A copy of an older schema, 23 or later, is brought forward by the same steps
 an update runs on the store. The copy is read from a file of its own beside the store, so
 the copy itself is not changed. The rows then replace the store's in one
 transaction: the store's file is not replaced, because the readers of a
