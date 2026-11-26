@@ -276,6 +276,53 @@ fn a_rate_limit_on_the_second_parents_question_spends_only_its_tickets() {
     );
 }
 
+/// The calls kit run #1 made of tehas-app/tehas-factory, as
+/// `out/calls.log` holds them, each with the recording of its answer.
+const LIVE_CALLS: &[(&str, &str)] = &[
+    (
+        "api graphql -F owner=tehas-app -F name=tehas-factory -f query=query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { databaseId n2824: issue(number: 2824) { number parent { number repository { databaseId nameWithOwner } } } } }",
+        "parent-2824.json",
+    ),
+    (
+        "api graphql -F owner=tehas-app -F name=tehas-factory -f query=query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { databaseId n2597: issue(number: 2597) { number parent { number repository { databaseId nameWithOwner } } } } }",
+        "parent-2597.json",
+    ),
+    (
+        "api graphql -F owner=tehas-app -F name=tehas-factory -f query=query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { databaseId n2597: issue(number: 2597) { number parent { number repository { databaseId nameWithOwner } } } n2824: issue(number: 2824) { number parent { number repository { databaseId nameWithOwner } } } } }",
+        "parents-2597-2824.json",
+    ),
+    ("api repos/tehas-app/tehas-factory/issues/2824", "rest-2824.json"),
+    ("api repos/tehas-app/tehas-factory/issues/2597", "rest-2597.json"),
+];
+
+/// A replay of `LIVE_CALLS`: a call answered from the recording of that
+/// very call, its whole text; any other call panics.
+struct Live {
+    asked: Asked,
+}
+
+impl GhRunner for Live {
+    fn run(&mut self, args: &[&str]) -> Result<String, String> {
+        let call = args.join(" ");
+        self.asked.lock().unwrap().push(call.clone());
+        match LIVE_CALLS.iter().find(|(c, _)| *c == call) {
+            Some((_, file)) => Ok(live(file)),
+            None => panic!("no recording of {call}"),
+        }
+    }
+}
+
+fn live_adapter() -> (GitHub, Asked) {
+    let asked = Asked::default();
+    let live = Live {
+        asked: Arc::clone(&asked),
+    };
+    (
+        GitHub::new("tehas-app/tehas-factory", Box::new(live)),
+        asked,
+    )
+}
+
 fn live(name: &str) -> String {
     let at = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/recorded/live-parent")
@@ -301,42 +348,29 @@ fn the_parent_is_graphqls_since_rest_leaves_out_the_field_of_none() {
         rest(2824)["parent_issue_url"],
         "https://api.github.com/repos/tehas-app/tehas-factory/issues/2597"
     );
-    for (n, title, want) in [
+    for (n, title, want, question) in [
         (
             2824_u64,
             "Trim the shell tests that stay in shell",
             Some(Ref::Here(key(2597))),
+            0,
         ),
-        (2597, "Epic: less shell in the tests", None),
+        (2597, "Epic: less shell in the tests", None, 1),
     ] {
-        let (out, answer) = (
-            live(&format!("rest-{n}.json")),
-            live(&format!("parent-{n}.json")),
-        );
-        let (mut gh, asked) = adapter_in("tehas-app/tehas-factory", vec![Ok(&out), Ok(&answer)]);
+        let (mut gh, asked) = live_adapter();
         let digest = gh.several(&[key(n)]).remove(0).1.unwrap();
         assert_eq!(digest.title, title, "#{n}");
         assert_eq!(digest.parent, want, "#{n}");
-        let asked = asked.lock().unwrap();
         assert_eq!(
-            asked[0],
-            format!("api repos/tehas-app/tehas-factory/issues/{n}")
-        );
-        assert!(
-            asked[1].contains(&format!(" n{n}: issue(number: {n}) ")),
-            "{}",
-            asked[1]
+            *asked.lock().unwrap(),
+            [
+                format!("api repos/tehas-app/tehas-factory/issues/{n}"),
+                LIVE_CALLS[question].0.to_string()
+            ]
         );
     }
-    let (r2824, r2597, both) = (
-        live("rest-2824.json"),
-        live("rest-2597.json"),
-        live("parents-2824-2597.json"),
-    );
-    let (mut gh, asked) = adapter_in(
-        "tehas-app/tehas-factory",
-        vec![Ok(&r2824), Ok(&r2597), Ok(&both)],
-    );
+    // Two tickets: one question, its numbers sorted, as recorded.
+    let (mut gh, asked) = live_adapter();
     let got = gh.several(&[key(2824), key(2597)]);
     assert_eq!(
         got[0].1.as_ref().unwrap().parent,
@@ -344,9 +378,8 @@ fn the_parent_is_graphqls_since_rest_leaves_out_the_field_of_none() {
     );
     assert_eq!(got[1].1.as_ref().unwrap().parent, None);
     assert_eq!(
-        asked.lock().unwrap().len(),
-        3,
-        "one parents' question for both"
+        *asked.lock().unwrap(),
+        [LIVE_CALLS[3].0, LIVE_CALLS[4].0, LIVE_CALLS[2].0]
     );
 }
 
