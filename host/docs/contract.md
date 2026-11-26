@@ -1242,17 +1242,17 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Readers: adopters, the consumer that runs many factories where it
   writes an instance's settings.
   Adopter action: none. Take the warned lines out when it suits you.
-- **Two settings name the adapters.** #3359.
-  `TEHAS_CODE_HOST` names the code host and `TEHAS_TICKETS` the ticket
-  tracker. In 2.0 each takes `github` alone, where `TEHAS_TICKETS=github` is
-  the code host's own issues. A missing or empty setting means `github`, so
-  an instance without the two lines loads unchanged. Any other value, `jira`
-  among them, stops every command with 78 before any call: it is not built
-  in this release.
-  Readers: adopters, the consumer that runs many factories where it keeps
-  an instance's settings.
-  Adopter action: none. An instance may write `TEHAS_CODE_HOST=github` and
-  `TEHAS_TICKETS=github`.
+- **Access is keyed by account id.** #3244, this pull request.
+  Part A keyed the allowed labellers and `state/account-ids` by the
+  account's stable id; this carries the id into the plugin gate: a
+  session, its codes and a sign-out name the id, not the login, so a
+  rename cannot strand a session or move one across people, and an
+  account whose id the gate cannot read matches nothing. The "No access"
+  page names the login in lower case, as the site does.
+  Readers: plugin keepers, a person told they have no access, anyone who
+  matches an account between one read and the next.
+  Adopter action: none. Settings that list logins still hold logins; the
+  gate reads each one's id at sign-in.
 
 ## Pending for 2.0
 
