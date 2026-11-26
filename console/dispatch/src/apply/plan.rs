@@ -1442,18 +1442,28 @@ impl Writer {
                 log.push(format!("WARN: could not close #{n}"));
             } else if landed_here {
                 if let Some(ticket) = super::ticket(n) {
-                    // The close landed here: `ticket.closed`, once, of the
-                    // moment it landed (T11.9). A close an earlier call
-                    // landed, or one the site did not answer, raises nothing
-                    // here: the first was raised by the call that landed it,
-                    // and the second is not recorded as landed until the
-                    // settle rules say it did (T4.7).
-                    self.raise_closed(
-                        ticket,
-                        tehas_ports::CloseReason::NotPlanned,
-                        tehas_core::time::now(),
-                        log,
-                    );
+                    // The close landed here: `ticket.closed`, once, keyed on
+                    // the site's own time of the close, which its answer
+                    // gave (T11.9). A close an earlier call landed raises
+                    // nothing here: that call raised it. A close the site
+                    // did not answer raises nothing here either: the poll's
+                    // settle raises it when its read finds the ticket
+                    // closed, of the time that read reads.
+                    let out = match &wrote {
+                        Wrote::Done(out) => out.clone(),
+                        _ => String::new(),
+                    };
+                    match out.parse::<i64>() {
+                        Ok(at) => self.raise_closed(
+                            ticket,
+                            tehas_ports::CloseReason::NotPlanned,
+                            at,
+                            log,
+                        ),
+                        Err(_) => log.push(format!(
+                            "WARN: the site answered the close of #{n} with no time of it, so it raises no event"
+                        )),
+                    }
                 }
             }
         }

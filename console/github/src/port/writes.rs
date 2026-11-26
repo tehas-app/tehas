@@ -17,9 +17,9 @@ use crate::vocabulary::LabelHeld;
 use crate::{markers, table, GitHub};
 use serde_json::Value;
 use tehas_ports::{
-    Applied, At, CloseReason, CommentId, Did, Got, Item, Kind, Lost, Mark, MarkSpec, Marker,
-    MarkerEdit, NewTicket, Outcome, Posted, Priority, Refusal, Revision, Sent, Step, StepPart,
-    TargetEdit, TargetId, TicketKey, TicketWrites, Unprepared, Unread, WebLink,
+    Applied, At, CloseReason, Closed, CommentId, Did, Got, Item, Kind, Lost, Mark, MarkSpec,
+    Marker, MarkerEdit, NewTicket, Outcome, Posted, Priority, Refusal, Revision, Sent, Step,
+    StepPart, TargetEdit, TargetId, TicketKey, TicketWrites, Unprepared, Unread, WebLink,
 };
 
 impl TicketWrites for GitHub {
@@ -127,8 +127,10 @@ impl TicketWrites for GitHub {
     /// The issue read, then one `PATCH` of its state and the reason GitHub
     /// keeps (`completed`, `not_planned`, `duplicate`; REST names no
     /// original of a duplicate). A closed issue is done with nothing sent and
-    /// keeps the reason it has: closed is closed.
-    fn close(&mut self, key: &TicketKey, reason: &CloseReason) -> Did {
+    /// keeps the reason it has: closed is closed. The answer is the
+    /// `closed_at` of whichever answer found the issue closed: the raiser
+    /// of the fact keys on the site's moment, not its own.
+    fn close(&mut self, key: &TicketKey, reason: &CloseReason) -> Closed {
         let issue = number(key)?;
         let path = format!("{}/issues/{issue}", self.issues()?);
         let out = self
@@ -136,7 +138,7 @@ impl TicketWrites for GitHub {
             .map_err(|e| unsent(self.outcome(&e)))?;
         issue_of(&out, &self.repo)?;
         if state_of(&out)? == "closed" {
-            return Ok(());
+            return closed_at_of(&out);
         }
         let why = match reason {
             CloseReason::Done => "completed",
@@ -146,7 +148,7 @@ impl TicketWrites for GitHub {
         let input = serde_json::json!({ "state": "closed", "state_reason": why }).to_string();
         let answer = self.send("PATCH", &path, &input)?;
         match state_of(&answer)? {
-            "closed" => Ok(()),
+            "closed" => closed_at_of(&answer),
             _ => Err(Outcome::Unread(Unread::Inconsistent)),
         }
     }
@@ -463,5 +465,14 @@ fn state_of(out: &str) -> Got<&'static str> {
         Some("open") => Ok("open"),
         Some("closed") => Ok("closed"),
         _ => Err(MALFORMED),
+    }
+}
+
+/// The `closed_at` of an issue's answer, when it has one.
+fn closed_at_of(out: &str) -> Got<Option<At>> {
+    let v: Value = serde_json::from_str(out.trim()).map_err(|_| MALFORMED)?;
+    match v.get("closed_at").and_then(Value::as_str) {
+        Some(s) => crate::ticket::time(s).map(Some),
+        None => Ok(None),
     }
 }

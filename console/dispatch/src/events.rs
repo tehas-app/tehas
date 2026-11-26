@@ -6,9 +6,15 @@
 //! payloads are `tehas_core::raise`'s, built from the store's answer.
 //!
 //! The dispatcher is also the raiser of the facts its own store calls
-//! record (T11.9): `ticket.acted` of the approval, the planning session and
-//! the finish ask it puts on the record, and `ticket.closed` of the close
-//! its write lands. Each is raised once, by the call that wrote the fact.
+//! record (T11.9). Each is raised once, by the process that proved the
+//! fact it raises: `ticket.acted` of the approval is raised by the start
+//! whose claim took the issue, that of the planning session by the turn
+//! whose mark took it, and that of the finish ask once the label came off;
+//! `ticket.closed` is raised of the site's own time of the close, by the
+//! send that landed it and saw the answer, or, when that answer was lost,
+//! by the poll's settle when its read finds the ticket closed. A start or
+//! a turn that gives up before the take raises nothing, and its next poll
+//! raises the act once.
 //!
 //! The dispatcher is built once, at the poll's wiring in src/main.rs: the
 //! log listener alone, one line per event in the poll's log.
@@ -41,41 +47,12 @@ impl Writer {
 
     /// Raises one payload, with a WARN line in `log` for each listener that
     /// failed.
-    fn raise_one<P: Payload>(&self, p: P, log: &mut Vec<String>) {
+    pub(crate) fn raise_one<P: Payload>(&self, p: P, log: &mut Vec<String>) {
         let warned = RefCell::new(Vec::new());
         raise::raise(&self.events, p, &|l| {
             warned.borrow_mut().push(l.to_string())
         });
         log.extend(warned.into_inner());
-    }
-
-    /// `ticket.acted` of the approval this writer's `approval-record` call
-    /// put on the record. Only an approval of a person is an act; the
-    /// store's answer carries the account and the label event's moment.
-    pub(crate) fn raise_approved(&mut self, answer: &str, log: &mut Vec<String>) {
-        let Some(p) = raise::approved(answer) else {
-            return;
-        };
-        self.raise_one(p, log);
-    }
-
-    /// `ticket.acted` of the planning session this writer's `plan-begin`
-    /// call began: the act of `by` asking for a session, keyed on the
-    /// moment the label event says. The caller names the act: only the
-    /// planning ones come here, and a session the poll started on its own
-    /// never does.
-    pub(crate) fn raise_plan(
-        &mut self,
-        n: u64,
-        act: tehas_ports::Act,
-        by: &str,
-        at: i64,
-        log: &mut Vec<String>,
-    ) {
-        let Some(p) = raise::acted(n, act, by, at) else {
-            return;
-        };
-        self.raise_one(p, log);
     }
 
     /// `ticket.acted` of the finish a person asked for and the finish step

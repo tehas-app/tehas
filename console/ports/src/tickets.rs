@@ -8,10 +8,10 @@ use serde::{Deserialize, Serialize};
 use crate::mark::unknown_tag;
 use crate::{
     unknown, Account, AccountId, Applied, At, Body, Bound, ChangeDigest, ChangeNo, ChangeToken,
-    Cites, Comment, CommentId, CommitId, Cursor, Depth, Did, Edit, Got, Item, ItemName, Kind, Mark,
-    MarkId, MarkName, MarkSpec, Marker, MarkerEdit, MarkerKey, MarkerKind, Outcome, Posted,
-    Priority, ProjectName, Ref, Reports, Revision, TargetId, TicketKey, Took, WebLink, Whole,
-    Window, Within,
+    Cites, Closed, Comment, CommentId, CommitId, Cursor, Depth, Did, Edit, Got, Item, ItemName,
+    Kind, Mark, MarkId, MarkName, MarkSpec, Marker, MarkerEdit, MarkerKey, MarkerKind, Outcome,
+    Posted, Priority, ProjectName, Ref, Reports, Revision, TargetId, TicketKey, Took, WebLink,
+    Whole, Window, Within,
 };
 
 /// Whether a ticket is open, and why it closed.
@@ -796,8 +796,11 @@ pub trait TicketWrites: Tickets {
     /// Take a mark off.
     fn unmark(&mut self, key: &TicketKey, mark: &Mark) -> Did;
     /// Close the ticket. A closed ticket is done and keeps its reason:
-    /// closed is closed.
-    fn close(&mut self, key: &TicketKey, reason: &CloseReason) -> Did;
+    /// closed is closed. The answer is the site's own time of the close
+    /// while the ticket stands closed and the site says one, and None
+    /// where it says none: the raiser of `ticket.closed` takes the moment
+    /// from here and never makes one up.
+    fn close(&mut self, key: &TicketKey, reason: &CloseReason) -> Closed;
     /// Write a note on the ticket, its markers beside it.
     fn note(&mut self, key: &TicketKey, body: &str, markers: &[Marker]) -> Got<Posted<CommentId>>;
     /// File a new ticket. Its marks are asked, not promised: a site may

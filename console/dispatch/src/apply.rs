@@ -482,6 +482,11 @@ impl Writer {
             Journaled::Answered(Ok(Receipt::Comment(posted))) => {
                 Wrote::Done(posted.id.as_str().to_string())
             }
+            // A close answers with the site's time of it: `Done` holds the
+            // seconds, as it holds a comment's id, for the raiser below.
+            Journaled::Answered(Ok(Receipt::Closed(at))) => {
+                Wrote::Done(at.map(|a| a.secs().to_string()).unwrap_or_default())
+            }
             Journaled::Answered(Ok(_)) => Wrote::Done(String::new()),
             // A read-only host goes on as after a write that answered
             // nothing, as its gh shim answers one; the journal said what it

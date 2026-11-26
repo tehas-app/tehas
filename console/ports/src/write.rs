@@ -301,6 +301,9 @@ impl<T> Posted<T> {
 pub enum Receipt {
     /// Done, with nothing made.
     Done,
+    /// A ticket closed, and the site's own time of the close when the site
+    /// says one. The raiser of `ticket.closed` keys on it.
+    Closed(Option<At>),
     /// A note or a comment.
     Comment(Posted<CommentId>),
     /// A ticket.
@@ -539,7 +542,7 @@ impl Writes for Writer {
         match w {
             Write::Mark { ticket, mark } => done(t.mark(ticket, mark)),
             Write::Unmark { ticket, mark } => done(t.unmark(ticket, mark)),
-            Write::Close { ticket, reason } => done(t.close(ticket, reason)),
+            Write::Close { ticket, reason } => t.close(ticket, reason).map(Receipt::Closed),
             Write::Reopen { ticket } => done(t.reopen(ticket)),
             Write::TicketNote {
                 ticket,

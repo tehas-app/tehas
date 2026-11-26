@@ -145,6 +145,10 @@ impl Writer {
         let mut sid = String::new();
         let undo: Vec<String>;
         let input: PathBuf;
+        // The act to raise once the mark below takes the issue: a turn that
+        // gives up before it raises nothing, and the next poll's turn
+        // raises it once (T11.9).
+        let mut pending: Option<tehas_ports::events::TicketActed> = None;
         if first {
             // plan_brief: the approved text, kept for the turn's unit.
             let mut brief = format!("# {}\n\n{}\n", text(a, "title"), text(a, "body"));
@@ -206,17 +210,16 @@ impl Writer {
                     log,
                 ));
             }
-            // This call is the process that recorded the person's ask for a
-            // planning session: `ticket.acted`, once, keyed on the moment
-            // their label event says (T11.9). The poll's own refine is the
-            // factory asking, so it raises nothing.
+            // The person asked for this session; the act is raised below,
+            // once the mark takes the issue. The poll's own refine is the
+            // factory asking, so it offers none.
             if !auto {
                 if let Some(at) = a
                     .get("at")
                     .and_then(Value::as_str)
                     .and_then(tehas_core::limit::epoch)
                 {
-                    self.raise_plan(
+                    pending = tehas_core::raise::acted(
                         n,
                         if refine {
                             tehas_ports::Act::Refine
@@ -225,7 +228,6 @@ impl Writer {
                         },
                         &by,
                         at,
-                        log,
                     );
                 }
             }
@@ -379,6 +381,11 @@ impl Writer {
                 "ERROR: could not mark #{n} as planning, not starting a turn"
             ));
             return Then::End(1);
+        }
+        // The mark took the issue: this is the turn the person asked for,
+        // and their act is raised here, once.
+        if let Some(p) = pending {
+            self.raise_one(p, log);
         }
         let host = self.host.name.clone();
         let when = crate::decide::iso(tehas_core::time::now() as u64).replacen('T', " ", 1)[..16]

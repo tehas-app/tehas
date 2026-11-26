@@ -15,16 +15,16 @@ use crate::{
     Blueprint, BlueprintDelta, BlueprintHit, BlueprintNo, BlueprintWrites, Blueprints, Board,
     BoardAsk, Bound, Branch, Caller, Change, ChangeAsk, ChangeDelta, ChangeDigest, ChangeEvent,
     ChangeFilter, ChangeItem, ChangeNo, ChangeToken, ChangedFile, Checks, Cite, Cites, CloseReason,
-    ClosedTicket, CodeHost, CodeHostWrites, Comment, CommentId, CommitId, Compared, Cursor, Depth,
-    Did, Edit, Facts, Failure, FileName, Filed, Filter, Got, HappenedKind, HealthState, Holder,
-    HolderId, HostId, Identity, Item, Kind, Ledger, Login, Mark, MarkHeld, MarkSpec, Marker,
-    MarkerEdit, MarkerKey, MarkerKind, MergeHow, MeterRow, NewBlueprint, NewChange, NewRelease,
-    NewTicket, OpenWork, Outcome, Part, Passing, Pool, PortName, Posted, Priority, ProjectName,
-    Proposal, ProposalPart, Proposed, Realm, Refusal, Release, ReleaseId, Remote, RepoPath, Report,
-    Reports, Rev, Revision, Scope, Secret, Sent, SignInCode, SignInState, Site, SiteId, Standing,
-    Status, Step, StepPart, Sum, Tag, TagName, Target, TargetEdit, TargetId, Ticket, TicketDelta,
-    TicketDigest, TicketEvent, TicketKey, TicketWrites, Tickets, Token, Took, Unprepared, Unread,
-    WebLink, Whole, Whose, Window, WithCloser, Within, WorkItem,
+    Closed, ClosedTicket, CodeHost, CodeHostWrites, Comment, CommentId, CommitId, Compared, Cursor,
+    Depth, Did, Edit, Facts, Failure, FileName, Filed, Filter, Got, HappenedKind, HealthState,
+    Holder, HolderId, HostId, Identity, Item, Kind, Ledger, Login, Mark, MarkHeld, MarkSpec,
+    Marker, MarkerEdit, MarkerKey, MarkerKind, MergeHow, MeterRow, NewBlueprint, NewChange,
+    NewRelease, NewTicket, OpenWork, Outcome, Part, Passing, Pool, PortName, Posted, Priority,
+    ProjectName, Proposal, ProposalPart, Proposed, Realm, Refusal, Release, ReleaseId, Remote,
+    RepoPath, Report, Reports, Rev, Revision, Scope, Secret, Sent, SignInCode, SignInState, Site,
+    SiteId, Standing, Status, Step, StepPart, Sum, Tag, TagName, Target, TargetEdit, TargetId,
+    Ticket, TicketDelta, TicketDigest, TicketEvent, TicketKey, TicketWrites, Tickets, Token, Took,
+    Unprepared, Unread, WebLink, Whole, Whose, Window, WithCloser, Within, WorkItem,
 };
 
 /// How many seconds of failures a `Faulty` asks its ledger to keep: the
@@ -1255,7 +1255,7 @@ impl<H: TicketWrites + ?Sized> TicketWrites for Wrap<H> {
     fn unmark(&mut self, key: &TicketKey, mark: &Mark) -> Did {
         self.call(Op::Tickets(T::Unmark), Err, |h| h.unmark(key, mark))
     }
-    fn close(&mut self, key: &TicketKey, reason: &CloseReason) -> Did {
+    fn close(&mut self, key: &TicketKey, reason: &CloseReason) -> Closed {
         self.call(Op::Tickets(T::Close), Err, |h| h.close(key, reason))
     }
     fn note(&mut self, key: &TicketKey, body: &str, markers: &[Marker]) -> Got<Posted<CommentId>> {

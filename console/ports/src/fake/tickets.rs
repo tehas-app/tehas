@@ -10,7 +10,7 @@ use super::site::{
 use super::state::{Layout, State};
 use crate::{
     AccountId, Applied, At, Blocker, BlockerState, Bound, ChangeState, ChangeToken, CloseReason,
-    ClosedTicket, Closer, Comment, CommentId, Cursor, Depth, Did, Edit, Filed, Filter, Got,
+    Closed, ClosedTicket, Closer, Comment, CommentId, Cursor, Depth, Did, Edit, Filed, Filter, Got,
     Happened, HappenedKind, Item, Kind, Mark, MarkHeld, MarkSpec, Marker, MarkerEdit, MarkerKey,
     MarkerKind, NewTicket, Outcome, Part, Pool, Posted, Priority, Ref, Refusal, Step, StepPart,
     Target, TargetEdit, TargetId, Ticket, TicketChange, TicketDelta, TicketDigest, TicketEvent,
@@ -712,9 +712,9 @@ impl TicketWrites for Handle {
             let r = match &part {
                 StepPart::Unmark(m) => self.unmark(key, m),
                 StepPart::Mark(m) => self.mark(key, m),
-                StepPart::Close => {
-                    self.close(key, step.close.as_ref().unwrap_or(&CloseReason::Done))
-                }
+                StepPart::Close => self
+                    .close(key, step.close.as_ref().unwrap_or(&CloseReason::Done))
+                    .map(|_| ()),
                 StepPart::Note => Ok(()),
             };
             if let Err(o) = r {
@@ -780,7 +780,7 @@ impl TicketWrites for Handle {
         })
     }
 
-    fn close(&mut self, key: &TicketKey, reason: &CloseReason) -> Did {
+    fn close(&mut self, key: &TicketKey, reason: &CloseReason) -> Closed {
         self.write(Op::Tickets(TicketsOp::Close), |s, ctx| {
             let at = at_ticket(s, key)?;
             close_item(s, ctx, at, reason);
@@ -791,7 +791,7 @@ impl TicketWrites for Handle {
                     reason: reason.clone(),
                 },
             );
-            Ok(())
+            Ok(s.items[at].closed)
         })
     }
 
