@@ -612,9 +612,7 @@ fn a_step_that_fails_leaves_the_store_where_it_was_with_its_rows() {
     );
     assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 23);
     assert_eq!(rows(&conn(&home)), before);
-    conn(&home)
-        .execute_batch("DROP TABLE answers;")
-        .unwrap();
+    conn(&home).execute_batch("DROP TABLE answers;").unwrap();
     migrate_at(&home, NOW + 1).unwrap();
     assert_eq!(one::<i64>(&home, "PRAGMA user_version"), db::SCHEMA_VERSION);
 }
@@ -866,8 +864,13 @@ fn the_store_at_23_keeps_the_plugin_runs_and_takes_a_call() {
            VALUES ('floorplan', '{c40}', 'call', 'chat', 'chat', '{c40}', 300);"
     );
     conn(&home).execute_batch(&call).unwrap();
-    assert_eq!(count(&home, "plugin_runs WHERE kind = 'call' AND size IS NULL"), 1);
-    conn(&home).execute_batch("DELETE FROM plugin_runs WHERE kind = 'call';").unwrap();
+    assert_eq!(
+        count(&home, "plugin_runs WHERE kind = 'call' AND size IS NULL"),
+        1
+    );
+    conn(&home)
+        .execute_batch("DELETE FROM plugin_runs WHERE kind = 'call';")
+        .unwrap();
     let kept = |home: &Path| {
         let cols = [
             "id",
@@ -1384,7 +1387,9 @@ fn each_store_has_its_own_id_and_keeps_it() {
 #[test]
 fn the_step_from_25_lets_a_cycle_say_reply_and_keeps_every_row() {
     let home = at("step-26-reply", 25);
-    assert!(conn(&home).execute("UPDATE cycles SET how = 'reply'", []).is_err());
+    assert!(conn(&home)
+        .execute("UPDATE cycles SET how = 'reply'", [])
+        .is_err());
     assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 25);
     let before = host_rows(&conn(&home));
     migrate(&home).unwrap();
