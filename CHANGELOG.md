@@ -193,6 +193,7 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
   every load: `<NAME> is no setting tehas reads: nothing uses it; remove
   it from the instance`. The load never refuses for it, so a 1.4.x
   instance still loads.
+- The README calls tehas 2.0 a beta, for testing before 2.0.0 and not for production, in place of an alpha.
 
 ### Adopter action
 
