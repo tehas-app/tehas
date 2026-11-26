@@ -1,7 +1,7 @@
 // The session tools over a snapshot written by the tests.
 
-use common::SESSIONS_SHAPE;
 use crate::common;
+use common::SESSIONS_SHAPE;
 
 use common::fake_links;
 use mcp::sessions::{find, Linker};
@@ -53,7 +53,8 @@ impl Env {
             .unwrap();
         }
         let mut text =
-            json!({"api": 1, "days": 30, "generatedAt": iso(now()), "sessions": SESSIONS_SHAPE}).to_string();
+            json!({"api": 1, "days": 30, "generatedAt": iso(now()), "sessions": SESSIONS_SHAPE})
+                .to_string();
         for s in sessions {
             text.push('\n');
             text.push_str(&s.to_string());
@@ -685,13 +686,15 @@ fn no_snapshot_is_a_tool_error() {
 // corrupted file, refused as unreadable too, without the file's name or any of
 // its content in the answer.
 fn shapes_over_the_bound(n: usize) -> Vec<(&'static str, String)> {
-    let mut head = json!({"api": 1, "days": 30, "generatedAt": iso(now()), "sessions": SESSIONS_SHAPE});
+    let mut head =
+        json!({"api": 1, "days": 30, "generatedAt": iso(now()), "sessions": SESSIONS_SHAPE});
     head["filler"] = json!("x".repeat(n));
     let padded = head.to_string();
     assert!(padded.len() > n, "the filler did not reach the bound");
     // A character is 2 bytes, so half as many of them are still over a bound
     // counted in bytes: this pins the bound as bytes and not as characters.
-    let mut wide = json!({"api": 1, "days": 30, "generatedAt": iso(now()), "sessions": SESSIONS_SHAPE});
+    let mut wide =
+        json!({"api": 1, "days": 30, "generatedAt": iso(now()), "sessions": SESSIONS_SHAPE});
     wide["filler"] = json!("\u{e9}".repeat(n / 2 + 1));
     vec![
         ("invalid", "x".repeat(n)),

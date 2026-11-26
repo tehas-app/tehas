@@ -1,7 +1,7 @@
 // factory_park over a snapshot and a logs dir written by the tests.
 
-use common::SESSIONS_SHAPE;
 use crate::common;
+use common::SESSIONS_SHAPE;
 
 use mcp::tools::{list_scoped, Dirs, Output, Scope, ToolError};
 use serde_json::{json, Value};
@@ -43,7 +43,8 @@ impl Env {
         let text = std::fs::read_to_string(fixture().join(RESULT)).unwrap();
         std::fs::write(logs.join(RESULT), text.replace("@ADDRESS@", &address())).unwrap();
         let mut text =
-            json!({"api": 1, "days": 30, "generatedAt": iso(now()), "sessions": SESSIONS_SHAPE}).to_string();
+            json!({"api": 1, "days": 30, "generatedAt": iso(now()), "sessions": SESSIONS_SHAPE})
+                .to_string();
         for s in sessions {
             text.push('\n');
             text.push_str(&s.to_string());

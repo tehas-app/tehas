@@ -1,7 +1,7 @@
 // factory_log over a snapshot and a logs directory written by the tests.
 
-use common::SESSIONS_SHAPE;
 use crate::common;
+use common::SESSIONS_SHAPE;
 
 use flate2::read::GzDecoder;
 use mcp::keys::{parse_keys, Setting};

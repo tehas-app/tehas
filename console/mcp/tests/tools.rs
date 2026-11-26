@@ -1,7 +1,7 @@
 // The tools against live files with planted keys that must never come out.
 
-use common::SESSIONS_SHAPE;
 use crate::common;
+use common::SESSIONS_SHAPE;
 
 use mcp::snapshot::Snapshot;
 use mcp::tools::{list_scoped, Dirs, Output, Scope, ToolError};
@@ -1046,7 +1046,8 @@ fn snapshot_dir(name: &str, lines: &[String]) -> TestDir {
 }
 
 fn header(days: Value, generated: i64) -> String {
-    json!({"api": 1, "days": days, "generatedAt": iso(generated), "sessions": SESSIONS_SHAPE}).to_string()
+    json!({"api": 1, "days": days, "generatedAt": iso(generated), "sessions": SESSIONS_SHAPE})
+        .to_string()
 }
 
 #[test]

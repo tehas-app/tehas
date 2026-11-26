@@ -1075,8 +1075,7 @@ fn served_text(name: &str, text: &str, extra: &[&str], set: Option<(&str, &str)>
     let session = serde_json::json!({"id": id, "kind": "work", "issue": 7,
         "started": iso(t), "ended": iso(t + 60),
         "logs": [{"word": "transcript", "name": file, "bytes": 1}]});
-    let head =
-        serde_json::json!({"api": 1, "days": 30, "generatedAt": iso(t + 100), "sessions": SESSIONS_SHAPE});
+    let head = serde_json::json!({"api": 1, "days": 30, "generatedAt": iso(t + 100), "sessions": SESSIONS_SHAPE});
     std::fs::write(snap.join("sessions.jsonl"), format!("{head}\n{session}\n")).unwrap();
     let path = |p: &Path| p.display().to_string();
     let s = Server::start_full(
@@ -1200,7 +1199,8 @@ fn served_park_of(name: &str, extra: &[&str], issue: u64, result: Option<&str>) 
         "started": iso(t), "ended": iso(t + 60), "outcome": "handoff",
         "lastStep": "develop", "cap": "verify-failed:develop", "failureKind": "verify",
         "logs": [{"word": "result", "name": file, "bytes": 1}]});
-    let head = json!({"api": 1, "days": 30, "generatedAt": iso(t + 100), "sessions": SESSIONS_SHAPE});
+    let head =
+        json!({"api": 1, "days": 30, "generatedAt": iso(t + 100), "sessions": SESSIONS_SHAPE});
     std::fs::write(snap.join("sessions.jsonl"), format!("{head}\n{session}\n")).unwrap();
     let path = |p: &Path| p.display().to_string();
     let s = Server::start_with(&path(&live), &path(&snap), &path(&logs), extra);
@@ -1306,7 +1306,8 @@ fn served_images(tool: &str, args: Value) -> Value {
         .as_secs() as i64;
     let rows = std::fs::read_to_string(fixture("images/sessions.jsonl")).unwrap();
     let mut text =
-        json!({"api": 1, "days": 30, "generatedAt": iso(now), "sessions": SESSIONS_SHAPE}).to_string();
+        json!({"api": 1, "days": 30, "generatedAt": iso(now), "sessions": SESSIONS_SHAPE})
+            .to_string();
     for (i, line) in rows.lines().enumerate() {
         let mut s: Value = serde_json::from_str(line).unwrap();
         let t = now - 60 * (i as i64 + 1);
