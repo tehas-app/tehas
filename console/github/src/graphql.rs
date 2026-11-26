@@ -7,7 +7,7 @@
 //! applies its own form of it, an error naming its alias.
 
 use crate::rate;
-use serde::de::{DeserializeOwned, IgnoredAny};
+use serde::de::{DeserializeOwned, Deserializer, IgnoredAny};
 use serde::Deserialize;
 use serde_json::Value;
 use tehas_ports::{Got, Outcome, Pool, Unread};
@@ -28,10 +28,47 @@ enum Errors {
     Other(IgnoredAny),
 }
 
+/// One of GraphQL's `errors`: its type, and where in the answer it lies.
+/// The aliased readers of `items.rs` and `port/board/work.rs` name an
+/// error's item by its path; the rule above reads only its type.
 #[derive(Deserialize)]
-struct Error {
+pub(crate) struct Error {
     #[serde(rename = "type", default)]
     kind: Option<String>,
+    #[serde(default, deserialize_with = "steps")]
+    pub(crate) path: Vec<Step>,
+}
+
+/// A step of an error's path: a field or an alias, or a place in a list.
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub(crate) enum Step {
+    At(u64),
+    Name(String),
+    Other(IgnoredAny),
+}
+
+impl Error {
+    /// Whether GitHub gave this error the type `kind`.
+    pub(crate) fn is(&self, kind: &str) -> bool {
+        self.kind.as_deref() == Some(kind)
+    }
+}
+
+/// A path that is no list, null among them, is none.
+fn steps<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Step>, D::Error> {
+    Ok(serde_json::from_value(Value::deserialize(d)?).unwrap_or_default())
+}
+
+/// A spent budget of a GraphQL call is the priced pool's.
+pub(crate) fn priced(o: Outcome) -> Outcome {
+    match o {
+        Outcome::Spent { until, .. } => Outcome::Spent {
+            pool: Pool::Priced,
+            until,
+        },
+        o => o,
+    }
 }
 
 /// The outcome of the answer `out` when it carries errors, at `now`; None

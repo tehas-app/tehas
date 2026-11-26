@@ -21,6 +21,7 @@ use serde_json::Value;
 
 use super::unsupported;
 use crate::forge::uri;
+use crate::graphql::priced;
 use crate::{rate, GitHub};
 use tehas_core::accounts;
 use tehas_ports::{
@@ -327,17 +328,6 @@ pub(super) fn id_of(who: &AccountId) -> Got<u64> {
     }
 }
 
-/// A spent budget of a GraphQL call is the priced pool's.
-fn priced(o: Outcome) -> Outcome {
-    match o {
-        Outcome::Spent { until, .. } => Outcome::Spent {
-            pool: Pool::Priced,
-            until,
-        },
-        o => o,
-    }
-}
-
 /// An answer that does not parse.
 const MALFORMED: Outcome = Outcome::Unread(Unread::Malformed);
 
@@ -490,7 +480,6 @@ fn word_cap(word: Option<&str>) -> Option<Standing> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tehas_ports::At;
 
     #[test]
     fn an_id_is_githubs_whole_number_alone() {
@@ -515,6 +504,7 @@ mod tests {
 
     #[test]
     fn a_spent_graphql_call_is_the_priced_pools() {
+        use tehas_ports::{At, Pool};
         let at = At::new(5);
         assert_eq!(
             priced(Outcome::Spent {
