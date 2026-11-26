@@ -3,16 +3,13 @@
 //! `checks` folds them, and the long way (`branch`, then `checks`) where
 //! the one answer may not be whole or GitHub answers it with errors.
 //!
-//! No live answer of the one question is recorded yet. The law runs on the
-//! live REST recordings of nodejs/node (`tests/recorded/code-host/node/`)
-//! and on the one question's answer made from them in the test, field by
-//! field. The answers built with `json!` here await the recordings listed in
-//! the owner's recordings kit (record.sh step f): a failing run in a commit
-//! of several suites, a status context, a missing branch (recorded:
-//! `recorded/activity/live/branch-no-such-branch-here.json`) and the App
-//! without `actions: read`. Until that last one is recorded, a suite of
-//! GitHub Actions whose workflow run the answer does not give is asked the
-//! long way, never folded as known.
+//! The live answers are kit run #1's step f (2026-11-26), on
+//! tehas-app/tehas-rec-branch-checks: the one question
+//! (`recorded/branch-checks/live/`) and the long way's REST reads
+//! (`recorded/code-host/tehas-rec-branch-checks/`). The other cases are
+//! the live answer with its suites and statuses set in the test. The App
+//! without `actions: read` (step f4) was not recorded in run #1: its case
+//! is hand-made, pending.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -60,10 +57,32 @@ fn scripted(answers: Vec<Result<String, (String, Option<String>)>>) -> (GitHub, 
         answers,
         asked: Arc::clone(&asked),
     };
-    (GitHub::new("acme/widget", Box::new(runner)), asked)
+    (
+        GitHub::new("tehas-app/tehas-rec-branch-checks", Box::new(runner)),
+        asked,
+    )
 }
 
-const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+/// The head of `main` in the live recordings.
+const SHA: &str = "a09d79baac4a6fa80120c3dc5e599b4e4eba40ad";
+
+/// A recording under `tests/recorded/`.
+fn recorded(path: &str) -> String {
+    let at = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/recorded")
+        .join(path);
+    std::fs::read_to_string(&at).unwrap_or_else(|e| panic!("{}: {e}", at.display()))
+}
+
+/// The live answer of the one question for `main`.
+fn live() -> String {
+    recorded("branch-checks/live/question-main.json")
+}
+
+/// A live REST read of the long way, of the head `SHA`.
+fn rest(read: &str) -> String {
+    recorded(&format!("code-host/tehas-rec-branch-checks/{read}"))
+}
 
 fn main() -> Branch {
     Branch::new("main").unwrap()
@@ -93,8 +112,8 @@ fn suite(id: u64, actions: bool, workflow: Option<(u64, &str)>, runs: &[R]) -> S
     .to_string()
 }
 
-/// The question's answer: the branch `main` at `SHA` with these suites and
-/// status contexts.
+/// The question's answer: the live answer for `main` with these suites and
+/// status contexts in place of its own.
 fn answer(suites: &[String], contexts: &[(&str, &str)]) -> String {
     let suites: Vec<Value> = suites
         .iter()
@@ -104,26 +123,23 @@ fn answer(suites: &[String], contexts: &[(&str, &str)]) -> String {
         .iter()
         .map(|(c, s)| json!({"context": c, "state": s}))
         .collect();
-    json!({"data": {"repository": {"ref": {"name": "main", "prefix": "refs/heads/",
-        "target": {"__typename": "Commit", "oid": SHA,
-            "checkSuites": {"totalCount": suites.len(), "nodes": suites},
-            "status": {"contexts": contexts}}}}}})
-    .to_string()
+    let mut v: Value = serde_json::from_str(&live()).unwrap();
+    let target = &mut v["data"]["repository"]["ref"]["target"];
+    target["checkSuites"] = json!({"totalCount": suites.len(), "nodes": suites});
+    target["status"] = json!({"contexts": contexts});
+    v.to_string()
 }
 
-/// The long way's answers: the branch's head, then one page of the runs
-/// and one of the statuses.
+/// The long way's answers: the branch's head (the live answer for `main`,
+/// which holds every field the branch question asks), then one page of
+/// the runs and one of the statuses.
 fn long_way(runs: &[String]) -> Vec<Result<String, (String, Option<String>)>> {
     let runs: Vec<Value> = runs
         .iter()
         .map(|r| serde_json::from_str(r).unwrap())
         .collect();
     vec![
-        Ok(
-            json!({"data": {"repository": {"ref": {"name": "main", "prefix": "refs/heads/",
-            "target": {"__typename": "Commit", "oid": SHA}}}}})
-            .to_string(),
-        ),
+        Ok(live()),
         Ok(json!({"total_count": runs.len(), "check_runs": runs}).to_string()),
         Ok(json!({"total_count": 0, "statuses": []}).to_string()),
     ]
@@ -150,7 +166,7 @@ fn the_head_and_its_checks_are_one_question() {
     let asked = asked.lock().unwrap();
     assert_eq!(asked.len(), 1);
     assert!(
-        asked[0].starts_with("api graphql -F owner=acme -F name=widget -f ref=refs/heads/main -f check=verify -f query=query("),
+        asked[0].starts_with("api graphql -F owner=tehas-app -F name=tehas-rec-branch-checks -f ref=refs/heads/main -f check=verify -f query=query("),
         "{}",
         asked[0]
     );
@@ -265,7 +281,7 @@ fn the_words_fold_as_the_checks_read_folds_them() {
 
 #[test]
 fn no_such_branch_is_none_in_one_question() {
-    let none = json!({"data": {"repository": {"ref": null}}}).to_string();
+    let none = recorded("branch-checks/live/question-no-such-branch-here.json");
     let (mut gh, asked) = scripted(vec![Ok(none)]);
     assert_eq!(gh.branch_checks(&main(), Some("verify")), Ok(None));
     assert_eq!(asked.lock().unwrap().len(), 1);
@@ -385,39 +401,6 @@ fn asked_for_every_check_it_is_the_long_way() {
     );
 }
 
-/// The law of the port: the one question answers what `branch` then
-/// `checks` answer.
-#[test]
-fn the_one_question_keeps_the_law_of_the_branch_then_its_checks() {
-    let rest = json!({"id": 11, "name": "verify", "status": "completed", "conclusion": "failure",
-        "app": {"id": 9, "slug": "other-ci"}, "check_suite": {"id": 1}})
-    .to_string();
-    let mut answers = long_way(&[rest]);
-    answers.push(Ok(answer(
-        &[suite(
-            1,
-            false,
-            None,
-            &[(11, "verify", "COMPLETED", Some("FAILURE"), None)],
-        )],
-        &[],
-    )));
-    answers.push(Ok(
-        json!({"data": {"repository": {"ref": null}}}).to_string()
-    ));
-    let (mut gh, asked) = scripted(answers);
-    assert_eq!(
-        laws::code_host::branch_checks_are_the_branch_then_its_checks(
-            &mut gh,
-            &main(),
-            &Branch::new("gone").unwrap(),
-            "verify",
-        ),
-        Ok(())
-    );
-    assert_eq!(asked.lock().unwrap().len(), 5);
-}
-
 /// The query text the one question asks, from the call written down.
 fn query_of(call: &str) -> &str {
     call.split_once(" -f query=").map(|(_, q)| q).unwrap()
@@ -454,7 +437,8 @@ fn the_question_filters_the_runs_by_the_name_and_never_the_suites() {
 /// answer is not folded. It is asked the long way, whose read of the
 /// workflow runs, refused, makes the check `Forbidden` and says why; and
 /// where the long way reads them, the older failure of one workflow stays
-/// beside the newer pass of another.
+/// beside the newer pass of another. Hand-made, pending: kit step f4
+/// (`branch-checks/live/no-actions-read/`) was skipped in run #1.
 #[test]
 fn a_suite_of_actions_without_its_workflow_run_is_asked_the_long_way() {
     let old = (
@@ -531,111 +515,21 @@ fn a_suite_without_a_run_of_the_name_needs_no_workflow_run() {
     assert_eq!(asked.lock().unwrap().len(), 1);
 }
 
-/// The commit of nodejs/node the REST recordings hold, and the job of the
-/// Commit Queue workflow that failed once on it and then passed.
-const NODE: &str = "36ca6a74f19204e710057645c9c28974fc459362";
-const CANDIDATE: &str = "get_candidate_prs";
-
-/// A recording under `tests/recorded/`.
-fn recorded(path: &str) -> String {
-    let at = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/recorded")
-        .join(path);
-    std::fs::read_to_string(&at).unwrap_or_else(|e| panic!("{}: {e}", at.display()))
-}
-
-fn node(read: &str) -> String {
-    recorded(&format!("code-host/node/{read}-{NODE}-1.json"))
-}
-
-/// The live recording of a branch's head, moved to `main` at the node
-/// commit: the head the long way reads.
-fn node_head() -> String {
-    let mut v =
-        serde_json::from_str::<Value>(&recorded("activity/live/branch-trunk.json")).unwrap();
-    let at = &mut v["data"]["repository"]["ref"];
-    at["name"] = json!("main");
-    at["target"]["oid"] = json!(NODE);
-    v.to_string()
-}
-
-/// The node recording's check runs as `check_name` gives them: the runs of
-/// the name alone.
-fn node_runs_named(name: &str) -> String {
-    let runs: Vec<Value> = serde_json::from_str::<Value>(&node("checks")).unwrap()["check_runs"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|r| r["name"] == name)
-        .cloned()
-        .collect();
-    json!({"total_count": runs.len(), "check_runs": runs}).to_string()
-}
-
-/// The one question's answer, made field by field from the node
-/// recordings: `node_head`, every suite the check runs name with its App,
-/// its workflow run from the recorded workflow runs and its runs of the
-/// name, in GraphQL's words, and the recorded statuses.
-fn node_question(name: &str) -> String {
-    let checks = serde_json::from_str::<Value>(&node("checks")).unwrap();
-    let workflows = serde_json::from_str::<Value>(&node("runs")).unwrap();
-    let mut order: Vec<u64> = Vec::new();
-    let mut suites: Vec<Value> = Vec::new();
-    for r in checks["check_runs"].as_array().unwrap() {
-        let id = r["check_suite"]["id"].as_u64().unwrap();
-        let at = match order.iter().position(|&s| s == id) {
-            Some(at) => at,
-            None => {
-                let ran = workflows["workflow_runs"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .find(|w| w["check_suite_id"] == id)
-                    .map(|w| json!({"event": w["event"], "workflow": {"databaseId": w["workflow_id"]}}));
-                order.push(id);
-                suites.push(json!({"databaseId": id,
-                    "app": {"databaseId": r["app"]["id"], "slug": r["app"]["slug"]},
-                    "workflowRun": ran, "checkRuns": {"totalCount": 0, "nodes": []}}));
-                suites.len() - 1
-            }
-        };
-        if r["name"] != name {
-            continue;
-        }
-        let up = |k: &str| r[k].as_str().map(str::to_ascii_uppercase);
-        let runs = &mut suites[at]["checkRuns"];
-        runs["nodes"].as_array_mut().unwrap().push(json!({
-            "databaseId": r["id"], "name": r["name"], "status": up("status"),
-            "conclusion": up("conclusion"), "startedAt": r["started_at"]}));
-        runs["totalCount"] = json!(runs["nodes"].as_array().unwrap().len());
-    }
-    let contexts: Vec<Value> = serde_json::from_str::<Value>(&node("statuses")).unwrap()["statuses"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|s| json!({"context": s["context"], "state": s["state"].as_str().map(str::to_ascii_uppercase)}))
-        .collect();
-    let mut v: Value = serde_json::from_str(&node_head()).unwrap();
-    let target = &mut v["data"]["repository"]["ref"]["target"];
-    target["checkSuites"] = json!({"totalCount": suites.len(), "nodes": suites});
-    target["status"] = json!({"contexts": contexts});
-    v.to_string()
-}
-
-/// The law of the port on live recordings: nodejs/node's commit of 33
-/// check suites, each named for its workflow (Commit Queue's suites hold
-/// `get_candidate_prs`, which failed once and then passed), read the long
-/// way from the REST recordings and in the one question made from them,
-/// and a missing branch as GitHub answered one live.
+/// The law of the port on the live answers: `main` at `SHA`, whose
+/// workflow Gate's job `verify` failed beside workflow Lint's suite with no
+/// run of the name, and whose statuses are `verify` success and `other`
+/// failure; and a missing branch as GitHub answered the one question live.
 #[test]
-fn the_law_holds_on_the_recorded_node_commit() {
+fn the_law_holds_on_the_live_answers() {
     let answers = vec![
-        Ok(node_head()),
-        Ok(node_runs_named(CANDIDATE)),
-        Ok(node("statuses")),
-        Ok(node("runs")),
-        Ok(node_question(CANDIDATE)),
-        Ok(recorded("activity/live/branch-no-such-branch-here.json")),
+        Ok(live()),
+        Ok(rest(&format!("checks-{SHA}-1-name=verify.json"))),
+        Ok(rest(&format!("statuses-{SHA}-1.json"))),
+        Ok(rest(&format!("runs-{SHA}-1.json"))),
+        Ok(live()),
+        Ok(recorded(
+            "branch-checks/live/question-no-such-branch-here.json",
+        )),
     ];
     let (mut gh, asked) = scripted(answers);
     assert_eq!(
@@ -643,14 +537,43 @@ fn the_law_holds_on_the_recorded_node_commit() {
             &mut gh,
             &main(),
             &Branch::new("no-such-branch-here").unwrap(),
-            CANDIDATE,
+            "verify",
         ),
         Ok(())
     );
     assert_eq!(asked.lock().unwrap().len(), 6);
-    let (mut gh, _) = scripted(vec![Ok(node_question(CANDIDATE))]);
-    let (head, checks) = gh.branch_checks(&main(), Some(CANDIDATE)).unwrap().unwrap();
-    assert_eq!(head, CommitId::new(NODE).unwrap());
-    assert_eq!(checks.runs.len(), 1);
+}
+
+/// The live answer folds in one call: run 139972228367 of `verify` failed
+/// and the status `verify` passed, so the check fails; `other` is not held.
+#[test]
+fn the_live_answer_is_the_failed_run_and_the_passed_status() {
+    let (mut gh, asked) = scripted(vec![Ok(live())]);
+    let (head, checks) = gh.branch_checks(&main(), Some("verify")).unwrap().unwrap();
+    assert_eq!(head, CommitId::new(SHA).unwrap());
+    assert_eq!(
+        checks.runs.iter().map(|r| r.status).collect::<Vec<_>>(),
+        [done(Conclusion::Failed), done(Conclusion::Passed)]
+    );
+    assert_eq!(checks.overall, Overall::Fail);
+    assert_eq!(asked.lock().unwrap().len(), 1);
+}
+
+/// The first question filtered the suites by `checkName`. Asked live of the
+/// same commit, it answered no suites and no error: the failed run of
+/// `verify` was gone, and the passed status alone read as a pass. The
+/// question asked now holds the failure.
+#[test]
+fn the_suites_filtered_by_the_check_name_answer_none_live() {
+    let first = recorded("branch-checks/live/first-question-main.json");
+    let v: Value = serde_json::from_str(&first).unwrap();
+    let target = &v["data"]["repository"]["ref"]["target"];
+    assert_eq!(target["oid"], SHA);
+    assert_eq!(target["checkSuites"]["totalCount"], 0);
+    let (mut gh, _) = scripted(vec![Ok(first)]);
+    let (_, checks) = gh.branch_checks(&main(), Some("verify")).unwrap().unwrap();
     assert_eq!(checks.overall, Overall::Pass);
+    let (mut gh, _) = scripted(vec![Ok(live())]);
+    let (_, checks) = gh.branch_checks(&main(), Some("verify")).unwrap().unwrap();
+    assert_eq!(checks.overall, Overall::Fail);
 }
