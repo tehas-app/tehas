@@ -257,9 +257,10 @@ impl GitHub {
     /// repository now, which a rename changes. So where `check` finds the
     /// configured name `Unread(Inconsistent)`, and would not with any name,
     /// it is asked again with the name GitHub gives with this project's
-    /// database id, learned once by a question when no answer gave it. A
-    /// link to another repository fails both; a handle that cannot learn
-    /// the name keeps the first answer.
+    /// database id, learned once by a question when no answer gave it, and
+    /// only where that name has the configured owner. A link to another
+    /// repository fails both; a handle that cannot learn the name, or
+    /// learns one under another owner, keeps the first answer.
     pub(crate) fn as_here<T>(
         &mut self,
         check: impl Fn(Named) -> tehas_ports::Got<T>,
@@ -283,11 +284,16 @@ impl GitHub {
     }
 
     /// The name GitHub gives this project's repository with its database
-    /// id, where it is not the configured name: learned as `as_here` learns
-    /// it.
+    /// id, where it is not the configured name but has the configured
+    /// owner: learned as `as_here` learns it. A repository transferred to
+    /// another owner is another account's, so it is never here.
     pub(crate) fn renamed(&mut self) -> Option<String> {
-        self.here_name()
-            .filter(|name| !name.eq_ignore_ascii_case(&self.repo))
+        let owner = |name: &str| name.split_once('/').map(|(owner, _)| owner.to_string());
+        let here = owner(&self.repo)?;
+        self.here_name().filter(|name| {
+            !name.eq_ignore_ascii_case(&self.repo)
+                && owner(name).is_some_and(|o| o.eq_ignore_ascii_case(&here))
+        })
     }
 
     /// The name GitHub gives this project's repository with its database

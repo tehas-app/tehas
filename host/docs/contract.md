@@ -1077,7 +1077,9 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   adapter holds the links in its answers to the name GitHub gives with the
   repository's id, so on an instance whose `TEHAS_REPO` names the old name
   the adapter reads and writes its issues, comments and pull requests, and
-  finds them in a search, as its own. The dispatcher's poll, the plugin
+  finds them in a search, as its own. It does so only for a name with the
+  configured owner: a repository transferred to another owner is another
+  account's, and its answers stay unread. The dispatcher's poll, the plugin
   hooks, the preview sweep and the cycle's issue relay still compare a pull
   request's head repository, or a `--repo`, with `TEHAS_REPO` by name: on
   such an instance the factory's own pull request reads as another

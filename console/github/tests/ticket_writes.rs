@@ -474,6 +474,36 @@ fn another_repositorys_link_is_not_here_for_a_renamed_project() {
     }
 }
 
+/// A repository moved to another owner is not here, even where GitHub
+/// gives its new name with this project's id and every link names it: the
+/// account that now owns it is not the configured one.
+#[test]
+fn a_project_transferred_to_another_owner_is_not_here() {
+    let moved = |s: String| s.replace("acme/widget", "mallory/widget");
+    let (mut gh, calls) = adapter(vec![
+        Ok(moved(sample("issue-7.json"))),
+        Ok(moved(RENAMED.into())),
+        Ok(moved(sample("comment-posted.json"))),
+    ]);
+    assert_eq!(
+        gh.note(&key(7), "b", &[]),
+        Err(Outcome::Unread(Unread::Inconsistent))
+    );
+    let calls = taken(&calls);
+    assert_eq!(calls.len(), 2, "nothing posted");
+    assert_eq!(calls[1].args[..2], args(&["api", "graphql"]));
+    // A rename within the owner, named in another case, is still here.
+    let (mut gh, _) = adapter_of(
+        "ACME/widget-before",
+        vec![
+            Ok(sample("issue-7.json")),
+            Ok(RENAMED.into()),
+            Ok(sample("comment-posted.json")),
+        ],
+    );
+    assert!(gh.note(&key(7), "b", &[]).is_ok());
+}
+
 /// A runner of the trait's default, which takes no input.
 struct NoInput {
     calls: Calls,

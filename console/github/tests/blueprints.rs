@@ -360,6 +360,22 @@ fn a_renamed_project_still_finds_its_issues_by_its_repository_id() {
     assert!(asked[1].starts_with("api graphql"), "{asked:?}");
 }
 
+/// A repository GitHub names under another owner with this project's id
+/// was transferred: its hits are not this project's, so only the hits
+/// under the configured name are found.
+#[test]
+fn a_search_of_a_project_transferred_to_another_owner_finds_no_hit_of_the_new_owner() {
+    let asked = Asked::default();
+    let transferred = Renamed {
+        now: "stranger/widget",
+        asked: Arc::clone(&asked),
+    };
+    let mut gh = GitHub::new(PROJECT, Box::new(transferred));
+    let took = gh.search("report", Within::Titles, None, n(5)).unwrap();
+    let found: Vec<_> = took.items.iter().map(|h| h.no.get()).collect();
+    assert_eq!(found, [1, 2]);
+}
+
 /// Where the configured name is GitHub's, a hit of another repository is
 /// dropped and nothing more is read.
 #[test]
