@@ -25,8 +25,8 @@ use crate::graphql::{self, priced};
 use crate::GitHub;
 use tehas_core::accounts;
 use tehas_ports::{
-    Account, AccountId, AccountKind, At, Got, Identity, Login, Outcome, Pool, ProjectName, Realm,
-    Refusal, Scope, Secret, SignInCode, SignInState, Standing, Token, Unread, WebLink,
+    Account, AccountId, AccountKind, Got, Identity, Login, Outcome, ProjectName, Realm, Refusal,
+    Scope, Secret, SignInCode, SignInState, Standing, Token, Unread, WebLink,
 };
 
 /// The question of who the token is. GraphQL's `viewer` answers for a
@@ -326,15 +326,7 @@ const MALFORMED: Outcome = Outcome::Unread(Unread::Malformed);
 fn read_me(out: &str, now: i64) -> Got<(Login, u64)> {
     let mut v: Value = serde_json::from_str(out.trim()).map_err(|_| MALFORMED)?;
     if v.get("errors").is_some_and(|e| !e.is_null()) {
-        let limited = graphql::errors(out).iter().any(|e| e.is("RATE_LIMITED"));
-        return Err(if limited {
-            Outcome::Spent {
-                pool: Pool::Priced,
-                until: At::new(now),
-            }
-        } else {
-            Outcome::Unread(Unread::Inconsistent)
-        });
+        return Err(graphql::limited(&graphql::errors(out), now));
     }
     let viewer = v
         .pointer_mut("/data/viewer")
@@ -496,6 +488,7 @@ mod tests {
 
     #[test]
     fn a_spent_graphql_call_is_the_priced_pools() {
+        use tehas_ports::{At, Pool};
         let at = At::new(5);
         assert_eq!(
             priced(Outcome::Spent {

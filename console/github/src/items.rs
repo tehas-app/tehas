@@ -18,9 +18,9 @@ use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::graphql::{priced, Error, Step};
+use crate::graphql::{limited, priced, Error, Step};
 use crate::GitHub;
-use tehas_ports::{At, ChangeNo, Got, Item, Outcome, Pool, TicketKey, Unread, ALL_MAX};
+use tehas_ports::{ChangeNo, Got, Item, Outcome, TicketKey, Unread, ALL_MAX};
 
 const MALFORMED: Outcome = Outcome::Unread(Unread::Malformed);
 const INCONSISTENT: Outcome = Outcome::Unread(Unread::Inconsistent);
@@ -250,13 +250,7 @@ impl GitHub {
         let errors = answer.errors.unwrap_or_default();
         let whole: Vec<&Error> = errors.iter().filter(|e| items.named(e).is_none()).collect();
         if !whole.is_empty() {
-            return all(match whole.iter().any(|e| e.is("RATE_LIMITED")) {
-                true => Outcome::Spent {
-                    pool: Pool::Priced,
-                    until: At::new((self.now)()),
-                },
-                false => INCONSISTENT,
-            });
+            return all(limited(whole, (self.now)()));
         }
         let (mut repository, mut nodes, viewer_id) = match answer.data {
             Some(d) => (d.repository, d.nodes, d.viewer.and_then(|v| v.database_id)),

@@ -29,7 +29,7 @@ pub const CUT_TEXT: usize = 200;
 
 /// The most pages one read asks for after its first, a hundred items each.
 /// A list longer than that is `Unread(Cut)`.
-const PAGES_MAX: usize = 100;
+pub(crate) const PAGES_MAX: usize = 100;
 
 /// An account, with the user id the vouch reads beside every login.
 pub(crate) const ACTOR: &str =

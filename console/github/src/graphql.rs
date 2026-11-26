@@ -87,6 +87,18 @@ pub(crate) fn priced(o: Outcome) -> Outcome {
     }
 }
 
+/// The outcome of an answer carrying `errors`: a spent priced budget until
+/// `until` when GitHub says the rate is limited, else `Unread(Inconsistent)`.
+pub(crate) fn limited<'a>(errors: impl IntoIterator<Item = &'a Error>, until: i64) -> Outcome {
+    match errors.into_iter().any(|e| e.is("RATE_LIMITED")) {
+        true => Outcome::Spent {
+            pool: Pool::Priced,
+            until: At::new(until),
+        },
+        false => Outcome::Unread(Unread::Inconsistent),
+    }
+}
+
 /// The outcome of the answer `out` when it carries errors, at `now`; None
 /// for one without, or one that is no JSON object (which its reader finds
 /// malformed). An object whose `errors` the head cannot read, a key given
@@ -103,17 +115,9 @@ pub(crate) fn refusal(out: &str, now: i64) -> Option<Outcome> {
     if head.errors.is_none() && v.get("errors").is_none_or(Value::is_null) {
         return None;
     }
-    let limited = match head.errors {
-        Some(Errors::List(all)) => all.iter().any(|e| e.is("RATE_LIMITED")),
-        _ => false,
-    };
-    Some(if limited {
-        Outcome::Spent {
-            pool: Pool::Priced,
-            until: At::new(now + LIMITED_FLOOR),
-        }
-    } else {
-        Outcome::Unread(Unread::Inconsistent)
+    Some(match head.errors {
+        Some(Errors::List(all)) => limited(&all, now + LIMITED_FLOOR),
+        _ => Outcome::Unread(Unread::Inconsistent),
     })
 }
 

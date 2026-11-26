@@ -9,22 +9,17 @@ use serde::Deserialize;
 
 use super::change::answer;
 use crate::graphql::{self, priced};
-use crate::ticket::{Info, Pages};
+use crate::ticket::{Info, Pages, PAGES_MAX};
 use crate::tickets::{account, take};
 use crate::{gh, ForgeError, GitHub};
 use tehas_ports::{
-    Account, At, Branch, ChangeEvent, ChangeHappened, ChangeNo, CommitId, Got, Outcome, Pool, Took,
+    Account, At, Branch, ChangeEvent, ChangeHappened, ChangeNo, CommitId, Got, Outcome, Took,
     Unread, Window, ALL_MAX,
 };
 
 const MALFORMED: Outcome = Outcome::Unread(Unread::Malformed);
 const INCONSISTENT: Outcome = Outcome::Unread(Unread::Inconsistent);
 const CUT: Outcome = Outcome::Unread(Unread::Cut);
-
-/// The most pages one read asks for, a hundred items each. Past them a
-/// whole read is `Unread(Cut)`, and the newest n hold what was read, with
-/// `more`.
-const PAGES_MAX: usize = 100;
 
 /// An account, with the user id beside its login that `Ours` is read by.
 const ACTOR: &str = "__typename login ...on User { databaseId } ...on Bot { databaseId }";
@@ -197,7 +192,9 @@ impl GitHub {
             let Some(c) = next else {
                 break;
             };
-            // PAGES_MAX pages are read once one cursor short of it is used.
+            // Activity reads PAGES_MAX pages in all, its first among them:
+            // past them a whole read is cut, and the newest n hold what was
+            // read, with more.
             match pages.turn(c, PAGES_MAX - 1)? {
                 Some(c) => cursor = Some(c),
                 None if back => {
@@ -390,15 +387,9 @@ impl GitHub {
     ) -> Outcome {
         if let Some(said) = said.filter(|s| !s.trim().is_empty()) {
             let errors = graphql::errors(said);
-            return if errors.iter().any(|e| e.is("RATE_LIMITED")) {
-                Outcome::Spent {
-                    pool: Pool::Priced,
-                    until: At::new((self.now)()),
-                }
-            } else if errors.iter().any(|e| e.is("NOT_FOUND")) {
-                Outcome::NotFound
-            } else {
-                INCONSISTENT
+            return match graphql::limited(&errors, (self.now)()) {
+                Outcome::Unread(_) if errors.iter().any(|e| e.is("NOT_FOUND")) => Outcome::NotFound,
+                o => o,
             };
         }
         if e.why.trim_start_matches(": ") != "gh exited 1" {

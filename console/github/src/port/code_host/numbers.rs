@@ -13,8 +13,7 @@ use super::{pull_fields, PullNode};
 use crate::items::alias;
 use crate::GitHub;
 use tehas_ports::{
-    AccountId, Author, Bound, ChangeDigest, ChangeFilter, Got, Outcome, Pool, Unread, Whole,
-    ALL_MAX,
+    AccountId, Author, Bound, ChangeDigest, ChangeFilter, Got, Outcome, Unread, Whole, ALL_MAX,
 };
 
 /// The most numbers one question asks: more go in another question.
@@ -85,12 +84,6 @@ impl GitHub {
         for node in &asked.nodes {
             match node {
                 Ok(_) | Err(Outcome::NotFound) => {}
-                Err(Outcome::Spent { until, .. }) => {
-                    return Err(Outcome::Spent {
-                        pool: Pool::Priced,
-                        until: *until,
-                    })
-                }
                 Err(o) => return Err(o.clone()),
             }
         }
