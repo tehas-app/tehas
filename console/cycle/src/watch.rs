@@ -1560,22 +1560,22 @@ mod tests {
         w.now_file(true, "running");
         let first = told.lock().unwrap().clone();
         assert_eq!(first.len(), 2, "the beat and the publish, once each");
+        let absent = format!(
+            "store: absent: {} is not an executable file",
+            home.join("libexec/store").display()
+        );
         match &first[0] {
             Tell::BeatLost { issue, word, line } => {
                 assert_eq!(*issue, g.issue);
-                assert!(
-                    !word.is_empty() && !line.is_empty(),
-                    "the store's own words"
-                );
+                assert_eq!(word, "absent", "the store's own word");
+                assert_eq!(line, &absent, "the store's own line");
             }
             other => panic!("expected a BeatLost, got {other:?}"),
         }
         match &first[1] {
             Tell::PublishLost { word, line } => {
-                assert!(
-                    !word.is_empty() && !line.is_empty(),
-                    "the store's own words"
-                );
+                assert_eq!(word, "absent", "the store's own word");
+                assert_eq!(line, &absent, "the store's own line");
             }
             other => panic!("expected a PublishLost, got {other:?}"),
         }
