@@ -1131,8 +1131,9 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Adopter action: none.
 - **The surface list is `api/surface-2.0.txt`.** This page.
   `api/surface-1.0.txt` is renamed `api/surface-2.0.txt`, the public
-  surface of 2.x from 2.0, without the names 2.0 took out. From 2.0.0 its
-  lines are only added; an alpha of 2.0 may still drop one.
+  surface of 2.x from 2.0, without the names 2.0 took out. From
+  v2.0.0-beta.1, a public name of 2.x is only added: none is renamed or
+  removed.
   Readers: the consumer that runs many factories and plugins, where they
   read the list.
   Adopter action: a program that read `api/surface-1.0.txt` reads

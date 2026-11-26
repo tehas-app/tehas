@@ -9,8 +9,8 @@
 # is building.
 #
 # Lines are only added, at the end, in the release that brings the name.
-# None is taken out or changed within 2.x from 2.0.0 on; an alpha of 2.0 may
-# still drop a line. console/tests/surface.rs fails when the surface loses a
+# From v2.0.0-beta.1 none is taken out or changed within 2.x.
+# console/tests/surface.rs fails when the surface loses a
 # name of this file, and when it has one this file does not list yet.
 
 command analytics
