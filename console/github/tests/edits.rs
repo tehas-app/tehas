@@ -27,6 +27,8 @@ use tehas_ports::{
 const PROJECT: &str = "acme/widget";
 /// The project of the live recordings under `edits/live/`.
 const LIVE: &str = "tehas-app/tehas-rec-edits-not-found";
+/// A project that is not there (`synthetic/edits/gone-repository/`).
+const GONE: &str = "tehas-app/tehas-rec-gone";
 const EDITED: u64 = 2_501_240_001;
 const PLAIN: u64 = 2_501_240_002;
 const EDITED_NODE: &str = "IC_kwDOAbCdEf6VEd0001";
@@ -436,6 +438,7 @@ fn a_read_of_comments_keeps_the_edited_ones_node_ids() {
 
 #[test]
 fn a_comment_that_is_not_on_an_issue_here_is_not_found_or_untrusted() {
+    // 2501240003 has no recording: GitHub's 404, which names no comment.
     let (mut gh, asked) = adapter("site");
     let got = gh.comment_edits_of(
         &[
@@ -453,7 +456,7 @@ fn a_comment_that_is_not_on_an_issue_here_is_not_found_or_untrusted() {
         [
             Err(Outcome::NotFound),
             Err(Outcome::NotFound),
-            Err(Outcome::NotFound),
+            inconsistent(),
             Err(Outcome::NotFound),
             inconsistent(),
         ]
@@ -555,9 +558,11 @@ fn a_failed_question_fails_each_of_its_items() {
 /// Live (`edits/live/`): GitHub answers a deleted issue and a number that
 /// never was with a null item and a `NOT_FOUND` at it, beside gh's
 /// failure, so each is `NotFound` and the kept issue stands. A deleted
-/// comment's REST read is GitHub's 404, `NotFound` with no question.
+/// comment's REST read is GitHub's 404, which a missing repository or a
+/// token that cannot see it gives too: `Unread(Inconsistent)`, with no
+/// question, so no caller drops a history on it.
 #[test]
-fn a_deleted_or_never_made_item_is_not_found() {
+fn a_deleted_issue_is_not_found_and_a_comments_404_names_no_comment() {
     let (mut gh, asked) = adapter_of(LIVE, "live");
     let got = gh.body_edits_of(&[bp(1), bp(2), bp(1001)], ALL_MAX);
     assert_eq!(texts(&got[0].1), ["Kept, edited."]);
@@ -565,8 +570,14 @@ fn a_deleted_or_never_made_item_is_not_found() {
     assert_eq!(got[1].1, Err(Outcome::NotFound));
     assert_eq!(got[2].1, Err(Outcome::NotFound));
     let got = gh.comment_edits_of(&[cid(7_194_481_408)], ALL_MAX);
-    assert_eq!(got[0].1, Err(Outcome::NotFound));
+    assert_eq!(got[0].1, inconsistent());
     assert_eq!(questions(&asked).len(), 1);
+
+    // The same 404 for a kept comment, in a repository that is not there.
+    let (mut gh, asked) = adapter_of(GONE, "gone-repository");
+    let got = gh.comment_edits_of(&[cid(7_194_480_872)], ALL_MAX);
+    assert_eq!(got[0].1, inconsistent());
+    assert!(questions(&asked).is_empty());
 }
 
 /// The edits are read by the adapter's one reader of several

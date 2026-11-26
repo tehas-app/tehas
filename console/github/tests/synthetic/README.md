@@ -38,8 +38,8 @@ the live edit histories of `tehas-app/tehas-rec-edits-not-found` (kit run
 #1, 2026-11-26). `bodies.answer.json` asks issues 1 (kept), 2 (deleted)
 and 1001 (never made); `nodes.answer.json` asks comment
 `IC_kwDOV9AT5c8AAAABrNMQ6A` (kept) and `IC_kwDOV9AT5c8AAAABrNMTAA`
-(deleted). A not found at an item is recorded there; one inside an item
-cannot be made on demand.
+(deleted), and REST reads comment 7194481408 (deleted). A not found at
+an item is recorded there; one inside an item cannot be made on demand.
 
 | File | Changed from the recording |
 | --- | --- |
@@ -49,6 +49,8 @@ cannot be made on demand.
 | `edits/inner-not-found/nodes.fail` | `nodes.fail` as it is |
 | `edits/missing-items/bodies.json` | `bodies.answer.json` with every alias and the errors taken out: an item missing from the answer |
 | `edits/missing-items/nodes.json` | `nodes.answer.json` with `nodes` empty and the errors taken out |
+| `edits/gone-repository/comment-7194480872.answer.json` | `comment-7194481408.answer.json` as it is, under the kept comment's id, asked of `tehas-app/tehas-rec-gone`, a repository that is not there: GitHub's 404 names neither, so it is the same answer |
+| `edits/gone-repository/comment-7194480872.fail` | `comment-7194481408.fail` as it is, under the kept comment's id |
 
 Source of the `what/` files: `console/github/tests/recorded/what/live/from-1.answer.json`
 and `from-1.fail`.

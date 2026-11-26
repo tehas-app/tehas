@@ -276,7 +276,9 @@ impl GitHub {
 
     /// The REST id of comment `id`, its node id and its issue: kept from a
     /// read of comments, or read by REST. A comment that is not on an issue
-    /// of this project is `NotFound`.
+    /// of this project is `NotFound`. REST's 404 is `Unread(Inconsistent)`:
+    /// a repository that is not there, or a token that cannot see it, gives
+    /// it too, and a caller must not drop a history on it.
     fn comment_node(&mut self, id: &CommentId) -> Got<(u64, Kept)> {
         let text = id.as_str();
         let n: u64 = match text.bytes().all(|b| b.is_ascii_digit()) {
@@ -287,9 +289,12 @@ impl GitHub {
             return Ok((n, kept.clone()));
         }
         let path = format!("repos/{}/issues/comments/{n}", self.repo);
-        let out = self
-            .call("the comment", &["api", &path])
-            .map_err(|e| self.outcome(&e))?;
+        let out =
+            self.call("the comment", &["api", &path])
+                .map_err(|e| match self.outcome(&e) {
+                    Outcome::NotFound => Outcome::Unread(Unread::Inconsistent),
+                    o => o,
+                })?;
         let malformed = Outcome::Unread(Unread::Malformed);
         let mut v: Value = serde_json::from_str(out.trim()).map_err(|_| malformed.clone())?;
         tehas_core::accounts::vouch(&mut v);
