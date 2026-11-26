@@ -4,7 +4,8 @@
 //! api/commands.txt for commands and flags, api/settings-rules.json for
 //! settings and roles, host/labels.tsv for labels, api/*.schema.json for
 //! the fields of the `--json` objects, and the MCP server's own tool table
-//! (mcp::tools::called) for the `tool` lines. What a feature still
+//! (mcp::tools::published) for the `tool` lines, their `arg` lines and the
+//! `answer` lines its output schemas name. What a feature still
 //! being built adds
 //! is left out (console/core/src/features.rs), unless the baseline had it
 //! before the feature became building, and so are the flags
@@ -193,6 +194,32 @@ fn fields(path: &str, schema: &Value, out: &mut BTreeSet<String>) {
     }
 }
 
+/// `tool <name> answer <path>` for every property a tool's outputSchema
+/// names, dotted like the field lines and an array's items as `[]`. The
+/// outputSchema of the server's own table is the one owner of what an
+/// answer holds.
+fn answer(prefix: &str, path: &str, schema: &Value, out: &mut BTreeSet<String>) {
+    if let Some(props) = schema["properties"].as_object() {
+        for (key, sub) in props {
+            let next = if path.is_empty() {
+                format!("{prefix} {key}")
+            } else {
+                format!("{path}.{key}")
+            };
+            out.insert(next.clone());
+            answer(prefix, &next, sub, out);
+        }
+    }
+    if schema["items"].is_object() {
+        let arr = if path.is_empty() {
+            prefix.to_string()
+        } else {
+            format!("{path}[]")
+        };
+        answer(prefix, &arr, &schema["items"], out);
+    }
+}
+
 /// Each schema of api/, with the name of its object: `status` for
 /// status.schema.json.
 fn schemas() -> Vec<(String, Value)> {
@@ -223,12 +250,17 @@ fn surface() -> BTreeSet<String> {
             continue;
         };
         out.insert(format!("tool {name}"));
-        let Some(args) = entry["inputSchema"]["properties"].as_object() else {
-            continue;
-        };
-        for arg in args.keys() {
-            out.insert(format!("tool {name} arg {arg}"));
+        if let Some(args) = entry["inputSchema"]["properties"].as_object() {
+            for arg in args.keys() {
+                out.insert(format!("tool {name} arg {arg}"));
+            }
         }
+        answer(
+            &format!("tool {name} answer"),
+            "",
+            &entry["outputSchema"],
+            &mut out,
+        );
     }
     for (object, schema) in schemas() {
         let whole = BUILDING_SCHEMAS
