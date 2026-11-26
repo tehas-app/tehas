@@ -5,9 +5,10 @@
 use crate::{answer, approval, cycle, db, order, park, plugin, poll, upkeep, verbs};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
+use tehas_core::order::Order;
 use tehas_core::plugin::run::{Kind, Trigger};
 use tehas_core::question::Choice;
-use tehas_core::verb::{End, Order, Plans, Verb};
+use tehas_core::verb::{End, Plans, Verb};
 
 const SHA: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 const TITLE_SHA: &str = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";

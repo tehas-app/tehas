@@ -3,6 +3,7 @@
 //! the one place a call becomes the words the store parses; the store's own
 //! tests (console/store/src/verb_tests.rs) hold every variant to its grammar.
 
+use crate::order::Order;
 use crate::plugin::run::{Kind, Trigger};
 use crate::question::Choice;
 
@@ -23,9 +24,6 @@ pub enum Plans {
     Open,
     Issue(u64),
 }
-
-/// A start order to set (`order-set`): the order as kept.
-pub use crate::order::Order;
 
 /// One call of the store.
 #[derive(Clone, Debug, PartialEq, Eq)]

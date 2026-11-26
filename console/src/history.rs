@@ -140,9 +140,15 @@ pub fn listing(home: &Path, repo: &str, query: &Query) -> Result<Listing, Unread
             said: "ERROR: the state store is not installed (run install.sh)".to_string(),
         });
     }
-    let show = Verb::HistoryShow {
-        issue: query.issue.map(|n| n as u64),
-    };
+    let issue = query
+        .issue
+        .map(u64::try_from)
+        .transpose()
+        .map_err(|_| Unread {
+            rc: 78,
+            said: "ERROR: the issue is not an issue's number".to_string(),
+        })?;
+    let show = Verb::HistoryShow { issue };
     let answer = store::line(home, &show).map_err(|no| Unread {
         rc: if no.rc == 1 { 1 } else { 78 },
         said: format!(
