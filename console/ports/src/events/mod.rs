@@ -242,3 +242,20 @@ impl Envelope {
         self.event.name()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Name;
+
+    // Rule 6: `plugin-<name>` and `annex-<name>` are not tehas's subjects.
+    #[test]
+    fn no_name_takes_a_plugin_or_annex_subject() {
+        for n in Name::ALL {
+            let s = n.as_str();
+            assert!(
+                !s.starts_with("plugin-") && !s.starts_with("annex-"),
+                "{s} takes a reserved subject"
+            );
+        }
+    }
+}

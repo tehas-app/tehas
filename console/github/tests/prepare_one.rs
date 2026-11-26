@@ -8,9 +8,11 @@
 //! After a write the replay answers from `made/` where the state has it,
 //! so the law reads the site the write left. `.json` is gh's answer,
 //! `.fail` the reason it failed and `.answer.json` what gh printed beside
-//! it. No test calls GitHub.
+//! it. No test calls GitHub. `tests/synthetic/prepare-one/garbled/`
+//! holds the answer that is not JSON.
 
-use std::path::PathBuf;
+mod answers;
+
 use std::sync::{Arc, Mutex};
 use tehas_core::forge::{Failed, GhRunner};
 use tehas_github::{table, GitHub};
@@ -41,14 +43,11 @@ fn field<'a>(args: &'a [&str], name: &str) -> Option<&'a str> {
 impl Replay {
     /// The recording a call is answered from, by its read.
     fn read(&self, name: &str) -> Option<String> {
-        let at = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/recorded/prepare-one")
-            .join(&self.state);
-        let made = at.join("made").join(name);
+        let made = answers::at("prepare-one", &self.state, &format!("made/{name}"));
         let at = if self.made && made.exists() {
             made
         } else {
-            at.join(name)
+            answers::at("prepare-one", &self.state, name)
         };
         std::fs::read_to_string(at).ok()
     }

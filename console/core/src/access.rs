@@ -2,11 +2,13 @@
 //! gate and for a call of a tool with `--login`
 //! (docs/specs/2026-11-21-plugins-web.md, "Who gets in"). What is asked of
 //! the code host is behind [`GitHub`], which the adapter answers
-//! (`tehas_github::Access`) and the tests stub: the person's token for the
-//! web flow's code, who the token is, and the person's permission on the
-//! repository with the installation token. [`check`] compares the answer
-//! with `TEHAS_PLUGIN_ACCESS` and the person by their [`AccountId`], whole
-//! and exact. Nothing of it is kept here: the gate keeps a session's last
+//! (`tehas_github::Access`) and the tests stub: the person's permission on
+//! the repository, and the repository's visibility, both with the
+//! installation token. A person's sign-in is no question of this port: the
+//! adapter's `Identity::signed_in` of its own answers who a person is, so
+//! the sign-in's HTTP has one owner. [`check`] compares the answer with
+//! `TEHAS_PLUGIN_ACCESS` and the person by their [`AccountId`], whole and
+//! exact. Nothing of it is kept here: the gate keeps a session's last
 //! check in its memory, which a restart empties.
 
 use std::path::Path;
@@ -38,13 +40,6 @@ impl Level {
     }
 }
 
-/// A person, as GitHub's `GET /user` names them.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Person {
-    pub id: AccountId,
-    pub login: String,
-}
-
 /// A person's permission, as GitHub answered for their login.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Permission {
@@ -55,13 +50,10 @@ pub enum Permission {
     Of(AccountId, Option<Level>, String),
 }
 
-/// What is asked of GitHub, each failure an [`Outcome`].
+/// What [`check`] asks of GitHub, each failure an [`Outcome`]. The two
+/// access questions, and nothing of a person's sign-in: who a sign-in is
+/// belongs to the adapter's `Identity::signed_in`.
 pub trait GitHub: Send + Sync {
-    /// The person's token for the web flow's `code`. `Forbidden`: GitHub
-    /// did not take the code.
-    fn token(&self, code: &str) -> Got<String>;
-    /// Who `token` is.
-    fn user(&self, token: &str) -> Got<Person>;
     /// `GET /repos/{repo}/collaborators/{login}/permission` with the
     /// installation token.
     fn permission(&self, login: &str) -> Got<Permission>;
@@ -138,12 +130,6 @@ mod tests {
     }
 
     impl GitHub for Stub {
-        fn token(&self, _: &str) -> Got<String> {
-            Err(Outcome::Forbidden)
-        }
-        fn user(&self, _: &str) -> Got<Person> {
-            Err(Outcome::Forbidden)
-        }
         fn permission(&self, _: &str) -> Got<Permission> {
             *self.asked.lock().unwrap() += 1;
             match self.level.clone()? {

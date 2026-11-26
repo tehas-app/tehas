@@ -7,9 +7,11 @@
 //! part GitHub says it cannot find, `.forbidden` one it refuses; an item
 //! with no recording is one GitHub cannot find. `bodies.*` and `nodes.*`
 //! answer a whole question; `comment-<id>.*` is a comment's REST read.
+//! `tests/synthetic/edits/garbled/` holds the answers that are not JSON.
+
+mod answers;
 
 use serde_json::{json, Value};
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tehas_core::forge::{Failed, GhRunner};
 use tehas_github::GitHub;
@@ -24,10 +26,6 @@ const EDITED: u64 = 2_501_240_001;
 const PLAIN: u64 = 2_501_240_002;
 const EDITED_NODE: &str = "IC_kwDOAbCdEf6VEd0001";
 
-fn here() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/recorded/edits")
-}
-
 type Asked = Arc<Mutex<Vec<String>>>;
 
 /// The recording `name` of the state, else of `site/`, by extension.
@@ -35,7 +33,7 @@ fn recording(state: &str, name: &str) -> Option<(String, String)> {
     for dir in [state, "site"] {
         for ext in ["json", "silent", "null", "forbidden", "fail"] {
             if let Ok(text) =
-                std::fs::read_to_string(here().join(dir).join(format!("{name}.{ext}")))
+                std::fs::read_to_string(answers::at("edits", dir, &format!("{name}.{ext}")))
             {
                 return Some((ext.to_string(), text));
             }
@@ -147,11 +145,13 @@ impl Replay {
                 self.compose(items, first, r#"{"repository": {}}"#),
             )
         };
-        let at = here().join(&self.state);
-        if let Ok(out) = std::fs::read_to_string(at.join(format!("{whole}.json"))) {
+        let read = |ext: &str| {
+            std::fs::read_to_string(answers::at("edits", &self.state, &format!("{whole}.{ext}")))
+        };
+        if let Ok(out) = read("json") {
             return self.exit(out);
         }
-        if let Ok(why) = std::fs::read_to_string(at.join(format!("{whole}.fail"))) {
+        if let Ok(why) = read("fail") {
             return Err(Failed {
                 why: why.trim_end().to_string(),
                 answer: None,

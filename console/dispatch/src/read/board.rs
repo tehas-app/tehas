@@ -268,14 +268,22 @@ pub(crate) mod fake {
         HappenedKind, Mark, OpenWork, Scope, Site, Window, ALL_MAX,
     };
 
-    /// The table every label of tehas is made from.
     const THE_TABLE: &str = include_str!("../../../../host/labels.tsv");
 
     /// The repository the tests' worlds are.
     pub(crate) const REPO: &str = "acme/widget";
 
-    /// A mark's label by the table's last column (`Act::Approve`,
-    /// `Mark::Epic`), a project's own mark by its name.
+    /// The label whose latest column is the port word `word`. The one
+    /// lookup the tests of this crate share: they hold a word, not a mark.
+    pub(crate) fn label_of_word(word: &str) -> Option<String> {
+        THE_TABLE.lines().find_map(|l| {
+            let cols: Vec<&str> = l.split('\t').collect();
+            (cols.last() == Some(&word)).then(|| cols[0].to_string())
+        })
+    }
+
+    /// A mark's label as `host/labels.tsv` names it, a project's own mark
+    /// by its name.
     pub(crate) fn label(m: &Mark) -> String {
         let word = match m {
             Mark::Act(a) => format!("Act::{a:?}"),
@@ -285,12 +293,7 @@ pub(crate) mod fake {
             Mark::Project(name) => return name.as_str().to_string(),
             _ => return String::new(),
         };
-        THE_TABLE
-            .lines()
-            .map(|l| l.split('\t').collect::<Vec<_>>())
-            .find(|cols| cols.last() == Some(&word.as_str()))
-            .map(|cols| cols[0].to_string())
-            .unwrap_or_default()
+        label_of_word(&word).unwrap_or_default()
     }
 
     /// The open work of `world` as the queue asks the board for it.

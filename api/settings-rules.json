@@ -130,6 +130,26 @@
       "reason": "expected on or off"
     },
     {
+      "name": "TEHAS_CODE_HOST",
+      "rule": "one-of",
+      "when": "always",
+      "default": "github",
+      "words": [
+        "github"
+      ],
+      "reason": "expected github: others are not built in this release"
+    },
+    {
+      "name": "TEHAS_TICKETS",
+      "rule": "one-of",
+      "when": "always",
+      "default": "github",
+      "words": [
+        "github"
+      ],
+      "reason": "expected github: others are not built in this release"
+    },
+    {
       "name": "TEHAS_PLUGIN",
       "rule": "one-of",
       "when": "always",
@@ -334,6 +354,68 @@
       "when": "given",
       "default": "",
       "reason": "expected host names such as pypi.org or host:port, separated by single spaces"
+    },
+    {
+      "name": "TEHAS_ADAPTER",
+      "rule": "one-of",
+      "when": "always",
+      "default": "0",
+      "words": [
+        "on",
+        "off",
+        "1",
+        "0"
+      ],
+      "reason": "expected on or off",
+      "building": true
+    },
+    {
+      "name": "TEHAS_ADAPTER_UPSTREAM",
+      "rule": "one-word",
+      "when": "given",
+      "default": null,
+      "reason": "expected one word",
+      "building": true
+    },
+    {
+      "name": "TEHAS_ADAPTER_UPSTREAM_SPKI",
+      "rule": "token",
+      "when": "given",
+      "default": null,
+      "reason": "expected one word of printable characters, with no quote, backslash, $ or backtick",
+      "building": true
+    },
+    {
+      "name": "TEHAS_ADAPTER_UPSTREAM_CERT",
+      "rule": "path",
+      "when": "given",
+      "default": null,
+      "reason": "expected an absolute path",
+      "building": true
+    },
+    {
+      "name": "TEHAS_ADAPTER_UPSTREAM_CERT_KEY",
+      "rule": "path",
+      "when": "given",
+      "default": null,
+      "reason": "expected an absolute path",
+      "building": true
+    },
+    {
+      "name": "TEHAS_ADAPTER_EGRESS_DENY",
+      "rule": "egress-hosts",
+      "when": "given",
+      "default": null,
+      "reason": "expected host names such as pypi.org or host:port, separated by single spaces",
+      "building": true
+    },
+    {
+      "name": "TEHAS_PLUGIN_ORIGINS_<NAME>",
+      "rule": "one-word",
+      "when": "given",
+      "default": null,
+      "reason": "expected one word",
+      "building": true
     },
     {
       "name": "TEHAS_PREVIEW_MAX",

@@ -136,6 +136,9 @@ fn the_mcp_reader_copies_every_field_the_sessions_writer_emits() {
     for (key, shape, _) in tehas_core::snapshot::RUN_FIELDS {
         assert_eq!(json_type(&session[key]), shape.json_type(), "{key}");
     }
+    // One value is pinned: the run's change number, so `change` reads the
+    // `pr` column it names and no other integer column.
+    assert_eq!(session["change"], json!(8));
     for (fields, rows) in [
         (
             tehas_core::snapshot::STEP_FIELDS.as_slice(),
