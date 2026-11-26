@@ -469,6 +469,26 @@ fn a_bare_too_many_requests_holds_the_budget_for_a_minute() {
     );
 }
 
+/// A 403 that says the budget is spent but gives no reset GitHub's clock
+/// can read, or a secondary limit's `retry-after` given as a date, is
+/// still a limit: the budget is held out for the floor, never Forbidden.
+#[test]
+fn a_limit_with_no_readable_reset_holds_the_budget_for_a_minute() {
+    for case in ["no-reset", "bad-reset", "secondary"] {
+        let stub = Stub::synthetic(&format!("github-anonymous-{case}"), case);
+        let site = site(REPO, &stub, Arc::new(MemoryLedger::new()));
+        let mut h = site.code_host(&Actor::Anonymous, CALLER).unwrap();
+        assert_eq!(
+            h.releases(ALL_MAX).err(),
+            Some(Outcome::Spent {
+                pool: Pool::Calls,
+                until: At::new(1_795_530_060),
+            }),
+            "{case}"
+        );
+    }
+}
+
 /// A spent budget cannot be made on demand, so the case is synthetic. Its
 /// reset is 174168 s off: the budget is held for an hour, the most any
 /// server's reset or `retry-after` holds it.
