@@ -368,7 +368,7 @@ fn pull_fields(bodies: bool) -> String {
     let account = "{ __typename login ... on User { databaseId } ... on Bot { databaseId } }";
     let body = if bodies { " body" } else { "" };
     format!(
-        "number title state isDraft isCrossRepository headRepository {{ databaseId }} headRefName headRefOid baseRefName baseRefOid createdAt updatedAt mergedAt closedAt lastEditedAt additions deletions changedFiles mergeable mergeStateStatus url author {account} editor {account} mergedBy {account} mergeCommit {{ oid }}{body} labels(first: 100) {{ totalCount nodes {{ name }} }} closingIssuesReferences(first: 100) {{ totalCount nodes {{ number repository {{ databaseId nameWithOwner }} }} }}"
+        "number title state isDraft isCrossRepository headRepository {{ databaseId }} headRefName headRefOid baseRefName baseRefOid createdAt updatedAt mergedAt closedAt lastEditedAt additions deletions changedFiles mergeable mergeStateStatus url author {account} authorAssociation editor {account} mergedBy {account} mergeCommit {{ oid }}{body} labels(first: 100) {{ totalCount nodes {{ name }} }} closingIssuesReferences(first: 100) {{ totalCount nodes {{ number repository {{ databaseId nameWithOwner }} }} }}"
     )
 }
 
@@ -715,6 +715,13 @@ impl PullNode<'_> {
         );
         digest.title = text("title")?.to_string();
         digest.author = who("author")?;
+        // The association is asked with the change, as the REST read gives
+        // it: a reader of a list says whose the change is without a call
+        // for each author. A missing word is none of these, as REST's.
+        digest.author_relation = n
+            .get("authorAssociation")
+            .and_then(Value::as_str)
+            .map(change::relation);
         // From a fork unless GitHub says it is not and its head repository is
         // this one: a deleted head repository, or one GitHub does not name,
         // fails closed.

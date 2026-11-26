@@ -873,11 +873,12 @@ fn on_pull(url: Option<&str>, repo: &str, no: ChangeNo) -> Got<bool> {
     ))
 }
 
-/// How an author stands to the project, from GitHub's `author_association`:
-/// its owner, a member of the owning organisation, a collaborator, or one
-/// of GitHub's words for none of these. A word this adapter does not know
-/// is `Unknown`, which counts as none of these too.
-fn relation(word: &str) -> Relation {
+/// How an author stands to the project, from GitHub's `author_association`
+/// or GraphQL's `authorAssociation`, which answer with the same words: its
+/// owner, a member of the owning organisation, a collaborator, or one of
+/// GitHub's words for none of these. A word this adapter does not know is
+/// `Unknown`, which counts as none of these too.
+pub(super) fn relation(word: &str) -> Relation {
     match word {
         "OWNER" => Relation::Owner,
         "MEMBER" => Relation::Member,
