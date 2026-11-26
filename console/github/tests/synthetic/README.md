@@ -28,6 +28,21 @@ numbers count from 0 in `data.repository.pullRequest.events.nodes`.
 | `activity/no-page-info/events-whole-first.json` | `events` has no `pageInfo` |
 | `activity/no-cursor/events-whole-first.json` | `pageInfo` is `{"hasNextPage": true, "endCursor": null}`: more follows, no cursor to it |
 
+## A live answer moved into the fixture project
+
+A recording of another project, with only what puts it in the fixture
+project (`acme/widget`, repository id 7001) changed. The replay of
+`tests/replay/` reads these as it reads `recorded/<item>/`.
+
+Source of every file in this section:
+`console/github/tests/recorded/live-parent/parent-2824.json`, kit run #1
+(2026-11-26, step `parents` re-recorded at 18:50Z), GraphQL's answer
+for the parent of issue 2824 of a public repository.
+
+| File | Changed from the recording |
+| --- | --- |
+| `issue-21/parent.json` | The alias `n2824` is `issue`, the key of the adapter's question for one issue; `number` 2824 is 21 and the parent's `number` 2597 is 20; both `databaseId` 1411216280 are 7001. The parent's `nameWithOwner` is the recording's: the adapter tells the project by its id |
+
 ## A body that is not JSON
 
 These are not GitHub's answers: they stand for a body gh hands back that
