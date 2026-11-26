@@ -1,9 +1,9 @@
 //! The events tehas raises, made from what the state store answers after a
-//! record commits (docs/specs/2026-11-22-events.md, T11.8 and T11.9). Each
-//! payload is built from the store's answer, never from the raiser's own
+//! record commits (docs/specs/2026-11-22-events.md, T11.8, T11.9 and T11.10).
+//! Each payload is built from the store's answer, never from the raiser's own
 //! view, so it carries what `tehas status`, `tehas history` and `tehas
 //! question` print. One copy of each mapping, for every program that raises:
-//! the cycle, `tehas stop` and the dispatcher.
+//! the cycle, `tehas stop`, the dispatcher and `tehas limit`.
 //!
 //! Each end is raised by one process, the one that wrote its line of
 //! history. A line a report wrote (`reported`) is the cycle's: `tehas-cycle`
@@ -14,16 +14,21 @@
 //! `replaced`. The store writes one line per start, in one transaction, so
 //! the two kinds of writer never both own one.
 
+use crate::limit::{self, leading_number, quoted};
 use crate::outcome::{self, ParkLine};
 use crate::question::stored_choices;
 use serde::Deserialize;
 use serde_json::Value;
-use std::num::NonZeroU32;
+use std::num::{NonZeroU32, NonZeroU64};
 use tehas_ports::events::{
-    Builder, ChangeOffered, CycleEnded, CycleId, CycleParked, CycleStarted, Dispatcher, End,
-    Envelope, How, Payload, QuestionAsked, QuestionChoice, QuestionNo, RunnerWord,
+    Builder, ChangeMerged, ChangeOffered, CycleEnded, CycleId, CycleParked, CycleStarted,
+    Dispatcher, End, Envelope, How, LimitChanged, LimitState, Payload, QuestionAsked,
+    QuestionChoice, QuestionNo, RunnerWord, TicketActed, TicketClosed,
 };
-use tehas_ports::{At, BlueprintNo, ChangeNo, Login, QuestionKind};
+use tehas_ports::{
+    Account, AccountKind, Act, At, BlueprintNo, ChangeNo, CloseReason, Login, QuestionKind, Realm,
+    TicketKey,
+};
 
 /// The log listener's id.
 pub const LOG: &str = "log";
@@ -231,6 +236,9 @@ pub struct Ended {
     pub parked: Option<CycleParked>,
     pub asked: Option<QuestionAsked>,
     pub ended: Option<CycleEnded>,
+    /// The change's merge, raised of the line the report ended `merged` and
+    /// did not park: only the cycle writes such a line, so it is raised once.
+    pub merged: Option<ChangeMerged>,
     pub offered: Option<ChangeOffered>,
 }
 
@@ -241,6 +249,7 @@ impl Ended {
         all.extend(self.parked.clone().map(Envelope::new));
         all.extend(self.asked.clone().map(Envelope::new));
         all.extend(self.ended.clone().map(Envelope::new));
+        all.extend(self.merged.clone().map(Envelope::new));
         all.extend(self.offered.clone().map(Envelope::new));
         all
     }
@@ -254,6 +263,9 @@ impl Ended {
             raise(d, p, log);
         }
         if let Some(p) = self.ended {
+            raise(d, p, log);
+        }
+        if let Some(p) = self.merged {
             raise(d, p, log);
         }
         if let Some(p) = self.offered {
@@ -327,9 +339,20 @@ pub fn ended(
     ended.parked = line.parked;
     ended.signalled = line.signalled;
     ended.change = change;
+    // A line that ended `merged` and parked is the runner's claim of a
+    // merge the bot's list did not name: only the report's true merge ends
+    // unparked, and it is the cycle's own record to raise.
+    let merged = change
+        .filter(|_| end == End::Merged && !line.parked)
+        .map(|c| {
+            let mut m = ChangeMerged::new(c, ended_at);
+            m.blueprint = Some(blueprint);
+            m
+        });
     Ended {
         parked,
         asked,
+        merged,
         offered: offered(&ended),
         ended: Some(ended),
     }
@@ -347,6 +370,108 @@ pub fn offered(e: &CycleEnded) -> Option<ChangeOffered> {
         e.end,
         e.ended,
     ))
+}
+
+/// The account of an act the raiser read from the tickets port's history
+/// and checked against the allowed list. The site's id of it stays with the
+/// witness: a raise answers the login the history names.
+fn person(login: &str) -> Account {
+    Account::new(Realm::Tickets, Login::new(login), AccountKind::Person)
+}
+
+/// `ticket.acted` of an issue's act recorded now. The time is the act's own,
+/// as the tickets port's history stamps it: the key must be the key a
+/// consumer makes from the same history.
+pub fn acted(issue: u64, act: Act, by: &str, at: i64) -> Option<TicketActed> {
+    BlueprintNo::new(issue)?;
+    Some(TicketActed::new(
+        TicketKey::Number(NonZeroU64::new(issue)?),
+        act,
+        person(by),
+        At::new(at),
+    ))
+}
+
+/// `ticket.acted` of the start of a planning session: the act the label of
+/// `label` asks for. Only the two planning labels are acts.
+pub fn plan_acted(issue: u64, label: &str, by: &str, at: i64) -> Option<TicketActed> {
+    let act = match label {
+        "tehas:plan" => Act::Plan,
+        "tehas:refine" => Act::Refine,
+        _ => return None,
+    };
+    acted(issue, act, by, at)
+}
+
+/// The record `approval-record` answered, or `approval-current` shows: the
+/// act of approval, when the record approves. Its `at` is the label event's
+/// time, which `tehas start` wrote with it, so the key is the key the
+/// tickets port's history gives the same approval.
+pub fn approved(answer: &str) -> Option<TicketActed> {
+    #[derive(Deserialize)]
+    struct Row {
+        issue: u64,
+        at: i64,
+        by: String,
+        how: String,
+    }
+    #[derive(Deserialize)]
+    struct A {
+        approval: Option<Row>,
+    }
+    let r = serde_json::from_str::<A>(answer).ok()?.approval?;
+    (r.how == "approved")
+        .then(|| acted(r.issue, Act::Approve, &r.by, r.at))
+        .flatten()
+}
+
+/// `ticket.closed` of a ticket the factory follows, recorded closed now.
+pub fn closed(ticket: TicketKey, reason: CloseReason, at: i64) -> TicketClosed {
+    TicketClosed::new(ticket, reason, At::new(at))
+}
+
+/// How a limit reading's state word is an event's state.
+fn limit_state(state: &str) -> Option<LimitState> {
+    Some(match state {
+        "none" => LimitState::None,
+        "ok" => LimitState::Ok,
+        "expired" => LimitState::Expired,
+        "unreadable" => LimitState::Unreadable,
+        _ => return None,
+    })
+}
+
+/// `factory.limit-changed` of the limit `tehas limit set` or `tehas drain`
+/// just wrote: `set` and `at` are the time the write put beside the limit,
+/// so the raiser, the printer of `tehas limit --json` and a consumer that
+/// polled all make one key. None of a reading with no `set`, which is no
+/// write of tehas's.
+pub fn written_limit(l: &limit::Limit) -> Option<LimitChanged> {
+    let state = limit_state(l.state)?;
+    let set = At::new(limit::epoch(l.set.as_deref()?)?);
+    let field = |want: &str| {
+        l.fields
+            .iter()
+            .find(|(name, _)| name == want)
+            .map(|(_, text)| text.as_str())
+    };
+    let mut e = LimitChanged::written(set, state);
+    e.cycles = field("cycles")
+        .and_then(leading_number)
+        .and_then(|n| n.parse().ok());
+    e.plan = field("plan").map(|text| text == "true");
+    e.until = field("until")
+        .and_then(quoted)
+        .and_then(|s| limit::epoch(&s))
+        .map(At::new);
+    e.reason = field("reason").and_then(quoted);
+    Some(e)
+}
+
+/// `factory.limit-changed` of `tehas limit clear`: there is no `set` to
+/// read after the clear, so tehas keys the change on the moment it made it.
+pub fn cleared_limit(now: i64) -> LimitChanged {
+    LimitChanged::observed(At::new(now), LimitState::None)
 }
 
 /// One verb of the store: the line it answered, or the word of its failure.
@@ -580,6 +705,129 @@ mod tests {
             let e = reported(12, 3, &[row(3, 9, change)], None);
             assert_eq!(e.offered.is_some(), asked, "{case}");
         }
+    }
+
+    #[test]
+    fn a_merged_line_ends_and_raises_its_merge_and_no_offer() {
+        let merge = |r: &mut HistoryRow| {
+            r.status = Some("merged".into());
+            r.rc = Some(0);
+            r.pr = Some(21);
+        };
+        let e = reported(12, 3, &[row(3, 9, merge)], None);
+        assert_eq!(names(&e), [Name::CycleEnded, Name::ChangeMerged]);
+        let m = e.merged.unwrap();
+        assert_eq!((m.change.get(), m.at), (21, At::new(1_763_820_000)));
+        assert_eq!(m.blueprint.map(|b| b.get()), Some(12));
+        // A line that ends `merged` and parked is the runner's claim of a
+        // merge the bot's list did not name: nothing was merged, nothing is
+        // raised.
+        let claimed = |r: &mut HistoryRow| {
+            merge(r);
+            r.parked = true;
+        };
+        assert_eq!(reported(12, 3, &[row(3, 9, claimed)], None).merged, None);
+        // A merged line with no change names nothing to raise.
+        let no_change = |r: &mut HistoryRow| {
+            r.status = Some("merged".into());
+            r.rc = Some(0);
+        };
+        assert_eq!(reported(12, 3, &[row(3, 9, no_change)], None).merged, None);
+    }
+
+    #[test]
+    fn an_act_keeps_the_account_and_the_time_the_history_names() {
+        let p = acted(12, Act::Approve, "alice", 1_763_820_000).unwrap();
+        assert_eq!(
+            (p.act, p.by.login.as_str(), p.at.secs()),
+            (Act::Approve, "alice", 1_763_820_000)
+        );
+        assert_eq!(p.by.realm, Realm::Tickets);
+        assert_eq!(p.by.id, None);
+        assert_eq!(
+            Envelope::new(p.clone()).key.as_str(),
+            "12@Approve@2025-11-22T14:00:00Z"
+        );
+        assert!(acted(0, Act::Approve, "alice", 1).is_none());
+        assert_eq!(
+            plan_acted(12, "tehas:plan", "bob", 5).unwrap().act,
+            Act::Plan
+        );
+        assert_eq!(
+            plan_acted(12, "tehas:refine", "bob", 5).unwrap().act,
+            Act::Refine
+        );
+        assert!(plan_acted(12, "tehas:ready", "bob", 5).is_none());
+        // The close of the plan's replaced session, and its key.
+        let c = closed(
+            TicketKey::Number(NonZeroU64::new(12).unwrap()),
+            CloseReason::NotPlanned,
+            1_763_820_000,
+        );
+        assert_eq!(c.reason, CloseReason::NotPlanned);
+        assert_eq!(Envelope::new(c).key.as_str(), "12@2025-11-22T14:00:00Z");
+    }
+
+    #[test]
+    fn an_approval_record_answers_its_act_only_when_it_approves() {
+        let a = r#"{"api":1,"verb":"approval-record","ok":true,"approval":{"issue":12,"at":1763820000,"by":"alice","how":"approved","label":"tehas:ready"}}"#;
+        let p = approved(a).unwrap();
+        assert_eq!(
+            (p.act, p.by.login.as_str(), p.at.secs()),
+            (Act::Approve, "alice", 1_763_820_000)
+        );
+        let retry = a.replace("approved", "outage-retry");
+        assert_eq!(approved(&retry), None);
+        assert_eq!(
+            approved(r#"{"api":1,"verb":"approval-record","ok":true,"approval":null}"#),
+            None
+        );
+        assert_eq!(approved("not json"), None);
+    }
+
+    #[test]
+    fn a_written_limit_keys_on_set_and_a_clear_on_observed() {
+        let l = limit::parse(
+            br#"{"v":1,"cycles":2,"plan":false,"until":"2025-11-22T16:00:00Z","reason":"held for alpha","set":"2025-11-22T15:00:00Z"}"#,
+            1_763_820_000,
+        );
+        let p = written_limit(&l).unwrap();
+        assert_eq!(
+            (p.state, p.cycles, p.plan, p.reason.as_deref()),
+            (LimitState::Ok, Some(2), Some(false), Some("held for alpha"))
+        );
+        assert_eq!(p.set().map(|a| a.secs()), Some(1_763_823_600));
+        assert_eq!(p.observed_at(), None);
+        assert_eq!(p.until.map(|a| a.secs()), Some(1_763_827_200));
+        assert_eq!(
+            Envelope::new(p.clone()).key.as_str(),
+            "2025-11-22T15:00:00Z"
+        );
+        // An expired limit is still the limit that was written.
+        let l = limit::parse(
+            br#"{"v":1,"cycles":2,"plan":true,"until":"2025-11-22T14:00:00Z","reason":"","set":"2025-11-22T13:00:00Z"}"#,
+            1_763_820_000,
+        );
+        let p = written_limit(&l).unwrap();
+        assert_eq!(
+            (p.state, p.plan, p.reason.as_deref()),
+            (LimitState::Expired, Some(true), None)
+        );
+        // A reading with no `set` is no write of tehas's: a consumer keys
+        // what it polls on its own time.
+        assert_eq!(written_limit(&limit::Limit::of("ok")), None);
+        assert_eq!(
+            written_limit(&limit::parse(br#"{"v":1,"cycles":1,"plan":true}"#, 1)),
+            None
+        );
+        assert_eq!(written_limit(&limit::Limit::of("none")), None);
+        let c = cleared_limit(1_763_820_000);
+        assert_eq!(
+            (c.state, c.set(), c.cycles, c.plan),
+            (LimitState::None, None, None, None)
+        );
+        assert_eq!(c.observed_at().map(|a| a.secs()), Some(1_763_820_000));
+        assert_eq!(Envelope::new(c).key.as_str(), "2025-11-22T14:00:00Z");
     }
 
     #[test]
