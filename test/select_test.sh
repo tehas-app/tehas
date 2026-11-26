@@ -83,9 +83,8 @@ real_crates() {
 
 t_case "the real workspace: an MCP change selects the crates that read its tools"
 # analytics/tests/sessions_contract.rs reads the snapshot with the MCP
-# server's tools, and the console package's surface test reads the server's
-# tool table, so an MCP change selects the server, the console package and
-# everything that depends on either.
+# server's tools and the console's surface test reads the tool table, so an
+# MCP change selects the server, the console package and their dependents.
 t_eq "$(real_pick console/mcp/src/tools.rs)" "$(printf 'crate %s\n' analytics console store tehas-cycle tehas-dispatch tehas-mcp tehas-ops tehas-plugin tehas-plugin-gate tehas-xtask)"
 
 t_case "the real workspace: a store change selects the crates that run the store"

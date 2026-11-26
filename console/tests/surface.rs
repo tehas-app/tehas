@@ -5,9 +5,8 @@
 //! settings and roles, host/labels.tsv for labels, api/*.schema.json for
 //! the fields of the `--json` objects, and the MCP server's own tool table
 //! (mcp::tools::surface) for the `tool` lines, their `arg` lines and the
-//! `answer` lines its output schemas name. What a feature still
-//! being built adds
-//! is left out (console/core/src/features.rs), unless the baseline had it
+//! `answer` lines its output schemas name. What a feature still being built
+//! adds is left out (console/core/src/features.rs), unless the baseline had it
 //! before the feature became building, and so are the flags
 //! api/commands.txt marks internal and the fields host/docs/contract.md says
 //! may change.
@@ -288,7 +287,10 @@ fn the_surface_holds_exactly_the_served_tools() {
         .iter()
         .map(|t| format!("tool {}", t.name))
         .collect();
-    assert_eq!(table, served, "the tool table and CALLED name different tools");
+    assert_eq!(
+        table, served,
+        "the tool table and CALLED name different tools"
+    );
     // The number is pinned like the commands': a tool added or dropped must
     // be felt here and in api/surface-2.0.txt, not only noticed by a client.
     assert_eq!(served.len(), 15, "the server serves fifteen tools");
