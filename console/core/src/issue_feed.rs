@@ -108,63 +108,6 @@ pub fn denied(label: &str, n: u64, who: &str, kind: Option<&str>) -> String {
     }
 }
 
-/// The tickets of GitHub's list, newest first. None when it is no list. A pull
-/// request is no ticket, nor is a row without a number or a title.
-pub fn tickets(answer: &str) -> Option<Vec<Value>> {
-    let Value::Array(rows) = serde_json::from_str(answer).ok()? else {
-        return None;
-    };
-    let mut found: Vec<Value> = rows
-        .iter()
-        .filter(|row| row["pull_request"].is_null())
-        .filter_map(|row| {
-            let title: String = row["title"].as_str()?.chars().take(180).collect();
-            Some(serde_json::json!({
-                "number": row["number"].as_u64()?,
-                "title": title,
-                "url": row["html_url"],
-                "author": row["user"]["login"],
-                "updatedAt": row["updated_at"],
-            }))
-        })
-        .collect();
-    found.sort_by_key(|row| std::cmp::Reverse(row["number"].as_i64().unwrap_or(0)));
-    Some(found)
-}
-
-/// An account as the texts read asks for it: its login and its user id, so the
-/// login can be vouched for.
-pub const WHO: &str = "login ...on User { databaseId } ...on Bot { databaseId }";
-
-/// The issue's body and its first hundred comments, each with its author and
-/// its last editor, the logins vouched. None when GitHub does not answer with
-/// the issue.
-pub fn texts(repo: &str, gh: &mut dyn GhRunner, n: u64) -> Option<Value> {
-    let (owner, name) = repo.split_once('/')?;
-    let query = format!(
-        "query($owner: String!, $name: String!, $number: Int!) {{ repository(owner: $owner, name: $name) {{ issue(number: $number) {{ body author {{ {WHO} }} editor {{ {WHO} }} comments(first: 100) {{ nodes {{ body author {{ {WHO} }} editor {{ {WHO} }} }} }} }} }} }}"
-    );
-    let answer = gh
-        .run(&[
-            "api",
-            "graphql",
-            "-F",
-            &format!("owner={owner}"),
-            "-F",
-            &format!("name={name}"),
-            "-F",
-            &format!("number={n}"),
-            "-f",
-            &format!("query={query}"),
-        ])
-        .ok()?;
-    let mut v: Value = serde_json::from_str(&answer).ok()?;
-    crate::accounts::vouch(&mut v);
-    v.pointer("/data/repository/issue")
-        .filter(|i| i.is_object())
-        .cloned()
-}
-
 /// The links of an issue to fetch, the zips it names by address, and how many
 /// came from outside.
 pub struct Refs {
@@ -218,7 +161,7 @@ impl Refs {
     }
 }
 
-/// The links of one issue, from the issue as [`texts`] answers it: its body
+/// The links of one issue, from the issue as the reader of it answers it: its body
 /// and its comments, each with its author and its last editor, the logins
 /// vouched. A link is fetched when an allowed account wrote the text, nobody
 /// off the list edited it last, and the line is no quote: a quote reply
@@ -303,7 +246,7 @@ mod tests {
         who == "alice"
     }
 
-    /// An issue as the texts read answers it: its body and its comments, each
+    /// An issue as the reader of it answers it: its body and its comments, each
     /// with its author and, when edited, its last editor.
     fn issue(body: &str, author: &str, editor: Option<&str>, comments: Value) -> Value {
         serde_json::json!({
@@ -585,29 +528,6 @@ mod tests {
             denied(LABEL, 7, "mallory", Some("Prototype")),
             "#7: the issue type Prototype was set by 'mallory', not an allowed account"
         );
-    }
-
-    #[test]
-    fn the_list_is_issues_newest_first_and_nothing_else() {
-        assert!(tickets("{\"message\":\"Bad credentials\"}").is_none());
-        assert!(tickets("nope").is_none());
-        let got = tickets(
-            r#"[{"number":3,"title":"c","body":null,"user":{"login":"a"}},
-                {"number":11,"title":"a"},
-                {"number":4,"title":"pull","pull_request":{}},
-                {"number":5,"title":null},
-                {"title":"no number"}]"#,
-        )
-        .unwrap();
-        let numbers: Vec<i64> = got
-            .iter()
-            .map(|row| row["number"].as_i64().unwrap_or(0))
-            .collect();
-        assert_eq!(numbers, [11, 3]);
-        assert_eq!(got[1]["author"], "a");
-        let long = format!("[{{\"number\":1,\"title\":\"{}\"}}]", "ä".repeat(200));
-        let cut = tickets(&long).unwrap();
-        assert_eq!(cut[0]["title"].as_str().unwrap().chars().count(), 180);
     }
 
     #[test]
