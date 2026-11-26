@@ -204,6 +204,7 @@ fn an_unknown_history_is_every_events_unknown_ones() {
 }
 
 #[test]
+#[ignore = "waits for beta2b: the parents' question of the fixture project has no recording until kit run #2"]
 fn one_account_has_one_login_in_every_read() {
     // REST spells an app `x[bot]`, GraphQL `x`; the ids are the same.
     let mut seen: std::collections::HashMap<String, String> = Default::default();

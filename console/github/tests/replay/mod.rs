@@ -2,11 +2,11 @@
 //! fixture projects, under `tests/recorded/`: `<item>/<read>.json` is gh's
 //! answer and `<item>/<read>.fail` the reason the call failed, with
 //! `<item>/<read>.answer.json` beside it what gh printed as it failed. A
-//! call with no recording fails. It counts the calls it was asked.
+//! call with no recording panics. It counts the calls it was asked.
 //!
-//! The parents' question asks several issues under an alias each; it is
-//! answered alias by alias from each issue's `issue-<n>/parent.json`, the
-//! answer of the question of that one issue.
+//! The parents' question has no recording of this fixture project: an
+//! answer is never made from another question's. Its live recording comes
+//! with kit run #2 (beta2b), and until then a call of it panics.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -136,9 +136,12 @@ impl GhRunner for Replay {
 
     fn run(&mut self, args: &[&str]) -> Result<String, String> {
         self.asked.0.store(self.asked.get() + 1, Ordering::SeqCst);
-        let none = || format!("no recording of {args:?}");
-        if let Some(out) = parents(args) {
-            return out;
+        let none = || -> String { panic!("no recording of {args:?}") };
+        if args
+            .iter()
+            .any(|a| a.starts_with("query=") && a.contains(") { number parent {"))
+        {
+            panic!("no recording of the parents' question (waits for beta2b): {args:?}");
         }
         let (dir, name) = match args {
             ["api", "graphql", ..] => question(&self.repo, args),
@@ -171,34 +174,9 @@ impl GhRunner for Replay {
         }
         match std::fs::read_to_string(at.join(format!("{name}.fail"))) {
             Ok(why) => Err(why.trim_end().to_string()),
-            Err(_) => Err(format!("no recording {name} of {args:?}")),
+            Err(_) => panic!("no recording {name} of {args:?}"),
         }
     }
-}
-
-/// The answer of a parents' question, each alias's node from its issue's
-/// recording; None for any other call.
-fn parents(args: &[&str]) -> Option<Result<String, String>> {
-    let query = args.iter().find_map(|a| a.strip_prefix("query="))?;
-    if !query.contains(") { number parent {") {
-        return None;
-    }
-    let mut repository = serde_json::Map::new();
-    for asked in query.split(": issue(number: ").skip(1) {
-        let n = &asked[..asked.find(')')?];
-        let at = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join(format!("tests/recorded/issue-{n}/parent.json"));
-        let Ok(out) = std::fs::read_to_string(&at) else {
-            return Some(Err(format!("no recording {} of {args:?}", at.display())));
-        };
-        let mut one: serde_json::Value = serde_json::from_str(&out).ok()?;
-        let repo = one.pointer_mut("/data/repository")?.as_object_mut()?;
-        let node = repo.remove("issue")?;
-        repository.extend(repo.clone());
-        repository.insert(format!("n{n}"), node);
-    }
-    let answer = serde_json::json!({ "data": { "repository": repository } });
-    Some(Ok(answer.to_string()))
 }
 
 /// The time the replay's clock reads: a spent budget answers it as `until`.

@@ -45,6 +45,7 @@ fn numbers(keys: &[TicketKey]) -> Vec<u64> {
 }
 
 #[test]
+#[ignore = "waits for beta2b: the parents' question of the fixture project has no recording until kit run #2"]
 fn several_carries_each_closer_as_the_ticket_does() {
     // 20 is closed by a merged change of this project, 21 and 25 are open.
     let mut gh = adapter();
