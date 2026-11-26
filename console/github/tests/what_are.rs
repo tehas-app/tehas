@@ -2,11 +2,12 @@
 //! replayed from its recordings under `tests/recorded/what/<state>/`: what
 //! each number names, a ticket or a change, asked in one question an alias
 //! a number. `live/` is a live read-only answer of a public repository; the
-//! rest are made by hand. Stubs GitHub cannot be made to give on demand are
-//! under `tests/synthetic/what/` (`tests/synthetic/README.md`).
+//! rest are made by hand. Answers GitHub cannot be made to give on demand
+//! are under `tests/synthetic/what/` (`tests/synthetic/README.md`).
+
+mod answers;
 
 use std::num::NonZeroU64;
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tehas_core::forge::{Failed, GhRunner};
 use tehas_github::GitHub;
@@ -59,10 +60,8 @@ impl GhRunner for Replay {
             .nth(1)
             .and_then(|r| r.split(')').next())
             .expect("an alias");
-        let at = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/recorded/what")
-            .join(&self.state);
-        let read = |name: String| std::fs::read_to_string(at.join(name)).ok();
+        let read =
+            |name: String| std::fs::read_to_string(answers::at("what", &self.state, &name)).ok();
         if let Some(out) = read(format!("from-{first}.json")) {
             return Ok(out);
         }
@@ -222,9 +221,7 @@ fn an_error_that_names_no_alias_is_every_numbers() {
         pool: Pool::Priced,
         until: At::new(1_767_225_600),
     };
-    let limited_at = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/synthetic/what/limited");
-    let limited_at = limited_at.to_string_lossy();
-    for (state, want) in [(&*limited_at, limited), ("no-repository", INCONSISTENT)] {
+    for (state, want) in [("limited", limited), ("no-repository", INCONSISTENT)] {
         let (got, calls) = what(state, &[3, 4]);
         assert_eq!(got, [(3, Err(want.clone())), (4, Err(want))], "{state}");
         assert_eq!(calls, 1, "{state}");

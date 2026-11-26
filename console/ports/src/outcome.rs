@@ -10,6 +10,11 @@ use crate::At;
 pub type Got<T> = Result<T, Outcome>;
 /// Done, or the one outcome that stopped it.
 pub type Did = Result<(), Outcome>;
+/// A close done, or the one outcome that stopped it. `Ok` carries the
+/// site's own time of the close when the site says one, and None when it
+/// says none: the raiser of the fact takes the time from here and never
+/// makes one up.
+pub type Closed = Result<Option<At>, Outcome>;
 
 /// A list the adapter vouches is all there is.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
