@@ -331,9 +331,7 @@ fn the_surface_holds_exactly_the_served_tools() {
     assert_eq!(served.len(), 15, "the server serves fifteen tools");
     let on_surface: BTreeSet<String> = surface()
         .into_iter()
-        .filter(|n| {
-            n.starts_with("tool ") && !n.contains(" arg ") && !n.contains(" answer ")
-        })
+        .filter(|n| n.starts_with("tool ") && !n.contains(" arg ") && !n.contains(" answer "))
         .collect();
     assert_eq!(on_surface, served);
 }
