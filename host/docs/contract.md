@@ -960,7 +960,9 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   line ends `merged` for it, and no other process raises the fact. The
   payloads are built from what the state store then holds, so each is
   what its witness then prints. Each is raised once, by the process that
-  proved the fact.
+  proved the fact, keyed on the limit's `set`, on `<ticket>@<act>@<at>`
+  of the act, on `<ticket>@<at>` of the close, and on the change's number
+  of the merge.
   Readers: the consumer that runs many factories, MCP clients, the
   end-to-end suite, plugins.
   Adopter action: none. `tehas limit` and `tehas drain` write their event
@@ -1356,28 +1358,6 @@ Planned or in review, not merged. Each moves to
 [Changed in 2.0](#changed-in-20) when it lands, with its readers and
 adopter action as the pull request states them.
 
-- **Events.** T11, spec `docs/specs/2026-11-22-events.md`
-  (#2878, merged). 2.0 raises the cycle's five only, `cycle.started`,
-  `cycle.parked`, `question.asked`, `cycle.ended` and `change.offered`
-  (#2937 and #2940, under [Changed in 2.0](#changed-in-20); the raisers
-  are `console/core/src/raise.rs`). Four more have their names in
-  `api/events.txt` and their schemas and samples in `api/` (#2936), and
-  nothing raises them:
-
-  | Event | Raised when | Key |
-  | --- | --- | --- |
-  | `factory.limit-changed` | `tehas limit` or `tehas drain` writes another limit | the limit's `set` |
-  | `ticket.acted` | an allowed account's act is recorded | `<ticket>@<act>@<at>` |
-  | `ticket.closed` | a ticket tehas follows is recorded closed | `<ticket>@<at>` |
-  | `change.merged` | a change linked to a blueprint is recorded merged | the change's number |
-
-  They are raised after the first alpha, before the beta. As of 2026-11-26
-  they land with #3388, or in beta.2 if that slips.
-  Until then a program reads their witnesses as the spec names them: a
-  change of `tehas limit --json`, and the ticket's and the change's own
-  history on the code host.
-  Readers: the consumer that runs many factories, MCP clients, the
-  end-to-end suite, plugins.
 - **The ports.** T4, spec `docs/specs/2026-11-22-ports.md`.
   The ports themselves; their two settings are under
   [Changed in 2.0](#changed-in-20).
