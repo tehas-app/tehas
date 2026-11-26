@@ -609,10 +609,22 @@ impl GitHub {
     /// cut short.
     pub(crate) fn parents(&mut self, numbers: &[u64]) -> Vec<Got<Option<Ref<TicketKey>>>> {
         let mut got = Vec::with_capacity(numbers.len());
+        // A spent budget spends the questions after it: they are not asked.
+        let mut spent: Option<Outcome> = None;
         for chunk in numbers.chunks(PER_QUESTION) {
+            if let Some(o) = &spent {
+                got.extend(chunk.iter().map(|_| Err(o.clone())));
+                continue;
+            }
             let aliases: Vec<String> = chunk.iter().map(|n| alias(*n)).collect();
             let nodes: Vec<Got<Parented>> =
                 self.ask_aliased("the parents' question", &parents_question(chunk), &aliases);
+            if let Some(Err(first @ Outcome::Spent { .. })) = nodes.first() {
+                let first = first.clone();
+                if nodes.iter().all(|n| n.as_ref().err() == Some(&first)) {
+                    spent = Some(first);
+                }
+            }
             got.extend(chunk.iter().zip(nodes).map(|(n, node)| {
                 let node = node?;
                 if node.number != Some(*n) {

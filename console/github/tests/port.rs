@@ -6,7 +6,7 @@
 use std::num::NonZeroU64;
 use std::sync::Arc;
 use std::sync::Mutex;
-use tehas_core::forge::GhRunner;
+use tehas_core::forge::{Failed, GhRunner};
 use tehas_github::{table, GitHub};
 use tehas_ports::{
     Account, AccountId, AccountKind, Act, At, Cite, Cites, CloseReason, Colour, Kind, Login, Mark,
@@ -31,6 +31,39 @@ impl GhRunner for Stub {
             .cloned()
             .unwrap_or_else(|| Err("no fixture".to_string()))
     }
+}
+
+/// Answers each call in turn as gh exits: `Ok` its output, `Err((why,
+/// printed))` an exit that failed with what gh printed beside it. A call
+/// past them panics.
+struct Exits {
+    answers: Vec<Result<String, (String, Option<String>)>>,
+    asked: Asked,
+}
+
+impl GhRunner for Exits {
+    fn run(&mut self, args: &[&str]) -> Result<String, String> {
+        self.run_answer(args).map_err(|f| f.why)
+    }
+
+    fn run_answer(&mut self, args: &[&str]) -> Result<String, Failed> {
+        let mut asked = self.asked.lock().unwrap();
+        asked.push(args.join(" "));
+        match self.answers.get(asked.len() - 1).cloned() {
+            Some(Ok(out)) => Ok(out),
+            Some(Err((why, answer))) => Err(Failed { why, answer }),
+            None => panic!("no answer for {args:?}"),
+        }
+    }
+}
+
+fn exits(answers: Vec<Result<String, (String, Option<String>)>>) -> (GitHub, Asked) {
+    let asked = Asked::default();
+    let runner = Exits {
+        answers,
+        asked: Arc::clone(&asked),
+    };
+    (GitHub::new("acme/widget", Box::new(runner)), asked)
 }
 
 fn adapter(answers: Vec<Result<&str, &str>>) -> (GitHub, Asked) {
@@ -232,13 +265,59 @@ fn a_partial_parents_answer_fails_only_the_tickets_it_leaves_unanswered() {
 "n7":{"number":7,"parent":{"number":3,"repository":{"databaseId":7001,"nameWithOwner":"acme/widget"}}},
 "n8":null}},
 "errors":[{"type":"NOT_FOUND","path":["repository","n8"],"message":"Could not resolve to an Issue with the number of 8."}]}"#;
-    let (r7, r8, r9) = (rest(7), rest(8), rest(9));
-    let (mut gh, asked) = adapter(vec![Ok(&r7), Ok(&r8), Ok(&r9), Ok(partial)]);
+    // gh exits 1 on an answer with errors, and prints the answer.
+    let (mut gh, asked) = exits(vec![
+        Ok(rest(7)),
+        Ok(rest(8)),
+        Ok(rest(9)),
+        Err((": gh exited 1".to_string(), Some(partial.to_string()))),
+    ]);
     let got = gh.several(&[key(7), key(8), key(9)]);
     assert_eq!(asked.lock().unwrap().len(), 4);
     assert_eq!(got[0].1.as_ref().unwrap().parent, Some(Ref::Here(key(3))));
     assert_eq!(got[1].1, Err(Outcome::NotFound));
     assert_eq!(got[2].1, Err(Outcome::Unread(Unread::Malformed)));
+}
+
+/// The parents of exactly a hundred tickets are one question.
+#[test]
+fn a_hundred_tickets_are_one_parents_question() {
+    let nodes: Vec<String> = (1..=100)
+        .map(|n| format!(r#""n{n}":{{"number":{n},"parent":null}}"#))
+        .collect();
+    let answer = format!(
+        r#"{{"data":{{"repository":{{"databaseId":7001,{}}}}}}}"#,
+        nodes.join(",")
+    );
+    let mut answers: Vec<String> = (1..=100).map(rest).collect();
+    answers.push(answer);
+    let (mut gh, asked) = adapter(answers.iter().map(|a| Ok(a.as_str())).collect());
+    let got = gh.several(&(1..=100).map(key).collect::<Vec<_>>());
+    let asked = asked.lock().unwrap();
+    assert_eq!(asked.len(), 101, "one question");
+    assert_eq!(asked[100].matches(": issue(number: ").count(), 100);
+    assert!(got
+        .iter()
+        .all(|(_, d)| d.as_ref().unwrap().parent.is_none()));
+}
+
+/// A rate limit on the first parents' question spends every ticket, and
+/// the second question is not asked.
+#[test]
+fn a_rate_limit_on_the_first_parents_question_asks_no_second() {
+    let keys: Vec<TicketKey> = (1..=101).map(key).collect();
+    let mut answers: Vec<Result<String, (String, Option<String>)>> =
+        (1..=101).map(|n| Ok(rest(n))).collect();
+    answers.push(Err((": rate limit".to_string(), None)));
+    let (gh, asked) = exits(answers);
+    let mut gh = gh.on_clock(|| 1_767_225_600);
+    let got = gh.several(&keys);
+    assert_eq!(asked.lock().unwrap().len(), 102, "no second question");
+    let spent = Err(Outcome::Spent {
+        pool: Pool::Calls,
+        until: At::new(1_767_225_600),
+    });
+    assert!(got.iter().all(|(_, d)| *d == spent), "{got:?}");
 }
 
 /// A rate limit on the second question of parents fails the tickets it
