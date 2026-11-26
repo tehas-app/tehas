@@ -7,7 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Each kept crate, its folder under console/, and what in 2.1 uses it.
-const KEPT: [(&str, &str); 8] = [
+const KEPT: [(&str, &str); 7] = [
     (
         "items",
         "the lab plugin's issue feed and page writer (plugin spec 1.4.0, T14)",
@@ -20,7 +20,6 @@ const KEPT: [(&str, &str); 8] = [
         "describe",
         "the `given` plugin's image descriptions (1.5.0, section 7)",
     ),
-    ("review-render", "the `review` plugin's issue body (1.5.0)"),
     ("wiki-collect", "the `history:` grant's raw sources (1.5.0)"),
     (
         "wiki-render",
