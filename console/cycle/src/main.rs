@@ -591,25 +591,7 @@ fn merge_at(home: &Path) -> Box<dyn FnMut(tehas_ports::ChangeNo) -> Option<tehas
         Ok(h) => h,
         Err(_) => return Box::new(|_| None),
     };
-    Box::new(move |no| {
-        let filter = tehas_ports::ChangeFilter {
-            states: tehas_ports::ChangeStates::All,
-            numbers: vec![no],
-            ..Default::default()
-        };
-        let digests = h
-            .code_host
-            .changes(&filter, tehas_ports::Bound::new(1)?)
-            .ok()?;
-        digests
-            .into_items()
-            .into_iter()
-            .find(|d| d.no == no)
-            .and_then(|d| match d.state {
-                tehas_ports::ChangeState::Merged { at, .. } => Some(at),
-                _ => None,
-            })
-    })
+    Box::new(move |no| apply::merge_time(&mut *h.code_host, no))
 }
 
 /// The words of tehas work.

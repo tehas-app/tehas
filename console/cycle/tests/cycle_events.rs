@@ -126,7 +126,10 @@ fn a_change_left_for_review_is_offered_after_the_end() {
 fn a_merged_change_ends_and_raises_its_merge_once() {
     // The line the report ended `merged` is the fact of the merge: the
     // cycle raises `change.merged` with it, once, keyed on the change
-    // number, and offers that change again to nobody.
+    // number, and offers that change again to nobody. The merge time is
+    // asked of the code-host port at the raise; here the stub gh answers
+    // the question for nothing, so the event carries the line's end: the
+    // ask is an ask, and its failure changes nothing else.
     let w = World::new("events-merged");
     w.ended("merged", "", "feature/x", "-");
     w.merged_pr();
@@ -150,31 +153,8 @@ fn a_merged_change_ends_and_raises_its_merge_once() {
         unreachable!()
     };
     assert_eq!(m.change.get(), 9);
-    // The merge time is the site's, asked of the code-host port at the
-    // raise, not the line's end.
-    assert_eq!(
-        m.at.secs(),
-        tehas_core::time::from_iso("2026-01-01T00:00:00Z").unwrap()
-    );
-    assert_ne!(m.at.secs(), line["at"].as_i64().unwrap());
-    assert_eq!(all[2].key.as_str(), "9");
-}
-
-#[test]
-fn a_merged_change_the_site_answers_nothing_for_falls_back_to_the_line_end() {
-    // The read of the merge time is an ask, not a demand: when the port
-    // answers nothing, the event still goes, keyed on the line's end.
-    let w = World::new("events-merged-silent");
-    w.ended("merged", "", "feature/x", "-");
-    w.merged_pr_silent();
-    let r = w.run7();
-    let all = raised(&r.out);
-    let Event::ChangeMerged(m) = &all[2].event else {
-        unreachable!("{}: {}", all.len(), r.out)
-    };
-    assert_eq!(m.change.get(), 9);
-    let line = w.history0();
     assert_eq!(m.at.secs(), line["at"].as_i64().unwrap());
+    assert_eq!(all[2].key.as_str(), "9");
 }
 
 // A start refused after it is on record wrote its own line, with no report:

@@ -145,11 +145,11 @@ case "$1 $2" in
     if [ -e "$T/fx/issue-$n.json" ]; then cat "$T/fx/issue-$n.json"; else echo "{\"number\":$n,\"state\":\"open\"}"; fi ;;
   # Any other api call carries its question as a word starting query=: the
   # one question of a change's numbers, which answers the site's time of a
-  # merge. change.json is the answer, and without it the read fails and the
-  # merge time falls back to the line's end.
+  # merge. The cases answer it on the ports' fake instead (R7), so the stub
+  # fails it here and the raise falls back to the line's end.
   "api "*)
     for a in "$@"; do
-      case "$a" in query=*) cat "$T/fx/change.json" 2>/dev/null || exit 1 ;; esac
+      case "$a" in query=*) exit 1 ;; esac
     done ;;
 esac
 "##;
@@ -520,21 +520,13 @@ impl World {
         self.fx("progress.json", &v.to_string());
     }
 
-    /// The bot's pull request on the branch, merged, and the answer of the
-    /// one question for its number: the site's time of the merge. The
-    /// answer is a fixture file, the node in the adapter's shape, as the
-    /// status tests' answers are (T4.9).
+    /// The bot's pull request on the branch, merged. The one question of
+    /// its number is answered by no case here: the stub fails it, the
+    /// raise falls back to the line's end, and the merge time itself is
+    /// tested on the ports' fake (R7).
     pub fn merged_pr(&self) {
         self.fx("pr.txt", "https://github.com/acme/widget/pull/9\n");
         self.fx("pr-state", "MERGED\n");
-        self.fx("change.json", include_str!("../fx/merged-change.json"));
-    }
-
-    /// A merged pull request whose number the site answers nothing for: the
-    /// question fails, and the merge time falls back to the line's end.
-    pub fn merged_pr_silent(&self) {
-        self.merged_pr();
-        fs::remove_file(self.fx.join("change.json")).unwrap();
     }
 
     /// The bot's pull request on the branch, open.

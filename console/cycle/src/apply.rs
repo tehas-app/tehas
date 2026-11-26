@@ -224,6 +224,26 @@ pub type HandlesOf =
 pub type MergeAtOf =
     fn(home: &Path) -> Box<dyn FnMut(tehas_ports::ChangeNo) -> Option<tehas_ports::At>>;
 
+/// The one question for the one number, and its answer's merge time:
+/// `None` when the port names no merged change, and when the read fails.
+/// The raise of `change.merged` falls back to the line's end on `None`.
+pub fn merge_time(ch: &mut dyn tehas_ports::CodeHost, no: ChangeNo) -> Option<tehas_ports::At> {
+    let filter = tehas_ports::ChangeFilter {
+        states: tehas_ports::ChangeStates::All,
+        numbers: vec![no],
+        ..Default::default()
+    };
+    let digests = ch.changes(&filter, Bound::new(1)?).ok()?;
+    digests
+        .into_items()
+        .into_iter()
+        .find(|d| d.no == no)
+        .and_then(|d| match d.state {
+            tehas_ports::ChangeState::Merged { at, .. } => Some(at),
+            _ => None,
+        })
+}
+
 /// How a write of the ports ended.
 enum Sent {
     Done(Receipt),
@@ -1271,6 +1291,51 @@ mod tests {
         assert!(!approved_lean(
             &json!({"approval": {"input": {"driver": true}}})
         ));
+    }
+}
+
+/// The one question of the merged line, on the ports' fake: the merged
+/// change gives its time, and every other answer leaves `None`, which the
+/// raise of `change.merged` answers with the line's end.
+#[cfg(test)]
+mod merge_time_tests {
+    use super::*;
+    use tehas_ports::fake::{CodeHostOp, FakeSite, Fault, Faulty, Op, World};
+    use tehas_ports::{Actor, Caller, ChangeState, Scope, Site};
+
+    fn host(world: &World) -> Box<dyn tehas_ports::CodeHost> {
+        FakeSite::new(world)
+            .code_host(&Actor::Ours(Scope::Full), Caller::new("test"))
+            .unwrap()
+    }
+
+    #[test]
+    fn the_merged_change_gives_its_time_and_nothing_else_answers() {
+        let at = At::new(1_767_225_600);
+        let merged = World::new().change(9, "feature/x", |c| {
+            c.state(ChangeState::Merged {
+                at,
+                by: None,
+                commit: None,
+            })
+        });
+        let no = ChangeNo::new(9).unwrap();
+        assert_eq!(merge_time(&mut *host(&merged), no), Some(at));
+        // An open change answers nothing.
+        let open = World::new().change(9, "feature/x", |c| c);
+        assert_eq!(merge_time(&mut *host(&open), no), None);
+        // A number the site does not know answers nothing.
+        assert_eq!(
+            merge_time(&mut *host(&merged), ChangeNo::new(11).unwrap()),
+            None
+        );
+        // A read that fails answers nothing, as the port's silence does.
+        let site = Faulty::new(FakeSite::new(&merged))
+            .on(Op::CodeHost(CodeHostOp::Changes), Fault::Unreachable);
+        let mut ch = site
+            .code_host(&Actor::Ours(Scope::Full), Caller::new("test"))
+            .unwrap();
+        assert_eq!(merge_time(&mut *ch, no), None);
     }
 }
 
