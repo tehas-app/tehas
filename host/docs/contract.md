@@ -1258,6 +1258,16 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Adopter action: a program that read a session line's `pr` number reads
   `change`, the same number under its new name; `prUrl`, the history
   line's `pr` address and the analytics copy's `pr` column are as before.
+- **The store migrates from schema 23 only.** T16. The store's migration
+  starts at schema 23, which v1.3.0 and later wrote (`OLDEST` in
+  `console/store/src/db.rs`): the steps for older schemas are gone, and a
+  store older than that is refused with exit 78 before any file is copied,
+  with a line that says to install a v1.4 release first. A store at 23 or
+  newer migrates as before: one step at a time, each a transaction, keeping
+  every row.
+  Readers: `tehas update`, the end-to-end suite, adopters.
+  Adopter action: a host on v1.3.0 or later (store schema 23) updates
+  directly; an older one installs any v1.4 release first, then this one.
 - **The settings of the 2.1 adapter are reserved.**
   The feature `adapter` registers as building: `TEHAS_ADAPTER`,
   `TEHAS_ADAPTER_UPSTREAM`, `TEHAS_ADAPTER_UPSTREAM_SPKI`,
@@ -1326,12 +1336,6 @@ adopter action as the pull request states them.
   history on the code host.
   Readers: the consumer that runs many factories, MCP clients, the
   end-to-end suite, plugins.
-- **The store's migration from 1.4.x alone.** T16. The store still
-  migrates from schema 12, the one v0.30.0 wrote (`OLDEST` in
-  `console/store/src/db.rs`), not only from 1.4.x's 23: its steps 13 to 23
-  are still in it, though 2.0 is supported from 1.4.x only. Taking them
-  out leaves a store of 1.4.x migrated as now.
-  Readers: `tehas update`, the end-to-end suite.
 - **The ports.** T4, spec `docs/specs/2026-11-22-ports.md`.
   The ports themselves; their two settings are under
   [Changed in 2.0](#changed-in-20).
