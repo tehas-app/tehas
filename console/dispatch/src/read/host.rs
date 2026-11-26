@@ -550,7 +550,7 @@ mod tests {
     fn only_a_dated_fault_past_the_wait_owes_a_probe() {
         let at = "2026-10-31T00:00:00Z";
         let fault = |line: &str| json!({"at": at, "login": "tehas-bot", "line": line});
-        let now = tehas_core::time::from_iso(at).unwrap();
+        let now = epoch(at).unwrap();
         assert!(
             !push_fault_aged_out(&Value::Null, now),
             "no fault, nothing to ask"
