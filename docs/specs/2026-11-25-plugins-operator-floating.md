@@ -7,6 +7,12 @@ file's. Every part here lands with the first ordinary plugin, in the next
 open minor. Decisions are in `2026-11-25-plugins-2.0.0-history.md`, and a
 view's network in `2026-11-25-plugins-view-network.md`.
 
+Revision 10, 2026-11-26, adds the floating surfaces `every:` and `clock:`
+(1.6), `live:<name>` (5.5) and `frame` (6.5), with the roadmap manager's
+rulings on five surface requests from the plugin ports (2.3, 5, 5.6, 6.6).
+It changes no 2.1 interface: nothing in the normative file moves, and every
+addition lands with the first plugin that needs it, in the next open minor.
+
 **Normative**: tehas-standard v3 at main 8257b66, as the normative file
 says.
 
@@ -46,7 +52,7 @@ the engine.
 
   There are no timers beyond `await`. A plugin that needs to wait asks for
   `every:` or `clock:` (decision 33), as in `clock:mon-fri@06:00` or
-  `clock:daily@06:00,18:00`. The word matches the trigger these runs
+  `clock:daily@06:00,18:00` (1.6). The word matches the trigger these runs
   record (`clock`). `at` stays only the manifest key of a hook point or a
   gate point.
 
@@ -181,6 +187,132 @@ a minute for each factory. More operators are for isolation first
   a copy of that view, or those calls forwarded back to the factory's
   host. That's built only when it's needed.
 
+### 1.6 Schedules: `every:` and `clock:`
+
+*Floating, not 2.1.* Revision 10 (decisions 81 and 82, #3309). A run that
+starts with no person present, on an interval or at times of day. Neither
+opens a network or adds data. Each gets the FULL review every core surface
+gets.
+
+**One schedule kind.** A plugin holds `every:` or `clock:`, never both (as
+1.8 said). Allowing both later is an addition.
+
+**`every:<n><unit>`, runs on an interval.**
+- The unit is `m` (minutes) or `h` (hours). The period runs from 1m to 720h.
+- A value is written in its largest whole unit, so one schedule has one
+  spelling: `every:60m` is refused in favour of `every:1h`. 1.x's bare
+  `every:6` is refused, and the error names `every:6h`.
+- **The ask is the shortest period the plugin wants.** The grant in
+  `TEHAS_PLUGIN_GRANTS_<NAME>` gives the same word or a longer period. A
+  shorter period than the ask is a grant increase and waits for the admin
+  (normative file, 2.2).
+- **Floors.** 1m for any plugin. 1h for a plugin granted `model` in any
+  amount. The 1h floor is fixed, not a setting (decision 81). A model run's
+  cost is the reason.
+- `every:` takes no zone: an interval is zone-free.
+
+**`clock:<days>@<times>`, runs at times of day.** It replaces 1.8's `at:`
+(decision 33).
+- `<days>` is `daily`, or a comma list of `mon` to `sun` and forward ranges
+  of them, such as `mon-fri`. `<times>` is a comma list of 24-hour `HH:MM`.
+  There's no seconds field.
+- A plugin holds at most 4 `clock:` words and 24 times a day.
+- **A grant may move the times within the ask.** It may name other days and
+  times, as long as it gives no more runs a week than the ask. More runs a
+  week is a grant increase.
+- **No zone suffix in revision 10** (decision 82). A grant names no zone. A
+  later minor may add one; that's additive.
+- With `model`, `clock:` has no floor beyond its 24 times a day.
+
+**Approval.** For our own plugins, the signed vetted entry carries the ask,
+and turning the plugin on gives it (decision 28). For a third-party plugin
+the person approves it by name in `tehas plugin review`. An admin may always
+lengthen the period, move times within the count, or remove the word.
+Removing it leaves press and `once` runs.
+
+**Core schedules, not the operator.** The operator stays a stateless
+executor (1.3).
+- Core keeps the last attempt's start per plugin in the state store's
+  `plugin_runs` table.
+- Core's scheduler checks for due runs every 15 s. A run starts within 15 s
+  after it's due, plus its offset, and never before. The 1.x 10-minute
+  `tehas-plugin.timer` serves no 2.x plugin.
+- **Due.** An `every:` run is due when the last attempt began one period or
+  more ago. A `clock:` time is due when it has passed and the last attempt
+  began before it. A failed attempt isn't tried again before the next due.
+- **A stable offset per (instance, plugin)**, from a hash of the instance id
+  and the plugin's name, never random per run, so `tehas plugin review` can
+  show the next times. For `every:` it is in `[0, min(period/10, 5 min))`.
+  For `clock:` it is in `[0, 60 s)`.
+- **Missed dues give one run,** not one each: while the plugin was held,
+  off or paused, or the host was down. The run's `ctx.clock.missed` counts
+  the dues it stands for, at most 1,000.
+- **Held back.** Nothing starts while the factory is read-only, paused or
+  drained, or while `tehas update` runs, or while the plugin is paused for
+  failures in a row (1.4) or revoked.
+- **Overlap.** At most one run of a plugin at a time. A `clock` trigger
+  that comes during a run is merged into one queued run (1.2). A press is
+  never merged.
+- **Clocks.** Due times are computed from the host's wall clock in UTC. A
+  backward step delays runs, and a forward step gives one merged run. A
+  monotonic clock keeps the 15 s loop steady.
+- **The zone of `clock:`** is the host's (`/etc/localtime`), or UTC when the
+  host has none. A time in the hour skipped by summer time runs once, at the
+  first minute after the gap. A time in the repeated hour runs once, the
+  first time. A changed zone recomputes the next due, and times that pass
+  during the change run once, as missed times.
+- `tehas plugin review` shows the word, the zone and the next three times.
+
+**What reaches the plugin.** `run(ctx)` with `ctx.trigger` `clock`, and an
+optional object `ctx.clock` beside it. Core computes every field (decision
+82), so the engine needs no time zone data:
+- `word`: the granted word, such as `"every:5m"` or `"clock:mon-fri@06:00"`;
+- `due`: when the run was due, an ISO 8601 time in UTC;
+- `local`: the same moment as the host's local wall time, `YYYY-MM-DDTHH:MM`
+  with no offset;
+- `zone`: the host's IANA zone, or `UTC`;
+- `missed`: the dues this run stands for, a `u32`.
+
+A driver that doesn't read `ctx.clock` loses nothing. A clock run has no
+pressing person, so it may leave no draft (6.3) and gets no `ctx.viewer`.
+Its output is the shared last good output.
+
+**Failure and refusal.**
+
+| Case | Result |
+| --- | --- |
+| A malformed word in the manifest | refused at vetting (normative file, 3) |
+| A malformed word in the grant line | the settings load stops with 78 |
+| Both `every:` and `clock:`, a fifth `clock:` word, or a 25th time a day | refused at vetting; 78 in a grant |
+| Below the floor (1m, or 1h with `model`) | refused at vetting; 78 in a grant |
+| A grant shorter than the ask, or with more runs a week | waits as a grant increase |
+| A run that throws, traps or times out | recorded with its reason; the last good output stays; a pause after 5 in a row (1.2) |
+| The operator down | no run; one merged run when it's back |
+| A host with no zone | UTC, and `tehas plugin review` says so |
+
+**Laws.**
+1. A plugin granted `every:5m` runs once within [due, due + 15 s + its
+   offset], never before.
+2. Two dues missed while paused give one run with `missed` 2.
+3. Three dues during a run give one queued run.
+4. A failed run isn't tried again before the next due.
+5. `every:30s`, `every:60m`, `every:6`, `every:721h` and `every:0m` are
+   refused, and so is `every:30m` with `model:1000`.
+6. A grant of `every:1m` over an ask of `every:5m` waits as an increase.
+7. `clock:mon-fri@06:00` gives no run on a Saturday, and one on Monday
+   within [06:00, 06:01:15].
+8. In Europe/Helsinki, 03:30 on the spring-forward day runs once at 04:00,
+   and on the fall-back day once, the first time.
+9. `clock:daily@24:00`, `clock:tue-mon@06:00`, five words and 25 times a
+   day are refused. A grant that moves times within the weekly count is
+   accepted; one that adds a run a week waits.
+10. `ctx.clock.local` and `zone` match a fixed tz database case, and the
+    next three times in `tehas plugin review --json` match it too.
+11. A clock run's draft is refused (6.3's law).
+12. Nothing starts while the factory is paused, read-only, drained or
+    updating.
+13. A plugin with both `every:` and `clock:` is refused.
+
 ## 2. Layout, and who builds
 
 ```
@@ -231,6 +363,33 @@ spec's rules:
   (part 3).
 - **xterm** stops being the draft's named exception (console's terminal)
   and becomes a verified vendor library (part 3).
+
+### 2.3 Manifest additions for ordinary plugins
+
+*Floating, not 2.1.* Revision 10 (decisions 86 and 90). These add to the
+manifest of the normative file's 2.2. The schema
+`api/plugin-manifest.schema.json` takes each one in the pull request of the
+first plugin that needs it, in the next open minor. Each only adds.
+
+- **A skill's `about` and chats** (#3371). The manifest keeps `skills` as
+  paths under `skills/`. The host reads two fields from each vetted
+  `SKILL.md`'s frontmatter:
+  - `description` is the skill's `about`;
+  - `chats` is the list of chat ids it shows in (`obeya`, `wizard`,
+    `assistant`, `plugin`). No `chats` means every chat. An unknown id is
+    refused at vetting.
+- **Labels a plugin declares** (#3410). A field `labels`, a list of
+  `{name, color, description}`, like `views`: data the plugin declares, not
+  a grant.
+  - Each `name` is `<plugin>:<word>`, the plugin's own name, a colon, and a
+    word of the ports' label characters, at most 50 bytes in all. A `tehas:`
+    name, or another plugin's prefix, is refused at vetting, because
+    `tehas:` labels drive the factory.
+  - `color` is six hex digits. `description` is text of at most 100 bytes.
+  - The admin's `tehas labels` creates them on the repository. Turning the
+    plugin on never does, and no run can.
+- **A view of kind `pages`** (#3410, part 6.6). `views[].open` gains the
+  value `pages`, beside `dock`, `page` and `full`.
 
 ## 4. Our own plugins: fetching plugin repositories
 
@@ -293,6 +452,7 @@ rules stay in the normative file.
 | none: the engine's own `crypto.subtle.digest` and `crypto.getRandomValues` (web standard, random from `wasi:random`) | always | `createHash('sha256')`, `randomBytes` | 8 plugins |
 | `run.module(path, argv, env)` | always | `execFile(process.execPath, ...)` | floorplan |
 | `wasm.load(name)` | a module listed in the manifest | none | any |
+| `markdown.pages(layout, pages)` | always: a pure string transform | `wiki-render`'s `render.rs` in core | wiki (5, revision 10) |
 | `log(...)` | always | `console` | all |
 
 - **Paths** keep the 1.x mount names (`/work`, `/out`, `/state`, `/product`,
@@ -332,6 +492,33 @@ rules stay in the normative file.
   managing system that drops its patrol until guard's advisories check
   lands on a factory, no patrol runs. That's a known
   gap, not a failure.
+- **Where a feed is read** (#3372, decision 87). The operator puts each
+  granted `feed:<name>` at `/feed/<name>.json` for the run, read-only, as it
+  stood at the run's start. `fs.read` refuses the path without the grant. A
+  view gets the data only through what the driver writes to `/out`. A view
+  that should change live without a run is a later question (a `feed`
+  channel push, not in revision 10).
+- **Given files: `files:<n>`, the admin's grant** (#3410, decision 90). With
+  it, a run reads `/given/<issue>/` read-only: the issue's `manifest.json`
+  and its `files/`, at most `<n>` issues a run. Core fetched them, checked
+  each sha256 and unpacked any zip under its attach rules
+  (`console/attach`). The plugin unpacks nothing. It holds a person's
+  uploads, so turning the plugin on never gives it (decision 28's narrowing,
+  as for `viewer:login`). The admin gives it by hand.
+- **A run's list of its pages** (#3410). A run may write
+  `/out/_tehas/list.json`, under `api/plugin-list.schema.json`: for each
+  page, its issue, title and time. The dashboard reads it. A file that
+  fails the schema is dropped and recorded, and the dashboard shows no list.
+- **The core Markdown renderer** (#3413, decision 88). `markdown.pages` is
+  `render.rs`'s `body` and `page` with its escape pass, and no other option:
+  - `markdown.pages(layout, pages)`, where each page is `{markdown, title,
+    build, verified, up}`, returns one string a page;
+  - CommonMark with tables and strikethrough; HTML shown as text; images
+    drawn as text; relative `.md` links written as `.html`; `https` and `#`
+    links passed through;
+  - at most 500 pages, 64 KiB each and 8 MiB in all per call (`check.rs`'s
+    caps). Its answer counts toward the run's output caps (1.4).
+
 - Every host function checks its grant and its paths in Rust, and each has a
   fuzz target.
 - **A gate's answer is a shape, not a file** (N2). A gate listener's run
@@ -359,6 +546,88 @@ rules stay in the normative file.
     leaves the workspace and `kept_for_plugins.rs`, in the pull request
     that ports its plugin. Until then the Kept table's "For" column says
     "until its plugin's port".
+
+### 5.5 The factory's live state: `live:<name>`
+
+*Floating, not 2.1.* Revision 10 (decision 83, #3309, and the path rule
+of #3372). A plugin reads the factory's own live state: the queue, the running
+cycles, the ten-day report and the plugin list.
+
+- **The word.** The ask and the grant are the same, `live:<name>`. `<name>`
+  is one of a closed list: `status`, `running`, `analytics`, `plugins`. A
+  later minor may add a name. A plugin asks at most 4. An unknown name is
+  refused at vetting, and stops the settings load with 78 in a grant.
+- **Approval.** For our own plugins, the vetted entry gives it at turn-on.
+  For a third-party plugin, the person approves it by name. It moves data
+  out of core into plugin code, so it gets a FULL review.
+- **Core projects, the plugin never reads `~/tehas/live/`.** For each name,
+  core builds the answer from its source and keeps only the fields of
+  `api/plugin-live-<name>.schema.json`. A field the schema doesn't name is
+  dropped. The fields are those of the live table in
+  `2026-11-22-plugin-surfaces-2.1.md` (part 2). None
+  holds a login, a token, a path on the host or a cycle's console output.
+  `plugins` (each plugin's name, whether it's on, and its views) is kept as
+  1.x had it.
+- **The path.** `/live/<name>.json`, in a namespace of its own, never served
+  from the mount that answers `files:` or product reads. Core writes each
+  projection by write and rename, so every read is one whole document.
+  `fs.list("/live")` lists only the granted names.
+- **Not a snapshot.** Unlike `/feed/`, a `live:` value may change between two
+  reads of one run. No golden may come from a live read. Each run's record
+  lists each read's name, time and sha256.
+- **Freshness and reads**, this host's numbers:
+
+  | Name | Core re-projects at most every |
+  | --- | --- |
+  | `status` | 10 s |
+  | `running` | 5 s |
+  | `analytics` | 60 s |
+  | `plugins` | 60 s |
+
+  A run reads each name at most 10 times, and the reads count toward H3's
+  budgets (1.4). Between refreshes the operator serves the cached copy, so
+  no plugin makes core project more often.
+- **Missing or failing.** A granted name whose source is missing, or whose
+  projection fails its schema, makes `fs.read` throw the named error
+  `no input: /live/<name>.json`, never empty bytes. An ungranted name throws
+  `not granted`. A write under `/live/` is refused.
+- **A view** never reads `/live/`. It gets what the driver wrote to `/out`,
+  as `output` (6.3).
+
+**Laws.**
+1. `fs.read("/live/status.json")` without `live:status` is refused. With it
+   and no source, it throws the named error, never empty bytes.
+2. A product file at `live/status.json` never reads as `/live/status.json`.
+3. A field added to the source reaches no plugin until the schema names it.
+4. Each projection of a fixed sample fits its schema, a test per name.
+5. No projection holds a login, a token, an absolute host path or console
+   output; a test seeds each into the source.
+6. Two reads in one run may differ, and each is whole, with a torn-write
+   test against a concurrent rename.
+7. Ten reads of one name inside the freshness interval cost one projection,
+   and an eleventh read in a run is refused.
+8. The run's record carries each read's sha256.
+
+### 5.6 A hook after an offered change: `hook:after:change.offered`
+
+*Floating, not 2.1.* Revision 10 (decision 89, #3412). It rides on the hook
+and gate plumbing of #3310, in the next open minor after it.
+
+- **The grant word** is `hook:after:change.offered`, in the manifest's
+  `hooks: [{at, entry}]` form.
+- **The run sees exactly the offered head** as its product view, with no
+  model unless the plugin holds `model`.
+- **A verdict is a note, never a gate.** The run may write
+  `/out/_tehas/verdict.json`, under `api/plugin-verdict.schema.json`: `pass`,
+  or a note of findings, each with its kind, title, file and line, never a
+  value from the code. It never blocks the change, and no answer is no note.
+- **Caps.** At most 50 findings and 16 KiB. A verdict over its caps, or one
+  that fails its schema, is dropped and recorded, never posted.
+- goldfish raises `plugin.verdict` (#3295) on the same point.
+
+**Laws.** The run's product view is exactly the offered head. A verdict over
+its caps is dropped and recorded, never posted. A run with no verdict posts
+nothing and blocks nothing.
 
 ## 6. Views
 
@@ -712,6 +981,157 @@ from a view and their laws moved to their own spec,
 browser spike (part 9). Until it lands, every view's frame is
 `connect-src 'none'`.
 
+### 6.5 Outside pages: `frame`
+
+*Floating, not 2.1.* Revision 10 (decision 84, #3309). panels shows the
+instance's outside pages, such as a support chat, as menu items in the dock.
+The plugin ships no code.
+
+**What it is.** `frame` is a grant tehas adds, as the standard's §5 and §12
+let a host do. The outside page is not a view, and the standard's §14 rules
+for a view don't apply to it. tehas's own page frames the outside page, in a
+sandbox tehas sets, behind the sign-in, with no plugin code on either side.
+This host's profile for it is **H8-outside**, below. It binds only once the
+browser spike's H8-outside case is green in Chromium, Firefox and Safari
+(part 9). Until then it's written, but nothing is built against it.
+
+**The grant.**
+- The manifest asks `frame`, a bare word. The plugin can't name a URL.
+- The admin gives up to 4 pages by hand, as `frame:<id>=<url>` in
+  `TEHAS_PLUGIN_GRANTS_<NAME>`, such as
+  `TEHAS_PLUGIN_GRANTS_PANELS="<commit> menu frame:support=https://chat.example/tehas"`.
+  The URL is the instance's data, not the plugin's, so no vetted entry holds
+  it, and turning the plugin on never gives a `frame:` word. `tehas plugin
+  review` lists each `frame:` under "needs your grant", with its id and
+  origin and the line "loaded by the person's browser from <origin>".
+- **The id** is `a-z` and `-`, 1 to 16 characters. It is also the menu label.
+- **The URL** is `https://` only, at most 512 bytes, with no space, control
+  character, user or password.
+- **The host part** is a lowercase ASCII A-label name with no trailing dot
+  (an IDN comes as punycode). A literal IP, IPv4 or IPv6, bracketed or not,
+  is refused, and so is `localhost`. Private names are allowed: the browser,
+  not tehas, loads them. The host is never `TEHAS_DOMAIN`, a name under it,
+  or a name it sits under. Where the host can tell without the Public Suffix
+  List that the URL shares `TEHAS_DOMAIN`'s parent, review warns "same site
+  as the dashboard". The full check waits for the list (the view network
+  spec).
+- `tehas_core::outside` keeps 1.x's looser rules for `tehas host-message`.
+  The `frame` grant gets its own checker with these rules.
+- **Not a destination.** No request to the outside origin is made by tehas,
+  the gate or the operator, so a `frame` URL is not a 5.1 destination and
+  isn't in `TEHAS_PLUGIN_ORIGINS_<NAME>`.
+- **Migration.** On 2.x, `tehas plugin review panels` reads
+  `~/tehas/state/panels.json` if it's there and prints a proposed grant
+  line. It flags each page the new rules refuse, and never writes the grant.
+
+**The route.** The plugin gate serves `/_outside/<id>` on
+`plugin-<name>.<domain>`, under the per-load path of part 6, never to a bare
+URL, and never under `/pages` or `/_frame/`. With plugins off, or the plugin
+removed or refused, `/_outside/*` answers 404 at once and no menu item is
+left. With `menu`, each granted page is a menu item labelled by its id.
+
+**The wrapper** is tehas's own page and stays inert:
+- one `<iframe>` of the URL, with `referrerpolicy="no-referrer"`, and a
+  host-drawn link that opens the page in a new tab
+  (`rel="noopener noreferrer"`);
+- a fixed CSP, the same for every id except its one `frame-src` origin, and
+  no `script-src` at all:
+
+  ```
+  default-src 'none'; frame-src <the URL's exact origin>; style-src 'sha256-…';
+  base-uri 'none'; form-action 'none'; frame-ancestors <the dashboard's origin>
+  ```
+
+  `frame-src` is the exact origin, scheme and port included. It's never
+  widened to fix a login hop;
+- `Referrer-Policy: no-referrer`, a `Permissions-Policy` that denies every
+  device, and `Cache-Control: no-store`.
+
+**H8-outside, the sandbox.**
+- The outside frame's sandbox is `allow-scripts allow-same-origin
+  allow-forms`. `allow-same-origin` here gives the outside page its own
+  origin, which the host rule keeps cross-site from the dashboard. It never
+  gives it the dashboard's origin.
+- No `allow-popups`, `allow-popups-to-escape-sandbox`, `allow-modals` or
+  `allow-top-navigation`. The host-drawn new-tab link is the way out. If the
+  spike shows a chat needs popups, that comes back as a ruling, not an edit.
+- The dashboard frames the wrapper with the same flags, only because a
+  nested frame can't hold more flags than its parent.
+
+**Cookies.** Every session cookie of the gate and the dashboard MUST carry
+the `__Host-` prefix, so a sibling page can't overwrite it. No dashboard
+write relies on `SameSite` alone, because a sibling page on the same
+registrable domain is same-site.
+
+**What reaches the plugin.** Nothing: no run, no `ctx`, no `fs.read` path.
+A plugin's own view can't frame `/_outside/<id>`: its CSP is
+`default-src 'none'`.
+
+**Failure and refusal.**
+
+| Case | Result |
+| --- | --- |
+| A malformed `frame:` word, a fifth page, an `http:` URL, a literal IP or `localhost`, a host under or above `TEHAS_DOMAIN`, a user or password | 78 at the settings load |
+| `frame` asked with no `frame:` grant | no pages, and review says "no outside pages granted" |
+| An unknown id, plugins off, or the plugin removed or refused | 404 at once, and no menu item |
+| A bare `/_outside/<id>` with no per-load path | refused, as for a view's files |
+| The outside site refuses framing (`X-Frame-Options`, `frame-ancestors`) | the browser shows nothing; the new-tab link still works. tehas doesn't probe the site |
+| The outside page redirects or navigates its frame to another origin | the browser shows nothing, by design. `frame-src` is never widened for it |
+
+**Laws.**
+1. A manifest's `frame` with no grant gives no route: `/_outside/support`
+   answers 404.
+2. `frame:support=http://chat.example/`, an id with a capital or of 17
+   characters, a fifth page, `https://u:p@chat.example/`,
+   `https://<TEHAS_DOMAIN>/x`, `https://x.<TEHAS_DOMAIN>/` and a parent of
+   `TEHAS_DOMAIN` are refused with 78.
+3. `https://127.0.0.1/`, `https://[::1]/`, `https://::1/`,
+   `https://localhost/`, an upper-case host, a raw IDN host and a trailing
+   dot are refused with 78; a private name is accepted.
+4. With plugins off, or panels removed or refused, `/_outside/support`
+   answers 404 and no menu item remains.
+5. `tehas plugin review` lists each `frame:` under "needs your grant".
+6. Every session cookie of the gate and the dashboard has the `__Host-`
+   prefix, and no dashboard write is accepted on `SameSite` alone.
+7. A URL that shares `TEHAS_DOMAIN`'s parent gets the "same site as the
+   dashboard" warning in review.
+8. The wrapper's CSP has exactly one `frame-src`, the exact origin with its
+   port, no `script-src`, and `frame-ancestors` the dashboard only. It is
+   byte-equal for two ids apart from that origin.
+9. A frame redirected to another origin shows nothing, and the CSP is
+   unchanged.
+10. The outside frame's sandbox is exactly `allow-scripts allow-same-origin
+    allow-forms`, and the dashboard's frame of the wrapper has no more.
+11. `Referrer-Policy: no-referrer` is on the wrapper, and the iframe has
+    `referrerpolicy="no-referrer"`.
+12. A bare `/_outside/<id>` with no per-load path is refused.
+13. Turning panels on gives no `frame:` word (decision 28's path).
+14. The migration prints a grant line from a sample `state/panels.json`,
+    flags an `http:` page, and writes nothing.
+15. No request to the outside origin is in any tehas egress record.
+
+### 6.6 Pages: a tree of files with no script
+
+*Floating, not 2.1.* Revision 10 (decision 90, #3410). lab's product is
+pages: a tree of files a run writes, one per issue.
+
+- **A view of kind `pages`** (`views[].open` `pages`, 2.3). The gate serves
+  the last good run's `/out/pages/<issue>/` at `/_page/<issue>/`, under the
+  per-load path of part 6, in the sandboxed, opaque-origin frame of H8.
+- **The policy is the view's, with no script.** The CSP is the view's
+  (`default-src 'none'`, styles by hash, `connect-src 'none'`), with
+  `script-src 'none'`. No forms (`form-action 'none'`) and no top-level
+  navigation.
+- **Types by allow-list**: HTML, CSS, images (PNG, JPEG, WebP, GIF, SVG
+  served as an image) and fonts (WOFF2). Any other file is not served. Each
+  file is served with its type and `X-Content-Type-Options: nosniff`.
+- **Caps.** A page tree counts toward the run's `/out` caps (1.2, 1.4).
+- **The browser spike** gets one `pages` case (part 9).
+
+**Laws.** A script in a page doesn't run. A file off the type list isn't
+served. A `/_page/<issue>/` with no per-load path is refused. The frame has
+no `allow-forms` or `allow-top-navigation`.
+
 ## 7. What goes away, and what stays
 
 *Floating, not 2.1.*
@@ -783,7 +1203,7 @@ it's ready, by going on the signed list from its own repository (decision
 | Plugin | Driver lines | Needs | Under 2.0.0 |
 | --- | ---: | --- | --- |
 | mattpocock-skills (`specs`), tutor | 0 | nothing; skills only | as is |
-| panels | 0 | `frame`, back as a grant (#3309) | manifest only, once `frame` lands |
+| panels | 0 | `frame`, back as a grant (6.5, revision 10) | manifest only, once `frame` lands |
 | business, energy, hoststats | 50 each | `fs` | trivial port |
 | console | 379 | `fs`; xterm.js as a verified library | small port |
 | voice | 563 | `fs`; microphone and speech are on the view side, behind `device:microphone` (H10) | small port |
@@ -922,14 +1342,24 @@ it's ready, by going on the signed list from its own repository (decision
    they are in code: no `src/` or `dist/` port. Their manifests still move
    to `"plugin": 2` with `"spec": "2.0.0-r8"`, since a manifest that says 1
    is refused (normative file, header; held by the vetting step in #3301
-   and its fixtures). specs and tutor have done so. panels can't yet: its
-   `frame` ask has no 2.x word until #3309 brings `frame` back as a grant,
-   so until then panels stays at 1.x, off the vetted list, and runs on no
-   2.1 host. hoststats is the first candidate to prove the ordinary path
+   and its fixtures). specs and tutor have done so. panels can't yet:
+   revision 10 writes its `frame` word (6.5), but nothing is built against
+   it until the browser spike's H8-outside case is green, so until then
+   panels stays at 1.x, off the vetted list, and runs on no 2.1 host. A
+   plugin that asks a revision 10 word states `"spec": "2.0.0-r10"`. hoststats is the first candidate to prove the ordinary path
    (#3328), on no release's schedule. Refuse pageticket on the vetted
    list.
 7. Remove the 1.x image, build and container paths. There's no
    compatibility layer.
+
+Revision 10 adds two cases to the browser spike (H8, the normative file's
+part 9): H8-outside, a cross-site page in the wrapper of 6.5, which must get
+its own storage, no top navigation, no popup and no referrer; and a `pages`
+view (6.6), whose scripts must not run. Both run in Chromium, Firefox and
+Safari. The surfaces' own work items are children of #3309 (S1 schedules,
+S2 `live:`, S3 `frame`). The rulings' surfaces are in the issues
+#3371, #3372, #3410, #3412 and #3413. `history:` and `record`, also named in #3309,
+aren't in revision 10 and get issues of their own.
 
 ## 11. Threats of the operator and views
 
@@ -950,6 +1380,17 @@ The rows of the normative file's 11.4 that belong to the parts here.
 | A view sends data out directly | `connect-src 'none'` (6) | **OPEN** until H8's spike runs (part 9) | proposed |
 | A view borrows the dashboard's session or devices | The sandboxed frame, devices by two keys (H8, H10) | **OPEN** until H8's spike runs (part 9) | proposed |
 | A view module calls web APIs | Browser WebAssembly boxed (H9) | **OPEN**: a vetting test that a `__wbg_*` import is refused | proposed |
+| A schedule runs up model cost | Floors of 1m and 1h with `model`, the daily model cap (1.6, 1.4) | 1.6's floor laws | proposed |
+| A clock run acts as a person | No pressing person, so no draft and no `ctx.viewer` (1.6, 6.3) | 6.3's clock-draft law | proposed |
+| Core's internal live files leak to a plugin | Projections cut to a schema, in their own namespace (5.5) | 5.5's laws 2, 3 and 5 | proposed |
+| A torn or stale live read is taken as truth | Whole documents by rename, reads recorded by sha256, no golden from a live read (5.5) | 5.5's laws 6 and 8 | proposed |
+| An outside page borrows the dashboard's session | H8-outside: its own cross-site origin, no top navigation or popups (6.5) | 6.5's laws 2, 3 and 10; **OPEN** until the spike's H8-outside case | proposed |
+| Cookie tossing from a sibling outside page | `__Host-` session cookies, no write on `SameSite` alone, the parent and child host rule (6.5) | 6.5's laws 2, 6 and 7 | proposed |
+| An outside page leaks the factory's name | `no-referrer` on the wrapper and the iframe (6.5) | 6.5's law 11 | proposed |
+| A frame URL points at the host or a local service | No literal IP, no `localhost`, A-label names only (6.5) | 6.5's law 3 | proposed |
+| A page tree runs script | `pages` under `script-src 'none'` and a type allow-list (6.6) | 6.6's laws | proposed |
+| A plugin label drives the factory | `<plugin>:<word>` only, never `tehas:`, created by the admin (2.3) | **OPEN**: a vetting law for a `tehas:` and another plugin's label | proposed |
+| A plugin reads a person's uploads without the admin | `files:<n>` is the admin's grant only (5) | **OPEN**: a law that turn-on never gives `files:` | proposed |
 
 ## Appendix A. Bytecode Alliance projects reviewed (2026-11-24)
 
