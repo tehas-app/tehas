@@ -426,13 +426,19 @@ impl World {
     }
 
     /// A stub program on the PATH of a run that records its arguments, then
-    /// runs `body`. A body that starts with `#!` is the whole program.
+    /// runs `body`. A body that starts with `#!` is the whole program. The
+    /// body's exit status and standard error go to `$T/stub.log` too, which a
+    /// failing case prints; a call with no line there did not finish.
     pub fn stub(&self, name: &str, body: &str) {
         let text = if body.starts_with("#!") {
             body.to_string()
         } else {
             format!(
-                "#!{}\nprintf '%s\\n' \"$*\" >>\"$T/calls/{name}\"\n{body}\n",
+                "#!{}\nprintf '%s\\n' \"$*\" >>\"$T/calls/{name}\"\n\
+                 err=\"$T/stub-err.{name}.$$\"\n(\n{body}\n) 2>\"$err\"\nrc=$?\n\
+                 cat \"$err\" >&2\n\
+                 {{ printf '%s rc=%s\\n' {name} \"$rc\"; cat \"$err\"; }} >>\"$T/stub.log\"\n\
+                 rm -f \"$err\"\nexit \"$rc\"\n",
                 self.bash
             )
         };
@@ -1021,10 +1027,30 @@ pub fn label_of(word: &str) -> String {
 impl Drop for World {
     fn drop(&mut self) {
         if std::thread::panicking() {
+            self.print_stub_log();
             return;
         }
         let denied = fs::read_to_string(self.t.join("denied")).unwrap_or_default();
         assert!(denied.is_empty(), "no stub stands in for:\n{denied}");
+    }
+}
+
+impl World {
+    /// What the stubs of a failed case ended with, and the standard error of
+    /// any that did not finish.
+    fn print_stub_log(&self) {
+        let log = fs::read_to_string(self.t.join("stub.log")).unwrap_or_default();
+        eprintln!("--- stub.log ---\n{log}");
+        let Ok(dir) = fs::read_dir(self.t.path()) else {
+            return;
+        };
+        for e in dir.flatten() {
+            let file = e.file_name().to_string_lossy().into_owned();
+            if let Some(stub) = file.strip_prefix("stub-err.") {
+                let err = fs::read_to_string(e.path()).unwrap_or_default();
+                eprintln!("{stub} did not finish:\n{err}");
+            }
+        }
     }
 }
 

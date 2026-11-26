@@ -1,6 +1,7 @@
 // The tools against live files with planted keys that must never come out.
 
 use crate::common;
+use common::SESSIONS_SHAPE;
 
 use mcp::snapshot::Snapshot;
 use mcp::tools::{list_scoped, Dirs, Output, Scope, ToolError};
@@ -1045,7 +1046,8 @@ fn snapshot_dir(name: &str, lines: &[String]) -> TestDir {
 }
 
 fn header(days: Value, generated: i64) -> String {
-    json!({"api": 1, "days": days, "generatedAt": iso(generated), "sessions": 1}).to_string()
+    json!({"api": 1, "days": days, "generatedAt": iso(generated), "sessions": SESSIONS_SHAPE})
+        .to_string()
 }
 
 #[test]
@@ -1061,7 +1063,7 @@ fn snapshot_missing_or_bad_is_a_tool_error() {
     let empty = snapshot_dir("empty", &[]);
     let no_days = snapshot_dir(
         "nodays",
-        &[json!({"api": 1, "generatedAt": iso(t), "sessions": 1}).to_string()],
+        &[json!({"api": 1, "generatedAt": iso(t), "sessions": SESSIONS_SHAPE}).to_string()],
     );
     let zero = snapshot_dir("zero", &[header(json!(0), t)]);
     let other_api = snapshot_dir(
