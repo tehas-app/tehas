@@ -1214,6 +1214,17 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   an instance's settings.
   Adopter action: none. An instance may write `TEHAS_CODE_HOST=github` and
   `TEHAS_TICKETS=github`.
+- **Access is keyed by account id.** #3244, this pull request.
+  Part A keyed the allowed labellers and `state/account-ids` by the
+  account's stable id; this carries the id into the plugin gate: a
+  session, its codes and a sign-out name the id, not the login, so a
+  rename cannot strand a session or move one across people, and an
+  account whose id the gate cannot read matches nothing. The "No access"
+  page names the login in lower case, as the site does.
+  Readers: plugin keepers, a person told they have no access, anyone who
+  matches an account between one read and the next.
+  Adopter action: none. Settings that list logins still hold logins; the
+  gate reads each one's id at sign-in.
 
 ## Pending for 2.0
 
