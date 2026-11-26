@@ -50,7 +50,7 @@ case "$name $1" in
   "store park-show") echo "{\"api\":1,\"verb\":\"park-show\",\"ok\":true,\"park\":$(cat "$d/park" 2>/dev/null || echo null)}" ;;
   "store approval-record")
     while [ $# -gt 0 ]; do [ "$1" != --input-file ] || cp "$2" "$d/input.json"; shift; done
-    echo '{"api":1,"verb":"approval-record","ok":true}' ;;
+    cat "$d/approved" 2>/dev/null || echo '{"api":1,"verb":"approval-record","ok":true}' ;;
   "start "*) : >"$d/started" ;;
   "status "*) echo "the status line" ;;
   "tidy "*) echo "the tidy line" ;;
@@ -1608,6 +1608,36 @@ fn a_start_on_an_epics_approval_is_recorded_as_the_persons_label() {
     assert!(c.iter().any(|l| note_text(l).contains(
         "(authorized by @alice's `tehas:ready` label on epic #5 at 2026-10-25T09:00:00Z, which the millwright carried to this sub-issue)."
     )));
+}
+
+/// The start that records a person's approval raises `ticket.acted` once,
+/// of the record the store answered, keyed on the label event's moment the
+/// record carries (T11.9). The factory's own givens are no acts of a
+/// person, and a record that is not an approval raises nothing.
+#[test]
+fn the_start_that_records_a_persons_approval_raises_its_act() {
+    let mut t = world();
+    fs::write(
+        t.dir.join("approved"),
+        r#"{"api":1,"verb":"approval-record","ok":true,"approval":{"issue":7,"at":1793008800,"by":"alice","how":"approved"}}"#,
+    )
+    .unwrap();
+    t.apply(json!([start_of(7, "approved")]));
+    let heard = t.heard.lock().unwrap().clone();
+    assert_eq!(heard.len(), 1, "{heard:?}");
+    let e: tehas_ports::events::Envelope =
+        serde_json::from_str(heard[0].strip_prefix("event ").unwrap()).unwrap();
+    assert_eq!(e.key.as_str(), "7@Approve@2026-10-26T10:00:00Z");
+    let tehas_ports::events::Event::TicketActed(p) = &e.event else {
+        panic!("{e:?}")
+    };
+    assert_eq!(p.act, tehas_ports::Act::Approve);
+    assert_eq!(p.by.login.as_str(), "alice");
+    assert_eq!(p.at, tehas_ports::At::new(1793008800));
+    // The answer holds no approval: nothing was recorded as an act.
+    let mut t = world();
+    t.apply(json!([start_of(7, "approved")]));
+    assert!(t.heard.lock().unwrap().is_empty());
 }
 
 #[test]
@@ -3417,6 +3447,17 @@ fn a_refine_that_filed_replaces_its_issue() {
         ticket: key(7),
         reason: tehas_ports::CloseReason::NotPlanned,
     })));
+    // The close that landed is recorded once as `ticket.closed`, of the
+    // moment it landed (T11.9).
+    let heard = t.heard.lock().unwrap().clone();
+    assert_eq!(heard.len(), 1, "{heard:?}");
+    let e: tehas_ports::events::Envelope =
+        serde_json::from_str(heard[0].strip_prefix("event ").unwrap()).unwrap();
+    assert!(e.key.as_str().starts_with("7@"), "{:?}", e.key);
+    let tehas_ports::events::Event::TicketClosed(p) = &e.event else {
+        panic!("{e:?}")
+    };
+    assert_eq!(p.reason, tehas_ports::CloseReason::NotPlanned);
     let ledger = fs::read_to_string(Home::new(&t.w.home).state(State::Refined)).unwrap();
     assert!(ledger.contains(
         r#""source":7,"filed":9,"url":"https://github.com/example-owner/example-product/issues/9"}"#
@@ -5110,6 +5151,40 @@ fn a_first_turn_writes_its_brief_begins_marks_says_and_starts_its_unit() {
     assert!(unit.contains("/state/plan-7.json.lock /opt/plan 7 --out "));
     assert!(unit.contains("-plan-7.keep --brief "));
     assert!(!unit.contains("--kind refine"));
+}
+
+/// The first turn begun on a person's label raises `ticket.acted` once,
+/// keyed on the moment the label event says (T11.9). A turn with no label
+/// event behind it, and the poll's own refine, are the factory asking and
+/// raise nothing.
+#[test]
+fn the_first_turn_begun_on_a_persons_label_raises_its_act() {
+    let mut t = world();
+    let mut turn = first_turn(7);
+    turn["at"] = json!("2026-10-25T09:00:00Z");
+    t.apply(json!([turn]));
+    let heard = t.heard.lock().unwrap().clone();
+    assert_eq!(heard.len(), 1, "{heard:?}");
+    let e: tehas_ports::events::Envelope =
+        serde_json::from_str(heard[0].strip_prefix("event ").unwrap()).unwrap();
+    assert_eq!(e.key.as_str(), "7@Plan@2026-10-25T09:00:00Z");
+    let tehas_ports::events::Event::TicketActed(p) = &e.event else {
+        panic!("{e:?}")
+    };
+    assert_eq!(p.act, tehas_ports::Act::Plan);
+    assert_eq!(p.by.login.as_str(), "alice");
+    // No label event's moment: no act to record.
+    let mut t = world();
+    t.apply(json!([first_turn(7)]));
+    assert!(t.heard.lock().unwrap().is_empty());
+    // The poll's own refine asks for nothing: no raise with the time still
+    // beside the turn.
+    let mut t = world();
+    let mut turn = first_turn(7);
+    turn["at"] = json!("2026-10-25T09:00:00Z");
+    turn["auto"] = json!("its cycle parked as push");
+    t.apply(json!([turn]));
+    assert!(t.heard.lock().unwrap().is_empty());
 }
 
 #[test]

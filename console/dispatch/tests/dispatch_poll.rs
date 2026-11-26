@@ -245,10 +245,30 @@ fn the_page_gave_no_timelines_and_the_issue_a_cycle_holds_is_not_re_read() {
 #[test]
 fn a_poll_that_starts_a_cycle_logs_its_lines_line_for_line() {
     let w = world();
+    // The label's moment is fixed here, before each poll, so the
+    // `ticket.acted` the start raises carries one key across the two: on a
+    // host the label event always names one.
+    let labelled = || {
+        w.fx(
+            "events-7.json",
+            r#"[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"},"created_at":"2026-10-01T00:00:00Z"}]"#,
+        );
+    };
+    labelled();
     let b = untimed(&w.poll().out);
     w.reset();
+    labelled();
     let r = rpoll(&w, "");
     assert_eq!(untimed(&r.out), b);
+    // The start raised the act once, keyed on the label's own moment.
+    assert_eq!(
+        b.lines()
+            .filter(|l| l.contains("\"event\":\"ticket.acted\""))
+            .count(),
+        1,
+        "{b}"
+    );
+    assert!(b.contains("7@Approve@2026-10-01T00:00:00Z"), "{b}");
 }
 
 #[test]

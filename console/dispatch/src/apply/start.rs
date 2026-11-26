@@ -946,7 +946,16 @@ impl Writer {
         let r = self.calls.store(&refs);
         let _ = std::fs::remove_file(&file);
         match r {
-            Ok(_) => Ok(at),
+            Ok(v) => {
+                // This call is the process that recorded the person's
+                // approval: `ticket.acted`, once, keyed on the label
+                // event's moment the record carries (T11.9). The other
+                // givens are the factory's own acts and raise nothing.
+                if given == "approved" {
+                    self.raise_approved(&v.to_string(), log);
+                }
+                Ok(at)
+            }
             Err(f) => {
                 let w = word(&f);
                 let w = if w.is_empty() { "unusable".into() } else { w };

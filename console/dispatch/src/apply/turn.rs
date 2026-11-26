@@ -189,10 +189,11 @@ impl Writer {
                 "--brief-file".into(),
                 file.to_string_lossy().into_owned(),
             ];
-            if a.get("auto")
+            let auto = a
+                .get("auto")
                 .and_then(Value::as_str)
-                .is_some_and(|x| !x.is_empty())
-            {
+                .is_some_and(|x| !x.is_empty());
+            if auto {
                 args.push("--auto".into());
             }
             let refs: Vec<&str> = args.iter().map(String::as_str).collect();
@@ -204,6 +205,19 @@ impl Writer {
                     &f,
                     log,
                 ));
+            }
+            // This call is the process that recorded the person's ask for a
+            // planning session: `ticket.acted`, once, keyed on the moment
+            // their label event says (T11.9). The poll's own refine is the
+            // factory asking, so it raises nothing.
+            if !auto {
+                if let Some(at) = a
+                    .get("at")
+                    .and_then(Value::as_str)
+                    .and_then(tehas_core::limit::epoch)
+                {
+                    self.raise_plan(n, &label, &by, at, log);
+                }
             }
             let _ = std::fs::remove_file(&out);
             let _ = std::fs::remove_file(self.st(n, ".rc"));

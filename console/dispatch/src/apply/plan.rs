@@ -1434,8 +1434,20 @@ impl Writer {
                     None => Wrote::Failed(String::new()),
                 },
             };
-            if !matches!(wrote, Wrote::Done(_)) {
+            let landed = matches!(wrote, Wrote::Done(_));
+            if !landed {
                 log.push(format!("WARN: could not close #{n}"));
+            } else if let Some(ticket) = super::ticket(n) {
+                // The close landed: `ticket.closed`, once, of the moment it
+                // landed (T11.9). A close the site did not answer is not
+                // recorded as landed and raises nothing until the settle
+                // rules say it did (T4.7).
+                self.raise_closed(
+                    ticket,
+                    tehas_ports::CloseReason::NotPlanned,
+                    tehas_core::time::now(),
+                    log,
+                );
             }
         }
         if !self.plan_close(n, log) {

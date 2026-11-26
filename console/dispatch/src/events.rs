@@ -5,6 +5,11 @@
 //! the record, so the poll that wrote it is the one that raises it. The
 //! payloads are `tehas_core::raise`'s, built from the store's answer.
 //!
+//! The dispatcher is also the raiser of the facts its own store calls
+//! record (T11.9): `ticket.acted` of the approval, the planning session and
+//! the finish ask it puts on the record, and `ticket.closed` of the close
+//! its write lands. Each is raised once, by the call that wrote the fact.
+//!
 //! The dispatcher is built once, at the poll's wiring in src/main.rs: the
 //! log listener alone, one line per event in the poll's log.
 
@@ -12,7 +17,8 @@ use crate::apply::Writer;
 use crate::clock::iso_now;
 use std::cell::RefCell;
 use tehas_core::raise::{self, EndAnswer, Ended};
-use tehas_ports::events::Dispatcher;
+use tehas_ports::events::{Dispatcher, Payload};
+use tehas_ports::{CloseReason, TicketKey};
 
 /// The dispatcher of a poll: the log.
 pub fn wiring() -> Dispatcher {
@@ -31,6 +37,65 @@ impl Writer {
         let warned = RefCell::new(Vec::new());
         e.raise(&self.events, &|l| warned.borrow_mut().push(l.to_string()));
         log.extend(warned.into_inner());
+    }
+
+    /// Raises one payload, with a WARN line in `log` for each listener that
+    /// failed.
+    fn raise_one<P: Payload>(&self, p: P, log: &mut Vec<String>) {
+        let warned = RefCell::new(Vec::new());
+        raise::raise(&self.events, p, &|l| {
+            warned.borrow_mut().push(l.to_string())
+        });
+        log.extend(warned.into_inner());
+    }
+
+    /// `ticket.acted` of the approval this writer's `approval-record` call
+    /// put on the record. Only an approval of a person is an act; the
+    /// store's answer carries the account and the label event's moment.
+    pub(crate) fn raise_approved(&mut self, answer: &str, log: &mut Vec<String>) {
+        let Some(p) = raise::approved(answer) else {
+            return;
+        };
+        self.raise_one(p, log);
+    }
+
+    /// `ticket.acted` of the planning session this writer's `plan-begin`
+    /// call began: the act of `by` asking for a session on `label`, keyed
+    /// on the moment the label event says. A label outside the two
+    /// planning ones records no act, and neither does a session the poll
+    /// started on its own.
+    pub(crate) fn raise_plan(
+        &mut self,
+        n: u64,
+        label: &str,
+        by: &str,
+        at: i64,
+        log: &mut Vec<String>,
+    ) {
+        let Some(p) = raise::plan_acted(n, label, by, at) else {
+            return;
+        };
+        self.raise_one(p, log);
+    }
+
+    /// `ticket.acted` of the finish a person asked for and the finish step
+    /// took: the act of `by`, keyed on the moment their label event says.
+    pub(crate) fn raise_finish(&mut self, n: u64, by: &str, at: i64, log: &mut Vec<String>) {
+        let Some(p) = raise::acted(n, tehas_ports::Act::Finish, by, at) else {
+            return;
+        };
+        self.raise_one(p, log);
+    }
+
+    /// `ticket.closed` of the ticket this writer's write closed.
+    pub(crate) fn raise_closed(
+        &mut self,
+        ticket: TicketKey,
+        reason: CloseReason,
+        at: i64,
+        log: &mut Vec<String>,
+    ) {
+        self.raise_one(raise::closed(ticket, reason, at), log);
     }
 
     /// The end of attempt `attempt` of `n`, when `answer`, the store's
