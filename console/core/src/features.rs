@@ -71,6 +71,26 @@ pub const FEATURES: &[Feature] = &[
             "tehas-plugin-gate.service",
         ],
     },
+    // The adapter of 2.1: the upstream it speaks to, its pinning and its
+    // egress refusals, and each plugin's origin. Nothing is built yet: the
+    // feature only reserves the settings, so a line of one stops every
+    // command with 78 before any call to GitHub, Docker or git.
+    Feature {
+        name: "adapter",
+        stage: Stage::Building,
+        setting: "TEHAS_ADAPTER",
+        settings: &[
+            "TEHAS_ADAPTER_UPSTREAM",
+            "TEHAS_ADAPTER_UPSTREAM_SPKI",
+            "TEHAS_ADAPTER_UPSTREAM_CERT",
+            "TEHAS_ADAPTER_UPSTREAM_CERT_KEY",
+            "TEHAS_PLUGIN_ORIGINS_<NAME>",
+            "TEHAS_ADAPTER_EGRESS_DENY",
+        ],
+        since: "v2.0.0-beta.1",
+        programs: &[],
+        units: &[],
+    },
 ];
 
 /// The internal variable that lets a test turn building features on: their
@@ -202,15 +222,16 @@ pub fn refuse_building(get: &dyn Fn(&str) -> String) -> Result<(), String> {
 
 /// A line that sets one of a building feature's own settings, as the load
 /// refuses it: the feature leaves no setting in use while it is building.
-/// `set` is whether the instance gave the name a value; for a family's row
-/// (`rules::FAMILY`), whether it gave any name of the family one. Err is the
-/// reason, without the file.
+/// `set` answers `Some` with the name to refuse by when the instance gave
+/// the name a value; for a family's row (`rules::FAMILY`), by one of the
+/// real names the instance set, so the refusal names the line the instance
+/// has, as the update's list does. Err is the reason, without the file.
 pub fn refuse_building_settings(
-    set: &dyn Fn(&str) -> bool,
+    set: &dyn Fn(&str) -> Option<String>,
     get: &dyn Fn(&str) -> String,
 ) -> Result<(), String> {
     for f in FEATURES.iter().filter(|f| !usable(f, get)) {
-        if let Some(name) = f.settings.iter().find(|name| set(name)) {
+        if let Some(name) = f.settings.iter().find_map(|row| set(row)) {
             return Err(format!(
                 "{name} is set and {} is still being built in this release: take the line out",
                 f.name
@@ -509,7 +530,7 @@ mod tests {
             "TEHAS_PLUGIN_MODEL_DAY",
         ] {
             assert!(building_setting(setting), "{setting}");
-            let set = |n: &str| n == setting;
+            let set = |n: &str| (n == setting).then(|| n.to_string());
             assert_eq!(
                 refuse_building_settings(&set, &vars(&[])),
                 Err(format!("{setting} is set and plugins is still being built in this release: take the line out"))
@@ -519,11 +540,13 @@ mod tests {
 
     #[test]
     fn a_grants_line_of_any_plugin_is_refused_while_plugins_is_building() {
-        // The load answers for a family's row whether any name of it is set.
-        let set = |n: &str| n == "TEHAS_PLUGIN_GRANTS_<NAME>";
+        // The load answers for a family's row with one of its real names.
+        let set = |n: &str| {
+            (n == "TEHAS_PLUGIN_GRANTS_<NAME>").then(|| "TEHAS_PLUGIN_GRANTS_FLOORPLAN".to_string())
+        };
         assert_eq!(
             refuse_building_settings(&set, &vars(&[])),
-            Err("TEHAS_PLUGIN_GRANTS_<NAME> is set and plugins is still being built in this release: take the line out".to_string())
+            Err("TEHAS_PLUGIN_GRANTS_FLOORPLAN is set and plugins is still being built in this release: take the line out".to_string())
         );
         let text = b"TEHAS_REPO=acme/widget\nexport TEHAS_PLUGIN_GRANTS_FLOORPLAN='0123 view'\nTEHAS_PLUGIN_GRANTS_B=\nTEHAS_PLUGIN_GRANTS_=x\n# TEHAS_PLUGIN_GRANTS_C=x\n";
         assert_eq!(
@@ -531,6 +554,62 @@ mod tests {
             ["TEHAS_PLUGIN_GRANTS_FLOORPLAN is set and plugins is still being built in this release: take the line out (see /i/instance.env)"]
         );
         assert!(found_in_with(text, "/i/instance.env", &vars(&[(TEST_VAR, "plugins")])).is_empty());
+    }
+
+    #[test]
+    fn adapter_is_building_and_refuses_every_name_it_reserves() {
+        let name = "adapter";
+        assert_eq!(find(name).map(|f| f.stage), Some(Stage::Building));
+        assert!(!shipped().contains(&name));
+        assert!(!on_in(name, &vars(&[("TEHAS_ADAPTER", "on")])));
+        assert!(flags().contains(&(name, false)));
+        assert_eq!(
+            refuse_building(&vars(&[("TEHAS_ADAPTER", "on")])),
+            Err("TEHAS_ADAPTER is on and adapter is still being built in this release: set it to off or take the line out".to_string())
+        );
+        assert_eq!(refuse_building(&vars(&[("TEHAS_ADAPTER", "off")])), Ok(()));
+        let tested = vars(&[("TEHAS_ADAPTER", "on"), (TEST_VAR, name)]);
+        assert!(on_in(name, &tested));
+        assert_eq!(refuse_building(&tested), Ok(()));
+        for setting in [
+            "TEHAS_ADAPTER_UPSTREAM",
+            "TEHAS_ADAPTER_UPSTREAM_SPKI",
+            "TEHAS_ADAPTER_UPSTREAM_CERT",
+            "TEHAS_ADAPTER_UPSTREAM_CERT_KEY",
+            "TEHAS_PLUGIN_ORIGINS_<NAME>",
+            "TEHAS_ADAPTER_EGRESS_DENY",
+        ] {
+            assert!(building_setting(setting), "{setting}");
+            // A family's row is refused by the real line the instance has.
+            let real = if setting.ends_with(crate::settings::rules::FAMILY) {
+                "TEHAS_PLUGIN_ORIGINS_FLOORPLAN"
+            } else {
+                setting
+            };
+            let set = |n: &str| (n == setting).then(|| real.to_string());
+            assert_eq!(
+                refuse_building_settings(&set, &vars(&[])),
+                Err(format!("{real} is set and adapter is still being built in this release: take the line out"))
+            );
+            // A test that can turn the feature on may set its settings.
+            assert_eq!(refuse_building_settings(&set, &tested), Ok(()));
+        }
+        // Nothing is installed for a feature only its settings are reserved.
+        assert_eq!(installs_in(&tested), (vec![], vec![]));
+    }
+
+    #[test]
+    fn every_line_of_a_reserved_adapter_setting_in_a_file_is_found() {
+        let text = b"TEHAS_REPO=acme/widget\nexport TEHAS_ADAPTER_UPSTREAM='adapter.example:8443'\nTEHAS_ADAPTER_EGRESS_DENY=pypi.org\nTEHAS_PLUGIN_ORIGINS_FLOORPLAN=https://github.com/acme/floorplan@0123abcd\n# TEHAS_ADAPTER=on\n";
+        assert_eq!(
+            found_in_with(text, "/i/instance.env", &vars(&[])),
+            [
+                "TEHAS_ADAPTER_UPSTREAM is set and adapter is still being built in this release: take the line out (see /i/instance.env)",
+                "TEHAS_PLUGIN_ORIGINS_FLOORPLAN is set and adapter is still being built in this release: take the line out (see /i/instance.env)",
+                "TEHAS_ADAPTER_EGRESS_DENY is set and adapter is still being built in this release: take the line out (see /i/instance.env)",
+            ]
+        );
+        assert!(found_in_with(text, "/i/instance.env", &vars(&[(TEST_VAR, "adapter")])).is_empty());
     }
 
     #[test]
@@ -632,7 +711,9 @@ mod tests {
 
     #[test]
     fn the_load_refuses_a_building_features_own_setting() {
-        let set = |names: &'static [&'static str]| move |name: &str| names.contains(&name);
+        let set = |names: &'static [&'static str]| {
+            move |name: &str| names.contains(&name).then(|| name.to_string())
+        };
         assert_eq!(
             refuse_building_settings(&set(&["TEHAS_PLUGINS"]), &vars(&[])),
             Err("TEHAS_PLUGINS is set and plugins is still being built in this release: take the line out".to_string())
@@ -657,12 +738,21 @@ mod tests {
             }
         }
         // Every ruled name under a feature's switch is one of its settings.
+        // A family's row may belong to another feature: TEHAS_PLUGIN_ORIGINS_
+        // <NAME> reads the plugins' names but belongs to the adapter, which
+        // 2.1 builds the read for.
         for s in crate::settings::rules::TABLE {
             if let Some(f) = FEATURES
                 .iter()
                 .find(|f| s.name.starts_with(&format!("{}_", f.setting)))
             {
-                assert!(f.settings.contains(&s.name), "{} is not listed", s.name);
+                let family = s.name.ends_with(crate::settings::rules::FAMILY);
+                assert!(
+                    f.settings.contains(&s.name)
+                        || (family && FEATURES.iter().any(|f| f.settings.contains(&s.name))),
+                    "{} is not listed",
+                    s.name
+                );
             }
         }
     }

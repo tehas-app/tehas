@@ -1028,6 +1028,18 @@ impl crate::finish::Hands for FinishHands<'_> {
         off && done.exit.is_none()
     }
 
+    fn acted(&mut self, n: u64, by: &str, at: &str) {
+        // `ticket.acted` of the ask the step took, keyed on the moment the
+        // asker's label event says (T11.9).
+        let mut log = Vec::new();
+        if let Some(t) = tehas_core::limit::epoch(at) {
+            self.w.raise_finish(n, by, t, &mut log);
+        }
+        for l in log {
+            say(&l);
+        }
+    }
+
     fn finish(&mut self, n: u64, reason: &str) -> Result<String, String> {
         // The ask takes over a failed end the poll would finish (#1726): a
         // finish is run once.

@@ -220,7 +220,9 @@ pub enum QuietDue {
 /// A planning turn.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Turn {
-    /// A session starts, on `label` of `by`.
+    /// A session starts, on `label` of `by`. `at` is the moment the label
+    /// event says, carried so the start can record the act with its own
+    /// time: none when no person's label stands behind the turn.
     First {
         label: String,
         by: String,
@@ -232,6 +234,7 @@ pub enum Turn {
         epic: Option<u64>,
         /// The park reason of a refine the poll started on its own.
         auto: Option<String>,
+        at: Option<String>,
     },
     /// The session goes on with an answer.
     Next {
@@ -492,10 +495,14 @@ impl From<&Action> for Value {
                         brief_extra,
                         epic,
                         auto,
+                        at,
                     } => {
                         put("kind", json!("first"));
                         put("label", json!(label));
                         put("by", json!(by));
+                        if let Some(t) = at {
+                            put("at", json!(t));
+                        }
                         put("refine", json!(refine));
                         put("title", json!(title));
                         put("body", json!(body));

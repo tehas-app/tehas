@@ -181,7 +181,7 @@ of a manifest changes the table in the same commit.
 | tehas-ops | store, tehas-core, tehas-cycle, tehas-ports | tehas-dispatch |
 | tehas-plugin | tehas-core, tehas-github, tehas-ops, tehas-ports | tehas-ops |
 | tehas-xtask | tehas-core, tehas-github, tehas-ops, tehas-ports | |
-| console | attach, store, tehas-core, tehas-cycle, tehas-github, tehas-ops, tehas-ports | tehas-dispatch, tehas-ops, tehas-ports |
+| console | attach, store, tehas-core, tehas-cycle, tehas-github, tehas-ops, tehas-ports | tehas-dispatch, tehas-mcp, tehas-ops, tehas-ports |
 | tehas-plugin-gate | tehas-core, tehas-github, tehas-plugin, tehas-ports | |
 
 The same test checks the direction (R8). Each crate has a layer, inner

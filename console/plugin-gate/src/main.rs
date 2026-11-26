@@ -10,9 +10,12 @@
 //! from ~/.config/tehas/github-app.client-id and github-app.client-secret,
 //! which no one but the host's user may read. It is off unless the feature
 //! `plugins` is on: off, it says so and ends 0, and no port is opened.
-//! GitHub is asked through the adapter's authorised curl
-//! (`tehas_github::Access`), with the installation token `tehasbot
-//! github-token` prints.
+//! GitHub is asked through the adapter: the access questions through
+//! `tehas_github::Access` with the installation token `tehasbot
+//! github-token` prints, and the sign-in through the adapter's `Identity`
+//! handle of the factory's own account at read scope, which trades the
+//! code, names the person and runs no gh. The plain HTTP to GitHub has
+//! that one owner; the gate keeps no token.
 //!
 //! A press is not asked of a runner yet: it answers 503 until the runner
 //! implements [`Refresh`].
@@ -28,7 +31,8 @@ use std::sync::Arc;
 use tehas_core::settings::rules;
 use tehas_plugin::gate::catalog::Installed;
 use tehas_plugin::gate::github::{installation_token, Level};
-use tehas_plugin::gate::{self, Gate, Press, Refresh, Settings};
+use tehas_plugin::gate::{self, Gate, Press, Refresh, Settings, Signins};
+use tehas_ports::Site as _;
 
 /// Connections served at once; one more is 503.
 const MOST: usize = 64;
@@ -38,6 +42,20 @@ struct Unwired;
 impl Refresh for Unwired {
     fn ask(&self, _: &str, _: &str, _: &str) -> Press {
         Press::Failed("the runner is not built yet".to_string())
+    }
+}
+
+/// The production sign-in factory: the adapter's site makes a fresh
+/// `Identity` of the factory's read-scoped account for every request, so
+/// the adapter's calls run with no lock held between sign-ins.
+struct SiteSignins(tehas_github::GitHubSite);
+
+impl Signins for SiteSignins {
+    fn handle(&self) -> tehas_ports::Got<Box<dyn tehas_ports::Identity + Send>> {
+        self.0.identity(
+            &tehas_ports::Actor::Ours(tehas_ports::Scope::Read),
+            tehas_ports::Caller::new("plugin-gate"),
+        )
     }
 }
 
@@ -132,28 +150,51 @@ fn main() {
     let user_home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     let client_id = client(&user_home, tehas_core::plugin::CLIENT_ID_FILE);
     let client_secret = client(&user_home, tehas_core::plugin::CLIENT_SECRET_FILE);
-    let web = "https://github.com".to_string();
+    let one_level = env("TEHAS_EDGE_ONE_LEVEL") == "1";
     let settings = Settings {
-        domain,
-        one_level: env("TEHAS_EDGE_ONE_LEVEL") == "1",
+        domain: domain.clone(),
+        one_level,
         plugins: pins.iter().map(|p| p.name.clone()).collect(),
         access,
         home: home.clone(),
-        client_id: client_id.clone(),
-        web,
     };
     let console = home.join("libexec/console");
+    // The access questions through the adapter's authorised curl, with the
+    // installation token `tehasbot github-token` prints.
     let Some(github) = tehas_github::Access::new(tehas_github::AuthorisedCurl::default(), &repo)
     else {
         stop("TEHAS_REPO is not owner/name");
     };
-    let github = github
-        .with_client(&client_id, tehas_ports::Secret::new(client_secret))
-        .with_installation(move || installation_token(&console));
+    let github = github.with_installation(move || installation_token(&console));
+    // The sign-in is the adapter's own: its identity handle of the
+    // factory's account at read scope answers the link and the person, and
+    // runs no gh. The client's secret goes only to curl's standard input.
+    let callback = match tehas_ports::WebLink::new(gate::signin_callback(&domain, one_level)) {
+        Ok(link) => link,
+        Err(_) => stop("the sign-in's callback address is not a web link"),
+    };
+    let Some(site) = tehas_github::GitHubSite::sign_in(
+        &repo,
+        tehas_github::PeopleClient {
+            id: client_id,
+            secret: tehas_ports::Secret::new(client_secret),
+            callback,
+        },
+    ) else {
+        stop("TEHAS_REPO is not owner/name");
+    };
+    // Each request makes its own sign-in handle, so one slow or hostile
+    // flow cannot stall the other sign-ins. The first handle is tried
+    // here, so a broken wiring stops the gate before it listens.
+    let signins = SiteSignins(site);
+    if let Err(why) = signins.handle() {
+        stop(&format!("the sign-in is not available: {}", why.line()));
+    }
     let catalog = Installed::new(home, pins, grants);
     let gate = Arc::new(Gate::new(
         settings,
         Box::new(github),
+        Box::new(signins),
         Box::new(catalog),
         Box::new(Unwired),
     ));

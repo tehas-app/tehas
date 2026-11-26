@@ -2,9 +2,11 @@
 //!
 //! The surface is read from the files that already pin each part:
 //! api/commands.txt for commands and flags, api/settings-rules.json for
-//! settings and roles, host/labels.tsv for labels and api/*.schema.json for
-//! the fields of the `--json` objects. What a feature still being built adds
-//! is left out (console/core/src/features.rs), unless the baseline had it
+//! settings and roles, host/labels.tsv for labels, api/*.schema.json for
+//! the fields of the `--json` objects, and the MCP server's own tool table
+//! (mcp::tools::surface) for the `tool` lines, their `arg` lines and the
+//! `answer` lines its output schemas name. What a feature still being built
+//! adds is left out (console/core/src/features.rs), unless the baseline had it
 //! before the feature became building, and so are the flags
 //! api/commands.txt marks internal and the fields host/docs/contract.md says
 //! may change.
@@ -216,6 +218,13 @@ fn surface() -> BTreeSet<String> {
     commands(&read("api/commands.txt"), &mut out);
     settings(&read("api/settings-rules.json"), &mut out);
     labels(&read("host/labels.tsv"), &mut out);
+    for tool in mcp::tools::surface() {
+        out.insert(format!("tool {}", tool.name));
+        for arg in &tool.args {
+            out.insert(format!("tool {} arg {arg}", tool.name));
+        }
+        out.extend(tool.answers);
+    }
     for (object, schema) in schemas() {
         let whole = BUILDING_SCHEMAS
             .iter()
@@ -268,13 +277,38 @@ fn every_public_name_is_in_the_baseline() {
 }
 
 #[test]
+fn the_surface_holds_exactly_the_served_tools() {
+    // The table and the list of called names are one owner's two views.
+    let served: BTreeSet<String> = mcp::tools::called()
+        .iter()
+        .map(|n| format!("tool {n}"))
+        .collect();
+    let table: BTreeSet<String> = mcp::tools::surface()
+        .iter()
+        .map(|t| format!("tool {}", t.name))
+        .collect();
+    assert_eq!(
+        table, served,
+        "the tool table and CALLED name different tools"
+    );
+    // The number is pinned like the commands': a tool added or dropped must
+    // be felt here and in api/surface-2.0.txt, not only noticed by a client.
+    assert_eq!(served.len(), 15, "the server serves fifteen tools");
+    let on_surface: BTreeSet<String> = surface()
+        .into_iter()
+        .filter(|n| n.starts_with("tool ") && !n.contains(" arg ") && !n.contains(" answer "))
+        .collect();
+    assert_eq!(on_surface, served);
+}
+
+#[test]
 fn the_baseline_lists_each_name_once() {
     let mut seen = BTreeSet::new();
     for name in baseline() {
         assert!(seen.insert(name.clone()), "{BASELINE}: {name} twice");
         let kind = name.split(' ').next().unwrap_or_default();
         assert!(
-            ["command", "flag", "setting", "role", "label", "field"].contains(&kind),
+            ["command", "flag", "setting", "role", "label", "field", "tool"].contains(&kind),
             "{BASELINE}: {name:?} is of no kind"
         );
     }
