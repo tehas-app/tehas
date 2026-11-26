@@ -1,12 +1,16 @@
 //! The reader of `tehas-plugin.json`, a plugin's manifest: bytes in, a typed
 //! manifest or every reason it is refused out. A field it does not know is
 //! refused, so a manifest made for a later tehas never runs half read.
+//! The wire has one owner: [`Wire`] names the fields and [`Raw`] the shapes,
+//! both read by serde; the rules below say what each holds.
 //! api/plugin-manifest.schema.json holds the same rules for a plugin's
 //! author; the tests below hold the two to each other.
 
 use super::needs::Need;
 use super::{ask, is_action_id, is_name, params, Cap};
-use serde_json::{Map, Value};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::BTreeMap;
 use tehas_ports::events::{Name, When};
 
 /// The largest manifest read.
@@ -40,6 +44,188 @@ pub const VIEWS_MAX: usize = 4;
 pub const REQUIRED: [&str; 4] = ["plugin", "name", "label", "asks"];
 /// Required of a plugin with an image. One with none is text alone.
 pub const BUILT: [&str; 3] = ["kind", "build", "timeout"];
+
+/// A JSON value on the wire, the mirror serde fills. Every JSON value
+/// matches one variant, so a read fails on bytes alone: a field of the
+/// wrong shape reaches the rules below, which say its refusal in tehas's
+/// own words, all of them at once, as the tests hold.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(untagged)]
+enum Raw {
+    Null,
+    Bool(bool),
+    Num(u64),
+    Neg(i64),
+    Real(f64),
+    Text(String),
+    List(Vec<Raw>),
+    Table(BTreeMap<String, Raw>),
+}
+
+impl Raw {
+    /// The text, if this is one.
+    fn as_str(&self) -> Option<&str> {
+        match self {
+            Raw::Text(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    /// A whole count, if this is one. A float of a whole number counts as
+    /// one, as `Value::as_u64` has always taken it.
+    fn as_u64(&self) -> Option<u64> {
+        match self {
+            Raw::Num(n) => Some(*n),
+            Raw::Real(f) if *f >= 0.0 && *f == f.trunc() && *f <= u64::MAX as f64 => {
+                Some(*f as u64)
+            }
+            _ => None,
+        }
+    }
+
+    /// A list, if this is one.
+    fn as_array(&self) -> Option<&[Raw]> {
+        match self {
+            Raw::List(l) => Some(l),
+            _ => None,
+        }
+    }
+
+    /// An object, if this is one.
+    fn as_object(&self) -> Option<&BTreeMap<String, Raw>> {
+        match self {
+            Raw::Table(m) => Some(m),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for Raw {
+    /// The value as the JSON that came: what the refusals echo.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", serde_json::to_string(self).unwrap_or_default())
+    }
+}
+
+/// The kinds in the order they sort in. Only the key of an object is ever
+/// compared, and keys are `String`: this order exists because serde_json's
+/// map of values is a `BTreeMap`, whose type asks its values to be `Ord`.
+fn rank(r: &Raw) -> u8 {
+    match r {
+        Raw::Null => 0,
+        Raw::Bool(_) => 1,
+        Raw::Num(_) => 2,
+        Raw::Neg(_) => 3,
+        Raw::Real(_) => 4,
+        Raw::Text(_) => 5,
+        Raw::List(_) => 6,
+        Raw::Table(_) => 7,
+    }
+}
+
+impl Ord for Raw {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        use std::cmp::Ordering::Equal;
+        match (self, other) {
+            (Raw::Null, Raw::Null) => Equal,
+            (Raw::Bool(a), Raw::Bool(b)) => a.cmp(b),
+            (Raw::Num(a), Raw::Num(b)) => a.cmp(b),
+            (Raw::Neg(a), Raw::Neg(b)) => a.cmp(b),
+            (Raw::Real(a), Raw::Real(b)) => a.total_cmp(b),
+            (Raw::Text(a), Raw::Text(b)) => a.cmp(b),
+            (Raw::List(a), Raw::List(b)) => a.cmp(b),
+            (Raw::Table(a), Raw::Table(b)) => a.cmp(b),
+            _ => rank(self).cmp(&rank(other)),
+        }
+    }
+}
+
+impl PartialOrd for Raw {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+/// The equality is the derived one, and `cmp` agrees with it.
+impl Eq for Raw {}
+
+/// The manifest as the wire holds it: the field names, one owner. Every
+/// known field is optional here because the rules say a missing one with
+/// `is missing`, in the order [`FIELDS`] names them, and the unknown ones
+/// land in `rest` to be refused the same way. A field of its own is kept
+/// even when it is `null`: a null field was given, and the rules say it
+/// as a field of the wrong shape, not as a missing one.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+struct Wire {
+    #[serde(deserialize_with = "kept")]
+    plugin: Option<Raw>,
+    #[serde(deserialize_with = "kept")]
+    kind: Option<Raw>,
+    #[serde(deserialize_with = "kept")]
+    name: Option<Raw>,
+    #[serde(deserialize_with = "kept")]
+    label: Option<Raw>,
+    #[serde(deserialize_with = "kept")]
+    license: Option<Raw>,
+    #[serde(deserialize_with = "kept")]
+    build: Option<Raw>,
+    #[serde(deserialize_with = "kept")]
+    asks: Option<Raw>,
+    #[serde(deserialize_with = "kept")]
+    timeout: Option<Raw>,
+    #[serde(deserialize_with = "kept")]
+    ui: Option<Raw>,
+    #[serde(deserialize_with = "kept")]
+    view: Option<Raw>,
+    #[serde(deserialize_with = "kept")]
+    views: Option<Raw>,
+    #[serde(deserialize_with = "kept")]
+    actions: Option<Raw>,
+    #[serde(deserialize_with = "kept")]
+    hooks: Option<Raw>,
+    #[serde(deserialize_with = "kept")]
+    skills: Option<Raw>,
+    #[serde(deserialize_with = "kept")]
+    tools: Option<Raw>,
+    #[serde(deserialize_with = "kept")]
+    needs: Option<Raw>,
+    #[serde(flatten)]
+    rest: BTreeMap<String, Raw>,
+}
+
+/// A field serde reached, `null` and all.
+fn kept<'de, D>(d: D) -> Result<Option<Raw>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Raw::deserialize(d).map(Some)
+}
+
+impl Wire {
+    /// The field `key` as the wire holds it.
+    fn of(&self, key: &str) -> Option<&Raw> {
+        match key {
+            "plugin" => self.plugin.as_ref(),
+            "kind" => self.kind.as_ref(),
+            "name" => self.name.as_ref(),
+            "label" => self.label.as_ref(),
+            "license" => self.license.as_ref(),
+            "build" => self.build.as_ref(),
+            "asks" => self.asks.as_ref(),
+            "timeout" => self.timeout.as_ref(),
+            "ui" => self.ui.as_ref(),
+            "view" => self.view.as_ref(),
+            "views" => self.views.as_ref(),
+            "actions" => self.actions.as_ref(),
+            "hooks" => self.hooks.as_ref(),
+            "skills" => self.skills.as_ref(),
+            "tools" => self.tools.as_ref(),
+            "needs" => self.needs.as_ref(),
+            _ => self.rest.get(key),
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Action {
@@ -105,12 +291,12 @@ impl Refusals {
 }
 
 /// A label: one line of 1 to 24 characters, no control character.
-fn label(v: &Value, field: &str, out: &mut Refusals) -> Option<String> {
+fn label(v: &Raw, field: &str, out: &mut Refusals) -> Option<String> {
     line(v, field, LABEL_MAX, out)
 }
 
 /// One line of 1 to `max` characters, no control character.
-fn line(v: &Value, field: &str, max: usize, out: &mut Refusals) -> Option<String> {
+fn line(v: &Raw, field: &str, max: usize, out: &mut Refusals) -> Option<String> {
     let Some(s) = v.as_str() else {
         out.say(format!("{field}: expected a string"));
         return None;
@@ -130,7 +316,7 @@ fn line(v: &Value, field: &str, max: usize, out: &mut Refusals) -> Option<String
 }
 
 /// Whole seconds within `bounds`.
-fn seconds(v: &Value, field: &str, bounds: (u64, u64), out: &mut Refusals) -> Option<u64> {
+fn seconds(v: &Raw, field: &str, bounds: (u64, u64), out: &mut Refusals) -> Option<u64> {
     match v.as_u64() {
         Some(n) if (bounds.0..=bounds.1).contains(&n) => Some(n),
         _ => {
@@ -144,7 +330,7 @@ fn seconds(v: &Value, field: &str, bounds: (u64, u64), out: &mut Refusals) -> Op
 }
 
 /// The keys of an object that are not `known`, each said.
-fn closed(m: &Map<String, Value>, known: &[&str], field: &str, out: &mut Refusals) {
+fn closed(m: &BTreeMap<String, Raw>, known: &[&str], field: &str, out: &mut Refusals) {
     for key in m.keys().filter(|k| !known.contains(&k.as_str())) {
         out.say(format!("{field}{key}: no field of manifest version 1"));
     }
@@ -185,31 +371,32 @@ pub fn read(bytes: &[u8], name: &str) -> Result<Manifest, Vec<String>> {
     if bytes.len() > BYTES_MAX {
         return Err(vec![format!("the manifest is over {BYTES_MAX} bytes")]);
     }
-    let value: Value = match serde_json::from_slice(bytes) {
-        Ok(v) => v,
+    let top: Raw = match serde_json::from_slice(bytes) {
+        Ok(t) => t,
         Err(e) => return Err(vec![format!("the manifest is not JSON: {e}")]),
     };
-    let Some(m) = value.as_object() else {
+    if top.as_object().is_none() {
         return Err(vec!["the manifest is not a JSON object".to_string()]);
-    };
+    }
+    // The top was an object, so the fill of the wire cannot fail.
+    let wire: Wire =
+        serde_json::from_value(serde_json::to_value(&top).unwrap_or_default()).unwrap_or_default();
     let mut out = Refusals(Vec::new());
-    for key in m.keys() {
-        if !FIELDS.contains(&key.as_str()) {
-            out.say(format!("{key}: no field of manifest version 1"));
-        }
+    for key in wire.rest.keys() {
+        out.say(format!("{key}: no field of manifest version 1"));
     }
-    for field in REQUIRED.iter().filter(|f| !m.contains_key(**f)) {
-        out.say(format!("{field} is missing"));
+    let field = |key: &str| wire.of(key);
+    for name in REQUIRED.iter().filter(|f| field(f).is_none()) {
+        out.say(format!("{name} is missing"));
     }
-    let built = m.contains_key("build");
+    let built = field("build").is_some();
     if built {
-        for field in BUILT.iter().filter(|f| !m.contains_key(**f)) {
-            out.say(format!("{field} is missing"));
+        for name in BUILT.iter().filter(|f| field(f).is_none()) {
+            out.say(format!("{name} is missing"));
         }
-    } else if m.contains_key("timeout") {
+    } else if field("timeout").is_some() {
         out.say("timeout needs a build: a plugin with no build never runs");
     }
-    let field = |key: &str| m.get(key);
 
     if let Some(v) = field("plugin") {
         if v.as_u64() != Some(1) {
@@ -306,11 +493,11 @@ pub fn read(bytes: &[u8], name: &str) -> Result<Manifest, Vec<String>> {
 
     let view = match field("view") {
         None => None,
-        Some(Value::Array(_)) => {
+        Some(Raw::List(_)) => {
             out.say("view: expected an object; more than one view is views");
             None
         }
-        Some(Value::Object(v)) => {
+        Some(Raw::Table(v)) => {
             closed(v, &["label"], "view.", &mut out);
             if !caps.contains(&Cap::View) {
                 out.say("view needs the ask view");
@@ -468,7 +655,7 @@ pub fn read(bytes: &[u8], name: &str) -> Result<Manifest, Vec<String>> {
 
 /// `skills`: at most [`SKILLS_MAX`], each asked as `skill:<id>`, each a
 /// Markdown file of the repository for one or more chat hosts.
-fn skills(v: &Value, caps: &[Cap], out: &mut Refusals) -> Vec<Skill> {
+fn skills(v: &Raw, caps: &[Cap], out: &mut Refusals) -> Vec<Skill> {
     let Some(list) = v.as_array() else {
         out.say("skills: expected a list");
         return Vec::new();
@@ -537,7 +724,7 @@ fn skills(v: &Value, caps: &[Cap], out: &mut Refusals) -> Vec<Skill> {
 }
 
 /// `<at>.chats`: one or more of [`CHATS`], each once.
-fn chats_of(v: &Value, at: &str, out: &mut Refusals) -> Option<Vec<String>> {
+fn chats_of(v: &Raw, at: &str, out: &mut Refusals) -> Option<Vec<String>> {
     let names: Option<Vec<String>> = v.as_array().and_then(|l| {
         l.iter()
             .map(|c| c.as_str().filter(|c| CHATS.contains(c)).map(String::from))
@@ -559,7 +746,7 @@ fn chats_of(v: &Value, at: &str, out: &mut Refusals) -> Option<Vec<String>> {
 
 /// `tools`: at most [`TOOLS_MAX`], each asked as `tool:<id>`, with the
 /// schema of its arguments, its timeout and the chats that may call it.
-fn tools(v: &Value, caps: &[Cap], out: &mut Refusals) -> Vec<Tool> {
+fn tools(v: &Raw, caps: &[Cap], out: &mut Refusals) -> Vec<Tool> {
     let Some(list) = v.as_array() else {
         out.say("tools: expected a list");
         return Vec::new();
@@ -604,11 +791,15 @@ fn tools(v: &Value, caps: &[Cap], out: &mut Refusals) -> Vec<Tool> {
         });
         let about = about.and_then(|v| line(v, &format!("{at}.about"), ABOUT_MAX, out));
         let schema = schema.and_then(|v| {
-            let why = params::rules(v);
+            // The schema is the plugin's own JSON: params.rs checks it and
+            // Tool keeps it whole, so it passes to them as the document it
+            // is, rebuilt from the wire.
+            let doc = serde_json::to_value(v).unwrap_or_default();
+            let why = params::rules(&doc);
             for w in &why {
                 out.say(format!("{at}.params: {w}"));
             }
-            why.is_empty().then(|| v.clone())
+            why.is_empty().then_some(doc)
         });
         let timeout = timeout.and_then(|v| seconds(v, &format!("{at}.timeout"), TOOL_TIMEOUT, out));
         let chats = chats.and_then(|v| chats_of(v, &at, out));
@@ -673,7 +864,7 @@ fn is_view_path(s: &str) -> bool {
 /// `views`: at most [`VIEWS_MAX`], each asked as `view:<id>`, each its own
 /// folder of `/out`. A folder may hold another view's: the gate serves a
 /// path by the view whose folder is the longest that holds it.
-fn views(v: &Value, caps: &[Cap], out: &mut Refusals) -> Vec<View> {
+fn views(v: &Raw, caps: &[Cap], out: &mut Refusals) -> Vec<View> {
     let Some(list) = v.as_array() else {
         out.say("views: expected a list");
         return Vec::new();
@@ -689,7 +880,7 @@ fn views(v: &Value, caps: &[Cap], out: &mut Refusals) -> Vec<View> {
             continue;
         };
         closed(o, &["id", "label", "path", "open"], &format!("{at}."), out);
-        let text = |k: &str| o.get(k).and_then(Value::as_str);
+        let text = |k: &str| o.get(k).and_then(|v| v.as_str());
         let id = match text("id") {
             Some(id) if is_action_id(id) => Some(id.to_string()),
             _ => {
@@ -745,7 +936,7 @@ fn views(v: &Value, caps: &[Cap], out: &mut Refusals) -> Vec<View> {
 
 /// `needs`: at most [`NEEDS_MAX`] other plugins, each asked as
 /// `needs:<name>`, each with the skills this plugin wants from it.
-fn needs(v: &Value, caps: &[Cap], own: &str, out: &mut Refusals) -> Vec<Need> {
+fn needs(v: &Raw, caps: &[Cap], own: &str, out: &mut Refusals) -> Vec<Need> {
     let Some(list) = v.as_array() else {
         out.say("needs: expected a list");
         return Vec::new();
@@ -823,7 +1014,12 @@ fn needs(v: &Value, caps: &[Cap], own: &str, out: &mut Refusals) -> Vec<Need> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
+    use serde_json::{json, Map};
+
+    /// The cases are written as JSON documents, edited by `json!` and
+    /// handed to `read` as bytes: the reader's wire model is `Wire`, and
+    /// the tests speak JSON the way a plugin's author does.
+    type Doc = Value;
 
     const FULL: &str = include_str!("../../../../api/plugin-manifest.full.json");
     const BARE: &str = include_str!("../../../../api/plugin-manifest.bare.json");
@@ -831,27 +1027,27 @@ mod tests {
     const TOOLS: &str = include_str!("../../../../api/plugin-manifest.tools.json");
     const SCHEMA: &str = include_str!("../../../../api/plugin-manifest.schema.json");
 
-    fn full() -> Value {
+    fn full() -> Doc {
         serde_json::from_str(FULL).unwrap()
     }
 
-    fn refusals(v: &Value) -> Vec<String> {
+    fn refusals(v: &Doc) -> Vec<String> {
         read(v.to_string().as_bytes(), "floorplan").unwrap_err()
     }
 
-    fn with(edit: impl Fn(&mut Map<String, Value>)) -> Value {
+    fn with(edit: impl Fn(&mut Map<String, Doc>)) -> Doc {
         let mut v = full();
         edit(v.as_object_mut().unwrap());
         v
     }
 
-    fn text_only(edit: impl Fn(&mut Map<String, Value>)) -> Value {
-        let mut v: Value = serde_json::from_str(SKILLS).unwrap();
+    fn text_only(edit: impl Fn(&mut Map<String, Doc>)) -> Doc {
+        let mut v: Doc = serde_json::from_str(SKILLS).unwrap();
         edit(v.as_object_mut().unwrap());
         v
     }
 
-    fn refusals_of_specs(v: &Value) -> Vec<String> {
+    fn refusals_of_specs(v: &Doc) -> Vec<String> {
         read(v.to_string().as_bytes(), "specs").unwrap_err()
     }
 
@@ -1423,13 +1619,13 @@ mod tests {
         assert_eq!(got, ["skills: at most 8"]);
     }
 
-    fn tooled(edit: impl Fn(&mut Map<String, Value>)) -> Value {
-        let mut v: Value = serde_json::from_str(TOOLS).unwrap();
+    fn tooled(edit: impl Fn(&mut Map<String, Doc>)) -> Doc {
+        let mut v: Doc = serde_json::from_str(TOOLS).unwrap();
         edit(v.as_object_mut().unwrap());
         v
     }
 
-    fn refusals_of_docs(v: &Value) -> Vec<String> {
+    fn refusals_of_docs(v: &Doc) -> Vec<String> {
         read(v.to_string().as_bytes(), "docs").unwrap_err()
     }
 
@@ -1662,7 +1858,7 @@ mod tests {
     // action's ask of its own id, is the reader's alone.
     use crate::plugin::schema::{closed, fits};
 
-    fn schema() -> Value {
+    fn schema() -> Doc {
         serde_json::from_str(SCHEMA).unwrap()
     }
 
