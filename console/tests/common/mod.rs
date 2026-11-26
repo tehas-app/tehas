@@ -217,6 +217,10 @@ impl World {
             fs::create_dir_all(t.join(d)).unwrap();
         }
         fs::create_dir_all(home.join("libexec")).unwrap();
+        // A host has a logs/: the event lines of `tehas limit`, `tehas
+        // drain`, `tehas stop` and the poll go there, and their absence
+        // would print the line to a command's output instead.
+        fs::create_dir_all(home.join("logs")).unwrap();
         copy_exe(store_binary(), t.join("store-bin")).unwrap();
         let console = t.join("console-bin");
         place(Path::new(env!("CARGO_BIN_EXE_console")), &console);
@@ -1019,7 +1023,7 @@ pub fn label_of(word: &str) -> String {
         .lines()
         .find_map(|l| {
             let cols: Vec<&str> = l.split('\t').collect();
-            (cols.get(3) == Some(&word)).then(|| cols[0].to_string())
+            (cols.last() == Some(&word)).then(|| cols[0].to_string())
         })
         .unwrap_or_else(|| panic!("no label for {word} in host/labels.tsv"))
 }
