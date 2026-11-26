@@ -643,9 +643,30 @@ mod wiring {
                 )),
                 "github.com (code host): a holder is signed out, seen at 1795530000"
             );
+            assert_eq!(
+                notice_words(&notice(
+                    Whose::Holder(caller()),
+                    Health::Unavailable(Passing::Unreachable)
+                )),
+                "github.com (code host): a holder is out (it could not be reached), seen at 1795530000"
+            );
+            assert_eq!(
+                notice_words(&notice(
+                    Whose::Holder(caller()),
+                    Health::Unavailable(Passing::Broken)
+                )),
+                "github.com (code host): a holder is out (a check run failed), seen at 1795530000"
+            );
+            assert_eq!(
+                notice_words(&notice(
+                    Whose::Holder(caller()),
+                    Health::TokenNotDropped
+                )),
+                "github.com (code host): a holder keeps a refused token: it could not be dropped, so it may be read until it expires, seen at 1795530000"
+            );
             for state in [
-                Health::Unavailable(Passing::Unreachable),
-                Health::Unavailable(Passing::Broken),
+                Health::Unavailable(Passing::Timeout),
+                Health::Unavailable(Passing::Server),
                 Health::SignedOut,
                 Health::Recovered,
                 Health::LedgerDown,
