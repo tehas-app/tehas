@@ -1198,7 +1198,7 @@ mod raised {
         let table = fs::read_to_string(root().join("host/labels.tsv")).unwrap();
         table
             .lines()
-            .find(|l| l.split('\t').last() == Some(word))
+            .find(|l| l.split('\t').next_back() == Some(word))
             .unwrap_or_else(|| panic!("no label of {word} in the table"))
             .split('\t')
             .next()

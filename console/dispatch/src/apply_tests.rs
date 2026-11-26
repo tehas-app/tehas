@@ -3472,7 +3472,7 @@ fn a_refine_that_filed_replaces_its_issue() {
 fn refine_word() -> String {
     include_str!("../../../host/labels.tsv")
         .lines()
-        .find(|l| l.split('\t').last() == Some("Act::Refine"))
+        .find(|l| l.split('\t').next_back() == Some("Act::Refine"))
         .unwrap()
         .split('\t')
         .next()

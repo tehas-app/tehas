@@ -1359,9 +1359,7 @@ mod tests {
                     l.split_once(" event {")
                         .map(|(_, rest)| format!("{{{rest}"))
                 })
-                .map(|json| {
-                    serde_json::from_str(&json).expect("an event line")
-                })
+                .map(|json| serde_json::from_str(&json).expect("an event line"))
                 .collect(),
             Err(_) => Vec::new(),
         }
@@ -1383,7 +1381,10 @@ mod tests {
         set_in(&d, &["--cycles", "2"]);
         let all = log_events(&d);
         assert_eq!(all.len(), 1, "{all:?}");
-        assert_eq!(all[0].event.name(), tehas_ports::events::Name::FactoryLimitChanged);
+        assert_eq!(
+            all[0].event.name(),
+            tehas_ports::events::Name::FactoryLimitChanged
+        );
         let row = serde_json::to_value(&all[0]).unwrap();
         assert_eq!(row["data"]["state"], "ok");
         assert_eq!(row["data"]["cycles"], 2);
@@ -1429,7 +1430,10 @@ mod tests {
         assert_eq!(clear(&file), 0);
         let all = log_events(&d);
         assert_eq!(all.len(), 2);
-        assert_eq!(all[1].event.name(), tehas_ports::events::Name::FactoryLimitChanged);
+        assert_eq!(
+            all[1].event.name(),
+            tehas_ports::events::Name::FactoryLimitChanged
+        );
         let row = serde_json::to_value(&all[1]).unwrap();
         assert_eq!(row["data"]["state"], "none");
         // The file is gone: no `set` to read, so tehas keys the change on
