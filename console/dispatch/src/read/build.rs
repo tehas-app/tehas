@@ -1053,6 +1053,29 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_merged_change_is_read_as_merged() {
+        let q = github::Queue {
+            repo: None,
+            open: vec![github::Open {
+                number: 21,
+                labels: vec![crate::decide::BLOCKED.to_string()],
+                node: Value::Null,
+            }],
+            closed_running: Vec::new(),
+            open_pulls: None,
+            issue_types: None,
+            labels: None,
+        };
+        // The blocked world's comment of #21, which names #11.
+        let comments = BTreeMap::from([(21, world()["comments"]["21"].clone())]);
+        let mut board = Board::of(&json!({"11": "MERGED"}));
+        assert_eq!(
+            blocker_reads(Some(&mut board), &q, &[21], &comments, &BTreeMap::new()),
+            BTreeMap::from([(11, "MERGED".to_string())])
+        );
+    }
+
     use crate::snapshot::{ClosingPr, Snapshot};
 
     /// What separates two calls in a stub's record: a word of nothing that no
@@ -1073,7 +1096,8 @@ mod tests {
     const EDITS_MARK: &str = "nodes(ids:";
 
     /// The board of a case on the ports' fake, its tickets the blockers of
-    /// `states` (a number and OPEN or CLOSED), each `as_blockers` it is asked
+    /// `states` (a number and OPEN or CLOSED, or MERGED for a merged
+    /// change), each `as_blockers` it is asked
     /// kept in `asked`.
     struct Board {
         inner: Box<dyn tehas_ports::Board + Send>,
@@ -1089,10 +1113,18 @@ mod tests {
                     .into_iter()
                     .flatten()
                     .fold(World::new(), |w, (n, state)| {
-                        w.ticket(n.parse().unwrap(), |t| match state.as_str() {
-                            Some("CLOSED") => t.closed(CloseReason::Done),
-                            _ => t,
-                        })
+                        let n = n.parse().unwrap();
+                        match state.as_str() {
+                            Some("MERGED") => w.change(n, &format!("change-{n}"), |c| {
+                                c.state(tehas_ports::ChangeState::Merged {
+                                    at: tehas_ports::At::new(1_767_225_600),
+                                    by: None,
+                                    commit: None,
+                                })
+                            }),
+                            Some("CLOSED") => w.ticket(n, |t| t.closed(CloseReason::Done)),
+                            _ => w.ticket(n, |t| t),
+                        }
                     });
             let site = tehas_ports::fake::FakeSite::new(&world);
             Self {
