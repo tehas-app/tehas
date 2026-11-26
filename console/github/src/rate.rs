@@ -2,7 +2,8 @@
 //! by: a GraphQL `RATE_LIMITED`, gh's 429 or its words of a primary or
 //! secondary limit, and an anonymous answer's 429 or spent budget. A limit
 //! is the pool spent until the time GitHub gave, or for [`FLOOR`] past now
-//! when it gave none. Any other answer is the outcome its path reads.
+//! when it gave none, and never for more than [`CAP`] past now. Any other
+//! answer is the outcome its path reads.
 
 use tehas_ports::{At, Outcome, Pool};
 
@@ -13,10 +14,16 @@ pub(crate) const RATE_LIMITED: &str = "RATE_LIMITED";
 /// would hold nothing, so a limited host would ask again at once.
 const FLOOR: i64 = 60;
 
+/// The longest a limit holds its budget out, whatever the server says: a
+/// reset or `retry-after` far off would hold a pool as long as it said.
+const CAP: i64 = 60 * 60;
+
 /// `pool` spent at `now`, until `until` (a reset time, or now plus a
-/// `retry-after`) or the floor past now with none.
+/// `retry-after`) or the floor past now with none, held to the cap.
 pub(crate) fn spent(pool: Pool, now: i64, until: Option<i64>) -> Outcome {
-    let until = until.unwrap_or(now.saturating_add(FLOOR));
+    let until = until
+        .unwrap_or(now.saturating_add(FLOOR))
+        .min(now.saturating_add(CAP));
     Outcome::Spent {
         pool,
         until: At::new(until),
@@ -60,6 +67,13 @@ mod tests {
     fn a_reset_the_server_gives_is_kept() {
         assert_eq!(until(spent(Pool::Calls, NOW, Some(NOW + 600))), NOW + 600);
         assert_eq!(until(spent(Pool::Calls, NOW, Some(NOW + 5))), NOW + 5);
+    }
+
+    #[test]
+    fn a_reset_past_an_hour_is_held_to_an_hour() {
+        for far in [NOW + 3601, NOW + 86_400, i64::MAX] {
+            assert_eq!(until(spent(Pool::Calls, NOW, Some(far))), NOW + 3600);
+        }
     }
 
     #[test]

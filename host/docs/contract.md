@@ -1151,6 +1151,16 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   a `gh` an operator runs on the host keep the retry.
   Readers: adopters, the end-to-end suite.
   Adopter action: none.
+- **A rate-limited read holds its budget a minute, at most an hour.**
+  #3378. A limit GitHub reports with no time it resets (a GraphQL
+  `RATE_LIMITED`, gh's 429 or its words of a primary or secondary limit, a
+  bare 429 to the anonymous reader) holds that budget out for 60 seconds:
+  the factory asks again after a minute. 1.x held it until now and asked
+  again at once. A reset time or `retry-after` GitHub gives is kept, but
+  never past an hour from the answer.
+  Readers: adopters (the GitHub budget), the consumer that runs many
+  factories, the end-to-end suite.
+  Adopter action: none.
 - **The host files a drafted plan.** #3158.
   **File as a new issue** in a refine session files the drafted plan
   again: it ran `plan --confirm` inside the planner's container, whose token

@@ -397,6 +397,8 @@ fn a_bare_too_many_requests_holds_the_budget_for_a_minute() {
     );
 }
 
+/// The recorded reset is 6548 s off: the budget is held for an hour, the
+/// most any server's reset or `retry-after` holds it.
 #[test]
 fn a_spent_anonymous_budget_is_kept_and_the_next_call_makes_no_request() {
     let stub = Stub::new("github-anonymous-spent");
@@ -405,7 +407,7 @@ fn a_spent_anonymous_budget_is_kept_and_the_next_call_makes_no_request() {
     let mut h = site.code_host(&Actor::Anonymous, CALLER).unwrap();
     let spent = Outcome::Spent {
         pool: Pool::Calls,
-        until: At::new(1_795_536_548),
+        until: At::new(1_795_533_600),
     };
     assert_eq!(h.releases(ALL_MAX).err(), Some(spent.clone()));
     let host = HostId::new("github.com");
@@ -414,7 +416,7 @@ fn a_spent_anonymous_budget_is_kept_and_the_next_call_makes_no_request() {
         ledger.health(&host, &whose).unwrap(),
         HealthState::Spent {
             pool: Pool::Calls,
-            until: At::new(1_795_536_548)
+            until: At::new(1_795_533_600)
         }
     );
     // The factory's own holder is not touched.
