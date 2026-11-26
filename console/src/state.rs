@@ -75,7 +75,7 @@ use std::os::unix::fs::{DirBuilderExt, FileTypeExt, MetadataExt, PermissionsExt}
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 use tehas_core::home::{Home, State, TokenDir};
 use tehas_core::verb::{Plans, Verb};
@@ -87,9 +87,22 @@ const ACTIVE: &str = "--state=active,activating,deactivating,reloading";
 
 type Fail = (u8, String);
 
-/// The directory a signal removes. The handler holds this lock from taking it
-/// to the exit, so a disarm or a drop waits for a signal already under way.
-static CLEAN: Mutex<Option<PathBuf>> = Mutex::new(None);
+/// What a signal does. The handler holds this lock from reading it to the
+/// exit, so an arm, a disarm or a drop waits for a signal already under way.
+enum Clean {
+    /// Ends the process, as the default action would.
+    Exit,
+    /// Removes the directory, then ends the process.
+    Remove(PathBuf),
+    /// Nothing: the swap has the old state in the directory.
+    Hold,
+}
+
+static CLEAN: Mutex<Clean> = Mutex::new(Clean::Exit);
+
+fn clean() -> MutexGuard<'static, Clean> {
+    CLEAN.lock().unwrap_or_else(|e| e.into_inner())
+}
 
 pub fn main(given: &[String]) -> u8 {
     let given: Vec<&str> = given.iter().map(String::as_str).collect();
@@ -431,31 +444,38 @@ struct Scratch {
 impl Scratch {
     fn new(parent: &Path, name: &str) -> Result<Scratch, Fail> {
         let dir = parent.join(format!(".{name}-{}", std::process::id()));
+        // The handler is in place before the directory exists, and the
+        // directory is made under its lock, so no signal finds it unarmed.
+        if let Ok(mut signals) = Signals::new([SIGTERM, SIGHUP, SIGINT]) {
+            std::thread::spawn(move || {
+                for sig in signals.forever() {
+                    let held = clean();
+                    match &*held {
+                        // A signal during the swap is dropped by design.
+                        Clean::Hold => continue,
+                        Clean::Remove(d) => remove_all(d),
+                        Clean::Exit => {}
+                    }
+                    std::process::exit(128 + sig);
+                }
+            });
+        }
+        let mut armed = clean();
         remove_all(&dir);
         fs::DirBuilder::new()
             .mode(0o700)
             .create(&dir)
             .map_err(io_fail(&format!("could not make {}", dir.display())))?;
-        *CLEAN.lock().unwrap_or_else(|e| e.into_inner()) = Some(dir.clone());
-        if let Ok(mut signals) = Signals::new([SIGTERM, SIGHUP, SIGINT]) {
-            std::thread::spawn(move || {
-                for sig in signals.forever() {
-                    // Nothing to clean once the swap has begun: it is disarmed.
-                    let mut held = CLEAN.lock().unwrap_or_else(|e| e.into_inner());
-                    if let Some(d) = held.take() {
-                        remove_all(&d);
-                        std::process::exit(128 + sig);
-                    }
-                }
-            });
-        }
+        *armed = Clean::Remove(dir.clone());
+        drop(armed);
         Ok(Scratch { dir, keep: false })
     }
 }
 
 impl Drop for Scratch {
     fn drop(&mut self) {
-        *CLEAN.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        let mut held = clean();
+        *held = Clean::Exit;
         if !self.keep {
             remove_all(&self.dir);
         }
@@ -863,7 +883,7 @@ fn unpack(home: &Path, rehearse: bool) -> Result<(), Fail> {
     fs::remove_file(new.join("libexec")).map_err(io_fail("could not unlink libexec"))?;
     no_active_unit()?;
     // From here a signal must not take the directory that holds the old state.
-    *CLEAN.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    *clean() = Clean::Hold;
     for t in TokenDir::ALL {
         let own_token = Home::new(home).token_dir(t);
         if fs::symlink_metadata(&own_token).is_ok() {

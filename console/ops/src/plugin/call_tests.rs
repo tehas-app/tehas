@@ -2,7 +2,7 @@ use super::super::exec::fake::Fake;
 use super::super::exec::{Cmd, Done};
 use super::super::prepare::tests::{dockerfile, good, C, ID, URL};
 use super::*;
-use tehas_core::access::{AccountId, Permission, Person};
+use tehas_core::access::{AccountId, Permission};
 use tehas_core::plugin::state::{State, Word};
 use tehas_core::testdir::TestDir;
 use tehas_ports::{Got, Outcome, Passing, Sent};
@@ -113,12 +113,6 @@ struct People {
 }
 
 impl GitHub for People {
-    fn token(&self, _: &str) -> Got<String> {
-        Err(Outcome::Forbidden)
-    }
-    fn user(&self, _: &str) -> Got<Person> {
-        Err(Outcome::Forbidden)
-    }
     fn permission(&self, login: &str) -> Got<Permission> {
         self.asked.lock().unwrap().push(login.to_string());
         match login {
@@ -438,12 +432,6 @@ struct Renamed {
 }
 
 impl GitHub for Renamed {
-    fn token(&self, _: &str) -> Got<String> {
-        Err(Outcome::Forbidden)
-    }
-    fn user(&self, _: &str) -> Got<Person> {
-        Err(Outcome::Forbidden)
-    }
     fn permission(&self, _: &str) -> Got<Permission> {
         let mut n = self.asked.lock().unwrap();
         *n += 1;

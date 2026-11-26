@@ -432,6 +432,17 @@ impl Writer {
         }
     }
 
+    /// True when this poll's settle already read this write done: its
+    /// landing belongs to the call that landed it, not to this one. The
+    /// key is the one `send` looks the row up by.
+    fn write_looked(&self, n: u64, write: &Write) -> bool {
+        let Ok(kept) = tehas_core::journal::kept(write) else {
+            return false;
+        };
+        self.looked
+            .contains_key(&looked_key(n, "", &json!(kept), &Value::Null))
+    }
+
     /// A write of the ports, journaled: one this poll's settle found done is not sent again, one it could not
     /// read is not sent at all (`looked`, by the write as its row keeps it).
     /// `Done` holds the id a comment was given, else nothing.
@@ -471,6 +482,11 @@ impl Writer {
             Journaled::Answered(Ok(Receipt::Comment(posted))) => {
                 Wrote::Done(posted.id.as_str().to_string())
             }
+            // A close answers with the site's time of it: `Done` holds the
+            // seconds, as it holds a comment's id, for the raiser below.
+            Journaled::Answered(Ok(Receipt::Closed(at))) => {
+                Wrote::Done(at.map(|a| a.secs().to_string()).unwrap_or_default())
+            }
             Journaled::Answered(Ok(_)) => Wrote::Done(String::new()),
             // A read-only host goes on as after a write that answered
             // nothing, as its gh shim answers one; the journal said what it
@@ -479,6 +495,19 @@ impl Writer {
                 Wrote::Done(String::new())
             }
             Journaled::Answered(Err(o)) => Wrote::Failed(format!(": {}", o.line())),
+            // The site answered, but the store did not take the settle. A
+            // close's seconds are the fact the raiser of `ticket.closed`
+            // keys on and cannot recover from the row: this round says
+            // nothing and raises nothing, and the poll's settle reads the
+            // close and raises it. Every other write goes on as answered:
+            // a claim answered but unrecorded does not withdraw the
+            // approval it took and stop before the running label, and the
+            // row's settle takes the row from the site, as the cycle keeps
+            // the same case done (src/apply.rs).
+            Journaled::AnsweredUnrecorded(Receipt::Closed(_)) => Wrote::Unknown(
+                ": the site answered and the settle did not reach the store".to_string(),
+            ),
+            Journaled::AnsweredUnrecorded(_) => Wrote::Done(String::new()),
             Journaled::Unknown { answer, .. } => Wrote::Unknown(format!(": {}", answer.line())),
             Journaled::Unrecorded => Wrote::Unrecorded,
         };

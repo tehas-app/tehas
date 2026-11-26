@@ -426,6 +426,72 @@ fn the_names_are_one_list_that_every_side_reads() {
     }
 }
 
+// Every name the code knows, then every line of api/events.txt.
+fn every_name() -> Vec<String> {
+    let mut names: Vec<String> = Name::ALL.iter().map(|n| n.as_str().to_string()).collect();
+    names.extend(
+        fs::read_to_string(api("events.txt"))
+            .unwrap()
+            .lines()
+            .map(String::from),
+    );
+    names
+}
+
+// `^[a-z][a-z-]*\.[a-z][a-z-]*$`, by hand.
+fn well_formed(name: &str) -> bool {
+    let word = |w: &str| {
+        w.starts_with(|c: char| c.is_ascii_lowercase())
+            && w.chars().all(|c| c.is_ascii_lowercase() || c == '-')
+    };
+    match name.split_once('.') {
+        Some((subject, what)) => word(subject) && word(what),
+        None => false,
+    }
+}
+
+#[test]
+fn well_formed_reads_the_rule() {
+    for good in ["thing.happened", "thing.got-done", "a.b"] {
+        assert!(well_formed(good), "{good}");
+    }
+    for bad in [
+        "Plugin-x.done",
+        "plugin_x.done",
+        "cycle.Ended",
+        "cycle",
+        "cycle.",
+        ".ended",
+        "-cycle.ended",
+        "cycle.-ended",
+        "cycle.ended.again",
+        "cycle .ended",
+        "",
+    ] {
+        assert!(!well_formed(bad), "{bad}");
+    }
+}
+
+#[test]
+fn every_name_is_well_formed() {
+    for name in every_name() {
+        assert!(
+            well_formed(&name),
+            "{name:?} is not <subject>.<what-happened>"
+        );
+    }
+}
+
+#[test]
+fn no_name_takes_a_plugin_or_annex_subject() {
+    for name in every_name() {
+        assert!(
+            !name.starts_with("plugin-") && !name.starts_with("annex-"),
+            "{name} takes a reserved subject"
+        );
+    }
+}
+
 // The Events section of the manual: from its heading to the next of its
 // rank.
 fn manual_events() -> String {
@@ -703,7 +769,7 @@ mod raised {
             let a: Vec<&str> = words.iter().map(String::as_str).collect();
             Ok(w.store_ok(&a).to_string())
         };
-        read_ended(&mut ask, issue, attempt, by).unwrap()
+        read_ended(&mut ask, issue, attempt, by, &mut |_| None).unwrap()
     }
 
     fn read(w: &World, s: &StartRow) -> Ended {
@@ -974,6 +1040,193 @@ mod raised {
         }
     }
 
+    // The raised samples of the four names this lane raises (T11.9):
+    // `ticket.acted` of the act the store answers, `ticket.closed` of the
+    // close the factory records, `change.merged` of the line the report
+    // ended `merged`, and `factory.limit-changed` of the limit `tehas
+    // limit` wrote and cleared. Each is read from the record tehas holds,
+    // fits its schema, and keys as the first list says.
+    #[test]
+    fn the_four_raised_names_fit_their_schemas_and_their_records() {
+        use tehas_ports::{CloseReason, TicketKey};
+        let w = World::new("events-raised-four");
+        let at = 1_763_820_000; // 2025-11-22T14:00:00Z
+        let when = "2025-11-22T14:00:00Z";
+
+        // `ticket.acted` of the approval `approval-record` answered.
+        let answer = w.store_ok(&[
+            "approval-record",
+            "31",
+            "--at",
+            &at.to_string(),
+            "--by",
+            "alice",
+            "--how",
+            "approved",
+            "--label",
+            &label_of("Act::Approve"),
+            "--body-sha",
+            SHA,
+        ]);
+        assert_eq!(answer["approval"]["how"], "approved");
+        let acted = tehas_core::raise::approved(&answer.to_string())
+            .expect("an approval of a person answers its act");
+        let mut all = vec![Envelope::new(acted)];
+
+        // `ticket.acted` of the session `plan-begin` began on the label.
+        let brief = w.t().join("brief.md");
+        fs::write(&brief, "# Plan this\n").unwrap();
+        let file = brief.to_string_lossy().into_owned();
+        w.store_at(
+            at,
+            &[
+                "plan-begin",
+                "31",
+                "--by",
+                "alice",
+                "--label",
+                &label_of("Act::Plan"),
+                "--brief-file",
+                &file,
+            ],
+        );
+        let row = w.store_ok(&["plan-show", "31"])["planning"].clone();
+        assert_eq!(row["by"], "alice");
+        assert_eq!(row["label"], label_of("Act::Plan"));
+        let planned = tehas_core::raise::acted(31, tehas_ports::Act::Plan, "alice", at)
+            .expect("the planning act records");
+        all.push(Envelope::new(planned));
+
+        // `ticket.closed` of the close the factory records.
+        let ticket = TicketKey::Number(std::num::NonZeroU64::new(31).unwrap());
+        all.push(Envelope::new(tehas_core::raise::closed(
+            ticket,
+            CloseReason::NotPlanned,
+            at,
+        )));
+
+        // `change.merged` of the line the cycle's report ended `merged`:
+        // the raiser reads it off the history, as the cycle does.
+        let s = start(&w, 33);
+        end(&w, &s, &["--status", "merged", "--rc", "0", "--pr", "21"]);
+        let e = read(&w, &s);
+        assert!(
+            e.merged.is_some(),
+            "{e:?} of a merged line raises its merge"
+        );
+        all.extend(e.envelopes());
+
+        // `factory.limit-changed` of the limit `tehas limit` wrote and of
+        // the clear that followed: the lines the commands' own listener
+        // wrote to `logs/dispatch.log`, read back as a consumer of the log
+        // sees them, not samples built with the raiser's helpers here. The
+        // listener makes `logs/` as it writes, so no fixture does.
+        console!(&w, "limit set --cycles 2 --reason hold --json");
+        let shown = console!(&w, "limit --json");
+        let written = limit_lines(&w);
+        assert_eq!(written.len(), 1, "{written:?} of one write");
+        assert_eq!(
+            written[0].key.as_str(),
+            shown["set"].as_str().unwrap(),
+            "{shown}"
+        );
+        all.push(written[0].clone());
+        w.sh(&format!(
+            "TEHAS_REPO=acme/widget '{}' tehas limit clear",
+            w.console().display()
+        ));
+        let cleared = limit_lines(&w);
+        assert_eq!(cleared.len(), 2, "{cleared:?} of the clear too");
+        all.push(cleared[1].clone());
+
+        use Name::*;
+        let names: Vec<Name> = all.iter().map(Envelope::name).collect();
+        assert_eq!(
+            names,
+            [
+                TicketActed,
+                TicketActed,
+                TicketClosed,
+                CycleEnded,
+                ChangeMerged,
+                FactoryLimitChanged,
+                FactoryLimitChanged,
+            ]
+        );
+        let keys: Vec<&str> = all.iter().map(|e| e.key.as_str()).collect();
+        assert_eq!(
+            keys,
+            [
+                &format!("31@Approve@{when}"),
+                &format!("31@Plan@{when}"),
+                &format!("31@{when}"),
+                "33-1",
+                "21",
+                shown["set"].as_str().unwrap(),
+                cleared[1].key.as_str(),
+            ]
+        );
+        // The clear's key is its `observed`: the command's own second, in
+        // the shape of one. A payload has exactly one of `set` and
+        // `observed`, so the written line has no `observed`.
+        assert!(tehas_core::time::iso_shaped(cleared[1].key.as_str()));
+        let one = |e: &Envelope| serde_json::to_value(e).unwrap()["data"].clone();
+        assert!(one(&written[0]).get("observed").is_none_or(|v| v.is_null()));
+        for e in &all {
+            let v = serde_json::to_value(e).unwrap();
+            assert_eq!(fits!("event.schema.json", &v), Vec::<String>::new(), "{v}");
+            let own = format!("event-{}.schema.json", slug(e.name()));
+            assert_eq!(fits!(&own, &v["data"]), Vec::<String>::new(), "{v}");
+        }
+        // The payloads hold the record, in the ports' words.
+        let data = |i: usize| serde_json::to_value(&all[i]).unwrap()["data"].clone();
+        assert_eq!(
+            data(0),
+            json!({"ticket": {"Number": 31}, "act": "Approve",
+                "by": {"realm": "Tickets", "login": "alice", "kind": "Person"},
+                "at": when}),
+        );
+        assert_eq!(
+            data(1),
+            json!({"ticket": {"Number": 31}, "act": "Plan",
+                "by": {"realm": "Tickets", "login": "alice", "kind": "Person"},
+                "at": when}),
+        );
+        assert_eq!(
+            data(2),
+            json!({"ticket": {"Number": 31}, "reason": "NotPlanned", "at": when}),
+        );
+        assert_eq!(data(4)["change"], 21);
+        assert_eq!(data(4)["blueprint"], 33);
+        assert_eq!(data(5)["state"], "ok");
+        assert_eq!(data(5)["cycles"], 2);
+        assert_eq!(data(5)["plan"], true);
+        assert_eq!(data(5)["reason"], "hold");
+        assert_eq!(data(6)["state"], "none");
+        // The clear's `observed` is its key: the command's own second.
+        assert_eq!(data(6)["observed"], cleared[1].key.as_str());
+    }
+
+    /// The `factory.limit-changed` envelopes the commands' listener wrote
+    /// to `logs/dispatch.log`, in their order: each line is the time and
+    /// `event` and the envelope as JSON, read back as a consumer of the
+    /// log reads it.
+    fn limit_lines(w: &World) -> Vec<Envelope> {
+        let log = tehas_core::home::Home::new(&w.home).factory_log();
+        let text = fs::read_to_string(&log).unwrap_or_default();
+        text.lines()
+            .filter_map(|l| l.split_once(" event ").map(|(_, j)| j))
+            .filter_map(|j| serde_json::from_str::<Envelope>(j).ok())
+            .filter(|e| e.name() == Name::FactoryLimitChanged)
+            .collect()
+    }
+
+    /// A label of `host/labels.tsv` by the port word in its last column,
+    /// so a test never spells the word the table owns.
+    fn label_of(word: &str) -> String {
+        common::label_of(word)
+    }
+
     // A planning turn's question on record, as the dispatcher records one
     // after the turn's end with its options: what `question-asked` answered.
     fn plan_asked(w: &World, n: u64, id: &str) -> String {
@@ -982,13 +1235,7 @@ mod raised {
         fs::write(&brief, "# Faster search\n").unwrap();
         // The label that starts a planning session, as host/labels.tsv
         // names it.
-        let table = fs::read_to_string(root().join("host/labels.tsv")).unwrap();
-        let label = table
-            .lines()
-            .find(|l| l.contains("start a planning session"))
-            .and_then(|l| l.split('\t').next())
-            .unwrap()
-            .to_string();
+        let label = label_of("Act::Plan");
         w.store_ok(&[
             "plan-begin",
             &issue,

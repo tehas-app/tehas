@@ -36,8 +36,7 @@ outlines and its level of detail. The reference for colour is The Chaos Engine
 on the Amiga: muted and metallic, moss and mud, steel, brass and rust.
 
 The Amiga demoscene heritage (the Tehdas ASCII logo by Squarepusher and its
-credit) belongs in the footer only. It is a signature, not the theme. The Topaz
-typeface is the exception: it sets every word of a page in the pixel design.
+credit) belongs in the footer only. It is a signature, not the theme.
 
 A factory that sets nothing is in the business register everywhere:
 beesknees26, IBM Plex on white panels with one muted green. Same voice, same

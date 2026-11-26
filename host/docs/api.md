@@ -127,7 +127,7 @@ tehas api [--json]
   "commit": "cb6912a",
   "repo": "tehas-app/tehas-factory",
   "features": ["status", "limit", "drain", "history", "export", "analytics", "state-move", "mcp-dashboard-keys", "clean", "disk", "state-check", "finish", "status-versions", "state-copy", "state-load", "freeze", "host-bridge", "cycle-writes", "settings-rules", "start-order", "host-message", "refresh-pr", "host-start", "flags", "status-previews", "wake", "start-reasons", "blockers", "answer", "question", "cycle-ids", "questions", "events"],
-  "flags": {"lean": false, "plugins": false},
+  "flags": {"lean": false, "plugins": false, "adapter": false},
   "millwright": null,
   "poll": {
     "last": {
@@ -153,7 +153,7 @@ tehas api [--json]
 | `commit` | The commit it was installed from, seven characters; `null` for a release install, which records only the tag, and when not from a git checkout |
 | `repo` | `TEHAS_REPO`, the product repository |
 | `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status` ([`tehas status --json`](#tehas-status---json)), `limit` ([`tehas limit`](#tehas-limit)), `drain` ([`tehas drain`](#tehas-drain)), `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `analytics` ([`tehas analytics copy --json`](#tehas-analytics-copy)), `state-move` ([`tehas state`](#tehas-state)), `mcp-dashboard-keys` (the read-only MCP server answers a key of `TEHAS_MCP_DASHBOARD_KEYS` with only the four tools that copy from `live/`, [the MCP server](/mcp-server)), `clean` (the hourly cleaner runs on this host, [`tehasbot clean`](#tehasbot-clean)), `disk` ([`tehas disk`](#tehas-disk)), `state-check` ([`tehas state check`](#tehas-state-check)), `finish` ([the finish ask](#the-finish-ask)), `status-versions` (`versions` in [`tehas status --json`](#tehas-status---json)), `state-copy` ([`tehas state copy`](#tehas-state-copy)), `state-load` ([`tehas state load`](#tehas-state-load)), `freeze` ([`tehas freeze` and `tehas thaw`](#tehas-freeze-and-tehas-thaw)), `host-bridge` ([the host bridge](#the-host-bridge)), `cycle-writes` ([`tehas disk --cycles`](#tehas-disk) names what each running cycle writes), `settings-rules` (the release carries [its settings rules](#settings-rules)), `start-order` ([`tehas order`](#tehas-order)), `host-message` ([`tehas host-message`](#tehas-host-message), shown by health, `tehas status`, the MCP server and the dashboard), `refresh-pr` ([`tehas refresh --pr N`](/tools-github#tehas-refresh) asks for the refresh of one pull request, `--json` prints what it asked as one object, and the dispatcher starts it in the refresh lane, not in a cycle slot, [refreshes](/operating#refreshes)), `host-start` ([`tehas start`](#tehas-start) approves an issue from the host), `flags` (the object below is there), `status-previews` (`previews` in [`tehas status --json`](#tehas-status---json)), `wake` ([`tehas wake`](#tehas-wake) asks for a poll now), `start-reasons` (`starts` in [`tehas order --json`](#tehas-order)), `blockers` ([`tehas blockers`](#tehas-blockers)), `answer` ([`tehas answer`](#tehas-answer)), `question` ([`tehas question`](#tehas-question)), `cycle-ids` (`store` here; `cycle`, `how` and `by` on `running` in [`tehas status --json`](#tehas-status---json); `cycle`, `end`, `change`, `signalled` and `recorded` on the work lines of [`tehas history`](#tehas-history), each with its `started`, a line for every start, paged by write order) and `questions` ([`tehas question`](#tehas-question) with no issue lists every question that waits, and with `--after <id>` every question after a number), and `events` (a cycle raises its events, [Events](#events)). A shipped optional feature adds its name of `flags` here; a building one does not |
-| `flags` | Every optional feature of the release and whether this instance has it on, `true` or `false`. A feature still being built is always `false` and its switch set to `on` stops every command with exit 78. Only a shipped feature's key is contract: a building feature's key may change or go until the release that ships it, and `api/api.schema.json` requires only the keys of shipped features. Today `lean` (`TEHAS_LEAN`, still being built: [choosing the driver](/operating#choosing-the-driver)) and `plugins` (`TEHAS_PLUGIN`, still being built: [what it leaves visible](/contract#plugins)) |
+| `flags` | Every optional feature of the release and whether this instance has it on, `true` or `false`. A feature still being built is always `false` and its switch set to `on` stops every command with exit 78. Only a shipped feature's key is contract: a building feature's key may change or go until the release that ships it, and `api/api.schema.json` requires only the keys of shipped features. Today `lean` (`TEHAS_LEAN`, still being built: [choosing the driver](/operating#choosing-the-driver)), `plugins` (`TEHAS_PLUGIN`, still being built: [what it leaves visible](/contract#plugins)) and `adapter` (`TEHAS_ADAPTER`, reserved for 2.1: [what it leaves visible](/contract#adapter)) |
 | `millwright` | The app's login, or `null` before it is known |
 | `poll` | What the polls of this factory cost, or `null` when no poll is on record or the state store cannot answer. `last` is the poll that most recently held the dispatcher's lock and `hour` is the sums of the polls that ended in the last hour; both are in the fields below, so a program that keeps a copy of them can add the cost of many hosts up. See [What a poll costs](/operating#what-a-poll-costs) for what each figure counts |
 | `store` | The id of this factory's state store, 32 lower-case hex digits, made once when the store was first laid and kept by `tehas state pack`, `unpack` and `load`. A cycle id is unique within one `store`: a program that keeps the cycle ids it has seen keeps them per factory and `store`, and forgets them when `store` changes. `null` when the state store cannot answer. With the feature `cycle-ids` |
@@ -1271,10 +1271,10 @@ It refuses, in one line on standard error and with the store as it was:
 - a copy that is not there, is not a store or fails SQLite's
   `PRAGMA integrity_check`;
 - a copy of a newer schema than this release reads, naming both numbers;
-- a copy older than v0.30.0 wrote, below schema 12: load it into a v0.30
+- a copy older than v1.4 wrote, below schema 23: load it into a v1.4
   release first.
 
-A copy of an older schema, 12 or later, is brought forward by the same steps
+A copy of an older schema, 23 or later, is brought forward by the same steps
 an update runs on the store. The copy is read from a file of its own beside the store, so
 the copy itself is not changed. The rows then replace the store's in one
 transaction: the store's file is not replaced, because the readers of a
@@ -1621,12 +1621,30 @@ nothing, so an end or a question can go unraised. `tehas history` and
 `tehas question --after` are the record: a consumer reads them for what
 it missed. Each event is built from what
 the state store then holds, so it carries what the witness prints. The
-cycle's and the dispatcher's logs, and for `tehas stop` the factory's log
-`logs/dispatch.log`, have one line per event, `event` and its envelope as
+cycle's and the dispatcher's logs, and for `tehas stop`, `tehas limit` and
+`tehas drain` the factory's log `logs/dispatch.log`, have one line per
+event, `event` and its envelope as
 JSON. tehas pushes no event to another program and no page listens to one:
 a program that runs many factories builds the same envelopes from its
-polls, and a page of its own can raise them on the kit. The other names are
-raised by later steps of 2.0. `change.offered` is not raised for a line
+polls, and a page of its own can raise them on the kit. The four other
+names are raised too. `tehas limit set`, `tehas limit clear` and `tehas
+drain` raise `factory.limit-changed` of the write that wrote another
+limit: the same limit set again keeps its `set` and raises nothing, and a
+clear of a limit that was there raises the change keyed on `observed`,
+with the state `none`. The dispatcher raises `ticket.acted` of the act of
+an allowed account it records: the approval that starts a cycle, the
+start of a planning session asked by `tehas:plan` or `tehas:refine` (the
+poll's own refine is the factory asking, not a person, and raises
+nothing), and a person's finish ask once its label came off; each is
+keyed on the moment the account's label event names. The dispatcher
+raises `ticket.closed` of a close its write landed, as the close of a
+planning issue that was replaced. A close the site did not answer is not
+recorded as landed and raises nothing until the settle rules say it did.
+The cycle raises `change.merged` of the history line its report ended
+`merged` and did not park: tehas does not merge changes itself, a person
+does, and the report's line is the record of the merge; a line that says
+`merged` while the bot lists no merged pull request for the issue parks
+and raises nothing. `change.offered` is not raised for a line
 that ends `refused`, by its word or by its exit status (64 and 78 among
 them), even when the line names a change.
 
@@ -1647,6 +1665,12 @@ The names are `api/events.txt`, one per line, in this order:
 A reader treats a name it does not know as unknown and skips it. A new name
 or a new optional field is a minor change; a renamed or removed name or
 field is a major one.
+
+The subject `plugin-<name>` belongs to the plugin `<name>`, and
+`annex-<name>` to the annex `<name>`, its plant and its plugin. tehas raises
+no event whose subject starts `plugin-` or `annex-` in any 2.x release, and
+`api/events.txt` never holds one. How a plugin declares and raises its
+events is 2.1.
 
 ### The envelope
 
