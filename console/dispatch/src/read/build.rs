@@ -747,7 +747,8 @@ fn lifting_parks(
 /// question read gave. A queue that names no blocker is a list of none, and
 /// the poll pays no call for it. A number the board did not answer, and every
 /// number where the wiring made no board, is absent, which is what decide
-/// reads as "unreadable".
+/// reads as "unreadable". More than `ALL_MAX` (1000) distinct blockers are
+/// all `Unread(Cut)` at the board, so every issue they hold stays held.
 fn blocker_reads(
     board: Option<&mut dyn Board>,
     q: &github::Queue,
