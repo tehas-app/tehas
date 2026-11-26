@@ -540,7 +540,7 @@ fn a_failed_question_fails_each_of_its_items() {
 /// The edits are read by the adapter's one reader of several
 /// (`items.rs`): a not found inside an item is no word that the item is
 /// gone (Decided 121), an item missing from the answer is malformed, and
-/// a whole question of one item that GitHub did not find is that item's.
+/// a whole question that gh did not find, with no answer, is no item's.
 #[test]
 fn the_edits_are_read_by_the_one_reader_of_several() {
     let malformed = Err(Outcome::Unread(Unread::Malformed));
@@ -560,13 +560,13 @@ fn the_edits_are_read_by_the_one_reader_of_several() {
         assert_eq!(got, malformed);
     }
 
+    // gh's not found with no answer names no item, even of one: more
+    // likely the repository or the token, and a caller must not drop a
+    // history on it.
     let (mut gh, _) = adapter("unresolved");
-    assert_eq!(
-        gh.body_edits_of(&[bp(7)], ALL_MAX)[0].1,
-        Err(Outcome::NotFound)
-    );
+    assert_eq!(gh.body_edits_of(&[bp(7)], ALL_MAX)[0].1, inconsistent());
     assert_eq!(
         gh.comment_edits_of(&[cid(EDITED)], ALL_MAX)[0].1,
-        Err(Outcome::NotFound)
+        inconsistent()
     );
 }

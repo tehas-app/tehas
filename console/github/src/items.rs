@@ -108,13 +108,16 @@ impl Items<'_> {
         }
     }
 
-    /// The item `e` is about, None for one about the question.
+    /// The item `e` is about, None for one about the question. A place in
+    /// `nodes` past those asked is no item's: the question's.
     fn named<'e>(&self, e: &'e Error) -> Option<Named<'e>> {
         match (self, e.path.as_slice()) {
             (Items::Aliases(_), [Step::Name(r), Step::Name(a), ..]) if r == "repository" => {
                 Some(Named::Alias(a))
             }
-            (Items::Nodes(_), [Step::Name(n), Step::At(i), ..]) if n == "nodes" => {
+            (Items::Nodes(asked), [Step::Name(n), Step::At(i), ..])
+                if n == "nodes" && *i < *asked as u64 =>
+            {
                 Some(Named::At(*i))
             }
             _ => None,
@@ -187,7 +190,8 @@ impl GitHub {
     /// - A node not of the type asked, or an alias missing, is
     ///   `Unread(Malformed)`.
     /// - gh's failure with nothing to read, or with an answer that holds no
-    ///   error to read it by, is its outcome for every alias.
+    ///   error to read it by, is its outcome for every alias; its
+    ///   `NotFound`, which names no alias, `Unread(Inconsistent)`.
     pub(crate) fn ask_aliased<T: DeserializeOwned>(
         &mut self,
         call: &str,
@@ -236,7 +240,7 @@ impl GitHub {
         let (out, failed) = match self.call_answer(call, &args) {
             Ok(out) => (out, None),
             Err((e, Some(out))) => (out, Some(e)),
-            Err((e, None)) => return all(self.failed(&e, asked)),
+            Err((e, None)) => return all(self.failed(&e)),
         };
         let read = serde_json::from_str::<Value>(out.trim())
             .ok()
@@ -245,7 +249,7 @@ impl GitHub {
                 serde_json::from_value::<Answer>(v).ok()
             });
         let Some(answer) = read else {
-            return all(failed.map_or(MALFORMED, |e| self.failed(&e, asked)));
+            return all(failed.map_or(MALFORMED, |e| self.failed(&e)));
         };
         let errors = answer.errors.unwrap_or_default();
         let whole: Vec<&Error> = errors.iter().filter(|e| items.named(e).is_none()).collect();
@@ -263,7 +267,7 @@ impl GitHub {
         if !listed || (failed.is_some() && errors.is_empty()) {
             // No item, or gh failed with no error to read the items by: the
             // call's own outcome.
-            return all(failed.map_or(MALFORMED, |e| self.failed(&e, asked)));
+            return all(failed.map_or(MALFORMED, |e| self.failed(&e)));
         }
         let mut take = |i: usize| -> (Named, Option<Value>) {
             match items {
@@ -302,12 +306,13 @@ impl GitHub {
         }
     }
 
-    /// The outcome of a question gh failed with no answer to read. A
-    /// number GitHub does not know fails the whole question, so where
-    /// several were asked a `NotFound` names none of them.
-    fn failed(&self, e: &crate::ForgeError, asked: usize) -> Outcome {
+    /// The outcome of a question gh failed with no answer to read. GitHub
+    /// answers an item it does not know beside the error, so a `NotFound`
+    /// with no answer names no item, even of one: more likely the
+    /// repository or the token.
+    fn failed(&self, e: &crate::ForgeError) -> Outcome {
         match priced(self.outcome(e)) {
-            Outcome::NotFound if asked > 1 => INCONSISTENT,
+            Outcome::NotFound => INCONSISTENT,
             o => o,
         }
     }
@@ -337,5 +342,41 @@ mod tests {
         assert!(q.contains(" n12: issueOrPullRequest(number: 12) { __typename "));
         assert!(q.contains(" n34: issueOrPullRequest(number: 34) { __typename "));
         assert!(q.ends_with(" } }"));
+    }
+
+    /// gh's exit 1 on an answer with errors, the answer beside it.
+    struct Answers(String);
+
+    impl tehas_core::forge::GhRunner for Answers {
+        fn run(&mut self, _: &[&str]) -> Result<String, String> {
+            unreachable!()
+        }
+        fn run_answer(&mut self, _: &[&str]) -> Result<String, tehas_core::forge::Failed> {
+            Err(tehas_core::forge::Failed {
+                why: ": gh exited 1".into(),
+                answer: Some(self.0.clone()),
+            })
+        }
+    }
+
+    #[test]
+    fn an_error_at_a_node_past_those_asked_is_the_questions() {
+        let at = |i: u64| {
+            format!(
+                r#"{{"data":{{"nodes":[{{"n":1}},{{"n":2}}]}},"errors":[{{"type":"NOT_FOUND","path":["nodes",{i}]}}]}}"#
+            )
+        };
+        let ask = |answer: String| {
+            GitHub::new("acme/widget", Box::new(Answers(answer))).ask_nodes::<Value>(
+                "the nodes",
+                "query",
+                2,
+            )
+        };
+        assert_eq!(
+            ask(at(1)),
+            [Ok(serde_json::json!({"n": 1})), Err(INCONSISTENT)]
+        );
+        assert_eq!(ask(at(2)), [Err(INCONSISTENT), Err(INCONSISTENT)]);
     }
 }

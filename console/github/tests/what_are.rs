@@ -272,9 +272,9 @@ fn a_failed_question_is_its_outcome_for_every_number() {
         assert_eq!(got, [(3, Err(want.clone())), (4, Err(want))], "{state}");
         assert_eq!(calls, 1, "{state}");
     }
-    // Of one number, it is that number's.
+    // Of one number too: with no answer, GitHub named no number.
     let (got, _) = what("not-found", &[3]);
-    assert_eq!(got, [(3, Err(Outcome::NotFound))]);
+    assert_eq!(got, [(3, Err(INCONSISTENT))]);
 }
 
 #[test]
