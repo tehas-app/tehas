@@ -231,9 +231,10 @@ fn an_error_of_the_question_leaves_no_number_sure() {
 /// repository's own not found among them.
 #[test]
 fn an_error_that_names_no_alias_is_every_numbers() {
+    // Held a minute out: GitHub's reset is not read.
     let limited = Outcome::Spent {
         pool: Pool::Priced,
-        until: At::new(1_767_225_600),
+        until: At::new(1_767_225_600 + 60),
     };
     for (state, want) in [("limited", limited), ("no-repository", INCONSISTENT)] {
         let (got, calls) = what(state, &[3, 4]);

@@ -16,7 +16,7 @@ use tehas_ports::{At, Got, Outcome, Pool, Unread};
 /// How long a rate-limited answer holds the priced budget out, at the
 /// least: GitHub's reset is not read here, and "until now" would hold
 /// nothing, so a limited host would ask again at once.
-const LIMITED_FLOOR: i64 = 60;
+pub(crate) const LIMITED_FLOOR: i64 = 60;
 
 /// The `errors` of an answer, and nothing else of it.
 #[derive(Deserialize)]

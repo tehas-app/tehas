@@ -18,7 +18,7 @@ use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::graphql::{limited, priced, Error, Step};
+use crate::graphql::{limited, priced, Error, Step, LIMITED_FLOOR};
 use crate::GitHub;
 use tehas_ports::{ChangeNo, Got, Item, Outcome, TicketKey, Unread, ALL_MAX};
 
@@ -257,7 +257,7 @@ impl GitHub {
         let errors = answer.errors.unwrap_or_default();
         let whole: Vec<&Error> = errors.iter().filter(|e| items.named(e).is_none()).collect();
         if !whole.is_empty() {
-            return all(limited(whole, (self.now)()));
+            return all(limited(whole, (self.now)().saturating_add(LIMITED_FLOOR)));
         }
         let (mut repository, mut nodes, viewer_id) = match answer.data {
             Some(d) => (d.repository, d.nodes, d.viewer.and_then(|v| v.database_id)),
@@ -402,5 +402,20 @@ mod tests {
             [Ok(serde_json::json!({"n": 1})), Err(INCONSISTENT)]
         );
         assert_eq!(ask(at("foo")), [Err(INCONSISTENT), Err(INCONSISTENT)]);
+    }
+
+    /// A limited rate holds the priced budget out past now: GitHub's
+    /// reset is not read, and until now would hold nothing.
+    #[test]
+    fn a_limited_question_holds_the_budget_past_now() {
+        let answer = r#"{"data":{"repository":{"n1":null}},"errors":[{"type":"RATE_LIMITED","message":"API rate limit exceeded"}]}"#;
+        let got = GitHub::new("acme/widget", Box::new(Answers(answer.into())))
+            .on_clock(|| 1_000)
+            .ask_aliased::<Value>("the aliases", "query", &["n1".to_string()]);
+        let [Err(Outcome::Spent { pool, until })] = got.as_slice() else {
+            panic!("{got:?}");
+        };
+        assert_eq!(*pool, tehas_ports::Pool::Priced);
+        assert!(until.secs() > 1_000, "{until:?}");
     }
 }
