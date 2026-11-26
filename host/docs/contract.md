@@ -1306,6 +1306,19 @@ The rest is library code that nothing in core calls yet:
 | The mesh read | `console/mesh-feed` | the `energy` plugin |
 | The cut of `tehas top`'s snapshot | `console/host-feed` | the `hoststats` plugin (`feed:host`) |
 
+- **The core Markdown renderer** (tehas-factory#3413; the floating spec's
+  section 5, revision 10). `markdown.pages(layout, pages)` is `render.rs`'s
+  `body` and `page` with its escape pass and no other option: one HTML string
+  a page, in order. It is a pure string transform, so its grant is none,
+  always. Its caps per call are `check.rs`'s, the total counted over the
+  layout and each page's fields; a call past one of them fails whole, with no
+  partial answer, and the reason names the cap that fired and the size that
+  crossed it. The answer counts toward the run's output caps. The numbers have
+  one owner, `check.rs` and the spec's block, not this page.
+  Readers: the `wiki` plugin through the host, and public pages through core.
+  Held by the tests of `console/wiki-render/src/pages.rs`, where each cap's
+  test asserts the reason names that cap and no other.
+
 ## Exit statuses
 
 A status means the same in every public command, but for the exceptions a

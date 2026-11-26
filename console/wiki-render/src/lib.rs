@@ -6,6 +6,7 @@
 use serde_json::Value;
 
 pub mod check;
+pub mod pages;
 pub mod publish;
 pub mod render;
 
