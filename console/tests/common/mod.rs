@@ -431,8 +431,10 @@ impl World {
 
     /// A stub program on the PATH of a run that records its arguments, then
     /// runs `body`. A body that starts with `#!` is the whole program. The
-    /// body's exit status and standard error go to `$T/stub.log` too, which a
-    /// failing case prints; a call with no line there did not finish.
+    /// body's exit status and standard error go to `$T/stub.log` too, in one
+    /// write, which a failing case prints; a call with no line there did not
+    /// finish. A body killed by signal `n` makes the stub exit 128+n. Only
+    /// builtins run after the body, as a starved runner is the case for it.
     pub fn stub(&self, name: &str, body: &str) {
         let text = if body.starts_with("#!") {
             body.to_string()
@@ -440,9 +442,10 @@ impl World {
             format!(
                 "#!{}\nprintf '%s\\n' \"$*\" >>\"$T/calls/{name}\"\n\
                  err=\"$T/stub-err.{name}.$$\"\n(\n{body}\n) 2>\"$err\"\nrc=$?\n\
-                 cat \"$err\" >&2\n\
-                 {{ printf '%s rc=%s\\n' {name} \"$rc\"; cat \"$err\"; }} >>\"$T/stub.log\"\n\
-                 rm -f \"$err\"\nexit \"$rc\"\n",
+                 e=\nIFS= read -r -d '' e <\"$err\"\n\
+                 printf '%s' \"$e\" >&2\n\
+                 printf '%s rc=%s\\n%s' {name} \"$rc\" \"$e\" >>\"$T/stub.log\"\n\
+                 exit \"$rc\"\n",
                 self.bash
             )
         };
