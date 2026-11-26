@@ -25,7 +25,7 @@ mod writes;
 
 pub use code_host::{project_of, WORKFLOW_RUNS_FORBIDDEN};
 pub(crate) use people::People;
-pub use people::PeopleClient;
+pub use people::{PeopleClient, Person, Trade};
 pub use site::{GitHubSite, MakeRunner};
 
 use crate::{table, GitHub};
