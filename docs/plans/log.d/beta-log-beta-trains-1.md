@@ -1,0 +1,1 @@
+| 2026-11-25 | TF-B12b, the rename guard (the exit 78 refusal when `TEHAS_REPO` names the old repository), moves from beta.1 to 2.2 with the reuse of the old name, as work-6c ruled, relayed by tehas-a4 | beta/log-beta-trains-1 |

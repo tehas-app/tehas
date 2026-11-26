@@ -11,7 +11,6 @@
 # fails the gate. `--help` is every command's and is not listed.
 analytics
 analytics copy --json --to
-analytics report
 answer --by --json --text
 api --json
 blockers --json
