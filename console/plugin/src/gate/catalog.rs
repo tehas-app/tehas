@@ -21,7 +21,7 @@ pub struct Facts {
     /// The ids of the actions asked for and granted.
     pub actions: Vec<String>,
     /// The folders of the plugin's views, each with whether it is granted:
-    /// `/` for v1's `view`, each view's path of `views`.
+    /// `/` for v1's `view`, each 2.x view's folder `/<id>/`.
     pub paths: Vec<(String, bool)>,
     /// Kept files to frame at `/_frame/`. `keep:` is not a capability yet,
     /// so no plugin has any.
@@ -132,7 +132,7 @@ impl Installed {
         let actions: Vec<String> = m.actions.iter().map(|a| a.id.clone()).collect();
         let mut f = facts_of(
             &m.asks,
-            m.kit,
+            m.v1.kit,
             &actions,
             self.grants.get(&pin.name),
             &pin.commit,
@@ -140,12 +140,14 @@ impl Installed {
         let grants = self.grants.get(&pin.name);
         if plugin::compare(&m.asks, grants, &pin.commit).granted() {
             let caps = grants.map_or(&[][..], |g| &g.caps);
-            if m.view.is_some() {
+            if m.v1.view.is_some() {
                 f.paths.push(("/".to_string(), f.view));
             }
             for v in &m.views {
-                f.paths
-                    .push((v.path.clone(), caps.contains(&Cap::ViewOf(v.id.clone()))));
+                f.paths.push((
+                    format!("/{}/", v.id),
+                    caps.contains(&Cap::ViewOf(v.id.clone())),
+                ));
             }
         }
         f.view = f.paths.iter().any(|(_, granted)| *granted);

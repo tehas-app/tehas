@@ -250,18 +250,17 @@ pub fn reading(file: &mut File, name: &str, whole: &str, place: &str) -> Result<
             return Ok(r);
         }
     };
-    for s in &m.skills {
-        let said = match file(&s.path, skill::BYTES_MAX as u64) {
+    for path in &m.skills {
+        let said = match file(path, skill::BYTES_MAX as u64) {
             Ok(Some(b)) => skill::text(&b).err(),
             Ok(None) => Some(format!("not in {place}")),
             Err(why) => Some(why),
         };
         if let Some(why) = said {
-            r.refusals
-                .push(format!("skill {}: {}: {why}", s.id, s.path));
+            r.refusals.push(format!("skill {path}: {why}"));
         }
     }
-    if let Some(build) = &m.build {
+    if let Some(build) = &m.v1.build {
         match file(build, DOCKERFILE_MAX) {
             Ok(Some(b)) => {
                 let d = dockerfile::read(&b);
@@ -462,12 +461,12 @@ fn prepared(
     let mut s = State::new(Word::Ready, c);
     *view = Some(Shown {
         label: m.label.clone(),
-        panel: m.view.clone(),
+        panel: m.v1.view.clone(),
         views: m.views.clone(),
     });
     s.manifest_sha256 = Some(r.sha256.clone());
     s.bases.clone_from(&r.bases);
-    let Some(file) = &m.build else {
+    let Some(file) = &m.v1.build else {
         return s;
     };
     if let Some(id) = image_id(x, &build::tag(&pin.name, c)) {

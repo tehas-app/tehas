@@ -52,7 +52,7 @@ pub(crate) fn ready(
         return Err(r.refusals.join("; "));
     }
     let manifest = r.manifest.ok_or("the manifest could not be read")?;
-    if manifest.build.is_some() && state.image.is_none() {
+    if manifest.v1.build.is_some() && state.image.is_none() {
         return Err("it has a build and no image: run tehas update".into());
     }
     Ok(Ready {

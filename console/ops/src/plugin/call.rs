@@ -157,7 +157,7 @@ pub fn call(
     let cap = Cap::Tool(tool.to_string());
     let t = r
         .manifest
-        .tools
+        .v1.tools
         .iter()
         .find(|t| t.id == tool)
         .filter(|_| r.grants.caps.contains(&cap) && r.manifest.asks.contains(&cap.ask()))

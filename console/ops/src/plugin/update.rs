@@ -43,7 +43,7 @@ fn weighed(
     let needs = prepare::read(x, home, &pin.name, &pin.commit)
         .ok()
         .and_then(|r| r.manifest)
-        .map(|m| m.needs)
+        .map(|m| m.v1.needs)
         .unwrap_or_default();
     needs::Plugin {
         name: pin.name.clone(),
@@ -206,10 +206,16 @@ fn listed(name: &str, shown: &Shown, caps: &[Cap], base: &str) -> Option<serde_j
         if caps.contains(&Cap::ViewOf(v.id.clone())) {
             let open = match v.open {
                 Open::Dock => "dock",
-                Open::Page => "page",
+                // A menu opens a view in the dock or a new tab only, so a
+                // full view reaches the menu as a page: the view itself
+                // decides how it covers the page once open.
+                Open::Page | Open::Full => "page",
             };
-            let url = format!("{}{}", base.trim_end_matches('/'), v.path);
-            views.push(serde_json::json!({"id": v.id, "label": v.label, "url": url, "open": open}));
+            // The 2.2 view keeps no label and no folder: its id names its
+            // /out folder (plugins.md:141), and the menu names it by that
+            // until the menu contract gives it a label of its own.
+            let url = format!("{}/{}", base.trim_end_matches('/'), v.id);
+            views.push(serde_json::json!({"id": v.id, "label": v.id, "url": url, "open": open}));
         }
     }
     (!views.is_empty())

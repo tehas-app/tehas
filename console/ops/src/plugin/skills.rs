@@ -90,7 +90,12 @@ fn skills_of(
     let r = ready(x, home, get, name)?;
     let (pin, grants, m) = (&r.pin, &r.grants, &r.manifest);
     let mut entries = Vec::new();
-    for s in &m.skills {
+    // The 2.2 table keeps a skill's about and chats in the file's own
+    // frontmatter, which this host does not read yet (#3371). The listing
+    // keeps reading the 1.x entries, which a 2.x reader never sets: a 2.x
+    // plugin lists no skill until the frontmatter is read, rather than
+    // guessing which chats its text belongs to.
+    for s in &m.v1.skills {
         let granted = grants.caps.contains(&Cap::Skill(s.id.clone()));
         let for_chat = chat.is_none_or(|c| s.chats.iter().any(|h| h == c));
         if !granted || !for_chat {

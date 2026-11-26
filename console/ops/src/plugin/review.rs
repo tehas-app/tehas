@@ -173,8 +173,8 @@ impl Review {
             pin: &self.pin.commit,
             manifest_sha256: &self.reading.sha256,
             label: m.map(|m| m.label.as_str()),
-            license: m.and_then(|m| m.license.as_deref()),
-            build: m.and_then(|m| m.build.as_deref()),
+            license: m.and_then(|m| m.v1.license.as_deref()),
+            build: m.and_then(|m| m.v1.build.as_deref()),
             asks: self
                 .asks()
                 .iter()
@@ -220,7 +220,7 @@ impl Review {
             out.push(format!(
                 "label: {}; license: {}",
                 m.label,
-                m.license.as_deref().unwrap_or("not given")
+                m.v1.license.as_deref().unwrap_or("not given")
             ));
         }
         let refusals = self.refusals();
@@ -252,7 +252,7 @@ impl Review {
                 "  {u} is granted and not asked for: it gives nothing"
             ));
         }
-        match m.and_then(|m| m.build.as_deref()) {
+        match m.and_then(|m| m.v1.build.as_deref()) {
             None => out.push("build: none, so no image and no runs".to_string()),
             Some(file) => {
                 out.push(format!("build: {file}, base images:"));
