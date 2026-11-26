@@ -1136,3 +1136,5 @@ tool factory_status answer rukas.targetVersion
 tool factory_status answer stale
 tool factory_status answer status
 tool factory_status answer time
+setting TEHAS_CODE_HOST
+setting TEHAS_TICKETS

@@ -5,11 +5,10 @@
 //! sign-in asks the wiring for a runner of gh.
 
 use std::sync::{Arc, Mutex};
-use tehas_core::access::{self, Permission, Person};
-use tehas_github::{GitHubSite, MakeRunner, PeopleClient};
+use tehas_github::{GitHubSite, MakeRunner, PeopleClient, Person, Trade};
 use tehas_ports::{
-    AccountKind, Actor, Caller, Got, Outcome, Passing, Refusal, Scope, Secret, Sent, SignInCode,
-    SignInState, Site, Unread, WebLink,
+    AccountId, AccountKind, Actor, Caller, Got, Outcome, Passing, Refusal, Scope, Secret, Sent,
+    SignInCode, SignInState, Site, Unread, WebLink,
 };
 
 const CALLER: Caller = Caller::new("test.sign-in");
@@ -35,13 +34,15 @@ fn client() -> PeopleClient {
 }
 
 /// GitHub trading `code` for `token`, which is the person 4021 `Carol`.
-struct Trade {
+/// A sign-in asks a trade these two questions and nothing else: the trait
+/// answers no permission and no repository.
+struct Trader {
     took: Mutex<Vec<String>>,
     token: Got<String>,
     user: Got<Person>,
 }
 
-impl access::GitHub for Trade {
+impl Trade for Trader {
     fn token(&self, code: &str) -> Got<String> {
         self.took.lock().unwrap().push(format!("code {code}"));
         self.token.clone()
@@ -50,30 +51,24 @@ impl access::GitHub for Trade {
         self.took.lock().unwrap().push(format!("user {token}"));
         self.user.clone()
     }
-    fn permission(&self, _: &str) -> Got<Permission> {
-        panic!("a sign-in reads no permission")
-    }
-    fn public(&self) -> Got<bool> {
-        panic!("a sign-in reads no repository")
-    }
 }
 
-fn carol() -> Trade {
-    Trade {
+fn carol() -> Trader {
+    Trader {
         took: Mutex::new(Vec::new()),
         token: Ok("gho_person".into()),
         user: Ok(Person {
-            id: access::AccountId::new("4021"),
+            id: AccountId::new("4021"),
             login: "Carol".into(),
         }),
     }
 }
 
-fn site_with(trade: Trade) -> (GitHubSite, Arc<Trade>, Arc<Mutex<u32>>) {
+fn site_with(trade: Trader) -> (GitHubSite, Arc<Trader>, Arc<Mutex<u32>>) {
     let (make, asked) = maker();
     let trade = Arc::new(trade);
     let site = GitHubSite::new("acme/widget", "tehas-bot[bot]", Some(900), make)
-        .with_people_trading(client(), Arc::clone(&trade) as Arc<dyn access::GitHub>);
+        .with_people_trading(client(), Arc::clone(&trade) as Arc<dyn Trade>);
     (site, trade, asked)
 }
 
