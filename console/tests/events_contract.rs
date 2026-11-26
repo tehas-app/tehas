@@ -765,7 +765,7 @@ mod raised {
     // read every raiser makes, tehas_core::raise::read_ended.
     fn read_by(w: &World, issue: u64, attempt: u32, by: Writer) -> Ended {
         let mut ask = |a: &[&str]| Ok(w.store_ok(a).to_string());
-        read_ended(&mut ask, issue, attempt, by, None).unwrap()
+        read_ended(&mut ask, issue, attempt, by, &mut |_| None).unwrap()
     }
 
     fn read(w: &World, s: &StartRow) -> Ended {

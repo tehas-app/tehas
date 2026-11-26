@@ -105,17 +105,12 @@ case "$1 $2" in
     elif [ -e "$T/fx/pr.txt" ]; then
       head=$(printf "%s\n" "$@" | sed -n "/^--head$/{n;p;}")
       state="$(cat "$T/fx/pr-state" 2>/dev/null || echo OPEN)"
-      # A merged pull request carries the site's time of the merge.
-      merged_at=$([ "$state" = MERGED ] \
-        && printf '"%s"' "$(cat "$T/fx/pr-merged-at" 2>/dev/null || echo 2026-01-01T00:00:00Z)" \
-        || echo null)
       jq -n --arg url "$(cat "$T/fx/pr.txt")" --arg head "$head" \
         --arg state "$state" \
         --arg body "$(cat "$T/fx/pr-body" 2>/dev/null || echo "Fixes #7")" \
         --arg created "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-        --argjson merged_at "$merged_at" \
         --argjson draft "$([ -e "$T/fx/pr-draft" ] && echo true || echo false)" \
-        "[{url: \$url, state: \$state, body: \$body, headRefName: \$head, isDraft: \$draft, createdAt: \$created, mergedAt: \$merged_at}]"
+        "[{url: \$url, state: \$state, body: \$body, headRefName: \$head, isDraft: \$draft, createdAt: \$created}]"
     else echo "[]"; fi ;;
   "issue edit")
     countdown edit-fails-times
@@ -148,6 +143,14 @@ case "$1 $2" in
     countdown issue-fails-times
     [ ! -e "$T/fx/issue-fails" ] || exit 1
     if [ -e "$T/fx/issue-$n.json" ]; then cat "$T/fx/issue-$n.json"; else echo "{\"number\":$n,\"state\":\"open\"}"; fi ;;
+  # Any other api call carries its question as a word starting query=: the
+  # one question of a change's numbers, which answers the site's time of a
+  # merge. change.json is the answer, and without it the read fails and the
+  # merge time falls back to the line's end.
+  "api "*)
+    for a in "$@"; do
+      case "$a" in query=*) cat "$T/fx/change.json" 2>/dev/null || exit 1 ;; esac
+    done ;;
 esac
 "##;
 
@@ -517,10 +520,21 @@ impl World {
         self.fx("progress.json", &v.to_string());
     }
 
-    /// The bot's pull request on the branch, merged.
+    /// The bot's pull request on the branch, merged, and the answer of the
+    /// one question for its number: the site's time of the merge. The
+    /// answer is a fixture file, the node in the adapter's shape, as the
+    /// status tests' answers are (T4.9).
     pub fn merged_pr(&self) {
         self.fx("pr.txt", "https://github.com/acme/widget/pull/9\n");
         self.fx("pr-state", "MERGED\n");
+        self.fx("change.json", include_str!("../fx/merged-change.json"));
+    }
+
+    /// A merged pull request whose number the site answers nothing for: the
+    /// question fails, and the merge time falls back to the line's end.
+    pub fn merged_pr_silent(&self) {
+        self.merged_pr();
+        fs::remove_file(self.fx.join("change.json")).unwrap();
     }
 
     /// The bot's pull request on the branch, open.
@@ -867,10 +881,7 @@ impl World {
         } else if let Some(url) = fx("pr.txt") {
             json!([{"url": url.trim(), "state": or("pr-state", "OPEN"),
                 "body": or("pr-body", "Fixes #7"), "isDraft": self.fx.join("pr-draft").exists(),
-                "createdAt": tehas_core::time::iso(tehas_core::time::now()),
-                "mergedAt": if or("pr-state", "OPEN") == "MERGED" {
-                    json!(or("pr-merged-at", "2026-01-01T00:00:00Z"))
-                } else { Value::Null }}])
+                "createdAt": tehas_core::time::iso(tehas_core::time::now())}])
         } else {
             json!([])
         };

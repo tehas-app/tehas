@@ -55,6 +55,8 @@ pub struct Given {
     pub console: String,
     /// The handles the report's writes go through.
     pub handles: crate::apply::HandlesOf,
+    /// The site's time of a merged change, for the raise of `change.merged`.
+    pub merge_at: crate::apply::MergeAtOf,
 }
 
 /// What a number is, as GitHub answers for it. The factory works on open issues
@@ -271,7 +273,7 @@ fn start_on_record(home: &Path, n: &str, events: &Dispatcher) -> Result<Value, i
 fn raise_short(home: &Path, n: &str, attempt: &str, answer: &str, events: &Dispatcher) {
     let wrote = serde_json::from_str::<EndAnswer>(answer).is_ok_and(|a| !a.already);
     if let (true, Ok(issue), Ok(attempt)) = (wrote, n.parse(), attempt.parse()) {
-        crate::events::raise_ended(events, home, issue, attempt, Writer::Short, None);
+        crate::events::raise_ended(events, home, issue, attempt, Writer::Short, &mut |_| None);
     }
 }
 
@@ -448,7 +450,7 @@ pub fn run(home: &Path, g: &Given, events: &Dispatcher) -> i32 {
     let start: Option<StartRow> = serde_json::from_value(answer.clone()).ok();
     // The record this start ended as lost: its line is this start's.
     if let Some(lost) = start.as_ref().and_then(|s| s.replaced) {
-        crate::events::raise_ended(events, home, g.issue, lost, Writer::Short, None);
+        crate::events::raise_ended(events, home, g.issue, lost, Writer::Short, &mut |_| None);
     }
     match start.as_ref().and_then(tehas_core::raise::started) {
         Some(p) => crate::events::raise(events, p),
@@ -540,14 +542,10 @@ pub fn run(home: &Path, g: &Given, events: &Dispatcher) -> i32 {
     };
     let reported = apply::reported(home, &start, g.handles);
     let attempt = u32::try_from(start.attempt).unwrap_or(0);
-    crate::events::raise_ended(
-        events,
-        home,
-        g.issue,
-        attempt,
-        Writer::Report,
-        reported.merged_at.map(tehas_ports::At::new),
-    );
+    // The merged change's site time is asked of the code-host port once, for
+    // the merged line of this report, never per poll.
+    let mut site_at = (g.merge_at)(home);
+    crate::events::raise_ended(events, home, g.issue, attempt, Writer::Report, &mut site_at);
     reported.rc
 }
 

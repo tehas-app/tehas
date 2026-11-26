@@ -312,17 +312,18 @@ fn word(w: Option<&str>) -> Option<RunnerWord> {
 /// The events of the end of cycle `attempt` of `issue` that `by` raises,
 /// from the issue's lines of history (`history-show <issue>`) and the
 /// question it waits on (`question-show <issue>`). None of a line the store
-/// does not have, or one another writer wrote. `merged_at` is the site's
-/// time of the merged pull request as the report read it: `change.merged`
-/// keys on it, falling back to the line's end when the read named none.
-/// Only the report's writer has one; the short writers pass None.
+/// does not have, or one another writer wrote. `site_at` answers the site's
+/// time of a merged change, asked of the code-host port by whoever raises:
+/// `change.merged` keys on it, falling back to the line's end when the port
+/// answers nothing or the read fails. It is asked once, for the merged line
+/// only, never per poll; writers with no port pass `&mut |_| None`.
 pub fn ended(
     issue: u64,
     attempt: u32,
     lines: &[HistoryRow],
     question: Option<&QuestionRow>,
     by: Writer,
-    merged_at: Option<At>,
+    site_at: &mut dyn FnMut(ChangeNo) -> Option<At>,
 ) -> Ended {
     let mut lines: Vec<&HistoryRow> = lines.iter().filter(|l| l.issue == issue).collect();
     lines.sort_by_key(|l| l.seq);
@@ -380,10 +381,11 @@ pub fn ended(
     let merged = change
         .filter(|_| end == End::Merged && !line.parked)
         .map(|c| {
-            // The site's time of the merge, from the report's own read of
-            // the pull request list; the line's end only when that read
-            // named none.
-            let mut m = ChangeMerged::new(c, merged_at.unwrap_or(ended_at));
+            // The site's time of the merge, asked of the code-host port by
+            // the raising process; the line's end when the port answers
+            // nothing or the read fails. Asked here, once, for this line.
+            let at = site_at(c);
+            let mut m = ChangeMerged::new(c, at.unwrap_or(ended_at));
             m.blueprint = Some(blueprint);
             m
         });
@@ -528,7 +530,7 @@ pub fn read_ended(
     issue: u64,
     attempt: u32,
     by: Writer,
-    merged_at: Option<At>,
+    site_at: &mut dyn FnMut(ChangeNo) -> Option<At>,
 ) -> Result<Ended, String> {
     let n = issue.to_string();
     let rows: Rows = serde_json::from_str(&ask(&["history-show", &n])?)
@@ -552,7 +554,7 @@ pub fn read_ended(
         &lines,
         question.as_ref(),
         by,
-        merged_at,
+        site_at,
     ))
 }
 
@@ -609,7 +611,7 @@ mod tests {
     }
 
     fn reported(issue: u64, attempt: u32, lines: &[HistoryRow], q: Option<&QuestionRow>) -> Ended {
-        ended(issue, attempt, lines, q, Writer::Report, None)
+        ended(issue, attempt, lines, q, Writer::Report, &mut |_| None)
     }
 
     #[test]
@@ -679,12 +681,12 @@ mod tests {
             r.reported = false;
         })];
         assert_eq!(reported(12, 3, &short, None), Ended::default());
-        let e = ended(12, 3, &short, None, Writer::Short, None);
+        let e = ended(12, 3, &short, None, Writer::Short, &mut |_| None);
         assert_eq!(names(&e), [Name::CycleEnded]);
         assert_eq!(e.ended.unwrap().end, End::Stopped);
         let report = [row(3, 9, |_| {})];
         assert_eq!(
-            ended(12, 3, &report, None, Writer::Short, None),
+            ended(12, 3, &report, None, Writer::Short, &mut |_| None),
             Ended::default()
         );
         assert_eq!(names(&reported(12, 3, &report, None)), [Name::CycleEnded]);
@@ -776,6 +778,32 @@ mod tests {
             r.rc = Some(0);
         };
         assert_eq!(reported(12, 3, &[row(3, 9, no_change)], None).merged, None);
+    }
+
+    #[test]
+    fn a_merged_line_keys_on_the_port_time_and_falls_back_to_the_line_end() {
+        let merge = |r: &mut HistoryRow| {
+            r.status = Some("merged".into());
+            r.rc = Some(0);
+            r.pr = Some(21);
+        };
+        let mut asked = |n: ChangeNo| {
+            assert_eq!(n.get(), 21);
+            Some(At::new(1_763_800_000))
+        };
+        let e = ended(12, 3, &[row(3, 9, merge)], None, Writer::Report, &mut asked);
+        let m = e.merged.unwrap();
+        assert_eq!(m.at, At::new(1_763_800_000));
+        // Nothing from the port: the line's own end stands.
+        let e = ended(
+            12,
+            3,
+            &[row(3, 9, merge)],
+            None,
+            Writer::Report,
+            &mut |_| None,
+        );
+        assert_eq!(e.merged.unwrap().at, At::new(1_763_820_000));
     }
 
     #[test]
@@ -946,12 +974,12 @@ mod tests {
             asked.push(a.join(" "));
             Ok(r#"{"rows":[{"kind":"cycle","issue":12,"attempt":3,"at":10,"status":"stopped","reported":false,"seq":1}]}"#.into())
         };
-        let e = read_ended(&mut ask, 12, 3, Writer::Short, None).unwrap();
+        let e = read_ended(&mut ask, 12, 3, Writer::Short, &mut |_| None).unwrap();
         assert_eq!(names(&e), [Name::CycleEnded]);
         assert_eq!(asked, ["history-show 12"]);
         let mut fails = |_: &[&str]| -> Result<String, String> { Err("busy".into()) };
         assert_eq!(
-            read_ended(&mut fails, 12, 3, Writer::Report, None),
+            read_ended(&mut fails, 12, 3, Writer::Report, &mut |_| None),
             Err("busy".into())
         );
     }

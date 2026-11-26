@@ -217,6 +217,13 @@ pub use tehas_core::journal::Handles;
 pub type HandlesOf =
     fn(home: &Path, repo: &str, bound: Duration, grace: Duration) -> tehas_ports::Got<Handles>;
 
+/// The site's time of a merged change, asked of the code-host port. The
+/// wiring builds it from the site; the raise of `change.merged` asks it once
+/// for the merged line and falls back to the line's end when it answers
+/// nothing.
+pub type MergeAtOf =
+    fn(home: &Path) -> Box<dyn FnMut(tehas_ports::ChangeNo) -> Option<tehas_ports::At>>;
+
 /// How a write of the ports ended.
 enum Sent {
     Done(Receipt),
@@ -1075,9 +1082,6 @@ pub struct Reported {
     pub pr: Option<u64>,
     /// tehas work refused the start before its runner ran.
     pub refused: bool,
-    /// The site's time of the merged pull request, as the report read it.
-    /// The raise of `change.merged` takes it in place of the line's end.
-    pub merged_at: Option<i64>,
 }
 
 /// The number of a pull request's URL, `.../pull/<n>`.
@@ -1108,7 +1112,6 @@ pub fn reported(home: &Path, s: &Start, handles: HandlesOf) -> Reported {
                 rc: 70,
                 pr: None,
                 refused: false,
-                merged_at: None,
             };
         }
     };
@@ -1146,7 +1149,6 @@ pub fn reported(home: &Path, s: &Start, handles: HandlesOf) -> Reported {
                 rc: 70,
                 pr: None,
                 refused: false,
-                merged_at: None,
             };
         }
     };
@@ -1170,7 +1172,6 @@ pub fn reported(home: &Path, s: &Start, handles: HandlesOf) -> Reported {
         rc: if on_record && fault_kept { 0 } else { 70 },
         pr: pull_number(&r.after.ended.pr),
         refused: !r.refused_why.is_empty(),
-        merged_at: r.merged_at,
     }
 }
 

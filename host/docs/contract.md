@@ -949,7 +949,9 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   that read reads, and a site that names no time of a close leaves it
   unraised. `tehas-cycle` raises `change.merged` of the
   history line its report ended `merged` and did not park, of the site's
-  own time of the merge as that report read it: tehas does not
+  own time of the merge, asked of the code-host port once for the merged
+  line: when the port answers nothing, or the read fails, the event
+  carries the line's own end instead. tehas does not
   merge changes itself, a person does, and the report's line is the
   record of the merge; a line that says `merged` while the bot lists no
   merged pull request for the issue parks and raises nothing. A change

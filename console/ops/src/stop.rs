@@ -675,8 +675,8 @@ fn raise_stopped(home: &Path, n: &str, attempt: &str, answer: &str, events: &Dis
     let warn = |line: &str| eprintln!("tehas stop: {line}");
     let mut ask = |args: &[&str]| store::line(home, args).map_err(|r| r.word);
     // A stopped end never raises `change.merged`: no report read the pull
-    // request, so there is no site's merge time to give.
-    match raise::read_ended(&mut ask, issue, attempt, Writer::Short, None) {
+    // request, so there is no site's merge time to ask for.
+    match raise::read_ended(&mut ask, issue, attempt, Writer::Short, &mut |_| None) {
         Ok(e) => e.raise(events, &warn),
         Err(why) => warn(&format!(
             "WARN: the history of #{n} could not be read, so its end raises no event ({why})"

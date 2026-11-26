@@ -42,21 +42,22 @@ pub fn raise<P: Payload>(d: &Dispatcher, p: P) {
 
 /// The events of the end of cycle `attempt` of `issue` that `by` raises,
 /// read from the store after its record. A read that fails raises nothing,
-/// and says so. `merged_at` is the site's time of the merged pull request as
-/// the report read it; the short writers have none.
+/// and says so. `site_at` answers the site's time of a merged change from
+/// the code-host port, once for a merged line; the short writers pass a
+/// reader that answers nothing.
 pub fn read_ended(
     home: &Path,
     issue: u64,
     attempt: u32,
     by: Writer,
-    merged_at: Option<tehas_ports::At>,
+    site_at: &mut dyn FnMut(tehas_ports::ChangeNo) -> Option<tehas_ports::At>,
 ) -> Ended {
     let mut ask = |args: &[&str]| {
         host::store_try(home, 3, args)
             .map(|v| v.to_string())
             .map_err(|r| r.word)
     };
-    match raise::read_ended(&mut ask, issue, attempt, by, merged_at) {
+    match raise::read_ended(&mut ask, issue, attempt, by, site_at) {
         Ok(e) => e,
         Err(why) => {
             log(&format!(
@@ -74,9 +75,9 @@ pub fn raise_ended(
     issue: u64,
     attempt: u32,
     by: Writer,
-    merged_at: Option<tehas_ports::At>,
+    site_at: &mut dyn FnMut(tehas_ports::ChangeNo) -> Option<tehas_ports::At>,
 ) {
-    let e = read_ended(home, issue, attempt, by, merged_at);
+    let e = read_ended(home, issue, attempt, by, site_at);
     if by == Writer::Report && e.ended.is_none() {
         log(&format!(
             "#{issue}: no line of attempt {attempt} that its report wrote is in the history, so its end raises no event here"
@@ -133,7 +134,7 @@ mod tests {
             reported: true,
             ..HistoryRow::default()
         };
-        let e = ended(12, 3, &[line], None, Writer::Report, None);
+        let e = ended(12, 3, &[line], None, Writer::Report, &mut |_| None);
         // The bridge would read GitHub; with plugins off nothing but the
         // log hears the offer.
         let r = d.raise(e.offered.unwrap());
