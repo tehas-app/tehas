@@ -217,6 +217,10 @@ impl World {
             fs::create_dir_all(t.join(d)).unwrap();
         }
         fs::create_dir_all(home.join("libexec")).unwrap();
+        // A host has a logs/: the event lines of `tehas limit`, `tehas
+        // drain`, `tehas stop` and the poll go there, and their absence
+        // would print the line to a command's output instead.
+        fs::create_dir_all(home.join("logs")).unwrap();
         copy_exe(store_binary(), t.join("store-bin")).unwrap();
         let console = t.join("console-bin");
         place(Path::new(env!("CARGO_BIN_EXE_console")), &console);
