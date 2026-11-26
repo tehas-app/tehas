@@ -37,7 +37,7 @@
 //! on purpose: it is never parsed.
 
 use std::num::NonZeroU32;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -51,17 +51,14 @@ use crate::{markers, rate};
 use tehas_ports::{
     Access, At, Bound, Branch, Caller, Change, ChangeDelta, ChangeDigest, ChangeEvent,
     ChangeFilter, ChangeNo, ChangeToken, ChangedFile, Checks, Cite, Cites, CodeHost, CommitId,
-    Compared, Cursor, Did, Facts, Failure, FileName, Got, Health, HealthState, Holder, HolderId,
-    HostId, Ledger, MeterRow, Notice, Notices, Outcome, Passing, Pool, PortName, Refusal, Release,
-    ReleaseFile, ReleaseId, Remote, RepoPath, Report, Reports, Rev, Sent, SiteId, Tag, TagName,
-    Took, Unread, WebLink, Whole, Whose, Window,
+    Compared, Cursor, Did, Facts, FileName, Got, HealthState, Holder, HolderId, HostId, Ledger,
+    MeterRow, Notices, Outcome, Passing, Pool, PortName, Refusal, Release, ReleaseFile, ReleaseId,
+    Remote, RepoPath, Report, Reports, Rev, Sent, SiteId, Tag, TagName, Took, Unread, WebLink,
+    Whole, Whose, Window,
 };
 
 /// The host the ledger keeps GitHub's health and budgets under.
 const HOST: &str = "github.com";
-
-/// How many seconds of failures the ledger is asked to keep.
-const FAILURES_KEPT: u32 = 600;
 
 /// The most tags a tag object is peeled through.
 const PEELS: usize = 4;
@@ -205,16 +202,15 @@ impl Anonymous {
         }
     }
 
-    /// Give an answer to the ledger: its budget, each state `tehas_ports::keys`
-    /// names, and a failure of the supplier, raising each notice whose
-    /// swap wins: a change of health is told once, as the fake tells it.
-    /// A ledger that fails fails toward reporting: the answer still goes
-    /// to the caller, and the ledger-down notice is told once per handle.
+    /// Give an answer to the ledger: first its budget, then the answer
+    /// itself to `tehas_ports::observe`, the one rule of the ledger and the
+    /// sink shared with the fake. A ledger that fails fails toward
+    /// reporting: the answer still goes to the caller, and the ledger-down
+    /// notice is told once per handle.
     fn observe(&self, now: i64, answer: &Got<Option<Answer>>) {
         let host = HostId::new(HOST);
         let holder = Self::holder();
         let at = At::new(now);
-        let realm = tehas_ports::Realm::CodeHost;
         if let Ok(Some(a)) = answer {
             if let (Some(left), Some(resets)) = (
                 a.header("x-ratelimit-remaining")
@@ -232,61 +228,30 @@ impl Anonymous {
             }
         }
         let seen = answer.as_ref().map(drop).map_err(Clone::clone);
-        for whose in tehas_ports::keys(&holder, &seen, &[Pool::Calls]) {
-            match self.ledger.health(&host, &whose) {
-                Ok(was) => {
-                    let (new, notice) = tehas_ports::next(&host, &whose, realm, at, &was, &seen);
-                    if new == was {
-                        continue;
-                    }
-                    match self.ledger.swap_health(&host, &whose, &was, &new) {
-                        Ok(true) => {
-                            notice.into_iter().for_each(|n| self.notices.notice(n));
-                        }
-                        Ok(false) => {}
-                        Err(_) => {
-                            notice.into_iter().for_each(|n| self.notices.notice(n));
-                            self.ledger_down(at);
-                        }
-                    }
-                }
-                Err(_) => {
-                    let healthy = HealthState::Healthy;
-                    let (_, notice) = tehas_ports::next(&host, &whose, realm, at, &healthy, &seen);
-                    notice.into_iter().for_each(|n| self.notices.notice(n));
-                    self.ledger_down(at);
-                }
-            }
-        }
-        if let Err(o) = &seen {
-            let kept = match o {
-                Outcome::Unavailable { why, .. } => *why != Passing::Broken,
-                Outcome::Spent { .. } => true,
-                _ => false,
-            };
-            if kept {
-                let f = Failure::new(at, SiteId::new(self.repo.clone()), o.clone());
-                if self.ledger.failed(&host, f, FAILURES_KEPT).is_err() {
-                    self.ledger_down(at);
-                }
-            }
-        }
+        let site = SiteId::new(self.repo.clone());
+        let o = tehas_ports::Observer {
+            ledger: &*self.ledger,
+            sink: &*self.notices,
+            told_down: &self.told_down,
+            host: &host,
+            holder: &holder,
+            realm: tehas_ports::Realm::CodeHost,
+            site: &site,
+            at,
+        };
+        tehas_ports::observe(&o, &seen, &[Pool::Calls]);
     }
 
-    /// `Health::LedgerDown`, once per handle: a ledger that fails fails
-    /// toward reporting, and a change reported without the ledger may be
-    /// reported again by the next process to hold it.
+    /// `Health::LedgerDown`, once per handle, by the rule in
+    /// `tehas_ports::ledger_down`.
     fn ledger_down(&self, at: At) {
-        if self.told_down.swap(true, Ordering::Relaxed) {
-            return;
-        }
-        self.notices.notice(Notice::new(
-            HostId::new(HOST),
-            Whose::Host,
+        tehas_ports::ledger_down(
+            &*self.notices,
+            &self.told_down,
+            &HostId::new(HOST),
             tehas_ports::Realm::CodeHost,
-            Health::LedgerDown,
             at,
-        ));
+        );
     }
 
     /// Every page of a list, from `first` on by each page's next link, or

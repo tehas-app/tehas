@@ -1,10 +1,8 @@
 ### Changes
 
-- The anonymous reader now reports what it sees of GitHub's health: a
-  read of a release project that finds the site failing, or its budget
-  held out, tells that once as a health notice, and the notice reaches
-  the unit's journal through the command's output. A ledger it cannot
-  read or write is told once per run. The law of a held code-host read
-  now runs on the adapter's anonymous handle as it does on the fake,
-  with the live answers of the releases tests and one synthetic server
-  error edited from them.
+- The anonymous read of the release project keeps a journal line for
+  what it sees of GitHub: when a read finds the site failing or its
+  budget spent, one plain line says so on the command's error output,
+  which the unit's journal keeps; a change told by one process is not
+  told again by the next. When the ledger cannot be read or written the
+  line says that too, once per run.

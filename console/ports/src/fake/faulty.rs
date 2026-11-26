@@ -3,6 +3,7 @@
 //! notices.
 
 use std::num::{NonZeroU32, NonZeroU64};
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -16,20 +17,20 @@ use crate::{
     BoardAsk, Bound, Branch, Caller, Change, ChangeAsk, ChangeDelta, ChangeDigest, ChangeEvent,
     ChangeFilter, ChangeItem, ChangeNo, ChangeToken, ChangedFile, Checks, Cite, Cites, CloseReason,
     Closed, ClosedTicket, CodeHost, CodeHostWrites, Comment, CommentId, CommitId, Compared, Cursor,
-    Depth, Did, Edit, Facts, Failure, FileName, Filed, Filter, Got, HappenedKind, HealthState,
-    Holder, HolderId, HostId, Identity, Item, Kind, Ledger, Login, Mark, MarkHeld, MarkSpec,
-    Marker, MarkerEdit, MarkerKey, MarkerKind, MergeHow, MeterRow, NewBlueprint, NewChange,
-    NewRelease, NewTicket, OpenWork, Outcome, Part, Passing, Pool, PortName, Posted, Priority,
-    ProjectName, Proposal, ProposalPart, Proposed, Realm, Refusal, Release, ReleaseId, Remote,
-    RepoPath, Report, Reports, Rev, Revision, Scope, Secret, Sent, SignInCode, SignInState, Site,
-    SiteId, Standing, Status, Step, StepPart, Sum, Tag, TagName, Target, TargetEdit, TargetId,
-    Ticket, TicketDelta, TicketDigest, TicketEvent, TicketKey, TicketWrites, Tickets, Token, Took,
-    Unprepared, Unread, WebLink, Whole, Whose, Window, WithCloser, Within, WorkItem,
+    Depth, Did, Edit, Facts, FileName, Filed, Filter, Got, HappenedKind, HealthState, Holder,
+    HolderId, HostId, Identity, Item, Kind, Ledger, Login, Mark, MarkHeld, MarkSpec, Marker,
+    MarkerEdit, MarkerKey, MarkerKind, MergeHow, MeterRow, NewBlueprint, NewChange, NewRelease,
+    NewTicket, OpenWork, Outcome, Part, Passing, Pool, PortName, Posted, Priority, ProjectName,
+    Proposal, ProposalPart, Proposed, Realm, Refusal, Release, ReleaseId, Remote, RepoPath, Report,
+    Reports, Rev, Revision, Scope, Secret, Sent, SignInCode, SignInState, Site, SiteId, Standing,
+    Status, Step, StepPart, Sum, Tag, TagName, Target, TargetEdit, TargetId, Ticket, TicketDelta,
+    TicketDigest, TicketEvent, TicketKey, TicketWrites, Tickets, Token, Took, Unprepared, Unread,
+    WebLink, Whole, Whose, Window, WithCloser, Within, WorkItem,
 };
 
 /// How many seconds of failures a `Faulty` asks its ledger to keep: the
-/// health check's window.
-pub const FAILURES_KEPT: u32 = 600;
+/// health check's window. Owned by `health`, with the rule that asks.
+pub use crate::health::FAILURES_KEPT;
 
 /// A method of the tickets port, reads and writes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -695,7 +696,7 @@ impl<S: Site> Faulty<S> {
             holder,
             port,
             reports: Vec::new(),
-            told_down: false,
+            told_down: AtomicBool::new(false),
             log: self.log.clone(),
         }
     }
@@ -869,21 +870,9 @@ struct Wrap<H: ?Sized> {
     holder: Holder,
     port: PortName,
     reports: Vec<Report>,
-    told_down: bool,
+    told_down: AtomicBool,
     /// The world that logs the site's requests, if it names one.
     log: Option<World>,
-}
-
-/// Is this outcome a failure of the supplier, kept for the health check:
-/// an outage, a spent pool, or the factory's own sign-out. An odd answer,
-/// a failed check run (`Broken`) and another holder's sign-out are not.
-fn kept_failure(o: &Outcome, holder: &Holder) -> bool {
-    match o {
-        Outcome::Unavailable { why, .. } => *why != Passing::Broken,
-        Outcome::Spent { .. } => true,
-        Outcome::SignedOut => matches!(holder, Holder::Ours(_)),
-        _ => false,
-    }
 }
 
 impl<H: ?Sized> Wrap<H> {
@@ -964,7 +953,7 @@ impl<H: ?Sized> Wrap<H> {
                     return Some(Outcome::Spent { pool, until });
                 }
                 Ok(_) => {}
-                Err(_) => self.ledger_down(&w, now),
+                Err(_) => health::ledger_down(&*w.notices, &self.told_down, &w.host, w.realm, now),
             }
         }
         None
@@ -1002,66 +991,25 @@ impl<H: ?Sized> Wrap<H> {
             .map(|r| r.fault)
     }
 
-    /// Give the answer of an attempt to reach the site to each state
-    /// `health::keys` names (the host, the holder, the pool drawn on, and a
-    /// Spent's own pool), and raise each notice whose swap wins. A ledger
-    /// that fails fails toward reporting.
-    fn observe(&mut self, pools: &[Pool], seen: &Result<(), Outcome>) {
+    /// Give the answer of an attempt to reach the site to `health::observe`,
+    /// the one rule of the ledger and the sink, shared with the adapter's
+    /// anonymous handle. A ledger that fails fails toward reporting.
+    fn observe(&self, pools: &[Pool], seen: &Result<(), Outcome>) {
         let Some(w) = self.shared.watch.clone() else {
             return;
         };
         let now = w.clock.now();
-        for whose in health::keys(&self.holder, seen, pools) {
-            match w.ledger.health(&w.host, &whose) {
-                Ok(was) => {
-                    let (new, notice) = health::next(&w.host, &whose, w.realm, now, &was, seen);
-                    if new == was {
-                        continue;
-                    }
-                    match w.ledger.swap_health(&w.host, &whose, &was, &new) {
-                        Ok(true) => notice.into_iter().for_each(|n| w.notices.notice(n)),
-                        Ok(false) => {}
-                        Err(_) => {
-                            notice.into_iter().for_each(|n| w.notices.notice(n));
-                            self.ledger_down(&w, now);
-                        }
-                    }
-                }
-                Err(_) => {
-                    let healthy = HealthState::Healthy;
-                    let (_, notice) = health::next(&w.host, &whose, w.realm, now, &healthy, seen);
-                    notice.into_iter().for_each(|n| w.notices.notice(n));
-                    self.ledger_down(&w, now);
-                }
-            }
-        }
-        if let Err(o) = seen {
-            if kept_failure(o, &self.holder) {
-                let f = Failure {
-                    at: now,
-                    site: w.site.clone(),
-                    outcome: o.clone(),
-                };
-                if w.ledger.failed(&w.host, f, FAILURES_KEPT).is_err() {
-                    self.ledger_down(&w, now);
-                }
-            }
-        }
-    }
-
-    /// `Health::LedgerDown`, once per handle.
-    fn ledger_down(&mut self, w: &Watch, now: At) {
-        if self.told_down {
-            return;
-        }
-        self.told_down = true;
-        w.notices.notice(crate::Notice {
-            host: w.host.clone(),
-            whose: Whose::Host,
+        let o = health::Observer {
+            ledger: &*w.ledger,
+            sink: &*w.notices,
+            told_down: &self.told_down,
+            host: &w.host,
+            holder: &self.holder,
             realm: w.realm,
-            what: crate::Health::LedgerDown,
+            site: &w.site,
             at: now,
-        });
+        };
+        health::observe(&o, seen, pools);
     }
 
     fn report(&mut self, outcome: &Outcome) {

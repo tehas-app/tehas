@@ -2737,6 +2737,7 @@ fn health_held_calls_raise_no_recovered() {
         Op::Tickets(TicketsOp::Ticket).pool(),
         wired.world.now(),
     ));
+    assert_eq!(faulty.requests(), 0, "a held call sends nothing");
 }
 
 #[test]
@@ -2754,7 +2755,6 @@ fn health_a_held_read_raises_no_recovered() {
         wired.world.now(),
     ));
     assert_eq!(faulty.requests(), 0, "a held read sends nothing");
-    assert_eq!(faulty.requests(), 0, "a held call sends nothing");
 }
 
 #[test]

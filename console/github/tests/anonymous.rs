@@ -626,6 +626,56 @@ fn a_ledger_that_fails_fails_toward_reporting() {
     );
 }
 
+/// A budget that cannot be kept fails toward reporting on its own arm:
+/// the answer still goes to the caller, no health change is due (the call
+/// was answered), and the ledger is told down once per handle.
+#[test]
+fn a_budget_that_cannot_be_kept_fails_toward_reporting() {
+    struct BadBudget;
+
+    impl Ledger for BadBudget {
+        fn budget(&self, _: &HostId, _: &Holder, _: Pool) -> Result<Option<Budget>, LedgerDown> {
+            Ok(None)
+        }
+        fn put_budget(&self, _: &HostId, _: &Holder, _: Pool, _: Budget) -> Result<(), LedgerDown> {
+            Err(LedgerDown)
+        }
+        fn health(&self, _: &HostId, _: &Whose) -> Result<HealthState, LedgerDown> {
+            Ok(HealthState::Healthy)
+        }
+        fn swap_health(
+            &self,
+            _: &HostId,
+            _: &Whose,
+            _: &HealthState,
+            _: &HealthState,
+        ) -> Result<bool, LedgerDown> {
+            Ok(true)
+        }
+        fn failed(&self, _: &HostId, _: Failure, _: u32) -> Result<(), LedgerDown> {
+            Ok(())
+        }
+        fn failures(&self, _: &HostId, _: At) -> Result<Vec<Failure>, LedgerDown> {
+            Ok(Vec::new())
+        }
+    }
+
+    let stub = Stub::new("github-anonymous-budget-down");
+    let log = Arc::new(NoticeLog::new());
+    let site = site_told(REPO, &stub, Arc::new(BadBudget), Arc::clone(&log));
+    let mut h = site.code_host(&Actor::Anonymous, CALLER).unwrap();
+    assert!(
+        h.releases(ALL_MAX).is_ok(),
+        "the answer still goes to the caller"
+    );
+    assert!(h.releases(ALL_MAX).is_ok());
+    assert_eq!(
+        told(&log),
+        [(Whose::Host, Health::LedgerDown)],
+        "the ledger is told down once per handle, and the good answer changes no health"
+    );
+}
+
 /// The law of a held read runs on the adapter's handle too, not only on
 /// the fake: the ledger, the sink and the request count are the ones the
 /// handle was wired with.
