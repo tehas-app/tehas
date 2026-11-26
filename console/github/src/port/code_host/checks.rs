@@ -194,7 +194,8 @@ impl GitHub {
     /// runs, is asked the long way: so is a suite of GitHub Actions that
     /// holds a run of the name and whose workflow run the answer does not
     /// give, since a null there may be a refusal GitHub does not say, and
-    /// the runs cannot be folded by workflow without it. The long way is
+    /// the runs cannot be folded by workflow without it, and so is a run
+    /// the name's filter gave under another name. The long way is
     /// `branch_at`, then `checks_of`, whose
     /// outcomes and lines it then gives. A rate-limited answer is the
     /// priced budget spent; a call that fails without an answer fails as
@@ -314,9 +315,11 @@ fn read_branch_checks(data: Data, branch: &Branch, check: &str) -> Got<Asked> {
                     Some(t) => started(t.as_str()),
                 },
             };
-            if name == check {
-                runs.push((run, Check::new(name, status)));
+            // Never dropped: REST's `check_name` keeps what GitHub matched.
+            if name != check {
+                return Ok(Asked::Long);
             }
+            runs.push((run, Check::new(name, status)));
         }
     }
     if runs.len().saturating_add(contexts.len()) > ALL_MAX.get() as usize {

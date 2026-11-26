@@ -422,6 +422,32 @@ fn the_question_is_the_one_the_live_answer_was_recorded_for() {
     assert_eq!(asked[0], RECORDED_CALL);
 }
 
+/// A synthetic answer under `tests/synthetic/`.
+fn synthetic(path: &str) -> String {
+    let at = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/synthetic")
+        .join(path);
+    std::fs::read_to_string(&at).unwrap_or_else(|e| panic!("{}: {e}", at.display()))
+}
+
+/// A run the `checkName` filter gave whose name is not the one asked (as
+/// where GitHub matched it without regard to case) is never dropped: the
+/// answer is asked the long way, whose runs of the name it holds.
+#[test]
+fn a_run_of_another_name_in_the_answer_is_asked_the_long_way() {
+    let answers = vec![
+        Ok(synthetic("branch-checks/case-folded/question-main.json")),
+        Ok(live()),
+        Ok(rest(&format!("checks-{SHA}-1-name=verify.json"))),
+        Ok(rest(&format!("statuses-{SHA}-1.json"))),
+        Ok(rest(&format!("runs-{SHA}-1.json"))),
+    ];
+    let (mut gh, asked) = scripted(answers);
+    let (_, checks) = gh.branch_checks(&main(), Some("verify")).unwrap().unwrap();
+    assert_eq!(checks.overall, Overall::Fail);
+    assert_eq!(asked.lock().unwrap().len(), 5);
+}
+
 /// The arguments of `field(...)` in a query text.
 fn args_of<'q>(query: &'q str, field: &str) -> &'q str {
     let at = query.find(&format!("{field}(")).unwrap() + field.len() + 1;
