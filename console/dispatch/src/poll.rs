@@ -798,6 +798,22 @@ pub fn run_poll(
     rc
 }
 
+/// The board the poll reads its blockers through. One the wiring could not
+/// make leaves every blocker unreadable, so its issue stays held, and the
+/// poll says why.
+fn board_or_said(
+    made: tehas_ports::Got<Box<dyn tehas_ports::Board + Send>>,
+    said: &mut Vec<String>,
+) -> Option<Box<dyn tehas_ports::Board + Send>> {
+    made.map_err(|o| {
+        said.push(format!(
+            "the board could not be made ({}), so no blocker's state is read and every blocked issue stays held",
+            o.line()
+        ))
+    })
+    .ok()
+}
+
 // The poll's own parts, each made once by `run_poll`.
 #[allow(clippy::too_many_arguments)]
 fn body(
@@ -869,11 +885,12 @@ fn body(
     // wiring, with the same token and counted with the writes' calls.
     let gh_token = src.calls.gh_token.as_deref();
     let calls = w.port_calls.clone();
-    src.board = board(home, &w.repo, &w.gh, gh_token, w.bound, calls).ok();
+    let made = board(home, &w.repo, &w.gh, gh_token, w.bound, calls);
+    src.board = board_or_said(made, &mut src.said);
     let snap = snapshot(&mut src, settings);
     // What the reads met that their outcome alone does not say, once each:
-    // a code host that refused the branch's checks, and where the setup page
-    // says what its account needs.
+    // a board that could not be made, a code host that refused the branch's
+    // checks, and where the setup page says what its account needs.
     for line in std::mem::take(&mut src.said) {
         say(&format!("WARN: {line}"));
     }
@@ -1680,6 +1697,24 @@ mod tests {
         Err(tehas_ports::Outcome::Refused(
             tehas_ports::Refusal::Unsupported,
         ))
+    }
+
+    #[test]
+    fn a_board_not_made_is_said_and_reads_nothing() {
+        let mut said = Vec::new();
+        let made = no_board(
+            Path::new("/"),
+            "",
+            "",
+            None,
+            Duration::ZERO,
+            Default::default(),
+        );
+        assert!(super::board_or_said(made, &mut said).is_none());
+        assert_eq!(
+            said,
+            ["the board could not be made (refused: not supported here), so no blocker's state is read and every blocked issue stays held"]
+        );
     }
 
     #[test]
