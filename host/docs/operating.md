@@ -1624,7 +1624,8 @@ exits 78.
   commit of the branch work lands on, in one GraphQL question: the branch's
   head, its check runs, the workflow runs they belong to and the commit's
   statuses. Where GitHub cannot answer it whole, or refuses part of it, the
-  poll reads them one by one, in up to four reads
+  poll reads them one by one, in up to four reads more: up to five calls.
+  An App without `actions: read` pays the five on every poll
   ([the permission to read the checks](/github-app#the-permission-to-read-the-checks)).
   When it failed, timed out or could not start, the poll starts no cycle, no
   retry and no refresh, and says `holding: main is red at <sha>`, with the
