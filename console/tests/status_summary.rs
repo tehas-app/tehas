@@ -272,8 +272,8 @@ fn status_json_a_read_only_instance_says_so_the_snapshot_lists_what_its_starts_l
     assert_eq!(json_of(&r)["readOnly"], true);
     let s = w.live_json("status.json");
     assert_eq!(
-        field(&s["readOnly"]["starts"][0], &["issue", "how", "pr"]),
-        json!({"how":"cycle","issue":7,"pr":{"body":"The body.","branch":"feature/issue-7","title":"Fix the thing"}})
+        field(&s["readOnly"]["starts"][0], &["issue", "how", "change"]),
+        json!({"how":"cycle","issue":7,"change":{"body":"The body.","branch":"feature/issue-7","title":"Fix the thing"}})
     );
     assert_eq!(s["readOnly"]["on"], true);
 }
