@@ -1347,11 +1347,6 @@ adopter action as the pull request states them.
   history on the code host.
   Readers: the consumer that runs many factories, MCP clients, the
   end-to-end suite, plugins.
-- **The ports.** T4, spec `docs/specs/2026-11-22-ports.md`.
-  The ports themselves; their two settings are under
-  [Changed in 2.0](#changed-in-20).
-  Readers: adopters, the consumer that runs many factories where it keeps
-  an instance's settings.
 
 ## Features still being built
 
