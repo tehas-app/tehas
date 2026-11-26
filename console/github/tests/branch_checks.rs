@@ -406,6 +406,22 @@ fn query_of(call: &str) -> &str {
     call.split_once(" -f query=").map(|(_, q)| q).unwrap()
 }
 
+/// The call kit run #1 asked for `branch-checks/live/question-main.json`,
+/// as `out/calls.log` line 244 holds it (calls.log sha256
+/// d85f85ee4b5d06542b98cf2b610fdc89ac4bb38682124092c618a04671cd4084, as the
+/// run's manifest gives it), without its leading `gh`.
+const RECORDED_CALL: &str = "api graphql -F owner=tehas-app -F name=tehas-rec-branch-checks -f ref=refs/heads/main -f check=verify -f query=query($owner: String!, $name: String!, $ref: String!, $check: String!) { repository(owner: $owner, name: $name) { ref(qualifiedName: $ref) { name prefix target { __typename oid ... on Commit { checkSuites(first: 100) { totalCount nodes { databaseId app { databaseId slug } workflowRun { event workflow { databaseId } } checkRuns(first: 100, filterBy: {checkName: $check, checkType: ALL}) { totalCount nodes { databaseId name status conclusion startedAt } } } } status { contexts { context state } } } } } } }";
+
+/// The question asked is the one the live answer was recorded for: a change
+/// to the question cannot replay an answer to another one.
+#[test]
+fn the_question_is_the_one_the_live_answer_was_recorded_for() {
+    let (mut gh, asked) = scripted(vec![Ok(live())]);
+    gh.branch_checks(&main(), Some("verify")).unwrap();
+    let asked = asked.lock().unwrap();
+    assert_eq!(asked[0], RECORDED_CALL);
+}
+
 /// The arguments of `field(...)` in a query text.
 fn args_of<'q>(query: &'q str, field: &str) -> &'q str {
     let at = query.find(&format!("{field}(")).unwrap() + field.len() + 1;
