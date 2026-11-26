@@ -1047,6 +1047,12 @@ fn events(home: &Path) -> Dispatcher {
         // One write of the whole line, so O_APPEND keeps it whole beside the
         // other writers of the log.
         let whole = format!("{at} {line}\n");
+        // As `tehas stop` does before its marker: the log's directory is
+        // made if the home has none, so a command is never silenced into
+        // its own stderr by a missing logs/.
+        if let Some(dir) = log.parent() {
+            let _ = fs::create_dir_all(dir);
+        }
         let wrote = OpenOptions::new()
             .create(true)
             .append(true)
@@ -1344,7 +1350,7 @@ mod tests {
 
     // The factory's log, as `tehas limit` and `tehas drain` write their
     // event lines into it.
-    fn log_events(d: &TestDir) -> Vec<Value> {
+    fn log_events(d: &TestDir) -> Vec<tehas_ports::events::Envelope> {
         let log = logged(d);
         match fs::read_to_string(&log) {
             Ok(text) => text
@@ -1353,15 +1359,21 @@ mod tests {
                     l.split_once(" event {")
                         .map(|(_, rest)| format!("{{{rest}"))
                 })
-                .map(|json| serde_json::from_str(&json).expect("an event line"))
+                .map(|json| {
+                    serde_json::from_str(&json).expect("an event line")
+                })
                 .collect(),
             Err(_) => Vec::new(),
         }
     }
 
-    fn written_limit(d: &TestDir) -> Value {
-        serde_json::from_str(&fs::read_to_string(Home::new(d.path()).state(State::Limit)).unwrap())
-            .unwrap()
+    // The moment the file says the limit was set, as its text.
+    fn written_set(d: &TestDir) -> String {
+        let doc: Value = serde_json::from_str(
+            &fs::read_to_string(Home::new(d.path()).state(State::Limit)).unwrap(),
+        )
+        .unwrap();
+        doc["set"].as_str().unwrap_or_default().to_string()
     }
 
     #[test]
@@ -1371,15 +1383,16 @@ mod tests {
         set_in(&d, &["--cycles", "2"]);
         let all = log_events(&d);
         assert_eq!(all.len(), 1, "{all:?}");
-        assert_eq!(all[0]["event"], "factory.limit-changed");
-        assert_eq!(all[0]["data"]["state"], "ok");
-        assert_eq!(all[0]["data"]["cycles"], 2);
-        assert_eq!(all[0]["data"]["plan"], true);
+        assert_eq!(all[0].event.name(), tehas_ports::events::Name::FactoryLimitChanged);
+        let row = serde_json::to_value(&all[0]).unwrap();
+        assert_eq!(row["data"]["state"], "ok");
+        assert_eq!(row["data"]["cycles"], 2);
+        assert_eq!(row["data"]["plan"], true);
         // The key and `at` are the `set` beside the limit: the raiser, the
         // printer of `tehas limit --json` and a poll make one key.
-        let doc = written_limit(&d);
-        assert_eq!(all[0]["key"], doc["set"]);
-        assert_eq!(all[0]["at"], doc["set"]);
+        let doc = written_set(&d);
+        assert_eq!(row["key"], doc);
+        assert_eq!(row["at"], doc);
         // The same limit set again keeps its `set` and raises nothing.
         set_in(&d, &["--cycles", "2"]);
         assert_eq!(
@@ -1387,17 +1400,18 @@ mod tests {
             1,
             "the same limit set twice raises once"
         );
-        assert_eq!(written_limit(&d)["set"], doc["set"]);
+        assert_eq!(written_set(&d), doc);
         // A renewal that only moves `until` keeps `set` and raises nothing.
         set_in(&d, &["--cycles", "2", "--for", "600"]);
         assert_eq!(log_events(&d).len(), 1);
-        assert_eq!(written_limit(&d)["set"], doc["set"]);
+        assert_eq!(written_set(&d), doc);
         // Another limit raises again, with its own `set`.
         set_in(&d, &["--cycles", "1"]);
         let all = log_events(&d);
         assert_eq!(all.len(), 2);
-        assert_eq!(all[1]["data"]["cycles"], 1);
-        assert_ne!(all[1]["key"], doc["set"]);
+        let row = serde_json::to_value(&all[1]).unwrap();
+        assert_eq!(row["data"]["cycles"], 1);
+        assert_ne!(row["key"], doc);
     }
 
     #[test]
@@ -1415,13 +1429,14 @@ mod tests {
         assert_eq!(clear(&file), 0);
         let all = log_events(&d);
         assert_eq!(all.len(), 2);
-        assert_eq!(all[1]["event"], "factory.limit-changed");
-        assert_eq!(all[1]["data"]["state"], "none");
+        assert_eq!(all[1].event.name(), tehas_ports::events::Name::FactoryLimitChanged);
+        let row = serde_json::to_value(&all[1]).unwrap();
+        assert_eq!(row["data"]["state"], "none");
         // The file is gone: no `set` to read, so tehas keys the change on
         // the moment it made it.
-        assert!(all[1]["data"].get("set").is_none(), "{}", all[1]);
-        assert!(all[1]["data"].get("observed").is_some(), "{}", all[1]);
-        assert_eq!(all[1]["key"], all[1]["at"]);
+        assert!(row["data"].get("set").is_none(), "{row}");
+        assert!(row["data"].get("observed").is_some(), "{row}");
+        assert_eq!(row["key"], row["at"]);
         assert_eq!(clear(&file), 0);
         assert_eq!(log_events(&d).len(), 2, "clearing twice raises once");
         // An unreadable file is still a limit that was there.
@@ -1429,7 +1444,8 @@ mod tests {
         assert_eq!(clear(&file), 0);
         let all = log_events(&d);
         assert_eq!(all.len(), 3);
-        assert_eq!(all[2]["data"]["state"], "none");
+        let row = serde_json::to_value(&all[2]).unwrap();
+        assert_eq!(row["data"]["state"], "none");
     }
 
     #[test]
@@ -1440,11 +1456,12 @@ mod tests {
         drain_write(&file).unwrap();
         let all = log_events(&d);
         assert_eq!(all.len(), 1, "{all:?}");
-        assert_eq!(all[0]["data"]["cycles"], 0);
-        assert_eq!(all[0]["data"]["plan"], false);
-        assert_eq!(all[0]["data"]["reason"], "draining");
-        let doc = written_limit(&d);
-        assert_eq!(all[0]["key"], doc["set"]);
+        let row = serde_json::to_value(&all[0]).unwrap();
+        assert_eq!(row["data"]["cycles"], 0);
+        assert_eq!(row["data"]["plan"], false);
+        assert_eq!(row["data"]["reason"], "draining");
+        let doc = written_set(&d);
+        assert_eq!(row["key"], doc);
         // The same drained limit stands: nothing changed, nothing is raised.
         drain_write(&file).unwrap();
         assert_eq!(log_events(&d).len(), 1);
