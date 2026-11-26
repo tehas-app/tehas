@@ -4,7 +4,7 @@
 //! api/commands.txt for commands and flags, api/settings-rules.json for
 //! settings and roles, host/labels.tsv for labels, api/*.schema.json for
 //! the fields of the `--json` objects, and the MCP server's own tool table
-//! (tehas_mcp::tools::called) for the `tool` lines. What a feature still
+//! (mcp::tools::called) for the `tool` lines. What a feature still
 //! being built adds
 //! is left out (console/core/src/features.rs), unless the baseline had it
 //! before the feature became building, and so are the flags
@@ -218,7 +218,7 @@ fn surface() -> BTreeSet<String> {
     commands(&read("api/commands.txt"), &mut out);
     settings(&read("api/settings-rules.json"), &mut out);
     labels(&read("host/labels.tsv"), &mut out);
-    for name in tehas_mcp::tools::called() {
+    for name in mcp::tools::called() {
         out.insert(format!("tool {name}"));
     }
     for (object, schema) in schemas() {
@@ -279,8 +279,7 @@ fn the_baseline_lists_each_name_once() {
         assert!(seen.insert(name.clone()), "{BASELINE}: {name} twice");
         let kind = name.split(' ').next().unwrap_or_default();
         assert!(
-            ["command", "flag", "setting", "role", "label", "field", "tool"]
-                .contains(&kind),
+            ["command", "flag", "setting", "role", "label", "field", "tool"].contains(&kind),
             "{BASELINE}: {name:?} is of no kind"
         );
     }
