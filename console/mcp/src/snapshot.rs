@@ -8,7 +8,7 @@ use std::io::Read;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use tehas_core::file::READ_BOUND;
-use tehas_core::snapshot::API;
+use tehas_core::snapshot::{API, SESSIONS_SHAPE};
 use tehas_core::time::from_iso;
 
 pub const FILE: &str = "sessions.jsonl";
@@ -53,6 +53,12 @@ impl Snapshot {
         let head: Value = serde_json::from_str(&first).map_err(|_| bad("has no header"))?;
         if head["api"] != API {
             return Err(bad("has a header of another api"));
+        }
+        // The shape number says which release wrote the lines: 1.4.x named
+        // the pull request `pr` and 2.x `change`, so a stale file of the old
+        // shape is refused by name instead of answered without its links.
+        if head["sessions"] != SESSIONS_SHAPE {
+            return Err(bad("has a header of another shape: run tehas update, or analytics sessions, to rewrite it"));
         }
         let days = head["days"]
             .as_i64()

@@ -1,5 +1,5 @@
 /* Pixel: the factory as a 16-bit overworld, the look DESIGN.md describes.
-   Square corners, flat fills, hard shadows, one bitmap typeface.
+   Square corners, flat fills, hard shadows, one monospace typeface.
 
    A theme is one file, theme-<name>.css beside this one, that sets every token
    below; nothing else on the site names a colour, a typeface or a shadow. Every
@@ -8,18 +8,12 @@
    test/theme_test.sh checks that every theme sets the same tokens and that the
    pages use no others. Every colour here is twelve bits (#RGB). */
 
-@font-face {
-  font-family: Topaz;
-  src: url("/fun/TopazPlus_a1200_v1.0.ttf") format("truetype");
-  font-display: block;
-}
-
 :root {
   /* Type. Text is 16px and 32px in every theme: the layout counts on it. */
-  --font: Topaz, "Courier New", monospace;
-  --font-code: Topaz, "Courier New", monospace;
-  --font-smoothing: none;
-  /* The sizes of pages.css. Pixel keeps Topaz at its two sizes. */
+  --font: "Courier New", monospace;
+  --font-code: "Courier New", monospace;
+  --font-smoothing: auto;
+  /* The sizes of pages.css. Pixel keeps one face at two sizes. */
   --type-small: 16px;
   --type-body: 16px;
   --type-big: 32px;
@@ -56,7 +50,7 @@
   --frame: var(--edge) solid var(--line);
   --focus: 4px solid var(--text);
 
-  /* The dark screens: the monitor, the console, the charts and the game. */
+  /* The dark screens: the console and the charts. */
   --screen: #111;
   --screen-text: #fc6;
   --screen-quiet: #aab;
@@ -65,7 +59,7 @@
   --bar-text: var(--screen-text);
   --bar-quiet: var(--screen-quiet);
 
-  /* State, used only by the factory state tag and the analytics bars. */
+  /* State: the manual's run pill and closed epics, the kit's error edge. */
   --good: #8a5;
   --bad: #a32;
 
@@ -98,7 +92,7 @@
   --stage-ship: #357;
   --stage-ship-soft: #bce;
 
-  /* Canvas colours. A canvas cannot read var(), so theme.js reads these. */
+  /* Series colours, for a view that draws a chart: bands, then pieces. */
   --band-1: #ea3;
   --band-2: #4a9;
   --band-3: #c53;
@@ -112,10 +106,4 @@
   --piece-3: #7cb;
   --piece-4: #ccd;
   --piece-text: #144;
-  --game-ground: #222;
-  --game-floor: #445;
-  --game-shadow: #111;
-  --game-ball: #eec;
-  --game-paddle: #fc6;
-  --game-flash: #eec;
 }

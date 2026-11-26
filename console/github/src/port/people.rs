@@ -11,12 +11,30 @@ use std::sync::Arc;
 use crate::forge::uri;
 use crate::GitHub;
 use crate::{Access, AuthorisedCurl};
-use tehas_core::access;
 use tehas_core::accounts;
 use tehas_ports::{
-    Account, AccountKind, Got, Login, Outcome, Passing, Realm, Refusal, Secret, Sent, SignInCode,
-    SignInState, WebLink,
+    Account, AccountId, AccountKind, Got, Login, Outcome, Passing, Realm, Refusal, Secret, Sent,
+    SignInCode, SignInState, WebLink,
 };
+
+/// A person, as the code host's `GET /user` names them, before the login is
+/// folded into an [`Account`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Person {
+    pub id: AccountId,
+    pub login: String,
+}
+
+/// What a person's sign-in asks the code host: trade a code for the
+/// person's token, then who that token is. `Access` implements it over the
+/// adapter's authorised curl; a test gives its own.
+pub trait Trade: Send + Sync {
+    /// The person's token for the web flow's `code`. `Forbidden`: the code
+    /// host did not take it.
+    fn token(&self, code: &str) -> Got<String>;
+    /// Who `token` is.
+    fn user(&self, token: &str) -> Got<Person>;
+}
 
 /// The most characters of a code: GitHub's are 20 hex.
 const CODE_MAX: usize = 64;
@@ -58,7 +76,7 @@ pub struct PeopleClient {
 #[derive(Clone)]
 pub(crate) struct People {
     client: PeopleClient,
-    trade: Arc<dyn access::GitHub>,
+    trade: Arc<dyn Trade>,
 }
 
 impl People {
@@ -70,7 +88,7 @@ impl People {
     }
 
     /// The client, trading through `trade`.
-    pub(crate) fn trading(client: PeopleClient, trade: Arc<dyn access::GitHub>) -> People {
+    pub(crate) fn trading(client: PeopleClient, trade: Arc<dyn Trade>) -> People {
         People { client, trade }
     }
 }

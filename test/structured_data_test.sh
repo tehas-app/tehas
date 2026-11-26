@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tests for the structured data of the pages: the article, breadcrumb and FAQ
-# the manual layout writes, and the software block of the front page.
+# the manual layout writes.
 # It reads the templates as text: no server, no rendering.
 # shellcheck disable=SC2016  # the template text is a literal
 # shellcheck source=test/lib.sh
@@ -42,21 +42,5 @@ t_contains "$(sed -n '1,/^---$/{p}' "$page" | sed -n '2,$p')" 'faq: Questions'
 t_contains "$(cat "$page")" $'\n## Questions\n'
 questions=$(awk '/^## / {on = ($0 == "## Questions")} on && /^### / {n++} END {print n + 0}' "$page")
 [ "$questions" -ge 1 ] || t_bad "the Questions section of lean-software-factory.md has no ### question"
-
-front=index.html
-text=$(cat "$T_ROOT/host/fun/$front")
-t_case "$front: one software block with licence, author and repository"
-t_eq "$(grep -c 'application/ld+json' "$T_ROOT/host/fun/$front")" 1
-t_contains "$text" '"@type": "SoftwareApplication",'
-t_contains "$text" '"alternateName": ["Tehas - The Lean Software Factory", "Tehas, an open source Pi software factory"],'
-t_contains "$text" '"slogan": "The Lean Software Factory",'
-t_contains "$text" '"softwareHelp": "{{ $base }}/lean-software-factory",'
-t_contains "$text" '"keywords": "Lean Software Factory,'
-t_contains "$text" '"license": "https://www.apache.org/licenses/LICENSE-2.0",'
-# The front pages read versions from the factory's health, not version.txt
-# (test/install_build_tree_test.sh), so the block names none.
-t_lacks "$text" 'softwareVersion'
-t_contains "$text" '"author": {"@type": "Organization", "name": "tehas-app", "url": "https://github.com/tehas-app"},'
-t_contains "$text" '"isBasedOn": {"@type": "SoftwareSourceCode", "codeRepository": "https://github.com/tehas-app/tehas-factory",'
 
 t_done

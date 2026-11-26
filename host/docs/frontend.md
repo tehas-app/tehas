@@ -1,12 +1,12 @@
 ---
 title: The front end
-description: "How the dashboard and the front pages are built: the platform and Solid 2, the names, the island contract, page state and feeds, the styling rules, the kit and the byte budgets."
+description: "How the dashboard and the manual are built: the platform and Solid 2, the names, the island contract, page state and feeds, the styling rules, the kit and the byte budgets."
 ---
 
 # The front end
 
-This page is the contract for the pages a factory serves: the factory floor,
-the dashboard and the manual. It says
+This page is the contract for the pages a factory serves: the dashboard,
+which is the front page, and the manual. It says
 what a page may use, how its parts are named and split, and how big it may
 grow. Existing pages follow the rules as they are touched; a page moved to them
 looks the same before and after.
@@ -16,8 +16,8 @@ What is true today: the pages are static HTML and Caddy templates in
 The pages of an item, which the edge router serves, hold no script. The
 kit in `host/fun/kit/` holds Solid 2 and the island base. The plain dashboard
 is on it: its sections are the islands of `host/fun/factory/`
-([The plain dashboard](#the-plain-dashboard)). The factory floor still draws
-with plain scripts. The byte ratchet
+([The plain dashboard](#the-plain-dashboard)); the dock, the epics and the
+host messages beside them are plain scripts. The byte ratchet
 in [Budgets](#budgets) holds every page at its size today.
 
 ## The split
@@ -569,7 +569,6 @@ const said = live.error()?.data?.error;
 - A custom element gets `display: block` or `display: contents` in the kit's
   CSS, so an element that has not upgraded lays out as its children do.
 - A render module sets classes and `--tehas-…` properties, never colours.
-  Canvas code reads the tokens through `fun/theme.js`.
 - The kit and the pages use no inline style, so they work under a CSP with
   `style-src 'self'`: no `style="…"` in a template (the ratchet refuses it)
   and no `setAttribute("style")`. A value that must vary goes through a
@@ -591,7 +590,8 @@ the kit has no mode element.
 theme: the base, the top bar, the logo mark, the panels and the foot. Obeya and
 industry's workshop take them from a release by selector, top-level rules only,
 so a selector keeps its exact text from one release to the next. No page of
-tehas links the file; the floor draws its own in `game-view.css`.
+tehas links the file; the manual and the dashboard draw their own in
+`manual.css`.
 `test/theme_test.sh` holds the file to its 17 selectors and to the theme's
 tokens.
 
@@ -812,13 +812,12 @@ reads "loading", the lists are empty and the optional sections are hidden.
 | `tehas-factory-console` | `running.json`, `status.json` | The tabs of the cycles, the shown cycle's title and step, and the console |
 | `tehas-factory-issues` | `status.json` | One list, named by `list`: `queued`, `awaiting`, `stopped` or `completed` |
 | `tehas-factory-readonly` | `status.json` | What a read-only factory's starts left |
-| `tehas-factory-days` | `analytics.json` | Last 10 days |
 | `tehas-factory-previews` | `previews.json` | The previews |
 
 - Seven islands read `status.json` through one feed, polled every ten seconds;
-  `running.json` the same. `analytics.json` is read once a minute.
+  `running.json` the same.
 - A file that is not there leaves its island's server HTML: a host with no
-  previews or no report has those sections hidden, as before.
+  previews has that section hidden, as before.
   The section comes when the file does.
 - The host bridge's answer (`fun/host-bridge.js`) reaches the islands that
   draw tickets through the page store of `factory/bridge.state.js`.
@@ -834,8 +833,6 @@ reads "loading", the lists are empty and the optional sections are hidden.
   replaces its data, two equal answers in a row are one to a feed, the
   offset counts bytes where a text feed gives characters, and a 206, a 200
   and a 416 each mean something else to it.
-- A bar's length in "Last 10 days" is the custom property
-  `--tehas-factory-share`, which `factory/factory.css` reads.
 
 ## The live files and the pages
 
@@ -866,7 +863,6 @@ library solid <bytes>
 
 | Page | Made of |
 | --- | --- |
-| `floor` | `fun/index.html` |
 | `dashboard` | `docs/_layout.html` and `docs/dashboard.frag`, with the islands its tags load |
 | `manual` | `docs/_layout.html` |
 

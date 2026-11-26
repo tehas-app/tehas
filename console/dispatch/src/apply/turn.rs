@@ -145,6 +145,10 @@ impl Writer {
         let mut sid = String::new();
         let undo: Vec<String>;
         let input: PathBuf;
+        // The act to raise once the mark below takes the issue: a turn that
+        // gives up before it raises nothing, and the next poll's turn
+        // raises it once (T11.9).
+        let mut pending: Option<tehas_ports::events::TicketActed> = None;
         if first {
             // plan_brief: the approved text, kept for the turn's unit.
             let mut brief = format!("# {}\n\n{}\n", text(a, "title"), text(a, "body"));
@@ -189,10 +193,11 @@ impl Writer {
                 "--brief-file".into(),
                 file.to_string_lossy().into_owned(),
             ];
-            if a.get("auto")
+            let auto = a
+                .get("auto")
                 .and_then(Value::as_str)
-                .is_some_and(|x| !x.is_empty())
-            {
+                .is_some_and(|x| !x.is_empty());
+            if auto {
                 args.push("--auto".into());
             }
             let refs: Vec<&str> = args.iter().map(String::as_str).collect();
@@ -204,6 +209,27 @@ impl Writer {
                     &f,
                     log,
                 ));
+            }
+            // The person asked for this session; the act is raised below,
+            // once the mark takes the issue. The poll's own refine is the
+            // factory asking, so it offers none.
+            if !auto {
+                if let Some(at) = a
+                    .get("at")
+                    .and_then(Value::as_str)
+                    .and_then(tehas_core::time::from_iso_jq)
+                {
+                    pending = tehas_core::raise::acted(
+                        n,
+                        if refine {
+                            tehas_ports::Act::Refine
+                        } else {
+                            tehas_ports::Act::Plan
+                        },
+                        &by,
+                        at,
+                    );
+                }
             }
             let _ = std::fs::remove_file(&out);
             let _ = std::fs::remove_file(self.st(n, ".rc"));
@@ -356,6 +382,11 @@ impl Writer {
             ));
             return Then::End(1);
         }
+        // The mark took the issue: this is the turn the person asked for,
+        // and their act is raised here, once.
+        if let Some(p) = pending {
+            self.raise_one(p, log);
+        }
         let host = self.host.name.clone();
         let when = crate::decide::iso(tehas_core::time::now() as u64).replacen('T', " ", 1)[..16]
             .to_string();
@@ -423,7 +454,7 @@ impl Writer {
         }
         if first && self.host.read_only {
             let how = if refine { "refine" } else { "plan" };
-            if tehas_core::read_only::record(&self.home, n, how, &crate::decide::iso_now()).is_err()
+            if tehas_core::read_only::record(&self.home, n, how, &crate::clock::iso_now()).is_err()
             {
                 log.push(format!(
                     "WARN: read-only: the record of the start of #{n} could not be written"

@@ -264,19 +264,19 @@ fn tools_list_is_cacheable_and_in_order() {
     assert_eq!(res["ttlMs"], 30000);
     assert_eq!(res["cacheScope"], "private");
     assert_eq!(res["tools"][0]["name"], "factory_status");
-    // The sixteen of the catalog, then the two ticket tools.
+    // The fifteen of the catalog, then the two ticket tools.
     let tools = res["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 18);
-    assert_eq!(tools[16]["name"], "factory_ticket");
-    assert_eq!(tools[17]["name"], "factory_tickets");
+    assert_eq!(tools.len(), 17);
+    assert_eq!(tools[15]["name"], "factory_ticket");
+    assert_eq!(tools[16]["name"], "factory_tickets");
 }
 
-// A dashboard key is a key of the second list: it is served the four tools
+// A dashboard key is a key of the second list: it is served the three tools
 // that copy from live/, and every other tool is refused exactly as one the
 // server does not have, so the scope cannot be probed tool by tool. A full key
 // is unchanged.
 #[test]
-fn a_dashboard_key_sees_four_tools_and_no_more() {
+fn a_dashboard_key_sees_three_tools_and_no_more() {
     let d = "0123456789abcdefghijklmnopqrstuvwxyz";
     let keys = parse_keys(of(K1, d)).unwrap();
     let ask = |key: &str, method: &str, params: Value| -> Response {
@@ -312,19 +312,14 @@ fn a_dashboard_key_sees_four_tools_and_no_more() {
             .map(|t| t["name"].as_str().unwrap().to_string())
             .collect()
     };
-    // The four, in the order of the full list, and each described as it is to
+    // The three, in the order of the full list, and each described as it is to
     // a full key.
     assert_eq!(
         names(ask(d, "tools/list", json!({}))),
-        [
-            "factory_status",
-            "factory_issues",
-            "factory_endings",
-            "factory_stats"
-        ]
+        ["factory_status", "factory_issues", "factory_endings"]
     );
     let full = names(ask(K1, "tools/list", json!({})));
-    assert_eq!(full.len(), 18);
+    assert_eq!(full.len(), 17);
     // The same names, in the order the full list gives them, and the same
     // entries: `list_scoped` takes the entries of `list` and does not rewrite
     // a description or a schema for the shorter answer.
@@ -673,7 +668,10 @@ fn headers_must_mirror_the_body() {
                    "_meta": {"io.modelcontextprotocol/protocolVersion": MODERN}}})
     .to_string();
     let cases: [Vec<(&str, &str)>; 4] = [
-        vec![("Mcp-Method", "tools/call"), ("Mcp-Name", "factory_stats")],
+        vec![
+            ("Mcp-Method", "tools/call"),
+            ("Mcp-Name", "factory_endings"),
+        ],
         vec![("Mcp-Method", "tools/list"), ("Mcp-Name", "factory_status")],
         vec![("Mcp-Name", "factory_status")],
         vec![("Mcp-Method", "tools/call")],
@@ -759,7 +757,7 @@ fn a_legacy_client_initializes_and_calls_tools() {
         json!({})
     );
     let list = json_of(&legacy(Some(3), "tools/list", json!({})));
-    assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 18);
+    assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 17);
     let call = json_of(&legacy(
         Some(4),
         "tools/call",

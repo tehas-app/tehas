@@ -40,6 +40,11 @@ pub(crate) struct ItemRec {
     pub kind: Option<Kind>,
     pub priority: Priority,
     pub marks: Vec<Mark>,
+    /// The label names no mark gives (`World::label`), each with the
+    /// count of `marks` it stands after: the site holds labels in the
+    /// order they were put on, so a mark put on later stands after them.
+    /// None is a name a mark here gives (`holds_label`).
+    pub labels: Vec<(usize, String)>,
     pub target: Option<TargetId>,
     pub author: Option<Account>,
     pub editor: Option<Account>,
@@ -244,7 +249,7 @@ impl State {
         let (old, new) = (super::site::mark_name(from), super::site::mark_name(to));
         self.mark_ids.retain(|(n, _)| *n != new && *n != old);
         if let Some(id) = id {
-            self.mark_ids.push((new, id));
+            self.mark_ids.push((new.clone(), id));
         }
         let rename = |m: &mut Mark| {
             if m == from {
@@ -253,6 +258,9 @@ impl State {
         };
         for item in &mut self.items {
             item.marks.iter_mut().for_each(rename);
+            if item.marks.contains(to) {
+                item.labels.retain(|(_, n)| !super::same_label(n, &new));
+            }
             for e in &mut item.history {
                 if let crate::Happened::Marked(m) | crate::Happened::Unmarked(m) = &mut e.what {
                     rename(m);
@@ -654,6 +662,7 @@ impl State {
             kind: None,
             priority: Priority::Normal,
             marks: Vec::new(),
+            labels: Vec::new(),
             target: None,
             author,
             editor: None,

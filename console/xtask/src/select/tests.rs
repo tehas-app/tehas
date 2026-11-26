@@ -439,15 +439,9 @@ fn a_changelog_fragment_selects_the_test_files_that_name_changelog_d() {
 #[test]
 fn a_front_page_file_selects_the_node_test_that_loads_it() {
     let t = Tree::new();
-    t.file(
-        "test/brick_wall_test.mjs",
-        "// import(\"../host/fun/brick-wall.js\")\n",
-    )
-    .fake("a_test.sh", "nothing");
-    assert_eq!(
-        t.pick(&["host/fun/brick-wall.js"]),
-        "node test/brick_wall_test.mjs"
-    );
+    t.file("test/dock_test.mjs", "// import(\"../host/fun/dock.js\")\n")
+        .fake("a_test.sh", "nothing");
+    assert_eq!(t.pick(&["host/fun/dock.js"]), "node test/dock_test.mjs");
 }
 
 #[test]

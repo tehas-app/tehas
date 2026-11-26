@@ -869,6 +869,32 @@ exec 8>&-"#,
     assert_eq!(incoming(&w), 0);
 }
 
+/// A TERM the moment the directory appears, before unpack reads a byte: the
+/// handler must be in place by then.
+#[test]
+fn sigterm_as_the_directory_beside_the_home_is_made_removes_it() {
+    let w = host("sigterm-early");
+    let fifo = w.t().join("in");
+    let r = w.sh(&format!(
+        r#"mkfifo '{f}'
+for _ in $(seq 20); do
+  TEHAS_HOME='{d}' "$T_ROOT/bin/tehas" state unpack - <'{f}' >/dev/null 2>&1 &
+  u=$!
+  exec 8>'{f}'
+  until [ -d '{d}/../.tehas-incoming-'"$u" ] || ! kill -0 "$u" 2>/dev/null; do :; done
+  kill -TERM "$u"
+  wait "$u"
+  echo "rc $?"
+  exec 8>&-
+  compgen -G '{d}/../.tehas-incoming-*' >/dev/null && echo left && break
+done | sort | uniq -c"#,
+        f = s(&fifo),
+        d = s(&dst(&w))
+    ));
+    assert_eq!(r.out.trim(), "20 rc 143", "{}", r.out);
+    assert_eq!(incoming(&w), 0);
+}
+
 #[test]
 fn unpack_refuses_a_chain_of_links_that_climbs_out_of_its_directory() {
     let w = staged("chain");
@@ -1255,8 +1281,7 @@ fn set_user_version(db: &Path, v: u8) {
 }
 
 #[test]
-fn load_refuses_a_copy_of_a_newer_schema_naming_both_one_older_than_v0_30_0_and_an_unreadable_copy()
-{
+fn load_refuses_a_copy_of_a_newer_schema_naming_both_one_below_the_oldest_and_an_unreadable_copy() {
     let w = host("load-schema");
     let c = a_copy(&w);
     drain(&w);
@@ -1272,15 +1297,15 @@ fn load_refuses_a_copy_of_a_newer_schema_naming_both_one_older_than_v0_30_0_and_
             s(&c)
         )
     );
-    // 11 is one below the oldest schema this release migrates, the one
-    // v0.30.0 wrote.
-    set_user_version(&c, 11);
+    // 22 is one below the oldest schema this release migrates, the one
+    // v1.3.0 and later wrote.
+    set_user_version(&c, 22);
     let r = state(&w, &format!("load --from '{}'", s(&c)));
     rc(&r, 1);
     assert_eq!(
         r.out,
         format!(
-            "tehas state: the copy {} holds schema 11, older than v0.30.0 wrote; load it into a v0.30 release first",
+            "tehas state: the copy {} holds schema 22, older than v1.4 wrote; load it into a v1.4 release first",
             s(&c)
         )
     );

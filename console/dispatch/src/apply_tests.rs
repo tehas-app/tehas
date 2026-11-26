@@ -50,7 +50,7 @@ case "$name $1" in
   "store park-show") echo "{\"api\":1,\"verb\":\"park-show\",\"ok\":true,\"park\":$(cat "$d/park" 2>/dev/null || echo null)}" ;;
   "store approval-record")
     while [ $# -gt 0 ]; do [ "$1" != --input-file ] || cp "$2" "$d/input.json"; shift; done
-    echo '{"api":1,"verb":"approval-record","ok":true}' ;;
+    cat "$d/approved" 2>/dev/null || echo '{"api":1,"verb":"approval-record","ok":true}' ;;
   "start "*) : >"$d/started" ;;
   "status "*) echo "the status line" ;;
   "tidy "*) echo "the tidy line" ;;
@@ -137,7 +137,7 @@ impl tehas_ports::Writes for Logged {
         w: &tehas_ports::Write,
         _: &dyn tehas_ports::Blobs,
     ) -> tehas_ports::Got<tehas_ports::Receipt> {
-        use tehas_ports::{Outcome, Passing, Posted, Receipt, Refusal, Sent, WebLink, Write};
+        use tehas_ports::{At, Outcome, Passing, Posted, Receipt, Refusal, Sent, WebLink, Write};
         let line = sent(w);
         let log = self.dir.join("calls.log");
         let mut all = fs::read_to_string(&log).unwrap_or_default();
@@ -159,6 +159,18 @@ impl tehas_ports::Writes for Logged {
                     _ => Outcome::Refused(Refusal::Invalid),
                 });
             }
+        }
+        if matches!(w, Write::Close { .. }) {
+            // The site's time of the close, as the adapter answers it. A
+            // test names the seconds in a `closed-at` file, `none` stands
+            // for a site that answers no time, and no file is a fixed one.
+            let said = fs::read_to_string(self.dir.join("closed-at")).ok();
+            let at = match said.as_deref().map(str::trim) {
+                None => Some(At::new(1793008800)),
+                Some("none") => None,
+                Some(s) => s.parse::<i64>().ok().map(At::new),
+            };
+            return Ok(Receipt::Closed(at));
         }
         if !matches!(w, Write::TicketNote { .. }) {
             return Ok(Receipt::Done);
@@ -1610,6 +1622,59 @@ fn a_start_on_an_epics_approval_is_recorded_as_the_persons_label() {
     )));
 }
 
+/// The start that records a person's approval raises `ticket.acted` once,
+/// of the record the store answered, keyed on the label event's moment the
+/// record carries (T11.9). The factory's own givens are no acts of a
+/// person, and a record that is not an approval raises nothing.
+#[test]
+fn the_start_that_records_a_persons_approval_raises_its_act() {
+    let mut t = world();
+    fs::write(
+        t.dir.join("approved"),
+        r#"{"api":1,"verb":"approval-record","ok":true,"approval":{"issue":7,"at":1793008800,"by":"alice","how":"approved"}}"#,
+    )
+    .unwrap();
+    t.apply(json!([start_of(7, "approved")]));
+    let heard = t.heard.lock().unwrap().clone();
+    assert_eq!(heard.len(), 1, "{heard:?}");
+    let e: tehas_ports::events::Envelope =
+        serde_json::from_str(heard[0].strip_prefix("event ").unwrap()).unwrap();
+    assert_eq!(e.key.as_str(), "7@Approve@2026-10-26T10:00:00Z");
+    let tehas_ports::events::Event::TicketActed(p) = &e.event else {
+        panic!("{e:?}")
+    };
+    assert_eq!(p.act, tehas_ports::Act::Approve);
+    assert_eq!(p.by.login.as_str(), "alice");
+    assert_eq!(p.at, tehas_ports::At::new(1793008800));
+    // The answer holds no approval: nothing was recorded as an act.
+    let mut t = world();
+    t.apply(json!([start_of(7, "approved")]));
+    assert!(t.heard.lock().unwrap().is_empty());
+}
+
+/// The act is raised by the start whose claim took the issue, not by the
+/// one that recorded the approval (T11.9): a claim that fails raises
+/// nothing, and the next poll's claim raises the act once.
+#[test]
+fn a_start_whose_claim_fails_raises_nothing_and_the_next_raises_once() {
+    let mut t = world();
+    fs::write(
+        t.dir.join("approved"),
+        r#"{"api":1,"verb":"approval-record","ok":true,"approval":{"issue":7,"at":1793008800,"by":"alice","how":"approved"}}"#,
+    )
+    .unwrap();
+    t.fail("send", MARK7);
+    t.apply(json!([start_of(7, "approved")]));
+    assert!(t.heard.lock().unwrap().is_empty());
+    fs::remove_file(t.dir.join("fail-send")).unwrap();
+    t.apply(json!([start_of(7, "approved")]));
+    let heard = t.heard.lock().unwrap().clone();
+    assert_eq!(heard.len(), 1, "{heard:?}");
+    let e: tehas_ports::events::Envelope =
+        serde_json::from_str(heard[0].strip_prefix("event ").unwrap()).unwrap();
+    assert_eq!(e.key.as_str(), "7@Approve@2026-10-26T10:00:00Z");
+}
+
 #[test]
 fn a_read_only_start_that_worked_is_kept_on_record_and_one_that_failed_is_not() {
     let mut t = world();
@@ -1798,6 +1863,50 @@ fn a_claim_assigns_its_owner_last_and_stands_when_the_site_refuses() {
         &"WARN: could not assign #7 to carol, marking it running without an assignee".to_string()
     ));
     assert!(t.calls().iter().any(|c| c == "start 7"));
+}
+
+/// The site answered the claim's mark and the settle did not reach the
+/// store: the claim goes on as answered. The approval stays on record, the
+/// rest of the claim follows and the cycle starts, as it did before an
+/// unrecorded answer was a case of its own. Only a close takes the unknown
+/// path, whose fact the poll's settle raises once
+/// (a_close_answered_but_not_recorded_raises_once_from_the_settle).
+#[test]
+fn a_claim_answered_but_not_recorded_starts_the_cycle_it_was_approved_for() {
+    let who = tehas_ports::AccountId::new("904");
+    let mut t = world();
+    t.w.host.owner = "carol".into();
+    t.w.assignee = Some(who.clone());
+    // The running mark is the first journalled write of this start: the
+    // site made it and answered; only its settle is refused.
+    t.fail("store", "journal-settle --action 1");
+    let a = t.apply(json!([start_of(7, "approved")]));
+    assert_eq!(a.exit, None, "{:?}", a.log);
+    assert!(
+        !a.log
+            .iter()
+            .any(|l| l.contains("could not mark #7 as running")),
+        "{:?}",
+        a.log
+    );
+    // The answer itself settles it: no unknown read-back of the mark.
+    assert!(
+        !a.log.iter().any(|l| l.contains("did not answer was made")),
+        "{:?}",
+        a.log
+    );
+    let w = t.calls();
+    assert!(
+        !w.iter().any(|c| c.contains("--undo")),
+        "the approval was withdrawn: {w:?}"
+    );
+    // The claim went on as answered: the owner was assigned and the unit
+    // started.
+    assert!(t.writes().contains(&sent(&tehas_ports::Write::Assign {
+        ticket: key(7),
+        who,
+    })));
+    assert!(w.iter().any(|c| c.starts_with("start 7")), "{w:?}");
 }
 
 #[test]
@@ -3417,6 +3526,19 @@ fn a_refine_that_filed_replaces_its_issue() {
         ticket: key(7),
         reason: tehas_ports::CloseReason::NotPlanned,
     })));
+    // The close that landed is recorded once as `ticket.closed`, of the
+    // moment it landed (T11.9).
+    let heard = t.heard.lock().unwrap().clone();
+    assert_eq!(heard.len(), 1, "{heard:?}");
+    let e: tehas_ports::events::Envelope =
+        serde_json::from_str(heard[0].strip_prefix("event ").unwrap()).unwrap();
+    assert!(e.key.as_str().starts_with("7@"), "{:?}", e.key);
+    let tehas_ports::events::Event::TicketClosed(p) = &e.event else {
+        panic!("{e:?}")
+    };
+    assert_eq!(p.reason, tehas_ports::CloseReason::NotPlanned);
+    // The site answered the close with its own time: the event keys on it.
+    assert_eq!(p.at, tehas_ports::At::new(1793008800));
     let ledger = fs::read_to_string(Home::new(&t.w.home).state(State::Refined)).unwrap();
     assert!(ledger.contains(
         r#""source":7,"filed":9,"url":"https://github.com/example-owner/example-product/issues/9"}"#
@@ -3425,6 +3547,221 @@ fn a_refine_that_filed_replaces_its_issue() {
     // waits for nothing.
     assert!(Home::new(&t.w.home).state(State::DispatchAgain).exists());
     assert!(t.w.plans_ended.is_empty(), "{:?}", t.w.plans_ended);
+}
+
+// The refine label, as `host/labels.tsv` names it: the table owns the word.
+fn refine_word() -> String {
+    crate::read::board::fake::label_of_word("Act::Refine").expect("the table names refine")
+}
+
+#[test]
+fn a_close_the_journal_said_done_raises_no_ticket_closed() {
+    let mut t = world();
+    plan_row(
+        &t,
+        json!({"turns": 1, "session": "s-1", "label": refine_word()}),
+    );
+    fs::write(
+        t.dir.join("body-9"),
+        json!({"body": "The plan.\n## Later parts\nNone"}).to_string(),
+    )
+    .unwrap();
+    turn_ended(
+        &t,
+        7,
+        "0",
+        json!({"session": "s-1", "text": "Done.", "filed": ["https://github.com/example-owner/example-product/issues/9"]}),
+    );
+    // The poll's settle read the close done: an earlier call landed it.
+    // This poll must not close it again, and must not raise its
+    // `ticket.closed` a second time with a second moment.
+    let close = tehas_ports::Write::Close {
+        ticket: key(7),
+        reason: tehas_ports::CloseReason::NotPlanned,
+    };
+    let kept = tehas_core::journal::kept(&close).unwrap();
+    let k = looked_key(7, "", &json!(kept), &Value::Null);
+    t.w.looked.insert(k, Looked::Done(String::new()));
+    t.apply(json!([{"plan_collect": 7}]));
+    let w = t.writes();
+    assert!(!w.contains(&sent(&close)), "{w:?}");
+    let heard = t.heard.lock().unwrap().clone();
+    assert!(
+        heard.iter().all(|l| !l.contains("\"ticket.closed\"")),
+        "{heard:?}"
+    );
+}
+
+/// A site that answers the close with no time of it leaves the fact
+/// unraised, with one WARN: the key must be the site's moment, never one
+/// made up here.
+#[test]
+fn a_close_the_site_answered_without_a_time_raises_no_event() {
+    let mut t = world();
+    plan_row(
+        &t,
+        json!({"turns": 1, "session": "s-1", "label": refine_word()}),
+    );
+    fs::write(
+        t.dir.join("body-9"),
+        json!({"body": "The plan.\n## Later parts\nNone"}).to_string(),
+    )
+    .unwrap();
+    turn_ended(
+        &t,
+        7,
+        "0",
+        json!({"session": "s-1", "text": "Done.", "filed": ["https://github.com/example-owner/example-product/issues/9"]}),
+    );
+    fs::write(t.dir.join("closed-at"), "none\n").unwrap();
+    let a = t.apply(json!([{"plan_collect": 7}]));
+    assert!(
+        a.log
+            .iter()
+            .any(|l| l.contains("no time of it, so it raises no event")),
+        "{:?}",
+        a.log
+    );
+    let heard = t.heard.lock().unwrap().clone();
+    assert!(
+        heard.iter().all(|l| !l.contains("\"ticket.closed\"")),
+        "{heard:?}"
+    );
+}
+
+/// A close this poll sent and never saw answered, found closed by a later
+/// poll's settle: the settle raises `ticket.closed`, once, of the site's
+/// time from that read (T11.9).
+#[test]
+fn the_settle_raises_the_close_its_read_found_after_a_lost_answer() {
+    let mut t = world();
+    let close = tehas_ports::Write::Close {
+        ticket: key(7),
+        reason: tehas_ports::CloseReason::NotPlanned,
+    };
+    let kept = tehas_core::journal::kept(&close).unwrap();
+    left_open(
+        &t,
+        json!([{"id": 3, "kind": "close", "issue": 7, "state": "attempted",
+            "intended_at": 990, "attempted_at": 991,
+            "args": {"write": kept}}]),
+    );
+    let landed = tehas_ports::fake::World::new()
+        .ticket(7, |i| i.closed(tehas_ports::CloseReason::NotPlanned));
+    let closed_at = landed.now();
+    reads_from(&mut t, &landed);
+    let mut log = Vec::new();
+    t.w.settle(1000, &mut log);
+    assert_eq!(
+        log,
+        vec!["journal: action 3 (close on #7, 10s old) was done"]
+    );
+    assert!(
+        t.calls()
+            .iter()
+            .any(|c| c.starts_with("store journal-settle --action 3 --result ok")),
+        "{:?}",
+        t.calls()
+    );
+    let heard = t.heard.lock().unwrap().clone();
+    assert_eq!(heard.len(), 1, "{heard:?}");
+    let e: tehas_ports::events::Envelope =
+        serde_json::from_str(heard[0].strip_prefix("event ").unwrap()).unwrap();
+    let tehas_ports::events::Event::TicketClosed(p) = &e.event else {
+        panic!("{e:?}")
+    };
+    assert_eq!(p.reason, tehas_ports::CloseReason::NotPlanned);
+    assert_eq!(p.at, closed_at);
+    // The row settled: once it is out of the journal, the next settle reads
+    // none and raises nothing again.
+    fs::write(
+        t.dir.join("open"),
+        r#"{"api":1,"verb":"journal-open","ok":true,"actions":[]}"#,
+    )
+    .unwrap();
+    let mut log = Vec::new();
+    t.w.settle(1100, &mut log);
+    assert!(log.is_empty(), "{log:?}");
+    assert_eq!(t.heard.lock().unwrap().len(), 1);
+}
+
+/// The site answered the close and the settle did not reach the store:
+/// this poll says the answer and raises nothing, the row stays open, and
+/// the next poll's settle raises the close once, of the site's time and
+/// reason from its own read (T11.9). Without the rule, the answered poll
+/// and the settle would each raise the same key.
+#[test]
+fn a_close_answered_but_not_recorded_raises_once_from_the_settle() {
+    let mut t = world();
+    plan_row(
+        &t,
+        json!({"turns": 1, "session": "s-1", "label": refine_word()}),
+    );
+    fs::write(
+        t.dir.join("body-9"),
+        json!({"body": "The plan.\n## Later parts\nNone"}).to_string(),
+    )
+    .unwrap();
+    turn_ended(
+        &t,
+        7,
+        "0",
+        json!({"session": "s-1", "text": "Done.", "filed": ["https://github.com/example-owner/example-product/issues/9"]}),
+    );
+    // The close is the eighth journalled write of this refine: only its
+    // settle is refused. The close was sent and answered; nothing is
+    // raised from an answer the store did not take.
+    t.fail("store", "journal-settle --action 8");
+    t.apply(json!([{"plan_collect": 7}]));
+    let w = t.calls();
+    assert!(w.contains(&sent(&tehas_ports::Write::Close {
+        ticket: key(7),
+        reason: tehas_ports::CloseReason::NotPlanned,
+    })));
+    assert!(
+        w.iter()
+            .any(|c| c.starts_with("store journal-settle --action")),
+        "{w:?}"
+    );
+    let heard = t.heard.lock().unwrap().clone();
+    assert!(
+        heard.iter().all(|l| !l.contains("\"ticket.closed\"")),
+        "{heard:?}"
+    );
+    // The next poll: the store takes the calls again, and the settle reads
+    // the site closed. The row was never recorded done, so the settle is
+    // the process that proves the fact: it raises the close, once.
+    fs::remove_file(t.dir.join("fail-store")).unwrap();
+    let close = tehas_ports::Write::Close {
+        ticket: key(7),
+        reason: tehas_ports::CloseReason::NotPlanned,
+    };
+    let kept = tehas_core::journal::kept(&close).unwrap();
+    left_open(
+        &t,
+        json!([{"id": 3, "kind": "close", "issue": 7, "state": "attempted",
+            "intended_at": 990, "attempted_at": 991,
+            "args": {"write": kept}}]),
+    );
+    let landed = tehas_ports::fake::World::new()
+        .ticket(7, |i| i.closed(tehas_ports::CloseReason::NotPlanned));
+    let closed_at = landed.now();
+    reads_from(&mut t, &landed);
+    let mut log = Vec::new();
+    t.w.settle(1000, &mut log);
+    assert_eq!(
+        log,
+        vec!["journal: action 3 (close on #7, 10s old) was done"]
+    );
+    let heard = t.heard.lock().unwrap().clone();
+    assert_eq!(heard.len(), 1, "{heard:?}");
+    let e: tehas_ports::events::Envelope =
+        serde_json::from_str(heard[0].strip_prefix("event ").unwrap()).unwrap();
+    let tehas_ports::events::Event::TicketClosed(p) = &e.event else {
+        panic!("{e:?}")
+    };
+    assert_eq!(p.at, closed_at);
+    assert_eq!(p.reason, tehas_ports::CloseReason::NotPlanned);
 }
 
 #[test]
@@ -5112,6 +5449,59 @@ fn a_first_turn_writes_its_brief_begins_marks_says_and_starts_its_unit() {
     assert!(!unit.contains("--kind refine"));
 }
 
+/// The first turn begun on a person's label raises `ticket.acted` once,
+/// keyed on the moment the label event says (T11.9). A turn with no label
+/// event behind it, and the poll's own refine, are the factory asking and
+/// raise nothing.
+#[test]
+fn the_first_turn_begun_on_a_persons_label_raises_its_act() {
+    let mut t = world();
+    let mut turn = first_turn(7);
+    turn["at"] = json!("2026-10-25T09:00:00Z");
+    t.apply(json!([turn]));
+    let heard = t.heard.lock().unwrap().clone();
+    assert_eq!(heard.len(), 1, "{heard:?}");
+    let e: tehas_ports::events::Envelope =
+        serde_json::from_str(heard[0].strip_prefix("event ").unwrap()).unwrap();
+    assert_eq!(e.key.as_str(), "7@Plan@2026-10-25T09:00:00Z");
+    let tehas_ports::events::Event::TicketActed(p) = &e.event else {
+        panic!("{e:?}")
+    };
+    assert_eq!(p.act, tehas_ports::Act::Plan);
+    assert_eq!(p.by.login.as_str(), "alice");
+    // No label event's moment: no act to record.
+    let mut t = world();
+    t.apply(json!([first_turn(7)]));
+    assert!(t.heard.lock().unwrap().is_empty());
+    // The poll's own refine asks for nothing: no raise with the time still
+    // beside the turn.
+    let mut t = world();
+    let mut turn = first_turn(7);
+    turn["at"] = json!("2026-10-25T09:00:00Z");
+    turn["auto"] = json!("its cycle parked as push");
+    t.apply(json!([turn]));
+    assert!(t.heard.lock().unwrap().is_empty());
+}
+
+/// The act is raised by the turn whose mark took the issue (T11.9): a mark
+/// that fails raises nothing, and the next poll's turn raises the act once.
+#[test]
+fn a_turn_whose_mark_fails_raises_nothing_and_the_next_raises_once() {
+    let mut t = world();
+    let mut turn = first_turn(7);
+    turn["at"] = json!("2026-10-25T09:00:00Z");
+    t.fail("send", MARK7);
+    t.apply(json!([turn.clone()]));
+    assert!(t.heard.lock().unwrap().is_empty());
+    fs::remove_file(t.dir.join("fail-send")).unwrap();
+    t.apply(json!([turn]));
+    let heard = t.heard.lock().unwrap().clone();
+    assert_eq!(heard.len(), 1, "{heard:?}");
+    let e: tehas_ports::events::Envelope =
+        serde_json::from_str(heard[0].strip_prefix("event ").unwrap()).unwrap();
+    assert_eq!(e.key.as_str(), "7@Plan@2026-10-25T09:00:00Z");
+}
+
 #[test]
 fn a_first_turn_on_an_epics_approval_says_whose_epic_authorized_it() {
     let mut t = world();
@@ -6679,21 +7069,18 @@ fn a_write_row_of_the_ports_is_settled_by_the_read_its_kind_names() {
 /// no rule reads yet, and any row while the poll has no handles.
 #[test]
 fn a_write_row_no_read_can_tell_of_stays_open() {
-    use tehas_ports::{CloseReason, Write};
-    let close = Write::Close {
-        ticket: ticket_7(),
-        reason: CloseReason::Done,
-    };
+    use tehas_ports::Write;
+    let reopen = Write::Reopen { ticket: ticket_7() };
     let mut t = world();
     t.w.ports = Some(handles(&ports_world()));
-    left_open(&t, json!([open_write!(3, "issue-close", close)]));
+    left_open(&t, json!([open_write!(3, "issue-reopen", reopen)]));
     let mut log = Vec::new();
     t.w.settle(1000, &mut log);
     assert_eq!(log, vec![
-        "WARN: the journal's action 3 (issue-close on #7, 10s old) could not be settled: no read could tell whether it landed; the next poll tries again",
+        "WARN: the journal's action 3 (issue-reopen on #7, 10s old) could not be settled: no read could tell whether it landed; the next poll tries again",
     ]);
     assert!(settled(&t).is_empty());
-    let key = looked_key(7, "", &json!(close), &Value::Null);
+    let key = looked_key(7, "", &json!(reopen), &Value::Null);
     assert!(matches!(t.w.looked.get(&key), Some(Looked::Unread(_))));
 
     let mark = Write::Mark {

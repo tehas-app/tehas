@@ -107,6 +107,7 @@ use tehas_core::limit::{self as limit_file, leading_number};
 pub use tehas_core::limit::{oneline, REASON};
 use tehas_core::lock::{self, Probe};
 use tehas_core::time;
+use tehas_ports::events::Dispatcher;
 use tehas_ports::{Act, HappenedKind, Mark, TicketKey, Tickets, Window, ALL_MAX};
 
 /// The clock a run reads: the host's, or the whole number of seconds in
@@ -770,6 +771,20 @@ fn drain_report(said: &str, running: &[u64], passed: bool, limit: &str, json: bo
 /// The limit `tehas drain` sets, in the words of `tehas limit set`.
 const DRAIN: [&str; 6] = ["--cycles", "0", "--plan", "off", "--reason", "draining"];
 
+/// Writes the limit `tehas drain` sets and raises `factory.limit-changed`
+/// of the write that changed it, and of it alone: draining a drained
+/// factory writes the same limit and raises nothing.
+fn drain_write(file: &Path) -> Result<(), u8> {
+    let words = DRAIN.map(String::from);
+    let Ok(want) = set_args(&words) else {
+        return Err(64);
+    };
+    if write_limit(file, &want)? {
+        raise_written(file);
+    }
+    Ok(())
+}
+
 /// `tehas drain`: the limit of no new work, then the count of what still runs.
 pub fn drain(given: &[String]) -> u8 {
     let asked = match drain_words(given) {
@@ -782,11 +797,7 @@ pub fn drain(given: &[String]) -> u8 {
     };
     let here = Home::new(here);
     let file = here.state(State::Limit);
-    let words = DRAIN.map(String::from);
-    let Ok(want) = set_args(&words) else {
-        return 64;
-    };
-    if let Err(rc) = write_limit(&file, &want) {
+    if let Err(rc) = drain_write(&file) {
         return rc;
     }
     let said = read(&file, now()).said();
@@ -1009,14 +1020,59 @@ fn api(out: Reading) -> String {
 fn set(file: &Path, want: &Wanted) -> u8 {
     let before = read(file, now());
     match write_limit(file, want) {
-        Ok(()) => {
+        Ok(changed) => {
             let out = read(file, now());
             poll_if_raised(file, &before, &out);
+            // `factory.limit-changed` of a write that wrote another limit:
+            // a renewal that only moved `until` and the same limit set
+            // again keep their `set` and raise nothing (T11.9).
+            if changed {
+                raise_written(file);
+            }
             tehas_core::outln!("{}", if want.json { api(out) } else { out.said() });
             0
         }
         Err(rc) => rc,
     }
+}
+
+/// The dispatcher of the commands that write the limit: the factory's log
+/// listener, one line per event, as every other raiser writes.
+fn events(home: &Path) -> Dispatcher {
+    tehas_core::raise::factory_logged(home, "tehas limit")
+}
+
+/// The home whose `state/` holds the limit file, or nothing for a path that
+/// is not under a state directory.
+fn home_of(file: &Path) -> Option<&Path> {
+    file.parent().and_then(Path::parent)
+}
+
+fn warn(line: &str) {
+    eprintln!("tehas limit: {line}");
+}
+
+/// `factory.limit-changed` of the limit just written: `set` and the key are
+/// the time the write put beside the limit, so this raiser and a consumer
+/// that polls `tehas limit --json` make one key. A reading with no `set`
+/// raises nothing.
+fn raise_written(file: &Path) {
+    let Some(home) = home_of(file) else {
+        return;
+    };
+    if let Some(p) = tehas_core::raise::written_limit(&limit_file::read(file, now())) {
+        tehas_core::raise::raise(&events(home), p, &warn);
+    }
+}
+
+/// `factory.limit-changed` of a clear: the file is gone, there is no `set`
+/// to read, so tehas keys the change on the moment it made it.
+fn raise_cleared(file: &Path) {
+    let Some(home) = home_of(file) else {
+        return;
+    };
+    let p = tehas_core::raise::cleared_limit(now());
+    tehas_core::raise::raise(&events(home), p, &warn);
 }
 
 /// The cycles a reading lets run at once: no limit lets any number, and one
@@ -1059,7 +1115,10 @@ fn poll_if_raised(file: &Path, before: &Reading, after: &Reading) {
     }
 }
 
-fn write_limit(file: &Path, want: &Wanted) -> Result<(), u8> {
+/// Writes the limit. True when it wrote another limit than the one there:
+/// the same `cycles`, `plan` and `reason` is the same limit, so a renewal
+/// that only moves `until` keeps its `set` and raises no event.
+fn write_limit(file: &Path, want: &Wanted) -> Result<bool, u8> {
     // One moment for the whole write: the `until` of a `--for` counts from
     // the `set` beside it.
     let now = now();
@@ -1077,7 +1136,9 @@ fn write_limit(file: &Path, want: &Wanted) -> Result<(), u8> {
     // The three values are what a JSON document holds them as: a boolean, a
     // string or null, and a string with its escapes.
     let held = |text: &str| Value::String(text.to_string()).to_string();
-    let set = match limit_file::read(file, now).set_of(&cycles, plan, &reason, now) {
+    let before = limit_file::read(file, now);
+    let changed = !before.same(&cycles, plan, &reason);
+    let set = match before.set_of(&cycles, plan, &reason, now) {
         Some(set) => format!(",\"set\":{}", held(&set)),
         None => String::new(),
     };
@@ -1110,12 +1171,15 @@ fn write_limit(file: &Path, want: &Wanted) -> Result<(), u8> {
         eprintln!("tehas limit: could not write {}: {e}", file.display());
         return Err(1);
     }
-    Ok(())
+    Ok(changed)
 }
 
 fn clear(file: &Path) -> u8 {
     let before = read(file, now());
-    if file.symlink_metadata().is_ok() {
+    // There was a limit to clear only when a file was there: `tehas limit
+    // clear` of no limit raises nothing, and clearing twice raises once.
+    let had = file.symlink_metadata().is_ok();
+    if had {
         if let Err(e) = fs::remove_file(file) {
             eprintln!("tehas limit: could not remove {}: {e}", file.display());
             return 1;
@@ -1123,6 +1187,9 @@ fn clear(file: &Path) -> u8 {
     }
     let out = read(file, now());
     poll_if_raised(file, &before, &out);
+    if had {
+        raise_cleared(file);
+    }
     tehas_core::outln!("{}", out.said());
     0
 }
@@ -1249,6 +1316,141 @@ mod tests {
         set_in(&d, &["--cycles", "0"]);
         set_in(&d, &["--cycles", "2"]);
         assert!(!again.exists());
+    }
+
+    // A home whose logs/ stands, so the raiser's line lands where the test
+    // reads it.
+    fn logged(d: &TestDir) -> PathBuf {
+        let log = Home::new(d.path()).factory_log();
+        fs::create_dir_all(log.parent().unwrap()).unwrap();
+        log
+    }
+
+    // The factory's log, as `tehas limit` and `tehas drain` write their
+    // event lines into it.
+    fn log_events(d: &TestDir) -> Vec<tehas_ports::events::Envelope> {
+        let log = logged(d);
+        match fs::read_to_string(&log) {
+            Ok(text) => text
+                .lines()
+                .filter_map(|l| {
+                    l.split_once(" event {")
+                        .map(|(_, rest)| format!("{{{rest}"))
+                })
+                .map(|json| serde_json::from_str(&json).expect("an event line"))
+                .collect(),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    // The moment the file says the limit was set, as its text.
+    fn written_set(d: &TestDir) -> String {
+        let doc: Value = serde_json::from_str(
+            &fs::read_to_string(Home::new(d.path()).state(State::Limit)).unwrap(),
+        )
+        .unwrap();
+        doc["set"].as_str().unwrap_or_default().to_string()
+    }
+
+    #[test]
+    fn a_written_limit_raises_once_the_same_limit_raises_nothing() {
+        let d = dir("event-set");
+        logged(&d);
+        set_in(&d, &["--cycles", "2"]);
+        let all = log_events(&d);
+        assert_eq!(all.len(), 1, "{all:?}");
+        assert_eq!(
+            all[0].event.name(),
+            tehas_ports::events::Name::FactoryLimitChanged
+        );
+        let row = serde_json::to_value(&all[0]).unwrap();
+        assert_eq!(row["data"]["state"], "ok");
+        assert_eq!(row["data"]["cycles"], 2);
+        assert_eq!(row["data"]["plan"], true);
+        // The key and `at` are the `set` beside the limit: the raiser, the
+        // printer of `tehas limit --json` and a poll make one key.
+        let doc = written_set(&d);
+        assert_eq!(row["key"], doc);
+        assert_eq!(row["at"], doc);
+        // The same limit set again keeps its `set` and raises nothing.
+        set_in(&d, &["--cycles", "2"]);
+        assert_eq!(
+            log_events(&d).len(),
+            1,
+            "the same limit set twice raises once"
+        );
+        assert_eq!(written_set(&d), doc);
+        // A renewal that only moves `until` keeps `set` and raises nothing.
+        set_in(&d, &["--cycles", "2", "--for", "600"]);
+        assert_eq!(log_events(&d).len(), 1);
+        assert_eq!(written_set(&d), doc);
+        // Another limit raises again, with its own `set`.
+        set_in(&d, &["--cycles", "1"]);
+        let all = log_events(&d);
+        assert_eq!(all.len(), 2);
+        let row = serde_json::to_value(&all[1]).unwrap();
+        assert_eq!(row["data"]["cycles"], 1);
+        assert_ne!(row["key"], doc);
+    }
+
+    #[test]
+    fn a_clear_raises_observed_and_clearing_twice_raises_once() {
+        let d = dir("event-clear");
+        logged(&d);
+        let file = written(&d);
+        assert_eq!(clear(&file), 0);
+        assert!(
+            log_events(&d).is_empty(),
+            "a clear of no limit raises nothing"
+        );
+        set_in(&d, &["--cycles", "2"]);
+        assert_eq!(log_events(&d).len(), 1);
+        assert_eq!(clear(&file), 0);
+        let all = log_events(&d);
+        assert_eq!(all.len(), 2);
+        assert_eq!(
+            all[1].event.name(),
+            tehas_ports::events::Name::FactoryLimitChanged
+        );
+        let row = serde_json::to_value(&all[1]).unwrap();
+        assert_eq!(row["data"]["state"], "none");
+        // The file is gone: no `set` to read, so tehas keys the change on
+        // the moment it made it.
+        assert!(row["data"].get("set").is_none(), "{row}");
+        assert!(row["data"].get("observed").is_some(), "{row}");
+        assert_eq!(row["key"], row["at"]);
+        assert_eq!(clear(&file), 0);
+        assert_eq!(log_events(&d).len(), 2, "clearing twice raises once");
+        // An unreadable file is still a limit that was there.
+        fs::write(&file, "not a limit").unwrap();
+        assert_eq!(clear(&file), 0);
+        let all = log_events(&d);
+        assert_eq!(all.len(), 3);
+        let row = serde_json::to_value(&all[2]).unwrap();
+        assert_eq!(row["data"]["state"], "none");
+    }
+
+    #[test]
+    fn draining_raises_the_limit_once_and_draining_twice_raises_nothing() {
+        let d = dir("event-drain");
+        logged(&d);
+        let file = written(&d);
+        drain_write(&file).unwrap();
+        let all = log_events(&d);
+        assert_eq!(all.len(), 1, "{all:?}");
+        let row = serde_json::to_value(&all[0]).unwrap();
+        assert_eq!(row["data"]["cycles"], 0);
+        assert_eq!(row["data"]["plan"], false);
+        assert_eq!(row["data"]["reason"], "draining");
+        let doc = written_set(&d);
+        assert_eq!(row["key"], doc);
+        // The same drained limit stands: nothing changed, nothing is raised.
+        drain_write(&file).unwrap();
+        assert_eq!(log_events(&d).len(), 1);
+        // A drained limit that a person lifted is raised by the drain again.
+        set_in(&d, &["--cycles", "2"]);
+        drain_write(&file).unwrap();
+        assert_eq!(log_events(&d).len(), 3);
     }
 
     #[test]

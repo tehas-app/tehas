@@ -1,0 +1,1 @@
+| 2026-11-26 | The changelog is collected for v2.0.0-beta.1: the 8 fragments of `changelog.d/` are in the Unreleased section of `CHANGELOG.md`; it is collected again after the last beta.1 code pull requests land | beta/release-text-beta1 |

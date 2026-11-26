@@ -28,8 +28,6 @@ pub enum State {
     BotLogin,
     /// What the last poll logged of the branch check.
     BranchCheck,
-    /// When the word list was last read.
-    Buzzwords,
     /// The last result of `tehas check-product`.
     CheckProduct,
     /// Held while `tehas clean` runs.
@@ -103,8 +101,6 @@ pub enum State {
     RukasImage,
     /// The pi-rukas commit last asked of upstream.
     RukasTarget,
-    /// The ledger of the sizes of the issues started.
-    Sizes,
     /// The record of the starts.
     Starts,
     /// The state store.
@@ -128,7 +124,6 @@ impl State {
             State::Backups => "state/backup",
             State::BotLogin => "state/github/login",
             State::BranchCheck => "state/branch-check",
-            State::Buzzwords => "state/buzzwords.at",
             State::CheckProduct => "state/check-product.json",
             State::CleanLock => "state/clean.lock",
             State::CodeIndex => "state/index",
@@ -165,7 +160,6 @@ impl State {
             State::ReleaseHistory => "state/release-history",
             State::RukasImage => "state/rukas-image",
             State::RukasTarget => "state/rukas-target",
-            State::Sizes => "state/sizes.jsonl",
             State::Starts => "state/starts.json",
             State::StoreDb => "state/tehas.db",
             State::UpdateHold => "state/update-hold",
@@ -441,7 +435,6 @@ mod tests {
             (State::Backups, "/h/state/backup"),
             (State::BotLogin, "/h/state/github/login"),
             (State::BranchCheck, "/h/state/branch-check"),
-            (State::Buzzwords, "/h/state/buzzwords.at"),
             (State::CheckProduct, "/h/state/check-product.json"),
             (State::CleanLock, "/h/state/clean.lock"),
             (State::CodeIndex, "/h/state/index"),
@@ -478,7 +471,6 @@ mod tests {
             (State::ReleaseHistory, "/h/state/release-history"),
             (State::RukasImage, "/h/state/rukas-image"),
             (State::RukasTarget, "/h/state/rukas-target"),
-            (State::Sizes, "/h/state/sizes.jsonl"),
             (State::Starts, "/h/state/starts.json"),
             (State::StoreDb, "/h/state/tehas.db"),
             (State::UpdateHold, "/h/state/update-hold"),

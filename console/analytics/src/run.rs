@@ -28,7 +28,7 @@
 //!   result, schema 3, 4 or 5, {schemaVersion, buildVersion, buildCommit,
 //!   exitCode, issues: [{issue, status, durationMs, steps: [{step,
 //!   startedAt, endedAt}], exitCode, usage: {input, output, cacheRead,
-//!   cacheWrite, cost, turns, dispatches, toolCalls, toolErrors, byRole:
+//!   cacheWrite, turns, dispatches, toolCalls, toolErrors, byRole:
 //!   {<role>: {...}}}, driver, cap, failedStep, parkReason, failure: {kind,
 //!   step, role, cause}}]}. toolCalls, toolErrors and driver are pi-rukas's
 //!   `usageTools` (v0.14.66), absent before it. Read
@@ -80,16 +80,16 @@ const MAX_FILE: u64 = 16 << 20;
 // The progress stream can be long; only the lines the run is read from are.
 const MAX_STREAM: u64 = 256 << 20;
 // The most runs of the gate one cycle's rows may hold. A cycle makes a handful
-// of them; the bound is a guard, not a figure the report reads.
+// of them; the bound is a guard.
 pub(crate) const MAX_GATE_RUNS: usize = 500;
 // The most milliseconds one run of the gate may claim, with the same headroom
 // as the bound above: three times the longest run the host allows
 // (TEHAS_VERIFY_TIMEOUT, 30 minutes by default, which tehas-cycle work enforces).
-// The report publishes these milliseconds, so the column's name has to be
-// typed somewhere at the read boundary rather than trusted from the stream.
+// The copy holds these milliseconds, so they are bounded at the read boundary
+// rather than trusted from the stream.
 pub(crate) const MAX_GATE_MS: i64 = 5_400_000;
 const CAUSE_CHARS: usize = 200;
-/// The words of `runs.driver`, in the order the report lists them. A run with
+/// The words of `runs.driver`. A run with
 /// no driver on record is classic.
 pub(crate) const DRIVERS: [&str; 2] = ["classic", "lean"];
 
@@ -129,7 +129,6 @@ pub struct Run {
     pub cache_write: Option<i64>,
     pub turns: Option<i64>,
     pub dispatches: Option<i64>,
-    pub cost: Option<f64>,
     pub oom_kills: Option<i64>,
     pub forks_refused: Option<i64>,
     pub concurrent: Option<i64>,
@@ -152,8 +151,8 @@ impl Run {
     /// The two gate columns as one fact: how many runs of the gate the stream
     /// held and their milliseconds in all. A run that held none, or none whose
     /// runner timed any of them, is no figure at all, which is what the NULLs
-    /// of the two columns mean. Both are kept together, as the report reads
-    /// them together.
+    /// of the two columns mean. Both are kept together, as a reader of the
+    /// copy reads them together.
     fn gate(&self) -> Option<(i64, i64)> {
         let total = self.gates.iter().map(|g| g.ms.unwrap_or(0)).sum::<i64>();
         (!self.gates.is_empty() && total > 0).then_some((self.gates.len() as i64, total))
@@ -194,7 +193,6 @@ pub struct Role {
     pub output: Option<i64>,
     pub cache_read: Option<i64>,
     pub cache_write: Option<i64>,
-    pub cost: Option<f64>,
     pub ms: Option<i64>,
     pub tool_calls: Option<i64>,
     pub tool_errors: Option<i64>,
@@ -218,7 +216,7 @@ pub struct Given {
 }
 
 /// The most steps one driver's record may give the run. A lean run makes a
-/// dozen of them; the bound is a guard, not a figure the report reads.
+/// dozen of them; the bound is a guard.
 pub const MAX_LEAN_STEPS: usize = 200;
 
 /// Bytes of the kept record the reader takes. The cycle copies a record of up
@@ -417,7 +415,7 @@ pub fn read(home: &Path, issue: i64, given: &Given) -> Result<Run, String> {
     // Only a lean run leaves the driver's record behind, and its steps are the
     // driver's own account of the run, so they stand for the run's steps in
     // place of what the stream held. They go into run_steps as any run's do, so
-    // the report reads them by the run and never by the issue.
+    // a reader takes them by the run and never by the issue.
     if run.driver.as_deref() == Some("lean") {
         if let Some(kept) = lean_steps(home, issue) {
             let mut rounds: BTreeMap<String, i64> = BTreeMap::new();
@@ -521,7 +519,6 @@ fn read_entry(run: &mut Run, e: &Map<String, Value>) {
         run.dispatches = number(u, "dispatches");
         run.tool_calls = number(u, "toolCalls");
         run.tool_errors = number(u, "toolErrors");
-        run.cost = u.get("cost").and_then(Value::as_f64).filter(|c| *c >= 0.0);
         if let Some(by) = u.get("byRole").and_then(Value::as_object) {
             run.roles = by
                 .iter()
@@ -570,7 +567,6 @@ fn role(name: String, r: &Map<String, Value>) -> Option<Role> {
         output: number(r, "output"),
         cache_read: number(r, "cacheRead"),
         cache_write: number(r, "cacheWrite"),
-        cost: r.get("cost").and_then(Value::as_f64).filter(|c| *c >= 0.0),
         ms: number(r, "ms").or_else(|| number(r, "durationMs")),
         tool_calls: number(r, "toolCalls"),
         tool_errors: number(r, "toolErrors"),
@@ -601,12 +597,12 @@ pub fn insert(conn: &Connection, run: &Run) -> rusqlite::Result<()> {
            outcome, status, exit_code, last_step, failed_step, cap, park_reason, review_held,
            failure_kind, failure_cause, provider_outage, endpoint, pr, tehas_version,
            tehas_commit, rukas_version, rukas_commit, image, input, output, cache_read,
-           cache_write, turns, dispatches, cost, oom_kills, forks_refused, concurrent,
+           cache_write, turns, dispatches, oom_kills, forks_refused, concurrent,
            runner_ms, result_schema, gate_runs, gate_ms, driver, tool_calls, tool_errors,
            result_driver)
          VALUES (?1, 'work', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
            ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32,
-           ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44)",
+           ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43)",
         params![
             run.id,
             run.issue,
@@ -640,7 +636,6 @@ pub fn insert(conn: &Connection, run: &Run) -> rusqlite::Result<()> {
             run.cache_write,
             run.turns,
             run.dispatches,
-            run.cost,
             run.oom_kills,
             run.forks_refused,
             run.concurrent,
@@ -665,8 +660,8 @@ pub fn insert(conn: &Connection, run: &Run) -> rusqlite::Result<()> {
     for r in &run.roles {
         tx.execute(
             "INSERT OR REPLACE INTO run_roles (run_id, role, model, provider, dispatches, turns,
-               input, output, cache_read, cache_write, cost, ms, tool_calls, tool_errors)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+               input, output, cache_read, cache_write, ms, tool_calls, tool_errors)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 run.id,
                 r.role,
@@ -678,7 +673,6 @@ pub fn insert(conn: &Connection, run: &Run) -> rusqlite::Result<()> {
                 r.output,
                 r.cache_read,
                 r.cache_write,
-                r.cost,
                 r.ms,
                 r.tool_calls,
                 r.tool_errors
@@ -901,9 +895,7 @@ fn number(o: &Map<String, Value>, key: &str) -> Option<i64> {
     o.get(key).and_then(Value::as_i64).filter(|n| *n >= 0)
 }
 
-/// A whole number of no more than `max`, which is how a figure the report
-/// publishes is read: a value above it is no figure rather than a bound the
-/// published report cannot hold.
+/// A whole number of no more than `max`: a value above it is no figure.
 fn bounded(o: &Map<String, Value>, key: &str, max: i64) -> Option<i64> {
     number(o, key).filter(|n| *n <= max)
 }

@@ -17,7 +17,6 @@ use std::path::Path;
 pub enum Shape {
     Text,
     Int,
-    Real,
     Bool,
     Time,
 }
@@ -28,7 +27,6 @@ impl Shape {
         match self {
             Shape::Text | Shape::Time => "string",
             Shape::Int => "integer",
-            Shape::Real => "number",
             Shape::Bool => "boolean",
         }
     }
@@ -40,14 +38,17 @@ pub type Field = (&'static str, Shape, &'static str);
 
 /// The api version of a snapshot header and of an answer.
 pub const API: i64 = 1;
-/// The shape number a sessions header carries, and the one its reader expects.
-pub const SESSIONS_SHAPE: i64 = 1;
+/// The shape number a sessions header carries, and the one its reader
+/// expects. Shape 1 is what 1.4.x wrote, whose lines named the pull request
+/// `pr`; 2.x names it `change`, so a file of shape 1 is refused by name
+/// rather than answered without its links.
+pub const SESSIONS_SHAPE: i64 = 2;
 /// The shape number an outcomes header carries, and the one its reader expects.
 pub const OUTCOMES_SHAPE: i64 = 1;
 
 /// The fields of a session, in the order the writer selects them. `concurrent`
 /// is last, and it is the one field only a full session answers.
-pub const RUN_FIELDS: [Field; 40] = [
+pub const RUN_FIELDS: [Field; 39] = [
     ("id", Shape::Text, "The session id, like work-12-1792485967."),
     ("kind", Shape::Text, "work or plan."),
     ("issue", Shape::Int, "The issue number."),
@@ -97,7 +98,7 @@ pub const RUN_FIELDS: [Field; 40] = [
         "Whether a model provider outage caused it.",
     ),
     ("endpoint", Shape::Text, "The model endpoint it used."),
-    ("pr", Shape::Int, "The pull request number."),
+    ("change", Shape::Int, "The number of the change the run opened."),
     ("tehasVersion", Shape::Text, "The tehas version it ran."),
     ("tehasCommit", Shape::Text, "The tehas commit it ran."),
     ("rukasVersion", Shape::Text, "The pi-rukas version it ran."),
@@ -119,7 +120,6 @@ pub const RUN_FIELDS: [Field; 40] = [
     ("cacheWrite", Shape::Int, "Tokens written to the cache."),
     ("turns", Shape::Int, "Model turns."),
     ("dispatches", Shape::Int, "Model dispatches."),
-    ("cost", Shape::Real, "Model cost as the runner reported it."),
     ("runnerMs", Shape::Int, "Milliseconds the runner ran."),
     ("oomKills", Shape::Int, "Processes killed for memory."),
     (
@@ -144,7 +144,7 @@ pub const STEP_FIELDS: [Field; 5] = [
 ];
 
 /// The fields of one role's model use in a session.
-pub const ROLE_FIELDS: [Field; 11] = [
+pub const ROLE_FIELDS: [Field; 10] = [
     (
         "role",
         Shape::Text,
@@ -158,7 +158,6 @@ pub const ROLE_FIELDS: [Field; 11] = [
     ("output", Shape::Int, "Output tokens."),
     ("cacheRead", Shape::Int, "Tokens read from the cache."),
     ("cacheWrite", Shape::Int, "Tokens written to the cache."),
-    ("cost", Shape::Real, "Model cost as the runner reported it."),
     ("ms", Shape::Int, "Milliseconds of model time."),
 ];
 
@@ -302,7 +301,6 @@ mod tests {
         assert_eq!(Shape::Text.json_type(), "string");
         assert_eq!(Shape::Time.json_type(), "string");
         assert_eq!(Shape::Int.json_type(), "integer");
-        assert_eq!(Shape::Real.json_type(), "number");
         assert_eq!(Shape::Bool.json_type(), "boolean");
     }
 

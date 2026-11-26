@@ -4,6 +4,10 @@
 //! node ids, the owner's issue types, the laws over the same answers, and
 //! the questions asked for them. `live/` and `personal/` are live
 //! read-only answers of a public repository; the rest are made by hand.
+//! `tests/synthetic/vocabulary/garbled/` holds the answers that are not
+//! JSON.
+
+mod answers;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -79,11 +83,17 @@ impl GhRunner for Replay {
             panic!("no recording answers {query}")
         };
         let name = format!("{read}-{}", field(args, "cursor").unwrap_or("first"));
-        let at = here().join("tests/recorded/vocabulary").join(&self.state);
-        if let Ok(out) = std::fs::read_to_string(at.join(format!("{name}.json"))) {
+        let read = |ext: &str| {
+            std::fs::read_to_string(answers::at(
+                "vocabulary",
+                &self.state,
+                &format!("{name}.{ext}"),
+            ))
+        };
+        if let Ok(out) = read("json") {
             return Ok(out);
         }
-        match std::fs::read_to_string(at.join(format!("{name}.fail"))) {
+        match read("fail") {
             Ok(why) => Err(why.trim_end().to_string()),
             Err(_) => Err(format!("no recording of {name} in {}", self.state)),
         }

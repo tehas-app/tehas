@@ -7,7 +7,7 @@ description: "The files that feed the dashboard, and what watches the host's hea
 
 ## tehasbot status and the console
 
-Feed the [factory floor](/floor) and the [plain dashboard](/dashboard). `tehasbot status` writes the queue snapshot to
+Feed the [plain dashboard](/dashboard). `tehasbot status` writes the queue snapshot to
 `~/tehas/live/status.json`; the dispatcher runs it at the start of a poll only
 when that file is five minutes old or missing, and after any poll that changed
 the queue, and a cycle when it ends. An idle poll whose file the last poll wrote
@@ -66,7 +66,7 @@ issue, the one `TEHAS_CONTROL_ISSUE` names, is left out of every list and every
 count: it holds the pause label and is not work, whatever label it carries.
 
 `tehasbot status` also writes `~/tehas/live/epics.json`, the epics panel of
-the front page: every open issue with sub-issues, GitHub's own links, newest
+the dashboard: every open issue with sub-issues, GitHub's own links, newest
 first, with GitHub's count of its sub-issues and how many are closed, and its
 sub-issues in their order with their state. Only sub-issues of the instance's
 repository are named; one elsewhere is counted in `more` and not named. A closed
@@ -100,51 +100,6 @@ or runs out of time is a line `WARN analytics event: exit N` on standard error
 and changes nothing in the snapshot. Its event is lost: the next run compares
 with the new snapshot and does not try it again.
 `TEHAS_ANALYTICS=off` makes no call.
-
-At the end of every run, also one that ends early because GitHub does not
-answer, `tehasbot status` writes `~/tehas/live/analytics.json`, the ten-day
-report of the factory's analytics, from `~/tehas/libexec/analytics report
---json`. It writes `analytics.json.new` and moves it into place, and keeps only
-the top-level keys it names, so a key the program adds later is not published
-until someone adds it to that list in `console/src/publish.rs`. The call has the same
-5-second limit. A report that fails or is not one is a line `WARN analytics
-report: ...` on standard error; the file that is there stays while it is less
-than ten minutes old, so one poll that meets a locked database does not empty
-the dashboard's section, and is removed after that, so a database that keeps
-failing does not show old figures. With `TEHAS_ANALYTICS=off`, or where the
-program is not installed, there is no file.
-
-The file is public, as `status.json` is. It holds counts, durations, token
-sums, version strings and the words of stop reasons and steps: no issue
-number, title, failure cause, account, model or provider. A stop reason or a
-step that is not a plain word (`a-z`, `0-9`, `:`, `_`, `-`, up to 60
-characters) is counted as `other`. Every figure carries its count `n`, and a
-value that cannot be worked out, such as a share of nothing, is left out
-rather than written as null. Durations are seconds, times Unix seconds.
-
-The window is ten UTC days: from midnight nine days before today to the time
-of the report. Run figures count the work runs that ended in it; planning
-turns are only counted.
-
-| Key | What it is |
-| --- | --- |
-| `report` | The version of this shape, `1` |
-| `from`, `to` | The window |
-| `shipped` | `n`: issues whose merge is in the window, by their `merged` event or a run that merged |
-| `planned` | Work to do, from the latest sample: `n` is `inLine` plus `planning`; `trend` is one `{day, n}` per day, the day's last sample, `n` left out on a day with none. Left out with no sample |
-| `runs` | `n` work runs, and how many ended as `offered`, `merged`, `handoff`, `parked`, `failed`, `refused` and `stopped` |
-| `planningTurns` | `n` planning turns that ended |
-| `handoffRate` | `share` of the `n` runs that ended needing a person: handed off or parked |
-| `firstPassYield` | `share` of the `n` shipped issues with a run here that took exactly one work run |
-| `leadTime` | `median` and `p90` seconds from the first accepted `tehas:ready` to the merge, over `n` shipped issues whose `ready` is still in the database |
-| `cycleTime` | `median` and `p90` seconds of the `n` runs |
-| `machineTime` | `seconds` of all `n` runs, and `perShipped` |
-| `tokens` | `total`, `input`, `output` and `cacheRead` of the `n` runs that reported usage, and `perShipped`: the total over the `shipped` issues it counts. A shipped issue whose runs all reported no usage is not one of them: an empty count is no zero |
-| `availability` | `share` of the `seconds` since the first sample in the window that the factory could take work, from `n` samples. A sample counts for the time to the next, at most ten minutes, and only when it says not paused and either no hold or cycles running (slots that are full are not down time); a stretch with no samples counts as not available |
-| `daily` | Ten `{day, shipped, runs, failed, minutes}`, oldest first: issues shipped, runs ended and of them failed, and their minutes |
-| `stopReasons` | `top`: the five most common `{reason, n}` among the `n` runs that ended without a pull request, not counting those a person stopped. The reason is the failure kind, the cap for a failure that is a cap, else the park reason, else how the run ended |
-| `stations` | `steps`: per step, in the order runs reach it, the `n` runs that reached it, how many `passed` and the `share`. A run that reached a pull request passed every step it ran; one handed off, parked or failed stopped in its failed step, else its last. `n` is the runs counted: refused and stopped runs are not |
-| `versions` | One `{tehas, rukas, n}` per version pair, the pair that ran last first, at most ten. With three runs or more also `changeShare` (reached a pull request) and `medianSeconds`; with three that reported usage also `medianTokens` (input, output and cache read, of those runs) and their count `tokensN`. A version that is not known is left out |
 
 `tehasbot status` also writes `~/tehas/live/platform.json`: what platform the
 host runs. On a host with the platform checkout `~/tehas/platform` that is the
@@ -208,21 +163,6 @@ the host knows that an agent can print: each name and address in
 `--private`; a name shorter than 4 characters is left out, as it would mask
 ordinary words. They are names, not secrets: a token is never on a command
 line.
-
-The snapshot also carries the words of the breakroom game, Buzzword Buster.
-They are counted over the titles and labels of every issue of the repository,
-the newest thousand, not only the ones the factory was given: work going on
-beside the factory shows up there. The file holds the hundred most used words
-with their counts, and no title or issue number. On a published dashboard
-those words are public too. The list is read at most once an hour, the time
-of the last read kept in `state/buzzwords.at`; between reads the words of the
-file before are kept. If GitHub does not answer that call, the words before
-are kept and the next run asks again; with none before, the snapshot is
-written without them and the game counts the tickets on the line. A round
-shows at most twelve of the forty most used words, picked by chance, and writes
-them on up to twenty-four tetrominoes: a wall no wider than sixteen cells and no
-taller than six, its cells solid from the top down with no holes in them, so it
-is another one every time.
 
 ## tehasbot health
 
