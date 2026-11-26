@@ -1,7 +1,9 @@
-//! What the plugins' access check asks of GitHub
-//! (`tehas_core::access::GitHub`), through [`Authorised`] curl: a person's
-//! token for a sign-in's code, who a token is, a login's permission on the
-//! project and whether the project is public. The person's token, the
+//! The [`Authorised`] curl of the factory's access questions and of a
+//! person's sign-in: a login's permission on the project and whether the
+//! project is public, with the installation token, for
+//! `tehas_core::access::GitHub`; and the trade of a sign-in's code for a
+//! person's token and who that token is, for the adapter's own
+//! [`Trade`], which `port/people.rs` consumes. The person's token, the
 //! App's client secret and the installation token go only in curl's config
 //! on its standard input. The wiring gives the client and the installation
 //! token's source; the adapter reads no file and no variable. Without them,
@@ -12,11 +14,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde::Deserialize;
-use tehas_core::access::{AccountId, GitHub, Level, Permission, Person};
+use tehas_core::access::{AccountId, GitHub, Level, Permission};
 use tehas_core::settings::rules;
 use tehas_ports::{Got, Outcome, Passing, Refusal, Secret, Sent, Unread};
 
 use crate::curl::{escape, Answer, Authorised};
+use crate::port::{Person, Trade};
 
 /// The most time one question takes.
 const LIMIT: Duration = Duration::from_secs(20);
@@ -178,7 +181,7 @@ fn id_of(id: u64) -> AccountId {
     AccountId::new(id.to_string())
 }
 
-impl GitHub for Access {
+impl Trade for Access {
     /// `Forbidden`: GitHub answered and did not take the code, which it
     /// says with a 200 and no token.
     fn token(&self, code: &str) -> Got<String> {
@@ -210,7 +213,9 @@ impl GitHub for Access {
             login: u.login,
         })
     }
+}
 
+impl GitHub for Access {
     /// 404 is no access. A login GitHub never gives is `Refused(Invalid)`
     /// with no request.
     fn permission(&self, login: &str) -> Got<Permission> {
