@@ -192,7 +192,6 @@ leaves them alone.
 | `console/items` | the lab plugin's issue feed and page writer |
 | `console/attach` | the `files:` grant and the plugin mode of attachments; 2.0's cycles use it too |
 | `console/describe` | the `given` plugin's image descriptions |
-| `console/review-render` | the `review` plugin's issue body |
 | `console/wiki-collect` | the `history:` grant's raw sources |
 | `console/wiki-render` | the `wiki` plugin's check, render and keep rules |
 | `console/mesh-feed` | the host-made `feed:mesh` |
