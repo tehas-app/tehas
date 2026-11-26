@@ -410,7 +410,10 @@ holds that issue alone (`skip #N: its text was changed by 'unknown' ...`).
 A call that fails, an answer that cannot be read, an error GitHub names no
 one issue for (the repository not found, or not visible to the token,
 among them), or an issue GitHub cannot find ends the poll with exit 1
-(`ERROR: unreadable edit history of #N: ...`). A closed issue and a pull request are never taken,
+(`ERROR: unreadable edit history of #N: ...`). The poll reads the history
+through the GitHub adapter's handles, which it makes again every poll; a
+poll that cannot make them reads every history it needs as unreadable, so
+it ends the same way. A closed issue and a pull request are never taken,
 whatever label they carry. The poll's lists are of open issues, so what this
 catches is a number that changed since the list was read. The poll asks GitHub
 what a number is once a poll, and only for an issue its labels would otherwise
