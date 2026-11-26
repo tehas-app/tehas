@@ -168,7 +168,7 @@ fn preview_run(rest: &[String], settle: OsString) -> u8 {
     } else {
         "run"
     };
-    preview::main(&[mode.to_string()])
+    preview::main(&[mode.to_string()], crate::wiring::preview_host)
 }
 
 /// `tehas-cycle <verb>` beside this program, with the words of the command.

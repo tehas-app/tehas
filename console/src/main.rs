@@ -466,6 +466,31 @@ mod wiring {
         Ok((site.blueprints(&by, c)?, site.blueprint_writes(&by, c)?))
     }
 
+    /// The runner maker of one bound's calls on `gh`: the one place of this
+    /// wiring the program's own reads name that program, so a caller asks
+    /// for a bound and never names it.
+    fn gh_make(bound: Duration) -> tehas_github::MakeRunner {
+        std::sync::Arc::new(move |_| {
+            Ok(Box::new(Bounded::new("gh", bound)) as Box<dyn tehas_core::forge::GhRunner>)
+        })
+    }
+
+    /// The preview's one reader of changes, asked on the code-host port:
+    /// the site of `repo` acting as the factory, whose bot `home` records.
+    /// None when it cannot even be wired, which the sweep reads as no
+    /// answer and keeps every preview.
+    pub(crate) fn preview_host(
+        home: &std::path::Path,
+        repo: &str,
+    ) -> Option<Box<dyn tehas_ports::CodeHost + Send>> {
+        use tehas_ports::{Actor, Caller, Scope, Site};
+        let (login, id) = tehas_core::accounts::bot(home);
+        let site =
+            tehas_github::GitHubSite::new(repo, &login, id, gh_make(tehas_core::call::GH_BOUND));
+        site.code_host(&Actor::Ours(Scope::Full), Caller::new("preview"))
+            .ok()
+    }
+
     /// The code host handle of `tehas update` on tehas's own release
     /// project `repo`, a site of its own (Decided 23), acting as `by`:
     /// `Actor::Operator` asks through gh as the operator's gh is signed in,
@@ -478,9 +503,7 @@ mod wiring {
         bound: Duration,
     ) -> tehas_ports::Got<Box<dyn tehas_ports::CodeHost + Send>> {
         use tehas_ports::{Actor, Caller, Outcome, Refusal, Site};
-        let make: tehas_github::MakeRunner = std::sync::Arc::new(move |_| {
-            Ok(Box::new(Bounded::new("gh", bound)) as Box<dyn tehas_core::forge::GhRunner>)
-        });
+        let make = gh_make(bound);
         let site = tehas_github::GitHubSite::new(repo, "", None, make);
         let caller = Caller::new("update");
         if *by != Actor::Anonymous {
@@ -557,7 +580,9 @@ fn main() -> ExitCode {
             Some("dev") => return ExitCode::from(dev::main(&given[1..])),
             Some("rukas") => return ExitCode::from(rukas::main(&given[1..])),
             Some("sandbox") => return ExitCode::from(sandbox::main(&given[1..])),
-            Some("preview") => return ExitCode::from(preview::main(&given[1..])),
+            Some("preview") => {
+                return ExitCode::from(preview::main(&given[1..], crate::wiring::preview_host))
+            }
             Some("settings") => return ExitCode::from(settings::main(&given[1..])),
             Some("setup") => return ExitCode::from(setup::main(&given[1..])),
             Some("slice") => return ExitCode::from(slice::main(&given[1..])),
