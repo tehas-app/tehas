@@ -18,7 +18,8 @@
       "additionalProperties": false,
       "properties": {
         "lean": {"type": "boolean"},
-        "plugins": {"type": "boolean"}
+        "plugins": {"type": "boolean"},
+        "adapter": {"type": "boolean"}
       }
     },
     "millwright": {"type": ["string", "null"], "minLength": 1},

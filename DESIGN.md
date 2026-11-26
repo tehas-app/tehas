@@ -20,12 +20,12 @@ colors:
   crt-dim: "#aab"
 typography:
   display:
-    fontFamily: "Topaz, 'Courier New', monospace"
+    fontFamily: "'Courier New', monospace"
     fontSize: "32px"
     fontWeight: 400
     lineHeight: 1
   body:
-    fontFamily: "Topaz, 'Courier New', monospace"
+    fontFamily: "'Courier New', monospace"
     fontSize: "16px"
     fontWeight: 400
     lineHeight: 1.5
@@ -86,7 +86,7 @@ colours the original chipset could show.
 - Square corners everywhere. Radius is zero.
 - 4px near-black outlines on anything that is an object in the world.
 - Hard offset shadows with no blur.
-- One typeface, Topaz, at two sizes.
+- One monospace typeface at two sizes.
 
 ## Themes
 
@@ -172,10 +172,10 @@ outlined in a colour.
 
 ## 3. Typography
 
-**Display Font:** Topaz (with Courier New, monospace)
-**Body Font:** Topaz (with Courier New, monospace)
+**Display Font:** Courier New (with monospace)
+**Body Font:** Courier New (with monospace)
 
-**Character:** One bitmap face for everything, as on the machine it comes from.
+**Character:** One monospace face for everything.
 Hierarchy comes from two sizes and from colour.
 
 ### Hierarchy
@@ -254,7 +254,7 @@ list lies across the top.
 
 - **Text:** lines of at most 80 characters. Second headings sit on a 4px
   Outline rule, third headings are capitals behind a Brass bar.
-- **Emphasis:** Topaz has one weight and no italic. Strong text is Rust,
+- **Emphasis:** The face is used at one weight and no italic. Strong text is Rust,
   emphasised text has a dotted rule under it.
 - **Code:** inline on Bone Shade; a block is a CRT Black screen in CRT Amber.
 - **Tables:** 1px Hairline between rows, figures right-aligned, a missing

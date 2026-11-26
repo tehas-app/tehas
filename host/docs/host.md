@@ -208,7 +208,7 @@ What an unattended run refuses to get past, and what each one means:
 | a tool directory named as writable by everyone or not owned by the user | One of the directories the tools live in (`~/.cargo/bin` among them). The run builds nothing until its mode is fixed (`chmod o-w`), because what cargo builds there is installed where every cycle runs it |
 | a model key finding                            | `~/.config/tehas/env` does not hold a `TEHAS_MODEL_KEY_<NAME>` that `models.json` names |
 | `tehas: the commit of <tree> is not known…`    | The tree is neither a git checkout with a commit nor a release with a `COMMIT` file. Nothing is installed. See [The state store](#the-state-store) |
-| `tehas: this release cannot migrate …; nothing was installed`, exit 78 | The store's line above it says why: a store older than v0.30, a damaged file, or a backup it cannot write into `state/backup`. Nothing is installed and the database is not changed. See [The state store](#the-state-store) |
+| `tehas: this release cannot migrate …; nothing was installed`, exit 78 | The store's line above it says why: a store older than v1.4, a damaged file, or a backup it cannot write into `state/backup`. Nothing is installed and the database is not changed. See [The state store](#the-state-store) |
 | `tehas: the store could not init…` or `…migrate…`, exit 1 | The store's line above it says why: `corrupt`, `unreadable`, `future` or `busy`. The files are installed and the database is not changed. See [The state store](#the-state-store) |
 
 `--check` exits 0 only when the instance loads, the slice file is the one this
@@ -800,26 +800,21 @@ JSON answer:
   removes old copies yet; remove them by hand when there are too many. A
   store at an older version is brought forward one step at a time, each step
   a transaction of its own, and the install keeps the database as it was under
-  the name of the version it came with, such as `tehas-12-<time>.db`, beside
-  the copy the answer names, `tehas-17-<time>.db`. A run that stopped between
+  the name of the version it came with, such as `tehas-23-<time>.db`, beside
+  the copy the answer names, `tehas-33-<time>.db`. A run that stopped between
   two steps leaves the store at the last one with its rows; the next install
   goes on from there.
-- The oldest store it brings forward is the one v0.30.0 wrote, at schema 12.
-  v0.30.1 wrote 13, v0.30.2 to v0.30.6 wrote 14, v0.31.0 wrote 16 and
-  v0.32.0 wrote 17. The step to 13 keeps on
-  each approval what its start was, the step to 14 rebuilds `cycles` so its
-  `how` may say `host`, a start [`tehas start`](/api#tehas-start) approved,
-  the step to 16
-  lets the action journal keep a write as `unknown` and writes `millwright`
-  in every row that still said `fixer`, and the step to 29 drops the five
-  tables schemas 15 to 28 held for outsource, which 2.0 dropped and no
-  release wrote a row of. Every other step keeps every row.
-- A store older than that, from a release before v0.30, is refused and left
+- The oldest store it brings forward is the one v1.3.0 and later wrote,
+  at schema 23.
+  The step to 29 drops the five
+  tables schemas 15 to 28 held for outsource, which 2.0 dropped; a store at 23
+  holds them empty. Every step keeps every row.
+- A store older than that, from a release before v1.4, is refused and left
   as it was, with no backup written: `store: unreadable ... is at schema <n>,
-  older than v0.30.0 wrote: update to a v0.30 release first, then to this
+  older than v1.4 wrote: update to a v1.4 release first, then to this
   one`. `install.sh` asks the store it installs first, with `store migrate
   --dry-run`, so such a host stops with exit 78 before any file is copied and
-  keeps the release it runs. Install any v0.30 release on the host first, then
+  keeps the release it runs. Install any v1.4 release on the host first, then
   this one.
 - The same dry run, given `--backup ~/tehas/state/backup`, writes the copies
   the migration writes and removes them again. A `state/backup` that is a link
@@ -2091,7 +2086,7 @@ both, as `/dashboard` is:
 `beesknees26` is ink and one muted green on a near-white ground, white panels
 with soft shadows, IBM Plex, and no motion. It has a dark set for a page that
 lets the viewer pick it; no page of tehas does. `pixel` is the 16-bit look, in
-the Topaz bitmap typeface. It is meant for a factory whose site
+a monospace typeface. It is meant for a factory whose site
 is also its demo; a factory that sets nothing is drawn in `beesknees26`
 everywhere, `/` included.
 

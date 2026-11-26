@@ -595,6 +595,22 @@ fn internal_names(vars: &mut Vars, host: &mut dyn Host) {
     vars.unset(name.as_bytes());
 }
 
+/// One warning for each name the instance gave that starts with `TEHAS_` and
+/// names no setting, no internal name and no name tehas once read: a name
+/// nothing reads is a mistake the operator should see. It never stops the
+/// load: a 1.4.x instance holds names this release never knew, and it must
+/// load. The sweep has dropped the environment's other names, so what is set
+/// and unknown came from instance.env.
+fn unknown_names(vars: &Vars, host: &mut dyn Host) {
+    for name in vars.prefixed("TEHAS_") {
+        if !super::unruled::known(&name) {
+            host.warn(&format!(
+                "{name} is no setting tehas reads: nothing uses it; remove it from the instance"
+            ));
+        }
+    }
+}
+
 /// Each pair of `TEHAS_ISSUE_TYPES` that maps a kind of `list` warned of once
 /// and dropped. A value left with no pair is unset.
 fn ignored_kinds(vars: &mut Vars, host: &mut dyn Host, list: &[(&str, &str)]) {
@@ -1020,14 +1036,15 @@ pub fn load(vars: &mut Vars, host: &mut dyn Host, uid: &str) -> Result<(), Strin
     ignored_names(vars, host, IGNORED);
     ignored_kinds(vars, host, IGNORED_KINDS);
     internal_names(vars, host);
+    unknown_names(vars, host);
     renamed(vars, host, &file)?;
     app_login(vars, host);
     let gave = given(vars);
     // Asked before the defaults fill the feature's settings in; said after the
     // values are checked, so a malformed one is named as such first.
     let set = |name: &str| match name.strip_suffix(rules::FAMILY) {
-        Some(front) => vars.prefixed(front).iter().any(|n| has(vars, n)),
-        None => has(vars, name),
+        Some(front) => vars.prefixed(front).into_iter().find(|n| has(vars, n)),
+        None => has(vars, name).then(|| name.to_string()),
     };
     let building = features::refuse_building_settings(&set, &|name| vars.text(name));
     defaults(vars, host, uid);
@@ -1399,6 +1416,43 @@ mod tests {
         }
     }
 
+    #[test]
+    fn an_unknown_name_warns_once_and_the_load_still_holds() {
+        let mut vars = start(&[]);
+        let mut host = Fake::with(&["TEHAS_FUTURE_SWITCH=on", "TEHAS_FUTURE_SWITCH=off"]);
+        assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
+        assert_eq!(
+            host.warned,
+            ["TEHAS_FUTURE_SWITCH is no setting tehas reads: nothing uses it; remove it from the instance"]
+        );
+        // Never a refusal and never smaller: the name stays as the instance
+        // gave it, so a 1.4.x instance loses nothing and still loads.
+        assert_eq!(vars.text("TEHAS_FUTURE_SWITCH"), "off");
+    }
+
+    #[test]
+    fn a_name_tehas_knows_never_warns_of_itself() {
+        let mut vars = start(&[]);
+        // A ruled name, a retired one, a dropped one, and a name of another
+        // program's family: none of them says anything unknown.
+        let mut host = Fake::with(&[
+            "TEHAS_ADAPTER=off",
+            "TEHAS_ADAPTER_UPSTREAM=",
+            "TEHAS_PLUGIN_ORIGINS_FLOORPLAN=",
+            "TEHAS_DISPATCHER=rust",
+            "TEHAS_OUTSOURCE=on",
+            "PI_ENSEMBLE_FUTURE=1",
+        ]);
+        assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
+        assert!(
+            host.warned.iter().all(|w| !w.ends_with(
+                " is no setting tehas reads: nothing uses it; remove it from the instance"
+            )),
+            "{:?}",
+            host.warned
+        );
+    }
+
     const PIN: &str = "0123456789abcdef0123456789abcdef01234567";
 
     fn plugins_line() -> String {
@@ -1429,7 +1483,7 @@ mod tests {
         let grants = format!("TEHAS_PLUGIN_GRANTS_FLOORPLAN={PIN} product");
         assert_eq!(
             refused(&[&grants]),
-            format!("TEHAS_PLUGIN_GRANTS_<NAME> is set and plugins is still being built in this release: take the line out (see {FILE})")
+            format!("TEHAS_PLUGIN_GRANTS_FLOORPLAN is set and plugins is still being built in this release: take the line out (see {FILE})")
         );
         assert_eq!(
             refused(&["TEHAS_PLUGIN_ACCESS=write"]),
@@ -1445,6 +1499,64 @@ mod tests {
         assert!(refused(&["TEHAS_PLUGIN_GRANTS_X=view"])
             .starts_with("TEHAS_PLUGIN_GRANTS_X is not valid: expected the plugin's whole commit"));
         assert!(refused(&["TEHAS_PLUGINS=x"]).starts_with("TEHAS_PLUGINS is not valid"));
+    }
+
+    #[test]
+    fn the_adapter_settings_reserved_for_2_1_stop_a_release_load() {
+        assert_eq!(
+            refused(&["TEHAS_ADAPTER=on"]),
+            format!("TEHAS_ADAPTER is on and adapter is still being built in this release: set it to off or take the line out (see {FILE})")
+        );
+        assert_eq!(
+            refused(&["TEHAS_ADAPTER=1"]),
+            format!("TEHAS_ADAPTER is on and adapter is still being built in this release: set it to off or take the line out (see {FILE})")
+        );
+        for (name, value) in [
+            ("TEHAS_ADAPTER_UPSTREAM", "adapter.example.org:8443"),
+            ("TEHAS_ADAPTER_UPSTREAM_SPKI", "d6iRzK+9Y8kUY2zPp0a2rw=="),
+            ("TEHAS_ADAPTER_UPSTREAM_CERT", "/home/u/tehas/adapter.crt"),
+            (
+                "TEHAS_ADAPTER_UPSTREAM_CERT_KEY",
+                "/home/u/tehas/adapter.key",
+            ),
+            ("TEHAS_ADAPTER_EGRESS_DENY", "pypi.org"),
+        ] {
+            assert_eq!(
+                refused(&[&format!("{name}={value}")]),
+                format!("{name} is set and adapter is still being built in this release: take the line out (see {FILE})")
+            );
+            // A malformed value is named as such before the feature.
+            let space = format!("{name}=two words");
+            assert!(
+                refused(&[&space]).starts_with(&format!("{name} is not valid: ")),
+                "{space}"
+            );
+        }
+        // The family: one line per plugin, refused by the line the instance
+        // has, as the update names it.
+        assert_eq!(
+            refused(&["TEHAS_PLUGIN_ORIGINS_FLOORPLAN=https://github.com/acme/floorplan@0123abcd"]),
+            format!("TEHAS_PLUGIN_ORIGINS_FLOORPLAN is set and adapter is still being built in this release: take the line out (see {FILE})")
+        );
+        // Off, and lines left empty, load: the reservation asks for nothing.
+        let vars = loads(&[
+            "TEHAS_ADAPTER=off",
+            "TEHAS_ADAPTER_UPSTREAM=",
+            "TEHAS_PLUGIN_ORIGINS_FLOORPLAN=",
+        ]);
+        assert_eq!(vars.text("TEHAS_ADAPTER"), "0");
+    }
+
+    #[test]
+    fn the_adapter_settings_load_where_a_test_turns_the_feature_on() {
+        let mut vars = start(&[(crate::features::TEST_VAR, "adapter")]);
+        let mut host = Fake::with(&[
+            "TEHAS_ADAPTER=on",
+            "TEHAS_ADAPTER_UPSTREAM=adapter.example.org:8443",
+            "TEHAS_PLUGIN_ORIGINS_FLOORPLAN=https://github.com/acme/floorplan@0123abcd",
+        ]);
+        assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
+        assert_eq!(vars.text("TEHAS_ADAPTER"), "1");
     }
 
     #[test]
@@ -1703,6 +1815,21 @@ mod tests {
                 refused(&[&format!("TEHAS_DRIVER={bad}")]),
                 format!("TEHAS_DRIVER is not valid: expected classic or lean (see {FILE})")
             );
+        }
+    }
+
+    #[test]
+    fn both_adapters_are_github_unless_the_instance_says_another() {
+        for name in ["TEHAS_CODE_HOST", "TEHAS_TICKETS"] {
+            assert_eq!(loads(&[]).text(name), "github");
+            assert_eq!(loads(&[&format!("{name}=")]).text(name), "github");
+            assert_eq!(loads(&[&format!("{name}=github")]).text(name), "github");
+            for bad in ["jira", "gitlab", "GitHub"] {
+                assert_eq!(
+                    refused(&[&format!("{name}={bad}")]),
+                    format!("{name} is not valid: expected github: others are not built in this release (see {FILE})")
+                );
+            }
         }
     }
 
@@ -2456,7 +2583,8 @@ mod tests {
                 let role = ["PI_ENSEMBLE_MODEL_", "PI_ENSEMBLE_PROVIDER_"]
                     .iter()
                     .any(|p| name.strip_prefix(p).is_some_and(|r| ROLES.contains(&r)));
-                let family = name.starts_with(crate::plugin::GRANTS);
+                let family = name.starts_with(crate::plugin::GRANTS)
+                    || name.starts_with(rules::PLUGIN_ORIGINS);
                 !(in_table(name) || role || family || RULED_ELSEWHERE.contains(&name.as_str()))
             })
             .collect();

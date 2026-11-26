@@ -10,7 +10,7 @@ use super::site::{
 use super::state::{Layout, State};
 use crate::{
     AccountId, Applied, At, Blocker, BlockerState, Bound, ChangeState, ChangeToken, CloseReason,
-    ClosedTicket, Closer, Comment, CommentId, Cursor, Depth, Did, Edit, Filed, Filter, Got,
+    Closed, ClosedTicket, Closer, Comment, CommentId, Cursor, Depth, Did, Edit, Filed, Filter, Got,
     Happened, HappenedKind, Item, Kind, Mark, MarkHeld, MarkSpec, Marker, MarkerEdit, MarkerKey,
     MarkerKind, NewTicket, Outcome, Part, Pool, Posted, Priority, Ref, Refusal, Step, StepPart,
     Target, TargetEdit, TargetId, Ticket, TicketChange, TicketDelta, TicketDigest, TicketEvent,
@@ -781,6 +781,10 @@ impl TicketWrites for Handle {
     }
 
     fn close(&mut self, key: &TicketKey, reason: &CloseReason) -> Did {
+        self.close_at(key, reason).map(|_| ())
+    }
+
+    fn close_at(&mut self, key: &TicketKey, reason: &CloseReason) -> Closed {
         self.write(Op::Tickets(TicketsOp::Close), |s, ctx| {
             let at = at_ticket(s, key)?;
             close_item(s, ctx, at, reason);
@@ -791,7 +795,7 @@ impl TicketWrites for Handle {
                     reason: reason.clone(),
                 },
             );
-            Ok(())
+            Ok(s.items[at].closed)
         })
     }
 

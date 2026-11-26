@@ -7,15 +7,15 @@
 use std::sync::{Arc, Mutex};
 
 use super::anonymous::{Anonymous, Public};
-use super::people::{People, PeopleClient};
+use super::people::{People, PeopleClient, Trade};
 use super::unsupported;
 use crate::tickets::{Bot, NOT_STARTED};
 use crate::{table, AuthorisedCurl, Curl, GitHub};
 use tehas_core::forge::{Failed, GhRunner};
 use tehas_ports::{
     Actor, At, BlueprintWrites, Blueprints, Board, Caller, CodeHost, CodeHostWrites, Got, Identity,
-    Ledger, Mark, Marker, MeterRow, Outcome, Pool, PortName, Realm, Scope, Site, TicketWrites,
-    Tickets,
+    Ledger, Mark, Marker, MeterRow, Outcome, Pool, PortName, Realm, Refusal, Scope, Site,
+    TicketWrites, Tickets,
 };
 
 /// What makes a runner of gh for an actor: the wiring's, so the adapter
@@ -79,13 +79,20 @@ impl GitHubSite {
         GitHubSite { people, ..self }
     }
 
+    /// A site that only signs a person in, the wiring's one use of the
+    /// sign-in handle: its identity handle of the factory's own account at
+    /// read scope trades a code through curl and runs no gh, so its runner
+    /// source refuses and the bot's facts name no sign-in. None for a
+    /// project that is not `owner/name`.
+    pub fn sign_in(repo: &str, client: PeopleClient) -> Option<GitHubSite> {
+        let make: MakeRunner = Arc::new(|_| Err(Outcome::Refused(Refusal::Unsupported)));
+        let site = GitHubSite::new(repo, "", None, make).with_people_client(client);
+        site.people.is_some().then_some(site)
+    }
+
     /// The same site with the client for people trading through `trade`, a
     /// test's GitHub in place of curl.
-    pub fn with_people_trading(
-        self,
-        client: PeopleClient,
-        trade: Arc<dyn tehas_core::access::GitHub>,
-    ) -> GitHubSite {
+    pub fn with_people_trading(self, client: PeopleClient, trade: Arc<dyn Trade>) -> GitHubSite {
         GitHubSite {
             people: Some(Arc::new(People::trading(client, trade))),
             ..self

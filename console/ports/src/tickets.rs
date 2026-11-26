@@ -8,10 +8,10 @@ use serde::{Deserialize, Serialize};
 use crate::mark::unknown_tag;
 use crate::{
     unknown, Account, AccountId, Applied, At, Body, Bound, ChangeDigest, ChangeNo, ChangeToken,
-    Cites, Comment, CommentId, CommitId, Cursor, Depth, Did, Edit, Got, Item, ItemName, Kind, Mark,
-    MarkId, MarkName, MarkSpec, Marker, MarkerEdit, MarkerKey, MarkerKind, Outcome, Posted,
-    Priority, ProjectName, Ref, Reports, Revision, TargetId, TicketKey, Took, WebLink, Whole,
-    Window, Within,
+    Cites, Closed, Comment, CommentId, CommitId, Cursor, Depth, Did, Edit, Got, Item, ItemName,
+    Kind, Mark, MarkId, MarkName, MarkSpec, Marker, MarkerEdit, MarkerKey, MarkerKind, Outcome,
+    Posted, Priority, ProjectName, Ref, Reports, Revision, TargetId, TicketKey, Took, WebLink,
+    Whole, Window, Within,
 };
 
 /// Whether a ticket is open, and why it closed.
@@ -798,6 +798,15 @@ pub trait TicketWrites: Tickets {
     /// Close the ticket. A closed ticket is done and keeps its reason:
     /// closed is closed.
     fn close(&mut self, key: &TicketKey, reason: &CloseReason) -> Did;
+    /// Close the ticket and answer the site's own time of it: Some while
+    /// the ticket stands closed and the site says one, None where it says
+    /// none. The raiser of `ticket.closed` takes the moment from here and
+    /// never makes one up. A site that reads the time back overrides this;
+    /// the rest close and answer None, so adding the read never breaks an
+    /// adapter written against `close` alone.
+    fn close_at(&mut self, key: &TicketKey, reason: &CloseReason) -> Closed {
+        self.close(key, reason).map(|_| None)
+    }
     /// Write a note on the ticket, its markers beside it.
     fn note(&mut self, key: &TicketKey, body: &str, markers: &[Marker]) -> Got<Posted<CommentId>>;
     /// File a new ticket. Its marks are asked, not promised: a site may
