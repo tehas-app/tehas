@@ -240,13 +240,32 @@ pub(crate) mod fake {
         HappenedKind, Mark, OpenWork, Scope, Site, Window, ALL_MAX,
     };
 
+    const THE_TABLE: &str = include_str!("../../../../host/labels.tsv");
+
     /// The repository the tests' worlds are.
     pub(crate) const REPO: &str = "acme/widget";
 
+    /// The label whose latest column is the port word `word`. The one
+    /// lookup the tests of this crate share: they hold a word, not a mark.
+    pub(crate) fn label_of_word(word: &str) -> Option<String> {
+        THE_TABLE.lines().find_map(|l| {
+            let cols: Vec<&str> = l.split('\t').collect();
+            (cols.last() == Some(&word)).then(|| cols[0].to_string())
+        })
+    }
+
     /// A mark's label as `host/labels.tsv` names it, a project's own mark
-    /// by its name: the adapter's table, the one owner of the words.
+    /// by its name.
     pub(crate) fn label(m: &Mark) -> String {
-        tehas_github::table::label(m).unwrap_or_default()
+        let word = match m {
+            Mark::Act(a) => format!("Act::{a:?}"),
+            Mark::State(s) => format!("State::{s:?}"),
+            Mark::Choice(c) => format!("Choice::{c:?}"),
+            Mark::Epic => "Mark::Epic".to_string(),
+            Mark::Project(name) => return name.as_str().to_string(),
+            _ => return String::new(),
+        };
+        label_of_word(&word).unwrap_or_default()
     }
 
     /// The open work of `world` as the queue asks the board for it.

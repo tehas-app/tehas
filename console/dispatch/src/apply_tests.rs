@@ -3507,7 +3507,7 @@ fn a_refine_that_filed_replaces_its_issue() {
 
 // The refine label, as `host/labels.tsv` names it: the table owns the word.
 fn refine_word() -> String {
-    tehas_github::table::label_of_word("Act::Refine").expect("the table names refine")
+    crate::read::board::fake::label_of_word("Act::Refine").expect("the table names refine")
 }
 
 #[test]

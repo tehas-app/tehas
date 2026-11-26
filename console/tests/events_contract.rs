@@ -1220,8 +1220,7 @@ mod raised {
     /// A label of `host/labels.tsv` by the port word in its last column,
     /// so a test never spells the word the table owns.
     fn label_of(word: &str) -> String {
-        tehas_github::table::label_of_word(word)
-            .unwrap_or_else(|| panic!("no label of {word} in the table"))
+        common::label_of(word)
     }
 
     // A planning turn's question on record, as the dispatcher records one

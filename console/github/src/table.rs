@@ -72,17 +72,6 @@ pub fn word(label: &str) -> Option<Mark> {
         .map(|(_, m)| m.clone())
 }
 
-/// The label of a word as the table's last column spells it
-/// (`Act::Approve`). For code that holds a word and not a `Mark`: a test
-/// that pins a label by its port word. The rest name the `Mark` and take
-/// [`label`].
-pub fn label_of_word(word: &str) -> Option<String> {
-    FILE.lines().find_map(|line| {
-        let cols: Vec<&str> = line.split('\t').collect();
-        (cols.last() == Some(&word)).then(|| cols[0].to_string())
-    })
-}
-
 /// The label of a mark. None for `Unknown`, which is never written.
 pub fn label(mark: &Mark) -> Option<String> {
     match mark {
