@@ -1198,9 +1198,10 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
 - **A rate-limited read holds its budget a minute, at most an hour.**
   #3378. A limit GitHub reports with no time it resets (a GraphQL
   `RATE_LIMITED`, gh's 429 or its words of a primary or secondary limit, a
-  bare 429 to the anonymous reader) holds that budget out for 60 seconds:
-  the factory asks again after a minute. 1.x held it until now and asked
-  again at once. A reset time or `retry-after` GitHub gives is kept, but
+  bare 429 to the anonymous reader, or a 403 to it with its budget spent or
+  a `retry-after` whose time cannot be read) holds that budget out for 60
+  seconds: the factory asks again after a minute. 1.x held it until now
+  and asked again at once. A reset time or `retry-after` GitHub gives is kept, but
   never past an hour from the answer; one at or before the answer (a
   skewed clock, a negative `retry-after`) holds the minute.
   Readers: adopters (the GitHub budget), the consumer that runs many

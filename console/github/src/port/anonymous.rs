@@ -323,7 +323,9 @@ fn read_status(a: Answer, now: i64) -> Got<Option<Answer>> {
                 (_, _, Some(after)) => Some(now.saturating_add(after)),
                 _ => None,
             };
-            let limited = until.is_some() || a.status == 429;
+            // A spent budget or a `retry-after` is a limit even when its
+            // time cannot be read (no reset, or a date): it holds the floor.
+            let limited = out || a.header("retry-after").is_some() || a.status == 429;
             Err(rate::limited(
                 limited,
                 Pool::Calls,
