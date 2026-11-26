@@ -3468,12 +3468,24 @@ fn a_refine_that_filed_replaces_its_issue() {
     assert!(t.w.plans_ended.is_empty(), "{:?}", t.w.plans_ended);
 }
 
+// The refine label, as `host/labels.tsv` names it: the table owns the word.
+fn refine_word() -> String {
+    include_str!("../../../host/labels.tsv")
+        .lines()
+        .find(|l| l.split('\t').last() == Some("Act::Refine"))
+        .unwrap()
+        .split('\t')
+        .next()
+        .unwrap()
+        .to_string()
+}
+
 #[test]
 fn a_close_the_journal_said_done_raises_no_ticket_closed() {
     let mut t = world();
     plan_row(
         &t,
-        json!({"turns": 1, "session": "s-1", "label": "tehas:refine"}),
+        json!({"turns": 1, "session": "s-1", "label": refine_word()}),
     );
     fs::write(
         t.dir.join("body-9"),
