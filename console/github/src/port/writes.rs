@@ -124,13 +124,17 @@ impl TicketWrites for GitHub {
             .map_err(|e| self.outcome(&e))
     }
 
+    fn close(&mut self, key: &TicketKey, reason: &CloseReason) -> Did {
+        self.close_at(key, reason).map(|_| ())
+    }
+
     /// The issue read, then one `PATCH` of its state and the reason GitHub
     /// keeps (`completed`, `not_planned`, `duplicate`; REST names no
     /// original of a duplicate). A closed issue is done with nothing sent and
     /// keeps the reason it has: closed is closed. The answer is the
     /// `closed_at` of whichever answer found the issue closed: the raiser
     /// of the fact keys on the site's moment, not its own.
-    fn close(&mut self, key: &TicketKey, reason: &CloseReason) -> Closed {
+    fn close_at(&mut self, key: &TicketKey, reason: &CloseReason) -> Closed {
         let issue = number(key)?;
         let path = format!("{}/issues/{issue}", self.issues()?);
         let out = self

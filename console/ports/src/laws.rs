@@ -2801,7 +2801,7 @@ pub mod scopes {
         hold(unmarked == forbidden, LAW, || {
             format!("an unmark answered {unmarked:?}")
         })?;
-        let closed = h.close(key, &CloseReason::Done).map(|_| ());
+        let closed = h.close(key, &CloseReason::Done);
         hold(closed == forbidden, LAW, || {
             format!("a close answered {closed:?}")
         })?;

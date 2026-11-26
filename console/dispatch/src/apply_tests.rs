@@ -3507,14 +3507,7 @@ fn a_refine_that_filed_replaces_its_issue() {
 
 // The refine label, as `host/labels.tsv` names it: the table owns the word.
 fn refine_word() -> String {
-    include_str!("../../../host/labels.tsv")
-        .lines()
-        .find(|l| l.split('\t').next_back() == Some("Act::Refine"))
-        .unwrap()
-        .split('\t')
-        .next()
-        .unwrap()
-        .to_string()
+    tehas_github::table::label_of_word("Act::Refine").expect("the table names refine")
 }
 
 #[test]
@@ -3646,6 +3639,85 @@ fn the_settle_raises_the_close_its_read_found_after_a_lost_answer() {
     t.w.settle(1100, &mut log);
     assert!(log.is_empty(), "{log:?}");
     assert_eq!(t.heard.lock().unwrap().len(), 1);
+}
+
+/// The site answered the close and the settle did not reach the store:
+/// this poll says the answer and raises nothing, the row stays open, and
+/// the next poll's settle raises the close once, of the site's time and
+/// reason from its own read (T11.9). Without the rule, the answered poll
+/// and the settle would each raise the same key.
+#[test]
+fn a_close_answered_but_not_recorded_raises_once_from_the_settle() {
+    let mut t = world();
+    plan_row(
+        &t,
+        json!({"turns": 1, "session": "s-1", "label": refine_word()}),
+    );
+    fs::write(
+        t.dir.join("body-9"),
+        json!({"body": "The plan.\n## Later parts\nNone"}).to_string(),
+    )
+    .unwrap();
+    turn_ended(
+        &t,
+        7,
+        "0",
+        json!({"session": "s-1", "text": "Done.", "filed": ["https://github.com/example-owner/example-product/issues/9"]}),
+    );
+    // The close is the eighth journalled write of this refine: only its
+    // settle is refused. The close was sent and answered; nothing is
+    // raised from an answer the store did not take.
+    t.fail("store", "journal-settle --action 8");
+    t.apply(json!([{"plan_collect": 7}]));
+    let w = t.calls();
+    assert!(w.contains(&sent(&tehas_ports::Write::Close {
+        ticket: key(7),
+        reason: tehas_ports::CloseReason::NotPlanned,
+    })));
+    assert!(
+        w.iter()
+            .any(|c| c.starts_with("store journal-settle --action")),
+        "{w:?}"
+    );
+    let heard = t.heard.lock().unwrap().clone();
+    assert!(
+        heard.iter().all(|l| !l.contains("\"ticket.closed\"")),
+        "{heard:?}"
+    );
+    // The next poll: the store takes the calls again, and the settle reads
+    // the site closed. The row was never recorded done, so the settle is
+    // the process that proves the fact: it raises the close, once.
+    fs::remove_file(t.dir.join("fail-store")).unwrap();
+    let close = tehas_ports::Write::Close {
+        ticket: key(7),
+        reason: tehas_ports::CloseReason::NotPlanned,
+    };
+    let kept = tehas_core::journal::kept(&close).unwrap();
+    left_open(
+        &t,
+        json!([{"id": 3, "kind": "close", "issue": 7, "state": "attempted",
+            "intended_at": 990, "attempted_at": 991,
+            "args": {"write": kept}}]),
+    );
+    let landed = tehas_ports::fake::World::new()
+        .ticket(7, |i| i.closed(tehas_ports::CloseReason::NotPlanned));
+    let closed_at = landed.now();
+    reads_from(&mut t, &landed);
+    let mut log = Vec::new();
+    t.w.settle(1000, &mut log);
+    assert_eq!(
+        log,
+        vec!["journal: action 3 (close on #7, 10s old) was done"]
+    );
+    let heard = t.heard.lock().unwrap().clone();
+    assert_eq!(heard.len(), 1, "{heard:?}");
+    let e: tehas_ports::events::Envelope =
+        serde_json::from_str(heard[0].strip_prefix("event ").unwrap()).unwrap();
+    let tehas_ports::events::Event::TicketClosed(p) = &e.event else {
+        panic!("{e:?}")
+    };
+    assert_eq!(p.at, closed_at);
+    assert_eq!(p.reason, tehas_ports::CloseReason::NotPlanned);
 }
 
 #[test]

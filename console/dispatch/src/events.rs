@@ -83,7 +83,9 @@ impl Writer {
             return;
         };
         let mut ask = |args: &[&str]| self.ask(args);
-        match raise::read_ended(&mut ask, n, attempt, raise::Writer::Short) {
+        // A lost end never raises `change.merged`: no report read it, so
+        // there is no site's merge time to give.
+        match raise::read_ended(&mut ask, n, attempt, raise::Writer::Short, None) {
             Ok(e) => self.raise_ended(e, log),
             Err(why) => log.push(format!(
                 "WARN: the history of #{n} could not be read, so its lost end raises no event ({why})"

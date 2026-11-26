@@ -271,7 +271,7 @@ fn start_on_record(home: &Path, n: &str, events: &Dispatcher) -> Result<Value, i
 fn raise_short(home: &Path, n: &str, attempt: &str, answer: &str, events: &Dispatcher) {
     let wrote = serde_json::from_str::<EndAnswer>(answer).is_ok_and(|a| !a.already);
     if let (true, Ok(issue), Ok(attempt)) = (wrote, n.parse(), attempt.parse()) {
-        crate::events::raise_ended(events, home, issue, attempt, Writer::Short);
+        crate::events::raise_ended(events, home, issue, attempt, Writer::Short, None);
     }
 }
 
@@ -448,7 +448,7 @@ pub fn run(home: &Path, g: &Given, events: &Dispatcher) -> i32 {
     let start: Option<StartRow> = serde_json::from_value(answer.clone()).ok();
     // The record this start ended as lost: its line is this start's.
     if let Some(lost) = start.as_ref().and_then(|s| s.replaced) {
-        crate::events::raise_ended(events, home, g.issue, lost, Writer::Short);
+        crate::events::raise_ended(events, home, g.issue, lost, Writer::Short, None);
     }
     match start.as_ref().and_then(tehas_core::raise::started) {
         Some(p) => crate::events::raise(events, p),
@@ -540,7 +540,14 @@ pub fn run(home: &Path, g: &Given, events: &Dispatcher) -> i32 {
     };
     let reported = apply::reported(home, &start, g.handles);
     let attempt = u32::try_from(start.attempt).unwrap_or(0);
-    crate::events::raise_ended(events, home, g.issue, attempt, Writer::Report);
+    crate::events::raise_ended(
+        events,
+        home,
+        g.issue,
+        attempt,
+        Writer::Report,
+        reported.merged_at.map(tehas_ports::At::new),
+    );
     reported.rc
 }
 

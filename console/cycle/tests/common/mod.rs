@@ -104,12 +104,18 @@ case "$1 $2" in
     if [ -e "$T/fx/pr.json" ]; then cat "$T/fx/pr.json"
     elif [ -e "$T/fx/pr.txt" ]; then
       head=$(printf "%s\n" "$@" | sed -n "/^--head$/{n;p;}")
+      state="$(cat "$T/fx/pr-state" 2>/dev/null || echo OPEN)"
+      # A merged pull request carries the site's time of the merge.
+      merged_at=$([ "$state" = MERGED ] \
+        && printf '"%s"' "$(cat "$T/fx/pr-merged-at" 2>/dev/null || echo 2026-01-01T00:00:00Z)" \
+        || echo null)
       jq -n --arg url "$(cat "$T/fx/pr.txt")" --arg head "$head" \
-        --arg state "$(cat "$T/fx/pr-state" 2>/dev/null || echo OPEN)" \
+        --arg state "$state" \
         --arg body "$(cat "$T/fx/pr-body" 2>/dev/null || echo "Fixes #7")" \
         --arg created "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        --argjson merged_at "$merged_at" \
         --argjson draft "$([ -e "$T/fx/pr-draft" ] && echo true || echo false)" \
-        "[{url: \$url, state: \$state, body: \$body, headRefName: \$head, isDraft: \$draft, createdAt: \$created}]"
+        "[{url: \$url, state: \$state, body: \$body, headRefName: \$head, isDraft: \$draft, createdAt: \$created, mergedAt: \$merged_at}]"
     else echo "[]"; fi ;;
   "issue edit")
     countdown edit-fails-times
@@ -861,7 +867,10 @@ impl World {
         } else if let Some(url) = fx("pr.txt") {
             json!([{"url": url.trim(), "state": or("pr-state", "OPEN"),
                 "body": or("pr-body", "Fixes #7"), "isDraft": self.fx.join("pr-draft").exists(),
-                "createdAt": tehas_core::time::iso(tehas_core::time::now())}])
+                "createdAt": tehas_core::time::iso(tehas_core::time::now()),
+                "mergedAt": if or("pr-state", "OPEN") == "MERGED" {
+                    json!(or("pr-merged-at", "2026-01-01T00:00:00Z"))
+                } else { Value::Null }}])
         } else {
             json!([])
         };

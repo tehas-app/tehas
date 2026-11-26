@@ -1255,8 +1255,11 @@ impl<H: TicketWrites + ?Sized> TicketWrites for Wrap<H> {
     fn unmark(&mut self, key: &TicketKey, mark: &Mark) -> Did {
         self.call(Op::Tickets(T::Unmark), Err, |h| h.unmark(key, mark))
     }
-    fn close(&mut self, key: &TicketKey, reason: &CloseReason) -> Closed {
+    fn close(&mut self, key: &TicketKey, reason: &CloseReason) -> Did {
         self.call(Op::Tickets(T::Close), Err, |h| h.close(key, reason))
+    }
+    fn close_at(&mut self, key: &TicketKey, reason: &CloseReason) -> Closed {
+        self.call(Op::Tickets(T::Close), Err, |h| h.close_at(key, reason))
     }
     fn note(&mut self, key: &TicketKey, body: &str, markers: &[Marker]) -> Got<Posted<CommentId>> {
         self.call(Op::Tickets(T::Note), Err, |h| h.note(key, body, markers))

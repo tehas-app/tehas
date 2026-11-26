@@ -70,7 +70,8 @@ fn a_park_raises_its_start_its_park_its_question_and_its_end_in_order() {
     let end: Vec<&str> = t.end.iter().map(String::as_str).collect();
     w.store_locked(&end);
     let d = events::wiring(&w.home, Arc::new(|_| String::new()));
-    let ((), logged) = after::holding(|| events::raise_ended(&d, &w.home, 7, 1, Writer::Report));
+    let ((), logged) =
+        after::holding(|| events::raise_ended(&d, &w.home, 7, 1, Writer::Report, None));
     let all = raised(&logged);
     assert_eq!(
         names(&all),
@@ -149,7 +150,13 @@ fn a_merged_change_ends_and_raises_its_merge_once() {
         unreachable!()
     };
     assert_eq!(m.change.get(), 9);
-    assert_eq!(m.at.secs(), line["at"].as_i64().unwrap());
+    // The merge time is the site's, from the report's own read of the
+    // pull request list, not the line's end.
+    assert_eq!(
+        m.at.secs(),
+        tehas_core::time::from_iso("2026-01-01T00:00:00Z").unwrap()
+    );
+    assert_ne!(m.at.secs(), line["at"].as_i64().unwrap());
     assert_eq!(all[2].key.as_str(), "9");
 }
 

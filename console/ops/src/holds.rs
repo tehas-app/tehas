@@ -95,7 +95,6 @@ use crate::account;
 use serde_json::Value;
 use std::env;
 use std::fs::{self, OpenOptions, TryLockError};
-use std::io::Write as _;
 use std::num::NonZeroU64;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
@@ -1037,32 +1036,10 @@ fn set(file: &Path, want: &Wanted) -> u8 {
     }
 }
 
-/// The dispatcher of the commands that write the limit: the log listener
-/// alone, which writes to the factory's log, or says the line when that
-/// cannot be written. One line per event, as every other raiser writes.
+/// The dispatcher of the commands that write the limit: the factory's log
+/// listener, one line per event, as every other raiser writes.
 fn events(home: &Path) -> Dispatcher {
-    let log = Home::new(home).factory_log();
-    tehas_core::raise::logged(move |line| {
-        let at = time::iso(time::now());
-        // One write of the whole line, so O_APPEND keeps it whole beside the
-        // other writers of the log.
-        let whole = format!("{at} {line}\n");
-        // As `tehas stop` does before its marker: the log's directory is
-        // made if the home has none, so a command is never silenced into
-        // its own stderr by a missing logs/.
-        if let Some(dir) = log.parent() {
-            let _ = fs::create_dir_all(dir);
-        }
-        let wrote = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&log)
-            .and_then(|mut f| f.write_all(whole.as_bytes()));
-        if wrote.is_err() {
-            eprintln!("tehas limit: {line}");
-        }
-    })
-    .build()
+    tehas_core::raise::factory_logged(home, "tehas limit")
 }
 
 /// The home whose `state/` holds the limit file, or nothing for a path that

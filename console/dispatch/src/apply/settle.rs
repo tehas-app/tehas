@@ -13,7 +13,7 @@ use super::{looked_key, text, word, Looked, Writer};
 use serde_json::{json, Value};
 use tehas_core::journal::{settle as rules, Found as Settled};
 use tehas_core::lock::{probe, Probe};
-use tehas_ports::{At, Bound, Depth, Write};
+use tehas_ports::{At, Bound, Write};
 
 /// How a fresh read settles one action.
 enum Found {
@@ -250,10 +250,17 @@ impl Writer {
                     // store call settling first is what makes it once.
                     if let Some(at) = evidence.get("closed").and_then(Value::as_i64) {
                         if let Some(w) = a.pointer("/args/write") {
-                            if let Ok(Write::Close { ticket, reason }) =
+                            if let Ok(Write::Close { ticket, .. }) =
                                 serde_json::from_value::<Write>(w.clone())
                             {
-                                self.raise_closed(ticket, reason, at, log);
+                                // The reason is the site's, from the read
+                                // that settled the row, not the row's.
+                                let reason = evidence.get("reason").cloned().and_then(|v| {
+                                    serde_json::from_value::<tehas_ports::CloseReason>(v).ok()
+                                });
+                                if let Some(reason) = reason {
+                                    self.raise_closed(ticket, reason, at, log);
+                                }
                             }
                         }
                     }
@@ -277,18 +284,15 @@ impl Writer {
         };
         let bound = Bound::new(100).expect("100 is a bound");
         match rules::read(write, h, At::new(attempted as i64), bound) {
-            Some(Settled::Landed) => {
-                let mut e = json!({"landed": true});
-                if let Write::Close { ticket, .. } = write {
-                    // The site's own time of the close, from the same
-                    // read: the event this settle raises keys on it. A
-                    // site that names none leaves the fact unraised here
-                    // too, as at the send.
-                    if let Ok(t) = h.tickets.ticket(ticket, Depth::Cut { notes: 0 }, None) {
-                        if let Some(at) = t.closed {
-                            e["closed"] = json!(at.secs());
-                        }
-                    }
+            Some(Settled::Landed) => Found::Done(json!({"landed": true})),
+            Some(Settled::Closed { at, reason }) => {
+                // The site's own time of the close and its reason, from the
+                // one read that settled the row: the `ticket.closed` this
+                // settle raises keys on them. A site that names no time
+                // leaves the fact unraised here too, as at the send.
+                let mut e = json!({"landed": true, "reason": reason});
+                if let Some(a) = at {
+                    e["closed"] = json!(a.secs());
                 }
                 Found::Done(e)
             }

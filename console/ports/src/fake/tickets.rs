@@ -712,9 +712,9 @@ impl TicketWrites for Handle {
             let r = match &part {
                 StepPart::Unmark(m) => self.unmark(key, m),
                 StepPart::Mark(m) => self.mark(key, m),
-                StepPart::Close => self
-                    .close(key, step.close.as_ref().unwrap_or(&CloseReason::Done))
-                    .map(|_| ()),
+                StepPart::Close => {
+                    self.close(key, step.close.as_ref().unwrap_or(&CloseReason::Done))
+                }
                 StepPart::Note => Ok(()),
             };
             if let Err(o) = r {
@@ -780,7 +780,11 @@ impl TicketWrites for Handle {
         })
     }
 
-    fn close(&mut self, key: &TicketKey, reason: &CloseReason) -> Closed {
+    fn close(&mut self, key: &TicketKey, reason: &CloseReason) -> Did {
+        self.close_at(key, reason).map(|_| ())
+    }
+
+    fn close_at(&mut self, key: &TicketKey, reason: &CloseReason) -> Closed {
         self.write(Op::Tickets(TicketsOp::Close), |s, ctx| {
             let at = at_ticket(s, key)?;
             close_item(s, ctx, at, reason);

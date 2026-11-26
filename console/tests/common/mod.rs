@@ -1012,13 +1012,7 @@ const WORDS_SUM: &str = "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c
 /// The label of one of tehas's words (`Act::Plan`), as host/labels.tsv, the
 /// table's one owner, names it.
 pub fn label_of(word: &str) -> String {
-    let table = fs::read_to_string(root().join("host/labels.tsv")).unwrap();
-    table
-        .lines()
-        .find_map(|l| {
-            let cols: Vec<&str> = l.split('\t').collect();
-            (cols.get(3) == Some(&word)).then(|| cols[0].to_string())
-        })
+    tehas_github::table::label_of_word(word)
         .unwrap_or_else(|| panic!("no label for {word} in host/labels.tsv"))
 }
 

@@ -542,7 +542,7 @@ impl Writes for Writer {
         match w {
             Write::Mark { ticket, mark } => done(t.mark(ticket, mark)),
             Write::Unmark { ticket, mark } => done(t.unmark(ticket, mark)),
-            Write::Close { ticket, reason } => t.close(ticket, reason).map(Receipt::Closed),
+            Write::Close { ticket, reason } => t.close_at(ticket, reason).map(Receipt::Closed),
             Write::Reopen { ticket } => done(t.reopen(ticket)),
             Write::TicketNote {
                 ticket,

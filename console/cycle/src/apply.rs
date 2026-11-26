@@ -295,6 +295,10 @@ impl Writer<'_> {
             };
             match journal.send(&mut store, write, &mut *self.ports.writes, &NoBlobs) {
                 Journaled::Answered(Ok(r)) => return Sent::Done(r),
+                // The site answered; the store did not take the settle. The
+                // cycle raises nothing from a row, so the answer stands as
+                // done and the poll's settle takes the row from the site.
+                Journaled::AnsweredUnrecorded(r) => return Sent::Done(r),
                 // A read-only host goes on as after a write that answered
                 // nothing, as its gh shim answers one.
                 Journaled::Answered(Err(Outcome::Refused(Refusal::ReadOnly))) => {
@@ -346,13 +350,14 @@ impl Writer<'_> {
                         maybe_posted(n, &said);
                         return (None, None);
                     };
+                    let landed = matches!(found, Found::Landed | Found::Closed { .. });
                     if let Some(row) = row {
                         let mut store = |a: &[&str]| {
                             store_try(3, Duration::from_secs(1), || host::store_value(home, a))
                         };
                         let _ = Journal::settle(&mut store, row, found);
                     }
-                    if found == Found::Landed {
+                    if landed {
                         return (Some(true), None);
                     }
                     continue;
@@ -1070,6 +1075,9 @@ pub struct Reported {
     pub pr: Option<u64>,
     /// tehas work refused the start before its runner ran.
     pub refused: bool,
+    /// The site's time of the merged pull request, as the report read it.
+    /// The raise of `change.merged` takes it in place of the line's end.
+    pub merged_at: Option<i64>,
 }
 
 /// The number of a pull request's URL, `.../pull/<n>`.
@@ -1100,6 +1108,7 @@ pub fn reported(home: &Path, s: &Start, handles: HandlesOf) -> Reported {
                 rc: 70,
                 pr: None,
                 refused: false,
+                merged_at: None,
             };
         }
     };
@@ -1137,6 +1146,7 @@ pub fn reported(home: &Path, s: &Start, handles: HandlesOf) -> Reported {
                 rc: 70,
                 pr: None,
                 refused: false,
+                merged_at: None,
             };
         }
     };
@@ -1160,6 +1170,7 @@ pub fn reported(home: &Path, s: &Start, handles: HandlesOf) -> Reported {
         rc: if on_record && fault_kept { 0 } else { 70 },
         pr: pull_number(&r.after.ended.pr),
         refused: !r.refused_why.is_empty(),
+        merged_at: r.merged_at,
     }
 }
 

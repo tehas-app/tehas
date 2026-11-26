@@ -495,6 +495,12 @@ impl Writer {
                 Wrote::Done(String::new())
             }
             Journaled::Answered(Err(o)) => Wrote::Failed(format!(": {}", o.line())),
+            // The site answered, but the store did not take the settle: the
+            // row stays open and the poll's settle reads the fact and raises
+            // it. This round says nothing and raises nothing.
+            Journaled::AnsweredUnrecorded(_) => Wrote::Unknown(
+                ": the site answered and the settle did not reach the store".to_string(),
+            ),
             Journaled::Unknown { answer, .. } => Wrote::Unknown(format!(": {}", answer.line())),
             Journaled::Unrecorded => Wrote::Unrecorded,
         };

@@ -765,7 +765,7 @@ mod raised {
     // read every raiser makes, tehas_core::raise::read_ended.
     fn read_by(w: &World, issue: u64, attempt: u32, by: Writer) -> Ended {
         let mut ask = |a: &[&str]| Ok(w.store_ok(a).to_string());
-        read_ended(&mut ask, issue, attempt, by).unwrap()
+        read_ended(&mut ask, issue, attempt, by, None).unwrap()
     }
 
     fn read(w: &World, s: &StartRow) -> Ended {
@@ -1112,24 +1112,28 @@ mod raised {
         );
         all.extend(e.envelopes());
 
-        // `factory.limit-changed` of the limit `tehas limit` wrote: `set`
-        // and the key are the moment the write put beside the limit, the
-        // same text `tehas limit --json` shows. The raiser writes its line
-        // to the factory's log, so the home has a logs/ as on a host.
-        w.home_file("logs/.keep", "");
+        // `factory.limit-changed` of the limit `tehas limit` wrote and of
+        // the clear that followed: the lines the commands' own listener
+        // wrote to `logs/dispatch.log`, read back as a consumer of the log
+        // sees them, not samples built with the raiser's helpers here. The
+        // listener makes `logs/` as it writes, so no fixture does.
         console!(&w, "limit set --cycles 2 --reason hold --json");
-        let file = tehas_core::home::Home::new(&w.home).state(tehas_core::home::State::Limit);
-        let l = tehas_core::limit::read(&file, tehas_core::time::now());
-        let written = tehas_core::raise::written_limit(&l).expect("a written limit");
-        let env = Envelope::new(written);
         let shown = console!(&w, "limit --json");
-        assert_eq!(env.key.as_str(), shown["set"].as_str().unwrap(), "{shown}");
-        all.push(env);
+        let written = limit_lines(&w);
+        assert_eq!(written.len(), 1, "{written:?} of one write");
+        assert_eq!(
+            written[0].key.as_str(),
+            shown["set"].as_str().unwrap(),
+            "{shown}"
+        );
+        all.push(written[0].clone());
         w.sh(&format!(
             "TEHAS_REPO=acme/widget '{}' tehas limit clear",
             w.console().display()
         ));
-        all.push(Envelope::new(tehas_core::raise::cleared_limit(at)));
+        let cleared = limit_lines(&w);
+        assert_eq!(cleared.len(), 2, "{cleared:?} of the clear too");
+        all.push(cleared[1].clone());
 
         use Name::*;
         let names: Vec<Name> = all.iter().map(Envelope::name).collect();
@@ -1155,9 +1159,15 @@ mod raised {
                 "33-1",
                 "21",
                 shown["set"].as_str().unwrap(),
-                when,
+                cleared[1].key.as_str(),
             ]
         );
+        // The clear's key is its `observed`: the command's own second, in
+        // the shape of one. A payload has exactly one of `set` and
+        // `observed`, so the written line has no `observed`.
+        assert!(tehas_core::time::iso_shaped(cleared[1].key.as_str()));
+        let one = |e: &Envelope| serde_json::to_value(e).unwrap()["data"].clone();
+        assert!(one(&written[0]).get("observed").is_none_or(|v| v.is_null()));
         for e in &all {
             let v = serde_json::to_value(e).unwrap();
             assert_eq!(fits!("event.schema.json", &v), Vec::<String>::new(), "{v}");
@@ -1189,21 +1199,29 @@ mod raised {
         assert_eq!(data(5)["plan"], true);
         assert_eq!(data(5)["reason"], "hold");
         assert_eq!(data(6)["state"], "none");
-        assert_eq!(data(6)["observed"], when);
+        // The clear's `observed` is its key: the command's own second.
+        assert_eq!(data(6)["observed"], cleared[1].key.as_str());
+    }
+
+    /// The `factory.limit-changed` envelopes the commands' listener wrote
+    /// to `logs/dispatch.log`, in their order: each line is the time and
+    /// `event` and the envelope as JSON, read back as a consumer of the
+    /// log reads it.
+    fn limit_lines(w: &World) -> Vec<Envelope> {
+        let log = tehas_core::home::Home::new(&w.home).factory_log();
+        let text = fs::read_to_string(&log).unwrap_or_default();
+        text.lines()
+            .filter_map(|l| l.split_once(" event ").map(|(_, j)| j))
+            .filter_map(|j| serde_json::from_str::<Envelope>(j).ok())
+            .filter(|e| e.name() == Name::FactoryLimitChanged)
+            .collect()
     }
 
     /// A label of `host/labels.tsv` by the port word in its last column,
     /// so a test never spells the word the table owns.
     fn label_of(word: &str) -> String {
-        let table = fs::read_to_string(root().join("host/labels.tsv")).unwrap();
-        table
-            .lines()
-            .find(|l| l.split('\t').next_back() == Some(word))
+        tehas_github::table::label_of_word(word)
             .unwrap_or_else(|| panic!("no label of {word} in the table"))
-            .split('\t')
-            .next()
-            .unwrap()
-            .to_string()
     }
 
     // A planning turn's question on record, as the dispatcher records one

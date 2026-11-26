@@ -48,6 +48,37 @@ pub fn logged(log: impl Fn(&str) + Send + Sync + 'static) -> Builder {
     b
 }
 
+/// The dispatcher of a command that raises: the log listener alone, writing
+/// one line per event to the factory log ([`crate::home::Home::factory_log`])
+/// with the time of it, and saying the line as `who` when the log cannot be
+/// written. The one place that writes the factory log for a raising command:
+/// `tehas stop`, and `tehas limit`, `tehas pause`, `tehas resume` and
+/// `tehas drain`.
+pub fn factory_logged(home: &std::path::Path, who: &str) -> Dispatcher {
+    let log = crate::home::Home::new(home).factory_log();
+    let prefix = format!("{who}:");
+    logged(move |line| {
+        let at = crate::time::iso(crate::time::now());
+        // One write of the whole line, so O_APPEND keeps it whole beside the
+        // other writers of the log.
+        let whole = format!("{at} {line}\n");
+        // The log's directory is made if the home has none, so a command is
+        // never silenced into its own stderr by a missing logs/.
+        if let Some(dir) = log.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let wrote = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log)
+            .and_then(|mut f| std::io::Write::write_all(&mut f, whole.as_bytes()));
+        if wrote.is_err() {
+            eprintln!("{prefix} {line}");
+        }
+    })
+    .build()
+}
+
 /// Raises `p` on `d`, and says each listener that failed with `log`, one
 /// WARN line each. A listener never fails the raiser.
 pub fn raise<P: Payload>(d: &Dispatcher, p: P, log: &dyn Fn(&str)) {
@@ -281,13 +312,17 @@ fn word(w: Option<&str>) -> Option<RunnerWord> {
 /// The events of the end of cycle `attempt` of `issue` that `by` raises,
 /// from the issue's lines of history (`history-show <issue>`) and the
 /// question it waits on (`question-show <issue>`). None of a line the store
-/// does not have, or one another writer wrote.
+/// does not have, or one another writer wrote. `merged_at` is the site's
+/// time of the merged pull request as the report read it: `change.merged`
+/// keys on it, falling back to the line's end when the read named none.
+/// Only the report's writer has one; the short writers pass None.
 pub fn ended(
     issue: u64,
     attempt: u32,
     lines: &[HistoryRow],
     question: Option<&QuestionRow>,
     by: Writer,
+    merged_at: Option<At>,
 ) -> Ended {
     let mut lines: Vec<&HistoryRow> = lines.iter().filter(|l| l.issue == issue).collect();
     lines.sort_by_key(|l| l.seq);
@@ -345,7 +380,10 @@ pub fn ended(
     let merged = change
         .filter(|_| end == End::Merged && !line.parked)
         .map(|c| {
-            let mut m = ChangeMerged::new(c, ended_at);
+            // The site's time of the merge, from the report's own read of
+            // the pull request list; the line's end only when that read
+            // named none.
+            let mut m = ChangeMerged::new(c, merged_at.unwrap_or(ended_at));
             m.blueprint = Some(blueprint);
             m
         });
@@ -485,7 +523,13 @@ struct Listed {
 /// The events of the end of cycle `attempt` of `issue` that `by` raises,
 /// read from the store after the record. Why when the history could not be
 /// read; a question that cannot be read leaves only `question.asked` out.
-pub fn read_ended(ask: &mut Ask, issue: u64, attempt: u32, by: Writer) -> Result<Ended, String> {
+pub fn read_ended(
+    ask: &mut Ask,
+    issue: u64,
+    attempt: u32,
+    by: Writer,
+    merged_at: Option<At>,
+) -> Result<Ended, String> {
     let n = issue.to_string();
     let rows: Rows = serde_json::from_str(&ask(&["history-show", &n])?)
         .map_err(|e| format!("the history is not as the store writes it: {e}"))?;
@@ -502,7 +546,14 @@ pub fn read_ended(ask: &mut Ask, issue: u64, attempt: u32, by: Writer) -> Result
             .and_then(|s| s.question),
         Writer::Short => None,
     };
-    Ok(ended(issue, attempt, &lines, question.as_ref(), by))
+    Ok(ended(
+        issue,
+        attempt,
+        &lines,
+        question.as_ref(),
+        by,
+        merged_at,
+    ))
 }
 
 /// `question.asked` of question `id`, the store's number, read from the
@@ -558,7 +609,7 @@ mod tests {
     }
 
     fn reported(issue: u64, attempt: u32, lines: &[HistoryRow], q: Option<&QuestionRow>) -> Ended {
-        ended(issue, attempt, lines, q, Writer::Report)
+        ended(issue, attempt, lines, q, Writer::Report, None)
     }
 
     #[test]
@@ -628,11 +679,14 @@ mod tests {
             r.reported = false;
         })];
         assert_eq!(reported(12, 3, &short, None), Ended::default());
-        let e = ended(12, 3, &short, None, Writer::Short);
+        let e = ended(12, 3, &short, None, Writer::Short, None);
         assert_eq!(names(&e), [Name::CycleEnded]);
         assert_eq!(e.ended.unwrap().end, End::Stopped);
         let report = [row(3, 9, |_| {})];
-        assert_eq!(ended(12, 3, &report, None, Writer::Short), Ended::default());
+        assert_eq!(
+            ended(12, 3, &report, None, Writer::Short, None),
+            Ended::default()
+        );
         assert_eq!(names(&reported(12, 3, &report, None)), [Name::CycleEnded]);
     }
 
@@ -892,12 +946,12 @@ mod tests {
             asked.push(a.join(" "));
             Ok(r#"{"rows":[{"kind":"cycle","issue":12,"attempt":3,"at":10,"status":"stopped","reported":false,"seq":1}]}"#.into())
         };
-        let e = read_ended(&mut ask, 12, 3, Writer::Short).unwrap();
+        let e = read_ended(&mut ask, 12, 3, Writer::Short, None).unwrap();
         assert_eq!(names(&e), [Name::CycleEnded]);
         assert_eq!(asked, ["history-show 12"]);
         let mut fails = |_: &[&str]| -> Result<String, String> { Err("busy".into()) };
         assert_eq!(
-            read_ended(&mut fails, 12, 3, Writer::Report),
+            read_ended(&mut fails, 12, 3, Writer::Report, None),
             Err("busy".into())
         );
     }

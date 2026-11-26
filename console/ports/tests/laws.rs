@@ -3153,7 +3153,7 @@ fn the_writer_sends_each_write_to_its_port_and_answers_its_receipt() {
             ticket: k(2),
             reason: CloseReason::NotPlanned,
         },
-        // A close answers the site's time of it, as `Tickets::close` does.
+        // A close answers the site's time of it, as `Tickets::close_at` does.
         closed,
     );
     send(&mut writer, Write::Reopen { ticket: k(2) }, done);

@@ -421,6 +421,10 @@ pub struct Report {
     pub asked: Vec<String>,
     /// Which arm of the report this cycle took, for the fixtures.
     pub arm: &'static str,
+    /// The site's time of the merged pull request, from the same list that
+    /// named it. None when that entry named none. `change.merged` keys on
+    /// it, not on the line's end.
+    pub merged_at: Option<i64>,
     /// What follows the end; the caller adds the approval and its programs.
     pub after: After,
     /// A few words of why tehas work refused the start before its runner ran,
@@ -1294,6 +1298,16 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
                 && p.get("isDraft").and_then(Value::as_bool) == Some(true)
         });
     let merged_pr = url_in("MERGED");
+    // The entry's own time of the merge, kept for the raise of
+    // `change.merged`: the fact is the site's, not the line's end.
+    r.merged_at = (!merged_pr.is_empty())
+        .then(|| {
+            prs.iter()
+                .find(|p| p.get("url").and_then(Value::as_str) == Some(merged_pr.as_str()))
+                .and_then(|p| p.get("mergedAt").and_then(Value::as_str))
+                .and_then(tehas_core::time::from_iso)
+        })
+        .flatten();
     let closed_pr = url_in("CLOSED");
     let mine: Vec<bool> = prs
         .iter()

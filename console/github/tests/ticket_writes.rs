@@ -1494,14 +1494,14 @@ fn a_close_answers_the_sites_time_of_it() {
         Ok(sample("issue-7-closed.json")),
     ]);
     assert_eq!(
-        gh.close(&key(7), &CloseReason::Done),
+        gh.close_at(&key(7), &CloseReason::Done),
         Ok(Some(At::new(1795428000)))
     );
     assert_eq!(taken(&calls).len(), 2);
     // One found closed by its read: the read names it, nothing sent.
     let (mut gh, calls) = adapter(vec![Ok(sample("issue-7-closed.json"))]);
     assert_eq!(
-        gh.close(&key(7), &CloseReason::Done),
+        gh.close_at(&key(7), &CloseReason::Done),
         Ok(Some(At::new(1795428000)))
     );
     assert_eq!(taken(&calls).len(), 1);
@@ -1509,7 +1509,7 @@ fn a_close_answers_the_sites_time_of_it() {
     let mut v: serde_json::Value = serde_json::from_str(&sample("issue-7-closed.json")).unwrap();
     v.as_object_mut().unwrap().remove("closed_at");
     let (mut gh, _) = adapter(vec![Ok(sample("issue-7.json")), Ok(v.to_string())]);
-    assert_eq!(gh.close(&key(7), &CloseReason::Done), Ok(None));
+    assert_eq!(gh.close_at(&key(7), &CloseReason::Done), Ok(None));
 }
 
 /// A pull request's number is no ticket, and a refused input made nothing.
