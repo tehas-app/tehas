@@ -54,6 +54,9 @@ tehas-dispatch = { path = "dispatch" }
 # The events' names, payloads and samples, which the files of api/ are
 # written from (tests/events_contract.rs).
 tehas-ports = { path = "ports" }
+# The MCP server's tool table, which the tool lines of the surface are read
+# from (tests/surface.rs).
+tehas-mcp = { path = "mcp" }
 
 # Line tables only, and no incremental data: a build of the workspace in the
 # dev and test profiles is about a third the size. Backtraces keep file and

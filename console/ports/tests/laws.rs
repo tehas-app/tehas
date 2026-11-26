@@ -3151,6 +3151,7 @@ fn the_writer_sends_each_write_to_its_port_and_answers_its_receipt() {
     let done: Want = |r| *r == Receipt::Done;
     let comment: Want = |r| matches!(r, Receipt::Comment(_));
     let edited: Want = |r| matches!(r, Receipt::Edited(_));
+    let closed: Want = |r| matches!(r, Receipt::Closed(_));
     let mut sent: Vec<WriteKind> = Vec::new();
     let mut send = |writer: &mut Writer, write: Write, want: Want| {
         let receipt = writer
@@ -3185,7 +3186,8 @@ fn the_writer_sends_each_write_to_its_port_and_answers_its_receipt() {
             ticket: k(2),
             reason: CloseReason::NotPlanned,
         },
-        done,
+        // A close answers the site's time of it, as `Tickets::close_at` does.
+        closed,
     );
     send(&mut writer, Write::Reopen { ticket: k(2) }, done);
     send(

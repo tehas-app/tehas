@@ -40,7 +40,8 @@
   ],
   "flags": {
     "lean": false,
-    "plugins": false
+    "plugins": false,
+    "adapter": false
   },
   "millwright": "millbot[bot]",
   "poll": {

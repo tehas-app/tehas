@@ -387,8 +387,16 @@ impl Poll<'_> {
             }
             let mut on_epic = String::new();
             let mut epic = None;
+            // The label event's moment, carried to the turn so its act is
+            // keyed on the time the tickets port's history gives it. The
+            // epic path asks the millwright, so no label of the issue's own
+            // stands behind its turn.
+            let mut at = None;
             let who = match self.approval(n, label)? {
-                Ok((who, _)) => who,
+                Ok((who, when)) => {
+                    at = Some(when);
+                    who
+                }
                 Err(Some(refused)) if !refused.is_empty() && self.c.is_millwright(&refused) => {
                     match self.epic_plan(n, label, &refused)? {
                         Some((who, said, e)) => {
@@ -441,6 +449,7 @@ impl Poll<'_> {
                     brief_extra: refine.then(|| self.refine_path()),
                     epic,
                     auto: None,
+                    at,
                 },
             });
             return Err(End(0));
@@ -686,6 +695,9 @@ impl Poll<'_> {
                     brief_extra: Some(self.refine_path()),
                     epic: None,
                     auto: Some(reason),
+                    // The poll's own refine: no label event stands behind it,
+                    // so the turn records no act of a person.
+                    at: None,
                 },
             });
             return Err(End(0));
