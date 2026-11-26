@@ -13,8 +13,10 @@ pub const LINK_RULE: &str = r"https://(?:github\.com/user-attachments/(?:assets|
 
 static LINK_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(LINK_RULE).unwrap());
 
-const GITHUB: &str = "https://github.com/";
-const IMAGES: &str = "https://user-images.githubusercontent.com/";
+/// The site's own address: its attachment folders are under it.
+pub const GITHUB: &str = "https://github.com/";
+/// The host of images pasted before the attachment folders.
+pub const IMAGES: &str = "https://user-images.githubusercontent.com/";
 
 /// One whole link of GitHub's storage and nothing else.
 pub fn is_link(s: &str) -> bool {
@@ -199,8 +201,8 @@ mod tests {
         assert!(!sends_token(&format!("{link} x"), "t"));
     }
 
-    /// The rule is written once in the workspace: every reader of links asks
-    /// this module.
+    /// The rule and its hosts are written once in the workspace: every reader
+    /// of links asks this module.
     #[test]
     fn the_rule_is_written_once() {
         fn walk(dir: &Path, found: &mut Vec<String>) {
@@ -213,7 +215,13 @@ mod tests {
                     }
                 } else if path.extension().is_some_and(|e| e == "rs") {
                     let text = fs::read_to_string(&path).unwrap_or_default();
-                    if text.contains(r"user-images\.githubusercontent\.com/)") {
+                    let hosts = [
+                        "\"https://github.com/\";",
+                        "\"https://user-images.githubusercontent.com/\";",
+                    ];
+                    if text.contains(r"user-images\.githubusercontent\.com/)")
+                        || hosts.iter().any(|host| text.contains(host))
+                    {
                         found.push(path.display().to_string());
                     }
                 }
