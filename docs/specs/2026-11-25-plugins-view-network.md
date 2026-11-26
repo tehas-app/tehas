@@ -13,7 +13,7 @@ view has `net:`.
 6.3 and the other floating parts this spec cites, and the decisions are in
 `2026-11-25-plugins-2.0.0-history.md`.
 
-**Normative**: tehas-standard v3, `v3/plugins.md` at main 66b7577: a
+**Normative**: tehas-standard v3, `v3/plugins.md` at main 8257b66: a
 view's network only through the host, over its port, with `connect-src
 'none'` always (§14); `parent`, with reach apart from authority (§6);
 destination patterns, which a host may leave out until it has `net:`
