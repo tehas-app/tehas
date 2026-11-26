@@ -1,16 +1,17 @@
 //! The code host's tags and releases as the adapter reads them, answered
 //! from recordings of the fixture project under `tests/recorded/releases/`,
 //! one directory a case, replayed through a runner that writes down every
-//! call; then the ports' law of the newest first over the same answers.
+//! call; then the ports' law of the newest first over the same answers, and
+//! the law of the read scope over a site that replays them.
 
 use std::num::NonZeroU32;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tehas_core::forge::GhRunner;
-use tehas_github::GitHub;
+use tehas_github::{GitHub, GitHubSite, MakeRunner};
 use tehas_ports::{
-    At, Bound, CodeHost, CommitId, FileName, Got, Outcome, Passing, Release, Sent, Tag, TagName,
-    Unread,
+    Actor, At, Bound, Caller, CodeHost, CommitId, FileName, Got, Outcome, Passing, Release, Sent,
+    Tag, TagName, Unread,
 };
 
 const PROJECT: &str = "acme/widget";
@@ -407,4 +408,26 @@ fn the_newest_first_law_holds() {
         &tag("v1.3.0"),
     )
     .unwrap();
+}
+
+#[test]
+fn the_read_scope_law_holds_on_the_site() {
+    let asked = Asked::default();
+    let seen = Arc::clone(&asked);
+    let make: MakeRunner = Arc::new(move |_: &Actor| {
+        Ok(Box::new(Replay {
+            case: "fixture".to_string(),
+            asked: Arc::clone(&seen),
+        }) as Box<dyn GhRunner>)
+    });
+    let site = GitHubSite::new(PROJECT, "", None, make);
+    tehas_ports::laws::scopes::read_scope_fetches_and_writes_nothing(
+        &site,
+        Caller::new("test.releases"),
+    )
+    .unwrap();
+    assert_eq!(
+        *asked.lock().unwrap(),
+        [format!("api repos/{PROJECT}/releases?per_page=100&page=1")]
+    );
 }

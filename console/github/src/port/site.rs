@@ -21,7 +21,8 @@ use tehas_ports::{
 /// What makes a runner of gh for an actor: the wiring's, so the adapter
 /// never holds a token or a credential. It is asked only for an actor the
 /// site hands handles to, `Actor::Ours(Scope::Full)` and `Actor::Operator`,
-/// and `Actor::Ours(Scope::Read)` for a code host read handle.
+/// and `Actor::Ours(Scope::Read)` for a code host, tickets, blueprints or
+/// board read handle.
 pub type MakeRunner = Arc<dyn Fn(&Actor) -> Got<Box<dyn GhRunner>> + Send + Sync>;
 
 /// GitHub as a `Site`: the code host and its own tracker, both realms.
@@ -119,18 +120,27 @@ impl GitHubSite {
     /// the operator's own gh are run; every other actor is
     /// `Refused(Unsupported)`: a narrower scope, a given token, a person's
     /// or a deploy credential each need a token this adapter does not mint
-    /// or keep yet, and handing them the full runner would widen them. Two
-    /// exceptions are the factory's account at read scope. Its code host
-    /// read handle runs the runner the wiring makes for it: the port has no
-    /// write, and its remote fetches alone, so the scope is the handle's.
-    /// Its identity handle, on a site given a client for people, signs a
-    /// person in and runs no gh. A write handle asked at read scope or as
-    /// Anonymous is `Forbidden`, as the trait says; Anonymous's code host
-    /// reads are `code_host`'s, through curl.
+    /// or keep yet, and handing them the full runner would widen them. The
+    /// exception is the factory's account at read scope. Its code host,
+    /// tickets, blueprints and board read handles run the runner the wiring
+    /// makes for it: those ports have no write, and its remote fetches
+    /// alone, so the scope is the handle's. Its identity handle, on a site
+    /// given a client for people, signs a person in and runs no gh. A write
+    /// handle asked at read scope or as Anonymous is `Forbidden`, as the
+    /// trait says; Anonymous's code host reads are `code_host`'s, through
+    /// curl.
     fn handle(&self, by: &Actor, caller: Caller, port: PortName, write: bool) -> Got<GitHub> {
         match by {
             Actor::Ours(Scope::Full) | Actor::Operator => {}
-            Actor::Ours(Scope::Read) if port == PortName::CodeHost && !write => {}
+            Actor::Ours(Scope::Read)
+                if !write
+                    && matches!(
+                        port,
+                        PortName::CodeHost
+                            | PortName::Tickets
+                            | PortName::Blueprints
+                            | PortName::Board
+                    ) => {}
             // A sign-in, the factory's account at read scope (Decided 76):
             // the client for people alone, and no runner of gh, so the
             // handle asks GitHub nothing as the factory.
@@ -453,7 +463,7 @@ mod tests {
     }
 
     #[test]
-    fn the_factory_s_read_scope_writes_nothing_and_reads_no_other_port() {
+    fn the_factory_s_read_scope_writes_nothing_and_reads_through_its_own_runner() {
         let (site, sent, asked) = recording_site();
         let c = Caller::new("update");
         assert_eq!(
@@ -465,13 +475,16 @@ mod tests {
             site.blueprint_writes(&READ, c).err(),
             Some(Outcome::Forbidden)
         );
-        let unsupported = Some(Outcome::Refused(tehas_ports::Refusal::Unsupported));
-        assert_eq!(site.tickets(&READ, c).err(), unsupported);
-        assert_eq!(site.blueprints(&READ, c).err(), unsupported);
-        assert_eq!(site.board(&READ, c).err(), unsupported);
-        assert_eq!(site.identity(&READ, c).err(), unsupported);
-        assert_eq!(sent.load(Ordering::SeqCst), 0);
         assert!(asked.lock().unwrap().is_empty());
+        assert!(site.tickets(&READ, c).is_ok());
+        assert!(site.blueprints(&READ, c).is_ok());
+        assert!(site.board(&READ, c).is_ok());
+        assert_eq!(*asked.lock().unwrap(), [READ, READ, READ]);
+        // With no client for people, identity is no sign-in and no runner.
+        let unsupported = Some(Outcome::Refused(tehas_ports::Refusal::Unsupported));
+        assert_eq!(site.identity(&READ, c).err(), unsupported);
+        assert_eq!(asked.lock().unwrap().len(), 3);
+        assert_eq!(sent.load(Ordering::SeqCst), 0);
     }
 
     #[test]

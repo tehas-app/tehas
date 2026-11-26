@@ -92,8 +92,8 @@ fn an_actor_the_factory_cannot_run_is_unsupported_before_a_runner_is_made() {
         Actor::Ours(Scope::CycleMerge),
         Actor::Ours(Scope::Session),
         Actor::Ours(Scope::Agent),
-        // Read scope reads the code host and writes nothing: the site's
-        // own tests and sign_in.rs pin it.
+        // Read scope reads and writes nothing: the read scope law pins it
+        // in releases.rs.
         Actor::Ours(Scope::Files),
         Actor::Person(key.clone()),
         Actor::Deploy(key.clone()),

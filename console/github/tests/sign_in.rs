@@ -213,13 +213,10 @@ fn the_sign_in_handle_asks_nothing_as_the_factory() {
 }
 
 #[test]
-fn read_scope_is_still_refused_for_every_other_port_and_for_a_write() {
+fn read_scope_is_still_refused_a_write() {
     let (site, _, asked) = site_with(carol());
-    let unsupported = Some(Outcome::Refused(Refusal::Unsupported));
-    assert_eq!(site.tickets(&READ, CALLER).err(), unsupported);
-    assert_eq!(site.board(&READ, CALLER).err(), unsupported);
-    // The code host's reads at read scope are the wiring's runner's (TF-B40),
-    // its writes Forbidden.
+    // Read scope's reads are the wiring's runner's (TF-B40), pinned by
+    // `scopes::read_scope_fetches_and_writes_nothing` in releases.rs.
     let forbidden = Some(Outcome::Forbidden);
     assert_eq!(site.code_host_writes(&READ, CALLER).err(), forbidden);
     assert_eq!(site.ticket_writes(&READ, CALLER).err(), forbidden);

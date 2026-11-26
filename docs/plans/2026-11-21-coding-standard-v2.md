@@ -540,10 +540,13 @@ Findings:
   `SignedOut`, `Forbidden` or `Unavailable { Unreachable, No }`, made
   or asked first, never `Server` or `Maybe`. gh's exit 4 is `SignedOut`
   by an adapter PR of its own (Decided 80).
-- TF-B40 (beta): the adapter's site makes code host read handles for
-  `Actor::Ours(Scope::Read)`, and the update's release reads ask as it
-  first, in place of `Actor::Operator`. The gh they run and the
-  anonymous fallback are unchanged.
+- TF-B40 (beta): the adapter's site makes code host, tickets,
+  blueprints and board read handles for `Actor::Ours(Scope::Read)`, as
+  the spec's `Scope::Read` and the fake have it, and the update's release
+  reads ask as it first, in place of `Actor::Operator`. The gh they run
+  and the anonymous fallback are unchanged. The shared law
+  `scopes::read_scope_fetches_and_writes_nothing` runs on the fake and
+  on the adapter's replayed site.
 
 ### T5. Deep homes for files
 
