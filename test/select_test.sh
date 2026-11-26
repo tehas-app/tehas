@@ -81,11 +81,12 @@ real_crates() {
   cargo metadata --offline --no-deps --format-version 1 --manifest-path "$T_ROOT/console/Cargo.toml"
 }
 
-t_case "the real workspace: an MCP change selects the MCP server and the crate whose tests read with it"
-# analytics/tests/sessions_contract.rs reads the snapshot with the MCP server's
-# tools, so analytics dev-depends on tehas-mcp.
-t_eq "$(real_pick console/mcp/src/tools.rs)" "crate analytics
-crate tehas-mcp"
+t_case "the real workspace: an MCP change selects the crates that read its tools"
+# analytics/tests/sessions_contract.rs reads the snapshot with the MCP
+# server's tools, and the console package's surface test reads the server's
+# tool table, so an MCP change selects the server, the console package and
+# everything that depends on either.
+t_eq "$(real_pick console/mcp/src/tools.rs)" "$(printf 'crate %s\n' analytics console store tehas-cycle tehas-dispatch tehas-mcp tehas-ops tehas-plugin tehas-plugin-gate tehas-xtask)"
 
 t_case "the real workspace: a store change selects the crates that run the store"
 t_eq "$(real_pick console/store/src/db.rs)" "$(printf 'crate %s\n' console store tehas-cycle tehas-dispatch tehas-ops tehas-plugin tehas-plugin-gate tehas-xtask)"
