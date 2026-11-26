@@ -433,45 +433,10 @@ fresh() {
 # No case leaves the old file of a record that is on the store.
 t_after='t_no_old_state "$T/home/tehas"'
 
-# stub_github: gh answers for the issue and its events from files, no events
-# file is an issue nobody labelled. curl hands out $T/fx/net/<address, with _
-# for every other character>; <name>.rc is an exit status to fail with. What
-# arrives on standard input (the header) is kept.
 fx=$T/fx
 A=https://github.com/user-attachments/assets
 F=https://github.com/user-attachments/files
 imgs=$ws.images
-stub_github() {
-t_stub gh '
-case "$1 $2" in
-  "api repos/acme/widget/issues/7") cat "$T/fx/issue.json" 2>/dev/null || exit 1 ;;
-  "api repos/acme/widget/issues/7/events?per_page=100")
-    [ ! -e "$T/fx/events-fail" ] || exit 1
-    cat "$T/fx/events.json" 2>/dev/null || echo "[]" ;;
-  "issue comment") [ ! -e "$T/fx/comment-fails" ] || exit 1 ;;
-esac'
-t_stub curl '
-out="" url="" max=0 header=0
-while [ $# -gt 0 ]; do
-  case "$1" in
-    -o) out=$2; shift ;;
-    --max-filesize) max=$2; shift ;;
-    -H) header=1; shift ;;
-    https://*) url=$1 ;;
-  esac
-  shift
-done
-key=$(printf %s "$url" | tr -c "A-Za-z0-9" _)
-[ "$header" = 1 ] && { printf "%s " "$url"; cat; } >>"$T/calls/curl-headers"
-[ -f "$T/fx/net/$key.rc" ] && exit "$(cat "$T/fx/net/$key.rc")"
-[ -f "$T/fx/net/$key" ] || exit 22
-# A request with no -o is a chat request to the model: the answer is printed.
-[ -n "$out" ] || { cat "$T/fx/net/$key"; exit 0; }
-[ "$(stat -c %s "$T/fx/net/$key")" -le "$max" ] || exit 63
-cp "$T/fx/net/$key" "$out"
-printf application/octet-stream
-exit 0'
-}
 # net <address> <printf format>: something GitHub would hand out.
 net() {
   local key
@@ -520,9 +485,6 @@ images_off() {
   t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=0
 }
 manifest() { jq -c "$1" "$imgs/manifest.json" 2>&1; }
-# issue_reads: how many times a start asked GitHub for the issue itself. One
-# read serves the text check and the attachments of the same start.
-issue_reads() { grep -c -x -e 'api repos/acme/widget/issues/7' "$T/calls/gh" 2>/dev/null || true; }
 # What the sandbox image says about its own pi-rukas, as host/sandbox/build.sh
 # writes it: <commit>|<reads>. reads_image says it for one case.
 img_commit=$(printf 'c%.0s' {1..40})
