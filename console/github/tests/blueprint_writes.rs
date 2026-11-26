@@ -202,13 +202,28 @@ fn new_blueprint(title: &str, body: &str) -> NewBlueprint {
     }
 }
 
-/// The calls but the question of this project's name, which an answer
-/// naming another repository asks once.
-fn but_the_name(calls: &[Call]) -> usize {
+/// The question of this project's name as the adapter asks it, once, when
+/// an answer names another repository.
+const NAME_QUESTION: [&str; 8] = [
+    "api",
+    "graphql",
+    "-f",
+    "owner=acme",
+    "-f",
+    "name=widget",
+    "-f",
+    "query=query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { databaseId nameWithOwner } }",
+];
+
+/// Each call as `name` where it is exactly that question, else `call`.
+fn kinds(calls: &[Call]) -> Vec<&'static str> {
     calls
         .iter()
-        .filter(|c| c.args.get(1).map(String::as_str) != Some("graphql"))
-        .count()
+        .map(|c| match c.input.is_none() && c.args == NAME_QUESTION {
+            true => "name",
+            false => "call",
+        })
+        .collect()
 }
 
 fn args(words: &[&str]) -> Vec<String> {
@@ -1355,23 +1370,24 @@ fn a_comment_on_a_pull_request_or_of_another_comment_is_not_edited() {
     let mut elsewhere: Value = serde_json::from_str(&read).unwrap();
     elsewhere["html_url"] =
         "https://github.com/acme/gadget/issues/7#issuecomment-2501230002".into();
-    for (answer, want) in [
-        (on_pull, Outcome::NotFound),
-        (other, Outcome::Unread(Unread::Inconsistent)),
-        (elsewhere, Outcome::Unread(Unread::Inconsistent)),
+    for (answer, want, asked) in [
+        (on_pull, Outcome::NotFound, &["call"][..]),
+        (other, Outcome::Unread(Unread::Inconsistent), &["call"]),
+        (
+            elsewhere,
+            Outcome::Unread(Unread::Inconsistent),
+            &["call", "name"],
+        ),
         (
             Value::String("no comment".into()),
             Outcome::Unread(Unread::Malformed),
+            &["call"],
         ),
     ] {
         let (mut gh, calls) = adapter_ours(vec![Ok(answer.to_string())]);
         let got = gh.edit_comment(&question_id(), "b", &MarkerEdit::default(), &since);
         assert_eq!(got, Err(want.clone()), "{answer}");
-        assert_eq!(
-            but_the_name(&calls.lock().unwrap()),
-            1,
-            "no write: {answer}"
-        );
+        assert_eq!(kinds(&calls.lock().unwrap()), asked, "no write: {answer}");
     }
 }
 

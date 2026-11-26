@@ -142,13 +142,28 @@ fn sent_body(c: &Call) -> String {
         .body
 }
 
-/// The calls but the question of this project's name, which an answer
-/// naming another repository asks once.
-fn but_the_name(calls: &[Call]) -> usize {
+/// The question of this project's name as the adapter asks it, once, when
+/// an answer names another repository.
+const NAME_QUESTION: [&str; 8] = [
+    "api",
+    "graphql",
+    "-f",
+    "owner=acme",
+    "-f",
+    "name=widget",
+    "-f",
+    "query=query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { databaseId nameWithOwner } }",
+];
+
+/// Each call as `name` where it is exactly that question, else `call`.
+fn kinds(calls: &[Call]) -> Vec<&'static str> {
     calls
         .iter()
-        .filter(|c| c.args.get(1).map(String::as_str) != Some("graphql"))
-        .count()
+        .map(|c| match c.input.is_none() && c.args == NAME_QUESTION {
+            true => "name",
+            false => "call",
+        })
+        .collect()
 }
 
 fn args(words: &[&str]) -> Vec<String> {
@@ -396,12 +411,13 @@ fn an_answer_for_another_repository_or_issue_is_inconsistent() {
         assert_eq!(got, Err(Outcome::Unread(Unread::Inconsistent)), "{to}");
     }
     // The read answered another repository's issue, or another number.
-    for (from, to) in [
+    for (from, to, asked) in [
         (
             "github.com/acme/widget/issues/7",
             "github.com/acme/other/issues/7",
+            &["call", "name"][..],
         ),
-        ("\"number\":7", "\"number\":9"),
+        ("\"number\":7", "\"number\":9", &["call"][..]),
     ] {
         let read = sample("issue-7.json").replace(from, to);
         let (mut gh, calls) = adapter(vec![Ok(read)]);
@@ -410,7 +426,7 @@ fn an_answer_for_another_repository_or_issue_is_inconsistent() {
             Err(Outcome::Unread(Unread::Inconsistent)),
             "{to}"
         );
-        assert_eq!(but_the_name(&taken(&calls)), 1, "nothing posted");
+        assert_eq!(kinds(&taken(&calls)), asked, "nothing posted: {to}");
     }
     // A project named in another case is the same project.
     let answer = sample("comment-posted.json").replace("acme/widget", "Acme/Widget");
@@ -489,9 +505,7 @@ fn a_project_transferred_to_another_owner_is_not_here() {
         gh.note(&key(7), "b", &[]),
         Err(Outcome::Unread(Unread::Inconsistent))
     );
-    let calls = taken(&calls);
-    assert_eq!(calls.len(), 2, "nothing posted");
-    assert_eq!(calls[1].args[..2], args(&["api", "graphql"]));
+    assert_eq!(kinds(&taken(&calls)), ["call", "name"], "nothing posted");
     // A rename within the owner, named in another case, is still here.
     let (mut gh, _) = adapter_of(
         "ACME/widget-before",
@@ -1768,5 +1782,5 @@ fn a_parent_of_another_repository_is_another_parent() {
         gh.add_part(&key(12), &key(13)),
         Err(Outcome::Refused(Refusal::Invalid))
     );
-    assert_eq!(but_the_name(&taken(&calls)), 1);
+    assert_eq!(kinds(&taken(&calls)), ["call", "name"]);
 }
