@@ -846,7 +846,11 @@ mod tests {
         let h = Arc::clone(&heard);
         let events = raise::logged(move |l| h.lock().unwrap().push(l.to_string())).build();
         let stop = |attempt: &str| {
-            let end = ["cycle-end", "5", "--attempt", attempt, "--stopped"];
+            let end = Verb::CycleEnd {
+                issue: 5,
+                attempt: attempt.into(),
+                end: verb::End::Stopped,
+            };
             store::call(&home, &end).unwrap().to_string()
         };
         // Two stops of one record: the first writes the line and raises;
