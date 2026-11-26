@@ -64,11 +64,11 @@ const ISSUE: &str = r#"{"number":7,"title":"Make it so","state":"open","state_re
 "html_url":"https://github.com/acme/widget/issues/7"}"#;
 
 /// The answer of the question of the ticket #7 is a part of: #3.
-const PARENT: &str = r#"{"data":{"repository":{"databaseId":7001,"p7":{"number":7,"parent":{"number":3,"repository":{"databaseId":7001,"nameWithOwner":"acme/widget"}}}}}}"#;
+const PARENT: &str = r#"{"data":{"repository":{"databaseId":7001,"n7":{"number":7,"parent":{"number":3,"repository":{"databaseId":7001,"nameWithOwner":"acme/widget"}}}}}}"#;
 
 /// The same, of a ticket that is a part of none.
 const NO_PARENT: &str =
-    r#"{"data":{"repository":{"databaseId":7001,"p7":{"number":7,"parent":null}}}}"#;
+    r#"{"data":{"repository":{"databaseId":7001,"n7":{"number":7,"parent":null}}}}"#;
 
 #[test]
 fn a_tickets_digest_is_the_issues_rest_read_and_its_parent() {
@@ -77,7 +77,7 @@ fn a_tickets_digest_is_the_issues_rest_read_and_its_parent() {
     let asked = asked.lock().unwrap();
     assert_eq!(asked[0], "api repos/acme/widget/issues/7");
     assert!(
-        asked[1].contains(" p7: issue(number: 7) { number parent "),
+        asked[1].contains(" n7: issue(number: 7) { number parent "),
         "{}",
         asked[1]
     );
@@ -132,7 +132,7 @@ fn a_parent_is_named_where_it_is_and_one_that_cannot_be_read_fails_the_digest() 
         })
     );
     // An answer that leaves the parent out does not say there is none.
-    let left_out = r#"{"data":{"repository":{"databaseId":7001,"p7":{"number":7}}}}"#;
+    let left_out = r#"{"data":{"repository":{"databaseId":7001,"n7":{"number":7}}}}"#;
     let (mut gh, _) = adapter(vec![Ok(ISSUE), Ok(left_out)]);
     assert_eq!(
         gh.several(&[key(7)]).remove(0).1,
@@ -171,7 +171,7 @@ fn the_parents_of_many_tickets_are_asked_a_hundred_at_a_time() {
                         n + 1000
                     ),
                 };
-                format!(r#""p{n}":{{"number":{n},"parent":{parent}}}"#)
+                format!(r#""n{n}":{{"number":{n},"parent":{parent}}}"#)
             })
             .collect();
         format!(
@@ -202,8 +202,8 @@ fn the_parents_of_many_tickets_are_asked_a_hundred_at_a_time() {
     let questions = &asked[keys.len()..];
     assert_eq!(questions[0].matches(": issue(number: ").count(), 100);
     assert_eq!(questions[1].matches(": issue(number: ").count(), 49);
-    assert!(questions[1].contains(" p150: issue(number: 150) "));
-    assert!(!questions.iter().any(|q| q.contains(" p9: ")));
+    assert!(questions[1].contains(" n150: issue(number: 150) "));
+    assert!(!questions.iter().any(|q| q.contains(" n9: ")));
     assert_eq!(got.len(), keys.len());
     for ((k, d), want) in got.iter().zip(&keys) {
         assert_eq!(k, want);
@@ -223,7 +223,7 @@ fn the_parents_of_many_tickets_are_asked_a_hundred_at_a_time() {
 }
 
 fn aliased(answer: &str, n: u32) -> String {
-    answer.replacen(r#""issue":"#, &format!(r#""p{n}":"#), 1)
+    answer.replacen(r#""issue":"#, &format!(r#""n{n}":"#), 1)
 }
 
 fn live(name: &str) -> String {
@@ -317,8 +317,8 @@ fn another_repositorys_id_is_elsewhere_whatever_its_name() {
     // An answer that names no id of this project's repository leaves the
     // handle nothing to tell here from elsewhere by.
     let unlearned = PARENT.replace(
-        r#"{"repository":{"databaseId":7001,"p7""#,
-        r#"{"repository":{"p7""#,
+        r#"{"repository":{"databaseId":7001,"n7""#,
+        r#"{"repository":{"n7""#,
     );
     let (mut gh, _) = adapter(vec![Ok(ISSUE), Ok(&unlearned)]);
     assert_eq!(

@@ -195,7 +195,7 @@ fn parents(args: &[&str]) -> Option<Result<String, String>> {
         let repo = one.pointer_mut("/data/repository")?.as_object_mut()?;
         let node = repo.remove("issue")?;
         repository.extend(repo.clone());
-        repository.insert(format!("p{n}"), node);
+        repository.insert(format!("n{n}"), node);
     }
     let answer = serde_json::json!({ "data": { "repository": repository } });
     Some(Ok(answer.to_string()))

@@ -84,7 +84,7 @@ fn key(n: u64) -> TicketKey {
 }
 
 /// The answer of the question of the ticket #7 is a part of: none.
-const NO_PARENT: &str = r#"{"data":{"repository":{"p7":{"number":7,"parent":null}}}}"#;
+const NO_PARENT: &str = r#"{"data":{"repository":{"n7":{"number":7,"parent":null}}}}"#;
 
 fn rest_issue(author: &str, assignee: &str) -> String {
     format!(

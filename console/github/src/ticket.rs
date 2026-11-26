@@ -10,6 +10,7 @@
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer};
 
+use crate::items::{alias, PER_QUESTION};
 use crate::tickets::{account, number, take, Bot};
 use crate::{gh, markers, table, ForgeError, GitHub};
 use tehas_ports::{
@@ -256,11 +257,6 @@ pub(crate) fn digest_fields() -> String {
 /// The ticket an issue is a part of, if any.
 const PARENT: &str = "parent { number repository { databaseId nameWithOwner } }";
 
-/// The alias an issue is asked under in the parents' question.
-fn parent_alias(n: u64) -> String {
-    format!("p{n}")
-}
-
 /// The question of the ticket each issue is a part of, one alias a number.
 fn parents_question(numbers: &[u64]) -> String {
     let mut q = String::from(
@@ -269,7 +265,7 @@ fn parents_question(numbers: &[u64]) -> String {
     for n in numbers {
         q.push_str(&format!(
             " {}: issue(number: {n}) {{ number {PARENT} }}",
-            parent_alias(*n)
+            alias(*n)
         ));
     }
     q.push_str(" } }");
@@ -613,8 +609,8 @@ impl GitHub {
     /// cut short.
     pub(crate) fn parents(&mut self, numbers: &[u64]) -> Vec<Got<Option<Ref<TicketKey>>>> {
         let mut got = Vec::with_capacity(numbers.len());
-        for chunk in numbers.chunks(crate::items::PER_QUESTION) {
-            let aliases: Vec<String> = chunk.iter().map(|n| parent_alias(*n)).collect();
+        for chunk in numbers.chunks(PER_QUESTION) {
+            let aliases: Vec<String> = chunk.iter().map(|n| alias(*n)).collect();
             let nodes: Vec<Got<Parented>> =
                 self.ask_aliased("the parents' question", &parents_question(chunk), &aliases);
             got.extend(chunk.iter().zip(nodes).map(|(n, node)| {
