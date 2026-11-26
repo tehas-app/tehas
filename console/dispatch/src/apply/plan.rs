@@ -1421,33 +1421,40 @@ impl Writer {
                 "--reason".into(),
                 "not planned".into(),
             ];
-            let wrote = match self.looked_1x(n, "issue-close", &args, None) {
-                Some(wrote) => wrote,
+            let (wrote, landed_here) = match self.looked_1x(n, "issue-close", &args, None) {
+                // A journal replay of a close an earlier call landed: its
+                // moment belongs to that call, which raised.
+                Some(wrote) => (wrote, false),
                 None => match super::ticket(n) {
-                    Some(ticket) => self.send(
-                        n,
-                        &tehas_ports::Write::Close {
+                    Some(ticket) => {
+                        let write = tehas_ports::Write::Close {
                             ticket,
                             reason: tehas_ports::CloseReason::NotPlanned,
-                        },
-                    ),
-                    None => Wrote::Failed(String::new()),
+                        };
+                        let fresh = !self.write_looked(n, &write);
+                        (self.send(n, &write), fresh)
+                    }
+                    None => (Wrote::Failed(String::new()), false),
                 },
             };
             let landed = matches!(wrote, Wrote::Done(_));
             if !landed {
                 log.push(format!("WARN: could not close #{n}"));
-            } else if let Some(ticket) = super::ticket(n) {
-                // The close landed: `ticket.closed`, once, of the moment it
-                // landed (T11.9). A close the site did not answer is not
-                // recorded as landed and raises nothing until the settle
-                // rules say it did (T4.7).
-                self.raise_closed(
-                    ticket,
-                    tehas_ports::CloseReason::NotPlanned,
-                    tehas_core::time::now(),
-                    log,
-                );
+            } else if landed_here {
+                if let Some(ticket) = super::ticket(n) {
+                    // The close landed here: `ticket.closed`, once, of the
+                    // moment it landed (T11.9). A close an earlier call
+                    // landed, or one the site did not answer, raises nothing
+                    // here: the first was raised by the call that landed it,
+                    // and the second is not recorded as landed until the
+                    // settle rules say it did (T4.7).
+                    self.raise_closed(
+                        ticket,
+                        tehas_ports::CloseReason::NotPlanned,
+                        tehas_core::time::now(),
+                        log,
+                    );
+                }
             }
         }
         if !self.plan_close(n, log) {

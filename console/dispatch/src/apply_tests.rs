@@ -3469,6 +3469,44 @@ fn a_refine_that_filed_replaces_its_issue() {
 }
 
 #[test]
+fn a_close_the_journal_said_done_raises_no_ticket_closed() {
+    let mut t = world();
+    plan_row(
+        &t,
+        json!({"turns": 1, "session": "s-1", "label": "tehas:refine"}),
+    );
+    fs::write(
+        t.dir.join("body-9"),
+        json!({"body": "The plan.\n## Later parts\nNone"}).to_string(),
+    )
+    .unwrap();
+    turn_ended(
+        &t,
+        7,
+        "0",
+        json!({"session": "s-1", "text": "Done.", "filed": ["https://github.com/example-owner/example-product/issues/9"]}),
+    );
+    // The poll's settle read the close done: an earlier call landed it.
+    // This poll must not close it again, and must not raise its
+    // `ticket.closed` a second time with a second moment.
+    let close = tehas_ports::Write::Close {
+        ticket: key(7),
+        reason: tehas_ports::CloseReason::NotPlanned,
+    };
+    let kept = tehas_core::journal::kept(&close).unwrap();
+    let k = looked_key(7, "", &json!(kept), &Value::Null);
+    t.w.looked.insert(k, Looked::Done(String::new()));
+    t.apply(json!([{"plan_collect": 7}]));
+    let w = t.writes();
+    assert!(!w.contains(&sent(&close)), "{w:?}");
+    let heard = t.heard.lock().unwrap().clone();
+    assert!(
+        heard.iter().all(|l| !l.contains("\"ticket.closed\"")),
+        "{heard:?}"
+    );
+}
+
+#[test]
 fn a_plan_chosen_for_its_issue_is_written_onto_it_and_ends_the_session() {
     let mut t = world();
     plan_row(

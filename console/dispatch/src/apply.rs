@@ -432,6 +432,17 @@ impl Writer {
         }
     }
 
+    /// True when this poll's settle already read this write done: its
+    /// landing belongs to the call that landed it, not to this one. The
+    /// key is the one `send` looks the row up by.
+    fn write_looked(&self, n: u64, write: &Write) -> bool {
+        let Ok(kept) = tehas_core::journal::kept(write) else {
+            return false;
+        };
+        self.looked
+            .contains_key(&looked_key(n, "", &json!(kept), &Value::Null))
+    }
+
     /// A write of the ports, journaled: one this poll's settle found done is not sent again, one it could not
     /// read is not sent at all (`looked`, by the write as its row keeps it).
     /// `Done` holds the id a comment was given, else nothing.
