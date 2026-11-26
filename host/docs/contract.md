@@ -1214,6 +1214,34 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   an instance's settings.
   Adopter action: none. An instance may write `TEHAS_CODE_HOST=github` and
   `TEHAS_TICKETS=github`.
+- **The settings of the 2.1 adapter are reserved.**
+  The feature `adapter` registers as building: `TEHAS_ADAPTER`,
+  `TEHAS_ADAPTER_UPSTREAM`, `TEHAS_ADAPTER_UPSTREAM_SPKI`,
+  `TEHAS_ADAPTER_UPSTREAM_CERT`, `TEHAS_ADAPTER_UPSTREAM_CERT_KEY`,
+  `TEHAS_PLUGIN_ORIGINS_<NAME>` (one line per plugin) and
+  `TEHAS_ADAPTER_EGRESS_DENY` gain rows in `api/settings-rules.json`,
+  marked `building`. A line that sets one of them stops every command
+  with exit 78 and names `adapter` before any call to GitHub, Docker or
+  git, as does `TEHAS_ADAPTER=on`; `tehas api --json` gains
+  `"adapter": false` in `flags`. Nothing else is visible: no command,
+  label, `--json` field of another command, MCP tool, unit or program
+  ([adapter](#adapter)).
+  Readers: adopters, the consumer that runs many factories where it
+  writes an instance's settings.
+  Adopter action: none; a 1.4.x instance sets no such line. The lines
+  become usable in the release that ships the adapter.
+- **An unknown `TEHAS_` name warns once and loads.**
+  A name of `instance.env` that starts `TEHAS_` and names no setting
+  this release reads, and that it never read under an older name either,
+  brings one line to standard error on every load: `<NAME> is no setting
+  tehas reads: nothing uses it; remove it from the instance`. The name is
+  kept, not dropped, and the load does not fail: a 1.4.x instance still
+  loads. Names tehas knows stay silent, including the renamed and
+  removed ones that already have their own lines
+  ([troubleshooting](/troubleshooting)).
+  Readers: adopters, the consumer that runs many factories where it
+  writes an instance's settings.
+  Adopter action: none. Take the warned lines out when it suits you.
 - **Access is keyed by account id.** #3244, this pull request.
   Part A keyed the allowed labellers and `state/account-ids` by the
   account's stable id; this carries the id into the plugin gate: a
@@ -1409,6 +1437,26 @@ The rest is library code that nothing in core calls yet:
 | The wiki's collector, check and render | `console/wiki-collect`, `console/wiki-render` | the `wiki` plugin |
 | The mesh read | `console/mesh-feed` | the `energy` plugin |
 | The cut of `tehas top`'s snapshot | `console/host-feed` | the `hoststats` plugin (`feed:host`) |
+
+### adapter
+
+Building, for 2.1. Nothing of the adapter is in 2.0: the registry only
+reserves its settings, so an instance written for 2.1 is refused here with
+78 rather than loaded and ignored. Off by default; `TEHAS_ADAPTER=on` stops
+every command with exit 78 and says `adapter` is still being built.
+
+- `tehas api --json` has `"adapter": false` in `flags`, and no word
+  `adapter` in `features`.
+- The settings `TEHAS_ADAPTER_UPSTREAM`, `TEHAS_ADAPTER_UPSTREAM_SPKI`,
+  `TEHAS_ADAPTER_UPSTREAM_CERT`, `TEHAS_ADAPTER_UPSTREAM_CERT_KEY`,
+  `TEHAS_PLUGIN_ORIGINS_<NAME>` and `TEHAS_ADAPTER_EGRESS_DENY` are in
+  `api/settings-rules.json`, marked `"building": true`, but they are not
+  contract: a line that gives one a value stops every command with exit 78
+  and names `adapter`. A value of a shape the row refuses is refused as
+  malformed first. `TEHAS_ADAPTER=off` and empty lines load as if left out.
+- No command, no label, no `--json` field of another command, no MCP tool,
+  no unit, no program. What 2.1 builds, and what the adapter's parts
+  promise, will be contract in the release that ships it.
 
 ## Exit statuses
 
