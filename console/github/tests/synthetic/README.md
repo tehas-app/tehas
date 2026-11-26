@@ -28,6 +28,18 @@ numbers count from 0 in `data.repository.pullRequest.events.nodes`.
 | `activity/no-page-info/events-whole-first.json` | `events` has no `pageInfo` |
 | `activity/no-cursor/events-whole-first.json` | `pageInfo` is `{"hasNextPage": true, "endCursor": null}`: more follows, no cursor to it |
 
+## A state not of its node's kind
+
+Source: `console/github/tests/recorded/blockers/live/as-blockers-found.json`,
+the live answer of the blockers' question for issues 1 (open) and 2
+(closed) and pull requests 3 (open), 4 (merged) and 5 (closed) of
+`tehas-app/tehas-rec-blockers`. GitHub's states are typed, so it cannot
+give these.
+
+| File | Changed from the recording |
+| --- | --- |
+| `blockers/malformed/as-blockers-found.json` | Issue `n1`'s `state` is `MERGED`, pull request `n3`'s is `DRAFT`, and `n5` has no `state`; `n2` and `n4` are the recording's |
+
 ## A body that is not JSON
 
 These are not GitHub's answers: they stand for a body gh hands back that

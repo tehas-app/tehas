@@ -1,8 +1,12 @@
 //! `Board::as_blockers` as the adapter answers it: what each number names,
 //! a ticket or a change, with its state, in one GraphQL question an alias a
-//! number (Decided 122). The answers are written here, in the shape
-//! `tests/recorded/what/live/` recorded of `what_are`'s question, with the
-//! state beside each node.
+//! number (Decided 122). Replayed from `tests/recorded/blockers/live/`, the
+//! live answers of `tehas-app/tehas-rec-blockers` (kit run #1, 2026-11-26):
+//! issue 1 open, issue 2 closed, pull request 3 open, 4 merged and 5
+//! closed, and the same question with 1005, a number that never was.
+//! `tests/synthetic/blockers/` holds the faults GitHub cannot give.
+
+mod answers;
 
 use std::num::NonZeroU64;
 use std::sync::{Arc, Mutex};
@@ -13,46 +17,113 @@ use tehas_ports::{
     TicketKey, Unread, ALL_MAX,
 };
 
-const PROJECT: &str = "acme/widget";
+const PROJECT: &str = "tehas-app/tehas-rec-blockers";
 const MALFORMED: Outcome = Outcome::Unread(Unread::Malformed);
 
 type Asked = Arc<Mutex<Vec<String>>>;
 
-/// A runner that answers each question with `answer` of the numbers it
-/// asks, read from its aliases: Ok for an answer gh exited 0 on, Err with
-/// what gh printed as it exited 1.
-struct Stub {
-    answer: fn(&[u64]) -> Result<String, Failed>,
+fn field<'a>(args: &'a [&str], name: &str) -> Option<&'a str> {
+    args.windows(2)
+        .filter(|w| w[0] == "-f" || w[0] == "-F")
+        .find_map(|w| w[1].strip_prefix(&format!("{name}=")))
+}
+
+/// The numbers a question asks, read from its aliases.
+fn numbers_of(query: &str) -> Vec<u64> {
+    query
+        .split(": issueOrPullRequest(number: ")
+        .skip(1)
+        .filter_map(|r| r.split(')').next()?.parse().ok())
+        .collect()
+}
+
+/// A runner that answers the blockers' question from the answers of one
+/// state: `as-blockers-found` when it asks 1 to 5, `as-blockers` when it
+/// asks 1 to 5 and 1005. `.json` is gh's answer, `.fail` the reason it
+/// failed and `.answer.json` beside it what gh printed as it failed.
+struct Replay {
+    state: &'static str,
     asked: Asked,
 }
 
-impl GhRunner for Stub {
+impl GhRunner for Replay {
     fn run(&mut self, _: &[&str]) -> Result<String, String> {
         panic!("the blockers' question is asked with its answer kept")
     }
 
     fn run_answer(&mut self, args: &[&str]) -> Result<String, Failed> {
-        let query = args
-            .iter()
-            .find_map(|a| a.strip_prefix("query="))
-            .expect("a query");
+        assert_eq!(&args[..2], ["api", "graphql"]);
+        assert_eq!(field(args, "owner"), Some("tehas-app"));
+        assert_eq!(field(args, "name"), Some("tehas-rec-blockers"));
+        let query = field(args, "query").expect("a query");
         self.asked.lock().unwrap().push(query.to_string());
-        let numbers: Vec<u64> = query
-            .split(": issueOrPullRequest(number: ")
-            .skip(1)
-            .filter_map(|r| r.split(')').next()?.parse().ok())
-            .collect();
-        (self.answer)(&numbers)
+        let name = match numbers_of(query).as_slice() {
+            [1, 2, 3, 4, 5] => "as-blockers-found",
+            [1, 2, 3, 4, 5, 1005] => "as-blockers",
+            other => panic!("no recording of the question of {other:?}"),
+        };
+        let read = |ext: &str| {
+            std::fs::read_to_string(answers::at(
+                "blockers",
+                self.state,
+                &format!("{name}.{ext}"),
+            ))
+            .ok()
+        };
+        if let Some(out) = read("json") {
+            return Ok(out);
+        }
+        match read("fail") {
+            Some(why) => Err(Failed {
+                why: why.trim_end().to_string(),
+                answer: read("answer.json"),
+            }),
+            None => panic!("no recording of {name} in {}", self.state),
+        }
     }
 }
 
-fn adapter(answer: fn(&[u64]) -> Result<String, Failed>) -> (GitHub, Asked) {
+fn adapter(state: &'static str) -> (GitHub, Asked) {
     let asked = Asked::default();
-    let stub = Stub {
-        answer,
+    let replay = Replay {
+        state,
         asked: Arc::clone(&asked),
     };
-    (GitHub::new(PROJECT, Box::new(stub)), asked)
+    (GitHub::new(PROJECT, Box::new(replay)), asked)
+}
+
+/// A runner whose every question fails with `failed`, its questions kept.
+struct Failing {
+    failed: fn() -> Failed,
+    asked: Asked,
+}
+
+impl GhRunner for Failing {
+    fn run(&mut self, _: &[&str]) -> Result<String, String> {
+        panic!("the blockers' question is asked with its answer kept")
+    }
+
+    fn run_answer(&mut self, args: &[&str]) -> Result<String, Failed> {
+        let query = field(args, "query").expect("a query");
+        self.asked.lock().unwrap().push(query.to_string());
+        Err((self.failed)())
+    }
+}
+
+fn failing(failed: fn() -> Failed) -> (GitHub, Asked) {
+    let asked = Asked::default();
+    let runner = Failing {
+        failed,
+        asked: Arc::clone(&asked),
+    };
+    (GitHub::new(PROJECT, Box::new(runner)), asked)
+}
+
+fn timed_out() -> Failed {
+    Failed {
+        why: "gh ran out of its 30s bound".to_string(),
+        answer: None,
+    }
 }
 
 fn no(n: u64) -> NonZeroU64 {
@@ -73,63 +144,33 @@ fn change(n: u64, state: BlockerState) -> Got<Blocker> {
     ))
 }
 
-/// The node of number `n` of the fixture project: issues 1 (open) and 2
-/// (closed), pull requests 50 (open), 51 (merged) and 52 (closed); any
-/// other number names nothing.
-fn node(n: u64) -> Option<String> {
-    let (is, state) = match n {
-        1 => ("Issue", "OPEN"),
-        2 => ("Issue", "CLOSED"),
-        50 => ("PullRequest", "OPEN"),
-        51 => ("PullRequest", "MERGED"),
-        52 => ("PullRequest", "CLOSED"),
-        _ => return None,
-    };
-    Some(format!(
-        r#"{{"__typename":"{is}","number":{n},"state":"{state}"}}"#
-    ))
-}
-
-/// GitHub's answer of the fixture project: each node, null with a
-/// `NOT_FOUND` error at its alias for a number it does not know, and gh
-/// then exits 1 with the answer printed.
-fn project(numbers: &[u64]) -> Result<String, Failed> {
-    let mut nodes = Vec::new();
-    let mut errors = Vec::new();
-    for n in numbers {
-        match node(*n) {
-            Some(v) => nodes.push(format!(r#""n{n}":{v}"#)),
-            None => {
-                nodes.push(format!(r#""n{n}":null"#));
-                errors.push(format!(
-                    r#"{{"type":"NOT_FOUND","path":["repository","n{n}"],"message":"Could not resolve to an issue or pull request with the number of {n}."}}"#
-                ));
-            }
-        }
-    }
-    let data = format!(r#"{{"repository":{{{}}}}}"#, nodes.join(","));
-    if errors.is_empty() {
-        return Ok(format!(r#"{{"data":{data}}}"#));
-    }
-    Err(Failed {
-        why: ": gh exited 1".to_string(),
-        answer: Some(format!(
-            r#"{{"data":{data},"errors":[{}]}}"#,
-            errors.join(",")
-        )),
-    })
+#[test]
+fn the_law_holds_on_the_adapter_in_one_question() {
+    let (mut gh, asked) = adapter("live");
+    let want = [
+        (no(2), ticket(2, BlockerState::Closed)),
+        (no(3), change(3, BlockerState::Open)),
+        (no(1), ticket(1, BlockerState::Open)),
+        (no(4), change(4, BlockerState::Merged)),
+        (no(1005), Err(Outcome::NotFound)),
+        (no(5), change(5, BlockerState::Closed)),
+        (no(1), ticket(1, BlockerState::Open)),
+    ];
+    assert_eq!(
+        laws::board::as_blockers_name_each_number(&mut gh, &want),
+        Ok(())
+    );
+    assert_eq!(asked.lock().unwrap().len(), 1);
 }
 
 #[test]
-fn the_law_holds_on_the_adapter_in_one_question() {
-    let (mut gh, asked) = adapter(project);
+fn the_law_holds_on_the_adapter_when_every_number_is_there() {
+    let (mut gh, asked) = adapter("live");
     let want = [
+        (no(5), change(5, BlockerState::Closed)),
+        (no(4), change(4, BlockerState::Merged)),
+        (no(3), change(3, BlockerState::Open)),
         (no(2), ticket(2, BlockerState::Closed)),
-        (no(50), change(50, BlockerState::Open)),
-        (no(1), ticket(1, BlockerState::Open)),
-        (no(51), change(51, BlockerState::Merged)),
-        (no(999), Err(Outcome::NotFound)),
-        (no(52), change(52, BlockerState::Closed)),
         (no(1), ticket(1, BlockerState::Open)),
     ];
     assert_eq!(
@@ -141,10 +182,10 @@ fn the_law_holds_on_the_adapter_in_one_question() {
 
 #[test]
 fn each_number_is_asked_its_state_under_its_own_alias() {
-    let (mut gh, asked) = adapter(project);
-    gh.as_blockers(&[no(1), no(50)]);
+    let (mut gh, asked) = adapter("live");
+    gh.as_blockers(&[no(1), no(2), no(3), no(4), no(5)]);
     let asked = asked.lock().unwrap();
-    for n in [1, 50] {
+    for n in 1..=5 {
         assert!(
             asked[0].contains(&format!(
                 " n{n}: issueOrPullRequest(number: {n}) {{ __typename ... on Issue {{ number state }} ... on PullRequest {{ number state }} }}"
@@ -157,22 +198,24 @@ fn each_number_is_asked_its_state_under_its_own_alias() {
 
 #[test]
 fn no_number_asks_nothing() {
-    let (mut gh, asked) = adapter(project);
+    let (mut gh, asked) = adapter("live");
     assert!(gh.as_blockers(&[]).is_empty());
     assert!(asked.lock().unwrap().is_empty());
 }
 
 #[test]
 fn a_hundred_numbers_go_in_a_question_and_past_the_most_none_is_asked() {
-    let (mut gh, asked) = adapter(project);
+    let (mut gh, asked) = failing(timed_out);
     let numbers: Vec<NonZeroU64> = (1..=150).map(no).collect();
-    let got = gh.as_blockers(&numbers);
-    assert_eq!(got.len(), 150);
-    assert_eq!(got[0], (no(1), ticket(1, BlockerState::Open)));
-    assert_eq!(got[2], (no(3), Err(Outcome::NotFound)));
-    assert_eq!(asked.lock().unwrap().len(), 2);
+    assert_eq!(gh.as_blockers(&numbers).len(), 150);
+    let asked = asked.lock().unwrap();
+    let chunks: Vec<Vec<u64>> = asked.iter().map(|q| numbers_of(q)).collect();
+    assert_eq!(
+        chunks,
+        [(1..=100).collect::<Vec<u64>>(), (101..=150).collect()]
+    );
 
-    let (mut gh, asked) = adapter(project);
+    let (mut gh, asked) = failing(timed_out);
     let numbers: Vec<NonZeroU64> = (1..=u64::from(ALL_MAX.get()) + 1).map(no).collect();
     let got = gh.as_blockers(&numbers);
     assert!(got
@@ -183,43 +226,22 @@ fn a_hundred_numbers_go_in_a_question_and_past_the_most_none_is_asked() {
 
 #[test]
 fn a_state_not_of_its_kind_is_malformed_and_spoils_only_itself() {
-    let (mut gh, _) = adapter(|numbers| {
-        let nodes: Vec<String> = numbers
-            .iter()
-            .map(|n| {
-                let v = match n {
-                    3 => r#"{"__typename":"Issue","number":3,"state":"MERGED"}"#,
-                    4 => r#"{"__typename":"PullRequest","number":4,"state":"DRAFT"}"#,
-                    5 => r#"{"__typename":"Issue","number":5}"#,
-                    _ => r#"{"__typename":"Issue","number":6,"state":"OPEN"}"#,
-                };
-                format!(r#""n{n}":{v}"#)
-            })
-            .collect();
-        Ok(format!(
-            r#"{{"data":{{"repository":{{{}}}}}}}"#,
-            nodes.join(",")
-        ))
-    });
+    let (mut gh, _) = adapter("malformed");
     assert_eq!(
-        gh.as_blockers(&[no(3), no(4), no(5), no(6)]),
+        gh.as_blockers(&[no(1), no(2), no(3), no(4), no(5)]),
         [
+            (no(1), Err(MALFORMED)),
+            (no(2), ticket(2, BlockerState::Closed)),
             (no(3), Err(MALFORMED)),
-            (no(4), Err(MALFORMED)),
+            (no(4), change(4, BlockerState::Merged)),
             (no(5), Err(MALFORMED)),
-            (no(6), ticket(6, BlockerState::Open)),
         ]
     );
 }
 
 #[test]
 fn a_failed_question_is_its_outcome_for_every_number() {
-    let (mut gh, asked) = adapter(|_| {
-        Err(Failed {
-            why: "gh ran out of its 30s bound".to_string(),
-            answer: None,
-        })
-    });
+    let (mut gh, asked) = failing(timed_out);
     let timeout = Outcome::Unavailable {
         why: Passing::Timeout,
         sent: Sent::Maybe,
