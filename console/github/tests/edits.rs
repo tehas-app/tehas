@@ -6,9 +6,11 @@
 //! item's part of a GraphQL answer, `.silent` a null part, `.null` a null
 //! part GitHub says it cannot find, `.forbidden` one it refuses; an item
 //! with no recording is one GitHub cannot find. `bodies.*` and `nodes.*`
-//! answer a whole question; `comment-<id>.*` is a comment's REST read.
-//! Answers GitHub cannot be made to give on demand are under
-//! `tests/synthetic/edits/` (`tests/synthetic/README.md`).
+//! answer a whole question; `comment-<id>.*` is a comment's REST read,
+//! and `.answer.json` beside a `.fail` what gh printed as it failed.
+//! `live/` is a live answer of the project [`LIVE`]. Answers GitHub
+//! cannot be made to give on demand are under `tests/synthetic/edits/`
+//! (`tests/synthetic/README.md`).
 
 mod answers;
 
@@ -23,6 +25,8 @@ use tehas_ports::{
 };
 
 const PROJECT: &str = "acme/widget";
+/// The project of the live recordings under `edits/live/`.
+const LIVE: &str = "tehas-app/tehas-rec-edits-not-found";
 const EDITED: u64 = 2_501_240_001;
 const PLAIN: u64 = 2_501_240_002;
 const EDITED_NODE: &str = "IC_kwDOAbCdEf6VEd0001";
@@ -54,6 +58,7 @@ fn all_between<'a>(text: &'a str, open: &str, close: &str) -> Vec<&'a str> {
 }
 
 struct Replay {
+    project: String,
     state: String,
     asked: Asked,
 }
@@ -155,7 +160,7 @@ impl Replay {
         if let Ok(why) = read("fail") {
             return Err(Failed {
                 why: why.trim_end().to_string(),
-                answer: None,
+                answer: read("answer.json").ok(),
             });
         }
         self.exit(answer)
@@ -176,7 +181,9 @@ impl Replay {
     }
 
     fn rest(&self, path: &str) -> Result<String, Failed> {
-        let rest = path.strip_prefix("repos/acme/widget/issues/").unwrap();
+        let rest = path
+            .strip_prefix(&format!("repos/{}/issues/", self.project))
+            .unwrap();
         let name = if let Some(id) = rest.strip_prefix("comments/") {
             format!("comment-{id}")
         } else if let Some(n) = rest.strip_suffix("/comments?per_page=100&page=1") {
@@ -196,6 +203,14 @@ impl Replay {
     }
 }
 
+impl Replay {
+    /// The `-F` fields a question names this project by.
+    fn owner_name(&self) -> [String; 2] {
+        let (owner, name) = self.project.split_once('/').unwrap();
+        [format!("owner={owner}"), format!("name={name}")]
+    }
+}
+
 impl GhRunner for Replay {
     fn run(&mut self, args: &[&str]) -> Result<String, String> {
         self.run_answer(args).map_err(|f| f.why)
@@ -204,7 +219,9 @@ impl GhRunner for Replay {
     fn run_answer(&mut self, args: &[&str]) -> Result<String, Failed> {
         self.asked.lock().unwrap().push(args.join(" "));
         match args {
-            ["api", "graphql", "-F", "owner=acme", "-F", "name=widget", "-f", query] => {
+            ["api", "graphql", "-F", owner, "-F", name, "-f", query]
+                if [*owner, *name] == self.owner_name() =>
+            {
                 self.graphql(query.strip_prefix("query=").unwrap())
             }
             ["api", path] => self.rest(path),
@@ -218,13 +235,18 @@ fn replay_now() -> i64 {
 }
 
 fn adapter(state: &str) -> (GitHub, Asked) {
+    adapter_of(PROJECT, state)
+}
+
+fn adapter_of(project: &str, state: &str) -> (GitHub, Asked) {
     let asked = Asked::default();
     let replay = Replay {
+        project: project.to_string(),
         state: state.to_string(),
         asked: Arc::clone(&asked),
     };
     (
-        GitHub::new(PROJECT, Box::new(replay)).on_clock(replay_now),
+        GitHub::new(project, Box::new(replay)).on_clock(replay_now),
         asked,
     )
 }
@@ -529,6 +551,23 @@ fn a_failed_question_fails_each_of_its_items() {
     }
 }
 
+/// Live (`edits/live/`): GitHub answers a deleted issue and a number that
+/// never was with a null item and a `NOT_FOUND` at it, beside gh's
+/// failure, so each is `NotFound` and the kept issue stands. A deleted
+/// comment's REST read is GitHub's 404, `NotFound` with no question.
+#[test]
+fn a_deleted_or_never_made_item_is_not_found() {
+    let (mut gh, asked) = adapter_of(LIVE, "live");
+    let got = gh.body_edits_of(&[bp(1), bp(2), bp(1001)], ALL_MAX);
+    assert_eq!(texts(&got[0].1), ["Kept, edited."]);
+    assert_eq!(logins(&got[0].1), ["janit"]);
+    assert_eq!(got[1].1, Err(Outcome::NotFound));
+    assert_eq!(got[2].1, Err(Outcome::NotFound));
+    let got = gh.comment_edits_of(&[cid(7_194_481_408)], ALL_MAX);
+    assert_eq!(got[0].1, Err(Outcome::NotFound));
+    assert_eq!(questions(&asked).len(), 1);
+}
+
 /// The edits are read by the adapter's one reader of several
 /// (`items.rs`): a not found inside an item is no word that the item is
 /// gone (Decided 121), an item missing from the answer is malformed, and
@@ -536,10 +575,12 @@ fn a_failed_question_fails_each_of_its_items() {
 #[test]
 fn the_edits_are_read_by_the_one_reader_of_several() {
     let malformed = Err(Outcome::Unread(Unread::Malformed));
+    let (mut gh, _) = adapter_of(LIVE, "inner-not-found");
+    let got = gh.body_edits_of(&[bp(1), bp(2), bp(1001)], ALL_MAX);
+    assert_eq!(texts(&got[0].1), ["Kept, edited."]);
+    assert_eq!(got[1].1, inconsistent());
+    assert_eq!(got[2].1, Err(Outcome::NotFound));
     let (mut gh, _) = adapter("inner-not-found");
-    let got = gh.body_edits_of(&[bp(7), bp(8)], ALL_MAX);
-    assert_eq!(got[0].1, inconsistent());
-    assert_eq!(got[1].1, Err(Outcome::NotFound));
     let got = gh.comment_edits_of(&[cid(EDITED), cid(PLAIN)], ALL_MAX);
     assert_eq!(got[0].1, inconsistent());
     assert_eq!(got[1].1, Err(Outcome::NotFound));

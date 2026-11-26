@@ -28,34 +28,35 @@ numbers count from 0 in `data.repository.pullRequest.events.nodes`.
 | `activity/no-page-info/events-whole-first.json` | `events` has no `pageInfo` |
 | `activity/no-cursor/events-whole-first.json` | `pageInfo` is `{"hasNextPage": true, "endCursor": null}`: more follows, no cursor to it |
 
-## Stubs of an aliased question
+## One fault in a live aliased question
 
-Hand-made stubs, not recordings. Each starts from the live recording
-`recorded/what/live/from-1.answer.json` (the one live answer of an aliased
-question here; no edit-history question is recorded live yet) and changes
-only what makes the case. Their `locations` and `message` are that
-recording's, copied as they are.
+Each starts from a live answer of the same question and changes only what
+makes the case. Their `locations` and `message` are the recording's.
 
-- `edits/inner-not-found/bodies.json`: to be replaced by a live recording,
-  see the kit list (`d`, edits-not-found). Live answer's error object, `path`
-  set to `["repository","i7","userContentEdits"]` (a NOT_FOUND inside issue 7)
-  and `["repository","i8"]`; data set to `i7` and `i8` null.
-- `edits/inner-not-found/nodes.json`: to be replaced by a live recording,
-  see the kit list (`d`, edits-not-found). As above, by node: `path`
-  `["nodes",0,"userContentEdits"]` and `["nodes",1]`; data `nodes` two nulls
-  and `repository` with no `id`, which the reader does not read and no live
-  recording gives for the fixture repository.
-- `edits/missing-items/bodies.json`: an item missing from the answer, which
-  GitHub cannot be made to give. Live answer with every alias and the errors
-  taken out.
-- `edits/missing-items/nodes.json`: the same by node: `nodes` empty, beside
-  `repository` with no `id` as above.
-- `what/limited/from-3.answer.json`: a whole-question RATE_LIMITED, which
-  cannot be made on demand without spending a real budget. Live answer's
-  `data` as it is; its `errors` replaced by one RATE_LIMITED error with no
-  `path`. No real rate-limit answer is recorded to copy from, so the message
-  is GitHub's documented text with no account id.
-- `what/limited/from-3.fail`: `recorded/what/live/from-1.fail` as it is.
+Source of the `edits/` files: `console/github/tests/recorded/edits/live/`,
+the live edit histories of `tehas-app/tehas-rec-edits-not-found` (kit run
+#1, 2026-11-26). `bodies.answer.json` asks issues 1 (kept), 2 (deleted)
+and 1001 (never made); `nodes.answer.json` asks comment
+`IC_kwDOV9AT5c8AAAABrNMQ6A` (kept) and `IC_kwDOV9AT5c8AAAABrNMTAA`
+(deleted). A not found at an item is recorded there; one inside an item
+cannot be made on demand.
+
+| File | Changed from the recording |
+| --- | --- |
+| `edits/inner-not-found/bodies.answer.json` | `bodies.answer.json`: the NOT_FOUND of `i2` has `path` `["repository","i2","userContentEdits"]`, inside the item |
+| `edits/inner-not-found/bodies.fail` | `bodies.fail` as it is |
+| `edits/inner-not-found/nodes.answer.json` | `nodes.answer.json`: node 0 is `null`, and a copy of the NOT_FOUND has `path` `["nodes",0,"userContentEdits"]`. Asked of the fixture project's two comments, whose REST reads give other node ids, so node 0's data is taken out |
+| `edits/inner-not-found/nodes.fail` | `nodes.fail` as it is |
+| `edits/missing-items/bodies.json` | `bodies.answer.json` with every alias and the errors taken out: an item missing from the answer |
+| `edits/missing-items/nodes.json` | `nodes.answer.json` with `nodes` empty and the errors taken out |
+
+Source of the `what/` files: `console/github/tests/recorded/what/live/from-1.answer.json`
+and `from-1.fail`.
+
+| File | Changed from the recording |
+| --- | --- |
+| `what/limited/from-3.answer.json` | `data` as it is; `errors` one RATE_LIMITED error with no `path`. A spent budget cannot be made on demand and no real one is recorded, so the message is GitHub's documented text with no account id |
+| `what/limited/from-3.fail` | `from-1.fail` as it is |
 
 ## A body that is not JSON
 
