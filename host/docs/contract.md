@@ -1216,7 +1216,7 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   `TEHAS_TICKETS=github`.
 - **The last GitHub word for a pull request is out of the snapshot and
   the dashboard.**
-  T9, the supplier words. The sessions snapshot names the number of the
+  #3385, T9's supplier words. The sessions snapshot names the number of the
   pull request a run left `change`, the word the history lines of #2932
   already use for it: a line of `analytics sessions`, of
   `~/tehas/mcp/sessions.jsonl`, and the answer of `factory_session` carry
@@ -1236,7 +1236,7 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Adopter action: a program that read a session line's `pr` number reads
   `change`, the same number under its new name; `prUrl`, the history
   line's `pr` address and the analytics copy's `pr` column are as before.
-- **The settings of the 2.1 adapter are reserved.**
+- **The settings of the 2.1 adapter are reserved.** #3386.
   The feature `adapter` registers as building: `TEHAS_ADAPTER`,
   `TEHAS_ADAPTER_UPSTREAM`, `TEHAS_ADAPTER_UPSTREAM_SPKI`,
   `TEHAS_ADAPTER_UPSTREAM_CERT`, `TEHAS_ADAPTER_UPSTREAM_CERT_KEY`,
@@ -1252,7 +1252,7 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   writes an instance's settings.
   Adopter action: none; a 1.4.x instance sets no such line. The lines
   become usable in the release that ships the adapter.
-- **An unknown `TEHAS_` name warns once and loads.**
+- **An unknown `TEHAS_` name warns once and loads.** #3386.
   A name of `instance.env` that starts `TEHAS_` and names no setting
   this release reads, and that it never read under an older name either,
   brings one line to standard error on every load: `<NAME> is no setting
@@ -1264,7 +1264,7 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Readers: adopters, the consumer that runs many factories where it
   writes an instance's settings.
   Adopter action: none. Take the warned lines out when it suits you.
-- **Access is keyed by account id.** #3244, this pull request.
+- **Access is keyed by account id.** #3244, #3387.
   Part A keyed the allowed labellers and `state/account-ids` by the
   account's stable id; this carries the id into the plugin gate: a
   session, its codes and a sign-out name the id, not the login, so a
@@ -1275,6 +1275,16 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   matches an account between one read and the next.
   Adopter action: none. Settings that list logins still hold logins; the
   gate reads each one's id at sign-in.
+
+- **`tehas state pack` and `unpack` end with the signal's status.** #3380.
+  A TERM, HUP or INT that comes after a pack or unpack has finished with
+  its working directory now ends the command with 128 and the signal's
+  number (HUP gives 129), as the default does. 1.4.x dropped such a
+  signal and went on. A signal that comes while the directory is made
+  removes it, so none is left behind.
+  Readers: the consumer that runs many factories, where it moves one.
+  Adopter action: none. A program that sends a signal to a pack or unpack
+  reads its status as that of a stopped command.
 
 ## Pending for 2.0
 
