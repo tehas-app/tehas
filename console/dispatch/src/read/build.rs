@@ -1023,6 +1023,35 @@ mod tests {
             "owed": [{"issue": 8}], "refines_owed": [], "asking": [{"number": 11}]});
         assert_eq!(edit_wanted(&s, &q, &[3, 4]), [3, 6, 7, 8, 9, 11]);
     }
+
+    /// With no board from the wiring, a blocker the comments name has no
+    /// state, which decide reads as unreadable and holds. The same reads on
+    /// a board answer it.
+    #[test]
+    fn no_board_leaves_every_blocker_unread() {
+        let q = github::Queue {
+            repo: None,
+            open: vec![github::Open {
+                number: 21,
+                labels: vec![crate::decide::BLOCKED.to_string()],
+                node: Value::Null,
+            }],
+            closed_running: Vec::new(),
+            open_pulls: None,
+            issue_types: None,
+            labels: None,
+        };
+        // The blocked world's comment of #21, which names #11.
+        let comments = BTreeMap::from([(21, world()["comments"]["21"].clone())]);
+        let none = BTreeMap::new();
+        assert!(blocker_reads(None, &q, &[21], &comments, &none).is_empty());
+        let mut board = Board::of(&json!({"11": "OPEN"}));
+        assert_eq!(
+            blocker_reads(Some(&mut board), &q, &[21], &comments, &none),
+            BTreeMap::from([(11, "OPEN".to_string())])
+        );
+    }
+
     use crate::snapshot::{ClosingPr, Snapshot};
 
     /// What separates two calls in a stub's record: a word of nothing that no
