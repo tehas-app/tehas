@@ -1,14 +1,21 @@
 //! The reader of `tehas-plugin.json`, a plugin's manifest: bytes in, a typed
 //! manifest or every reason it is refused out. A field it does not know is
 //! refused, so a manifest made for a later tehas never runs half read.
-//! The wire has one owner: [`Wire`] names the fields and [`Raw`] the shapes,
-//! both read by serde; the rules below say what each holds.
-//! api/plugin-manifest.schema.json holds the same rules for a plugin's
-//! author; the tests below hold the two to each other.
+//! The wire has one owner: [`Wire`] and the structs beside it name the
+//! fields and shapes serde reads, one per closed object, as
+//! api/plugin-manifest.schema.json holds them for a plugin's author; the
+//! rules below say what each holds, and the tests hold the two to each
+//! other.
+//!
+//! Each field is a [`Field`]: it holds the typed value when the JSON that
+//! came can be read as one, and always the JSON text that came, which is
+//! what a refusal echoes. A field of the wrong shape is therefore not a
+//! parse failure: it reaches the rules as the value that came, and the
+//! rules say it in tehas's own words, all of them at once.
 
 use super::needs::Need;
 use super::{ask, is_action_id, is_name, params, Cap};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use tehas_ports::events::{Name, When};
@@ -45,186 +52,162 @@ pub const REQUIRED: [&str; 4] = ["plugin", "name", "label", "asks"];
 /// Required of a plugin with an image. One with none is text alone.
 pub const BUILT: [&str; 3] = ["kind", "build", "timeout"];
 
-/// A JSON value on the wire, the mirror serde fills. Every JSON value
-/// matches one variant, so a read fails on bytes alone: a field of the
-/// wrong shape reaches the rules below, which say its refusal in tehas's
-/// own words, all of them at once, as the tests hold.
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
-#[serde(untagged)]
-enum Raw {
-    Null,
-    Bool(bool),
-    Num(u64),
-    Neg(i64),
-    Real(f64),
-    Text(String),
-    List(Vec<Raw>),
-    Table(BTreeMap<String, Raw>),
+/// The value of one field on the wire: the JSON text that came, and that
+/// text read as `T` when it can be. A field of the wrong shape is not a
+/// parse failure: it reaches the rules as the text that came, which is
+/// what a refusal echoes, and `got` tells the rules what the text reads
+/// as. A `u64` is a whole number in the JSON, never a float that happens
+/// to be whole: a field that came as `1.0` has no `got`, as the reader
+/// has always refused it.
+#[derive(Clone, Debug)]
+struct Field<T> {
+    /// The JSON that came, compact: the echo of a refusal.
+    text: String,
+    /// Whether it came as a list, which a rule says as its own refusal.
+    list: bool,
+    /// The text read as `T`, when it reads as one.
+    got: Option<T>,
 }
 
-impl Raw {
-    /// The text, if this is one.
-    fn as_str(&self) -> Option<&str> {
-        match self {
-            Raw::Text(s) => Some(s),
-            _ => None,
-        }
-    }
-
-    /// A whole count, if this is one. A float of a whole number counts as
-    /// one, as `Value::as_u64` has always taken it.
-    fn as_u64(&self) -> Option<u64> {
-        match self {
-            Raw::Num(n) => Some(*n),
-            Raw::Real(f) if *f >= 0.0 && *f == f.trunc() && *f <= u64::MAX as f64 => {
-                Some(*f as u64)
-            }
-            _ => None,
-        }
-    }
-
-    /// A list, if this is one.
-    fn as_array(&self) -> Option<&[Raw]> {
-        match self {
-            Raw::List(l) => Some(l),
-            _ => None,
-        }
-    }
-
-    /// An object, if this is one.
-    fn as_object(&self) -> Option<&BTreeMap<String, Raw>> {
-        match self {
-            Raw::Table(m) => Some(m),
-            _ => None,
-        }
+impl<'de, T: Deserialize<'de>> Deserialize<'de> for Field<T> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let came = serde_json::Value::deserialize(deserializer)?;
+        Ok(Field {
+            list: came.is_array(),
+            text: came.to_string(),
+            got: T::deserialize(came).ok(),
+        })
     }
 }
 
-impl std::fmt::Display for Raw {
-    /// The value as the JSON that came: what the refusals echo.
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", serde_json::to_string(self).unwrap_or_default())
+/// A key the reader does not know, kept for its name alone: the rules
+/// refuse it and echo nothing of its value.
+#[derive(Clone, Debug)]
+struct Unknown;
+
+impl<'de> Deserialize<'de> for Unknown {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        serde_json::Value::deserialize(deserializer)?;
+        Ok(Unknown)
     }
 }
 
-/// The kinds in the order they sort in. Only the key of an object is ever
-/// compared, and keys are `String`: this order exists because serde_json's
-/// map of values is a `BTreeMap`, whose type asks its values to be `Ord`.
-fn rank(r: &Raw) -> u8 {
-    match r {
-        Raw::Null => 0,
-        Raw::Bool(_) => 1,
-        Raw::Num(_) => 2,
-        Raw::Neg(_) => 3,
-        Raw::Real(_) => 4,
-        Raw::Text(_) => 5,
-        Raw::List(_) => 6,
-        Raw::Table(_) => 7,
-    }
-}
-
-impl Ord for Raw {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        use std::cmp::Ordering::Equal;
-        match (self, other) {
-            (Raw::Null, Raw::Null) => Equal,
-            (Raw::Bool(a), Raw::Bool(b)) => a.cmp(b),
-            (Raw::Num(a), Raw::Num(b)) => a.cmp(b),
-            (Raw::Neg(a), Raw::Neg(b)) => a.cmp(b),
-            (Raw::Real(a), Raw::Real(b)) => a.total_cmp(b),
-            (Raw::Text(a), Raw::Text(b)) => a.cmp(b),
-            (Raw::List(a), Raw::List(b)) => a.cmp(b),
-            (Raw::Table(a), Raw::Table(b)) => a.cmp(b),
-            _ => rank(self).cmp(&rank(other)),
-        }
-    }
-}
-
-impl PartialOrd for Raw {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-/// The equality is the derived one, and `cmp` agrees with it.
-impl Eq for Raw {}
+/// The keys of one closed object that it may not hold, in the order a
+/// refusal names them.
+type Keys = BTreeMap<String, Unknown>;
 
 /// The manifest as the wire holds it: the field names, one owner. Every
 /// known field is optional here because the rules say a missing one with
-/// `is missing`, in the order [`FIELDS`] names them, and the unknown ones
-/// land in `rest` to be refused the same way. A field of its own is kept
-/// even when it is `null`: a null field was given, and the rules say it
-/// as a field of the wrong shape, not as a missing one.
-#[derive(Clone, Debug, Default, Deserialize)]
-#[serde(default)]
+/// `is missing`, in the order [`FIELDS`] names them, and a key outside
+/// them lands in `rest`, refused the same way. A field is kept even when
+/// it is `null`: a null field was given, and the rules say it as a field
+/// of the wrong shape, not as a missing one.
+#[derive(Debug, Deserialize)]
 struct Wire {
-    #[serde(deserialize_with = "kept")]
-    plugin: Option<Raw>,
-    #[serde(deserialize_with = "kept")]
-    kind: Option<Raw>,
-    #[serde(deserialize_with = "kept")]
-    name: Option<Raw>,
-    #[serde(deserialize_with = "kept")]
-    label: Option<Raw>,
-    #[serde(deserialize_with = "kept")]
-    license: Option<Raw>,
-    #[serde(deserialize_with = "kept")]
-    build: Option<Raw>,
-    #[serde(deserialize_with = "kept")]
-    asks: Option<Raw>,
-    #[serde(deserialize_with = "kept")]
-    timeout: Option<Raw>,
-    #[serde(deserialize_with = "kept")]
-    ui: Option<Raw>,
-    #[serde(deserialize_with = "kept")]
-    view: Option<Raw>,
-    #[serde(deserialize_with = "kept")]
-    views: Option<Raw>,
-    #[serde(deserialize_with = "kept")]
-    actions: Option<Raw>,
-    #[serde(deserialize_with = "kept")]
-    hooks: Option<Raw>,
-    #[serde(deserialize_with = "kept")]
-    skills: Option<Raw>,
-    #[serde(deserialize_with = "kept")]
-    tools: Option<Raw>,
-    #[serde(deserialize_with = "kept")]
-    needs: Option<Raw>,
+    plugin: Option<Field<u64>>,
+    kind: Option<Field<String>>,
+    name: Option<Field<String>>,
+    label: Option<Field<String>>,
+    license: Option<Field<String>>,
+    build: Option<Field<String>>,
+    asks: Option<Field<Vec<Field<String>>>>,
+    timeout: Option<Field<u64>>,
+    ui: Option<Field<UiWire>>,
+    view: Option<Field<ViewWire>>,
+    views: Option<Field<Vec<Field<ViewEntry>>>>,
+    actions: Option<Field<Vec<Field<ActionWire>>>>,
+    hooks: Option<Field<Vec<Field<HookWire>>>>,
+    skills: Option<Field<Vec<Field<SkillWire>>>>,
+    tools: Option<Field<Vec<Field<ToolWire>>>>,
+    needs: Option<Field<Vec<Field<NeedWire>>>>,
     #[serde(flatten)]
-    rest: BTreeMap<String, Raw>,
+    rest: Keys,
 }
 
-/// A field serde reached, `null` and all.
-fn kept<'de, D>(d: D) -> Result<Option<Raw>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    Raw::deserialize(d).map(Some)
+/// `ui`: kit 1 and nothing else.
+#[derive(Debug, Deserialize)]
+struct UiWire {
+    kit: Option<Field<u64>>,
+    #[serde(flatten)]
+    rest: Keys,
 }
 
-impl Wire {
-    /// The field `key` as the wire holds it.
-    fn of(&self, key: &str) -> Option<&Raw> {
-        match key {
-            "plugin" => self.plugin.as_ref(),
-            "kind" => self.kind.as_ref(),
-            "name" => self.name.as_ref(),
-            "label" => self.label.as_ref(),
-            "license" => self.license.as_ref(),
-            "build" => self.build.as_ref(),
-            "asks" => self.asks.as_ref(),
-            "timeout" => self.timeout.as_ref(),
-            "ui" => self.ui.as_ref(),
-            "view" => self.view.as_ref(),
-            "views" => self.views.as_ref(),
-            "actions" => self.actions.as_ref(),
-            "hooks" => self.hooks.as_ref(),
-            "skills" => self.skills.as_ref(),
-            "tools" => self.tools.as_ref(),
-            "needs" => self.needs.as_ref(),
-            _ => self.rest.get(key),
-        }
-    }
+/// `view`: one panel in the dock.
+#[derive(Debug, Deserialize)]
+struct ViewWire {
+    label: Option<Field<String>>,
+    #[serde(flatten)]
+    rest: Keys,
+}
+
+/// One entry of `views`.
+#[derive(Debug, Deserialize)]
+struct ViewEntry {
+    id: Option<Field<String>>,
+    label: Option<Field<String>>,
+    path: Option<Field<String>>,
+    open: Option<Field<String>>,
+    #[serde(flatten)]
+    rest: Keys,
+}
+
+/// One entry of `actions`.
+#[derive(Debug, Deserialize)]
+struct ActionWire {
+    id: Option<Field<String>>,
+    label: Option<Field<String>>,
+    #[serde(flatten)]
+    rest: Keys,
+}
+
+/// One entry of `hooks`.
+#[derive(Debug, Deserialize)]
+struct HookWire {
+    at: Option<Field<String>>,
+    timeout: Option<Field<u64>>,
+    #[serde(flatten)]
+    rest: Keys,
+}
+
+/// One entry of `skills`.
+#[derive(Debug, Deserialize)]
+struct SkillWire {
+    id: Option<Field<String>>,
+    about: Option<Field<String>>,
+    path: Option<Field<String>>,
+    chats: Option<Field<Vec<Field<String>>>>,
+    #[serde(flatten)]
+    rest: Keys,
+}
+
+/// One entry of `tools`.
+#[derive(Debug, Deserialize)]
+struct ToolWire {
+    id: Option<Field<String>>,
+    about: Option<Field<String>>,
+    /// The plugin's own JSON: [`params::rules`] checks its shape at read
+    /// and [`params::check`] holds a call to it, which is why it is kept
+    /// whole for [`Tool`].
+    params: Option<Field<serde_json::Value>>,
+    timeout: Option<Field<u64>>,
+    chats: Option<Field<Vec<Field<String>>>>,
+    #[serde(flatten)]
+    rest: Keys,
+}
+
+/// One entry of `needs`.
+#[derive(Debug, Deserialize)]
+struct NeedWire {
+    name: Option<Field<String>>,
+    skills: Option<Field<Vec<Field<String>>>>,
+    #[serde(flatten)]
+    rest: Keys,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -291,13 +274,13 @@ impl Refusals {
 }
 
 /// A label: one line of 1 to 24 characters, no control character.
-fn label(v: &Raw, field: &str, out: &mut Refusals) -> Option<String> {
+fn label(v: &Field<String>, field: &str, out: &mut Refusals) -> Option<String> {
     line(v, field, LABEL_MAX, out)
 }
 
 /// One line of 1 to `max` characters, no control character.
-fn line(v: &Raw, field: &str, max: usize, out: &mut Refusals) -> Option<String> {
-    let Some(s) = v.as_str() else {
+fn line(v: &Field<String>, field: &str, max: usize, out: &mut Refusals) -> Option<String> {
+    let Some(s) = v.got.as_ref() else {
         out.say(format!("{field}: expected a string"));
         return None;
     };
@@ -315,9 +298,10 @@ fn line(v: &Raw, field: &str, max: usize, out: &mut Refusals) -> Option<String> 
     Some(s.to_string())
 }
 
-/// Whole seconds within `bounds`.
-fn seconds(v: &Raw, field: &str, bounds: (u64, u64), out: &mut Refusals) -> Option<u64> {
-    match v.as_u64() {
+/// Whole seconds within `bounds`. A float is not whole seconds here: only
+/// what serde reads as a `u64` is, as the reader has always refused it.
+fn seconds(v: &Field<u64>, field: &str, bounds: (u64, u64), out: &mut Refusals) -> Option<u64> {
+    match v.got {
         Some(n) if (bounds.0..=bounds.1).contains(&n) => Some(n),
         _ => {
             out.say(format!(
@@ -329,9 +313,11 @@ fn seconds(v: &Raw, field: &str, bounds: (u64, u64), out: &mut Refusals) -> Opti
     }
 }
 
-/// The keys of an object that are not `known`, each said.
-fn closed(m: &BTreeMap<String, Raw>, known: &[&str], field: &str, out: &mut Refusals) {
-    for key in m.keys().filter(|k| !known.contains(&k.as_str())) {
+/// The keys of a closed object that it may not hold, each said. The wire
+/// already kept only the unknown ones, so the known names live once, in
+/// the struct of that object.
+fn closed(rest: &Keys, field: &str, out: &mut Refusals) {
+    for key in rest.keys() {
         out.say(format!("{field}{key}: no field of manifest version 1"));
     }
 }
@@ -371,48 +357,69 @@ pub fn read(bytes: &[u8], name: &str) -> Result<Manifest, Vec<String>> {
     if bytes.len() > BYTES_MAX {
         return Err(vec![format!("the manifest is over {BYTES_MAX} bytes")]);
     }
-    let top: Raw = match serde_json::from_slice(bytes) {
-        Ok(t) => t,
+    // One pass over the bytes. A field takes any JSON, so the wire itself
+    // only fails to read when the top of the manifest is not an object.
+    let wire: Wire = match serde_json::from_slice(bytes) {
+        Ok(w) => w,
+        Err(e) if e.is_data() => return Err(vec!["the manifest is not a JSON object".to_string()]),
         Err(e) => return Err(vec![format!("the manifest is not JSON: {e}")]),
     };
-    if top.as_object().is_none() {
-        return Err(vec!["the manifest is not a JSON object".to_string()]);
-    }
-    // The top was an object, so the fill of the wire cannot fail.
-    let wire: Wire =
-        serde_json::from_value(serde_json::to_value(&top).unwrap_or_default()).unwrap_or_default();
     let mut out = Refusals(Vec::new());
     for key in wire.rest.keys() {
         out.say(format!("{key}: no field of manifest version 1"));
     }
-    let field = |key: &str| wire.of(key);
-    for name in REQUIRED.iter().filter(|f| field(f).is_none()) {
-        out.say(format!("{name} is missing"));
-    }
-    let built = field("build").is_some();
-    if built {
-        for name in BUILT.iter().filter(|f| field(f).is_none()) {
+    // Each field name once, with whether it came, in the order a refusal
+    // names them: the missing checks read this, the rules read the wire.
+    let came: [(&str, bool); 16] = [
+        ("plugin", wire.plugin.is_some()),
+        ("kind", wire.kind.is_some()),
+        ("name", wire.name.is_some()),
+        ("label", wire.label.is_some()),
+        ("license", wire.license.is_some()),
+        ("build", wire.build.is_some()),
+        ("asks", wire.asks.is_some()),
+        ("timeout", wire.timeout.is_some()),
+        ("ui", wire.ui.is_some()),
+        ("view", wire.view.is_some()),
+        ("views", wire.views.is_some()),
+        ("actions", wire.actions.is_some()),
+        ("hooks", wire.hooks.is_some()),
+        ("skills", wire.skills.is_some()),
+        ("tools", wire.tools.is_some()),
+        ("needs", wire.needs.is_some()),
+    ];
+    for (name, given) in came {
+        if REQUIRED.contains(&name) && !given {
             out.say(format!("{name} is missing"));
         }
-    } else if field("timeout").is_some() {
+    }
+    let built = wire.build.is_some();
+    if built {
+        for (name, given) in came {
+            if BUILT.contains(&name) && !given {
+                out.say(format!("{name} is missing"));
+            }
+        }
+    } else if wire.timeout.is_some() {
         out.say("timeout needs a build: a plugin with no build never runs");
     }
 
-    if let Some(v) = field("plugin") {
-        if v.as_u64() != Some(1) {
+    if let Some(v) = &wire.plugin {
+        if v.got != Some(1) {
             out.say(format!(
-                "plugin is {v}: this tehas reads manifest version 1"
+                "plugin is {}: this tehas reads manifest version 1",
+                v.text
             ));
         }
     }
-    if let Some(v) = field("kind") {
-        match v.as_str() {
+    if let Some(v) = &wire.kind {
+        match v.got.as_deref() {
             Some("batch") => {}
             Some(kind) => out.say(format!("kind {kind} is reserved for plugins v2")),
             None => out.say("kind: expected a string"),
         }
     }
-    let got_name = field("name").and_then(|v| match v.as_str() {
+    let got_name = wire.name.as_ref().and_then(|v| match v.got.as_deref() {
         Some(s) if is_name(s) && s == name => Some(s.to_string()),
         Some(s) if is_name(s) => {
             out.say(format!("name is {s}, and TEHAS_PLUGINS names it {name}"));
@@ -423,20 +430,20 @@ pub fn read(bytes: &[u8], name: &str) -> Result<Manifest, Vec<String>> {
             None
         }
     });
-    let got_label = field("label").and_then(|v| label(v, "label", &mut out));
-    let license = match field("license") {
-        None => None,
-        Some(v) => match v.as_str() {
-            Some(s) if is_license(s) => Some(s.to_string()),
-            _ => {
-                out.say(format!(
-                    "license: expected an SPDX expression or proprietary, 1 to {LICENSE_MAX} characters"
-                ));
-                None
-            }
-        },
-    };
-    let build = field("build").and_then(|v| match v.as_str() {
+    let got_label = wire
+        .label
+        .as_ref()
+        .and_then(|v| label(v, "label", &mut out));
+    let license = wire.license.as_ref().and_then(|v| match v.got.as_deref() {
+        Some(s) if is_license(s) => Some(s.to_string()),
+        _ => {
+            out.say(format!(
+                "license: expected an SPDX expression or proprietary, 1 to {LICENSE_MAX} characters"
+            ));
+            None
+        }
+    });
+    let build = wire.build.as_ref().and_then(|v| match v.got.as_deref() {
         Some(s) if is_build(s) => Some(s.to_string()),
         _ => {
             out.say("build: expected a path in the repository, of letters, digits and ._/-, with no .. and no / at either end");
@@ -446,7 +453,7 @@ pub fn read(bytes: &[u8], name: &str) -> Result<Manifest, Vec<String>> {
 
     let mut asks: Vec<String> = Vec::new();
     let mut caps: Vec<Cap> = Vec::new();
-    match field("asks").map(|v| v.as_array()) {
+    match wire.asks.as_ref().map(|v| v.got.as_ref()) {
         None => {}
         Some(None) => out.say("asks: expected a list of capabilities"),
         Some(Some(list)) => {
@@ -454,7 +461,7 @@ pub fn read(bytes: &[u8], name: &str) -> Result<Manifest, Vec<String>> {
                 out.say(format!("asks: at most {ASKS_MAX}"));
             }
             for v in list {
-                let Some(word) = v.as_str() else {
+                let Some(word) = v.got.as_deref() else {
                     out.say("asks: expected a list of capabilities");
                     continue;
                 };
@@ -474,16 +481,19 @@ pub fn read(bytes: &[u8], name: &str) -> Result<Manifest, Vec<String>> {
             }
         }
     }
-    let timeout = field("timeout").and_then(|v| seconds(v, "timeout", TIMEOUT, &mut out));
+    let timeout = wire
+        .timeout
+        .as_ref()
+        .and_then(|v| seconds(v, "timeout", TIMEOUT, &mut out));
 
     let mut kit = false;
-    if let Some(v) = field("ui") {
-        match v.as_object() {
+    if let Some(v) = &wire.ui {
+        match v.got.as_ref() {
             Some(ui) => {
-                closed(ui, &["kit"], "ui.", &mut out);
-                match ui.get("kit") {
-                    Some(k) if k.as_u64() == Some(1) => kit = true,
-                    Some(k) => out.say(format!("ui.kit is {k}: this tehas serves kit 1")),
+                closed(&ui.rest, "ui.", &mut out);
+                match &ui.kit {
+                    Some(k) if k.got == Some(1) => kit = true,
+                    Some(k) => out.say(format!("ui.kit is {}: this tehas serves kit 1", k.text)),
                     None => out.say("ui.kit is missing"),
                 }
             }
@@ -491,33 +501,35 @@ pub fn read(bytes: &[u8], name: &str) -> Result<Manifest, Vec<String>> {
         }
     }
 
-    let view = match field("view") {
+    let view = match &wire.view {
         None => None,
-        Some(Raw::List(_)) => {
+        Some(v) if v.list => {
             out.say("view: expected an object; more than one view is views");
             None
         }
-        Some(Raw::Table(v)) => {
-            closed(v, &["label"], "view.", &mut out);
-            if !caps.contains(&Cap::View) {
-                out.say("view needs the ask view");
-            }
-            match v.get("label") {
-                Some(l) => label(l, "view.label", &mut out),
-                None => {
-                    out.say("view.label is missing");
-                    None
+        Some(v) => match v.got.as_ref() {
+            Some(t) => {
+                closed(&t.rest, "view.", &mut out);
+                if !caps.contains(&Cap::View) {
+                    out.say("view needs the ask view");
+                }
+                match &t.label {
+                    Some(l) => label(l, "view.label", &mut out),
+                    None => {
+                        out.say("view.label is missing");
+                        None
+                    }
                 }
             }
-        }
-        Some(_) => {
-            out.say("view: expected an object");
-            None
-        }
+            None => {
+                out.say("view: expected an object");
+                None
+            }
+        },
     };
 
     let mut actions: Vec<Action> = Vec::new();
-    match field("actions").map(|v| v.as_array()) {
+    match wire.actions.as_ref().map(|v| v.got.as_ref()) {
         None => {}
         Some(None) => out.say("actions: expected a list"),
         Some(Some(list)) => {
@@ -526,13 +538,13 @@ pub fn read(bytes: &[u8], name: &str) -> Result<Manifest, Vec<String>> {
             }
             for (i, v) in list.iter().enumerate() {
                 let at = format!("actions[{i}]");
-                let Some(a) = v.as_object() else {
+                let Some(a) = v.got.as_ref() else {
                     out.say(format!("{at}: expected an object"));
                     continue;
                 };
-                closed(a, &["id", "label"], &format!("{at}."), &mut out);
-                let id = match a.get("id").map(|v| v.as_str()) {
-                    Some(Some(id)) if is_action_id(id) => Some(id.to_string()),
+                closed(&a.rest, &format!("{at}."), &mut out);
+                let id = match &a.id {
+                    Some(f) if f.got.as_deref().is_some_and(is_action_id) => f.got.clone(),
                     Some(_) => {
                         out.say(format!("{at}.id: expected 1 to 16 characters of a-z and -"));
                         None
@@ -542,7 +554,7 @@ pub fn read(bytes: &[u8], name: &str) -> Result<Manifest, Vec<String>> {
                         None
                     }
                 };
-                let l = match a.get("label") {
+                let l = match &a.label {
                     Some(l) => label(l, &format!("{at}.label"), &mut out),
                     None => {
                         out.say(format!("{at}.label is missing"));
@@ -565,7 +577,7 @@ pub fn read(bytes: &[u8], name: &str) -> Result<Manifest, Vec<String>> {
 
     let mut hook = None;
     let one = super::point(When::After, Name::ChangeOffered);
-    match field("hooks").map(|v| v.as_array()) {
+    match wire.hooks.as_ref().map(|v| v.got.as_ref()) {
         None => {}
         Some(None) => out.say("hooks: expected a list"),
         Some(Some(list)) => {
@@ -577,12 +589,12 @@ pub fn read(bytes: &[u8], name: &str) -> Result<Manifest, Vec<String>> {
             }
             for (i, v) in list.iter().enumerate() {
                 let at = format!("hooks[{i}]");
-                let Some(h) = v.as_object() else {
+                let Some(h) = v.got.as_ref() else {
                     out.say(format!("{at}: expected an object"));
                     continue;
                 };
-                closed(h, &["at", "timeout"], &format!("{at}."), &mut out);
-                match h.get("at").map(|v| v.as_str()) {
+                closed(&h.rest, &format!("{at}."), &mut out);
+                match h.at.as_ref().map(|f| f.got.as_deref()) {
                     Some(Some(point)) if point == one => {}
                     Some(Some("after:work")) => {
                         out.say(format!("{at}.at: the hook point after:work is now {one}"))
@@ -593,7 +605,7 @@ pub fn read(bytes: &[u8], name: &str) -> Result<Manifest, Vec<String>> {
                     Some(None) => out.say(format!("{at}.at: expected {one}")),
                     None => out.say(format!("{at}.at is missing")),
                 }
-                match h.get("timeout") {
+                match &h.timeout {
                     Some(t) => hook = seconds(t, &format!("{at}.timeout"), HOOK_TIMEOUT, &mut out),
                     None => out.say(format!("{at}.timeout is missing")),
                 }
@@ -601,11 +613,11 @@ pub fn read(bytes: &[u8], name: &str) -> Result<Manifest, Vec<String>> {
         }
     }
 
-    let skills = match field("skills") {
+    let skills = match &wire.skills {
         None => Vec::new(),
         Some(v) => skills(v, &caps, &mut out),
     };
-    let tools = match field("tools") {
+    let tools = match &wire.tools {
         None => Vec::new(),
         Some(v) => {
             if !built {
@@ -614,14 +626,14 @@ pub fn read(bytes: &[u8], name: &str) -> Result<Manifest, Vec<String>> {
             tools(v, &caps, &mut out)
         }
     };
-    let needs = match field("needs") {
+    let needs = match &wire.needs {
         None => Vec::new(),
         Some(v) => needs(v, &caps, name, &mut out),
     };
-    let views = match field("views") {
+    let views = match &wire.views {
         None => Vec::new(),
         Some(v) => {
-            if field("view").is_some() {
+            if wire.view.is_some() {
                 out.say("view and views: a manifest has one or the other");
             }
             views(v, &caps, &mut out)
@@ -655,8 +667,8 @@ pub fn read(bytes: &[u8], name: &str) -> Result<Manifest, Vec<String>> {
 
 /// `skills`: at most [`SKILLS_MAX`], each asked as `skill:<id>`, each a
 /// Markdown file of the repository for one or more chat hosts.
-fn skills(v: &Raw, caps: &[Cap], out: &mut Refusals) -> Vec<Skill> {
-    let Some(list) = v.as_array() else {
+fn skills(v: &Field<Vec<Field<SkillWire>>>, caps: &[Cap], out: &mut Refusals) -> Vec<Skill> {
+    let Some(list) = v.got.as_ref() else {
         out.say("skills: expected a list");
         return Vec::new();
     };
@@ -667,33 +679,33 @@ fn skills(v: &Raw, caps: &[Cap], out: &mut Refusals) -> Vec<Skill> {
     let mut ids: Vec<String> = Vec::new();
     for (i, v) in list.iter().enumerate() {
         let at = format!("skills[{i}]");
-        let Some(sk) = v.as_object() else {
+        let Some(sk) = v.got.as_ref() else {
             out.say(format!("{at}: expected an object"));
             continue;
         };
-        closed(
-            sk,
-            &["id", "about", "path", "chats"],
-            &format!("{at}."),
-            out,
-        );
-        let mut need = |key: &str| {
-            let v = sk.get(key);
-            if v.is_none() {
+        closed(&sk.rest, &format!("{at}."), out);
+        for (key, given) in [
+            ("id", sk.id.is_some()),
+            ("about", sk.about.is_some()),
+            ("path", sk.path.is_some()),
+            ("chats", sk.chats.is_some()),
+        ] {
+            if !given {
                 out.say(format!("{at}.{key} is missing"));
             }
-            v
-        };
-        let (id, about, path, chats) = (need("id"), need("about"), need("path"), need("chats"));
-        let id = id.and_then(|v| match v.as_str() {
+        }
+        let id = sk.id.as_ref().and_then(|v| match v.got.as_deref() {
             Some(id) if is_action_id(id) => Some(id.to_string()),
             _ => {
                 out.say(format!("{at}.id: expected 1 to 16 characters of a-z and -"));
                 None
             }
         });
-        let about = about.and_then(|v| line(v, &format!("{at}.about"), ABOUT_MAX, out));
-        let path = path.and_then(|v| match v.as_str() {
+        let about = sk
+            .about
+            .as_ref()
+            .and_then(|v| line(v, &format!("{at}.about"), ABOUT_MAX, out));
+        let path = sk.path.as_ref().and_then(|v| match v.got.as_deref() {
             Some(p) if is_markdown(p) => Some(p.to_string()),
             _ => {
                 out.say(format!(
@@ -702,7 +714,7 @@ fn skills(v: &Raw, caps: &[Cap], out: &mut Refusals) -> Vec<Skill> {
                 None
             }
         });
-        let chats = chats.and_then(|v| chats_of(v, &at, out));
+        let chats = sk.chats.as_ref().and_then(|v| chats_of(v, &at, out));
         let Some(id) = id else { continue };
         if ids.contains(&id) {
             out.say(format!("{at}: the skill {id} is there twice"));
@@ -724,10 +736,15 @@ fn skills(v: &Raw, caps: &[Cap], out: &mut Refusals) -> Vec<Skill> {
 }
 
 /// `<at>.chats`: one or more of [`CHATS`], each once.
-fn chats_of(v: &Raw, at: &str, out: &mut Refusals) -> Option<Vec<String>> {
-    let names: Option<Vec<String>> = v.as_array().and_then(|l| {
+fn chats_of(v: &Field<Vec<Field<String>>>, at: &str, out: &mut Refusals) -> Option<Vec<String>> {
+    let names: Option<Vec<String>> = v.got.as_ref().and_then(|l| {
         l.iter()
-            .map(|c| c.as_str().filter(|c| CHATS.contains(c)).map(String::from))
+            .map(|c| {
+                c.got
+                    .as_deref()
+                    .filter(|c| CHATS.contains(c))
+                    .map(String::from)
+            })
             .collect()
     });
     match names {
@@ -746,8 +763,8 @@ fn chats_of(v: &Raw, at: &str, out: &mut Refusals) -> Option<Vec<String>> {
 
 /// `tools`: at most [`TOOLS_MAX`], each asked as `tool:<id>`, with the
 /// schema of its arguments, its timeout and the chats that may call it.
-fn tools(v: &Raw, caps: &[Cap], out: &mut Refusals) -> Vec<Tool> {
-    let Some(list) = v.as_array() else {
+fn tools(v: &Field<Vec<Field<ToolWire>>>, caps: &[Cap], out: &mut Refusals) -> Vec<Tool> {
+    let Some(list) = v.got.as_ref() else {
         out.say("tools: expected a list");
         return Vec::new();
     };
@@ -758,51 +775,49 @@ fn tools(v: &Raw, caps: &[Cap], out: &mut Refusals) -> Vec<Tool> {
     let mut ids: Vec<String> = Vec::new();
     for (i, v) in list.iter().enumerate() {
         let at = format!("tools[{i}]");
-        let Some(t) = v.as_object() else {
+        let Some(t) = v.got.as_ref() else {
             out.say(format!("{at}: expected an object"));
             continue;
         };
-        closed(
-            t,
-            &["id", "about", "params", "timeout", "chats"],
-            &format!("{at}."),
-            out,
-        );
-        let mut need = |key: &str| {
-            let v = t.get(key);
-            if v.is_none() {
+        closed(&t.rest, &format!("{at}."), out);
+        for (key, given) in [
+            ("id", t.id.is_some()),
+            ("about", t.about.is_some()),
+            ("params", t.params.is_some()),
+            ("timeout", t.timeout.is_some()),
+            ("chats", t.chats.is_some()),
+        ] {
+            if !given {
                 out.say(format!("{at}.{key} is missing"));
             }
-            v
-        };
-        let (id, about, schema, timeout, chats) = (
-            need("id"),
-            need("about"),
-            need("params"),
-            need("timeout"),
-            need("chats"),
-        );
-        let id = id.and_then(|v| match v.as_str() {
+        }
+        let id = t.id.as_ref().and_then(|v| match v.got.as_deref() {
             Some(id) if is_action_id(id) => Some(id.to_string()),
             _ => {
                 out.say(format!("{at}.id: expected 1 to 16 characters of a-z and -"));
                 None
             }
         });
-        let about = about.and_then(|v| line(v, &format!("{at}.about"), ABOUT_MAX, out));
-        let schema = schema.and_then(|v| {
-            // The schema is the plugin's own JSON: params.rs checks it and
-            // Tool keeps it whole, so it passes to them as the document it
-            // is, rebuilt from the wire.
-            let doc = serde_json::to_value(v).unwrap_or_default();
+        let about = t
+            .about
+            .as_ref()
+            .and_then(|v| line(v, &format!("{at}.about"), ABOUT_MAX, out));
+        let schema = t.params.as_ref().and_then(|v| {
+            // The schema is the plugin's own JSON: params.rs checks its
+            // shape here and holds a call to it later, and Tool keeps it
+            // whole, so it is carried as the document that came.
+            let doc = v.got.clone()?;
             let why = params::rules(&doc);
             for w in &why {
                 out.say(format!("{at}.params: {w}"));
             }
             why.is_empty().then_some(doc)
         });
-        let timeout = timeout.and_then(|v| seconds(v, &format!("{at}.timeout"), TOOL_TIMEOUT, out));
-        let chats = chats.and_then(|v| chats_of(v, &at, out));
+        let timeout = t
+            .timeout
+            .as_ref()
+            .and_then(|v| seconds(v, &format!("{at}.timeout"), TOOL_TIMEOUT, out));
+        let chats = t.chats.as_ref().and_then(|v| chats_of(v, &at, out));
         let Some(id) = id else { continue };
         if ids.contains(&id) {
             out.say(format!("{at}: the tool {id} is there twice"));
@@ -864,8 +879,8 @@ fn is_view_path(s: &str) -> bool {
 /// `views`: at most [`VIEWS_MAX`], each asked as `view:<id>`, each its own
 /// folder of `/out`. A folder may hold another view's: the gate serves a
 /// path by the view whose folder is the longest that holds it.
-fn views(v: &Raw, caps: &[Cap], out: &mut Refusals) -> Vec<View> {
-    let Some(list) = v.as_array() else {
+fn views(v: &Field<Vec<Field<ViewEntry>>>, caps: &[Cap], out: &mut Refusals) -> Vec<View> {
+    let Some(list) = v.got.as_ref() else {
         out.say("views: expected a list");
         return Vec::new();
     };
@@ -875,27 +890,26 @@ fn views(v: &Raw, caps: &[Cap], out: &mut Refusals) -> Vec<View> {
     let mut got: Vec<View> = Vec::new();
     for (i, v) in list.iter().enumerate() {
         let at = format!("views[{i}]");
-        let Some(o) = v.as_object() else {
+        let Some(o) = v.got.as_ref() else {
             out.say(format!("{at}: expected an object"));
             continue;
         };
-        closed(o, &["id", "label", "path", "open"], &format!("{at}."), out);
-        let text = |k: &str| o.get(k).and_then(|v| v.as_str());
-        let id = match text("id") {
+        closed(&o.rest, &format!("{at}."), out);
+        let id = match o.id.as_ref().and_then(|f| f.got.as_deref()) {
             Some(id) if is_action_id(id) => Some(id.to_string()),
             _ => {
                 out.say(format!("{at}.id: expected 1 to 16 characters of a-z and -"));
                 None
             }
         };
-        let label = match o.get("label") {
+        let label = match &o.label {
             Some(l) => label(l, &format!("{at}.label"), out),
             None => {
                 out.say(format!("{at}.label is missing"));
                 None
             }
         };
-        let path = match text("path") {
+        let path = match o.path.as_ref().and_then(|f| f.got.as_deref()) {
             Some(p) if is_view_path(p) => Some(p.to_string()),
             _ => {
                 out.say(format!(
@@ -904,7 +918,7 @@ fn views(v: &Raw, caps: &[Cap], out: &mut Refusals) -> Vec<View> {
                 None
             }
         };
-        let open = match text("open") {
+        let open = match o.open.as_ref().and_then(|f| f.got.as_deref()) {
             Some("dock") => Some(Open::Dock),
             Some("page") => Some(Open::Page),
             _ => {
@@ -936,8 +950,13 @@ fn views(v: &Raw, caps: &[Cap], out: &mut Refusals) -> Vec<View> {
 
 /// `needs`: at most [`NEEDS_MAX`] other plugins, each asked as
 /// `needs:<name>`, each with the skills this plugin wants from it.
-fn needs(v: &Raw, caps: &[Cap], own: &str, out: &mut Refusals) -> Vec<Need> {
-    let Some(list) = v.as_array() else {
+fn needs(
+    v: &Field<Vec<Field<NeedWire>>>,
+    caps: &[Cap],
+    own: &str,
+    out: &mut Refusals,
+) -> Vec<Need> {
+    let Some(list) = v.got.as_ref() else {
         out.say("needs: expected a list");
         return Vec::new();
     };
@@ -947,17 +966,17 @@ fn needs(v: &Raw, caps: &[Cap], own: &str, out: &mut Refusals) -> Vec<Need> {
     let mut got: Vec<Need> = Vec::new();
     for (i, v) in list.iter().enumerate() {
         let at = format!("needs[{i}]");
-        let Some(n) = v.as_object() else {
+        let Some(n) = v.got.as_ref() else {
             out.say(format!("{at}: expected an object"));
             continue;
         };
-        closed(n, &["name", "skills"], &format!("{at}."), out);
-        let name = match n.get("name").map(|v| v.as_str()) {
+        closed(&n.rest, &format!("{at}."), out);
+        let name = match &n.name {
             None => {
                 out.say(format!("{at}.name is missing"));
                 None
             }
-            Some(Some(s)) if is_name(s) => Some(s.to_string()),
+            Some(f) if f.got.as_deref().is_some_and(is_name) => f.got.clone(),
             Some(_) => {
                 out.say(format!(
                     "{at}.name: expected a plugin's name, 1 to 12 characters of a-z and 0-9, a letter first"
@@ -965,15 +984,20 @@ fn needs(v: &Raw, caps: &[Cap], own: &str, out: &mut Refusals) -> Vec<Need> {
                 None
             }
         };
-        let skills: Option<Vec<String>> = match n.get("skills") {
+        let skills: Option<Vec<String>> = match &n.skills {
             None => {
                 out.say(format!("{at}.skills is missing"));
                 None
             }
-            Some(v) => {
-                let ids: Option<Vec<String>> = v.as_array().and_then(|l| {
+            Some(f) => {
+                let ids: Option<Vec<String>> = f.got.as_ref().and_then(|l| {
                     l.iter()
-                        .map(|s| s.as_str().filter(|s| is_action_id(s)).map(String::from))
+                        .map(|s| {
+                            s.got
+                                .as_deref()
+                                .filter(|s| is_action_id(s))
+                                .map(String::from)
+                        })
                         .collect()
                 });
                 match ids {
@@ -1014,40 +1038,39 @@ fn needs(v: &Raw, caps: &[Cap], own: &str, out: &mut Refusals) -> Vec<Need> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::{json, Map};
+    use serde_json::{json, Map, Value};
 
-    /// The cases are written as JSON documents, edited by `json!` and
-    /// handed to `read` as bytes: the reader's wire model is `Wire`, and
-    /// the tests speak JSON the way a plugin's author does.
-    type Doc = Value;
-
+    // The cases are written as the JSON documents a plugin's author
+    // writes, edited by `json!` and handed to `read` as bytes: the byte
+    // seam is the reader's interface, and the helpers below build those
+    // documents as `Value`, which they name in the open.
     const FULL: &str = include_str!("../../../../api/plugin-manifest.full.json");
     const BARE: &str = include_str!("../../../../api/plugin-manifest.bare.json");
     const SKILLS: &str = include_str!("../../../../api/plugin-manifest.skills.json");
     const TOOLS: &str = include_str!("../../../../api/plugin-manifest.tools.json");
     const SCHEMA: &str = include_str!("../../../../api/plugin-manifest.schema.json");
 
-    fn full() -> Doc {
+    fn full() -> Value {
         serde_json::from_str(FULL).unwrap()
     }
 
-    fn refusals(v: &Doc) -> Vec<String> {
+    fn refusals(v: &Value) -> Vec<String> {
         read(v.to_string().as_bytes(), "floorplan").unwrap_err()
     }
 
-    fn with(edit: impl Fn(&mut Map<String, Doc>)) -> Doc {
+    fn with(edit: impl Fn(&mut Map<String, Value>)) -> Value {
         let mut v = full();
         edit(v.as_object_mut().unwrap());
         v
     }
 
-    fn text_only(edit: impl Fn(&mut Map<String, Doc>)) -> Doc {
-        let mut v: Doc = serde_json::from_str(SKILLS).unwrap();
+    fn text_only(edit: impl Fn(&mut Map<String, Value>)) -> Value {
+        let mut v: Value = serde_json::from_str(SKILLS).unwrap();
         edit(v.as_object_mut().unwrap());
         v
     }
 
-    fn refusals_of_specs(v: &Doc) -> Vec<String> {
+    fn refusals_of_specs(v: &Value) -> Vec<String> {
         read(v.to_string().as_bytes(), "specs").unwrap_err()
     }
 
@@ -1319,7 +1342,7 @@ mod tests {
 
     #[test]
     fn the_version_is_1_and_the_kind_batch() {
-        for v in [json!(2), json!("1"), json!(1.5), json!(0)] {
+        for v in [json!(2), json!("1"), json!(1.5), json!(0), json!(1.0)] {
             let got = refusals(&with(|m| {
                 m.insert("plugin".into(), v.clone());
             }));
@@ -1619,13 +1642,13 @@ mod tests {
         assert_eq!(got, ["skills: at most 8"]);
     }
 
-    fn tooled(edit: impl Fn(&mut Map<String, Doc>)) -> Doc {
-        let mut v: Doc = serde_json::from_str(TOOLS).unwrap();
+    fn tooled(edit: impl Fn(&mut Map<String, Value>)) -> Value {
+        let mut v: Value = serde_json::from_str(TOOLS).unwrap();
         edit(v.as_object_mut().unwrap());
         v
     }
 
-    fn refusals_of_docs(v: &Doc) -> Vec<String> {
+    fn refusals_of_docs(v: &Value) -> Vec<String> {
         read(v.to_string().as_bytes(), "docs").unwrap_err()
     }
 
@@ -1671,6 +1694,11 @@ mod tests {
                 ["tools[0].timeout: expected whole seconds from 1 to 10"]
             );
         }
+        let got = refusals_of_docs(&tooled(|m| m["tools"][0]["timeout"] = json!(5.0)));
+        assert_eq!(
+            got,
+            ["tools[0].timeout: expected whole seconds from 1 to 10"]
+        );
         let got = refusals_of_docs(&tooled(|m| {
             m["tools"][0]["params"]["properties"]["q"] = json!({"type": "string"});
             m["tools"][0]["params"]["$ref"] = json!("#/x");
@@ -1764,6 +1792,11 @@ mod tests {
             m.insert("timeout".into(), json!("3600"));
         }));
         assert_eq!(got, ["timeout: expected whole seconds from 60 to 14400"]);
+        // A float is not whole seconds, not even one that is whole.
+        let got = refusals(&with(|m| {
+            m.insert("timeout".into(), json!(3600.0));
+        }));
+        assert_eq!(got, ["timeout: expected whole seconds from 60 to 14400"]);
         for (t, ok) in [(59, false), (60, true), (1800, true), (1801, false)] {
             let v = with(|m| {
                 m["hooks"][0]["timeout"] = json!(t);
@@ -1774,6 +1807,13 @@ mod tests {
                 "{t}"
             );
         }
+        let got = refusals(&with(|m| {
+            m["hooks"][0]["timeout"] = json!(600.0);
+        }));
+        assert_eq!(
+            got,
+            ["hooks[0].timeout: expected whole seconds from 60 to 1800"]
+        );
     }
 
     #[test]
@@ -1784,6 +1824,12 @@ mod tests {
                     m.insert("ui".into(), json!({"kit": 2}));
                 }),
                 "ui.kit is 2: this tehas serves kit 1",
+            ),
+            (
+                with(|m| {
+                    m.insert("ui".into(), json!({"kit": 1.0}));
+                }),
+                "ui.kit is 1.0: this tehas serves kit 1",
             ),
             (
                 with(|m| {
@@ -1858,7 +1904,7 @@ mod tests {
     // action's ask of its own id, is the reader's alone.
     use crate::plugin::schema::{closed, fits};
 
-    fn schema() -> Doc {
+    fn schema() -> Value {
         serde_json::from_str(SCHEMA).unwrap()
     }
 
