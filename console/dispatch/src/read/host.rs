@@ -7,6 +7,7 @@ use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use tehas_core::cycle_notes::Note;
 use tehas_core::file::{read_regular, ReadError, READ_BOUND};
 use tehas_core::home::{Home, Live, State};
 
@@ -309,7 +310,7 @@ pub fn slice(home: &Path, running: &[u64]) -> Value {
     v["cids"] = Value::Array(
         running
             .iter()
-            .filter_map(|n| fs::read_to_string(Home::new(home).cycle_note(*n, "cid")).ok())
+            .filter_map(|n| fs::read_to_string(Home::new(home).cycle_note(*n, Note::Cid)).ok())
             .map(|t| json!(t.trim()))
             .collect(),
     );
@@ -398,7 +399,7 @@ pub fn leftovers(home: &Path, work_dir: &str, user_home: &Path, now: i64, days: 
             continue;
         }
         seen.push(n);
-        let lock = Home::new(home).cycle_note(n, "lock");
+        let lock = Home::new(home).cycle_note(n, Note::Lock);
         // A lock that is not there (a dangling link
         // too) is free; one that is there is a plain file and no link.
         let lock_ok =

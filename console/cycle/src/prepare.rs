@@ -32,6 +32,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+use tehas_core::cycle_notes::Note;
 use tehas_core::driver::Driver;
 use tehas_core::exit::work::{NOT_STARTED, NO_PUSH};
 use tehas_core::home::{Home, State};
@@ -1320,7 +1321,7 @@ pub fn tree(home: &Path, t: &Tree, set: &mut Aside) -> i32 {
             to_preflight(&preflight, &line);
             say(&format!("tehas work: {line}"));
         }
-        let note = Home::new(home).cycle_note(t.issue, "refused");
+        let note = Home::new(home).cycle_note(t.issue, Note::Refused);
         if let Some(rc) = install(&state, &tree, &steps, &preflight, &note) {
             return rc;
         }
@@ -1538,9 +1539,9 @@ pub fn record(home: &Path, r: &Record) -> Result<Vec<String>, i32> {
     } else {
         "off"
     };
-    if fs::write(file("comments"), format!("{mode}\n")).is_err() {
+    if fs::write(file(Note::Comments.as_ref()), format!("{mode}\n")).is_err() {
         // What is left there is the word of a cycle before.
-        let _ = fs::remove_file(file("comments"));
+        let _ = fs::remove_file(file(Note::Comments.as_ref()));
         eprintln!("tehas work: could not write the image's word on comments, a park of this cycle offers no comments retry");
     }
     if mode == "polyfill" && state.pointer("/comments/unguard") == Some(&Value::Bool(true)) {
@@ -1556,7 +1557,7 @@ pub fn record(home: &Path, r: &Record) -> Result<Vec<String>, i32> {
             err.display()
         );
     }
-    let cid = file("cid").to_string_lossy().into_owned();
+    let cid = file(Note::Cid.as_ref()).to_string_lossy().into_owned();
     let Some(verb) = state.get("verb").and_then(Value::as_str) else {
         eprintln!("tehas work: could not prepare the sandbox, not starting a cycle");
         return Err(78);

@@ -103,7 +103,9 @@ fn live_cycle(home: &std::path::Path, a: &Value) -> bool {
         return false;
     };
     matches!(
-        probe(&tehas_core::home::Home::new(home).cycle_note(n, "lock")),
+        probe(
+            &tehas_core::home::Home::new(home).cycle_note(n, tehas_core::cycle_notes::Note::Lock)
+        ),
         Probe::Held | Probe::Unknown(_)
     )
 }

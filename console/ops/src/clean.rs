@@ -74,6 +74,7 @@ use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant, SystemTime};
+use tehas_core::cycle_notes::Note;
 use tehas_core::home::{Home, State};
 use tehas_core::lock::Held;
 use tehas_core::{rukas, time};
@@ -1229,8 +1230,10 @@ impl Run {
         ok
     }
 
+    /// `n` is a number `issue_of` read.
     fn cycle_lock(&self, n: &str) -> PathBuf {
-        Home::new(&self.home).cycles_dir().join(format!("{n}.lock"))
+        let n: u64 = n.parse().unwrap_or_default();
+        Home::new(&self.home).cycle_note(n, Note::Lock)
     }
 
     /// A cycle holds the issue's lock, or the probe could not tell: the cases

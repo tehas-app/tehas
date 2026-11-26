@@ -9,6 +9,7 @@ use crate::read::run::run_quiet;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use tehas_core::cycle_notes::Note;
 use tehas_core::home::Home;
 
 /// What a stop does next.
@@ -112,7 +113,7 @@ impl Writer {
         }
         // The reason the dispatcher stopped it, for the cycle to put in its
         // comment and its end record; as stop_done leaves its own.
-        let done = Home::new(&self.home).cycle_note(n, "done");
+        let done = Home::new(&self.home).cycle_note(n, Note::Done);
         if std::fs::write(&done, "quiet\n").is_err() {
             log.push(format!("WARN: could not write the reason for #{n}"));
         }
@@ -145,7 +146,7 @@ impl Writer {
     /// waited for until it lets its lock go.
     pub(super) fn stop_done(&mut self, n: u64, a: &Value, log: &mut Vec<String>) {
         self.changed = true;
-        let done = Home::new(&self.home).cycle_note(n, "done");
+        let done = Home::new(&self.home).cycle_note(n, Note::Done);
         if std::fs::write(&done, format!("{}\n", text(a, "why"))).is_err() {
             log.push(format!("WARN: could not write the reason for #{n}"));
         }
@@ -162,7 +163,7 @@ impl Writer {
         if rc != Some(0) {
             log.push(format!("WARN: could not stop {unit}"));
         }
-        let lock = Home::new(&self.home).cycle_note(n, "lock");
+        let lock = Home::new(&self.home).cycle_note(n, Note::Lock);
         for _ in 0..20 {
             if !held(&lock) {
                 return;
@@ -198,7 +199,7 @@ impl Writer {
     /// sweep_workspaces for one issue the decision found unused: its names
     /// removed under its lock, the first that cannot be ending it.
     pub(super) fn sweep(&mut self, n: u64, a: &Value, log: &mut Vec<String>) {
-        let lock = Home::new(&self.home).cycle_note(n, "lock");
+        let lock = Home::new(&self.home).cycle_note(n, Note::Lock);
         let taken = std::fs::OpenOptions::new()
             .create(true)
             .append(true)

@@ -19,6 +19,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 use std::time::Duration;
 use tehas_core::call::{run_full, store_try, GH_BOUND, GRACE};
+use tehas_core::cycle_notes::Note;
 use tehas_core::end_fault;
 use tehas_core::home::Home;
 use tehas_core::journal::{settle as rules, Found, Journal, Journaled, RowId};
@@ -788,12 +789,6 @@ fn approved_lean(facts: &Value) -> bool {
     .any(|a| driver_of(a) == Some("lean"))
 }
 
-/// The driver's own record of a lean run, kept with the cycle's other notes:
-/// the copy of `.pi/lean-state/<issue>.json` of the workspace, taken before the
-/// workspace is cleaned and read by `analytics run` for the steps the classic
-/// history holds no account of. The name of the note, said once.
-pub const LEAN_STATE: &str = "lean-state.json";
-
 /// The driver's record of a lean run, copied out of its workspace beside the
 /// cycle's other notes, before anything of the workspace is removed. The copy is
 /// made by the one rule the protocol's files have: the file is a plain file of
@@ -807,7 +802,7 @@ fn keep_lean_state(home: &Path, workdir: &str, issue: u64, lean: bool) {
     if !lean || !crate::after::analytics_on(home) {
         return;
     }
-    let to = Home::new(home).cycle_note(issue, LEAN_STATE);
+    let to = Home::new(home).cycle_note(issue, Note::LeanState);
     let _ = fs::remove_file(&to);
     // The read of the workspace's own file, which refuses a link anywhere on the
     // way and a file of no sane size; the copy is of what that read answered.
