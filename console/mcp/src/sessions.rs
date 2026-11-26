@@ -422,7 +422,10 @@ fn linker(dirs: &Dirs) -> Result<Linker, ToolError> {
 
 fn session_links(links: &Linker, s: &Value) -> (Option<String>, Option<String>) {
     match s["issue"].as_i64() {
-        Some(n) => (links.issue(n), s["pr"].as_i64().and_then(|p| links.pr(p))),
+        Some(n) => (
+            links.issue(n),
+            s["change"].as_i64().and_then(|p| links.pr(p)),
+        ),
         None => (None, None),
     }
 }
@@ -951,7 +954,11 @@ pub(crate) fn issue(dirs: &Dirs, asked: &IssueArgs) -> Result<Map<String, Value>
         .map(|s| {
             let mut o = pick_object(&s, &keys);
             o.retain(|_, v| scalar(v));
-            insert_opt(&mut o, "prUrl", s["pr"].as_i64().and_then(|p| links.pr(p)));
+            insert_opt(
+                &mut o,
+                "prUrl",
+                s["change"].as_i64().and_then(|p| links.pr(p)),
+            );
             Value::Object(o)
         })
         .collect();

@@ -1548,6 +1548,36 @@ fn closing_a_closed_issue_is_done_with_nothing_sent() {
     assert_eq!(taken(&calls), vec![read_7()]);
 }
 
+/// The close answers the site's own time of it, from the answer that found
+/// the issue closed: the `PATCH` answer of a close sent here, and the read
+/// of one already closed. A site that names no time answers none.
+#[test]
+fn a_close_answers_the_sites_time_of_it() {
+    use tehas_ports::{At, CloseReason};
+    // The close sent here: the PATCH's answer names the time.
+    let (mut gh, calls) = adapter(vec![
+        Ok(sample("issue-7.json")),
+        Ok(sample("issue-7-closed.json")),
+    ]);
+    assert_eq!(
+        gh.close_at(&key(7), &CloseReason::Done),
+        Ok(Some(At::new(1795428000)))
+    );
+    assert_eq!(taken(&calls).len(), 2);
+    // One found closed by its read: the read names it, nothing sent.
+    let (mut gh, calls) = adapter(vec![Ok(sample("issue-7-closed.json"))]);
+    assert_eq!(
+        gh.close_at(&key(7), &CloseReason::Done),
+        Ok(Some(At::new(1795428000)))
+    );
+    assert_eq!(taken(&calls).len(), 1);
+    // The same answer with no `closed_at` in it: closed, no time.
+    let mut v: serde_json::Value = serde_json::from_str(&sample("issue-7-closed.json")).unwrap();
+    v.as_object_mut().unwrap().remove("closed_at");
+    let (mut gh, _) = adapter(vec![Ok(sample("issue-7.json")), Ok(v.to_string())]);
+    assert_eq!(gh.close_at(&key(7), &CloseReason::Done), Ok(None));
+}
+
 /// A pull request's number is no ticket, and a refused input made nothing.
 #[test]
 fn close_refuses_a_pull_request_and_reads_a_422_as_refused() {

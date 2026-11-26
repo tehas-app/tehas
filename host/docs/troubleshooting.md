@@ -185,6 +185,12 @@ Run `tehas dispatch --dry-run` and read what it prints.
   instance sets a setting of a feature 2.0 took out of core. The command goes
   on: the line loads, nothing reads it, and the warning comes once a load.
   Take the line out of `instance.env`.
+- `<NAME> is no setting tehas reads: nothing uses it; remove it from the
+  instance`: the instance sets a `TEHAS_` name that tehas has never read,
+  often the leftover of a typo or of a program of its own. The command goes
+  on: the line loads as it stands, nothing reads it, and the warning comes
+  once a load for each such name. Take the line out, or rename it to a name
+  of the program's own that the instance may keep.
 - `TEHAS_PRIORITY_FIELD is no longer read: tehas order sets the order ready
   issues start in, so take the line out` (the same for `TEHAS_LOW_GATE` and
   `TEHAS_LOW_GATE_WAIT`): every command stops with 78 while the instance sets
