@@ -444,7 +444,7 @@ rules stay in the normative file.
   (spike). The check is in Rust, in each host function.
 | Function | Grant | Replaces in 1.x | Used by |
 | --- | --- | --- | --- |
-| `fs.read`, `fs.list`, `fs.stat` | any input grant (`product`, `history`, `files`, `cycles`, `issues`, `pages`, `live:`, `feed:`, `feed:advisories`, `industry:logs`) | `node:fs` reads of mounts | every plugin with a driver |
+| `fs.read`, `fs.list`, `fs.stat` | any input grant (`product`, `history`, `files:`, `cycles`, `issues`, `pages`, `live:`, `feed:`, `feed:advisories`, `industry:logs`) | `node:fs` reads of mounts | every plugin with a driver |
 | `fs.write`, `fs.remove` | `/out` always; `/state` with `keep` | `node:fs` writes | every plugin with a driver |
 | `fs.read`, `fs.list`, `fs.stat` on `/state` | `keep`: the plugin's own `/state` only | `node:fs` reads | plugins that keep state |
 | `git.head`, `git.diff`, `git.show`, `git.tree`, `git.blob`, `git.isAncestor`, `git.defaultBranch`, `git.status`, `git.log`, `git.files` | `product` or `history` | running `git` (`diff`, `show`, `ls-tree`, `cat-file`, `rev-parse`, `merge-base`, `symbolic-ref`, `status`, `log`, `ls-files`, `check-ignore`) | review, wiki, guard, goldfish, floorplan |
@@ -517,7 +517,10 @@ rules stay in the normative file.
     drawn as text; relative `.md` links written as `.html`; `https` and `#`
     links passed through;
   - at most 500 pages, 64 KiB each and 8 MiB in all per call (`check.rs`'s
-    caps). Its answer counts toward the run's output caps (1.4).
+    caps). Its answer counts toward the run's output caps (1.4);
+  - it goes on the host's surface list (C3) in its pull request, as a minor
+    of `tehas:plugin@2`, and from then on only grows within the major
+    (tehas-standard v3 §6).
 
 - Every host function checks its grant and its paths in Rust, and each has a
   fuzz target.
@@ -1122,14 +1125,21 @@ pages: a tree of files a run writes, one per issue.
   (`default-src 'none'`, styles by hash, `connect-src 'none'`), with
   `script-src 'none'`. No forms (`form-action 'none'`) and no top-level
   navigation.
+- **On every response, not only on the frame.** Every file served under
+  `/_page/` carries that CSP as a response header, with `sandbox` (no
+  tokens) and `script-src 'none'`. An HTML page or an SVG opened outside the
+  frame, in a tab from the per-load URL or navigated to as a document, is
+  still an opaque origin with no script.
 - **Types by allow-list**: HTML, CSS, images (PNG, JPEG, WebP, GIF, SVG
   served as an image) and fonts (WOFF2). Any other file is not served. Each
   file is served with its type and `X-Content-Type-Options: nosniff`.
 - **Caps.** A page tree counts toward the run's `/out` caps (1.2, 1.4).
 - **The browser spike** gets one `pages` case (part 9).
 
-**Laws.** A script in a page doesn't run. A file off the type list isn't
-served. A `/_page/<issue>/` with no per-load path is refused. The frame has
+**Laws.** A script in a page doesn't run. An HTML file and an SVG under
+`/_page/` each answer with the CSP header holding `sandbox` and
+`script-src 'none'`, and an SVG's script doesn't run when it's opened as a
+document. A file off the type list isn't served. A `/_page/<issue>/` with no per-load path is refused. The frame has
 no `allow-forms` or `allow-top-navigation`.
 
 ## 7. What goes away, and what stays
