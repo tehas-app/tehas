@@ -50,7 +50,14 @@ impl GhRunner for Replay {
                 .find_map(|a| a.strip_prefix(&format!("{name}=")))
                 .map(str::to_string)
         };
-        let at = |file: String| answers::at("releases", &self.case, &file);
+        let at = |file: String| {
+            // The download faults are of the fixture's own release.
+            let case = match (self.case.as_str(), file.as_str()) {
+                ("lying" | "refused", "release-v1.1.0.json") => "fixture",
+                (case, _) => case,
+            };
+            answers::at("releases", case, &file)
+        };
         let project = project_of(&self.case);
         let (owner, repo) = project.split_once('/').unwrap();
         if let ["release", "download", ..] = args {
