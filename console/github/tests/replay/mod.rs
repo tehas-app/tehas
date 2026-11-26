@@ -2,7 +2,11 @@
 //! fixture projects, under `tests/recorded/`: `<item>/<read>.json` is gh's
 //! answer and `<item>/<read>.fail` the reason the call failed, with
 //! `<item>/<read>.answer.json` beside it what gh printed as it failed. A
+//! file of the same name under `tests/synthetic/` answers in its place. A
 //! call with no recording fails. It counts the calls it was asked.
+
+#[path = "../answers/mod.rs"]
+mod answers;
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -118,11 +122,7 @@ impl GhRunner for Replay {
             let answer = match args {
                 ["api", "graphql", ..] => {
                     let (dir, name) = question(&self.repo, args);
-                    let at = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                        .join("tests/recorded")
-                        .join(dir)
-                        .join(format!("{name}.answer.json"));
-                    std::fs::read_to_string(at).ok()
+                    std::fs::read_to_string(answer(&dir, &format!("{name}.answer.json"))).ok()
                 }
                 _ => None,
             };
@@ -156,17 +156,19 @@ impl GhRunner for Replay {
             }
             _ => return Err(none()),
         };
-        let at = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/recorded")
-            .join(dir);
-        if let Ok(out) = std::fs::read_to_string(at.join(format!("{name}.json"))) {
+        if let Ok(out) = std::fs::read_to_string(answer(&dir, &format!("{name}.json"))) {
             return Ok(out);
         }
-        match std::fs::read_to_string(at.join(format!("{name}.fail"))) {
+        match std::fs::read_to_string(answer(&dir, &format!("{name}.fail"))) {
             Ok(why) => Err(why.trim_end().to_string()),
             Err(_) => Err(format!("no recording {name} of {args:?}")),
         }
     }
+}
+
+/// The file `name` of an item's answers. An item has no states.
+fn answer(item: &str, name: &str) -> PathBuf {
+    answers::at(item, "", name)
 }
 
 /// The time the replay's clock reads: a spent budget answers it as `until`.
