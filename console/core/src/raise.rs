@@ -751,6 +751,18 @@ mod tests {
     }
 
     #[test]
+    fn a_ticket_closed_twice_is_two_facts_with_two_keys() {
+        // The contract keys `ticket.closed` as `<ticket>@<at>`, so a ticket
+        // closed, reopened and closed again is two facts, each keyed on the
+        // close moment it records.
+        let t = TicketKey::Number(NonZeroU64::new(12).unwrap());
+        let first = Envelope::new(closed(t.clone(), CloseReason::NotPlanned, 1_763_820_000));
+        let second = Envelope::new(closed(t, CloseReason::NotPlanned, 1_763_906_400));
+        assert_ne!(first.key, second.key);
+        assert_eq!(second.key.as_str(), "12@2025-11-23T14:00:00Z");
+    }
+
+    #[test]
     fn an_approval_record_answers_its_act_only_when_it_approves() {
         let a = r#"{"api":1,"verb":"approval-record","ok":true,"approval":{"issue":12,"at":1763820000,"by":"alice","how":"approved"}}"#;
         let p = approved(a).unwrap();
