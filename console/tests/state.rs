@@ -1281,8 +1281,7 @@ fn set_user_version(db: &Path, v: u8) {
 }
 
 #[test]
-fn load_refuses_a_copy_of_a_newer_schema_naming_both_one_older_than_v0_30_0_and_an_unreadable_copy()
-{
+fn load_refuses_a_copy_of_a_newer_schema_naming_both_one_below_the_oldest_and_an_unreadable_copy() {
     let w = host("load-schema");
     let c = a_copy(&w);
     drain(&w);
@@ -1298,15 +1297,15 @@ fn load_refuses_a_copy_of_a_newer_schema_naming_both_one_older_than_v0_30_0_and_
             s(&c)
         )
     );
-    // 11 is one below the oldest schema this release migrates, the one
-    // v0.30.0 wrote.
-    set_user_version(&c, 11);
+    // 22 is one below the oldest schema this release migrates, the one
+    // v1.3.0 and later wrote.
+    set_user_version(&c, 22);
     let r = state(&w, &format!("load --from '{}'", s(&c)));
     rc(&r, 1);
     assert_eq!(
         r.out,
         format!(
-            "tehas state: the copy {} holds schema 11, older than v0.30.0 wrote; load it into a v0.30 release first",
+            "tehas state: the copy {} holds schema 22, older than v1.4 wrote; load it into a v1.4 release first",
             s(&c)
         )
     );

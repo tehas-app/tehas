@@ -28,7 +28,8 @@ const DAY: i64 = 86_400;
 const FILED_AFTER: i64 = 120;
 
 // The column of a field in its table: the file's name with an underscore
-// before each capital, which is how the schema names every column but one.
+// before each capital, which is how the schema names every column but the
+// ones named below.
 fn column(key: &str) -> String {
     let mut out = String::with_capacity(key.len() + 4);
     for c in key.chars() {
@@ -49,13 +50,22 @@ const META: [(&str, &str); 1] = [(
     "(SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'image:' || runs.image)",
 )];
 
+// The field whose file name is not its column name: the change's number,
+// which the runs table still holds in the column `pr`. The schema is public
+// at 8; the file answers with 2.0's word.
+const RENAMED: [(&str, &str); 1] = [("change", "pr")];
+
 fn select(table: &str, fields: &[Field], tail: &str) -> String {
     let names: Vec<String> = fields
         .iter()
         .map(|f| {
-            META.iter()
-                .find(|(key, _)| *key == f.0)
-                .map_or_else(|| column(f.0), |(_, sql)| sql.to_string())
+            if let Some((_, sql)) = META.iter().find(|(key, _)| *key == f.0) {
+                return sql.to_string();
+            }
+            if let Some((_, col)) = RENAMED.iter().find(|(key, _)| *key == f.0) {
+                return (*col).to_string();
+            }
+            column(f.0)
         })
         .collect();
     format!("SELECT {} FROM {table} {tail}", names.join(", "))

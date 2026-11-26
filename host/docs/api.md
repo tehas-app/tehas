@@ -1271,10 +1271,10 @@ It refuses, in one line on standard error and with the store as it was:
 - a copy that is not there, is not a store or fails SQLite's
   `PRAGMA integrity_check`;
 - a copy of a newer schema than this release reads, naming both numbers;
-- a copy older than v0.30.0 wrote, below schema 12: load it into a v0.30
+- a copy older than v1.4 wrote, below schema 23: load it into a v1.4
   release first.
 
-A copy of an older schema, 12 or later, is brought forward by the same steps
+A copy of an older schema, 23 or later, is brought forward by the same steps
 an update runs on the store. The copy is read from a file of its own beside the store, so
 the copy itself is not changed. The rows then replace the store's in one
 transaction: the store's file is not replaced, because the readers of a
@@ -1621,12 +1621,30 @@ nothing, so an end or a question can go unraised. `tehas history` and
 `tehas question --after` are the record: a consumer reads them for what
 it missed. Each event is built from what
 the state store then holds, so it carries what the witness prints. The
-cycle's and the dispatcher's logs, and for `tehas stop` the factory's log
-`logs/dispatch.log`, have one line per event, `event` and its envelope as
+cycle's and the dispatcher's logs, and for `tehas stop`, `tehas limit` and
+`tehas drain` the factory's log `logs/dispatch.log`, have one line per
+event, `event` and its envelope as
 JSON. tehas pushes no event to another program and no page listens to one:
 a program that runs many factories builds the same envelopes from its
-polls, and a page of its own can raise them on the kit. The other names are
-raised by later steps of 2.0. `change.offered` is not raised for a line
+polls, and a page of its own can raise them on the kit. The four other
+names are raised too. `tehas limit set`, `tehas limit clear` and `tehas
+drain` raise `factory.limit-changed` of the write that wrote another
+limit: the same limit set again keeps its `set` and raises nothing, and a
+clear of a limit that was there raises the change keyed on `observed`,
+with the state `none`. The dispatcher raises `ticket.acted` of the act of
+an allowed account it records: the approval that starts a cycle, the
+start of a planning session asked by `tehas:plan` or `tehas:refine` (the
+poll's own refine is the factory asking, not a person, and raises
+nothing), and a person's finish ask once its label came off; each is
+keyed on the moment the account's label event names. The dispatcher
+raises `ticket.closed` of a close its write landed, as the close of a
+planning issue that was replaced. A close the site did not answer is not
+recorded as landed and raises nothing until the settle rules say it did.
+The cycle raises `change.merged` of the history line its report ended
+`merged` and did not park: tehas does not merge changes itself, a person
+does, and the report's line is the record of the merge; a line that says
+`merged` while the bot lists no merged pull request for the issue parks
+and raises nothing. `change.offered` is not raised for a line
 that ends `refused`, by its word or by its exit status (64 and 78 among
 them), even when the line names a change.
 
