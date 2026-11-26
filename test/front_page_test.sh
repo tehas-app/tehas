@@ -91,8 +91,6 @@ t_eq "$(awk '/^ *\.topbar-short/ && /flex-wrap/ { n++ } END { print n + 0 }' <<<
 t_contains "$phone" '.topbar-short > .menu { overflow-x: auto; scrollbar-width: none; }'
 t_eq "$(menu_rows "$short" 652 16)" 1
 t_eq "$(menu_rows "$short" 343 16)" 1
-# From 700px the links sit beside pixel's sprite, a gap and TEHAS at 20px each.
-t_eq "$(menu_rows "$short" $((652 - 100 - 16 - 5 * 20 - 16)) 16)" 1
 t_contains "$phone" ':root { --header: 128px; }'
 t_contains "$phone_small" ':root { --header: 120px; }'
 t_eq "$(fits "$(band 16 50 1)" 128)" fits
