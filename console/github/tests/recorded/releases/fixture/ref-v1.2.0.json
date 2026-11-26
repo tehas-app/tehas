@@ -1,0 +1,1 @@
+{"data":{"repository":{"ref":{"name":"v1.2.0","target":{"__typename":"Tag","oid":"2a0ed25a1a0a30f4dde63249c5e48d36b511cb98","tagger":{"date":"2026-11-26T14:09:50Z"},"target":{"__typename":"Commit","oid":"e359d23e1d64c6b30b5d400efe3976b49df99a69"}}}}}}

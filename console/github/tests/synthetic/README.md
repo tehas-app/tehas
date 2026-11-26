@@ -28,6 +28,18 @@ numbers count from 0 in `data.repository.pullRequest.events.nodes`.
 | `activity/no-page-info/events-whole-first.json` | `events` has no `pageInfo` |
 | `activity/no-cursor/events-whole-first.json` | `pageInfo` is `{"hasNextPage": true, "endCursor": null}`: more follows, no cursor to it |
 
+## Releases: one fault in a live recording
+
+Source: `console/github/tests/recorded/releases/fixture/`, the live
+answers about `tehas-app/tehas-rec-releases` (kit run #1, 2026-11-26).
+
+| File | Changed from the recording |
+| --- | --- |
+| `releases/fixture/ref-v7.json` | Nothing: `ref-v1.0.0.json` as it is, the answer about `v1.0.0` given when `v7` is asked |
+| `releases/fixture/release-v6.json` | Nothing: `release-v1.2.0.json` as it is, the answer about `v1.2.0` given when `v6` is asked |
+| `releases/bad/latest.json` | From `latest.json`: `prerelease` is `true`, a prerelease named latest |
+| `releases/bad/releases-1.json` | From `releases-1.json`: the draft `v1.3.0` has `published_at` `2026-11-26T14:10:01Z` (its `created_at`), not `null` |
+
 ## A body that is not JSON
 
 These are not GitHub's answers: they stand for a body gh hands back that
