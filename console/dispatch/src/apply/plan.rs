@@ -1421,21 +1421,55 @@ impl Writer {
                 "--reason".into(),
                 "not planned".into(),
             ];
-            let wrote = match self.looked_1x(n, "issue-close", &args, None) {
-                Some(wrote) => wrote,
+            let (wrote, landed_here) = match self.looked_1x(n, "issue-close", &args, None) {
+                // A journal replay of a close an earlier call landed: its
+                // moment belongs to that call, which raised.
+                Some(wrote) => (wrote, false),
                 None => match super::ticket(n) {
-                    Some(ticket) => self.send(
-                        n,
-                        &tehas_ports::Write::Close {
+                    Some(ticket) => {
+                        let write = tehas_ports::Write::Close {
                             ticket,
                             reason: tehas_ports::CloseReason::NotPlanned,
-                        },
-                    ),
-                    None => Wrote::Failed(String::new()),
+                        };
+                        // A re-sent turn of an issue the site has closed
+                        // does not re-enter this close: the guard is
+                        // upstream, where the turn's end reads the issue's
+                        // state and drops a turn of a closed issue before
+                        // any of its postings.
+                        let fresh = !self.write_looked(n, &write);
+                        (self.send(n, &write), fresh)
+                    }
+                    None => (Wrote::Failed(String::new()), false),
                 },
             };
-            if !matches!(wrote, Wrote::Done(_)) {
+            let landed = matches!(wrote, Wrote::Done(_));
+            if !landed {
                 log.push(format!("WARN: could not close #{n}"));
+            } else if landed_here {
+                if let Some(ticket) = super::ticket(n) {
+                    // The close landed here: `ticket.closed`, once, keyed on
+                    // the site's own time of the close, which its answer
+                    // gave (T11.9). A close an earlier call landed raises
+                    // nothing here: that call raised it. A close the site
+                    // did not answer raises nothing here either: the poll's
+                    // settle raises it when its read finds the ticket
+                    // closed, of the time that read reads.
+                    let out = match &wrote {
+                        Wrote::Done(out) => out.clone(),
+                        _ => String::new(),
+                    };
+                    match out.parse::<i64>() {
+                        Ok(at) => self.raise_closed(
+                            ticket,
+                            tehas_ports::CloseReason::NotPlanned,
+                            at,
+                            log,
+                        ),
+                        Err(_) => log.push(format!(
+                            "WARN: the site answered the close of #{n} with no time of it, so it raises no event"
+                        )),
+                    }
+                }
             }
         }
         if !self.plan_close(n, log) {

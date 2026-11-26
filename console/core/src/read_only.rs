@@ -148,9 +148,9 @@ pub const PR_FILE: &str = "tehas-read-only-pr.md";
 pub const BODY_MAX: usize = 4000;
 
 /// What a read-only start left, for the status: each record, with the title,
-/// branch and body of the pull request its cycle would have opened when the
-/// workspace `<work_dir>-<issue>` holds one. The branch itself is in that
-/// workspace.
+/// branch and body of the change its cycle would have opened when the
+/// workspace `<work_dir>-<issue>` holds one, under `change`. The branch
+/// itself is in that workspace.
 pub fn results(home: &Path, work_dir: &str) -> Vec<serde_json::Value> {
     read_records(home)
         .into_iter()
@@ -164,7 +164,8 @@ pub fn results(home: &Path, work_dir: &str) -> Vec<serde_json::Value> {
                 r["workspace"] = serde_json::json!(tree);
                 if let Some(text) = pr_file(Path::new(&tree)) {
                     let (title, branch, body) = pr_text(&text);
-                    r["pr"] = serde_json::json!({"title": title, "branch": branch, "body": body});
+                    r["change"] =
+                        serde_json::json!({"title": title, "branch": branch, "body": body});
                 }
             }
             r
@@ -272,11 +273,11 @@ mod tests {
         )
         .unwrap();
         let r = results(&h, work.to_str().unwrap());
-        assert_eq!(r[0]["pr"]["title"], "Fix the thing");
-        assert_eq!(r[0]["pr"]["branch"], "feature/issue-7");
-        assert_eq!(r[0]["pr"]["body"], "The body.\nTwo lines.");
+        assert_eq!(r[0]["change"]["title"], "Fix the thing");
+        assert_eq!(r[0]["change"]["branch"], "feature/issue-7");
+        assert_eq!(r[0]["change"]["body"], "The body.\nTwo lines.");
         assert_eq!(r[0]["workspace"], format!("{}-7", work.display()));
-        assert!(r[1].get("pr").is_none());
+        assert!(r[1].get("change").is_none());
         let _ = fs::remove_dir_all(&h);
     }
 
@@ -299,8 +300,8 @@ mod tests {
         fs::create_dir_all(h.join("work/widget-8")).unwrap();
         std::os::unix::fs::symlink(&elsewhere, h.join("work/widget-8/.git")).unwrap();
         let r = results(&h, work.to_str().unwrap());
-        assert!(r[0].get("pr").is_none(), "{}", r[0]);
-        assert!(r[1].get("pr").is_none(), "{}", r[1]);
+        assert!(r[0].get("change").is_none(), "{}", r[0]);
+        assert!(r[1].get("change").is_none(), "{}", r[1]);
         let _ = fs::remove_dir_all(&h);
     }
 
