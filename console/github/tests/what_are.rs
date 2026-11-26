@@ -165,8 +165,17 @@ fn what_is_is_what_are_of_one_number() {
 
 #[test]
 fn a_repeated_number_is_asked_once_and_answered_each_time() {
-    let (got, calls) = what("live", &[2, 1, 2]);
-    assert_eq!(got, [(2, ticket(2)), (1, change(1)), (2, ticket(2))]);
+    // The numbers `live/` was asked, 2 twice.
+    let (got, calls) = what("live", &[2, 1, 999_999_999, 2]);
+    assert_eq!(
+        got,
+        [
+            (2, ticket(2)),
+            (1, change(1)),
+            (999_999_999, Err(Outcome::NotFound)),
+            (2, ticket(2))
+        ]
+    );
     assert_eq!(calls, 1);
 }
 
@@ -196,14 +205,19 @@ fn a_node_that_does_not_add_up_is_unread_and_spoils_only_itself() {
         // Not found said twice, or of a field inside the node.
         ("two-errors", 6, INCONSISTENT),
         ("inner-not-found", 6, INCONSISTENT),
-        // Not found at another alias than the null node's.
-        ("error-elsewhere", 6, INCONSISTENT),
         // A node and an error both.
         ("found-and-error", 6, INCONSISTENT),
     ] {
         let (got, _) = what(state, &[3, other]);
         assert_eq!(got, [(3, ticket(3)), (other, Err(want))], "{state}");
     }
+}
+
+/// An error at an alias not asked is the question's.
+#[test]
+fn an_error_at_an_alias_not_asked_leaves_no_number_sure() {
+    let (got, _) = what("error-elsewhere", &[3, 6]);
+    assert_eq!(got, [(3, Err(INCONSISTENT)), (6, Err(INCONSISTENT))]);
 }
 
 #[test]

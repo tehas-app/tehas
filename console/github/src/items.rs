@@ -93,7 +93,7 @@ enum Items<'a> {
     Nodes(usize),
 }
 
-/// An item an error names: an alias, asked or not, or a place in `nodes`.
+/// An item an error names: an alias asked, or a place in `nodes`.
 #[derive(PartialEq)]
 enum Named<'a> {
     Alias(&'a str),
@@ -108,11 +108,14 @@ impl Items<'_> {
         }
     }
 
-    /// The item `e` is about, None for one about the question. A place in
-    /// `nodes` past those asked is no item's: the question's.
+    /// The item `e` is about, None for one about the question. An alias
+    /// not asked, or a place in `nodes` past those asked, is no item's: the
+    /// question's.
     fn named<'e>(&self, e: &'e Error) -> Option<Named<'e>> {
         match (self, e.path.as_slice()) {
-            (Items::Aliases(_), [Step::Name(r), Step::Name(a), ..]) if r == "repository" => {
+            (Items::Aliases(asked), [Step::Name(r), Step::Name(a), ..])
+                if r == "repository" && asked.contains(a) =>
+            {
                 Some(Named::Alias(a))
             }
             (Items::Nodes(asked), [Step::Name(n), Step::At(i), ..])
@@ -181,9 +184,9 @@ impl GitHub {
     /// alias by alias: each alias's node in the type asked, its accounts
     /// vouched.
     ///
-    /// - An error that names no alias leaves no alias sure: a spent priced
-    ///   budget for every one when GitHub says the rate is limited, else
-    ///   `Unread(Inconsistent)`.
+    /// - An error that names no alias asked leaves no alias sure: a spent
+    ///   priced budget for every one when GitHub says the rate is limited,
+    ///   else `Unread(Inconsistent)`.
     /// - A null node with exactly one `NOT_FOUND` at its alias is
     ///   `NotFound` (Decided 121); any other error at an alias, or a null
     ///   node with none, is `Unread(Inconsistent)` for it.
@@ -378,5 +381,26 @@ mod tests {
             [Ok(serde_json::json!({"n": 1})), Err(INCONSISTENT)]
         );
         assert_eq!(ask(at(2)), [Err(INCONSISTENT), Err(INCONSISTENT)]);
+    }
+
+    #[test]
+    fn an_error_at_an_alias_not_asked_is_the_questions() {
+        let at = |alias: &str| {
+            format!(
+                r#"{{"data":{{"repository":{{"n1":{{"n":1}},"n2":{{"n":2}}}}}},"errors":[{{"type":"NOT_FOUND","path":["repository","{alias}"]}}]}}"#
+            )
+        };
+        let ask = |answer: String| {
+            GitHub::new("acme/widget", Box::new(Answers(answer))).ask_aliased::<Value>(
+                "the aliases",
+                "query",
+                &["n1".to_string(), "n2".to_string()],
+            )
+        };
+        assert_eq!(
+            ask(at("n2")),
+            [Ok(serde_json::json!({"n": 1})), Err(INCONSISTENT)]
+        );
+        assert_eq!(ask(at("foo")), [Err(INCONSISTENT), Err(INCONSISTENT)]);
     }
 }
