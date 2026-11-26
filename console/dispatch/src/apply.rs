@@ -495,12 +495,19 @@ impl Writer {
                 Wrote::Done(String::new())
             }
             Journaled::Answered(Err(o)) => Wrote::Failed(format!(": {}", o.line())),
-            // The site answered, but the store did not take the settle: the
-            // row stays open and the poll's settle reads the fact and raises
-            // it. This round says nothing and raises nothing.
-            Journaled::AnsweredUnrecorded(_) => Wrote::Unknown(
+            // The site answered, but the store did not take the settle. A
+            // close's seconds are the fact the raiser of `ticket.closed`
+            // keys on and cannot recover from the row: this round says
+            // nothing and raises nothing, and the poll's settle reads the
+            // close and raises it. Every other write goes on as answered:
+            // a claim answered but unrecorded does not withdraw the
+            // approval it took and stop before the running label, and the
+            // row's settle takes the row from the site, as the cycle keeps
+            // the same case done (src/apply.rs).
+            Journaled::AnsweredUnrecorded(Receipt::Closed(_)) => Wrote::Unknown(
                 ": the site answered and the settle did not reach the store".to_string(),
             ),
+            Journaled::AnsweredUnrecorded(_) => Wrote::Done(String::new()),
             Journaled::Unknown { answer, .. } => Wrote::Unknown(format!(": {}", answer.line())),
             Journaled::Unrecorded => Wrote::Unrecorded,
         };

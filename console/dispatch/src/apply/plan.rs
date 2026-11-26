@@ -1431,6 +1431,11 @@ impl Writer {
                             ticket,
                             reason: tehas_ports::CloseReason::NotPlanned,
                         };
+                        // A re-sent turn of an issue the site has closed
+                        // does not re-enter this close: the guard is
+                        // upstream, where the turn's end reads the issue's
+                        // state and drops a turn of a closed issue before
+                        // any of its postings.
                         let fresh = !self.write_looked(n, &write);
                         (self.send(n, &write), fresh)
                     }

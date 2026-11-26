@@ -1865,6 +1865,50 @@ fn a_claim_assigns_its_owner_last_and_stands_when_the_site_refuses() {
     assert!(t.calls().iter().any(|c| c == "start 7"));
 }
 
+/// The site answered the claim's mark and the settle did not reach the
+/// store: the claim goes on as answered. The approval stays on record, the
+/// rest of the claim follows and the cycle starts, as it did before an
+/// unrecorded answer was a case of its own. Only a close takes the unknown
+/// path, whose fact the poll's settle raises once
+/// (a_close_answered_but_not_recorded_raises_once_from_the_settle).
+#[test]
+fn a_claim_answered_but_not_recorded_starts_the_cycle_it_was_approved_for() {
+    let who = tehas_ports::AccountId::new("904");
+    let mut t = world();
+    t.w.host.owner = "carol".into();
+    t.w.assignee = Some(who.clone());
+    // The running mark is the first journalled write of this start: the
+    // site made it and answered; only its settle is refused.
+    t.fail("store", "journal-settle --action 1");
+    let a = t.apply(json!([start_of(7, "approved")]));
+    assert_eq!(a.exit, None, "{:?}", a.log);
+    assert!(
+        !a.log
+            .iter()
+            .any(|l| l.contains("could not mark #7 as running")),
+        "{:?}",
+        a.log
+    );
+    // The answer itself settles it: no unknown read-back of the mark.
+    assert!(
+        !a.log.iter().any(|l| l.contains("did not answer was made")),
+        "{:?}",
+        a.log
+    );
+    let w = t.calls();
+    assert!(
+        !w.iter().any(|c| c.contains("--undo")),
+        "the approval was withdrawn: {w:?}"
+    );
+    // The claim went on as answered: the owner was assigned and the unit
+    // started.
+    assert!(t.writes().contains(&sent(&tehas_ports::Write::Assign {
+        ticket: key(7),
+        who,
+    })));
+    assert!(w.iter().any(|c| c.starts_with("start 7")), "{w:?}");
+}
+
 #[test]
 fn a_mark_that_fails_takes_the_approval_back_and_starts_nothing() {
     let mut t = world();
