@@ -115,6 +115,9 @@ struct Site {
     pull_reads: usize,
     /// The name GraphQL gives with the repository's id, where it gives one.
     name: Option<&'static str>,
+    /// The id the question of the name answers, where it is not the one
+    /// every other answer gives.
+    name_id: Option<u64>,
 }
 
 impl Default for Site {
@@ -138,6 +141,7 @@ impl Default for Site {
             restless: false,
             pull_reads: 0,
             name: None,
+            name_id: None,
         }
     }
 }
@@ -198,6 +202,12 @@ impl Site {
         let mut data = json!({"repository": {"databaseId": 500001}});
         if let Some(name) = self.name {
             data["repository"]["nameWithOwner"] = name.into();
+        }
+        if let Some(id) = self
+            .name_id
+            .filter(|_| q.contains("{ databaseId nameWithOwner } }"))
+        {
+            data["repository"]["databaseId"] = id.into();
         }
         if q.contains("pullRequest(number: $number)") {
             if !args.contains(&"number=9") {
@@ -440,6 +450,25 @@ fn a_renamed_project_reads_its_change_as_here_by_its_repository_id() {
         gh.change(nine(), bound(100)).map(|_| ()),
         Err(Outcome::Unread(Unread::Inconsistent))
     );
+}
+
+/// A handle that learned this project's id takes no name given with
+/// another: the two ids tear what it learned, and the name is not asked
+/// again on the read's second try.
+#[test]
+fn a_name_given_with_another_id_than_the_one_learned_is_not_taken() {
+    let (mut gh, kept, calls) = adapter(Site::default());
+    gh.change(nine(), bound(100)).unwrap();
+    let mut site = renamed();
+    site.name = Some("acme/widget-after");
+    site.name_id = Some(500002);
+    *kept.lock().unwrap() = site;
+    calls.lock().unwrap().clear();
+    assert_eq!(
+        gh.change(nine(), bound(100)).map(|_| ()),
+        Err(Outcome::Unread(Unread::Inconsistent))
+    );
+    assert_eq!(asked(&calls), [PULL, "graphql", PULL], "asked once");
 }
 
 #[test]

@@ -490,6 +490,28 @@ fn another_repositorys_link_is_not_here_for_a_renamed_project() {
     }
 }
 
+/// A handle whose question of the name failed does not ask it again: the
+/// next answer that names another repository stays unread.
+#[test]
+fn the_name_is_asked_once_a_handle_even_where_the_question_failed() {
+    let (mut gh, calls) = adapter_of(
+        "acme/widget-before",
+        vec![
+            Ok(sample("issue-7.json")),
+            Err("no answer".to_string()),
+            Ok(sample("issue-7.json")),
+        ],
+    );
+    for _ in 0..2 {
+        assert_eq!(
+            gh.note(&key(7), "b", &[]),
+            Err(Outcome::Unread(Unread::Inconsistent))
+        );
+    }
+    assert_eq!(taken(&calls).len(), 3);
+    assert_eq!(taken(&calls)[1].args[..2], args(&["api", "graphql"]));
+}
+
 /// A repository moved to another owner is not here, even where GitHub
 /// gives its new name with this project's id and every link names it: the
 /// account that now owns it is not the configured one.
