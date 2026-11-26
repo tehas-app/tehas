@@ -99,6 +99,38 @@ fn only_the_pinned_label_read_from_github_puts_an_issue_at_the_stage() {
 }
 
 #[test]
+fn the_texts_are_the_issue_of_the_answer_or_none() {
+    let answer = r#"{"data":{"repository":{"issue":{"body":"hi","author":{"login":"alice"},"editor":null,"comments":{"nodes":[]}}}}}"#;
+    let mut gh = answers(Ok(answer));
+    let issue = texts("acme/widget", &mut gh, 7).unwrap();
+    assert_eq!(issue["body"], "hi");
+    assert_eq!(issue["author"]["login"], "alice");
+    let asked = &gh.asked[0];
+    for word in ["owner=acme", "name=widget", "number=7"] {
+        assert!(asked.iter().any(|a| a == word), "{asked:?}");
+    }
+    let query = asked.iter().find(|a| a.starts_with("query=")).unwrap();
+    assert!(query.contains("comments(first: 100)"), "{query}");
+    assert!(query.contains(WHO), "{query}");
+
+    for bad in [
+        r#"{"data":{"repository":{"issue":null}}}"#,
+        r#"{"message":"Bad credentials"}"#,
+        "not json",
+    ] {
+        assert!(
+            texts("acme/widget", &mut answers(Ok(bad)), 7).is_none(),
+            "{bad}"
+        );
+    }
+    assert!(texts("acme/widget", &mut answers(Err("no answer")), 7).is_none());
+    // A repository with no owner asks nothing.
+    let mut gh = answers(Ok(answer));
+    assert!(texts("widget", &mut gh, 7).is_none());
+    assert!(gh.asked.is_empty());
+}
+
+#[test]
 fn pins_that_cannot_be_read_put_no_issue_at_the_stage() {
     let home = crate::testdir::TestDir::new("feed-pins-unreadable");
     let file = home.join(crate::label_pins::FILE);
