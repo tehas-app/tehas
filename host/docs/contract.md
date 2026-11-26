@@ -1302,7 +1302,6 @@ The rest is library code that nothing in core calls yet:
 | The edge's static serving of an item at `item-<n>.<domain>`, from `~/tehas/items` | `host/edge/router.Caddyfile` | the lab plugin |
 | Fetch, limits, sniff, zip unpack and manifest; zip by address | `console/attach` | the lab and `given` plugins |
 | The describe prompt and its quoting | `console/describe` | the `given` plugin |
-| The review's renderer | `console/review-render` | the `review` plugin |
 | The wiki's collector, check and render | `console/wiki-collect`, `console/wiki-render` | the `wiki` plugin |
 | The mesh read | `console/mesh-feed` | the `energy` plugin |
 | The cut of `tehas top`'s snapshot | `console/host-feed` | the `hoststats` plugin (`feed:host`) |
