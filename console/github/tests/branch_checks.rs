@@ -536,23 +536,23 @@ fn a_suite_without_a_run_of_the_name_needs_no_workflow_run() {
 const NODE: &str = "36ca6a74f19204e710057645c9c28974fc459362";
 const CANDIDATE: &str = "get_candidate_prs";
 
-/// A recording under `tests/recorded/`, read as JSON.
-fn recorded(path: &str) -> Value {
+/// A recording under `tests/recorded/`.
+fn recorded(path: &str) -> String {
     let at = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/recorded")
         .join(path);
-    let text = std::fs::read_to_string(&at).unwrap_or_else(|e| panic!("{}: {e}", at.display()));
-    serde_json::from_str(&text).unwrap()
+    std::fs::read_to_string(&at).unwrap_or_else(|e| panic!("{}: {e}", at.display()))
 }
 
-fn node(read: &str) -> Value {
+fn node(read: &str) -> String {
     recorded(&format!("code-host/node/{read}-{NODE}-1.json"))
 }
 
 /// The live recording of a branch's head, moved to `main` at the node
 /// commit: the head the long way reads.
 fn node_head() -> String {
-    let mut v = recorded("activity/live/branch-trunk.json");
+    let mut v =
+        serde_json::from_str::<Value>(&recorded("activity/live/branch-trunk.json")).unwrap();
     let at = &mut v["data"]["repository"]["ref"];
     at["name"] = json!("main");
     at["target"]["oid"] = json!(NODE);
@@ -562,7 +562,7 @@ fn node_head() -> String {
 /// The node recording's check runs as `check_name` gives them: the runs of
 /// the name alone.
 fn node_runs_named(name: &str) -> String {
-    let runs: Vec<Value> = node("checks")["check_runs"]
+    let runs: Vec<Value> = serde_json::from_str::<Value>(&node("checks")).unwrap()["check_runs"]
         .as_array()
         .unwrap()
         .iter()
@@ -577,8 +577,8 @@ fn node_runs_named(name: &str) -> String {
 /// its workflow run from the recorded workflow runs and its runs of the
 /// name, in GraphQL's words, and the recorded statuses.
 fn node_question(name: &str) -> String {
-    let checks = node("checks");
-    let workflows = node("runs");
+    let checks = serde_json::from_str::<Value>(&node("checks")).unwrap();
+    let workflows = serde_json::from_str::<Value>(&node("runs")).unwrap();
     let mut order: Vec<u64> = Vec::new();
     let mut suites: Vec<Value> = Vec::new();
     for r in checks["check_runs"].as_array().unwrap() {
@@ -609,7 +609,7 @@ fn node_question(name: &str) -> String {
             "conclusion": up("conclusion"), "startedAt": r["started_at"]}));
         runs["totalCount"] = json!(runs["nodes"].as_array().unwrap().len());
     }
-    let contexts: Vec<Value> = node("statuses")["statuses"]
+    let contexts: Vec<Value> = serde_json::from_str::<Value>(&node("statuses")).unwrap()["statuses"]
         .as_array()
         .unwrap()
         .iter()
@@ -632,10 +632,10 @@ fn the_law_holds_on_the_recorded_node_commit() {
     let answers = vec![
         Ok(node_head()),
         Ok(node_runs_named(CANDIDATE)),
-        Ok(node("statuses").to_string()),
-        Ok(node("runs").to_string()),
+        Ok(node("statuses")),
+        Ok(node("runs")),
         Ok(node_question(CANDIDATE)),
-        Ok(recorded("activity/live/branch-no-such-branch-here.json").to_string()),
+        Ok(recorded("activity/live/branch-no-such-branch-here.json")),
     ];
     let (mut gh, asked) = scripted(answers);
     assert_eq!(

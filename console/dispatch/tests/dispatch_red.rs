@@ -25,10 +25,10 @@ fn checks(w: &World, status: &str, conclusion: Option<&str>) {
 /// the suite and its workflow by these ids, its run of `verify` by the
 /// suite's id and in this state.
 fn question(w: &World, suites: &[(u64, u64, &str, Option<&str>)]) {
-    w.fx_json("checks-question.json", &answer(suites));
+    w.fx("checks-question.json", &answer(suites));
 }
 
-fn answer(suites: &[(u64, u64, &str, Option<&str>)]) -> Value {
+fn answer(suites: &[(u64, u64, &str, Option<&str>)]) -> String {
     let text = std::fs::read_to_string(synthetic("branch-checks/verify-passed.json")).unwrap();
     let mut v: Value = serde_json::from_str(&text).unwrap();
     let all = &mut v["data"]["repository"]["ref"]["target"]["checkSuites"];
@@ -47,7 +47,7 @@ fn answer(suites: &[(u64, u64, &str, Option<&str>)]) -> Value {
         })
         .collect();
     *all = json!({"totalCount": nodes.len(), "nodes": nodes});
-    v
+    v.to_string()
 }
 
 /// A run of `verify` on the head, by GitHub Actions in check suite `suite`.
@@ -176,7 +176,8 @@ fn red_a_call_that_fails_hangs_or_answers_nonsense_starts_cycles_and_says_why() 
             "nonsense" => w.fx("checks-question.json", "not json\n"),
             // A failed run with no id: no answer to fold.
             _ => {
-                let mut v = answer(&[(1, 1, "completed", Some("failure"))]);
+                let mut v: Value =
+                    serde_json::from_str(&answer(&[(1, 1, "completed", Some("failure"))])).unwrap();
                 v["data"]["repository"]["ref"]["target"]["checkSuites"]["nodes"][0]["checkRuns"]
                     ["nodes"][0]
                     .as_object_mut()
