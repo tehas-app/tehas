@@ -6,8 +6,9 @@
 //! the same answers. Beside them, the adapter's own cases: every kind of
 //! event, the pages each window asks, and how a failed or odd answer
 //! reads. `live/` holds live read-only answers of a public repository,
-//! one person's login and id replaced; the rest are made by hand, or made
-//! by the runner (`many`, `huge`, `endless`).
+//! one person's login and id replaced; `tests/synthetic/activity/` holds
+//! that answer with one fault each (its README says which); the rest are
+//! made by hand, or made by the runner (`many`, `huge`, `endless`).
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -93,7 +94,11 @@ impl Replay {
                 _ => panic!("no recording answers {args:?}"),
             }
         };
-        let at = here().join("tests/recorded/activity").join(&self.state);
+        let at = here().join("tests/synthetic/activity").join(&self.state);
+        let at = match at.is_dir() {
+            true => at,
+            false => here().join("tests/recorded/activity").join(&self.state),
+        };
         if let Ok(out) = std::fs::read_to_string(at.join(format!("{name}.json"))) {
             return Ok(out);
         }
@@ -610,7 +615,9 @@ fn gh_s_answer_beside_a_failure_names_it_and_the_rest_settle_by_rest() {
 fn an_odd_answer_is_unread_never_an_event_less() {
     let malformed = Outcome::Unread(Unread::Malformed);
     let inconsistent = Outcome::Unread(Unread::Inconsistent);
-    let cases = [
+    // The synthetic states are the live recording, read whole, with one
+    // fault each.
+    let synthetic = [
         ("null-node", inconsistent.clone()),
         ("no-type", inconsistent.clone()),
         ("no-time", malformed.clone()),
@@ -618,11 +625,17 @@ fn an_odd_answer_is_unread_never_an_event_less() {
         ("no-label", malformed.clone()),
         ("no-commit-time", malformed.clone()),
         ("no-review-state", malformed.clone()),
-        ("untimed", inconsistent.clone()),
         ("other-number", inconsistent.clone()),
         ("no-page-info", inconsistent.clone()),
         ("no-cursor", inconsistent.clone()),
-        ("repeated-cursor", inconsistent.clone()),
+    ];
+    for (state, want) in synthetic {
+        let got = adapter(state).0.activity(live(), whole(100));
+        assert_eq!(got, Err(want), "{state}");
+    }
+    let cases = [
+        ("untimed", inconsistent.clone()),
+        ("repeated-cursor", inconsistent),
         ("garbled", malformed),
         ("no-pull", Outcome::NotFound),
     ];
