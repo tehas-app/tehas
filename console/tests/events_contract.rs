@@ -426,6 +426,72 @@ fn the_names_are_one_list_that_every_side_reads() {
     }
 }
 
+// Every name the code knows, then every line of api/events.txt.
+fn every_name() -> Vec<String> {
+    let mut names: Vec<String> = Name::ALL.iter().map(|n| n.as_str().to_string()).collect();
+    names.extend(
+        fs::read_to_string(api("events.txt"))
+            .unwrap()
+            .lines()
+            .map(String::from),
+    );
+    names
+}
+
+// `^[a-z][a-z-]*\.[a-z][a-z-]*$`, by hand.
+fn well_formed(name: &str) -> bool {
+    let word = |w: &str| {
+        w.starts_with(|c: char| c.is_ascii_lowercase())
+            && w.chars().all(|c| c.is_ascii_lowercase() || c == '-')
+    };
+    match name.split_once('.') {
+        Some((subject, what)) => word(subject) && word(what),
+        None => false,
+    }
+}
+
+#[test]
+fn well_formed_reads_the_rule() {
+    for good in ["thing.happened", "thing.got-done", "a.b"] {
+        assert!(well_formed(good), "{good}");
+    }
+    for bad in [
+        "Plugin-x.done",
+        "plugin_x.done",
+        "cycle.Ended",
+        "cycle",
+        "cycle.",
+        ".ended",
+        "-cycle.ended",
+        "cycle.-ended",
+        "cycle.ended.again",
+        "cycle .ended",
+        "",
+    ] {
+        assert!(!well_formed(bad), "{bad}");
+    }
+}
+
+#[test]
+fn every_name_is_well_formed() {
+    for name in every_name() {
+        assert!(
+            well_formed(&name),
+            "{name:?} is not <subject>.<what-happened>"
+        );
+    }
+}
+
+#[test]
+fn no_name_takes_a_plugin_or_annex_subject() {
+    for name in every_name() {
+        assert!(
+            !name.starts_with("plugin-") && !name.starts_with("annex-"),
+            "{name} takes a reserved subject"
+        );
+    }
+}
+
 // The Events section of the manual: from its heading to the next of its
 // rank.
 fn manual_events() -> String {
