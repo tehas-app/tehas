@@ -133,6 +133,12 @@ pub fn clear_cookie(name: &str) -> String {
     set_cookie(name, "", Some(0))
 }
 
+/// Whether a held account is the person `who`: only two ids are one
+/// person. An account without an id names nobody and matches nothing.
+fn same(held: &Account, who: &Account) -> bool {
+    matches!((&held.id, &who.id), (Some(a), Some(b)) if a == b)
+}
+
 fn keep<V>(map: &mut HashMap<String, V>, most: usize, at: impl Fn(&V) -> u64) {
     while map.len() >= most {
         let Some(oldest) = map
@@ -182,17 +188,21 @@ impl Memory {
 
     /// Marks every session of the account checked at `now`. A session's
     /// account carries its id: the gate refuses an account without one,
-    /// so the ids are what name the person across a rename.
+    /// so the ids are what name the person across a rename. Two accounts
+    /// are one person only when both carry an id and it is the same one:
+    /// an account without an id, however it came to be without one, names
+    /// nobody and matches nothing.
     pub fn checked(&mut self, who: &Account, now: u64) {
-        for s in self.sessions.values_mut().filter(|s| s.person.id == who.id) {
+        for s in self.sessions.values_mut().filter(|s| same(&s.person, who)) {
             s.checked = now;
         }
     }
 
-    /// Ends every session of the account, on every name.
+    /// Ends every session of the account, on every name. Only two ids are
+    /// one person, as in `checked`.
     pub fn end(&mut self, who: &Account) {
-        self.sessions.retain(|_, s| s.person.id != who.id);
-        self.codes.retain(|_, c| c.person.id != who.id);
+        self.sessions.retain(|_, s| !same(&s.person, who));
+        self.codes.retain(|_, c| !same(&c.person, who));
     }
 
     /// A new ask of `plugin`: the nonce for its cookie. The ask is kept

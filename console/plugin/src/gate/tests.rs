@@ -137,6 +137,18 @@ impl Identity for SignIn {
     }
 }
 
+/// The sign-in factory of the tests: each request gets its own handle, a
+/// clone of the same fake, as the production factory makes its own from
+/// the adapter's site.
+#[derive(Clone)]
+struct SigninFactory(SignIn);
+
+impl Signins for SigninFactory {
+    fn handle(&self) -> Got<Box<dyn Identity + Send>> {
+        Ok(Box::new(self.0.clone()))
+    }
+}
+
 struct Books(HashMap<String, Facts>);
 
 impl Catalog for Books {
@@ -220,7 +232,7 @@ fn fixture_of(
             home: dir.to_path_buf(),
         },
         Box::new(hub.clone()),
-        Box::new(SignIn(hub.clone())),
+        Box::new(SigninFactory(SignIn(hub.clone()))),
         catalog,
         Box::new(runner.clone()),
     );
@@ -518,6 +530,11 @@ fn one_level_names_join_the_label_with_a_dash() {
         "plugin-floorplan-demo.example.org"
     );
     assert_eq!(f.gate.signin_host(), "plugins-demo.example.org");
+    // The address GitHub is told to come back to is that name's callback.
+    assert_eq!(
+        signin_callback("demo.example.org", true),
+        format!("https://{}/_auth/callback", f.gate.signin_host())
+    );
     let r = f.gate.answer(
         &nav("plugins-demo.example.org", "/_auth/start?for=floorplan", ""),
         T0,
@@ -908,6 +925,23 @@ fn losing_access_signs_out_every_session_of_the_person() {
             .status,
         401
     );
+}
+
+#[test]
+fn an_account_without_an_id_is_nobody_to_the_session_book() {
+    // The gate refuses an account without an id before any ask; the book
+    // holds the rule behind it: only two ids are one person, so an
+    // account without one checks no session and ends none.
+    let mut book = auth::Memory::default();
+    let mut alice = Account::new(Realm::CodeHost, Login::new("alice"), AccountKind::Person);
+    alice.id = Some(AccountId::new("7"));
+    let id = book.open(Site::SignIn, alice.clone(), T0, T0).unwrap();
+    let nobody = Account::new(Realm::CodeHost, Login::new("alice"), AccountKind::Person);
+    book.checked(&nobody, T0 + 60);
+    book.end(&nobody);
+    assert!(book.session(&id, &Site::SignIn, T0 + 60).is_some());
+    book.end(&alice);
+    assert!(book.session(&id, &Site::SignIn, T0 + 60).is_none());
 }
 
 #[test]

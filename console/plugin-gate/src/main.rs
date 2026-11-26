@@ -31,7 +31,7 @@ use std::sync::Arc;
 use tehas_core::settings::rules;
 use tehas_plugin::gate::catalog::Installed;
 use tehas_plugin::gate::github::{installation_token, Level};
-use tehas_plugin::gate::{self, Gate, Press, Refresh, Settings};
+use tehas_plugin::gate::{self, Gate, Press, Refresh, Settings, Signins};
 use tehas_ports::Site as _;
 
 /// Connections served at once; one more is 503.
@@ -42,6 +42,20 @@ struct Unwired;
 impl Refresh for Unwired {
     fn ask(&self, _: &str, _: &str, _: &str) -> Press {
         Press::Failed("the runner is not built yet".to_string())
+    }
+}
+
+/// The production sign-in factory: the adapter's site makes a fresh
+/// `Identity` of the factory's read-scoped account for every request, so
+/// the adapter's calls run with no lock held between sign-ins.
+struct SiteSignins(tehas_github::GitHubSite);
+
+impl Signins for SiteSignins {
+    fn handle(&self) -> tehas_ports::Got<Box<dyn tehas_ports::Identity + Send>> {
+        self.0.identity(
+            &tehas_ports::Actor::Ours(tehas_ports::Scope::Read),
+            tehas_ports::Caller::new("plugin-gate"),
+        )
     }
 }
 
@@ -169,18 +183,18 @@ fn main() {
     ) else {
         stop("TEHAS_REPO is not owner/name");
     };
-    let identity = match site.identity(
-        &tehas_ports::Actor::Ours(tehas_ports::Scope::Read),
-        tehas_ports::Caller::new("plugin-gate"),
-    ) {
-        Ok(handle) => handle,
-        Err(why) => stop(&format!("the sign-in is not available: {}", why.line())),
-    };
+    // Each request makes its own sign-in handle, so one slow or hostile
+    // flow cannot stall the other sign-ins. The first handle is tried
+    // here, so a broken wiring stops the gate before it listens.
+    let signins = SiteSignins(site);
+    if let Err(why) = signins.handle() {
+        stop(&format!("the sign-in is not available: {}", why.line()));
+    }
     let catalog = Installed::new(home, pins, grants);
     let gate = Arc::new(Gate::new(
         settings,
         Box::new(github),
-        identity,
+        Box::new(signins),
         Box::new(catalog),
         Box::new(Unwired),
     ));

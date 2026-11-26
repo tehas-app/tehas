@@ -82,13 +82,22 @@ pub struct Settings {
     pub home: PathBuf,
 }
 
+/// Makes the handle of the sign-in: the adapter's `Identity` of the
+/// factory's own account. The gate asks every request for its own handle
+/// and runs the adapter's calls with no lock held, so one slow or hostile
+/// flow cannot stall the other sign-ins. The production wiring hands the
+/// adapter's site; a test clones its fake.
+pub trait Signins: Send + Sync {
+    fn handle(&self) -> Got<Box<dyn Identity + Send>>;
+}
+
 pub struct Gate {
     settings: Settings,
     github: Box<dyn GitHub>,
     /// The sign-in, the adapter's `Identity` of the factory's own account:
     /// who the gate signs in is its answer, and the person's token is
-    /// dropped at the callback. `signed_in` takes the handle by itself.
-    identity: Mutex<Box<dyn Identity + Send>>,
+    /// dropped at the callback. Each request makes its own handle.
+    identity: Box<dyn Signins>,
     catalog: Box<dyn Catalog>,
     refresh: Box<dyn Refresh>,
     memory: Mutex<Memory>,
@@ -190,14 +199,14 @@ impl Gate {
     pub fn new(
         settings: Settings,
         github: Box<dyn GitHub>,
-        identity: Box<dyn Identity + Send>,
+        identity: Box<dyn Signins>,
         catalog: Box<dyn Catalog>,
         refresh: Box<dyn Refresh>,
     ) -> Gate {
         Gate {
             settings,
             github,
-            identity: Mutex::new(identity),
+            identity,
             catalog,
             refresh,
             memory: Mutex::new(Memory::default()),
@@ -409,8 +418,12 @@ impl Gate {
             return Response::empty(500);
         };
         // The adapter owns the sign-in page: the gate sends the browser to
-        // the link its Identity answers, carrying the flow's state.
-        let link = match lock(&self.identity).sign_in_link(&SignInState::new(&flow)) {
+        // the link its Identity answers, carrying the flow's state. The
+        // handle is this request's own.
+        let Some(handle) = self.identity.handle().ok() else {
+            return Response::empty(500);
+        };
+        let link = match handle.sign_in_link(&SignInState::new(&flow)) {
             Ok(link) => link,
             Err(_) => return Response::empty(500),
         };
@@ -446,8 +459,8 @@ impl Gate {
 
     /// GitHub's callback: the flow this browser started, the person behind
     /// its code as the adapter's `Identity` answers it, and their access.
-    /// The credential `signed_in` hands back is dropped here: a session
-    /// keeps no token.
+    /// The handle is this request's own, and the credential `signed_in`
+    /// hands back is dropped at once: a session keeps no token.
     fn callback(&self, req: &Request, now: u64) -> Response {
         let state = path::query(&req.target, "state").unwrap_or_default();
         let code = path::query(&req.target, "code").unwrap_or_default();
@@ -463,8 +476,11 @@ impl Gate {
         if !good {
             return self.stale();
         }
-        let (person, _token) = match lock(&self.identity).signed_in(&SignInCode::new(&code)) {
-            Ok(p) => p,
+        let Some(mut handle) = self.identity.handle().ok() else {
+            return self.github_refusal();
+        };
+        let person = match handle.signed_in(&SignInCode::new(&code)) {
+            Ok((person, _)) => person,
             Err(_) => return self.github_refusal(),
         };
         let mut r = match self.access(&person) {
