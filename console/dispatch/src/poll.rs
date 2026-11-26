@@ -1032,7 +1032,7 @@ impl crate::finish::Hands for FinishHands<'_> {
         // `ticket.acted` of the ask the step took, keyed on the moment the
         // asker's label event says (T11.9).
         let mut log = Vec::new();
-        if let Some(t) = tehas_core::limit::epoch(at) {
+        if let Some(t) = tehas_core::time::from_iso_jq(at) {
             self.w.raise_finish(n, by, t, &mut log);
         }
         for l in log {

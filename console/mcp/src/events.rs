@@ -19,7 +19,7 @@
 //! and one inside a long line skips to the next.
 
 use crate::args::{Arg, Args, Shape};
-use crate::tools::{bad, epoch, ToolError};
+use crate::tools::{bad, ToolError};
 use regex::Regex;
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
@@ -29,6 +29,7 @@ use std::os::unix::fs::{FileExt, MetadataExt};
 use std::path::Path;
 use std::sync::LazyLock;
 use tehas_core::mask::mask;
+use tehas_core::time::from_iso;
 
 /// The logs, by the word an event names them with, and their file names.
 const LOGS: [(&str, &str); 2] = [("dispatch", "dispatch.log"), ("refresh", "refresh.log")];
@@ -341,7 +342,7 @@ impl Stream {
         let s = String::from_utf8_lossy(raw);
         let s = s.strip_suffix('\r').unwrap_or(&s);
         let (time, text) = match (s.get(..20), s.get(20..21)) {
-            (Some(t), Some(" ")) if epoch(t).is_some() => (Some(t.to_string()), &s[21..]),
+            (Some(t), Some(" ")) if from_iso(t).is_some() => (Some(t.to_string()), &s[21..]),
             _ => (None, s),
         };
         if text.trim().is_empty() {

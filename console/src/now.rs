@@ -90,7 +90,7 @@ fn seconds(v: &serde_json::Value) -> Option<i64> {
     {
         return None;
     }
-    crate::snapshot::epoch(&format!("{whole}Z")).filter(|t| plausible(*t))
+    tehas_core::time::from_iso(&format!("{whole}Z")).filter(|t| plausible(*t))
 }
 
 enum Said {
