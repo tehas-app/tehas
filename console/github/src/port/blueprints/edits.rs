@@ -20,7 +20,7 @@ use std::collections::HashMap;
 use super::{editor, is_node_id, priced, time, Actor};
 use crate::port::blueprint_writes::comment_issue;
 use crate::tickets::Bot;
-use crate::{markers, GitHub};
+use crate::{markers, rate, GitHub};
 use serde::Deserialize;
 use serde_json::Value;
 use tehas_ports::{At, BlueprintNo, Bound, CommentId, Edit, Got, Outcome, Pool, Unread, Whole};
@@ -396,8 +396,8 @@ impl GitHub {
                     failed[i] = Some(Outcome::NotFound);
                 }
                 Some(i) => failed[i] = Some(Outcome::Unread(Unread::Inconsistent)),
-                None if e.kind.as_deref() == Some("RATE_LIMITED") => {
-                    return Err(crate::graphql::limited(Pool::Priced, (self.now)()))
+                None if e.kind.as_deref() == Some(rate::RATE_LIMITED) => {
+                    return Err(rate::spent(Pool::Priced, (self.now)(), None))
                 }
                 None => return Err(Outcome::Unread(Unread::Inconsistent)),
             }

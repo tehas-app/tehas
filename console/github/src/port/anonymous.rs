@@ -46,7 +46,7 @@ use serde::Deserialize;
 use super::code_host::download::Scratch;
 use super::{site::count, unsupported};
 use crate::curl::{self, Answer, Curl, API, DOWNLOAD_LIMIT, REDIRECTS};
-use crate::markers;
+use crate::{markers, rate};
 use tehas_ports::{
     Access, At, Bound, Branch, Caller, Change, ChangeDelta, ChangeDigest, ChangeEvent,
     ChangeFilter, ChangeNo, ChangeToken, ChangedFile, Checks, Cite, Cites, CodeHost, CommitId,
@@ -318,12 +318,19 @@ fn read_status(a: Answer, now: i64) -> Got<Option<Answer>> {
                 .and_then(|v| v.parse::<i64>().ok());
             let after = a.header("retry-after").and_then(|v| v.parse::<i64>().ok());
             let out = a.header("x-ratelimit-remaining") == Some("0");
-            match (out, reset, after) {
-                (true, Some(reset), _) => Err(spent(reset)),
-                (_, _, Some(after)) => Err(spent(now + after)),
-                _ if a.status == 429 => Err(crate::graphql::limited(Pool::Calls, now)),
-                _ => Err(Outcome::Forbidden),
-            }
+            let until = match (out, reset, after) {
+                (true, Some(reset), _) => Some(reset),
+                (_, _, Some(after)) => Some(now.saturating_add(after)),
+                _ => None,
+            };
+            let limited = until.is_some() || a.status == 429;
+            Err(rate::limited(
+                limited,
+                Pool::Calls,
+                now,
+                until,
+                Outcome::Forbidden,
+            ))
         }
         401 => Err(Outcome::Forbidden),
         500..=599 => Err(Outcome::Unavailable {
@@ -349,13 +356,6 @@ fn read_other(a: Answer) -> Got<Option<Answer>> {
             sent: Sent::Maybe,
         }),
         _ => Err(Outcome::Unread(Unread::Malformed)),
-    }
-}
-
-fn spent(until: i64) -> Outcome {
-    Outcome::Spent {
-        pool: Pool::Calls,
-        until: At::new(until),
     }
 }
 

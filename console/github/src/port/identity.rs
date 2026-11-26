@@ -21,7 +21,7 @@ use serde_json::Value;
 
 use super::unsupported;
 use crate::forge::uri;
-use crate::GitHub;
+use crate::{rate, GitHub};
 use tehas_core::accounts;
 use tehas_ports::{
     Account, AccountId, AccountKind, Got, Identity, Login, Outcome, Pool, ProjectName, Realm,
@@ -338,13 +338,10 @@ fn read_me(out: &str, now: i64) -> Got<(Login, u64)> {
     if let Some(errors) = v.get("errors").filter(|e| !e.is_null()) {
         let limited = errors.as_array().is_some_and(|all| {
             all.iter()
-                .any(|e| e.get("type").and_then(Value::as_str) == Some("RATE_LIMITED"))
+                .any(|e| e.get("type").and_then(Value::as_str) == Some(rate::RATE_LIMITED))
         });
-        return Err(if limited {
-            crate::graphql::limited(Pool::Priced, now)
-        } else {
-            Outcome::Unread(Unread::Inconsistent)
-        });
+        let other = Outcome::Unread(Unread::Inconsistent);
+        return Err(rate::limited(limited, Pool::Priced, now, None, other));
     }
     let viewer = v
         .pointer_mut("/data/viewer")

@@ -24,6 +24,7 @@ mod graphql;
 mod items;
 pub mod markers;
 mod port;
+mod rate;
 pub mod table;
 mod ticket;
 mod tickets;

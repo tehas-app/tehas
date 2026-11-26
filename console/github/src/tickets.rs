@@ -2,7 +2,7 @@
 //! reads in the ports' types. The traits are answered in `port/`; the rest
 //! of the tickets port comes with the moves that need it.
 
-use crate::graphql::limited;
+use crate::rate;
 use crate::{gh, table, ForgeError, GitHub};
 use serde_json::Value;
 use tehas_ports::{
@@ -145,7 +145,7 @@ impl GitHub {
     /// The named outcome of a call that failed, read from the runner's
     /// reason. gh's reason holds no time a spent budget resets at, so
     /// `Spent` holds for the floor past now, by the adapter's clock, as a
-    /// GraphQL `RATE_LIMITED` does (`graphql::limited`).
+    /// GraphQL `RATE_LIMITED` does (`rate`).
     pub(crate) fn outcome(&self, e: &ForgeError) -> Outcome {
         outcome(e, (self.now)())
     }
@@ -339,12 +339,12 @@ fn outcome(e: &ForgeError, now: i64) -> Outcome {
     match status {
         Some("401") => Outcome::SignedOut,
         Some("410") => Outcome::NotFound,
-        Some("429") => limited(Pool::Calls, now),
+        Some("429") => rate::spent(Pool::Calls, now, None),
         Some("403") => Outcome::Forbidden,
         // GitHub refusing the input: nothing was made.
         Some("422") => Outcome::Refused(Refusal::Invalid),
         Some(s) if s.starts_with('5') => maybe(Passing::Server),
-        _ if why.contains("rate limit") => limited(Pool::Calls, now),
+        _ if why.contains("rate limit") => rate::spent(Pool::Calls, now, None),
         _ if why.contains("timed out")
             || why.contains("timeout")
             || why.contains("bound")

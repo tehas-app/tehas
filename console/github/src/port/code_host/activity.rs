@@ -10,7 +10,7 @@ use serde_json::Value;
 
 use super::change::{answer, priced};
 use crate::tickets::{account, take};
-use crate::{gh, ForgeError, GitHub};
+use crate::{gh, rate, ForgeError, GitHub};
 use tehas_ports::{
     Account, At, Branch, ChangeEvent, ChangeHappened, ChangeNo, CommitId, Got, Outcome, Pool, Took,
     Unread, Window, ALL_MAX,
@@ -407,8 +407,8 @@ impl GitHub {
                 .iter()
                 .filter_map(|e| e.get("type").and_then(Value::as_str).map(str::to_string))
                 .collect();
-            return if types.iter().any(|t| t == "RATE_LIMITED") {
-                crate::graphql::limited(Pool::Priced, (self.now)())
+            return if types.iter().any(|t| t == rate::RATE_LIMITED) {
+                rate::spent(Pool::Priced, (self.now)(), None)
             } else if types.iter().any(|t| t == "NOT_FOUND") {
                 Outcome::NotFound
             } else {

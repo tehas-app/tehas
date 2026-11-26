@@ -6,26 +6,11 @@
 //! any other. `items.rs`, which reads aliased questions alias by alias,
 //! applies its own form of it, an error naming its alias.
 
+use crate::rate;
 use serde::de::{DeserializeOwned, IgnoredAny};
 use serde::Deserialize;
 use serde_json::Value;
-use tehas_ports::{At, Got, Outcome, Pool, Unread};
-
-/// How long a rate-limited answer holds its budget out, at the least: a
-/// GraphQL `RATE_LIMITED`, a limit gh reports on its standard error and a
-/// REST 429 with no reset time alike. No reset is read from these, and
-/// "until now" would hold nothing, so a limited host would ask again at
-/// once.
-const LIMITED_FLOOR: i64 = 60;
-
-/// The budget of `pool` spent, as a rate limit the adapter reads with no
-/// reset time says it at `now`: held out for [`LIMITED_FLOOR`].
-pub(crate) fn limited(pool: Pool, now: i64) -> Outcome {
-    Outcome::Spent {
-        pool,
-        until: At::new(now + LIMITED_FLOOR),
-    }
-}
+use tehas_ports::{Got, Outcome, Pool, Unread};
 
 /// The `errors` of an answer, and nothing else of it.
 #[derive(Deserialize)]
@@ -68,14 +53,11 @@ pub(crate) fn refusal(out: &str, now: i64) -> Option<Outcome> {
     let limited = match head.errors {
         Some(Errors::List(all)) => all
             .iter()
-            .any(|e| e.kind.as_deref() == Some("RATE_LIMITED")),
+            .any(|e| e.kind.as_deref() == Some(rate::RATE_LIMITED)),
         _ => false,
     };
-    Some(if limited {
-        self::limited(Pool::Priced, now)
-    } else {
-        Outcome::Unread(Unread::Inconsistent)
-    })
+    let other = Outcome::Unread(Unread::Inconsistent);
+    Some(rate::limited(limited, Pool::Priced, now, None, other))
 }
 
 /// The part of the answer `out` at `at` (a JSON pointer), its logins
@@ -98,6 +80,7 @@ pub(crate) fn part<T: DeserializeOwned>(out: &str, at: &str, now: i64) -> Got<T>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tehas_ports::At;
 
     const NOW: i64 = 1_800_000_000;
 
