@@ -34,11 +34,5 @@
     "stopped": "https://github.com/acme/widget/issues?q=is%3Aissue%20is%3Aopen%20label%3Aneeds-human-attention",
     "completed": "https://github.com/acme/widget/issues?q=is%3Aissue%20is%3Aclosed%20label%3Atehas%3Ashipped",
     "all": "https://github.com/acme/widget/issues"
-  },
-  "buzzwords": [
-    { "word": "report", "count": 12 },
-    { "word": "dashboard", "count": 9 },
-    { "word": "export", "count": 7 },
-    { "word": "search", "count": 5 }
-  ]
+  }
 }

@@ -57,11 +57,11 @@ t_contains "$t_out" "version: v9.8.7+"
 t_run "$tagged/install.sh --check"
 t_contains "$t_out" "Installed:    OK"
 t_lacks "$t_out" "version.txt"
-# The word before the version is lower case, like pi-rukas on the front pages.
-t_contains "$(cat "$fixture/host/docs/_layout.html")" 'tehas {{ readFile "/version.txt" | trim | html }}'
-# The front page reads its versions from the factory's health instead
+# The word before the version is lower case, like pi-rukas on the dashboard.
+t_contains "$(cat "$fixture/host/docs/_layout.html")" '{{ if and (not $isFrag) (fileExists "/version.txt") }}<p class="credit">tehas {{ readFile "/version.txt" | trim | html }}</p>'
+# The dashboard shows one versions line, from the factory's health
 # (host/fun/versions.js); a rukas-version.txt an older build left stays.
-page=$fixture/host/fun/index.html
+page=$fixture/host/docs/dashboard.frag
 t_lacks "$(cat "$page")" 'version.txt'
 t_contains "$(cat "$page")" '<script src="/fun/versions.js"></script>'
 echo v0.14.29 >"$th/fun/rukas-version.txt"

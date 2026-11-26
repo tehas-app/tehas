@@ -6,8 +6,8 @@
 //! its path, why a start with no approval stops, if it does, and the driver
 //! the start runs. A driver this tehas does not know is 78.
 //!
-//! [`text`] reads the issue once, holds its words to the approval, and measures
-//! them into state/sizes.jsonl. It says why a start stopped on the issue and
+//! [`text`] reads the issue once and holds its words to the approval. It says
+//! why a start stopped on the issue and
 //! gives 4, or gives a private file that holds GitHub's answer, which is the
 //! one read the images and files are fetched from too. By hand, with no record
 //! on this host, the run is its own approval: GitHub is asked for nothing and
@@ -24,11 +24,9 @@ use std::io::Write;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tehas_core::approval::{self, Refusal};
-use tehas_core::call;
 use tehas_core::driver::Driver;
-use tehas_core::home::{Home, State};
 use tehas_core::text::disarm;
 
 /// `[1-9][0-9]{0,8}`: an attempt as the store gives it.
@@ -201,7 +199,6 @@ pub struct Text {
     pub why: String,
     pub log: PathBuf,
     pub wait: u64,
-    pub console: String,
 }
 
 /// The answer read for the issue, or why a start stops for it.
@@ -247,7 +244,7 @@ fn side(file: &Path, end: &str) -> PathBuf {
 /// What a start stops for, in the answer for the issue. An answer that is a pull
 /// request, or an issue nobody can start a cycle on, is refused before its text
 /// is hashed.
-fn held(t: &Text, answer: &[u8]) -> Result<Value, (String, bool)> {
+fn held(t: &Text, answer: &[u8]) -> Result<(), (String, bool)> {
     let unread = || {
         (
             "the issue could not be read for its text".to_string(),
@@ -279,39 +276,7 @@ fn held(t: &Text, answer: &[u8]) -> Result<Value, (String, bool)> {
         ));
     }
     let record = record_value(Path::new(&t.record));
-    match approval::hold(record.as_ref(), &issue) {
-        Ok(()) => Ok(issue),
-        Err(r) => Err((r.why().to_string(), r == Refusal::Record)),
-    }
-}
-
-/// What the cycle starts with, measured. A line that cannot be written is one
-/// line on the error stream: the measure is a record of the start, never a
-/// reason to stop one.
-fn measure(home: &Path, t: &Text, issue: &Value) {
-    let ledger = Home::new(home).state(State::Sizes);
-    let _ = fs::create_dir_all(Home::new(home).state_dir());
-    let body = issue.get("body").and_then(Value::as_str).unwrap_or("");
-    let input = format!("{}\n", body.trim_end_matches('\n'));
-    let args = vec![
-        "size".to_string(),
-        "record".to_string(),
-        t.issue.to_string(),
-        ledger.to_string_lossy().into_owned(),
-    ];
-    let ran = call::run_input(&t.console, &args, Some(&input), Duration::from_secs(120));
-    if !ran.ok() {
-        let word = if ran.out.trim() == "ledger" {
-            "ledger"
-        } else {
-            "measure"
-        };
-        eprintln!(
-            "tehas work: could not record the size of #{} in {} ({word}), starting the cycle all the same",
-            t.issue,
-            ledger.display()
-        );
-    }
+    approval::hold(record.as_ref(), &issue).map_err(|r| (r.why().to_string(), r == Refusal::Record))
 }
 
 /// The words of that comment. `why` can quote an issue, a comment or a
@@ -365,11 +330,9 @@ pub fn text(home: &Path, t: &Text) -> Result<Option<PathBuf>, i32> {
         Ok(a) => a,
         Err(why) => return stop(&why, false),
     };
-    let issue = match held(t, &answer) {
-        Ok(i) => i,
-        Err((why, path)) => return stop(&why, path),
-    };
-    measure(home, t, &issue);
+    if let Err((why, path)) = held(t, &answer) {
+        return stop(&why, path);
+    }
     match private_file(home, "issue", &answer) {
         Some(f) => Ok(Some(f)),
         None => {

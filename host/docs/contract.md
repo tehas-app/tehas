@@ -34,7 +34,7 @@ Public:
   store and analytics migrated;
 - [the cycle inputs rule](#cycle-inputs);
 - the host namespace `/host/` and [the host bridge](/api#the-host-bridge);
-- [analytics.db at schema 7](#analyticsdb);
+- [analytics.db at schema 8](#analyticsdb);
 - [the commands of other parts](#the-commands-of-other-parts): the rule by
   which `tehas <part>` runs `tehas-<part>`, the words kept for the parts,
   and the front asset of a release.
@@ -93,11 +93,11 @@ other issue the poll takes it off, as it does an outsider's.
 | Commands | The `tehas` commands, their subcommands and the flags of each, but the flags marked `internal` | `api/commands.txt`, held to the commands tehas knows and to the synopsis lines of each command's text by the tests of `console/src/front.rs` |
 | Exit statuses | One meaning per status, and [one table per command](#exit-statuses) | `console/core/src/exit.rs`, the tests of each command, and `console/tests/surface.rs`, which fails when a public command of `api/commands.txt` has no table below |
 | Labels | The rows of `host/labels.tsv`: the name, what the dispatcher does with it, and the word of the ports it is (the fourth column, such as `State::Running`) | The dispatcher's and the tidy's tests, and the table's own test in `console/github/tests/table.rs` |
-| Store | `tehas update` brings a store of 1.4.x (schema 23) to 2.0's schema, 32 | The store's migration tests |
-| analytics.db | `user_version` 7, tables and columns only added | `console/analytics/src/schema.pinned` |
+| Store | `tehas update` brings a store of 1.4.x (schema 23) to 2.0's schema, 33 | The store's migration tests |
+| analytics.db | `user_version` 8, tables and columns only added | `console/analytics/src/schema.pinned` |
 | Factory API | `tehas api --json`: `api`, `features` (words only added), `flags`, `millwright`, `poll` | `api/api.schema.json` and its samples, and `api/features.txt`, the words of `features` in order, held by `test/api_test.sh` |
 | `--json` objects | Each object with a schema and samples in `api/`. Fields are only added | `test/json_contract_test.sh`, which lists every schema in `api/` and the test that holds each one's samples to what its command prints, and the tests of `console/src/front.rs`, which fail when a public `--json` row of `api/commands.txt` has no schema |
-| MCP | The tools, their input and output schemas | The MCP server's tests: every answer they read is checked against its tool's output schema, and the cycle status enum against the core's vocabulary |
+| MCP | The tools, their input and output schemas | The MCP server's tests: every answer they read is checked against its tool's output schema, and the cycle status enum against the core's vocabulary; `console/tests/surface.rs` holds each tool, its argument names and the answer fields of its output schema to `api/surface-2.0.txt` |
 | `tehas update` | From 1.4.x to 2.0 ([Upgrading to 2.0](#upgrading-to-20)). The release repository and the signing key are built into tehas: the `TEHAS_RELEASE_REPO` line of `host/versions.env` and `host/release/minisign.pub` when the release was built. An instance may name another repository with `TEHAS_RELEASE_REPO` in `instance.env`; the key stays the built-in one | The update's tests, and the tests of `console/core/src/release.rs` |
 | Cycle inputs | [The rule below](#cycle-inputs), with the names as pi-rukas has them while it is 0.x; a renamed name is taken under both names through 2.x | `console/cycle/tests/work_container.rs` |
 | Events | The envelope's `api` 1, the names in `api/events.txt`, and the fields of the envelope and of each payload in `api/event*.schema.json`: names and fields only added in 2.x | `console/tests/events_contract.rs`, which writes the samples from the code and holds them to the schemas, and `test/kit_events_test.mjs`, which holds the kit's names to `api/events.txt` |
@@ -107,8 +107,9 @@ other issue the poll takes it off, as it does an outsider's.
 | Item and preview names | Under the factory's domain, through 2.x: a host name that starts with `item-`, a number of one to nine digits with no leading zero, and then a `.`, is that item's page and its files, as the item store wrote them under `~/tehas/items/<number>`; one that starts `uat-` and such a number and a `.` is the preview of that pull request, the container `tehas-preview-<number>`; and one that starts `uat-main.` is the preview of the default branch, the container `tehas-preview-main`. Any other host name starting `item-` or `uat-` answers 404. tehas gives these names no other meaning in 2.x, and a host that fronts the factory's domain claims none of these names | `test/edge_test.sh` (the router's file names no domain and takes numbers only; the router keeps its protections) |
 
 The surface list in `api/` names the frozen surface in one place: each
-public command, subcommand and flag, setting, role, label and `--json`
-field, read from the files in the table above. Within 2.x lines are only
+public command, subcommand and flag, setting, role, label, `--json` field,
+and MCP `tool`, its `arg` names and the `answer` fields of its output schema,
+read from the files in the table above. Within 2.x lines are only
 added. `console/tests/surface.rs` fails when one of its names goes, and when
 the surface gains a name the list does not have yet. What a building feature
 adds is not in it.
@@ -139,6 +140,11 @@ a key. `rows` itself is public.
 - **Events.** A new event name, a new gate or a new optional field of a
   payload is added in 2.x. A reader treats an event name it does not know
   as unknown and skips it, as `tehas-ports` reads it as `Unknown`.
+  The subject `plugin-<name>` belongs to the plugin `<name>`, and
+  `annex-<name>` to the annex `<name>`, its plant and its plugin: tehas
+  raises no event whose subject starts `plugin-` or `annex-` in any 2.x
+  release, and `api/events.txt` never holds one. How a plugin declares
+  and raises its events is 2.1.
 - **A gate's answer.** The gate's answer may gain values and fields in
   2.x; a reader that meets one it does not know holds the act. This is the
   one place where a field or a value a reader does not know is not skipped:
@@ -249,11 +255,13 @@ A factory moves from 1.4.x to 2.0 with `tehas update`:
    The analytics' own step at the same update says `offered` where its
    `runs.outcome` said `pr`.
    `tehas state check --json` prints the schema.
-4. **Analytics** (`state/analytics.db`) goes from schema 4 to 7 the first
-   time it is opened after the update: it drops `samples.watts` and
-   `runs.contractor_id`, keeps every other column and row, rewrites `retry-tick` to `reply` and `fixer` to
-   `millwright` in `runs.how`, and with 7 rewrites `label` to `approved` in
-   `runs.how` and `pr` to `offered` in `runs.outcome`.
+4. **Analytics** (`state/analytics.db`) goes from schema 4 to 8 the first
+   time it is opened after the update. It keeps every column and row
+   except what a step drops: `samples.watts`, `runs.contractor_id`,
+   `runs.cost`, `run_roles.cost`, and the views `v_lead`, `v_daily` and
+   `v_versions`. In `runs.how`, `retry-tick` becomes `reply` and `fixer`
+   becomes `millwright`, and with step 7 `label` becomes `approved`; in
+   `runs.outcome`, `pr` becomes `offered` with step 7.
 5. **pi-rukas.** A checkout follows pi-rukas's 0.15 line
    (`PI_RUKAS_FOLLOW=release:0.15`). 2.0 needs pi-rukas v0.15.9 or later.
 
@@ -282,7 +290,9 @@ one is not covered by this page.
 line is one of three:
 
 - **Kept.** Every row of `api/settings-rules.json` not marked
-  `"building": true` loads as in 1.4.x.
+  `"building": true` loads as in 1.4.x. `TEHAS_CODE_HOST` and
+  `TEHAS_TICKETS` are new in 2.0 and take `github` alone
+  ([Changed in 2.0](#changed-in-20)).
 - **Dropped with a warning.** A setting of a feature 2.0 took out of core
   loads, every command warns of it once on standard error, and nothing reads
   it (`IGNORED` in `console/core/src/settings/load.rs`). A 1.4.x instance
@@ -391,12 +401,13 @@ and a change to them is a security change.
 
 ## analytics.db
 
-`~/tehas/state/analytics.db` is at `user_version` 7. Within it tables and
+`~/tehas/state/analytics.db` is at `user_version` 8. Within it tables and
 columns are only added, never renamed, retyped or removed. A file of schema 4,
-from 1.4.x, is migrated to 7 in place as it is opened: it loses
-`samples.watts` and `runs.contractor_id`, takes the events' words in
-`runs.how` and `runs.outcome`, and keeps every row. A new version
-comes only with a major release. [Analytics](/analytics) has the schema;
+from 1.4.x, is migrated to 8 in place as it is opened: it loses
+`samples.watts`, `runs.contractor_id`, the two `cost` columns and the three
+views, takes the events' words in `runs.how` and `runs.outcome`, and keeps
+every row. A new version comes only with a major release.
+[Analytics](/analytics) has the schema;
 [`tehas analytics copy`](/api#tehas-analytics-copy) is how a program takes a
 consistent copy.
 
@@ -875,8 +886,7 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   "refuse", "why": "..."}`, why at most 140 characters, both for 2.1. The
   kit gains `events.js`: `raise(envelope)` dispatches an event on a page
   as `tehas:<event>`, such as `tehas:cycle.ended` ([Events](/api#events)).
-  Which events 2.0 raises is in the next entry, and which it does not under
-  [Pending for 2.0](#pending-for-20).
+  Which events 2.0 raises is in the next two entries.
   Readers: the consumer that runs many factories, Obeya, plugins, the
   end-to-end suite.
   Adopter action: none. A page that shows many factories may raise the
@@ -914,6 +924,57 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   plugins.
   Adopter action: none. A program that reads a cycle's log, or
   `logs/dispatch.log`, sees the `event` lines.
+- **The four other events are raised.** T11.9, spec
+  `docs/specs/2026-11-22-events.md`; the raisers are
+  `console/core/src/raise.rs` with the commands that record each fact.
+  `tehas limit set`, `tehas limit clear` and `tehas drain` raise
+  `factory.limit-changed` of the write that wrote another limit: the same
+  limit set again and a renewal that only moved `until` keep their `set`
+  and raise nothing, and a clear of a limit that was there raises the
+  change keyed on `observed`, with the state `none`; the write's line
+  goes to `logs/dispatch.log`. `tehas-dispatch` raises `ticket.acted` of
+  the act of an allowed account once the issue is taken for it: that of
+  the approval that starts a cycle by the start whose claim took the
+  issue, that of the start of a planning session asked by `tehas:plan` or
+  `tehas:refine` by the turn whose mark took it (the poll's own refine is
+  the factory asking, not a person, and raises nothing), and that of a
+  person's finish ask once its label came off. A claim or a mark that
+  fails raises nothing, and the next poll raises the act. Each is keyed on
+  the moment the account's label event names, the same moment
+  `tehas start` wrote beside the record.
+  `tehas-dispatch` raises `ticket.closed` of a close its write landed,
+  the close of a planning issue that was replaced, keyed on the site's
+  own time of it; a close the site did not answer is raised by the poll
+  that later reads the ticket closed and settles the row, of the time
+  that read reads, and a site that names no time of a close leaves it
+  unraised. `tehas-cycle` raises `change.merged` of the
+  history line its report ended `merged` and did not park, of the site's
+  own time of the merge, asked of the code-host port once for the merged
+  line: when the port answers nothing, or the read fails, the event
+  carries the line's own end instead. tehas does not
+  merge changes itself, a person does, and the report's line is the
+  record of the merge; a line that says `merged` while the bot lists no
+  merged pull request for the issue parks and raises nothing. A change
+  merged after its cycle ended `offered` is not raised in 2.0: no cycle
+  line ends `merged` for it, and no other process raises the fact. The
+  payloads are built from what the state store then holds, so each is
+  what its witness then prints. Each is raised once, by the process that
+  proved the fact, keyed on the limit's `set`, on `<ticket>@<act>@<at>`
+  of the act, on `<ticket>@<at>` of the close, and on the change's number
+  of the merge.
+  Readers: the consumer that runs many factories, MCP clients, the
+  end-to-end suite, plugins.
+  Adopter action: none. `tehas limit` and `tehas drain` write their event
+  lines to `logs/dispatch.log`, beside the dispatcher's and `tehas
+  stop`'s.
+- **The event subjects `plugin-<name>` and `annex-<name>` are reserved.**
+  #3330.
+  `plugin-<name>` belongs to the plugin `<name>` and `annex-<name>` to the
+  annex `<name>`, its plant and its plugin. tehas raises no event under
+  either in 2.x, and `api/events.txt` never holds one
+  ([Events](/api#events)). No name changes today.
+  Readers: plugins, the consumer that runs many factories.
+  Adopter action: none.
 - **The plugin hook is named by its event.** #2939.
   The grant and the ask `hook:after:work` are `hook:after:change.offered`,
   and a manifest's hook `at` is `after:change.offered`, not `after:work`.
@@ -1018,7 +1079,7 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Adopter action: remove `TEHAS_RELEASE_REPO=tehas-app/tehas` from
   `instance.env` or name `tehas-app/tehas-factory`, and point clones, links
   and a pinned `$id` at the new name before the redirect ends.
-- **2.0 is supported from 1.4.x.** This page. The update to 2.0 is
+- **2.0 is supported from 1.4.x.** #2895. The update to 2.0 is
   supported from 1.4.x only, and a host upgrades its factories and the
   programs that run them together.
   Readers: adopters, the consumer that runs many factories.
@@ -1053,7 +1114,7 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Readers: adopters, `tehas update`, `tehas setup` and `install.sh`, which
   read only its status.
   Adopter action: none. A program that read its lines reads its status.
-- **`tehasbot refresh --pr N` is not public.** This page. `tehasbot` is
+- **`tehasbot refresh --pr N` is not public.** #2895. `tehasbot` is
   internal, every verb of it.
   Readers: adopters, the consumer that runs many factories.
   Adopter action: call `tehas refresh --pr N`.
@@ -1112,14 +1173,194 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   for before the next try files, so a plan is never filed twice.
   Readers: people on an issue, the end-to-end suite.
   Adopter action: none.
-- **The surface list is `api/surface-2.0.txt`.** This page.
+- **The surface list is `api/surface-2.0.txt`.** #3236, #3407.
   `api/surface-1.0.txt` is renamed `api/surface-2.0.txt`, the public
-  surface of 2.x from 2.0, without the names 2.0 took out. From 2.0.0 its
-  lines are only added; an alpha of 2.0 may still drop one.
+  surface of 2.x from 2.0, without the names 2.0 took out. From
+  v2.0.0-beta.1, a public name of 2.x is only added: none is renamed or
+  removed.
   Readers: the consumer that runs many factories and plugins, where they
   read the list.
   Adopter action: a program that read `api/surface-1.0.txt` reads
   `api/surface-2.0.txt`.
+- **The factory floor leaves core.**
+  #3291.
+  Gone: the 16-bit game view that was the front page, with its stations,
+  work order, issue board, sample tickets and JSON export, and its
+  breakroom game Buzzword Buster: `fun/index.html`, `game-view.js`,
+  `game-view.css`, `game-data.js`, `brick-wall.js`, `fold-fit.js`,
+  `sample-issues.js`, `theme.js`, `stages.js` and the four scene pictures,
+  the themes' `--game-*` tokens, and the `buzzwords` field of
+  `live/status.json` with `state/buzzwords.at` and the hourly read of every
+  issue behind it. The front page `/` is the plain dashboard, as
+  `/dashboard` is, in both designs; `/floor` sends a reader there with a
+  permanent redirect. The dock, the host messages banner, the versions
+  line and the epics list are on the dashboard now. The dashboard's
+  canonical address is `/`, and it carries no structured data: the
+  floor's SoftwareApplication block is gone. This row supersedes the
+  business page's line above that `/` is the factory floor, the row "The
+  first stage is Idea" (#2877) and the Idea line of #2899: no page shows a
+  ticket's stage now. The dashboard lists In line, Waiting for your review,
+  Stopped, needs attention, and Completed.
+  The game lives on outside tehas as tehas-app/buzzword-buster.
+  Readers: adopters, visitors with a link to `/floor`, a reader of
+  `buzzwords` in `live/status.json`, the consumer that runs many factories
+  where it links a factory's floor, plugins that read the `--game-*`
+  tokens.
+  Adopter action: during the update, `/` answers 404 until the docs
+  container is recreated, which `tehas update` does in its
+  `docs --force-recreate` step and a person does by hand with the `docs`
+  line of [Rolling back tehas](/host#rolling-back-tehas). Point a link to `/floor`
+  at `/`. A program
+  that read `buzzwords` from `live/status.json` stops: the field is gone.
+  `~/tehas/state/buzzwords.at` is read by nothing and may be deleted.
+- **analytics.db is at schema 8.**
+  #3296.
+  `runs.cost` and `run_roles.cost` go, and the views `v_lead`, `v_daily`
+  and `v_versions`: the factory collects, a program that reads the copy
+  works out its own figures. The raw tables stay as they are, the gate
+  columns of `runs` among them. A file of schema 4, 5, 6 or 7 is migrated
+  in place and keeps every row. `tehas analytics copy --json` reports
+  schema 8. This takes the place of the pin of schema 7 above. The MCP
+  tool `factory_session` and the lines of `analytics sessions` no longer
+  carry `cost` or `roles[].cost`.
+  Readers: the consumer that reads the analytics copies, adopters, MCP
+  clients.
+  Adopter action: a program that reads the copies pins `user_version` 8
+  and `console/analytics/src/schema.pinned` of this release, reads no
+  `cost` column and works out what the views gave from the tables. An MCP
+  client reads no `cost` or `roles[].cost` from `factory_session`.
+- **The analytics report leaves core.**
+  #3296.
+  Gone: `tehas analytics report` and the analytics program's
+  `report [--json]`, the file `live/analytics.json` that `tehasbot status`
+  wrote from it at each poll, the plain dashboard's "Last 10 days" section
+  (`tehas-factory-days` and `analytics-data.js`), and the MCP tool
+  `factory_stats`, which copied that file. A dashboard key is served three
+  tools. `state/sizes.jsonl`, which only the report read, goes with the
+  measure `tehas work` wrote it from and `console size`; the dispatcher's
+  hold on a wide issue measures as before, under the same three
+  `TEHAS_SIZE_MAX_*` settings. The factory collects its runs; a program that
+  fetches the copy does the analysis. `tehas analytics copy` and the tables
+  stay as they are.
+  Readers: adopters, MCP clients, the consumer that runs many factories,
+  the end-to-end suite.
+  Adopter action: a person who read `tehas analytics report` fetches the
+  copy with `tehas analytics copy` and reads it elsewhere. An MCP client
+  stops calling `factory_stats`. `~/tehas/live/analytics.json` and
+  `~/tehas/state/sizes.jsonl` are read by nothing and may be deleted.
+- **A merged change may have no merge commit.** #3092.
+  GitHub can answer a merged pull request with no merge commit, for an old
+  or rewritten history. Such a change is read as merged with no commit
+  given: it is no longer a malformed answer, and one such pull request no
+  longer stops every read of merged changes. A commit that is there and
+  does not read is malformed, as before.
+  Readers: the end-to-end suite, the consumer that runs many factories.
+  Adopter action: none.
+- **Shipped is what a merged pull request of this repository closed.**
+  #2992, #3247. `tehasbot status` reads the shipped issues and gives them
+  `tehas:shipped` through the tickets port, by their close time. An issue
+  closed only by a merged pull request of another repository is no longer
+  shipped, and one closed by another repository's unmerged pull request
+  while a merged one of this repository closes it now is. The list fills
+  over a few polls after the update, a first read going back a day; a
+  read that failed or was cut says so, stays stale, and asks the same
+  window again rather than dropping issues silently; a reopened issue
+  stays listed until newer ones push it out.
+  Readers: adopters, people on an issue.
+  Adopter action: none. After the update the marks fill themselves over a
+  few polls.
+- **Two settings name the adapters.** #3359.
+  `TEHAS_CODE_HOST` names the code host and `TEHAS_TICKETS` the ticket
+  tracker. In 2.0 each takes `github` alone, where `TEHAS_TICKETS=github` is
+  the code host's own issues. A missing or empty setting means `github`, so
+  an instance without the two lines loads unchanged. Any other value, `jira`
+  among them, stops every command with 78 before any call: it is not built
+  in this release.
+  Readers: adopters, the consumer that runs many factories where it keeps
+  an instance's settings.
+  Adopter action: none. An instance may write `TEHAS_CODE_HOST=github` and
+  `TEHAS_TICKETS=github`.
+- **The last GitHub word for a pull request is out of the snapshot and
+  the dashboard.**
+  #3385, T9's supplier words. The sessions snapshot names the number of the
+  pull request a run left `change`, the word the history lines of #2932
+  already use for it: a line of `analytics sessions`, of
+  `~/tehas/mcp/sessions.jsonl`, and the answer of `factory_session` carry
+  `change` where they carried `pr`, and `prUrl` still names the link to
+  the change. The dashboard's internal read-only list keys the pull
+  request a start would have opened the same way:
+  `readOnly.starts[].pr` in `live/status.json` is
+  `readOnly.starts[].change`. The `pr` column of analytics.db's `runs`
+  table keeps its name, the state store's history lines keep `pr` as the
+  change's address, and the GitHub adapter keeps the word in its own
+  language, where it names GitHub's own fields. The `pr` fields of
+  `api/plugin-context.schema.json`, which the plugins build against, and
+  of `api/refresh.schema.json`, which `tehas refresh --pr` answers with,
+  keep GitHub's word on purpose through 2.x: they are not renamed. No
+  old word is kept as an alias.
+  Readers: MCP clients, the end-to-end suite, plugins.
+  Adopter action: a program that read a session line's `pr` number reads
+  `change`, the same number under its new name; `prUrl`, the history
+  line's `pr` address and the analytics copy's `pr` column are as before.
+- **The store migrates from schema 23 only.** #3401. The store's migration
+  starts at schema 23, which v1.3.0 and later wrote (`OLDEST` in
+  `console/store/src/db.rs`): the steps for older schemas are gone, and a
+  store older than that is refused with exit 78 before any file is copied,
+  with a line that says to install a v1.4 release first. A store at 23 or
+  newer migrates as before: one step at a time, each a transaction, keeping
+  every row.
+  Readers: `tehas update`, the end-to-end suite, adopters.
+  Adopter action: a host on v1.3.0 or later (store schema 23) updates
+  directly; an older one installs any v1.4 release first, then this one.
+- **The settings of the 2.1 adapter are reserved.** #3386.
+  The feature `adapter` registers as building: `TEHAS_ADAPTER`,
+  `TEHAS_ADAPTER_UPSTREAM`, `TEHAS_ADAPTER_UPSTREAM_SPKI`,
+  `TEHAS_ADAPTER_UPSTREAM_CERT`, `TEHAS_ADAPTER_UPSTREAM_CERT_KEY`,
+  `TEHAS_PLUGIN_ORIGINS_<NAME>` (one line per plugin) and
+  `TEHAS_ADAPTER_EGRESS_DENY` gain rows in `api/settings-rules.json`,
+  marked `building`. A line that sets one of them stops every command
+  with exit 78 and names `adapter` before any call to GitHub, Docker or
+  git, as does `TEHAS_ADAPTER=on`; `tehas api --json` gains
+  `"adapter": false` in `flags`. Nothing else is visible: no command,
+  label, `--json` field of another command, MCP tool, unit or program
+  ([adapter](#adapter)).
+  Readers: adopters, the consumer that runs many factories where it
+  writes an instance's settings.
+  Adopter action: none; a 1.4.x instance sets no such line. The lines
+  become usable in the release that ships the adapter.
+- **An unknown `TEHAS_` name warns once and loads.** #3386.
+  A name of `instance.env` that starts `TEHAS_` and names no setting
+  this release reads, and that it never read under an older name either,
+  brings one line to standard error on every load: `<NAME> is no setting
+  tehas reads: nothing uses it; remove it from the instance`. The name is
+  kept, not dropped, and the load does not fail: a 1.4.x instance still
+  loads. Names tehas knows stay silent, including the renamed and
+  removed ones that already have their own lines
+  ([troubleshooting](/troubleshooting)).
+  Readers: adopters, the consumer that runs many factories where it
+  writes an instance's settings.
+  Adopter action: none. Take the warned lines out when it suits you.
+- **Access is keyed by account id.** #3244, #3387.
+  Part A keyed the allowed labellers and `state/account-ids` by the
+  account's stable id; this carries the id into the plugin gate: a
+  session, its codes and a sign-out name the id, not the login, so a
+  rename cannot strand a session or move one across people, and an
+  account whose id the gate cannot read matches nothing. The "No access"
+  page names the login in lower case, as the site does.
+  Readers: plugin keepers, a person told they have no access, anyone who
+  matches an account between one read and the next.
+  Adopter action: none. Settings that list logins still hold logins; the
+  gate reads each one's id at sign-in.
+
+- **`tehas state pack` and `unpack` end with the signal's status.** #3380.
+  A TERM, HUP or INT that comes after a pack or unpack has finished with
+  its working directory now ends the command with 128 and the signal's
+  number (HUP gives 129), as the default does. 1.4.x dropped such a
+  signal and went on. A signal that comes while the directory is made
+  removes it, so none is left behind.
+  Readers: the consumer that runs many factories, where it moves one.
+  Adopter action: none. A program that sends a signal to a pack or unpack
+  reads its status as that of a stopped command.
 
 ## Pending for 2.0
 
@@ -1127,42 +1368,7 @@ Planned or in review, not merged. Each moves to
 [Changed in 2.0](#changed-in-20) when it lands, with its readers and
 adopter action as the pull request states them.
 
-- **Events.** T11, spec `docs/specs/2026-11-22-events.md`
-  (#2878, merged). 2.0 raises the cycle's five only, `cycle.started`,
-  `cycle.parked`, `question.asked`, `cycle.ended` and `change.offered`
-  (#2937 and #2940, under [Changed in 2.0](#changed-in-20); the raisers
-  are `console/core/src/raise.rs`). Four more have their names in
-  `api/events.txt` and their schemas and samples in `api/` (#2936), and
-  nothing raises them:
-
-  | Event | Raised when | Key |
-  | --- | --- | --- |
-  | `factory.limit-changed` | `tehas limit` or `tehas drain` writes another limit | the limit's `set` |
-  | `ticket.acted` | an allowed account's act is recorded | `<ticket>@<act>@<at>` |
-  | `ticket.closed` | a ticket tehas follows is recorded closed | `<ticket>@<at>` |
-  | `change.merged` | a change linked to a blueprint is recorded merged | the change's number |
-
-  They are raised after the first alpha, before the beta.
-  Until then a program reads their witnesses as the spec names them: a
-  change of `tehas limit --json`, and the ticket's and the change's own
-  history on the code host.
-  Readers: the consumer that runs many factories, MCP clients, the
-  end-to-end suite, plugins.
-- **The store's migration from 1.4.x alone.** T16. The store still
-  migrates from schema 12, the one v0.30.0 wrote (`OLDEST` in
-  `console/store/src/db.rs`), not only from 1.4.x's 23: its steps 13 to 23
-  are still in it, though 2.0 is supported from 1.4.x only. Taking them
-  out leaves a store of 1.4.x migrated as now.
-  Readers: `tehas update`, the end-to-end suite.
-- **The ports.** T4, spec `docs/specs/2026-11-22-ports.md`.
-  The ports themselves. Two settings choose the adapters:
-  `TEHAS_CODE_HOST` and `TEHAS_TICKETS`. In 2.0 each accepts only
-  `github`; a missing setting means `github`, so a 1.4.x instance still
-  loads, and any other value is refused with 78. Two names stay for now as GitHub's word for a pull
-  request, on the list of supplier words still to go: `pullRequests` in the
-  analytics report and the dashboard's internal `pr` key.
-  Readers: adopters, the consumer that runs many factories where it keeps
-  an instance's settings.
+Nothing is pending: every 2.0 change has landed and is listed there.
 
 ## Features still being built
 
@@ -1306,6 +1512,26 @@ The rest is library code that nothing in core calls yet:
 | The wiki's collector, check and render | `console/wiki-collect`, `console/wiki-render` | the `wiki` plugin |
 | The mesh read | `console/mesh-feed` | the `energy` plugin |
 | The cut of `tehas top`'s snapshot | `console/host-feed` | the `hoststats` plugin (`feed:host`) |
+
+### adapter
+
+Building, for 2.1. Nothing of the adapter is in 2.0: the registry only
+reserves its settings, so an instance written for 2.1 is refused here with
+78 rather than loaded and ignored. Off by default; `TEHAS_ADAPTER=on` stops
+every command with exit 78 and says `adapter` is still being built.
+
+- `tehas api --json` has `"adapter": false` in `flags`, and no word
+  `adapter` in `features`.
+- The settings `TEHAS_ADAPTER_UPSTREAM`, `TEHAS_ADAPTER_UPSTREAM_SPKI`,
+  `TEHAS_ADAPTER_UPSTREAM_CERT`, `TEHAS_ADAPTER_UPSTREAM_CERT_KEY`,
+  `TEHAS_PLUGIN_ORIGINS_<NAME>` and `TEHAS_ADAPTER_EGRESS_DENY` are in
+  `api/settings-rules.json`, marked `"building": true`, but they are not
+  contract: a line that gives one a value stops every command with exit 78
+  and names `adapter`. A value of a shape the row refuses is refused as
+  malformed first. `TEHAS_ADAPTER=off` and empty lines load as if left out.
+- No command, no label, no `--json` field of another command, no MCP tool,
+  no unit, no program. What 2.1 builds, and what the adapter's parts
+  promise, will be contract in the release that ships it.
 
 ## Exit statuses
 

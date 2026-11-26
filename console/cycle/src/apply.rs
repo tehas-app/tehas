@@ -19,6 +19,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 use std::time::Duration;
 use tehas_core::call::{run_full, store_try, GH_BOUND, GRACE};
+use tehas_core::cycle_notes::Note;
 use tehas_core::end_fault;
 use tehas_core::home::Home;
 use tehas_core::journal::{settle as rules, Found, Journal, Journaled, RowId};
@@ -217,6 +218,33 @@ pub use tehas_core::journal::Handles;
 pub type HandlesOf =
     fn(home: &Path, repo: &str, bound: Duration, grace: Duration) -> tehas_ports::Got<Handles>;
 
+/// The site's time of a merged change, asked of the code-host port. The
+/// wiring builds it from the site; the raise of `change.merged` asks it once
+/// for the merged line and falls back to the line's end when it answers
+/// nothing.
+pub type MergeAtOf =
+    fn(home: &Path) -> Box<dyn FnMut(tehas_ports::ChangeNo) -> Option<tehas_ports::At>>;
+
+/// The one question for the one number, and its answer's merge time:
+/// `None` when the port names no merged change, and when the read fails.
+/// The raise of `change.merged` falls back to the line's end on `None`.
+pub fn merge_time(ch: &mut dyn tehas_ports::CodeHost, no: ChangeNo) -> Option<tehas_ports::At> {
+    let filter = tehas_ports::ChangeFilter {
+        states: tehas_ports::ChangeStates::All,
+        numbers: vec![no],
+        ..Default::default()
+    };
+    let digests = ch.changes(&filter, Bound::new(1)?).ok()?;
+    digests
+        .into_items()
+        .into_iter()
+        .find(|d| d.no == no)
+        .and_then(|d| match d.state {
+            tehas_ports::ChangeState::Merged { at, .. } => Some(at),
+            _ => None,
+        })
+}
+
 /// How a write of the ports ended.
 enum Sent {
     Done(Receipt),
@@ -295,6 +323,10 @@ impl Writer<'_> {
             };
             match journal.send(&mut store, write, &mut *self.ports.writes, &NoBlobs) {
                 Journaled::Answered(Ok(r)) => return Sent::Done(r),
+                // The site answered; the store did not take the settle. The
+                // cycle raises nothing from a row, so the answer stands as
+                // done and the poll's settle takes the row from the site.
+                Journaled::AnsweredUnrecorded(r) => return Sent::Done(r),
                 // A read-only host goes on as after a write that answered
                 // nothing, as its gh shim answers one.
                 Journaled::Answered(Err(Outcome::Refused(Refusal::ReadOnly))) => {
@@ -346,13 +378,14 @@ impl Writer<'_> {
                         maybe_posted(n, &said);
                         return (None, None);
                     };
+                    let landed = matches!(found, Found::Landed | Found::Closed { .. });
                     if let Some(row) = row {
                         let mut store = |a: &[&str]| {
                             store_try(3, Duration::from_secs(1), || host::store_value(home, a))
                         };
                         let _ = Journal::settle(&mut store, row, found);
                     }
-                    if found == Found::Landed {
+                    if landed {
                         return (Some(true), None);
                     }
                     continue;
@@ -756,12 +789,6 @@ fn approved_lean(facts: &Value) -> bool {
     .any(|a| driver_of(a) == Some("lean"))
 }
 
-/// The driver's own record of a lean run, kept with the cycle's other notes:
-/// the copy of `.pi/lean-state/<issue>.json` of the workspace, taken before the
-/// workspace is cleaned and read by `analytics run` for the steps the classic
-/// history holds no account of. The name of the note, said once.
-pub const LEAN_STATE: &str = "lean-state.json";
-
 /// The driver's record of a lean run, copied out of its workspace beside the
 /// cycle's other notes, before anything of the workspace is removed. The copy is
 /// made by the one rule the protocol's files have: the file is a plain file of
@@ -775,7 +802,7 @@ fn keep_lean_state(home: &Path, workdir: &str, issue: u64, lean: bool) {
     if !lean || !crate::after::analytics_on(home) {
         return;
     }
-    let to = Home::new(home).cycle_note(issue, LEAN_STATE);
+    let to = Home::new(home).cycle_note(issue, Note::LeanState);
     let _ = fs::remove_file(&to);
     // The read of the workspace's own file, which refuses a link anywhere on the
     // way and a file of no sane size; the copy is of what that read answered.
@@ -1259,6 +1286,51 @@ mod tests {
         assert!(!approved_lean(
             &json!({"approval": {"input": {"driver": true}}})
         ));
+    }
+}
+
+/// The one question of the merged line, on the ports' fake: the merged
+/// change gives its time, and every other answer leaves `None`, which the
+/// raise of `change.merged` answers with the line's end.
+#[cfg(test)]
+mod merge_time_tests {
+    use super::*;
+    use tehas_ports::fake::{CodeHostOp, FakeSite, Fault, Faulty, Op, World};
+    use tehas_ports::{Actor, Caller, ChangeState, Scope, Site};
+
+    fn host(world: &World) -> Box<dyn tehas_ports::CodeHost> {
+        FakeSite::new(world)
+            .code_host(&Actor::Ours(Scope::Full), Caller::new("test"))
+            .unwrap()
+    }
+
+    #[test]
+    fn the_merged_change_gives_its_time_and_nothing_else_answers() {
+        let at = At::new(1_767_225_600);
+        let merged = World::new().change(9, "feature/x", |c| {
+            c.state(ChangeState::Merged {
+                at,
+                by: None,
+                commit: None,
+            })
+        });
+        let no = ChangeNo::new(9).unwrap();
+        assert_eq!(merge_time(&mut *host(&merged), no), Some(at));
+        // An open change answers nothing.
+        let open = World::new().change(9, "feature/x", |c| c);
+        assert_eq!(merge_time(&mut *host(&open), no), None);
+        // A number the site does not know answers nothing.
+        assert_eq!(
+            merge_time(&mut *host(&merged), ChangeNo::new(11).unwrap()),
+            None
+        );
+        // A read that fails answers nothing, as the port's silence does.
+        let site = Faulty::new(FakeSite::new(&merged))
+            .on(Op::CodeHost(CodeHostOp::Changes), Fault::Unreachable);
+        let mut ch = site
+            .code_host(&Actor::Ours(Scope::Full), Caller::new("test"))
+            .unwrap();
+        assert_eq!(merge_time(&mut *ch, no), None);
     }
 }
 

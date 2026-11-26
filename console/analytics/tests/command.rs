@@ -392,18 +392,6 @@ fn a_copy_through_tehas_analytics_holds_no_token_host_or_address() {
     assert_eq!(host.outside(), "");
 }
 
-#[test]
-fn tehas_analytics_report_prints_the_ten_days_for_a_person() {
-    let host = Host::new("report");
-    host.record_a_run();
-    let (code, out, err) = host.tehas(&["report"]);
-    assert_eq!(code, 0, "{err}");
-    assert!(out.starts_with("Last 10 days, "), "{out}");
-    assert!(out.contains("\nRuns               1: "), "{out}");
-    assert!(!out.contains("ECONNREFUSED"), "{out}");
-    assert_eq!(host.outside(), "");
-}
-
 // What the copy prints is the object of api/analytics-copy.schema.json, with
 // the fields and the schema number of its samples: a home with a run, and a
 // new home, whose copy has no run and leaves `from` and `to` out.

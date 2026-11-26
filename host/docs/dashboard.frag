@@ -1,4 +1,5 @@
 <h1>Tehas dashboard</h1>
+<section class="host-messages" id="host-messages" aria-label="Host messages" role="status" hidden></section>
 <tehas-factory-state data-tehas-island="contents" src="/live/status.json" running="/live/running.json">
 <div class="dash-top">
   <span id="state" class="pill idle">loading</span>
@@ -19,24 +20,35 @@
   <tehas-factory-issues data-tehas-island="contents" src="/live/status.json" list="completed"><section><h2>Completed <span class="n" id="n-completed"></span></h2><ul class="issues" id="completed"></ul></section></tehas-factory-issues>
 </div>
 
+<section class="epics" id="epics" aria-labelledby="epics-title" hidden>
+  <div class="epics-head">
+    <h2 id="epics-title">EPICS</h2>
+    <p id="epics-count" role="status"></p>
+  </div>
+  <p class="epics-intro">An epic is an open issue with sub-issues. Open one to see them. It leaves the stack when it is closed.</p>
+  <div class="epics-list" id="epics-list"></div>
+</section>
+
 <tehas-factory-readonly data-tehas-island="contents" src="/live/status.json">
 <section id="ro" hidden></section>
 </tehas-factory-readonly>
-
-<tehas-factory-days data-tehas-island="contents" src="/live/analytics.json">
-<section id="analytics" hidden></section>
-</tehas-factory-days>
 
 <tehas-factory-previews data-tehas-island="contents" src="/live/previews.json">
 <section id="previews" hidden></section>
 </tehas-factory-previews>
 
+<p class="credit" id="versions" hidden></p>
+
 <link rel="stylesheet" href="/fun/kit/kit.css">
 <link rel="stylesheet" href="/fun/factory/factory.css">
+<link rel="stylesheet" href="/fun/dock.css">
 <script src="/fun/host-bridge.js"></script>
 <script type="module" src="/fun/factory/tehas-factory-state.js"></script>
 <script type="module" src="/fun/factory/tehas-factory-console.js"></script>
 <script type="module" src="/fun/factory/tehas-factory-issues.js"></script>
 <script type="module" src="/fun/factory/tehas-factory-readonly.js"></script>
-<script type="module" src="/fun/factory/tehas-factory-days.js"></script>
 <script type="module" src="/fun/factory/tehas-factory-previews.js"></script>
+<script src="/fun/dom.js"></script>
+<script src="/fun/epics-view.js"></script>
+<script src="/fun/versions.js"></script>
+<script src="/fun/dock.js"></script>

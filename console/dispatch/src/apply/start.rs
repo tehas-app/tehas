@@ -11,7 +11,7 @@
 
 use super::{text, word, Writer, Wrote};
 use crate::decide::{in_window, iso, window_order};
-use crate::read::host::{epoch, held};
+use crate::read::host::held;
 use crate::read::run::{gh_env, run_grace_env, run_quiet};
 use crate::settings::account;
 use serde_json::{json, Map, Value};
@@ -19,8 +19,10 @@ use std::io::Write as _;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use tehas_core::cycle_notes::Note;
 use tehas_core::home::{Home, State};
 use tehas_core::issue_pull::names_issue;
+use tehas_core::time::from_iso;
 use tehas_ports::{TicketKey, Write};
 
 /// What a claim answers when a poll before T4.7 made it whole: its parts
@@ -496,7 +498,7 @@ impl Writer {
         } else {
             "cycle"
         };
-        if tehas_core::read_only::record(&self.home, n, how, &crate::decide::iso_now()).is_err() {
+        if tehas_core::read_only::record(&self.home, n, how, &crate::clock::iso_now()).is_err() {
             log.push(format!(
                 "WARN: read-only: the record of the start of #{n} could not be written"
             ));
@@ -632,8 +634,8 @@ impl Writer {
             }
         }
         let mut left_out = Vec::new();
-        let recorded = match self.approval(n, a, &mut left_out, log) {
-            Ok(at) => at,
+        let (recorded, pending_act) = match self.approval(n, a, &mut left_out, log) {
+            Ok((at, pending)) => (at, pending),
             Err((w, line)) => {
                 return match w.as_str() {
                     "used" => {
@@ -714,7 +716,14 @@ impl Writer {
         let assign = !owner.is_empty() && refresh_pr.is_none();
         let wrote = self.claim_mark(n, &removed, assign.then_some(owner.as_str()), log);
         match wrote {
-            Wrote::Done(_) => {}
+            Wrote::Done(_) => {
+                // The claim took the issue: this is the process that
+                // started the cycle the person approved, and their act is
+                // raised here, once, whatever the rest of this start does.
+                if let Some(p) = pending_act {
+                    self.raise_one(p, log);
+                }
+            }
             other => {
                 if matches!(other, Wrote::Unrecorded) {
                     log.push(Writer::unrecorded(n));
@@ -817,8 +826,9 @@ impl Writer {
         Then::Failed
     }
 
-    /// approved_record: the approval on record with its inputs. Its time,
-    /// or the store's word and line; an empty word is a read that failed.
+    /// approved_record: the approval on record with its inputs. Its time and
+    /// the act its record would raise, once the start takes the issue, or
+    /// the store's word and line; an empty word is a read that failed.
     /// `left_out` gets the authors of a comments retry whose permission on
     /// the repository could not be read, so the start comment can name them.
     fn approval(
@@ -827,7 +837,7 @@ impl Writer {
         a: &Value,
         left_out: &mut Vec<String>,
         log: &mut Vec<String>,
-    ) -> Result<i64, (String, String)> {
+    ) -> Result<(i64, Option<tehas_ports::events::TicketActed>), (String, String)> {
         let none = || (String::new(), String::new());
         if a.get("text") != Some(&json!(true)) {
             return Err(none());
@@ -887,12 +897,14 @@ impl Writer {
                 a.get("refresh_of").cloned().unwrap_or(Value::Null),
             );
         }
-        let at = match given.as_str() {
+        // A time the record borrows from the label event, when it has one:
+        // an act is keyed on it, so a fall-back to now() names no act.
+        let label_at = match given.as_str() {
             "refresh" | "outage-retry" => None,
-            _ => epoch(&given_at),
+            _ => from_iso(&given_at),
         }
-        .filter(|t| (1..100_000_000_000).contains(t))
-        .unwrap_or(tehas_core::time::now());
+        .filter(|t| (1..100_000_000_000).contains(t));
+        let at = label_at.unwrap_or_else(tehas_core::time::now);
         let Some(file) = self.input_file(&Value::Object(input).to_string()) else {
             return Err(none());
         };
@@ -946,7 +958,19 @@ impl Writer {
         let r = self.calls.store(&refs);
         let _ = std::fs::remove_file(&file);
         match r {
-            Ok(_) => Ok(at),
+            Ok(v) => {
+                // The person's approval is an act of theirs, but this call
+                // records it, it does not yet start anything: the act is
+                // raised by `start`, once the claim takes the issue, so a
+                // start that gives up before the claim raises nothing and
+                // the next poll's start raises it once (T11.9). Only an
+                // approval of a person with a label event behind it is an
+                // act: the other givens are the factory's own.
+                let pending = (given == "approved" && label_at.is_some())
+                    .then(|| tehas_core::raise::approved(&v.to_string()))
+                    .flatten();
+                Ok((at, pending))
+            }
             Err(f) => {
                 let w = word(&f);
                 let w = if w.is_empty() { "unusable".into() } else { w };
@@ -1209,7 +1233,7 @@ impl Writer {
     /// `tehas start`, and this poll recorded onto that row: it stays, so the
     /// next poll tries the start again.
     fn withdraw(&mut self, n: u64, a: &Value, recorded: i64, log: &mut Vec<String>) {
-        if text(a, "given") == crate::decide::HOST && epoch(text(a, "at")) == Some(recorded) {
+        if text(a, "given") == crate::decide::HOST && from_iso(text(a, "at")) == Some(recorded) {
             log.push(format!(
                 "the host's approval of #{n} stays on record: the next poll tries it again"
             ));
@@ -1391,7 +1415,7 @@ impl Writer {
             }
             std::thread::sleep(Duration::from_millis(500));
         }
-        if held(&Home::new(&self.home).cycle_note(n, "lock")) {
+        if held(&Home::new(&self.home).cycle_note(n, Note::Lock)) {
             log.push(format!(
                 "WARN: the cycle for #{n} holds its lock but did not say so in {wait}s; taking it as started"
             ));

@@ -573,253 +573,7 @@ fn issue_schema() -> Value {
     ])
 }
 
-/// An n, a median and a p90, all in seconds.
-fn quartiles(desc: &str) -> Value {
-    obj(
-        vec![
-            ("n", given("How many it counts.")),
-            ("median", given("The median, seconds.")),
-            ("p90", given("The 90th percentile, seconds.")),
-        ],
-        desc,
-    )
-}
-
-/// An n and a share of 0 to 1.
-fn share(desc: &str) -> Value {
-    obj(
-        vec![
-            ("n", given("How many it counts.")),
-            ("share", given("The share of them, 0 to 1.")),
-        ],
-        desc,
-    )
-}
-
-fn stats_schema() -> Value {
-    output(vec![
-        ("api", api()),
-        (
-            "from",
-            given("The first day of the window, seconds since 1970."),
-        ),
-        (
-            "to",
-            given("The last day of the window, seconds since 1970."),
-        ),
-        ("report", given("The version of the report.")),
-        (
-            "runs",
-            obj(
-                vec![
-                    ("n", given("Runs in the window.")),
-                    ("merged", given("Runs whose pull request merged.")),
-                    (
-                        "offered",
-                        given("Runs that left a change for review and did not park."),
-                    ),
-                    ("handoff", given("Runs handed to a person.")),
-                    ("parked", given("Runs parked for a person.")),
-                    ("failed", given("Runs that failed.")),
-                    ("refused", given("Runs that refused to start.")),
-                    ("stopped", given("Runs stopped here.")),
-                ],
-                "Runs by outcome.",
-            ),
-        ),
-        (
-            "shipped",
-            obj(vec![("n", given("Runs that shipped."))], "Shipped runs."),
-        ),
-        ("cycleTime", quartiles("Time from start to end of a run.")),
-        ("leadTime", quartiles("Time from ready to shipped.")),
-        (
-            "firstPassYield",
-            share("Runs that passed review first time."),
-        ),
-        ("handoffRate", share("Runs handed to a person.")),
-        (
-            "availability",
-            obj(
-                vec![
-                    ("n", given("How many it counts.")),
-                    ("seconds", given("Seconds the factory was taking work.")),
-                    ("share", given("The share of the window, 0 to 1.")),
-                ],
-                "Availability.",
-            ),
-        ),
-        (
-            "machineTime",
-            obj(
-                vec![
-                    ("n", given("How many it counts.")),
-                    ("seconds", given("Machine seconds in all.")),
-                    ("perShipped", given("Machine seconds per shipped run.")),
-                ],
-                "Machine time.",
-            ),
-        ),
-        (
-            "tokens",
-            obj(
-                vec![
-                    ("n", given("How many it counts.")),
-                    ("input", given("Input tokens.")),
-                    ("output", given("Output tokens.")),
-                    ("cacheRead", given("Tokens read from the cache.")),
-                    ("total", given("Tokens in all.")),
-                    ("perShipped", given("Tokens per shipped run.")),
-                ],
-                "Token use.",
-            ),
-        ),
-        (
-            "planned",
-            obj(
-                vec![
-                    ("n", given("Issues made ready.")),
-                    ("inLine", given("Of those, the ones in line for a cycle.")),
-                    ("planning", given("Of those, the ones still being planned.")),
-                    (
-                        "trend",
-                        arr(
-                            obj(
-                                vec![
-                                    ("day", prop("string", "The day, YYYY-MM-DD.")),
-                                    ("n", given("Issues made ready that day.")),
-                                ],
-                                "One day.",
-                            ),
-                            "Issues made ready per day.",
-                        ),
-                    ),
-                ],
-                "The demand made ready.",
-            ),
-        ),
-        (
-            "planningTurns",
-            obj(
-                vec![("n", given("Model turns of planning."))],
-                "Planning turns.",
-            ),
-        ),
-        (
-            "refine",
-            obj(
-                vec![
-                    ("sessions", given("Refining sessions.")),
-                    ("n", given("Issues they made ready.")),
-                    ("started", given("Of those, the ones that started a cycle.")),
-                    ("shipped", given("Of those, the ones that shipped.")),
-                    ("shippedShare", given("The share that shipped, 0 to 1.")),
-                    (
-                        "leadTime",
-                        quartiles("Ready to shipped, for the shipped ones."),
-                    ),
-                    (
-                        "others",
-                        obj(
-                            vec![
-                                ("n", given("Issues made ready the other way.")),
-                                ("started", given("Of those, the ones that started a cycle.")),
-                                ("shipped", given("Of those, the ones that shipped.")),
-                                ("shippedShare", given("The share that shipped, 0 to 1.")),
-                            ],
-                            "The issues made ready without refining, to compare.",
-                        ),
-                    ),
-                ],
-                "The refine loop.",
-            ),
-        ),
-        (
-            "stations",
-            obj(
-                vec![
-                    ("n", given("Steps run.")),
-                    (
-                        "steps",
-                        arr(
-                            obj(
-                                vec![
-                                    ("step", prop("string", "The step name.")),
-                                    ("n", given("Times it ran.")),
-                                    ("passed", given("Times it passed.")),
-                                    ("share", given("The share that passed, 0 to 1.")),
-                                ],
-                                "One step.",
-                            ),
-                            "The steps by outcome.",
-                        ),
-                    ),
-                ],
-                "The steps of a cycle.",
-            ),
-        ),
-        (
-            "stopReasons",
-            obj(
-                vec![
-                    ("n", given("Runs that stopped.")),
-                    (
-                        "top",
-                        arr(
-                            obj(
-                                vec![
-                                    ("reason", prop("string", "The reason.")),
-                                    ("n", given("Runs with it.")),
-                                ],
-                                "One reason.",
-                            ),
-                            "The reasons, most first.",
-                        ),
-                    ),
-                ],
-                "Why runs stopped.",
-            ),
-        ),
-        (
-            "versions",
-            arr(
-                obj(
-                    vec![
-                        ("tehas", prop("string", "The tehas version.")),
-                        ("rukas", prop("string", "The pi-rukas version or commit.")),
-                        ("n", given("Runs on this pair.")),
-                        ("medianSeconds", given("Median run seconds.")),
-                        ("medianTokens", given("Median tokens.")),
-                        (
-                            "changeShare",
-                            given("The share that left a pull request, 0 to 1."),
-                        ),
-                    ],
-                    "One version pair.",
-                ),
-                "Runs per tehas and pi-rukas pair.",
-            ),
-        ),
-        (
-            "daily",
-            arr(
-                obj(
-                    vec![
-                        ("day", prop("string", "The day, YYYY-MM-DD.")),
-                        ("runs", given("Runs that day.")),
-                        ("shipped", given("Runs shipped that day.")),
-                        ("failed", given("Runs that failed that day.")),
-                        ("minutes", given("Machine minutes that day.")),
-                    ],
-                    "One day.",
-                ),
-                "The daily rows.",
-            ),
-        ),
-    ])
-}
-
-/// The tools a dashboard key is served: the four that copy from the live
+/// The tools a dashboard key is served: the three that copy from the live
 /// files and read no other directory, so the key that faces strangers sees
 /// only what the public dashboard shows. `factory_console` is under `live/`
 /// too and is not one of them: a console is a model's output, and nothing
@@ -827,26 +581,21 @@ fn stats_schema() -> Value {
 /// snapshot as well, so it is not one either. The test beside `call_held`
 /// proves that every name here is in `CALLED`, is answered by the catalog, and
 /// is answered by an arm that reads nothing but `live`.
-pub const DASHBOARD: [&str; 4] = [
-    "factory_status",
-    "factory_issues",
-    "factory_endings",
-    "factory_stats",
-];
+pub const DASHBOARD: [&str; 3] = ["factory_status", "factory_issues", "factory_endings"];
 
 /// What a key's holder may call. The scope lives with the tool catalog, so
 /// the one rule of what a dashboard key may call is read here, where the tools
 /// and the words of `CALLED` are written; `keys::Authenticated` carries one
 /// and is built only by the key store, so no caller names a scope the settings
 /// do not give a key. The arms of `call_held` take their private directories
-/// (`dirs.sessions`, `dirs.logs`) as arguments, which is why the four of
-/// `DASHBOARD` are the four of the arms that take only `live` - a promise the
+/// (`dirs.sessions`, `dirs.logs`) as arguments, which is why the three of
+/// `DASHBOARD` are the three of the arms that take only `live` - a promise the
 /// test beside `call_held` checks by calling each arm through the dispatch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Scope {
     /// Every tool the server has.
     Full,
-    /// The four of `DASHBOARD`.
+    /// The three of `DASHBOARD`.
     Dashboard,
 }
 
@@ -861,7 +610,7 @@ impl Scope {
 }
 
 /// Whether a key of this scope is served the tool: every one of them for a
-/// full key, and the four of `DASHBOARD` for a dashboard key. The single
+/// full key, and the three of `DASHBOARD` for a dashboard key. The single
 /// reader of that list: `list_scoped` filters the published entries by it, so
 /// what a key may call and what it is told exists cannot say different things.
 pub(crate) fn serves(scope: Scope, name: &str) -> bool {
@@ -944,12 +693,6 @@ fn build_entries() -> Value {
                 "additionalProperties": false,
             },
             "outputSchema": console_schema(),
-        },
-        {
-            "name": "factory_stats",
-            "description": "The last ten days as the dashboard reports them: runs by outcome, cycle and lead time, first pass yield, handoff rate, availability, machine time, tokens, stop reasons, versions, the refine figures and the daily rows.",
-            "inputSchema": none,
-            "outputSchema": stats_schema(),
         },
         {
             "name": "factory_issue",
@@ -1061,12 +804,11 @@ fn titled(rows: Option<Value>) -> Option<Value> {
 /// `spec_of` name the same tools in their own literals, and the test beside
 /// `call_held` compares the three, so the access log can name no name the
 /// server does not serve, and serves none it does not publish.
-const CALLED: [&str; 16] = [
+const CALLED: [&str; 15] = [
     "factory_status",
     "factory_issues",
     "factory_endings",
     "factory_console",
-    "factory_stats",
     "factory_issue",
     "factory_sessions",
     "factory_session",
@@ -1086,15 +828,79 @@ pub fn known(name: &str) -> bool {
     CALLED.contains(&name)
 }
 
+/// The served tool names, in the order the table holds them. The surface
+/// guard reads the tool lines of api/surface-2.0.txt from here, so the
+/// table has one owner.
+pub fn called() -> &'static [&'static str] {
+    &CALLED
+}
+
+/// One tool as the public surface names it: its name, the names of its
+/// arguments, and the answer lines its output schema holds, each a full
+/// `tool <name> answer <path>` line, dotted and an array's items written
+/// `[]`. The surface guard reads these instead of the table's JSON, so no
+/// untyped document leaves this crate.
+#[derive(Debug)]
+pub struct ToolSurface {
+    pub name: &'static str,
+    pub args: Vec<String>,
+    pub answers: Vec<String>,
+}
+
+/// The surface of every served tool, in the order the table holds them. The
+/// input and output schemas of `build_entries` are the one owner of what an
+/// argument and an answer are; this only reads them out.
+pub fn surface() -> Vec<ToolSurface> {
+    entries()
+        .iter()
+        .filter_map(|t| {
+            let name = t["name"].as_str()?;
+            let args = t["inputSchema"]["properties"]
+                .as_object()
+                .map(|m| m.keys().cloned().collect())
+                .unwrap_or_default();
+            let prefix = format!("tool {name} answer");
+            let mut answers = Vec::new();
+            let mut stack: Vec<(String, &Value)> = vec![(String::new(), &t["outputSchema"])];
+            while let Some((path, node)) = stack.pop() {
+                if let Some(props) = node["properties"].as_object() {
+                    for (key, sub) in props {
+                        let next = if path.is_empty() {
+                            format!("{prefix} {key}")
+                        } else {
+                            format!("{path}.{key}")
+                        };
+                        answers.push(next.clone());
+                        stack.push((next, sub));
+                    }
+                }
+                if node["items"].is_object() {
+                    let arr = if path.is_empty() {
+                        prefix.clone()
+                    } else {
+                        format!("{path}[]")
+                    };
+                    stack.push((arr, &node["items"]));
+                }
+            }
+            Some(ToolSurface {
+                name,
+                args,
+                answers,
+            })
+        })
+        .collect()
+}
+
 /// The tools of a `tools/list` for a key of this scope: every one of them for
-/// a full key, as it has always been, and the four of `DASHBOARD` in the order
+/// a full key, as it has always been, and the three of `DASHBOARD` in the order
 /// the catalog gives them for a dashboard key. The entries are the same
 /// objects, so a tool is described the same way to either key.
 ///
 /// This is the only function that answers the catalog, so a method added to
 /// the dispatch cannot answer a tool list of its own and leave the scope out.
 /// The entries are held once for the process, so a request for the list costs
-/// a clone of the entries it needs and not the building of all sixteen.
+/// a clone of the entries it needs and not the building of all fifteen.
 pub fn list_scoped(scope: Scope) -> Value {
     Value::Array(
         entries()
@@ -1108,7 +914,7 @@ pub fn list_scoped(scope: Scope) -> Value {
 /// The published entries, built once for the process. The schemas of the tools
 /// are constants of this file, so every `tools/list` of either scope answers
 /// the same bytes, and a dashboard key that polls the list costs a clone of
-/// four entries rather than the reconstruction of sixteen.
+/// three entries rather than the reconstruction of fifteen.
 fn entries() -> &'static [Value] {
     static ENTRIES: LazyLock<Value> = LazyLock::new(build_entries);
     ENTRIES.as_array().map_or(&[], Vec::as_slice)
@@ -1125,7 +931,6 @@ pub enum Call {
     Issues(IssuesArgs),
     Endings,
     Console(ConsoleArgs),
-    Stats,
     Issue(sessions::IssueArgs),
     Sessions(sessions::ListArgs),
     Session(sessions::OneArgs),
@@ -1154,7 +959,6 @@ impl Call {
             "factory_issues" => Call::Issues(IssuesArgs::read(args)?),
             "factory_endings" => Call::Endings,
             "factory_console" => Call::Console(ConsoleArgs::read(args)?),
-            "factory_stats" => Call::Stats,
             "factory_issue" => Call::Issue(sessions::IssueArgs::read(args)?),
             "factory_sessions" => Call::Sessions(sessions::ListArgs::read(args)?),
             "factory_session" => Call::Session(sessions::OneArgs::read(args)?),
@@ -1179,7 +983,6 @@ impl Call {
             Call::Issues(_) => "factory_issues",
             Call::Endings => "factory_endings",
             Call::Console(_) => "factory_console",
-            Call::Stats => "factory_stats",
             Call::Issue(_) => "factory_issue",
             Call::Sessions(_) => "factory_sessions",
             Call::Session(_) => "factory_session",
@@ -1218,7 +1021,6 @@ pub(crate) fn call_held(dirs: &Dirs, call: &Call) -> Result<(Output, Option<LogG
         Call::Issues(asked) => issues(live, asked)?,
         Call::Endings => endings(live)?,
         Call::Console(asked) => console(live, asked)?,
-        Call::Stats => stats(live)?,
         Call::Issue(asked) => sessions::issue(dirs, asked)?,
         Call::Sessions(asked) => sessions::list(dirs, asked)?,
         Call::Session(asked) => sessions::one(dirs, asked)?,
@@ -1267,7 +1069,7 @@ pub(crate) fn read(live: &Path, file: &str) -> Result<Value, ToolError> {
 }
 
 /// The tool's own allowlist: the spec its answer is copied with, by the name
-/// the answer gives it. `status`, `issues`, `endings`, `console` and `stats`
+/// the answer gives it. `status`, `issues`, `endings` and `console`
 /// pick with these very values, so the schema test compares the schema with
 /// the allowlist a call is actually built from. Three fields are written
 /// rather than picked and so are absent here: `api`, which `call_held` adds,
@@ -1348,71 +1150,6 @@ pub fn spec_of(name: &str) -> Option<Value> {
         // host, and the test of each grouping compares this spec with the
         // entries a call of that file serves.
         "factory_outcomes" => outcomes_schema::spec("version"),
-        "factory_stats" => {
-            let counts = [
-                (
-                    "runs",
-                    ["n"]
-                        .into_iter()
-                        .chain(tehas_core::outcome::OUTCOMES)
-                        .collect(),
-                ),
-                ("shipped", vec!["n"]),
-                ("cycleTime", vec!["n", "median", "p90"]),
-                ("leadTime", vec!["n", "median", "p90"]),
-                ("firstPassYield", vec!["n", "share"]),
-                ("handoffRate", vec!["n", "share"]),
-                ("availability", vec!["n", "seconds", "share"]),
-                ("machineTime", vec!["n", "seconds", "perShipped"]),
-                (
-                    "tokens",
-                    vec!["n", "input", "output", "cacheRead", "total", "perShipped"],
-                ),
-                ("planningTurns", vec!["n"]),
-            ];
-            let mut s = Map::new();
-            for k in ["from", "to", "report"] {
-                s.insert(k.into(), json!(true));
-            }
-            for (k, keys) in counts {
-                s.insert(k.into(), spec_of_keys(&keys));
-            }
-            s.insert(
-                "planned".into(),
-                json!({"n": true, "inLine": true, "planning": true,
-                       "trend": [{"day": true, "n": true}]}),
-            );
-            s.insert(
-                "refine".into(),
-                json!({
-                    "sessions": true, "n": true, "started": true, "shipped": true,
-                    "shippedShare": true,
-                    "leadTime": {"n": true, "median": true, "p90": true},
-                    "others": {"n": true, "started": true, "shipped": true,
-                               "shippedShare": true},
-                }),
-            );
-            s.insert(
-                "stations".into(),
-                json!({"n": true, "steps": [{"step": true, "n": true,
-                                             "passed": true, "share": true}]}),
-            );
-            s.insert(
-                "stopReasons".into(),
-                json!({"n": true, "top": [{"reason": true, "n": true}]}),
-            );
-            s.insert(
-                "versions".into(),
-                json!([{"tehas": true, "rukas": true, "n": true,
-                        "medianSeconds": true, "medianTokens": true, "changeShare": true}]),
-            );
-            s.insert(
-                "daily".into(),
-                json!([{"day": true, "runs": true, "shipped": true,
-                        "failed": true, "minutes": true}]),
-            );
-            Value::Object(s)
-        }
         _ => return None,
     })
 }
@@ -1519,7 +1256,7 @@ fn status(live: &Path) -> Result<Map<String, Value>, ToolError> {
         &st["generatedAt"],
     ]
     .into_iter()
-    .filter_map(|t| t.as_str().and_then(epoch))
+    .filter_map(|t| t.as_str().and_then(tehas_core::time::from_iso))
     .min();
     if let Some(t) = oldest {
         out.insert("stale".into(), json!(now() - t > STALE_SECS));
@@ -1578,8 +1315,14 @@ fn status(live: &Path) -> Result<Map<String, Value>, ToolError> {
 fn report(live: &Path, health: &Value) -> Option<Value> {
     let (report, _) = tehas_core::file::read_regular(&live.join(DISPATCH_FILE), HOLD_BOUND).ok()?;
     let report = serde_json::from_slice::<Value>(&report).ok()?;
-    let at = report.get(hold::KEY_TIME)?.as_str().and_then(epoch)?;
-    let reference = health["time"].as_str().and_then(epoch).unwrap_or_else(now);
+    let at = report
+        .get(hold::KEY_TIME)?
+        .as_str()
+        .and_then(tehas_core::time::from_iso)?;
+    let reference = health["time"]
+        .as_str()
+        .and_then(tehas_core::time::from_iso)
+        .unwrap_or_else(now);
     (reference - at <= STALE_SECS).then_some(report)
 }
 
@@ -1830,18 +1573,6 @@ fn read_tail(path: &Path, n: u64) -> Option<(String, bool)> {
     ))
 }
 
-fn stats(live: &Path) -> Result<Map<String, Value>, ToolError> {
-    let a = read(live, "analytics.json")?;
-    let spec = spec_of("factory_stats").expect("a known tool");
-    match pick(&a, &spec) {
-        Some(Value::Object(m)) => Ok(m),
-        _ => Err(ToolError::File {
-            file: "analytics.json".into(),
-            why: "is not an object".into(),
-        }),
-    }
-}
-
 pub(crate) use tehas_core::time::now;
 
 /// An argument of another shape: the tool says which, and what it should have
@@ -1880,16 +1611,11 @@ pub(crate) fn word(args: &Args, key: &str) -> Result<Option<String>, ToolError> 
     }
 }
 
-/// Seconds since 1970 for "YYYY-MM-DDTHH:MM:SSZ", the form the live files
-/// use. Core's strict reader, kept as the name the other MCP modules call.
-pub(crate) fn epoch(t: &str) -> Option<i64> {
-    tehas_core::time::from_iso(t)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use tehas_core::testdir::TestDir;
+    use tehas_core::time::from_iso as epoch;
 
     // `issues` keeps the spec keys that are stages, and the spec names the
     // lists by the core's constants: a stage missing from `STAGES` would drop
@@ -1938,11 +1664,11 @@ mod tests {
         listed.sort_unstable();
         assert_eq!(listed, want);
         // `spec_of` is the third list of the names, and the one the dispatch's
-        // guard does not touch: the five tools whose answer is copied from a
+        // guard does not touch: the four tools whose answer is copied from a
         // live file name themselves there, so a name that drifts out of
-        // `CALLED` loses its allowlist here. The other ten build their answer
+        // `CALLED` loses its allowlist here. The other eleven build their answer
         // beside their own pick list, in their own module, and have none.
-        // The rule is the whole list rather than those five names: every name
+        // The rule is the whole list rather than those four names: every name
         // `spec_of` admits is a name of `CALLED`, so the allowlist of an
         // answer cannot belong to a tool the dispatch refuses.
         for name in [
@@ -1950,7 +1676,6 @@ mod tests {
             "factory_issues",
             "factory_endings",
             "factory_console",
-            "factory_stats",
         ] {
             assert!(known(name), "{name} is not called");
             assert!(spec_of(name).is_some(), "{name} has no answer allowlist");
@@ -1976,19 +1701,19 @@ mod tests {
         }
     }
 
-    // The four of `DASHBOARD` are served to a dashboard key, so the list may
+    // The three of `DASHBOARD` are served to a dashboard key, so the list may
     // not name a tool the server does not have, and may not name one that
     // reads a directory but `live`: the scope is the promise that such a key
     // sees only what the public dashboard shows. The second half of that is
     // mechanical: `call_held` answers a name through an arm that takes `live`
     // alone, and the private directories are arguments of the arms of the
-    // other eleven, so a name of `DASHBOARD` cannot reach a reader of them.
+    // other twelve, so a name of `DASHBOARD` cannot reach a reader of them.
     // The test asks the dispatch each of its questions rather than reading a
     // copy of the arms' shape. `factory_console` and `factory_issue` are the
     // two neighbours that do not qualify, and are named here so the list
     // cannot quietly grow to take them in.
     #[test]
-    fn the_dashboard_list_is_four_live_only_tools() {
+    fn the_dashboard_list_is_three_live_only_tools() {
         let catalog = list_scoped(Scope::Full);
         let listed = names_of(&catalog);
         for name in DASHBOARD {
@@ -2000,7 +1725,7 @@ mod tests {
             // Served, answered, and answered by the arms that are given only
             // `live`: an arm that opened the snapshot or the logs would be a
             // different answer, and the arms of the two private directories
-            // are the eleven that a dashboard key is refused as unknown.
+            // are the twelve that a dashboard key is refused as unknown.
             assert!(
                 serves(Scope::Dashboard, name),
                 "{name} is not served to a dashboard key"
@@ -2021,8 +1746,8 @@ mod tests {
             assert!(!serves(Scope::Dashboard, name), "{name} is served");
             assert!(known(name), "{name} is not called");
         }
-        // A dashboard key is served exactly these four, in the order the
-        // catalog gives them, and a full key is served all sixteen.
+        // A dashboard key is served exactly these three, in the order the
+        // catalog gives them, and a full key is served all fifteen.
         let short = list_scoped(Scope::Dashboard);
         let scoped = names_of(&short);
         let want: Vec<&str> = listed
@@ -2031,7 +1756,7 @@ mod tests {
             .copied()
             .collect();
         assert_eq!(scoped, want);
-        assert_eq!(names_of(&catalog).len(), 16);
+        assert_eq!(names_of(&catalog).len(), 15);
         // The entries of the shorter list are the entries of the longer one:
         // the same description and the same two schemas.
         for name in DASHBOARD {
@@ -2115,12 +1840,7 @@ mod tests {
             }
         }
         // The tools that take no argument take any: nothing of theirs is read.
-        for name in [
-            "factory_status",
-            "factory_endings",
-            "factory_stats",
-            "factory_disk",
-        ] {
+        for name in ["factory_status", "factory_endings", "factory_disk"] {
             let call = Call::read(name, &json!("anything").into()).unwrap();
             assert_eq!(call.name(), name);
         }
@@ -2136,14 +1856,13 @@ mod tests {
         // of `call_held` answers every name absent from this list, so a name
         // written here and not there, or there and not here, is the drift the
         // dispatch alone cannot show.
-        const ARMS: [&str; 16] = [
+        const ARMS: [&str; 15] = [
             "factory_log",
             "factory_search",
             "factory_status",
             "factory_issues",
             "factory_endings",
             "factory_console",
-            "factory_stats",
             "factory_issue",
             "factory_sessions",
             "factory_session",

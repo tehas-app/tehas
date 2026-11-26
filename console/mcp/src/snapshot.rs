@@ -1,14 +1,15 @@
 //! The sessions snapshot the host writes to ~/tehas/mcp/sessions.jsonl: a
 //! header line, then one session per line, newest first. Never published.
 
-use crate::tools::{epoch, ToolError, STALE_SECS};
+use crate::tools::{ToolError, STALE_SECS};
 use serde_json::Value;
 use std::fs::File;
 use std::io::Read;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use tehas_core::file::READ_BOUND;
-use tehas_core::snapshot::API;
+use tehas_core::snapshot::{API, SESSIONS_SHAPE};
+use tehas_core::time::from_iso;
 
 pub const FILE: &str = "sessions.jsonl";
 
@@ -53,12 +54,18 @@ impl Snapshot {
         if head["api"] != API {
             return Err(bad("has a header of another api"));
         }
+        // The shape number says which release wrote the lines: 1.4.x named
+        // the pull request `pr` and 2.x `change`, so a stale file of the old
+        // shape is refused by name instead of answered without its links.
+        if head["sessions"] != SESSIONS_SHAPE {
+            return Err(bad("has a header of another shape: run tehas update, or analytics sessions, to rewrite it"));
+        }
         let days = head["days"]
             .as_i64()
             .filter(|d| *d >= 1)
             .ok_or_else(|| bad("has a header without days"))?;
         let generated_at = head["generatedAt"].as_str().unwrap_or("").to_string();
-        let stale = epoch(&generated_at).is_none_or(|t| now - t > STALE_SECS);
+        let stale = from_iso(&generated_at).is_none_or(|t| now - t > STALE_SECS);
         Ok(Snapshot {
             days,
             generated_at,
@@ -85,7 +92,7 @@ impl Snapshot {
                 v.is_object()
                     && v["started"]
                         .as_str()
-                        .and_then(epoch)
+                        .and_then(from_iso)
                         .is_some_and(|t| t >= from)
             })
     }

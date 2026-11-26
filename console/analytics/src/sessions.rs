@@ -28,7 +28,8 @@ const DAY: i64 = 86_400;
 const FILED_AFTER: i64 = 120;
 
 // The column of a field in its table: the file's name with an underscore
-// before each capital, which is how the schema names every column but one.
+// before each capital, which is how the schema names every column but the
+// ones named below.
 fn column(key: &str) -> String {
     let mut out = String::with_capacity(key.len() + 4);
     for c in key.chars() {
@@ -49,13 +50,22 @@ const META: [(&str, &str); 1] = [(
     "(SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'image:' || runs.image)",
 )];
 
+// The field whose file name is not its column name: the change's number,
+// which the runs table still holds in the column `pr`. The schema is public
+// at 8; the file answers with 2.0's word.
+const RENAMED: [(&str, &str); 1] = [("change", "pr")];
+
 fn select(table: &str, fields: &[Field], tail: &str) -> String {
     let names: Vec<String> = fields
         .iter()
         .map(|f| {
-            META.iter()
-                .find(|(key, _)| *key == f.0)
-                .map_or_else(|| column(f.0), |(_, sql)| sql.to_string())
+            if let Some((_, sql)) = META.iter().find(|(key, _)| *key == f.0) {
+                return sql.to_string();
+            }
+            if let Some((_, col)) = RENAMED.iter().find(|(key, _)| *key == f.0) {
+                return (*col).to_string();
+            }
+            column(f.0)
         })
         .collect();
     format!("SELECT {} FROM {table} {tail}", names.join(", "))
@@ -174,27 +184,58 @@ struct Filed {
 
 /// A line of state/refined.jsonl as the poll writes it.
 #[derive(serde::Deserialize)]
-struct FiledLine {
+pub(crate) struct FiledLine {
     at: String,
     source: i64,
     filed: i64,
     url: String,
 }
 
-// state/refined.jsonl, read by the report's own ledger reader, the same
-// bounded plain-file rule: anything unreadable, a link, or a line of another
-// shape is no filed issue.
+// state/refined.jsonl under the bounded plain-file rule: anything
+// unreadable, a link, or a line of another shape is no filed issue.
 fn ledger(home: &Path) -> Vec<Filed> {
-    crate::report::ledger_lines(home, tehas_core::home::State::Refined)
+    ledger_lines(home)
         .into_iter()
         .filter_map(|l: FiledLine| {
             Some(Filed {
-                at: crate::report::ledger_at(&l.at)?,
+                at: ledger_at(&l.at)?,
                 source: l.source,
                 filed: Some(l.filed).filter(|n| *n >= 1)?,
                 url: l.url.starts_with("https://").then_some(l.url)?,
             })
         })
+        .collect()
+}
+
+/// The bounds a ledger timestamp may fall inside, in milliseconds.
+const LEDGER_AT_MIN: i64 = 1_735_689_600_000; // 2025-01-01T00:00:00Z
+const LEDGER_AT_MAX: i64 = 4_102_444_800_000; // 2100-01-01T00:00:00Z
+
+/// A ledger line's `at` in Unix seconds, or nothing: an ISO time as the
+/// writer prints it, inside the bounds above.
+fn ledger_at(at: &str) -> Option<i64> {
+    let ms = iso_ms(at)?;
+    (LEDGER_AT_MIN..=LEDGER_AT_MAX)
+        .contains(&ms)
+        .then_some(ms / 1000)
+}
+
+/// The lines of refined.jsonl, each read as a `FiledLine`; a line of another
+/// shape, or of `LEDGER_MAX_LINE` bytes or more, is skipped. What the file is
+/// not (no file, a link, a device, too long, not text) is no lines at all.
+pub(crate) fn ledger_lines(home: &Path) -> Vec<FiledLine> {
+    let Some(text) = crate::run::read_ledger(
+        home,
+        tehas_core::home::State::Refined,
+        crate::LEDGER_MAX_BYTES,
+    ) else {
+        return Vec::new();
+    };
+    text.lines()
+        .filter(|l| l.len() < crate::LEDGER_MAX_LINE)
+        // An object only: serde would read a struct from an array too.
+        .filter(|l| l.trim_start().starts_with('{'))
+        .filter_map(|l| serde_json::from_str::<FiledLine>(l).ok())
         .collect()
 }
 

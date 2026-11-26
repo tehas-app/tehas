@@ -1,6 +1,7 @@
 // The tools against live files with planted keys that must never come out.
 
 use crate::common;
+use common::SESSIONS_SHAPE;
 
 use mcp::snapshot::Snapshot;
 use mcp::tools::{list_scoped, Dirs, Output, Scope, ToolError};
@@ -135,12 +136,11 @@ fn schema_of(name: &str) -> Value {
         .clone()
 }
 
-const NAMES: [&str; 6] = [
+const NAMES: [&str; 5] = [
     "factory_status",
     "factory_issues",
     "factory_endings",
     "factory_console",
-    "factory_stats",
     "factory_issue",
 ];
 
@@ -186,25 +186,11 @@ fn no_tool_returns_a_planted_key() {
     for name in NAMES {
         let out = call(&live(), name, &args(name)).unwrap();
         let text = out.to_string();
-        for bad in ["SECRET", "/home/x", "labels", "buzzwords", "disk", "slice"] {
+        for bad in ["SECRET", "/home/x", "labels", "strayWords", "disk", "slice"] {
             assert!(!text.contains(bad), "{name} returned {bad}: {text}");
         }
         assert_eq!(out["api"], 1, "{name}");
     }
-}
-
-#[test]
-fn stats_carry_refine() {
-    let out = call(&live(), "factory_stats", &json!({})).unwrap();
-    assert_eq!(out["refine"]["sessions"], 4);
-    assert_eq!(out["refine"]["shippedShare"], 0.333);
-    assert_eq!(out["refine"]["leadTime"]["median"], 43400);
-    assert_eq!(out["refine"]["others"]["shipped"], 2);
-    let text = out["refine"].to_string();
-    for bad in ["buzzwords", "issues", "filedIssues"] {
-        assert!(!text.contains(bad), "{text}");
-    }
-    assert!(out.get("filedIssues").is_none());
 }
 
 #[test]
@@ -655,9 +641,9 @@ fn console_arguments_are_checked() {
 #[test]
 fn a_missing_or_broken_file_is_named() {
     let c = copy("files");
-    std::fs::remove_file(c.join("analytics.json")).unwrap();
-    match call(&c, "factory_stats", &json!({})) {
-        Err(ToolError::File { file, .. }) => assert_eq!(file, "analytics.json"),
+    std::fs::remove_file(c.join("status.json")).unwrap();
+    match call(&c, "factory_status", &json!({})) {
+        Err(ToolError::File { file, .. }) => assert_eq!(file, "status.json"),
         other => panic!("{other:?}"),
     }
     std::fs::write(c.join("status.json"), "{\"repo\":").unwrap();
@@ -682,7 +668,7 @@ fn factory_disk_is_listed_and_answers() {
         .collect();
     assert!(listed.contains(&"factory_disk"), "{listed:?}");
     // A dashboard key is not served it: of the full catalog it is given only
-    // the four tools that copy from the live files.
+    // the three tools that copy from the live files.
     let short = list_scoped(Scope::Dashboard);
     let dashboard: Vec<&str> = short
         .as_array()
@@ -755,7 +741,7 @@ const UNREADABLE_HOST_MESSAGES: &str = r#""hostMessages":{"list":null,"unreadabl
 // it shows up here.
 #[test]
 fn every_key_is_listed() {
-    let expected: [(&str, &[&str]); 5] = [
+    let expected: [(&str, &[&str]); 4] = [
         (
             "factory_status",
             &[
@@ -890,104 +876,6 @@ fn every_key_is_listed() {
                 "startedAt",
                 "updatedAt",
                 "console",
-            ],
-        ),
-        (
-            "factory_stats",
-            &[
-                "api",
-                "from",
-                "to",
-                "report",
-                "runs",
-                "runs.n",
-                "runs.merged",
-                "runs.offered",
-                "runs.handoff",
-                "runs.parked",
-                "runs.failed",
-                "runs.refused",
-                "runs.stopped",
-                "shipped",
-                "shipped.n",
-                "cycleTime",
-                "cycleTime.n",
-                "cycleTime.median",
-                "cycleTime.p90",
-                "leadTime",
-                "leadTime.n",
-                "leadTime.median",
-                "leadTime.p90",
-                "firstPassYield",
-                "firstPassYield.n",
-                "firstPassYield.share",
-                "handoffRate",
-                "handoffRate.n",
-                "handoffRate.share",
-                "availability",
-                "availability.n",
-                "availability.seconds",
-                "availability.share",
-                "machineTime",
-                "machineTime.n",
-                "machineTime.seconds",
-                "machineTime.perShipped",
-                "tokens",
-                "tokens.n",
-                "tokens.input",
-                "tokens.output",
-                "tokens.cacheRead",
-                "tokens.total",
-                "tokens.perShipped",
-                "planned",
-                "planned.n",
-                "planned.inLine",
-                "planned.planning",
-                "planned.trend",
-                "planned.trend[].day",
-                "planned.trend[].n",
-                "planningTurns",
-                "planningTurns.n",
-                "refine",
-                "refine.sessions",
-                "refine.n",
-                "refine.started",
-                "refine.shipped",
-                "refine.shippedShare",
-                "refine.leadTime",
-                "refine.leadTime.n",
-                "refine.leadTime.median",
-                "refine.leadTime.p90",
-                "refine.others",
-                "refine.others.n",
-                "refine.others.started",
-                "refine.others.shipped",
-                "refine.others.shippedShare",
-                "stations",
-                "stations.n",
-                "stations.steps",
-                "stations.steps[].step",
-                "stations.steps[].n",
-                "stations.steps[].passed",
-                "stations.steps[].share",
-                "stopReasons",
-                "stopReasons.n",
-                "stopReasons.top",
-                "stopReasons.top[].reason",
-                "stopReasons.top[].n",
-                "versions",
-                "versions[].tehas",
-                "versions[].rukas",
-                "versions[].n",
-                "versions[].medianSeconds",
-                "versions[].medianTokens",
-                "versions[].changeShare",
-                "daily",
-                "daily[].day",
-                "daily[].runs",
-                "daily[].shipped",
-                "daily[].failed",
-                "daily[].minutes",
             ],
         ),
     ];
@@ -1158,7 +1046,8 @@ fn snapshot_dir(name: &str, lines: &[String]) -> TestDir {
 }
 
 fn header(days: Value, generated: i64) -> String {
-    json!({"api": 1, "days": days, "generatedAt": iso(generated), "sessions": 1}).to_string()
+    json!({"api": 1, "days": days, "generatedAt": iso(generated), "sessions": SESSIONS_SHAPE})
+        .to_string()
 }
 
 #[test]
@@ -1174,7 +1063,7 @@ fn snapshot_missing_or_bad_is_a_tool_error() {
     let empty = snapshot_dir("empty", &[]);
     let no_days = snapshot_dir(
         "nodays",
-        &[json!({"api": 1, "generatedAt": iso(t), "sessions": 1}).to_string()],
+        &[json!({"api": 1, "generatedAt": iso(t), "sessions": SESSIONS_SHAPE}).to_string()],
     );
     let zero = snapshot_dir("zero", &[header(json!(0), t)]);
     let other_api = snapshot_dir(

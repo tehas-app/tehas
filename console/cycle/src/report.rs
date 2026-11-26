@@ -463,7 +463,7 @@ fn iso(secs: i64) -> String {
 /// dispatcher reads the same field, and one it cannot place is never taken as
 /// this cycle's.
 fn opened_at_or_after(pr: &Value, started: i64) -> bool {
-    tehas_core::limit::epoch(&text(pr, "createdAt")).is_some_and(|at| at >= started)
+    tehas_core::time::from_iso_jq(&text(pr, "createdAt")).is_some_and(|at| at >= started)
 }
 
 /// The approval this start used, if the store's answer names one.

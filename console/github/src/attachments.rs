@@ -10,10 +10,8 @@
 //! issue feed read the raw text today; the marker reader's dead regions are
 //! for markers, not files.
 
+use attach::link::{GITHUB, IMAGES};
 use tehas_ports::{Attachment, AttachmentId, WebLink};
-
-const GITHUB: &str = "https://github.com/";
-const IMAGES: &str = "https://user-images.githubusercontent.com/";
 
 /// The attachments `text` links to, each once, in the order it links them.
 /// The id is the link itself. A file uploaded to an issue
