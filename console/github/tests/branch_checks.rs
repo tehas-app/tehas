@@ -2,7 +2,19 @@
 //! question for the branch's head and its checks of a name, folded as
 //! `checks` folds them, and the long way (`branch`, then `checks`) where
 //! the one answer may not be whole or GitHub answers it with errors.
+//!
+//! No live answer of the one question is recorded yet. The law runs on the
+//! live REST recordings of nodejs/node (`tests/recorded/code-host/node/`)
+//! and on the one question's answer made from them in the test, field by
+//! field. The answers built with `json!` here await the recordings listed in
+//! the owner's recordings kit (record.sh step f): a failing run in a commit
+//! of several suites, a status context, a missing branch (recorded:
+//! `recorded/activity/live/branch-no-such-branch-here.json`) and the App
+//! without `actions: read`. Until that last one is recorded, a suite of
+//! GitHub Actions whose workflow run the answer does not give is asked the
+//! long way, never folded as known.
 
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use serde_json::{json, Value};
@@ -404,4 +416,241 @@ fn the_one_question_keeps_the_law_of_the_branch_then_its_checks() {
         Ok(())
     );
     assert_eq!(asked.lock().unwrap().len(), 5);
+}
+
+/// The query text the one question asks, from the call written down.
+fn query_of(call: &str) -> &str {
+    call.split_once(" -f query=").map(|(_, q)| q).unwrap()
+}
+
+/// The arguments of `field(...)` in a query text.
+fn args_of<'q>(query: &'q str, field: &str) -> &'q str {
+    let at = query.find(&format!("{field}(")).unwrap() + field.len() + 1;
+    &query[at..at + query[at..].find(')').unwrap()]
+}
+
+/// GitHub's `checkName` on `checkSuites` filters by the suite's name, and a
+/// workflow's suite is named for the workflow, not its jobs: live, that
+/// filter answered no suites and no error, so a failed check read as
+/// missing and held nothing. The suites are asked unfiltered; the runs by
+/// their name, of every type.
+#[test]
+fn the_question_filters_the_runs_by_the_name_and_never_the_suites() {
+    let (mut gh, asked) = scripted(vec![Ok(answer(&[], &[]))]);
+    gh.branch_checks(&main(), Some("verify")).unwrap();
+    let asked = asked.lock().unwrap();
+    let query = query_of(&asked[0]);
+    let suites = args_of(query, "checkSuites");
+    assert!(!suites.contains("checkName"), "{suites}");
+    assert!(!suites.contains("filterBy"), "{suites}");
+    let runs = args_of(query, "checkRuns");
+    assert!(runs.contains("checkName: $check"), "{runs}");
+    assert!(runs.contains("checkType: ALL"), "{runs}");
+}
+
+/// A suite of GitHub Actions holding a run of the name, whose workflow run
+/// the answer does not give (null, as GitHub may answer an App without
+/// `actions: read` without an error): the workflow is not known, so the
+/// answer is not folded. It is asked the long way, whose read of the
+/// workflow runs, refused, makes the check `Forbidden` and says why; and
+/// where the long way reads them, the older failure of one workflow stays
+/// beside the newer pass of another.
+#[test]
+fn a_suite_of_actions_without_its_workflow_run_is_asked_the_long_way() {
+    let old = (
+        11,
+        "verify",
+        "COMPLETED",
+        Some("FAILURE"),
+        Some("2026-11-25T10:00:00Z"),
+    );
+    let new = (
+        12,
+        "verify",
+        "COMPLETED",
+        Some("SUCCESS"),
+        Some("2026-11-25T11:00:00Z"),
+    );
+    let question = answer(
+        &[
+            suite(1, true, Some((5, "push")), &[old]),
+            suite(2, true, None, &[new]),
+        ],
+        &[],
+    );
+    let rest = |id: u64, suite: u64, conclusion: &str, started: &str| {
+        json!({"id": id, "name": "verify", "status": "completed", "conclusion": conclusion,
+            "started_at": started, "app": {"id": 15368, "slug": "github-actions"},
+            "check_suite": {"id": suite}})
+        .to_string()
+    };
+    let runs = [
+        rest(11, 1, "failure", "2026-11-25T10:00:00Z"),
+        rest(12, 2, "success", "2026-11-25T11:00:00Z"),
+    ];
+    let mut answers = vec![Ok(question.clone())];
+    answers.extend(long_way(&runs));
+    answers.push(Err((
+        "gh: Resource not accessible by integration (HTTP 403)".to_string(),
+        None,
+    )));
+    let (mut gh, asked) = scripted(answers);
+    assert_eq!(
+        gh.branch_checks(&main(), Some("verify")),
+        Err(Outcome::Forbidden)
+    );
+    assert_eq!(gh.take_lines(), [tehas_github::WORKFLOW_RUNS_FORBIDDEN]);
+    assert_eq!(asked.lock().unwrap().len(), 5);
+
+    let mut answers = vec![Ok(question)];
+    answers.extend(long_way(&runs));
+    answers.push(Ok(json!({"total_count": 2, "workflow_runs": [
+        {"id": 101, "check_suite_id": 1, "workflow_id": 5, "event": "push"},
+        {"id": 102, "check_suite_id": 2, "workflow_id": 6, "event": "push"}]})
+    .to_string()));
+    let (mut gh, _) = scripted(answers);
+    let (_, checks) = gh.branch_checks(&main(), Some("verify")).unwrap().unwrap();
+    assert_eq!(checks.runs.len(), 2);
+    assert_eq!(checks.overall, Overall::Fail);
+}
+
+/// A suite of GitHub Actions without a run of the name needs no workflow:
+/// the answer is whole without it.
+#[test]
+fn a_suite_without_a_run_of_the_name_needs_no_workflow_run() {
+    let pass = (11, "verify", "COMPLETED", Some("SUCCESS"), None);
+    let (mut gh, asked) = scripted(vec![Ok(answer(
+        &[
+            suite(1, true, Some((5, "push")), &[pass]),
+            suite(2, true, None, &[]),
+        ],
+        &[],
+    ))]);
+    let (_, checks) = gh.branch_checks(&main(), Some("verify")).unwrap().unwrap();
+    assert_eq!(checks.overall, Overall::Pass);
+    assert_eq!(asked.lock().unwrap().len(), 1);
+}
+
+/// The commit of nodejs/node the REST recordings hold, and the job of the
+/// Commit Queue workflow that failed once on it and then passed.
+const NODE: &str = "36ca6a74f19204e710057645c9c28974fc459362";
+const CANDIDATE: &str = "get_candidate_prs";
+
+/// A recording under `tests/recorded/`, read as JSON.
+fn recorded(path: &str) -> Value {
+    let at = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/recorded")
+        .join(path);
+    let text = std::fs::read_to_string(&at).unwrap_or_else(|e| panic!("{}: {e}", at.display()));
+    serde_json::from_str(&text).unwrap()
+}
+
+fn node(read: &str) -> Value {
+    recorded(&format!("code-host/node/{read}-{NODE}-1.json"))
+}
+
+/// The live recording of a branch's head, moved to `main` at the node
+/// commit: the head the long way reads.
+fn node_head() -> String {
+    let mut v = recorded("activity/live/branch-trunk.json");
+    let at = &mut v["data"]["repository"]["ref"];
+    at["name"] = json!("main");
+    at["target"]["oid"] = json!(NODE);
+    v.to_string()
+}
+
+/// The node recording's check runs as `check_name` gives them: the runs of
+/// the name alone.
+fn node_runs_named(name: &str) -> String {
+    let runs: Vec<Value> = node("checks")["check_runs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["name"] == name)
+        .cloned()
+        .collect();
+    json!({"total_count": runs.len(), "check_runs": runs}).to_string()
+}
+
+/// The one question's answer, made field by field from the node
+/// recordings: `node_head`, every suite the check runs name with its App,
+/// its workflow run from the recorded workflow runs and its runs of the
+/// name, in GraphQL's words, and the recorded statuses.
+fn node_question(name: &str) -> String {
+    let checks = node("checks");
+    let workflows = node("runs");
+    let mut order: Vec<u64> = Vec::new();
+    let mut suites: Vec<Value> = Vec::new();
+    for r in checks["check_runs"].as_array().unwrap() {
+        let id = r["check_suite"]["id"].as_u64().unwrap();
+        let at = match order.iter().position(|&s| s == id) {
+            Some(at) => at,
+            None => {
+                let ran = workflows["workflow_runs"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|w| w["check_suite_id"] == id)
+                    .map(|w| json!({"event": w["event"], "workflow": {"databaseId": w["workflow_id"]}}));
+                order.push(id);
+                suites.push(json!({"databaseId": id,
+                    "app": {"databaseId": r["app"]["id"], "slug": r["app"]["slug"]},
+                    "workflowRun": ran, "checkRuns": {"totalCount": 0, "nodes": []}}));
+                suites.len() - 1
+            }
+        };
+        if r["name"] != name {
+            continue;
+        }
+        let up = |k: &str| r[k].as_str().map(str::to_ascii_uppercase);
+        let runs = &mut suites[at]["checkRuns"];
+        runs["nodes"].as_array_mut().unwrap().push(json!({
+            "databaseId": r["id"], "name": r["name"], "status": up("status"),
+            "conclusion": up("conclusion"), "startedAt": r["started_at"]}));
+        runs["totalCount"] = json!(runs["nodes"].as_array().unwrap().len());
+    }
+    let contexts: Vec<Value> = node("statuses")["statuses"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| json!({"context": s["context"], "state": s["state"].as_str().map(str::to_ascii_uppercase)}))
+        .collect();
+    let mut v: Value = serde_json::from_str(&node_head()).unwrap();
+    let target = &mut v["data"]["repository"]["ref"]["target"];
+    target["checkSuites"] = json!({"totalCount": suites.len(), "nodes": suites});
+    target["status"] = json!({"contexts": contexts});
+    v.to_string()
+}
+
+/// The law of the port on live recordings: nodejs/node's commit of 33
+/// check suites, each named for its workflow (Commit Queue's suites hold
+/// `get_candidate_prs`, which failed once and then passed), read the long
+/// way from the REST recordings and in the one question made from them,
+/// and a missing branch as GitHub answered one live.
+#[test]
+fn the_law_holds_on_the_recorded_node_commit() {
+    let answers = vec![
+        Ok(node_head()),
+        Ok(node_runs_named(CANDIDATE)),
+        Ok(node("statuses").to_string()),
+        Ok(node("runs").to_string()),
+        Ok(node_question(CANDIDATE)),
+        Ok(recorded("activity/live/branch-no-such-branch-here.json").to_string()),
+    ];
+    let (mut gh, asked) = scripted(answers);
+    assert_eq!(
+        laws::code_host::branch_checks_are_the_branch_then_its_checks(
+            &mut gh,
+            &main(),
+            &Branch::new("no-such-branch-here").unwrap(),
+            CANDIDATE,
+        ),
+        Ok(())
+    );
+    assert_eq!(asked.lock().unwrap().len(), 6);
+    let (mut gh, _) = scripted(vec![Ok(node_question(CANDIDATE))]);
+    let (head, checks) = gh.branch_checks(&main(), Some(CANDIDATE)).unwrap().unwrap();
+    assert_eq!(head, CommitId::new(NODE).unwrap());
+    assert_eq!(checks.runs.len(), 1);
+    assert_eq!(checks.overall, Overall::Pass);
 }

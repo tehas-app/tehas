@@ -82,10 +82,13 @@ enum Fold {
 }
 
 /// The one question of `branch_checks_of`: the branch's ref, exactly, as
-/// `BRANCH` asks it, and on its commit the check suites with a run of the
-/// name, each with its App, its workflow run and every run of the name
-/// (`checkType: ALL`, as REST's `filter=all`), and the combined status.
-const BRANCH_CHECKS: &str = "query($owner: String!, $name: String!, $ref: String!, $check: String!) { repository(owner: $owner, name: $name) { ref(qualifiedName: $ref) { name prefix target { __typename oid ... on Commit { checkSuites(first: 100, filterBy: {checkName: $check}) { totalCount nodes { databaseId app { databaseId slug } workflowRun { event workflow { databaseId } } checkRuns(first: 100, filterBy: {checkName: $check, checkType: ALL}) { totalCount nodes { databaseId name status conclusion startedAt } } } } status { contexts { context state } } } } } } }";
+/// `BRANCH` asks it, and on its commit every check suite, each with its
+/// App, its workflow run and every run of the name (`checkType: ALL`, as
+/// REST's `filter=all`), and the combined status. The suites are not
+/// filtered by the name: GitHub's `checkName` on `checkSuites` names the
+/// suite, not a run in it, and a workflow's suite is named for the
+/// workflow, so that filter answered no suites and no error.
+const BRANCH_CHECKS: &str = "query($owner: String!, $name: String!, $ref: String!, $check: String!) { repository(owner: $owner, name: $name) { ref(qualifiedName: $ref) { name prefix target { __typename oid ... on Commit { checkSuites(first: 100) { totalCount nodes { databaseId app { databaseId slug } workflowRun { event workflow { databaseId } } checkRuns(first: 100, filterBy: {checkName: $check, checkType: ALL}) { totalCount nodes { databaseId name status conclusion startedAt } } } } status { contexts { context state } } } } } } }";
 
 /// The most of a list the one question takes as whole: a list this long
 /// may hold more than it gives, so the read is asked the long way.
@@ -188,7 +191,11 @@ impl GitHub {
     /// folds them. An answer that may not be whole (a list of
     /// `ONE_PAGE` or more, or a count past what it gives) or that GitHub
     /// answers with errors, as where the App may not read the workflow
-    /// runs, is asked the long way: `branch_at`, then `checks_of`, whose
+    /// runs, is asked the long way: so is a suite of GitHub Actions that
+    /// holds a run of the name and whose workflow run the answer does not
+    /// give, since a null there may be a refusal GitHub does not say, and
+    /// the runs cannot be folded by workflow without it. The long way is
+    /// `branch_at`, then `checks_of`, whose
     /// outcomes and lines it then gives. A rate-limited answer is the
     /// priced budget spent; a call that fails without an answer fails as
     /// `branch_at`'s does. Asked for every check, the long way.
@@ -280,6 +287,7 @@ fn read_branch_checks(data: Data, branch: &Branch, check: &str) -> Got<Asked> {
         let app = suite.app.ok_or(MALFORMED)?;
         let app_id = app.database_id.ok_or(MALFORMED)?;
         let actions = app.slug.as_deref() == Some(ACTIONS);
+        let ran = suite.workflow_run.is_some();
         if let Some(ran) = suite.workflow_run {
             let workflow = ran.workflow.and_then(|w| w.database_id).ok_or(MALFORMED)?;
             workflows.insert(id, (workflow, ran.event.ok_or(MALFORMED)?));
@@ -287,6 +295,9 @@ fn read_branch_checks(data: Data, branch: &Branch, check: &str) -> Got<Asked> {
         let Some(nodes) = whole(suite.check_runs.ok_or(MALFORMED)?)? else {
             return Ok(Asked::Long);
         };
+        if actions && !ran && nodes.iter().any(|r| r.name.as_deref() == Some(check)) {
+            return Ok(Asked::Long);
+        }
         for r in nodes {
             let status = run_status(
                 &r.status.ok_or(MALFORMED)?.to_ascii_lowercase(),
