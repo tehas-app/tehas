@@ -104,8 +104,9 @@ case "$1 $2" in
     if [ -e "$T/fx/pr.json" ]; then cat "$T/fx/pr.json"
     elif [ -e "$T/fx/pr.txt" ]; then
       head=$(printf "%s\n" "$@" | sed -n "/^--head$/{n;p;}")
+      state="$(cat "$T/fx/pr-state" 2>/dev/null || echo OPEN)"
       jq -n --arg url "$(cat "$T/fx/pr.txt")" --arg head "$head" \
-        --arg state "$(cat "$T/fx/pr-state" 2>/dev/null || echo OPEN)" \
+        --arg state "$state" \
         --arg body "$(cat "$T/fx/pr-body" 2>/dev/null || echo "Fixes #7")" \
         --arg created "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
         --argjson draft "$([ -e "$T/fx/pr-draft" ] && echo true || echo false)" \
@@ -142,6 +143,14 @@ case "$1 $2" in
     countdown issue-fails-times
     [ ! -e "$T/fx/issue-fails" ] || exit 1
     if [ -e "$T/fx/issue-$n.json" ]; then cat "$T/fx/issue-$n.json"; else echo "{\"number\":$n,\"state\":\"open\"}"; fi ;;
+  # Any other api call carries its question as a word starting query=: the
+  # one question of a change's numbers, which answers the site's time of a
+  # merge. The cases answer it on the ports' fake instead (R7), so the stub
+  # fails it here and the raise falls back to the line's end.
+  "api "*)
+    for a in "$@"; do
+      case "$a" in query=*) exit 1 ;; esac
+    done ;;
 esac
 "##;
 
@@ -511,7 +520,10 @@ impl World {
         self.fx("progress.json", &v.to_string());
     }
 
-    /// The bot's pull request on the branch, merged.
+    /// The bot's pull request on the branch, merged. The one question of
+    /// its number is answered by no case here: the stub fails it, the
+    /// raise falls back to the line's end, and the merge time itself is
+    /// tested on the ports' fake (R7).
     pub fn merged_pr(&self) {
         self.fx("pr.txt", "https://github.com/acme/widget/pull/9\n");
         self.fx("pr-state", "MERGED\n");

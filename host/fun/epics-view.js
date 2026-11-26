@@ -1,6 +1,6 @@
 // The open epics and their sub-issues, read from /live/epics.json (written by
-// tehasbot status, see console/src/epics.rs). The factory floor (index.html)
-// draws it in its section with id "epics".
+// tehasbot status, see console/src/epics.rs). The dashboard
+// (docs/dashboard.frag) draws it in its section with id "epics".
 //
 // view() is the pure step from the file to what is drawn, tested without a
 // browser (test/epics_view_test.mjs). The file is read from the network and its
@@ -98,7 +98,7 @@
   globalThis.TEHAS_EPICS = { view };
 
   if (typeof document === "undefined") return;
-  // The one el(), from host/fun/dom.js, the classic script the floor loads before
+  // The one el(), from host/fun/dom.js, the classic script the dashboard loads before
   // this file. Read here, past the document guard, so node can take view() out of
   // this file with no document and no dom.js at all (test/epics_view_test.mjs).
   const { el } = globalThis.TEHAS_DOM;

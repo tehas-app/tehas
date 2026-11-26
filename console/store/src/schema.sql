@@ -4,16 +4,14 @@
 -- later version comes last in its table, where ALTER TABLE puts it, so a store
 -- migrated from an older version (db::migrate) and one init made hold the
 -- same columns. SQLite cannot change a CHECK in place, so cycles is
--- written as db::STEP_24 rebuilds it and actions as db::STEP_16 does. The
--- oldest store db::migrate takes is the one v0.30.0 wrote, schema 12 (db::OLDEST):
--- sections 3.10 to 3.12 were gone by then. Schema 13 adds the
--- started_* columns of approvals (db::STEP_13). Schema 14 lets cycles.how say
--- 'host', a start `tehas start` approved (db::STEP_14). Schemas 15, 17 and 18
--- held the five tables of outsource (db::STEP_15, STEP_17, STEP_18), which
--- schema 29 drops (db::DROP_OUTSOURCE): init lays none of them. Schema 16 lets
--- actions.state say 'unknown', a write GitHub may have taken, and writes
--- 'millwright' in every row that still said 'fixer' (db::STEP_16). Schema 19
--- adds plugin_runs, one row per run of a plugin (db::STEP_19). Schema 24 adds answers, an answer `tehas answer` gave to the
+-- written as db::STEP_24 rebuilds it, and actions.state already says
+-- 'unknown', a write GitHub may have taken. The oldest store db::migrate
+-- takes is the one v1.4.0 wrote, schema 23 (db::OLDEST): sections 3.10 to
+-- 3.12 were long gone by then, cycles.how has long said 'host' for a start
+-- `tehas start` approved, and init lays none of the five tables of
+-- outsource (schemas 15, 17 and 18), which schema 29 drops
+-- (db::DROP_OUTSOURCE). Schema 19 adds plugin_runs, one row per run of a
+-- plugin (db::STEP_19). Schema 24 adds answers, an answer `tehas answer` gave to the
 -- question on record of an issue (db::STEP_24_INIT, run after STEP_23), and
 -- cycles.how takes 'answer', which db::STEP_24 rebuilds cycles for.
 -- Schema 25 adds questions.offers, the choices a park's question offers

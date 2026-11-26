@@ -3,9 +3,8 @@
 use crate::db;
 use crate::run::{self, iso_ms, Given};
 use crate::{execute, parse, Cmd, AT_AHEAD};
-use rusqlite::{params, Connection};
+use rusqlite::Connection;
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -53,18 +52,6 @@ fn put_at(p: PathBuf, text: &str) {
 fn put(home: &Path, name: &str, text: &str) {
     let p = home.join(name);
     fs::write(&p, text).unwrap();
-}
-
-/// These records, one per line: how a jsonl ledger is written.
-fn ledger(records: &[Value]) -> String {
-    records.iter().map(|l| format!("{l}\n")).collect()
-}
-
-/// The four buckets of nothing, the shape the manual names: the report of a
-/// ledger that holds nothing, or that the report will not read.
-fn empty_buckets() -> Value {
-    let nothing = || json!({"n": 0, "shipped": 0, "leadTime": {"n": 0}});
-    json!({"none": nothing(), "1-2": nothing(), "3-4": nothing(), "5+": nothing()})
 }
 
 /// Where a test's facts of the issue's run or turn are, as tehas-cycle
@@ -262,9 +249,9 @@ fn each_fixture_result_is_stored_with_what_the_outcome_drops() {
             ),
             "{name}"
         );
-        let more: (i64, i64, i64, f64, i64, String, String, String) = conn
+        let more: (i64, i64, i64, i64, String, String, String) = conn
             .query_row(
-                "SELECT runner_ms, cache_write, dispatches, cost, result_schema, last_step,
+                "SELECT runner_ms, cache_write, dispatches, result_schema, last_step,
                         failed_step, endpoint FROM runs",
                 [],
                 |r| {
@@ -276,7 +263,6 @@ fn each_fixture_result_is_stored_with_what_the_outcome_drops() {
                         r.get(4)?,
                         r.get(5)?,
                         r.get(6)?,
-                        r.get(7)?,
                     ))
                 },
             )
@@ -289,7 +275,6 @@ fn each_fixture_result_is_stored_with_what_the_outcome_drops() {
                 ms,
                 0,
                 dispatches,
-                0.0,
                 schema,
                 "handoff".into(),
                 "explore".into(),
@@ -348,7 +333,7 @@ fn each_fixture_result_is_stored_with_what_the_outcome_drops() {
 }
 
 #[test]
-fn cache_write_cost_and_role_usage_are_kept() {
+fn cache_write_and_role_usage_are_kept_and_the_runner_s_cost_is_not() {
     let home = scratch("usage");
     let started = secs("2026-10-18T10:16:39Z");
     cycle(
@@ -368,9 +353,9 @@ fn cache_write_cost_and_role_usage_are_kept() {
                    "cost": 0.125, "turns": 4, "dispatches": 1}}});
     fs::write(&path, r.to_string()).unwrap();
     let conn = record(&home, 7, started + 60);
-    let usage: (i64, i64, i64, i64, i64, i64, f64) = conn
+    let usage: (i64, i64, i64, i64, i64, i64) = conn
         .query_row(
-            "SELECT input, output, cache_read, cache_write, turns, dispatches, cost FROM runs",
+            "SELECT input, output, cache_read, cache_write, turns, dispatches FROM runs",
             [],
             |r| {
                 Ok((
@@ -380,18 +365,18 @@ fn cache_write_cost_and_role_usage_are_kept() {
                     r.get(3)?,
                     r.get(4)?,
                     r.get(5)?,
-                    r.get(6)?,
                 ))
             },
         )
         .unwrap();
-    assert_eq!(usage, (1000, 200, 5000, 300, 9, 3, 0.25));
-    let roles: Vec<(String, String, i64, i64, f64)> = conn
-        .prepare("SELECT role, model, input, cache_write, cost FROM run_roles ORDER BY role")
+    assert_eq!(usage, (1000, 200, 5000, 300, 9, 3));
+    // The runner's cost is read past: no column holds it.
+    assert!(!columns(&conn, "runs").contains(&"cost".to_string()));
+    assert!(!columns(&conn, "run_roles").contains(&"cost".to_string()));
+    let roles: Vec<(String, String, i64, i64)> = conn
+        .prepare("SELECT role, model, input, cache_write FROM run_roles ORDER BY role")
         .unwrap()
-        .query_map([], |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
-        })
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
         .unwrap()
         .map(Result::unwrap)
         .collect();
@@ -403,10 +388,9 @@ fn cache_write_cost_and_role_usage_are_kept() {
                 "code-review-specialist".into(),
                 "sub-model".into(),
                 600,
-                200,
-                0.125
+                200
             ),
-            ("ops".into(), "ops-model".into(), 400, 100, 0.125),
+            ("ops".into(), "ops-model".into(), 400, 100),
         ]
     );
 }
@@ -1609,8 +1593,8 @@ fn a_write_lock_held_past_the_busy_timeout_is_waited_out() {
 /// v0.30.0 wrote schema 4 already, so a database of an older schema is no
 /// 0.30 host's: it is kept aside under its version, as a newer one is.
 #[test]
-fn a_database_of_schema_1_to_3_or_8_is_kept_aside() {
-    for v in [1, 2, 3, 8] {
+fn a_database_of_schema_1_to_3_or_9_is_kept_aside() {
+    for v in [1, 2, 3, 9] {
         let home = scratch(&format!("schema-{v}"));
         let file = db::path(&home);
         {
@@ -1855,98 +1839,6 @@ fn export_writes_a_copy_that_opens_with_the_same_version_mode_0600_and_nothing_p
 }
 
 #[test]
-fn the_views_answer_for_a_known_data_set() {
-    let home = scratch("views");
-    let day0 = 1_792_022_400; // 2026-10-15T00:00:00Z
-    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    // Issue 1: two runs, merged on the second. Issue 2: one run, merged.
-    // Issue 3: one failed run. All on one version pair but the last.
-    let runs = [
-        ("a", 1, day0 + 100, 600, "handoff", 1000, "v1"),
-        ("b", 1, day0 + 2000, 1200, "merged", 3000, "v1"),
-        ("c", 2, day0 + 3000, 1800, "merged", 2000, "v1"),
-        ("d", 3, day0 + DAY + 10, 300, "failed", 500, "v2"),
-    ];
-    for (id, issue, started, secs, outcome, tokens, tv) in runs {
-        conn.execute(
-            "INSERT INTO runs (id, kind, issue, started, ended, seconds, outcome, input,
-                               tehas_version, rukas_version)
-             VALUES (?1, 'work', ?2, ?3, ?4, ?5, ?6, ?7, ?8, '0.13.0')",
-            rusqlite::params![
-                id,
-                issue,
-                started,
-                started + secs,
-                secs,
-                outcome,
-                tokens,
-                tv
-            ],
-        )
-        .unwrap();
-    }
-    db::event(&conn, 1, "ready", day0).unwrap();
-    db::event(&conn, 2, "ready", day0 + 2900).unwrap();
-    let lead: Vec<(i64, i64, i64)> = conn
-        .prepare("SELECT issue, lead_seconds, runs FROM v_lead ORDER BY issue")
-        .unwrap()
-        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
-        .unwrap()
-        .map(Result::unwrap)
-        .collect();
-    assert_eq!(lead, vec![(1, 3200, 2), (2, 1900, 1)]);
-    let daily: Vec<(String, i64, i64, i64, i64, i64)> = conn
-        .prepare("SELECT day, shipped, runs, failed, minutes, tokens FROM v_daily ORDER BY day")
-        .unwrap()
-        .query_map([], |r| {
-            Ok((
-                r.get(0)?,
-                r.get(1)?,
-                r.get(2)?,
-                r.get(3)?,
-                r.get(4)?,
-                r.get(5)?,
-            ))
-        })
-        .unwrap()
-        .map(Result::unwrap)
-        .collect();
-    assert_eq!(
-        daily,
-        vec![
-            ("2026-10-15".into(), 2, 3, 0, 60, 6000),
-            ("2026-10-16".into(), 0, 1, 1, 5, 500),
-        ]
-    );
-    let versions: Vec<(String, i64, f64, f64, f64, f64)> = conn
-        .prepare(
-            "SELECT tehas_version, runs, change_share, handoff_share, median_minutes, median_tokens
-             FROM v_versions ORDER BY tehas_version",
-        )
-        .unwrap()
-        .query_map([], |r| {
-            Ok((
-                r.get(0)?,
-                r.get(1)?,
-                r.get(2)?,
-                r.get(3)?,
-                r.get(4)?,
-                r.get(5)?,
-            ))
-        })
-        .unwrap()
-        .map(Result::unwrap)
-        .collect();
-    assert_eq!(
-        versions,
-        vec![
-            ("v1".into(), 3, 0.667, 0.333, 20.0, 2000.0),
-            ("v2".into(), 1, 0.0, 0.0, 5.0, 500.0),
-        ]
-    );
-}
-
-#[test]
 fn iso_times_are_read_as_utc() {
     assert_eq!(iso_ms("1970-01-01T00:00:00Z"), Some(0));
     assert_eq!(iso_ms("2026-10-15T18:38:44.024Z"), Some(1_792_089_524_024));
@@ -1955,7 +1847,7 @@ fn iso_times_are_read_as_utc() {
     assert_eq!(iso_ms("2026-13-15T18:38:44Z"), None);
     // The year is bounded here, before the arithmetic that would overflow on a
     // large one: a ledger's stamp is read only within these two years, and
-    // `report::ledger_at` asks only whether the report keeps that year.
+    // the sessions' `ledger_at` bounds it further.
     assert_eq!(iso_ms("1969-12-31T23:59:59Z"), None);
     assert_eq!(iso_ms("2101-01-01T00:00:00Z"), None);
     assert_eq!(iso_ms("71167994112-01-01T00:00:00Z"), None);
@@ -2053,8 +1945,6 @@ fn the_arguments_are_checked() {
             "{json}"
         );
     }
-    assert_eq!(parse(&args("report --json")), Some(Cmd::Report));
-    assert_eq!(parse(&args("report")), Some(Cmd::ReportText));
     for bad in [
         "run",
         "run 0",
@@ -2064,8 +1954,8 @@ fn the_arguments_are_checked() {
         "event 12 shipped",
         "prune now",
         "sample now",
-        "report --text",
-        "report --json now",
+        "report",
+        "report --json",
         "export /tmp/x.db",
         "export /tmp/x.db --json",
         "copy",
@@ -2661,7 +2551,7 @@ fn plan_stores_the_turn_with_its_times_turn_and_outcome_and_no_usage() {
     );
     let usage: i64 = one(
         &conn,
-        "SELECT count(*) FROM runs WHERE coalesce(input, output, cache_read, cache_write, dispatches, cost,
+        "SELECT count(*) FROM runs WHERE coalesce(input, output, cache_read, cache_write, dispatches,
            attempt, queue_wait) IS NOT NULL",
     );
     assert_eq!(usage, 0);
@@ -2836,566 +2726,6 @@ fn a_refining_session_s_first_turn_is_how_refine_and_its_later_turns_are_answers
 }
 
 #[test]
-fn the_refine_figures_follow_the_refined_issues_and_compare_them_with_the_rest() {
-    let home = scratch("report-refine");
-    let day0 = 1_792_022_400; // 2026-10-15T00:00:00Z
-    let to = day0 + 9 * DAY + 43_200;
-    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    // Two refining sessions in the window, one before it, and a plain plan.
-    for (issue, started, how) in [
-        (1, day0 + 100, "refine"),
-        (2, day0 + 200, "refine"),
-        (3, day0 - DAY, "refine"),
-        (4, day0 + 300, "approved"),
-    ] {
-        conn.execute(
-            "INSERT INTO runs (id, kind, issue, how, started, ended) VALUES (?1, 'plan', ?2, ?3, ?4, ?4)",
-            rusqlite::params![format!("plan-{issue}-{started}"), issue, how, started],
-        )
-        .unwrap();
-    }
-    // Refined issues 10 (started and shipped after 2 h) and 11 (not started);
-    // other issues 20 (shipped) and 21 (started only).
-    let ev = |issue: i64, event: &str, at: i64| {
-        conn.execute(
-            "INSERT INTO issue_events (at, issue, event) VALUES (?1, ?2, ?3)",
-            rusqlite::params![at, issue, event],
-        )
-        .unwrap();
-    };
-    ev(10, "ready", day0 + 1000);
-    ev(10, "started", day0 + 1100);
-    ev(10, "merged", day0 + 1000 + 7200);
-    ev(11, "ready", day0 + 2000);
-    ev(20, "ready", day0 + 3000);
-    ev(20, "started", day0 + 3100);
-    ev(20, "merged", day0 + 9000);
-    ev(21, "ready", day0 + 4000);
-    ev(21, "started", day0 + 4100);
-    std::fs::create_dir_all(h(&home).state_dir()).unwrap();
-    std::fs::write(
-        h(&home).state(State::Refined),
-        format!(
-            "{}\n{}\nnot json\n{}\n",
-            json!({"at": iso(day0 + 900), "source": 1, "filed": 10, "url": "u"}),
-            json!({"at": iso(day0 + 1900), "source": 2, "filed": 11, "url": "u"}),
-            json!({"at": iso(day0 + 1950), "source": 2, "filed": 0, "url": "u"}),
-        ),
-    )
-    .unwrap();
-    let refined = crate::report::read_refined(&home);
-    assert_eq!(refined.len(), 2);
-    let got_typed = crate::report::refine(&conn, &refined, to).unwrap();
-    let got = serde_json::to_value(&got_typed).unwrap();
-    assert_eq!(
-        got,
-        json!({"sessions": 2, "n": 2, "started": 1, "shipped": 1, "shippedShare": 0.5,
-               "leadTime": {"n": 1, "median": 7200, "p90": 7200},
-               "others": {"n": 2, "started": 2, "shipped": 1, "shippedShare": 0.5}})
-    );
-    let mut report = crate::report::build(&conn, to).unwrap();
-    report.refine = Some(got_typed);
-    let text = crate::report::text(&report);
-    assert!(
-        text.contains("Refine             2 sessions, 2 issues filed: 1 started, 1 shipped (50%), lead median 2h00m; other issues 50% shipped (n=2)"),
-        "{text}"
-    );
-    // No ledger: no refined issue, and the report says so in numbers.
-    assert!(crate::report::read_refined(&scratch("report-refine-none")).is_empty());
-}
-
-#[test]
-fn the_size_figures_follow_the_measured_starts_of_the_window() {
-    let home = scratch("report-sizes");
-    let day0 = 1_792_022_400; // 2026-10-15T00:00:00Z
-    let to = day0 + 9 * DAY + 43_200;
-    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    let ev = |issue: i64, event: &str, at: i64| {
-        conn.execute(
-            "INSERT INTO issue_events (at, issue, event) VALUES (?1, ?2, ?3)",
-            rusqlite::params![at, issue, event],
-        )
-        .unwrap();
-    };
-    // 1: two files, shipped after 2 h, and measured twice -- the later line wins.
-    // 2: two files, measured before the window, and shipped.
-    // 3: three files, shipped after 1 h. 4: five files, never shipped.
-    // 5: no file, shipped after 3 h. 6: no file, started only.
-    // 7: two files, merged before its measured start: an old merge, no ship.
-    // 8: one file, merged with no ready event at all: shipped, no lead.
-    // 9: four files, shipped after 4 h. 10: four files, never shipped.
-    // 11: measured in the window, no line for it at all in the ledger.
-    for (issue, ready, merged) in [
-        (1, day0 + 1000, day0 + 8200),
-        (2, day0 + 2000, day0 + 9_200),
-        (3, day0 + 3000, day0 + 6600),
-        (5, day0 + 4000, day0 + 14_800),
-        (9, day0 + 7000, day0 + 21_400),
-    ] {
-        ev(issue, "ready", ready);
-        ev(issue, "merged", merged);
-    }
-    // An issue of a previous cycle that merged long before this measurement.
-    ev(7, "ready", day0 - 40 * DAY);
-    ev(7, "merged", day0 - 39 * DAY);
-    // A merge the view knows of with no ready event behind it.
-    ev(8, "merged", day0 + 7200);
-    for issue in [4, 6, 10] {
-        ev(issue, "ready", day0 + 5000);
-    }
-    ev(6, "started", day0 + 5100);
-    // The last line of an issue wins by its `at`, not by its place in the
-    // file: issue 1's later measure stands first here and still answers.
-    let mut wide = json!({"at": iso(day0 + 6100), "issue": 12, "files": 3});
-    wide["filler"] = json!("x".repeat(100_000));
-    put_at(
-        h(&home).state(State::Sizes),
-        &ledger(&[
-            json!({"at": iso(day0 + 1000), "issue": 1, "files": 2, "tests": 1,
-                  "deliverables": 1, "done_when": 2}),
-            json!({"at": iso(day0 + 900), "issue": 1, "files": 5, "tests": 0,
-                   "deliverables": 1, "done_when": 0}),
-            json!({"at": iso(day0 - DAY), "issue": 2, "files": 2}),
-            json!({"at": iso(day0 + 2000), "issue": 3, "files": 3}),
-            json!({"at": iso(day0 + 3000), "issue": 4, "files": 9}),
-            json!("not json"),
-            json!({"at": iso(day0 + 3100), "issue": 4, "files": "many"}),
-            json!({"at": "not a time", "issue": 5, "files": 0}),
-            json!({"at": iso(day0 + 4000), "issue": 5, "files": 0}),
-            json!({"at": iso(day0 + 5000), "issue": 6, "files": 0}),
-            // A merge of an earlier cycle, before this start: no ship.
-            json!({"at": iso(day0 + 6000), "issue": 7, "files": 2}),
-            // A merge with no ready behind it: a ship of no lead.
-            json!({"at": iso(day0 + 6200), "issue": 8, "files": 1}),
-            json!({"at": iso(day0 + 7000), "issue": 9, "files": 4}),
-            json!({"at": iso(day0 + 7100), "issue": 10, "files": 4}),
-            // Of the four counts of a line only `files` is read; the rest of
-            // what the ledger holds cannot reach the report.
-            json!({"at": iso(day0 + 7200), "issue": 10, "files": 4, "tests": 9,
-                   "deliverables": "words", "done_when": ["a", "b"]}),
-            // Of another shape than a record: no line.
-            json!({"at": iso(day0 + 7300), "issue": 11, "files": null}),
-            json!({"at": iso(day0 + 7400), "issue": 11, "files": 1.5}),
-            json!(42),
-            json!([{"at": iso(day0 + 7500), "issue": 11, "files": 1}]),
-            // A line too wide to be a measure, and a stamp outside the years
-            // the report keeps.
-            wide,
-            // A stamp outside the years the report keeps: a corrupt or hostile line,
-            // and the year's own size is no reason to answer for it.
-            json!({"at": "2263-01-01T00:00:00Z", "issue": 13, "files": 2}),
-            json!({"at": "1990-01-01T00:00:00Z", "issue": 13, "files": 2}),
-            json!({"at": iso(day0 + 8000), "issue": 13, "files": 2}),
-        ]),
-    );
-    let ledger = crate::report::read_sizes(&home);
-    // In issue order, the order the map's key gives it.
-    let seen: Vec<(i64, i64, i64)> = ledger.iter().map(|s| (s.issue, s.files, s.at)).collect();
-    assert_eq!(
-        seen,
-        [
-            (1, 2, day0 + 1000),
-            (2, 2, day0 - DAY),
-            (3, 3, day0 + 2000),
-            (4, 9, day0 + 3000),
-            (5, 0, day0 + 4000),
-            (6, 0, day0 + 5000),
-            (7, 2, day0 + 6000),
-            (8, 1, day0 + 6200),
-            (9, 4, day0 + 7000),
-            (10, 4, day0 + 7200),
-            (13, 2, day0 + 8000),
-        ]
-    );
-    let empty = json!({"n": 0, "shipped": 0, "leadTime": {"n": 0}});
-    assert_eq!(empty_buckets()["3-4"], empty);
-    let got_typed = crate::report::sizes(&conn, &ledger, to).unwrap();
-    let got = serde_json::to_value(&got_typed).unwrap();
-    assert_eq!(
-        got,
-        json!({
-            "none": {"n": 2, "shipped": 1, "leadTime": {"n": 1, "median": 10800, "p90": 10800}},
-            "1-2": {"n": 4, "shipped": 2, "leadTime": {"n": 1, "median": 7200, "p90": 7200}},
-            "3-4": {"n": 3, "shipped": 2, "leadTime": {"n": 2, "median": 9000, "p90": 14400}},
-            "5+": {"n": 1, "shipped": 0, "leadTime": {"n": 0}},
-        })
-    );
-    // The window holds the starts measured in it: issue 2, measured nine days
-    // before, is in none of the buckets although it shipped.
-    assert_eq!(got["1-2"]["n"], json!(4));
-    assert_eq!(got["1-2"]["shipped"], json!(2));
-    // Issue 7 merged before its measured start, so the window shipped nothing
-    // of it; issue 8 shipped with no ready event, so it counts as shipped and
-    // brings no lead: where shipped outruns leadTime.n, a ship had no lead.
-    assert_eq!(got["1-2"]["leadTime"]["n"], json!(1));
-    // The boundaries of the buckets: one file is "1-2", four is "3-4", and
-    // "5+" holds every count above them together.
-    assert_eq!(got["3-4"]["n"], json!(3));
-    assert_eq!(got["5+"]["n"], json!(1));
-    // The same ledger with no work in the window: no bucket but "none".
-    assert_eq!(
-        serde_json::to_value(crate::report::sizes(&conn, &[], to).unwrap()).unwrap()["3-4"],
-        empty
-    );
-    // No ledger at all: empty buckets, not a missing key.
-    assert_eq!(
-        serde_json::to_value(
-            crate::report::sizes(
-                &conn,
-                &crate::report::read_sizes(&scratch("report-sizes-none")),
-                to
-            )
-            .unwrap()
-        )
-        .unwrap(),
-        empty_buckets()
-    );
-    let text = crate::report::text(&crate::report::complete(&conn, &home, to).unwrap());
-    // The Size line names each bucket by name, not by column width.
-    assert!(
-        text.contains("none: 2 shipped 1, lead 3h00m | 1-2: 4 shipped 2, lead 2h00m | 3-4: 3 shipped 2, lead 2h30m | 5+: 1 shipped 0, lead -"),
-        "{text}"
-    );
-}
-
-// The report command, not build(), adds the ledger figures: the same database
-// and ledger reach the printed report through the command that reads them.
-#[test]
-fn the_report_command_adds_the_refine_and_size_figures() {
-    let home = scratch("report-complete");
-    let day0 = 1_792_022_400; // 2026-10-15T00:00:00Z
-    let to = day0 + 9 * DAY + 43_200;
-    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    conn.execute(
-        "INSERT INTO issue_events (at, issue, event) VALUES (?1, ?2, 'ready'), (?1, ?2, 'started'), (?3, ?2, 'merged')",
-        rusqlite::params![day0 + 1000, 1, day0 + 4600],
-    )
-    .unwrap();
-    std::fs::create_dir_all(h(&home).state_dir()).unwrap();
-    put_at(
-        h(&home).state(State::Sizes),
-        &ledger(&[json!({"at": iso(day0 + 1000), "issue": 1, "files": 2})]),
-    );
-    let got_typed = crate::report::complete(&conn, &home, to).unwrap();
-    let got = serde_json::to_value(&got_typed).unwrap();
-    assert_eq!(
-        got["sizes"]["1-2"],
-        json!({"n": 1, "shipped": 1,
-                   "leadTime": {"n": 1, "median": 3600, "p90": 3600}})
-    );
-    assert_eq!(
-        got["sizes"]["none"],
-        json!({"n": 0, "shipped": 0, "leadTime": {"n": 0}})
-    );
-    assert!(got["refine"].is_object());
-    // build() alone holds neither: the keys belong to the command.
-    let bare_typed = crate::report::build(&conn, to).unwrap();
-    let bare = serde_json::to_value(&bare_typed).unwrap();
-    assert!(bare.get("sizes").is_none() && bare.get("refine").is_none());
-    // A ledger that is a link is read no more than a ledger that is no file:
-    // the figures are four buckets of nothing.
-    let moved = home.join("elsewhere.jsonl");
-    fs::rename(h(&home).state(State::Sizes), &moved).unwrap();
-    std::os::unix::fs::symlink(&moved, h(&home).state(State::Sizes)).unwrap();
-    assert!(crate::report::read_sizes(&home).is_empty());
-    let got_typed = crate::report::complete(&conn, &home, to).unwrap();
-    let got = serde_json::to_value(&got_typed).unwrap();
-    assert_eq!(got["sizes"], empty_buckets());
-    // The Size line says the buckets by name.
-    assert!(
-        crate::report::text(&got_typed).contains("none: 0 shipped 0, lead - | 1-2: 0 shipped 0, lead - | 3-4: 0 shipped 0, lead - | 5+: 0 shipped 0, lead -"),
-    );
-}
-
-// A lead the view computes backwards is no lead: an issue whose merge is
-// stamped before the ready behind it ships, but its negative seconds are not
-// counted, as `refine` leaves them out.
-#[test]
-fn a_ship_whose_merge_precedes_its_ready_contributes_no_lead() {
-    let home = scratch("report-sizes-negative-lead");
-    let day0 = 1_792_022_400;
-    let to = day0 + 9 * DAY + 43_200;
-    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    std::fs::create_dir_all(h(&home).state_dir()).unwrap();
-    conn.execute(
-        "INSERT OR IGNORE INTO issue_events (at, issue, event) VALUES (?1, ?2, ?3)",
-        rusqlite::params![day0 + 2000, 1, "ready"],
-    )
-    .unwrap();
-    conn.execute(
-        "INSERT OR IGNORE INTO issue_events (at, issue, event) VALUES (?1, ?2, ?3)",
-        rusqlite::params![day0 + 1000, 1, "merged"],
-    )
-    .unwrap();
-    put_at(
-        h(&home).state(State::Sizes),
-        &ledger(&[json!({"at": iso(day0 + 900), "issue": 1, "files": 2})]),
-    );
-    let got_typed = crate::report::sizes(&conn, &crate::report::read_sizes(&home), to).unwrap();
-    let got = serde_json::to_value(&got_typed).unwrap();
-    assert_eq!(
-        got["1-2"],
-        json!({"n": 1, "shipped": 1, "leadTime": {"n": 0}})
-    );
-}
-
-// A ledger line is an object of the fields the reader names, each once: the
-// same fields as an array, or a field given twice, are no line.
-#[test]
-fn a_ledger_line_of_another_shape_is_skipped() {
-    let home = scratch("report-ledger-shape");
-    let day0 = 1_792_022_400;
-    std::fs::create_dir_all(h(&home).state_dir()).unwrap();
-    let at = iso(day0 + 1000);
-    put_at(
-        h(&home).state(State::Sizes),
-        &format!(
-            "[\"{at}\",1,2]\n{{\"at\":\"{at}\",\"issue\":2,\"issue\":3,\"files\":2}}\n{}\n",
-            json!({"at": at, "issue": 4, "files": 2})
-        ),
-    );
-    let got = crate::report::read_sizes(&home);
-    assert_eq!(got.iter().map(|s| s.issue).collect::<Vec<_>>(), [4]);
-    put_at(
-        h(&home).state(State::Refined),
-        &format!(
-            "[\"{at}\",10]\n{{\"at\":\"{at}\",\"filed\":11,\"filed\":12}}\n{}\n",
-            json!({"at": at, "filed": 13})
-        ),
-    );
-    let got = crate::report::read_refined(&home);
-    assert_eq!(got.iter().map(|r| r.filed).collect::<Vec<_>>(), [13]);
-}
-
-// The published privacy claim of the size figures, held where it is made:
-// one bucket is three counts and nothing else, whatever the ledger's own lines
-// hold beside them.
-#[test]
-fn the_size_figures_hold_no_keys_but_their_own() {
-    let home = scratch("report-sizes-keys");
-    let day0 = 1_792_022_400;
-    let to = day0 + 9 * DAY + 43_200;
-    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    std::fs::create_dir_all(h(&home).state_dir()).unwrap();
-    put_at(
-        h(&home).state(State::Sizes),
-        &ledger(&[
-            json!({"at": iso(day0 + 1000), "issue": 1, "files": 2, "tests": 1,
-                   "deliverables": 3, "done_when": 4, "title": "what the issue asked for"}),
-        ]),
-    );
-    let got_typed = crate::report::sizes(&conn, &crate::report::read_sizes(&home), to).unwrap();
-    let got = serde_json::to_value(&got_typed).unwrap();
-    assert_eq!(
-        got.as_object().unwrap().keys().collect::<Vec<_>>(),
-        ["1-2", "3-4", "5+", "none"]
-    );
-    for b in got.as_object().unwrap().values() {
-        assert_eq!(
-            b.as_object().unwrap().keys().collect::<Vec<_>>(),
-            ["leadTime", "n", "shipped"]
-        );
-    }
-    assert!(!got.to_string().contains("asked for"));
-}
-
-// The two whole-file bounds of a ledger, pinned in both directions: the reader
-// takes a file of the writer's own making and refuses one that is a byte too
-// long, and the size of a `files` count is bounded too.
-#[test]
-fn a_ledger_past_the_whole_file_bound_is_no_ledger_at_all() {
-    let home = scratch("report-sizes-bounds");
-    let day0 = 1_792_022_400;
-    let to = day0 + 9 * DAY + 43_200;
-    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    std::fs::create_dir_all(h(&home).state_dir()).unwrap();
-    // The 500 lines the writers keep: read whole, and of one issue each.
-    let starts: Vec<Value> = (1..=500)
-        .map(|i| json!({"at": iso(day0 + 1000 + i), "issue": i, "files": 2}))
-        .collect();
-    put_at(h(&home).state(State::Sizes), &ledger(&starts));
-    assert_eq!(crate::report::read_sizes(&home).len(), 500);
-    // A line one byte short of the width bound is a record; one at it is a
-    // paste. Both sit beside a good line, so the wide one costs only itself.
-    // The width is measured on the printed line, so the filler is solved for.
-    let at = iso(day0 + 1000);
-    let prefix_of = |issue: i64| {
-        format!(
-            "{},{}",
-            json!({"at": at.clone(), "issue": issue, "files": 2}),
-            "\"filler\":"
-        )
-    };
-    let wide_of = |issue: i64, len: usize| {
-        let mut w = json!({"at": at.clone(), "issue": issue, "files": 2});
-        w["filler"] = json!("x".repeat(len - prefix_of(issue).len() - 2));
-        assert_eq!(w.to_string().len(), len);
-        w
-    };
-    // The printed line of a two-file start with a one-digit issue is 49
-    // bytes; the filler is solved for below, and this pins it against that.
-    assert_eq!(
-        json!({"at": at, "issue": 900, "files": 2})
-            .to_string()
-            .len(),
-        51
-    );
-    put_at(
-        h(&home).state(State::Sizes),
-        &ledger(&[
-            json!({"at": at.clone(), "issue": 900, "files": 2}),
-            wide_of(901, 99_999),
-        ]),
-    );
-    assert_eq!(crate::report::read_sizes(&home).len(), 2);
-    put_at(
-        h(&home).state(State::Sizes),
-        &ledger(&[
-            json!({"at": at.clone(), "issue": 900, "files": 2}),
-            wide_of(902, 100_000),
-        ]),
-    );
-    assert_eq!(crate::report::read_sizes(&home).len(), 1);
-    // One byte past the whole-file bound is no ledger: the figures are four
-    // buckets of nothing, as they are for no file at all.
-    let one_mib = 1usize << 20;
-    let mut big = ledger(&starts);
-    big.push_str(&"y".repeat(one_mib - big.len() + 1));
-    assert_eq!(big.len(), one_mib + 1);
-    put_at(h(&home).state(State::Sizes), &big);
-    assert!(crate::report::read_sizes(&home).is_empty());
-    assert_eq!(
-        serde_json::to_value(
-            crate::report::sizes(&conn, &crate::report::read_sizes(&home), to).unwrap()
-        )
-        .unwrap(),
-        empty_buckets()
-    );
-    // The last byte within the bound is read: the same file one byte shorter
-    // answers for all 500 starts.
-    put_at(h(&home).state(State::Sizes), &big[..one_mib]);
-    assert_eq!(crate::report::read_sizes(&home).len(), 500);
-    // A `files` count of more than the nine digits the setting may hold is no
-    // measure, whatever bucket it would have fallen in.
-    put_at(
-        h(&home).state(State::Sizes),
-        &ledger(&[
-            json!({"at": iso(day0 + 1000), "issue": 903, "files": 999_999_999}),
-            json!({"at": iso(day0 + 1000), "issue": 904, "files": 1_000_000_000}),
-            json!({"at": iso(day0 + 1000), "issue": 905, "files": -1}),
-        ]),
-    );
-    assert_eq!(
-        crate::report::read_sizes(&home)
-            .iter()
-            .map(|s| s.issue)
-            .collect::<Vec<_>>(),
-        [903]
-    );
-    // A stamp of an eleven-digit year is refused at the parse, so neither
-    // ledger can panic the report with one.
-    for ledger_of in [State::Sizes, State::Refined] {
-        put_at(
-            h(&home).state(ledger_of),
-            &ledger(&[
-                json!({"at": "71167994112-01-01T00:00:00Z", "issue": 1, "files": 2,
-                            "source": 1, "filed": 1, "url": "https://x/y/issues/1"}),
-            ]),
-        );
-        assert!(crate::report::read_sizes(&home).is_empty(), "{ledger_of:?}");
-        assert!(
-            crate::report::read_refined(&home).is_empty(),
-            "{ledger_of:?}"
-        );
-    }
-}
-
-// The rows the terminal knows are exactly the sections the report command
-// The rows the terminal prints conditionally are exactly the sections that
-// carry them: `text` renders one row per entry of `SECTIONS`, and no row for a
-// section the report does not hold.
-#[test]
-fn the_text_report_prints_one_row_for_every_section_of_the_report() {
-    let home = scratch("report-text-sections");
-    let day0 = 1_792_022_400;
-    let to = day0 + 9 * DAY + 43_200;
-    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    report_data(&conn, day0, to);
-    let built_typed = crate::report::build(&conn, to).unwrap();
-    let built = serde_json::to_value(&built_typed).unwrap();
-    let full_typed = crate::report::complete(&conn, &home, to).unwrap();
-    let full = serde_json::to_value(&full_typed).unwrap();
-    let keys = |v: &Value| {
-        v.as_object()
-            .unwrap()
-            .keys()
-            .cloned()
-            .collect::<Vec<String>>()
-    };
-    // The five sections of the contract: each holds an object of its own and
-    // prints the row `SECTIONS` names, so a section without a row and a row
-    // without a section both fail here. The two of the ledgers come with
-    // `complete`, the two of the database with `build`.
-    let full_text = crate::report::text(&full_typed);
-    let built_text = crate::report::text(&built_typed);
-    let added = keys(&full)
-        .into_iter()
-        .filter(|k| !keys(&built).contains(k))
-        .collect::<Vec<_>>();
-    assert_eq!(added, [crate::report::REFINE, crate::report::SIZES]);
-    for (key, label) in crate::report::SECTIONS {
-        let from_ledger = key == crate::report::REFINE || key == crate::report::SIZES;
-        let (report, text) = if from_ledger {
-            (&full, &full_text)
-        } else {
-            (&built, &built_text)
-        };
-        assert!(report[key].is_object(), "{key} is a section of the report");
-        let line = text
-            .lines()
-            .find(|l| l.starts_with(label))
-            .unwrap_or_else(|| panic!("{label} is the row of the {key} section:\n{text}"));
-        assert!(line.len() > label.len() + 1, "{key} prints a value: {line}");
-        // And no row without its section.
-        if from_ledger {
-            assert!(!keys(&built).contains(&key.to_string()));
-            assert!(
-                !built_text.contains(label),
-                "{label} prints without its section"
-            );
-        }
-    }
-}
-
-// The size figures are read within the time the caller gives the report, the
-// ledger path included: `leads` reads the view once for the whole ledger.
-#[test]
-fn the_size_figures_of_a_full_ledger_come_in_inside_the_time_limit() {
-    let home = scratch("report-sizes-load");
-    let to = 1_792_022_400 + 10 * DAY;
-    let (mut conn, _) = db::open(&db::path(&home), to).unwrap();
-    let tx = conn.transaction().unwrap();
-    // Four hundred shipped issues, and a measured start for each of them.
-    for i in 0..400_i64 {
-        let started = to - 10 * DAY + i * 60;
-        db::event(&tx, i, "ready", started).unwrap();
-        db::event(&tx, i, "merged", started + 3600).unwrap();
-    }
-    tx.commit().unwrap();
-    let starts: Vec<Value> = (0..400)
-        .map(|i| json!({"at": iso(to - 3600), "issue": i, "files": i % 7}))
-        .collect();
-    put_at(h(&home).state(State::Sizes), &ledger(&starts));
-    let t = std::time::Instant::now();
-    assert_eq!(execute(&home, &Cmd::Report, to), Ok(()));
-    let took = t.elapsed();
-    // The limit is 5 s; the ledger's join is one view read, not one per line.
-    // The bound guards a runaway join, so it is set far above what a report of
-    // this size costs even on the busiest runner of the gate.
-    assert!(took.as_secs_f64() < 30.0, "the report took {took:?}");
-}
-
-#[test]
 fn a_planning_turn_not_in_flight_records_nothing() {
     let now = 1_792_000_000;
     let home = scratch("plan-none");
@@ -3526,1125 +2856,6 @@ fn the_whole_numbers_of_the_arguments_follow_the_shared_rule() {
     }
 }
 
-// The known data set of the report's tests: six work runs in the window on
-// three version pairs, one before it, a planning turn, three shipped issues,
-// six samples (one before the window) and the gate of three of the runs.
-//
-// `gate` is each run of the product's gate the runs made: its id, a text
-// command, the tier word, the step word it ran in, whether it passed, and its
-// own milliseconds. d and the run before the window hold none, so they are in
-// no gate figure.
-#[allow(clippy::type_complexity)]
-const REPORT_GATES: [(&str, &str, &str, &str, i64, i64); 5] = [
-    (
-        "c",
-        "scripts/verify.sh --fast",
-        "fast",
-        "develop",
-        1,
-        300_000,
-    ),
-    (
-        "c",
-        "scripts/verify.sh --fast",
-        "fast",
-        "review",
-        1,
-        300_000,
-    ),
-    ("e", "scripts/verify.sh", "full", "develop", 0, 540_000),
-    (
-        "f",
-        "scripts/verify.sh --fast",
-        "fast",
-        "develop",
-        1,
-        60_000,
-    ),
-    // Outside the window, and the run it belongs to has no end for its `at`:
-    // neither is a figure the report reads.
-    (
-        "old",
-        "scripts/verify.sh --fast",
-        "fast",
-        "develop",
-        1,
-        45_000,
-    ),
-];
-
-fn report_data(conn: &Connection, day0: i64, to: i64) {
-    #[allow(clippy::type_complexity)]
-    let runs: [(
-        &str,
-        i64,
-        i64,
-        i64,
-        &str,
-        Option<i64>,
-        Option<i64>,
-        Option<i64>,
-        Option<&str>,
-        Option<&str>,
-        Option<&str>,
-        Option<&str>,
-        &str,
-        Option<&str>,
-    ); 7] = [
-        (
-            "a",
-            1,
-            day0 + 100,
-            600,
-            "handoff",
-            Some(1000),
-            None,
-            None,
-            Some("cap"),
-            Some("explore-bodies-empty"),
-            Some("explore"),
-            Some("handoff"),
-            "v1",
-            Some("0.13.0"),
-        ),
-        (
-            "b",
-            1,
-            day0 + 2000,
-            1200,
-            "merged",
-            Some(3000),
-            None,
-            None,
-            None,
-            None,
-            None,
-            Some("review"),
-            "v1",
-            Some("0.13.0"),
-        ),
-        (
-            "c",
-            2,
-            day0 + 3000,
-            1800,
-            "offered",
-            Some(2000),
-            Some(500),
-            None,
-            None,
-            None,
-            None,
-            Some("implement"),
-            "v1",
-            Some("0.13.0"),
-        ),
-        (
-            "d",
-            3,
-            day0 + DAY + 10,
-            300,
-            "failed",
-            None,
-            None,
-            None,
-            Some("timeout"),
-            None,
-            None,
-            Some("explore"),
-            "v2",
-            Some("0.13.0"),
-        ),
-        (
-            "e",
-            4,
-            day0 + DAY + 1000,
-            900,
-            "failed",
-            Some(100),
-            None,
-            Some(50),
-            Some("Weird Cause!"),
-            None,
-            None,
-            Some("implement"),
-            "v2",
-            None,
-        ),
-        (
-            "f",
-            5,
-            day0 + 2 * DAY,
-            0,
-            "refused",
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            "v1",
-            Some("0.13.0"),
-        ),
-        (
-            "old",
-            9,
-            day0 - 1000,
-            100,
-            "failed",
-            Some(5),
-            None,
-            None,
-            Some("timeout"),
-            None,
-            None,
-            None,
-            "v0",
-            Some("0.12.0"),
-        ),
-    ];
-    for (
-        id,
-        issue,
-        started,
-        secs,
-        outcome,
-        input,
-        output,
-        cache,
-        kind,
-        cap,
-        failed,
-        last,
-        tv,
-        rv,
-    ) in runs
-    {
-        conn.execute(
-            "INSERT INTO runs (id, kind, issue, started, ended, seconds, outcome, input, output,
-                               cache_read, failure_kind, cap, failed_step, last_step,
-                               tehas_version, rukas_version, failure_cause)
-             VALUES (?1, 'work', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
-                     'a cause no page may show')",
-            rusqlite::params![
-                id,
-                issue,
-                started,
-                started + secs,
-                secs,
-                outcome,
-                input,
-                output,
-                cache,
-                kind,
-                cap,
-                failed,
-                last,
-                tv,
-                rv
-            ],
-        )
-        .unwrap();
-    }
-    conn.execute(
-        "INSERT INTO runs (id, kind, issue, started, ended, seconds, outcome)
-         VALUES ('p', 'plan', 6, ?1, ?2, 400, 'handoff')",
-        [day0 + 100, day0 + 500],
-    )
-    .unwrap();
-    // Three of the runs recorded the gate, in four of its runs of the window:
-    // two 5-minute fast tiers in c, one 9-minute full tier in e and one
-    // minute of fast in f. `gate_ms` is what the runner's lines said, summed,
-    // in milliseconds, and the columns of run_gate_runs are the text, the tier
-    // and the step of each of them, the words of the published vocabularies.
-    for (id, command, tier, step, ok, ms) in REPORT_GATES {
-        conn.execute(
-            "INSERT INTO run_gate_runs (run_id, seq, command, tier, step, ok, ms, at)
-             SELECT id, (SELECT count(*) + 1 FROM run_gate_runs g WHERE g.run_id = r.id),
-                    ?2, ?3, ?4, ?5, ?6, coalesce(ended, started)
-             FROM runs r WHERE id = ?1",
-            rusqlite::params![id, command, tier, step, ok, ms],
-        )
-        .unwrap();
-    }
-    for (id, runs, ms) in [
-        ("c", 2, 600_000),
-        ("e", 1, 540_000),
-        ("f", 1, 60_000),
-        ("old", 1, 45_000),
-    ] {
-        conn.execute(
-            "UPDATE runs SET gate_runs = ?2, gate_ms = ?3 WHERE id = ?1",
-            rusqlite::params![id, runs, ms],
-        )
-        .unwrap();
-    }
-    let steps = [
-        ("a", "explore", 0),
-        ("a", "handoff", 300),
-        ("b", "explore", 0),
-        ("b", "implement", 300),
-        ("b", "review", 900),
-        ("c", "explore", 0),
-        ("c", "implement", 400),
-        ("d", "explore", 0),
-        ("e", "explore", 0),
-        ("e", "implement", 200),
-    ];
-    for (id, step, offset) in steps {
-        conn.execute(
-            "INSERT INTO run_steps (run_id, step, round, started)
-             SELECT id, ?2, 1, started + ?3 FROM runs WHERE id = ?1",
-            rusqlite::params![id, step, offset],
-        )
-        .unwrap();
-    }
-    db::event(conn, 1, "ready", day0).unwrap();
-    db::event(conn, 2, "ready", day0 + 2900).unwrap();
-    db::event(conn, 2, "merged", day0 + DAY + 100).unwrap();
-    db::event(conn, 7, "merged", day0 + 2 * DAY).unwrap();
-    db::event(conn, 3, "stopped", day0 + DAY + 400).unwrap();
-    #[allow(clippy::type_complexity)]
-    let samples: [(i64, Option<i64>, Option<i64>, Option<i64>, Option<&str>); 6] = [
-        (day0 - 60, Some(9), Some(9), Some(0), Some("")),
-        (day0 + DAY, Some(1), Some(0), Some(0), Some("")),
-        (to - 1800, Some(2), Some(1), Some(0), Some("")),
-        (to - 1200, Some(3), None, Some(1), None),
-        (to - 600, Some(4), Some(2), Some(0), Some("resources")),
-        (to - 300, Some(5), Some(1), Some(0), Some("")),
-    ];
-    for (at, in_line, planning, paused, held) in samples {
-        conn.execute(
-            "INSERT INTO samples (at, in_line, planning, paused, held)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            rusqlite::params![at, in_line, planning, paused, held],
-        )
-        .unwrap();
-    }
-}
-
-#[test]
-fn the_report_gives_the_figures_of_a_known_data_set() {
-    let home = scratch("report");
-    let day0 = 1_792_022_400; // 2026-10-15T00:00:00Z
-    let to = day0 + 9 * DAY + 43_200;
-    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    report_data(&conn, day0, to);
-    let got_typed = crate::report::build(&conn, to).unwrap();
-    let got = serde_json::to_value(&got_typed).unwrap();
-    let day = |d: &str, shipped: i64, runs: i64, failed: i64, minutes: i64| json!({"day": d, "shipped": shipped, "runs": runs, "failed": failed, "minutes": minutes});
-    let mut trend: Vec<Value> = (15..=24)
-        .map(|d| json!({"day": format!("2026-10-{d}")}))
-        .collect();
-    trend[1] = json!({"day": "2026-10-16", "n": 1});
-    trend[9] = json!({"day": "2026-10-24", "n": 6});
-    let mut want = json!({
-        "report": 1,
-        "from": day0,
-        "to": to,
-        "shipped": {"n": 3},
-        "planned": {"n": 6, "inLine": 5, "planning": 1, "trend": trend},
-        "runs": {"n": 6, "offered": 1, "merged": 1, "handoff": 1, "parked": 0, "failed": 2,
-                 "refused": 1, "stopped": 0},
-        "planningTurns": {"n": 1},
-        "handoffRate": {"n": 6, "share": 0.167},
-        // Issues 1 (two runs) and 2 (one); issue 7 has no run here.
-        "firstPassYield": {"n": 2, "share": 0.5},
-        "leadTime": {"n": 2, "median": 43_400, "p90": 83_600},
-        "cycleTime": {"n": 6, "median": 750, "p90": 1800},
-        // c, e and f recorded the gate: 300 s and 300 s in c, 540 s in e and
-        // 60 s in f. The median of the four runs of the gate is 300 s and
-        // their p90 540 s; 1.333 of them per run; 1200 s of gate in the 2700 s
-        // of the three runs, so a mean share of 0.467.
-        "gate": {"n": 3, "seconds": 1200, "median": 300, "p90": 540, "perRun": 1.333,
-                 "share": 0.467},
-        "machineTime": {"n": 6, "seconds": 4800, "perShipped": 1600},
-        "tokens": {"n": 4, "total": 6650, "input": 6100, "output": 500, "cacheRead": 50,
-                   "shipped": 3, "perShipped": 2217},
-        // 1500 seconds of 734400 since the first sample: 600 + 600 + 300.
-        "availability": {"n": 5, "seconds": 734_400, "share": 0.002},
-        "daily": [
-            day("2026-10-15", 1, 3, 0, 60),
-            day("2026-10-16", 1, 2, 2, 20),
-            day("2026-10-17", 1, 1, 0, 0),
-            day("2026-10-18", 0, 0, 0, 0),
-            day("2026-10-19", 0, 0, 0, 0),
-            day("2026-10-20", 0, 0, 0, 0),
-            day("2026-10-21", 0, 0, 0, 0),
-            day("2026-10-22", 0, 0, 0, 0),
-            day("2026-10-23", 0, 0, 0, 0),
-            day("2026-10-24", 0, 0, 0, 0),
-        ],
-        "stopReasons": {"n": 4, "top": [
-            {"reason": "explore-bodies-empty", "n": 1},
-            {"reason": "other", "n": 1},
-            {"reason": "refused", "n": 1},
-            {"reason": "timeout", "n": 1},
-        ]},
-        "stations": {"n": 5, "steps": [
-            {"step": "explore", "n": 5, "passed": 3, "share": 0.6},
-            {"step": "handoff", "n": 1, "passed": 1, "share": 1.0},
-            {"step": "implement", "n": 3, "passed": 2, "share": 0.667},
-            {"step": "review", "n": 1, "passed": 1, "share": 1.0},
-        ]},
-        // Three runs or more show their figures; fewer, the count only.
-        "versions": [
-            {"tehas": "v1", "rukas": "0.13.0", "n": 4, "changeShare": 0.5, "medianSeconds": 900,
-             "medianTokens": 2500, "tokensN": 3},
-            {"tehas": "v2", "n": 1},
-            {"tehas": "v2", "rukas": "0.13.0", "n": 1},
-        ],
-        // The drivers split by pi-rukas version, so two releases never pool:
-        // the five runs of 0.13.0 are a, b, c, d and f; e reported no version
-        // and reads `none`. The comparison of two versions is its own test.
-        "drivers": {
-            "classic": {
-                // Two pull requests and one run are under VERSION_FLOOR: their
-                // counts stand and their shares are left out. The hand-back of
-                // each entry is set below.
-                "0.13.0": {"n": 5, "ran": 4, "changeShare": 0.5, "parkedShare": 0.25,
-                           "minutes": {"n": 4, "total": 65, "median": 15},
-                           "tokens": {"n": 3, "total": 6500, "median": 2500},
-                           "pullRequests": {"n": 2, "merged": 2}},
-                "none": {"n": 1, "ran": 1,
-                         "minutes": {"n": 1, "total": 15, "median": 15},
-                         "tokens": {"n": 1, "total": 150, "median": 150},
-                         "pullRequests": {"n": 0, "merged": 0}},
-            },
-            "lean": {},
-        },
-    });
-    // The hand-back is the `stations` funnel of each entry's own runs.
-    want["drivers"]["classic"]["0.13.0"]["handBack"] = json!({"n": 4, "steps": [
-        {"step": "explore", "n": 4, "passed": 2, "share": 0.5},
-        {"step": "handoff", "n": 1, "passed": 1, "share": 1.0},
-        {"step": "implement", "n": 2, "passed": 2, "share": 1.0},
-        {"step": "review", "n": 1, "passed": 1, "share": 1.0},
-    ]});
-    want["drivers"]["classic"]["none"]["handBack"] = json!({"n": 1, "steps": [
-        {"step": "explore", "n": 1, "passed": 1, "share": 1.0},
-        {"step": "implement", "n": 1, "passed": 0, "share": 0.0},
-    ]});
-    assert_eq!(got, want, "{}", serde_json::to_string_pretty(&got).unwrap());
-    let text = got.to_string();
-    assert!(!text.contains("cause no page"));
-    assert!(!text.contains("Weird"));
-}
-
-#[test]
-fn the_gate_line_of_the_report_gives_its_figures_in_text_and_json() {
-    let home = scratch("report-gate");
-    let day0 = 1_792_022_400; // 2026-10-15T00:00:00Z
-    let to = day0 + 9 * DAY + 43_200;
-    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    report_data(&conn, day0, to);
-    let report_typed = crate::report::build(&conn, to).unwrap();
-    let report = serde_json::to_value(&report_typed).unwrap();
-    // The four gate rows of the window, read back as the report worked them
-    // out: 300 s and 300 s in c, 540 s in e and 60 s in f.
-    assert_eq!(
-        report["gate"],
-        json!({"n": 3, "seconds": 1200, "median": 300, "p90": 540, "perRun": 1.333,
-               "share": 0.467})
-    );
-    // The text line holds the same four figures, with the seconds of the two
-    // other durations of the report as minutes.
-    let text = crate::report::text(&report_typed);
-    assert!(
-        text.contains(
-            "\nGate               median 5m, p90 9m, 1.333 runs per run, 46.7% of run time  (n=3, 20m)\n"
-        ),
-        "{text}"
-    );
-    // The JSON the report command prints holds the same key as `build`'s.
-    let json_typed = crate::report::complete(&conn, &home, to).unwrap();
-    let json = serde_json::to_value(&json_typed).unwrap();
-    assert_eq!(json["gate"], report["gate"]);
-    // A second row of e's that carries no milliseconds of its own, and no
-    // tier: the count of the gate's runs of it rises to two, and its 540 s are
-    // read as two of 270 s each, which is what the run's stream said of them
-    // together. The report's figures follow the rows it was given.
-    conn.execute(
-        "INSERT INTO run_gate_runs (run_id, seq, command, tier, ok, ms, at)
-         VALUES ('e', 2, 'curl https://models.example/verify', NULL, NULL, NULL, ?1)",
-        [to],
-    )
-    .unwrap();
-    conn.execute("UPDATE runs SET gate_runs = 2 WHERE id = 'e'", [])
-        .unwrap();
-    let again_typed = crate::report::build(&conn, to).unwrap();
-    let again = serde_json::to_value(&again_typed).unwrap();
-    assert_eq!(again["gate"]["n"], json!(3));
-    assert_eq!(again["gate"]["median"], json!(270));
-    assert_eq!(again["gate"]["p90"], json!(300));
-    assert_eq!(again["gate"]["seconds"], json!(1200));
-    // Two runs of the gate in e now: the mean rises, and the row says so. The
-    // run's own share of its time is its recorded milliseconds over its own
-    // seconds, whatever the count of them is.
-    assert_eq!(again["gate"]["perRun"], json!(1.667));
-    assert_eq!(again["gate"]["share"], json!(0.467));
-    let text = crate::report::text(&again_typed);
-    assert!(
-        text.contains("median 4m30s, p90 5m, 1.667 runs per run, 46.7% of run time  (n=3, 20m)"),
-        "{text}"
-    );
-}
-
-/// A work run that ended in the report's window, as the columns the drivers
-/// are read from.
-fn driver_run(
-    conn: &Connection,
-    id: &str,
-    issue: i64,
-    started: i64,
-    outcome: &str,
-    tokens: Option<i64>,
-    driver: Option<&str>,
-) {
-    conn.execute(
-        "INSERT INTO runs (id, kind, issue, started, ended, seconds, outcome, input, driver)
-         VALUES (?1, 'work', ?2, ?3, ?3 + 600, 600, ?4, ?5, ?6)",
-        rusqlite::params![id, issue, started, outcome, tokens, driver],
-    )
-    .unwrap();
-}
-
-#[test]
-fn the_report_splits_by_driver_and_counts_a_null_row_as_classic() {
-    let home = scratch("report-drivers");
-    let day0 = 1_792_022_400;
-    let to = day0 + DAY;
-    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    // Classic: two pull requests, one merged by the driver, one parked run.
-    driver_run(&conn, "a", 1, day0, "merged", Some(100), None);
-    driver_run(&conn, "b", 2, day0, "offered", Some(200), Some("classic"));
-    driver_run(&conn, "c", 3, day0, "parked", Some(300), None);
-    driver_run(&conn, "d", 4, day0, "failed", Some(400), None);
-    // Lean: no usage yet. One pull request a person merged later, one not.
-    driver_run(&conn, "e", 5, day0, "offered", None, Some("lean"));
-    driver_run(&conn, "f", 6, day0, "offered", None, Some("lean"));
-    driver_run(&conn, "g", 7, day0, "parked", None, Some("lean"));
-    db::event(&conn, 5, "merged", day0 + 3600).unwrap();
-    let got_typed = crate::report::build(&conn, to).unwrap();
-    let got = serde_json::to_value(&got_typed).unwrap();
-    assert_eq!(
-        got["drivers"],
-        json!({
-            "classic": {"none": {"n": 4, "ran": 4, "changeShare": 0.5, "parkedShare": 0.25,
-                                 "minutes": {"n": 4, "total": 40, "median": 10},
-                                 "tokens": {"n": 4, "total": 1000, "median": 250},
-                                 "pullRequests": {"n": 2, "merged": 1}}},
-            "lean": {"none": {"n": 3, "ran": 3, "changeShare": 0.667, "parkedShare": 0.333,
-                              "minutes": {"n": 3, "total": 30, "median": 10},
-                              "tokens": {"n": 0},
-                              "pullRequests": {"n": 2, "merged": 1}}},
-        })
-    );
-    let text = crate::report::text(&got_typed);
-    let row = |name: &str| {
-        text.lines()
-            .find(|l| l.trim_start().starts_with(name))
-            .map(|l| l.split_whitespace().collect::<Vec<_>>().join(" "))
-            .unwrap()
-    };
-    assert_eq!(row("classic"), "classic none 4 4 50% 25% 40 1000 2 1 -/-");
-    assert_eq!(row("lean"), "lean none 3 3 66.7% 33.3% 30 - (n=0) 2 1 -/-");
-}
-
-/// A merge belongs to the pi-rukas version of the run that last reached the
-/// pull request before it, not to every version whose runs reached one.
-#[test]
-fn a_merge_is_credited_to_the_version_of_the_run_that_reached_the_pull_request() {
-    let home = scratch("report-driver-merge-version");
-    let day0 = 1_792_022_400;
-    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    // One issue, two releases: the older reached a pull request first, the
-    // newer last, and the merge followed both.
-    lean_run(&conn, "a", 5, day0, "offered", "0.14.49");
-    lean_run(&conn, "b", 5, day0 + 1000, "offered", "0.14.50");
-    db::event(&conn, 5, "merged", day0 + 2000).unwrap();
-    // The newer version needs enough runs for its own share to be published.
-    for (id, issue, outcome) in [("c", 6, "offered"), ("d", 7, "failed"), ("e", 8, "offered")] {
-        lean_run(&conn, id, issue, day0, outcome, "0.14.50");
-    }
-    let got_typed = crate::report::build(&conn, day0 + DAY).unwrap();
-    let got = serde_json::to_value(&got_typed).unwrap();
-    let lean = &got["drivers"]["lean"];
-    assert_eq!(
-        lean["0.14.49"]["pullRequests"],
-        json!({"n": 1, "merged": 0})
-    );
-    assert_eq!(
-        lean["0.14.50"]["pullRequests"],
-        json!({"n": 3, "merged": 1, "share": 0.333})
-    );
-    // The terminal prints the same split: no merged count on the older line.
-    let rows = crate::report::text(&got_typed)
-        .lines()
-        .map(|l| l.split_whitespace().collect::<Vec<_>>().join(" "))
-        .filter(|l| l.starts_with("lean "))
-        .collect::<Vec<_>>();
-    assert_eq!(
-        rows,
-        vec![
-            "lean 0.14.49 1 1 - - 10 - (n=0) 1 0 -/-",
-            "lean 0.14.50 4 4 75% 0% 40 - (n=0) 3 1 -/-",
-        ]
-    );
-}
-
-#[test]
-fn a_drivers_shares_are_of_its_runs_that_ran() {
-    let home = scratch("report-driver-ran");
-    let day0 = 1_792_022_400;
-    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    driver_run(&conn, "a", 1, day0, "offered", None, Some("lean"));
-    driver_run(&conn, "b", 2, day0, "failed", None, Some("lean"));
-    driver_run(&conn, "c", 3, day0, "refused", None, Some("lean"));
-    driver_run(&conn, "d", 4, day0, "stopped", None, Some("lean"));
-    driver_run(&conn, "e", 5, day0, "offered", None, Some("lean"));
-    let got_typed = crate::report::build(&conn, day0 + DAY).unwrap();
-    let got = serde_json::to_value(&got_typed).unwrap();
-    let lean = &got["drivers"]["lean"]["none"];
-    assert_eq!(lean["n"], 5);
-    assert_eq!(lean["ran"], 3);
-    assert_eq!(lean["changeShare"], 0.667);
-    assert_eq!(lean["parkedShare"], 0.0);
-}
-
-#[test]
-fn a_driver_with_only_refused_runs_has_no_shares() {
-    let home = scratch("report-driver-refused");
-    let day0 = 1_792_022_400;
-    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    driver_run(&conn, "a", 1, day0, "refused", None, Some("lean"));
-    let got_typed = crate::report::build(&conn, day0 + DAY).unwrap();
-    let got = serde_json::to_value(&got_typed).unwrap();
-    let lean = &got["drivers"]["lean"]["none"];
-    assert_eq!((&lean["n"], &lean["ran"]), (&json!(1), &json!(0)));
-    assert_eq!(lean.get("changeShare"), None);
-    assert_eq!(lean.get("parkedShare"), None);
-}
-
-#[test]
-fn a_run_handed_off_to_a_person_counts_as_parked_for_its_driver() {
-    let home = scratch("report-driver-handoff");
-    let day0 = 1_792_022_400;
-    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    driver_run(&conn, "a", 1, day0, "handoff", None, Some("lean"));
-    driver_run(&conn, "b", 2, day0, "parked", None, Some("lean"));
-    driver_run(&conn, "c", 3, day0, "offered", None, Some("lean"));
-    driver_run(&conn, "d", 4, day0, "offered", None, Some("lean"));
-    let got_typed = crate::report::build(&conn, day0 + DAY).unwrap();
-    let got = serde_json::to_value(&got_typed).unwrap();
-    assert_eq!(got["drivers"]["lean"]["none"]["parkedShare"], 0.5);
-    assert_eq!(got["handoffRate"]["share"], 0.5);
-}
-
-#[test]
-fn a_shipped_issue_whose_runs_reported_no_usage_is_no_zero_in_tokens_per_shipped() {
-    let home = scratch("report-per-shipped");
-    let day0 = 1_792_022_400;
-    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    let tokens = |conn: &Connection| {
-        serde_json::to_value(crate::report::build(conn, day0 + DAY).unwrap().tokens).unwrap()
-    };
-    driver_run(&conn, "a", 1, day0, "merged", Some(1_000_000), None);
-    driver_run(&conn, "b", 2, day0, "offered", None, Some("lean"));
-    db::event(&conn, 2, "merged", day0 + 3600).unwrap();
-    assert_eq!(tokens(&conn)["perShipped"], 1_000_000);
-    assert_eq!(tokens(&conn)["shipped"], 1);
-    // One run with a figure is enough for the issue to count.
-    driver_run(&conn, "c", 2, day0 + 1, "offered", Some(0), Some("lean"));
-    assert_eq!(tokens(&conn)["perShipped"], 500_000);
-    assert_eq!(tokens(&conn)["shipped"], 2);
-    // No run here at all: no driver left a gap, so the issue counts as it did.
-    db::event(&conn, 3, "merged", day0 + 3600).unwrap();
-    assert_eq!(tokens(&conn)["shipped"], 3);
-}
-
-#[test]
-fn a_driver_of_no_runs_has_counts_and_no_figures() {
-    let home = scratch("report-no-drivers");
-    let to = 1_792_022_400;
-    let (conn, _) = db::open(&db::path(&home), to).unwrap();
-    // A driver with no run has no entry: the versions are those of the runs, and
-    // it has none. `text` prints no line for it.
-    assert_eq!(
-        serde_json::to_value(crate::report::build(&conn, to).unwrap().drivers).unwrap(),
-        json!({"classic": {}, "lean": {}})
-    );
-}
-
-#[test]
-fn empty_tokens_are_left_out_of_a_drivers_sum_and_not_counted() {
-    let home = scratch("report-part-tokens");
-    let day0 = 1_792_022_400;
-    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    driver_run(&conn, "a", 1, day0, "offered", Some(0), Some("lean"));
-    driver_run(&conn, "b", 2, day0, "offered", Some(400), Some("lean"));
-    driver_run(&conn, "c", 3, day0, "offered", None, Some("lean"));
-    let got_typed = crate::report::build(&conn, day0 + DAY).unwrap();
-    let got = serde_json::to_value(&got_typed).unwrap();
-    // A reported 0 is a figure; an empty run is not in the median either.
-    assert_eq!(
-        got["drivers"]["lean"]["none"]["tokens"],
-        json!({"n": 2, "total": 400, "median": 200})
-    );
-    assert!(crate::report::text(&got_typed).contains("400 (n=2)"));
-}
-
-#[test]
-fn a_pull_request_counts_once_and_only_a_merge_after_it_was_reached() {
-    let home = scratch("report-pulls");
-    let day0 = 1_792_022_400;
-    let to = day0 + DAY;
-    let (conn, _) = db::open(&db::path(&home), day0 - 9 * DAY).unwrap();
-    // Two runs of one pull request, the second a follow-up by another how.
-    driver_run(&conn, "a", 1, day0, "offered", None, Some("lean"));
-    driver_run(&conn, "b", 1, day0 + 1000, "offered", None, Some("lean"));
-    db::event(&conn, 1, "merged", day0 + 2000).unwrap();
-    // Merged before this cycle of the issue: an earlier pull request's.
-    db::event(&conn, 2, "merged", day0 - 8 * DAY).unwrap();
-    driver_run(&conn, "c", 2, day0, "offered", None, Some("lean"));
-    // Merged after the report's end: not yet, in this report.
-    driver_run(&conn, "d", 3, day0, "offered", None, Some("lean"));
-    db::event(&conn, 3, "merged", to + 1).unwrap();
-    // No pull request, so it is in no count of them, merged or not.
-    driver_run(&conn, "e", 4, day0, "failed", None, Some("lean"));
-    db::event(&conn, 4, "merged", day0 + 2000).unwrap();
-    assert_eq!(
-        serde_json::to_value(crate::report::build(&conn, to).unwrap().drivers).unwrap()["lean"]
-            ["none"]["pullRequests"],
-        json!({"n": 3, "merged": 1, "share": 0.333})
-    );
-}
-
-#[test]
-fn a_merge_is_of_the_driver_that_last_reached_a_pull_request_before_it() {
-    let home = scratch("report-pulls-driver");
-    let day0 = 1_792_022_400;
-    let to = day0 + DAY;
-    let (conn, _) = db::open(&db::path(&home), day0 - 9 * DAY).unwrap();
-    // Lean's pull request was closed, classic's merged.
-    driver_run(&conn, "a", 1, day0, "offered", None, Some("lean"));
-    driver_run(&conn, "b", 1, day0 + 1000, "offered", None, None);
-    db::event(&conn, 1, "merged", day0 + 2000).unwrap();
-    // The other way round, and a classic run after the merge changes nothing.
-    driver_run(&conn, "c", 2, day0, "offered", None, None);
-    driver_run(&conn, "d", 2, day0 + 1000, "offered", None, Some("lean"));
-    db::event(&conn, 2, "merged", day0 + 2000).unwrap();
-    driver_run(&conn, "e", 2, day0 + 3000, "offered", None, None);
-    let report_typed = crate::report::build(&conn, to).unwrap();
-    let report = serde_json::to_value(&report_typed).unwrap();
-    // Two pull requests are under VERSION_FLOOR: the counts, and no share.
-    assert_eq!(
-        report["drivers"]["lean"]["none"]["pullRequests"],
-        json!({"n": 2, "merged": 1})
-    );
-    assert_eq!(
-        report["drivers"]["classic"]["none"]["pullRequests"],
-        json!({"n": 2, "merged": 1})
-    );
-}
-
-#[test]
-fn a_refused_run_is_in_no_minutes_of_its_driver() {
-    let home = scratch("report-minutes-ran");
-    let day0 = 1_792_022_400;
-    let (conn, _) = db::open(&db::path(&home), day0 - 9 * DAY).unwrap();
-    driver_run(&conn, "a", 1, day0, "offered", None, Some("lean"));
-    driver_run(&conn, "b", 2, day0, "refused", None, Some("lean"));
-    driver_run(&conn, "c", 3, day0, "stopped", None, Some("lean"));
-    let report_typed = crate::report::build(&conn, day0 + DAY).unwrap();
-    let report = serde_json::to_value(&report_typed).unwrap();
-    assert_eq!(report["drivers"]["lean"]["none"]["n"], json!(3));
-    assert_eq!(
-        report["drivers"]["lean"]["none"]["minutes"],
-        json!({"n": 1, "total": 10, "median": 10})
-    );
-}
-
-/// A lean work run of one pi-rukas version, for the per-version table.
-fn lean_run(conn: &Connection, id: &str, issue: i64, started: i64, outcome: &str, version: &str) {
-    conn.execute(
-        "INSERT INTO runs (id, kind, issue, started, ended, seconds, outcome, driver, rukas_version)
-         VALUES (?1, 'work', ?2, ?3, ?3 + 600, 600, ?4, 'lean', ?5)",
-        rusqlite::params![id, issue, started, outcome, version],
-    )
-    .unwrap();
-}
-
-/// A step the run reached, as `analytics run` stores it.
-fn run_step(conn: &Connection, id: &str, step: &str) {
-    conn.execute(
-        "INSERT INTO run_steps (run_id, step, round) VALUES (?1, ?2, 1)",
-        rusqlite::params![id, step],
-    )
-    .unwrap();
-}
-
-/// The `text` table reads the drivers section by its keys, so a rename is a row
-/// of dashes rather than a failure. The shape is pinned once here instead.
-#[test]
-fn each_drivers_entry_carries_the_keys_the_terminal_prints() {
-    let home = scratch("report-drivers-shape");
-    let day0 = 1_792_022_400;
-    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    lean_run(&conn, "a", 1, day0, "offered", "0.14.50");
-    // A classic run of the same version that reached a pull request.
-    conn.execute(
-        "INSERT INTO runs (id, kind, issue, started, ended, seconds, outcome, rukas_version)
-         VALUES ('c', 'work', 2, ?1, ?1 + 600, 600, 'offered', '0.14.50')",
-        rusqlite::params![day0],
-    )
-    .unwrap();
-    run_step(&conn, "a", "ready");
-    run_step(&conn, "a", "verify");
-    conn.execute("UPDATE runs SET attempt = 1 WHERE id = 'a'", [])
-        .unwrap();
-    let got_typed = crate::report::build(&conn, day0 + DAY).unwrap();
-    let got = serde_json::to_value(&got_typed).unwrap();
-    for driver in crate::run::DRIVERS {
-        let entries = got["drivers"][driver]
-            .as_object()
-            .unwrap_or_else(|| panic!("{driver} is an object of its versions"));
-        assert!(!entries.is_empty(), "{driver} holds the runs of the window");
-        for (version, e) in entries {
-            for key in ["n", "ran", "minutes", "tokens", "pullRequests"] {
-                assert!(e.get(key).is_some(), "{driver} {version} holds {key}: {e}");
-            }
-            // A figure the report cannot work out is left out, never null: a
-            // key that is there holds a value of the shape `text` prints.
-            assert!(
-                e.get("changeShare").is_none_or(Value::is_number),
-                "{driver} {version}"
-            );
-            assert!(
-                e.get("parkedShare").is_none_or(Value::is_number),
-                "{driver} {version}"
-            );
-            assert!(e["minutes"]["n"].is_number(), "{driver} {version}");
-            assert!(
-                e["minutes"].get("total").is_none_or(Value::is_number),
-                "{driver} {version}"
-            );
-            assert!(e["tokens"]["n"].is_number(), "{driver} {version}");
-            assert!(
-                e["tokens"].get("total").is_none_or(Value::is_number),
-                "{driver} {version}"
-            );
-            assert!(e["pullRequests"]["n"].is_number(), "{driver} {version}");
-            assert!(
-                e["pullRequests"]["merged"].is_number(),
-                "{driver} {version}"
-            );
-        }
-    }
-    // And the two figures of the comparison hold what their lines print.
-    let e = &got["drivers"]["lean"]["0.14.50"];
-    assert!(e["oneAttempt"]["change"].is_number() && e["oneAttempt"]["n"].is_number());
-    let back = e["handBack"]["steps"].as_array().unwrap();
-    assert!(back[0]["step"].is_string() && back[0]["n"].is_number());
-    assert!(back[0]["passed"].is_number() && back[0]["share"].is_number());
-}
-
-#[test]
-fn the_drivers_section_never_pools_two_pi_rukas_versions() {
-    let home = scratch("report-drivers-versions");
-    let day0 = 1_792_022_400;
-    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    lean_run(&conn, "a", 1, day0, "offered", "0.14.49");
-    lean_run(&conn, "b", 2, day0, "offered", "0.14.49");
-    lean_run(&conn, "c", 3, day0, "parked", "0.14.49");
-    // The next release, one run: it stands on its own with its own count, and
-    // one run is too few for a share, as in `versions`.
-    lean_run(&conn, "d", 4, day0, "offered", "0.14.50");
-    let got_typed = crate::report::build(&conn, day0 + DAY).unwrap();
-    let got = serde_json::to_value(&got_typed).unwrap();
-    let lean = &got["drivers"]["lean"];
-    assert_eq!(lean["0.14.49"]["n"], json!(3));
-    assert_eq!(lean["0.14.49"]["changeShare"], json!(0.667));
-    assert_eq!(lean["0.14.50"]["n"], json!(1));
-    assert_eq!(lean["0.14.50"].get("changeShare"), None);
-    assert_eq!(lean["0.14.50"].get("parkedShare"), None);
-    // The terminal prints one line per pair, the version in its own column.
-    let text = crate::report::text(&got_typed);
-    assert!(text.contains("0.14.49"), "{text}");
-    assert!(text.contains("0.14.50"), "{text}");
-}
-
-/// Two rejected versions of one driver are one entry, since the report calls
-/// both `other`: their runs are counted together rather than one replacing the
-/// other.
-#[test]
-fn two_versions_the_report_cannot_name_are_one_other_entry_whose_runs_are_summed() {
-    let home = scratch("report-drivers-other");
-    let day0 = 1_792_022_400;
-    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    // One past the length a version may hold, and one with a word no release
-    // carries: both are rejected, and both are the same entry.
-    lean_run(&conn, "a", 1, day0, "offered", &"0".repeat(41));
-    lean_run(&conn, "b", 2, day0, "parked", "v0.14.50$");
-    let got_typed = crate::report::build(&conn, day0 + DAY).unwrap();
-    let got = serde_json::to_value(&got_typed).unwrap();
-    let lean = got["drivers"]["lean"].clone();
-    let other = lean["other"].clone();
-    // Both runs, not the last one alone.
-    assert_eq!(other["n"], json!(2));
-    assert_eq!(other["ran"], json!(2));
-    assert_eq!(other["pullRequests"]["n"], json!(1));
-}
-
-/// One-attempt success is of the runs that were their issue's first attempt,
-/// and the hand-back is the step funnel of the entry's own runs, read by run:
-/// two runs of one issue each count their own steps.
-#[test]
-fn a_drivers_entry_gives_the_one_attempt_success_and_the_hand_back_by_step() {
-    let home = scratch("report-drivers-lean");
-    let day0 = 1_792_022_400;
-    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    // Issue 1: the first attempt parked at verify, the second reached a PR.
-    lean_run(&conn, "a", 1, day0, "parked", "0.14.50");
-    lean_run(&conn, "b", 1, day0 + 1000, "offered", "0.14.50");
-    // Issues 2 and 3: first attempts that reached a PR; issue 4: one refused.
-    lean_run(&conn, "c", 2, day0, "offered", "0.14.50");
-    lean_run(&conn, "d", 3, day0, "offered", "0.14.50");
-    lean_run(&conn, "e", 4, day0, "refused", "0.14.50");
-    for (id, attempt) in [("a", 1), ("b", 2), ("c", 1), ("d", 1), ("e", 1)] {
-        conn.execute(
-            "UPDATE runs SET attempt = ?2 WHERE id = ?1",
-            rusqlite::params![id, attempt],
-        )
-        .unwrap();
-    }
-    conn.execute("UPDATE runs SET failed_step = 'verify' WHERE id = 'a'", [])
-        .unwrap();
-    for id in ["a", "b", "c", "d"] {
-        run_step(&conn, id, "ready");
-        run_step(&conn, id, "verify");
-    }
-    run_step(&conn, "b", "fix");
-    let got_typed = crate::report::build(&conn, day0 + DAY).unwrap();
-    let got = serde_json::to_value(&got_typed).unwrap();
-    let e = &got["drivers"]["lean"]["0.14.50"];
-    // Three first attempts ran (the refused one did not), two reached a PR.
-    assert_eq!(
-        e["oneAttempt"],
-        json!({"n": 3, "change": 2, "share": 0.667})
-    );
-    // Four runs in the funnel; the fix step is the second run's alone.
-    assert_eq!(e["handBack"]["n"], json!(4));
-    let steps: BTreeMap<String, (i64, i64)> = e["handBack"]["steps"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|s| {
-            (
-                s["step"].as_str().unwrap().to_string(),
-                (s["n"].as_i64().unwrap(), s["passed"].as_i64().unwrap()),
-            )
-        })
-        .collect();
-    assert_eq!(steps["ready"], (4, 4));
-    assert_eq!(steps["verify"], (4, 3));
-    assert_eq!(steps["fix"], (1, 1));
-    // The classic side of the window holds none of these runs.
-    assert_eq!(got["drivers"]["classic"], json!({}));
-    let text = crate::report::text(&got_typed);
-    assert!(text.contains("verify"), "{text}");
-}
-
-#[test]
-fn a_run_with_no_usage_is_no_zero_in_a_version_pairs_median() {
-    let home = scratch("report-version-tokens");
-    let day0 = 1_792_022_400;
-    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    let pair = |conn: &Connection| {
-        let got_typed = crate::report::build(conn, day0 + DAY).unwrap();
-        let got = serde_json::to_value(&got_typed).unwrap();
-        let row = &got["versions"][0];
-        (row["medianTokens"].clone(), row["tokensN"].clone())
-    };
-    driver_run(&conn, "a", 1, day0, "offered", None, Some("lean"));
-    driver_run(&conn, "b", 2, day0, "offered", None, Some("lean"));
-    driver_run(&conn, "c", 3, day0, "offered", None, Some("lean"));
-    assert_eq!(pair(&conn), (Value::Null, Value::Null));
-    // The floor holds for the runs behind the figure, not the pair's.
-    driver_run(&conn, "d", 4, day0, "offered", Some(500), None);
-    driver_run(&conn, "e", 5, day0, "offered", Some(600), None);
-    assert_eq!(pair(&conn), (Value::Null, Value::Null));
-    driver_run(&conn, "f", 6, day0, "offered", Some(700), None);
-    assert_eq!(pair(&conn), (json!(600), json!(3)));
-}
-
-#[test]
-fn v_versions_leaves_runs_with_no_usage_out_of_its_median_tokens() {
-    let median =
-        |conn: &Connection| one::<Option<f64>>(conn, "SELECT median_tokens FROM v_versions");
-    let new = scratch("view-tokens-new");
-    let (fresh, _) = db::open(&db::path(&new), 1_792_022_400).unwrap();
-    {
-        let conn = &fresh;
-        driver_run(conn, "a", 1, 1_792_022_400, "offered", None, Some("lean"));
-        driver_run(conn, "b", 2, 1_792_022_400, "offered", None, Some("lean"));
-        assert_eq!(median(conn), None);
-        driver_run(conn, "c", 3, 1_792_022_400, "offered", Some(500), None);
-        assert_eq!(median(conn), Some(500.0));
-        // A reported 0 is a figure.
-        driver_run(conn, "d", 4, 1_792_022_400, "offered", Some(0), None);
-        assert_eq!(median(conn), Some(250.0));
-    }
-}
-
-#[test]
-fn a_version_pair_reaches_its_figures_at_three_runs() {
-    let home = scratch("report-floor");
-    let day0 = 1_792_022_400;
-    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    let pair = |conn: &Connection| {
-        serde_json::to_value(&crate::report::build(conn, day0 + DAY).unwrap().versions[0]).unwrap()
-    };
-    for (i, outcome) in ["offered", "failed", "offered"].iter().enumerate() {
-        conn.execute(
-            "INSERT INTO runs (id, kind, issue, started, ended, seconds, outcome, input,
-                               tehas_version, rukas_version)
-             VALUES (?1, 'work', 1, ?2, ?3, 60, ?4, 10, 'v0.7.22', '0.13.0')",
-            rusqlite::params![
-                format!("r{i}"),
-                day0 + i as i64,
-                day0 + i as i64 + 60,
-                outcome
-            ],
-        )
-        .unwrap();
-        let want = if i < 2 {
-            json!({"tehas": "v0.7.22", "rukas": "0.13.0", "n": i + 1})
-        } else {
-            json!({"tehas": "v0.7.22", "rukas": "0.13.0", "n": 3, "changeShare": 0.667,
-                   "medianSeconds": 60, "medianTokens": 10, "tokensN": 3})
-        };
-        assert_eq!(pair(&conn), want);
-    }
-}
-
-#[test]
-fn an_empty_database_reports_counts_of_nothing_and_leaves_out_what_has_no_value() {
-    let home = scratch("report-empty");
-    let to = 1_792_022_400 + 3600;
-    let (conn, _) = db::open(&db::path(&home), to).unwrap();
-    let got_typed = crate::report::build(&conn, to).unwrap();
-    let got = serde_json::to_value(&got_typed).unwrap();
-    let keys: Vec<&str> = got
-        .as_object()
-        .unwrap()
-        .keys()
-        .map(String::as_str)
-        .collect();
-    assert_eq!(
-        keys,
-        [
-            "availability",
-            "cycleTime",
-            "daily",
-            "drivers",
-            "firstPassYield",
-            "from",
-            "handoffRate",
-            "leadTime",
-            "machineTime",
-            "planningTurns",
-            "report",
-            "runs",
-            "shipped",
-            "stations",
-            "stopReasons",
-            "to",
-            "tokens",
-            "versions"
-        ]
-    );
-    // refine and sizes come from the ledgers beside the database, so the
-    // report command adds them, not build().
-    assert!(got.get("refine").is_none());
-    assert!(got.get("sizes").is_none());
-    // The command's own report carries both keys, as `text` needs them.
-    let full_typed = crate::report::complete(&conn, &home, to).unwrap();
-    let full = serde_json::to_value(&full_typed).unwrap();
-    assert!(full["sizes"].is_object() && full["refine"].is_object());
-    assert_eq!(full["sizes"]["none"]["n"], json!(0));
-    assert_eq!(execute(&home, &Cmd::Report, to), Ok(()));
-    assert_eq!(got["availability"], json!({"n": 0}));
-    assert_eq!(got["firstPassYield"], json!({"n": 0}));
-    assert_eq!(got["leadTime"], json!({"n": 0}));
-    // No run recorded the gate, so its section is absent, as the other four
-    // are absent with nothing to count, and the terminal prints no row for it.
-    assert!(got.get("gate").is_none());
-    assert_eq!(got["machineTime"], json!({"n": 0, "seconds": 0}));
-    assert_eq!(got["daily"].as_array().unwrap().len(), 10);
-    assert_eq!(got["from"], json!(to - 3600 - 9 * DAY));
-    assert!(!got.to_string().contains("null"));
-}
-
-#[test]
-fn ten_days_of_data_report_well_inside_the_time_limit() {
-    let home = scratch("report-load");
-    let to = 1_792_022_400 + 10 * DAY;
-    let (mut conn, _) = db::open(&db::path(&home), to).unwrap();
-    let tx = conn.transaction().unwrap();
-    // A sample every two minutes, and a run every fifteen with three steps.
-    for i in 0..7200 {
-        tx.execute(
-            "INSERT INTO samples (at, in_line, planning, paused, held)
-             VALUES (?1, 3, 1, 0, '')",
-            [to - 10 * DAY + i * 120],
-        )
-        .unwrap();
-    }
-    for i in 0..960_i64 {
-        let started = to - 10 * DAY + i * 900;
-        let id = format!("work-{i}-{started}");
-        tx.execute(
-            "INSERT INTO runs (id, kind, issue, started, ended, seconds, outcome, input, output,
-                               tehas_version, rukas_version, failure_kind, last_step)
-             VALUES (?1, 'work', ?2, ?3, ?4, 600, ?5, 1000, 100, 'v1', ?6, 'timeout', 'review')",
-            rusqlite::params![
-                id,
-                i / 2,
-                started,
-                started + 600,
-                if i % 3 == 0 { "failed" } else { "offered" },
-                format!("0.{}.0", i % 7)
-            ],
-        )
-        .unwrap();
-        for (k, step) in ["explore", "implement", "review"].iter().enumerate() {
-            tx.execute(
-                "INSERT INTO run_steps (run_id, step, round, started) VALUES (?1, ?2, 1, ?3)",
-                rusqlite::params![id, step, started + k as i64 * 100],
-            )
-            .unwrap();
-        }
-        if i % 2 == 1 {
-            db::event(&tx, i / 2, "ready", started - 300).unwrap();
-            db::event(&tx, i / 2, "merged", started + 700).unwrap();
-        }
-    }
-    tx.commit().unwrap();
-    let t = std::time::Instant::now();
-    let got = execute(&home, &Cmd::Report, to);
-    let took = t.elapsed();
-    assert_eq!(got, Ok(()));
-    let report_typed = crate::report::build(&conn, to).unwrap();
-    let report = serde_json::to_value(&report_typed).unwrap();
-    assert!(report["runs"]["n"].as_i64().unwrap() > 800);
-    assert!(report["shipped"]["n"].as_i64().unwrap() > 400);
-    // The limit is 5 s; an unoptimised build on a busy machine is well inside
-    // it. The bound guards a runaway, so no runner under load reaches it.
-    assert!(took.as_secs_f64() < 30.0, "the report took {took:?}");
-}
-
 #[test]
 fn an_export_of_no_runs_leaves_out_from_and_to() {
     let home = scratch("export-empty");
@@ -4683,61 +2894,6 @@ fn an_export_of_no_runs_leaves_out_from_and_to() {
 }
 
 #[test]
-fn the_text_report_says_the_figures_with_their_counts() {
-    let home = scratch("report-text");
-    let day0 = 1_792_022_400; // 2026-10-15T00:00:00Z
-    let to = day0 + 9 * DAY + 43_200;
-    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    report_data(&conn, day0, to);
-    let text = crate::report::text(&crate::report::build(&conn, to).unwrap());
-    // The Size line comes only with the key, which the report command adds.
-    assert!(!text.contains("Size"));
-    for want in [
-        "Last 10 days, 2026-10-15 to 2026-10-24 (UTC)\n",
-        "\nShipped            3 issues\n",
-        "\nPlanned            6 now: 5 in line, 1 in planning\n",
-        "\nRuns               6: 1 offered, 1 merged, 1 handoff, 0 parked, 2 failed, 1 refused, 0 stopped\n",
-        "\nHandoff rate       16.7%  (n=6)\n",
-        "\nFirst-pass yield   50%  (n=2)\n",
-        "\nLead time          median 12h03m, p90 23h13m  (n=2)\n",
-        "\nCycle time         median 12m30s, p90 30m  (n=6)\n",
-        "\nMachine time       1h20m, 26m40s per shipped issue  (n=6)\n",
-        "\nTokens             6650: 6100 input, 500 output, 50 cache read, 2217 per shipped issue  (n=4)\n",
-        "\nAvailability       0.2% of 8d12h  (n=5)\n",
-        "\nGate               median 5m, p90 9m, 1.333 runs per run, 46.7% of run time  (n=3, 20m)\n",
-        "\n2026-10-16         1     2       2       20\n",
-        "\nStop reasons  (n=4)\n  explore-bodies-empty              1\n",
-        "\n  implement                         2 of 3     66.7%\n",
-        "\n  v1                  0.13.0                  4      50%     15m      2500\n",
-        "\n  v2                  -                       1\n",
-    ] {
-        assert!(text.contains(want), "{want:?} in\n{text}");
-    }
-    assert!(!text.contains("cause no page"));
-}
-
-#[test]
-fn the_text_report_of_an_empty_database_says_none() {
-    let home = scratch("report-text-empty");
-    let to = 1_792_022_400 + 3600;
-    let (conn, _) = db::open(&db::path(&home), to).unwrap();
-    let text = crate::report::text(&crate::report::build(&conn, to).unwrap());
-    for want in [
-        "\nShipped            0 issues\n",
-        "\nPlanned            -\n",
-        "\nFirst-pass yield   -  (n=0)\n",
-        "\nLead time          median -, p90 -  (n=0)\n",
-        "\nMachine time       0s  (n=0)\n",
-        "\nAvailability       -  (n=0)\n",
-        "\nStop reasons  (n=0)\n  none\n",
-        "\nVersions  (fewer than 3 runs: the count only)\n  none\n",
-    ] {
-        assert!(text.contains(want), "{want:?} in\n{text}");
-    }
-    assert!(!text.contains("Energy"));
-}
-
-#[test]
 fn an_export_to_a_path_that_is_not_utf8_leaves_no_file() {
     use std::os::unix::ffi::OsStrExt;
     let home = scratch("export-utf8");
@@ -4745,167 +2901,6 @@ fn an_export_to_a_path_that_is_not_utf8_leaves_no_file() {
     let err = execute(&home, &Cmd::Copy(out.clone(), false), 1_792_022_400).unwrap_err();
     assert_eq!(err.0, 73, "{err:?}");
     assert!(!out.exists());
-}
-
-#[test]
-fn a_factory_whose_cycles_run_is_available_whatever_holds_the_next_start() {
-    let home = scratch("report-available");
-    let to = 1_792_022_400 + 10 * DAY;
-    let (conn, _) = db::open(&db::path(&home), to).unwrap();
-    // Ten minutes each: full slots, a hold with nothing running, a pause,
-    // nothing held, and a hold with running unknown.
-    for (i, (running, paused, held)) in [
-        (Some(4), 0, "count"),
-        (Some(0), 0, "awaiting"),
-        (Some(2), 1, ""),
-        (Some(0), 0, ""),
-        (None, 0, "count"),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        conn.execute(
-            "INSERT INTO samples (at, running, paused, held) VALUES (?1, ?2, ?3, ?4)",
-            rusqlite::params![to - 3000 + i as i64 * 600, running, paused, held],
-        )
-        .unwrap();
-    }
-    let report_typed = crate::report::build(&conn, to).unwrap();
-    let report = serde_json::to_value(&report_typed).unwrap();
-    assert_eq!(
-        report["availability"],
-        json!({"n": 5, "seconds": 3000, "share": 0.4})
-    );
-}
-
-// A cell of the wrong type is no figure, and the report still publishes. The
-// sample whose `paused` holds a REAL is not counted as available, since
-// whether it was paused is unknown. A column with no strict type keeps what a
-// literal of another type is put in it, so the number below is not a whole
-// one: SQLite turns a whole REAL in a column of numeric affinity into an
-// INTEGER, and that is a readable cell.
-#[test]
-fn a_wrong_typed_samples_cell_leaves_its_figure_out() {
-    let home = scratch("report-sample-types");
-    let to = 1_792_022_400 + 10 * DAY;
-    let (conn, _) = db::open(&db::path(&home), to).unwrap();
-    // Five minutes apart, so each row stands for its own 300 seconds. The
-    // first row is readable, and so is the third (`held` has text affinity,
-    // which makes the 1.5 the word "1.5", and cycles are running). The middle
-    // row holds the REAL 0.5 in `paused`, which is no pause.
-    conn.execute(
-        "INSERT INTO samples (at, running, paused, held) VALUES (?1, 1, 0, '')",
-        params![to - 900],
-    )
-    .unwrap();
-    conn.execute(
-        "INSERT INTO samples (at, running, paused, held) VALUES (?1, 1, 0.5, '')",
-        params![to - 600],
-    )
-    .unwrap();
-    conn.execute(
-        "INSERT INTO samples (at, running, paused, held) VALUES (?1, 4, 0, 1.5)",
-        params![to - 300],
-    )
-    .unwrap();
-    // The first and third rows are available: 600 of the 900 seconds since the
-    // first sample. The middle one is not, since its pause is unknown.
-    let report_typed = crate::report::build(&conn, to).unwrap();
-    let report = serde_json::to_value(&report_typed).unwrap();
-    assert_eq!(
-        report["availability"],
-        json!({"n": 3, "seconds": 900, "share": 0.667})
-    );
-}
-
-// A word where a count belongs leaves that count out and the report up: the
-// row with the unreadable line is still in the availability figure, and the
-// last well-formed row still gives the line.
-#[test]
-fn a_word_in_a_counted_column_leaves_the_line_out_and_the_report_up() {
-    let home = scratch("report-sample-text");
-    let to = 1_792_022_400 + 10 * DAY;
-    let (conn, _) = db::open(&db::path(&home), to).unwrap();
-    // The first row's `in_line` is the word "many" and its `planning` the word
-    // "few": neither is a count. The second row is well-formed.
-    conn.execute(
-        "INSERT INTO samples (at, in_line, planning, paused, held) VALUES (?1, 'many', 'few', 0, '')",
-        params![to - 600],
-    )
-    .unwrap();
-    conn.execute(
-        "INSERT INTO samples (at, in_line, planning, paused, held) VALUES (?1, 2, 1, 0, '')",
-        params![to - 300],
-    )
-    .unwrap();
-    let report_typed = crate::report::build(&conn, to).unwrap();
-    let report = serde_json::to_value(&report_typed).unwrap();
-    let planned = report["planned"].as_object().unwrap();
-    assert_eq!(planned["n"], json!(3));
-    assert_eq!(planned["inLine"], json!(2));
-    assert_eq!(planned["planning"], json!(1));
-    // Both rows count as available: an unreadable line says nothing about the
-    // pause or the hold. `seconds` is the 600 since the first sample.
-    assert_eq!(
-        report["availability"],
-        json!({"n": 2, "seconds": 600, "share": 1.0})
-    );
-}
-
-// `held` is read as a word or not at all. A cell that is not text names no
-// hold, so a sample with cycles running still counts as available: read as
-// text the same cell is a word that is not empty, and the row drops out of
-// the figure. A whole number in the column does not tell the two readers
-// apart, because text affinity makes it a word first.
-#[test]
-fn a_cell_that_is_not_text_names_no_hold() {
-    let home = scratch("report-sample-held");
-    let to = 1_792_022_400 + 10 * DAY;
-    let (conn, _) = db::open(&db::path(&home), to).unwrap();
-    // A column of text affinity keeps a value that is not text as it was put
-    // in it, so this cell is neither a word nor NULL.
-    conn.execute(
-        "INSERT INTO samples (at, running, paused, held)
-         VALUES (?1, 4, 0, CAST(x'7265736f7572636573' AS BLOB))",
-        params![to - 300],
-    )
-    .unwrap();
-    let report_typed = crate::report::build(&conn, to).unwrap();
-    let report = serde_json::to_value(&report_typed).unwrap();
-    assert_eq!(
-        report["availability"],
-        json!({"n": 1, "seconds": 300, "share": 1.0})
-    );
-}
-
-// What #2243 replaced: a REAL in `paused` used to end the published report,
-// which is `report` and `report --json`, with exit 70 and the reason on
-// standard error.
-#[test]
-fn a_wrong_typed_samples_cell_no_longer_ends_the_published_report() {
-    let home = scratch("report-sample-published");
-    let to = 1_792_022_400 + 10 * DAY;
-    let (conn, _) = db::open(&db::path(&home), to).unwrap();
-    conn.execute(
-        "INSERT INTO samples (at, running, paused, held) VALUES (?1, 1, 0.5, '')",
-        params![to - 300],
-    )
-    .unwrap();
-    let report_typed = crate::report::complete(&conn, &home, to).unwrap();
-    let report = serde_json::to_value(&report_typed).unwrap();
-    // The row is there and not available, since its pause is unknown.
-    assert_eq!(
-        report["availability"],
-        json!({"n": 1, "seconds": 300, "share": 0.0})
-    );
-    assert!(crate::report::text(&report_typed).contains("Availability"));
-
-    // The same row read the old way, which is what the command used to print.
-    let mut q = conn
-        .prepare("SELECT paused FROM samples WHERE at = ?1")
-        .unwrap();
-    let old_way = q.query_row(params![to - 300], |r| r.get::<_, Option<i64>>(0));
-    assert!(old_way.is_err(), "a REAL is not a count read the old way");
 }
 
 fn add_run(conn: &Connection, id: &str, issue: i64, started: i64) {
@@ -4960,7 +2955,7 @@ fn sessions_carry_steps_roles_and_camel_case() {
     let (conn, _) = db::open(&db::path(&home), now).unwrap();
     add_run(&conn, "work-7-x", 7, now - 3600);
     conn.execute(
-        "UPDATE runs SET failure_kind = 'cap', rukas_version = 'v0.14.0', review_held = 0, provider_outage = 1, cost = 1.5 WHERE id = 'work-7-x'",
+        "UPDATE runs SET failure_kind = 'cap', rukas_version = 'v0.14.0', review_held = 0, provider_outage = 1 WHERE id = 'work-7-x'",
         [],
     )
     .unwrap();
@@ -5159,6 +3154,12 @@ fn plan_sessions_carry_filed() {
         line(started + 721, 5, 14),
         "not json".to_string(),
         line(started - 1, 5, 15),
+        // An array, or a field given twice, is no line.
+        format!("[\"{}\",5,16,\"https://example.com/i/16\"]", iso(started + 100)),
+        format!(
+            "{{\"at\":\"{}\",\"source\":5,\"filed\":17,\"filed\":18,\"url\":\"https://example.com/i/17\"}}",
+            iso(started + 100)
+        ),
     ]
     .join("\n");
     put_at(h(&home).state(State::Refined), &ledger);
@@ -5173,6 +3174,45 @@ fn plan_sessions_carry_filed() {
     );
     fs::remove_file(h(&home).state(State::Refined)).unwrap();
     assert!(sessions_output(&home, now)[1].get("filed").is_none());
+}
+
+// The refined ledger is read under the ledger bounds: a line of LEDGER_MAX_LINE
+// bytes or more costs only itself, and a file one byte past the whole-file
+// bound is no ledger at all.
+#[test]
+fn a_ledger_past_the_whole_file_bound_is_no_ledger_at_all() {
+    let home = scratch("ledger-bounds");
+    fs::create_dir_all(h(&home).state_dir()).unwrap();
+    let at = iso(1_792_000_000);
+    let line = |filed: i64| json!({"at": at, "source": 5, "filed": filed, "url": "https://example.com/i/1"});
+    let text = |lines: &[Value]| lines.iter().map(|l| format!("{l}\n")).collect::<String>();
+    // The width is measured on the printed line, so the filler is solved for.
+    let wide = |filed: i64, len: usize| {
+        let mut w = line(filed);
+        w["filler"] = json!("");
+        let short = w.to_string().len();
+        w["filler"] = json!("x".repeat(len - short));
+        assert_eq!(w.to_string().len(), len);
+        w
+    };
+    let file = h(&home).state(State::Refined);
+    assert_eq!(crate::LEDGER_MAX_LINE, 100_000);
+    assert_eq!(crate::LEDGER_MAX_BYTES, 1 << 20);
+    let max = crate::LEDGER_MAX_LINE;
+    put_at(file.clone(), &text(&[line(1), wide(2, max - 1)]));
+    assert_eq!(crate::sessions::ledger_lines(&home).len(), 2);
+    put_at(file.clone(), &text(&[line(1), wide(2, max)]));
+    assert_eq!(crate::sessions::ledger_lines(&home).len(), 1);
+
+    let bound = crate::LEDGER_MAX_BYTES as usize;
+    let mut big = text(&(1..=500).map(line).collect::<Vec<_>>());
+    big.push_str(&"y".repeat(bound - big.len() + 1));
+    assert_eq!(big.len(), bound + 1);
+    put_at(file.clone(), &big);
+    assert!(crate::sessions::ledger_lines(&home).is_empty());
+    // The last byte within the bound is read.
+    put_at(file, &big[..bound]);
+    assert_eq!(crate::sessions::ledger_lines(&home).len(), 500);
 }
 
 // outcomes: the counts behind factory_outcomes, as far back as the database
@@ -6751,12 +4791,21 @@ const SCHEMA_4: [(&str, &str); 2] = [
 ];
 
 #[test]
-fn a_new_database_is_schema_7_with_no_watts_and_no_contractor() {
-    let home = scratch("schema-7-new");
+fn a_new_database_is_schema_8_with_no_watts_no_contractor_no_cost_and_no_view() {
+    let home = scratch("schema-8-new");
     let (conn, _) = db::open(&db::path(&home), 0).unwrap();
-    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 7);
+    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 8);
     assert!(!columns(&conn, "samples").contains(&"watts".to_string()));
     assert!(!columns(&conn, "runs").contains(&"contractor_id".to_string()));
+    assert!(!columns(&conn, "runs").contains(&"cost".to_string()));
+    assert!(!columns(&conn, "run_roles").contains(&"cost".to_string()));
+    assert_eq!(
+        one::<i64>(
+            &conn,
+            "SELECT count(*) FROM sqlite_master WHERE type = 'view'"
+        ),
+        0
+    );
 }
 
 /// A file of schema 5 as the 2.0 branch wrote it before schema 6: the
@@ -6784,17 +4833,17 @@ fn schema_5_file(file: &Path) {
 
 #[test]
 fn a_schema_5_file_migrates_in_place_and_keeps_every_row_without_its_contractor() {
-    let fresh = scratch("schema-7-fresh-from-5");
+    let fresh = scratch("schema-8-fresh-from-5");
     let (made, _) = db::open(&db::path(&fresh), 0).unwrap();
     let home = scratch("schema-5");
     let file = db::path(&home);
     schema_5_file(&file);
     let (conn, moved) = db::open(&file, 200).unwrap();
     assert_eq!(moved, None, "a file of schema 5 is not moved aside");
-    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 7);
+    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 8);
     assert_eq!(
         one::<String>(&conn, "SELECT value FROM meta WHERE key = 'schema'"),
-        "7"
+        "8"
     );
     assert_eq!(shape(&conn), shape(&made));
     assert!(!columns(&conn, "runs").contains(&"contractor_id".to_string()));
@@ -6819,7 +4868,7 @@ fn a_schema_5_file_migrates_in_place_and_keeps_every_row_without_its_contractor(
         0
     );
     drop(conn);
-    // Opened again it is a 7 already: nothing is written.
+    // Opened again it is an 8 already: nothing is written.
     let before = fs::read(&file).unwrap();
     let (again, moved) = db::open(&file, 300).unwrap();
     assert_eq!(moved, None);
@@ -6829,7 +4878,7 @@ fn a_schema_5_file_migrates_in_place_and_keeps_every_row_without_its_contractor(
 
 #[test]
 fn a_schema_4_file_of_either_age_migrates_in_place_to_the_shape_of_a_new_one() {
-    let fresh = scratch("schema-7-fresh");
+    let fresh = scratch("schema-8-fresh");
     let (made, _) = db::open(&db::path(&fresh), 0).unwrap();
     for (age, fixture) in SCHEMA_4 {
         let home = scratch(&format!("schema-4-{age}"));
@@ -6837,11 +4886,11 @@ fn a_schema_4_file_of_either_age_migrates_in_place_to_the_shape_of_a_new_one() {
         schema_4_file(&file, fixture);
         let (conn, moved) = db::open(&file, 200).unwrap();
         assert_eq!(moved, None, "{age}: a file of schema 4 is not moved aside");
-        assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 7, "{age}");
+        assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 8, "{age}");
         assert_eq!(shape(&conn), shape(&made), "{age}");
         assert_eq!(
             one::<String>(&conn, "SELECT value FROM meta WHERE key = 'schema'"),
-            "7",
+            "8",
             "{age}"
         );
         assert_eq!(
@@ -6871,7 +4920,7 @@ fn a_schema_4_file_of_either_age_migrates_in_place_to_the_shape_of_a_new_one() {
             "{age}"
         );
         drop(conn);
-        // Opened again it is a 7 already: nothing is written.
+        // Opened again it is an 8 already: nothing is written.
         let before = fs::read(&file).unwrap();
         let (again, moved) = db::open(&file, 300).unwrap();
         assert_eq!(moved, None, "{age}");
@@ -6894,7 +4943,7 @@ fn a_schema_4_file_another_program_migrated_meanwhile_is_not_migrated_again() {
     let mut late = Connection::open(&file).unwrap();
     db::open(&file, 200).unwrap();
     assert!(db::settle(&mut late, 4, 300).is_ok());
-    assert_eq!(one::<i64>(&late, "PRAGMA user_version"), 7);
+    assert_eq!(one::<i64>(&late, "PRAGMA user_version"), 8);
     assert!(!columns(&late, "samples").contains(&"watts".to_string()));
     assert_eq!(one::<i64>(&late, "SELECT count(*) FROM samples"), 2);
 }
@@ -6922,7 +4971,7 @@ fn programs_that_open_a_schema_4_file_at_once_all_get_it_migrated() {
             );
         }
         let conn = Connection::open(&file).unwrap();
-        assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 7);
+        assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 8);
         assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM issue_events"), 8);
         assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM samples"), 2);
     }
@@ -6953,22 +5002,22 @@ fn schema_6_file(file: &Path) {
 
 /// Schema 6 to 7: `runs.outcome` takes `offered` and no longer `pr`, every
 /// `pr` outcome and every `label` how is rewritten, every row of runs and of
-/// its children stays, `v_versions` counts `change_share`, the file has the
+/// its children stays, the file has the
 /// shape of a new one, the rewrite is counted for the published sessions, and
 /// a second open writes nothing. No `pr` outcome and no `label` how is left.
 #[test]
 fn a_schema_6_file_takes_the_words_of_2_0_and_keeps_every_row() {
-    let fresh = scratch("schema-7-fresh-from-6");
+    let fresh = scratch("schema-8-fresh-from-6");
     let (made, _) = db::open(&db::path(&fresh), 0).unwrap();
     let home = scratch("schema-6");
     let file = db::path(&home);
     schema_6_file(&file);
     let (conn, moved) = db::open(&file, 200).unwrap();
     assert_eq!(moved, None, "a file of schema 6 is not moved aside");
-    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 7);
+    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 8);
     assert_eq!(
         one::<String>(&conn, "SELECT value FROM meta WHERE key = 'schema'"),
-        "7"
+        "8"
     );
     assert_eq!(shape(&conn), shape(&made));
     assert_eq!(
@@ -7006,13 +5055,6 @@ fn a_schema_6_file_takes_the_words_of_2_0_and_keeps_every_row() {
     assert_eq!(
         one::<String>(
             &conn,
-            "SELECT runs || ' ' || change_share FROM v_versions WHERE tehas_version = 'v1.4.0'"
-        ),
-        "3 0.667"
-    );
-    assert_eq!(
-        one::<String>(
-            &conn,
             &format!(
                 "SELECT value FROM meta WHERE key = '{}'",
                 db::HOWS_REWRITTEN
@@ -7021,7 +5063,7 @@ fn a_schema_6_file_takes_the_words_of_2_0_and_keeps_every_row() {
         "1"
     );
     drop(conn);
-    // Opened again it is a 7 already: nothing is written.
+    // Opened again it is an 8 already: nothing is written.
     let before = fs::read(&file).unwrap();
     let (again, moved) = db::open(&file, 300).unwrap();
     assert_eq!(moved, None);
@@ -7029,20 +5071,105 @@ fn a_schema_6_file_takes_the_words_of_2_0_and_keeps_every_row() {
     assert!(fs::read(&file).unwrap() == before, "a second open wrote");
 }
 
-/// The view columns and values schema 7 renamed: none of the old words is
-/// left in the schema's views, and the new ones are there.
-#[test]
-fn the_views_of_schema_7_say_offered_and_approved_and_never_pr_or_label() {
-    let home = scratch("schema-7-views");
-    let (conn, _) = db::open(&db::path(&home), 0).unwrap();
-    let views = one::<String>(
-        &conn,
-        "SELECT group_concat(sql, ' ') FROM sqlite_master WHERE type = 'view'",
+/// A file of schema 7 as the 2.0 branch wrote it before schema 8: runs and
+/// roles with a cost, steps and gates, and the three views over them.
+fn schema_7_file(file: &Path) {
+    let old = Connection::open(file).unwrap();
+    old.execute_batch(include_str!("../tests/fixtures/schema-7.sql"))
+        .unwrap();
+    old.execute_batch(
+        "INSERT INTO meta (key, value) VALUES ('schema', '7'), ('retention_days', '365'),
+           ('created', '100');
+         INSERT INTO runs (id, kind, issue, how, started, ended, seconds, outcome, input, cost,
+             tehas_version, gate_runs, gate_ms)
+           VALUES ('work-7-100', 'work', 7, 'approved', 100, 700, 600, 'offered', 40, 0.25,
+                   'v2.0.0', 1, 900),
+                  ('work-8-110', 'work', 8, 'reply', 110, 710, 600, 'merged', NULL, NULL,
+                   'v2.0.0', NULL, NULL);
+         INSERT INTO run_roles (run_id, role, model, input, cost, ms)
+           VALUES ('work-7-100', 'worker', 'm', 12, 0.125, 300);
+         INSERT INTO run_steps (run_id, step, round, seconds) VALUES ('work-7-100', 'develop', 1, 300);
+         INSERT INTO run_gate_runs (run_id, seq, ok, ms) VALUES ('work-7-100', 1, 1, 900);
+         INSERT INTO issue_events (at, issue, event) VALUES (50, 7, 'ready');
+         INSERT INTO samples (at, running, paused, held) VALUES (150, 1, 0, '');
+         PRAGMA user_version = 7;",
+    )
+    .unwrap();
+    assert!(columns(&old, "runs").contains(&"cost".to_string()));
+    assert_eq!(
+        one::<i64>(
+            &old,
+            "SELECT count(*) FROM sqlite_master WHERE type = 'view'"
+        ),
+        3
     );
-    assert!(views.contains("change_share"), "{views}");
-    for old in ["'pr'", " pr,", "pr_share", "'label'"] {
-        assert!(!views.contains(old), "{old} in {views}");
-    }
+}
+
+/// Schema 7 to 8: `runs.cost` and `run_roles.cost` go, and the views
+/// `v_lead`, `v_daily` and `v_versions` with them. Every row of every table
+/// stays with its other columns, the file has the shape of a new one, and a
+/// second open writes nothing.
+#[test]
+fn a_schema_7_file_loses_cost_and_the_views_and_keeps_every_row() {
+    let fresh = scratch("schema-8-fresh-from-7");
+    let (made, _) = db::open(&db::path(&fresh), 0).unwrap();
+    let home = scratch("schema-7");
+    let file = db::path(&home);
+    schema_7_file(&file);
+    let (conn, moved) = db::open(&file, 200).unwrap();
+    assert_eq!(moved, None, "a file of schema 7 is not moved aside");
+    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 8);
+    assert_eq!(
+        one::<String>(&conn, "SELECT value FROM meta WHERE key = 'schema'"),
+        "8"
+    );
+    assert_eq!(shape(&conn), shape(&made));
+    assert!(!columns(&conn, "runs").contains(&"cost".to_string()));
+    assert!(!columns(&conn, "run_roles").contains(&"cost".to_string()));
+    assert_eq!(
+        one::<i64>(
+            &conn,
+            "SELECT count(*) FROM sqlite_master WHERE type = 'view'"
+        ),
+        0
+    );
+    assert_eq!(
+        one::<String>(
+            &conn,
+            "SELECT group_concat(row, ' | ') FROM (SELECT id || ' ' || how || ' ' || outcome
+               || ' ' || coalesce(input, '-') || ' ' || coalesce(gate_ms, '-') AS row
+               FROM runs ORDER BY id)"
+        ),
+        "work-7-100 approved offered 40 900 | work-8-110 reply merged - -"
+    );
+    assert_eq!(
+        one::<String>(
+            &conn,
+            "SELECT o.model || ' ' || o.input || ' ' || o.ms || ' ' || s.step || ' ' || g.ms
+               FROM run_roles o JOIN run_steps s ON s.run_id = o.run_id
+               JOIN run_gate_runs g ON g.run_id = o.run_id WHERE o.run_id = 'work-7-100'"
+        ),
+        "m 12 300 develop 900"
+    );
+    assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM issue_events"), 1);
+    assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM samples"), 1);
+    assert_eq!(
+        one::<i64>(&conn, "SELECT count(*) FROM pragma_foreign_key_check"),
+        0
+    );
+    drop(conn);
+    // Opened again it is an 8 already: nothing is written.
+    let before = fs::read(&file).unwrap();
+    let (again, moved) = db::open(&file, 300).unwrap();
+    assert_eq!(moved, None);
+    drop(again);
+    assert!(fs::read(&file).unwrap() == before, "a second open wrote");
+}
+
+/// The end word of schema 7 on: `offered`, never `pr`, in the schema itself.
+#[test]
+fn the_schema_says_offered_and_never_pr() {
+    assert!(SCHEMA_TEXT.contains("'offered'"));
     assert!(!SCHEMA_TEXT.contains("'pr'"));
 }
 

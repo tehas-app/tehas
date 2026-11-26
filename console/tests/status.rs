@@ -482,65 +482,6 @@ fn planning_lists_and_counts_the_open_issues_labelled_tehas_plan_or_tehas_planni
 }
 
 #[test]
-fn the_breakroom_s_words_are_counted_over_every_issue_labelled_for_the_factory_or_not() {
-    let w = World::new("buzzwords");
-    w.fx(
-        "all.json",
-        r#"[{"title": "Dashboard shows the Queue", "labels": [{"name": "tehas:ready"}]},
- {"title": "A side-project: migrate the dashboard to v2", "labels": [{"name": "sidework"}, {"name": "Help Wanted"}]},
- {"title": "queue, QUEUE; dashboard!", "labels": []},
- {"title": null}, 7]
-"#,
-    );
-    ok(&w.status());
-    assert_eq!(
-        sc(&w, ".buzzwords[:2]"),
-        r#"[{"word":"dashboard","count":3},{"word":"queue","count":3}]"#
-    );
-    // Whole words in lower case, a hyphen kept, two letters too few; no title
-    // and no issue number is published with them.
-    assert_eq!(
-        sr(&w, "[.buzzwords[].word] | sort | join(\" \")"),
-        "dashboard help migrate queue ready shows side-project sidework tehas the wanted"
-    );
-    assert_eq!(
-        sr(&w, ".buzzwords[] | select(.word == \"sidework\") | .count"),
-        "1"
-    );
-    has(
-        &w.gh(),
-        "issue list --repo acme/widget --state all --limit 1000 --json title,labels",
-    );
-    assert_eq!(sr(&w, ".queued | length"), "2");
-}
-
-#[test]
-fn at_most_a_hundred_words_are_published_the_most_used_first() {
-    let w = World::new("buzzwords-100");
-    let all: Vec<Value> = (0..150)
-        .map(|i| json!({"title": format!("word{i} ").repeat(150 - i), "labels": []}))
-        .collect();
-    write_json(&w, "all.json", &json!(all));
-    w.status();
-    assert_eq!(sr(&w, ".buzzwords | length"), "100");
-    assert_eq!(sc(&w, ".buzzwords[0]"), r#"{"word":"word0","count":150}"#);
-}
-
-#[test]
-fn a_list_of_every_issue_past_the_limit_of_one_argument_still_gives_a_snapshot() {
-    let w = World::new("buzzwords-big");
-    // 1500 titles of 100 characters: over 128 KiB, which no one argument can
-    // hold.
-    let all: Vec<Value> = (0..1500)
-        .map(|i| json!({"title": format!("word{i} {}", "x".repeat(100)), "labels": [{"name": "bug"}]}))
-        .collect();
-    write_json(&w, "all.json", &json!(all));
-    ok(&w.status());
-    assert_eq!(sr(&w, ".buzzwords | length"), "100");
-    assert_eq!(sr(&w, ".queued | length"), "2");
-}
-
-#[test]
 fn a_queue_snapshot_past_the_limit_of_one_argument_still_gives_a_health_file() {
     let w = World::new("queue-big");
     // 800 issues in line with titles of 200 characters: a status.json over
@@ -558,58 +499,6 @@ fn a_queue_snapshot_past_the_limit_of_one_argument_still_gives_a_health_file() {
     assert!(fs::metadata(w.live_file("status.json")).unwrap().len() > 131072);
     assert_eq!(hr(&w, ".status"), "pass");
     assert_eq!(hr(&w, ".checks.queue.inLine"), "800");
-}
-
-#[test]
-fn without_the_list_of_every_issue_the_snapshot_is_written_with_no_words() {
-    let w = World::new("all-down");
-    w.touch("all-down");
-    ok(&w.status());
-    assert_eq!(sr(&w, ".queued | length"), "2");
-    assert_eq!(sr(&w, "has(\"buzzwords\")"), "false");
-    w.fx("all.json", "{\"message\": \"not a list\"}\n");
-    w.rm_fx("all-down");
-    w.status();
-    assert_eq!(
-        sr(&w, "[(.queued | length), has(\"buzzwords\")] | join(\" \")"),
-        "2 false"
-    );
-}
-
-#[test]
-fn every_issue_is_read_for_the_words_at_most_once_an_hour_the_words_before_kept_between_reads() {
-    let w = World::new("buzzwords-hourly");
-    let an_hour_ago = || {
-        w.home_file(
-            w.at().state(State::Buzzwords),
-            &format!("{}\n", now() - 3600),
-        );
-    };
-    w.fx(
-        "all.json",
-        "[{\"title\": \"Dashboard dashboard\", \"labels\": []}]\n",
-    );
-    w.status();
-    assert_eq!(sc(&w, ".buzzwords"), r#"[{"word":"dashboard","count":2}]"#);
-    w.fx("all.json", "[{\"title\": \"Queue\", \"labels\": []}]\n");
-    w.clear_calls();
-    ok(&w.status());
-    assert_eq!(gh_count(&w, "--limit 1000"), 0);
-    assert_eq!(sc(&w, ".buzzwords"), r#"[{"word":"dashboard","count":2}]"#);
-    // An hour on, the list is read again.
-    an_hour_ago();
-    w.status();
-    assert_eq!(gh_count(&w, "--limit 1000"), 1);
-    assert_eq!(sc(&w, ".buzzwords"), r#"[{"word":"queue","count":1}]"#);
-    // A read that fails keeps the words before, and the next run asks again.
-    an_hour_ago();
-    w.touch("all-down");
-    w.status();
-    assert_eq!(sc(&w, ".buzzwords"), r#"[{"word":"queue","count":1}]"#);
-    w.rm_fx("all-down");
-    w.clear_calls();
-    w.status();
-    assert_eq!(gh_count(&w, "--limit 1000"), 1);
 }
 
 #[test]
@@ -937,10 +826,8 @@ fn a_list_of_issues_that_cannot_be_read_keeps_the_lists_of_work_and_says_why() {
     let lists_before = lists(&w);
     let read_at = sr(&w, ".queueAt");
     fs::remove_file(w.live_file("health.json")).unwrap();
-    // The stub answers the search of the issues in work from issues.json and
-    // the word cloud of every issue from all.json: only the first file is
-    // gone here, so the read of the lists fails and the one it can do without
-    // does not.
+    // The stub answers the search of the issues in work from issues.json,
+    // which is gone here, so the read of the lists fails.
     w.rm_fx("issues.json");
     w.fx("paused", "true\n");
     let r = w.status();
@@ -1002,9 +889,7 @@ fn with_github_down_the_lists_are_kept_and_health_names_the_failed_calls() {
     let w = World::new("gh-down");
     w.status();
     let lists_before = lists(&w);
-    // And when the word list was read, so this run asks for it too.
     fs::remove_file(w.live_file("health.json")).unwrap();
-    fs::remove_file(w.at().state(State::Buzzwords)).unwrap();
     w.touch("gh-down");
     let r = status_and_summary(&w);
     ok(&r);
@@ -1013,13 +898,13 @@ fn with_github_down_the_lists_are_kept_and_health_names_the_failed_calls() {
     assert_eq!(hr(&w, ".status"), "warn");
     has(
         &hr(&w, ".output"),
-        "GitHub failed 6 calls in the last 10 min, the last: a call to GitHub failed",
+        "GitHub failed 5 calls in the last 10 min, the last: a call to GitHub failed",
     );
     has(
         &r.out,
         "queue     stale: queue and completed and pause kept from an earlier read, GitHub did not answer",
     );
-    has(&r.out, "github    6 failed calls in the last 10 min");
+    has(&r.out, "github    5 failed calls in the last 10 min");
 }
 
 #[test]
@@ -1054,11 +939,11 @@ fn the_poll_s_token_alone_does_not_leave_the_health_file_to_the_poll() {
 #[test]
 fn the_poll_s_name_leaves_the_analytics_of_the_trap_alone() {
     let w = World::new("poll-analytics");
-    w.stub_analytics(r#"printf "%s\n" "{\"report\":1}""#);
+    w.stub_analytics("");
     let st = w.status_cmd();
     w.set_env(&[&format!("TEHAS_STATUS_CMD={st}"), "TEHAS_ANALYTICS=on"]);
     ok(&w.sh(&format!("export TEHAS_FROM_POLL=1; {st}")));
-    assert_eq!(w.calls("analytics").lines().count(), 3);
+    assert_eq!(w.calls("analytics").lines().count(), 2);
 }
 
 #[test]
