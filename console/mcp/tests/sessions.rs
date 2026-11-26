@@ -1,6 +1,7 @@
 // The session tools over a snapshot written by the tests.
 
 use crate::common;
+use common::SESSIONS_SHAPE;
 
 use common::fake_links;
 use mcp::sessions::{find, Linker};
@@ -52,7 +53,8 @@ impl Env {
             .unwrap();
         }
         let mut text =
-            json!({"api": 1, "days": 30, "generatedAt": iso(now()), "sessions": 1}).to_string();
+            json!({"api": 1, "days": 30, "generatedAt": iso(now()), "sessions": SESSIONS_SHAPE})
+                .to_string();
         for s in sessions {
             text.push('\n');
             text.push_str(&s.to_string());
@@ -405,7 +407,7 @@ fn links_are_the_code_hosts_and_none_without_a_repo_or_an_item() {
     let nothing = Linker::of(mcp::tools::no_links, Some("a/b"));
     assert_eq!((nothing.issue(1), nothing.pr(2)), (None, None));
 
-    let s = sess("work", 7, 60, json!({"pr": 8}));
+    let s = sess("work", 7, 60, json!({"change": 8}));
     let bare = sess("work", 9, 120, json!({}));
     for (name, repo, linked) in [
         ("good", Some("tehas-app/tehas-factory"), true),
@@ -508,7 +510,7 @@ fn full_session(kind: &str, issue: i64, ago: i64) -> Value {
         ("failureCause", json!("the model said no")),
         ("providerOutage", json!(false)),
         ("endpoint", json!("e")),
-        ("pr", json!(8)),
+        ("change", json!(8)),
         ("tehasCommit", json!("abc")),
         ("rukasCommit", json!("def")),
         ("image", json!("i")),
@@ -684,13 +686,15 @@ fn no_snapshot_is_a_tool_error() {
 // corrupted file, refused as unreadable too, without the file's name or any of
 // its content in the answer.
 fn shapes_over_the_bound(n: usize) -> Vec<(&'static str, String)> {
-    let mut head = json!({"api": 1, "days": 30, "generatedAt": iso(now()), "sessions": 1});
+    let mut head =
+        json!({"api": 1, "days": 30, "generatedAt": iso(now()), "sessions": SESSIONS_SHAPE});
     head["filler"] = json!("x".repeat(n));
     let padded = head.to_string();
     assert!(padded.len() > n, "the filler did not reach the bound");
     // A character is 2 bytes, so half as many of them are still over a bound
     // counted in bytes: this pins the bound as bytes and not as characters.
-    let mut wide = json!({"api": 1, "days": 30, "generatedAt": iso(now()), "sessions": 1});
+    let mut wide =
+        json!({"api": 1, "days": 30, "generatedAt": iso(now()), "sessions": SESSIONS_SHAPE});
     wide["filler"] = json!("\u{e9}".repeat(n / 2 + 1));
     vec![
         ("invalid", "x".repeat(n)),
@@ -891,7 +895,7 @@ fn an_issue_with_several_attempts() {
             "work",
             7,
             t - 200,
-            json!({"attempt": 2, "how": "reply", "outcome": "offered", "pr": 21}),
+            json!({"attempt": 2, "how": "reply", "outcome": "offered", "change": 21}),
         ),
         sess_at(
             "work",
@@ -1068,7 +1072,7 @@ fn an_issue_being_planned() {
         snap.join("sessions.jsonl"),
         format!(
             "{}\n",
-            json!({"api": 1, "days": 30, "generatedAt": iso(now()), "sessions": 0})
+            json!({"api": 1, "days": 30, "generatedAt": iso(now()), "sessions": SESSIONS_SHAPE})
         ),
     )
     .unwrap();
@@ -1176,7 +1180,7 @@ fn no_snapshot_is_a_tool_error_for_the_story() {
 // and a run of an issue whose pull request is none has no prUrl.
 #[test]
 fn without_a_valid_repo_the_story_has_no_links() {
-    let rows = [sess("work", 7, 60, json!({"pr": 21}))];
+    let rows = [sess("work", 7, 60, json!({"change": 21}))];
     {
         let repo: Option<&str> = None;
         let env = Env::built(
@@ -1295,7 +1299,7 @@ fn the_storys_schema_names_every_field_of_an_answer() {
         120,
         json!({
             "attempt": 1, "how": "millwright", "outcome": "failed", "failedStep": "plan",
-            "failureKind": "model", "failureCause": "c", "parkReason": "loop", "pr": 8,
+            "failureKind": "model", "failureCause": "c", "parkReason": "loop", "change": 8,
         }),
     );
     let running = sess("work", 7, 60, json!({"attempt": 2, "how": "millwright"}));
@@ -1736,4 +1740,29 @@ fn a_run_of_a_retry_of_before_2_0_is_listed_as_reply() {
     assert!(env
         .call("factory_sessions", json!({"how": "retry-tick"}))
         .is_err());
+}
+
+// The snapshot an earlier release wrote carries shape 1, whose lines named
+// the pull request `pr`. The reader refuses it by name instead of answering
+// with the links silently lost.
+#[test]
+fn a_sessions_file_of_the_old_shape_is_refused_by_name() {
+    let root = TestDir::new("mcp-old-shape");
+    let snap = root.join("mcp");
+    std::fs::create_dir_all(&snap).unwrap();
+    std::fs::write(
+        snap.join("sessions.jsonl"),
+        format!(
+            "{}\n",
+            json!({"api": 1, "days": 30, "generatedAt": iso(now()), "sessions": 1})
+        ),
+    )
+    .unwrap();
+    match Snapshot::open(&snap, now()).err() {
+        Some(ToolError::File { file, why }) => {
+            assert_eq!(file, "sessions.jsonl");
+            assert!(why.contains("another shape"), "{why}");
+        }
+        other => panic!("{other:?}"),
+    }
 }

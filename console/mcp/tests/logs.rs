@@ -1,6 +1,7 @@
 // factory_log over a snapshot and a logs directory written by the tests.
 
 use crate::common;
+use common::SESSIONS_SHAPE;
 
 use flate2::read::GzDecoder;
 use mcp::keys::{parse_keys, Setting};
@@ -78,7 +79,7 @@ impl Env {
         });
         let text = format!(
             "{}\n{s}\n",
-            json!({"api": 1, "days": 30, "generatedAt": iso(now()), "sessions": 1})
+            json!({"api": 1, "days": 30, "generatedAt": iso(now()), "sessions": SESSIONS_SHAPE})
         );
         std::fs::write(snap.join("sessions.jsonl"), &text).unwrap();
         Env {
@@ -157,7 +158,7 @@ impl Search {
         for (n, c) in logs {
             std::fs::write(dir.join(n), c).unwrap();
         }
-        let mut text = header(served.len()).to_string();
+        let mut text = header().to_string();
         for s in served {
             text.push('\n');
             text.push_str(&s.to_string());
@@ -404,8 +405,8 @@ impl Search {
     }
 }
 
-fn header(served: usize) -> Value {
-    json!({"api": 1, "days": 30, "generatedAt": iso(now()), "sessions": served})
+fn header() -> Value {
+    json!({"api": 1, "days": 30, "generatedAt": iso(now()), "sessions": SESSIONS_SHAPE})
 }
 
 // One session's snapshot record, with the logs of `logs` - and nothing else,

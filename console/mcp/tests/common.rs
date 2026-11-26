@@ -1,5 +1,8 @@
 //! What every test of a tool's answer shares.
 
+/// The shape number a sessions header carries, from its one owner.
+pub use tehas_core::snapshot::SESSIONS_SHAPE;
+
 use mcp::tools::{list_scoped, Scope};
 use serde_json::Value;
 use tehas_ports::fake::{FakeSite, World};

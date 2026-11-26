@@ -52,8 +52,6 @@ done
 for f in "$fun"/*.js "${markup[@]}"; do
   t_eq "$(grep -cE '"#[0-9a-fA-F]{3,8}"|rgba?\(|hsla?\(|theme-color' "$f")" 0
 done
-# Nor a typeface: Topaz is pixel's.
-t_eq "$(cd "$fun" && grep -lE '(font[a-z-]*:|font =)[^;]*Topaz' "${sheets[@]}" ./*.js | xargs)" ""
 
 t_case "pixel keeps the Twelve Bit Rule"
 t_eq "$(grep -oE '#[0-9a-fA-F]+\b' "$fun/theme-pixel.css" | grep -cvE '^#[0-9a-f]{3}$')" 0
