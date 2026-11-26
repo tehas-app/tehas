@@ -276,10 +276,6 @@ fn a_rate_limit_on_the_second_parents_question_spends_only_its_tickets() {
     );
 }
 
-fn aliased(answer: &str, n: u32) -> String {
-    answer.replacen(r#""issue":"#, &format!(r#""n{n}":"#), 1)
-}
-
 fn live(name: &str) -> String {
     let at = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/recorded/live-parent")
@@ -287,38 +283,71 @@ fn live(name: &str) -> String {
     std::fs::read_to_string(at).unwrap()
 }
 
-/// Read live from a public repository, 2026-11-24: GitHub's REST read of an
-/// issue leaves `parent_issue_url` out where the issue is a part of none
-/// (the recordings `rest-*.json` keep the fields that say so), so the
+/// Read live from tehas-app/tehas-factory, kit run #1, 2026-11-26: #2824 is
+/// a part of #2597, and #2597 a part of none. GitHub's REST read of an issue
+/// leaves `parent_issue_url` out where the issue is a part of none, so the
 /// adapter cannot tell none from an answer cut short there, and asks
-/// GraphQL, whose `parent` is null for none. The `parent-*.json` are
-/// GraphQL's answers to the adapter's question of one ticket, made before
-/// the question asked each ticket under an alias; `aliased` moves the
-/// issue's node under its alias, the rest as GitHub answered.
+/// GraphQL, whose `parent` is null for none. `rest-*.json` are the REST
+/// reads, `parent-*.json` the adapter's parents' question of each ticket
+/// alone, `parents-2824-2597.json` of both in one question, each replayed as
+/// GitHub answered.
 #[test]
 fn the_parent_is_graphqls_since_rest_leaves_out_the_field_of_none() {
     let rest = |n: u32| -> serde_json::Value {
         serde_json::from_str(&live(&format!("rest-{n}.json"))).unwrap()
     };
-    assert_eq!(rest(2597)["has_parent_issue_url"], false);
-    assert_eq!(rest(2824)["has_parent_issue_url"], true);
-    let issue = |n: u32| {
-        ISSUE
-            .replace(r#""number":7"#, &format!(r#""number":{n}"#))
-            .replace(
-                "acme/widget/issues/7",
-                &format!("tehas-app/tehas-factory/issues/{n}"),
-            )
-    };
-    for (n, want) in [(2824, Some(Ref::Here(key(2597)))), (2597, None)] {
-        let (out, answer) = (issue(n), aliased(&live(&format!("parent-{n}.json")), n));
-        let (mut gh, _) = adapter_in("tehas-app/tehas-factory", vec![Ok(&out), Ok(&answer)]);
+    assert!(rest(2597).get("parent_issue_url").is_none());
+    assert_eq!(
+        rest(2824)["parent_issue_url"],
+        "https://api.github.com/repos/tehas-app/tehas-factory/issues/2597"
+    );
+    for (n, title, want) in [
+        (
+            2824_u64,
+            "Trim the shell tests that stay in shell",
+            Some(Ref::Here(key(2597))),
+        ),
+        (2597, "Epic: less shell in the tests", None),
+    ] {
+        let (out, answer) = (
+            live(&format!("rest-{n}.json")),
+            live(&format!("parent-{n}.json")),
+        );
+        let (mut gh, asked) = adapter_in("tehas-app/tehas-factory", vec![Ok(&out), Ok(&answer)]);
+        let digest = gh.several(&[key(n)]).remove(0).1.unwrap();
+        assert_eq!(digest.title, title, "#{n}");
+        assert_eq!(digest.parent, want, "#{n}");
+        let asked = asked.lock().unwrap();
         assert_eq!(
-            gh.several(&[key(n.into())]).remove(0).1.unwrap().parent,
-            want,
-            "#{n}"
+            asked[0],
+            format!("api repos/tehas-app/tehas-factory/issues/{n}")
+        );
+        assert!(
+            asked[1].contains(&format!(" n{n}: issue(number: {n}) ")),
+            "{}",
+            asked[1]
         );
     }
+    let (r2824, r2597, both) = (
+        live("rest-2824.json"),
+        live("rest-2597.json"),
+        live("parents-2824-2597.json"),
+    );
+    let (mut gh, asked) = adapter_in(
+        "tehas-app/tehas-factory",
+        vec![Ok(&r2824), Ok(&r2597), Ok(&both)],
+    );
+    let got = gh.several(&[key(2824), key(2597)]);
+    assert_eq!(
+        got[0].1.as_ref().unwrap().parent,
+        Some(Ref::Here(key(2597)))
+    );
+    assert_eq!(got[1].1.as_ref().unwrap().parent, None);
+    assert_eq!(
+        asked.lock().unwrap().len(),
+        3,
+        "one parents' question for both"
+    );
 }
 
 /// The project is told by its repository's database id, never by its
@@ -327,11 +356,7 @@ fn the_parent_is_graphqls_since_rest_leaves_out_the_field_of_none() {
 /// project's, as one set to its name does.
 #[test]
 fn a_renamed_project_is_still_here_by_its_repository_id() {
-    let issue = ISSUE.replace(r#""number":7"#, r#""number":2824"#).replace(
-        "acme/widget/issues/7",
-        "tehas-app/tehas-factory/issues/2824",
-    );
-    let answer = aliased(&live("parent-2824.json"), 2824);
+    let (issue, answer) = (live("rest-2824.json"), live("parent-2824.json"));
     for configured in [
         "tehas-app/factory-before",
         "tehas-app/tehas-factory",
