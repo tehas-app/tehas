@@ -1043,8 +1043,8 @@ pub fn load(vars: &mut Vars, host: &mut dyn Host, uid: &str) -> Result<(), Strin
     // Asked before the defaults fill the feature's settings in; said after the
     // values are checked, so a malformed one is named as such first.
     let set = |name: &str| match name.strip_suffix(rules::FAMILY) {
-        Some(front) => vars.prefixed(front).iter().any(|n| has(vars, n)),
-        None => has(vars, name),
+        Some(front) => vars.prefixed(front).into_iter().find(|n| has(vars, n)),
+        None => has(vars, name).then(|| name.to_string()),
     };
     let building = features::refuse_building_settings(&set, &|name| vars.text(name));
     defaults(vars, host, uid);
@@ -1438,6 +1438,7 @@ mod tests {
         let mut host = Fake::with(&[
             "TEHAS_ADAPTER=off",
             "TEHAS_ADAPTER_UPSTREAM=",
+            "TEHAS_PLUGIN_ORIGINS_FLOORPLAN=",
             "TEHAS_DISPATCHER=rust",
             "TEHAS_OUTSOURCE=on",
             "PI_ENSEMBLE_FUTURE=1",
@@ -1482,7 +1483,7 @@ mod tests {
         let grants = format!("TEHAS_PLUGIN_GRANTS_FLOORPLAN={PIN} product");
         assert_eq!(
             refused(&[&grants]),
-            format!("TEHAS_PLUGIN_GRANTS_<NAME> is set and plugins is still being built in this release: take the line out (see {FILE})")
+            format!("TEHAS_PLUGIN_GRANTS_FLOORPLAN is set and plugins is still being built in this release: take the line out (see {FILE})")
         );
         assert_eq!(
             refused(&["TEHAS_PLUGIN_ACCESS=write"]),
@@ -1531,10 +1532,11 @@ mod tests {
                 "{space}"
             );
         }
-        // The family: one line per plugin, refused for the feature.
+        // The family: one line per plugin, refused by the line the instance
+        // has, as the update names it.
         assert_eq!(
             refused(&["TEHAS_PLUGIN_ORIGINS_FLOORPLAN=https://github.com/acme/floorplan@0123abcd"]),
-            format!("TEHAS_PLUGIN_ORIGINS_<NAME> is set and adapter is still being built in this release: take the line out (see {FILE})")
+            format!("TEHAS_PLUGIN_ORIGINS_FLOORPLAN is set and adapter is still being built in this release: take the line out (see {FILE})")
         );
         // Off, and lines left empty, load: the reservation asks for nothing.
         let vars = loads(&[
