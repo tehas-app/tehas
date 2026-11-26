@@ -14,7 +14,7 @@ use crate::{table, AuthorisedCurl, Curl, GitHub};
 use tehas_core::forge::{Failed, GhRunner};
 use tehas_ports::{
     Actor, At, BlueprintWrites, Blueprints, Board, Caller, CodeHost, CodeHostWrites, Got, Identity,
-    Ledger, Mark, Marker, MeterRow, Outcome, Pool, PortName, Realm, Refusal, Scope, Site,
+    Ledger, Mark, Marker, MeterRow, Notices, Outcome, Pool, PortName, Realm, Refusal, Scope, Site,
     TicketWrites, Tickets,
 };
 
@@ -37,7 +37,8 @@ pub struct GitHubSite {
     now: fn() -> i64,
     /// The client a person signs in through, if the wiring gave one.
     people: Option<Arc<People>>,
-    /// curl and the ledger of anonymous reads, if the wiring asked for them.
+    /// curl, the ledger and the notice sink of anonymous reads, if the
+    /// wiring asked for them.
     public: Option<Public>,
 }
 
@@ -103,15 +104,29 @@ impl GitHubSite {
 
     /// The same site answering `Actor::Anonymous`'s code host reads of a
     /// public project (Decided 76) through curl, with no credential, its
-    /// budget kept in `ledger` as the anonymous holder's.
-    pub fn with_anonymous_reads(self, ledger: Arc<dyn Ledger>) -> GitHubSite {
-        self.with_anonymous_curl(Curl::new(), ledger)
+    /// budget kept in `ledger` as the anonymous holder's, and each change
+    /// of that health told to `notices`.
+    pub fn with_anonymous_reads(
+        self,
+        ledger: Arc<dyn Ledger>,
+        notices: Arc<dyn Notices>,
+    ) -> GitHubSite {
+        self.with_anonymous_curl(Curl::new(), ledger, notices)
     }
 
     /// The same, through `curl`: a test's stub in curl's place.
-    pub fn with_anonymous_curl(self, curl: Curl, ledger: Arc<dyn Ledger>) -> GitHubSite {
+    pub fn with_anonymous_curl(
+        self,
+        curl: Curl,
+        ledger: Arc<dyn Ledger>,
+        notices: Arc<dyn Notices>,
+    ) -> GitHubSite {
         GitHubSite {
-            public: Some(Public { curl, ledger }),
+            public: Some(Public {
+                curl,
+                ledger,
+                notices,
+            }),
             ..self
         }
     }

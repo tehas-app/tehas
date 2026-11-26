@@ -491,8 +491,20 @@ mod wiring {
             return Err(Outcome::Refused(Refusal::Unsupported));
         };
         let ledger = std::sync::Arc::new(tehas_core::ledger::FileLedger::new(&home));
-        site.with_anonymous_curl(curl(), ledger)
+        site.with_anonymous_curl(curl(), ledger, std::sync::Arc::new(JournalNotices))
             .code_host(by, caller)
+    }
+
+    /// The `Notices` of the anonymous reads: each is written to stderr,
+    /// where the unit's journal keeps it. The anonymous reader's health
+    /// notices have no other home on a host yet.
+    struct JournalNotices;
+
+    impl tehas_ports::Notices for JournalNotices {
+        fn notice(&self, n: tehas_ports::Notice) {
+            use std::io::Write;
+            let _ = writeln!(std::io::stderr(), "tehas: health notice {n:?}");
+        }
     }
 
     /// curl as the operator's PATH finds it, as gh is found, else as the

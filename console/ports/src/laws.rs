@@ -3126,8 +3126,8 @@ pub mod identity {
 pub mod health {
     use super::{broken, hold, Law, Told};
     use crate::{
-        Actor, At, Caller, Depth, Health, HealthState, Holder, HostId, Identity, Ledger, Outcome,
-        Passing, Pool, ProjectName, Scope, Sent, Site, TicketKey, Tickets, Whose,
+        Actor, At, Caller, CodeHost, Depth, Health, HealthState, Holder, HostId, Identity, Ledger,
+        Outcome, Passing, Pool, ProjectName, Scope, Sent, Site, TicketKey, Tickets, Whose, ALL_MAX,
     };
 
     /// What the handle's site was wired with: the ledger, the sink and the
@@ -3168,6 +3168,32 @@ pub mod health {
             format!("a held call answered {answer:?}")
         })?;
         still_failing(wired, LAW, told, &failing, "a held call")
+    }
+
+    /// The same law for a code-host read: during an outage, a read of a
+    /// holder whose pool is held spent answers `Spent` with no request,
+    /// and raises no `Recovered`: the host stays failing. It runs on any
+    /// handle that reads the code host through the site, the fake's and
+    /// an adapter's alike. `pool` is the one the read draws on, `holder`
+    /// the handle's.
+    pub fn a_held_read_raises_no_recovered(
+        h: &mut dyn CodeHost,
+        wired: Wiring<'_>,
+        holder: &Holder,
+        pool: Pool,
+        now: At,
+    ) -> Law {
+        const LAW: &str = "health::a_held_read_raises_no_recovered";
+        let until = At::new(now.secs() + 3600);
+        let spent = HealthState::Spent { pool, until };
+        let failing = outage(wired, LAW, now)?;
+        set(wired, LAW, &Whose::Pool(holder.clone(), pool), &spent)?;
+        let told = (wired.sink.told().len(), (wired.requests)());
+        let answer = h.releases(ALL_MAX).map(|_| ());
+        hold(answer == Err(Outcome::Spent { pool, until }), LAW, || {
+            format!("a held read answered {answer:?}")
+        })?;
+        still_failing(wired, LAW, told, &failing, "a held read")
     }
 
     /// Put `state` under `whose` in the wired ledger.

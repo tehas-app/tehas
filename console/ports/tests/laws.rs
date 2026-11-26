@@ -2737,6 +2737,23 @@ fn health_held_calls_raise_no_recovered() {
         Op::Tickets(TicketsOp::Ticket).pool(),
         wired.world.now(),
     ));
+}
+
+#[test]
+fn health_a_held_read_raises_no_recovered() {
+    let wired = Wired::new(World::new());
+    let faulty = wired.faulty();
+    let actor = Actor::Ours(Scope::Read);
+    let mut h = faulty.code_host(&actor, C).unwrap();
+    let holder = wired.watch(None).holder(&actor);
+    ok(laws::health::a_held_read_raises_no_recovered(
+        h.as_mut(),
+        wired.wiring(&|| faulty.requests()),
+        &holder,
+        Op::CodeHost(CodeHostOp::Releases).pool(),
+        wired.world.now(),
+    ));
+    assert_eq!(faulty.requests(), 0, "a held read sends nothing");
     assert_eq!(faulty.requests(), 0, "a held call sends nothing");
 }
 

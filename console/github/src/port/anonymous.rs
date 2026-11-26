@@ -37,6 +37,7 @@
 //! on purpose: it is never parsed.
 
 use std::num::NonZeroU32;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -50,10 +51,10 @@ use crate::{markers, rate};
 use tehas_ports::{
     Access, At, Bound, Branch, Caller, Change, ChangeDelta, ChangeDigest, ChangeEvent,
     ChangeFilter, ChangeNo, ChangeToken, ChangedFile, Checks, Cite, Cites, CodeHost, CommitId,
-    Compared, Cursor, Did, Facts, Failure, FileName, Got, HealthState, Holder, HolderId, HostId,
-    Ledger, MeterRow, Outcome, Passing, Pool, PortName, Refusal, Release, ReleaseFile, ReleaseId,
-    Remote, RepoPath, Report, Reports, Rev, Sent, SiteId, Tag, TagName, Took, Unread, WebLink,
-    Whole, Whose, Window,
+    Compared, Cursor, Did, Facts, Failure, FileName, Got, Health, HealthState, Holder, HolderId,
+    HostId, Ledger, MeterRow, Notice, Notices, Outcome, Passing, Pool, PortName, Refusal, Release,
+    ReleaseFile, ReleaseId, Remote, RepoPath, Report, Reports, Rev, Sent, SiteId, Tag, TagName,
+    Took, Unread, WebLink, Whole, Whose, Window,
 };
 
 /// The host the ledger keeps GitHub's health and budgets under.
@@ -65,11 +66,13 @@ const FAILURES_KEPT: u32 = 600;
 /// The most tags a tag object is peeled through.
 const PEELS: usize = 4;
 
-/// What a site needs to make anonymous handles: curl and the ledger.
+/// What a site needs to make anonymous handles: curl, the ledger, and the
+/// sink each change of health is told to.
 #[derive(Clone)]
 pub(super) struct Public {
     pub(super) curl: Curl,
     pub(super) ledger: Arc<dyn Ledger>,
+    pub(super) notices: Arc<dyn Notices>,
 }
 
 /// One anonymous code host handle of a repository.
@@ -77,6 +80,10 @@ pub(super) struct Anonymous {
     repo: String,
     curl: Curl,
     ledger: Arc<dyn Ledger>,
+    notices: Arc<dyn Notices>,
+    /// Whether this handle has told `LedgerDown`: once per handle, as the
+    /// fake does.
+    told_down: AtomicBool,
     meter: Arc<Mutex<Vec<MeterRow>>>,
     caller: Caller,
     deadline: Option<At>,
@@ -96,6 +103,8 @@ impl Anonymous {
             repo: repo.to_string(),
             curl: public.curl.clone(),
             ledger: Arc::clone(&public.ledger),
+            notices: Arc::clone(&public.notices),
+            told_down: AtomicBool::new(false),
             meter,
             caller,
             deadline,
@@ -174,7 +183,9 @@ impl Anonymous {
         answer
     }
 
-    /// `Spent` when the ledger holds the anonymous budget out at `now`.
+    /// `Spent` when the ledger holds the anonymous budget out at `now`. A
+    /// ledger that cannot be read is reported and taken as no hold: the
+    /// call goes out rather than the host being kept out on a guess.
     fn spent(&self, now: i64) -> Option<Outcome> {
         let host = HostId::new(HOST);
         let whose = Whose::Pool(Self::holder(), Pool::Calls);
@@ -186,17 +197,24 @@ impl Anonymous {
                 pool: Pool::Calls,
                 until,
             }),
-            _ => None,
+            Ok(_) => None,
+            Err(_) => {
+                self.ledger_down(At::new(now));
+                None
+            }
         }
     }
 
     /// Give an answer to the ledger: its budget, each state `tehas_ports::keys`
-    /// names, and a failure of the supplier. A ledger that fails is passed
-    /// by: the answer still goes to the caller.
+    /// names, and a failure of the supplier, raising each notice whose
+    /// swap wins: a change of health is told once, as the fake tells it.
+    /// A ledger that fails fails toward reporting: the answer still goes
+    /// to the caller, and the ledger-down notice is told once per handle.
     fn observe(&self, now: i64, answer: &Got<Option<Answer>>) {
         let host = HostId::new(HOST);
         let holder = Self::holder();
         let at = At::new(now);
+        let realm = tehas_ports::Realm::CodeHost;
         if let Ok(Some(a)) = answer {
             if let (Some(left), Some(resets)) = (
                 a.header("x-ratelimit-remaining")
@@ -204,18 +222,40 @@ impl Anonymous {
                 a.header("x-ratelimit-reset").and_then(|v| v.parse().ok()),
             ) {
                 let budget = tehas_ports::Budget::new(left, At::new(resets));
-                let _ = self.ledger.put_budget(&host, &holder, Pool::Calls, budget);
+                if self
+                    .ledger
+                    .put_budget(&host, &holder, Pool::Calls, budget)
+                    .is_err()
+                {
+                    self.ledger_down(at);
+                }
             }
         }
         let seen = answer.as_ref().map(drop).map_err(Clone::clone);
         for whose in tehas_ports::keys(&holder, &seen, &[Pool::Calls]) {
-            let Ok(was) = self.ledger.health(&host, &whose) else {
-                continue;
-            };
-            let realm = tehas_ports::Realm::CodeHost;
-            let (new, _) = tehas_ports::next(&host, &whose, realm, at, &was, &seen);
-            if new != was {
-                let _ = self.ledger.swap_health(&host, &whose, &was, &new);
+            match self.ledger.health(&host, &whose) {
+                Ok(was) => {
+                    let (new, notice) = tehas_ports::next(&host, &whose, realm, at, &was, &seen);
+                    if new == was {
+                        continue;
+                    }
+                    match self.ledger.swap_health(&host, &whose, &was, &new) {
+                        Ok(true) => {
+                            notice.into_iter().for_each(|n| self.notices.notice(n));
+                        }
+                        Ok(false) => {}
+                        Err(_) => {
+                            notice.into_iter().for_each(|n| self.notices.notice(n));
+                            self.ledger_down(at);
+                        }
+                    }
+                }
+                Err(_) => {
+                    let healthy = HealthState::Healthy;
+                    let (_, notice) = tehas_ports::next(&host, &whose, realm, at, &healthy, &seen);
+                    notice.into_iter().for_each(|n| self.notices.notice(n));
+                    self.ledger_down(at);
+                }
             }
         }
         if let Err(o) = &seen {
@@ -226,9 +266,27 @@ impl Anonymous {
             };
             if kept {
                 let f = Failure::new(at, SiteId::new(self.repo.clone()), o.clone());
-                let _ = self.ledger.failed(&host, f, FAILURES_KEPT);
+                if self.ledger.failed(&host, f, FAILURES_KEPT).is_err() {
+                    self.ledger_down(at);
+                }
             }
         }
+    }
+
+    /// `Health::LedgerDown`, once per handle: a ledger that fails fails
+    /// toward reporting, and a change reported without the ledger may be
+    /// reported again by the next process to hold it.
+    fn ledger_down(&self, at: At) {
+        if self.told_down.swap(true, Ordering::Relaxed) {
+            return;
+        }
+        self.notices.notice(Notice::new(
+            HostId::new(HOST),
+            Whose::Host,
+            tehas_ports::Realm::CodeHost,
+            Health::LedgerDown,
+            at,
+        ));
     }
 
     /// Every page of a list, from `first` on by each page's next link, or
