@@ -1201,7 +1201,8 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   bare 429 to the anonymous reader) holds that budget out for 60 seconds:
   the factory asks again after a minute. 1.x held it until now and asked
   again at once. A reset time or `retry-after` GitHub gives is kept, but
-  never past an hour from the answer.
+  never past an hour from the answer; one at or before the answer (a
+  skewed clock, a negative `retry-after`) holds the minute.
   Readers: adopters (the GitHub budget), the consumer that runs many
   factories, the end-to-end suite.
   Adopter action: none.
