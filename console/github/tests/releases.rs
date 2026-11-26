@@ -50,7 +50,14 @@ impl GhRunner for Replay {
                 .find_map(|a| a.strip_prefix(&format!("{name}=")))
                 .map(str::to_string)
         };
-        let at = |file: String| answers::at("releases", &self.case, &file);
+        let at = |file: String| {
+            // The download faults are of the fixture's own release.
+            let case = match (self.case.as_str(), file.as_str()) {
+                ("lying" | "refused", "release-v1.1.0.json") => "fixture",
+                (case, _) => case,
+            };
+            answers::at("releases", case, &file)
+        };
         let project = project_of(&self.case);
         let (owner, repo) = project.split_once('/').unwrap();
         if let ["release", "download", ..] = args {
@@ -427,7 +434,7 @@ fn a_file_of_another_size_or_a_refused_download_is_an_outcome() {
     assert_eq!(
         gh.download(&tag("v1.1.0"), &file(SUMS), 1 << 20, &mut into),
         Err(Outcome::Unread(Unread::Inconsistent)),
-        "gh wrote 97 bytes of a file listed at 98"
+        "gh wrote 98 bytes of a file listed at 99"
     );
     let (mut gh, _) = adapter("refused");
     assert_eq!(
