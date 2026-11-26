@@ -7,7 +7,7 @@ file's. Every part here lands with the first ordinary plugin, in the next
 open minor. Decisions are in `2026-11-25-plugins-2.0.0-history.md`, and a
 view's network in `2026-11-25-plugins-view-network.md`.
 
-**Normative**: tehas-standard v3 at main 66b7577, as the normative file
+**Normative**: tehas-standard v3 at main 8257b66, as the normative file
 says.
 
 ## Why
@@ -536,9 +536,12 @@ in WebAssembly built from C or Rust.
     `emscripten_resize_heap` and a null `fd_write`. Any import that binds a
     web API (`__wbg_*` from `web-sys` or `js-sys`, fetch, DOM, storage,
     WebSocket) is refused at vetting.
-  - **Always in a dedicated module worker** (`new Worker(url, {type:
-    "module"})`, from `dist/view/`), never on the view's main thread: no
-    DOM, bytes in and out through `postMessage`. Import maps don't apply in
+  - **Always in a dedicated worker started from a `blob:` URL**, never on
+    the view's main thread: no DOM, bytes in and out through `postMessage`.
+    It is a classic worker unless the browser spike shows a module worker
+    starts in the sandboxed frame (tehas-standard v3 §9 and §14 leave
+    classic or module to the host). The view builds the `blob:` from the
+    module's bytes, which come over its port. Import maps don't apply in
     workers, so worker code doesn't import the kit.
   - **The worker's box is decided by the browser spike** (R2 H1). An
     opaque-origin frame can't start a module worker from the gate's URL
@@ -551,9 +554,9 @@ in WebAssembly built from C or Rust.
   - **Measured, 2026-11-26, for the spike** (Chromium 159.0.8154.6, the one
     Playwright 1.65.1 pins): in a `sandbox="allow-scripts"` frame with no
     CSP at all, a classic `blob:` worker starts and answers, and a `blob:`
-    module worker (`{type: "module"}`) fails with an error event. So the
-    module worker this part asks for doesn't start in that frame today; a
-    classic `blob:` worker does. Which one a view gets is the spike's
+    module worker (`{type: "module"}`) fails with an error event. So a
+    module worker doesn't start in that frame today; a classic `blob:`
+    worker does, which is why the rule above names a classic one. Which one a view gets is the spike's
     question, and #3305's if the view code needs module workers. The
     template's simulator tests the classic one.
   - Inside H8's frame, so the worker inherits the opaque origin.
