@@ -205,7 +205,7 @@ impl Site {
         }
         if let Some(id) = self
             .name_id
-            .filter(|_| q.contains("{ databaseId nameWithOwner } }"))
+            .filter(|_| q.contains("name: $name) { databaseId nameWithOwner } }"))
         {
             data["repository"]["databaseId"] = id.into();
         }
@@ -450,6 +450,24 @@ fn a_renamed_project_reads_its_change_as_here_by_its_repository_id() {
         gh.change(nine(), bound(100)).map(|_| ()),
         Err(Outcome::Unread(Unread::Inconsistent))
     );
+}
+
+/// A tear inside one read fails the whole read: the name is learned with
+/// one id, then the read's last question gives another, so nothing read
+/// under that name is taken.
+#[test]
+fn a_tear_after_the_name_is_learned_fails_the_whole_read() {
+    let mut site = renamed();
+    site.name = Some("acme/widget-after");
+    site.name_id = Some(500002);
+    let (mut gh, _, calls) = adapter(site);
+    assert_eq!(
+        gh.change(nine(), bound(100)).map(|_| ()),
+        Err(Outcome::Unread(Unread::Inconsistent))
+    );
+    let asked = asked(&calls);
+    assert_eq!(asked[..2], [PULL.to_string(), "graphql".into()]);
+    assert_eq!(asked.last().map(String::as_str), Some(PULL), "{asked:?}");
 }
 
 /// A handle that learned this project's id takes no name given with

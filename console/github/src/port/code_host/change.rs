@@ -189,7 +189,10 @@ impl GitHub {
     /// id, answered in their order. Every comment asked must be answered as
     /// an issue comment of that id, or the read is `Unread(Inconsistent)`.
     /// A failed question is the read's failure, a spent budget the priced
-    /// pool's.
+    /// pool's. The answer's repository, and each repository a closing
+    /// reference names, is this project's by `is_here_id` alone: a second
+    /// id learned anywhere in the read tears it, and the whole read is
+    /// `Unread(Inconsistent)`.
     fn ask_change(
         &mut self,
         no: ChangeNo,
@@ -202,14 +205,13 @@ impl GitHub {
             .ask("the pull request's question", &question, number, None)
             .map_err(|e| priced(self.outcome(&e)))?;
         let answer: Answer = answer(&out, (self.now)())?;
+        let repo = answer.repository.ok_or(MALFORMED)?;
+        if !self.is_here_id(repo.id)? {
+            return Err(Outcome::Unread(Unread::Inconsistent));
+        }
         let node = match pull {
             false => None,
-            true => Some(
-                answer
-                    .repository
-                    .ok_or(MALFORMED)?
-                    .read(no, self.bot.as_ref())?,
-            ),
+            true => Some(repo.read(no, self.bot.as_ref(), |id| self.is_here_id(id))?),
         };
         let nodes = answer.nodes.unwrap_or_default();
         if nodes.len() != ids.len() {
@@ -753,9 +755,14 @@ struct Node {
 impl RepoNode {
     /// The pull request's part, which must be of `no`, else
     /// `Unread(Inconsistent)`. Closing references past one page are
-    /// `Unread(Cut)`.
-    fn read(self, no: ChangeNo, bot: Option<&Bot>) -> Got<Node> {
-        let here = self.id.ok_or(MALFORMED)?;
+    /// `Unread(Cut)`. A closing reference is here by `here`, the handle's
+    /// learned id.
+    fn read(
+        self,
+        no: ChangeNo,
+        bot: Option<&Bot>,
+        here: impl Fn(Option<u64>) -> Got<bool>,
+    ) -> Got<Node> {
         let pull = self.pull.ok_or(Outcome::Unread(Unread::Inconsistent))?;
         if pull.number != Some(no.get()) {
             return Err(Outcome::Unread(Unread::Inconsistent));
@@ -771,9 +778,9 @@ impl RepoNode {
         for c in nodes {
             let number = c.number.and_then(BlueprintNo::new).ok_or(MALFORMED)?;
             let repo = c.repository.ok_or(MALFORMED)?;
-            closes.push(match repo.id.ok_or(MALFORMED)? {
-                id if id == here => Ref::Here(number),
-                _ => Ref::Elsewhere {
+            closes.push(match here(Some(repo.id.ok_or(MALFORMED)?))? {
+                true => Ref::Here(number),
+                false => Ref::Elsewhere {
                     project: ProjectName::new(repo.name.ok_or(MALFORMED)?),
                     item: ItemName::new(number.get().to_string()),
                 },
