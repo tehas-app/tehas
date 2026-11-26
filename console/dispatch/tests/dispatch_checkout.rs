@@ -352,6 +352,54 @@ fn with_the_ghost_on_the_list_an_edit_by_no_account_in_the_history_is_not_approv
     lacks(&r.out, "would run a cycle");
 }
 
+// The GitHub adapter's recorded answer of a body's history, through the
+// poll's wiring to the holds: an edit after the label by a bot that is not
+// the factory's by its id holds the issue, and a label after every edit is
+// not held.
+#[test]
+fn a_recorded_body_history_reads_through_the_adapter_to_the_holds() {
+    let at = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../github/tests/recorded/edits/site/issue-7.json"
+    );
+    let issue: Value = serde_json::from_str(&std::fs::read_to_string(at).unwrap()).unwrap();
+    for (label, held) in [
+        ("2026-11-20T10:00:00Z", true),
+        ("2026-11-21T09:00:00Z", false),
+    ] {
+        let w = World::new("co-recorded-edits");
+        let mut lines = MINIMAL.to_vec();
+        lines.extend(["TEHAS_MAX_CYCLES=1", r#"TEHAS_ALLOWED_LABELERS="octo-dev""#]);
+        w.instance(&lines);
+        // The recording's id of octo-dev, for the label and the edits alike.
+        let ids = Home::new(&w.home).state(home::State::AccountIds);
+        let known = std::fs::read_to_string(&ids).unwrap_or_default();
+        w.home_file(&ids, &format!("{known}octo-dev 5001\n"));
+        let octo = r#"{"login":"octo-dev","id":5001}"#;
+        let event = LABELLED
+            .replace(r#"{"login":"alice"}"#, octo)
+            .replace("2026-01-02T10:00:00Z", label);
+        w.fx("events-7.json", &event);
+        let mut edit = issue.clone();
+        edit.as_object_mut().unwrap().remove("userContentEdits");
+        edit["editor"] = json!({"login": "octo-dev", "databaseId": 5001});
+        w.fx(
+            "edit-7.json",
+            &json!({"data": {"repository": {"issue": edit}}}).to_string(),
+        );
+        w.fx("edits-7.json", &issue["userContentEdits"].to_string());
+        let r = w.dispatch(&["--dry-run"]);
+        assert_eq!(r.rc, 0, "{}", r.out);
+        if held {
+            let by = "its text was changed by 'tehas-bot#100001' after octo-dev applied";
+            has(&r.out, &format!("skip #7: {by} {READY}"));
+        } else {
+            lacks(&r.out, "skip #7");
+            has(&r.out, "would run a cycle for #7");
+        }
+    }
+}
+
 /// Issues 7 and 8 labelled and edited by alice alone, so the poll reads
 /// both histories in one question, GitHub answering it with `errors`.
 fn two_edited_with_errors(w: &World, errors: &str) {
