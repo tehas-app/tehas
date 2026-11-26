@@ -54,6 +54,13 @@ pub fn switch(value: &str) -> Option<bool> {
         _ => None,
     }
 }
+
+/// The adapters built in this release, for TEHAS_CODE_HOST and TEHAS_TICKETS.
+/// `github` as the tickets' adapter is the code host's own tracker.
+const ADAPTER: Rule = Rule::OneOf(
+    &["github"],
+    "expected github: others are not built in this release",
+);
 const LOGIN_OWNER: &str = "expected the GitHub login of one person: GitHub assigns no app's bot";
 
 /// The shape of a value.
@@ -312,6 +319,9 @@ pub const TABLE: &[Setting] = &[
     ),
     always("TEHAS_LEAN", SWITCH, "0"),
     always("TEHAS_READ_ONLY", SWITCH, "0"),
+    // Decided 33 of the ports spec.
+    always("TEHAS_CODE_HOST", ADAPTER, "github"),
+    always("TEHAS_TICKETS", ADAPTER, "github"),
     // Plugins. TEHAS_PLUGIN_GRANTS_<NAME> is a family, one per plugin of
     // TEHAS_PLUGINS: every name with the front plugin::GRANTS takes its rule,
     // and the load checks what the lines mean together.
@@ -1025,6 +1035,14 @@ mod tests {
         takes("TEHAS_DESIGN", "beesknees26");
         for v in ["Pixel", "paper", "beesknees", "floor"] {
             refuses("TEHAS_DESIGN", v, "expected beesknees26 or pixel");
+        }
+        for name in ["TEHAS_CODE_HOST", "TEHAS_TICKETS"] {
+            takes(name, "github");
+            refuses(
+                name,
+                "github ",
+                "expected github: others are not built in this release",
+            );
         }
         takes("TEHAS_UPDATE_FROM", "git");
         refuses("TEHAS_UPDATE_FROM", "tag", "expected git or release");

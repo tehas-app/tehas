@@ -288,7 +288,9 @@ one is not covered by this page.
 line is one of three:
 
 - **Kept.** Every row of `api/settings-rules.json` not marked
-  `"building": true` loads as in 1.4.x.
+  `"building": true` loads as in 1.4.x. `TEHAS_CODE_HOST` and
+  `TEHAS_TICKETS` are new in 2.0 and take `github` alone
+  ([Changed in 2.0](#changed-in-20)).
 - **Dropped with a warning.** A setting of a feature 2.0 took out of core
   loads, every command warns of it once on standard error, and nothing reads
   it (`IGNORED` in `console/core/src/settings/load.rs`). A 1.4.x instance
@@ -1201,6 +1203,17 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   copy with `tehas analytics copy` and reads it elsewhere. An MCP client
   stops calling `factory_stats`. `~/tehas/live/analytics.json` and
   `~/tehas/state/sizes.jsonl` are read by nothing and may be deleted.
+- **Two settings name the adapters.** #3359.
+  `TEHAS_CODE_HOST` names the code host and `TEHAS_TICKETS` the ticket
+  tracker. In 2.0 each takes `github` alone, where `TEHAS_TICKETS=github` is
+  the code host's own issues. A missing or empty setting means `github`, so
+  an instance without the two lines loads unchanged. Any other value, `jira`
+  among them, stops every command with 78 before any call: it is not built
+  in this release.
+  Readers: adopters, the consumer that runs many factories where it keeps
+  an instance's settings.
+  Adopter action: none. An instance may write `TEHAS_CODE_HOST=github` and
+  `TEHAS_TICKETS=github`.
 - **The settings of the 2.1 adapter are reserved.**
   The feature `adapter` registers as building: `TEHAS_ADAPTER`,
   `TEHAS_ADAPTER_UPSTREAM`, `TEHAS_ADAPTER_UPSTREAM_SPKI`,
@@ -1229,6 +1242,17 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Readers: adopters, the consumer that runs many factories where it
   writes an instance's settings.
   Adopter action: none. Take the warned lines out when it suits you.
+- **Two settings name the adapters.** #3359.
+  `TEHAS_CODE_HOST` names the code host and `TEHAS_TICKETS` the ticket
+  tracker. In 2.0 each takes `github` alone, where `TEHAS_TICKETS=github` is
+  the code host's own issues. A missing or empty setting means `github`, so
+  an instance without the two lines loads unchanged. Any other value, `jira`
+  among them, stops every command with 78 before any call: it is not built
+  in this release.
+  Readers: adopters, the consumer that runs many factories where it keeps
+  an instance's settings.
+  Adopter action: none. An instance may write `TEHAS_CODE_HOST=github` and
+  `TEHAS_TICKETS=github`.
 
 ## Pending for 2.0
 
@@ -1264,12 +1288,10 @@ adopter action as the pull request states them.
   out leaves a store of 1.4.x migrated as now.
   Readers: `tehas update`, the end-to-end suite.
 - **The ports.** T4, spec `docs/specs/2026-11-22-ports.md`.
-  The ports themselves. Two settings choose the adapters:
-  `TEHAS_CODE_HOST` and `TEHAS_TICKETS`. In 2.0 each accepts only
-  `github`; a missing setting means `github`, so a 1.4.x instance still
-  loads, and any other value is refused with 78. One name stays for now as GitHub's word for a pull
-  request, on the list of supplier words still to go: the dashboard's
-  internal `pr` key.
+  The ports themselves; their two settings are under
+  [Changed in 2.0](#changed-in-20). One name stays for now as GitHub's word
+  for a pull request, on the list of supplier words still to go: the
+  dashboard's internal `pr` key.
   Readers: adopters, the consumer that runs many factories where it keeps
   an instance's settings.
 

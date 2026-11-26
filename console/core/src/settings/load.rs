@@ -1819,6 +1819,21 @@ mod tests {
     }
 
     #[test]
+    fn both_adapters_are_github_unless_the_instance_says_another() {
+        for name in ["TEHAS_CODE_HOST", "TEHAS_TICKETS"] {
+            assert_eq!(loads(&[]).text(name), "github");
+            assert_eq!(loads(&[&format!("{name}=")]).text(name), "github");
+            assert_eq!(loads(&[&format!("{name}=github")]).text(name), "github");
+            for bad in ["jira", "gitlab", "GitHub"] {
+                assert_eq!(
+                    refused(&[&format!("{name}={bad}")]),
+                    format!("{name} is not valid: expected github: others are not built in this release (see {FILE})")
+                );
+            }
+        }
+    }
+
+    #[test]
     fn a_renewal_period_is_whole_seconds_or_left_out() {
         assert_eq!(loads(&[]).text("TEHAS_GITHUB_RENEW_EVERY"), "");
         assert_eq!(

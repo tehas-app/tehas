@@ -130,6 +130,26 @@
       "reason": "expected on or off"
     },
     {
+      "name": "TEHAS_CODE_HOST",
+      "rule": "one-of",
+      "when": "always",
+      "default": "github",
+      "words": [
+        "github"
+      ],
+      "reason": "expected github: others are not built in this release"
+    },
+    {
+      "name": "TEHAS_TICKETS",
+      "rule": "one-of",
+      "when": "always",
+      "default": "github",
+      "words": [
+        "github"
+      ],
+      "reason": "expected github: others are not built in this release"
+    },
+    {
       "name": "TEHAS_PLUGIN",
       "rule": "one-of",
       "when": "always",
