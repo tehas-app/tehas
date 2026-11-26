@@ -32,10 +32,48 @@ fn field<'a>(args: &'a [&str], name: &str) -> Option<&'a str> {
         .find_map(|w| w[1].strip_prefix(&format!("{name}=")))
 }
 
-/// A runner that answers each question from the recordings of one state:
-/// `from-<n>` for the question whose first alias is number n. `.json` is
-/// gh's answer, `.fail` the reason it failed, and `.answer.json` beside a
-/// `.fail` what gh printed as it failed.
+/// The question `live/from-1` answers, whole: GitHub's `locations` in it
+/// put `n999999999` at column 289, where this text has it.
+const LIVE_QUERY: &str = "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { n1: issueOrPullRequest(number: 1) { __typename ... on Issue { number } ... on PullRequest { number } } n2: issueOrPullRequest(number: 2) { __typename ... on Issue { number } ... on PullRequest { number } } n999999999: issueOrPullRequest(number: 999999999) { __typename ... on Issue { number } ... on PullRequest { number } } } }";
+
+/// The question of `numbers` a hand-made recording answers, whole.
+fn question_of(numbers: &[u64]) -> String {
+    let mut q = String::from(
+        "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) {",
+    );
+    for n in numbers {
+        q.push_str(&format!(" n{n}: issueOrPullRequest(number: {n}) {{ __typename ... on Issue {{ number }} ... on PullRequest {{ number }} }}"));
+    }
+    q + " } }"
+}
+
+/// Each recording of `state` and the whole question it answers.
+fn recorded(state: &str) -> Vec<(&'static str, String)> {
+    let made = |file, numbers: &[u64]| (file, question_of(numbers));
+    match state {
+        "live" => vec![("from-1", LIVE_QUERY.to_string())],
+        "one" => vec![
+            made("from-1", &[1]),
+            made("from-2", &[2]),
+            made("from-999999999", &[999_999_999]),
+        ],
+        "many" => vec![
+            made("from-1", &(1..=100).collect::<Vec<_>>()),
+            made("from-101", &(101..=150).collect::<Vec<_>>()),
+        ],
+        "null-no-error" | "missing-alias" => vec![made("from-3", &[3, 5])],
+        "other-error" | "two-errors" | "inner-not-found" | "error-elsewhere"
+        | "found-and-error" | "question-error" => vec![made("from-3", &[3, 6])],
+        // A failure with no answer is the call's, of any question.
+        "not-found" => vec![made("from-3", &[3, 4]), made("from-3", &[3])],
+        _ => vec![made("from-3", &[3, 4])],
+    }
+}
+
+/// A runner that answers a question only from the recording of one state
+/// that answers that whole question (`recorded`), and panics on any other.
+/// `.json` is gh's answer, `.fail` the reason it failed, and `.answer.json`
+/// beside a `.fail` what gh printed as it failed.
 struct Replay {
     state: String,
     asked: Asked,
@@ -55,22 +93,20 @@ impl GhRunner for Replay {
         assert_eq!(field(args, "owner"), Some("acme"));
         assert_eq!(field(args, "name"), Some("widget"));
         let query = field(args, "query").expect("a query");
-        let first = query
-            .split(": issueOrPullRequest(number: ")
-            .nth(1)
-            .and_then(|r| r.split(')').next())
-            .expect("an alias");
+        let Some((file, _)) = recorded(&self.state).into_iter().find(|(_, q)| q == query) else {
+            panic!("no recording in {} of the question {query}", self.state)
+        };
         let read =
             |name: String| std::fs::read_to_string(answers::at("what", &self.state, &name)).ok();
-        if let Some(out) = read(format!("from-{first}.json")) {
+        if let Some(out) = read(format!("{file}.json")) {
             return Ok(out);
         }
-        match read(format!("from-{first}.fail")) {
+        match read(format!("{file}.fail")) {
             Some(why) => Err(Failed {
                 why: why.trim_end().to_string(),
-                answer: read(format!("from-{first}.answer.json")),
+                answer: read(format!("{file}.answer.json")),
             }),
-            None => panic!("no recording of from-{first} in {}", self.state),
+            None => panic!("no {file} in {}", self.state),
         }
     }
 }
@@ -165,17 +201,8 @@ fn what_is_is_what_are_of_one_number() {
 
 #[test]
 fn a_repeated_number_is_asked_once_and_answered_each_time() {
-    // The numbers `live/` was asked, 2 twice.
-    let (got, calls) = what("live", &[2, 1, 999_999_999, 2]);
-    assert_eq!(
-        got,
-        [
-            (2, ticket(2)),
-            (1, change(1)),
-            (999_999_999, Err(Outcome::NotFound)),
-            (2, ticket(2))
-        ]
-    );
+    let (got, calls) = what("one", &[1, 1]);
+    assert_eq!(got, [(1, change(1)), (1, change(1))]);
     assert_eq!(calls, 1);
 }
 

@@ -27,6 +27,10 @@ use tehas_ports::{
 const PROJECT: &str = "acme/widget";
 /// The project of the live recordings under `edits/live/`.
 const LIVE: &str = "tehas-app/tehas-rec-edits-not-found";
+/// The questions kit run #1 asked of [`LIVE`], whole, as its `calls.log`
+/// lines 182 and 183 give them: answered by `live/bodies` and `live/nodes`.
+const LIVE_BODIES: &str = r#"query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { i1: issue(number: 1) { number createdAt lastEditedAt userContentEdits(first: 100) { totalCount nodes { editedAt deletedAt diff editor { __typename login ...on User { databaseId } ...on Bot { databaseId } } } } } i2: issue(number: 2) { number createdAt lastEditedAt userContentEdits(first: 100) { totalCount nodes { editedAt deletedAt diff editor { __typename login ...on User { databaseId } ...on Bot { databaseId } } } } } i1001: issue(number: 1001) { number createdAt lastEditedAt userContentEdits(first: 100) { totalCount nodes { editedAt deletedAt diff editor { __typename login ...on User { databaseId } ...on Bot { databaseId } } } } } } }"#;
+const LIVE_NODES: &str = r#"query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { id } nodes(ids: ["IC_kwDOV9AT5c8AAAABrNMQ6A", "IC_kwDOV9AT5c8AAAABrNMTAA"]) { __typename ...on IssueComment { id databaseId url createdAt lastEditedAt userContentEdits(first: 100) { totalCount nodes { editedAt deletedAt diff editor { __typename login ...on User { databaseId } ...on Bot { databaseId } } } } } } }"#;
 /// A project that is not there (`synthetic/edits/gone-repository/`).
 const GONE: &str = "tehas-app/tehas-rec-gone";
 const EDITED: u64 = 2_501_240_001;
@@ -153,6 +157,18 @@ impl Replay {
                 self.compose(items, first, r#"{"repository": {}}"#),
             )
         };
+        // A whole answer rebuilt from a live one answers only its question.
+        let pinned = match (self.state.as_str(), whole) {
+            ("live" | "inner-not-found", "bodies") if self.project == LIVE => Some(LIVE_BODIES),
+            ("live", "nodes") => Some(LIVE_NODES),
+            _ => None,
+        };
+        if let Some(recorded) = pinned.filter(|q| *q != query) {
+            panic!(
+                "no recording in {} of the question {query}, only of {recorded}",
+                self.state
+            );
+        }
         let read = |ext: &str| {
             std::fs::read_to_string(answers::at("edits", &self.state, &format!("{whole}.{ext}")))
         };
