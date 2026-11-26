@@ -921,6 +921,37 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   plugins.
   Adopter action: none. A program that reads a cycle's log, or
   `logs/dispatch.log`, sees the `event` lines.
+- **The four other events are raised.** T11.9, spec
+  `docs/specs/2026-11-22-events.md`; the raisers are
+  `console/core/src/raise.rs` with the commands that record each fact.
+  `tehas limit set`, `tehas limit clear` and `tehas drain` raise
+  `factory.limit-changed` of the write that wrote another limit: the same
+  limit set again and a renewal that only moved `until` keep their `set`
+  and raise nothing, and a clear of a limit that was there raises the
+  change keyed on `observed`, with the state `none`; the write's line
+  goes to `logs/dispatch.log`. `tehas-dispatch` raises `ticket.acted` of
+  the act of an allowed account it records: the approval that starts a
+  cycle, the start of a planning session asked by `tehas:plan` or
+  `tehas:refine` (the poll's own refine is the factory asking, not a
+  person, and raises nothing), and a person's finish ask once its label
+  came off. Each is keyed on the moment the account's label event names,
+  the same moment `tehas start` wrote beside the record.
+  `tehas-dispatch` raises `ticket.closed` of a close its write landed,
+  the close of a planning issue that was replaced; a close the site did
+  not answer is not recorded as landed and raises nothing until the
+  settle rules say it did. `tehas-cycle` raises `change.merged` of the
+  history line its report ended `merged` and did not park: tehas does not
+  merge changes itself, a person does, and the report's line is the
+  record of the merge; a line that says `merged` while the bot lists no
+  merged pull request for the issue parks and raises nothing. The
+  payloads are built from what the state store then holds, so each is
+  what its witness then prints. Each is raised once, by the process that
+  wrote the fact.
+  Readers: the consumer that runs many factories, MCP clients, the
+  end-to-end suite, plugins.
+  Adopter action: none. `tehas limit` and `tehas drain` write their event
+  lines to `logs/dispatch.log`, beside the dispatcher's and `tehas
+  stop`'s.
 - **The event subjects `plugin-<name>` and `annex-<name>` are reserved.**
   #3330.
   `plugin-<name>` belongs to the plugin `<name>` and `annex-<name>` to the
@@ -1208,27 +1239,6 @@ Planned or in review, not merged. Each moves to
 [Changed in 2.0](#changed-in-20) when it lands, with its readers and
 adopter action as the pull request states them.
 
-- **Events.** T11, spec `docs/specs/2026-11-22-events.md`
-  (#2878, merged). 2.0 raises the cycle's five only, `cycle.started`,
-  `cycle.parked`, `question.asked`, `cycle.ended` and `change.offered`
-  (#2937 and #2940, under [Changed in 2.0](#changed-in-20); the raisers
-  are `console/core/src/raise.rs`). Four more have their names in
-  `api/events.txt` and their schemas and samples in `api/` (#2936), and
-  nothing raises them:
-
-  | Event | Raised when | Key |
-  | --- | --- | --- |
-  | `factory.limit-changed` | `tehas limit` or `tehas drain` writes another limit | the limit's `set` |
-  | `ticket.acted` | an allowed account's act is recorded | `<ticket>@<act>@<at>` |
-  | `ticket.closed` | a ticket tehas follows is recorded closed | `<ticket>@<at>` |
-  | `change.merged` | a change linked to a blueprint is recorded merged | the change's number |
-
-  They are raised after the first alpha, before the beta.
-  Until then a program reads their witnesses as the spec names them: a
-  change of `tehas limit --json`, and the ticket's and the change's own
-  history on the code host.
-  Readers: the consumer that runs many factories, MCP clients, the
-  end-to-end suite, plugins.
 - **The store's migration from 1.4.x alone.** T16. The store still
   migrates from schema 12, the one v0.30.0 wrote (`OLDEST` in
   `console/store/src/db.rs`), not only from 1.4.x's 23: its steps 13 to 23
