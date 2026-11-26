@@ -63,6 +63,8 @@ struct Fake {
     unlabelled: Vec<u64>,
     finished: Vec<(u64, String)>,
     said: Vec<(u64, String)>,
+    /// The acts recorded: issue, asker and the label event's moment.
+    acted: Vec<(u64, String, String)>,
     /// The markers beside each text said, in the same order.
     markers: Vec<Vec<Marker>>,
     lines: Vec<String>,
@@ -72,6 +74,9 @@ impl Hands for Fake {
     fn unlabel(&mut self, n: u64) -> bool {
         self.unlabelled.push(n);
         !self.unlabel_fails
+    }
+    fn acted(&mut self, n: u64, by: &str, at: &str) {
+        self.acted.push((n, by.to_string(), at.to_string()));
     }
     fn finish(&mut self, n: u64, reason: &str) -> Result<String, String> {
         self.finished.push((n, reason.to_string()));
@@ -98,6 +103,8 @@ fn an_allowed_ask_runs_the_finish_takes_the_label_off_and_gives_the_url() {
     run(ask("bob"), &mut f);
     assert_eq!(f.unlabelled, [7]);
     assert_eq!(f.finished, [(7, REASON.to_string())]);
+    // The person's ask is recorded as an act, keyed on the label's moment.
+    assert_eq!(f.acted, [(7, "bob".to_string(), AT.to_string())]);
     assert_eq!(f.said.len(), 1);
     let said = &f.said[0].1;
     assert_eq!(f.markers, [vec![finish(7, FinishResult::Opened)]]);
@@ -119,6 +126,9 @@ fn the_millwright_asks_on_a_persons_approval() {
     let mut f = Fake::default();
     run(ask("acme-millwright"), &mut f);
     assert_eq!(f.finished.len(), 1);
+    // The millwright's own ask is the factory acting: no act of a person to
+    // record, so nothing is raised.
+    assert!(f.acted.is_empty(), "{:?}", f.acted);
     assert!(
         f.lines[0].contains("asked by acme-millwright (millwright)"),
         "{:?}",
@@ -401,6 +411,7 @@ fn a_label_that_did_not_come_off_runs_nothing() {
     run(ask("alice"), &mut f);
     assert!(f.finished.is_empty());
     assert!(f.said.is_empty());
+    assert!(f.acted.is_empty(), "an ask still labelled records no act");
 }
 
 #[test]
