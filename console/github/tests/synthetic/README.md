@@ -52,35 +52,15 @@ does not parse. Source: none, each is made by hand.
 ## anonymous/
 
 Read by `tests/anonymous.rs` through `Stub::synthetic(<case>)`, before
-`recorded/anonymous/`.
+`recorded/anonymous/`. Each is made from a live answer to an anonymous
+reader (kit run #1, 2026-11-26) under
+`console/github/tests/recorded/anonymous/`, named in the second column.
 
-- `anonymous/no-location/repos_acme_widget_releases_latest`: a redirect
-  with no place to go, which GitHub cannot be made to send. Source
-  `recorded/anonymous/repos_acme_widget_releases_latest`; the status `200`
-  changed to `302`. No `location` header, the release body kept.
-- `anonymous/chain/repos_acme_widget_releases_latest`: the first of two
-  redirects, which GitHub cannot be made to send. Source as above; the
-  status changed to `302` and a `location:
-  https://api.github.com/repositories/1/releases/latest` header added
-  after it.
-- `anonymous/chain/repositories_1_releases_latest`: the second redirect.
-  Source as above; the status changed to `302` and a `location:
-  https://api.github.com/repos/acme/widget/releases/latest` header added
-  after it.
-- `anonymous/busy/repos_acme_spent_releases_per_page_100`: a 429 with no
-  reset time and no `retry-after`, which cannot be made on demand without
-  spending a real budget. Source
-  `recorded/anonymous/repos_acme_spent_releases_per_page_100` (a real 403
-  limit); the status `403` changed to `429` and the `x-ratelimit-reset`
-  line taken out.
-- `anonymous/renamed/repos_acme_renamed_releases_latest`: to be replaced
-  by the live recording, see the kit list (`e`, anonymous-renamed). Source
-  `recorded/anonymous/repos_acme_widget_releases_latest`; the status
-  changed to `301`, a `location:
-  https://api.github.com/repositories/1/releases/latest` header added after
-  it, and the body replaced by GitHub's documented redirect body
-  (`message` "Moved Permanently", `url` the same address,
-  `documentation_url`).
-- `anonymous/renamed/repositories_1_releases_latest`: to be replaced by the
-  live recording, as above. `recorded/anonymous/repos_acme_widget_releases_latest`
-  as it is, at the address the redirect names.
+| File | Source | Changed from the recording |
+| --- | --- | --- |
+| `anonymous/no-location/repos_tehas_app_tehas_rec_releases_releases_latest` | `repos_tehas_app_tehas_rec_releases_releases_latest` | A redirect with no place to go, which GitHub cannot be made to send: the status `200` is `302`, no `location` header, the release body kept |
+| `anonymous/chain/repos_tehas_app_tehas_rec_releases_releases_latest` | `repos_tehas_app_tehas_rec_releases_releases_latest` | The first of two redirects, which GitHub cannot be made to send: the status is `302`, and a `location: https://api.github.com/repositories/1473248788/releases/latest` header follows it |
+| `anonymous/chain/repositories_1473248788_releases_latest` | `repos_tehas_app_tehas_rec_releases_releases_latest` | The second redirect: the status is `302`, and a `location: https://api.github.com/repos/tehas-app/tehas-rec-releases/releases/latest` header follows it |
+| `anonymous/pre/repos_tehas_app_tehas_rec_releases_releases_latest` | `repos_tehas_app_tehas_rec_releases_releases_latest` | GitHub never answers `latest` with a prerelease: `"prerelease":false` is `"prerelease":true` |
+| `anonymous/spent/repos_tehas_app_tehas_rec_releases_releases_per_page_100` | `repos_tehas_app_tehas_rec_releases_releases_per_page_100` | A spent budget, which cannot be made on demand: the status `200` is `403`, `x-ratelimit-remaining` `37` is `0`, `x-ratelimit-used` `23` is `60`, the body is GitHub's rate-limit message and `content-length` its 275 bytes |
+| `anonymous/busy/repos_tehas_app_tehas_rec_releases_releases_per_page_100` | `repos_tehas_app_tehas_rec_releases_releases_per_page_100` | A 429 with no reset time and no `retry-after`, which cannot be made on demand: as `spent/`, with the status `429` and the `x-ratelimit-reset` line taken out |
