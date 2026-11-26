@@ -1060,7 +1060,7 @@ mod raised {
             "--how",
             "approved",
             "--label",
-            "tehas:ready",
+            &label_of("Act::Approve"),
             "--body-sha",
             SHA,
         ]);
@@ -1081,16 +1081,16 @@ mod raised {
                 "--by",
                 "alice",
                 "--label",
-                "tehas:plan",
+                &label_of("Act::Plan"),
                 "--brief-file",
                 &file,
             ],
         );
         let row = w.store_ok(&["plan-show", "31"])["planning"].clone();
         assert_eq!(row["by"], "alice");
-        assert_eq!(row["label"], "tehas:plan");
-        let planned = tehas_core::raise::plan_acted(31, "tehas:plan", "alice", at)
-            .expect("the planning label is an act");
+        assert_eq!(row["label"], label_of("Act::Plan"));
+        let planned = tehas_core::raise::acted(31, tehas_ports::Act::Plan, "alice", at)
+            .expect("the planning act records");
         all.push(Envelope::new(planned));
 
         // `ticket.closed` of the close the factory records.
@@ -1192,6 +1192,20 @@ mod raised {
         assert_eq!(data(6)["observed"], when);
     }
 
+    /// A label of `host/labels.tsv` by the port word in its last column,
+    /// so a test never spells the word the table owns.
+    fn label_of(word: &str) -> String {
+        let table = fs::read_to_string(root().join("host/labels.tsv")).unwrap();
+        table
+            .lines()
+            .find(|l| l.split('\t').last() == Some(word))
+            .unwrap_or_else(|| panic!("no label of {word} in the table"))
+            .split('\t')
+            .next()
+            .unwrap()
+            .to_string()
+    }
+
     // A planning turn's question on record, as the dispatcher records one
     // after the turn's end with its options: what `question-asked` answered.
     fn plan_asked(w: &World, n: u64, id: &str) -> String {
@@ -1200,13 +1214,7 @@ mod raised {
         fs::write(&brief, "# Faster search\n").unwrap();
         // The label that starts a planning session, as host/labels.tsv
         // names it.
-        let table = fs::read_to_string(root().join("host/labels.tsv")).unwrap();
-        let label = table
-            .lines()
-            .find(|l| l.contains("start a planning session"))
-            .and_then(|l| l.split('\t').next())
-            .unwrap()
-            .to_string();
+        let label = label_of("Act::Plan");
         w.store_ok(&[
             "plan-begin",
             &issue,

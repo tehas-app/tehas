@@ -392,17 +392,6 @@ pub fn acted(issue: u64, act: Act, by: &str, at: i64) -> Option<TicketActed> {
     ))
 }
 
-/// `ticket.acted` of the start of a planning session: the act the label of
-/// `label` asks for. Only the two planning labels are acts.
-pub fn plan_acted(issue: u64, label: &str, by: &str, at: i64) -> Option<TicketActed> {
-    let act = match label {
-        "tehas:plan" => Act::Plan,
-        "tehas:refine" => Act::Refine,
-        _ => return None,
-    };
-    acted(issue, act, by, at)
-}
-
 /// The record `approval-record` answered, or `approval-current` shows: the
 /// act of approval, when the record approves. Its `at` is the label event's
 /// time, which `tehas start` wrote with it, so the key is the key the
@@ -749,15 +738,8 @@ mod tests {
             "12@Approve@2025-11-22T14:00:00Z"
         );
         assert!(acted(0, Act::Approve, "alice", 1).is_none());
-        assert_eq!(
-            plan_acted(12, "tehas:plan", "bob", 5).unwrap().act,
-            Act::Plan
-        );
-        assert_eq!(
-            plan_acted(12, "tehas:refine", "bob", 5).unwrap().act,
-            Act::Refine
-        );
-        assert!(plan_acted(12, "tehas:ready", "bob", 5).is_none());
+        assert_eq!(acted(12, Act::Plan, "bob", 5).unwrap().act, Act::Plan);
+        assert_eq!(acted(12, Act::Refine, "bob", 5).unwrap().act, Act::Refine);
         // The close of the plan's replaced session, and its key.
         let c = closed(
             TicketKey::Number(NonZeroU64::new(12).unwrap()),
@@ -770,7 +752,7 @@ mod tests {
 
     #[test]
     fn an_approval_record_answers_its_act_only_when_it_approves() {
-        let a = r#"{"api":1,"verb":"approval-record","ok":true,"approval":{"issue":12,"at":1763820000,"by":"alice","how":"approved","label":"tehas:ready"}}"#;
+        let a = r#"{"api":1,"verb":"approval-record","ok":true,"approval":{"issue":12,"at":1763820000,"by":"alice","how":"approved"}}"#;
         let p = approved(a).unwrap();
         assert_eq!(
             (p.act, p.by.login.as_str(), p.at.secs()),

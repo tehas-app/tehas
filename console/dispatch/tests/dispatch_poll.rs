@@ -249,9 +249,19 @@ fn a_poll_that_starts_a_cycle_logs_its_lines_line_for_line() {
     // `ticket.acted` the start raises carries one key across the two: on a
     // host the label event always names one.
     let labelled = || {
+        let ready = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../host/labels.tsv"))
+            .lines()
+            .find(|l| l.split('\t').last() == Some("Act::Approve"))
+            .unwrap()
+            .split('\t')
+            .next()
+            .unwrap()
+            .to_string();
         w.fx(
             "events-7.json",
-            r#"[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"},"created_at":"2026-10-01T00:00:00Z"}]"#,
+            &format!(
+                r#"[{{"event":"labeled","label":{{"name":"{ready}"}},"actor":{{"login":"alice"}},"created_at":"2026-10-01T00:00:00Z"}}]"#
+            ),
         );
     };
     labelled();

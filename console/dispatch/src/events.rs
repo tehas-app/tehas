@@ -60,19 +60,19 @@ impl Writer {
     }
 
     /// `ticket.acted` of the planning session this writer's `plan-begin`
-    /// call began: the act of `by` asking for a session on `label`, keyed
-    /// on the moment the label event says. A label outside the two
-    /// planning ones records no act, and neither does a session the poll
-    /// started on its own.
+    /// call began: the act of `by` asking for a session, keyed on the
+    /// moment the label event says. The caller names the act: only the
+    /// planning ones come here, and a session the poll started on its own
+    /// never does.
     pub(crate) fn raise_plan(
         &mut self,
         n: u64,
-        label: &str,
+        act: tehas_ports::Act,
         by: &str,
         at: i64,
         log: &mut Vec<String>,
     ) {
-        let Some(p) = raise::plan_acted(n, label, by, at) else {
+        let Some(p) = raise::acted(n, act, by, at) else {
             return;
         };
         self.raise_one(p, log);

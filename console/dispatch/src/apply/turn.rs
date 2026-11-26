@@ -216,7 +216,17 @@ impl Writer {
                     .and_then(Value::as_str)
                     .and_then(tehas_core::limit::epoch)
                 {
-                    self.raise_plan(n, &label, &by, at, log);
+                    self.raise_plan(
+                        n,
+                        if refine {
+                            tehas_ports::Act::Refine
+                        } else {
+                            tehas_ports::Act::Plan
+                        },
+                        &by,
+                        at,
+                        log,
+                    );
                 }
             }
             let _ = std::fs::remove_file(&out);
