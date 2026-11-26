@@ -4,18 +4,50 @@
 
 mod common;
 
-use common::{has, lacks, plan_body, World};
-use serde_json::json;
+use common::{has, lacks, plan_body, synthetic, World};
+use serde_json::{json, Value};
 use std::process::Command;
 
 const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
 
-/// The one run of the check on the head, as GitHub lists every run.
+/// The one run of the check on the head: in the one question, and as
+/// GitHub lists every run for the long way.
 fn checks(w: &World, status: &str, conclusion: Option<&str>) {
+    question(w, &[(1, 1, status, conclusion)]);
     w.fx_json(
         "checks.json",
         &json!({"total_count": 1, "check_runs": [run(1, 1, status, conclusion)]}),
     );
+}
+
+/// The one question's answer, `tests/synthetic/branch-checks/verify-passed.json`
+/// with its one suite given for each `(suite, workflow, status, conclusion)`:
+/// the suite and its workflow by these ids, its run of `verify` by the
+/// suite's id and in this state.
+fn question(w: &World, suites: &[(u64, u64, &str, Option<&str>)]) {
+    w.fx_json("checks-question.json", &answer(suites));
+}
+
+fn answer(suites: &[(u64, u64, &str, Option<&str>)]) -> Value {
+    let text = std::fs::read_to_string(synthetic("branch-checks/verify-passed.json")).unwrap();
+    let mut v: Value = serde_json::from_str(&text).unwrap();
+    let all = &mut v["data"]["repository"]["ref"]["target"]["checkSuites"];
+    let one = all["nodes"][0].clone();
+    let nodes: Vec<Value> = suites
+        .iter()
+        .map(|&(suite, workflow, status, conclusion)| {
+            let mut s = one.clone();
+            s["databaseId"] = json!(suite);
+            s["workflowRun"]["workflow"]["databaseId"] = json!(workflow);
+            let r = &mut s["checkRuns"]["nodes"][0];
+            r["databaseId"] = json!(suite);
+            r["status"] = json!(status.to_ascii_uppercase());
+            r["conclusion"] = json!(conclusion.map(str::to_ascii_uppercase));
+            s
+        })
+        .collect();
+    *all = json!({"totalCount": nodes.len(), "nodes": nodes});
+    v
 }
 
 /// A run of `verify` on the head, by GitHub Actions in check suite `suite`.
@@ -91,12 +123,12 @@ fn red_two_workflows_jobs_of_one_name_are_both_read_and_the_failed_one_holds() {
     let w = World::new("red-two-workflows");
     red_instance(&w);
     w.ready(&[7, 8]);
-    w.fx_json(
-        "checks.json",
-        &json!({"total_count": 2, "check_runs": [
-            run(2, 20, "completed", Some("success")),
-            run(1, 10, "completed", Some("failure")),
-        ]}),
+    question(
+        &w,
+        &[
+            (20, 2, "completed", Some("success")),
+            (10, 1, "completed", Some("failure")),
+        ],
     );
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
@@ -141,11 +173,17 @@ fn red_a_call_that_fails_hangs_or_answers_nonsense_starts_cycles_and_says_why() 
         match kind {
             "fails" => w.touch("checks-fails"),
             "hangs" => w.touch("checks-hangs"),
-            "nonsense" => w.fx("checks.json", "not json\n"),
-            _ => w.fx(
-                "checks.json",
-                r#"{"check_runs":[{"head_sha":"<b>","status":"completed","conclusion":"failure"}]}"#,
-            ),
+            "nonsense" => w.fx("checks-question.json", "not json\n"),
+            // A failed run with no id: no answer to fold.
+            _ => {
+                let mut v = answer(&[(1, 1, "completed", Some("failure"))]);
+                v["data"]["repository"]["ref"]["target"]["checkSuites"]["nodes"][0]["checkRuns"]
+                    ["nodes"][0]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("databaseId");
+                w.fx_json("checks-question.json", &v);
+            }
         }
         w.env("TEHAS_CHECK_WAIT", "1");
         let r = w.poll();
