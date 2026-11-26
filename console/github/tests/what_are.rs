@@ -2,10 +2,12 @@
 //! replayed from its recordings under `tests/recorded/what/<state>/`: what
 //! each number names, a ticket or a change, asked in one question an alias
 //! a number. `live/` is a live read-only answer of a public repository; the
-//! rest are made by hand.
+//! rest are made by hand. `tests/synthetic/what/` holds the answers that
+//! are not JSON.
+
+mod answers;
 
 use std::num::NonZeroU64;
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tehas_core::forge::{Failed, GhRunner};
 use tehas_github::GitHub;
@@ -58,10 +60,8 @@ impl GhRunner for Replay {
             .nth(1)
             .and_then(|r| r.split(')').next())
             .expect("an alias");
-        let at = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/recorded/what")
-            .join(&self.state);
-        let read = |name: String| std::fs::read_to_string(at.join(name)).ok();
+        let read =
+            |name: String| std::fs::read_to_string(answers::at("what", &self.state, &name)).ok();
         if let Some(out) = read(format!("from-{first}.json")) {
             return Ok(out);
         }

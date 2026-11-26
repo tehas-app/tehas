@@ -66,9 +66,9 @@
 # what a release carries. A tree with neither is refused before anything is
 # written, and a store that fails stops the run with exit 1 and its own line.
 #
-# A store older than v0.30.0 wrote is refused before the first copy: the store
+# A store older than v1.4 wrote is refused before the first copy: the store
 # this run installs judges it (`store migrate --dry-run`) and says to update to
-# a v0.30 release first, and nothing is installed (exit 78). A real run holds state/dispatch.lock
+# a v1.4 release first, and nothing is installed (exit 78). A real run holds state/dispatch.lock
 # from before the first copy until the old files are removed, so no poll starts
 # anything in between; a poll that holds it longer than the update lock's wait
 # stops the run (exit 1, nothing installed). A planning session's kept directory

@@ -70,7 +70,8 @@ fn a_park_raises_its_start_its_park_its_question_and_its_end_in_order() {
     let end: Vec<&str> = t.end.iter().map(String::as_str).collect();
     w.store_locked(&end);
     let d = events::wiring(&w.home, Arc::new(|_| String::new()));
-    let ((), logged) = after::holding(|| events::raise_ended(&d, &w.home, 7, 1, Writer::Report));
+    let ((), logged) =
+        after::holding(|| events::raise_ended(&d, &w.home, 7, 1, Writer::Report, &mut |_| None));
     let all = raised(&logged);
     assert_eq!(
         names(&all),
@@ -122,7 +123,13 @@ fn a_change_left_for_review_is_offered_after_the_end() {
 }
 
 #[test]
-fn a_merged_change_ends_and_is_not_offered() {
+fn a_merged_change_ends_and_raises_its_merge_once() {
+    // The line the report ended `merged` is the fact of the merge: the
+    // cycle raises `change.merged` with it, once, keyed on the change
+    // number, and offers that change again to nobody. The merge time is
+    // asked of the code-host port at the raise; here the stub gh answers
+    // the question for nothing, so the event carries the line's end: the
+    // ask is an ask, and its failure changes nothing else.
     let w = World::new("events-merged");
     w.ended("merged", "", "feature/x", "-");
     w.merged_pr();
@@ -130,10 +137,24 @@ fn a_merged_change_ends_and_is_not_offered() {
     let all = raised(&r.out);
     assert_eq!(
         names(&all),
-        [Name::CycleStarted, Name::CycleEnded],
+        [Name::CycleStarted, Name::CycleEnded, Name::ChangeMerged],
         "{}",
         r.out
     );
+    let line = w.history0();
+    assert_eq!(line["status"].as_str().unwrap(), "merged");
+    assert_eq!(line["pr"].as_u64().unwrap(), 9);
+    let Event::CycleEnded(p) = &all[1].event else {
+        unreachable!()
+    };
+    assert!(!p.parked);
+    assert_eq!(p.ended.secs(), line["at"].as_i64().unwrap());
+    let Event::ChangeMerged(m) = &all[2].event else {
+        unreachable!()
+    };
+    assert_eq!(m.change.get(), 9);
+    assert_eq!(m.at.secs(), line["at"].as_i64().unwrap());
+    assert_eq!(all[2].key.as_str(), "9");
 }
 
 // A start refused after it is on record wrote its own line, with no report:

@@ -242,7 +242,30 @@ impl Writer {
                     "WARN: the journal's {what} could not be settled ({}); the next poll tries again",
                     word(&f)
                 )),
-                (Found::Done(_), Ok(_)) => log.push(format!("journal: {what} was done")),
+                (Found::Done(evidence), Ok(_)) => {
+                    // A close this host sent and never saw answered: this
+                    // settle is the process that read it landed, so it
+                    // raises `ticket.closed`, keyed on the site's time of
+                    // the close from the same read (T11.9). The settle's
+                    // store call settling first is what makes it once.
+                    if let Some(at) = evidence.get("closed").and_then(Value::as_i64) {
+                        if let Some(w) = a.pointer("/args/write") {
+                            if let Ok(Write::Close { ticket, .. }) =
+                                serde_json::from_value::<Write>(w.clone())
+                            {
+                                // The reason is the site's, from the read
+                                // that settled the row, not the row's.
+                                let reason = evidence.get("reason").cloned().and_then(|v| {
+                                    serde_json::from_value::<tehas_ports::CloseReason>(v).ok()
+                                });
+                                if let Some(reason) = reason {
+                                    self.raise_closed(ticket, reason, at, log);
+                                }
+                            }
+                        }
+                    }
+                    log.push(format!("journal: {what} was done"));
+                }
                 (Found::Abandoned(why), Ok(_)) => log.push(format!(
                     "journal: {what} did not happen ({why}); this poll decides it again"
                 )),
@@ -262,6 +285,17 @@ impl Writer {
         let bound = Bound::new(100).expect("100 is a bound");
         match rules::read(write, h, At::new(attempted as i64), bound) {
             Some(Settled::Landed) => Found::Done(json!({"landed": true})),
+            Some(Settled::Closed { at, reason }) => {
+                // The site's own time of the close and its reason, from the
+                // one read that settled the row: the `ticket.closed` this
+                // settle raises keys on them. A site that names no time
+                // leaves the fact unraised here too, as at the send.
+                let mut e = json!({"landed": true, "reason": reason});
+                if let Some(a) = at {
+                    e["closed"] = json!(a.secs());
+                }
+                Found::Done(e)
+            }
             Some(Settled::NotSent) => Found::Abandoned("it is not there"),
             None => Found::Unread("no read could tell whether it landed".into()),
         }

@@ -1,1 +1,0 @@
-{"data":{"repository":{"pullRequest":{"number":21,"events":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[{"__typename":"LabeledEvent","createdAt":"2026-11-20T10:00:00Z","actor":{"__typename":"User","login":"person-one","databaseId":5001},"label":{"name":"tehas:ready"}}]}}}}}

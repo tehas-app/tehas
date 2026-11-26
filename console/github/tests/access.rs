@@ -11,7 +11,7 @@ use std::sync::{Mutex, MutexGuard};
 
 use tehas_core::access::{AccountId, GitHub, Level, Permission};
 use tehas_core::testdir::TestDir;
-use tehas_github::{Access, AuthorisedCurl, CURL_ENV};
+use tehas_github::{Access, AuthorisedCurl, Trade, CURL_ENV};
 use tehas_ports::{Outcome, Passing, Refusal, Secret, Sent, Unread};
 
 const PERSON_TOKEN: &str = "gho_person0123456789";

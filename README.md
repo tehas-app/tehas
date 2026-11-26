@@ -124,8 +124,9 @@ Agents can start from [`host/docs/llms.txt`](host/docs/llms.txt).
 
 ## State of the project
 
-Tehas 2.0 is in alpha: its alpha releases are for trying it out, not for
-production. The
+Tehas 2.0 is in beta: the features it drops are gone and its public names
+are settled. Its beta releases are for testing on a host before 2.0.0, not
+for production. The
 [features page](host/docs/features.md) says for each part whether it was seen
 working on a host, covered by tests only, or not built. A part still being
 built, such as the lean driver, is off in a release.

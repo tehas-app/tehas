@@ -34,4 +34,6 @@ pub use curl::{
     Authorised as AuthorisedCurl, Curl, DOWNLOAD_LIMIT, ENV as CURL_ENV, HOSTS as DOWNLOAD_HOSTS,
 };
 pub use forge::{read_events, Approval, ForgeError, GitHub, LabelEvent};
-pub use port::{project_of, GitHubSite, MakeRunner, PeopleClient, WORKFLOW_RUNS_FORBIDDEN};
+pub use port::{
+    project_of, GitHubSite, MakeRunner, PeopleClient, Person, Trade, WORKFLOW_RUNS_FORBIDDEN,
+};

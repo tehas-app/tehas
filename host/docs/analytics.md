@@ -301,11 +301,14 @@ analytics sessions [--out <directory>]
 
 The program `~/tehas/libexec/analytics` prints the runs of the last 30 days as
 JSON Lines, for the MCP server. It is not a `tehas` command. Line 1 is
-`{"api":1,"sessions":1,"days":30,"generatedAt":"..."}`. Each line after it is
+`{"api":1,"sessions":2,"days":30,"generatedAt":"..."}`. The `sessions` number
+is the shape of the lines, and the MCP reader refuses another shape by name,
+so an old file is rewritten rather than read with its links lost. Each line after it is
 one session, newest first: the run's columns in camelCase (`queueWait`,
-`failureKind`, `rukasVersion`), times as ISO 8601 UTC, `reviewHeld` and
-`providerOutage` as booleans, a key left out where the value is empty, its
-`steps` and `roles`, and `logs`: the name and size of each log file the run
+`failureKind`, `rukasVersion`), the change's number as `change`, which
+the runs table keeps in its `pr` column, times as ISO 8601 UTC,
+`reviewHeld` and `providerOutage` as booleans, a key left out where the
+value is empty, its `steps` and `roles`, and `logs`: the name and size of each log file the run
 left in `~/tehas/logs` (`transcript`, `err`, `preflight`, `console`, `result`
 and `dispatch` for a work run, `progress`, `result` and `dispatch` for a
 planning turn). A log belongs to a run by the time in its name. The

@@ -365,6 +365,17 @@ pub const TABLE: &[Setting] = &[
     always("TEHAS_PREVIEWS", SWITCH, "0"),
     always("TEHAS_EGRESS", SWITCH, "0"),
     given_or("TEHAS_EGRESS_HOSTS", Rule::EgressHosts, ""),
+    // The adapter, being built for 2.1 (core/src/features.rs). While it is
+    // building the load refuses a line that sets one of these; the rows hold
+    // the shape 2.1 will read. TEHAS_PLUGIN_ORIGINS_<NAME> is a family, one
+    // per plugin, like TEHAS_PLUGIN_GRANTS_<NAME>.
+    always("TEHAS_ADAPTER", SWITCH, "0"),
+    given("TEHAS_ADAPTER_UPSTREAM", Rule::OneWord),
+    given("TEHAS_ADAPTER_UPSTREAM_SPKI", Rule::Token),
+    given("TEHAS_ADAPTER_UPSTREAM_CERT", Rule::Path),
+    given("TEHAS_ADAPTER_UPSTREAM_CERT_KEY", Rule::Path),
+    given("TEHAS_ADAPTER_EGRESS_DENY", Rule::EgressHosts),
+    given("TEHAS_PLUGIN_ORIGINS_<NAME>", Rule::OneWord),
     always("TEHAS_PREVIEW_MAX", Rule::PreviewMax, "5"),
     always("TEHAS_PREVIEW_MIN_FREE", Rule::FreeDisk, "5g"),
     always("TEHAS_CYCLE_MIN_FREE", Rule::FreeDisk, "10g"),
@@ -422,6 +433,11 @@ pub const FAMILY: &str = "<NAME>";
 /// The front of the names of the model endpoints' tokens, one per provider.
 pub const MODEL_KEY: &str = "TEHAS_MODEL_KEY_";
 
+/// The front of the family of plugin origins the 2.1 adapter reads, one per
+/// plugin: every name with the front before the [`FAMILY`] end takes the
+/// row's rule. Reserved with the adapter, refused while it is building.
+pub const PLUGIN_ORIGINS: &str = "TEHAS_PLUGIN_ORIGINS_";
+
 /// The settings of the host, not of an instance: the environment a command
 /// runs in, or ~/.config/tehas/env, gives them, and the load keeps them
 /// (`KEPT` in load.rs). The load checks each one that holds a value.
@@ -470,6 +486,11 @@ fn rule_of(name: &str) -> Option<Rule> {
     }
     if name.starts_with(crate::plugin::GRANTS) {
         return Some(Rule::PluginGrants);
+    }
+    // The origins family takes its rule like the grants family, so
+    // `settings valid` answers for a name of it as it does for the row.
+    if name.starts_with(PLUGIN_ORIGINS) {
+        return Some(Rule::OneWord);
     }
     TABLE
         .iter()
@@ -1043,10 +1064,11 @@ mod tests {
             "TEHAS_ANALYTICS",
             "TEHAS_LEAN",
             "TEHAS_PLUGIN",
+            "TEHAS_ADAPTER",
         ] {
             assert!(switches.contains(&name), "{name}");
         }
-        assert_eq!(switches.len(), 12);
+        assert_eq!(switches.len(), 13);
         for name in switches {
             for v in ["on", "off", "1", "0"] {
                 takes(name, v);
@@ -1163,6 +1185,52 @@ mod tests {
         ] {
             refuses("TEHAS_EGRESS_HOSTS", bad, why);
         }
+    }
+
+    #[test]
+    fn the_adapter_settings_reserved_for_2_1_hold_their_shapes() {
+        let row = "TEHAS_PLUGIN_ORIGINS_<NAME>";
+        assert_eq!(&row[..PLUGIN_ORIGINS.len()], PLUGIN_ORIGINS);
+        assert!(row.ends_with(FAMILY));
+        assert!(
+            TABLE.iter().any(|s| s.name == row),
+            "the origins family row holds the prefix plus the family end"
+        );
+        takes("TEHAS_ADAPTER", "1");
+        refuses("TEHAS_ADAPTER", "maybe", "expected on or off");
+        takes("TEHAS_ADAPTER_UPSTREAM", "adapter.example.org:8443");
+        refuses("TEHAS_ADAPTER_UPSTREAM", "two words", "expected one word");
+        takes("TEHAS_ADAPTER_UPSTREAM_SPKI", "d6iRzK+9Y8kUY2zPp0a2rw==");
+        refuses(
+            "TEHAS_ADAPTER_UPSTREAM_SPKI",
+            "two words",
+            "expected one word of printable characters, with no quote, backslash, $ or backtick",
+        );
+        takes("TEHAS_ADAPTER_UPSTREAM_CERT", "/home/u/tehas/adapter.crt");
+        takes(
+            "TEHAS_ADAPTER_UPSTREAM_CERT_KEY",
+            "/home/u/tehas/adapter.key",
+        );
+        refuses(
+            "TEHAS_ADAPTER_UPSTREAM_CERT",
+            "adapter.crt",
+            "expected an absolute path",
+        );
+        takes("TEHAS_ADAPTER_EGRESS_DENY", "pypi.org x.org:8080");
+        refuses(
+            "TEHAS_ADAPTER_EGRESS_DENY",
+            "pypi.org  x.org",
+            "expected host names such as pypi.org or host:port, separated by single spaces",
+        );
+        takes(
+            "TEHAS_PLUGIN_ORIGINS_FLOORPLAN",
+            "https://github.com/acme/floorplan@0123abcd",
+        );
+        refuses(
+            "TEHAS_PLUGIN_ORIGINS_FLOORPLAN",
+            "two words",
+            "expected one word",
+        );
     }
 
     #[test]
