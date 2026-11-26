@@ -818,6 +818,35 @@ mod tests {
         assert_eq!(heard.lock().unwrap().len(), 1);
     }
 
+    // TF-B38, the stop side of the one-writer rule: `cycle.ended` of a
+    // stopped cycle belongs to the process whose `cycle-end` wrote the
+    // line, which the store settles with `already`.
+    #[test]
+    fn stopping_the_same_record_twice_raises_cycle_ended_once() {
+        use std::sync::{Arc, Mutex};
+        let home = store_home("stop-raise-twice");
+        let heard = Arc::new(Mutex::new(Vec::new()));
+        let h = Arc::clone(&heard);
+        let events = raise::logged(move |l| h.lock().unwrap().push(l.to_string())).build();
+        let stop = |attempt: &str| {
+            let end = ["cycle-end", "5", "--attempt", attempt, "--stopped"];
+            store::call(&home, &end).unwrap().to_string()
+        };
+        // Two stops of one record: the first writes the line and raises;
+        // the second finds the line written and raises nothing.
+        started(&home);
+        raise_stopped(&home, "5", "1", &stop("1"), &events);
+        let answer = stop("1");
+        assert!(answer.contains("\"already\":true"), "{answer}");
+        raise_stopped(&home, "5", "1", &answer, &events);
+        assert_eq!(
+            heard.lock().unwrap().len(),
+            1,
+            "{:?}",
+            heard.lock().unwrap()
+        );
+    }
+
     fn words(given: &[&str]) -> Vec<String> {
         given.iter().map(|w| w.to_string()).collect()
     }
