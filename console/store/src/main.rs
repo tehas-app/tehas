@@ -26,10 +26,10 @@
 //!     told to open already being on disk; a step that runs also leaves a second
 //!     copy under the version the file came with. From 0, an SQLite file with no
 //!     tables and user_version 0 (what an empty file is), the schema, the rows of
-//!     meta and the version are written in one transaction. From 12, the
-//!     schema v0.30.0 wrote, or a later one, each step up is its own
-//!     transaction and keeps every row. Below 12 is a release before v0.30:
-//!     78 `unreadable`, which says to update to a v0.30 release first, and the
+//!     meta and the version are written in one transaction. From 23, the
+//!     schema v1.4.0 wrote, or a later one, each step up is its own
+//!     transaction and keeps every row. Below 23 is a release before v1.4:
+//!     78 `unreadable`, which says to update to a v1.4 release first, and the
 //!     store is left as it was, with no backup written. A database already at the schema this binary
 //!     writes says "from" and "to" alike and still writes its backup, the one
 //!     copy of the two. <dir> is the

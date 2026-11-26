@@ -23,8 +23,8 @@ pub const SCHEMA_VERSION: i64 = 33;
 pub const SCHEMA: &str = include_str!("schema.sql");
 
 /// The five tables schemas 15 to 28 held for outsource, which 2.0 dropped:
-/// the step to 15 lays them, the steps to 17 and 18 add to them, and
-/// [`DROP_OUTSOURCE`] drops them.
+/// a 1.4.x store holds them and the step to 29 drops them
+/// ([`DROP_OUTSOURCE`]).
 #[cfg(test)]
 pub const DROPPED_TABLES: [&str; 5] = [
     "contractors",
@@ -33,119 +33,6 @@ pub const DROPPED_TABLES: [&str; 5] = [
     "job_history",
     "issue_attempts",
 ];
-
-/// The DDL of the step to 15, as schema 15 wrote it.
-pub const STEP_15: &str = include_str!("step_15.sql");
-
-/// The step from 12 to 13: what a start was, kept on the approval it ran on (#1751).
-/// The keeping after a start deletes the approvals of the starts the base no longer
-/// rests on, and a record left with only its live rows answered no refreshes, no easy
-/// merge, and no mark for the row of a cycle whose approval had gone: the poll took
-/// every refresh after the first easy merge for the full one, and could drop the
-/// refresh it owed for want of a count. `started_by`, `started_how` and `started_easy`
-/// are written by the start itself, so the record says what its starts were after their
-/// rows are gone. The `UPDATE` backfills them from the rows that still stand, which is
-/// all a store can say of the starts whose approvals it kept; a start whose row the
-/// keeping deleted before this step is unknowable, and counts nowhere it was not
-/// already counted.
-pub const STEP_13: &str = "
-ALTER TABLE approvals ADD COLUMN started_by INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE approvals ADD COLUMN started_how TEXT NOT NULL DEFAULT '';
-ALTER TABLE approvals ADD COLUMN started_easy INTEGER NOT NULL DEFAULT 0
-  CHECK (started_easy IN (0, 1));
-UPDATE approvals SET started_by = used_by, started_how = how,
-                     started_easy = CASE WHEN easy = 1 THEN 1 ELSE 0 END
-  WHERE used_by IS NOT NULL;
-";
-
-/// The step from 13 to 14: `cycles.how` takes 'host', the start of an approval
-/// `tehas start` recorded (#1967). SQLite cannot change a CHECK in place, so the
-/// table is rebuilt, with foreign keys off (`step_14`), and every row is copied.
-pub(crate) const STEP_14: &str = "
-CREATE TABLE cycles_new (
-  issue          INTEGER PRIMARY KEY REFERENCES issues (issue) ON DELETE CASCADE,
-  attempt        INTEGER NOT NULL DEFAULT 1,
-  started_at     INTEGER NOT NULL,
-  started_by     TEXT,
-  how            TEXT NOT NULL CHECK (how IN ('label','refresh','retry-tick','outage-retry','fixer','millwright','hand','host')),
-  requeued       INTEGER NOT NULL DEFAULT 0,
-  rukas_commit   TEXT,
-  image          TEXT,
-  branch         TEXT,
-  end_reason     TEXT CHECK (end_reason IN ('closed','merged','handoff','parked','failed','stopped','timeout','killed','lost','interrupted','stalled','unknown')),
-  ended_at       INTEGER,
-  oom_kills      INTEGER,
-  forks_refused  INTEGER,
-  stalled_seconds INTEGER,
-  timed_out      INTEGER NOT NULL DEFAULT 0,
-  runner_exit    INTEGER,
-  watched        INTEGER NOT NULL DEFAULT 0,
-  host_saw       TEXT CHECK (host_saw IN ('killed')),
-  stop_asked_at  INTEGER,
-  stop_said_times INTEGER NOT NULL DEFAULT 0
-);
-INSERT INTO cycles_new SELECT * FROM cycles;
-DROP TABLE cycles;
-ALTER TABLE cycles_new RENAME TO cycles;
-CREATE INDEX cycles_running ON cycles (ended_at, started_at);
-";
-
-/// The step from 15 to 16: an action may be `unknown`, a write GitHub may have
-/// taken that a read has still to settle (#1754). `actions` is rebuilt as
-/// schema.sql writes it, with foreign keys off (`step_16`): `journal` refers to
-/// it. Every row is copied. And the millwright's old word goes from the rows
-/// that kept it: a start, a line of history or an approval that says `fixer`
-/// says `millwright`, and a refused note `fixer-refused` is
-/// `millwright-refused`, once a comment. The verbs have written only the new
-/// words since schema 4, so every answer then names the millwright one way.
-pub(crate) const STEP_16: &str = "
-CREATE TABLE actions_new (
-  id          INTEGER PRIMARY KEY,
-  poll_at     INTEGER NOT NULL REFERENCES polls (at),
-  kind        TEXT NOT NULL,
-  issue       INTEGER NOT NULL,
-  args_json   TEXT NOT NULL,
-  before_snapshot INTEGER NOT NULL,
-  state       TEXT NOT NULL CHECK (state IN ('intended','attempted','done','failed','abandoned','unknown')),
-  intended_at INTEGER NOT NULL,
-  attempted_at INTEGER,
-  settled_at  INTEGER,
-  result      TEXT,
-  evidence_json TEXT
-);
-INSERT INTO actions_new SELECT * FROM actions;
-DROP TABLE actions;
-ALTER TABLE actions_new RENAME TO actions;
-CREATE INDEX actions_open ON actions (state, intended_at);
-UPDATE cycles SET how = 'millwright' WHERE how = 'fixer';
-UPDATE cycle_history SET how = 'millwright' WHERE how = 'fixer';
-UPDATE approvals SET how = 'millwright' WHERE how = 'fixer';
-UPDATE approvals SET started_how = 'millwright' WHERE started_how = 'fixer';
-UPDATE OR IGNORE planning_notes SET kind = 'millwright-refused' WHERE kind = 'fixer-refused';
-DELETE FROM planning_notes WHERE kind = 'fixer-refused';
-";
-
-/// The step from 16 to 17, as it was written: columns on two of the tables
-/// [`DROP_OUTSOURCE`] drops, every one added null.
-pub const STEP_17: &str = "
-ALTER TABLE jobs ADD COLUMN token_sha256 TEXT;
-CREATE INDEX jobs_token ON jobs (token_sha256);
-ALTER TABLE contractors ADD COLUMN report_image TEXT;
-ALTER TABLE contractors ADD COLUMN report_rukas TEXT;
-ALTER TABLE contractors ADD COLUMN report_mem_mb INTEGER;
-ALTER TABLE contractors ADD COLUMN report_disk_kb INTEGER;
-ALTER TABLE contractors ADD COLUMN report_at INTEGER;
-";
-
-/// The step from 17 to 18, as it was written: a rename and a column on
-/// `jobs`, which [`DROP_OUTSOURCE`] drops.
-pub const STEP_18: &str = "
-ALTER TABLE jobs RENAME COLUMN token_sha256 TO job_token_sha256;
-DROP INDEX jobs_token;
-CREATE INDEX jobs_job_token ON jobs (job_token_sha256);
-ALTER TABLE jobs ADD COLUMN model_token_sha256 TEXT;
-CREATE INDEX jobs_model_token ON jobs (model_token_sha256);
-";
 
 /// The step from 18 to 19: `plugin_runs`, one row per run of a plugin
 /// (docs/specs/2026-11-21-plugins.md, "Runs"). `how` is what started it and
@@ -344,8 +231,8 @@ CREATE INDEX cycles_running ON cycles (ended_at, started_at);
 
 /// The step from 23 to 24: the answers, and `cycles.how` takes `answer`, a
 /// retry an answer of `tehas answer` asked for. SQLite cannot change a CHECK in
-/// place, so `cycles` is rebuilt as `STEP_14` rebuilt it, with foreign keys off
-/// (`step_24`), and every row is copied.
+/// place, so `cycles` is rebuilt, with foreign keys off (`step_24`), and
+/// every row is copied.
 pub const STEP_24: &str = concat!(
     cycles_with_hows!(
         "'label','refresh','retry-tick','outage-retry','fixer','millwright','hand','host','answer'"
@@ -1506,7 +1393,7 @@ pub fn migrate(
             &settings.instance,
             &settings.repo,
         ),
-        // A store older than v0.30.0 wrote: this release has no steps for it.
+        // A store older than v1.4 wrote: this release has no steps for it.
         from if (1..OLDEST).contains(&from) => migrable(file, from),
         // Every step above the schema the store was found at, in the order the
         // list holds them, and none before it: a step that fails is the answer.
@@ -1526,9 +1413,9 @@ pub fn migrate(
     }
 }
 
-/// The oldest schema `migrate` brings forward: the one v0.30.0 wrote. A store
-/// of an older release goes through a v0.30 release first.
-pub const OLDEST: i64 = 12;
+/// The oldest schema `migrate` brings forward: the one v1.4.0 wrote. A store
+/// of an older release goes through a v1.4 release first.
+pub const OLDEST: i64 = 23;
 
 /// Whether `migrate` brings a store at `from` forward: one older than
 /// [`OLDEST`] is refused.
@@ -1544,7 +1431,7 @@ pub fn migrable(file: &Path, from: i64) -> Result<(), DbError> {
 /// first.
 pub fn too_old(file: &Path, from: i64) -> DbError {
     DbError::Unreadable(format!(
-        "{} is at schema {from}, older than v0.30.0 wrote: update to a v0.30 release first, then to this one",
+        "{} is at schema {from}, older than v1.4 wrote: update to a v1.4 release first, then to this one",
         file.display()
     ))
 }
@@ -1554,7 +1441,7 @@ type Step = fn(&mut Connection) -> Result<(), DbError>;
 
 /// Which step gave up on the way from `from`, for the line the caller reads.
 /// `step` names the schema it expected in the file; a step with work around the
-/// transaction -- the VACUUM of `step_14` -- says only that the batch failed, so
+/// transaction -- the VACUUM of `step_24` -- says only that the batch failed, so
 /// without this the caller cannot tell one step from another.
 fn at_step(e: DbError, to: i64, from: i64) -> DbError {
     DbError::Corrupt(format!(
@@ -1573,29 +1460,8 @@ fn at_step(e: DbError, to: i64, from: i64) -> DbError {
 /// each once, so a step out of order or left out fails the build rather than a
 /// host's migration.
 pub(crate) const STEPS: &[(i64, Step)] = &[
-    // v0.30.0 wrote 12, the oldest store this release migrates (`OLDEST`).
-    (13, |c| step(c, 13, STEP_13)),
-    // v0.30.1 wrote 13.
-    (14, step_14),
-    // v0.30.2 to v0.30.6 wrote 14.
-    (15, |c| step(c, 15, STEP_15)),
-    // A store at 15 is one this binary wrote before an action could be
-    // unknown.
-    (16, step_16),
-    // A store at 16 is one this binary wrote before the step to 17.
-    (17, |c| step(c, 17, STEP_17)),
-    // A store at 17 is one this binary wrote before the step to 18.
-    (18, |c| step(c, 18, STEP_18)),
-    // A store at 18 is one this binary wrote before a plugin ran.
-    (19, |c| step(c, 19, STEP_19)),
-    // A store at 19 is one this binary wrote before plugins kept records.
-    (20, |c| step(c, 20, STEP_20)),
-    // A store at 20 is one this binary wrote before a record named its filer.
-    (21, |c| step(c, 21, STEP_21)),
-    // A store at 21 is one this binary wrote before a filer had an id.
-    (22, |c| step(c, 22, STEP_22)),
-    // A store at 22 is one this binary wrote before a tool was called.
-    (23, |c| step(c, 23, STEP_23)),
+    // The oldest store this release migrates is the one v1.4.0 wrote: 23
+    // (`OLDEST`).
     // A store at 23 is one this binary wrote before a question took an answer
     // of a program.
     (24, step_24),
@@ -1673,22 +1539,8 @@ fn step(conn: &mut Connection, to: i64, sql: &str) -> Result<(), DbError> {
     tx.commit().map_err(classify)
 }
 
-/// The step to 14. Dropping `cycles` with foreign keys on would delete every
-/// row that references it, so they are off for the step, which checks them
-/// before it commits. They can only be set outside a transaction. The VACUUM
-/// after the commit gives back the pages of the dropped table; if it fails the
-/// store is at 14 with its rows, and the caller hears the error.
-fn step_14(conn: &mut Connection) -> Result<(), DbError> {
-    conn.pragma_update(None, "foreign_keys", "OFF")
-        .map_err(classify)?;
-    let stepped = step(conn, 14, STEP_14);
-    conn.pragma_update(None, "foreign_keys", "ON")
-        .map_err(classify)?;
-    stepped?;
-    conn.execute_batch("VACUUM").map_err(classify)
-}
-
-/// The step to 24, run as `step_14` runs its rebuild of `cycles`.
+/// The step to 24. It rebuilds `cycles`, so the step runs with foreign keys
+/// off and a VACUUM after the commit gives back the dropped table's pages.
 fn step_24(conn: &mut Connection) -> Result<(), DbError> {
     conn.pragma_update(None, "foreign_keys", "OFF")
         .map_err(classify)?;
@@ -1699,7 +1551,7 @@ fn step_24(conn: &mut Connection) -> Result<(), DbError> {
     conn.execute_batch("VACUUM").map_err(classify)
 }
 
-/// The step to 26, run as `step_14` runs its rebuild of `cycles`.
+/// The step to 26, run as `step_24` runs its rebuild of `cycles`.
 fn step_26(conn: &mut Connection) -> Result<(), DbError> {
     conn.pragma_update(None, "foreign_keys", "OFF")
         .map_err(classify)?;
@@ -1710,7 +1562,7 @@ fn step_26(conn: &mut Connection) -> Result<(), DbError> {
     conn.execute_batch("VACUUM").map_err(classify)
 }
 
-/// The step to 27, run as `step_14` runs its rebuild of `cycles`.
+/// The step to 27, run as `step_24` runs its rebuild of `cycles`.
 fn step_27(conn: &mut Connection) -> Result<(), DbError> {
     conn.pragma_update(None, "foreign_keys", "OFF")
         .map_err(classify)?;
@@ -1721,7 +1573,7 @@ fn step_27(conn: &mut Connection) -> Result<(), DbError> {
     conn.execute_batch("VACUUM").map_err(classify)
 }
 
-/// The step to 28, run as `step_14` runs its rebuild of `cycles`.
+/// The step to 28, run as `step_24` runs its rebuild of `cycles`.
 fn step_28(conn: &mut Connection) -> Result<(), DbError> {
     conn.pragma_update(None, "foreign_keys", "OFF")
         .map_err(classify)?;
@@ -1732,7 +1584,7 @@ fn step_28(conn: &mut Connection) -> Result<(), DbError> {
     conn.execute_batch("VACUUM").map_err(classify)
 }
 
-/// The step to 30, run as `step_14` runs its rebuild of `cycles`, with the
+/// The step to 30, run as `step_24` runs its rebuild of `cycles`, with the
 /// store's id written in `meta` when it has none.
 fn step_30(conn: &mut Connection) -> Result<(), DbError> {
     let sql = format!(
@@ -1762,17 +1614,6 @@ pub fn store_id() -> Result<String, DbError> {
 /// Bytes as lower-case hex, two digits each.
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
-/// The step to 16, run as `step_14` runs its rebuild of `cycles`.
-fn step_16(conn: &mut Connection) -> Result<(), DbError> {
-    conn.pragma_update(None, "foreign_keys", "OFF")
-        .map_err(classify)?;
-    let stepped = step(conn, 16, STEP_16);
-    conn.pragma_update(None, "foreign_keys", "ON")
-        .map_err(classify)?;
-    stepped?;
-    conn.execute_batch("VACUUM").map_err(classify)
 }
 
 /// How many names a backup tries before it is refused: `tehas-<v>-<now>.db`,

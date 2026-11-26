@@ -1,7 +1,8 @@
-//! The schema this binary writes, and the steps from the stores of the
-//! releases 1.0 updates from (0.30.x, 0.31.x and 0.32.x), which must keep
-//! every row. A store older than v0.30.0 wrote is refused. The stores are the
-//! ones those releases made, kept as SQL in tests/fixtures/store-v<n>.sql.
+//! The schema this binary writes, and the steps from the store of the
+//! release 2.0 updates from (1.4.x), which must keep every row. A store
+//! older than v1.4 wrote is refused. The stores are the ones those releases
+//! made, kept as SQL in tests/fixtures/store-v<n>.sql: the ones below 23
+//! stay to prove the refusal.
 
 use crate::db;
 use crate::verbs_tests::*;
@@ -13,9 +14,9 @@ use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::Path;
 use tehas_core::home::{Home, State};
 
-/// The store each tagged release 1.0 updates from makes, by the schema it is
-/// at: v0.30.0 wrote 12, v0.30.1 13, v0.30.2 to v0.30.6 14 with one
-/// schema.sql, v0.31.0 16 and v0.32.0 17.
+/// The store each tagged release writes, by the schema it is at. 2.0
+/// migrates from v1.4.0's 23 (`db::OLDEST`) up; the fixtures below it stay
+/// to prove the refusal of a store that old.
 const RELEASES: [(&str, i64, &str); 6] = [
     (
         "v0.30.0",
@@ -81,76 +82,23 @@ fn release(name: &str, schema: i64) -> TestDir {
     release_home(name, sql)
 }
 
-/// A store at 15: the last release's, brought forward by this binary's steps
-/// to 15 and no further, as a host on a pre-release of 1.0 holds it.
-fn at_15(name: &str) -> TestDir {
-    let home = release(name, 14);
+/// A store of v1.4.0 brought to `to` by the steps below it and no further:
+/// the state of a migrate that stopped between two steps.
+fn at(name: &str, to: i64) -> TestDir {
+    let home = release(name, db::OLDEST);
     let mut c = conn(&home);
-    for (to, run) in db::STEPS {
-        if *to == 15 {
+    for (t, run) in db::STEPS {
+        if (db::OLDEST + 1..=to).contains(t) {
             run(&mut c).unwrap();
         }
     }
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 15);
-    home
-}
-
-/// A store at 16: the last release's, brought forward to 16 and no further,
-/// as a host on a pre-release of 1.0 before schema 17 holds it.
-fn at_16(name: &str) -> TestDir {
-    let home = release(name, 14);
-    let mut c = conn(&home);
-    for (to, run) in db::STEPS {
-        if *to == 15 || *to == 16 {
-            run(&mut c).unwrap();
-        }
-    }
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 16);
-    home
-}
-
-/// A store at 17: the last release's, brought forward to 17 and no further,
-/// as a host on a pre-release of 1.0 before schema 18 holds it.
-fn at_17(name: &str) -> TestDir {
-    let home = release(name, 14);
-    let mut c = conn(&home);
-    for (to, run) in db::STEPS {
-        if (15..=17).contains(to) {
-            run(&mut c).unwrap();
-        }
-    }
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 17);
-    home
-}
-
-/// A store at 22: the last release's, brought forward to 22 and no further,
-/// as a host that ran plugins before a tool was called holds it.
-fn at_22(name: &str) -> TestDir {
-    let home = release(name, 17);
-    let mut c = conn(&home);
-    for (to, run) in db::STEPS {
-        if (18..=22).contains(to) {
-            run(&mut c).unwrap();
-        }
-    }
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 22);
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), to);
     home
 }
 
 /// The SQL of the step to `to`, as one transaction runs it.
 fn step_sql(to: i64) -> &'static str {
     match to {
-        13 => db::STEP_13,
-        14 => db::STEP_14,
-        15 => db::STEP_15,
-        16 => db::STEP_16,
-        17 => db::STEP_17,
-        18 => db::STEP_18,
-        19 => db::STEP_19,
-        20 => db::STEP_20,
-        21 => db::STEP_21,
-        22 => db::STEP_22,
-        23 => db::STEP_23,
         24 => db::STEP_24,
         25 => db::STEP_25,
         26 => db::STEP_26,
@@ -487,7 +435,7 @@ fn the_fixtures_are_the_stores_of_the_releases() {
 fn a_store_of_each_release_1_0_updates_from_comes_to_18_with_every_row() {
     let made = home("init-shape");
     let b = conn(&made);
-    for (version, schema, _) in RELEASES {
+    for &(version, schema, _) in RELEASES.iter().filter(|r| r.1 >= db::OLDEST) {
         let home = release(&format!("release-{version}"), schema);
         let before = host_rows(&conn(&home));
         let meta = count(&home, "meta");
@@ -553,15 +501,6 @@ fn a_store_of_each_release_1_0_updates_from_comes_to_18_with_every_row() {
             "{report}"
         );
     }
-    let home = at_15("release-15");
-    migrate(&home).unwrap();
-    same_shape_as_init(&home, &b, "15");
-    let home = at_16("release-16");
-    migrate(&home).unwrap();
-    same_shape_as_init(&home, &b, "16");
-    let home = at_17("release-17");
-    migrate(&home).unwrap();
-    same_shape_as_init(&home, &b, "17");
 }
 
 /// Plan 6.7: an update stopped at any step, then run again. A step is one
@@ -572,7 +511,7 @@ fn a_store_of_each_release_1_0_updates_from_comes_to_18_with_every_row() {
 fn a_migrate_stopped_at_any_step_comes_to_18_when_it_runs_again() {
     let made = home("stopped-shape");
     let b = conn(&made);
-    for (version, schema, _) in RELEASES {
+    for &(version, schema, _) in RELEASES.iter().filter(|r| r.1 >= db::OLDEST) {
         for stop in schema + 1..=db::SCHEMA_VERSION {
             let name = format!("stopped-{version}-at-{stop}");
             let home = release(&name, schema);
@@ -658,32 +597,36 @@ fn the_step_that_drops_outsource_takes_its_tables_and_keeps_every_other_row() {
 
 #[test]
 fn a_step_that_fails_leaves_the_store_where_it_was_with_its_rows() {
-    // A table of the step's own name already there: the step to 15 fails, and
-    // the store is at 14 with every row, ready for a migrate once it is gone.
-    let home = release("step-fails", 14);
+    // A table of the step's own name already there: the step to 25 fails, and
+    // the store is at 24 with every row, ready for a migrate once it is gone.
+    let home = at("step-fails", 23);
     conn(&home)
-        .execute_batch("CREATE TABLE contractors (a);")
+        .execute_batch("CREATE TABLE answers (a);")
         .unwrap();
     let before = rows(&conn(&home));
     let (code, line) = migrate(&home).unwrap_err();
     assert_eq!(code, 78, "{line}");
     assert!(
-        line.contains("the step from schema 14 to 15 failed"),
+        line.contains("the step from schema 23 to 24 failed"),
         "{line}"
     );
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 14);
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 23);
     assert_eq!(rows(&conn(&home)), before);
     conn(&home)
-        .execute_batch("DROP TABLE contractors;")
+        .execute_batch("DROP TABLE answers;")
         .unwrap();
     migrate_at(&home, NOW + 1).unwrap();
     assert_eq!(one::<i64>(&home, "PRAGMA user_version"), db::SCHEMA_VERSION);
 }
 
-/// A store older than v0.30.0 wrote: an earlier release's. Its rows are those
-/// of the v0.30.0 store, and its version an older one.
-fn pre_0_30(name: &str, schema: i64) -> TestDir {
-    let home = release(name, 12);
+/// A store older than v1.4 wrote: a kept fixture where one exists, and the
+/// v1.4.0 store with its recorded version lowered otherwise.
+fn pre_1_4(name: &str, schema: i64) -> TestDir {
+    if let Some((_, _, sql)) = RELEASES.iter().find(|r| r.1 == schema) {
+        assert!(schema < db::OLDEST);
+        return release_home(name, sql);
+    }
+    let home = release(name, db::OLDEST);
     let c = conn(&home);
     c.execute(
         "UPDATE meta SET value = ?1 WHERE key = 'schema'",
@@ -695,16 +638,22 @@ fn pre_0_30(name: &str, schema: i64) -> TestDir {
 }
 
 #[test]
-fn a_store_older_than_v0_30_is_refused_and_left_as_it_was() {
-    for schema in [1, 6, 10, 11] {
-        let home = pre_0_30(&format!("pre-0.30-{schema}"), schema);
+fn a_store_older_than_v1_4_is_refused_and_left_as_it_was() {
+    let mut schemas: Vec<i64> = RELEASES
+        .iter()
+        .filter(|r| r.1 < db::OLDEST)
+        .map(|r| r.1)
+        .collect();
+    schemas.extend([1, 6, 10, 11, 22]);
+    for schema in schemas {
+        let home = pre_1_4(&format!("pre-1.4-{schema}"), schema);
         let before = rows(&conn(&home));
         let (code, line) = migrate(&home).unwrap_err();
         assert_eq!(code, 78, "{line}");
         assert!(line.starts_with("unreadable "), "{line}");
         assert!(
             line.contains(&format!(
-                "is at schema {schema}, older than v0.30.0 wrote: update to a v0.30 release first, then to this one"
+                "is at schema {schema}, older than v1.4 wrote: update to a v1.4 release first, then to this one"
             )),
             "{line}"
         );
@@ -718,24 +667,24 @@ fn a_store_older_than_v0_30_is_refused_and_left_as_it_was() {
         // refuses it the same way.
         let (code, line) = execute(&home, &Verb::MigrateDry { backup: None }, NOW).unwrap_err();
         assert_eq!(code, 78, "{line}");
-        assert!(line.contains("update to a v0.30 release first"), "{line}");
+        assert!(line.contains("update to a v1.4 release first"), "{line}");
         // The verbs say the same.
         let (code, line) = call(&home, &["plan-show", "7"]).unwrap_err();
         assert_eq!(code, 78);
-        assert!(line.contains("update to a v0.30 release first"), "{line}");
+        assert!(line.contains("update to a v1.4 release first"), "{line}");
         // A copy of it does not load either.
-        let into = crate::verbs_tests::home(&format!("pre-0.30-into-{schema}"));
+        let into = crate::verbs_tests::home(&format!("pre-1.4-into-{schema}"));
         let copy = db::path(&home);
         let (code, line) = call(&into, &["load", "--from", copy.to_str().unwrap()]).unwrap_err();
         assert_eq!(code, 1, "{line}");
-        assert!(line.contains("older than v0.30.0 wrote"), "{line}");
+        assert!(line.contains("older than v1.4 wrote"), "{line}");
     }
 }
 
 #[test]
 fn the_dry_run_of_migrate_judges_a_release_store_and_writes_nothing() {
-    for schema in [12, 13, 14, 16, 17, db::SCHEMA_VERSION] {
-        let home = release(&format!("dry-{schema}"), schema.min(17));
+    for schema in [db::OLDEST, db::SCHEMA_VERSION] {
+        let home = release(&format!("dry-{schema}"), db::OLDEST);
         if schema == db::SCHEMA_VERSION {
             migrate(&home).unwrap();
         }
@@ -793,8 +742,8 @@ fn rehearse(home: &Path, backup: &Path) -> Result<String, (u8, String)> {
 // before its first step stops the install while nothing is installed.
 #[test]
 fn the_dry_run_with_a_backup_writes_the_copies_and_takes_them_away() {
-    for schema in [17, db::SCHEMA_VERSION] {
-        let home = release(&format!("rehearse-{schema}"), 17);
+    for schema in [db::OLDEST, db::SCHEMA_VERSION] {
+        let home = release(&format!("rehearse-{schema}"), db::OLDEST);
         if schema == db::SCHEMA_VERSION {
             migrate(&home).unwrap();
             for copy in fs::read_dir(Home::new(home.path()).state(State::Backups)).unwrap() {
@@ -819,7 +768,7 @@ fn the_dry_run_with_a_backup_writes_the_copies_and_takes_them_away() {
 
 #[test]
 fn the_dry_run_with_a_backup_refuses_a_directory_out_of_the_home() {
-    let home = release("rehearse-out", 17);
+    let home = release("rehearse-out", db::OLDEST);
     let elsewhere = home.join("elsewhere");
     fs::create_dir_all(&elsewhere).unwrap();
     std::os::unix::fs::symlink(&elsewhere, Home::new(home.path()).state(State::Backups)).unwrap();
@@ -841,13 +790,13 @@ fn the_dry_run_with_a_backup_refuses_a_directory_out_of_the_home() {
 }
 
 #[test]
-fn the_verbs_refuse_a_store_of_a_0_30_release_until_it_is_migrated() {
-    let home = release("verbs-at-12", 12);
+fn the_verbs_refuse_an_unmigrated_store_until_it_is_migrated() {
+    let home = release("verbs-at-23", 23);
     let (code, line) = call(&home, &["plan-show", "7"]).unwrap_err();
     assert_eq!(code, 78);
     assert!(
         line.contains(&format!(
-            "the store is at schema 12, this store writes {}; run store migrate",
+            "the store is at schema 23, this store writes {}; run store migrate",
             db::SCHEMA_VERSION
         )),
         "{line}"
@@ -859,91 +808,50 @@ fn the_verbs_refuse_a_store_of_a_0_30_release_until_it_is_migrated() {
     );
 }
 
-/// #1967: the step from 13 keeps every cycle and every row that references one,
-/// and a cycle may then say it was started from the host.
+/// A cycle of the store v1.4.0 wrote may say it was started from the host:
+/// the word is in the CHECK where the migrate starts, and every row that
+/// references a cycle keeps its rows over the migrate.
 #[test]
-fn the_step_from_13_keeps_the_cycles_and_takes_host() {
-    let home = release("step-from-13", 13);
+fn the_store_at_23_takes_a_host_start() {
+    let home = release("store-23-host", 23);
     let children = ["heartbeats", "cycle_settings", "cycle_notes"];
     let before: Vec<i64> = children.iter().map(|t| count(&home, t)).collect();
     assert!(before.iter().all(|&n| n > 0), "{before:?}");
     let cycles = count(&home, "cycles");
     let insert = "INSERT OR IGNORE INTO issues (issue, kind, kind_at, checked_at) VALUES (90, 'issue', 1, 1);
          INSERT INTO cycles (issue, started_at, started_by, how) VALUES (90, 400, 'host', 'host');";
-    assert!(conn(&home).execute_batch(insert).is_err());
+    conn(&home).execute_batch(insert).unwrap();
+    assert_eq!(count(&home, "cycles WHERE how = 'host'"), 1);
     migrate(&home).unwrap();
     let after: Vec<i64> = children.iter().map(|t| count(&home, t)).collect();
     assert_eq!(after, before);
-    assert_eq!(count(&home, "cycles"), cycles);
-    conn(&home).execute_batch(insert).unwrap();
-    assert_eq!(count(&home, "cycles WHERE how = 'host'"), 1);
+    assert_eq!(count(&home, "cycles"), cycles + 1);
 }
 
-/// #1754: the step from 15 keeps every action and its journal, and an action
-/// may then be `unknown`.
+/// An action of the store v1.4.0 wrote may be `unknown`, a write GitHub may
+/// have taken that a read has still to settle: the word is in the CHECK where
+/// the migrate starts, and the migrate keeps the row and its journal.
 #[test]
-fn the_step_from_15_keeps_the_journal_and_takes_unknown() {
-    let home = at_15("step-from-15");
+fn the_store_at_23_keeps_the_journal_and_takes_unknown() {
+    let home = release("store-23-unknown", 23);
     let unknown =
         "INSERT INTO actions (poll_at, kind, issue, args_json, before_snapshot, state, intended_at)
          VALUES (1790000300, 'comment-post', 7, '{}', 0, 'unknown', 200);";
-    assert!(conn(&home).execute_batch(unknown).is_err());
+    conn(&home).execute_batch(unknown).unwrap();
     let (actions, journal) = (count(&home, "actions"), count(&home, "journal"));
     assert!(actions > 0 && journal > 0);
     migrate(&home).unwrap();
     assert_eq!(count(&home, "actions"), actions);
     assert_eq!(count(&home, "journal"), journal);
-    conn(&home).execute_batch(unknown).unwrap();
     assert_eq!(count(&home, "actions WHERE state = 'unknown'"), 1);
 }
 
-/// The step to 16 writes the millwright's old word as its name in every row
-/// that kept it, so no answer of the store says `fixer` again.
+/// The v1.4.0 store keeps every run of a plugin with no size, and a row may
+/// be a call: schema 23 is where the migrate starts, so this is the release's
+/// own shape, which init must hold too.
 #[test]
-fn the_step_from_15_names_the_millwright_in_every_old_row() {
-    let home = at_15("step-16-words");
-    conn(&home)
-        .execute_batch(
-            "INSERT INTO approvals (issue, at, by_account, how, label, body_sha256, started_how)
-               VALUES (8, 1790000600, 'tehas-fixer', 'fixer', 'tehas:ready',
-                       'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc', 'fixer');
-             INSERT INTO planning_notes (issue, kind, comment_id, at) VALUES (7, 'fixer-refused', 57, 1789999700);
-             INSERT INTO planning_notes (issue, kind, comment_id, at) VALUES (7, 'millwright-refused', 57, 1789999800);",
-        )
-        .unwrap();
-    let kept: Vec<i64> = ["cycles", "cycle_history", "approvals"]
-        .iter()
-        .map(|t| count(&home, t))
-        .collect();
-    migrate(&home).unwrap();
-    for (t, n) in ["cycles", "cycle_history", "approvals"].iter().zip(kept) {
-        assert_eq!(count(&home, t), n, "{t}");
-        assert_eq!(count(&home, &format!("{t} WHERE how = 'fixer'")), 0, "{t}");
-    }
-    assert_eq!(count(&home, "cycle_history WHERE how = 'millwright'"), 1);
-    assert_eq!(
-        count(
-            &home,
-            "approvals WHERE how = 'millwright' AND started_how = 'millwright'"
-        ),
-        1
-    );
-    // One note a comment: a comment noted under both words is kept once.
-    assert_eq!(
-        count(&home, "planning_notes WHERE kind = 'fixer-refused'"),
-        0
-    );
-    assert_eq!(
-        count(&home, "planning_notes WHERE kind = 'millwright-refused'"),
-        2
-    );
-}
-
-/// The step to 23 keeps every run of a plugin, with no size, and a row may
-/// then be a call.
-#[test]
-fn the_step_from_22_keeps_the_plugin_runs_and_takes_a_call() {
-    let home = at_22("step-23-runs");
+fn the_store_at_23_keeps_the_plugin_runs_and_takes_a_call() {
+    let home = release("store-23-runs", 23);
     let (c40, h40) = ("0".repeat(40), "1".repeat(40));
     conn(&home)
         .execute_batch(&format!(
@@ -957,7 +865,9 @@ fn the_step_from_22_keeps_the_plugin_runs_and_takes_a_call() {
         "INSERT INTO plugin_runs (plugin, plugin_commit, kind, how, started_by, head, started_at)
            VALUES ('floorplan', '{c40}', 'call', 'chat', 'chat', '{c40}', 300);"
     );
-    assert!(conn(&home).execute_batch(&call).is_err());
+    conn(&home).execute_batch(&call).unwrap();
+    assert_eq!(count(&home, "plugin_runs WHERE kind = 'call' AND size IS NULL"), 1);
+    conn(&home).execute_batch("DELETE FROM plugin_runs WHERE kind = 'call';").unwrap();
     let kept = |home: &Path| {
         let cols = [
             "id",
@@ -983,7 +893,7 @@ fn the_step_from_22_keeps_the_plugin_runs_and_takes_a_call() {
     assert_eq!(count(&home, "plugin_runs WHERE size IS NULL"), 2);
     conn(&home).execute_batch(&call).unwrap();
     assert_eq!(count(&home, "plugin_runs WHERE kind = 'call'"), 1);
-    let made = crate::verbs_tests::home("step-23-shape");
+    let made = crate::verbs_tests::home("store-23-shape");
     same_shape_as_init(&home, &conn(&made), "22");
 }
 
@@ -991,15 +901,7 @@ fn the_step_from_22_keeps_the_plugin_runs_and_takes_a_call() {
 /// their question.
 #[test]
 fn the_step_from_23_adds_the_answers_and_an_answer_goes_with_its_question() {
-    let home = at_22("step-24-answers");
-    let mut c = conn(&home);
-    for (to, run) in db::STEPS {
-        if *to == 23 {
-            run(&mut c).unwrap();
-        }
-    }
-    drop(c);
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 23);
+    let home = at("step-24-answers", 23);
     let before = host_rows(&conn(&home));
     migrate(&home).unwrap();
     assert_eq!(one::<i64>(&home, "PRAGMA user_version"), db::SCHEMA_VERSION);
@@ -1038,15 +940,7 @@ fn the_step_from_23_adds_the_answers_and_an_answer_goes_with_its_question() {
 /// offered: they were not kept before.
 #[test]
 fn the_step_from_24_adds_the_offers_of_a_question_and_keeps_every_row() {
-    let home = at_22("step-25-offers");
-    let mut c = conn(&home);
-    for (to, run) in db::STEPS {
-        if (23..=24).contains(to) {
-            run(&mut c).unwrap();
-        }
-    }
-    drop(c);
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 24);
+    let home = at("step-25-offers", 24);
     let before = host_rows(&conn(&home));
     migrate(&home).unwrap();
     assert_eq!(one::<i64>(&home, "PRAGMA user_version"), db::SCHEMA_VERSION);
@@ -1489,15 +1383,8 @@ fn each_store_has_its_own_id_and_keeps_it() {
 /// `reply`, the how of a retry a person's reply asked for.
 #[test]
 fn the_step_from_25_lets_a_cycle_say_reply_and_keeps_every_row() {
-    let home = at_22("step-26-reply");
-    let mut c = conn(&home);
-    for (to, run) in db::STEPS {
-        if (23..=25).contains(to) {
-            run(&mut c).unwrap();
-        }
-    }
-    assert!(c.execute("UPDATE cycles SET how = 'reply'", []).is_err());
-    drop(c);
+    let home = at("step-26-reply", 25);
+    assert!(conn(&home).execute("UPDATE cycles SET how = 'reply'", []).is_err());
     assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 25);
     let before = host_rows(&conn(&home));
     migrate(&home).unwrap();
@@ -1528,7 +1415,7 @@ fn the_answers_take_the_words_of_the_choices() {
 }
 
 #[test]
-fn the_steps_are_the_ladder_from_v0_30_up_to_the_schema_this_binary_writes() {
+fn the_steps_are_the_ladder_from_v1_4_up_to_the_schema_this_binary_writes() {
     // The list migrate walks is one entry per schema, in order, each once: a
     // step put after a later one, or left out, or doubled, is caught here.
     let targets: Vec<i64> = db::STEPS.iter().map(|(to, _)| *to).collect();
@@ -1536,7 +1423,7 @@ fn the_steps_are_the_ladder_from_v0_30_up_to_the_schema_this_binary_writes() {
         targets,
         (db::OLDEST + 1..=db::SCHEMA_VERSION).collect::<Vec<_>>()
     );
-    assert_eq!(db::OLDEST, RELEASES[0].1);
+    assert_eq!(db::OLDEST, RELEASES.last().unwrap().1);
 }
 
 #[test]
@@ -1567,14 +1454,10 @@ fn the_test_clock_is_read_from_its_variable() {
 }
 
 #[test]
-fn load_brings_a_copy_of_a_0_30_store_forward_as_migrate_does() {
+fn load_brings_a_copy_of_a_1_4_store_forward_as_migrate_does() {
     for (name, old) in [
-        ("12", release("load-old-12", 12)),
-        ("15", at_15("load-old-15")),
-        ("16", at_16("load-old-16")),
-        ("17", at_17("load-old-17")),
-        ("v0.31.0", release("load-old-v0.31.0", 16)),
-        ("v0.32.0", release("load-old-v0.32.0", 17)),
+        ("23", release("load-old-23", 23)),
+        ("26", at("load-old-26", 26)),
     ] {
         let from = one::<i64>(&old, "PRAGMA user_version");
         let into = home(&format!("load-old-into-{name}"));
@@ -1687,7 +1570,7 @@ const DROPPED: [&str; 18] = [
 /// No dropped table comes back: no step and no init lays one.
 #[test]
 fn the_dropped_tables_stay_dropped_after_a_migrate() {
-    let home = release("dropped-stay", 12);
+    let home = release("dropped-stay", 23);
     migrate(&home).unwrap();
     migrate_at(&home, NOW + 1).unwrap();
     let left = tables(&conn(&home));

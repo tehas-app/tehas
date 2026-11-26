@@ -1214,6 +1214,15 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   an instance's settings.
   Adopter action: none. An instance may write `TEHAS_CODE_HOST=github` and
   `TEHAS_TICKETS=github`.
+- **The store migrates from 1.4.x only.** T16. The store's migration starts
+  at the schema v1.4.0 wrote, 23 (`OLDEST` in `console/store/src/db.rs`):
+  the steps for older schemas are gone, and a store older than that is
+  refused with exit 78 before any file is copied, with a line that says to
+  update to a v1.4 release first. A 1.4.x store migrates as before: one step
+  at a time, each a transaction, keeping every row.
+  Readers: `tehas update`, the end-to-end suite, adopters.
+  Adopter action: a host older than v1.4 installs any v1.4 release first,
+  then this one.
 
 ## Pending for 2.0
 
@@ -1242,12 +1251,6 @@ adopter action as the pull request states them.
   history on the code host.
   Readers: the consumer that runs many factories, MCP clients, the
   end-to-end suite, plugins.
-- **The store's migration from 1.4.x alone.** T16. The store still
-  migrates from schema 12, the one v0.30.0 wrote (`OLDEST` in
-  `console/store/src/db.rs`), not only from 1.4.x's 23: its steps 13 to 23
-  are still in it, though 2.0 is supported from 1.4.x only. Taking them
-  out leaves a store of 1.4.x migrated as now.
-  Readers: `tehas update`, the end-to-end suite.
 - **The ports.** T4, spec `docs/specs/2026-11-22-ports.md`.
   The ports themselves; their two settings are under
   [Changed in 2.0](#changed-in-20). One name stays for now as GitHub's word
