@@ -10,6 +10,7 @@
 pub mod build;
 pub mod dockerfile;
 pub mod draft;
+pub mod grant;
 pub mod hook;
 pub mod manifest;
 pub mod needs;
