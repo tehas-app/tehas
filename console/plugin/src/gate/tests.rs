@@ -39,6 +39,8 @@ struct Hub {
     link_state: Option<String>,
     // Whether the signed-in person's account carries no id.
     no_id: bool,
+    // Whether the sign-in link answers an error instead of the page.
+    link_fails: bool,
 }
 
 #[derive(Clone, Default)]
@@ -111,6 +113,9 @@ impl Identity for SignIn {
         Err(Outcome::Refused(Refusal::Unsupported))
     }
     fn sign_in_link(&self, state: &SignInState) -> Got<WebLink> {
+        if lock(&self.0 .0).link_fails {
+            return Err(Outcome::Refused(Refusal::Invalid));
+        }
         lock(&self.0 .0).link_state = Some(state.as_str().to_string());
         WebLink::new(format!(
             "https://github.example/login/oauth/authorize?client_id=Iv1.client\
@@ -872,6 +877,18 @@ fn an_account_with_no_id_is_refused_before_any_ask() {
     assert_eq!(cb.status, 503);
     // One trade, and no permission asked: the account named no one.
     assert_eq!(f.hub.calls(), (1, 0));
+}
+
+/// The link is the adapter's answer: when it answers an error the pass
+/// fails closed with a 500 and sets no sign-in cookie.
+#[test]
+fn a_failing_sign_in_link_gives_a_500_and_no_cookie() {
+    let f = fixture();
+    f.hub.set(|h| h.link_fails = true);
+    let ask = f.gate.answer(&nav(P, "/_auth/ask?back=/", ""), T0);
+    let pass = f.gate.answer(&nav(S, &target(&location(&ask)), ""), T0);
+    assert_eq!(pass.status, 500);
+    assert!(set(&pass, auth::SIGNIN).is_none());
 }
 
 #[test]
