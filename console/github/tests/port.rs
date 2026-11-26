@@ -10,7 +10,7 @@ use tehas_core::forge::GhRunner;
 use tehas_github::{table, GitHub};
 use tehas_ports::{
     Account, AccountId, AccountKind, Act, At, Cite, Cites, CloseReason, Colour, Kind, Login, Mark,
-    MarkName, MarkSpec, Outcome, Passing, Realm, Ref, Refusal, Sent, TicketKey, TicketState,
+    MarkName, MarkSpec, Outcome, Passing, Pool, Realm, Ref, Refusal, Sent, TicketKey, TicketState,
     TicketWrites, Tickets, Unprepared, Unread,
 };
 
@@ -148,6 +148,13 @@ fn a_parent_is_named_where_it_is_and_one_that_cannot_be_read_fails_the_digest() 
     );
 }
 
+/// The REST read of issue #n, as `ISSUE` is of #7.
+fn rest(n: u64) -> String {
+    ISSUE
+        .replace(r#""number":7"#, &format!(r#""number":{n}"#))
+        .replace("issues/7", &format!("issues/{n}"))
+}
+
 /// The parents of more than a hundred tickets: a question a hundred
 /// distinct numbers, none for a ticket whose read failed, a repeated one
 /// asked once.
@@ -155,11 +162,6 @@ fn a_parent_is_named_where_it_is_and_one_that_cannot_be_read_fails_the_digest() 
 fn the_parents_of_many_tickets_are_asked_a_hundred_at_a_time() {
     let mut keys: Vec<TicketKey> = (1..=150).map(key).collect();
     keys.push(key(5));
-    let rest = |n: u64| {
-        ISSUE
-            .replace(r#""number":7"#, &format!(r#""number":{n}"#))
-            .replace("issues/7", &format!("issues/{n}"))
-    };
     let parents = |numbers: &[u64]| {
         let nodes: Vec<String> = numbers
             .iter()
@@ -220,6 +222,58 @@ fn the_parents_of_many_tickets_are_asked_a_hundred_at_a_time() {
             ),
         }
     }
+}
+
+/// A parents' answer that leaves an issue out, or says GitHub no longer
+/// knows it, fails that ticket alone; the others keep their parents.
+#[test]
+fn a_partial_parents_answer_fails_only_the_tickets_it_leaves_unanswered() {
+    let partial = r#"{"data":{"repository":{"databaseId":7001,
+"n7":{"number":7,"parent":{"number":3,"repository":{"databaseId":7001,"nameWithOwner":"acme/widget"}}},
+"n8":null}},
+"errors":[{"type":"NOT_FOUND","path":["repository","n8"],"message":"Could not resolve to an Issue with the number of 8."}]}"#;
+    let (r7, r8, r9) = (rest(7), rest(8), rest(9));
+    let (mut gh, asked) = adapter(vec![Ok(&r7), Ok(&r8), Ok(&r9), Ok(partial)]);
+    let got = gh.several(&[key(7), key(8), key(9)]);
+    assert_eq!(asked.lock().unwrap().len(), 4);
+    assert_eq!(got[0].1.as_ref().unwrap().parent, Some(Ref::Here(key(3))));
+    assert_eq!(got[1].1, Err(Outcome::NotFound));
+    assert_eq!(got[2].1, Err(Outcome::Unread(Unread::Malformed)));
+}
+
+/// A rate limit on the second question of parents fails the tickets it
+/// asks as `Spent`; those of the first keep their parents.
+#[test]
+fn a_rate_limit_on_the_second_parents_question_spends_only_its_tickets() {
+    let keys: Vec<TicketKey> = (1..=101).map(key).collect();
+    let nodes: Vec<String> = (1..=100)
+        .map(|n| format!(r#""n{n}":{{"number":{n},"parent":null}}"#))
+        .collect();
+    let first = format!(
+        r#"{{"data":{{"repository":{{"databaseId":7001,{}}}}}}}"#,
+        nodes.join(",")
+    );
+    let mut answers: Vec<String> = (1..=101).map(rest).collect();
+    answers.push(first);
+    let mut answers: Vec<Result<&str, &str>> = answers.iter().map(|a| Ok(a.as_str())).collect();
+    answers.push(Err(": rate limit"));
+    let (gh, asked) = adapter(answers);
+    let mut gh = gh.on_clock(|| 1_767_225_600);
+    let got = gh.several(&keys);
+    assert_eq!(asked.lock().unwrap().len(), 103, "no question asked again");
+    assert!(got[..100]
+        .iter()
+        .all(|(_, d)| d.as_ref().unwrap().parent.is_none()));
+    assert_eq!(
+        got[100],
+        (
+            key(101),
+            Err(Outcome::Spent {
+                pool: Pool::Calls,
+                until: At::new(1_767_225_600),
+            })
+        )
+    );
 }
 
 fn aliased(answer: &str, n: u32) -> String {
