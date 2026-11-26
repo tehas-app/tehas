@@ -986,6 +986,7 @@ tool factory_session answer session.attempt
 tool factory_session answer session.cacheRead
 tool factory_session answer session.cacheWrite
 tool factory_session answer session.cap
+tool factory_session answer session.change
 tool factory_session answer session.concurrent
 tool factory_session answer session.dispatches
 tool factory_session answer session.ended
@@ -1014,7 +1015,6 @@ tool factory_session answer session.oomKills
 tool factory_session answer session.outcome
 tool factory_session answer session.output
 tool factory_session answer session.parkReason
-tool factory_session answer session.pr
 tool factory_session answer session.prUrl
 tool factory_session answer session.providerOutage
 tool factory_session answer session.queueWait
