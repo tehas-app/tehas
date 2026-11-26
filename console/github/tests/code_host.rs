@@ -2,10 +2,13 @@
 //! `console/ports/samples/github/code-host-*.json` names a call, the
 //! fixture project it reads and the answer it must give, and the adapter
 //! answers it from its own recordings of that project, under
-//! `tests/recorded/code-host/<project>/`, replayed through a runner. The
+//! `tests/recorded/code-host/<project>/` (`tests/synthetic/code-host/` for
+//! the answers that are not JSON), replayed through a runner. The
 //! laws of `tehas_ports::laws` then check the same answers. Beside them, the
 //! adapter's own cases: what it does not answer yet, and how gh's failures
 //! of a GraphQL question read.
+
+mod answers;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -121,8 +124,8 @@ fn recording(args: &[&str]) -> Option<(String, String)> {
 impl GhRunner for Replay {
     fn run_answer(&mut self, args: &[&str]) -> Result<String, Failed> {
         let answer = recording(args).and_then(|(project, read)| {
-            let at = here().join("tests/recorded/code-host").join(project);
-            std::fs::read_to_string(at.join(format!("{read}.answer.json"))).ok()
+            let at = answers::at("code-host", &project, &format!("{read}.answer.json"));
+            std::fs::read_to_string(at).ok()
         });
         self.run(args).map_err(|why| Failed { why, answer })
     }
@@ -131,11 +134,13 @@ impl GhRunner for Replay {
         self.asked.lock().unwrap().push(args.join(" "));
         let (project, read) =
             recording(args).ok_or_else(|| format!("no recording of {}", args.join(" ")))?;
-        let at = here().join("tests/recorded/code-host").join(project);
-        if let Ok(out) = std::fs::read_to_string(at.join(format!("{read}.json"))) {
+        let read_of = |ext: &str| {
+            std::fs::read_to_string(answers::at("code-host", &project, &format!("{read}.{ext}")))
+        };
+        if let Ok(out) = read_of("json") {
             return Ok(out);
         }
-        match std::fs::read_to_string(at.join(format!("{read}.fail"))) {
+        match read_of("fail") {
             Ok(why) => Err(why.trim_end().to_string()),
             Err(_) => Err(format!("no recording of {read}")),
         }
