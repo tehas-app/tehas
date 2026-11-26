@@ -1036,12 +1036,12 @@ mod tests {
         let s = obj(vec![("paused", J::Bool(false))]);
         assert_eq!(with_read_only(s.clone(), None), s);
         let start = serde_json::json!({"issue": 7, "how": "cycle", "at": "2026-11-06T10:00:00Z",
-            "pr": {"title": "Fix", "branch": "feature/issue-7", "body": "b"}});
+            "change": {"title": "Fix", "branch": "feature/issue-7", "body": "b"}});
         let r = with_read_only(s, Some(vec![start]));
         assert_eq!(r.at(&["readOnly", "on"]), &J::Bool(true));
         assert_eq!(
             r.get("readOnly").get("starts").items()[0]
-                .at(&["pr", "branch"])
+                .at(&["change", "branch"])
                 .as_str(),
             Some("feature/issue-7")
         );

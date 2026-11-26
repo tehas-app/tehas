@@ -1214,6 +1214,28 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   an instance's settings.
   Adopter action: none. An instance may write `TEHAS_CODE_HOST=github` and
   `TEHAS_TICKETS=github`.
+- **The last GitHub word for a pull request is out of the snapshot and
+  the dashboard.**
+  T9, the supplier words. The sessions snapshot names the number of the
+  pull request a run left `change`, the word the history lines of #2932
+  already use for it: a line of `analytics sessions`, of
+  `~/tehas/mcp/sessions.jsonl`, and the answer of `factory_session` carry
+  `change` where they carried `pr`, and `prUrl` still names the link to
+  the change. The dashboard's internal read-only list keys the pull
+  request a start would have opened the same way:
+  `readOnly.starts[].pr` in `live/status.json` is
+  `readOnly.starts[].change`. The `pr` column of analytics.db's `runs`
+  table keeps its name, the state store's history lines keep `pr` as the
+  change's address, and the GitHub adapter keeps the word in its own
+  language, where it names GitHub's own fields. The `pr` fields of
+  `api/plugin-context.schema.json`, which the plugins build against, and
+  of `api/refresh.schema.json`, which `tehas refresh --pr` answers with,
+  keep GitHub's word on purpose through 2.x: they are not renamed. No
+  old word is kept as an alias.
+  Readers: MCP clients, the end-to-end suite, plugins.
+  Adopter action: a program that read a session line's `pr` number reads
+  `change`, the same number under its new name; `prUrl`, the history
+  line's `pr` address and the analytics copy's `pr` column are as before.
 - **The settings of the 2.1 adapter are reserved.**
   The feature `adapter` registers as building: `TEHAS_ADAPTER`,
   `TEHAS_ADAPTER_UPSTREAM`, `TEHAS_ADAPTER_UPSTREAM_SPKI`,
@@ -1289,9 +1311,7 @@ adopter action as the pull request states them.
   Readers: `tehas update`, the end-to-end suite.
 - **The ports.** T4, spec `docs/specs/2026-11-22-ports.md`.
   The ports themselves; their two settings are under
-  [Changed in 2.0](#changed-in-20). One name stays for now as GitHub's word
-  for a pull request, on the list of supplier words still to go: the
-  dashboard's internal `pr` key.
+  [Changed in 2.0](#changed-in-20).
   Readers: adopters, the consumer that runs many factories where it keeps
   an instance's settings.
 

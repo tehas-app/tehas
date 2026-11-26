@@ -97,7 +97,7 @@ test("the host bridge's link and notes reach a row", () => {
 
 test("a read-only factory lists what its starts left, with the pull request text", () => {
   const m = readonlyModel(status({ readOnly: { on: true, starts: [
-    { issue: 7, how: "cycle", at: at(120), workspace: "/h/work/widget-7", pr: { title: "Fix the thing", branch: "feature/issue-7", body: "The body." } },
+    { issue: 7, how: "cycle", at: at(120), workspace: "/h/work/widget-7", change: { title: "Fix the thing", branch: "feature/issue-7", body: "The body." } },
     { issue: 9, how: "cycle", at: at(120), workspace: "/h/work/widget-9" },
   ] } }), NOW);
   assert.equal(m.on, true);
