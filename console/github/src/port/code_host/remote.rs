@@ -12,11 +12,13 @@ use crate::GitHub;
 use tehas_ports::{Access, GitRemote, Got, Outcome, Refusal, Remote, Unread};
 
 impl GitHub {
-    /// The https remote of this repository, for either access. A name that
+    /// The https remote of this repository, for either access, but a push
+    /// through a fetch-only handle is `Forbidden`. A name that
     /// is not exactly `owner/name` of GitHub's characters is
     /// `Refused(Invalid)`.
     pub(super) fn git_remote(&self, access: Access) -> Got<Remote> {
         match access {
+            Access::Push if self.fetch_only => return Err(Outcome::Forbidden),
             Access::Fetch | Access::Push => {}
         }
         let (owner, name) = parts(&self.repo).ok_or(Outcome::Refused(Refusal::Invalid))?;
