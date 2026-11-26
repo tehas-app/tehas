@@ -22,6 +22,14 @@ const MALFORMED: Outcome = Outcome::Unread(Unread::Malformed);
 
 type Asked = Arc<Mutex<Vec<String>>>;
 
+/// The question kit run #1 asked of 1 to 5, as its `calls.log` line 21
+/// gives it: answered by `as-blockers-found`.
+const FOUND_QUERY: &str = r#"query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { n1: issueOrPullRequest(number: 1) { __typename ... on Issue { number state } ... on PullRequest { number state } } n2: issueOrPullRequest(number: 2) { __typename ... on Issue { number state } ... on PullRequest { number state } } n3: issueOrPullRequest(number: 3) { __typename ... on Issue { number state } ... on PullRequest { number state } } n4: issueOrPullRequest(number: 4) { __typename ... on Issue { number state } ... on PullRequest { number state } } n5: issueOrPullRequest(number: 5) { __typename ... on Issue { number state } ... on PullRequest { number state } } } }"#;
+
+/// The question kit run #1 asked of 1 to 5 and 1005, as its `calls.log`
+/// line 22 gives it: answered by `as-blockers`.
+const MISSING_QUERY: &str = r#"query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { n1: issueOrPullRequest(number: 1) { __typename ... on Issue { number state } ... on PullRequest { number state } } n2: issueOrPullRequest(number: 2) { __typename ... on Issue { number state } ... on PullRequest { number state } } n3: issueOrPullRequest(number: 3) { __typename ... on Issue { number state } ... on PullRequest { number state } } n4: issueOrPullRequest(number: 4) { __typename ... on Issue { number state } ... on PullRequest { number state } } n5: issueOrPullRequest(number: 5) { __typename ... on Issue { number state } ... on PullRequest { number state } } n1005: issueOrPullRequest(number: 1005) { __typename ... on Issue { number state } ... on PullRequest { number state } } } }"#;
+
 fn field<'a>(args: &'a [&str], name: &str) -> Option<&'a str> {
     args.windows(2)
         .filter(|w| w[0] == "-f" || w[0] == "-F")
@@ -38,8 +46,9 @@ fn numbers_of(query: &str) -> Vec<u64> {
 }
 
 /// A runner that answers the blockers' question from the answers of one
-/// state: `as-blockers-found` when it asks 1 to 5, `as-blockers` when it
-/// asks 1 to 5 and 1005. `.json` is gh's answer, `.fail` the reason it
+/// state, when the whole question is one the run recorded:
+/// `as-blockers-found` for `FOUND_QUERY`, `as-blockers` for
+/// `MISSING_QUERY`. `.json` is gh's answer, `.fail` the reason it
 /// failed and `.answer.json` beside it what gh printed as it failed.
 struct Replay {
     state: &'static str,
@@ -57,10 +66,10 @@ impl GhRunner for Replay {
         assert_eq!(field(args, "name"), Some("tehas-rec-blockers"));
         let query = field(args, "query").expect("a query");
         self.asked.lock().unwrap().push(query.to_string());
-        let name = match numbers_of(query).as_slice() {
-            [1, 2, 3, 4, 5] => "as-blockers-found",
-            [1, 2, 3, 4, 5, 1005] => "as-blockers",
-            other => panic!("no recording of the question of {other:?}"),
+        let name = match query {
+            FOUND_QUERY => "as-blockers-found",
+            MISSING_QUERY => "as-blockers",
+            other => panic!("no recording of the question {other}"),
         };
         let read = |ext: &str| {
             std::fs::read_to_string(answers::at(
@@ -181,19 +190,11 @@ fn the_law_holds_on_the_adapter_when_every_number_is_there() {
 }
 
 #[test]
-fn each_number_is_asked_its_state_under_its_own_alias() {
+fn the_adapter_asks_the_question_the_run_recorded() {
     let (mut gh, asked) = adapter("live");
     gh.as_blockers(&[no(1), no(2), no(3), no(4), no(5)]);
-    let asked = asked.lock().unwrap();
-    for n in 1..=5 {
-        assert!(
-            asked[0].contains(&format!(
-                " n{n}: issueOrPullRequest(number: {n}) {{ __typename ... on Issue {{ number state }} ... on PullRequest {{ number state }} }}"
-            )),
-            "{}",
-            asked[0]
-        );
-    }
+    gh.as_blockers(&[no(1005), no(5), no(4), no(3), no(2), no(1)]);
+    assert_eq!(*asked.lock().unwrap(), [FOUND_QUERY, MISSING_QUERY]);
 }
 
 #[test]
