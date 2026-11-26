@@ -39,6 +39,13 @@ answers about `tehas-app/tehas-rec-releases` (kit run #1, 2026-11-26).
 | `releases/fixture/release-v6.json` | Nothing: `release-v1.2.0.json` as it is, the answer about `v1.2.0` given when `v6` is asked |
 | `releases/bad/latest.json` | From `latest.json`: `prerelease` is `true`, a prerelease named latest |
 | `releases/bad/releases-1.json` | From `releases-1.json`: the draft `v1.3.0` has `published_at` `2026-11-26T14:10:01Z` (its `created_at`), not `null` |
+| `releases/down/latest.fail` | From `releases/none/latest.fail`: `HTTP 502`, not `HTTP 404` |
+| `releases/lying/release-v1.1.0.json` | Nothing: `release-v1.1.0.json` as it is, the release that lists the file at 99 bytes |
+| `releases/lying/download-tehas-v1.1.0-linux-x86_64.tar.gz.sha256.bin` | From `download-tehas-v1.1.0-linux-x86_64.tar.gz.sha256.bin`: its last byte (the newline) cut, 98 bytes of a file listed at 99 |
+| `releases/refused/release-v1.1.0.json` | Nothing: `release-v1.1.0.json` as it is, the release the refused download is of |
+| `releases/refused/download-tehas-v1.1.0-linux-x86_64.tar.gz.sha256.fail` | From `release-v9.fail`: `HTTP 403`, not `HTTP 404` |
+| `releases/short/tags.json` | From `tags.json`: the node of `v1.2.0` taken out, so 3 nodes where `totalCount` says 4 |
+| `releases/tree/tags.json` | From `tags.json`: `v1.0.0`'s target has `__typename` `Tree`, not `Commit` |
 
 ## A body that is not JSON
 

@@ -427,7 +427,7 @@ fn a_file_of_another_size_or_a_refused_download_is_an_outcome() {
     assert_eq!(
         gh.download(&tag("v1.1.0"), &file(SUMS), 1 << 20, &mut into),
         Err(Outcome::Unread(Unread::Inconsistent)),
-        "gh wrote 97 bytes of a file listed at 98"
+        "gh wrote 98 bytes of a file listed at 99"
     );
     let (mut gh, _) = adapter("refused");
     assert_eq!(
