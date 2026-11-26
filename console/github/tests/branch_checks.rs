@@ -311,7 +311,8 @@ fn an_answer_with_errors_is_asked_the_long_way() {
 }
 
 /// A list the one question may not give whole (a count past the nodes, or
-/// a page of 100) is asked the long way, never folded from a part.
+/// a page of 100 suites, runs or statuses) is asked the long way, never
+/// folded from a part.
 #[test]
 fn a_list_that_may_not_be_whole_is_asked_the_long_way() {
     let pass = (11, "verify", "COMPLETED", Some("SUCCESS"), None);
@@ -325,7 +326,19 @@ fn a_list_that_may_not_be_whole_is_asked_the_long_way() {
     let contexts: Vec<(String, &str)> = (0..100).map(|i| (format!("c{i}"), "SUCCESS")).collect();
     let contexts: Vec<(&str, &str)> = contexts.iter().map(|(c, s)| (c.as_str(), *s)).collect();
     let many = answer(&[suite(1, false, None, &[pass])], &contexts);
-    for first in [short.to_string(), runs_short.to_string(), many] {
+    let suites: Vec<String> = (1..=100).map(|i| suite(i, false, None, &[])).collect();
+    let many_suites = answer(&suites, &[]);
+    let runs: Vec<R> = (1..=100)
+        .map(|i| (i, "verify", "COMPLETED", Some("SUCCESS"), None))
+        .collect();
+    let many_runs = answer(&[suite(1, false, None, &runs)], &[]);
+    for first in [
+        short.to_string(),
+        runs_short.to_string(),
+        many,
+        many_suites,
+        many_runs,
+    ] {
         let mut answers = vec![Ok(first)];
         answers.extend(long_way(&[]));
         let (mut gh, asked) = scripted(answers);
