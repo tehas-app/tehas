@@ -1036,7 +1036,7 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Adopter action: remove `TEHAS_RELEASE_REPO=tehas-app/tehas` from
   `instance.env` or name `tehas-app/tehas-factory`, and point clones, links
   and a pinned `$id` at the new name before the redirect ends.
-- **2.0 is supported from 1.4.x.** This page. The update to 2.0 is
+- **2.0 is supported from 1.4.x.** #2895. The update to 2.0 is
   supported from 1.4.x only, and a host upgrades its factories and the
   programs that run them together.
   Readers: adopters, the consumer that runs many factories.
@@ -1071,7 +1071,7 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Readers: adopters, `tehas update`, `tehas setup` and `install.sh`, which
   read only its status.
   Adopter action: none. A program that read its lines reads its status.
-- **`tehasbot refresh --pr N` is not public.** This page. `tehasbot` is
+- **`tehasbot refresh --pr N` is not public.** #2895. `tehasbot` is
   internal, every verb of it.
   Readers: adopters, the consumer that runs many factories.
   Adopter action: call `tehas refresh --pr N`.
@@ -1130,7 +1130,7 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   for before the next try files, so a plan is never filed twice.
   Readers: people on an issue, the end-to-end suite.
   Adopter action: none.
-- **The surface list is `api/surface-2.0.txt`.** This page.
+- **The surface list is `api/surface-2.0.txt`.** #3236, #3407.
   `api/surface-1.0.txt` is renamed `api/surface-2.0.txt`, the public
   surface of 2.x from 2.0, without the names 2.0 took out. From
   v2.0.0-beta.1, a public name of 2.x is only added: none is renamed or
@@ -1259,7 +1259,7 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Adopter action: a program that read a session line's `pr` number reads
   `change`, the same number under its new name; `prUrl`, the history
   line's `pr` address and the analytics copy's `pr` column are as before.
-- **The store migrates from schema 23 only.** T16. The store's migration
+- **The store migrates from schema 23 only.** #3401. The store's migration
   starts at schema 23, which v1.3.0 and later wrote (`OLDEST` in
   `console/store/src/db.rs`): the steps for older schemas are gone, and a
   store older than that is refused with exit 78 before any file is copied,
