@@ -869,6 +869,32 @@ exec 8>&-"#,
     assert_eq!(incoming(&w), 0);
 }
 
+/// A TERM the moment the directory appears, before unpack reads a byte: the
+/// handler must be in place by then.
+#[test]
+fn sigterm_as_the_directory_beside_the_home_is_made_removes_it() {
+    let w = host("sigterm-early");
+    let fifo = w.t().join("in");
+    let r = w.sh(&format!(
+        r#"mkfifo '{f}'
+for _ in $(seq 20); do
+  TEHAS_HOME='{d}' "$T_ROOT/bin/tehas" state unpack - <'{f}' >/dev/null 2>&1 &
+  u=$!
+  exec 8>'{f}'
+  until [ -d '{d}/../.tehas-incoming-'"$u" ] || ! kill -0 "$u" 2>/dev/null; do :; done
+  kill -TERM "$u"
+  wait "$u"
+  echo "rc $?"
+  exec 8>&-
+  compgen -G '{d}/../.tehas-incoming-*' >/dev/null && echo left && break
+done | sort | uniq -c"#,
+        f = s(&fifo),
+        d = s(&dst(&w))
+    ));
+    assert_eq!(r.out.trim(), "20 rc 143", "{}", r.out);
+    assert_eq!(incoming(&w), 0);
+}
+
 #[test]
 fn unpack_refuses_a_chain_of_links_that_climbs_out_of_its_directory() {
     let w = staged("chain");
