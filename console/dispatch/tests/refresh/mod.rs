@@ -100,6 +100,11 @@ pub fn refresh_setup(w: &World, more: &[&str]) {
     );
     fs::create_dir_all(w.cycles_dir()).unwrap();
     request(w, "2026-10-17T09:00:00Z");
+    // The marks read answers with the ready mark's id, as on a host.
+    w.fx_json(
+        "labels.json",
+        &json!([{"id": "LA_ready", "name": READY_MARK}]),
+    );
     // alice's label started the last cycle, which waits for a merge.
     w.past(7, "alice", "approved", "2026-10-01T00:00:00Z", &[]);
 }

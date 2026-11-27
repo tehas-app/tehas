@@ -833,6 +833,11 @@ pub struct Run {
     pub out: String,
 }
 
+/// The ready mark's word, so the harness names it once.
+pub const READY_MARK: &str = "tehas:ready";
+#[allow(dead_code)] // only the planning worlds name it
+pub const PLAN_MARK: &str = "tehas:plan";
+
 /// One host, as reset() leaves it.
 pub struct World {
     t: TestDir,
@@ -978,13 +983,15 @@ impl World {
         );
         self.fx("awaiting.json", "[]");
         self.fx("marked.json", "[]");
-        self.fx(
+        self.fx_json(
             "ready.json",
-            r#"[{"number":7,"labels":[{"name":"tehas:ready"}]}]"#,
+            &json!([{"number": 7,
+            "labels": [{"name": READY_MARK}]}]),
         );
-        self.fx(
+        self.fx_json(
             "events-7.json",
-            r#"[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"}}]"#,
+            &json!([{"event": "labeled",
+            "label": {"name": READY_MARK}, "actor": {"login": "alice"}}]),
         );
         self.fx("events-1.json", "[]");
         let cgroup = self.t.join("cgroup").to_string_lossy().into_owned();
