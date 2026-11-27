@@ -604,13 +604,19 @@ pub struct WithCloser {
     /// nothing.
     #[serde(default)]
     pub closer: Option<Closer>,
+    /// The merged changes of this project the site lists as closing it,
+    /// as `ClosedTicket.merged` holds them: empty while it is open.
+    /// Missing, it reads as empty.
+    #[serde(default)]
+    pub merged: Vec<ChangeDigest>,
 }
 
 new!(
     WithCloser {
         digest: TicketDigest
     },
-    closer
+    closer,
+    merged
 );
 
 /// A mark the site holds, with its id, as `Tickets::marks` answers it.
@@ -665,7 +671,9 @@ pub trait Tickets: Reports + Cites {
     /// `several`, each digest with what closed the ticket, in the same
     /// request: the closer `Ticket.closer` gives, from the newest close in
     /// its history, and None while it is open or where the site names
-    /// nothing. A key that names a change is `NotFound`, as in `several`.
+    /// nothing. With it the merged changes of this project the site lists
+    /// as closing it, as `closed_since` lists them, empty while it is
+    /// open. A key that names a change is `NotFound`, as in `several`.
     fn several_with_closers(&mut self, keys: &[TicketKey]) -> Vec<(TicketKey, Got<WithCloser>)>;
     /// A ticket's history, oldest first: the events of the kinds in
     /// `only`, or every event for None. The window counts the events taken.

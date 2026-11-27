@@ -36,6 +36,7 @@ method no command asks yet answers `Refused(Unsupported)` before any call.
 | Method | Asked by | GitHub mapping |
 | --- | --- | --- |
 | `several(keys)` | `tehas resume`, for the marks on the control issue, and `tehas stop`, for the running mark | `GET repos/<owner>/<name>/issues/<n>` per key: the title, state and its reason, type, labels, milestone, author, times and link. An answer without one of the fields every issue has is `Unread(Malformed)`. |
+| `several_with_closers(keys)` | nothing yet | One GraphQL question a hundred keys, each issue under an alias of its number: its digest, as `several` reads it, and its newest close event's closer. A number that is no issue is `NotFound`, alone. The merged changes of this repository that close it are not read yet: the list is empty until a recording of the question with them is in the adapter's tests. |
 | `history(key, window, kinds)` | `tehas resume` and `console label allowed` | The paginated events call below, marks going on and off alone. A login is folded to lower case by `accounts::folded`, the fold the user id check uses too, so it matches the allowed list in any case. |
 | `prepare()` | `tehas labels` | `gh label create <name> --repo <owner>/<name> --color <c> --description <d> --force` for each row of `host/labels.tsv`, compiled into the adapter. A label that cannot be made stops none of the others; the first that failed is the answer, with its name (`Unprepared`). |
 | `ensure_mark(spec)` | nothing yet | The same call for one label, with the colour and text the spec gives. |
