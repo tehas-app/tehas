@@ -102,6 +102,18 @@ impl<'de> Deserialize<'de> for Unknown {
 /// refusal names them.
 type Keys = BTreeMap<String, Unknown>;
 
+/// An `Option<Field>` the derive fills: a field that came as `null` was
+/// given, so it stays a `Some` whose rules say it as a field of the
+/// wrong shape. serde's own `Option` turns a present null into `None`,
+/// which reads as missing, and the reader has never done that.
+fn a_field<'de, D, T>(deserializer: D) -> Result<Option<Field<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Field::<T>::deserialize(deserializer).map(Some)
+}
+
 /// The manifest as the wire holds it: the field names, one owner. Every
 /// known field is optional here because the rules say a missing one with
 /// `is missing`, in the order [`FIELDS`] names them, and a key outside
@@ -110,21 +122,37 @@ type Keys = BTreeMap<String, Unknown>;
 /// of the wrong shape, not as a missing one.
 #[derive(Debug, Deserialize)]
 struct Wire {
+    #[serde(default, deserialize_with = "a_field")]
     plugin: Option<Field<u64>>,
+    #[serde(default, deserialize_with = "a_field")]
     kind: Option<Field<String>>,
+    #[serde(default, deserialize_with = "a_field")]
     name: Option<Field<String>>,
+    #[serde(default, deserialize_with = "a_field")]
     label: Option<Field<String>>,
+    #[serde(default, deserialize_with = "a_field")]
     license: Option<Field<String>>,
+    #[serde(default, deserialize_with = "a_field")]
     build: Option<Field<String>>,
+    #[serde(default, deserialize_with = "a_field")]
     asks: Option<Field<Vec<Field<String>>>>,
+    #[serde(default, deserialize_with = "a_field")]
     timeout: Option<Field<u64>>,
+    #[serde(default, deserialize_with = "a_field")]
     ui: Option<Field<UiWire>>,
+    #[serde(default, deserialize_with = "a_field")]
     view: Option<Field<ViewWire>>,
+    #[serde(default, deserialize_with = "a_field")]
     views: Option<Field<Vec<Field<ViewEntry>>>>,
+    #[serde(default, deserialize_with = "a_field")]
     actions: Option<Field<Vec<Field<ActionWire>>>>,
+    #[serde(default, deserialize_with = "a_field")]
     hooks: Option<Field<Vec<Field<HookWire>>>>,
+    #[serde(default, deserialize_with = "a_field")]
     skills: Option<Field<Vec<Field<SkillWire>>>>,
+    #[serde(default, deserialize_with = "a_field")]
     tools: Option<Field<Vec<Field<ToolWire>>>>,
+    #[serde(default, deserialize_with = "a_field")]
     needs: Option<Field<Vec<Field<NeedWire>>>>,
     #[serde(flatten)]
     rest: Keys,
@@ -133,6 +161,7 @@ struct Wire {
 /// `ui`: kit 1 and nothing else.
 #[derive(Debug, Deserialize)]
 struct UiWire {
+    #[serde(default, deserialize_with = "a_field")]
     kit: Option<Field<u64>>,
     #[serde(flatten)]
     rest: Keys,
@@ -141,6 +170,7 @@ struct UiWire {
 /// `view`: one panel in the dock.
 #[derive(Debug, Deserialize)]
 struct ViewWire {
+    #[serde(default, deserialize_with = "a_field")]
     label: Option<Field<String>>,
     #[serde(flatten)]
     rest: Keys,
@@ -149,9 +179,13 @@ struct ViewWire {
 /// One entry of `views`.
 #[derive(Debug, Deserialize)]
 struct ViewEntry {
+    #[serde(default, deserialize_with = "a_field")]
     id: Option<Field<String>>,
+    #[serde(default, deserialize_with = "a_field")]
     label: Option<Field<String>>,
+    #[serde(default, deserialize_with = "a_field")]
     path: Option<Field<String>>,
+    #[serde(default, deserialize_with = "a_field")]
     open: Option<Field<String>>,
     #[serde(flatten)]
     rest: Keys,
@@ -160,7 +194,9 @@ struct ViewEntry {
 /// One entry of `actions`.
 #[derive(Debug, Deserialize)]
 struct ActionWire {
+    #[serde(default, deserialize_with = "a_field")]
     id: Option<Field<String>>,
+    #[serde(default, deserialize_with = "a_field")]
     label: Option<Field<String>>,
     #[serde(flatten)]
     rest: Keys,
@@ -169,7 +205,9 @@ struct ActionWire {
 /// One entry of `hooks`.
 #[derive(Debug, Deserialize)]
 struct HookWire {
+    #[serde(default, deserialize_with = "a_field")]
     at: Option<Field<String>>,
+    #[serde(default, deserialize_with = "a_field")]
     timeout: Option<Field<u64>>,
     #[serde(flatten)]
     rest: Keys,
@@ -178,9 +216,13 @@ struct HookWire {
 /// One entry of `skills`.
 #[derive(Debug, Deserialize)]
 struct SkillWire {
+    #[serde(default, deserialize_with = "a_field")]
     id: Option<Field<String>>,
+    #[serde(default, deserialize_with = "a_field")]
     about: Option<Field<String>>,
+    #[serde(default, deserialize_with = "a_field")]
     path: Option<Field<String>>,
+    #[serde(default, deserialize_with = "a_field")]
     chats: Option<Field<Vec<Field<String>>>>,
     #[serde(flatten)]
     rest: Keys,
@@ -189,13 +231,18 @@ struct SkillWire {
 /// One entry of `tools`.
 #[derive(Debug, Deserialize)]
 struct ToolWire {
+    #[serde(default, deserialize_with = "a_field")]
     id: Option<Field<String>>,
+    #[serde(default, deserialize_with = "a_field")]
     about: Option<Field<String>>,
     /// The plugin's own JSON: [`params::rules`] checks its shape at read
     /// and [`params::check`] holds a call to it, which is why it is kept
     /// whole for [`Tool`].
-    params: Option<Field<serde_json::Value>>,
+    #[serde(default, deserialize_with = "a_field")]
+    params: Option<Field<Value>>,
+    #[serde(default, deserialize_with = "a_field")]
     timeout: Option<Field<u64>>,
+    #[serde(default, deserialize_with = "a_field")]
     chats: Option<Field<Vec<Field<String>>>>,
     #[serde(flatten)]
     rest: Keys,
@@ -204,7 +251,9 @@ struct ToolWire {
 /// One entry of `needs`.
 #[derive(Debug, Deserialize)]
 struct NeedWire {
+    #[serde(default, deserialize_with = "a_field")]
     name: Option<Field<String>>,
+    #[serde(default, deserialize_with = "a_field")]
     skills: Option<Field<Vec<Field<String>>>>,
     #[serde(flatten)]
     rest: Keys,
@@ -357,12 +406,19 @@ pub fn read(bytes: &[u8], name: &str) -> Result<Manifest, Vec<String>> {
     if bytes.len() > BYTES_MAX {
         return Err(vec![format!("the manifest is over {BYTES_MAX} bytes")]);
     }
-    // One pass over the bytes. A field takes any JSON, so the wire itself
-    // only fails to read when the top of the manifest is not an object.
-    let wire: Wire = match serde_json::from_slice(bytes) {
-        Ok(w) => w,
+    // The bytes first read as a value: a key given twice keeps its last
+    // one, as a JSON reader has always done, which a derive over the
+    // bytes would refuse. The wire itself then only fails to read when
+    // the top of the manifest is not an object, as every field takes
+    // any JSON.
+    let value: Value = match serde_json::from_slice(bytes) {
+        Ok(v) => v,
         Err(e) if e.is_data() => return Err(vec!["the manifest is not a JSON object".to_string()]),
         Err(e) => return Err(vec![format!("the manifest is not JSON: {e}")]),
+    };
+    let wire: Wire = match Wire::deserialize(value) {
+        Ok(w) => w,
+        Err(_) => return Err(vec!["the manifest is not a JSON object".to_string()]),
     };
     let mut out = Refusals(Vec::new());
     for key in wire.rest.keys() {
@@ -1283,6 +1339,184 @@ mod tests {
         }
         assert_eq!(ask("view:map"), Ok(Cap::ViewOf("map".into())));
         assert!(ask("view:Map").is_err());
+    }
+
+    /// A field given as `null` was given: it reads as a field of the
+    /// wrong shape, never as a missing one. Every field of the wire,
+    /// each word as the byte reader has always said it.
+    #[test]
+    fn a_null_field_is_a_field_of_the_wrong_shape_not_a_missing_one() {
+        for (field, want) in [
+            (
+                "plugin",
+                "plugin is null: this tehas reads manifest version 1",
+            ),
+            ("kind", "kind: expected a string"),
+            (
+                "name",
+                "name: expected 1 to 12 characters of a-z and 0-9, a letter first",
+            ),
+            ("label", "label: expected a string"),
+            (
+                "license",
+                "license: expected an SPDX expression or proprietary, 1 to 64 characters",
+            ),
+            (
+                "build",
+                "build: expected a path in the repository, of letters, digits and ._/-, \
+                 with no .. and no / at either end",
+            ),
+            ("asks", "asks: expected a list of capabilities"),
+            (
+                "timeout",
+                "timeout: expected whole seconds from 60 to 14400",
+            ),
+            ("ui", "ui: expected an object"),
+            ("view", "view: expected an object"),
+            ("views", "views: expected a list"),
+            ("actions", "actions: expected a list"),
+            ("hooks", "hooks: expected a list"),
+            ("skills", "skills: expected a list"),
+            ("tools", "tools: expected a list"),
+            ("needs", "needs: expected a list"),
+        ] {
+            let v = with(|m| {
+                m.insert(field.into(), Value::Null);
+            });
+            let out = refusals(&v);
+            assert!(out.contains(&want.to_string()), "{field}: {out:?}");
+            assert!(
+                !out.iter().any(|r| r == &format!("{field} is missing")),
+                "{field}: {out:?}"
+            );
+        }
+        // The seven tehas-a4's differential named: the derive's Option
+        // had made each null read as missing, which the byte reader has
+        // never done.
+        let v = with(|m| {
+            for field in [
+                "license", "ui", "view", "views", "actions", "tools", "needs",
+            ] {
+                m.insert(field.into(), Value::Null);
+            }
+        });
+        let out = refusals(&v);
+        assert!(!out.iter().any(|r| r.ends_with(" is missing")), "{out:?}");
+        // Six shape refusals, and the two that follow from view and
+        // views both being given as null. The differential holds these
+        // to the byte reader's own answer for this document.
+        assert_eq!(out.len(), 8, "{out:?}");
+    }
+
+    /// The same for the fields of the closed objects, one per object.
+    #[test]
+    fn a_null_field_of_a_closed_object_is_refused_too() {
+        for (tag, edit, want) in [
+            (
+                "ui.kit",
+                Box::new(|m: &mut Map<String, Value>| m["ui"]["kit"] = Value::Null)
+                    as Box<dyn Fn(&mut Map<String, Value>)>,
+                "ui.kit is null: this tehas serves kit 1",
+            ),
+            (
+                "view.label",
+                Box::new(|m: &mut Map<String, Value>| m["view"]["label"] = Value::Null),
+                "view.label: expected a string",
+            ),
+            (
+                "actions[0].id",
+                Box::new(|m: &mut Map<String, Value>| m["actions"][0]["id"] = Value::Null),
+                "actions[0].id: expected 1 to 16 characters of a-z and -",
+            ),
+            (
+                "hooks[0].at",
+                Box::new(|m: &mut Map<String, Value>| m["hooks"][0]["at"] = Value::Null),
+                "hooks[0].at: expected after:change.offered",
+            ),
+        ] {
+            let v = with(|m| edit(m));
+            let out = refusals(&v);
+            assert!(out.contains(&want.to_string()), "{tag}: {out:?}");
+        }
+        let v = with(|m| {
+            m.remove("view");
+            m.insert(
+                "views".into(),
+                json!([{"id": null, "label": "L", "path": "/out/", "open": "dock"}]),
+            );
+        });
+        let out = refusals(&v);
+        assert!(
+            out.contains(&"views[0].id: expected 1 to 16 characters of a-z and -".to_string()),
+            "{out:?}"
+        );
+        let v = text_only(|m| m["skills"][0]["id"] = Value::Null);
+        assert_eq!(
+            refusals_of_specs(&v),
+            ["skills[0].id: expected 1 to 16 characters of a-z and -"]
+        );
+        let v = text_only(|m| m["skills"][0]["chats"] = Value::Null);
+        assert_eq!(
+            refusals_of_specs(&v),
+            ["skills[0].chats: expected one or more of obeya, wizard, assistant, plugin, each once"]
+        );
+        let v = text_only(|m| m["skills"][0]["chats"] = json!([null]));
+        assert_eq!(
+            refusals_of_specs(&v),
+            ["skills[0].chats: expected one or more of obeya, wizard, assistant, plugin, each once"]
+        );
+        let mut v: Value = serde_json::from_str(TOOLS).unwrap();
+        v["tools"][0]["params"] = Value::Null;
+        let out = read(v.to_string().as_bytes(), "docs").unwrap_err();
+        assert!(
+            out.contains(
+                &"tools[0].params: the top level: expected a schema, an object".to_string()
+            ),
+            "{out:?}"
+        );
+        let mut v: Value = serde_json::from_str(TOOLS).unwrap();
+        v["tools"][0]["timeout"] = Value::Null;
+        let out = read(v.to_string().as_bytes(), "docs").unwrap_err();
+        assert!(
+            out.contains(&"tools[0].timeout: expected whole seconds from 1 to 10".to_string()),
+            "{out:?}"
+        );
+        let v = with(|m| {
+            m.insert("needs".into(), json!([{"name": null, "skills": ["a"]}]));
+        });
+        let out = refusals(&v);
+        assert!(
+            out.contains(
+                &"needs[0].name: expected a plugin's name, 1 to 12 characters of a-z and 0-9, \
+                   a letter first"
+                    .to_string()
+            ),
+            "{out:?}"
+        );
+    }
+
+    /// A key given twice keeps its last value, as the byte reader has
+    /// always done: the wire reads the whole value once, so it reads the
+    /// last one and not a refusal of the pair.
+    #[test]
+    fn a_key_given_twice_keeps_its_last_value() {
+        let ok = read(
+            br#"{"plugin":1,"plugin":1,"name":"floorplan","label":"F","asks":[]}"#,
+            "floorplan",
+        );
+        assert!(ok.is_ok(), "{ok:?}");
+        let out = read(
+            br#"{"plugin":1,"plugin":2,"name":"floorplan","label":"F","asks":[]}"#,
+            "floorplan",
+        )
+        .unwrap_err();
+        assert_eq!(out, ["plugin is 2: this tehas reads manifest version 1"]);
+        let out = read(
+            br#"{"plugin":1,"name":"floorplan","label":"F","asks":[],"foo":1,"foo":2}"#,
+            "floorplan",
+        )
+        .unwrap_err();
+        assert_eq!(out, ["foo: no field of manifest version 1"]);
     }
 
     #[test]
