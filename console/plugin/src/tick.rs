@@ -20,6 +20,7 @@ use tehas_core::home::{Home, State};
 use tehas_core::lock::{probe, Probe};
 use tehas_core::plugin::state::Word;
 use tehas_core::plugin::{self, is_name};
+use tehas_core::verb::Verb;
 use tehas_core::{features, pause};
 use tehas_ops::plugin::exec::{Cmd, Exec, Git};
 use tehas_ops::plugin::prepare;
@@ -105,8 +106,12 @@ pub fn sweep(h: &mut dyn Host, s: &Setup) {
         }
         clean(h.exec(), &name, &format!("tehas-plugin-{name}-{id}"), id);
         let _ = fs::remove_dir_all(prepare::dir(s.home, &name).join(format!("run-{id}")));
-        let id_word = id.to_string();
-        let ended = h.store(&["plugin-run-end", "--run", &id_word, "--result", "lost"]);
+        let ended = h.store(&Verb::PluginRunEnd {
+            run: id,
+            result: "lost".into(),
+            size: None,
+            tokens: None,
+        });
         let row = match ended {
             Ok(_) => "ended as lost".to_string(),
             Err(why) => format!("its row was not ended: {why}"),

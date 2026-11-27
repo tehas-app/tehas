@@ -16,6 +16,7 @@ use crate::host;
 use std::path::Path;
 use std::sync::Arc;
 use tehas_core::raise::{self, Ended, Writer};
+use tehas_core::verb::Verb;
 use tehas_ports::events::{Dispatcher, Payload};
 
 /// The settings the listeners read, as the cycle's environment has them.
@@ -52,8 +53,10 @@ pub fn read_ended(
     by: Writer,
     site_at: &mut dyn FnMut(tehas_ports::ChangeNo) -> Option<tehas_ports::At>,
 ) -> Ended {
-    let mut ask = |args: &[&str]| {
-        host::store_try(home, 3, args)
+    let mut ask = |v: &Verb| {
+        let words = v.args();
+        let args: Vec<&str> = words.iter().map(String::as_str).collect();
+        host::store_try(home, 3, &args)
             .map(|v| v.to_string())
             .map_err(|r| r.word)
     };
