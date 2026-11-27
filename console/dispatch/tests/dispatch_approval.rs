@@ -794,6 +794,27 @@ fn with_no_pins_the_poll_pins_the_label_on_first_sight_and_the_real_label_starts
 }
 
 #[test]
+fn an_empty_labels_answer_keeps_the_file_empty_and_a_later_label_needs_a_person_to_pin_it() {
+    // The first poll read the marks and got the empty answer: the empty
+    // list is the answer, so the pins file is kept, empty. A first
+    // application of a granting label after that counts for nothing until
+    // a person pins it.
+    let w = World::new("ap-pins-empty");
+    w.fx("labels.json", "[]");
+    w.fx("events-7.json", "[]");
+    let r = w.poll();
+    assert_eq!(r.rc, 0, "{}", r.out);
+    assert_eq!(w.started(), "");
+    assert_eq!(pins(&w), "");
+    unpinned(&w);
+    let r = w.poll();
+    assert_eq!(w.started(), "");
+    has(&r.out, "has no pin in");
+    lacks(&r.out, "pinned the label");
+    assert_eq!(pins(&w), "");
+}
+
+#[test]
 fn once_the_file_is_kept_a_label_missing_when_it_was_written_is_not_pinned_when_one_appears() {
     let w = World::new("ap-pins-kept");
     pin(&w, "tehas:plan\tLA_plan\n");

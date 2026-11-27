@@ -237,10 +237,11 @@ fn queue(src: &mut Sources, c: &Settings) -> Result<(github::Queue, Vec<u64>), G
         })
         .collect();
     m.queue.closed_running = closed_running;
-    // A repository that carries no marks of ours is as if its labels were
-    // not read: the pins of state/labels pin nothing from an empty list, as
-    // the page that named no `tehasLabels` key never did.
-    m.queue.labels = (!labels.is_empty()).then_some(Value::Array(labels));
+    // The marks were read: the list is the answer, the empty one included.
+    // A read that was never made is absent elsewhere, never a short list
+    // here: the page that made the read always named `tehasLabels`, and the
+    // pins of state/labels keep the difference the two make.
+    m.queue.labels = Some(Value::Array(labels));
     Ok((m.queue, unread))
 }
 
@@ -1880,6 +1881,30 @@ esac"#,
             said: Vec::new(),
             faults: Vec::new(),
         }
+    }
+
+    #[test]
+    fn a_poll_without_the_handles_of_the_queue_read_fails_closed_on_it() {
+        let _clock = crate::read::run::no_case_clock();
+        let dir = host(&world(), &[]);
+        let mut src = sources(&dir);
+        src.board = None;
+        let Err(f) = snapshot(&mut src, &settings()) else {
+            panic!("a poll with no board handle must end on the queue read");
+        };
+        assert_eq!(
+            f.line,
+            "ERROR: the poll has no board handle to read the queue by"
+        );
+        let mut src = sources(&dir);
+        src.tickets = None;
+        let Err(f) = snapshot(&mut src, &settings()) else {
+            panic!("a poll with no tickets handle must end on the queue read");
+        };
+        assert_eq!(
+            f.line,
+            "ERROR: the poll has no tickets handle to read the queue by"
+        );
     }
 
     /// The states of the blockers a case expects, as `Issue::blockers` holds

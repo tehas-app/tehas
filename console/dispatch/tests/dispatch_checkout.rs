@@ -150,6 +150,14 @@ fn an_index_that_runs_as_its_own_unit_holds_the_cycles_until_the_poll_after_it()
 #[test]
 fn the_poll_after_the_index_run_says_how_it_ended_and_starts_the_cycles() {
     let w = World::new("co-index-after");
+    // The marks the poll reads and keeps as pins, as a running host has
+    // them: an empty answer would keep an empty pins file and refuse the
+    // application below. The name is the one `LABELLED` applies.
+    let named: serde_json::Value = serde_json::from_str(LABELLED).unwrap();
+    w.fx(
+        "labels.json",
+        &json!([{"id": "LA_ready", "name": named[0]["label"]["name"]}]).to_string(),
+    );
     index_unit(&w);
     let base = git(&w.checkout(), &["rev-parse", "origin/main"]);
     w.home_file(
