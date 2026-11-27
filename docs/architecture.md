@@ -217,6 +217,11 @@ leaves them alone.
 | `console/mesh-feed` | the host-made `feed:mesh` |
 | `console/host-feed` | the host-made `feed:host` |
 
+A kept read may also sit inside a live crate. `console/core/src/issue_feed.rs`
+holds `tickets`, `texts` and `WHO`: the reading of an issue the lab plugin's
+`issues:` grant needs (the plugin-lab spec, "Kept in T14"). Nothing in core
+calls them yet, and a dead-code pass of 2.0.x leaves them alone.
+
 `console/xtask/tests/kept_for_plugins.rs` fails when one of them leaves the
 workspace or loses its tests, and when this table does not name it. A crate
 leaves the list only with the plugin specification change that drops its
