@@ -41,8 +41,9 @@ fn an_issue_waits_on_what_its_links_name() {
     assert!(gh.blockers(&key(25)).unwrap().into_items().is_empty());
 }
 
-/// The replay makes no answer of another question's: the parents' question
-/// of the fixture project has no recording, so asking it panics.
+/// The replay makes no answer of another question's: 20's parents read
+/// has no recording (its hand-made stub is the old single-issue shape,
+/// not an alias node), so asking it panics.
 #[test]
 #[should_panic(expected = "no recording of the parents' question")]
 fn the_replay_answers_no_parents_question_from_another_recording() {
@@ -51,12 +52,11 @@ fn the_replay_answers_no_parents_question_from_another_recording() {
 }
 
 #[test]
-#[ignore = "waits for beta2b: the parents' question of the fixture project has no recording until kit run #2"]
 fn the_list_is_the_tickets_own_at_every_depth() {
     let (mut gh, _) = adapter_of(PROJECT);
-    // 21 is a part of 20, whose parent this adapter does not read yet.
+    // 27 is closed and has two parts, 28 is one of them, 30 has no parent.
     assert_eq!(
-        laws::tickets::a_parent_holds_its_parts(&mut gh, &[key(20), key(25)]),
+        laws::tickets::a_parent_holds_its_parts(&mut gh, &[key(27), key(28), key(30)]),
         Ok(())
     );
 }
@@ -64,7 +64,7 @@ fn the_list_is_the_tickets_own_at_every_depth() {
 #[test]
 fn a_failed_read_answers_as_the_parts_read_does() {
     // Not there, out of time, rate limited, forbidden, a change's number.
-    for n in [9, 10, 12, 14, 30] {
+    for n in [9, 10, 12, 14, 29] {
         let (mut gh, _) = adapter_of(PROJECT);
         let blockers = gh.blockers(&key(n)).map(|_| ());
         let (mut gh, _) = adapter_of(PROJECT);
@@ -74,7 +74,7 @@ fn a_failed_read_answers_as_the_parts_read_does() {
     }
     let (mut gh, _) = adapter_of(PROJECT);
     assert_eq!(gh.blockers(&key(9)), Err(Outcome::NotFound));
-    assert_eq!(gh.blockers(&key(30)), Err(Outcome::NotFound));
+    assert_eq!(gh.blockers(&key(29)), Err(Outcome::NotFound));
 }
 
 #[test]

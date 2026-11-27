@@ -45,11 +45,10 @@ fn numbers(keys: &[TicketKey]) -> Vec<u64> {
 }
 
 #[test]
-#[ignore = "waits for beta2b: the parents' question of the fixture project has no recording until kit run #2"]
 fn several_carries_each_closer_as_the_ticket_does() {
-    // 20 is closed by a merged change of this project, 21 and 25 are open.
+    // 27 is closed by a merged change of this project, 28 and 30 are open.
     let mut gh = adapter();
-    let keys = [key(20), key(21), key(25)];
+    let keys = [key(27), key(28), key(30)];
     assert_eq!(
         laws::tickets::several_carries_each_closer(&mut gh, &keys),
         Ok(())
@@ -59,7 +58,7 @@ fn several_carries_each_closer_as_the_ticket_does() {
     assert_eq!(
         closer,
         Some(Closer::Change {
-            no: ChangeNo::new(31).unwrap(),
+            no: ChangeNo::new(32).unwrap(),
             merged: true
         })
     );

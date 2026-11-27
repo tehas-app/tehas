@@ -31,7 +31,6 @@ fn samples() -> Vec<Labels> {
 }
 
 #[test]
-#[ignore = "waits for beta2b: the parents' question of the fixture project has no recording until kit run #2"]
 fn the_labels_answer_as_each_sample_says() {
     let all = samples();
     assert!(!all.is_empty());
@@ -48,7 +47,6 @@ fn the_labels_answer_as_each_sample_says() {
 }
 
 #[test]
-#[ignore = "waits for beta2b: the parents' question of the fixture project has no recording until kit run #2"]
 fn every_label_is_in_labels_in_order() {
     let held: Vec<(TicketKey, Vec<String>)> = samples()
         .into_iter()
@@ -62,7 +60,6 @@ fn every_label_is_in_labels_in_order() {
 }
 
 #[test]
-#[ignore = "waits for beta2b: the parents' question of the fixture project has no recording until kit run #2"]
 fn labels_cost_no_call_of_their_own() {
     // One issue read and one question for its parent, as before labels.
     let (mut gh, asked) = adapter_of(PROJECT);

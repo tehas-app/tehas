@@ -13,14 +13,13 @@ fn a_listed_login_without_its_recorded_id_is_vouched_for_nowhere() {
     let home = std::env::temp_dir().join(format!("tehas-github-vouch-{}", std::process::id()));
     let ids = home.join(tehas_core::accounts::FILE);
     std::fs::create_dir_all(ids.parent().unwrap()).unwrap();
-    // alice is listed with another id than the recordings carry; bob with
-    // his own.
-    std::fs::write(&ids, "alice 999\nbob 102\n").unwrap();
-    std::env::set_var("TEHAS_ALLOWED_LABELERS", "Alice bob");
+    // janit is listed with another id than the recordings carry.
+    std::fs::write(&ids, "janit 999\n").unwrap();
+    std::env::set_var("TEHAS_ALLOWED_LABELERS", "janit");
     std::env::set_var("TEHAS_MILLWRIGHT_LOGIN", "");
     std::env::set_var("TEHAS_HOME", &home);
 
-    let key = TicketKey::Number(NonZeroU64::new(20).unwrap());
+    let key = TicketKey::Number(NonZeroU64::new(27).unwrap());
     let mut gh = replay::adapter_of(replay::PROJECT).0;
     let ticket = gh.ticket(&key, Depth::All, None).unwrap();
     let history = gh.history(&key, Window::Whole(ALL_MAX), None).unwrap();
@@ -43,8 +42,12 @@ fn a_listed_login_without_its_recorded_id_is_vouched_for_nowhere() {
     }
     list.items().iter().for_each(|d| seen(&d.author));
     assert!(logins.len() > 20, "{logins:?}");
-    assert!(!logins.iter().any(|l| l == "alice"), "{logins:?}");
-    assert!(logins.iter().any(|l| l.starts_with("alice#")), "{logins:?}");
-    // bob came with his recorded id, and is bob.
-    assert!(logins.iter().any(|l| l == "bob"), "{logins:?}");
+    // The recorded world's one account, janit, acted with the id 198965
+    // and the file said 999: it reads tagged, in every place, and no
+    // read says plain `janit` anymore.
+    assert!(!logins.iter().any(|l| l == "janit"), "{logins:?}");
+    assert!(
+        logins.iter().all(|l| l == "janit#198965"),
+        "{logins:?}"
+    );
 }

@@ -28,6 +28,20 @@ numbers count from 0 in `data.repository.pullRequest.events.nodes`.
 | `activity/no-page-info/events-whole-first.json` | `events` has no `pageInfo` |
 | `activity/no-cursor/events-whole-first.json` | `pageInfo` is `{"hasNextPage": true, "endCursor": null}`: more follows, no cursor to it |
 
+## The whole ticket read, cut to the depth that asks no history
+
+The `Cut` ticket read asks no milestone and no history page, so its
+question is a subset of the whole read's and the kit recorded only the
+whole one: GitHub answers only what a question asks, and the cut
+question was not asked of the live site. Each file is the issue's
+recorded ticket answer with those two keys dropped from the issue node.
+
+| File | Source and change |
+| --- | --- |
+| `issue-27/ticket-cut.json` | `recorded/issue-27/ticket.json`: `milestone` and `events` dropped from the issue node |
+| `issue-28/ticket-cut.json` | `recorded/issue-28/ticket.json`: `milestone` and `events` dropped from the issue node |
+| `issue-30/ticket-cut.json` | `recorded/issue-30/ticket.json`: `milestone` and `events` dropped from the issue node |
+
 ## A body that is not JSON
 
 These are not GitHub's answers: they stand for a body gh hands back that
