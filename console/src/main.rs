@@ -413,6 +413,15 @@ mod wiring {
         Box::new(tehas_github::GitHub::new(repo, runner))
     }
 
+    /// A tickets handle on `repo`, asking the site through `runner`: the
+    /// tidy's, whose runner holds its bound and its retry.
+    pub(crate) fn tickets_over(
+        repo: &str,
+        runner: Box<dyn tehas_core::forge::GhRunner>,
+    ) -> Box<dyn tehas_ports::Tickets> {
+        Box::new(tehas_github::GitHub::new(repo, runner))
+    }
+
     /// The board handle of `tehas plugin hook`, from the adapter's site
     /// acting as the factory's account, which the adapter answers `Ours` by
     /// the bot's recorded id. The gh it runs is the one the command names.
@@ -563,7 +572,7 @@ fn main() -> ExitCode {
             Some("state") => return ExitCode::from(state::main(&given[1..])),
             Some("status") => return ExitCode::from(status::main(&given[1..])),
             Some("shipped") => return ExitCode::from(shipped::main(&given[1..])),
-            Some("tidy") => return ExitCode::from(tidy::main(&given[1..])),
+            Some("tidy") => return ExitCode::from(tidy::main(&given[1..], &wiring::tickets_over)),
             Some("pins") => return ExitCode::from(pins::main(&given[1..])),
             Some("plan") => return ExitCode::from(plan::main(&given[1..])),
             Some("tehas") => return ExitCode::from(commands::tehas(&given[1..])),

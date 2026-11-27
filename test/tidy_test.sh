@@ -2,7 +2,9 @@
 # Tests for console tidy run against a stub gh: which labels come off a closed
 # issue, which never do, what an open issue keeps, tehas:shipped on the issue a
 # merged pull request closed, the one search and the one closer read and their
-# timeouts and the dry run. The settings and the words refused before any
+# timeouts and the dry run, through the console's wiring of the tickets port.
+# The rule of the closers' read is tested in Rust on the ports' fake
+# (console/ops/src/tidy.rs); the settings and the words refused before any
 # call are in console/tests/tidy.rs.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
@@ -25,8 +27,8 @@ chmod +x "$tidy"
 # read that failed or timed out: the two must read differently, or a rate-limited
 # search looks like a factory that shipped nothing.
 no_closer() { printf 'no merged pull request was read as the closer'; }
-# The reason after `failed` is gh's (or the bound's); the case pins the rest.
-read_failed_line() { printf 'WARN: tidy: the read of what closed these issues failed%s, tehas:shipped was not added for %s issues\n' "${2-: gh exited 1}" "$1"; }
+# The reason after `failed` is the port's; the case pins the rest.
+read_failed_line() { printf 'WARN: tidy: the read of what closed these issues failed%s, tehas:shipped was not added for %s issues\n' "${2-: the site failed; it may have been sent}" "$1"; }
 fx=$T/fx
 mkdir -p "$fx"
 # shellcheck disable=SC1083  # the braces of the JSON answers below are literal
@@ -45,29 +47,18 @@ t_stub gh 'case "$1 $2" in
     # answer is built here from the issues the caller named. A name that has no
     # file closes the call: the stub would answer nothing about an issue the
     # caller named, and a caller that reads no answer adds no label, so the case
-    # would pass for the wrong reason. NO_NODE makes it answer a whole read
-    # that never speaks of the issues it was asked about.
+    # would pass for the wrong reason.
     query=""
     for a in "$@"; do case $a in query=*) query=${a#query=} ;; esac; done
-    if [ -e "$T/fx/no-node" ]; then
-      echo '{"data":{"repository":{}}}'
-      exit 0
-    fi
     nodes=""
     for n in $(printf "%s" "$query" | grep -o "issue(number: [0-9]*)" | tr -dc "0-9\n"); do
       if [ ! -e "$T/fx/closer-$n.json" ]; then
         echo "no closer file for issue $n" >&2
         exit 1
       fi
-      [ -z "$nodes" ] || nodes=$nodes,
-      nodes=$nodes\"i$n\":$(cat "$T/fx/closer-$n.json")
+      nodes=$nodes,\"i$n\":$(cat "$T/fx/closer-$n.json")
     done
-    if [ -e "$T/fx/answer-errors" ]; then
-      # A query GitHub declined and answered anyway: errors beside the data.
-      echo "{\"errors\":[{\"message\":\"declined\"}],$(cat "$T/fx/answer-errors")}"
-    else
-      echo "{\"data\":{\"repository\":{$nodes}}}"
-    fi ;;
+    echo "{\"data\":{\"repository\":{\"databaseId\":7001$nodes}}}" ;;
 esac'
 reset() {
   rm -f "$T"/calls/* "$fx"/*
@@ -83,20 +74,18 @@ reads() { t_calls gh | grep '^api graphql' || true; }
 tehas_page_count() {
   "$T_CONSOLE" shipped page
 }
-# One issue's node of the closer answer, as the batched search returns it. The
-# closer is the only part a case chooses, so the shape of the timeline is
-# written once.
+# One closed issue's node of the closer answer, as GitHub answers the
+# adapter's question. The closer is the only part a case chooses, so the rest
+# is written once.
 node() { # <number> <closer>
-  printf '{"number":%s,"timelineItems":{"nodes":[{"closer":%s}]}}' "$1" "$2"
+  printf '{"number":%s,"title":"t","body":"","state":"CLOSED","stateReason":"COMPLETED","url":"https://github.com/acme/widget/issues/%s","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-02T00:00:00Z","author":null,"issueType":null,"milestone":null,"labels":{"totalCount":0,"nodes":[]},"parent":null,"closes":{"nodes":[{"__typename":"ClosedEvent","createdAt":"2026-01-02T00:00:00Z","actor":null,"stateReason":"COMPLETED","closer":%s}]}}' "$1" "$1" "$2"
 }
-merged() { node "$1" '{"merged":true}' >"$fx/closer-$1.json"; }
-unmerged() { node "$1" '{"merged":false}' >"$fx/closer-$1.json"; }
+pull() { # <number> <merged>
+  printf '{"__typename":"PullRequest","number":%s,"merged":%s,"url":"https://github.com/acme/widget/pull/%s","repository":{"databaseId":7001,"nameWithOwner":"acme/widget"}}' "$((10000 + $1))" "$2" "$((10000 + $1))"
+}
+merged() { node "$1" "$(pull "$1" true)" >"$fx/closer-$1.json"; }
+unmerged() { node "$1" "$(pull "$1" false)" >"$fx/closer-$1.json"; }
 by_hand() { node "$1" 'null' >"$fx/closer-$1.json"; }
-# A `merged` that is no boolean: the read answers, and the answer is not a
-# merge, so the label is never given on it.
-string_merged() { node "$1" '{"merged":"true"}' >"$fx/closer-$1.json"; }
-numeric_merged() { node "$1" '{"merged":1}' >"$fx/closer-$1.json"; }
-object_merged() { node "$1" '{"merged":{"state":"merged"}}' >"$fx/closer-$1.json"; }
 
 t_case "a closed issue loses tehas:awaiting-merge, and keeps needs-human-attention and tehas:shipped"
 reset
@@ -235,7 +224,7 @@ t_eq "$(edits)" "issue edit 12 --repo acme/widget --remove-label tehas:running -
 t_lacks "$t_out" "#11"
 # The issue that waits for its cycle is not asked about at all.
 t_eq "$(reads | wc -l)" 1
-t_contains "$(reads)" "-f owner=acme -f name=widget -f query="
+t_contains "$(reads)" "-F owner=acme -F name=widget -f query="
 t_contains "$(reads)" "i12: issue(number: 12)"
 t_lacks "$(reads)" "issue(number: 11)"
 t_contains "$(reads)" "first: 100"
@@ -247,7 +236,7 @@ echo '[{"number":13,"state":"CLOSED","labels":[{"name":"tehas:running"}]}]' >"$f
 t_run "$tidy"
 t_eq "$t_rc" 0
 t_eq "$(edits)" "issue edit 13 --repo acme/widget --remove-label tehas:running --add-label tehas:shipped"
-t_contains "$(reads)" 'repository(owner: $owner, name: $name) { i13: issue(number: 13)'
+t_contains "$(reads)" 'repository(owner: $owner, name: $name) { databaseId i13: issue(number: 13)'
 
 t_case "a dry run removes nothing and says what it would remove"
 reset
@@ -319,51 +308,6 @@ t_contains "$t_out" "tidy #30: added tehas:shipped"
 t_eq "$(t_calls gh | grep '^issue edit' | grep -c -- '--add-label tehas:shipped')" 1
 t_eq "$(printf '%s\n' "$t_out" | grep -c 'was not added')" 2
 
-t_case "one read a poll answers for every issue, and each keeps its own closer"
-reset
-merged 30
-unmerged 31
-by_hand 32
-echo '[{"number":30,"state":"CLOSED","labels":[{"name":"tehas:awaiting-merge"}]},
-  {"number":31,"state":"CLOSED","labels":[{"name":"tehas:awaiting-merge"}]},
-  {"number":32,"state":"CLOSED","labels":[{"name":"tehas:awaiting-merge"}]}]' >"$fx/closed.json"
-t_run "$tidy"
-t_eq "$t_rc" 0
-t_eq "$(reads | wc -l)" 1
-t_contains "$(reads)" "i30: issue(number: 30)"
-t_contains "$(reads)" "i31: issue(number: 31)"
-t_contains "$(reads)" "i32: issue(number: 32)"
-t_eq "$(edits | grep -c -- '--add-label tehas:shipped')" 1
-t_eq "$(edits)" "issue edit 30 --repo acme/widget --remove-label tehas:awaiting-merge --add-label tehas:shipped
-issue edit 31 --repo acme/widget --remove-label tehas:awaiting-merge
-issue edit 32 --repo acme/widget --remove-label tehas:awaiting-merge"
-
-t_case "a merged answer of one issue never labels another"
-reset
-merged 34
-unmerged 35
-echo '[{"number":34,"state":"CLOSED","labels":[{"name":"tehas:awaiting-merge"}]},
-  {"number":35,"state":"CLOSED","labels":[{"name":"tehas:awaiting-merge"}]}]' >"$fx/closed.json"
-t_run "$tidy"
-t_eq "$t_rc" 0
-t_eq "$(edits | grep -c -- '--add-label tehas:shipped')" 1
-t_eq "$(edits)" "issue edit 34 --repo acme/widget --remove-label tehas:awaiting-merge --add-label tehas:shipped
-issue edit 35 --repo acme/widget --remove-label tehas:awaiting-merge"
-
-t_case "a merged that is no boolean is no merge: string, number and object"
-reset
-string_merged 36
-numeric_merged 37
-object_merged 38
-echo '[{"number":36,"state":"CLOSED","labels":[{"name":"tehas:awaiting-merge"}]},
-  {"number":37,"state":"CLOSED","labels":[{"name":"tehas:running"}]},
-  {"number":38,"state":"CLOSED","labels":[{"name":"tehas:ready"}]}]' >"$fx/closed.json"
-t_run "$tidy"
-t_eq "$t_rc" 0
-t_eq "$(edits | grep -c -- '--add-label')" 0
-t_eq "$(edits | wc -l)" 3
-t_eq "$(printf '%s\n' "$t_out" | grep -c 'was not added')" 3
-
 t_case "the label is still given when the search forgot to list it, so a race adds it once"
 reset
 merged 33
@@ -402,19 +346,8 @@ t_eq "$t_rc" 0
 t_fast 5000
 t_eq "$(edits)" "issue edit 42 --repo acme/widget --remove-label tehas:question"
 t_contains "$t_out" "tidy #42: removed tehas:question"
-t_contains "$t_out" "ran out of its 1s bound (tried 2 times), tehas:shipped was not added for 1 issues"
-t_lacks "$t_out" "$(no_closer)"
-
-t_case "a read that answers and names none of the issues is a failed read, not a closed issue"
-reset
-: >"$fx/no-node"
-merged 47
-echo '[{"number":47,"state":"CLOSED","labels":[{"name":"tehas:question"}]}]' >"$fx/closed.json"
-t_run "$tidy"
-t_eq "$t_rc" 0
-t_eq "$(edits)" "issue edit 47 --repo acme/widget --remove-label tehas:question"
-t_eq "$(t_calls gh | grep -c 'add-label')" 0
-t_contains "$t_out" "$(read_failed_line 1 "")"
+t_contains "$t_out" "the read of what closed these issues failed: timed out"
+t_eq "$(reads | wc -l)" 2
 t_lacks "$t_out" "$(no_closer)"
 
 t_case "a read that answers and names the issue with no merged closer is logged per issue"
@@ -426,18 +359,6 @@ t_eq "$t_rc" 0
 t_eq "$(edits)" "issue edit 48 --repo acme/widget --remove-label tehas:question"
 t_contains "$t_out" "$(no_closer 48)"
 t_lacks "$t_out" "the read of what closed these issues failed"
-
-t_case "a GraphQL answer that carries errors adds nothing, even where it holds a merged closer"
-reset
-merged 43
-echo '{"data":{"repository":{"i43":{"number":43,"timelineItems":{"nodes":[{"closer":{"merged":true}}]}}}}}' >"$fx/answer-errors"
-echo '[{"number":43,"state":"CLOSED","labels":[{"name":"tehas:question"}]}]' >"$fx/closed.json"
-t_run "$tidy"
-t_eq "$t_rc" 0
-t_eq "$(edits)" "issue edit 43 --repo acme/widget --remove-label tehas:question"
-t_eq "$(t_calls gh | grep -c 'add-label')" 0
-t_contains "$t_out" "$(read_failed_line 1 "")"
-t_lacks "$t_out" "$(no_closer)"
 
 t_case "a label that is not a state label is neither taken off nor written to the log"
 # The names come from GitHub. One that is not a state label is not passed to the
