@@ -6,6 +6,7 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
+use tehas_core::file::base64;
 
 /// The app the factory needs: what a cycle and the host write and read, no
 /// workflows, no events and no webhook. Private: one account installs it.
@@ -65,23 +66,6 @@ pub fn page(manifest: &str, action: &str, state: &str) -> String {
         escaped(state),
         escaped(manifest)
     )
-}
-
-fn base64(data: &[u8]) -> String {
-    const LETTERS: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
-    for chunk in data.chunks(3) {
-        let at = |i: usize| chunk.get(i).copied().unwrap_or(0) as u32;
-        let n = at(0) << 16 | at(1) << 8 | at(2);
-        for i in 0..4 {
-            if i <= chunk.len() {
-                out.push(LETTERS[(n >> (18 - 6 * i) & 63) as usize] as char);
-            } else {
-                out.push('=');
-            }
-        }
-    }
-    out
 }
 
 /// The page as one link to paste into a browser's address bar.

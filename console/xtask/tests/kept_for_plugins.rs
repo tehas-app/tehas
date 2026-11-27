@@ -1,10 +1,20 @@
-//! The crates 2.0 keeps with no caller of its own, for the 2.1 plugins
-//! (docs/architecture.md, "Kept for the 2.1 plugins"). A dead-code pass of
-//! 2.0.x must not take one out: each leaves only with a change of the plugin
-//! specification that drops its use.
+//! The crates and the kept items inside live crates that 2.0 keeps with no
+//! caller of its own, for the 2.1 plugins (docs/architecture.md, "Kept for
+//! the 2.1 plugins"). A dead-code pass of 2.0.x must not take one out: each
+//! leaves only with a change of the plugin specification that drops its use.
 
 use std::fs;
 use std::path::{Path, PathBuf};
+
+/// Each kept item of a crate that has other callers: its file under
+/// console/, the public items the file must still hold, and what in 2.1
+/// uses them. The crate itself is live; these reads of it are not.
+const KEPT_ITEMS: [(&str, &[&str], &str); 1] = [(
+    "core/src/issue_feed.rs",
+    &["pub fn tickets", "pub fn texts", "pub const WHO"],
+    "the lab plugin's `issues:` grant, the host-side reading of labelled \
+     issues (the plugin-lab spec, \"Kept in T14\")",
+)];
 
 /// Each kept crate, its folder under console/, and what in 2.1 uses it.
 const KEPT: [(&str, &str); 8] = [
@@ -88,15 +98,42 @@ fn every_crate_kept_for_the_plugins_stays_a_tested_member_of_the_workspace() {
 #[test]
 fn the_architecture_page_names_every_kept_crate() {
     let page = fs::read_to_string(console().join("../docs/architecture.md")).unwrap();
-    let section = page
-        .split("## Kept for the 2.1 plugins")
-        .nth(1)
-        .expect("docs/architecture.md has no section \"Kept for the 2.1 plugins\"");
-    let section = section.split("\n## ").next().unwrap_or("");
+    let section = kept_section(&page);
     for (name, _) in KEPT {
         assert!(
             section.contains(&format!("`console/{name}`")),
             "docs/architecture.md's section does not name console/{name}"
         );
+    }
+    for (file, _, _) in KEPT_ITEMS {
+        assert!(
+            section.contains(&format!("`console/{file}`")),
+            "docs/architecture.md's section does not name console/{file}"
+        );
+    }
+}
+
+fn kept_section(page: &str) -> &str {
+    page.split("## Kept for the 2.1 plugins")
+        .nth(1)
+        .expect("docs/architecture.md has no section \"Kept for the 2.1 plugins\"")
+        .split("\n## ")
+        .next()
+        .unwrap_or("")
+}
+
+#[test]
+fn the_reads_kept_inside_a_live_crate_are_still_there() {
+    for (file, items, reason) in KEPT_ITEMS {
+        let path = console().join(file);
+        let text = fs::read_to_string(&path)
+            .unwrap_or_else(|_| panic!("console/{file} is gone; it is kept for {reason}"));
+        for item in items {
+            assert!(
+                text.contains(item),
+                "console/{file} lost {item}; it is kept for {reason}"
+            );
+        }
+        assert!(text.contains("#[test]"), "console/{file} lost its tests");
     }
 }

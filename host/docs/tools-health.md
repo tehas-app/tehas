@@ -19,9 +19,10 @@ Completed means closed by a merged pull request, by the close event's closer or
 by a merged pull request GitHub lists as closing the issue when the close event
 names none. That list is what GitHub derives from the text and the links of the
 issue, not what the close event recorded. Whatever labels the issue was left
-with: the query and the acceptance rule are the console's
-(`console/ops/src/shipped.rs`), the ones `console tidy run` reads too, so
-the two commands cannot disagree on what a merge closed. `tehasbot status` reads from the same answer which shipped
+with: the acceptance rule is the console's (`console/ops/src/shipped.rs`), the
+one `console tidy run` decides by too, over the same closer and merged pull
+requests the tickets port reads, so the two commands cannot disagree on what a
+merge closed. `tehasbot status` reads from the same answer which shipped
 issues lack the label, those whose labels do not hold it or could not be read,
 and gives each of them the label;
 `console tidy run` is the one that logs the read, and both leave the control issue
@@ -231,8 +232,11 @@ of them. `last` is a fixed line in tehas's words for the kind of failure, not
 gh's text: `GitHub's rate limit was reached`, `GitHub failed with a server
 error`, `GitHub refused the call`, `GitHub did not answer in time`, `GitHub
 could not be reached`, `GitHub's answer could not be read`, or `a call to
-GitHub failed`. The log line of the poll, status or tidy still names gh's
-words. A read cleared by its retry is not on it. `checks.cycles` has the
+GitHub failed`. The log line of the poll and of the tidy's search still
+names gh's words; a read through the tickets port, such as status's read of the
+shipped issues and the tidy's read of what closed its issues, names the port's
+outcome, and its kind here is read from those words: `GitHub did not answer in
+time` for a timeout, `a call to GitHub failed` for the rest. A read cleared by its retry is not on it. `checks.cycles` has the
 issue, status, step and times of every running cycle; `checks.cycle` is the
 first of them, or the cycle that finished last when none is running.
 `checks.plans` has the issue, the turn, `startedAt` and `state` of every

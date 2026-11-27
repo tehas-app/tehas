@@ -942,6 +942,11 @@ fn every_logged_hold_of_the_fixtures_has_a_code() {
     let dir = format!("{}/tests/fixtures", env!("CARGO_MANIFEST_DIR"));
     let mut other = Vec::new();
     for e in fs::read_dir(&dir).unwrap().flatten() {
+        // The directory also holds the stub programs the harness loads,
+        // which are bash, not suites.
+        if e.path().extension().and_then(|x| x.to_str()) != Some("json") {
+            continue;
+        }
         let suite: Value = serde_json::from_str(&fs::read_to_string(e.path()).unwrap()).unwrap();
         for c in suite["cases"].as_array().into_iter().flatten() {
             for line in expected(&c["expect"]) {

@@ -39,7 +39,6 @@
 //! token does not reach TEHAS_REPO; 64 an argument it does not know; 78 the
 //! settings name no GitHub App.
 
-use crate::holds;
 use serde_json::Value;
 use std::env;
 use std::fs::{self, File, OpenOptions, TryLockError};
@@ -50,6 +49,7 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::AtomicBool;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
+use tehas_core::file::base64url as b64url;
 use tehas_core::home::{Home, TokenDir};
 use tehas_core::lock::Held;
 use tehas_core::{read_only, settings, time};
@@ -71,19 +71,6 @@ fn api() -> String {
         .ok()
         .filter(|a| !a.is_empty())
         .unwrap_or_else(|| "https://api.github.com".to_string())
-}
-
-fn b64url(data: &[u8]) -> String {
-    const LETTERS: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
-    for chunk in data.chunks(3) {
-        let at = |i: usize| chunk.get(i).copied().unwrap_or(0) as u32;
-        let n = at(0) << 16 | at(1) << 8 | at(2);
-        for i in 0..=chunk.len() {
-            out.push(LETTERS[(n >> (18 - 6 * i) & 63) as usize] as char);
-        }
-    }
-    out
 }
 
 /// The signed part of the app's JSON Web Token, valid for 9 minutes and
@@ -470,7 +457,7 @@ fn exchanged(answer: &[u8], now: i64) -> Option<(String, i64)> {
     let token = answer["token"].as_str().filter(|t| !t.is_empty())?;
     let until = answer["expires_at"]
         .as_str()
-        .and_then(holds::epoch)
+        .and_then(time::from_iso_jq)
         .filter(|until| *until > now)?;
     Some((token.to_string(), until))
 }

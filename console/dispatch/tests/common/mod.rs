@@ -125,6 +125,9 @@ case "$1 $2" in
       *) echo "[]" ;;
     esac ;;
   "api user") cat "$T/fx/user.json" || exit 1 ;;
+  # The repository itself: the poll asks its name, which a rename changes
+  # while the id stands.
+  "api repos/acme/widget") cat "$T/fx/repo.json" 2>/dev/null || exit 1 ;;
   # An account by its login, and by its id: a person, carol unless a case
   # names another for the id. The tail gives each login its id.
   "api users/"*) [ ! -e "$T/fx/users-fails" ] || refuse
@@ -266,7 +269,19 @@ case "$1 $2" in
         # needs when the case wrote none.
         # The fields of an issue every read of the tickets port needs, where
         # the case wrote none: its title, times and id (1000 past its number).
-        if [ -e "$T/fx/work-$n.json" ]; then
+        # The control issue carries the labels of $fx/control.json: they
+        # hold the pause, and an answer that is no list is no answer. Its
+        # state fixture answers first, as it answers `gh issue view`.
+        if [ "$n" = 1 ] && [ -e "$T/fx/issue-1.json" ]; then
+          jq -c --arg url "$url" '{number: 1, body: "", title: "an issue", id: 1001,
+            created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z"} +
+            . + {html_url: (.html_url // $url), state: ((.state // "OPEN") | ascii_upcase)}' \
+            "$T/fx/issue-1.json"
+        elif [ "$n" = 1 ] && [ -e "$T/fx/control.json" ]; then
+          jq -c --arg url "$url" '{number: 1, state: "open", html_url: $url, body: "",
+            title: "an issue", id: 1001, created_at: "2026-01-01T00:00:00Z",
+            updated_at: "2026-01-01T00:00:00Z"} + .' "$T/fx/control.json"
+        elif [ -e "$T/fx/work-$n.json" ]; then
           jq -c --arg url "$url" --argjson n "$n" 'if type == "object" then {number: $n, state: "open", title: "an issue",
             created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z", labels: [], id: (1000 + $n)}
             + . + {html_url: (.html_url // $url), body: (.body // "")} else . end' \
@@ -300,10 +315,29 @@ case "$1 $2" in
       *"qualifiedName"*) b=$(printf "%s\n" "$@" | sed -n "s|^ref=refs/heads/||p")
         cat "$T/fx/branch.json" 2>/dev/null ||
           echo "{\"data\":{\"repository\":{\"ref\":{\"name\":\"$b\",\"prefix\":\"refs/heads/\",\"target\":{\"__typename\":\"Commit\",\"oid\":\"0123456789abcdef0123456789abcdef01234567\"}}}}}" ;;
-      # The open issues in one page, as tehas-dispatch asks for them.
-      *"issues(states: OPEN"*) if [ -e "$T/fx/gh-stderr-fails" ]; then
+      # The open work, as the console's board adapter asks for it: the open
+      # issues, 25 a page, each node holding what its work item holds.
+      *"first: 25, after"*) if [ -e "$T/fx/gh-stderr-fails" ]; then
           cat "$T/fx/gh-stderr" >&2 2>/dev/null; exit 1; fi
         "$T/page-stub" || exit 1 ;;
+      # The closed issues that still carry the running mark, as the tickets
+      # port's list of them asks: closedRunning of the queue.
+      *"filterBy:"*) "$T/closed-stub" || exit 1 ;;
+      # The open pull requests of the repository, with their bodies, as the
+      # code host's list of changes asks: what the hold of rule 6 reads.
+      *"pullRequests(first: 100"*) "$T/pulls-stub" || exit 1 ;;
+      # The repository's marks with their node ids.
+      *"labels(first: 100, after"* ) if [ -r "$T/fx/labels.json" ]; then
+          jq -c . "$T/fx/labels.json" | page_of labels
+        else
+          echo '[]' | page_of labels
+        fi ;;
+      # The owner's issue types.
+      *"issueTypes(first: 100"*) if [ -r "$T/fx/issue-types.json" ]; then
+          jq -c . "$T/fx/issue-types.json" | page_of issueTypes
+        else
+          echo '[]' | page_of issueTypes
+        fi ;;
       # Or the REST answer a case wrote, as GraphQL gives it. The poll asks a
       # chunk of issues in one query, one alias i<n> an issue, and the stub
       # answers them in one answer; a number the case wrote no comments for
@@ -343,9 +377,19 @@ case "$1 $2" in
       *closedByPullRequestsReferences*)
         [ ! -e "$T/fx/prs-fails" ] || exit 1
         cat "$T/fx/prs-$n.json" 2>/dev/null || cat "$T/fx/prs.json" || exit 1 ;;
-      # The ticket an issue is a part of, as the GitHub adapter asks it
-      # beside an issue's REST read: none.
-      *"parent { number repository"*) echo "{\"data\":{\"repository\":{\"issue\":{\"number\":$n,\"parent\":null}}}}" ;;
+      # The ticket read whole, and a history read apart: what stands beside
+      # an issue, and its events of the kinds asked. The control issue's
+      # whole read reaches here too, and is answered from the same fixtures
+      # the page's timeline reads.
+      *"events: timelineItems"*) "$T/issue-stub" "$n" || exit 1 ;;
+      
+      # The ticket each issue is a part of, as the GitHub adapter asks it
+      # beside the issues' REST reads, one alias n<n> an issue: none.
+      *") { number parent { number repository"*) acc=""
+        for k in $(printf "%s\n" "$*" | grep -o " n[0-9][0-9]*: issue(number:" | sed "s/^ n\([0-9]*\):.*/\1/"); do
+          acc="$acc,\"n$k\":{\"number\":$k,\"parent\":null}"
+        done
+        echo "{\"data\":{\"repository\":{${acc#,}}}}" ;;
       *) cat "$T/fx/edit-$n.json" 2>/dev/null || cat "$T/fx/edit.json" || exit 1 ;;
     esac ;;
   "issue edit")
@@ -375,98 +419,32 @@ case "$1 $2" in
     else echo "[]"; fi ;;
 esac"####;
 
-/// The open issues as tehas-dispatch's one GraphQL page asks for them, made
-/// from the fixtures: the lists name the issues and their labels,
+/// The open work, as the console's board adapter asks for one page of it,
+/// made from the fixtures: the lists name the issues and their labels,
 /// events-<n>.json their label events, work-<n>.json and edit-<n>.json (or
-/// edit.json) their text, prs-<n>.json (or prs.json) the pull requests that
-/// close them, and issue-<n>.json with a state their state and labels. A
-/// cycle that holds its lock is marked running by the bot.
-const PAGE: &str = r####"#!/usr/bin/env bash
-fx=$T/fx
-# Read without cat: an idle poll's count of programs is the poll's, not the
-# stub's.
-read_or() { # <file> <second file or ""> <default>
-  [ -r "$1" ] && printf '%s' "$(<"$1")" && return
-  [ -n "$2" ] && [ -r "$2" ] && printf '%s' "$(<"$2")" && return
-  printf '%s' "$3"
-}
-lists=$(for f in ready blocked asking plans refines awaiting marked; do read_or "$fx/$f.json" "" "[]"; echo; done | jq -cs 'map((. // []) | flatten)')
-nums=$(jq -r '[.[][] | select((.state // "OPEN") != "CLOSED") | .number | tonumber? // empty] + [1] | unique | .[]' <<<"$lists")
-# An issue whose cycle holds a lock file is marked running, as on a host; and
-# an issue a case wrote the REST answer of is on GitHub too: an open one is in
-# the queue whether or not a list names it. With $fx/page-drops-events the
-# page answers every timeline empty, as GitHub can for a large page. A cycle
-# that holds its lock was marked running by the bot ($running).
-# Held, as flock -n finds it. The system's flock, on an open file and with no
-# command: a case may count the flock and true it stubs. /proc/locks does not
-# do, as in a container its inodes are not the ones ls -i gives.
-fl=$(command -pv flock)
-locked=$(for f in "$T_CYCLES"/[0-9]*.lock; do
-  [ -e "$f" ] || continue
-  { "$fl" -n 3 || { f=${f##*/}; echo "${f%.lock}"; }; } 3<"$f"
-done | jq -Rcs 'split("\n") | map(select(. != "") | tonumber)')
-for n in $(jq -r '.[]' <<<"$locked"); do
-  [ "$(jq -r '.state // "open" | ascii_downcase' "$fx/work-$n.json" 2>/dev/null || echo open)" = open ] && nums=$(printf '%s\n%s\n' "$nums" "$n" | sort -un)
-done
-for w in "$fx"/work-*.json; do
-  [ -f "$w" ] || continue
-  n=${w##*/work-}
-  n=${n%.json}
-  [ "$(jq -r '.state // "open" | ascii_downcase' "$w" 2>/dev/null)" = open ] && nums=$(printf '%s
-%s
-' "$nums" "$n" | sort -un)
-done
-items=$(for n in $nums; do
-  jq -nc --argjson n "$n" --argjson ev "$(read_or "$fx/events-$n.json" "" "[]")" \
-    --argjson w "$(read_or "$fx/work-$n.json" "" null)" \
-    --argjson e "$(read_or "$fx/edit-$n.json" "$fx/edit.json" "{}")" \
-    --argjson p "$(read_or "$fx/prs-$n.json" "$fx/prs.json" "{}")" \
-    --argjson i "$(read_or "$fx/issue-$n.json" "" "{}")" \
-    '{n: $n, ev: $ev, w: $w, e: ($e.data.repository.issue // {}), p: $p, i: $i}'
-done | jq -cs .)
-jq -n --argjson lists "$lists" --argjson items "$items" --argjson control "$(read_or "$fx/control.json" "" '{"labels":[]}')" \
-  --argjson repo "$(read_or "$fx/repo.json" "" '{}')" --argjson locked "$locked" \
-  --argjson dropped "$([ -e "$fx/page-drops-events" ] && echo true || echo false)" \
-  --argjson pulls "$(read_or "$fx/pulls.json" "" null)" \
-  --argjson tlabels "$(read_or "$fx/labels.json" "" null)" \
-  --argjson running '{"__typename":"LabeledEvent","createdAt":"2026-01-01T00:00:00Z","actor":{"login":"tehas-bot"},"label":{"name":"tehas:running"}}' '
-  def labels($n): [$lists[][] | select((.number | tonumber?) == $n) | (.labels // [])[].name]
-    + (if $n == 1 then [$control.labels[].name] else [] end)
-    # Being on a list is carrying its label, as gh issue list --label has it.
-    + [range(7) as $i | select(any($lists[$i][]; (.number | tonumber?) == $n))
-       | ["tehas:ready", "tehas:blocked", "tehas:question", "tehas:plan", "tehas:refine",
-          "tehas:awaiting-merge", "tehas:running"][$i]] | unique;
-  # GraphQL names the user id databaseId; an id the REST fixture gives is kept.
-  def actor: if .actor == null then null else {login: .actor.login}
-    + (if .actor | has("id") then {databaseId: .actor.id} else {} end) end;
-  {data: {repository: {nameWithOwner: $repo.nameWithOwner,
-    issues: {pageInfo: {hasNextPage: false, endCursor: null},
-      nodes: [$items[] | select((.w.state // "open") | ascii_downcase == "open")
-        | select((.i.state // "OPEN") != "CLOSED") | . as $i | {
-        number: .n, title: (.e.title // .i.title // .w.title // ""), body: (.e.body // .i.body // .w.body),
-        lastEditedAt: .e.lastEditedAt, editor: .e.editor,
-        # The labels its lists give it, and those of its REST answer when a case
-        # wrote one: on GitHub the two agree.
-        # The answer of gh issue view, when a case wrote its state, is the truth.
-        labels: {nodes: [((if $i.i.state then [($i.i.labels // [])[] | .name? // . | strings]
-            else labels($i.n) + [($i.w.labels // [])[] | .name? // . | strings] end)
-          + (if any($locked[]; . == $i.n) then ["tehas:running"] else [] end)) | unique | .[] | {name: .}]},
-        subIssuesSummary: (.w.sub_issues_summary // null),
-        issueDependenciesSummary: (if .w.issue_dependencies_summary then {blockedBy: .w.issue_dependencies_summary.blocked_by} else null end),
-        # Parenthesised: jq 1.7, as in the sandbox image, takes no + in an object value.
-        timelineItems: {nodes: ([.ev[] | select($dropped | not) | {__typename: (if .event == "labeled" then "LabeledEvent"
-            elif .event == "unlabeled" then "UnlabeledEvent" else "RenamedTitleEvent" end),
-          createdAt: .created_at, actor: actor, label: .label}] + [select(any($locked[]; . == $i.n) and ($dropped | not)) | $running])},
-        # A linked pull request is of the bot on a branch of the repository,
-        # unless a case says otherwise.
-        closedByPullRequestsReferences: {nodes: ((.p.data.repository.issue.closedByPullRequestsReferences.nodes // [])
-          | map({isCrossRepository: false, author: {login: "tehas-bot"}, headRepository: {nameWithOwner: "acme/widget"}} + .))}}]},
-    closedRunning: {nodes: [$lists[][] | select(.state == "CLOSED") | {number}]}}
-    # The open pull requests, when a case wrote them.
-    + (if $pulls == null then {} else {openPulls: {nodes: $pulls}} end)
-    # The tehas: labels with their node ids, when a case wrote them.
-    + (if $tlabels == null then {} else {tehasLabels: {nodes: $tlabels}} end)}}'
-"####;
+/// edit.json) their text, parts and blockers, prs-<n>.json (or prs.json) the
+/// pull requests that close them, and issue-<n>.json with a state their
+/// state and labels. A cycle that holds its lock is marked running by the
+/// bot, and a label a list gives an issue stands labelled by the bot when
+/// the case wrote no event of it: on GitHub the two agree, and the adapter
+/// refuses an item whose carried marks its timeline does not vouch for.
+const PAGE: &str = include_str!("../fixtures/page-stub.sh");
+
+/// The closed issues that still carry the running mark, as the tickets
+/// port's list of them asks: closedRunning of the queue. Every closed entry
+/// of a list carries it here, as on GitHub a list entry carries its label.
+const CLOSED: &str = include_str!("../fixtures/closed-stub.sh");
+
+/// The open pull requests of the repository, as the code host's list of
+/// changes asks with its bodies: what the hold of rule 6 reads. A case
+/// writes them in `fx/pulls.json`, each as GitHub's own shape gives it.
+const PULLS: &str = include_str!("../fixtures/pulls-stub.sh");
+
+/// One issue as the ticket read whole and a history read apart ask it:
+/// what stands beside the issue, and its events of the kinds asked, from
+/// the same fixtures the page's timeline reads. A read the page cut short,
+/// and the control issue, both come here.
+const ISSUE: &str = include_str!("../fixtures/issue-stub.sh");
 
 /// The other stubs, by name: what each does after it records its call.
 /// @TIMEOUT@ is the real timeout.
@@ -739,6 +717,7 @@ const RESET_FX: &[&str] = &[
     "gh-stderr-fails",
     "closed.json",
     "labels.json",
+    "issue-types.json",
 ];
 
 /// The paths under the home reset() takes away, `*` in the last name as in
@@ -859,6 +838,11 @@ pub struct Run {
     pub out: String,
 }
 
+/// The ready mark's word, so the harness names it once.
+pub const READY_MARK: &str = "tehas:ready";
+#[allow(dead_code)] // only the planning worlds name it
+pub const PLAN_MARK: &str = "tehas:plan";
+
 /// One host, as reset() leaves it.
 pub struct World {
     t: TestDir,
@@ -936,6 +920,9 @@ impl World {
             w.stub(name, &body.replace("@TIMEOUT@", &timeout));
         }
         write_exe(w.t.join("page-stub"), PAGE).unwrap();
+        write_exe(w.t.join("closed-stub"), CLOSED).unwrap();
+        write_exe(w.t.join("pulls-stub"), PULLS).unwrap();
+        write_exe(w.t.join("issue-stub"), ISSUE).unwrap();
         w.fs("gh-n.lock", "");
         let upstream = w.upstream();
         fs::create_dir_all(&upstream).unwrap();
@@ -1001,13 +988,15 @@ impl World {
         );
         self.fx("awaiting.json", "[]");
         self.fx("marked.json", "[]");
-        self.fx(
+        self.fx_json(
             "ready.json",
-            r#"[{"number":7,"labels":[{"name":"tehas:ready"}]}]"#,
+            &json!([{"number": 7,
+            "labels": [{"name": READY_MARK}]}]),
         );
-        self.fx(
+        self.fx_json(
             "events-7.json",
-            r#"[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"}}]"#,
+            &json!([{"event": "labeled",
+            "label": {"name": READY_MARK}, "actor": {"login": "alice"}}]),
         );
         self.fx("events-1.json", "[]");
         let cgroup = self.t.join("cgroup").to_string_lossy().into_owned();
@@ -2577,7 +2566,11 @@ done < <(command -p cat "$T/gh-fails" 2>/dev/null)
 if [ -n "$f_rc" ]; then
   printf '%s\n' "$f_answer" >&2
   exit "$f_rc"
-fi"####;
+fi
+# The shape of a paged list: the page fields stand, never ending, and the
+# list read of a file becomes the nodes.
+page_of() { jq --arg k "$1" '{data:{repository:{($k):
+  {pageInfo:{hasNextPage:false,endCursor:null},nodes:.}}}}'; }"####;
 
 /// The end of the stub gh: the answer run in the background, so a signal
 /// ends it at once, and every login in it given its user id.

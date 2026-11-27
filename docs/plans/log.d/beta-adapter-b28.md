@@ -1,0 +1,1 @@
+| 2026-11-25 | Ports: the law `tickets::every_digest_answers_parent_or_refuses` checks that every Tickets read that builds a digest names `parent` as `parts` does, or refuses; it runs on the fake and the GitHub adapter, whose fixture holds #28 as a part of #27, both recorded by beta2b (TF-B28) | beta/adapter-b28 |

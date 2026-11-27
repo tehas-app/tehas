@@ -64,6 +64,8 @@ mod tests;
 #[cfg(test)]
 mod upkeep_tests;
 #[cfg(test)]
+mod verb_tests;
+#[cfg(test)]
 mod verbs_tests;
 
 pub use call::{call, call_with, said, Answer, ANSWERS};

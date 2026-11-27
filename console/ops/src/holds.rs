@@ -104,7 +104,7 @@ use tehas_core::events::{pause_holds_marks, UNKNOWN_ACTOR};
 use tehas_core::file::Temp;
 use tehas_core::home::{Home, Live, State};
 use tehas_core::limit::{self as limit_file, leading_number};
-pub use tehas_core::limit::{epoch, oneline, REASON};
+pub use tehas_core::limit::{oneline, REASON};
 use tehas_core::lock::{self, Probe};
 use tehas_core::time;
 use tehas_ports::events::Dispatcher;
@@ -981,7 +981,7 @@ fn set_args(rest: &[String]) -> Result<Wanted, &'static str> {
             }
             "--until" => {
                 take(&mut want.until, value)?;
-                if epoch(value).is_none_or(|at| at <= now()) {
+                if time::from_iso_jq(value).is_none_or(|at| at <= now()) {
                     return Err(
                         "--until wants a time of the form 2026-10-17T14:05:00Z, later than now",
                     );
@@ -1211,6 +1211,7 @@ mod tests {
     use std::fs::File;
     use std::os::unix::fs::{symlink, PermissionsExt};
     use tehas_core::testdir::TestDir;
+    use tehas_core::time::from_iso_jq as epoch;
 
     fn dir(name: &str) -> TestDir {
         TestDir::new(&format!("holds-{name}"))

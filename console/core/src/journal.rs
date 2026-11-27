@@ -10,7 +10,7 @@ pub mod settle;
 use crate::read_only;
 use serde_json::{json, Value};
 use tehas_ports::{
-    At, Blobs, Blueprints, CodeHost, Got, Outcome, Passing, Receipt, Refusal, Sent, Sha256,
+    At, Blobs, Blueprints, Board, CodeHost, Got, Outcome, Passing, Receipt, Refusal, Sent, Sha256,
     Tickets, Write, Writes,
 };
 
@@ -82,6 +82,10 @@ pub struct Handles {
     /// comments.
     pub blueprints: Box<dyn Blueprints>,
     pub code_host: Box<dyn CodeHost>,
+    /// The joined reads. The poll's queue read asks its board for the open
+    /// work; a report that reads none still carries one, as the wiring makes
+    /// all the handles together.
+    pub board: Box<dyn Board>,
 }
 
 /// A write as its row keeps it: its bodies summed, so a row holds no text.
@@ -268,11 +272,7 @@ pub fn summed(args: &[String], input: Option<&str>) -> Option<Value> {
 
 /// The sha-256 of a text, in lower-case hex.
 fn sha256(text: &str) -> String {
-    use sha2::Digest;
-    sha2::Sha256::digest(text.as_bytes())
-        .iter()
-        .map(|x| format!("{x:02x}"))
-        .collect()
+    crate::sum::sha256_hex(text.as_bytes())
 }
 
 #[cfg(test)]

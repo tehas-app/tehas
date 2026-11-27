@@ -132,6 +132,9 @@ struct StubTickets {
     unread: Vec<TicketKey>,
     list_fails: bool,
     asked: Arc<Mutex<Asked>>,
+    /// Events a `history` read answers when it names kinds; empty keeps
+    /// the stub's own reopened event.
+    events: Vec<TicketEvent>,
 }
 
 fn reopened() -> TicketEvent {
@@ -238,12 +241,21 @@ impl Tickets for StubTickets {
         &mut self,
         _: &TicketKey,
         window: Window,
-        _: Option<&[HappenedKind]>,
+        kinds: Option<&[HappenedKind]>,
     ) -> Got<Took<TicketEvent>> {
         self.asked.lock().unwrap().history += 1;
+        let items: Vec<TicketEvent> = match (kinds, self.events.is_empty()) {
+            (Some(kinds), false) => self
+                .events
+                .iter()
+                .filter(|e| kinds.contains(&e.what.kind()))
+                .cloned()
+                .collect(),
+            _ => vec![reopened()],
+        };
         Ok({
             let mut took = Took::default();
-            took.items = vec![reopened()];
+            took.items = items;
             took.more = matches!(window, Window::Last(_));
             took
         })
@@ -581,6 +593,7 @@ fn handles() -> (StubTickets, StubBlueprints, StubCodeHost, StubLinks) {
         unread: vec![key("PROJ-3")],
         list_fails: false,
         asked: Arc::default(),
+        events: Vec::new(),
     };
     let blueprints = StubBlueprints {
         blueprints: vec![
@@ -746,6 +759,97 @@ fn a_ticket_and_its_history_are_one_read_as_the_ask_or_its_depth_names() {
     assert_eq!(
         asked.windows,
         [Some(Window::Last(n32(100))), Some(Window::Whole(ALL_MAX))]
+    );
+}
+
+#[test]
+fn an_unread_mark_keeps_its_digest_and_its_events_in_the_join_answer() {
+    // Mirrors the adapter's end-to-end pin in
+    // console/dispatch/tests/dispatch_poll.rs,
+    // `the_page_gave_no_timelines_and_the_issue_a_cycle_holds_is_not_re_read`.
+    // The queue's ask names the running mark in `marks_not_read`; the
+    // adapter drops it from the labels the page vouches by and from the
+    // marks the apart read must vouch for, but its digest is read
+    // unfiltered: the mark stands where presence is read and its events
+    // keep their actors. The join answers the same fixture alike for
+    // both asks.
+    let running = Mark::State(State::Running);
+    let approve = Mark::Act(Act::Approve);
+    let mut held = ticket(key("PROJ-9"), true);
+    held.digest.marks = vec![approve.clone(), running.clone()];
+    let mut control = ticket(key("CTRL-1"), true);
+    control.digest.marks = vec![running.clone()];
+    let marked = |mark: Mark, who: &str, at: i64| {
+        let mut e = TicketEvent::new(Happened::Marked(mark));
+        e.by = Some(Account::new(
+            Realm::CodeHost,
+            Login::new(who),
+            AccountKind::Person,
+        ));
+        e.at = Some(At::new(at));
+        e
+    };
+    let tickets = StubTickets {
+        tickets: vec![held, control],
+        events: vec![
+            marked(approve.clone(), "alice", 1),
+            marked(running.clone(), "bot", 2),
+        ],
+        ..Default::default()
+    };
+    let mut board = join_of(
+        tickets,
+        StubBlueprints::default(),
+        StubCodeHost::default(),
+        StubLinks(vec![]),
+    );
+    let ask = |not_read: Vec<Mark>| {
+        let mut ask = BoardAsk::new(Depth::Cut { notes: 0 });
+        ask.history_by_kind = vec![
+            (HappenedKind::Marked, Window::Whole(ALL_MAX)),
+            (HappenedKind::Unmarked, Window::Whole(ALL_MAX)),
+            (HappenedKind::Retitled, Window::Last(n32(1))),
+        ];
+        ask.control = Some(key("CTRL-1"));
+        ask.marks_not_read = not_read;
+        ask
+    };
+    let plain = board.open_work(&ask(vec![]), bound()).unwrap();
+    let exempt = board
+        .open_work(&ask(vec![running.clone()]), bound())
+        .unwrap();
+    assert_eq!(
+        plain, exempt,
+        "the exemption moves no data, only the adapter's reads"
+    );
+    let item = plain
+        .items
+        .items()
+        .iter()
+        .find(|(k, _)| *k == key("PROJ-9"))
+        .unwrap()
+        .1
+        .as_ref()
+        .unwrap();
+    assert!(
+        item.ticket.digest.marks.contains(&running),
+        "the exempt mark stands where presence is read, as the adapter's unfiltered digest leaves it"
+    );
+    assert!(
+        item.ticket.digest.marks.contains(&approve),
+        "a mark the ask does read stands too"
+    );
+    let event = item
+        .ticket
+        .history
+        .items
+        .iter()
+        .find(|e| e.what == Happened::Marked(running.clone()))
+        .expect("the exempt mark's event survives the merge");
+    assert_eq!(
+        event.by.as_ref().map(|a| a.login.as_str()),
+        Some("bot"),
+        "events of an exempt mark keep their actors"
     );
 }
 

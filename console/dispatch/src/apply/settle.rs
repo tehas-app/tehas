@@ -89,11 +89,7 @@ fn intended(a: &Value) -> bool {
 }
 
 fn sum_of(text: &str) -> String {
-    use sha2::{Digest, Sha256};
-    Sha256::digest(text.as_bytes())
-        .iter()
-        .map(|x| format!("{x:02x}"))
-        .collect()
+    tehas_core::sum::sha256_hex(text.as_bytes())
 }
 
 /// Whether an action names a cycle that is still running. A lock no reader
@@ -103,7 +99,9 @@ fn live_cycle(home: &std::path::Path, a: &Value) -> bool {
         return false;
     };
     matches!(
-        probe(&tehas_core::home::Home::new(home).cycle_note(n, "lock")),
+        probe(
+            &tehas_core::home::Home::new(home).cycle_note(n, tehas_core::cycle_notes::Note::Lock)
+        ),
         Probe::Held | Probe::Unknown(_)
     )
 }

@@ -206,7 +206,7 @@ pub struct Decision<'a> {
 pub fn parse(line: &str) -> Option<Decision<'_>> {
     let line = line.strip_suffix('\r').unwrap_or(line);
     let (time, rest) = line.split_once(' ')?;
-    crate::tools::epoch(time)?;
+    tehas_core::time::from_iso(time)?;
     let (word, rest) = rest.split_once(" #")?;
     // The words of `DECISIONS` alone: a line of the log that only looks like
     // a decision, such as the poll's `holding:` line, is none.
