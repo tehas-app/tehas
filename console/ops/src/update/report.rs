@@ -338,7 +338,7 @@ pub(crate) fn report(a: &Asked, o: &mut impl Outside) -> (Vec<String>, bool) {
     let bootstrap = a.root.join("bootstrap.sh");
     if a.in_test {
         lines.push("Dependencies: not checked (running inside the tests)".into());
-    } else if executable(&bootstrap) {
+    } else if tehas_core::file::runnable(&bootstrap) {
         let (rc, out) = o.merged(&bootstrap, &["check"]);
         if rc == 0 {
             lines.push("Dependencies: OK".into());
@@ -506,11 +506,6 @@ pub(crate) fn notes(a: &Asked, o: &mut impl Outside) -> Vec<String> {
         lines.push(format!("note: {sentence}"));
     }
     lines
-}
-
-fn executable(file: &Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    fs::metadata(file).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
 }
 
 #[cfg(test)]

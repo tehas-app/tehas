@@ -26,6 +26,9 @@ pub use tehas_core::forge::{says_not_found, why};
 pub struct Event {
     pub event: String,
     pub label: String,
+    /// The label's node id, when the answer gives one: the id a mark is
+    /// pinned by, which stays through a rename.
+    pub label_id: Option<String>,
     pub actor: String,
     pub at: Option<String>,
 }
@@ -159,6 +162,11 @@ fn page_events(page: &Value) -> Result<Vec<(Event, Facts)>, String> {
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_string(),
+            label_id: o
+                .get("label")
+                .and_then(|l| l.get("node_id"))
+                .and_then(Value::as_str)
+                .map(str::to_string),
             actor: o
                 .get("actor")
                 .and_then(|a| a.get("login"))

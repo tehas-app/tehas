@@ -14,8 +14,8 @@
 //! anything: an expired or unreadable order is no order, so a factory starts
 //! ready issues as it would alone.
 
-use crate::limit::{epoch, oneline};
-use crate::time::iso;
+use crate::limit::oneline;
+use crate::time::{from_iso_jq, iso};
 use serde_json::{json, Value};
 
 /// The most issues an order holds.
@@ -104,7 +104,7 @@ impl Reading {
                 .collect();
             let until = match v.get("until") {
                 None => None,
-                Some(u) => Some(epoch(u.as_str()?)?),
+                Some(u) => Some(from_iso_jq(u.as_str()?)?),
             };
             let reason = match v.get("reason") {
                 None => None,

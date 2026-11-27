@@ -2,13 +2,16 @@
 //! reads in the ports' types. The traits are answered in `port/`; the rest
 //! of the tickets port comes with the moves that need it.
 
+use std::collections::BTreeMap;
+
 use crate::rate;
+use crate::ticket::INCONSISTENT;
 use crate::{gh, table, ForgeError, GitHub};
 use serde_json::Value;
 use tehas_ports::{
     Account, AccountId, AccountKind, At, CloseReason, Got, Happened, HappenedKind, Kind, Login,
-    Mark, MarkName, Outcome, Passing, Pool, Realm, Refusal, Revision, Sent, TargetId, TargetName,
-    TicketDigest, TicketEvent, TicketKey, TicketState, Took, Unread, WebLink, Window,
+    Mark, MarkId, MarkName, Outcome, Passing, Pool, Realm, Refusal, Revision, Sent, TargetId,
+    TargetName, TicketDigest, TicketEvent, TicketKey, TicketState, Took, Unread, WebLink, Window,
 };
 
 impl GitHub {
@@ -22,20 +25,45 @@ impl GitHub {
         Ok(self.read_marks(&labels).into_iter().flatten().collect())
     }
 
-    /// A ticket's digest, from the issue's REST read and one question for
-    /// the ticket it is a part of (`GitHub::parent`): the answer of
-    /// `Tickets::several` for one key. GitHub has no priority: every ticket
-    /// is `Normal`. The revision is the sum of the title and the body as
+    /// Several tickets' digests, in the order asked: `Tickets::several`.
+    /// Each is the issue's REST read, and the ticket it is a part of
+    /// (`GitHub::parents`) is asked of every issue read, a repeated number
+    /// once, a question a hundred. GitHub has no priority: every ticket is
+    /// `Normal`. The revision is the sum of the title and the body as
     /// GitHub holds them, markers in (`gh::text_revision`), the one rule of
     /// both ports' revisions; `updated` is the time it last changed. An
     /// accepted edge: the title's sum drops its CRs and LFs, so a title
     /// changed by those alone keeps its revision.
-    pub(crate) fn digest(&mut self, key: &TicketKey) -> Got<TicketDigest> {
+    pub(crate) fn several(&mut self, keys: &[TicketKey]) -> Vec<(TicketKey, Got<TicketDigest>)> {
+        let mut read: Vec<(TicketKey, Got<TicketDigest>)> = keys
+            .iter()
+            .map(|k| (k.clone(), self.rest_digest(k)))
+            .collect();
+        let mut asked: Vec<u64> = read
+            .iter()
+            .filter(|(_, d)| d.is_ok())
+            .filter_map(|(k, _)| number(k).ok())
+            .collect();
+        asked.sort_unstable();
+        asked.dedup();
+        let parents: BTreeMap<u64, _> = asked.iter().copied().zip(self.parents(&asked)).collect();
+        for (k, got) in &mut read {
+            let Ok(digest) = got else { continue };
+            let parent = number(k).map(|n| parents.get(&n).cloned().unwrap_or(Err(INCONSISTENT)));
+            match parent.and_then(|p| p) {
+                Ok(p) => digest.parent = p,
+                Err(e) => *got = Err(e),
+            }
+        }
+        read
+    }
+
+    /// A ticket's digest from the issue's REST read alone, its parent not
+    /// yet asked.
+    fn rest_digest(&mut self, key: &TicketKey) -> Got<TicketDigest> {
         let issue = number(key)?;
         let out = self.issue_answer(issue).map_err(|e| self.outcome(&e))?;
-        let mut digest = self.digest_of(key, &out)?;
-        digest.parent = self.parent(key)?;
-        Ok(digest)
+        self.digest_of(key, &out)
     }
 
     /// The digest of an issue's REST read. A pull request answers that read
@@ -110,6 +138,7 @@ impl GitHub {
             let mut event = TicketEvent::new(what);
             event.by = account(&e.actor, &facts, self.bot.as_ref());
             event.at = at;
+            event.mark_id = e.label_id.map(MarkId::new);
             items.push(event);
         }
         Ok(items)
@@ -142,12 +171,36 @@ impl GitHub {
             .collect()
     }
 
+    /// Whether the label is a mark of `not_read`: a mark of the page read
+    /// that owes no events, so its page vouches without it and nothing is
+    /// read apart for it.
+    pub(crate) fn is_not_read(&mut self, label: &str, not_read: &[Mark]) -> bool {
+        !not_read.is_empty()
+            && self
+                .read_marks(&[label.to_string()])
+                .first()
+                .and_then(Option::as_ref)
+                .is_some_and(|mark| not_read.contains(mark))
+    }
+
     /// The named outcome of a call that failed, read from the runner's
     /// reason. gh's reason holds no time a spent budget resets at, so
     /// `Spent` holds for the floor past now, by the adapter's clock, as a
     /// GraphQL `RATE_LIMITED` does (`rate`).
     pub(crate) fn outcome(&self, e: &ForgeError) -> Outcome {
         outcome(e, (self.now)())
+    }
+
+    /// `GitHub::outcome` for a read the poll's queue asks again on a bad
+    /// minute: the bare 403 is not a refusal there. The rule of
+    /// `core/src/retry.rs` owed every 403 that said no limit a process (its
+    /// `Unknown403`), and the queue read keeps that: a 403 that names no
+    /// permission is the site's own failure, and one carrying a
+    /// `retry-after` says to come back later, a timeout. A 403 that names
+    /// its permission (`Forbidden`) stays `Forbidden`, and the queue read
+    /// retries no refusal.
+    pub(crate) fn outcome_queue_read(&self, e: &ForgeError) -> Outcome {
+        outcome_queue_read(e, (self.now)())
     }
 }
 
@@ -369,6 +422,23 @@ fn outcome(e: &ForgeError, now: i64) -> Outcome {
     }
 }
 
+/// [`GitHub::outcome_queue_read`] at the time `now`. Only the `Forbidden`
+/// of a 403 changes: every other outcome reads as `outcome` reads it.
+fn outcome_queue_read(e: &ForgeError, now: i64) -> Outcome {
+    let low = e.why.to_ascii_lowercase();
+    match outcome(e, now) {
+        Outcome::Forbidden if !low.contains("forbidden") => Outcome::Unavailable {
+            why: if low.contains("retry-after") {
+                Passing::Timeout
+            } else {
+                Passing::Server
+            },
+            sent: Sent::Maybe,
+        },
+        o => o,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -415,5 +485,40 @@ mod tests {
         for why in [": gh exited 1", "gh exited 1", ": gh exited 40"] {
             assert_eq!(of(why), maybe, "{why}");
         }
+    }
+
+    #[test]
+    fn the_queue_reads_a_bare_403_as_the_bad_minute() {
+        let q = |why: &str| outcome_queue_read(&ForgeError::new("gh api", why), 0);
+        let bad_minute = |why| Outcome::Unavailable {
+            why,
+            sent: Sent::Maybe,
+        };
+        // The 403 that names no permission is the site's own failure, and
+        // the one carried by a limit header a bad minute too: the queue
+        // read asks each of them once more.
+        for why in [
+            ": HTTP 403",
+            "gh exited 1: HTTP 403: try again later",
+            ": HTTP 403: x-ratelimit-remaining: 0",
+        ] {
+            assert_eq!(q(why), bad_minute(Passing::Server), "{why}");
+        }
+        // `retry-after` says to come back later: a timeout's own word.
+        assert_eq!(
+            q(": HTTP 403: hold on, retry-after: 2"),
+            bad_minute(Passing::Timeout)
+        );
+        // The 403 that names its permission is a refusal, header or none.
+        for why in [
+            ": HTTP 403: Forbidden",
+            ": HTTP 403: retry-after: 2, Forbidden",
+        ] {
+            assert_eq!(q(why), Outcome::Forbidden, "{why}");
+        }
+        // Nothing else moves: the rest reads as `outcome` reads it.
+        assert_eq!(q(": HTTP 502"), bad_minute(Passing::Server));
+        assert_eq!(q(": HTTP 404"), Outcome::NotFound);
+        assert_eq!(q(": HTTP 401"), Outcome::SignedOut);
     }
 }

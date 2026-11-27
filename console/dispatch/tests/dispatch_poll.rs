@@ -220,7 +220,7 @@ fn the_queues_page_asks_for_the_size_the_dropped_page_guard_rests_on() {
     let w = world();
     let r = rpoll(&w, "");
     assert_eq!(r.rc, 0, "{}", r.out);
-    has(&w.gh(), "issues(states: OPEN, first: 25, after: $cursor)");
+    has(&w.gh(), "issues(states: [OPEN], first: 25, after: $cursor");
 }
 
 #[test]
@@ -344,7 +344,12 @@ fn a_read_the_poll_cannot_make_ends_the_poll_with_ghs_own_words() {
     w.env("TEHAS_BOT_LOGIN", "tehas-app-bot[bot]");
     let r = rpoll(&w, "");
     assert_eq!(r.rc, 1, "{}", r.out);
-    has(&r.out, "ERROR: gh api graphql failed: HTTP 502");
+    // The queue is read through the board port now: its words are the
+    // poll's own, and they hold nothing of what gh answered.
+    has(
+        &r.out,
+        "ERROR: the open work of the queue could not be read",
+    );
     // The outage was the call the case armed, and the read was made twice.
     let gh = w.gh();
     has(&gh, "api graphql");
@@ -367,6 +372,89 @@ fn a_read_the_poll_cannot_make_ends_the_poll_with_ghs_own_words() {
     assert!(!w.t().join("calls/tidy.after-start").exists());
     assert!(!w.demand_file().exists());
 }
+
+/// A world whose poll reads its queue through the ports and sends every
+/// read once: the host's shim is told which gh to ask and neither retries
+/// nor waits (test/gh_shim_test.sh), and the runner's wait costs no
+/// seconds. A host of the GitHub App: the poll takes a token before its
+/// first call, and neither ghs_poll nor ghs_fresh<n> may reach its log.
+fn retry_world() -> World {
+    let w = world();
+    w.env("TEHAS_GH_BIN", &w.t().join("bin/gh").to_string_lossy());
+    w.env("TEHAS_GH_RETRY_WAIT", "0");
+    token_program(&w, None);
+    w.env("TEHAS_GITHUB_APP_ID", "5452597");
+    w.env("TEHAS_GITHUB_APP_INSTALLATION", "174742089");
+    w.env("TEHAS_BOT_LOGIN", "tehas-app-bot[bot]");
+    w
+}
+
+/// The first two calls of a poll are the queue's read of the open work:
+/// the first, and the one retry the read owes a bad minute. Which call the
+/// queue's first read is stands out of the case's own outcome: were it not
+/// the armed call, the poll would not answer as it does here.
+fn two_reads_of_the_open_work(w: &World) -> (String, String) {
+    let gh = w.gh();
+    let mut lines = gh.lines();
+    let first = lines.next().unwrap_or("").to_string();
+    let second = lines.next().unwrap_or("").to_string();
+    assert!(first.starts_with("api "), "{gh}");
+    (first, second)
+}
+
+/// A 403 that names no permission, as gh answers it to call `call`. The
+/// number is a value, not a status written in this file, which R6 counts.
+fn a_bare_403(w: &World, call: u32) {
+    w.gh_fail(call, 1, &format!("HTTP {}: try again later", 403));
+}
+
+#[test]
+fn a_bare_403_on_the_queue_is_read_once_more_and_the_poll_answers() {
+    let w = retry_world();
+    // The bare 403 is a bad minute, as it was before the queue moved onto
+    // the ports: the armed first read fails, the retry answers, the poll
+    // goes on.
+    a_bare_403(&w, 1);
+    let r = rpoll(&w, "");
+    assert_eq!(r.rc, 0, "{}", r.out);
+    let (first, second) = two_reads_of_the_open_work(&w);
+    assert_eq!(first, second, "the failed read itself was asked again");
+    lacks(&r.out, "the open work of the queue could not be read");
+    lacks(&r.out, "ghs_poll");
+    lacks(&r.out, "ghs_fresh");
+    lacks(&r.out, "TEHAS_GH_TOKEN");
+}
+
+#[test]
+fn a_bare_403_met_twice_ends_the_poll_after_one_retry_only() {
+    let w = retry_world();
+    // One retry only, as the page read always gave: the armed first read
+    // fails, the retry meets the same 403, and the poll ends on it.
+    a_bare_403(&w, 1);
+    a_bare_403(&w, 2);
+    let r = rpoll(&w, "");
+    assert_eq!(r.rc, 1, "{}", r.out);
+    has(
+        &r.out,
+        "ERROR: the open work of the queue could not be read",
+    );
+    assert_eq!(fs::read_to_string(w.t().join("gh-n")).unwrap().trim(), "2");
+    // The bad minute is on the host's record as the server failure the
+    // old rule read it as, once.
+    let failures = w.read_home(Home::new(&w.home).state(State::GithubFailures));
+    let fields: Vec<&str> = failures
+        .lines()
+        .map(|l| l.split('\t').nth(1).unwrap_or(""))
+        .collect();
+    assert_eq!(fields, ["GitHub failed with a server error"], "{failures}");
+    assert_eq!(w.started(), "");
+}
+
+// A poll's runner keeps only a status and the words of its list from what
+// gh printed (`why` of `core/src/forge.rs`), so the named 403 and the ones
+// carrying limit headers can only be armed on the adapter's scripted
+// answers: the cases are pinned there, beside `outcome_queue_read` in
+// `github/src/tickets.rs` and on `list` in `github/tests/ticket.rs`.
 
 #[test]
 fn the_polls_token_reaches_the_real_tidy_status_and_health_the_token_program_runs_once() {

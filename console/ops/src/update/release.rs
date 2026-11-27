@@ -2120,7 +2120,13 @@ mod tests {
             let site = maker(Ours::Made(Outcome::SignedOut), &asked);
             assert!(download(&site, "o/r", "v1.2.0", &d.0, &names()));
             assert!(written(&d.0));
-            assert_eq!(*asked.borrow(), [READS, Actor::Anonymous]);
+            // Absolute, not via READS: this is the claim itself, so a flip
+            // of READS to another actor fails here.
+            assert_eq!(
+                *asked.borrow(),
+                [Actor::Ours(Scope::Read), Actor::Anonymous],
+                "the update must ask as the factory's account at read scope, then anonymously"
+            );
             // The list too, when its first call answers signed out.
             let asked = RefCell::new(Vec::new());
             let site = maker(Ours::Asked(CodeHostOp::Releases, Fault::SignedOut), &asked);

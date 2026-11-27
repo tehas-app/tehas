@@ -395,7 +395,7 @@ impl Preview {
             .collect()
     }
 
-    fn remove_closed(&self, open: &BTreeSet<u64>) {
+    fn remove_closed(&self, open: &BTreeSet<u64>, host: &mut super::Host) {
         for n in self.on_host().difference(open) {
             // Membership in the list is not enough to remove something. The
             // pages are asked for one at a time: when the list moves while they
@@ -403,7 +403,7 @@ impl Preview {
             // neither, and one that is open would then look closed. So the run
             // asks about each number it means to remove, as the sweep does, and
             // keeps what GitHub says is open of ours.
-            let said = match verdict::ask(*n, &self.repo, &self.bot) {
+            let said = match verdict::ask(host, *n, &self.bot) {
                 Pull::Closed | Pull::Gone => "pull request no longer open, removed".to_string(),
                 Pull::Elsewhere => format!("its branch is not in {}, removed", self.repo),
                 Pull::Outside => format!("it was not opened by someone of {}, removed", self.repo),
@@ -473,7 +473,7 @@ impl Preview {
         true
     }
 
-    pub(super) fn run(&mut self) -> u8 {
+    pub(super) fn run(&mut self, host: &mut super::Host) -> u8 {
         // A run that stops here or at the network still writes the list. Its
         // time is what the dashboard shows and what tehasbot health goes by,
         // and a list that stopped changing would look like a timer that
@@ -558,7 +558,7 @@ impl Preview {
                 _ => None,
             })
             .collect();
-        self.remove_closed(&open);
+        self.remove_closed(&open, host);
 
         for row in &chosen {
             if let Verdict::Build { number, sha, seen } = row {
@@ -580,7 +580,7 @@ fn say_skipped(count: usize, one: &str, many: &str) {
 
 /// The command of a timer. The sweep waits for a run to end; a run does not
 /// wait for anything.
-pub fn main(sweep: bool) -> u8 {
+pub fn main(sweep: bool, host_of: super::HostOf) -> u8 {
     let mut preview = match Preview::of_this_run() {
         Ok(preview) => preview,
         Err(why) => {
@@ -607,10 +607,13 @@ pub fn main(sweep: bool) -> u8 {
         }
         return 0;
     };
+    // The one reader of changes, made by the wiring in main.rs: none when
+    // it cannot be wired, which both reads as no answer and keeps.
+    let mut host = host_of(&preview.home, &preview.repo);
     if sweep {
-        preview.sweep()
+        preview.sweep(&mut host)
     } else {
-        preview.run()
+        preview.run(&mut host)
     }
 }
 

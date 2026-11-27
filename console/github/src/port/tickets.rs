@@ -56,9 +56,10 @@ impl Tickets for GitHub {
         unsupported()
     }
 
-    /// One REST read of each issue, in the order asked.
+    /// One REST read of each issue, in the order asked, and one GraphQL
+    /// question of their parents for up to a hundred issues.
     fn several(&mut self, keys: &[TicketKey]) -> Vec<(TicketKey, Got<TicketDigest>)> {
-        keys.iter().map(|k| (k.clone(), self.digest(k))).collect()
+        GitHub::several(self, keys)
     }
 
     /// One GraphQL question for up to a hundred issues, an alias each.

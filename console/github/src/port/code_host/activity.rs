@@ -6,24 +6,20 @@
 //! hundred items for each hundred asked.
 
 use serde::Deserialize;
-use serde_json::Value;
 
-use super::change::{answer, priced};
+use super::change::answer;
+use crate::graphql::{self, priced};
+use crate::ticket::{Info, Pages, PAGES_MAX};
 use crate::tickets::{account, take};
-use crate::{gh, rate, ForgeError, GitHub};
+use crate::{gh, ForgeError, GitHub};
 use tehas_ports::{
-    Account, At, Branch, ChangeEvent, ChangeHappened, ChangeNo, CommitId, Got, Outcome, Pool, Took,
+    Account, At, Branch, ChangeEvent, ChangeHappened, ChangeNo, CommitId, Got, Outcome, Took,
     Unread, Window, ALL_MAX,
 };
 
 const MALFORMED: Outcome = Outcome::Unread(Unread::Malformed);
 const INCONSISTENT: Outcome = Outcome::Unread(Unread::Inconsistent);
 const CUT: Outcome = Outcome::Unread(Unread::Cut);
-
-/// The most pages one read asks for, a hundred items each. Past them a
-/// whole read is `Unread(Cut)`, and the newest n hold what was read, with
-/// `more`.
-const PAGES_MAX: usize = 100;
 
 /// An account, with the user id beside its login that `Ours` is read by.
 const ACTOR: &str = "__typename login ...on User { databaseId } ...on Bot { databaseId }";
@@ -77,15 +73,6 @@ struct Pull {
 struct Timeline {
     page_info: Option<Info>,
     nodes: Option<Vec<Option<Node>>>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Info {
-    has_next_page: Option<bool>,
-    end_cursor: Option<String>,
-    has_previous_page: Option<bool>,
-    start_cursor: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -178,14 +165,14 @@ impl GitHub {
             Window::Whole(_) => None,
             Window::Last(n) => Some(n.get().min(ALL_MAX.get()) as usize),
         };
-        let mut seen: Vec<String> = Vec::new();
+        let mut pages = Pages::new(back);
         let mut all: Vec<Item> = Vec::new();
         let mut cursor: Option<String> = None;
         let mut earlier = false;
         loop {
             let page = self.events_page(no, &question, cursor.as_deref())?;
             let mut read = self.read_items(page.nodes.ok_or(MALFORMED)?)?;
-            let next = next_page(page.page_info, back)?;
+            let next = pages.after(page.page_info)?;
             match (window, want) {
                 (Window::Whole(bound), _) => {
                     all.append(&mut read);
@@ -205,18 +192,17 @@ impl GitHub {
             let Some(c) = next else {
                 break;
             };
-            if seen.contains(&c) {
-                return Err(INCONSISTENT);
-            }
-            if seen.len() + 1 >= PAGES_MAX {
-                if back {
+            // Activity reads PAGES_MAX pages in all, its first among them:
+            // past them a whole read is cut, and the newest n hold what was
+            // read, with more.
+            match pages.turn(c, PAGES_MAX - 1)? {
+                Some(c) => cursor = Some(c),
+                None if back => {
                     earlier = true;
                     break;
                 }
-                return Err(CUT);
+                None => return Err(CUT),
             }
-            seen.push(c.clone());
-            cursor = Some(c);
         }
         let events = placed(all)?;
         match want {
@@ -400,19 +386,10 @@ impl GitHub {
         path: &str,
     ) -> Outcome {
         if let Some(said) = said.filter(|s| !s.trim().is_empty()) {
-            let types: Vec<String> = serde_json::from_str::<Value>(said.trim())
-                .ok()
-                .and_then(|v| v.get("errors").and_then(Value::as_array).cloned())
-                .unwrap_or_default()
-                .iter()
-                .filter_map(|e| e.get("type").and_then(Value::as_str).map(str::to_string))
-                .collect();
-            return if types.iter().any(|t| t == rate::RATE_LIMITED) {
-                rate::spent(Pool::Priced, (self.now)(), None)
-            } else if types.iter().any(|t| t == "NOT_FOUND") {
-                Outcome::NotFound
-            } else {
-                INCONSISTENT
+            let errors = graphql::errors(said);
+            return match graphql::limited(&errors, (self.now)()) {
+                Outcome::Unread(_) if errors.iter().any(|e| e.is("NOT_FOUND")) => Outcome::NotFound,
+                o => o,
             };
         }
         if e.why.trim_start_matches(": ") != "gh exited 1" {
@@ -458,21 +435,6 @@ fn placed(items: Vec<Item>) -> Got<Vec<ChangeEvent>> {
         events.push(event);
     }
     Ok(events)
-}
-
-/// The cursor of the page after this one, going back for the newest n,
-/// None after the last. A page that does not say whether there is more,
-/// or says so with no cursor, is `Unread(Inconsistent)`.
-fn next_page(info: Option<Info>, back: bool) -> Got<Option<String>> {
-    let info = info.ok_or(INCONSISTENT)?;
-    let (more, cursor) = match back {
-        true => (info.has_previous_page, info.start_cursor),
-        false => (info.has_next_page, info.end_cursor),
-    };
-    match more.ok_or(INCONSISTENT)? {
-        false => Ok(None),
-        true => cursor.map(Some).ok_or(INCONSISTENT),
-    }
 }
 
 #[cfg(test)]

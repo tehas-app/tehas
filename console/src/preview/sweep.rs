@@ -213,7 +213,7 @@ impl Preview {
         gone
     }
 
-    pub(super) fn sweep(&mut self) -> u8 {
+    pub(super) fn sweep(&mut self, host: &mut super::Host) -> u8 {
         if !docker_answers() {
             say(format_args!("Docker does not answer; nothing was swept"));
             return 0;
@@ -235,7 +235,7 @@ impl Preview {
         }
 
         for n in numbers {
-            let verdict = verdict::ask(n, &repo, &self.bot);
+            let verdict = verdict::ask(host, n, &self.bot);
             let listing = docker_lines(&CONTAINERS);
             let why = match verdict {
                 Pull::Keep => {
