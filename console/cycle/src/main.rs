@@ -589,6 +589,7 @@ fn handles(
         tickets: site.tickets(&by, c)?,
         blueprints: site.blueprints(&by, c)?,
         code_host: site.code_host(&by, c)?,
+        board: site.board(&by, c)?,
     })
 }
 

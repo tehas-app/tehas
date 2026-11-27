@@ -105,6 +105,8 @@ pub(crate) struct ChangeRec {
     pub edited: Option<At>,
     pub editor: Option<Account>,
     pub seq: u64,
+    /// Whether the head of this change lives in another repository.
+    pub fork: bool,
 }
 
 /// A commit: its parents, message, author and every file at it.

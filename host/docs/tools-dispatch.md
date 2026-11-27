@@ -420,7 +420,7 @@ the pull request's description says `Closes #N` (or `Fixes` or `Resolves`) and
 the pull request targets the default branch, or when a person links them by
 hand. A pull request of another branch, stacked on another, earns no such
 reference, so the poll reads the open pull requests' own descriptions, all of
-them in lists of 100 from the queue's first page on, and holds an issue one of them names with a closing keyword,
+them in lists of 100 as pages of the repository's open pull requests, and holds an issue one of them names with a closing keyword,
 whatever branch it targets: a keyword and the references held to it by commas
 or the words `and` and `or`, so `Closes #7, #8 and #9` holds three issues. The
 text is a description nobody has reviewed, from any author: all it can do is

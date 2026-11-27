@@ -15,9 +15,9 @@ use crate::tickets::{account, number, take, Bot};
 use crate::{gh, markers, table, ForgeError, GitHub};
 use tehas_ports::{
     Account, At, Blocker, BlockerState, Bound, ChangeNo, CloseReason, Closer, CommitId, Depth,
-    Filter, Got, Happened, HappenedKind, Item, ItemName, Outcome, Part, ProjectName, Ref, Refusal,
-    Revision, TargetId, TargetName, Ticket, TicketDigest, TicketEvent, TicketKey, TicketState,
-    Took, Unread, WebLink, Whole, Window, ALL_MAX,
+    Filter, Got, Happened, HappenedKind, Item, ItemName, MarkId, Outcome, Part, ProjectName, Ref,
+    Refusal, Revision, TargetId, TargetName, Ticket, TicketDigest, TicketEvent, TicketKey,
+    TicketState, Took, Unread, WebLink, Whole, Window, ALL_MAX,
 };
 
 pub(crate) const MALFORMED: Outcome = Outcome::Unread(Unread::Malformed);
@@ -53,13 +53,15 @@ const EVENTS: [(HappenedKind, &str, &str, &str); 14] = [
         HappenedKind::Marked,
         "LABELED_EVENT",
         "LabeledEvent",
-        "label { name }",
+        // The label's id beside its name: a mark renamed keeps its old id,
+        // and a caller that pins a mark reads the event's id against the pin.
+        "label { id name }",
     ),
     (
         HappenedKind::Unmarked,
         "UNLABELED_EVENT",
         "UnlabeledEvent",
-        "label { name }",
+        "label { id name }",
     ),
     (
         HappenedKind::Assigned,
@@ -294,6 +296,9 @@ impl Who {
 #[derive(Deserialize)]
 pub(crate) struct Name {
     pub(crate) name: String,
+    /// The site's id of the named thing, when the question asked it.
+    #[serde(default)]
+    pub(crate) id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -866,6 +871,7 @@ impl GitHub {
                 let mut event = TicketEvent::new(what);
                 event.by = e.actor.as_ref().and_then(|w| w.account(self.bot.as_ref()));
                 event.at = e.created_at.as_deref().map(time).transpose()?;
+                event.mark_id = e.label.as_ref().and_then(|l| l.id.clone()).map(MarkId::new);
                 read.push(event);
             }
             let next = pages.next(page.page_info)?;

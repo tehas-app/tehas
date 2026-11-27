@@ -780,6 +780,7 @@ pub fn run_poll(
         &mut end,
         &retry,
         wiring.handles,
+        wiring.mark_name,
     );
     // The lines the poll's reads left, of both its `Calls`, said once here and
     // nowhere else: `taken` empties the shared queue, so the drain of `body` and
@@ -806,6 +807,7 @@ fn body(
     end: &mut End,
     retry: &RetryPolicy,
     handles: crate::apply::HandlesOf,
+    mark_name: crate::apply::MarkName,
 ) -> i32 {
     // The journal first, before GitHub is read for the queue: what a poll
     // that died between two writes left is settled from fresh reads. One that
@@ -844,21 +846,30 @@ fn body(
         models: crate::read::models::Models::read(),
         endpoint: (String::new(), String::new()),
         code_host: None,
+        board: None,
+        tickets: None,
+        mark_name,
         said: Vec::new(),
+        faults: Vec::new(),
     };
     // The same token for the poll's reads as for its writes: what the shim of
     // every gh call would ask for anyway, asked once by the poll.
     src.calls.gh_token = w.calls.gh_token.clone().or_else(|| token.get(home));
-    // The code host's reads go through the port, its handle from the same
-    // wiring as the writes', with the same token, its calls counted with
-    // theirs in the poll's cost. Only the branch's check
-    // reads through it yet, so none is made for an instance that names none.
-    if !settings.branch_check.is_empty() {
+    // The queue read goes through the ports: the board's open work, the
+    // tickets' marks, types and closed running issues, and the code host's
+    // open pull requests, which the branch's check also reads. The handles
+    // come from the same wiring as the writes', with the same token, and
+    // their calls are counted with theirs in the poll's cost. Wiring that
+    // cannot make them leaves the board unread, and the poll fails closed on
+    // the queue read rather than decide from an empty one.
+    {
         let gh_token = src.calls.gh_token.as_deref();
         let calls = w.port_calls.clone();
-        src.code_host = handles(home, &w.repo, &w.gh, gh_token, w.bound, calls)
-            .ok()
-            .map(|h| h.code_host);
+        if let Ok(h) = handles(home, &w.repo, &w.gh, gh_token, w.bound, calls) {
+            src.code_host = Some(h.code_host);
+            src.board = Some(h.board);
+            src.tickets = Some(h.tickets);
+        }
     }
     let snap = snapshot(&mut src, settings);
     // What the reads met that their outcome alone does not say, once each:
@@ -884,6 +895,14 @@ fn body(
         Err(f) => {
             if taken.contains(&f.line) {
                 say(&f.line);
+            } else if let Some(kind) = src.faults.last() {
+                // The queue's own read failed: the ports know the kind of
+                // the failure, so the record holds it rather than a class
+                // read out of the line's words.
+                say(&f.line);
+                if !dry {
+                    tehas_core::github_fails::note_label(home, tehas_core::time::now(), kind);
+                }
             } else {
                 failed_read(home, dry, &f.line);
             }
@@ -1651,6 +1670,7 @@ mod tests {
         crate::apply::Wiring {
             handles: no_handles,
             mark_of: |_| None,
+            mark_name: |_| String::new(),
             assignee: None,
         }
     }

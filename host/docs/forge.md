@@ -159,8 +159,8 @@ dispatcher:
 - the issue's text, its comments and the edits made to them, which the
   approval of a changed text and the question flow read;
 - the pull requests of a cycle: opening, reading and refreshing them;
-- the dispatcher's poll, which reads the queue through GitHub's GraphQL API
-  in `console/dispatch`;
+- the dispatcher's poll, which reads the queue through the board, tickets
+  and code host ports, answered by the GitHub adapter in `console/github`;
 - the pins of `tehas labels`: each granting label's node id and when it was
   made, which the port has no call for.
 
