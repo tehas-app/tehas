@@ -409,7 +409,8 @@ number is an open issue. Every edit of the body after the label is judged,
 not only the last: an outside account's edit holds the issue even when an
 allowed account saves the body after it. For an issue its labels would start
 that was edited, and for an edited issue with a question a person may answer
-`retry` to, the poll reads the body's edit history, the last 100 edits;
+`retry` to, the poll reads the body's edit history, up to a hundred
+versions counted from the text as created;
 a longer history, one whose versions do not agree (a version deleted from
 it among them), one GitHub's answer leaves out or names an error at that
 issue for, or an edit that names no account (a deleted one among them),
