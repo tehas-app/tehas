@@ -1220,7 +1220,6 @@ mod tests {
             }
         }
         let q = github::Queue {
-            repo: None,
             open: board::fake::page(&world),
             closed_running: Vec::new(),
             open_pulls: None,

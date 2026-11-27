@@ -308,7 +308,6 @@ pub struct Open {
 /// `read::board` maps the board's answer and `read::build::queue` fills what
 /// the board does not answer.
 pub struct Queue {
-    pub repo: Option<String>,
     pub open: Vec<Open>,
     pub closed_running: Vec<u64>,
     /// The open pull requests as nodes the hold of rule 6 reads: None when

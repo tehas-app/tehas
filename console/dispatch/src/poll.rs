@@ -789,7 +789,6 @@ pub fn run_poll(
         failed_read(home, dry, &n);
     }
     end.gh += w.calls.gh_count + w.port_calls.load(std::sync::atomic::Ordering::Relaxed) as u32;
-
     end.starts = w.starts;
     end.changed.queue = w.changed;
     end.run(&mut w);
