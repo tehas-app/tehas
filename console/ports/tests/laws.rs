@@ -768,7 +768,9 @@ fn tickets_several_lists_merged_as_closed_since() {
         let commit = Closer::Commit(CommitId::new("abc1234").unwrap());
         let w = w
             .ticket(1, |t| t.title("open"))
-            .ticket(2, |t| t.title("closed").closed_by(CloseReason::Done, commit))
+            .ticket(2, |t| {
+                t.title("closed").closed_by(CloseReason::Done, commit)
+            })
             .change(n, "work", |c| {
                 c.title("merged").closes(b).state(ChangeState::Merged {
                     at: At::new(5),
