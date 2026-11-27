@@ -1,8 +1,7 @@
 //! What a number names where issues and pull requests share one number
 //! space: a ticket or a change, as `Tickets::what_is` and
-//! `Tickets::what_are` answer. Several numbers go in one GraphQL question,
-//! an alias a number, as the dispatcher's read of a blocker's state asks
-//! today.
+//! `Tickets::what_are` answer, and with its state, as `Board::as_blockers`
+//! answers. Several numbers go in one GraphQL question, an alias a number.
 //!
 //! GitHub answers a number it does not know with a null node and a
 //! `NOT_FOUND` error at that alias, and gh then exits 1, so the question is
@@ -20,7 +19,9 @@ use serde_json::Value;
 
 use crate::graphql::{limited, priced, Error, Step};
 use crate::GitHub;
-use tehas_ports::{ChangeNo, Got, Item, Outcome, TicketKey, Unread, ALL_MAX};
+use tehas_ports::{
+    Blocker, BlockerState, ChangeNo, Got, Item, Outcome, Ref, TicketKey, Unread, ALL_MAX,
+};
 
 const MALFORMED: Outcome = Outcome::Unread(Unread::Malformed);
 const INCONSISTENT: Outcome = Outcome::Unread(Unread::Inconsistent);
@@ -34,14 +35,15 @@ pub(crate) fn alias(n: u64) -> String {
     format!("n{n}")
 }
 
-/// The question of what each number names, one alias a number.
-fn question(numbers: &[u64]) -> String {
+/// The question of what each number names, one alias a number, each
+/// node asked `fields` beside its number.
+fn question(numbers: &[u64], fields: &str) -> String {
     let mut q = String::from(
         "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) {",
     );
     for n in numbers {
         q.push_str(&format!(
-            " {}: issueOrPullRequest(number: {n}) {{ __typename ... on Issue {{ number }} ... on PullRequest {{ number }} }}",
+            " {}: issueOrPullRequest(number: {n}) {{ __typename ... on Issue {{ number{fields} }} ... on PullRequest {{ number{fields} }} }}",
             alias(*n)
         ));
     }
@@ -83,6 +85,9 @@ struct Viewer {
 pub(crate) struct Aliased<T> {
     pub(crate) nodes: Vec<Got<T>>,
     pub(crate) viewer_id: Option<u64>,
+    /// The outcome a whole question failed with: its every node carries it,
+    /// and no item's own error is read. None when every node stood alone.
+    pub(crate) whole: Option<Outcome>,
 }
 
 /// Where the items of a question of several lie: under the repository,
@@ -133,6 +138,9 @@ struct Node {
     #[serde(rename = "__typename")]
     is: String,
     number: Option<u64>,
+    /// Where the question asks it.
+    #[serde(default)]
+    state: Option<String>,
 }
 
 /// GitHub's word that the item names nothing: the item itself is not
@@ -146,15 +154,46 @@ impl GitHub {
     /// answered each time from one alias. More distinct numbers than
     /// `ALL_MAX` is `Unread(Cut)` for every one, with no question asked.
     pub(crate) fn what_are(&mut self, numbers: &[NonZeroU64]) -> Vec<(NonZeroU64, Got<Item>)> {
+        self.each_number(numbers, |gh, chunk| {
+            gh.ask_items(chunk, "")
+                .into_iter()
+                .map(|(n, node)| node.and_then(|node| item(n, &node)))
+                .collect()
+        })
+    }
+
+    /// What each number names with its state, as `what_are` asks, in one
+    /// question a hundred numbers.
+    pub(crate) fn as_blockers(
+        &mut self,
+        numbers: &[NonZeroU64],
+    ) -> Vec<(NonZeroU64, Got<Blocker>)> {
+        self.each_number(numbers, |gh, chunk| {
+            gh.ask_items(chunk, " state")
+                .into_iter()
+                .map(|(n, node)| node.and_then(|node| blocker(n, &node)))
+                .collect()
+        })
+    }
+
+    /// Each number answered in the order asked, a repeated number from one
+    /// answer, the distinct numbers asked `PER_QUESTION` a question by
+    /// `ask`. More distinct numbers than `ALL_MAX` is `Unread(Cut)` for
+    /// every one, with no question asked.
+    fn each_number<T: Clone>(
+        &mut self,
+        numbers: &[NonZeroU64],
+        mut ask: impl FnMut(&mut Self, &[u64]) -> Vec<Got<T>>,
+    ) -> Vec<(NonZeroU64, Got<T>)> {
         let mut distinct: Vec<u64> = numbers.iter().map(|n| n.get()).collect();
         distinct.sort_unstable();
         distinct.dedup();
-        let mut answers: BTreeMap<u64, Got<Item>> = BTreeMap::new();
+        let mut answers: BTreeMap<u64, Got<T>> = BTreeMap::new();
         if distinct.len() > ALL_MAX.get() as usize {
             answers.extend(distinct.iter().map(|n| (*n, Err(CUT))));
         } else {
             for chunk in distinct.chunks(PER_QUESTION) {
-                answers.extend(chunk.iter().copied().zip(self.ask_items(chunk)));
+                answers.extend(chunk.iter().copied().zip(ask(self, chunk)));
             }
         }
         numbers
@@ -168,16 +207,13 @@ impl GitHub {
             .collect()
     }
 
-    /// One question of distinct numbers: an answer for each, in order.
-    fn ask_items(&mut self, numbers: &[u64]) -> Vec<Got<Item>> {
+    /// One question of distinct numbers, each node asked `fields` beside
+    /// what it is: each number with its node, in order.
+    fn ask_items(&mut self, numbers: &[u64], fields: &str) -> Vec<(u64, Got<Node>)> {
         let aliases: Vec<String> = numbers.iter().map(|n| alias(*n)).collect();
         let nodes: Vec<Got<Node>> =
-            self.ask_aliased("the items' question", &question(numbers), &aliases);
-        numbers
-            .iter()
-            .zip(nodes)
-            .map(|(n, node)| node.and_then(|node| item(*n, &node)))
-            .collect()
+            self.ask_aliased("the items' question", &question(numbers, fields), &aliases);
+        numbers.iter().copied().zip(nodes).collect()
     }
 
     /// One aliased question of the repository, read beside gh's failure
@@ -205,7 +241,8 @@ impl GitHub {
     }
 
     /// [`GitHub::ask_aliased`], with the `viewer`'s `databaseId` where the
-    /// question asks it: None where it fails whole.
+    /// question asks it: None where it fails whole, and the outcome of a
+    /// whole failure beside the nodes.
     pub(crate) fn ask_aliased_beside<T: DeserializeOwned>(
         &mut self,
         call: &str,
@@ -236,6 +273,7 @@ impl GitHub {
         let all = |o: Outcome| Aliased {
             nodes: (0..asked).map(|_| Err(o.clone())).collect(),
             viewer_id: None,
+            whole: Some(o),
         };
         let (owner, name) = self.owner_name();
         let query = format!("query={question}");
@@ -306,6 +344,7 @@ impl GitHub {
         Aliased {
             nodes: answered,
             viewer_id,
+            whole: None,
         }
     }
 
@@ -335,13 +374,26 @@ fn item(asked: u64, node: &Node) -> Got<Item> {
     }
 }
 
+/// A node as a blocker: what it names, and its state. A state GitHub does
+/// not give that kind of item is `Unread(Malformed)`.
+fn blocker(asked: u64, node: &Node) -> Got<Blocker> {
+    let item = item(asked, node)?;
+    let state = match (&item, node.state.as_deref()) {
+        (_, Some("OPEN")) => BlockerState::Open,
+        (_, Some("CLOSED")) => BlockerState::Closed,
+        (Item::Change(_), Some("MERGED")) => BlockerState::Merged,
+        _ => return Err(MALFORMED),
+    };
+    Ok(Blocker::new(Ref::Here(item), state))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn each_number_is_asked_under_its_own_alias() {
-        let q = question(&[12, 34]);
+        let q = question(&[12, 34], "");
         assert!(q.contains(" n12: issueOrPullRequest(number: 12) { __typename "));
         assert!(q.contains(" n34: issueOrPullRequest(number: 34) { __typename "));
         assert!(q.ends_with(" } }"));

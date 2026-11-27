@@ -211,68 +211,6 @@ fn comments_query(chunk: &[u64]) -> String {
     q
 }
 
-/// The most issues one edit history query asks of. Each asks up to 100 edits,
-/// so a query stays far under GitHub's budget for nested items.
-pub const EDIT_CHUNK: usize = 25;
-
-/// One aliased query for the body edits of a chunk of issues: `i{n}`
-/// answers #n. The board's page of the queue asks only for the last edit;
-/// `edit_holds` judges every edit after an approval, so the issues a rule
-/// may start read their history here.
-fn edits_query(chunk: &[u64]) -> String {
-    let mut q = String::from(
-        "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) {",
-    );
-    for n in chunk {
-        q.push_str(&format!(
-            " i{n}: issue(number: {n}) {{ userContentEdits(last: 100) {{ totalCount nodes {{ editedAt editor {{ login ...on User {{ databaseId }} ...on Bot {{ databaseId }} }} }} }} }}"
-        ));
-    }
-    q.push_str(" } }");
-    q
-}
-
-/// The body edit histories of several issues, one aliased query per chunk of
-/// `EDIT_CHUNK`, the chunks side by side: each issue's `userContentEdits`,
-/// or `failed_read` when its chunk failed, or `{"failed": true}` when the
-/// answer left it out. `edit_holds` holds on any of those.
-pub fn edits_of(calls: &mut Calls, repo: &str, numbers: &[u64]) -> Vec<Value> {
-    let (owner, name) = split(repo);
-    let list: Vec<Vec<String>> = numbers
-        .chunks(EDIT_CHUNK)
-        .map(|chunk| {
-            vec![
-                "api".to_string(),
-                "graphql".to_string(),
-                "-F".to_string(),
-                owner.clone(),
-                "-F".to_string(),
-                name.clone(),
-                "-f".to_string(),
-                format!("query={}", edits_query(chunk)),
-            ]
-        })
-        .collect();
-    let answers = calls.gh_all(&list);
-    numbers
-        .chunks(EDIT_CHUNK)
-        .zip(answers)
-        .flat_map(|(chunk, answer)| {
-            chunk
-                .iter()
-                .map(|n| match &answer {
-                    Ok(v) => v
-                        .pointer(&format!("/data/repository/i{n}/userContentEdits"))
-                        .filter(|h| h.is_object())
-                        .cloned()
-                        .unwrap_or_else(|| json!({"failed": true})),
-                    Err(f) => failed_read(f),
-                })
-                .collect::<Vec<Value>>()
-        })
-        .collect()
-}
-
 /// What the refresh rule reads of a pull request and of the issue it closes.
 macro_rules! pull_fields {
     () => {
@@ -580,38 +518,6 @@ pub fn comments_unjudged(calls: &mut Calls, repo: &str, n: u64) -> Value {
 /// `gh_why`'s fixed list, so nothing gh printed beyond them reaches the log.
 pub fn failed_read(f: &GhFail) -> Value {
     json!({"failed": true, "line": f.line})
-}
-
-/// The states of the issues a blocker comment names, by number.
-pub fn blocker_states(calls: &mut Calls, repo: &str, numbers: &[u64]) -> Map<String, Value> {
-    let mut out = Map::new();
-    if numbers.is_empty() {
-        return out;
-    }
-    let (owner, name) = split(repo);
-    let mut q = String::from(
-        "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) {",
-    );
-    for b in numbers {
-        q.push_str(&format!(
-            " b{b}: issueOrPullRequest(number: {b}) {{ ... on Issue {{ state }} ... on PullRequest {{ state }} }}"
-        ));
-    }
-    q.push_str(" } }");
-    let query = format!("query={q}");
-    // As the bash: what came back counts, whatever gh's exit, so a number
-    // GitHub does not know spoils only itself.
-    if let Some(v) = calls.gh_any(&["api", "graphql", "-F", &owner, "-F", &name, "-f", &query]) {
-        for b in numbers {
-            if let Some(s) = v
-                .pointer(&format!("/data/repository/b{b}/state"))
-                .and_then(Value::as_str)
-            {
-                out.insert(b.to_string(), json!(s));
-            }
-        }
-    }
-    out
 }
 
 /// One pull request as a refresh reads it: .data.repository.pullRequest.

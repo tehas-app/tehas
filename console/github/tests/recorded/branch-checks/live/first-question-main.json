@@ -1,0 +1,1 @@
+{"data":{"repository":{"ref":{"name":"main","prefix":"refs/heads/","target":{"__typename":"Commit","oid":"a09d79baac4a6fa80120c3dc5e599b4e4eba40ad","checkSuites":{"totalCount":0,"nodes":[]},"status":{"contexts":[{"context":"other","state":"FAILURE"},{"context":"verify","state":"SUCCESS"}]}}}}}}

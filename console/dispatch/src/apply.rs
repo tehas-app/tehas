@@ -111,6 +111,9 @@ pub struct Writer {
 #[derive(Clone)]
 pub struct Wiring {
     pub handles: HandlesOf,
+    /// The board the snapshot reads the blockers' states through, made as
+    /// the handles are.
+    pub board: BoardOf,
     pub mark_of: MarkOf,
     /// A mark as the label word it is spelled by, from the program's wiring:
     /// the queue's mapping names the marks of the open work with it.
@@ -147,6 +150,17 @@ pub type HandlesOf = fn(
     bound: Duration,
     calls: Arc<AtomicU64>,
 ) -> tehas_ports::Got<Handles>;
+
+/// The wiring's board of repository `repo`, made and counted as
+/// [`HandlesOf`] makes the handles.
+pub type BoardOf = fn(
+    home: &Path,
+    repo: &str,
+    gh: &str,
+    token: Option<&str>,
+    bound: Duration,
+    calls: Arc<AtomicU64>,
+) -> tehas_ports::Got<Box<dyn tehas_ports::Board + Send>>;
 
 /// What the settle's read found of an open write that this poll may decide
 /// to make again.

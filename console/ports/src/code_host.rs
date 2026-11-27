@@ -878,6 +878,22 @@ pub trait CodeHost: Reports + Cites {
     /// `Overall::of` all of them, so a failed status beside a passing run
     /// is `Fail`. `Checks` gives the fold of a status.
     fn checks(&mut self, at: &CommitId, name: Option<&str>) -> Got<Checks>;
+    /// The commit a branch points at and the checks on it, or those of
+    /// this name: what `branch` then `checks` answer, None when there is
+    /// no such branch. A failure of either fails the whole. An adapter may
+    /// ask both in one question; the default asks the two. Added
+    /// 2026-11-25, with this default.
+    fn branch_checks(
+        &mut self,
+        branch: &Branch,
+        name: Option<&str>,
+    ) -> Got<Option<(CommitId, Checks)>> {
+        let Some(head) = self.branch(branch)? else {
+            return Ok(None);
+        };
+        let checks = self.checks(&head, name)?;
+        Ok(Some((head, checks)))
+    }
     /// The project's tags, whole, in the site's order: no order is
     /// promised, so a caller that wants the newest asks `recent_tags`.
     fn tags(&mut self, bound: Bound) -> Got<Whole<Tag>>;
