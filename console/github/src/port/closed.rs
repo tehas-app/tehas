@@ -5,7 +5,9 @@
 //!
 //! `several_with_closers` asks one GraphQL question for up to a hundred
 //! tickets, an alias a number, read alias by alias as `items.rs` reads
-//! every aliased question: a number that is no issue is `NotFound`.
+//! every aliased question: a number that is no issue is `NotFound`. Its
+//! merged changes are the merged pull requests of this project among those
+//! GitHub lists as closing the ticket, as `closed_since` counts them.
 
 use std::collections::BTreeMap;
 
@@ -42,10 +44,19 @@ fn alias(n: u64) -> String {
     format!("i{n}")
 }
 
-/// The question of several issues, each with its digest and its newest
-/// close, one alias a number.
+/// The pull requests GitHub lists as closing an issue, which both reads
+/// ask for and read the same way.
+fn closing_references() -> String {
+    format!(
+        "closedByPullRequestsReferences(first: {REFERENCES}) {{ totalCount nodes {{ baseRepository {{ databaseId nameWithOwner }} {} }} }}",
+        super::board::pull_fields()
+    )
+}
+
+/// The question of several issues, each with its digest, its newest close
+/// and the changes listed as closing it, one alias a number.
 fn several_question(numbers: &[u64]) -> String {
-    let fields = format!("{} {}", digest_fields(), closes());
+    let fields = format!("{} {} {}", digest_fields(), closes(), closing_references());
     let mut q = String::from(
         "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { databaseId",
     );
@@ -66,19 +77,21 @@ fn several_question(numbers: &[u64]) -> String {
 /// them.
 fn since_question() -> String {
     format!(
-        "query($owner: String!, $name: String!, $cursor: String, $since: DateTime!) {{ repository(owner: $owner, name: $name) {{ databaseId issues(first: {SINCE_PAGE}, after: $cursor, orderBy: {{field: CREATED_AT, direction: ASC}}, filterBy: {{states: [CLOSED], since: $since}}) {{ pageInfo {{ hasNextPage endCursor }} nodes {{ {} closedAt {} subIssues {{ totalCount }} closedByPullRequestsReferences(first: {REFERENCES}) {{ totalCount nodes {{ baseRepository {{ databaseId nameWithOwner }} {} }} }} }} }} }} }}",
+        "query($owner: String!, $name: String!, $cursor: String, $since: DateTime!) {{ repository(owner: $owner, name: $name) {{ databaseId issues(first: {SINCE_PAGE}, after: $cursor, orderBy: {{field: CREATED_AT, direction: ASC}}, filterBy: {{states: [CLOSED], since: $since}}) {{ pageInfo {{ hasNextPage endCursor }} nodes {{ {} closedAt {} subIssues {{ totalCount }} {} }} }} }} }}",
         digest_fields(),
         closes(),
-        super::board::pull_fields()
+        closing_references()
     )
 }
 
 /// An issue of the several question.
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct WithClose {
     #[serde(flatten)]
     node: Node,
     closes: Option<Page<Event>>,
+    closed_by_pull_requests_references: Option<References>,
 }
 
 /// An issue of the closed-since question.
@@ -165,15 +178,22 @@ impl GitHub {
             .collect()
     }
 
-    /// One issue's digest and closer, of the number asked.
+    /// One issue's digest, closer and merged changes, of the number asked.
+    /// A response of a question that did not ask for the listed changes
+    /// names none.
     fn with_closer(&mut self, asked: u64, read: WithClose) -> Got<WithCloser> {
         if read.node.number != Some(asked) {
             return Err(INCONSISTENT);
         }
         let digest = self.digest_from(read.node)?;
         let closer = self.newest_closer(&digest.state, read.closes)?;
+        let merged = match read.closed_by_pull_requests_references {
+            Some(refs) => self.merged_here(refs)?,
+            None => Vec::new(),
+        };
         let mut with = WithCloser::new(digest);
         with.closer = closer;
+        with.merged = merged;
         Ok(with)
     }
 
@@ -226,10 +246,7 @@ impl GitHub {
         Ok(Whole::new(all))
     }
 
-    /// A closed issue as the port holds it. Its merged changes are the
-    /// merged pull requests of this project GitHub lists as closing it; one
-    /// of another project, or of none GitHub names, has no number here and
-    /// is left out.
+    /// A closed issue as the port holds it.
     fn closed_ticket(&mut self, n: ClosedNode) -> Got<ClosedTicket> {
         let digest = self.digest_from(n.node)?;
         if digest.state == TicketState::Open {
@@ -242,7 +259,19 @@ impl GitHub {
             .ok_or(MALFORMED)?
             .total_count
             .ok_or(INCONSISTENT)?;
-        let refs = n.closed_by_pull_requests_references.ok_or(MALFORMED)?;
+        let merged = self.merged_here(n.closed_by_pull_requests_references.ok_or(MALFORMED)?)?;
+        let mut ticket = ClosedTicket::new(digest, closed);
+        ticket.closer = closer;
+        ticket.part_count = u32::try_from(parts).map_err(|_| INCONSISTENT)?;
+        ticket.merged = merged;
+        Ok(ticket)
+    }
+
+    /// The merged changes of this project among the pull requests GitHub
+    /// lists as closing a ticket; one of another project, or of none GitHub
+    /// names, has no number here and is left out. More listed than the
+    /// answer holds is `Unread(Cut)`.
+    fn merged_here(&mut self, refs: References) -> Got<Vec<ChangeDigest>> {
         let total = refs.total_count.ok_or(INCONSISTENT)?;
         let held = refs.nodes.len() as u64;
         if total > held {
@@ -269,11 +298,7 @@ impl GitHub {
                 merged.push(change);
             }
         }
-        let mut ticket = ClosedTicket::new(digest, closed);
-        ticket.closer = closer;
-        ticket.part_count = u32::try_from(parts).map_err(|_| INCONSISTENT)?;
-        ticket.merged = merged;
-        Ok(ticket)
+        Ok(merged)
     }
 }
 
@@ -288,6 +313,16 @@ mod tests {
         assert!(q.contains(" i34: issue(number: 34) { number title "));
         assert!(q.contains("closes: timelineItems(itemTypes: [CLOSED_EVENT], last: 1)"));
         assert!(q.ends_with(" } }"));
+    }
+
+    /// `several_with_closers` answers `WithCloser.merged` from them, so
+    /// the question must carry the same list `closed_since` reads.
+    #[test]
+    fn the_several_question_asks_the_changes_listed_as_closing() {
+        let q = several_question(&[12]);
+        assert!(q.contains(&format!(
+            "closedByPullRequestsReferences(first: {REFERENCES}) {{ totalCount nodes {{ baseRepository {{ databaseId nameWithOwner }} number title "
+        )));
     }
 
     /// GitHub refuses a question that declares a variable it does not use.
