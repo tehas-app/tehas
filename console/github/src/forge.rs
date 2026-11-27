@@ -555,7 +555,7 @@ impl GitHub {
 
     /// Put `label` on the issue. A name no label can have is refused
     /// without a call.
-    pub fn add_label(&mut self, issue: u64, label: &str) -> Result<(), ForgeError> {
+    pub(crate) fn add_label(&mut self, issue: u64, label: &str) -> Result<(), ForgeError> {
         if !is_label(label) {
             return Err(ForgeError::new(
                 "the label change",
@@ -588,7 +588,7 @@ impl GitHub {
 
     /// Take `label` off the issue. One that is not there is the state
     /// wanted. A name no label can have is refused without a call.
-    pub fn remove_label(&mut self, issue: u64, label: &str) -> Result<(), ForgeError> {
+    pub(crate) fn remove_label(&mut self, issue: u64, label: &str) -> Result<(), ForgeError> {
         if !is_label(label) {
             return Err(ForgeError::new(
                 "the label change",
@@ -625,3 +625,7 @@ pub(crate) fn uri(s: &str) -> String {
         })
         .collect()
 }
+
+#[cfg(test)]
+#[path = "../tests/label_writes/mod.rs"]
+mod label_writes;
