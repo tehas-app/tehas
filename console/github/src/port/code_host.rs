@@ -361,12 +361,15 @@ fn pull_fields(bodies: bool) -> String {
 }
 
 /// What the list and the question by number ask of each pull request: its
-/// head repository, so a fork is told by it too, and its body when `bodies`.
-/// Labels or closed issues past one page are `Unread(Cut)`.
+/// head repository, so a fork is told by it too, its author's relation, so
+/// a reader of a list says whose the change is without a call for each
+/// author, and its body when `bodies`. Labels or closed issues past one
+/// page are `Unread(Cut)`.
 fn pull_ask(bodies: bool) -> PullAsk {
     PullAsk {
         retitles: false,
         head_repo: true,
+        author_relation: true,
         body: bodies,
         past: Unread::Cut,
     }
@@ -603,6 +606,13 @@ impl PullNode<'_> {
             false => None,
         };
         let mut digest = gh.pull_read(pull, ChangeStates::All, pull_ask(f.bodies))?;
+        // The association is asked with the change, as the REST read gives
+        // it: a reader of a list says whose the change is without a call
+        // for each author. A missing word is none of these, as REST's.
+        digest.author_relation = n
+            .get("authorAssociation")
+            .and_then(Value::as_str)
+            .map(change::relation);
         if let Some(raw) = body {
             let item = BlueprintNo::new(no.get()).ok_or(malformed)?;
             let read = markers::read(&raw, Some(item));

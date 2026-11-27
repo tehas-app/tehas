@@ -51,11 +51,15 @@ const CHANGES: &str = "query($owner: String!, $name: String!, $cursor: String{HE
 
 /// What a change's digest is read from, a [`Pull`]: `{ACCOUNT}`, the
 /// bounds and what a [`PullAsk`] adds are filled in by [`pull_fields_of`].
-const PULL: &str = "number title url state isDraft isCrossRepository headRefName headRefOid baseRefName baseRefOid mergeable mergeStateStatus createdAt updatedAt lastEditedAt mergedAt closedAt additions deletions changedFiles author { {ACCOUNT} } editor { {ACCOUNT} } mergedBy { {ACCOUNT} } mergeCommit { oid }{RENAMES}{HEAD_REPO}{BODY} labels(first: {LABELS_MAX}) { totalCount nodes { name } } closingIssuesReferences(first: {CLOSES_MAX}) { totalCount nodes { number repository { databaseId nameWithOwner } } }";
+const PULL: &str = "number title url state isDraft isCrossRepository headRefName headRefOid baseRefName baseRefOid mergeable mergeStateStatus createdAt updatedAt lastEditedAt mergedAt closedAt additions deletions changedFiles author { {ACCOUNT} }{RELATION} editor { {ACCOUNT} } mergedBy { {ACCOUNT} } mergeCommit { oid }{RENAMES}{HEAD_REPO}{BODY} labels(first: {LABELS_MAX}) { totalCount nodes { name } } closingIssuesReferences(first: {CLOSES_MAX}) { totalCount nodes { number repository { databaseId nameWithOwner } } }";
 
 /// The newest retitling, read with the body's last edit as when the change
 /// was last edited.
 const RENAMES: &str = " renames: timelineItems(itemTypes: [RENAMED_TITLE_EVENT], last: 1) { nodes { ... on RenamedTitleEvent { createdAt actor { {ACCOUNT} } } } }";
+
+/// The author's relation to the project, the same words as REST's
+/// `author_association`, asked where [`PullAsk::author_relation`] says.
+const RELATION: &str = " authorAssociation";
 
 /// What a question asks of each pull request past the fields every one
 /// asks, and so what [`GitHub::pull_read`] reads of it.
@@ -67,6 +71,9 @@ pub(super) struct PullAsk {
     /// The head repository's id, so a change is from a fork unless its head
     /// is this repository, not only when GitHub says so.
     pub(super) head_repo: bool,
+    /// The author's relation to the project, so a reader of a list says
+    /// whose the change is without a call for each author.
+    pub(super) author_relation: bool,
     /// The body, left in [`Pull::body`] for the caller to read.
     pub(super) body: bool,
     /// What labels or closed issues past what the question asks are, as
@@ -80,6 +87,7 @@ impl PullAsk {
     pub(super) const BOARD: PullAsk = PullAsk {
         retitles: true,
         head_repo: false,
+        author_relation: false,
         body: false,
         past: Unread::TooLarge,
     };
@@ -99,7 +107,9 @@ pub(super) fn pull_fields_of(ask: PullAsk) -> String {
         ""
     };
     let body = if ask.body { " body" } else { "" };
+    let relation = if ask.author_relation { RELATION } else { "" };
     PULL.replace("{RENAMES}", renames)
+        .replace("{RELATION}", relation)
         .replace("{HEAD_REPO}", head_repo)
         .replace("{BODY}", body)
         .replace("{LABELS_MAX}", &LABELS_MAX.to_string())
