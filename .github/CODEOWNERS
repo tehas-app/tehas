@@ -1,3 +1,18 @@
 # The person named here is asked for review on every pull request. Whether a
 # merge waits for that review is the ruleset on main's call, not this file's.
 * @janit
+
+# The blessing's gate files and the checks of these very rules (the plugin
+# spec 2.0.0 part 9, decision 91; tehas-standard v3 §11): the rulesets on
+# main require the code owner's approving review for these paths, and the
+# repo-settings check holds that. Until the release names its reviewing
+# account in api/plugins-review-account, the owner of these lines is the
+# repository's own.
+api/plugins-blessed* @janit
+api/plugins-signers* @janit
+api/plugins-default* @janit
+api/plugins-review-account* @janit
+.github/CODEOWNERS @janit
+.github/workflows/release.yml @janit
+.github/workflows/repo-settings.yml @janit
+scripts/check-repo-settings.py @janit
