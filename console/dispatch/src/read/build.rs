@@ -134,6 +134,11 @@ fn queue(src: &mut Sources, c: &Settings) -> Result<(github::Queue, Vec<u64>), G
         Window::Last(NonZeroU32::new(20).expect("20 is a window")),
     ));
     ask.control = Some(TicketKey::Number(control));
+    // The running mark is the bot's own: every running cycle carries it,
+    // the bot applies it alone, and the rules read the mark and the lock
+    // rather than its events. The page answers it without, and the board
+    // reads nothing apart for it.
+    ask.marks_not_read = vec![tehas_ports::Mark::State(tehas_ports::State::Running)];
     let work = {
         let board = src.board.as_mut().ok_or_else(|| GhFail {
             line: "ERROR: the poll has no board handle to read the queue by".to_string(),

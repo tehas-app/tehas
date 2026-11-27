@@ -445,13 +445,18 @@ impl GitHub {
         } = item;
         let no = key.same_item().ok_or(INCONSISTENT)?;
         let issue = no.get();
-        let carried: Vec<String> = node
-            .labels
-            .nodes
-            .iter()
-            .flatten()
-            .map(|l| l.name.clone())
-            .collect();
+        // The marks the ask reads no events of stand aside: the page
+        // vouches for the ticket without them, and they are not read
+        // again apart. The control ticket is asked about whatever it
+        // carries, as its own read is.
+        let is_control = ask.control.as_ref() == Some(key);
+        let mut carried: Vec<String> = Vec::new();
+        for l in node.labels.nodes.iter().flatten() {
+            if !is_control && self.is_not_read(&l.name, &ask.marks_not_read) {
+                continue;
+            }
+            carried.push(l.name.clone());
+        }
         let title = node.title.clone();
         let body = node.body.clone();
         let digest = self.digest_from(node)?;
@@ -470,7 +475,17 @@ impl GitHub {
             return Err(MALFORMED);
         }
         let mentioned_by = self.mentions_from(issue, mentions)?;
-        let history = self.history_of(key, issue, kinds, events, &carried, &digest.marks)?;
+        let marks: Vec<Mark> = if is_control {
+            digest.marks.clone()
+        } else {
+            digest
+                .marks
+                .iter()
+                .cloned()
+                .filter(|m| !ask.marks_not_read.contains(m))
+                .collect()
+        };
+        let history = self.history_of(key, issue, kinds, events, &carried, &marks)?;
         let changes = match ask.changes {
             None => not_read(),
             Some((_, window)) => self.closing(closing.ok_or(MALFORMED)?, window)?,

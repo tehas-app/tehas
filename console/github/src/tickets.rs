@@ -142,6 +142,18 @@ impl GitHub {
             .collect()
     }
 
+    /// Whether the label is a mark of `not_read`: a mark of the page read
+    /// that owes no events, so its page vouches without it and nothing is
+    /// read apart for it.
+    pub(crate) fn is_not_read(&mut self, label: &str, not_read: &[Mark]) -> bool {
+        !not_read.is_empty()
+            && self
+                .read_marks(&[label.to_string()])
+                .first()
+                .and_then(Option::as_ref)
+                .is_some_and(|mark| not_read.contains(mark))
+    }
+
     /// The named outcome of a call that failed, read from the runner's
     /// reason. gh's reason holds no time a spent budget resets at, so
     /// `Spent` is until now, by the adapter's clock, and the caller waits by
