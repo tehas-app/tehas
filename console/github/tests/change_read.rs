@@ -754,7 +754,7 @@ fn a_failed_editor_read_fails_the_answer() {
         gh.change(nine(), bound(100)).map(|_| ()),
         Err(Outcome::Spent {
             pool: Pool::Priced,
-            until: At::new(now())
+            until: At::new(now() + 60)
         })
     );
 }
@@ -933,7 +933,7 @@ fn failures() -> Vec<(String, Outcome)> {
             failed("read-rate-limited.stderr"),
             Outcome::Spent {
                 pool: Pool::Calls,
-                until: At::new(now()),
+                until: At::new(now() + 60),
             },
         ),
         (failed("read-not-found.stderr"), Outcome::NotFound),
