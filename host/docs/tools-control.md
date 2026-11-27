@@ -358,12 +358,15 @@ A cycle asks for the hooks itself, on its event `change.offered`
 history line; a line that names a pull request, was not stopped by a signal,
 and did not end `refused` or `merged` raises `change.offered`, a refresh's
 too. The plugins' bridge, a listener of the cycle's events while plugins are
-on, then reads that pull request from GitHub. For each plugin granted
+on, then reads that pull request from GitHub, as the factory's account. It
+is the bot's as for `hook` above: by the id `~/tehas/state/account-ids`
+records, with its head in the repository itself. For each plugin granted
 `hook:after:change.offered` and ready at its pin it writes
 `~/tehas/plugins/<name>/hooks/<pr>.json` (the pull request, its head as
 GitHub gave it, its base, the issue and the event's envelope) and starts
 `tehas-plugin-hook@<name>-<pr>.service`. It waits for none of them. A hook
-holds no slot, lock or label. A merged or closed pull request gets no hook.
+holds no slot, lock or label. A merged or closed pull request, or one not
+the bot's, gets no hook.
 The hook's `/run/context.json` has the envelope as `event`; a hook run by
 hand with `tehas plugin hook` has none.
 
