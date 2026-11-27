@@ -431,8 +431,12 @@ impl World {
 
     /// A stub program on the PATH of a run that records its arguments, then
     /// runs `body`. A body that starts with `#!` is the whole program. The
-    /// body's exit status and standard error go to `$T/stub.log` too, which a
-    /// failing case prints; a call with no line there did not finish.
+    /// body's exit status and standard error go to `$T/stub.log` too, in one
+    /// write, which a failing case prints; a call with no line there did not
+    /// finish. A body killed by signal `n` makes the stub exit 128+n. After the
+    /// body only builtins and one `rm` run, as a starved runner is the case
+    /// for it. The `rm` is what tells a stub that finished from one that was
+    /// killed: only the killed one leaves its `stub-err.` file.
     pub fn stub(&self, name: &str, body: &str) {
         let text = if body.starts_with("#!") {
             body.to_string()
@@ -440,8 +444,9 @@ impl World {
             format!(
                 "#!{}\nprintf '%s\\n' \"$*\" >>\"$T/calls/{name}\"\n\
                  err=\"$T/stub-err.{name}.$$\"\n(\n{body}\n) 2>\"$err\"\nrc=$?\n\
-                 cat \"$err\" >&2\n\
-                 {{ printf '%s rc=%s\\n' {name} \"$rc\"; cat \"$err\"; }} >>\"$T/stub.log\"\n\
+                 e=\nIFS= read -r -d '' e <\"$err\"\n\
+                 printf '%s' \"$e\" >&2\n\
+                 printf '%s rc=%s\\n%s' {name} \"$rc\" \"$e\" >>\"$T/stub.log\"\n\
                  rm -f \"$err\"\nexit \"$rc\"\n",
                 self.bash
             )
@@ -1045,16 +1050,27 @@ impl World {
     fn print_stub_log(&self) {
         let log = fs::read_to_string(self.t.join("stub.log")).unwrap_or_default();
         eprintln!("--- stub.log ---\n{log}");
-        let Ok(dir) = fs::read_dir(self.t.path()) else {
-            return;
-        };
-        for e in dir.flatten() {
-            let file = e.file_name().to_string_lossy().into_owned();
-            if let Some(stub) = file.strip_prefix("stub-err.") {
-                let err = fs::read_to_string(e.path()).unwrap_or_default();
-                eprintln!("{stub} did not finish:\n{err}");
-            }
+        for (stub, err) in self.unfinished() {
+            eprintln!("{stub} did not finish:\n{err}");
         }
+    }
+
+    /// Each stub that did not finish, as `<name>.<pid>`, with its standard
+    /// error so far.
+    pub fn unfinished(&self) -> Vec<(String, String)> {
+        let Ok(dir) = fs::read_dir(self.t.path()) else {
+            return vec![];
+        };
+        let mut out: Vec<_> = dir
+            .flatten()
+            .filter_map(|e| {
+                let file = e.file_name().to_string_lossy().into_owned();
+                let stub = file.strip_prefix("stub-err.")?.to_string();
+                Some((stub, fs::read_to_string(e.path()).unwrap_or_default()))
+            })
+            .collect();
+        out.sort();
+        out
     }
 }
 

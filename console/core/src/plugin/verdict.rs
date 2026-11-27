@@ -4,6 +4,7 @@
 //! a hook that did not finish.
 
 use crate::grammar::commit_id;
+use crate::text::one_line;
 use serde::Serialize;
 use serde_json::{Map, Value};
 
@@ -36,10 +37,6 @@ pub struct Verdict {
     pub verdict: Word,
     pub summary: String,
     pub findings: Vec<Finding>,
-}
-
-fn one_line(s: &str, max: usize) -> bool {
-    !s.is_empty() && s.chars().count() <= max && !s.chars().any(char::is_control)
 }
 
 fn only(o: &Map<String, Value>, keys: &[&str], at: &str) -> Result<(), String> {

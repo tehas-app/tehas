@@ -43,6 +43,7 @@ use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
 use std::time::Duration;
+use tehas_core::grammar::all_digits;
 use tehas_core::time;
 
 const USAGE: &str = "usage: console gh <real gh> <log> [words]";
@@ -191,15 +192,12 @@ fn from_path(path: &str) -> (String, String) {
         if repo.is_empty() && *s == "repos" && segs.len() >= k + 3 {
             repo = format!("{}/{}", segs[k + 1], segs[k + 2]);
         }
-        if number.is_empty() && k > 0 && matches!(segs[k - 1], "issues" | "pulls") && digits(s) {
+        if number.is_empty() && k > 0 && matches!(segs[k - 1], "issues" | "pulls") && all_digits(s)
+        {
             number = s.to_string();
         }
     }
     (repo, number)
-}
-
-fn digits(s: &str) -> bool {
-    !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())
 }
 
 // The verb is the word after the command, and the number the first word of
@@ -223,7 +221,7 @@ fn verb(cmd: &str, args: &[String]) -> Option<(String, String, String)> {
         if let Some(r) = a.strip_prefix("-R=").or_else(|| a.strip_prefix("--repo=")) {
             repo = r.to_string();
         }
-        if cmd != "label" && number.is_empty() && digits(a) {
+        if cmd != "label" && number.is_empty() && all_digits(a) {
             number = a.clone();
         }
     }

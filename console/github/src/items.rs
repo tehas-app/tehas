@@ -18,17 +18,16 @@ use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::graphql::{priced, Error, Step};
-use crate::rate;
+use crate::graphql::{limited, priced, Error, Step};
 use crate::GitHub;
-use tehas_ports::{ChangeNo, Got, Item, Outcome, Pool, TicketKey, Unread, ALL_MAX};
+use tehas_ports::{ChangeNo, Got, Item, Outcome, TicketKey, Unread, ALL_MAX};
 
 const MALFORMED: Outcome = Outcome::Unread(Unread::Malformed);
 const INCONSISTENT: Outcome = Outcome::Unread(Unread::Inconsistent);
 const CUT: Outcome = Outcome::Unread(Unread::Cut);
 
 /// The most numbers one question asks: more go in another question.
-const PER_QUESTION: usize = 100;
+pub(crate) const PER_QUESTION: usize = 100;
 
 /// The alias a number is asked under.
 pub(crate) fn alias(n: u64) -> String {
@@ -258,17 +257,7 @@ impl GitHub {
         let errors = answer.errors.unwrap_or_default();
         let whole: Vec<&Error> = errors.iter().filter(|e| items.named(e).is_none()).collect();
         if !whole.is_empty() {
-            // The one rule of rate.rs, as every other GraphQL read takes
-            // it: a spent priced budget at the floor when limited, else
-            // no whole answer.
-            let limited = whole.iter().any(|e| e.is(rate::RATE_LIMITED));
-            return all(rate::limited(
-                limited,
-                Pool::Priced,
-                (self.now)(),
-                None,
-                INCONSISTENT,
-            ));
+            return all(limited(whole, (self.now)()));
         }
         let (mut repository, mut nodes, viewer_id) = match answer.data {
             Some(d) => (d.repository, d.nodes, d.viewer.and_then(|v| v.database_id)),

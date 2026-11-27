@@ -19,7 +19,9 @@
 
 use std::env;
 use std::fs;
-use std::os::unix::fs::{MetadataExt, PermissionsExt};
+use std::os::unix::fs::MetadataExt;
+#[cfg(test)]
+use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -57,7 +59,7 @@ fn run_status(mut cmd: Command) -> i32 {
 }
 
 fn installed(bin: &Path) -> bool {
-    fs::metadata(bin).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+    tehas_core::file::runnable(bin)
 }
 
 pub struct Analytics {

@@ -5,10 +5,12 @@
 //! budget when GitHub says the rate is limited, `Unread(Inconsistent)` for
 //! any other. `items.rs`, which reads aliased questions alias by alias,
 //! applies its own form of it, an error naming its alias.
+//!
+//! [`Error`] is the adapter's one reading of an error of GraphQL's.
 
 use crate::rate;
-use serde::de::{DeserializeOwned, Deserializer, IgnoredAny};
-use serde::Deserialize;
+use serde::de::{DeserializeOwned, IgnoredAny};
+use serde::{Deserialize, Deserializer};
 use serde_json::Value;
 use tehas_ports::{Got, Outcome, Pool, Unread};
 
@@ -29,8 +31,6 @@ enum Errors {
 }
 
 /// One of GraphQL's `errors`: its type, and where in the answer it lies.
-/// The aliased readers of `items.rs` and `port/board/work.rs` name an
-/// error's item by its path; the rule above reads only its type.
 #[derive(Deserialize)]
 pub(crate) struct Error {
     #[serde(rename = "type", default)]
@@ -60,6 +60,18 @@ fn steps<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Step>, D::Error> {
     Ok(serde_json::from_value(Value::deserialize(d)?).unwrap_or_default())
 }
 
+/// The errors of the answer `out`, each that is an object: none for an
+/// answer that does not read or has none.
+pub(crate) fn errors(out: &str) -> Vec<Error> {
+    serde_json::from_str::<Value>(out.trim())
+        .ok()
+        .and_then(|v| v.get("errors").and_then(Value::as_array).cloned())
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|e| serde_json::from_value(e).ok())
+        .collect()
+}
+
 /// A spent budget of a GraphQL call is the priced pool's.
 pub(crate) fn priced(o: Outcome) -> Outcome {
     match o {
@@ -69,6 +81,20 @@ pub(crate) fn priced(o: Outcome) -> Outcome {
         },
         o => o,
     }
+}
+
+/// The outcome of an answer carrying `errors` at `now`: a spent priced
+/// budget held out by `rate` when GitHub says the rate is limited, else
+/// `Unread(Inconsistent)`.
+pub(crate) fn limited<'a>(errors: impl IntoIterator<Item = &'a Error>, now: i64) -> Outcome {
+    let limited = errors.into_iter().any(|e| e.is(rate::RATE_LIMITED));
+    rate::limited(
+        limited,
+        Pool::Priced,
+        now,
+        None,
+        Outcome::Unread(Unread::Inconsistent),
+    )
 }
 
 /// The outcome of the answer `out` when it carries errors, at `now`; None
@@ -87,14 +113,10 @@ pub(crate) fn refusal(out: &str, now: i64) -> Option<Outcome> {
     if head.errors.is_none() && v.get("errors").is_none_or(Value::is_null) {
         return None;
     }
-    let limited = match head.errors {
-        Some(Errors::List(all)) => all
-            .iter()
-            .any(|e| e.kind.as_deref() == Some(rate::RATE_LIMITED)),
-        _ => false,
-    };
-    let other = Outcome::Unread(Unread::Inconsistent);
-    Some(rate::limited(limited, Pool::Priced, now, None, other))
+    Some(match head.errors {
+        Some(Errors::List(all)) => limited(&all, now),
+        _ => Outcome::Unread(Unread::Inconsistent),
+    })
 }
 
 /// The part of the answer `out` at `at` (a JSON pointer), its logins

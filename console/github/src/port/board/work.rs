@@ -42,8 +42,8 @@ use crate::tickets::take;
 use crate::{markers, GitHub};
 use tehas_ports::{
     Blueprint, BoardAsk, Bound, ChangeDigest, ChangeNo, ChangeStates, Depth, Filter, Got, Happened,
-    HappenedKind, Mark, OpenWork, Outcome, Ticket, TicketEvent, TicketKey, Took, Unread, Whole,
-    Window, WorkItem,
+    HappenedKind, Mark, MarkId, OpenWork, Outcome, Ticket, TicketEvent, TicketKey, Took, Unread,
+    Whole, Window, WorkItem,
 };
 
 /// The open issues one page asks for, dispatch's `ISSUE_PAGE`. A page over
@@ -381,8 +381,8 @@ impl GitHub {
     ) -> Got<(Issues, HashMap<usize, Outcome>)> {
         let (out, failed) = match self.ask_answer("the open work", question, cursor) {
             Ok(out) => (out, None),
-            Err((e, Some(out))) => (out, Some(self.outcome(&e))),
-            Err((e, None)) => return Err(self.outcome(&e)),
+            Err((e, Some(out))) => (out, Some(self.outcome_queue_read(&e))),
+            Err((e, None)) => return Err(self.outcome_queue_read(&e)),
         };
         let fail = |or: Outcome| failed.clone().unwrap_or(or);
         let read = || -> Option<PageAnswer> {
@@ -428,13 +428,18 @@ impl GitHub {
         } = item;
         let no = key.same_item().ok_or(INCONSISTENT)?;
         let issue = no.get();
-        let carried: Vec<String> = node
-            .labels
-            .nodes
-            .iter()
-            .flatten()
-            .map(|l| l.name.clone())
-            .collect();
+        // The marks the ask reads no events of stand aside: the page
+        // vouches for the ticket without them, and they are not read
+        // again apart. The control ticket is asked about whatever it
+        // carries, as its own read is.
+        let is_control = ask.control.as_ref() == Some(key);
+        let mut carried: Vec<String> = Vec::new();
+        for l in node.labels.nodes.iter().flatten() {
+            if !is_control && self.is_not_read(&l.name, &ask.marks_not_read) {
+                continue;
+            }
+            carried.push(l.name.clone());
+        }
         let title = node.title.clone();
         let body = node.body.clone();
         let digest = self.digest_from(node)?;
@@ -453,7 +458,17 @@ impl GitHub {
             return Err(MALFORMED);
         }
         let mentioned_by = self.mentions_from(issue, mentions)?;
-        let history = self.history_of(key, issue, kinds, events, &carried, &digest.marks)?;
+        let marks: Vec<Mark> = if is_control {
+            digest.marks.clone()
+        } else {
+            digest
+                .marks
+                .iter()
+                .filter(|m| !ask.marks_not_read.contains(m))
+                .cloned()
+                .collect()
+        };
+        let history = self.history_of(key, issue, kinds, events, &carried, &marks)?;
         let changes = match ask.changes {
             None => not_read(),
             Some((_, window)) => self.closing(closing.ok_or(MALFORMED)?, window)?,
@@ -521,6 +536,7 @@ impl GitHub {
                     let mut event = TicketEvent::new(what);
                     event.by = e.actor.as_ref().and_then(|w| w.account(self.bot.as_ref()));
                     event.at = e.created_at.as_deref().map(time).transpose()?;
+                    event.mark_id = e.label.as_ref().and_then(|l| l.id.clone()).map(MarkId::new);
                     read.push(event);
                 }
                 order(&mut read);

@@ -217,9 +217,7 @@ impl Net for Children<'_> {
 /// One verb that fetches nothing, for a child that holds nothing: only
 /// PATH, to find timeout and the program.
 fn run_attach(program: &str, verb: &str, args: &[String]) -> Result<Value, Failure> {
-    let can_run =
-        fs::metadata(program).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0);
-    if !can_run {
+    if !tehas_core::file::runnable(Path::new(program)) {
         return Err(Failure {
             word: "absent",
             why: format!("attach: absent: {program} is not an executable file"),

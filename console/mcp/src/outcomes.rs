@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 use tehas_core::file::READ_BOUND;
 use tehas_core::snapshot::{API, OUTCOMES_SHAPE};
-use tehas_core::time::{civil_from_days, days_from_civil, week_start_of_day};
+use tehas_core::time::{civil_from_days, days_from_civil, from_iso, week_start_of_day};
 
 /// The shape of the entries, which the analytics program writes and this
 /// reader checks: `tehas_core::snapshot` holds the one number both sides use.
@@ -91,7 +91,7 @@ fn bound(args: &Args, key: &str) -> Result<Option<i64>, ToolError> {
 /// The header's own stale bound: the host writes the file once a day, so a
 /// day without it is a host that has not written it.
 fn file_stale(generated_at: &str, now: i64) -> bool {
-    tools::epoch(generated_at).is_none_or(|t| now - t > FILE_STALE_SECS)
+    from_iso(generated_at).is_none_or(|t| now - t > FILE_STALE_SECS)
 }
 
 /// The counts file the host writes to ~/tehas/mcp/outcomes.jsonl: a header

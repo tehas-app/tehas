@@ -809,6 +809,7 @@ impl World {
                 ids,
             }),
             code_host: fake.code_host(&by, c).unwrap(),
+            board: fake.board(&by, c).unwrap(),
         };
         let how = tehas_cycle::apply::How {
             repo: facts.repo.clone(),

@@ -21,12 +21,12 @@ use serde_json::Value;
 
 use super::unsupported;
 use crate::forge::uri;
-use crate::graphql::priced;
-use crate::{rate, GitHub};
+use crate::graphql::{self, priced};
+use crate::GitHub;
 use tehas_core::accounts;
 use tehas_ports::{
-    Account, AccountId, AccountKind, Got, Identity, Login, Outcome, Pool, ProjectName, Realm,
-    Refusal, Scope, Secret, SignInCode, SignInState, Standing, Token, Unread, WebLink,
+    Account, AccountId, AccountKind, Got, Identity, Login, Outcome, ProjectName, Realm, Refusal,
+    Scope, Secret, SignInCode, SignInState, Standing, Token, Unread, WebLink,
 };
 
 /// The question of who the token is. GraphQL's `viewer` answers for a
@@ -336,13 +336,8 @@ const MALFORMED: Outcome = Outcome::Unread(Unread::Malformed);
 /// rate is limited, `Unread(Inconsistent)` for any other.
 fn read_me(out: &str, now: i64) -> Got<(Login, u64)> {
     let mut v: Value = serde_json::from_str(out.trim()).map_err(|_| MALFORMED)?;
-    if let Some(errors) = v.get("errors").filter(|e| !e.is_null()) {
-        let limited = errors.as_array().is_some_and(|all| {
-            all.iter()
-                .any(|e| e.get("type").and_then(Value::as_str) == Some(rate::RATE_LIMITED))
-        });
-        let other = Outcome::Unread(Unread::Inconsistent);
-        return Err(rate::limited(limited, Pool::Priced, now, None, other));
+    if v.get("errors").is_some_and(|e| !e.is_null()) {
+        return Err(graphql::limited(&graphql::errors(out), now));
     }
     let viewer = v
         .pointer_mut("/data/viewer")

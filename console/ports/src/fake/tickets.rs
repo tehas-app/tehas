@@ -7,15 +7,15 @@ use super::site::{
     comments_of, digest, edit_markers, first, known_mark, list_order, matches, revision, text_of,
     whole, whole_kept, window, writable, Ctx, Handle,
 };
-use super::state::{Layout, State};
+use super::state::{ItemRec, Layout, State};
 use crate::{
-    AccountId, Applied, At, Blocker, BlockerState, Bound, ChangeState, ChangeToken, CloseReason,
-    Closed, ClosedTicket, Closer, Comment, CommentId, Cursor, Depth, Did, Edit, Filed, Filter, Got,
-    Happened, HappenedKind, Item, Kind, Mark, MarkHeld, MarkSpec, Marker, MarkerEdit, MarkerKey,
-    MarkerKind, NewTicket, Outcome, Part, Pool, Posted, Priority, Ref, Refusal, Step, StepPart,
-    Target, TargetEdit, TargetId, Ticket, TicketChange, TicketDelta, TicketDigest, TicketEvent,
-    TicketKey, TicketWrites, Tickets, Took, Unprepared, WebLink, Whole, Window, WithCloser, Within,
-    Write,
+    AccountId, Applied, At, Blocker, BlockerState, Bound, ChangeDigest, ChangeState, ChangeToken,
+    CloseReason, Closed, ClosedTicket, Closer, Comment, CommentId, Cursor, Depth, Did, Edit, Filed,
+    Filter, Got, Happened, HappenedKind, Item, Kind, Mark, MarkHeld, MarkSpec, Marker, MarkerEdit,
+    MarkerKey, MarkerKind, NewTicket, Outcome, Part, Pool, Posted, Priority, Ref, Refusal, Step,
+    StepPart, Target, TargetEdit, TargetId, Ticket, TicketChange, TicketDelta, TicketDigest,
+    TicketEvent, TicketKey, TicketWrites, Tickets, Took, Unprepared, WebLink, Whole, Window,
+    WithCloser, Within, Write,
 };
 
 fn at_ticket(s: &State, key: &TicketKey) -> Got<usize> {
@@ -123,26 +123,29 @@ fn closed_tickets(s: &State, when: impl Fn(At) -> bool) -> Vec<ClosedTicket> {
         .filter_map(|d| {
             let at = s.ticket_at(&d.key)?;
             let item = &s.items[at];
-            let merged = match (s.layout, item.blueprint) {
-                (Layout::SameItem, Some(no)) => s
-                    .changes
-                    .iter()
-                    .filter(|c| {
-                        c.closes.contains(&no) && matches!(c.state, ChangeState::Merged { .. })
-                    })
-                    .map(|c| super::code_host::change_digest(s, c, false))
-                    .collect(),
-                _ => Vec::new(),
-            };
             Some(ClosedTicket {
                 closed: item.closed?,
                 closer: item.closer.clone(),
                 part_count: item.parts.len() as u32,
-                merged,
+                merged: merged_closing(s, item),
                 digest: d,
             })
         })
         .collect()
+}
+
+/// The merged changes that close a ticket, where ticket and blueprint are
+/// one item: elsewhere the tickets are not on the code host.
+fn merged_closing(s: &State, item: &ItemRec) -> Vec<ChangeDigest> {
+    match (s.layout, item.blueprint) {
+        (Layout::SameItem, Some(no)) => s
+            .changes
+            .iter()
+            .filter(|c| c.closes.contains(&no) && matches!(c.state, ChangeState::Merged { .. }))
+            .map(|c| super::code_host::change_digest(s, c, false))
+            .collect(),
+        _ => Vec::new(),
+    }
 }
 
 /// The notes of a ticket: its own where ticket and blueprint are apart,
@@ -343,7 +346,10 @@ impl Tickets for Handle {
             let item = &s.items[at];
             let digest = digest(s, item).ok_or(Outcome::NotFound)?;
             let mut with = WithCloser::new(digest);
-            with.closer = if item.open { None } else { item.closer.clone() };
+            if !item.open {
+                with.closer = item.closer.clone();
+                with.merged = merged_closing(s, item);
+            }
             Ok(with)
         })
     }

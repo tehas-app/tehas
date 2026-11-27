@@ -77,6 +77,26 @@ and `from-1.fail`.
 | `what/limited/from-3.answer.json` | `data` as it is; `errors` one RATE_LIMITED error with no `path`. A spent budget cannot be made on demand and no real one is recorded, so the message is GitHub's documented text with no account id |
 | `what/limited/from-3.fail` | `from-1.fail` as it is |
 
+## The whole ticket read, cut to the depth that asks no history
+
+The `Cut` ticket read asks no milestone and no history page, so its
+question is a subset of the whole read's and the kit recorded only the
+whole one: GitHub answers only what a question asks, and the cut
+question was not asked of the live site. Each file is the issue's
+recorded ticket answer with those two keys dropped from the issue node.
+
+| File | Source and change |
+| --- | --- |
+| `issue-27/ticket-cut.json` | `recorded/issue-27/ticket.json`: `milestone` and `events` dropped from the issue node |
+| `issue-28/ticket-cut.json` | `recorded/issue-28/ticket.json`: `milestone` and `events` dropped from the issue node |
+| `issue-30/ticket-cut.json` | `recorded/issue-30/ticket.json`: `milestone` and `events` dropped from the issue node |
+
+## A live parent answer for the fixture project
+
+| File | Source and change |
+| --- | --- |
+| `issue-21/parent.json` | Byte for byte the kit run #1 (beta2b, 2026-11-26) recording `recorded/issue-28/parent.json` of the parents' question, manifest `beta2b-manifest.sha256` sha256 `d7b1c28605aba6491a50c27d40e91cc0fdb76e7c4d1df4b2274895e97b62239b`: nothing changed. tehas-a4's ruling of 2026-11-26: the stub of 21's parent is a real recorded answer, never a hand-renumbered one. The hand-made `recorded/issue-21/parent.json` it replaces is removed |
+
 ## A body that is not JSON
 
 These are not GitHub's answers: they stand for a body gh hands back that

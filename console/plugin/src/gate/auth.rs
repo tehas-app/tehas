@@ -9,7 +9,6 @@
 //! When that name has a session it makes a [`Code`] for the ask: one use, 60
 //! seconds, for that plugin's name and the nonce's hash only.
 
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::io::Read;
 use tehas_ports::Account;
@@ -98,7 +97,7 @@ fn hex(b: &[u8]) -> String {
 }
 
 pub fn sha256(text: &str) -> String {
-    hex(&Sha256::digest(text.as_bytes()))
+    tehas_core::sum::sha256_hex(text.as_bytes())
 }
 
 /// Whether `s` is one of [`random`]'s or [`sha256`]'s values.

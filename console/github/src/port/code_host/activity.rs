@@ -6,15 +6,14 @@
 //! hundred items for each hundred asked.
 
 use serde::Deserialize;
-use serde_json::Value;
 
 use super::change::answer;
-use crate::graphql::priced;
+use crate::graphql::{self, priced};
 use crate::ticket::{Info, Pages, PAGES_MAX};
 use crate::tickets::{account, take};
-use crate::{gh, rate, ForgeError, GitHub};
+use crate::{gh, ForgeError, GitHub};
 use tehas_ports::{
-    Account, At, Branch, ChangeEvent, ChangeHappened, ChangeNo, CommitId, Got, Outcome, Pool, Took,
+    Account, At, Branch, ChangeEvent, ChangeHappened, ChangeNo, CommitId, Got, Outcome, Took,
     Unread, Window, ALL_MAX,
 };
 
@@ -387,19 +386,10 @@ impl GitHub {
         path: &str,
     ) -> Outcome {
         if let Some(said) = said.filter(|s| !s.trim().is_empty()) {
-            let types: Vec<String> = serde_json::from_str::<Value>(said.trim())
-                .ok()
-                .and_then(|v| v.get("errors").and_then(Value::as_array).cloned())
-                .unwrap_or_default()
-                .iter()
-                .filter_map(|e| e.get("type").and_then(Value::as_str).map(str::to_string))
-                .collect();
-            return if types.iter().any(|t| t == rate::RATE_LIMITED) {
-                rate::spent(Pool::Priced, (self.now)(), None)
-            } else if types.iter().any(|t| t == "NOT_FOUND") {
-                Outcome::NotFound
-            } else {
-                INCONSISTENT
+            let errors = graphql::errors(said);
+            return match graphql::limited(&errors, (self.now)()) {
+                Outcome::Unread(_) if errors.iter().any(|e| e.is("NOT_FOUND")) => Outcome::NotFound,
+                o => o,
             };
         }
         if e.why.trim_start_matches(": ") != "gh exited 1" {

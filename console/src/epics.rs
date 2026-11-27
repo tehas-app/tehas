@@ -333,6 +333,25 @@ mod tests {
         assert_eq!(list[0]["subIssues"], json!([]));
     }
 
+    // The file is tehas's own output: its bytes are pinned, so a move of the
+    // read behind it changes none.
+    #[test]
+    fn the_file_keeps_its_bytes() {
+        let mut other = sub(3, "CLOSED");
+        other["repository"]["nameWithOwner"] = json!("acme/secret");
+        let mut unlinked = issue(13, 0, 0, vec![]);
+        unlinked["labels"] = json!({"nodes": [{"name": EPIC_LABEL}]});
+        let nodes = [
+            issue(10, 3, 2, vec![sub(11, "CLOSED"), sub(12, "OPEN"), other]),
+            unlinked,
+            issue(14, 1, 0, vec![sub(15, "OPEN")]),
+        ];
+        assert_eq!(
+            format!("{}\n", epics(REPO, &nodes, "2026-10-29T10:00:00Z")),
+            include_str!("../tests/fixtures/epics/epics.json")
+        );
+    }
+
     #[test]
     fn every_page_is_read_with_the_cursor_of_the_one_before() {
         let mut asked = Vec::new();
