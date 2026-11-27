@@ -673,7 +673,9 @@ pub trait Tickets: Reports + Cites {
     /// its history, and None while it is open or where the site names
     /// nothing. With it the merged changes of this project the site lists
     /// as closing it, as `closed_since` lists them, empty while it is
-    /// open. A key that names a change is `NotFound`, as in `several`.
+    /// open. The read of them can fail `Unread(Cut)` past twenty listed or
+    /// `Unread(Inconsistent)` on a disagreeing count, as in `closed_since`.
+    /// A key that names a change is `NotFound`, as in `several`.
     fn several_with_closers(&mut self, keys: &[TicketKey]) -> Vec<(TicketKey, Got<WithCloser>)>;
     /// A ticket's history, oldest first: the events of the kinds in
     /// `only`, or every event for None. The window counts the events taken.

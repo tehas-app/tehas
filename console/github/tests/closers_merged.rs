@@ -4,7 +4,10 @@
 //! `tests/recorded/closers/b52-several-947.json` is what gh answered to
 //! the adapter's question and is never edited; the closed-since answer
 //! beside it, `b52-since-947.json`, is that recording's own node with its
-//! close time, so the two reads of the law answer the same issue.
+//! close time, so the two reads of the law answer the same issue. The
+//! hand-made derived `b52-open-951.json` is that node reopened: an open
+//! issue with a listed-changes answer, for the state gate of
+//! `with_closer`.
 
 use std::num::NonZeroU64;
 use std::path::PathBuf;
@@ -40,6 +43,8 @@ impl GhRunner for B52 {
         let last = asked.last().map(String::as_str).unwrap_or_default();
         let file = if last.contains("i947: issue(number: 947)") {
             "b52-several-947.json"
+        } else if last.contains("i951: issue(number: 951)") {
+            "b52-open-951.json"
         } else if last.contains("since: $since") {
             "b52-since-947.json"
         } else {
@@ -105,6 +110,23 @@ fn the_recording_closes_947_by_a_commit_beside_a_merged_change() {
     assert!(matches!(change.state, ChangeState::Merged { .. }));
     let size = change.size.as_ref().unwrap();
     assert_eq!((size.files, size.added, size.deleted), (6, 1622, 0));
+}
+
+/// An open ticket keeps the list empty without reading it, as the port
+/// docs and the fake hold it: GitHub lists a merged change as closing an
+/// issue reopened after it. The hand-made derived `b52-open-951.json`
+/// lists two changes and holds one, so reading the list at all would
+/// fail the read; the answer is `Ok` with the list empty and no closer.
+#[test]
+fn an_open_ticket_reads_no_merged_changes() {
+    let (mut gh, _) = adapter();
+    let got = gh.several_with_closers(&[key(951)]);
+    let (k, answer) = &got[0];
+    assert_eq!(*k, key(951));
+    let with = answer.as_ref().unwrap();
+    assert_eq!(with.digest.state, TicketState::Open);
+    assert_eq!(with.closer, None, "a reopened issue is not closed");
+    assert!(with.merged.is_empty(), "open keeps the list empty");
 }
 
 /// The question the recording answers is the question the adapter asks:

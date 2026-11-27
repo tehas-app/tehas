@@ -180,16 +180,23 @@ impl GitHub {
 
     /// One issue's digest, closer and merged changes, of the number asked.
     /// A response of a question that did not ask for the listed changes
-    /// names none.
+    /// names none. An open ticket keeps the list empty without reading it:
+    /// GitHub lists a merged change as closing an issue reopened after
+    /// the merge, and `WithCloser.merged` is empty while the ticket is
+    /// open, as the fake holds it.
     fn with_closer(&mut self, asked: u64, read: WithClose) -> Got<WithCloser> {
         if read.node.number != Some(asked) {
             return Err(INCONSISTENT);
         }
         let digest = self.digest_from(read.node)?;
         let closer = self.newest_closer(&digest.state, read.closes)?;
-        let merged = match read.closed_by_pull_requests_references {
-            Some(refs) => self.merged_here(refs)?,
-            None => Vec::new(),
+        let merged = if digest.state == TicketState::Open {
+            Vec::new()
+        } else {
+            match read.closed_by_pull_requests_references {
+                Some(refs) => self.merged_here(refs)?,
+                None => Vec::new(),
+            }
         };
         let mut with = WithCloser::new(digest);
         with.closer = closer;
