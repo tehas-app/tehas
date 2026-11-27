@@ -31,3 +31,5 @@
 /tools/vendor-solid/target/
 # The report lean's roster writes at the tree's root (.pi/work.json verify.roster).
 /.lean-roster-report.xml
+
+__pycache__/
