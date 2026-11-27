@@ -156,7 +156,8 @@ impl Replay {
         for no in &asked {
             let at = answers::find(&format!("issue-{no}"), "parent.json")
                 .unwrap_or_else(|| panic!("no recording of the parents' question of {no}"));
-            let text = std::fs::read_to_string(&at).unwrap_or_else(|e| panic!("{}: {e}", at.display()));
+            let text =
+                std::fs::read_to_string(&at).unwrap_or_else(|e| panic!("{}: {e}", at.display()));
             held.extend(
                 asked
                     .iter()
@@ -228,8 +229,8 @@ impl GhRunner for Replay {
             _ => return Err(none()),
         };
         if let Some(at) = answers::find(&dir, &format!("{name}.json")) {
-            let out = std::fs::read_to_string(&at)
-                .unwrap_or_else(|e| panic!("{}: {e}", at.display()));
+            let out =
+                std::fs::read_to_string(&at).unwrap_or_else(|e| panic!("{}: {e}", at.display()));
             return Ok(out);
         }
         match answers::find(&dir, &format!("{name}.fail")) {

@@ -46,8 +46,5 @@ fn a_listed_login_without_its_recorded_id_is_vouched_for_nowhere() {
     // and the file said 999: it reads tagged, in every place, and no
     // read says plain `janit` anymore.
     assert!(!logins.iter().any(|l| l == "janit"), "{logins:?}");
-    assert!(
-        logins.iter().all(|l| l == "janit#198965"),
-        "{logins:?}"
-    );
+    assert!(logins.iter().all(|l| l == "janit#198965"), "{logins:?}");
 }
