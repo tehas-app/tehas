@@ -846,6 +846,7 @@ fn body(
         models: crate::read::models::Models::read(),
         endpoint: (String::new(), String::new()),
         code_host: None,
+        blueprints: None,
         board: None,
         tickets: None,
         mark_name,
@@ -857,11 +858,12 @@ fn body(
     src.calls.gh_token = w.calls.gh_token.clone().or_else(|| token.get(home));
     // The queue read goes through the ports: the board's open work, the
     // tickets' marks, types and closed running issues, and the code host's
-    // open pull requests, which the branch's check also reads. The handles
-    // come from the same wiring as the writes', with the same token, and
-    // their calls are counted with theirs in the poll's cost. Wiring that
-    // cannot make them leaves the board unread, and the poll fails closed on
-    // the queue read rather than decide from an empty one.
+    // open pull requests, which the branch's check also reads. The bodies'
+    // edit histories read through the blueprints port. The handles come from
+    // the same wiring as the writes', with the same token, and their calls
+    // are counted with theirs in the poll's cost. Wiring that cannot make
+    // them leaves the board unread, and the poll fails closed on the queue
+    // read rather than decide from an empty one.
     {
         let gh_token = src.calls.gh_token.as_deref();
         let calls = w.port_calls.clone();
@@ -869,6 +871,7 @@ fn body(
             src.code_host = Some(h.code_host);
             src.board = Some(h.board);
             src.tickets = Some(h.tickets);
+            src.blueprints = Some(h.blueprints);
         }
     }
     let snap = snapshot(&mut src, settings);

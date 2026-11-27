@@ -1816,7 +1816,8 @@ pub mod blueprints {
     /// `body_edits_of` and `comment_edits_of` give, in the order asked,
     /// what `body_edits` and `comment_edits` give for each at `bound`, so a
     /// number or an id the site does not know fails alone and the bound
-    /// holds for each item, not for the read. The fixture's `nos` and `ids`
+    /// holds for each item, not for the read; `body_edits_together` gives
+    /// the same, as `Ok`. The fixture's `nos` and `ids`
     /// hold edited, unknown and repeated ones; run it at a bound some item
     /// passes too.
     pub fn several_edits_are_each_ones(
@@ -1830,6 +1831,10 @@ pub mod blueprints {
         let several = h.body_edits_of(nos, bound);
         hold(several == each, LAW, || {
             format!("body_edits_of gave {several:?}, one by one {each:?}")
+        })?;
+        let together = h.body_edits_together(nos, bound);
+        hold(together.as_ref().is_ok_and(|t| *t == each), LAW, || {
+            format!("body_edits_together gave {together:?}, one by one {each:?}")
         })?;
         let each: Vec<_> = ids
             .iter()

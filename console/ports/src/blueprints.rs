@@ -253,6 +253,19 @@ pub trait Blueprints: Reports + Cites {
             .map(|&no| (no, self.body_edits(no, bound)))
             .collect()
     }
+    /// `body_edits_of`, but a failure the site names no one number for,
+    /// the project's among them, fails the read: `Err`, where
+    /// `body_edits_of` gives it to each number. A caller that holds one
+    /// item on that item's failure tells the two apart by this. The
+    /// default asks `body_edits_of`, so no failure is the read's
+    /// (Decided 131).
+    fn body_edits_together(
+        &mut self,
+        nos: &[BlueprintNo],
+        bound: Bound,
+    ) -> Got<Vec<(BlueprintNo, Got<Whole<Edit>>)>> {
+        Ok(self.body_edits_of(nos, bound))
+    }
     /// The edits of several comments, as `body_edits_of` for bodies.
     fn comment_edits_of(
         &mut self,
