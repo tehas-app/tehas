@@ -58,6 +58,7 @@ use tehas_core::hold;
 use tehas_core::home::{Home, Live, State};
 use tehas_core::queue_lists;
 use tehas_core::time;
+use tehas_core::verb::{Plans, Verb};
 
 /// A queue snapshot older than this is not news.
 const QUEUE_MAX_AGE: i64 = 600;
@@ -286,12 +287,13 @@ fn refused_publish(no: &Refusal) -> u8 {
 /// tries could reach that bound and leave no file at all: the earlier of the
 /// three tries and the budget is what answers.
 fn publish_health(home: &Path, file: &Path, budget: Duration) -> Result<(), Refusal> {
-    let arg = file.display().to_string();
-    let args = ["publish", "--health", arg.as_str()];
+    let publish = Verb::Publish {
+        health: Some(file.display().to_string()),
+    };
     let began = Instant::now();
     let mut tries = 1;
     loop {
-        let err = match store::call(home, &args) {
+        let err = match store::call(home, &publish) {
             Ok(_) => return Ok(()),
             Err(no) => no,
         };
@@ -318,8 +320,8 @@ fn publish_health(home: &Path, file: &Path, budget: Duration) -> Result<(), Refu
 fn checks(home: &Path, budget: &str, systemctl: &Path, settings: &Settings) -> Result<Given, u8> {
     // Each ask ends the run with the status of its refusal, which is the
     // status of the step and not of a later one.
-    let ask = |step: Step, args: &[&str]| -> Result<Option<Value>, u8> {
-        match store::call(home, args) {
+    let ask = |step: Step, verb: Verb| -> Result<Option<Value>, u8> {
+        match store::call(home, &verb) {
             Ok(v) => Ok(Some(v)),
             // A read the report can go without: its own entry is what is left
             // out, and the line says the read did not answer. Only a store
@@ -344,16 +346,19 @@ fn checks(home: &Path, budget: &str, systemctl: &Path, settings: &Settings) -> R
     };
     // The whole answer, which is what `--sessions` of `report` was given by
     // the shell: the report reads the sessions out of it.
-    let sessions = ask(Step::PlanShow, &["plan-show", "--open"])?
+    let sessions = ask(Step::PlanShow, Verb::PlanShow(Plans::Open))?
         .map(|v| v.to_string())
         .unwrap_or_else(|| "null".to_string());
-    ask(Step::Publish, &["publish"])?;
+    ask(Step::Publish, Verb::Publish { health: None })?;
     // The whole answer of the read of the newest copy, which is what
     // `--backup` of `report` was given by the shell.
-    let backup = ask(Step::Backup, &["backup", "--show"])?.map(|v| v.to_string());
+    let backup = ask(Step::Backup, Verb::BackupShow)?.map(|v| v.to_string());
     let idle = ask(
         Step::PollIdle,
-        &["poll-idle", "--since", "3600", "--budget", budget],
+        Verb::PollIdle {
+            since: 3600,
+            budget: budget.to_string(),
+        },
     )?;
     let over = idle.as_ref().map(|v| v["over"].to_string());
     // The shell's `tehas_store_get .over` of a read that answered is the empty
@@ -1662,7 +1667,7 @@ fn order(home: &Path) -> J {
     let r = if !store::ready(home) {
         Reading::None
     } else {
-        match store::call(home, &["order-show"]) {
+        match store::call(home, &Verb::OrderShow) {
             Ok(v) => v
                 .get("order")
                 .map(Reading::of)
