@@ -304,9 +304,11 @@ impl Home {
         self.root.join(CYCLES)
     }
 
-    /// `state/cycles/<issue>.<note>`.
-    pub fn cycle_note(&self, issue: impl Into<i128>, note: &str) -> PathBuf {
+    /// `state/cycles/<issue>.<note>`, the note named by
+    /// `crate::cycle_notes::Note`.
+    pub fn cycle_note(&self, issue: impl Into<i128>, note: impl AsRef<str>) -> PathBuf {
         let issue = issue.into();
+        let note = note.as_ref();
         self.cycles_dir().join(format!("{issue}.{note}"))
     }
 

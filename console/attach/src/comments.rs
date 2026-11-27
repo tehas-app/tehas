@@ -8,7 +8,6 @@
 
 use regex::Regex;
 use serde_json::{json, Map, Value};
-use sha2::{Digest, Sha256};
 use std::sync::LazyLock;
 
 /// Each item's text, in characters, and the whole blob, in bytes.
@@ -143,10 +142,7 @@ pub fn blob(record: &Value, issue: u64, repo: &str) -> Option<Blob> {
             if items.is_empty() {
                 return None;
             }
-            let sha256 = Sha256::digest(text.as_bytes())
-                .iter()
-                .map(|b| format!("{b:02x}"))
-                .collect();
+            let sha256 = tehas_core::sum::sha256_hex(text.as_bytes());
             return Some(Blob {
                 bytes: text.len(),
                 sha256,

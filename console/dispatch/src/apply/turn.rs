@@ -217,7 +217,7 @@ impl Writer {
                 if let Some(at) = a
                     .get("at")
                     .and_then(Value::as_str)
-                    .and_then(tehas_core::limit::epoch)
+                    .and_then(tehas_core::time::from_iso_jq)
                 {
                     pending = tehas_core::raise::acted(
                         n,

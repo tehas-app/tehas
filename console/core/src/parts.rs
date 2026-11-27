@@ -13,6 +13,7 @@
 //! The spec is docs/specs/2026-11-21-part-commands.md.
 
 use std::ffi::OsStr;
+#[cfg(test)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
@@ -50,7 +51,7 @@ pub fn find(word: &str, path: Option<&OsStr>, skip: &[PathBuf]) -> Option<PathBu
         .filter(|dir| dir.is_absolute())
         .filter(|dir| !skip.iter().any(|s| same_dir(s, dir)))
         .map(|dir| dir.join(&program))
-        .find(|p| is_executable(p))
+        .find(|p| crate::file::runnable(p))
 }
 
 /// The parts found on `path`, by name, sorted, each once: for the usage.
@@ -78,10 +79,6 @@ pub fn list(path: Option<&OsStr>, skip: &[PathBuf]) -> Vec<String> {
 
 fn same_dir(a: &Path, b: &Path) -> bool {
     a == b || matches!((a.canonicalize(), b.canonicalize()), (Ok(x), Ok(y)) if x == y)
-}
-
-fn is_executable(p: &Path) -> bool {
-    std::fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
 }
 
 #[cfg(test)]
