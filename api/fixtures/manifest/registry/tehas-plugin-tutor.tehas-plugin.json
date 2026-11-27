@@ -1,0 +1,14 @@
+{
+  "plugin": 2,
+  "spec": "2.0.0-r8",
+  "name": "tutor",
+  "label": "Course",
+  "asks": [
+    "skill:course",
+    "skill:levels"
+  ],
+  "skills": [
+    "skills/course/SKILL.md",
+    "skills/levels/SKILL.md"
+  ]
+}

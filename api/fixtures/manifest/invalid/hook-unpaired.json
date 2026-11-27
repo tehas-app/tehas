@@ -1,0 +1,13 @@
+{
+  "plugin": 2,
+  "spec": "2.0.0-r8",
+  "name": "floorplan",
+  "label": "Floorplan",
+  "asks": [],
+  "hooks": [
+    {
+      "at": "hook:after:change.offered",
+      "entry": "dist/hook/change.js"
+    }
+  ]
+}

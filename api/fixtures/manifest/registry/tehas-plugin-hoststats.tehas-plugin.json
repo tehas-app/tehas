@@ -1,0 +1,33 @@
+{
+  "plugin": 2,
+  "spec": "2.0.0-r8",
+  "name": "hoststats",
+  "label": "Host",
+  "runtime": "starlingmonkey",
+  "timeout": 120,
+  "asks": [
+    "view:host",
+    "feed:host",
+    "action:refresh"
+  ],
+  "driver": "dist/driver/main.js",
+  "actions": {
+    "refresh": {
+      "label": "Refresh",
+      "args": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    }
+  },
+  "views": [
+    {
+      "id": "host",
+      "entry": "dist/view/index.html",
+      "open": "dock"
+    }
+  ],
+  "vendor": {},
+  "solid": "2.0.3"
+}

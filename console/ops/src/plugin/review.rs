@@ -12,7 +12,7 @@ use tehas_core::models::ModelFile;
 use tehas_core::plugin::review::{
     base_changes, changes, does, grants_line, is_here, url_host, warnings,
 };
-use tehas_core::plugin::{ask, Grants, Pin};
+use tehas_core::plugin::{ask_v2, Grants, Pin};
 
 /// Where a plugin's model runs: the product model's provider, the one the
 /// cycle's main role uses, PI_ENSEMBLE_SUBAGENT_PROVIDER, which every role
@@ -116,7 +116,7 @@ impl Review {
 
     /// Whether the line grants `word` at this commit.
     fn granted(&self, word: &str) -> bool {
-        let Ok(cap) = ask(word) else { return false };
+        let Ok(cap) = ask_v2(word) else { return false };
         self.grants
             .as_ref()
             .is_some_and(|g| g.commit == self.commit && g.caps.contains(&cap))
@@ -128,7 +128,7 @@ impl Review {
         let Some(g) = self.grants.as_ref().filter(|g| g.commit == self.commit) else {
             return Vec::new();
         };
-        let asked: Vec<_> = self.asks().iter().filter_map(|a| ask(a).ok()).collect();
+        let asked: Vec<_> = self.asks().iter().filter_map(|a| ask_v2(a).ok()).collect();
         g.caps
             .iter()
             .zip(&g.words)
@@ -173,14 +173,14 @@ impl Review {
             pin: &self.pin.commit,
             manifest_sha256: &self.reading.sha256,
             label: m.map(|m| m.label.as_str()),
-            license: m.and_then(|m| m.license.as_deref()),
-            build: m.and_then(|m| m.build.as_deref()),
+            license: m.and_then(|m| m.v1.license.as_deref()),
+            build: m.and_then(|m| m.v1.build.as_deref()),
             asks: self
                 .asks()
                 .iter()
                 .map(|a| Asked {
                     ask: a,
-                    does: ask(a).map(|c| does(&c)).unwrap_or(""),
+                    does: ask_v2(a).map(|c| does(&c)).unwrap_or(""),
                     granted: self.granted(a),
                 })
                 .collect(),
@@ -220,7 +220,7 @@ impl Review {
             out.push(format!(
                 "label: {}; license: {}",
                 m.label,
-                m.license.as_deref().unwrap_or("not given")
+                m.v1.license.as_deref().unwrap_or("not given")
             ));
         }
         let refusals = self.refusals();
@@ -239,7 +239,7 @@ impl Review {
             out.push("  nothing".to_string());
         }
         for a in self.asks() {
-            let what = ask(a).map(|c| does(&c)).unwrap_or("");
+            let what = ask_v2(a).map(|c| does(&c)).unwrap_or("");
             let state = if self.granted(a) {
                 "granted"
             } else {
@@ -252,7 +252,7 @@ impl Review {
                 "  {u} is granted and not asked for: it gives nothing"
             ));
         }
-        match m.and_then(|m| m.build.as_deref()) {
+        match m.and_then(|m| m.v1.build.as_deref()) {
             None => out.push("build: none, so no image and no runs".to_string()),
             Some(file) => {
                 out.push(format!("build: {file}, base images:"));
@@ -337,7 +337,13 @@ pub fn review(x: &mut dyn Exec, g: &Given, pin: &Pin, commit: &str) -> Result<Re
     let model = reading
         .manifest
         .as_ref()
-        .is_some_and(|m| m.asks.iter().any(|a| a == "model"))
+        // 2.x names its model asks `model:<tokens>` and `model:images`;
+        // 1.x said `model`. Any of them puts a run on the model socket.
+        .is_some_and(|m| {
+            m.asks
+                .iter()
+                .any(|a| a == "model" || a.starts_with("model:"))
+        })
         .then(|| endpoint(g));
     Ok(Review {
         pin: pin.clone(),
@@ -352,8 +358,8 @@ pub fn review(x: &mut dyn Exec, g: &Given, pin: &Pin, commit: &str) -> Result<Re
 
 #[cfg(test)]
 mod tests {
-    use super::super::exec::fake::{fails, ok};
-    use super::super::prepare::tests::{commit_files, dockerfile, good, manifest, pin, C, NODE};
+    use super::super::exec::fake::fails;
+    use super::super::prepare::tests::{commit_files, good, manifest, pin, C};
     use super::*;
     use serde_json::{json, Value};
     use std::collections::BTreeMap;
@@ -384,15 +390,13 @@ mod tests {
 
     #[test]
     fn a_review_of_the_pin_says_each_ask_and_the_line_to_write() {
-        let m = manifest(r#""view", "product", "model", "action:refresh""#).replace(
-            r#""timeout": 3600"#,
-            r#""timeout": 3600, "license": "Apache-2.0", "view": {"label": "Floorplan"}, "actions": [{"id": "refresh", "label": "Refresh"}]"#,
-        );
-        let d = dockerfile();
-        let (home, mut x) = good(
-            "review-pin",
-            &[("tehas-plugin.json", &m), ("Dockerfile", &d)],
-        );
+        let m = json!({
+            "plugin": 2, "spec": "2.0.0-r8", "name": "floorplan", "label": "Floorplan",
+            "asks": ["view", "product", "model:2000000", "action:refresh"],
+            "actions": {"refresh": {"label": "Refresh"}}
+        })
+        .to_string();
+        let (home, mut x) = good("review-pin", &[("tehas-plugin.json", &m)]);
         let get = vars(&[
             (
                 "TEHAS_PLUGIN_GRANTS_FLOORPLAN",
@@ -416,10 +420,11 @@ mod tests {
         assert!(r.refusals().is_empty(), "{:?}", r.refusals());
         let typed = r.answer();
         assert_eq!(typed.label, Some("Floorplan"));
-        assert_eq!(typed.license, Some("Apache-2.0"));
+        assert_eq!(typed.license, None, "the 2.2 table carries no license");
+        assert!(typed.bases.is_empty(), "a 2.2 manifest has no build");
         assert_eq!(
             typed.asks.iter().map(|a| a.ask).collect::<Vec<_>>(),
-            ["view", "product", "model", "action:refresh"]
+            ["view", "product", "model:2000000", "action:refresh"]
         );
         assert_eq!(typed.unasked, ["hook:after:change.offered"]);
         let text = r.json().unwrap();
@@ -436,7 +441,6 @@ mod tests {
         ));
         assert!(text.contains(&"model: provider local at 127.0.0.1, on this host".to_string()));
         assert!(!text.iter().any(|l| l.contains("provider far")));
-        assert!(text.contains(&format!("  {NODE}")));
         assert!(text.contains(&format!(
             "  TEHAS_PLUGIN_GRANTS_FLOORPLAN=\"{C} view product model:2000000 action:refresh\""
         )));
@@ -448,12 +452,8 @@ mod tests {
 
     #[test]
     fn the_model_is_the_product_models_provider_here_or_elsewhere() {
-        let m = manifest(r#""model""#);
-        let d = dockerfile();
-        let (home, mut x) = good(
-            "review-model",
-            &[("tehas-plugin.json", &m), ("Dockerfile", &d)],
-        );
+        let m = manifest(r#""model:2000000""#);
+        let (home, mut x) = good("review-model", &[("tehas-plugin.json", &m)]);
         let get = vars(&[
             ("PI_ENSEMBLE_SUBAGENT_PROVIDER", "far"),
             ("PI_ENSEMBLE_PROVIDER_DEVELOPER", "local"),
@@ -479,10 +479,7 @@ mod tests {
             .text()
             .contains(&"model: provider far at llm.example, on another host".to_string()));
         let none = manifest(r#""product""#);
-        let (home, mut x) = good(
-            "review-nomodel",
-            &[("tehas-plugin.json", &none), ("Dockerfile", &d)],
-        );
+        let (home, mut x) = good("review-nomodel", &[("tehas-plugin.json", &none)]);
         let g = Given { home: &home, ..g };
         let r = review(&mut x, &g, &pin(C), C).unwrap();
         assert!(r.answer().model.is_none());
@@ -494,17 +491,9 @@ mod tests {
     fn a_review_of_another_commit_says_what_changed_since_the_pin() {
         let (home, mut x) = good("review-other", &[]);
         let old = manifest(r#""product""#);
-        let new = manifest(r#""product", "model""#);
-        let d = dockerfile();
+        let new = manifest(r#""product", "model:2000000""#);
         for (c, m) in [(C, &old), (D, &new)] {
-            commit_files(
-                &mut x,
-                c,
-                &[
-                    ("tehas-plugin.json", m.as_str()),
-                    ("Dockerfile", d.as_str()),
-                ],
-            );
+            commit_files(&mut x, c, &[("tehas-plugin.json", m.as_str())]);
         }
         let get = vars(&[("TEHAS_PLUGIN_GRANTS_FLOORPLAN", &format!("{C} product"))]);
         let models = ModelFile { json: Value::Null };
@@ -517,7 +506,7 @@ mod tests {
         let r = review(&mut x, &g, &pin(C), D).unwrap();
         assert_eq!(
             r.changes.as_deref(),
-            Some(&["asks for model, which the pin does not".to_string()][..])
+            Some(&["asks for model:2000000, which the pin does not".to_string()][..])
         );
         let text = r.text();
         assert!(text.contains(&format!(
@@ -538,15 +527,14 @@ mod tests {
             .all(|a| a["granted"] == false));
     }
 
+    /// The refused sample is what a commit that breaks a rule looks like:
+    /// a reason named, the other fields still there. The ONBUILD base is no
+    /// longer reachable, as a 2.2 manifest names no build (R9 takes the
+    /// bases out of the answer).
     #[test]
-    fn a_refused_commit_names_why_and_an_onbuild_base_is_named() {
-        let m = manifest(r#""product""#);
-        let d = dockerfile();
-        let (home, mut x) = good(
-            "review-onbuild",
-            &[("tehas-plugin.json", &m), ("Dockerfile", &d)],
-        );
-        x.on("{{json .Config.OnBuild}}", ok("[\"RUN make\"]"));
+    fn a_refused_commit_names_why_and_keeps_the_shape() {
+        let m = manifest(r#""product", "weather""#);
+        let (home, mut x) = good("review-refused", &[("tehas-plugin.json", &m)]);
         let get = vars(&[]);
         let models = ModelFile { json: Value::Null };
         let g = Given {
@@ -558,11 +546,11 @@ mod tests {
         let r = review(&mut x, &g, &pin(C), C).unwrap();
         assert_eq!(
             r.refusals(),
-            [format!("the base image {NODE} has ONBUILD triggers, which would run in the build: RUN make")]
+            [sample("refused")["refusals"][0].as_str().unwrap()]
         );
-        assert_eq!(r.answer().bases[0].onbuild, ["RUN make"]);
+        assert!(r.answer().bases.is_empty());
         let j: Value = serde_json::from_str(&r.json().unwrap()).unwrap();
-        assert_eq!(j["bases"][0]["onbuild"], json!(["RUN make"]));
+        assert_eq!(j["bases"], json!([]));
         assert_eq!(
             sample("refused")["refusals"].as_array().map(Vec::len),
             Some(1)

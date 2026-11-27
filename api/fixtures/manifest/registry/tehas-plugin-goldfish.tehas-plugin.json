@@ -1,0 +1,12 @@
+{
+  "plugin": 1,
+  "kind": "batch",
+  "name": "goldfish",
+  "label": "Goldfish",
+  "license": "Apache-2.0",
+  "build": "Dockerfile",
+  "timeout": 1800,
+  "asks": ["product", "history", "model", "spec", "hook:after:change.offered"],
+  "hooks": [{"at": "after:change.offered", "timeout": 1800}],
+  "counts": ["requirements", "met", "not-met", "unclear", "blockers", "not-run"]
+}

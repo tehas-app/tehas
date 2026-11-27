@@ -3,7 +3,7 @@
 //! what changed between two manifests, whether the model's endpoint is on
 //! this host, and the grants line to write.
 
-use super::{ask, grants_setting, Cap, Grants};
+use super::{ask_v2, grants_setting, Cap, Grants};
 use serde_json::Value;
 
 /// One row of the capability table: the capability as a grant writes it,
@@ -113,7 +113,7 @@ pub fn is_here(host: &str, names: &[String]) -> bool {
 pub fn grants_line(name: &str, commit: &str, asks: &[String], current: Option<&Grants>) -> String {
     let mut words = vec![commit.to_string()];
     for a in asks {
-        match ask(a) {
+        match ask_v2(a) {
             Ok(Cap::Model) => match current.and_then(|g| g.tokens) {
                 Some(n) => words.push(format!("model:{n}")),
                 None => words.push("model:<tokens>".to_string()),

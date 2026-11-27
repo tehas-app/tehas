@@ -31,6 +31,14 @@ pub fn fits(v: &Value, s: &Value) -> bool {
         "contains",
         "dependentSchemas",
         "not",
+        "allOf",
+        "anyOf",
+        "if",
+        "then",
+        "else",
+        "minItems",
+        "maxProperties",
+        "default",
     ];
     for key in s.keys() {
         assert!(known.contains(&key.as_str()), "the schema uses {key}");
@@ -64,6 +72,27 @@ pub fn fits(v: &Value, s: &Value) -> bool {
     if s.get("not").is_some_and(|n| fits(v, n)) {
         return false;
     }
+    if let Some(list) = s.get("allOf").and_then(Value::as_array) {
+        if !list.iter().all(|p| fits(v, p)) {
+            return false;
+        }
+    }
+    if let Some(list) = s.get("anyOf").and_then(Value::as_array) {
+        if !list.iter().any(|p| fits(v, p)) {
+            return false;
+        }
+    }
+    // if/then/else: the then arm when the if fits, the else arm when it does not.
+    if let Some(p) = s.get("if") {
+        let branch = if fits(v, p) {
+            s.get("then")
+        } else {
+            s.get("else")
+        };
+        if branch.is_some_and(|b| !fits(v, b)) {
+            return false;
+        }
+    }
     if let Some(n) = v.as_f64() {
         if s.get("minimum")
             .and_then(Value::as_f64)
@@ -93,6 +122,12 @@ pub fn fits(v: &Value, s: &Value) -> bool {
         }
     }
     if let Some(list) = v.as_array() {
+        if s.get("minItems")
+            .and_then(Value::as_u64)
+            .is_some_and(|m| (list.len() as u64) < m)
+        {
+            return false;
+        }
         if s.get("maxItems")
             .and_then(Value::as_u64)
             .is_some_and(|m| list.len() as u64 > m)
@@ -116,6 +151,12 @@ pub fn fits(v: &Value, s: &Value) -> bool {
         }
     }
     if let Some(m) = v.as_object() {
+        if s.get("maxProperties")
+            .and_then(Value::as_u64)
+            .is_some_and(|n| (m.len() as u64) > n)
+        {
+            return false;
+        }
         let props = s.get("properties").and_then(Value::as_object);
         if let Some(req) = s.get("required").and_then(Value::as_array) {
             if !req.iter().all(|k| m.contains_key(k.as_str().unwrap())) {
@@ -127,7 +168,15 @@ pub fn fits(v: &Value, s: &Value) -> bool {
                 Some(sub) if !fits(x, sub) => return false,
                 Some(_) => {}
                 None if s.get("additionalProperties") == Some(&json!(false)) => return false,
-                None => {}
+                // A map: the key is free and the value keeps to the schema
+                // in additionalProperties, which is a schema, not false.
+                None => {
+                    if let Some(ap) = s.get("additionalProperties") {
+                        if ap != &json!(true) && !fits(x, ap) {
+                            return false;
+                        }
+                    }
+                }
             }
         }
         if let Some(deps) = s.get("dependentSchemas").and_then(Value::as_object) {
@@ -147,11 +196,18 @@ pub fn api(name: &str) -> Value {
     serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap()
 }
 
-/// Every object of a schema is closed.
+/// Every object of a schema is closed: an unknown field is refused, at
+/// every level. A map (`additionalProperties` a schema) is open in its
+/// keys — the key is data, like an action id — and closed in its values,
+/// which the schema there bounds.
 pub fn closed(s: &Value) {
     // An object of another file is closed there.
     if s["type"] == "object" && s.get("$ref").is_none() {
-        assert_eq!(s["additionalProperties"], json!(false), "{s}");
+        match s.get("additionalProperties") {
+            Some(v) if v == &json!(false) => {}
+            Some(v) if v.is_object() => closed(v),
+            other => panic!("not closed: {other:?} in {s}"),
+        }
     }
     for key in ["properties", "dependentSchemas"] {
         if let Some(p) = s[key].as_object() {
@@ -160,6 +216,16 @@ pub fn closed(s: &Value) {
     }
     if s["items"].is_object() {
         closed(&s["items"]);
+    }
+    for key in ["allOf", "anyOf"] {
+        if let Some(p) = s[key].as_array() {
+            p.iter().for_each(closed);
+        }
+    }
+    for key in ["not", "if", "then", "else"] {
+        if s[key].is_object() {
+            closed(&s[key]);
+        }
     }
 }
 
@@ -241,4 +307,57 @@ fn the_samples_of_tehas_plugin_skills_fit_its_schema() {
 fn a_keyword_the_check_does_not_know_fails() {
     let got = std::panic::catch_unwind(|| fits(&json!(1), &json!({"oneOf": []})));
     assert!(got.is_err());
+}
+
+/// The keywords the manifest's schema added: each is checked, not passed
+/// over, and each is proven both ways, so a check that never fires cannot
+/// ride along green.
+#[test]
+fn the_keywords_of_the_manifest_schema_are_checked_both_ways() {
+    // allOf: both arms must hold.
+    let both = json!({"allOf": [{"type": "integer"}, {"minimum": 2}]});
+    assert!(fits(&json!(3), &both));
+    assert!(!fits(&json!(1), &both), "under the minimum");
+    assert!(!fits(&json!("3"), &both), "not an integer");
+    // anyOf: one arm is enough, and neither is none.
+    let either = json!({"anyOf": [{"type": "integer"}, {"type": "string"}]});
+    assert!(fits(&json!(3), &either));
+    assert!(fits(&json!("x"), &either));
+    assert!(!fits(&json!(true), &either), "neither arm");
+    // if/then/else: the then arm when the if holds, the else when it does not.
+    let arms = json!({
+        "if": {"properties": {"kind": {"const": "a"}}, "required": ["kind"]},
+        "then": {"required": ["block"]},
+        "else": {"not": {"required": ["block"]}},
+    });
+    assert!(fits(&json!({"kind": "a", "block": {}}), &arms));
+    assert!(
+        !fits(&json!({"kind": "a"}), &arms),
+        "the then arm does not hold"
+    );
+    assert!(fits(&json!({"kind": "b"}), &arms));
+    assert!(
+        !fits(&json!({"kind": "b", "block": {}}), &arms),
+        "the else arm does not hold"
+    );
+    // minItems: the bound is inclusive on the floor.
+    let some = json!({"type": "array", "minItems": 1});
+    assert!(fits(&json!(["x"]), &some));
+    assert!(!fits(&json!([]), &some), "empty passes minItems");
+    // A map: any key, values kept to the schema. false is the closed case.
+    let map = json!({"type": "object", "additionalProperties": {"type": "string"}});
+    assert!(fits(&json!({"left-pad": "x", "ms": "y"}), &map));
+    assert!(
+        !fits(&json!({"left-pad": 1}), &map),
+        "a value of the wrong shape"
+    );
+    assert!(!fits(&json!([]), &map), "a map is an object");
+    // maxProperties: the count is what is bounded.
+    let two = json!({"type": "object", "maxProperties": 2});
+    assert!(fits(&json!({"a": 1, "b": 2}), &two));
+    assert!(fits(&json!({}), &two));
+    assert!(
+        !fits(&json!({"a": 1, "b": 2, "c": 3}), &two),
+        "over the bound"
+    );
 }

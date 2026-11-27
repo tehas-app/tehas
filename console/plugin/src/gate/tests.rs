@@ -1469,7 +1469,7 @@ fn plugin_repo(home: &std::path::Path, labels: &[&str]) -> Vec<String> {
     let mut commits = Vec::new();
     for label in labels {
         let m = format!(
-            r#"{{"plugin": 1, "kind": "batch", "name": "floorplan", "label": "{label}", "build": "Dockerfile", "asks": ["view"], "timeout": 600, "view": {{"label": "Map"}}}}"#
+            r#"{{"plugin": 2, "spec": "2.0.0-r8", "name": "floorplan", "label": "{label}", "asks": ["view:map"], "views": [{{"id": "map", "entry": "dist/view/map.js", "open": "dock"}}]}}"#
         );
         std::fs::write(work.join("tehas-plugin.json"), m).unwrap();
         git(&work, &["add", "tehas-plugin.json"]);
@@ -1506,22 +1506,30 @@ fn a_view_is_served_only_when_it_was_made_at_the_pin() {
     let mut grants = HashMap::new();
     grants.insert(
         "floorplan".to_string(),
-        tehas_core::plugin::grants(&format!("{d} view")).unwrap(),
+        tehas_core::plugin::grants(&format!("{d} view:map")).unwrap(),
     );
     let f = fixture_of(Level::Write, DOMAIN, false, dir, |home| {
         Box::new(catalog::Installed::new(home.to_path_buf(), pins, grants))
     });
+    // The 2.x view's folder, as a refresh's /out swap leaves it.
+    let map = f.dir.join("plugins/floorplan/view/map");
+    std::fs::create_dir_all(&map).unwrap();
+    std::fs::write(map.join("index.html"), "<!doctype html><p>map</p>").unwrap();
+    std::fs::write(map.join("app.js"), "console.log(1)").unwrap();
     let c_cookie = sign_in(&f, P, T0);
     let stamp = tehas_ops::plugin::runs::view_commit(&f.dir.join("plugins/floorplan/view"));
     // A view from before the record says no commit.
-    assert_eq!(f.gate.answer(&nav(P, "/", &c_cookie), T0).status, 404);
+    assert_eq!(f.gate.answer(&nav(P, "/map/", &c_cookie), T0).status, 404);
     std::fs::create_dir_all(stamp.parent().unwrap()).unwrap();
     std::fs::write(&stamp, format!("{c}\n")).unwrap();
-    assert_eq!(f.gate.answer(&nav(P, "/", &c_cookie), T0).status, 404);
-    assert_eq!(f.gate.answer(&nav(P, "/app.js", &c_cookie), T0).status, 404);
+    assert_eq!(f.gate.answer(&nav(P, "/map/", &c_cookie), T0).status, 404);
+    assert_eq!(
+        f.gate.answer(&nav(P, "/map/app.js", &c_cookie), T0).status,
+        404
+    );
     // A refresh at D swaps its view in; state.json is as it was.
     std::fs::write(&stamp, format!("{d}\n")).unwrap();
-    assert_eq!(f.gate.answer(&nav(P, "/", &c_cookie), T0).status, 200);
+    assert_eq!(f.gate.answer(&nav(P, "/map/", &c_cookie), T0).status, 200);
     // The record itself is the gate's path, never served.
     assert_eq!(
         f.gate

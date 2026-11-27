@@ -7,7 +7,7 @@
 //! container past its time, by the id docker wrote in its cid file.
 
 use super::manifest::Manifest;
-use super::{compare, is_name, Cap, Grants, Limits};
+use super::{ask_v2, compare, is_name, Cap, Grants, Limits};
 use crate::grammar::{commit_id, is_image};
 use serde::Serialize;
 use std::path::Path;
@@ -143,8 +143,16 @@ impl Run<'_> {
         if !commit_id(self.commit) || !commit_id(self.head) {
             return Err("expected whole commits".to_string());
         }
-        let has =
-            |cap: Cap| self.grants.caps.contains(&cap) && self.manifest.asks.contains(&cap.ask());
+        // A 2.x model ask carries the budget (`model:<tokens>`), so the ask
+        // matches the capability, not the bare word.
+        let has = |cap: Cap| {
+            self.grants.caps.contains(&cap)
+                && self
+                    .manifest
+                    .asks
+                    .iter()
+                    .any(|a| ask_v2(a).as_ref() == Ok(&cap))
+        };
         let triggers: &[Trigger] = match self.kind {
             Kind::Refresh => &[Trigger::Timer, Trigger::Host, Trigger::Action],
             Kind::Hook => &[Trigger::Cycle, Trigger::Host],
@@ -175,7 +183,7 @@ impl Run<'_> {
             (Some(_), Kind::Refresh | Kind::Hook) => {
                 return Err(format!("a {} with a tool", self.kind.word()))
             }
-            (Some(id), _) if !self.manifest.tools.iter().any(|t| t.id == id) => {
+            (Some(id), _) if !self.manifest.v1.tools.iter().any(|t| t.id == id) => {
                 return Err(format!("the manifest has no tool {id}"))
             }
             (Some(id), _) if !has(Cap::Tool(id.to_string())) => {
@@ -291,7 +299,7 @@ pub fn context<'a>(run: &'a Run<'a>) -> Result<Context<'a>, String> {
 pub(crate) mod tests {
     use super::*;
     use crate::plugin::grants;
-    use crate::plugin::manifest::Tool;
+    use crate::plugin::manifest::{self as manifest, Hook, Runtime, Tool, V1};
     use serde_json::json;
     use tehas_ports::events::{samples, Name};
 
@@ -302,33 +310,50 @@ pub(crate) mod tests {
         "sha256:1111111111111111111111111111111111111111111111111111111111111111";
 
     /// A manifest that asks for `asks`, as a plugin named demo, with a tool
-    /// for each `tool:<id>`.
+    /// for each `tool:<id>`. The tool is 1.x's, so it hangs off `v1`: the
+    /// runner still serves it, and the 2.2 table no longer has the field.
     pub fn manifest(asks: &[&str]) -> Manifest {
         Manifest {
             name: "demo".into(),
             label: "Demo".into(),
-            license: None,
-            build: Some("Dockerfile".into()),
+            spec: "2.0.0-r8".into(),
+            kind: manifest::Kind::Plugin,
+            runtime: Runtime::StarlingMonkey,
             asks: asks.iter().map(|a| a.to_string()).collect(),
+            driver: Some("dist/driver/main.js".into()),
             timeout: Some(600),
-            kit: false,
-            view: None,
-            views: vec![],
             actions: vec![],
-            hook: asks.contains(&"hook:after:change.offered").then_some(300),
+            views: vec![],
             skills: vec![],
-            tools: asks
+            hooks: asks
                 .iter()
-                .filter_map(|a| a.strip_prefix("tool:"))
-                .map(|id| Tool {
-                    id: id.into(),
-                    about: "Find a doc".into(),
-                    params: json!({"type": "object"}),
-                    timeout: 5,
-                    chats: vec!["obeya".into()],
+                .filter(|a| a.starts_with("hook:"))
+                .map(|a| Hook {
+                    at: a.to_string(),
+                    entry: "dist/hook/main.js".into(),
                 })
                 .collect(),
-            needs: vec![],
+            wasm: vec![],
+            view_wasm: vec![],
+            vendor: vec![],
+            solid: None,
+            origins: vec![],
+            adapter: None,
+            v1: V1 {
+                build: Some("Dockerfile".into()),
+                tools: asks
+                    .iter()
+                    .filter_map(|a| a.strip_prefix("tool:"))
+                    .map(|id| Tool {
+                        id: id.into(),
+                        about: "Find a doc".into(),
+                        params: json!({"type": "object"}),
+                        timeout: 5,
+                        chats: vec!["obeya".into()],
+                    })
+                    .collect(),
+                ..V1::default()
+            },
         }
     }
 

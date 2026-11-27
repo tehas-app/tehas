@@ -1,0 +1,8 @@
+{
+  "plugin": 2,
+  "spec": "2.0.0-r8",
+  "name": "floorplan",
+  "label": "Floorplan",
+  "asks": [],
+  "views": []
+}

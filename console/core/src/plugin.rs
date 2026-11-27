@@ -10,6 +10,9 @@
 pub mod build;
 pub mod dockerfile;
 pub mod draft;
+#[cfg(test)]
+pub(crate) mod fixtures;
+pub mod grant;
 pub mod hook;
 pub mod manifest;
 pub mod needs;
@@ -380,6 +383,20 @@ pub fn ask(word: &str) -> Result<Cap, String> {
     cap(word, false).map(|(cap, _)| cap)
 }
 
+/// The capability an ask of a 2.2 manifest names. Its model ask carries the
+/// token budget of a run (`model:<tokens>`, standard §5 `:220`), where the
+/// 1.x parser knows the tokens only on a grant: the ask names the budget,
+/// the grant gives it. Every other word, `model:images` among them, keeps
+/// the meaning the 1.x parser gives it.
+pub fn ask_v2(word: &str) -> Result<Cap, String> {
+    if let Some(tokens) = word.strip_prefix("model:") {
+        if !tokens.is_empty() && tokens.bytes().all(|b| b.is_ascii_digit()) {
+            return Ok(Cap::Model);
+        }
+    }
+    ask(word)
+}
+
 /// A grants line: the commit it is for and what it grants there.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Grants {
@@ -479,7 +496,7 @@ pub fn compare(asks: &[String], grants: Option<&Grants>, pin: &str) -> Compared 
     };
     let mut asked = Vec::new();
     for word in asks {
-        match ask(word) {
+        match ask_v2(word) {
             Ok(cap) => {
                 if !given.contains(&cap) {
                     out.missing.push(cap.ask());
@@ -962,6 +979,18 @@ mod tests {
             ask("model:10").unwrap_err(),
             "model:10: a manifest asks for model; the tokens are the grant's"
         );
+    }
+
+    /// A 2.2 manifest names the budget on the ask, so the reviewer matches
+    /// `model:2000000` to a grant's `Cap::Model`; `model:images` keeps its
+    /// own meaning, and a budget that is not a number is refused.
+    #[test]
+    fn a_2_x_ask_names_the_model_with_its_budget() {
+        assert_eq!(ask_v2("model:2000000"), Ok(Cap::Model));
+        assert_eq!(ask_v2("model:images"), Ok(Cap::ModelImages));
+        assert_eq!(ask_v2("model"), Ok(Cap::Model));
+        assert!(ask_v2("model:many").is_err());
+        assert!(ask_v2("model:").is_err());
     }
 
     #[test]

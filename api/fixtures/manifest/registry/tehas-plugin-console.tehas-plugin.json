@@ -1,0 +1,11 @@
+{
+  "plugin": 1,
+  "kind": "batch",
+  "name": "console",
+  "label": "Console",
+  "license": "Apache-2.0",
+  "build": "Dockerfile",
+  "asks": ["view:term"],
+  "timeout": 60,
+  "views": [{"id": "term", "label": "Console", "path": "/", "open": "full"}]
+}

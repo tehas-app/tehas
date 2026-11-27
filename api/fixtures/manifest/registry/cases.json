@@ -1,0 +1,268 @@
+{
+  "tehas-plugin-business.tehas-plugin.json": {
+    "verdict": "refuse",
+    "reasons": [
+      "build: no field of manifest version 2",
+      "license: no field of manifest version 2",
+      "view: no field of manifest version 2",
+      "spec: required and missing",
+      "plugin is 1: this tehas reads manifest version 2",
+      "kind \"batch\": the table admits plugin or adapter",
+      "driver is missing: only a run has seconds to give"
+    ]
+  },
+  "tehas-plugin-console.tehas-plugin.json": {
+    "verdict": "refuse",
+    "reasons": [
+      "build: no field of manifest version 2",
+      "license: no field of manifest version 2",
+      "spec: required and missing",
+      "plugin is 1: this tehas reads manifest version 2",
+      "kind \"batch\": the table admits plugin or adapter",
+      "driver is missing: only a run has seconds to give",
+      "views[0].label: no field of manifest version 2",
+      "views[0].path: no field of manifest version 2",
+      "views[0].entry is missing"
+    ]
+  },
+  "tehas-plugin-energy.tehas-plugin.json": {
+    "verdict": "accept",
+    "asks": [
+      "view:energy",
+      "menu",
+      "feed:mesh",
+      "action:refresh",
+      "every:1m"
+    ]
+  },
+  "tehas-plugin-example.tehas-plugin.json": {
+    "verdict": "accept",
+    "asks": [
+      "view:hello",
+      "view:notes",
+      "clock:daily@06:00",
+      "keep",
+      "skill:example",
+      "skill:make-a-plugin",
+      "action:hello",
+      "viewer:login"
+    ]
+  },
+  "tehas-plugin-floorplan.tehas-plugin.json": {
+    "verdict": "refuse",
+    "reasons": [
+      "build: no field of manifest version 2",
+      "license: no field of manifest version 2",
+      "ui: no field of manifest version 2",
+      "view: no field of manifest version 2",
+      "spec: required and missing",
+      "plugin is 1: this tehas reads manifest version 2",
+      "kind \"batch\": the table admits plugin or adapter",
+      "asks: model: is not a grant 2.0 knows, of the standard's \u00a75 and the host's own list",
+      "timeout 3600: out of the table's bounds, 1 to 600 whole seconds",
+      "actions: expected an object of id to {label, args}",
+      "hooks[0].timeout: no field of manifest version 2",
+      "hooks[0].at: expected hook:<when>:<event>",
+      "hooks[0].entry is missing"
+    ]
+  },
+  "tehas-plugin-given.tehas-plugin.json": {
+    "verdict": "refuse",
+    "reasons": [
+      "build: no field of manifest version 2",
+      "license: no field of manifest version 2",
+      "spec: required and missing",
+      "plugin is 1: this tehas reads manifest version 2",
+      "kind \"batch\": the table admits plugin or adapter",
+      "asks: model: is not a grant 2.0 knows, of the standard's \u00a75 and the host's own list",
+      "driver is missing: only a run has seconds to give",
+      "hooks[0].timeout: no field of manifest version 2",
+      "hooks[0].at: expected hook:<when>:<event>",
+      "hooks[0].entry is missing"
+    ]
+  },
+  "tehas-plugin-goldfish.tehas-plugin.json": {
+    "verdict": "refuse",
+    "reasons": [
+      "build: no field of manifest version 2",
+      "counts: no field of manifest version 2",
+      "license: no field of manifest version 2",
+      "spec: required and missing",
+      "plugin is 1: this tehas reads manifest version 2",
+      "kind \"batch\": the table admits plugin or adapter",
+      "asks: model: is not a grant 2.0 knows, of the standard's \u00a75 and the host's own list",
+      "asks: spec: is not a grant 2.0 knows, of the standard's \u00a75 and the host's own list",
+      "timeout 1800: out of the table's bounds, 1 to 600 whole seconds",
+      "hooks[0].timeout: no field of manifest version 2",
+      "hooks[0].at: expected hook:<when>:<event>",
+      "hooks[0].entry is missing"
+    ]
+  },
+  "tehas-plugin-guard.tehas-plugin.json": {
+    "verdict": "refuse",
+    "reasons": [
+      "build: no field of manifest version 2",
+      "license: no field of manifest version 2",
+      "records: no field of manifest version 2",
+      "view: no field of manifest version 2",
+      "spec: required and missing",
+      "plugin is 1: this tehas reads manifest version 2",
+      "kind \"batch\": the table admits plugin or adapter",
+      "asks: model: is not a grant 2.0 knows, of the standard's \u00a75 and the host's own list",
+      "asks: at: is not a grant 2.0 knows, of the standard's \u00a75 and the host's own list",
+      "timeout 3600: out of the table's bounds, 1 to 600 whole seconds",
+      "actions: expected an object of id to {label, args}"
+    ]
+  },
+  "tehas-plugin-hoststats.tehas-plugin.json": {
+    "verdict": "accept",
+    "asks": [
+      "view:host",
+      "feed:host",
+      "action:refresh"
+    ]
+  },
+  "tehas-plugin-lab.tehas-plugin.json": {
+    "verdict": "refuse",
+    "reasons": [
+      "build: no field of manifest version 2",
+      "labels: no field of manifest version 2",
+      "license: no field of manifest version 2",
+      "view: no field of manifest version 2",
+      "spec: required and missing",
+      "plugin is 1: this tehas reads manifest version 2",
+      "kind \"batch\": the table admits plugin or adapter",
+      "asks: list: is not a grant 2.0 knows, of the standard's \u00a75 and the host's own list",
+      "driver is missing: only a run has seconds to give"
+    ]
+  },
+  "tehas-plugin-mattpocock-skills.tehas-plugin.json": {
+    "verdict": "accept",
+    "asks": [
+      "skill:grill",
+      "skill:spec",
+      "skill:slice",
+      "skill:brief"
+    ]
+  },
+  "tehas-plugin-noni.tehas-plugin.json": {
+    "verdict": "accept",
+    "asks": [
+      "view:direction",
+      "menu",
+      "product",
+      "skill:direction"
+    ]
+  },
+  "tehas-plugin-pageticket.tehas-plugin.json": {
+    "verdict": "refuse",
+    "reasons": [
+      "build: no field of manifest version 2",
+      "license: no field of manifest version 2",
+      "needs: no field of manifest version 2",
+      "net: no field of manifest version 2",
+      "records: no field of manifest version 2",
+      "upload: no field of manifest version 2",
+      "spec: required and missing",
+      "plugin is 1: this tehas reads manifest version 2",
+      "kind \"service\": the table admits plugin or adapter",
+      "asks: serve: is not a grant 2.0 knows, of the standard's \u00a75 and the host's own list",
+      "asks: chat: is not a grant 2.0 knows, of the standard's \u00a75 and the host's own list",
+      "asks: session: is not a grant 2.0 knows, of the standard's \u00a75 and the host's own list",
+      "asks: upload: is not a grant 2.0 knows, of the standard's \u00a75 and the host's own list",
+      "asks: model: is not a grant 2.0 knows, of the standard's \u00a75 and the host's own list",
+      "asks: net:app: is not a grant 2.0 knows, of the standard's \u00a75 and the host's own list",
+      "asks: net:capture: is not a grant 2.0 knows, of the standard's \u00a75 and the host's own list",
+      "asks: needs:specs: is not a grant 2.0 knows, of the standard's \u00a75 and the host's own list",
+      "timeout 900: out of the table's bounds, 1 to 600 whole seconds",
+      "views[0].label: no field of manifest version 2",
+      "views[0].path: no field of manifest version 2",
+      "views[0].entry is missing"
+    ]
+  },
+  "tehas-plugin-panels.tehas-plugin.json": {
+    "verdict": "refuse",
+    "reasons": [
+      "spec: required and missing",
+      "plugin is 1: this tehas reads manifest version 2",
+      "asks: frame: is not a grant 2.0 knows, of the standard's \u00a75 and the host's own list"
+    ]
+  },
+  "tehas-plugin-review.tehas-plugin.json": {
+    "verdict": "refuse",
+    "reasons": [
+      "build: no field of manifest version 2",
+      "license: no field of manifest version 2",
+      "records: no field of manifest version 2",
+      "view: no field of manifest version 2",
+      "spec: required and missing",
+      "plugin is 1: this tehas reads manifest version 2",
+      "kind \"batch\": the table admits plugin or adapter",
+      "asks: model: is not a grant 2.0 knows, of the standard's \u00a75 and the host's own list",
+      "asks: every: is not a grant 2.0 knows, of the standard's \u00a75 and the host's own list",
+      "timeout 3600: out of the table's bounds, 1 to 600 whole seconds",
+      "actions: expected an object of id to {label, args}"
+    ]
+  },
+  "tehas-plugin-rsi.tehas-plugin.json": {
+    "verdict": "refuse",
+    "reasons": [
+      "build: no field of manifest version 2",
+      "license: no field of manifest version 2",
+      "records: no field of manifest version 2",
+      "view: no field of manifest version 2",
+      "spec: required and missing",
+      "plugin is 1: this tehas reads manifest version 2",
+      "kind \"batch\": the table admits plugin or adapter",
+      "asks: every: is not a grant 2.0 knows, of the standard's \u00a75 and the host's own list",
+      "asks: model: is not a grant 2.0 knows, of the standard's \u00a75 and the host's own list",
+      "timeout 1800: out of the table's bounds, 1 to 600 whole seconds",
+      "actions: expected an object of id to {label, args}"
+    ]
+  },
+  "tehas-plugin-tutor.tehas-plugin.json": {
+    "verdict": "accept",
+    "asks": [
+      "skill:course",
+      "skill:levels"
+    ]
+  },
+  "tehas-plugin-voice.tehas-plugin.json": {
+    "verdict": "refuse",
+    "reasons": [
+      "build: no field of manifest version 2",
+      "button: no field of manifest version 2",
+      "chats: no field of manifest version 2",
+      "license: no field of manifest version 2",
+      "relays: no field of manifest version 2",
+      "spec: required and missing",
+      "plugin is 1: this tehas reads manifest version 2",
+      "kind \"batch\": the table admits plugin or adapter",
+      "asks: chat:button: is not a grant 2.0 knows, of the standard's \u00a75 and the host's own list",
+      "asks: lock: is not a grant 2.0 knows, of the standard's \u00a75 and the host's own list",
+      "asks: mic: is not a grant 2.0 knows, of the standard's \u00a75 and the host's own list",
+      "asks: relay:speech: is not a grant 2.0 knows, of the standard's \u00a75 and the host's own list",
+      "asks: voice:15: is not a grant 2.0 knows, of the standard's \u00a75 and the host's own list",
+      "asks: propose: is not a grant 2.0 knows, of the standard's \u00a75 and the host's own list",
+      "driver is missing: only a run has seconds to give",
+      "views[0].label: no field of manifest version 2",
+      "views[0].path: no field of manifest version 2",
+      "views[0].entry is missing"
+    ]
+  },
+  "tehas-plugin-wiki.tehas-plugin.json": {
+    "verdict": "refuse",
+    "reasons": [
+      "build: no field of manifest version 2",
+      "license: no field of manifest version 2",
+      "view: no field of manifest version 2",
+      "spec: required and missing",
+      "plugin is 1: this tehas reads manifest version 2",
+      "kind \"batch\": the table admits plugin or adapter",
+      "asks: model: is not a grant 2.0 knows, of the standard's \u00a75 and the host's own list",
+      "asks: every: is not a grant 2.0 knows, of the standard's \u00a75 and the host's own list",
+      "timeout 7200: out of the table's bounds, 1 to 600 whole seconds",
+      "actions: expected an object of id to {label, args}"
+    ]
+  }
+}

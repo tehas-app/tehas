@@ -250,18 +250,17 @@ pub fn reading(file: &mut File, name: &str, whole: &str, place: &str) -> Result<
             return Ok(r);
         }
     };
-    for s in &m.skills {
-        let said = match file(&s.path, skill::BYTES_MAX as u64) {
+    for path in &m.skills {
+        let said = match file(path, skill::BYTES_MAX as u64) {
             Ok(Some(b)) => skill::text(&b).err(),
             Ok(None) => Some(format!("not in {place}")),
             Err(why) => Some(why),
         };
         if let Some(why) = said {
-            r.refusals
-                .push(format!("skill {}: {}: {why}", s.id, s.path));
+            r.refusals.push(format!("skill {path}: {why}"));
         }
     }
-    if let Some(build) = &m.build {
+    if let Some(build) = &m.v1.build {
         match file(build, DOCKERFILE_MAX) {
             Ok(Some(b)) => {
                 let d = dockerfile::read(&b);
@@ -462,12 +461,12 @@ fn prepared(
     let mut s = State::new(Word::Ready, c);
     *view = Some(Shown {
         label: m.label.clone(),
-        panel: m.view.clone(),
+        panel: m.v1.view.clone(),
         views: m.views.clone(),
     });
     s.manifest_sha256 = Some(r.sha256.clone());
     s.bases.clone_from(&r.bases);
-    let Some(file) = &m.build else {
+    let Some(file) = &m.v1.build else {
         return s;
     };
     if let Some(id) = image_id(x, &build::tag(&pin.name, c)) {
@@ -580,14 +579,19 @@ pub(super) mod tests {
         }
     }
 
+    /// A 2.2 manifest the reader reads: no build, so no image and no runs
+    /// of docker. The build code is held by the direct tests of `bases` and
+    /// `built` until the contract step takes it out (R9).
     pub fn manifest(asks: &str) -> String {
         format!(
-            r#"{{"plugin": 1, "kind": "batch", "name": "floorplan", "label": "Floorplan", "build": "Dockerfile", "asks": [{asks}], "timeout": 3600}}"#
+            r#"{{"plugin": 2, "spec": "2.0.0-r8", "name": "floorplan", "label": "Floorplan", "asks": [{asks}]}}"#
         )
     }
 
-    pub fn dockerfile() -> String {
-        format!("FROM {NODE}\nCOPY . /app\n")
+    pub fn skills_manifest() -> String {
+        r#"{"plugin": 2, "spec": "2.0.0-r8", "name": "floorplan", "label": "Floorplan",
+           "asks": ["skill:grill"], "skills": ["skills/grill/SKILL.md"]}"#
+            .to_string()
     }
 
     /// A home whose repo.git is there, so the init is not run, and git and
@@ -631,32 +635,86 @@ pub(super) mod tests {
         tehas_core::plugin::grants(&format!("{C} {words}")).unwrap()
     }
 
+    /// A 2.2 manifest has no build: the pin is fetched, read and ready, and
+    /// nothing reaches docker. The image is the build's, and 2.2 has none.
     #[test]
-    fn a_good_pin_is_fetched_read_pulled_built_and_ready() {
+    fn a_good_pin_is_fetched_read_and_ready_with_no_image() {
         let m = manifest(r#""product""#);
-        let d = dockerfile();
-        let (home, mut x) = good(
-            "plugin-good",
-            &[("tehas-plugin.json", &m), ("Dockerfile", &d)],
-        );
+        let (home, mut x) = good("plugin-good", &[("tehas-plugin.json", &m)]);
         x.times("cat-file -e", fails("missing"), 1);
         x.on("fetch --quiet", ok(""));
-        x.on("{{.Id}}", ok(&format!("{ID}\n")));
-        x.times("{{.Id}}", fails("No such image"), 1);
         let s = prepare(&mut x, &home, &pin(C), Some(&granted("product")));
         assert_eq!(s.state, Word::Ready, "{s:?}");
-        assert_eq!(s.image.as_deref(), Some(ID));
-        assert_eq!(s.bases, [NODE]);
+        assert_eq!(s.image, None, "a 2.2 manifest has no build");
+        assert!(s.bases.is_empty());
         assert_eq!(s.manifest_sha256, Some(sha256(m.as_bytes())));
         assert_eq!(read_state(&home, "floorplan"), Some(s));
         assert!(x.ran_any("fetch --quiet"));
+        assert!(!x.ran_any("docker"), "{:?}", x.ran);
+    }
+
+    /// The build code is no longer reachable through a 2.2 manifest, so it
+    /// is held directly until the contract step takes it out (R9): the pull
+    /// and inspect of the bases, the refusal of an ONBUILD trigger, and the
+    /// one pipe of `git archive` into `docker build`.
+    #[test]
+    fn the_pull_the_inspect_and_the_build_hold_their_rules() {
+        let (_home, mut x) = good("plugin-build-direct", &[]);
+        let pulled = bases(&mut x, &[NODE.to_string()]).unwrap();
+        assert_eq!(pulled, [(NODE.to_string(), Vec::new())]);
         assert!(x.ran_any(&format!("docker pull --quiet {NODE}")));
+        assert!(x.ran_any(&format!(
+            "docker image inspect --format {{{{json .Config.OnBuild}}}} {NODE}"
+        )));
+        assert!(onbuild_refusals(&pulled).is_empty());
+        let with = vec![(NODE.to_string(), vec!["RUN curl x | sh".to_string()])];
+        assert_eq!(
+            onbuild_refusals(&with),
+            [format!(
+                "the base image {NODE} has ONBUILD triggers, which would run in the build: RUN curl x | sh"
+            )]
+        );
+
+        let (home, mut x) = good("plugin-build-pipe", &[]);
+        x.on("{{.Id}}", ok(&format!("{ID}\n")));
+        let id = built(&mut x, &home, "floorplan", C, "Dockerfile").unwrap();
+        assert_eq!(id, ID);
         let pipe = x.ran.iter().find(|l| l.contains(" | ")).unwrap();
         assert!(
             pipe.contains(&format!(
                 "archive --format=tar {C} | timeout 1800 docker build --network none --cgroup-parent tehas.slice --no-cache --pull=false -f Dockerfile -t tehas-plugin-floorplan:{C} -"
             )),
             "{pipe}"
+        );
+        assert_eq!(
+            image_id(&mut x, &build::tag("floorplan", C)),
+            Some(ID.to_string())
+        );
+
+        let (home, mut x) = good("plugin-build-fails", &[]);
+        x.on("docker build", fails("RUN npm ci: exit 1"));
+        assert_eq!(
+            built(&mut x, &home, "floorplan", C, "Dockerfile")
+                .err()
+                .unwrap(),
+            "the build failed: RUN npm ci: exit 1"
+        );
+
+        let (_home, mut x) = good("plugin-pull-fails", &[]);
+        x.on("docker pull", fails("toomanyrequests"));
+        assert!(bases(&mut x, &[NODE.to_string()])
+            .err()
+            .unwrap()
+            .starts_with("the pull of"));
+
+        let (_home, mut x) = good("plugin-onbuild", &[]);
+        x.on("{{json .Config.OnBuild}}", ok("[\"RUN curl x | sh\"]\n"));
+        let pulled = bases(&mut x, &[NODE.to_string()]).unwrap();
+        assert_eq!(
+            onbuild_refusals(&pulled),
+            [format!(
+                "the base image {NODE} has ONBUILD triggers, which would run in the build: RUN curl x | sh"
+            )]
         );
     }
 
@@ -713,35 +771,20 @@ pub(super) mod tests {
     }
 
     #[test]
-    fn a_manifest_or_dockerfile_that_breaks_a_rule_refuses_and_builds_nothing() {
-        let m = manifest(r#""product""#);
-        let bad = "FROM node:22\n";
-        let (home, mut x) = good(
-            "plugin-rules",
-            &[("tehas-plugin.json", &m), ("Dockerfile", bad)],
-        );
+    fn a_manifest_that_breaks_a_rule_refuses_and_runs_nothing() {
+        let m = manifest(r#""product", "weather""#);
+        let (home, mut x) = good("plugin-rules", &[("tehas-plugin.json", &m)]);
         let s = prepare(&mut x, &home, &pin(C), Some(&granted("product")));
         assert_eq!(s.state, Word::Refused);
-        assert_eq!(
-            s.refusal.as_deref(),
-            Some("Dockerfile: line 1: FROM node:22: not named by @sha256: digest")
+        assert!(
+            s.refusal
+                .as_deref()
+                .is_some_and(|w| w.contains("weather: is not a grant 2.0 knows")),
+            "{:?}",
+            s.refusal
         );
         assert!(!x.ran_any("docker pull"));
         assert!(!x.ran_any("docker build"));
-        let flag = format!("FROM -q@sha256:{}\n", "a".repeat(64));
-        let (home, mut x) = good(
-            "plugin-rules-3",
-            &[("tehas-plugin.json", &m), ("Dockerfile", &flag)],
-        );
-        let s = prepare(&mut x, &home, &pin(C), Some(&granted("product")));
-        assert_eq!(
-            s.refusal,
-            Some(format!(
-                "Dockerfile: FROM -q@sha256:{}: not an image's name",
-                "a".repeat(64)
-            ))
-        );
-        assert!(!x.ran_any("docker pull"));
         let (home, mut x) = good(
             "plugin-rules-2",
             &[("tehas-plugin.json", r#"{"plugin": 2}"#)],
@@ -755,14 +798,12 @@ pub(super) mod tests {
     #[test]
     fn a_commit_with_a_gitattributes_file_at_any_depth_is_refused_and_not_built() {
         let m = manifest(r#""product""#);
-        let d = format!("{}# $Format:%B$\n", dockerfile());
         for (case, at) in [("top", ".gitattributes"), ("deep", "src/a/.gitattributes")] {
             let (home, mut x) = good(
                 &format!("plugin-attributes-{case}"),
                 &[
                     ("tehas-plugin.json", &m),
-                    ("Dockerfile", &d),
-                    (at, "Dockerfile export-subst\n"),
+                    (at, "dist/driver/main.js export-subst\n"),
                 ],
             );
             let s = prepare(&mut x, &home, &pin(C), Some(&granted("product")));
@@ -777,10 +818,7 @@ pub(super) mod tests {
             assert!(!x.ran_any("archive"));
             assert!(!x.ran_any("docker build"));
         }
-        let (home, mut x) = good(
-            "plugin-attributes-unlisted",
-            &[("tehas-plugin.json", &m), ("Dockerfile", &dockerfile())],
-        );
+        let (home, mut x) = good("plugin-attributes-unlisted", &[("tehas-plugin.json", &m)]);
         x.on("ls-tree -r", fails("fatal: bad tree"));
         let s = prepare(&mut x, &home, &pin(C), Some(&granted("product")));
         assert_eq!(
@@ -793,74 +831,63 @@ pub(super) mod tests {
         );
     }
 
-    // `cat-file -t` calls a link a blob: its text is the link's target.
+    // `cat-file -t` calls a link a blob: its text is the link's target, so
+    // the mode of the entry is what is checked before any text is read.
     #[test]
-    fn a_build_or_skill_file_that_is_not_a_regular_file_is_refused() {
-        let m = manifest(r#""product""#);
-        let d = dockerfile();
+    fn a_skill_file_that_is_not_a_regular_file_is_refused() {
+        let m = skills_manifest();
         for mode in ["120000", "160000", "040000"] {
             let (home, mut x) = good(
                 &format!("plugin-link-{mode}"),
-                &[("tehas-plugin.json", &m), ("Dockerfile", &d)],
+                &[
+                    ("tehas-plugin.json", &m),
+                    ("skills/grill/SKILL.md", "### Grill\n"),
+                ],
             );
             x.on(
-                &format!("ls-tree -z {C} -- Dockerfile"),
-                ok(&format!("{mode} blob {}\tDockerfile\0", "e".repeat(40))),
+                &format!("ls-tree -z {C} -- skills/grill/SKILL.md"),
+                ok(&format!(
+                    "{mode} blob {}\tskills/grill/SKILL.md\0",
+                    "e".repeat(40)
+                )),
             );
-            let s = prepare(&mut x, &home, &pin(C), Some(&granted("product")));
+            let s = prepare(&mut x, &home, &pin(C), Some(&granted("skill:grill")));
             assert_eq!(
                 s.refusal.as_deref(),
-                Some("Dockerfile is not a regular file"),
+                Some("skill skills/grill/SKILL.md: skills/grill/SKILL.md is not a regular file"),
                 "{mode}"
             );
-            assert!(!x.ran_any(&format!("cat-file blob {C}:Dockerfile")));
-            assert!(!x.ran_any("docker build"));
+            assert!(
+                !x.ran_any(&format!("cat-file blob {C}:skills/grill/SKILL.md")),
+                "{mode}"
+            );
         }
         let (home, mut x) = good(
             "plugin-exec",
-            &[("tehas-plugin.json", &m), ("Dockerfile", &d)],
-        );
-        x.on(
-            &format!("ls-tree -z {C} -- Dockerfile"),
-            ok(&format!("100755 blob {}\tDockerfile\0", "e".repeat(40))),
-        );
-        x.on("{{.Id}}", ok(&format!("{ID}\n")));
-        let s = prepare(&mut x, &home, &pin(C), Some(&granted("product")));
-        assert_eq!(s.state, Word::Ready, "{s:?}");
-        let sk = r#"{"plugin": 1, "name": "floorplan", "label": "Floorplan", "asks": ["skill:grill"], "skills": [{"id": "grill", "about": "Asks hard questions", "path": "skills/grill.md", "chats": ["obeya"]}]}"#;
-        let (home, mut x) = good(
-            "plugin-skill-link",
             &[
-                ("tehas-plugin.json", sk),
-                ("skills/grill.md", "### Grill\n"),
+                ("tehas-plugin.json", &m),
+                ("skills/grill/SKILL.md", "### Grill\n"),
             ],
         );
         x.on(
-            &format!("ls-tree -z {C} -- skills/grill.md"),
+            &format!("ls-tree -z {C} -- skills/grill/SKILL.md"),
             ok(&format!(
-                "120000 blob {}\tskills/grill.md\0",
+                "100755 blob {}\tskills/grill/SKILL.md\0",
                 "e".repeat(40)
             )),
         );
         let s = prepare(&mut x, &home, &pin(C), Some(&granted("skill:grill")));
+        assert_eq!(s.state, Word::Ready, "{s:?}");
         assert_eq!(
-            s.refusal.as_deref(),
-            Some("skill grill: skills/grill.md: skills/grill.md is not a regular file")
-        );
-        assert_eq!(
-            skill_text(&mut x, &home, "floorplan", C, "skills/grill.md"),
-            Err("skills/grill.md is not a regular file".to_string())
+            skill_text(&mut x, &home, "floorplan", C, "skills/grill/SKILL.md"),
+            Ok("### Grill\n".to_string())
         );
     }
 
     #[test]
     fn an_ask_not_granted_refuses_the_plugin() {
         let m = manifest(r#""product", "view""#);
-        let d = dockerfile();
-        let (home, mut x) = good(
-            "plugin-ungranted",
-            &[("tehas-plugin.json", &m), ("Dockerfile", &d)],
-        );
+        let (home, mut x) = good("plugin-ungranted", &[("tehas-plugin.json", &m)]);
         let s = prepare(&mut x, &home, &pin(C), Some(&granted("product")));
         assert_eq!(s.refusal.as_deref(), Some("view is asked and not granted"));
         let other =
@@ -870,68 +897,19 @@ pub(super) mod tests {
             s.refusal.as_deref(),
             Some("the grants are for another commit; product is asked and not granted; view is asked and not granted")
         );
-        assert!(!x.ran_any("docker build"));
+        assert!(!x.ran_any("docker"));
     }
 
+    /// A skills-only plugin reads its skill files and is ready with no
+    /// image; a file that breaks the skill rules, or is missing, refuses.
     #[test]
-    fn a_base_with_onbuild_triggers_is_refused_and_named() {
-        let m = manifest(r#""product""#);
-        let d = dockerfile();
-        let (home, mut x) = good(
-            "plugin-onbuild",
-            &[("tehas-plugin.json", &m), ("Dockerfile", &d)],
-        );
-        x.on("{{json .Config.OnBuild}}", ok("[\"RUN curl x | sh\"]\n"));
-        let s = prepare(&mut x, &home, &pin(C), Some(&granted("product")));
-        assert_eq!(
-            s.refusal.as_deref(),
-            Some(format!("the base image {NODE} has ONBUILD triggers, which would run in the build: RUN curl x | sh").as_str())
-        );
-        assert!(!x.ran_any("docker build"));
-    }
-
-    #[test]
-    fn an_image_of_the_commit_already_built_is_kept() {
-        let m = manifest(r#""product""#);
-        let d = dockerfile();
-        let (home, mut x) = good(
-            "plugin-kept",
-            &[("tehas-plugin.json", &m), ("Dockerfile", &d)],
-        );
-        x.on("{{.Id}}", ok(&format!("{ID}\n")));
-        let s = prepare(&mut x, &home, &pin(C), Some(&granted("product")));
-        assert_eq!(s.state, Word::Ready);
-        assert_eq!(s.image.as_deref(), Some(ID));
-        assert!(!x.ran_any("docker pull"));
-        assert!(!x.ran_any("docker build"));
-    }
-
-    #[test]
-    fn a_failed_build_refuses_and_keeps_the_bases() {
-        let m = manifest(r#""product""#);
-        let d = dockerfile();
-        let (home, mut x) = good(
-            "plugin-badbuild",
-            &[("tehas-plugin.json", &m), ("Dockerfile", &d)],
-        );
-        x.on("docker build", fails("RUN npm ci: exit 1"));
-        let s = prepare(&mut x, &home, &pin(C), Some(&granted("product")));
-        assert_eq!(
-            s.refusal.as_deref(),
-            Some("the build failed: RUN npm ci: exit 1")
-        );
-        assert_eq!(s.bases, [NODE]);
-        assert_eq!(read_state(&home, "floorplan"), Some(s));
-    }
-
-    #[test]
-    fn a_plugin_with_no_build_reads_its_skills_and_is_ready_with_no_image() {
-        let m = r#"{"plugin": 1, "name": "floorplan", "label": "Floorplan", "asks": ["skill:grill"], "skills": [{"id": "grill", "about": "Asks hard questions", "path": "skills/grill.md", "chats": ["obeya"]}]}"#;
+    fn a_plugin_of_skills_only_is_ready_with_no_image() {
+        let m = skills_manifest();
         let (home, mut x) = good(
             "plugin-skills",
             &[
-                ("tehas-plugin.json", m),
-                ("skills/grill.md", "### Grill\n\nAsk why.\n"),
+                ("tehas-plugin.json", &m),
+                ("skills/grill/SKILL.md", "### Grill\n\nAsk why.\n"),
             ],
         );
         let s = prepare(&mut x, &home, &pin(C), Some(&granted("skill:grill")));
@@ -941,20 +919,20 @@ pub(super) mod tests {
         let (home, mut x) = good(
             "plugin-skills-bad",
             &[
-                ("tehas-plugin.json", m),
-                ("skills/grill.md", "<!-- hidden -->\n"),
+                ("tehas-plugin.json", &m),
+                ("skills/grill/SKILL.md", "<!-- hidden -->\n"),
             ],
         );
         let s = prepare(&mut x, &home, &pin(C), Some(&granted("skill:grill")));
         assert_eq!(
             s.refusal.as_deref(),
-            Some("skill grill: skills/grill.md: a line opens an HTML comment")
+            Some("skill skills/grill/SKILL.md: a line opens an HTML comment")
         );
-        let (home, mut x) = good("plugin-skills-gone", &[("tehas-plugin.json", m)]);
+        let (home, mut x) = good("plugin-skills-gone", &[("tehas-plugin.json", &m)]);
         let s = prepare(&mut x, &home, &pin(C), Some(&granted("skill:grill")));
         assert_eq!(
             s.refusal.as_deref(),
-            Some("skill grill: skills/grill.md: not in the commit")
+            Some("skill skills/grill/SKILL.md: not in the commit")
         );
     }
 

@@ -1,0 +1,22 @@
+{
+  "plugin": 2,
+  "spec": "2.0.0-r8",
+  "name": "floorplan",
+  "label": "Floorplan",
+  "asks": [
+    "view:map",
+    "view:health"
+  ],
+  "views": [
+    {
+      "id": "map",
+      "entry": "dist/view/map.js",
+      "open": "dock"
+    },
+    {
+      "id": "health",
+      "entry": "dist/view/map.js",
+      "open": "page"
+    }
+  ]
+}

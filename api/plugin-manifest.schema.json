@@ -2,148 +2,351 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/tehas-app/tehas-factory/api/plugin-manifest.schema.json",
   "title": "tehas-plugin.json",
-  "description": "A plugin's manifest, version 1: tehas-plugin.json at the root of the plugin's repository, at the pinned commit. Plugins are a feature still being built, so this is not contract until the release that ships them. Every object is closed: a field this does not name is refused, so a manifest made for a later tehas never runs half read. The reader is console/core/src/plugin/manifest.rs; its tests hold it and this schema to the same verdict on the samples beside this file and on each field broken one way. A plugin with a build has an image and runs; one with none is text alone, such as skills, and never runs. Some rules are the reader's alone: the name equals the one TEHAS_PLUGINS gives, each action's, skill's and tool's id is asked as action:<id>, skill:<id> or tool:<id>, no two actions, skills or tools share an id, a tool's params keeps to the closed part of JSON schema that console/core/src/plugin/params.rs names, and a plugin with no build asks for nothing that needs a run (anything but skill: and needs:). An ask of a later tehas (gate:, another hook point, net:, answer:<kind>, factory-read, factory-sessions) and a kind other than batch are refused by the reader as reserved for plugins v2, and an ask of merge as not in this release.",
+  "description": "A plugin's manifest, version 2: tehas-plugin.json at the root of the plugin's repository, at the pinned commit (operator spec 2.2, 2026-11-25-plugins-2.0.0-operator.md, revision 8.1, :402-437). The field table at :415-433 is the source; this schema is its draft until the console/xtask fixture task exists (spec :408-411), after which the table, the fixtures in api/fixtures/manifest/ and this schema are held to one verdict by the gate. Every object is closed: an unknown field is refused (spec :406), at every level, so a manifest made for a later tehas never runs half read. There is no license field yet: the licence is undecided and joins when it is decided (spec :435-437). skills are bare paths only (issue #3371, build-seat placement): a skill's about is its SKILL.md frontmatter description and its chats are that file's chats frontmatter, so the manifest carries neither; a manifest-level about or chats would sit outside the dist/ hash that parts 3 and 4 tie approval to (spec :445-520, :523 onward), which is a further reason the manifest stays paths-only until the roadmap manager decides #3371. The reader is console/core/src/plugin/manifest.rs; rules the reader holds that this schema leaves open are named in the field descriptions.",
   "type": "object",
-  "required": ["plugin", "name", "label", "asks"],
+  "required": ["plugin", "spec", "name", "label", "asks"],
   "additionalProperties": false,
   "properties": {
-    "plugin": {"const": 1},
-    "kind": {"const": "batch"},
-    "name": {"type": "string", "pattern": "^[a-z][a-z0-9]{0,11}$"},
-    "label": {"type": "string", "minLength": 1, "maxLength": 24, "pattern": "^[^\u0000-\u001f\u007f-\u009f  ]*$"},
-    "license": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[A-Za-z0-9.+:() -]*$"},
-    "build": {"type": "string", "maxLength": 255, "pattern": "^(\\.?[A-Za-z0-9_-])+\\.?(/(\\.?[A-Za-z0-9_-])+\\.?)*$"},
+    "plugin": {
+      "const": 2,
+      "description": "The spec's major (spec 2.2 table :415; the schema is named with \"plugin\": 2 at :405). Always present."
+    },
+    "spec": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+-r[0-9]+$",
+      "description": "The spec revision the plugin was built against, such as \"2.0.0-r5\", so its tags can state it (spec 2.2 table :416; example \"2.0.0-r7\" at :1323). 2.0.0-r8 is revision 8 with its errata). The pattern is exact and closed (#3381 forbids widening it): a dotted form such as 2.0.0-r8.1 is refused."
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]{0,11}$",
+      "description": "The plugin's name, a letter and up to 11 letters or digits — the contract's rule (spec 2.2 table :417). 5.1 (:856-858) relies on it being letters and digits only, since TEHAS_PLUGIN_ORIGINS_<NAME> upper-cases it. SPEC GAP: 'a letter' does not state case; lowercase is carried from the 1.x contract rule and the uppercase mapping at :856-858."
+    },
+    "label": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 24,
+      "description": "What people see (spec 2.2 table :418). The table says only 'text'; the manifest keeps 1.x's bound (kept: the menu, the confirm and the review line set it in 24) until the roadmap manager gives 2.0 its own, and this schema states it with the reader: one line of 1 to 24 characters, control characters refused."
+    },
+    "kind": {
+      "enum": ["plugin", "adapter"],
+      "default": "plugin",
+      "description": "\"plugin\" or \"adapter\"; no; \"plugin\" (spec 2.2 table :419). Part 10 governs adapter (:1295-1370); an adapter has no driver entry, view, skill, hook, gate, tool or schedule (:1299), enforced below."
+    },
+    "runtime": {
+      "enum": ["starlingmonkey", "component"],
+      "default": "starlingmonkey",
+      "description": "\"starlingmonkey\"; \"component\" for an adapter only (spec 2.2 table :420, parts 1 and 10.1). A manifest without runtime is the JavaScript path (:1320-1330); a component is one Rust component in dist/wasm/, named in the manifest, in place of a driver (:1267, 10.1 :1313-1318). The adapter-only rule is enforced by the allOf below."
+    },
+    "timeout": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 600,
+      "description": "Seconds, at most 600, for one run; needed with a driver (spec 2.2 table :421; 1.4's per-run time, :349). driver requires timeout and timeout requires driver (dependentSchemas) — the pairing follows from 'with a driver'. SPEC GAP: the table says 'seconds', not integer or number, and names no minimum; 1.x used integer 60..14400, which 2.0's 600 supersedes for the maximum only."
+    },
     "asks": {
       "type": "array",
+      "items": {"type": "string"},
       "maxItems": 32,
       "uniqueItems": true,
-      "items": {"type": "string", "pattern": "^(view|menu|product|model|hook:after:change\\.offered|action:[a-z-]{1,16}|skill:[a-z-]{1,16}|tool:[a-z-]{1,16}|view:[a-z-]{1,16}|needs:[a-z][a-z0-9]{0,11}|model:images)$"}
+      "description": "Grant names, always present, may be empty (spec 2.2 table :422; part 5). The manifest only asks — nothing is granted from it alone (:841-848). An ask of http is refused to any plugin that is not an adapter (:1358), enforced by the allOf below. The table names no count; 32 is the reader's bound, kept (kept: a plugin asking more than a person can read in one review is refused, not waved through), and an ask named twice is refused. The closed vocabulary lives in part 5 and the host's own list, checked by the reader's grant module, not by this schema."
     },
-    "timeout": {"type": "integer", "minimum": 60, "maximum": 14400},
-    "ui": {
-      "type": "object",
-      "required": ["kit"],
-      "additionalProperties": false,
-      "properties": {
-        "kit": {"const": 1}
-      }
+    "driver": {
+      "type": "string",
+      "allOf": [
+        {"pattern": "^dist(?:/[A-Za-z0-9._-]+)+$"},
+        {"not": {"pattern": "(^|/)\\.\\.(/|$)"}}
+      ],
+      "default": "dist/driver/main.js",
+      "description": "The entry that exports run(ctx); needed with a driver, default dist/driver/main.js (spec 2.2 table :423; layout in the floating spec 2, :184-194 — 'its paths point into dist/'). SPEC GAP: the table says 'a path' with no grammar; this pins the dist/ prefix and forbids dot-segments, and the reader owns the rest (no absolute paths, no escape)."
     },
-    "view": {
+    "actions": {
       "type": "object",
-      "required": ["label"],
-      "additionalProperties": false,
-      "properties": {
-        "label": {"type": "string", "minLength": 1, "maxLength": 24, "pattern": "^[^\u0000-\u001f\u007f-\u009f  ]*$"}
-      }
+      "maxProperties": 2,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["label"],
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 24,
+            "description": "What a confirm names; a draft's confirm shows the exact title and body (spec 2.2 table :424; 6.3, floating spec :660-675, draws the confirm outside the frame naming this label). Required because a press of a person's action cannot confirm without it. It keeps the manifest label's bound: one line of 1 to 24 characters, control characters refused, since the confirm names it in the same space."
+          },
+          "args": {
+            "description": "A JSON schema for the press's arguments (spec 2.2 table :424; 6.3: a press 'carries arguments under that action's schema', floating spec :633). Left open here: like 1.x's tool params, the reader (console/core/src/plugin/params.rs) keeps it to the closed part of JSON schema. SPEC GAP: the table lists {label, args} without saying whether args is needed; required here means the reader decides — see questions_for_tehas_d6."
+          }
+        }
+      },
+      "description": "Id to {label, args}; no (spec 2.2 table :424). The presses a view may send (6.3). The ids keep 1.x's shape (a-z and -, 1 to 16, checked by the reader) and the count keeps 1.x's cap of 2 (kept: more presses than two is a menu, not a view). Ids are keys, so their emptiness is not constrained by this schema."
     },
     "views": {
       "type": "array",
+      "minItems": 1,
       "maxItems": 4,
-      "contains": {"type": "object"},
       "items": {
         "type": "object",
-        "required": ["id", "label", "path", "open"],
+        "required": ["id", "entry", "open"],
         "additionalProperties": false,
         "properties": {
-          "id": {"type": "string", "pattern": "^[a-z-]{1,16}$"},
-          "label": {"type": "string", "minLength": 1, "maxLength": 24, "pattern": "^[^\u0000-\u001f\u007f-\u009f\u2028\u2029]*$"},
-          "path": {"type": "string", "maxLength": 128, "pattern": "^/(([A-Za-z0-9_-][A-Za-z0-9._-]*|\\.[A-Za-z0-9_-][A-Za-z0-9._-]*|\\.\\.[A-Za-z0-9._-]+)/)*$"},
-          "open": {"enum": ["dock", "page"]}
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z-]{1,16}$",
+            "description": "The view's id (spec 2.2 table :425), which names its /out folder and its ask view:<id>. It keeps 1.x's shape: a-z and -, 1 to 16."
+          },
+          "entry": {
+            "type": "string",
+            "allOf": [
+              {"pattern": "^dist/view(?:/[A-Za-z0-9._-]+)+$"},
+              {"not": {"pattern": "(^|/)\\.\\.(/|$)"}}
+            ],
+            "description": "The view's entry in dist/view/ (spec 2.2 table :425; floating spec 2, :189). SPEC GAP: only 'its entry in dist/view/' is said; this pins the prefix and forbids dot-segments, the reader owns the rest."
+          },
+          "open": {
+            "enum": ["dock", "page", "full"],
+            "description": "dock, page or full (spec 2.2 table :425)."
+          }
         }
-      }
-    },
-    "actions": {
-      "type": "array",
-      "maxItems": 2,
-      "items": {
-        "type": "object",
-        "required": ["id", "label"],
-        "additionalProperties": false,
-        "properties": {
-          "id": {"type": "string", "pattern": "^[a-z-]{1,16}$"},
-          "label": {"type": "string", "minLength": 1, "maxLength": 24, "pattern": "^[^\u0000-\u001f\u007f-\u009f  ]*$"}
-        }
-      }
-    },
-    "hooks": {
-      "type": "array",
-      "maxItems": 1,
-      "items": {
-        "type": "object",
-        "required": ["at", "timeout"],
-        "additionalProperties": false,
-        "properties": {
-          "at": {"const": "after:change.offered"},
-          "timeout": {"type": "integer", "minimum": 60, "maximum": 1800}
-        }
-      }
+      },
+      "description": "Each view, its entry and its open; no (spec 2.2 table :425). All three keys are needed: the table's sentence reads id, entry and open as the view's whole shape. The count keeps 1.x's cap: 1 to 4 (kept: four is what the menu and the dock hold); an empty list names no view, so it is refused where an absent field is allowed."
     },
     "skills": {
       "type": "array",
       "maxItems": 8,
       "items": {
-        "type": "object",
-        "required": ["id", "about", "path", "chats"],
-        "additionalProperties": false,
-        "properties": {
-          "id": {"type": "string", "pattern": "^[a-z-]{1,16}$"},
-          "about": {"type": "string", "minLength": 1, "maxLength": 120, "pattern": "^[^\u0000-\u001f\u007f-\u009f\u2028\u2029]*$"},
-          "path": {"type": "string", "maxLength": 255, "pattern": "^((\\.?[A-Za-z0-9_-])+\\.?/)*(\\.?[A-Za-z0-9_-])+\\.md$"},
-          "chats": {
-            "type": "array",
-            "uniqueItems": true,
-            "contains": {"enum": ["obeya", "wizard", "assistant", "plugin"]},
-            "items": {"enum": ["obeya", "wizard", "assistant", "plugin"]}
-          }
-        }
-      }
+        "type": "string",
+        "allOf": [
+          {"pattern": "^skills(?:/[A-Za-z0-9._-]+)+$"},
+          {"not": {"pattern": "(^|/)\\.\\.(/|$)"}}
+        ]
+      },
+      "description": "Skill files, paths under skills/; no (spec 2.2 table :426; floating spec 2 lists skills/ at the repository root, :192). Bare paths only: issue #3371 is open at the spec level, but the build seat has placed a skill's about in its SKILL.md frontmatter description and its chats in that file's chats frontmatter, so the manifest holds neither field. The count keeps 1.x's cap of 8 (kept: a chat's 8192-byte skill budget reads as eight at most). Each path is a folder of its own, skills/<id>/<file>, and is asked as skill:<id> with the folder's name; the .md ending and the per-path shape are the reader's."
     },
-    "tools": {
+    "hooks": {
       "type": "array",
-      "maxItems": 8,
       "items": {
         "type": "object",
-        "required": ["id", "about", "params", "timeout", "chats"],
+        "required": ["at", "entry"],
         "additionalProperties": false,
         "properties": {
-          "id": {"type": "string", "pattern": "^[a-z-]{1,16}$"},
-          "about": {"type": "string", "minLength": 1, "maxLength": 120, "pattern": "^[^\u0000-\u001f\u007f-\u009f\u2028\u2029]*$"},
-          "params": {"description": "The JSON schema of a call's arguments: type object at the top, at most 4 KiB and 6 deep, every string with a maxLength, every array with maxItems, and only the keywords type, properties, required, additionalProperties (true or false), items (one schema), maxItems, minItems, maxLength, minLength, enum, const, minimum, maximum, title and description. The reader checks it; this schema does not."},
-          "timeout": {"type": "integer", "minimum": 1, "maximum": 10},
-          "chats": {
-            "type": "array",
-            "uniqueItems": true,
-            "contains": {"enum": ["obeya", "wizard", "assistant", "plugin"]},
-            "items": {"enum": ["obeya", "wizard", "assistant", "plugin"]}
+          "at": {
+            "type": "string",
+            "pattern": "^hook:[a-z0-9-]+:[a-z0-9._-]+$",
+            "description": "The hook or gate point, as hook:<when>:<event> (spec 2.2 table :427; before-hooks carry an admin's policy at :599). SPEC GAP: the table gives the shape, not the <when> or <event> vocabularies; the reader checks the point exists."
+          },
+          "entry": {
+            "type": "string",
+            "allOf": [
+              {"pattern": "^dist(?:/[A-Za-z0-9._-]+)+$"},
+              {"not": {"pattern": "(^|/)\\.\\.(/|$)"}}
+            ],
+            "description": "The hook's entry, a path into dist/ (spec 2.2 table :427; floating spec 2, :187). SPEC GAP: no grammar beyond 'a path' is given for hook entries; prefix pinned here, reader owns the rest."
           }
         }
-      }
+      },
+      "description": "Each hook or gate point; no (spec 2.2 table :427). SPEC GAP: no array cap is given; 1.x capped hooks at 1."
     },
-    "needs": {
-      "type": "array",
-      "maxItems": 2,
-      "items": {
+    "wasm": {
+      "type": "object",
+      "additionalProperties": {
         "type": "object",
-        "required": ["name", "skills"],
+        "required": ["path"],
         "additionalProperties": false,
         "properties": {
-          "name": {"type": "string", "pattern": "^[a-z][a-z0-9]{0,11}$"},
-          "skills": {
-            "type": "array",
-            "uniqueItems": true,
-            "contains": {"type": "string"},
-            "items": {"type": "string", "pattern": "^[a-z-]{1,16}$"}
+          "path": {
+            "type": "string",
+            "allOf": [
+              {"pattern": "^dist/wasm(?:/[A-Za-z0-9._-]+)+$"},
+              {"not": {"pattern": "(^|/)\\.\\.(/|$)"}}
+            ],
+            "description": "The module's file in dist/wasm/ (spec 1.1, :271; part 2's layout, floating spec :191)."
+          },
+          "source": {
+            "type": "string",
+            "allOf": [
+              {"pattern": "^src(?:/[A-Za-z0-9._-]+)+/?$"},
+              {"not": {"pattern": "(^|/)\\.\\.(/|$)"}}
+            ],
+            "description": "The module's source in src/, for the rebuild layer (spec 1.1 audit layer 2, :322-326: 'The manifest may name a module's source in src/ and a recipe' — 'may', so not needed). A source names a folder, so its trailing slash is allowed here and nowhere else: path, driver, entry and component stay file-shaped and refuse a trailing slash."
+          },
+          "recipe": {
+            "description": "The build recipe: a toolchain container pinned by digest, plus the build command (spec 1.1, :322-324). SPEC GAP: the table at :428 names the field; :322-324 names its contents but no JSON shape, so this schema leaves it open and the reader fixes it. Our own adapters must reach 'rebuilt from source: matches' (:1319-1321)."
           }
         }
-      }
+      },
+      "description": "Name to {path, source, recipe}: the driver's modules; no (spec 2.2 table :428; part 1.1). path is needed, source and recipe are the audit's rebuild layer, which 1.1 says 'may' (:322). SPEC GAP: no name pattern or count cap is given; 1.1's size caps (8 MiB per module, 32 MiB per dist/wasm/, :352-353) are byte checks at vetting (part 3, :503), not manifest fields."
+    },
+    "view_wasm": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["path"],
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string",
+            "allOf": [
+              {"pattern": "^dist/view/wasm(?:/[A-Za-z0-9._-]+)+$"},
+              {"not": {"pattern": "(^|/)\\.\\.(/|$)"}}
+            ],
+            "description": "The module's file in dist/view/wasm/ (spec 6.1's layout, floating spec :510)."
+          },
+          "source": {
+            "type": "string",
+            "allOf": [
+              {"pattern": "^src(?:/[A-Za-z0-9._-]+)+/?$"},
+              {"not": {"pattern": "(^|/)\\.\\.(/|$)"}}
+            ],
+            "description": "The module's source in src/, for the rebuild layer (spec 1.1, :322-326; the same audit applies to view modules, :275). Folder form, trailing slash allowed, as for wasm.source; path stays file-shaped."
+          },
+          "recipe": {
+            "description": "The build recipe (spec 1.1, :322-324). SPEC GAP: shape open, as for wasm."
+          }
+        }
+      },
+      "description": "Name to {path, source, recipe}: the view's modules; no (spec 2.2 table :429; part 6.1). A vendored .wasm is listed here too (floating spec :517-521). SPEC GAP: same open items as wasm; 6.1's caps (dist/view/wasm/ 16 MiB, :354) are vetting checks, not manifest fields."
+    },
+    "vendor": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["version", "upstream", "files"],
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32,
+            "description": "The library's version (spec 3, :483-486: 'The manifest names each with its version, its upstream source and a sha256 for each file'). No grammar is given; the reader takes one line of 1 to 32 characters, control characters refused, and vetting compares it against the upstream's own tag."
+          },
+          "upstream": {
+            "type": "string",
+            "pattern": "^(npm:(?:@[A-Za-z0-9._-]+/)?[A-Za-z0-9._-]+@[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?|git:[A-Za-z0-9.-]+/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+@[0-9a-f]{40})$",
+            "description": "One of two exact forms and nothing else: npm:<name>@<version> (public registry, exact version) or git:<host>/<owner>/<repo>@<commit> (full commit, host named by the release — github.com today). A URL, a range, a tag or a branch is refused at vetting; the host builds the fetch URL from the form, never from manifest text (spec 3, :487-492). SPEC GAP: the host list is the release's (:489-490), so the pattern is general here and the reader checks the host against the release."
+          },
+          "files": {
+            "type": "object",
+            "additionalProperties": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+            "description": "A sha256 for each file (spec 2.2 table :430; spec 3, :483-486). SPEC GAP: the table says 'each file's sha256' without a shape; this reads it as file-path to lowercase-hex-sha256 — the fixture task and the reader confirm. Whether keys are paths inside dist/vendor/<lib>/ is the reader's."
+          }
+        }
+      },
+      "description": "Library to {version, upstream, files}: verified libraries; no (spec 2.2 table :430; part 3, :483-503). They live in dist/vendor/<lib>/ and count toward their own larger cap (8 MiB, 1.4 :355), a vetting check, not a manifest field."
+    },
+    "solid": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32,
+      "description": "The solid-js version the compiled JSX expects; needed with a compiled view (spec 2.2 table :431; part 6). SPEC GAP: no version grammar is given — exact version or range is open; the solid ⇒ views pairing below only says a solid needs views, because 'compiled view' is not visible to the schema and an uncompiled view must not be forced to carry one."
+    },
+    "origins": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["url", "credential", "methods", "body"],
+        "additionalProperties": false,
+        "properties": {
+          "url": {
+            "type": "string",
+            "pattern": "^https://[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*$",
+            "description": "An exact origin: https, a lowercase A-label host, no port, no path, no wildcard (spec 5.1, :838-840; decision 68, :836: no pattern in 2.1; a glob in a manifest is refused, :841 and :904). SPEC GAP: vetting also refuses an IP literal, a trailing dot and user information (10.1, :1353-1355), which this pattern cannot all state; the reader refuses them too."
+          },
+          "credential": {
+            "type": "boolean",
+            "description": "Whether the origin takes the credential at all (spec 10.1, :1330-1337, :1351-1352). Widening never adds one (5.1, :835)."
+          },
+          "methods": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "string", "pattern": "^[A-Z]+$"},
+            "description": "The allowed methods (spec 5.1, :849-853: 'Each origin entry lists its allowed methods and its body'; a widened destination defaults to GET and HEAD, :852). minItems 1 follows from 'lists'. SPEC GAP: the method vocabulary and casing are not enumerated in the spec; the examples use GET, POST, PATCH, PUT, DELETE (:1331)."
+          },
+          "body": {
+            "type": "string",
+            "pattern": "^(none|bounded\\([0-9]+\\))$",
+            "description": "none or bounded(<bytes>) (spec 5.1, :849-852): the standard's §6 bounded, this host's extension carrying the byte count; a bare bounded takes 10.9's request-body cap of 8 MiB (:2507). SPEC GAP: no schema-side maximum is set on <bytes> — 10.9's caps are proposals the owners tune (:2496), so the request gate checks the number, not this schema."
+          }
+        }
+      },
+      "description": "Id to {url, credential, methods, body}: declared destinations; no; any kind may declare it, as a request (spec 2.2 table :432; 5.1, 10.1). Granted only by the signed vetted entry or the person's approval by name (:843-848) — never from the manifest alone. SPEC GAP: no id pattern, count cap or emptiness rule is given."
+    },
+    "adapter": {
+      "type": "object",
+      "required": ["world", "component", "realms", "ports", "credential"],
+      "additionalProperties": false,
+      "properties": {
+        "world": {
+          "type": "string",
+          "pattern": "^tehas:adapter@[0-9]+\\.[0-9]+\\.[0-9]+$",
+          "description": "The adapter world, such as \"tehas:adapter@2.0.0\" (spec 10.1, :1339; part 10.2). SPEC GAP: the interface-name form is read off the example; the spec states no grammar."
+        },
+        "component": {
+          "type": "string",
+          "allOf": [
+            {"pattern": "^dist/wasm(?:/[A-Za-z0-9._-]+)+$"},
+            {"not": {"pattern": "(^|/)\\.\\.(/|$)"}}
+          ],
+          "description": "The one component, in dist/wasm/, named in the manifest, in place of a driver (spec 10.1, :1313-1315; example dist/wasm/adapter.wasm at :1340). Needed because the table's value column names it and an adapter's entry is the component; SPEC GAP: for a JavaScript adapter the field's meaning is open — the table says the adapter object is needed for an adapter, so the reader decides what component holds on that path."
+        },
+        "realms": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+          "description": "The realms the adapter serves (spec 2.2 table :433; example [\"code-host\", \"tickets\"] at :1341). SPEC GAP: realm vocabulary and item grammar are not given; minItems 1 is inferred from the table naming the field for an adapter that serves something."
+        },
+        "ports": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+          "description": "The ports the adapter maps (spec 2.2 table :433; example at :1342-1343; the port list itself is the contract's, 10.1 and routes.json at :1360-1368). The mapping lives in dist/routes.json under api/adapter-routes.schema.json, hashed with dist/, not in the manifest. SPEC GAP: port names are the registry's, not enumerated here; item grammar inferred from the examples."
+        },
+        "credential": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "The kind of credential the adapter needs; the host maps the kind to what it has configured, and the manifest never holds a credential (spec 10.1, :1355-1358; example \"github\" at :1345). SPEC GAP: the kind vocabulary is the host's configuration (10.4), not enumerated in the spec."
+        }
+      },
+      "description": "{world, component, realms, ports, credential}: needed for an adapter only (spec 2.2 table :433; part 10). SPEC GAP: the table names the five keys as the object's shape; each key's needed-ness is read from the one full example at :1338-1346."
     }
   },
   "dependentSchemas": {
-    "view": {"properties": {"asks": {"contains": {"const": "view"}}}},
-    "views": {"not": {"required": ["view"]}},
-    "hooks": {"properties": {"asks": {"contains": {"const": "hook:after:change.offered"}}}},
-    "build": {"required": ["kind", "timeout"]},
-    "timeout": {"required": ["build"]},
-    "tools": {"required": ["build"]}
-  }
+    "driver": {"required": ["timeout"]},
+    "timeout": {"required": ["driver"]},
+    "solid": {"required": ["views"]}
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"kind": {"const": "adapter"}},
+        "required": ["kind"]
+      },
+      "then": {
+        "description": "An adapter (spec 10.1): the adapter object is needed (:433), and an adapter has no driver entry, view, skill, hook, gate, tool or schedule (:1299) — driver, views, actions, skills, hooks, solid and view_wasm are refused. It may keep wasm (:1310-1317), origins and the http ask (:1358).",
+        "required": ["adapter"],
+        "not": {
+          "anyOf": [
+            {"required": ["driver"]},
+            {"required": ["views"]},
+            {"required": ["actions"]},
+            {"required": ["skills"]},
+            {"required": ["hooks"]},
+            {"required": ["solid"]},
+            {"required": ["view_wasm"]}
+          ]
+        }
+      },
+      "else": {
+        "description": "An ordinary plugin, kind \"plugin\" present or absent (the table's default at :419): the adapter object is refused (:433, 'an adapter only'); component is the adapter's runtime alone (:420, 10.1 :1313); and http is given to an adapter alone and refused to any other plugin (:1358).",
+        "not": {
+          "anyOf": [
+            {"required": ["adapter"]},
+            {"properties": {"runtime": {"const": "component"}}, "required": ["runtime"]},
+            {"properties": {"asks": {"contains": {"const": "http"}}}, "required": ["asks"]}
+          ]
+        }
+      }
+    }
+  ]
 }

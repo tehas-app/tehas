@@ -580,9 +580,12 @@ fn run_in(
         Ok(w) => w,
         Err(why) => return Came::Failed(why),
     };
+    // The 2.2 table gives a hook no seconds of its own, so a hook run keeps
+    // the manifest's. A plugin with a hook and no driver has no timeout to
+    // give, which is what the message below says.
     let timeout = match st.kind {
         Kind::Refresh => p.manifest.timeout,
-        Kind::Hook => p.manifest.hook,
+        Kind::Hook => p.manifest.timeout,
         Kind::Call => None,
     };
     let Some(timeout) = timeout else {

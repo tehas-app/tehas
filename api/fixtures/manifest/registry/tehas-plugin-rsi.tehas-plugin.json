@@ -1,0 +1,13 @@
+{
+  "plugin": 1,
+  "kind": "batch",
+  "name": "rsi",
+  "label": "Self-improvement",
+  "license": "Apache-2.0",
+  "build": "Dockerfile",
+  "timeout": 1800,
+  "asks": ["view", "menu", "every", "cycles", "industry:logs", "model", "record", "keep", "issue:draft", "action:run"],
+  "view": {"label": "Self-improvement"},
+  "actions": [{"id": "run", "label": "Run now"}],
+  "records": [{"kind": "finding"}]
+}
