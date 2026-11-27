@@ -51,12 +51,12 @@
 //! below pins both.
 //!
 //! Open (before tidy moves): tidy reads by number with
-//! `Tickets::several_with_closers`, whose `WithCloser` has the closer but no
-//! merged changes listed, so `by_merge(closer, &[])` there drops #947's
-//! fallback (a commit closer while a merged change is listed) and tidy and
-//! tehasbot status would disagree on it. The fallback needs those changes on
-//! `WithCloser`, a field its `#[non_exhaustive]` allows, added by an adapter
-//! pull request first (Decided 80), or tidy reads with `closed_since`.
+//! `Tickets::several_with_closers`, whose `WithCloser` now lists the merged
+//! changes that close the ticket as `closed_since` does (Decided 80), so
+//! `by_merge` there keeps #947's fallback (a commit closer while a merged
+//! change is listed) and tidy and tehasbot status agree on it. The tidy
+//! move itself waits on this adapter change and comes in its own pull
+//! request.
 //!
 //! Exit: 0, or 2 for usage.
 

@@ -16,6 +16,7 @@ pub struct TicketSpec {
     pub(crate) markers: Vec<Marker>,
     pub(crate) marks: Vec<(Mark, Option<String>)>,
     pub(crate) closed: Option<CloseReason>,
+    pub(crate) closer: Option<Closer>,
     pub(crate) kind: Option<Kind>,
     pub(crate) priority: Option<Priority>,
     pub(crate) target: Option<TargetId>,
@@ -72,6 +73,14 @@ impl TicketSpec {
     /// Closed, for this reason.
     pub fn closed(mut self, reason: CloseReason) -> Self {
         self.closed = Some(reason);
+        self
+    }
+
+    /// Closed, for this reason, by `closer` in place of the operator's
+    /// account: a commit that said it closes it, say.
+    pub fn closed_by(mut self, reason: CloseReason, closer: Closer) -> Self {
+        self.closed = Some(reason);
+        self.closer = Some(closer);
         self
     }
 
@@ -227,7 +236,10 @@ impl TicketSpec {
             s.attach(at, name, bytes);
         }
         if let Some(reason) = self.closed {
-            let closer = Some(Closer::Account(s.account(OPERATOR, realm)));
+            let closer = Some(match self.closer {
+                Some(closer) => closer,
+                None => Closer::Account(s.account(OPERATOR, realm)),
+            });
             let item = &mut s.items[at];
             item.open = false;
             item.reason = Some(reason.clone());
