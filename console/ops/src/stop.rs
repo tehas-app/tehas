@@ -38,6 +38,7 @@ use tehas_core::home::Home;
 use tehas_core::lock::{probe, Held, Probe};
 use tehas_core::raise::{self, Writer};
 use tehas_core::settings::rules::is_repo;
+use tehas_core::units;
 use tehas_core::verb::{End, Verb};
 use tehas_ports::events::Dispatcher;
 use tehas_ports::{Mark, Outcome, State, TicketKey, TicketWrites};
@@ -229,7 +230,7 @@ impl Names {
     }
 
     fn unit(&self) -> String {
-        format!("tehas-cycle@{}.service", self.n)
+        units::cycle(&self.n)
     }
 
     fn container(&self) -> String {
