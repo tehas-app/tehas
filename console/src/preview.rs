@@ -435,12 +435,18 @@ pub fn choose_main(args: &[String]) -> u8 {
     0
 }
 
+/// The sweep's one reader of changes, made by the wiring in `main.rs`
+/// alone (R8): the code host of the run's repository, or none when it
+/// cannot be wired, which the sweep reads as no answer and keeps.
+pub type Host = Option<Box<dyn tehas_ports::CodeHost + Send>>;
+pub type HostOf = fn(home: &std::path::Path, repo: &str) -> Host;
+
 /// The whole verb: `main` took "preview" off the arguments.
-pub fn main(given: &[String]) -> u8 {
+pub fn main(given: &[String], host_of: HostOf) -> u8 {
     match given.first().map(String::as_str) {
         Some("choose") => choose_main(&given[1..]),
-        Some("run") if given.len() == 1 => run::main(false),
-        Some("sweep") if given.len() == 1 => run::main(true),
+        Some("run") if given.len() == 1 => run::main(false, host_of),
+        Some("sweep") if given.len() == 1 => run::main(true, host_of),
         Some("network") => crate::edge::network_main(&given[1..]),
         _ => {
             eprintln!("console preview: usage: run|sweep");
