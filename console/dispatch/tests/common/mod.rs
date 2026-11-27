@@ -368,18 +368,23 @@ case "$1 $2" in
       # body histories of the issues below, whose query holds the same words.
       *"nodes(ids:"*) [ ! -e "$T/fx/comment-edits-fail" ] || exit 1
         cat "$T/fx/comment-edits.json" 2>/dev/null || echo "{\"data\":{\"nodes\":[]}}" ;;
-      # The body edit histories of a chunk of issues, one alias i<n> an issue:
-      # edits-<n>.json when a case wrote it, else the last edit of
-      # edit-<n>.json (or edit.json) alone.
-      *"userContentEdits(last"*) [ ! -e "$T/fx/edits-fail" ] || exit 1
+      # The body edit histories of a chunk of issues, as the GitHub adapter
+      # asks them, one alias i<n> an issue: edits-<n>.json when a case wrote
+      # it, else the last edit of edit-<n>.json (or edit.json) alone, each
+      # with the text as created, oldest and last. edits-errors.json, when a
+      # case wrote it, is GitHub's errors beside the data, and gh exits 1.
+      *"userContentEdits(first"*) [ ! -e "$T/fx/edits-fail" ] || exit 1
         acc="{}"
         for k in $(printf "%s\n" "$*" | grep -o "i[0-9]*: issue(number:" | sed "s/^i\([0-9]*\):.*/\1/"); do
           f="$T/fx/edit-$k.json"
           [ -r "$f" ] || f="$T/fx/edit.json"
-          one=$(cat "$T/fx/edits-$k.json" 2>/dev/null) ||
-            one=$(jq -c ".data.repository.issue | if .lastEditedAt then {totalCount: 1, nodes: [{editedAt: .lastEditedAt, editor}]} else {totalCount: 0, nodes: []} end" "$f") || exit 1
-          acc=$(jq -c --arg k "i$k" --argjson one "$one" ". + {(\$k): {userContentEdits: \$one}}" <<<"$acc") || exit 1
+          one=$(jq -c --argjson k "$k" --slurpfile e <(cat "$T/fx/edits-$k.json" 2>/dev/null || echo null) ".data.repository.issue | (.createdAt // \"2000-01-01T00:00:00Z\") as \$c | {number: \$k, createdAt: \$c, lastEditedAt, userContentEdits: (\$e[0] // if .lastEditedAt then {totalCount: 2, nodes: [{editedAt: .lastEditedAt, editor, diff: \"\"}, {editedAt: \$c, editor: .author, diff: \"\"}]} else {totalCount: 0, nodes: []} end)}" "$f") || exit 1
+          acc=$(jq -c --arg k "i$k" --argjson one "$one" ". + {(\$k): \$one}" <<<"$acc") || exit 1
         done
+        if [ -r "$T/fx/edits-errors.json" ]; then
+          jq -c --slurpfile e "$T/fx/edits-errors.json" "{data: {repository: .}, errors: \$e[0]}" <<<"$acc"
+          exit 1
+        fi
         echo "{\"data\":{\"repository\":$acc}}" ;;
       # The states of the issues a tehas:blocked comment names.
       # One pull request, as a refresh reads it at the start.
