@@ -3,11 +3,9 @@
 //! starts, so a body or a title edited after the label starts no cycle.
 
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 
 fn sum(text: &str) -> String {
-    let sum = Sha256::digest(text.as_bytes());
-    sum.iter().map(|b| format!("{b:02x}")).collect()
+    crate::sum::sha256_hex(text.as_bytes())
 }
 
 /// The sha256 of an issue's body. Carriage returns are dropped: the dispatcher

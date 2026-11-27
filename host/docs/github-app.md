@@ -314,9 +314,9 @@ granting label, as the next section says.
 The dispatcher keeps the GitHub node id of each label whose application
 grants work (`tehas:ready`, `tehas:plan`, `tehas:refine`, `tehas:finish`,
 `tehas:blocked`, `tehas:lean` and `tehas:classic`) in `~/tehas/state/labels`,
-one `<name><tab><id>` line each. The first page of each poll reads the
-repository's `tehas:` labels with their ids, and the label events read from
-GraphQL carry the id of their label:
+one `<name><tab><id>` line each. The queue read of each poll asks the
+tickets for the repository's `tehas:` labels with their ids, and the label
+events read from GitHub carry the id of their label:
 
 - `tehas labels`, which `install.sh` runs and `tehas update` runs when the
   table of labels changes, makes the labels and then pins them, and prints

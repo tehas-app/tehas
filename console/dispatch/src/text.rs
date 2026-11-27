@@ -4,7 +4,6 @@
 
 use regex::Regex;
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::sync::{LazyLock, OnceLock};
 pub use tehas_core::approval::{body_sha256, body_sum, title_sha256, title_sum};
@@ -59,8 +58,7 @@ pub fn plan_sum(issue: &Value) -> String {
 /// [`plan_sum`] of a title and a body read as text.
 pub fn plan_sum_of(title: &str, body: &str) -> String {
     let part = |t: &str| t.replace('\r', "").trim().to_string();
-    let sum = Sha256::digest(json!([part(title), part(body)]).to_string().as_bytes());
-    sum.iter().map(|b| format!("{b:02x}")).collect()
+    tehas_core::sum::sha256_hex(json!([part(title), part(body)]).to_string().as_bytes())
 }
 
 /// The numbers a text names with a closing keyword: `Closes`, `Fixes` or

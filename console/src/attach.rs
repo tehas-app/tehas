@@ -27,10 +27,7 @@ fn or(name: &str, default: &str) -> String {
 fn program() -> Option<PathBuf> {
     let home = var("TEHAS_HOME");
     let bin = Path::new(&home).join("libexec/attach");
-    let ready = !home.is_empty()
-        && bin
-            .metadata()
-            .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0);
+    let ready = !home.is_empty() && tehas_core::file::runnable(&bin);
     ready.then_some(bin)
 }
 

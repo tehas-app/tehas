@@ -24,6 +24,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use tehas_core::approval::{body_sha256, title_sha256};
 use tehas_core::retry;
+use tehas_core::verb::Verb;
 use tehas_core::{exit, time};
 use tehas_ports::{Outcome, Sent};
 
@@ -175,24 +176,17 @@ fn approve(here: &std::path::Path, repo: &str, a: &Asked) -> u8 {
             return rc;
         }
     };
-    let (num, body) = (n.to_string(), body_sha256(&issue));
+    let body = body_sha256(&issue);
     let title = title_sha256(&issue);
-    let mut args = vec![
-        "approval-record",
-        &num,
-        "--at",
-        &at,
-        "--by",
-        HOST,
-        "--how",
-        HOST,
-        "--body-sha",
-        &body,
-    ];
-    if let Some(t) = &title {
-        args.extend(["--title-sha", t]);
-    }
-    match store::call(here, &args) {
+    let record = Verb::ApprovalRecord {
+        issue: n,
+        at: at.to_string(),
+        by: HOST.into(),
+        how: HOST.into(),
+        body_sha: body,
+        title_sha: title,
+    };
+    match store::call(here, &record) {
         Ok(v) => {
             let approval = shown(&v["approval"]);
             if a.json {
@@ -217,8 +211,7 @@ fn approve(here: &std::path::Path, repo: &str, a: &Asked) -> u8 {
 
 fn clear(here: &std::path::Path, a: &Asked) -> u8 {
     let n = a.issue;
-    let num = n.to_string();
-    let waiting = match store::call(here, &["approval-current", &num]) {
+    let waiting = match store::call(here, &Verb::ApprovalCurrent { issue: n }) {
         Ok(v) => v["approval"].clone(),
         Err(refused) => {
             eprintln!("tehas start: the store said: {}", refused.line);
@@ -228,7 +221,7 @@ fn clear(here: &std::path::Path, a: &Asked) -> u8 {
     let ours = waiting["how"] == HOST;
     if ours {
         let at = waiting["at"].as_i64().unwrap_or(0).to_string();
-        if let Err(refused) = store::call(here, &["approval-record", &num, "--undo", "--at", &at]) {
+        if let Err(refused) = store::call(here, &Verb::ApprovalUndo { issue: n, at }) {
             eprintln!("tehas start: the store said: {}", refused.line);
             return 1;
         }

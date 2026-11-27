@@ -1312,6 +1312,16 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Readers: adopters, people on an issue.
   Adopter action: none. After the update the marks fill themselves over a
   few polls.
+- **The tidy reads what closed its issues through the tickets port.**
+  `console tidy run` gives `tehas:shipped` by the rule `tehasbot status`
+  uses, from the same closer and merged pull requests of this repository.
+  A pull request of another repository no longer earns the label. A read
+  that fails, or does not read one of the issues, is still one line,
+  `WARN: tidy: the read of what closed these issues failed: <reason>,
+  tehas:shipped was not added for N issues`; the reason is the port's
+  outcome in tehas's words, not gh's.
+  Readers: adopters who read the dispatch log.
+  Adopter action: none.
 - **Two settings name the adapters.** #3359.
   `TEHAS_CODE_HOST` names the code host and `TEHAS_TICKETS` the ticket
   tracker. In 2.0 each takes `github` alone, where `TEHAS_TICKETS=github` is

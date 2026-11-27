@@ -1,8 +1,10 @@
 //! The edit histories of bodies and comments (Decided 119): GraphQL's
 //! `userContentEdits`, asked for up to `CHUNK` items in one question, as
 //! the poll's `fill_comment_edits` asks them today. Each item is answered
-//! alone: one GitHub cannot find is `NotFound` and the others stand, and
-//! the bound holds for each. A failed call fails the items of its question.
+//! alone, by the adapter's one reader of a question of several
+//! (`items.rs`): one GitHub cannot find is `NotFound` and the others stand,
+//! and the bound holds for each. A failed call fails the items of its
+//! question.
 //!
 //! GitHub lists a text's versions newest first, the oldest its text as
 //! created, stamped with the item's creation; the edits are the others.
@@ -17,13 +19,13 @@
 
 use std::collections::HashMap;
 
-use super::{editor, is_node_id, priced, time, Actor};
+use super::{editor, is_node_id, time, Actor};
 use crate::port::blueprint_writes::comment_issue;
 use crate::tickets::Bot;
-use crate::{markers, rate, GitHub};
+use crate::{markers, GitHub};
 use serde::Deserialize;
 use serde_json::Value;
-use tehas_ports::{At, BlueprintNo, Bound, CommentId, Edit, Got, Outcome, Pool, Unread, Whole};
+use tehas_ports::{At, BlueprintNo, Bound, CommentId, Edit, Got, Outcome, Unread, Whole};
 
 /// The most items one question asks of, as `COMMENT_EDIT_CHUNK` today.
 pub(super) const CHUNK: usize = 20;
@@ -202,24 +204,15 @@ impl GitHub {
         let asked = once(nos.iter().copied());
         let mut got: HashMap<BlueprintNo, Got<Whole<Edit>>> = HashMap::new();
         for chunk in asked.chunks(CHUNK) {
-            let paths: Vec<Vec<String>> = chunk
-                .iter()
-                .map(|no| vec!["repository".to_string(), format!("i{}", no.get())])
-                .collect();
-            let answer = self.ask_several::<IssueNode>(
+            let aliases: Vec<String> = chunk.iter().map(|no| format!("i{}", no.get())).collect();
+            let parts = self.ask_aliased::<IssueNode>(
                 "the issues' edits",
                 &bodies_question(chunk, bound),
-                &paths,
-                "/data/repository",
+                &aliases,
             );
-            match answer {
-                Err(o) => got.extend(chunk.iter().map(|&no| (no, Err(o.clone())))),
-                Ok(parts) => {
-                    for (&no, part) in chunk.iter().zip(parts) {
-                        let read = part.and_then(|v| self.body_edits_from(v, no, bound));
-                        got.insert(no, read);
-                    }
-                }
+            for (&no, part) in chunk.iter().zip(parts) {
+                let read = part.and_then(|v| self.body_edits_from(v, no, bound));
+                got.insert(no, read);
             }
         }
         nos.iter()
@@ -260,23 +253,14 @@ impl GitHub {
         }
         for chunk in asked.chunks(CHUNK) {
             let nodes: Vec<String> = chunk.iter().map(|(_, _, (node, _))| node.clone()).collect();
-            let paths: Vec<Vec<String>> = (0..chunk.len())
-                .map(|i| vec!["nodes".to_string(), i.to_string()])
-                .collect();
-            let answer = self.ask_several::<CommentNode>(
+            let parts = self.ask_nodes::<CommentNode>(
                 "the comments' edits",
                 &comments_question(&nodes, bound),
-                &paths,
-                "/data/nodes",
+                chunk.len(),
             );
-            match answer {
-                Err(o) => got.extend(chunk.iter().map(|(id, _, _)| (id.clone(), Err(o.clone())))),
-                Ok(parts) => {
-                    for ((id, n, kept), part) in chunk.iter().zip(parts) {
-                        let read = part.and_then(|v| self.comment_edits_from(v, *n, kept, bound));
-                        got.insert(id.clone(), read);
-                    }
-                }
+            for ((id, n, kept), part) in chunk.iter().zip(parts) {
+                let read = part.and_then(|v| self.comment_edits_from(v, *n, kept, bound));
+                got.insert(id.clone(), read);
             }
         }
         ids.iter()
@@ -292,7 +276,9 @@ impl GitHub {
 
     /// The REST id of comment `id`, its node id and its issue: kept from a
     /// read of comments, or read by REST. A comment that is not on an issue
-    /// of this project is `NotFound`.
+    /// of this project is `NotFound`. REST's 404 is `Unread(Inconsistent)`:
+    /// a repository that is not there, or a token that cannot see it, gives
+    /// it too, and a caller must not drop a history on it.
     fn comment_node(&mut self, id: &CommentId) -> Got<(u64, Kept)> {
         let text = id.as_str();
         let n: u64 = match text.bytes().all(|b| b.is_ascii_digit()) {
@@ -303,9 +289,12 @@ impl GitHub {
             return Ok((n, kept.clone()));
         }
         let path = format!("repos/{}/issues/comments/{n}", self.repo);
-        let out = self
-            .call("the comment", &["api", &path])
-            .map_err(|e| self.outcome(&e))?;
+        let out =
+            self.call("the comment", &["api", &path])
+                .map_err(|e| match self.outcome(&e) {
+                    Outcome::NotFound => Outcome::Unread(Unread::Inconsistent),
+                    o => o,
+                })?;
         let malformed = Outcome::Unread(Unread::Malformed);
         let mut v: Value = serde_json::from_str(out.trim()).map_err(|_| malformed.clone())?;
         tehas_core::accounts::vouch(&mut v);
@@ -344,129 +333,6 @@ impl GitHub {
         }
         c.text.edits(*no, bound, self.bot.as_ref())
     }
-
-    /// One question of several items, each item's part read as a `T`:
-    /// `paths` the place GitHub's errors name each by, `list` where the
-    /// data holds the items. A part that is no `T` is `Unread(Malformed)`. A
-    /// failed call, an answer that does not parse or lacks the list, and an
-    /// error that names no item fail every item: a spent budget when GitHub
-    /// says the rate is limited, else `Unread(Inconsistent)`. An error that
-    /// names an item fails that item alone: `NotFound` when GitHub cannot
-    /// find it and its part is null, else `Unread(Inconsistent)`. An item
-    /// with no error and no part is `Unread(Inconsistent)`.
-    fn ask_several<T: serde::de::DeserializeOwned>(
-        &mut self,
-        call: &str,
-        question: &str,
-        paths: &[Vec<String>],
-        list: &str,
-    ) -> Got<Vec<Got<T>>> {
-        let (owner, name) = self.owner_name();
-        let query = format!("query={question}");
-        let args = ["api", "graphql", "-F", &owner, "-F", &name, "-f", &query];
-        let out = match self.call_answer(call, &args) {
-            Ok(out) => out,
-            Err((e, answer)) => match answer.filter(|a| answered(a)) {
-                Some(out) => out,
-                // Not one item's: GitHub names which in its answer.
-                None => {
-                    return Err(match self.outcome(&e) {
-                        Outcome::NotFound => Outcome::Unread(Unread::Inconsistent),
-                        o => priced(o),
-                    })
-                }
-            },
-        };
-        let mut v: Value =
-            serde_json::from_str(out.trim()).map_err(|_| Outcome::Unread(Unread::Malformed))?;
-        let errors: Vec<GraphError> = match v.get("errors") {
-            None | Some(Value::Null) => Vec::new(),
-            Some(e) => {
-                serde_json::from_value(e.clone()).map_err(|_| Outcome::Unread(Unread::Malformed))?
-            }
-        };
-        let mut failed: Vec<Option<Outcome>> = vec![None; paths.len()];
-        for e in errors {
-            let at = e
-                .path
-                .as_ref()
-                .and_then(|p| paths.iter().position(|q| path_is(p, q)));
-            match at {
-                Some(i) if e.kind.as_deref() == Some("NOT_FOUND") => {
-                    failed[i] = Some(Outcome::NotFound);
-                }
-                Some(i) => failed[i] = Some(Outcome::Unread(Unread::Inconsistent)),
-                None if e.kind.as_deref() == Some(rate::RATE_LIMITED) => {
-                    return Err(rate::spent(Pool::Priced, (self.now)(), None))
-                }
-                None => return Err(Outcome::Unread(Unread::Inconsistent)),
-            }
-        }
-        if !v
-            .pointer(list)
-            .is_some_and(|l| l.is_object() || l.is_array())
-        {
-            return Err(Outcome::Unread(Unread::Malformed));
-        }
-        tehas_core::accounts::vouch(&mut v);
-        let parts = paths
-            .iter()
-            .zip(failed)
-            .map(|(p, failed)| {
-                let mut at = String::from("/data");
-                for step in p {
-                    at.push('/');
-                    at.push_str(step);
-                }
-                let part = v
-                    .pointer_mut(&at)
-                    .map(std::mem::take)
-                    .unwrap_or(Value::Null);
-                match (failed, part) {
-                    (Some(Outcome::NotFound), Value::Null) => Err(Outcome::NotFound),
-                    (Some(_), _) | (None, Value::Null) => {
-                        Err(Outcome::Unread(Unread::Inconsistent))
-                    }
-                    (None, part) => {
-                        serde_json::from_value(part).map_err(|_| Outcome::Unread(Unread::Malformed))
-                    }
-                }
-            })
-            .collect();
-        Ok(parts)
-    }
-}
-
-/// One of GraphQL's `errors`.
-#[derive(Deserialize)]
-struct GraphError {
-    #[serde(rename = "type")]
-    kind: Option<String>,
-    path: Option<Vec<Step>>,
-}
-
-/// A step of an error's path: a field or an alias, or a place in a list.
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum Step {
-    Name(String),
-    At(u64),
-}
-
-/// GitHub's path of an error is in the item at `item`.
-fn path_is(path: &[Step], item: &[String]) -> bool {
-    path.len() >= item.len()
-        && path.iter().zip(item).all(|(p, q)| match p {
-            Step::Name(s) => s == q,
-            Step::At(n) => n.to_string() == *q,
-        })
-}
-
-/// gh's output on a failed call is a GraphQL answer with data.
-fn answered(out: &str) -> bool {
-    serde_json::from_str::<Value>(out.trim())
-        .ok()
-        .is_some_and(|v| v.get("data").is_some_and(Value::is_object))
 }
 
 /// The items in the order first asked, each once.

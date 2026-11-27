@@ -7,13 +7,13 @@
 //! jq kept the keys in the order written and a number as the text it read.
 
 use crate::jq::{obj, J};
-use crate::snapshot;
 use crate::store;
 use std::env;
 use std::path::{Path, PathBuf};
 use tehas_core::grammar;
 use tehas_core::outcome::ParkLine;
 use tehas_core::time;
+use tehas_core::verb::Verb;
 
 /// A cursor of a shape this command can print: at most 10 digits of seconds,
 /// 9 of issue and 15 of place. The shape of v0.13 and before has no place.
@@ -139,10 +139,16 @@ pub fn listing(home: &Path, repo: &str, query: &Query) -> Result<Listing, Unread
             said: "ERROR: the state store is not installed (run install.sh)".to_string(),
         });
     }
-    let issue = query.issue.map(|n| n.to_string());
-    let mut args = vec!["history-show"];
-    args.extend(issue.as_deref());
-    let answer = store::line(home, &args).map_err(|no| Unread {
+    let issue = query
+        .issue
+        .map(u64::try_from)
+        .transpose()
+        .map_err(|_| Unread {
+            rc: 78,
+            said: "ERROR: the issue is not an issue's number".to_string(),
+        })?;
+    let show = Verb::HistoryShow { issue };
+    let answer = store::line(home, &show).map_err(|no| Unread {
         rc: if no.rc == 1 { 1 } else { 78 },
         said: format!(
             "ERROR: the history could not be read from the state store: {}",
@@ -311,7 +317,7 @@ fn seconds_of(line: &J) -> Option<i64> {
         && rc
         && line.get("status").as_str().is_some()
         && at.starts_with(|c: char| c.is_ascii_digit());
-    snapshot::epoch(at).filter(|_| readable)
+    time::from_iso(at).filter(|_| readable)
 }
 
 fn is_issue_address(s: &str) -> bool {

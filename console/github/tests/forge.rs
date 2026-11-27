@@ -873,6 +873,7 @@ fn the_order_of_one_second_is_the_rule_once() {
     let made = |kind: &str| gh::Event {
         event: kind.to_string(),
         label: APPROVAL_LABEL.to_string(),
+        label_id: None,
         actor: "a".to_string(),
         at: at.map(str::to_string),
     };
@@ -884,6 +885,7 @@ fn the_order_of_one_second_is_the_rule_once() {
     let ghost = gh::Event {
         event: "labeled".to_string(),
         label: APPROVAL_LABEL.to_string(),
+        label_id: None,
         actor: "a".to_string(),
         at: None,
     };

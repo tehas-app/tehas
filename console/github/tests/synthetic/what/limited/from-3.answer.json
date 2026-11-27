@@ -1,0 +1,1 @@
+{"data":{"repository":{"n1":{"__typename":"PullRequest","number":1},"n2":{"__typename":"Issue","number":2},"n999999999":null}},"errors":[{"type":"RATE_LIMITED","message":"API rate limit exceeded"}]}
