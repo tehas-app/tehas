@@ -301,6 +301,17 @@ fn a_hundred_tickets_are_one_parents_question() {
         .all(|(_, d)| d.as_ref().unwrap().parent.is_none()));
 }
 
+/// The alias of one number answered with the node of another: the answer
+/// is no answer for the number asked.
+#[test]
+fn a_parents_answer_of_another_number_is_inconsistent() {
+    let wrong = r#"{"data":{"repository":{"databaseId":7001,"n7":{"number":8,"parent":null}}}}"#;
+    let (mut gh, asked) = adapter(vec![Ok(ISSUE), Ok(wrong)]);
+    let got = gh.several(&[key(7)]);
+    assert_eq!(asked.lock().unwrap().len(), 2);
+    assert_eq!(got[0].1, Err(Outcome::Unread(Unread::Inconsistent)));
+}
+
 /// A rate limit on the first parents' question spends every ticket, and
 /// the second question is not asked.
 #[test]
@@ -415,7 +426,7 @@ fn live(name: &str) -> String {
 /// adapter cannot tell none from an answer cut short there, and asks
 /// GraphQL, whose `parent` is null for none. `rest-*.json` are the REST
 /// reads, `parent-*.json` the adapter's parents' question of each ticket
-/// alone, `parents-2824-2597.json` of both in one question, each replayed as
+/// alone, `parents-2597-2824.json` of both in one question, each replayed as
 /// GitHub answered.
 #[test]
 fn the_parent_is_graphqls_since_rest_leaves_out_the_field_of_none() {

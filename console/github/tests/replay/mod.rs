@@ -69,10 +69,9 @@ fn question(repo: &str, args: &[&str]) -> (String, String) {
     let field = |name: &str| args.iter().find_map(|a| a.strip_prefix(name));
     let query = field("query=").unwrap_or_default();
     let back = query.contains("last: 100, before");
-    let (dir, mut name) = if is_parents(query) {
-        let first = aliases(query).first().copied().unwrap_or_default();
-        (format!("issue-{first}"), "parent".to_string())
-    } else if let Some(first) = between(query, ": issue(number: ", ")") {
+    // The parents' question never comes here: `run` routes it to
+    // `parents()` before reaching `question`.
+    let (dir, mut name) = if let Some(first) = between(query, ": issue(number: ", ")") {
         ("closers".to_string(), format!("several-{first}"))
     } else if query.contains("since: $since") {
         let day = field("since=")
@@ -153,14 +152,23 @@ impl Replay {
             panic!("the parents' question asks no number: {query}");
         }
         let mut whole = None;
-        for no in asked {
+        let mut held: Vec<u64> = Vec::new();
+        for no in &asked {
             let at = answers::find(&format!("issue-{no}"), "parent.json")
                 .unwrap_or_else(|| panic!("no recording of the parents' question of {no}"));
             let text = std::fs::read_to_string(&at).unwrap_or_else(|e| panic!("{}: {e}", at.display()));
-            if !text.contains(&format!("\"n{no}\"")) {
-                panic!("no recording of the parents' question of {no}");
-            }
+            held.extend(
+                asked
+                    .iter()
+                    .copied()
+                    .filter(|n| text.contains(&format!("\"n{n}\""))),
+            );
             whole = Some(text);
+        }
+        // Every asked alias must be held by some recording. The kit holds
+        // the whole question in each, so nothing legitimate changes.
+        if let Some(no) = asked.iter().find(|n| !held.contains(n)) {
+            panic!("no recording of the parents' question of {no}");
         }
         Ok(whole.unwrap_or_default())
     }
