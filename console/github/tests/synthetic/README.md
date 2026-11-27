@@ -60,6 +60,20 @@ and `from-1.fail`.
 | `what/limited/from-3.answer.json` | `data` as it is; `errors` one RATE_LIMITED error with no `path`. A spent budget cannot be made on demand and no real one is recorded, so the message is GitHub's documented text with no account id |
 | `what/limited/from-3.fail` | `from-1.fail` as it is |
 
+## The whole ticket read, cut to the depth that asks no history
+
+The `Cut` ticket read asks no milestone and no history page, so its
+question is a subset of the whole read's and the kit recorded only the
+whole one: GitHub answers only what a question asks, and the cut
+question was not asked of the live site. Each file is the issue's
+recorded ticket answer with those two keys dropped from the issue node.
+
+| File | Source and change |
+| --- | --- |
+| `issue-27/ticket-cut.json` | `recorded/issue-27/ticket.json`: `milestone` and `events` dropped from the issue node |
+| `issue-28/ticket-cut.json` | `recorded/issue-28/ticket.json`: `milestone` and `events` dropped from the issue node |
+| `issue-30/ticket-cut.json` | `recorded/issue-30/ticket.json`: `milestone` and `events` dropped from the issue node |
+
 ## A body that is not JSON
 
 These are not GitHub's answers: they stand for a body gh hands back that
