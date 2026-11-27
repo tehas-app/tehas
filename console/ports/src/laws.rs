@@ -1067,6 +1067,38 @@ pub mod code_host {
         })
     }
 
+    /// `branch_checks` answers what `branch` then `checks` answer: the
+    /// head of `branch` and its checks of `name`, and None for `missing`,
+    /// a branch the fixture does not hold. `branch` has a head.
+    pub fn branch_checks_are_the_branch_then_its_checks(
+        h: &mut dyn crate::CodeHost,
+        branch: &crate::Branch,
+        missing: &crate::Branch,
+        name: &str,
+    ) -> Law {
+        const LAW: &str = "code_host::branch_checks_are_the_branch_then_its_checks";
+        let Some(head) = got(LAW, "the branch", h.branch(branch))? else {
+            return broken(LAW, "the fixture's branch has no head");
+        };
+        let checks = got(LAW, "the checks", h.checks(&head, Some(name)))?;
+        let both = got(
+            LAW,
+            "the branch's checks",
+            h.branch_checks(branch, Some(name)),
+        )?;
+        hold(both == Some((head, checks)), LAW, || {
+            format!("the one read answered {both:?}")
+        })?;
+        let none = got(
+            LAW,
+            "a missing branch's checks",
+            h.branch_checks(missing, Some(name)),
+        )?;
+        hold(none.is_none(), LAW, || {
+            format!("a missing branch answered {none:?}")
+        })
+    }
+
     /// `ChangeFilter.carrying` takes the changes that carry every one of
     /// the marks, and empty narrows nothing. The fixture holds a change
     /// carrying `marks` and one that does not, within `ALL_MAX`.
@@ -1784,7 +1816,8 @@ pub mod blueprints {
     /// `body_edits_of` and `comment_edits_of` give, in the order asked,
     /// what `body_edits` and `comment_edits` give for each at `bound`, so a
     /// number or an id the site does not know fails alone and the bound
-    /// holds for each item, not for the read. The fixture's `nos` and `ids`
+    /// holds for each item, not for the read; `body_edits_together` gives
+    /// the same, as `Ok`. The fixture's `nos` and `ids`
     /// hold edited, unknown and repeated ones; run it at a bound some item
     /// passes too.
     pub fn several_edits_are_each_ones(
@@ -1798,6 +1831,10 @@ pub mod blueprints {
         let several = h.body_edits_of(nos, bound);
         hold(several == each, LAW, || {
             format!("body_edits_of gave {several:?}, one by one {each:?}")
+        })?;
+        let together = h.body_edits_together(nos, bound);
+        hold(together.as_ref().is_ok_and(|t| *t == each), LAW, || {
+            format!("body_edits_together gave {together:?}, one by one {each:?}")
         })?;
         let each: Vec<_> = ids
             .iter()

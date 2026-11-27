@@ -780,6 +780,7 @@ pub fn run_poll(
         &mut end,
         &retry,
         wiring.handles,
+        wiring.board,
         wiring.mark_name,
     );
     // The lines the poll's reads left, of both its `Calls`, said once here and
@@ -796,6 +797,23 @@ pub fn run_poll(
     rc
 }
 
+/// The board the poll reads its blockers through. One the wiring could not
+/// make leaves every blocker unreadable, so its issue stays held, and the
+/// poll says why.
+fn board_or_said(
+    made: tehas_ports::Got<Box<dyn tehas_ports::Board + Send>>,
+    said: &mut Vec<String>,
+) -> Option<Box<dyn tehas_ports::Board>> {
+    made.map(|b| b as Box<dyn tehas_ports::Board>)
+        .map_err(|o| {
+        said.push(format!(
+            "the board could not be made ({}), so no blocker's state is read and every blocked issue stays held",
+            o.line()
+        ))
+    })
+    .ok()
+}
+
 // The poll's own parts, each made once by `run_poll`.
 #[allow(clippy::too_many_arguments)]
 fn body(
@@ -807,6 +825,7 @@ fn body(
     end: &mut End,
     retry: &RetryPolicy,
     handles: crate::apply::HandlesOf,
+    board: crate::apply::BoardOf,
     mark_name: crate::apply::MarkName,
 ) -> i32 {
     // The journal first, before GitHub is read for the queue: what a poll
@@ -846,6 +865,7 @@ fn body(
         models: crate::read::models::Models::read(),
         endpoint: (String::new(), String::new()),
         code_host: None,
+        blueprints: None,
         board: None,
         tickets: None,
         mark_name,
@@ -857,11 +877,12 @@ fn body(
     src.calls.gh_token = w.calls.gh_token.clone().or_else(|| token.get(home));
     // The queue read goes through the ports: the board's open work, the
     // tickets' marks, types and closed running issues, and the code host's
-    // open pull requests, which the branch's check also reads. The handles
-    // come from the same wiring as the writes', with the same token, and
-    // their calls are counted with theirs in the poll's cost. Wiring that
-    // cannot make them leaves the board unread, and the poll fails closed on
-    // the queue read rather than decide from an empty one.
+    // open pull requests, which the branch's check also reads. The bodies'
+    // edit histories read through the blueprints port. The handles come from
+    // the same wiring as the writes', with the same token, and their calls
+    // are counted with theirs in the poll's cost. Wiring that cannot make
+    // them leaves the board unread, and the poll fails closed on the queue
+    // read rather than decide from an empty one.
     {
         let gh_token = src.calls.gh_token.as_deref();
         let calls = w.port_calls.clone();
@@ -869,12 +890,19 @@ fn body(
             src.code_host = Some(h.code_host);
             src.board = Some(h.board);
             src.tickets = Some(h.tickets);
+            src.blueprints = Some(h.blueprints);
         }
     }
+    // The blockers' states are read through the board, made by the same
+    // wiring, with the same token and counted with the writes' calls.
+    let gh_token = src.calls.gh_token.as_deref();
+    let calls = w.port_calls.clone();
+    let made = board(home, &w.repo, &w.gh, gh_token, w.bound, calls);
+    src.board = board_or_said(made, &mut src.said);
     let snap = snapshot(&mut src, settings);
     // What the reads met that their outcome alone does not say, once each:
-    // a code host that refused the branch's checks, and where the setup page
-    // says what its account needs.
+    // a board that could not be made, a code host that refused the branch's
+    // checks, and where the setup page says what its account needs.
     for line in std::mem::take(&mut src.said) {
         say(&format!("WARN: {line}"));
     }
@@ -1669,6 +1697,7 @@ mod tests {
     fn no_wiring() -> crate::apply::Wiring {
         crate::apply::Wiring {
             handles: no_handles,
+            board: no_board,
             mark_of: |_| None,
             mark_name: |_| String::new(),
             assignee: None,
@@ -1687,6 +1716,38 @@ mod tests {
         Err(tehas_ports::Outcome::Refused(
             tehas_ports::Refusal::Unsupported,
         ))
+    }
+
+    /// A wiring with no board: these polls read no blocker's state.
+    fn no_board(
+        _: &Path,
+        _: &str,
+        _: &str,
+        _: Option<&str>,
+        _: Duration,
+        _: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    ) -> tehas_ports::Got<Box<dyn tehas_ports::Board + Send>> {
+        Err(tehas_ports::Outcome::Refused(
+            tehas_ports::Refusal::Unsupported,
+        ))
+    }
+
+    #[test]
+    fn a_board_not_made_is_said_and_reads_nothing() {
+        let mut said = Vec::new();
+        let made = no_board(
+            Path::new("/"),
+            "",
+            "",
+            None,
+            Duration::ZERO,
+            Default::default(),
+        );
+        assert!(super::board_or_said(made, &mut said).is_none());
+        assert_eq!(
+            said,
+            ["the board could not be made (refused: not supported here), so no blocker's state is read and every blocked issue stays held"]
+        );
     }
 
     #[test]
