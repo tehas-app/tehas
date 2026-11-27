@@ -648,6 +648,85 @@ fn board_as_blockers_faults_each_number() {
 }
 
 #[test]
+fn board_the_marks_an_ask_reads_no_events_of_stand_where_the_adapter_leaves_them() {
+    // Mirrors the adapter's end-to-end pin in
+    // console/dispatch/tests/dispatch_poll.rs,
+    // `the_page_gave_no_timelines_and_the_issue_a_cycle_holds_is_not_re_read`:
+    // the queue names the running mark in `marks_not_read` and pays no
+    // apart read for its events. On the adapter that exemption moves no
+    // field of the answer: it drops the mark from the labels the page
+    // must vouch for (`carried`) and from the marks the apart read must
+    // vouch for, but the digest is read unfiltered, so the mark stands
+    // for presence and its events keep their actors. The fake must
+    // answer the same ask with the same data, field for field.
+    for w in both() {
+        let running = Mark::State(State::Running);
+        let approve = Mark::Act(Act::Approve);
+        let w = w
+            .ticket(1, |t| {
+                t.title("held by a cycle")
+                    .marked(approve.clone(), OPERATOR)
+                    .marked(running.clone(), FACTORY)
+            })
+            .ticket(2, |t| t.title("control").marked(running.clone(), FACTORY));
+        let control = w.key(2);
+        let site = FakeSite::new(&w);
+        let mut board = site.board(&full(), C).unwrap();
+        let ask = |not_read: Vec<Mark>| {
+            let mut ask = BoardAsk::new(Depth::Cut { notes: 0 });
+            ask.history_by_kind = vec![
+                (HappenedKind::Marked, Window::Whole(ALL_MAX)),
+                (HappenedKind::Unmarked, Window::Whole(ALL_MAX)),
+                (HappenedKind::Retitled, Window::Last(n32(1))),
+            ];
+            ask.control = Some(control.clone());
+            ask.marks_not_read = not_read;
+            ask
+        };
+        let plain = board.open_work(&ask(vec![]), b(5)).unwrap();
+        let exempt = board.open_work(&ask(vec![running.clone()]), b(5)).unwrap();
+        assert_eq!(
+            plain, exempt,
+            "the exemption moves no data, only the adapter's reads"
+        );
+        let item = plain
+            .items
+            .items()
+            .iter()
+            .find(|(k, _)| *k == w.key(1))
+            .unwrap()
+            .1
+            .as_ref()
+            .unwrap();
+        assert!(
+            item.ticket.digest.marks.contains(&running),
+            "the exempt mark stands where presence is read, as the adapter's unfiltered digest leaves it"
+        );
+        assert!(
+            item.ticket.digest.marks.contains(&approve),
+            "a mark the ask does read stands too"
+        );
+        let marked = item
+            .ticket
+            .history
+            .items
+            .iter()
+            .find(|e| e.what == Happened::Marked(running.clone()))
+            .expect("the exempt mark's event survives");
+        assert_eq!(
+            marked.by.as_ref().map(|a| a.login.as_str()),
+            Some(FACTORY),
+            "events of an exempt mark keep their actors"
+        );
+        let control = plain.control.as_ref().unwrap().as_ref().unwrap();
+        assert!(
+            control.digest.marks.contains(&running),
+            "the control ticket is not held to the list, whatever it says"
+        );
+    }
+}
+
+#[test]
 fn board_a_window_per_kind_cuts_no_other() {
     for w in both() {
         let at = w.now();
