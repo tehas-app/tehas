@@ -62,6 +62,32 @@ fn the_list_is_the_tickets_own_at_every_depth() {
 }
 
 #[test]
+fn every_digest_answers_parent_or_refuses() {
+    // 28 is a part of 27, both of them recorded by beta2b. The reads
+    // GitHub has no answer for refuse.
+    let (mut gh, _) = adapter_of(PROJECT);
+    // closed_since replays the kit's pages of issues closed on
+    // 2026-11-27, recorded at 08:12. Those pages answer 28 with no
+    // parent while its parts read names 27, and no since that keeps
+    // 28 in the answer passes: 28, 29 and 30 closed at 08:10:36,
+    // 08:10:38 and 08:10:41. This since leaves the read answering,
+    // among the keys, only 30, which has no parent. The leg checks a
+    // parentless ticket: the parented 28 is checked on the other
+    // reads, and a closed read's parent on the fake.
+    let since = tehas_ports::At::new(1_795_767_040); // 2026-11-27T08:10:40Z
+    let bound = tehas_ports::Bound::new(100).unwrap();
+    assert_eq!(
+        laws::tickets::every_digest_answers_parent_or_refuses(
+            &mut gh,
+            &[key(27), key(28), key(30)],
+            since,
+            bound
+        ),
+        Ok(())
+    );
+}
+
+#[test]
 fn a_failed_read_answers_as_the_parts_read_does() {
     // Not there, out of time, rate limited, forbidden, a change's number.
     for n in [9, 10, 12, 14, 29] {
