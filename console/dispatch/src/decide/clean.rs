@@ -12,6 +12,7 @@ use regex::Regex;
 use serde_json::json;
 use tehas_core::accounts::account;
 use tehas_core::events::label_actor;
+use tehas_core::units;
 
 const RUNNING: &str = "tehas:running";
 const PLANNING: &str = "tehas:planning";
@@ -146,7 +147,7 @@ impl Poll<'_> {
                 0
             };
             let due = quiet_due(asks, r.asked, now);
-            let unit = format!("tehas-cycle@{n}.service");
+            let unit = units::cycle(n);
             if self.dry {
                 match due {
                     Due::Stop => self.log(format!("would stop {unit}: {why}")),

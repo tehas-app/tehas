@@ -161,6 +161,13 @@ fn the_container_of_a_cut_off_turn_is_removed_before_the_turn_is_reported() {
 /// A first turn of #7 that runs as its unit, through one poll.
 fn turn_runs(w: &World) -> Run {
     w.to_plan();
+    // The marks read answers with the granted marks' ids, as on a host:
+    // `to_plan` reset the fixtures, so the world asks for them again.
+    w.fx_json(
+        "labels.json",
+        &json!([{"id": "LA_ready", "name": READY_MARK},
+                {"id": "LA_plan", "name": PLAN_MARK}]),
+    );
     w.fx("plan-runs", "7\n");
     w.poll()
 }

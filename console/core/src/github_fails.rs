@@ -42,8 +42,19 @@ pub fn line(fault: Fault) -> &'static str {
 /// Keep one failed call at `now`, of the kind the logged line `said` names
 /// (`retry::fault_of`).
 pub fn note(home: &Path, now: i64, said: &str) {
+    append(home, now, line(crate::retry::fault_of(said)));
+}
+
+/// Keep one failed call at `now` whose kind the caller already knows, named
+/// as `line` names it: a read through the ports knows the class of a failure
+/// without words, and records the class rather than class the line it logs.
+pub fn note_label(home: &Path, now: i64, label: &str) {
+    append(home, now, label);
+}
+
+fn append(home: &Path, now: i64, label: &str) {
     let file = path(home);
-    let entry = format!("{now}\t{}\n", line(crate::retry::fault_of(said)));
+    let entry = format!("{now}\t{label}\n");
     if fs::metadata(&file).is_ok_and(|m| m.len() > KEEP_BYTES) {
         let kept: String = lines(&file)
             .into_iter()

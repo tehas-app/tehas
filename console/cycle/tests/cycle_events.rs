@@ -69,7 +69,11 @@ fn a_park_raises_its_start_its_park_its_question_and_its_end_in_order() {
     let t = w.report_through(&site_of(&w), &FakeSite::new(&site_of(&w)));
     let end: Vec<&str> = t.end.iter().map(String::as_str).collect();
     w.store_locked(&end);
-    let d = events::wiring(&w.home, Arc::new(|_| String::new()));
+    let d = events::wiring(
+        &w.home,
+        Arc::new(|_| String::new()),
+        Arc::new(|_| panic!("no code host handle is made while plugins are off")),
+    );
     let ((), logged) =
         after::holding(|| events::raise_ended(&d, &w.home, 7, 1, Writer::Report, &mut |_| None));
     let all = raised(&logged);

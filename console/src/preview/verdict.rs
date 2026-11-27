@@ -1,8 +1,11 @@
 //! What GitHub says about one pull request by itself, read as the sweep reads
 //! it. A removal goes by this, so an answer that does not say is `Unclear`.
+//! The one question goes on the code-host port: the sweep reads the change's
+//! typed digest, never a field name of the supplier.
 
-use serde_json::Value;
-use tehas_core::call;
+use tehas_ports::{
+    Bound, ChangeDigest, ChangeFilter, ChangeNo, ChangeState, ChangeStates, CodeHost, Relation,
+};
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Pull {
@@ -19,210 +22,223 @@ pub enum Pull {
     Unclear,
 }
 
-/// Only "closed" is closed. An answer that does not say who opened it, or one
-/// about another number, is unclear.
-pub fn of_answer(answer: &Value, n: u64, repo: &str, bot: &str) -> Pull {
-    let (Some(state), Some(number)) = (
-        answer.get("state").and_then(Value::as_str),
-        answer.get("number").filter(|v| v.is_number()),
-    ) else {
+/// The one question of the sweep, asked of the code-host port: the change
+/// answers it, the sweep reads the digest. A read that fails, or one whose
+/// answer is no whole answer, is `Unclear`: it keeps the preview, as no
+/// answer from GitHub did before the port.
+pub fn ask(host: &mut Option<Box<dyn CodeHost + Send>>, n: u64, bot: &str) -> Pull {
+    let Some(host) = host.as_mut() else {
         return Pull::Unclear;
     };
-    if number.as_f64() != Some(n as f64) {
+    let Some(no) = ChangeNo::new(n) else {
         return Pull::Unclear;
+    };
+    let filter = ChangeFilter {
+        states: ChangeStates::All,
+        numbers: vec![no],
+        ..Default::default()
+    };
+    let Some(bound) = Bound::new(1) else {
+        return Pull::Unclear;
+    };
+    match host.changes(&filter, bound) {
+        Ok(digests) => match digests.into_items().into_iter().find(|d| d.no == no) {
+            Some(d) => decide(&d, bot),
+            // The site answered and names no such change: it is gone. The
+            // sweep has just checked that GitHub shows the repository at
+            // all, so this is not a token that lost the project.
+            None => Pull::Gone,
+        },
+        Err(_) => Pull::Unclear,
     }
+}
+
+/// Closed and merged are closed: the REST read this replaces saw GitHub's
+/// `closed` state, which a merged pull request answers with too, and swept
+/// it. An open one of ours is kept; a head in another project,
+/// `Elsewhere`, whoever opened it.
+fn decide(d: &ChangeDigest, bot: &str) -> Pull {
+    judge(
+        &d.state,
+        d.from_fork,
+        d.author.as_ref().map(|a| a.login.as_str()),
+        d.author_relation,
+        bot,
+    )
+}
+
+/// The digest read down to what the verdict asks: `judge` is what the sweep
+/// decides, and the table below holds it directly.
+fn judge(
+    state: &ChangeState,
+    from_fork: bool,
+    author: Option<&str>,
+    relation: Option<Relation>,
+    bot: &str,
+) -> Pull {
     match state {
-        "closed" => return Pull::Closed,
-        "open" => {}
-        _ => return Pull::Unclear,
+        ChangeState::Open => {}
+        _ => return Pull::Closed,
     }
-    let Some(head) = answer.get("head").filter(|head| head.is_object()) else {
-        return Pull::Unclear;
-    };
-    let no_repo = matches!(head.get("repo"), None | Some(Value::Null));
-    let full = match head.get("repo") {
-        None | Some(Value::Null) => None,
-        Some(Value::Object(repo)) => repo.get("full_name"),
-        Some(_) => return Pull::Unclear,
-    };
-    let name = match full {
-        Some(Value::String(name)) => name.as_str(),
-        None | Some(Value::Null) | Some(Value::Bool(false)) => "",
-        Some(_) => return Pull::Unclear,
-    };
-    if name.eq_ignore_ascii_case(repo) {
-        // The factory's own App, as `by_us` in preview.rs reads it.
-        let author = answer
-            .pointer("/user/login")
-            .and_then(Value::as_str)
-            .unwrap_or("");
-        if tehas_core::accounts::factorys(author, bot) {
+    if from_fork {
+        return Pull::Elsewhere;
+    }
+    // The factory's own App, as `by_us` in preview.rs reads it.
+    if let Some(a) = author {
+        if tehas_core::accounts::factorys(a, bot) {
             return Pull::Keep;
         }
-        return match answer.get("author_association").and_then(Value::as_str) {
-            Some("OWNER" | "MEMBER" | "COLLABORATOR") => Pull::Keep,
-            Some(_) => Pull::Outside,
-            None => Pull::Unclear,
-        };
     }
-    if no_repo || matches!(full, Some(Value::String(_))) {
-        Pull::Elsewhere
-    } else {
-        Pull::Unclear
+    match relation {
+        Some(Relation::Owner | Relation::Member | Relation::Collaborator) => Pull::Keep,
+        Some(_) => Pull::Outside,
+        None => Pull::Unclear,
     }
-}
-
-/// A call that worked is read; a failure is `Gone` only on GitHub's own 404.
-/// The sweep checks that GitHub shows the repository at all before it reads a
-/// 404 this way, and the run got an answer from repos/<repo>/pulls a moment ago.
-fn of_call(worked: bool, stdout: &str, stderr: &str, n: u64, repo: &str, bot: &str) -> Pull {
-    if !worked {
-        return if stderr.contains("HTTP 404") {
-            Pull::Gone
-        } else {
-            Pull::Unclear
-        };
-    }
-    serde_json::from_str(stdout).map_or(Pull::Unclear, |answer| of_answer(&answer, n, repo, bot))
-}
-
-pub fn ask(n: u64, repo: &str, bot: &str) -> Pull {
-    let args = ["api".to_string(), format!("repos/{repo}/pulls/{n}")];
-    let out = call::run("gh", &args, call::GH_BOUND);
-    of_call(out.ok(), &out.out, &out.err, n, repo, bot)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
+    use tehas_ports::fake::{CodeHostOp, FakeSite, Fault, Faulty, Op, World};
+    use tehas_ports::{Actor, At, Caller, Relation, Scope, Site};
 
-    const REPO: &str = "acme/widget";
+    const BOT: &str = "";
 
-    fn open() -> Value {
-        json!({"number": 12, "state": "open", "author_association": "MEMBER",
-               "head": {"repo": {"full_name": "Acme/Widget"}}})
-    }
-
-    fn with(key: &str, value: Value) -> Value {
-        let mut answer = open();
-        answer[key] = value;
-        answer
-    }
-
-    fn read(answer: &Value) -> Pull {
-        of_answer(answer, 12, REPO, "")
+    /// An open change's verdict from the four fields that decide it.
+    fn open(from_fork: bool, author: Option<&str>, relation: Option<Relation>) -> Pull {
+        judge(&ChangeState::Open, from_fork, author, relation, BOT)
     }
 
     #[test]
-    fn the_factorys_own_app_is_kept_and_no_other_bot() {
-        let mut answer = with("author_association", json!("NONE"));
-        answer["user"] = json!({"login": "acme-app[bot]", "type": "Bot"});
-        assert_eq!(of_answer(&answer, 12, REPO, "acme-app[bot]"), Pull::Keep);
+    fn a_closed_and_a_merged_change_are_both_closed() {
         assert_eq!(
-            of_answer(&answer, 12, REPO, "other-app[bot]"),
-            Pull::Outside
-        );
-        assert_eq!(of_answer(&answer, 12, REPO, ""), Pull::Outside);
-        // The App's, but from a fork: never ours.
-        answer["head"]["repo"]["full_name"] = json!("stranger/widget");
-        assert_eq!(
-            of_answer(&answer, 12, REPO, "acme-app[bot]"),
-            Pull::Elsewhere
-        );
-    }
-
-    #[test]
-    fn an_open_pull_request_of_ours_is_kept_in_any_capitals() {
-        for who in ["OWNER", "MEMBER", "COLLABORATOR"] {
-            assert_eq!(read(&with("author_association", json!(who))), Pull::Keep);
-        }
-    }
-
-    #[test]
-    fn only_closed_is_closed() {
-        assert_eq!(read(&with("state", json!("closed"))), Pull::Closed);
-        // Whatever else it says or does not: head and author are not asked.
-        assert_eq!(
-            read(&json!({"number": 12, "state": "closed"})),
+            judge(
+                &ChangeState::Closed { at: At::new(9) },
+                false,
+                None,
+                None,
+                BOT
+            ),
             Pull::Closed
         );
-        assert_eq!(read(&with("state", json!("weird"))), Pull::Unclear);
+        // GitHub answers a merged pull request with its `closed` state, and
+        // the REST read this replaces swept it: a merge is closed.
+        assert_eq!(
+            judge(
+                &ChangeState::Merged {
+                    at: At::new(9),
+                    by: None,
+                    commit: None
+                },
+                false,
+                None,
+                None,
+                BOT
+            ),
+            Pull::Closed
+        );
+    }
+
+    #[test]
+    fn an_open_change_of_ours_is_kept_by_relation_or_by_the_apps_login() {
+        for relation in [Relation::Owner, Relation::Member, Relation::Collaborator] {
+            assert_eq!(open(false, Some("alice"), Some(relation)), Pull::Keep);
+        }
+        // The factory's own App, whatever its relation says.
+        assert_eq!(
+            judge(
+                &ChangeState::Open,
+                false,
+                Some("acme-app[bot]"),
+                Some(Relation::Outside),
+                "acme-app[bot]"
+            ),
+            Pull::Keep
+        );
+        // Only the factory's App, not another bot.
+        assert_eq!(
+            judge(
+                &ChangeState::Open,
+                false,
+                Some("acme-app[bot]"),
+                Some(Relation::Outside),
+                "other-app[bot]"
+            ),
+            Pull::Outside
+        );
+    }
+
+    #[test]
+    fn an_outsider_is_outside_and_no_relation_is_unclear() {
+        for relation in [Relation::Outside, Relation::Unknown] {
+            assert_eq!(open(false, Some("bob"), Some(relation)), Pull::Outside);
+        }
+        assert_eq!(open(false, Some("bob"), None), Pull::Unclear);
+        assert_eq!(open(false, None, None), Pull::Unclear);
     }
 
     #[test]
     fn a_head_elsewhere_is_elsewhere_whoever_opened_it() {
-        let fork = json!({"repo": {"full_name": "stranger/widget"}});
-        assert_eq!(read(&with("head", fork)), Pull::Elsewhere);
-        for head in [json!({"repo": null}), json!({"sha": "x"})] {
-            assert_eq!(read(&with("head", head)), Pull::Elsewhere);
-        }
-        let mut quiet = with("head", json!({"repo": null}));
-        quiet.as_object_mut().unwrap().remove("author_association");
-        assert_eq!(read(&quiet), Pull::Elsewhere);
-        let empty = json!({"repo": {"full_name": ""}});
-        assert_eq!(read(&with("head", empty)), Pull::Elsewhere);
-    }
-
-    #[test]
-    fn an_outsider_of_a_head_here_is_outside() {
-        for who in ["NONE", "CONTRIBUTOR", "member", ""] {
-            assert_eq!(read(&with("author_association", json!(who))), Pull::Outside);
-        }
-    }
-
-    #[test]
-    fn an_answer_that_does_not_say_is_unclear() {
-        for answer in [
-            json!({}),
-            json!(null),
-            json!([]),
-            json!("open"),
-            json!(12),
-            json!({"number": 12}),
-            json!({"state": "open"}),
-            json!({"number": 51, "state": "closed"}),
-            json!({"number": "12", "state": "closed"}),
-            json!({"number": 12, "state": true}),
-            json!({"number": 12, "state": "open"}),
-            with("head", json!("main")),
-            with("head", json!(null)),
-            with("head", json!({"repo": {}})),
-            with("head", json!({"repo": "acme/widget"})),
-            with("head", json!({"repo": false})),
-            with("head", json!({"repo": {"full_name": 12}})),
-            with("head", json!({"repo": {"full_name": false}})),
-            with("head", json!({"repo": {"full_name": true}})),
-            with("author_association", json!(null)),
-            with("author_association", json!(["OWNER"])),
-            with("author_association", json!(true)),
-        ] {
-            assert_eq!(read(&answer), Pull::Unclear, "{answer}");
-        }
-    }
-
-    #[test]
-    fn a_number_is_compared_as_a_number() {
-        assert_eq!(read(&with("number", json!(12.0))), Pull::Keep);
-        assert_eq!(read(&with("number", json!(12.5))), Pull::Unclear);
-    }
-
-    #[test]
-    fn a_call_is_gone_only_on_a_404() {
-        let answer = open().to_string();
-        assert_eq!(of_call(true, &answer, "", 12, REPO, ""), Pull::Keep);
-        assert_eq!(of_call(true, "", "", 12, REPO, ""), Pull::Unclear);
-        assert_eq!(of_call(true, "not json", "", 12, REPO, ""), Pull::Unclear);
+        assert_eq!(open(true, None, None), Pull::Elsewhere);
+        // The App's, but from a fork: never ours. The fake never answers a
+        // fork, so the judge holds this line and the adapter's own tests
+        // read isCrossRepository into it.
         assert_eq!(
-            of_call(true, "{}\n{}\n", "", 12, REPO, ""),
-            Pull::Unclear,
-            "two answers are not one"
+            judge(
+                &ChangeState::Open,
+                true,
+                Some("acme-app[bot]"),
+                Some(Relation::Member),
+                "acme-app[bot]"
+            ),
+            Pull::Elsewhere
         );
-        for said in ["gh: Not Found (HTTP 404)", "HTTP 404\nmore\n"] {
-            assert_eq!(of_call(false, "", said, 12, REPO, ""), Pull::Gone);
-        }
-        for said in ["gh: rate limit (HTTP 403)", "connection refused", ""] {
-            assert_eq!(of_call(false, "", said, 12, REPO, ""), Pull::Unclear);
-        }
+    }
+
+    fn asked(world: &World) -> Pull {
+        let host = FakeSite::new(world)
+            .code_host(&Actor::Ours(Scope::Full), Caller::new("preview"))
+            .unwrap();
+        ask(&mut Some(host), 12, BOT)
+    }
+
+    #[test]
+    fn the_site_answers_the_one_question_and_its_absence_is_gone() {
+        let member =
+            World::new()
+                .relation("alice", Relation::Member)
+                .change(12, "feature/x", |c| c.author("alice"));
+        assert_eq!(asked(&member), Pull::Keep);
+        let outsider = World::new().change(12, "feature/x", |c| c.author("bob"));
+        assert_eq!(asked(&outsider), Pull::Outside);
+        let closed = World::new().change(12, "feature/x", |c| {
+            c.state(ChangeState::Closed { at: At::new(9) })
+        });
+        assert_eq!(asked(&closed), Pull::Closed);
+        let merged = World::new().change(12, "feature/x", |c| {
+            c.state(ChangeState::Merged {
+                at: At::new(9),
+                by: None,
+                commit: None,
+            })
+        });
+        assert_eq!(asked(&merged), Pull::Closed);
+        // The site answered and named no such change.
+        assert_eq!(asked(&World::new()), Pull::Gone);
+    }
+
+    #[test]
+    fn a_failed_read_and_a_host_that_cannot_be_wired_both_keep() {
+        let world = World::new()
+            .relation("alice", Relation::Member)
+            .change(12, "feature/x", |c| c.author("alice"));
+        let site = Faulty::new(FakeSite::new(&world))
+            .on(Op::CodeHost(CodeHostOp::Changes), Fault::Unreachable);
+        let host = site
+            .code_host(&Actor::Ours(Scope::Full), Caller::new("preview"))
+            .unwrap();
+        assert_eq!(ask(&mut Some(host), 12, BOT), Pull::Unclear);
+        // No handles at all: the run keeps what it cannot ask about.
+        assert_eq!(ask(&mut None, 12, BOT), Pull::Unclear);
     }
 }

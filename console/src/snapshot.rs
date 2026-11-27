@@ -25,7 +25,10 @@ pub fn snapshot(live: &Path, lines: usize, max_age: i64, reading: &str, earlier:
     let now = time::now();
     let health = health(&live.join("health.json"));
     let factory = health.as_ref().map_or(Value::Null, |h| {
-        let at = h.get("time").and_then(Value::as_str).and_then(epoch);
+        let at = h
+            .get("time")
+            .and_then(Value::as_str)
+            .and_then(time::from_iso);
         let mut f = h.clone();
         f["ageSeconds"] = json!(now - at.unwrap_or(now));
         f["stale"] = json!(now - at.unwrap_or(0) > max_age);
@@ -58,12 +61,6 @@ pub fn snapshot(live: &Path, lines: usize, max_age: i64, reading: &str, earlier:
         },
         1,
     )
-}
-
-/// Seconds since the epoch of YYYY-MM-DDTHH:MM:SSZ. Core's strict reader,
-/// kept as the name the other console modules call.
-pub fn epoch(s: &str) -> Option<i64> {
-    time::from_iso(s)
 }
 
 /// The bytes of a file with the control characters a terminal could act on
@@ -332,6 +329,7 @@ fn clock_in(v: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tehas_core::time::from_iso as epoch;
 
     // The queue reads the lists under the core's names, the names the writer
     // puts them under.

@@ -205,7 +205,7 @@ fn an_open_blocked_by_link_holds_a_ready_issue_and_the_slot_goes_to_the_next_one
     let r = w.poll();
     assert_eq!(r.rc, 0);
     assert_eq!(w.started(), "8 ");
-    has(&w.gh(), "issueDependenciesSummary { blockedBy }");
+    has(&w.gh(), "blockedBy(first: 100)");
     has(
         &r.out,
         "wait #7: a blocked-by link holds it: 1 blocker is open",

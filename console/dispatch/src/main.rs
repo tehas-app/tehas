@@ -123,6 +123,7 @@ fn main() {
             handles,
             board,
             mark_of,
+            mark_name,
             assignee: assignee(&PathBuf::from(&home), &settings.repo),
         },
     ));
@@ -134,6 +135,12 @@ fn main() {
 /// removes it.
 fn mark_of(label: &str) -> Option<tehas_ports::Mark> {
     tehas_github::table::word(label)
+}
+
+/// A mark as the label word it is spelled by, for the queue's mapping of
+/// marks back to the words the snapshot names them by.
+fn mark_name(mark: &tehas_ports::Mark) -> String {
+    tehas_github::table::mark_name(mark)
 }
 
 /// `TEHAS_ASSIGNEE`'s account through the site's identity, once a poll:
@@ -230,5 +237,6 @@ fn handles(
         tickets: site.tickets(&by, c)?,
         blueprints: site.blueprints(&by, c)?,
         code_host: site.code_host(&by, c)?,
+        board: site.board(&by, c)?,
     })
 }

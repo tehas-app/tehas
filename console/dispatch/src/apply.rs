@@ -115,6 +115,9 @@ pub struct Wiring {
     /// the handles are.
     pub board: BoardOf,
     pub mark_of: MarkOf,
+    /// A mark as the label word it is spelled by, from the program's wiring:
+    /// the queue's mapping names the marks of the open work with it.
+    pub mark_name: MarkName,
     /// `TEHAS_ASSIGNEE`'s account, resolved once by the program's wiring
     /// through the site's identity: None with no such setting, Err with
     /// why when it could not be resolved, and the claim then goes without
@@ -126,6 +129,10 @@ pub struct Wiring {
 /// other. A word it does not know is refused at the send, never sent as a
 /// raw label.
 pub type MarkOf = fn(&str) -> Option<tehas_ports::Mark>;
+
+/// The wiring's word for a mark as the site spells its label. The queue's
+/// mapping renders marks back to the words the snapshot names them by.
+pub type MarkName = fn(&tehas_ports::Mark) -> String;
 
 pub use tehas_core::journal::Handles;
 

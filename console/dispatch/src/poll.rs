@@ -216,9 +216,7 @@ fn old_record(home: &Path) -> Option<String> {
 
 /// tehas_store_ready: the store installed and its file a plain one.
 fn store_ready(home: &Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    let bin = std::fs::metadata(home.join("libexec/store"))
-        .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0);
+    let bin = tehas_core::file::runnable(&home.join("libexec/store"));
     let db = std::fs::symlink_metadata(Home::new(home).state(State::StoreDb))
         .is_ok_and(|m| m.file_type().is_file());
     bin && db
@@ -783,6 +781,7 @@ pub fn run_poll(
         &retry,
         wiring.handles,
         wiring.board,
+        wiring.mark_name,
     );
     // The lines the poll's reads left, of both its `Calls`, said once here and
     // nowhere else: `taken` empties the shared queue, so the drain of `body` and
@@ -804,8 +803,9 @@ pub fn run_poll(
 fn board_or_said(
     made: tehas_ports::Got<Box<dyn tehas_ports::Board + Send>>,
     said: &mut Vec<String>,
-) -> Option<Box<dyn tehas_ports::Board + Send>> {
-    made.map_err(|o| {
+) -> Option<Box<dyn tehas_ports::Board>> {
+    made.map(|b| b as Box<dyn tehas_ports::Board>)
+        .map_err(|o| {
         said.push(format!(
             "the board could not be made ({}), so no blocker's state is read and every blocked issue stays held",
             o.line()
@@ -826,6 +826,7 @@ fn body(
     retry: &RetryPolicy,
     handles: crate::apply::HandlesOf,
     board: crate::apply::BoardOf,
+    mark_name: crate::apply::MarkName,
 ) -> i32 {
     // The journal first, before GitHub is read for the queue: what a poll
     // that died between two writes left is settled from fresh reads. One that
@@ -865,21 +866,29 @@ fn body(
         endpoint: (String::new(), String::new()),
         code_host: None,
         board: None,
+        tickets: None,
+        mark_name,
         said: Vec::new(),
+        faults: Vec::new(),
     };
     // The same token for the poll's reads as for its writes: what the shim of
     // every gh call would ask for anyway, asked once by the poll.
     src.calls.gh_token = w.calls.gh_token.clone().or_else(|| token.get(home));
-    // The code host's reads go through the port, its handle from the same
-    // wiring as the writes', with the same token, its calls counted with
-    // theirs in the poll's cost. Only the branch's check
-    // reads through it yet, so none is made for an instance that names none.
-    if !settings.branch_check.is_empty() {
+    // The queue read goes through the ports: the board's open work, the
+    // tickets' marks, types and closed running issues, and the code host's
+    // open pull requests, which the branch's check also reads. The handles
+    // come from the same wiring as the writes', with the same token, and
+    // their calls are counted with theirs in the poll's cost. Wiring that
+    // cannot make them leaves the board unread, and the poll fails closed on
+    // the queue read rather than decide from an empty one.
+    {
         let gh_token = src.calls.gh_token.as_deref();
         let calls = w.port_calls.clone();
-        src.code_host = handles(home, &w.repo, &w.gh, gh_token, w.bound, calls)
-            .ok()
-            .map(|h| h.code_host);
+        if let Ok(h) = handles(home, &w.repo, &w.gh, gh_token, w.bound, calls) {
+            src.code_host = Some(h.code_host);
+            src.board = Some(h.board);
+            src.tickets = Some(h.tickets);
+        }
     }
     // The blockers' states are read through the board, made by the same
     // wiring, with the same token and counted with the writes' calls.
@@ -911,6 +920,14 @@ fn body(
         Err(f) => {
             if taken.contains(&f.line) {
                 say(&f.line);
+            } else if let Some(kind) = src.faults.last() {
+                // The queue's own read failed: the ports know the kind of
+                // the failure, so the record holds it rather than a class
+                // read out of the line's words.
+                say(&f.line);
+                if !dry {
+                    tehas_core::github_fails::note_label(home, tehas_core::time::now(), kind);
+                }
             } else {
                 failed_read(home, dry, &f.line);
             }
@@ -1057,7 +1074,7 @@ impl crate::finish::Hands for FinishHands<'_> {
         // `ticket.acted` of the ask the step took, keyed on the moment the
         // asker's label event says (T11.9).
         let mut log = Vec::new();
-        if let Some(t) = tehas_core::limit::epoch(at) {
+        if let Some(t) = tehas_core::time::from_iso_jq(at) {
             self.w.raise_finish(n, by, t, &mut log);
         }
         for l in log {
@@ -1679,6 +1696,7 @@ mod tests {
             handles: no_handles,
             board: no_board,
             mark_of: |_| None,
+            mark_name: |_| String::new(),
             assignee: None,
         }
     }

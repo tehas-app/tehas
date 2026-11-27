@@ -461,10 +461,7 @@ pub fn store_failure(
 /// read it: the answer of a poll whose store was never
 /// installed is `absent`, and nothing else.
 pub fn store_executable(store: &str) -> bool {
-    std::fs::metadata(store).is_ok_and(|m| {
-        use std::os::unix::fs::PermissionsExt;
-        m.is_file() && m.permissions().mode() & 0o111 != 0
-    })
+    crate::file::runnable(std::path::Path::new(store))
 }
 
 /// The failure of a store call: {failed, word, rc, line}.

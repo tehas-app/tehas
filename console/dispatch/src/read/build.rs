@@ -4,7 +4,7 @@
 //! and locks. Nothing is written.
 
 use super::run::{Calls, GhFail};
-use super::{github, host, models, store};
+use super::{board, github, host, models, store};
 use crate::apply::{said_file, SAID_MAX};
 use crate::decide::has;
 use crate::settings::Settings;
@@ -28,14 +28,29 @@ pub struct Sources<'a> {
     /// The subagent provider's endpoint, url and key, as the probe found it.
     pub endpoint: (String, String),
     /// The code host's read handle, from the program's wiring: None when
-    /// it made none, and a read through it is then unreadable.
+    /// it made none, and a read through it is then unreadable. The queue
+    /// reads its open pull requests through it.
     pub code_host: Option<Box<dyn tehas_ports::CodeHost>>,
-    /// The board, from the program's wiring, which the blockers' states are
-    /// read through: None when it made none, and they are then unreadable.
-    pub board: Option<Box<dyn Board + Send>>,
+    /// The board handle, from the program's wiring: the queue read asks it
+    /// for the open work, and the blockers' states are read through it.
+    /// None when it made none: the poll fails closed on the queue, and no
+    /// blocker's state is readable.
+    pub board: Option<Box<dyn tehas_ports::Board>>,
+    /// The tickets handle: the queue reads the closed issues still carrying
+    /// the running mark, the repository's marks and, when asked, the
+    /// owner's issue types through it.
+    pub tickets: Option<Box<dyn tehas_ports::Tickets>>,
+    /// A mark as the site spells its label word: the queue's mapping names
+    /// the marks of the open work with it, from the program's wiring.
+    pub mark_name: crate::apply::MarkName,
     /// Lines the reads leave for the poll to say once, each once: the code
     /// host's refusal of the branch's checks (`read::checks::refused`).
     pub said: Vec<String>,
+    /// The kind of the queue read's failure, as the health record names it,
+    /// set by the read that failed: the ports know the class of a failure
+    /// without words, and the poll records the class rather than class the
+    /// line it logs. Empty when the failed read was not the queue's.
+    pub faults: Vec<&'static str>,
 }
 
 /// The facts a decision names in needs that are read only when it asks:
@@ -79,6 +94,204 @@ fn listed(open: &[github::Open], label: &str) -> Value {
     )
 }
 
+/// The queue as the ports answer it: the open work, with the history of its
+/// marks and retitles, the changes that close each issue and the control
+/// ticket, on `Board::open_work`; the open pull requests with their bodies
+/// on the code host; and the closed issues still carrying the running mark,
+/// the repository's marks with their ids and, when the settings name an
+/// improvement type, the owner's issue types, on the tickets port. All of
+/// it mapped into the page's shapes by `read::board`. A handle the wiring
+/// could not make, or a read the site refused, ends the poll as a failed gh
+/// read did: the rules never decide from a queue that could not be read.
+/// The numbers of the open tickets this seam cannot give as issues come
+/// back beside it: they hold a slot and are never started.
+fn queue(src: &mut Sources, c: &Settings) -> Result<(github::Queue, Vec<u64>), GhFail> {
+    use std::num::{NonZeroU32, NonZeroU64};
+    use tehas_ports::{
+        BoardAsk, Bound, ChangeFilter, ChangeStates, Depth, Filter, HappenedKind, Mark, Outcome,
+        State, TicketKey, Window, ALL_MAX,
+    };
+    let faults = &mut src.faults;
+    let mut fail = |what: &str, o: Outcome| {
+        faults.push(health_line(&o));
+        GhFail {
+            line: format!(
+                "ERROR: the {what} of the queue could not be read: {}",
+                o.line()
+            ),
+            ran: None,
+        }
+    };
+    // Every open issue, every closed running issue and every mark: the
+    // queue takes them all, and one past the bound ends the poll as a
+    // failed read would.
+    let bound = Bound::new(u32::MAX).expect("u32::MAX is a bound");
+    let control = NonZeroU64::try_from(c.control).map_err(|_| GhFail {
+        line: format!(
+            "ERROR: the control issue is numbered {0}, which is no ticket",
+            c.control
+        ),
+        ran: None,
+    })?;
+    // The ask the queue makes of the board: no notes, every mark's events
+    // whole beside the newest retitle, the open changes that close each
+    // issue, and the control ticket beside the rest.
+    let mut ask = BoardAsk::new(Depth::Cut { notes: 0 });
+    ask.history_by_kind = vec![
+        (HappenedKind::Marked, Window::Whole(ALL_MAX)),
+        (HappenedKind::Unmarked, Window::Whole(ALL_MAX)),
+        (HappenedKind::Retitled, Window::Last(NonZeroU32::MIN)),
+    ];
+    ask.changes = Some((
+        ChangeStates::Open,
+        Window::Last(NonZeroU32::new(20).expect("20 is a window")),
+    ));
+    ask.control = Some(TicketKey::Number(control));
+    // The running mark is the bot's own: every running cycle carries it,
+    // the bot applies it alone, and the rules read the mark and the lock
+    // rather than its events. The page answers it without, and the board
+    // reads nothing apart for it.
+    ask.marks_not_read = vec![tehas_ports::Mark::State(tehas_ports::State::Running)];
+    let work = {
+        let board = src.board.as_mut().ok_or_else(|| GhFail {
+            line: "ERROR: the poll has no board handle to read the queue by".to_string(),
+            ran: None,
+        })?;
+        read(|| board.open_work(&ask, bound)).map_err(|o| fail("open work", o))?
+    };
+    let mark_name = src.mark_name;
+    let (closed_running, labels) = {
+        let tickets = src.tickets.as_mut().ok_or_else(|| GhFail {
+            line: "ERROR: the poll has no tickets handle to read the queue by".to_string(),
+            ran: None,
+        })?;
+        // The closed issues that still carry the running mark, as the page
+        // gave their numbers. A key that is no number names no issue.
+        let closed_running: Vec<u64> = (read(|| {
+            tickets.list(
+                &Filter {
+                    open: Some(false),
+                    carrying: vec![Mark::State(State::Running)],
+                    ..Default::default()
+                },
+                bound,
+            )
+        })
+        .map_err(|o| fail("closed running issues", o))?
+        .into_items())
+        .into_iter()
+        .filter_map(|d| match d.key {
+            TicketKey::Number(n) => Some(n.get()),
+            TicketKey::Key(_) => None,
+        })
+        .collect();
+        let labels: Vec<Value> = (read(|| tickets.marks(bound))
+            .map_err(|o| fail("repository's marks", o))?
+            .into_items())
+        .into_iter()
+        .filter_map(|h| {
+            let name = mark_name(&h.mark);
+            (!name.is_empty() && name.starts_with("tehas:"))
+                .then(|| json!({"id": h.id.as_str(), "name": name}))
+        })
+        .collect();
+        (closed_running, labels)
+    };
+    let kinds = c
+        .improvement_type
+        .as_ref()
+        .map(|_| {
+            let tickets = src.tickets.as_mut().ok_or_else(|| GhFail {
+                line: "ERROR: the poll has no tickets handle to read the queue by".to_string(),
+                ran: None,
+            })?;
+            read(|| tickets.kinds())
+                .map(|w| w.into_items())
+                .map_err(|o| fail("the owner's issue types", o))
+        })
+        .transpose()?;
+    let pulls = src
+        .code_host
+        .as_mut()
+        .map(|h| {
+            read(|| {
+                h.changes(
+                    &ChangeFilter {
+                        bodies: true,
+                        ..Default::default()
+                    },
+                    bound,
+                )
+            })
+            .map(|w| w.into_items())
+        })
+        .transpose()
+        .map_err(|o| fail("open pull requests", o))?;
+    let words = board::Words {
+        repo: &c.repo,
+        mark: &mark_name,
+    };
+    let mut m = board::queue(&work, pulls.as_deref(), kinds.as_deref(), &words);
+    let unread = m
+        .unread
+        .iter()
+        .filter_map(|(k, _)| match k {
+            TicketKey::Number(n) => Some(n.get()),
+            TicketKey::Key(_) => None,
+        })
+        .collect();
+    m.queue.closed_running = closed_running;
+    // The marks were read: the list is the answer, the empty one included.
+    // A read that was never made is absent elsewhere, never a short list
+    // here: the page that made the read always named `tehasLabels`, and the
+    // pins of state/labels keep the difference the two make.
+    m.queue.labels = Some(Value::Array(labels));
+    Ok((m.queue, unread))
+}
+
+/// The kind of a port failure as the host's health record names it: the
+/// class the old gh words carried, read off the outcome instead.
+fn health_line(o: &tehas_ports::Outcome) -> &'static str {
+    use tehas_core::retry::Fault;
+    use tehas_ports::{Outcome as O, Passing as P};
+    let fault = match o {
+        O::Spent { .. } => Fault::Limit,
+        O::Unavailable {
+            why: P::Timeout, ..
+        } => Fault::Slow,
+        O::Unavailable {
+            why: P::Unreachable,
+            ..
+        } => Fault::Down,
+        O::Unavailable { .. } => Fault::Server,
+        O::Forbidden | O::Refused(_) => Fault::Refused,
+        _ => Fault::Unread,
+    };
+    tehas_core::github_fails::line(fault)
+}
+
+/// A read the queue owes a retry to: the ports' words for the bad minute
+/// the page read retried once, and never for a refusal.
+fn owed(o: &tehas_ports::Outcome) -> bool {
+    matches!(
+        o,
+        tehas_ports::Outcome::Unavailable {
+            why: tehas_ports::Passing::Server | tehas_ports::Passing::Timeout,
+            ..
+        }
+    )
+}
+
+/// A read of the queue, asked again on a bad minute, once. The attempts go
+/// through the handle's counter, so the poll's cost counts them.
+fn read<T>(mut ask: impl FnMut() -> tehas_ports::Got<T>) -> tehas_ports::Got<T> {
+    let first = ask();
+    match &first {
+        Err(o) if owed(o) => ask(),
+        _ => first,
+    }
+}
+
 /// The snapshot, or the line the poll logs when a read it cannot do
 /// without failed.
 pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
@@ -101,10 +314,20 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
         .metadata()
         .is_ok_and(|m| m.len() > 0));
 
+    s["order"] = store::order(&mut src.calls);
+    let (mut q, unread) = queue(src, c)?;
     let calls = &mut src.calls;
-    s["order"] = store::order(calls);
-    let mut q = github::queue(calls, &c.repo, c.improvement_type.is_some())?;
-    s["repo"] = json!(q.repo);
+    // The board answers by a repository's id, which a rename leaves
+    // standing: the poll still asks that the name GitHub gives the
+    // repository agree with the setting, as the page itself reported it.
+    s["repo"] = json!(calls
+        .gh(&["api", &format!("repos/{}", c.repo)])
+        .ok()
+        .and_then(|v| {
+            v.get("nameWithOwner")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        }));
     if let Some(labels) = q.labels.take() {
         s["tehas_labels"] = labels;
     }
@@ -134,7 +357,9 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     if let Some(pulls) = &q.open_pulls {
         names_from_bodies(&mut s, pulls, &q.open, c);
     }
-    let open: BTreeSet<u64> = q.open.iter().map(|o| o.number).collect();
+    // The open tickets the mapping could not give as issues hold a slot
+    // too: their locks keep their records open, and nothing starts them.
+    let open: BTreeSet<u64> = q.open.iter().map(|o| o.number).chain(unread).collect();
     let mut issues = Map::new();
     for o in &q.open {
         let mut i = github::issue(o);
@@ -1013,7 +1238,6 @@ mod tests {
             }
         }
         let q = github::Queue {
-            repo: None,
             open: board::fake::page(&world),
             closed_running: Vec::new(),
             open_pulls: None,
@@ -1031,7 +1255,6 @@ mod tests {
     #[test]
     fn no_board_leaves_every_blocker_unread() {
         let q = github::Queue {
-            repo: None,
             open: vec![github::Open {
                 number: 21,
                 labels: vec![crate::decide::BLOCKED.to_string()],
@@ -1046,7 +1269,7 @@ mod tests {
         let comments = BTreeMap::from([(21, world()["comments"]["21"].clone())]);
         let none = BTreeMap::new();
         assert!(blocker_reads(None, &q, &[21], &comments, &none).is_empty());
-        let mut board = Board::of(&json!({"11": "OPEN"}));
+        let mut board = Board::of(&World::new(), &json!({"11": "OPEN"}));
         assert_eq!(
             blocker_reads(Some(&mut board), &q, &[21], &comments, &none),
             BTreeMap::from([(11, "OPEN".to_string())])
@@ -1056,7 +1279,6 @@ mod tests {
     #[test]
     fn a_merged_change_is_read_as_merged() {
         let q = github::Queue {
-            repo: None,
             open: vec![github::Open {
                 number: 21,
                 labels: vec![crate::decide::BLOCKED.to_string()],
@@ -1069,7 +1291,7 @@ mod tests {
         };
         // The blocked world's comment of #21, which names #11.
         let comments = BTreeMap::from([(21, world()["comments"]["21"].clone())]);
-        let mut board = Board::of(&json!({"11": "MERGED"}));
+        let mut board = Board::of(&World::new(), &json!({"11": "MERGED"}));
         assert_eq!(
             blocker_reads(Some(&mut board), &q, &[21], &comments, &BTreeMap::new()),
             BTreeMap::from([(11, "MERGED".to_string())])
@@ -1095,19 +1317,30 @@ mod tests {
     const COMMENT_MARK: &str = "issue(number:";
     const EDITS_MARK: &str = "nodes(ids:";
 
-    /// The board of a case on the ports' fake, its tickets the blockers of
-    /// `states` (a number and OPEN or CLOSED, or MERGED for a merged
-    /// change), each `as_blockers` it is asked
-    /// kept in `asked`.
+    /// The board of a case on the ports' fake: its queue reads come from
+    /// `queue`, and its tickets the blockers of `states` (a number and OPEN
+    /// or CLOSED, or MERGED for a merged change), each `as_blockers` it is
+    /// asked kept in `asked`.
     struct Board {
-        inner: Box<dyn tehas_ports::Board + Send>,
+        queue: Box<dyn tehas_ports::Board + Send>,
+        blockers: Box<dyn tehas_ports::Board + Send>,
         asked: std::sync::Arc<std::sync::Mutex<Vec<Vec<u64>>>>,
     }
 
+    /// The board of a case: the queue's, and the blockers' states of the
+    /// `states` answer `host` wrote beside the programs.
+    fn test_board(queue: &World, dir: &Path) -> Board {
+        let states = std::fs::read_to_string(dir.join(".states"))
+            .ok()
+            .map(|s| serde_json::from_str(&s).unwrap())
+            .unwrap_or(Value::Null);
+        Board::of(queue, &states)
+    }
+
     impl Board {
-        fn of(states: &Value) -> Self {
+        fn of(queue: &World, states: &Value) -> Self {
             use tehas_ports::{Actor, Caller, CloseReason, Scope, Site};
-            let world =
+            let blocker_world =
                 states
                     .as_object()
                     .into_iter()
@@ -1126,10 +1359,13 @@ mod tests {
                             _ => w.ticket(n, |t| t),
                         }
                     });
-            let site = tehas_ports::fake::FakeSite::new(&world);
+            let (by, caller) = (Actor::Ours(Scope::Full), Caller::new("test"));
             Self {
-                inner: site
-                    .board(&Actor::Ours(Scope::Full), Caller::new("test"))
+                queue: tehas_ports::fake::FakeSite::new(queue)
+                    .board(&by, caller)
+                    .unwrap(),
+                blockers: tehas_ports::fake::FakeSite::new(&blocker_world)
+                    .board(&by, caller)
                     .unwrap(),
                 asked: Default::default(),
             }
@@ -1138,7 +1374,9 @@ mod tests {
 
     impl tehas_ports::Reports for Board {
         fn take_reports(&mut self) -> Vec<tehas_ports::Report> {
-            self.inner.take_reports()
+            let mut r = self.queue.take_reports();
+            r.extend(self.blockers.take_reports());
+            r
         }
     }
 
@@ -1149,7 +1387,7 @@ mod tests {
         ) -> Vec<(NonZeroU64, tehas_ports::Got<tehas_ports::Blocker>)> {
             let asked = numbers.iter().map(|n| n.get()).collect();
             self.asked.lock().unwrap().push(asked);
-            self.inner.as_blockers(numbers)
+            self.blockers.as_blockers(numbers)
         }
 
         fn open_work(
@@ -1157,7 +1395,7 @@ mod tests {
             ask: &tehas_ports::BoardAsk,
             bound: tehas_ports::Bound,
         ) -> tehas_ports::Got<tehas_ports::OpenWork> {
-            self.inner.open_work(ask, bound)
+            self.queue.open_work(ask, bound)
         }
 
         fn work_item(
@@ -1165,7 +1403,7 @@ mod tests {
             key: &TicketKey,
             ask: &tehas_ports::BoardAsk,
         ) -> tehas_ports::Got<tehas_ports::WorkItem> {
-            self.inner.work_item(key, ask)
+            self.queue.work_item(key, ask)
         }
 
         fn closed_work(
@@ -1176,7 +1414,7 @@ mod tests {
         ) -> tehas_ports::Got<
             tehas_ports::Whole<(TicketKey, tehas_ports::Got<tehas_ports::WorkItem>)>,
         > {
-            self.inner.closed_work(ask, since, bound)
+            self.queue.closed_work(ask, since, bound)
         }
 
         fn target_work(
@@ -1187,7 +1425,7 @@ mod tests {
         ) -> tehas_ports::Got<
             tehas_ports::Whole<(TicketKey, tehas_ports::Got<tehas_ports::WorkItem>)>,
         > {
-            self.inner.target_work(ask, target, bound)
+            self.queue.target_work(ask, target, bound)
         }
 
         fn open_changes(
@@ -1195,21 +1433,28 @@ mod tests {
             ask: &tehas_ports::ChangeAsk,
             bound: tehas_ports::Bound,
         ) -> tehas_ports::Got<tehas_ports::Whole<tehas_ports::ChangeItem>> {
-            self.inner.open_changes(ask, bound)
+            self.queue.open_changes(ask, bound)
         }
     }
 
     /// The tickets of the blocked world on the ports' fake: #21, #22 and #23,
-    /// filed by alice and blocked by her. The page's timeline holds the
-    /// label's event, so the poll trusts the page: no read by name is paid
-    /// for these issues.
+    /// filed by alice and blocked by her. The board's answer carries the
+    /// label's event, so the poll trusts it: no read by name is paid for
+    /// these issues. This world is the queue: what a case adds to it is on
+    /// the queue, and what it leaves out is not.
     fn blocked() -> World {
+        blocked_of(&[21, 22, 23])
+    }
+
+    /// `blocked` with the given issues alone.
+    fn blocked_of(numbers: &[u64]) -> World {
         use tehas_ports::{Act, At};
         let blocked = World::new();
         blocked.set_now(At::new(
             tehas_core::time::from_iso("2026-10-02T00:00:00Z").unwrap(),
         ));
-        [21, 22, 23].into_iter().fold(blocked, |w, n| {
+        numbers.iter().fold(blocked, |w, n| {
+            let n = *n;
             w.ticket(n, |t| {
                 t.title(&format!("issue {n}"))
                     .text("a body")
@@ -1219,28 +1464,16 @@ mod tests {
         })
     }
 
-    /// The open pull requests of `fake` mapped, their nodes the page's
-    /// `openPulls`, each digest changed by `edit` first.
-    fn pulls_of(fake: &World, edit: impl Fn(&mut tehas_ports::ChangeDigest)) -> board::Mapped {
-        let mut pulls = board::fake::pulls(fake);
-        pulls.iter_mut().for_each(edit);
-        board::fake::mapped(&tehas_ports::OpenWork::default(), Some(&pulls))
-    }
-
-    /// The blocked world of a poll: issues #21, #22 and #23, open on the queue's
-    /// page and all carrying `tehas:blocked`, each held by the marker of its own
-    /// newest comment. #21 names #11, #22 names #11 and #12, and #23 names #13
-    /// alone: a blocker no other issue names, so a per-issue blocker read costs
-    /// calls that a merged one does not. The page gives the label's event, so
-    /// the poll trusts the page and pays no read by name for these issues.
+    /// The world of a poll beside its queue: issues #21, #22 and #23 are on
+    /// the queue in `blocked`, all carrying `tehas:blocked`, and their newest
+    /// comment holds each one here. #21 names #11, #22 names #11 and #12, and
+    /// #23 names #13 alone: a blocker no other issue names, so a per-issue
+    /// blocker read costs calls that a merged one does not. The board's answer
+    /// gives the label's event, so the poll trusts it and pays no read by name
+    /// for these issues. The control issue is nowhere in the queue, so its
+    /// labels and its events are read by name, and nothing of it holds the
+    /// pause.
     fn world() -> Value {
-        let blocked = blocked();
-        let nodes: Vec<Value> = board::fake::page(&blocked)
-            .into_iter()
-            .map(|o| o.node)
-            .collect();
-        // The page answers no open pull request here, so a world's poll holds
-        // nothing on a body; `openPulls` is written beside the nodes below.
         let comment = |body: &str| {
             json!({"data": {"repository": {"issue": {"comments": {"nodes": [
                 {"databaseId": 500, "author": {"login": "tehas-bot"}, "body": body,
@@ -1253,19 +1486,7 @@ mod tests {
                     "actor": {"login": "alice"}, "created_at": "2026-10-02T00:00:00Z"}])
         };
         json!({
-            "queue": {"data": {"repository": {
-                "nameWithOwner": "acme/widget",
-                "issues": {"pageInfo": {"hasNextPage": false, "endCursor": null},
-                           "nodes": nodes},
-                "closedRunning": {"nodes": []},
-                // The page's own list of open pull requests, empty here so a
-                // world's poll holds nothing on a body. A case that wants one
-                // writes `openPulls` into its own `queue`.
-                "openPulls": {"nodes": []}
-            }}},
-            // The three issues are the candidates of rule 6. The control issue
-            // is not in the page, so its labels and its events are read by name,
-            // and nothing of it holds the pause.
+            // The three issues are the candidates of rule 6.
             "blocked": [{"number": 21, "labels": [{"name": crate::decide::BLOCKED}]},
                         {"number": 22, "labels": [{"name": crate::decide::BLOCKED}]},
                         {"number": 23, "labels": [{"name": crate::decide::BLOCKED}]}],
@@ -1327,13 +1548,15 @@ mod tests {
             fails: false,
         },
         Read {
-            word: "hasNextPage",
-            fixture: "queue",
-            fails: false,
-        },
-        Read {
             word: "tehas:refreshing",
             fixture: "refreshing",
+            fails: false,
+        },
+        // Last: every other REST path holds this word too, and the first
+        // word a call's arguments hold picks the answer.
+        Read {
+            word: "repos/acme/widget",
+            fixture: r#"{"nameWithOwner":"acme/widget"}"#,
             fails: false,
         },
     ];
@@ -1402,7 +1625,7 @@ mod tests {
             )
             .unwrap();
         }
-        fixture(&dir, "queue", &world["queue"]);
+        fixture(&dir, "states", &world["states"]);
         fixture(&dir, "control", &world["control"]);
         // The edit histories of edited comments, read by their ids: none
         // unless the case names them.
@@ -1616,24 +1839,14 @@ esac"#,
         call.contains(&format!("i{n}: issue(number: {n})"))
     }
 
-    /// The blocked world widened to `count` issues from #21, each named by the
-    /// page, labelled blocked and held by #11: enough of them to fill more than
-    /// one chunk of the comment read.
-    fn wide_world(count: u64) -> Value {
+    /// The blocked world widened to `count` issues from #21, each on the
+    /// queue, labelled blocked and held by #11: enough of them to fill more
+    /// than one chunk of the comment read. The world and its queue.
+    fn wide_world(count: u64) -> (Value, World) {
         let mut w = world();
-        let template = w["queue"]["data"]["repository"]["issues"]["nodes"][0].clone();
         let comment = w["comments"]["21"].clone();
         let labeled = w["events"]["21"].clone();
         let numbers: Vec<u64> = (21..21 + count).collect();
-        w["queue"]["data"]["repository"]["issues"]["nodes"] = numbers
-            .iter()
-            .map(|n| {
-                let mut node = template.clone();
-                node["number"] = json!(n);
-                node["title"] = json!(format!("issue {n}"));
-                node
-            })
-            .collect();
         w["blocked"] = numbers
             .iter()
             .map(|n| json!({"number": n, "labels": [{"name": crate::decide::BLOCKED}]}))
@@ -1648,7 +1861,7 @@ esac"#,
             .map(|n| (n.to_string(), comment.clone()))
             .collect::<serde_json::Map<String, Value>>()
             .into();
-        w
+        (w, blocked_of(&numbers))
     }
 
     /// A world whose blocked issues all could start: the control issue's events
@@ -1764,20 +1977,37 @@ esac"#,
         broken: &[u64],
         c: &Settings,
     ) -> (Value, Vec<String>, u32, Vec<String>) {
-        let (snap, gh_calls, gh, store, _) = poll_asked(world, broken, c);
-        (snap, gh_calls, gh, store)
+        poll_q(&blocked(), world, broken, c)
     }
 
-    /// `poll_with`, and the numbers of each read of the blockers' states.
-    fn poll_asked(
+    /// `poll`, with the queue as the ports' fake holds it: the open work,
+    /// the closed running issues, the marks, the types and the open pull
+    /// requests all come from `queue`.
+    fn poll_q(
+        queue: &World,
         world: &Value,
         broken: &[u64],
         c: &Settings,
+    ) -> (Value, Vec<String>, u32, Vec<String>) {
+        let (snap, gh_calls, gh, store, _) = poll_h_asked(queue, world, broken, c, true);
+        (snap, gh_calls, gh, store)
+    }
+
+    /// `poll_q`, and without the code host handle at all when `pulls` is
+    /// false: a wiring that made none, where the open pull requests are
+    /// nothing known rather than none open. The fifth part is the numbers
+    /// of each read of the blockers' states.
+    fn poll_h_asked(
+        queue: &World,
+        world: &Value,
+        broken: &[u64],
+        c: &Settings,
+        pulls: bool,
     ) -> (Value, Vec<String>, u32, Vec<String>, Vec<Vec<u64>>) {
         let _clock = crate::read::run::no_case_clock();
         let dir = host(world, broken);
-        let mut src = sources(&dir);
-        let board = Board::of(&world["states"]);
+        let mut src = sources_of(&dir, queue, pulls);
+        let board = test_board(queue, &dir);
         let asked = std::sync::Arc::clone(&board.asked);
         src.board = Some(Box::new(board));
         let snap = match snapshot(&mut src, c) {
@@ -1796,6 +2026,16 @@ esac"#,
     }
 
     fn sources(dir: &Path) -> Sources<'_> {
+        sources_of(dir, &blocked(), true)
+    }
+
+    /// `sources` with the queue's handles of the ports' fake: the board,
+    /// the tickets and, when `pulls`, the code host, all of one world, as
+    /// one wiring makes them, the marks spelt as the table spells them.
+    fn sources_of<'a>(dir: &'a Path, queue: &World, pulls: bool) -> Sources<'a> {
+        use tehas_ports::{Actor, Caller, Scope, Site};
+        let site = tehas_ports::fake::FakeSite::new(queue);
+        let (by, caller) = (Actor::Ours(Scope::Full), Caller::new("test"));
         Sources {
             home: dir,
             calls: run::Calls {
@@ -1818,10 +2058,43 @@ esac"#,
                 model: String::new(),
             },
             endpoint: (String::new(), String::new()),
-            code_host: None,
-            board: None,
+            code_host: pulls
+                .then(|| {
+                    site.code_host(&by, caller)
+                        .map(|h| h as Box<dyn tehas_ports::CodeHost>)
+                })
+                .transpose()
+                .unwrap(),
+            board: Some(Box::new(test_board(queue, dir))),
+            tickets: Some(site.tickets(&by, caller).unwrap()),
+            mark_name: board::fake::label,
             said: Vec::new(),
+            faults: Vec::new(),
         }
+    }
+
+    #[test]
+    fn a_poll_without_the_handles_of_the_queue_read_fails_closed_on_it() {
+        let _clock = crate::read::run::no_case_clock();
+        let dir = host(&world(), &[]);
+        let mut src = sources(&dir);
+        src.board = None;
+        let Err(f) = snapshot(&mut src, &settings()) else {
+            panic!("a poll with no board handle must end on the queue read");
+        };
+        assert_eq!(
+            f.line,
+            "ERROR: the poll has no board handle to read the queue by"
+        );
+        let mut src = sources(&dir);
+        src.tickets = None;
+        let Err(f) = snapshot(&mut src, &settings()) else {
+            panic!("a poll with no tickets handle must end on the queue read");
+        };
+        assert_eq!(
+            f.line,
+            "ERROR: the poll has no tickets handle to read the queue by"
+        );
     }
 
     /// The states of the blockers a case expects, as `Issue::blockers` holds
@@ -1852,7 +2125,8 @@ esac"#,
     fn the_blocked_issues_read_their_comments_side_by_side_and_their_blockers_once() {
         let w = world();
         let blocked_len = w["blocked"].as_array().unwrap().len();
-        let (snap, calls, gh_count, store, blocker_reads) = poll_asked(&w, &[], &settings());
+        let (snap, calls, gh_count, store, blocker_reads) =
+            poll_h_asked(&blocked(), &w, &[], &settings(), true);
 
         // One aliased query stood for the whole list, and it asked only of the
         // blocked issues: a per-issue read pays `blocked_len` calls, and a batch
@@ -1939,41 +2213,40 @@ esac"#,
         );
     }
 
-    /// With TEHAS_ISSUE_TYPES mapping improvement, the page asks each issue's
-    /// type and the owner's types, and an issue of the type carries
-    /// `tehas:improvement` in every read the rules take of it, with no read of
-    /// its events by name. Without the setting the page asks neither.
+    /// With TEHAS_ISSUE_TYPES mapping improvement, the queue asks the owner's
+    /// types and an issue of the type carries `tehas:improvement` in every
+    /// read the rules take of it, with no read of its events by name.
+    /// Without the setting the queue asks neither: no ticket read is paid for
+    /// a type no rule maps.
     #[test]
     fn an_issue_of_the_improvement_type_carries_the_label_and_costs_no_read() {
-        let mut w = world();
-        let typed = World::new()
+        let w = world();
+        let typed = blocked()
+            .kind(tehas_ports::Kind::Task)
+            .kind(tehas_ports::Kind::named("Improvement"))
             .ticket(40, |t| {
                 t.title("issue 40")
                     .kind(tehas_ports::Kind::named("Improvement"))
             })
             .ticket(41, |t| t.title("issue 41").kind(tehas_ports::Kind::Task));
-        let repo = &mut w["queue"]["data"]["repository"];
-        repo["issueTypes"] = json!({"nodes": [{"name": "Task"}, {"name": "Improvement"}]});
-        let nodes = repo["issues"]["nodes"].as_array_mut().unwrap();
-        nodes.extend(board::fake::page(&typed).into_iter().map(|o| o.node));
         let mut c = settings();
         c.improvement_type = Some("Improvement".into());
-        let (snap, calls, _, _) = poll_with(&w, &[], &c);
-        assert_eq!(snap["issue_types"], json!(["Task", "Improvement"]));
+        let (snap, calls, _, _) = poll_q(&typed, &w, &[], &c);
+        // The fake's types beside the two the world names.
+        let types = snap["issue_types"].as_array().unwrap();
+        assert!(
+            types.contains(&json!("Task")) && types.contains(&json!("Improvement")),
+            "{types:?}"
+        );
         let improvement = json!([{"name": crate::decide::IMPROVEMENT}]);
         assert_eq!(snap["issues"]["40"]["work"]["labels"], improvement);
         assert_eq!(snap["issues"]["40"]["view"]["labels"], improvement);
         assert_eq!(snap["issues"]["41"]["work"]["labels"], json!([]));
         assert!(!calls.iter().any(|c| c.contains("issues/40/events")));
-        let page = queries(&calls, "hasNextPage");
-        assert!(
-            page[0].contains("issueType { name }") && page[0].contains("issueTypes(first: 50)")
-        );
 
-        let (snap, calls, _, _) = poll(&w, &[]);
+        let (snap, _, _, _) = poll_q(&typed, &w, &[], &settings());
         assert_eq!(snap["issues"]["40"]["work"]["labels"], json!([]));
         assert!(snap.get("issue_types").is_none());
-        assert!(!queries(&calls, "hasNextPage")[0].contains("issueType"));
     }
 
     /// An open issue titled with the epic marker that lacks `epic` is listed for
@@ -1984,13 +2257,11 @@ esac"#,
     fn an_epic_titled_issue_is_listed_and_its_events_read_whole_when_the_page_shows_none() {
         use tehas_ports::{At, Happened, Mark};
         let mut w = world();
-        let epics = World::new();
-        epics.set_now(At::new(
+        let at = Some(At::new(
             tehas_core::time::from_iso("2026-10-02T00:00:00Z").unwrap(),
         ));
-        let at = Some(epics.now());
         let epic = "EPIC: Billing rework";
-        let epics = epics
+        let epics = blocked()
             .ticket(30, |t| t.title(epic))
             .ticket(31, |t| {
                 t.title(epic)
@@ -1998,13 +2269,9 @@ esac"#,
             })
             .ticket(32, |t| t.title(epic).marked(Mark::Epic, "alice"))
             .ticket(33, |t| t.title("feat: a part of epic 30"));
-        w["queue"]["data"]["repository"]["issues"]["nodes"]
-            .as_array_mut()
-            .unwrap()
-            .extend(board::fake::page(&epics).into_iter().map(|o| o.node));
         w["events"]["30"] = json!([{"event": "unlabeled", "label": {"name": "epic"},
             "actor": {"login": "bob"}, "created_at": "2026-09-01T00:00:00Z"}]);
-        let (snap, calls, _, _) = poll(&w, &[]);
+        let (snap, calls, _, _) = poll_q(&epics, &w, &[], &settings());
         assert_eq!(snap["epic_titled"], json!([30, 31]));
         for n in 30..=33 {
             let read = calls
@@ -2051,13 +2318,9 @@ esac"#,
             )
         };
         // #50 is cut after its first event, #51 is whole.
-        let ready_world = World::new()
+        let ready_world = blocked()
             .ticket(50, |t| issue(t, 50, 1))
             .ticket(51, |t| issue(t, 51, whole.len()));
-        w["queue"]["data"]["repository"]["issues"]["nodes"]
-            .as_array_mut()
-            .unwrap()
-            .extend(board::fake::page(&ready_world).into_iter().map(|o| o.node));
         let full: Vec<Value> = whole
             .iter()
             .map(|(on, iso, mark, who)| {
@@ -2074,7 +2337,7 @@ esac"#,
         w["approvals"] = json!({"50": said, "51": said});
         w["events"]["50"] = json!(full);
         w["events"]["51"] = json!(full);
-        let (snap, calls, _, _) = poll(&w, &[]);
+        let (snap, calls, _, _) = poll_q(&ready_world, &w, &[], &settings());
         for n in [50, 51] {
             let read = calls
                 .iter()
@@ -2256,8 +2519,14 @@ esac"#,
     #[test]
     fn a_host_approval_of_an_issue_not_open_is_dropped() {
         let _clock = crate::read::run::no_case_clock();
-        let mut w = world();
-        w["queue"]["data"]["repository"]["closedRunning"]["nodes"] = json!([{"number": 40}]);
+        let w = world();
+        // #40 is closed and still carries the running mark: the queue names
+        // it in `marked` as a closed one, and nothing else.
+        let queue = blocked().ticket(40, |t| {
+            t.title("issue 40")
+                .mark(tehas_ports::Mark::State(tehas_ports::State::Running))
+                .closed(tehas_ports::CloseReason::Done)
+        });
         let dir = host(&w, &[]);
         let waiting = |n: u64| json!({"issue": n, "at": 1_793_404_000, "body_sha256": "x", "title_sha256": null});
         fixture(
@@ -2266,7 +2535,7 @@ esac"#,
             &json!({"api": 1, "ok": true, "verb": "approval-hosts",
                     "waiting": [waiting(21), waiting(40), waiting(77)]}),
         );
-        let mut src = sources(&dir);
+        let mut src = sources_of(&dir, &queue, true);
         let snap = match snapshot(&mut src, &settings()) {
             Ok(s) => s,
             Err(f) => panic!("the stubs answer: {}", f.line),
@@ -2296,15 +2565,14 @@ esac"#,
         let mut world = world();
         // The one blocked issue of the queue, and its newest comment names no
         // blocker at all.
-        world["queue"]["data"]["repository"]["issues"]["nodes"] =
-            json!([world["queue"]["data"]["repository"]["issues"]["nodes"][0]]);
-        world["blocked"] = json!([{"number": 21, "labels": [{"name": crate::decide::BLOCKED}]}]);
+        let queue = blocked_of(&[21]);
         world["events"] = json!({"21": world["events"]["21"]});
         // An unedited comment, with the empty history GitHub gives one.
         world["comments"] = json!({"21": {"data": {"repository": {"issue": {"comments":
                 {"nodes": [{"body": "no marker here",
                             "userContentEdits": {"totalCount": 0, "nodes": []}}]}}}}}});
-        let (snap, calls, _, _, blocker_reads) = poll_asked(&world, &[], &settings());
+        let (snap, calls, _, _, blocker_reads) =
+            poll_h_asked(&queue, &world, &[], &settings(), true);
         assert!(
             blocker_reads.is_empty(),
             "no blocker is named, so none is asked: {blocker_reads:?}"
@@ -2328,9 +2596,7 @@ esac"#,
     #[test]
     fn an_edited_comment_carries_the_history_read_by_its_id() {
         let mut world = world();
-        world["queue"]["data"]["repository"]["issues"]["nodes"] =
-            json!([world["queue"]["data"]["repository"]["issues"]["nodes"][0]]);
-        world["blocked"] = json!([{"number": 21, "labels": [{"name": crate::decide::BLOCKED}]}]);
+        let queue = blocked_of(&[21]);
         world["events"] = json!({"21": world["events"]["21"]});
         world["comments"] = json!({"21": {"data": {"repository": {"issue": {"comments":
         {"nodes": [
@@ -2348,7 +2614,7 @@ esac"#,
         world["edits"] = json!({"data": {"nodes": [
             {"id": "IC_kwDOedited", "userContentEdits": history}
         ]}});
-        let (snap, calls, _, _) = poll(&world, &[]);
+        let (snap, calls, _, _) = poll_q(&queue, &world, &[], &settings());
         let asked = queries(&calls, EDITS_MARK);
         assert_eq!(asked.len(), 1, "one history read: {calls:?}");
         assert!(asked[0].contains("IC_kwDOedited"), "{}", asked[0]);
@@ -2370,7 +2636,7 @@ esac"#,
         // With no edited comment, no history is read.
         world["comments"]["21"]["data"]["repository"]["issue"]["comments"]["nodes"] =
             json!([world["comments"]["21"]["data"]["repository"]["issue"]["comments"]["nodes"][0]]);
-        let (_, calls, _, _) = poll(&world, &[]);
+        let (_, calls, _, _) = poll_q(&queue, &world, &[], &settings());
         assert!(queries(&calls, EDITS_MARK).is_empty(), "{calls:?}");
     }
 
@@ -2379,9 +2645,7 @@ esac"#,
     #[test]
     fn an_edited_comment_whose_history_is_not_answered_holds() {
         let mut world = world();
-        world["queue"]["data"]["repository"]["issues"]["nodes"] =
-            json!([world["queue"]["data"]["repository"]["issues"]["nodes"][0]]);
-        world["blocked"] = json!([{"number": 21, "labels": [{"name": crate::decide::BLOCKED}]}]);
+        let queue = blocked_of(&[21]);
         world["events"] = json!({"21": world["events"]["21"]});
         world["comments"] = json!({"21": {"data": {"repository": {"issue": {"comments":
         {"nodes": [
@@ -2391,7 +2655,7 @@ esac"#,
              "editor": {"login": "tehas-bot"}}
         ]}}}}}});
         world["edits"] = json!({"data": {"nodes": [null]}});
-        let (snap, _, _, _) = poll(&world, &[]);
+        let (snap, _, _, _) = poll_q(&queue, &world, &[], &settings());
         let c = &snap["issues"]["21"]["comments"]["data"]["repository"]["issue"]["comments"]
             ["nodes"][0];
         assert_eq!(c["userContentEdits"], json!({"failed": true}));
@@ -2461,9 +2725,10 @@ esac"#,
     /// and spoils none of the other chunk's answers.
     #[test]
     fn the_comment_read_asks_ten_issues_a_query_and_a_failed_chunk_spoils_only_its_own() {
-        let w = startable(wide_world(12));
+        let (w, q) = wide_world(12);
+        let w = startable(w);
         assert_eq!(github::COMMENT_CHUNK, 10, "the chunk this case is cut to");
-        let (snap, calls, _, _) = poll(&w, &[]);
+        let (snap, calls, _, _) = poll_q(&q, &w, &[], &settings());
         let comment_calls = queries(&calls, COMMENT_MARK);
         assert_eq!(comment_calls.len(), 2, "two chunks: {calls:?}");
         for n in 21..=32 {
@@ -2485,7 +2750,7 @@ esac"#,
         assert_eq!(sizes.iter().sum::<usize>(), 12, "{sizes:?}");
 
         // #32 is refused: its chunk is #31 and #32.
-        let (snap, _, _, _) = poll(&w, &[32]);
+        let (snap, _, _, _) = poll_q(&q, &w, &[32], &settings());
         for n in 21..=30 {
             assert_eq!(
                 snap["issues"][n.to_string()]["comments"],
@@ -2514,7 +2779,7 @@ esac"#,
         );
 
         // #21 is refused: its chunk is #21 to #30, which the rule reaches first.
-        let (snap, _, _, _) = poll(&w, &[21]);
+        let (snap, _, _, _) = poll_q(&q, &w, &[21], &settings());
         for n in 21..=30 {
             assert_eq!(
                 snap["issues"][n.to_string()]["comments"],
@@ -2565,12 +2830,11 @@ esac"#,
     fn a_blocked_issue_the_question_read_answered_pays_no_second_comment_call() {
         let mut w = world();
         // #22 carries both labels, so the question read gives its comments.
-        w["queue"]["data"]["repository"]["issues"]["nodes"][1]["labels"]["nodes"]
-            .as_array_mut()
-            .unwrap()
-            .push(json!({"name": "tehas:question"}));
+        let queue = blocked().ticket(22, |t| {
+            t.mark(tehas_ports::Mark::State(tehas_ports::State::Question))
+        });
         w["asking"] = json!([{"number": 22, "labels": [{"name": "tehas:question"}]}]);
-        let (snap, calls, _, _) = poll(&w, &[]);
+        let (snap, calls, _, _) = poll_q(&queue, &w, &[], &settings());
         let comment_calls = queries(&calls, COMMENT_MARK);
         // The question read and the blocked read are one query: the asking
         // issue is in it once, beside the two blocked issues it does not cover.
@@ -2599,14 +2863,11 @@ esac"#,
     /// page, not the list, is what makes an issue blocked.
     #[test]
     fn an_issue_off_the_page_is_not_batched_and_not_written_as_blocked() {
-        let mut w = world();
+        let w = world();
         // #23 stays a candidate of rule 6 and keeps the label in the blocked
-        // list, but the page did not answer for it.
-        w["queue"]["data"]["repository"]["issues"]["nodes"] = json!([
-            w["queue"]["data"]["repository"]["issues"]["nodes"][0],
-            w["queue"]["data"]["repository"]["issues"]["nodes"][1]
-        ]);
-        let (snap, calls, _, _, blocker_reads) = poll_asked(&w, &[], &settings());
+        // list, but the queue did not answer for it.
+        let queue = blocked_of(&[21, 22]);
+        let (snap, calls, _, _, blocker_reads) = poll_h_asked(&queue, &w, &[], &settings(), true);
         let comment_calls = queries(&calls, COMMENT_MARK);
         assert_eq!(comment_calls.len(), 1, "{calls:?}");
         assert!(asks(&comment_calls[0], 21) && asks(&comment_calls[0], 22));
@@ -2634,40 +2895,13 @@ esac"#,
         assert_eq!(snap["issues"].get("23"), None);
     }
 
-    /// A pull request node of the page as GitHub gives it, its body the field
-    /// the hold of rule 6 reads.
-    fn pull(n: u64, body: &str) -> Value {
-        pull_body(n, json!(body))
-    }
-
-    /// The same with a body of any shape, for a page that answers something
-    /// other than a string: GitHub gives null for a pull request with no
-    /// description at all.
-    fn pull_body(n: u64, body: Value) -> Value {
-        json!({"number": n, "title": format!("pull {n}"), "body": body,
-               "headRefName": format!("feature/other-{n}"),
-               "isCrossRepository": false, "headRepository": {"nameWithOwner": "acme/widget"},
-               "author": {"login": "alice"}, "labels": {"nodes": []}})
-    }
-
     /// A pull request that is not the repository's own names nothing: one from
-    /// a fork, one of an account neither the factory nor allowed, and one whose
-    /// author or head cannot be read. Each closes #21 and #22 in its body, and
-    /// neither issue is held.
+    /// a fork, one of an account neither the factory nor allowed. Each closes
+    /// #21 and #22 in its body, and neither issue is held. A shape GitHub
+    /// answers that the port cannot carry (no author, no head) is the
+    /// adapter's problem to answer, not the read's.
     #[test]
     fn a_pull_request_not_of_the_repository_names_nothing() {
-        let held = |what: &str, nodes: Value| {
-            let mut w = world();
-            w["queue"]["data"]["repository"]["openPulls"]["nodes"] = nodes;
-            let (snap, _, _, _) = poll(&w, &[]);
-            assert_eq!(snap.get("pulls_name"), None, "{what} names nothing");
-            assert!(
-                Snapshot::parse(&snap).pulls_name.is_empty(),
-                "{what} holds nothing"
-            );
-        };
-        // On the ports' fake: a change from a fork, or one by an account
-        // neither the factory nor allowed.
         let cases: [(&str, &str, bool); 3] = [
             ("an outsider's fork", "mallory", true),
             ("an allowed account's fork", "alice", true),
@@ -2678,30 +2912,16 @@ esac"#,
             ),
         ];
         for (what, author, fork) in cases {
-            let fake = blocked().change(90, "feature/other-90", |c| {
-                c.body("Closes #21, #22").author(author)
+            let w = world();
+            let queue = blocked().change(90, "feature/other-90", |c| {
+                c.body("Closes #21, #22").author(author).fork(fork)
             });
-            let m = pulls_of(&fake, |d| d.from_fork = fork);
-            held(what, m.queue.open_pulls.unwrap());
-        }
-        // GitHub's own shapes, which the port does not carry: they go with
-        // the page's parse.
-        type Change = fn(&mut Value);
-        let shapes: [(&str, Change); 3] = [
-            ("a head of another repository", |p| {
-                p["headRepository"] = json!({"nameWithOwner": "acme/other"});
-            }),
-            ("no author", |p| {
-                p["author"] = Value::Null;
-            }),
-            ("no cross-repository answer", |p| {
-                p.as_object_mut().unwrap().remove("isCrossRepository");
-            }),
-        ];
-        for (what, change) in shapes {
-            let mut p = pull(90, "Closes #21, #22");
-            change(&mut p);
-            held(what, json!([p]));
+            let (snap, _, _, _) = poll_q(&queue, &w, &[], &settings());
+            assert_eq!(snap.get("pulls_name"), None, "{what} names nothing");
+            assert!(
+                Snapshot::parse(&snap).pulls_name.is_empty(),
+                "{what} holds nothing"
+            );
         }
     }
 
@@ -2709,19 +2929,15 @@ esac"#,
     /// branch of the repository, name what their bodies close.
     #[test]
     fn the_factorys_and_an_allowed_accounts_pull_requests_name_their_issues() {
-        let mut w = world();
-        let fake = blocked()
+        let w = world();
+        let queue = blocked()
             .change(90, "feature/other-90", |c| {
                 c.body("Closes #21").author("app/tehas-bot")
             })
             .change(91, "feature/other-91", |c| {
                 c.body("Fixes #22").author("alice")
             });
-        let mut nodes = pulls_of(&fake, |_| ()).queue.open_pulls.unwrap();
-        // GitHub writes the head's owner as the repository's own spelling.
-        nodes[1]["headRepository"] = json!({"nameWithOwner": "Acme/Widget"});
-        w["queue"]["data"]["repository"]["openPulls"]["nodes"] = nodes;
-        let (snap, _, _, _) = poll(&w, &[]);
+        let (snap, _, _, _) = poll_q(&queue, &w, &[], &settings());
         assert_eq!(snap["pulls_name"], json!({"21": [90], "22": [91]}));
     }
 
@@ -2729,19 +2945,15 @@ esac"#,
     /// list keeps only the repository's own, so an outsider's holds nothing.
     #[test]
     fn a_linked_pull_request_not_of_the_repository_is_left_out() {
-        let mut w = world();
+        let w = world();
         let fake = blocked()
             .change(90, "work-21", |c| c.closes(21).author("tehas-bot"))
-            .change(91, "fork-21", |c| c.closes(21).closes(22).author("mallory"));
-        let mut work = board::fake::work(&fake);
-        let mut items = std::mem::take(&mut work.items).into_items();
-        for (_, item) in &mut items {
-            for c in &mut item.as_mut().unwrap().changes.items {
-                c.from_fork = c.no.get() == 91;
-            }
-        }
-        work.items = tehas_ports::Whole::new(items);
-        let page = board::fake::page_of(&work);
+            .change(91, "fork-21", |c| {
+                c.closes(21).closes(22).author("mallory").fork(true)
+            });
+        // The link the fake gives the repository's own change, for the
+        // `ClosingPr` the snapshot is held to.
+        let page = board::fake::page_of(&board::fake::work(&fake));
         let own = page[0].node["closedByPullRequestsReferences"]["nodes"]
             .as_array()
             .unwrap()
@@ -2749,9 +2961,7 @@ esac"#,
             .find(|p| p["isCrossRepository"] == json!(false))
             .unwrap()["url"]
             .clone();
-        w["queue"]["data"]["repository"]["issues"]["nodes"] =
-            page.into_iter().map(|o| o.node).collect();
-        let (snap, _, _, _) = poll(&w, &[]);
+        let (snap, _, _, _) = poll_q(&fake, &w, &[], &settings());
         let parsed = Snapshot::parse(&snap);
         let own = ClosingPr {
             url: own.as_str().unwrap().to_string(),
@@ -2761,18 +2971,18 @@ esac"#,
         assert_eq!(parsed.issues[&22].prs, Some(vec![]));
     }
 
-    /// The page's own bodies are what hold an issue a pull request into another
-    /// branch closes: GitHub records a closing reference only for a pull
-    /// request into the default branch, so an issue whose
+    /// The queue's own bodies are what hold an issue a pull request into
+    /// another branch closes: GitHub records a closing reference only for a
+    /// pull request into the default branch, so an issue whose
     /// `closedByPullRequestsReferences` is empty is held by the body alone,
     /// and `Snapshot::parse` carries the numbers to `pulls_name` for rule 6.
     #[test]
     fn an_open_pull_request_naming_the_issue_in_its_body_is_written_as_holding_it() {
-        let mut w = world();
+        let w = world();
         // A body that names no keyword, one that names a number with a colon
         // but is not one of the closing words, one that names a longer
         // number, and none at all: none holds anything.
-        let fake = blocked()
+        let queue = blocked()
             .change(90, "feature/other-90", |c| {
                 c.body("Closes #21. Fixes #22.").author("alice")
             })
@@ -2784,9 +2994,7 @@ esac"#,
                 c.body("Resolves #212, which is not #21").author("alice")
             })
             .change(93, "x", |c| c.author("alice"));
-        w["queue"]["data"]["repository"]["openPulls"]["nodes"] =
-            pulls_of(&fake, |_| ()).queue.open_pulls.unwrap();
-        let (snap, _, _, _) = poll(&w, &[]);
+        let (snap, _, _, _) = poll_q(&queue, &w, &[], &settings());
         assert_eq!(
             snap["pulls_name"],
             json!({"21": [90], "22": [90]}),
@@ -2802,67 +3010,15 @@ esac"#,
         );
     }
 
-    /// The hold reads only the open pull requests the page answered: a page
-    /// GitHub cut before `openPulls` writes no names, so no issue is held by a
-    /// body no poll read.
+    /// The hold reads only the open pull requests the poll could ask of the
+    /// code host: a wiring that made no code host handle writes no names, so
+    /// no issue is held by a body no poll read.
     #[test]
     fn a_page_that_answered_no_open_pull_requests_writes_no_names() {
-        let mut w = world();
-        w["queue"]["data"]["repository"]
-            .as_object_mut()
-            .unwrap()
-            .remove("openPulls");
-        let (snap, _, _, _) = poll(&w, &[]);
+        let w = world();
+        let (snap, _, _, _, _) = poll_h_asked(&blocked(), &w, &[], &settings(), false);
         assert_eq!(snap.get("pulls_name"), None);
         assert!(Snapshot::parse(&snap).pulls_name.is_empty());
-    }
-
-    /// A body of no shape a rule reads closes nothing: a description that is
-    /// null, a number, a list or an object is no text with a keyword in it, and
-    /// none of them holds an issue.
-    #[test]
-    fn a_body_of_no_shape_a_rule_reads_closes_nothing() {
-        for body in [
-            Value::Null,
-            json!(7),
-            json!(["Closes #21"]),
-            json!({"x": "Closes #21"}),
-            json!(true),
-        ] {
-            let mut w = world();
-            w["queue"]["data"]["repository"]["openPulls"]["nodes"] =
-                json!([pull_body(90, body.clone())]);
-            let (snap, _, _, _) = poll(&w, &[]);
-            assert_eq!(
-                snap.get("pulls_name"),
-                None,
-                "a body of {body} names nothing"
-            );
-            assert!(
-                Snapshot::parse(&snap).pulls_name.is_empty(),
-                "a body of {body} holds nothing"
-            );
-        }
-    }
-
-    /// A page whose `openPulls` answers no list of nodes is a list nothing is
-    /// known of: no body is read, so no issue is held on one.
-    #[test]
-    fn a_page_whose_pull_requests_are_no_list_writes_no_names() {
-        for nodes in [Value::Null, json!(7), json!({"number": 90})] {
-            let mut w = world();
-            w["queue"]["data"]["repository"]["openPulls"] = json!({"nodes": nodes});
-            let (snap, _, _, _) = poll(&w, &[]);
-            assert_eq!(
-                snap.get("pulls_name"),
-                None,
-                "nodes of {nodes} name nothing"
-            );
-            assert!(
-                Snapshot::parse(&snap).pulls_name.is_empty(),
-                "nodes of {nodes} hold nothing"
-            );
-        }
     }
 
     /// The numbers of `pulls_name` are read the way every other number of the

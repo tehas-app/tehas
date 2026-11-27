@@ -67,9 +67,13 @@ pub mod size;
 pub mod slice;
 pub mod snapshot;
 pub mod starts;
+#[cfg(feature = "mask")]
+pub mod sum;
 pub mod testdir;
 pub mod testing;
 pub mod text;
 pub mod textcheck;
 pub mod time;
+pub mod units;
+pub mod verb;
 pub mod version;

@@ -40,7 +40,7 @@ unclear 53 '{"number":53,"state":true}'
 t_case "sweep: an open pull request whose fork was deleted is removed"
 reset
 left 54 0000000000000000000000000000000000000054
-echo '{"number":54,"state":"open","head":{"sha":"x","repo":null}}' >"$fx/pull-54.json"
+echo '{"number":54,"state":"open","head":{"sha":"0000000000000000000000000000000000000054","repo":null}}' >"$fx/pull-54.json"
 t_run "$preview --sweep"
 t_eq "$(count "$fx/docker" '*-54')" 0
 t_contains "$t_out" "#54: swept, its branch is not in acme/widget"
@@ -146,7 +146,7 @@ for body in '[]' '"acme/widget"' '{}' '{"full_name":null}' '{"full_name":"other/
   t_eq "$(count "$fx/docker" '*-52')" 2
   t_eq "$(count "$root" 52)" 1
   t_contains "$t_out" "GitHub does not show acme/widget; nothing was swept by its word"
-  t_eq "$(t_calls gh | grep -c 'pulls/52')" 0
+  t_eq "$(t_calls gh | grep -c -e 'pulls/52' -e 'n52:')" 0
   t_eq "$(jq -r '.removed' "$root/sweep.json")" 0
 done
 
@@ -167,7 +167,7 @@ t_eq "$(count "$fx/docker" 'image-7*')" 2
 t_eq "$(t_calls docker | grep -c '^rm \|^image rm ')" 0
 t_eq "$(jq -r '.removed' "$root/sweep.json")" 0
 # Its pull requests are asked about, so a closed one goes and a second container is seen.
-t_eq "$(t_calls gh | grep -c 'pulls/7[12]$')" 2
+t_eq "$(t_calls gh | grep -c 'n7[12]: pullRequest')" 2
 jq '.state = "closed"' "$fx/pull-71.json" >"$fx/x" && mv "$fx/x" "$fx/pull-71.json"
 echo "$(cid c0de0a) 72 ACME/WIDGET extra" >"$fx/extra-containers"
 t_run "$preview --sweep"

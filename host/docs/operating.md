@@ -1195,7 +1195,11 @@ not installed, so an empty one is not a poll that exits 0, and either way
 `tehasbot dispatch` stops with exit 78. The poll checks the model keys before it
 acts. `tehas help dispatch` is the whole of the rules. A poll
 is, in order: the lock, the
-snapshot of the queue (one GraphQL query in pages of 25;
+snapshot of the queue (the open issues read on the board in pages of 25,
+beside the closed issues that still carry the running mark, the repository's
+marks and, when asked, the issue types on the tickets, and the open pull
+requests on the code host, and the repository's own name with one call of
+`gh` so a rename is noticed;
 GitHub can answer a large page with an issue's
 label events left out or cut short, so an issue whose labels and timeline
 disagree (one it carries whose newest event in the timeline is not an

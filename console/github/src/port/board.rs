@@ -51,12 +51,70 @@ const ACCOUNT: &str = "__typename login ...on User { databaseId } ...on Bot { da
 /// [`changes_query`], `{PULL}` by [`pull_fields`].
 const CHANGES: &str = "query($owner: String!, $name: String!, $cursor: String{HEAD_VAR}) { repository(owner: $owner, name: $name) { databaseId pullRequests(states: [{STATES}], first: {PULL_PAGE}, after: $cursor, orderBy: {field: CREATED_AT, direction: ASC}{HEAD}) { totalCount pageInfo { hasNextPage endCursor } nodes { {PULL}{FILES} } } } }";
 
-/// What a change's digest is read from, a [`Pull`]: `{ACCOUNT}` and the
-/// bounds are filled in by [`pull_fields`].
-const PULL: &str = "number title url state isDraft isCrossRepository headRefName headRefOid baseRefName baseRefOid mergeable mergeStateStatus createdAt updatedAt lastEditedAt mergedAt closedAt additions deletions changedFiles author { {ACCOUNT} } editor { {ACCOUNT} } mergedBy { {ACCOUNT} } mergeCommit { oid } renames: timelineItems(itemTypes: [RENAMED_TITLE_EVENT], last: 1) { nodes { ... on RenamedTitleEvent { createdAt actor { {ACCOUNT} } } } } labels(first: {LABELS_MAX}) { totalCount nodes { name } } closingIssuesReferences(first: {CLOSES_MAX}) { totalCount nodes { number repository { databaseId nameWithOwner } } }";
+/// What a change's digest is read from, a [`Pull`]: `{ACCOUNT}`, the
+/// bounds and what a [`PullAsk`] adds are filled in by [`pull_fields_of`].
+const PULL: &str = "number title url state isDraft isCrossRepository headRefName headRefOid baseRefName baseRefOid mergeable mergeStateStatus createdAt updatedAt lastEditedAt mergedAt closedAt additions deletions changedFiles author { {ACCOUNT} }{RELATION} editor { {ACCOUNT} } mergedBy { {ACCOUNT} } mergeCommit { oid }{RENAMES}{HEAD_REPO}{BODY} labels(first: {LABELS_MAX}) { totalCount nodes { name } } closingIssuesReferences(first: {CLOSES_MAX}) { totalCount nodes { number repository { databaseId nameWithOwner } } }";
 
+/// The newest retitling, read with the body's last edit as when the change
+/// was last edited.
+const RENAMES: &str = " renames: timelineItems(itemTypes: [RENAMED_TITLE_EVENT], last: 1) { nodes { ... on RenamedTitleEvent { createdAt actor { {ACCOUNT} } } } }";
+
+/// The author's relation to the project, the same words as REST's
+/// `author_association`, asked where [`PullAsk::author_relation`] says.
+const RELATION: &str = " authorAssociation";
+
+/// What a question asks of each pull request past the fields every one
+/// asks, and so what [`GitHub::pull_read`] reads of it.
+#[derive(Clone, Copy)]
+pub(super) struct PullAsk {
+    /// The newest retitling, so `edited` is the newer of it and the body's
+    /// edit, not the body's alone.
+    pub(super) retitles: bool,
+    /// The head repository's id, so a change is from a fork unless its head
+    /// is this repository, not only when GitHub says so.
+    pub(super) head_repo: bool,
+    /// The author's relation to the project, so a reader of a list says
+    /// whose the change is without a call for each author.
+    pub(super) author_relation: bool,
+    /// The body, left in [`Pull::body`] for the caller to read.
+    pub(super) body: bool,
+    /// What labels or closed issues past what the question asks are, as
+    /// each port's recorded samples say: the board's `TooLarge`, the code
+    /// host's `Cut`.
+    pub(super) past: Unread,
+}
+
+impl PullAsk {
+    /// What the board's questions ask.
+    pub(super) const BOARD: PullAsk = PullAsk {
+        retitles: true,
+        head_repo: false,
+        author_relation: false,
+        body: false,
+        past: Unread::TooLarge,
+    };
+}
+
+/// The fields of a pull request the board's questions ask.
 pub(super) fn pull_fields() -> String {
-    PULL.replace("{LABELS_MAX}", &LABELS_MAX.to_string())
+    pull_fields_of(PullAsk::BOARD)
+}
+
+/// The fields of a pull request, with what `ask` adds.
+pub(super) fn pull_fields_of(ask: PullAsk) -> String {
+    let renames = if ask.retitles { RENAMES } else { "" };
+    let head_repo = if ask.head_repo {
+        " headRepository { databaseId }"
+    } else {
+        ""
+    };
+    let body = if ask.body { " body" } else { "" };
+    let relation = if ask.author_relation { RELATION } else { "" };
+    PULL.replace("{RENAMES}", renames)
+        .replace("{RELATION}", relation)
+        .replace("{HEAD_REPO}", head_repo)
+        .replace("{BODY}", body)
+        .replace("{LABELS_MAX}", &LABELS_MAX.to_string())
         .replace("{CLOSES_MAX}", &CLOSES_MAX.to_string())
         .replace("{ACCOUNT}", ACCOUNT)
 }
@@ -342,9 +400,24 @@ impl GitHub {
         Err(Outcome::Unread(Unread::Inconsistent))
     }
 
-    /// A pull request as a change's digest, in the states asked. A node of
-    /// another state, or with no number, does not add up.
+    /// A pull request the board asked as a change's digest, in the states
+    /// asked: [`GitHub::pull_read`] of [`PullAsk::BOARD`].
     pub(super) fn pull_digest(&mut self, p: Pull, asked: ChangeStates) -> Got<ChangeDigest> {
+        self.pull_read(p, asked, PullAsk::BOARD)
+    }
+
+    /// A pull request as a change's digest, in the states asked, `ask`
+    /// what its question asked: the adapter's one reader of a pull request
+    /// node. A node of another state, or with no number, does not add up.
+    /// Labels or closed issues past what one question asks are
+    /// `Unread` as `ask.past` says. A field `ask` names that the answer leaves out
+    /// is `Unread(Malformed)`. The body is left to the caller.
+    pub(super) fn pull_read(
+        &mut self,
+        p: Pull,
+        asked: ChangeStates,
+        ask: PullAsk,
+    ) -> Got<ChangeDigest> {
         let no = p
             .number
             .and_then(ChangeNo::new)
@@ -377,7 +450,7 @@ impl GitHub {
         if p.labels.total_count as usize > LABELS_MAX
             || p.closing_issues_references.total_count as usize > CLOSES_MAX
         {
-            return Err(Outcome::Unread(Unread::TooLarge));
+            return Err(Outcome::Unread(ask.past));
         }
         let labels = p
             .labels
@@ -389,21 +462,27 @@ impl GitHub {
         if labels.len() as u64 != p.labels.total_count {
             return Err(Outcome::Unread(Unread::Inconsistent));
         }
-        let closing = p.closing_issues_references;
-        let mut closes = Vec::with_capacity(closing.nodes.len());
-        for c in closing.nodes {
-            let c = c.ok_or(Outcome::Unread(Unread::Inconsistent))?;
-            closes.push(self.closed_ref(c)?);
-        }
-        if closes.len() as u64 != closing.total_count {
-            return Err(Outcome::Unread(Unread::Inconsistent));
-        }
+        let closes = self.closes(p.closing_issues_references, ask.past)?;
+        let renamed = match (ask.retitles, p.renames) {
+            (true, Some(r)) => r.nodes.into_iter().flatten().last(),
+            (true, None) => return Err(malformed()),
+            (false, _) => None,
+        };
         let (edited, editor) = edited(
             p.last_edited_at.as_deref(),
             p.editor.as_ref(),
-            p.renames.nodes.into_iter().flatten().last(),
+            renamed,
             self.bot.as_ref(),
         )?;
+        // From a fork unless GitHub says it is not and, where the question
+        // asks it, its head repository is this one: a deleted head
+        // repository, or one GitHub does not name, fails closed.
+        let from_fork = match (ask.head_repo, p.head_repository) {
+            (false, _) => p.is_cross_repository,
+            (true, None) => return Err(malformed()),
+            (true, Some(None)) => true,
+            (true, Some(Some(r))) => p.is_cross_repository || !self.is_here_id(r.database_id)?,
+        };
         let head = Branch::new(p.head_ref_name).map_err(|_| malformed())?;
         let head_commit = commit(Some(p.head_ref_oid))?;
         let base = Branch::new(p.base_ref_name).map_err(|_| malformed())?;
@@ -429,7 +508,7 @@ impl GitHub {
         );
         digest.title = p.title;
         digest.author = p.author.as_ref().and_then(|a| a.account(self.bot.as_ref()));
-        digest.from_fork = p.is_cross_repository;
+        digest.from_fork = from_fork;
         digest.draft = p.is_draft;
         digest.merge_state = mergeable(&p.mergeable, &p.merge_state_status);
         digest.marks = marks;
@@ -438,6 +517,31 @@ impl GitHub {
         digest.edited = edited;
         digest.editor = editor;
         Ok(digest)
+    }
+
+    /// A pull request node's closed issues read alone, as a lead the
+    /// filter decides on reads them: by the rule [`GitHub::pull_read`]
+    /// reads them with.
+    pub(super) fn pull_closes(&self, c: PullCloses, past: Unread) -> Got<Vec<Ref<BlueprintNo>>> {
+        self.closes(c.closing_issues_references, past)
+    }
+
+    /// The blueprints a change closes, whole: `Unread` as `past` says past
+    /// what one question asks, `Unread(Inconsistent)` for a null issue or a
+    /// count the issues do not add up to.
+    fn closes(&self, closing: Counted<Closing>, past: Unread) -> Got<Vec<Ref<BlueprintNo>>> {
+        if closing.total_count as usize > CLOSES_MAX {
+            return Err(Outcome::Unread(past));
+        }
+        let mut closes = Vec::with_capacity(closing.nodes.len());
+        for c in closing.nodes {
+            let c = c.ok_or(Outcome::Unread(Unread::Inconsistent))?;
+            closes.push(self.closed_ref(c)?);
+        }
+        if closes.len() as u64 != closing.total_count {
+            return Err(Outcome::Unread(Unread::Inconsistent));
+        }
+        Ok(closes)
     }
 
     /// The blueprint a change closes: this project's by its number, another
@@ -617,7 +721,15 @@ pub(super) struct Pull {
     merged_by: Option<Actor>,
     #[serde(deserialize_with = "crate::ticket::present")]
     merge_commit: Option<Oid>,
-    renames: Nodes<Renamed>,
+    /// Where [`PullAsk::retitles`] asks it.
+    #[serde(default)]
+    renames: Option<Nodes<Renamed>>,
+    /// Where [`PullAsk::head_repo`] asks it: `Some(None)` for a deleted one.
+    #[serde(default, deserialize_with = "crate::ticket::given")]
+    head_repository: Option<Option<HeadRepo>>,
+    /// Where [`PullAsk::body`] asks it.
+    #[serde(default)]
+    pub(super) body: Option<String>,
     labels: Counted<Label>,
     closing_issues_references: Counted<Closing>,
     #[serde(default)]
@@ -627,6 +739,13 @@ pub(super) struct Pull {
     repository: Option<NamedRepo>,
 }
 
+/// The closed issues of a pull request node, and nothing else of it.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct PullCloses {
+    closing_issues_references: Counted<Closing>,
+}
+
 type FileConn = Conn<File>;
 
 #[derive(Clone, Deserialize)]
@@ -634,6 +753,12 @@ struct File {
     path: String,
     additions: u64,
     deletions: u64,
+}
+
+#[derive(Deserialize)]
+struct HeadRepo {
+    #[serde(rename = "databaseId")]
+    database_id: Option<u64>,
 }
 
 #[derive(Deserialize)]
