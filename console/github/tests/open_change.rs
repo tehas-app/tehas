@@ -767,19 +767,67 @@ fn an_answer_after_a_2xx_that_does_not_read_is_unread() {
 
 #[test]
 fn the_remote_is_1xs_https_url_with_no_credential_and_no_request() {
-    for access in [Access::Fetch, Access::Push] {
-        let (mut gh, calls) = adapter(vec![]);
-        let remote = gh.remote(access).unwrap();
-        // 1.x's finish: format!("https://github.com/{}.git", repo).
+    // A fetch asks nothing.
+    let (mut gh, calls) = adapter(vec![]);
+    let remote = gh.remote(Access::Fetch).unwrap();
+    // 1.x's finish: format!("https://github.com/{}.git", repo).
+    assert_eq!(remote.url.as_str(), "https://github.com/acme/widget.git");
+    assert!(remote.with.is_none());
+    assert!(taken(&calls).is_empty());
+    // A push remote confirms the repository first, as every write does;
+    // once confirmed, the handle's next remote asks nothing.
+    let (mut gh, calls) = adapter(vec![]);
+    for _ in 0..2 {
+        let remote = gh.remote(Access::Push).unwrap();
         assert_eq!(remote.url.as_str(), "https://github.com/acme/widget.git");
         assert!(remote.with.is_none());
-        assert!(taken(&calls).is_empty());
     }
-    let (mut gh, _) = adapter_of("Acme-Labs/widget_2.0", vec![]);
+    let calls = taken(&calls);
+    assert_eq!(
+        calls.iter().filter(|c| is_name_question(c)).count(),
+        1,
+        "confirmed once"
+    );
+    assert_eq!(calls.len(), 1, "the question is the only call");
+    // The remote of a project of another name, as 1.x builds it.
+    let (mut gh, _) = script_of(
+        "Acme-Labs/widget_2.0",
+        Some(
+            r#"{"data":{"repository":{"databaseId":7001,"nameWithOwner":"Acme-Labs/widget_2.0"}}}"#,
+        ),
+        vec![],
+    );
     assert_eq!(
         gh.remote(Access::Push).unwrap().url.as_str(),
         "https://github.com/Acme-Labs/widget_2.0.git"
     );
+}
+
+/// The same answer as `HERE` for a repository under another owner.
+const MOVED: &str =
+    r#"{"data":{"repository":{"databaseId":7001,"nameWithOwner":"mallory/widget"}}}"#;
+
+/// A repository under another owner gets no remote to push to: the
+/// question is the only call, so no git sees a push remote of it. A fetch
+/// is unaffected.
+#[test]
+fn a_remote_for_a_push_on_a_repository_under_another_owner_is_refused() {
+    let (mut gh, calls) = script_of(PROJECT, Some(MOVED), vec![]);
+    assert_eq!(
+        gh.remote(Access::Push).map(|r| r.url.as_str().to_string()),
+        Err(Outcome::Unread(Unread::Inconsistent))
+    );
+    let calls = taken(&calls);
+    assert_eq!(calls.len(), 1, "the question is the only call");
+    assert!(
+        is_name_question(&calls[0]),
+        "no git call: nothing but the question of the name is sent"
+    );
+    // The same handle still fetches: the rule holds the push, not the read.
+    let (mut gh, calls) = script_of(PROJECT, Some(MOVED), vec![]);
+    let remote = gh.remote(Access::Fetch).unwrap();
+    assert_eq!(remote.url.as_str(), "https://github.com/acme/widget.git");
+    assert!(taken(&calls).is_empty(), "a fetch asks nothing");
 }
 
 #[test]
