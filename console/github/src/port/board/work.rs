@@ -481,8 +481,8 @@ impl GitHub {
             digest
                 .marks
                 .iter()
-                .cloned()
                 .filter(|m| !ask.marks_not_read.contains(m))
+                .cloned()
                 .collect()
         };
         let history = self.history_of(key, issue, kinds, events, &carried, &marks)?;
