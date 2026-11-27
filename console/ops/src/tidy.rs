@@ -8,19 +8,23 @@
 //!     passes on --dry-run, which says what would change and changes nothing.
 //!     It reads TEHAS_REPO, TEHAS_CONTROL_ISSUE, TEHAS_HOME and TEHAS_TIDY_WAIT
 //!     from the environment tehas_load left. Each gh call may take
-//!     TEHAS_TIDY_WAIT seconds [60]. A read that failed on a bad minute (a
-//!     5xx, a bare 403, or its bound) is tried once more, as the poll's are
-//!     (tehas_core::retry); a write is not:
+//!     TEHAS_TIDY_WAIT seconds [60], the read through the tickets port too.
+//!     A read that failed on a bad minute (a 5xx, a bare 403, or its bound)
+//!     is tried once more, as the poll's are (tehas_core::retry); a write is
+//!     not:
 //!       - one search for the closed issues that carry a state label, the most
 //!         recently updated first, up to `shipped::PAGE`, the rest on later polls;
 //!       - one read of what closed them, for the issues that may earn the label,
-//!         each named by its number in the repository (a search has no term for it);
+//!         `Tickets::several_with_closers` on the handle the console's main
+//!         gives, judged by `shipped::by_merge`;
 //!       - one `gh issue edit` per issue, with all its labels.
 //!
 //! An issue whose cycle holds its lock waits for the cycle. A failed read still
 //! takes the state labels off, and earns no label on a guess. Its line says
-//! gh's reason, and it goes on the host's record of failed GitHub calls
-//! (tehas_core::github_fails). tehas:shipped,
+//! gh's reason for the search and the port's outcome for the closers' read,
+//! and it goes on the host's record of failed GitHub calls
+//! (tehas_core::github_fails). The closers' read fails whole when any one
+//! issue of it did not read. tehas:shipped,
 //! needs-human-attention and the labels a person chooses never come off.
 //! tehasbot status gives the same label from the same rule (src/shipped.rs).
 //!
@@ -33,16 +37,18 @@ use crate::shipped::{self, PAGE};
 use serde_json::Value;
 use std::env;
 use std::io::Write as _;
+use std::num::NonZeroU64;
 use std::path::Path;
 use std::time::Duration;
 use tehas_core::call::Ran;
 use tehas_core::cycle_notes::Note;
-use tehas_core::forge::{Bounded, GhRunner};
+use tehas_core::forge::{Bounded, Failed, GhRunner};
 use tehas_core::github_fails;
 use tehas_core::home::Home;
 use tehas_core::lock::{probe, Probe};
 use tehas_core::retry::{retry_with, Budget};
 use tehas_core::time;
+use tehas_ports::{TicketKey, Tickets};
 
 /// The state labels that say work is in progress or waiting: all that is ever
 /// taken off, whatever the search sent back. A new one is added here on purpose:
@@ -84,9 +90,13 @@ Usage:
   console tidy run -h|--help   print this text and exit 0
 ";
 
-pub fn main(given: &[String]) -> u8 {
+/// The tickets handle on a repository, asking through the runner given:
+/// the console's main makes it, the one place that names the adapter.
+pub type MakeTickets = dyn Fn(&str, Box<dyn GhRunner>) -> Box<dyn Tickets>;
+
+pub fn main(given: &[String], tickets: &MakeTickets) -> u8 {
     match given.split_first() {
-        Some((verb, rest)) if verb == "run" => run(rest),
+        Some((verb, rest)) if verb == "run" => run(rest, tickets),
         _ => {
             eprintln!("console tidy: usage: run [--dry-run]");
             2
@@ -94,7 +104,7 @@ pub fn main(given: &[String]) -> u8 {
     }
 }
 
-fn run(given: &[String]) -> u8 {
+fn run(given: &[String], tickets: &MakeTickets) -> u8 {
     let dry = match arguments(given) {
         Ok(Some(dry)) => dry,
         Ok(None) => {
@@ -116,12 +126,21 @@ fn run(given: &[String]) -> u8 {
     let program =
         crate::forge::gh_program(Some(&settings.home), &env::var("PATH").unwrap_or_default());
     // With no gh to run, the search is what fails, and the log says so.
-    let mut gh = Bounded {
-        program: program.unwrap_or_else(|| "gh".to_string()),
+    let bounded = || Bounded {
+        program: program.clone().unwrap_or_else(|| "gh".to_string()),
         bound: Duration::from_secs(settings.wait),
         grace: GRACE,
         token: None,
     };
+    let mut gh = bounded();
+    let mut closers = tickets(
+        &settings.repo,
+        Box::new(Retried {
+            inner: bounded(),
+            budget: Budget::new(),
+            sleep: |secs| std::thread::sleep(Duration::from_secs(secs)),
+        }),
+    );
     let at = Home::new(&settings.home);
     // A lock that cannot be read is no free lock: the issue waits for a later poll.
     let running = |n: u64| {
@@ -134,6 +153,7 @@ fn run(given: &[String]) -> u8 {
         &settings,
         dry,
         &mut gh,
+        &mut *closers,
         &running,
         &mut |line| {
             let _ = writeln!(std::io::stdout(), "{} {line}", time::iso(time::now()));
@@ -191,6 +211,66 @@ fn read(
         why.push_str(&format!(" (tried {} times)", outcome.attempts));
     }
     Err(tehas_core::text::trim(&why))
+}
+
+/// A runner that tries a read again on a bad minute under the rule of
+/// `read`, for the tickets handle: the adapter tries nothing twice of its
+/// own. What gh answered beside the last failure goes to the adapter.
+struct Retried<R> {
+    inner: R,
+    budget: Budget,
+    sleep: fn(u64),
+}
+
+impl<R: GhRunner> GhRunner for Retried<R> {
+    fn run(&mut self, args: &[&str]) -> Result<String, String> {
+        self.run_answer(args).map_err(|f| f.why)
+    }
+
+    fn run_input(&mut self, args: &[&str], input: &str) -> Result<String, String> {
+        self.inner.run_input(args, input)
+    }
+
+    fn run_answer(&mut self, args: &[&str]) -> Result<String, Failed> {
+        let Retried {
+            inner,
+            budget,
+            sleep,
+        } = self;
+        let mut last = None;
+        let outcome = retry_with(
+            &mut || match inner.run_answer(args) {
+                Ok(out) => Ran {
+                    status: Some(0),
+                    out,
+                    err: String::new(),
+                    truncated: false,
+                    unread: false,
+                },
+                Err(f) => {
+                    let ran = Ran {
+                        status: (!f.why.contains("ran out of its")).then_some(1),
+                        out: String::new(),
+                        err: f.why.clone(),
+                        truncated: false,
+                        unread: false,
+                    };
+                    last = Some(f);
+                    ran
+                }
+            },
+            budget,
+            clock,
+            &mut |secs| (*sleep)(secs),
+        );
+        if outcome.ran.ok() {
+            return Ok(outcome.ran.out);
+        }
+        Err(last.unwrap_or(Failed {
+            why: outcome.ran.err,
+            answer: None,
+        }))
+    }
 }
 
 /// `--dry-run` or not, None for help, and the first word `run` does not know.
@@ -272,6 +352,7 @@ fn tidy(
     settings: &Settings,
     dry: bool,
     gh: &mut dyn GhRunner,
+    tickets: &mut dyn Tickets,
     running: &dyn Fn(u64) -> bool,
     say: &mut dyn FnMut(&str),
     sleep: &mut dyn FnMut(u64),
@@ -330,7 +411,7 @@ fn tidy(
     let merged = if asked == 0 {
         Ok(Vec::new())
     } else {
-        closers(gh, &mut budget, sleep, settings, &rows)
+        closers(tickets, &rows)
     };
     let merged = match merged {
         Ok(m) => Some(m),
@@ -389,32 +470,25 @@ fn search() -> String {
     format!("label:{}", quoted.join(","))
 }
 
-/// The issues of the one read of the poll that a merged pull request closed.
-/// Err with the reason when the read did not answer, and an empty one when
-/// it answered no list.
-fn closers(
-    gh: &mut dyn GhRunner,
-    budget: &mut Budget,
-    sleep: &mut dyn FnMut(u64),
-    settings: &Settings,
-    rows: &[Row],
-) -> Result<Vec<u64>, String> {
-    let asked: Vec<u64> = rows
+/// The issues of the one read of the poll that a merged pull request closed,
+/// by the rule `tehasbot status` reads with. Err with the port's outcome, as
+/// `: <words>`, when any one issue did not read: the read fails whole.
+fn closers(tickets: &mut dyn Tickets, rows: &[Row]) -> Result<Vec<u64>, String> {
+    let asked: Vec<TicketKey> = rows
         .iter()
         .filter(|row| row.ask)
-        .map(|r| r.number)
+        .filter_map(|r| NonZeroU64::new(r.number).map(TicketKey::Number))
         .collect();
-    let (owner, name) = settings.repo.split_once('/').unwrap_or_default();
-    let owner = format!("owner={owner}");
-    let name = format!("name={name}");
-    let query = format!("query={}", shipped::by_number(&asked));
-    let answer = read(
-        gh,
-        budget,
-        sleep,
-        &["api", "graphql", "-f", &owner, "-f", &name, "-f", &query],
-    )?;
-    shipped::numbers(&answer, &[settings.control.to_string()]).ok_or_else(String::new)
+    let mut merged = Vec::new();
+    for (key, got) in tickets.several_with_closers(&asked) {
+        let with = got.map_err(|o| format!(": {}", o.line()))?;
+        if let TicketKey::Number(n) = key {
+            if shipped::by_merge(with.closer.as_ref(), &with.merged) {
+                merged.push(n.get());
+            }
+        }
+    }
+    Ok(merged)
 }
 
 /// The issues of a search's answer, or None when it is no list of them: a
@@ -513,6 +587,10 @@ mod tests {
     use super::*;
     use std::cell::RefCell;
     use std::collections::HashMap;
+    use tehas_ports::fake::{FakeSite, Fault, Faulty, Op, TicketsOp, World};
+    use tehas_ports::{
+        Actor, At, Caller, ChangeNo, ChangeState, CloseReason, Closer, CommitId, Site,
+    };
 
     /// The search's answer for the issues given, each `{"number":n,"state":…,
     /// "labels":[…]}` of the caller's own making.
@@ -763,8 +841,8 @@ mod tests {
         let rows = rows(&items, 100);
         assert_eq!(numbers(&rows), [60]);
         assert_eq!(rows[0].off, [STATES[0]]);
-        let mut gh = Stub::new(&items, &closed(&[60, 61], &[]));
-        let (rc, log) = poll(&mut gh, false, &[]);
+        let mut gh = Stub::new(&items);
+        let (rc, log) = poll(&mut gh, &closed(&[60, 61], &[]), false, &[]);
         assert_eq!(rc, 0);
         assert_eq!(
             gh.edits(),
@@ -867,15 +945,15 @@ mod tests {
         assert_eq!(arguments(&given(&["--dryrun"])), Err("--dryrun"));
         assert_eq!(arguments(&given(&["--dry-run", "--help"])), Err("--help"));
         assert_eq!(arguments(&given(&["--help", "x"])), Err("x"));
-        assert_eq!(run(&given(&["--dryrun"])), 64);
+        assert_eq!(run(&given(&["--dryrun"]), &no_tickets), 64);
     }
 
     #[test]
     fn a_verb_that_is_not_run_is_usage() {
-        assert_eq!(main(&given(&[])), 2);
+        assert_eq!(main(&given(&[]), &no_tickets), 2);
         // The verbs of the bash that made these calls itself are gone.
         for verb in ["states", "plan", "issues"] {
-            assert_eq!(main(&given(&[verb])), 2);
+            assert_eq!(main(&given(&[verb]), &no_tickets), 2);
         }
     }
 
@@ -946,23 +1024,27 @@ mod tests {
         }
     }
 
-    /// gh for a case: the search and the read answer as the case says, an edit of
-    /// a number in `refuses` fails, and every call is written down.
+    /// A maker of tickets handles for a case that never reaches one.
+    fn no_tickets(_: &str, _: Box<dyn GhRunner>) -> Box<dyn Tickets> {
+        unreachable!("the case stops before any read")
+    }
+
+    /// gh for a case: the search answers as the case says, an edit of a
+    /// number in `refuses` fails, and every call is written down. The read of
+    /// the closers is the tickets port's, on the fake.
     struct Stub {
         search: Result<String, String>,
         /// The answer of the first search alone, when a case gives one.
         search_first: Option<Result<String, String>>,
-        read: Result<String, String>,
         refuses: Vec<u64>,
         calls: Vec<String>,
     }
 
     impl Stub {
-        fn new(search: &[String], read: &str) -> Stub {
+        fn new(search: &[String]) -> Stub {
             Stub {
                 search: Ok(found(search)),
                 search_first: None,
-                read: Ok(read.to_string()),
                 refuses: Vec::new(),
                 calls: Vec::new(),
             }
@@ -989,7 +1071,6 @@ mod tests {
                     .search_first
                     .take()
                     .unwrap_or_else(|| self.search.clone()),
-                ["api", "graphql"] => self.read.clone(),
                 _ if self.refuses.iter().any(|n| n.to_string() == args[2]) => {
                     Err("refused".to_string())
                 }
@@ -998,28 +1079,41 @@ mod tests {
         }
     }
 
-    /// A whole answer of the read: `merged` closed by a merge, `by_hand` not.
-    fn closed(merged: &[u64], by_hand: &[u64]) -> String {
-        let node = |n: &u64, closer: &str| {
-            format!("\"i{n}\":{{\"number\":{n},\"timelineItems\":{{\"nodes\":[{{\"closer\":{closer}}}]}}}}")
-        };
-        let nodes: Vec<String> = merged
-            .iter()
-            .map(|n| node(n, "{\"merged\":true}"))
-            .chain(by_hand.iter().map(|n| node(n, "null")))
-            .collect();
-        format!("{{\"data\":{{\"repository\":{{{}}}}}}}", nodes.join(","))
+    /// The change number of the merge that closed ticket `n` in a case's
+    /// world, apart from every ticket's number.
+    fn change_of(n: u64) -> u64 {
+        10_000 + n
     }
 
-    /// One poll against the stub, a dry one when asked, with the issues of
-    /// `locked` held by their cycles: its status and its log lines.
-    fn poll(gh: &mut Stub, dry: bool, locked: &[u64]) -> (u8, Vec<String>) {
+    /// The site of the read: the tickets of `merged` closed by a merged
+    /// change of this project, those of `by_hand` closed by a person. A
+    /// ticket of neither is not on the site, so a read that asked about it
+    /// fails whole.
+    fn closed(merged: &[u64], by_hand: &[u64]) -> Faulty<FakeSite> {
+        let mut w = World::new();
+        for n in merged {
+            let no = ChangeNo::new(change_of(*n)).unwrap();
+            w = w.ticket(*n, |t| {
+                t.closed_by(CloseReason::Done, Closer::Change { no, merged: true })
+            });
+        }
+        for n in by_hand {
+            w = w.ticket(*n, |t| t.closed(CloseReason::Done));
+        }
+        Faulty::new(FakeSite::new(&w))
+    }
+
+    /// One poll against the stub and the site, a dry one when asked, with the
+    /// issues of `locked` held by their cycles: its status and its log lines.
+    fn poll(gh: &mut Stub, site: &impl Site, dry: bool, locked: &[u64]) -> (u8, Vec<String>) {
         let settings = read(&GOOD).unwrap();
+        let mut tickets = site.tickets(&Actor::Operator, Caller::new("tidy")).unwrap();
         let lines = RefCell::new(Vec::new());
         let rc = tidy(
             &settings,
             dry,
             gh,
+            &mut *tickets,
             &|n| locked.contains(&n),
             &mut |line| lines.borrow_mut().push(line.to_string()),
             &mut |_| {},
@@ -1033,8 +1127,9 @@ mod tests {
 
     #[test]
     fn the_search_and_the_read_are_the_calls_a_poll_makes() {
-        let mut gh = Stub::new(&[closed_with(12, "tehas:running")], &closed(&[12], &[]));
-        poll(&mut gh, false, &[]);
+        let mut gh = Stub::new(&[closed_with(12, "tehas:running")]);
+        let site = closed(&[12], &[]);
+        poll(&mut gh, &site, false, &[]);
         let term = "label:\"tehas:running\",\"tehas:awaiting-merge\",\"tehas:question\",\"tehas:planning\",\"tehas:refreshing\",\"tehas:blocked\",\"tehas:ready\",\"tehas:plan\",\"tehas:refine\"";
         assert_eq!(
             gh.calls[0],
@@ -1042,26 +1137,18 @@ mod tests {
                 "issue list --repo acme/widget --state closed --search {term} --limit 100 --json number,state,labels"
             )
         );
-        assert_eq!(
-            gh.calls[1],
-            format!(
-                "api graphql -f owner=acme -f name=widget -f query={}",
-                shipped::by_number(&[12])
-            )
-        );
-        assert_eq!(gh.calls.len(), 3);
+        assert!(gh.calls[1].starts_with("issue edit 12 "));
+        assert_eq!(gh.calls.len(), 2);
+        assert_eq!(site.requests(), 1, "one read of the closers");
     }
 
     #[test]
     fn a_merged_closer_earns_the_label_in_the_one_edit_of_the_issue() {
-        let mut gh = Stub::new(
-            &[
-                issue(30, "CLOSED", &["tehas:ready", "tehas:running"]),
-                closed_with(31, "tehas:plan"),
-            ],
-            &closed(&[30], &[31]),
-        );
-        let (rc, log) = poll(&mut gh, false, &[]);
+        let mut gh = Stub::new(&[
+            issue(30, "CLOSED", &["tehas:ready", "tehas:running"]),
+            closed_with(31, "tehas:plan"),
+        ]);
+        let (rc, log) = poll(&mut gh, &closed(&[30], &[31]), false, &[]);
         assert_eq!(rc, 0);
         assert_eq!(
             gh.edits(),
@@ -1081,12 +1168,83 @@ mod tests {
         );
     }
 
+    /// The shape of #947: GitHub records the close with a commit as the
+    /// closer while it lists the merged pull request as closing the issue.
+    /// The label is earned, as `tehasbot status` earns it from its own read.
+    #[test]
+    fn a_commit_closer_with_a_merged_change_listed_earns_the_label_as_status_does() {
+        let w = World::new();
+        let merged = ChangeState::Merged {
+            at: w.now(),
+            by: None,
+            commit: None,
+        };
+        let commit = Closer::Commit(CommitId::new("abc1234").unwrap());
+        let w = w
+            .ticket(50, |t| t.closed_by(CloseReason::Done, commit))
+            .change(change_of(50), "work/50", |c| c.closes(50).state(merged));
+        let site = FakeSite::new(&w);
+        let state = STATES[1];
+        let mut gh = Stub::new(&[closed_with(50, state)]);
+        let (rc, log) = poll(&mut gh, &site, false, &[]);
+        assert_eq!(rc, 0);
+        assert_eq!(
+            gh.edits(),
+            [format!(
+                "issue edit 50 --repo acme/widget --remove-label {state} --add-label {SHIPPED}"
+            )]
+        );
+        assert_eq!(
+            log,
+            [
+                format!("tidy #50: removed {state}"),
+                format!("tidy #50: added {SHIPPED}"),
+            ]
+        );
+        let mut status = site
+            .tickets(&Actor::Operator, Caller::new("status"))
+            .unwrap();
+        let listed = shipped::since(&mut *status, At::new(0), &[]).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].digest.key, w.key(50));
+    }
+
+    #[test]
+    fn an_unmerged_change_closer_earns_nothing_whatever_is_listed() {
+        let w = World::new();
+        let merged = ChangeState::Merged {
+            at: w.now(),
+            by: None,
+            commit: None,
+        };
+        let no = ChangeNo::new(change_of(51)).unwrap();
+        let w = w
+            .ticket(51, |t| {
+                t.closed_by(CloseReason::Done, Closer::Change { no, merged: false })
+            })
+            .change(change_of(51) + 1, "work/51", |c| c.closes(51).state(merged));
+        let state = STATES[1];
+        let mut gh = Stub::new(&[closed_with(51, state)]);
+        let (rc, log) = poll(&mut gh, &FakeSite::new(&w), false, &[]);
+        assert_eq!(rc, 0);
+        assert_eq!(
+            gh.edits(),
+            [format!(
+                "issue edit 51 --repo acme/widget --remove-label {state}"
+            )]
+        );
+        assert_eq!(
+            log[0],
+            format!(
+                "WARN: tidy #51: no merged pull request was read as the closer, {SHIPPED} was not added"
+            )
+        );
+    }
+
     #[test]
     fn a_read_that_found_nothing_is_an_answer_and_says_so_per_issue() {
-        // `shipped list` found no merge and `shipped whole` said the answer was
-        // whole, so the shell took this for a poll that shipped nothing.
-        let mut gh = Stub::new(&[closed_with(47, "tehas:question")], &closed(&[], &[]));
-        let (rc, log) = poll(&mut gh, false, &[]);
+        let mut gh = Stub::new(&[closed_with(47, "tehas:question")]);
+        let (rc, log) = poll(&mut gh, &closed(&[], &[47]), false, &[]);
         assert_eq!(rc, 0);
         assert_eq!(
             log,
@@ -1099,23 +1257,34 @@ mod tests {
 
     #[test]
     fn a_read_that_failed_is_one_line_and_the_labels_still_come_off() {
-        for (read, why) in [
-            (Err(": rate limit".to_string()), ": rate limit"),
-            (Ok("not json".to_string()), ""),
+        let failing =
+            |fault| closed(&[40], &[41]).on(Op::Tickets(TicketsOp::SeveralWithClosers), fault);
+        for (site, why) in [
             (
-                Ok("{\"errors\":[{\"message\":\"no\"}],\"data\":null}".to_string()),
-                "",
+                failing(Fault::Unreachable),
+                ": the site could not be reached",
+            ),
+            (
+                failing(Fault::Server { applied: false }),
+                ": the site failed; it may have been sent",
+            ),
+            (
+                failing(Fault::Inconsistent),
+                ": the answer does not agree with itself",
+            ),
+            (failing(Fault::Malformed), ": the answer does not read"),
+            // One issue the site does not hold fails the read whole: the
+            // other's merge is not taken on a read that did not answer.
+            (
+                closed(&[40], &[]),
+                ": not found, or not visible to this actor",
             ),
         ] {
-            let mut gh = Stub::new(
-                &[
-                    closed_with(40, "tehas:question"),
-                    closed_with(41, "tehas:plan"),
-                ],
-                "",
-            );
-            gh.read = read;
-            let (rc, log) = poll(&mut gh, false, &[]);
+            let mut gh = Stub::new(&[
+                closed_with(40, "tehas:question"),
+                closed_with(41, "tehas:plan"),
+            ]);
+            let (rc, log) = poll(&mut gh, &site, false, &[]);
             assert_eq!(rc, 0);
             assert_eq!(
                 gh.edits(),
@@ -1132,19 +1301,41 @@ mod tests {
                     "tidy #41: removed tehas:plan",
                 ]
             );
-            // A limit says the same thing twice: it is not asked again.
-            assert_eq!(gh.called("api graphql").len(), 1);
         }
     }
 
     #[test]
-    fn a_read_on_a_bad_minute_is_asked_again_and_says_so_when_it_stays_bad() {
-        let mut gh = Stub::new(
-            &[closed_with(40, "tehas:awaiting-merge")],
-            &closed(&[40], &[]),
+    fn a_read_that_failed_goes_on_the_record_of_failed_calls() {
+        let home = std::env::temp_dir().join(format!("tidy-fails-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(Home::new(&home).state_dir()).unwrap();
+        let mut settings = read(&GOOD).unwrap();
+        settings.home = home.to_string_lossy().into_owned();
+        let site = closed(&[40], &[]).on(
+            Op::Tickets(TicketsOp::SeveralWithClosers),
+            Fault::Unreachable,
         );
+        let mut tickets = site.tickets(&Actor::Operator, Caller::new("tidy")).unwrap();
+        let mut gh = Stub::new(&[closed_with(40, STATES[2])]);
+        tidy(
+            &settings,
+            false,
+            &mut gh,
+            &mut *tickets,
+            &|_| false,
+            &mut |_| {},
+            &mut |_| {},
+        );
+        let noted = github_fails::recent(&home, time::now());
+        let _ = std::fs::remove_dir_all(&home);
+        assert_eq!(noted.count, 1);
+    }
+
+    #[test]
+    fn a_read_on_a_bad_minute_is_asked_again_and_says_so_when_it_stays_bad() {
+        let mut gh = Stub::new(&[closed_with(40, "tehas:awaiting-merge")]);
         gh.search_first = Some(Err(": HTTP 502".to_string()));
-        let (rc, log) = poll(&mut gh, false, &[]);
+        let (rc, log) = poll(&mut gh, &closed(&[40], &[]), false, &[]);
         assert_eq!(rc, 0);
         assert_eq!(
             gh.called("issue list").len(),
@@ -1159,9 +1350,9 @@ mod tests {
             ]
         );
 
-        let mut gh = Stub::new(&[], "");
+        let mut gh = Stub::new(&[]);
         gh.search = Err(": HTTP 503".to_string());
-        let (rc, log) = poll(&mut gh, false, &[]);
+        let (rc, log) = poll(&mut gh, &closed(&[], &[]), false, &[]);
         assert_eq!(rc, 1);
         assert_eq!(
             log,
@@ -1169,60 +1360,127 @@ mod tests {
         );
     }
 
+    /// gh for the tickets handle: the answers in order, then the last
+    /// again, each call counted.
+    struct Answers {
+        answers: Vec<Result<String, Failed>>,
+        calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    impl GhRunner for Answers {
+        fn run(&mut self, args: &[&str]) -> Result<String, String> {
+            self.run_answer(args).map_err(|f| f.why)
+        }
+
+        fn run_answer(&mut self, _: &[&str]) -> Result<String, Failed> {
+            let n = self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            self.answers[n.min(self.answers.len() - 1)].clone()
+        }
+    }
+
+    fn retried(
+        answers: Vec<Result<String, Failed>>,
+    ) -> (
+        Retried<Answers>,
+        std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    ) {
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let r = Retried {
+            inner: Answers {
+                answers,
+                calls: calls.clone(),
+            },
+            budget: Budget::new(),
+            sleep: |_| {},
+        };
+        (r, calls)
+    }
+
+    fn failed(why: &str, answer: Option<&str>) -> Result<String, Failed> {
+        Err(Failed {
+            why: why.to_string(),
+            answer: answer.map(str::to_string),
+        })
+    }
+
+    #[test]
+    fn the_read_of_the_closers_is_asked_again_on_a_bad_minute() {
+        let bound = "gh ran out of its 1s bound";
+        let (mut r, calls) = retried(vec![failed(bound, None), Ok("{}".to_string())]);
+        assert_eq!(r.run_answer(&[]), Ok("{}".to_string()));
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+
+        let (mut r, calls) = retried(vec![failed(bound, None)]);
+        assert_eq!(r.run(&[]), Err(bound.to_string()));
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn a_failure_that_is_no_bad_minute_is_asked_once_and_keeps_its_answer() {
+        let answer = "{\"data\":{\"repository\":{\"i3\":null}}}";
+        let (mut r, calls) = retried(vec![failed(": exit 1", Some(answer))]);
+        assert_eq!(r.run_answer(&[]), failed(": exit 1", Some(answer)));
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
     #[test]
     fn nothing_to_ask_about_makes_no_read() {
-        let mut gh = Stub::new(&[issue(44, "CLOSED", &["tehas:plan", SHIPPED])], "");
-        let (rc, _) = poll(&mut gh, false, &[]);
+        let mut gh = Stub::new(&[issue(44, "CLOSED", &["tehas:plan", SHIPPED])]);
+        let site = closed(&[], &[]);
+        let (rc, _) = poll(&mut gh, &site, false, &[]);
         assert_eq!(rc, 0);
-        assert!(gh.called("api").is_empty());
+        assert_eq!(site.requests(), 0);
         assert_eq!(gh.edits().len(), 1);
     }
 
     #[test]
     fn a_locked_issue_waits_and_is_not_asked_about() {
-        let mut gh = Stub::new(
-            &[
-                closed_with(11, "tehas:running"),
-                closed_with(12, "tehas:running"),
-            ],
-            &closed(&[11, 12], &[]),
-        );
-        let (rc, log) = poll(&mut gh, false, &[11]);
+        // 11 is not on the site: a read that asked about it would fail whole.
+        let mut gh = Stub::new(&[
+            closed_with(11, "tehas:running"),
+            closed_with(12, "tehas:running"),
+        ]);
+        let (rc, log) = poll(&mut gh, &closed(&[12], &[]), false, &[11]);
         assert_eq!(rc, 0);
-        assert!(gh.calls[1].contains(" i12: issue(number: 12) ") && !gh.calls[1].contains("i11:"));
         assert_eq!(gh.edits().len(), 1);
-        assert!(gh.edits()[0].starts_with("issue edit 12 "));
+        assert_eq!(
+            gh.edits()[0],
+            format!(
+                "issue edit 12 --repo acme/widget --remove-label {} --add-label {SHIPPED}",
+                STATES[0]
+            )
+        );
         assert!(!log.iter().any(|l| l.contains("#11")));
     }
 
     #[test]
     fn the_control_issue_is_neither_edited_nor_asked_about() {
-        let mut gh = Stub::new(
-            &[
-                closed_with(1, "tehas:running"),
-                closed_with(23, "tehas:running"),
-            ],
-            &closed(&[1, 23], &[]),
+        // 1 is not on the site: a read that asked about it would fail whole.
+        let mut gh = Stub::new(&[
+            closed_with(1, "tehas:running"),
+            closed_with(23, "tehas:running"),
+        ]);
+        poll(&mut gh, &closed(&[23], &[]), false, &[]);
+        assert_eq!(
+            gh.edits(),
+            [format!(
+                "issue edit 23 --repo acme/widget --remove-label {} --add-label {SHIPPED}",
+                STATES[0]
+            )]
         );
-        poll(&mut gh, false, &[]);
-        assert!(gh.calls[1].contains(" i23: issue(number: 23) ") && !gh.calls[1].contains("i1:"));
-        assert_eq!(gh.edits().len(), 1);
-        assert!(gh.edits()[0].starts_with("issue edit 23 "));
     }
 
     #[test]
     fn a_dry_run_reads_as_a_poll_does_and_edits_nothing() {
-        let mut gh = Stub::new(
-            &[
-                closed_with(194, "tehas:plan"),
-                closed_with(195, "tehas:ready"),
-            ],
-            &closed(&[194], &[195]),
-        );
-        let (rc, log) = poll(&mut gh, true, &[]);
+        let mut gh = Stub::new(&[
+            closed_with(194, "tehas:plan"),
+            closed_with(195, "tehas:ready"),
+        ]);
+        let site = closed(&[194], &[195]);
+        let (rc, log) = poll(&mut gh, &site, true, &[]);
         assert_eq!(rc, 0);
         assert!(gh.edits().is_empty());
-        assert_eq!(gh.called("api").len(), 1);
+        assert_eq!(site.requests(), 1);
         assert_eq!(
             log,
             [
@@ -1236,15 +1494,12 @@ mod tests {
 
     #[test]
     fn an_edit_that_fails_is_logged_and_the_next_issue_is_still_tidied() {
-        let mut gh = Stub::new(
-            &[
-                closed_with(20, "tehas:question"),
-                closed_with(21, "tehas:ready"),
-            ],
-            &closed(&[], &[20, 21]),
-        );
+        let mut gh = Stub::new(&[
+            closed_with(20, "tehas:question"),
+            closed_with(21, "tehas:ready"),
+        ]);
         gh.refuses = vec![20];
-        let (rc, log) = poll(&mut gh, false, &[]);
+        let (rc, log) = poll(&mut gh, &closed(&[], &[20, 21]), false, &[]);
         assert_eq!(rc, 1);
         assert!(log.contains(&"WARN: tidy #20: could not remove tehas:question".to_string()));
         assert!(log.contains(&"tidy #21: removed tehas:ready".to_string()));
@@ -1253,9 +1508,10 @@ mod tests {
 
     #[test]
     fn a_search_that_failed_or_is_no_list_stops_the_poll_with_1() {
-        let mut gh = Stub::new(&[], "");
+        let site = closed(&[], &[]);
+        let mut gh = Stub::new(&[]);
         gh.search = Err("no gh".to_string());
-        let (rc, log) = poll(&mut gh, false, &[]);
+        let (rc, log) = poll(&mut gh, &site, false, &[]);
         assert_eq!(rc, 1);
         assert_eq!(
             log,
@@ -1264,20 +1520,23 @@ mod tests {
         assert_eq!(gh.calls.len(), 1);
 
         gh.search = Ok("{\"data\":{}}".to_string());
-        let (rc, log) = poll(&mut gh, false, &[]);
+        let (rc, log) = poll(&mut gh, &site, false, &[]);
         assert_eq!(rc, 1);
         assert_eq!(
             log,
             ["WARN: tidy: the console could not read the answer of the search as a list of issues: "]
         );
+        assert_eq!(site.requests(), 0);
     }
 
     #[test]
     fn an_empty_search_is_one_call_and_no_line() {
-        let mut gh = Stub::new(&[], "");
-        let (rc, log) = poll(&mut gh, false, &[]);
+        let mut gh = Stub::new(&[]);
+        let site = closed(&[], &[]);
+        let (rc, log) = poll(&mut gh, &site, false, &[]);
         assert_eq!(rc, 0);
         assert!(log.is_empty());
         assert_eq!(gh.calls.len(), 1);
+        assert_eq!(site.requests(), 0);
     }
 }
