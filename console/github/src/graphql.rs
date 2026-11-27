@@ -8,15 +8,11 @@
 //!
 //! [`Error`] is the adapter's one reading of an error of GraphQL's.
 
+use crate::rate;
 use serde::de::{DeserializeOwned, IgnoredAny};
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
-use tehas_ports::{At, Got, Outcome, Pool, Unread};
-
-/// How long a rate-limited answer holds the priced budget out, at the
-/// least: GitHub's reset is not read here, and "until now" would hold
-/// nothing, so a limited host would ask again at once.
-pub(crate) const LIMITED_FLOOR: i64 = 60;
+use tehas_ports::{Got, Outcome, Pool, Unread};
 
 /// The `errors` of an answer, and nothing else of it.
 #[derive(Deserialize)]
@@ -87,16 +83,18 @@ pub(crate) fn priced(o: Outcome) -> Outcome {
     }
 }
 
-/// The outcome of an answer carrying `errors`: a spent priced budget until
-/// `until` when GitHub says the rate is limited, else `Unread(Inconsistent)`.
-pub(crate) fn limited<'a>(errors: impl IntoIterator<Item = &'a Error>, until: i64) -> Outcome {
-    match errors.into_iter().any(|e| e.is("RATE_LIMITED")) {
-        true => Outcome::Spent {
-            pool: Pool::Priced,
-            until: At::new(until),
-        },
-        false => Outcome::Unread(Unread::Inconsistent),
-    }
+/// The outcome of an answer carrying `errors` at `now`: a spent priced
+/// budget held out by `rate` when GitHub says the rate is limited, else
+/// `Unread(Inconsistent)`.
+pub(crate) fn limited<'a>(errors: impl IntoIterator<Item = &'a Error>, now: i64) -> Outcome {
+    let limited = errors.into_iter().any(|e| e.is(rate::RATE_LIMITED));
+    rate::limited(
+        limited,
+        Pool::Priced,
+        now,
+        None,
+        Outcome::Unread(Unread::Inconsistent),
+    )
 }
 
 /// The outcome of the answer `out` when it carries errors, at `now`; None
@@ -116,7 +114,7 @@ pub(crate) fn refusal(out: &str, now: i64) -> Option<Outcome> {
         return None;
     }
     Some(match head.errors {
-        Some(Errors::List(all)) => limited(&all, now + LIMITED_FLOOR),
+        Some(Errors::List(all)) => limited(&all, now),
         _ => Outcome::Unread(Unread::Inconsistent),
     })
 }
@@ -141,6 +139,7 @@ pub(crate) fn part<T: DeserializeOwned>(out: &str, at: &str, now: i64) -> Got<T>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tehas_ports::At;
 
     const NOW: i64 = 1_800_000_000;
 
