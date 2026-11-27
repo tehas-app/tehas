@@ -189,6 +189,18 @@ impl GitHub {
     pub(crate) fn outcome(&self, e: &ForgeError) -> Outcome {
         outcome(e, (self.now)())
     }
+
+    /// `GitHub::outcome` for a read the poll's queue asks again on a bad
+    /// minute: the bare 403 is not a refusal there. The rule of
+    /// `core/src/retry.rs` owed every 403 that said no limit a process (its
+    /// `Unknown403`), and the queue read keeps that: a 403 that names no
+    /// permission is the site's own failure, and one carrying a
+    /// `retry-after` says to come back later, a timeout. A 403 that names
+    /// its permission (`Forbidden`) stays `Forbidden`, and the queue read
+    /// retries no refusal.
+    pub(crate) fn outcome_queue_read(&self, e: &ForgeError) -> Outcome {
+        outcome_queue_read(e, (self.now)())
+    }
 }
 
 /// The issue a ticket is. A GitHub ticket is always its number: a key is no
@@ -415,6 +427,23 @@ fn outcome(e: &ForgeError, now: i64) -> Outcome {
     }
 }
 
+/// [`GitHub::outcome_queue_read`] at the time `now`. Only the `Forbidden`
+/// of a 403 changes: every other outcome reads as `outcome` reads it.
+fn outcome_queue_read(e: &ForgeError, now: i64) -> Outcome {
+    let low = e.why.to_ascii_lowercase();
+    match outcome(e, now) {
+        Outcome::Forbidden if !low.contains("forbidden") => Outcome::Unavailable {
+            why: if low.contains("retry-after") {
+                Passing::Timeout
+            } else {
+                Passing::Server
+            },
+            sent: Sent::Maybe,
+        },
+        o => o,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -446,5 +475,40 @@ mod tests {
         for why in [": gh exited 1", "gh exited 1", ": gh exited 40"] {
             assert_eq!(of(why), maybe, "{why}");
         }
+    }
+
+    #[test]
+    fn the_queue_reads_a_bare_403_as_the_bad_minute() {
+        let q = |why: &str| outcome_queue_read(&ForgeError::new("gh api", why), 0);
+        let bad_minute = |why| Outcome::Unavailable {
+            why,
+            sent: Sent::Maybe,
+        };
+        // The 403 that names no permission is the site's own failure, and
+        // the one carried by a limit header a bad minute too: the queue
+        // read asks each of them once more.
+        for why in [
+            ": HTTP 403",
+            "gh exited 1: HTTP 403: try again later",
+            ": HTTP 403: x-ratelimit-remaining: 0",
+        ] {
+            assert_eq!(q(why), bad_minute(Passing::Server), "{why}");
+        }
+        // `retry-after` says to come back later: a timeout's own word.
+        assert_eq!(
+            q(": HTTP 403: hold on, retry-after: 2"),
+            bad_minute(Passing::Timeout)
+        );
+        // The 403 that names its permission is a refusal, header or none.
+        for why in [
+            ": HTTP 403: Forbidden",
+            ": HTTP 403: retry-after: 2, Forbidden",
+        ] {
+            assert_eq!(q(why), Outcome::Forbidden, "{why}");
+        }
+        // Nothing else moves: the rest reads as `outcome` reads it.
+        assert_eq!(q(": HTTP 502"), bad_minute(Passing::Server));
+        assert_eq!(q(": HTTP 404"), Outcome::NotFound);
+        assert_eq!(q(": HTTP 401"), Outcome::SignedOut);
     }
 }

@@ -722,7 +722,7 @@ impl GitHub {
         loop {
             let out = self
                 .ask("the list of issues", &question, None, cursor.as_deref())
-                .map_err(|e| self.outcome(&e))?;
+                .map_err(|e| self.outcome_queue_read(&e))?;
             let page: Page<Node> =
                 crate::graphql::part(&out, "/data/repository/issues", (self.now)())?;
             for node in page.nodes {
