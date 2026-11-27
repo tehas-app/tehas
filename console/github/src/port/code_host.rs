@@ -105,7 +105,7 @@ impl CodeHost for GitHub {
             args.extend(["-f", &query]);
             match gh.call("the pull requests", &args) {
                 Ok(out) => read_page(gh, &out, me, filter),
-                Err(e) => Err(gh.query_outcome(&e)),
+                Err(e) => Err(gh.query_outcome(&e, true)),
             }
         };
         let mut taken = Vec::new();
@@ -255,19 +255,34 @@ impl GitHub {
     /// of the same list settles it: its `NotFound` or `Forbidden` answers,
     /// and anything else is `Unread(Inconsistent)`, a list with an error in
     /// it never answered as whole. A spent budget is the pool of priced
-    /// reads.
-    fn query_outcome(&mut self, e: &ForgeError) -> Outcome {
+    /// reads. `queue` names the question the poll's queue asks: its 403 is
+    /// the bad minute `outcome_queue_read` says, owed the queue's one
+    /// retry, and a REST read that cannot answer is `Unavailable` too.
+    fn query_outcome(&mut self, e: &ForgeError, queue: bool) -> Outcome {
         if e.why.trim_start_matches(": ") == "gh exited 1" {
             let path = format!("repos/{}/pulls?per_page=1&state=all", self.repo);
             return match self.call("the pull requests", &["api", &path]) {
                 Ok(_) => Outcome::Unread(Unread::Inconsistent),
-                Err(e) => match self.outcome(&e) {
-                    o @ (Outcome::NotFound | Outcome::Forbidden) => o,
-                    _ => Outcome::Unread(Unread::Inconsistent),
-                },
+                Err(e) => {
+                    let o = if queue {
+                        self.outcome_queue_read(&e)
+                    } else {
+                        self.outcome(&e)
+                    };
+                    match o {
+                        o @ (Outcome::NotFound | Outcome::Forbidden) => o,
+                        o @ Outcome::Unavailable { .. } if queue => o,
+                        _ => Outcome::Unread(Unread::Inconsistent),
+                    }
+                }
             };
         }
-        match self.outcome(e) {
+        let said = if queue {
+            self.outcome_queue_read(e)
+        } else {
+            self.outcome(e)
+        };
+        match said {
             Outcome::Spent { until, .. } => Outcome::Spent {
                 pool: Pool::Priced,
                 until,

@@ -112,7 +112,7 @@ impl GitHub {
         loop {
             let out = self
                 .ask("the labels", LABELS, None, cursor.as_deref())
-                .map_err(|e| self.outcome(&e))?;
+                .map_err(|e| self.outcome_queue_read(&e))?;
             let page: Page<Label> =
                 crate::graphql::part(&out, "/data/repository/labels", (self.now)())?;
             let labels = page
@@ -236,7 +236,7 @@ impl GitHub {
         loop {
             let out = self
                 .ask("the issue types", ISSUE_TYPES, None, cursor.as_deref())
-                .map_err(|e| self.outcome(&e))?;
+                .map_err(|e| self.outcome_queue_read(&e))?;
             let types: Types = crate::graphql::part(&out, "/data/repository", (self.now)())?;
             let Some(page) = types.issue_types else {
                 return match cursor {
