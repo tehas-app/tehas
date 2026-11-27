@@ -11,6 +11,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread::{self, sleep};
 use std::time::Duration;
 use tehas_core::home::{Home, State};
+use tehas_core::verb::Verb;
 
 /// What a call that did not answer said: the status
 /// (1 refused, busy or timeout; 64 usage; 78 unusable), the store's word or
@@ -139,17 +140,19 @@ pub fn bounded(kill: &str, limit: &str, program: impl AsRef<std::ffi::OsStr>) ->
 }
 
 /// One call of the store: its answer, or what it said instead.
-pub fn call(home: &Path, args: &[&str]) -> Result<Value, Refusal> {
-    answer(home, args).map(|(v, _)| v)
+pub fn call(home: &Path, verb: &Verb) -> Result<Value, Refusal> {
+    answer(home, verb).map(|(v, _)| v)
 }
 
 /// The same call, as the line the store printed, keys in its order.
-pub fn line(home: &Path, args: &[&str]) -> Result<String, Refusal> {
-    answer(home, args).map(|(_, line)| line)
+pub fn line(home: &Path, verb: &Verb) -> Result<String, Refusal> {
+    answer(home, verb).map(|(_, line)| line)
 }
 
-fn answer(home: &Path, args: &[&str]) -> Result<(Value, String), Refusal> {
-    let verb = args[0];
+fn answer(home: &Path, call: &Verb) -> Result<(Value, String), Refusal> {
+    let words = call.args();
+    let args: Vec<&str> = words.iter().map(String::as_str).collect();
+    let verb = call.name();
     let no = |rc: u8, word: &str, line: String| Err(refusal(rc, word, &line));
     // A home without the program has no store this console may use either.
     if !installed(home) {
@@ -162,7 +165,7 @@ fn answer(home: &Path, args: &[&str]) -> Result<(Value, String), Refusal> {
             ),
         );
     }
-    match run(home, args) {
+    match run(home, &args) {
         Ok(said) => {
             let v: Value = serde_json::from_str(&said).unwrap_or(Value::Null);
             if !said.contains('\n')
@@ -216,10 +219,10 @@ fn run(home: &Path, args: &[&str]) -> ::store::Answer {
 
 /// `call` again while the word is busy or timeout, one second apart, at most
 /// `tries` calls, as `tehas_store_try` does.
-pub fn try_call(home: &Path, tries: u32, args: &[&str]) -> Result<Value, Refusal> {
+pub fn try_call(home: &Path, tries: u32, verb: &Verb) -> Result<Value, Refusal> {
     let mut made = 1;
     loop {
-        match call(home, args) {
+        match call(home, verb) {
             Err(no)
                 if no.rc == 1 && made < tries && matches!(no.word.as_str(), "busy" | "timeout") =>
             {
@@ -321,14 +324,14 @@ mod tests {
     #[test]
     fn a_busy_store_is_asked_again() {
         let home = home("again", &format!("{BUSY}|1\n"));
-        assert!(try_call(&home, 3, &["check"]).is_ok());
+        assert!(try_call(&home, 3, &Verb::Check).is_ok());
         assert_eq!(testing::calls(&home), ["check", "check"]);
     }
 
     #[test]
     fn the_tries_are_a_ceiling_and_the_last_refusal_is_the_answer() {
         let home = home("ceiling", "check|1|store: busy: still\n");
-        let no = try_call(&home, 3, &["check"]).unwrap_err();
+        let no = try_call(&home, 3, &Verb::Check).unwrap_err();
         assert_eq!((no.rc, no.word.as_str()), (1, "busy"));
         assert_eq!(no.line, "store: busy: still");
         assert_eq!(testing::calls(&home).len(), 3);
@@ -337,7 +340,7 @@ mod tests {
     #[test]
     fn another_refusal_is_not_asked_again() {
         let home = home("refused", "check|1|store: conflict #5: no\n");
-        let no = try_call(&home, 3, &["check"]).unwrap_err();
+        let no = try_call(&home, 3, &Verb::Check).unwrap_err();
         assert_eq!(no.word, "conflict");
         assert_eq!(testing::calls(&home).len(), 1);
     }
@@ -345,7 +348,7 @@ mod tests {
     #[test]
     fn a_call_answers_the_line_of_the_store() {
         let home = home("line", "");
-        let line = line(&home, &["check"]).unwrap();
+        let line = line(&home, &Verb::Check).unwrap();
         assert!(
             line.starts_with("{\"api\":1,\"verb\":\"check\",\"ok\":true"),
             "{line}"
@@ -356,7 +359,7 @@ mod tests {
     fn a_home_without_the_program_is_absent() {
         let home = home("absent", "");
         fs::remove_file(program(&home)).unwrap();
-        let no = call(&home, &["check"]).unwrap_err();
+        let no = call(&home, &Verb::Check).unwrap_err();
         assert_eq!((no.rc, no.word.as_str()), (78, "absent"));
         assert!(testing::calls(&home).is_empty());
     }
@@ -367,9 +370,9 @@ mod tests {
             "garbled",
             "check|1|no word here\nbackup|0|{\"api\":1,\"ok\":true,\"verb\":\"check\"}\n",
         );
-        let no = call(&home, &["check"]).unwrap_err();
+        let no = call(&home, &Verb::Check).unwrap_err();
         assert_eq!((no.rc, no.word.as_str()), (78, "garbled"));
-        let no = call(&home, &["backup"]).unwrap_err();
+        let no = call(&home, &Verb::BackupShow).unwrap_err();
         assert_eq!((no.rc, no.word.as_str()), (78, "garbled"));
     }
 
