@@ -445,6 +445,41 @@ mod tests {
         }
     }
 
+    // The files are tehas's own output: their bytes are pinned, so a move of
+    // the read behind them changes none.
+    #[test]
+    fn the_files_keep_their_bytes() {
+        let d = TestDir::new("tickets-bytes");
+        let mut calls = 0;
+        run(REPO, &d, "2026-11-21T12:00:00Z", &mut |_, _| {
+            calls += 1;
+            match calls {
+                1 => Ok(page(
+                    vec![
+                        issue(5, "2026-11-01T00:00:00Z"),
+                        pull(8, "2026-11-02T00:00:00Z"),
+                    ],
+                    Some("c1"),
+                )),
+                _ => Err("GitHub did not answer".into()),
+            }
+        })
+        .unwrap_err();
+        let file = |name: &str| fs::read_to_string(d.join(name)).unwrap();
+        assert_eq!(
+            file("5.json"),
+            include_str!("../tests/fixtures/tickets/5.json")
+        );
+        assert_eq!(
+            file("8.json"),
+            include_str!("../tests/fixtures/tickets/8.json")
+        );
+        assert_eq!(
+            file(CURSOR),
+            include_str!("../tests/fixtures/tickets/cursor.json")
+        );
+    }
+
     #[test]
     fn a_long_body_is_cut() {
         let mut n = issue(5, "2026-11-01T00:00:00Z");
