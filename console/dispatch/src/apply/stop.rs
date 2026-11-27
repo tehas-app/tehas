@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tehas_core::cycle_notes::Note;
 use tehas_core::home::Home;
+use tehas_core::units;
 
 /// What a stop does next.
 pub(super) enum Then {
@@ -43,7 +44,7 @@ impl Writer {
         };
         let heard: u64 = said_for.parse().unwrap_or(0);
         let why = quiet_why(n, heard);
-        let unit = format!("tehas-cycle@{n}.service");
+        let unit = units::cycle(n);
         let note = match self.calls.store(&[
             "cycle-note",
             &n.to_string(),
@@ -150,7 +151,7 @@ impl Writer {
         if std::fs::write(&done, format!("{}\n", text(a, "why"))).is_err() {
             log.push(format!("WARN: could not write the reason for #{n}"));
         }
-        let unit = format!("tehas-cycle@{n}.service");
+        let unit = units::cycle(n);
         let rc = match &self.host.stop_cmd {
             Some(cmd) => run_quiet(cmd, &[n.to_string()], None, self.host.done_wait),
             None => run_quiet(
