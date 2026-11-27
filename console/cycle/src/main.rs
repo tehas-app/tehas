@@ -492,7 +492,7 @@ fn cycle_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
     };
     lock::hand_down(&held).unwrap_or_else(|e| fail(e));
     let get: events::Get = Arc::new(|k: &str| std::env::var(k).unwrap_or_default());
-    let raised = events::wiring(home, get);
+    let raised = events::wiring(home, get, hook_code_host(home));
     std::process::exit(supervise::run(home, &g, &raised));
 }
 
@@ -545,6 +545,25 @@ fn finish_ports(home: &Path, repo: &str) -> tehas_ports::Got<finish::Ports> {
     })
 }
 
+/// The GitHub adapter's site on `repo`, knowing the factory's account by the
+/// bot's recorded id, its gh the host's own under `bound` and `grace`. The
+/// host's gh takes the factory's token itself: the site is handed a runner
+/// and holds none.
+fn host_site(
+    home: &Path,
+    repo: &str,
+    bound: Duration,
+    grace: Duration,
+) -> tehas_github::GitHubSite {
+    let (login, id) = tehas_core::accounts::bot(home);
+    let make: tehas_github::MakeRunner = Arc::new(move |_| {
+        let mut b = tehas_core::forge::Bounded::new("gh", bound);
+        b.grace = grace;
+        Ok(Box::new(b) as Box<dyn tehas_core::forge::GhRunner>)
+    });
+    tehas_github::GitHubSite::new(repo, &login, id, make)
+}
+
 /// The handles a cycle's report writes through, from the GitHub adapter, its
 /// gh the host's own under the report's bound.
 fn handles(
@@ -554,15 +573,7 @@ fn handles(
     grace: Duration,
 ) -> tehas_ports::Got<tehas_cycle::apply::Handles> {
     use tehas_ports::{Actor, Caller, Scope, Site};
-    let (login, id) = tehas_core::accounts::bot(home);
-    // The host's own gh, which takes the factory's token itself: the site is
-    // handed a runner and holds none.
-    let make: tehas_github::MakeRunner = Arc::new(move |_| {
-        let mut b = tehas_core::forge::Bounded::new("gh", bound);
-        b.grace = grace;
-        Ok(Box::new(b) as Box<dyn tehas_core::forge::GhRunner>)
-    });
-    let site = tehas_github::GitHubSite::new(repo, &login, id, make);
+    let site = host_site(home, repo, bound, grace);
     let (by, c) = (Actor::Ours(Scope::Full), Caller::new("report"));
     let writes: Box<dyn tehas_ports::Writes> = if tehas_core::read_only::on() {
         Box::new(tehas_ports::ReadOnly)
@@ -579,6 +590,20 @@ fn handles(
         blueprints: site.blueprints(&by, c)?,
         code_host: site.code_host(&by, c)?,
         board: site.board(&by, c)?,
+    })
+}
+
+/// The code host handle the plugins' bridge reads a change through, from the
+/// GitHub adapter acting as the factory's account, under gh's usual bound.
+fn hook_code_host(home: &Path) -> tehas_cycle::hook::CodeHostOf {
+    use tehas_core::call::{GH_BOUND, GRACE};
+    use tehas_ports::{Actor, Caller, Scope, Site};
+    let home = home.to_path_buf();
+    Arc::new(move |repo: &str| {
+        host_site(&home, repo, GH_BOUND, GRACE).code_host(
+            &Actor::Ours(Scope::Full),
+            Caller::new(tehas_cycle::hook::BRIDGE),
+        )
     })
 }
 

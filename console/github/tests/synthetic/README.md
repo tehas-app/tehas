@@ -28,6 +28,38 @@ numbers count from 0 in `data.repository.pullRequest.events.nodes`.
 | `activity/no-page-info/events-whole-first.json` | `events` has no `pageInfo` |
 | `activity/no-cursor/events-whole-first.json` | `pageInfo` is `{"hasNextPage": true, "endCursor": null}`: more follows, no cursor to it |
 
+## One fault in a live aliased question
+
+Each starts from a live answer of the same question and changes only what
+makes the case. Their `locations` and `message` are the recording's.
+
+Source of the `edits/` files: `console/github/tests/recorded/edits/live/`,
+the live edit histories of `tehas-app/tehas-rec-edits-not-found` (kit run
+#1, 2026-11-26). `bodies.answer.json` asks issues 1 (kept), 2 (deleted)
+and 1001 (never made); `nodes.answer.json` asks comment
+`IC_kwDOV9AT5c8AAAABrNMQ6A` (kept) and `IC_kwDOV9AT5c8AAAABrNMTAA`
+(deleted), and REST reads comment 7194481408 (deleted). A not found at
+an item is recorded there; one inside an item cannot be made on demand.
+
+| File | Changed from the recording |
+| --- | --- |
+| `edits/inner-not-found/bodies.answer.json` | `bodies.answer.json`: the NOT_FOUND of `i2` has `path` `["repository","i2","userContentEdits"]`, inside the item |
+| `edits/inner-not-found/bodies.fail` | `bodies.fail` as it is |
+| `edits/inner-not-found/nodes.answer.json` | `nodes.answer.json`: node 0 is `null`, and a copy of the NOT_FOUND has `path` `["nodes",0,"userContentEdits"]`. Asked of the fixture project's two comments, whose REST reads give other node ids, so node 0's data is taken out |
+| `edits/inner-not-found/nodes.fail` | `nodes.fail` as it is |
+| `edits/missing-items/bodies.json` | `bodies.answer.json` with every alias and the errors taken out: an item missing from the answer |
+| `edits/missing-items/nodes.json` | `nodes.answer.json` with `nodes` empty and the errors taken out |
+| `edits/gone-repository/comment-7194480872.answer.json` | `comment-7194481408.answer.json` as it is, under the kept comment's id, asked of `tehas-app/tehas-rec-gone`, a repository that is not there: GitHub's 404 names neither, so it is the same answer |
+| `edits/gone-repository/comment-7194480872.fail` | `comment-7194481408.fail` as it is, under the kept comment's id |
+
+Source of the `what/` files: `console/github/tests/recorded/what/live/from-1.answer.json`
+and `from-1.fail`.
+
+| File | Changed from the recording |
+| --- | --- |
+| `what/limited/from-3.answer.json` | `data` as it is; `errors` one RATE_LIMITED error with no `path`. A spent budget cannot be made on demand and no real one is recorded, so the message is GitHub's documented text with no account id |
+| `what/limited/from-3.fail` | `from-1.fail` as it is |
+
 ## A body that is not JSON
 
 These are not GitHub's answers: they stand for a body gh hands back that

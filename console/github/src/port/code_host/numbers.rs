@@ -13,15 +13,15 @@ use super::{pull_fields, PullNode};
 use crate::items::alias;
 use crate::GitHub;
 use tehas_ports::{
-    AccountId, Author, Bound, ChangeDigest, ChangeFilter, Got, Outcome, Pool, Unread, Whole,
-    ALL_MAX,
+    AccountId, Author, Bound, ChangeDigest, ChangeFilter, Got, Outcome, Unread, Whole, ALL_MAX,
 };
 
 /// The most numbers one question asks: more go in another question.
 const PER_QUESTION: usize = 100;
 
 /// The question of the pull requests `numbers`, an alias each, with the
-/// repository's id, and the account asking when `me`.
+/// repository's id, which the handle learns as this project's, and the
+/// account asking when `me`.
 fn question(numbers: &[u64], me: bool, bodies: bool) -> String {
     let viewer = if me { "viewer { databaseId } " } else { "" };
     let fields = pull_fields(bodies);
@@ -69,7 +69,7 @@ impl GitHub {
     }
 
     /// One question of distinct numbers, in order: the pull requests the
-    /// filter takes, with their marks.
+    /// filter takes.
     fn numbers_asked(
         &mut self,
         numbers: &[u64],
@@ -84,16 +84,9 @@ impl GitHub {
         for node in &asked.nodes {
             match node {
                 Ok(_) | Err(Outcome::NotFound) => {}
-                Err(Outcome::Spent { until, .. }) => {
-                    return Err(Outcome::Spent {
-                        pool: Pool::Priced,
-                        until: *until,
-                    })
-                }
                 Err(o) => return Err(o.clone()),
             }
         }
-        let here = asked.repository_id;
         let viewer = match (me, asked.viewer_id) {
             (false, _) => None,
             (true, Some(id)) => Some(AccountId::new(id.to_string())),
@@ -104,16 +97,13 @@ impl GitHub {
             let Ok(node) = node else {
                 continue;
             };
-            let read =
-                PullNode { node: &node }.read(here, viewer.as_ref(), filter, self.bot.as_ref())?;
+            let read = PullNode { node: &node }.read(self, viewer.as_ref(), filter)?;
             if read.no.get() != *n {
                 return Err(Outcome::Unread(Unread::Inconsistent));
             }
-            let Some(pull) = read.pull else {
+            let Some(digest) = read.pull else {
                 continue;
             };
-            let mut digest = pull.digest;
-            digest.marks = self.marks_of(&pull.labels);
             if filter.carrying.iter().all(|m| digest.marks.contains(m)) {
                 taken.push(digest);
             }

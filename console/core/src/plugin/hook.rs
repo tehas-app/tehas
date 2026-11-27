@@ -8,7 +8,6 @@
 use super::run::Trigger;
 use super::state::{State, Word};
 use super::Cap;
-use crate::accounts::factorys;
 use crate::file::{write_atomic, Temp};
 use crate::grammar::commit_id;
 use serde_json::Value;
@@ -144,22 +143,8 @@ pub fn read_state(home: &Path, name: &str) -> Option<State> {
     State::read(&std::fs::read_to_string(file).ok()?)
 }
 
-/// The pull request as GitHub gives it, when it is open, the bot's and of
-/// the repository itself: its head and its base.
-pub fn open_bot_pull(pull: &Value, repo: &str, bot: &str) -> Option<(String, String)> {
-    let s = |ptr: &str| pull.pointer(ptr).and_then(Value::as_str).unwrap_or("");
-    let ok = s("/state") == "open"
-        && pull.get("merged").and_then(Value::as_bool) != Some(true)
-        && factorys(s("/user/login"), bot)
-        && s("/head/repo/full_name").eq_ignore_ascii_case(repo)
-        && commit_id(s("/head/sha"))
-        && commit_id(s("/base/sha"));
-    ok.then(|| (s("/head/sha").to_string(), s("/base/sha").to_string()))
-}
-
 /// The change's head and base commits, when it is open, the factory's own
-/// and of the project itself: `open_bot_pull`'s rule over the code host
-/// port. Its author is the factory's only when the adapter answers it `Ours`,
+/// and of the project itself. Its author is the factory's only when the adapter answers it `Ours`,
 /// by the bot's recorded id and not by its login; a change whose head is in
 /// another project is not.
 pub fn open_ours(c: &ChangeDigest) -> Option<(String, String)> {
@@ -195,18 +180,15 @@ pub fn granted(get: &dyn Fn(&str) -> String, state: &dyn Fn(&str) -> Option<Stat
         .collect()
 }
 
-/// The request of each plugin of `names` for the pull request GitHub gave
-/// as `pull`, asked by the envelope `event`: none when it is merged, closed,
-/// or no pull request of the bot's in `repo`.
+/// The request of each plugin of `names` for the change the code host gave,
+/// asked by the envelope `event`: none unless `open_ours` takes it.
 pub fn requests(
     names: &[String],
-    pull: &Value,
-    repo: &str,
-    bot: &str,
+    change: &ChangeDigest,
     (pr, issue): (u64, u64),
     event: &Envelope,
 ) -> Vec<(String, HookAsk)> {
-    let Some((head, base)) = open_bot_pull(pull, repo, bot) else {
+    let Some((head, base)) = open_ours(change) else {
         return Vec::new();
     };
     names
@@ -345,26 +327,11 @@ mod tests {
             .full
     }
 
-    fn pull() -> Value {
-        json!({
-            "state": "open", "merged": false,
-            "user": {"login": "acme-bot[bot]"},
-            "head": {"sha": H, "repo": {"full_name": "acme/widget"}},
-            "base": {"sha": B},
-        })
-    }
-
     #[test]
-    fn an_open_pull_request_of_the_bot_is_asked_for_at_its_head() {
+    fn an_open_change_of_ours_is_asked_for_at_its_head() {
         let names = vec!["floorplan".to_string()];
-        let asked = requests(
-            &names,
-            &pull(),
-            "acme/widget",
-            "acme-bot[bot]",
-            (42, 7),
-            &sample(Name::ChangeOffered),
-        );
+        let offered = sample(Name::ChangeOffered);
+        let asked = requests(&names, &change(AccountKind::Ours), (42, 7), &offered);
         assert_eq!(
             asked,
             [(
@@ -375,31 +342,22 @@ mod tests {
                     base: B.into(),
                     issue: Some(7),
                     trigger: Trigger::Cycle,
-                    event: Some(sample(Name::ChangeOffered)),
+                    event: Some(offered.clone()),
                 }
             )]
         );
-        for (ptr, v) in [
-            ("/state", json!("closed")),
-            ("/merged", json!(true)),
-            ("/user/login", json!("someone")),
-            ("/head/repo/full_name", json!("fork/widget")),
-            ("/head/sha", json!("89abcdef")),
+        let mut closed = change(AccountKind::Ours);
+        closed.state = ChangeState::Closed {
+            at: tehas_ports::At::new(3),
+        };
+        let mut fork = change(AccountKind::Ours);
+        fork.from_fork = true;
+        for (what, c) in [
+            ("closed", closed),
+            ("from a fork", fork),
+            ("someone's", change(AccountKind::Person)),
         ] {
-            let mut p = pull();
-            *p.pointer_mut(ptr).unwrap() = v;
-            assert!(
-                requests(
-                    &names,
-                    &p,
-                    "acme/widget",
-                    "acme-bot[bot]",
-                    (42, 7),
-                    &sample(Name::ChangeOffered)
-                )
-                .is_empty(),
-                "{ptr}"
-            );
+            assert!(requests(&names, &c, (42, 7), &offered).is_empty(), "{what}");
         }
     }
 
