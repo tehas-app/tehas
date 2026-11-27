@@ -2700,9 +2700,9 @@ pub mod markers {
 pub mod scopes {
     use super::{got, hold, Law};
     use crate::{
-        Access, Blobs, ChangeNo, ChangeState, CloseReason, CodeHostWrites, CommitId, Depth,
-        FileName, Filter, Mark, MergeHow, NewRelease, NewTicket, Outcome, Proposal, Status, Sum,
-        TagName, TicketKey, TicketWrites, ALL_MAX,
+        Access, Actor, Blobs, Caller, ChangeNo, ChangeState, CloseReason, CodeHostWrites, CommitId,
+        Depth, FileName, Filter, Mark, MergeHow, NewRelease, NewTicket, Outcome, Proposal, Scope,
+        Site, Status, Sum, TagName, TicketKey, TicketWrites, ALL_MAX,
     };
 
     /// What a scope's refused writes on a change and a release are asked
@@ -2950,6 +2950,40 @@ pub mod scopes {
         hold(now == tickets, LAW, || {
             format!("the refused filing left {now} tickets, not {tickets}")
         })
+    }
+
+    /// The factory's account at read scope reads and writes nothing: a
+    /// code host read handle answers `releases`, its remote fetches and a
+    /// push is `Forbidden`, the tickets, blueprints and board read handles
+    /// are made, and a write handle of every port is `Forbidden`.
+    pub fn read_scope_fetches_and_writes_nothing(site: &dyn Site, caller: Caller) -> Law {
+        const LAW: &str = "scopes::read_scope_fetches_and_writes_nothing";
+        let by = Actor::Ours(Scope::Read);
+        let mut h = got(LAW, "a code host read handle", site.code_host(&by, caller))?;
+        got(LAW, "releases", h.releases(ALL_MAX))?;
+        got(LAW, "a remote to fetch", h.remote(Access::Fetch))?;
+        let push = h.remote(Access::Push).map(drop);
+        hold(push == Err(Outcome::Forbidden), LAW, || {
+            format!("a push remote at read scope answered {push:?}")
+        })?;
+        got(LAW, "a tickets read handle", site.tickets(&by, caller))?;
+        got(
+            LAW,
+            "a blueprints read handle",
+            site.blueprints(&by, caller),
+        )?;
+        got(LAW, "a board read handle", site.board(&by, caller))?;
+        let writes = [
+            ("tickets", site.ticket_writes(&by, caller).map(drop)),
+            ("blueprints", site.blueprint_writes(&by, caller).map(drop)),
+            ("code host", site.code_host_writes(&by, caller).map(drop)),
+        ];
+        for (port, answer) in writes {
+            hold(answer == Err(Outcome::Forbidden), LAW, || {
+                format!("a {port} write handle at read scope answered {answer:?}")
+            })?;
+        }
+        Ok(())
     }
 }
 
