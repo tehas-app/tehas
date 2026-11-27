@@ -492,7 +492,7 @@ fn cycle_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
     };
     lock::hand_down(&held).unwrap_or_else(|e| fail(e));
     let get: events::Get = Arc::new(|k: &str| std::env::var(k).unwrap_or_default());
-    let raised = events::wiring(home, get);
+    let raised = events::wiring(home, get, hook_code_host(home));
     std::process::exit(supervise::run(home, &g, &raised));
 }
 
@@ -589,6 +589,20 @@ fn handles(
         tickets: site.tickets(&by, c)?,
         blueprints: site.blueprints(&by, c)?,
         code_host: site.code_host(&by, c)?,
+    })
+}
+
+/// The code host handle the plugins' bridge reads a change through, from the
+/// GitHub adapter acting as the factory's account, under gh's usual bound.
+fn hook_code_host(home: &Path) -> tehas_cycle::hook::CodeHostOf {
+    use tehas_core::call::{GH_BOUND, GRACE};
+    use tehas_ports::{Actor, Caller, Scope, Site};
+    let home = home.to_path_buf();
+    Arc::new(move |repo: &str| {
+        host_site(&home, repo, GH_BOUND, GRACE).code_host(
+            &Actor::Ours(Scope::Full),
+            Caller::new(tehas_cycle::hook::BRIDGE),
+        )
     })
 }
 

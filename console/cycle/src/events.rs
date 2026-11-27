@@ -22,14 +22,14 @@ use tehas_ports::events::{Dispatcher, Payload};
 pub type Get = Arc<dyn Fn(&str) -> String + Send + Sync>;
 
 /// The dispatcher of a cycle: the log, and the plugins' bridge while the
-/// feature `plugins` is on.
-pub fn wiring(home: &Path, get: Get) -> Dispatcher {
+/// feature `plugins` is on, reading the change through `code_host`.
+pub fn wiring(home: &Path, get: Get, code_host: crate::hook::CodeHostOf) -> Dispatcher {
     let mut b = raise::logged(log);
     if tehas_core::features::on_in("plugins", &*get) {
         b.on_any(
             crate::hook::BRIDGE,
             0,
-            crate::hook::bridge(home.to_path_buf(), get),
+            crate::hook::bridge(home.to_path_buf(), get, code_host),
         );
     }
     b.build()
@@ -121,7 +121,9 @@ mod tests {
     #[test]
     fn a_cycle_wires_the_log_alone_while_plugins_are_off() {
         let off: Get = Arc::new(|_| String::new());
-        let d = wiring(Path::new("/nonexistent"), off);
+        let unmade: crate::hook::CodeHostOf =
+            Arc::new(|_| panic!("no code host handle is made while plugins are off"));
+        let d = wiring(Path::new("/nonexistent"), off, unmade);
         let line = HistoryRow {
             kind: "cycle".into(),
             issue: 12,
