@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 
 use tehas_core::testdir::TestDir;
 use tehas_github::{Curl, GitHubSite, MakeRunner, CURL_ENV, DOWNLOAD_HOSTS, DOWNLOAD_LIMIT};
-use tehas_ports::fake::MemoryLedger;
+use tehas_ports::fake::{MemoryLedger, NoticeLog};
 use tehas_ports::{
     Actor, At, Caller, CodeHost, CommitId, FileName, HealthState, Holder, HolderId, HostId, Ledger,
     Outcome, Passing, Pool, Refusal, Sent, Site, TagName, Unread, Whose,
@@ -185,7 +185,7 @@ fn site(stub: &Stub) -> GitHubSite {
 
 fn site_with(stub: &Stub, ledger: Arc<MemoryLedger>) -> GitHubSite {
     GitHubSite::new(REPO, "tehas-app[bot]", Some(900), no_gh())
-        .with_anonymous_curl(Curl::at(stub.program()), ledger)
+        .with_anonymous_curl(Curl::at(stub.program()), ledger, Arc::new(NoticeLog::new()))
         .on_clock(|| NOW)
 }
 
@@ -487,7 +487,11 @@ fn a_private_or_missing_project_is_refused() {
         Some(900),
         no_gh(),
     )
-    .with_anonymous_curl(Curl::at(stub.program()), Arc::new(MemoryLedger::new()))
+    .with_anonymous_curl(
+        Curl::at(stub.program()),
+        Arc::new(MemoryLedger::new()),
+        Arc::new(NoticeLog::new()),
+    )
     .on_clock(|| NOW);
     let (got, _) = download(handle(&site).as_mut(), FILE, 1 << 20);
     assert_eq!(got, Err(UNSUPPORTED));
