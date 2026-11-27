@@ -6,8 +6,11 @@
 //! item's part of a GraphQL answer, `.silent` a null part, `.null` a null
 //! part GitHub says it cannot find, `.forbidden` one it refuses; an item
 //! with no recording is one GitHub cannot find. `bodies.*` and `nodes.*`
-//! answer a whole question; `comment-<id>.*` is a comment's REST read.
-//! `tests/synthetic/edits/garbled/` holds the answers that are not JSON.
+//! answer a whole question; `comment-<id>.*` is a comment's REST read,
+//! and `.answer.json` beside a `.fail` what gh printed as it failed.
+//! `live/` is a live answer of the project [`LIVE`]. Answers GitHub
+//! cannot be made to give on demand are under `tests/synthetic/edits/`
+//! (`tests/synthetic/README.md`).
 
 mod answers;
 
@@ -22,6 +25,14 @@ use tehas_ports::{
 };
 
 const PROJECT: &str = "acme/widget";
+/// The project of the live recordings under `edits/live/`.
+const LIVE: &str = "tehas-app/tehas-rec-edits-not-found";
+/// The questions kit run #1 asked of [`LIVE`], whole, as its `calls.log`
+/// lines 182 and 183 give them: answered by `live/bodies` and `live/nodes`.
+const LIVE_BODIES: &str = r#"query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { i1: issue(number: 1) { number createdAt lastEditedAt userContentEdits(first: 100) { totalCount nodes { editedAt deletedAt diff editor { __typename login ...on User { databaseId } ...on Bot { databaseId } } } } } i2: issue(number: 2) { number createdAt lastEditedAt userContentEdits(first: 100) { totalCount nodes { editedAt deletedAt diff editor { __typename login ...on User { databaseId } ...on Bot { databaseId } } } } } i1001: issue(number: 1001) { number createdAt lastEditedAt userContentEdits(first: 100) { totalCount nodes { editedAt deletedAt diff editor { __typename login ...on User { databaseId } ...on Bot { databaseId } } } } } } }"#;
+const LIVE_NODES: &str = r#"query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { id } nodes(ids: ["IC_kwDOV9AT5c8AAAABrNMQ6A", "IC_kwDOV9AT5c8AAAABrNMTAA"]) { __typename ...on IssueComment { id databaseId url createdAt lastEditedAt userContentEdits(first: 100) { totalCount nodes { editedAt deletedAt diff editor { __typename login ...on User { databaseId } ...on Bot { databaseId } } } } } } }"#;
+/// A project that is not there (`synthetic/edits/gone-repository/`).
+const GONE: &str = "tehas-app/tehas-rec-gone";
 const EDITED: u64 = 2_501_240_001;
 const PLAIN: u64 = 2_501_240_002;
 const EDITED_NODE: &str = "IC_kwDOAbCdEf6VEd0001";
@@ -53,6 +64,7 @@ fn all_between<'a>(text: &'a str, open: &str, close: &str) -> Vec<&'a str> {
 }
 
 struct Replay {
+    project: String,
     state: String,
     asked: Asked,
 }
@@ -145,6 +157,18 @@ impl Replay {
                 self.compose(items, first, r#"{"repository": {}}"#),
             )
         };
+        // A whole answer rebuilt from a live one answers only its question.
+        let pinned = match (self.state.as_str(), whole) {
+            ("live" | "inner-not-found", "bodies") if self.project == LIVE => Some(LIVE_BODIES),
+            ("live", "nodes") => Some(LIVE_NODES),
+            _ => None,
+        };
+        if let Some(recorded) = pinned.filter(|q| *q != query) {
+            panic!(
+                "no recording in {} of the question {query}, only of {recorded}",
+                self.state
+            );
+        }
         let read = |ext: &str| {
             std::fs::read_to_string(answers::at("edits", &self.state, &format!("{whole}.{ext}")))
         };
@@ -154,7 +178,7 @@ impl Replay {
         if let Ok(why) = read("fail") {
             return Err(Failed {
                 why: why.trim_end().to_string(),
-                answer: None,
+                answer: read("answer.json").ok(),
             });
         }
         self.exit(answer)
@@ -175,7 +199,9 @@ impl Replay {
     }
 
     fn rest(&self, path: &str) -> Result<String, Failed> {
-        let rest = path.strip_prefix("repos/acme/widget/issues/").unwrap();
+        let rest = path
+            .strip_prefix(&format!("repos/{}/issues/", self.project))
+            .unwrap();
         let name = if let Some(id) = rest.strip_prefix("comments/") {
             format!("comment-{id}")
         } else if let Some(n) = rest.strip_suffix("/comments?per_page=100&page=1") {
@@ -195,6 +221,14 @@ impl Replay {
     }
 }
 
+impl Replay {
+    /// The `-F` fields a question names this project by.
+    fn owner_name(&self) -> [String; 2] {
+        let (owner, name) = self.project.split_once('/').unwrap();
+        [format!("owner={owner}"), format!("name={name}")]
+    }
+}
+
 impl GhRunner for Replay {
     fn run(&mut self, args: &[&str]) -> Result<String, String> {
         self.run_answer(args).map_err(|f| f.why)
@@ -203,7 +237,9 @@ impl GhRunner for Replay {
     fn run_answer(&mut self, args: &[&str]) -> Result<String, Failed> {
         self.asked.lock().unwrap().push(args.join(" "));
         match args {
-            ["api", "graphql", "-F", "owner=acme", "-F", "name=widget", "-f", query] => {
+            ["api", "graphql", "-F", owner, "-F", name, "-f", query]
+                if [*owner, *name] == self.owner_name() =>
+            {
                 self.graphql(query.strip_prefix("query=").unwrap())
             }
             ["api", path] => self.rest(path),
@@ -217,13 +253,18 @@ fn replay_now() -> i64 {
 }
 
 fn adapter(state: &str) -> (GitHub, Asked) {
+    adapter_of(PROJECT, state)
+}
+
+fn adapter_of(project: &str, state: &str) -> (GitHub, Asked) {
     let asked = Asked::default();
     let replay = Replay {
+        project: project.to_string(),
         state: state.to_string(),
         asked: Arc::clone(&asked),
     };
     (
-        GitHub::new(PROJECT, Box::new(replay)).on_clock(replay_now),
+        GitHub::new(project, Box::new(replay)).on_clock(replay_now),
         asked,
     )
 }
@@ -413,6 +454,7 @@ fn a_read_of_comments_keeps_the_edited_ones_node_ids() {
 
 #[test]
 fn a_comment_that_is_not_on_an_issue_here_is_not_found_or_untrusted() {
+    // 2501240003 has no recording: GitHub's 404, which names no comment.
     let (mut gh, asked) = adapter("site");
     let got = gh.comment_edits_of(
         &[
@@ -430,7 +472,7 @@ fn a_comment_that_is_not_on_an_issue_here_is_not_found_or_untrusted() {
         [
             Err(Outcome::NotFound),
             Err(Outcome::NotFound),
-            Err(Outcome::NotFound),
+            inconsistent(),
             Err(Outcome::NotFound),
             inconsistent(),
         ]
@@ -503,9 +545,10 @@ fn a_failed_question_fails_each_of_its_items() {
     let cases = [
         (
             "rate-limited",
+            // Held a minute out: GitHub's reset is not read.
             Outcome::Spent {
                 pool: Pool::Priced,
-                until: At::new(replay_now()),
+                until: At::new(replay_now() + 60),
             },
         ),
         ("error-no-path", Outcome::Unread(Unread::Inconsistent)),
@@ -545,4 +588,65 @@ fn a_failed_question_fails_the_bodies_read_together_whole() {
         let together = gh.body_edits_together(&[bp(7), bp(9)], ALL_MAX);
         assert_eq!(together, Ok(of), "{state}");
     }
+}
+
+/// Live (`edits/live/`): GitHub answers a deleted issue and a number that
+/// never was with a null item and a `NOT_FOUND` at it, beside gh's
+/// failure, so each is `NotFound` and the kept issue stands. A deleted
+/// comment's REST read is GitHub's 404, which a missing repository or a
+/// token that cannot see it gives too: `Unread(Inconsistent)`, with no
+/// question, so no caller drops a history on it.
+#[test]
+fn a_deleted_issue_is_not_found_and_a_comments_404_names_no_comment() {
+    let (mut gh, asked) = adapter_of(LIVE, "live");
+    let got = gh.body_edits_of(&[bp(1), bp(2), bp(1001)], ALL_MAX);
+    assert_eq!(texts(&got[0].1), ["Kept, edited."]);
+    assert_eq!(logins(&got[0].1), ["janit"]);
+    assert_eq!(got[1].1, Err(Outcome::NotFound));
+    assert_eq!(got[2].1, Err(Outcome::NotFound));
+    let got = gh.comment_edits_of(&[cid(7_194_481_408)], ALL_MAX);
+    assert_eq!(got[0].1, inconsistent());
+    assert_eq!(questions(&asked).len(), 1);
+
+    // The same 404 for a kept comment, in a repository that is not there.
+    let (mut gh, asked) = adapter_of(GONE, "gone-repository");
+    let got = gh.comment_edits_of(&[cid(7_194_480_872)], ALL_MAX);
+    assert_eq!(got[0].1, inconsistent());
+    assert!(questions(&asked).is_empty());
+}
+
+/// The edits are read by the adapter's one reader of several
+/// (`items.rs`): a not found inside an item is no word that the item is
+/// gone (Decided 121), an item missing from the answer is malformed, and
+/// a whole question that gh did not find, with no answer, is no item's.
+#[test]
+fn the_edits_are_read_by_the_one_reader_of_several() {
+    let malformed = Err(Outcome::Unread(Unread::Malformed));
+    let (mut gh, _) = adapter_of(LIVE, "inner-not-found");
+    let got = gh.body_edits_of(&[bp(1), bp(2), bp(1001)], ALL_MAX);
+    assert_eq!(texts(&got[0].1), ["Kept, edited."]);
+    assert_eq!(got[1].1, inconsistent());
+    assert_eq!(got[2].1, Err(Outcome::NotFound));
+    let (mut gh, _) = adapter("inner-not-found");
+    let got = gh.comment_edits_of(&[cid(EDITED), cid(PLAIN)], ALL_MAX);
+    assert_eq!(got[0].1, inconsistent());
+    assert_eq!(got[1].1, Err(Outcome::NotFound));
+
+    let (mut gh, _) = adapter("missing-items");
+    for (_, got) in gh.body_edits_of(&[bp(7), bp(8)], ALL_MAX) {
+        assert_eq!(got, malformed);
+    }
+    for (_, got) in gh.comment_edits_of(&[cid(EDITED), cid(PLAIN)], ALL_MAX) {
+        assert_eq!(got, malformed);
+    }
+
+    // gh's not found with no answer names no item, even of one: more
+    // likely the repository or the token, and a caller must not drop a
+    // history on it.
+    let (mut gh, _) = adapter("unresolved");
+    assert_eq!(gh.body_edits_of(&[bp(7)], ALL_MAX)[0].1, inconsistent());
+    assert_eq!(
+        gh.comment_edits_of(&[cid(EDITED)], ALL_MAX)[0].1,
+        inconsistent()
+    );
 }

@@ -6,11 +6,11 @@
 use std::num::NonZeroU64;
 use std::sync::Arc;
 use std::sync::Mutex;
-use tehas_core::forge::GhRunner;
+use tehas_core::forge::{Failed, GhRunner};
 use tehas_github::{table, GitHub};
 use tehas_ports::{
     Account, AccountId, AccountKind, Act, At, Cite, Cites, CloseReason, Colour, Kind, Login, Mark,
-    MarkName, MarkSpec, Outcome, Passing, Realm, Ref, Refusal, Sent, TicketKey, TicketState,
+    MarkName, MarkSpec, Outcome, Passing, Pool, Realm, Ref, Refusal, Sent, TicketKey, TicketState,
     TicketWrites, Tickets, Unprepared, Unread,
 };
 
@@ -31,6 +31,39 @@ impl GhRunner for Stub {
             .cloned()
             .unwrap_or_else(|| Err("no fixture".to_string()))
     }
+}
+
+/// Answers each call in turn as gh exits: `Ok` its output, `Err((why,
+/// printed))` an exit that failed with what gh printed beside it. A call
+/// past them panics.
+struct Exits {
+    answers: Vec<Result<String, (String, Option<String>)>>,
+    asked: Asked,
+}
+
+impl GhRunner for Exits {
+    fn run(&mut self, args: &[&str]) -> Result<String, String> {
+        self.run_answer(args).map_err(|f| f.why)
+    }
+
+    fn run_answer(&mut self, args: &[&str]) -> Result<String, Failed> {
+        let mut asked = self.asked.lock().unwrap();
+        asked.push(args.join(" "));
+        match self.answers.get(asked.len() - 1).cloned() {
+            Some(Ok(out)) => Ok(out),
+            Some(Err((why, answer))) => Err(Failed { why, answer }),
+            None => panic!("no answer for {args:?}"),
+        }
+    }
+}
+
+fn exits(answers: Vec<Result<String, (String, Option<String>)>>) -> (GitHub, Asked) {
+    let asked = Asked::default();
+    let runner = Exits {
+        answers,
+        asked: Arc::clone(&asked),
+    };
+    (GitHub::new("acme/widget", Box::new(runner)), asked)
 }
 
 fn adapter(answers: Vec<Result<&str, &str>>) -> (GitHub, Asked) {
@@ -64,11 +97,11 @@ const ISSUE: &str = r#"{"number":7,"title":"Make it so","state":"open","state_re
 "html_url":"https://github.com/acme/widget/issues/7"}"#;
 
 /// The answer of the question of the ticket #7 is a part of: #3.
-const PARENT: &str = r#"{"data":{"repository":{"databaseId":7001,"issue":{"number":7,"parent":{"number":3,"repository":{"databaseId":7001,"nameWithOwner":"acme/widget"}}}}}}"#;
+const PARENT: &str = r#"{"data":{"repository":{"databaseId":7001,"n7":{"number":7,"parent":{"number":3,"repository":{"databaseId":7001,"nameWithOwner":"acme/widget"}}}}}}"#;
 
 /// The same, of a ticket that is a part of none.
 const NO_PARENT: &str =
-    r#"{"data":{"repository":{"databaseId":7001,"issue":{"number":7,"parent":null}}}}"#;
+    r#"{"data":{"repository":{"databaseId":7001,"n7":{"number":7,"parent":null}}}}"#;
 
 #[test]
 fn a_tickets_digest_is_the_issues_rest_read_and_its_parent() {
@@ -76,7 +109,11 @@ fn a_tickets_digest_is_the_issues_rest_read_and_its_parent() {
     let got = gh.several(&[key(7)]);
     let asked = asked.lock().unwrap();
     assert_eq!(asked[0], "api repos/acme/widget/issues/7");
-    assert!(asked[1].contains("-F number=7"), "{}", asked[1]);
+    assert!(
+        asked[1].contains(" n7: issue(number: 7) { number parent "),
+        "{}",
+        asked[1]
+    );
     assert!(
         asked[1].contains("parent { number repository { databaseId nameWithOwner } }"),
         "{}",
@@ -128,7 +165,7 @@ fn a_parent_is_named_where_it_is_and_one_that_cannot_be_read_fails_the_digest() 
         })
     );
     // An answer that leaves the parent out does not say there is none.
-    let left_out = r#"{"data":{"repository":{"databaseId":7001,"issue":{"number":7}}}}"#;
+    let left_out = r#"{"data":{"repository":{"databaseId":7001,"n7":{"number":7}}}}"#;
     let (mut gh, _) = adapter(vec![Ok(ISSUE), Ok(left_out)]);
     assert_eq!(
         gh.several(&[key(7)]).remove(0).1,
@@ -144,6 +181,238 @@ fn a_parent_is_named_where_it_is_and_one_that_cannot_be_read_fails_the_digest() 
     );
 }
 
+/// The REST read of issue #n, as `ISSUE` is of #7.
+fn rest(n: u64) -> String {
+    ISSUE
+        .replace(r#""number":7"#, &format!(r#""number":{n}"#))
+        .replace("issues/7", &format!("issues/{n}"))
+}
+
+/// The parents of more than a hundred tickets: a question a hundred
+/// distinct numbers, none for a ticket whose read failed, a repeated one
+/// asked once.
+#[test]
+fn the_parents_of_many_tickets_are_asked_a_hundred_at_a_time() {
+    let mut keys: Vec<TicketKey> = (1..=150).map(key).collect();
+    keys.push(key(5));
+    let parents = |numbers: &[u64]| {
+        let nodes: Vec<String> = numbers
+            .iter()
+            .map(|n| {
+                let parent = match n {
+                    150 => "null".to_string(),
+                    _ => format!(
+                        r#"{{"number":{},"repository":{{"databaseId":7001,"nameWithOwner":"acme/widget"}}}}"#,
+                        n + 1000
+                    ),
+                };
+                format!(r#""n{n}":{{"number":{n},"parent":{parent}}}"#)
+            })
+            .collect();
+        format!(
+            r#"{{"data":{{"repository":{{"databaseId":7001,{}}}}}}}"#,
+            nodes.join(",")
+        )
+    };
+    let asked_numbers: Vec<u64> = (1..=150).filter(|n| *n != 9).collect();
+    let mut answers: Vec<Result<String, String>> = keys
+        .iter()
+        .map(|k| match k {
+            TicketKey::Number(n) if n.get() == 9 => Err("HTTP 404".to_string()),
+            TicketKey::Number(n) => Ok(rest(n.get())),
+            _ => unreachable!(),
+        })
+        .collect();
+    answers.push(Ok(parents(&asked_numbers[..100])));
+    answers.push(Ok(parents(&asked_numbers[100..])));
+    let (mut gh, asked) = adapter(
+        answers
+            .iter()
+            .map(|a| a.as_deref().map_err(String::as_str))
+            .collect(),
+    );
+    let got = gh.several(&keys);
+    let asked = asked.lock().unwrap();
+    assert_eq!(asked.len(), keys.len() + 2);
+    let questions = &asked[keys.len()..];
+    assert_eq!(questions[0].matches(": issue(number: ").count(), 100);
+    assert_eq!(questions[1].matches(": issue(number: ").count(), 49);
+    assert!(questions[1].contains(" n150: issue(number: 150) "));
+    assert!(!questions.iter().any(|q| q.contains(" n9: ")));
+    assert_eq!(got.len(), keys.len());
+    for ((k, d), want) in got.iter().zip(&keys) {
+        assert_eq!(k, want);
+        let TicketKey::Number(n) = k else {
+            unreachable!()
+        };
+        match n.get() {
+            9 => assert_eq!(*d, Err(Outcome::NotFound)),
+            150 => assert_eq!(d.as_ref().unwrap().parent, None),
+            n => assert_eq!(
+                d.as_ref().unwrap().parent,
+                Some(Ref::Here(key(n + 1000))),
+                "#{n}"
+            ),
+        }
+    }
+}
+
+/// A parents' answer that leaves an issue out, or says GitHub no longer
+/// knows it, fails that ticket alone; the others keep their parents.
+#[test]
+fn a_partial_parents_answer_fails_only_the_tickets_it_leaves_unanswered() {
+    let partial = r#"{"data":{"repository":{"databaseId":7001,
+"n7":{"number":7,"parent":{"number":3,"repository":{"databaseId":7001,"nameWithOwner":"acme/widget"}}},
+"n8":null}},
+"errors":[{"type":"NOT_FOUND","path":["repository","n8"],"message":"Could not resolve to an Issue with the number of 8."}]}"#;
+    // gh exits 1 on an answer with errors, and prints the answer.
+    let (mut gh, asked) = exits(vec![
+        Ok(rest(7)),
+        Ok(rest(8)),
+        Ok(rest(9)),
+        Err((": gh exited 1".to_string(), Some(partial.to_string()))),
+    ]);
+    let got = gh.several(&[key(7), key(8), key(9)]);
+    assert_eq!(asked.lock().unwrap().len(), 4);
+    assert_eq!(got[0].1.as_ref().unwrap().parent, Some(Ref::Here(key(3))));
+    assert_eq!(got[1].1, Err(Outcome::NotFound));
+    assert_eq!(got[2].1, Err(Outcome::Unread(Unread::Malformed)));
+}
+
+/// The parents of exactly a hundred tickets are one question.
+#[test]
+fn a_hundred_tickets_are_one_parents_question() {
+    let nodes: Vec<String> = (1..=100)
+        .map(|n| format!(r#""n{n}":{{"number":{n},"parent":null}}"#))
+        .collect();
+    let answer = format!(
+        r#"{{"data":{{"repository":{{"databaseId":7001,{}}}}}}}"#,
+        nodes.join(",")
+    );
+    let mut answers: Vec<String> = (1..=100).map(rest).collect();
+    answers.push(answer);
+    let (mut gh, asked) = adapter(answers.iter().map(|a| Ok(a.as_str())).collect());
+    let got = gh.several(&(1..=100).map(key).collect::<Vec<_>>());
+    let asked = asked.lock().unwrap();
+    assert_eq!(asked.len(), 101, "one question");
+    assert_eq!(asked[100].matches(": issue(number: ").count(), 100);
+    assert!(got
+        .iter()
+        .all(|(_, d)| d.as_ref().unwrap().parent.is_none()));
+}
+
+/// The alias of one number answered with the node of another: the answer
+/// is no answer for the number asked.
+#[test]
+fn a_parents_answer_of_another_number_is_inconsistent() {
+    let wrong = r#"{"data":{"repository":{"databaseId":7001,"n7":{"number":8,"parent":null}}}}"#;
+    let (mut gh, asked) = adapter(vec![Ok(ISSUE), Ok(wrong)]);
+    let got = gh.several(&[key(7)]);
+    assert_eq!(asked.lock().unwrap().len(), 2);
+    assert_eq!(got[0].1, Err(Outcome::Unread(Unread::Inconsistent)));
+}
+
+/// A rate limit on the first parents' question spends every ticket, and
+/// the second question is not asked.
+#[test]
+fn a_rate_limit_on_the_first_parents_question_asks_no_second() {
+    let keys: Vec<TicketKey> = (1..=101).map(key).collect();
+    let mut answers: Vec<Result<String, (String, Option<String>)>> =
+        (1..=101).map(|n| Ok(rest(n))).collect();
+    answers.push(Err((": rate limit".to_string(), None)));
+    let (gh, asked) = exits(answers);
+    let mut gh = gh.on_clock(|| 1_767_225_600);
+    let got = gh.several(&keys);
+    assert_eq!(asked.lock().unwrap().len(), 102, "no second question");
+    let spent = Err(Outcome::Spent {
+        pool: Pool::Priced,
+        until: At::new(1_767_225_600 + 60),
+    });
+    assert!(got.iter().all(|(_, d)| *d == spent), "{got:?}");
+}
+
+/// A rate limit on the second question of parents fails the tickets it
+/// asks as `Spent`; those of the first keep their parents.
+#[test]
+fn a_rate_limit_on_the_second_parents_question_spends_only_its_tickets() {
+    let keys: Vec<TicketKey> = (1..=101).map(key).collect();
+    let nodes: Vec<String> = (1..=100)
+        .map(|n| format!(r#""n{n}":{{"number":{n},"parent":null}}"#))
+        .collect();
+    let first = format!(
+        r#"{{"data":{{"repository":{{"databaseId":7001,{}}}}}}}"#,
+        nodes.join(",")
+    );
+    let mut answers: Vec<String> = (1..=101).map(rest).collect();
+    answers.push(first);
+    let mut answers: Vec<Result<&str, &str>> = answers.iter().map(|a| Ok(a.as_str())).collect();
+    answers.push(Err(": rate limit"));
+    let (gh, asked) = adapter(answers);
+    let mut gh = gh.on_clock(|| 1_767_225_600);
+    let got = gh.several(&keys);
+    assert_eq!(asked.lock().unwrap().len(), 103, "no question asked again");
+    assert!(got[..100]
+        .iter()
+        .all(|(_, d)| d.as_ref().unwrap().parent.is_none()));
+    assert_eq!(
+        got[100],
+        (
+            key(101),
+            Err(Outcome::Spent {
+                pool: Pool::Priced,
+                until: At::new(1_767_225_600 + 60),
+            })
+        )
+    );
+}
+
+/// The calls kit run #1 made of tehas-app/tehas-factory, as
+/// `out/calls.log` holds them, each with the recording of its answer.
+const LIVE_CALLS: &[(&str, &str)] = &[
+    (
+        "api graphql -F owner=tehas-app -F name=tehas-factory -f query=query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { databaseId n2824: issue(number: 2824) { number parent { number repository { databaseId nameWithOwner } } } } }",
+        "parent-2824.json",
+    ),
+    (
+        "api graphql -F owner=tehas-app -F name=tehas-factory -f query=query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { databaseId n2597: issue(number: 2597) { number parent { number repository { databaseId nameWithOwner } } } } }",
+        "parent-2597.json",
+    ),
+    (
+        "api graphql -F owner=tehas-app -F name=tehas-factory -f query=query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { databaseId n2597: issue(number: 2597) { number parent { number repository { databaseId nameWithOwner } } } n2824: issue(number: 2824) { number parent { number repository { databaseId nameWithOwner } } } } }",
+        "parents-2597-2824.json",
+    ),
+    ("api repos/tehas-app/tehas-factory/issues/2824", "rest-2824.json"),
+    ("api repos/tehas-app/tehas-factory/issues/2597", "rest-2597.json"),
+];
+
+/// A replay of `LIVE_CALLS`: a call answered from the recording of that
+/// very call, its whole text; any other call panics.
+struct Live {
+    asked: Asked,
+}
+
+impl GhRunner for Live {
+    fn run(&mut self, args: &[&str]) -> Result<String, String> {
+        let call = args.join(" ");
+        self.asked.lock().unwrap().push(call.clone());
+        match LIVE_CALLS.iter().find(|(c, _)| *c == call) {
+            Some((_, file)) => Ok(live(file)),
+            None => panic!("no recording of {call}"),
+        }
+    }
+}
+
+fn live_adapter() -> (GitHub, Asked) {
+    let asked = Asked::default();
+    let live = Live {
+        asked: Arc::clone(&asked),
+    };
+    (
+        GitHub::new("tehas-app/tehas-factory", Box::new(live)),
+        asked,
+    )
+}
+
 fn live(name: &str) -> String {
     let at = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/recorded/live-parent")
@@ -151,36 +420,57 @@ fn live(name: &str) -> String {
     std::fs::read_to_string(at).unwrap()
 }
 
-/// Read live from a public repository, 2026-11-24: GitHub's REST read of an
-/// issue leaves `parent_issue_url` out where the issue is a part of none
-/// (the recordings `rest-*.json` keep the fields that say so), so the
+/// Read live from tehas-app/tehas-factory, kit run #1, 2026-11-26: #2824 is
+/// a part of #2597, and #2597 a part of none. GitHub's REST read of an issue
+/// leaves `parent_issue_url` out where the issue is a part of none, so the
 /// adapter cannot tell none from an answer cut short there, and asks
-/// GraphQL, whose `parent` is null for none. The `parent-*.json` are
-/// GraphQL's answers to the adapter's own question.
+/// GraphQL, whose `parent` is null for none. `rest-*.json` are the REST
+/// reads, `parent-*.json` the adapter's parents' question of each ticket
+/// alone, `parents-2597-2824.json` of both in one question, each replayed as
+/// GitHub answered.
 #[test]
 fn the_parent_is_graphqls_since_rest_leaves_out_the_field_of_none() {
     let rest = |n: u32| -> serde_json::Value {
         serde_json::from_str(&live(&format!("rest-{n}.json"))).unwrap()
     };
-    assert_eq!(rest(2597)["has_parent_issue_url"], false);
-    assert_eq!(rest(2824)["has_parent_issue_url"], true);
-    let issue = |n: u32| {
-        ISSUE
-            .replace(r#""number":7"#, &format!(r#""number":{n}"#))
-            .replace(
-                "acme/widget/issues/7",
-                &format!("tehas-app/tehas-factory/issues/{n}"),
-            )
-    };
-    for (n, want) in [(2824, Some(Ref::Here(key(2597)))), (2597, None)] {
-        let (out, answer) = (issue(n), live(&format!("parent-{n}.json")));
-        let (mut gh, _) = adapter_in("tehas-app/tehas-factory", vec![Ok(&out), Ok(&answer)]);
+    assert!(rest(2597).get("parent_issue_url").is_none());
+    assert_eq!(
+        rest(2824)["parent_issue_url"],
+        "https://api.github.com/repos/tehas-app/tehas-factory/issues/2597"
+    );
+    for (n, title, want, question) in [
+        (
+            2824_u64,
+            "Trim the shell tests that stay in shell",
+            Some(Ref::Here(key(2597))),
+            0,
+        ),
+        (2597, "Epic: less shell in the tests", None, 1),
+    ] {
+        let (mut gh, asked) = live_adapter();
+        let digest = gh.several(&[key(n)]).remove(0).1.unwrap();
+        assert_eq!(digest.title, title, "#{n}");
+        assert_eq!(digest.parent, want, "#{n}");
         assert_eq!(
-            gh.several(&[key(n.into())]).remove(0).1.unwrap().parent,
-            want,
-            "#{n}"
+            *asked.lock().unwrap(),
+            [
+                format!("api repos/tehas-app/tehas-factory/issues/{n}"),
+                LIVE_CALLS[question].0.to_string()
+            ]
         );
     }
+    // Two tickets: one question, its numbers sorted, as recorded.
+    let (mut gh, asked) = live_adapter();
+    let got = gh.several(&[key(2824), key(2597)]);
+    assert_eq!(
+        got[0].1.as_ref().unwrap().parent,
+        Some(Ref::Here(key(2597)))
+    );
+    assert_eq!(got[1].1.as_ref().unwrap().parent, None);
+    assert_eq!(
+        *asked.lock().unwrap(),
+        [LIVE_CALLS[3].0, LIVE_CALLS[4].0, LIVE_CALLS[2].0]
+    );
 }
 
 /// The project is told by its repository's database id, never by its
@@ -189,11 +479,7 @@ fn the_parent_is_graphqls_since_rest_leaves_out_the_field_of_none() {
 /// project's, as one set to its name does.
 #[test]
 fn a_renamed_project_is_still_here_by_its_repository_id() {
-    let issue = ISSUE.replace(r#""number":7"#, r#""number":2824"#).replace(
-        "acme/widget/issues/7",
-        "tehas-app/tehas-factory/issues/2824",
-    );
-    let answer = live("parent-2824.json");
+    let (issue, answer) = (live("rest-2824.json"), live("parent-2824.json"));
     for configured in [
         "tehas-app/factory-before",
         "tehas-app/tehas-factory",
@@ -233,8 +519,8 @@ fn another_repositorys_id_is_elsewhere_whatever_its_name() {
     // An answer that names no id of this project's repository leaves the
     // handle nothing to tell here from elsewhere by.
     let unlearned = PARENT.replace(
-        r#"{"repository":{"databaseId":7001,"issue""#,
-        r#"{"repository":{"issue""#,
+        r#"{"repository":{"databaseId":7001,"n7""#,
+        r#"{"repository":{"n7""#,
     );
     let (mut gh, _) = adapter(vec![Ok(ISSUE), Ok(&unlearned)]);
     assert_eq!(

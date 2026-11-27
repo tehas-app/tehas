@@ -2,13 +2,21 @@
 //! fixture projects, under `tests/recorded/`: `<item>/<read>.json` is gh's
 //! answer and `<item>/<read>.fail` the reason the call failed, with
 //! `<item>/<read>.answer.json` beside it what gh printed as it failed. A
-//! call with no recording fails. It counts the calls it was asked.
+//! call with no recording panics. It counts the calls it was asked.
+//!
+//! The parents' question is answered alias by alias from each asked
+//! issue's `parent.json`, the answer of the one question that asked them
+//! all. An alias no recording holds panics: an answer is never made from
+//! another question's.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tehas_core::forge::{Failed, GhRunner};
 use tehas_github::GitHub;
+
+#[path = "../answers/mod.rs"]
+mod answers;
 
 /// The fixture project the recordings were made against.
 pub const PROJECT: &str = "acme/widget";
@@ -34,11 +42,35 @@ fn between<'a>(text: &'a str, open: &str, close: &str) -> Option<&'a str> {
     Some(&rest[..rest.find(close)?])
 }
 
+/// The parents' question, which asks each number under an alias `n<n>`.
+fn is_parents(query: &str) -> bool {
+    query.contains(") { number parent {")
+}
+
+/// The numbers the parents' question asked, in the order of its aliases.
+fn aliases(query: &str) -> Vec<u64> {
+    let open = ": issue(number: ";
+    let mut rest = query;
+    let mut out = Vec::new();
+    while let Some(i) = rest.find(open) {
+        let token = rest[..i].rsplit([' ', '{']).next().unwrap_or_default();
+        if let Some(no) = token.strip_prefix('n') {
+            if let Ok(no) = no.parse::<u64>() {
+                out.push(no);
+            }
+        }
+        rest = &rest[i + open.len()..];
+    }
+    out
+}
+
 /// The recording a question is answered from: its directory and its name.
 fn question(repo: &str, args: &[&str]) -> (String, String) {
     let field = |name: &str| args.iter().find_map(|a| a.strip_prefix(name));
     let query = field("query=").unwrap_or_default();
     let back = query.contains("last: 100, before");
+    // The parents' question never comes here: `run` routes it to
+    // `parents()` before reaching `question`.
     let (dir, mut name) = if let Some(first) = between(query, ": issue(number: ", ")") {
         ("closers".to_string(), format!("several-{first}"))
     } else if query.contains("since: $since") {
@@ -110,6 +142,39 @@ fn question(repo: &str, args: &[&str]) -> (String, String) {
     (dir, name)
 }
 
+impl Replay {
+    /// The parents' question: the answer recorded for each asked number,
+    /// alias by alias. An alias whose recording holds no node for it
+    /// panics: an answer is never made from another question's.
+    fn parents(&self, query: &str) -> Result<String, String> {
+        let asked = aliases(query);
+        if asked.is_empty() {
+            panic!("the parents' question asks no number: {query}");
+        }
+        let mut whole = None;
+        let mut held: Vec<u64> = Vec::new();
+        for no in &asked {
+            let at = answers::find(&format!("issue-{no}"), "parent.json")
+                .unwrap_or_else(|| panic!("no recording of the parents' question of {no}"));
+            let text =
+                std::fs::read_to_string(&at).unwrap_or_else(|e| panic!("{}: {e}", at.display()));
+            held.extend(
+                asked
+                    .iter()
+                    .copied()
+                    .filter(|n| text.contains(&format!("\"n{n}\""))),
+            );
+            whole = Some(text);
+        }
+        // Every asked alias must be held by some recording. The kit holds
+        // the whole question in each, so nothing legitimate changes.
+        if let Some(no) = asked.iter().find(|n| !held.contains(n)) {
+            panic!("no recording of the parents' question of {no}");
+        }
+        Ok(whole.unwrap_or_default())
+    }
+}
+
 impl GhRunner for Replay {
     /// `run`, and beside a `.fail` what gh printed as it failed, from
     /// `<read>.answer.json` where there is one.
@@ -132,7 +197,14 @@ impl GhRunner for Replay {
 
     fn run(&mut self, args: &[&str]) -> Result<String, String> {
         self.asked.0.store(self.asked.get() + 1, Ordering::SeqCst);
-        let none = || format!("no recording of {args:?}");
+        let none = || -> String { panic!("no recording of {args:?}") };
+        let query = args
+            .iter()
+            .find_map(|a| a.strip_prefix("query="))
+            .unwrap_or_default();
+        if is_parents(query) {
+            return self.parents(query);
+        }
         let (dir, name) = match args {
             ["api", "graphql", ..] => question(&self.repo, args),
             ["api", "-X", "DELETE", path] => {
@@ -156,15 +228,18 @@ impl GhRunner for Replay {
             }
             _ => return Err(none()),
         };
-        let at = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/recorded")
-            .join(dir);
-        if let Ok(out) = std::fs::read_to_string(at.join(format!("{name}.json"))) {
+        if let Some(at) = answers::find(&dir, &format!("{name}.json")) {
+            let out =
+                std::fs::read_to_string(&at).unwrap_or_else(|e| panic!("{}: {e}", at.display()));
             return Ok(out);
         }
-        match std::fs::read_to_string(at.join(format!("{name}.fail"))) {
-            Ok(why) => Err(why.trim_end().to_string()),
-            Err(_) => Err(format!("no recording {name} of {args:?}")),
+        match answers::find(&dir, &format!("{name}.fail")) {
+            Some(at) => {
+                let why = std::fs::read_to_string(&at)
+                    .unwrap_or_else(|e| panic!("{}: {e}", at.display()));
+                Err(why.trim_end().to_string())
+            }
+            None => panic!("no recording {name} of {args:?}"),
         }
     }
 }

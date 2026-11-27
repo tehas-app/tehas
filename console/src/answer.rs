@@ -31,6 +31,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 use tehas_core::file::READ_BOUND;
 use tehas_core::question::{Choice as Word, MAX_OPTIONS};
+use tehas_core::verb::Verb;
 use tehas_core::{exit, time};
 
 const USAGE: &str = "usage: tehas answer <issue> <choice> | --text <file> --by <login> [--json]";
@@ -233,7 +234,6 @@ pub fn main(given: &[String]) -> u8 {
         );
         return exit::FAILED;
     }
-    let n = a.issue.to_string();
     // The reply read from standard input, in a file of this account's only
     // while the store reads it.
     let held = match &a.choice {
@@ -273,15 +273,14 @@ pub fn main(given: &[String]) -> u8 {
             (Word::Text, None, Some(f))
         }
     };
-    let word = word.word();
-    let mut args = vec!["answer-record", &n, "--by", &a.by, "--choice", word];
-    if let Some(k) = &option {
-        args.extend(["--option", k]);
-    }
-    if let Some(f) = &file {
-        args.extend(["--text-file", f]);
-    }
-    let v = match store::call(&here, &args) {
+    let record = Verb::AnswerRecord {
+        issue: a.issue,
+        by: a.by.clone(),
+        choice: word,
+        option,
+        text_file: file,
+    };
+    let v = match store::call(&here, &record) {
         Ok(v) => v,
         Err(r) => {
             let rc = match r.word.as_str() {
@@ -311,7 +310,7 @@ pub fn main(given: &[String]) -> u8 {
     } else {
         let what = match a.choice {
             Choice::Option(k) => format!("option {k}"),
-            _ => word.to_string(),
+            _ => word.word().to_string(),
         };
         let again = if v["replaced"] == json!(true) {
             ", in place of the answer given before"

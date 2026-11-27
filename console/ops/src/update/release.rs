@@ -29,7 +29,7 @@ use std::time::Duration;
 use tehas_core::home::{Home, State};
 use tehas_core::{release, version};
 use tehas_ports::{
-    Actor, CodeHost, FileName, Got, Outcome, Passing, Release, Sent, TagName, ALL_MAX,
+    Actor, CodeHost, FileName, Got, Outcome, Passing, Release, Scope, Sent, TagName, ALL_MAX,
 };
 
 /// Seconds for each call out: a remote that stops answering fails the update.
@@ -39,8 +39,8 @@ const DOWNLOAD_LIMIT: u32 = 600;
 /// smaller, so a larger one is refused before it is fetched.
 const DOWNLOAD_MAX: u64 = 1 << 30;
 /// A code host handle on tehas's own release project, a site of its own
-/// (Decided 23), acting as `Actor::Operator`, the operator's gh as it is
-/// signed in, or as `Actor::Anonymous`, with no credential: the console's
+/// (Decided 23), acting as `Actor::Ours(Scope::Read)`, the factory's
+/// account at read scope, or as `Actor::Anonymous`, with no credential: the console's
 /// wiring makes it from the actor, the project and the bound of each call,
 /// so this module knows the port alone.
 pub type Releases<'a> = &'a dyn Fn(&Actor, &str, Duration) -> Got<Box<dyn CodeHost + Send>>;
@@ -354,7 +354,11 @@ fn repo() -> Result<String, u8> {
     Err(78)
 }
 
-/// Whether the operator's answer, to the handle's making or to its first
+/// The actor the release reads ask as first: the factory's account, which
+/// reads and writes nothing else here.
+const READS: Actor = Actor::Ours(Scope::Read);
+
+/// Whether the factory's answer, to the handle's making or to its first
 /// call, sends the update to the anonymous handle: a gh with no
 /// credential or one no longer good (`SignedOut`), one that may not read
 /// the project (`Forbidden`), or no gh to run, nothing sent
@@ -393,8 +397,8 @@ impl Stopped {
     }
 }
 
-/// The handle that answered `ask`, and its answer: the operator's, or the
-/// anonymous one when the operator's says so (`anonymous_instead`).
+/// The handle that answered `ask`, and its answer: the factory's at read
+/// scope, or the anonymous one when that says so (`anonymous_instead`).
 fn first<T>(
     site: Releases,
     repo: &str,
@@ -407,7 +411,7 @@ fn first<T>(
             Ok((h, got))
         })
     };
-    match on(&Actor::Operator) {
+    match on(&READS) {
         Err(o) if anonymous_instead(&o) => on(&Actor::Anonymous).map_err(|why| Stopped {
             anonymous: true,
             why,
@@ -1982,13 +1986,14 @@ mod tests {
             NAMES.iter().map(|n| n.to_string()).collect()
         }
 
-        /// A handle maker on `site` for the operator, that asserts the
-        /// project asked and that the anonymous handle is never made.
+        /// A handle maker on `site` for the factory at read scope, that
+        /// asserts the project asked and that the anonymous handle is never
+        /// made.
         fn on(
             site: impl Site + 'static,
         ) -> impl Fn(&Actor, &str, Duration) -> Got<Box<dyn CodeHost + Send>> {
             move |by, repo, _| {
-                assert_eq!((by, repo), (&Actor::Operator, "o/r"));
+                assert_eq!((by, repo), (&READS, "o/r"));
                 site.code_host(by, Caller::new("update"))
             }
         }
@@ -2035,15 +2040,14 @@ mod tests {
             let site = late(CodeHostOp::Download);
             assert!(!download(&site, "o/r", "v1.2.0", &d.0, &names()));
             let site = late(CodeHostOp::Releases);
-            let read =
-                site(&Actor::Operator, "o/r", Duration::ZERO).and_then(|mut h| h.releases(ALL_MAX));
+            let read = site(&READS, "o/r", Duration::ZERO).and_then(|mut h| h.releases(ALL_MAX));
             assert!(read.is_err());
         }
     }
 
     mod the_fallback {
-        //! The anonymous handle in the operator's place, on the ports' fake:
-        //! when the operator's handle, made or asked first, is signed out,
+        //! The anonymous handle in the factory's place, on the ports' fake:
+        //! when the factory's read handle, made or asked first, is signed out,
         //! forbidden or has no gh to run, and never on a failure of the
         //! site's (tehas-68, 2026-11-25).
 
@@ -2069,32 +2073,30 @@ mod tests {
             )
         }
 
-        /// How the operator's handle answers.
-        enum Operator {
+        /// How the factory's read handle answers.
+        enum Ours {
             /// Its making fails with this.
             Made(Outcome),
             /// Its first call of `op` fails with `fault`, and so does each.
             Asked(CodeHostOp, Fault),
         }
 
-        /// A handle maker: the operator's as `operator` says, the anonymous
+        /// A handle maker: the factory's as `ours` says, the anonymous
         /// one on the whole fake; `asked` keeps each actor a handle was made
         /// for, in order.
         fn maker(
-            operator: Operator,
+            ours: Ours,
             asked: &RefCell<Vec<Actor>>,
         ) -> impl Fn(&Actor, &str, Duration) -> Got<Box<dyn CodeHost + Send>> + '_ {
             move |by, repo, _| {
                 assert_eq!(repo, "o/r");
                 asked.borrow_mut().push(by.clone());
                 let caller = Caller::new("update");
-                match (by, &operator) {
-                    (Actor::Operator, Operator::Made(o)) => Err(o.clone()),
-                    (Actor::Operator, Operator::Asked(op, fault)) => {
-                        Faulty::new(FakeSite::new(&world()))
-                            .on(Op::CodeHost(*op), *fault)
-                            .code_host(by, caller)
-                    }
+                match (by, &ours) {
+                    (&READS, Ours::Made(o)) => Err(o.clone()),
+                    (&READS, Ours::Asked(op, fault)) => Faulty::new(FakeSite::new(&world()))
+                        .on(Op::CodeHost(*op), *fault)
+                        .code_host(by, caller),
                     (Actor::Anonymous, _) => FakeSite::new(&world()).code_host(by, caller),
                     (other, _) => panic!("no handle is made as {other:?}"),
                 }
@@ -2112,36 +2114,36 @@ mod tests {
         }
 
         #[test]
-        fn a_signed_out_operator_handle_reads_and_downloads_anonymously() {
+        fn a_signed_out_factory_handle_reads_and_downloads_anonymously() {
             let d = dir("release-fallback-signed-out");
             let asked = RefCell::new(Vec::new());
-            let site = maker(Operator::Made(Outcome::SignedOut), &asked);
+            let site = maker(Ours::Made(Outcome::SignedOut), &asked);
             assert!(download(&site, "o/r", "v1.2.0", &d.0, &names()));
             assert!(written(&d.0));
-            assert_eq!(*asked.borrow(), [Actor::Operator, Actor::Anonymous]);
+            // Absolute, not via READS: this is the claim itself, so a flip
+            // of READS to another actor fails here.
+            assert_eq!(
+                *asked.borrow(),
+                [Actor::Ours(Scope::Read), Actor::Anonymous],
+                "the update must ask as the factory's account at read scope, then anonymously"
+            );
             // The list too, when its first call answers signed out.
             let asked = RefCell::new(Vec::new());
-            let site = maker(
-                Operator::Asked(CodeHostOp::Releases, Fault::SignedOut),
-                &asked,
-            );
+            let site = maker(Ours::Asked(CodeHostOp::Releases, Fault::SignedOut), &asked);
             let got = first(&site, "o/r", Duration::ZERO, |h| h.releases(ALL_MAX));
             assert!(got.is_ok());
-            assert_eq!(*asked.borrow(), [Actor::Operator, Actor::Anonymous]);
+            assert_eq!(*asked.borrow(), [READS, Actor::Anonymous]);
         }
 
         #[test]
         fn a_forbidden_first_call_downloads_every_file_anonymously() {
             let d = dir("release-fallback-forbidden");
             let asked = RefCell::new(Vec::new());
-            let site = maker(
-                Operator::Asked(CodeHostOp::Download, Fault::Forbidden),
-                &asked,
-            );
+            let site = maker(Ours::Asked(CodeHostOp::Download, Fault::Forbidden), &asked);
             assert!(download(&site, "o/r", "v1.2.0", &d.0, &names()));
             assert!(written(&d.0));
             // One anonymous handle for all three files.
-            assert_eq!(*asked.borrow(), [Actor::Operator, Actor::Anonymous]);
+            assert_eq!(*asked.borrow(), [READS, Actor::Anonymous]);
         }
 
         #[test]
@@ -2152,19 +2154,19 @@ mod tests {
                 why: Passing::Unreachable,
                 sent: Sent::No,
             };
-            let site = maker(Operator::Made(no_gh), &asked);
+            let site = maker(Ours::Made(no_gh), &asked);
             assert!(download(&site, "o/r", "v1.2.0", &d.0, &names()));
             assert!(written(&d.0));
-            assert_eq!(*asked.borrow(), [Actor::Operator, Actor::Anonymous]);
+            assert_eq!(*asked.borrow(), [READS, Actor::Anonymous]);
             // Asked first, the same.
             let d = dir("release-fallback-unreachable-asked");
             let asked = RefCell::new(Vec::new());
             let site = maker(
-                Operator::Asked(CodeHostOp::Download, Fault::Unreachable),
+                Ours::Asked(CodeHostOp::Download, Fault::Unreachable),
                 &asked,
             );
             assert!(download(&site, "o/r", "v1.2.0", &d.0, &names()));
-            assert_eq!(*asked.borrow(), [Actor::Operator, Actor::Anonymous]);
+            assert_eq!(*asked.borrow(), [READS, Actor::Anonymous]);
         }
 
         #[test]
@@ -2176,14 +2178,14 @@ mod tests {
             ] {
                 let d = dir("release-fallback-server");
                 let asked = RefCell::new(Vec::new());
-                let site = maker(Operator::Asked(op, fault), &asked);
+                let site = maker(Ours::Asked(op, fault), &asked);
                 let got = if op == CodeHostOp::Download {
                     download(&site, "o/r", "v1.2.0", &d.0, &names())
                 } else {
                     first(&site, "o/r", Duration::ZERO, |h| h.releases(ALL_MAX)).is_ok()
                 };
                 assert!(!got, "{fault:?}");
-                assert_eq!(*asked.borrow(), [Actor::Operator], "{fault:?}");
+                assert_eq!(*asked.borrow(), [READS], "{fault:?}");
             }
             // Made with a server's failure, the same.
             let asked = RefCell::new(Vec::new());
@@ -2191,10 +2193,10 @@ mod tests {
                 why: Passing::Server,
                 sent: Sent::Maybe,
             };
-            let site = maker(Operator::Made(server), &asked);
+            let site = maker(Ours::Made(server), &asked);
             let d = dir("release-fallback-server-made");
             assert!(!download(&site, "o/r", "v1.2.0", &d.0, &names()));
-            assert_eq!(*asked.borrow(), [Actor::Operator]);
+            assert_eq!(*asked.borrow(), [READS]);
         }
 
         #[test]
@@ -2208,7 +2210,7 @@ mod tests {
                 FakeSite::new(&world).code_host(by, Caller::new("update"))
             };
             assert!(!download(&site, "o/r", "v1.2.0", &d.0, &names()));
-            assert_eq!(*asked.borrow(), [Actor::Operator]);
+            assert_eq!(*asked.borrow(), [READS]);
         }
 
         #[test]

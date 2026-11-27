@@ -63,7 +63,7 @@ impl GitHub {
             args.extend(["-f", &query]);
             let out = match self.call("the tags", &args) {
                 Ok(out) => out,
-                Err(e) => return Err(self.query_outcome(&e)),
+                Err(e) => return Err(self.query_outcome(&e, false)),
             };
             let page = read_tags(&out)?;
             let count = *total.get_or_insert(page.total);
@@ -109,7 +109,7 @@ impl GitHub {
         ];
         let out = match self.call("the tag", &args) {
             Ok(out) => out,
-            Err(e) => return Err(self.query_outcome(&e)),
+            Err(e) => return Err(self.query_outcome(&e, false)),
         };
         let v: OneAnswer = serde_json::from_str(out.trim()).map_err(|_| MALFORMED)?;
         let node = v

@@ -73,7 +73,7 @@ pub mod tickets {
 
     use crate::{
         AccountId, At, Bound, CloseReason, Depth, Filter, Mark, MarkHeld, Outcome, Ref, Refusal,
-        TicketDigest, TicketKey, TicketState, TicketWrites, Tickets, Took, WithCloser,
+        TicketDigest, TicketKey, TicketState, TicketWrites, Tickets, Took, WithCloser, Within,
     };
 
     /// A newest-first page against the whole list it is cut from: each
@@ -416,6 +416,110 @@ pub mod tickets {
         Ok(())
     }
 
+    /// Every read that builds a ticket's digest names its `parent` as
+    /// `parts` does, or refuses: `ticket` at every depth, `several`,
+    /// `several_with_closers`, `list` with the default filter within
+    /// `bound`, `recent` and `recently_closed` of `bound`'s size,
+    /// `closed_since(since)`, `delta` from the start within `bound`,
+    /// `search` of each ticket's title and `members` of each target a
+    /// ticket names. A read answered
+    /// `Refused(_)` holds nothing to check; any other failure breaks the
+    /// law. The fixture's `keys` hold the parent of every ticket among
+    /// them; a digest of a ticket outside them is not checked.
+    pub fn every_digest_answers_parent_or_refuses(
+        h: &mut dyn Tickets,
+        keys: &[TicketKey],
+        since: At,
+        bound: Bound,
+    ) -> Law {
+        const LAW: &str = "tickets::every_digest_answers_parent_or_refuses";
+        let first = NonZeroU32::new(bound.get()).unwrap_or(NonZeroU32::MIN);
+        let mut parts_of = Vec::new();
+        for k in keys {
+            parts_of.push((k.clone(), got(LAW, "parts", h.parts(k))?.into_items()));
+        }
+        let mut digests: Vec<(&str, TicketDigest)> = Vec::new();
+        for k in keys {
+            for depth in [Depth::Cut { notes: 0 }, Depth::All] {
+                if let Some(t) = answered(LAW, "ticket", h.ticket(k, depth, None))? {
+                    digests.push(("ticket", t.digest));
+                }
+            }
+        }
+        for (_, a) in h.several(keys) {
+            if let Some(d) = answered(LAW, "several", a)? {
+                digests.push(("several", d));
+            }
+        }
+        for (_, a) in h.several_with_closers(keys) {
+            if let Some(w) = answered(LAW, "several_with_closers", a)? {
+                digests.push(("several_with_closers", w.digest));
+            }
+        }
+        if let Some(l) = answered(LAW, "list", h.list(&Filter::default(), bound))? {
+            digests.extend(l.into_items().into_iter().map(|d| ("list", d)));
+        }
+        if let Some(t) = answered(LAW, "recent", h.recent(&Filter::default(), first))? {
+            digests.extend(t.items.into_iter().map(|d| ("recent", d)));
+        }
+        if let Some(t) = answered(LAW, "recently_closed", h.recently_closed(first))? {
+            digests.extend(t.items.into_iter().map(|c| ("recently_closed", c.digest)));
+        }
+        if let Some(w) = answered(LAW, "closed_since", h.closed_since(since, bound))? {
+            digests.extend(
+                w.into_items()
+                    .into_iter()
+                    .map(|c| ("closed_since", c.digest)),
+            );
+        }
+        if let Some(d) = answered(LAW, "delta", h.delta(None, bound))? {
+            digests.extend(d.tickets.into_iter().map(|c| ("delta", c.digest)));
+        }
+        let mut titles = Vec::new();
+        let mut targets = Vec::new();
+        for (_, d) in &digests {
+            if keys.contains(&d.key) && !titles.contains(&d.title) {
+                titles.push(d.title.clone());
+            }
+            if let Some(t) = d.target.as_ref().filter(|t| !targets.contains(&t.id)) {
+                targets.push(t.id.clone());
+            }
+        }
+        for title in titles {
+            let hits = h.search(&title, Within::Titles, None, first);
+            if let Some(t) = answered(LAW, "search", hits)? {
+                digests.extend(t.items.into_iter().map(|d| ("search", d)));
+            }
+        }
+        for id in targets {
+            if let Some(w) = answered(LAW, "members", h.members(&id, bound))? {
+                digests.extend(w.into_items().into_iter().map(|d| ("members", d)));
+            }
+        }
+        for (read, d) in digests.iter().filter(|(_, d)| keys.contains(&d.key)) {
+            let want = parts_of
+                .iter()
+                .find(|(_, parts)| parts.iter().any(|p| p.key == Ref::Here(d.key.clone())))
+                .map(|(p, _)| Ref::Here(p.clone()));
+            hold(d.parent == want, LAW, || {
+                format!(
+                    "{read} gave {:?} the parent {:?}, the parts say {want:?}",
+                    d.key, d.parent
+                )
+            })?;
+        }
+        Ok(())
+    }
+
+    /// The value of an answer, None where it was refused, or the law
+    /// broken by any other outcome.
+    fn answered<T>(law: &str, what: &str, answer: crate::Got<T>) -> Result<Option<T>, Broken> {
+        match answer {
+            Err(Outcome::Refused(_)) => Ok(None),
+            other => got(law, what, other).map(Some),
+        }
+    }
+
     /// `labels` holds every label the site holds on a ticket, by the
     /// site's own name and in the site's order, a name no mark can have
     /// among them, and nothing else: in the digest `several` gives, and in
@@ -496,6 +600,35 @@ pub mod tickets {
             let want = if t.closed.is_some() { t.closer } else { None };
             hold(closer == want, LAW, || {
                 format!("{k:?}'s closer is {closer:?}, the ticket says {want:?}")
+            })?;
+        }
+        Ok(())
+    }
+
+    /// `several_with_closers` lists a closed ticket's merged changes as
+    /// `closed_since` lists them, and none of an open one. The fixture
+    /// holds `keys`, closed and open, every closed ticket within `bound`.
+    pub fn several_lists_merged_as_closed_since(
+        h: &mut dyn Tickets,
+        keys: &[TicketKey],
+        bound: Bound,
+    ) -> Law {
+        const LAW: &str = "tickets::several_lists_merged_as_closed_since";
+        let since = got(LAW, "closed_since", h.closed_since(At::new(0), bound))?.into_items();
+        for (k, answer) in h.several_with_closers(keys) {
+            let with = got(LAW, "several_with_closers", answer)?;
+            let listed = since.iter().find(|c| c.digest.key == k);
+            hold(
+                listed.is_some() || with.digest.state == TicketState::Open,
+                LAW,
+                || format!("{k:?} is closed and closed_since does not list it"),
+            )?;
+            let want = listed.map(|c| c.merged.clone()).unwrap_or_default();
+            hold(with.merged == want, LAW, || {
+                format!(
+                    "{k:?}'s merged changes are {:?}, closed_since lists {want:?}",
+                    with.merged
+                )
             })?;
         }
         Ok(())
@@ -2572,9 +2705,9 @@ pub mod markers {
 pub mod scopes {
     use super::{got, hold, Law};
     use crate::{
-        Access, Blobs, ChangeNo, ChangeState, CloseReason, CodeHostWrites, CommitId, Depth,
-        FileName, Filter, Mark, MergeHow, NewRelease, NewTicket, Outcome, Proposal, Status, Sum,
-        TagName, TicketKey, TicketWrites, ALL_MAX,
+        Access, Actor, Blobs, Caller, ChangeNo, ChangeState, CloseReason, CodeHostWrites, CommitId,
+        Depth, FileName, Filter, Mark, MergeHow, NewRelease, NewTicket, Outcome, Proposal, Scope,
+        Site, Status, Sum, TagName, TicketKey, TicketWrites, ALL_MAX,
     };
 
     /// What a scope's refused writes on a change and a release are asked
@@ -2822,6 +2955,40 @@ pub mod scopes {
         hold(now == tickets, LAW, || {
             format!("the refused filing left {now} tickets, not {tickets}")
         })
+    }
+
+    /// The factory's account at read scope reads and writes nothing: a
+    /// code host read handle answers `releases`, its remote fetches and a
+    /// push is `Forbidden`, the tickets, blueprints and board read handles
+    /// are made, and a write handle of every port is `Forbidden`.
+    pub fn read_scope_fetches_and_writes_nothing(site: &dyn Site, caller: Caller) -> Law {
+        const LAW: &str = "scopes::read_scope_fetches_and_writes_nothing";
+        let by = Actor::Ours(Scope::Read);
+        let mut h = got(LAW, "a code host read handle", site.code_host(&by, caller))?;
+        got(LAW, "releases", h.releases(ALL_MAX))?;
+        got(LAW, "a remote to fetch", h.remote(Access::Fetch))?;
+        let push = h.remote(Access::Push).map(drop);
+        hold(push == Err(Outcome::Forbidden), LAW, || {
+            format!("a push remote at read scope answered {push:?}")
+        })?;
+        got(LAW, "a tickets read handle", site.tickets(&by, caller))?;
+        got(
+            LAW,
+            "a blueprints read handle",
+            site.blueprints(&by, caller),
+        )?;
+        got(LAW, "a board read handle", site.board(&by, caller))?;
+        let writes = [
+            ("tickets", site.ticket_writes(&by, caller).map(drop)),
+            ("blueprints", site.blueprint_writes(&by, caller).map(drop)),
+            ("code host", site.code_host_writes(&by, caller).map(drop)),
+        ];
+        for (port, answer) in writes {
+            hold(answer == Err(Outcome::Forbidden), LAW, || {
+                format!("a {port} write handle at read scope answered {answer:?}")
+            })?;
+        }
+        Ok(())
     }
 }
 

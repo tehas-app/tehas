@@ -1,0 +1,29 @@
+HTTP/2 200 
+date: Thu, 26 Nov 2026 14:14:16 GMT
+content-type: application/json; charset=utf-8
+cache-control: public, max-age=60, s-maxage=60
+vary: Accept,Accept-Encoding, Accept, X-Requested-With
+etag: W/"30489e9d3613ab802366ed2619f5772105fbb4943b4508d4aea8ef25959801e3"
+last-modified: Thu, 26 Nov 2026 14:09:41 GMT
+x-github-media-type: github.v3; format=json
+x-github-api-version-selected: 2022-11-28
+access-control-expose-headers: ETag, Link, Location, Retry-After, X-GitHub-OTP, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Used, X-RateLimit-Resource, X-RateLimit-Reset, X-OAuth-Scopes, X-Accepted-OAuth-Scopes, X-Poll-Interval, X-GitHub-Media-Type, X-GitHub-SSO, X-GitHub-Request-Id, Deprecation, Sunset, Warning
+access-control-allow-origin: *
+strict-transport-security: max-age=31536000; includeSubdomains; preload
+x-frame-options: deny
+x-content-type-options: nosniff
+x-xss-protection: 0
+referrer-policy: origin-when-cross-origin, strict-origin-when-cross-origin
+content-security-policy: default-src 'none'
+server: github.com
+accept-ranges: bytes
+x-ratelimit-limit: 60
+x-ratelimit-remaining: 36
+x-ratelimit-used: 24
+x-ratelimit-resource: core
+x-ratelimit-reset: 1795704168
+content-length: 2201
+x-github-request-id: B87A:64220:4DCF48C:72CD745:6B083EB8
+x-github-edge-region: fra
+
+[{"name":"v1.4.0","zipball_url":"https://api.github.com/repos/tehas-app/tehas-rec-releases/zipball/refs/tags/v1.4.0","tarball_url":"https://api.github.com/repos/tehas-app/tehas-rec-releases/tarball/refs/tags/v1.4.0","commit":{"sha":"e359d23e1d64c6b30b5d400efe3976b49df99a69","url":"https://api.github.com/repos/tehas-app/tehas-rec-releases/commits/e359d23e1d64c6b30b5d400efe3976b49df99a69"},"node_id":"REF_kwDOV8_-FLByZWZzL3RhZ3MvdjEuNC4w"},{"name":"v1.2.0","zipball_url":"https://api.github.com/repos/tehas-app/tehas-rec-releases/zipball/refs/tags/v1.2.0","tarball_url":"https://api.github.com/repos/tehas-app/tehas-rec-releases/tarball/refs/tags/v1.2.0","commit":{"sha":"e359d23e1d64c6b30b5d400efe3976b49df99a69","url":"https://api.github.com/repos/tehas-app/tehas-rec-releases/commits/e359d23e1d64c6b30b5d400efe3976b49df99a69"},"node_id":"REF_kwDOV8_-FLByZWZzL3RhZ3MvdjEuMi4w"},{"name":"v1.1.0","zipball_url":"https://api.github.com/repos/tehas-app/tehas-rec-releases/zipball/refs/tags/v1.1.0","tarball_url":"https://api.github.com/repos/tehas-app/tehas-rec-releases/tarball/refs/tags/v1.1.0","commit":{"sha":"f703bfa5b38d4088f9235eed9fde20a16370e0ee","url":"https://api.github.com/repos/tehas-app/tehas-rec-releases/commits/f703bfa5b38d4088f9235eed9fde20a16370e0ee"},"node_id":"REF_kwDOV8_-FLByZWZzL3RhZ3MvdjEuMS4w"},{"name":"v1.0.0","zipball_url":"https://api.github.com/repos/tehas-app/tehas-rec-releases/zipball/refs/tags/v1.0.0","tarball_url":"https://api.github.com/repos/tehas-app/tehas-rec-releases/tarball/refs/tags/v1.0.0","commit":{"sha":"3b2bc922e522fe40d66ccf796c60593ace42d282","url":"https://api.github.com/repos/tehas-app/tehas-rec-releases/commits/3b2bc922e522fe40d66ccf796c60593ace42d282"},"node_id":"REF_kwDOV8_-FLByZWZzL3RhZ3MvdjEuMC4w"},{"name":"v0.9.0","zipball_url":"https://api.github.com/repos/tehas-app/tehas-rec-releases/zipball/refs/tags/v0.9.0","tarball_url":"https://api.github.com/repos/tehas-app/tehas-rec-releases/tarball/refs/tags/v0.9.0","commit":{"sha":"8291811765fd8c6bbcf77bca477ad3976046e86a","url":"https://api.github.com/repos/tehas-app/tehas-rec-releases/commits/8291811765fd8c6bbcf77bca477ad3976046e86a"},"node_id":"REF_kwDOV8_-FLByZWZzL3RhZ3MvdjAuOS4w"}]

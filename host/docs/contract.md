@@ -1167,6 +1167,37 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Readers: adopters (the GitHub budget), people on an issue, the
   end-to-end suite.
   Adopter action: none.
+- **The plan written onto its issue keeps the issue's markers.** #3223.
+  A planning or refine session that writes the plan onto its issue, and
+  the "Replaces #n" line on a filed issue, replace the issue's text and
+  leave tehas's markers in it where they stand. 1.x replaced the whole
+  body, so a restraint marker on the issue was lost with the old text.
+  Readers: people on an issue, the end-to-end suite.
+  Adopter action: none.
+- **A sub-issue of another issue is not moved.** #3202, #3220.
+  A refine links its new issue as a part of the original after one read
+  of the new issue's parent. A part already under that parent is done
+  with nothing sent. A part of another issue, in this repository or in
+  another, is never moved: the link fails before any write and the poll
+  says so in `logs/dispatch.log`.
+  Readers: adopters, people on an issue.
+  Adopter action: none.
+- **A bot listed in `TEHAS_ALLOWED_LABELERS` no longer counts.** #3204.
+  `state/account-ids` keys a GitHub App's bot by its whole login,
+  `<slug>[bot]`, and a person or an organisation by its login. The list
+  takes logins only, so a bare name there is a person's or an
+  organisation's, and the label events of a bot app of that name do not
+  count for it, where 1.x folded the bot onto the bare name. The only bot
+  that counts is the millwright (the factory's own app, or the one
+  `TEHAS_MILLWRIGHT_APP` names). A file that keeps a known bot under a
+  bare name alone is not read: the dispatcher exits 78 naming
+  `console ids record`, which `tehas update` runs.
+  Readers: adopters, the consumer that runs many factories, the end-to-end
+  suite.
+  Adopter action: a factory that relied on a bot listed bare to approve
+  makes it the millwright or takes it off the list. If `tehas update`
+  stops because a bare pair holds another id and that pair was the bot,
+  run `tehas update --accept-id <slug>[bot]`.
 - **tehas's own `gh` writes are sent once.** #2946.
   A rate-limited write that tehas's programs send themselves, the poll's,
   those of `tehasbot status` and the tidy, the console's commands, and the
@@ -1175,6 +1206,18 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   calls under `timeout`, the container's `gh`, the relay's calls for it and
   a `gh` an operator runs on the host keep the retry.
   Readers: adopters, the end-to-end suite.
+  Adopter action: none.
+- **A rate-limited read holds its budget a minute, at most an hour.**
+  #3378. A limit GitHub reports with no time it resets (a GraphQL
+  `RATE_LIMITED`, gh's 429 or its words of a primary or secondary limit, a
+  bare 429 to the anonymous reader, or a 403 to it with its budget spent or
+  a `retry-after` whose time cannot be read) holds that budget out for 60
+  seconds: the factory asks again after a minute. 1.x held it until now
+  and asked again at once. A reset time or `retry-after` GitHub gives is kept, but
+  never past an hour from the answer; one at or before the answer (a
+  skewed clock, a negative `retry-after`) holds the minute.
+  Readers: adopters (the GitHub budget), the consumer that runs many
+  factories, the end-to-end suite.
   Adopter action: none.
 - **The host files a drafted plan.** #3158.
   **File as a new issue** in a refine session files the drafted plan
@@ -1281,6 +1324,16 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Readers: adopters, people on an issue.
   Adopter action: none. After the update the marks fill themselves over a
   few polls.
+- **The tidy reads what closed its issues through the tickets port.**
+  `console tidy run` gives `tehas:shipped` by the rule `tehasbot status`
+  uses, from the same closer and merged pull requests of this repository.
+  A pull request of another repository no longer earns the label. A read
+  that fails, or does not read one of the issues, is still one line,
+  `WARN: tidy: the read of what closed these issues failed: <reason>,
+  tehas:shipped was not added for N issues`; the reason is the port's
+  outcome in tehas's words, not gh's.
+  Readers: adopters who read the dispatch log.
+  Adopter action: none.
 - **Two settings name the adapters.** #3359.
   `TEHAS_CODE_HOST` names the code host and `TEHAS_TICKETS` the ticket
   tracker. In 2.0 each takes `github` alone, where `TEHAS_TICKETS=github` is

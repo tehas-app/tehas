@@ -27,6 +27,7 @@ mod edits;
 
 use super::blueprint_writes::{comment_revision, ends_with_folded, read_issue, revision};
 use super::unsupported;
+use crate::graphql::priced;
 use crate::ticket::CUT_TEXT;
 use crate::tickets::{account, Bot};
 use crate::{gh, markers, GitHub};
@@ -593,17 +594,6 @@ fn one<K>(mut several: Vec<(K, Got<Whole<Edit>>)>) -> Got<Whole<Edit>> {
 /// (a comment deleted since its page was read among them).
 fn answer<T: serde::de::DeserializeOwned>(out: &str, at: &str, now: i64) -> Got<T> {
     crate::graphql::part(out, at, now)
-}
-
-/// A spent budget of a GraphQL call is the priced pool's.
-fn priced(o: Outcome) -> Outcome {
-    match o {
-        Outcome::Spent { until, .. } => Outcome::Spent {
-            pool: Pool::Priced,
-            until,
-        },
-        o => o,
-    }
 }
 
 /// The fields of an issue's REST answer the read takes beside

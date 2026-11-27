@@ -312,18 +312,16 @@ pub(crate) fn temp_dir(parent: &Path, prefix: &str) -> io::Result<PathBuf> {
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.subsec_nanos());
     let seed = u64::from(std::process::id()) << 32 | u64::from(nanos);
-    for n in 0..64u64 {
-        let dir = parent.join(format!(
+    let next = |n| {
+        let n = u64::from(n);
+        Ok(format!(
             "{prefix}{:06x}",
             seed.wrapping_add(n).wrapping_mul(0x9e37_79b9_7f4a_7c15) >> 40
-        ));
-        match fs::DirBuilder::new().mode(0o700).create(&dir) {
-            Ok(()) => return Ok(dir),
-            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(e) => return Err(e),
-        }
-    }
-    Err(io::ErrorKind::AlreadyExists.into())
+        ))
+    };
+    tehas_core::file::fresh(parent, 64, next, |dir| {
+        fs::DirBuilder::new().mode(0o700).create(dir)
+    })
 }
 
 /// The settings an update reads. `TEHAS_HOME` is what the script's `tehas_load`

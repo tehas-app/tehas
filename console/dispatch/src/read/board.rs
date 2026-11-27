@@ -91,7 +91,6 @@ pub fn queue(
     });
     Mapped {
         queue: Queue {
-            repo: Some(words.repo.to_string()),
             open,
             closed_running: Vec::new(),
             open_pulls,
@@ -276,8 +275,8 @@ pub(crate) mod fake {
     use std::num::NonZeroU32;
     use tehas_ports::fake::{FakeSite, World};
     use tehas_ports::{
-        Actor, BoardAsk, Bound, Caller, ChangeDigest, ChangeFilter, ChangeStates, Depth,
-        HappenedKind, Mark, OpenWork, Scope, Site, Window, ALL_MAX,
+        Actor, BoardAsk, Bound, Caller, ChangeDigest, ChangeStates, Depth, HappenedKind, Mark,
+        OpenWork, Scope, Site, Window, ALL_MAX,
     };
 
     const THE_TABLE: &str = include_str!("../../../../host/labels.tsv");
@@ -325,21 +324,6 @@ pub(crate) mod fake {
             Window::Last(NonZeroU32::new(20).unwrap()),
         ));
         board.open_work(&ask, Bound::new(100).unwrap()).unwrap()
-    }
-
-    /// The open changes of `world` with their bodies, as rule 6 asks them.
-    pub(crate) fn pulls(world: &World) -> Vec<ChangeDigest> {
-        let site = FakeSite::new(world);
-        let mut host = site
-            .code_host(&Actor::Ours(Scope::Full), Caller::new("test"))
-            .unwrap();
-        let filter = ChangeFilter {
-            bodies: true,
-            ..Default::default()
-        };
-        host.changes(&filter, Bound::new(100).unwrap())
-            .unwrap()
-            .into_items()
     }
 
     /// The board's answer and the open changes mapped, each mark spelt by the
@@ -500,7 +484,6 @@ mod tests {
         let m = mapped(&world, None);
         assert_eq!(numbers(&m), [1, 21, 22, 23], "the board's order");
         assert!(m.unread.is_empty());
-        assert_eq!(m.queue.repo.as_deref(), Some(REPO));
         let o = &m.queue.open[1];
         assert_eq!(o.labels, ["act:block"]);
         let i = github::issue(o);

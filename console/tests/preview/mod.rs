@@ -30,6 +30,7 @@ macro_rules! cases {
 const GH: &str = include_str!("gh.sh");
 const DOCKER: &str = include_str!("docker.sh");
 const DF: &str = include_str!("df.sh");
+const VERDICT: &str = include_str!("gh-verdict.sh");
 
 /// The jq program of the shell's pull(): an open pull request as GitHub serves
 /// it, opened by a member of the repository.
@@ -49,6 +50,7 @@ pub fn host(name: &str) -> World {
         fs::remove_file(w.t().join("bin").join(name)).unwrap();
     }
     w.gh_stub(GH);
+    w.stub("gh-verdict", VERDICT);
     w.stub("docker", DOCKER);
     w.stub("df", DF);
     w.stub("sleep", "");
