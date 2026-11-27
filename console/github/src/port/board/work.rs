@@ -381,8 +381,8 @@ impl GitHub {
     ) -> Got<(Issues, HashMap<usize, Outcome>)> {
         let (out, failed) = match self.ask_answer("the open work", question, cursor) {
             Ok(out) => (out, None),
-            Err((e, Some(out))) => (out, Some(self.outcome(&e))),
-            Err((e, None)) => return Err(self.outcome(&e)),
+            Err((e, Some(out))) => (out, Some(self.outcome_queue_read(&e))),
+            Err((e, None)) => return Err(self.outcome_queue_read(&e)),
         };
         let fail = |or: Outcome| failed.clone().unwrap_or(or);
         let read = || -> Option<PageAnswer> {

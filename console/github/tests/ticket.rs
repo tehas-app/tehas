@@ -657,8 +657,19 @@ fn a_question_gh_gives_no_reason_for_is_settled_by_the_issues_read() {
         assert_eq!(asked.lock().unwrap().len(), 1, "{why}");
         let (mut gh, _) = stub(vec![Err(why)]);
         assert_eq!(gh.parts(&key(7)), Err(want.clone()), "{why}");
+        // `list` is a read the poll's queue asks: its bare 403 is the bad
+        // minute the queue read retries once, not a refusal.
+        let list_want = if why == ": HTTP 403" {
+            SERVER
+        } else {
+            want.clone()
+        };
         let (mut gh, _) = stub(vec![Err(why)]);
-        assert_eq!(gh.list(&Filter::default(), bound(5)), Err(want), "{why}");
+        assert_eq!(
+            gh.list(&Filter::default(), bound(5)),
+            Err(list_want),
+            "{why}"
+        );
     }
     // A key that is no number names no ticket here: no call.
     let (mut gh, asked) = stub(vec![]);
@@ -669,6 +680,55 @@ fn a_question_gh_gives_no_reason_for_is_settled_by_the_issues_read() {
         Err(Outcome::Refused(Refusal::Invalid))
     );
     assert!(asked.lock().unwrap().is_empty());
+}
+
+/// The queue's reads answer a 403 by what it says: the bare one and the
+/// ones carrying limit headers are the bad minute the poll's queue read
+/// asks once more, and the one naming its permission is a refusal the
+/// poll never asks again. `list` stands for the queue's reads; the rule
+/// is the one of `outcome_queue_read` in the crate.
+#[test]
+fn a_403_that_says_retry_after_is_a_bad_minute_of_the_timeout() {
+    let (mut gh, asked) = stub(vec![Err(": HTTP 403: slow down, retry-after: 3")]);
+    assert_eq!(
+        gh.list(&Filter::default(), bound(5)),
+        Err(Outcome::Unavailable {
+            why: Passing::Timeout,
+            sent: Sent::Maybe,
+        })
+    );
+    assert_eq!(
+        asked.lock().unwrap().len(),
+        1,
+        "asked once, the poll retries"
+    );
+}
+
+#[test]
+fn a_403_that_says_the_budget_is_empty_is_a_bad_minute_of_the_site() {
+    let (mut gh, asked) = stub(vec![Err(": HTTP 403: x-ratelimit-remaining: 0")]);
+    assert_eq!(
+        gh.list(&Filter::default(), bound(5)),
+        Err(Outcome::Unavailable {
+            why: Passing::Server,
+            sent: Sent::Maybe,
+        })
+    );
+    assert_eq!(
+        asked.lock().unwrap().len(),
+        1,
+        "asked once, the poll retries"
+    );
+}
+
+#[test]
+fn a_403_that_names_its_permission_is_a_refusal_the_queue_never_asks_again() {
+    let (mut gh, asked) = stub(vec![Err(": HTTP 403: Forbidden")]);
+    assert_eq!(
+        gh.list(&Filter::default(), bound(5)),
+        Err(Outcome::Forbidden)
+    );
+    assert_eq!(asked.lock().unwrap().len(), 1, "asked once, no retry owed");
 }
 
 #[test]
