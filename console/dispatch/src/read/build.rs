@@ -12,10 +12,11 @@ use crate::text;
 use crate::text::closing_numbers;
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
+use std::num::NonZeroU64;
 use std::path::Path;
 use tehas_core::events::{pause_holds, Events};
 use tehas_core::home::{Home, State};
-use tehas_ports::{BlueprintNo, Bound, Outcome, Unread};
+use tehas_ports::{BlockerState, BlueprintNo, Board, Bound, Outcome, Unread};
 
 /// Where the snapshot reads from, and with what.
 pub struct Sources<'a> {
@@ -34,8 +35,10 @@ pub struct Sources<'a> {
     /// it made none, and an edit history read through it is then a failed
     /// read.
     pub blueprints: Option<Box<dyn tehas_ports::Blueprints>>,
-    /// The board handle of the queue read, from the program's wiring:
-    /// None when it made none, and the poll then fails closed on the queue.
+    /// The board handle, from the program's wiring: the queue read asks it
+    /// for the open work, and the blockers' states are read through it.
+    /// None when it made none: the poll fails closed on the queue, and no
+    /// blocker's state is readable.
     pub board: Option<Box<dyn tehas_ports::Board>>,
     /// The tickets handle: the queue reads the closed issues still carrying
     /// the running mark, the repository's marks and, when asked, the
@@ -764,7 +767,8 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     // answers left, and an issue the question read answered first keeps that
     // answer rather than a second one for the same number.
     let lifted: BTreeMap<u64, Value> = lifting.into_iter().zip(read).collect();
-    let states = blocker_reads(calls, &c.repo, &q, &candidates, &comments, &asked_of);
+    let board = src.board.as_mut().map(|b| b.as_mut() as &mut dyn Board);
+    let states = blocker_reads(board, &q, &candidates, &comments, &asked_of);
 
     // The candidates of rule 6: what their start rests on. Membership of the
     // blocked batch is decided once, in `blocked_list`, and of the lifting
@@ -984,16 +988,19 @@ fn lifting_parks(
 }
 
 /// The states of the blockers the blocked candidates' comments name, in one
-/// call for the union of them (#1161).
+/// read of the board for the union of them (#1161), in the words decide
+/// reads: OPEN, CLOSED or MERGED.
 ///
 /// The comment read answers every number it was given, in order, so a missing
 /// answer is a broken contract rather than a value to paper over. The union
 /// covers what the whole queue names, including the issues whose comments the
 /// question read gave. A queue that names no blocker is a list of none, and
-/// the poll pays no call for it.
+/// the poll pays no call for it. A number the board did not answer, and every
+/// number where the wiring made no board, is absent, which is what decide
+/// reads as "unreadable". More than `ALL_MAX` (1000) distinct blockers are
+/// all `Unread(Cut)` at the board, so every issue they hold stays held.
 fn blocker_reads(
-    calls: &mut Calls,
-    repo: &str,
+    board: Option<&mut dyn Board>,
     q: &github::Queue,
     candidates: &[u64],
     comments: &BTreeMap<u64, Value>,
@@ -1011,12 +1018,21 @@ fn blocker_reads(
     }
     union.sort_unstable();
     union.dedup();
-    // The states arrive by number, so an issue's map is built from the typed
-    // answer rather than from stringified JSON: a number GitHub did not answer
-    // is simply absent, which is what decide reads as "unreadable".
-    github::blocker_states(calls, repo, &union)
+    let numbers: Vec<NonZeroU64> = union.into_iter().filter_map(NonZeroU64::new).collect();
+    let Some(board) = board.filter(|_| !numbers.is_empty()) else {
+        return BTreeMap::new();
+    };
+    board
+        .as_blockers(&numbers)
         .into_iter()
-        .filter_map(|(k, v)| Some((k.parse().ok()?, v.as_str()?.to_string())))
+        .filter_map(|(n, b)| {
+            let word = match b.ok()?.state {
+                BlockerState::Open => "OPEN",
+                BlockerState::Closed => "CLOSED",
+                BlockerState::Merged => "MERGED",
+            };
+            Some((n.get(), word.to_string()))
+        })
         .collect()
 }
 
@@ -1258,6 +1274,55 @@ mod tests {
         assert_eq!(edit_wanted(&s, &q, &[3, 4]), [3, 6, 7, 8, 9, 11]);
     }
 
+    /// With no board from the wiring, a blocker the comments name has no
+    /// state, which decide reads as unreadable and holds. The same reads on
+    /// a board answer it.
+    #[test]
+    fn no_board_leaves_every_blocker_unread() {
+        let q = github::Queue {
+            open: vec![github::Open {
+                number: 21,
+                labels: vec![crate::decide::BLOCKED.to_string()],
+                node: Value::Null,
+            }],
+            closed_running: Vec::new(),
+            open_pulls: None,
+            issue_types: None,
+            labels: None,
+        };
+        // The blocked world's comment of #21, which names #11.
+        let comments = BTreeMap::from([(21, world()["comments"]["21"].clone())]);
+        let none = BTreeMap::new();
+        assert!(blocker_reads(None, &q, &[21], &comments, &none).is_empty());
+        let mut board = Board::of(&World::new(), &json!({"11": "OPEN"}));
+        assert_eq!(
+            blocker_reads(Some(&mut board), &q, &[21], &comments, &none),
+            BTreeMap::from([(11, "OPEN".to_string())])
+        );
+    }
+
+    #[test]
+    fn a_merged_change_is_read_as_merged() {
+        let q = github::Queue {
+            open: vec![github::Open {
+                number: 21,
+                labels: vec![crate::decide::BLOCKED.to_string()],
+                node: Value::Null,
+            }],
+            closed_running: Vec::new(),
+            open_pulls: None,
+            issue_types: None,
+            labels: None,
+        };
+        // The blocked world's comment of #21, which names #11.
+        let comments = BTreeMap::from([(21, world()["comments"]["21"].clone())]);
+        let mut board = Board::of(&World::new(), &json!({"11": "MERGED"}));
+        assert_eq!(
+            blocker_reads(Some(&mut board), &q, &[21], &comments, &BTreeMap::new()),
+            BTreeMap::from([(11, "MERGED".to_string())])
+        );
+    }
+
     /// The edit histories are read through the blueprints port, in one ask
     /// for the issues wanted, and put beside each one's last edit; a read
     /// the port fails, or one with no handle, is a failed history.
@@ -1316,12 +1381,131 @@ mod tests {
     /// record follows the run begins.
     const RUST_SEP: &str = "«tehas-rust»";
 
-    /// The word only the comment query carries, and the word only the blocker
-    /// query carries: the shape a poll's calls are counted by, so a per-issue
-    /// read cannot answer for a batched one by carrying a shared word.
+    /// The word only the comment query carries: the shape a poll's calls are
+    /// counted by, so a per-issue read cannot answer for a batched one by
+    /// carrying a shared word.
     const COMMENT_MARK: &str = "issue(number:";
-    const BLOCKER_MARK: &str = "issueOrPullRequest";
     const EDITS_MARK: &str = "nodes(ids:";
+
+    /// The board of a case on the ports' fake: its queue reads come from
+    /// `queue`, and its tickets the blockers of `states` (a number and OPEN
+    /// or CLOSED, or MERGED for a merged change), each `as_blockers` it is
+    /// asked kept in `asked`.
+    struct Board {
+        queue: Box<dyn tehas_ports::Board + Send>,
+        blockers: Box<dyn tehas_ports::Board + Send>,
+        asked: std::sync::Arc<std::sync::Mutex<Vec<Vec<u64>>>>,
+    }
+
+    /// The board of a case: the queue's, and the blockers' states of the
+    /// `states` answer `host` wrote beside the programs.
+    fn test_board(queue: &World, dir: &Path) -> Board {
+        let states = std::fs::read_to_string(dir.join(".states"))
+            .ok()
+            .map(|s| serde_json::from_str(&s).unwrap())
+            .unwrap_or(Value::Null);
+        Board::of(queue, &states)
+    }
+
+    impl Board {
+        fn of(queue: &World, states: &Value) -> Self {
+            use tehas_ports::{Actor, Caller, CloseReason, Scope, Site};
+            let blocker_world =
+                states
+                    .as_object()
+                    .into_iter()
+                    .flatten()
+                    .fold(World::new(), |w, (n, state)| {
+                        let n = n.parse().unwrap();
+                        match state.as_str() {
+                            Some("MERGED") => w.change(n, &format!("change-{n}"), |c| {
+                                c.state(tehas_ports::ChangeState::Merged {
+                                    at: tehas_ports::At::new(1_767_225_600),
+                                    by: None,
+                                    commit: None,
+                                })
+                            }),
+                            Some("CLOSED") => w.ticket(n, |t| t.closed(CloseReason::Done)),
+                            _ => w.ticket(n, |t| t),
+                        }
+                    });
+            let (by, caller) = (Actor::Ours(Scope::Full), Caller::new("test"));
+            Self {
+                queue: tehas_ports::fake::FakeSite::new(queue)
+                    .board(&by, caller)
+                    .unwrap(),
+                blockers: tehas_ports::fake::FakeSite::new(&blocker_world)
+                    .board(&by, caller)
+                    .unwrap(),
+                asked: Default::default(),
+            }
+        }
+    }
+
+    impl tehas_ports::Reports for Board {
+        fn take_reports(&mut self) -> Vec<tehas_ports::Report> {
+            let mut r = self.queue.take_reports();
+            r.extend(self.blockers.take_reports());
+            r
+        }
+    }
+
+    impl tehas_ports::Board for Board {
+        fn as_blockers(
+            &mut self,
+            numbers: &[NonZeroU64],
+        ) -> Vec<(NonZeroU64, tehas_ports::Got<tehas_ports::Blocker>)> {
+            let asked = numbers.iter().map(|n| n.get()).collect();
+            self.asked.lock().unwrap().push(asked);
+            self.blockers.as_blockers(numbers)
+        }
+
+        fn open_work(
+            &mut self,
+            ask: &tehas_ports::BoardAsk,
+            bound: tehas_ports::Bound,
+        ) -> tehas_ports::Got<tehas_ports::OpenWork> {
+            self.queue.open_work(ask, bound)
+        }
+
+        fn work_item(
+            &mut self,
+            key: &TicketKey,
+            ask: &tehas_ports::BoardAsk,
+        ) -> tehas_ports::Got<tehas_ports::WorkItem> {
+            self.queue.work_item(key, ask)
+        }
+
+        fn closed_work(
+            &mut self,
+            ask: &tehas_ports::BoardAsk,
+            since: tehas_ports::At,
+            bound: tehas_ports::Bound,
+        ) -> tehas_ports::Got<
+            tehas_ports::Whole<(TicketKey, tehas_ports::Got<tehas_ports::WorkItem>)>,
+        > {
+            self.queue.closed_work(ask, since, bound)
+        }
+
+        fn target_work(
+            &mut self,
+            ask: &tehas_ports::BoardAsk,
+            target: &tehas_ports::TargetId,
+            bound: tehas_ports::Bound,
+        ) -> tehas_ports::Got<
+            tehas_ports::Whole<(TicketKey, tehas_ports::Got<tehas_ports::WorkItem>)>,
+        > {
+            self.queue.target_work(ask, target, bound)
+        }
+
+        fn open_changes(
+            &mut self,
+            ask: &tehas_ports::ChangeAsk,
+            bound: tehas_ports::Bound,
+        ) -> tehas_ports::Got<tehas_ports::Whole<tehas_ports::ChangeItem>> {
+            self.queue.open_changes(ask, bound)
+        }
+    }
 
     /// The tickets of the blocked world on the ports' fake: #21, #22 and #23,
     /// filed by alice and blocked by her. The board's answer carries the
@@ -1381,9 +1565,8 @@ mod tests {
             "comments": {"21": comment("<!-- tehas:blocked by=11 -->"),
                          "22": comment("<!-- tehas:blocked by=11,12 -->"),
                          "23": comment("<!-- tehas:blocked by=13 -->")},
-            "states": {"data": {"repository": {
-                "b11": {"state": "OPEN"}, "b12": {"state": "CLOSED"},
-                "b13": {"state": "OPEN"}}}}
+            // The blockers' states, as the board's tickets.
+            "states": {"11": "OPEN", "12": "CLOSED", "13": "OPEN"}
         })
     }
 
@@ -1435,11 +1618,6 @@ mod tests {
             fails: false,
         },
         Read {
-            word: BLOCKER_MARK,
-            fixture: "states",
-            fails: false,
-        },
-        Read {
             word: "tehas:refreshing",
             fixture: "refreshing",
             fails: false,
@@ -1478,7 +1656,7 @@ mod tests {
         // space (`issue view`) or a `?`, so the shell sees the list as one word
         // per line and never splits it further.
         let words: Vec<&'static str> = READS.iter().map(|r| r.word).collect();
-        assert_eq!(words.len(), 8, "the stub's list holds one word a read");
+        assert_eq!(words.len(), 7, "the stub's list holds one word a read");
         // One word a line; the stub reads it with IFS set to the newline alone,
         // so a word that holds a space stays one word.
         std::fs::write(dir.join("words"), words.join("\n")).unwrap();
@@ -1765,9 +1943,7 @@ esac"#,
             c["data"]["repository"]["issue"]["comments"]["nodes"][0]["author"]["login"] =
                 json!("alice");
         }
-        w["states"] = json!({"data": {"repository": {
-            "b11": {"state": "CLOSED"}, "b12": {"state": "CLOSED"},
-            "b13": {"state": "CLOSED"}}}});
+        w["states"] = json!({"11": "CLOSED", "12": "CLOSED", "13": "CLOSED"});
         w
     }
 
@@ -1883,28 +2059,40 @@ esac"#,
         broken: &[u64],
         c: &Settings,
     ) -> (Value, Vec<String>, u32, Vec<String>) {
-        poll_h(queue, world, broken, c, true)
+        let (snap, gh_calls, gh, store, _) = poll_h_asked(queue, world, broken, c, true);
+        (snap, gh_calls, gh, store)
     }
 
     /// `poll_q`, and without the code host handle at all when `pulls` is
     /// false: a wiring that made none, where the open pull requests are
-    /// nothing known rather than none open.
-    fn poll_h(
+    /// nothing known rather than none open. The fifth part is the numbers
+    /// of each read of the blockers' states.
+    fn poll_h_asked(
         queue: &World,
         world: &Value,
         broken: &[u64],
         c: &Settings,
         pulls: bool,
-    ) -> (Value, Vec<String>, u32, Vec<String>) {
+    ) -> (Value, Vec<String>, u32, Vec<String>, Vec<Vec<u64>>) {
         let _clock = crate::read::run::no_case_clock();
         let dir = host(world, broken);
         let mut src = sources_of(&dir, queue, pulls);
+        let board = test_board(queue, &dir);
+        let asked = std::sync::Arc::clone(&board.asked);
+        src.board = Some(Box::new(board));
         let snap = match snapshot(&mut src, c) {
             Ok(s) => s,
             Err(f) => panic!("the stubs answer: {}", f.line),
         };
         let gh = src.calls.gh_count;
-        (snap, calls_of(&dir, "gh"), gh, calls_of(&dir, "store"))
+        let asked = asked.lock().unwrap().clone();
+        (
+            snap,
+            calls_of(&dir, "gh"),
+            gh,
+            calls_of(&dir, "store"),
+            asked,
+        )
     }
 
     fn sources(dir: &Path) -> Sources<'_> {
@@ -1947,7 +2135,7 @@ esac"#,
                 })
                 .transpose()
                 .unwrap(),
-            board: Some(site.board(&by, caller).unwrap()),
+            board: Some(Box::new(test_board(queue, dir))),
             tickets: Some(site.tickets(&by, caller).unwrap()),
             mark_name: board::fake::label,
             blueprints: None,
@@ -2008,7 +2196,8 @@ esac"#,
     fn the_blocked_issues_read_their_comments_side_by_side_and_their_blockers_once() {
         let w = world();
         let blocked_len = w["blocked"].as_array().unwrap().len();
-        let (snap, calls, gh_count, store) = poll(&w, &[]);
+        let (snap, calls, gh_count, store, blocker_reads) =
+            poll_h_asked(&blocked(), &w, &[], &settings(), true);
 
         // One aliased query stood for the whole list, and it asked only of the
         // blocked issues: a per-issue read pays `blocked_len` calls, and a batch
@@ -2031,22 +2220,14 @@ esac"#,
             blocked_len,
             "the query asks of the blocked issues and of no other"
         );
-        // The states of every blocker are one call. #23 names #13, which no
-        // other issue names, so a read of the same list one issue at a time
-        // costs three calls here, not one.
-        let blocker_calls = queries(&calls, BLOCKER_MARK);
+        // The states of every blocker are one read of the board. #23 names
+        // #13, which no other issue names, so a read of the same list one
+        // issue at a time costs three reads here, not one.
         assert_eq!(
-            blocker_calls.len(),
-            1,
-            "the states of the blockers are one call: {calls:?}"
+            blocker_reads,
+            [vec![11, 12, 13]],
+            "the states of the blockers are one read of each blocker once"
         );
-        for b in [11u64, 12, 13] {
-            assert!(
-                blocker_calls[0].contains(&format!("b{b}: issueOrPullRequest(number: {b})")),
-                "the one call names blocker {b}: {}",
-                blocker_calls[0]
-            );
-        }
         // The poll's own record of what it paid agrees with the stub's.
         assert_eq!(
             gh_count as usize,
@@ -2461,10 +2642,11 @@ esac"#,
         world["comments"] = json!({"21": {"data": {"repository": {"issue": {"comments":
                 {"nodes": [{"body": "no marker here",
                             "userContentEdits": {"totalCount": 0, "nodes": []}}]}}}}}});
-        let (snap, calls, _, _) = poll_q(&queue, &world, &[], &settings());
+        let (snap, calls, _, _, blocker_reads) =
+            poll_h_asked(&queue, &world, &[], &settings(), true);
         assert!(
-            queries(&calls, BLOCKER_MARK).is_empty(),
-            "no blocker is named, so none is asked: {calls:?}"
+            blocker_reads.is_empty(),
+            "no blocker is named, so none is asked: {blocker_reads:?}"
         );
         assert_eq!(
             queries(&calls, COMMENT_MARK).len(),
@@ -2695,9 +2877,8 @@ esac"#,
     #[test]
     fn a_blocker_the_merged_call_did_not_answer_is_left_unread() {
         let mut w = world();
-        // The merged call answers #11 and #12 but not #13, which #23 names.
-        w["states"] = json!({"data": {"repository": {
-            "b11": {"state": "OPEN"}, "b12": {"state": "CLOSED"}}}});
+        // The merged read answers #11 and #12 but not #13, which #23 names.
+        w["states"] = json!({"11": "OPEN", "12": "CLOSED"});
         let (snap, _, _, _) = poll(&w, &[]);
         let parsed = Snapshot::parse(&snap);
         assert_eq!(parsed.issues[&23].blockers, states(&[]));
@@ -2757,7 +2938,7 @@ esac"#,
         // #23 stays a candidate of rule 6 and keeps the label in the blocked
         // list, but the queue did not answer for it.
         let queue = blocked_of(&[21, 22]);
-        let (snap, calls, _, _) = poll_q(&queue, &w, &[], &settings());
+        let (snap, calls, _, _, blocker_reads) = poll_h_asked(&queue, &w, &[], &settings(), true);
         let comment_calls = queries(&calls, COMMENT_MARK);
         assert_eq!(comment_calls.len(), 1, "{calls:?}");
         assert!(asks(&comment_calls[0], 21) && asks(&comment_calls[0], 22));
@@ -2765,14 +2946,12 @@ esac"#,
             !comment_calls.iter().any(|c| asks(c, 23)),
             "an issue off the page is not asked: {calls:?}"
         );
-        // Its blockers are not asked of the merged call either: the union holds
+        // Its blockers are not asked of the merged read either: the union holds
         // only the blockers the two issues on the page name.
-        let blocker_calls = queries(&calls, BLOCKER_MARK);
-        assert_eq!(blocker_calls.len(), 1, "{calls:?}");
-        assert!(
-            !blocker_calls[0].contains("b13: issueOrPullRequest(number: 13)"),
-            "#23 is not blocked, so the blocker only it names is not asked: {}",
-            blocker_calls[0]
+        assert_eq!(
+            blocker_reads,
+            [vec![11, 12]],
+            "#23 is not blocked, so the blocker only it names is not asked"
         );
         let parsed = Snapshot::parse(&snap);
         assert_eq!(parsed.issues[&21].blockers, states(&[(11, "OPEN")]));
@@ -2908,7 +3087,7 @@ esac"#,
     #[test]
     fn a_page_that_answered_no_open_pull_requests_writes_no_names() {
         let w = world();
-        let (snap, _, _, _) = poll_h(&blocked(), &w, &[], &settings(), false);
+        let (snap, _, _, _, _) = poll_h_asked(&blocked(), &w, &[], &settings(), false);
         assert_eq!(snap.get("pulls_name"), None);
         assert!(Snapshot::parse(&snap).pulls_name.is_empty());
     }

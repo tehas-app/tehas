@@ -1,0 +1,1 @@
+{"data":{"repository":{"n1":{"__typename":"Issue","number":1,"state":"MERGED"},"n2":{"__typename":"Issue","number":2,"state":"CLOSED"},"n3":{"__typename":"PullRequest","number":3,"state":"DRAFT"},"n4":{"__typename":"PullRequest","number":4,"state":"MERGED"},"n5":{"__typename":"PullRequest","number":5}}}}
