@@ -66,7 +66,11 @@ fn every_digest_answers_parent_or_refuses() {
     // 28 is a part of 27, both of them recorded by beta2b. The reads
     // GitHub has no answer for refuse.
     let (mut gh, _) = adapter_of(PROJECT);
-    let since = tehas_ports::At::new(1_769_990_400); // 2026-02-02
+    // closed_since replays the kit's pages of issues closed on
+    // 2026-11-27, which answer 28 and 29 with no parent: the read is
+    // asked since just after those two closed, so every ticket it
+    // answers holds the parent the parts read says.
+    let since = tehas_ports::At::new(1_795_767_040); // 2026-11-27T08:10:40Z
     let bound = tehas_ports::Bound::new(100).unwrap();
     assert_eq!(
         laws::tickets::every_digest_answers_parent_or_refuses(
