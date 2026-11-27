@@ -325,7 +325,7 @@ fn a_rate_limit_on_the_first_parents_question_asks_no_second() {
     let got = gh.several(&keys);
     assert_eq!(asked.lock().unwrap().len(), 102, "no second question");
     let spent = Err(Outcome::Spent {
-        pool: Pool::Calls,
+        pool: Pool::Priced,
         until: At::new(1_767_225_600),
     });
     assert!(got.iter().all(|(_, d)| *d == spent), "{got:?}");
@@ -359,7 +359,7 @@ fn a_rate_limit_on_the_second_parents_question_spends_only_its_tickets() {
         (
             key(101),
             Err(Outcome::Spent {
-                pool: Pool::Calls,
+                pool: Pool::Priced,
                 until: At::new(1_767_225_600),
             })
         )
