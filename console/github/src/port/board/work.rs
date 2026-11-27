@@ -33,6 +33,7 @@ use serde::Deserialize;
 use super::super::blueprint_writes::text_revision;
 use super::super::blueprints::Edited;
 use super::{pull_fields, Counted, Pull};
+use crate::graphql::{Error, Step};
 use crate::ticket::{
     self, order, time, Event, Named, Node, Page, Pages, Who, ACTOR, CUT, CUT_TEXT, INCONSISTENT,
     MALFORMED,
@@ -216,41 +217,23 @@ struct Repo {
     issues: Issues,
 }
 
-/// A GraphQL error: its type, and where in the answer it is.
-#[derive(Deserialize)]
-struct Error {
-    #[serde(rename = "type")]
-    kind: Option<String>,
-    #[serde(default)]
-    path: Vec<Step>,
-}
-
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum Step {
-    At(u64),
-    Name(String),
-}
-
-impl Error {
-    /// The issue of the page it lies under, by its place in the page.
-    fn item(&self) -> Option<usize> {
-        match self.path.as_slice() {
-            [Step::Name(r), Step::Name(i), Step::Name(n), Step::At(at), ..]
-                if r == "repository" && i == "issues" && n == "nodes" =>
-            {
-                usize::try_from(*at).ok()
-            }
-            _ => None,
+/// The issue of the page an error lies under, by its place in the page.
+fn item_of(e: &Error) -> Option<usize> {
+    match e.path.as_slice() {
+        [Step::Name(r), Step::Name(i), Step::Name(n), Step::At(at), ..]
+            if r == "repository" && i == "issues" && n == "nodes" =>
+        {
+            usize::try_from(*at).ok()
         }
+        _ => None,
     }
+}
 
-    /// What it fails its item with.
-    fn outcome(&self) -> Outcome {
-        match self.kind.as_deref() {
-            Some("FORBIDDEN") => Outcome::Forbidden,
-            _ => INCONSISTENT,
-        }
+/// What an error fails its item with.
+fn failed_by(e: &Error) -> Outcome {
+    match e.is("FORBIDDEN") {
+        true => Outcome::Forbidden,
+        false => INCONSISTENT,
     }
 }
 
@@ -413,8 +396,8 @@ impl GitHub {
         }
         let mut items = HashMap::new();
         for error in &answer.errors {
-            let at = error.item().ok_or_else(|| fail(INCONSISTENT))?;
-            items.entry(at).or_insert_with(|| error.outcome());
+            let at = item_of(error).ok_or_else(|| fail(INCONSISTENT))?;
+            items.entry(at).or_insert_with(|| failed_by(error));
         }
         let page = answer
             .data
