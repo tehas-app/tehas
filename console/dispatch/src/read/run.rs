@@ -752,21 +752,6 @@ impl Calls {
         Ok(parse(&outcome.ran.out))
     }
 
-    /// gh's output as JSON, whatever its exit status: the bash reads some
-    /// answers so, keeping what came back of a partial one.
-    pub fn gh_any(&mut self, args: &[&str]) -> Option<Value> {
-        let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
-        if !gh_reads(&args) {
-            return None;
-        }
-        self.gh_count += 1;
-        let extra = gh_env(self.gh_token.as_deref());
-        let r = run_input_env(&self.gh, &args, None, self.bound, &extra);
-        let mut v = serde_json::from_str(&r.out).ok()?;
-        tehas_core::accounts::vouch(&mut v);
-        Some(v)
-    }
-
     /// The answers of several store reads, asked in one run of the store
     /// (`store batch`, #941). Each element is the arguments of one call, given
     /// back in the same order as `store` would have answered it, so a caller

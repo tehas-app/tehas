@@ -520,38 +520,6 @@ pub fn failed_read(f: &GhFail) -> Value {
     json!({"failed": true, "line": f.line})
 }
 
-/// The states of the issues a blocker comment names, by number.
-pub fn blocker_states(calls: &mut Calls, repo: &str, numbers: &[u64]) -> Map<String, Value> {
-    let mut out = Map::new();
-    if numbers.is_empty() {
-        return out;
-    }
-    let (owner, name) = split(repo);
-    let mut q = String::from(
-        "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) {",
-    );
-    for b in numbers {
-        q.push_str(&format!(
-            " b{b}: issueOrPullRequest(number: {b}) {{ ... on Issue {{ state }} ... on PullRequest {{ state }} }}"
-        ));
-    }
-    q.push_str(" } }");
-    let query = format!("query={q}");
-    // As the bash: what came back counts, whatever gh's exit, so a number
-    // GitHub does not know spoils only itself.
-    if let Some(v) = calls.gh_any(&["api", "graphql", "-F", &owner, "-F", &name, "-f", &query]) {
-        for b in numbers {
-            if let Some(s) = v
-                .pointer(&format!("/data/repository/b{b}/state"))
-                .and_then(Value::as_str)
-            {
-                out.insert(b.to_string(), json!(s));
-            }
-        }
-    }
-    out
-}
-
 /// One pull request as a refresh reads it: .data.repository.pullRequest.
 pub fn pull(calls: &mut Calls, repo: &str, pr: u64) -> Value {
     let (owner, name) = split(repo);
