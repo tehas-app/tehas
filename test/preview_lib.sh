@@ -46,7 +46,7 @@ esac
 # at most, so that a test can stop the command while it works. fx/held says a
 # call is being held.
 [ ! -e "$T/fx/slow" ] || { : >"$T/fx/held"; for _ in $(seq 200); do [ ! -e "$T/fx/go" ] || break; /bin/sleep 0.05; done; }
-case "$1 $2" in
+case "$1 $2" in "api graphql") sh "$T_ROOT/console/tests/preview/gh-verdict.sh" "$@" ;;
   "api repos/acme/widget/pulls?"*)
     # The run reads the open pull requests in pages. A fixture that names page
     # 1 answers the paging itself: a page it does not have is where GitHub ends.
@@ -406,7 +406,7 @@ writes() { cat "$T/calls/gh-writes" 2>/dev/null || true; }
 stub_gh() {
   t_stub gh 'if [ "$1 $2" = "api repos/acme/widget" ]; then echo "{\"full_name\":\"Acme/Widget\"}"; exit 0; fi
 [ ! -e "$T/fx/slow" ] || { : >"$T/fx/held"; for _ in $(seq 200); do [ ! -e "$T/fx/go" ] || break; /bin/sleep 0.05; done; }
-case "$1 $2" in
+case "$1 $2" in "api graphql") sh "$T_ROOT/console/tests/preview/gh-verdict.sh" "$@" ;;
   "api repos/acme/widget/pulls?"*) cat "$T/fx/pulls.json" ;;
   "api repos/acme/widget/pulls/"*) cat "$T/fx/pull-${2#repos/acme/widget/pulls/}.json" ;;
 esac'
