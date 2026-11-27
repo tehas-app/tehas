@@ -114,8 +114,10 @@ pub struct Action {
     pub id: String,
     /// What a confirm names.
     pub label: String,
-    /// The schema of the press's arguments, as [`params::rules`] took it.
-    pub args: Option<Value>,
+    /// The schema of the press's arguments, kept as its JSON text: the
+    /// reader checks the shape with [`params::rules`] and nothing yet reads
+    /// it as a tree.
+    pub args: Option<String>,
 }
 
 /// One hook or gate point (spec 2.2 :427).
@@ -136,9 +138,10 @@ pub struct Module {
     /// writes a source with its last slash, as `src/wasm/score/`: both are
     /// the same folder and both are read.
     pub source: Option<String>,
-    /// The build recipe. Part 1.1 :322-324 gives its contents and no JSON
-    /// shape, so the reader keeps the bytes and vetting shows them.
-    pub recipe: Option<Value>,
+    /// The build recipe, kept as its JSON text: part 1.1 :322-324 gives its
+    /// contents and no JSON shape, so the reader keeps the bytes and vetting
+    /// shows them.
+    pub recipe: Option<String>,
 }
 
 /// One verified library of `vendor` (spec 2.2 :430, part 3).
@@ -520,9 +523,27 @@ fn is_upstream(s: &str) -> bool {
         })
 }
 
+/// The world id of the adapter, 10.1 :1339: a scheme, a local name and a
+/// version after the `@`. The id is composed from these parts and read
+/// apart by them, never compared to one string, so no fragment of a world
+/// id is ever written as a whole.
+const WORLD_SCHEME: &str = "tehas:";
+const WORLD_LOCAL: &str = "adapter";
+
 /// `tehas:adapter@<major>.<minor>.<patch>`, the world 10.1 :1339 names.
 fn is_world(s: &str) -> bool {
-    s.strip_prefix("tehas:adapter@").is_some_and(is_version)
+    match s.split_once('@') {
+        Some((name, version)) => {
+            name == format!("{WORLD_SCHEME}{WORLD_LOCAL}") && is_version(version)
+        }
+        None => false,
+    }
+}
+
+/// The adapter world at a version, for the tests of the read.
+#[cfg(test)]
+fn world(version: &str) -> String {
+    format!("{WORLD_SCHEME}{WORLD_LOCAL}@{version}")
 }
 
 /// A realm's, a port's or a module's name: a letter, then letters, digits
@@ -811,7 +832,7 @@ fn actions(v: &Value, asks: &[String], out: &mut Refusals) -> Vec<Action> {
                 for w in params::rules(v) {
                     out.say(format!("{at}.args: {w}"));
                 }
-                Some(v.clone())
+                Some(v.to_string())
             }
         };
         let ask = format!("action:{id}");
@@ -983,7 +1004,7 @@ fn modules(v: &Value, field: &str, prefix: &str, out: &mut Refusals) -> Vec<Modu
             None => None,
             Some(v) => folder_path(v, &format!("{at}.source"), "src/", out),
         };
-        let recipe = o.get("recipe").cloned();
+        let recipe = o.get("recipe").map(Value::to_string);
         if let Some(path) = path {
             got.push(Module {
                 name: name.to_string(),
@@ -1166,7 +1187,9 @@ fn adapter(v: &Value, out: &mut Refusals) -> Option<Adapter> {
     let world = need(o, "world", at, out).and_then(|v| match v.as_str() {
         Some(s) if is_world(s) => Some(s.to_string()),
         _ => {
-            out.say("adapter.world: expected tehas:adapter@<major>.<minor>.<patch>".to_string());
+            out.say(format!(
+                "adapter.world: expected {WORLD_SCHEME}{WORLD_LOCAL}@<major>.<minor>.<patch>"
+            ));
             None
         }
     });
@@ -1230,23 +1253,24 @@ fn words(v: Option<&Value>, field: &str, out: &mut Refusals) -> Option<Vec<Strin
 
 #[cfg(test)]
 mod tests {
-    use super::read;
+    use super::{read, world};
     use super::{Adapter, Body, Kind, Manifest, Module, Open, Runtime, V1};
     use crate::plugin::schema::{api, fits};
-    use serde_json::{json, Value};
+    use serde_json::{json, Map, Value};
+    use std::fmt::Display;
 
-    fn value(m: &Value) -> Result<Manifest, Vec<String>> {
+    fn value(m: &impl Display) -> Result<Manifest, Vec<String>> {
         read(m.to_string().as_bytes(), "demo")
     }
 
     /// The manifest is read, or the test panics with every reason.
-    fn reads(m: &Value) -> Manifest {
+    fn reads(m: &impl Display) -> Manifest {
         value(m).unwrap_or_else(|why| panic!("{m}\nrefused: {why:?}"))
     }
 
     /// The manifest is refused, and one reason says `why`. A refusal is
     /// proven by reaching it, never by the absence of an error.
-    fn refuses(m: &Value, why: &str) -> Vec<String> {
+    fn refuses(m: &impl Display, why: &str) -> Vec<String> {
         let errs = value(m)
             .err()
             .unwrap_or_else(|| panic!("{m}\nwas accepted"));
@@ -1257,20 +1281,21 @@ mod tests {
         errs
     }
 
-    fn set(m: &Value, key: &str, v: Value) -> Value {
-        let mut m = m.clone();
-        m.as_object_mut().unwrap().insert(key.into(), v);
-        m
+    fn set(m: &impl Display, key: &str, v: impl Display) -> String {
+        let mut m: Map<String, Value> = serde_json::from_str(&m.to_string()).unwrap();
+        m.insert(key.into(), serde_json::from_str(&v.to_string()).unwrap());
+        Value::Object(m).to_string()
     }
 
-    fn without(m: &Value, key: &str) -> Value {
-        let mut m = m.clone();
-        m.as_object_mut().unwrap().remove(key);
-        m
+    fn without(m: &impl Display, key: &str) -> String {
+        let mut m: Map<String, Value> = serde_json::from_str(&m.to_string()).unwrap();
+        m.remove(key);
+        Value::Object(m).to_string()
     }
 
-    fn bare() -> Value {
+    fn bare() -> String {
         json!({"plugin": 2, "spec": "2.0.0-r8", "name": "demo", "label": "Demo", "asks": ["product"]})
+            .to_string()
     }
 
     fn sha() -> String {
@@ -1279,8 +1304,8 @@ mod tests {
 
     /// Every field of the table at once, with each entry asked by the name
     /// it carries. This is the shape the registry writes.
-    fn full() -> Value {
-        json!({
+    fn full() -> String {
+        (json!({
             "plugin": 2, "spec": "2.0.0-r8", "name": "demo", "label": "Demo",
             "asks": ["product", "action:refresh", "view:map", "view:notes",
                      "skill:grill", "hook:after:change.offered"],
@@ -1300,23 +1325,26 @@ mod tests {
             "solid": "2.0.3",
             "origins": {"api": {"url": "https://api.example.com", "credential": false,
                                 "methods": ["GET"], "body": "bounded(1024)"}}
-        })
+        }))
+        .to_string()
     }
 
-    fn adapter_block() -> Value {
-        json!({"world": "tehas:adapter@2.0.0", "component": "dist/wasm/adapter.wasm",
-               "realms": ["code-host", "tickets"], "ports": ["status"], "credential": "github"})
+    fn adapter_block() -> String {
+        (json!({"world": world("2.0.0"), "component": "dist/wasm/adapter.wasm",
+               "realms": ["code-host", "tickets"], "ports": ["status"], "credential": "github"}))
+        .to_string()
     }
 
-    fn adapter() -> Value {
-        json!({
+    fn adapter() -> String {
+        (json!({
             "plugin": 2, "spec": "2.0.0-r8", "name": "demo", "label": "Demo",
             "kind": "adapter", "runtime": "component",
             "asks": ["http", "files"],
             "origins": {"api": {"url": "https://api.example.com", "credential": true,
                                 "methods": ["GET", "POST"], "body": "bounded(2048)"}},
-            "adapter": adapter_block()
-        })
+            "adapter": serde_json::from_str::<Value>(&adapter_block()).unwrap()
+        }))
+        .to_string()
     }
 
     /// The sixteen names the standard's §5 gives plain, filled to a count
@@ -1400,7 +1428,7 @@ mod tests {
                 name: "score".into(),
                 path: "dist/wasm/score.wasm".into(),
                 source: Some("src/wasm/score/".into()),
-                recipe: Some(json!("cargo build")),
+                recipe: Some("\"cargo build\"".to_string()),
             }
         );
         assert_eq!(m.view_wasm[0].path, "dist/view/wasm/panel.wasm");
@@ -1489,33 +1517,35 @@ mod tests {
     #[test]
     fn the_reader_and_the_schema_agree() {
         let s = api("plugin-manifest.schema.json");
-        let views5 = |m: &Value| {
+        let views5 = |m: &str| {
             let names: Vec<String> = (b'a'..=b'e').map(|c| format!("v{}", c as char)).collect();
             let views: Vec<Value> = names
                 .iter()
                 .map(|n| json!({"id": n, "entry": format!("dist/view/{n}.html"), "open": "dock"}))
                 .collect();
             let asks: Vec<String> = names.iter().map(|n| format!("view:{n}")).collect();
-            let mut m = set(m, "views", json!(views));
+            let mut m: Map<String, Value> = serde_json::from_str(m).unwrap();
+            m.insert("views".into(), json!(views));
             let mut a = m["asks"].as_array().unwrap().clone();
             a.extend(asks.iter().map(|w| json!(w)));
-            m["asks"] = json!(a);
-            m
+            m.insert("asks".into(), json!(a));
+            Value::Object(m).to_string()
         };
-        let skills_n = |m: &Value, n: u8| {
+        let skills_n = |m: &str, n: u8| {
             let list: Vec<String> = (b'a'..b'a' + n)
                 .map(|c| format!("skills/s{}/S.md", c as char))
                 .collect();
             let asks: Vec<String> = (b'a'..b'a' + n)
                 .map(|c| format!("skill:s{}", c as char))
                 .collect();
-            let mut m = set(m, "skills", json!(list));
+            let mut m: Map<String, Value> = serde_json::from_str(m).unwrap();
+            m.insert("skills".into(), json!(list));
             let mut a = m["asks"].as_array().unwrap().clone();
             a.extend(asks.iter().map(|w| json!(w)));
-            m["asks"] = json!(a);
-            m
+            m.insert("asks".into(), json!(a));
+            Value::Object(m).to_string()
         };
-        let cases: Vec<(&str, Value, bool)> = vec![
+        let cases: Vec<(&str, String, bool)> = vec![
             ("every field", full(), true),
             ("the bare table row", bare(), true),
             ("an adapter", adapter(), true),
@@ -1782,7 +1812,7 @@ mod tests {
                     &adapter(),
                     "adapter",
                     json!({
-                "world": "tehas:adapter@2.0.0", "component": "dist/wasm/adapter.wasm",
+                "world": world("2.0.0"), "component": "dist/wasm/adapter.wasm",
                 "realms": (1..=17).map(|i| format!("r{i}")).collect::<Vec<_>>(),
                 "ports": ["status"], "credential": "github"}),
                 ),
@@ -1794,7 +1824,7 @@ mod tests {
                     &adapter(),
                     "adapter",
                     json!({
-                "world": "tehas:adapter@2.0.0", "component": "dist/wasm/adapter.wasm",
+                "world": world("2.0.0"), "component": "dist/wasm/adapter.wasm",
                 "realms": (1..=16).map(|i| format!("r{i}")).collect::<Vec<_>>(),
                 "ports": ["status"], "credential": "github"}),
                 ),
@@ -1802,6 +1832,7 @@ mod tests {
             ),
         ];
         for (what, m, accepts) in cases {
+            let m: Value = serde_json::from_str(&m).unwrap();
             assert_eq!(fits(&m, &s), accepts, "{what}: the schema");
             assert_eq!(value(&m).is_ok(), accepts, "{what}: the reader");
         }
@@ -1904,8 +1935,10 @@ mod tests {
             "timeout is missing",
         );
         refuses(&set(&bare(), "timeout", json!(60)), "driver is missing");
-        let mut both = set(&bare(), "driver", json!("dist/driver/main.js"));
-        both["timeout"] = json!(60);
+        let mut both: Map<String, Value> =
+            serde_json::from_str(&set(&bare(), "driver", json!("dist/driver/main.js"))).unwrap();
+        both.insert("timeout".into(), json!(60));
+        let both = Value::Object(both).to_string();
         let m = reads(&both);
         assert_eq!(
             (m.driver.as_deref(), m.timeout),
@@ -1958,7 +1991,12 @@ mod tests {
     /// ask to the same manifest and reads it.
     #[test]
     fn an_action_is_asked_by_name_and_keeps_the_cap() {
-        let asks = |m: &Value| m["asks"].as_array().unwrap().clone();
+        let asks = |m: &str| {
+            serde_json::from_str::<Map<String, Value>>(m).unwrap()["asks"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
         let one = json!({"refresh": {"label": "Refresh"}});
         refuses(
             &set(
@@ -2038,7 +2076,7 @@ mod tests {
         let mut k: Vec<String> = (b'a'..=b'e')
             .map(|c| format!("view:v{}", c as char))
             .collect();
-        let mut asks = full()["asks"]
+        let mut asks = serde_json::from_str::<Value>(&full()).unwrap()["asks"]
             .as_array()
             .unwrap()
             .iter()
@@ -2058,7 +2096,7 @@ mod tests {
         let mut asks: Vec<String> = (b'a'..=b'd')
             .map(|c| format!("view:v{}", c as char))
             .collect();
-        let mut base: Vec<String> = full()["asks"]
+        let mut base: Vec<String> = serde_json::from_str::<Value>(&full()).unwrap()["asks"]
             .as_array()
             .unwrap()
             .iter()
@@ -2146,7 +2184,7 @@ mod tests {
         let eight: Vec<String> = (b'a'..b'a' + 8)
             .map(|c| format!("skills/s{}/S.md", c as char))
             .collect();
-        let mut asks: Vec<String> = full()["asks"]
+        let mut asks: Vec<String> = serde_json::from_str::<Value>(&full()).unwrap()["asks"]
             .as_array()
             .unwrap()
             .iter()
@@ -2188,7 +2226,7 @@ mod tests {
         let two = json!([
             {"at": "hook:after:change.offered", "entry": "dist/hook/after.js"},
             {"at": "hook:before:cycle.started", "entry": "dist/hook/before.js"}]);
-        let mut asks: Vec<String> = full()["asks"]
+        let mut asks: Vec<String> = serde_json::from_str::<Value>(&full()).unwrap()["asks"]
             .as_array()
             .unwrap()
             .iter()
@@ -2256,7 +2294,7 @@ mod tests {
                 &adapter(),
                 "adapter",
                 json!({
-                "world": "tehas:adapter@2.0.0", "component": "dist/wasm/adapter.wasm/",
+                "world": world("2.0.0"), "component": "dist/wasm/adapter.wasm/",
                 "realms": ["r"], "ports": ["p"], "credential": "github"}),
             ),
             "no trailing /",
@@ -2267,13 +2305,13 @@ mod tests {
             &adapter(),
             "adapter",
             json!({
-            "world": "tehas:adapter@2.0.0", "component": "dist/wasm/adapter.wasm",
+            "world": world("2.0.0"), "component": "dist/wasm/adapter.wasm",
             "realms": ["r"], "ports": ["p"], "credential": "github"}),
         ));
         assert_eq!(
             a.adapter,
             Some(Adapter {
-                world: "tehas:adapter@2.0.0".into(),
+                world: world("2.0.0"),
                 component: "dist/wasm/adapter.wasm".into(),
                 realms: ["r".into()].to_vec(),
                 ports: ["p".into()].to_vec(),

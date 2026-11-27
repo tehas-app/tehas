@@ -21,9 +21,8 @@ fn name_of(bytes: &[u8]) -> String {
         .unwrap_or_else(|| "floorplan".into())
 }
 
-fn cases(folder: &str) -> Value {
-    let text = fs::read_to_string(dir().join(folder).join("cases.json")).unwrap();
-    serde_json::from_str(&text).unwrap()
+fn cases(folder: &str) -> String {
+    fs::read_to_string(dir().join(folder).join("cases.json")).unwrap()
 }
 
 fn names(folder: &str, suffix: &str) -> Vec<PathBuf> {
@@ -88,7 +87,7 @@ fn the_valid_fixtures_read() {
 /// refusal that ever stopped happening fails here.
 #[test]
 fn the_invalid_fixtures_are_refused_as_their_cases_say() {
-    let cases = cases("invalid");
+    let cases: Value = serde_json::from_str(&cases("invalid")).unwrap();
     let files = names("invalid", ".json");
     assert_eq!(files.len(), cases.as_object().unwrap().len());
     for p in &files {
@@ -122,7 +121,7 @@ fn the_invalid_fixtures_are_refused_as_their_cases_say() {
 /// of reasons. Nothing here opens a socket: tehas reads what it fetched.
 #[test]
 fn the_vendored_registry_set_is_read_without_a_fetch() {
-    let cases = cases("registry");
+    let cases: Value = serde_json::from_str(&cases("registry")).unwrap();
     let files = names("registry", ".tehas-plugin.json");
     assert_eq!(files.len(), cases.as_object().unwrap().len(), "19 entries");
     assert_eq!(files.len(), 19, "19 entries");

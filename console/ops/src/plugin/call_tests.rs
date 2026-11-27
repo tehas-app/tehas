@@ -249,13 +249,14 @@ impl GitHub for People {
 
 fn ask(
     x: &mut Peek,
+    gh: Option<&dyn GitHub>,
     home: &Path,
     r: &Ready,
     args: &Value,
     caller: &Caller,
 ) -> Result<Value, Failed> {
     let t = r.manifest.v1.tools[0].clone();
-    call_body(x, Some(&People::default()), home, r, &t, args, caller)
+    call_body(x, gh, home, r, &t, args, caller)
 }
 
 fn rows(home: &Path) -> Vec<Value> {
@@ -271,7 +272,15 @@ fn out(s: &str) -> Called {
 fn a_good_answer_is_given_and_only_its_time_size_and_result_kept() {
     let answer = r#"{"doc": "docs/install.md"}"#;
     let (home, mut x, r) = tool_ready("call-good", out(&format!("{answer}\n")));
-    let got = ask(&mut x, &home, &r, &q(), &Caller::Host).unwrap();
+    let got = ask(
+        &mut x,
+        Some(&People::default()),
+        &home,
+        &r,
+        &q(),
+        &Caller::Host,
+    )
+    .unwrap();
     assert_eq!(got, json!({"doc": "docs/install.md"}));
     let line =
         x.x.ran
@@ -332,7 +341,14 @@ fn an_answer_that_is_not_one_object_over_the_cap_late_or_failed_is_the_tools_fai
     for (i, (answer, why, result)) in cases.into_iter().enumerate() {
         let (home, mut x, r) = tool_ready(&format!("call-bad-{i}"), answer);
         assert_eq!(
-            ask(&mut x, &home, &r, &q(), &Caller::Host),
+            ask(
+                &mut x,
+                Some(&People::default()),
+                &home,
+                &r,
+                &q(),
+                &Caller::Host
+            ),
             Err(Failed::Tool(why.into())),
             "{i}"
         );
@@ -345,7 +361,15 @@ fn an_answer_that_is_not_one_object_over_the_cap_late_or_failed_is_the_tools_fai
 fn a_call_killed_before_docker_wrote_its_cid_removes_its_container_while_it_holds_its_slot() {
     for (i, answer) in [Called::Killed, Called::Over].into_iter().enumerate() {
         let (home, mut x, r) = tool_ready(&format!("call-rm-{i}"), answer);
-        ask(&mut x, &home, &r, &q(), &Caller::Host).unwrap_err();
+        ask(
+            &mut x,
+            Some(&People::default()),
+            &home,
+            &r,
+            &q(),
+            &Caller::Host,
+        )
+        .unwrap_err();
         let ran: Vec<_> =
             x.x.ran
                 .iter()
@@ -361,12 +385,30 @@ fn a_call_killed_before_docker_wrote_its_cid_removes_its_container_while_it_hold
             .unwrap()
             .unwrap();
         x.x.attach("docker run", out("{}"));
-        assert_eq!(ask(&mut x, &home, &r, &q(), &Caller::Host), Ok(json!({})));
+        assert_eq!(
+            ask(
+                &mut x,
+                Some(&People::default()),
+                &home,
+                &r,
+                &q(),
+                &Caller::Host
+            ),
+            Ok(json!({}))
+        );
         assert!(x.x.ran_any("--name tehas-plugin-floorplan-2 "));
         drop(other);
     }
     let (home, mut x, r) = tool_ready("call-rm-clean", Called::Exit(2));
-    ask(&mut x, &home, &r, &q(), &Caller::Host).unwrap_err();
+    ask(
+        &mut x,
+        Some(&People::default()),
+        &home,
+        &r,
+        &q(),
+        &Caller::Host,
+    )
+    .unwrap_err();
     assert!(!x.x.ran_any("docker rm"));
 }
 
@@ -378,7 +420,14 @@ fn a_row_the_store_did_not_end_keeps_its_directory() {
     crate::store::testing::plant(&home, &answers);
     let dir = prepare::dir(&home, "floorplan").join("run-1");
     assert_eq!(
-        ask(&mut x, &home, &r, &q(), &Caller::Host),
+        ask(
+            &mut x,
+            Some(&People::default()),
+            &home,
+            &r,
+            &q(),
+            &Caller::Host
+        ),
         Err(Failed::Tool(format!(
             "the store did not end run 1, so {} is kept: store: broken: no",
             dir.display()
@@ -497,7 +546,14 @@ fn arguments_not_of_the_tools_params_are_refused_before_anything_runs() {
         json!({"q": "x", "more": true}),
         json!({"q": "x".repeat(params::ARGS_MAX)}),
     ] {
-        let got = ask(&mut x, &home, &r, &args, &Caller::Host);
+        let got = ask(
+            &mut x,
+            Some(&People::default()),
+            &home,
+            &r,
+            &args,
+            &Caller::Host,
+        );
         assert!(matches!(got, Err(Failed::Args(_))), "{args}: {got:?}");
     }
     assert!(!x.x.ran_any("docker run"));
@@ -513,19 +569,66 @@ fn two_calls_of_a_plugin_and_one_of_a_caller_run_at_once_and_more_are_busy() {
     let busy = Err(Failed::Refused("busy".into()));
 
     let slots = [hold("slot-0.lock"), hold("slot-1.lock")];
-    assert_eq!(ask(&mut x, &home, &r, &q(), &Caller::Host), busy);
+    assert_eq!(
+        ask(
+            &mut x,
+            Some(&People::default()),
+            &home,
+            &r,
+            &q(),
+            &Caller::Host
+        ),
+        busy
+    );
     assert_eq!(rows(&home), Vec::<Value>::new());
     drop(slots);
 
     let one = hold("slot-0.lock");
-    assert_eq!(ask(&mut x, &home, &r, &q(), &Caller::Host), Ok(json!({})));
+    assert_eq!(
+        ask(
+            &mut x,
+            Some(&People::default()),
+            &home,
+            &r,
+            &q(),
+            &Caller::Host
+        ),
+        Ok(json!({}))
+    );
     let mine = hold(&format!("by-mcp-{KEY}.lock"));
-    assert_eq!(ask(&mut x, &home, &r, &q(), &Caller::Mcp(KEY.into())), busy);
-    let other = ask(&mut x, &home, &r, &q(), &Caller::Mcp("ffffffff".into()));
+    assert_eq!(
+        ask(
+            &mut x,
+            Some(&People::default()),
+            &home,
+            &r,
+            &q(),
+            &Caller::Mcp(KEY.into())
+        ),
+        busy
+    );
+    let other = ask(
+        &mut x,
+        Some(&People::default()),
+        &home,
+        &r,
+        &q(),
+        &Caller::Mcp("ffffffff".into()),
+    );
     assert_eq!(other, Ok(json!({})));
     drop((one, mine));
     let host = hold("by-host.lock");
-    assert_eq!(ask(&mut x, &home, &r, &q(), &Caller::Host), busy);
+    assert_eq!(
+        ask(
+            &mut x,
+            Some(&People::default()),
+            &home,
+            &r,
+            &q(),
+            &Caller::Host
+        ),
+        busy
+    );
     drop(host);
 
     let r = rows(&home);
@@ -574,22 +677,18 @@ fn an_mcp_key_id_is_8_lower_case_hex_and_the_rows_by() {
     // The good id names its lock and its row, from the flow helper.
     let (home, mut x, r) = tool_ready("call-mcp-row", out("{}"));
     assert_eq!(
-        ask(&mut x, &home, &r, &q(), &Caller::Mcp(KEY.into())),
+        ask(
+            &mut x,
+            Some(&People::default()),
+            &home,
+            &r,
+            &q(),
+            &Caller::Mcp(KEY.into())
+        ),
         Ok(json!({}))
     );
     let r = &rows(&home)[0];
     assert_eq!((&r["trigger"], &r["by"]), (&json!("mcp"), &json!(KEY)));
-}
-
-fn as_login(
-    x: &mut Peek,
-    gh: &dyn GitHub,
-    home: &Path,
-    r: &Ready,
-    login: &str,
-) -> Result<Value, Failed> {
-    let t = tool();
-    call_body(x, Some(gh), home, r, &t, &q(), &Caller::Login(login.into()))
 }
 
 /// GitHub naming `octocat` user 7 with write first, then, the login renamed
@@ -624,11 +723,28 @@ impl GitHub for Renamed {
 fn a_login_taken_by_someone_else_is_refused_at_once() {
     let (home, mut x, r) = tool_ready("call-renamed", out("{}"));
     let gh = Renamed::default();
-    assert_eq!(as_login(&mut x, &gh, &home, &r, "octocat"), Ok(json!({})));
+    assert_eq!(
+        ask(
+            &mut x,
+            Some(&gh),
+            &home,
+            &r,
+            &q(),
+            &Caller::Login("octocat".into())
+        ),
+        Ok(json!({}))
+    );
     // The same login, now another person's with no access: refused on the
     // next call, never passed on the first holder's verdict.
     assert_eq!(
-        as_login(&mut x, &gh, &home, &r, "octocat"),
+        ask(
+            &mut x,
+            Some(&gh),
+            &home,
+            &r,
+            &q(),
+            &Caller::Login("octocat".into())
+        ),
         Err(Failed::Refused(NO_ACCESS.into()))
     );
     assert_eq!(*gh.asked.lock().unwrap(), 2);
@@ -638,14 +754,51 @@ fn a_login_taken_by_someone_else_is_refused_at_once() {
 fn a_login_is_checked_against_the_repositorys_access_on_every_call() {
     let (home, mut x, r) = tool_ready("call-login", out("{}"));
     let gh = People::default();
-    assert_eq!(as_login(&mut x, &gh, &home, &r, "octocat"), Ok(json!({})));
-    assert_eq!(as_login(&mut x, &gh, &home, &r, "octocat"), Ok(json!({})));
+    assert_eq!(
+        ask(
+            &mut x,
+            Some(&gh),
+            &home,
+            &r,
+            &q(),
+            &Caller::Login("octocat".into())
+        ),
+        Ok(json!({}))
+    );
+    assert_eq!(
+        ask(
+            &mut x,
+            Some(&gh),
+            &home,
+            &r,
+            &q(),
+            &Caller::Login("octocat".into())
+        ),
+        Ok(json!({}))
+    );
     // Asked on every call: a kept verdict could pass for whoever holds the
     // login next.
     assert_eq!(*gh.asked.lock().unwrap(), ["octocat", "octocat"]);
     let no = Err(Failed::Refused(NO_ACCESS.into()));
-    assert_eq!(as_login(&mut x, &gh, &home, &r, "nobody"), no);
-    let down = as_login(&mut x, &gh, &home, &r, "other");
+    assert_eq!(
+        ask(
+            &mut x,
+            Some(&gh),
+            &home,
+            &r,
+            &q(),
+            &Caller::Login("nobody".into())
+        ),
+        no
+    );
+    let down = ask(
+        &mut x,
+        Some(&gh),
+        &home,
+        &r,
+        &q(),
+        &Caller::Login("other".into()),
+    );
     assert_eq!(
         down,
         Err(Failed::Refused(
@@ -653,7 +806,15 @@ fn a_login_is_checked_against_the_repositorys_access_on_every_call() {
         ))
     );
     // An error is not kept: the next call asks again.
-    as_login(&mut x, &gh, &home, &r, "other").unwrap_err();
+    ask(
+        &mut x,
+        Some(&gh),
+        &home,
+        &r,
+        &q(),
+        &Caller::Login("other".into()),
+    )
+    .unwrap_err();
     assert_eq!(gh.asked.lock().unwrap().len(), 5);
     let r = rows(&home);
     assert_eq!(r.len(), 2);
@@ -671,7 +832,14 @@ fn an_account_id_that_cannot_name_a_lock_is_refused() {
     let (home, mut x, r) = tool_ready("call-climber", out("{}"));
     let gh = People::default();
     assert_eq!(
-        as_login(&mut x, &gh, &home, &r, "climber"),
+        ask(
+            &mut x,
+            Some(&gh),
+            &home,
+            &r,
+            &q(),
+            &Caller::Login("climber".into())
+        ),
         Err(Failed::Refused(
             "GitHub's id of the login cannot name a lock".into()
         ))
@@ -721,10 +889,27 @@ fn two_people_call_at_once_and_one_person_twice_is_busy() {
     fs::create_dir_all(&dir).unwrap();
     let held = try_lock(&dir.join("by-login-7.lock")).unwrap().unwrap();
     assert_eq!(
-        as_login(&mut x, &gh, &home, &r, "octocat"),
+        ask(
+            &mut x,
+            Some(&gh),
+            &home,
+            &r,
+            &q(),
+            &Caller::Login("octocat".into())
+        ),
         Err(Failed::Refused("busy".into()))
     );
-    assert_eq!(as_login(&mut x, &gh, &home, &r, "hubot"), Ok(json!({})));
+    assert_eq!(
+        ask(
+            &mut x,
+            Some(&gh),
+            &home,
+            &r,
+            &q(),
+            &Caller::Login("hubot".into())
+        ),
+        Ok(json!({}))
+    );
     drop(held);
     assert_eq!(rows(&home).len(), 1);
 }
