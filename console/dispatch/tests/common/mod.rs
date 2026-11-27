@@ -311,6 +311,19 @@ case "$1 $2" in
   "api graphql")
     n=$(printf "%s\n" "$@" | sed -n "s/^number=//p")
     case "$*" in
+      # The head commit of a branch and the checks of a name on it, in the
+      # one question the code host adapter asks: checks-question.json, else
+      # no checks (tests/synthetic/branch-checks/). A refused read answers
+      # GitHub's FORBIDDEN, and the adapter asks the long way, the REST
+      # reads below.
+      *"checkSuites"*)
+        [ ! -e "$T/fx/checks-fails" ] || exit 1
+        [ ! -e "$T/fx/checks-hangs" ] || exec sleep 20
+        if [ -e "$T/fx/checks-refused" ] || [ -e "$T/fx/runs-refused" ]; then
+          echo "{\"data\":null,\"errors\":[{\"type\":\"FORBIDDEN\"}]}"
+          cat "$T/fx/checks-refused" "$T/fx/runs-refused" >&2 2>/dev/null; exit 1
+        fi
+        cat "$T/fx/checks-question.json" 2>/dev/null || cat "$T/branch-checks-none.json" ;;
       # The head commit of a branch, as the code host adapter asks it.
       *"qualifiedName"*) b=$(printf "%s\n" "$@" | sed -n "s|^ref=refs/heads/||p")
         cat "$T/fx/branch.json" 2>/dev/null ||
@@ -862,6 +875,14 @@ pub struct World {
     held: RefCell<Vec<File>>,
 }
 
+/// A synthetic answer under tests/synthetic/ (its README names the
+/// recording each is made from).
+pub fn synthetic(path: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/synthetic")
+        .join(path)
+}
+
 #[allow(dead_code)] // each test file uses a part of this module
 impl World {
     pub fn new(name: &str) -> World {
@@ -928,6 +949,11 @@ impl World {
         write_exe(w.t.join("closed-stub"), CLOSED).unwrap();
         write_exe(w.t.join("pulls-stub"), PULLS).unwrap();
         write_exe(w.t.join("issue-stub"), ISSUE).unwrap();
+        fs::copy(
+            synthetic("branch-checks/none.json"),
+            w.t.join("branch-checks-none.json"),
+        )
+        .unwrap();
         w.fs("gh-n.lock", "");
         let upstream = w.upstream();
         fs::create_dir_all(&upstream).unwrap();
