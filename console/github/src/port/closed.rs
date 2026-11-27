@@ -180,7 +180,8 @@ impl GitHub {
 
     /// One issue's digest, closer and merged changes, of the number asked.
     /// A response of a question that did not ask for the listed changes
-    /// names none. An open ticket keeps the list empty without reading it:
+    /// names none; #3445 flips this leniency for a missing block. An open
+    /// ticket keeps the list empty without reading it:
     /// GitHub lists a merged change as closing an issue reopened after
     /// the merge, and `WithCloser.merged` is empty while the ticket is
     /// open, as the fake holds it.
