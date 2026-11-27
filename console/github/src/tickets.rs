@@ -9,8 +9,8 @@ use crate::{gh, table, ForgeError, GitHub};
 use serde_json::Value;
 use tehas_ports::{
     Account, AccountId, AccountKind, At, CloseReason, Got, Happened, HappenedKind, Kind, Login,
-    Mark, MarkName, Outcome, Passing, Pool, Realm, Refusal, Revision, Sent, TargetId, TargetName,
-    TicketDigest, TicketEvent, TicketKey, TicketState, Took, Unread, WebLink, Window,
+    Mark, MarkId, MarkName, Outcome, Passing, Pool, Realm, Refusal, Revision, Sent, TargetId,
+    TargetName, TicketDigest, TicketEvent, TicketKey, TicketState, Took, Unread, WebLink, Window,
 };
 
 impl GitHub {
@@ -137,6 +137,7 @@ impl GitHub {
             let mut event = TicketEvent::new(what);
             event.by = account(&e.actor, &facts, self.bot.as_ref());
             event.at = at;
+            event.mark_id = e.label_id.map(MarkId::new);
             items.push(event);
         }
         Ok(items)
@@ -167,6 +168,18 @@ impl GitHub {
                 })
             })
             .collect()
+    }
+
+    /// Whether the label is a mark of `not_read`: a mark of the page read
+    /// that owes no events, so its page vouches without it and nothing is
+    /// read apart for it.
+    pub(crate) fn is_not_read(&mut self, label: &str, not_read: &[Mark]) -> bool {
+        !not_read.is_empty()
+            && self
+                .read_marks(&[label.to_string()])
+                .first()
+                .and_then(Option::as_ref)
+                .is_some_and(|mark| not_read.contains(mark))
     }
 
     /// The named outcome of a call that failed, read from the runner's

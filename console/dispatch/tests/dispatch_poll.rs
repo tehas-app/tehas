@@ -220,7 +220,7 @@ fn the_queues_page_asks_for_the_size_the_dropped_page_guard_rests_on() {
     let w = world();
     let r = rpoll(&w, "");
     assert_eq!(r.rc, 0, "{}", r.out);
-    has(&w.gh(), "issues(states: OPEN, first: 25, after: $cursor)");
+    has(&w.gh(), "issues(states: [OPEN], first: 25, after: $cursor");
 }
 
 #[test]
@@ -344,7 +344,12 @@ fn a_read_the_poll_cannot_make_ends_the_poll_with_ghs_own_words() {
     w.env("TEHAS_BOT_LOGIN", "tehas-app-bot[bot]");
     let r = rpoll(&w, "");
     assert_eq!(r.rc, 1, "{}", r.out);
-    has(&r.out, "ERROR: gh api graphql failed: HTTP 502");
+    // The queue is read through the board port now: its words are the
+    // poll's own, and they hold nothing of what gh answered.
+    has(
+        &r.out,
+        "ERROR: the open work of the queue could not be read",
+    );
     // The outage was the call the case armed, and the read was made twice.
     let gh = w.gh();
     has(&gh, "api graphql");
