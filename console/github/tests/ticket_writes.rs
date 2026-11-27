@@ -258,7 +258,7 @@ fn the_read_before_a_note_fails_with_nothing_posted_and_says_it_was_not_sent() {
     };
     let spent = Outcome::Spent {
         pool: Pool::Calls,
-        until: At::new(now()),
+        until: At::new(now() + 60),
     };
     let cases = [
         (failed("not-found.stderr"), Outcome::NotFound),
@@ -298,7 +298,7 @@ fn every_failure_of_the_post_is_its_named_outcome_sent_once_and_echoes_no_input(
     };
     let spent = Outcome::Spent {
         pool: Pool::Writes,
-        until: At::new(now()),
+        until: At::new(now() + 60),
     };
     let no_sent = |why| Outcome::Unavailable {
         why,
@@ -1036,7 +1036,7 @@ fn every_failure_of_the_edit_is_its_named_outcome_sent_once_and_echoes_no_input(
     };
     let spent = Outcome::Spent {
         pool: Pool::Writes,
-        until: At::new(now()),
+        until: At::new(now() + 60),
     };
     let cases = [
         (failed("not-found.stderr"), Outcome::NotFound),

@@ -327,7 +327,7 @@ fn a_failed_call_answers_its_outcome() {
             "rate-limited",
             Outcome::Spent {
                 pool: Pool::Calls,
-                until: tehas_ports::At::new(replay_now()),
+                until: tehas_ports::At::new(replay_now() + 60),
             },
         ),
         ("server-error", server.clone()),

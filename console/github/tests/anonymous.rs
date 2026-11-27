@@ -2,9 +2,12 @@
 //! and tags read through curl with no credential, a write handle
 //! `Forbidden` with no request, a private or missing project refused, and
 //! the anonymous budget kept as its own holder's. curl is a stub that
-//! answers from `tests/recorded/anonymous/`, recordings of a public
-//! project's answers to an anonymous reader, trimmed and renamed
-//! `acme/widget`, and keeps the arguments and the environment it was given.
+//! answers from `tests/recorded/anonymous/`, live answers to an anonymous
+//! reader (kit run #1, 2026-11-26) of the public `tehas-app/tehas-rec-*`
+//! projects and of the renamed `twitter/bootstrap`, and keeps the arguments
+//! and the environment it was given. A case GitHub cannot be made to answer
+//! reads a recording edited by hand from `tests/synthetic/anonymous/<case>/`
+//! first; its README says how.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -20,8 +23,10 @@ use tehas_ports::{
 const CALLER: Caller = Caller::new("test.anonymous");
 const UNSUPPORTED: Outcome = Outcome::Refused(Refusal::Unsupported);
 
-/// The commit the recorded `v1.4.1`, an annotated tag, peels to.
-const V141: &str = "1641015e605f6dcd998166bb3857712e335db7f1";
+const REPO: &str = "tehas-app/tehas-rec-releases";
+
+/// The commit the recorded `v1.1.0`, an annotated tag, peels to.
+const V110: &str = "f703bfa5b38d4088f9235eed9fde20a16370e0ee";
 
 /// A stub curl in a test directory, answering a path under the API's host
 /// from its recording, else a 404, and keeping each call's arguments in
@@ -38,9 +43,18 @@ static SERIAL: Mutex<()> = Mutex::new(());
 
 impl Stub {
     fn new(name: &str) -> Stub {
+        Stub::answering(name, "recorded/anonymous")
+    }
+
+    /// A stub that answers from the synthetic `case` first.
+    fn synthetic(name: &str, case: &str) -> Stub {
+        Stub::answering(name, &format!("synthetic/anonymous/{case}"))
+    }
+
+    fn answering(name: &str, first: &str) -> Stub {
         let serial = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
         let dir = TestDir::new(name);
-        let recorded = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/recorded/anonymous");
+        let tests = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
         let script = format!(
             r#"#!/bin/sh
 d='{dir}'
@@ -50,10 +64,14 @@ tr '\0' '\n' < /proc/$$/environ >> "$d/env"
 printf -- '--\n' >> "$d/env"
 for a in "$@"; do url=$a; done
 f=$(printf '%s' "${{url#https://api.github.com/}}" | tr -c 'A-Za-z0-9' '_')
-if [ -f '{recorded}'/"$f" ]; then cat '{recorded}'/"$f"; else printf 'HTTP/2 404 \r\n\r\n{{"message":"Not Found"}}'; fi
+for r in '{first}' '{recorded}'; do
+  if [ -f "$r/$f" ]; then cat "$r/$f"; exit 0; fi
+done
+printf 'HTTP/2 404 \r\n\r\n{{"message":"Not Found"}}'
 "#,
             dir = dir.path().display(),
-            recorded = recorded.display(),
+            first = tests.join(first).display(),
+            recorded = tests.join("recorded/anonymous").display(),
         );
         let program = dir.join("curl");
         std::fs::write(&program, script).unwrap();
@@ -97,7 +115,7 @@ fn no_gh() -> MakeRunner {
 }
 
 fn site(repo: &str, stub: &Stub, ledger: Arc<MemoryLedger>) -> GitHubSite {
-    GitHubSite::new(repo, "tehas-bot[bot]", Some(900), no_gh())
+    GitHubSite::new(repo, "tehas-app[bot]", Some(900), no_gh())
         .with_anonymous_curl(Curl::at(stub.program()), ledger)
         .on_clock(|| 1_795_530_000)
 }
@@ -112,32 +130,47 @@ fn anonymous() -> Holder {
 
 #[test]
 fn a_public_project_s_releases_and_tags_are_read_with_no_credential() {
-    // A token in the caller's environment reaches no request.
+    // A token in the caller's environment reaches no request. Set under
+    // the stub's lock, which every test here holds while it starts curl.
+    let stub = Stub::new("github-anonymous-reads");
     std::env::set_var("GH_TOKEN", "a-token-that-must-not-travel");
     std::env::set_var("GITHUB_TOKEN", "a-token-that-must-not-travel");
     std::env::set_var("TEHAS_GH_TOKEN", "a-token-that-must-not-travel");
-    let stub = Stub::new("github-anonymous-reads");
     let ledger = Arc::new(MemoryLedger::new());
-    let site = site("acme/widget", &stub, Arc::clone(&ledger));
+    let site = site(REPO, &stub, Arc::clone(&ledger));
     let mut h = site.code_host(&Actor::Anonymous, CALLER).unwrap();
 
     let releases = h.releases(ALL_MAX).unwrap();
-    let tags: Vec<_> = releases.items().iter().map(|r| r.tag.as_str()).collect();
-    assert_eq!(tags, ["v1.4.1", "v1.4.0"], "both pages");
-    let first = &releases.items()[0];
-    assert_eq!(first.title, "v1.4.1");
-    assert!(!first.draft && !first.prerelease);
-    assert_eq!(first.published.map(At::secs), Some(1_795_506_845));
-    assert!(first.notes.starts_with("### Highlights"));
-    assert_eq!(first.files[0].name.as_str(), "install");
-    assert_eq!(first.files[0].size, 7213);
+    let got: Vec<_> = releases
+        .items()
+        .iter()
+        .map(|r| (r.tag.as_str(), r.draft, r.prerelease))
+        .collect();
     assert_eq!(
-        first.link.as_str(),
-        "https://github.com/acme/widget/releases/tag/v1.4.1"
+        got,
+        [
+            ("v1.4.0", false, false),
+            ("v1.2.0", false, true),
+            ("v1.1.0", false, false)
+        ],
+        "no draft shown"
+    );
+    let v110 = &releases.items()[2];
+    assert_eq!(v110.title, "v1.1.0");
+    assert_eq!(v110.published.map(At::secs), Some(1_795_702_193));
+    assert_eq!(v110.notes, "What changed.");
+    assert_eq!(
+        v110.files[0].name.as_str(),
+        "tehas-v1.1.0-linux-x86_64.tar.gz"
+    );
+    assert_eq!(v110.files[0].size, 232);
+    assert_eq!(
+        v110.link.as_str(),
+        "https://github.com/tehas-app/tehas-rec-releases/releases/tag/v1.1.0"
     );
 
     let latest = h.latest_release().unwrap().unwrap();
-    assert_eq!(latest.tag, tag("v1.4.1"));
+    assert_eq!(latest.tag, tag("v1.1.0"));
 
     let tags = h.tags(ALL_MAX).unwrap();
     let got: Vec<_> = tags
@@ -148,26 +181,27 @@ fn a_public_project_s_releases_and_tags_are_read_with_no_credential() {
     assert_eq!(
         got,
         [
-            ("v1.4.1", true, None),
-            ("v1.4.0", true, None),
-            ("v0.6.0", false, None)
+            ("v1.4.0", false, None),
+            ("v1.2.0", true, None),
+            ("v1.1.0", true, None),
+            ("v1.0.0", false, None),
+            ("v0.9.0", true, None)
         ]
     );
-    assert_eq!(tags.items()[0].commit, CommitId::new(V141).unwrap());
+    assert_eq!(tags.items()[2].commit, CommitId::new(V110).unwrap());
 
-    let resolved = h.resolve_tag(&tag("v1.4.1")).unwrap();
-    assert_eq!(resolved, CommitId::new(V141).unwrap(), "peeled");
+    let resolved = h.resolve_tag(&tag("v1.1.0")).unwrap();
+    assert_eq!(resolved, CommitId::new(V110).unwrap(), "peeled");
 
     assert_eq!(
         stub.asked(),
         [
-            "repos/acme/widget/releases?per_page=100",
-            "repositories/1/releases?per_page=100&page=2",
-            "repos/acme/widget/releases/latest",
-            "repos/acme/widget/tags?per_page=100",
-            "repos/acme/widget/git/matching-refs/tags/?per_page=100",
-            "repos/acme/widget/git/ref/tags/v1.4.1",
-            "repos/acme/widget/git/tags/3763a98b53f3cb1a8a9fd075389403f393770eec",
+            "repos/tehas-app/tehas-rec-releases/releases?per_page=100",
+            "repos/tehas-app/tehas-rec-releases/releases/latest",
+            "repos/tehas-app/tehas-rec-releases/tags?per_page=100",
+            "repos/tehas-app/tehas-rec-releases/git/matching-refs/tags/?per_page=100",
+            "repos/tehas-app/tehas-rec-releases/git/ref/tags/v1.1.0",
+            "repos/tehas-app/tehas-rec-releases/git/tags/6223b38d60aaf9f0d173d1019a5206f3e8222193",
         ]
     );
 
@@ -213,20 +247,45 @@ fn a_public_project_s_releases_and_tags_are_read_with_no_credential() {
     let kept = ledger.budget(&host, &anonymous(), Pool::Calls).unwrap();
     assert_eq!(
         kept.map(|b| (b.left, b.resets.secs())),
-        Some((51, 1_795_536_548))
+        Some((33, 1_795_704_168))
     );
     let row = site
         .meter()
         .into_iter()
         .find(|r| r.caller == CALLER && r.pool == Pool::Calls)
         .unwrap();
-    assert_eq!(row.calls, 7);
+    assert_eq!(row.calls, 6);
+}
+
+/// 101 releases: the first page's 100, then the page its `next` link
+/// names, by the project's id.
+#[test]
+fn every_page_of_the_releases_is_read_by_its_next_link() {
+    let stub = Stub::new("github-anonymous-pages");
+    let site = site(
+        "tehas-app/tehas-rec-releases-many",
+        &stub,
+        Arc::new(MemoryLedger::new()),
+    );
+    let mut h = site.code_host(&Actor::Anonymous, CALLER).unwrap();
+    let releases = h.releases(ALL_MAX).unwrap();
+    let items = releases.items();
+    assert_eq!(items.len(), 101);
+    assert_eq!(items[0].tag, tag("v0.101.0"));
+    assert_eq!(items[100].tag, tag("v0.001.0"));
+    assert_eq!(
+        stub.asked(),
+        [
+            "repos/tehas-app/tehas-rec-releases-many/releases?per_page=100",
+            "repositories/1473249969/releases?per_page=100&page=2",
+        ]
+    );
 }
 
 #[test]
 fn an_anonymous_write_handle_is_forbidden_and_makes_no_request() {
     let stub = Stub::new("github-anonymous-writes");
-    let site = site("acme/widget", &stub, Arc::new(MemoryLedger::new()));
+    let site = site(REPO, &stub, Arc::new(MemoryLedger::new()));
     let by = Actor::Anonymous;
     assert_eq!(
         site.ticket_writes(&by, CALLER).err(),
@@ -246,7 +305,7 @@ fn an_anonymous_write_handle_is_forbidden_and_makes_no_request() {
 #[test]
 fn an_anonymous_read_outside_the_release_reads_is_unsupported_with_no_request() {
     let stub = Stub::new("github-anonymous-others");
-    let site = site("acme/widget", &stub, Arc::new(MemoryLedger::new()));
+    let site = site(REPO, &stub, Arc::new(MemoryLedger::new()));
     let by = Actor::Anonymous;
     assert_eq!(site.tickets(&by, CALLER).err(), Some(UNSUPPORTED));
     assert_eq!(site.blueprints(&by, CALLER).err(), Some(UNSUPPORTED));
@@ -254,10 +313,10 @@ fn an_anonymous_read_outside_the_release_reads_is_unsupported_with_no_request() 
     assert_eq!(site.board(&by, CALLER).err(), Some(UNSUPPORTED));
     let mut h = site.code_host(&by, CALLER).unwrap();
     assert_eq!(h.facts().err(), Some(UNSUPPORTED));
-    assert_eq!(h.release(&tag("v1.4.1")).err(), Some(UNSUPPORTED));
+    assert_eq!(h.release(&tag("v1.1.0")).err(), Some(UNSUPPORTED));
     // `download` is answered: tests/anonymous_download.rs.
     let mut into = Vec::new();
-    let at = CommitId::new(V141).unwrap();
+    let at = CommitId::new(V110).unwrap();
     assert_eq!(h.archive(&at, 1 << 20, &mut into).err(), Some(UNSUPPORTED));
     assert_eq!(
         h.remote(tehas_ports::Access::Fetch).err(),
@@ -268,7 +327,7 @@ fn an_anonymous_read_outside_the_release_reads_is_unsupported_with_no_request() 
 
 #[test]
 fn a_site_not_given_curl_answers_anonymous_reads_unsupported() {
-    let site = GitHubSite::new("acme/widget", "tehas-bot[bot]", Some(900), no_gh());
+    let site = GitHubSite::new(REPO, "tehas-app[bot]", Some(900), no_gh());
     assert_eq!(
         site.code_host(&Actor::Anonymous, CALLER).err(),
         Some(UNSUPPORTED)
@@ -278,18 +337,24 @@ fn a_site_not_given_curl_answers_anonymous_reads_unsupported() {
 #[test]
 fn a_private_or_missing_project_is_refused_never_not_found() {
     let stub = Stub::new("github-anonymous-private");
-    let site = site("acme/private", &stub, Arc::new(MemoryLedger::new()));
+    let site = site(
+        "tehas-app/tehas-rec-gone",
+        &stub,
+        Arc::new(MemoryLedger::new()),
+    );
     let mut h = site.code_host(&Actor::Anonymous, CALLER).unwrap();
     assert_eq!(h.releases(ALL_MAX).err(), Some(UNSUPPORTED));
     assert_eq!(h.tags(ALL_MAX).err(), Some(UNSUPPORTED));
     assert_eq!(h.latest_release().err(), Some(UNSUPPORTED));
-    assert_eq!(h.resolve_tag(&tag("v1.4.1")).err(), Some(UNSUPPORTED));
+    assert_eq!(h.resolve_tag(&tag("v1.1.0")).err(), Some(UNSUPPORTED));
 }
 
+/// GitHub never answers `latest` with a prerelease, so the case is
+/// synthetic.
 #[test]
 fn a_prerelease_answered_as_the_latest_is_inconsistent_as_on_the_tokens_path() {
-    let stub = Stub::new("github-anonymous-pre");
-    let site = site("acme/pre", &stub, Arc::new(MemoryLedger::new()));
+    let stub = Stub::synthetic("github-anonymous-pre", "pre");
+    let site = site(REPO, &stub, Arc::new(MemoryLedger::new()));
     let mut h = site.code_host(&Actor::Anonymous, CALLER).unwrap();
     assert_eq!(
         h.latest_release(),
@@ -297,26 +362,128 @@ fn a_prerelease_answered_as_the_latest_is_inconsistent_as_on_the_tokens_path() {
     );
 }
 
+/// A redirect that names no place to go is not GitHub's answer, even with a
+/// body that would read as one.
+#[test]
+fn a_redirect_with_no_location_is_malformed_never_its_body() {
+    let stub = Stub::synthetic("github-anonymous-no-location", "no-location");
+    let site = site(REPO, &stub, Arc::new(MemoryLedger::new()));
+    let mut h = site.code_host(&Actor::Anonymous, CALLER).unwrap();
+    assert_eq!(
+        h.latest_release().err(),
+        Some(Outcome::Unread(Unread::Malformed))
+    );
+    assert_eq!(
+        stub.asked(),
+        ["repos/tehas-app/tehas-rec-releases/releases/latest"]
+    );
+}
+
+/// A redirect within the API's host is followed once, to the answer: a
+/// renamed project's 301 to its address by id.
+#[test]
+fn one_redirect_within_the_api_is_followed() {
+    let stub = Stub::new("github-anonymous-renamed");
+    let site = site("twitter/bootstrap", &stub, Arc::new(MemoryLedger::new()));
+    let mut h = site.code_host(&Actor::Anonymous, CALLER).unwrap();
+    let latest = h.latest_release().unwrap().unwrap();
+    assert_eq!(latest.tag, tag("v5.3.9"));
+    assert_eq!(
+        latest.link.as_str(),
+        "https://github.com/twbs/bootstrap/releases/tag/v5.3.9"
+    );
+    assert_eq!(
+        stub.asked(),
+        [
+            "repos/twitter/bootstrap/releases/latest",
+            "repositories/2126244/releases/latest"
+        ]
+    );
+}
+
+/// A second redirect is not followed, and its body, which would read as a
+/// release, is never the answer.
+#[test]
+fn a_second_redirect_is_malformed_never_its_body() {
+    let stub = Stub::synthetic("github-anonymous-chain", "chain");
+    let site = site(REPO, &stub, Arc::new(MemoryLedger::new()));
+    let mut h = site.code_host(&Actor::Anonymous, CALLER).unwrap();
+    assert_eq!(
+        h.latest_release().err(),
+        Some(Outcome::Unread(Unread::Malformed))
+    );
+    assert_eq!(
+        stub.asked(),
+        [
+            "repos/tehas-app/tehas-rec-releases/releases/latest",
+            "repositories/1473248788/releases/latest"
+        ]
+    );
+}
+
 #[test]
 fn a_public_project_with_no_release_or_no_such_tag_says_so() {
     let stub = Stub::new("github-anonymous-none");
-    let site = site("acme/empty", &stub, Arc::new(MemoryLedger::new()));
+    let site = site(
+        "tehas-app/tehas-rec-empty",
+        &stub,
+        Arc::new(MemoryLedger::new()),
+    );
     let mut h = site.code_host(&Actor::Anonymous, CALLER).unwrap();
     assert_eq!(h.latest_release(), Ok(None));
-    let site = self::site("acme/widget", &stub, Arc::new(MemoryLedger::new()));
+    let site = self::site(REPO, &stub, Arc::new(MemoryLedger::new()));
     let mut h = site.code_host(&Actor::Anonymous, CALLER).unwrap();
     assert_eq!(h.resolve_tag(&tag("v9.9.9")).err(), Some(Outcome::NotFound));
 }
 
+/// A 429 with no reset time or `retry-after` holds the budget out for a
+/// minute, the floor of every rate limit the adapter reads with no reset.
+#[test]
+fn a_bare_too_many_requests_holds_the_budget_for_a_minute() {
+    let stub = Stub::synthetic("github-anonymous-busy", "busy");
+    let site = site(REPO, &stub, Arc::new(MemoryLedger::new()));
+    let mut h = site.code_host(&Actor::Anonymous, CALLER).unwrap();
+    assert_eq!(
+        h.releases(ALL_MAX).err(),
+        Some(Outcome::Spent {
+            pool: Pool::Calls,
+            until: At::new(1_795_530_060),
+        })
+    );
+}
+
+/// A 403 that says the budget is spent but gives no reset GitHub's clock
+/// can read, or a secondary limit's `retry-after` given as a date, is
+/// still a limit: the budget is held out for the floor, never Forbidden.
+#[test]
+fn a_limit_with_no_readable_reset_holds_the_budget_for_a_minute() {
+    for case in ["no-reset", "bad-reset", "secondary"] {
+        let stub = Stub::synthetic(&format!("github-anonymous-{case}"), case);
+        let site = site(REPO, &stub, Arc::new(MemoryLedger::new()));
+        let mut h = site.code_host(&Actor::Anonymous, CALLER).unwrap();
+        assert_eq!(
+            h.releases(ALL_MAX).err(),
+            Some(Outcome::Spent {
+                pool: Pool::Calls,
+                until: At::new(1_795_530_060),
+            }),
+            "{case}"
+        );
+    }
+}
+
+/// A spent budget cannot be made on demand, so the case is synthetic. Its
+/// reset is 174168 s off: the budget is held for an hour, the most any
+/// server's reset or `retry-after` holds it.
 #[test]
 fn a_spent_anonymous_budget_is_kept_and_the_next_call_makes_no_request() {
-    let stub = Stub::new("github-anonymous-spent");
+    let stub = Stub::synthetic("github-anonymous-spent", "spent");
     let ledger = Arc::new(MemoryLedger::new());
-    let site = site("acme/spent", &stub, Arc::clone(&ledger));
+    let site = site(REPO, &stub, Arc::clone(&ledger));
     let mut h = site.code_host(&Actor::Anonymous, CALLER).unwrap();
     let spent = Outcome::Spent {
         pool: Pool::Calls,
-        until: At::new(1_795_536_548),
+        until: At::new(1_795_533_600),
     };
     assert_eq!(h.releases(ALL_MAX).err(), Some(spent.clone()));
     let host = HostId::new("github.com");
@@ -325,7 +492,7 @@ fn a_spent_anonymous_budget_is_kept_and_the_next_call_makes_no_request() {
         ledger.health(&host, &whose).unwrap(),
         HealthState::Spent {
             pool: Pool::Calls,
-            until: At::new(1_795_536_548)
+            until: At::new(1_795_533_600)
         }
     );
     // The factory's own holder is not touched.
@@ -339,7 +506,7 @@ fn a_spent_anonymous_budget_is_kept_and_the_next_call_makes_no_request() {
 #[test]
 fn past_the_deadline_an_anonymous_read_makes_no_request() {
     let stub = Stub::new("github-anonymous-deadline");
-    let site = site("acme/widget", &stub, Arc::new(MemoryLedger::new()));
+    let site = site(REPO, &stub, Arc::new(MemoryLedger::new()));
     let view = site.until(At::new(1_795_529_999));
     let mut h = view.code_host(&Actor::Anonymous, CALLER).unwrap();
     assert_eq!(
@@ -355,7 +522,7 @@ fn past_the_deadline_an_anonymous_read_makes_no_request() {
 #[test]
 fn an_answer_past_the_cap_is_too_large() {
     let stub = Stub::new("github-anonymous-cap");
-    let site = GitHubSite::new("acme/widget", "tehas-bot[bot]", Some(900), no_gh())
+    let site = GitHubSite::new(REPO, "tehas-app[bot]", Some(900), no_gh())
         .with_anonymous_curl(
             Curl::at(stub.program()).capped(64),
             Arc::new(MemoryLedger::new()),
@@ -374,7 +541,7 @@ fn an_answer_past_the_cap_is_too_large() {
 fn curls_arguments_are_pinned() {
     let argv = Curl::new()
         .argv(
-            "repos/acme/widget/releases/latest",
+            "repos/tehas-app/tehas-rec-releases/releases/latest",
             std::time::Duration::from_secs(600),
         )
         .unwrap();
@@ -400,7 +567,7 @@ fn curls_arguments_are_pinned() {
             "X-GitHub-Api-Version: 2022-11-28",
             "--user-agent",
             "tehas",
-            "https://api.github.com/repos/acme/widget/releases/latest",
+            "https://api.github.com/repos/tehas-app/tehas-rec-releases/releases/latest",
         ]
     );
     assert_eq!(CURL_ENV, [("PATH", "/usr/bin:/bin"), ("LC_ALL", "C")]);
