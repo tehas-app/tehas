@@ -6,8 +6,8 @@ use crate::{gh, table, ForgeError, GitHub};
 use serde_json::Value;
 use tehas_ports::{
     Account, AccountId, AccountKind, At, CloseReason, Got, Happened, HappenedKind, Kind, Login,
-    Mark, MarkName, Outcome, Passing, Pool, Realm, Refusal, Revision, Sent, TargetId, TargetName,
-    TicketDigest, TicketEvent, TicketKey, TicketState, Took, Unread, WebLink, Window,
+    Mark, MarkId, MarkName, Outcome, Passing, Pool, Realm, Refusal, Revision, Sent, TargetId,
+    TargetName, TicketDigest, TicketEvent, TicketKey, TicketState, Took, Unread, WebLink, Window,
 };
 
 impl GitHub {
@@ -109,6 +109,7 @@ impl GitHub {
             let mut event = TicketEvent::new(what);
             event.by = account(&e.actor, &facts, self.bot.as_ref());
             event.at = at;
+            event.mark_id = e.label_id.map(MarkId::new);
             items.push(event);
         }
         Ok(items)

@@ -41,8 +41,8 @@ use crate::tickets::take;
 use crate::{markers, GitHub};
 use tehas_ports::{
     Blueprint, BoardAsk, Bound, ChangeDigest, ChangeNo, ChangeStates, Depth, Filter, Got, Happened,
-    HappenedKind, Mark, OpenWork, Outcome, Ticket, TicketEvent, TicketKey, Took, Unread, Whole,
-    Window, WorkItem,
+    HappenedKind, Mark, MarkId, OpenWork, Outcome, Ticket, TicketEvent, TicketKey, Took, Unread,
+    Whole, Window, WorkItem,
 };
 
 /// The open issues one page asks for, dispatch's `ISSUE_PAGE`. A page over
@@ -538,6 +538,7 @@ impl GitHub {
                     let mut event = TicketEvent::new(what);
                     event.by = e.actor.as_ref().and_then(|w| w.account(self.bot.as_ref()));
                     event.at = e.created_at.as_deref().map(time).transpose()?;
+                    event.mark_id = e.label.as_ref().and_then(|l| l.id.clone()).map(MarkId::new);
                     read.push(event);
                 }
                 order(&mut read);
