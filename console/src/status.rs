@@ -37,6 +37,7 @@ use std::path::{Path, PathBuf};
 use tehas_core::exit;
 use tehas_core::home::{Home, Live, State};
 use tehas_core::time::from_iso_jq;
+use tehas_core::verb::Verb;
 
 /// The age after which a health file is not believed.
 pub const MAX_AGE: i64 = 600;
@@ -103,7 +104,7 @@ pub fn print(given: &[String]) -> u8 {
 /// still runs, then each approval that waits for a poll. A store that cannot
 /// answer is no line.
 fn host_lines(home: &Path, now: i64) -> Vec<String> {
-    let Ok(v) = store::call(home, &["approval-hosts"]) else {
+    let Ok(v) = store::call(home, &Verb::ApprovalHosts) else {
         return Vec::new();
     };
     host_lines_of(&J::parse(&v.to_string()).unwrap_or(J::Null), now)
@@ -182,7 +183,7 @@ fn home() -> Option<PathBuf> {
 
 /// The store's line for the last poll. No store, or none on record, is no line.
 fn poll_line(home: &Path) -> String {
-    store::call(home, &["poll-show"])
+    store::call(home, &Verb::PollShow { api_now: None })
         .ok()
         .and_then(|v| v["line"].as_str().map(str::to_string))
         .unwrap_or_default()

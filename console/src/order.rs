@@ -29,6 +29,7 @@ use tehas_core::limit::oneline;
 use tehas_core::order::{list, Order, Reading};
 use tehas_core::starts::{self, code, Reason, Record};
 use tehas_core::time;
+use tehas_core::verb::Verb;
 
 const USAGE: &str = "usage: tehas order [--json] | set --issues N[,N...] [--only] [--for SECONDS | --until TIME] [--reason TEXT] [--json] | clear [--json]";
 
@@ -206,35 +207,22 @@ pub fn main(given: &[String]) -> u8 {
         );
         return tehas_core::exit::SETTINGS;
     }
-    let mut args: Vec<String> = Vec::new();
-    let json = match asked {
-        Asked::Show { json } => {
-            args.push("order-show".into());
-            json
-        }
-        Asked::Clear { json } => {
-            args.push("order-clear".into());
-            json
-        }
+    let (verb, json) = match asked {
+        Asked::Show { json } => (Verb::OrderShow, json),
+        Asked::Clear { json } => (Verb::OrderClear, json),
         Asked::Set { order: want, json } => {
-            args.extend(["order-set".into(), "--issues".into()]);
-            let issues: Vec<String> = want.issues.iter().map(u64::to_string).collect();
-            args.push(issues.join(","));
-            if want.only {
-                args.push("--only".into());
-            }
-            if let Some(u) = want.until.or(want.for_.map(|s| now() + s)) {
-                args.extend(["--until".into(), u.to_string()]);
-            }
-            if let Some(r) = want.reason {
-                args.extend(["--reason".into(), r]);
-            }
-            json
+            let until = want.until.or(want.for_.map(|s| now() + s));
+            let set = Order {
+                issues: want.issues,
+                only: want.only,
+                until,
+                reason: want.reason,
+            };
+            (Verb::OrderSet(set), json)
         }
     };
-    let show = args[0] == "order-show";
-    let words: Vec<&str> = args.iter().map(String::as_str).collect();
-    match store::call(&here, &words) {
+    let show = verb == Verb::OrderShow;
+    match store::call(&here, &verb) {
         Ok(v) => {
             let r = v
                 .get("order")

@@ -65,9 +65,9 @@ impl Host for Fake {
         &mut self.x
     }
 
-    fn store(&mut self, args: &[&str]) -> Result<Value, String> {
-        self.calls.push(args.join(" "));
-        if args[0] == "plugin-run-begin" {
+    fn store(&mut self, verb: &Verb) -> Result<Value, String> {
+        self.calls.push(verb.args().join(" "));
+        if matches!(verb, Verb::PluginRunBegin { .. }) {
             self.next += 1;
             return Ok(json!({"run": self.next - 1}));
         }

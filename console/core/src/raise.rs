@@ -17,6 +17,7 @@
 use crate::limit::{self, leading_number, quoted};
 use crate::outcome::{self, ParkLine};
 use crate::question::stored_choices;
+use crate::verb::Verb;
 use serde::Deserialize;
 use serde_json::Value;
 use std::num::{NonZeroU32, NonZeroU64};
@@ -505,7 +506,7 @@ pub fn cleared_limit(now: i64) -> LimitChanged {
 
 /// One verb of the store: the line it answered, or the word of its failure.
 /// Each program asks through its own client.
-pub type Ask<'a> = dyn FnMut(&[&str]) -> Result<String, String> + 'a;
+pub type Ask<'a> = dyn FnMut(&Verb) -> Result<String, String> + 'a;
 
 #[derive(Deserialize)]
 struct Rows {
@@ -532,8 +533,7 @@ pub fn read_ended(
     by: Writer,
     site_at: &mut dyn FnMut(ChangeNo) -> Option<At>,
 ) -> Result<Ended, String> {
-    let n = issue.to_string();
-    let rows: Rows = serde_json::from_str(&ask(&["history-show", &n])?)
+    let rows: Rows = serde_json::from_str(&ask(&Verb::HistoryShow { issue: Some(issue) })?)
         .map_err(|e| format!("the history is not as the store writes it: {e}"))?;
     let lines: Vec<HistoryRow> = rows
         .rows
@@ -542,7 +542,7 @@ pub fn read_ended(
         .filter_map(|row| serde_json::from_value(row).ok())
         .collect();
     let question = match by {
-        Writer::Report => ask(&["question-show", &n])
+        Writer::Report => ask(&Verb::QuestionShow { issue })
             .ok()
             .and_then(|l| serde_json::from_str::<Shown>(&l).ok())
             .and_then(|s| s.question),
@@ -561,8 +561,8 @@ pub fn read_ended(
 /// `question.asked` of question `id`, the store's number, read from the
 /// store after its record.
 pub fn read_asked(ask: &mut Ask, id: u64) -> Result<Option<QuestionAsked>, String> {
-    let after = id.saturating_sub(1).to_string();
-    let listed: Listed = serde_json::from_str(&ask(&["question-list", "--after", &after])?)
+    let after = Some(id.saturating_sub(1));
+    let listed: Listed = serde_json::from_str(&ask(&Verb::QuestionList { after })?)
         .map_err(|e| format!("the questions are not as the store writes them: {e}"))?;
     Ok(listed.questions.iter().find(|q| q.id == id).and_then(asked))
 }
@@ -970,14 +970,14 @@ mod tests {
     #[test]
     fn a_short_end_reads_no_question_and_a_failed_read_says_why() {
         let mut asked = Vec::new();
-        let mut ask = |a: &[&str]| -> Result<String, String> {
-            asked.push(a.join(" "));
+        let mut ask = |v: &Verb| -> Result<String, String> {
+            asked.push(v.args().join(" "));
             Ok(r#"{"rows":[{"kind":"cycle","issue":12,"attempt":3,"at":10,"status":"stopped","reported":false,"seq":1}]}"#.into())
         };
         let e = read_ended(&mut ask, 12, 3, Writer::Short, &mut |_| None).unwrap();
         assert_eq!(names(&e), [Name::CycleEnded]);
         assert_eq!(asked, ["history-show 12"]);
-        let mut fails = |_: &[&str]| -> Result<String, String> { Err("busy".into()) };
+        let mut fails = |_: &Verb| -> Result<String, String> { Err("busy".into()) };
         assert_eq!(
             read_ended(&mut fails, 12, 3, Writer::Report, &mut |_| None),
             Err("busy".into())

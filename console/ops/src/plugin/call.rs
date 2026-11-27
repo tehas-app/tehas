@@ -28,6 +28,7 @@ use tehas_core::plugin::manifest::Tool;
 use tehas_core::plugin::run::{context, Kind, Run, Trigger};
 use tehas_core::plugin::{self, params, Cap};
 use tehas_core::sandbox;
+use tehas_core::verb::Verb;
 
 /// The most bytes of an answer.
 pub const ANSWER_MAX: usize = 16 << 10;
@@ -232,21 +233,14 @@ fn begin(home: &Path, r: &Ready, caller: &Caller) -> Result<u64, Failed> {
     let begun = crate::store::try_call(
         home,
         3,
-        &[
-            "plugin-run-begin",
-            "--plugin",
-            &r.pin.name,
-            "--commit",
-            c,
-            "--kind",
-            Kind::Call.word(),
-            "--how",
-            caller.trigger().word(),
-            "--by",
-            caller.by(),
-            "--head",
-            c,
-        ],
+        &Verb::PluginRunBegin {
+            plugin: r.pin.name.clone(),
+            commit: c.clone(),
+            kind: Kind::Call,
+            how: caller.trigger(),
+            by: caller.by().to_string(),
+            head: c.clone(),
+        },
     );
     match begun.map(|v| v["run"].as_u64()) {
         Ok(Some(id)) if id > 0 => Ok(id),
@@ -384,13 +378,13 @@ impl<'de> Visitor<'de> for Strict {
 
 /// The row ended with what the call came to, or the store's refusal.
 fn end(home: &Path, id: u64, result: &str, size: Option<usize>) -> Result<(), String> {
-    let id = id.to_string();
-    let size = size.map(|n| n.to_string());
-    let mut args = vec!["plugin-run-end", "--run", &id, "--result", result];
-    if let Some(n) = &size {
-        args.extend(["--size", n.as_str()]);
-    }
-    crate::store::try_call(home, 3, &args)
+    let end = Verb::PluginRunEnd {
+        run: id,
+        result: result.to_string(),
+        size,
+        tokens: None,
+    };
+    crate::store::try_call(home, 3, &end)
         .map(drop)
         .map_err(|no| no.line)
 }
