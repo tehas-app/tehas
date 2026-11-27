@@ -1078,8 +1078,7 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   repository's id, so on an instance whose `TEHAS_REPO` names the old name
   the adapter reads and writes its issues, comments and pull requests, and
   finds them in a search, as its own. It does so only for a name with the
-  configured owner: a repository transferred to another owner is another
-  account's, and its answers stay unread. Before its first write a handle
+  configured owner. Before its first write a handle
   asks GitHub once for the id and the name the configured name resolves
   to, since a REST answer names its repository by name alone and a write
   sent by name lands where GitHub's redirect takes it. A name under
