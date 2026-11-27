@@ -76,10 +76,10 @@ pub struct Ended {
 fn fresh(
     dir: &Path,
     prefix: &str,
-    mut make: impl FnMut(&Path) -> std::io::Result<()>,
+    make: impl FnMut(&Path) -> std::io::Result<()>,
 ) -> Option<PathBuf> {
     static N: AtomicU32 = AtomicU32::new(0);
-    for _ in 0..100 {
+    let next = |_| {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |d| d.subsec_nanos());
@@ -93,14 +93,9 @@ fn fresh(
                 c as char
             })
             .collect();
-        let p = dir.join(format!("{prefix}{tail}"));
-        match make(&p) {
-            Ok(()) => return Some(p),
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(_) => return None,
-        }
-    }
-    None
+        Ok(format!("{prefix}{tail}"))
+    };
+    tehas_core::file::fresh(dir, 100, next, make).ok()
 }
 
 /// A file made new with mode 0600 under `dir`, holding `text`.
