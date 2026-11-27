@@ -236,7 +236,11 @@ impl Site for GitHubSite {
     }
 
     /// `Actor::Anonymous` reads through curl, on a site given it, and
-    /// never through a runner of gh.
+    /// never through a runner of gh. A site given no curl refuses the
+    /// anonymous handle: the console's update is the one program that
+    /// reads anonymously, and its wiring always gives one, so this
+    /// refusal is the wiring's guard, held by the test. The factory's
+    /// account path answers on every site.
     fn code_host(&self, by: &Actor, caller: Caller) -> Got<Box<dyn CodeHost + Send>> {
         if *by == Actor::Anonymous {
             let Some(public) = &self.public else {
