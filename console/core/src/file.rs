@@ -1,5 +1,6 @@
 //! Files: a host file read by the store's rule, a database's side files, a
-//! file's bytes as base64 or base64url, and the one write through a temporary name.
+//! file's bytes as base64 or base64url, the one write through a temporary
+//! name, and the one loop that makes a new name in a directory.
 
 use std::fs::{self, File, Metadata, OpenOptions, Permissions};
 use std::io::{self, Read, Write};
@@ -260,6 +261,27 @@ pub fn write_atomic(path: &Path, bytes: &[u8], mode: u32, temp: &Temp) -> io::Re
         }
     }
     Ok(())
+}
+
+/// The first of `tries` names that `make` could create new in `dir`, the
+/// `i`th asked of `name(i)`. `make` creates a file or a directory new, so a
+/// name that is taken fails with `AlreadyExists` and the next is tried. An
+/// error of `name`, or any other error of `make`, is the answer.
+pub fn fresh(
+    dir: &Path,
+    tries: u32,
+    mut name: impl FnMut(u32) -> io::Result<String>,
+    mut make: impl FnMut(&Path) -> io::Result<()>,
+) -> io::Result<PathBuf> {
+    for i in 0..tries {
+        let p = dir.join(name(i)?);
+        match make(&p) {
+            Ok(()) => return Ok(p),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    Err(io::ErrorKind::AlreadyExists.into())
 }
 
 // SQLite names a database's side files by appending to its name.

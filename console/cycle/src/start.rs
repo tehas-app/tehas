@@ -44,30 +44,30 @@ pub fn private_file(home: &Path, name: &str, text: &[u8]) -> Option<PathBuf> {
     if !m.is_dir() {
         return None;
     }
-    for i in 0..100u32 {
+    let next = |i| {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .ok()?
+            .map_err(|_| std::io::ErrorKind::Other)?
             .subsec_nanos();
-        let file = dir.join(format!("{name}.{}{nanos}{i}", std::process::id()));
-        let made = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&file);
-        match made {
-            Ok(mut f) => {
-                if f.write_all(text).is_err() {
-                    let _ = fs::remove_file(&file);
-                    return None;
-                }
-                return Some(file);
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(_) => return None,
-        }
+        Ok(format!("{name}.{}{nanos}{i}", std::process::id()))
+    };
+    let mut opened = None;
+    let file = tehas_core::file::fresh(&dir, 100, next, |p| {
+        opened = Some(
+            OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(p)?,
+        );
+        Ok(())
+    })
+    .ok()?;
+    if !matches!(opened.as_mut().map(|f| f.write_all(text)), Some(Ok(()))) {
+        let _ = fs::remove_file(&file);
+        return None;
     }
-    None
+    Some(file)
 }
 
 /// What the store has of an approval.
