@@ -109,7 +109,10 @@ pub fn denied(label: &str, n: u64, who: &str, kind: Option<&str>) -> String {
 }
 
 /// The tickets of GitHub's list, newest first. None when it is no list. A pull
-/// request is no ticket, nor is a row without a number or a title.
+/// request is no ticket, nor is a row without a number or a title. Nothing in
+/// core calls this yet: it is kept for the lab plugin's `issues:` grant, the
+/// host-side reading of labelled issues (the plugin-lab spec, "Kept in T14";
+/// `console/xtask/tests/kept_for_plugins.rs` holds the rule).
 pub fn tickets(answer: &str) -> Option<Vec<Value>> {
     let Value::Array(rows) = serde_json::from_str(answer).ok()? else {
         return None;
@@ -136,9 +139,12 @@ pub fn tickets(answer: &str) -> Option<Vec<Value>> {
 /// login can be vouched for.
 pub const WHO: &str = "login ...on User { databaseId } ...on Bot { databaseId }";
 
-/// The issue's body and its first hundred comments, each with its author and
-/// its last editor, the logins vouched. None when GitHub does not answer with
-/// the issue.
+/// The issue as the GraphQL read answers it: its `body`, its `author` and
+/// `editor`, and its first hundred comments under `comments.nodes`, each with
+/// its `author` and `editor` and the logins vouched by [`crate::accounts`].
+/// None when GitHub does not answer with the issue. Nothing in core calls this
+/// yet: it is kept for the lab plugin's `issues:` grant, whose feed reads the
+/// issue this way (the plugin-lab spec, "Kept in T14").
 pub fn texts(repo: &str, gh: &mut dyn GhRunner, n: u64) -> Option<Value> {
     let (owner, name) = repo.split_once('/')?;
     let query = format!(
@@ -303,8 +309,10 @@ mod tests {
         who == "alice"
     }
 
-    /// An issue as the texts read answers it: its body and its comments, each
-    /// with its author and, when edited, its last editor.
+    /// An issue as [`texts`] answers it: its body and its comments under
+    /// `comments.nodes`, each with its `author` and, when edited, its
+    /// `editor`, the logins vouched: the shape the lab plugin's `issues:`
+    /// feed reads.
     fn issue(body: &str, author: &str, editor: Option<&str>, comments: Value) -> Value {
         serde_json::json!({
             "body": body,
