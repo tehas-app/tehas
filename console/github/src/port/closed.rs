@@ -3,8 +3,8 @@
 //! closed it (`several_with_closers`). The closer is the one
 //! `Ticket.closer` gives, read by the same rule from the newest close.
 //!
-//! `several_with_closers` asks one GraphQL question for up to a hundred
-//! tickets, an alias a number, read alias by alias as `items.rs` reads
+//! `several_with_closers` asks a GraphQL question of up to fifty tickets,
+//! an alias a number, read alias by alias as `items.rs` reads
 //! every aliased question: a number that is no issue is `NotFound`. Its
 //! merged changes are the merged pull requests of this project among those
 //! GitHub lists as closing the ticket, as `closed_since` counts them.
@@ -27,8 +27,13 @@ const INCONSISTENT: Outcome = Outcome::Unread(Unread::Inconsistent);
 const CUT: Outcome = Outcome::Unread(Unread::Cut);
 
 /// The tickets one question of `several_with_closers` asks: more go in
-/// another question.
-const PER_QUESTION: usize = 100;
+/// another question. The whole question travels to gh as one argument of
+/// the call, and Linux starts no call whose single argument reaches 128
+/// KiB: a hundred tickets is a question of about 158 KB, which gh is never
+/// told (the tidy's poll of a page of issues then reads as an unreachable
+/// site); fifty of even nine-digit numbers is about 80 KB. A test below
+/// pins it.
+const PER_QUESTION: usize = 50;
 
 /// The closed issues one page of `closed_since` reads. Each carries the
 /// digests of the pull requests that close it, so a page is kept smaller
@@ -321,6 +326,20 @@ mod tests {
         assert!(q.contains(" i34: issue(number: 34) { number title "));
         assert!(q.contains("closes: timelineItems(itemTypes: [CLOSED_EVENT], last: 1)"));
         assert!(q.ends_with(" } }"));
+    }
+
+    /// The read asks no question gh cannot be told: the biggest question
+    /// it asks, fifty tickets with the widest numbers it asks for, stays
+    /// under the ceiling of one argument of one call.
+    #[test]
+    fn the_largest_closers_question_is_an_argument_gh_can_be_told() {
+        let widest: Vec<u64> = (100_000_000..100_000_000 + PER_QUESTION as u64).collect();
+        let q = several_question(&widest);
+        assert!(
+            q.len() < 128 * 1024,
+            "one argument of {} bytes is no call",
+            q.len()
+        );
     }
 
     /// `several_with_closers` answers `WithCloser.merged` from them, so

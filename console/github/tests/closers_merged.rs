@@ -16,8 +16,8 @@ use std::sync::{Arc, Mutex};
 use tehas_core::forge::GhRunner;
 use tehas_github::GitHub;
 use tehas_ports::{
-    laws, Bound, ChangeNo, ChangeState, CloseReason, Closer, CommitId, TicketKey, TicketState,
-    Tickets,
+    laws, Bound, ChangeNo, ChangeState, CloseReason, Closer, CommitId, Outcome, TicketKey,
+    TicketState, Tickets, Unread,
 };
 
 fn key(n: u64) -> TicketKey {
@@ -45,6 +45,8 @@ impl GhRunner for B52 {
             "b52-several-947.json"
         } else if last.contains("i951: issue(number: 951)") {
             "b52-open-951.json"
+        } else if last.contains("i953: issue(number: 953)") {
+            "b52-bad-merged-953.json"
         } else if last.contains("since: $since") {
             "b52-since-947.json"
         } else {
@@ -127,6 +129,23 @@ fn an_open_ticket_reads_no_merged_changes() {
     assert_eq!(with.digest.state, TicketState::Open);
     assert_eq!(with.closer, None, "a reopened issue is not closed");
     assert!(with.merged.is_empty(), "open keeps the list empty");
+}
+
+/// The deleted shell case's rule, kept: a closer whose `merged` is no
+/// boolean is malformed to the adapter, so the read of that ticket fails
+/// and the label is never given on it. The hand-made derived
+/// `b52-bad-merged-953.json` answers the closer with `merged` 1.
+#[test]
+fn a_closer_whose_merged_is_no_boolean_malforms_the_read() {
+    let (mut gh, _) = adapter();
+    let got = gh.several_with_closers(&[key(953)]);
+    let (k, answer) = &got[0];
+    assert_eq!(*k, key(953));
+    assert_eq!(
+        *answer,
+        Err(Outcome::Unread(Unread::Malformed)),
+        "a merged that is no boolean is no merge"
+    );
 }
 
 /// The question the recording answers is the question the adapter asks:
