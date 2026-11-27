@@ -28,6 +28,16 @@ numbers count from 0 in `data.repository.pullRequest.events.nodes`.
 | `activity/no-page-info/events-whole-first.json` | `events` has no `pageInfo` |
 | `activity/no-cursor/events-whole-first.json` | `pageInfo` is `{"hasNextPage": true, "endCursor": null}`: more follows, no cursor to it |
 
+## A run of another name in the branch checks question
+
+Source: `console/github/tests/recorded/branch-checks/live/question-main.json`,
+the live answer of the branch checks question for `main` of
+tehas-app/tehas-rec-branch-checks (kit run #1, step f, 2026-11-26).
+
+| File | Changed from the recording |
+| --- | --- |
+| `branch-checks/case-folded/question-main.json` | Run 139972228367's `name` is `Verify`, not `verify`: a run the `checkName` filter gave whose name is not the one asked |
+
 ## Releases: one fault in a live recording
 
 Source: `console/github/tests/recorded/releases/fixture/`, the live
