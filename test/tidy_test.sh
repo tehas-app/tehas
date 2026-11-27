@@ -410,7 +410,9 @@ for n in $(seq 100 "$last"); do merged "$n"; done
 } >"$fx/closed.json"
 t_run "$tidy"
 t_eq "$t_rc" 0
-t_eq "$(reads | wc -l)" 1
+# The read is asked in questions of fifty, the ceiling the adapter keeps so
+# one question is an argument gh can be told.
+t_eq "$(reads | wc -l)" 2
 t_eq "$(edits | grep -c -- '--add-label tehas:shipped')" "$page"
 t_contains "$(reads)" "i100: issue(number: 100)"
 # The candidates past the page were not named: a list past the ceiling of a
