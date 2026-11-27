@@ -38,7 +38,7 @@ fn author_kind(site: &GitHubSite) -> AccountKind {
 }
 
 /// The answer of the question of the ticket #7 is a part of: none.
-const NO_PARENT: &str = r#"{"data":{"repository":{"issue":{"number":7,"parent":null}}}}"#;
+const NO_PARENT: &str = r#"{"data":{"repository":{"n7":{"number":7,"parent":null}}}}"#;
 
 fn site(answer: String) -> GitHubSite {
     let make: MakeRunner = Arc::new(move |_: &Actor| {

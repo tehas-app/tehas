@@ -23,6 +23,7 @@ use std::path::{Path, PathBuf};
 use tehas_core::jq::{obj, J};
 use tehas_core::plugin::state::{State, Word};
 use tehas_core::plugin::{self, Pin};
+use tehas_core::verb::Verb;
 use tehas_core::{exit, features, outln};
 
 const USAGE: &str = "usage: tehas plugin [--json] | tehas plugin review <name> [<commit>] [--json] | tehas plugin skills [--chat obeya|wizard|assistant] [--json] | tehas plugin run <name> | tehas plugin hook <name> <pr> | tehas plugin log <name> [--hook <pr>] | tehas plugin check <dir> [--json] | tehas plugin call <name> <tool> --args <json> [--login <login>] [--json]";
@@ -256,7 +257,11 @@ pub fn rows(
 /// The runs of a plugin in the home's store; none when it cannot be read.
 fn store_runs(home: &Path, name: &str) -> (Option<Value>, u64) {
     let since = tehas_core::time::now().div_euclid(86_400) * 86_400;
-    match crate::store::call(home, &["plugin-runs", "--plugin", name, "--no-calls"]) {
+    let runs = Verb::PluginRuns {
+        plugin: name.to_string(),
+        no_calls: true,
+    };
+    match crate::store::call(home, &runs) {
         Ok(v) => {
             let runs = v["runs"].as_array().cloned().unwrap_or_default();
             runs::last_and_today(&runs, since)

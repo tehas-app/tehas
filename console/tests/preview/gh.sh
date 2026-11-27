@@ -44,6 +44,10 @@ case "$1 $2" in
     [ -f "$T/fx/pull-$n.json" ] || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
     [ ! -f "$T/fx/pull-$n.rc" ] || { echo "gh: API rate limit exceeded (HTTP 403)" >&2; exit 1; }
     cat "$T/fx/pull-$n.json" ;;
+  # The verdict question of the sweep and the run, answered by the one
+  # helper the preview stubs share (gh-verdict.sh, written into the bin).
+  "api graphql")
+    sh "$T/bin/gh-verdict" "$@" ;;
   "api -X")
     # fx/write-fails is a write GitHub does not take. One line a write,
     # whatever text the description has in it. A write of a description is kept

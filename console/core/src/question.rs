@@ -272,8 +272,6 @@ pub const LEAN_REFUSED: &str = "lean-refused";
 /// `:`; `park_reason` and `kind` keep `a-z` and `-`; `cause` keeps the set of
 /// `cap`.
 pub fn park_sig(step: &str, cap: &str, park_reason: &str, kind: &str, cause: &str) -> String {
-    use sha2::{Digest, Sha256};
-
     /// The characters of `keep`, then the first `max` bytes of them.
     fn word(keep: fn(u8) -> bool, max: usize, given: &str) -> String {
         let mut v: String = given
@@ -301,10 +299,7 @@ pub fn park_sig(step: &str, cap: &str, park_reason: &str, kind: &str, cause: &st
     ]
     .map(|(keep, max, given)| word(keep, max, given))
     .join("|");
-    Sha256::digest(cleaned.as_bytes())
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    crate::sum::sha256_hex(cleaned.as_bytes())
 }
 
 /// The line a comment of before 2.0 held for a box, ticked or not: what the

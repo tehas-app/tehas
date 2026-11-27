@@ -413,6 +413,15 @@ mod wiring {
         Box::new(tehas_github::GitHub::new(repo, runner))
     }
 
+    /// A tickets handle on `repo`, asking the site through `runner`: the
+    /// tidy's, whose runner holds its bound and its retry.
+    pub(crate) fn tickets_over(
+        repo: &str,
+        runner: Box<dyn tehas_core::forge::GhRunner>,
+    ) -> Box<dyn tehas_ports::Tickets> {
+        Box::new(tehas_github::GitHub::new(repo, runner))
+    }
+
     /// The board handle of `tehas plugin hook`, from the adapter's site
     /// acting as the factory's account, which the adapter answers `Ours` by
     /// the bot's recorded id. The gh it runs is the one the command names.
@@ -466,10 +475,36 @@ mod wiring {
         Ok((site.blueprints(&by, c)?, site.blueprint_writes(&by, c)?))
     }
 
+    /// The runner maker of one bound's calls on `gh`: the one place of this
+    /// wiring the program's own reads name that program, so a caller asks
+    /// for a bound and never names it.
+    fn gh_make(bound: Duration) -> tehas_github::MakeRunner {
+        std::sync::Arc::new(move |_| {
+            Ok(Box::new(Bounded::new("gh", bound)) as Box<dyn tehas_core::forge::GhRunner>)
+        })
+    }
+
+    /// The preview's one reader of changes, asked on the code-host port:
+    /// the site of `repo` acting as the factory, whose bot `home` records.
+    /// None when it cannot even be wired, which the sweep reads as no
+    /// answer and keeps every preview.
+    pub(crate) fn preview_host(
+        home: &std::path::Path,
+        repo: &str,
+    ) -> Option<Box<dyn tehas_ports::CodeHost + Send>> {
+        use tehas_ports::{Actor, Caller, Scope, Site};
+        let (login, id) = tehas_core::accounts::bot(home);
+        let site =
+            tehas_github::GitHubSite::new(repo, &login, id, gh_make(tehas_core::call::GH_BOUND));
+        site.code_host(&Actor::Ours(Scope::Full), Caller::new("preview"))
+            .ok()
+    }
+
     /// The code host handle of `tehas update` on tehas's own release
     /// project `repo`, a site of its own (Decided 23), acting as `by`:
-    /// `Actor::Operator` asks through gh as the operator's gh is signed in,
-    /// each call in `bound`; `Actor::Anonymous` through curl with no
+    /// `Actor::Ours(Scope::Read)` asks through the gh the host finds, which
+    /// acts as the factory's App where host/env.sh is loaded, each call in
+    /// `bound`; `Actor::Anonymous` through curl with no
     /// credential, its budget kept in the home's ledger. No account of that
     /// project is the factory's.
     pub(crate) fn releases(
@@ -478,9 +513,7 @@ mod wiring {
         bound: Duration,
     ) -> tehas_ports::Got<Box<dyn tehas_ports::CodeHost + Send>> {
         use tehas_ports::{Actor, Caller, Outcome, Refusal, Site};
-        let make: tehas_github::MakeRunner = std::sync::Arc::new(move |_| {
-            Ok(Box::new(Bounded::new("gh", bound)) as Box<dyn tehas_core::forge::GhRunner>)
-        });
+        let make = gh_make(bound);
         let site = tehas_github::GitHubSite::new(repo, "", None, make);
         let caller = Caller::new("update");
         if *by != Actor::Anonymous {
@@ -501,11 +534,7 @@ mod wiring {
         let path = std::env::var_os("PATH").unwrap_or_default();
         std::env::split_paths(&path)
             .map(|d| d.join("curl"))
-            .find(|p| {
-                use std::os::unix::fs::PermissionsExt;
-                p.metadata()
-                    .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
-            })
+            .find(|p| tehas_core::file::runnable(p))
             .map_or_else(tehas_github::Curl::new, tehas_github::Curl::at)
     }
 
@@ -557,7 +586,9 @@ fn main() -> ExitCode {
             Some("dev") => return ExitCode::from(dev::main(&given[1..])),
             Some("rukas") => return ExitCode::from(rukas::main(&given[1..])),
             Some("sandbox") => return ExitCode::from(sandbox::main(&given[1..])),
-            Some("preview") => return ExitCode::from(preview::main(&given[1..])),
+            Some("preview") => {
+                return ExitCode::from(preview::main(&given[1..], crate::wiring::preview_host))
+            }
             Some("settings") => return ExitCode::from(settings::main(&given[1..])),
             Some("setup") => return ExitCode::from(setup::main(&given[1..])),
             Some("slice") => return ExitCode::from(slice::main(&given[1..])),
@@ -567,7 +598,7 @@ fn main() -> ExitCode {
             Some("state") => return ExitCode::from(state::main(&given[1..])),
             Some("status") => return ExitCode::from(status::main(&given[1..])),
             Some("shipped") => return ExitCode::from(shipped::main(&given[1..])),
-            Some("tidy") => return ExitCode::from(tidy::main(&given[1..])),
+            Some("tidy") => return ExitCode::from(tidy::main(&given[1..], &wiring::tickets_over)),
             Some("pins") => return ExitCode::from(pins::main(&given[1..])),
             Some("plan") => return ExitCode::from(plan::main(&given[1..])),
             Some("tehas") => return ExitCode::from(commands::tehas(&given[1..])),

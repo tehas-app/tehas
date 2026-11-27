@@ -18,6 +18,11 @@ pub fn digits(s: &str, max: usize, zero: bool) -> Option<i64> {
     }
 }
 
+/// A word of one or more ASCII digits.
+pub fn all_digits(s: &str) -> bool {
+    !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())
+}
+
 /// A count or an exit status.
 pub fn count(s: &str) -> Option<i64> {
     digits(s, 9, true)

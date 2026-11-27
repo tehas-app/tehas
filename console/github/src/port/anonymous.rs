@@ -46,7 +46,7 @@ use serde::Deserialize;
 use super::code_host::download::Scratch;
 use super::{site::count, unsupported};
 use crate::curl::{self, Answer, Curl, API, DOWNLOAD_LIMIT, REDIRECTS};
-use crate::markers;
+use crate::{markers, rate};
 use tehas_ports::{
     Access, At, Bound, Branch, Caller, Change, ChangeDelta, ChangeDigest, ChangeEvent,
     ChangeFilter, ChangeNo, ChangeToken, ChangedFile, Checks, Cite, Cites, CodeHost, CommitId,
@@ -109,16 +109,24 @@ impl Anonymous {
 
     /// One GET of `path`, the answer None for a 404. At or past the
     /// deadline, or while the ledger holds the budget spent, no request is
-    /// made. A redirect within the API's host is followed once.
+    /// made. A redirect within the API's host is followed once. A redirect
+    /// with no place to go, or a second one, is `Unread(Malformed)`: its
+    /// body is never read as the answer.
     fn get(&mut self, path: &str) -> Got<Option<Answer>> {
+        let malformed = Outcome::Unread(Unread::Malformed);
+        let redirect = |a: &Option<Answer>| a.as_ref().filter(|a| is_redirect(a.status)).is_some();
         let mut answer = self.once(path)?;
-        if let Some(to) = answer
-            .as_ref()
-            .filter(|a| matches!(a.status, 301 | 302 | 307 | 308))
-            .and_then(|a| a.header("location"))
-        {
-            let to = curl::api_path(to).ok_or(Outcome::Unread(Unread::Malformed))?;
-            answer = self.once(to)?;
+        if redirect(&answer) {
+            let to = answer
+                .as_ref()
+                .and_then(|a| a.header("location"))
+                .and_then(curl::api_path)
+                .ok_or(malformed.clone())?
+                .to_string();
+            answer = self.once(&to)?;
+        }
+        if redirect(&answer) {
+            return Err(malformed);
         }
         Ok(answer)
     }
@@ -310,12 +318,21 @@ fn read_status(a: Answer, now: i64) -> Got<Option<Answer>> {
                 .and_then(|v| v.parse::<i64>().ok());
             let after = a.header("retry-after").and_then(|v| v.parse::<i64>().ok());
             let out = a.header("x-ratelimit-remaining") == Some("0");
-            match (out, reset, after) {
-                (true, Some(reset), _) => Err(spent(reset)),
-                (_, _, Some(after)) => Err(spent(now + after)),
-                _ if a.status == 429 => Err(spent(now + 60)),
-                _ => Err(Outcome::Forbidden),
-            }
+            let until = match (out, reset, after) {
+                (true, Some(reset), _) => Some(reset),
+                (_, _, Some(after)) => Some(now.saturating_add(after)),
+                _ => None,
+            };
+            // A spent budget or a `retry-after` is a limit even when its
+            // time cannot be read (no reset, or a date): it holds the floor.
+            let limited = out || a.header("retry-after").is_some() || a.status == 429;
+            Err(rate::limited(
+                limited,
+                Pool::Calls,
+                now,
+                until,
+                Outcome::Forbidden,
+            ))
         }
         401 => Err(Outcome::Forbidden),
         500..=599 => Err(Outcome::Unavailable {
@@ -341,13 +358,6 @@ fn read_other(a: Answer) -> Got<Option<Answer>> {
             sent: Sent::Maybe,
         }),
         _ => Err(Outcome::Unread(Unread::Malformed)),
-    }
-}
-
-fn spent(until: i64) -> Outcome {
-    Outcome::Spent {
-        pool: Pool::Calls,
-        until: At::new(until),
     }
 }
 

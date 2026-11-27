@@ -17,7 +17,6 @@
 //! `factory_decisions` answers.
 
 use crate::decide::{base_approver, base_stands, record_base};
-use crate::read::host::epoch;
 use crate::settings::account;
 use crate::text::body_sha256;
 use crate::Settings;
@@ -28,6 +27,7 @@ use tehas_core::events::{
     Events, LabelState,
 };
 use tehas_core::text::disarm;
+use tehas_core::time::from_iso;
 use tehas_ports::{BlueprintNo, FinishMarker, FinishResult, Marker};
 
 /// The label of the ask.
@@ -161,7 +161,7 @@ fn reason_of(a: &Ask, who: &str, at: &str) -> Result<String, String> {
         return Err(String::new());
     };
     let mark = marker(a.n);
-    let since = epoch(at).map(|t| t - WINDOW).unwrap_or(i64::MAX);
+    let since = from_iso(at).map(|t| t - WINDOW).unwrap_or(i64::MAX);
     let newest = nodes
         .iter()
         .filter(|c| account(s(c, "/author/login")) == account(who))
@@ -172,7 +172,7 @@ fn reason_of(a: &Ask, who: &str, at: &str) -> Result<String, String> {
         })
         .filter(|c| {
             let created = s(c, "/createdAt");
-            created <= at && epoch(created).is_some_and(|t| t >= since)
+            created <= at && from_iso(created).is_some_and(|t| t >= since)
         })
         .max_by(|x, y| s(x, "/createdAt").cmp(s(y, "/createdAt")));
     let Some(c) = newest else {

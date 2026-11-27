@@ -11,8 +11,9 @@ use serde::{Deserialize, Serialize};
 use crate::{
     At, Blocker, BlockerState, Blueprint, BlueprintNo, Blueprints, Bound, ChangeDigest,
     ChangeEvent, ChangeFilter, ChangeNo, ChangeState, ChangeStates, ChangedFile, CodeHost, Comment,
-    Depth, Filter, Got, HappenedKind, Item, Links, Outcome, Ref, Report, Reports, TargetId, Ticket,
-    TicketDigest, TicketEvent, TicketKey, TicketState, Tickets, Took, Unread, Whole, Window,
+    Depth, Filter, Got, HappenedKind, Item, Links, Mark, Outcome, Ref, Report, Reports, TargetId,
+    Ticket, TicketDigest, TicketEvent, TicketKey, TicketState, Tickets, Took, Unread, Whole,
+    Window,
 };
 
 /// What a joined read asks for, so a cheap poll asks less. A caller builds
@@ -47,6 +48,14 @@ pub struct BoardAsk {
     /// The control ticket, read whole with its history beside the rest,
     /// whatever the ask's depth and history say.
     pub control: Option<TicketKey>,
+    /// Marks the ask reads no events of: a page whose timeline names none
+    /// of a mark the ticket carries still vouches for the ticket when the
+    /// mark is named here, and the mark is not read again apart. A poll
+    /// that decides by a mark's lock rather than by its events names the
+    /// mark here and pays no read for it. The control ticket is not held
+    /// to the list: its events are read whole whatever it says.
+    #[serde(default)]
+    pub marks_not_read: Vec<Mark>,
 }
 
 new!(
@@ -55,7 +64,8 @@ new!(
     history_by_kind,
     changes,
     filter,
-    control
+    control,
+    marks_not_read
 );
 
 /// One ticket with its notes, its blueprints and their changes. A list the

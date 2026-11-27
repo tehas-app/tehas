@@ -29,6 +29,7 @@ use tehas_core::plugin::manifest::Manifest;
 use tehas_core::plugin::run::{context, Kind, Pr, Run, Trigger};
 use tehas_core::plugin::state::{State, Word};
 use tehas_core::plugin::{self, out, verdict, Cap, Grants, Limits, Pin};
+use tehas_core::verb::Verb;
 use tehas_core::{exit, features, sandbox};
 use tehas_ops::plugin::exec::{Cmd, Exec, Git};
 use tehas_ops::plugin::prepare;
@@ -455,21 +456,14 @@ fn by_of(trigger: Trigger, by: Option<&str>) -> String {
 fn one_run(h: &mut dyn Host, s: &Setup, st: &Started, by: &str) -> Came {
     let p = st.p;
     let name = &p.pin.name;
-    let begun = h.store(&[
-        "plugin-run-begin",
-        "--plugin",
-        name,
-        "--commit",
-        &p.pin.commit,
-        "--kind",
-        st.kind.word(),
-        "--how",
-        st.trigger.word(),
-        "--by",
-        by,
-        "--head",
-        &st.head,
-    ]);
+    let begun = h.store(&Verb::PluginRunBegin {
+        plugin: name.clone(),
+        commit: p.pin.commit.clone(),
+        kind: st.kind,
+        how: st.trigger,
+        by: by.to_string(),
+        head: st.head.clone(),
+    });
     let id = match begun.map(|v| v["run"].as_u64()) {
         Ok(Some(id)) if id > 0 => id,
         Ok(_) => return Came::Failed("the store gave the run no id".into()),
@@ -479,17 +473,12 @@ fn one_run(h: &mut dyn Host, s: &Setup, st: &Started, by: &str) -> Came {
     let mut tokens = 0;
     let came = run_in(h, s, st, id, &dir, &mut tokens);
     let _ = fs::remove_dir_all(&dir);
-    let tokens_word = tokens.to_string();
-    let id_word = id.to_string();
-    if let Err(why) = h.store(&[
-        "plugin-run-end",
-        "--run",
-        &id_word,
-        "--result",
-        came.word(),
-        "--tokens",
-        &tokens_word,
-    ]) {
+    if let Err(why) = h.store(&Verb::PluginRunEnd {
+        run: id,
+        result: came.word().to_string(),
+        size: None,
+        tokens: Some(tokens),
+    }) {
         say(&format!(
             "plugin {name}: run {id}: the store did not end it: {why}"
         ));

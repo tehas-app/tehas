@@ -16,7 +16,6 @@ use crate::runner::Entry;
 use regex::Regex;
 use serde::de::{DeserializeOwned, IgnoredAny};
 use serde::Deserialize;
-use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
@@ -185,7 +184,7 @@ pub fn of_ticket(
 }
 
 pub fn sha(text: &str) -> String {
-    format!("{:x}", Sha256::digest(text.as_bytes()))
+    tehas_core::sum::sha256_hex(text.as_bytes())
 }
 
 pub fn decide(body: &str, result: &Entry, state: Option<&WorkState>) -> Action {
