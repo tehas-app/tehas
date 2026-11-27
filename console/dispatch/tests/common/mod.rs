@@ -127,8 +127,7 @@ case "$1 $2" in
   "api user") cat "$T/fx/user.json" || exit 1 ;;
   # The repository itself: the poll asks its name, which a rename changes
   # while the id stands.
-  "api repos/acme/widget") cat "$T/fx/repo.json" 2>/dev/null ||
-    echo '{"nameWithOwner":"acme/widget"}' ;;
+  "api repos/acme/widget") cat "$T/fx/repo.json" 2>/dev/null || exit 1 ;;
   # An account by its login, and by its id: a person, carol unless a case
   # names another for the id. The tail gives each login its id.
   "api users/"*) [ ! -e "$T/fx/users-fails" ] || refuse

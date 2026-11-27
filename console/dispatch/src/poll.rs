@@ -851,6 +851,7 @@ fn body(
         tickets: None,
         mark_name,
         said: Vec::new(),
+        faults: Vec::new(),
     };
     // The same token for the poll's reads as for its writes: what the shim of
     // every gh call would ask for anyway, asked once by the poll.
@@ -895,6 +896,14 @@ fn body(
         Err(f) => {
             if taken.contains(&f.line) {
                 say(&f.line);
+            } else if let Some(kind) = src.faults.last() {
+                // The queue's own read failed: the ports know the kind of
+                // the failure, so the record holds it rather than a class
+                // read out of the line's words.
+                say(&f.line);
+                if !dry {
+                    tehas_core::github_fails::note_label(home, tehas_core::time::now(), kind);
+                }
             } else {
                 failed_read(home, dry, &f.line);
             }

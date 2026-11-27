@@ -42,6 +42,11 @@ pub struct Sources<'a> {
     /// Lines the reads leave for the poll to say once, each once: the code
     /// host's refusal of the branch's checks (`read::checks::refused`).
     pub said: Vec<String>,
+    /// The kind of the queue read's failure, as the health record names it,
+    /// set by the read that failed: the ports know the class of a failure
+    /// without words, and the poll records the class rather than class the
+    /// line it logs. Empty when the failed read was not the queue's.
+    pub faults: Vec<&'static str>,
 }
 
 /// The facts a decision names in needs that are read only when it asks:
@@ -102,12 +107,16 @@ fn queue(src: &mut Sources, c: &Settings) -> Result<(github::Queue, Vec<u64>), G
         BoardAsk, Bound, ChangeFilter, ChangeStates, Depth, Filter, HappenedKind, Mark, Outcome,
         State, TicketKey, Window, ALL_MAX,
     };
-    let fail = |what: &str, o: Outcome| GhFail {
-        line: format!(
-            "ERROR: the {what} of the queue could not be read: {}",
-            o.line()
-        ),
-        ran: None,
+    let faults = &mut src.faults;
+    let mut fail = |what: &str, o: Outcome| {
+        faults.push(health_line(&o));
+        GhFail {
+            line: format!(
+                "ERROR: the {what} of the queue could not be read: {}",
+                o.line()
+            ),
+            ran: None,
+        }
     };
     // Every open issue, every closed running issue and every mark: the
     // queue takes them all, and one past the bound ends the poll as a
@@ -144,9 +153,7 @@ fn queue(src: &mut Sources, c: &Settings) -> Result<(github::Queue, Vec<u64>), G
             line: "ERROR: the poll has no board handle to read the queue by".to_string(),
             ran: None,
         })?;
-        board
-            .open_work(&ask, bound)
-            .map_err(|o| fail("open work", o))?
+        read(|| board.open_work(&ask, bound)).map_err(|o| fail("open work", o))?
     };
     let mark_name = src.mark_name;
     let (closed_running, labels) = {
@@ -156,8 +163,8 @@ fn queue(src: &mut Sources, c: &Settings) -> Result<(github::Queue, Vec<u64>), G
         })?;
         // The closed issues that still carry the running mark, as the page
         // gave their numbers. A key that is no number names no issue.
-        let closed_running: Vec<u64> = (tickets
-            .list(
+        let closed_running: Vec<u64> = (read(|| {
+            tickets.list(
                 &Filter {
                     open: Some(false),
                     carrying: vec![Mark::State(State::Running)],
@@ -165,16 +172,16 @@ fn queue(src: &mut Sources, c: &Settings) -> Result<(github::Queue, Vec<u64>), G
                 },
                 bound,
             )
-            .map_err(|o| fail("closed running issues", o))?
-            .into_items())
+        })
+        .map_err(|o| fail("closed running issues", o))?
+        .into_items())
         .into_iter()
         .filter_map(|d| match d.key {
             TicketKey::Number(n) => Some(n.get()),
             TicketKey::Key(_) => None,
         })
         .collect();
-        let labels: Vec<Value> = (tickets
-            .marks(bound)
+        let labels: Vec<Value> = (read(|| tickets.marks(bound))
             .map_err(|o| fail("repository's marks", o))?
             .into_items())
         .into_iter()
@@ -194,8 +201,7 @@ fn queue(src: &mut Sources, c: &Settings) -> Result<(github::Queue, Vec<u64>), G
                 line: "ERROR: the poll has no tickets handle to read the queue by".to_string(),
                 ran: None,
             })?;
-            tickets
-                .kinds()
+            read(|| tickets.kinds())
                 .map(|w| w.into_items())
                 .map_err(|o| fail("the owner's issue types", o))
         })
@@ -204,13 +210,15 @@ fn queue(src: &mut Sources, c: &Settings) -> Result<(github::Queue, Vec<u64>), G
         .code_host
         .as_mut()
         .map(|h| {
-            h.changes(
-                &ChangeFilter {
-                    bodies: true,
-                    ..Default::default()
-                },
-                bound,
-            )
+            read(|| {
+                h.changes(
+                    &ChangeFilter {
+                        bodies: true,
+                        ..Default::default()
+                    },
+                    bound,
+                )
+            })
             .map(|w| w.into_items())
         })
         .transpose()
@@ -234,6 +242,49 @@ fn queue(src: &mut Sources, c: &Settings) -> Result<(github::Queue, Vec<u64>), G
     // the page that named no `tehasLabels` key never did.
     m.queue.labels = (!labels.is_empty()).then(|| Value::Array(labels));
     Ok((m.queue, unread))
+}
+
+/// The kind of a port failure as the host's health record names it: the
+/// class the old gh words carried, read off the outcome instead.
+fn health_line(o: &tehas_ports::Outcome) -> &'static str {
+    use tehas_core::retry::Fault;
+    use tehas_ports::{Outcome as O, Passing as P};
+    let fault = match o {
+        O::Spent { .. } => Fault::Limit,
+        O::Unavailable {
+            why: P::Timeout, ..
+        } => Fault::Slow,
+        O::Unavailable {
+            why: P::Unreachable,
+            ..
+        } => Fault::Down,
+        O::Unavailable { .. } => Fault::Server,
+        O::Forbidden | O::Refused(_) => Fault::Refused,
+        _ => Fault::Unread,
+    };
+    tehas_core::github_fails::line(fault)
+}
+
+/// A read the queue owes a retry to: the ports' words for the bad minute
+/// the page read retried once, and never for a refusal.
+fn owed(o: &tehas_ports::Outcome) -> bool {
+    matches!(
+        o,
+        tehas_ports::Outcome::Unavailable {
+            why: tehas_ports::Passing::Server | tehas_ports::Passing::Timeout,
+            ..
+        }
+    )
+}
+
+/// A read of the queue, asked again on a bad minute, once. The attempts go
+/// through the handle's counter, so the poll's cost counts them.
+fn read<T>(mut ask: impl FnMut() -> tehas_ports::Got<T>) -> tehas_ports::Got<T> {
+    let first = ask();
+    match &first {
+        Err(o) if owed(o) => ask(),
+        _ => first,
+    }
 }
 
 /// The snapshot, or the line the poll logs when a read it cannot do
@@ -1828,6 +1879,7 @@ esac"#,
             tickets: Some(site.tickets(&by, caller).unwrap()),
             mark_name: board::fake::label,
             said: Vec::new(),
+            faults: Vec::new(),
         }
     }
 
