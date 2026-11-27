@@ -16,6 +16,7 @@
 //! from these pins, which is a change too.
 
 use super::{say, tell};
+#[cfg(test)]
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::Path;
@@ -84,10 +85,7 @@ fn dockerfile(file: &Path, recorded: &Path) -> (bool, bool) {
     let Ok(bytes) = fs::read(file) else {
         return (false, true);
     };
-    let hash: String = Sha256::digest(&bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
+    let hash = tehas_core::sum::sha256_hex(&bytes);
     let seen = fs::read(recorded).unwrap_or_default();
     let seen = String::from_utf8_lossy(&seen);
     (hash != seen.trim_end_matches('\n'), false)

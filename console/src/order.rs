@@ -25,7 +25,7 @@
 use crate::store;
 use std::env;
 use std::path::PathBuf;
-use tehas_core::limit::{epoch, oneline};
+use tehas_core::limit::oneline;
 use tehas_core::order::{list, Order, Reading};
 use tehas_core::starts::{self, code, Reason, Record};
 use tehas_core::time;
@@ -104,7 +104,7 @@ fn set_words(rest: &[String]) -> Result<Asked, u8> {
             }
             "--until" if want.for_.is_none() && want.until.is_none() => {
                 let v = value
-                    .and_then(|v| epoch(v))
+                    .and_then(|v| time::from_iso_jq(v))
                     .ok_or_else(|| bad("--until wants a time such as 2026-10-17T14:05:00Z"))?;
                 want.until = Some(v);
                 i += 1;

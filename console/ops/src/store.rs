@@ -4,7 +4,6 @@
 use serde_json::{json, Value};
 use std::fs;
 use std::io::{self, Read};
-use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
@@ -43,7 +42,7 @@ pub fn program(home: &Path) -> PathBuf {
 
 /// Whether the store program of this home is an executable file.
 fn installed(home: &Path) -> bool {
-    fs::metadata(program(home)).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+    tehas_core::file::runnable(&program(home))
 }
 
 /// What a failed call sets, as `tehas_store_said` does: the line is for a log,

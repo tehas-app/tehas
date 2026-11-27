@@ -6,41 +6,127 @@
 //! it and the poll finishes it after the cycle has ended (`end_fault`). The
 //! cycle's record, `<issue>.json` and `.manifest.json`, is not one either.
 
+/// A note's name, the one place each is spelled. A name here is in no list
+/// below unless clearing takes it: the lists are what `tehas stop`, a start
+/// and an end clear.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Note {
+    Lock,
+    Cid,
+    RunnerExit,
+    Status,
+    Oom,
+    Forks,
+    Stalled,
+    Timed,
+    Signal,
+    Disk,
+    Stopped,
+    Done,
+    Nostart,
+    LeanRefused,
+    Refused,
+    RefreshConflict,
+    Comments,
+    Result,
+    Progress,
+    Freeze,
+    Frozen,
+    StoppedNew,
+    NostartNew,
+    RunnerExitNew,
+    StatusNew,
+    Clock,
+    EndFailed,
+    LeanState,
+    Manifest,
+    Prepared,
+    CommentsJson,
+    ImagesMd,
+    RetryContext,
+}
+
+impl Note {
+    const fn name(self) -> &'static str {
+        match self {
+            Note::Lock => "lock",
+            Note::Cid => "cid",
+            Note::RunnerExit => "runner_exit",
+            Note::Status => "status",
+            Note::Oom => "oom",
+            Note::Forks => "forks",
+            Note::Stalled => "stalled",
+            Note::Timed => "timed",
+            Note::Signal => "signal",
+            Note::Disk => "disk",
+            Note::Stopped => "stopped",
+            Note::Done => "done",
+            Note::Nostart => "nostart",
+            Note::LeanRefused => "lean-refused",
+            Note::Refused => "refused",
+            Note::RefreshConflict => "refresh-conflict",
+            Note::Comments => "comments",
+            Note::Result => "result.json",
+            Note::Progress => "progress.json",
+            Note::Freeze => "freeze",
+            Note::Frozen => "frozen",
+            Note::StoppedNew => "stopped.new",
+            Note::NostartNew => "nostart.new",
+            Note::RunnerExitNew => "runner_exit.new",
+            Note::StatusNew => "status.new",
+            Note::Clock => "clock",
+            Note::EndFailed => "end-failed.json",
+            Note::LeanState => "lean-state.json",
+            Note::Manifest => "manifest.json",
+            Note::Prepared => "prepared",
+            Note::CommentsJson => "comments.json",
+            Note::ImagesMd => "images.md",
+            Note::RetryContext => "retry-context.md",
+        }
+    }
+}
+
+impl AsRef<str> for Note {
+    fn as_ref(&self) -> &str {
+        self.name()
+    }
+}
+
 /// Held while a cycle runs: its lock and its container's id.
-pub const RUNNING: [&str; 2] = ["lock", "cid"];
+pub const RUNNING: [&str; 2] = [Note::Lock.name(), Note::Cid.name()];
 
 /// How the container ended, as the runner wrote it. A stop keeps it with the
 /// cycle's record.
-pub const RECORD: [&str; 2] = ["runner_exit", "status"];
+pub const RECORD: [&str; 2] = [Note::RunnerExit.name(), Note::Status.name()];
 
 /// What the run said of itself, and what parks or holds the issue.
 pub const SAID: [&str; 17] = [
-    "oom",
-    "forks",
-    "stalled",
-    "timed",
-    "signal",
-    "disk",
-    "stopped",
-    "done",
-    "nostart",
-    "lean-refused",
-    "refused",
-    "refresh-conflict",
-    "comments",
-    "result.json",
-    "progress.json",
-    "freeze",
-    "frozen",
+    Note::Oom.name(),
+    Note::Forks.name(),
+    Note::Stalled.name(),
+    Note::Timed.name(),
+    Note::Signal.name(),
+    Note::Disk.name(),
+    Note::Stopped.name(),
+    Note::Done.name(),
+    Note::Nostart.name(),
+    Note::LeanRefused.name(),
+    Note::Refused.name(),
+    Note::RefreshConflict.name(),
+    Note::Comments.name(),
+    Note::Result.name(),
+    Note::Progress.name(),
+    Note::Freeze.name(),
+    Note::Frozen.name(),
 ];
 
 /// A note written beside its name and moved into place: a step that clears
 /// the note clears a write that never finished.
 pub const NEW: [&str; 4] = [
-    "stopped.new",
-    "nostart.new",
-    "runner_exit.new",
-    "status.new",
+    Note::StoppedNew.name(),
+    Note::NostartNew.name(),
+    Note::RunnerExitNew.name(),
+    Note::StatusNew.name(),
 ];
 
 /// The notes that a cycle's end clears once it has reported. The rest stay
@@ -48,18 +134,18 @@ pub const NEW: [&str; 4] = [
 /// record, a freeze, a park's reasons and the comments mode for the next
 /// step on the issue.
 pub const ENDED: [&str; 12] = [
-    "oom",
-    "forks",
-    "stalled",
-    "timed",
-    "signal",
-    "disk",
-    "stopped",
-    "nostart",
-    "refused",
-    "done",
-    "runner_exit",
-    "status",
+    Note::Oom.name(),
+    Note::Forks.name(),
+    Note::Stalled.name(),
+    Note::Timed.name(),
+    Note::Signal.name(),
+    Note::Disk.name(),
+    Note::Stopped.name(),
+    Note::Nostart.name(),
+    Note::Refused.name(),
+    Note::Done.name(),
+    Note::RunnerExit.name(),
+    Note::Status.name(),
 ];
 
 /// Every note.

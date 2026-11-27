@@ -7,7 +7,6 @@
 //! jq kept the keys in the order written and a number as the text it read.
 
 use crate::jq::{obj, J};
-use crate::snapshot;
 use crate::store;
 use std::env;
 use std::path::{Path, PathBuf};
@@ -318,7 +317,7 @@ fn seconds_of(line: &J) -> Option<i64> {
         && rc
         && line.get("status").as_str().is_some()
         && at.starts_with(|c: char| c.is_ascii_digit());
-    snapshot::epoch(at).filter(|_| readable)
+    time::from_iso(at).filter(|_| readable)
 }
 
 fn is_issue_address(s: &str) -> bool {

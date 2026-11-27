@@ -37,7 +37,7 @@
 //!
 //! Exit: 0 the report was printed; 2 usage.
 
-use crate::holds::{self, epoch};
+use crate::holds;
 use crate::host_message;
 use crate::jq::{first, obj, J, NULL};
 use crate::mcp::{liveness, Liveness};
@@ -1003,7 +1003,7 @@ fn snapshot(path: &Path) -> J {
 }
 
 fn age_of(t: &J, now: i64) -> Option<i64> {
-    t.as_str().and_then(epoch).map(|e| now - e)
+    t.as_str().and_then(time::from_iso_jq).map(|e| now - e)
 }
 
 /// `todate` of a number, null for anything else.
@@ -1801,7 +1801,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
             - platform
                 .get("behindSince")
                 .as_str()
-                .and_then(epoch)
+                .and_then(time::from_iso_jq)
                 .unwrap_or(0)
             > BEHIND_FOR;
     let rukas_behind = rukas.get("behind").is_true();
@@ -1819,11 +1819,15 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
         J::Null if lists_stale => &NULL,
         J::Null => generated,
         // No list is newer than the file that holds it.
-        at if at.as_str().and_then(epoch) > generated.as_str().and_then(epoch) => generated,
+        at if at.as_str().and_then(time::from_iso_jq)
+            > generated.as_str().and_then(time::from_iso_jq) =>
+        {
+            generated
+        }
         at => at,
     };
-    let queue_age =
-        (!queue.is_null()).then(|| now - queue_at.as_str().and_then(epoch).unwrap_or(0));
+    let queue_age = (!queue.is_null())
+        .then(|| now - queue_at.as_str().and_then(time::from_iso_jq).unwrap_or(0));
     let github = github_fails::recent(home, now);
     let github_out = github.outage();
     let no_start = !slice.is_null()

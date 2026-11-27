@@ -7,6 +7,7 @@ use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use tehas_core::cycle_notes::Note;
 use tehas_core::file::{read_regular, ReadError, READ_BOUND};
 use tehas_core::home::{Home, Live, State};
 
@@ -128,15 +129,8 @@ pub fn push_fault_aged_out(fault: &Value, now: i64) -> bool {
         && fault
             .get("at")
             .and_then(Value::as_str)
-            .and_then(epoch)
+            .and_then(tehas_core::time::from_iso)
             .is_some_and(|at| now - at >= PUSH_FAULT_HOLD)
-}
-
-/// Seconds since the epoch of an ISO 8601 UTC time as fromdateiso8601 reads
-/// it: YYYY-MM-DDTHH:MM:SSZ. Core's strict reader, kept as the name the other
-/// dispatch modules call.
-pub(crate) fn epoch(s: &str) -> Option<i64> {
-    tehas_core::time::from_iso(s)
 }
 
 /// The limit, as `flags limit read` reads it: the one reader in tehas_core.
@@ -316,7 +310,7 @@ pub fn slice(home: &Path, running: &[u64]) -> Value {
     v["cids"] = Value::Array(
         running
             .iter()
-            .filter_map(|n| fs::read_to_string(Home::new(home).cycle_note(*n, "cid")).ok())
+            .filter_map(|n| fs::read_to_string(Home::new(home).cycle_note(*n, Note::Cid)).ok())
             .map(|t| json!(t.trim()))
             .collect(),
     );
@@ -405,7 +399,7 @@ pub fn leftovers(home: &Path, work_dir: &str, user_home: &Path, now: i64, days: 
             continue;
         }
         seen.push(n);
-        let lock = Home::new(home).cycle_note(n, "lock");
+        let lock = Home::new(home).cycle_note(n, Note::Lock);
         // A lock that is not there (a dangling link
         // too) is free; one that is there is a plain file and no link.
         let lock_ok =
@@ -440,6 +434,7 @@ mod tests {
     use super::*;
     use std::io::BufRead;
     use tehas_core::testdir::TestDir;
+    use tehas_core::time::from_iso as epoch;
 
     /// A home of this case's own, with its `state`.
     fn home(name: &str) -> TestDir {

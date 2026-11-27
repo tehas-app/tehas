@@ -478,7 +478,7 @@ fn limit_state(state: &str) -> Option<LimitState> {
 /// write of tehas's.
 pub fn written_limit(l: &limit::Limit) -> Option<LimitChanged> {
     let state = limit_state(l.state)?;
-    let set = At::new(limit::epoch(l.set.as_deref()?)?);
+    let set = At::new(crate::time::from_iso_jq(l.set.as_deref()?)?);
     let field = |want: &str| {
         l.fields
             .iter()
@@ -492,7 +492,7 @@ pub fn written_limit(l: &limit::Limit) -> Option<LimitChanged> {
     e.plan = field("plan").map(|text| text == "true");
     e.until = field("until")
         .and_then(quoted)
-        .and_then(|s| limit::epoch(&s))
+        .and_then(|s| crate::time::from_iso_jq(&s))
         .map(At::new);
     e.reason = field("reason").and_then(quoted);
     Some(e)

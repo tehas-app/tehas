@@ -379,7 +379,7 @@ fn files_of(dir: &Path) -> Vec<PathBuf> {
 /// Seconds since 1970 of a time as the history writes it; 0 when it is not.
 fn epoch(v: &Value) -> f64 {
     v.as_str()
-        .and_then(crate::snapshot::epoch)
+        .and_then(tehas_core::time::from_iso)
         .map_or(0.0, |t| t as f64)
 }
 

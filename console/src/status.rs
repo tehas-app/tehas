@@ -28,7 +28,6 @@
 //! (fail), the file is stale, or there is no health file with a status in it;
 //! 2 usage; 64 an argument of `tehas status` other than --json.
 
-use crate::holds::epoch;
 use crate::jq::{first, obj, J};
 use crate::store;
 use crate::update::release::{older, prerelease, tag_ok};
@@ -37,6 +36,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tehas_core::exit;
 use tehas_core::home::{Home, Live, State};
+use tehas_core::time::from_iso_jq;
 use tehas_core::verb::Verb;
 
 /// The age after which a health file is not believed.
@@ -252,7 +252,11 @@ fn beside(file: &str, name: &str) -> String {
 
 /// Older than the rule, or written at a time that cannot be read.
 pub fn stale(health: &J, now: i64) -> bool {
-    let written = health.get("time").as_str().and_then(epoch).unwrap_or(0);
+    let written = health
+        .get("time")
+        .as_str()
+        .and_then(from_iso_jq)
+        .unwrap_or(0);
     now - written > MAX_AGE
 }
 
@@ -270,7 +274,7 @@ pub fn ago(then: i64, now: i64) -> String {
 
 /// The age of a time the health file wrote.
 pub fn age(t: &J, now: i64) -> String {
-    match t.as_str().and_then(epoch) {
+    match t.as_str().and_then(from_iso_jq) {
         Some(e) => ago(e, now),
         None => "at an unknown time".to_string(),
     }
@@ -731,7 +735,7 @@ fn product_line(file: &Path, now: i64) -> Option<String> {
 /// Seconds since a time the health file wrote, null when it cannot be read.
 fn since(t: &J, now: i64) -> J {
     t.as_str()
-        .and_then(epoch)
+        .and_then(from_iso_jq)
         .map_or(J::Null, |e| J::num((now - e).max(0) as f64))
 }
 
@@ -855,7 +859,7 @@ pub fn status_json(h: &J, now: i64, stale: bool) -> J {
                     p.push((k, c.get(k).clone()));
                 }
             }
-            if c.get("stepSince").as_str().and_then(epoch).is_some() {
+            if c.get("stepSince").as_str().and_then(from_iso_jq).is_some() {
                 p.push(("stepSince", c.get("stepSince").clone()));
             }
             if !p.is_empty() {
