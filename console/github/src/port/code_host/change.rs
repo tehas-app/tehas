@@ -32,6 +32,7 @@
 use std::collections::BTreeSet;
 
 use super::super::blueprint_writes::{comment_revision, ends_with_folded};
+use crate::graphql::priced;
 use crate::tickets::{account, Bot};
 use crate::{gh, markers, GitHub};
 use serde::Deserialize;
@@ -39,7 +40,7 @@ use serde_json::Value;
 use tehas_ports::{
     Account, AccountKind, At, BlueprintNo, Bound, Branch, Change, ChangeDigest, ChangeNo,
     ChangeState, ChangedFile, Comment, CommentId, CommitId, Got, ItemName, Login, Mergeable,
-    Outcome, Pool, ProjectName, Realm, Ref, Relation, RepoPath, Review, ReviewNote, Size, Unread,
+    Outcome, ProjectName, Realm, Ref, Relation, RepoPath, Review, ReviewNote, Size, Unread,
     Verdict, WebLink,
 };
 
@@ -850,17 +851,6 @@ fn parse<T: serde::de::DeserializeOwned>(out: &str) -> Got<T> {
     let mut v: Value = serde_json::from_str(out.trim()).map_err(|_| MALFORMED)?;
     tehas_core::accounts::vouch(&mut v);
     serde_json::from_value(v).map_err(|_| MALFORMED)
-}
-
-/// A spent budget of a GraphQL call is the priced pool's.
-pub(super) fn priced(o: Outcome) -> Outcome {
-    match o {
-        Outcome::Spent { until, .. } => Outcome::Spent {
-            pool: Pool::Priced,
-            until,
-        },
-        o => o,
-    }
 }
 
 /// Whether a review's or a review comment's pull request is `no` of this

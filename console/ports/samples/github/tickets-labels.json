@@ -5,12 +5,16 @@
     "actor": {
       "Ours": "Full"
     },
-    "fixture": "Ticket 20, closed, carries the project's mark bug, the shipped state and a name no mark can have, in that order: each is in labels by the site's own name, the last too, though marks leave it out.",
+    "fixture": "Ticket 27, closed, carries the project's mark bug, the shipped state and a name no mark can have, in that order: each is in labels by the site's own name, the last too, though marks leave it out.",
     "ticket": {
-      "Number": 20
+      "Number": 27
     },
     "answer": {
-      "Ok": ["bug", "tehas:shipped", "not a label?"]
+      "Ok": [
+        "bug",
+        "tehas:shipped",
+        "not a label?"
+      ]
     }
   },
   {
@@ -19,12 +23,14 @@
     "actor": {
       "Ours": "Full"
     },
-    "fixture": "Ticket 21 carries the approval alone.",
+    "fixture": "Ticket 28 carries the approval alone.",
     "ticket": {
-      "Number": 21
+      "Number": 28
     },
     "answer": {
-      "Ok": ["tehas:ready"]
+      "Ok": [
+        "tehas:ready"
+      ]
     }
   },
   {
@@ -33,12 +39,113 @@
     "actor": {
       "Ours": "Full"
     },
-    "fixture": "Ticket 25 carries the pause alone.",
+    "fixture": "Ticket 30 carries the pause, filed first of the hundred labels on it.",
     "ticket": {
-      "Number": 25
+      "Number": 30
     },
     "answer": {
-      "Ok": ["tehas:pause"]
+      "Ok": [
+        "tehas:pause",
+        "history-001",
+        "history-002",
+        "history-003",
+        "history-004",
+        "history-005",
+        "history-006",
+        "history-007",
+        "history-008",
+        "history-009",
+        "history-010",
+        "history-011",
+        "history-012",
+        "history-013",
+        "history-014",
+        "history-015",
+        "history-016",
+        "history-017",
+        "history-018",
+        "history-019",
+        "history-020",
+        "history-021",
+        "history-022",
+        "history-023",
+        "history-024",
+        "history-025",
+        "history-026",
+        "history-027",
+        "history-028",
+        "history-029",
+        "history-030",
+        "history-031",
+        "history-032",
+        "history-033",
+        "history-034",
+        "history-035",
+        "history-036",
+        "history-037",
+        "history-038",
+        "history-039",
+        "history-040",
+        "history-041",
+        "history-042",
+        "history-043",
+        "history-044",
+        "history-045",
+        "history-046",
+        "history-047",
+        "history-048",
+        "history-049",
+        "history-050",
+        "history-051",
+        "history-052",
+        "history-053",
+        "history-054",
+        "history-055",
+        "history-056",
+        "history-057",
+        "history-058",
+        "history-059",
+        "history-060",
+        "history-061",
+        "history-062",
+        "history-063",
+        "history-064",
+        "history-065",
+        "history-066",
+        "history-067",
+        "history-068",
+        "history-069",
+        "history-070",
+        "history-071",
+        "history-072",
+        "history-073",
+        "history-074",
+        "history-075",
+        "history-076",
+        "history-077",
+        "history-078",
+        "history-079",
+        "history-080",
+        "history-081",
+        "history-082",
+        "history-083",
+        "history-084",
+        "history-085",
+        "history-086",
+        "history-087",
+        "history-088",
+        "history-089",
+        "history-090",
+        "history-091",
+        "history-092",
+        "history-093",
+        "history-094",
+        "history-095",
+        "history-096",
+        "history-097",
+        "history-098",
+        "history-099"
+      ]
     }
   }
 ]

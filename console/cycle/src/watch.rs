@@ -25,6 +25,7 @@ use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tehas_core::cycle_notes::Note;
 use tehas_core::exit::work;
 use tehas_core::home::Home;
 use tehas_core::sandbox;
@@ -645,23 +646,23 @@ struct Files {
 
 impl Files {
     fn of(home: &Path, issue: u64) -> Files {
-        let f = |name: &str| Home::new(home).cycle_note(issue, name);
+        let f = |note: Note| Home::new(home).cycle_note(issue, note);
         Files {
-            cid: f("cid"),
-            oom: f("oom"),
-            forks: f("forks"),
-            stalled: f("stalled"),
-            timed: f("timed"),
-            signal: f("signal"),
-            disk: f("disk"),
-            result: f("result.json"),
-            progress: f("progress.json"),
-            runner_exit: f("runner_exit"),
-            status: f("status"),
-            nostart: f("nostart"),
-            clock: f("clock"),
-            freeze: f("freeze"),
-            frozen: f("frozen"),
+            cid: f(Note::Cid),
+            oom: f(Note::Oom),
+            forks: f(Note::Forks),
+            stalled: f(Note::Stalled),
+            timed: f(Note::Timed),
+            signal: f(Note::Signal),
+            disk: f(Note::Disk),
+            result: f(Note::Result),
+            progress: f(Note::Progress),
+            runner_exit: f(Note::RunnerExit),
+            status: f(Note::Status),
+            nostart: f(Note::Nostart),
+            clock: f(Note::Clock),
+            freeze: f(Note::Freeze),
+            frozen: f(Note::Frozen),
         }
     }
 }

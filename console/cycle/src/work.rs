@@ -334,13 +334,13 @@ use crate::start;
 use crate::watch;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
+use tehas_core::cycle_notes::Note;
 use tehas_core::driver::Driver;
 use tehas_core::exit::work::{NOT_STARTED, NO_PUSH};
 use tehas_core::home::{Home, State};
@@ -377,10 +377,6 @@ fn short_wait(name: &str, default: u64) -> u64 {
     }
 }
 
-fn executable(path: &str) -> bool {
-    fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
-}
-
 /// What the start leaves until the watch: the approval, the issue's answer and
 /// the plan of the steps. They go however the start ends.
 struct Leftovers(Vec<PathBuf>);
@@ -398,7 +394,7 @@ pub fn store_ready(home: &Path) -> bool {
     let bin = home.join("libexec/store");
     let db = Home::new(home).state(State::StoreDb);
     !home.as_os_str().is_empty()
-        && executable(&bin.to_string_lossy())
+        && tehas_core::file::runnable(Path::new(&*bin.to_string_lossy()))
         && fs::symlink_metadata(&db).is_ok_and(|m| m.is_file())
 }
 
@@ -712,8 +708,9 @@ fn fetch(f: &Files, answer: &str, console: &str) -> Result<Vec<String>, i32> {
 fn keep_beside(f: &Files) {
     // images.md and retry-context.md are written no more: one an earlier
     // release kept goes.
-    for name in ["images.md", "comments.json", "retry-context.md"] {
-        let beside = Home::new(f.home).cycle_note(f.issue, name);
+    for note in [Note::ImagesMd, Note::CommentsJson, Note::RetryContext] {
+        let name = note.as_ref();
+        let beside = Home::new(f.home).cycle_note(f.issue, note);
         let _ = fs::remove_file(&beside);
         let from = f.dir.join(name);
         if from.is_file() && fs::copy(&from, &beside).is_err() {
@@ -823,7 +820,7 @@ pub fn run(home: &Path, g: &Given) -> i32 {
     } else {
         cmd
     };
-    if !executable(&console) {
+    if !tehas_core::file::runnable(Path::new(&console)) {
         eprintln!(
             "tehas work: no console beside this command at {}, run install.sh",
             g.console
@@ -843,7 +840,7 @@ pub fn run(home: &Path, g: &Given) -> i32 {
     let name = format!("tehas-work-{n}");
     let runs = PathBuf::from(format!("{}/.pi/agent/ensemble-runs/issue-{n}", env("HOME")));
     // The manifest of the last fetch, kept.
-    let kept = Home::new(home).cycle_note(n, "manifest.json");
+    let kept = Home::new(home).cycle_note(n, Note::Manifest);
     let number = |name: &str, default: u64| env(name).parse().unwrap_or(default);
     let caps_wait = short_wait("TEHAS_CAPS_WAIT", 120);
     let text_wait = short_wait("TEHAS_TEXT_WAIT", 60);
@@ -882,7 +879,7 @@ pub fn run(home: &Path, g: &Given) -> i32 {
     // when this command ends, and why a start with none stops, which is said
     // below with the issue's text. Read before anything of the cycle is written.
     let attempt = env("TEHAS_CYCLE_ATTEMPT");
-    let prepared = Home::new(home).cycle_note(n, "prepared");
+    let prepared = Home::new(home).cycle_note(n, Note::Prepared);
     let mut left = Leftovers(vec![prepared.clone()]);
     let recorded = match start::record(home, n, &attempt, g.driver) {
         Ok(r) => r,
@@ -909,8 +906,8 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         record: record.clone(),
         restart: g.restart,
         driver: recorded.driver,
-        lean_note: Home::new(home).cycle_note(n, "lean-refused"),
-        refused_note: Home::new(home).cycle_note(n, "refused"),
+        lean_note: Home::new(home).cycle_note(n, Note::LeanRefused),
+        refused_note: Home::new(home).cycle_note(n, Note::Refused),
         caps_wait,
         console: console.clone(),
         words,

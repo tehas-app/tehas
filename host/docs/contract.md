@@ -886,8 +886,7 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   "refuse", "why": "..."}`, why at most 140 characters, both for 2.1. The
   kit gains `events.js`: `raise(envelope)` dispatches an event on a page
   as `tehas:<event>`, such as `tehas:cycle.ended` ([Events](/api#events)).
-  Which events 2.0 raises is in the next entry, and which it does not under
-  [Pending for 2.0](#pending-for-20).
+  Which events 2.0 raises is in the next two entries.
   Readers: the consumer that runs many factories, Obeya, plugins, the
   end-to-end suite.
   Adopter action: none. A page that shows many factories may raise the
@@ -1080,7 +1079,7 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Adopter action: remove `TEHAS_RELEASE_REPO=tehas-app/tehas` from
   `instance.env` or name `tehas-app/tehas-factory`, and point clones, links
   and a pinned `$id` at the new name before the redirect ends.
-- **2.0 is supported from 1.4.x.** This page. The update to 2.0 is
+- **2.0 is supported from 1.4.x.** #2895. The update to 2.0 is
   supported from 1.4.x only, and a host upgrades its factories and the
   programs that run them together.
   Readers: adopters, the consumer that runs many factories.
@@ -1115,7 +1114,7 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Readers: adopters, `tehas update`, `tehas setup` and `install.sh`, which
   read only its status.
   Adopter action: none. A program that read its lines reads its status.
-- **`tehasbot refresh --pr N` is not public.** This page. `tehasbot` is
+- **`tehasbot refresh --pr N` is not public.** #2895. `tehasbot` is
   internal, every verb of it.
   Readers: adopters, the consumer that runs many factories.
   Adopter action: call `tehas refresh --pr N`.
@@ -1174,10 +1173,11 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   for before the next try files, so a plan is never filed twice.
   Readers: people on an issue, the end-to-end suite.
   Adopter action: none.
-- **The surface list is `api/surface-2.0.txt`.** This page.
+- **The surface list is `api/surface-2.0.txt`.** #3236, #3407.
   `api/surface-1.0.txt` is renamed `api/surface-2.0.txt`, the public
-  surface of 2.x from 2.0, without the names 2.0 took out. From 2.0.0 its
-  lines are only added; an alpha of 2.0 may still drop one.
+  surface of 2.x from 2.0, without the names 2.0 took out. From
+  v2.0.0-beta.1, a public name of 2.x is only added: none is renamed or
+  removed.
   Readers: the consumer that runs many factories and plugins, where they
   read the list.
   Adopter action: a program that read `api/surface-1.0.txt` reads
@@ -1269,6 +1269,16 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Readers: adopters, people on an issue.
   Adopter action: none. After the update the marks fill themselves over a
   few polls.
+- **The tidy reads what closed its issues through the tickets port.**
+  `console tidy run` gives `tehas:shipped` by the rule `tehasbot status`
+  uses, from the same closer and merged pull requests of this repository.
+  A pull request of another repository no longer earns the label. A read
+  that fails, or does not read one of the issues, is still one line,
+  `WARN: tidy: the read of what closed these issues failed: <reason>,
+  tehas:shipped was not added for N issues`; the reason is the port's
+  outcome in tehas's words, not gh's.
+  Readers: adopters who read the dispatch log.
+  Adopter action: none.
 - **Two settings name the adapters.** #3359.
   `TEHAS_CODE_HOST` names the code host and `TEHAS_TICKETS` the ticket
   tracker. In 2.0 each takes `github` alone, where `TEHAS_TICKETS=github` is
@@ -1282,7 +1292,7 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   `TEHAS_TICKETS=github`.
 - **The last GitHub word for a pull request is out of the snapshot and
   the dashboard.**
-  T9, the supplier words. The sessions snapshot names the number of the
+  #3385, T9's supplier words. The sessions snapshot names the number of the
   pull request a run left `change`, the word the history lines of #2932
   already use for it: a line of `analytics sessions`, of
   `~/tehas/mcp/sessions.jsonl`, and the answer of `factory_session` carry
@@ -1302,7 +1312,7 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Adopter action: a program that read a session line's `pr` number reads
   `change`, the same number under its new name; `prUrl`, the history
   line's `pr` address and the analytics copy's `pr` column are as before.
-- **The store migrates from schema 23 only.** T16. The store's migration
+- **The store migrates from schema 23 only.** #3401. The store's migration
   starts at schema 23, which v1.3.0 and later wrote (`OLDEST` in
   `console/store/src/db.rs`): the steps for older schemas are gone, and a
   store older than that is refused with exit 78 before any file is copied,
@@ -1312,7 +1322,7 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Readers: `tehas update`, the end-to-end suite, adopters.
   Adopter action: a host on v1.3.0 or later (store schema 23) updates
   directly; an older one installs any v1.4 release first, then this one.
-- **The settings of the 2.1 adapter are reserved.**
+- **The settings of the 2.1 adapter are reserved.** #3386.
   The feature `adapter` registers as building: `TEHAS_ADAPTER`,
   `TEHAS_ADAPTER_UPSTREAM`, `TEHAS_ADAPTER_UPSTREAM_SPKI`,
   `TEHAS_ADAPTER_UPSTREAM_CERT`, `TEHAS_ADAPTER_UPSTREAM_CERT_KEY`,
@@ -1328,7 +1338,7 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   writes an instance's settings.
   Adopter action: none; a 1.4.x instance sets no such line. The lines
   become usable in the release that ships the adapter.
-- **An unknown `TEHAS_` name warns once and loads.**
+- **An unknown `TEHAS_` name warns once and loads.** #3386.
   A name of `instance.env` that starts `TEHAS_` and names no setting
   this release reads, and that it never read under an older name either,
   brings one line to standard error on every load: `<NAME> is no setting
@@ -1340,7 +1350,7 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Readers: adopters, the consumer that runs many factories where it
   writes an instance's settings.
   Adopter action: none. Take the warned lines out when it suits you.
-- **Access is keyed by account id.** #3244, this pull request.
+- **Access is keyed by account id.** #3244, #3387.
   Part A keyed the allowed labellers and `state/account-ids` by the
   account's stable id; this carries the id into the plugin gate: a
   session, its codes and a sign-out name the id, not the login, so a
@@ -1352,17 +1362,23 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Adopter action: none. Settings that list logins still hold logins; the
   gate reads each one's id at sign-in.
 
+- **`tehas state pack` and `unpack` end with the signal's status.** #3380.
+  A TERM, HUP or INT that comes after a pack or unpack has finished with
+  its working directory now ends the command with 128 and the signal's
+  number (HUP gives 129), as the default does. 1.4.x dropped such a
+  signal and went on. A signal that comes while the directory is made
+  removes it, so none is left behind.
+  Readers: the consumer that runs many factories, where it moves one.
+  Adopter action: none. A program that sends a signal to a pack or unpack
+  reads its status as that of a stopped command.
+
 ## Pending for 2.0
 
 Planned or in review, not merged. Each moves to
 [Changed in 2.0](#changed-in-20) when it lands, with its readers and
 adopter action as the pull request states them.
 
-- **The ports.** T4, spec `docs/specs/2026-11-22-ports.md`.
-  The ports themselves; their two settings are under
-  [Changed in 2.0](#changed-in-20).
-  Readers: adopters, the consumer that runs many factories where it keeps
-  an instance's settings.
+Nothing is pending: every 2.0 change has landed and is listed there.
 
 ## Features still being built
 
